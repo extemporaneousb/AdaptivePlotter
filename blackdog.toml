@@ -1,0 +1,35 @@
+[project]
+name = "AdaptivePlotter"
+profile_version = 1
+
+[paths]
+control_dir = "@git-common/blackdog"
+worktrees_dir = "../.worktrees"
+
+[taxonomy]
+validation_commands = ["git diff --check"]
+doc_routing_defaults = ["AGENTS.md", "README.md", "docs/FEASIBILITY_REVIEW_AND_BINDING_AMENDMENTS.md", "docs/SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md", "docs/SWIFT_ADAPTIVE_PLOTTER_SEQUENTIAL_REBUILD.md"]
+
+[landing]
+schema_version = 1
+automatic_stale_rebase = false
+validation_timeout_seconds = 900
+
+[[handlers]]
+id = "python"
+kind = "python-overlay-venv"
+enabled = true
+root_path = ".VE"
+worktree_path = ".VE"
+script_policy = "root-bin-fallback"
+
+[[handlers]]
+id = "blackdog"
+kind = "blackdog-runtime"
+enabled = true
+depends_on = ["python"]
+launcher_path = ".VE/bin/blackdog"
+source_mode = "managed-checkout"
+managed_source_dir = "@git-common/blackdog/source/blackdog"
+self_repo_install_mode = "editable-worktree-source"
+other_repo_install_mode = "launcher-shim"

@@ -1,0 +1,4 @@
+interface:
+  display_name: "AdaptivePlotter Development"
+  short_description: "Repo-local development overlay"
+  default_prompt: "Use $adaptiveplotter do <task-description> for repo work."
