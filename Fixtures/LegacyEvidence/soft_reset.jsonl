@@ -1,0 +1,7 @@
+{"timestamp":"2026-06-02T23:03:07.523606+00:00","direction":"TX","payload":"<wake: CRLF CRLF>","source":"controller_probe"}
+{"timestamp":"2026-06-02T23:03:07.532463+00:00","direction":"RX","payload":"ok","source":"controller_probe"}
+{"timestamp":"2026-06-02T23:03:07.532551+00:00","direction":"RX","payload":"ok","source":"controller_probe"}
+{"timestamp":"2026-06-02T23:03:07.834268+00:00","direction":"TX","payload":"Ctrl-X","source":"controller_probe"}
+{"timestamp":"2026-06-02T23:03:07.852481+00:00","direction":"RX","payload":"GrblHAL 1.1f ['$' or '$HELP' for help]","source":"controller_probe"}
+{"timestamp":"2026-06-02T23:03:08.158211+00:00","direction":"TX","payload":"?","source":"controller_probe"}
+{"timestamp":"2026-06-02T23:03:08.180996+00:00","direction":"RX","payload":"<Idle|MPos:-266.709,-108.847,0.000|Bf:100,1023|FS:0,0|Ov:100,100,100>","source":"controller_probe"}

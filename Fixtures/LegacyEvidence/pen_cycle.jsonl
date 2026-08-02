@@ -1,0 +1,11 @@
+{"timestamp":"2026-06-02T16:09:13.157757+00:00","direction":"TX","payload":"<wake: CRLF CRLF>","source":"controller_probe"}
+{"timestamp":"2026-06-02T16:09:13.178036+00:00","direction":"RX","payload":"ok","source":"controller_probe"}
+{"timestamp":"2026-06-02T16:09:13.178237+00:00","direction":"RX","payload":"ok","source":"controller_probe"}
+{"timestamp":"2026-06-02T16:09:13.486955+00:00","direction":"TX","payload":"?","source":"controller_probe"}
+{"timestamp":"2026-06-02T16:09:13.498746+00:00","direction":"RX","payload":"<Idle|MPos:1.000,0.000,0.000|Bf:100,1023|FS:0,0|Pn:Z>","source":"controller_probe"}
+{"timestamp":"2026-06-02T16:09:13.502944+00:00","direction":"TX","payload":"M3 S720","source":"controller_probe"}
+{"timestamp":"2026-06-02T16:09:13.513556+00:00","direction":"RX","payload":"ok","source":"controller_probe"}
+{"timestamp":"2026-06-02T16:09:14.519779+00:00","direction":"TX","payload":"M3 S40","source":"controller_probe"}
+{"timestamp":"2026-06-02T16:09:14.536598+00:00","direction":"RX","payload":"ok","source":"controller_probe"}
+{"timestamp":"2026-06-02T16:09:14.536778+00:00","direction":"TX","payload":"?","source":"controller_probe"}
+{"timestamp":"2026-06-02T16:09:14.553435+00:00","direction":"RX","payload":"<Idle|MPos:1.000,0.000,0.000|Bf:100,1023|FS:0,40|Pn:Z|A:S>","source":"controller_probe"}

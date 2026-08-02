@@ -1,0 +1,179 @@
+{
+  "schema_version": 1,
+  "status": "historical_not_current",
+  "generated_at_utc": "2026-08-02T21:44:10Z",
+  "source_repository": {
+    "path": "/Users/bullard/Projects/Plotter",
+    "branch": "main",
+    "commit": "482bc8d1d0093bca29702492da4bf7fe5acb4b05",
+    "working_tree_clean": true,
+    "artifact_tracking": "ignored_runtime_artifacts_not_bound_to_the_git_commit",
+    "note": "The commit identifies the source-code context inspected on 2026-08-02. Each ignored artifact has its own source hash and capture timestamp; the commit does not authenticate its contents."
+  },
+  "hash_algorithm": "sha256",
+  "authority": {
+    "current_machine_state": false,
+    "current_configuration": false,
+    "drawing_success": false,
+    "allowed_uses": [
+      "native_parser_fixture",
+      "simulator_fixture",
+      "historical_failure_case",
+      "configuration_hypothesis_source"
+    ]
+  },
+  "entries": [
+    {
+      "id": "legacy-passive-status-20260603",
+      "fixture_path": "Fixtures/LegacyEvidence/status_passive.jsonl",
+      "fixture_sha256": "63157bcf6431a2decd73f10d93a64dfef31c658e235d6e77cdb589e189e05319",
+      "fixture_size_bytes": 612,
+      "source_path": "artifacts/status_transcript.jsonl",
+      "source_sha256": "63157bcf6431a2decd73f10d93a64dfef31c658e235d6e77cdb589e189e05319",
+      "derivation": "exact_copy",
+      "captured_at_utc_range": ["2026-06-03T00:54:39.282926Z", "2026-06-03T00:54:39.615875Z"],
+      "behaviors": ["wake", "status_query", "idle_status", "machine_position", "buffer_state", "feed_spindle_state"],
+      "disposition": "retain_as_historical_fixture",
+      "authority_status": "historical_non_authoritative"
+    },
+    {
+      "id": "legacy-jog-x-round-trip-20260602",
+      "fixture_path": "Fixtures/LegacyEvidence/jog_x_round_trip.jsonl",
+      "fixture_sha256": "42a7d7b703e4ef634252195d19a9ef7296312c0df96dabf7fc97580db39cea1e",
+      "fixture_size_bytes": 2867,
+      "source_path": "artifacts/jog_X_1.0_transcript.jsonl",
+      "source_sha256": "42a7d7b703e4ef634252195d19a9ef7296312c0df96dabf7fc97580db39cea1e",
+      "derivation": "exact_copy",
+      "captured_at_utc_range": ["2026-06-02T15:56:36.604747Z", "2026-06-02T15:56:39.363496Z"],
+      "behaviors": ["modal_setup", "relative_motion", "acknowledgement", "dwell", "return_to_origin", "terminal_idle"],
+      "disposition": "retain_as_historical_motion_fixture",
+      "authority_status": "historical_non_authoritative_not_motion_permission"
+    },
+    {
+      "id": "legacy-status-after-home-timeout-20260608",
+      "fixture_path": "Fixtures/LegacyEvidence/status_after_home_timeout.jsonl",
+      "fixture_sha256": "245ad562598801f52120d21722bf92005bf90fd3b3c0f4dccca311aec3f6179c",
+      "fixture_size_bytes": 1147,
+      "source_path": "artifacts/status_after_home_timeout.jsonl",
+      "source_sha256": "245ad562598801f52120d21722bf92005bf90fd3b3c0f4dccca311aec3f6179c",
+      "derivation": "exact_copy",
+      "captured_at_utc_range": ["2026-06-08T15:26:19.618291Z", "2026-06-08T15:26:20.974535Z"],
+      "behaviors": ["status_query", "unknown_grblhal_status_field", "repeated_status"],
+      "caveat": "The filename says after_home_timeout, but the retained bytes contain status reports only and do not independently prove a timeout.",
+      "disposition": "retain_as_historical_parser_fixture",
+      "authority_status": "historical_non_authoritative"
+    },
+    {
+      "id": "legacy-soft-reset-20260602",
+      "fixture_path": "Fixtures/LegacyEvidence/soft_reset.jsonl",
+      "fixture_sha256": "7a40ed92b70f3bae7c6f83b5ec08591d3296c36928c9b298cd7f10e830df96ef",
+      "fixture_size_bytes": 884,
+      "source_path": "artifacts/soft_reset_transcript.jsonl",
+      "source_sha256": "7a40ed92b70f3bae7c6f83b5ec08591d3296c36928c9b298cd7f10e830df96ef",
+      "derivation": "exact_copy",
+      "captured_at_utc_range": ["2026-06-02T23:03:07.523606Z", "2026-06-02T23:03:08.180996Z"],
+      "behaviors": ["soft_reset_request", "grblhal_greeting", "post_reset_status"],
+      "disposition": "retain_as_historical_reset_fixture",
+      "authority_status": "historical_non_authoritative_not_reset_permission"
+    },
+    {
+      "id": "legacy-pen-cycle-20260602",
+      "fixture_path": "Fixtures/LegacyEvidence/pen_cycle.jsonl",
+      "fixture_sha256": "b0b15c11fa73c31073423f14580dc8eabb6014a291691e58ed15027a8b45621e",
+      "fixture_size_bytes": 1328,
+      "source_path": "artifacts/pen_cycle_transcript.jsonl",
+      "source_sha256": "b0b15c11fa73c31073423f14580dc8eabb6014a291691e58ed15027a8b45621e",
+      "derivation": "exact_copy",
+      "captured_at_utc_range": ["2026-06-02T16:09:13.157757Z", "2026-06-02T16:09:14.553435Z"],
+      "behaviors": ["historical_pen_down_command", "historical_pen_up_command", "acknowledgement", "spindle_status"],
+      "disposition": "retain_as_historical_pen_fixture",
+      "authority_status": "historical_non_authoritative_not_pen_permission"
+    },
+    {
+      "id": "legacy-alarm-status-excerpt-20260602",
+      "fixture_path": "Fixtures/LegacyEvidence/alarm_status_excerpt.jsonl",
+      "fixture_sha256": "ccbc88bc178a348a6a86a2e2e0ca9c5ba1ae51ad7a512ad0d173233d1df75489",
+      "fixture_size_bytes": 1860,
+      "source_path": "artifacts/center_settle_transcript.jsonl",
+      "source_sha256": "fa85ce38e5bd7ec53e5187126a1938ad7448bfd1f77ad554b02b28c62542d699",
+      "derivation": "exact_source_lines_1_through_15",
+      "captured_at_utc_range": ["2026-06-02T22:50:42.234955Z", "2026-06-02T22:50:44.418435Z"],
+      "behaviors": ["alarm_status", "repeated_status", "empty_accessory_state", "work_coordinate_offset"],
+      "disposition": "retain_as_historical_alarm_fixture",
+      "authority_status": "historical_non_authoritative"
+    },
+    {
+      "id": "legacy-controller-snapshot-curated-20260602",
+      "fixture_path": "Fixtures/LegacyEvidence/controller_snapshot_curated.jsonl",
+      "fixture_sha256": "5d3aa774109619007c7d7d3370a11b470f0ed5a9b5c171fcd51dc0b287efa32c",
+      "fixture_size_bytes": 5437,
+      "source_path": "artifacts/controller_snapshot_transcript.jsonl",
+      "source_sha256": "3c7a6f432ac59ff0641435cffade1104c32dcf3f785e50402f4262c6a856becb",
+      "derivation": "exact_records_in_source_order_from_lines_1_11_13_16_23_29_50_54_56_81_92_118_120_132_135",
+      "privacy_filter": "Omitted network identifiers and unrelated settings; every retained JSON record is byte-for-byte present in the source transcript.",
+      "captured_at_utc_range": ["2026-06-02T05:31:35.866596Z", "2026-06-02T05:31:36.412666Z"],
+      "behaviors": ["passive_interrogation", "build_info", "unknown_grblhal_fields", "modal_state", "status", "selected_settings", "coordinate_parameters"],
+      "disposition": "retain_as_historical_configuration_fixture",
+      "authority_status": "historical_non_authoritative_configuration_hypothesis_only"
+    }
+  ],
+  "known_corpus_gaps": [
+    {
+      "behavior": "command_error",
+      "status": "no_small_defensibly_proven_physical_fixture_selected",
+      "next_action": "Add a synthetic parser golden in Phase 2 and replace or supplement it with a hashed physical capture when available."
+    },
+    {
+      "behavior": "transport_timeout_or_disconnect",
+      "status": "no_small_defensibly_proven_physical_fixture_selected",
+      "next_action": "Exercise pseudo-terminal timeout/disconnect in Phase 2 and retain a future passive physical capture."
+    },
+    {
+      "behavior": "feed_hold",
+      "status": "no_small_defensibly_proven_physical_fixture_selected",
+      "next_action": "Do not infer hold semantics from reset or Idle; verify during the bounded physical trial ladder."
+    }
+  ],
+  "configuration_hypotheses": [
+    {
+      "name": "controller_identity",
+      "historical_value": "OpenBuilds BlackBox X32, grblHAL 1.1f.20240402, ESP32 driver 240330",
+      "evidence_ids": ["legacy-controller-snapshot-curated-20260602"],
+      "status": "physically_verify_by_native_passive_probe"
+    },
+    {
+      "name": "serial_baud",
+      "historical_value": 115200,
+      "source_code_references": ["Makefile:4", "plotter_vision/controller/serial_transport.py:10"],
+      "status": "physically_verify_by_native_passive_probe"
+    },
+    {
+      "name": "xy_travel_mm",
+      "historical_value": {"x": 533.4, "y": 215.9},
+      "source_code_references": ["Makefile:35-36", "docs/RUNBOOK.md:291-298"],
+      "contradiction": "The retained 2026-06-02 controller snapshot reports $130=$131=$132=200.000.",
+      "status": "physically_verify_do_not_use_as_default"
+    },
+    {
+      "name": "limit_and_homing_configuration",
+      "historical_value": {"hard_limits_21": 1, "homing_22": 1, "homing_direction_mask_23": 0, "pull_off_27_mm": 1.0},
+      "evidence_ids": ["legacy-controller-snapshot-curated-20260602", "legacy-alarm-status-excerpt-20260602"],
+      "contradiction": "Runbook records later XY/Z pin and pull-off changes; current switch wiring and semantics are not established by this corpus.",
+      "status": "physically_verify_one_switch_at_a_time"
+    },
+    {
+      "name": "pen_commands",
+      "historical_value": {"up": "M3 S40", "down": "M3 S720", "settle_seconds": 0.3},
+      "evidence_ids": ["legacy-pen-cycle-20260602"],
+      "source_code_references": ["Makefile:23-24", "plotter_vision/config.py:73-76"],
+      "status": "physically_verify_with_separate_pen_arm"
+    },
+    {
+      "name": "fixed_motion_limits",
+      "historical_value": {"controller_max_feed_mm_min": 500.0, "legacy_code_max_feed_mm_min": 1200.0, "max_jog_mm": 50.0},
+      "evidence_ids": ["legacy-controller-snapshot-curated-20260602"],
+      "source_code_references": ["plotter_vision/config.py:83-85"],
+      "status": "derive_conservative_policy_after_physical_verification"
+    }
+  ]
+}

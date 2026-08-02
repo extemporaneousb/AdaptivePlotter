@@ -1,17 +1,65 @@
-# AdaptivePlotter Repository Seed
+# AdaptivePlotter
 
-This directory is the clean root of the independent AdaptivePlotter Git and
-Blackdog project. It is not a migration checkout or a worktree of the existing
-Plotter repository.
+This directory began as the clean root of the independent AdaptivePlotter Git
+and Blackdog project. It is not a migration checkout or a worktree of the
+existing Plotter repository. It now contains the first software-only native
+Swift prototype while retaining the architecture seed and source-separation
+contract below.
 
-The next agent's job is to create a new Swift 6 macOS product here from a blank
-repository while preserving the causal, safety, evidence, and replay contracts
-in these documents. The existing Plotter repository is forensic evidence only.
-It is not a source tree to copy, port, wrap, or retain for compatibility.
+Continue the Swift 6 macOS product here while preserving the causal, safety,
+evidence, and replay contracts in these documents. The existing Plotter
+repository is forensic evidence only. It is not a source tree to copy, port,
+wrap, or retain for compatibility.
+
+## Current handoff
+
+- [Prototype Status](docs/implementation/PROTOTYPE_STATUS.md) distinguishes
+  delivered and tested software from compiled-but-unverified device edges and
+  deliberately absent physical authority.
+- [First Hardware Session](docs/implementation/FIRST_HARDWARE_SESSION.md) is the
+  exact powered passive-only procedure and evidence checklist.
+- [Phase 1 Forensic Baseline](docs/implementation/PHASE_1_FORENSIC_BASELINE.md)
+  records the historical evidence boundary and unresolved hardware hypotheses.
+
+No current artifact proves controller access, camera permission, motion, pen
+state, ink recognition, drawing tolerance, or model acceptance. The current UI
+therefore keeps drawing blocked and exposes no motion or pen arm.
+
+## Developer and operator entrypoints
+
+The software-only prototype builds from the command line on the recorded Intel
+host with Apple Swift 6.1.2 Command Line Tools:
+
+```bash
+make check
+```
+
+Build and launch the SwiftPM development executable with:
+
+```bash
+make build
+.build/debug/AdaptivePlotter
+```
+
+The development executable provides a deterministic offline recorded replay,
+typed geometry/authority/frontier projections, serial-device discovery, and the
+fixed passive-query UI. It is not a signed macOS application bundle. Use the
+offline replay with hardware disconnected. Do not connect or power the machine
+until every admission condition in the first-hardware-session runbook passes.
+
+Fixture provenance can be verified independently:
+
+```bash
+Scripts/validate_evidence_manifest.sh
+Scripts/validate_evidence_manifest.sh --verify-source
+```
+
+The second form requires the legacy source archive at its recorded path (or a
+read-only relocated path supplied with `LEGACY_PLOTTER_ROOT`).
 
 ## Agent directive
 
-Before creating product code:
+Before extending product code:
 
 1. Read this README completely.
 2. Read [Feasibility Review and Binding Amendments](docs/FEASIBILITY_REVIEW_AND_BINDING_AMENDMENTS.md).
@@ -86,9 +134,10 @@ The original sequential plan SHA-256 is:
 Those hashes identify the reviewed inputs. This directory adds binding
 amendments without silently rewriting the originals.
 
-## Repository bootstrap
+## Repository bootstrap contract
 
-When explicitly asked to initialize the project:
+The repository was bootstrapped from this contract. If the bootstrap is ever
+repeated in a new location:
 
 - initialize a new Git repository with `main` as its primary branch;
 - install/configure Blackdog as a new project if the user selects that workflow;
@@ -157,10 +206,8 @@ The new repository is successful only if it produces a native product in which:
 
 Use this when handing the directory off:
 
-> Initialize a brand-new repository in this directory. Read README.md and all
+> Continue the native Swift prototype in this repository. Read README.md and all
 > documents under docs/ in the stated order. Treat the feasibility amendments
-> as binding. Build the repository and execution contracts for the Swift-only
-> AdaptivePlotter redesign; do not copy or port the legacy Plotter product. If
-> Blackdog is available, install it as a new project and execute the sequential
-> plan through separate gated tasks. Begin with Phase 1 and stop at every
-> physical or evidentiary exit gate.
+> as binding. Do not copy or port the legacy Plotter product. Execute the
+> sequential plan through separate gated tasks, preserve the current
+> software-only evidence, and stop at every physical or evidentiary exit gate.

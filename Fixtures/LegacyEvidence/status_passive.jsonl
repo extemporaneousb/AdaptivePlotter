@@ -1,0 +1,5 @@
+{"timestamp":"2026-06-03T00:54:39.282926+00:00","direction":"TX","payload":"<wake: CRLF CRLF>","source":"controller_probe"}
+{"timestamp":"2026-06-03T00:54:39.295675+00:00","direction":"RX","payload":"ok","source":"controller_probe"}
+{"timestamp":"2026-06-03T00:54:39.295772+00:00","direction":"RX","payload":"ok","source":"controller_probe"}
+{"timestamp":"2026-06-03T00:54:39.604714+00:00","direction":"TX","payload":"?","source":"controller_probe"}
+{"timestamp":"2026-06-03T00:54:39.615875+00:00","direction":"RX","payload":"<Idle|MPos:-266.709,-107.959,0.000|Bf:100,1023|FS:0,40>","source":"controller_probe"}
