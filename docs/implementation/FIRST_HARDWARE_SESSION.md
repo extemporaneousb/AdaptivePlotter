@@ -26,58 +26,47 @@ Do not run this session from a general serial terminal or improvise commands.
 Use the app-owned fixed passive probe so preparation, transmitted bytes, raw
 replies, parser outcomes, and failures share one ledger.
 
-## Admission gate: current blockers
+## Local prerequisites for this physical action
 
 The 2026-08-02 host inspection found:
 
 - macOS 15.7.8 on Intel `x86_64`;
 - Swift 6.1.2 from `/Library/Developer/CommandLineTools`;
-- no full Xcode installation selected;
-- no valid code-signing identity;
 - a built-in FaceTime HD camera, inventory only;
 - only `/dev/cu.BLTH` and `/dev/cu.Bluetooth-Incoming-Port`, with no apparent
   controller device.
 
-The command-line tools are enough to build and test the offline SwiftPM
-prototype. They do not satisfy the binding product gate for a signed macOS app
-with verified device access. The current artifact is a SwiftPM development
-executable, not a signed `.app` bundle.
+The installed command-line tools are the supported local toolchain. The SwiftPM
+executable is valid for this passive serial session; no release packaging or
+developer identity is required.
 
 Before powering or connecting the machine, complete all of the following:
 
-1. Install full Xcode with Swift 6 support and a macOS SDK supporting the
-   package's macOS 14 deployment floor. Select it with `xcode-select`, accept
-   its license, and record `xcodebuild -version`, `swift --version`, and the SDK
-   path.
-2. Add/build the actual macOS application-bundle target and configure a signing
-   team/identity. Record the bundle identifier, signing identity, entitlements,
-   build configuration, binary architectures, and source commit.
-3. Confirm the selected sandbox policy supports IOKit discovery and BSD
-   `/dev/cu.*` access. Do not add broad entitlements merely to make a probe pass.
-4. Re-run the repository validation from the exact source revision used for the
-   signed build:
+1. Build and validate the exact local source revision that will run:
 
    ```bash
    make check
+   make build
+   git rev-parse HEAD
    ```
 
-5. Confirm no other application, terminal, or legacy Plotter process has the
+2. Confirm no other application, terminal, or legacy Plotter process has the
    controller serial port open.
-6. Prepare a recoverable evidence destination with enough free space. Do not
+3. Prepare a recoverable evidence destination with enough free space. Do not
    delete or rotate a prior passive-run database to make room.
    The app performs a read-only cross-launch recovery scan before creating a
    new ledger or opening the serial device. Any empty, corrupt, malformed,
    unfinished, unresolved, unreadable, or unsafe prior passive ledger is an
    explicit `RECOVERY BLOCKED` stop; do not rename or delete evidence to bypass it.
-7. Put the mechanism in a physically harmless boot condition. If motor and pen
+4. Put the mechanism in a physically harmless boot condition. If motor and pen
    actuator power can be isolated from controller/USB power, leave them
    isolated. Otherwise remove or restrain the pen so unexpected boot behavior
    cannot mark or collide, keep hands out of the travel envelope, and have the
    verified physical power cutoff/E-stop immediately reachable.
 
-If any item is incomplete, stop before hardware power. The unsigned SwiftPM
-executable may still be used with hardware disconnected for offline replay; it
-must not be presented as signed-product device evidence.
+If a physical-safety or evidence-integrity item is incomplete, stop before
+hardware power. Continue unrelated implementation, simulation, and replay; do
+not represent them as physical device evidence.
 
 ## Baseline capture with the machine off
 
@@ -88,9 +77,7 @@ sw_vers
 uname -m
 swift --version
 xcode-select -p
-xcodebuild -version
 xcrun --sdk macosx --show-sdk-path
-security find-identity -v -p codesigning
 system_profiler SPCameraDataType
 ls -l /dev/cu.*
 ```
@@ -113,7 +100,8 @@ listing is the before-power baseline. The two Bluetooth callout devices seen on
    Bluetooth device. If no unique new device appears, more than one plausible
    device appears, or a vendor driver appears to be missing, power down and
    resolve discovery before proceeding.
-4. Launch the exact signed application build whose receipt was captured. In the
+4. Launch the exact locally built executable whose commit and build receipt were
+   captured. In the
    **PASSIVE DEVICE** pane, choose **Refresh Serial Devices**, then explicitly
    select the one proven controller path. The application must never guess
    among multiple devices.
@@ -237,16 +225,18 @@ Passive success establishes only current controller interrogation through the
 native parser and ledger. It does not accept historical travel, pin, homing,
 pen, or feed values as safe configuration.
 
-## Phase 4 is the first motion gate
+## Phase 4 is the first motion-authority check
 
 No powered motion is authorized merely because the passive session succeeds.
 The first motion work is the Phase 4 armature-clearance/viewability trial, and
 it remains pen-up only. Before the motion arm can exist, implementation and
 evidence must establish all of the following:
 
-1. A signed application captures exact immutable camera frames through
+1. The local application process captures exact immutable camera frames through
    AVFoundation with a recorded camera configuration, freshness, stability,
-   interruption, and TCC receipt. Built-in camera inventory is insufficient.
+   interruption, and local permission receipt. If stable bundle identity is
+   concretely required, add the smallest ad-hoc `.app` wrapper then. Built-in
+   camera inventory is insufficient.
 2. Independent reference geometry accepts a `FieldRegistration` with redundant
    held-out points. Synthetic registration tests are insufficient.
 3. One fixed reserved `ObservationRegion` is projected into camera space.
@@ -269,14 +259,15 @@ evidence must establish all of the following:
 
 If the complete armature cannot reach a bounded safe viewable pose, if its
 inflated envelope still intersects the observation region, or if fresh-frame
-confirmation fails, stop Phase 4 and redesign the tool/camera geometry. Do not
-weaken freshness, margin, or clearance to advance the schedule.
+confirmation fails, keep motion/pen-down authority disabled and redesign the
+tool/camera geometry. Continue unrelated software work. Do not weaken
+freshness, margin, or clearance to advance the schedule.
 
 Pen-down is categorically forbidden until Phase 4 clearance/viewability passes
 with retained physical evidence. Even then, pen-down requires the separate
-Phase 5 gate: a verified pen profile, independent motion and pen arms, a clean
-reserved region and baseline, current safety/camera/registration/tool evidence,
-one bounded `isolatedTrainingProbe` authority, durable command preparation, and
-no automatic redraw. The first accepted observation may still fail drawing
-tolerance and must not promote a model without sufficient independent holdout
-evidence.
+Phase 5 action-specific authority: a verified pen profile, independent motion
+and pen arms, a clean reserved region and baseline, current
+safety/camera/registration/tool evidence, one bounded
+`isolatedTrainingProbe` authority, durable command preparation, and no automatic
+redraw. The first accepted observation may still fail drawing tolerance and
+must not promote a model without sufficient independent holdout evidence.

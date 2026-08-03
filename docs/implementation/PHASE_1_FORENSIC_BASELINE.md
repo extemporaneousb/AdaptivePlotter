@@ -56,7 +56,7 @@ localhost bridge and is outside the new product boundary.
 
 | Legacy surface | File evidence | Disposition |
 | --- | --- | --- |
-| Normal app launch | `Makefile:131-132` routes `make launch` through the smart launcher; `scripts/plotter_launcher.sh:243-253` opens the app-owned path. | Do not migrate. One signed native app becomes the only live process. |
+| Normal app launch | `Makefile:131-132` routes `make launch` through the smart launcher; `scripts/plotter_launcher.sh:243-253` opens the app-owned path. | Do not migrate. One locally built native process becomes the only live process. |
 | App-owned Python child | `AppMain.swift:10-16` installs `BridgeProcessSupervisor`; `BridgeProcessSupervisor.swift:31-45` requires the source checkout, virtual environment, mutable artifacts, and localhost URL; `:165-184` starts `plotterctl bridge-server`. | Delete at the separately authorized legacy cutover; no supervisor or child in AdaptivePlotter. |
 | Launcher compatibility modes | `scripts/plotter_launcher.sh:34-50` and `:261+` expose smart/standby/preview/live/app/stop modes; installed shortcuts call the same script. | Do not migrate modes, PID/port discovery, or compatibility behavior. |
 | Direct Make bridge processes | `Makefile:213-228`, `:298-310`, and `:374-403` start standby, mock preview, and armed live bridge variants on localhost. | Do not migrate. Retain only safety observations as requirements. |
@@ -194,7 +194,7 @@ SHA-256 values, JSONL shape, explicit historical authority status, source
 SHA-256 values, exact copies, the alarm line extraction, and ordered curated
 snapshot records.
 
-## Phase 1 exit and remaining gates
+## Phase 1 exit and remaining physical evidence
 
 Phase 1 establishes a no-copy replacement boundary, source/test disposition,
 configuration hypotheses, a small hash-verifiable corpus, and a future snapshot
@@ -203,5 +203,6 @@ contract. AdaptivePlotter has no dependency edge to the old live product.
 It does not establish current controller behavior, safety dimensions, camera
 access, registration, motion, pen behavior, ink detection, or drawing authority.
 Phase 2 must retain motion and pen as unreachable until a native passive probe
-records current `$I`, `$G`, `?`, `$$`, and `$#` evidence. Phase 4 remains the
-first moving feasibility gate; Phase 5 remains the first pen-down gate.
+records current `$I`, `$G`, `?`, `$$`, and `$#` evidence. This blocks powered
+motion only, not software development. Phase 4 supplies the first moving
+authority evidence; Phase 5 supplies the first pen-down authority evidence.

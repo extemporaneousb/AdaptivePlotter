@@ -25,6 +25,12 @@ No current artifact proves controller access, camera permission, motion, pen
 state, ink recognition, drawing tolerance, or model acceptance. The current UI
 therefore keeps drawing blocked and exposes no motion or pen arm.
 
+This is local software for this Mac and its attached plotter only. Missing
+hardware evidence blocks only the physical action that depends on it; it does
+not block implementation, simulation, recorded replay, testing, documentation,
+or landing unrelated work. The project has no release, distribution,
+multi-machine support, or external deployment requirement.
+
 ## Developer and operator entrypoints
 
 The software-only prototype builds from the command line on the recorded Intel
@@ -43,9 +49,12 @@ make build
 
 The development executable provides a deterministic offline recorded replay,
 typed geometry/authority/frontier projections, serial-device discovery, and the
-fixed passive-query UI. It is not a signed macOS application bundle. Use the
-offline replay with hardware disconnected. Do not connect or power the machine
-until every admission condition in the first-hardware-session runbook passes.
+fixed passive-query UI. The installed Command Line Tools and SwiftPM are the
+supported local toolchain. Use the offline replay with hardware disconnected;
+when the controller is connected, follow the action-specific passive procedure
+in the first-hardware-session runbook. A stable local `.app` wrapper may be
+added if macOS camera permission handling needs one, but it is not a general
+development prerequisite.
 
 Fixture provenance can be verified independently:
 
@@ -69,12 +78,15 @@ Before extending product code:
 
 The feasibility amendments are binding where they clarify or override the two
 original documents. The architecture owns the target design. The sequential
-plan owns execution order. This README owns new-repository bootstrap and source
+plan owns implementation priority and the order in which physical actions may
+be enabled; it does not prevent software work from proceeding ahead with
+simulation and replay. This README owns new-repository bootstrap and source
 separation.
 
 Do not treat the documents as suggestions to be summarized and then ignored.
-Turn their types, invariants, evidence requirements, phase gates, and deletion
-rules into the repository's actual structure, tests, and implementation.
+Turn their types, invariants, action-scoped physical evidence requirements, and
+deletion rules into the repository's actual structure, tests, and
+implementation.
 
 ## Mission
 
@@ -146,8 +158,8 @@ repeated in a new location:
   architecture documents;
 - establish native Swift build, test, format, and validation commands before
   adding live machine behavior;
-- keep every retained implementation phase in its own branch-backed task
-  workspace and land only after its exit evidence is complete.
+- make retained edits in the Blackdog task workspace and land coherent,
+  validated increments even when later physical evidence remains unavailable.
 
 The intended high-level structure is:
 
@@ -156,7 +168,6 @@ AdaptivePlotter/
   README.md
   AGENTS.md
   docs/
-  AdaptivePlotter.xcodeproj/
   Sources/
     PlotterModel/
     PlotterRuntime/
@@ -170,8 +181,8 @@ AdaptivePlotter/
 ```
 
 This is a dependency and ownership layout, not permission to create empty
-layers. Create only the files needed by the current phase. The exact Xcode group
-layout may be adjusted if target dependencies and ownership remain unchanged.
+layers. SwiftPM is the local build authority. Create only files that deliver a
+current capability; a project-file hierarchy is not required.
 
 ## First implementation boundary
 
@@ -180,6 +191,12 @@ legacy implementation as scaffolding. Phase 2 creates the native targets and
 passive controller path. Phase 4 must establish the narrow armature-viewability
 geometry described in the binding amendments before Phase 5 draws the first
 training stroke.
+
+Those phase numbers order physical authority, not source-code work. Later pure
+types, simulators, replay, vision algorithms, and UI projections may be built
+and landed whenever they form a coherent tested increment. They must remain
+clearly simulated or unverified and cannot enable a physical action whose local
+evidence is missing.
 
 There is no separate throwaway ink-recognition architecture spike. For initial
 feasibility, assume that a sufficiently large isolated green line on clean white
@@ -209,5 +226,7 @@ Use this when handing the directory off:
 > Continue the native Swift prototype in this repository. Read README.md and all
 > documents under docs/ in the stated order. Treat the feasibility amendments
 > as binding. Do not copy or port the legacy Plotter product. Execute the
-> sequential plan through separate gated tasks, preserve the current
-> software-only evidence, and stop at every physical or evidentiary exit gate.
+> highest-value coherent work through the normal Blackdog task workflow.
+> Preserve evidence labels, but do not let unavailable hardware or release
+> tooling block unrelated local implementation. Enable each physical action
+> only when its specific safety and evidence dependencies are current.

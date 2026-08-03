@@ -14,9 +14,9 @@ durable SQLite ledger.
 
 It is not yet a physical drawing prototype. Motion and pen arms are
 unavailable/off in the public runtime types and UI. There is no arbitrary
-G-code surface. There is no live camera capture, signed app bundle,
-`RunInterpreter` drawing-plan loop, pen-down execution, physical clearance
-proof, or accepted ink/model evidence.
+G-code surface. There is no live camera capture, `RunInterpreter` drawing-plan
+loop, pen-down execution, physical clearance proof, or accepted ink/model
+evidence.
 
 The current `make check` receipt on the recorded host passes the strict Swift 6
 build, all 110 tests, repository forbidden-surface scan, seven-fixture manifest
@@ -29,19 +29,17 @@ Read-only inspection on 2026-08-02 found:
 
 | Fact | Recorded value | Meaning |
 | --- | --- | --- |
-| Host | Intel `x86_64` MacBook Pro (`MacBookPro15,1`, 8-core Core i9, 16 GiB) | Intel remains relevant to the support matrix; only this host was compiled. |
-| macOS | 15.7.8, build 24G824 | Newer than the package's macOS 14 deployment floor. |
+| Host | `x86_64` MacBook Pro (`MacBookPro15,1`, 8-core Core i9, 16 GiB) | This is the only supported host. |
+| macOS | 15.7.8, build 24G824 | Current local operating system. |
 | Swift | Apple Swift 6.1.2, target `x86_64-apple-macosx15.0` | Sufficient for the current Swift 6 language mode and strict-concurrency build. |
-| Developer directory | `/Library/Developer/CommandLineTools` | Full Xcode is not installed or selected. |
-| Signing | `0 valid identities found` | Signed-app serial/camera access has not been tested. |
+| Developer directory | `/Library/Developer/CommandLineTools` | Supported local compiler and SDK source. |
 | Camera inventory | FaceTime HD Camera (Built-in) | Device presence only; no app capture or TCC claim. |
 | Serial inventory | `/dev/cu.BLTH`, `/dev/cu.Bluetooth-Incoming-Port` only | No apparent plotter/controller serial device was connected. |
 | SQLite | System SQLite library builds; `/usr/bin/sqlite3` 3.43.2 is present | The ledger compiles and can be inspected locally. |
 | `pkg-config` | Not installed | Not required by the successful local SDK-backed build, despite being an optional package-provider path. |
 
-Do not generalize this receipt to Apple Silicon, other macOS versions, an app
-bundle, notarization, camera privacy, USB serial permission, or the actual
-controller.
+No cross-machine generalization is required. This receipt still does not prove
+camera access, USB serial access, or actual controller behavior on this host.
 
 ## Delivered and software-verified
 
@@ -125,13 +123,13 @@ The following code exists and compiles, but has not touched the actual machine:
 - controller identity, firmware, settings, pins, alarm state, coordinate
   offsets, travel, or homing configuration.
 
-Historical fixtures exercise parser and failure behavior but cannot close any
-of these physical gates.
+Historical fixtures exercise parser and failure behavior but cannot establish
+any of these physical facts.
 
-## Deliberately absent or blocked
+## Deliberately absent or physically unverified
 
-- Full Xcode project/application-bundle packaging, signing identity,
-  notarization, and distribution policy.
+- A stable local `.app` wrapper, which is needed only if a local macOS API
+  demonstrates that the SwiftPM executable lacks sufficient bundle identity.
 - AVFoundation `CameraCapture`, camera TCC permission, live frame retention, or
   camera/configuration invalidation.
 - Physical `FieldRegistration`, armature silhouette measurement, verified
@@ -142,10 +140,12 @@ of these physical gates.
 - Physical pen profile, pen-down authority, actual ink observation,
   correspondence, topology/coverage acceptance, drawing tolerance, adaptive
   model fitting/acceptance/promotion, or automatic replanning.
-- An `.app` launch/TCC receipt or any camera/serial claim from a signed product.
+- A local live-camera/TCC receipt or an actual-controller serial receipt.
 
 The next physical action is therefore the passive-only session in
-[First Hardware Session](FIRST_HARDWARE_SESSION.md), after its non-hardware
-admission blockers are cleared. Phase 4 clearance/viewability is the first
-motion gate. Pen-down remains forbidden until that gate passes and Phase 5
-separately grants one bounded isolated-training-probe authority.
+[First Hardware Session](FIRST_HARDWARE_SESSION.md) when the controller is
+connected and placed in the documented harmless state. No missing release or
+toolchain infrastructure blocks software work. Phase 4 clearance/viewability is
+the first motion-authority check. Pen-down remains forbidden until that check
+passes and Phase 5 separately grants one bounded isolated-training-probe
+authority.

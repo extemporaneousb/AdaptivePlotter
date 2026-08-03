@@ -90,7 +90,7 @@ The current documentation declares Python as the live authority and Swift as cam
 | Workflow and model promotion | Python composes phase/activity/health, blockers, sessions, model readiness, and promotion (`bridge/server.py:6107-6323`). | Replace workflow state with direct run/evidence/authority facts. |
 | Persistence | Python writes mutable latest pointers and per-object JSON artifacts (`bridge/server.py:5489-5604`, `:6001-6051`). | Replace with one ordered run ledger and immutable model versions. |
 | Relative motion model | Python fits a 2x2 model in `probe_evidence.py:205-355`; Swift separately fits, stores, hydrates, updates, and uses `VisualMotionModel` (`Models.swift:685-772`, `ContentView.swift:820-875`, `:1463-1473`, `:1948-2000`). | Delete both authorities; rebuild one causal Swift model. |
-| Portrait generation | Swift captures a small luminance raster and has a local contour fallback; Python has distinct contour-preview and face-raster execution routes (`ContentView.swift:508-583`, `PlotterBridgeModel.swift:1436-1580`, `server.py:2177-2355`). | Delete both live paths. Reintroduce one source-to-`DrawingProgram` converter only after closed-loop vector drawing. |
+| Portrait generation | Swift captures a small luminance raster and has a local contour fallback; Python has distinct contour-preview and face-raster execution routes (`ContentView.swift:508-583`, `PlotterBridgeModel.swift:1436-1580`, `server.py:2177-2355`). | Delete both live paths. A pure source-to-`DrawingProgram` converter may be developed early, but it receives no alternate physical authority. |
 | Diagnostics | Swift records app state/events; Python merges process, machine, workflow, and artifact state into `/codex/snapshot` (`AppDiagnostics.swift:30+`, `server.py:1218-1379`). | Retain correlation/provenance semantics; remove cross-process merging. |
 
 Structural concentration confirms that translation is the wrong strategy: `bridge/server.py` is 8,206 lines; `PlotterBridgeModel.swift` 3,966; `ContentView.swift` 3,595; `PlotterBridgeClient.swift` 1,892; and `CameraModel.swift` 1,245. The test suite currently collects 323 tests, many of which protect route names, wizard strings, and legacy surfaces rather than durable product invariants.
@@ -118,7 +118,7 @@ The replacement will not create a synonym table. It will expose the underlying f
 
 ### 2.3 Launch and portrait paths
 
-The current live product has four ownership paths: normal app-owned ephemeral Python child, `BridgeProcessSupervisor`, launcher compatibility modes, and direct CLI/Make bridge launch. That explains existing build, source-root, PID, port, and lifecycle diagnostics; it does not justify retaining any of the paths. The Swift product will launch as one signed application with no source checkout or virtual environment dependency.
+The current live product has four ownership paths: normal app-owned ephemeral Python child, `BridgeProcessSupervisor`, launcher compatibility modes, and direct CLI/Make bridge launch. That explains existing build, source-root, PID, port, and lifecycle diagnostics; it does not justify retaining any of the paths. The Swift product will launch as one local native process with no source checkout or virtual environment dependency.
 
 The current portrait UI ends at preview:
 
@@ -520,8 +520,8 @@ The `RunInterpreter` source should remain reviewable as a state transition machi
 - IOKit for serial-device discovery and BSD `/dev/cu.*` with `termios`, `read`, and `write` for transport. [IOService discovery](https://developer.apple.com/documentation/iokit/1514494-ioservicegetmatchingservices), [IOKit serial family](https://developer.apple.com/library/archive/documentation/DeviceDrivers/Conceptual/IOKitFundamentals/Families_Ref/Families_Ref.html)
 - SQLite as the explicit transactional run store; SwiftData is not execution authority. [SQLite application file format](https://www.sqlite.org/appfileformat.html)
 - `Logger` and `OSSignposter` for supplemental live diagnostics and timing, never as the replay ledger. [Apple logging](https://developer.apple.com/documentation/os/logging)
-- Swift 6 strict concurrency. The local assessment machine has Swift 6.1.2 and macOS 15.7.7 but only Command Line Tools, so the implementation team must verify the final Xcode/deployment/signing matrix before phase 2.
-- Initial deployment assumption: macOS 14, because that is the current app baseline; revise only from the actual operator-Mac inventory.
+- Swift 6 strict concurrency using the Apple Command Line Tools, macOS SDK, and SwiftPM installed on the operator Mac. This Mac is the only supported target.
+- Build and run locally from the repository. Add an ad-hoc `.app` wrapper only when stable bundle identity is needed for a local macOS API; do not introduce release or multi-machine infrastructure.
 
 Swift task cancellation is cooperative and is not a machine stop. `pauseNow()` sends GRBL feed hold `!` through the same controller authority and verifies a hold state; orderly pause stops future enqueueing; abort records abandonment and requires recovery; Ctrl-X is a controller reset, not an emergency stop; a real E-stop is physical hardware. See [Swift Task cancellation](https://developer.apple.com/documentation/swift/task/).
 
@@ -840,7 +840,11 @@ struct LogicalStroke: Codable, Sendable {
 }
 ```
 
-The first implementation supports polylines. Cubics appear only after deterministic flattening and tolerance tests. The program contains no machine points, camera data, progress, calibration flags, model parameters, controller strings, or UI state. It is never mutated to remove completed strokes.
+The first implementation supports polylines. Cubics may be implemented at any
+time, but they cannot enter physical execution until deterministic flattening
+and tolerance tests pass. The program contains no machine points, camera data,
+progress, calibration flags, model parameters, controller strings, or UI state.
+It is never mutated to remove completed strokes.
 
 ### 10.2 Layer 2 — finite `ExecutionPlan` revisions
 
@@ -1206,7 +1210,7 @@ If a partial logical stroke can be located at a reliable path parameter, continu
 | Setup-frame compatibility lane and legacy bootstrap decoding | Delete unless a named physical experiment proves value | No active product justification. |
 | Shape/capability-test/legacy face route surfaces | Delete | Useful probes become typed training programs, not routes/UI. |
 | Swift portrait fallback and Python face/portrait execution | Delete | Inconsistent algorithms and incomplete path. Rebuild later through `DrawingProgram`. |
-| Portrait vectorization techniques | Defer and redesign | Add one source adapter only after adaptive vector drawing works. |
+| Portrait vectorization techniques | Redesign | A pure source adapter may be developed early; route any physical use through the same proven adaptive vector path. |
 | Latest-pointer JSON calibration files | Delete after importing evidence | Immutable model versions and checkpoint resolutions replace them. |
 | App/bridge event semantics and `/codex/snapshot` content | Retain semantics; integrate natively | Provide compact current `RuntimeSnapshot` plus durable run history. |
 | Existing Python tests | Triage as evidence | Rewrite parser/hardware/geometry/failure cases in Swift; delete HTTP/UI-string/compat tests with code. |
@@ -1219,7 +1223,7 @@ If a partial logical stroke can be located at a reliable path parameter, continu
 
 ## 15. Staged implementation roadmap
 
-The detailed executable prompt is [Swift Adaptive Plotter: Sequential Rebuild Plan](SWIFT_ADAPTIVE_PLOTTER_SEQUENTIAL_REBUILD.md). The architecture sequence is:
+The detailed executable prompt is [Swift Adaptive Plotter: Sequential Rebuild Plan](SWIFT_ADAPTIVE_PLOTTER_SEQUENTIAL_REBUILD.md). The table orders physical capability authority. Software work may proceed across rows with simulation, fixtures, and replay as long as unverified capabilities remain unable to affect hardware:
 
 | Phase | Architectural result | Exit condition |
 | --- | --- | --- |
@@ -1234,7 +1238,11 @@ The detailed executable prompt is [Swift Adaptive Plotter: Sequential Rebuild Pl
 | 9. Operator observability, replay, recovery | Complete workspace, model/trial comparison, recorded replay, algorithm re-evaluation, restart/recovery, retention. | Operator can explain every block/recovery from essential UI; crash-at-checkpoint tests pass. |
 | 10. Deliberate capability expansion | One-at-a-time drawing sources, portrait vectorization, pen model, advanced vision, scheduling, optional tools. | Each capability enters through canonical types, has recorded validation, and creates no new authority or live Python path. |
 
-Implementation breadth is prohibited until phase 5 closes the actual draw-observe-residual-record loop. Phase 8 is not a port milestone; it is the proof-based product cutover.
+Prioritize the draw-observe-residual-record loop, but do not use missing physical
+evidence as a global software-development stop. Later pure algorithms, types,
+simulators, replay, and UI projections may land earlier when they are coherent
+and tested. Phase 8 is not a port milestone; it is the proof-based product
+cutover.
 
 ## 16. Test strategy
 
@@ -1306,7 +1314,8 @@ Run legacy raw transcripts through the Swift parser and compare normalized state
 9. Multi-stroke checkpointed drawing with state-only correction.
 10. Gated candidate-model update and remaining-work replan.
 11. Restart from commanded, controller-completed, ink-verified, and ambiguous frontiers.
-12. Only after all preceding evidence: portrait-derived `DrawingProgram` trials.
+12. Portrait-derived `DrawingProgram` physical trials only after the preceding
+    physical evidence; pure source conversion may be implemented earlier.
 
 Each physical trial produces an immutable exportable run bundle. A visual anecdote or UI state is not acceptance evidence.
 
@@ -1331,8 +1340,8 @@ Each physical trial produces an immutable exportable run bundle. A visual anecdo
 | Inverse and correction budgets | Inject known affine/spatial perturbations into recorded/synthetic models; solve, forward-check, and run bounded physical probes near interior/boundary. | `tau_inverse`, trust region, Jacobian, uncertainty, and correction refusal gates. |
 | Observation-region clearing geometry | Measure cap/tool envelope and camera occlusion at candidate clear waypoints across the border with pen commanded up. | Validated clearance policy and clear poses; whether pen-up sensing is needed. |
 | SQLite durability/performance and evidence quota | Crash/power-interruption simulation at every transaction; benchmark command-boundary fsync and frame writes; fill disk to quota/reserve. | Journal/durability settings, transaction budget, quota/reserve, safe storage blocker. |
-| Deployment target, Intel support, sandbox, signing/notarization | Inventory operator Macs; compile/run camera and IOKit/BSD serial probe under signed/notarized macOS 14/15 builds, sandboxed and unsandboxed. | Supported macOS/architecture and distribution configuration. |
-| Portrait vectorization technique | Only after phase 8: run candidate vectorizers on a fixed portrait corpus, compare path count/topology/preview and physical ink residual using the same `DrawingProgram` pipeline. | One initial portrait source adapter or explicit deferral. |
+| Local toolchain and device access drift | Build on the operator Mac; run the local camera and IOKit/BSD serial probes when those devices are needed. | A current-host build receipt and action-specific device evidence, with no release or cross-machine work. |
+| Portrait vectorization technique | Develop and compare candidate vectorizers on a fixed portrait corpus whenever useful; defer physical ink trials until the canonical vector path has physical authority. | One initial portrait source adapter or explicit deferral. |
 
 ## Primary technical references
 

@@ -27,10 +27,11 @@ The unresolved physical feasibility question is narrower:
 > servo assembly, be moved through a bounded safe pen-up path to a camera pose
 > where it does not occlude the observation region?
 
-Phase 4 must answer that question before Phase 5 performs the first training
-stroke. Failure to establish viewability and a safe clear path is a real stop
-condition requiring tool/camera geometry redesign. It is not permission to
-weaken freshness, clearance, or evidence gates.
+Phase 4 must answer that question before the first physical training stroke.
+Failure to establish viewability and a safe clear path blocks that physical
+action and requires tool/camera geometry redesign. It does not block unrelated
+software implementation, simulation, replay, or testing, and it is not
+permission to weaken freshness, clearance, or evidence requirements.
 
 ## Binding Phase 4 amendment: armature viewability
 
@@ -221,35 +222,44 @@ Therefore:
   not copied. Establish native repository validation from the first phase;
 - no compatibility bridge is needed because there is no in-place migration.
 
-## Environment gate
+## Local-only development contract
 
-Before Phase 2 implementation, record and verify:
+AdaptivePlotter targets this operator Mac and this attached plotter only. The
+installed Apple Command Line Tools, Swift 6 compiler, macOS SDK, and SwiftPM are
+the supported development toolchain. Do not require release tooling, a
+developer identity, notarization, sandbox policy work, a cross-Mac support
+matrix, or CI coverage. Create a stable ad-hoc local `.app` wrapper only if a
+macOS API such as camera permission handling needs bundle identity; otherwise
+the SwiftPM executable is a valid development artifact.
 
-- full Xcode installation and selected developer directory;
-- Swift 6 language mode with strict concurrency errors enabled;
-- supported macOS and CPU matrix, including Intel if the current operator Mac
-  remains in scope;
-- camera privacy configuration;
-- signed application access to IOKit discovery and BSD `/dev/cu.*` serial;
-- sandboxed or unsandboxed distribution policy;
-- a native passive probe against the actual controller before any motion API is
-  made reachable.
+Development is capability-driven rather than phase-blocked:
 
-An unavailable controller may delay physical exit evidence, but it does not
-authorize simulated evidence to be described as physical verification.
+- missing controller or camera hardware never blocks pure implementation,
+  simulation, replay, UI projection, documentation, or landing;
+- run the native passive probe against the actual controller before enabling
+  any powered motion action;
+- verify local camera access and retain exact frames before camera evidence can
+  authorize a physical action;
+- verify each bounded motion or pen dependency immediately before that class of
+  physical action becomes reachable;
+- label simulated, historical, and physically unverified results honestly.
+
+Toolchain or OS work becomes required only after a concrete local build or API
+failure demonstrates it. Do not provision speculative infrastructure.
 
 ## Iteration rule
 
-The phases are sequential capability gates, not a prohibition on correction.
-When physical evidence invalidates a prior assumption:
+The phases describe dependency order for physical authority, not a global
+development queue. When physical evidence invalidates a prior assumption:
 
-1. stop the current phase;
-2. update the owning architecture and phase contract;
-3. return to the earliest affected phase;
-4. rerun every invalidated downstream test and evidence gate;
+1. disable only the affected physical action and any authority derived from it;
+2. update the owning architecture or capability contract;
+3. correct the earliest affected implementation;
+4. rerun the directly affected tests, simulations, and physical evidence;
 5. retain the failed experiment and decision in the evidence history.
 
-Do not continue forward with a known mismatch merely to preserve phase order.
+Continue unrelated work. Do not propagate a known mismatch into physical
+authority merely to preserve schedule or phase numbering.
 
 ## What remains unchanged
 
@@ -270,4 +280,3 @@ Do not revise these decisions without new contradictory physical evidence:
   algorithm re-evaluation;
 - no live Python, localhost bridge, DTO mirror, compatibility lane, digital
   twin, workflow framework, or speculative plugin architecture.
-
