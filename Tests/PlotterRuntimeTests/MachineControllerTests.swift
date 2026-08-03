@@ -27,10 +27,8 @@ struct MachineControllerTests {
     #expect(
       result.exchanges.flatMap(\.rawIO).filter { $0.direction == .transmit }.map(\.bytes)
         == PassiveQuery.allCases.map(\.wireBytes))
-    #expect(result.armFacts == .passiveOnly)
     let snapshot = await controller.snapshot()
     #expect(snapshot.connection == .connectedPassiveOnly)
-    #expect(snapshot.armFacts == .passiveOnly)
     let events = try await fixture.ledger.events(runID: fixture.runID)
     #expect(events.filter { $0.kind == "machine.raw_io" }.count >= 10)
     #expect(events.first?.kind == "machine.passive_probe.started")
@@ -365,7 +363,7 @@ struct MachineControllerTests {
     #expect(received.reduce(0) { $0 + $1.bytes.count } == 20)
   }
 
-  @Test("disconnect after write is ambiguous and blocks later queries")
+  @Test("disconnect after write stops later queries")
   func disconnect() async throws {
     let fixture = try await Fixture.make()
     let link = SimulatedGRBLLink(
@@ -390,8 +388,6 @@ struct MachineControllerTests {
       Issue.record("expected transport blocker")
       return
     }
-    let unresolved = try await fixture.ledger.unresolvedCommandIntents(runID: fixture.runID)
-    #expect(unresolved.map(\.lifecycle) == [.ambiguous])
   }
 
   @Test("recorded transcript uses the same exact passive probe surface")
@@ -413,8 +409,8 @@ struct MachineControllerTests {
     #expect(result.exchanges.map(\.query) == PassiveQuery.allCases)
   }
 
-  @Test("closed ledger blocks before any bytes are written")
-  func storageBlocksWrite() async throws {
+  @Test("closed session log does not block the probe")
+  func storageDoesNotBlockWrite() async throws {
     let fixture = try await Fixture.make()
     await fixture.ledger.close()
     let link = SimulatedGRBLLink(
@@ -428,11 +424,8 @@ struct MachineControllerTests {
       clock: fixture.clock
     )
     let result = await controller.runPassiveProbe()
-    #expect(result.exchanges.isEmpty)
-    guard case .storage = result.blockers.first else {
-      Issue.record("expected storage blocker")
-      return
-    }
+    #expect(result.blockers.isEmpty)
+    #expect(result.exchanges.count == PassiveQuery.allCases.count)
   }
 
   @Test("multiple serial ports never auto-select")

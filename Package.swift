@@ -40,5 +40,5 @@ let package = Package(
       dependencies: ["PlotterApp", "PlotterRuntime"]
     ),
   ],
-  swiftLanguageModes: [.v6]
+  swiftLanguageModes: [.v5]
 )

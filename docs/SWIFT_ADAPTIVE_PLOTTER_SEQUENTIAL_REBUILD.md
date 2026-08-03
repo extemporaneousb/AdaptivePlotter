@@ -1,758 +1,244 @@
-# Swift Adaptive Plotter: Sequential Rebuild Plan
+# AdaptivePlotter Direct Implementation Plan
 
 ## Prompt for the implementation team
 
-You are rebuilding Plotter as one native Swift 6 macOS product for this operator
-Mac and its attached plotter only. Use the phase order to decide when a physical
-action may be enabled, not as a global source-development queue. Implement and
-land coherent later-phase software early when it can be exercised with pure
-tests, simulation, fixtures, or replay. Keep physically unverified capabilities
-unable to affect hardware. Do not port the current application by surface area.
-The existing repository and runtime artifacts are evidence for hardware
-behavior, diagnostics, geometry experiments, and failure cases; they are not
-the new module, route, workflow, screen, or test specification.
+Build the smallest local Swift macOS application that makes this attached
+plotter draw and lets this camera observe the ink. Optimize for working hardware
+and short iteration time.
 
-Follow the repository's `AGENTS.md`, repo-local AdaptivePlotter skill, and
-Blackdog task-worktree contract. Use the branch-backed task workspace for every
-retained edit. Update the owning architecture/development document when a
-contract changes. Land coherent validated increments even when unrelated
-physical evidence is unavailable; state exactly what remains simulated or
-unverified. Run the narrowest relevant validation and keep the worktree clean.
+Use the repository's `AGENTS.md`, repo-local AdaptivePlotter skill, and Blackdog
+task workspace for retained changes. Keep Blackdog. Do not turn architecture,
+validation, hardware absence, or old run evidence into global progress gates.
 
-## Fixed product and architecture contract
+Use focused tests while working. Run `make check` before landing. Normal checks
+must not require complete strict concurrency or warnings-as-errors;
+`make strict-check` is optional diagnostic work.
 
-The live product is Swift-only on macOS.
+## Fixed minimal contract
 
-Python may consume immutable exported run bundles offline for research, analysis, or experiments. Python must not acquire live camera frames, open the live serial port, own runtime state, calibrate, decide safety, plan, execute, promote a model, write the live ledger, gate the UI, or provide a runtime result to the Swift application.
+- One local Swift application process.
+- This Mac and attached controller/camera are the only supported environment.
+- No live Python, HTTP, localhost bridge, DTO mirror, compatibility lane, or
+  external service.
+- SwiftPM and the installed Command Line Tools are enough.
+- No release/signing/notarization/sandbox/CI/support-matrix work.
+- No accessibility scope.
+- No archival replay, algorithm re-evaluation, content-addressed evidence,
+  exports, quotas, tombstones, or old-run admission scans.
+- No advanced adaptive model, spline, promotion framework, grouped-holdout
+  program, bootstrap statistics, or factorial experiment plan.
+- No separate motion and pen arms or phase/action authority hierarchy.
+- No arbitrary G-code, automatic unlock/home/reset/settings writes, or automatic
+  resend/redraw after an ambiguous command.
 
-Use one application process and direct typed calls. The initial targets are:
+## Working method
 
-```text
-PlotterModel       Pure typed geometry, drawing, model, fitting, and planning
-PlotterRuntime     Devices, measurement, run interpreter, and durable ledger
-PlotterApp         SwiftUI operator surface and composition root
-PlotterTestSupport Test-only controller, clock, camera, and paper simulators
-```
+For each Blackdog task:
 
-The only initial actors are:
+1. Choose the smallest change that gets closer to the live
+   controller-camera-draw-observe loop.
+2. Implement it directly in the existing targets.
+3. Run the narrowest relevant tests during iteration.
+4. Try the hardware immediately when the operation is available and physically
+   reasonable.
+5. If hardware is unavailable, label the physical result unverified and land
+   the software anyway.
+6. Run `make check` and land through Blackdog.
 
-- `RunInterpreter`: active run transitions, plan revision, frontiers, selected model/state, checkpoint decisions, blockers.
-- `MachineController`: serial connection, parser/controller state, command serialization, arming, fixed machine safety gates.
-- `VisionWorker`: reusable non-`Sendable` image-processing resources; function-like exact-frame measurements only.
-- `RunLedger`: SQLite sequence, transactions, schema, and content-addressed artifact references; no domain decisions.
+Do not require a new phase document, evidence bundle, replay fixture, operator
+study, model comparison, or generalized abstraction for an ordinary feature.
 
-`CameraCapture` is confined to its AVFoundation serial queue and publishes immutable stamped frames.
+## Runtime readiness
 
-Use these coordinate spaces and never route motion through display geometry:
-
-```text
-SourceRasterSpace -> vectorize/place -> FieldSpace logical drawing
-CameraPixelSpace -> CameraPlaneSpace -> FieldRegistration -> FieldSpace observation
-MachineSpace -> AdaptiveDrawingModel.forward -> FieldSpace predicted ink
-FieldSpace/CameraPixelSpace -> PreviewSpace rendering only
-```
-
-Use exactly three program layers:
-
-1. Immutable `DrawingProgram` with stable logical stroke IDs in `FieldSpace`.
-2. Finite immutable `ExecutionPlan` revisions containing a closed vocabulary of bounded physical/observation instructions and ending at one checkpoint.
-3. Controller-specific command batches containing exact serial bytes and acknowledgement/terminal-state requirements.
-
-Track four execution facts explicitly:
+At the start of a machine session, establish:
 
 ```text
-commanded frontier
-controller-completed frontier
-ink-verified frontier
-ambiguous stroke/block set
+selected controller
+controller responsive and not in alarm
+configured local bounds, distance limit, and conservative feed
+known pen-up state before travel
+camera frame available if the requested operation needs vision
 ```
 
-Controller completion is not independent physical proof and is not ink success. Work that is controller-completed but not ink-verified is inspection-required, not remaining and not safe to redraw automatically.
+That is one reusable session check. Recheck only after disconnect, reset/alarm,
+configuration change, manual loss of position, tool change, or camera change.
 
-## Absolute prohibitions
+Every command still receives direct bounds/feed/distance and pen-state checks.
+A failure rejects that command with an actionable message and allows retry when
+corrected. It does not block source work or unrelated operations.
 
-- Do not reintroduce Python into any live product path.
-- Do not recreate the old backend/frontend split inside Swift with localhost HTTP, services, DTO mirrors, buses, duplicated stores, or client/server names.
-- Do not port a legacy workflow, screen, route, object, compatibility layer, or test because old code or documentation mentions it.
-- Keep the adaptive ink-feedback vertical slice as the highest priority. Other
-  pure source adapters, algorithms, or UI projections may be implemented early
-  when they reuse the canonical types and do not create alternate live
-  authority or delay the vertical slice.
-- Do not add model complexity without independent validation data and grouped holdout improvement above the measured repeatability floor.
-- Do not treat “calibrated” as a Boolean or flag disconnected from current execution authority, freshness, applicability, and blockers.
-- Do not treat cap/marker movement, preview geometry, controller `ok`, controller `Idle`, or commanded pen state as proof of drawing success.
-- Do not fit an independent reverse correction map. Invert the one causal forward model numerically and forward-check it.
-- Do not change an accepted model during a pen-down stroke.
-- Do not buffer commands beyond an inspection checkpoint or automatically resend an ambiguous command/stroke.
-- Do not use software “E-stop” wording. `Hold Now`, `Abort Run`, and `Controller Reset` must name their actual semantics; emergency stop is physical hardware only.
-- Do not create managers, repositories, factories, protocols, plugin systems, or wrapper layers without a demonstrated second implementation or distinct lifecycle/invariant.
+## Work item 1 — Repeatable controller contact
 
-## Development and physical-authority protocol
+Deliver:
 
-For every coherent increment:
+- device refresh and explicit `/dev/cu.*` selection;
+- repeatable `$I`, `$G`, `?`, `$$`, `$#` passive probes in one app launch;
+- current controller state and raw error display;
+- no scan of prior journal files before connecting;
+- a new small journal file per probe/session.
 
-1. Re-read current architecture and evidence; do not assume prior file paths are still current.
-2. Update the owning contract when behavior or authority changes; routine implementation does not require a new phase document.
-3. Prefer vertical capability increments over broad ports, while allowing independent pure work to proceed in parallel.
-4. Record deterministic fixtures and the provenance needed to distinguish simulated, historical, and physical results.
-5. Run automated tests, simulation, and replay freely. Run only physical actions whose action-specific authority is current.
-6. A blocker disables its affected physical action or invalid claim. It does not stop unrelated implementation or landing.
-7. Do not land uncommitted work, failing relevant validation, or a physical action that cannot be reconciled and replayed.
+Keep the two-second response deadline and bounded response size because they
+prevent a stuck serial read. Stop the current probe on transport error, alarm,
+or malformed required response. Permit immediate retry after correction.
 
-## Phase 1 — Forensic baseline and replacement boundary
-
-### Objective
+Done when the actual controller can be probed repeatedly without restarting or
+clearing historical data.
 
-Freeze the useful old-system evidence and define the exact boundary of the replacement without creating product code or a migration compatibility layer.
+## Work item 2 — Live camera
 
-### Scope and explicit non-goals
+Deliver:
 
-- Inspect current main, Blackdog state, launch paths, hardware/configuration artifacts, transcripts, camera/viewer patterns, drawing/portrait paths, persistence, readiness meanings, and test inventory.
-- Select a small representative controller transcript corpus: passive startup, status, motion success, alarm/limit, timeout, hold/reset, disconnect, pen response, and configuration snapshots.
-- Create a machine-readable evidence manifest with original paths, timestamps, hashes, provenance, and “historical/not currently verified” status.
-- Produce a source/test disposition map: retain as fixture/reference, redesign, delete at cutover, or physically verify.
-- Define the repository-root SwiftPM targets; they must not import or call the
-  legacy Swift/Python product.
-- Non-goal: no new serial connection, camera capture, machine motion, model fitting, or operator screen.
-- Non-goal: do not copy all artifacts into Git; preserve the full archive read-only and commit only curated small fixtures/manifests.
+- local AVFoundation camera selection;
+- live preview;
+- latest-frame capture with a timestamp;
+- one fixed observation rectangle;
+- a visible capture/interruption error.
 
-### Domain objects and module changes
+Use a local app wrapper only if the camera API actually needs stable bundle
+identity. Do not add a camera evidence archive, formal freshness framework,
+multi-camera support matrix, accessibility layer, or generalized vision bus.
 
-- Documentation and fixture manifest only.
-- Define schemas for `EvidenceManifestEntry`, `MachineConfigurationHypothesis`, and `LegacyBehaviorFixture` in documentation; do not prematurely build a framework for them.
-- Record the intended target/actor/object ownership contract in the architecture document.
+Done when the app shows the real camera and can capture the newest frame on
+demand.
 
-### Acceptance criteria
+## Work item 3 — One bounded pen-up move
 
-- Every live legacy launch path and authority duplication is named with file evidence.
-- Hardware values such as travel, baud, pin polarity, pen commands, homing, and settle time are labeled hypotheses, not defaults.
-- Representative fixtures cover every parser/safety behavior intended for native reproduction.
-- The deletion list includes Python bridge/server/live modules, Swift HTTP client/supervisor/DTOs, wizard, compatibility routes, portrait fallbacks, and route/string-contract tests.
-- The new tree has no dependency edge to legacy live code; if the tree does not yet exist, the rule is documented and testable in phase 2.
+Deliver one direct low-speed relative move control. Before sending it, check:
 
-### Tests and recorded evidence for this capability
+- controller connected and non-alarm;
+- pen known up;
+- requested delta and feed within configured limits;
+- projected destination within configured local bounds;
+- no outstanding ambiguous command.
 
-- `git status`, source-file inventory, line-count concentration, route/caller scan, test collection count.
-- Fixture hashes verified against the read-only archive.
-- Artifact freshness/process/device scan recorded; historical evidence must not be described as current live state.
-- A review checklist confirms that cap readiness, binding, model readiness, workflow readiness, and execution authority were not collapsed into one term.
+Show completion or the exact error in memory. Record it in the best-effort
+session log when available. Do not require a distinct motion arm, model, camera,
+registration, trial bundle, persistence write, or phase acceptance record.
 
-### Required observable UI/debug outputs
+Done when the real mechanism performs a small known pen-up move and can perform
+another after returning to idle.
 
-- No product UI in this phase.
-- Deliver an inspectable forensic report, evidence manifest, and planned `RuntimeSnapshot` field list that identifies all facts the future operator workspace must expose.
+## Work item 4 — Pen control and clear pose
 
-### Retain/delete/migration decisions
+Deliver:
 
-- Retain selected transcripts, hardware observations, overlay/ink-inspection references, provenance schemas, deterministic geometry cases.
-- Temporarily retain legacy source read-only until the phase 8 proof-based cutover.
-- Do not migrate mutable latest-pointer artifacts as authority; they may become imported historical evidence only.
+- explicit Pen Up and Pen Down commands using locally verified servo values;
+- a conservative settle delay;
+- one known pen-up clear pose and bounded path that the operator verifies in the
+  live image.
 
-### Risks or assumptions before enabling Phase 2 physical contact
+No separate pen arm, pen learning model, 3D tool model, or generalized
+clearance planner.
 
-- Full artifacts may be too large or contain contradictory configuration; curate rather than bulk-import.
-- Actual controller/camera may be disconnected. Phase 2 begins from transcript simulation and passive contact only.
-- Record the compiler, SDK, macOS version, and architecture of this operator Mac
-  as a reproducible local build receipt. No support matrix is required.
+Done when the operator can raise/lower the pen and move the complete assembly to
+the one viewable pose.
 
-## Phase 2 — Swift-native foundations
+## Work item 5 — One observed line
 
-### Objective
-
-Create the one-process Swift product skeleton, native passive controller path, fixed safety envelope, minimal durable ledger, and deterministic simulator without camera or drawing.
-
-### Scope and explicit non-goals
-
-- Create one SwiftPM macOS executable plus local targets `PlotterModel`,
-  `PlotterRuntime`, `PlotterApp`, and test support. Add a local `.app` wrapper
-  only when a macOS API requires stable bundle identity.
-- Enable Swift 6 strict concurrency.
-- Implement IOKit serial discovery, BSD `/dev/cu.*` byte link, `MachineController`, GRBL/grblHAL-tolerant parser, and simulated/transcript links.
-- Implement passive `$I`, `$G`, `?`, `$$`, `$#` interrogation only.
-- Implement separate motion/pen arming state, fixed feed/distance/workspace policy values, and typed controller snapshots/blockers.
-- Implement `RunLedger` SQLite schema for run/event/command/configuration and content hashes.
-- Create one minimal window showing passive connection evidence.
-- Non-goal: no motion, homing, unlock, settings write, pen actuation, camera, drawing, model, or old bridge call.
-
-### Domain objects and module changes
-
-- `MachineConfiguration`, `SafetyPolicy`, `ControllerState`, `MachineSnapshot`, `ControllerOperation`, `ControllerReply`.
-- `MachineLink` is the only initial runtime protocol: BSD hardware, simulated GRBL, transcript replay.
-- `MachineController` actor and `RunLedger` actor.
-- `OperatorWorkspace` with presentation-only state and immutable controller projection.
-- `RunInterpreter` may exist as a very small composition/run-lifecycle shell; do not add drawing behavior.
-
-### Acceptance criteria
-
-- New application runs with no Python process, HTTP listener, virtual environment, or source-checkout dependency.
-- Passive probe sends exactly the allowed queries and records raw TX/RX, timings, parser outcomes, build/config IDs, and blockers.
-- Multiple-port ambiguity is visible and requires selection; no auto-connect to an ambiguous device.
-- Motion and pen operations are impossible from the product surface and API
-  until their own action-specific authority and current local evidence exist.
-- A ledger write failure prevents any future machine-affecting operation.
-
-### Tests and recorded evidence for this capability
-
-- Parser golden tests against curated real transcripts, including unknown grblHAL fields, errors, alarms, pins, and timeouts.
-- Pseudo-terminal and simulated-link tests for fragmentation, delayed/missing replies, disconnect, and reconnect.
-- SQLite migration, transaction, crash/reopen, ordering, hash, WAL/export tests.
-- Swift strict-concurrency build; no data-race warnings hidden with unsafe annotations.
-- When the controller is available, capture a passive-only exported run bundle
-  matching its current identity/configuration. Its absence does not block
-  unrelated software work or landing.
-
-### Required observable UI/debug outputs
-
-- Device list and exact selected BSD path/identity.
-- Connection state, controller greeting/build, parser state, raw configuration snapshot, pins/alarm/state, evidence age.
-- Separate motion/pen arm states, both off and unavailable.
-- Exact blocker and raw transcript access.
-- Developer diagnostics: byte stream, parse decisions, command timing, ledger transaction timing.
-
-### Retain/delete/migration decisions
-
-- Retain legacy Python controller transcripts only as fixtures.
-- Do not wrap or call the Python controller.
-- Do not build a compatibility DTO or route layer.
-
-### Risks or assumptions before enabling any powered motion
-
-- Verify direct local serial access and measure passive parser behavior on the
-  actual grblHAL firmware before enabling any motion.
-- Verify local camera access only before a physical action depends on camera
-  evidence. Toolchain or packaging work is justified only by a concrete local
-  failure.
-
-## Phase 3 — Canonical geometry and DrawingProgram
-
-### Objective
-
-Create the pure typed geometry, immutable logical drawing, field registration baseline, forward-model baseline, inverse command geometry, and non-moving preview.
-
-### Scope and explicit non-goals
-
-- Implement typed points, vectors, paths, covariances, transforms, and identities for SourceRaster, CameraPixel, CameraPlane, Field, Machine, Tool, and Preview spaces.
-- Implement polyline-only `DrawingProgram` with stable IDs, ordering constraints, source provenance, canonical encoding, and content hash.
-- Implement `FieldRegistration` with a tested baseline transform. Homography is the default candidate, not a forced legacy assumption.
-- Implement affine `AdaptiveDrawingModel` value and distinct `ModelCandidate`; no learned model authority yet.
-- Implement pure path sampling, residual value types, affine-seeded inversion, workspace/applicability checks, and preview projection.
-- Non-goal: no camera frames, cap detection, serial motion, ink, spline, backlash learning, pen model, portrait, SVG, or plan interpreter generalization.
-
-### Domain objects and module changes
-
-- `Point2<Space>`, `VectorPath<Space>`, `MeasuredPoint2<Space>`, typed transforms.
-- `DrawingProgram`, `LogicalStroke`, `StrokeStyle`, `DrawingSourceProvenance`.
-- `FieldRegistration`, affine `AdaptiveDrawingModel`, `ModelCandidate`, `ModelApplicability`.
-- Pure `CoordinateTransforms`, `PathSampler`, `CommandInverter`, `PlanCompiler` preview components.
-- `PreviewSpace` remains in `PlotterApp`; model code never imports it.
-
-### Acceptance criteria
-
-- Illegal space mixing has no public API.
-- Editing program geometry/style/order changes the hash; replaying canonical input produces the same hash.
-- Registration degeneracy/orientation/identity mismatches return typed blockers.
-- Affine forward/inverse round trip stays inside a declared numerical budget across the full field.
-- Long straight/diagonal paths remain continuous and subdivision is controlled by transformed chord error.
-- Preview cannot open the serial link or write a controller command record.
-
-### Tests and recorded evidence for this capability
-
-- Property/parameterized tests for transform composition, orientation, finite values, bounds, covariance, degenerate geometry, reflection, and hashes.
-- Synthetic registration fits with redundant holdouts; compare similarity/affine/homography candidates.
-- Inverse continuation and forward-check tests near field interior/boundary and refusal outside applicability.
-- Golden `DrawingProgram` and preview artifacts for one line, one polyline, a border-adjacent line, and a full-field diagonal.
-
-### Required observable UI/debug outputs
-
-- Static/non-moving canvas with Drawing Border, axes/origin, logical path, predicted path, applicability mask, and coordinate readout.
-- Model/registration IDs and parameters labeled synthetic/unvalidated.
-- Visible “DRAWING BLOCKED: no ink-validated execution authority” regardless of successful preview.
-- Developer transform-chain and forward/inverse error readout.
-
-### Retain/delete/migration decisions
-
-- Retain useful legacy geometry cases as rewritten Swift fixtures.
-- Do not port Python Pydantic schemas, primitive inventory, inverse tables, residual grid, or JSON compatibility.
-- Delete any accidental `PaperSpace`/`PreviewSpace` leakage before command APIs
-  can consume the affected geometry.
-
-### Risks or assumptions before enabling Phase 4 physical actions
-
-- Choose the simplest FieldRegistration model from held-out evidence; do not assume four-corner homography by tradition.
-- Nominal FieldSpace millimetres are relational coordinates, not absolute ruler claims.
-
-## Phase 4 — Camera and non-marking motion evidence
-
-### Objective
-
-Integrate exact-frame native camera evidence and bounded pen-up motion to establish current field/cap state and an initial affine motion map without claiming drawing success.
-
-### Scope and explicit non-goals
-
-- Implement AVFoundation `CameraCapture`, camera configuration identity, interruptions, sequence/timestamps, exact decision-frame retention, and `frame(newerThan:)`.
-- Implement `VisionWorker` requests for field references and optional cap/marker localization with covariance/quality.
-- Implement `RunAlignmentState` and distributed non-marking motion trials.
-- Add explicitly armed, bounded, low-speed pen-up relative moves through `MachineController` with action-scoped safety.
-- Estimate affine cap motion only from distributed non-collinear cap-centre observations; measure repeatability and direction/reversal behavior.
-- Implement bounded fresh-frame/cap reacquisition with maximum attempts and total travel.
-- Non-goal: no pen down, ink observation, cap-to-tip, model promotion for drawing, portrait, continuous servo, or continuous parameter update.
-
-### Domain objects and module changes
-
-- `StampedFrame`, `CameraConfiguration`, `StableFrameRequirement`, `MeasurementRequest/Result`, `CapObservation`, `FieldReferenceObservation`.
-- `RunAlignmentState`, cap-evidence `FieldRegistration` version, affine motion candidate.
-- Minimal `RunInterpreter` trial transitions and exact blockers.
-- `CameraCapture` queue-confined class; `VisionWorker` actor remains measurement-only.
-
-### Acceptance criteria
-
-- Every observation names exact frame, camera config, capture time, freshness/stability, algorithm revision, covariance, and retained artifact/hash.
-- Camera/format/orientation/exposure/focus changes invalidate dependent evidence.
-- Affine cap map is full-rank and evaluated on held-out pen-up targets spanning the field.
-- Bounded reacquisition stops on stale frames, attempt/travel budget, safety boundary, or weak evidence.
-- The app remains categorically blocked for pen-down drawing and states that cap motion is not ink authority.
-
-### Tests and recorded evidence for this capability
-
-- Recorded-frame injection, interruption, dropped/stale frame, orientation, device change, and exact-frame selection tests.
-- Synthetic and physical cap/no-marker candidate experiments under lighting/occlusion variation.
-- Simulated motion/camera coupling tests that keep controller and paper-scene simulation independent.
-- Controlled physical pen-up 3x3 target trials approached from both directions; whole-trial holdouts and exported bundle.
-- Measure cap repeatability, frame-burst covariance, command-to-controller completion timing, and any backlash signature.
-
-### Required observable UI/debug outputs
-
-- Direct pan/zoom camera canvas; Drawing Border, cap/feature observation, estimated pose, uncertainty ellipse, frame age, and motion-intent overlay.
-- Accepted/rejected non-marking trial table with reasons and affine parameters/holdout residual.
-- Explicit banner: “CAP MOTION MEASURED — INK NOT VERIFIED — DRAWING BLOCKED.”
-- Developer frame-selection reason, intermediate detection mask, dropped-frame count, transform chain, and controller transcript.
-
-### Retain/delete/migration decisions
-
-- Retain current viewer/pan/zoom/overlay techniques only as reference.
-- Do not port `CameraModel.lastBuffer`, Swift-local readiness gates, green-cap requirement, or duplicate motion solver.
-- If no marker method is reliable, retain manual/alternative field evidence and defer marker use; do not force green segmentation.
-
-### Risks or assumptions before enabling Phase 5 physical actions
-
-- Physical pen-up safety, travel, baud, pins, and hold behavior must be reverified.
-- Identify a safe isolated test region and verified clear-observation waypoint.
-- Determine whether a fixed camera ROI is sufficient for the first ink slice or full registration is required.
-
-## Phase 5 — Ink-observation training kernel
-
-### Objective
-
-Deliver the smallest complete vertical slice as the highest product priority:
+Deliver the first end-to-end result:
 
 ```text
-one logical vector path
--> safe bounded draw
--> lift and clear
--> actual ink observation
--> goal residual and model innovation
--> accepted/rejected evidence decision
--> durable recorded replay
+capture clean baseline
+-> travel pen-up to start
+-> pen down
+-> draw one bounded line
+-> pen up
+-> move to clear pose
+-> capture post frame
+-> isolate the new green line
+-> show intended, observed, and error
 ```
 
-### Scope and explicit non-goals
+Use simple baseline subtraction and line/centreline fitting. An observation is
+usable when the mark is visible and uniquely associated with this line. If it
+is missing or unclear, show the image and error; do not automatically redraw.
 
-- Verify and version an explicit pen profile; implement separate pen arming and pen commands through `MachineController`.
-- Implement a first-class `TrainingTrial` for one isolated known stroke and clean baseline/post evidence.
-- Implement finite physical/observation instructions sufficient for the trial: lift, travel, bounded draw, clear, stable frame, ink capture, checkpoint.
-- Implement baseline/post differencing, reserved-region contamination check, centreline extraction, monotone correspondence, coverage/topology, covariance, goal residual, and model innovation.
-- Record the checkpoint resolution while retaining the prior affine model; slow adaptation is not required yet.
-- Implement Recorded Replay of the complete trial.
-- Non-goal: no portrait, multi-stroke program, continuous adaptation, spline, rich pen model, plan branches, optional image UI, or legacy cutover.
+Do not require covariance propagation, topology taxonomies, model innovation,
+candidate promotion, a replayable run bundle, or fixed trial counts.
 
-### Domain objects and module changes
+Done when one real command produces visible ink that the app displays against
+the requested line.
 
-- `PenProfile`, `TrainingTrial`, `ObservationRegion`, `ClearancePath`, `InkObservation`, `ObservedCurve<FieldSpace>`.
-- `InkPathMatcher`, `ResidualCalculator`, evidence-quality values, `EvidenceDecision`, `CheckpointResolution`.
-- Initial finite `ExecutionPlan` values and `ControllerCommandBatch` provenance.
-- `RunLedger` frame/observation/residual/checkpoint/model records and replay projection.
+## Work item 6 — Small vector drawing
 
-### Acceptance criteria
+Deliver:
 
-- Actual pen-down motion requires separately armed motion and pen plus current fixed safety/configuration evidence.
-- A draw is never inspected until pen-up is requested, controller state is reconciled, and the full tool uncertainty envelope is outside the ROI.
-- The post frame is demonstrably newer than motion/clear completion and passes measurable stability criteria.
-- An isolated stroke yields stored intended, commanded, predicted, observed, corresponded, and accepted/rejected geometry.
-- At minimum, the first accepted trial has unambiguous association, at least 80% expected-arclength coverage, no unexplained extra connected component in the reserved ROI, finite covariance, and both residuals. These are observation-acceptance checks, not final product tolerance or development prerequisites.
-- Rejected evidence remains visible and never triggers redraw or model mutation.
-- Recorded Replay reconstructs the same commands, frames, residuals, decision, blockers, and projection without hardware.
+- a hand-authored or imported polyline `DrawingProgram`;
+- preview generated from the same points used for execution;
+- sequential travel/draw/lift behavior;
+- observation after each stroke initially;
+- simple affine correction for later unexecuted strokes when useful;
+- Hold and Abort controls.
 
-### Tests and recorded evidence for this capability
+Track enough current-run state to avoid automatically repeating a command whose
+outcome is unknown. Do not build immutable plan-revision history, a replay
+reducer, model promotion, or scheduling optimization.
 
-- Golden synthetic masks for clean, missing, extra, endpoint blob, crossing, contamination, occlusion, and no-ink cases.
-- Freshness/clearance/pen-state/arming failure tests.
-- Fault injection before/after command prepare/write/ack/Idle/lift/clear/frame/measurement/checkpoint.
-- At least three repeated physical isolated strokes in separate reserved regions to begin measuring ink/process repeatability.
-- Export one complete accepted run and one deliberately rejected/weak-evidence run.
+Done when a small multi-stroke drawing completes and the UI shows the resulting
+ink and errors.
 
-### Required observable UI/debug outputs
+## Work item 7 — Portrait input
 
-- Live/replay canvas with intended, predicted, observed ink, residual arrows, coverage gaps, and observation ROI.
-- Literal commanded, controller-completed, and ink-verified status plus ambiguity.
-- Frame age/stability, pen commanded/unknown state, clear-region proof, evidence decision, and exact blocker.
-- Developer baseline/post frames, difference/mask/centreline/correspondence, raw serial, and ledger event timing.
+Convert one captured or imported raster into polylines and send those polylines
+through the same preview and execution path. The source converter gets no
+machine, camera, safety, or persistence authority.
 
-### Retain/delete/migration decisions
+Do not add broad image tools, plugin architecture, alternate drawing engines,
+or an advanced vision research program.
 
-- Retain any legacy ink-inspection fixture that is useful, but rewrite the algorithm and thresholds around exact evidence/provenance.
-- Do not reuse green-frame compatibility or make one frame establish broad model trust.
-- New app must still have zero live Python/HTTP dependency; add a tracked forbidden-symbol/process test.
+Done when a portrait-derived vector program draws through the already working
+path.
 
-### Risks or assumptions before enabling Phase 6 physical actions
+## Best-effort session log contract
 
-- Establish camera/ink repeatability, ink width, and a declared drawing tolerance not below the observation floor.
-- Determine whether cap-to-tip, contact lag, or registration dominates the first residual; do not fit them together.
-- If clearance or pen-up cannot be established safely, keep pen-down authority
-  disabled and redesign hardware/observation geometry. Continue unrelated
-  software work.
+When SQLite is available, record ordered raw controller exchanges and operation
+summaries for the current session. The log is diagnostic only. Never require a
+database transaction before a hardware write, never build durable command
+recovery, and never refuse an operation because logging failed.
 
-## Phase 6 — Adaptive drawing model
+After a crash or disconnect, do not resume automatically. Query the controller,
+inspect physical state, and start a new explicit operation.
 
-### Objective
+## Minimal UI contract
 
-Add conservative, identifiable, immutable candidate/accepted model versions and prove that model changes improve independent ink evidence without corrupting authority.
+The UI needs:
 
-### Scope and explicit non-goals
+- device and controller status;
+- camera image;
+- preview;
+- current operation/stroke;
+- last command outcome;
+- intended/observed ink and simple error;
+- Run, Hold, and Abort;
+- concise actionable errors.
 
-- Fix the estimation gauge: registration from independent references, affine intercept from cap centres, tool offset from paired cap/ink, pen terms from contact trials.
-- Implement stateful continuous per-axis play/backlash state and learn only its widths/needed parameters from bidirectional trials.
-- Implement minimal `PenMarkModel` metrics for onset/release/width/missing contact; keep it separate from XY correction.
-- Implement covariance-weighted Huber fitting, grouped trial/frame-burst bootstrap, whole-stroke holdouts, identifiability/conditioning, applicability, correction/Jacobian/inverse gates.
-- Implement atomic candidate accept/retain and visible before/after comparison.
-- Add axis-separable pitch correction only if affine/backlash/offset holdouts show stable axis structure.
-- A 4x4 2D spline may be prototyped offline, but it cannot become an accepted
-  live model unless its exceptional physical evidence requirements are met.
-- Non-goal: no neural/TPS/RBF production model, projective machine map, independent inverse, portrait, or mid-stroke update.
+Do not add accessibility work, a multi-pane evidence browser, semantic timeline,
+model/trial inspectors, replay mode, history navigation, storage dashboard, or
+developer telemetry program.
 
-### Domain objects and module changes
+## Model rule
 
-- `AdaptiveDrawingModel`, `ModelCandidate`, `ModelValidationReport`, `RegimeCoverage`, `PredictiveBound`, `PenMarkModel`, backlash execution state.
-- Pure `DrawingModelFitter` and damped trust-region `CommandInverter` with continuation/forward check.
-- `ModelApplicability` and model-specific `RunBlocker` cases.
-- RunLedger parent/candidate/accepted/rejected model lineage and grouped validation artifacts.
+Use an affine transform and optional constant tool offset. If it works, keep it.
+If it does not, collect a few direct repeated measurements, identify the single
+dominant systematic error, and add only the smallest correction for that error.
 
-### Acceptance criteria
-
-- Candidate and accepted model types cannot be confused in the public API.
-- An accepted model records parent, exact evidence IDs, parameter covariance, applicability, holdouts, algorithm/configuration revisions, and trust bounds.
-- Parameter promotion uses effective independent trials, not pixels or centreline points.
-- Clustered predictive 95% bound fits the declared drawing error budget throughout the applicable region.
-- Any new component improves grouped holdout beyond both bootstrap error and repeatability noise with no region exceeding its regression allowance.
-- Unknown backlash state after reset/manual/ambiguous motion blocks execution until a bounded take-up/relocalization action.
-- A rejected candidate leaves the prior model active and produces no plan mutation.
-
-### Tests and recorded evidence for this capability
-
-- Synthetic parameter-recovery and confounding tests; gauge and affine-nullspace tests.
-- Bidirectional cap grid; paired cap/ink distributed probes; direction x feed x pen-transition factorial ink trials.
-- Region-, direction-, and time-grouped whole-stroke holdouts.
-- Inverse convergence/refusal, full-border Jacobian/no-fold, long-line continuity, and forward-error tests.
-- Recorded replay of candidate accepted, candidate rejected, insufficient evidence, and configuration-invalidated cases.
-
-### Required observable UI/debug outputs
-
-- Active/candidate model IDs, parameter groups, values, deltas, uncertainty, coverage, applicability, and exact contributing trials.
-- Held-out prior/candidate predictions over the same observations with RMS/p95/max/coverage/topology comparisons.
-- Acceptance/retention rationale and remaining error budget.
-- Developer design-matrix singular values, cluster/bootstrap summaries, fit weights, inverse iteration/condition diagnostics.
-
-### Retain/delete/migration decisions
-
-- Retain legacy residual/action fixtures only as challenge cases.
-- Delete any new implementation of bilinear residual cells, arbitrary categorical action offsets, or dual forward/inverse models.
-- Store no mutable “latest calibration” file; current accepted model is a versioned run decision/pointer.
-
-### Risks or assumptions before enabling Phase 7 physical actions
-
-- The simplest affine/offset model may be sufficient. That is a valid outcome.
-- Axis-separable or 2D spatial complexity remains prohibited until physical holdouts demand it.
-- Thresholds must be derived from the phase 5/6 repeatability corpus, not copied from this prompt as millimetre constants.
-
-## Phase 7 — Typed execution plan and interpreter
-
-### Objective
-
-Generalize the working one-stroke kernel into a small finite execution language, bounded command commits, explicit frontiers/ambiguity, atomic checkpoints, and safe remaining-work planning.
-
-### Scope and explicit non-goals
-
-- Finalize the closed plan vocabulary: `liftPen`, `travel`, `draw`, `clearObservationRegion`, `waitForStableFrame`, `captureInk`, `checkpoint`.
-- End every plan revision at one checkpoint. No latent branch graph, generic workflow node, arbitrary predicate, loop, `AcceptEvidence`, `UpdateModel`, or `ReplanRemaining` instruction.
-- Implement checkpoint resolution as the atomic domain transaction that sets evidence disposition, frontiers/ambiguity, accepted state/model, and next planning basis.
-- Implement successor plan compilation from immutable `DrawingProgram` and only unresolved work beyond the commanded frontier.
-- Subdivide a logical stroke into bounded controller commit blocks while pinning one model/state basis for the whole stroke and preserving geometry.
-- Implement orderly pause, Hold Now, Abort Run, controller reset consequences, and restart reconciliation outside the plan language.
-- Non-goal: no broad scheduling optimizer, workflow framework, streaming portrait, or command buffering past checkpoint.
-
-### Domain objects and module changes
-
-- `ExecutionPlan`, `PlanInstruction`, `DrawBlock`, `ControllerCommandBatch`, `ExecutionFrontiers`, `StrokeDisposition`, `CheckpointResolution`, `PlanningBasis`, `RunBlocker`.
-- `RunInterpreter` actor becomes the sole run-transition authority and must remain free of geometry/vision/parser/persistence implementation.
-- `PlanCompiler` and controller compiler remain pure; `MachineController` remains the only sender.
-
-### Acceptance criteria
-
-- Plan validation proves travel/clear/inspection/pen invariants and exact version pinning.
-- `inkVerified <= controllerCompleted <= commanded`; ambiguity can coexist but never becomes remaining automatically.
-- Only one bounded pen-contact block is outstanding; no new block is sent until the prior block reaches the required controller state.
-- A logical stroke never changes model mid-stroke, even across continuation blocks or partial recovery.
-- Evidence/model/state/next-basis checkpoint facts commit atomically.
-- Restart never resends a transmitted ambiguous block or redraws controller-completed-but-unverified work.
-
-### Tests and recorded evidence for this capability
-
-- Compiler golden tests: same plan/model/config -> byte-identical command batches with explicit modal state.
-- State-machine property tests and failure injection at every instruction/command/checkpoint boundary.
-- Simulated alarm/hold/limit/disconnect/reset/stale camera/storage failure and partial stroke.
-- Continuous versus bounded-commit long-line physical comparison to set commit time/distance; if dwell artifacts exceed tolerance, cap first-product stroke length or change the proven commit strategy.
-- Recorded replay and restart from all three frontiers plus ambiguity.
-
-### Required observable UI/debug outputs
-
-- Current finite plan revision/instruction/block; model/state/config basis; commanded/controller-completed/ink-verified frontiers and ambiguous regions.
-- Exact Pause After Current Atom, Hold Now, Abort Run, and Controller Reset actions with permitted/blocked status.
-- Successor-plan lineage and list of included/excluded logical stroke ranges with reasons.
-- Developer command lifecycle, precondition digest, bytes, ack, terminal state, controller buffer/hold timing, and checkpoint transaction.
-
-### Retain/delete/migration decisions
-
-- Retain only the working phase-5 training vocabulary and refactor it into the canonical plan; delete any separate training runner.
-- Delete protocols/managers created only to make the interpreter look modular.
-- Do not port Python planner/session workflow or current route actions.
-
-### Risks or assumptions before enabling Phase 8 physical actions
-
-- Commit boundaries may create line artifacts; use evidence, not convenience, to choose them.
-- Controller-completed terminology must not be mislabeled as physical/ink truth.
-- Keep interpreter source reviewable; extract pure policy when complexity grows, not new service objects.
-
-## Phase 8 — First conservative end-to-end vector drawing
-
-### Objective
-
-Execute a real multi-stroke logical vector drawing with actual ink feedback, initially inspect every stroke, accept only conservative state/model changes, replan only uncommanded work, and perform the proof-based legacy cutover.
-
-### Scope and explicit non-goals
-
-- Use a hand-authored 5-10 stroke `DrawingProgram` with lines/polylines distributed across a safe interior region, directions, and lengths.
-- Preview through the exact same planner/model used for execution.
-- Execute one stroke/checkpoint at a time; observe ink after each stroke.
-- Permit immediate identified state correction and at most evidence-gated model changes between strokes.
-- Replan only strokes beyond the commanded frontier; freeze completed/ambiguous history.
-- Exercise pause, camera reacquisition, rejected evidence, candidate retention, and safe resume.
-- After repeatable acceptance, remove old live product paths.
-- Non-goal: no portrait, SVG, arbitrary stroke grouping, sophisticated order optimization, advanced pen model, or optional UI inventory.
-
-### Domain objects and module changes
-
-- No new architecture layer. Extend `DrawingProgram`, `PlanCompiler`, `RunInterpreter`, observation matching, and workspace only as the vertical slice requires.
-- Add `RunOutcome` and a concise current `RuntimeSnapshot` equivalent to the useful parts of old `/codex/snapshot`.
-
-### Acceptance criteria
-
-- Three controlled repeated physical runs complete without unknown unhandled state.
-- Every stroke has stable intended/commanded/predicted/observed provenance and explicit disposition.
-- Each accepted stroke meets the declared phase-6 drawing tolerance, coverage, topology, and uncertainty gates; aggregate success cannot hide a failed stroke.
-- At least one run proves state/model update -> successor plan -> remaining strokes while executed geometry/history stays unchanged.
-- At least one fault/recovery run proves no automatic redraw of ambiguous or controller-completed-unverified work.
-- Operator can explain why drawing is allowed/paused/blocked from essential UI.
-- New product launches and operates without Python, HTTP, DTO mirrors, or bridge supervisor.
-
-### Tests and recorded evidence for this capability
-
-- Full simulated and recorded replay for success, weak ink, large residual, camera loss, transport loss, hold, ambiguous block, model rejection, and storage blocker.
-- Three accepted physical run bundles plus at least one recovery bundle.
-- Forbidden-symbol/dependency/process scans for Python live imports, URLSession/localhost bridge calls, old DTO names, and duplicate readiness models.
-- Swift build/tests, documentation validation, diff check, and repo `make check` during transition.
-
-### Required observable UI/debug outputs
-
-- Complete live canvas, authority bar, frontiers, stroke/checkpoint timeline, evidence and model comparison, blockers/recovery.
-- Program/plan/model progress and exact unexecuted/ambiguous sets.
-- Export run bundle and Recorded Replay from the operator workspace.
-- Developer controller, frame, residual, fit, planning, and ledger traces.
-
-### Retain/delete/migration decisions
-
-After all acceptance evidence passes, delete in the same cutover:
-
-- Python live bridge/server/controller/calibration/planning/execution startup path.
-- Swift bridge HTTP client, DTO mirror, model, process supervisor, launcher compatibility, and old app workflow.
-- Calibration wizard, legacy readiness/preflight flags, duplicate motion model, setup-frame compatibility, capability/shape routes, old portrait/face paths.
-- HTTP-route, wizard-string, compatibility, and obsolete UI tests.
-
-Retain:
-
-- selected historical transcripts/fixtures and evidence manifest;
-- rewritten Swift hardware/parser/geometry/failure tests;
-- optional Python offline tools moved under an explicitly named research-only boundary and able to read exported copies only.
-
-Do not leave compatibility aliases or a dormant live bridge “just in case.”
-
-### Risks or assumptions before enabling Phase 9 physical actions
-
-- Physical success threshold must remain tied to observed ink repeatability/width and declared drawing tolerance.
-- If cutover proof fails, fix the vertical slice; do not defer deletion by wiring a compatibility bridge into the new product.
-
-## Phase 9 — Operator observability, replay, and recovery
-
-### Objective
-
-Complete observability as a product capability: one coherent workspace, model/evidence truth, recorded replay, algorithm re-evaluation, retention, crash recovery, and accessible operation.
-
-### Scope and explicit non-goals
-
-- Finalize three-pane workspace, direct pan/zoom, semantic timeline, synchronized selection, overlay presets, model/trial inspector, blocker/recovery details.
-- Implement Recorded Replay and clearly separate non-authoritative Algorithm Re-evaluation.
-- Implement restart from last durable checkpoint with passive controller reconciliation, fresh camera/field/tool evidence, and ambiguous-region inspection.
-- Implement content-addressed quota/retention, visible degradation, tombstones, exports, and free-space preflight.
-- Add supplemental OSLog/signposts and Developer Diagnostics.
-- Complete keyboard, VoiceOver, contrast, reduced motion, Differentiate Without Color, and textual chart summaries.
-- Non-goal: no new drawing source, model family, or optional image-processing feature.
-
-### Domain objects and module changes
-
-- Bounded workspace projections: authority, execution, evidence, model, canvas, recovery, storage.
-- `ArtifactManifest`, `ArtifactTombstone`, retention policy/version, export manifest.
-- Replay reducer, analysis-fork metadata, recovery intents and consequences.
-
-### Acceptance criteria
-
-- UI never calculates readiness, evidence acceptance, model promotion, or remaining work.
-- Every disabled action has a visible domain blocker and permitted recovery intents.
-- Recorded Replay reconstructs identical semantic state/frontiers/blockers/decisions; Algorithm Re-evaluation cannot mutate history/live state.
-- Crash at every checkpoint and command boundary never blindly resends or skips unresolved work.
-- Storage pressure never silently removes required evidence or allows an unrecordable draw.
-- The operator can state why execution stopped and the next safe action without
-  developer logs; no formal multi-user study is required.
-
-### Tests and recorded evidence for this capability
-
-- Projection/golden overlay/pan-zoom hit-test/UI automation/accessibility tests.
-- Replay equivalence and algorithm-drift comparison tests.
-- Retention/quota/tombstone/export/WAL/garbage-collection tests.
-- Crash/restart and recovery fixtures for every frontier/failure class.
-- Performance signposts for capture-to-measurement, command-to-Idle, stable frame, fit, plan, and transaction latency.
-
-### Required observable UI/debug outputs
-
-- Authority and motion-control actions always visible.
-- Expected/predicted/observed/residual layers; current/candidate model values and applicability; accepted/rejected trial history.
-- Recorded Replay/Algorithm Re-evaluation mode banners and degraded-artifact visibility.
-- Storage quota/free-space/run-bundle completeness.
-- Developer raw serial, image stages, matrices, fit/inverse diagnostics, actor/task timelines, and ledger events.
-
-### Retain/delete/migration decisions
-
-- Retain no in-memory clearable operator log as the only evidence.
-- OSLog remains supplemental; semantic ledger remains product truth.
-- Delete any hidden developer-only blocker or recovery path.
-
-### Risks or assumptions before enabling Phase 10 physical actions
-
-- Verify operator terminology: “controller completed” must not be interpreted as ink success.
-- Ensure replay UI does not imply that re-evaluated results changed historical physical reality.
-
-## Phase 10 — Deliberate capability expansion
-
-### Objective
-
-Add portraits, richer vector geometry, pen learning, advanced vision,
-scheduling, and optional operator tools through the canonical architecture.
-Pure implementation may begin whenever it is useful; recorded evidence is
-required only before the addition influences physical authority or an accepted
-model.
-
-### Scope and explicit non-goals
-
-Keep each capability independently testable and reviewable. Related pure work
-may be batched when that shortens the path to a working local product:
-
-1. **Portrait source adapter:** captured/imported raster -> one deterministic `DrawingProgram` -> normal preview/execution/ink loop.
-2. **Richer vector geometry:** cubic paths or additional primitives may be
-   implemented early; deterministic flattening/compilation evidence is required
-   before physical execution.
-3. **Pen/servo learning:** contact/onset/release/width/feed model from controlled factorial trials; never hide it inside XY correction.
-4. **Advanced vision modes:** new observation request/result plus corpus/replay evidence; no new authority owner.
-5. **Risk-bounded inspection grouping or remaining-stroke scheduling:** pure strategy compared with fixed every-stroke baseline; do not call it MPC unless it truly solves a constrained finite horizon.
-6. **Optional UI tools:** add only when they expose a delivered domain capability; never create system truth.
-
-Non-goals:
-
-- No plugin registry until a demonstrated second independent implementation requires a stable protocol.
-- No neural correction model without a recorded dataset, uncertainty/extrapolation story, and decisive holdout advantage.
-- No live Python research result, external process, or alternate execution lane.
-
-### Domain objects and module changes
-
-- New drawing sources are pure converters returning `DrawingProgram`.
-- New observation types are versioned `MeasurementRequest/Result` values handled by the existing capture/vision/evidence boundaries.
-- New overlays are pure projections of recorded/domain facts.
-- New pen capabilities extend typed `PenProfile`/`PenMarkModel` and controller compilation.
-- New strategies produce finite `ExecutionPlan` revisions using the same interpreter/frontier/checkpoint invariants.
-
-### Acceptance criteria
-
-For each subphase:
-
-- A named user capability and exact non-goals are documented.
-- Before the capability influences physical authority, recorded corpus and
-  controlled physical holdouts show improvement over the current baseline.
-- The addition creates no new authority, runtime process, bus, compatibility path, or duplicate state model.
-- Existing one-stroke and multi-stroke adaptive/recovery/replay suites remain green.
-- Model/algorithm complexity can be rejected and the simpler implementation retained.
-
-Portrait-specific acceptance:
-
-- The previewed `DrawingProgram` hash is the program executed.
-- Every portrait stroke uses the same typed plan, safety, ink observation, residual, checkpoint, ledger, and remaining-work path as hand-authored vectors.
-- Cap movement is still not portrait/drawing success; actual ink evidence remains required.
-
-### Tests and recorded evidence for each subphase
-
-- Fixed source/vision corpus with algorithm/configuration hashes.
-- Pure deterministic conversion/geometry tests.
-- Recorded Replay and Algorithm Re-evaluation comparisons.
-- Simulated/fault/recovery suite.
-- Controlled physical runs with grouped holdouts and explicit product metrics
-  before physical use; their absence does not block pure implementation.
-- Forbidden live Python/HTTP/duplicate-authority scans.
-
-### Required observable UI/debug outputs
-
-- New capability's source settings/provenance, resulting `DrawingProgram`, preview, and applicability.
-- Same core authority/frontier/evidence/model/recovery truth; no separate workflow screen.
-- Before/after algorithm/model comparison and rejected evidence.
-- Developer diagnostics only for the new computation, linked to the same run IDs.
-
-### Retain/delete/migration decisions
-
-- Delete obsolete algorithms/UI when a replacement is selected; do not keep aliases or hidden fallback execution paths.
-- Keep offline research outputs outside live authority and import them only as explicitly reviewed, versioned experimental data.
-- At the end, scan the tracked tree for all retired Python live imports, bridge/routes/DTOs, old wizard/readiness names, demo/capability surfaces, and compatibility code; remove every unproven survivor.
-
-### Risks or assumptions for further physical capability
-
-- Do not assume a feature is valuable because it existed before.
-- Disable the regressing capability's physical use when adaptive
-  drawing/recovery metrics regress or evidence coverage is insufficient;
-  continue independent development.
-- Prefer a direct new value/function over an extension framework until repeated implementations prove a boundary.
+Advanced model ideas are outside the development plan. They may return only by
+an explicit user request after the simple system demonstrably fails.
 
 ## Completion definition
 
-The rebuild is complete only when:
+The rudimentary product is complete when:
 
-- the locally built native app or executable is the only live product process;
-- a logical drawing is executed, observed as actual ink, compared, conservatively adapted, and replanned only for uncommanded work;
-- every meaningful command, frame, observation, residual, decision, model, blocker, and recovery is visible and replayable;
-- no “calibrated” flag or cap-only fact can grant drawing authority;
-- ambiguous physical work is never automatically redrawn;
-- legacy live Python/HTTP/Swift bridge/workflow/compatibility surfaces and their obsolete tests are deleted;
-- Python, if retained, is visibly offline-only and cannot write or participate in live authority;
-- deterministic tests, simulator/replay, controlled physical trials, Swift build, repo validation, and clean landed `main` all pass.
+- the local app connects to the real controller and camera;
+- it draws a small vector program inside configured bounds;
+- it lifts and clears the tool;
+- it observes and displays the actual ink;
+- it shows simple drawing error and can use an affine correction for remaining
+  strokes if helpful;
+- Hold/Abort and concrete error recovery work;
+- no Python bridge or alternate execution path exists;
+- normal build/tests and Blackdog landing pass.
+
+It does not require archival replay, accessibility, advanced modeling,
+generalized observability, formal experimental sample counts, or distribution
+infrastructure.

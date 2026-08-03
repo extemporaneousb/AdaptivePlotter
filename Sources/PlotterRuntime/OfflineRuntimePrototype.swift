@@ -1,27 +1,7 @@
 import Foundation
-import PlotterModel
 
 /// Deterministic, explicitly simulated composition data for the operator shell.
-/// It never grants motion, pen, training, or general-drawing authority.
 public enum OfflineRuntimePrototype {
-  public static func passiveAuthority(safetyPolicyID: SafetyPolicyID) throws -> ExecutionAuthority {
-    try ExecutionAuthority(
-      allowed: true,
-      operation: .passiveInterrogation,
-      planID: nil,
-      modelID: nil,
-      stateEstimateID: nil,
-      fixedSafetyPolicyID: safetyPolicyID,
-      evidence: [],
-      limits: AuthorityLimits(
-        maximumFeed: 0,
-        maximumDistance: 0,
-        maximumCommandHorizonNanoseconds: 0
-      ),
-      blockers: []
-    )
-  }
-
   public static func simulatedPassiveTranscript() -> [TranscriptEntry] {
     func tx(_ query: PassiveQuery) -> TranscriptEntry {
       TranscriptEntry(direction: .transmit, bytes: query.wireBytes)

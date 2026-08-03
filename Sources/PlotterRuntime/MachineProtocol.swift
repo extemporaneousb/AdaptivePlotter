@@ -78,40 +78,6 @@ public struct RawMachineIO: Codable, Hashable, Sendable {
   }
 }
 
-public enum ArmAvailability: String, Codable, Hashable, Sendable {
-  case unavailable
-}
-
-public enum ArmState: String, Codable, Hashable, Sendable {
-  case off
-}
-
-public struct MachineArmFacts: Codable, Hashable, Sendable {
-  public let motionAvailability: ArmAvailability
-  public let motionState: ArmState
-  public let penAvailability: ArmAvailability
-  public let penState: ArmState
-
-  public static let passiveOnly = MachineArmFacts(
-    motionAvailability: .unavailable,
-    motionState: .off,
-    penAvailability: .unavailable,
-    penState: .off
-  )
-
-  public init(
-    motionAvailability: ArmAvailability,
-    motionState: ArmState,
-    penAvailability: ArmAvailability,
-    penState: ArmState
-  ) {
-    self.motionAvailability = motionAvailability
-    self.motionState = motionState
-    self.penAvailability = penAvailability
-    self.penState = penState
-  }
-}
-
 public struct PassiveProbeExchange: Codable, Hashable, Sendable {
   public let query: PassiveQuery
   public let commandID: UUID
@@ -144,7 +110,6 @@ public enum MachineBlocker: Codable, Hashable, Sendable {
   case timeout(PassiveQuery)
   case invalidReply(PassiveQuery, reason: String)
   case responseLimitExceeded(PassiveQuery, maximumBytes: Int, maximumChunks: Int)
-  case storage(String)
   case controllerAlarm(String)
   case controllerError(String)
 }
@@ -200,7 +165,6 @@ public struct PassiveProbeFinishedRecord: Codable, Hashable, Sendable {
   public let startedAt: RuntimeTimestamp
   public let completedAt: RuntimeTimestamp
   public let exchanges: [PassiveProbeExchangeRecord]
-  public let armFacts: MachineArmFacts
   public let blockers: [MachineBlocker]
 
   public init(probeID: UUID, result: PassiveProbeResult) {
@@ -209,7 +173,6 @@ public struct PassiveProbeFinishedRecord: Codable, Hashable, Sendable {
     startedAt = result.startedAt
     completedAt = result.completedAt
     exchanges = result.exchanges.map(PassiveProbeExchangeRecord.init)
-    armFacts = result.armFacts
     blockers = result.blockers
   }
 }
@@ -219,7 +182,6 @@ public struct PassiveProbeResult: Codable, Hashable, Sendable {
   public let startedAt: RuntimeTimestamp
   public let completedAt: RuntimeTimestamp
   public let exchanges: [PassiveProbeExchange]
-  public let armFacts: MachineArmFacts
   public let blockers: [MachineBlocker]
 
   public init(
@@ -227,14 +189,12 @@ public struct PassiveProbeResult: Codable, Hashable, Sendable {
     startedAt: RuntimeTimestamp,
     completedAt: RuntimeTimestamp,
     exchanges: [PassiveProbeExchange],
-    armFacts: MachineArmFacts = .passiveOnly,
     blockers: [MachineBlocker]
   ) {
     self.link = link
     self.startedAt = startedAt
     self.completedAt = completedAt
     self.exchanges = exchanges
-    self.armFacts = armFacts
     self.blockers = blockers
   }
 }

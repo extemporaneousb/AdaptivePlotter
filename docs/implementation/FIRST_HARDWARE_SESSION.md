@@ -1,12 +1,14 @@
 # First Hardware Session
 
-Status: ready as an operator procedure; not yet executed  
-Scope: one powered passive controller interrogation only
+Status: ready for the controller to be connected
+Scope: repeatable passive controller interrogation
 
-## Outcome and authority boundary
+## Purpose
 
-The first machine session may send exactly these queries, once and in this
-order:
+Use the native app to confirm that this Mac can open the actual controller and
+parse its current identity, status, settings, and offsets.
+
+The current build sends only:
 
 ```text
 $I
@@ -16,258 +18,103 @@ $$
 $#
 ```
 
-The current code has no other physical command surface. Motion and pen arms are
-unavailable and off. This session must not move, unlock, home, reset, write a
-setting, clear an alarm, actuate a servo, or lower the pen. It records current
-controller evidence; it does not establish motion safety, physical position,
-camera access, ink evidence, or drawing authority.
+It has no motion or pen commands, so no separate motion/pen arms or development
+admission process is needed.
 
-Do not run this session from a general serial terminal or improvise commands.
-Use the app-owned fixed passive probe so preparation, transmitted bytes, raw
-replies, parser outcomes, and failures share one ledger.
+## Before connecting
 
-## Local prerequisites for this physical action
-
-The 2026-08-02 host inspection found:
-
-- macOS 15.7.8 on Intel `x86_64`;
-- Swift 6.1.2 from `/Library/Developer/CommandLineTools`;
-- a built-in FaceTime HD camera, inventory only;
-- only `/dev/cu.BLTH` and `/dev/cu.Bluetooth-Incoming-Port`, with no apparent
-  controller device.
-
-The installed command-line tools are the supported local toolchain. The SwiftPM
-executable is valid for this passive serial session; no release packaging or
-developer identity is required.
-
-Before powering or connecting the machine, complete all of the following:
-
-1. Build and validate the exact local source revision that will run:
+1. Run:
 
    ```bash
    make check
    make build
-   git rev-parse HEAD
    ```
 
-2. Confirm no other application, terminal, or legacy Plotter process has the
-   controller serial port open.
-3. Prepare a recoverable evidence destination with enough free space. Do not
-   delete or rotate a prior passive-run database to make room.
-   The app performs a read-only cross-launch recovery scan before creating a
-   new ledger or opening the serial device. Any empty, corrupt, malformed,
-   unfinished, unresolved, unreadable, or unsafe prior passive ledger is an
-   explicit `RECOVERY BLOCKED` stop; do not rename or delete evidence to bypass it.
-4. Put the mechanism in a physically harmless boot condition. If motor and pen
-   actuator power can be isolated from controller/USB power, leave them
-   isolated. Otherwise remove or restrain the pen so unexpected boot behavior
-   cannot mark or collide, keep hands out of the travel envelope, and have the
-   verified physical power cutoff/E-stop immediately reachable.
+2. Close other serial terminals or legacy Plotter processes.
+3. Put the mechanism in a harmless boot condition. Prefer motor/pen power
+   isolated if the controller can enumerate without it. Otherwise remove or
+   restrain the pen and keep the physical power cutoff reachable.
 
-If a physical-safety or evidence-integrity item is incomplete, stop before
-hardware power. Continue unrelated implementation, simulation, and replay; do
-not represent them as physical device evidence.
+That is the complete local prerequisite list. Full Xcode, signing, entitlements,
+archival storage preparation, prior-run inspection, and evidence packaging are
+not required.
 
-## Baseline capture with the machine off
+## Run the probe
 
-From the repository root, retain the current host/toolchain receipt:
+1. Record the before state:
 
-```bash
-sw_vers
-uname -m
-swift --version
-xcode-select -p
-xcrun --sdk macosx --show-sdk-path
-system_profiler SPCameraDataType
-ls -l /dev/cu.*
-```
+   ```bash
+   ls -l /dev/cu.*
+   ```
 
-Capture the output in the session notes without publishing machine serial
-numbers, hardware UUIDs, account names, or other host identifiers. The serial
-listing is the before-power baseline. The two Bluetooth callout devices seen on
-2026-08-02 are not controller candidates.
+2. Connect controller USB and apply only the power needed for enumeration.
+   Unexpected mechanism or servo movement means remove power and inspect the
+   hardware setup.
+3. Run `ls -l /dev/cu.*` again and identify the new controller path. Do not use
+   an unrelated Bluetooth path.
+4. Launch:
 
-## Powered passive procedure
+   ```bash
+   .build/debug/AdaptivePlotter
+   ```
 
-1. Close the app and every possible serial client. Confirm motion/pen actuator
-   power remains isolated when the hardware permits it and the mechanism is in
-   the harmless boot condition above.
-2. Connect controller USB and apply only the power required to expose the
-   controller. Observe the mechanism during boot. Any armature motion or servo
-   actuation is an immediate physical stop condition.
-3. Run `ls -l /dev/cu.*` again. Identify the newly appeared controller device by
-   before/after difference and physical cable association. Do not select a
-   Bluetooth device. If no unique new device appears, more than one plausible
-   device appears, or a vendor driver appears to be missing, power down and
-   resolve discovery before proceeding.
-4. Launch the exact locally built executable whose commit and build receipt were
-   captured. In the
-   **PASSIVE DEVICE** pane, choose **Refresh Serial Devices**, then explicitly
-   select the one proven controller path. The application must never guess
-   among multiple devices.
-5. Confirm the persistent red banner states **DRAWING BLOCKED**, both arms show
-   **UNAVAILABLE / OFF**, and there is no motion, pen, unlock, home, settings, or
-   reset control.
-6. Choose **Request Passive Probe** exactly once. The application disables any
-   second attempt until it is restarted as a new operator session. It opens the
-   selected BSD path in raw mode at
-   115200 baud and attempts the following fixed wire payloads:
+5. Choose **Refresh Serial Devices**, select the controller path, and choose
+   **Request Passive Probe**.
+6. Confirm that the UI reports the five exchanges or gives a concrete error.
+7. Repeat the probe in the same app launch if useful. A failed probe is not a
+   one-shot event and old journal files do not block retry.
 
-   | Order | Query | Exact bytes | Completion evidence |
-   | --- | --- | --- | --- |
-   | 1 | `$I` | `24 49 0A` | Parsed `ok` after retained build/report lines. |
-   | 2 | `$G` | `24 47 0A` | Parsed `ok` after retained parser-state lines. |
-   | 3 | `?` | `3F` | One parsed `<...>` status report; no `ok` is required. |
-   | 4 | `$$` | `24 24 0A` | Parsed `ok` after retaining every settings line. |
-   | 5 | `$#` | `24 23 0A` | Parsed `ok` after retaining coordinate/report lines. |
+Each query has a two-second absolute deadline and bounded input size. Those
+limits prevent a stuck or noisy serial connection; they are not a broader
+development gate.
 
-   Every query has a two-second absolute deadline and a total receive ceiling of
-   64 KiB or 256 chunks, whichever comes first. Continuous noise cannot extend
-   the deadline. Missing query-specific evidence and response-budget overflow
-   are blockers even if a bare `ok` appears.
+## What to look at
 
-   The controller stops the sequence on the first timeout, transport error,
-   storage error, `error:`, or `ALARM:`. It does not continue around a blocker.
-7. Observe the mechanism for the entire exchange. Do not touch the carriage,
-   switches, armature, or paper and do not answer an unexpected state with
-   `$X`, `$H`, Ctrl-X, a setting write, or any `G`/`M` command.
-8. When the probe returns, confirm the UI shows five exchanges and zero blockers
-   before calling the passive interrogation complete. Confirm the returned
-   interpreter completion-authority receipt is `passiveInterrogation` only,
-   confirm the UI says the one-shot link has disconnected, and record the exact
-   ledger path shown by the UI. Inspect the passive TX/RX timeline's escaped text
-   and exact hexadecimal bytes and preserve
-   unfamiliar fields, pins, errors, and extensions exactly as received. Do not
-   normalize contradictory settings into defaults.
-9. Quit the app normally, disconnect controller USB, and power the controller
-   down. Do not proceed directly from a successful passive probe into a jog or
-   pen test.
+For a successful probe, inspect:
 
-## Stop conditions
+- selected BSD device path;
+- controller identity/build response;
+- parser state;
+- current `<...>` status, alarm, and pin fields;
+- settings and coordinate-offset replies;
+- exact error when any query fails.
 
-Stop, remove power through the physical safe path when appropriate, and retain
-all evidence if any of the following occurs:
-
-- any carriage, armature, or servo motion during boot or interrogation;
-- the pen can contact the surface or the mechanism is not in a harmless state;
-- the controller port is absent, ambiguous, changes identity, or is already in
-  use;
-- the selected path is one of the baseline Bluetooth devices;
-- the app does not show drawing blocked and both arms unavailable/off;
-- transmitted bytes or ordering differ from the five rows above;
-- any timeout, disconnect, storage failure, invalid/missing required reply,
-  response-budget overflow, parser failure, `error:`, or `ALARM:`;
-- the app or machine crashes, the ledger cannot be located, or raw replies are
-  missing;
-- controller identity, state, pins, offsets, or settings contradict the
-  physical setup or historical hypotheses.
-
-A blocker is evidence, not a prompt to unlock, reset, retry repeatedly, or fall
-back to an unledgered terminal. Preserve the failed database and diagnose from
-power-off state. A completed passive run also leaves motion and drawing blocked.
-
-## Evidence capture and verification
-
-Each request creates a unique SQLite database under:
+When local storage is available, the app creates a small SQLite session log
+under:
 
 ```text
-~/Library/Application Support/AdaptivePlotter/PassiveRuns/passive-<uuid>.sqlite
+~/Library/Application Support/AdaptivePlotter/PassiveRuns/
 ```
 
-After the app has quit, list the databases and identify the one whose timestamp
-matches the session:
+The log is optional current-run diagnostic data. A logging failure does not stop
+the probe. Manual SQLite verification, database hashing, WAL export, immutable
+evidence packages, and preservation of every old run are not required.
 
-```bash
-find "$HOME/Library/Application Support/AdaptivePlotter/PassiveRuns" \
-  -type f -name 'passive-*.sqlite' -print
-```
+## Stop this attempt when
 
-Set `passive_db` to that exact absolute path. After a normal app close, inspect
-the closed, checkpointed database through SQLite's immutable URI mode so the
-inspection itself does not create or modify SQLite side files:
+- the controller path is absent or genuinely ambiguous;
+- another process owns the port;
+- the controller reports an alarm or asserted limit that makes the physical
+  state unclear;
+- the serial link disconnects or returns an unknown command outcome;
+- the mechanism moves unexpectedly during this passive procedure.
 
-```bash
-passive_db="/absolute/path/to/passive-<uuid>.sqlite"
-sqlite3 "file:$passive_db?immutable=1" 'PRAGMA integrity_check;'
-sqlite3 -header -column "file:$passive_db?immutable=1" \
-  'SELECT id, created_wall_time, build_id FROM run;'
-sqlite3 -header -column "file:$passive_db?immutable=1" \
-  'SELECT sequence, query, hex(wire_bytes) AS wire_hex, lifecycle, outcome FROM command ORDER BY sequence;'
-sqlite3 -header -column "file:$passive_db?immutable=1" \
-  'SELECT sequence, kind, payload_sha256 FROM event ORDER BY sequence;'
-shasum -a 256 "$passive_db"
-```
+Correct the concrete issue and retry. Do not unlock, home, reset, or write
+settings merely to force the passive probe to pass.
 
-Expected successful command rows are exactly:
+## Next hardware step
 
-```text
-buildInfo         24490A
-parserState       24470A
-status            3F
-configuration     24240A
-coordinateOffsets 24230A
-```
+After the passive probe works, implement and try one bounded low-speed pen-up
+relative move. At that moment check only:
 
-All five lifecycles must be `completed`. The event table must retain TX and RX
-payload hashes for each exchange plus the versioned probe-start, probe-finish,
-and interpreter-authority transition records. The UI result, database rows, SHA-256,
-before/after serial inventory, application build receipt, and operator notes
-belong in one immutable session evidence package.
+- current non-alarm controller status;
+- configured local bounds, distance limit, and conservative feed;
+- pen known up;
+- no outstanding ambiguous command.
 
-If the app or host crashed before SQLite closed, preserve the database plus any
-same-basename `-wal` and `-shm` files together before inspection. Never copy a
-WAL database without its WAL and claim the copy is complete. Do not use the
-immutable commands above on an uncheckpointed crash set because immutable mode
-does not reconcile a live WAL; inspect a working copy with all components
-present or add a recovery/export tool first.
+No camera, registration, model, historical replay, phase completion record, or
+separate motion arm is required for that pen-up move.
 
-Passive success establishes only current controller interrogation through the
-native parser and ledger. It does not accept historical travel, pin, homing,
-pen, or feed values as safe configuration.
-
-## Phase 4 is the first motion-authority check
-
-No powered motion is authorized merely because the passive session succeeds.
-The first motion work is the Phase 4 armature-clearance/viewability trial, and
-it remains pen-up only. Before the motion arm can exist, implementation and
-evidence must establish all of the following:
-
-1. The local application process captures exact immutable camera frames through
-   AVFoundation with a recorded camera configuration, freshness, stability,
-   interruption, and local permission receipt. If stable bundle identity is
-   concretely required, add the smallest ad-hoc `.app` wrapper then. Built-in
-   camera inventory is insufficient.
-2. Independent reference geometry accepts a `FieldRegistration` with redundant
-   held-out points. Synthetic registration tests are insufficient.
-3. One fixed reserved `ObservationRegion` is projected into camera space.
-4. Exact retained frames measure the conservative camera-space silhouette of
-   the complete pen, holder, linkage, and actuator/servo assembly at the
-   candidate pose. The resulting `ToolOcclusionEnvelope` records camera, tool,
-   carriage/cap pose, pen/servo state, uncertainty, and fixed margin identities.
-5. The inflated envelope is disjoint from the projected observation region.
-   The paper-plane homography must not be applied to the elevated armature as if
-   it were coplanar with the paper.
-6. One fixed `ClearancePose` and bounded `ClearancePath` stay within the current
-   fixed machine-safety envelope, use separately armed low-speed pen-up motion,
-   and end at the exact measured pose.
-7. A known sufficiently large green reference mark is visible in the reserved
-   region without armature occlusion, and a demonstrably newer stable frame
-   after the clear move independently confirms that the region remains clear.
-8. The trial records controller, path, pose, registration, camera, tool,
-   pen/servo state, frame, algorithm, uncertainty, margin, and configuration
-   identities. Any relevant configuration change invalidates the evidence.
-
-If the complete armature cannot reach a bounded safe viewable pose, if its
-inflated envelope still intersects the observation region, or if fresh-frame
-confirmation fails, keep motion/pen-down authority disabled and redesign the
-tool/camera geometry. Continue unrelated software work. Do not weaken
-freshness, margin, or clearance to advance the schedule.
-
-Pen-down is categorically forbidden until Phase 4 clearance/viewability passes
-with retained physical evidence. Even then, pen-down requires the separate
-Phase 5 action-specific authority: a verified pen profile, independent motion
-and pen arms, a clean reserved region and baseline, current
-safety/camera/registration/tool evidence, one bounded
-`isolatedTrainingProbe` authority, durable command preparation, and no automatic
-redraw. The first accepted observation may still fail drawing tolerance and
-must not promote a model without sufficient independent holdout evidence.
+Before the first pen-down line, add direct Pen Up/Pen Down control and establish
+one camera-visible observation region plus one known pen-up clear pose. Then run
+the isolated-line procedure in the direct implementation plan.

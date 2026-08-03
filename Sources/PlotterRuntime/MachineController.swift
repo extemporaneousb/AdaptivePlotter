@@ -11,20 +11,17 @@ public enum MachineConnectionState: String, Codable, Hashable, Sendable {
 public struct MachineSnapshot: Codable, Hashable, Sendable {
   public let connection: MachineConnectionState
   public let link: MachineLinkDescriptor
-  public let armFacts: MachineArmFacts
   public let lastProbe: PassiveProbeResult?
   public let blockers: [MachineBlocker]
 
   public init(
     connection: MachineConnectionState,
     link: MachineLinkDescriptor,
-    armFacts: MachineArmFacts = .passiveOnly,
     lastProbe: PassiveProbeResult?,
     blockers: [MachineBlocker]
   ) {
     self.connection = connection
     self.link = link
-    self.armFacts = armFacts
     self.lastProbe = lastProbe
     self.blockers = blockers
   }
@@ -51,8 +48,8 @@ public enum SerialSelectionResult: Sendable, Equatable {
 
 public actor MachineController {
   private let link: any MachineLink
-  private let ledger: RunLedger
-  private let runID: LedgerRunID
+  private let ledger: RunLedger?
+  private let runID: LedgerRunID?
   private let clock: any RuntimeClock
   private let queryTimeoutNanoseconds: UInt64
   private let maximumRawReceiveBytesPerQuery: Int
@@ -64,8 +61,8 @@ public actor MachineController {
 
   public init(
     link: any MachineLink,
-    ledger: RunLedger,
-    runID: LedgerRunID,
+    ledger: RunLedger? = nil,
+    runID: LedgerRunID? = nil,
     clock: any RuntimeClock = SystemRuntimeClock(),
     queryTimeoutNanoseconds: UInt64 = 2_000_000_000,
     maximumRawReceiveBytesPerQuery: Int = 64 * 1_024,
@@ -82,8 +79,8 @@ public actor MachineController {
 
   public static func bsdSerial(
     descriptor: MachineLinkDescriptor,
-    ledger: RunLedger,
-    runID: LedgerRunID,
+    ledger: RunLedger? = nil,
+    runID: LedgerRunID? = nil,
     clock: any RuntimeClock = SystemRuntimeClock(),
     queryTimeoutNanoseconds: UInt64 = 2_000_000_000,
     maximumRawReceiveBytesPerQuery: Int = 64 * 1_024,
@@ -137,13 +134,7 @@ public actor MachineController {
     var exchanges: [PassiveProbeExchange] = []
     let probeID = UUID()
 
-    do {
-      try await recordProbeStarted(probeID: probeID, started: started)
-    } catch {
-      blockers = [.storage(String(describing: error))]
-      connection = .blocked
-      return finishProbeWithoutDurableFinish(started: started, exchanges: exchanges)
-    }
+    try? await recordProbeStarted(probeID: probeID, started: started)
 
     do {
       if connection == .disconnected || connection == .blocked {
@@ -174,37 +165,20 @@ public actor MachineController {
     var parsed: [ParsedControllerLine] = []
     var parser = GRBLParser()
     var validator = PassiveReplyValidator(query: query)
-    var wasWritten = false
     var rawReceiveBytes = 0
     var rawReceiveChunks = 0
     let deadline = addingClamped(clock.nowNanoseconds(), queryTimeoutNanoseconds)
 
     do {
-      let preparedAt = timestamp()
-      try await ledger.prepareCommand(
-        runID: runID,
-        commandID: commandID,
-        query: query,
-        bytes: bytes,
-        timestamp: preparedAt
-      )
       try await link.write(bytes)
-      wasWritten = true
       let transmitted = RawMachineIO(direction: .transmit, bytes: bytes, timestamp: timestamp())
       rawIO.append(transmitted)
-      try await ledger.markCommandWritten(commandID: commandID, timestamp: transmitted.timestamp)
-      try await recordRawIO(transmitted)
+      try? await recordRawIO(transmitted)
 
       while true {
         guard rawReceiveBytes < maximumRawReceiveBytesPerQuery,
           rawReceiveChunks < maximumRawReceiveChunksPerQuery
         else {
-          try await ledger.markCommandOutcome(
-            commandID: commandID,
-            lifecycle: .ambiguous,
-            outcome: "passive response exceeded transcript limit",
-            timestamp: timestamp()
-          )
           return exchange(
             query: query,
             commandID: commandID,
@@ -239,7 +213,7 @@ public actor MachineController {
           timestamp: timestamp()
         )
         rawIO.append(received)
-        try await recordRawIO(received)
+        try? await recordRawIO(received)
         guard clock.nowNanoseconds() <= deadline else { throw MachineLinkError.timedOut }
         let newLines = parser.consume(receivedBytes)
         for line in newLines {
@@ -248,12 +222,6 @@ public actor MachineController {
           case .continueReading:
             continue
           case .complete:
-            try await ledger.markCommandOutcome(
-              commandID: commandID,
-              lifecycle: .completed,
-              outcome: "passive reply complete with query-specific evidence",
-              timestamp: timestamp()
-            )
             return PassiveProbeExchange(
               query: query,
               commandID: commandID,
@@ -263,12 +231,6 @@ public actor MachineController {
               blocker: nil
             )
           case let .invalid(reason):
-            try await ledger.markCommandOutcome(
-              commandID: commandID,
-              lifecycle: .ambiguous,
-              outcome: reason,
-              timestamp: timestamp()
-            )
             return exchange(
               query: query,
               commandID: commandID,
@@ -277,12 +239,6 @@ public actor MachineController {
               blocker: .invalidReply(query, reason: reason)
             )
           case let .alarm(text):
-            try await ledger.markCommandOutcome(
-              commandID: commandID,
-              lifecycle: .failed,
-              outcome: text,
-              timestamp: timestamp()
-            )
             return exchange(
               query: query,
               commandID: commandID,
@@ -291,12 +247,6 @@ public actor MachineController {
               blocker: .controllerAlarm(text)
             )
           case let .controllerError(text):
-            try await ledger.markCommandOutcome(
-              commandID: commandID,
-              lifecycle: .failed,
-              outcome: text,
-              timestamp: timestamp()
-            )
             return exchange(
               query: query,
               commandID: commandID,
@@ -309,14 +259,6 @@ public actor MachineController {
       }
     } catch MachineLinkError.timedOut {
       if let unterminated = parser.finishUnterminatedLine() { parsed.append(unterminated) }
-      if wasWritten {
-        try? await ledger.markCommandOutcome(
-          commandID: commandID,
-          lifecycle: .ambiguous,
-          outcome: "timeout",
-          timestamp: timestamp()
-        )
-      }
       return exchange(
         query: query,
         commandID: commandID,
@@ -324,30 +266,7 @@ public actor MachineController {
         lines: parsed,
         blocker: .timeout(query)
       )
-    } catch let error as RunLedgerError {
-      if wasWritten {
-        try? await ledger.markCommandPossiblyWrittenAmbiguous(
-          commandID: commandID,
-          outcome: "storage failure after physical write: \(error)",
-          timestamp: timestamp()
-        )
-      }
-      return exchange(
-        query: query,
-        commandID: commandID,
-        rawIO: rawIO,
-        lines: parsed,
-        blocker: .storage(String(describing: error))
-      )
     } catch {
-      if wasWritten {
-        try? await ledger.markCommandOutcome(
-          commandID: commandID,
-          lifecycle: .ambiguous,
-          outcome: String(describing: error),
-          timestamp: timestamp()
-        )
-      }
       return exchange(
         query: query,
         commandID: commandID,
@@ -376,6 +295,7 @@ public actor MachineController {
   }
 
   private func recordRawIO(_ io: RawMachineIO) async throws {
+    guard let ledger, let runID else { return }
     let payload = try JSONEncoder().encode(io)
     try await ledger.appendEvent(
       runID: runID,
@@ -390,6 +310,7 @@ public actor MachineController {
   }
 
   private func recordProbeStarted(probeID: UUID, started: RuntimeTimestamp) async throws {
+    guard let ledger, let runID else { return }
     let record = PassiveProbeStartedRecord(
       probeID: probeID,
       link: link.descriptor,
@@ -410,41 +331,6 @@ public actor MachineController {
     started: RuntimeTimestamp,
     exchanges: [PassiveProbeExchange]
   ) async -> PassiveProbeResult {
-    var result = PassiveProbeResult(
-      link: link.descriptor,
-      startedAt: started,
-      completedAt: timestamp(),
-      exchanges: exchanges,
-      blockers: blockers
-    )
-    do {
-      let record = PassiveProbeFinishedRecord(probeID: probeID, result: result)
-      try await ledger.appendEvent(
-        runID: runID,
-        timestamp: result.completedAt,
-        kind: "machine.passive_probe.finished",
-        schemaVersion: 1,
-        payload: try JSONEncoder().encode(record)
-      )
-    } catch {
-      blockers.append(.storage(String(describing: error)))
-      connection = .blocked
-      result = PassiveProbeResult(
-        link: link.descriptor,
-        startedAt: started,
-        completedAt: timestamp(),
-        exchanges: exchanges,
-        blockers: blockers
-      )
-    }
-    lastProbe = result
-    return result
-  }
-
-  private func finishProbeWithoutDurableFinish(
-    started: RuntimeTimestamp,
-    exchanges: [PassiveProbeExchange]
-  ) -> PassiveProbeResult {
     let result = PassiveProbeResult(
       link: link.descriptor,
       startedAt: started,
@@ -452,9 +338,20 @@ public actor MachineController {
       exchanges: exchanges,
       blockers: blockers
     )
+    if let ledger, let runID {
+      let record = PassiveProbeFinishedRecord(probeID: probeID, result: result)
+      _ = try? await ledger.appendEvent(
+        runID: runID,
+        timestamp: result.completedAt,
+        kind: "machine.passive_probe.finished",
+        schemaVersion: 1,
+        payload: try JSONEncoder().encode(record)
+      )
+    }
     lastProbe = result
     return result
   }
+
 }
 
 private enum PassiveReplyDecision {

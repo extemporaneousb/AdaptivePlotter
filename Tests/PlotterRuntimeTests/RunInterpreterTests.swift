@@ -24,62 +24,23 @@ struct RunInterpreterTests {
     }
   }
 
-  @Test("prepared command intent blocks recovery as ambiguous physical work")
-  func unresolvedCommandRecovery() async throws {
-    let fixture = try await InterpreterFixture.make()
-    let commandID = UUID()
-    try await fixture.ledger.prepareCommand(
-      runID: fixture.runID,
-      commandID: commandID,
-      query: .status,
-      bytes: PassiveQuery.status.wireBytes,
-      timestamp: RuntimeTimestamp(monotonicNanoseconds: 3)
-    )
-    try await fixture.interpreter.reconcileRecordedCommandIntents()
-    let snapshot = await fixture.interpreter.snapshot()
-    #expect(snapshot.authority.allowed == false)
-    #expect(snapshot.authority.operation == nil)
-    #expect(snapshot.unresolvedCommandIntents.map(\.commandID) == [commandID])
-    #expect(snapshot.authority.blockers.map(\.code) == ["machine.command_outcome_ambiguous"])
-  }
-
-  @Test("successful passive probe cannot clear an unresolved command outcome")
-  func successfulProbeRetainsAmbiguity() async throws {
+  @Test("successful passive probe becomes the current snapshot")
+  func successfulProbeBecomesCurrentSnapshot() async throws {
     let fixture = try await InterpreterFixture.make(
       exchanges: ControllerTranscriptFixtures.successfulPassiveProbe()
     )
-    let unresolvedCommandID = UUID()
-    try await fixture.ledger.prepareCommand(
-      runID: fixture.runID,
-      commandID: unresolvedCommandID,
-      query: .status,
-      bytes: PassiveQuery.status.wireBytes,
-      timestamp: RuntimeTimestamp(monotonicNanoseconds: 3)
-    )
-    try await fixture.interpreter.reconcileRecordedCommandIntents()
 
     let result = try await fixture.interpreter.requestPassiveProbe()
     let snapshot = await fixture.interpreter.snapshot()
 
     #expect(result.blockers.isEmpty)
-    #expect(snapshot.authority.allowed == false)
-    #expect(snapshot.authority.operation == nil)
-    #expect(snapshot.unresolvedCommandIntents.map(\.commandID) == [unresolvedCommandID])
-    #expect(snapshot.authority.blockers.map(\.code) == ["machine.command_outcome_ambiguous"])
-    let events = try await fixture.ledger.events(runID: fixture.runID)
-    let transitionEvents = events.filter { $0.kind == "runtime.authority.transition" }
-    #expect(transitionEvents.count == 2)
-    let lastTransition = try JSONDecoder().decode(
-      AuthorityTransitionRecord.self,
-      from: try #require(transitionEvents.last).payload
-    )
-    #expect(lastTransition.reason == .passiveProbeCompleted)
-    #expect(lastTransition.unresolvedCommandIDs == [unresolvedCommandID])
-    #expect(lastTransition.resultingAuthority.allowed == false)
+    #expect(snapshot.lastProbe == result)
+    #expect(snapshot.activeTransition == nil)
+    #expect(snapshot.machine.lastProbe == result)
   }
 
-  @Test("pre-command open failure records probe finish and blocked authority transition")
-  func openFailureIsDurable() async throws {
+  @Test("pre-command open failure records the current failure and probe finish")
+  func openFailureIsRecorded() async throws {
     let directory = FileManager.default.temporaryDirectory
       .appendingPathComponent(
         "adaptiveplotter-open-failure-\(UUID().uuidString)", isDirectory: true)
@@ -93,13 +54,7 @@ struct RunInterpreterTests {
     )
     let link = OpenFailureLink()
     let controller = MachineController(link: link, ledger: ledger, runID: runID)
-    let interpreter = RunInterpreter(
-      machineController: controller,
-      ledger: ledger,
-      runID: runID,
-      initialAuthority: try OfflineRuntimePrototype.passiveAuthority(
-        safetyPolicyID: SafetyPolicyID())
-    )
+    let interpreter = RunInterpreter(machineController: controller)
 
     let result = try await interpreter.requestPassiveProbe()
     let snapshot = await interpreter.snapshot()
@@ -110,12 +65,12 @@ struct RunInterpreterTests {
       Issue.record("Expected transport blocker from open failure")
       return
     }
-    #expect(snapshot.authority.allowed == false)
+    #expect(snapshot.lastProbe == result)
+    #expect(snapshot.machine.blockers == result.blockers)
     #expect(
       events.map(\.kind) == [
         "machine.passive_probe.started",
         "machine.passive_probe.finished",
-        "runtime.authority.transition",
       ])
     let finished = try JSONDecoder().decode(
       PassiveProbeFinishedRecord.self,
@@ -123,13 +78,6 @@ struct RunInterpreterTests {
     )
     #expect(finished.exchanges.isEmpty)
     #expect(finished.blockers == result.blockers)
-    let transition = try JSONDecoder().decode(
-      AuthorityTransitionRecord.self,
-      from: events[2].payload
-    )
-    #expect(transition.reason == .passiveProbeCompleted)
-    #expect(transition.machineBlockers == result.blockers)
-    #expect(transition.resultingAuthority.allowed == false)
   }
 }
 
@@ -161,14 +109,7 @@ private struct InterpreterFixture {
       clock: clock,
       queryTimeoutNanoseconds: 1_000
     )
-    let interpreter = RunInterpreter(
-      machineController: controller,
-      ledger: ledger,
-      runID: runID,
-      initialAuthority: try OfflineRuntimePrototype.passiveAuthority(
-        safetyPolicyID: SafetyPolicyID()
-      )
-    )
+    let interpreter = RunInterpreter(machineController: controller)
     return InterpreterFixture(
       ledger: ledger,
       runID: runID,

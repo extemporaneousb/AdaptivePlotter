@@ -1,282 +1,174 @@
 # Feasibility Review and Binding Amendments
 
-Status: binding handoff supplement  
-Scope: feasibility, execution determinism, and new-repository adaptation only
+Status: binding simplification of the architecture and implementation plan
+Scope: this Mac and its attached plotter only
 
 ## Precedence
 
-This document records the review of the architecture and sequential rebuild
-plan. Where this document resolves an ambiguity or names a narrower contract,
-it controls implementation. It does not replace the selected architecture,
-actor boundaries, causal model, execution frontiers, checkpoint strategy, or
-evidence requirements.
+This document overrides any requirement elsewhere in the repository for:
+
+- full Xcode, signing, notarization, sandboxing, release packaging, CI, or a
+  supported-machine matrix;
+- mandatory strict Swift concurrency or warnings-as-errors;
+- phase-wide development or landing gates;
+- separate motion and pen arms, expiring approvals, or a general execution
+  authority framework;
+- comprehensive durable replay, archival run bundles, content-addressed
+  evidence, retention/quota/tombstone policy, or algorithm re-evaluation;
+- accessibility work, a complete observability workspace, operator studies, or
+  polished diagnostics;
+- spline fields, advanced adaptive models, model-promotion machinery, bootstrap
+  statistics, or factorial physical-trial programs.
+
+When older text conflicts with this document, choose the smaller direct local
+implementation.
 
 ## Feasibility verdict
 
-The selected architecture is implementable as one native Swift 6 macOS
-application. The software boundaries are not the primary feasibility risk.
+The product is feasible as one local Swift application. The critical question
+is not whether a generalized adaptive-control platform can be built. It is:
 
-For the initial vertical slice, take as an explicit product assumption that a
-sufficiently large isolated green pen mark can be detected and fitted against
-clean white paper. No separate disposable ink-recognition architecture or
-pre-repository experiment is required.
+> Can this plotter draw a requested vector path while the local camera sees the
+> resulting ink well enough to show and, if useful, correct a simple positional
+> error?
 
-The unresolved physical feasibility question is narrower:
+Take as an initial assumption that a large isolated green mark on clean white
+paper can be detected. Do not create a separate vision-research project before
+trying the complete loop.
 
-> Can the complete pen armature, including the pen, holder, linkage, and actuator
-> servo assembly, be moved through a bounded safe pen-up path to a camera pose
-> where it does not occlude the observation region?
+## Minimum physical loop
 
-Phase 4 must answer that question before the first physical training stroke.
-Failure to establish viewability and a safe clear path blocks that physical
-action and requires tool/camera geometry redesign. It does not block unrelated
-software implementation, simulation, replay, or testing, and it is not
-permission to weaken freshness, clearance, or evidence requirements.
-
-## Binding Phase 4 amendment: armature viewability
-
-Phase 4 must add a narrow, versioned geometric clearance contract. Do not build
-a general viewability framework or a 3D digital twin.
-
-Initial values:
+The first useful physical result is:
 
 ```text
-ToolOcclusionEnvelope
-ClearancePose
-ClearancePath
-ClearanceEvidence
+select controller
+-> establish one local session
+-> select a known bounded test line
+-> confirm pen up
+-> move to start at low feed
+-> lower pen and draw the line
+-> raise pen and move to one known clear pose
+-> capture a newer camera frame
+-> detect the line
+-> display intended line, observed line, and simple error
 ```
 
-`ToolOcclusionEnvelope` describes the conservative camera projection of the
-complete armature for a named camera configuration, tool configuration,
-carriage/cap pose, and pen/servo state. It is measurement geometry, not part of
-`AdaptiveDrawingModel` and not evidence of successful ink.
+The trial succeeds as an engineering result if the app completes the sequence,
+shows what actually happened, and does not repeat an ambiguous command. The
+line does not need to meet a premature statistical acceptance program.
 
-Conceptually:
+## Tool visibility
+
+Before the first ink observation, establish one usable clear pose and one
+bounded pen-up path to it. Use the smallest adequate representation:
+
+- one fixed observation region;
+- one conservative 2D camera-space outline or bounding box for the complete
+  pen/holder/linkage/servo assembly;
+- one fixed margin;
+- one clear pose and path.
+
+For the first line test, move pen-up to one operator-chosen pose that visibly
+clears the fixed observation region. Do not build a polygon envelope, 3D model,
+generalized clearance planner, position-dependent occlusion model, or versioned
+evidence framework unless that simple pose demonstrably fails.
+
+Failure to find a clear pose stops that drawing attempt. It does not stop camera
+work, controller work, UI work, or a different bounded experiment.
+
+## Session readiness instead of action gates
+
+Use one session readiness check before machine-affecting commands become
+available. It should establish only:
+
+- one explicitly selected serial device;
+- successful controller identity/status query;
+- no current alarm or asserted limit;
+- configured local X/Y bounds, maximum move distance, and conservative feed;
+- known pen-up state before travel;
+- a working camera only when the requested operation needs observation.
+
+Do not require independent motion/pen arms, phase identities, retained evidence
+IDs, model-promotion state, or repeated operator acknowledgements.
+
+Recheck a fact only when something invalidates it: disconnect, controller reset
+or alarm, configuration change, manual movement that loses known position,
+tool/pen change, or camera change. A transient error should be correctable and
+retryable in the same app launch.
+
+Every machine command still receives immediate direct checks for configured
+feed, distance, and workspace bounds. An unknown command outcome stops the
+current run and is never automatically resent. Those are execution semantics,
+not development gates.
+
+## Best-effort session log
+
+SQLite may record ordered controller exchanges and operation summaries for the
+current session. It is observability only. Do not commit a command to the
+database before sending it, do not maintain a durable command-lifecycle state
+machine, and do not refuse hardware work because logging is unavailable.
+
+Do not let old databases block a new launch or a new passive session. Do not
+build command recovery from prior files, archival replay, content-addressed
+frame storage, export manifests, retention classes, quotas, garbage collection,
+tombstones, cross-launch scans, or exact UI reconstruction.
+
+After a process or machine interruption, never automatically resume or resend.
+Reconnect, query the controller, inspect the machine, and start a new explicit
+operation. Any old session log remains optional diagnostic data only.
+
+## Minimal model
+
+Start and remain with the simplest model that works:
 
 ```text
-ToolOcclusionEnvelope(
-    cameraConfiguration,
-    toolConfiguration,
-    carriagePose,
-    penOrServoState
-) -> conservative polygon in CameraPixelSpace
+fieldPoint = affine(machinePoint) + optional constant tool offset
 ```
 
-The observation region remains canonical in `FieldSpace` and is projected into
-camera space through the current `FieldRegistration`. A candidate clear pose is
-viewable only when:
+Use direct point or line measurements to adjust it manually or by a simple fit.
+No candidate/accepted promotion system is required for the first product. No
+backlash learner, pen-mark model, spline, bootstrap, covariance program,
+factorial trial matrix, trust-region model evolution, or grouped holdout system
+is required.
 
-```text
-inflate(toolOcclusionEnvelope, poseUncertainty + fixedMargin)
-    intersects projectedObservationRegion
-    == false
-```
+If drawing quality is acceptable, stop. If it is not, identify the dominant
+repeatable error and add the smallest correction for that observed problem.
 
-Model occlusion in camera coordinates because the armature is three-dimensional
-and elevated above the paper. Do not apply the paper-plane homography to the
-armature as if it were coplanar with the drawing surface. Begin with an empirical
-conservative polygon or union of observed silhouettes. Promote a more complex,
-position-dependent model only if held-out viewability trials show the simple
-envelope is inadequate.
+## Minimal observability
 
-For the first ink slice, one fixed reserved `ObservationRegion`, one verified
-`ClearancePose`, and one bounded `ClearancePath` are sufficient. General
-field-wide clearance planning is deferred until a delivered capability requires
-it.
+Show only what helps operate or debug the current attempt:
 
-Phase 4 acceptance must additionally prove:
+- selected port and controller state;
+- latest camera frame and its age;
+- current operation/stroke;
+- last command and controller outcome;
+- intended and observed ink geometry;
+- simple residual/error;
+- one actionable error message.
 
-- a known sufficiently large green reference mark is visible when the armature
-  is absent from its observation region;
-- the complete armature envelope is measured from exact retained frames at the
-  poses used to build it;
-- the chosen clear pose keeps the inflated envelope disjoint from the projected
-  observation region;
-- a bounded pen-up path reaches that pose without leaving fixed machine safety;
-- a fresh post-move frame independently confirms the expected region is not
-  occluded;
-- camera, tool, pen/servo state, registration, configuration, frame, algorithm,
-  uncertainty, margin, path, and pose identities are recorded;
-- a camera/tool/configuration change invalidates the clearance evidence.
+No accessibility work is required. No timeline, model inspector, trial browser,
+replay mode, storage dashboard, multi-pane workspace, or performance-signpost
+program is required.
 
-`VisionWorker` measures exact-frame occlusion geometry. Pure geometry selects or
-validates a clearance pose/path. `RunInterpreter` owns the trial transition and
-authority decision. No new actor, manager, repository, or service is justified.
+## Local development contract
 
-## Binding Phase 5 amendment: bootstrap trial order
+The installed Command Line Tools, Swift compiler, macOS SDK, and SwiftPM are
+sufficient. Normal build/test uses the package's compatibility language mode.
+The optional strict check may be used diagnostically but cannot block ordinary
+work merely because a stricter compiler mode reports warnings.
 
-The first training trial executes sequentially:
+Blackdog remains mandatory for retained repository work. Within each Blackdog
+task, use focused tests during iteration and land a coherent working increment.
+Hardware absence or an unrelated physical failure never blocks landing.
 
-```text
-verify clean reserved region
-  -> acquire and retain fresh stable baseline
-  -> travel to the known start
-  -> draw one isolated green stroke under bounded training authority
-  -> request pen lift and reconcile controller state
-  -> execute the Phase-4-proven clearance path
-  -> verify the inflated armature envelope is outside the ROI
-  -> acquire and retain a demonstrably newer stable frame
-  -> detect and fit the isolated mark
-  -> record intended, commanded, predicted, observed, and corresponded geometry
-  -> record goal residual and model innovation
-  -> accept or reject the measurement independently of drawing success
-  -> retain the prior model unless later evidence supports a candidate
-```
+## What remains fixed
 
-The initial observation region and matching search bounds must be deliberately
-large enough to contain bootstrap error. Large residual magnitude alone does not
-make an observation invalid.
-
-Keep these facts separate:
-
-- **Evidence accepted:** the mark is fresh, visible, uniquely associated, and
-  measured with sufficient coverage, topology, and covariance.
-- **Drawing succeeded:** the accepted observation meets the declared goal-error
-  tolerance.
-- **Model candidate accepted:** sufficient independent evidence shows a bounded,
-  identifiable candidate improves held-out prediction without violating
-  applicability, uncertainty, continuity, or inversion gates.
-
-A large but unambiguous first residual may be accepted as training evidence
-while failing drawing tolerance and producing no immediate model promotion.
-Rejecting it solely for its magnitude would discard the evidence needed to
-initialize correction.
-
-## Bootstrap execution authority
-
-The architecture's `ExecutionAuthority.operation` must become concrete before
-the first pen-down trial. At minimum distinguish:
-
-```text
-passiveInterrogation
-boundedPenUpTrial
-isolatedTrainingProbe
-generalDrawing
-```
-
-`isolatedTrainingProbe` is not general drawing authority. It requires:
-
-- explicit independent motion and pen arms;
-- current machine, safety, camera, registration, tool, and pen-profile evidence;
-- one reserved uncontaminated observation region;
-- a bounded path, feed, distance, and command horizon;
-- current Phase-4 clearance evidence;
-- durable command preparation and complete provenance;
-- no automatic redraw.
-
-Cap motion, preview, controller `ok`, controller `Idle`, or commanded pen state
-may not authorize `generalDrawing`.
-
-## Canonical execution vocabulary
-
-The architecture's names control. Use `ExecutionInstruction`, not a parallel
-`PlanInstruction` synonym. The closed initial vocabulary is:
-
-```text
-liftPen
-travel
-draw
-clearObservationRegion
-awaitControllerIdle
-acquireStableFrame
-inspect
-checkpoint
-```
-
-Use `CheckpointDecision` for the interpreter's typed domain decision. If a
-`CheckpointResolution` value exists, it is the durable atomic record containing
-the decision, evidence disposition, frontier changes, selected state/model, and
-next planning basis. It is not a second decision system.
-
-## Registration and canonical identity
-
-Physical `FieldRegistration` acceptance requires independent reference geometry
-and redundant held-out points. A four-point homography evaluated only on the
-same four points that define it is not validation.
-
-Before hashing programs, models, plans, commands, or checkpoint records, define
-a versioned canonical encoding, including key/order rules, identifier encoding,
-floating-point normalization, non-finite-value rejection, and byte-level golden
-fixtures. Do not assume ordinary `Codable` output is a stable content-addressing
-format across builds.
-
-## New-repository adaptation
-
-The sequential plan was written when the new product was expected to coexist
-temporarily inside the legacy repository. This directory instead becomes a
-brand-new repository.
-
-Therefore:
-
-- the repository root is the new product boundary; do not create a nested
-  `macos/AdaptivePlotter/` merely to mirror the legacy layout;
-- Phase 1 inspects `/Users/bullard/Projects/Plotter` read-only and imports only
-  explicitly curated small fixtures with hashes and provenance;
-- the new repository never contains legacy live code, so Phase 8 performs a
-  proof-based product-readiness declaration rather than deleting legacy files
-  locally;
-- retirement, archival, or deletion in the old Plotter repository is a separate
-  user-authorized task and must not be inferred from work in this repository;
-- legacy `make check`, Python packaging, launch scripts, routes, and tests are
-  not copied. Establish native repository validation from the first phase;
-- no compatibility bridge is needed because there is no in-place migration.
-
-## Local-only development contract
-
-AdaptivePlotter targets this operator Mac and this attached plotter only. The
-installed Apple Command Line Tools, Swift 6 compiler, macOS SDK, and SwiftPM are
-the supported development toolchain. Do not require release tooling, a
-developer identity, notarization, sandbox policy work, a cross-Mac support
-matrix, or CI coverage. Create a stable ad-hoc local `.app` wrapper only if a
-macOS API such as camera permission handling needs bundle identity; otherwise
-the SwiftPM executable is a valid development artifact.
-
-Development is capability-driven rather than phase-blocked:
-
-- missing controller or camera hardware never blocks pure implementation,
-  simulation, replay, UI projection, documentation, or landing;
-- run the native passive probe against the actual controller before enabling
-  any powered motion action;
-- verify local camera access and retain exact frames before camera evidence can
-  authorize a physical action;
-- verify each bounded motion or pen dependency immediately before that class of
-  physical action becomes reachable;
-- label simulated, historical, and physically unverified results honestly.
-
-Toolchain or OS work becomes required only after a concrete local build or API
-failure demonstrates it. Do not provision speculative infrastructure.
-
-## Iteration rule
-
-The phases describe dependency order for physical authority, not a global
-development queue. When physical evidence invalidates a prior assumption:
-
-1. disable only the affected physical action and any authority derived from it;
-2. update the owning architecture or capability contract;
-3. correct the earliest affected implementation;
-4. rerun the directly affected tests, simulations, and physical evidence;
-5. retain the failed experiment and decision in the evidence history.
-
-Continue unrelated work. Do not propagate a known mismatch into physical
-authority merely to preserve schedule or phase numbering.
-
-## What remains unchanged
-
-Do not revise these decisions without new contradictory physical evidence:
-
-- one native Swift application process;
-- four initial actors and queue-confined `CameraCapture`;
-- `DrawingProgram` -> finite checkpointed `ExecutionPlan` -> exact controller
-  command batches;
-- commanded, controller-completed, ink-verified, and ambiguous execution facts;
-- one causal forward model with numerical inverse and forward check;
-- separate fast run state and immutable slow model versions;
-- no model switch during a pen-down stroke;
-- no command buffering beyond an inspection checkpoint;
-- evidence acceptance separate from model promotion;
-- UI presentation separate from runtime authority;
-- durable semantic ledger, recorded-decision replay, and non-authoritative
-  algorithm re-evaluation;
-- no live Python, localhost bridge, DTO mirror, compatibility lane, digital
-  twin, workflow framework, or speculative plugin architecture.
+- One local Swift application process; no live Python or localhost bridge.
+- No arbitrary G-code input.
+- No automatic unlock, homing, settings write, alarm clear, reset, or resume.
+- Commands stay inside explicit local feed, distance, and workspace limits.
+- Controller `ok` is not proof of ink.
+- Actual observed ink is the drawing result.
+- An ambiguous command is not automatically resent or redrawn.
+- Preview/display coordinates never become machine coordinates.
+- Add no generalized infrastructure without a concrete current need.
