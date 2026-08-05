@@ -14,14 +14,14 @@ enum MachineSessionComposition {
     requestPassiveProbe: {
       try await session.requestPassiveProbe()
     },
-    confirmPenUp: {
-      await session.confirmPenUp()
-    },
     updateMotionLimits: { limits in
       await session.updateMotionLimits(limits)
     },
     requestRelativeJog: { request in
       await session.requestRelativeJog(request)
+    },
+    requestPenActuation: { command in
+      await session.requestPenActuation(command)
     },
     disconnect: {
       await session.disconnect()
@@ -79,10 +79,6 @@ private actor PersistentMachineSession {
     return try await interpreter.requestPassiveProbe()
   }
 
-  func confirmPenUp() async {
-    await interpreter?.confirmPenUp()
-  }
-
   func updateMotionLimits(_ limits: MotionLimits) async {
     await interpreter?.updateMotionLimits(limits)
   }
@@ -90,6 +86,11 @@ private actor PersistentMachineSession {
   func requestRelativeJog(_ request: RelativeJogRequest) async -> MotionOutcome {
     guard let interpreter else { return .refused(.noSerialDeviceSelected) }
     return await interpreter.requestRelativeJog(request)
+  }
+
+  func requestPenActuation(_ command: PenCommand) async -> PenOutcome {
+    guard let interpreter else { return .refused(.noSerialDeviceSelected) }
+    return await interpreter.requestPenActuation(command)
   }
 
   func disconnect() async {

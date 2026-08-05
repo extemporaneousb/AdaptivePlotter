@@ -27,17 +27,24 @@ enum CameraComposition {
     frames: {
       await session.frames()
     },
-    simulatedContent: {
-      try await session.simulatedContent()
+    inspectScene: {
+      try await session.inspectScene()
+    },
+    captureSnapshot: {
+      try await session.captureSnapshot()
+    },
+    simulatedContent: { mode in
+      try await session.simulatedContent(mode: mode)
     }
   )
 }
 
 private actor CameraSourceSession {
   private let live = CameraCapture()
+  private let vision = VisionWorker()
   private let startupFrameRecorder = StartupFrameRecorder()
   private var simulator: SimulatedFrameSource
-  private let scene: SimulatedFieldScene
+  private let learningDemonstration: SimulatedLearningDemonstration
   private var startupFrameTask: Task<Void, Never>?
 
   init() {
@@ -57,7 +64,7 @@ private actor CameraSourceSession {
         cameraConfigurationID: CameraConfigurationID(),
         initialSequence: 0
       )
-      scene = try SimulatedFieldScene.standard()
+      learningDemonstration = try SimulatedLearningDemonstration.standard()
     } catch {
       preconditionFailure("Invalid deterministic simulator composition: \(error)")
     }
@@ -100,40 +107,35 @@ private actor CameraSourceSession {
     await live.frames()
   }
 
-  func simulatedContent() throws -> SimulatedActionSurfaceContent {
-    let observedCamera = try simulator.cameraPolyline(from: scene.observed)
-    let strokes = zip(observedCamera.points, observedCamera.points.dropFirst()).map {
-      SimulatedCameraStroke(start: $0.0, end: $0.1, green: 210)
+  func inspectScene() async throws -> LiveSceneInspection? {
+    guard let displayedFrame = try await live.materializeLatestFrame() else { return nil }
+    let measurement = try await vision.inspectPlotterScene(in: displayedFrame.frame)
+    return LiveSceneInspection(displayedFrame: displayedFrame, measurement: measurement)
+  }
+
+  func captureSnapshot() async throws -> String {
+    let snapshot = await live.snapshot()
+    guard let displayedFrame = try await live.materializeLatestFrame(),
+      let selectedDeviceID = snapshot.selectedDeviceID,
+      let device = snapshot.devices.first(where: { $0.id == selectedDeviceID })
+    else {
+      throw CameraCaptureError.captureFailed("No current selected-camera frame is available.")
     }
-    let displayedFrame = try simulator.render(strokes: strokes)
-    var overlays: [CameraOverlayMeasurement] = [
-      overlay(
-        .polyline(try simulator.cameraPolyline(from: scene.logical)),
-        operation: CanvasLayer.logical.operationName,
-        displayedFrame: displayedFrame
-      ),
-      overlay(
-        .polyline(try simulator.cameraPolyline(from: scene.predicted)),
-        operation: CanvasLayer.predicted.operationName,
-        displayedFrame: displayedFrame
-      ),
-      overlay(
-        .polyline(observedCamera),
-        operation: CanvasLayer.observed.operationName,
-        displayedFrame: displayedFrame
-      ),
-    ]
-    for (predicted, observed) in zip(scene.predicted.points, scene.observed.points) {
-      let residual = try Polyline<FieldSpace>(points: [predicted, observed])
-      overlays.append(
-        overlay(
-          .polyline(try simulator.cameraPolyline(from: residual)),
-          operation: CanvasLayer.residuals.operationName,
-          displayedFrame: displayedFrame
-        )
-      )
-    }
-    return SimulatedActionSurfaceContent(displayedFrame: displayedFrame, overlays: overlays)
+    return try startupFrameRecorder.recordSnapshot(displayedFrame, device: device).path
+  }
+
+  func simulatedContent(mode: SimulatorModelMode) throws -> SimulatedActionSurfaceContent {
+    let scene = mode == .prior
+      ? learningDemonstration.priorScene
+      : learningDemonstration.trainedScene
+    let content = try simulator.renderModelMismatch(scene)
+    return SimulatedActionSurfaceContent(
+      displayedFrame: content.displayedFrame,
+      overlays: content.overlays,
+      evidenceLabel: SimulatedOverlaySceneContent.evidenceLabel,
+      commandedPenState: content.penState ?? .unknown,
+      learningSummary: learningDemonstration.summary(for: mode)
+    )
   }
 
   private func beginStartupFrameRecordingIfNeeded(_ snapshot: CameraCaptureSnapshot) async {
@@ -158,48 +160,135 @@ private actor CameraSourceSession {
     }
   }
 
-  private func overlay(
-    _ geometry: CameraPixelGeometry,
-    operation: String,
-    displayedFrame: DisplayedFrame
-  ) -> CameraOverlayMeasurement {
-    CameraOverlayMeasurement(
-      frameID: displayedFrame.frame.id,
-      cameraConfigurationID: displayedFrame.frame.cameraConfigurationID,
-      geometry: geometry,
-      provenance: CameraMeasurementProvenance(
-        operation: operation,
-        algorithmRevision: "deterministic-simulator-v1"
-      )
-    )
-  }
 }
 
-private struct SimulatedFieldScene: Sendable {
-  let logical: Polyline<FieldSpace>
-  let predicted: Polyline<FieldSpace>
-  let observed: Polyline<FieldSpace>
+private struct SimulatedLearningDemonstration: Sendable {
+  let priorScene: SimulatedModelMismatchScene
+  let trainedScene: SimulatedModelMismatchScene
+  let candidate: DrawingModelCandidate
+  let accepted: AcceptedDrawingModelSnapshot
 
   static func standard() throws -> Self {
-    Self(
-      logical: try Polyline(points: [
-        Point2(x: 18, y: 25),
-        Point2(x: 72, y: 82),
-        Point2(x: 146, y: 42),
-        Point2(x: 182, y: 92),
-      ]),
-      predicted: try Polyline(points: [
-        Point2(x: 20, y: 24),
-        Point2(x: 74, y: 80),
-        Point2(x: 148, y: 41),
-        Point2(x: 184, y: 90),
-      ]),
-      observed: try Polyline(points: [
-        Point2(x: 21, y: 26),
-        Point2(x: 76, y: 79),
-        Point2(x: 149, y: 44),
-        Point2(x: 183, y: 93),
-      ])
+    let domain = try AxisAlignedBounds<MachineSpace>(
+      minX: 0, minY: 0, maxX: 220, maxY: 120
     )
+    let prior = try AcceptedDrawingModelSnapshot(
+      version: DrawingModelVersion(rawValue: 1),
+      transform: DrawingTransform(
+        machineToField: AffineTransform2(
+          m11: 1, m12: 0, m21: 0, m22: 1, tx: 0, ty: 0
+        ),
+        machineDomain: domain
+      ),
+      provenance: DrawingModelSnapshotProvenance(
+        origin: .prior(name: "simulator-affine-prior")
+      )
+    )
+    let truth = try DrawingTransform(
+      machineToField: AffineTransform2(
+        m11: 1.025, m12: 0.012, m21: -0.009, m22: 0.978, tx: 2.4, ty: 3.1
+      ),
+      machineDomain: domain
+    )
+    let observations = try observationSet(truth: truth)
+    let candidate = try DrawingModelTrainer.fitCandidate(
+      basedOn: prior,
+      observations: observations
+    )
+    let criteria = try ModelAcceptanceCriteria(
+      maximumHoldoutRootMeanSquareError: 0.01,
+      maximumHoldoutError: 0.02,
+      minimumHoldoutRootMeanSquareImprovement: 0.25
+    )
+    let decision = DrawingModelAcceptance.decision(for: candidate, criteria: criteria)
+    let accepted = try DrawingModelAcceptance.accept(
+      candidate,
+      replacing: prior,
+      decision: decision,
+      as: DrawingModelVersion(rawValue: 2),
+      acceptanceNote: "simulated upfront training with held-out improvement"
+    )
+    let online = OnlineModelAccumulator(acceptedModel: accepted, observations: observations)
+    _ = try online.proposeCandidate(at: .penUpBetweenStrokes(identifier: "sim-checkpoint"))
+
+    let logical = try Polyline<FieldSpace>(points: [
+      Point2(x: 18, y: 25), Point2(x: 72, y: 82),
+      Point2(x: 146, y: 42), Point2(x: 182, y: 92),
+    ])
+    let machine = try Polyline<MachineSpace>(points: [
+      Point2(x: 18, y: 25), Point2(x: 72, y: 82),
+      Point2(x: 146, y: 42), Point2(x: 182, y: 92),
+    ])
+    let frame = try AxisAlignedBounds<FieldSpace>(minX: 5, minY: 8, maxX: 205, maxY: 108)
+    let priorScene = try SimulatedModelMismatchScene(
+      scenarioID: "prior-model-mismatch",
+      logicalFieldPath: logical,
+      commandedMachinePath: machine,
+      acceptedModel: prior,
+      simulatedGroundTruthTransform: truth,
+      capFieldPoint: Point2(x: 112, y: 34),
+      frameFieldBounds: frame,
+      penState: .down
+    )
+    let trainedScene = try SimulatedModelMismatchScene(
+      scenarioID: "accepted-trained-model",
+      logicalFieldPath: logical,
+      commandedMachinePath: machine,
+      acceptedModel: accepted,
+      simulatedGroundTruthTransform: truth,
+      capFieldPoint: Point2(x: 112, y: 34),
+      frameFieldBounds: frame,
+      penState: .down
+    )
+    return Self(
+      priorScene: priorScene,
+      trainedScene: trainedScene,
+      candidate: candidate,
+      accepted: accepted
+    )
+  }
+
+  func summary(for mode: SimulatorModelMode) -> String {
+    let baseline = candidate.baselineEvaluation.holdout.rootMeanSquareError
+    let trained = candidate.candidateEvaluation.holdout.rootMeanSquareError
+    switch mode {
+    case .prior:
+      return String(
+        format: "v1 prior · holdout RMS %.3f → %.3f · candidate explicitly accepted as v2",
+        baseline,
+        trained
+      )
+    case .trained:
+      return String(
+        format: "v%llu accepted · holdout RMS %.3f · online proposals only at pen-up checkpoints",
+        accepted.version.rawValue,
+        trained
+      )
+    }
+  }
+
+  private static func observationSet(truth: DrawingTransform) throws
+    -> [DrawingModelTrainingObservation]
+  {
+    let samples: [(Double, Double, ModelObservationSplit, String)] = [
+      (10, 10, .training, "train-1"), (200, 10, .training, "train-2"),
+      (10, 105, .training, "train-3"), (200, 105, .training, "train-4"),
+      (110, 55, .training, "train-5"), (45, 70, .holdout, "holdout-1"),
+      (175, 38, .holdout, "holdout-2"),
+    ]
+    return try samples.map { sample in
+      let (x, y, split, identifier) = sample
+      let machine = try Point2<MachineSpace>(x: x, y: y)
+      return try DrawingModelTrainingObservation(
+        machinePoint: machine,
+        observedFieldPoint: truth.predictedFieldPoint(for: machine),
+        split: split,
+        provenance: ModelObservationProvenance(
+          observationID: identifier,
+          evidence: .simulated(scenarioID: "operator-simulator-training"),
+          algorithmRevision: "exact-affine-simulator-v1"
+        )
+      )
+    }
   }
 }

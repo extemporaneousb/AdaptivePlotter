@@ -67,7 +67,10 @@ struct StartupFrameRecorder: Sendable {
     device: CameraDevice
   ) async throws -> URL {
     guard sampleCount > 0 else { throw RecordingError.invalidSampleCount }
-    let directory = rootDirectory.appendingPathComponent(Self.runDirectoryName(), isDirectory: true)
+    let directory = rootDirectory.appendingPathComponent(
+      Self.runDirectoryName(prefix: "startup"),
+      isDirectory: true
+    )
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
     var samples: [Manifest.Sample] = []
@@ -129,6 +132,46 @@ struct StartupFrameRecorder: Sendable {
     return directory
   }
 
+  func recordSnapshot(_ displayedFrame: DisplayedFrame, device: CameraDevice) throws -> URL {
+    guard case .live(let sourceDeviceID) = displayedFrame.source,
+      sourceDeviceID == device.id
+    else { throw RecordingError.noMatchingFrames }
+    let frame = displayedFrame.frame
+    let directory = rootDirectory.appendingPathComponent(
+      Self.runDirectoryName(prefix: "snapshot"),
+      isDirectory: true
+    )
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let filename = String(format: "frame-seq-%llu.png", frame.sequence)
+    try Self.writePNG(frame, to: directory.appendingPathComponent(filename))
+    let manifest = Manifest(
+      purpose: "operator-requested scene snapshot for offline vision analysis; not calibration evidence",
+      cameraDeviceID: device.id.rawValue,
+      cameraName: device.name,
+      cameraConfigurationID: frame.cameraConfigurationID.rawValue.uuidString.lowercased(),
+      samples: [
+        Manifest.Sample(
+          filename: filename,
+          sequence: frame.sequence,
+          captureNanoseconds: frame.captureNanoseconds,
+          frameID: frame.id.rawValue,
+          contentSHA256: frame.contentSHA256,
+          width: frame.width,
+          height: frame.height,
+          rowBytes: frame.rowBytes,
+          pixelFormat: frame.pixelFormat
+        )
+      ]
+    )
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    try encoder.encode(manifest).write(
+      to: directory.appendingPathComponent("manifest.json"),
+      options: .atomic
+    )
+    return directory
+  }
+
   static func defaultRootDirectory() -> URL {
     let base = FileManager.default.urls(
       for: .applicationSupportDirectory,
@@ -139,11 +182,11 @@ struct StartupFrameRecorder: Sendable {
       .appendingPathComponent("CameraSamples", isDirectory: true)
   }
 
-  private static func runDirectoryName() -> String {
+  private static func runDirectoryName(prefix: String) -> String {
     let formatter = ISO8601DateFormatter()
     formatter.formatOptions = [.withInternetDateTime]
     let timestamp = formatter.string(from: Date()).replacingOccurrences(of: ":", with: "-")
-    return "startup-\(timestamp)-\(UUID().uuidString.lowercased())"
+    return "\(prefix)-\(timestamp)-\(UUID().uuidString.lowercased())"
   }
 
   private static func writePNG(_ frame: StampedFrame, to url: URL) throws {

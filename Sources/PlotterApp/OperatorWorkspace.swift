@@ -8,6 +8,8 @@ enum CanvasLayer: String, CaseIterable, Identifiable {
   case predicted = "Predicted"
   case observed = "Observed"
   case residuals = "Residuals"
+  case cap = "Cap"
+  case frameSides = "Frame"
 
   var id: Self { self }
 
@@ -17,6 +19,8 @@ enum CanvasLayer: String, CaseIterable, Identifiable {
     case .predicted: "predicted"
     case .observed: "simulated-observed"
     case .residuals: "residual"
+    case .cap: "cap"
+    case .frameSides: "frame-side"
     }
   }
 }
@@ -24,6 +28,13 @@ enum CanvasLayer: String, CaseIterable, Identifiable {
 enum OperatorFrameMode: String, CaseIterable, Identifiable, Sendable {
   case live = "LIVE"
   case simulated = "SIMULATED"
+
+  var id: Self { self }
+}
+
+enum SimulatorModelMode: String, CaseIterable, Identifiable, Sendable {
+  case prior = "PRIOR MISMATCH"
+  case trained = "ACCEPTED TRAINING"
 
   var id: Self { self }
 }
@@ -38,6 +49,28 @@ enum JogDirection: Sendable {
 struct SimulatedActionSurfaceContent: Sendable {
   let displayedFrame: DisplayedFrame
   let overlays: [CameraOverlayMeasurement]
+  let evidenceLabel: String
+  let commandedPenState: PenState
+  let learningSummary: String
+
+  init(
+    displayedFrame: DisplayedFrame,
+    overlays: [CameraOverlayMeasurement],
+    evidenceLabel: String = SimulatedOverlaySceneContent.evidenceLabel,
+    commandedPenState: PenState = .unknown,
+    learningSummary: String = "deterministic simulator"
+  ) {
+    self.displayedFrame = displayedFrame
+    self.overlays = overlays
+    self.evidenceLabel = evidenceLabel
+    self.commandedPenState = commandedPenState
+    self.learningSummary = learningSummary
+  }
+}
+
+struct LiveSceneInspection: Sendable {
+  let displayedFrame: DisplayedFrame
+  let measurement: PlotterSceneMeasurement
 }
 
 @MainActor
@@ -54,9 +87,9 @@ final class OperatorWorkspace {
     let select: @Sendable (MachineLinkDescriptor) async throws -> RunInterpreterSnapshot
     let snapshot: @Sendable () async -> RunInterpreterSnapshot?
     let requestPassiveProbe: @Sendable () async throws -> PassiveProbeResult
-    let confirmPenUp: @Sendable () async -> Void
     let updateMotionLimits: @Sendable (MotionLimits) async -> Void
     let requestRelativeJog: @Sendable (RelativeJogRequest) async -> MotionOutcome
+    let requestPenActuation: @Sendable (PenCommand) async -> PenOutcome
     let disconnect: @Sendable () async -> Void
   }
 
@@ -68,11 +101,15 @@ final class OperatorWorkspace {
     let restart: @Sendable () async -> CameraCaptureSnapshot
     let snapshot: @Sendable () async -> CameraCaptureSnapshot
     let frames: @Sendable () async -> AsyncStream<DisplayedFrame>
-    let simulatedContent: @Sendable () async throws -> SimulatedActionSurfaceContent
+    let inspectScene: @Sendable () async throws -> LiveSceneInspection?
+    let captureSnapshot: @Sendable () async throws -> String
+    let simulatedContent: @Sendable (SimulatorModelMode) async throws
+      -> SimulatedActionSurfaceContent
   }
 
   var visibleLayers = Set(CanvasLayer.allCases)
   var frameMode: OperatorFrameMode = .live
+  var simulatorModelMode: SimulatorModelMode = .prior
 
   // String-backed numeric inputs preserve partially typed values and keep X/Y
   // independent. Runtime value constructors and MachineController own validity.
@@ -93,6 +130,7 @@ final class OperatorWorkspace {
   private(set) var machineError: String?
   private(set) var passiveProbeInProgress = false
   private(set) var jogRequestInProgress = false
+  private(set) var penRequestInProgress = false
   private(set) var limitsUpdateInProgress = false
   private(set) var limitsApplied = false
 
@@ -100,6 +138,13 @@ final class OperatorWorkspace {
   private(set) var displayedFrame: DisplayedFrame?
   private(set) var cameraOverlays: [CameraOverlayMeasurement] = []
   private(set) var cameraError: String?
+  private(set) var sceneInspectionInProgress = false
+  private(set) var analysisFrameHeld = false
+  private(set) var lastSceneMeasurement: PlotterSceneMeasurement?
+  private(set) var lastCameraSnapshotPath: String?
+  private(set) var simulatorEvidenceLabel = SimulatedOverlaySceneContent.evidenceLabel
+  private(set) var simulatorPenState: PenState = .unknown
+  private(set) var simulatorLearningSummary = "Switch to SIMULATED to inspect model behavior."
 
   @ObservationIgnored private let machineActions: MachineActions?
   @ObservationIgnored private let cameraActions: CameraActions?
@@ -145,7 +190,7 @@ final class OperatorWorkspace {
   var isShutdown: Bool { hasShutdown }
 
   var cameraStateText: String {
-    guard frameMode == .live else { return "simulated frame source" }
+    guard frameMode == .live else { return simulatorModelMode.rawValue.lowercased() }
     guard let state = cameraSnapshot?.state else { return "not started" }
     return switch state {
     case .stopped: "stopped"
@@ -165,12 +210,27 @@ final class OperatorWorkspace {
     return String(format: "%.2f s", Double(now - frame.captureNanoseconds) / 1_000_000_000)
   }
 
+  var sceneMeasurementText: String {
+    guard let measurement = lastSceneMeasurement else { return "not measured" }
+    let cap = measurement.cap.map {
+      String(format: "cap %.0f px · %.2f", Double($0.pixelCount), $0.confidence)
+    } ?? "cap not found"
+    let top = measurement.topFrameSide.map {
+      String(format: "top %.1f px · %.2f", $0.rmsResidualPixels, $0.confidence)
+    } ?? "top not found"
+    let right = measurement.rightFrameSide.map {
+      String(format: "right %.1f px · %.2f", $0.rmsResidualPixels, $0.confidence)
+    } ?? "right not found"
+    return "\(cap) · \(top) · \(right)"
+  }
+
   var currentOperationText: String {
     guard let operation = machineSnapshot?.currentOperation else { return "none" }
     return switch operation {
     case .idle: "idle"
     case .passiveProbe: "passive probe"
     case .relativeJog: "relative jog"
+    case .penActuation(let command): "pen \(command.rawValue)"
     }
   }
 
@@ -203,6 +263,18 @@ final class OperatorWorkspace {
     }
   }
 
+  var lastPenOutcomeText: String {
+    guard let outcome = machineSnapshot?.lastPenOutcome else { return "none" }
+    switch outcome {
+    case .refused(let reason):
+      return "refused: \(reason.actionableDescription)"
+    case .commandedAndSettled(let command, let commandedState):
+      return "\(command.rawValue) acknowledged; commanded \(commandedState.rawValue)"
+    case .ambiguous(let ambiguity):
+      return "ambiguous: \(ambiguity.actionableDescription)"
+    }
+  }
+
   var actionableError: String? {
     if let cameraError { return cameraError }
     if let machineError { return machineError }
@@ -213,6 +285,12 @@ final class OperatorWorkspace {
       return refusal.actionableDescription
     }
     if case .ambiguous(let ambiguity) = machineSnapshot?.lastMotionOutcome {
+      return ambiguity.actionableDescription
+    }
+    if case .refused(let refusal) = machineSnapshot?.lastPenOutcome {
+      return refusal.actionableDescription
+    }
+    if case .ambiguous(let ambiguity) = machineSnapshot?.lastPenOutcome {
       return ambiguity.actionableDescription
     }
     return nil
@@ -287,6 +365,48 @@ final class OperatorWorkspace {
     return nil
   }
 
+  func penUnavailableReason(for command: PenCommand) -> String? {
+    if penRequestInProgress { return "A pen command is already in progress." }
+    if machineActions == nil { return "Native machine composition is unavailable." }
+    if selectedSerialDevice == nil { return "Select and connect one serial device." }
+    guard let snapshot = machineSnapshot else {
+      return PenRefusal.notConnected.actionableDescription
+    }
+    let machine = snapshot.machine
+    if let ambiguity = machine.stickyAmbiguity {
+      return PenRefusal.stickyAmbiguity(ambiguity).actionableDescription
+    }
+    if machine.operationInFlight || snapshot.currentOperation != .idle {
+      return PenRefusal.operationInFlight.actionableDescription
+    }
+    if machine.connection != .connected {
+      return PenRefusal.notConnected.actionableDescription
+    }
+    guard let controllerState = machine.controllerState, controllerState.isRecognized else {
+      return PenRefusal.controllerStateUnknown.actionableDescription
+    }
+    if controllerState.isAlarm {
+      return PenRefusal.controllerAlarm("controller is in Alarm").actionableDescription
+    }
+    if controllerState != .idle {
+      return PenRefusal.controllerNotIdle(controllerState).actionableDescription
+    }
+    guard command == .lower else { return nil }
+    if machine.pins.hasRelevantLimitAsserted {
+      return PenRefusal.relevantLimitAsserted(machine.pins.rawValue).actionableDescription
+    }
+    guard let position = machine.position else {
+      return PenRefusal.machinePositionUnknown.actionableDescription
+    }
+    guard let limits = machine.motionLimits, limitsApplied else {
+      return PenRefusal.motionLimitsMissing.actionableDescription
+    }
+    if !limits.bounds.contains(position.point) {
+      return PenRefusal.machinePositionOutsideBounds(position).actionableDescription
+    }
+    return nil
+  }
+
   func setLayer(_ layer: CanvasLayer, visible: Bool) {
     guard !hasShutdown else { return }
     if visible {
@@ -299,7 +419,7 @@ final class OperatorWorkspace {
   func refreshSerialDevices() async {
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
-    guard !passiveProbeInProgress && !jogRequestInProgress else { return }
+    guard !passiveProbeInProgress && !jogRequestInProgress && !penRequestInProgress else { return }
     let discovered = serialDeviceDiscovery()
     if let selectedSerialDevice,
       !discovered.contains(where: { $0.identifier == selectedSerialDevice.identifier })
@@ -315,7 +435,9 @@ final class OperatorWorkspace {
   func disconnectMachineSession() async {
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
-    guard selectedSerialDevice != nil, !passiveProbeInProgress, !jogRequestInProgress else { return }
+    guard selectedSerialDevice != nil, !passiveProbeInProgress, !jogRequestInProgress,
+      !penRequestInProgress
+    else { return }
     await machineActions?.disconnect()
     guard canCommit(generation) else { return }
     clearMachineAuthority()
@@ -324,7 +446,7 @@ final class OperatorWorkspace {
   func selectSerialDevice(_ descriptor: MachineLinkDescriptor) async {
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
-    guard !passiveProbeInProgress && !jogRequestInProgress else { return }
+    guard !passiveProbeInProgress && !jogRequestInProgress && !penRequestInProgress else { return }
     guard serialDevices.contains(where: { $0.identifier == descriptor.identifier }) else { return }
     guard let machineActions else {
       machineError = "Native machine composition is unavailable."
@@ -369,11 +491,18 @@ final class OperatorWorkspace {
     }
   }
 
-  func confirmPenUp() async {
+  func requestPenActuation(_ command: PenCommand) async {
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
-    guard let machineActions, selectedSerialDevice != nil else { return }
-    await machineActions.confirmPenUp()
+    guard penUnavailableReason(for: command) == nil, let machineActions else { return }
+    penRequestInProgress = true
+    machineError = nil
+    defer { penRequestInProgress = false }
+    let operation = Task { await machineActions.requestPenActuation(command) }
+    await Task.yield()
+    let interimSnapshot = await machineActions.snapshot()
+    if canCommit(generation) { machineSnapshot = interimSnapshot }
+    _ = await operation.value
     let snapshot = await machineActions.snapshot()
     guard canCommit(generation) else { return }
     machineSnapshot = snapshot
@@ -541,8 +670,59 @@ final class OperatorWorkspace {
     cameraSnapshot = snapshot
     displayedFrame = cameraSnapshot?.latestFrame
     cameraOverlays = []
+    analysisFrameHeld = false
+    lastSceneMeasurement = nil
     updateCameraError()
     beginFrameUpdates(generation: generation)
+  }
+
+  func inspectLatestScene() async {
+    guard let generation = beginHardwareIntent() else { return }
+    defer { endHardwareIntent() }
+    guard frameMode == .live, !sceneInspectionInProgress, let cameraActions else { return }
+    sceneInspectionInProgress = true
+    cameraError = nil
+    defer { sceneInspectionInProgress = false }
+    do {
+      guard let inspection = try await cameraActions.inspectScene() else {
+        guard canCommit(generation) else { return }
+        cameraError = "No newer camera frame is available for analysis."
+        return
+      }
+      guard canCommit(generation) else { return }
+      analysisFrameHeld = true
+      displayedFrame = inspection.displayedFrame
+      lastSceneMeasurement = inspection.measurement
+      cameraOverlays = inspection.measurement.overlays
+    } catch {
+      guard canCommit(generation) else { return }
+      cameraError = actionableDescription(error)
+    }
+  }
+
+  func resumeLivePreview() async {
+    guard frameMode == .live, let cameraActions else { return }
+    analysisFrameHeld = false
+    lastSceneMeasurement = nil
+    cameraOverlays = []
+    let snapshot = await cameraActions.snapshot()
+    cameraSnapshot = snapshot
+    if let latest = snapshot.latestFrame { displayedFrame = latest }
+  }
+
+  func captureCameraSnapshot() async {
+    guard let generation = beginHardwareIntent() else { return }
+    defer { endHardwareIntent() }
+    guard frameMode == .live, let cameraActions else { return }
+    cameraError = nil
+    do {
+      let path = try await cameraActions.captureSnapshot()
+      guard canCommit(generation) else { return }
+      lastCameraSnapshotPath = path
+    } catch {
+      guard canCommit(generation) else { return }
+      cameraError = actionableDescription(error)
+    }
   }
 
   func switchFrameMode(_ mode: OperatorFrameMode) async {
@@ -568,17 +748,28 @@ final class OperatorWorkspace {
       guard canCommit(generation) else { return }
       cameraSnapshot = snapshot
       do {
-        let content = try await cameraActions.simulatedContent()
+        let content = try await cameraActions.simulatedContent(simulatorModelMode)
         guard canCommit(generation) else { return }
         frameMode = .simulated
         displayedFrame = content.displayedFrame
         cameraOverlays = content.overlays
+        simulatorEvidenceLabel = content.evidenceLabel
+        simulatorPenState = content.commandedPenState
+        simulatorLearningSummary = content.learningSummary
       } catch {
         guard canCommit(generation) else { return }
         displayedFrame = nil
         cameraError = actionableDescription(error)
       }
     }
+  }
+
+  func selectSimulatorModelMode(_ mode: SimulatorModelMode) async {
+    guard !hasShutdown else { return }
+    simulatorModelMode = mode
+    guard frameMode == .simulated else { return }
+    frameMode = .live
+    await switchFrameMode(.simulated)
   }
 
   func refreshCurrentState() async {
@@ -628,7 +819,7 @@ final class OperatorWorkspace {
   }
 
   private func receive(_ frame: DisplayedFrame, generation: UInt64? = nil) {
-    guard !hasShutdown, frameMode == .live else { return }
+    guard !hasShutdown, frameMode == .live, !analysisFrameHeld else { return }
     if let generation, !canCommit(generation) { return }
     guard case .live = frame.source else { return }
     displayedFrame = frame
@@ -645,6 +836,7 @@ final class OperatorWorkspace {
     machineError = nil
     passiveProbeInProgress = false
     jogRequestInProgress = false
+    penRequestInProgress = false
     limitsUpdateInProgress = false
     limitsApplied = false
     minimumXText = "-100"
@@ -661,6 +853,11 @@ final class OperatorWorkspace {
     displayedFrame = nil
     cameraOverlays = []
     cameraError = nil
+    analysisFrameHeld = false
+    lastSceneMeasurement = nil
+    lastCameraSnapshotPath = nil
+    simulatorPenState = .unknown
+    simulatorLearningSummary = "Switch to SIMULATED to inspect model behavior."
   }
 
   private func beginHardwareIntent() -> UInt64? {

@@ -1,13 +1,14 @@
 # First Hardware Session
 
-Status: ready for live-camera and bounded-jog verification
-Scope: direct camera capture, repeatable passive interrogation, and one pen-up round trip
+Status: source-ready for controlled powered verification; motion power was off during implementation
+Scope: camera analysis, repeatable passive interrogation, typed pen control, and 1 mm round trips
 
 ## Purpose
 
-Use the native app to confirm that this Mac can show the plotter camera, open the
-actual controller, parse its current identity/status/settings/offsets, and
-complete one deliberately bounded low-speed pen-up round trip.
+Use the native app to confirm that this Mac can show and analyze the plotter
+camera, open the actual controller, parse its current
+identity/status/settings/offsets, command the proven pen mechanism, and complete
+deliberately bounded 1 mm pen-up round trips.
 
 The passive probe sends only:
 
@@ -19,11 +20,13 @@ $$
 $#
 ```
 
-The only machine-affecting command is a closed typed relative GRBL jog. It is
-unavailable until the controller reports recognized Idle state and MPos, X/Y
-limits are clear, explicit local bounds/feed/distance limits are applied, and
-the operator directly confirms that the pen is physically up. There is no pen
-actuation command.
+The machine-affecting surfaces are a closed typed relative GRBL jog and typed
+Pen Up/Pen Down. The pen profile is fixed to the commands proven on this
+mechanism: `M3 S40` up, `M3 S720` down, and `G4 P0.3` settle. No UI field can
+supply raw G-code or servo values. Pen Up needs fresh recognized Idle/non-alarm
+status. Pen Down also needs applied bounds, fresh in-bounds MPos, and clear X/Y
+limit pins. Jog remains unavailable until Pen Up was acknowledged and settled.
+These are controller-commanded states, not camera proof of servo pose.
 
 ## Before connecting
 
@@ -39,13 +42,14 @@ actuation command.
    isolated if the controller can enumerate without it. Otherwise remove or
    restrain the pen and keep the physical power cutoff reachable.
 
-That is the complete local prerequisite list. Full Xcode, Developer ID or
+That is the complete local prerequisite list. Full Xcode, Developer ID,
 distribution signing, entitlements, archival storage preparation, prior-run
-inspection, and evidence packaging are not required. `make app` applies the
-ad-hoc signature needed to bind the bundle's Info.plist and make the permission
-prompt name AdaptivePlotter. It does not provide stable TCC identity across
-rebuilds: the designated requirement contains the executable CDHash, and this
-Mac currently has no valid code-signing identity.
+inspection, and evidence packaging are not required. `make app` prefers a valid
+`AdaptivePlotter Local Development` identity and reports its signing mode. This
+Mac currently has no valid identity: the automated self-signed import reached
+macOS's interactive trust approval and the incomplete key was removed. The
+current fallback is ad-hoc, so its designated requirement contains the changing
+executable CDHash until that one-time approval is completed with the operator.
 
 ## Run the probe
 
@@ -71,11 +75,11 @@ Mac currently has no valid code-signing identity.
    `.build/AdaptivePlotter.app` bundle. The launcher waits for activation to
    succeed or fail, then exits while the application remains running. It does
    not invoke `/usr/bin/open` or the macOS `open` command. LaunchServices makes
-   the prompt attributable to the ad-hoc-signed
+   the prompt attributable to the locally signed
    `com.bullard.AdaptivePlotter` application instead of naming the terminal or
    Codex process that invoked `make`. The bound Info.plist supplies the camera
-   usage description. A rebuild changes the CDHash and may trigger another
-   decision. Do not execute `.build/debug/AdaptivePlotter` or the app's
+   usage description. In current ad-hoc mode a rebuild changes the CDHash and
+   may trigger another decision. Do not execute `.build/debug/AdaptivePlotter` or the app's
    `Contents/MacOS/AdaptivePlotter` binary directly for camera acceptance.
 
 5. Choose **Refresh Serial Devices**, select the controller path, and choose
@@ -104,11 +108,19 @@ Mac currently has no valid code-signing identity.
    produces no frames and no sample directory; that is an external permission
    boundary, not camera evidence.
 4. Confirm that frame sequence advances and frame age remains current.
-5. Stop and restart capture; confirm a new camera configuration is used and
+5. Choose **Analyze Frame**. Confirm preview holds one exact frame and shows one
+   cap box/centroid plus blue top/right side lines. The panel reports support,
+   residual, and confidence rather than a mm scale. Choose **Resume Preview**.
+6. Choose **Save Snapshot** and confirm the UI reports a new PNG/manifest
+   directory under `CameraSamples`.
+7. Stop and restart capture; confirm a new camera configuration is used and
    frames resume.
-6. Switch to **SIMULATED** and back to **LIVE**; confirm source labels are exact
+8. Switch to **SIMULATED**. Toggle **PRIOR MISMATCH** and **ACCEPTED TRAINING**;
+   confirm predicted/observed residuals collapse for the accepted affine model,
+   and that the surface remains labeled not physical evidence. Switch back to
+   **LIVE** and confirm source labels are exact
    and no overlay from the other source/configuration remains visible.
-7. Confirm that the first successful live start created three PNGs plus
+9. Confirm that the first successful live start created three PNGs plus
    `manifest.json` beneath:
 
    ```text
@@ -159,16 +171,31 @@ single-scene priors.
    reports current MPos.
 2. Enter a conservative local X/Y envelope around that MPos, plus a very small
    maximum distance and low maximum feed, then apply the typed limits.
-3. Directly inspect the mechanism and choose **Confirm Pen Is Up** only when the
-   pen is physically clear. Camera appearance alone is not that confirmation.
-4. Send the smallest configured X or Y jog. Wait for `ok` acceptance followed
+3. Keep the physical cutoff reachable and choose **PEN UP**. Confirm the
+   controller acknowledges both the fixed up command and settle dwell, and
+   directly observe that the pen is clear. Stop if command and mechanism disagree.
+4. Send a 1 mm X jog at 100 mm/min. Wait for `ok` acceptance followed
    by observed Idle completion and the expected final MPos.
-5. Send the exact inverse jog and verify return. Try the other axis only if the
-   first round trip was unambiguous.
+5. Send the exact inverse X jog and verify return. Then repeat the same 1 mm
+   round trip on Y only if X was unambiguous.
 
 Stop immediately on unexpected motion, alarm, asserted limit, disconnect, Hold,
 unexpected controller state, or ambiguous outcome. Do not Home, unlock/clear an
-alarm, reset, write settings, Resume, or lower the pen.
+alarm, reset, write settings, or Resume.
+
+## Verify stationary pen actuation
+
+Do this only after both 1 mm round trips return unambiguously and the tool is in
+a harmless in-bounds location over replaceable paper.
+
+1. Choose **PEN DOWN** once. Directly observe whether the pen reaches paper after
+   the acknowledged 0.3 s settle. Controller acknowledgement alone is not proof.
+2. Choose **PEN UP** once. Directly observe clearance.
+3. Stop after that down/up pair. Do not jog while down and do not repeat a command
+   after any timeout, disconnect, reset greeting, rejection, or physical mismatch.
+
+This session establishes actuator behavior only. A stationary dot is ink
+evidence if visible, but it is not an XY model observation or drawing success.
 
 Each query has a two-second absolute deadline and bounded input size. Those
 limits prevent a stuck or noisy serial connection; they are not a broader
@@ -212,6 +239,10 @@ settings merely to force the passive probe to pass.
 
 ## Next hardware step
 
-After the camera and jog round trips pass, add direct Pen Up/Pen Down control and
-establish one camera-visible observation region plus one known pen-up clear pose.
-Then run the isolated-line procedure in the direct implementation plan.
+After camera analysis, both jog round trips, and the stationary pen down/up pair
+pass, establish one camera-visible observation region and one pen-up clear pose.
+The next implementation/physical slice is one bounded isolated line: Pen Up,
+travel to the start, Pen Down, draw one short segment with one pinned accepted
+model, Pen Up, clear the tool, capture a fresh exact frame, detect actual ink,
+and show intended/predicted/observed residuals. Do not accept cap motion,
+controller `ok`, or the simulator as ink authority.

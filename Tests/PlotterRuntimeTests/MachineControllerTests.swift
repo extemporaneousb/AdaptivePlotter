@@ -176,6 +176,8 @@ struct MachineControllerTests {
     ]
     exchanges.append(contentsOf: ControllerTranscriptFixtures.successfulPassiveProbe(delayNanoseconds: 0))
     exchanges.append(statusExchange("<Idle|MPos:0.000,0.000,0.000>"))
+    exchanges.append(contentsOf: successfulPenCommands(.raise))
+    exchanges.append(statusExchange("<Idle|MPos:0.000,0.000,0.000>"))
     exchanges.append(exchange(request, ["ok\r\n"]))
     exchanges.append(statusExchange("<Idle|MPos:1.000,0.000,0.000>"))
     let link = SimulatedGRBLLink(exchanges: exchanges, clock: fixture.clock)
@@ -192,12 +194,15 @@ struct MachineControllerTests {
 
     let retried = await controller.runPassiveProbe()
     #expect(retried.blockers.isEmpty)
-    await controller.confirmPenUp()
+    #expect(
+      await controller.requestPenActuation(.raise)
+        == .commandedAndSettled(command: .raise, commandedState: .up)
+    )
     #expect(
       await controller.requestRelativeJog(request)
         == .acceptedThenCompleted(finalPosition: try MachinePosition(x: 1, y: 0))
     )
-    #expect(link.completedWriteCount == 9)
+    #expect(link.completedWriteCount == 12)
   }
 
   @Test("terminal acknowledgement cannot substitute for query-specific evidence")
@@ -530,7 +535,7 @@ struct RelativeJogTests {
     #expect(
       await ready.controller.requestRelativeJog(try jog(dx: 1, dy: 0, feed: 201))
         == .refused(.feedExceedsMaximum(requested: 201, maximum: 200)))
-    #expect(ready.link.completedWriteCount == PassiveQuery.allCases.count)
+    #expect(ready.link.completedWriteCount == PassiveQuery.allCases.count + 3)
   }
 
   @Test("distance and projected bounds are checked without clamping; boundary is accepted")
@@ -567,7 +572,7 @@ struct RelativeJogTests {
     #expect(
       await roundedToZero.controller.requestRelativeJog(tinyDelta) == .refused(.zeroDelta)
     )
-    #expect(roundedToZero.link.completedWriteCount == PassiveQuery.allCases.count)
+    #expect(roundedToZero.link.completedWriteCount == PassiveQuery.allCases.count + 3)
 
     let tinyFeedController = try await readyController()
     let tinyFeed = try jog(dx: 1, dy: 0, feed: 0.0004)
@@ -575,7 +580,7 @@ struct RelativeJogTests {
       await tinyFeedController.controller.requestRelativeJog(tinyFeed)
         == .refused(.nonPositiveFeed(0))
     )
-    #expect(tinyFeedController.link.completedWriteCount == PassiveQuery.allCases.count)
+    #expect(tinyFeedController.link.completedWriteCount == PassiveQuery.allCases.count + 3)
 
     let roundedOutside = try await readyController(
       status: "<Idle|MPos:9.9995,0.000,0.000>"
@@ -588,7 +593,7 @@ struct RelativeJogTests {
       return
     }
     #expect(abs(destination.point.x - 10.0005) < 1e-12)
-    #expect(roundedOutside.link.completedWriteCount == PassiveQuery.allCases.count + 1)
+    #expect(roundedOutside.link.completedWriteCount == PassiveQuery.allCases.count + 4)
   }
 
   @Test("fresh pre-jog status failures close the stream before any jog bytes")
@@ -633,7 +638,7 @@ struct RelativeJogTests {
       )
       let outcome = await ready.controller.requestRelativeJog(request)
       #expect(outcome == .refused(refusal))
-      #expect(ready.link.completedWriteCount == PassiveQuery.allCases.count + 1)
+      #expect(ready.link.completedWriteCount == PassiveQuery.allCases.count + 4)
       let snapshot = await ready.controller.snapshot()
       #expect(snapshot.connection == .disconnected)
       #expect(snapshot.controllerState == nil)
@@ -643,7 +648,7 @@ struct RelativeJogTests {
 
       let directRetry = await ready.controller.requestRelativeJog(request)
       #expect(directRetry == .refused(.notConnected))
-      #expect(ready.link.completedWriteCount == PassiveQuery.allCases.count + 1)
+      #expect(ready.link.completedWriteCount == PassiveQuery.allCases.count + 4)
     }
   }
 
@@ -670,8 +675,8 @@ struct RelativeJogTests {
       let outcome = await ready.controller.requestRelativeJog(request)
 
       #expect(outcome == .refused(refusal))
-      #expect(ready.link.pendingInputDiscardCount == 1)
-      #expect(ready.link.completedWriteCount == PassiveQuery.allCases.count + 1)
+      #expect(ready.link.pendingInputDiscardCount == 2)
+      #expect(ready.link.completedWriteCount == PassiveQuery.allCases.count + 4)
       #expect((await ready.controller.snapshot()).connection == .disconnected)
     }
   }
@@ -692,8 +697,8 @@ struct RelativeJogTests {
       return
     }
     #expect(reason.contains("could not discard pending controller input"))
-    #expect(ready.link.pendingInputDiscardCount == 1)
-    #expect(ready.link.completedWriteCount == PassiveQuery.allCases.count)
+    #expect(ready.link.pendingInputDiscardCount == 2)
+    #expect(ready.link.completedWriteCount == PassiveQuery.allCases.count + 3)
     let snapshot = await ready.controller.snapshot()
     #expect(snapshot.connection == .disconnected)
     #expect(snapshot.position == nil)
@@ -711,7 +716,7 @@ struct RelativeJogTests {
       #expect(
         await ready.controller.requestRelativeJog(try jog(dx: 1, dy: 0, feed: 60))
           == .refused(.machinePositionUnknown))
-      #expect(ready.link.completedWriteCount == PassiveQuery.allCases.count + 1)
+      #expect(ready.link.completedWriteCount == PassiveQuery.allCases.count + 4)
       #expect((await ready.controller.snapshot()).connection == .disconnected)
     }
   }
@@ -730,7 +735,7 @@ struct RelativeJogTests {
       await limit.controller.requestRelativeJog(try jog(dx: 1, dy: 0, feed: 60))
         == .refused(.relevantLimitAsserted("X")))
 
-    let unknownPen = try await readyController(confirmPenUp: false)
+    let unknownPen = try await readyController(raisePen: false)
     #expect(
       await unknownPen.controller.requestRelativeJog(try jog(dx: 1, dy: 0, feed: 60))
         == .refused(.penNotUp(.unknown)))
@@ -753,7 +758,7 @@ struct RelativeJogTests {
     let outcome = await ready.controller.requestRelativeJog(request)
 
     #expect(outcome == .acceptedThenCompleted(finalPosition: try MachinePosition(x: 1, y: 0)))
-    #expect(ready.link.completedWriteCount == PassiveQuery.allCases.count + 4)
+    #expect(ready.link.completedWriteCount == PassiveQuery.allCases.count + 7)
     let snapshot = await ready.controller.snapshot()
     #expect(snapshot.position == (try MachinePosition(x: 1, y: 0)))
     #expect(snapshot.controllerState == .idle)
@@ -857,6 +862,8 @@ struct RelativeJogTests {
       ]
     )
     exchanges.append(statusExchange("<Idle|MPos:0.000,0.000,0.000>"))
+    exchanges.append(contentsOf: successfulPenCommands(.raise))
+    exchanges.append(statusExchange("<Idle|MPos:0.000,0.000,0.000>"))
     exchanges.append(exchange(request, ["ok\r\n"]))
     exchanges.append(emptyStatusExchange())
     let link = SimulatedGRBLLink(exchanges: exchanges, clock: fixture.clock)
@@ -873,7 +880,10 @@ struct RelativeJogTests {
       completionGraceNanoseconds: 1_000_000_000
     )
     _ = await controller.runPassiveProbe()
-    await controller.confirmPenUp()
+    #expect(
+      await controller.requestPenActuation(.raise)
+        == .commandedAndSettled(command: .raise, commandedState: .up)
+    )
 
     guard case .ambiguous(.completionTimedOut(let deadline)) =
       await controller.requestRelativeJog(request)
@@ -895,19 +905,22 @@ struct RelativeJogTests {
       chunks: ["<Idle|MPos:0.000,0.000,0.000>\r\n"]
     )
     passive.append(statusExchange("<Idle|MPos:0.000,0.000,0.000>"))
+    passive.append(contentsOf: successfulPenCommands(.raise))
+    passive.append(statusExchange("<Idle|MPos:0.000,0.000,0.000>"))
     passive.append(
       SimulatedCommandExchange(
         expectedWrite: MachineController.encodeRelativeJog(request),
-        reads: [
-          ScheduledMachineRead(
-            delayNanoseconds: 40_000_000,
-            outcome: .bytes(Data("ok\r\n".utf8))
-          )
-        ]
+        reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
       )
     )
     passive.append(statusExchange("<Idle|MPos:1.000,0.000,0.000>"))
-    let link = SimulatedGRBLLink(exchanges: passive, clock: clock)
+    let scriptedLink = SimulatedGRBLLink(exchanges: passive, clock: clock)
+    let gate = MachineWriteGate()
+    let link = BlockingMachineLink(
+      base: scriptedLink,
+      blockedWrite: MachineController.encodeRelativeJog(request),
+      gate: gate
+    )
     let controller = MachineController(
       link: link,
       motionLimits: try limits(),
@@ -915,15 +928,19 @@ struct RelativeJogTests {
       queryTimeoutNanoseconds: 100_000_000
     )
     _ = await controller.runPassiveProbe()
-    await controller.confirmPenUp()
+    #expect(
+      await controller.requestPenActuation(.raise)
+        == .commandedAndSettled(command: .raise, commandedState: .up)
+    )
 
     async let first = controller.requestRelativeJog(request)
-    try await Task.sleep(nanoseconds: 5_000_000)
+    await gate.waitUntilBlockedWrite()
     let duplicate = await controller.requestRelativeJog(request)
     #expect(duplicate == .refused(.operationInFlight))
+    await gate.release()
     #expect(
       await first == .acceptedThenCompleted(finalPosition: try MachinePosition(x: 1, y: 0)))
-    #expect(link.completedWriteCount == PassiveQuery.allCases.count + 3)
+    #expect(scriptedLink.completedWriteCount == PassiveQuery.allCases.count + 6)
   }
 
   @Test("partial write is sticky and the same request is never resent")
@@ -1026,6 +1043,8 @@ struct RelativeJogTests {
       chunks: ["<Idle|MPos:0.000,0.000,0.000>\r\n"]
     )
     exchanges.append(statusExchange("<Idle|MPos:0.000,0.000,0.000>"))
+    exchanges.append(contentsOf: successfulPenCommands(.raise))
+    exchanges.append(statusExchange("<Idle|MPos:0.000,0.000,0.000>"))
     exchanges.append(contentsOf: [
       exchange(request, ["ok\r\n"]),
       statusExchange("<Idle|MPos:1.000,0.000,0.000>"),
@@ -1040,7 +1059,10 @@ struct RelativeJogTests {
       queryTimeoutNanoseconds: 1_000
     )
     _ = await controller.runPassiveProbe()
-    await controller.confirmPenUp()
+    #expect(
+      await controller.requestPenActuation(.raise)
+        == .commandedAndSettled(command: .raise, commandedState: .up)
+    )
     #expect(
       await controller.requestRelativeJog(request)
         == .acceptedThenCompleted(finalPosition: try MachinePosition(x: 1, y: 0)))
@@ -1066,11 +1088,206 @@ struct RelativeJogTests {
   }
 }
 
+@Suite("Typed pen actuation")
+struct PenActuationTests {
+  @Test("legacy pen profile is a closed exact wire surface")
+  func exactWireBytes() {
+    let profile = PenActuationProfile.legacyServo
+    #expect(profile.raisedSpindleValue == 40)
+    #expect(profile.loweredSpindleValue == 720)
+    #expect(profile.settleSeconds == 0.3)
+    #expect(MachineController.encodePenActuation(.raise) == Data("M3 S40\n".utf8))
+    #expect(MachineController.encodePenActuation(.lower) == Data("M3 S720\n".utf8))
+    #expect(MachineController.encodePenSettle == Data("G4 P0.3\n".utf8))
+  }
+
+  @Test("raising requires fresh Idle but not limits or a known position")
+  func raiseIsRecoveryAction() async throws {
+    let ready = try await penReadyController(
+      status: "<Idle|WPos:0.000,0.000,0.000>",
+      configureLimits: false,
+      commands: successfulPenCommands(.raise)
+    )
+
+    let outcome = await ready.controller.requestPenActuation(.raise)
+
+    #expect(outcome == .commandedAndSettled(command: .raise, commandedState: .up))
+    let snapshot = await ready.controller.snapshot()
+    #expect(snapshot.penState == .up)
+    #expect(snapshot.lastPenOutcome == outcome)
+    #expect(snapshot.connection == .connected)
+    #expect(ready.link.completedWriteCount == PassiveQuery.allCases.count + 3)
+  }
+
+  @Test("lowering requires fresh in-bounds MPos, limits, and no XY limit")
+  func lowerSafetyBoundary() async throws {
+    let accepted = try await penReadyController(commands: successfulPenCommands(.lower))
+    let acceptedOutcome = await accepted.controller.requestPenActuation(.lower)
+    #expect(acceptedOutcome == .commandedAndSettled(command: .lower, commandedState: .down))
+    #expect((await accepted.controller.snapshot()).penState == .down)
+
+    let noLimits = try await penReadyController(configureLimits: false)
+    #expect(
+      await noLimits.controller.requestPenActuation(.lower)
+        == .refused(.motionLimitsMissing)
+    )
+    #expect(noLimits.link.completedWriteCount == PassiveQuery.allCases.count)
+
+    let noPosition = try await penReadyController(status: "<Idle|WPos:0.000,0.000,0.000>")
+    #expect(
+      await noPosition.controller.requestPenActuation(.lower)
+        == .refused(.machinePositionUnknown)
+    )
+    #expect((await noPosition.controller.snapshot()).connection == .disconnected)
+
+    let outsidePosition = try MachinePosition(x: 11, y: 0)
+    let outside = try await penReadyController(status: "<Idle|MPos:11.000,0.000,0.000>")
+    #expect(
+      await outside.controller.requestPenActuation(.lower)
+        == .refused(.machinePositionOutsideBounds(outsidePosition))
+    )
+
+    let asserted = try await penReadyController(
+      status: "<Idle|MPos:0.000,0.000,0.000|Pn:X>"
+    )
+    #expect(
+      await asserted.controller.requestPenActuation(.lower)
+        == .refused(.relevantLimitAsserted("X"))
+    )
+  }
+
+  @Test("fresh non-Idle or alarm state closes before pen bytes")
+  func freshStateRefusals() async throws {
+    let cases: [(String, PenRefusal)] = [
+      ("<Run|MPos:0.000,0.000,0.000>", .controllerNotIdle(.run)),
+      ("<Alarm|MPos:0.000,0.000,0.000>", .controllerAlarm("controller is in Alarm")),
+    ]
+    for (status, refusal) in cases {
+      let ready = try await penReadyController(freshStatus: status)
+      #expect(await ready.controller.requestPenActuation(.raise) == .refused(refusal))
+      #expect(ready.link.completedWriteCount == PassiveQuery.allCases.count + 1)
+      let snapshot = await ready.controller.snapshot()
+      #expect(snapshot.connection == .disconnected)
+      #expect(snapshot.penState == .unknown)
+    }
+  }
+
+  @Test("partial actuation write is sticky, unknown, and never resent")
+  func partialWriteIsSticky() async throws {
+    let bytes = MachineController.encodePenActuation(.raise)
+    let ready = try await penReadyController(commands: [
+      SimulatedCommandExchange(
+        expectedWrite: bytes,
+        reads: [],
+        writeError: .writeTimedOut(bytesWritten: 3, totalBytes: bytes.count)
+      )
+    ])
+
+    let first = await ready.controller.requestPenActuation(.raise)
+    let ambiguity = MotionAmbiguity.partialWrite(bytesWritten: 3, totalBytes: bytes.count)
+    #expect(first == .ambiguous(ambiguity))
+    let writes = ready.link.completedWriteCount
+    #expect(
+      await ready.controller.requestPenActuation(.raise)
+        == .refused(.stickyAmbiguity(ambiguity))
+    )
+    #expect(ready.link.completedWriteCount == writes)
+    let snapshot = await ready.controller.snapshot()
+    #expect(snapshot.penState == .unknown)
+    #expect(snapshot.stickyAmbiguity == ambiguity)
+  }
+
+  @Test("accepted actuation with rejected settle is sticky and not physical proof")
+  func settleRejectionIsSticky() async throws {
+    let ready = try await penReadyController(commands: [
+      penExchange(.raise, chunks: ["ok\r\n"]),
+      SimulatedCommandExchange(
+        expectedWrite: MachineController.encodePenSettle,
+        reads: [ScheduledMachineRead(outcome: .bytes(Data("error:20\r\n".utf8)))]
+      ),
+    ])
+
+    let ambiguity = MotionAmbiguity.settleCommandRejected("error:20")
+    #expect(await ready.controller.requestPenActuation(.raise) == .ambiguous(ambiguity))
+    let snapshot = await ready.controller.snapshot()
+    #expect(snapshot.penState == .unknown)
+    #expect(snapshot.stickyAmbiguity == ambiguity)
+  }
+
+  @Test("controller reset after pen write is sticky and clears commanded state")
+  func resetAfterWriteIsSticky() async throws {
+    let ready = try await penReadyController(commands: [
+      penExchange(.raise, chunks: ["Grbl 1.1h ['$' for help]\r\n"])
+    ])
+
+    let ambiguity = MotionAmbiguity.malformedReply(
+      "controller reset greeting arrived after pen actuation"
+    )
+    #expect(await ready.controller.requestPenActuation(.raise) == .ambiguous(ambiguity))
+    let snapshot = await ready.controller.snapshot()
+    #expect(snapshot.penState == .unknown)
+    #expect(snapshot.stickyAmbiguity == ambiguity)
+  }
+
+  @Test("pre-actuation controller rejection is retryable")
+  func rejectionBeforeActuationRetries() async throws {
+    let ready = try await penReadyController(commands: [
+      penExchange(.raise, chunks: ["error:15\r\n"]),
+      statusExchange("<Idle|MPos:0.000,0.000,0.000>"),
+      penExchange(.raise, chunks: ["ok\r\n"]),
+      penSettleExchange(chunks: ["ok\r\n"]),
+    ])
+
+    #expect(
+      await ready.controller.requestPenActuation(.raise)
+        == .refused(.controllerRejected("error:15"))
+    )
+    #expect(
+      await ready.controller.requestPenActuation(.raise)
+        == .commandedAndSettled(command: .raise, commandedState: .up)
+    )
+  }
+
+  @Test("disconnect clears commanded pen state")
+  func disconnectClearsState() async throws {
+    let ready = try await penReadyController(commands: successfulPenCommands(.raise))
+    _ = await ready.controller.requestPenActuation(.raise)
+    #expect((await ready.controller.snapshot()).penState == .up)
+
+    await ready.controller.disconnect()
+
+    let snapshot = await ready.controller.snapshot()
+    #expect(snapshot.connection == .disconnected)
+    #expect(snapshot.penState == .unknown)
+  }
+}
+
 private func jog(dx: Double, dy: Double, feed: Double) throws -> RelativeJogRequest {
   RelativeJogRequest(
     delta: try Vector2<MachineSpace>(dx: dx, dy: dy),
     feedMMPerMinute: feed
   )
+}
+
+private func penExchange(_ command: PenCommand, chunks: [String]) -> SimulatedCommandExchange {
+  SimulatedCommandExchange(
+    expectedWrite: MachineController.encodePenActuation(command),
+    reads: chunks.map { ScheduledMachineRead(outcome: .bytes(Data($0.utf8))) }
+  )
+}
+
+private func penSettleExchange(chunks: [String]) -> SimulatedCommandExchange {
+  SimulatedCommandExchange(
+    expectedWrite: MachineController.encodePenSettle,
+    reads: chunks.map { ScheduledMachineRead(outcome: .bytes(Data($0.utf8))) }
+  )
+}
+
+private func successfulPenCommands(_ command: PenCommand) -> [SimulatedCommandExchange] {
+  [
+    penExchange(command, chunks: ["ok\r\n"]),
+    penSettleExchange(chunks: ["ok\r\n"]),
+  ]
 }
 
 private func parsedConfiguration(_ key: String, _ value: String) -> ParsedControllerLine {
@@ -1119,7 +1336,7 @@ private func readyController(
   status: String = "<Idle|MPos:0.000,0.000,0.000>",
   motion: [SimulatedCommandExchange] = [],
   freshStatusExchange: SimulatedCommandExchange? = nil,
-  confirmPenUp: Bool = true,
+  raisePen: Bool = true,
   configureLimits: Bool = true,
   queryTimeoutNanoseconds: UInt64 = 1_000,
   completionGraceNanoseconds: UInt64 = 1_000
@@ -1127,6 +1344,10 @@ private func readyController(
   let fixture = try await Fixture.make()
   var exchanges = ControllerTranscriptFixtures.successfulPassiveProbe(delayNanoseconds: 0)
   exchanges[2] = ControllerTranscriptFixtures.exchange(.status, chunks: ["\(status)\r\n"])
+  if raisePen {
+    exchanges.append(statusExchange(status))
+    exchanges.append(contentsOf: successfulPenCommands(.raise))
+  }
   exchanges.append(freshStatusExchange ?? statusExchange(status))
   exchanges.append(contentsOf: motion)
   let link = SimulatedGRBLLink(exchanges: exchanges, clock: fixture.clock)
@@ -1141,7 +1362,39 @@ private func readyController(
     completionGraceNanoseconds: completionGraceNanoseconds
   )
   _ = await controller.runPassiveProbe()
-  if confirmPenUp { await controller.confirmPenUp() }
+  if raisePen {
+    #expect(
+      await controller.requestPenActuation(.raise)
+        == .commandedAndSettled(command: .raise, commandedState: .up)
+    )
+  }
+  return (controller, link)
+}
+
+private func penReadyController(
+  status: String = "<Idle|MPos:0.000,0.000,0.000>",
+  freshStatus: String? = nil,
+  configureLimits: Bool = true,
+  commands: [SimulatedCommandExchange] = [],
+  queryTimeoutNanoseconds: UInt64 = 1_000
+) async throws -> (controller: MachineController, link: SimulatedGRBLLink) {
+  let fixture = try await Fixture.make()
+  var exchanges = ControllerTranscriptFixtures.successfulPassiveProbe(delayNanoseconds: 0)
+  exchanges[2] = ControllerTranscriptFixtures.exchange(.status, chunks: ["\(status)\r\n"])
+  exchanges.append(statusExchange(freshStatus ?? status))
+  exchanges.append(contentsOf: commands)
+  let link = SimulatedGRBLLink(exchanges: exchanges, clock: fixture.clock)
+  let controller = MachineController(
+    link: link,
+    motionLimits: configureLimits ? try limits() : nil,
+    ledger: fixture.ledger,
+    runID: fixture.runID,
+    clock: fixture.clock,
+    queryTimeoutNanoseconds: queryTimeoutNanoseconds,
+    statusPollIntervalNanoseconds: 1,
+    completionGraceNanoseconds: 1_000
+  )
+  _ = await controller.runPassiveProbe()
   return (controller, link)
 }
 

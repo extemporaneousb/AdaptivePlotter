@@ -52,6 +52,14 @@ public struct OwnedFrameBytes: Codable, Hashable, Sendable {
     storage = Data(bytes)
   }
 
+  init(copying source: UnsafeRawBufferPointer) {
+    guard let base = source.baseAddress, !source.isEmpty else {
+      storage = Data()
+      return
+    }
+    storage = Data(bytes: base, count: source.count)
+  }
+
   public var data: Data { storage }
   public var count: Int { storage.count }
   public subscript(index: Int) -> UInt8 { storage[index] }
@@ -65,6 +73,25 @@ public enum FrameError: Error, Equatable, Sendable {
   case invalidRegion
   case unsupportedPixelFormat
   case invalidStabilityPolicy
+  case invalidVisionPolicy
+}
+
+/// Bounds immutable preview creation without reducing the camera's delivery
+/// rate. Exact snapshot and measurement requests may still materialize the
+/// newest delivered pixels immediately.
+public struct LiveFrameMaterializationPolicy: Codable, Hashable, Sendable {
+  public static let everyFrame = LiveFrameMaterializationPolicy(
+    minimumPreviewIntervalNanoseconds: 0
+  )
+  public static let interactivePreview = LiveFrameMaterializationPolicy(
+    minimumPreviewIntervalNanoseconds: 100_000_000
+  )
+
+  public let minimumPreviewIntervalNanoseconds: UInt64
+
+  public init(minimumPreviewIntervalNanoseconds: UInt64) {
+    self.minimumPreviewIntervalNanoseconds = minimumPreviewIntervalNanoseconds
+  }
 }
 
 public struct StampedFrame: Codable, Hashable, Sendable {

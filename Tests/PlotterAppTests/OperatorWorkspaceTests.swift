@@ -205,7 +205,7 @@ func typedJogDoesNotRequireCamera() async throws {
   )
   await workspace.selectSerialDevice(device)
   await applyTestLimits(workspace)
-  await workspace.confirmPenUp()
+  await workspace.requestPenActuation(.raise)
   workspace.xStepText = "2.5"
   workspace.yStepText = "9.25"
   workspace.feedText = "75"
@@ -243,7 +243,7 @@ func refusalCanRetry() async throws {
   )
   await workspace.selectSerialDevice(device)
   await applyTestLimits(workspace)
-  await workspace.confirmPenUp()
+  await workspace.requestPenActuation(.raise)
 
   await workspace.requestJog(.xPositive)
   #expect(workspace.lastMotionOutcomeText.contains("refused"))
@@ -253,6 +253,35 @@ func refusalCanRetry() async throws {
 
   #expect(await fixture.jogRequests.count == 2)
   #expect(workspace.lastMotionOutcomeText.contains("completed at X 1.000 Y 0.000"))
+}
+
+@Test("Pen buttons issue typed controller commands and never manufacture an up state")
+@MainActor
+func typedPenControls() async throws {
+  let fixture = MachineFixture()
+  let device = testDevice()
+  let workspace = OperatorWorkspace(
+    machineActions: machineActions(fixture),
+    serialDevices: [device]
+  )
+  await workspace.selectSerialDevice(device)
+
+  #expect(workspace.penUnavailableReason(for: .raise) == nil)
+  #expect(
+    workspace.penUnavailableReason(for: .lower)
+      == PenRefusal.motionLimitsMissing.actionableDescription
+  )
+
+  await workspace.requestPenActuation(.raise)
+  #expect(await fixture.penRequests == [.raise])
+  #expect(workspace.penStateText == "up")
+  #expect(workspace.lastPenOutcomeText.contains("acknowledged"))
+
+  await applyTestLimits(workspace)
+  #expect(workspace.penUnavailableReason(for: .lower) == nil)
+  await workspace.requestPenActuation(.lower)
+  #expect(await fixture.penRequests == [.raise, .lower])
+  #expect(workspace.penStateText == "down")
 }
 
 @Test("X and Y jog values remain independent")
@@ -266,7 +295,7 @@ func independentJogValues() async throws {
   )
   await workspace.selectSerialDevice(device)
   await applyTestLimits(workspace)
-  await workspace.confirmPenUp()
+  await workspace.requestPenActuation(.raise)
   workspace.xStepText = "1.25"
   workspace.yStepText = "3.75"
   workspace.feedText = "60"
@@ -297,7 +326,7 @@ func nonPositiveStepMagnitudesAreDisabled() async {
     )
     await workspace.selectSerialDevice(device)
     await applyTestLimits(workspace)
-    await workspace.confirmPenUp()
+    await workspace.requestPenActuation(.raise)
     workspace.xStepText = input.x
     workspace.yStepText = input.y
 
@@ -323,7 +352,7 @@ func serialRefreshDisconnectsDisappearedSelection() async {
   await workspace.selectSerialDevice(device)
   await workspace.requestPassiveProbe()
   await applyTestLimits(workspace)
-  await workspace.confirmPenUp()
+  await workspace.requestPenActuation(.raise)
 
   await workspace.refreshSerialDevices()
 
@@ -336,7 +365,7 @@ func serialRefreshDisconnectsDisappearedSelection() async {
   #expect(workspace.penStateText == PenState.unknown.rawValue)
 }
 
-@Test("Disconnect and same-path reselect require fresh facts, limits, and pen confirmation")
+@Test("Disconnect and same-path reselect require fresh facts, limits, and a new pen raise")
 @MainActor
 func disconnectAndReselectRequireFreshAuthority() async {
   let fixture = MachineFixture()
@@ -347,7 +376,7 @@ func disconnectAndReselectRequireFreshAuthority() async {
   )
   await workspace.selectSerialDevice(device)
   await applyTestLimits(workspace)
-  await workspace.confirmPenUp()
+  await workspace.requestPenActuation(.raise)
   #expect(workspace.motionUnavailableReason == nil)
 
   await workspace.disconnectMachineSession()
@@ -381,7 +410,7 @@ func disconnectAndReselectRequireFreshAuthority() async {
       == MotionRefusal.penNotUp(.unknown).actionableDescription
   )
 
-  await workspace.confirmPenUp()
+  await workspace.requestPenActuation(.raise)
   #expect(workspace.motionUnavailableReason == nil)
 }
 
@@ -409,7 +438,7 @@ func shutdownTearsDownExactlyOnce() async throws {
   await workspace.selectSerialDevice(device)
   await workspace.requestPassiveProbe()
   await applyTestLimits(workspace)
-  await workspace.confirmPenUp()
+  await workspace.requestPenActuation(.raise)
   await workspace.startCamera()
 
   await workspace.shutdown()
@@ -606,6 +635,31 @@ func simulatorCannotReachMachineSession() async throws {
   #expect(workspace.displayedFrame?.source == .simulated)
   #expect(await machine.totalInvocationCount == 0)
   #expect(await camera.simulatorCount == 1)
+
+  await workspace.selectSimulatorModelMode(.trained)
+  #expect(await camera.simulatorModes == [.prior, .trained])
+  #expect(await machine.totalInvocationCount == 0)
+}
+
+@Test("Camera snapshot affordance reports the exact output directory")
+@MainActor
+func cameraSnapshotAffordance() async throws {
+  let displayed = try testDisplayedFrame()
+  let camera = CameraFixture(
+    snapshot: CameraCaptureSnapshot(
+      devices: [CameraDevice(id: CameraDeviceID(rawValue: "camera"), name: "Camera")],
+      selectedDeviceID: CameraDeviceID(rawValue: "camera"),
+      state: .running,
+      latestFrame: displayed,
+      error: nil
+    ),
+    simulated: displayed
+  )
+  let workspace = OperatorWorkspace(cameraActions: cameraActions(camera))
+
+  await workspace.captureCameraSnapshot()
+
+  #expect(workspace.lastCameraSnapshotPath == "/tmp/adaptiveplotter-test-snapshot")
 }
 
 private actor MachineFixture {
@@ -614,7 +668,7 @@ private actor MachineFixture {
   private(set) var jogRequests: [RelativeJogRequest] = []
   private(set) var probeCount = 0
   private(set) var selectCount = 0
-  private(set) var confirmCount = 0
+  private(set) var penRequests: [PenCommand] = []
   private(set) var limitCount = 0
   private(set) var disconnectCount = 0
   private(set) var lastLimits: MotionLimits?
@@ -628,7 +682,8 @@ private actor MachineFixture {
   }
 
   var totalInvocationCount: Int {
-    selectCount + probeCount + confirmCount + limitCount + disconnectCount + jogRequests.count
+    selectCount + probeCount + limitCount + disconnectCount + jogRequests.count
+      + penRequests.count
   }
 
   func select(_ descriptor: MachineLinkDescriptor) -> RunInterpreterSnapshot {
@@ -662,9 +717,20 @@ private actor MachineFixture {
     return result
   }
 
-  func confirmPenUp() {
-    confirmCount += 1
-    replaceMachine(pen: .up)
+  func actuatePen(_ command: PenCommand) -> PenOutcome {
+    penRequests.append(command)
+    let outcome = PenOutcome.commandedAndSettled(
+      command: command,
+      commandedState: command.commandedState
+    )
+    snapshot = RunInterpreterSnapshot(
+      currentOperation: .idle,
+      machine: replacing(snapshot.machine, pen: command.commandedState),
+      lastMotionOutcome: snapshot.lastMotionOutcome,
+      lastPenOutcome: outcome,
+      lastProbe: snapshot.lastProbe
+    )
+    return outcome
   }
 
   func updateLimits(_ limits: MotionLimits) {
@@ -729,9 +795,9 @@ private func machineActions(
       await probeGate?.wait()
       return await fixture.probe()
     },
-    confirmPenUp: { await fixture.confirmPenUp() },
     updateMotionLimits: { limits in await fixture.updateLimits(limits) },
     requestRelativeJog: { request in await fixture.jog(request) },
+    requestPenActuation: { command in await fixture.actuatePen(command) },
     disconnect: { await fixture.disconnect() }
   )
 }
@@ -740,6 +806,7 @@ private actor CameraFixture {
   private var current: CameraCaptureSnapshot
   private let simulated: DisplayedFrame
   private(set) var simulatorCount = 0
+  private(set) var simulatorModes: [SimulatorModelMode] = []
   private(set) var startCount = 0
   private(set) var stopCount = 0
   private(set) var framesCount = 0
@@ -778,8 +845,9 @@ private actor CameraFixture {
     )
     return current
   }
-  func simulatedContent() -> SimulatedActionSurfaceContent {
+  func simulatedContent(_ mode: SimulatorModelMode) -> SimulatedActionSurfaceContent {
     simulatorCount += 1
+    simulatorModes.append(mode)
     return SimulatedActionSurfaceContent(displayedFrame: simulated, overlays: [])
   }
   func frames() -> AsyncStream<DisplayedFrame> {
@@ -803,7 +871,9 @@ private func cameraActions(
     restart: { await fixture.snapshot() },
     snapshot: { await fixture.snapshot() },
     frames: { await fixture.frames() },
-    simulatedContent: { await fixture.simulatedContent() }
+    inspectScene: { nil },
+    captureSnapshot: { "/tmp/adaptiveplotter-test-snapshot" },
+    simulatedContent: { mode in await fixture.simulatedContent(mode) }
   )
 }
 

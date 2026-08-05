@@ -75,12 +75,26 @@ public struct CameraCaptureSnapshot: Codable, Hashable, Sendable {
   }
 }
 
-public struct CapturedBGRAFrame: Sendable {
+private enum CapturedFrameStorageError: Error {
+  case pixelBufferLockFailed(CVReturn)
+  case unreadablePixelBuffer
+}
+
+/// A driver frame may retain its camera pixel buffer until CameraCapture
+/// chooses to materialize it. The mailbox and actor retain only the newest
+/// pending capture, so skipped preview frames never allocate or hash an owned
+/// 1080p copy.
+public final class CapturedBGRAFrame: @unchecked Sendable {
+  private enum Storage {
+    case bytes(Data)
+    case pixelBuffer(CVPixelBuffer)
+  }
+
   public let width: Int
   public let height: Int
   public let rowBytes: Int
-  public let bytes: Data
   public let captureNanoseconds: UInt64
+  private let storage: Storage
 
   public init(
     width: Int,
@@ -92,8 +106,37 @@ public struct CapturedBGRAFrame: Sendable {
     self.width = width
     self.height = height
     self.rowBytes = rowBytes
-    self.bytes = bytes
     self.captureNanoseconds = captureNanoseconds
+    storage = .bytes(bytes)
+  }
+
+  fileprivate init(pixelBuffer: CVPixelBuffer, captureNanoseconds: UInt64) {
+    width = CVPixelBufferGetWidth(pixelBuffer)
+    height = CVPixelBufferGetHeight(pixelBuffer)
+    rowBytes = CVPixelBufferGetBytesPerRow(pixelBuffer)
+    self.captureNanoseconds = captureNanoseconds
+    storage = .pixelBuffer(pixelBuffer)
+  }
+
+  func materializedBytes() throws -> OwnedFrameBytes {
+    switch storage {
+    case .bytes(let data):
+      return OwnedFrameBytes(copying: data)
+    case .pixelBuffer(let pixelBuffer):
+      let lockResult = CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
+      guard lockResult == kCVReturnSuccess else {
+        throw CapturedFrameStorageError.pixelBufferLockFailed(lockResult)
+      }
+      defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
+      guard let baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer) else {
+        throw CapturedFrameStorageError.unreadablePixelBuffer
+      }
+      return OwnedFrameBytes(
+        copying: UnsafeRawBufferPointer(
+          start: baseAddress,
+          count: rowBytes * height
+        ))
+    }
   }
 }
 
@@ -109,6 +152,11 @@ struct CameraDriverEventMailboxDiagnostics: Equatable, Sendable {
   let pendingEventCount: Int
   let pendingFrameCount: Int
   let maximumPendingFrameCount: Int
+}
+
+struct CameraCaptureDiagnostics: Equatable, Sendable {
+  let receivedFrameCount: UInt64
+  let materializedFrameCount: UInt64
 }
 
 /// One callback-order-preserving ingress per capture generation. Consecutive
@@ -210,7 +258,17 @@ public actor CameraCapture {
     let task: Task<Void, Error>
   }
 
+  private struct BufferedCapture {
+    let id: FrameID
+    let sequence: UInt64
+    let captureNanoseconds: UInt64
+    let cameraConfigurationID: CameraConfigurationID
+    let sourceDeviceID: CameraDeviceID
+    let captured: CapturedBGRAFrame
+  }
+
   private let driver: any CameraCaptureDriver
+  private let materializationPolicy: LiveFrameMaterializationPolicy
   private var devices: [CameraDevice] = []
   private var selectedDeviceID: CameraDeviceID?
   private var state: CameraCaptureState = .stopped
@@ -224,14 +282,25 @@ public actor CameraCapture {
   private var eventConsumer: Task<Void, Never>?
   private var nextSequence: UInt64 = 1
   private var lastTimestamp: UInt64 = 0
+  private var latestCapture: BufferedCapture?
+  private var lastMaterializedCaptureNanoseconds: UInt64?
+  private var receivedFrameCount: UInt64 = 0
+  private var materializedFrameCount: UInt64 = 0
   private var frameContinuations: [UUID: AsyncStream<DisplayedFrame>.Continuation] = [:]
 
-  public init() {
+  public init(
+    materializationPolicy: LiveFrameMaterializationPolicy = .interactivePreview
+  ) {
     driver = AVFoundationCameraDriver()
+    self.materializationPolicy = materializationPolicy
   }
 
-  public init(driver: any CameraCaptureDriver) {
+  public init(
+    driver: any CameraCaptureDriver,
+    materializationPolicy: LiveFrameMaterializationPolicy = .everyFrame
+  ) {
     self.driver = driver
+    self.materializationPolicy = materializationPolicy
   }
 
   public func discoverDevices() async {
@@ -403,6 +472,36 @@ public actor CameraCapture {
     )
   }
 
+  /// Materializes the newest delivered camera pixels as one immutable, hashed
+  /// frame. A freshness boundary returns nil rather than substituting an older
+  /// preview frame.
+  public func materializeLatestFrame(
+    newerThanNanoseconds: UInt64 = 0
+  ) throws -> DisplayedFrame? {
+    guard let latestCapture,
+      latestCapture.captureNanoseconds > newerThanNanoseconds
+    else { return nil }
+    if latestFrame?.frame.id == latestCapture.id {
+      return latestFrame
+    }
+    do {
+      let displayed = try materialize(latestCapture)
+      publish(displayed)
+      return displayed
+    } catch {
+      throw CameraCaptureError.captureFailed(
+        "Could not materialize the latest camera frame: \(error)"
+      )
+    }
+  }
+
+  func diagnostics() -> CameraCaptureDiagnostics {
+    CameraCaptureDiagnostics(
+      receivedFrameCount: receivedFrameCount,
+      materializedFrameCount: materializedFrameCount
+    )
+  }
+
   public func frames() -> AsyncStream<DisplayedFrame> {
     let identifier = UUID()
     let stream = AsyncStream<DisplayedFrame>(bufferingPolicy: .bufferingNewest(1)) {
@@ -443,25 +542,25 @@ public actor CameraCapture {
         return
       }
       let timestamp = max(captured.captureNanoseconds, lastTimestamp + 1)
+      guard let selectedDeviceID else { return }
+      let buffered = BufferedCapture(
+        id: FrameID(),
+        sequence: nextSequence,
+        captureNanoseconds: timestamp,
+        cameraConfigurationID: configurationID,
+        sourceDeviceID: selectedDeviceID,
+        captured: captured
+      )
+      nextSequence &+= 1
+      lastTimestamp = timestamp
+      receivedFrameCount &+= 1
+      latestCapture = buffered
+      guard shouldMaterializePreview(captureNanoseconds: timestamp) else { return }
       do {
-        let stamped = try StampedFrame(
-          sequence: nextSequence,
-          captureNanoseconds: timestamp,
-          cameraConfigurationID: configurationID,
-          width: captured.width,
-          height: captured.height,
-          rowBytes: captured.rowBytes,
-          pixelFormat: .bgra8,
-          bytes: OwnedFrameBytes(copying: captured.bytes)
-        )
-        nextSequence &+= 1
-        lastTimestamp = timestamp
-        guard let selectedDeviceID else { return }
-        let displayed = DisplayedFrame(source: .live(selectedDeviceID), frame: stamped)
-        latestFrame = displayed
-        for continuation in frameContinuations.values { continuation.yield(displayed) }
+        publish(try materialize(buffered))
       } catch {
-        await stopDriverAndFail(.captureFailed(String(describing: error)))
+        await stopDriverAndFail(
+          .captureFailed("Could not materialize a camera preview frame: \(error)"))
       }
     case .interrupted(let reason):
       guard state == .running || state == .starting else { return }
@@ -483,8 +582,39 @@ public actor CameraCapture {
     let generation = UUID()
     lifecycleGeneration = generation
     cameraConfigurationID = nil
+    latestCapture = nil
+    lastMaterializedCaptureNanoseconds = nil
     finishEventChannel()
     return generation
+  }
+
+  private func shouldMaterializePreview(captureNanoseconds: UInt64) -> Bool {
+    guard let previous = lastMaterializedCaptureNanoseconds else { return true }
+    guard captureNanoseconds >= previous else { return true }
+    return captureNanoseconds - previous
+      >= materializationPolicy.minimumPreviewIntervalNanoseconds
+  }
+
+  private func materialize(_ buffered: BufferedCapture) throws -> DisplayedFrame {
+    let stamped = try StampedFrame(
+      id: buffered.id,
+      sequence: buffered.sequence,
+      captureNanoseconds: buffered.captureNanoseconds,
+      cameraConfigurationID: buffered.cameraConfigurationID,
+      width: buffered.captured.width,
+      height: buffered.captured.height,
+      rowBytes: buffered.captured.rowBytes,
+      pixelFormat: .bgra8,
+      bytes: buffered.captured.materializedBytes()
+    )
+    materializedFrameCount &+= 1
+    return DisplayedFrame(source: .live(buffered.sourceDeviceID), frame: stamped)
+  }
+
+  private func publish(_ displayed: DisplayedFrame) {
+    latestFrame = displayed
+    lastMaterializedCaptureNanoseconds = displayed.frame.captureNanoseconds
+    for continuation in frameContinuations.values { continuation.yield(displayed) }
   }
 
   private func finishEventChannel() {
@@ -526,6 +656,8 @@ public actor CameraCapture {
 
   private func fail(_ issue: CameraCaptureError) {
     cameraConfigurationID = nil
+    latestCapture = nil
+    lastMaterializedCaptureNanoseconds = nil
     error = issue
     state = .failed(issue)
   }
@@ -553,23 +685,10 @@ private final class AVFrameDelegate: NSObject, AVCaptureVideoDataOutputSampleBuf
       eventHandler(.failed("Capture delivered a non-BGRA pixel buffer."))
       return
     }
-    CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
-    defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
-    guard let baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer) else {
-      eventHandler(.failed("Capture delivered a pixel buffer without readable storage."))
-      return
-    }
-    let width = CVPixelBufferGetWidth(pixelBuffer)
-    let height = CVPixelBufferGetHeight(pixelBuffer)
-    let rowBytes = CVPixelBufferGetBytesPerRow(pixelBuffer)
-    let owned = Data(bytes: baseAddress, count: rowBytes * height)
     eventHandler(
       .frame(
         CapturedBGRAFrame(
-          width: width,
-          height: height,
-          rowBytes: rowBytes,
-          bytes: owned,
+          pixelBuffer: pixelBuffer,
           captureNanoseconds: DispatchTime.now().uptimeNanoseconds
         )))
   }

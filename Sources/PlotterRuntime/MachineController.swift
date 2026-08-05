@@ -7,6 +7,7 @@ public enum MachineConnectionState: String, Codable, Hashable, Sendable {
   case connected
   case probing
   case moving
+  case actuatingPen
   case blocked
 }
 
@@ -18,11 +19,13 @@ public struct MachineSnapshot: Codable, Hashable, Sendable {
   public let controllerState: ControllerState?
   public let position: MachinePosition?
   public let pins: ControllerPins
+  /// Last controller-commanded pen state. This is not visual proof of the physical pen pose.
   public let penState: PenState
   public let stickyAmbiguity: MotionAmbiguity?
   public let motionLimits: MotionLimits?
   public let operationInFlight: Bool
   public let lastMotionOutcome: MotionOutcome?
+  public let lastPenOutcome: PenOutcome?
 
   public init(
     connection: MachineConnectionState,
@@ -36,7 +39,8 @@ public struct MachineSnapshot: Codable, Hashable, Sendable {
     stickyAmbiguity: MotionAmbiguity? = nil,
     motionLimits: MotionLimits? = nil,
     operationInFlight: Bool = false,
-    lastMotionOutcome: MotionOutcome? = nil
+    lastMotionOutcome: MotionOutcome? = nil,
+    lastPenOutcome: PenOutcome? = nil
   ) {
     self.connection = connection
     self.link = link
@@ -50,6 +54,7 @@ public struct MachineSnapshot: Codable, Hashable, Sendable {
     self.motionLimits = motionLimits
     self.operationInFlight = operationInFlight
     self.lastMotionOutcome = lastMotionOutcome
+    self.lastPenOutcome = lastPenOutcome
   }
 }
 
@@ -78,6 +83,7 @@ public actor MachineController {
   private enum ActiveOperation {
     case passiveProbe
     case relativeJog
+    case penActuation
   }
 
   private struct WireRelativeJog {
@@ -130,6 +136,7 @@ public actor MachineController {
   private var controllerMotionTiming: ControllerMotionTiming?
   private var activeOperation: ActiveOperation?
   private var lastMotionOutcome: MotionOutcome?
+  private var lastPenOutcome: PenOutcome?
 
   public init(
     link: any MachineLink,
@@ -201,7 +208,8 @@ public actor MachineController {
       stickyAmbiguity: stickyAmbiguity,
       motionLimits: motionLimits,
       operationInFlight: activeOperation != nil,
-      lastMotionOutcome: lastMotionOutcome
+      lastMotionOutcome: lastMotionOutcome,
+      lastPenOutcome: lastPenOutcome
     )
   }
 
@@ -209,18 +217,8 @@ public actor MachineController {
     motionLimits = limits
   }
 
-  public func confirmPenUp() {
-    guard connection == .connected, controllerState?.isRecognized == true,
-      controllerState?.isAlarm == false
-    else {
-      penState = .unknown
-      return
-    }
-    penState = .up
-  }
-
   public func disconnect() async {
-    if activeOperation == .relativeJog {
+    if activeOperation == .relativeJog || activeOperation == .penActuation {
       setAmbiguous(.disconnected)
     }
     await link.close()
@@ -345,7 +343,7 @@ public actor MachineController {
       )
     }
 
-    switch await awaitJogAcknowledgement() {
+    switch await awaitCommandAcknowledgement(context: "jog") {
     case .accepted:
       break
     case .rejected(let reason):
@@ -408,6 +406,117 @@ public actor MachineController {
       request: request,
       outcome: ambiguous(.completionTimedOut(deadlineNanoseconds: deadline))
     )
+  }
+
+  /// Sends one closed pen command followed by the fixed settle dwell. A successful
+  /// result records the controller-commanded state, not a visually proven state.
+  public func requestPenActuation(_ command: PenCommand) async -> PenOutcome {
+    guard activeOperation == nil else {
+      return finishPen(command: command, outcome: .refused(.operationInFlight))
+    }
+    if let refusal = validatePenSession(command) {
+      return finishPen(command: command, outcome: .refused(refusal))
+    }
+
+    activeOperation = .penActuation
+    defer {
+      activeOperation = nil
+      if connection == .actuatingPen { connection = .connected }
+    }
+
+    do {
+      try await link.discardPendingInput()
+    } catch {
+      await closeAndInvalidateKnowledge()
+      return finishPen(
+        command: command,
+        outcome: .refused(
+          .freshStatusUnavailable(
+            "could not discard pending controller input: \(String(describing: error))"
+          )
+        )
+      )
+    }
+
+    let preflightDeadline = addingClamped(clock.nowNanoseconds(), queryTimeoutNanoseconds)
+    switch await requestMotionStatus(deadline: preflightDeadline) {
+    case .status(let report):
+      apply(report)
+      if let refusal = validateFreshPenStatus(command) {
+        await closeAndInvalidateKnowledge()
+        return finishPen(command: command, outcome: .refused(refusal))
+      }
+    case .ambiguous(let reason):
+      await closeAndInvalidateKnowledge()
+      return finishPen(
+        command: command,
+        outcome: .refused(.freshStatusUnavailable(Self.preflightFailureDescription(reason)))
+      )
+    }
+
+    connection = .actuatingPen
+    let profile = PenActuationProfile.legacyServo
+    let actuationBytes = profile.actuationBytes(for: command)
+    do {
+      try await writePhysicalCommand(actuationBytes)
+    } catch let error as MachineLinkError {
+      return finishPen(command: command, outcome: penOutcomeForWriteError(error))
+    } catch {
+      return finishPen(
+        command: command,
+        outcome: ambiguousPen(.transport(String(describing: error)))
+      )
+    }
+
+    switch await awaitCommandAcknowledgement(context: "pen actuation") {
+    case .accepted:
+      break
+    case .rejected(let reason):
+      connection = .connected
+      return finishPen(command: command, outcome: .refused(.controllerRejected(reason)))
+    case .ambiguous(let reason):
+      return finishPen(command: command, outcome: ambiguousPen(reason))
+    }
+
+    let settleBytes = profile.settleBytes
+    do {
+      try await writePhysicalCommand(settleBytes)
+    } catch let error as MachineLinkError {
+      return finishPen(command: command, outcome: penOutcomeForWriteError(error))
+    } catch {
+      return finishPen(
+        command: command,
+        outcome: ambiguousPen(.transport(String(describing: error)))
+      )
+    }
+
+    switch await awaitCommandAcknowledgement(context: "pen settle") {
+    case .accepted:
+      penState = command.commandedState
+      connection = .connected
+      return finishPen(
+        command: command,
+        outcome: .commandedAndSettled(
+          command: command,
+          commandedState: command.commandedState
+        )
+      )
+    case .rejected(let reason):
+      return finishPen(
+        command: command,
+        outcome: ambiguousPen(.settleCommandRejected(reason))
+      )
+    case .ambiguous(let reason):
+      return finishPen(command: command, outcome: ambiguousPen(reason))
+    }
+  }
+
+  public static func encodePenActuation(_ command: PenCommand) -> Data {
+    PenActuationProfile.legacyServo.actuationBytes(for: command)
+  }
+
+  public static var encodePenSettle: Data {
+    PenActuationProfile.legacyServo.settleBytes
   }
 
   public static func completionTimeoutNanoseconds(
@@ -514,7 +623,11 @@ public actor MachineController {
   }
 
   private func ensureConnected() async throws {
-    if connection == .connected || connection == .probing || connection == .moving { return }
+    if connection == .connected || connection == .probing || connection == .moving
+      || connection == .actuatingPen
+    {
+      return
+    }
     connection = .connecting
     do {
       try await link.open()
@@ -566,6 +679,31 @@ public actor MachineController {
     return nil
   }
 
+  private func validatePenSession(_ command: PenCommand) -> PenRefusal? {
+    guard selectionIsExplicit else { return .noSerialDeviceSelected }
+    if let stickyAmbiguity { return .stickyAmbiguity(stickyAmbiguity) }
+    guard connection == .connected else { return .notConnected }
+    if command == .lower, motionLimits == nil { return .motionLimitsMissing }
+    return nil
+  }
+
+  private func validateFreshPenStatus(_ command: PenCommand) -> PenRefusal? {
+    guard let controllerState else { return .controllerStateUnknown }
+    guard controllerState.isRecognized else { return .controllerStateUnknown }
+    guard !controllerState.isAlarm else { return .controllerAlarm("controller is in Alarm") }
+    guard controllerState == .idle else { return .controllerNotIdle(controllerState) }
+    guard command == .lower else { return nil }
+    guard !pins.hasRelevantLimitAsserted else {
+      return .relevantLimitAsserted(pins.rawValue)
+    }
+    guard let limits = motionLimits else { return .motionLimitsMissing }
+    guard let position else { return .machinePositionUnknown }
+    guard limits.bounds.contains(position.point) else {
+      return .machinePositionOutsideBounds(position)
+    }
+    return nil
+  }
+
   private static func makeWireRelativeJog(
     _ request: RelativeJogRequest
   ) -> (wire: WireRelativeJog?, refusal: MotionRefusal?) {
@@ -610,6 +748,8 @@ public actor MachineController {
       return "controller entered Hold during the fresh status query"
     case .unexpectedControllerState(let state):
       return "controller entered \(state.rawValue) during the fresh status query"
+    case .settleCommandRejected(let detail):
+      return "controller rejected a settle command during the fresh status query: \(detail)"
     case .partialWrite, .writeTimedOut, .writeCancelled, .transport:
       return "fresh status transport failed: \(reason.actionableDescription)"
     }
@@ -621,7 +761,14 @@ public actor MachineController {
     case ambiguous(MotionAmbiguity)
   }
 
-  private func awaitJogAcknowledgement() async -> AcknowledgementResult {
+  private func writePhysicalCommand(_ bytes: Data) async throws {
+    try await link.write(bytes)
+    recordRawIOBestEffort(
+      RawMachineIO(direction: .transmit, bytes: bytes, timestamp: timestamp())
+    )
+  }
+
+  private func awaitCommandAcknowledgement(context: String) async -> AcknowledgementResult {
     var parser = GRBLParser()
     let deadline = addingClamped(clock.nowNanoseconds(), queryTimeoutNanoseconds)
     var receivedBytes = 0
@@ -631,7 +778,7 @@ public actor MachineController {
         guard receivedBytes < maximumRawReceiveBytesPerQuery,
           receivedChunks < maximumRawReceiveChunksPerQuery
         else {
-          return .ambiguous(.malformedReply("jog acknowledgement exceeded response bounds"))
+          return .ambiguous(.malformedReply("\(context) acknowledgement exceeded response bounds"))
         }
         let remaining = deadline - clock.nowNanoseconds()
         let data = try await link.read(
@@ -658,7 +805,7 @@ public actor MachineController {
             return .ambiguous(.malformedReply(line.text))
           case .greeting:
             penState = .unknown
-            return .ambiguous(.malformedReply("controller reset greeting arrived after jog"))
+            return .ambiguous(.malformedReply("controller reset greeting arrived after \(context)"))
           case .configuration, .bracketReport, .message:
             continue
           }
@@ -732,6 +879,11 @@ public actor MachineController {
             return .ambiguous(.malformedReply("error:\(code) while polling status"))
           case .unknown:
             return .ambiguous(.malformedReply(line.text))
+          case .greeting:
+            penState = .unknown
+            return .ambiguous(
+              .malformedReply("controller reset greeting arrived during status query")
+            )
           default:
             continue
           }
@@ -774,7 +926,32 @@ public actor MachineController {
     }
   }
 
+  private func penOutcomeForWriteError(_ error: MachineLinkError) -> PenOutcome {
+    switch error {
+    case .writeTimedOut(let written, let total):
+      if written > 0 {
+        return ambiguousPen(.partialWrite(bytesWritten: written, totalBytes: total))
+      }
+      return ambiguousPen(.writeTimedOut(bytesWritten: written, totalBytes: total))
+    case .writeCancelled(let written, let total):
+      if written > 0 {
+        return ambiguousPen(.partialWrite(bytesWritten: written, totalBytes: total))
+      }
+      return ambiguousPen(.writeCancelled(bytesWritten: written, totalBytes: total))
+    case .disconnected, .notOpen:
+      invalidateConnectionKnowledge()
+      return ambiguousPen(.disconnected)
+    default:
+      return ambiguousPen(.transport(String(describing: error)))
+    }
+  }
+
   private func ambiguous(_ reason: MotionAmbiguity) -> MotionOutcome {
+    setAmbiguous(reason)
+    return .ambiguous(reason)
+  }
+
+  private func ambiguousPen(_ reason: MotionAmbiguity) -> PenOutcome {
     setAmbiguous(reason)
     return .ambiguous(reason)
   }
@@ -787,6 +964,12 @@ public actor MachineController {
   private func finishMotion(request: RelativeJogRequest, outcome: MotionOutcome) -> MotionOutcome {
     lastMotionOutcome = outcome
     recordMotionBestEffort(request: request, outcome: outcome)
+    return outcome
+  }
+
+  private func finishPen(command: PenCommand, outcome: PenOutcome) -> PenOutcome {
+    lastPenOutcome = outcome
+    recordPenBestEffort(command: command, outcome: outcome)
     return outcome
   }
 
@@ -1034,6 +1217,21 @@ public actor MachineController {
         runID: runID,
         timestamp: record.timestamp,
         kind: "machine.relative_jog.result",
+        schemaVersion: 1,
+        payload: payload
+      )
+    }
+  }
+
+  private func recordPenBestEffort(command: PenCommand, outcome: PenOutcome) {
+    guard let ledger, let runID else { return }
+    let record = PenDiagnosticRecord(command: command, outcome: outcome, timestamp: timestamp())
+    guard let payload = try? JSONEncoder().encode(record) else { return }
+    Task {
+      try? await ledger.appendEvent(
+        runID: runID,
+        timestamp: record.timestamp,
+        kind: "machine.pen_actuation.result",
         schemaVersion: 1,
         payload: payload
       )

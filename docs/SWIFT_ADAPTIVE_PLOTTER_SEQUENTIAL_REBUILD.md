@@ -25,8 +25,10 @@ must not require complete strict concurrency or warnings-as-errors;
 - No accessibility scope.
 - No archival replay, algorithm re-evaluation, content-addressed evidence,
   exports, quotas, tombstones, or old-run admission scans.
-- No advanced adaptive model, spline, promotion framework, grouped-holdout
-  program, bootstrap statistics, or factorial experiment plan.
+- No advanced adaptive model, spline, generalized promotion framework,
+  bootstrap statistics, or factorial experiment plan. The one affine model may
+  use an explicit training/holdout split and checkpoint-only immutable
+  acceptance.
 - No separate motion and pen arms or phase/action authority hierarchy.
 - No arbitrary G-code, automatic unlock/home/reset/settings writes, or automatic
   resend/redraw after an ambiguous command.
@@ -130,6 +132,10 @@ another after returning to idle.
 
 ## Work item 4 — Pen control and clear pose
 
+Implementation status: typed Pen Up/Pen Down, fixed local servo values, fixed
+settle, serialized ownership, sticky uncertainty, direct UI, and automated tests
+are implemented. Powered mechanism verification and the clear pose remain.
+
 Deliver:
 
 - explicit Pen Up and Pen Down commands using locally verified servo values;
@@ -137,7 +143,7 @@ Deliver:
 - one known pen-up clear pose and bounded path that the operator verifies in the
   live image.
 
-No separate pen arm, pen learning model, 3D tool model, or generalized
+No separate pen arm, pen-mark learning model, 3D tool model, or generalized
 clearance planner.
 
 Done when the operator can raise/lower the pen and move the complete assembly to
@@ -163,8 +169,8 @@ Use simple baseline subtraction and line/centreline fitting. An observation is
 usable when the mark is visible and uniquely associated with this line. If it
 is missing or unclear, show the image and error; do not automatically redraw.
 
-Do not require covariance propagation, topology taxonomies, model innovation,
-candidate promotion, a replayable run bundle, or fixed trial counts.
+Do not require covariance propagation, topology taxonomies, a generalized model
+promotion product, a replayable run bundle, or fixed trial counts.
 
 Done when one real command produces visible ink that the app displays against
 the requested line.
@@ -182,7 +188,9 @@ Deliver:
 
 Track enough current-run state to avoid automatically repeating a command whose
 outcome is unknown. Do not build immutable plan-revision history, a replay
-reducer, model promotion, or scheduling optimization.
+reducer, in-stroke model update, or scheduling optimization. A later-stroke
+affine candidate may be accepted only from held-out improvement at a pen-up
+checkpoint.
 
 Done when a small multi-stroke drawing completes and the UI shows the resulting
 ink and errors.
@@ -228,9 +236,17 @@ developer telemetry program.
 
 ## Model rule
 
-Use an affine transform and optional constant tool offset. If it works, keep it.
-If it does not, collect a few direct repeated measurements, identify the single
-dominant systematic error, and add only the smallest correction for that error.
+Use an affine transform and optional constant tool offset. The implemented
+trainer fits only the affine coefficients from explicit training observations,
+reports held-out error, and creates an immutable candidate. Acceptance is
+explicit and checkpoint-only; one model version remains pinned through a
+pen-down stroke. The online accumulator may collect observations and propose but
+cannot replace the accepted snapshot.
+
+Affine translation and constant cap-to-tip/ink offset cannot be separated from
+the same point pairs. Keep the offset fixed until independent cap-versus-tip/ink
+evidence exists. If the affine model works, keep it. If it does not, identify one
+repeated observed-ink error and add only the smallest correction for that error.
 
 Advanced model ideas are outside the development plan. They may return only by
 an explicit user request after the simple system demonstrably fails.

@@ -44,7 +44,7 @@ The first useful physical result is:
 select controller
 -> establish one local session
 -> select a known bounded test line
--> confirm pen up
+-> command pen up and observe clearance
 -> move to start at low feed
 -> lower pen and draw the line
 -> raise pen and move to one known clear pose

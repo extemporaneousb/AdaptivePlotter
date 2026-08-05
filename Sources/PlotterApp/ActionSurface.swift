@@ -276,6 +276,8 @@ struct ActionSurface: View {
       return (.white, 3, [])
     case CanvasLayer.residuals.operationName:
       return (.orange, 1.5, [])
+    case CanvasLayer.frameSides.operationName:
+      return (.blue, 2.5, [])
     default:
       return (.green, 2, [])
     }

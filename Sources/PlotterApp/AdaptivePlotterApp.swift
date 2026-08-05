@@ -12,38 +12,61 @@ struct AdaptivePlotterApp: App {
   var body: some Scene {
     WindowGroup("AdaptivePlotter") {
       OperatorWorkspaceView(workspace: workspace)
-        .frame(minWidth: 1_080, minHeight: 740)
+        .frame(minWidth: 1_180, minHeight: 760)
     }
   }
 }
 
 struct OperatorWorkspaceView: View {
   @Bindable var workspace: OperatorWorkspace
+  @State private var showsControllerInspector = false
 
   var body: some View {
-    VStack(spacing: 0) {
-      CurrentStatusBar(workspace: workspace)
-
-      HStack(alignment: .top, spacing: 10) {
-        VStack(spacing: 8) {
-          ActionSurface(presentation: workspace.actionSurfacePresentation)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-          LayerControls(workspace: workspace)
-        }
+    ZStack {
+      ActionSurface(presentation: workspace.actionSurfacePresentation)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-        ScrollView {
+      VStack(spacing: 12) {
+        CurrentStatusBar(workspace: workspace)
+
+        Spacer(minLength: 120)
+
+        HStack(alignment: .bottom, spacing: 14) {
+          ScrollView {
+            MotionPanel(workspace: workspace)
+          }
+          .scrollIndicators(.hidden)
+          .frame(width: 390)
+          .frame(maxHeight: 475)
+
+          Spacer(minLength: 20)
+
           VStack(spacing: 10) {
             CameraPanel(workspace: workspace)
-            MotionPanel(workspace: workspace)
-            DevicePanel(workspace: workspace)
+            LayerControls(workspace: workspace)
           }
+          .frame(width: 365)
         }
-        .frame(width: 310)
       }
-      .padding(10)
+      .padding(14)
     }
-    .background(Color(nsColor: .windowBackgroundColor))
+    .background(Color.black)
+    .toolbar {
+      ToolbarItem(placement: .primaryAction) {
+        Button {
+          showsControllerInspector.toggle()
+        } label: {
+          Label("Controller Session", systemImage: "slider.horizontal.3")
+        }
+      }
+    }
+    .inspector(isPresented: $showsControllerInspector) {
+      ScrollView {
+        DevicePanel(workspace: workspace)
+          .padding(12)
+      }
+      .inspectorColumnWidth(min: 320, ideal: 360, max: 440)
+    }
     .task {
       await workspace.refreshSerialDevices()
       await workspace.startPreferredCameraAtStartup()
@@ -73,8 +96,11 @@ private struct CurrentStatusBar: View {
     }
     .padding(.horizontal, 14)
     .padding(.vertical, 9)
-    .background(Color(nsColor: .controlBackgroundColor))
-    .overlay(alignment: .bottom) { Divider() }
+    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
+    .overlay {
+      RoundedRectangle(cornerRadius: 10)
+        .stroke(.white.opacity(0.16), lineWidth: 1)
+    }
   }
 
   private func fact(_ name: String, _ value: String) -> some View {
@@ -112,6 +138,21 @@ private struct CameraPanel: View {
         }
         .controlSize(.small)
 
+        HStack {
+          Button(workspace.analysisFrameHeld ? "Resume Preview" : "Analyze Frame") {
+            Task {
+              if workspace.analysisFrameHeld {
+                await workspace.resumeLivePreview()
+              } else {
+                await workspace.inspectLatestScene()
+              }
+            }
+          }
+          .disabled(workspace.sceneInspectionInProgress)
+          Button("Save Snapshot") { Task { await workspace.captureCameraSnapshot() } }
+        }
+        .controlSize(.small)
+
         if workspace.cameraDevices.isEmpty {
           Text("No discovered camera.")
             .font(.caption)
@@ -135,13 +176,39 @@ private struct CameraPanel: View {
           }
         }
       } else {
-        Text("Deterministic pixels. No physical camera or controller evidence.")
+        Picker(
+          "Model",
+          selection: Binding(
+            get: { workspace.simulatorModelMode },
+            set: { mode in Task { await workspace.selectSimulatorModelMode(mode) } }
+          )
+        ) {
+          ForEach(SimulatorModelMode.allCases) { mode in
+            Text(mode.rawValue).tag(mode)
+          }
+        }
+        .pickerStyle(.segmented)
+
+        Text(workspace.simulatorEvidenceLabel)
+          .font(.caption.monospaced().bold())
+          .foregroundStyle(.blue)
+        Text(workspace.simulatorLearningSummary)
           .font(.caption)
           .foregroundStyle(.secondary)
+        fact("Simulated pen", workspace.simulatorPenState.rawValue)
       }
 
       fact("State", workspace.cameraStateText)
       fact("Current frame age", workspace.frameAgeText)
+      if workspace.frameMode == .live {
+        fact("Vision", workspace.sceneMeasurementText)
+        if let path = workspace.lastCameraSnapshotPath {
+          Text(path)
+            .font(.caption2.monospaced())
+            .foregroundStyle(.secondary)
+            .textSelection(.enabled)
+        }
+      }
       if let error = workspace.cameraError {
         Text(error)
           .font(.caption.monospaced())
@@ -182,9 +249,13 @@ private struct MotionPanel: View {
       .frame(maxWidth: .infinity)
 
       HStack {
-        Button("Confirm Pen Is Up") { Task { await workspace.confirmPenUp() } }
+        Button("PEN UP") { Task { await workspace.requestPenActuation(.raise) } }
           .buttonStyle(.borderedProminent)
-          .disabled(workspace.selectedSerialDevice == nil)
+          .disabled(workspace.penUnavailableReason(for: .raise) != nil)
+        Button("PEN DOWN") { Task { await workspace.requestPenActuation(.lower) } }
+          .buttonStyle(.bordered)
+          .tint(.red)
+          .disabled(workspace.penUnavailableReason(for: .lower) != nil)
         Spacer()
         Text(workspace.penStateText.uppercased())
           .font(.caption.monospaced().bold())
@@ -222,9 +293,15 @@ private struct MotionPanel: View {
       fact("Controller", workspace.controllerStateText)
       fact("Operation", workspace.currentOperationText)
       fact("Last outcome", workspace.lastMotionOutcomeText)
+      fact("Last pen", workspace.lastPenOutcomeText)
 
       if let reason = workspace.motionUnavailableReason {
         Text(reason)
+          .font(.caption)
+          .foregroundStyle(.orange)
+      }
+      if let reason = workspace.penUnavailableReason(for: .lower) {
+        Text("Pen down: \(reason)")
           .font(.caption)
           .foregroundStyle(.orange)
       }
@@ -302,6 +379,7 @@ private struct DevicePanel: View {
           workspace.selectedSerialDevice == nil
             || workspace.passiveProbeInProgress
             || workspace.jogRequestInProgress
+            || workspace.penRequestInProgress
         )
 
       if let reason = workspace.passiveProbeUnavailableReason {
@@ -337,7 +415,7 @@ private struct LayerControls: View {
   @Bindable var workspace: OperatorWorkspace
 
   var body: some View {
-    HStack(spacing: 14) {
+    HStack(spacing: 10) {
       Text("OVERLAYS").font(.caption2).foregroundStyle(.secondary)
       ForEach(CanvasLayer.allCases) { layer in
         Toggle(
@@ -352,6 +430,9 @@ private struct LayerControls: View {
       }
       Spacer()
     }
+    .padding(.horizontal, 10)
+    .padding(.vertical, 8)
+    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
   }
 }
 
@@ -373,7 +454,10 @@ private struct SectionPanel<Content: View>: View {
     }
     .frame(maxWidth: .infinity, alignment: .topLeading)
     .padding(10)
-    .background(Color(nsColor: .underPageBackgroundColor).opacity(0.45))
-    .clipShape(RoundedRectangle(cornerRadius: 7))
+    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+    .overlay {
+      RoundedRectangle(cornerRadius: 10)
+        .stroke(.white.opacity(0.14), lineWidth: 1)
+    }
   }
 }

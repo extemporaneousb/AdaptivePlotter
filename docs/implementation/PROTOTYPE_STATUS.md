@@ -1,16 +1,18 @@
 # Prototype Status
 
-Status date: 2026-08-04
+Status date: 2026-08-05
 Target: this Mac and attached plotter only
 
 ## Bottom line
 
-AdaptivePlotter is one local SwiftPM application with a camera-first action
-surface, explicit AVFoundation camera selection, immutable latest-frame capture,
-a simulator rendered through the same pixels-to-view path, one persistent native
-controller session, and a closed bounded relative-jog operation. The action
-surface and motion widget show direct camera/controller state, MPos, operation,
-outcome, and one actionable blocker.
+AdaptivePlotter is one local SwiftPM application with a camera-dominant action
+surface, explicit AVFoundation camera selection, bounded preview work, exact
+latest-frame capture/analysis, and a deterministic simulator rendered through
+the same pixels-to-view path. One persistent native controller session owns
+passive probes, bounded relative jogs, and typed pen actuation. Floating controls
+show direct camera/controller state, MPos, current operation, outcomes, and one
+actionable blocker; deeper device setup lives in an inspector rather than taking
+the camera's primary area.
 
 The live camera and bounded jog paths are implemented and covered by automated
 tests. The controller path now has physical evidence: the attached controller
@@ -21,9 +23,11 @@ source now derives a conservative trapezoidal/triangular deadline from parsed
 per-axis feed caps and acceleration, but that correction still needs a fresh
 physical session before further motion.
 The rebuilt app now has camera permission and captured three current 1920x1080
-C920 frames with exact manifest provenance. The scene is stable and supplies
-useful cap and frame-side priors without supplying pixel-to-mm calibration.
-Pen actuation, drawing, and observed-ink residuals remain unimplemented.
+C920 frames with exact manifest provenance. The production detector finds the
+cap and two useful frame sides consistently in all three without deriving any
+pixel-to-mm calibration. Typed pen actuation and its UI are implemented but not
+yet physically exercised by this native runtime because motion power remained
+off. Drawing and observed-ink extraction remain unimplemented.
 
 ## Simplifications now implemented
 
@@ -67,8 +71,8 @@ identity, app distribution configuration, or CI result is required.
 - Stop on timeout, disconnect, malformed required reply, `error:`, or `ALARM:`.
 - Repeatable probe requests after completion or failure.
 - One persistent selected-device session rather than one connection per probe.
-- Typed controller state, MPos, asserted X/Y limits, pen state, motion limits,
-  relative-jog request, refusal, completion, and ambiguity.
+- Typed controller state, MPos, asserted X/Y limits, commanded pen state, motion
+  limits, relative-jog/pen requests, refusals, completion, and ambiguity.
 - Closed locale-independent `$J=G91 G21 ...` encoding; the UI cannot supply
   controller text or bytes.
 - Direct pre-write checks for connection, recognized Idle state, limits, MPos,
@@ -79,6 +83,16 @@ identity, app distribution configuration, or CI result is required.
 - Successful passive configuration parsing supplies `$110/$111` axis feed caps
   and `$120/$121` acceleration to the jog deadline model. Firmware travel
   settings are not used as workspace bounds or calibration.
+- The pen wire surface is closed to `PenCommand.raise/lower`. This mechanism's
+  fixed profile emits `M3 S40` or `M3 S720`, followed by `G4 P0.3`; the UI cannot
+  supply controller text or servo values.
+- Probe, jog, and pen requests serialize through the same owner. Pen Down needs
+  fresh Idle/non-alarm status, applied bounds, fresh in-bounds MPos, and clear XY
+  limit pins. Pen Up is available as the recovery direction without requiring
+  MPos or limits. Any uncertain post-write result becomes sticky, sets commanded
+  pen state unknown, and is never resent.
+- A successful pen outcome means both controller commands were acknowledged. It
+  is explicitly not camera proof that the mechanism reached the requested pose.
 
 ### Current-session diagnostics
 
@@ -96,7 +110,10 @@ identity, app distribution configuration, or CI result is required.
 - Polyline `DrawingProgram` and affine forward/inverse transform.
 - Finite-value and coordinate-bound validation.
 - AVFoundation discovery, explicit selection, permission/lifecycle state, and a
-  newest-frame-only stream of owned immutable BGRA `StampedFrame` values.
+  newest-frame-only stream. Preview materialization is capped at 10 fps; skipped
+  driver frames retain/coalesce pixel buffers instead of copying and hashing
+  every 1920x1080 delivery. An explicit analysis/snapshot request still creates
+  one exact immutable BGRA `StampedFrame`.
 - Automatic startup preference for a C920/HD Pro Webcam when present, followed
   by three 750 ms-spaced PNG samples and a provenance manifest under
   `~/Library/Application Support/AdaptivePlotter/CameraSamples/` after capture
@@ -108,19 +125,40 @@ identity, app distribution configuration, or CI result is required.
   a tested aspect-fit, top-left-origin camera-pixel projection.
 - Typed camera-pixel overlay geometry with exact source frame and camera
   configuration provenance; mismatched overlays are hidden.
-- Deterministic simulated logical/predicted/observed/residual geometry through a
-  known field-to-camera transform and the same renderer as live pixels.
+- Manual **Analyze Frame** holds the exact measured frame while showing the
+  connected-component cap and robust top/right side overlays; **Resume Preview**
+  releases it. **Save Snapshot** writes an exact PNG plus provenance manifest.
+- Deterministic model-mismatch simulation supplies logical, predicted,
+  simulated-observed, residual, cap, frame-side, and commanded-pen layers through
+  the same renderer. It is labeled `SIMULATED — NOT PHYSICAL EVIDENCE` and has no
+  machine-link dependency.
 - A fully wired X−/X+/Y−/Y+ widget with independent X/Y step values, feed,
-  direct session limits, explicit pen-up confirmation, MPos, controller state,
-  current operation, last outcome, and one actionable disabled reason.
+  direct session limits, actual Pen Up/Pen Down commands, MPos, controller state,
+  current operation, last outcomes, and one actionable disabled reason.
 - Provisional local motion inputs of 1 mm per axis, 100 mm/min, 5 mm maximum
   command distance, and X -100...100 / Y -40...40 around the observed
   session-start zero. These reflect the operator's roughly 2.5:1 travel prior
   and must still be reviewed and explicitly applied.
 
-The candidate-promotion, checkpoint-resolution, execution-authority, replay,
-and armature-envelope domain scaffolds were deleted. The retained drawing model
-is one affine transform, an optional constant correction, and machine bounds.
+### Affine training and online-learning boundary
+
+- One immutable accepted snapshot owns one affine machine-to-field transform,
+  one separately represented constant correction, provenance, version, and
+  machine bounds.
+- Up-front observations have immutable training or holdout membership. Candidate
+  fitting uses only training points and reports baseline/candidate RMS and maximum
+  error on both splits. Acceptance is explicit, version-increasing, and requires
+  configured held-out improvement.
+- The online accumulator records observations and may propose a candidate only
+  at a pen-up-between-strokes or run-complete checkpoint. It has no API that can
+  replace its accepted snapshot. A pen-down stroke pins one model version and
+  blocks observation/proposal changes until the stroke ends.
+- Affine translation and constant cap-to-tip/ink offset are unidentifiable from
+  the same point pairs. The fitter therefore holds the accepted constant offset
+  fixed. Later offset learning needs separately observed cap-versus-tip/ink
+  evidence; this implementation does not disguise that as affine training.
+- There is no spline/neural model family, replay store, continuous visual servo,
+  or model update inside an irreversible ink stroke.
 
 ## Current C920 scene priors
 
@@ -131,21 +169,18 @@ Sequence/time spacing indicates about 24 frames per second. Mean absolute
 channel difference from the first image to each later sample is about 1.61 on
 the 0...255 scale; no scene motion is visible.
 
-The local debug app consumed roughly 180...217% CPU during continuous 1080p
-capture. The newest-frame stream bounds queued frames but currently still
-copies and SHA-256-hashes every 8.3 MB BGRA frame before older frames can be
-dropped, then performs presentation conversion. At the observed roughly 24 fps,
-the raw input alone is about 200 MB/s. Preserve exact immutable measurement
-frames, but move full materialization/hashing behind a bounded preview cadence
-or explicit vision snapshot request before continuous supervision.
+The earlier local debug app consumed roughly 180...217% CPU because it copied
+and SHA-256-hashed every 8.3 MB BGRA frame at about 24 fps. The source now
+coalesces unmaterialized driver frames and materializes preview frames no more
+than every 100 ms. Exact hashing remains at explicit analysis/snapshot and the
+bounded preview cadence. This source change has automated coverage but still
+needs a fresh live CPU observation.
 
-A broad experimental green mask finds one dominant connected component at
-image bounds X 1081...1106, Y 357...396. Its area is 660...671 pixels and its
-centroid remains within 0.06 pixel across the three samples, near
-X 1094.05, Y 375.76. A second green component at the controller is only
-19...21 pixels. The existing whole-region green aggregation would merge those
-objects into one false large bounding box; cap detection must use connected
-components before centroid or bounds reporting.
+The implemented connected-component detector run over the three captured PNGs
+finds 724/730/732 cap pixels. Bounds are X 1081...1106 and Y 357...396 (the last
+frame is two pixels shorter); centroids are (1093.87, 375.48), (1093.89, 375.62),
+and (1093.83, 375.62). Component size/shape rejects the small controller light
+and long green ink rather than aggregating unrelated green pixels.
 
 The paper/work region is visually dominated by a blue-taped top edge and right
 edge, with steel rulers partially occluding both and strong machine shadows on
@@ -157,22 +192,18 @@ right: x =  0.01682 y + 1669.92
 intersection: approximately (1672.9, 176.7) camera pixels
 ```
 
-Those edges are nearly orthogonal in this view and are better initial line
-priors than ruler markings. The equations are observations from this one fixed
-camera scene, not accepted thresholds, calibration, or motion bounds. Use
-gradient/line support plus robust fitting and temporal persistence; treat ruler
-ticks, text, magnets, shadows, and the blue hose as distractors.
+The implemented robust fit reports top-side RMS 1.21...1.35 pixels with 624...646
+inliers and confidence about 0.79...0.81. The right side reports RMS 1.54...1.58
+pixels with 410...425 inliers and confidence about 0.76. Representative endpoints
+are top (652, 192.7) to (1689, 172.0), and right (1675.6, 151) to (1685.7, 734).
+These remain single-camera image-space observations, not calibration or motion
+bounds; rulers, shadows, magnets, and the blue hose remain distractors.
 
 ## Not yet implemented
 
 - Fresh physical verification of the controller-aware jog deadline after the
   earlier session became sticky-ambiguous.
 - Live plotter-camera stop/restart and source-switch verification.
-- Connected-component cap measurement and robust frame-side measurement in
-  `VisionWorker`, with exact frame/configuration provenance and overlays.
-- Bounded live-frame materialization so continuous preview does not copy, hash,
-  and convert every 1080p camera frame when only the newest presentation frame
-  or one requested vision frame is needed.
 - Pen Up/Pen Down commands verified on this mechanism.
 - One fixed camera observation region and clear tool pose.
 - Isolated line drawing, ink detection, and simple residual display.
@@ -181,13 +212,12 @@ ticks, text, magnets, shadows, and the blue hose as distractors.
 
 ## Next action
 
-Implement the two smallest current-scene measurements: a connected-component
-green-cap detector and robust top/right frame-side fits, both tied to one exact
-frame and camera configuration. Do not OCR the rulers or infer pixel-to-mm
-scale. Redesign the operator surface around the full camera image and a compact
-jog overlay while preserving the current typed owners. Then begin a fresh
-controller session and re-verify the corrected controller-aware deadline with
-only the smallest low-feed round trip in
-[First Hardware Session](FIRST_HARDWARE_SESSION.md). Stop on any alarm, asserted
-limit, disconnect, unexpected motion, or ambiguity; do not Home, unlock, reset,
-write settings, resume, or lower the pen.
+Run the exact controlled power-on sequence in
+[First Hardware Session](FIRST_HARDWARE_SESSION.md): fresh passive probe, live
+Analyze Frame, apply the conservative session bounds, Pen Up, one 1 mm X round
+trip, one 1 mm Y round trip, then stationary Pen Down and Pen Up while observing
+the mechanism. Stop on any alarm, asserted limit, disconnect, unexpected motion,
+or ambiguity; do not Home, unlock, reset, write settings, or resume. If that
+sequence is clean, the next software/physical slice is one bounded isolated-line
+operation followed by tool clear, exact-frame ink observation, and residual
+display. Cap motion and controller `ok` must not stand in for observed ink.

@@ -260,7 +260,7 @@ struct CameraCaptureTests {
       Issue.record("Expected newest frame from the first burst")
       return
     }
-    #expect(first.bytes[0] == 100)
+    #expect(try first.materializedBytes()[0] == 100)
     guard case .interrupted(let interruption)? = await mailbox.next() else {
       Issue.record("Expected interruption after the first frame burst")
       return
@@ -270,7 +270,7 @@ struct CameraCaptureTests {
       Issue.record("Expected newest frame from the interrupted burst")
       return
     }
-    #expect(second.bytes[0] == 200)
+    #expect(try second.materializedBytes()[0] == 200)
     guard case .interruptionEnded? = await mailbox.next() else {
       Issue.record("Expected interruption end in callback order")
       return
@@ -279,7 +279,7 @@ struct CameraCaptureTests {
       Issue.record("Expected newest frame from the final burst")
       return
     }
-    #expect(third.bytes[0] == 250)
+    #expect(try third.materializedBytes()[0] == 250)
     guard case .failed(let failure)? = await mailbox.next() else {
       Issue.record("Expected terminal failure after the final frame burst")
       return
@@ -312,6 +312,46 @@ struct CameraCaptureTests {
     let newest = await iterator.next()
     #expect(newest?.frame.sequence == 3)
     #expect(newest?.frame.bytes[0] == 3)
+  }
+
+  @Test("preview materialization is bounded while exact latest-frame capture remains available")
+  func boundedPreviewAndExactMaterialization() async throws {
+    let device = CameraDevice(id: CameraDeviceID(rawValue: "camera"), name: "Camera")
+    let driver = TestCameraDriver(devices: [device])
+    let capture = CameraCapture(
+      driver: driver,
+      materializationPolicy: LiveFrameMaterializationPolicy(
+        minimumPreviewIntervalNanoseconds: 100
+      )
+    )
+    await capture.discoverDevices()
+    await capture.start()
+
+    await driver.emit(sample(value: 1, time: 100))
+    try await waitUntil { await capture.diagnostics().receivedFrameCount == 1 }
+    let firstPreview = try #require(await capture.snapshot().latestFrame)
+    #expect(firstPreview.frame.sequence == 1)
+    #expect(await capture.diagnostics().materializedFrameCount == 1)
+
+    await driver.emit(sample(value: 2, time: 120))
+    try await waitUntil { await capture.diagnostics().receivedFrameCount == 2 }
+    await driver.emit(sample(value: 3, time: 150))
+    try await waitUntil { await capture.diagnostics().receivedFrameCount == 3 }
+    #expect(await capture.snapshot().latestFrame?.frame.id == firstPreview.frame.id)
+    #expect(await capture.diagnostics().materializedFrameCount == 1)
+
+    let exact = try #require(
+      try await capture.materializeLatestFrame(newerThanNanoseconds: 100)
+    )
+    #expect(exact.frame.sequence == 3)
+    #expect(exact.frame.captureNanoseconds == 150)
+    #expect(exact.frame.bytes[0] == 3)
+    #expect(await capture.diagnostics().materializedFrameCount == 2)
+
+    let repeated = try #require(try await capture.materializeLatestFrame())
+    #expect(repeated.frame.id == exact.frame.id)
+    #expect(await capture.diagnostics().materializedFrameCount == 2)
+    #expect(try await capture.materializeLatestFrame(newerThanNanoseconds: 150) == nil)
   }
 
   @Test("simulator emits the same displayed-frame contract with a known transform")

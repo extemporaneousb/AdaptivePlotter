@@ -31,17 +31,23 @@ The repository contains one SwiftPM application with:
   distance limits, known pen-up state, Idle completion polling, and sticky
   ambiguous outcomes;
 - AVFoundation camera discovery, explicit selection, lifecycle/error state,
-  and immutable latest-frame capture;
+  bounded preview materialization, and explicit immutable latest-frame capture;
 - startup preference for the attached C920 plus three provenance-bearing PNG
   samples for offline vision analysis after camera access is granted;
-- one dominant action surface shared by live BGRA frames and a deterministic
-  simulator, with exact frame/configuration overlay matching;
-- typed geometry, a polyline `DrawingProgram`, and affine camera/field math.
+- connected-component green-cap and robust top/right frame-side measurement,
+  with every overlay bound to the exact measured frame/configuration;
+- one camera-dominant action surface shared by live BGRA frames and a
+  deterministic model-mismatch simulator;
+- closed typed Pen Up/Pen Down actuation for this mechanism, serialized with
+  probes and jogs and using the proven `M3 S40` / `M3 S720` / `G4 P0.3` profile;
+- typed geometry, a polyline `DrawingProgram`, affine camera/field math, and one
+  immutable affine-model learning path with training/holdout evaluation.
 
-Pen actuation, drawing, and observed-ink residuals are not implemented. The
-camera source path has captured exact current C920 samples. The controller has
-completed bounded X and Y jogs; its newly controller-aware completion deadline
-still needs a fresh physical recheck.
+Pen actuation is implemented and simulated but has not yet been exercised by
+this native runtime on powered hardware. Drawing and observed-ink extraction are
+not implemented. The camera source path has captured and analyzed exact current
+C920 samples. The controller has completed bounded X and Y jogs; its newly
+controller-aware completion deadline still needs a fresh physical recheck.
 
 Old or corrupt journal files do not block a new session. The app does not have
 an archival replay product, artifact store, retention policy, accessibility
@@ -61,12 +67,16 @@ make run-app
 ```
 
 `make app` assembles `.build/AdaptivePlotter.app` around the current SwiftPM
-executable, then applies a local ad-hoc signature whose designated identifier is
-`com.bullard.AdaptivePlotter` and whose seal binds `Contents/Info.plist`. This
-gives the request the right app name and camera-usage description; it is not a
-stable TCC identity across rebuilds. An ad-hoc designated requirement contains
-the executable CDHash, and this Mac currently has no valid code-signing
-identity, so a changed executable can require a fresh camera decision.
+executable and prefers a valid local identity named `AdaptivePlotter Local
+Development` (or `ADAPTIVEPLOTTER_CODESIGN_IDENTITY`). It reports the selected
+mode and falls back to ad-hoc signing rather than pretending identity stability.
+Both modes bind `Contents/Info.plist` and the identifier
+`com.bullard.AdaptivePlotter`. This Mac currently has no valid code-signing
+identity: importing a self-signed key succeeded, but macOS required an
+interactive trust approval before use, so the incomplete key was removed. Until
+that one-time approval is completed, an ad-hoc designated requirement contains
+the executable CDHash and a changed executable can require a fresh camera
+decision.
 `make run-app` compiles the small checked-in AppKit launcher and asks
 LaunchServices to start a new instance of that exact bundle. The launcher waits
 for the launch result, reports an error if activation fails, and exits without
@@ -79,7 +89,8 @@ a rebuild until a stable local signing identity exists. The raw
 command-line diagnosis but is not the physical-camera launch path.
 
 On the first successful live-camera start, the app writes three startup scene
-samples and a JSON manifest under:
+samples and a JSON manifest under the path below. **Save Snapshot** writes one
+additional exact frame and manifest there on request.
 
 ```text
 ~/Library/Application Support/AdaptivePlotter/CameraSamples/
@@ -166,8 +177,10 @@ Use the simplest geometry that works:
 - polylines first;
 - one affine machine-to-field transform plus a constant tool offset if needed;
 - direct forward check of generated machine points;
-- no spline field, neural model, promotion framework, bootstrap statistics,
-  factorial trial program, or generalized adaptive-model UI.
+- an immutable accepted affine snapshot; candidates train on an explicit split,
+  must improve held-out error, and are accepted only at a pen-up checkpoint;
+- no spline field, neural model, bootstrap program, continuous pen-down model
+  update, or generalized adaptive-model UI.
 
 If the affine transform draws acceptably, stop adding model complexity.
 
@@ -218,7 +231,9 @@ and advanced-model requirements.
 > working local controller-camera-draw-observe loop. Use the current Command
 > Line Tools and SwiftPM. Do not add release infrastructure, accessibility
 > scope, archival replay, advanced models, separate arms, or phase-wide gates.
-> First verify the implemented live camera and bounded relative-jog paths on the
-> attached hardware. Refuse a physical command only for a concrete current
-> hazard or ambiguous command outcome, show the reason, and permit retry as soon
-> as it is corrected.
+> First run the exact powered-session sequence in
+> `docs/implementation/FIRST_HARDWARE_SESSION.md`: passive probe, current camera
+> analysis, typed limits, Pen Up, one 1 mm X/Y round trip, then a stationary Pen
+> Down/Pen Up check. Do not skip directly to drawing. Refuse a physical command
+> only for a concrete current hazard or ambiguous outcome, show the reason, and
+> permit retry as soon as it is corrected.

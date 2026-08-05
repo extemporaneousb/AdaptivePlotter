@@ -50,6 +50,17 @@ struct RunInterpreterTests {
       .status,
       chunks: ["<Idle|MPos:0.000,0.000,0.000>\r\n"]
     )
+    exchanges.append(contentsOf: [
+      interpreterStatusExchange("<Idle|MPos:0.000,0.000,0.000>"),
+      SimulatedCommandExchange(
+        expectedWrite: MachineController.encodePenActuation(.raise),
+        reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+      ),
+      SimulatedCommandExchange(
+        expectedWrite: MachineController.encodePenSettle,
+        reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+      ),
+    ])
     exchanges.append(
       SimulatedCommandExchange(
         expectedWrite: PassiveQuery.status.wireBytes,
@@ -84,7 +95,10 @@ struct RunInterpreterTests {
       maximumFeedMMPerMinute: 60
     )
     await fixture.interpreter.updateMotionLimits(limits)
-    await fixture.interpreter.confirmPenUp()
+    #expect(
+      await fixture.interpreter.requestPenActuation(.raise)
+        == .commandedAndSettled(command: .raise, commandedState: .up)
+    )
 
     let outcome = await fixture.interpreter.requestRelativeJog(request)
     let snapshot = await fixture.interpreter.snapshot()
@@ -92,6 +106,87 @@ struct RunInterpreterTests {
     #expect(outcome == .acceptedThenCompleted(finalPosition: try MachinePosition(x: 1, y: 0)))
     #expect(snapshot.currentOperation == .idle)
     #expect(snapshot.lastMotionOutcome == outcome)
+  }
+
+  @Test("typed pen actuation records controller-commanded state and outcome")
+  func typedPenActuation() async throws {
+    var exchanges = ControllerTranscriptFixtures.successfulPassiveProbe()
+    exchanges[2] = ControllerTranscriptFixtures.exchange(
+      .status,
+      chunks: ["<Idle|MPos:0.000,0.000,0.000>\r\n"]
+    )
+    exchanges.append(contentsOf: [
+      interpreterStatusExchange("<Idle|MPos:0.000,0.000,0.000>"),
+      SimulatedCommandExchange(
+        expectedWrite: MachineController.encodePenActuation(.raise),
+        reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+      ),
+      SimulatedCommandExchange(
+        expectedWrite: MachineController.encodePenSettle,
+        reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+      ),
+    ])
+    let fixture = try await InterpreterFixture.make(exchanges: exchanges)
+    _ = try await fixture.interpreter.requestPassiveProbe()
+
+    let outcome = await fixture.interpreter.requestPenActuation(.raise)
+    let snapshot = await fixture.interpreter.snapshot()
+
+    #expect(outcome == .commandedAndSettled(command: .raise, commandedState: .up))
+    #expect(snapshot.currentOperation == .idle)
+    #expect(snapshot.lastPenOutcome == outcome)
+    #expect(snapshot.machine.lastPenOutcome == outcome)
+    #expect(snapshot.machine.penState == .up)
+  }
+
+  @Test("pen operation serializes against jog")
+  func penSerializesAgainstJog() async throws {
+    let clock = SystemRuntimeClock()
+    var exchanges = ControllerTranscriptFixtures.successfulPassiveProbe(
+      delayNanoseconds: 0
+    )
+    exchanges[2] = ControllerTranscriptFixtures.exchange(
+      .status,
+      chunks: ["<Idle|MPos:0.000,0.000,0.000>\r\n"]
+    )
+    exchanges.append(contentsOf: [
+      interpreterStatusExchange("<Idle|MPos:0.000,0.000,0.000>"),
+      SimulatedCommandExchange(
+        expectedWrite: MachineController.encodePenActuation(.raise),
+        reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+      ),
+      SimulatedCommandExchange(
+        expectedWrite: MachineController.encodePenSettle,
+        reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+      ),
+    ])
+    let scriptedLink = SimulatedGRBLLink(exchanges: exchanges, clock: clock)
+    let gate = MachineWriteGate()
+    let link = BlockingMachineLink(
+      base: scriptedLink,
+      blockedWrite: MachineController.encodePenActuation(.raise),
+      gate: gate
+    )
+    let controller = MachineController(
+      link: link,
+      clock: clock,
+      queryTimeoutNanoseconds: 100_000_000
+    )
+    let interpreter = RunInterpreter(machineController: controller)
+    _ = try await interpreter.requestPassiveProbe()
+    let jog = RelativeJogRequest(
+      delta: try Vector2<MachineSpace>(dx: 1, dy: 0),
+      feedMMPerMinute: 60
+    )
+
+    async let pen = interpreter.requestPenActuation(.raise)
+    await gate.waitUntilBlockedWrite()
+    let jogOutcome = await interpreter.requestRelativeJog(jog)
+
+    #expect(jogOutcome == .refused(.operationInFlight))
+    await gate.release()
+    #expect(await pen == .commandedAndSettled(command: .raise, commandedState: .up))
+    #expect(scriptedLink.completedWriteCount == PassiveQuery.allCases.count + 3)
   }
 
   @Test("pre-command open failure records the current failure and probe finish")
@@ -138,6 +233,13 @@ struct RunInterpreterTests {
     #expect(finished.exchanges.isEmpty)
     #expect(finished.blockers == result.blockers)
   }
+}
+
+private func interpreterStatusExchange(_ status: String) -> SimulatedCommandExchange {
+  SimulatedCommandExchange(
+    expectedWrite: PassiveQuery.status.wireBytes,
+    reads: [ScheduledMachineRead(outcome: .bytes(Data("\(status)\r\n".utf8)))]
+  )
 }
 
 private func waitForInterpreterLedgerEvent(

@@ -128,10 +128,12 @@ field = A * machine + b + optionalConstantToolOffset
 The inverse is the affine inverse followed by a forward check and workspace
 check. Reject an out-of-bounds point; do not silently clamp it.
 
-No model candidate type, promotion state machine, covariance program, backlash
-learner, spline field, pen-mark model, neural model, or general optimizer is
-required. Existing unused scaffolding for those concepts is not a contract and
-may be removed when encountered.
+The implemented learning surface stays inside this model: one immutable accepted
+snapshot, fixed training/holdout observations, deterministic affine candidate
+fit, held-out metrics, and one explicit version-increasing acceptance operation.
+An online accumulator may propose only at pen-up checkpoints and cannot replace
+its accepted snapshot or update a pen-down stroke. No covariance program,
+backlash learner, spline field, neural model, or general optimizer is required.
 
 If the affine transform produces usable drawings, it is complete. Add another
 term only after repeated observed ink identifies a specific systematic error
@@ -287,8 +289,10 @@ controller's feed hold. Emergency stop means the physical power cutoff.
 - one app test proving passive probes can be retried without restart.
 
 Do not require replay-equivalence, archival export, quota, accessibility,
-advanced-model, promotion, grouped-holdout, bootstrap, factorial-trial, or
-cross-platform tests.
+advanced-model, bootstrap, factorial-trial, or cross-platform tests. Do test the
+small affine learner's split isolation, held-out rejection, explicit immutable
+acceptance, and pen-down model pinning because those are now working runtime
+contracts.
 
 ## 11. Delivery order
 
@@ -312,6 +316,8 @@ Retain:
 - bounded local motion checks;
 - typed coordinate spaces;
 - polyline program and affine transform;
+- immutable affine snapshots, deterministic training/holdout evaluation, and
+  checkpoint-only candidate proposal;
 - latest-frame camera/vision path;
 - optional current-session diagnostic events;
 - no automatic resend/redraw of ambiguous work.
@@ -327,7 +333,7 @@ Remove or keep removed:
 
 Defer unless a working drawing proves the need:
 
-- model candidates and promotion UI;
+- generalized model families and promotion UI;
 - backlash or pen learning;
 - any spline/nonlinear field;
 - exhaustive evidence provenance;

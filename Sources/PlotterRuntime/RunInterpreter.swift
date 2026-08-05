@@ -19,23 +19,27 @@ public enum RunOperation: Codable, Hashable, Sendable {
   case idle
   case passiveProbe
   case relativeJog(RelativeJogRequest)
+  case penActuation(PenCommand)
 }
 
 public struct RunInterpreterSnapshot: Codable, Hashable, Sendable {
   public let currentOperation: RunOperation
   public let machine: MachineSnapshot
   public let lastMotionOutcome: MotionOutcome?
+  public let lastPenOutcome: PenOutcome?
   public let lastProbe: PassiveProbeResult?
 
   public init(
     currentOperation: RunOperation,
     machine: MachineSnapshot,
     lastMotionOutcome: MotionOutcome?,
+    lastPenOutcome: PenOutcome? = nil,
     lastProbe: PassiveProbeResult?
   ) {
     self.currentOperation = currentOperation
     self.machine = machine
     self.lastMotionOutcome = lastMotionOutcome
+    self.lastPenOutcome = lastPenOutcome
     self.lastProbe = lastProbe
   }
 }
@@ -49,6 +53,7 @@ public actor RunInterpreter {
   private var currentOperation: RunOperation = .idle
   private var lastProbe: PassiveProbeResult?
   private var lastMotionOutcome: MotionOutcome?
+  private var lastPenOutcome: PenOutcome?
 
   public init(machineController: MachineController) {
     self.machineController = machineController
@@ -59,6 +64,7 @@ public actor RunInterpreter {
       currentOperation: currentOperation,
       machine: await machineController.snapshot(),
       lastMotionOutcome: lastMotionOutcome,
+      lastPenOutcome: lastPenOutcome,
       lastProbe: lastProbe
     )
   }
@@ -68,10 +74,6 @@ public actor RunInterpreter {
     let result = await machineController.runPassiveProbe()
     try completePassiveProbe(token: token, result: result)
     return result
-  }
-
-  public func confirmPenUp() async {
-    await machineController.confirmPenUp()
   }
 
   public func updateMotionLimits(_ limits: MotionLimits) async {
@@ -88,6 +90,20 @@ public actor RunInterpreter {
     currentOperation = .relativeJog(request)
     let outcome = await machineController.requestRelativeJog(request)
     lastMotionOutcome = outcome
+    currentOperation = .idle
+    return outcome
+  }
+
+  public func requestPenActuation(_ command: PenCommand) async -> PenOutcome {
+    guard currentOperation == .idle else {
+      let outcome = PenOutcome.refused(.operationInFlight)
+      lastPenOutcome = outcome
+      return outcome
+    }
+    generation &+= 1
+    currentOperation = .penActuation(command)
+    let outcome = await machineController.requestPenActuation(command)
+    lastPenOutcome = outcome
     currentOperation = .idle
     return outcome
   }

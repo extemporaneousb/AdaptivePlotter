@@ -98,6 +98,115 @@ public enum PenState: String, Codable, Hashable, Sendable {
   case down
 }
 
+/// The only pen actions that the native runtime can put on the controller wire.
+/// This is intentionally not a raw G-code escape hatch.
+public enum PenCommand: String, Codable, Hashable, Sendable {
+  case raise
+  case lower
+
+  public var commandedState: PenState {
+    switch self {
+    case .raise: .up
+    case .lower: .down
+    }
+  }
+}
+
+/// Fixed local encoding recovered from the plotter's proven pen mechanism.
+/// The values are not operator-editable controller settings.
+public struct PenActuationProfile: Hashable, Sendable {
+  public static let legacyServo = PenActuationProfile(
+    raisedSpindleValue: 40,
+    loweredSpindleValue: 720,
+    settleSeconds: 0.3
+  )
+
+  public let raisedSpindleValue: Int
+  public let loweredSpindleValue: Int
+  public let settleSeconds: Double
+
+  private init(
+    raisedSpindleValue: Int,
+    loweredSpindleValue: Int,
+    settleSeconds: Double
+  ) {
+    self.raisedSpindleValue = raisedSpindleValue
+    self.loweredSpindleValue = loweredSpindleValue
+    self.settleSeconds = settleSeconds
+  }
+
+  public func actuationBytes(for command: PenCommand) -> Data {
+    let value = command == .raise ? raisedSpindleValue : loweredSpindleValue
+    return Data("M3 S\(value)\n".utf8)
+  }
+
+  public var settleBytes: Data {
+    let seconds = String(
+      format: "%.1f",
+      locale: Locale(identifier: "en_US_POSIX"),
+      settleSeconds
+    )
+    return Data("G4 P\(seconds)\n".utf8)
+  }
+}
+
+public enum PenRefusal: Codable, Hashable, Sendable {
+  case noSerialDeviceSelected
+  case notConnected
+  case motionLimitsMissing
+  case controllerStateUnknown
+  case controllerNotIdle(ControllerState)
+  case controllerAlarm(String)
+  case relevantLimitAsserted(String)
+  case machinePositionUnknown
+  case machinePositionOutsideBounds(MachinePosition)
+  case operationInFlight
+  case stickyAmbiguity(MotionAmbiguity)
+  case controllerRejected(String)
+  case freshStatusUnavailable(String)
+}
+
+/// `commandedAndSettled` is controller evidence only: both the actuation and
+/// fixed dwell were acknowledged. It is not camera evidence of the physical pen.
+public enum PenOutcome: Codable, Hashable, Sendable {
+  case refused(PenRefusal)
+  case commandedAndSettled(command: PenCommand, commandedState: PenState)
+  case ambiguous(MotionAmbiguity)
+}
+
+extension PenRefusal {
+  public var actionableDescription: String {
+    switch self {
+    case .noSerialDeviceSelected:
+      return "Select one serial controller before actuating the pen."
+    case .notConnected:
+      return "Connect and run the passive controller probe before actuating the pen."
+    case .motionLimitsMissing:
+      return "Apply finite local motion bounds before lowering the pen."
+    case .controllerStateUnknown:
+      return "Query the controller until its current state is known."
+    case .controllerNotIdle(let state):
+      return "Wait for controller Idle; current state is \(state.rawValue)."
+    case .controllerAlarm(let detail):
+      return "Controller alarm: \(detail). Clear it physically, then reconnect and probe."
+    case .relevantLimitAsserted(let pins):
+      return "A motion limit is asserted (Pn:\(pins)); inspect the machine before lowering the pen."
+    case .machinePositionUnknown:
+      return "Probe the controller until a valid MPos is available before lowering the pen."
+    case .machinePositionOutsideBounds(let position):
+      return "Current position (\(position.point.x), \(position.point.y)) is outside configured bounds."
+    case .operationInFlight:
+      return "Wait for the current controller operation to finish."
+    case .stickyAmbiguity(let ambiguity):
+      return "Pen control is disabled after an ambiguous physical command: \(ambiguity.actionableDescription)"
+    case .controllerRejected(let detail):
+      return "Controller rejected the pen command (\(detail)); inspect the controller state before retrying."
+    case .freshStatusUnavailable(let detail):
+      return "Fresh pre-command controller status was unavailable (\(detail)); reconnect and probe before retrying."
+    }
+  }
+}
+
 public enum ControllerState: String, Codable, Hashable, Sendable {
   case idle
   case run
@@ -165,6 +274,7 @@ public enum MotionAmbiguity: Codable, Hashable, Sendable {
   case controllerAlarm(String)
   case controllerHold
   case unexpectedControllerState(ControllerState)
+  case settleCommandRejected(String)
   case transport(String)
 }
 
@@ -206,7 +316,7 @@ extension MotionRefusal {
     case .destinationOutsideBounds(let destination):
       return "Destination (\(destination.point.x), \(destination.point.y)) is outside configured bounds."
     case .penNotUp:
-      return "Confirm that the pen is physically up before moving."
+      return "Issue a successful Pen Up command before moving."
     case .operationInFlight:
       return "Wait for the current controller operation to finish."
     case .stickyAmbiguity(let ambiguity):
@@ -229,7 +339,7 @@ extension MotionAmbiguity {
     case .writeCancelled(let written, let total):
       return "The write was cancelled after \(written) of \(total) bytes; inspect and reconnect."
     case .acceptanceTimedOut:
-      return "No bounded jog acknowledgement arrived; inspect and reconnect."
+      return "No bounded controller acknowledgement arrived; inspect and reconnect."
     case .completionTimedOut:
       return "The accepted jog did not reach a known Idle state before its deadline; inspect and reconnect."
     case .disconnected:
@@ -242,6 +352,8 @@ extension MotionAmbiguity {
       return "The controller entered Hold after accepting the jog; inspect before reconnecting."
     case .unexpectedControllerState(let state):
       return "The controller entered unexpected state \(state.rawValue); inspect and reconnect."
+    case .settleCommandRejected(let detail):
+      return "The pen actuation was accepted but its settle command was rejected (\(detail)); inspect and reconnect."
     case .transport(let detail):
       return "The transport failed after a physical command may have started (\(detail)); inspect and reconnect."
     }
@@ -259,6 +371,18 @@ public struct MotionDiagnosticRecord: Codable, Hashable, Sendable {
     timestamp: RuntimeTimestamp
   ) {
     self.request = request
+    self.outcome = outcome
+    self.timestamp = timestamp
+  }
+}
+
+public struct PenDiagnosticRecord: Codable, Hashable, Sendable {
+  public let command: PenCommand
+  public let outcome: PenOutcome
+  public let timestamp: RuntimeTimestamp
+
+  public init(command: PenCommand, outcome: PenOutcome, timestamp: RuntimeTimestamp) {
+    self.command = command
     self.outcome = outcome
     self.timestamp = timestamp
   }

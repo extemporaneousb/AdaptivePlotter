@@ -19,6 +19,117 @@ public struct SimulatedCameraStroke: Hashable, Sendable {
 
 public enum SimulatedFrameSourceError: Error, Equatable, Sendable {
   case invalidDimensions
+  case emptyScenarioIdentifier
+  case pathPointCountMismatch
+}
+
+public enum SimulatedOverlayLayerKind: String, Codable, CaseIterable, Hashable, Sendable {
+  case logical
+  case predicted
+  case observed
+  case residuals
+  case cap
+  case frameSides
+  case penState
+
+  public var operationName: String {
+    switch self {
+    case .logical: "logical"
+    case .predicted: "predicted"
+    case .observed: "simulated-observed"
+    case .residuals: "residual"
+    case .cap: "cap"
+    case .frameSides: "frame-side"
+    case .penState: "simulated-pen-state"
+    }
+  }
+}
+
+public enum SimulatedOverlayLayerData: Hashable, Sendable {
+  case geometry([CameraOverlayMeasurement])
+  case penState(PenState)
+}
+
+public struct SimulatedOverlayLayer: Hashable, Sendable {
+  public let kind: SimulatedOverlayLayerKind
+  public let data: SimulatedOverlayLayerData
+
+  public init(kind: SimulatedOverlayLayerKind, data: SimulatedOverlayLayerData) {
+    self.kind = kind
+    self.data = data
+  }
+}
+
+/// Input to the no-hardware model-mismatch simulator. The logical path is the
+/// desired field geometry, the accepted model predicts the command outcome,
+/// and the ground-truth model generates explicitly simulated observations.
+public struct SimulatedModelMismatchScene: Hashable, Sendable {
+  public let scenarioID: String
+  public let logicalFieldPath: Polyline<FieldSpace>
+  public let commandedMachinePath: Polyline<MachineSpace>
+  public let acceptedModel: AcceptedDrawingModelSnapshot
+  public let simulatedGroundTruthTransform: DrawingTransform
+  public let capFieldPoint: Point2<FieldSpace>
+  public let frameFieldBounds: AxisAlignedBounds<FieldSpace>
+  public let penState: PenState
+
+  public init(
+    scenarioID: String,
+    logicalFieldPath: Polyline<FieldSpace>,
+    commandedMachinePath: Polyline<MachineSpace>,
+    acceptedModel: AcceptedDrawingModelSnapshot,
+    simulatedGroundTruthTransform: DrawingTransform,
+    capFieldPoint: Point2<FieldSpace>,
+    frameFieldBounds: AxisAlignedBounds<FieldSpace>,
+    penState: PenState
+  ) throws {
+    guard !scenarioID.isEmpty else { throw SimulatedFrameSourceError.emptyScenarioIdentifier }
+    guard logicalFieldPath.points.count == commandedMachinePath.points.count else {
+      throw SimulatedFrameSourceError.pathPointCountMismatch
+    }
+    self.scenarioID = scenarioID
+    self.logicalFieldPath = logicalFieldPath
+    self.commandedMachinePath = commandedMachinePath
+    self.acceptedModel = acceptedModel
+    self.simulatedGroundTruthTransform = simulatedGroundTruthTransform
+    self.capFieldPoint = capFieldPoint
+    self.frameFieldBounds = frameFieldBounds
+    self.penState = penState
+  }
+}
+
+public struct SimulatedOverlaySceneContent: Hashable, Sendable {
+  public static let evidenceLabel = "SIMULATED — NOT PHYSICAL EVIDENCE"
+
+  public let scenarioID: String
+  public let displayedFrame: DisplayedFrame
+  public let layers: [SimulatedOverlayLayer]
+
+  public init(
+    scenarioID: String,
+    displayedFrame: DisplayedFrame,
+    layers: [SimulatedOverlayLayer]
+  ) {
+    self.scenarioID = scenarioID
+    self.displayedFrame = displayedFrame
+    self.layers = layers
+  }
+
+  public var overlays: [CameraOverlayMeasurement] {
+    layers.flatMap { layer -> [CameraOverlayMeasurement] in
+      guard case .geometry(let measurements) = layer.data else { return [] }
+      return measurements
+    }
+  }
+
+  public var penState: PenState? {
+    layers.compactMap { layer in
+      guard case .penState(let state) = layer.data else { return nil }
+      return state
+    }.first
+  }
+
+  public var isPhysicalEvidence: Bool { false }
 }
 
 /// A deterministic production frame source for the same renderer and vision
@@ -57,6 +168,7 @@ public struct SimulatedFrameSource: Sendable {
     var pixels = [UInt8](repeating: 255, count: width * height * 4)
     for stroke in strokes { draw(stroke, into: &pixels) }
     let frame = try StampedFrame(
+      id: FrameID(rawValue: "simulated-\(cameraConfigurationID)-\(sequence)"),
       sequence: sequence,
       captureNanoseconds: timestamp,
       cameraConfigurationID: cameraConfigurationID,
@@ -75,6 +187,111 @@ public struct SimulatedFrameSource: Sendable {
     -> Polyline<CameraPixelSpace>
   {
     try fieldToCamera.applying(to: fieldPolyline)
+  }
+
+  /// Renders simulated ink plus the complete overlay contract in one operation.
+  /// Every measurement is bound to the exact generated frame identity.
+  public mutating func renderModelMismatch(
+    _ scene: SimulatedModelMismatchScene,
+    captureNanoseconds: UInt64? = nil
+  ) throws -> SimulatedOverlaySceneContent {
+    let predicted = try scene.acceptedModel.predictedFieldPath(
+      for: scene.commandedMachinePath
+    )
+    let observed = try scene.simulatedGroundTruthTransform.predictedFieldPath(
+      for: scene.commandedMachinePath
+    )
+    let observedCamera = try cameraPolyline(from: observed)
+    let strokes = zip(observedCamera.points, observedCamera.points.dropFirst()).map {
+      SimulatedCameraStroke(start: $0.0, end: $0.1, green: 210)
+    }
+    let displayedFrame = try render(
+      strokes: strokes,
+      captureNanoseconds: captureNanoseconds
+    )
+    let logicalMeasurement = measurement(
+      geometry: .polyline(try cameraPolyline(from: scene.logicalFieldPath)),
+      kind: .logical,
+      scene: scene,
+      displayedFrame: displayedFrame
+    )
+    let predictedMeasurement = measurement(
+      geometry: .polyline(try cameraPolyline(from: predicted)),
+      kind: .predicted,
+      scene: scene,
+      displayedFrame: displayedFrame
+    )
+    let observedMeasurement = measurement(
+      geometry: .polyline(observedCamera),
+      kind: .observed,
+      scene: scene,
+      displayedFrame: displayedFrame
+    )
+    let residualMeasurements = try zip(predicted.points, observed.points).map {
+      measurement(
+        geometry: try residualGeometry(predicted: $0.0, observed: $0.1),
+        kind: .residuals,
+        scene: scene,
+        displayedFrame: displayedFrame
+      )
+    }
+    let capMeasurement = measurement(
+      geometry: .point(try fieldToCamera.applying(to: scene.capFieldPoint)),
+      kind: .cap,
+      scene: scene,
+      displayedFrame: displayedFrame
+    )
+    let closedFrameSides = try Polyline<FieldSpace>(
+      points: scene.frameFieldBounds.corners + [scene.frameFieldBounds.corners[0]]
+    )
+    let frameSidesMeasurement = measurement(
+      geometry: .polyline(try cameraPolyline(from: closedFrameSides)),
+      kind: .frameSides,
+      scene: scene,
+      displayedFrame: displayedFrame
+    )
+    return SimulatedOverlaySceneContent(
+      scenarioID: scene.scenarioID,
+      displayedFrame: displayedFrame,
+      layers: [
+        SimulatedOverlayLayer(kind: .logical, data: .geometry([logicalMeasurement])),
+        SimulatedOverlayLayer(kind: .predicted, data: .geometry([predictedMeasurement])),
+        SimulatedOverlayLayer(kind: .observed, data: .geometry([observedMeasurement])),
+        SimulatedOverlayLayer(kind: .residuals, data: .geometry(residualMeasurements)),
+        SimulatedOverlayLayer(kind: .cap, data: .geometry([capMeasurement])),
+        SimulatedOverlayLayer(kind: .frameSides, data: .geometry([frameSidesMeasurement])),
+        SimulatedOverlayLayer(kind: .penState, data: .penState(scene.penState)),
+      ]
+    )
+  }
+
+  private func measurement(
+    geometry: CameraPixelGeometry,
+    kind: SimulatedOverlayLayerKind,
+    scene: SimulatedModelMismatchScene,
+    displayedFrame: DisplayedFrame
+  ) -> CameraOverlayMeasurement {
+    CameraOverlayMeasurement(
+      frameID: displayedFrame.frame.id,
+      cameraConfigurationID: displayedFrame.frame.cameraConfigurationID,
+      geometry: geometry,
+      provenance: CameraMeasurementProvenance(
+        operation: kind.operationName,
+        algorithmRevision: "deterministic-model-mismatch-v1:\(scene.scenarioID)"
+      )
+    )
+  }
+
+  private func residualGeometry(
+    predicted: Point2<FieldSpace>,
+    observed: Point2<FieldSpace>
+  ) throws -> CameraPixelGeometry {
+    if predicted == observed {
+      return .point(try fieldToCamera.applying(to: predicted))
+    }
+    return .polyline(
+      try cameraPolyline(from: Polyline(points: [predicted, observed]))
+    )
   }
 
   private func draw(_ stroke: SimulatedCameraStroke, into pixels: inout [UInt8]) {

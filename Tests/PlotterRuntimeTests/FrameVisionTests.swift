@@ -167,6 +167,96 @@ struct FrameVisionTests {
     #expect(result.centroid == (try Point2<CameraPixelSpace>(x: 1, y: 0)))
   }
 
+  @Test("plotter scene finds cap and robust frame sides while rejecting light and ink distractors")
+  func plotterSceneFeatures() async throws {
+    let width = 120
+    let height = 80
+    var pixels = [UInt8](repeating: 190, count: width * height * 4)
+    for index in stride(from: 3, to: pixels.count, by: 4) { pixels[index] = 255 }
+
+    for x in 10..<90 where x % 13 != 0 {
+      let innerY = 12 + Int(Double(x - 10) * 0.04)
+      for y in (innerY - 4)...innerY {
+        setBGRA(&pixels, width: width, x: x, y: y, red: 10, green: 80, blue: 160)
+      }
+    }
+    for y in 15..<70 where y % 17 != 0 {
+      let innerX = 92 + Int(Double(y - 15) * 0.03)
+      for x in innerX...(innerX + 4) {
+        setBGRA(&pixels, width: width, x: x, y: y, red: 10, green: 80, blue: 160)
+      }
+    }
+    for y in 32..<42 {
+      for x in 45..<51 {
+        setBGRA(&pixels, width: width, x: x, y: y, red: 50, green: 180, blue: 120)
+      }
+    }
+    for y in 50..<52 {
+      for x in 80..<82 {
+        setBGRA(&pixels, width: width, x: x, y: y, red: 40, green: 190, blue: 100)
+      }
+    }
+    for y in 60..<62 {
+      for x in 5..<35 {
+        setBGRA(&pixels, width: width, x: x, y: y, red: 45, green: 185, blue: 105)
+      }
+    }
+
+    let frame = try StampedFrame(
+      sequence: 1,
+      captureNanoseconds: 10,
+      cameraConfigurationID: CameraConfigurationID(),
+      width: width,
+      height: height,
+      rowBytes: width * 4,
+      pixelFormat: .bgra8,
+      bytes: OwnedFrameBytes(pixels)
+    )
+    let priors = try PlotterSceneVisionPriors(
+      capSearchRegion: PixelRect(x: 0, y: 20, width: 100, height: 50),
+      topFrameSideRegion: PixelRect(x: 10, y: 5, width: 80, height: 20),
+      rightFrameSideRegion: PixelRect(x: 85, y: 12, width: 20, height: 60),
+      minimumCapPixels: 20,
+      maximumCapPixels: 200,
+      lineResidualLimitPixels: 2,
+      minimumLineSupportFraction: 0.30,
+      algorithmRevision: "synthetic-plotter-scene-v1"
+    )
+    let result = try await VisionWorker().inspectPlotterScene(in: frame, priors: priors)
+    let cap = try #require(result.cap)
+    #expect(result.greenComponentCount == 3)
+    #expect(cap.pixelCount == 60)
+    #expect(cap.boundingBox == PixelRect(x: 45, y: 32, width: 6, height: 10))
+    #expect(cap.centroid == (try Point2<CameraPixelSpace>(x: 47.5, y: 36.5)))
+    #expect(cap.confidence > 0.6)
+
+    let top = try #require(result.topFrameSide)
+    let right = try #require(result.rightFrameSide)
+    #expect(top.supportPointCount > 60)
+    #expect(top.rmsResidualPixels < 1)
+    #expect(top.confidence > 0.5)
+    #expect(right.supportPointCount > 40)
+    #expect(right.rmsResidualPixels < 1)
+    #expect(right.confidence > 0.5)
+    #expect(result.overlays.count == 4)
+    #expect(result.overlays.filter { $0.provenance.operation == "cap" }.count == 2)
+    #expect(result.overlays.filter { $0.provenance.operation == "frame-side" }.count == 2)
+    let displayed = DisplayedFrame(source: .simulated, frame: frame)
+    #expect(result.overlays.allSatisfy { $0.matches(displayed) })
+
+    let otherFrame = try StampedFrame(
+      sequence: 2,
+      captureNanoseconds: 11,
+      cameraConfigurationID: frame.cameraConfigurationID,
+      width: width,
+      height: height,
+      rowBytes: width * 4,
+      pixelFormat: .bgra8,
+      bytes: OwnedFrameBytes(pixels)
+    )
+    #expect(result.overlays.allSatisfy { !$0.matches(DisplayedFrame(source: .simulated, frame: otherFrame)) })
+  }
+
   @Test("overlay requires exact frame and camera configuration identity")
   func overlayIdentity() throws {
     let camera = CameraConfigurationID()
@@ -185,6 +275,22 @@ struct FrameVisionTests {
       value: 1, sequence: 2, time: 2, camera: CameraConfigurationID())
     #expect(!measurement.matches(DisplayedFrame(source: .simulated, frame: otherConfiguration)))
   }
+}
+
+private func setBGRA(
+  _ pixels: inout [UInt8],
+  width: Int,
+  x: Int,
+  y: Int,
+  red: UInt8,
+  green: UInt8,
+  blue: UInt8
+) {
+  let offset = (y * width + x) * 4
+  pixels[offset] = blue
+  pixels[offset + 1] = green
+  pixels[offset + 2] = red
+  pixels[offset + 3] = 255
 }
 
 private func grayFrame(

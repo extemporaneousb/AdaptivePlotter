@@ -38,4 +38,22 @@ if sh "$validator" "$tampered_bundle" >/dev/null 2>&1; then
     exit 1
 fi
 
+signature_details=$(/usr/bin/codesign -d --verbose=4 "$source_bundle" 2>&1)
+signature_requirement=$(/usr/bin/codesign -d -r- "$source_bundle" 2>&1)
+if printf '%s\n' "$signature_details" | grep -Fqx 'Signature=adhoc'; then
+    if ! printf '%s\n' "$signature_requirement" \
+        | grep -Eq '^# designated => cdhash H"[[:xdigit:]]{40}"$'
+    then
+        printf '%s\n' "$signature_requirement" >&2
+        echo "ad-hoc bundle lost its content-bound designated requirement" >&2
+        exit 1
+    fi
+elif ! printf '%s\n' "$signature_requirement" \
+    | grep -Fq 'identifier "com.bullard.AdaptivePlotter"'
+then
+    printf '%s\n' "$signature_requirement" >&2
+    echo "identity-signed bundle lost its stable designated requirement" >&2
+    exit 1
+fi
+
 echo "AdaptivePlotter app-bundle negative validation passed"
