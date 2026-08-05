@@ -14,11 +14,22 @@ public struct ControllerStatusReport: Codable, Hashable, Sendable {
   public let state: String
   public let fields: [ControllerField]
   public let pins: String?
+  public let controllerState: ControllerState
+  public let machinePosition: MachinePosition?
+  public let controllerPins: ControllerPins
 
-  public init(state: String, fields: [ControllerField], pins: String?) {
+  public init(
+    state: String,
+    fields: [ControllerField],
+    pins: String?,
+    machinePosition: MachinePosition? = nil
+  ) {
     self.state = state
     self.fields = fields
     self.pins = pins
+    controllerState = ControllerState(statusText: state)
+    self.machinePosition = machinePosition
+    controllerPins = ControllerPins(rawValue: pins ?? "")
   }
 }
 
@@ -114,6 +125,7 @@ public struct GRBLParser: Sendable {
     let state = components.first.map(String.init) ?? ""
     var fields: [ControllerField] = []
     var pins: String?
+    var machinePosition: MachinePosition?
     for component in components.dropFirst() {
       let value = String(component)
       if let separator = value.firstIndex(of: ":") {
@@ -121,10 +133,27 @@ public struct GRBLParser: Sendable {
         let fieldValue = String(value[value.index(after: separator)...])
         fields.append(ControllerField(name: name, value: fieldValue))
         if name == "Pn" { pins = fieldValue }
+        if name == "MPos" { machinePosition = parseMachinePosition(fieldValue) }
       } else {
         fields.append(ControllerField(name: value, value: ""))
       }
     }
-    return ControllerStatusReport(state: state, fields: fields, pins: pins)
+    return ControllerStatusReport(
+      state: state,
+      fields: fields,
+      pins: pins,
+      machinePosition: machinePosition
+    )
+  }
+
+  private static func parseMachinePosition(_ text: String) -> MachinePosition? {
+    let components = text.split(separator: ",", omittingEmptySubsequences: false)
+    guard components.count >= 2,
+      let x = Double(components[0]), x.isFinite,
+      let y = Double(components[1]), y.isFinite
+    else {
+      return nil
+    }
+    return try? MachinePosition(x: x, y: y)
   }
 }

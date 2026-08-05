@@ -40,48 +40,21 @@ public struct PaperSceneSimulator: Sendable {
     captureNanoseconds: UInt64,
     cameraConfigurationID: CameraConfigurationID
   ) throws -> StampedFrame {
-    var pixels = [UInt8](repeating: 255, count: width * height * 4)
-    for stroke in strokes {
-      draw(stroke, into: &pixels)
-    }
-    return try StampedFrame(
-      sequence: sequence,
-      captureNanoseconds: captureNanoseconds,
-      cameraConfigurationID: cameraConfigurationID,
+    var source = try SimulatedFrameSource(
       width: width,
       height: height,
-      rowBytes: width * 4,
-      pixelFormat: .rgba8,
-      bytes: OwnedFrameBytes(pixels)
+      fieldToCamera: AffineTransform2<FieldSpace, CameraPixelSpace>(
+        m11: 1, m12: 0, m21: 0, m22: 1, tx: 0, ty: 0),
+      cameraConfigurationID: cameraConfigurationID,
+      initialSequence: sequence
     )
-  }
-
-  private func draw(_ stroke: SimulatedPaperStroke, into pixels: inout [UInt8]) {
-    var x = stroke.start.x
-    var y = stroke.start.y
-    let dx = abs(stroke.end.x - stroke.start.x)
-    let sx = stroke.start.x < stroke.end.x ? 1 : -1
-    let dy = -abs(stroke.end.y - stroke.start.y)
-    let sy = stroke.start.y < stroke.end.y ? 1 : -1
-    var error = dx + dy
-    while true {
-      if x >= 0, x < width, y >= 0, y < height {
-        let offset = (y * width + x) * 4
-        pixels[offset] = 20
-        pixels[offset + 1] = stroke.green
-        pixels[offset + 2] = 30
-        pixels[offset + 3] = 255
-      }
-      if x == stroke.end.x, y == stroke.end.y { break }
-      let doubled = 2 * error
-      if doubled >= dy {
-        error += dy
-        x += sx
-      }
-      if doubled <= dx {
-        error += dx
-        y += sy
-      }
+    let cameraStrokes = try strokes.map {
+      SimulatedCameraStroke(
+        start: try Point2<CameraPixelSpace>(x: Double($0.start.x), y: Double($0.start.y)),
+        end: try Point2<CameraPixelSpace>(x: Double($0.end.x), y: Double($0.end.y)),
+        green: $0.green
+      )
     }
+    return try source.render(strokes: cameraStrokes, captureNanoseconds: captureNanoseconds).frame
   }
 }

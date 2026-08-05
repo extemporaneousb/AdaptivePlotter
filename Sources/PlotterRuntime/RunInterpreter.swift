@@ -15,42 +15,50 @@ public enum RunInterpreterError: Error, Equatable, Sendable {
   case staleTransition
 }
 
-public struct RuntimeProbeSnapshot: Sendable {
-  public let generation: UInt64
-  public let activeTransition: InterpreterTransitionToken?
+public enum RunOperation: Codable, Hashable, Sendable {
+  case idle
+  case passiveProbe
+  case relativeJog(RelativeJogRequest)
+}
+
+public struct RunInterpreterSnapshot: Codable, Hashable, Sendable {
+  public let currentOperation: RunOperation
   public let machine: MachineSnapshot
+  public let lastMotionOutcome: MotionOutcome?
   public let lastProbe: PassiveProbeResult?
 
   public init(
-    generation: UInt64,
-    activeTransition: InterpreterTransitionToken?,
+    currentOperation: RunOperation,
     machine: MachineSnapshot,
+    lastMotionOutcome: MotionOutcome?,
     lastProbe: PassiveProbeResult?
   ) {
-    self.generation = generation
-    self.activeTransition = activeTransition
+    self.currentOperation = currentOperation
     self.machine = machine
+    self.lastMotionOutcome = lastMotionOutcome
     self.lastProbe = lastProbe
   }
 }
 
-/// Serializes the current operation. It does not implement a phase, evidence,
-/// replay, or execution-authority system.
+/// Serializes the current operator-requested operation. MachineController still
+/// owns protocol encoding, safety validation, transport, and physical outcome.
 public actor RunInterpreter {
   private let machineController: MachineController
   private var generation: UInt64 = 0
   private var activeTransition: InterpreterTransitionToken?
+  private var currentOperation: RunOperation = .idle
   private var lastProbe: PassiveProbeResult?
+  private var lastMotionOutcome: MotionOutcome?
 
   public init(machineController: MachineController) {
     self.machineController = machineController
   }
 
-  public func snapshot() async -> RuntimeProbeSnapshot {
-    RuntimeProbeSnapshot(
-      generation: generation,
-      activeTransition: activeTransition,
+  public func snapshot() async -> RunInterpreterSnapshot {
+    RunInterpreterSnapshot(
+      currentOperation: currentOperation,
       machine: await machineController.snapshot(),
+      lastMotionOutcome: lastMotionOutcome,
       lastProbe: lastProbe
     )
   }
@@ -62,11 +70,43 @@ public actor RunInterpreter {
     return result
   }
 
+  public func confirmPenUp() async {
+    await machineController.confirmPenUp()
+  }
+
+  public func updateMotionLimits(_ limits: MotionLimits) async {
+    await machineController.updateMotionLimits(limits)
+  }
+
+  public func requestRelativeJog(_ request: RelativeJogRequest) async -> MotionOutcome {
+    guard currentOperation == .idle else {
+      let outcome = MotionOutcome.refused(.operationInFlight)
+      lastMotionOutcome = outcome
+      return outcome
+    }
+    generation &+= 1
+    currentOperation = .relativeJog(request)
+    let outcome = await machineController.requestRelativeJog(request)
+    lastMotionOutcome = outcome
+    currentOperation = .idle
+    return outcome
+  }
+
+  public func disconnect() async {
+    generation &+= 1
+    activeTransition = nil
+    currentOperation = .idle
+    await machineController.disconnect()
+  }
+
   public func beginPassiveProbe() throws -> InterpreterTransitionToken {
-    guard activeTransition == nil else { throw RunInterpreterError.transitionAlreadyInFlight }
+    guard currentOperation == .idle, activeTransition == nil else {
+      throw RunInterpreterError.transitionAlreadyInFlight
+    }
     generation &+= 1
     let token = InterpreterTransitionToken(generation: generation)
     activeTransition = token
+    currentOperation = .passiveProbe
     return token
   }
 
@@ -79,10 +119,12 @@ public actor RunInterpreter {
     }
     lastProbe = result
     activeTransition = nil
+    currentOperation = .idle
   }
 
   public func invalidatePendingTransition() {
     generation &+= 1
     activeTransition = nil
+    currentOperation = .idle
   }
 }

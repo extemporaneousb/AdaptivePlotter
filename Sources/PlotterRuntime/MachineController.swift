@@ -1,10 +1,12 @@
 import Foundation
+import PlotterModel
 
 public enum MachineConnectionState: String, Codable, Hashable, Sendable {
   case disconnected
   case connecting
-  case connectedPassiveOnly
+  case connected
   case probing
+  case moving
   case blocked
 }
 
@@ -13,17 +15,41 @@ public struct MachineSnapshot: Codable, Hashable, Sendable {
   public let link: MachineLinkDescriptor
   public let lastProbe: PassiveProbeResult?
   public let blockers: [MachineBlocker]
+  public let controllerState: ControllerState?
+  public let position: MachinePosition?
+  public let pins: ControllerPins
+  public let penState: PenState
+  public let stickyAmbiguity: MotionAmbiguity?
+  public let motionLimits: MotionLimits?
+  public let operationInFlight: Bool
+  public let lastMotionOutcome: MotionOutcome?
 
   public init(
     connection: MachineConnectionState,
     link: MachineLinkDescriptor,
     lastProbe: PassiveProbeResult?,
-    blockers: [MachineBlocker]
+    blockers: [MachineBlocker],
+    controllerState: ControllerState? = nil,
+    position: MachinePosition? = nil,
+    pins: ControllerPins = ControllerPins(rawValue: ""),
+    penState: PenState = .unknown,
+    stickyAmbiguity: MotionAmbiguity? = nil,
+    motionLimits: MotionLimits? = nil,
+    operationInFlight: Bool = false,
+    lastMotionOutcome: MotionOutcome? = nil
   ) {
     self.connection = connection
     self.link = link
     self.lastProbe = lastProbe
     self.blockers = blockers
+    self.controllerState = controllerState
+    self.position = position
+    self.pins = pins
+    self.penState = penState
+    self.stickyAmbiguity = stickyAmbiguity
+    self.motionLimits = motionLimits
+    self.operationInFlight = operationInFlight
+    self.lastMotionOutcome = lastMotionOutcome
   }
 }
 
@@ -47,44 +73,101 @@ public enum SerialSelectionResult: Sendable, Equatable {
 }
 
 public actor MachineController {
+  public static let maximumCompletionTimeoutNanoseconds: UInt64 = 120_000_000_000
+
+  private enum ActiveOperation {
+    case passiveProbe
+    case relativeJog
+  }
+
+  private struct WireRelativeJog {
+    let delta: Vector2<MachineSpace>
+    let feedMMPerMinute: Double
+    let xText: String
+    let yText: String
+    let feedText: String
+
+    var bytes: Data {
+      var components = ["$J=G91", "G21"]
+      if delta.dx != 0 { components.append("X\(xText)") }
+      if delta.dy != 0 { components.append("Y\(yText)") }
+      components.append("F\(feedText)")
+      return Data((components.joined(separator: " ") + "\n").utf8)
+    }
+
+    var request: RelativeJogRequest {
+      RelativeJogRequest(delta: delta, feedMMPerMinute: feedMMPerMinute)
+    }
+  }
+
+  struct ControllerMotionTiming: Equatable, Sendable {
+    let maximumXFeedMMPerMinute: Double
+    let maximumYFeedMMPerMinute: Double
+    let xAccelerationMMPerSecondSquared: Double
+    let yAccelerationMMPerSecondSquared: Double
+  }
+
   private let link: any MachineLink
+  private let selectionIsExplicit: Bool
   private let ledger: RunLedger?
   private let runID: LedgerRunID?
   private let clock: any RuntimeClock
   private let queryTimeoutNanoseconds: UInt64
   private let maximumRawReceiveBytesPerQuery: Int
   private let maximumRawReceiveChunksPerQuery: Int
+  private let statusPollIntervalNanoseconds: UInt64
+  private let completionGraceNanoseconds: UInt64
+
   private var connection: MachineConnectionState = .disconnected
   private var lastProbe: PassiveProbeResult?
   private var blockers: [MachineBlocker] = []
-  private var probeInFlight = false
+  private var controllerState: ControllerState?
+  private var position: MachinePosition?
+  private var pins = ControllerPins(rawValue: "")
+  private var penState: PenState = .unknown
+  private var stickyAmbiguity: MotionAmbiguity?
+  private var motionLimits: MotionLimits?
+  private var controllerMotionTiming: ControllerMotionTiming?
+  private var activeOperation: ActiveOperation?
+  private var lastMotionOutcome: MotionOutcome?
 
   public init(
     link: any MachineLink,
-    ledger: RunLedger? = nil,
-    runID: LedgerRunID? = nil,
-    clock: any RuntimeClock = SystemRuntimeClock(),
-    queryTimeoutNanoseconds: UInt64 = 2_000_000_000,
-    maximumRawReceiveBytesPerQuery: Int = 64 * 1_024,
-    maximumRawReceiveChunksPerQuery: Int = 256
-  ) {
-    self.link = link
-    self.ledger = ledger
-    self.runID = runID
-    self.clock = clock
-    self.queryTimeoutNanoseconds = queryTimeoutNanoseconds
-    self.maximumRawReceiveBytesPerQuery = max(1, maximumRawReceiveBytesPerQuery)
-    self.maximumRawReceiveChunksPerQuery = max(1, maximumRawReceiveChunksPerQuery)
-  }
-
-  public static func bsdSerial(
-    descriptor: MachineLinkDescriptor,
+    selectionIsExplicit: Bool = true,
+    motionLimits: MotionLimits? = nil,
     ledger: RunLedger? = nil,
     runID: LedgerRunID? = nil,
     clock: any RuntimeClock = SystemRuntimeClock(),
     queryTimeoutNanoseconds: UInt64 = 2_000_000_000,
     maximumRawReceiveBytesPerQuery: Int = 64 * 1_024,
     maximumRawReceiveChunksPerQuery: Int = 256,
+    statusPollIntervalNanoseconds: UInt64 = 50_000_000,
+    completionGraceNanoseconds: UInt64 = 1_000_000_000
+  ) {
+    self.link = link
+    self.selectionIsExplicit = selectionIsExplicit
+    self.motionLimits = motionLimits
+    self.ledger = ledger
+    self.runID = runID
+    self.clock = clock
+    self.queryTimeoutNanoseconds = max(1, queryTimeoutNanoseconds)
+    self.maximumRawReceiveBytesPerQuery = max(1, maximumRawReceiveBytesPerQuery)
+    self.maximumRawReceiveChunksPerQuery = max(1, maximumRawReceiveChunksPerQuery)
+    self.statusPollIntervalNanoseconds = statusPollIntervalNanoseconds
+    self.completionGraceNanoseconds = completionGraceNanoseconds
+  }
+
+  public static func bsdSerial(
+    descriptor: MachineLinkDescriptor,
+    motionLimits: MotionLimits? = nil,
+    ledger: RunLedger? = nil,
+    runID: LedgerRunID? = nil,
+    clock: any RuntimeClock = SystemRuntimeClock(),
+    queryTimeoutNanoseconds: UInt64 = 2_000_000_000,
+    maximumRawReceiveBytesPerQuery: Int = 64 * 1_024,
+    maximumRawReceiveChunksPerQuery: Int = 256,
+    statusPollIntervalNanoseconds: UInt64 = 50_000_000,
+    completionGraceNanoseconds: UInt64 = 1_000_000_000,
     writeTimeoutNanoseconds: UInt64 = 500_000_000
   ) throws -> MachineController {
     MachineController(
@@ -92,12 +175,16 @@ public actor MachineController {
         descriptor: descriptor,
         writeTimeoutNanoseconds: writeTimeoutNanoseconds
       ),
+      selectionIsExplicit: true,
+      motionLimits: motionLimits,
       ledger: ledger,
       runID: runID,
       clock: clock,
       queryTimeoutNanoseconds: queryTimeoutNanoseconds,
       maximumRawReceiveBytesPerQuery: maximumRawReceiveBytesPerQuery,
-      maximumRawReceiveChunksPerQuery: maximumRawReceiveChunksPerQuery
+      maximumRawReceiveChunksPerQuery: maximumRawReceiveChunksPerQuery,
+      statusPollIntervalNanoseconds: statusPollIntervalNanoseconds,
+      completionGraceNanoseconds: completionGraceNanoseconds
     )
   }
 
@@ -106,59 +193,630 @@ public actor MachineController {
       connection: connection,
       link: link.descriptor,
       lastProbe: lastProbe,
-      blockers: blockers
+      blockers: blockers,
+      controllerState: controllerState,
+      position: position,
+      pins: pins,
+      penState: penState,
+      stickyAmbiguity: stickyAmbiguity,
+      motionLimits: motionLimits,
+      operationInFlight: activeOperation != nil,
+      lastMotionOutcome: lastMotionOutcome
     )
   }
 
-  public func disconnect() async {
-    await link.close()
-    connection = .disconnected
+  public func updateMotionLimits(_ limits: MotionLimits) {
+    motionLimits = limits
   }
 
-  /// The only physical command surface in Phase 2. The exact fixed query set
-  /// is sent in declaration order; callers cannot provide arbitrary bytes.
+  public func confirmPenUp() {
+    guard connection == .connected, controllerState?.isRecognized == true,
+      controllerState?.isAlarm == false
+    else {
+      penState = .unknown
+      return
+    }
+    penState = .up
+  }
+
+  public func disconnect() async {
+    if activeOperation == .relativeJog {
+      setAmbiguous(.disconnected)
+    }
+    await link.close()
+    connection = .disconnected
+    controllerState = nil
+    position = nil
+    pins = ControllerPins(rawValue: "")
+    penState = .unknown
+    controllerMotionTiming = nil
+  }
+
   public func runPassiveProbe() async -> PassiveProbeResult {
     let started = timestamp()
-    guard !probeInFlight else {
+    guard activeOperation == nil else {
       return PassiveProbeResult(
         link: link.descriptor,
         startedAt: started,
         completedAt: timestamp(),
         exchanges: [],
-        blockers: [.transport("passive probe already in flight")]
+        blockers: [.transport("another controller operation is already in flight")]
       )
     }
-    probeInFlight = true
-    defer { probeInFlight = false }
+    activeOperation = .passiveProbe
+    defer { activeOperation = nil }
     blockers = []
     var exchanges: [PassiveProbeExchange] = []
     let probeID = UUID()
-
-    try? await recordProbeStarted(probeID: probeID, started: started)
+    recordProbeStartedBestEffort(probeID: probeID, started: started)
 
     do {
-      if connection == .disconnected || connection == .blocked {
-        connection = .connecting
-        try await link.open()
-      }
+      try await ensureConnected()
       connection = .probing
     } catch {
       blockers = [.transport(String(describing: error))]
-      connection = .blocked
-      return await finishProbe(probeID: probeID, started: started, exchanges: exchanges)
+      invalidateConnectionKnowledge()
+      return finishProbe(probeID: probeID, started: started, exchanges: exchanges)
     }
 
     for query in PassiveQuery.allCases {
-      let exchange = await execute(query)
+      let exchange = await executePassive(query)
       exchanges.append(exchange)
-      if let blocker = exchange.blocker { blockers.append(blocker) }
-      if exchange.blocker != nil { break }
+      if let blocker = exchange.blocker {
+        blockers.append(blocker)
+        break
+      }
     }
-    connection = blockers.isEmpty ? .connectedPassiveOnly : .blocked
-    return await finishProbe(probeID: probeID, started: started, exchanges: exchanges)
+    if blockers.isEmpty {
+      connection = .connected
+    } else {
+      await closeAndInvalidateKnowledge()
+    }
+    return finishProbe(probeID: probeID, started: started, exchanges: exchanges)
   }
 
-  private func execute(_ query: PassiveQuery) async -> PassiveProbeExchange {
+  public func requestRelativeJog(_ request: RelativeJogRequest) async -> MotionOutcome {
+    guard activeOperation == nil else {
+      return finishMotion(request: request, outcome: .refused(.operationInFlight))
+    }
+    let wireResult = Self.makeWireRelativeJog(request)
+    guard let wire = wireResult.wire else {
+      return finishMotion(
+        request: request,
+        outcome: .refused(wireResult.refusal ?? .nonFiniteDelta)
+      )
+    }
+    if let refusal = validateSessionAndRequest(wire) {
+      let outcome = MotionOutcome.refused(refusal)
+      lastMotionOutcome = outcome
+      recordMotionBestEffort(request: request, outcome: outcome)
+      return outcome
+    }
+
+    activeOperation = .relativeJog
+    defer {
+      activeOperation = nil
+      if connection == .moving { connection = .connected }
+    }
+
+    do {
+      try await link.discardPendingInput()
+    } catch {
+      await closeAndInvalidateKnowledge()
+      return finishMotion(
+        request: request,
+        outcome: .refused(
+          .freshStatusUnavailable(
+            "could not discard pending controller input: \(String(describing: error))"
+          )
+        )
+      )
+    }
+
+    let preflightDeadline = addingClamped(clock.nowNanoseconds(), queryTimeoutNanoseconds)
+    switch await requestMotionStatus(deadline: preflightDeadline) {
+    case .status(let report):
+      apply(report)
+      if let refusal = validateFreshControllerStatus(wire) {
+        await closeAndInvalidateKnowledge()
+        return finishMotion(request: request, outcome: .refused(refusal))
+      }
+    case .ambiguous(let reason):
+      await closeAndInvalidateKnowledge()
+      return finishMotion(
+        request: request,
+        outcome: .refused(.freshStatusUnavailable(Self.preflightFailureDescription(reason)))
+      )
+    }
+
+    connection = .moving
+    let command = wire.bytes
+    do {
+      try await link.write(command)
+      recordRawIOBestEffort(
+        RawMachineIO(direction: .transmit, bytes: command, timestamp: timestamp())
+      )
+    } catch let error as MachineLinkError {
+      return finishMotion(request: request, outcome: outcomeForWriteError(error))
+    } catch {
+      return finishMotion(
+        request: request,
+        outcome: ambiguous(.transport(String(describing: error)))
+      )
+    }
+
+    switch await awaitJogAcknowledgement() {
+    case .accepted:
+      break
+    case .rejected(let reason):
+      connection = .connected
+      let outcome = MotionOutcome.refused(.controllerRejected(reason))
+      return finishMotion(request: request, outcome: outcome)
+    case .ambiguous(let reason):
+      return finishMotion(request: request, outcome: ambiguous(reason))
+    }
+
+    let timeout = Self.completionTimeoutNanoseconds(
+      for: wire.request,
+      controllerMotionTiming: controllerMotionTiming,
+      graceNanoseconds: completionGraceNanoseconds
+    )
+    let deadline = addingClamped(clock.nowNanoseconds(), timeout)
+    while clock.nowNanoseconds() < deadline {
+      let statusResult = await requestMotionStatus(deadline: deadline)
+      switch statusResult {
+      case .status(let report):
+        apply(report)
+        switch report.controllerState {
+        case .idle:
+          guard let finalPosition = report.machinePosition else {
+            return finishMotion(
+              request: request,
+              outcome: ambiguous(.malformedReply("Idle status omitted a valid MPos"))
+            )
+          }
+          connection = .connected
+          let outcome = MotionOutcome.acceptedThenCompleted(finalPosition: finalPosition)
+          return finishMotion(request: request, outcome: outcome)
+        case .run, .jog:
+          do {
+            try await sleepBeforeNextPoll(deadline: deadline)
+          } catch {
+            return finishMotion(
+              request: request,
+              outcome: ambiguous(.completionTimedOut(deadlineNanoseconds: deadline))
+            )
+          }
+        case .alarm:
+          return finishMotion(
+            request: request,
+            outcome: ambiguous(.controllerAlarm(report.state))
+          )
+        case .hold:
+          return finishMotion(request: request, outcome: ambiguous(.controllerHold))
+        case .door, .check, .home, .sleep, .tool, .unknown:
+          return finishMotion(
+            request: request,
+            outcome: ambiguous(.unexpectedControllerState(report.controllerState))
+          )
+        }
+      case .ambiguous(let reason):
+        return finishMotion(request: request, outcome: ambiguous(reason))
+      }
+    }
+    return finishMotion(
+      request: request,
+      outcome: ambiguous(.completionTimedOut(deadlineNanoseconds: deadline))
+    )
+  }
+
+  public static func completionTimeoutNanoseconds(
+    for request: RelativeJogRequest,
+    graceNanoseconds: UInt64 = 1_000_000_000
+  ) -> UInt64 {
+    completionTimeoutNanoseconds(
+      for: request,
+      controllerMotionTiming: nil,
+      graceNanoseconds: graceNanoseconds
+    )
+  }
+
+  static func completionTimeoutNanoseconds(
+    for request: RelativeJogRequest,
+    controllerMotionTiming: ControllerMotionTiming?,
+    graceNanoseconds: UInt64 = 1_000_000_000
+  ) -> UInt64 {
+    guard let wire = makeWireRelativeJog(request).wire else {
+      return min(graceNanoseconds, maximumCompletionTimeoutNanoseconds)
+    }
+    let travelSeconds = estimatedTravelSeconds(
+      wire: wire,
+      controllerMotionTiming: controllerMotionTiming
+    )
+    let travelNanoseconds = travelSeconds * 1_000_000_000
+    guard travelNanoseconds.isFinite,
+      travelNanoseconds < Double(maximumCompletionTimeoutNanoseconds)
+    else {
+      return maximumCompletionTimeoutNanoseconds
+    }
+    let boundedTravel = UInt64(max(0, travelNanoseconds.rounded(.up)))
+    return min(
+      addingClamped(boundedTravel, graceNanoseconds),
+      maximumCompletionTimeoutNanoseconds
+    )
+  }
+
+  static func controllerMotionTiming(
+    from exchanges: [PassiveProbeExchange]
+  ) -> ControllerMotionTiming? {
+    var settings: [String: Double] = [:]
+    for exchange in exchanges where exchange.query == .configuration {
+      for line in exchange.lines {
+        guard case .configuration(let key, let value) = line.kind,
+          let number = Double(value), number.isFinite, number > 0
+        else { continue }
+        settings[key] = number
+      }
+    }
+    guard let maximumXFeed = settings["$110"],
+      let maximumYFeed = settings["$111"],
+      let xAcceleration = settings["$120"],
+      let yAcceleration = settings["$121"]
+    else { return nil }
+    return ControllerMotionTiming(
+      maximumXFeedMMPerMinute: maximumXFeed,
+      maximumYFeedMMPerMinute: maximumYFeed,
+      xAccelerationMMPerSecondSquared: xAcceleration,
+      yAccelerationMMPerSecondSquared: yAcceleration
+    )
+  }
+
+  private static func estimatedTravelSeconds(
+    wire: WireRelativeJog,
+    controllerMotionTiming: ControllerMotionTiming?
+  ) -> Double {
+    let distance = wire.delta.magnitude
+    guard let timing = controllerMotionTiming else {
+      return distance / wire.feedMMPerMinute * 60
+    }
+    let xComponent = abs(wire.delta.dx) / distance
+    let yComponent = abs(wire.delta.dy) / distance
+    var pathFeedLimits: [Double] = []
+    var pathAccelerationLimits: [Double] = []
+    if xComponent > 0 {
+      pathFeedLimits.append(timing.maximumXFeedMMPerMinute / xComponent)
+      pathAccelerationLimits.append(timing.xAccelerationMMPerSecondSquared / xComponent)
+    }
+    if yComponent > 0 {
+      pathFeedLimits.append(timing.maximumYFeedMMPerMinute / yComponent)
+      pathAccelerationLimits.append(timing.yAccelerationMMPerSecondSquared / yComponent)
+    }
+    guard let controllerFeedLimit = pathFeedLimits.min(),
+      let pathAcceleration = pathAccelerationLimits.min(),
+      controllerFeedLimit.isFinite, controllerFeedLimit > 0,
+      pathAcceleration.isFinite, pathAcceleration > 0
+    else {
+      return distance / wire.feedMMPerMinute * 60
+    }
+    let pathVelocity = min(wire.feedMMPerMinute, controllerFeedLimit) / 60
+    let accelerationAndDecelerationDistance = pathVelocity * pathVelocity / pathAcceleration
+    if distance >= accelerationAndDecelerationDistance {
+      let accelerationSeconds = pathVelocity / pathAcceleration
+      let cruiseSeconds =
+        (distance - accelerationAndDecelerationDistance) / pathVelocity
+      return 2 * accelerationSeconds + cruiseSeconds
+    }
+    return 2 * sqrt(distance / pathAcceleration)
+  }
+
+  public static func encodeRelativeJog(_ request: RelativeJogRequest) -> Data {
+    makeWireRelativeJog(request).wire?.bytes ?? Data()
+  }
+
+  private func ensureConnected() async throws {
+    if connection == .connected || connection == .probing || connection == .moving { return }
+    connection = .connecting
+    do {
+      try await link.open()
+      connection = .connected
+    } catch {
+      connection = .blocked
+      throw error
+    }
+  }
+
+  private func validateSessionAndRequest(_ wire: WireRelativeJog) -> MotionRefusal? {
+    guard selectionIsExplicit else { return .noSerialDeviceSelected }
+    if let stickyAmbiguity { return .stickyAmbiguity(stickyAmbiguity) }
+    guard connection == .connected else { return .notConnected }
+    guard let limits = motionLimits else { return .motionLimitsMissing }
+    guard penState == .up else { return .penNotUp(penState) }
+    guard wire.feedMMPerMinute <= limits.maximumFeedMMPerMinute else {
+      return .feedExceedsMaximum(
+        requested: wire.feedMMPerMinute,
+        maximum: limits.maximumFeedMMPerMinute
+      )
+    }
+    let distance = wire.delta.magnitude
+    guard distance <= limits.maximumDistanceMM else {
+      return .distanceExceedsMaximum(requested: distance, maximum: limits.maximumDistanceMM)
+    }
+    return nil
+  }
+
+  private func validateFreshControllerStatus(_ wire: WireRelativeJog) -> MotionRefusal? {
+    guard let limits = motionLimits else { return .motionLimitsMissing }
+    guard let controllerState else { return .controllerStateUnknown }
+    guard controllerState.isRecognized else { return .controllerStateUnknown }
+    guard !controllerState.isAlarm else { return .controllerAlarm("controller is in Alarm") }
+    guard controllerState == .idle else { return .controllerNotIdle(controllerState) }
+    guard !pins.hasRelevantLimitAsserted else {
+      return .relevantLimitAsserted(pins.rawValue)
+    }
+    guard let position else { return .machinePositionUnknown }
+    guard let destination = try? MachinePosition(
+      x: position.point.x + wire.delta.dx,
+      y: position.point.y + wire.delta.dy
+    ) else {
+      return .nonFiniteDelta
+    }
+    guard limits.bounds.contains(destination.point) else {
+      return .destinationOutsideBounds(destination)
+    }
+    return nil
+  }
+
+  private static func makeWireRelativeJog(
+    _ request: RelativeJogRequest
+  ) -> (wire: WireRelativeJog?, refusal: MotionRefusal?) {
+    guard request.delta.dx.isFinite, request.delta.dy.isFinite else {
+      return (nil, .nonFiniteDelta)
+    }
+    guard request.feedMMPerMinute.isFinite else {
+      return (nil, .nonPositiveFeed(request.feedMMPerMinute))
+    }
+    let x = quantizedWireNumber(request.delta.dx)
+    let y = quantizedWireNumber(request.delta.dy)
+    let feed = quantizedWireNumber(request.feedMMPerMinute)
+    guard let x, let y, let feed else { return (nil, .nonFiniteDelta) }
+    guard x.value != 0 || y.value != 0 else { return (nil, .zeroDelta) }
+    guard feed.value > 0 else { return (nil, .nonPositiveFeed(feed.value)) }
+    guard let delta = try? Vector2<MachineSpace>(dx: x.value, dy: y.value) else {
+      return (nil, .nonFiniteDelta)
+    }
+    return (
+      WireRelativeJog(
+        delta: delta,
+        feedMMPerMinute: feed.value,
+        xText: x.text,
+        yText: y.text,
+        feedText: feed.text
+      ),
+      nil
+    )
+  }
+
+  private static func preflightFailureDescription(_ reason: MotionAmbiguity) -> String {
+    switch reason {
+    case .disconnected:
+      return "controller disconnected during the fresh status query"
+    case .completionTimedOut, .acceptanceTimedOut:
+      return "fresh status query timed out"
+    case .malformedReply(let detail):
+      return "fresh status reply was malformed: \(detail)"
+    case .controllerAlarm(let detail):
+      return "controller alarmed during the fresh status query: \(detail)"
+    case .controllerHold:
+      return "controller entered Hold during the fresh status query"
+    case .unexpectedControllerState(let state):
+      return "controller entered \(state.rawValue) during the fresh status query"
+    case .partialWrite, .writeTimedOut, .writeCancelled, .transport:
+      return "fresh status transport failed: \(reason.actionableDescription)"
+    }
+  }
+
+  private enum AcknowledgementResult {
+    case accepted
+    case rejected(String)
+    case ambiguous(MotionAmbiguity)
+  }
+
+  private func awaitJogAcknowledgement() async -> AcknowledgementResult {
+    var parser = GRBLParser()
+    let deadline = addingClamped(clock.nowNanoseconds(), queryTimeoutNanoseconds)
+    var receivedBytes = 0
+    var receivedChunks = 0
+    do {
+      while clock.nowNanoseconds() < deadline {
+        guard receivedBytes < maximumRawReceiveBytesPerQuery,
+          receivedChunks < maximumRawReceiveChunksPerQuery
+        else {
+          return .ambiguous(.malformedReply("jog acknowledgement exceeded response bounds"))
+        }
+        let remaining = deadline - clock.nowNanoseconds()
+        let data = try await link.read(
+          maximumBytes: min(4_096, maximumRawReceiveBytesPerQuery - receivedBytes),
+          timeoutNanoseconds: remaining
+        )
+        receivedBytes += data.count
+        receivedChunks += 1
+        recordRawIOBestEffort(
+          RawMachineIO(direction: .receive, bytes: data, timestamp: timestamp())
+        )
+        for line in parser.consume(data) {
+          switch line.kind {
+          case .acknowledgement:
+            return .accepted
+          case .error(let code):
+            return .rejected("error:\(code)")
+          case .alarm:
+            applyAlarm(line.text)
+            return .ambiguous(.controllerAlarm(line.text))
+          case .status(let report):
+            apply(report)
+          case .unknown:
+            return .ambiguous(.malformedReply(line.text))
+          case .greeting:
+            penState = .unknown
+            return .ambiguous(.malformedReply("controller reset greeting arrived after jog"))
+          case .configuration, .bracketReport, .message:
+            continue
+          }
+        }
+      }
+      return .ambiguous(.acceptanceTimedOut)
+    } catch MachineLinkError.timedOut {
+      return .ambiguous(.acceptanceTimedOut)
+    } catch MachineLinkError.disconnected {
+      invalidateConnectionKnowledge()
+      return .ambiguous(.disconnected)
+    } catch {
+      return .ambiguous(.transport(String(describing: error)))
+    }
+  }
+
+  private enum MotionStatusResult {
+    case status(ControllerStatusReport)
+    case ambiguous(MotionAmbiguity)
+  }
+
+  private func requestMotionStatus(deadline: UInt64) async -> MotionStatusResult {
+    let query = PassiveQuery.status.wireBytes
+    do {
+      try await link.write(query)
+      recordRawIOBestEffort(
+        RawMachineIO(direction: .transmit, bytes: query, timestamp: timestamp())
+      )
+    } catch MachineLinkError.disconnected {
+      invalidateConnectionKnowledge()
+      return .ambiguous(.disconnected)
+    } catch {
+      return .ambiguous(.transport(String(describing: error)))
+    }
+
+    var parser = GRBLParser()
+    var receivedBytes = 0
+    var receivedChunks = 0
+    let queryDeadline = min(deadline, addingClamped(clock.nowNanoseconds(), queryTimeoutNanoseconds))
+    do {
+      while clock.nowNanoseconds() < queryDeadline {
+        guard receivedBytes < maximumRawReceiveBytesPerQuery,
+          receivedChunks < maximumRawReceiveChunksPerQuery
+        else {
+          return .ambiguous(.malformedReply("status response exceeded response bounds"))
+        }
+        let remainingBytes = maximumRawReceiveBytesPerQuery - receivedBytes
+        let data = try await link.read(
+          maximumBytes: min(4_096, remainingBytes),
+          timeoutNanoseconds: queryDeadline - clock.nowNanoseconds()
+        )
+        guard data.count <= remainingBytes else {
+          return .ambiguous(.malformedReply("status response exceeded byte bound"))
+        }
+        receivedBytes += data.count
+        receivedChunks += 1
+        recordRawIOBestEffort(
+          RawMachineIO(direction: .receive, bytes: data, timestamp: timestamp())
+        )
+        for line in parser.consume(data) {
+          switch line.kind {
+          case .status(let report):
+            guard report.controllerState.isRecognized else {
+              return .ambiguous(.malformedReply(line.text))
+            }
+            return .status(report)
+          case .alarm:
+            applyAlarm(line.text)
+            return .ambiguous(.controllerAlarm(line.text))
+          case .error(let code):
+            return .ambiguous(.malformedReply("error:\(code) while polling status"))
+          case .unknown:
+            return .ambiguous(.malformedReply(line.text))
+          default:
+            continue
+          }
+        }
+      }
+      return .ambiguous(.completionTimedOut(deadlineNanoseconds: deadline))
+    } catch MachineLinkError.timedOut {
+      return .ambiguous(.completionTimedOut(deadlineNanoseconds: deadline))
+    } catch MachineLinkError.disconnected {
+      invalidateConnectionKnowledge()
+      return .ambiguous(.disconnected)
+    } catch {
+      return .ambiguous(.transport(String(describing: error)))
+    }
+  }
+
+  private func sleepBeforeNextPoll(deadline: UInt64) async throws {
+    let now = clock.nowNanoseconds()
+    guard now < deadline else { throw MachineLinkError.timedOut }
+    try await clock.sleep(nanoseconds: min(statusPollIntervalNanoseconds, deadline - now))
+  }
+
+  private func outcomeForWriteError(_ error: MachineLinkError) -> MotionOutcome {
+    switch error {
+    case .writeTimedOut(let written, let total):
+      if written > 0 {
+        return ambiguous(.partialWrite(bytesWritten: written, totalBytes: total))
+      }
+      return ambiguous(.writeTimedOut(bytesWritten: written, totalBytes: total))
+    case .writeCancelled(let written, let total):
+      if written > 0 {
+        return ambiguous(.partialWrite(bytesWritten: written, totalBytes: total))
+      }
+      return ambiguous(.writeCancelled(bytesWritten: written, totalBytes: total))
+    case .disconnected, .notOpen:
+      invalidateConnectionKnowledge()
+      return ambiguous(.disconnected)
+    default:
+      return ambiguous(.transport(String(describing: error)))
+    }
+  }
+
+  private func ambiguous(_ reason: MotionAmbiguity) -> MotionOutcome {
+    setAmbiguous(reason)
+    return .ambiguous(reason)
+  }
+
+  private func setAmbiguous(_ reason: MotionAmbiguity) {
+    stickyAmbiguity = reason
+    penState = .unknown
+  }
+
+  private func finishMotion(request: RelativeJogRequest, outcome: MotionOutcome) -> MotionOutcome {
+    lastMotionOutcome = outcome
+    recordMotionBestEffort(request: request, outcome: outcome)
+    return outcome
+  }
+
+  private func apply(_ report: ControllerStatusReport) {
+    controllerState = report.controllerState
+    position = report.machinePosition
+    pins = report.controllerPins
+    if report.controllerState.isAlarm { penState = .unknown }
+  }
+
+  private func applyAlarm(_ text: String) {
+    controllerState = .alarm
+    penState = .unknown
+  }
+
+  private func closeAndInvalidateKnowledge() async {
+    await link.close()
+    invalidateConnectionKnowledge()
+  }
+
+  private func invalidateConnectionKnowledge() {
+    connection = .disconnected
+    controllerState = nil
+    position = nil
+    pins = ControllerPins(rawValue: "")
+    penState = .unknown
+    controllerMotionTiming = nil
+  }
+
+  private func executePassive(_ query: PassiveQuery) async -> PassiveProbeExchange {
     let commandID = UUID()
     let bytes = query.wireBytes
     var rawIO: [RawMachineIO] = []
@@ -173,7 +831,7 @@ public actor MachineController {
       try await link.write(bytes)
       let transmitted = RawMachineIO(direction: .transmit, bytes: bytes, timestamp: timestamp())
       rawIO.append(transmitted)
-      try? await recordRawIO(transmitted)
+      recordRawIOBestEffort(transmitted)
 
       while true {
         guard rawReceiveBytes < maximumRawReceiveBytesPerQuery,
@@ -213,11 +871,13 @@ public actor MachineController {
           timestamp: timestamp()
         )
         rawIO.append(received)
-        try? await recordRawIO(received)
+        recordRawIOBestEffort(received)
         guard clock.nowNanoseconds() <= deadline else { throw MachineLinkError.timedOut }
         let newLines = parser.consume(receivedBytes)
         for line in newLines {
           parsed.append(line)
+          if case .status(let report) = line.kind { apply(report) }
+          if case .greeting = line.kind { penState = .unknown }
           switch validator.consume(line) {
           case .continueReading:
             continue
@@ -230,7 +890,7 @@ public actor MachineController {
               completed: true,
               blocker: nil
             )
-          case let .invalid(reason):
+          case .invalid(let reason):
             return exchange(
               query: query,
               commandID: commandID,
@@ -238,7 +898,8 @@ public actor MachineController {
               lines: parsed,
               blocker: .invalidReply(query, reason: reason)
             )
-          case let .alarm(text):
+          case .alarm(let text):
+            applyAlarm(text)
             return exchange(
               query: query,
               commandID: commandID,
@@ -246,7 +907,7 @@ public actor MachineController {
               lines: parsed,
               blocker: .controllerAlarm(text)
             )
-          case let .controllerError(text):
+          case .controllerError(let text):
             return exchange(
               query: query,
               commandID: commandID,
@@ -267,6 +928,7 @@ public actor MachineController {
         blocker: .timeout(query)
       )
     } catch {
+      if case MachineLinkError.disconnected = error { invalidateConnectionKnowledge() }
       return exchange(
         query: query,
         commandID: commandID,
@@ -294,22 +956,23 @@ public actor MachineController {
     )
   }
 
-  private func recordRawIO(_ io: RawMachineIO) async throws {
-    guard let ledger, let runID else { return }
-    let payload = try JSONEncoder().encode(io)
-    try await ledger.appendEvent(
-      runID: runID,
-      timestamp: io.timestamp,
-      kind: "machine.raw_io",
-      payload: payload
-    )
-  }
-
   private func timestamp() -> RuntimeTimestamp {
     RuntimeTimestamp(monotonicNanoseconds: clock.nowNanoseconds())
   }
 
-  private func recordProbeStarted(probeID: UUID, started: RuntimeTimestamp) async throws {
+  private func recordRawIOBestEffort(_ io: RawMachineIO) {
+    guard let ledger, let runID, let payload = try? JSONEncoder().encode(io) else { return }
+    Task {
+      try? await ledger.appendEvent(
+        runID: runID,
+        timestamp: io.timestamp,
+        kind: "machine.raw_io",
+        payload: payload
+      )
+    }
+  }
+
+  private func recordProbeStartedBestEffort(probeID: UUID, started: RuntimeTimestamp) {
     guard let ledger, let runID else { return }
     let record = PassiveProbeStartedRecord(
       probeID: probeID,
@@ -317,20 +980,23 @@ public actor MachineController {
       startedAt: started,
       queries: PassiveQuery.allCases
     )
-    try await ledger.appendEvent(
-      runID: runID,
-      timestamp: started,
-      kind: "machine.passive_probe.started",
-      schemaVersion: 1,
-      payload: try JSONEncoder().encode(record)
-    )
+    guard let payload = try? JSONEncoder().encode(record) else { return }
+    Task {
+      try? await ledger.appendEvent(
+        runID: runID,
+        timestamp: started,
+        kind: "machine.passive_probe.started",
+        schemaVersion: 1,
+        payload: payload
+      )
+    }
   }
 
   private func finishProbe(
     probeID: UUID,
     started: RuntimeTimestamp,
     exchanges: [PassiveProbeExchange]
-  ) async -> PassiveProbeResult {
+  ) -> PassiveProbeResult {
     let result = PassiveProbeResult(
       link: link.descriptor,
       startedAt: started,
@@ -340,18 +1006,39 @@ public actor MachineController {
     )
     if let ledger, let runID {
       let record = PassiveProbeFinishedRecord(probeID: probeID, result: result)
-      _ = try? await ledger.appendEvent(
-        runID: runID,
-        timestamp: result.completedAt,
-        kind: "machine.passive_probe.finished",
-        schemaVersion: 1,
-        payload: try JSONEncoder().encode(record)
-      )
+      if let payload = try? JSONEncoder().encode(record) {
+        Task {
+          try? await ledger.appendEvent(
+            runID: runID,
+            timestamp: result.completedAt,
+            kind: "machine.passive_probe.finished",
+            schemaVersion: 1,
+            payload: payload
+          )
+        }
+      }
     }
     lastProbe = result
+    controllerMotionTiming = blockers.isEmpty
+      ? Self.controllerMotionTiming(from: exchanges)
+      : nil
     return result
   }
 
+  private func recordMotionBestEffort(request: RelativeJogRequest, outcome: MotionOutcome) {
+    guard let ledger, let runID else { return }
+    let record = MotionDiagnosticRecord(request: request, outcome: outcome, timestamp: timestamp())
+    guard let payload = try? JSONEncoder().encode(record) else { return }
+    Task {
+      try? await ledger.appendEvent(
+        runID: runID,
+        timestamp: record.timestamp,
+        kind: "machine.relative_jog.result",
+        schemaVersion: 1,
+        payload: payload
+      )
+    }
+  }
 }
 
 private enum PassiveReplyDecision {
@@ -363,9 +1050,6 @@ private enum PassiveReplyDecision {
 }
 
 private struct PassiveReplyValidator {
-  private static let recognizedStatusStates: Set<String> = [
-    "idle", "run", "hold", "jog", "alarm", "door", "check", "home", "sleep", "tool",
-  ]
   private static let coordinateReportNames: Set<String> = [
     "G54", "G55", "G56", "G57", "G58", "G59", "G28", "G30", "G92", "TLO", "PRB",
   ]
@@ -383,8 +1067,7 @@ private struct PassiveReplyValidator {
       return .alarm(line.text)
     case .error:
       return .controllerError(line.text)
-    case let .status(status)
-    where status.state.split(separator: ":", maxSplits: 1).first?.lowercased() == "alarm":
+    case .status(let status) where status.controllerState == .alarm:
       return .alarm(line.text)
     default:
       break
@@ -392,9 +1075,8 @@ private struct PassiveReplyValidator {
 
     if query == .status {
       switch line.kind {
-      case let .status(status):
-        let state = status.state.split(separator: ":", maxSplits: 1).first.map(String.init) ?? ""
-        guard !state.isEmpty, Self.recognizedStatusStates.contains(state.lowercased()) else {
+      case .status(let status):
+        guard status.controllerState.isRecognized else {
           return .invalid("status report has an empty or unrecognized controller state")
         }
         return .complete
@@ -415,15 +1097,15 @@ private struct PassiveReplyValidator {
 
   private func isExpectedEvidence(_ kind: ControllerLineKind) -> Bool {
     switch (query, kind) {
-    case let (.buildInfo, .bracketReport(name?, value)):
+    case (.buildInfo, .bracketReport(let name?, let value)):
       return name.caseInsensitiveCompare("VER") == .orderedSame && !value.isEmpty
-    case let (.parserState, .bracketReport(name?, value)):
+    case (.parserState, .bracketReport(let name?, let value)):
       return name.caseInsensitiveCompare("GC") == .orderedSame && !value.isEmpty
-    case let (.configuration, .configuration(key, value)):
+    case (.configuration, .configuration(let key, let value)):
       let digits = key.dropFirst()
       return key.first == "$" && !digits.isEmpty && digits.allSatisfy(\.isNumber)
         && Double(value)?.isFinite == true
-    case let (.coordinateOffsets, .bracketReport(name?, value)):
+    case (.coordinateOffsets, .bracketReport(let name?, let value)):
       return Self.coordinateReportNames.contains(name.uppercased())
         && Self.isValidCoordinateReport(name: name, value: value)
     default:
@@ -439,6 +1121,17 @@ private struct PassiveReplyValidator {
     guard components.count >= 3 else { return false }
     return components.prefix(3).allSatisfy { Double($0)?.isFinite == true }
   }
+}
+
+private func quantizedWireNumber(_ value: Double) -> (value: Double, text: String)? {
+  guard value.isFinite else { return nil }
+  let text = String(format: "%.3f", locale: Locale(identifier: "en_US_POSIX"), value)
+  guard let quantized = Double(text), quantized.isFinite else { return nil }
+  let normalized = quantized == 0 ? 0 : quantized
+  return (
+    normalized,
+    normalized == 0 ? "0.000" : text
+  )
 }
 
 private func addingClamped(_ lhs: UInt64, _ rhs: UInt64) -> UInt64 {

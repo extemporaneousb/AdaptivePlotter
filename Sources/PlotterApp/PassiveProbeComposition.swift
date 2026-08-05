@@ -1,65 +1,136 @@
 import Foundation
-import PlotterModel
 import PlotterRuntime
 
-enum PassiveProbeComposition {
-  static let run: OperatorWorkspace.PassiveProbeRunner = { descriptor in
+enum MachineSessionComposition {
+  private static let session = PersistentMachineSession()
+
+  static let actions = OperatorWorkspace.MachineActions(
+    select: { descriptor in
+      try await session.select(descriptor)
+    },
+    snapshot: {
+      await session.snapshot()
+    },
+    requestPassiveProbe: {
+      try await session.requestPassiveProbe()
+    },
+    confirmPenUp: {
+      await session.confirmPenUp()
+    },
+    updateMotionLimits: { limits in
+      await session.updateMotionLimits(limits)
+    },
+    requestRelativeJog: { request in
+      await session.requestRelativeJog(request)
+    },
+    disconnect: {
+      await session.disconnect()
+    }
+  )
+}
+
+private enum MachineSessionCompositionError: LocalizedError {
+  case noSelectedController
+
+  var errorDescription: String? {
+    "Select one serial controller before requesting an operation."
+  }
+}
+
+/// Owns one controller, interpreter, serial link, and best-effort journal for
+/// the explicitly selected device. Repeated probes and jogs reuse that session.
+private actor PersistentMachineSession {
+  private var selectedDescriptor: MachineLinkDescriptor?
+  private var interpreter: RunInterpreter?
+  private var ledger: RunLedger?
+
+  func select(_ descriptor: MachineLinkDescriptor) async throws -> RunInterpreterSnapshot {
+    if selectedDescriptor == descriptor, let interpreter {
+      return await interpreter.snapshot()
+    }
+
+    await interpreter?.disconnect()
+    await ledger?.close()
+    selectedDescriptor = nil
+    interpreter = nil
+    ledger = nil
+
+    let clock = SystemRuntimeClock()
+    let diagnostic = await makeBestEffortLedger(clock: clock)
+    let controller = try MachineController.bsdSerial(
+      descriptor: descriptor,
+      ledger: diagnostic.ledger,
+      runID: diagnostic.runID,
+      clock: clock
+    )
+    let newInterpreter = RunInterpreter(machineController: controller)
+    selectedDescriptor = descriptor
+    interpreter = newInterpreter
+    ledger = diagnostic.ledger
+    return await newInterpreter.snapshot()
+  }
+
+  func snapshot() async -> RunInterpreterSnapshot? {
+    await interpreter?.snapshot()
+  }
+
+  func requestPassiveProbe() async throws -> PassiveProbeResult {
+    guard let interpreter else { throw MachineSessionCompositionError.noSelectedController }
+    return try await interpreter.requestPassiveProbe()
+  }
+
+  func confirmPenUp() async {
+    await interpreter?.confirmPenUp()
+  }
+
+  func updateMotionLimits(_ limits: MotionLimits) async {
+    await interpreter?.updateMotionLimits(limits)
+  }
+
+  func requestRelativeJog(_ request: RelativeJogRequest) async -> MotionOutcome {
+    guard let interpreter else { return .refused(.noSerialDeviceSelected) }
+    return await interpreter.requestRelativeJog(request)
+  }
+
+  func disconnect() async {
+    await interpreter?.disconnect()
+    await ledger?.close()
+    selectedDescriptor = nil
+    interpreter = nil
+    ledger = nil
+  }
+
+  private func makeBestEffortLedger(
+    clock: any RuntimeClock
+  ) async -> (ledger: RunLedger?, runID: LedgerRunID?) {
     let fileManager = FileManager.default
-    let applicationSupport = try? fileManager.url(
+    guard let applicationSupport = try? fileManager.url(
       for: .applicationSupportDirectory,
       in: .userDomainMask,
       appropriateFor: nil,
       create: true
-    )
-    let proposedLedgerURL = applicationSupport.map {
-      $0.appendingPathComponent("AdaptivePlotter", isDirectory: true)
-        .appendingPathComponent("PassiveRuns", isDirectory: true)
-        .appendingPathComponent("passive-\(UUID().uuidString.lowercased())")
-        .appendingPathExtension("sqlite")
+    ) else {
+      return (nil, nil)
     }
-    let clock = SystemRuntimeClock()
-    var ledger: RunLedger?
-    var runID: LedgerRunID?
-    if let proposedLedgerURL {
-      try? fileManager.createDirectory(
-        at: proposedLedgerURL.deletingLastPathComponent(),
+    let ledgerURL = applicationSupport
+      .appendingPathComponent("AdaptivePlotter", isDirectory: true)
+      .appendingPathComponent("MachineSessions", isDirectory: true)
+      .appendingPathComponent("session-\(UUID().uuidString.lowercased())")
+      .appendingPathExtension("sqlite")
+    do {
+      try fileManager.createDirectory(
+        at: ledgerURL.deletingLastPathComponent(),
         withIntermediateDirectories: true
       )
-      do {
-        let newLedger = try RunLedger(databaseURL: proposedLedgerURL)
-        let newRunID = try await newLedger.createRun(
-          buildID: Bundle.main.object(
-            forInfoDictionaryKey: "CFBundleVersion"
-          ) as? String ?? "swiftpm-prototype-unverified",
-          createdAt: RuntimeTimestamp(monotonicNanoseconds: clock.nowNanoseconds())
-        )
-        ledger = newLedger
-        runID = newRunID
-      } catch {
-        ledger = nil
-        runID = nil
-      }
-    }
-
-    let controller = try MachineController.bsdSerial(
-      descriptor: descriptor,
-      ledger: ledger,
-      runID: runID,
-      clock: clock
-    )
-    let interpreter = RunInterpreter(machineController: controller)
-    do {
-      let result = try await interpreter.requestPassiveProbe()
-      await controller.disconnect()
-      await ledger?.close()
-      return PassiveProbeRunReceipt(
-        probe: result,
-        ledgerURL: ledger == nil ? nil : proposedLedgerURL
+      let ledger = try RunLedger(databaseURL: ledgerURL)
+      let runID = try await ledger.createRun(
+        buildID: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+          ?? "swiftpm-local",
+        createdAt: RuntimeTimestamp(monotonicNanoseconds: clock.nowNanoseconds())
       )
+      return (ledger, runID)
     } catch {
-      await controller.disconnect()
-      await ledger?.close()
-      throw error
+      return (nil, nil)
     }
   }
 }

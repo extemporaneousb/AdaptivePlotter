@@ -21,10 +21,16 @@ public struct ScheduledMachineRead: Sendable, Equatable {
 public struct SimulatedCommandExchange: Sendable, Equatable {
   public let expectedWrite: Data
   public let reads: [ScheduledMachineRead]
+  public let writeError: MachineLinkError?
 
-  public init(expectedWrite: Data, reads: [ScheduledMachineRead]) {
+  public init(
+    expectedWrite: Data,
+    reads: [ScheduledMachineRead],
+    writeError: MachineLinkError? = nil
+  ) {
     self.expectedWrite = Data(expectedWrite)
     self.reads = reads
+    self.writeError = writeError
   }
 }
 
@@ -33,6 +39,8 @@ private final class ScriptEngine: @unchecked Sendable {
     var isOpen = false
     var nextExchange = 0
     var queuedReads: [ScheduledMachineRead] = []
+    var discardCount = 0
+    var nextDiscardError: MachineLinkError?
   }
 
   private let lock = NSLock()
@@ -59,6 +67,36 @@ private final class ScriptEngine: @unchecked Sendable {
     }
   }
 
+  func completedWriteCount() -> Int {
+    lock.withLock { state.nextExchange }
+  }
+
+  func discardCount() -> Int {
+    lock.withLock { state.discardCount }
+  }
+
+  func preloadPendingInput(_ bytes: Data) {
+    lock.withLock {
+      state.queuedReads.append(ScheduledMachineRead(outcome: .bytes(bytes)))
+    }
+  }
+
+  func failNextDiscard(with error: MachineLinkError) {
+    lock.withLock { state.nextDiscardError = error }
+  }
+
+  func discardPendingInput() throws {
+    try lock.withLock {
+      guard state.isOpen else { throw MachineLinkError.notOpen }
+      state.discardCount += 1
+      if let error = state.nextDiscardError {
+        state.nextDiscardError = nil
+        throw error
+      }
+      state.queuedReads.removeAll()
+    }
+  }
+
   func write(_ bytes: Data) throws {
     try lock.withLock {
       guard state.isOpen else { throw MachineLinkError.notOpen }
@@ -69,11 +107,9 @@ private final class ScriptEngine: @unchecked Sendable {
       guard exchange.expectedWrite == bytes else {
         throw MachineLinkError.unexpectedWrite(expected: exchange.expectedWrite, actual: bytes)
       }
-      guard state.queuedReads.isEmpty else {
-        throw MachineLinkError.unexpectedWrite(expected: Data(), actual: bytes)
-      }
       state.nextExchange += 1
-      state.queuedReads = exchange.reads
+      if let writeError = exchange.writeError { throw writeError }
+      state.queuedReads.append(contentsOf: exchange.reads)
     }
   }
 
@@ -138,9 +174,18 @@ public final class SimulatedGRBLLink: MachineLink, @unchecked Sendable {
 
   public func open() async throws { try engine.open() }
   public func close() async { engine.close() }
+  public func discardPendingInput() async throws { try engine.discardPendingInput() }
   public func write(_ bytes: Data) async throws { try engine.write(bytes) }
   public func read(maximumBytes: Int, timeoutNanoseconds: UInt64) async throws -> Data {
     try await engine.read(maximumBytes: maximumBytes, timeoutNanoseconds: timeoutNanoseconds)
+  }
+
+  public var completedWriteCount: Int { engine.completedWriteCount() }
+  public var pendingInputDiscardCount: Int { engine.discardCount() }
+
+  public func preloadPendingInput(_ bytes: Data) { engine.preloadPendingInput(bytes) }
+  public func failNextPendingInputDiscard(with error: MachineLinkError) {
+    engine.failNextDiscard(with: error)
   }
 }
 
@@ -202,6 +247,7 @@ public final class TranscriptReplayLink: MachineLink, @unchecked Sendable {
 
   public func open() async throws { try engine.open() }
   public func close() async { engine.close() }
+  public func discardPendingInput() async throws { try engine.discardPendingInput() }
   public func write(_ bytes: Data) async throws { try engine.write(bytes) }
   public func read(maximumBytes: Int, timeoutNanoseconds: UInt64) async throws -> Data {
     try await engine.read(maximumBytes: maximumBytes, timeoutNanoseconds: timeoutNanoseconds)
@@ -289,6 +335,9 @@ final class BSDSerialLink: MachineLink, @unchecked Sendable {
       guard tcsetattr(descriptorFD, TCSANOW, &options) == 0 else {
         throw MachineLinkError.operatingSystem(code: errno, operation: "tcsetattr")
       }
+      guard tcflush(descriptorFD, TCIFLUSH) == 0 else {
+        throw MachineLinkError.operatingSystem(code: errno, operation: "tcflush input")
+      }
       try lock.withLock {
         guard fileDescriptor < 0 else { throw MachineLinkError.alreadyOpen }
         fileDescriptor = descriptorFD
@@ -306,6 +355,13 @@ final class BSDSerialLink: MachineLink, @unchecked Sendable {
       return value
     }
     if descriptorFD >= 0 { Darwin.close(descriptorFD) }
+  }
+
+  func discardPendingInput() async throws {
+    let descriptorFD = try openFileDescriptor()
+    guard tcflush(descriptorFD, TCIFLUSH) == 0 else {
+      throw MachineLinkError.operatingSystem(code: errno, operation: "tcflush input")
+    }
   }
 
   func write(_ bytes: Data) async throws {

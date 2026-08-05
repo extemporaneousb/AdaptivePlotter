@@ -1,4 +1,5 @@
 import Foundation
+import PlotterModel
 import PlotterRuntime
 import Testing
 
@@ -17,7 +18,42 @@ struct GRBLParserTests {
     }
     #expect(status.state == "Idle")
     #expect(status.pins == "XYZ")
+    #expect(status.controllerState == .idle)
+    #expect(status.machinePosition == (try? MachinePosition(x: 1, y: 2)))
+    #expect(status.controllerPins.hasRelevantLimitAsserted)
     #expect(status.fields.contains(ControllerField(name: "Future", value: "value")))
+  }
+
+  @Test("typed state, Hold substate, MPos, and pins parse without display coordinates")
+  func typedStatus() throws {
+    let line = GRBLParser.parseLine(
+      Data("<Hold:0|MPos:-12.500,3.250,0.000|Pn:Y|FS:0,0>".utf8)
+    )
+    guard case .status(let status) = line.kind else {
+      Issue.record("expected status")
+      return
+    }
+    #expect(status.controllerState == .hold)
+    #expect(status.machinePosition == (try MachinePosition(x: -12.5, y: 3.25)))
+    #expect(status.controllerPins.rawValue == "Y")
+    #expect(status.controllerPins.yLimitAsserted)
+    #expect(!status.controllerPins.xLimitAsserted)
+  }
+
+  @Test("invalid or missing MPos never becomes machine position")
+  func invalidPosition() {
+    for text in [
+      "<Idle|MPos:nan,0.000,0.000>",
+      "<Idle|MPos:1.000>",
+      "<Idle|WPos:1.000,2.000,0.000>",
+    ] {
+      let line = GRBLParser.parseLine(Data(text.utf8))
+      guard case .status(let status) = line.kind else {
+        Issue.record("expected status")
+        continue
+      }
+      #expect(status.machinePosition == nil)
+    }
   }
 
   @Test("errors alarms configuration bracket reports and unknowns remain distinct")

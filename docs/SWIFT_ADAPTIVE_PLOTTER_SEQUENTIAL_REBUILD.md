@@ -75,7 +75,7 @@ Deliver:
 - repeatable `$I`, `$G`, `?`, `$$`, `$#` passive probes in one app launch;
 - current controller state and raw error display;
 - no scan of prior journal files before connecting;
-- a new small journal file per probe/session.
+- one optional journal per selected-device machine session, reused across that session's probes.
 
 Keep the two-second response deadline and bounded response size because they
 prevent a stuck serial read. Stop the current probe on transport error, alarm,
@@ -85,6 +85,11 @@ Done when the actual controller can be probed repeatedly without restarting or
 clearing historical data.
 
 ## Work item 2 — Live camera
+
+Implementation status: the native source path, shared live/simulated renderer,
+and automated lifecycle/provenance tests are implemented. Real plotter-camera
+permission, advancing-frame, stop/restart, and source-switch verification are
+still required on this Mac.
 
 Deliver:
 
@@ -102,6 +107,11 @@ Done when the app shows the real camera and can capture the newest frame on
 demand.
 
 ## Work item 3 — One bounded pen-up move
+
+Implementation status: the persistent session, typed relative-jog request,
+direct safety checks, closed GRBL jog encoding, acceptance/Idle completion,
+sticky ambiguity, manual widget, and automated simulation tests are implemented.
+A real low-speed pen-up round trip is still required on the attached mechanism.
 
 Deliver one direct low-speed relative move control. Before sending it, check:
 

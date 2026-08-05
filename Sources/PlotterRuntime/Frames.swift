@@ -7,6 +7,24 @@ public struct FrameID: RawRepresentable, Codable, Hashable, Sendable {
   public init(_ uuid: UUID = UUID()) { rawValue = uuid.uuidString.lowercased() }
 }
 
+public struct CameraDeviceID: RawRepresentable, Codable, Hashable, Sendable {
+  public let rawValue: String
+
+  public init(rawValue: String) {
+    self.rawValue = rawValue
+  }
+}
+
+public struct CameraDevice: Identifiable, Codable, Hashable, Sendable {
+  public let id: CameraDeviceID
+  public let name: String
+
+  public init(id: CameraDeviceID, name: String) {
+    self.id = id
+    self.name = name
+  }
+}
+
 public enum FramePixelFormat: String, Codable, Hashable, Sendable {
   case gray8
   case rgba8
@@ -114,6 +132,69 @@ public struct StampedFrame: Codable, Hashable, Sendable {
       bytes: values.decode(OwnedFrameBytes.self, forKey: .bytes)
     )
     guard contentSHA256 == expectedHash else { throw FrameError.contentHashMismatch }
+  }
+}
+
+/// Identifies whether displayed pixels came from a physical camera or the local
+/// deterministic simulator. Simulated pixels never represent camera evidence.
+public enum FrameSourceIdentity: Codable, Hashable, Sendable {
+  case live(CameraDeviceID)
+  case simulated
+}
+
+/// The single image contract consumed by preview and vision code.
+public struct DisplayedFrame: Codable, Hashable, Sendable {
+  public let source: FrameSourceIdentity
+  public let frame: StampedFrame
+
+  public init(source: FrameSourceIdentity, frame: StampedFrame) {
+    self.source = source
+    self.frame = frame
+  }
+}
+
+/// Geometry is expressed in canonical camera pixels: origin at the top-left,
+/// +X right, +Y down. Preview-space coordinates are deliberately absent.
+public enum CameraPixelGeometry: Codable, Hashable, Sendable {
+  case point(Point2<CameraPixelSpace>)
+  case bounds(AxisAlignedBounds<CameraPixelSpace>)
+  case polyline(Polyline<CameraPixelSpace>)
+}
+
+public struct CameraMeasurementProvenance: Codable, Hashable, Sendable {
+  public let operation: String
+  public let algorithmRevision: String
+
+  public init(operation: String, algorithmRevision: String) {
+    self.operation = operation
+    self.algorithmRevision = algorithmRevision
+  }
+}
+
+/// A measurement may be drawn only over the exact pixels from which it was
+/// derived. Matching both identities rejects overlays across camera
+/// reconfiguration.
+public struct CameraOverlayMeasurement: Codable, Hashable, Sendable {
+  public let frameID: FrameID
+  public let cameraConfigurationID: CameraConfigurationID
+  public let geometry: CameraPixelGeometry
+  public let provenance: CameraMeasurementProvenance
+
+  public init(
+    frameID: FrameID,
+    cameraConfigurationID: CameraConfigurationID,
+    geometry: CameraPixelGeometry,
+    provenance: CameraMeasurementProvenance
+  ) {
+    self.frameID = frameID
+    self.cameraConfigurationID = cameraConfigurationID
+    self.geometry = geometry
+    self.provenance = provenance
+  }
+
+  public func matches(_ displayedFrame: DisplayedFrame) -> Bool {
+    frameID == displayedFrame.frame.id
+      && cameraConfigurationID == displayedFrame.frame.cameraConfigurationID
   }
 }
 

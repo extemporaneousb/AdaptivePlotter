@@ -35,8 +35,63 @@ struct RunInterpreterTests {
 
     #expect(result.blockers.isEmpty)
     #expect(snapshot.lastProbe == result)
-    #expect(snapshot.activeTransition == nil)
+    #expect(snapshot.currentOperation == .idle)
     #expect(snapshot.machine.lastProbe == result)
+  }
+
+  @Test("typed jog passes through the interpreter without a camera dependency")
+  func typedJog() async throws {
+    let request = RelativeJogRequest(
+      delta: try Vector2<MachineSpace>(dx: 1, dy: 0),
+      feedMMPerMinute: 60
+    )
+    var exchanges = ControllerTranscriptFixtures.successfulPassiveProbe()
+    exchanges[2] = ControllerTranscriptFixtures.exchange(
+      .status,
+      chunks: ["<Idle|MPos:0.000,0.000,0.000>\r\n"]
+    )
+    exchanges.append(
+      SimulatedCommandExchange(
+        expectedWrite: PassiveQuery.status.wireBytes,
+        reads: [
+          ScheduledMachineRead(
+            outcome: .bytes(Data("<Idle|MPos:0.000,0.000,0.000>\r\n".utf8))
+          )
+        ]
+      )
+    )
+    exchanges.append(
+      SimulatedCommandExchange(
+        expectedWrite: MachineController.encodeRelativeJog(request),
+        reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+      )
+    )
+    exchanges.append(
+      SimulatedCommandExchange(
+        expectedWrite: PassiveQuery.status.wireBytes,
+        reads: [
+          ScheduledMachineRead(
+            outcome: .bytes(Data("<Idle|MPos:1.000,0.000,0.000>\r\n".utf8))
+          )
+        ]
+      )
+    )
+    let fixture = try await InterpreterFixture.make(exchanges: exchanges)
+    _ = try await fixture.interpreter.requestPassiveProbe()
+    let limits = try MotionLimits(
+      bounds: AxisAlignedBounds<MachineSpace>(minX: -2, minY: -2, maxX: 2, maxY: 2),
+      maximumDistanceMM: 1,
+      maximumFeedMMPerMinute: 60
+    )
+    await fixture.interpreter.updateMotionLimits(limits)
+    await fixture.interpreter.confirmPenUp()
+
+    let outcome = await fixture.interpreter.requestRelativeJog(request)
+    let snapshot = await fixture.interpreter.snapshot()
+
+    #expect(outcome == .acceptedThenCompleted(finalPosition: try MachinePosition(x: 1, y: 0)))
+    #expect(snapshot.currentOperation == .idle)
+    #expect(snapshot.lastMotionOutcome == outcome)
   }
 
   @Test("pre-command open failure records the current failure and probe finish")
@@ -58,7 +113,11 @@ struct RunInterpreterTests {
 
     let result = try await interpreter.requestPassiveProbe()
     let snapshot = await interpreter.snapshot()
-    let events = try await ledger.events(runID: runID)
+    let events = try await waitForInterpreterLedgerEvent(
+      "machine.passive_probe.finished",
+      ledger: ledger,
+      runID: runID
+    )
 
     #expect(result.exchanges.isEmpty)
     guard case .transport = result.blockers.first else {
@@ -67,18 +126,31 @@ struct RunInterpreterTests {
     }
     #expect(snapshot.lastProbe == result)
     #expect(snapshot.machine.blockers == result.blockers)
-    #expect(
-      events.map(\.kind) == [
-        "machine.passive_probe.started",
-        "machine.passive_probe.finished",
-      ])
+    #expect(events.contains(where: { $0.kind == "machine.passive_probe.started" }))
+    #expect(events.contains(where: { $0.kind == "machine.passive_probe.finished" }))
+    let finishedEvent = try #require(
+      events.first(where: { $0.kind == "machine.passive_probe.finished" })
+    )
     let finished = try JSONDecoder().decode(
       PassiveProbeFinishedRecord.self,
-      from: events[1].payload
+      from: finishedEvent.payload
     )
     #expect(finished.exchanges.isEmpty)
     #expect(finished.blockers == result.blockers)
   }
+}
+
+private func waitForInterpreterLedgerEvent(
+  _ kind: String,
+  ledger: RunLedger,
+  runID: LedgerRunID
+) async throws -> [LedgerEvent] {
+  for _ in 0..<100 {
+    let events = try await ledger.events(runID: runID)
+    if events.contains(where: { $0.kind == kind }) { return events }
+    await Task.yield()
+  }
+  return try await ledger.events(runID: runID)
 }
 
 private struct InterpreterFixture {
@@ -132,6 +204,11 @@ private final class OpenFailureLink: MachineLink, @unchecked Sendable {
   }
 
   func close() async {}
+
+  func discardPendingInput() async throws {
+    Issue.record("Open failure must occur before pending input discard")
+    throw MachineLinkError.notOpen
+  }
 
   func write(_: Data) async throws {
     Issue.record("Open failure must occur before write")

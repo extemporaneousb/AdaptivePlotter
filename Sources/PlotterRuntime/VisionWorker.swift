@@ -47,16 +47,6 @@ public enum MeasurementRequest: Codable, Hashable, Sendable {
   }
 }
 
-public struct PixelPoint: Codable, Hashable, Sendable {
-  public let x: Double
-  public let y: Double
-
-  public init(x: Double, y: Double) {
-    self.x = x
-    self.y = y
-  }
-}
-
 public struct MeasurementResult: Codable, Hashable, Sendable {
   public let frameID: FrameID
   public let frameSHA256: String
@@ -64,10 +54,34 @@ public struct MeasurementResult: Codable, Hashable, Sendable {
   public let request: MeasurementRequest
   public let matchingPixelCount: Int
   public let sampledPixelCount: Int
-  public let centroid: PixelPoint?
+  public let centroid: Point2<CameraPixelSpace>?
   public let boundingBox: PixelRect?
+  public let geometry: CameraPixelGeometry?
   public let meanLuma: Double
   public let diagnosticSHA256: String
+
+  public var overlayMeasurement: CameraOverlayMeasurement? {
+    guard let geometry else { return nil }
+    return CameraOverlayMeasurement(
+      frameID: frameID,
+      cameraConfigurationID: cameraConfigurationID,
+      geometry: geometry,
+      provenance: CameraMeasurementProvenance(
+        operation: request.operationName,
+        algorithmRevision: request.algorithmRevision
+      )
+    )
+  }
+}
+
+extension MeasurementRequest {
+  public var operationName: String {
+    switch self {
+    case .statistics: "statistics"
+    case .greenInk: "green-ink"
+    case .darkOcclusion: "dark-occlusion"
+    }
+  }
 }
 
 public actor VisionWorker {
@@ -125,12 +139,21 @@ public actor VisionWorker {
 
     let centroid =
       matching > 0
-      ? PixelPoint(x: xSum / Double(matching), y: ySum / Double(matching))
+      ? try Point2<CameraPixelSpace>(x: xSum / Double(matching), y: ySum / Double(matching))
       : nil
     let boundingBox =
       matching > 0
       ? PixelRect(x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1)
       : nil
+    let geometry = try boundingBox.map {
+      CameraPixelGeometry.bounds(
+        try AxisAlignedBounds<CameraPixelSpace>(
+          minX: Double($0.x),
+          minY: Double($0.y),
+          maxX: Double($0.x + $0.width),
+          maxY: Double($0.y + $0.height)
+        ))
+    }
     let diagnostic =
       "\(frame.contentSHA256)|\(request.algorithmRevision)|\(matching)|\(sampled)|\(lumaSum)"
     return MeasurementResult(
@@ -142,6 +165,7 @@ public actor VisionWorker {
       sampledPixelCount: sampled,
       centroid: centroid,
       boundingBox: boundingBox,
+      geometry: geometry,
       meanLuma: lumaSum / Double(sampled),
       diagnosticSHA256: RunLedger.sha256Hex(Data(diagnostic.utf8))
     )

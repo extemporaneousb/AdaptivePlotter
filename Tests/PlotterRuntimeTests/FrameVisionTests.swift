@@ -134,7 +134,56 @@ struct FrameVisionTests {
     #expect(first.frameSHA256 == frame.contentSHA256)
     #expect(first.matchingPixelCount == 11)
     #expect(first.boundingBox == PixelRect(x: 2, y: 5, width: 11, height: 1))
-    #expect(first.centroid == PixelPoint(x: 7, y: 5))
+    #expect(first.centroid == (try Point2<CameraPixelSpace>(x: 7, y: 5)))
+    #expect(first.overlayMeasurement?.matches(DisplayedFrame(source: .simulated, frame: frame)) == true)
+  }
+
+  @Test("vision honors padded BGRA row stride")
+  func paddedBGRARowStride() async throws {
+    let camera = CameraConfigurationID()
+    let bytes: [UInt8] = [
+      255, 255, 255, 255, 30, 200, 20, 255, 77, 77, 77, 77,
+      255, 255, 255, 255, 255, 255, 255, 255, 88, 88, 88, 88,
+    ]
+    let frame = try StampedFrame(
+      sequence: 1,
+      captureNanoseconds: 1,
+      cameraConfigurationID: camera,
+      width: 2,
+      height: 2,
+      rowBytes: 12,
+      pixelFormat: .bgra8,
+      bytes: OwnedFrameBytes(bytes)
+    )
+    let result = try await VisionWorker().measure(
+      .greenInk(
+        region: PixelRect(x: 0, y: 0, width: 2, height: 2),
+        thresholds: GreenPixelThresholds(minimumGreen: 150, minimumGreenExcess: 80),
+        algorithmRevision: "padded-bgra-v1"
+      ),
+      in: frame
+    )
+    #expect(result.matchingPixelCount == 1)
+    #expect(result.centroid == (try Point2<CameraPixelSpace>(x: 1, y: 0)))
+  }
+
+  @Test("overlay requires exact frame and camera configuration identity")
+  func overlayIdentity() throws {
+    let camera = CameraConfigurationID()
+    let frame = try grayFrame(value: 1, sequence: 1, time: 1, camera: camera)
+    let geometry = CameraPixelGeometry.point(try Point2(x: 0, y: 0))
+    let measurement = CameraOverlayMeasurement(
+      frameID: frame.id,
+      cameraConfigurationID: camera,
+      geometry: geometry,
+      provenance: CameraMeasurementProvenance(operation: "test", algorithmRevision: "v1")
+    )
+    #expect(measurement.matches(DisplayedFrame(source: .simulated, frame: frame)))
+    let otherFrame = try grayFrame(value: 1, sequence: 2, time: 2, camera: camera)
+    #expect(!measurement.matches(DisplayedFrame(source: .simulated, frame: otherFrame)))
+    let otherConfiguration = try grayFrame(
+      value: 1, sequence: 2, time: 2, camera: CameraConfigurationID())
+    #expect(!measurement.matches(DisplayedFrame(source: .simulated, frame: otherConfiguration)))
   }
 }
 
