@@ -248,7 +248,7 @@ Raw serial text may be available in a small developer disclosure when needed.
 Do not build:
 
 - a three-pane workspace;
-- model/trial inspectors;
+- historical or generalized model/trial inspectors;
 - semantic event timelines;
 - replay or history modes;
 - storage management UI;
@@ -258,6 +258,10 @@ Do not build:
 
 Observability means the operator can see what the app is doing now and why the
 last operation failed. It does not mean every internal fact needs a durable UI.
+A current-session learning workbench and live throughput counters are in scope:
+they make frame recognition, controller pairing, fixed split assignment,
+candidate fitting, held-out comparison, and explicit pen-up acceptance visible
+without creating history, replay, or a generalized model platform.
 
 ## 9. Failure behavior
 

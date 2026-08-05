@@ -39,11 +39,16 @@ struct SimulatedModelOverlayTests {
     #expect(first.penState == .down)
     #expect(!first.isPhysicalEvidence)
     #expect(SimulatedOverlaySceneContent.evidenceLabel == "SIMULATED — NOT PHYSICAL EVIDENCE")
-    #expect(first.overlays.count == 8)
+    #expect(first.overlays.count == 10)
     #expect(first.overlays.allSatisfy { $0.matches(first.displayedFrame) })
     #expect(
-      Set(first.overlays.map(\.provenance.operation))
-        == Set(["logical", "predicted", "simulated-observed", "residual", "cap", "frame-side"])
+      Set(first.overlays.map(\.provenance.kind))
+        == Set(CameraOverlayKind.allCases.filter { $0 != .diagnostic })
+    )
+    #expect(
+      first.overlays.allSatisfy {
+        [.simulated, .planned, .inferred].contains($0.provenance.source)
+      }
     )
     #expect(
       first.overlays.allSatisfy {
@@ -53,10 +58,10 @@ struct SimulatedModelOverlayTests {
     )
 
     let predicted = try #require(
-      first.overlays.first(where: { $0.provenance.operation == "predicted" })
+      first.overlays.first(where: { $0.provenance.kind == .modelPrediction })
     )
     let observed = try #require(
-      first.overlays.first(where: { $0.provenance.operation == "simulated-observed" })
+      first.overlays.first(where: { $0.provenance.kind == .observedInk })
     )
     #expect(predicted.geometry != observed.geometry)
   }
@@ -101,6 +106,7 @@ private func modelMismatchScene() throws -> SimulatedModelMismatchScene {
     simulatedGroundTruthTransform: simulatedGroundTruth,
     capFieldPoint: Point2(x: 120, y: 30),
     frameFieldBounds: AxisAlignedBounds(minX: 5, minY: 5, maxX: 215, maxY: 115),
+    armatureFieldBounds: AxisAlignedBounds(minX: 108, minY: 10, maxX: 132, maxY: 100),
     penState: .down
   )
 }

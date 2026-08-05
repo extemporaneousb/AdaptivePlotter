@@ -108,19 +108,33 @@ executable CDHash until that one-time approval is completed with the operator.
    produces no frames and no sample directory; that is an external permission
    boundary, not camera evidence.
 4. Confirm that frame sequence advances and frame age remains current.
-5. Choose **Analyze Frame**. Confirm preview holds one exact frame and shows one
-   cap box/centroid plus blue top/right side lines. The panel reports support,
-   residual, and confidence rather than a mm scale. Choose **Resume Preview**.
-6. Choose **Save Snapshot** and confirm the UI reports a new PNG/manifest
+5. Use the compact top bar to open **Camera** and **Overlays**. Confirm both can
+   be dragged away from the subject, collapsed, closed, and restored; **Hide
+   All** must leave only the compact bar over the camera.
+6. Choose **Analyze Frame**. Confirm preview holds one exact frame and shows one
+   cap box/centroid, blue measured top/right side lines, a dashed inferred
+   drawing frame, and a dashed inferred armature envelope. Toggle Pen cap,
+   Measured frame sides, Drawing frame estimate, and Armature independently. The
+   panel reports support, residual, confidence, and evidence source rather than
+   a mm scale. Choose **Resume Preview**.
+7. Enable **Auto Analyze** first at 2 Hz and then 5 Hz. Confirm frame sequence
+   advances, analyzed count rises, frame age stays current, and superseded count
+   may rise without an unbounded backlog. Record the displayed delivery,
+   preview/exact, analyzed/superseded, and latency values; do not claim a usable
+   10 Hz rate until it is observed on this Mac.
+8. Choose **Save Snapshot** and confirm the UI reports a new PNG/manifest
    directory under `CameraSamples`.
-7. Stop and restart capture; confirm a new camera configuration is used and
+9. Stop and restart capture; confirm a new camera configuration is used and
    frames resume.
-8. Switch to **SIMULATED**. Toggle **PRIOR MISMATCH** and **ACCEPTED TRAINING**;
+10. Switch to **SIMULATED**. Toggle **PRIOR MISMATCH** and **ACCEPTED TRAINING**;
    confirm predicted/observed residuals collapse for the accepted affine model,
    and that the surface remains labeled not physical evidence. Switch back to
    **LIVE** and confirm source labels are exact
    and no overlay from the other source/configuration remains visible.
-9. Confirm that the first successful live start created three PNGs plus
+11. Open **Learning** and follow the seven visible research steps. Confirm the
+    simulated path is labeled simulated and the physical recorder steps are
+    labeled not wired; this is an inspectable sequence, not a readiness gate.
+12. Confirm that the first successful live start created three PNGs plus
    `manifest.json` beneath:
 
    ```text

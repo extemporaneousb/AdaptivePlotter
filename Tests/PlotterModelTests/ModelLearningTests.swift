@@ -158,6 +158,74 @@ struct ModelLearningTests {
     #expect(candidate.baseVersion == pin.acceptedModel.version)
     #expect(accumulator.acceptedModel == accepted)
   }
+
+  @Test("physical observations require complete paired frame and controller provenance")
+  func physicalObservationProvenance() throws {
+    let machinePoint = try Point2<MachineSpace>(x: 12, y: -4)
+    let registrationID = FieldRegistrationID()
+    let registration = try FieldRegistration.fit(
+      id: registrationID,
+      correspondences: [
+        RegistrationCorrespondence(camera: Point2(x: 0, y: 0), field: Point2(x: 0, y: 0)),
+        RegistrationCorrespondence(
+          camera: Point2(x: 1_000, y: 0),
+          field: Point2(x: 1_000, y: 0)
+        ),
+        RegistrationCorrespondence(
+          camera: Point2(x: 0, y: 1_000),
+          field: Point2(x: 0, y: 1_000)
+        ),
+      ]
+    )
+    let physical = try PhysicalModelObservationEvidence(
+      frameID: "frame-42",
+      contentSHA256: String(repeating: "a", count: 64),
+      captureNanoseconds: 1_000,
+      cameraConfigurationID: CameraConfigurationID(),
+      measuredCameraPoint: Point2(x: 412, y: 208),
+      measurementConfidence: 0.84,
+      controllerPosition: machinePoint,
+      controllerSampleNanoseconds: 1_010,
+      fieldRegistrationID: registrationID
+    )
+    let provenance = try ModelObservationProvenance(
+      observationID: "physical-1",
+      evidence: .physical(physical),
+      algorithmRevision: "green-cap-v2"
+    )
+    let observation = try DrawingModelTrainingObservation.physical(
+      evidence: physical,
+      registration: registration,
+      split: .training,
+      observationID: "physical-1",
+      algorithmRevision: "green-cap-v2"
+    )
+    #expect(observation.provenance.evidence == .physical(physical))
+    #expect(observation.machinePoint == machinePoint)
+    let expectedFieldPoint = try Point2<FieldSpace>(x: 412, y: 208)
+    #expect(observation.observedFieldPoint.distance(to: expectedFieldPoint) < 1e-9)
+
+    #expect(throws: ModelLearningError.physicalObservationRequiresRegistration) {
+      _ = try DrawingModelTrainingObservation(
+        machinePoint: machinePoint,
+        observedFieldPoint: Point2(x: 34, y: 21),
+        split: .training,
+        provenance: provenance
+      )
+    }
+    #expect(throws: ModelLearningError.physicalRegistrationMismatch) {
+      _ = try DrawingModelTrainingObservation.physical(
+        evidence: physical,
+        registration: FieldRegistration.fit(
+          id: FieldRegistrationID(),
+          correspondences: registration.correspondences
+        ),
+        split: .training,
+        observationID: "physical-wrong-registration",
+        algorithmRevision: "green-cap-v2"
+      )
+    }
+  }
 }
 
 private func priorSnapshot() throws -> AcceptedDrawingModelSnapshot {

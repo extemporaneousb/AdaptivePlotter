@@ -4,23 +4,27 @@ import PlotterModel
 import PlotterRuntime
 
 enum CanvasLayer: String, CaseIterable, Identifiable {
-  case logical = "Logical"
-  case predicted = "Predicted"
-  case observed = "Observed"
+  case intendedPath = "Intended path"
+  case modelPrediction = "Plotter estimate"
+  case observedInk = "Observed ink"
   case residuals = "Residuals"
-  case cap = "Cap"
-  case frameSides = "Frame"
+  case penCap = "Pen cap"
+  case measuredFrameSides = "Measured frame sides"
+  case drawingFrameEstimate = "Drawing frame estimate"
+  case armatureEstimate = "Armature"
 
   var id: Self { self }
 
-  var operationName: String {
+  var overlayKind: CameraOverlayKind {
     switch self {
-    case .logical: "logical"
-    case .predicted: "predicted"
-    case .observed: "simulated-observed"
-    case .residuals: "residual"
-    case .cap: "cap"
-    case .frameSides: "frame-side"
+    case .intendedPath: .intendedPath
+    case .modelPrediction: .modelPrediction
+    case .observedInk: .observedInk
+    case .residuals: .residual
+    case .penCap: .penCap
+    case .measuredFrameSides: .measuredFrameSide
+    case .drawingFrameEstimate: .drawingFrameEstimate
+    case .armatureEstimate: .armatureEstimate
     }
   }
 }
@@ -44,6 +48,22 @@ enum JogDirection: Sendable {
   case xPositive
   case yNegative
   case yPositive
+}
+
+enum LearningWorkbenchStepState: String, Sendable {
+  case available = "available"
+  case observed = "observed"
+  case simulated = "simulated"
+  case notWired = "not wired"
+}
+
+struct LearningWorkbenchStep: Identifiable, Sendable {
+  let number: Int
+  let title: String
+  let detail: String
+  let state: LearningWorkbenchStepState
+
+  var id: Int { number }
 }
 
 struct SimulatedActionSurfaceContent: Sendable {
@@ -103,6 +123,9 @@ final class OperatorWorkspace {
     let frames: @Sendable () async -> AsyncStream<DisplayedFrame>
     let inspectScene: @Sendable () async throws -> LiveSceneInspection?
     let captureSnapshot: @Sendable () async throws -> String
+    let setAutomaticInspection: @Sendable (VisionAnalysisCadence?) async
+      -> PlotterSceneAnalysisSnapshot
+    let analysisUpdates: @Sendable () async -> AsyncStream<PlotterSceneAnalysisSnapshot>
     let simulatedContent: @Sendable (SimulatorModelMode) async throws
       -> SimulatedActionSurfaceContent
   }
@@ -138,8 +161,12 @@ final class OperatorWorkspace {
   private(set) var displayedFrame: DisplayedFrame?
   private(set) var cameraOverlays: [CameraOverlayMeasurement] = []
   private(set) var cameraError: String?
+  private(set) var visionError: String?
   private(set) var sceneInspectionInProgress = false
   private(set) var analysisFrameHeld = false
+  var visionAnalysisCadence: VisionAnalysisCadence = .fiveFPS
+  private(set) var automaticVisionEnabled = false
+  private(set) var visionAnalysisSnapshot: PlotterSceneAnalysisSnapshot = .stopped
   private(set) var lastSceneMeasurement: PlotterSceneMeasurement?
   private(set) var lastCameraSnapshotPath: String?
   private(set) var simulatorEvidenceLabel = SimulatedOverlaySceneContent.evidenceLabel
@@ -151,6 +178,7 @@ final class OperatorWorkspace {
   @ObservationIgnored private let serialDeviceDiscovery: @Sendable () -> [MachineLinkDescriptor]
   @ObservationIgnored private let nowNanoseconds: @Sendable () -> UInt64
   @ObservationIgnored private var frameTask: Task<Void, Never>?
+  @ObservationIgnored private var visionUpdateTask: Task<Void, Never>?
   @ObservationIgnored private var hasShutdown = false
   @ObservationIgnored private var lifetimeGeneration: UInt64 = 0
   @ObservationIgnored private var activeHardwareIntentCount = 0
@@ -175,13 +203,10 @@ final class OperatorWorkspace {
   }
 
   var actionSurfacePresentation: ActionSurfacePresentation {
-    let visibleOperations = Set(visibleLayers.map(\.operationName))
+    let visibleKinds = Set(visibleLayers.map(\.overlayKind))
     return ActionSurfacePresentation(
       displayedFrame: displayedFrame,
-      overlays: cameraOverlays.filter {
-        visibleOperations.contains($0.provenance.operation)
-          || !CanvasLayer.allCases.map(\.operationName).contains($0.provenance.operation)
-      }
+      overlays: cameraOverlays.filter { visibleKinds.contains($0.provenance.kind) }
     )
   }
 
@@ -221,7 +246,139 @@ final class OperatorWorkspace {
     let right = measurement.rightFrameSide.map {
       String(format: "right %.1f px · %.2f", $0.rmsResidualPixels, $0.confidence)
     } ?? "right not found"
-    return "\(cap) · \(top) · \(right)"
+    let frame = measurement.drawingFrame.map {
+      String(format: "frame inferred · %.2f", $0.confidence)
+    } ?? "frame unavailable"
+    let armature = measurement.armature.map {
+      String(format: "armature inferred · %.2f", $0.confidence)
+    } ?? "armature unavailable"
+    return "\(cap) · \(top) · \(right) · \(frame) · \(armature)"
+  }
+
+  var captureThroughputText: String {
+    let diagnostics = cameraSnapshot?.diagnostics ?? .zero
+    return "received \(diagnostics.receivedFrameCount) · preview \(diagnostics.previewMaterializedFrameCount) · exact \(diagnostics.exactMaterializedFrameCount)"
+  }
+
+  var visionThroughputText: String {
+    let snapshot = visionAnalysisSnapshot
+    let cadence: String
+    switch snapshot.state {
+    case .stopped: cadence = "stopped"
+    case .running(let value): cadence = "target \(value.rawValue) Hz"
+    }
+    let duration = snapshot.latestResult.map {
+      String(format: "%.1f ms", Double($0.analysisDurationNanoseconds) / 1_000_000)
+    } ?? "no timing"
+    return "\(cadence) · analyzed \(snapshot.analyzedFrameCount) · superseded \(snapshot.supersededFrameCount) · \(duration)"
+  }
+
+  func overlaySummary(for layer: CanvasLayer) -> String {
+    let matching = cameraOverlays.filter { $0.provenance.kind == layer.overlayKind }
+    guard !matching.isEmpty else { return "not present on current frame" }
+    let sources = Set(matching.map(\.provenance.source.rawValue)).sorted().joined(separator: ", ")
+    return "\(matching.count) · \(sources)"
+  }
+
+  var learningWorkbenchSteps: [LearningWorkbenchStep] {
+    if frameMode == .simulated {
+      return [
+        LearningWorkbenchStep(
+          number: 1,
+          title: "Capture a frame",
+          detail: "Deterministic simulator frame generated.",
+          state: .simulated
+        ),
+        LearningWorkbenchStep(
+          number: 2,
+          title: "Recognize scene geometry",
+          detail: "Simulated intended, predicted, observed, frame, cap, and armature geometry.",
+          state: .simulated
+        ),
+        LearningWorkbenchStep(
+          number: 3,
+          title: "Pair vision with controller position",
+          detail: "Simulator owns exact point pairs; no physical controller claim.",
+          state: .simulated
+        ),
+        LearningWorkbenchStep(
+          number: 4,
+          title: "Assign training and holdout evidence",
+          detail: "Five training and two held-out simulated observations.",
+          state: .simulated
+        ),
+        LearningWorkbenchStep(
+          number: 5,
+          title: "Fit a candidate",
+          detail: "Affine candidate fitted without consuming holdout evidence.",
+          state: .simulated
+        ),
+        LearningWorkbenchStep(
+          number: 6,
+          title: "Compare held-out error",
+          detail: simulatorLearningSummary,
+          state: .simulated
+        ),
+        LearningWorkbenchStep(
+          number: 7,
+          title: "Explicitly accept between strokes",
+          detail: "Demonstrated only; physical acceptance remains unwired.",
+          state: .simulated
+        ),
+      ]
+    }
+
+    let hasFrame = displayedFrame != nil
+    let hasRecognition = lastSceneMeasurement != nil
+    let hasControllerPosition = machineSnapshot?.machine.position != nil
+    return [
+      LearningWorkbenchStep(
+        number: 1,
+        title: "Capture a frame",
+        detail: hasFrame ? "Current immutable camera frame is available." : "Waiting for camera.",
+        state: hasFrame ? .observed : .available
+      ),
+      LearningWorkbenchStep(
+        number: 2,
+        title: "Recognize scene geometry",
+        detail: hasRecognition
+          ? "Cap, frame sides, inferred drawing frame, and armature are bound to the displayed frame."
+          : "Run Analyze Frame or enable Auto Analyze.",
+        state: hasRecognition ? .observed : .available
+      ),
+      LearningWorkbenchStep(
+        number: 3,
+        title: "Pair vision with controller position",
+        detail: hasRecognition && hasControllerPosition
+          ? "Inputs exist, but physical registration pairing is intentionally not recorded yet."
+          : "Requires recognized geometry and a timestamped controller MPos.",
+        state: .notWired
+      ),
+      LearningWorkbenchStep(
+        number: 4,
+        title: "Assign training and holdout evidence",
+        detail: "Physical observation recorder is the next implementation boundary.",
+        state: .notWired
+      ),
+      LearningWorkbenchStep(
+        number: 5,
+        title: "Fit a candidate",
+        detail: "Trainer exists; no physical dataset is connected.",
+        state: .notWired
+      ),
+      LearningWorkbenchStep(
+        number: 6,
+        title: "Compare held-out error",
+        detail: "Acceptance criteria exist; physical comparison is not yet available.",
+        state: .notWired
+      ),
+      LearningWorkbenchStep(
+        number: 7,
+        title: "Explicitly accept between strokes",
+        detail: "Accepted models stay immutable; online proposals remain pen-up only.",
+        state: .notWired
+      ),
+    ]
   }
 
   var currentOperationText: String {
@@ -277,6 +434,7 @@ final class OperatorWorkspace {
 
   var actionableError: String? {
     if let cameraError { return cameraError }
+    if let visionError { return visionError }
     if let machineError { return machineError }
     if let blocker = machineSnapshot?.machine.blockers.first {
       return machineBlockerLabel(blocker)
@@ -618,6 +776,7 @@ final class OperatorWorkspace {
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
     guard let cameraActions else { return }
+    clearAutomaticVisionPresentation()
     cameraError = nil
     do {
       let snapshot = try await cameraActions.select(id)
@@ -651,6 +810,7 @@ final class OperatorWorkspace {
     defer { endHardwareIntent() }
     frameTask?.cancel()
     frameTask = nil
+    clearAutomaticVisionPresentation()
     guard let cameraActions else { return }
     let snapshot = await cameraActions.stop()
     guard canCommit(generation) else { return }
@@ -663,6 +823,7 @@ final class OperatorWorkspace {
     defer { endHardwareIntent() }
     frameTask?.cancel()
     frameTask = nil
+    clearAutomaticVisionPresentation()
     guard let cameraActions else { return }
     let snapshot = await cameraActions.restart()
     guard canCommit(generation) else { return }
@@ -679,7 +840,9 @@ final class OperatorWorkspace {
   func inspectLatestScene() async {
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
-    guard frameMode == .live, !sceneInspectionInProgress, let cameraActions else { return }
+    guard frameMode == .live, !automaticVisionEnabled,
+      !sceneInspectionInProgress, let cameraActions
+    else { return }
     sceneInspectionInProgress = true
     cameraError = nil
     defer { sceneInspectionInProgress = false }
@@ -710,6 +873,39 @@ final class OperatorWorkspace {
     if let latest = snapshot.latestFrame { displayedFrame = latest }
   }
 
+  func setAutomaticVisionAnalysis(_ enabled: Bool) async {
+    guard let generation = beginHardwareIntent() else { return }
+    defer { endHardwareIntent() }
+    guard frameMode == .live, let cameraActions else { return }
+    visionUpdateTask?.cancel()
+    visionUpdateTask = nil
+    let snapshot = await cameraActions.setAutomaticInspection(
+      enabled ? visionAnalysisCadence : nil
+    )
+    guard canCommit(generation) else { return }
+    automaticVisionEnabled = enabled
+    visionError = snapshot.lastError
+    analysisFrameHeld = false
+    visionAnalysisSnapshot = snapshot
+    if enabled {
+      beginVisionUpdates(generation: generation)
+      if let result = snapshot.latestResult { receiveVision(result) }
+    } else {
+      lastSceneMeasurement = nil
+      cameraOverlays = []
+      let cameraSnapshot = await cameraActions.snapshot()
+      guard canCommit(generation) else { return }
+      self.cameraSnapshot = cameraSnapshot
+      if let latest = cameraSnapshot.latestFrame { displayedFrame = latest }
+    }
+  }
+
+  func updateVisionAnalysisCadence(_ cadence: VisionAnalysisCadence) async {
+    visionAnalysisCadence = cadence
+    guard automaticVisionEnabled else { return }
+    await setAutomaticVisionAnalysis(true)
+  }
+
   func captureCameraSnapshot() async {
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
@@ -732,6 +928,7 @@ final class OperatorWorkspace {
     guard let cameraActions else { return }
     frameTask?.cancel()
     frameTask = nil
+    clearAutomaticVisionPresentation()
     cameraOverlays = []
     cameraError = nil
     switch mode {
@@ -792,6 +989,8 @@ final class OperatorWorkspace {
   func stopObserving() {
     frameTask?.cancel()
     frameTask = nil
+    visionUpdateTask?.cancel()
+    visionUpdateTask = nil
   }
 
   func shutdown() async {
@@ -819,10 +1018,35 @@ final class OperatorWorkspace {
   }
 
   private func receive(_ frame: DisplayedFrame, generation: UInt64? = nil) {
-    guard !hasShutdown, frameMode == .live, !analysisFrameHeld else { return }
+    guard !hasShutdown, frameMode == .live, !analysisFrameHeld,
+      !automaticVisionEnabled
+    else { return }
     if let generation, !canCommit(generation) { return }
     guard case .live = frame.source else { return }
     displayedFrame = frame
+  }
+
+  private func beginVisionUpdates(generation: UInt64) {
+    guard canCommit(generation), let cameraActions, automaticVisionEnabled else { return }
+    visionUpdateTask = Task { [weak self] in
+      let stream = await cameraActions.analysisUpdates()
+      for await snapshot in stream {
+        guard !Task.isCancelled, let self,
+          self.canCommit(generation), self.automaticVisionEnabled
+        else { return }
+        self.visionAnalysisSnapshot = snapshot
+        self.visionError = snapshot.lastError
+        self.cameraSnapshot = await cameraActions.snapshot()
+        if let result = snapshot.latestResult { self.receiveVision(result) }
+      }
+    }
+  }
+
+  private func receiveVision(_ result: PlotterSceneAnalysisResult) {
+    guard frameMode == .live, automaticVisionEnabled else { return }
+    displayedFrame = result.displayedFrame
+    lastSceneMeasurement = result.measurement
+    cameraOverlays = result.measurement.overlays
   }
 
   private func updateCameraError() {
@@ -853,11 +1077,25 @@ final class OperatorWorkspace {
     displayedFrame = nil
     cameraOverlays = []
     cameraError = nil
+    visionError = nil
     analysisFrameHeld = false
+    automaticVisionEnabled = false
+    visionAnalysisSnapshot = .stopped
     lastSceneMeasurement = nil
     lastCameraSnapshotPath = nil
     simulatorPenState = .unknown
     simulatorLearningSummary = "Switch to SIMULATED to inspect model behavior."
+  }
+
+  private func clearAutomaticVisionPresentation() {
+    visionUpdateTask?.cancel()
+    visionUpdateTask = nil
+    automaticVisionEnabled = false
+    visionAnalysisSnapshot = .stopped
+    visionError = nil
+    analysisFrameHeld = false
+    lastSceneMeasurement = nil
+    cameraOverlays = []
   }
 
   private func beginHardwareIntent() -> UInt64? {

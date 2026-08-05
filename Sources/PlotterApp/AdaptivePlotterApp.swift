@@ -19,79 +19,93 @@ struct AdaptivePlotterApp: App {
 
 struct OperatorWorkspaceView: View {
   @Bindable var workspace: OperatorWorkspace
-  @State private var showsControllerInspector = false
+  @State private var layout = WorkbenchLayoutState()
+
+  private let topInset: CGFloat = 72
 
   var body: some View {
-    ZStack {
-      ActionSurface(presentation: workspace.actionSurfacePresentation)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    GeometryReader { proxy in
+      ZStack(alignment: .top) {
+        ActionSurface(presentation: workspace.actionSurfacePresentation)
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-      VStack(spacing: 12) {
-        CurrentStatusBar(workspace: workspace)
-
-        Spacer(minLength: 120)
-
-        HStack(alignment: .bottom, spacing: 14) {
-          ScrollView {
-            MotionPanel(workspace: workspace)
+        ForEach(WorkbenchPanel.allCases) { panel in
+          if layout[panel].isVisible {
+            FloatingWorkbenchPanel(
+              panel: panel,
+              layout: $layout,
+              containerSize: proxy.size,
+              topInset: topInset
+            ) {
+              panelContent(panel)
+            }
+            .zIndex(layout.zIndex(for: panel))
           }
-          .scrollIndicators(.hidden)
-          .frame(width: 390)
-          .frame(maxHeight: 475)
-
-          Spacer(minLength: 20)
-
-          VStack(spacing: 10) {
-            CameraPanel(workspace: workspace)
-            LayerControls(workspace: workspace)
-          }
-          .frame(width: 365)
         }
+
+        WorkbenchTopBar(workspace: workspace, layout: $layout)
+          .padding(10)
+          .zIndex(1_000)
       }
-      .padding(14)
     }
     .background(Color.black)
-    .toolbar {
-      ToolbarItem(placement: .primaryAction) {
-        Button {
-          showsControllerInspector.toggle()
-        } label: {
-          Label("Controller Session", systemImage: "slider.horizontal.3")
-        }
-      }
-    }
-    .inspector(isPresented: $showsControllerInspector) {
-      ScrollView {
-        DevicePanel(workspace: workspace)
-          .padding(12)
-      }
-      .inspectorColumnWidth(min: 320, ideal: 360, max: 440)
-    }
     .task {
       await workspace.refreshSerialDevices()
       await workspace.startPreferredCameraAtStartup()
     }
     .onDisappear { Task { await workspace.shutdown() } }
   }
+
+  @ViewBuilder
+  private func panelContent(_ panel: WorkbenchPanel) -> some View {
+    switch panel {
+    case .motion: MotionPanel(workspace: workspace)
+    case .camera: CameraPanel(workspace: workspace)
+    case .overlays: OverlayPanel(workspace: workspace)
+    case .learning: LearningPanel(workspace: workspace)
+    case .controller: DevicePanel(workspace: workspace)
+    }
+  }
 }
 
-private struct CurrentStatusBar: View {
+private struct WorkbenchTopBar: View {
   @Bindable var workspace: OperatorWorkspace
+  @Binding var layout: WorkbenchLayoutState
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 5) {
-      HStack(spacing: 20) {
-        fact("SOURCE", workspace.frameMode.rawValue)
-        fact("CAMERA", workspace.cameraStateText)
-        fact("FRAME AGE", workspace.frameAgeText)
-        fact("CONTROLLER", workspace.controllerStateText)
-        fact("OPERATION", workspace.currentOperationText)
+    VStack(alignment: .leading, spacing: 4) {
+      HStack(spacing: 6) {
+        ForEach(WorkbenchPanel.allCases) { panel in
+          Button {
+            layout.toggleVisibility(panel)
+          } label: {
+            Label(panel.rawValue, systemImage: panel.systemImage)
+          }
+          .buttonStyle(.bordered)
+          .controlSize(.small)
+          .tint(layout[panel].isVisible ? .accentColor : .secondary)
+        }
+
+        Button("Hide All") { layout.hideAll() }
+          .buttonStyle(.borderless)
+          .controlSize(.small)
+
         Spacer()
+
+        fact("source", workspace.frameMode.rawValue)
+        fact("camera", workspace.cameraStateText)
+        fact("frame", workspace.frameAgeText)
+        fact("controller", workspace.controllerStateText)
+        fact("operation", workspace.currentOperationText)
       }
-      Text(workspace.actionableError ?? "No current error")
+
+      HStack(spacing: 5) {
+        Image(systemName: workspace.actionableError == nil ? "checkmark.circle" : "exclamationmark.triangle")
+        Text(workspace.actionableError ?? "No current error")
+      }
         .font(.caption.monospaced())
         .foregroundStyle(workspace.actionableError == nil ? Color.secondary : Color.orange)
-        .lineLimit(2)
+        .lineLimit(1)
         .textSelection(.enabled)
     }
     .padding(.horizontal, 14)
@@ -104,10 +118,101 @@ private struct CurrentStatusBar: View {
   }
 
   private func fact(_ name: String, _ value: String) -> some View {
-    VStack(alignment: .leading, spacing: 1) {
-      Text(name).font(.caption2).foregroundStyle(.secondary)
-      Text(value).font(.caption.monospaced()).textSelection(.enabled)
+    HStack(spacing: 3) {
+      Text(name.uppercased()).font(.caption2).foregroundStyle(.secondary)
+      Text(value).font(.caption2.monospaced()).textSelection(.enabled)
     }
+  }
+}
+
+private struct FloatingWorkbenchPanel<Content: View>: View {
+  let panel: WorkbenchPanel
+  @Binding var layout: WorkbenchLayoutState
+  let containerSize: CGSize
+  let topInset: CGFloat
+  @ViewBuilder let content: Content
+
+  @State private var dragStart: WorkbenchPanelPresentation?
+
+  private var panelSize: CGSize {
+    let preferred = panel.preferredSize
+    return CGSize(
+      width: min(preferred.width, max(280, containerSize.width - 24)),
+      height: layout[panel].isCollapsed
+        ? 42
+        : min(preferred.height, max(160, containerSize.height - topInset - 12))
+    )
+  }
+
+  var body: some View {
+    VStack(spacing: 0) {
+      HStack(spacing: 7) {
+        Image(systemName: "line.3.horizontal")
+          .foregroundStyle(.secondary)
+        Image(systemName: panel.systemImage)
+        Text(panel.rawValue.uppercased())
+          .font(.caption.monospaced().bold())
+        Spacer()
+        Button {
+          layout.toggleCollapsed(panel)
+        } label: {
+          Image(systemName: layout[panel].isCollapsed ? "chevron.down" : "chevron.up")
+        }
+        .buttonStyle(.plain)
+        Button {
+          layout.hide(panel)
+        } label: {
+          Image(systemName: "xmark")
+        }
+        .buttonStyle(.plain)
+      }
+      .padding(.horizontal, 10)
+      .frame(height: 42)
+      .contentShape(Rectangle())
+      .gesture(
+        DragGesture(minimumDistance: 3)
+          .onChanged { value in
+            if dragStart == nil {
+              dragStart = layout[panel]
+              layout.bringToFront(panel)
+            }
+            guard let dragStart else { return }
+            layout.move(
+              panel,
+              from: dragStart,
+              translation: value.translation,
+              in: containerSize,
+              panelSize: panelSize,
+              topInset: topInset
+            )
+          }
+          .onEnded { _ in dragStart = nil }
+      )
+
+      if !layout[panel].isCollapsed {
+        Divider()
+        ScrollView {
+          content
+            .padding(8)
+        }
+        .scrollIndicators(.visible)
+      }
+    }
+    .frame(width: panelSize.width, height: panelSize.height, alignment: .top)
+    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 11))
+    .overlay {
+      RoundedRectangle(cornerRadius: 11)
+        .stroke(.white.opacity(0.2), lineWidth: 1)
+    }
+    .shadow(color: .black.opacity(0.4), radius: 12, y: 5)
+    .position(
+      layout.center(
+        for: panel,
+        in: containerSize,
+        panelSize: panelSize,
+        topInset: topInset
+      )
+    )
   }
 }
 
@@ -115,7 +220,7 @@ private struct CameraPanel: View {
   @Bindable var workspace: OperatorWorkspace
 
   var body: some View {
-    SectionPanel(title: "ACTION SURFACE") {
+    SectionPanel(title: "CAMERA AND VISION") {
       Picker(
         "Frame source",
         selection: Binding(
@@ -148,10 +253,38 @@ private struct CameraPanel: View {
               }
             }
           }
-          .disabled(workspace.sceneInspectionInProgress)
+          .disabled(workspace.sceneInspectionInProgress || workspace.automaticVisionEnabled)
           Button("Save Snapshot") { Task { await workspace.captureCameraSnapshot() } }
         }
         .controlSize(.small)
+
+        Toggle(
+          "Auto Analyze",
+          isOn: Binding(
+            get: { workspace.automaticVisionEnabled },
+            set: { enabled in Task { await workspace.setAutomaticVisionAnalysis(enabled) } }
+          )
+        )
+        .toggleStyle(.switch)
+
+        Picker(
+          "Analysis cadence",
+          selection: Binding(
+            get: { workspace.visionAnalysisCadence },
+            set: { cadence in Task { await workspace.updateVisionAnalysisCadence(cadence) } }
+          )
+        ) {
+          ForEach(VisionAnalysisCadence.allCases, id: \.self) { cadence in
+            Text("\(cadence.rawValue) Hz").tag(cadence)
+          }
+        }
+        .pickerStyle(.segmented)
+
+        Text(
+          "Preview and analysis are independent. Vision keeps one active frame and one newest pending frame; older pending work is replaced."
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
 
         if workspace.cameraDevices.isEmpty {
           Text("No discovered camera.")
@@ -202,6 +335,8 @@ private struct CameraPanel: View {
       fact("Current frame age", workspace.frameAgeText)
       if workspace.frameMode == .live {
         fact("Vision", workspace.sceneMeasurementText)
+        fact("Capture path", workspace.captureThroughputText)
+        fact("Analysis path", workspace.visionThroughputText)
         if let path = workspace.lastCameraSnapshotPath {
           Text(path)
             .font(.caption2.monospaced())
@@ -210,6 +345,12 @@ private struct CameraPanel: View {
         }
       }
       if let error = workspace.cameraError {
+        Text(error)
+          .font(.caption.monospaced())
+          .foregroundStyle(.orange)
+          .textSelection(.enabled)
+      }
+      if let error = workspace.visionError {
         Text(error)
           .font(.caption.monospaced())
           .foregroundStyle(.orange)
@@ -411,28 +552,85 @@ private struct ProbeSummary: View {
   }
 }
 
-private struct LayerControls: View {
+private struct OverlayPanel: View {
   @Bindable var workspace: OperatorWorkspace
 
   var body: some View {
-    HStack(spacing: 10) {
-      Text("OVERLAYS").font(.caption2).foregroundStyle(.secondary)
+    SectionPanel(title: "SEMANTIC OVERLAYS") {
+      Text(
+        "Each overlay is tied to the exact displayed frame and labeled by evidence source. Inferred geometry is not presented as a camera measurement."
+      )
+      .font(.caption)
+      .foregroundStyle(.secondary)
+
       ForEach(CanvasLayer.allCases) { layer in
-        Toggle(
-          layer.rawValue,
-          isOn: Binding(
-            get: { workspace.visibleLayers.contains(layer) },
-            set: { workspace.setLayer(layer, visible: $0) }
+        VStack(alignment: .leading, spacing: 2) {
+          Toggle(
+            layer.rawValue,
+            isOn: Binding(
+              get: { workspace.visibleLayers.contains(layer) },
+              set: { workspace.setLayer(layer, visible: $0) }
+            )
           )
-        )
-        .toggleStyle(.checkbox)
-        .font(.caption)
+          .toggleStyle(.switch)
+          .controlSize(.small)
+          Text(workspace.overlaySummary(for: layer))
+            .font(.caption2.monospaced())
+            .foregroundStyle(.secondary)
+        }
       }
-      Spacer()
     }
-    .padding(.horizontal, 10)
-    .padding(.vertical, 8)
-    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+  }
+}
+
+private struct LearningPanel: View {
+  @Bindable var workspace: OperatorWorkspace
+
+  var body: some View {
+    SectionPanel(title: "EXPLICIT MODEL-LEARNING LOOP") {
+      Text(
+        "This is an inspectable research sequence, not a readiness wizard. Physical evidence and simulated evidence remain separate."
+      )
+      .font(.caption)
+      .foregroundStyle(.secondary)
+
+      ForEach(workspace.learningWorkbenchSteps) { step in
+        HStack(alignment: .top, spacing: 8) {
+          Text("\(step.number)")
+            .font(.caption.monospaced().bold())
+            .frame(width: 20, height: 20)
+            .background(stepColor(step.state).opacity(0.2), in: Circle())
+          VStack(alignment: .leading, spacing: 2) {
+            HStack {
+              Text(step.title).font(.caption.bold())
+              Spacer()
+              Text(step.state.rawValue.uppercased())
+                .font(.caption2.monospaced())
+                .foregroundStyle(stepColor(step.state))
+            }
+            Text(step.detail)
+              .font(.caption2)
+              .foregroundStyle(.secondary)
+          }
+        }
+      }
+
+      Divider()
+      Text(
+        "Next boundary: record timestamped frame/configuration, recognized camera geometry, controller MPos, registration identity, algorithm revision, and a fixed train/holdout assignment. Candidate fitting never changes the accepted model until an explicit pen-up acceptance."
+      )
+      .font(.caption)
+      .foregroundStyle(.secondary)
+    }
+  }
+
+  private func stepColor(_ state: LearningWorkbenchStepState) -> Color {
+    switch state {
+    case .available: .secondary
+    case .observed: .green
+    case .simulated: .blue
+    case .notWired: .orange
+    }
   }
 }
 

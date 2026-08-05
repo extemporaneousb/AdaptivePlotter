@@ -53,25 +53,54 @@ public enum CameraCaptureState: Codable, Hashable, Sendable {
   case failed(CameraCaptureError)
 }
 
+public struct CameraCaptureDiagnostics: Codable, Hashable, Sendable {
+  public static let zero = CameraCaptureDiagnostics(
+    receivedFrameCount: 0,
+    previewMaterializedFrameCount: 0,
+    exactMaterializedFrameCount: 0
+  )
+
+  public let receivedFrameCount: UInt64
+  public let previewMaterializedFrameCount: UInt64
+  public let exactMaterializedFrameCount: UInt64
+
+  public init(
+    receivedFrameCount: UInt64,
+    previewMaterializedFrameCount: UInt64,
+    exactMaterializedFrameCount: UInt64
+  ) {
+    self.receivedFrameCount = receivedFrameCount
+    self.previewMaterializedFrameCount = previewMaterializedFrameCount
+    self.exactMaterializedFrameCount = exactMaterializedFrameCount
+  }
+
+  public var totalMaterializedFrameCount: UInt64 {
+    previewMaterializedFrameCount + exactMaterializedFrameCount
+  }
+}
+
 public struct CameraCaptureSnapshot: Codable, Hashable, Sendable {
   public let devices: [CameraDevice]
   public let selectedDeviceID: CameraDeviceID?
   public let state: CameraCaptureState
   public let latestFrame: DisplayedFrame?
   public let error: CameraCaptureError?
+  public let diagnostics: CameraCaptureDiagnostics
 
   public init(
     devices: [CameraDevice],
     selectedDeviceID: CameraDeviceID?,
     state: CameraCaptureState,
     latestFrame: DisplayedFrame?,
-    error: CameraCaptureError?
+    error: CameraCaptureError?,
+    diagnostics: CameraCaptureDiagnostics = .zero
   ) {
     self.devices = devices
     self.selectedDeviceID = selectedDeviceID
     self.state = state
     self.latestFrame = latestFrame
     self.error = error
+    self.diagnostics = diagnostics
   }
 }
 
@@ -152,11 +181,6 @@ struct CameraDriverEventMailboxDiagnostics: Equatable, Sendable {
   let pendingEventCount: Int
   let pendingFrameCount: Int
   let maximumPendingFrameCount: Int
-}
-
-struct CameraCaptureDiagnostics: Equatable, Sendable {
-  let receivedFrameCount: UInt64
-  let materializedFrameCount: UInt64
 }
 
 /// One callback-order-preserving ingress per capture generation. Consecutive
@@ -285,7 +309,8 @@ public actor CameraCapture {
   private var latestCapture: BufferedCapture?
   private var lastMaterializedCaptureNanoseconds: UInt64?
   private var receivedFrameCount: UInt64 = 0
-  private var materializedFrameCount: UInt64 = 0
+  private var previewMaterializedFrameCount: UInt64 = 0
+  private var exactMaterializedFrameCount: UInt64 = 0
   private var frameContinuations: [UUID: AsyncStream<DisplayedFrame>.Continuation] = [:]
 
   public init(
@@ -468,7 +493,8 @@ public actor CameraCapture {
       selectedDeviceID: selectedDeviceID,
       state: state,
       latestFrame: latestFrame,
-      error: error
+      error: error,
+      diagnostics: diagnostics()
     )
   }
 
@@ -485,7 +511,7 @@ public actor CameraCapture {
       return latestFrame
     }
     do {
-      let displayed = try materialize(latestCapture)
+      let displayed = try materialize(latestCapture, reason: .exactRequest)
       publish(displayed)
       return displayed
     } catch {
@@ -495,10 +521,11 @@ public actor CameraCapture {
     }
   }
 
-  func diagnostics() -> CameraCaptureDiagnostics {
+  public func diagnostics() -> CameraCaptureDiagnostics {
     CameraCaptureDiagnostics(
       receivedFrameCount: receivedFrameCount,
-      materializedFrameCount: materializedFrameCount
+      previewMaterializedFrameCount: previewMaterializedFrameCount,
+      exactMaterializedFrameCount: exactMaterializedFrameCount
     )
   }
 
@@ -557,7 +584,7 @@ public actor CameraCapture {
       latestCapture = buffered
       guard shouldMaterializePreview(captureNanoseconds: timestamp) else { return }
       do {
-        publish(try materialize(buffered))
+        publish(try materialize(buffered, reason: .preview))
       } catch {
         await stopDriverAndFail(
           .captureFailed("Could not materialize a camera preview frame: \(error)"))
@@ -595,7 +622,15 @@ public actor CameraCapture {
       >= materializationPolicy.minimumPreviewIntervalNanoseconds
   }
 
-  private func materialize(_ buffered: BufferedCapture) throws -> DisplayedFrame {
+  private enum MaterializationReason {
+    case preview
+    case exactRequest
+  }
+
+  private func materialize(
+    _ buffered: BufferedCapture,
+    reason: MaterializationReason
+  ) throws -> DisplayedFrame {
     let stamped = try StampedFrame(
       id: buffered.id,
       sequence: buffered.sequence,
@@ -607,7 +642,12 @@ public actor CameraCapture {
       pixelFormat: .bgra8,
       bytes: buffered.captured.materializedBytes()
     )
-    materializedFrameCount &+= 1
+    switch reason {
+    case .preview:
+      previewMaterializedFrameCount &+= 1
+    case .exactRequest:
+      exactMaterializedFrameCount &+= 1
+    }
     return DisplayedFrame(source: .live(buffered.sourceDeviceID), frame: stamped)
   }
 

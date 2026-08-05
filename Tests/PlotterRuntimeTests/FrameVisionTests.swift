@@ -238,9 +238,22 @@ struct FrameVisionTests {
     #expect(right.supportPointCount > 40)
     #expect(right.rmsResidualPixels < 1)
     #expect(right.confidence > 0.5)
-    #expect(result.overlays.count == 4)
-    #expect(result.overlays.filter { $0.provenance.operation == "cap" }.count == 2)
-    #expect(result.overlays.filter { $0.provenance.operation == "frame-side" }.count == 2)
+    let armature = try #require(result.armature)
+    let drawingFrame = try #require(result.drawingFrame)
+    #expect(armature.confidence > 0.3)
+    #expect(armature.basis.contains("inferred"))
+    #expect(drawingFrame.confidence > 0.3)
+    #expect(drawingFrame.basis.contains("inferred"))
+    #expect(result.overlays.count == 6)
+    #expect(result.overlays.filter { $0.provenance.kind == .penCap }.count == 2)
+    #expect(result.overlays.filter { $0.provenance.kind == .measuredFrameSide }.count == 2)
+    #expect(result.overlays.filter { $0.provenance.kind == .drawingFrameEstimate }.count == 1)
+    #expect(result.overlays.filter { $0.provenance.kind == .armatureEstimate }.count == 1)
+    #expect(
+      result.overlays
+        .filter { $0.provenance.kind == .armatureEstimate }
+        .allSatisfy { $0.provenance.source == .inferred }
+    )
     let displayed = DisplayedFrame(source: .simulated, frame: frame)
     #expect(result.overlays.allSatisfy { $0.matches(displayed) })
 
@@ -266,7 +279,11 @@ struct FrameVisionTests {
       frameID: frame.id,
       cameraConfigurationID: camera,
       geometry: geometry,
-      provenance: CameraMeasurementProvenance(operation: "test", algorithmRevision: "v1")
+      provenance: CameraMeasurementProvenance(
+        kind: .diagnostic,
+        source: .diagnostic,
+        algorithmRevision: "v1"
+      )
     )
     #expect(measurement.matches(DisplayedFrame(source: .simulated, frame: frame)))
     let otherFrame = try grayFrame(value: 1, sequence: 2, time: 2, camera: camera)

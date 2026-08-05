@@ -30,17 +30,30 @@ public enum SimulatedOverlayLayerKind: String, Codable, CaseIterable, Hashable, 
   case residuals
   case cap
   case frameSides
+  case drawingFrame
+  case armature
   case penState
 
-  public var operationName: String {
+  public var overlayKind: CameraOverlayKind? {
     switch self {
-    case .logical: "logical"
-    case .predicted: "predicted"
-    case .observed: "simulated-observed"
-    case .residuals: "residual"
-    case .cap: "cap"
-    case .frameSides: "frame-side"
-    case .penState: "simulated-pen-state"
+    case .logical: .intendedPath
+    case .predicted: .modelPrediction
+    case .observed: .observedInk
+    case .residuals: .residual
+    case .cap: .penCap
+    case .frameSides: .measuredFrameSide
+    case .drawingFrame: .drawingFrameEstimate
+    case .armature: .armatureEstimate
+    case .penState: nil
+    }
+  }
+
+  public var overlaySource: CameraOverlaySource {
+    switch self {
+    case .logical: .planned
+    case .predicted: .inferred
+    case .observed, .residuals, .cap, .frameSides, .drawingFrame, .armature, .penState:
+      .simulated
     }
   }
 }
@@ -71,6 +84,7 @@ public struct SimulatedModelMismatchScene: Hashable, Sendable {
   public let simulatedGroundTruthTransform: DrawingTransform
   public let capFieldPoint: Point2<FieldSpace>
   public let frameFieldBounds: AxisAlignedBounds<FieldSpace>
+  public let armatureFieldBounds: AxisAlignedBounds<FieldSpace>
   public let penState: PenState
 
   public init(
@@ -81,6 +95,7 @@ public struct SimulatedModelMismatchScene: Hashable, Sendable {
     simulatedGroundTruthTransform: DrawingTransform,
     capFieldPoint: Point2<FieldSpace>,
     frameFieldBounds: AxisAlignedBounds<FieldSpace>,
+    armatureFieldBounds: AxisAlignedBounds<FieldSpace>,
     penState: PenState
   ) throws {
     guard !scenarioID.isEmpty else { throw SimulatedFrameSourceError.emptyScenarioIdentifier }
@@ -94,6 +109,7 @@ public struct SimulatedModelMismatchScene: Hashable, Sendable {
     self.simulatedGroundTruthTransform = simulatedGroundTruthTransform
     self.capFieldPoint = capFieldPoint
     self.frameFieldBounds = frameFieldBounds
+    self.armatureFieldBounds = armatureFieldBounds
     self.penState = penState
   }
 }
@@ -241,12 +257,31 @@ public struct SimulatedFrameSource: Sendable {
       scene: scene,
       displayedFrame: displayedFrame
     )
-    let closedFrameSides = try Polyline<FieldSpace>(
-      points: scene.frameFieldBounds.corners + [scene.frameFieldBounds.corners[0]]
+    let frameCorners = scene.frameFieldBounds.corners
+    let measuredFrameSides = try Polyline<FieldSpace>(
+      points: [frameCorners[0], frameCorners[1], frameCorners[2]]
     )
     let frameSidesMeasurement = measurement(
-      geometry: .polyline(try cameraPolyline(from: closedFrameSides)),
+      geometry: .polyline(try cameraPolyline(from: measuredFrameSides)),
       kind: .frameSides,
+      scene: scene,
+      displayedFrame: displayedFrame
+    )
+    let closedDrawingFrame = try Polyline<FieldSpace>(
+      points: frameCorners + [frameCorners[0]]
+    )
+    let drawingFrameMeasurement = measurement(
+      geometry: .polyline(try cameraPolyline(from: closedDrawingFrame)),
+      kind: .drawingFrame,
+      scene: scene,
+      displayedFrame: displayedFrame
+    )
+    let closedArmature = try Polyline<FieldSpace>(
+      points: scene.armatureFieldBounds.corners + [scene.armatureFieldBounds.corners[0]]
+    )
+    let armatureMeasurement = measurement(
+      geometry: .polyline(try cameraPolyline(from: closedArmature)),
+      kind: .armature,
       scene: scene,
       displayedFrame: displayedFrame
     )
@@ -260,6 +295,8 @@ public struct SimulatedFrameSource: Sendable {
         SimulatedOverlayLayer(kind: .residuals, data: .geometry(residualMeasurements)),
         SimulatedOverlayLayer(kind: .cap, data: .geometry([capMeasurement])),
         SimulatedOverlayLayer(kind: .frameSides, data: .geometry([frameSidesMeasurement])),
+        SimulatedOverlayLayer(kind: .drawingFrame, data: .geometry([drawingFrameMeasurement])),
+        SimulatedOverlayLayer(kind: .armature, data: .geometry([armatureMeasurement])),
         SimulatedOverlayLayer(kind: .penState, data: .penState(scene.penState)),
       ]
     )
@@ -271,12 +308,16 @@ public struct SimulatedFrameSource: Sendable {
     scene: SimulatedModelMismatchScene,
     displayedFrame: DisplayedFrame
   ) -> CameraOverlayMeasurement {
-    CameraOverlayMeasurement(
+    guard let overlayKind = kind.overlayKind else {
+      preconditionFailure("Pen state is not camera geometry.")
+    }
+    return CameraOverlayMeasurement(
       frameID: displayedFrame.frame.id,
       cameraConfigurationID: displayedFrame.frame.cameraConfigurationID,
       geometry: geometry,
       provenance: CameraMeasurementProvenance(
-        operation: kind.operationName,
+        kind: overlayKind,
+        source: kind.overlaySource,
         algorithmRevision: "deterministic-model-mismatch-v1:\(scene.scenarioID)"
       )
     )

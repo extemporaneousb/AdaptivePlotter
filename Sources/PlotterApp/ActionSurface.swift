@@ -114,7 +114,8 @@ enum FieldOverlayProjection {
     _ fieldGeometry: Polyline<FieldSpace>,
     on displayedFrame: DisplayedFrame,
     using configuredRegistration: CameraConfiguredFieldRegistration,
-    operation: String,
+    kind: CameraOverlayKind,
+    source: CameraOverlaySource,
     algorithmRevision: String
   ) throws -> CameraOverlayMeasurement {
     guard
@@ -136,7 +137,8 @@ enum FieldOverlayProjection {
       cameraConfigurationID: displayedFrame.frame.cameraConfigurationID,
       geometry: .polyline(cameraGeometry),
       provenance: CameraMeasurementProvenance(
-        operation: operation,
+        kind: kind,
+        source: source,
         algorithmRevision: algorithmRevision
       )
     )
@@ -223,6 +225,7 @@ struct ActionSurface: View {
   ) {
     switch overlay.geometry {
     case let .point(point):
+      let style = lineStyle(for: overlay.provenance.kind)
       let center = transform.point(point)
       let radius = max(3, transform.scale * 2)
       let rect = CGRect(
@@ -231,7 +234,7 @@ struct ActionSurface: View {
         width: radius * 2,
         height: radius * 2
       )
-      context.stroke(Path(ellipseIn: rect), with: .color(.orange), lineWidth: 2)
+      context.stroke(Path(ellipseIn: rect), with: .color(style.color), lineWidth: style.width)
     case let .bounds(bounds):
       guard
         let minimumCamera = try? Point2<CameraPixelSpace>(x: bounds.minX, y: bounds.minY),
@@ -239,6 +242,7 @@ struct ActionSurface: View {
       else { return }
       let minimum = transform.point(minimumCamera)
       let maximum = transform.point(maximumCamera)
+      let style = lineStyle(for: overlay.provenance.kind)
       context.stroke(
         Path(
           CGRect(
@@ -248,8 +252,8 @@ struct ActionSurface: View {
             height: maximum.y - minimum.y
           )
         ),
-        with: .color(.yellow),
-        lineWidth: 2
+        with: .color(style.color),
+        style: SwiftUI.StrokeStyle(lineWidth: style.width, dash: style.dash)
       )
     case let .polyline(polyline):
       var path = Path()
@@ -257,7 +261,7 @@ struct ActionSurface: View {
       for point in polyline.points.dropFirst() {
         path.addLine(to: transform.point(point))
       }
-      let style = lineStyle(for: overlay.provenance.operation)
+      let style = lineStyle(for: overlay.provenance.kind)
       context.stroke(
         path,
         with: .color(style.color),
@@ -266,20 +270,28 @@ struct ActionSurface: View {
     }
   }
 
-  private func lineStyle(for operation: String) -> (color: Color, width: CGFloat, dash: [CGFloat]) {
-    switch operation {
-    case CanvasLayer.logical.operationName:
+  private func lineStyle(
+    for kind: CameraOverlayKind
+  ) -> (color: Color, width: CGFloat, dash: [CGFloat]) {
+    switch kind {
+    case .intendedPath:
       return (.cyan, 2, [])
-    case CanvasLayer.predicted.operationName:
+    case .modelPrediction:
       return (.purple, 2, [8, 5])
-    case CanvasLayer.observed.operationName:
+    case .observedInk:
       return (.white, 3, [])
-    case CanvasLayer.residuals.operationName:
+    case .residual:
       return (.orange, 1.5, [])
-    case CanvasLayer.frameSides.operationName:
+    case .measuredFrameSide:
       return (.blue, 2.5, [])
-    default:
-      return (.green, 2, [])
+    case .drawingFrameEstimate:
+      return (.cyan, 2, [10, 5])
+    case .penCap:
+      return (.yellow, 2, [])
+    case .armatureEstimate:
+      return (.green, 2.5, [7, 4])
+    case .diagnostic:
+      return (.gray, 1.5, [3, 3])
     }
   }
 }

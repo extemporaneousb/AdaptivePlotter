@@ -42,6 +42,9 @@ public struct PlotterSceneVisionPriors: Hashable, Sendable {
   public let minimumBlueOverGreen: UInt8
   public let lineResidualLimitPixels: Double
   public let minimumLineSupportFraction: Double
+  public let armatureHalfWidthFraction: Double
+  public let armatureTopMarginFraction: Double
+  public let armatureHeightFraction: Double
   public let algorithmRevision: String
 
   public init(
@@ -58,12 +61,21 @@ public struct PlotterSceneVisionPriors: Hashable, Sendable {
     minimumBlueOverGreen: UInt8 = 18,
     lineResidualLimitPixels: Double,
     minimumLineSupportFraction: Double = 0.25,
+    armatureHalfWidthFraction: Double = 0.055,
+    armatureTopMarginFraction: Double = 0.025,
+    armatureHeightFraction: Double = 0.56,
     algorithmRevision: String = "plotter-scene-v1"
   ) throws {
     guard minimumCapPixels > 0, maximumCapPixels >= minimumCapPixels,
       lineResidualLimitPixels.isFinite, lineResidualLimitPixels > 0,
       minimumLineSupportFraction.isFinite,
       minimumLineSupportFraction > 0, minimumLineSupportFraction <= 1,
+      armatureHalfWidthFraction.isFinite,
+      armatureHalfWidthFraction > 0, armatureHalfWidthFraction < 0.5,
+      armatureTopMarginFraction.isFinite,
+      armatureTopMarginFraction >= 0, armatureTopMarginFraction < 0.5,
+      armatureHeightFraction.isFinite,
+      armatureHeightFraction > 0, armatureHeightFraction <= 1,
       !algorithmRevision.isEmpty
     else { throw FrameError.invalidVisionPolicy }
     self.capSearchRegion = capSearchRegion
@@ -79,6 +91,9 @@ public struct PlotterSceneVisionPriors: Hashable, Sendable {
     self.minimumBlueOverGreen = minimumBlueOverGreen
     self.lineResidualLimitPixels = lineResidualLimitPixels
     self.minimumLineSupportFraction = minimumLineSupportFraction
+    self.armatureHalfWidthFraction = armatureHalfWidthFraction
+    self.armatureTopMarginFraction = armatureTopMarginFraction
+    self.armatureHeightFraction = armatureHeightFraction
     self.algorithmRevision = algorithmRevision
   }
 
@@ -138,6 +153,23 @@ public struct FrameSideMeasurement: Hashable, Sendable {
   public let confidence: Double
 }
 
+/// A deliberately coarse cap-anchored envelope for the visible moving
+/// armature. It is an inferred occlusion prior, not pixel-segmented geometry.
+public struct ArmatureEstimate: Hashable, Sendable {
+  public let bounds: AxisAlignedBounds<CameraPixelSpace>
+  public let confidence: Double
+  public let basis: String
+}
+
+/// A coarse four-sided image-space frame inferred from the measured top and
+/// right sides. The unobserved bottom and left sides are a parallelogram prior,
+/// not direct pixel measurements or a machine-space calibration.
+public struct DrawingFrameEstimate: Hashable, Sendable {
+  public let geometry: Polyline<CameraPixelSpace>
+  public let confidence: Double
+  public let basis: String
+}
+
 public struct PlotterSceneMeasurement: Hashable, Sendable {
   public let frameID: FrameID
   public let frameSHA256: String
@@ -146,6 +178,8 @@ public struct PlotterSceneMeasurement: Hashable, Sendable {
   public let cap: GreenCapMeasurement?
   public let topFrameSide: FrameSideMeasurement?
   public let rightFrameSide: FrameSideMeasurement?
+  public let drawingFrame: DrawingFrameEstimate?
+  public let armature: ArmatureEstimate?
   public let overlays: [CameraOverlayMeasurement]
   public let algorithmRevision: String
   public let diagnosticSHA256: String
@@ -192,7 +226,8 @@ public struct MeasurementResult: Codable, Hashable, Sendable {
       cameraConfigurationID: cameraConfigurationID,
       geometry: geometry,
       provenance: CameraMeasurementProvenance(
-        operation: request.operationName,
+        kind: request.overlayKind,
+        source: request.overlaySource,
         algorithmRevision: request.algorithmRevision
       )
     )
@@ -200,11 +235,17 @@ public struct MeasurementResult: Codable, Hashable, Sendable {
 }
 
 extension MeasurementRequest {
-  public var operationName: String {
+  public var overlayKind: CameraOverlayKind {
     switch self {
-    case .statistics: "statistics"
-    case .greenInk: "green-ink"
-    case .darkOcclusion: "dark-occlusion"
+    case .statistics, .darkOcclusion: .diagnostic
+    case .greenInk: .observedInk
+    }
+  }
+
+  public var overlaySource: CameraOverlaySource {
+    switch self {
+    case .statistics: .diagnostic
+    case .greenInk, .darkOcclusion: .measured
     }
   }
 }
@@ -304,14 +345,30 @@ public actor VisionWorker {
       orientation: .right,
       priors: priors
     )
+    let drawingFrame = try drawingFrameEstimate(top: top, right: right, frame: frame)
+    let armature = try cap.map {
+      try armatureEstimate(cap: $0, frame: frame, priors: priors)
+    }
 
     let capProvenance = CameraMeasurementProvenance(
-      operation: "cap",
+      kind: .penCap,
+      source: .measured,
       algorithmRevision: priors.algorithmRevision
     )
     let frameSideProvenance = CameraMeasurementProvenance(
-      operation: "frame-side",
+      kind: .measuredFrameSide,
+      source: .measured,
       algorithmRevision: priors.algorithmRevision
+    )
+    let drawingFrameProvenance = CameraMeasurementProvenance(
+      kind: .drawingFrameEstimate,
+      source: .inferred,
+      algorithmRevision: "\(priors.algorithmRevision):two-side-closure-v1"
+    )
+    let armatureProvenance = CameraMeasurementProvenance(
+      kind: .armatureEstimate,
+      source: .inferred,
+      algorithmRevision: "\(priors.algorithmRevision):cap-anchored-armature-v1"
     )
     var overlays: [CameraOverlayMeasurement] = []
     if let cap {
@@ -346,15 +403,36 @@ public actor VisionWorker {
           provenance: frameSideProvenance
         ))
     }
+    if let drawingFrame {
+      overlays.append(
+        CameraOverlayMeasurement(
+          frameID: frame.id,
+          cameraConfigurationID: frame.cameraConfigurationID,
+          geometry: .polyline(drawingFrame.geometry),
+          provenance: drawingFrameProvenance
+        ))
+    }
+    if let armature {
+      overlays.append(
+        CameraOverlayMeasurement(
+          frameID: frame.id,
+          cameraConfigurationID: frame.cameraConfigurationID,
+          geometry: .bounds(armature.bounds),
+          provenance: armatureProvenance
+        ))
+    }
     let capPixelCount = cap?.pixelCount ?? 0
     let topInlierCount = top?.inlierCount ?? 0
     let topResidual = top?.rmsResidualPixels ?? Double.infinity
     let rightInlierCount = right?.inlierCount ?? 0
     let rightResidual = right?.rmsResidualPixels ?? Double.infinity
+    let drawingFrameConfidence = drawingFrame?.confidence ?? 0
+    let armatureConfidence = armature?.confidence ?? 0
     let diagnostic =
       "\(frame.contentSHA256)|\(priors.algorithmRevision)|\(components.count)|"
       + "\(capPixelCount)|\(topInlierCount)|\(topResidual)|"
-      + "\(rightInlierCount)|\(rightResidual)"
+      + "\(rightInlierCount)|\(rightResidual)|"
+      + "\(drawingFrameConfidence)|\(armatureConfidence)"
     return PlotterSceneMeasurement(
       frameID: frame.id,
       frameSHA256: frame.contentSHA256,
@@ -363,6 +441,8 @@ public actor VisionWorker {
       cap: cap,
       topFrameSide: top,
       rightFrameSide: right,
+      drawingFrame: drawingFrame,
+      armature: armature,
       overlays: overlays,
       algorithmRevision: priors.algorithmRevision,
       diagnosticSHA256: RunLedger.sha256Hex(Data(diagnostic.utf8))
@@ -458,6 +538,67 @@ public actor VisionWorker {
       region.x + region.width <= frame.width,
       region.y + region.height <= frame.height
     else { throw FrameError.invalidRegion }
+  }
+
+  private func armatureEstimate(
+    cap: GreenCapMeasurement,
+    frame: StampedFrame,
+    priors: PlotterSceneVisionPriors
+  ) throws -> ArmatureEstimate {
+    let halfWidth = Double(frame.width) * priors.armatureHalfWidthFraction
+    let topMargin = Double(frame.height) * priors.armatureTopMarginFraction
+    let height = Double(frame.height) * priors.armatureHeightFraction
+    let minX = max(0, cap.centroid.x - halfWidth)
+    let maxX = min(Double(frame.width - 1), cap.centroid.x + halfWidth)
+    let minY = max(0, Double(cap.boundingBox.y) - topMargin)
+    let maxY = min(Double(frame.height - 1), minY + height)
+    return ArmatureEstimate(
+      bounds: try AxisAlignedBounds(
+        minX: minX,
+        minY: minY,
+        maxX: maxX,
+        maxY: maxY
+      ),
+      confidence: min(1, cap.confidence * 0.55),
+      basis: "cap-anchored C920 envelope; inferred, not segmented"
+    )
+  }
+
+  private func drawingFrameEstimate(
+    top: FrameSideMeasurement?,
+    right: FrameSideMeasurement?,
+    frame: StampedFrame
+  ) throws -> DrawingFrameEstimate? {
+    guard let top, let right else { return nil }
+    let topLeft = top.geometry.points.min { $0.x < $1.x }!
+    let measuredTopRight = top.geometry.points.max { $0.x < $1.x }!
+    let measuredRightTop = right.geometry.points.min { $0.y < $1.y }!
+    let bottomRight = right.geometry.points.max { $0.y < $1.y }!
+    let topRight = try Point2<CameraPixelSpace>(
+      x: (measuredTopRight.x + measuredRightTop.x) / 2,
+      y: (measuredTopRight.y + measuredRightTop.y) / 2
+    )
+    let bottomLeft = try Point2<CameraPixelSpace>(
+      x: min(
+        Double(frame.width - 1),
+        max(0, bottomRight.x - (topRight.x - topLeft.x))
+      ),
+      y: min(
+        Double(frame.height - 1),
+        max(0, bottomRight.y - (topRight.y - topLeft.y))
+      )
+    )
+    return DrawingFrameEstimate(
+      geometry: try Polyline(points: [
+        topLeft,
+        topRight,
+        bottomRight,
+        bottomLeft,
+        topLeft,
+      ]),
+      confidence: min(top.confidence, right.confidence) * 0.65,
+      basis: "measured top/right with inferred parallel bottom/left; image space only"
+    )
   }
 
   private func greenComponents(

@@ -55,19 +55,19 @@ func overlayIdentityMismatchIsHidden() throws {
     frameID: displayed.frame.id,
     cameraConfigurationID: configuration,
     geometry: .point(try Point2(x: 1, y: 1)),
-    provenance: .init(operation: "test", algorithmRevision: "v1")
+    provenance: .init(kind: .diagnostic, source: .diagnostic, algorithmRevision: "v1")
   )
   let wrongFrame = CameraOverlayMeasurement(
     frameID: FrameID(),
     cameraConfigurationID: configuration,
     geometry: .point(try Point2(x: 1, y: 1)),
-    provenance: .init(operation: "test", algorithmRevision: "v1")
+    provenance: .init(kind: .diagnostic, source: .diagnostic, algorithmRevision: "v1")
   )
   let wrongConfiguration = CameraOverlayMeasurement(
     frameID: displayed.frame.id,
     cameraConfigurationID: CameraConfigurationID(),
     geometry: .point(try Point2(x: 1, y: 1)),
-    provenance: .init(operation: "test", algorithmRevision: "v1")
+    provenance: .init(kind: .diagnostic, source: .diagnostic, algorithmRevision: "v1")
   )
 
   let presentation = ActionSurfacePresentation(
@@ -238,7 +238,8 @@ func liveFieldOverlayUsesRegistration() throws {
       registration: registration,
       cameraConfigurationID: cameraConfigurationID
     ),
-    operation: "logical",
+    kind: .intendedPath,
+    source: .planned,
     algorithmRevision: "registration-test"
   )
 
@@ -293,7 +294,8 @@ func liveFieldOverlayRejectsConfigurationMismatch() throws {
         registration: registration,
         cameraConfigurationID: registrationConfigurationID
       ),
-      operation: "logical",
+      kind: .intendedPath,
+      source: .planned,
       algorithmRevision: "registration-test"
     )
   }

@@ -35,9 +35,15 @@ The repository contains one SwiftPM application with:
 - startup preference for the attached C920 plus three provenance-bearing PNG
   samples for offline vision analysis after camera access is granted;
 - connected-component green-cap and robust top/right frame-side measurement,
-  with every overlay bound to the exact measured frame/configuration;
+  plus inferred drawing-frame and cap-anchored armature envelopes, with every
+  overlay bound to the exact measured frame/configuration;
 - one camera-dominant action surface shared by live BGRA frames and a
   deterministic model-mismatch simulator;
+- a compact persistent workbench bar with independently openable, collapsible,
+  draggable Motion, Camera, Overlays, Learning, and Controller panels;
+- bounded continuous scene analysis at a selectable 2/5/10 Hz, with one active
+  and one newest pending frame plus visible delivery/materialization/analysis
+  counts and latency;
 - closed typed Pen Up/Pen Down actuation for this mechanism, serialized with
   probes and jogs and using the proven `M3 S40` / `M3 S720` / `G4 P0.3` profile;
 - typed geometry, a polyline `DrawingProgram`, affine camera/field math, and one
@@ -160,7 +166,7 @@ PlotterApp
   -> RunInterpreter       current operation and visible status
   -> MachineController    serial bytes and controller state
   -> CameraCapture        latest local frame
-  -> vision functions     ink/feature measurement
+  -> VisionPipeline       bounded newest-only feature measurement
   -> RunLedger            optional current-session diagnostics
 ```
 

@@ -188,12 +188,43 @@ public enum CameraPixelGeometry: Codable, Hashable, Sendable {
   case polyline(Polyline<CameraPixelSpace>)
 }
 
+/// Semantic overlay identity. Rendering and operator visibility use this typed
+/// value instead of matching ad-hoc strings produced by individual algorithms.
+public enum CameraOverlayKind: String, Codable, CaseIterable, Hashable, Sendable {
+  case intendedPath
+  case modelPrediction
+  case observedInk
+  case residual
+  case penCap
+  case measuredFrameSide
+  case drawingFrameEstimate
+  case armatureEstimate
+  case diagnostic
+}
+
+/// Describes what sort of claim an overlay makes. In particular, an inferred
+/// envelope and a simulated observation must never look like direct camera
+/// measurement merely because they share camera-pixel geometry.
+public enum CameraOverlaySource: String, Codable, Hashable, Sendable {
+  case measured
+  case inferred
+  case planned
+  case simulated
+  case diagnostic
+}
+
 public struct CameraMeasurementProvenance: Codable, Hashable, Sendable {
-  public let operation: String
+  public let kind: CameraOverlayKind
+  public let source: CameraOverlaySource
   public let algorithmRevision: String
 
-  public init(operation: String, algorithmRevision: String) {
-    self.operation = operation
+  public init(
+    kind: CameraOverlayKind,
+    source: CameraOverlaySource,
+    algorithmRevision: String
+  ) {
+    self.kind = kind
+    self.source = source
     self.algorithmRevision = algorithmRevision
   }
 }

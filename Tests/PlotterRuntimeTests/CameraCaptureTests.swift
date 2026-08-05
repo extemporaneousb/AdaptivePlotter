@@ -331,14 +331,15 @@ struct CameraCaptureTests {
     try await waitUntil { await capture.diagnostics().receivedFrameCount == 1 }
     let firstPreview = try #require(await capture.snapshot().latestFrame)
     #expect(firstPreview.frame.sequence == 1)
-    #expect(await capture.diagnostics().materializedFrameCount == 1)
+    #expect(await capture.diagnostics().totalMaterializedFrameCount == 1)
+    #expect(await capture.diagnostics().previewMaterializedFrameCount == 1)
 
     await driver.emit(sample(value: 2, time: 120))
     try await waitUntil { await capture.diagnostics().receivedFrameCount == 2 }
     await driver.emit(sample(value: 3, time: 150))
     try await waitUntil { await capture.diagnostics().receivedFrameCount == 3 }
     #expect(await capture.snapshot().latestFrame?.frame.id == firstPreview.frame.id)
-    #expect(await capture.diagnostics().materializedFrameCount == 1)
+    #expect(await capture.diagnostics().totalMaterializedFrameCount == 1)
 
     let exact = try #require(
       try await capture.materializeLatestFrame(newerThanNanoseconds: 100)
@@ -346,11 +347,12 @@ struct CameraCaptureTests {
     #expect(exact.frame.sequence == 3)
     #expect(exact.frame.captureNanoseconds == 150)
     #expect(exact.frame.bytes[0] == 3)
-    #expect(await capture.diagnostics().materializedFrameCount == 2)
+    #expect(await capture.diagnostics().totalMaterializedFrameCount == 2)
+    #expect(await capture.diagnostics().exactMaterializedFrameCount == 1)
 
     let repeated = try #require(try await capture.materializeLatestFrame())
     #expect(repeated.frame.id == exact.frame.id)
-    #expect(await capture.diagnostics().materializedFrameCount == 2)
+    #expect(await capture.diagnostics().totalMaterializedFrameCount == 2)
     #expect(try await capture.materializeLatestFrame(newerThanNanoseconds: 150) == nil)
   }
 

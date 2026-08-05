@@ -11,11 +11,11 @@ func previewLayerVisibility() {
   let workspace = OperatorWorkspace()
 
   #expect(workspace.frameMode == .live)
-  #expect(CanvasLayer.observed.rawValue == "Observed")
-  workspace.setLayer(.observed, visible: false)
+  #expect(CanvasLayer.observedInk.rawValue == "Observed ink")
+  workspace.setLayer(.observedInk, visible: false)
 
-  #expect(!workspace.visibleLayers.contains(.observed))
-  #expect(workspace.visibleLayers.contains(.logical))
+  #expect(!workspace.visibleLayers.contains(.observedInk))
+  #expect(workspace.visibleLayers.contains(.intendedPath))
 }
 
 @Test("Camera discovery preserves the live default without starting or simulating")
@@ -70,6 +70,34 @@ func startupCameraPrefersC920() async throws {
   #expect(workspace.selectedCameraID == c920.id)
   #expect(await camera.selectedIDs == [c920.id])
   #expect(await camera.startCount == 1)
+}
+
+@Test("automatic vision cadence is explicit and can be stopped without changing frame source")
+@MainActor
+func automaticVisionCadenceIsExplicit() async throws {
+  let camera = CameraFixture(
+    snapshot: CameraCaptureSnapshot(
+      devices: [],
+      selectedDeviceID: nil,
+      state: .running,
+      latestFrame: try testDisplayedFrame(),
+      error: nil
+    ),
+    simulated: try testDisplayedFrame(source: .simulated)
+  )
+  let workspace = OperatorWorkspace(cameraActions: cameraActions(camera))
+
+  await workspace.startCamera()
+  await workspace.updateVisionAnalysisCadence(.tenFPS)
+  await workspace.setAutomaticVisionAnalysis(true)
+  #expect(workspace.automaticVisionEnabled)
+  #expect(workspace.frameMode == .live)
+  #expect(workspace.visionThroughputText.contains("target 10 Hz"))
+
+  await workspace.setAutomaticVisionAnalysis(false)
+  #expect(!workspace.automaticVisionEnabled)
+  #expect(workspace.frameMode == .live)
+  #expect(await camera.automaticCadences == [.tenFPS, nil])
 }
 
 @Test("Motion priors keep one millimeter axis steps and a zero-centered 2.5 to 1 window")
@@ -811,6 +839,7 @@ private actor CameraFixture {
   private(set) var stopCount = 0
   private(set) var framesCount = 0
   private(set) var selectedIDs: [CameraDeviceID] = []
+  private(set) var automaticCadences: [VisionAnalysisCadence?] = []
 
   init(snapshot: CameraCaptureSnapshot, simulated: DisplayedFrame) {
     current = snapshot
@@ -854,6 +883,22 @@ private actor CameraFixture {
     framesCount += 1
     return AsyncStream { $0.finish() }
   }
+  func setAutomaticInspection(_ cadence: VisionAnalysisCadence?)
+    -> PlotterSceneAnalysisSnapshot
+  {
+    automaticCadences.append(cadence)
+    return PlotterSceneAnalysisSnapshot(
+      state: cadence.map(PlotterSceneAnalysisState.running) ?? .stopped,
+      submittedFrameCount: 0,
+      analyzedFrameCount: 0,
+      supersededFrameCount: 0,
+      failedFrameCount: 0,
+      activeFrameSequence: nil,
+      pendingFrameSequence: nil,
+      latestResult: nil,
+      lastError: nil
+    )
+  }
 }
 
 private func cameraActions(
@@ -873,6 +918,8 @@ private func cameraActions(
     frames: { await fixture.frames() },
     inspectScene: { nil },
     captureSnapshot: { "/tmp/adaptiveplotter-test-snapshot" },
+    setAutomaticInspection: { cadence in await fixture.setAutomaticInspection(cadence) },
+    analysisUpdates: { AsyncStream { $0.finish() } },
     simulatedContent: { mode in await fixture.simulatedContent(mode) }
   )
 }

@@ -69,8 +69,48 @@ public enum ModelObservationSplit: String, Codable, Hashable, Sendable {
   case holdout
 }
 
+public struct PhysicalModelObservationEvidence: Codable, Hashable, Sendable {
+  public let frameID: String
+  public let contentSHA256: String
+  public let captureNanoseconds: UInt64
+  public let cameraConfigurationID: CameraConfigurationID
+  public let measuredCameraPoint: Point2<CameraPixelSpace>
+  public let measurementConfidence: Double
+  public let controllerPosition: Point2<MachineSpace>
+  public let controllerSampleNanoseconds: UInt64
+  public let fieldRegistrationID: FieldRegistrationID
+
+  public init(
+    frameID: String,
+    contentSHA256: String,
+    captureNanoseconds: UInt64,
+    cameraConfigurationID: CameraConfigurationID,
+    measuredCameraPoint: Point2<CameraPixelSpace>,
+    measurementConfidence: Double,
+    controllerPosition: Point2<MachineSpace>,
+    controllerSampleNanoseconds: UInt64,
+    fieldRegistrationID: FieldRegistrationID
+  ) throws {
+    guard !frameID.isEmpty, !contentSHA256.isEmpty else {
+      throw ModelLearningError.emptyProvenanceField
+    }
+    guard measurementConfidence.isFinite, (0...1).contains(measurementConfidence) else {
+      throw ModelLearningError.invalidMeasurementConfidence(measurementConfidence)
+    }
+    self.frameID = frameID
+    self.contentSHA256 = contentSHA256
+    self.captureNanoseconds = captureNanoseconds
+    self.cameraConfigurationID = cameraConfigurationID
+    self.measuredCameraPoint = measuredCameraPoint
+    self.measurementConfidence = measurementConfidence
+    self.controllerPosition = controllerPosition
+    self.controllerSampleNanoseconds = controllerSampleNanoseconds
+    self.fieldRegistrationID = fieldRegistrationID
+  }
+}
+
 public enum ModelObservationEvidence: Codable, Hashable, Sendable {
-  case physicalFrame(frameID: String, contentSHA256: String)
+  case physical(PhysicalModelObservationEvidence)
   case simulated(scenarioID: String)
 }
 
@@ -88,10 +128,8 @@ public struct ModelObservationProvenance: Codable, Hashable, Sendable {
       throw ModelLearningError.emptyProvenanceField
     }
     switch evidence {
-    case .physicalFrame(let frameID, let contentSHA256):
-      guard !frameID.isEmpty, !contentSHA256.isEmpty else {
-        throw ModelLearningError.emptyProvenanceField
-      }
+    case .physical:
+      break
     case .simulated(let scenarioID):
       guard !scenarioID.isEmpty else { throw ModelLearningError.emptyProvenanceField }
     }
@@ -114,8 +152,48 @@ public struct DrawingModelTrainingObservation: Codable, Hashable, Sendable {
     observedFieldPoint: Point2<FieldSpace>,
     split: ModelObservationSplit,
     provenance: ModelObservationProvenance
-  ) {
+  ) throws {
+    if case .physical = provenance.evidence {
+      throw ModelLearningError.physicalObservationRequiresRegistration
+    }
     self.machinePoint = machinePoint
+    self.observedFieldPoint = observedFieldPoint
+    self.split = split
+    self.provenance = provenance
+  }
+
+  /// Constructs a physical observation by applying the cited registration to
+  /// the cited measured camera point. Callers cannot supply an unrelated field
+  /// point while retaining otherwise plausible physical provenance.
+  public static func physical(
+    evidence: PhysicalModelObservationEvidence,
+    registration: FieldRegistration,
+    split: ModelObservationSplit,
+    observationID: String,
+    algorithmRevision: String
+  ) throws -> Self {
+    guard registration.id == evidence.fieldRegistrationID else {
+      throw ModelLearningError.physicalRegistrationMismatch
+    }
+    return Self(
+      validatedMachinePoint: evidence.controllerPosition,
+      observedFieldPoint: try registration.fieldPoint(from: evidence.measuredCameraPoint),
+      split: split,
+      provenance: try ModelObservationProvenance(
+        observationID: observationID,
+        evidence: .physical(evidence),
+        algorithmRevision: algorithmRevision
+      )
+    )
+  }
+
+  private init(
+    validatedMachinePoint: Point2<MachineSpace>,
+    observedFieldPoint: Point2<FieldSpace>,
+    split: ModelObservationSplit,
+    provenance: ModelObservationProvenance
+  ) {
+    machinePoint = validatedMachinePoint
     self.observedFieldPoint = observedFieldPoint
     self.split = split
     self.provenance = provenance
@@ -173,6 +251,9 @@ public struct DrawingModelCandidate: Codable, Hashable, Sendable {
 
 public enum ModelLearningError: Error, Equatable, Sendable {
   case emptyProvenanceField
+  case invalidMeasurementConfidence(Double)
+  case physicalObservationRequiresRegistration
+  case physicalRegistrationMismatch
   case duplicateObservationID(String)
   case insufficientTrainingObservations(required: Int, actual: Int)
   case insufficientHoldoutObservations(required: Int, actual: Int)

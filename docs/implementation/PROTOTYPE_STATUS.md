@@ -9,10 +9,9 @@ AdaptivePlotter is one local SwiftPM application with a camera-dominant action
 surface, explicit AVFoundation camera selection, bounded preview work, exact
 latest-frame capture/analysis, and a deterministic simulator rendered through
 the same pixels-to-view path. One persistent native controller session owns
-passive probes, bounded relative jogs, and typed pen actuation. Floating controls
-show direct camera/controller state, MPos, current operation, outcomes, and one
-actionable blocker; deeper device setup lives in an inspector rather than taking
-the camera's primary area.
+passive probes, bounded relative jogs, and typed pen actuation. A compact top bar
+opens five independently draggable, collapsible, and hideable workbench panels;
+all detailed controls begin hidden so the camera owns the primary area.
 
 The live camera and bounded jog paths are implemented and covered by automated
 tests. The controller path now has physical evidence: the attached controller
@@ -128,6 +127,13 @@ identity, app distribution configuration, or CI result is required.
 - Manual **Analyze Frame** holds the exact measured frame while showing the
   connected-component cap and robust top/right side overlays; **Resume Preview**
   releases it. **Save Snapshot** writes an exact PNG plus provenance manifest.
+- **Auto Analyze** runs at an explicit 2, 5, or 10 Hz target through a bounded
+  pipeline with at most one active and one newest pending frame. Delivery,
+  preview/exact materialization, analyzed/superseded counts, and last latency are
+  shown in the Camera panel. Live throughput still needs measurement on this Mac.
+- Overlay kinds and sources are typed. Pen cap and frame sides are measured;
+  drawing-frame and armature envelopes are labeled inferred. Each kind can be
+  toggled independently, including the plotter-model estimate when present.
 - Deterministic model-mismatch simulation supplies logical, predicted,
   simulated-observed, residual, cap, frame-side, and commanded-pen layers through
   the same renderer. It is labeled `SIMULATED — NOT PHYSICAL EVIDENCE` and has no
@@ -159,6 +165,14 @@ identity, app distribution configuration, or CI result is required.
   evidence; this implementation does not disguise that as affine training.
 - There is no spline/neural model family, replay store, continuous visual servo,
   or model update inside an irreversible ink stroke.
+- The Learning panel spells out capture, recognition, controller pairing, split
+  assignment, candidate fitting, held-out comparison, and explicit acceptance.
+  It distinguishes the working simulator demonstration from the still-unwired
+  physical observation recorder.
+- Physical observation provenance now has typed frame/configuration/time,
+  measured camera point and confidence, controller MPos/time, registration ID,
+  algorithm revision, and fixed split. Its factory computes the field point
+  through that exact registration and rejects a registration-ID mismatch.
 
 ## Current C920 scene priors
 
@@ -204,6 +218,7 @@ bounds; rulers, shadows, magnets, and the blue hose remain distractors.
 - Fresh physical verification of the controller-aware jog deadline after the
   earlier session became sticky-ambiguous.
 - Live plotter-camera stop/restart and source-switch verification.
+- Live measurement of preview and auto-analysis throughput/latency on this Mac.
 - Pen Up/Pen Down commands verified on this mechanism.
 - One fixed camera observation region and clear tool pose.
 - Isolated line drawing, ink detection, and simple residual display.
