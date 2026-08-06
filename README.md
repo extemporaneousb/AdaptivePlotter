@@ -49,11 +49,13 @@ The repository contains one SwiftPM application with:
 - typed geometry, a polyline `DrawingProgram`, affine camera/field math, and one
   immutable affine-model learning path with training/holdout evaluation.
 
-Pen actuation is implemented and simulated but has not yet been exercised by
-this native runtime on powered hardware. Drawing and observed-ink extraction are
-not implemented. The camera source path has captured and analyzed exact current
-C920 samples. The controller has completed bounded X and Y jogs; its newly
-controller-aware completion deadline still needs a fresh physical recheck.
+Typed Pen Up is implemented and was acknowledged in a fresh powered session
+after the operator directly confirmed the pen was already physically clear.
+That does not prove servo travel from another pose; Pen Down has not been
+issued. Drawing and observed-ink extraction are not implemented. The camera
+source path has captured and analyzed exact current C920 samples. The
+controller-aware completion deadline passed fresh 1 mm X and Y round trips at
+100 mm/min with Idle completion and exact inverse returns.
 
 Old or corrupt journal files do not block a new session. The app does not have
 an archival replay product, artifact store, retention policy, accessibility

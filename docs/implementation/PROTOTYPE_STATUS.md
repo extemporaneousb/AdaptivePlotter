@@ -19,14 +19,16 @@ was probed and completed bounded X and Y jogs. A later 10 mm X jog requested at
 900 mm/min became correctly sticky-ambiguous because the running build's
 completion deadline expired while the controller still reported `Jog`. The
 source now derives a conservative trapezoidal/triangular deadline from parsed
-per-axis feed caps and acceleration, but that correction still needs a fresh
-physical session before further motion.
+per-axis feed caps and acceleration. A fresh powered session on 2026-08-05
+verified that correction with non-ambiguous 1 mm X and Y round trips at
+100 mm/min and exact inverse returns to MPos X 29.192 / Y -10.002.
 The rebuilt app now has camera permission and captured three current 1920x1080
 C920 frames with exact manifest provenance. The production detector finds the
 cap and two useful frame sides consistently in all three without deriving any
-pixel-to-mm calibration. Typed pen actuation and its UI are implemented but not
-yet physically exercised by this native runtime because motion power remained
-off. Drawing and observed-ink extraction remain unimplemented.
+pixel-to-mm calibration. Typed Pen Up was acknowledged in the powered session
+after the operator confirmed the pen was already physically clear. Pen Down was
+not issued, so powered travel from a lowered pose remains unverified. Drawing
+and observed-ink extraction remain unimplemented.
 
 ## Simplifications now implemented
 
@@ -215,11 +217,10 @@ bounds; rulers, shadows, magnets, and the blue hose remain distractors.
 
 ## Not yet implemented
 
-- Fresh physical verification of the controller-aware jog deadline after the
-  earlier session became sticky-ambiguous.
 - Live plotter-camera stop/restart and source-switch verification.
 - Live measurement of preview and auto-analysis throughput/latency on this Mac.
-- Pen Up/Pen Down commands verified on this mechanism.
+- Physical Pen Down followed by Pen Up over replaceable paper; the powered
+  Pen Up command path is acknowledged, but the pen began physically up.
 - One fixed camera observation region and clear tool pose.
 - Isolated line drawing, ink detection, and simple residual display.
 - Small multi-stroke drawing and optional affine correction.
@@ -227,12 +228,13 @@ bounds; rulers, shadows, magnets, and the blue hose remain distractors.
 
 ## Next action
 
-Run the exact controlled power-on sequence in
-[First Hardware Session](FIRST_HARDWARE_SESSION.md): fresh passive probe, live
-Analyze Frame, apply the conservative session bounds, Pen Up, one 1 mm X round
-trip, one 1 mm Y round trip, then stationary Pen Down and Pen Up while observing
-the mechanism. Stop on any alarm, asserted limit, disconnect, unexpected motion,
-or ambiguity; do not Home, unlock, reset, write settings, or resume. If that
-sequence is clean, the next software/physical slice is one bounded isolated-line
-operation followed by tool clear, exact-frame ink observation, and residual
-display. Cap motion and controller `ok` must not stand in for observed ink.
+The fresh passive probe, typed limits, Pen Up command path, and 1 mm X/Y round
+trips in [First Hardware Session](FIRST_HARDWARE_SESSION.md) are complete. The
+next machine-affecting step requires explicit operator authorization: stationary
+Pen Down followed once by Pen Up over replaceable paper while observing the
+mechanism. Stop on any alarm, asserted limit, disconnect, unexpected actuation,
+or ambiguity; do not Home, unlock, reset, write settings, or resume. After that
+pair and live camera checks are clean, the next software/physical slice is one
+bounded isolated-line operation followed by tool clear, exact-frame ink
+observation, and residual display. Cap motion and controller `ok` must not
+stand in for observed ink.

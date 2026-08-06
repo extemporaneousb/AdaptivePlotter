@@ -1,6 +1,6 @@
 # First Hardware Session
 
-Status: source-ready for controlled powered verification; motion power was off during implementation
+Status: fresh powered 1 mm X/Y round trips verified 2026-08-05; Pen Down not issued
 Scope: camera analysis, repeatable passive interrogation, typed pen control, and 1 mm round trips
 
 ## Purpose
@@ -175,8 +175,32 @@ single-scene priors.
   that outcome sticky-ambiguous. That running build's deadline ignored the
   controller's 500 mm/min cap and 10 mm/s^2 acceleration. Current source parses
   those settings and applies triangular/trapezoidal motion timing without using
-  firmware travel as a bound. Establish a fresh session and physically
-  re-verify the correction; do not continue motion from the ambiguous session.
+  firmware travel as a bound. The fresh verification below supersedes that
+  ambiguous session for new bounded operations; it does not reinterpret or
+  clear the earlier command outcome.
+
+### 2026-08-05 powered deadline recheck
+
+- The signed app opened `/dev/cu.usbserial-A10OF67O` in a new session. The
+  passive probe reported Idle, no asserted X/Y pins, and MPos X 29.192 /
+  Y -10.002.
+- The operator directly confirmed the pen was physically up. The app then sent
+  the fixed typed Pen Up command and settle dwell once; both were acknowledged
+  and the app recorded commanded state Up. Because the pen began up, this proves
+  a clean command path, not observable servo travel from a lowered pose.
+- Applied local limits were X 27.692...30.692, Y -11.502...-8.502, a 1 mm
+  per-command cap, and 100 mm/min maximum feed.
+- The X request completed Idle at X 30.212 / Y -10.002. The 1.020 mm reported
+  delta is one-step quantization at the probed `$100=40.18235` steps/mm. The
+  explicit inverse completed at the exact starting MPos.
+- The Y request completed Idle at X 29.192 / Y -9.004. The 0.998 mm reported
+  delta matches quantization at `$101=45.09100` steps/mm. Its explicit inverse
+  completed at X 29.192 / Y -10.002.
+- All four jogs were accepted, reached observed Idle before their current
+  controller-aware deadlines, and ended non-ambiguous with no alarm, asserted
+  limit, Hold, disconnect, or automatic resend.
+- Pen Down was not issued. It remains a separate physical step requiring
+  explicit operator authorization over replaceable paper.
 
 ## Verify one bounded jog
 
