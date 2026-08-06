@@ -1,4 +1,10 @@
+import CoreGraphics
 import Foundation
+
+enum WorkbenchDockSide: Sendable {
+  case left
+  case right
+}
 
 enum WorkbenchPanel: String, CaseIterable, Identifiable, Sendable {
   case motion = "Motion"
@@ -8,6 +14,15 @@ enum WorkbenchPanel: String, CaseIterable, Identifiable, Sendable {
   case controller = "Controller"
 
   var id: Self { self }
+
+  var dockSide: WorkbenchDockSide {
+    switch self {
+    case .motion, .controller:
+      .left
+    case .camera, .overlays, .learning:
+      .right
+    }
+  }
 
   var systemImage: String {
     switch self {
@@ -33,36 +48,41 @@ enum WorkbenchPanel: String, CaseIterable, Identifiable, Sendable {
 struct WorkbenchPanelPresentation: Equatable, Sendable {
   var isVisible: Bool
   var isCollapsed: Bool
-  /// A normalized center within the usable camera surface, independently
-  /// clamped for the current window and panel dimensions.
-  var normalizedX: Double
-  var normalizedY: Double
+}
+
+/// Non-overlapping regions for the workbench content below its top bar.
+///
+/// A visible dock always consumes layout space. The action surface is therefore
+/// reframed between the docks instead of being covered by a panel.
+struct WorkbenchDockGeometry: Equatable, Sendable {
+  let contentBounds: CGRect
+  let leftDock: CGRect?
+  let actionSurface: CGRect
+  let rightDock: CGRect?
+
+  func frame(for side: WorkbenchDockSide) -> CGRect? {
+    switch side {
+    case .left: leftDock
+    case .right: rightDock
+    }
+  }
 }
 
 struct WorkbenchLayoutState: Equatable, Sendable {
   private var panels: [WorkbenchPanel: WorkbenchPanelPresentation]
-  private var panelOrder: [WorkbenchPanel]
 
   init() {
-    panelOrder = WorkbenchPanel.allCases
-    panels = [
-      .motion: .init(isVisible: false, isCollapsed: false, normalizedX: 0.12, normalizedY: 0.55),
-      .camera: .init(isVisible: false, isCollapsed: false, normalizedX: 0.88, normalizedY: 0.42),
-      .overlays: .init(isVisible: false, isCollapsed: false, normalizedX: 0.86, normalizedY: 0.78),
-      .learning: .init(isVisible: false, isCollapsed: false, normalizedX: 0.58, normalizedY: 0.66),
-      .controller: .init(isVisible: false, isCollapsed: false, normalizedX: 0.18, normalizedY: 0.32),
-    ]
+    panels = Dictionary(
+      uniqueKeysWithValues: WorkbenchPanel.allCases.map {
+        ($0, WorkbenchPanelPresentation(isVisible: false, isCollapsed: false))
+      }
+    )
   }
 
   subscript(panel: WorkbenchPanel) -> WorkbenchPanelPresentation {
     get {
       panels[panel]
-        ?? WorkbenchPanelPresentation(
-          isVisible: false,
-          isCollapsed: false,
-          normalizedX: 0.5,
-          normalizedY: 0.5
-        )
+        ?? WorkbenchPanelPresentation(isVisible: false, isCollapsed: false)
     }
     set { panels[panel] = newValue }
   }
@@ -71,7 +91,6 @@ struct WorkbenchLayoutState: Equatable, Sendable {
     var value = self[panel]
     value.isVisible.toggle()
     panels[panel] = value
-    if value.isVisible { bringToFront(panel) }
   }
 
   mutating func hide(_ panel: WorkbenchPanel) {
@@ -92,88 +111,94 @@ struct WorkbenchLayoutState: Equatable, Sendable {
     panels[panel] = value
   }
 
-  mutating func bringToFront(_ panel: WorkbenchPanel) {
-    panelOrder.removeAll { $0 == panel }
-    panelOrder.append(panel)
+  /// Stable panel order lets a dock render multiple visible panels in a single
+  /// scroll container without any floating-window stacking or z-order.
+  func visiblePanels(in side: WorkbenchDockSide) -> [WorkbenchPanel] {
+    WorkbenchPanel.allCases.filter {
+      $0.dockSide == side && self[$0].isVisible
+    }
   }
 
-  func zIndex(for panel: WorkbenchPanel) -> Double {
-    Double(panelOrder.firstIndex(of: panel) ?? 0)
+  func hasVisiblePanels(in side: WorkbenchDockSide) -> Bool {
+    !visiblePanels(in: side).isEmpty
   }
 
-  mutating func move(
-    _ panel: WorkbenchPanel,
-    from initial: WorkbenchPanelPresentation,
-    translation: CGSize,
+  /// Allocates fixed-width side docks and returns the camera-safe action region.
+  /// Dock widths shrink symmetrically only when needed to preserve the requested
+  /// minimum action-surface width. The caller renders each dock's panels in a
+  /// vertical scroll view.
+  func geometry(
     in containerSize: CGSize,
-    panelSize: CGSize,
-    topInset: CGFloat
-  ) {
-    let initialCenter = Self.center(
-      for: initial,
-      in: containerSize,
-      panelSize: panelSize,
-      topInset: topInset
+    topInset: CGFloat = 0,
+    preferredDockWidth: CGFloat = 360,
+    spacing: CGFloat = 10,
+    minimumActionSurfaceWidth: CGFloat = 360
+  ) -> WorkbenchDockGeometry {
+    let width = Self.nonnegativeFinite(containerSize.width)
+    let height = Self.nonnegativeFinite(containerSize.height)
+    let boundedTopInset = min(Self.nonnegativeFinite(topInset), height)
+    let contentBounds = CGRect(
+      x: 0,
+      y: boundedTopInset,
+      width: width,
+      height: height - boundedTopInset
     )
-    var value = self[panel]
-    value.normalizedX = Self.normalized(
-      initialCenter.x + translation.width,
-      minimum: panelSize.width / 2,
-      maximum: containerSize.width - panelSize.width / 2
+
+    let hasLeft = hasVisiblePanels(in: .left)
+    let hasRight = hasVisiblePanels(in: .right)
+    let dockCount = (hasLeft ? 1 : 0) + (hasRight ? 1 : 0)
+    guard dockCount > 0 else {
+      return WorkbenchDockGeometry(
+        contentBounds: contentBounds,
+        leftDock: nil,
+        actionSurface: contentBounds,
+        rightDock: nil
+      )
+    }
+
+    let gap = Self.nonnegativeFinite(spacing)
+    let totalGap = CGFloat(dockCount) * gap
+    let requestedActionWidth = Self.nonnegativeFinite(minimumActionSurfaceWidth)
+    let preservedActionWidth = min(requestedActionWidth, max(0, width - totalGap))
+    let dockCapacity = max(0, width - totalGap - preservedActionWidth)
+    let dockWidth = min(
+      Self.nonnegativeFinite(preferredDockWidth),
+      dockCapacity / CGFloat(dockCount)
     )
-    value.normalizedY = Self.normalized(
-      initialCenter.y + translation.height,
-      minimum: topInset + panelSize.height / 2,
-      maximum: containerSize.height - panelSize.height / 2
+
+    let leftWidth = hasLeft ? dockWidth : 0
+    let rightWidth = hasRight ? dockWidth : 0
+    let actionMinX = leftWidth + (hasLeft ? gap : 0)
+    let actionMaxX = width - rightWidth - (hasRight ? gap : 0)
+
+    let leftDock = hasLeft
+      ? CGRect(x: 0, y: boundedTopInset, width: leftWidth, height: contentBounds.height)
+      : nil
+    let rightDock = hasRight
+      ? CGRect(
+        x: width - rightWidth,
+        y: boundedTopInset,
+        width: rightWidth,
+        height: contentBounds.height
+      )
+      : nil
+    let actionSurface = CGRect(
+      x: actionMinX,
+      y: boundedTopInset,
+      width: max(0, actionMaxX - actionMinX),
+      height: contentBounds.height
     )
-    panels[panel] = value
+
+    return WorkbenchDockGeometry(
+      contentBounds: contentBounds,
+      leftDock: leftDock,
+      actionSurface: actionSurface,
+      rightDock: rightDock
+    )
   }
 
-  func center(
-    for panel: WorkbenchPanel,
-    in containerSize: CGSize,
-    panelSize: CGSize,
-    topInset: CGFloat
-  ) -> CGPoint {
-    Self.center(
-      for: self[panel],
-      in: containerSize,
-      panelSize: panelSize,
-      topInset: topInset
-    )
-  }
-
-  private static func center(
-    for value: WorkbenchPanelPresentation,
-    in containerSize: CGSize,
-    panelSize: CGSize,
-    topInset: CGFloat
-  ) -> CGPoint {
-    let minimumX = panelSize.width / 2
-    let maximumX = max(minimumX, containerSize.width - panelSize.width / 2)
-    let minimumY = topInset + panelSize.height / 2
-    let maximumY = max(minimumY, containerSize.height - panelSize.height / 2)
-    return CGPoint(
-      x: interpolate(value.normalizedX, minimum: minimumX, maximum: maximumX),
-      y: interpolate(value.normalizedY, minimum: minimumY, maximum: maximumY)
-    )
-  }
-
-  private static func normalized(
-    _ value: CGFloat,
-    minimum: CGFloat,
-    maximum: CGFloat
-  ) -> Double {
-    guard maximum > minimum else { return 0.5 }
-    return min(1, max(0, Double((value - minimum) / (maximum - minimum))))
-  }
-
-  private static func interpolate(
-    _ normalized: Double,
-    minimum: CGFloat,
-    maximum: CGFloat
-  ) -> CGFloat {
-    let bounded = min(1, max(0, normalized))
-    return minimum + CGFloat(bounded) * (maximum - minimum)
+  private static func nonnegativeFinite(_ value: CGFloat) -> CGFloat {
+    guard value.isFinite else { return 0 }
+    return max(0, value)
   }
 }

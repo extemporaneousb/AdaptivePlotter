@@ -281,7 +281,7 @@ final class OperatorWorkspace {
     guard let operation = machineSnapshot?.currentOperation else { return "none" }
     return switch operation {
     case .idle: "idle"
-    case .passiveProbe: "passive probe"
+    case .passiveProbe: "controller inspection"
     case .relativeJog: "relative jog"
     case .observedJog: "observed relative jog"
     case .penActuation(let command): "pen \(command.rawValue)"
@@ -388,13 +388,72 @@ final class OperatorWorkspace {
     machineSnapshot?.machine.controllerState?.rawValue ?? "unknown"
   }
 
+  var controllerConnectionText: String {
+    guard selectedSerialDevice != nil else { return "not selected" }
+    guard let machine = machineSnapshot?.machine else { return "selected; no session" }
+    switch machine.connection {
+    case .connected:
+      guard let state = machine.controllerState, state.isRecognized else {
+        return "connected; state unknown"
+      }
+      return "last inspection responsive"
+    case .disconnected:
+      return "disconnected"
+    case .connecting:
+      return "connecting"
+    case .probing:
+      return "probing"
+    case .moving:
+      return "command in flight"
+    case .actuatingPen:
+      return "pen command in flight"
+    case .blocked:
+      return "blocked"
+    }
+  }
+
+  /// grblHAL status proves that its USB-side controller is responsive. The
+  /// BlackBox does not report whether motor supply current is present, so the
+  /// UI must not turn a responsive serial link into a powered-motors claim.
+  var motorPowerText: String {
+    guard machineSnapshot?.machine.connection == .connected else { return "unverified" }
+    return "not reported by controller"
+  }
+
+  var motionPermissionText: String {
+    motionUnavailableReason == nil ? "request eligible" : "blocked"
+  }
+
+  var controllerConnectionActionTitle: String {
+    machineSnapshot?.machine.connection == .connected
+      ? "Refresh Controller State"
+      : "Connect & Inspect Controller"
+  }
+
+  var workbenchStatusText: String {
+    if let actionableError { return actionableError }
+    if let reason = motionUnavailableReason { return "Motion blocked: \(reason)" }
+    return "Motion request eligible; motor power is not reported by controller."
+  }
+
+  var workbenchStatusNeedsAttention: Bool {
+    actionableError != nil || motionUnavailableReason != nil
+  }
+
   var machinePositionText: String {
     guard let point = machineSnapshot?.machine.position?.point else { return "unknown" }
     return String(format: "X %.3f   Y %.3f", point.x, point.y)
   }
 
   var penStateText: String {
-    machineSnapshot?.machine.penState.rawValue ?? PenState.unknown.rawValue
+    switch machineSnapshot?.machine.penState ?? .unknown {
+    case .unknown:
+      "unknown — no physical pose assumed"
+    case .up:
+      "commanded up — not visually observed"
+    case .down:
+      "commanded down — not visually observed"
+    }
   }
 
   var lastMotionOutcomeText: String {
@@ -449,7 +508,7 @@ final class OperatorWorkspace {
   }
 
   var passiveProbeUnavailableReason: String? {
-    if passiveProbeInProgress { return "A passive probe is already in progress." }
+    if passiveProbeInProgress { return "Controller connection inspection is already in progress." }
     if machineActions == nil { return "Native machine composition is unavailable." }
     if selectedSerialDevice == nil { return "Select one serial device first." }
     return nil

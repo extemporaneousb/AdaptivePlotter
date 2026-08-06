@@ -17,56 +17,123 @@ struct WorkbenchLayoutTests {
     #expect(layout[.motion].isCollapsed)
     #expect(layout[.overlays].isVisible)
     #expect(!layout[.camera].isVisible)
-    #expect(layout.zIndex(for: .overlays) > layout.zIndex(for: .motion))
-
-    layout.bringToFront(.motion)
-    #expect(layout.zIndex(for: .motion) > layout.zIndex(for: .overlays))
 
     layout.hideAll()
     #expect(WorkbenchPanel.allCases.allSatisfy { !layout[$0].isVisible })
     #expect(layout[.motion].isCollapsed)
   }
 
-  @Test("dragging clamps a panel center to the usable camera surface")
-  func dragClamping() {
+  @Test("panels use deterministic machine-left and vision-right docks")
+  func deterministicDockAllocation() {
     var layout = WorkbenchLayoutState()
-    let container = CGSize(width: 1_200, height: 760)
-    let panel = CGSize(width: 390, height: 520)
-    let initial = layout[.motion]
+    layout.toggleVisibility(.learning)
+    layout.toggleVisibility(.controller)
+    layout.toggleVisibility(.camera)
+    layout.toggleVisibility(.motion)
+    layout.toggleVisibility(.overlays)
 
-    layout.move(
-      .motion,
-      from: initial,
-      translation: CGSize(width: -10_000, height: -10_000),
-      in: container,
-      panelSize: panel,
-      topInset: 72
-    )
-    #expect(
-      layout.center(
-        for: .motion,
-        in: container,
-        panelSize: panel,
-        topInset: 72
-      ) == CGPoint(x: 195, y: 332)
+    #expect(layout.visiblePanels(in: .left) == [.motion, .controller])
+    #expect(layout.visiblePanels(in: .right) == [.camera, .overlays, .learning])
+  }
+
+  @Test("no visible panels gives the entire content area to the action surface")
+  func unobstructedDefaultSurface() {
+    let layout = WorkbenchLayoutState()
+    let geometry = layout.geometry(
+      in: CGSize(width: 1_200, height: 760),
+      topInset: 64
     )
 
-    let secondStart = layout[.motion]
-    layout.move(
-      .motion,
-      from: secondStart,
-      translation: CGSize(width: 10_000, height: 10_000),
-      in: container,
-      panelSize: panel,
-      topInset: 72
+    #expect(geometry.contentBounds == CGRect(x: 0, y: 64, width: 1_200, height: 696))
+    #expect(geometry.leftDock == nil)
+    #expect(geometry.rightDock == nil)
+    #expect(geometry.actionSurface == geometry.contentBounds)
+  }
+
+  @Test("one visible dock reserves space instead of covering the camera")
+  func oneDockReservesSpace() {
+    var layout = WorkbenchLayoutState()
+    layout.toggleVisibility(.motion)
+    layout.toggleVisibility(.controller)
+
+    let geometry = layout.geometry(
+      in: CGSize(width: 1_200, height: 760),
+      topInset: 64,
+      preferredDockWidth: 360,
+      spacing: 10,
+      minimumActionSurfaceWidth: 360
     )
-    #expect(
-      layout.center(
-        for: .motion,
-        in: container,
-        panelSize: panel,
-        topInset: 72
-      ) == CGPoint(x: 1_005, y: 500)
+
+    #expect(geometry.leftDock == CGRect(x: 0, y: 64, width: 360, height: 696))
+    #expect(geometry.actionSurface == CGRect(x: 370, y: 64, width: 830, height: 696))
+    #expect(geometry.rightDock == nil)
+    #expect(geometry.leftDock?.intersects(geometry.actionSurface) == false)
+  }
+
+  @Test("both docks reserve one shared rail per side and never overlay the action surface")
+  func bothDocksNeverOverlay() {
+    var layout = WorkbenchLayoutState()
+    layout.toggleVisibility(.motion)
+    layout.toggleVisibility(.controller)
+    layout.toggleVisibility(.camera)
+    layout.toggleVisibility(.overlays)
+    layout.toggleVisibility(.learning)
+
+    let geometry = layout.geometry(
+      in: CGSize(width: 1_200, height: 760),
+      topInset: 64,
+      preferredDockWidth: 360,
+      spacing: 10,
+      minimumActionSurfaceWidth: 360
     )
+
+    #expect(geometry.leftDock == CGRect(x: 0, y: 64, width: 360, height: 696))
+    #expect(geometry.actionSurface == CGRect(x: 370, y: 64, width: 460, height: 696))
+    #expect(geometry.rightDock == CGRect(x: 840, y: 64, width: 360, height: 696))
+    #expect(geometry.leftDock?.intersects(geometry.actionSurface) == false)
+    #expect(geometry.rightDock?.intersects(geometry.actionSurface) == false)
+    #expect(geometry.leftDock?.intersects(geometry.rightDock!) == false)
+  }
+
+  @Test("docks shrink symmetrically to preserve a camera-safe minimum")
+  func narrowGeometryPreservesActionSurface() {
+    var layout = WorkbenchLayoutState()
+    layout.toggleVisibility(.motion)
+    layout.toggleVisibility(.camera)
+
+    let geometry = layout.geometry(
+      in: CGSize(width: 900, height: 700),
+      preferredDockWidth: 360,
+      spacing: 10,
+      minimumActionSurfaceWidth: 360
+    )
+
+    #expect(geometry.leftDock?.width == 260)
+    #expect(geometry.rightDock?.width == 260)
+    #expect(geometry.actionSurface.width == 360)
+    #expect(geometry.leftDock?.maxX == 260)
+    #expect(geometry.actionSurface.minX == 270)
+    #expect(geometry.actionSurface.maxX == 630)
+    #expect(geometry.rightDock?.minX == 640)
+  }
+
+  @Test("invalid dimensions stay bounded without overlapping regions")
+  func invalidDimensionsAreBounded() {
+    var layout = WorkbenchLayoutState()
+    layout.toggleVisibility(.motion)
+    layout.toggleVisibility(.camera)
+
+    let geometry = layout.geometry(
+      in: CGSize(width: CGFloat.nan, height: -20),
+      topInset: CGFloat.infinity,
+      preferredDockWidth: CGFloat.infinity,
+      spacing: -CGFloat.infinity,
+      minimumActionSurfaceWidth: CGFloat.nan
+    )
+
+    #expect(geometry.contentBounds == .zero)
+    #expect(geometry.leftDock == .zero)
+    #expect(geometry.actionSurface == .zero)
+    #expect(geometry.rightDock == .zero)
   }
 }

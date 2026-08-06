@@ -137,7 +137,9 @@ another after returning to idle.
 Implementation status: typed Pen Up/Pen Down, fixed local servo values, fixed
 settle, serialized ownership, sticky uncertainty, direct UI, and automated tests
 are implemented. The powered Pen Up command path and pen-up X/Y travel are
-verified; Pen Down and a separately observed clear pose remain.
+verified. Stationary Pen Down at the local `S760` value produced an
+operator-observed green contact dot and the following `S40` command returned
+the controller-commanded state Up; a separately observed clear pose remains.
 
 Deliver:
 

@@ -1,6 +1,6 @@
 # First Hardware Session
 
-Status: fresh powered 1 mm X/Y round trips verified 2026-08-05; Pen Down not issued
+Status: powered 1 mm X/Y round trips and stationary green-dot contact verified
 Scope: camera analysis, repeatable passive interrogation, typed pen control, and 1 mm round trips
 
 ## Purpose
@@ -22,7 +22,7 @@ $#
 
 The machine-affecting surfaces are a closed typed relative GRBL jog and typed
 Pen Up/Pen Down. The pen profile is fixed to the commands proven on this
-mechanism: `M3 S40` up, `M3 S720` down, and `G4 P0.3` settle. No UI field can
+mechanism: `M3 S40` up, `M3 S760` down, and `G4 P0.3` settle. No UI field can
 supply raw G-code or servo values. Pen Up needs fresh recognized Idle/non-alarm
 status. Pen Down also needs applied bounds, fresh in-bounds MPos, and clear X/Y
 limit pins. Jog remains unavailable until Pen Up was acknowledged and settled.
@@ -83,7 +83,8 @@ executable CDHash until that one-time approval is completed with the operator.
    `Contents/MacOS/AdaptivePlotter` binary directly for camera acceptance.
 
 5. Choose **Refresh Serial Devices**, select the controller path, and choose
-   **Request Passive Probe**.
+   **Connect & Inspect Controller**. Once connected, the same action is labeled
+   **Refresh Controller State**.
 6. Confirm that the UI reports the five exchanges or gives a concrete error.
 7. Repeat the probe in the same app launch if useful. A failed probe is not a
    one-shot event and old journal files do not block retry.
@@ -108,9 +109,10 @@ executable CDHash until that one-time approval is completed with the operator.
    produces no frames and no sample directory; that is an external permission
    boundary, not camera evidence.
 4. Confirm that frame sequence advances and frame age remains current.
-5. Use the compact top bar to open **Camera** and **Overlays**. Confirm both can
-   be dragged away from the subject, collapsed, closed, and restored; **Hide
-   All** must leave only the compact bar over the camera.
+5. Use the compact top bar to open **Camera** and **Overlays**. Confirm they dock
+   on the right, reserve space, and leave the complete camera surface visible.
+   Collapse, close, and restore them; **Hide All** must return the full content
+   width to the camera.
 6. Choose **Analyze Frame**. Confirm preview holds one exact frame and shows one
    cap box/centroid, blue measured top/right side lines, a dashed inferred
    drawing frame, and a dashed inferred armature envelope. Toggle Pen cap,
@@ -227,6 +229,39 @@ single-scene priors.
   view. Pen state in this check came from direct operator confirmation plus the
   acknowledged typed Pen Up command; Pen Down was not issued.
 
+### 2026-08-06 motor-power observability check
+
+- The operator switched only the plotter/motor supply off while leaving USB
+  attached. The exact AdaptivePlotter process holding the serial device was
+  resolved and terminated before the coordinator reclaimed the port.
+- The identical passive query set still completed without blockers. The device
+  identified as the same grblHAL BlackBox X32 and reported `Idle`, MPos
+  X 0.000 / Y 0.000, no asserted X/Y pins, `Bf:100,1023`, `FS:0,0`, and `H:0`.
+- Those controller-observable facts matched the powered baseline. USB response,
+  `Idle`, MPos, and `H:0` do not establish that motor supply current is present.
+- AdaptivePlotter therefore reports controller-link responsiveness and
+  motion-command permission separately, and says motor power is not reported
+  by the controller. No motion or pen command was sent during this comparison.
+
+### 2026-08-06 stationary pen-contact check
+
+- With power restored, the passive query set reported the same BlackBox X32,
+  recognized `Idle`, MPos X 0.000 / Y 0.000, and no asserted X/Y pins.
+- The typed `M3 S40` raise plus `G4 P0.3` completed first, establishing a fresh
+  controller-commanded Up state without ambiguity.
+- A stationary typed down at the historical `S720` value moved the mechanism,
+  but direct operator inspection after raising found no green dot on the white
+  paper. Controller acknowledgement was correctly not treated as ink evidence.
+- One explicit conservative local adjustment changed the closed down value to
+  `S760`; there was no automatic sweep or operator-supplied G-code surface.
+- The stationary `M3 S760` command completed within conservative ±1 mm local
+  bounds without any X/Y command. After the immediate `M3 S40` raise, the
+  operator inspected the paper and confirmed a green contact dot.
+- Every actuation and settle was acknowledged with no alarm, asserted limit,
+  disconnect, sticky ambiguity, or automatic resend. The final commanded state
+  was Up. Physical contact came from direct observation; this camera view still
+  cannot observe pen height.
+
 ## Verify one bounded jog
 
 1. Use the passive probe to confirm the attached controller supports the closed
@@ -234,7 +269,7 @@ single-scene priors.
    reports current MPos.
 2. Enter a conservative local X/Y envelope around that MPos, plus a very small
    maximum distance and low maximum feed, then apply the typed limits.
-3. Keep the physical cutoff reachable and choose **PEN UP**. Confirm the
+3. Keep the physical cutoff reachable and choose **COMMAND PEN UP**. Confirm the
    controller acknowledges both the fixed up command and settle dwell, and
    directly observe that the pen is clear. Stop if command and mechanism disagree.
 4. Send a 1 mm X jog at 100 mm/min. Wait for `ok` acceptance followed
@@ -251,9 +286,9 @@ alarm, reset, write settings, or Resume.
 Do this only after both 1 mm round trips return unambiguously and the tool is in
 a harmless in-bounds location over replaceable paper.
 
-1. Choose **PEN DOWN** once. Directly observe whether the pen reaches paper after
+1. Choose **COMMAND PEN DOWN** once. Directly observe whether the pen reaches paper after
    the acknowledged 0.3 s settle. Controller acknowledgement alone is not proof.
-2. Choose **PEN UP** once. Directly observe clearance.
+2. Choose **COMMAND PEN UP** once. Directly observe clearance.
 3. Stop after that down/up pair. Do not jog while down and do not repeat a command
    after any timeout, disconnect, reset greeting, rejection, or physical mismatch.
 

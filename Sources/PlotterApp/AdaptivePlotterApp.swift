@@ -22,31 +22,40 @@ struct OperatorWorkspaceView: View {
   @Bindable var workspace: OperatorWorkspace
   @State private var layout = WorkbenchLayoutState()
 
-  private let topInset: CGFloat = 72
-
   var body: some View {
-    GeometryReader { proxy in
-      ZStack(alignment: .top) {
-        ActionSurface(presentation: workspace.actionSurfacePresentation)
-          .frame(maxWidth: .infinity, maxHeight: .infinity)
+    VStack(spacing: WorkbenchTopBarLayoutMetrics.externalTopInset) {
+      FlushWorkbenchTopBar(workspace: workspace, layout: $layout)
 
-        ForEach(WorkbenchPanel.allCases) { panel in
-          if layout[panel].isVisible {
-            FloatingWorkbenchPanel(
-              panel: panel,
-              layout: $layout,
-              containerSize: proxy.size,
-              topInset: topInset
-            ) {
-              panelContent(panel)
-            }
-            .zIndex(layout.zIndex(for: panel))
+      GeometryReader { proxy in
+        let geometry = layout.geometry(
+          in: proxy.size,
+          preferredDockWidth: 390,
+          spacing: 8,
+          minimumActionSurfaceWidth: 360
+        )
+        ZStack(alignment: .topLeading) {
+          ActionSurface(presentation: workspace.actionSurfacePresentation)
+            .frame(
+              width: geometry.actionSurface.width,
+              height: geometry.actionSurface.height
+            )
+            .position(
+              x: geometry.actionSurface.midX,
+              y: geometry.actionSurface.midY
+            )
+
+          if let dock = geometry.leftDock {
+            dockColumn(side: .left)
+              .frame(width: dock.width, height: dock.height)
+              .position(x: dock.midX, y: dock.midY)
+          }
+
+          if let dock = geometry.rightDock {
+            dockColumn(side: .right)
+              .frame(width: dock.width, height: dock.height)
+              .position(x: dock.midX, y: dock.midY)
           }
         }
-
-        WorkbenchTopBar(workspace: workspace, layout: $layout)
-          .padding(10)
-          .zIndex(1_000)
       }
     }
     .background(Color.black)
@@ -55,6 +64,21 @@ struct OperatorWorkspaceView: View {
       await workspace.startPreferredCameraAtStartup()
     }
     .onDisappear { Task { await workspace.shutdown() } }
+  }
+
+  private func dockColumn(side: WorkbenchDockSide) -> some View {
+    ScrollView {
+      LazyVStack(spacing: 8) {
+        ForEach(layout.visiblePanels(in: side)) { panel in
+          DockedWorkbenchPanel(panel: panel, layout: $layout) {
+            panelContent(panel)
+          }
+        }
+      }
+      .padding(8)
+    }
+    .scrollIndicators(.visible)
+    .background(.black.opacity(0.32))
   }
 
   @ViewBuilder
@@ -69,87 +93,14 @@ struct OperatorWorkspaceView: View {
   }
 }
 
-private struct WorkbenchTopBar: View {
-  @Bindable var workspace: OperatorWorkspace
-  @Binding var layout: WorkbenchLayoutState
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 4) {
-      HStack(spacing: 6) {
-        ForEach(WorkbenchPanel.allCases) { panel in
-          Button {
-            layout.toggleVisibility(panel)
-          } label: {
-            Label(panel.rawValue, systemImage: panel.systemImage)
-          }
-          .buttonStyle(.bordered)
-          .controlSize(.small)
-          .tint(layout[panel].isVisible ? .accentColor : .secondary)
-        }
-
-        Button("Hide All") { layout.hideAll() }
-          .buttonStyle(.borderless)
-          .controlSize(.small)
-
-        Spacer()
-
-        fact("source", workspace.frameMode.rawValue)
-        fact("camera", workspace.cameraStateText)
-        fact("frame", workspace.frameAgeText)
-        fact("controller", workspace.controllerStateText)
-        fact("operation", workspace.currentOperationText)
-      }
-
-      HStack(spacing: 5) {
-        Image(systemName: workspace.actionableError == nil ? "checkmark.circle" : "exclamationmark.triangle")
-        Text(workspace.actionableError ?? "No current error")
-      }
-        .font(.caption.monospaced())
-        .foregroundStyle(workspace.actionableError == nil ? Color.secondary : Color.orange)
-        .lineLimit(1)
-        .textSelection(.enabled)
-    }
-    .padding(.horizontal, 14)
-    .padding(.vertical, 9)
-    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
-    .overlay {
-      RoundedRectangle(cornerRadius: 10)
-        .stroke(.white.opacity(0.16), lineWidth: 1)
-    }
-  }
-
-  private func fact(_ name: String, _ value: String) -> some View {
-    HStack(spacing: 3) {
-      Text(name.uppercased()).font(.caption2).foregroundStyle(.secondary)
-      Text(value).font(.caption2.monospaced()).textSelection(.enabled)
-    }
-  }
-}
-
-private struct FloatingWorkbenchPanel<Content: View>: View {
+private struct DockedWorkbenchPanel<Content: View>: View {
   let panel: WorkbenchPanel
   @Binding var layout: WorkbenchLayoutState
-  let containerSize: CGSize
-  let topInset: CGFloat
   @ViewBuilder let content: Content
-
-  @State private var dragStart: WorkbenchPanelPresentation?
-
-  private var panelSize: CGSize {
-    let preferred = panel.preferredSize
-    return CGSize(
-      width: min(preferred.width, max(280, containerSize.width - 24)),
-      height: layout[panel].isCollapsed
-        ? 42
-        : min(preferred.height, max(160, containerSize.height - topInset - 12))
-    )
-  }
 
   var body: some View {
     VStack(spacing: 0) {
       HStack(spacing: 7) {
-        Image(systemName: "line.3.horizontal")
-          .foregroundStyle(.secondary)
         Image(systemName: panel.systemImage)
         Text(panel.rawValue.uppercased())
           .font(.caption.monospaced().bold())
@@ -169,51 +120,18 @@ private struct FloatingWorkbenchPanel<Content: View>: View {
       }
       .padding(.horizontal, 10)
       .frame(height: 42)
-      .contentShape(Rectangle())
-      .gesture(
-        DragGesture(minimumDistance: 3)
-          .onChanged { value in
-            if dragStart == nil {
-              dragStart = layout[panel]
-              layout.bringToFront(panel)
-            }
-            guard let dragStart else { return }
-            layout.move(
-              panel,
-              from: dragStart,
-              translation: value.translation,
-              in: containerSize,
-              panelSize: panelSize,
-              topInset: topInset
-            )
-          }
-          .onEnded { _ in dragStart = nil }
-      )
 
       if !layout[panel].isCollapsed {
         Divider()
-        ScrollView {
-          content
-            .padding(8)
-        }
-        .scrollIndicators(.visible)
+        content.padding(8)
       }
     }
-    .frame(width: panelSize.width, height: panelSize.height, alignment: .top)
+    .frame(maxWidth: .infinity, alignment: .top)
     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 11))
     .overlay {
       RoundedRectangle(cornerRadius: 11)
         .stroke(.white.opacity(0.2), lineWidth: 1)
     }
-    .shadow(color: .black.opacity(0.4), radius: 12, y: 5)
-    .position(
-      layout.center(
-        for: panel,
-        in: containerSize,
-        panelSize: panelSize,
-        topInset: topInset
-      )
-    )
   }
 }
 
@@ -391,22 +309,27 @@ private struct MotionPanel: View {
       .frame(maxWidth: .infinity)
 
       HStack {
-        Button("PEN UP") { Task { await workspace.requestPenActuation(.raise) } }
-          .buttonStyle(.borderedProminent)
+        Button("COMMAND PEN UP") { Task { await workspace.requestPenActuation(.raise) } }
+          .buttonStyle(.bordered)
+          .tint(.blue)
           .disabled(workspace.penUnavailableReason(for: .raise) != nil)
-        Button("PEN DOWN") { Task { await workspace.requestPenActuation(.lower) } }
+        Button("COMMAND PEN DOWN") { Task { await workspace.requestPenActuation(.lower) } }
           .buttonStyle(.bordered)
           .tint(.red)
           .disabled(workspace.penUnavailableReason(for: .lower) != nil)
-        Spacer()
-        Text(workspace.penStateText.uppercased())
-          .font(.caption.monospaced().bold())
       }
+
+      Text(workspace.penStateText.uppercased())
+        .font(.caption.monospaced().bold())
+        .foregroundStyle(.secondary)
+      Text("Commanded state is controller evidence only; the camera cannot observe pen height.")
+        .font(.caption2)
+        .foregroundStyle(.secondary)
 
       DisclosureGroup("Session motion limits") {
         VStack(spacing: 6) {
           Text(
-            "Provisional local priors: 1 mm jogs, 100 mm/min, 5 mm command cap, and a conservative X −100…100 / Y −40…40 window around the observed session-start zero. Review before applying."
+            "Session-local safety envelope. The visible wood rails reduce usable Y: enter MachineSpace bounds that stay inside their inner edges. Camera pixels are not converted into trusted motion bounds. Review all values before applying."
           )
           .font(.caption)
           .foregroundStyle(.secondary)
@@ -431,8 +354,11 @@ private struct MotionPanel: View {
         .padding(.top, 6)
       }
 
-      fact("MPos", workspace.machinePositionText)
+      fact("Controller link", workspace.controllerConnectionText)
       fact("Controller", workspace.controllerStateText)
+      fact("Motor power", workspace.motorPowerText)
+      fact("Motion request", workspace.motionPermissionText)
+      fact("MPos", workspace.machinePositionText)
       fact("Operation", workspace.currentOperationText)
       fact("Last outcome", workspace.lastMotionOutcomeText)
       fact("Last pen", workspace.lastPenOutcomeText)
@@ -495,11 +421,23 @@ private struct DevicePanel: View {
           Button {
             Task { await workspace.selectSerialDevice(device) }
           } label: {
-            VStack(alignment: .leading, spacing: 2) {
-              Text(device.displayName)
-              Text(device.bsdPath ?? device.identifier)
-                .font(.caption2.monospaced())
-                .foregroundStyle(.secondary)
+            HStack {
+              VStack(alignment: .leading, spacing: 2) {
+                Text(device.displayName)
+                Text(device.bsdPath ?? device.identifier)
+                  .font(.caption2.monospaced())
+                  .foregroundStyle(.secondary)
+              }
+              Spacer()
+              Text(
+                workspace.selectedSerialDevice?.identifier == device.identifier
+                  ? "SELECTED" : "SELECT"
+              )
+              .font(.caption2.monospaced().bold())
+              .foregroundStyle(
+                workspace.selectedSerialDevice?.identifier == device.identifier
+                  ? Color.accentColor : Color.secondary
+              )
             }
             .frame(maxWidth: .infinity, alignment: .leading)
           }
@@ -513,8 +451,17 @@ private struct DevicePanel: View {
         }
       }
 
-      Button("Request Passive Probe") { Task { await workspace.requestPassiveProbe() } }
+      Button(workspace.controllerConnectionActionTitle) {
+        Task { await workspace.requestPassiveProbe() }
+      }
+        .buttonStyle(.borderedProminent)
         .disabled(workspace.passiveProbeUnavailableReason != nil)
+
+      Text(
+        "Connect opens the selected serial session and passively reads identity, controller state, MPos, pins, and limits. It issues no motion or pen command."
+      )
+      .font(.caption2)
+      .foregroundStyle(.secondary)
 
       Button("Disconnect Session") { Task { await workspace.disconnectMachineSession() } }
         .disabled(
@@ -524,22 +471,38 @@ private struct DevicePanel: View {
             || workspace.penRequestInProgress
         )
 
+      fact("Link", workspace.controllerConnectionText)
+      fact("Controller", workspace.controllerStateText)
+      fact("Motor power", workspace.motorPowerText)
+      fact("Motion request", workspace.motionPermissionText)
+
       if let reason = workspace.passiveProbeUnavailableReason {
         Text(reason).font(.caption).foregroundStyle(.orange)
       }
       if let result = workspace.passiveProbeResult {
-        ProbeSummary(result: result)
+        ControllerInspectionSummary(result: result)
       }
+    }
+  }
+
+  private func fact(_ label: String, _ value: String) -> some View {
+    HStack(alignment: .firstTextBaseline) {
+      Text(label).font(.caption2).foregroundStyle(.secondary)
+      Spacer()
+      Text(value)
+        .font(.caption.monospaced())
+        .multilineTextAlignment(.trailing)
+        .textSelection(.enabled)
     }
   }
 }
 
-private struct ProbeSummary: View {
+private struct ControllerInspectionSummary: View {
   let result: PassiveProbeResult
 
   var body: some View {
     VStack(alignment: .leading, spacing: 4) {
-      Text(result.blockers.isEmpty ? "PROBE COMPLETE" : "PROBE NEEDS ATTENTION")
+      Text(result.blockers.isEmpty ? "CONTROLLER CONNECTED" : "CONNECTION NEEDS ATTENTION")
         .font(.caption.monospaced().bold())
         .foregroundStyle(result.blockers.isEmpty ? Color.secondary : Color.orange)
       Text("\(result.exchanges.count) exchanges")

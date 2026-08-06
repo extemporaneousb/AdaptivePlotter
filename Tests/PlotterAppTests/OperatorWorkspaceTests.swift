@@ -704,14 +704,53 @@ func typedPenControls() async throws {
 
   await workspace.requestPenActuation(.raise)
   #expect(await fixture.penRequests == [.raise])
-  #expect(workspace.penStateText == "up")
+  #expect(workspace.penStateText == "commanded up — not visually observed")
   #expect(workspace.lastPenOutcomeText.contains("acknowledged"))
 
   await applyTestLimits(workspace)
   #expect(workspace.penUnavailableReason(for: .lower) == nil)
   await workspace.requestPenActuation(.lower)
   #expect(await fixture.penRequests == [.raise, .lower])
-  #expect(workspace.penStateText == "down")
+  #expect(workspace.penStateText == "commanded down — not visually observed")
+}
+
+@Test("Controller link, motor-power uncertainty, motion permission, and pen evidence stay distinct")
+@MainActor
+func truthfulControllerAndMotionProjection() async {
+  let fixture = MachineFixture()
+  let device = testDevice()
+  let workspace = OperatorWorkspace(
+    machineActions: machineActions(fixture),
+    serialDevices: [device]
+  )
+
+  #expect(workspace.controllerConnectionText == "not selected")
+  #expect(workspace.motorPowerText == "unverified")
+  #expect(workspace.motionPermissionText == "blocked")
+  #expect(workspace.controllerConnectionActionTitle == "Connect & Inspect Controller")
+  #expect(
+    workspace.workbenchStatusText
+      == "Motion blocked: Select and connect one serial device."
+  )
+  #expect(workspace.workbenchStatusNeedsAttention)
+  #expect(workspace.penStateText == "unknown — no physical pose assumed")
+
+  await workspace.selectSerialDevice(device)
+  #expect(workspace.controllerConnectionText == "last inspection responsive")
+  #expect(workspace.controllerStateText == "idle")
+  #expect(workspace.motorPowerText == "not reported by controller")
+  #expect(workspace.motionPermissionText == "blocked")
+  #expect(workspace.controllerConnectionActionTitle == "Refresh Controller State")
+
+  await applyTestLimits(workspace)
+  await workspace.requestPenActuation(.raise)
+  #expect(workspace.motionPermissionText == "request eligible")
+  #expect(
+    workspace.workbenchStatusText
+      == "Motion request eligible; motor power is not reported by controller."
+  )
+  #expect(!workspace.workbenchStatusNeedsAttention)
+  #expect(workspace.penStateText == "commanded up — not visually observed")
 }
 
 @Test("X and Y jog values remain independent")
@@ -792,7 +831,7 @@ func serialRefreshDisconnectsDisappearedSelection() async {
   #expect(workspace.machineSnapshot == nil)
   #expect(workspace.passiveProbeResult == nil)
   #expect(!workspace.limitsApplied)
-  #expect(workspace.penStateText == PenState.unknown.rawValue)
+  #expect(workspace.penStateText == "unknown — no physical pose assumed")
 }
 
 @Test("Disconnect and same-path reselect require fresh facts, limits, and a new pen raise")
@@ -816,14 +855,14 @@ func disconnectAndReselectRequireFreshAuthority() async {
   #expect(workspace.machineSnapshot == nil)
   #expect(workspace.passiveProbeResult == nil)
   #expect(!workspace.limitsApplied)
-  #expect(workspace.penStateText == PenState.unknown.rawValue)
+  #expect(workspace.penStateText == "unknown — no physical pose assumed")
   #expect(workspace.minimumXText == "-100")
 
   await workspace.selectSerialDevice(device)
   #expect(workspace.selectedSerialDevice?.identifier == device.identifier)
   #expect(workspace.passiveProbeResult == nil)
   #expect(!workspace.limitsApplied)
-  #expect(workspace.penStateText == PenState.unknown.rawValue)
+  #expect(workspace.penStateText == "unknown — no physical pose assumed")
   #expect(workspace.motionUnavailableReason == MotionRefusal.notConnected.actionableDescription)
   await workspace.requestJog(.xPositive)
   #expect(await fixture.jogRequests.isEmpty)
@@ -880,7 +919,7 @@ func shutdownTearsDownExactlyOnce() async throws {
   #expect(workspace.machineSnapshot == nil)
   #expect(workspace.passiveProbeResult == nil)
   #expect(!workspace.limitsApplied)
-  #expect(workspace.penStateText == PenState.unknown.rawValue)
+  #expect(workspace.penStateText == "unknown — no physical pose assumed")
   #expect(workspace.cameraSnapshot == nil)
   #expect(workspace.displayedFrame == nil)
   #expect(workspace.cameraOverlays.isEmpty)

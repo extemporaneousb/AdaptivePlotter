@@ -1147,14 +1147,14 @@ struct RelativeJogTests {
 
 @Suite("Typed pen actuation")
 struct PenActuationTests {
-  @Test("legacy pen profile is a closed exact wire surface")
+  @Test("local pen profile is a closed exact wire surface")
   func exactWireBytes() {
-    let profile = PenActuationProfile.legacyServo
+    let profile = PenActuationProfile.localPlotter
     #expect(profile.raisedSpindleValue == 40)
-    #expect(profile.loweredSpindleValue == 720)
+    #expect(profile.loweredSpindleValue == 760)
     #expect(profile.settleSeconds == 0.3)
     #expect(MachineController.encodePenActuation(.raise) == Data("M3 S40\n".utf8))
-    #expect(MachineController.encodePenActuation(.lower) == Data("M3 S720\n".utf8))
+    #expect(MachineController.encodePenActuation(.lower) == Data("M3 S760\n".utf8))
     #expect(MachineController.encodePenSettle == Data("G4 P0.3\n".utf8))
   }
 

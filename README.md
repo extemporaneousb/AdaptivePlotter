@@ -39,13 +39,18 @@ The repository contains one SwiftPM application with:
   overlay bound to the exact measured frame/configuration;
 - one camera-dominant action surface shared by live BGRA frames and a
   deterministic model-mismatch simulator;
-- a compact persistent workbench bar with independently openable, collapsible,
-  draggable Motion, Camera, Overlays, Learning, and Controller panels;
+- a compact top-edge workbench bar plus independently openable and collapsible
+  Motion/Controller left docks and Camera/Overlays/Learning right docks; opening
+  controls reserves space and reframes rather than covers the camera surface;
+- distinct controller-link, motion-command, and motor-power reporting: a
+  responsive USB controller is not presented as proof that motor supply power
+  is present;
 - bounded continuous scene analysis at a selectable 2/5/10 Hz, with one active
   and one newest pending frame plus visible delivery/materialization/analysis
   counts and latency;
 - closed typed Pen Up/Pen Down actuation for this mechanism, serialized with
-  probes and jogs and using the proven `M3 S40` / `M3 S720` / `G4 P0.3` profile;
+  probes and jogs and using the verified local `M3 S40` / `M3 S760` /
+  `G4 P0.3` profile;
 - an optional observed-jog operation that brackets exactly one accepted motion
   with immutable live C920 frames and controller-owned start/final MPos samples;
 - a current-session jog-response dataset with fixed training/holdout membership,
@@ -53,17 +58,33 @@ The repository contains one SwiftPM application with:
 - typed geometry, a polyline `DrawingProgram`, affine camera/field math, and one
   immutable affine-model learning path with training/holdout evaluation.
 
-Typed Pen Up is implemented and was acknowledged in a fresh powered session
-after the operator directly confirmed the pen was already physically clear.
-That does not prove servo travel from another pose; Pen Down has not been
-issued. Drawing and observed-ink extraction are not implemented. The camera
-source path has captured and analyzed exact current C920 samples. The
+Typed Pen Up and Pen Down are implemented and physically verified over white
+paper. The historical `S720` down value moved the mechanism but left no mark;
+one explicit conservative adjustment to `S760` produced a green contact dot,
+and an `S40` command was separately observed lifting the tip after the earlier
+down attempt. The final `S40` command after the marked contact was acknowledged
+without ambiguity and left the controller-commanded state Up. These are direct
+operator observations because the camera cannot see the vertical pen transition.
+Drawing and observed-ink extraction are not implemented. The camera source path
+has captured and analyzed exact current C920 samples. The
 controller-aware completion deadline passed fresh 1 mm X and Y round trips at
 100 mm/min with Idle completion and exact inverse returns. A second conservative
 30 mm/min check on the delivered controller-evidence path again passed both
 axes: X reported +1.020/-1.020 mm and Y +0.998/-0.998 mm, ending at the exact
 starting MPos. Bracketed C920 samples showed the green cap move and return. The
 camera did not and cannot establish pen height from that view.
+
+The current paper area has two visible wood rails parallel to X. They reduce
+usable Y and are treated as physical obstacles: the operator must apply a
+conservative session-local MachineSpace envelope inside their inner edges.
+Camera pixels and firmware travel settings do not become motion bounds.
+
+On this BlackBox X32, identical passive observations with motor power on and
+off both report a responsive USB link, grblHAL `Idle`, MPos, no asserted pins,
+and the same status fields. The controller therefore does not report motor
+supply state. The UI separates `LINK last inspection responsive`, `MOTION
+request eligible` or `blocked`, and `Motor power: not reported by controller`
+rather than inventing a powered claim.
 
 Old or corrupt journal files do not block a new session. The app does not have
 an archival replay product, artifact store, retention policy, accessibility
@@ -256,10 +277,12 @@ and advanced-model requirements.
 > working local controller-camera-draw-observe loop. Use the current Command
 > Line Tools and SwiftPM. Do not add release infrastructure, accessibility
 > scope, archival replay, advanced models, separate arms, or phase-wide gates.
-> The passive probe, current camera analysis, typed limits, Pen Up, and bounded
-> 1 mm X/Y round trips in `docs/implementation/FIRST_HARDWARE_SESSION.md` are
-> complete. The next separately authorized physical step is one stationary Pen
-> Down/Pen Up check over replaceable paper; do not skip directly to drawing.
+> The controller inspection, current camera analysis, typed limits, verified
+> `S760` Pen Down / `S40` Pen Up contact pair, and bounded 1 mm X/Y round trips
+> in `docs/implementation/FIRST_HARDWARE_SESSION.md` are complete. The next
+> physical slice is one explicit clear pose followed by one bounded isolated
+> line and exact-frame ink observation; do not skip directly to multi-stroke
+> drawing.
 > Refuse a physical command
 > only for a concrete current hazard or ambiguous outcome, show the reason, and
 > permit retry as soon as it is corrected.

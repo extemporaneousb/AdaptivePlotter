@@ -115,9 +115,9 @@ public enum PenCommand: String, Codable, Hashable, Sendable {
 /// Fixed local encoding recovered from the plotter's proven pen mechanism.
 /// The values are not operator-editable controller settings.
 public struct PenActuationProfile: Hashable, Sendable {
-  public static let legacyServo = PenActuationProfile(
+  public static let localPlotter = PenActuationProfile(
     raisedSpindleValue: 40,
-    loweredSpindleValue: 720,
+    loweredSpindleValue: 760,
     settleSeconds: 0.3
   )
 

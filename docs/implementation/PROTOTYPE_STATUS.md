@@ -1,6 +1,6 @@
 # Prototype Status
 
-Status date: 2026-08-05
+Status date: 2026-08-06
 Target: this Mac and attached plotter only
 
 ## Bottom line
@@ -9,9 +9,24 @@ AdaptivePlotter is one local SwiftPM application with a camera-dominant action
 surface, explicit AVFoundation camera selection, bounded preview work, exact
 latest-frame capture/analysis, and a deterministic simulator rendered through
 the same pixels-to-view path. One persistent native controller session owns
-passive probes, bounded relative jogs, and typed pen actuation. A compact top bar
-opens five independently draggable, collapsible, and hideable workbench panels;
-all detailed controls begin hidden so the camera owns the primary area.
+passive probes, bounded relative jogs, and typed pen actuation. A compact flush
+top bar opens five independently collapsible and hideable workbench panels in
+reserved left/right docks. The docks reframe the action surface and never cover
+it; all detailed controls begin hidden so the camera owns the primary area.
+
+Controller presentation separates the last responsive serial inspection from
+software eligibility to send a motion request. It explicitly reports that
+grblHAL does not provide motor-supply state instead of treating USB response as
+proof of energized motors. Pen buttons are actions, not selected-state controls,
+and the adjacent state says commanded Up/Down or unknown without claiming visual
+confirmation.
+
+The on/off comparison was run with USB continuously attached. Both states
+returned the same BlackBox X32/grblHAL identity, `Idle`, MPos X/Y 0.000, no
+asserted pins, `Bf:100,1023`, `FS:0,0`, and `H:0`; all five passive exchanges
+completed. Motor-supply state is therefore not observable through this serial
+surface. An eligible request and a previously responsive controller cannot by
+themselves prove that physical motion will occur.
 
 The live camera and bounded jog paths are implemented and covered by automated
 tests. The controller path now has physical evidence: the attached controller
@@ -32,10 +47,13 @@ camera configuration identity between samples.
 The rebuilt app now has camera permission and captured three current 1920x1080
 C920 frames with exact manifest provenance. The production detector finds the
 cap and two useful frame sides consistently in all three without deriving any
-pixel-to-mm calibration. Typed Pen Up was acknowledged in the powered session
-after the operator confirmed the pen was already physically clear. Pen Down was
-not issued, so powered travel from a lowered pose remains unverified. Drawing
-and observed-ink extraction remain unimplemented.
+pixel-to-mm calibration. Typed Pen Up and Pen Down are now physically verified
+over white paper. `S720` moved down but did not mark; one explicit adjustment to
+the closed local profile at `S760` produced a green contact dot. An `S40`
+command was separately observed lifting the tip after the earlier down attempt;
+the final `S40` after contact was acknowledged and left the controller-commanded
+state Up. Every command and settle completed without ambiguity. Drawing and
+observed-ink extraction remain unimplemented.
 
 ## Simplifications now implemented
 
@@ -61,7 +79,7 @@ and observed-ink extraction remain unimplemented.
 | Camera inventory | HD Pro Webcam C920 and FaceTime HD Camera (Built-in); C920 auto-selected and captured at 1920x1080 |
 | Serial/controller | `/dev/cu.usbserial-A10OF67O`; grblHAL 1.1f on BlackBox X32, passively probed |
 | Controller axis settings | X 40.18235 steps/mm, Y 45.09100 steps/mm; X/Y max feed 500 mm/min and acceleration 10 mm/s^2 |
-| Operator travel prior | About 250 mm X by 100 mm Y, with controller zero near physical center; not a calibration or safety limit |
+| Operator travel prior | About 250 mm X by less than 100 mm usable Y after two X-parallel wood rails were added; controller zero is near physical center; not a safety limit |
 | SQLite | System library available |
 
 This environment is sufficient. No other Mac, full Xcode install, signing
@@ -92,8 +110,8 @@ identity, app distribution configuration, or CI result is required.
   and `$120/$121` acceleration to the jog deadline model. Firmware travel
   settings are not used as workspace bounds or calibration.
 - The pen wire surface is closed to `PenCommand.raise/lower`. This mechanism's
-  fixed profile emits `M3 S40` or `M3 S720`, followed by `G4 P0.3`; the UI cannot
-  supply controller text or servo values.
+  verified local profile emits `M3 S40` or `M3 S760`, followed by `G4 P0.3`;
+  the UI cannot supply controller text or servo values.
 - Probe, jog, and pen requests serialize through the same owner. Pen Down needs
   fresh Idle/non-alarm status, applied bounds, fresh in-bounds MPos, and clear XY
   limit pins. Pen Up is available as the recovery direction without requiring
@@ -241,13 +259,26 @@ are top (652, 192.7) to (1689, 172.0), and right (1675.6, 151) to (1685.7, 734).
 These remain single-camera image-space observations, not calibration or motion
 bounds; rulers, shadows, magnets, and the blue hose remain distractors.
 
+The current live scene also includes two wood rails running parallel to X above
+the paper. They are intentionally visible in the action surface and reduce the
+usable Y corridor. They are not inferred as trusted MachineSpace boundaries;
+session-local motion limits must stay conservatively inside their inner edges
+before any XY request.
+
+The final signed task bundle was also exercised directly on 2026-08-06. The
+top bar met the window content edge with no camera strip above it. Motion and
+Camera were opened together in reserved left/right docks; the center surface
+remained disjoint and showed the complete aspect-fit simulator frame. The same
+running bundle completed LIVE → SIMULATED → LIVE: source labels changed, the
+simulator displayed its full 640×480 canonical frame and typed layers, and the
+returning C920 stream resumed advancing 1920×1080 frames without simulator
+geometry crossing into the live configuration. The live and simulated pixels
+therefore exercised the same resized center renderer while both docks remained
+open.
+
 ## Not yet implemented
 
-- Live plotter-camera source-switch verification on the final rebuilt bundle;
-  advancing C920 frames and stop/restart recovery were observed locally.
 - Live measurement of preview and auto-analysis throughput/latency on this Mac.
-- Physical Pen Down followed by Pen Up over replaceable paper; the powered
-  Pen Up command path is acknowledged, but the pen began physically up.
 - One fixed camera observation region and clear tool pose.
 - Isolated line drawing, ink detection, and simple residual display.
 - Small multi-stroke drawing and optional affine correction.
@@ -255,13 +286,11 @@ bounds; rulers, shadows, magnets, and the blue hose remain distractors.
 
 ## Next action
 
-The fresh passive probe, typed limits, Pen Up command path, and 1 mm X/Y round
-trips in [First Hardware Session](FIRST_HARDWARE_SESSION.md) are complete. The
-next machine-affecting step requires explicit operator authorization: stationary
-Pen Down followed once by Pen Up over replaceable paper while observing the
-mechanism. Stop on any alarm, asserted limit, disconnect, unexpected actuation,
-or ambiguity; do not Home, unlock, reset, write settings, or resume. After that
-pair and live camera checks are clean, the next software/physical slice is one
-bounded isolated-line operation followed by tool clear, exact-frame ink
-observation, and residual display. Cap motion and controller `ok` must not
-stand in for observed ink.
+The fresh passive probe, typed limits, Pen Up/Pen Down contact check, and 1 mm
+X/Y round trips in [First Hardware Session](FIRST_HARDWARE_SESSION.md) are
+complete. The next software/physical slice is one camera-visible clear pose and
+one bounded isolated-line operation followed by tool clear, exact-frame ink
+observation, and residual display. Stop on any alarm, asserted limit,
+disconnect, unexpected actuation, or ambiguity; do not Home, unlock, reset,
+write settings, or resume. Cap motion, a stationary dot, and controller `ok`
+must not stand in for observed-line success.

@@ -491,7 +491,7 @@ public actor MachineController {
     }
 
     connection = .actuatingPen
-    let profile = PenActuationProfile.legacyServo
+    let profile = PenActuationProfile.localPlotter
     let actuationBytes = profile.actuationBytes(for: command)
     do {
       try await writePhysicalCommand(actuationBytes)
@@ -548,11 +548,11 @@ public actor MachineController {
   }
 
   public static func encodePenActuation(_ command: PenCommand) -> Data {
-    PenActuationProfile.legacyServo.actuationBytes(for: command)
+    PenActuationProfile.localPlotter.actuationBytes(for: command)
   }
 
   public static var encodePenSettle: Data {
-    PenActuationProfile.legacyServo.settleBytes
+    PenActuationProfile.localPlotter.settleBytes
   }
 
   public static func completionTimeoutNanoseconds(
