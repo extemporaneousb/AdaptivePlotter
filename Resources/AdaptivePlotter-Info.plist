@@ -29,6 +29,10 @@
   <false/>
   <key>NSCameraUsageDescription</key>
   <string>AdaptivePlotter uses the selected local camera to display the plotter workspace and capture frames for visual measurements.</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>AdaptivePlotter listens for the operator's closed set of local plotter commands while voice control is enabled.</string>
+  <key>NSSpeechRecognitionUsageDescription</key>
+  <string>AdaptivePlotter transcribes local operator speech into a closed set of typed plotter commands.</string>
   <key>NSHighResolutionCapable</key>
   <true/>
 </dict>

@@ -51,6 +51,15 @@ The repository contains one SwiftPM application with:
 - closed typed Pen Up/Pen Down actuation for this mechanism, serialized with
   probes and jogs and using the verified local `M3 S40` / `M3 S760` /
   `G4 P0.3` profile;
+- a native voice-operator session using the selected Mac audio input, Apple's
+  Speech framework, and `AVSpeechSynthesizer`, with explicit permission and
+  listening state, newest-only transcripts, and spoken current outcomes;
+- a deterministic closed voice grammar for bounded X+/X-/Y+/Y- jogs, Pen Up,
+  current status, and Jog Cancel. Normal commands run once from a final
+  transcript; exact partial `STOP` is prioritized and deduplicated;
+- one closed GRBL realtime Jog Cancel byte (`0x85`) for an active `$J` move.
+  It has no ordinary acknowledgement: the original jog owner continues polling
+  until Idle and reports the actual final MPos or ambiguity;
 - an optional observed-jog operation that brackets exactly one accepted motion
   with immutable live C920 frames and controller-owned start/final MPos samples;
 - a current-session jog-response dataset with fixed training/holdout membership,
@@ -229,6 +238,14 @@ and reports residuals. It cannot issue motion, accept a drawing model, persist
 or replay training data, or automatically change controller behavior. More
 sophisticated or reinforcement-learning models belong after the direct
 controller-camera-draw-observe loop supplies trustworthy outcomes.
+
+The voice surface follows the same rule. Speech recognition produces one of a
+small set of typed operator intents and has no machine link, G-code, coordinate
+projection, or safety authority. The current build requires on-device Apple
+recognition rather than adding a network or API dependency. A future OpenAI
+Realtime dialogue layer may help explain state and collect direct teaching
+input, but it must remain above this same typed boundary. It must not become the
+Jog Cancel path, a motion authority, or a calibration workflow.
 
 ## What the UI must show
 

@@ -281,7 +281,48 @@ public enum MotionAmbiguity: Codable, Hashable, Sendable {
 public enum MotionOutcome: Codable, Hashable, Sendable {
   case refused(MotionRefusal)
   case acceptedThenCompleted(finalPosition: MachinePosition)
+  /// The controller accepted the `$J` request, then a closed GRBL realtime
+  /// jog-cancel byte was transmitted and Idle was observed at this position.
+  /// The requested destination must not be inferred from this outcome.
+  case cancelled(finalPosition: MachinePosition)
   case ambiguous(MotionAmbiguity)
+}
+
+/// Reasons the closed GRBL realtime jog-cancel surface can refuse without
+/// putting bytes on the wire.
+public enum JogCancelRefusal: Codable, Hashable, Sendable {
+  case noSerialDeviceSelected
+  case notConnected
+  case noActiveJog
+  case alreadyRequested
+  case stickyAmbiguity(MotionAmbiguity)
+}
+
+/// A GRBL realtime jog-cancel byte has no ordinary `ok` acknowledgement.
+/// `transmitted` therefore means exactly one `0x85` byte was written; only a
+/// later typed Idle status promotes it to `completed`.
+public enum JogCancelOutcome: Codable, Hashable, Sendable {
+  case refused(JogCancelRefusal)
+  case transmitted
+  case completed(finalPosition: MachinePosition)
+  case ambiguous(MotionAmbiguity)
+}
+
+extension JogCancelRefusal {
+  public var actionableDescription: String {
+    switch self {
+    case .noSerialDeviceSelected:
+      return "Select one serial controller before requesting Jog Cancel."
+    case .notConnected:
+      return "Connect to the selected controller before requesting Jog Cancel."
+    case .noActiveJog:
+      return "Jog Cancel is available only while a transmitted $J jog is active."
+    case .alreadyRequested:
+      return "A Jog Cancel byte has already been requested for the current jog."
+    case .stickyAmbiguity(let ambiguity):
+      return "Jog Cancel is unavailable after an ambiguous physical command: \(ambiguity.actionableDescription)"
+    }
+  }
 }
 
 /// Controller-owned position evidence for one accepted-and-completed jog.

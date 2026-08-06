@@ -80,6 +80,16 @@ struct LiveSceneInspection: Sendable {
 @MainActor
 @Observable
 final class OperatorWorkspace {
+  private static let voiceGrammarSentinelDefaults = try! OperatorVoiceSessionDefaults(
+    xStepMM: 1,
+    yStepMM: 1,
+    feedMMPerMinute: 1
+  )
+
+  private enum VoiceProjectionError: Error {
+    case invalidDefaults
+  }
+
   private enum MotionPriors {
     static let stepMM = "1.0"
     static let feedMMPerMinute = "100"
@@ -99,7 +109,18 @@ final class OperatorWorkspace {
         -> Result<VisibleToolFrameObservation, PhysicalJogObservationFailure>
     ) async -> PhysicalJogObservationOutcome
     let requestPenActuation: @Sendable (PenCommand) async -> PenOutcome
+    let requestJogCancel: @Sendable () async -> JogCancelOutcome
     let disconnect: @Sendable () async -> Void
+  }
+
+  struct VoiceActions: Sendable {
+    let requestAuthorization: @Sendable () async -> VoiceAuthorizationState
+    let startListening: @Sendable () async throws -> Void
+    let stopListening: @Sendable () async -> Void
+    let snapshot: @Sendable () async -> VoiceInteractionSnapshot
+    let transcripts: @Sendable () async -> AsyncStream<VoiceTranscript>
+    let speak: @Sendable (String) async -> Void
+    let stopSpeaking: @Sendable () async -> Void
   }
 
   struct CameraActions: Sendable {
@@ -147,6 +168,8 @@ final class OperatorWorkspace {
   private(set) var passiveProbeInProgress = false
   private(set) var jogRequestInProgress = false
   private(set) var penRequestInProgress = false
+  private(set) var jogCancelRequestInProgress = false
+  private(set) var frameModeSwitchInProgress = false
   private(set) var limitsUpdateInProgress = false
   private(set) var limitsApplied = false
   private(set) var physicalJogObservations: [PhysicalJogObservation] = []
@@ -169,13 +192,26 @@ final class OperatorWorkspace {
   private(set) var simulatorEvidenceLabel = SimulatedOverlaySceneContent.evidenceLabel
   private(set) var simulatorPenState: PenState = .unknown
   private(set) var simulatorLearningSummary = "Switch to SIMULATED to inspect model behavior."
+  private(set) var voiceAuthorizationState: VoiceAuthorizationState = .notDetermined
+  private(set) var voiceListening = false
+  private(set) var voiceTranscriptText = "none"
+  private(set) var lastVoiceIntentText = "none"
+  private(set) var lastVoiceActionableResultText = "none"
+  private(set) var lastSpokenFeedbackText = "none"
+  private(set) var voiceError: String?
 
   @ObservationIgnored private let machineActions: MachineActions?
   @ObservationIgnored private let cameraActions: CameraActions?
+  @ObservationIgnored private let voiceActions: VoiceActions?
   @ObservationIgnored private let serialDeviceDiscovery: @Sendable () -> [MachineLinkDescriptor]
   @ObservationIgnored private let nowNanoseconds: @Sendable () -> UInt64
   @ObservationIgnored private var frameTask: Task<Void, Never>?
   @ObservationIgnored private var visionUpdateTask: Task<Void, Never>?
+  @ObservationIgnored private var voiceTranscriptTask: Task<Void, Never>?
+  @ObservationIgnored private var voiceStateTask: Task<Void, Never>?
+  @ObservationIgnored private var voiceNormalIntentTask: Task<Void, Never>?
+  @ObservationIgnored private var voicePriorityIntentTask: Task<Void, Never>?
+  @ObservationIgnored private var lastPriorityCancelUtteranceID: UUID?
   @ObservationIgnored private var hasShutdown = false
   @ObservationIgnored private var lifetimeGeneration: UInt64 = 0
   @ObservationIgnored private var activeHardwareIntentCount = 0
@@ -184,6 +220,7 @@ final class OperatorWorkspace {
   init(
     machineActions: MachineActions? = nil,
     cameraActions: CameraActions? = nil,
+    voiceActions: VoiceActions? = nil,
     serialDevices: [MachineLinkDescriptor] = [],
     serialDeviceDiscovery: @escaping @Sendable () -> [MachineLinkDescriptor] = {
       SerialPortDiscovery.discover()
@@ -194,6 +231,7 @@ final class OperatorWorkspace {
   ) {
     self.machineActions = machineActions
     self.cameraActions = cameraActions
+    self.voiceActions = voiceActions
     self.serialDevices = serialDevices
     self.serialDeviceDiscovery = serialDeviceDiscovery
     self.nowNanoseconds = nowNanoseconds
@@ -424,6 +462,64 @@ final class OperatorWorkspace {
     motionUnavailableReason == nil ? "request eligible" : "blocked"
   }
 
+  var voicePermissionText: String {
+    switch voiceAuthorizationState {
+    case .notDetermined: "not requested"
+    case .authorized: "authorized"
+    case .speechDenied: "speech recognition denied — allow it in System Settings"
+    case .speechRestricted: "speech recognition restricted by system policy"
+    case .microphoneDenied: "microphone denied — allow it in System Settings"
+    case .microphoneRestricted: "microphone restricted by system policy"
+    }
+  }
+
+  var voiceListeningText: String {
+    if let voiceError { return "failed: \(voiceError)" }
+    return voiceListening ? "listening" : "stopped"
+  }
+
+  var voiceListeningUnavailableReason: String? {
+    if hasShutdown { return "The operator workspace has shut down." }
+    if voiceActions == nil { return "Native voice composition is unavailable." }
+    if voiceListening { return "Voice listening is already active." }
+    return nil
+  }
+
+  var jogCancelUnavailableReason: String? {
+    if jogCancelRequestInProgress { return "A jog-cancel request is already in progress." }
+    if frameMode == .simulated {
+      return "SIMULATED source cannot issue physical machine commands. Switch to LIVE first."
+    }
+    if machineActions == nil { return "Native machine composition is unavailable." }
+    if selectedSerialDevice == nil { return "Select and connect one serial device." }
+    guard let machine = machineSnapshot?.machine else {
+      return MotionRefusal.notConnected.actionableDescription
+    }
+    if let ambiguity = machine.stickyAmbiguity {
+      return MotionRefusal.stickyAmbiguity(ambiguity).actionableDescription
+    }
+    if machine.connection == .disconnected || machine.connection == .blocked {
+      return MotionRefusal.notConnected.actionableDescription
+    }
+    return nil
+  }
+
+  var frameModeSwitchUnavailableReason: String? {
+    if frameModeSwitchInProgress { return "A frame source switch is already in progress." }
+    if passiveProbeInProgress || jogRequestInProgress || penRequestInProgress
+      || jogCancelRequestInProgress
+    {
+      return "Wait for the current physical controller operation before switching frame source."
+    }
+    if machineSnapshot?.machine.operationInFlight == true {
+      return "Wait for the current physical controller operation before switching frame source."
+    }
+    if let operation = machineSnapshot?.currentOperation, operation != .idle {
+      return "Wait for the current physical controller operation before switching frame source."
+    }
+    return nil
+  }
+
   var controllerConnectionActionTitle: String {
     machineSnapshot?.machine.connection == .connected
       ? "Refresh Controller State"
@@ -464,6 +560,30 @@ final class OperatorWorkspace {
     case .acceptedThenCompleted(let finalPosition):
       return String(
         format: "completed at X %.3f Y %.3f",
+        finalPosition.point.x,
+        finalPosition.point.y
+      )
+    case .cancelled(let finalPosition):
+      return String(
+        format: "cancelled at X %.3f Y %.3f",
+        finalPosition.point.x,
+        finalPosition.point.y
+      )
+    case .ambiguous(let ambiguity):
+      return "ambiguous: \(ambiguity.actionableDescription)"
+    }
+  }
+
+  var lastJogCancelOutcomeText: String {
+    guard let outcome = machineSnapshot?.lastJogCancelOutcome else { return "none" }
+    switch outcome {
+    case .refused(let refusal):
+      return "refused: \(refusal.actionableDescription)"
+    case .transmitted:
+      return "cancel byte sent; controller acknowledgement is not implied"
+    case .completed(let finalPosition):
+      return String(
+        format: "cancelled and Idle at X %.3f Y %.3f",
         finalPosition.point.x,
         finalPosition.point.y
       )
@@ -509,6 +629,7 @@ final class OperatorWorkspace {
 
   var passiveProbeUnavailableReason: String? {
     if passiveProbeInProgress { return "Controller connection inspection is already in progress." }
+    if frameModeSwitchInProgress { return "Wait for the frame source switch to finish." }
     if machineActions == nil { return "Native machine composition is unavailable." }
     if selectedSerialDevice == nil { return "Select one serial device first." }
     return nil
@@ -518,6 +639,7 @@ final class OperatorWorkspace {
   /// safety check when it receives the typed request.
   var motionUnavailableReason: String? {
     if jogRequestInProgress { return "A relative jog is already in progress." }
+    if frameModeSwitchInProgress { return "Wait for the frame source switch to finish." }
     if frameMode == .simulated {
       return "SIMULATED source cannot issue physical machine commands. Switch to LIVE first."
     }
@@ -598,6 +720,7 @@ final class OperatorWorkspace {
 
   func penUnavailableReason(for command: PenCommand) -> String? {
     if penRequestInProgress { return "A pen command is already in progress." }
+    if frameModeSwitchInProgress { return "Wait for the frame source switch to finish." }
     if frameMode == .simulated {
       return "SIMULATED source cannot issue physical machine commands. Switch to LIVE first."
     }
@@ -760,6 +883,109 @@ final class OperatorWorkspace {
     machineSnapshot = snapshot
   }
 
+  func startVoiceListening() async {
+    guard voiceListeningUnavailableReason == nil, let voiceActions else { return }
+    voiceError = nil
+    let authorization = await voiceActions.requestAuthorization()
+    voiceAuthorizationState = authorization
+    guard authorization == .authorized else {
+      lastVoiceActionableResultText = voicePermissionText
+      return
+    }
+    do {
+      try await voiceActions.startListening()
+      guard !hasShutdown else {
+        await voiceActions.stopListening()
+        return
+      }
+      voiceListening = true
+      lastVoiceActionableResultText = "listening for one closed operator intent per utterance"
+      beginVoiceTranscriptUpdates(actions: voiceActions)
+      beginVoiceStateUpdates(actions: voiceActions)
+    } catch {
+      voiceListening = false
+      voiceError = actionableDescription(error)
+      lastVoiceActionableResultText = "Voice listening failed: \(voiceError ?? "unknown error")"
+    }
+  }
+
+  func stopVoiceListening() async {
+    guard let voiceActions else { return }
+    voiceTranscriptTask?.cancel()
+    voiceTranscriptTask = nil
+    voiceStateTask?.cancel()
+    voiceStateTask = nil
+    lastPriorityCancelUtteranceID = nil
+    await voiceActions.stopListening()
+    voiceListening = false
+    lastVoiceActionableResultText = "voice listening stopped"
+  }
+
+  func handleVoiceIntent(_ intent: OperatorVoiceIntent) async {
+    guard !hasShutdown else { return }
+    lastVoiceIntentText = voiceIntentLabel(intent)
+    switch intent {
+    case .relativeJog(let request):
+      if let reason = motionUnavailableReason {
+        await publishVoiceFeedback(
+          result: "refused: \(reason)",
+          spoken: "Request refused. \(reason)"
+        )
+        return
+      }
+      lastVoiceActionableResultText =
+        "submitted; waiting for controller acceptance and observed Idle completion"
+      await requestRelativeJog(request)
+      await publishMotionVoiceFeedback()
+
+    case .raisePen:
+      if let reason = penUnavailableReason(for: .raise) {
+        await publishVoiceFeedback(
+          result: "refused: \(reason)",
+          spoken: "Request refused. \(reason)"
+        )
+        return
+      }
+      await requestPenActuation(.raise)
+      let result = lastPenOutcomeText
+      let spoken: String
+      switch machineSnapshot?.lastPenOutcome {
+      case .commandedAndSettled:
+        spoken = "Vertical actuator is commanded high. Physical pose is not observed."
+      case .refused(let refusal):
+        spoken = "Request refused. \(refusal.actionableDescription)"
+      case .ambiguous(let ambiguity):
+        spoken = "Request outcome is ambiguous. \(ambiguity.actionableDescription)"
+      case nil:
+        spoken = "No actuator result is available."
+      }
+      await publishVoiceFeedback(result: result, spoken: spoken)
+
+    case .requestStatus:
+      await refreshCurrentState()
+      var result =
+        "controller \(controllerStateText) · MPos \(machinePositionText) · operation \(currentOperationText) · motion \(motionPermissionText)"
+      if let reason = motionUnavailableReason { result += " · blocker: \(reason)" }
+      await publishVoiceFeedback(result: result, spoken: "Status. \(result)")
+
+    case .cancelCurrentMotion:
+      await requestJogCancel()
+      await publishJogCancelVoiceFeedback()
+    }
+  }
+
+  func requestJogCancel() async {
+    guard let generation = beginHardwareIntent() else { return }
+    defer { endHardwareIntent() }
+    guard jogCancelUnavailableReason == nil, let machineActions else { return }
+    jogCancelRequestInProgress = true
+    defer { jogCancelRequestInProgress = false }
+    _ = await machineActions.requestJogCancel()
+    let snapshot = await machineActions.snapshot()
+    guard canCommit(generation) else { return }
+    machineSnapshot = snapshot
+  }
+
   func applyMotionLimits() async {
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
@@ -798,9 +1024,7 @@ final class OperatorWorkspace {
   }
 
   func requestJog(_ direction: JogDirection) async {
-    guard let generation = beginHardwareIntent() else { return }
-    defer { endHardwareIntent() }
-    guard motionUnavailableReason == nil, !jogRequestInProgress, let machineActions,
+    guard motionUnavailableReason == nil,
       let xStep = inputNumber(xStepText),
       let yStep = inputNumber(yStepText),
       let feed = inputNumber(feedText),
@@ -808,9 +1032,6 @@ final class OperatorWorkspace {
       yStep > 0
     else { return }
 
-    jogRequestInProgress = true
-    machineError = nil
-    defer { jogRequestInProgress = false }
     do {
       let delta: Vector2<MachineSpace>
       switch direction {
@@ -820,49 +1041,62 @@ final class OperatorWorkspace {
       case .yPositive: delta = try Vector2(dx: 0, dy: yStep)
       }
       let request = RelativeJogRequest(delta: delta, feedMMPerMinute: feed)
-      let recordsObservation = recordJogObservations
-      let observationSplit = selectedObservationSplit
-      let operation = Task { () -> PhysicalJogObservationOutcome? in
-        if recordsObservation {
-          guard let cameraActions else {
-            return .notRecorded(
-              motionOutcome: nil,
-              failure: .liveCameraRequired
-            )
-          }
-          let observationRequest = PhysicalJogObservationRequest(
-            motion: request,
-            split: observationSplit
-          )
-          return await machineActions.requestObservedJog(
-            observationRequest,
-            cameraActions.observeVisibleTool
-          )
-        }
-        _ = await machineActions.requestRelativeJog(request)
-        return nil
-      }
-      await Task.yield()
-      let interimSnapshot = await machineActions.snapshot()
-      if canCommit(generation) { machineSnapshot = interimSnapshot }
-      let observationOutcome = await operation.value
-      let finalSnapshot = await machineActions.snapshot()
-      guard canCommit(generation) else { return }
-      machineSnapshot = finalSnapshot
-      if recordsObservation, let outcome = observationOutcome {
-        switch outcome {
-        case .recorded(let observation):
-          physicalJogObservations.append(observation)
-          recordJogResponseEpisode(observation)
-        case .notRecorded:
-          break
-        }
-      }
+      await requestRelativeJog(request)
     } catch {
-      let finalSnapshot = await machineActions.snapshot()
-      guard canCommit(generation) else { return }
       machineError = actionableDescription(error)
-      machineSnapshot = finalSnapshot
+    }
+  }
+
+  /// Routes an already typed relative-jog intent through the same presentation
+  /// and runtime boundary as a button press. Callers cannot supply controller
+  /// commands or bypass MachineController validation.
+  func requestRelativeJog(_ request: RelativeJogRequest) async {
+    guard let generation = beginHardwareIntent() else { return }
+    defer { endHardwareIntent() }
+    guard motionUnavailableReason == nil, !jogRequestInProgress, let machineActions else {
+      return
+    }
+
+    jogRequestInProgress = true
+    machineError = nil
+    defer { jogRequestInProgress = false }
+    let recordsObservation = recordJogObservations
+    let observationSplit = selectedObservationSplit
+    let operation = Task { () -> PhysicalJogObservationOutcome? in
+      if recordsObservation {
+        guard let cameraActions else {
+          return .notRecorded(
+            motionOutcome: nil,
+            failure: .liveCameraRequired
+          )
+        }
+        let observationRequest = PhysicalJogObservationRequest(
+          motion: request,
+          split: observationSplit
+        )
+        return await machineActions.requestObservedJog(
+          observationRequest,
+          cameraActions.observeVisibleTool
+        )
+      }
+      _ = await machineActions.requestRelativeJog(request)
+      return nil
+    }
+    await Task.yield()
+    let interimSnapshot = await machineActions.snapshot()
+    if canCommit(generation) { machineSnapshot = interimSnapshot }
+    let observationOutcome = await operation.value
+    let finalSnapshot = await machineActions.snapshot()
+    guard canCommit(generation) else { return }
+    machineSnapshot = finalSnapshot
+    if recordsObservation, let outcome = observationOutcome {
+      switch outcome {
+      case .recorded(let observation):
+        physicalJogObservations.append(observation)
+        recordJogResponseEpisode(observation)
+      case .notRecorded:
+        break
+      }
     }
   }
 
@@ -1049,7 +1283,13 @@ final class OperatorWorkspace {
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
     guard mode != frameMode || displayedFrame == nil else { return }
+    if let reason = frameModeSwitchUnavailableReason {
+      cameraError = reason
+      return
+    }
     guard let cameraActions else { return }
+    frameModeSwitchInProgress = true
+    defer { frameModeSwitchInProgress = false }
     frameTask?.cancel()
     frameTask = nil
     clearAutomaticVisionPresentation()
@@ -1122,6 +1362,14 @@ final class OperatorWorkspace {
     hasShutdown = true
     lifetimeGeneration &+= 1
     stopObserving()
+    voiceTranscriptTask?.cancel()
+    voiceTranscriptTask = nil
+    voiceStateTask?.cancel()
+    voiceStateTask = nil
+    lastPriorityCancelUtteranceID = nil
+    await voiceActions?.stopListening()
+    await voiceActions?.stopSpeaking()
+    voiceListening = false
     await waitForHardwareIntentsToDrain()
     _ = await cameraActions?.stop()
     await machineActions?.disconnect()
@@ -1166,6 +1414,241 @@ final class OperatorWorkspace {
     }
   }
 
+  private func beginVoiceTranscriptUpdates(actions: VoiceActions) {
+    voiceTranscriptTask?.cancel()
+    voiceTranscriptTask = Task { [weak self] in
+      let stream = await actions.transcripts()
+      for await transcript in stream {
+        guard !Task.isCancelled, let self else { return }
+        await self.receiveVoiceTranscript(transcript)
+      }
+      guard !Task.isCancelled, let self, !self.hasShutdown else { return }
+      let snapshot = await actions.snapshot()
+      guard !Task.isCancelled, !self.hasShutdown else { return }
+      self.receiveVoiceSnapshot(snapshot)
+    }
+  }
+
+  private func beginVoiceStateUpdates(actions: VoiceActions) {
+    voiceStateTask?.cancel()
+    voiceStateTask = Task { [weak self] in
+      while !Task.isCancelled {
+        let snapshot = await actions.snapshot()
+        guard !Task.isCancelled, let self, !self.hasShutdown else { return }
+        self.receiveVoiceSnapshot(snapshot)
+        guard case .listening = snapshot.listeningState else { return }
+        try? await Task.sleep(nanoseconds: 250_000_000)
+      }
+    }
+  }
+
+  private func receiveVoiceSnapshot(_ snapshot: VoiceInteractionSnapshot) {
+    voiceAuthorizationState = snapshot.authorization
+    switch snapshot.listeningState {
+    case .listening:
+      voiceListening = true
+    case .stopped, .requestingPermission:
+      voiceListening = false
+    case .failed(let error):
+      voiceListening = false
+      voiceError = error.actionableDescription
+      lastVoiceActionableResultText = error.actionableDescription
+    }
+  }
+
+  private func receiveVoiceTranscript(_ transcript: VoiceTranscript) async {
+    guard voiceListening, !hasShutdown else { return }
+    voiceTranscriptText = transcript.text.isEmpty ? "none" : transcript.text
+
+    if let priorityIntent = OperatorVoiceCommandParser.parsePriority(transcript.text) {
+      guard lastPriorityCancelUtteranceID != transcript.utteranceID else { return }
+      lastPriorityCancelUtteranceID = transcript.utteranceID
+      dispatchPriorityVoiceIntent(priorityIntent)
+      return
+    }
+
+    guard transcript.isFinal else { return }
+
+    let preliminary = OperatorVoiceCommandParser.parse(
+      transcript.text,
+      defaults: Self.voiceGrammarSentinelDefaults
+    )
+    switch preliminary {
+    case .intent(.raisePen), .intent(.requestStatus):
+      if let intent = preliminary.acceptedIntent { dispatchNormalVoiceIntent(intent) }
+      return
+    case .intent(.cancelCurrentMotion):
+      dispatchPriorityVoiceIntent(.cancelCurrentMotion)
+      return
+    case .intent(.relativeJog):
+      break
+    case .rejected(let rejection):
+      await publishVoiceFeedback(
+        result: "rejected: \(rejection.actionableDescription)",
+        spoken: OperatorVoiceSpokenFeedbackPolicy.rejection(rejection)
+      )
+      return
+    case .noCommand:
+      lastVoiceIntentText = "none"
+      lastVoiceActionableResultText = "no closed operator intent recognized"
+      return
+    }
+
+    let defaults: OperatorVoiceSessionDefaults
+    do {
+      guard let xStep = inputNumber(xStepText), let yStep = inputNumber(yStepText),
+        let feed = inputNumber(feedText)
+      else {
+        throw VoiceProjectionError.invalidDefaults
+      }
+      defaults = try OperatorVoiceSessionDefaults(
+        xStepMM: xStep,
+        yStepMM: yStep,
+        feedMMPerMinute: feed
+      )
+    } catch {
+      await publishVoiceFeedback(
+        result: "rejected: Enter positive numeric X step, Y step, and feed values.",
+        spoken: OperatorVoiceSpokenFeedbackPolicy.invalidSessionDefaults
+      )
+      return
+    }
+
+    switch OperatorVoiceCommandParser.parse(transcript.text, defaults: defaults) {
+    case .intent(let intent):
+      dispatchNormalVoiceIntent(intent)
+
+    case .rejected(let rejection):
+      await publishVoiceFeedback(
+        result: "rejected: \(rejection.actionableDescription)",
+        spoken: OperatorVoiceSpokenFeedbackPolicy.rejection(rejection)
+      )
+
+    case .noCommand:
+      lastVoiceIntentText = "none"
+      lastVoiceActionableResultText = "no closed operator intent recognized"
+    }
+  }
+
+  private func dispatchNormalVoiceIntent(_ intent: OperatorVoiceIntent) {
+    lastVoiceIntentText = voiceIntentLabel(intent)
+    guard voiceNormalIntentTask == nil, voicePriorityIntentTask == nil else {
+      Task { [weak self] in
+        await self?.publishVoiceFeedback(
+          result: "refused: Wait for the current voice-requested operation to finish.",
+          spoken: OperatorVoiceSpokenFeedbackPolicy.operationAlreadyInFlight
+        )
+      }
+      return
+    }
+    voiceNormalIntentTask = Task { [weak self] in
+      guard let self else { return }
+      await self.handleVoiceIntent(intent)
+      self.voiceNormalIntentTask = nil
+    }
+  }
+
+  private func dispatchPriorityVoiceIntent(_ intent: OperatorVoiceIntent) {
+    lastVoiceIntentText = voiceIntentLabel(intent)
+    guard voicePriorityIntentTask == nil else { return }
+    voicePriorityIntentTask = Task { [weak self] in
+      guard let self else { return }
+      await self.handleVoiceIntent(intent)
+      self.voicePriorityIntentTask = nil
+    }
+  }
+
+  private func publishMotionVoiceFeedback() async {
+    guard let outcome = machineSnapshot?.lastMotionOutcome else {
+      await publishVoiceFeedback(
+        result: "no motion outcome available",
+        spoken: "No movement result is available."
+      )
+      return
+    }
+    let spoken: String
+    switch outcome {
+    case .refused(let refusal):
+      spoken = "Request refused. \(refusal.actionableDescription)"
+    case .acceptedThenCompleted(let position):
+      spoken = String(
+        format: "Request completed. Position X %.3f, Y %.3f.",
+        position.point.x,
+        position.point.y
+      )
+    case .cancelled(let position):
+      spoken = String(
+        format: "Request interrupted. Position X %.3f, Y %.3f.",
+        position.point.x,
+        position.point.y
+      )
+    case .ambiguous(let ambiguity):
+      spoken = "Request outcome is ambiguous. \(ambiguity.actionableDescription)"
+    }
+    await publishVoiceFeedback(result: lastMotionOutcomeText, spoken: spoken)
+  }
+
+  private func publishJogCancelVoiceFeedback() async {
+    guard let outcome = machineSnapshot?.lastJogCancelOutcome else {
+      let reason = jogCancelUnavailableReason ?? "No interruption result is available."
+      await publishVoiceFeedback(result: "refused: \(reason)", spoken: "Request refused. \(reason)")
+      return
+    }
+    let spoken: String
+    switch outcome {
+    case .refused(let refusal):
+      spoken = "Request refused. \(refusal.actionableDescription)"
+    case .transmitted:
+      spoken = "Interruption signal sent. Controller acknowledgement is not implied."
+    case .completed(let position):
+      spoken = String(
+        format: "Interruption completed. Position X %.3f, Y %.3f.",
+        position.point.x,
+        position.point.y
+      )
+    case .ambiguous(let ambiguity):
+      spoken = "Interruption outcome is ambiguous. \(ambiguity.actionableDescription)"
+    }
+    await publishVoiceFeedback(result: lastJogCancelOutcomeText, spoken: spoken)
+  }
+
+  private func publishVoiceFeedback(result: String, spoken: String) async {
+    guard !hasShutdown else { return }
+    let commandFreeSpoken = commandFreeSpokenFeedback(spoken)
+    lastVoiceActionableResultText = result
+    lastSpokenFeedbackText = commandFreeSpoken
+    await voiceActions?.speak(commandFreeSpoken)
+  }
+
+  private func commandFreeSpokenFeedback(_ candidate: String) -> String {
+    if OperatorVoiceCommandParser.parsePriority(candidate) != nil {
+      return "Current result is shown in the voice panel."
+    }
+    let parsed = OperatorVoiceCommandParser.parse(
+      candidate,
+      defaults: Self.voiceGrammarSentinelDefaults
+    )
+    guard parsed.acceptedIntent == nil else {
+      return "Current result is shown in the voice panel."
+    }
+    return candidate
+  }
+
+  private func voiceIntentLabel(_ intent: OperatorVoiceIntent) -> String {
+    switch intent {
+    case .relativeJog(let request):
+      return String(
+        format: "relative X %.3f Y %.3f at %.1f mm/min",
+        request.delta.dx,
+        request.delta.dy,
+        request.feedMMPerMinute
+      )
+    case .raisePen: return "raise pen"
+    case .requestStatus: return "report current facts"
+    case .cancelCurrentMotion: return "cancel current jog"
+    }
+  }
+
   private func receiveVision(_ result: PlotterSceneAnalysisResult) {
     guard frameMode == .live, automaticVisionEnabled else { return }
     displayedFrame = result.displayedFrame
@@ -1185,6 +1668,7 @@ final class OperatorWorkspace {
     passiveProbeInProgress = false
     jogRequestInProgress = false
     penRequestInProgress = false
+    jogCancelRequestInProgress = false
     limitsUpdateInProgress = false
     limitsApplied = false
     recordJogObservations = false

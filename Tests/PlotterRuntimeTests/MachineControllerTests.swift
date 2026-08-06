@@ -498,6 +498,176 @@ struct MachineControllerTests {
 
 @Suite("Bounded relative jog")
 struct RelativeJogTests {
+  @Test("GRBL Jog Cancel is one closed realtime byte and idle requests write nothing")
+  func exactJogCancelBytesAndIdleRefusal() async throws {
+    #expect(MachineController.encodeJogCancel == Data([0x85]))
+    let ready = try await readyController()
+    let writesBefore = ready.link.completedWriteCount
+
+    #expect(await ready.controller.requestJogCancel() == .refused(.noActiveJog))
+    #expect(ready.link.completedWriteCount == writesBefore)
+    #expect((await ready.controller.snapshot()).lastJogCancelOutcome == .refused(.noActiveJog))
+  }
+
+  @Test("active $J cancellation transmits once and completes only on Idle")
+  func activeJogCancellation() async throws {
+    let request = try jog(dx: 1, dy: 0, feed: 60)
+    let ready = try await cancellableJogController(
+      request: request,
+      cancelExchange: SimulatedCommandExchange(
+        expectedWrite: MachineController.encodeJogCancel,
+        reads: []
+      )
+    )
+    let jogTask = Task { await ready.controller.requestRelativeJog(request) }
+    defer { jogTask.cancel() }
+    await ready.readGate.waitUntilBlockedRead()
+
+    let cancelTask = Task { await ready.controller.requestJogCancel() }
+    defer { cancelTask.cancel() }
+    await waitForWriteCount(ready.base, atLeast: ready.writesThroughCancel)
+
+    var snapshot = await ready.controller.snapshot()
+    #expect(snapshot.jogCancellationInFlight)
+    #expect(snapshot.lastJogCancelOutcome == .transmitted)
+    #expect(await ready.controller.requestJogCancel() == .refused(.alreadyRequested))
+
+    await ready.readGate.release()
+    let cancelOutcome = await cancelTask.value
+    let motionOutcome = await jogTask.value
+    let partialPosition = try MachinePosition(x: 0.4, y: 0)
+
+    #expect(cancelOutcome == .completed(finalPosition: partialPosition))
+    #expect(motionOutcome == .cancelled(finalPosition: partialPosition))
+    snapshot = await ready.controller.snapshot()
+    #expect(!snapshot.jogCancellationInFlight)
+    #expect(snapshot.lastJogCancelOutcome == cancelOutcome)
+    #expect(snapshot.lastMotionOutcome == motionOutcome)
+    #expect(snapshot.stickyAmbiguity == nil)
+    #expect(ready.base.completedWriteCount == ready.writesThroughCancel + 1)
+  }
+
+  @Test("Jog Cancel queues behind an in-progress $J write and is next on the wire")
+  func cancellationDuringJogTransmission() async throws {
+    let fixture = try await Fixture.make()
+    let request = try jog(dx: 1, dy: 0, feed: 60)
+    let status = "<Idle|MPos:0.000,0.000,0.000>"
+    var exchanges = ControllerTranscriptFixtures.successfulPassiveProbe(delayNanoseconds: 0)
+    exchanges[2] = ControllerTranscriptFixtures.exchange(.status, chunks: ["\(status)\r\n"])
+    exchanges.append(statusExchange(status))
+    exchanges.append(contentsOf: successfulPenCommands(.raise))
+    exchanges.append(statusExchange(status))
+    exchanges.append(exchange(request, ["ok\r\n"]))
+    exchanges.append(
+      SimulatedCommandExchange(
+        expectedWrite: MachineController.encodeJogCancel,
+        reads: []
+      )
+    )
+    exchanges.append(statusExchange("<Idle|MPos:0.100,0.000,0.000>"))
+    let base = SimulatedGRBLLink(exchanges: exchanges, clock: fixture.clock)
+    let gate = MachineWriteGate()
+    let link = BlockingMachineLink(
+      base: base,
+      blockedWrite: MachineController.encodeRelativeJog(request),
+      gate: gate
+    )
+    let controller = MachineController(
+      link: link,
+      motionLimits: try limits(),
+      clock: fixture.clock,
+      queryTimeoutNanoseconds: 1_000,
+      statusPollIntervalNanoseconds: 1,
+      completionGraceNanoseconds: 1_000
+    )
+    _ = await controller.runPassiveProbe()
+    #expect(
+      await controller.requestPenActuation(.raise)
+        == .commandedAndSettled(command: .raise, commandedState: .up)
+    )
+
+    let motionTask = Task { await controller.requestRelativeJog(request) }
+    defer { motionTask.cancel() }
+    await gate.waitUntilBlockedWrite()
+    let cancelTask = Task { await controller.requestJogCancel() }
+    defer { cancelTask.cancel() }
+    await waitForJogCancellationInFlight(controller)
+    #expect((await controller.snapshot()).jogCancellationInFlight)
+
+    await gate.release()
+    let finalPosition = try MachinePosition(x: 0.1, y: 0)
+    #expect(await cancelTask.value == .completed(finalPosition: finalPosition))
+    #expect(await motionTask.value == .cancelled(finalPosition: finalPosition))
+    #expect(base.completedWriteCount == exchanges.count)
+  }
+
+  @Test("uncertain Jog Cancel write is sticky and is never resent")
+  func uncertainJogCancelWriteIsSticky() async throws {
+    let request = try jog(dx: 1, dy: 0, feed: 60)
+    let cases: [(MachineLinkError, MotionAmbiguity)] = [
+      (
+        .writeTimedOut(bytesWritten: 0, totalBytes: 1),
+        .writeTimedOut(bytesWritten: 0, totalBytes: 1)
+      ),
+      (
+        .writeCancelled(bytesWritten: 0, totalBytes: 1),
+        .writeCancelled(bytesWritten: 0, totalBytes: 1)
+      ),
+    ]
+
+    for (writeError, ambiguity) in cases {
+      let ready = try await cancellableJogController(
+        request: request,
+        cancelExchange: SimulatedCommandExchange(
+          expectedWrite: MachineController.encodeJogCancel,
+          reads: [],
+          writeError: writeError
+        )
+      )
+      let jogTask = Task { await ready.controller.requestRelativeJog(request) }
+      await ready.readGate.waitUntilBlockedRead()
+
+      #expect(await ready.controller.requestJogCancel() == .ambiguous(ambiguity))
+      let writesAfterFailure = ready.base.completedWriteCount
+      await ready.readGate.release()
+      #expect(await jogTask.value == .ambiguous(ambiguity))
+      #expect(
+        await ready.controller.requestJogCancel()
+          == .refused(.stickyAmbiguity(ambiguity))
+      )
+      #expect(ready.base.completedWriteCount == writesAfterFailure + 1)
+      let snapshot = await ready.controller.snapshot()
+      #expect(snapshot.stickyAmbiguity == ambiguity)
+      #expect(snapshot.penState == .unknown)
+    }
+  }
+
+  @Test("disconnect while transmitting Jog Cancel is sticky and not retried")
+  func disconnectedJogCancelIsSticky() async throws {
+    let request = try jog(dx: 1, dy: 0, feed: 60)
+    let ready = try await cancellableJogController(
+      request: request,
+      cancelExchange: SimulatedCommandExchange(
+        expectedWrite: MachineController.encodeJogCancel,
+        reads: [],
+        writeError: .disconnected
+      )
+    )
+    let jogTask = Task { await ready.controller.requestRelativeJog(request) }
+    defer { jogTask.cancel() }
+    await ready.readGate.waitUntilBlockedRead()
+
+    #expect(await ready.controller.requestJogCancel() == .ambiguous(.disconnected))
+    let writesAfterFailure = ready.base.completedWriteCount
+    await ready.readGate.release()
+    #expect(await jogTask.value == .ambiguous(.disconnected))
+    #expect(
+      await ready.controller.requestJogCancel()
+        == .refused(.stickyAmbiguity(.disconnected))
+    )
+    #expect(ready.base.completedWriteCount == writesAfterFailure + 1)
+  }
+
   @Test("GRBL jog bytes are closed and locale independent for every axis direction")
   func exactWireBytes() throws {
     let cases: [(Double, Double, Double, String)] = [
@@ -1426,6 +1596,156 @@ private func readyController(
     )
   }
   return (controller, link)
+}
+
+private func cancellableJogController(
+  request: RelativeJogRequest,
+  cancelExchange: SimulatedCommandExchange
+) async throws -> (
+  controller: MachineController,
+  base: SimulatedGRBLLink,
+  readGate: MachineReadGate,
+  writesThroughCancel: Int
+) {
+  let fixture = try await Fixture.make()
+  let status = "<Idle|MPos:0.000,0.000,0.000>"
+  var exchanges = ControllerTranscriptFixtures.successfulPassiveProbe(delayNanoseconds: 0)
+  exchanges[2] = ControllerTranscriptFixtures.exchange(.status, chunks: ["\(status)\r\n"])
+  exchanges.append(statusExchange(status))
+  exchanges.append(contentsOf: successfulPenCommands(.raise))
+  exchanges.append(statusExchange(status))
+  exchanges.append(exchange(request, ["ok\r\n"]))
+  exchanges.append(statusExchange("<Jog|MPos:0.200,0.000,0.000>"))
+  exchanges.append(cancelExchange)
+  let writesThroughCancel = exchanges.count
+  exchanges.append(statusExchange("<Idle|MPos:0.400,0.000,0.000>"))
+
+  let base = SimulatedGRBLLink(exchanges: exchanges, clock: fixture.clock)
+  let readGate = MachineReadGate()
+  let link = PostJogStatusReadBlockingLink(
+    base: base,
+    jogBytes: MachineController.encodeRelativeJog(request),
+    gate: readGate
+  )
+  let controller = MachineController(
+    link: link,
+    motionLimits: try limits(),
+    ledger: fixture.ledger,
+    runID: fixture.runID,
+    clock: fixture.clock,
+    queryTimeoutNanoseconds: 1_000,
+    statusPollIntervalNanoseconds: 1,
+    completionGraceNanoseconds: 1_000
+  )
+  _ = await controller.runPassiveProbe()
+  #expect(
+    await controller.requestPenActuation(.raise)
+      == .commandedAndSettled(command: .raise, commandedState: .up)
+  )
+  return (controller, base, readGate, writesThroughCancel)
+}
+
+private func waitForWriteCount(_ link: SimulatedGRBLLink, atLeast expected: Int) async {
+  for _ in 0..<1_000 {
+    if link.completedWriteCount >= expected { return }
+    await Task.yield()
+  }
+  Issue.record(
+    "Timed out waiting for \(expected) writes; observed \(link.completedWriteCount)"
+  )
+}
+
+private func waitForJogCancellationInFlight(_ controller: MachineController) async {
+  for _ in 0..<1_000 {
+    if await controller.snapshot().jogCancellationInFlight { return }
+    await Task.yield()
+  }
+  Issue.record("Timed out waiting for Jog Cancel to enter the priority write queue")
+}
+
+private actor MachineReadGate {
+  private var reached = false
+  private var released = false
+  private var reachedWaiters: [CheckedContinuation<Void, Never>] = []
+  private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+
+  func waitUntilBlockedRead() async {
+    guard !reached else { return }
+    await withCheckedContinuation { reachedWaiters.append($0) }
+  }
+
+  func block() async {
+    reached = true
+    let observers = reachedWaiters
+    reachedWaiters.removeAll(keepingCapacity: false)
+    for observer in observers { observer.resume() }
+    guard !released else { return }
+    await withCheckedContinuation { releaseWaiters.append($0) }
+  }
+
+  func release() {
+    released = true
+    let waiters = releaseWaiters
+    releaseWaiters.removeAll(keepingCapacity: false)
+    for waiter in waiters { waiter.resume() }
+  }
+}
+
+private actor PostJogStatusReadState {
+  private let jogBytes: Data
+  private var jogWasWritten = false
+  private var blockNextRead = false
+  private var didBlock = false
+
+  init(jogBytes: Data) {
+    self.jogBytes = jogBytes
+  }
+
+  func noteWrite(_ bytes: Data) {
+    if bytes == jogBytes {
+      jogWasWritten = true
+    } else if jogWasWritten, bytes == PassiveQuery.status.wireBytes, !didBlock {
+      blockNextRead = true
+    }
+  }
+
+  func consumeBlockFlag() -> Bool {
+    guard blockNextRead, !didBlock else { return false }
+    blockNextRead = false
+    didBlock = true
+    return true
+  }
+}
+
+private final class PostJogStatusReadBlockingLink: MachineLink, @unchecked Sendable {
+  let descriptor: MachineLinkDescriptor
+  private let base: any MachineLink
+  private let state: PostJogStatusReadState
+  private let gate: MachineReadGate
+
+  init(base: any MachineLink, jogBytes: Data, gate: MachineReadGate) {
+    self.base = base
+    state = PostJogStatusReadState(jogBytes: jogBytes)
+    self.gate = gate
+    descriptor = base.descriptor
+  }
+
+  func open() async throws { try await base.open() }
+  func close() async { await base.close() }
+  func discardPendingInput() async throws { try await base.discardPendingInput() }
+
+  func write(_ bytes: Data) async throws {
+    try await base.write(bytes)
+    await state.noteWrite(bytes)
+  }
+
+  func read(maximumBytes: Int, timeoutNanoseconds: UInt64) async throws -> Data {
+    if await state.consumeBlockFlag() { await gate.block() }
+    return try await base.read(
+      maximumBytes: maximumBytes,
+      timeoutNanoseconds: timeoutNanoseconds
+    )
+  }
 }
 
 private func penReadyController(

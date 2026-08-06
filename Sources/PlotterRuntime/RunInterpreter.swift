@@ -30,6 +30,8 @@ public struct RunInterpreterSnapshot: Hashable, Sendable {
   public let lastPhysicalJogObservationOutcome: PhysicalJogObservationOutcome?
   public let lastPenOutcome: PenOutcome?
   public let lastProbe: PassiveProbeResult?
+  public let jogCancellationInFlight: Bool
+  public let lastJogCancelOutcome: JogCancelOutcome?
 
   public init(
     currentOperation: RunOperation,
@@ -37,7 +39,9 @@ public struct RunInterpreterSnapshot: Hashable, Sendable {
     lastMotionOutcome: MotionOutcome?,
     lastPhysicalJogObservationOutcome: PhysicalJogObservationOutcome? = nil,
     lastPenOutcome: PenOutcome? = nil,
-    lastProbe: PassiveProbeResult?
+    lastProbe: PassiveProbeResult?,
+    jogCancellationInFlight: Bool = false,
+    lastJogCancelOutcome: JogCancelOutcome? = nil
   ) {
     self.currentOperation = currentOperation
     self.machine = machine
@@ -45,6 +49,8 @@ public struct RunInterpreterSnapshot: Hashable, Sendable {
     self.lastPhysicalJogObservationOutcome = lastPhysicalJogObservationOutcome
     self.lastPenOutcome = lastPenOutcome
     self.lastProbe = lastProbe
+    self.jogCancellationInFlight = jogCancellationInFlight
+    self.lastJogCancelOutcome = lastJogCancelOutcome
   }
 }
 
@@ -59,19 +65,24 @@ public actor RunInterpreter {
   private var lastMotionOutcome: MotionOutcome?
   private var lastPhysicalJogObservationOutcome: PhysicalJogObservationOutcome?
   private var lastPenOutcome: PenOutcome?
+  private var jogCancelRequestInFlight = false
+  private var lastJogCancelOutcome: JogCancelOutcome?
 
   public init(machineController: MachineController) {
     self.machineController = machineController
   }
 
   public func snapshot() async -> RunInterpreterSnapshot {
-    RunInterpreterSnapshot(
+    let machine = await machineController.snapshot()
+    return RunInterpreterSnapshot(
       currentOperation: currentOperation,
-      machine: await machineController.snapshot(),
+      machine: machine,
       lastMotionOutcome: lastMotionOutcome,
       lastPhysicalJogObservationOutcome: lastPhysicalJogObservationOutcome,
       lastPenOutcome: lastPenOutcome,
-      lastProbe: lastProbe
+      lastProbe: lastProbe,
+      jogCancellationInFlight: jogCancelRequestInFlight || machine.jogCancellationInFlight,
+      lastJogCancelOutcome: machine.lastJogCancelOutcome ?? lastJogCancelOutcome
     )
   }
 
@@ -97,6 +108,29 @@ public actor RunInterpreter {
     let outcome = await machineController.requestRelativeJog(request)
     lastMotionOutcome = outcome
     currentOperation = .idle
+    return outcome
+  }
+
+  /// Priority subordinate request for the active `$J` operation. It deliberately
+  /// does not replace `currentOperation`; the original jog remains the only
+  /// owner of controller replies and final Idle completion.
+  public func requestJogCancel() async -> JogCancelOutcome {
+    guard !jogCancelRequestInFlight else {
+      return .refused(.alreadyRequested)
+    }
+    switch currentOperation {
+    case .relativeJog, .observedJog:
+      break
+    case .idle, .passiveProbe, .penActuation:
+      let outcome = await machineController.requestJogCancel()
+      lastJogCancelOutcome = outcome
+      return outcome
+    }
+
+    jogCancelRequestInFlight = true
+    defer { jogCancelRequestInFlight = false }
+    let outcome = await machineController.requestJogCancel()
+    lastJogCancelOutcome = outcome
     return outcome
   }
 

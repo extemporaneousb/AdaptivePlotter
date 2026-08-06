@@ -21,6 +21,16 @@ proof of energized motors. Pen buttons are actions, not selected-state controls,
 and the adjacent state says commanded Up/Down or unknown without claiming visual
 confirmation.
 
+The Motion dock now also contains a native Voice Operator. The operator starts
+and stops listening explicitly, sees microphone/speech authorization,
+listening state, newest transcript, understood typed intent, current result,
+and the last spoken feedback. Final utterances can request one bounded X/Y jog,
+Pen Up, or current status. Exact partial `STOP` and `cancel jog` utterances take
+the priority Jog Cancel path without waiting for a voice-requested jog to end;
+partial/final repeats from one utterance send one request. Invalid X/Y/feed text
+does not disable STOP. Voice cannot lower the pen or reach the machine in
+SIMULATED mode.
+
 The on/off comparison was run with USB continuously attached. Both states
 returned the same BlackBox X32/grblHAL identity, `Idle`, MPos X/Y 0.000, no
 asserted pins, `Bf:100,1023`, `FS:0,0`, and `H:0`; all five passive exchanges
@@ -106,6 +116,12 @@ identity, app distribution configuration, or CI result is required.
   in-flight work, and sticky ambiguity.
 - `ok` is acceptance only; completion is a bounded status poll ending at Idle
   with final MPos. Uncertain physical outcomes are sticky and never resent.
+- The only jog-interruption encoding is GRBL realtime Jog Cancel byte `0x85`.
+  It is available only for the one transmitted `$J` operation, is prioritized
+  ahead of queued ordinary writes, and is never resent. The byte has no `ok`;
+  the original jog poll remains the only reply reader and resolves cancellation
+  only after Idle supplies final MPos. A write/disconnect/uncertain final state
+  remains sticky ambiguity. Jog Cancel is not Hold or an emergency stop.
 - Successful passive configuration parsing supplies `$110/$111` axis feed caps
   and `$120/$121` acceleration to the jog deadline model. Firmware travel
   settings are not used as workspace bounds or calibration.
@@ -180,6 +196,15 @@ identity, app distribution configuration, or CI result is required.
   the completed motion and never causes resend or inverse motion.
 - SIMULATED mode cannot reach the machine action surface for jog or pen commands.
   Ordinary LIVE jog remains camera-independent when observation recording is off.
+- Native Speech/AVAudioEngine input and AVSpeechSynthesizer output remain inside
+  one process. Transcript delivery is newest-only. A closed grammar produces
+  typed relative-jog, Pen Up, status, or Jog Cancel intents; it contains no raw
+  controller payload, Pen Down, arbitrary language-to-action authority, or
+  per-command confirmation workflow.
+- The signed local bundle declares camera, microphone, and speech-recognition
+  purposes. Recognition is currently configured to require Apple's on-device
+  path; failure is shown directly rather than silently switching to a network
+  recognizer.
 
 ### Affine training and online-learning boundary
 
@@ -279,6 +304,11 @@ open.
 ## Not yet implemented
 
 - Live measurement of preview and auto-analysis throughput/latency on this Mac.
+- Open-ended voice dialogue or OpenAI Realtime integration. A later semantic
+  dialogue layer may explain state or collect direct teaching input only by
+  proposing the same closed typed intents; it will not own controller access.
+- FaceTime-camera operator-presence observation. It is not a motion gate, and a
+  second camera owner or identity/video-recording subsystem has not been added.
 - One fixed camera observation region and clear tool pose.
 - Isolated line drawing, ink detection, and simple residual display.
 - Small multi-stroke drawing and optional affine correction.

@@ -335,6 +335,47 @@ func simulatorBlocksEveryPhysicalCommandIntent() async throws {
   #expect(await machine.penRequests.isEmpty)
 }
 
+@Test("Switching to SIMULATED is refused while a live physical jog is active")
+@MainActor
+func simulatorSwitchCannotHideActiveJogCancel() async throws {
+  let jogGate = AsyncGate()
+  let machine = MachineFixture()
+  let device = testDevice()
+  let camera = CameraFixture(
+    snapshot: CameraCaptureSnapshot(
+      devices: [],
+      selectedDeviceID: nil,
+      state: .stopped,
+      latestFrame: nil,
+      error: nil
+    ),
+    simulated: try testDisplayedFrame(source: .simulated)
+  )
+  let workspace = OperatorWorkspace(
+    machineActions: machineActions(machine, jogGate: jogGate),
+    cameraActions: cameraActions(camera),
+    serialDevices: [device]
+  )
+  await workspace.selectSerialDevice(device)
+  await applyTestLimits(workspace)
+  await workspace.requestPenActuation(.raise)
+  let jogTask = Task { await workspace.requestJog(.xPositive) }
+  while await jogGate.waiterCount == 0 { await Task.yield() }
+
+  await workspace.switchFrameMode(.simulated)
+
+  #expect(workspace.frameMode == .live)
+  #expect(
+    workspace.cameraError
+      == "Wait for the current physical controller operation before switching frame source."
+  )
+  #expect(workspace.jogCancelUnavailableReason == nil)
+  #expect(await camera.simulatorCount == 0)
+
+  await jogGate.open()
+  await jogTask.value
+}
+
 @Test("Observed jog projects one exact camera failure without moving or recording")
 @MainActor
 func observedJogFailureProjectsExactly() async throws {
@@ -683,6 +724,402 @@ func refusalCanRetry() async throws {
 
   #expect(await fixture.jogRequests.count == 2)
   #expect(workspace.lastMotionOutcomeText.contains("completed at X 1.000 Y 0.000"))
+}
+
+@Test("Voice jog routes one typed request through the existing bounded motion path")
+@MainActor
+func voiceJogRoutesTypedIntent() async throws {
+  let voice = VoiceFixture()
+  let machine = MachineFixture()
+  let device = testDevice()
+  let workspace = OperatorWorkspace(
+    machineActions: machineActions(machine),
+    voiceActions: voiceActions(voice),
+    serialDevices: [device]
+  )
+  await workspace.selectSerialDevice(device)
+  await applyTestLimits(workspace)
+  await workspace.requestPenActuation(.raise)
+  let request = RelativeJogRequest(
+    delta: try Vector2(dx: -2.5, dy: 0),
+    feedMMPerMinute: 75
+  )
+
+  await workspace.handleVoiceIntent(.relativeJog(request))
+
+  #expect(await machine.jogRequests == [request])
+  #expect(workspace.lastVoiceIntentText == "relative X -2.500 Y 0.000 at 75.0 mm/min")
+  #expect(workspace.lastVoiceActionableResultText == "completed at X 0.000 Y 0.000")
+  #expect(workspace.lastSpokenFeedbackText.contains("Request completed."))
+  #expect(await voice.spoken.count == 1)
+}
+
+@Test("Voice pen-down text has no accepted app intent or machine path")
+@MainActor
+func voiceCannotRoutePenDown() async throws {
+  let defaults = try OperatorVoiceSessionDefaults(
+    xStepMM: 1,
+    yStepMM: 1,
+    feedMMPerMinute: 50
+  )
+  let parsed = OperatorVoiceCommandParser.parse("pen down", defaults: defaults)
+  let machine = MachineFixture()
+  let workspace = OperatorWorkspace(machineActions: machineActions(machine))
+
+  #expect(parsed == .rejected(.penDownNotAvailable))
+  #expect(parsed.acceptedIntent == nil)
+  #expect(await machine.penRequests.isEmpty)
+  #expect(workspace.lastVoiceIntentText == "none")
+}
+
+@Test("Voice motion is blocked in simulator before reaching MachineActions")
+@MainActor
+func simulatorBlocksVoiceMotion() async throws {
+  let machine = MachineFixture(snapshot: testRunSnapshot(pen: .up))
+  let device = testDevice()
+  let camera = CameraFixture(
+    snapshot: CameraCaptureSnapshot(
+      devices: [],
+      selectedDeviceID: nil,
+      state: .stopped,
+      latestFrame: nil,
+      error: nil
+    ),
+    simulated: try testDisplayedFrame(source: .simulated)
+  )
+  let workspace = OperatorWorkspace(
+    machineActions: machineActions(machine),
+    cameraActions: cameraActions(camera),
+    serialDevices: [device]
+  )
+  await workspace.selectSerialDevice(device)
+  await applyTestLimits(workspace)
+  await workspace.switchFrameMode(.simulated)
+  let request = RelativeJogRequest(
+    delta: try Vector2(dx: 1, dy: 0),
+    feedMMPerMinute: 50
+  )
+
+  await workspace.handleVoiceIntent(.relativeJog(request))
+
+  #expect(await machine.jogRequests.isEmpty)
+  #expect(
+    workspace.lastVoiceActionableResultText
+      == "refused: SIMULATED source cannot issue physical machine commands. Switch to LIVE first."
+  )
+}
+
+@Test("Voice status reports one exact current blocker without requiring a camera")
+@MainActor
+func voiceStatusProjectsExactBlocker() async {
+  let workspace = OperatorWorkspace()
+
+  await workspace.handleVoiceIntent(.requestStatus)
+
+  #expect(
+    workspace.lastVoiceActionableResultText
+      == "controller unknown · MPos unknown · operation none · motion blocked · blocker: Native machine composition is unavailable."
+  )
+  #expect(workspace.cameraSnapshot == nil)
+}
+
+@Test("Voice permission and listening state project the exact denied subsystem")
+@MainActor
+func voicePermissionProjectionIsTruthful() async {
+  let voice = VoiceFixture(authorization: .microphoneDenied)
+  let workspace = OperatorWorkspace(voiceActions: voiceActions(voice))
+
+  await workspace.startVoiceListening()
+
+  #expect(
+    workspace.voicePermissionText
+      == "microphone denied — allow it in System Settings"
+  )
+  #expect(workspace.voiceListeningText == "stopped")
+  #expect(!workspace.voiceListening)
+  #expect(await voice.startCount == 0)
+}
+
+@Test("A corrected voice refusal is immediately retryable")
+@MainActor
+func voiceRefusalCanRetry() async throws {
+  let completed = MotionOutcome.acceptedThenCompleted(
+    finalPosition: try MachinePosition(x: 1, y: 0)
+  )
+  let machine = MachineFixture(outcomes: [
+    .refused(.feedExceedsMaximum(requested: 90, maximum: 80)),
+    completed,
+  ])
+  let device = testDevice()
+  let workspace = OperatorWorkspace(
+    machineActions: machineActions(machine),
+    serialDevices: [device]
+  )
+  await workspace.selectSerialDevice(device)
+  await applyTestLimits(workspace)
+  await workspace.requestPenActuation(.raise)
+  let request = RelativeJogRequest(
+    delta: try Vector2(dx: 1, dy: 0),
+    feedMMPerMinute: 75
+  )
+
+  await workspace.handleVoiceIntent(.relativeJog(request))
+  #expect(workspace.lastVoiceActionableResultText.contains("refused"))
+  #expect(workspace.motionUnavailableReason == nil)
+
+  await workspace.handleVoiceIntent(.relativeJog(request))
+  #expect(await machine.jogRequests.count == 2)
+  #expect(workspace.lastVoiceActionableResultText == "completed at X 1.000 Y 0.000")
+}
+
+@Test("Partial and final STOP for one utterance send one priority cancel")
+@MainActor
+func voicePriorityCancelIsDeduplicated() async {
+  let machine = MachineFixture(cancelOutcomes: [.transmitted])
+  let voice = VoiceFixture()
+  let device = testDevice()
+  let workspace = OperatorWorkspace(
+    machineActions: machineActions(machine),
+    voiceActions: voiceActions(voice),
+    serialDevices: [device]
+  )
+  await workspace.selectSerialDevice(device)
+  workspace.xStepText = "not-a-number"
+  workspace.yStepText = ""
+  workspace.feedText = "invalid"
+  await workspace.startVoiceListening()
+  while await voice.streamSubscriberCount == 0 { await Task.yield() }
+  let utteranceID = UUID()
+
+  await voice.yield(
+    VoiceTranscript(
+      utteranceID: utteranceID,
+      sequence: 1,
+      text: "stop",
+      isFinal: false,
+      monotonicNanoseconds: 1
+    )
+  )
+  while await machine.cancelRequestCount == 0 { await Task.yield() }
+  await voice.yield(
+    VoiceTranscript(
+      utteranceID: utteranceID,
+      sequence: 2,
+      text: "stop",
+      isFinal: true,
+      monotonicNanoseconds: 2
+    )
+  )
+  for _ in 0..<20 { await Task.yield() }
+  await voice.yield(
+    VoiceTranscript(
+      utteranceID: utteranceID,
+      sequence: 3,
+      text: "stop",
+      isFinal: true,
+      monotonicNanoseconds: 3
+    )
+  )
+  for _ in 0..<20 { await Task.yield() }
+
+  #expect(await machine.cancelRequestCount == 1)
+  #expect(workspace.lastJogCancelOutcomeText.contains("cancel byte sent"))
+  #expect(workspace.lastSpokenFeedbackText.contains("Interruption signal sent"))
+  await workspace.stopVoiceListening()
+}
+
+@Test("Priority STOP bypasses a blocked normal voice jog without queueing another jog")
+@MainActor
+func voicePriorityCancelBypassesBlockedJog() async throws {
+  let jogGate = AsyncGate()
+  let finalPosition = try MachinePosition(x: 0.2, y: 0)
+  let machine = MachineFixture(
+    outcomes: [.cancelled(finalPosition: finalPosition)],
+    cancelOutcomes: [.transmitted]
+  )
+  let voice = VoiceFixture()
+  let device = testDevice()
+  let workspace = OperatorWorkspace(
+    machineActions: machineActions(machine, jogGate: jogGate),
+    voiceActions: voiceActions(voice),
+    serialDevices: [device]
+  )
+  await workspace.selectSerialDevice(device)
+  await applyTestLimits(workspace)
+  await workspace.requestPenActuation(.raise)
+  await workspace.startVoiceListening()
+  while await voice.streamSubscriberCount == 0 { await Task.yield() }
+
+  await voice.yield(
+    VoiceTranscript(
+      utteranceID: UUID(),
+      sequence: 1,
+      text: "x plus",
+      isFinal: true,
+      monotonicNanoseconds: 1
+    )
+  )
+  while await jogGate.waiterCount == 0 { await Task.yield() }
+
+  await voice.yield(
+    VoiceTranscript(
+      utteranceID: UUID(),
+      sequence: 2,
+      text: "y plus",
+      isFinal: true,
+      monotonicNanoseconds: 2
+    )
+  )
+  for _ in 0..<20 { await Task.yield() }
+  await voice.yield(
+    VoiceTranscript(
+      utteranceID: UUID(),
+      sequence: 3,
+      text: "stop",
+      isFinal: false,
+      monotonicNanoseconds: 3
+    )
+  )
+  while await machine.cancelRequestCount == 0 { await Task.yield() }
+
+  #expect(await machine.jogRequests.isEmpty)
+  #expect(await machine.cancelRequestCount == 1)
+  await jogGate.open()
+  while await machine.jogRequests.isEmpty { await Task.yield() }
+  while workspace.jogRequestInProgress { await Task.yield() }
+
+  #expect(await machine.jogRequests.count == 1)
+  #expect(workspace.lastMotionOutcomeText == "cancelled at X 0.200 Y 0.000")
+  await workspace.stopVoiceListening()
+}
+
+@Test("A final jog heard during priority cancel is discarded instead of delayed")
+@MainActor
+func voiceCancelDiscardsLaterNormalIntent() async {
+  let cancelGate = AsyncGate()
+  let machine = MachineFixture(cancelOutcomes: [.transmitted])
+  let voice = VoiceFixture()
+  let device = testDevice()
+  let workspace = OperatorWorkspace(
+    machineActions: machineActions(machine, cancelGate: cancelGate),
+    voiceActions: voiceActions(voice),
+    serialDevices: [device]
+  )
+  await workspace.selectSerialDevice(device)
+  await applyTestLimits(workspace)
+  await workspace.requestPenActuation(.raise)
+  await workspace.startVoiceListening()
+  while await voice.streamSubscriberCount == 0 { await Task.yield() }
+
+  await voice.yield(
+    VoiceTranscript(
+      utteranceID: UUID(),
+      sequence: 1,
+      text: "stop",
+      isFinal: false,
+      monotonicNanoseconds: 1
+    )
+  )
+  while await cancelGate.waiterCount == 0 { await Task.yield() }
+  await voice.yield(
+    VoiceTranscript(
+      utteranceID: UUID(),
+      sequence: 2,
+      text: "x plus",
+      isFinal: true,
+      monotonicNanoseconds: 2
+    )
+  )
+  while workspace.lastVoiceIntentText != "relative X 1.000 Y 0.000 at 100.0 mm/min" {
+    await Task.yield()
+  }
+
+  await cancelGate.open()
+  while await machine.cancelRequestCount == 0 { await Task.yield() }
+  for _ in 0..<20 { await Task.yield() }
+
+  #expect(await machine.jogRequests.isEmpty)
+  #expect(await machine.cancelRequestCount == 1)
+  await workspace.stopVoiceListening()
+}
+
+@Test("Invalid jog fields do not block status or pen up and spoken feedback is command-free")
+@MainActor
+func nonmotionVoiceIntentsIgnoreJogDefaults() async throws {
+  let machine = MachineFixture()
+  let voice = VoiceFixture()
+  let device = testDevice()
+  let workspace = OperatorWorkspace(
+    machineActions: machineActions(machine),
+    voiceActions: voiceActions(voice),
+    serialDevices: [device]
+  )
+  await workspace.selectSerialDevice(device)
+  workspace.xStepText = "bad-x"
+  workspace.yStepText = "bad-y"
+  workspace.feedText = "bad-feed"
+  await workspace.startVoiceListening()
+  while await voice.streamSubscriberCount == 0 { await Task.yield() }
+
+  await voice.yield(
+    VoiceTranscript(
+      utteranceID: UUID(),
+      sequence: 1,
+      text: "status",
+      isFinal: true,
+      monotonicNanoseconds: 1
+    )
+  )
+  while workspace.lastVoiceIntentText != "report current facts" { await Task.yield() }
+  for _ in 0..<20 { await Task.yield() }
+
+  await voice.yield(
+    VoiceTranscript(
+      utteranceID: UUID(),
+      sequence: 2,
+      text: "pen up",
+      isFinal: true,
+      monotonicNanoseconds: 2
+    )
+  )
+  while await machine.penRequests.isEmpty { await Task.yield() }
+  for _ in 0..<20 { await Task.yield() }
+
+  await voice.yield(
+    VoiceTranscript(
+      utteranceID: UUID(),
+      sequence: 3,
+      text: "x plus",
+      isFinal: true,
+      monotonicNanoseconds: 3
+    )
+  )
+  while !workspace.lastVoiceActionableResultText.contains("Enter positive numeric") {
+    await Task.yield()
+  }
+  await voice.yield(
+    VoiceTranscript(
+      utteranceID: UUID(),
+      sequence: 4,
+      text: "pen down",
+      isFinal: true,
+      monotonicNanoseconds: 4
+    )
+  )
+  while await voice.spoken.count < 4 { await Task.yield() }
+
+  #expect(await machine.penRequests == [.raise])
+  #expect(await machine.jogRequests.isEmpty)
+  let defaults = try OperatorVoiceSessionDefaults(
+    xStepMM: 1,
+    yStepMM: 1,
+    feedMMPerMinute: 100
+  )
+  for spoken in await voice.spoken {
+    #expect(OperatorVoiceCommandParser.parsePriority(spoken) == nil)
+    #expect(OperatorVoiceCommandParser.parse(spoken, defaults: defaults).acceptedIntent == nil)
+  }
+  await workspace.stopVoiceListening()
 }
 
 @Test("Pen buttons issue typed controller commands and never manufacture an up state")
@@ -1153,22 +1590,26 @@ private actor MachineFixture {
   private(set) var probeCount = 0
   private(set) var selectCount = 0
   private(set) var penRequests: [PenCommand] = []
+  private(set) var cancelRequestCount = 0
   private(set) var limitCount = 0
   private(set) var disconnectCount = 0
   private(set) var lastLimits: MotionLimits?
+  private var cancelOutcomes: [JogCancelOutcome]
 
   init(
     snapshot: RunInterpreterSnapshot = testRunSnapshot(),
-    outcomes: [MotionOutcome] = []
+    outcomes: [MotionOutcome] = [],
+    cancelOutcomes: [JogCancelOutcome] = []
   ) {
     self.snapshot = snapshot
     self.outcomes = outcomes
+    self.cancelOutcomes = cancelOutcomes
   }
 
   var totalInvocationCount: Int {
     selectCount + probeCount + limitCount + disconnectCount + jogRequests.count
       + observedJogRequests.count
-      + penRequests.count
+      + penRequests.count + cancelRequestCount
   }
 
   func select(_ descriptor: MachineLinkDescriptor) -> RunInterpreterSnapshot {
@@ -1214,6 +1655,24 @@ private actor MachineFixture {
       lastMotionOutcome: snapshot.lastMotionOutcome,
       lastPenOutcome: outcome,
       lastProbe: snapshot.lastProbe
+    )
+    return outcome
+  }
+
+  func cancelJog() -> JogCancelOutcome {
+    cancelRequestCount += 1
+    let outcome = cancelOutcomes.isEmpty
+      ? .refused(.noActiveJog)
+      : cancelOutcomes.removeFirst()
+    snapshot = RunInterpreterSnapshot(
+      currentOperation: snapshot.currentOperation,
+      machine: snapshot.machine,
+      lastMotionOutcome: snapshot.lastMotionOutcome,
+      lastPhysicalJogObservationOutcome: snapshot.lastPhysicalJogObservationOutcome,
+      lastPenOutcome: snapshot.lastPenOutcome,
+      lastProbe: snapshot.lastProbe,
+      jogCancellationInFlight: false,
+      lastJogCancelOutcome: outcome
     )
     return outcome
   }
@@ -1350,7 +1809,9 @@ private actor MachineFixture {
 private func machineActions(
   _ fixture: MachineFixture,
   selectGate: AsyncGate? = nil,
-  probeGate: AsyncGate? = nil
+  probeGate: AsyncGate? = nil,
+  jogGate: AsyncGate? = nil,
+  cancelGate: AsyncGate? = nil
 ) -> OperatorWorkspace.MachineActions {
   OperatorWorkspace.MachineActions(
     select: { descriptor in
@@ -1363,12 +1824,86 @@ private func machineActions(
       return await fixture.probe()
     },
     updateMotionLimits: { limits in await fixture.updateLimits(limits) },
-    requestRelativeJog: { request in await fixture.jog(request) },
+    requestRelativeJog: { request in
+      await jogGate?.wait()
+      return await fixture.jog(request)
+    },
     requestObservedJog: { request, observe in
       await fixture.observedJog(request, observe: observe)
     },
     requestPenActuation: { command in await fixture.actuatePen(command) },
+    requestJogCancel: {
+      await cancelGate?.wait()
+      return await fixture.cancelJog()
+    },
     disconnect: { await fixture.disconnect() }
+  )
+}
+
+private actor VoiceFixture {
+  private var continuation: AsyncStream<VoiceTranscript>.Continuation?
+  private(set) var streamSubscriberCount = 0
+  private(set) var startCount = 0
+  private(set) var stopCount = 0
+  private(set) var spoken: [String] = []
+  private let authorization: VoiceAuthorizationState
+  private var isListening = false
+
+  init(authorization: VoiceAuthorizationState = .authorized) {
+    self.authorization = authorization
+  }
+
+  func requestAuthorization() -> VoiceAuthorizationState { authorization }
+
+  func startListening() {
+    startCount += 1
+    isListening = authorization == .authorized
+  }
+
+  func stopListening() {
+    stopCount += 1
+    isListening = false
+    continuation?.finish()
+    continuation = nil
+  }
+
+  func transcripts() -> AsyncStream<VoiceTranscript> {
+    let pair = AsyncStream.makeStream(
+      of: VoiceTranscript.self,
+      bufferingPolicy: .bufferingNewest(1)
+    )
+    continuation = pair.continuation
+    streamSubscriberCount += 1
+    return pair.stream
+  }
+
+  func yield(_ transcript: VoiceTranscript) {
+    continuation?.yield(transcript)
+  }
+
+  func snapshot() -> VoiceInteractionSnapshot {
+    VoiceInteractionSnapshot(
+      authorization: authorization,
+      listeningState: isListening ? .listening : .stopped,
+      recognitionPolicy: .onDeviceRequired,
+      latestTranscript: nil
+    )
+  }
+
+  func speak(_ text: String) {
+    spoken.append(text)
+  }
+}
+
+private func voiceActions(_ fixture: VoiceFixture) -> OperatorWorkspace.VoiceActions {
+  OperatorWorkspace.VoiceActions(
+    requestAuthorization: { await fixture.requestAuthorization() },
+    startListening: { await fixture.startListening() },
+    stopListening: { await fixture.stopListening() },
+    snapshot: { await fixture.snapshot() },
+    transcripts: { await fixture.transcripts() },
+    speak: { text in await fixture.speak(text) },
+    stopSpeaking: {}
   )
 }
 

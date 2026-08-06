@@ -26,6 +26,9 @@ enum MachineSessionComposition {
     requestPenActuation: { command in
       await session.requestPenActuation(command)
     },
+    requestJogCancel: {
+      await session.requestJogCancel()
+    },
     disconnect: {
       await session.disconnect()
     }
@@ -89,6 +92,11 @@ private actor PersistentMachineSession {
   func requestRelativeJog(_ request: RelativeJogRequest) async -> MotionOutcome {
     guard let interpreter else { return .refused(.noSerialDeviceSelected) }
     return await interpreter.requestRelativeJog(request)
+  }
+
+  func requestJogCancel() async -> JogCancelOutcome {
+    guard let interpreter else { return .refused(.noSerialDeviceSelected) }
+    return await interpreter.requestJogCancel()
   }
 
   func requestObservedJog(

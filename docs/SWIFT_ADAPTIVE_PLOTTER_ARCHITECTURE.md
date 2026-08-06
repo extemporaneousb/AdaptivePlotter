@@ -27,7 +27,8 @@ Use one process and direct typed calls:
 
 ```mermaid
 flowchart LR
-    UI["SwiftUI app"] --> RUN["RunInterpreter"]
+    VOICE["Native voice input and speech output"] --> UI["SwiftUI app"]
+    UI --> RUN["RunInterpreter"]
     RUN --> CTRL["MachineController"]
     RUN --> CAM["CameraCapture"]
     RUN --> VISION["Vision functions"]
@@ -87,6 +88,14 @@ authority, command recovery, or replay.
 
 The SwiftUI layer owns presentation and operator input. It does not calculate
 machine coordinates or send serial bytes directly.
+
+Native speech is another operator-input adapter, not another authority. It may
+produce only the closed `OperatorVoiceIntent` values accepted by the app
+projection. A priority `STOP` maps specifically to GRBL Jog Cancel for an active
+`$J` request; it is not feed hold, abort, or an emergency stop. Normal voice
+motion still passes through `RunInterpreter` and every `MachineController`
+check. Spoken output describes current typed results and never upgrades
+controller acceptance into physical completion.
 
 ## 3. Development and concurrency
 
@@ -242,6 +251,8 @@ One window is sufficient. It should contain:
 - current stroke/operation;
 - last command outcome;
 - intended/observed line and simple error after inspection.
+- explicit voice permission/listening/transcript/result state and direct Jog
+  Cancel while the native voice operator is enabled.
 
 Raw serial text may be available in a small developer disclosure when needed.
 

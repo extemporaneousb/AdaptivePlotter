@@ -108,6 +108,49 @@ struct RunInterpreterTests {
     #expect(snapshot.lastMotionOutcome == outcome)
   }
 
+  @Test("priority Jog Cancel passes through while the interpreter is awaiting Idle")
+  func priorityJogCancel() async throws {
+    let ready = try await readyInterpreterCancellationFixture()
+    #expect(await ready.interpreter.requestJogCancel() == .refused(.noActiveJog))
+    let motionTask = Task {
+      await ready.interpreter.requestRelativeJog(ready.request)
+    }
+    defer { motionTask.cancel() }
+    await ready.gate.waitUntilBlockedRead()
+
+    let cancelTask = Task { await ready.interpreter.requestJogCancel() }
+    defer { cancelTask.cancel() }
+    await waitForInterpreterWriteCount(ready.link, atLeast: ready.writesThroughCancel)
+    await waitForInterpreterCancelTransmission(ready.interpreter)
+
+    var snapshot = await ready.interpreter.snapshot()
+    #expect(snapshot.currentOperation == .relativeJog(ready.request))
+    #expect(snapshot.jogCancellationInFlight)
+    #expect(snapshot.lastJogCancelOutcome == .transmitted)
+    #expect(await ready.interpreter.requestJogCancel() == .refused(.alreadyRequested))
+
+    await ready.gate.release()
+    let finalPosition = try MachinePosition(x: 0.4, y: 0)
+    #expect(await cancelTask.value == .completed(finalPosition: finalPosition))
+    #expect(await motionTask.value == .cancelled(finalPosition: finalPosition))
+    snapshot = await ready.interpreter.snapshot()
+    #expect(snapshot.currentOperation == .idle)
+    #expect(!snapshot.jogCancellationInFlight)
+    #expect(snapshot.lastJogCancelOutcome == .completed(finalPosition: finalPosition))
+    #expect(snapshot.lastMotionOutcome == .cancelled(finalPosition: finalPosition))
+  }
+
+  @Test("interpreter projects the controller refusal when no session is connected")
+  func disconnectedJogCancelRefusal() async throws {
+    let fixture = try await InterpreterFixture.make()
+
+    #expect(await fixture.interpreter.requestJogCancel() == .refused(.notConnected))
+    let snapshot = await fixture.interpreter.snapshot()
+    #expect(snapshot.currentOperation == .idle)
+    #expect(snapshot.lastJogCancelOutcome == .refused(.notConnected))
+    #expect(fixture.link.completedWriteCount == 0)
+  }
+
   @Test("typed pen actuation records controller-commanded state and outcome")
   func typedPenActuation() async throws {
     var exchanges = ControllerTranscriptFixtures.successfulPassiveProbe()
@@ -599,6 +642,181 @@ private func readyObservedJogFixture(
       == .commandedAndSettled(command: .raise, commandedState: .up)
   )
   return fixture
+}
+
+private func readyInterpreterCancellationFixture() async throws -> (
+  interpreter: RunInterpreter,
+  request: RelativeJogRequest,
+  link: SimulatedGRBLLink,
+  gate: InterpreterMachineReadGate,
+  writesThroughCancel: Int
+) {
+  let request = RelativeJogRequest(
+    delta: try Vector2<MachineSpace>(dx: 1, dy: 0),
+    feedMMPerMinute: 60
+  )
+  var exchanges = ControllerTranscriptFixtures.successfulPassiveProbe()
+  exchanges[2] = ControllerTranscriptFixtures.exchange(
+    .status,
+    chunks: ["<Idle|MPos:0.000,0.000,0.000>\r\n"]
+  )
+  exchanges.append(contentsOf: [
+    interpreterStatusExchange("<Idle|MPos:0.000,0.000,0.000>"),
+    SimulatedCommandExchange(
+      expectedWrite: MachineController.encodePenActuation(.raise),
+      reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+    ),
+    SimulatedCommandExchange(
+      expectedWrite: MachineController.encodePenSettle,
+      reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+    ),
+    interpreterStatusExchange("<Idle|MPos:0.000,0.000,0.000>"),
+    SimulatedCommandExchange(
+      expectedWrite: MachineController.encodeRelativeJog(request),
+      reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+    ),
+    interpreterStatusExchange("<Jog|MPos:0.200,0.000,0.000>"),
+    SimulatedCommandExchange(
+      expectedWrite: MachineController.encodeJogCancel,
+      reads: []
+    ),
+  ])
+  let writesThroughCancel = exchanges.count
+  exchanges.append(interpreterStatusExchange("<Idle|MPos:0.400,0.000,0.000>"))
+
+  let clock = DeterministicRuntimeClock()
+  let link = SimulatedGRBLLink(exchanges: exchanges, clock: clock)
+  let gate = InterpreterMachineReadGate()
+  let blockingLink = InterpreterPostJogReadBlockingLink(
+    base: link,
+    jogBytes: MachineController.encodeRelativeJog(request),
+    gate: gate
+  )
+  let controller = MachineController(
+    link: blockingLink,
+    motionLimits: try MotionLimits(
+      bounds: AxisAlignedBounds<MachineSpace>(minX: -2, minY: -2, maxX: 2, maxY: 2),
+      maximumDistanceMM: 1,
+      maximumFeedMMPerMinute: 60
+    ),
+    clock: clock,
+    queryTimeoutNanoseconds: 1_000,
+    statusPollIntervalNanoseconds: 1,
+    completionGraceNanoseconds: 1_000
+  )
+  let interpreter = RunInterpreter(machineController: controller)
+  _ = try await interpreter.requestPassiveProbe()
+  #expect(
+    await interpreter.requestPenActuation(.raise)
+      == .commandedAndSettled(command: .raise, commandedState: .up)
+  )
+  return (interpreter, request, link, gate, writesThroughCancel)
+}
+
+private func waitForInterpreterWriteCount(
+  _ link: SimulatedGRBLLink,
+  atLeast expected: Int
+) async {
+  for _ in 0..<1_000 {
+    if link.completedWriteCount >= expected { return }
+    await Task.yield()
+  }
+  Issue.record(
+    "Timed out waiting for \(expected) interpreter writes; observed \(link.completedWriteCount)"
+  )
+}
+
+private func waitForInterpreterCancelTransmission(_ interpreter: RunInterpreter) async {
+  for _ in 0..<1_000 {
+    if await interpreter.snapshot().lastJogCancelOutcome == .transmitted { return }
+    await Task.yield()
+  }
+  Issue.record("Timed out waiting for the interpreter to project Jog Cancel transmission")
+}
+
+private actor InterpreterMachineReadGate {
+  private var reached = false
+  private var released = false
+  private var reachedWaiters: [CheckedContinuation<Void, Never>] = []
+  private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+
+  func waitUntilBlockedRead() async {
+    guard !reached else { return }
+    await withCheckedContinuation { reachedWaiters.append($0) }
+  }
+
+  func block() async {
+    reached = true
+    let observers = reachedWaiters
+    reachedWaiters.removeAll(keepingCapacity: false)
+    for observer in observers { observer.resume() }
+    guard !released else { return }
+    await withCheckedContinuation { releaseWaiters.append($0) }
+  }
+
+  func release() {
+    released = true
+    let waiters = releaseWaiters
+    releaseWaiters.removeAll(keepingCapacity: false)
+    for waiter in waiters { waiter.resume() }
+  }
+}
+
+private actor InterpreterPostJogReadState {
+  private let jogBytes: Data
+  private var jogWritten = false
+  private var blockNextRead = false
+  private var didBlock = false
+
+  init(jogBytes: Data) {
+    self.jogBytes = jogBytes
+  }
+
+  func noteWrite(_ bytes: Data) {
+    if bytes == jogBytes {
+      jogWritten = true
+    } else if jogWritten, bytes == PassiveQuery.status.wireBytes, !didBlock {
+      blockNextRead = true
+    }
+  }
+
+  func consumeBlockFlag() -> Bool {
+    guard blockNextRead, !didBlock else { return false }
+    blockNextRead = false
+    didBlock = true
+    return true
+  }
+}
+
+private final class InterpreterPostJogReadBlockingLink: MachineLink, @unchecked Sendable {
+  let descriptor: MachineLinkDescriptor
+  private let base: any MachineLink
+  private let state: InterpreterPostJogReadState
+  private let gate: InterpreterMachineReadGate
+
+  init(base: any MachineLink, jogBytes: Data, gate: InterpreterMachineReadGate) {
+    self.base = base
+    state = InterpreterPostJogReadState(jogBytes: jogBytes)
+    self.gate = gate
+    descriptor = base.descriptor
+  }
+
+  func open() async throws { try await base.open() }
+  func close() async { await base.close() }
+  func discardPendingInput() async throws { try await base.discardPendingInput() }
+
+  func write(_ bytes: Data) async throws {
+    try await base.write(bytes)
+    await state.noteWrite(bytes)
+  }
+
+  func read(maximumBytes: Int, timeoutNanoseconds: UInt64) async throws -> Data {
+    if await state.consumeBlockFlag() { await gate.block() }
+    return try await base.read(
+      maximumBytes: maximumBytes,
+      timeoutNanoseconds: timeoutNanoseconds
+    )
+  }
 }
 
 private struct ObservationCall: Equatable, Sendable {

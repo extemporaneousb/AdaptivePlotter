@@ -7,7 +7,8 @@ import SwiftUI
 struct AdaptivePlotterApp: App {
   @State private var workspace = OperatorWorkspace(
     machineActions: MachineSessionComposition.actions,
-    cameraActions: CameraComposition.actions
+    cameraActions: CameraComposition.actions,
+    voiceActions: VoiceComposition.actions
   )
 
   var body: some Scene {
@@ -16,6 +17,35 @@ struct AdaptivePlotterApp: App {
         .frame(minWidth: 1_180, minHeight: 760)
     }
   }
+}
+
+private enum VoiceComposition {
+  private static let driver = NativeVoiceInteractionDriver(
+    recognitionPolicy: .onDeviceRequired
+  )
+  private static let speech = NativeVoiceSpeechOutput()
+
+  static let actions = OperatorWorkspace.VoiceActions(
+    requestAuthorization: { await driver.requestAuthorization() },
+    startListening: {
+      await driver.startListening()
+      switch await driver.snapshot().listeningState {
+      case .listening:
+        return
+      case .failed(let error):
+        throw error
+      case .stopped, .requestingPermission:
+        throw VoiceInteractionError.recognition(
+          "The recognizer did not enter the listening state."
+        )
+      }
+    },
+    stopListening: { await driver.stopListening() },
+    snapshot: { await driver.snapshot() },
+    transcripts: { await driver.transcripts() },
+    speak: { text in await speech.speak(text) },
+    stopSpeaking: { await speech.stopSpeaking() }
+  )
 }
 
 struct OperatorWorkspaceView: View {
@@ -372,6 +402,52 @@ private struct MotionPanel: View {
         Text("Pen down: \(reason)")
           .font(.caption)
           .foregroundStyle(.orange)
+      }
+
+      Divider()
+
+      Text("VOICE OPERATOR")
+        .font(.caption.monospaced().bold())
+        .foregroundStyle(.secondary)
+
+      HStack {
+        Button("Start Listening") { Task { await workspace.startVoiceListening() } }
+          .buttonStyle(.borderedProminent)
+          .disabled(workspace.voiceListeningUnavailableReason != nil)
+        Button("Stop Listening") { Task { await workspace.stopVoiceListening() } }
+          .disabled(!workspace.voiceListening)
+        Button("Cancel Jog") {
+          Task {
+            await workspace.handleVoiceIntent(.cancelCurrentMotion)
+          }
+        }
+        .buttonStyle(.bordered)
+        .tint(.orange)
+        .disabled(workspace.jogCancelUnavailableReason != nil)
+      }
+      .controlSize(.small)
+
+      Text(
+        "Closed local commands can request a bounded axis move, raise the pen, report current facts, or cancel the current jog. Voice cannot lower the pen. Cancel Jog is a controller jog-cancel request, not an emergency stop."
+      )
+      .font(.caption2)
+      .foregroundStyle(.secondary)
+
+      fact("Permission", workspace.voicePermissionText)
+      fact("Listening", workspace.voiceListeningText)
+      fact("Transcript", workspace.voiceTranscriptText)
+      fact("Understood", workspace.lastVoiceIntentText)
+      fact("Voice result", workspace.lastVoiceActionableResultText)
+      fact("Last spoken", workspace.lastSpokenFeedbackText)
+      fact("Jog cancel", workspace.lastJogCancelOutcomeText)
+
+      if let reason = workspace.voiceListeningUnavailableReason,
+        !workspace.voiceListening
+      {
+        Text(reason).font(.caption).foregroundStyle(.orange)
+      }
+      if let reason = workspace.jogCancelUnavailableReason {
+        Text("Cancel jog: \(reason)").font(.caption).foregroundStyle(.orange)
       }
     }
   }

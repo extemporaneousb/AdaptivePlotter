@@ -26,6 +26,8 @@ public struct MachineSnapshot: Codable, Hashable, Sendable {
   public let operationInFlight: Bool
   public let lastMotionOutcome: MotionOutcome?
   public let lastPenOutcome: PenOutcome?
+  public let jogCancellationInFlight: Bool
+  public let lastJogCancelOutcome: JogCancelOutcome?
 
   public init(
     connection: MachineConnectionState,
@@ -40,7 +42,9 @@ public struct MachineSnapshot: Codable, Hashable, Sendable {
     motionLimits: MotionLimits? = nil,
     operationInFlight: Bool = false,
     lastMotionOutcome: MotionOutcome? = nil,
-    lastPenOutcome: PenOutcome? = nil
+    lastPenOutcome: PenOutcome? = nil,
+    jogCancellationInFlight: Bool = false,
+    lastJogCancelOutcome: JogCancelOutcome? = nil
   ) {
     self.connection = connection
     self.link = link
@@ -55,6 +59,8 @@ public struct MachineSnapshot: Codable, Hashable, Sendable {
     self.operationInFlight = operationInFlight
     self.lastMotionOutcome = lastMotionOutcome
     self.lastPenOutcome = lastPenOutcome
+    self.jogCancellationInFlight = jogCancellationInFlight
+    self.lastJogCancelOutcome = lastJogCancelOutcome
   }
 }
 
@@ -84,6 +90,11 @@ public actor MachineController {
     case passiveProbe
     case relativeJog
     case penActuation
+  }
+
+  private enum JogCancellationProgress {
+    case transmitting
+    case transmitted
   }
 
   private struct WireRelativeJog {
@@ -137,6 +148,14 @@ public actor MachineController {
   private var activeOperation: ActiveOperation?
   private var lastMotionOutcome: MotionOutcome?
   private var lastPenOutcome: PenOutcome?
+  private var activeJogCommandTransmitted = false
+  private var jogCancellationProgress: JogCancellationProgress?
+  private var jogCancellationContinuation: CheckedContinuation<JogCancelOutcome, Never>?
+  private var cancelWriteResolutionWaiters: [CheckedContinuation<Void, Never>] = []
+  private var lastJogCancelOutcome: JogCancelOutcome?
+  private var wireWriteInProgress = false
+  private var priorityWireWriteWaiters: [CheckedContinuation<Void, Never>] = []
+  private var regularWireWriteWaiters: [CheckedContinuation<Void, Never>] = []
 
   public init(
     link: any MachineLink,
@@ -209,7 +228,9 @@ public actor MachineController {
       motionLimits: motionLimits,
       operationInFlight: activeOperation != nil,
       lastMotionOutcome: lastMotionOutcome,
-      lastPenOutcome: lastPenOutcome
+      lastPenOutcome: lastPenOutcome,
+      jogCancellationInFlight: jogCancellationProgress != nil,
+      lastJogCancelOutcome: lastJogCancelOutcome
     )
   }
 
@@ -287,6 +308,90 @@ public actor MachineController {
     await executeRelativeJog(request)
   }
 
+  /// Requests GRBL's realtime Jog Cancel for the one currently transmitted
+  /// `$J` operation. This is not feed hold and it is not an emergency stop.
+  /// The byte has no ordinary acknowledgement, so the original jog poll remains
+  /// the sole reader and resolves this request only after observing Idle.
+  public func requestJogCancel() async -> JogCancelOutcome {
+    guard selectionIsExplicit else {
+      return finishJogCancel(.refused(.noSerialDeviceSelected))
+    }
+    if let stickyAmbiguity {
+      return finishJogCancel(.refused(.stickyAmbiguity(stickyAmbiguity)))
+    }
+    guard connection == .moving else {
+      return finishJogCancel(.refused(connection == .disconnected ? .notConnected : .noActiveJog))
+    }
+    guard activeOperation == .relativeJog else {
+      return finishJogCancel(.refused(.noActiveJog))
+    }
+    guard jogCancellationProgress == nil else {
+      return finishJogCancel(.refused(.alreadyRequested), replaceLastOutcome: false)
+    }
+
+    jogCancellationProgress = .transmitting
+    await acquireWireWrite(priority: true)
+    if let stickyAmbiguity {
+      releaseWireWrite()
+      resolveCancelWriteWaiters()
+      return finishJogCancel(.ambiguous(stickyAmbiguity))
+    }
+    guard activeOperation == .relativeJog,
+      activeJogCommandTransmitted,
+      jogCancellationProgress == .transmitting
+    else {
+      releaseWireWrite()
+      jogCancellationProgress = nil
+      resolveCancelWriteWaiters()
+      return finishJogCancel(.refused(.noActiveJog))
+    }
+    do {
+      try await link.write(Self.encodeJogCancel)
+      let outcomeAfterWrite: JogCancelOutcome?
+      if let stickyAmbiguity {
+        outcomeAfterWrite = .ambiguous(stickyAmbiguity)
+      } else if activeOperation != .relativeJog
+        || !activeJogCommandTransmitted
+        || jogCancellationProgress != .transmitting
+      {
+        outcomeAfterWrite = .refused(.noActiveJog)
+      } else {
+        jogCancellationProgress = .transmitted
+        lastJogCancelOutcome = .transmitted
+        outcomeAfterWrite = nil
+      }
+      releaseWireWrite()
+      recordRawIOBestEffort(
+        RawMachineIO(
+          direction: .transmit,
+          bytes: Self.encodeJogCancel,
+          timestamp: timestamp()
+        )
+      )
+      if let outcomeAfterWrite {
+        resolveCancelWriteWaiters()
+        return finishJogCancel(outcomeAfterWrite)
+      }
+    } catch let error as MachineLinkError {
+      releaseWireWrite()
+      let reason = ambiguityForCancelWriteError(error)
+      setAmbiguous(reason)
+      resolveCancelWriteWaiters()
+      return finishJogCancel(.ambiguous(reason))
+    } catch {
+      releaseWireWrite()
+      let reason = MotionAmbiguity.transport(String(describing: error))
+      setAmbiguous(reason)
+      resolveCancelWriteWaiters()
+      return finishJogCancel(.ambiguous(reason))
+    }
+
+    resolveCancelWriteWaiters()
+    return await withCheckedContinuation { continuation in
+      jogCancellationContinuation = continuation
+    }
+  }
+
   private func executeRelativeJog(
     _ request: RelativeJogRequest
   ) async -> MotionExecutionResult {
@@ -309,6 +414,13 @@ public actor MachineController {
 
     activeOperation = .relativeJog
     defer {
+      activeJogCommandTransmitted = false
+      if jogCancellationProgress != nil {
+        let reason = stickyAmbiguity
+          ?? .transport("jog ended without a final Jog Cancel outcome")
+        completeActiveJogCancellation(.ambiguous(reason))
+      }
+      jogCancellationProgress = nil
       activeOperation = nil
       if connection == .moving { connection = .connected }
     }
@@ -355,7 +467,8 @@ public actor MachineController {
     connection = .moving
     let command = wire.bytes
     do {
-      try await link.write(command)
+      try await serializedWrite(command)
+      activeJogCommandTransmitted = true
       recordRawIOBestEffort(
         RawMachineIO(direction: .transmit, bytes: command, timestamp: timestamp())
       )
@@ -373,6 +486,9 @@ public actor MachineController {
       break
     case .rejected(let reason):
       connection = .connected
+      if jogCancellationProgress != nil {
+        completeActiveJogCancellation(.refused(.noActiveJog))
+      }
       let outcome = MotionOutcome.refused(.controllerRejected(reason))
       return finishMotionExecution(request: request, outcome: outcome)
     case .ambiguous(let reason):
@@ -392,6 +508,9 @@ public actor MachineController {
         apply(report)
         switch report.controllerState {
         case .idle:
+          if jogCancellationProgress == .transmitting {
+            await waitForCancelWriteResolution()
+          }
           guard let finalPosition = report.machinePosition else {
             return finishMotionExecution(
               request: request,
@@ -399,6 +518,19 @@ public actor MachineController {
             )
           }
           connection = .connected
+          if jogCancellationProgress == .transmitted {
+            completeActiveJogCancellation(.completed(finalPosition: finalPosition))
+            return finishMotionExecution(
+              request: request,
+              outcome: .cancelled(finalPosition: finalPosition)
+            )
+          }
+          if let stickyAmbiguity {
+            return finishMotionExecution(
+              request: request,
+              outcome: .ambiguous(stickyAmbiguity)
+            )
+          }
           let outcome = MotionOutcome.acceptedThenCompleted(finalPosition: finalPosition)
           let evidence = CompletedMotionEvidence(
             request: request,
@@ -658,6 +790,10 @@ public actor MachineController {
     makeWireRelativeJog(request).wire?.bytes ?? Data()
   }
 
+  /// GRBL/grblHAL realtime Jog Cancel. This is deliberately not the feed-hold
+  /// byte (`!`) and not an emergency-stop claim.
+  public static let encodeJogCancel = Data([0x85])
+
   private func ensureConnected() async throws {
     if connection == .connected || connection == .probing || connection == .moving
       || connection == .actuatingPen
@@ -797,8 +933,41 @@ public actor MachineController {
     case ambiguous(MotionAmbiguity)
   }
 
-  private func writePhysicalCommand(_ bytes: Data) async throws {
+  private func acquireWireWrite(priority: Bool) async {
+    guard wireWriteInProgress else {
+      wireWriteInProgress = true
+      return
+    }
+    await withCheckedContinuation { continuation in
+      if priority {
+        priorityWireWriteWaiters.append(continuation)
+      } else {
+        regularWireWriteWaiters.append(continuation)
+      }
+    }
+  }
+
+  private func releaseWireWrite() {
+    let continuation: CheckedContinuation<Void, Never>?
+    if !priorityWireWriteWaiters.isEmpty {
+      continuation = priorityWireWriteWaiters.removeFirst()
+    } else if !regularWireWriteWaiters.isEmpty {
+      continuation = regularWireWriteWaiters.removeFirst()
+    } else {
+      wireWriteInProgress = false
+      continuation = nil
+    }
+    continuation?.resume()
+  }
+
+  private func serializedWrite(_ bytes: Data) async throws {
+    await acquireWireWrite(priority: false)
+    defer { releaseWireWrite() }
     try await link.write(bytes)
+  }
+
+  private func writePhysicalCommand(_ bytes: Data) async throws {
+    try await serializedWrite(bytes)
     recordRawIOBestEffort(
       RawMachineIO(direction: .transmit, bytes: bytes, timestamp: timestamp())
     )
@@ -866,7 +1035,7 @@ public actor MachineController {
   private func requestMotionStatus(deadline: UInt64) async -> MotionStatusResult {
     let query = PassiveQuery.status.wireBytes
     do {
-      try await link.write(query)
+      try await serializedWrite(query)
       recordRawIOBestEffort(
         RawMachineIO(direction: .transmit, bytes: query, timestamp: timestamp())
       )
@@ -962,6 +1131,26 @@ public actor MachineController {
     }
   }
 
+  private func ambiguityForCancelWriteError(_ error: MachineLinkError) -> MotionAmbiguity {
+    switch error {
+    case .writeTimedOut(let written, let total):
+      if written > 0 {
+        return .partialWrite(bytesWritten: written, totalBytes: total)
+      }
+      return .writeTimedOut(bytesWritten: written, totalBytes: total)
+    case .writeCancelled(let written, let total):
+      if written > 0 {
+        return .partialWrite(bytesWritten: written, totalBytes: total)
+      }
+      return .writeCancelled(bytesWritten: written, totalBytes: total)
+    case .disconnected, .notOpen:
+      invalidateConnectionKnowledge()
+      return .disconnected
+    default:
+      return .transport(String(describing: error))
+    }
+  }
+
   private func penOutcomeForWriteError(_ error: MachineLinkError) -> PenOutcome {
     switch error {
     case .writeTimedOut(let written, let total):
@@ -995,6 +1184,40 @@ public actor MachineController {
   private func setAmbiguous(_ reason: MotionAmbiguity) {
     stickyAmbiguity = reason
     penState = .unknown
+    if jogCancellationProgress != nil {
+      completeActiveJogCancellation(.ambiguous(reason))
+    }
+  }
+
+  @discardableResult
+  private func finishJogCancel(
+    _ outcome: JogCancelOutcome,
+    replaceLastOutcome: Bool = true
+  ) -> JogCancelOutcome {
+    if replaceLastOutcome { lastJogCancelOutcome = outcome }
+    return outcome
+  }
+
+  private func completeActiveJogCancellation(_ outcome: JogCancelOutcome) {
+    lastJogCancelOutcome = outcome
+    jogCancellationProgress = nil
+    resolveCancelWriteWaiters()
+    let continuation = jogCancellationContinuation
+    jogCancellationContinuation = nil
+    continuation?.resume(returning: outcome)
+  }
+
+  private func waitForCancelWriteResolution() async {
+    guard jogCancellationProgress == .transmitting else { return }
+    await withCheckedContinuation { continuation in
+      cancelWriteResolutionWaiters.append(continuation)
+    }
+  }
+
+  private func resolveCancelWriteWaiters() {
+    let waiters = cancelWriteResolutionWaiters
+    cancelWriteResolutionWaiters.removeAll(keepingCapacity: false)
+    for waiter in waiters { waiter.resume() }
   }
 
   private func finishMotion(request: RelativeJogRequest, outcome: MotionOutcome) -> MotionOutcome {
@@ -1058,7 +1281,7 @@ public actor MachineController {
     let deadline = addingClamped(clock.nowNanoseconds(), queryTimeoutNanoseconds)
 
     do {
-      try await link.write(bytes)
+      try await serializedWrite(bytes)
       let transmitted = RawMachineIO(direction: .transmit, bytes: bytes, timestamp: timestamp())
       rawIO.append(transmitted)
       recordRawIOBestEffort(transmitted)
