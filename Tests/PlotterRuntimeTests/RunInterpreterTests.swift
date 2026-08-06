@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 import PlotterModel
-import PlotterRuntime
+@testable import PlotterRuntime
 import PlotterTestSupport
 import Testing
 
@@ -141,7 +141,7 @@ struct RunInterpreterTests {
 
   @Test("pen operation serializes against jog")
   func penSerializesAgainstJog() async throws {
-    let clock = SystemRuntimeClock()
+    let clock = DeterministicRuntimeClock()
     var exchanges = ControllerTranscriptFixtures.successfulPassiveProbe(
       delayNanoseconds: 0
     )
@@ -179,14 +179,227 @@ struct RunInterpreterTests {
       feedMMPerMinute: 60
     )
 
-    async let pen = interpreter.requestPenActuation(.raise)
-    await gate.waitUntilBlockedWrite()
-    let jogOutcome = await interpreter.requestRelativeJog(jog)
+    let penStarted = TaskStartHandshake()
+    let penTask = Task {
+      await penStarted.markStarted()
+      return await interpreter.requestPenActuation(.raise)
+    }
+    defer { penTask.cancel() }
+
+    await penStarted.waitUntilStarted()
+    await Task.yield()
+    let (jogOutcome, penOutcome) = await withTaskCancellationHandler {
+      await gate.waitUntilBlockedWrite()
+      let jogOutcome = await interpreter.requestRelativeJog(jog)
+      await gate.release()
+      return (jogOutcome, await penTask.value)
+    } onCancel: {
+      penTask.cancel()
+      Task { await gate.release() }
+    }
 
     #expect(jogOutcome == .refused(.operationInFlight))
-    await gate.release()
-    #expect(await pen == .commandedAndSettled(command: .raise, commandedState: .up))
+    #expect(penOutcome == .commandedAndSettled(command: .raise, commandedState: .up))
     #expect(scriptedLink.completedWriteCount == PassiveQuery.allCases.count + 3)
+  }
+
+  @Test("failed before observation sends no machine writes")
+  func failedBeforeObservationSendsNoMachineWrites() async throws {
+    let fixture = try await InterpreterFixture.make()
+    let request = try physicalJogRequest()
+
+    let outcome = await fixture.interpreter.requestObservedJog(
+      request,
+      observe: { phase, newerThan in
+        #expect(phase == .beforeMotion)
+        #expect(newerThan == 0)
+        return .failure(.frameUnavailable(.beforeMotion))
+      }
+    )
+
+    #expect(
+      outcome == .notRecorded(
+        motionOutcome: nil,
+        failure: .frameUnavailable(.beforeMotion)
+      )
+    )
+    #expect(fixture.link.completedWriteCount == 0)
+    #expect(await fixture.interpreter.snapshot().lastMotionOutcome == nil)
+  }
+
+  @Test("observed jog captures strictly ordered evidence around one motion")
+  func observedJogCapturesStrictlyOrderedEvidence() async throws {
+    let request = try physicalJogRequest()
+    let before = try await visibleObservation(
+      id: "before", sequence: 1, captureNanoseconds: 100)
+    let midMotion = try await visibleObservation(
+      id: "mid-motion", sequence: 2, captureNanoseconds: 200, capOffsetX: 1)
+    let after = try await visibleObservation(
+      id: "after", sequence: 3, captureNanoseconds: 350, capOffsetX: 3, capOffsetY: -2)
+    let script = FreshObservationScript(before: before, postCandidates: [midMotion, after])
+    let fixture = try await readyObservedJogFixture(
+      request: request.motion,
+      clockStartNanoseconds: 100,
+      finalStatusDelayNanoseconds: 150
+    )
+    let writesBeforeMotion = fixture.link.completedWriteCount
+
+    let outcome = await fixture.interpreter.requestObservedJog(
+      request,
+      observe: { phase, newerThan in
+        await script.next(phase: phase, newerThan: newerThan)
+      }
+    )
+
+    guard case .recorded(let observation) = outcome else {
+      Issue.record("Expected a recorded observed jog, got \(outcome)")
+      return
+    }
+    let expectedStart = try MachinePosition(x: 0, y: 0)
+    let expectedFinal = try MachinePosition(x: 1, y: 0)
+    let expectedCameraDelta = try Vector2<CameraPixelSpace>(dx: 3, dy: -2)
+    #expect(observation.startPosition == expectedStart)
+    #expect(observation.finalPosition == expectedFinal)
+    #expect(observation.startControllerSampleNanoseconds == 150)
+    #expect(observation.finalControllerSampleNanoseconds == 300)
+    #expect(observation.before.captureNanoseconds <= observation.startControllerSampleNanoseconds)
+    #expect(observation.after.captureNanoseconds > observation.finalControllerSampleNanoseconds)
+    #expect(observation.before == before)
+    #expect(observation.after == after)
+    #expect(observation.cameraDelta == expectedCameraDelta)
+    #expect(
+      await script.calls == [
+        ObservationCall(phase: .beforeMotion, newerThan: 0),
+        ObservationCall(phase: .afterMotion, newerThan: 300),
+      ]
+    )
+    #expect(fixture.link.completedWriteCount == writesBeforeMotion + 3)
+    let snapshot = await fixture.interpreter.snapshot()
+    #expect(snapshot.currentOperation == .idle)
+    #expect(snapshot.lastMotionOutcome == .acceptedThenCompleted(
+      finalPosition: try MachinePosition(x: 1, y: 0)))
+    #expect(snapshot.lastPhysicalJogObservationOutcome == outcome)
+  }
+
+  @Test("motion refusal skips after observation and preserves the refusal")
+  func motionRefusalSkipsAfterObservation() async throws {
+    let fixture = try await InterpreterFixture.make()
+    let before = try await visibleObservation(
+      id: "before", sequence: 1, captureNanoseconds: 10)
+    let script = ObservationScript(results: [.success(before)])
+    let request = try physicalJogRequest()
+
+    let outcome = await fixture.interpreter.requestObservedJog(
+      request,
+      observe: { phase, newerThan in
+        await script.next(phase: phase, newerThan: newerThan)
+      }
+    )
+    let refusal = MotionOutcome.refused(.notConnected)
+
+    #expect(
+      outcome == .notRecorded(
+        motionOutcome: refusal,
+        failure: .motionNotCompleted(refusal)
+      )
+    )
+    #expect(await script.calls.count == 1)
+    #expect(fixture.link.completedWriteCount == 0)
+  }
+
+  @Test("missing post-completion frame preserves completed motion without resend")
+  func missingPostCompletionFramePreservesCompletedMotion() async throws {
+    let request = try physicalJogRequest()
+    let before = try await visibleObservation(
+      id: "before", sequence: 1, captureNanoseconds: 100)
+    let midMotion = try await visibleObservation(
+      id: "mid-motion", sequence: 2, captureNanoseconds: 200, capOffsetX: 1)
+    let script = FreshObservationScript(before: before, postCandidates: [midMotion])
+    let fixture = try await readyObservedJogFixture(
+      request: request.motion,
+      clockStartNanoseconds: 100,
+      finalStatusDelayNanoseconds: 150
+    )
+    let writesBeforeMotion = fixture.link.completedWriteCount
+    let completed = MotionOutcome.acceptedThenCompleted(
+      finalPosition: try MachinePosition(x: 1, y: 0))
+
+    let outcome = await fixture.interpreter.requestObservedJog(
+      request,
+      observe: { phase, newerThan in
+        await script.next(phase: phase, newerThan: newerThan)
+      }
+    )
+
+    #expect(
+      outcome == .notRecorded(
+        motionOutcome: completed,
+        failure: .frameUnavailable(.afterMotion)
+      )
+    )
+    #expect(
+      await script.calls == [
+        ObservationCall(phase: .beforeMotion, newerThan: 0),
+        ObservationCall(phase: .afterMotion, newerThan: 300),
+      ]
+    )
+    #expect(fixture.link.completedWriteCount == writesBeforeMotion + 3)
+    let snapshot = await fixture.interpreter.snapshot()
+    #expect(snapshot.lastMotionOutcome == completed)
+    #expect(snapshot.machine.stickyAmbiguity == nil)
+    let expectedFinal = try MachinePosition(x: 1, y: 0)
+    #expect(snapshot.machine.position == expectedFinal)
+  }
+
+  @Test("observed operation refuses duplicate jog pen and probe requests")
+  func observedOperationSerializesAllPhysicalRequests() async throws {
+    let fixture = try await InterpreterFixture.make()
+    let request = try physicalJogRequest()
+    let gate = BlockingObservation()
+    let observedTask = Task {
+      await fixture.interpreter.requestObservedJog(
+        request,
+        observe: { phase, newerThan in
+          await gate.observe(phase: phase, newerThan: newerThan)
+        }
+      )
+    }
+    await gate.waitUntilRequested()
+
+    #expect(
+      await fixture.interpreter.requestRelativeJog(request.motion)
+        == .refused(.operationInFlight)
+    )
+    #expect(
+      await fixture.interpreter.requestPenActuation(.raise)
+        == .refused(.operationInFlight)
+    )
+    await #expect(throws: RunInterpreterError.transitionAlreadyInFlight) {
+      try await fixture.interpreter.requestPassiveProbe()
+    }
+    let duplicate = await fixture.interpreter.requestObservedJog(
+      request,
+      observe: { _, _ in
+        Issue.record("A duplicate observed jog must not request a camera frame")
+        return .failure(.frameUnavailable(.beforeMotion))
+      }
+    )
+    let refused = MotionOutcome.refused(.operationInFlight)
+    #expect(
+      duplicate == .notRecorded(
+        motionOutcome: refused,
+        failure: .motionNotCompleted(refused)
+      )
+    )
+
+    await gate.release(with: .failure(.frameUnavailable(.beforeMotion)))
+    #expect(
+      await observedTask.value == .notRecorded(
+        motionOutcome: nil,
+        failure: .frameUnavailable(.beforeMotion)
+      )
+    )
+    #expect(fixture.link.completedWriteCount == 0)
   }
 
   @Test("pre-command open failure records the current failure and probe finish")
@@ -235,11 +448,274 @@ struct RunInterpreterTests {
   }
 }
 
-private func interpreterStatusExchange(_ status: String) -> SimulatedCommandExchange {
+private func interpreterStatusExchange(
+  _ status: String,
+  delayNanoseconds: UInt64 = 0
+) -> SimulatedCommandExchange {
   SimulatedCommandExchange(
     expectedWrite: PassiveQuery.status.wireBytes,
-    reads: [ScheduledMachineRead(outcome: .bytes(Data("\(status)\r\n".utf8)))]
+    reads: [
+      ScheduledMachineRead(
+        delayNanoseconds: delayNanoseconds,
+        outcome: .bytes(Data("\(status)\r\n".utf8))
+      )
+    ]
   )
+}
+
+private func physicalJogRequest() throws -> PhysicalJogObservationRequest {
+  PhysicalJogObservationRequest(
+    motion: RelativeJogRequest(
+      delta: try Vector2<MachineSpace>(dx: 1, dy: 0),
+      feedMMPerMinute: 60
+    ),
+    split: .training
+  )
+}
+
+private func visibleObservation(
+  id: String,
+  sequence: UInt64,
+  captureNanoseconds: UInt64,
+  configurationID: CameraConfigurationID = CameraConfigurationID(
+    UUID(uuidString: "00000000-0000-0000-0000-000000000123")!
+  ),
+  capOffsetX: Int = 0,
+  capOffsetY: Int = 0
+) async throws -> VisibleToolFrameObservation {
+  let frame = try observedJogCapFrame(
+    id: FrameID(rawValue: id),
+    sequence: sequence,
+    captureNanoseconds: captureNanoseconds,
+    configurationID: configurationID,
+    capOffsetX: capOffsetX,
+    capOffsetY: capOffsetY
+  )
+  return try VisibleToolFrameObservation(
+    phase: sequence == 1 ? .beforeMotion : .afterMotion,
+    displayedFrame: DisplayedFrame(
+      source: .live(CameraDeviceID(rawValue: "observed-jog-camera")),
+      frame: frame
+    ),
+    measurement: try await observedJogSceneMeasurement(frame)
+  )
+}
+
+private func observedJogCapFrame(
+  id: FrameID,
+  sequence: UInt64,
+  captureNanoseconds: UInt64,
+  configurationID: CameraConfigurationID,
+  capOffsetX: Int,
+  capOffsetY: Int
+) throws -> StampedFrame {
+  let width = 12
+  let height = 12
+  var bytes = Array(repeating: UInt8(0), count: width * height * 4)
+  for y in (4 + capOffsetY)...(5 + capOffsetY) {
+    for x in (4 + capOffsetX)...(5 + capOffsetX) {
+      let offset = (y * width + x) * 4
+      bytes[offset + 1] = 255
+      bytes[offset + 3] = 255
+    }
+  }
+  return try StampedFrame(
+    id: id,
+    sequence: sequence,
+    captureNanoseconds: captureNanoseconds,
+    cameraConfigurationID: configurationID,
+    width: width,
+    height: height,
+    rowBytes: width * 4,
+    pixelFormat: .bgra8,
+    bytes: OwnedFrameBytes(bytes)
+  )
+}
+
+private func observedJogSceneMeasurement(
+  _ frame: StampedFrame
+) async throws -> PlotterSceneMeasurement {
+  let priors = try PlotterSceneVisionPriors(
+    capSearchRegion: PixelRect(x: 0, y: 0, width: frame.width, height: frame.height),
+    topFrameSideRegion: PixelRect(x: 0, y: 0, width: frame.width, height: 3),
+    rightFrameSideRegion: PixelRect(
+      x: frame.width - 3,
+      y: 0,
+      width: 3,
+      height: frame.height
+    ),
+    minimumCapPixels: 3,
+    maximumCapPixels: 16,
+    lineResidualLimitPixels: 2,
+    algorithmRevision: "observed-jog-test-v1"
+  )
+  return try await VisionWorker().inspectPlotterScene(in: frame, priors: priors)
+}
+
+private func readyObservedJogFixture(
+  request: RelativeJogRequest,
+  clockStartNanoseconds: UInt64 = 1_000_000,
+  finalStatusDelayNanoseconds: UInt64 = 0
+) async throws -> InterpreterFixture {
+  var exchanges = ControllerTranscriptFixtures.successfulPassiveProbe()
+  exchanges[2] = ControllerTranscriptFixtures.exchange(
+    .status,
+    chunks: ["<Idle|MPos:0.000,0.000,0.000>\r\n"]
+  )
+  exchanges.append(contentsOf: [
+    interpreterStatusExchange("<Idle|MPos:0.000,0.000,0.000>"),
+    SimulatedCommandExchange(
+      expectedWrite: MachineController.encodePenActuation(.raise),
+      reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+    ),
+    SimulatedCommandExchange(
+      expectedWrite: MachineController.encodePenSettle,
+      reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+    ),
+    interpreterStatusExchange("<Idle|MPos:0.000,0.000,0.000>"),
+    SimulatedCommandExchange(
+      expectedWrite: MachineController.encodeRelativeJog(request),
+      reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+    ),
+    interpreterStatusExchange(
+      "<Idle|MPos:1.000,0.000,0.000>",
+      delayNanoseconds: finalStatusDelayNanoseconds
+    ),
+  ])
+  let fixture = try await InterpreterFixture.make(
+    exchanges: exchanges,
+    clock: DeterministicRuntimeClock(startNanoseconds: clockStartNanoseconds)
+  )
+  _ = try await fixture.interpreter.requestPassiveProbe()
+  await fixture.interpreter.updateMotionLimits(
+    try MotionLimits(
+      bounds: AxisAlignedBounds<MachineSpace>(minX: -2, minY: -2, maxX: 2, maxY: 2),
+      maximumDistanceMM: 1,
+      maximumFeedMMPerMinute: 60
+    )
+  )
+  #expect(
+    await fixture.interpreter.requestPenActuation(.raise)
+      == .commandedAndSettled(command: .raise, commandedState: .up)
+  )
+  return fixture
+}
+
+private struct ObservationCall: Equatable, Sendable {
+  let phase: PhysicalObservationPhase
+  let newerThan: UInt64
+}
+
+private actor TaskStartHandshake {
+  private var started = false
+  private var waiters: [CheckedContinuation<Void, Never>] = []
+
+  func markStarted() {
+    started = true
+    let pending = waiters
+    waiters.removeAll(keepingCapacity: false)
+    for waiter in pending { waiter.resume() }
+  }
+
+  func waitUntilStarted() async {
+    guard !started else { return }
+    await withCheckedContinuation { waiters.append($0) }
+  }
+}
+
+private actor ObservationScript {
+  private var results: [
+    Result<VisibleToolFrameObservation, PhysicalJogObservationFailure>
+  ]
+  private(set) var calls: [ObservationCall] = []
+
+  init(
+    results: [Result<VisibleToolFrameObservation, PhysicalJogObservationFailure>]
+  ) {
+    self.results = results
+  }
+
+  func next(
+    phase: PhysicalObservationPhase,
+    newerThan: UInt64
+  ) -> Result<VisibleToolFrameObservation, PhysicalJogObservationFailure> {
+    calls.append(ObservationCall(phase: phase, newerThan: newerThan))
+    guard !results.isEmpty else { return .failure(.frameUnavailable(phase)) }
+    return results.removeFirst()
+  }
+}
+
+private actor FreshObservationScript {
+  private let before: VisibleToolFrameObservation
+  private var postCandidates: [VisibleToolFrameObservation]
+  private(set) var calls: [ObservationCall] = []
+
+  init(
+    before: VisibleToolFrameObservation,
+    postCandidates: [VisibleToolFrameObservation]
+  ) {
+    self.before = before
+    self.postCandidates = postCandidates
+  }
+
+  func next(
+    phase: PhysicalObservationPhase,
+    newerThan: UInt64
+  ) -> Result<VisibleToolFrameObservation, PhysicalJogObservationFailure> {
+    calls.append(ObservationCall(phase: phase, newerThan: newerThan))
+    switch phase {
+    case .beforeMotion:
+      return .success(before)
+    case .afterMotion:
+      guard let index = postCandidates.firstIndex(where: {
+        $0.captureNanoseconds > newerThan
+      }) else {
+        return .failure(.frameUnavailable(.afterMotion))
+      }
+      return .success(postCandidates.remove(at: index))
+    }
+  }
+}
+
+private actor BlockingObservation {
+  private var requested = false
+  private var requestedWaiters: [CheckedContinuation<Void, Never>] = []
+  private var result: Result<VisibleToolFrameObservation, PhysicalJogObservationFailure>?
+  private var resultWaiters: [
+    CheckedContinuation<
+      Result<VisibleToolFrameObservation, PhysicalJogObservationFailure>, Never
+    >
+  ] = []
+
+  func observe(
+    phase _: PhysicalObservationPhase,
+    newerThan _: UInt64
+  ) async -> Result<VisibleToolFrameObservation, PhysicalJogObservationFailure> {
+    requested = true
+    let waiters = requestedWaiters
+    requestedWaiters.removeAll()
+    waiters.forEach { $0.resume() }
+    if let result { return result }
+    return await withCheckedContinuation { continuation in
+      resultWaiters.append(continuation)
+    }
+  }
+
+  func waitUntilRequested() async {
+    if requested { return }
+    await withCheckedContinuation { continuation in
+      requestedWaiters.append(continuation)
+    }
+  }
+
+  func release(
+    with result: Result<VisibleToolFrameObservation, PhysicalJogObservationFailure>
+  ) {
+    self.result = result
+    let waiters = resultWaiters
+    resultWaiters.removeAll()
+    waiters.forEach { $0.resume(returning: result) }
+  }
 }
 
 private func waitForInterpreterLedgerEvent(
@@ -262,7 +738,8 @@ private struct InterpreterFixture {
   let interpreter: RunInterpreter
 
   static func make(
-    exchanges: [SimulatedCommandExchange] = []
+    exchanges: [SimulatedCommandExchange] = [],
+    clock: DeterministicRuntimeClock = DeterministicRuntimeClock()
   ) async throws -> InterpreterFixture {
     let directory = FileManager.default.temporaryDirectory
       .appendingPathComponent("adaptiveplotter-interpreter-\(UUID().uuidString)", isDirectory: true)
@@ -274,7 +751,6 @@ private struct InterpreterFixture {
       buildID: "test",
       createdAt: RuntimeTimestamp(monotonicNanoseconds: 1)
     )
-    let clock = DeterministicRuntimeClock()
     let link = SimulatedGRBLLink(exchanges: exchanges, clock: clock)
     let controller = MachineController(
       link: link,

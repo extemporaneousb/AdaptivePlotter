@@ -1,7 +1,8 @@
 import Foundation
 import PlotterModel
-@testable import PlotterRuntime
 import Testing
+
+@testable import PlotterRuntime
 
 @Suite("Camera capture policy and frame delivery")
 struct CameraCaptureTests {
@@ -356,6 +357,64 @@ struct CameraCaptureTests {
     #expect(try await capture.materializeLatestFrame(newerThanNanoseconds: 150) == nil)
   }
 
+  @Test("only CameraCapture issues live evidence attestations")
+  func liveFrameAttestation() async throws {
+    let device = CameraDevice(id: CameraDeviceID(rawValue: "camera"), name: "Camera")
+    let driver = TestCameraDriver(devices: [device])
+    let capture = CameraCapture(driver: driver)
+    await capture.discoverDevices()
+    await capture.start()
+
+    await driver.emit(capSample(time: 100))
+    try await waitUntil { await capture.diagnostics().receivedFrameCount == 1 }
+    let attestation = try #require(
+      try await capture.materializeLatestAttestedFrame(
+        newerThanNanoseconds: 99
+      )
+    )
+    #expect(attestation.cameraDeviceID == device.id)
+    #expect(attestation.frame.captureNanoseconds == 100)
+    #expect(
+      try await capture.materializeLatestAttestedFrame(
+        newerThanNanoseconds: 100
+      ) == nil
+    )
+
+    let priors = try PlotterSceneVisionPriors(
+      capSearchRegion: PixelRect(x: 0, y: 0, width: 12, height: 12),
+      topFrameSideRegion: PixelRect(x: 0, y: 0, width: 12, height: 3),
+      rightFrameSideRegion: PixelRect(x: 9, y: 0, width: 3, height: 12),
+      minimumCapPixels: 3,
+      maximumCapPixels: 16,
+      lineResidualLimitPixels: 2,
+      algorithmRevision: "attested-cap-test-v1"
+    )
+    let measurement = try await VisionWorker().inspectPlotterScene(
+      in: attestation.frame,
+      priors: priors
+    )
+    let visible = try VisibleToolFrameObservation(
+      phase: .beforeMotion,
+      attestation: attestation,
+      measurement: measurement
+    )
+    #expect(visible.frameID == attestation.frame.id)
+    #expect(visible.frameSHA256 == attestation.frame.contentSHA256)
+  }
+
+  @Test("physical evidence capabilities have no replay conformance")
+  func evidenceCapabilitiesAreNotCodable() {
+    let attestationType: Any.Type = LiveCameraFrameAttestation.self
+    let visibleType: Any.Type = VisibleToolFrameObservation.self
+    let physicalType: Any.Type = PhysicalJogObservation.self
+    #expect(!(attestationType is any Encodable.Type))
+    #expect(!(attestationType is any Decodable.Type))
+    #expect(!(visibleType is any Encodable.Type))
+    #expect(!(visibleType is any Decodable.Type))
+    #expect(!(physicalType is any Encodable.Type))
+    #expect(!(physicalType is any Decodable.Type))
+  }
+
   @Test("simulator emits the same displayed-frame contract with a known transform")
   func simulatorContract() throws {
     let transform = try AffineTransform2<FieldSpace, CameraPixelSpace>(
@@ -477,6 +536,27 @@ private func sample(value: UInt8, time: UInt64) -> CameraDriverEvent {
       height: 1,
       rowBytes: 4,
       bytes: Data(repeating: value, count: 4),
+      captureNanoseconds: time
+    ))
+}
+
+private func capSample(time: UInt64) -> CameraDriverEvent {
+  let width = 12
+  let height = 12
+  var bytes = Array(repeating: UInt8(0), count: width * height * 4)
+  for y in 4...5 {
+    for x in 4...5 {
+      let offset = (y * width + x) * 4
+      bytes[offset + 1] = 255
+      bytes[offset + 3] = 255
+    }
+  }
+  return .frame(
+    CapturedBGRAFrame(
+      width: width,
+      height: height,
+      rowBytes: width * 4,
+      bytes: Data(bytes),
       captureNanoseconds: time
     ))
 }

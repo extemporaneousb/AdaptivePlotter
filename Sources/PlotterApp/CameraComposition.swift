@@ -39,10 +39,27 @@ enum CameraComposition {
     analysisUpdates: {
       await session.analysisUpdates()
     },
+    observeVisibleTool: { phase, boundary in
+      await session.observeVisibleTool(phase: phase, newerThanNanoseconds: boundary)
+    },
     simulatedContent: { mode in
       try await session.simulatedContent(mode: mode)
     }
   )
+}
+
+func boundedlyAwaitNewestCameraValue<Value: Sendable>(
+  maximumAttempts: Int = 40,
+  pollIntervalNanoseconds: UInt64 = 25_000_000,
+  load: @Sendable () async throws -> Value?
+) async throws -> Value? {
+  precondition(maximumAttempts > 0)
+  for attempt in 0..<maximumAttempts {
+    if let value = try await load() { return value }
+    guard attempt + 1 < maximumAttempts else { return nil }
+    try await Task.sleep(nanoseconds: pollIntervalNanoseconds)
+  }
+  return nil
 }
 
 private actor CameraSourceSession {
@@ -163,8 +180,47 @@ private actor CameraSourceSession {
     await analysisPipeline.updates()
   }
 
+  func observeVisibleTool(
+    phase: PhysicalObservationPhase,
+    newerThanNanoseconds boundary: UInt64
+  ) async -> Result<VisibleToolFrameObservation, PhysicalJogObservationFailure> {
+    let attestation: LiveCameraFrameAttestation
+    do {
+      guard
+        let frame = try await boundedlyAwaitNewestCameraValue(
+          load: {
+            try await self.live.materializeLatestAttestedFrame(
+              newerThanNanoseconds: boundary
+            )
+          }
+        )
+      else {
+        return .failure(.frameUnavailable(phase))
+      }
+      attestation = frame
+    } catch {
+      return .failure(.frameUnavailable(phase))
+    }
+
+    do {
+      let measurement = try await vision.inspectPlotterScene(in: attestation.frame)
+      return .success(
+        try VisibleToolFrameObservation(
+          phase: phase,
+          attestation: attestation,
+          measurement: measurement
+        )
+      )
+    } catch let failure as PhysicalJogObservationFailure {
+      return .failure(failure)
+    } catch {
+      return .failure(.measurementFailed(phase, String(describing: error)))
+    }
+  }
+
   func simulatedContent(mode: SimulatorModelMode) throws -> SimulatedActionSurfaceContent {
-    let scene = mode == .prior
+    let scene =
+      mode == .prior
       ? learningDemonstration.priorScene
       : learningDemonstration.trainedScene
     let content = try simulator.renderModelMismatch(scene)

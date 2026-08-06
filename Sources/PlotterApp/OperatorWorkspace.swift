@@ -50,22 +50,6 @@ enum JogDirection: Sendable {
   case yPositive
 }
 
-enum LearningWorkbenchStepState: String, Sendable {
-  case available = "available"
-  case observed = "observed"
-  case simulated = "simulated"
-  case notWired = "not wired"
-}
-
-struct LearningWorkbenchStep: Identifiable, Sendable {
-  let number: Int
-  let title: String
-  let detail: String
-  let state: LearningWorkbenchStepState
-
-  var id: Int { number }
-}
-
 struct SimulatedActionSurfaceContent: Sendable {
   let displayedFrame: DisplayedFrame
   let overlays: [CameraOverlayMeasurement]
@@ -109,6 +93,11 @@ final class OperatorWorkspace {
     let requestPassiveProbe: @Sendable () async throws -> PassiveProbeResult
     let updateMotionLimits: @Sendable (MotionLimits) async -> Void
     let requestRelativeJog: @Sendable (RelativeJogRequest) async -> MotionOutcome
+    let requestObservedJog: @Sendable (
+      PhysicalJogObservationRequest,
+      @Sendable (PhysicalObservationPhase, UInt64) async
+        -> Result<VisibleToolFrameObservation, PhysicalJogObservationFailure>
+    ) async -> PhysicalJogObservationOutcome
     let requestPenActuation: @Sendable (PenCommand) async -> PenOutcome
     let disconnect: @Sendable () async -> Void
   }
@@ -126,6 +115,8 @@ final class OperatorWorkspace {
     let setAutomaticInspection: @Sendable (VisionAnalysisCadence?) async
       -> PlotterSceneAnalysisSnapshot
     let analysisUpdates: @Sendable () async -> AsyncStream<PlotterSceneAnalysisSnapshot>
+    let observeVisibleTool: @Sendable (PhysicalObservationPhase, UInt64) async
+      -> Result<VisibleToolFrameObservation, PhysicalJogObservationFailure>
     let simulatedContent: @Sendable (SimulatorModelMode) async throws
       -> SimulatedActionSurfaceContent
   }
@@ -145,6 +136,8 @@ final class OperatorWorkspace {
   var maximumYText = "40"
   var maximumDistanceText = MotionPriors.maximumDistanceMM
   var maximumFeedText = MotionPriors.maximumFeedMMPerMinute
+  private(set) var recordJogObservations = false
+  private(set) var selectedObservationSplit: ModelObservationSplit = .training
 
   private(set) var serialDevices: [MachineLinkDescriptor] = []
   private(set) var selectedSerialDevice: MachineLinkDescriptor?
@@ -156,6 +149,10 @@ final class OperatorWorkspace {
   private(set) var penRequestInProgress = false
   private(set) var limitsUpdateInProgress = false
   private(set) var limitsApplied = false
+  private(set) var physicalJogObservations: [PhysicalJogObservation] = []
+  private(set) var jogResponseDataset: OnlineJogResponseDataset?
+  private(set) var jogResponseCandidate: JogResponseCandidate?
+  private(set) var jogResponseLearnerError: String?
 
   private(set) var cameraSnapshot: CameraCaptureSnapshot?
   private(set) var displayedFrame: DisplayedFrame?
@@ -280,115 +277,111 @@ final class OperatorWorkspace {
     return "\(matching.count) · \(sources)"
   }
 
-  var learningWorkbenchSteps: [LearningWorkbenchStep] {
-    if frameMode == .simulated {
-      return [
-        LearningWorkbenchStep(
-          number: 1,
-          title: "Capture a frame",
-          detail: "Deterministic simulator frame generated.",
-          state: .simulated
-        ),
-        LearningWorkbenchStep(
-          number: 2,
-          title: "Recognize scene geometry",
-          detail: "Simulated intended, predicted, observed, frame, cap, and armature geometry.",
-          state: .simulated
-        ),
-        LearningWorkbenchStep(
-          number: 3,
-          title: "Pair vision with controller position",
-          detail: "Simulator owns exact point pairs; no physical controller claim.",
-          state: .simulated
-        ),
-        LearningWorkbenchStep(
-          number: 4,
-          title: "Assign training and holdout evidence",
-          detail: "Five training and two held-out simulated observations.",
-          state: .simulated
-        ),
-        LearningWorkbenchStep(
-          number: 5,
-          title: "Fit a candidate",
-          detail: "Affine candidate fitted without consuming holdout evidence.",
-          state: .simulated
-        ),
-        LearningWorkbenchStep(
-          number: 6,
-          title: "Compare held-out error",
-          detail: simulatorLearningSummary,
-          state: .simulated
-        ),
-        LearningWorkbenchStep(
-          number: 7,
-          title: "Explicitly accept between strokes",
-          detail: "Demonstrated only; physical acceptance remains unwired.",
-          state: .simulated
-        ),
-      ]
-    }
-
-    let hasFrame = displayedFrame != nil
-    let hasRecognition = lastSceneMeasurement != nil
-    let hasControllerPosition = machineSnapshot?.machine.position != nil
-    return [
-      LearningWorkbenchStep(
-        number: 1,
-        title: "Capture a frame",
-        detail: hasFrame ? "Current immutable camera frame is available." : "Waiting for camera.",
-        state: hasFrame ? .observed : .available
-      ),
-      LearningWorkbenchStep(
-        number: 2,
-        title: "Recognize scene geometry",
-        detail: hasRecognition
-          ? "Cap, frame sides, inferred drawing frame, and armature are bound to the displayed frame."
-          : "Run Analyze Frame or enable Auto Analyze.",
-        state: hasRecognition ? .observed : .available
-      ),
-      LearningWorkbenchStep(
-        number: 3,
-        title: "Pair vision with controller position",
-        detail: hasRecognition && hasControllerPosition
-          ? "Inputs exist, but physical registration pairing is intentionally not recorded yet."
-          : "Requires recognized geometry and a timestamped controller MPos.",
-        state: .notWired
-      ),
-      LearningWorkbenchStep(
-        number: 4,
-        title: "Assign training and holdout evidence",
-        detail: "Physical observation recorder is the next implementation boundary.",
-        state: .notWired
-      ),
-      LearningWorkbenchStep(
-        number: 5,
-        title: "Fit a candidate",
-        detail: "Trainer exists; no physical dataset is connected.",
-        state: .notWired
-      ),
-      LearningWorkbenchStep(
-        number: 6,
-        title: "Compare held-out error",
-        detail: "Acceptance criteria exist; physical comparison is not yet available.",
-        state: .notWired
-      ),
-      LearningWorkbenchStep(
-        number: 7,
-        title: "Explicitly accept between strokes",
-        detail: "Accepted models stay immutable; online proposals remain pen-up only.",
-        state: .notWired
-      ),
-    ]
-  }
-
   var currentOperationText: String {
     guard let operation = machineSnapshot?.currentOperation else { return "none" }
     return switch operation {
     case .idle: "idle"
     case .passiveProbe: "passive probe"
     case .relativeJog: "relative jog"
+    case .observedJog: "observed relative jog"
     case .penActuation(let command): "pen \(command.rawValue)"
     }
+  }
+
+  var physicalJogObservationCountText: String {
+    "\(physicalJogObservations.count)"
+  }
+
+  var jogResponseDatasetCountText: String {
+    guard let summary = jogResponseDataset?.summary else { return "training 0 · holdout 0" }
+    return "training \(summary.trainingCount) · holdout \(summary.holdoutCount)"
+  }
+
+  var jogResponseMatrixText: String {
+    guard let matrix = jogResponseCandidate?.matrix else { return "unavailable" }
+    return String(
+      format: "[%.4f  %.4f;  %.4f  %.4f] px/mm",
+      matrix.cameraXPerMachineX,
+      matrix.cameraXPerMachineY,
+      matrix.cameraYPerMachineX,
+      matrix.cameraYPerMachineY
+    )
+  }
+
+  var jogResponseTrainingResidualText: String {
+    guard let metrics = jogResponseCandidate?.trainingMetrics else { return "unavailable" }
+    return String(
+      format: "RMS %.3f px · max %.3f px · n %d",
+      metrics.rootMeanSquarePixels,
+      metrics.maximumPixels,
+      metrics.episodeCount
+    )
+  }
+
+  var jogResponseHoldoutResidualText: String {
+    guard let metrics = jogResponseCandidate?.holdoutMetrics else { return "none" }
+    return String(
+      format: "RMS %.3f px · max %.3f px · n %d",
+      metrics.rootMeanSquarePixels,
+      metrics.maximumPixels,
+      metrics.episodeCount
+    )
+  }
+
+  var clearJogObservationSamplesUnavailableReason: String? {
+    jogRequestInProgress ? "Wait for the current jog to finish before clearing samples." : nil
+  }
+
+  var lastPhysicalJogObservationResultText: String {
+    guard let outcome = machineSnapshot?.lastPhysicalJogObservationOutcome else { return "none" }
+    switch outcome {
+    case .recorded(let observation):
+      return "recorded · \(observation.request.split.rawValue)"
+    case .notRecorded:
+      return "not recorded"
+    }
+  }
+
+  var lastPhysicalJogPositionsText: String {
+    guard case .recorded(let observation) = machineSnapshot?.lastPhysicalJogObservationOutcome else {
+      return "unknown"
+    }
+    return String(
+      format: "X %.3f Y %.3f → X %.3f Y %.3f",
+      observation.startPosition.point.x,
+      observation.startPosition.point.y,
+      observation.finalPosition.point.x,
+      observation.finalPosition.point.y
+    )
+  }
+
+  var lastPhysicalJogCameraDeltaText: String {
+    guard case .recorded(let observation) = machineSnapshot?.lastPhysicalJogObservationOutcome else {
+      return "unknown"
+    }
+    return String(
+      format: "Δx %.2f px · Δy %.2f px",
+      observation.cameraDelta.dx,
+      observation.cameraDelta.dy
+    )
+  }
+
+  var lastPhysicalJogConfidenceText: String {
+    guard case .recorded(let observation) = machineSnapshot?.lastPhysicalJogObservationOutcome else {
+      return "unknown"
+    }
+    return String(
+      format: "before %.3f · after %.3f",
+      observation.before.capConfidence,
+      observation.after.capConfidence
+    )
+  }
+
+  var lastPhysicalJogFailureText: String? {
+    guard case .notRecorded(_, let failure) = machineSnapshot?.lastPhysicalJogObservationOutcome else {
+      return nil
+    }
+    return failure.actionableDescription
   }
 
   var controllerStateText: String {
@@ -433,6 +426,7 @@ final class OperatorWorkspace {
   }
 
   var actionableError: String? {
+    if recordJogObservations, let failure = lastPhysicalJogFailureText { return failure }
     if let cameraError { return cameraError }
     if let visionError { return visionError }
     if let machineError { return machineError }
@@ -465,6 +459,9 @@ final class OperatorWorkspace {
   /// safety check when it receives the typed request.
   var motionUnavailableReason: String? {
     if jogRequestInProgress { return "A relative jog is already in progress." }
+    if frameMode == .simulated {
+      return "SIMULATED source cannot issue physical machine commands. Switch to LIVE first."
+    }
     if machineActions == nil { return "Native machine composition is unavailable." }
     if selectedSerialDevice == nil { return "Select and connect one serial device." }
     guard let snapshot = machineSnapshot else {
@@ -501,6 +498,23 @@ final class OperatorWorkspace {
     if machine.penState != .up {
       return MotionRefusal.penNotUp(machine.penState).actionableDescription
     }
+    if recordJogObservations {
+      if frameMode != .live {
+        return PhysicalJogObservationFailure.liveCameraRequired.actionableDescription
+      }
+      if cameraActions == nil {
+        return "Native camera composition is unavailable; disable jog recording or restore the camera."
+      }
+      guard case .running = cameraSnapshot?.state else {
+        return "Start the selected LIVE camera before recording a jog observation."
+      }
+      if let pinnedConfiguration = jogResponseDataset?.cameraConfigurationID,
+        let displayedConfiguration = displayedFrame?.frame.cameraConfigurationID,
+        displayedConfiguration != pinnedConfiguration
+      {
+        return "Displayed LIVE camera configuration differs from the recorded sample set. Clear Samples before recording another jog."
+      }
+    }
     guard let xStep = inputNumber(xStepText), let yStep = inputNumber(yStepText),
       inputNumber(feedText) != nil
     else { return "Enter numeric X step, Y step, and feed values." }
@@ -525,6 +539,9 @@ final class OperatorWorkspace {
 
   func penUnavailableReason(for command: PenCommand) -> String? {
     if penRequestInProgress { return "A pen command is already in progress." }
+    if frameMode == .simulated {
+      return "SIMULATED source cannot issue physical machine commands. Switch to LIVE first."
+    }
     if machineActions == nil { return "Native machine composition is unavailable." }
     if selectedSerialDevice == nil { return "Select and connect one serial device." }
     guard let snapshot = machineSnapshot else {
@@ -572,6 +589,24 @@ final class OperatorWorkspace {
     } else {
       visibleLayers.remove(layer)
     }
+  }
+
+  func setRecordJogObservations(_ enabled: Bool) {
+    guard !hasShutdown, !jogRequestInProgress else { return }
+    recordJogObservations = enabled
+  }
+
+  func selectObservationSplit(_ split: ModelObservationSplit) {
+    guard !hasShutdown, !jogRequestInProgress else { return }
+    selectedObservationSplit = split
+  }
+
+  func clearJogObservationSamples() {
+    guard !hasShutdown, clearJogObservationSamplesUnavailableReason == nil else { return }
+    physicalJogObservations = []
+    jogResponseDataset = nil
+    jogResponseCandidate = nil
+    jogResponseLearnerError = nil
   }
 
   func refreshSerialDevices() async {
@@ -726,14 +761,44 @@ final class OperatorWorkspace {
       case .yPositive: delta = try Vector2(dx: 0, dy: yStep)
       }
       let request = RelativeJogRequest(delta: delta, feedMMPerMinute: feed)
-      let operation = Task { await machineActions.requestRelativeJog(request) }
+      let recordsObservation = recordJogObservations
+      let observationSplit = selectedObservationSplit
+      let operation = Task { () -> PhysicalJogObservationOutcome? in
+        if recordsObservation {
+          guard let cameraActions else {
+            return .notRecorded(
+              motionOutcome: nil,
+              failure: .liveCameraRequired
+            )
+          }
+          let observationRequest = PhysicalJogObservationRequest(
+            motion: request,
+            split: observationSplit
+          )
+          return await machineActions.requestObservedJog(
+            observationRequest,
+            cameraActions.observeVisibleTool
+          )
+        }
+        _ = await machineActions.requestRelativeJog(request)
+        return nil
+      }
       await Task.yield()
       let interimSnapshot = await machineActions.snapshot()
       if canCommit(generation) { machineSnapshot = interimSnapshot }
-      _ = await operation.value
+      let observationOutcome = await operation.value
       let finalSnapshot = await machineActions.snapshot()
       guard canCommit(generation) else { return }
       machineSnapshot = finalSnapshot
+      if recordsObservation, let outcome = observationOutcome {
+        switch outcome {
+        case .recorded(let observation):
+          physicalJogObservations.append(observation)
+          recordJogResponseEpisode(observation)
+        case .notRecorded:
+          break
+        }
+      }
     } catch {
       let finalSnapshot = await machineActions.snapshot()
       guard canCommit(generation) else { return }
@@ -1063,12 +1128,48 @@ final class OperatorWorkspace {
     penRequestInProgress = false
     limitsUpdateInProgress = false
     limitsApplied = false
+    recordJogObservations = false
+    selectedObservationSplit = .training
+    physicalJogObservations = []
+    jogResponseDataset = nil
+    jogResponseCandidate = nil
+    jogResponseLearnerError = nil
     minimumXText = "-100"
     maximumXText = "100"
     minimumYText = "-40"
     maximumYText = "40"
     maximumDistanceText = MotionPriors.maximumDistanceMM
     maximumFeedText = MotionPriors.maximumFeedMMPerMinute
+  }
+
+  private func recordJogResponseEpisode(_ observation: PhysicalJogObservation) {
+    if jogResponseDataset == nil {
+      do {
+        jogResponseDataset = try OnlineJogResponseDataset(
+          cameraConfigurationID: observation.before.cameraConfigurationID,
+          algorithmRevision: observation.before.algorithmRevision
+        )
+      } catch {
+        jogResponseCandidate = nil
+        jogResponseLearnerError = jogResponseErrorDescription(error)
+        return
+      }
+    }
+    guard var nextDataset = jogResponseDataset else { return }
+    do {
+      try nextDataset.record(observation)
+      jogResponseDataset = nextDataset
+      do {
+        jogResponseCandidate = try nextDataset.proposeCandidate()
+        jogResponseLearnerError = nil
+      } catch {
+        jogResponseCandidate = nil
+        jogResponseLearnerError = jogResponseErrorDescription(error)
+      }
+    } catch {
+      jogResponseCandidate = nil
+      jogResponseLearnerError = jogResponseErrorDescription(error)
+    }
   }
 
   private func clearCameraAuthority() {
@@ -1141,6 +1242,36 @@ final class OperatorWorkspace {
       return description
     }
     return String(describing: error)
+  }
+
+  private func jogResponseErrorDescription(_ error: any Error) -> String {
+    guard let error = error as? OnlineJogResponseError else {
+      return "Jog-response diagnostic failed: \(String(describing: error))"
+    }
+    return switch error {
+    case .invalidAlgorithmRevision:
+      "Jog-response diagnostic requires a nonempty vision revision."
+    case .duplicateEpisodeID(let id):
+      "Jog-response diagnostic rejected duplicate sample \(id)."
+    case .cameraConfigurationMismatch:
+      "Recorded camera configuration differs from this sample set. Clear Samples before recording again."
+    case .algorithmRevisionMismatch:
+      "Vision revision differs from this sample set. Clear Samples before recording again."
+    case .episodeAlgorithmRevisionChanged:
+      "Vision revision changed between the before and after frames."
+    case .invalidCameraProvenance(let id):
+      "Sample \(id) has invalid camera provenance."
+    case .invalidActualControllerDelta(let id):
+      "Sample \(id) has no valid observed controller delta."
+    case .invalidCameraDelta(let id):
+      "Sample \(id) has no valid camera delta."
+    case .insufficientTrainingEpisodes(let required, let actual):
+      "Need \(required) training samples spanning both machine axes; \(actual) recorded."
+    case .rankDeficientTrainingGeometry:
+      "Training samples do not span both machine axes; record an independent axis direction."
+    case .nonFiniteCandidate:
+      "Jog-response diagnostic produced non-finite values."
+    }
   }
 }
 

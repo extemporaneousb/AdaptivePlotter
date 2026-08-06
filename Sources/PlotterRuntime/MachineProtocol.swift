@@ -284,6 +284,46 @@ public enum MotionOutcome: Codable, Hashable, Sendable {
   case ambiguous(MotionAmbiguity)
 }
 
+/// Controller-owned position evidence for one accepted-and-completed jog.
+///
+/// The start sample is taken from the fresh status report that authorizes the
+/// write. The final sample is taken from the later Idle report that completes
+/// the operation. This is controller evidence only; it makes no visual or ink
+/// claim.
+public struct CompletedMotionEvidence: Hashable, Sendable {
+  public let request: RelativeJogRequest
+  public let startPosition: MachinePosition
+  public let startSampleNanoseconds: UInt64
+  public let finalPosition: MachinePosition
+  public let finalSampleNanoseconds: UInt64
+
+  init(
+    request: RelativeJogRequest,
+    startPosition: MachinePosition,
+    startSampleNanoseconds: UInt64,
+    finalPosition: MachinePosition,
+    finalSampleNanoseconds: UInt64
+  ) {
+    self.request = request
+    self.startPosition = startPosition
+    self.startSampleNanoseconds = startSampleNanoseconds
+    self.finalPosition = finalPosition
+    self.finalSampleNanoseconds = finalSampleNanoseconds
+  }
+}
+
+/// One controller execution result. Evidence is present only when the jog was
+/// accepted and later observed Idle with a valid final MPos.
+public struct MotionExecutionResult: Hashable, Sendable {
+  public let outcome: MotionOutcome
+  public let completedEvidence: CompletedMotionEvidence?
+
+  init(outcome: MotionOutcome, completedEvidence: CompletedMotionEvidence? = nil) {
+    self.outcome = outcome
+    self.completedEvidence = completedEvidence
+  }
+}
+
 extension MotionRefusal {
   public var actionableDescription: String {
     switch self {

@@ -89,9 +89,10 @@ clearing historical data.
 ## Work item 2 — Live camera
 
 Implementation status: the native source path, shared live/simulated renderer,
-and automated lifecycle/provenance tests are implemented. Real plotter-camera
-permission, advancing-frame, stop/restart, and source-switch verification are
-still required on this Mac.
+and automated lifecycle/provenance tests are implemented. The real C920 has
+permission, advancing frames, exact newest-frame capture, and stop/restart
+evidence on this Mac. A final manual LIVE/SIMULATED/LIVE source-switch check on
+the rebuilt bundle remains.
 
 Deliver:
 
@@ -113,7 +114,8 @@ demand.
 Implementation status: the persistent session, typed relative-jog request,
 direct safety checks, closed GRBL jog encoding, acceptance/Idle completion,
 sticky ambiguity, manual widget, and automated simulation tests are implemented.
-A real low-speed pen-up round trip is still required on the attached mechanism.
+The attached mechanism has completed non-ambiguous 1 mm X and Y round trips at
+100 mm/min and again at 30 mm/min, returning to the exact starting MPos.
 
 Deliver one direct low-speed relative move control. Before sending it, check:
 
@@ -134,7 +136,8 @@ another after returning to idle.
 
 Implementation status: typed Pen Up/Pen Down, fixed local servo values, fixed
 settle, serialized ownership, sticky uncertainty, direct UI, and automated tests
-are implemented. Powered mechanism verification and the clear pose remain.
+are implemented. The powered Pen Up command path and pen-up X/Y travel are
+verified; Pen Down and a separately observed clear pose remain.
 
 Deliver:
 

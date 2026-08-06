@@ -69,7 +69,10 @@ public enum ModelObservationSplit: String, Codable, Hashable, Sendable {
   case holdout
 }
 
-public struct PhysicalModelObservationEvidence: Codable, Hashable, Sendable {
+/// Transient physical evidence. It is intentionally non-Codable and its scalar
+/// constructor is package-scoped so decoded or caller-authored values cannot
+/// reacquire live-camera authority.
+public struct PhysicalModelObservationEvidence: Hashable, Sendable {
   public let frameID: String
   public let contentSHA256: String
   public let captureNanoseconds: UInt64
@@ -80,7 +83,7 @@ public struct PhysicalModelObservationEvidence: Codable, Hashable, Sendable {
   public let controllerSampleNanoseconds: UInt64
   public let fieldRegistrationID: FieldRegistrationID
 
-  public init(
+  package init(
     frameID: String,
     contentSHA256: String,
     captureNanoseconds: UInt64,
@@ -109,12 +112,12 @@ public struct PhysicalModelObservationEvidence: Codable, Hashable, Sendable {
   }
 }
 
-public enum ModelObservationEvidence: Codable, Hashable, Sendable {
+public enum ModelObservationEvidence: Hashable, Sendable {
   case physical(PhysicalModelObservationEvidence)
   case simulated(scenarioID: String)
 }
 
-public struct ModelObservationProvenance: Codable, Hashable, Sendable {
+public struct ModelObservationProvenance: Hashable, Sendable {
   public let observationID: String
   public let evidence: ModelObservationEvidence
   public let algorithmRevision: String
@@ -141,7 +144,10 @@ public struct ModelObservationProvenance: Codable, Hashable, Sendable {
 
 /// One supervised point pair. Split membership is fixed when the observation is
 /// created so candidate fitting cannot silently consume holdout evidence.
-public struct DrawingModelTrainingObservation: Codable, Hashable, Sendable {
+/// A current-session learning observation. Physical cases are intentionally
+/// non-Codable and can be constructed only through the package's sealed live
+/// observation path.
+public struct DrawingModelTrainingObservation: Hashable, Sendable {
   public let machinePoint: Point2<MachineSpace>
   public let observedFieldPoint: Point2<FieldSpace>
   public let split: ModelObservationSplit
@@ -165,7 +171,7 @@ public struct DrawingModelTrainingObservation: Codable, Hashable, Sendable {
   /// Constructs a physical observation by applying the cited registration to
   /// the cited measured camera point. Callers cannot supply an unrelated field
   /// point while retaining otherwise plausible physical provenance.
-  public static func physical(
+  package static func physical(
     evidence: PhysicalModelObservationEvidence,
     registration: FieldRegistration,
     split: ModelObservationSplit,
@@ -567,6 +573,33 @@ public struct StrokeModelPin: Codable, Hashable, Sendable {
   }
 }
 
+/// A compact, current-session projection of the immutable observations available
+/// to the affine learner. It is deliberately not a history or replay model.
+public struct OnlineModelDatasetSummary: Codable, Hashable, Sendable {
+  public let observationCount: Int
+  public let trainingCount: Int
+  public let holdoutCount: Int
+  public let physicalCount: Int
+  public let simulatedCount: Int
+  public let observationIDs: [String]
+
+  public init(
+    observationCount: Int,
+    trainingCount: Int,
+    holdoutCount: Int,
+    physicalCount: Int,
+    simulatedCount: Int,
+    observationIDs: [String]
+  ) {
+    self.observationCount = observationCount
+    self.trainingCount = trainingCount
+    self.holdoutCount = holdoutCount
+    self.physicalCount = physicalCount
+    self.simulatedCount = simulatedCount
+    self.observationIDs = observationIDs
+  }
+}
+
 /// Accumulates online observations but has no API capable of replacing its
 /// accepted snapshot. Promotion is external and creates a new immutable snapshot.
 public struct OnlineModelAccumulator: Sendable {
@@ -581,6 +614,23 @@ public struct OnlineModelAccumulator: Sendable {
     self.acceptedModel = acceptedModel
     self.observations = observations
     activeStrokePin = nil
+  }
+
+  public var datasetSummary: OnlineModelDatasetSummary {
+    let trainingCount = observations.count { $0.split == .training }
+    let holdoutCount = observations.count { $0.split == .holdout }
+    let physicalCount = observations.count {
+      if case .physical = $0.provenance.evidence { return true }
+      return false
+    }
+    return OnlineModelDatasetSummary(
+      observationCount: observations.count,
+      trainingCount: trainingCount,
+      holdoutCount: holdoutCount,
+      physicalCount: physicalCount,
+      simulatedCount: observations.count - physicalCount,
+      observationIDs: observations.map(\.provenance.observationID)
+    )
   }
 
   @discardableResult
@@ -607,17 +657,30 @@ public struct OnlineModelAccumulator: Sendable {
 
   public mutating func record(
     _ observation: DrawingModelTrainingObservation,
+    at checkpoint: ModelLearningCheckpoint
+  ) throws {
+    try record([observation], at: checkpoint)
+  }
+
+  /// Atomically records one physical episode's observations. Validation happens
+  /// before mutation so a duplicate second point cannot leave a half-recorded
+  /// training episode behind.
+  public mutating func record(
+    _ newObservations: [DrawingModelTrainingObservation],
     at _: ModelLearningCheckpoint
   ) throws {
     if let activeStrokePin {
       throw ModelLearningError.penDownStrokeActive(activeStrokePin.strokeIdentifier)
     }
-    if observations.contains(where: {
-      $0.provenance.observationID == observation.provenance.observationID
-    }) {
-      throw ModelLearningError.duplicateObservationID(observation.provenance.observationID)
+    var identifiers = Set(observations.map(\.provenance.observationID))
+    for observation in newObservations {
+      guard identifiers.insert(observation.provenance.observationID).inserted else {
+        throw ModelLearningError.duplicateObservationID(
+          observation.provenance.observationID
+        )
+      }
     }
-    observations.append(observation)
+    observations.append(contentsOf: newObservations)
   }
 
   public func proposeCandidate(at _: ModelLearningCheckpoint) throws -> DrawingModelCandidate {

@@ -1,3 +1,4 @@
+import PlotterModel
 import PlotterRuntime
 import SwiftUI
 
@@ -587,49 +588,100 @@ private struct LearningPanel: View {
   @Bindable var workspace: OperatorWorkspace
 
   var body: some View {
-    SectionPanel(title: "EXPLICIT MODEL-LEARNING LOOP") {
+    SectionPanel(title: "JOG OBSERVATIONS") {
       Text(
-        "This is an inspectable research sequence, not a readiness wizard. Physical evidence and simulated evidence remain separate."
+        "Physical jog samples require one successful bounded motion plus exact live cap measurements before and after it. The camera does not observe pen height."
       )
       .font(.caption)
       .foregroundStyle(.secondary)
 
-      ForEach(workspace.learningWorkbenchSteps) { step in
-        HStack(alignment: .top, spacing: 8) {
-          Text("\(step.number)")
-            .font(.caption.monospaced().bold())
-            .frame(width: 20, height: 20)
-            .background(stepColor(step.state).opacity(0.2), in: Circle())
-          VStack(alignment: .leading, spacing: 2) {
-            HStack {
-              Text(step.title).font(.caption.bold())
-              Spacer()
-              Text(step.state.rawValue.uppercased())
-                .font(.caption2.monospaced())
-                .foregroundStyle(stepColor(step.state))
-            }
-            Text(step.detail)
-              .font(.caption2)
-              .foregroundStyle(.secondary)
-          }
-        }
+      Text("DIAGNOSTIC — NOT MOTION AUTHORITY")
+        .font(.caption.monospaced().bold())
+        .foregroundStyle(.orange)
+
+      Toggle(
+        "Record Jog Observations",
+        isOn: Binding(
+          get: { workspace.recordJogObservations },
+          set: { workspace.setRecordJogObservations($0) }
+        )
+      )
+      .toggleStyle(.switch)
+      .disabled(workspace.jogRequestInProgress)
+
+      Picker(
+        "Fixed assignment for next sample",
+        selection: Binding(
+          get: { workspace.selectedObservationSplit },
+          set: { workspace.selectObservationSplit($0) }
+        )
+      ) {
+        Text("TRAINING").tag(ModelObservationSplit.training)
+        Text("HOLDOUT").tag(ModelObservationSplit.holdout)
+      }
+      .pickerStyle(.segmented)
+      .disabled(workspace.jogRequestInProgress)
+
+      Text("The selected assignment is copied into the request and cannot change on a recorded sample.")
+        .font(.caption2)
+        .foregroundStyle(.secondary)
+
+      Button("Clear Samples") { workspace.clearJogObservationSamples() }
+        .disabled(workspace.clearJogObservationSamplesUnavailableReason != nil)
+
+      if let reason = workspace.clearJogObservationSamplesUnavailableReason {
+        Text(reason)
+          .font(.caption)
+          .foregroundStyle(.orange)
       }
 
-      Divider()
-      Text(
-        "Next boundary: record timestamped frame/configuration, recognized camera geometry, controller MPos, registration identity, algorithm revision, and a fixed train/holdout assignment. Candidate fitting never changes the accepted model until an explicit pen-up acceptance."
-      )
-      .font(.caption)
-      .foregroundStyle(.secondary)
+      if workspace.frameMode == .simulated {
+        Text("SIMULATED — no physical observation can be recorded")
+          .font(.caption.monospaced().bold())
+          .foregroundStyle(.blue)
+        Text(workspace.simulatorLearningSummary)
+          .font(.caption2)
+          .foregroundStyle(.secondary)
+      }
+
+      fact("Samples", workspace.physicalJogObservationCountText)
+      fact("Dataset", workspace.jogResponseDatasetCountText)
+      fact("Response matrix", workspace.jogResponseMatrixText)
+      fact("Training residual", workspace.jogResponseTrainingResidualText)
+      fact("Holdout residual", workspace.jogResponseHoldoutResidualText)
+      fact("Last result", workspace.lastPhysicalJogObservationResultText)
+      fact("Start / final MPos", workspace.lastPhysicalJogPositionsText)
+      fact("Camera delta", workspace.lastPhysicalJogCameraDeltaText)
+      fact("Cap confidence", workspace.lastPhysicalJogConfidenceText)
+
+      if let failure = workspace.lastPhysicalJogFailureText {
+        Text(failure)
+          .font(.caption)
+          .foregroundStyle(.orange)
+          .textSelection(.enabled)
+      } else if let learnerError = workspace.jogResponseLearnerError {
+        Text(learnerError)
+          .font(.caption)
+          .foregroundStyle(.orange)
+          .textSelection(.enabled)
+      } else if workspace.recordJogObservations,
+        let reason = workspace.motionUnavailableReason
+      {
+        Text(reason)
+          .font(.caption)
+          .foregroundStyle(.orange)
+      }
     }
   }
 
-  private func stepColor(_ state: LearningWorkbenchStepState) -> Color {
-    switch state {
-    case .available: .secondary
-    case .observed: .green
-    case .simulated: .blue
-    case .notWired: .orange
+  private func fact(_ label: String, _ value: String) -> some View {
+    HStack(alignment: .firstTextBaseline) {
+      Text(label).font(.caption2).foregroundStyle(.secondary)
+      Spacer()
+      Text(value)
+        .font(.caption.monospaced())
+        .multilineTextAlignment(.trailing)
+        .textSelection(.enabled)
     }
   }
 }

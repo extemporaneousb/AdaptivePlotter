@@ -20,6 +20,9 @@ enum MachineSessionComposition {
     requestRelativeJog: { request in
       await session.requestRelativeJog(request)
     },
+    requestObservedJog: { request, observe in
+      await session.requestObservedJog(request, observe: observe)
+    },
     requestPenActuation: { command in
       await session.requestPenActuation(command)
     },
@@ -86,6 +89,21 @@ private actor PersistentMachineSession {
   func requestRelativeJog(_ request: RelativeJogRequest) async -> MotionOutcome {
     guard let interpreter else { return .refused(.noSerialDeviceSelected) }
     return await interpreter.requestRelativeJog(request)
+  }
+
+  func requestObservedJog(
+    _ request: PhysicalJogObservationRequest,
+    observe: @Sendable (PhysicalObservationPhase, UInt64) async
+      -> Result<VisibleToolFrameObservation, PhysicalJogObservationFailure>
+  ) async -> PhysicalJogObservationOutcome {
+    guard let interpreter else {
+      let motionOutcome = MotionOutcome.refused(.noSerialDeviceSelected)
+      return .notRecorded(
+        motionOutcome: motionOutcome,
+        failure: .motionNotCompleted(motionOutcome)
+      )
+    }
+    return await interpreter.requestObservedJog(request, observe: observe)
   }
 
   func requestPenActuation(_ command: PenCommand) async -> PenOutcome {

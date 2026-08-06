@@ -24,7 +24,8 @@ public enum CameraCaptureError: Error, Codable, Hashable, Sendable {
   public var actionableDescription: String {
     switch self {
     case .permissionDenied:
-      return "Camera access is denied. Allow camera access in System Settings, then restart capture."
+      return
+        "Camera access is denied. Allow camera access in System Settings, then restart capture."
     case .permissionRestricted:
       return "Camera access is restricted for this process."
     case .noDevices:
@@ -32,7 +33,8 @@ public enum CameraCaptureError: Error, Codable, Hashable, Sendable {
     case .selectionRequired(let count):
       return "Select one of the \(count) available cameras."
     case .unknownDevice(let id):
-      return "The selected camera \(id.rawValue) is no longer available. Refresh and select a camera."
+      return
+        "The selected camera \(id.rawValue) is no longer available. Refresh and select a camera."
     case .deviceDisconnected:
       return "The selected camera disconnected. Reconnect it, refresh devices, and restart capture."
     case .configurationFailed(let message):
@@ -101,6 +103,20 @@ public struct CameraCaptureSnapshot: Codable, Hashable, Sendable {
     self.latestFrame = latestFrame
     self.error = error
     self.diagnostics = diagnostics
+  }
+}
+
+/// Proof that immutable pixels were materialized by the active physical
+/// camera owner. The initializer is file-private so presentation code cannot
+/// relabel a synthetic or simulated `DisplayedFrame` as physical evidence.
+/// This current-process capability is deliberately non-Codable.
+public struct LiveCameraFrameAttestation: Hashable, Sendable {
+  public let cameraDeviceID: CameraDeviceID
+  public let frame: StampedFrame
+
+  fileprivate init(cameraDeviceID: CameraDeviceID, frame: StampedFrame) {
+    self.cameraDeviceID = cameraDeviceID
+    self.frame = frame
   }
 }
 
@@ -256,8 +272,8 @@ final class CameraDriverEventMailbox: @unchecked Sendable {
   }
 }
 
-private extension CameraDriverEvent {
-  var isFrame: Bool {
+extension CameraDriverEvent {
+  fileprivate var isFrame: Bool {
     if case .frame = self { return true }
     return false
   }
@@ -320,7 +336,7 @@ public actor CameraCapture {
     self.materializationPolicy = materializationPolicy
   }
 
-  public init(
+  package init(
     driver: any CameraCaptureDriver,
     materializationPolicy: LiveFrameMaterializationPolicy = .everyFrame
   ) {
@@ -340,9 +356,10 @@ public actor CameraCapture {
     guard generation == lifecycleGeneration, !isStoppingDriver else { return }
     devices = discovered
 
-    let selectionWasLost = selectedDeviceID.map { selected in
-      !discovered.contains(where: { $0.id == selected })
-    } ?? false
+    let selectionWasLost =
+      selectedDeviceID.map { selected in
+        !discovered.contains(where: { $0.id == selected })
+      } ?? false
     if selectionWasLost || (discovered.isEmpty && preservesActiveCapture) {
       guard let stoppedGeneration = await stopDriver() else { return }
       guard stoppedGeneration == lifecycleGeneration, !isStoppingDriver else { return }
@@ -519,6 +536,31 @@ public actor CameraCapture {
         "Could not materialize the latest camera frame: \(error)"
       )
     }
+  }
+
+  /// Materializes the newest physical camera frame and seals its source in a
+  /// non-replayable capability. Presentation `DisplayedFrame` values cannot
+  /// be converted into this attestation by callers.
+  public func materializeLatestAttestedFrame(
+    newerThanNanoseconds: UInt64 = 0
+  ) throws -> LiveCameraFrameAttestation? {
+    guard
+      let displayed = try materializeLatestFrame(
+        newerThanNanoseconds: newerThanNanoseconds
+      )
+    else { return nil }
+    guard case .live(let cameraDeviceID) = displayed.source,
+      cameraDeviceID == selectedDeviceID,
+      displayed.frame.id == latestCapture?.id
+    else {
+      throw CameraCaptureError.captureFailed(
+        "Latest physical frame no longer belongs to the selected camera session."
+      )
+    }
+    return LiveCameraFrameAttestation(
+      cameraDeviceID: cameraDeviceID,
+      frame: displayed.frame
+    )
   }
 
   public func diagnostics() -> CameraCaptureDiagnostics {

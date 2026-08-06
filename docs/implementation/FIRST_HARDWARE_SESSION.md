@@ -131,9 +131,14 @@ executable CDHash until that one-time approval is completed with the operator.
    and that the surface remains labeled not physical evidence. Switch back to
    **LIVE** and confirm source labels are exact
    and no overlay from the other source/configuration remains visible.
-11. Open **Learning** and follow the seven visible research steps. Confirm the
-    simulated path is labeled simulated and the physical recorder steps are
-    labeled not wired; this is an inspectable sequence, not a readiness gate.
+11. Open **Learning** and confirm it is a direct current-session diagnostic, not
+    a sequence or readiness flow. With **Record Jog Observations** off, ordinary
+    LIVE jogging must remain camera-independent. With it on, select the fixed
+    training/holdout membership for the next jog and confirm the panel reports
+    the exact paired result, sample counts, response matrix, and separate
+    residuals under `DIAGNOSTIC — NOT MOTION AUTHORITY`. **Clear Samples** must
+    discard only the current diagnostic set. SIMULATED mode must not issue a
+    physical jog or pen command.
 12. Confirm that the first successful live start created three PNGs plus
    `manifest.json` beneath:
 
@@ -201,6 +206,26 @@ single-scene priors.
   limit, Hold, disconnect, or automatic resend.
 - Pen Down was not issued. It remains a separate physical step requiring
   explicit operator authorization over replaceable paper.
+
+### 2026-08-05 controller-evidence and camera-displacement recheck
+
+- A fresh passive probe again reported Idle, no asserted X/Y pins, and MPos
+  X 29.192 / Y -10.002. The operator again directly confirmed the pen was up.
+- Conservative session-local bounds were only ±2 mm around that MPos, with a
+  1 mm per-command cap and 30 mm/min maximum feed.
+- X completed at 30.212 / -10.002 (+1.020 mm) and returned exactly to
+  29.192 / -10.002 (-1.020 mm). Y then completed at 29.192 / -9.004
+  (+0.998 mm) and returned exactly to 29.192 / -10.002 (-0.998 mm).
+- All four operations used the production typed controller path, included exact
+  controller-owned start/final MPos and monotonic sample times, reached Idle,
+  and produced no alarm, asserted limit, Hold, disconnect, ambiguity, or resend.
+- Separately bracketed C920 PNG samples processed by the production cap detector
+  showed displacement and return on both axes. The camera was restarted between
+  those samples, so their configuration IDs intentionally prevent them from
+  being admitted as one integrated physical-observation episode.
+- The camera cannot see or prove the pen-up/pen-down servo transition from this
+  view. Pen state in this check came from direct operator confirmation plus the
+  acknowledged typed Pen Up command; Pen Down was not issued.
 
 ## Verify one bounded jog
 

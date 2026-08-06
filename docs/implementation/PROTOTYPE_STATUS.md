@@ -22,6 +22,13 @@ source now derives a conservative trapezoidal/triangular deadline from parsed
 per-axis feed caps and acceleration. A fresh powered session on 2026-08-05
 verified that correction with non-ambiguous 1 mm X and Y round trips at
 100 mm/min and exact inverse returns to MPos X 29.192 / Y -10.002.
+The delivered controller-evidence path was checked again at 30 mm/min: X moved
++1.020/-1.020 mm and Y +0.998/-0.998 mm, with exact return to the same MPos,
+Idle completion, no asserted pins, and no ambiguity. C920 frames bracketed
+around those moves show the detected green cap displace and return. Those
+separately captured samples are physical visual confirmation, but they are not
+an integrated `PhysicalJogObservation` because restarting capture changed the
+camera configuration identity between samples.
 The rebuilt app now has camera permission and captured three current 1920x1080
 C920 frames with exact manifest provenance. The production detector finds the
 cap and two useful frame sides consistently in all three without deriving any
@@ -147,6 +154,14 @@ identity, app distribution configuration, or CI result is required.
   command distance, and X -100...100 / Y -40...40 around the observed
   session-start zero. These reflect the operator's roughly 2.5:1 travel prior
   and must still be reviewed and explicitly applied.
+- Optional **Record Jog Observations** changes one manual jog into one typed
+  `PhysicalJogObservationRequest`: an exact attested live frame/cap measurement,
+  exactly one controller jog with controller-owned start/final evidence, then an
+  exact strictly later frame from the same camera configuration and vision
+  revision. A pre-frame failure writes nothing; a post-frame failure preserves
+  the completed motion and never causes resend or inverse motion.
+- SIMULATED mode cannot reach the machine action surface for jog or pen commands.
+  Ordinary LIVE jog remains camera-independent when observation recording is off.
 
 ### Affine training and online-learning boundary
 
@@ -167,14 +182,25 @@ identity, app distribution configuration, or CI result is required.
   evidence; this implementation does not disguise that as affine training.
 - There is no spline/neural model family, replay store, continuous visual servo,
   or model update inside an irreversible ink stroke.
-- The Learning panel spells out capture, recognition, controller pairing, split
-  assignment, candidate fitting, held-out comparison, and explicit acceptance.
-  It distinguishes the working simulator demonstration from the still-unwired
-  physical observation recorder.
-- Physical observation provenance now has typed frame/configuration/time,
-  measured camera point and confidence, controller MPos/time, registration ID,
-  algorithm revision, and fixed split. Its factory computes the field point
-  through that exact registration and rejects a registration-ID mismatch.
+- The Learning panel is a direct current-session diagnostic, not a sequence or
+  readiness flow. It controls **Record Jog Observations**, selects the next
+  immutable training/holdout split, clears current samples, and shows sample
+  counts, last paired result, response matrix, and separate residuals under the
+  label `DIAGNOSTIC — NOT MOTION AUTHORITY`.
+- Physical observation provenance binds immutable attested frame bytes/hash,
+  live camera/configuration/time, measured cap point/confidence/revision, exact
+  controller start/final MPos and sample times, and fixed split. Public code
+  cannot mint the live attestation or reconstruct physical training authority
+  from decoded/scalar values.
+- The current-session response learner fits only a through-origin 2x2 mapping
+  from actual controller delta to camera-pixel delta. It rejects duplicate,
+  mismatched, insufficient, rank-deficient, or non-finite data; holdout episodes
+  never fit the candidate. It has no controller, interpreter, inverse-command,
+  acceptance, promotion, persistence, replay, or recovery authority.
+- This small diagnostic makes the eventual online-learning data path visible on
+  this one machine without introducing a deep model. Reinforcement learning or
+  other adaptive policies remain deferred until drawing actions have trustworthy
+  camera/ink outcomes and an explicit safe policy boundary.
 
 ## Current C920 scene priors
 
@@ -217,7 +243,8 @@ bounds; rulers, shadows, magnets, and the blue hose remain distractors.
 
 ## Not yet implemented
 
-- Live plotter-camera stop/restart and source-switch verification.
+- Live plotter-camera source-switch verification on the final rebuilt bundle;
+  advancing C920 frames and stop/restart recovery were observed locally.
 - Live measurement of preview and auto-analysis throughput/latency on this Mac.
 - Physical Pen Down followed by Pen Up over replaceable paper; the powered
   Pen Up command path is acknowledged, but the pen began physically up.

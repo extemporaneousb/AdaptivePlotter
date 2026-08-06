@@ -46,6 +46,10 @@ The repository contains one SwiftPM application with:
   counts and latency;
 - closed typed Pen Up/Pen Down actuation for this mechanism, serialized with
   probes and jogs and using the proven `M3 S40` / `M3 S720` / `G4 P0.3` profile;
+- an optional observed-jog operation that brackets exactly one accepted motion
+  with immutable live C920 frames and controller-owned start/final MPos samples;
+- a current-session jog-response dataset with fixed training/holdout membership,
+  a fitted 2x2 machine-delta-to-camera-delta matrix, and separate residuals;
 - typed geometry, a polyline `DrawingProgram`, affine camera/field math, and one
   immutable affine-model learning path with training/holdout evaluation.
 
@@ -55,7 +59,11 @@ That does not prove servo travel from another pose; Pen Down has not been
 issued. Drawing and observed-ink extraction are not implemented. The camera
 source path has captured and analyzed exact current C920 samples. The
 controller-aware completion deadline passed fresh 1 mm X and Y round trips at
-100 mm/min with Idle completion and exact inverse returns.
+100 mm/min with Idle completion and exact inverse returns. A second conservative
+30 mm/min check on the delivered controller-evidence path again passed both
+axes: X reported +1.020/-1.020 mm and Y +0.998/-0.998 mm, ending at the exact
+starting MPos. Bracketed C920 samples showed the green cap move and return. The
+camera did not and cannot establish pen height from that view.
 
 Old or corrupt journal files do not block a new session. The app does not have
 an archival replay product, artifact store, retention policy, accessibility
@@ -169,6 +177,7 @@ PlotterApp
   -> MachineController    serial bytes and controller state
   -> CameraCapture        latest local frame
   -> VisionPipeline       bounded newest-only feature measurement
+  -> JogResponseDataset   current-session diagnostic fit only
   -> RunLedger            optional current-session diagnostics
 ```
 
@@ -191,6 +200,14 @@ Use the simplest geometry that works:
   update, or generalized adaptive-model UI.
 
 If the affine transform draws acceptably, stop adding model complexity.
+
+The current jog-response fit is deliberately inspectable preparation for later
+online adaptation on this one machine. It records what controller motion and
+camera displacement were actually observed, keeps holdout episodes separate,
+and reports residuals. It cannot issue motion, accept a drawing model, persist
+or replay training data, or automatically change controller behavior. More
+sophisticated or reinforcement-learning models belong after the direct
+controller-camera-draw-observe loop supplies trustworthy outcomes.
 
 ## What the UI must show
 
@@ -239,9 +256,10 @@ and advanced-model requirements.
 > working local controller-camera-draw-observe loop. Use the current Command
 > Line Tools and SwiftPM. Do not add release infrastructure, accessibility
 > scope, archival replay, advanced models, separate arms, or phase-wide gates.
-> First run the exact powered-session sequence in
-> `docs/implementation/FIRST_HARDWARE_SESSION.md`: passive probe, current camera
-> analysis, typed limits, Pen Up, one 1 mm X/Y round trip, then a stationary Pen
-> Down/Pen Up check. Do not skip directly to drawing. Refuse a physical command
+> The passive probe, current camera analysis, typed limits, Pen Up, and bounded
+> 1 mm X/Y round trips in `docs/implementation/FIRST_HARDWARE_SESSION.md` are
+> complete. The next separately authorized physical step is one stationary Pen
+> Down/Pen Up check over replaceable paper; do not skip directly to drawing.
+> Refuse a physical command
 > only for a concrete current hazard or ambiguous outcome, show the reason, and
 > permit retry as soon as it is corrected.

@@ -1,9 +1,9 @@
 import Foundation
 import PlotterModel
-import PlotterRuntime
 import Testing
 
 @testable import PlotterApp
+@testable import PlotterRuntime
 
 @Test("Preview layers remain ordinary presentation state")
 @MainActor
@@ -252,6 +252,408 @@ func typedJogDoesNotRequireCamera() async throws {
   #expect(limits.bounds.minY == -20)
   #expect(limits.bounds.maxY == 20)
   #expect(workspace.cameraSnapshot == nil)
+  #expect(!workspace.recordJogObservations)
+  #expect(await fixture.observedJogRequests.isEmpty)
+}
+
+@Test("Simulator cannot record physical jog evidence or reach an observed-jog action")
+@MainActor
+func simulatorCannotRecordPhysicalJogEvidence() async throws {
+  let liveFrame = try testDisplayedFrame()
+  let camera = CameraFixture(
+    snapshot: CameraCaptureSnapshot(
+      devices: [CameraDevice(id: CameraDeviceID(rawValue: "camera"), name: "Camera")],
+      selectedDeviceID: CameraDeviceID(rawValue: "camera"),
+      state: .running,
+      latestFrame: liveFrame,
+      error: nil
+    ),
+    simulated: try testDisplayedFrame(source: .simulated)
+  )
+  let machine = MachineFixture()
+  let device = testDevice()
+  let workspace = OperatorWorkspace(
+    machineActions: machineActions(machine),
+    cameraActions: cameraActions(camera),
+    serialDevices: [device]
+  )
+  await workspace.selectSerialDevice(device)
+  await applyTestLimits(workspace)
+  await workspace.requestPenActuation(.raise)
+  await workspace.switchFrameMode(.simulated)
+  workspace.setRecordJogObservations(true)
+
+  #expect(
+    workspace.motionUnavailableReason
+      == "SIMULATED source cannot issue physical machine commands. Switch to LIVE first."
+  )
+  await workspace.requestJog(.xPositive)
+
+  #expect(await machine.observedJogRequests.isEmpty)
+  #expect(await machine.jogRequests.isEmpty)
+  #expect(await camera.visibleToolObservationCount == 0)
+  #expect(workspace.physicalJogObservations.isEmpty)
+  #expect(workspace.physicalJogObservationCountText == "0")
+  #expect(workspace.lastPhysicalJogObservationResultText == "none")
+}
+
+@Test("Simulator blocks ordinary jog and pen intents before MachineActions")
+@MainActor
+func simulatorBlocksEveryPhysicalCommandIntent() async throws {
+  let machine = MachineFixture(snapshot: testRunSnapshot(pen: .up))
+  let device = testDevice()
+  let camera = CameraFixture(
+    snapshot: CameraCaptureSnapshot(
+      devices: [],
+      selectedDeviceID: nil,
+      state: .stopped,
+      latestFrame: nil,
+      error: nil
+    ),
+    simulated: try testDisplayedFrame(source: .simulated)
+  )
+  let workspace = OperatorWorkspace(
+    machineActions: machineActions(machine),
+    cameraActions: cameraActions(camera),
+    serialDevices: [device]
+  )
+  await workspace.selectSerialDevice(device)
+  await applyTestLimits(workspace)
+  await workspace.switchFrameMode(.simulated)
+  workspace.setRecordJogObservations(false)
+
+  let expected = "SIMULATED source cannot issue physical machine commands. Switch to LIVE first."
+  #expect(workspace.motionUnavailableReason == expected)
+  #expect(workspace.penUnavailableReason(for: .raise) == expected)
+  #expect(workspace.penUnavailableReason(for: .lower) == expected)
+  await workspace.requestJog(.xPositive)
+  await workspace.requestPenActuation(.raise)
+  await workspace.requestPenActuation(.lower)
+
+  #expect(await machine.jogRequests.isEmpty)
+  #expect(await machine.observedJogRequests.isEmpty)
+  #expect(await machine.penRequests.isEmpty)
+}
+
+@Test("Observed jog projects one exact camera failure without moving or recording")
+@MainActor
+func observedJogFailureProjectsExactly() async throws {
+  let liveFrame = try testDisplayedFrame()
+  let camera = CameraFixture(
+    snapshot: CameraCaptureSnapshot(
+      devices: [CameraDevice(id: CameraDeviceID(rawValue: "camera"), name: "Camera")],
+      selectedDeviceID: CameraDeviceID(rawValue: "camera"),
+      state: .running,
+      latestFrame: liveFrame,
+      error: nil
+    ),
+    simulated: try testDisplayedFrame(source: .simulated)
+  )
+  let machine = MachineFixture()
+  let device = testDevice()
+  let workspace = OperatorWorkspace(
+    machineActions: machineActions(machine),
+    cameraActions: cameraActions(camera),
+    serialDevices: [device]
+  )
+  await workspace.selectSerialDevice(device)
+  await applyTestLimits(workspace)
+  await workspace.requestPenActuation(.raise)
+  await workspace.startCamera()
+  workspace.selectObservationSplit(.holdout)
+  workspace.setRecordJogObservations(true)
+
+  #expect(workspace.motionUnavailableReason == nil)
+  await workspace.requestJog(.xPositive)
+
+  let request = try #require(await machine.observedJogRequests.only)
+  let expected = PhysicalJogObservationFailure.frameUnavailable(.beforeMotion)
+    .actionableDescription
+  #expect(request.split == .holdout)
+  #expect(await machine.jogRequests.isEmpty)
+  #expect(await camera.visibleToolObservationCount == 1)
+  #expect(workspace.physicalJogObservations.isEmpty)
+  #expect(workspace.lastPhysicalJogObservationResultText == "not recorded")
+  #expect(workspace.lastPhysicalJogPositionsText == "unknown")
+  #expect(workspace.lastPhysicalJogCameraDeltaText == "unknown")
+  #expect(workspace.lastPhysicalJogConfidenceText == "unknown")
+  #expect(workspace.lastPhysicalJogFailureText == expected)
+  #expect(workspace.actionableError == expected)
+  #expect(workspace.lastMotionOutcomeText == "none")
+}
+
+@Test("Ambiguous observed jog records no physical sample and never requests an after frame")
+@MainActor
+func ambiguousObservedJogRecordsNothing() async throws {
+  let before = try await testVisibleToolObservation(
+    phase: .beforeMotion,
+    captureNanoseconds: 100,
+    capOriginX: 36,
+    capOriginY: 30
+  )
+  let liveFrame = try testDisplayedFrame()
+  let camera = CameraFixture(
+    snapshot: CameraCaptureSnapshot(
+      devices: [CameraDevice(id: CameraDeviceID(rawValue: "camera"), name: "Camera")],
+      selectedDeviceID: CameraDeviceID(rawValue: "camera"),
+      state: .running,
+      latestFrame: liveFrame,
+      error: nil
+    ),
+    simulated: try testDisplayedFrame(source: .simulated),
+    visibleToolResults: [.success(before)]
+  )
+  let motionOutcome = MotionOutcome.ambiguous(.disconnected)
+  let machine = MachineFixture(outcomes: [motionOutcome])
+  let device = testDevice()
+  let workspace = OperatorWorkspace(
+    machineActions: machineActions(machine),
+    cameraActions: cameraActions(camera),
+    serialDevices: [device]
+  )
+  await workspace.selectSerialDevice(device)
+  await applyTestLimits(workspace)
+  await workspace.requestPenActuation(.raise)
+  await workspace.startCamera()
+  workspace.setRecordJogObservations(true)
+
+  await workspace.requestJog(.xPositive)
+
+  let expected = PhysicalJogObservationFailure.motionNotCompleted(motionOutcome)
+    .actionableDescription
+  #expect(await machine.observedJogRequests.count == 1)
+  #expect(await camera.visibleToolObservationCount == 1)
+  #expect(workspace.physicalJogObservations.isEmpty)
+  #expect(workspace.physicalJogObservationCountText == "0")
+  #expect(workspace.lastPhysicalJogObservationResultText == "not recorded")
+  #expect(workspace.lastPhysicalJogFailureText == expected)
+  #expect(workspace.actionableError == expected)
+  #expect(workspace.lastMotionOutcomeText.contains("ambiguous"))
+}
+
+@Test("Recorded jog projects immutable split, machine positions, camera delta, and confidence")
+@MainActor
+func observedJogSuccessProjectsExactFacts() async throws {
+  let before = try await testVisibleToolObservation(
+    phase: .beforeMotion,
+    captureNanoseconds: 100,
+    capOriginX: 36,
+    capOriginY: 30
+  )
+  let after = try await testVisibleToolObservation(
+    phase: .afterMotion,
+    captureNanoseconds: 201,
+    capOriginX: 40,
+    capOriginY: 28
+  )
+  let liveFrame = try testDisplayedFrame()
+  let camera = CameraFixture(
+    snapshot: CameraCaptureSnapshot(
+      devices: [CameraDevice(id: CameraDeviceID(rawValue: "camera"), name: "Camera")],
+      selectedDeviceID: CameraDeviceID(rawValue: "camera"),
+      state: .running,
+      latestFrame: liveFrame,
+      error: nil
+    ),
+    simulated: try testDisplayedFrame(source: .simulated),
+    visibleToolResults: [.success(before), .success(after)]
+  )
+  let machine = MachineFixture(
+    outcomes: [.acceptedThenCompleted(finalPosition: try MachinePosition(x: 1, y: 0))]
+  )
+  let device = testDevice()
+  let workspace = OperatorWorkspace(
+    machineActions: machineActions(machine),
+    cameraActions: cameraActions(camera),
+    serialDevices: [device]
+  )
+  await workspace.selectSerialDevice(device)
+  await applyTestLimits(workspace)
+  await workspace.requestPenActuation(.raise)
+  await workspace.startCamera()
+  workspace.selectObservationSplit(.holdout)
+  workspace.setRecordJogObservations(true)
+
+  await workspace.requestJog(.xPositive)
+  workspace.selectObservationSplit(.training)
+
+  let recorded = try #require(workspace.physicalJogObservations.only)
+  #expect(recorded.request.split == .holdout)
+  #expect(workspace.selectedObservationSplit == .training)
+  #expect(await camera.visibleToolObservationCount == 2)
+  let observationBoundaries = await camera.visibleToolObservationBoundaries
+  #expect(observationBoundaries.count == 2)
+  #expect(observationBoundaries[0].0 == .beforeMotion)
+  #expect(observationBoundaries[0].1 == 0)
+  #expect(observationBoundaries[1].0 == .afterMotion)
+  #expect(observationBoundaries[1].1 == recorded.finalControllerSampleNanoseconds)
+  #expect(recorded.after.captureNanoseconds > observationBoundaries[1].1)
+  #expect(workspace.physicalJogObservationCountText == "1")
+  #expect(workspace.lastPhysicalJogObservationResultText == "recorded · holdout")
+  #expect(workspace.lastPhysicalJogPositionsText == "X 0.000 Y 0.000 → X 1.000 Y 0.000")
+  #expect(workspace.lastPhysicalJogCameraDeltaText == "Δx 4.00 px · Δy -2.00 px")
+  #expect(workspace.lastPhysicalJogConfidenceText == "before 0.375 · after 0.375")
+  #expect(workspace.lastPhysicalJogFailureText == nil)
+  #expect(workspace.actionableError == nil)
+}
+
+@Test("Two-axis training samples project the diagnostic pixel response matrix")
+@MainActor
+func twoAxisTrainingProjectsJogResponseMatrix() async throws {
+  let configuration = testCameraConfiguration(0x123)
+  let observations = try await responseObservations(
+    configuration: configuration,
+    deltas: [(2, -1), (3, 4)]
+  )
+  let result = try await observationWorkspace(
+    configuration: configuration,
+    observations: observations,
+    outcomes: [
+      .acceptedThenCompleted(finalPosition: try MachinePosition(x: 1, y: 0)),
+      .acceptedThenCompleted(finalPosition: try MachinePosition(x: 0, y: 1)),
+    ]
+  )
+
+  await result.workspace.requestJog(.xPositive)
+  await result.workspace.requestJog(.yPositive)
+
+  let candidate = try #require(result.workspace.jogResponseCandidate)
+  #expect(candidate.matrix.cameraXPerMachineX == 2)
+  #expect(candidate.matrix.cameraXPerMachineY == 3)
+  #expect(candidate.matrix.cameraYPerMachineX == -1)
+  #expect(candidate.matrix.cameraYPerMachineY == 4)
+  #expect(candidate.trainingMetrics.rootMeanSquarePixels == 0)
+  #expect(result.workspace.jogResponseDataset?.summary.trainingCount == 2)
+  #expect(result.workspace.jogResponseDataset?.summary.holdoutCount == 0)
+  #expect(result.workspace.jogResponseDatasetCountText == "training 2 · holdout 0")
+  #expect(result.workspace.jogResponseMatrixText == "[2.0000  3.0000;  -1.0000  4.0000] px/mm")
+  #expect(result.workspace.jogResponseLearnerError == nil)
+}
+
+@Test("Holdout samples remain separate from the two-axis training fit")
+@MainActor
+func holdoutSamplesRemainSeparateFromFit() async throws {
+  let configuration = testCameraConfiguration(0x124)
+  let observations = try await responseObservations(
+    configuration: configuration,
+    deltas: [(2, -1), (3, 4), (6, 3)]
+  )
+  let result = try await observationWorkspace(
+    configuration: configuration,
+    observations: observations,
+    outcomes: [
+      .acceptedThenCompleted(finalPosition: try MachinePosition(x: 1, y: 0)),
+      .acceptedThenCompleted(finalPosition: try MachinePosition(x: 0, y: 1)),
+      .acceptedThenCompleted(finalPosition: try MachinePosition(x: 1, y: 1)),
+    ]
+  )
+
+  await result.workspace.requestJog(.xPositive)
+  await result.workspace.requestJog(.yPositive)
+  result.workspace.selectObservationSplit(.holdout)
+  await result.workspace.requestJog(.xPositive)
+
+  let candidate = try #require(result.workspace.jogResponseCandidate)
+  #expect(candidate.matrix.cameraXPerMachineX == 2)
+  #expect(candidate.matrix.cameraXPerMachineY == 3)
+  #expect(candidate.matrix.cameraYPerMachineX == -1)
+  #expect(candidate.matrix.cameraYPerMachineY == 4)
+  #expect(candidate.trainingMetrics.rootMeanSquarePixels == 0)
+  #expect(candidate.holdoutMetrics?.episodeCount == 1)
+  #expect(candidate.holdoutMetrics?.rootMeanSquarePixels == 1)
+  #expect(result.workspace.jogResponseDataset?.summary.trainingCount == 2)
+  #expect(result.workspace.jogResponseDataset?.summary.holdoutCount == 1)
+  #expect(result.workspace.jogResponseDatasetCountText == "training 2 · holdout 1")
+  #expect(result.workspace.jogResponseHoldoutResidualText == "RMS 1.000 px · max 1.000 px · n 1")
+}
+
+@Test("A live camera configuration change blocks an observed jog before motion")
+@MainActor
+func cameraConfigurationChangeBlocksObservedJogPrewrite() async throws {
+  let pinnedConfiguration = testCameraConfiguration(0x125)
+  let result = try await observationWorkspace(
+    configuration: pinnedConfiguration,
+    observations: try await responseObservations(
+      configuration: pinnedConfiguration,
+      deltas: [(2, -1)]
+    ),
+    outcomes: [
+      .acceptedThenCompleted(finalPosition: try MachinePosition(x: 1, y: 0)),
+    ]
+  )
+  await result.workspace.requestJog(.xPositive)
+  await result.camera.setSnapshot(
+    CameraCaptureSnapshot(
+      devices: [CameraDevice(id: CameraDeviceID(rawValue: "camera"), name: "Camera")],
+      selectedDeviceID: CameraDeviceID(rawValue: "camera"),
+      state: .running,
+      latestFrame: try testDisplayedFrame(configuration: testCameraConfiguration(0x126)),
+      error: nil
+    )
+  )
+  await result.workspace.startCamera()
+
+  let expected = "Displayed LIVE camera configuration differs from the recorded sample set. Clear Samples before recording another jog."
+  #expect(result.workspace.motionUnavailableReason == expected)
+  await result.workspace.requestJog(.xPositive)
+  #expect(await result.machine.observedJogRequests.count == 1)
+  #expect(await result.camera.visibleToolObservationCount == 2)
+  #expect(result.workspace.physicalJogObservations.count == 1)
+}
+
+@Test("Clear Samples resets current-session diagnostic data")
+@MainActor
+func clearJogObservationSamplesResetsDiagnosticData() async throws {
+  let configuration = testCameraConfiguration(0x127)
+  let result = try await observationWorkspace(
+    configuration: configuration,
+    observations: try await responseObservations(
+      configuration: configuration,
+      deltas: [(2, -1)]
+    ),
+    outcomes: [
+      .acceptedThenCompleted(finalPosition: try MachinePosition(x: 1, y: 0)),
+    ]
+  )
+  await result.workspace.requestJog(.xPositive)
+  #expect(result.workspace.jogResponseLearnerError != nil)
+
+  result.workspace.clearJogObservationSamples()
+
+  #expect(result.workspace.physicalJogObservations.isEmpty)
+  #expect(result.workspace.jogResponseDataset == nil)
+  #expect(result.workspace.jogResponseCandidate == nil)
+  #expect(result.workspace.jogResponseLearnerError == nil)
+  #expect(result.workspace.jogResponseDatasetCountText == "training 0 · holdout 0")
+  #expect(result.workspace.lastPhysicalJogObservationResultText == "recorded · training")
+}
+
+@Test("A diagnostic fit failure preserves the recorded motion and raw episode")
+@MainActor
+func jogResponseFailurePreservesRecordedTruth() async throws {
+  let configuration = testCameraConfiguration(0x128)
+  let result = try await observationWorkspace(
+    configuration: configuration,
+    observations: try await responseObservations(
+      configuration: configuration,
+      deltas: [(2, -1)]
+    ),
+    outcomes: [
+      .acceptedThenCompleted(finalPosition: try MachinePosition(x: 1, y: 0)),
+    ]
+  )
+
+  await result.workspace.requestJog(.xPositive)
+
+  #expect(result.workspace.physicalJogObservations.count == 1)
+  #expect(result.workspace.jogResponseDataset?.summary.episodeCount == 1)
+  #expect(result.workspace.jogResponseCandidate == nil)
+  #expect(
+    result.workspace.jogResponseLearnerError
+      == "Need 2 training samples spanning both machine axes; 1 recorded."
+  )
+  #expect(result.workspace.lastMotionOutcomeText == "completed at X 1.000 Y 0.000")
+  #expect(result.workspace.lastPhysicalJogObservationResultText == "recorded · training")
 }
 
 @Test("A corrected runtime refusal is immediately retryable")
@@ -690,10 +1092,25 @@ func cameraSnapshotAffordance() async throws {
   #expect(workspace.lastCameraSnapshotPath == "/tmp/adaptiveplotter-test-snapshot")
 }
 
+@Test("Fresh-frame polling never substitutes the currently stale value")
+func freshFramePollingWaitsForAValueNewerThanTheBoundary() async throws {
+  let attempts = FreshValueFixture(values: [nil, nil, 41])
+
+  let value = try await boundedlyAwaitNewestCameraValue(
+    maximumAttempts: 3,
+    pollIntervalNanoseconds: 0,
+    load: { await attempts.next() }
+  )
+
+  #expect(value == 41)
+  #expect(await attempts.loadCount == 3)
+}
+
 private actor MachineFixture {
   private(set) var snapshot: RunInterpreterSnapshot
   private var outcomes: [MotionOutcome]
   private(set) var jogRequests: [RelativeJogRequest] = []
+  private(set) var observedJogRequests: [PhysicalJogObservationRequest] = []
   private(set) var probeCount = 0
   private(set) var selectCount = 0
   private(set) var penRequests: [PenCommand] = []
@@ -711,6 +1128,7 @@ private actor MachineFixture {
 
   var totalInvocationCount: Int {
     selectCount + probeCount + limitCount + disconnectCount + jogRequests.count
+      + observedJogRequests.count
       + penRequests.count
   }
 
@@ -783,6 +1201,88 @@ private actor MachineFixture {
     return outcome
   }
 
+  func observedJog(
+    _ request: PhysicalJogObservationRequest,
+    observe: @Sendable (PhysicalObservationPhase, UInt64) async
+      -> Result<VisibleToolFrameObservation, PhysicalJogObservationFailure>
+  ) async -> PhysicalJogObservationOutcome {
+    observedJogRequests.append(request)
+    let sampleIndex = observedJogRequests.count - 1
+    let startControllerSampleNanoseconds = UInt64(sampleIndex * 200 + 100)
+    let finalControllerSampleNanoseconds = UInt64(sampleIndex * 200 + 200)
+    let before: VisibleToolFrameObservation
+    switch await observe(.beforeMotion, 0) {
+    case .success(let observation): before = observation
+    case .failure(let failure):
+      let outcome = PhysicalJogObservationOutcome.notRecorded(
+        motionOutcome: nil,
+        failure: failure
+      )
+      replaceObservationOutcome(outcome)
+      return outcome
+    }
+
+    let startPosition = snapshot.machine.position ?? (try! MachinePosition(x: 0, y: 0))
+    let motionOutcome = outcomes.isEmpty
+      ? .acceptedThenCompleted(finalPosition: startPosition)
+      : outcomes.removeFirst()
+    snapshot = RunInterpreterSnapshot(
+      currentOperation: .idle,
+      machine: replacing(snapshot.machine, outcome: motionOutcome),
+      lastMotionOutcome: motionOutcome,
+      lastPhysicalJogObservationOutcome: snapshot.lastPhysicalJogObservationOutcome,
+      lastPenOutcome: snapshot.lastPenOutcome,
+      lastProbe: snapshot.lastProbe
+    )
+    guard case .acceptedThenCompleted(let finalPosition) = motionOutcome else {
+      let outcome = PhysicalJogObservationOutcome.notRecorded(
+        motionOutcome: motionOutcome,
+        failure: .motionNotCompleted(motionOutcome)
+      )
+      replaceObservationOutcome(outcome)
+      return outcome
+    }
+
+    let after: VisibleToolFrameObservation
+    switch await observe(.afterMotion, finalControllerSampleNanoseconds) {
+    case .success(let observation): after = observation
+    case .failure(let failure):
+      let outcome = PhysicalJogObservationOutcome.notRecorded(
+        motionOutcome: motionOutcome,
+        failure: failure
+      )
+      replaceObservationOutcome(outcome)
+      return outcome
+    }
+
+    let outcome = PhysicalJogObservationOutcome.resolve(
+      motionOutcome: motionOutcome,
+      observation: try PhysicalJogObservation(
+        observationID: "app-test-observation-\(observedJogRequests.count)",
+        request: request,
+        startPosition: startPosition,
+        startControllerSampleNanoseconds: startControllerSampleNanoseconds,
+        finalPosition: finalPosition,
+        finalControllerSampleNanoseconds: finalControllerSampleNanoseconds,
+        before: before,
+        after: after
+      )
+    )
+    replaceObservationOutcome(outcome)
+    return outcome
+  }
+
+  private func replaceObservationOutcome(_ outcome: PhysicalJogObservationOutcome) {
+    snapshot = RunInterpreterSnapshot(
+      currentOperation: .idle,
+      machine: snapshot.machine,
+      lastMotionOutcome: snapshot.lastMotionOutcome,
+      lastPhysicalJogObservationOutcome: outcome,
+      lastPenOutcome: snapshot.lastPenOutcome,
+      lastProbe: snapshot.lastProbe
+    )
+  }
+
   func disconnect() {
     disconnectCount += 1
     snapshot = testRunSnapshot(
@@ -825,6 +1325,9 @@ private func machineActions(
     },
     updateMotionLimits: { limits in await fixture.updateLimits(limits) },
     requestRelativeJog: { request in await fixture.jog(request) },
+    requestObservedJog: { request, observe in
+      await fixture.observedJog(request, observe: observe)
+    },
     requestPenActuation: { command in await fixture.actuatePen(command) },
     disconnect: { await fixture.disconnect() }
   )
@@ -840,10 +1343,19 @@ private actor CameraFixture {
   private(set) var framesCount = 0
   private(set) var selectedIDs: [CameraDeviceID] = []
   private(set) var automaticCadences: [VisionAnalysisCadence?] = []
+  private(set) var visibleToolObservationCount = 0
+  private(set) var visibleToolObservationBoundaries: [(PhysicalObservationPhase, UInt64)] = []
+  private var visibleToolResults:
+    [Result<VisibleToolFrameObservation, PhysicalJogObservationFailure>]
 
-  init(snapshot: CameraCaptureSnapshot, simulated: DisplayedFrame) {
+  init(
+    snapshot: CameraCaptureSnapshot,
+    simulated: DisplayedFrame,
+    visibleToolResults: [Result<VisibleToolFrameObservation, PhysicalJogObservationFailure>] = []
+  ) {
     current = snapshot
     self.simulated = simulated
+    self.visibleToolResults = visibleToolResults
   }
 
   func snapshot() -> CameraCaptureSnapshot { current }
@@ -899,6 +1411,15 @@ private actor CameraFixture {
       lastError: nil
     )
   }
+  func observeVisibleTool(
+    phase: PhysicalObservationPhase,
+    newerThanNanoseconds: UInt64
+  ) -> Result<VisibleToolFrameObservation, PhysicalJogObservationFailure> {
+    visibleToolObservationCount += 1
+    visibleToolObservationBoundaries.append((phase, newerThanNanoseconds))
+    if !visibleToolResults.isEmpty { return visibleToolResults.removeFirst() }
+    return .failure(.frameUnavailable(phase))
+  }
 }
 
 private func cameraActions(
@@ -920,6 +1441,12 @@ private func cameraActions(
     captureSnapshot: { "/tmp/adaptiveplotter-test-snapshot" },
     setAutomaticInspection: { cadence in await fixture.setAutomaticInspection(cadence) },
     analysisUpdates: { AsyncStream { $0.finish() } },
+    observeVisibleTool: { phase, boundary in
+      await fixture.observeVisibleTool(
+        phase: phase,
+        newerThanNanoseconds: boundary
+      )
+    },
     simulatedContent: { mode in await fixture.simulatedContent(mode) }
   )
 }
@@ -942,6 +1469,21 @@ private actor AsyncGate {
     let currentWaiters = waiters
     waiters.removeAll(keepingCapacity: false)
     for waiter in currentWaiters { waiter.resume() }
+  }
+}
+
+private actor FreshValueFixture<Value: Sendable> {
+  private var values: [Value?]
+  private(set) var loadCount = 0
+
+  init(values: [Value?]) {
+    self.values = values
+  }
+
+  func next() -> Value? {
+    loadCount += 1
+    guard !values.isEmpty else { return nil }
+    return values.removeFirst()
   }
 }
 
@@ -1020,22 +1562,148 @@ private func applyTestLimits(_ workspace: OperatorWorkspace) async {
   await workspace.applyMotionLimits()
 }
 
+@MainActor
+private func observationWorkspace(
+  configuration: CameraConfigurationID,
+  observations: [Result<VisibleToolFrameObservation, PhysicalJogObservationFailure>],
+  outcomes: [MotionOutcome]
+) async throws -> (
+  workspace: OperatorWorkspace,
+  machine: MachineFixture,
+  camera: CameraFixture
+) {
+  let liveFrame = try testDisplayedFrame(configuration: configuration)
+  let camera = CameraFixture(
+    snapshot: CameraCaptureSnapshot(
+      devices: [CameraDevice(id: CameraDeviceID(rawValue: "camera"), name: "Camera")],
+      selectedDeviceID: CameraDeviceID(rawValue: "camera"),
+      state: .running,
+      latestFrame: liveFrame,
+      error: nil
+    ),
+    simulated: try testDisplayedFrame(source: .simulated),
+    visibleToolResults: observations
+  )
+  let machine = MachineFixture(outcomes: outcomes)
+  let device = testDevice()
+  let workspace = OperatorWorkspace(
+    machineActions: machineActions(machine),
+    cameraActions: cameraActions(camera),
+    serialDevices: [device]
+  )
+  await workspace.selectSerialDevice(device)
+  await applyTestLimits(workspace)
+  await workspace.requestPenActuation(.raise)
+  await workspace.startCamera()
+  workspace.setRecordJogObservations(true)
+  return (workspace, machine, camera)
+}
+
+private func responseObservations(
+  configuration: CameraConfigurationID,
+  deltas: [(x: Int, y: Int)]
+) async throws -> [Result<VisibleToolFrameObservation, PhysicalJogObservationFailure>] {
+  var results: [Result<VisibleToolFrameObservation, PhysicalJogObservationFailure>] = []
+  for (index, delta) in deltas.enumerated() {
+    let beforeTime = UInt64(index * 200 + 100)
+    let afterTime = beforeTime + 101
+    results.append(
+      .success(
+        try await testVisibleToolObservation(
+          phase: .beforeMotion,
+          captureNanoseconds: beforeTime,
+          capOriginX: 36,
+          capOriginY: 30,
+          configuration: configuration
+        )
+      )
+    )
+    results.append(
+      .success(
+        try await testVisibleToolObservation(
+          phase: .afterMotion,
+          captureNanoseconds: afterTime,
+          capOriginX: 36 + delta.x,
+          capOriginY: 30 + delta.y,
+          configuration: configuration
+        )
+      )
+    )
+  }
+  return results
+}
+
+private func testCameraConfiguration(_ suffix: UInt64) -> CameraConfigurationID {
+  CameraConfigurationID(
+    UUID(
+      uuidString: String(
+        format: "00000000-0000-0000-0000-%012llx",
+        suffix
+      )
+    )!
+  )
+}
+
 private func testDisplayedFrame(
   source: FrameSourceIdentity = .live(CameraDeviceID(rawValue: "camera")),
-  captureNanoseconds: UInt64 = 1
+  captureNanoseconds: UInt64 = 1,
+  configuration: CameraConfigurationID = CameraConfigurationID()
 ) throws -> DisplayedFrame {
   DisplayedFrame(
     source: source,
     frame: try StampedFrame(
       sequence: 1,
       captureNanoseconds: captureNanoseconds,
-      cameraConfigurationID: CameraConfigurationID(),
+      cameraConfigurationID: configuration,
       width: 2,
       height: 2,
       rowBytes: 8,
       pixelFormat: .bgra8,
       bytes: OwnedFrameBytes(Array(repeating: 255, count: 16))
     )
+  )
+}
+
+private func testVisibleToolObservation(
+  phase: PhysicalObservationPhase,
+  captureNanoseconds: UInt64,
+  capOriginX: Int,
+  capOriginY: Int,
+  configuration: CameraConfigurationID = CameraConfigurationID(
+    UUID(uuidString: "00000000-0000-0000-0000-000000000123")!
+  )
+) async throws -> VisibleToolFrameObservation {
+  let width = 100
+  let height = 100
+  let rowBytes = width * 4
+  var bytes = [UInt8](repeating: 255, count: rowBytes * height)
+  for y in capOriginY..<(capOriginY + 6) {
+    for x in capOriginX..<(capOriginX + 6) {
+      let offset = y * rowBytes + x * 4
+      bytes[offset] = 0
+      bytes[offset + 1] = 180
+      bytes[offset + 2] = 0
+      bytes[offset + 3] = 255
+    }
+  }
+  let displayedFrame = DisplayedFrame(
+    source: .live(CameraDeviceID(rawValue: "camera")),
+    frame: try StampedFrame(
+      sequence: captureNanoseconds,
+      captureNanoseconds: captureNanoseconds,
+      cameraConfigurationID: configuration,
+      width: width,
+      height: height,
+      rowBytes: rowBytes,
+      pixelFormat: .bgra8,
+      bytes: OwnedFrameBytes(bytes)
+    )
+  )
+  let measurement = try await VisionWorker().inspectPlotterScene(in: displayedFrame.frame)
+  return try VisibleToolFrameObservation(
+    phase: phase,
+    displayedFrame: displayedFrame,
+    measurement: measurement
   )
 }
 

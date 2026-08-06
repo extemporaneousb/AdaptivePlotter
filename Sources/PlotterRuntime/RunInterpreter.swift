@@ -15,17 +15,19 @@ public enum RunInterpreterError: Error, Equatable, Sendable {
   case staleTransition
 }
 
-public enum RunOperation: Codable, Hashable, Sendable {
+public enum RunOperation: Hashable, Sendable {
   case idle
   case passiveProbe
   case relativeJog(RelativeJogRequest)
+  case observedJog(PhysicalJogObservationRequest)
   case penActuation(PenCommand)
 }
 
-public struct RunInterpreterSnapshot: Codable, Hashable, Sendable {
+public struct RunInterpreterSnapshot: Hashable, Sendable {
   public let currentOperation: RunOperation
   public let machine: MachineSnapshot
   public let lastMotionOutcome: MotionOutcome?
+  public let lastPhysicalJogObservationOutcome: PhysicalJogObservationOutcome?
   public let lastPenOutcome: PenOutcome?
   public let lastProbe: PassiveProbeResult?
 
@@ -33,12 +35,14 @@ public struct RunInterpreterSnapshot: Codable, Hashable, Sendable {
     currentOperation: RunOperation,
     machine: MachineSnapshot,
     lastMotionOutcome: MotionOutcome?,
+    lastPhysicalJogObservationOutcome: PhysicalJogObservationOutcome? = nil,
     lastPenOutcome: PenOutcome? = nil,
     lastProbe: PassiveProbeResult?
   ) {
     self.currentOperation = currentOperation
     self.machine = machine
     self.lastMotionOutcome = lastMotionOutcome
+    self.lastPhysicalJogObservationOutcome = lastPhysicalJogObservationOutcome
     self.lastPenOutcome = lastPenOutcome
     self.lastProbe = lastProbe
   }
@@ -53,6 +57,7 @@ public actor RunInterpreter {
   private var currentOperation: RunOperation = .idle
   private var lastProbe: PassiveProbeResult?
   private var lastMotionOutcome: MotionOutcome?
+  private var lastPhysicalJogObservationOutcome: PhysicalJogObservationOutcome?
   private var lastPenOutcome: PenOutcome?
 
   public init(machineController: MachineController) {
@@ -64,6 +69,7 @@ public actor RunInterpreter {
       currentOperation: currentOperation,
       machine: await machineController.snapshot(),
       lastMotionOutcome: lastMotionOutcome,
+      lastPhysicalJogObservationOutcome: lastPhysicalJogObservationOutcome,
       lastPenOutcome: lastPenOutcome,
       lastProbe: lastProbe
     )
@@ -91,6 +97,98 @@ public actor RunInterpreter {
     let outcome = await machineController.requestRelativeJog(request)
     lastMotionOutcome = outcome
     currentOperation = .idle
+    return outcome
+  }
+
+  /// Captures exact visible-tool evidence around one controller-owned jog.
+  ///
+  /// The observation provider owns camera selection and vision analysis. This
+  /// method only serializes the before/move/after ordering. A camera failure is
+  /// diagnostic evidence failure, never machine ambiguity, and a transmitted
+  /// motion is never resent or inverted here.
+  public func requestObservedJog(
+    _ request: PhysicalJogObservationRequest,
+    observe: @Sendable (
+      _ phase: PhysicalObservationPhase,
+      _ newerThanNanoseconds: UInt64
+    ) async -> Result<VisibleToolFrameObservation, PhysicalJogObservationFailure>
+  ) async -> PhysicalJogObservationOutcome {
+    guard currentOperation == .idle else {
+      let motionOutcome = MotionOutcome.refused(.operationInFlight)
+      return .notRecorded(
+        motionOutcome: motionOutcome,
+        failure: .motionNotCompleted(motionOutcome)
+      )
+    }
+
+    generation &+= 1
+    currentOperation = .observedJog(request)
+    defer { currentOperation = .idle }
+
+    let before: VisibleToolFrameObservation
+    switch await observe(.beforeMotion, 0) {
+    case .success(let observation):
+      before = observation
+    case .failure(let failure):
+      let outcome = PhysicalJogObservationOutcome.notRecorded(
+        motionOutcome: nil,
+        failure: failure
+      )
+      lastPhysicalJogObservationOutcome = outcome
+      return outcome
+    }
+
+    let execution = await machineController.requestRelativeJogWithEvidence(request.motion)
+    let motionOutcome = execution.outcome
+    lastMotionOutcome = motionOutcome
+
+    guard case .acceptedThenCompleted(let finalPosition) = motionOutcome else {
+      let outcome = PhysicalJogObservationOutcome.notRecorded(
+        motionOutcome: motionOutcome,
+        failure: .motionNotCompleted(motionOutcome)
+      )
+      lastPhysicalJogObservationOutcome = outcome
+      return outcome
+    }
+    guard let controllerEvidence = execution.completedEvidence,
+      controllerEvidence.request == request.motion,
+      controllerEvidence.finalPosition == finalPosition
+    else {
+      let outcome = PhysicalJogObservationOutcome.notRecorded(
+        motionOutcome: motionOutcome,
+        failure: .controllerMotionEvidenceUnavailable
+      )
+      lastPhysicalJogObservationOutcome = outcome
+      return outcome
+    }
+
+    let after: VisibleToolFrameObservation
+    switch await observe(.afterMotion, controllerEvidence.finalSampleNanoseconds) {
+    case .success(let observation):
+      after = observation
+    case .failure(let failure):
+      let outcome = PhysicalJogObservationOutcome.notRecorded(
+        motionOutcome: motionOutcome,
+        failure: failure
+      )
+      lastPhysicalJogObservationOutcome = outcome
+      return outcome
+    }
+
+    let outcome = PhysicalJogObservationOutcome.resolve(
+      motionOutcome: motionOutcome,
+      observation: try PhysicalJogObservation(
+        observationID: UUID().uuidString,
+        request: request,
+        startPosition: controllerEvidence.startPosition,
+        startControllerSampleNanoseconds: controllerEvidence.startSampleNanoseconds,
+        finalPosition: controllerEvidence.finalPosition,
+        finalControllerSampleNanoseconds: controllerEvidence.finalSampleNanoseconds,
+        before: before,
+        after: after
+      )
+    )
+    lastPhysicalJogObservationOutcome = outcome
     return outcome
   }
 
