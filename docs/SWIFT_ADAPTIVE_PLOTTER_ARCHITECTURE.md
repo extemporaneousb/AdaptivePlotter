@@ -10,7 +10,7 @@ Build one small native Swift application that can:
 1. connect to the plotter controller;
 2. show the local camera;
 3. preview a vector path;
-4. execute the path inside configured bounds;
+4. execute the path after Motion Preflight establishes the drawing frame;
 5. observe the resulting ink after the tool moves clear;
 6. display intended versus observed geometry and a simple error.
 
@@ -143,8 +143,10 @@ The initial machine mapping is:
 field = A * machine + b + optionalConstantToolOffset
 ```
 
-The inverse is the affine inverse followed by a forward check and workspace
-check. Reject an out-of-bounds point; do not silently clamp it.
+The inverse is the affine inverse followed by a forward check against the
+current learned drawing-frame posterior. That check informs drawing placement
+and observation; it is not a global motion-admission bound and is never an
+operator-entered coordinate envelope.
 
 The implemented learning surface stays inside this model: one immutable accepted
 snapshot, fixed training/holdout observations, deterministic affine candidate
@@ -167,7 +169,7 @@ Before enabling machine-affecting controls for a session, check once:
 ```text
 serial device selected
 controller responds and is not in alarm
-local bounds/feed/distance limits are configured
+Motion Guard is activated for this controller session
 pen is known up before travel
 camera is producing frames if this operation requires observation
 ```
@@ -179,10 +181,13 @@ change.
 Before each machine command, directly validate:
 
 - command belongs to the app's closed command surface;
-- feed and distance are within the configured local limits;
-- destination is inside the configured workspace;
+- finite nonzero motion and controller-reported axis feed capability;
+- no current controller alarm or asserted end-stop;
 - pen state is appropriate for travel or drawing;
 - no earlier command has an ambiguous outcome.
+
+No operator-entered coordinate envelope or maximum-jog value participates in
+activation or per-command admission.
 
 On correction, the operator can retry immediately in the same app launch.
 There is no one-attempt rule and no old-run admission scan.
@@ -263,9 +268,10 @@ One window is sufficient. It should contain:
 - current stroke/operation;
 - last command outcome;
 - intended/observed line and simple error after inspection.
-- speech on/off in the Camera menu, explicit permission/listening/transcript/
-  result state, side-arming boundary controls, and visible Jog Cancel fallback
-  during the context-bound teaching interaction.
+- a Learning-menu Motion Preflight entry with sequence-owned microphone
+  activation, visible permission/listening/transcript/result state, boundary
+  and pen sequence timelines, and a visible cancel fallback during the active
+  transaction.
 
 Raw serial text may be available in a small developer disclosure when needed.
 
@@ -293,7 +299,7 @@ without creating history, replay, or a generalized model platform.
 | --- | --- |
 | Controller alarm/limit | Stop the current operation; show status; do not auto-clear. |
 | Serial disconnect or unknown write outcome | Stop the run; mark the command ambiguous; reconnect and query status before a new operation. |
-| Command outside bounds/feed/distance | Refuse that command with the exact value and limit; permit retry after correction. |
+| Motion Guard inactive or request exceeds controller-reported feed capability | Refuse that command with the current reason; permit retry after activation or correction. |
 | Camera missing/stale for an inspection | Stop inspection, not unrelated controller work; reacquire a frame and retry. |
 | Tool still covers observation region | Move pen-up to the known clear pose or adjust hardware; retry capture. |
 | Ink missing or unclear | Show the frame/result; do not automatically redraw the same location. |
@@ -311,7 +317,7 @@ MPos values can be claimed as observed behavior.
 - GRBL parser fixtures for normal replies, alarms, errors, timeouts, and unknown
   extensions;
 - serial fragmentation/disconnect tests;
-- immediate workspace/feed/distance validation;
+- Motion Guard, controller feed-capability, alarm/end-stop, and ambiguity validation;
 - one session-log test for ordinary diagnostic events and one proving logging
   failure does not block a controller probe;
 - affine forward/inverse and out-of-bounds tests;

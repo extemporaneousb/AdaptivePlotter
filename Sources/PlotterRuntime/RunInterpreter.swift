@@ -93,8 +93,12 @@ public actor RunInterpreter {
     return result
   }
 
-  public func updateMotionLimits(_ limits: MotionLimits) async {
-    await machineController.updateMotionLimits(limits)
+  public func activateMotionGuard() async -> MotionGuardActivationOutcome {
+    await machineController.activateMotionGuard()
+  }
+
+  public func deactivateMotionGuard() async {
+    await machineController.deactivateMotionGuard()
   }
 
   public func requestRelativeJog(_ request: RelativeJogRequest) async -> MotionOutcome {

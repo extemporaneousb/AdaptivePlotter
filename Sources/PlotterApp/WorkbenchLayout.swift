@@ -11,13 +11,12 @@ enum WorkbenchPanel: String, CaseIterable, Identifiable, Sendable {
   case camera = "Camera"
   case overlays = "Overlays"
   case learning = "Learning"
-  case controller = "Controller"
 
   var id: Self { self }
 
   var dockSide: WorkbenchDockSide {
     switch self {
-    case .motion, .controller:
+    case .motion:
       .left
     case .camera, .overlays, .learning:
       .right
@@ -30,7 +29,6 @@ enum WorkbenchPanel: String, CaseIterable, Identifiable, Sendable {
     case .camera: "camera"
     case .overlays: "square.3.layers.3d"
     case .learning: "chart.xyaxis.line"
-    case .controller: "cable.connector"
     }
   }
 
@@ -40,7 +38,6 @@ enum WorkbenchPanel: String, CaseIterable, Identifiable, Sendable {
     case .camera: CGSize(width: 390, height: 530)
     case .overlays: CGSize(width: 330, height: 410)
     case .learning: CGSize(width: 410, height: 510)
-    case .controller: CGSize(width: 370, height: 500)
     }
   }
 }

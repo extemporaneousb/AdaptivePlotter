@@ -1,3 +1,4 @@
+import PlotterRuntime
 import SwiftUI
 
 /// Layout values owned by the top bar itself.
@@ -16,6 +17,7 @@ enum WorkbenchTopBarLayoutMetrics {
 enum WorkbenchConnectionIndicator: CaseIterable, Hashable, Identifiable {
   case camera
   case plotter
+  case motionGuard
 
   var id: Self { self }
 
@@ -23,6 +25,7 @@ enum WorkbenchConnectionIndicator: CaseIterable, Hashable, Identifiable {
     switch self {
     case .camera: "video.fill"
     case .plotter: "printer.fill"
+    case .motionGuard: "bolt.shield.fill"
     }
   }
 
@@ -32,6 +35,8 @@ enum WorkbenchConnectionIndicator: CaseIterable, Hashable, Identifiable {
     case (.camera, false): "CAMERA OFF"
     case (.plotter, true): "PLOTTER CONNECTED"
     case (.plotter, false): "PLOTTER DISCONNECTED"
+    case (.motionGuard, true): "MOTION READY"
+    case (.motionGuard, false): "MOTION BLOCKED"
     }
   }
 }
@@ -75,22 +80,65 @@ struct FlushWorkbenchTopBar: View {
           HStack(spacing: 6) {
             connectionIndicator(.camera, isActive: workspace.cameraIsLive)
             connectionIndicator(.plotter, isActive: workspace.controllerIsConnected)
+            connectionIndicator(
+              .motionGuard,
+              isActive: workspace.motionGuardAllowsCarriageMotion
+            )
           }
         }
       }
 
-      HStack(spacing: 5) {
-        Image(
-          systemName: WorkbenchTopBarStatusStyle.systemImage(
-            needsAttention: workspace.workbenchStatusNeedsAttention
+      HStack(spacing: 8) {
+        Picker(
+          "Controller",
+          selection: Binding(
+            get: { workspace.selectedSerialDevice },
+            set: { device in
+              guard let device else { return }
+              Task { await workspace.selectSerialDevice(device) }
+            }
           )
+        ) {
+          Text("Select controller").tag(nil as MachineLinkDescriptor?)
+          ForEach(workspace.serialDevices, id: \.identifier) { device in
+            Text(device.displayName).tag(Optional(device))
+          }
+        }
+        .labelsHidden()
+        .pickerStyle(.menu)
+        .frame(width: 250)
+        .disabled(workspace.controllerSelectionUnavailableReason != nil)
+
+        Button("Connect") {
+          Task { await workspace.connectSelectedController() }
+        }
+        .buttonStyle(.borderedProminent)
+        .disabled(
+          workspace.passiveProbeUnavailableReason != nil || workspace.controllerIsConnected
         )
-        Text(workspace.workbenchStatusText)
+
+        Button("Activate Motion") {
+          Task { await workspace.activateMotionGuard() }
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(.green)
+        .disabled(workspace.motionGuardActivationUnavailableReason != nil)
+
+        Spacer()
+
+        HStack(spacing: 5) {
+          Image(
+            systemName: WorkbenchTopBarStatusStyle.systemImage(
+              needsAttention: workspace.workbenchStatusNeedsAttention
+            )
+          )
+          Text(workspace.workbenchStatusText)
+        }
+        .font(.caption.monospaced())
+        .foregroundStyle(workspace.workbenchStatusNeedsAttention ? Color.orange : Color.secondary)
+        .lineLimit(1)
+        .textSelection(.enabled)
       }
-      .font(.caption.monospaced())
-      .foregroundStyle(workspace.workbenchStatusNeedsAttention ? Color.orange : Color.secondary)
-      .lineLimit(1)
-      .textSelection(.enabled)
     }
     .padding(.horizontal, WorkbenchTopBarLayoutMetrics.horizontalContentPadding)
     .padding(.vertical, WorkbenchTopBarLayoutMetrics.verticalContentPadding)

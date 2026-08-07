@@ -14,8 +14,8 @@ enum MachineSessionComposition {
     requestPassiveProbe: {
       try await session.requestPassiveProbe()
     },
-    updateMotionLimits: { limits in
-      await session.updateMotionLimits(limits)
+    activateMotionGuard: {
+      await session.activateMotionGuard()
     },
     requestRelativeJog: { request in
       await session.requestRelativeJog(request)
@@ -85,8 +85,9 @@ private actor PersistentMachineSession {
     return try await interpreter.requestPassiveProbe()
   }
 
-  func updateMotionLimits(_ limits: MotionLimits) async {
-    await interpreter?.updateMotionLimits(limits)
+  func activateMotionGuard() async -> MotionGuardActivationOutcome {
+    guard let interpreter else { return .refused(.noSerialDeviceSelected) }
+    return await interpreter.activateMotionGuard()
   }
 
   func requestRelativeJog(_ request: RelativeJogRequest) async -> MotionOutcome {

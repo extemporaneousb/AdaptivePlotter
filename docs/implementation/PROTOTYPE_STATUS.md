@@ -13,10 +13,12 @@ passive probes, bounded relative jogs, and typed pen actuation. A compact flush
 top bar opens five independently collapsible and hideable workbench panels in
 reserved left/right docks. The docks reframe the action surface and never cover
 it; all detailed controls begin hidden so the camera owns the primary area.
-The Controller panel has one remembered device picker and one Connect action;
-selection alone does not open a session. The top right shows current red/green
-camera-live and plotter-connected indicators, and the plotter turns green only
-after a blocker-free passive inspection succeeds.
+The top bar has one remembered device picker, one Connect action, and one
+Activate Motion action; selection alone does not open a session. The top right
+shows current red/green camera-live, plotter-connected, and motion-guard
+indicators. Plotter turns green only after a blocker-free passive inspection.
+Motion turns green only when the guard is activated and an ordinary carriage
+request is currently eligible, including a known Pen Up state.
 
 Controller presentation separates the last responsive serial inspection from
 software eligibility to send a motion request. It explicitly reports that
@@ -25,26 +27,25 @@ proof of energized motors. Pen buttons are actions, not selected-state controls,
 and the adjacent state says commanded Up/Down or unknown without claiming visual
 confirmation.
 
-Speech is switched on or off from the Camera menu and remains inert outside one
-explicitly armed boundary interaction. The Camera menu gives the numbered path
-from a green Plotter Connected indicator through applying typed limits,
-commanding Pen Up, and confirming speech is listening. The operator then
-presses one direction-specific `Start Test` control for X−, X+, Y−, or Y+;
-the app supplies an audible start cue and spoken prompt, then accepts exact
-`READY` only while that side is awaiting confirmation. `READY` starts one
-closed, capped jog. Exact `STOP` is accepted only while that boundary jog is
-moving and requests GRBL Jog Cancel. Wrong-context, ambient, obsolete axis/pen/
-status phrases, and compound phrases are rejected rather than partially
-executed. There is no out-of-context priority STOP path. Apple's ordinary
-no-speech interval still restarts recognition with a bounded 100 ms to 1 s
-delay while unrelated recognition failures remain terminal and visible.
+Speech is owned by a first-class Motion Preflight transaction under Learning.
+The operator selects one of four boundary sequences or the Pen Up/Pen Down
+sequence and presses Start. That action acquires permission and starts listening
+for the transaction; success, failure, or cancellation stops listening. There
+is no separate speech toggle. Each sequence shows its participant/action/event
+timeline and accepts only the exact phrase required by the current step.
+`READY` starts one closed internal boundary-search jog. Exact `STOP` is accepted
+only while that jog is moving and requests GRBL Jog Cancel. Pen confirmations
+pair the spoken physical observation with an exact immutable camera frame
+without claiming that the camera proves height. Wrong-context, ambient, and
+compound phrases are rejected rather than partially executed.
 
 A side is recorded only when cancellation resolves at Idle as
-`MotionOutcome.cancelled(finalPosition:)`; that final controller MPos is the
-measurement. If the jog reaches its command cap, normal completion is reported
-and no boundary is recorded. The software does not increase beep cadence near a
-boundary because it has no trusted remaining-distance estimate. Physical
-validation of this boundary-teaching increment is still pending.
+`MotionOutcome.cancelled(finalPosition:)`; that final controller MPos and a
+strictly newer exact-frame tool-centroid observation constrain the nearest
+visual edge and update the drawing-frame posterior.
+If the jog reaches its internal search horizon, normal completion is reported
+and no boundary is recorded. Physical validation of this Motion Preflight
+increment is still pending.
 
 The on/off comparison was run with USB continuously attached. Both states
 returned the same BlackBox X32/grblHAL identity, `Idle`, MPos X/Y 0.000, no
@@ -130,13 +131,15 @@ identity, app distribution configuration, or CI result is required.
 - Stop on timeout, disconnect, malformed required reply, `error:`, or `ALARM:`.
 - Repeatable probe requests after completion or failure.
 - One persistent selected-device session rather than one connection per probe.
-- Typed controller state, MPos, asserted X/Y limits, commanded pen state, motion
-  limits, relative-jog/pen requests, refusals, completion, and ambiguity.
+- Typed controller state, MPos, asserted X/Y end-stops, commanded pen state,
+  Motion Guard state, relative-jog/pen requests, refusals, completion, and
+  ambiguity.
 - Closed locale-independent `$J=G91 G21 ...` encoding; the UI cannot supply
   controller text or bytes.
-- Direct pre-write checks for connection, recognized Idle state, limits, MPos,
-  finite nonzero delta, feed, distance, destination bounds, known pen-up state,
-  in-flight work, and sticky ambiguity.
+- Direct pre-write checks for connection, recognized Idle state, asserted
+  end-stops, MPos, finite nonzero delta, controller-reported feed capability,
+  known pen-up state, Motion Guard activation, in-flight work, and sticky
+  ambiguity. Operator coordinates and maximum-jog values are absent.
 - `ok` is acceptance only; completion is a bounded status poll ending at Idle
   with final MPos. Uncertain physical outcomes are sticky and never resent.
 - The only jog-interruption encoding is GRBL realtime Jog Cancel byte `0x85`.
@@ -152,10 +155,10 @@ identity, app distribution configuration, or CI result is required.
   verified local profile emits `M3 S40` or `M3 S760`, followed by `G4 P0.3`;
   the UI cannot supply controller text or servo values.
 - Probe, jog, and pen requests serialize through the same owner. Pen Down needs
-  fresh Idle/non-alarm status, applied bounds, fresh in-bounds MPos, and clear XY
-  limit pins. Pen Up is available as the recovery direction without requiring
-  MPos or limits. Any uncertain post-write result becomes sticky, sets commanded
-  pen state unknown, and is never resent.
+  fresh Idle/non-alarm status, Motion Guard activation, and clear XY end-stop
+  pins. Pen Up is available as the recovery direction without requiring MPos.
+  Any uncertain post-write result becomes sticky, sets commanded pen state
+  unknown, and is never resent.
 - A successful pen outcome means both controller commands were acknowledged. It
   is explicitly not camera proof that the mechanism reached the requested pose.
 
@@ -318,9 +321,9 @@ bounds; rulers, shadows, magnets, and the blue hose remain distractors.
 
 The current live scene also includes two wood rails running parallel to X above
 the paper. They are intentionally visible in the action surface and reduce the
-usable Y corridor. They are not inferred as trusted MachineSpace boundaries;
-session-local motion limits must stay conservatively inside their inner edges
-before any XY request.
+usable Y corridor. Motion Preflight must learn the relevant edges from exact
+frames; the operator is not asked to convert them into MachineSpace coordinates
+or enter limits before motion.
 
 The final signed task bundle was also exercised directly on 2026-08-06. The
 top bar met the window content edge with no camera strip above it. Motion and
@@ -352,8 +355,8 @@ open.
 
 ## Next action
 
-The fresh passive probe, typed limits, Pen Up/Pen Down contact check, and 1 mm
-X/Y round trips in [First Hardware Session](FIRST_HARDWARE_SESSION.md) are
+The fresh passive probe, Pen Up/Pen Down contact check, and 1 mm X/Y round trips
+in [First Hardware Session](FIRST_HARDWARE_SESSION.md) are
 complete. The next software/physical slice is one camera-visible clear pose and
 one bounded isolated-line operation followed by tool clear, exact-frame ink
 observation, and residual display. Stop on any alarm, asserted limit,

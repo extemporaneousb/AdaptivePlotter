@@ -84,7 +84,7 @@ available. It should establish only:
 - one explicitly selected serial device;
 - successful controller identity/status query;
 - no current alarm or asserted limit;
-- configured local X/Y bounds, maximum move distance, and conservative feed;
+- explicit Motion Guard activation for the current controller session;
 - known pen-up state before travel;
 - a working camera only when the requested operation needs observation.
 
@@ -96,10 +96,12 @@ or alarm, configuration change, manual movement that loses known position,
 tool/pen change, or camera change. A transient error should be correctable and
 retryable in the same app launch.
 
-Every machine command still receives immediate direct checks for configured
-feed, distance, and workspace bounds. An unknown command outcome stops the
-current run and is never automatically resent. Those are execution semantics,
-not development gates.
+Every machine command still receives immediate direct checks for the closed
+request type, finite values, controller-reported axis feed capability, current
+alarm/end-stop state, pen state, in-flight ownership, and sticky ambiguity. An
+unknown command outcome stops the current run and is never automatically
+resent. Operator-entered coordinates, travel envelopes, and maximum-jog values
+are not prerequisites or motion authority.
 
 ## Best-effort session log
 

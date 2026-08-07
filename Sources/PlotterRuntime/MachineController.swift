@@ -21,8 +21,8 @@ public struct MachineSnapshot: Codable, Hashable, Sendable {
   public let pins: ControllerPins
   /// Last controller-commanded pen state. This is not visual proof of the physical pen pose.
   public let penState: PenState
+  public let motionGuardState: MotionGuardState
   public let stickyAmbiguity: MotionAmbiguity?
-  public let motionLimits: MotionLimits?
   public let operationInFlight: Bool
   public let lastMotionOutcome: MotionOutcome?
   public let lastPenOutcome: PenOutcome?
@@ -38,8 +38,8 @@ public struct MachineSnapshot: Codable, Hashable, Sendable {
     position: MachinePosition? = nil,
     pins: ControllerPins = ControllerPins(rawValue: ""),
     penState: PenState = .unknown,
+    motionGuardState: MotionGuardState = .inactive,
     stickyAmbiguity: MotionAmbiguity? = nil,
-    motionLimits: MotionLimits? = nil,
     operationInFlight: Bool = false,
     lastMotionOutcome: MotionOutcome? = nil,
     lastPenOutcome: PenOutcome? = nil,
@@ -54,8 +54,8 @@ public struct MachineSnapshot: Codable, Hashable, Sendable {
     self.position = position
     self.pins = pins
     self.penState = penState
+    self.motionGuardState = motionGuardState
     self.stickyAmbiguity = stickyAmbiguity
-    self.motionLimits = motionLimits
     self.operationInFlight = operationInFlight
     self.lastMotionOutcome = lastMotionOutcome
     self.lastPenOutcome = lastPenOutcome
@@ -124,6 +124,11 @@ public actor MachineController {
     let yAccelerationMMPerSecondSquared: Double
   }
 
+  private struct ControllerAxisFeedLimits: Equatable, Sendable {
+    let maximumXFeedMMPerMinute: Double
+    let maximumYFeedMMPerMinute: Double
+  }
+
   private let link: any MachineLink
   private let selectionIsExplicit: Bool
   private let ledger: RunLedger?
@@ -142,8 +147,9 @@ public actor MachineController {
   private var position: MachinePosition?
   private var pins = ControllerPins(rawValue: "")
   private var penState: PenState = .unknown
+  private var motionGuardState: MotionGuardState = .inactive
   private var stickyAmbiguity: MotionAmbiguity?
-  private var motionLimits: MotionLimits?
+  private var controllerAxisFeedLimits: ControllerAxisFeedLimits?
   private var controllerMotionTiming: ControllerMotionTiming?
   private var activeOperation: ActiveOperation?
   private var lastMotionOutcome: MotionOutcome?
@@ -160,7 +166,6 @@ public actor MachineController {
   public init(
     link: any MachineLink,
     selectionIsExplicit: Bool = true,
-    motionLimits: MotionLimits? = nil,
     ledger: RunLedger? = nil,
     runID: LedgerRunID? = nil,
     clock: any RuntimeClock = SystemRuntimeClock(),
@@ -172,7 +177,6 @@ public actor MachineController {
   ) {
     self.link = link
     self.selectionIsExplicit = selectionIsExplicit
-    self.motionLimits = motionLimits
     self.ledger = ledger
     self.runID = runID
     self.clock = clock
@@ -185,7 +189,6 @@ public actor MachineController {
 
   public static func bsdSerial(
     descriptor: MachineLinkDescriptor,
-    motionLimits: MotionLimits? = nil,
     ledger: RunLedger? = nil,
     runID: LedgerRunID? = nil,
     clock: any RuntimeClock = SystemRuntimeClock(),
@@ -202,7 +205,6 @@ public actor MachineController {
         writeTimeoutNanoseconds: writeTimeoutNanoseconds
       ),
       selectionIsExplicit: true,
-      motionLimits: motionLimits,
       ledger: ledger,
       runID: runID,
       clock: clock,
@@ -224,8 +226,8 @@ public actor MachineController {
       position: position,
       pins: pins,
       penState: penState,
+      motionGuardState: motionGuardState,
       stickyAmbiguity: stickyAmbiguity,
-      motionLimits: motionLimits,
       operationInFlight: activeOperation != nil,
       lastMotionOutcome: lastMotionOutcome,
       lastPenOutcome: lastPenOutcome,
@@ -234,8 +236,20 @@ public actor MachineController {
     )
   }
 
-  public func updateMotionLimits(_ limits: MotionLimits) {
-    motionLimits = limits
+  /// Activates operator authorization for machine-affecting commands in this
+  /// connected session. Every command still refreshes controller status before
+  /// transmitting; activation is consent, not cached proof that motion is safe.
+  public func activateMotionGuard() -> MotionGuardActivationOutcome {
+    if let refusal = validateMotionGuardActivation() {
+      motionGuardState = .inactive
+      return .refused(refusal)
+    }
+    motionGuardState = .active
+    return .activated
+  }
+
+  public func deactivateMotionGuard() {
+    motionGuardState = .inactive
   }
 
   public func disconnect() async {
@@ -248,6 +262,8 @@ public actor MachineController {
     position = nil
     pins = ControllerPins(rawValue: "")
     penState = .unknown
+    motionGuardState = .inactive
+    controllerAxisFeedLimits = nil
     controllerMotionTiming = nil
   }
 
@@ -443,7 +459,7 @@ public actor MachineController {
     switch await requestMotionStatus(deadline: preflightDeadline) {
     case .status(let report):
       apply(report)
-      if let refusal = validateFreshControllerStatus(wire) {
+      if let refusal = validateFreshControllerStatus() {
         await closeAndInvalidateKnowledge()
         return finishMotionExecution(request: request, outcome: .refused(refusal))
       }
@@ -748,6 +764,27 @@ public actor MachineController {
     )
   }
 
+  private static func controllerAxisFeedLimits(
+    from exchanges: [PassiveProbeExchange]
+  ) -> ControllerAxisFeedLimits? {
+    var settings: [String: Double] = [:]
+    for exchange in exchanges where exchange.query == .configuration {
+      for line in exchange.lines {
+        guard case .configuration(let key, let value) = line.kind,
+          let number = Double(value), number.isFinite, number > 0
+        else { continue }
+        settings[key] = number
+      }
+    }
+    guard let maximumXFeed = settings["$110"],
+      let maximumYFeed = settings["$111"]
+    else { return nil }
+    return ControllerAxisFeedLimits(
+      maximumXFeedMMPerMinute: maximumXFeed,
+      maximumYFeedMMPerMinute: maximumYFeed
+    )
+  }
+
   private static func estimatedTravelSeconds(
     wire: WireRelativeJog,
     controllerMotionTiming: ControllerMotionTiming?
@@ -814,23 +851,20 @@ public actor MachineController {
     guard selectionIsExplicit else { return .noSerialDeviceSelected }
     if let stickyAmbiguity { return .stickyAmbiguity(stickyAmbiguity) }
     guard connection == .connected else { return .notConnected }
-    guard let limits = motionLimits else { return .motionLimitsMissing }
+    guard motionGuardState == .active else { return .motionGuardInactive }
     guard penState == .up else { return .penNotUp(penState) }
-    guard wire.feedMMPerMinute <= limits.maximumFeedMMPerMinute else {
+    if let maximumFeed = controllerMaximumFeed(for: wire),
+      wire.feedMMPerMinute > maximumFeed
+    {
       return .feedExceedsMaximum(
         requested: wire.feedMMPerMinute,
-        maximum: limits.maximumFeedMMPerMinute
+        maximum: maximumFeed
       )
-    }
-    let distance = wire.delta.magnitude
-    guard distance <= limits.maximumDistanceMM else {
-      return .distanceExceedsMaximum(requested: distance, maximum: limits.maximumDistanceMM)
     }
     return nil
   }
 
-  private func validateFreshControllerStatus(_ wire: WireRelativeJog) -> MotionRefusal? {
-    guard let limits = motionLimits else { return .motionLimitsMissing }
+  private func validateFreshControllerStatus() -> MotionRefusal? {
     guard let controllerState else { return .controllerStateUnknown }
     guard controllerState.isRecognized else { return .controllerStateUnknown }
     guard !controllerState.isAlarm else { return .controllerAlarm("controller is in Alarm") }
@@ -838,16 +872,7 @@ public actor MachineController {
     guard !pins.hasRelevantLimitAsserted else {
       return .relevantLimitAsserted(pins.rawValue)
     }
-    guard let position else { return .machinePositionUnknown }
-    guard let destination = try? MachinePosition(
-      x: position.point.x + wire.delta.dx,
-      y: position.point.y + wire.delta.dy
-    ) else {
-      return .nonFiniteDelta
-    }
-    guard limits.bounds.contains(destination.point) else {
-      return .destinationOutsideBounds(destination)
-    }
+    guard position != nil else { return .machinePositionUnknown }
     return nil
   }
 
@@ -855,7 +880,7 @@ public actor MachineController {
     guard selectionIsExplicit else { return .noSerialDeviceSelected }
     if let stickyAmbiguity { return .stickyAmbiguity(stickyAmbiguity) }
     guard connection == .connected else { return .notConnected }
-    if command == .lower, motionLimits == nil { return .motionLimitsMissing }
+    guard motionGuardState == .active else { return .motionGuardInactive }
     return nil
   }
 
@@ -868,12 +893,47 @@ public actor MachineController {
     guard !pins.hasRelevantLimitAsserted else {
       return .relevantLimitAsserted(pins.rawValue)
     }
-    guard let limits = motionLimits else { return .motionLimitsMissing }
-    guard let position else { return .machinePositionUnknown }
-    guard limits.bounds.contains(position.point) else {
-      return .machinePositionOutsideBounds(position)
+    guard position != nil else { return .machinePositionUnknown }
+    return nil
+  }
+
+  private func validateMotionGuardActivation() -> MotionRefusal? {
+    guard activeOperation == nil else { return .operationInFlight }
+    guard selectionIsExplicit else { return .noSerialDeviceSelected }
+    if let stickyAmbiguity { return .stickyAmbiguity(stickyAmbiguity) }
+    guard connection == .connected else { return .notConnected }
+    guard let controllerState, controllerState.isRecognized else {
+      return .controllerStateUnknown
+    }
+    guard !controllerState.isAlarm else {
+      return .controllerAlarm("controller is in Alarm")
+    }
+    guard controllerState == .idle else { return .controllerNotIdle(controllerState) }
+    guard !pins.hasRelevantLimitAsserted else {
+      return .relevantLimitAsserted(pins.rawValue)
     }
     return nil
+  }
+
+  private func controllerMaximumFeed(for wire: WireRelativeJog) -> Double? {
+    guard let axisLimits = controllerAxisFeedLimits else { return nil }
+    let xMagnitude = abs(wire.delta.dx)
+    let yMagnitude = abs(wire.delta.dy)
+    let scale = max(xMagnitude, yMagnitude)
+    guard scale.isFinite, scale > 0 else { return nil }
+    let scaledMagnitude = hypot(xMagnitude / scale, yMagnitude / scale)
+    guard scaledMagnitude.isFinite, scaledMagnitude > 0 else { return nil }
+
+    var pathLimits: [Double] = []
+    let xComponent = (xMagnitude / scale) / scaledMagnitude
+    let yComponent = (yMagnitude / scale) / scaledMagnitude
+    if xComponent > 0 {
+      pathLimits.append(axisLimits.maximumXFeedMMPerMinute / xComponent)
+    }
+    if yComponent > 0 {
+      pathLimits.append(axisLimits.maximumYFeedMMPerMinute / yComponent)
+    }
+    return pathLimits.min()
   }
 
   private static func makeWireRelativeJog(
@@ -1009,7 +1069,7 @@ public actor MachineController {
           case .unknown:
             return .ambiguous(.malformedReply(line.text))
           case .greeting:
-            penState = .unknown
+            applyControllerReset()
             return .ambiguous(.malformedReply("controller reset greeting arrived after \(context)"))
           case .configuration, .bracketReport, .message:
             continue
@@ -1085,7 +1145,7 @@ public actor MachineController {
           case .unknown:
             return .ambiguous(.malformedReply(line.text))
           case .greeting:
-            penState = .unknown
+            applyControllerReset()
             return .ambiguous(
               .malformedReply("controller reset greeting arrived during status query")
             )
@@ -1184,6 +1244,7 @@ public actor MachineController {
   private func setAmbiguous(_ reason: MotionAmbiguity) {
     stickyAmbiguity = reason
     penState = .unknown
+    motionGuardState = .inactive
     if jogCancellationProgress != nil {
       completeActiveJogCancellation(.ambiguous(reason))
     }
@@ -1247,12 +1308,21 @@ public actor MachineController {
     controllerState = report.controllerState
     position = report.machinePosition
     pins = report.controllerPins
-    if report.controllerState.isAlarm { penState = .unknown }
+    if report.controllerState.isAlarm || report.controllerPins.hasRelevantLimitAsserted {
+      penState = report.controllerState.isAlarm ? .unknown : penState
+      motionGuardState = .inactive
+    }
   }
 
   private func applyAlarm(_ text: String) {
     controllerState = .alarm
     penState = .unknown
+    motionGuardState = .inactive
+  }
+
+  private func applyControllerReset() {
+    penState = .unknown
+    motionGuardState = .inactive
   }
 
   private func closeAndInvalidateKnowledge() async {
@@ -1266,6 +1336,8 @@ public actor MachineController {
     position = nil
     pins = ControllerPins(rawValue: "")
     penState = .unknown
+    motionGuardState = .inactive
+    controllerAxisFeedLimits = nil
     controllerMotionTiming = nil
   }
 
@@ -1330,7 +1402,7 @@ public actor MachineController {
         for line in newLines {
           parsed.append(line)
           if case .status(let report) = line.kind { apply(report) }
-          if case .greeting = line.kind { penState = .unknown }
+          if case .greeting = line.kind { applyControllerReset() }
           switch validator.consume(line) {
           case .continueReading:
             continue
@@ -1472,6 +1544,9 @@ public actor MachineController {
       }
     }
     lastProbe = result
+    controllerAxisFeedLimits = blockers.isEmpty
+      ? Self.controllerAxisFeedLimits(from: exchanges)
+      : nil
     controllerMotionTiming = blockers.isEmpty
       ? Self.controllerMotionTiming(from: exchanges)
       : nil

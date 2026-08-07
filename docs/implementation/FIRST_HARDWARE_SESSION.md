@@ -23,10 +23,10 @@ $#
 The machine-affecting surfaces are a closed typed relative GRBL jog and typed
 Pen Up/Pen Down. The pen profile is fixed to the commands proven on this
 mechanism: `M3 S40` up, `M3 S760` down, and `G4 P0.3` settle. No UI field can
-supply raw G-code or servo values. Pen Up needs fresh recognized Idle/non-alarm
-status. Pen Down also needs applied bounds, fresh in-bounds MPos, and clear X/Y
-limit pins. Jog remains unavailable until Pen Up was acknowledged and settled.
-These are controller-commanded states, not camera proof of servo pose.
+supply raw G-code or servo values. Pen operations require a fresh recognized
+Idle/non-alarm state, explicit Motion Guard activation, and clear X/Y end-stop
+pins. Jog remains unavailable until Pen Up was acknowledged and settled. These
+are controller-commanded states, not camera proof of servo pose.
 
 ## Before connecting
 
@@ -172,9 +172,9 @@ single-scene priors.
 - It also reports `$110=$111=500` mm/min and `$120=$121=10` mm/s^2. The
   firmware `$130/$131` travel values do not agree with the operator's physical
   estimate and must not be promoted to local safety bounds.
-- The motion panel therefore starts at independent 1 mm X/Y steps, 100 mm/min,
-  a 5 mm per-command cap, and an explicitly reviewable X -100...100 / Y
-  -40...40 envelope around the observed session-start zero.
+- The current motion panel starts at independent 1 mm X/Y steps and 100 mm/min.
+  The earlier per-command cap and operator-entered X/Y envelope have been
+  removed; Motion Preflight now establishes boundary and pen evidence.
 - Completed physical tests included 0.1 mm and 1 mm X jogs, 10 mm X jogs at 60
   mm/min, two -5 mm Y jogs at 60 mm/min, and -10 mm X at 400 mm/min.
 - A following +10 mm X request at 900 mm/min timed out while the controller
@@ -267,8 +267,8 @@ single-scene priors.
 1. Use the passive probe to confirm the attached controller supports the closed
    `$J=G91 G21 ...` jog form, is Idle/non-alarm, has no asserted X/Y limit, and
    reports current MPos.
-2. Enter a conservative local X/Y envelope around that MPos, plus a very small
-   maximum distance and low maximum feed, then apply the typed limits.
+2. Press **Activate Motion** for the connected session. Do not enter coordinates,
+   a travel envelope, or a maximum-jog value; those controls do not exist.
 3. Keep the physical cutoff reachable and choose **COMMAND PEN UP**. Confirm the
    controller acknowledges both the fixed up command and settle dwell, and
    directly observe that the pen is clear. Stop if command and mechanism disagree.
@@ -284,7 +284,7 @@ alarm, reset, write settings, or Resume.
 ## Verify stationary pen actuation
 
 Do this only after both 1 mm round trips return unambiguously and the tool is in
-a harmless in-bounds location over replaceable paper.
+a harmless camera-visible location over replaceable paper.
 
 1. Choose **COMMAND PEN DOWN** once. Directly observe whether the pen reaches paper after
    the acknowledged 0.3 s settle. Controller acknowledgement alone is not proof.

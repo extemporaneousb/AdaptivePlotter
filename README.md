@@ -8,9 +8,11 @@ The goal is direct:
 
 ```text
 connect controller and camera
+-> activate motion for this controller session
+-> complete Motion Preflight by voice
 -> load or create a vector path
 -> preview it
--> draw it within fixed local bounds
+-> draw it under the controller's alarm and end-stop protections
 -> lift and move the tool clear
 -> look at the actual ink
 -> show the result and simple position error
@@ -30,9 +32,10 @@ The repository contains one SwiftPM application with:
 - one controller picker that remembers the last selected device without
   connecting on selection, plus one explicit Connect action whose green status
   requires a successful blocker-free passive inspection;
-- a closed typed relative-jog command with explicit local bounds, feed and
-  distance limits, known pen-up state, Idle completion polling, and sticky
-  ambiguous outcomes;
+- a closed typed relative-jog command with a session motion guard, controller-
+  reported axis feed ceilings, known pen-up state, Idle completion polling,
+  end-stop/alarm refusal, and sticky ambiguous outcomes; there is no operator-
+  entered coordinate envelope or maximum-jog prerequisite;
 - AVFoundation camera discovery, explicit selection, lifecycle/error state,
   bounded preview materialization, and explicit immutable latest-frame capture;
 - startup preference for the attached C920 plus three provenance-bearing PNG
@@ -42,11 +45,13 @@ The repository contains one SwiftPM application with:
   overlay bound to the exact measured frame/configuration;
 - one camera-dominant action surface shared by live BGRA frames and a
   deterministic model-mismatch simulator;
-- a compact top-edge workbench bar plus independently openable and collapsible
-  Motion/Controller left docks and Camera/Overlays/Learning right docks; opening
+- a compact top-edge workbench bar with the remembered controller picker,
+  Connect, and Activate Motion, plus independently openable and collapsible
+  Motion left dock and Camera/Overlays/Learning right docks; opening
   controls reserves space and reframes rather than covers the camera surface;
-- compact red/green camera-live and plotter-connected indicators at the top
-  right, derived from current capture/frame and controller-inspection facts;
+- compact red/green camera-live, plotter-connected, and motion-guard indicators
+  at the top right, derived from current capture/frame, controller-inspection,
+  and session-activation facts;
 - distinct controller-link, motion-command, and motor-power reporting: a
   responsive USB controller is not presented as proof that motor supply power
   is present;
@@ -56,21 +61,23 @@ The repository contains one SwiftPM application with:
 - closed typed Pen Up/Pen Down actuation for this mechanism, serialized with
   probes and jogs and using the verified local `M3 S40` / `M3 S760` /
   `G4 P0.3` profile;
-- a native voice-operator session using the selected Mac audio input, Apple's
-  Speech framework, and `AVSpeechSynthesizer`, with explicit permission and
-  listening state, newest-only transcripts, spoken current outcomes, and
-  bounded automatic recovery from Apple's ordinary no-speech interval;
-- a button-armed boundary-teaching interaction with only two context-bound
-  speech commands: `READY` is accepted only after the operator chooses a side,
-  and `STOP` is accepted only while that side's capped jog is moving. Ambient,
-  wrong-context, and compound phrases have no controller meaning;
+- a first-class Motion Preflight window under Learning. Starting a sequence
+  acquires speech permission, turns listening on for that transaction, shows
+  its participant/action/event timeline, and always stops listening on success,
+  failure, or cancellation; there is no separate speech-on mode;
+- four voice-mediated boundary sequences plus Pen Up and Pen Down confirmation
+  sequences. Exact `READY`, `STOP`, and physical pen confirmations are accepted
+  only at their corresponding transaction step; ambient, wrong-context, and
+  compound phrases have no controller meaning;
 - one closed GRBL realtime Jog Cancel byte (`0x85`) for an active `$J` move.
   It has no ordinary acknowledgement: the original jog owner continues polling
   until Idle and reports the actual final MPos or ambiguity;
-- boundary positions recorded only when that jog resolves as cancelled with a
-  controller-reported final MPos. Reaching the command cap is normal completion,
-  not evidence of a physical boundary; proximity beeps are not produced because
-  there is not yet a trusted distance-to-boundary estimate;
+- boundary positions recorded only when the internal search jog resolves as
+  cancelled with a controller-reported final MPos. Each accepted observation
+  requires a camera frame newer than that completion, an observed tool centroid,
+  and the exact camera configuration; the MPos/centroid pair constrains the
+  nearest visual edge in the current drawing-frame posterior. Reaching the
+  internal search horizon is normal completion, not boundary evidence;
 - an optional observed-jog operation that brackets exactly one accepted motion
   with immutable live C920 frames and controller-owned start/final MPos samples;
 - one SwiftUI operator window whose local launcher ignores stale AppKit window
@@ -108,10 +115,9 @@ X0/Y0 after every inverse pair. The through-origin camera-response fit was
 inspectable current-session response evidence, not a motion transform or
 calibration authority.
 
-The current paper area has two visible wood rails parallel to X. They reduce
-usable Y and are treated as physical obstacles: the operator must apply a
-conservative session-local MachineSpace envelope inside their inner edges.
-Camera pixels and firmware travel settings do not become motion bounds.
+The current paper area has two visible wood rails parallel to X. They remain
+camera-visible scene facts for learning and placement; the UI does not ask the
+operator to translate them into coordinates, bounds, or a maximum jog value.
 
 On this BlackBox X32, identical passive observations with motor power on and
 off both report a responsive USB link, grblHAL `Idle`, MPos, no asserted pins,
@@ -204,17 +210,18 @@ Outside that workflow, development is deliberately lightweight:
 - do not add an abstraction, framework, model family, or persistence feature
   until the working local app needs it.
 
-Physical operations use direct runtime checks, not a hierarchy of gates or
-separate motion/pen arms. At session start, establish the selected controller,
-current controller state, configured bounds/feed, known pen-up state, and—when
-drawing needs observation—a working camera. Recheck only a fact invalidated by
-a disconnect, alarm/reset, configuration change, or camera change.
+Physical operations use direct runtime checks plus one explicit session Motion
+Guard activation. At session start, establish the selected controller and its
+current state, activate motion, and complete the relevant voice-mediated
+preflight sequences. Recheck only a fact invalidated by a disconnect,
+alarm/reset, configuration change, or camera change.
 
 A physical command may be refused only for a concrete current reason such as:
 
 - no unique selected serial device;
 - controller alarm, limit, disconnect, or outstanding ambiguous command;
-- command outside configured distance, feed, or workspace bounds;
+- motion has not been activated for the current controller session;
+- requested feed exceeds the controller-reported axis capability;
 - unknown pen state for a move that requires pen up;
 - missing current camera frame for an operation that actually needs vision.
 
@@ -264,21 +271,17 @@ or replay training data, or automatically change controller behavior. More
 sophisticated or reinforcement-learning models belong after the direct
 controller-camera-draw-observe loop supplies trustworthy outcomes.
 
-The voice surface follows the same rule. Speech is inert until the operator
-presses a direction-specific speech-movement-test control. The Camera panel
-shows the activation sequence directly: confirm the plotter is connected, in
-Motion apply typed limits and command Pen Up, turn Speech On and confirm
-listening, then press one `Start X−/X+/Y−/Y+ Test` button. In that interaction,
-exact `READY` advances
-the armed side into one closed, capped jog, and exact `STOP` requests Jog Cancel
-only while that jog is moving. Neither word is an ambient priority command, and
-speech cannot request general axis motion, Pen Up, status, raw G-code, or a
-safety override. The current build requires on-device Apple recognition rather
-than adding a network or API dependency. Spoken prompts and a start cue provide
-turn-taking; faster proximity beeps are intentionally absent until a trusted
-distance-to-boundary estimate exists. A future OpenAI Realtime dialogue layer
-may explain state or collect teaching input, but it must remain above this same
-typed boundary and must not become a motion authority or calibration workflow.
+The voice surface follows the same rule. It lives under Learning as Motion
+Preflight. The operator chooses one boundary or pen sequence and presses Start;
+that transaction starts microphone listening automatically, displays the exact
+participants/actions/events, accepts only the phrase required by the current
+step, and stops listening when the transaction ends. Exact `READY` advances a
+boundary sequence into one closed internal search jog, and exact `STOP` requests
+Jog Cancel only while that jog is moving. Pen sequences require an exact spoken
+physical confirmation and pair it with a current immutable camera frame without
+claiming that the camera proves pen height. Speech cannot request general axis
+motion, status, raw G-code, or an activation override. The current build uses
+on-device Apple recognition rather than adding a network or API dependency.
 
 A taught side is accepted only from `MotionOutcome.cancelled(finalPosition:)`:
 the Jog Cancel must settle at Idle and supply final controller MPos. A jog that
@@ -307,9 +310,9 @@ are out of scope.
 
 1. Run the passive controller probe repeatedly on the actual controller.
 2. Verify the live camera preview and latest-frame capture on the plotter camera.
-3. Verify one bounded low-speed pen-up relative move and inverse return using
-   explicitly configured local bounds.
-4. Verify pen up/down with one direct local control.
+3. Connect, activate Motion Guard, and complete the Pen Up and boundary Motion
+   Preflight sequences without entering coordinates or limits.
+4. Verify pen up/down through the corresponding voice-mediated sequences.
 5. Draw one isolated line, clear the tool, observe the ink, and show error.
 6. Draw a small multi-stroke vector program.
 7. Add portrait-to-vector input only after the same drawing path works.
@@ -334,9 +337,9 @@ and advanced-model requirements.
 > working local controller-camera-draw-observe loop. Use the current Command
 > Line Tools and SwiftPM. Do not add release infrastructure, accessibility
 > scope, archival replay, advanced models, separate arms, or phase-wide gates.
-> The controller inspection, current camera analysis, typed limits, verified
-> `S760` Pen Down / `S40` Pen Up contact pair, and bounded 1 mm X/Y round trips
-> in `docs/implementation/FIRST_HARDWARE_SESSION.md` are complete. The next
+> The controller inspection, current camera analysis, verified `S760` Pen Down /
+> `S40` Pen Up contact pair, and bounded 1 mm X/Y round trips in
+> `docs/implementation/FIRST_HARDWARE_SESSION.md` are complete. The next
 > physical slice is one explicit clear pose followed by one bounded isolated
 > line and exact-frame ink observation; do not skip directly to multi-stroke
 > drawing.

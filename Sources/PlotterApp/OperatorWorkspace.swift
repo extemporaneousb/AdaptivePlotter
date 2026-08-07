@@ -109,15 +109,15 @@ final class OperatorWorkspace {
   private enum MotionPriors {
     static let stepMM = "1.0"
     static let feedMMPerMinute = "100"
-    static let maximumDistanceMM = "5"
-    static let maximumFeedMMPerMinute = "100"
+    static let boundarySearchXDistanceMM = 300.0
+    static let boundarySearchYDistanceMM = 150.0
   }
 
   struct MachineActions: Sendable {
     let select: @Sendable (MachineLinkDescriptor) async throws -> RunInterpreterSnapshot
     let snapshot: @Sendable () async -> RunInterpreterSnapshot?
     let requestPassiveProbe: @Sendable () async throws -> PassiveProbeResult
-    let updateMotionLimits: @Sendable (MotionLimits) async -> Void
+    let activateMotionGuard: @Sendable () async -> MotionGuardActivationOutcome
     let requestRelativeJog: @Sendable (RelativeJogRequest) async -> MotionOutcome
     let requestObservedJog: @Sendable (
       PhysicalJogObservationRequest,
@@ -148,7 +148,7 @@ final class OperatorWorkspace {
     let restart: @Sendable () async -> CameraCaptureSnapshot
     let snapshot: @Sendable () async -> CameraCaptureSnapshot
     let frames: @Sendable () async -> AsyncStream<DisplayedFrame>
-    let inspectScene: @Sendable () async throws -> LiveSceneInspection?
+    let inspectScene: @Sendable (UInt64) async throws -> LiveSceneInspection?
     let captureSnapshot: @Sendable () async throws -> String
     let setAutomaticInspection: @Sendable (VisionAnalysisCadence?) async
       -> PlotterSceneAnalysisSnapshot
@@ -168,12 +168,6 @@ final class OperatorWorkspace {
   var xStepText = MotionPriors.stepMM
   var yStepText = MotionPriors.stepMM
   var feedText = MotionPriors.feedMMPerMinute
-  var minimumXText = "-100"
-  var maximumXText = "100"
-  var minimumYText = "-40"
-  var maximumYText = "40"
-  var maximumDistanceText = MotionPriors.maximumDistanceMM
-  var maximumFeedText = MotionPriors.maximumFeedMMPerMinute
   private(set) var recordJogObservations = false
   private(set) var selectedObservationSplit: ModelObservationSplit = .training
 
@@ -187,8 +181,8 @@ final class OperatorWorkspace {
   private(set) var penRequestInProgress = false
   private(set) var jogCancelRequestInProgress = false
   private(set) var frameModeSwitchInProgress = false
-  private(set) var limitsUpdateInProgress = false
-  private(set) var limitsApplied = false
+  private(set) var motionGuardActivationInProgress = false
+  private(set) var lastMotionGuardActivationText = "not activated"
   private(set) var physicalJogObservations: [PhysicalJogObservation] = []
   private(set) var jogResponseDataset: OnlineJogResponseDataset?
   private(set) var jogResponseCandidate: JogResponseCandidate?
@@ -220,6 +214,10 @@ final class OperatorWorkspace {
   private(set) var boundaryTeachingState: BoundaryTeachingState = .idle
   private(set) var boundaryTeachingResultText = "Choose one side to begin."
   private(set) var boundaryPositions: [JogDirection: MachinePosition] = [:]
+  var selectedPreflightSequenceID: PreflightSequenceID = .penUpConfirmation
+  private(set) var preflightTransactions: [PreflightSequenceID: PreflightTransaction] = [:]
+  private(set) var preflightError: String?
+  private(set) var drawingFramePosterior: DrawingFramePosterior?
 
   @ObservationIgnored private let machineActions: MachineActions?
   @ObservationIgnored private let cameraActions: CameraActions?
@@ -234,6 +232,10 @@ final class OperatorWorkspace {
   @ObservationIgnored private var boundaryMotionTask: Task<Void, Never>?
   @ObservationIgnored private var boundaryCancelTask: Task<Void, Never>?
   @ObservationIgnored private var lastBoundaryStopUtteranceID: UUID?
+  @ObservationIgnored private var pendingPreflightInspection: LiveSceneInspection?
+  @ObservationIgnored private var pendingPreflightCaptureBoundaryNanoseconds: UInt64?
+  @ObservationIgnored private var preflightAuthorityGeneration: UInt64 = 0
+  @ObservationIgnored private var preflightVoiceStartupGeneration: UInt64?
   @ObservationIgnored private var rememberedSerialDeviceIdentifier: String?
   @ObservationIgnored private var hasShutdown = false
   @ObservationIgnored private var lifetimeGeneration: UInt64 = 0
@@ -516,6 +518,65 @@ final class OperatorWorkspace {
     motionUnavailableReason == nil ? "request eligible" : "blocked"
   }
 
+  var motionGuardIsActive: Bool {
+    controllerIsConnected && machineSnapshot?.machine.motionGuardState == .active
+  }
+
+  /// Drives the green top-bar badge. Session activation alone is not enough:
+  /// green means an ordinary carriage request is eligible right now.
+  var motionGuardAllowsCarriageMotion: Bool {
+    motionGuardIsActive && motionUnavailableReason == nil
+  }
+
+  var motionGuardStateText: String {
+    motionGuardIsActive ? "active" : "inactive"
+  }
+
+  var controllerSelectionUnavailableReason: String? {
+    if serialDevices.isEmpty { return "No serial controllers are available." }
+    if let activePreflightSequenceID {
+      return "Finish or cancel \(PreflightSequenceCatalog.definition(for: activePreflightSequenceID).title)."
+    }
+    if passiveProbeInProgress || jogRequestInProgress || penRequestInProgress
+      || motionGuardActivationInProgress
+    {
+      return "Wait for the current controller operation."
+    }
+    return nil
+  }
+
+  var motionGuardActivationUnavailableReason: String? {
+    if motionGuardActivationInProgress { return "Motion Guard activation is in progress." }
+    if motionGuardIsActive { return "Motion Guard is already active." }
+    if !controllerIsConnected { return "Connect the selected plotter first." }
+    guard let snapshot = machineSnapshot else {
+      return MotionRefusal.notConnected.actionableDescription
+    }
+    let machine = snapshot.machine
+    if let ambiguity = machine.stickyAmbiguity {
+      return MotionRefusal.stickyAmbiguity(ambiguity).actionableDescription
+    }
+    if machine.operationInFlight || snapshot.currentOperation != .idle {
+      return MotionRefusal.operationInFlight.actionableDescription
+    }
+    guard let controllerState = machine.controllerState, controllerState.isRecognized else {
+      return MotionRefusal.controllerStateUnknown.actionableDescription
+    }
+    if controllerState.isAlarm {
+      return MotionRefusal.controllerAlarm("controller is in Alarm").actionableDescription
+    }
+    if controllerState != .idle {
+      return MotionRefusal.controllerNotIdle(controllerState).actionableDescription
+    }
+    if machine.pins.hasRelevantLimitAsserted {
+      return MotionRefusal.relevantLimitAsserted(machine.pins.rawValue).actionableDescription
+    }
+    if machine.position == nil {
+      return MotionRefusal.machinePositionUnknown.actionableDescription
+    }
+    return nil
+  }
+
   var voicePermissionText: String {
     switch voiceAuthorizationState {
     case .notDetermined: "not requested"
@@ -535,6 +596,9 @@ final class OperatorWorkspace {
   var voiceListeningUnavailableReason: String? {
     if hasShutdown { return "The operator workspace has shut down." }
     if voiceActions == nil { return "Native voice composition is unavailable." }
+    if preflightVoiceStartupGeneration != nil {
+      return "A Motion Preflight microphone request is still settling."
+    }
     if voiceListening { return "Voice listening is already active." }
     return nil
   }
@@ -587,9 +651,74 @@ final class OperatorWorkspace {
     }
   }
 
+  var preflightTrainingReadiness: PreflightTrainingReadiness {
+    PreflightTrainingReadinessPolicy.supervisedTraining.evaluate(
+      transactions: Array(preflightTransactions.values),
+      currentPenState: machineSnapshot?.machine.penState ?? .unknown
+    )
+  }
+
+  var activePreflightSequenceID: PreflightSequenceID? {
+    preflightTransactions.first { _, transaction in
+      switch transaction.state {
+      case .active, .cancelling: true
+      case .notStarted, .succeeded, .failed, .cancelled: false
+      }
+    }?.key
+  }
+
+  var motionPreflightReadinessText: String {
+    let readiness = preflightTrainingReadiness
+    if readiness.isReady {
+      return "ready to train · \(readiness.successfulSequenceIDs.count) sequences"
+    }
+    let missing = readiness.missingRequiredClasses
+      .map(\.displayName)
+      .sorted()
+      .joined(separator: ", ")
+    if !missing.isEmpty {
+      return "preflight required · missing \(missing)"
+    }
+    if !readiness.hasSuccessfulPenUpConfirmation {
+      return "preflight required · complete Pen Up confirmation"
+    }
+    return "preflight required · current pen state \(readiness.currentPenState.rawValue), Pen Up required"
+  }
+
+  var drawingFramePosteriorText: String {
+    guard let posterior = drawingFramePosterior else { return "no boundary posterior yet" }
+    return String(
+      format: "%d exact-frame observations · confidence %.2f",
+      posterior.observationCount,
+      posterior.estimate.confidence
+    )
+  }
+
+  func preflightStartUnavailableReason(for sequenceID: PreflightSequenceID) -> String? {
+    if let activePreflightSequenceID {
+      return "Finish or cancel \(PreflightSequenceCatalog.definition(for: activePreflightSequenceID).title)."
+    }
+    if preflightVoiceStartupGeneration != nil {
+      return "Wait for the previous Motion Preflight microphone request to settle."
+    }
+    if !motionGuardIsActive { return "Connect the plotter and activate Motion Guard first." }
+    if voiceActions == nil { return "Native voice composition is unavailable." }
+    if frameMode != .live || !cameraIsLive {
+      return "A current LIVE camera frame is required for Motion Preflight."
+    }
+    switch sequenceID {
+    case .boundaryNegativeX, .boundaryPositiveX, .boundaryNegativeY, .boundaryPositiveY:
+      return motionUnavailableReason
+    case .penUpConfirmation:
+      return penUnavailableReason(for: .raise)
+    case .penDownConfirmation:
+      return penUnavailableReason(for: .lower)
+    }
+  }
+
   var boundaryTeachingUnavailableReason: String? {
     if boundaryTeachingState != .idle { return "Finish or cancel the current boundary interaction." }
-    if !voiceListening { return "Turn Speech On in the Camera panel first." }
+    if voiceActions == nil { return "Native voice composition is unavailable." }
     return motionUnavailableReason
   }
 
@@ -600,8 +729,12 @@ final class OperatorWorkspace {
 
   var workbenchStatusText: String {
     if let actionableError { return actionableError }
-    if let reason = motionUnavailableReason { return "Movement test setup: \(reason)" }
-    return "Motion request eligible; motor power is not reported by controller."
+    if !controllerIsConnected { return "Select the remembered controller and press Connect." }
+    if !motionGuardIsActive { return "Plotter connected. Activate Motion to enable calibration." }
+    if machineSnapshot?.machine.penState != .up {
+      return "Motion Guard active. Run the Pen Up preflight before carriage travel."
+    }
+    return "Motion Guard active; carriage motion is available."
   }
 
   var workbenchStatusNeedsAttention: Bool {
@@ -745,8 +878,8 @@ final class OperatorWorkspace {
     if machine.position == nil {
       return MotionRefusal.machinePositionUnknown.actionableDescription
     }
-    if !limitsApplied || machine.motionLimits == nil {
-      return MotionRefusal.motionLimitsMissing.actionableDescription
+    if machine.motionGuardState != .active {
+      return MotionRefusal.motionGuardInactive.actionableDescription
     }
     if machine.penState != .up {
       return MotionRefusal.penNotUp(machine.penState).actionableDescription
@@ -777,19 +910,6 @@ final class OperatorWorkspace {
     return nil
   }
 
-  var limitsUnavailableReason: String? {
-    if limitsUpdateInProgress { return "Motion limits are being applied." }
-    guard machineActions != nil, selectedSerialDevice != nil else {
-      return "Select and connect one serial device first."
-    }
-    guard [
-      minimumXText, maximumXText, minimumYText, maximumYText,
-      maximumDistanceText, maximumFeedText,
-    ].allSatisfy({ inputNumber($0) != nil })
-    else { return "Enter all six numeric limit values." }
-    return nil
-  }
-
   func penUnavailableReason(for command: PenCommand) -> String? {
     if penRequestInProgress { return "A pen command is already in progress." }
     if frameModeSwitchInProgress { return "Wait for the frame source switch to finish." }
@@ -811,6 +931,9 @@ final class OperatorWorkspace {
     if machine.connection != .connected {
       return PenRefusal.notConnected.actionableDescription
     }
+    if machine.motionGuardState != .active {
+      return PenRefusal.motionGuardInactive.actionableDescription
+    }
     guard let controllerState = machine.controllerState, controllerState.isRecognized else {
       return PenRefusal.controllerStateUnknown.actionableDescription
     }
@@ -824,14 +947,8 @@ final class OperatorWorkspace {
     if machine.pins.hasRelevantLimitAsserted {
       return PenRefusal.relevantLimitAsserted(machine.pins.rawValue).actionableDescription
     }
-    guard let position = machine.position else {
+    guard machine.position != nil else {
       return PenRefusal.machinePositionUnknown.actionableDescription
-    }
-    guard let limits = machine.motionLimits, limitsApplied else {
-      return PenRefusal.motionLimitsMissing.actionableDescription
-    }
-    if !limits.bounds.contains(position.point) {
-      return PenRefusal.machinePositionOutsideBounds(position).actionableDescription
     }
     return nil
   }
@@ -873,7 +990,7 @@ final class OperatorWorkspace {
     {
       await machineActions?.disconnect()
       guard canCommit(generation) else { return }
-      clearMachineAuthority(clearSelection: true)
+      await clearMachineAuthority(clearSelection: true)
     }
     guard canCommit(generation) else { return }
     serialDevices = discovered
@@ -892,7 +1009,7 @@ final class OperatorWorkspace {
     else { return }
     await machineActions?.disconnect()
     guard canCommit(generation) else { return }
-    clearMachineAuthority(clearSelection: false)
+    await clearMachineAuthority(clearSelection: false)
   }
 
   /// Updates only the operator's pending device choice. A picker change is not
@@ -900,12 +1017,13 @@ final class OperatorWorkspace {
   func selectSerialDevice(_ descriptor: MachineLinkDescriptor) async {
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
+    guard activePreflightSequenceID == nil else { return }
     guard !passiveProbeInProgress && !jogRequestInProgress && !penRequestInProgress else { return }
     guard serialDevices.contains(where: { $0.identifier == descriptor.identifier }) else { return }
     if selectedSerialDevice?.identifier != descriptor.identifier, machineSnapshot != nil {
       await machineActions?.disconnect()
       guard canCommit(generation) else { return }
-      clearMachineAuthority(clearSelection: false)
+      await clearMachineAuthority(clearSelection: false)
     }
     guard canCommit(generation) else { return }
     selectedSerialDevice = descriptor
@@ -942,7 +1060,7 @@ final class OperatorWorkspace {
       guard canCommit(generation) else { return }
       machineSnapshot = snapshot
       passiveProbeResult = nil
-      limitsApplied = false
+      lastMotionGuardActivationText = "not activated"
     } catch {
       guard canCommit(generation) else { return }
       machineError = actionableDescription(error)
@@ -1011,7 +1129,7 @@ final class OperatorWorkspace {
       }
       voiceListening = true
       lastVoiceActionableResultText =
-        "speech on; no words are actionable until a boundary side is armed"
+        "speech listening active for the current Motion Preflight sequence"
       beginVoiceTranscriptUpdates(actions: voiceActions)
       beginVoiceStateUpdates(actions: voiceActions)
     } catch {
@@ -1044,8 +1162,304 @@ final class OperatorWorkspace {
     lastVoiceActionableResultText = "voice listening stopped"
   }
 
+  func startPreflightSequence(_ sequenceID: PreflightSequenceID) async {
+    guard preflightStartUnavailableReason(for: sequenceID) == nil else { return }
+    preflightAuthorityGeneration &+= 1
+    selectedPreflightSequenceID = sequenceID
+    preflightError = nil
+    pendingPreflightInspection = nil
+    pendingPreflightCaptureBoundaryNanoseconds = nil
+    var transaction = PreflightTransaction(sequenceID: sequenceID)
+    do {
+      try transaction.begin()
+      preflightTransactions[sequenceID] = transaction
+      await advancePreflightSequence(sequenceID)
+    } catch {
+      preflightError = "Motion Preflight could not start: \(error)"
+    }
+  }
+
+  func cancelPreflightSequence(_ sequenceID: PreflightSequenceID) async {
+    if penRequestInProgress {
+      preflightError = "Wait for the current pen command to settle before cancelling."
+      return
+    }
+    guard var transaction = preflightTransactions[sequenceID] else { return }
+    preflightAuthorityGeneration &+= 1
+    transaction.cancel()
+    preflightTransactions[sequenceID] = transaction
+    if boundaryTeachingState != .idle {
+      await cancelBoundaryTeaching()
+      if case .moving = boundaryTeachingState { return }
+      if case .cancelling = boundaryTeachingState { return }
+    }
+    await finishCancelledPreflight(sequenceID)
+  }
+
+  private func advancePreflightSequence(_ sequenceID: PreflightSequenceID) async {
+    while !hasShutdown, activePreflightSequenceID == sequenceID,
+      let step = preflightTransactions[sequenceID]?.currentStep
+    {
+      switch step.action {
+      case .startSpeechListening:
+        if voiceListening { await stopVoiceListening() }
+        let authorityGeneration = preflightAuthorityGeneration
+        let started = await startPreflightVoiceListening(
+          for: sequenceID,
+          authorityGeneration: authorityGeneration
+        )
+        guard preflightAuthorityIsCurrent(
+          sequenceID: sequenceID,
+          generation: authorityGeneration
+        ) else { return }
+        guard started else {
+          await failPreflight(sequenceID, reason: voiceError ?? voicePermissionText)
+          return
+        }
+        guard recordPreflight(.speechListeningStarted, for: sequenceID) else { return }
+
+      case .stopSpeechListening:
+        await stopVoiceListening()
+        guard recordPreflight(.speechListeningStopped, for: sequenceID) else { return }
+
+      case .speakPrompt(let prompt):
+        lastVoiceActionableResultText = prompt
+        let spoken = "Motion Preflight is ready. Follow the displayed instruction."
+        await voiceActions?.speak(spoken)
+        lastSpokenFeedbackText = spoken
+        guard recordPreflight(.promptSpoken, for: sequenceID) else { return }
+
+      case .awaitVoice(.ready):
+        guard let direction = jogDirection(for: sequenceID) else {
+          await failPreflight(sequenceID, reason: "Boundary direction is unavailable.")
+          return
+        }
+        boundaryTeachingState = .awaitingReady(direction)
+        boundaryTeachingResultText =
+          "\(direction.shortLabel) armed. Speech is listening; say READY, then STOP at the boundary."
+        await voiceActions?.signal()
+        return
+
+      case .awaitVoice, .awaitPhysicalPenConfirmation:
+        return
+
+      case .startBoundaryJog(let direction):
+        guard boundaryMotionTask == nil else { return }
+        let jogDirection = jogDirection(from: direction)
+        boundaryMotionTask = Task { [weak self] in
+          guard let self else { return }
+          await self.executeBoundaryMotion(jogDirection)
+          self.boundaryMotionTask = nil
+        }
+        return
+
+      case .cancelBoundaryJogAndAwaitIdle(let direction):
+        guard boundaryCancelTask == nil else { return }
+        boundaryTeachingState = .cancelling(jogDirection(from: direction))
+        boundaryTeachingResultText = "Jog cancellation requested. Waiting for final controller position."
+        boundaryCancelTask = Task { [weak self] in
+          guard let self else { return }
+          await self.requestJogCancel()
+          self.boundaryCancelTask = nil
+        }
+        return
+
+      case .actuatePen(let command):
+        await requestPenActuation(command)
+        guard case .commandedAndSettled = machineSnapshot?.lastPenOutcome else {
+          await failPreflight(sequenceID, reason: lastPenOutcomeText)
+          return
+        }
+        guard recordPreflight(
+          .penCommandSettled(command, controllerSummary: lastPenOutcomeText),
+          for: sequenceID
+        ) else { return }
+
+      case .captureFreshCameraFrame:
+        guard await capturePreflightInspection(sequenceID) else { return }
+
+      case .measureBoundary(let direction):
+        guard let inspection = pendingPreflightInspection,
+          let estimate = inspection.measurement.drawingFrame,
+          let controllerPosition = boundaryPositions[jogDirection(from: direction)],
+          let observedToolCentroid = inspection.measurement.cap?.centroid
+        else {
+          await failPreflight(
+            sequenceID,
+            reason:
+              "Boundary preflight requires final controller MPos, the observed tool centroid, and a drawing-frame estimate on the exact fresh frame."
+          )
+          return
+        }
+        let measurement = inspection.measurement
+        let summary =
+          "controller boundary paired with the observed tool centroid and visible frame sides; unobserved sides remain inferred"
+        guard recordPreflight(
+          .boundaryMeasured(
+            direction,
+            controllerPosition: controllerPosition,
+            observedToolCentroid: observedToolCentroid,
+            frameID: measurement.frameID,
+            cameraConfigurationID: measurement.cameraConfigurationID,
+            confidence: estimate.confidence,
+            summary: summary
+          ),
+          for: sequenceID
+        ) else { return }
+
+      case .adjustDrawingFramePosterior(let direction):
+        guard updateDrawingFramePosterior(direction: direction, sequenceID: sequenceID) else {
+          return
+        }
+      }
+    }
+  }
+
+  private func capturePreflightInspection(_ sequenceID: PreflightSequenceID) async -> Bool {
+    guard let cameraActions else {
+      await failPreflight(sequenceID, reason: "Native camera composition is unavailable.")
+      return false
+    }
+    guard let captureBoundary = pendingPreflightCaptureBoundaryNanoseconds else {
+      await failPreflight(
+        sequenceID,
+        reason: "No controller or operator event boundary is available for a fresh frame."
+      )
+      return false
+    }
+    do {
+      guard let inspection = try await cameraActions.inspectScene(captureBoundary) else {
+        await failPreflight(
+          sequenceID,
+          reason: "No live frame newer than the completed preflight event is available."
+        )
+        return false
+      }
+      guard inspection.displayedFrame.frame.captureNanoseconds > captureBoundary else {
+        await failPreflight(
+          sequenceID,
+          reason: "Camera returned a frame that predates the completed preflight event."
+        )
+        return false
+      }
+      pendingPreflightInspection = inspection
+      pendingPreflightCaptureBoundaryNanoseconds = nil
+      displayedFrame = inspection.displayedFrame
+      latestLiveCameraFrame = inspection.displayedFrame
+      lastSceneMeasurement = inspection.measurement
+      cameraOverlays = inspection.measurement.overlays
+      return recordPreflight(
+        .freshFrameCaptured(
+          inspection.measurement.frameID,
+          inspection.measurement.cameraConfigurationID
+        ),
+        for: sequenceID
+      )
+    } catch {
+      await failPreflight(sequenceID, reason: actionableDescription(error))
+      return false
+    }
+  }
+
+  private func updateDrawingFramePosterior(
+    direction: PreflightBoundaryDirection,
+    sequenceID: PreflightSequenceID
+  ) -> Bool {
+    guard let inspection = pendingPreflightInspection,
+      let estimate = inspection.measurement.drawingFrame,
+      let controllerPosition = boundaryPositions[jogDirection(from: direction)],
+      let observedToolCentroid = inspection.measurement.cap?.centroid
+    else {
+      preflightError =
+        "Posterior adjustment requires final controller MPos, exact-frame tool centroid, and drawing-frame geometry."
+      return false
+    }
+    do {
+      let measurement = inspection.measurement
+      let observation = try DrawingFrameBoundaryObservation(
+        frameID: measurement.frameID,
+        cameraConfigurationID: measurement.cameraConfigurationID,
+        direction: direction,
+        controllerPosition: controllerPosition,
+        observedToolCentroid: observedToolCentroid,
+        estimate: estimate,
+        confidence: max(0.01, estimate.confidence)
+      )
+      drawingFramePosterior = try drawingFramePosterior?.adding(observation)
+        ?? DrawingFramePosterior(prior: observation)
+      guard let drawingFramePosterior else { return false }
+      let posteriorOverlay = CameraOverlayMeasurement(
+        frameID: measurement.frameID,
+        cameraConfigurationID: measurement.cameraConfigurationID,
+        geometry: .polyline(drawingFramePosterior.estimate.geometry),
+        provenance: CameraMeasurementProvenance(
+          kind: .drawingFrameEstimate,
+          source: .inferred,
+          algorithmRevision: "motion-preflight-posterior-v1"
+        )
+      )
+      cameraOverlays.removeAll { $0.provenance.kind == .drawingFrameEstimate }
+      cameraOverlays.append(posteriorOverlay)
+      return recordPreflight(
+        .drawingFramePosteriorAdjusted(
+          direction,
+          frameID: measurement.frameID,
+          cameraConfigurationID: measurement.cameraConfigurationID,
+          observationCount: drawingFramePosterior.observationCount
+        ),
+        for: sequenceID
+      )
+    } catch {
+      preflightError = "Drawing-frame posterior update failed: \(error)"
+      if var transaction = preflightTransactions[sequenceID] {
+        transaction.fail(preflightError ?? "Drawing-frame posterior update failed.")
+        preflightTransactions[sequenceID] = transaction
+      }
+      return false
+    }
+  }
+
+  private func recordPreflight(_ event: PreflightEvent, for sequenceID: PreflightSequenceID) -> Bool {
+    guard var transaction = preflightTransactions[sequenceID] else { return false }
+    do {
+      try transaction.record(event)
+      preflightTransactions[sequenceID] = transaction
+      return true
+    } catch {
+      transaction.fail("Unexpected preflight event: \(error)")
+      preflightTransactions[sequenceID] = transaction
+      preflightError = "Unexpected Motion Preflight event: \(error)"
+      return false
+    }
+  }
+
+  private func failPreflight(_ sequenceID: PreflightSequenceID, reason: String) async {
+    if var transaction = preflightTransactions[sequenceID] {
+      transaction.fail(reason)
+      preflightTransactions[sequenceID] = transaction
+    }
+    preflightError = reason
+    boundaryTeachingState = .idle
+    pendingPreflightInspection = nil
+    pendingPreflightCaptureBoundaryNanoseconds = nil
+    await stopVoiceListening()
+  }
+
+  private func finishCancelledPreflight(_ sequenceID: PreflightSequenceID) async {
+    await stopVoiceListening()
+    if preflightTransactions[sequenceID]?.currentStep?.action == .stopSpeechListening {
+      _ = recordPreflight(.speechListeningStopped, for: sequenceID)
+    }
+    pendingPreflightInspection = nil
+    pendingPreflightCaptureBoundaryNanoseconds = nil
+  }
+
   func beginBoundaryTeaching(_ direction: JogDirection) async {
     guard boundaryTeachingUnavailableReason == nil, let voiceActions else { return }
+    if !voiceListening {
+      await startVoiceListening()
+    }
+    guard voiceListening else { return }
     lastBoundaryStopUtteranceID = nil
     boundaryTeachingState = .awaitingReady(direction)
     boundaryTeachingResultText =
@@ -1087,40 +1501,23 @@ final class OperatorWorkspace {
     machineSnapshot = snapshot
   }
 
-  func applyMotionLimits() async {
+  func activateMotionGuard() async {
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
-    guard limitsUnavailableReason == nil, let machineActions,
-      let minimumX = inputNumber(minimumXText),
-      let maximumX = inputNumber(maximumXText),
-      let minimumY = inputNumber(minimumYText),
-      let maximumY = inputNumber(maximumYText),
-      let maximumDistance = inputNumber(maximumDistanceText),
-      let maximumFeed = inputNumber(maximumFeedText)
-    else { return }
-    limitsUpdateInProgress = true
+    guard motionGuardActivationUnavailableReason == nil, let machineActions else { return }
+    motionGuardActivationInProgress = true
     machineError = nil
-    defer { limitsUpdateInProgress = false }
-    do {
-      let limits = try MotionLimits(
-        bounds: AxisAlignedBounds<MachineSpace>(
-          minX: minimumX,
-          minY: minimumY,
-          maxX: maximumX,
-          maxY: maximumY
-        ),
-        maximumDistanceMM: maximumDistance,
-        maximumFeedMMPerMinute: maximumFeed
-      )
-      await machineActions.updateMotionLimits(limits)
-      let snapshot = await machineActions.snapshot()
-      guard canCommit(generation) else { return }
-      machineSnapshot = snapshot
-      limitsApplied = true
-    } catch {
-      guard canCommit(generation) else { return }
-      limitsApplied = false
-      machineError = actionableDescription(error)
+    defer { motionGuardActivationInProgress = false }
+    let outcome = await machineActions.activateMotionGuard()
+    let snapshot = await machineActions.snapshot()
+    guard canCommit(generation) else { return }
+    machineSnapshot = snapshot
+    switch outcome {
+    case .activated:
+      lastMotionGuardActivationText = "activated for this controller session"
+    case .refused(let refusal):
+      lastMotionGuardActivationText = "refused: \(refusal.actionableDescription)"
+      machineError = refusal.actionableDescription
     }
   }
 
@@ -1242,6 +1639,7 @@ final class OperatorWorkspace {
     defer { endHardwareIntent() }
     guard let cameraActions else { return }
     clearAutomaticVisionPresentation()
+    await clearPreflightAuthority()
     cameraError = nil
     do {
       let snapshot = try await cameraActions.select(id)
@@ -1292,6 +1690,7 @@ final class OperatorWorkspace {
     frameTask?.cancel()
     frameTask = nil
     clearAutomaticVisionPresentation()
+    await clearPreflightAuthority()
     guard let cameraActions else { return }
     let snapshot = await cameraActions.restart()
     guard canCommit(generation) else { return }
@@ -1316,7 +1715,7 @@ final class OperatorWorkspace {
     cameraError = nil
     defer { sceneInspectionInProgress = false }
     do {
-      guard let inspection = try await cameraActions.inspectScene() else {
+      guard let inspection = try await cameraActions.inspectScene(0) else {
         guard canCommit(generation) else { return }
         cameraError = "No newer camera frame is available for analysis."
         return
@@ -1486,8 +1885,8 @@ final class OperatorWorkspace {
     await waitForHardwareIntentsToDrain()
     _ = await cameraActions?.stop()
     await machineActions?.disconnect()
-    clearCameraAuthority()
-    clearMachineAuthority(clearSelection: true)
+    await clearCameraAuthority()
+    await clearMachineAuthority(clearSelection: true)
   }
 
   private func beginFrameUpdates(generation: UInt64) {
@@ -1575,6 +1974,13 @@ final class OperatorWorkspace {
   }
 
   private func failClosedBoundaryAfterSpeechLoss(_ reason: String) {
+    if let sequenceID = activePreflightSequenceID,
+      var transaction = preflightTransactions[sequenceID]
+    {
+      transaction.fail(reason)
+      preflightTransactions[sequenceID] = transaction
+      preflightError = reason
+    }
     switch boundaryTeachingState {
     case .idle:
       return
@@ -1599,6 +2005,59 @@ final class OperatorWorkspace {
   private func receiveVoiceTranscript(_ transcript: VoiceTranscript) async {
     guard voiceListening, !hasShutdown else { return }
     voiceTranscriptText = transcript.text.isEmpty ? "none" : transcript.text
+
+    if let sequenceID = activePreflightSequenceID,
+      let context = preflightTransactions[sequenceID]?.voiceContext
+    {
+      guard let response = PreflightVoiceResponseParser().parse(transcript.text, in: context)
+      else { return }
+      switch response {
+      case .ready:
+        guard transcript.isFinal, boundaryMotionTask == nil else { return }
+        lastVoiceIntentText = "Motion Preflight accepted READY"
+        guard recordPreflight(.exactVoiceResponseAccepted(.ready), for: sequenceID) else { return }
+        await advancePreflightSequence(sequenceID)
+
+      case .stop:
+        guard lastBoundaryStopUtteranceID != transcript.utteranceID,
+          boundaryCancelTask == nil
+        else { return }
+        lastBoundaryStopUtteranceID = transcript.utteranceID
+        lastVoiceIntentText = "Motion Preflight accepted STOP"
+        guard recordPreflight(.exactVoiceResponseAccepted(.stop), for: sequenceID) else { return }
+        await advancePreflightSequence(sequenceID)
+
+      case .penIsPhysicallyUp:
+        guard transcript.isFinal else { return }
+        lastVoiceIntentText = "operator confirmed pen physically up"
+        pendingPreflightCaptureBoundaryNanoseconds = nowNanoseconds()
+        guard recordPreflight(
+          .physicalPenConfirmed(
+            .up,
+            response: .penIsPhysicallyUp,
+            operatorSummary: "Exact voice confirmation accepted."
+          ),
+          for: sequenceID
+        ) else { return }
+        await advancePreflightSequence(sequenceID)
+
+      case .penIsPhysicallyDown:
+        guard transcript.isFinal else { return }
+        lastVoiceIntentText = "operator confirmed pen physically down"
+        pendingPreflightCaptureBoundaryNanoseconds = nowNanoseconds()
+        guard recordPreflight(
+          .physicalPenConfirmed(
+            .down,
+            response: .penIsPhysicallyDown,
+            operatorSummary: "Exact voice confirmation accepted."
+          ),
+          for: sequenceID
+        ) else { return }
+        await advancePreflightSequence(sequenceID)
+      }
+      return
+    }
+
     let parser = BoundaryVoiceCommandParser()
     switch boundaryTeachingState {
     case .idle:
@@ -1652,7 +2111,16 @@ final class OperatorWorkspace {
           if snapshot.machine.connection == .moving {
             boundaryTeachingState = .moving(direction)
             boundaryTeachingResultText =
-              "Moving \(direction.shortLabel) under the displayed limits. The active interaction now accepts STOP."
+              "Moving \(direction.shortLabel). The active Motion Preflight transaction now accepts STOP."
+            if let sequenceID = activePreflightSequenceID {
+              _ = recordPreflight(
+                .boundaryJogStarted(
+                  preflightBoundaryDirection(from: direction),
+                  controllerSummary: "Closed jog accepted and controller reported moving."
+                ),
+                for: sequenceID
+              )
+            }
             await voiceActions?.signal()
             break
           }
@@ -1666,6 +2134,9 @@ final class OperatorWorkspace {
     boundaryTeachingState = .idle
     guard let outcome = exactOutcome else {
       boundaryTeachingResultText = "No motion outcome is available; no boundary was recorded."
+      if let sequenceID = activePreflightSequenceID {
+        await failPreflight(sequenceID, reason: boundaryTeachingResultText)
+      }
       await publishVoiceFeedback(
         result: boundaryTeachingResultText,
         spoken: "No motion outcome is available. No side position was recorded."
@@ -1674,6 +2145,7 @@ final class OperatorWorkspace {
     }
     switch outcome {
     case .cancelled(let finalPosition):
+      pendingPreflightCaptureBoundaryNanoseconds = nowNanoseconds()
       boundaryPositions[direction] = finalPosition
       boundaryTeachingResultText = String(
         format: "%@ recorded at X %.3f Y %.3f from cancelled jog final position.",
@@ -1681,25 +2153,49 @@ final class OperatorWorkspace {
         finalPosition.point.x,
         finalPosition.point.y
       )
+      if let sequenceID = activePreflightSequenceID {
+        if case .cancelling = preflightTransactions[sequenceID]?.state {
+          await finishCancelledPreflight(sequenceID)
+          return
+        }
+        guard recordPreflight(
+          .boundaryJogCancelled(
+            preflightBoundaryDirection(from: direction),
+            finalPosition: finalPosition,
+            controllerSummary: boundaryTeachingResultText
+          ),
+          for: sequenceID
+        ) else { return }
+        await advancePreflightSequence(sequenceID)
+      }
       await publishVoiceFeedback(
         result: boundaryTeachingResultText,
         spoken: "Side position recorded from the interrupted movement."
       )
     case .acceptedThenCompleted:
       boundaryTeachingResultText =
-        "The bounded jog reached its command cap. No boundary was recorded; arm the side again to continue."
+        "The boundary-search jog completed without a STOP event. No boundary was recorded."
+      if let sequenceID = activePreflightSequenceID {
+        await failPreflight(sequenceID, reason: boundaryTeachingResultText)
+      }
       await publishVoiceFeedback(
         result: boundaryTeachingResultText,
         spoken: "The bounded movement completed. No side position was recorded."
       )
     case .refused(let refusal):
       boundaryTeachingResultText = "Motion refused: \(refusal.actionableDescription)"
+      if let sequenceID = activePreflightSequenceID {
+        await failPreflight(sequenceID, reason: boundaryTeachingResultText)
+      }
       await publishVoiceFeedback(
         result: boundaryTeachingResultText,
         spoken: "Movement refused. Check the displayed reason."
       )
     case .ambiguous(let ambiguity):
       boundaryTeachingResultText = "Motion ambiguous: \(ambiguity.actionableDescription)"
+      if let sequenceID = activePreflightSequenceID {
+        await failPreflight(sequenceID, reason: boundaryTeachingResultText)
+      }
       await publishVoiceFeedback(
         result: boundaryTeachingResultText,
         spoken: "Movement outcome is ambiguous. No side position was recorded."
@@ -1710,27 +2206,18 @@ final class OperatorWorkspace {
   private func makeBoundaryJogRequest(_ direction: JogDirection) -> RelativeJogRequest? {
     guard boundaryTeachingState == .awaitingReady(direction),
       motionUnavailableReason == nil,
-      let machine = machineSnapshot?.machine,
-      let position = machine.position,
-      let limits = machine.motionLimits,
       let feed = inputNumber(feedText), feed > 0
     else {
       boundaryTeachingResultText =
         "Boundary motion cannot start: \(motionUnavailableReason ?? "current motion values are invalid")."
       return nil
     }
-    let availableDistance: Double
+    let distance: Double
     switch direction {
-    case .xNegative: availableDistance = position.point.x - limits.bounds.minX
-    case .xPositive: availableDistance = limits.bounds.maxX - position.point.x
-    case .yNegative: availableDistance = position.point.y - limits.bounds.minY
-    case .yPositive: availableDistance = limits.bounds.maxY - position.point.y
-    }
-    let distance = min(availableDistance, limits.maximumDistanceMM)
-    guard distance.isFinite, distance > 0 else {
-      boundaryTeachingResultText =
-        "No positive bounded travel remains in \(direction.shortLabel); no motion was sent."
-      return nil
+    case .xNegative, .xPositive:
+      distance = MotionPriors.boundarySearchXDistanceMM
+    case .yNegative, .yPositive:
+      distance = MotionPriors.boundarySearchYDistanceMM
     }
     do {
       let delta: Vector2<MachineSpace>
@@ -1744,6 +2231,36 @@ final class OperatorWorkspace {
     } catch {
       boundaryTeachingResultText = "Boundary motion request is invalid; no motion was sent."
       return nil
+    }
+  }
+
+  private func jogDirection(for sequenceID: PreflightSequenceID) -> JogDirection? {
+    switch sequenceID {
+    case .boundaryNegativeX: .xNegative
+    case .boundaryPositiveX: .xPositive
+    case .boundaryNegativeY: .yNegative
+    case .boundaryPositiveY: .yPositive
+    case .penUpConfirmation, .penDownConfirmation: nil
+    }
+  }
+
+  private func jogDirection(from direction: PreflightBoundaryDirection) -> JogDirection {
+    switch direction {
+    case .negativeX: .xNegative
+    case .positiveX: .xPositive
+    case .negativeY: .yNegative
+    case .positiveY: .yPositive
+    }
+  }
+
+  private func preflightBoundaryDirection(from direction: JogDirection)
+    -> PreflightBoundaryDirection
+  {
+    switch direction {
+    case .xNegative: .negativeX
+    case .xPositive: .positiveX
+    case .yNegative: .negativeY
+    case .yPositive: .positiveY
     }
   }
 
@@ -1784,7 +2301,7 @@ final class OperatorWorkspace {
     return frame
   }
 
-  private func clearMachineAuthority(clearSelection: Bool) {
+  private func clearMachineAuthority(clearSelection: Bool) async {
     if clearSelection { selectedSerialDevice = nil }
     passiveProbeResult = nil
     machineSnapshot = nil
@@ -1793,8 +2310,8 @@ final class OperatorWorkspace {
     jogRequestInProgress = false
     penRequestInProgress = false
     jogCancelRequestInProgress = false
-    limitsUpdateInProgress = false
-    limitsApplied = false
+    motionGuardActivationInProgress = false
+    lastMotionGuardActivationText = "not activated"
     recordJogObservations = false
     selectedObservationSplit = .training
     physicalJogObservations = []
@@ -1804,12 +2321,134 @@ final class OperatorWorkspace {
     boundaryTeachingState = .idle
     boundaryTeachingResultText = "Choose one side to begin."
     boundaryPositions = [:]
-    minimumXText = "-100"
-    maximumXText = "100"
-    minimumYText = "-40"
-    maximumYText = "40"
-    maximumDistanceText = MotionPriors.maximumDistanceMM
-    maximumFeedText = MotionPriors.maximumFeedMMPerMinute
+    await clearPreflightAuthority()
+  }
+
+  private func clearPreflightAuthority() async {
+    preflightAuthorityGeneration &+= 1
+    await cancelAndSettleBoundaryMotionBeforePreflightErasure()
+    voiceTranscriptTask?.cancel()
+    voiceTranscriptTask = nil
+    voiceStateTask?.cancel()
+    voiceStateTask = nil
+    lastBoundaryStopUtteranceID = nil
+    if voiceListening {
+      await voiceActions?.stopListening()
+      voiceListening = false
+      lastVoiceActionableResultText =
+        "voice listening stopped because preflight authority changed"
+    }
+    selectedPreflightSequenceID = .penUpConfirmation
+    preflightTransactions = [:]
+    preflightError = nil
+    drawingFramePosterior = nil
+    pendingPreflightInspection = nil
+    pendingPreflightCaptureBoundaryNanoseconds = nil
+  }
+
+  private func cancelAndSettleBoundaryMotionBeforePreflightErasure() async {
+    guard boundaryTeachingState != .idle || boundaryMotionTask != nil
+      || boundaryCancelTask != nil
+    else { return }
+
+    if let sequenceID = activePreflightSequenceID,
+      var transaction = preflightTransactions[sequenceID]
+    {
+      transaction.cancel()
+      preflightTransactions[sequenceID] = transaction
+    }
+
+    if case .awaitingReady(let direction) = boundaryTeachingState,
+      boundaryMotionTask != nil
+    {
+      while boundaryMotionTask != nil,
+        boundaryTeachingState == .awaitingReady(direction)
+      {
+        if let snapshot = await machineActions?.snapshot(),
+          snapshot.machine.connection == .moving
+        {
+          machineSnapshot = snapshot
+          boundaryTeachingState = .moving(direction)
+          break
+        }
+        await Task.yield()
+      }
+    }
+
+    await cancelBoundaryTeaching()
+    let cancelTask = boundaryCancelTask
+    await cancelTask?.value
+    let motionTask = boundaryMotionTask
+    await motionTask?.value
+  }
+
+  private func startPreflightVoiceListening(
+    for sequenceID: PreflightSequenceID,
+    authorityGeneration: UInt64
+  ) async -> Bool {
+    guard preflightAuthorityIsCurrent(
+      sequenceID: sequenceID,
+      generation: authorityGeneration
+    ), preflightVoiceStartupGeneration == nil,
+      voiceListeningUnavailableReason == nil,
+      let voiceActions
+    else { return false }
+
+    preflightVoiceStartupGeneration = authorityGeneration
+    defer {
+      if preflightVoiceStartupGeneration == authorityGeneration {
+        preflightVoiceStartupGeneration = nil
+      }
+    }
+
+    voiceError = nil
+    let authorization = await voiceActions.requestAuthorization()
+    guard preflightAuthorityIsCurrent(
+      sequenceID: sequenceID,
+      generation: authorityGeneration
+    ) else { return false }
+    voiceAuthorizationState = authorization
+    guard authorization == .authorized else {
+      lastVoiceActionableResultText = voicePermissionText
+      return false
+    }
+
+    do {
+      try await voiceActions.startListening()
+      guard preflightAuthorityIsCurrent(
+        sequenceID: sequenceID,
+        generation: authorityGeneration
+      ) else {
+        await voiceActions.stopListening()
+        return false
+      }
+      voiceListening = true
+      lastVoiceActionableResultText =
+        "speech listening active for the current Motion Preflight sequence"
+      beginVoiceTranscriptUpdates(actions: voiceActions)
+      beginVoiceStateUpdates(actions: voiceActions)
+      return true
+    } catch {
+      guard preflightAuthorityIsCurrent(
+        sequenceID: sequenceID,
+        generation: authorityGeneration
+      ) else {
+        await voiceActions.stopListening()
+        return false
+      }
+      voiceListening = false
+      voiceError = actionableDescription(error)
+      lastVoiceActionableResultText = "Voice listening failed: \(voiceError ?? "unknown error")"
+      return false
+    }
+  }
+
+  private func preflightAuthorityIsCurrent(
+    sequenceID: PreflightSequenceID,
+    generation: UInt64
+  ) -> Bool {
+    !hasShutdown && preflightAuthorityGeneration == generation
+      && activePreflightSequenceID == sequenceID
   }
 
   private func recordJogResponseEpisode(_ observation: PhysicalJogObservation) {
@@ -1842,12 +2481,13 @@ final class OperatorWorkspace {
     }
   }
 
-  private func clearCameraAuthority() {
+  private func clearCameraAuthority() async {
     frameMode = .live
     cameraSnapshot = nil
     displayedFrame = nil
     latestLiveCameraFrame = nil
     cameraOverlays = []
+    await clearPreflightAuthority()
     cameraError = nil
     visionError = nil
     analysisFrameHeld = false

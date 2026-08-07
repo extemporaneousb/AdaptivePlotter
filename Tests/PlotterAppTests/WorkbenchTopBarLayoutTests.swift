@@ -16,9 +16,9 @@ struct WorkbenchTopBarLayoutTests {
     #expect(WorkbenchTopBarLayoutMetrics.rowSpacing > 0)
   }
 
-  @Test("top bar owns exactly the live camera and connected plotter indicators")
+  @Test("top bar owns camera, plotter, and explicit motion guard indicators")
   func connectionIndicatorsAreFocused() {
-    #expect(WorkbenchConnectionIndicator.allCases == [.camera, .plotter])
+    #expect(WorkbenchConnectionIndicator.allCases == [.camera, .plotter, .motionGuard])
   }
 
   @Test("connection labels never imply a false positive")
@@ -28,6 +28,12 @@ struct WorkbenchTopBarLayoutTests {
     #expect(WorkbenchConnectionIndicator.plotter.label(isActive: true) == "PLOTTER CONNECTED")
     #expect(
       WorkbenchConnectionIndicator.plotter.label(isActive: false) == "PLOTTER DISCONNECTED"
+    )
+    #expect(
+      WorkbenchConnectionIndicator.motionGuard.label(isActive: true) == "MOTION READY"
+    )
+    #expect(
+      WorkbenchConnectionIndicator.motionGuard.label(isActive: false) == "MOTION BLOCKED"
     )
   }
 

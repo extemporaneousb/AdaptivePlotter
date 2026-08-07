@@ -27,12 +27,11 @@ struct WorkbenchLayoutTests {
   func deterministicDockAllocation() {
     var layout = WorkbenchLayoutState()
     layout.toggleVisibility(.learning)
-    layout.toggleVisibility(.controller)
     layout.toggleVisibility(.camera)
     layout.toggleVisibility(.motion)
     layout.toggleVisibility(.overlays)
 
-    #expect(layout.visiblePanels(in: .left) == [.motion, .controller])
+    #expect(layout.visiblePanels(in: .left) == [.motion])
     #expect(layout.visiblePanels(in: .right) == [.camera, .overlays, .learning])
   }
 
@@ -54,7 +53,6 @@ struct WorkbenchLayoutTests {
   func oneDockReservesSpace() {
     var layout = WorkbenchLayoutState()
     layout.toggleVisibility(.motion)
-    layout.toggleVisibility(.controller)
 
     let geometry = layout.geometry(
       in: CGSize(width: 1_200, height: 760),
@@ -74,7 +72,6 @@ struct WorkbenchLayoutTests {
   func bothDocksNeverOverlay() {
     var layout = WorkbenchLayoutState()
     layout.toggleVisibility(.motion)
-    layout.toggleVisibility(.controller)
     layout.toggleVisibility(.camera)
     layout.toggleVisibility(.overlays)
     layout.toggleVisibility(.learning)

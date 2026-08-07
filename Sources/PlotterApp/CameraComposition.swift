@@ -27,8 +27,8 @@ enum CameraComposition {
     frames: {
       await session.frames()
     },
-    inspectScene: {
-      try await session.inspectScene()
+    inspectScene: { boundary in
+      try await session.inspectScene(newerThanNanoseconds: boundary)
     },
     captureSnapshot: {
       try await session.captureSnapshot()
@@ -138,8 +138,18 @@ private actor CameraSourceSession {
     await live.frames()
   }
 
-  func inspectScene() async throws -> LiveSceneInspection? {
-    guard let displayedFrame = try await live.materializeLatestFrame() else { return nil }
+  func inspectScene(newerThanNanoseconds boundary: UInt64 = 0) async throws
+    -> LiveSceneInspection?
+  {
+    guard
+      let displayedFrame = try await boundedlyAwaitNewestCameraValue(
+        load: {
+          try await self.live.materializeLatestFrame(
+            newerThanNanoseconds: boundary
+          )
+        }
+      )
+    else { return nil }
     let measurement = try await vision.inspectPlotterScene(in: displayedFrame.frame)
     return LiveSceneInspection(displayedFrame: displayedFrame, measurement: measurement)
   }

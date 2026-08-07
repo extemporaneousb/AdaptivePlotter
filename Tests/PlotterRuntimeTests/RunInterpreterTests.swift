@@ -89,12 +89,7 @@ struct RunInterpreterTests {
     )
     let fixture = try await InterpreterFixture.make(exchanges: exchanges)
     _ = try await fixture.interpreter.requestPassiveProbe()
-    let limits = try MotionLimits(
-      bounds: AxisAlignedBounds<MachineSpace>(minX: -2, minY: -2, maxX: 2, maxY: 2),
-      maximumDistanceMM: 1,
-      maximumFeedMMPerMinute: 60
-    )
-    await fixture.interpreter.updateMotionLimits(limits)
+    #expect(await fixture.interpreter.activateMotionGuard() == .activated)
     #expect(
       await fixture.interpreter.requestPenActuation(.raise)
         == .commandedAndSettled(command: .raise, commandedState: .up)
@@ -171,6 +166,7 @@ struct RunInterpreterTests {
     ])
     let fixture = try await InterpreterFixture.make(exchanges: exchanges)
     _ = try await fixture.interpreter.requestPassiveProbe()
+    #expect(await fixture.interpreter.activateMotionGuard() == .activated)
 
     let outcome = await fixture.interpreter.requestPenActuation(.raise)
     let snapshot = await fixture.interpreter.snapshot()
@@ -217,6 +213,7 @@ struct RunInterpreterTests {
     )
     let interpreter = RunInterpreter(machineController: controller)
     _ = try await interpreter.requestPassiveProbe()
+    #expect(await interpreter.activateMotionGuard() == .activated)
     let jog = RelativeJogRequest(
       delta: try Vector2<MachineSpace>(dx: 1, dy: 0),
       feedMMPerMinute: 60
@@ -630,13 +627,7 @@ private func readyObservedJogFixture(
     clock: DeterministicRuntimeClock(startNanoseconds: clockStartNanoseconds)
   )
   _ = try await fixture.interpreter.requestPassiveProbe()
-  await fixture.interpreter.updateMotionLimits(
-    try MotionLimits(
-      bounds: AxisAlignedBounds<MachineSpace>(minX: -2, minY: -2, maxX: 2, maxY: 2),
-      maximumDistanceMM: 1,
-      maximumFeedMMPerMinute: 60
-    )
-  )
+  #expect(await fixture.interpreter.activateMotionGuard() == .activated)
   #expect(
     await fixture.interpreter.requestPenActuation(.raise)
       == .commandedAndSettled(command: .raise, commandedState: .up)
@@ -694,11 +685,6 @@ private func readyInterpreterCancellationFixture() async throws -> (
   )
   let controller = MachineController(
     link: blockingLink,
-    motionLimits: try MotionLimits(
-      bounds: AxisAlignedBounds<MachineSpace>(minX: -2, minY: -2, maxX: 2, maxY: 2),
-      maximumDistanceMM: 1,
-      maximumFeedMMPerMinute: 60
-    ),
     clock: clock,
     queryTimeoutNanoseconds: 1_000,
     statusPollIntervalNanoseconds: 1,
@@ -706,6 +692,7 @@ private func readyInterpreterCancellationFixture() async throws -> (
   )
   let interpreter = RunInterpreter(machineController: controller)
   _ = try await interpreter.requestPassiveProbe()
+  #expect(await interpreter.activateMotionGuard() == .activated)
   #expect(
     await interpreter.requestPenActuation(.raise)
       == .commandedAndSettled(command: .raise, commandedState: .up)

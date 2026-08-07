@@ -95,7 +95,7 @@ Remove or keep removed:
 Verify on the attached hardware only when the corresponding operation is ready:
 
 - current controller identity/status/settings;
-- actual travel bounds and conservative feed;
+- actual end-stop behavior and controller feed capability;
 - pen up/down values and behavior;
 - camera selection and observation region;
 - one clear tool pose;
@@ -107,7 +107,7 @@ The UI needs a current projection, not a comprehensive historical snapshot:
 
 - selected device and connection/controller state;
 - current operation and outstanding command;
-- configured bounds/feed/distance;
+- current Motion Guard state and controller capability;
 - pen state when implemented;
 - latest camera frame/time when implemented;
 - current stroke and last command outcome;

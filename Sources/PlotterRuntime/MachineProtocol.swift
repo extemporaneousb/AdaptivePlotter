@@ -53,31 +53,12 @@ public struct RelativeJogRequest: Codable, Hashable, Sendable {
   }
 }
 
-public enum MotionLimitsError: Error, Equatable, Sendable {
-  case invalidMaximumDistance
-  case invalidMaximumFeed
-}
-
-public struct MotionLimits: Codable, Hashable, Sendable {
-  public let bounds: AxisAlignedBounds<MachineSpace>
-  public let maximumDistanceMM: Double
-  public let maximumFeedMMPerMinute: Double
-
-  public init(
-    bounds: AxisAlignedBounds<MachineSpace>,
-    maximumDistanceMM: Double,
-    maximumFeedMMPerMinute: Double
-  ) throws {
-    guard maximumDistanceMM.isFinite, maximumDistanceMM > 0 else {
-      throw MotionLimitsError.invalidMaximumDistance
-    }
-    guard maximumFeedMMPerMinute.isFinite, maximumFeedMMPerMinute > 0 else {
-      throw MotionLimitsError.invalidMaximumFeed
-    }
-    self.bounds = bounds
-    self.maximumDistanceMM = maximumDistanceMM
-    self.maximumFeedMMPerMinute = maximumFeedMMPerMinute
-  }
+/// Explicit operator authorization for machine-affecting commands in the
+/// current controller session. It is cleared by disconnects and controller
+/// faults; it is never inferred from a successful probe.
+public enum MotionGuardState: String, Codable, Hashable, Sendable {
+  case inactive
+  case active
 }
 
 public struct MachinePosition: Codable, Hashable, Sendable {
@@ -153,13 +134,12 @@ public struct PenActuationProfile: Hashable, Sendable {
 public enum PenRefusal: Codable, Hashable, Sendable {
   case noSerialDeviceSelected
   case notConnected
-  case motionLimitsMissing
+  case motionGuardInactive
   case controllerStateUnknown
   case controllerNotIdle(ControllerState)
   case controllerAlarm(String)
   case relevantLimitAsserted(String)
   case machinePositionUnknown
-  case machinePositionOutsideBounds(MachinePosition)
   case operationInFlight
   case stickyAmbiguity(MotionAmbiguity)
   case controllerRejected(String)
@@ -181,8 +161,8 @@ extension PenRefusal {
       return "Select one serial controller before actuating the pen."
     case .notConnected:
       return "Connect and run the passive controller probe before actuating the pen."
-    case .motionLimitsMissing:
-      return "Apply finite local motion bounds before lowering the pen."
+    case .motionGuardInactive:
+      return "Activate Motion Guard before actuating the pen."
     case .controllerStateUnknown:
       return "Query the controller until its current state is known."
     case .controllerNotIdle(let state):
@@ -193,8 +173,6 @@ extension PenRefusal {
       return "A motion limit is asserted (Pn:\(pins)); inspect the machine before lowering the pen."
     case .machinePositionUnknown:
       return "Probe the controller until a valid MPos is available before lowering the pen."
-    case .machinePositionOutsideBounds(let position):
-      return "Current position (\(position.point.x), \(position.point.y)) is outside configured bounds."
     case .operationInFlight:
       return "Wait for the current controller operation to finish."
     case .stickyAmbiguity(let ambiguity):
@@ -244,7 +222,7 @@ public struct ControllerPins: Codable, Hashable, Sendable {
 public enum MotionRefusal: Codable, Hashable, Sendable {
   case noSerialDeviceSelected
   case notConnected
-  case motionLimitsMissing
+  case motionGuardInactive
   case controllerStateUnknown
   case controllerNotIdle(ControllerState)
   case controllerAlarm(String)
@@ -254,13 +232,16 @@ public enum MotionRefusal: Codable, Hashable, Sendable {
   case zeroDelta
   case nonPositiveFeed(Double)
   case feedExceedsMaximum(requested: Double, maximum: Double)
-  case distanceExceedsMaximum(requested: Double, maximum: Double)
-  case destinationOutsideBounds(MachinePosition)
   case penNotUp(PenState)
   case operationInFlight
   case stickyAmbiguity(MotionAmbiguity)
   case controllerRejected(String)
   case freshStatusUnavailable(String)
+}
+
+public enum MotionGuardActivationOutcome: Codable, Hashable, Sendable {
+  case activated
+  case refused(MotionRefusal)
 }
 
 public enum MotionAmbiguity: Codable, Hashable, Sendable {
@@ -372,8 +353,8 @@ extension MotionRefusal {
       return "Select one serial controller before moving."
     case .notConnected:
       return "Connect and run the passive controller probe before moving."
-    case .motionLimitsMissing:
-      return "Apply finite local bounds, maximum distance, and maximum feed before moving."
+    case .motionGuardInactive:
+      return "Activate Motion Guard before moving."
     case .controllerStateUnknown:
       return "Query the controller until its current state is known."
     case .controllerNotIdle(let state):
@@ -391,11 +372,7 @@ extension MotionRefusal {
     case .nonPositiveFeed(let feed):
       return "Feed must be positive and finite; received \(feed)."
     case .feedExceedsMaximum(let requested, let maximum):
-      return "Feed \(requested) mm/min exceeds the configured maximum \(maximum)."
-    case .distanceExceedsMaximum(let requested, let maximum):
-      return "Move distance \(requested) mm exceeds the configured maximum \(maximum)."
-    case .destinationOutsideBounds(let destination):
-      return "Destination (\(destination.point.x), \(destination.point.y)) is outside configured bounds."
+      return "Feed \(requested) mm/min exceeds the controller-reported axis limit \(maximum)."
     case .penNotUp:
       return "Issue a successful Pen Up command before moving."
     case .operationInFlight:

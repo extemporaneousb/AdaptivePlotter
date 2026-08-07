@@ -74,6 +74,11 @@ struct AdaptivePlotterApp: App {
       OperatorWorkspaceView(workspace: applicationDelegate.workspace)
         .frame(minWidth: 1_180, minHeight: 760)
     }
+
+    Window("Motion Preflight", id: "motion-preflight") {
+      MotionPreflightWindow(workspace: applicationDelegate.workspace)
+    }
+    .defaultSize(width: 920, height: 680)
   }
 }
 
@@ -176,24 +181,28 @@ struct OperatorWorkspaceView: View {
     case .camera: CameraPanel(workspace: workspace)
     case .overlays: OverlayPanel(workspace: workspace)
     case .learning: LearningPanel(workspace: workspace)
-    case .controller: DevicePanel(workspace: workspace)
     }
   }
 }
 
-enum SpeechMovementTestPresentation {
-  static let title = "SPEECH MOVEMENT TEST"
+private struct MotionPreflightWindow: View {
+  @Bindable var workspace: OperatorWorkspace
 
-  static let cameraSteps = [
-    "Confirm the PLOTTER CONNECTED indicator is green.",
-    "In Motion, apply Typed Limits and press COMMAND PEN UP.",
-    "Turn Speech On and confirm Listening says listening.",
-    "In Motion, press one Start X−, X+, Y−, or Y+ Test button to arm that direction.",
-    "After the signal, say READY. While the carriage is moving, say STOP.",
-  ]
-
-  static func startButtonLabel(for direction: JogDirection) -> String {
-    "Start \(direction.shortLabel) Test"
+  var body: some View {
+    PreflightCalibrationView(
+      selectedSequenceID: $workspace.selectedPreflightSequenceID,
+      transactions: workspace.preflightTransactions,
+      readiness: workspace.preflightTrainingReadiness,
+      startUnavailableReason: workspace.preflightStartUnavailableReason(for:),
+      listeningStatus: workspace.voiceListeningText,
+      errorText: workspace.preflightError,
+      onStart: { sequenceID in
+        Task { await workspace.startPreflightSequence(sequenceID) }
+      },
+      onCancel: { sequenceID in
+        Task { await workspace.cancelPreflightSequence(sequenceID) }
+      }
+    )
   }
 }
 
@@ -380,47 +389,6 @@ private struct CameraPanel: View {
           .textSelection(.enabled)
       }
 
-      Divider()
-
-      Text("SPEECH")
-        .font(.caption.monospaced().bold())
-        .foregroundStyle(.secondary)
-
-      HStack {
-        Button("Speech On") { Task { await workspace.startVoiceListening() } }
-          .buttonStyle(.borderedProminent)
-          .disabled(workspace.voiceListeningUnavailableReason != nil)
-        Button("Speech Off") { Task { await workspace.stopVoiceListening() } }
-          .disabled(!workspace.voiceListening)
-      }
-      .controlSize(.small)
-
-      VStack(alignment: .leading, spacing: 4) {
-        Text("NEXT: \(SpeechMovementTestPresentation.title)")
-          .font(.caption.monospaced().bold())
-        ForEach(SpeechMovementTestPresentation.cameraSteps.indices, id: \.self) { index in
-          Text("\(index + 1). \(SpeechMovementTestPresentation.cameraSteps[index])")
-            .font(.caption2)
-        }
-        Text("Until a direction is armed, speech has no motion meaning.")
-          .font(.caption2.monospaced().bold())
-      }
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .padding(8)
-      .background(.quaternary, in: RoundedRectangle(cornerRadius: 7))
-
-      fact("Permission", workspace.voicePermissionText)
-      fact("Listening", workspace.voiceListeningText)
-      fact("Transcript", workspace.voiceTranscriptText)
-      fact("Understood", workspace.lastVoiceIntentText)
-      fact("Voice result", workspace.lastVoiceActionableResultText)
-      fact("Last spoken", workspace.lastSpokenFeedbackText)
-
-      if let reason = workspace.voiceListeningUnavailableReason,
-        !workspace.voiceListening
-      {
-        Text(reason).font(.caption).foregroundStyle(.orange)
-      }
     }
   }
 
@@ -437,50 +405,14 @@ private struct MotionPanel: View {
   @Bindable var workspace: OperatorWorkspace
 
   var body: some View {
-    SectionPanel(title: "BOUNDED RELATIVE MOTION") {
-      Text(SpeechMovementTestPresentation.title)
-        .font(.caption.monospaced().bold())
-        .foregroundStyle(.secondary)
-
+    SectionPanel(title: "RELATIVE MOTION") {
       Text(
-        "First connect the plotter, apply Typed Limits, command Pen Up, and turn Speech On. Speech does nothing until one direction is armed here. Press one Start Test button, wait for the signal, then say READY. Say STOP only while that test is moving. A cancelled jog's final MPos is a boundary observation, not calibration."
+        "Manual steps remain finite typed requests. The controller's end-stops and alarms, one-operation serialization, pen-up travel, and ambiguous outcomes are checked directly."
       )
       .font(.caption2)
       .foregroundStyle(.secondary)
 
-      LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {
-        ForEach(JogDirection.allCases) { direction in
-          Button(SpeechMovementTestPresentation.startButtonLabel(for: direction)) {
-            Task { await workspace.beginBoundaryTeaching(direction) }
-          }
-          .buttonStyle(.borderedProminent)
-          .disabled(workspace.boundaryTeachingUnavailableReason != nil)
-        }
-      }
-
-      if workspace.boundaryTeachingState != .idle {
-        Button("Cancel Speech Movement Test") {
-          Task { await workspace.cancelBoundaryTeaching() }
-        }
-        .buttonStyle(.bordered)
-        .tint(.orange)
-      }
-
-      fact("Test state", workspace.boundaryTeachingStateText)
-      fact("Test result", workspace.boundaryTeachingResultText)
-      ForEach(JogDirection.allCases) { direction in
-        fact("Boundary \(direction.shortLabel)", workspace.boundaryPositionText(for: direction))
-      }
-
-      if let reason = workspace.boundaryTeachingUnavailableReason,
-        workspace.boundaryTeachingState == .idle
-      {
-        Text("Setup required: \(reason)").font(.caption).foregroundStyle(.orange)
-      }
-
-      Divider()
-
-      Text("MANUAL MOTION AND SETUP")
+      Text("MANUAL MOTION")
         .font(.caption.monospaced().bold())
         .foregroundStyle(.secondary)
 
@@ -518,37 +450,10 @@ private struct MotionPanel: View {
         .font(.caption2)
         .foregroundStyle(.secondary)
 
-      DisclosureGroup("Session motion limits") {
-        VStack(spacing: 6) {
-          Text(
-            "Session-local safety envelope. The visible wood rails reduce usable Y: enter MachineSpace bounds that stay inside their inner edges. Camera pixels are not converted into trusted motion bounds. Review all values before applying."
-          )
-          .font(.caption)
-          .foregroundStyle(.secondary)
-          HStack(spacing: 8) {
-            numericField("X min", text: $workspace.minimumXText)
-            numericField("X max", text: $workspace.maximumXText)
-          }
-          HStack(spacing: 8) {
-            numericField("Y min", text: $workspace.minimumYText)
-            numericField("Y max", text: $workspace.maximumYText)
-          }
-          HStack(spacing: 8) {
-            numericField("Max distance", text: $workspace.maximumDistanceText)
-            numericField("Max feed", text: $workspace.maximumFeedText)
-          }
-          Button("Apply Typed Limits") { Task { await workspace.applyMotionLimits() } }
-            .disabled(workspace.limitsUnavailableReason != nil)
-          if let reason = workspace.limitsUnavailableReason {
-            Text(reason).font(.caption).foregroundStyle(.orange)
-          }
-        }
-        .padding(.top, 6)
-      }
-
       fact("Controller link", workspace.controllerConnectionText)
       fact("Controller", workspace.controllerStateText)
       fact("Motor power", workspace.motorPowerText)
+      fact("Motion Guard", workspace.motionGuardStateText)
       fact("Motion request", workspace.motionPermissionText)
       fact("MPos", workspace.machinePositionText)
       fact("Operation", workspace.currentOperationText)
@@ -609,101 +514,6 @@ private struct MotionPanel: View {
   }
 }
 
-private struct DevicePanel: View {
-  @Bindable var workspace: OperatorWorkspace
-
-  var body: some View {
-    SectionPanel(title: "CONTROLLER SESSION") {
-      Picker(
-        "Device",
-        selection: Binding(
-          get: { workspace.selectedSerialDevice },
-          set: { device in
-            guard let device else { return }
-            Task { await workspace.selectSerialDevice(device) }
-          }
-        )
-      ) {
-        Text("Select a serial device").tag(nil as MachineLinkDescriptor?)
-        ForEach(workspace.serialDevices, id: \.identifier) { device in
-          Text(device.displayName).tag(Optional(device))
-        }
-      }
-      .pickerStyle(.menu)
-      .disabled(
-        workspace.serialDevices.isEmpty
-          || workspace.passiveProbeInProgress
-          || workspace.jogRequestInProgress
-      )
-
-      Button("Connect") {
-        Task { await workspace.connectSelectedController() }
-      }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.large)
-        .frame(maxWidth: .infinity)
-        .disabled(
-          workspace.passiveProbeUnavailableReason != nil || workspace.controllerIsConnected
-        )
-
-      Text(
-        "Connect opens the selected serial session and passively reads identity, controller state, MPos, pins, and limits. It issues no motion or pen command."
-      )
-      .font(.caption2)
-      .foregroundStyle(.secondary)
-
-      fact(
-        "Link",
-        workspace.controllerIsConnected ? "CONNECTED" : workspace.controllerConnectionText
-      )
-      fact("Controller", workspace.controllerStateText)
-      fact("Motor power", workspace.motorPowerText)
-      fact("Motion request", workspace.motionPermissionText)
-
-      if let reason = workspace.passiveProbeUnavailableReason {
-        Text(reason).font(.caption).foregroundStyle(.orange)
-      }
-      if let result = workspace.passiveProbeResult {
-        ControllerInspectionSummary(
-          result: result,
-          controllerIsConnected: workspace.controllerIsConnected
-        )
-      }
-    }
-  }
-
-  private func fact(_ label: String, _ value: String) -> some View {
-    HStack(alignment: .firstTextBaseline) {
-      Text(label).font(.caption2).foregroundStyle(.secondary)
-      Spacer()
-      Text(value)
-        .font(.caption.monospaced())
-        .multilineTextAlignment(.trailing)
-        .textSelection(.enabled)
-    }
-  }
-}
-
-private struct ControllerInspectionSummary: View {
-  let result: PassiveProbeResult
-  let controllerIsConnected: Bool
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 4) {
-      Text(controllerIsConnected ? "CONTROLLER CONNECTED" : "CONNECTION NEEDS ATTENTION")
-        .font(.caption.monospaced().bold())
-        .foregroundStyle(controllerIsConnected ? Color.secondary : Color.orange)
-      Text("\(result.exchanges.count) exchanges")
-        .font(.caption2.monospaced())
-      ForEach(Array(result.blockers.enumerated()), id: \.offset) { entry in
-        Text(machineBlockerLabel(entry.element))
-          .font(.caption2.monospaced())
-          .foregroundStyle(.orange)
-      }
-    }
-  }
-}
-
 private struct OverlayPanel: View {
   @Bindable var workspace: OperatorWorkspace
 
@@ -737,9 +547,43 @@ private struct OverlayPanel: View {
 
 private struct LearningPanel: View {
   @Bindable var workspace: OperatorWorkspace
+  @Environment(\.openWindow) private var openWindow
 
   var body: some View {
-    SectionPanel(title: "JOG OBSERVATIONS") {
+    SectionPanel(title: "MOTION PREFLIGHT") {
+      Text(
+        "Run discrete voice-mediated setup sequences until boundary and pen-position preflight classes are complete. Starting a sequence turns speech listening on; completion or cancellation turns it off."
+      )
+      .font(.caption)
+      .foregroundStyle(.secondary)
+
+      Button("Calibrate Plotter") {
+        openWindow(id: "motion-preflight")
+      }
+      .buttonStyle(.borderedProminent)
+      .disabled(!workspace.motionGuardIsActive)
+
+      fact("Readiness", workspace.motionPreflightReadinessText)
+      fact("Speech", workspace.voiceListeningText)
+      fact("Drawing-frame posterior", workspace.drawingFramePosteriorText)
+
+      if let error = workspace.preflightError {
+        Text(error)
+          .font(.caption.monospaced())
+          .foregroundStyle(.orange)
+          .textSelection(.enabled)
+      } else if !workspace.motionGuardIsActive {
+        Text("Connect the plotter and activate Motion Guard before opening Motion Preflight.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+
+      Divider()
+
+      Text("JOG OBSERVATIONS")
+        .font(.caption.monospaced().bold())
+        .foregroundStyle(.secondary)
+
       Text(
         "Physical jog samples require one successful bounded motion plus exact live cap measurements before and after it. The camera does not observe pen height."
       )

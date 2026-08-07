@@ -100,7 +100,7 @@ func automaticVisionCadenceIsExplicit() async throws {
   #expect(await camera.automaticCadences == [.tenFPS, nil])
 }
 
-@Test("Motion priors keep one millimeter axis steps and a zero-centered 2.5 to 1 window")
+@Test("Motion defaults require no coordinate envelope or maximum-distance input")
 @MainActor
 func motionPriorsStayCenteredOnSessionStartZero() async throws {
   let position = try MachinePosition(x: 28.396, y: -10.002)
@@ -116,13 +116,7 @@ func motionPriorsStayCenteredOnSessionStartZero() async throws {
   #expect(workspace.xStepText == "1.0")
   #expect(workspace.yStepText == "1.0")
   #expect(workspace.feedText == "100")
-  #expect(workspace.minimumXText == "-100")
-  #expect(workspace.maximumXText == "100")
-  #expect(workspace.minimumYText == "-40")
-  #expect(workspace.maximumYText == "40")
-  #expect(workspace.maximumDistanceText == "5")
-  #expect(workspace.maximumFeedText == "100")
-  #expect(!workspace.limitsApplied)
+  #expect(!workspace.motionGuardIsActive)
 }
 
 @Test("Runtime motion facts project one exact disabled reason")
@@ -344,11 +338,7 @@ func typedJogDoesNotRequireCamera() async throws {
   #expect(request.delta.dx == -2.5)
   #expect(request.delta.dy == 0)
   #expect(request.feedMMPerMinute == 75)
-  let limits = try #require(await fixture.lastLimits)
-  #expect(limits.bounds.minX == -10)
-  #expect(limits.bounds.maxX == 10)
-  #expect(limits.bounds.minY == -20)
-  #expect(limits.bounds.maxY == 20)
+  #expect(await fixture.guardActivationCount == 1)
   #expect(workspace.cameraSnapshot == nil)
   #expect(!workspace.recordJogObservations)
   #expect(await fixture.observedJogRequests.isEmpty)
@@ -841,6 +831,419 @@ func voicePermissionProjectionIsTruthful() async {
   #expect(await voice.startCount == 0)
 }
 
+@Test("Starting Pen Up preflight owns speech and pairs confirmation with the exact frame")
+@MainActor
+func penUpPreflightOwnsSpeechAndExactFrame() async throws {
+  let configuration = testCameraConfiguration(0x201)
+  let displayedFrame = try testDisplayedFrame(
+    captureNanoseconds: 42,
+    configuration: configuration
+  )
+  let inspectionFrame = try testDisplayedFrame(
+    captureNanoseconds: 43,
+    configuration: configuration
+  )
+  let inspection = LiveSceneInspection(
+    displayedFrame: inspectionFrame,
+    measurement: testSceneMeasurement(for: inspectionFrame)
+  )
+  let camera = CameraFixture(
+    snapshot: CameraCaptureSnapshot(
+      devices: [CameraDevice(id: CameraDeviceID(rawValue: "camera"), name: "Camera")],
+      selectedDeviceID: CameraDeviceID(rawValue: "camera"),
+      state: .running,
+      latestFrame: displayedFrame,
+      error: nil
+    ),
+    simulated: displayedFrame,
+    sceneInspections: [inspection]
+  )
+  let machine = MachineFixture()
+  let voice = VoiceFixture()
+  let device = testDevice()
+  let workspace = OperatorWorkspace(
+    machineActions: machineActions(machine),
+    cameraActions: cameraActions(camera),
+    voiceActions: voiceActions(voice),
+    serialDevices: [device],
+    nowNanoseconds: { 42 }
+  )
+
+  await workspace.selectSerialDevice(device)
+  await workspace.connectSelectedController()
+  await workspace.activateMotionGuard()
+  await workspace.startCamera()
+  await workspace.startPreflightSequence(.penUpConfirmation)
+  for _ in 0..<2_000 {
+    if await voice.streamSubscriberCount > 0 { break }
+    await Task.yield()
+  }
+
+  #expect(await voice.streamSubscriberCount == 1)
+  #expect(await voice.startCount == 1)
+  #expect(workspace.voiceListening)
+  #expect(
+    workspace.preflightTransactions[.penUpConfirmation]?.voiceContext?.expectedResponse
+      == .penIsPhysicallyUp
+  )
+
+  await voice.yield(
+    VoiceTranscript(
+      utteranceID: UUID(),
+      sequence: 1,
+      text: PreflightVoiceResponse.penIsPhysicallyUp.exactPhrase,
+      isFinal: true,
+      monotonicNanoseconds: 1
+    )
+  )
+  for _ in 0..<2_000 {
+    if workspace.preflightTransactions[.penUpConfirmation]?.state == .succeeded { break }
+    await Task.yield()
+  }
+
+  let transaction = try #require(workspace.preflightTransactions[.penUpConfirmation])
+  #expect(transaction.state == .succeeded)
+  #expect(await voice.stopCount == 1)
+  #expect(!workspace.voiceListening)
+  #expect(await machine.penRequests == [.raise])
+  #expect(
+    transaction.evidenceSummaries.contains {
+      $0.kind == .camera
+        && $0.frameID == inspectionFrame.frame.id
+        && $0.cameraConfigurationID == inspectionFrame.frame.cameraConfigurationID
+    }
+  )
+  #expect(await camera.sceneInspectionBoundaries == [42])
+}
+
+@Test("Changing camera authority tears down an awaiting preflight microphone")
+@MainActor
+func cameraAuthorityChangeStopsPreflightListening() async throws {
+  let firstCamera = CameraDevice(id: CameraDeviceID(rawValue: "camera-a"), name: "Camera A")
+  let secondCamera = CameraDevice(id: CameraDeviceID(rawValue: "camera-b"), name: "Camera B")
+  let displayedFrame = try testDisplayedFrame(
+    source: .live(firstCamera.id),
+    captureNanoseconds: 126
+  )
+  let camera = CameraFixture(
+    snapshot: CameraCaptureSnapshot(
+      devices: [firstCamera, secondCamera],
+      selectedDeviceID: firstCamera.id,
+      state: .running,
+      latestFrame: displayedFrame,
+      error: nil
+    ),
+    simulated: displayedFrame
+  )
+  let machine = MachineFixture()
+  let voice = VoiceFixture()
+  let device = testDevice()
+  let workspace = OperatorWorkspace(
+    machineActions: machineActions(machine),
+    cameraActions: cameraActions(camera),
+    voiceActions: voiceActions(voice),
+    serialDevices: [device],
+    nowNanoseconds: { 126 }
+  )
+
+  await workspace.selectSerialDevice(device)
+  await workspace.connectSelectedController()
+  await workspace.activateMotionGuard()
+  await workspace.startCamera()
+  await workspace.startPreflightSequence(.penUpConfirmation)
+  for _ in 0..<2_000 {
+    if await voice.streamSubscriberCount > 0 { break }
+    await Task.yield()
+  }
+  #expect(workspace.activePreflightSequenceID == .penUpConfirmation)
+  #expect(workspace.voiceListening)
+
+  await workspace.selectCamera(secondCamera.id)
+
+  #expect(await voice.stopCount == 1)
+  #expect(!workspace.voiceListening)
+  #expect(workspace.activePreflightSequenceID == nil)
+  #expect(workspace.preflightTransactions.isEmpty)
+  #expect(workspace.selectedCameraID == secondCamera.id)
+}
+
+@Test("Camera restart cancels and settles boundary motion before erasing preflight authority")
+@MainActor
+func cameraRestartSettlesBoundaryMotionBeforeAuthorityErasure() async throws {
+  let cameraID = CameraDeviceID(rawValue: "camera")
+  let displayedFrame = try testDisplayedFrame(source: .live(cameraID))
+  let camera = CameraFixture(
+    snapshot: CameraCaptureSnapshot(
+      devices: [CameraDevice(id: cameraID, name: "Camera")],
+      selectedDeviceID: cameraID,
+      state: .running,
+      latestFrame: displayedFrame,
+      error: nil
+    ),
+    simulated: displayedFrame
+  )
+  let finalPosition = try MachinePosition(x: 4, y: 0)
+  let machine = MachineFixture(
+    outcomes: [.cancelled(finalPosition: finalPosition)],
+    cancelOutcomes: [.transmitted]
+  )
+  let voice = VoiceFixture()
+  let jogGate = AsyncGate()
+  let device = testDevice()
+  let workspace = OperatorWorkspace(
+    machineActions: machineActions(machine, jogGate: jogGate),
+    cameraActions: cameraActions(camera),
+    voiceActions: voiceActions(voice),
+    serialDevices: [device],
+    nowNanoseconds: { 2 }
+  )
+
+  await workspace.selectSerialDevice(device)
+  await workspace.connectSelectedController()
+  await workspace.activateMotionGuard()
+  await workspace.requestPenActuation(.raise)
+  await workspace.startCamera()
+  await workspace.startPreflightSequence(.boundaryPositiveX)
+  while await voice.streamSubscriberCount == 0 { await Task.yield() }
+  await voice.yield(
+    VoiceTranscript(
+      utteranceID: UUID(),
+      sequence: 1,
+      text: "READY",
+      isFinal: true,
+      monotonicNanoseconds: 1
+    )
+  )
+  while workspace.boundaryTeachingState != .moving(.xPositive) { await Task.yield() }
+
+  let restartTask = Task { await workspace.restartCamera() }
+  while await machine.cancelRequestCount == 0 { await Task.yield() }
+
+  #expect(await camera.restartCount == 0)
+  #expect(workspace.boundaryTeachingState == .cancelling(.xPositive))
+  #expect(workspace.preflightTransactions[.boundaryPositiveX]?.state == .cancelling)
+
+  await jogGate.open()
+  await restartTask.value
+
+  #expect(await machine.cancelRequestCount == 1)
+  #expect(await camera.restartCount == 1)
+  #expect(workspace.boundaryTeachingState == .idle)
+  #expect(workspace.preflightTransactions.isEmpty)
+  #expect(!workspace.voiceListening)
+}
+
+@Test("Camera authority change invalidates suspended preflight microphone authorization")
+@MainActor
+func cameraAuthorityChangeInvalidatesSuspendedAuthorization() async throws {
+  let firstCamera = CameraDevice(id: CameraDeviceID(rawValue: "camera-a"), name: "Camera A")
+  let secondCamera = CameraDevice(id: CameraDeviceID(rawValue: "camera-b"), name: "Camera B")
+  let displayedFrame = try testDisplayedFrame(source: .live(firstCamera.id))
+  let camera = CameraFixture(
+    snapshot: CameraCaptureSnapshot(
+      devices: [firstCamera, secondCamera],
+      selectedDeviceID: firstCamera.id,
+      state: .running,
+      latestFrame: displayedFrame,
+      error: nil
+    ),
+    simulated: displayedFrame
+  )
+  let authorizationGate = AsyncGate()
+  let voice = VoiceFixture(authorizationGate: authorizationGate)
+  let machine = MachineFixture()
+  let device = testDevice()
+  let workspace = OperatorWorkspace(
+    machineActions: machineActions(machine),
+    cameraActions: cameraActions(camera),
+    voiceActions: voiceActions(voice),
+    serialDevices: [device],
+    nowNanoseconds: { 2 }
+  )
+
+  await workspace.selectSerialDevice(device)
+  await workspace.connectSelectedController()
+  await workspace.activateMotionGuard()
+  await workspace.startCamera()
+  let preflightTask = Task { await workspace.startPreflightSequence(.penUpConfirmation) }
+  while await authorizationGate.waiterCount == 0 { await Task.yield() }
+
+  await workspace.selectCamera(secondCamera.id)
+  await authorizationGate.open()
+  await preflightTask.value
+
+  #expect(await voice.startCount == 0)
+  #expect(!workspace.voiceListening)
+  #expect(!(await voice.isCurrentlyListening))
+  #expect(workspace.preflightTransactions.isEmpty)
+  #expect(workspace.selectedCameraID == secondCamera.id)
+}
+
+@Test("Cancelling preflight invalidates and stops suspended microphone startup")
+@MainActor
+func preflightCancellationInvalidatesSuspendedMicrophoneStartup() async throws {
+  let cameraID = CameraDeviceID(rawValue: "camera")
+  let displayedFrame = try testDisplayedFrame(source: .live(cameraID))
+  let camera = CameraFixture(
+    snapshot: CameraCaptureSnapshot(
+      devices: [CameraDevice(id: cameraID, name: "Camera")],
+      selectedDeviceID: cameraID,
+      state: .running,
+      latestFrame: displayedFrame,
+      error: nil
+    ),
+    simulated: displayedFrame
+  )
+  let startupGate = AsyncGate()
+  let voice = VoiceFixture(startupGate: startupGate)
+  let machine = MachineFixture()
+  let device = testDevice()
+  let workspace = OperatorWorkspace(
+    machineActions: machineActions(machine),
+    cameraActions: cameraActions(camera),
+    voiceActions: voiceActions(voice),
+    serialDevices: [device],
+    nowNanoseconds: { 2 }
+  )
+
+  await workspace.selectSerialDevice(device)
+  await workspace.connectSelectedController()
+  await workspace.activateMotionGuard()
+  await workspace.startCamera()
+  let preflightTask = Task { await workspace.startPreflightSequence(.penUpConfirmation) }
+  while await startupGate.waiterCount == 0 { await Task.yield() }
+  #expect(await voice.isCurrentlyListening)
+
+  await workspace.cancelPreflightSequence(.penUpConfirmation)
+  #expect(
+    workspace.preflightStartUnavailableReason(for: .penUpConfirmation)?
+      .contains("previous Motion Preflight microphone request") == true
+  )
+  await startupGate.open()
+  await preflightTask.value
+
+  #expect(await voice.startCount == 1)
+  #expect(await voice.stopCount >= 1)
+  #expect(!(await voice.isCurrentlyListening))
+  #expect(!workspace.voiceListening)
+  #expect(workspace.preflightTransactions[.penUpConfirmation]?.state == .cancelled)
+}
+
+@Test("Boundary preflight updates the drawing-frame posterior from the exact inspected frame")
+@MainActor
+func boundaryPreflightUpdatesExactFramePosterior() async throws {
+  let configuration = testCameraConfiguration(0x202)
+  let displayedFrame = try testDisplayedFrame(
+    captureNanoseconds: 84,
+    configuration: configuration
+  )
+  let inspectionFrame = try testDisplayedFrame(
+    captureNanoseconds: 85,
+    configuration: configuration
+  )
+  let inspection = LiveSceneInspection(
+    displayedFrame: inspectionFrame,
+    measurement: testSceneMeasurement(
+      for: inspectionFrame,
+      cap: try testGreenCapMeasurement(),
+      drawingFrame: try testDrawingFrameEstimate()
+    )
+  )
+  let camera = CameraFixture(
+    snapshot: CameraCaptureSnapshot(
+      devices: [CameraDevice(id: CameraDeviceID(rawValue: "camera"), name: "Camera")],
+      selectedDeviceID: CameraDeviceID(rawValue: "camera"),
+      state: .running,
+      latestFrame: displayedFrame,
+      error: nil
+    ),
+    simulated: displayedFrame,
+    sceneInspections: [inspection]
+  )
+  let jogGate = AsyncGate()
+  let finalPosition = try MachinePosition(x: 12.5, y: 0)
+  let machine = MachineFixture(
+    outcomes: [.cancelled(finalPosition: finalPosition)],
+    cancelOutcomes: [.transmitted]
+  )
+  let voice = VoiceFixture()
+  let device = testDevice()
+  let workspace = OperatorWorkspace(
+    machineActions: machineActions(machine, jogGate: jogGate),
+    cameraActions: cameraActions(camera),
+    voiceActions: voiceActions(voice),
+    serialDevices: [device],
+    nowNanoseconds: { 84 }
+  )
+
+  await workspace.selectSerialDevice(device)
+  await workspace.connectSelectedController()
+  await workspace.activateMotionGuard()
+  await workspace.requestPenActuation(.raise)
+  await workspace.startCamera()
+  await workspace.startPreflightSequence(.boundaryPositiveX)
+  for _ in 0..<2_000 {
+    if await voice.streamSubscriberCount > 0 { break }
+    await Task.yield()
+  }
+
+  await voice.yield(
+    VoiceTranscript(
+      utteranceID: UUID(),
+      sequence: 1,
+      text: PreflightVoiceResponse.ready.exactPhrase,
+      isFinal: true,
+      monotonicNanoseconds: 1
+    )
+  )
+  for _ in 0..<2_000 {
+    if workspace.boundaryTeachingState == .moving(.xPositive) { break }
+    await Task.yield()
+  }
+  #expect(workspace.boundaryTeachingState == .moving(.xPositive))
+
+  await voice.yield(
+    VoiceTranscript(
+      utteranceID: UUID(),
+      sequence: 2,
+      text: PreflightVoiceResponse.stop.exactPhrase,
+      isFinal: true,
+      monotonicNanoseconds: 2
+    )
+  )
+  for _ in 0..<2_000 {
+    if await machine.cancelRequestCount > 0 { break }
+    await Task.yield()
+  }
+  await jogGate.open()
+  for _ in 0..<2_000 {
+    if workspace.preflightTransactions[.boundaryPositiveX]?.state == .succeeded { break }
+    await Task.yield()
+  }
+
+  let transaction = try #require(workspace.preflightTransactions[.boundaryPositiveX])
+  let posterior = try #require(workspace.drawingFramePosterior)
+  #expect(transaction.state == .succeeded)
+  #expect(workspace.boundaryPositions[.xPositive] == finalPosition)
+  #expect(posterior.observationCount == 1)
+  #expect(posterior.observations[0].controllerPosition == finalPosition)
+  #expect(posterior.estimate.geometry.points[0].y == -0.25)
+  #expect(posterior.estimate.geometry.points[1].y == -0.25)
+  #expect(posterior.latestObservationKey.frameID == inspectionFrame.frame.id)
+  #expect(
+    posterior.latestObservationKey.cameraConfigurationID
+      == inspectionFrame.frame.cameraConfigurationID
+  )
+  #expect(
+    workspace.cameraOverlays.contains {
+      $0.frameID == inspectionFrame.frame.id
+        && $0.provenance.algorithmRevision == "motion-preflight-posterior-v1"
+    }
+  )
+  #expect(await voice.stopCount == 1)
+  #expect(await camera.sceneInspectionBoundaries == [84])
+}
+
 @Test("Ambient speech cannot issue controller actions outside a boundary interaction")
 @MainActor
 func ambientSpeechIsInert() async {
@@ -910,7 +1313,7 @@ func boundaryReadyStartsOneBoundedJog() async throws {
   while workspace.boundaryTeachingState != .idle { await Task.yield() }
 
   let request = try #require(await machine.jogRequests.only)
-  #expect(request.delta.dx == 5)
+  #expect(request.delta.dx == 300)
   #expect(request.delta.dy == 0)
   #expect(request.feedMMPerMinute == 100)
   #expect(workspace.boundaryPositions.isEmpty)
@@ -1053,18 +1456,17 @@ func typedPenControls() async throws {
   )
   await workspace.establishMachineSession(device)
 
-  #expect(workspace.penUnavailableReason(for: .raise) == nil)
   #expect(
-    workspace.penUnavailableReason(for: .lower)
-      == PenRefusal.motionLimitsMissing.actionableDescription
+    workspace.penUnavailableReason(for: .raise)
+      == PenRefusal.motionGuardInactive.actionableDescription
   )
 
+  await applyTestLimits(workspace)
   await workspace.requestPenActuation(.raise)
   #expect(await fixture.penRequests == [.raise])
   #expect(workspace.penStateText == "commanded up — not visually observed")
   #expect(workspace.lastPenOutcomeText.contains("acknowledged"))
 
-  await applyTestLimits(workspace)
   #expect(workspace.penUnavailableReason(for: .lower) == nil)
   await workspace.requestPenActuation(.lower)
   #expect(await fixture.penRequests == [.raise, .lower])
@@ -1089,7 +1491,7 @@ func truthfulControllerAndMotionProjection() async {
   #expect(workspace.controllerConnectionActionTitle == "Connect")
   #expect(
     workspace.workbenchStatusText
-      == "Movement test setup: Select and connect one serial device."
+      == "Select the remembered controller and press Connect."
   )
   #expect(!workspace.workbenchStatusNeedsAttention)
   #expect(workspace.penStateText == "unknown — no physical pose assumed")
@@ -1104,14 +1506,18 @@ func truthfulControllerAndMotionProjection() async {
   #expect(workspace.controllerStateText == "idle")
   #expect(workspace.motorPowerText == "not reported by controller")
   #expect(workspace.motionPermissionText == "blocked")
+  #expect(!workspace.motionGuardIsActive)
   #expect(workspace.controllerConnectionActionTitle == "Connect")
 
   await applyTestLimits(workspace)
+  #expect(workspace.motionGuardIsActive)
+  #expect(!workspace.motionGuardAllowsCarriageMotion)
   await workspace.requestPenActuation(.raise)
   #expect(workspace.motionPermissionText == "request eligible")
+  #expect(workspace.motionGuardAllowsCarriageMotion)
   #expect(
     workspace.workbenchStatusText
-      == "Motion request eligible; motor power is not reported by controller."
+      == "Motion Guard active; carriage motion is available."
   )
   #expect(!workspace.workbenchStatusNeedsAttention)
   #expect(workspace.penStateText == "commanded up — not visually observed")
@@ -1194,11 +1600,11 @@ func serialRefreshDisconnectsDisappearedSelection() async {
   #expect(workspace.selectedSerialDevice == nil)
   #expect(workspace.machineSnapshot == nil)
   #expect(workspace.passiveProbeResult == nil)
-  #expect(!workspace.limitsApplied)
+  #expect(!workspace.motionGuardIsActive)
   #expect(workspace.penStateText == "unknown — no physical pose assumed")
 }
 
-@Test("Disconnect preserves the device choice but requires fresh facts, limits, and pen state")
+@Test("Disconnect preserves the device choice but requires fresh guard and pen state")
 @MainActor
 func disconnectAndReselectRequireFreshAuthority() async {
   let fixture = MachineFixture()
@@ -1218,14 +1624,13 @@ func disconnectAndReselectRequireFreshAuthority() async {
   #expect(workspace.selectedSerialDevice == device)
   #expect(workspace.machineSnapshot == nil)
   #expect(workspace.passiveProbeResult == nil)
-  #expect(!workspace.limitsApplied)
+  #expect(!workspace.motionGuardIsActive)
   #expect(workspace.penStateText == "unknown — no physical pose assumed")
-  #expect(workspace.minimumXText == "-100")
 
   await workspace.establishMachineSession(device)
   #expect(workspace.selectedSerialDevice?.identifier == device.identifier)
   #expect(workspace.passiveProbeResult == nil)
-  #expect(!workspace.limitsApplied)
+  #expect(!workspace.motionGuardIsActive)
   #expect(workspace.penStateText == "unknown — no physical pose assumed")
   #expect(workspace.motionUnavailableReason == MotionRefusal.notConnected.actionableDescription)
   await workspace.requestJog(.xPositive)
@@ -1234,7 +1639,7 @@ func disconnectAndReselectRequireFreshAuthority() async {
   await workspace.requestPassiveProbe()
   #expect(
     workspace.motionUnavailableReason
-      == MotionRefusal.motionLimitsMissing.actionableDescription
+      == MotionRefusal.motionGuardInactive.actionableDescription
   )
 
   await applyTestLimits(workspace)
@@ -1282,7 +1687,7 @@ func shutdownTearsDownExactlyOnce() async throws {
   #expect(workspace.selectedSerialDevice == nil)
   #expect(workspace.machineSnapshot == nil)
   #expect(workspace.passiveProbeResult == nil)
-  #expect(!workspace.limitsApplied)
+  #expect(!workspace.motionGuardIsActive)
   #expect(workspace.penStateText == "unknown — no physical pose assumed")
   #expect(workspace.cameraSnapshot == nil)
   #expect(workspace.displayedFrame == nil)
@@ -1632,9 +2037,8 @@ private actor MachineFixture {
   private(set) var selectedDescriptors: [MachineLinkDescriptor] = []
   private(set) var penRequests: [PenCommand] = []
   private(set) var cancelRequestCount = 0
-  private(set) var limitCount = 0
+  private(set) var guardActivationCount = 0
   private(set) var disconnectCount = 0
-  private(set) var lastLimits: MotionLimits?
   private var cancelOutcomes: [JogCancelOutcome]
   private let failure: FixtureMachineFailure?
 
@@ -1651,7 +2055,7 @@ private actor MachineFixture {
   }
 
   var totalInvocationCount: Int {
-    selectCount + probeCount + limitCount + disconnectCount + jogRequests.count
+    selectCount + probeCount + guardActivationCount + disconnectCount + jogRequests.count
       + observedJogRequests.count
       + penRequests.count + cancelRequestCount
   }
@@ -1724,10 +2128,17 @@ private actor MachineFixture {
     return outcome
   }
 
-  func updateLimits(_ limits: MotionLimits) {
-    limitCount += 1
-    lastLimits = limits
-    replaceMachine(limits: limits)
+  func activateMotionGuard() -> MotionGuardActivationOutcome {
+    guardActivationCount += 1
+    snapshot = RunInterpreterSnapshot(
+      currentOperation: snapshot.currentOperation,
+      machine: replacing(snapshot.machine, motionGuardState: .active),
+      lastMotionOutcome: snapshot.lastMotionOutcome,
+      lastPhysicalJogObservationOutcome: snapshot.lastPhysicalJogObservationOutcome,
+      lastPenOutcome: snapshot.lastPenOutcome,
+      lastProbe: snapshot.lastProbe
+    )
+    return .activated
   }
 
   func beginJog(_ request: RelativeJogRequest) {
@@ -1743,8 +2154,8 @@ private actor MachineFixture {
         position: machine.position,
         pins: machine.pins,
         penState: machine.penState,
+        motionGuardState: machine.motionGuardState,
         stickyAmbiguity: machine.stickyAmbiguity,
-        motionLimits: machine.motionLimits,
         operationInFlight: true,
         lastMotionOutcome: machine.lastMotionOutcome,
         lastPenOutcome: machine.lastPenOutcome
@@ -1867,16 +2278,14 @@ private actor MachineFixture {
       position: nil,
       pen: .unknown
     )
-    lastLimits = nil
   }
 
-  private func replaceMachine(pen: PenState? = nil, limits: MotionLimits? = nil) {
+  private func replaceMachine(pen: PenState? = nil) {
     snapshot = RunInterpreterSnapshot(
       currentOperation: snapshot.currentOperation,
       machine: replacing(
         snapshot.machine,
-        pen: pen ?? snapshot.machine.penState,
-        limits: limits ?? snapshot.machine.motionLimits
+        pen: pen ?? snapshot.machine.penState
       ),
       lastMotionOutcome: snapshot.lastMotionOutcome,
       lastProbe: snapshot.lastProbe
@@ -1901,7 +2310,7 @@ private func machineActions(
       await probeGate?.wait()
       return try await fixture.probe()
     },
-    updateMotionLimits: { limits in await fixture.updateLimits(limits) },
+    activateMotionGuard: { await fixture.activateMotionGuard() },
     requestRelativeJog: { request in
       await fixture.beginJog(request)
       await jogGate?.wait()
@@ -1927,18 +2336,32 @@ private actor VoiceFixture {
   private(set) var spoken: [String] = []
   private(set) var signalCount = 0
   private let authorization: VoiceAuthorizationState
+  private let authorizationGate: AsyncGate?
+  private let startupGate: AsyncGate?
   private var isListening = false
   private var listeningError: VoiceInteractionError?
 
-  init(authorization: VoiceAuthorizationState = .authorized) {
+  init(
+    authorization: VoiceAuthorizationState = .authorized,
+    authorizationGate: AsyncGate? = nil,
+    startupGate: AsyncGate? = nil
+  ) {
     self.authorization = authorization
+    self.authorizationGate = authorizationGate
+    self.startupGate = startupGate
   }
 
-  func requestAuthorization() -> VoiceAuthorizationState { authorization }
+  var isCurrentlyListening: Bool { isListening }
 
-  func startListening() {
+  func requestAuthorization() async -> VoiceAuthorizationState {
+    await authorizationGate?.wait()
+    return authorization
+  }
+
+  func startListening() async {
     startCount += 1
     isListening = authorization == .authorized
+    await startupGate?.wait()
   }
 
   func stopListening() {
@@ -2010,23 +2433,28 @@ private actor CameraFixture {
   private(set) var simulatorCount = 0
   private(set) var simulatorModes: [SimulatorModelMode] = []
   private(set) var startCount = 0
+  private(set) var restartCount = 0
   private(set) var stopCount = 0
   private(set) var framesCount = 0
   private(set) var selectedIDs: [CameraDeviceID] = []
   private(set) var automaticCadences: [VisionAnalysisCadence?] = []
   private(set) var visibleToolObservationCount = 0
   private(set) var visibleToolObservationBoundaries: [(PhysicalObservationPhase, UInt64)] = []
+  private(set) var sceneInspectionBoundaries: [UInt64] = []
   private var visibleToolResults:
     [Result<VisibleToolFrameObservation, PhysicalJogObservationFailure>]
+  private var sceneInspections: [LiveSceneInspection?]
 
   init(
     snapshot: CameraCaptureSnapshot,
     simulated: DisplayedFrame,
-    visibleToolResults: [Result<VisibleToolFrameObservation, PhysicalJogObservationFailure>] = []
+    visibleToolResults: [Result<VisibleToolFrameObservation, PhysicalJogObservationFailure>] = [],
+    sceneInspections: [LiveSceneInspection?] = []
   ) {
     current = snapshot
     self.simulated = simulated
     self.visibleToolResults = visibleToolResults
+    self.sceneInspections = sceneInspections
   }
 
   func snapshot() -> CameraCaptureSnapshot { current }
@@ -2044,6 +2472,10 @@ private actor CameraFixture {
   }
   func start() -> CameraCaptureSnapshot {
     startCount += 1
+    return current
+  }
+  func restart() -> CameraCaptureSnapshot {
+    restartCount += 1
     return current
   }
   func stop() -> CameraCaptureSnapshot {
@@ -2091,6 +2523,11 @@ private actor CameraFixture {
     if !visibleToolResults.isEmpty { return visibleToolResults.removeFirst() }
     return .failure(.frameUnavailable(phase))
   }
+  func inspectScene(newerThanNanoseconds boundary: UInt64) -> LiveSceneInspection? {
+    sceneInspectionBoundaries.append(boundary)
+    guard !sceneInspections.isEmpty else { return nil }
+    return sceneInspections.removeFirst()
+  }
 }
 
 private func cameraActions(
@@ -2105,10 +2542,12 @@ private func cameraActions(
       return await fixture.start()
     },
     stop: { await fixture.stop() },
-    restart: { await fixture.snapshot() },
+    restart: { await fixture.restart() },
     snapshot: { await fixture.snapshot() },
     frames: { await fixture.frames() },
-    inspectScene: { nil },
+    inspectScene: { boundary in
+      await fixture.inspectScene(newerThanNanoseconds: boundary)
+    },
     captureSnapshot: { "/tmp/adaptiveplotter-test-snapshot" },
     setAutomaticInspection: { cadence in await fixture.setAutomaticInspection(cadence) },
     analysisUpdates: { AsyncStream { $0.finish() } },
@@ -2187,6 +2626,7 @@ private func testRunSnapshot(
   position: MachinePosition? = try! MachinePosition(x: 0, y: 0),
   pins: ControllerPins = ControllerPins(rawValue: ""),
   pen: PenState = .unknown,
+  motionGuardState: MotionGuardState = .inactive,
   stickyAmbiguity: MotionAmbiguity? = nil,
   outcome: MotionOutcome? = nil
 ) -> RunInterpreterSnapshot {
@@ -2201,6 +2641,7 @@ private func testRunSnapshot(
       position: position,
       pins: pins,
       penState: pen,
+      motionGuardState: motionGuardState,
       stickyAmbiguity: {
         if let stickyAmbiguity { return stickyAmbiguity }
         guard case .ambiguous(let ambiguity) = outcome else { return nil }
@@ -2217,7 +2658,7 @@ private func replacing(
   _ machine: MachineSnapshot,
   connection: MachineConnectionState? = nil,
   pen: PenState? = nil,
-  limits: MotionLimits? = nil,
+  motionGuardState: MotionGuardState? = nil,
   operationInFlight: Bool? = nil,
   outcome: MotionOutcome? = nil
 ) -> MachineSnapshot {
@@ -2230,8 +2671,8 @@ private func replacing(
     position: machine.position,
     pins: machine.pins,
     penState: pen ?? machine.penState,
+    motionGuardState: motionGuardState ?? machine.motionGuardState,
     stickyAmbiguity: machine.stickyAmbiguity,
-    motionLimits: limits ?? machine.motionLimits,
     operationInFlight: operationInFlight ?? machine.operationInFlight,
     lastMotionOutcome: outcome ?? machine.lastMotionOutcome
   )
@@ -2239,13 +2680,10 @@ private func replacing(
 
 @MainActor
 private func applyTestLimits(_ workspace: OperatorWorkspace) async {
-  workspace.minimumXText = "-10"
-  workspace.maximumXText = "10"
-  workspace.minimumYText = "-20"
-  workspace.maximumYText = "20"
-  workspace.maximumDistanceText = "5"
-  workspace.maximumFeedText = "100"
-  await workspace.applyMotionLimits()
+  if !workspace.controllerIsConnected {
+    await workspace.connectSelectedController()
+  }
+  await workspace.activateMotionGuard()
 }
 
 @MainActor
@@ -2375,6 +2813,52 @@ private func testDisplayedFrame(
       pixelFormat: .bgra8,
       bytes: OwnedFrameBytes(Array(repeating: 255, count: 16))
     )
+  )
+}
+
+private func testSceneMeasurement(
+  for displayedFrame: DisplayedFrame,
+  cap: GreenCapMeasurement? = nil,
+  drawingFrame: DrawingFrameEstimate? = nil
+) -> PlotterSceneMeasurement {
+  let frame = displayedFrame.frame
+  return PlotterSceneMeasurement(
+    frameID: frame.id,
+    frameSHA256: frame.contentSHA256,
+    cameraConfigurationID: frame.cameraConfigurationID,
+    greenComponentCount: 0,
+    cap: cap,
+    topFrameSide: nil,
+    rightFrameSide: nil,
+    drawingFrame: drawingFrame,
+    armature: nil,
+    overlays: [],
+    algorithmRevision: "app-preflight-test-v1",
+    diagnosticSHA256: frame.contentSHA256
+  )
+}
+
+private func testGreenCapMeasurement() throws -> GreenCapMeasurement {
+  GreenCapMeasurement(
+    pixelCount: 4,
+    boundingBox: PixelRect(x: 0, y: 0, width: 1, height: 1),
+    centroid: try Point2(x: 0.5, y: -0.25),
+    confidence: 0.9
+  )
+}
+
+private func testDrawingFrameEstimate() throws -> DrawingFrameEstimate {
+  let points: [Point2<CameraPixelSpace>] = [
+    try Point2(x: 0, y: 0),
+    try Point2(x: 1, y: 0),
+    try Point2(x: 1, y: 1),
+    try Point2(x: 0, y: 1),
+    try Point2(x: 0, y: 0),
+  ]
+  return DrawingFrameEstimate(
+    geometry: try Polyline(points: points),
+    confidence: 0.8,
+    basis: "exact-frame app integration fixture"
   )
 }
 

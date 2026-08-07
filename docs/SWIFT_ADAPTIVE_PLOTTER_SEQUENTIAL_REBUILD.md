@@ -57,7 +57,7 @@ At the start of a machine session, establish:
 ```text
 selected controller
 controller responsive and not in alarm
-configured local bounds, distance limit, and conservative feed
+Motion Guard activated for the current controller session
 known pen-up state before travel
 camera frame available if the requested operation needs vision
 ```
@@ -65,9 +65,11 @@ camera frame available if the requested operation needs vision
 That is one reusable session check. Recheck only after disconnect, reset/alarm,
 configuration change, manual loss of position, tool change, or camera change.
 
-Every command still receives direct bounds/feed/distance and pen-state checks.
-A failure rejects that command with an actionable message and allows retry when
-corrected. It does not block source work or unrelated operations.
+Every command still receives direct closed-request, finite-value, controller
+feed-capability, alarm/end-stop, pen-state, in-flight, and ambiguity checks. A
+failure rejects that command with an actionable message and allows retry when
+corrected. There is no operator-entered coordinate envelope or maximum-jog
+prerequisite.
 
 ## Work item 1 — Repeatable controller contact
 
@@ -121,8 +123,8 @@ Deliver one direct low-speed relative move control. Before sending it, check:
 
 - controller connected and non-alarm;
 - pen known up;
-- requested delta and feed within configured limits;
-- projected destination within configured local bounds;
+- requested delta finite and nonzero, with feed within controller capability;
+- no asserted end-stop;
 - no outstanding ambiguous command.
 
 Show completion or the exact error in memory. Record it in the best-effort
@@ -261,7 +263,7 @@ an explicit user request after the simple system demonstrably fails.
 The rudimentary product is complete when:
 
 - the local app connects to the real controller and camera;
-- it draws a small vector program inside configured bounds;
+- it draws a small vector program within the learned drawing frame;
 - it lifts and clears the tool;
 - it observes and displays the actual ink;
 - it shows simple drawing error and can use an affine correction for remaining
