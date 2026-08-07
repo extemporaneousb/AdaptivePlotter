@@ -464,6 +464,53 @@ func simulatorSwitchCannotHideActiveJogCancel() async throws {
   await jogTask.value
 }
 
+@Test("Switching to SIMULATED cannot hide an active physical preflight")
+@MainActor
+func simulatorSwitchCannotHidePhysicalPreflight() async throws {
+  let cameraID = CameraDeviceID(rawValue: "camera")
+  let displayedFrame = try testDisplayedFrame(source: .live(cameraID))
+  let camera = CameraFixture(
+    snapshot: CameraCaptureSnapshot(
+      devices: [CameraDevice(id: cameraID, name: "Camera")],
+      selectedDeviceID: cameraID,
+      state: .running,
+      latestFrame: displayedFrame,
+      error: nil
+    ),
+    simulated: try testDisplayedFrame(source: .simulated)
+  )
+  let machine = MachineFixture()
+  let voice = VoiceFixture()
+  let device = testDevice()
+  let workspace = OperatorWorkspace(
+    machineActions: machineActions(machine),
+    cameraActions: cameraActions(camera),
+    voiceActions: voiceActions(voice),
+    serialDevices: [device],
+    nowNanoseconds: { 1 }
+  )
+
+  await workspace.selectSerialDevice(device)
+  await workspace.connectSelectedController()
+  await workspace.activateMotionGuard()
+  await workspace.startCamera()
+  await workspace.startPreflightSequence(.penUpConfirmation)
+  while await voice.streamSubscriberCount == 0 { await Task.yield() }
+
+  await workspace.switchFrameMode(.simulated)
+
+  #expect(workspace.frameMode == .live)
+  #expect(workspace.activePreflightSequenceID == .penUpConfirmation)
+  #expect(workspace.voiceListening)
+  #expect(
+    workspace.cameraError
+      == "Finish or cancel the active Motion Preflight before switching frame source."
+  )
+  #expect(await camera.simulatorCount == 0)
+
+  await workspace.cancelPreflightSequence(.penUpConfirmation)
+}
+
 @Test("Observed jog projects one exact camera failure without moving or recording")
 @MainActor
 func observedJogFailureProjectsExactly() async throws {
@@ -1987,6 +2034,73 @@ func simulatorCannotReachMachineSession() async throws {
   #expect(await machine.totalInvocationCount == 0)
 }
 
+@Test("simulator preflight rehearsal completes without microphone controller or readiness authority")
+@MainActor
+func simulatorPreflightRehearsalIsPresentationOnly() async throws {
+  let machine = MachineFixture()
+  let voice = VoiceFixture()
+  let simulatedFrame = try testDisplayedFrame(source: .simulated)
+  let camera = CameraFixture(
+    snapshot: CameraCaptureSnapshot(
+      devices: [],
+      selectedDeviceID: nil,
+      state: .stopped,
+      latestFrame: nil,
+      error: nil
+    ),
+    simulated: simulatedFrame
+  )
+  let workspace = OperatorWorkspace(
+    machineActions: machineActions(machine),
+    cameraActions: cameraActions(camera),
+    voiceActions: voiceActions(voice),
+    preflightRehearsalStepDelayNanoseconds: 0
+  )
+
+  await workspace.switchFrameMode(.simulated)
+  workspace.startPreflightRehearsal(.boundaryNegativeX)
+  for _ in 0..<2_000 {
+    if workspace.preflightRehearsals[.boundaryNegativeX]?.state == .completed { break }
+    await Task.yield()
+  }
+
+  let rehearsal = try #require(workspace.preflightRehearsals[.boundaryNegativeX])
+  #expect(rehearsal.state == .completed)
+  #expect(rehearsal.completedStepCount == rehearsal.definition.steps.count)
+  #expect(workspace.preflightTransactions.isEmpty)
+  #expect(!workspace.preflightTrainingReadiness.isReady)
+  #expect(await voice.startCount == 0)
+  #expect(await machine.totalInvocationCount == 0)
+  #expect(workspace.preflightRehearsalStatusText.contains("no physical evidence"))
+}
+
+@Test("failed simulator variant preserves the rendered simulator and selected model")
+@MainActor
+func simulatorVariantFailureIsAtomic() async throws {
+  let simulatedFrame = try testDisplayedFrame(source: .simulated)
+  let camera = CameraFixture(
+    snapshot: CameraCaptureSnapshot(
+      devices: [],
+      selectedDeviceID: nil,
+      state: .stopped,
+      latestFrame: nil,
+      error: nil
+    ),
+    simulated: simulatedFrame,
+    failingSimulatorModes: [.trained]
+  )
+  let workspace = OperatorWorkspace(cameraActions: cameraActions(camera))
+
+  await workspace.switchFrameMode(.simulated)
+  let originalFrameID = workspace.displayedFrame?.frame.id
+  await workspace.selectSimulatorModelMode(.trained)
+
+  #expect(workspace.frameMode == .simulated)
+  #expect(workspace.simulatorModelMode == .prior)
+  #expect(workspace.displayedFrame?.frame.id == originalFrameID)
+  #expect(workspace.cameraError?.contains("simulated content failed") == true)
+}
+
 @Test("Camera snapshot affordance reports the exact output directory")
 @MainActor
 func cameraSnapshotAffordance() async throws {
@@ -2427,9 +2541,16 @@ private func voiceActions(_ fixture: VoiceFixture) -> OperatorWorkspace.VoiceAct
   )
 }
 
+private enum CameraFixtureError: Error, LocalizedError {
+  case simulatedContentFailed
+
+  var errorDescription: String? { "simulated content failed" }
+}
+
 private actor CameraFixture {
   private var current: CameraCaptureSnapshot
   private let simulated: DisplayedFrame
+  private let failingSimulatorModes: Set<SimulatorModelMode>
   private(set) var simulatorCount = 0
   private(set) var simulatorModes: [SimulatorModelMode] = []
   private(set) var startCount = 0
@@ -2449,10 +2570,12 @@ private actor CameraFixture {
     snapshot: CameraCaptureSnapshot,
     simulated: DisplayedFrame,
     visibleToolResults: [Result<VisibleToolFrameObservation, PhysicalJogObservationFailure>] = [],
-    sceneInspections: [LiveSceneInspection?] = []
+    sceneInspections: [LiveSceneInspection?] = [],
+    failingSimulatorModes: Set<SimulatorModelMode> = []
   ) {
     current = snapshot
     self.simulated = simulated
+    self.failingSimulatorModes = failingSimulatorModes
     self.visibleToolResults = visibleToolResults
     self.sceneInspections = sceneInspections
   }
@@ -2489,9 +2612,12 @@ private actor CameraFixture {
     )
     return current
   }
-  func simulatedContent(_ mode: SimulatorModelMode) -> SimulatedActionSurfaceContent {
+  func simulatedContent(_ mode: SimulatorModelMode) throws -> SimulatedActionSurfaceContent {
     simulatorCount += 1
     simulatorModes.append(mode)
+    if failingSimulatorModes.contains(mode) {
+      throw CameraFixtureError.simulatedContentFailed
+    }
     return SimulatedActionSurfaceContent(displayedFrame: simulated, overlays: [])
   }
   func frames() -> AsyncStream<DisplayedFrame> {
@@ -2557,7 +2683,7 @@ private func cameraActions(
         newerThanNanoseconds: boundary
       )
     },
-    simulatedContent: { mode in await fixture.simulatedContent(mode) }
+    simulatedContent: { mode in try await fixture.simulatedContent(mode) }
   )
 }
 

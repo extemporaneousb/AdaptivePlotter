@@ -6,8 +6,19 @@ import Testing
 
 @Test("motion preflight owns the compact calibration title")
 func motionPreflightTitle() {
-  #expect(PreflightCalibrationPresentation.title == "MOTION PREFLIGHT")
+  #expect(PreflightCalibrationPresentation.title == "Motion Preflight")
   #expect(PreflightCalibrationPresentation.subtitle.contains("Calibrate Plotter"))
+}
+
+@Test("simulator rehearsal presentation remains distinct from physical preflight")
+func simulatorRehearsalPresentation() throws {
+  var rehearsal = PreflightRehearsal(sequenceID: .penUpConfirmation)
+  #expect(PreflightCalibrationPresentation.phaseLabel(for: rehearsal) == "NOT REHEARSED")
+  #expect(PreflightCalibrationMode.simulatorRehearsal.subtitle.contains("no microphone"))
+  try rehearsal.start()
+  #expect(PreflightCalibrationPresentation.phaseLabel(for: rehearsal) == "REHEARSING")
+  while rehearsal.state == .running { try rehearsal.advance() }
+  #expect(PreflightCalibrationPresentation.phaseLabel(for: rehearsal) == "REHEARSED")
 }
 
 @Test("runtime catalog maps to the complete operator-facing sequence list")

@@ -126,6 +126,44 @@ struct PreflightCalibrationTests {
     #expect(transaction.currentStep?.id == "start-speech")
   }
 
+  @Test("rehearsal plays the typed timeline without evidence or readiness authority")
+  func rehearsalIsPresentationOnly() throws {
+    var rehearsal = PreflightRehearsal(sequenceID: .boundaryPositiveY)
+    let stepCount = rehearsal.definition.steps.count
+
+    try rehearsal.start()
+    #expect(rehearsal.state == .running)
+    #expect(rehearsal.currentStep == rehearsal.definition.steps.first)
+    #expect(rehearsal.progress == 0)
+
+    for index in 0..<stepCount {
+      try rehearsal.advance()
+      #expect(rehearsal.completedStepCount == index + 1)
+    }
+
+    #expect(rehearsal.state == .completed)
+    #expect(rehearsal.currentStep == nil)
+    #expect(rehearsal.progress == 1)
+    #expect(throws: PreflightRehearsalError.notRunning) {
+      try rehearsal.advance()
+    }
+  }
+
+  @Test("rehearsal cancellation is terminal and does not synthesize steps")
+  func rehearsalCanCancel() throws {
+    var rehearsal = PreflightRehearsal(sequenceID: .penUpConfirmation)
+    try rehearsal.start()
+    try rehearsal.advance()
+    rehearsal.cancel()
+
+    #expect(rehearsal.state == .cancelled)
+    #expect(rehearsal.completedStepCount == 1)
+    #expect(rehearsal.currentStep == nil)
+    #expect(throws: PreflightRehearsalError.notRunning) {
+      try rehearsal.advance()
+    }
+  }
+
   @Test("supervised training needs a boundary class and current pen-up confirmation")
   func readinessRequiresTwoClassesAndPenUp() throws {
     var negativeX = PreflightTransaction(sequenceID: .boundaryNegativeX)

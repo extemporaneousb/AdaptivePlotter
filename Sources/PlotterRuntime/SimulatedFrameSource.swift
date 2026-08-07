@@ -327,7 +327,9 @@ public struct SimulatedFrameSource: Sendable {
     predicted: Point2<FieldSpace>,
     observed: Point2<FieldSpace>
   ) throws -> CameraPixelGeometry {
-    if predicted == observed {
+    let dx = predicted.x - observed.x
+    let dy = predicted.y - observed.y
+    if predicted == observed || (dx * dx) + (dy * dy) <= 1e-18 {
       return .point(try fieldToCamera.applying(to: predicted))
     }
     return .polyline(

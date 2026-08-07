@@ -1,6 +1,6 @@
 # Prototype Status
 
-Status date: 2026-08-06
+Status date: 2026-08-07
 Target: this Mac and attached plotter only
 
 ## Bottom line
@@ -9,14 +9,14 @@ AdaptivePlotter is one local SwiftPM application with a camera-dominant action
 surface, explicit AVFoundation camera selection, bounded preview work, exact
 latest-frame capture/analysis, and a deterministic simulator rendered through
 the same pixels-to-view path. One persistent native controller session owns
-passive probes, bounded relative jogs, and typed pen actuation. A compact flush
-top bar opens five independently collapsible and hideable workbench panels in
+passive probes, bounded relative jogs, and typed pen actuation. A native unified
+macOS toolbar opens independently collapsible and hideable workbench panels in
 reserved left/right docks. The docks reframe the action surface and never cover
 it; all detailed controls begin hidden so the camera owns the primary area.
-The top bar has one remembered device picker, one Connect action, and one
-Activate Motion action; selection alone does not open a session. The top right
-shows current red/green camera-live, plotter-connected, and motion-guard
-indicators. Plotter turns green only after a blocker-free passive inspection.
+The toolbar has one remembered device picker, one Connect action, and one
+Activate Motion action; selection alone does not open a session. It also shows
+current camera-live, plotter-connected, and motion-guard indicators. Plotter
+turns green only after a blocker-free passive inspection.
 Motion turns green only when the guard is activated and an ordinary carriage
 request is currently eligible, including a known Pen Up state.
 
@@ -38,6 +38,13 @@ only while that jog is moving and requests GRBL Jog Cancel. Pen confirmations
 pair the spoken physical observation with an exact immutable camera frame
 without claiming that the camera proves height. Wrong-context, ambient, and
 compound phrases are rejected rather than partially executed.
+
+With the camera source set to SIMULATED, Motion Preflight presents a typed
+rehearsal of the same participant/action/event timeline. Playback advances the
+visible steps and simulated pen presentation, but it cannot start the
+microphone, touch the controller, record evidence, or satisfy physical
+readiness. This permits an end-to-end UI walkthrough without creating false
+hardware claims.
 
 A side is recorded only when cancellation resolves at Idle as
 `MotionOutcome.cancelled(finalPosition:)`; that final controller MPos and a
@@ -326,7 +333,7 @@ frames; the operator is not asked to convert them into MachineSpace coordinates
 or enter limits before motion.
 
 The final signed task bundle was also exercised directly on 2026-08-06. The
-top bar met the window content edge with no camera strip above it. Motion and
+toolbar met the window content edge with no camera strip above it. Motion and
 Camera were opened together in reserved left/right docks; the center surface
 remained disjoint and showed the complete aspect-fit simulator frame. The same
 running bundle completed LIVE → SIMULATED → LIVE: source labels changed, the
@@ -335,6 +342,13 @@ returning C920 stream resumed advancing 1920×1080 frames without simulator
 geometry crossing into the live configuration. The live and simulated pixels
 therefore exercised the same resized center renderer while both docks remained
 open.
+
+On 2026-08-07, the native toolbar and SIMULATED Accepted Training presentation
+were exercised in the rebuilt app. Accepted Training remained selected and
+rendered rather than falling back to LIVE. The Learning panel opened Motion
+Preflight in Simulator Rehearsal mode, and Pen Up visibly progressed through all
+six typed steps to REHEARSED while the UI reported no microphone, controller,
+evidence, or readiness authority.
 
 ## Not yet implemented
 

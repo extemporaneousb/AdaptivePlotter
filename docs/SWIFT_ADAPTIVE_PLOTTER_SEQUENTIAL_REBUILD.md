@@ -93,8 +93,10 @@ clearing historical data.
 Implementation status: the native source path, shared live/simulated renderer,
 and automated lifecycle/provenance tests are implemented. The real C920 has
 permission, advancing frames, exact newest-frame capture, and stop/restart
-evidence on this Mac. A final manual LIVE/SIMULATED/LIVE source-switch check on
-the rebuilt bundle remains.
+evidence on this Mac. The rebuilt bundle passed a manual
+LIVE/SIMULATED/LIVE source-switch check on 2026-08-06. The simulator now also
+renders prior-mismatch and accepted-training variants atomically and can play
+the typed Motion Preflight timeline without acquiring physical authority.
 
 Deliver:
 

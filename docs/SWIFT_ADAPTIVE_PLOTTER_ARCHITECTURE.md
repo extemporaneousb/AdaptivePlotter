@@ -261,7 +261,7 @@ One window is sufficient. It should contain:
   selection as connection;
 - one explicit Connect action whose connected presentation requires a
   successful blocker-free passive inspection;
-- compact current camera-live and plotter-connected red/green indicators;
+- compact current camera-live, plotter-connected, and motion-guard indicators;
 - controller status and the last actionable error;
 - camera image;
 - vector preview;
@@ -272,6 +272,8 @@ One window is sufficient. It should contain:
   activation, visible permission/listening/transcript/result state, boundary
   and pen sequence timelines, and a visible cancel fallback during the active
   transaction.
+- a SIMULATED-source rehearsal of those exact typed timelines that has no
+  microphone, controller, evidence, or physical-readiness authority.
 
 Raw serial text may be available in a small developer disclosure when needed.
 

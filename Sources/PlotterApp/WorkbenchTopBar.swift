@@ -1,19 +1,6 @@
 import PlotterRuntime
 import SwiftUI
 
-/// Layout values owned by the top bar itself.
-///
-/// The host must place `FlushWorkbenchTopBar` directly against the window
-/// content's top edge. In particular, the former outer ten-point padding is
-/// not part of this component's contract: it exposed the camera between the
-/// window chrome and the bar.
-enum WorkbenchTopBarLayoutMetrics {
-  static let externalTopInset: CGFloat = 0
-  static let horizontalContentPadding: CGFloat = 14
-  static let verticalContentPadding: CGFloat = 9
-  static let rowSpacing: CGFloat = 4
-}
-
 enum WorkbenchConnectionIndicator: CaseIterable, Hashable, Identifiable {
   case camera
   case plotter
@@ -29,65 +16,66 @@ enum WorkbenchConnectionIndicator: CaseIterable, Hashable, Identifiable {
     }
   }
 
+  var title: String {
+    switch self {
+    case .camera: "Camera"
+    case .plotter: "Plotter"
+    case .motionGuard: "Motion"
+    }
+  }
+
   func label(isActive: Bool) -> String {
     switch (self, isActive) {
-    case (.camera, true): "CAMERA LIVE"
-    case (.camera, false): "CAMERA OFF"
-    case (.plotter, true): "PLOTTER CONNECTED"
-    case (.plotter, false): "PLOTTER DISCONNECTED"
-    case (.motionGuard, true): "MOTION READY"
-    case (.motionGuard, false): "MOTION BLOCKED"
+    case (.camera, true): "Camera Live"
+    case (.camera, false): "Camera Off"
+    case (.plotter, true): "Plotter Connected"
+    case (.plotter, false): "Plotter Disconnected"
+    case (.motionGuard, true): "Motion Ready"
+    case (.motionGuard, false): "Motion Blocked"
     }
   }
 }
 
 enum WorkbenchTopBarStatusStyle {
   static func systemImage(needsAttention: Bool) -> String {
-    needsAttention ? "exclamationmark.triangle" : "info.circle"
+    needsAttention ? "exclamationmark.triangle.fill" : "info.circle"
   }
 }
 
-/// The camera-safe workbench controls and current-state summary.
+/// Native macOS window-toolbar controls for the camera-first workbench.
 ///
-/// This component deliberately fills the available width and draws one
-/// continuous material surface all the way to its top edge. Padding is applied
-/// only to its contents, so camera pixels cannot appear above the bar.
-struct FlushWorkbenchTopBar: View {
+/// The controller picker, connection actions, panel access, and three truthful
+/// status indicators stay in the window chrome instead of consuming camera
+/// pixels in a custom two-row strip.
+struct WorkbenchToolbar: ToolbarContent {
   @Bindable var workspace: OperatorWorkspace
   @Binding var layout: WorkbenchLayoutState
 
-  var body: some View {
-    VStack(alignment: .leading, spacing: WorkbenchTopBarLayoutMetrics.rowSpacing) {
-      HStack(spacing: 6) {
-        ForEach(WorkbenchPanel.allCases) { panel in
-          Button {
-            layout.toggleVisibility(panel)
-          } label: {
-            Label(panel.rawValue, systemImage: panel.systemImage)
-          }
-          .buttonStyle(.bordered)
-          .controlSize(.small)
-          .tint(layout[panel].isVisible ? .accentColor : .secondary)
+  var body: some ToolbarContent {
+    ToolbarItemGroup(placement: .navigation) {
+      ForEach(WorkbenchPanel.allCases) { panel in
+        Button {
+          layout.toggleVisibility(panel)
+        } label: {
+          Label(panel.rawValue, systemImage: panel.systemImage)
         }
-
-        Button("Hide All") { layout.hideAll() }
-          .buttonStyle(.borderless)
-          .controlSize(.small)
-
-        Spacer()
-
-        TimelineView(.periodic(from: .now, by: 0.25)) { _ in
-          HStack(spacing: 6) {
-            connectionIndicator(.camera, isActive: workspace.cameraIsLive)
-            connectionIndicator(.plotter, isActive: workspace.controllerIsConnected)
-            connectionIndicator(
-              .motionGuard,
-              isActive: workspace.motionGuardAllowsCarriageMotion
-            )
-          }
-        }
+        .help(layout[panel].isVisible ? "Hide \(panel.rawValue)" : "Show \(panel.rawValue)")
       }
 
+      Menu {
+        Button("Hide All Panels") { layout.hideAll() }
+        Divider()
+        ForEach(WorkbenchPanel.allCases) { panel in
+          Button(layout[panel].isVisible ? "Hide \(panel.rawValue)" : "Show \(panel.rawValue)") {
+            layout.toggleVisibility(panel)
+          }
+        }
+      } label: {
+        Label("Panel Options", systemImage: "ellipsis.circle")
+      }
+    }
+
+    ToolbarItem(placement: .principal) {
       HStack(spacing: 8) {
         Picker(
           "Controller",
@@ -99,15 +87,16 @@ struct FlushWorkbenchTopBar: View {
             }
           )
         ) {
-          Text("Select controller").tag(nil as MachineLinkDescriptor?)
+          Text("Select Controller").tag(nil as MachineLinkDescriptor?)
           ForEach(workspace.serialDevices, id: \.identifier) { device in
             Text(device.displayName).tag(Optional(device))
           }
         }
         .labelsHidden()
         .pickerStyle(.menu)
-        .frame(width: 250)
+        .frame(width: 220)
         .disabled(workspace.controllerSelectionUnavailableReason != nil)
+        .help("Controller selection is remembered between launches")
 
         Button("Connect") {
           Task { await workspace.connectSelectedController() }
@@ -123,52 +112,82 @@ struct FlushWorkbenchTopBar: View {
         .buttonStyle(.borderedProminent)
         .tint(.green)
         .disabled(workspace.motionGuardActivationUnavailableReason != nil)
-
-        Spacer()
-
-        HStack(spacing: 5) {
-          Image(
-            systemName: WorkbenchTopBarStatusStyle.systemImage(
-              needsAttention: workspace.workbenchStatusNeedsAttention
-            )
-          )
-          Text(workspace.workbenchStatusText)
-        }
-        .font(.caption.monospaced())
-        .foregroundStyle(workspace.workbenchStatusNeedsAttention ? Color.orange : Color.secondary)
-        .lineLimit(1)
-        .textSelection(.enabled)
       }
     }
-    .padding(.horizontal, WorkbenchTopBarLayoutMetrics.horizontalContentPadding)
-    .padding(.vertical, WorkbenchTopBarLayoutMetrics.verticalContentPadding)
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .background(.ultraThinMaterial)
-    .overlay(alignment: .bottom) {
-      Divider()
+
+    ToolbarItem(placement: .primaryAction) {
+      TimelineView(.periodic(from: .now, by: 0.25)) { _ in
+        HStack(spacing: 12) {
+          WorkbenchStatusIndicator(
+            indicator: .camera,
+            label: workspace.frameMode == .simulated
+              ? "Simulator"
+              : WorkbenchConnectionIndicator.camera.label(isActive: workspace.cameraIsLive),
+            color: workspace.frameMode == .simulated
+              ? .blue
+              : workspace.cameraIsLive ? .green : .red
+          )
+          WorkbenchStatusIndicator(
+            indicator: .plotter,
+            label: WorkbenchConnectionIndicator.plotter.label(
+              isActive: workspace.controllerIsConnected
+            ),
+            color: workspace.controllerIsConnected ? .green : .red
+          )
+          WorkbenchStatusIndicator(
+            indicator: .motionGuard,
+            label: WorkbenchConnectionIndicator.motionGuard.label(
+              isActive: workspace.motionGuardAllowsCarriageMotion
+            ),
+            color: workspace.motionGuardAllowsCarriageMotion ? .green : .red
+          )
+        }
+      }
     }
   }
+}
 
-  private func connectionIndicator(
-    _ indicator: WorkbenchConnectionIndicator,
-    isActive: Bool
-  ) -> some View {
-    HStack(spacing: 5) {
+private struct WorkbenchStatusIndicator: View {
+  let indicator: WorkbenchConnectionIndicator
+  let label: String
+  let color: Color
+
+  var body: some View {
+    HStack(spacing: 4) {
       ZStack {
         Circle()
-          .fill(isActive ? Color.green : Color.red)
-          .frame(width: 22, height: 22)
+          .fill(color)
+          .frame(width: 17, height: 17)
         Image(systemName: indicator.systemImage)
-          .font(.system(size: 10, weight: .bold))
+          .font(.system(size: 8, weight: .semibold))
           .foregroundStyle(.white)
       }
-      Text(indicator.label(isActive: isActive))
-        .font(.caption2.monospaced().bold())
+      Text(indicator.title)
+        .font(.caption)
     }
-    .padding(.horizontal, 7)
-    .padding(.vertical, 4)
-    .background(.black.opacity(0.18), in: Capsule())
+    .fixedSize()
     .accessibilityElement(children: .ignore)
-    .accessibilityLabel(indicator.label(isActive: isActive))
+    .accessibilityLabel(label)
+    .help(label)
+  }
+}
+
+struct WorkbenchStatusBanner: View {
+  @Bindable var workspace: OperatorWorkspace
+
+  var body: some View {
+    Label(
+      workspace.workbenchStatusText,
+      systemImage: WorkbenchTopBarStatusStyle.systemImage(
+        needsAttention: workspace.workbenchStatusNeedsAttention
+      )
+    )
+    .font(.caption)
+    .foregroundStyle(workspace.workbenchStatusNeedsAttention ? Color.orange : Color.secondary)
+    .lineLimit(2)
+    .padding(.horizontal, 10)
+    .padding(.vertical, 7)
+    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+    .textSelection(.enabled)
   }
 }

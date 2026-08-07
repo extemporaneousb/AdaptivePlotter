@@ -6,7 +6,7 @@ import SwiftUI
 /// `PlotterRuntime` owns sequence semantics, progress, evidence, and readiness.
 /// This type only turns those typed values into compact operator-facing text.
 enum PreflightCalibrationPresentation {
-  static let title = "MOTION PREFLIGHT"
+  static let title = "Motion Preflight"
   static let subtitle = "Calibrate Plotter · voice, controller, and live-camera evidence"
 
   static func title(for id: PreflightSequenceID) -> String {
@@ -52,6 +52,16 @@ enum PreflightCalibrationPresentation {
     case .cancelling: "STOPPING SPEECH"
     case .succeeded: "COMPLETE"
     case .failed: "NEEDS ATTENTION"
+    case .cancelled: "CANCELLED"
+    }
+  }
+
+  static func phaseLabel(for rehearsal: PreflightRehearsal?) -> String {
+    guard let rehearsal else { return "NOT REHEARSED" }
+    return switch rehearsal.state {
+    case .notStarted: "NOT REHEARSED"
+    case .running: "REHEARSING"
+    case .completed: "REHEARSED"
     case .cancelled: "CANCELLED"
     }
   }
@@ -123,6 +133,20 @@ enum PreflightCalibrationPresentation {
   }
 }
 
+enum PreflightCalibrationMode: Equatable {
+  case physical
+  case simulatorRehearsal
+
+  var subtitle: String {
+    switch self {
+    case .physical:
+      PreflightCalibrationPresentation.subtitle
+    case .simulatorRehearsal:
+      "Simulator walkthrough · no microphone, controller, evidence, or readiness authority"
+    }
+  }
+}
+
 /// Compact, non-paged presentation for the zero-order motion preflight.
 ///
 /// The host presents this from Learning and translates Start/Cancel into typed
@@ -134,7 +158,9 @@ struct PreflightCalibrationView: View {
 
   let catalog: [PreflightSequenceDefinition]
   let transactions: [PreflightSequenceID: PreflightTransaction]
+  let rehearsals: [PreflightSequenceID: PreflightRehearsal]
   let readiness: PreflightTrainingReadiness
+  let mode: PreflightCalibrationMode
   let startUnavailableReason: (PreflightSequenceID) -> String?
   let listeningStatus: String
   let errorText: String?
@@ -145,7 +171,9 @@ struct PreflightCalibrationView: View {
     selectedSequenceID: Binding<PreflightSequenceID>,
     catalog: [PreflightSequenceDefinition] = PreflightSequenceCatalog.all,
     transactions: [PreflightSequenceID: PreflightTransaction],
+    rehearsals: [PreflightSequenceID: PreflightRehearsal] = [:],
     readiness: PreflightTrainingReadiness,
+    mode: PreflightCalibrationMode = .physical,
     startUnavailableReason: @escaping (PreflightSequenceID) -> String? = { _ in nil },
     listeningStatus: String = "Speech starts with a sequence.",
     errorText: String? = nil,
@@ -155,7 +183,9 @@ struct PreflightCalibrationView: View {
     _selectedSequenceID = selectedSequenceID
     self.catalog = catalog
     self.transactions = transactions
+    self.rehearsals = rehearsals
     self.readiness = readiness
+    self.mode = mode
     self.startUnavailableReason = startUnavailableReason
     self.listeningStatus = listeningStatus
     self.errorText = errorText
@@ -170,6 +200,10 @@ struct PreflightCalibrationView: View {
 
   private var selectedTransaction: PreflightTransaction? {
     transactions[selectedDefinition.id]
+  }
+
+  private var selectedRehearsal: PreflightRehearsal? {
+    rehearsals[selectedDefinition.id]
   }
 
   var body: some View {
@@ -199,33 +233,59 @@ struct PreflightCalibrationView: View {
       HStack(alignment: .firstTextBaseline) {
         VStack(alignment: .leading, spacing: 2) {
           Text(PreflightCalibrationPresentation.title)
-            .font(.headline.monospaced().bold())
-          Text(PreflightCalibrationPresentation.subtitle)
+            .font(.title2.weight(.semibold))
+          Text(mode.subtitle)
             .font(.caption)
             .foregroundStyle(.secondary)
         }
 
         Spacer()
 
-        Text(readiness.isReady ? "READY TO TRAIN" : "PREFLIGHT")
-          .font(.caption2.monospaced().bold())
-          .foregroundStyle(readiness.isReady ? Color.green : Color.orange)
+        Label(
+          headerStatusText,
+          systemImage: mode == .simulatorRehearsal ? "play.rectangle.fill" : "checklist"
+        )
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(headerStatusColor)
       }
 
       HStack(spacing: 10) {
-        ProgressView(
-          value: Double(readiness.successfulSequenceClasses.count),
-          total: Double(max(1, readiness.minimumSuccessfulSequenceClasses))
-        )
+        ProgressView(value: headerProgress)
         .frame(maxWidth: 260)
 
-        Text(readinessSummary)
-          .font(.caption.monospaced())
+        Text(headerSummary)
+          .font(.caption)
           .foregroundStyle(.secondary)
       }
     }
     .padding(14)
     .background(.ultraThinMaterial)
+  }
+
+  private var headerStatusText: String {
+    if mode == .simulatorRehearsal { return "Simulator Rehearsal" }
+    return readiness.isReady ? "Ready to Train" : "Preflight Required"
+  }
+
+  private var headerStatusColor: Color {
+    if mode == .simulatorRehearsal { return .blue }
+    return readiness.isReady ? .green : .orange
+  }
+
+  private var headerProgress: Double {
+    if mode == .simulatorRehearsal { return selectedRehearsal?.progress ?? 0 }
+    return Double(readiness.successfulSequenceClasses.count)
+      / Double(max(1, readiness.minimumSuccessfulSequenceClasses))
+  }
+
+  private var headerSummary: String {
+    if mode == .simulatorRehearsal {
+      guard let selectedRehearsal else {
+        return "Choose a sequence and play its hypothetical participant/action/event flow"
+      }
+      return "\(selectedRehearsal.completedStepCount) of \(selectedDefinition.steps.count) scripted steps · no evidence recorded"
+    }
+    return readinessSummary
   }
 
   private var readinessSummary: String {
@@ -246,53 +306,21 @@ struct PreflightCalibrationView: View {
   }
 
   private var sequenceList: some View {
-    ScrollView {
-      LazyVStack(spacing: 5) {
-        ForEach(catalog) { definition in
-          sequenceButton(definition)
-        }
-      }
-      .padding(10)
-    }
-    .background(Color(nsColor: .controlBackgroundColor).opacity(0.45))
-  }
-
-  private func sequenceButton(_ definition: PreflightSequenceDefinition) -> some View {
-    let transaction = transactions[definition.id]
-    let selected = definition.id == selectedDefinition.id
-
-    return Button {
-      selectedSequenceID = definition.id
-    } label: {
-      HStack(spacing: 8) {
-        Text(PreflightCalibrationPresentation.shortLabel(for: definition.id))
-          .font(.caption.monospaced().bold())
-          .frame(width: 42)
-          .padding(.vertical, 6)
-          .background(.black.opacity(0.2), in: RoundedRectangle(cornerRadius: 5))
-
-        VStack(alignment: .leading, spacing: 3) {
+    List(catalog, selection: $selectedSequenceID) { definition in
+      HStack(spacing: 9) {
+        Image(systemName: definition.sequenceClass == .boundaryMeasurement ? "move.3d" : "pencil.tip")
+          .foregroundStyle(.secondary)
+          .frame(width: 18)
+        VStack(alignment: .leading, spacing: 2) {
           Text(PreflightCalibrationPresentation.title(for: definition.id))
-            .font(.subheadline.weight(.semibold))
-          Text(PreflightCalibrationPresentation.phaseLabel(for: transaction))
-            .font(.caption2.monospaced().bold())
-            .foregroundStyle(phaseColor(transaction))
+          Text(phaseLabel(for: definition.id))
+            .font(.caption)
+            .foregroundStyle(phaseColor(for: definition.id))
         }
-
-        Spacer(minLength: 0)
       }
-      .padding(8)
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .background(
-        selected ? Color.accentColor.opacity(0.22) : Color.clear,
-        in: RoundedRectangle(cornerRadius: 7)
-      )
-      .overlay {
-        RoundedRectangle(cornerRadius: 7)
-          .stroke(selected ? Color.accentColor.opacity(0.7) : Color.clear)
-      }
+      .tag(definition.id)
     }
-    .buttonStyle(.plain)
+    .listStyle(.sidebar)
   }
 
   private var sequenceDetail: some View {
@@ -309,20 +337,20 @@ struct PreflightCalibrationView: View {
 
           Spacer()
 
-          Text(PreflightCalibrationPresentation.phaseLabel(for: selectedTransaction))
-            .font(.caption.monospaced().bold())
-            .foregroundStyle(phaseColor(selectedTransaction))
+          Text(phaseLabel(for: selectedDefinition.id))
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(phaseColor(for: selectedDefinition.id))
         }
 
-        if let selectedTransaction {
+        if let progress = selectedProgress {
           HStack(spacing: 10) {
-            ProgressView(value: selectedTransaction.progress)
-            Text("\(selectedTransaction.completedStepCount) / \(selectedDefinition.steps.count) events")
-              .font(.caption.monospaced())
+            ProgressView(value: progress)
+            Text("\(selectedCompletedStepCount) / \(selectedDefinition.steps.count) steps")
+              .font(.caption)
               .foregroundStyle(.secondary)
           }
 
-          if case .failed(let reason) = selectedTransaction.state {
+          if mode == .physical, case .failed(let reason) = selectedTransaction?.state {
             Label(reason, systemImage: "exclamationmark.triangle.fill")
               .font(.callout)
               .foregroundStyle(.red)
@@ -331,11 +359,11 @@ struct PreflightCalibrationView: View {
         }
 
         VStack(alignment: .leading, spacing: 5) {
-          Text("REQUIRED VOICE PHRASE")
-            .font(.caption2.monospaced().bold())
+          Text(mode == .simulatorRehearsal ? "SCRIPTED VOICE CUE" : "REQUIRED VOICE PHRASE")
+            .font(.caption.weight(.semibold))
             .foregroundStyle(.secondary)
           Text(PreflightCalibrationPresentation.requiredVoicePhrase(for: selectedDefinition))
-            .font(.body.monospaced().bold())
+            .font(.body.weight(.semibold))
             .textSelection(.enabled)
         }
         .padding(10)
@@ -343,8 +371,8 @@ struct PreflightCalibrationView: View {
         .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
 
         VStack(alignment: .leading, spacing: 8) {
-          Text("PARTICIPANTS · ACTIONS · EVENTS")
-            .font(.caption2.monospaced().bold())
+          Text("Participants, actions, and events")
+            .font(.headline)
             .foregroundStyle(.secondary)
 
           ForEach(Array(selectedDefinition.steps.enumerated()), id: \.element.id) { index, step in
@@ -359,8 +387,8 @@ struct PreflightCalibrationView: View {
   }
 
   private func timelineRow(_ step: PreflightStep, ordinal: Int) -> some View {
-    let isCurrent = selectedTransaction?.currentStep?.id == step.id
-    let isComplete = ordinal <= (selectedTransaction?.completedStepCount ?? 0)
+    let isCurrent = selectedCurrentStep?.id == step.id
+    let isComplete = ordinal <= selectedCompletedStepCount
 
     return HStack(alignment: .top, spacing: 9) {
       Image(systemName: isComplete ? "checkmark" : "\(ordinal).circle.fill")
@@ -370,8 +398,8 @@ struct PreflightCalibrationView: View {
         .background(isCurrent ? Color.accentColor : Color.clear, in: Circle())
 
       VStack(alignment: .leading, spacing: 3) {
-        Text(step.participant.displayName.uppercased())
-          .font(.caption2.monospaced().bold())
+        Text(step.participant.displayName)
+          .font(.caption.weight(.semibold))
           .foregroundStyle(isCurrent ? Color.accentColor : Color.secondary)
         Text(PreflightCalibrationPresentation.actionDescription(step.action))
           .font(.callout.weight(isCurrent ? .semibold : .regular))
@@ -393,14 +421,27 @@ struct PreflightCalibrationView: View {
 
   private var evidenceOutput: some View {
     VStack(alignment: .leading, spacing: 7) {
-      Text("EVIDENCE / OUTPUT")
-        .font(.caption2.monospaced().bold())
+      Text(mode == .simulatorRehearsal ? "Rehearsal output" : "Evidence and output")
+        .font(.headline)
         .foregroundStyle(.secondary)
-      Text(PreflightCalibrationPresentation.expectedEvidenceOutput(for: selectedDefinition))
+      if mode == .simulatorRehearsal {
+        Label(
+          "Playback highlights the expected steps only. It cannot create evidence, readiness, controller position, camera measurements, or a drawing-frame posterior.",
+          systemImage: "play.rectangle"
+        )
         .font(.callout)
+        .foregroundStyle(.blue)
+      } else {
+        Text(PreflightCalibrationPresentation.expectedEvidenceOutput(for: selectedDefinition))
+          .font(.callout)
+      }
       Divider()
 
-      if let evidence = selectedTransaction?.evidenceSummaries, !evidence.isEmpty {
+      if mode == .simulatorRehearsal {
+        Text("No evidence is recorded during a simulator rehearsal.")
+          .font(.callout)
+          .foregroundStyle(.secondary)
+      } else if let evidence = selectedTransaction?.evidenceSummaries, !evidence.isEmpty {
         ForEach(Array(evidence.enumerated()), id: \.offset) { _, item in
           HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(PreflightCalibrationPresentation.evidenceKindLabel(item.kind))
@@ -426,17 +467,28 @@ struct PreflightCalibrationView: View {
   private var controls: some View {
     HStack(spacing: 8) {
       VStack(alignment: .leading, spacing: 3) {
-        Label(listeningStatus, systemImage: "mic.fill")
-          .font(.caption.monospaced())
+        Label(
+          mode == .simulatorRehearsal
+            ? "Simulator playback · microphone and controller remain off"
+            : listeningStatus,
+          systemImage: mode == .simulatorRehearsal ? "play.rectangle" : "mic.fill"
+        )
+          .font(.caption)
           .foregroundStyle(.secondary)
 
-        if let reason = startUnavailableReason(selectedDefinition.id) {
+        if !selectedIsInFlight,
+          let reason = startUnavailableReason(selectedDefinition.id)
+        {
           Text("Start unavailable: \(reason)")
             .font(.caption)
             .foregroundStyle(.orange)
             .textSelection(.enabled)
         } else {
-          Text("Start enables listening. Runtime checks retain controller authority.")
+          Text(
+            mode == .simulatorRehearsal
+              ? "Play advances the typed timeline without satisfying preflight."
+              : "Start enables listening. Runtime checks retain controller authority."
+          )
             .font(.caption)
             .foregroundStyle(.secondary)
         }
@@ -451,17 +503,17 @@ struct PreflightCalibrationView: View {
 
       Spacer()
 
-      Button("Cancel Sequence") {
+      Button(mode == .simulatorRehearsal ? "Stop Rehearsal" : "Cancel Sequence") {
         onCancel(selectedDefinition.id)
       }
-      .disabled(!isActive(selectedTransaction))
+      .disabled(!selectedIsActive)
 
-      Button(isSucceeded(selectedTransaction) ? "Run Again" : "Start Sequence") {
+      Button(primaryActionTitle) {
         onStart(selectedDefinition.id)
       }
       .buttonStyle(.borderedProminent)
       .disabled(
-        isInFlight(selectedTransaction)
+        selectedIsInFlight
           || startUnavailableReason(selectedDefinition.id) != nil
       )
     }
@@ -469,15 +521,24 @@ struct PreflightCalibrationView: View {
     .background(.ultraThinMaterial)
   }
 
-  private func isActive(_ transaction: PreflightTransaction?) -> Bool {
-    guard let transaction else { return false }
-    if case .active = transaction.state { return true }
+  private var primaryActionTitle: String {
+    if mode == .simulatorRehearsal {
+      return selectedRehearsal?.state == .completed ? "Play Again" : "Play Rehearsal"
+    }
+    return isSucceeded(selectedTransaction) ? "Run Again" : "Start Sequence"
+  }
+
+  private var selectedIsActive: Bool {
+    if mode == .simulatorRehearsal { return selectedRehearsal?.state == .running }
+    guard let selectedTransaction else { return false }
+    if case .active = selectedTransaction.state { return true }
     return false
   }
 
-  private func isInFlight(_ transaction: PreflightTransaction?) -> Bool {
-    guard let transaction else { return false }
-    return switch transaction.state {
+  private var selectedIsInFlight: Bool {
+    if mode == .simulatorRehearsal { return selectedRehearsal?.state == .running }
+    guard let selectedTransaction else { return false }
+    return switch selectedTransaction.state {
     case .active, .cancelling: true
     default: false
     }
@@ -489,12 +550,42 @@ struct PreflightCalibrationView: View {
     return false
   }
 
-  private func phaseColor(_ transaction: PreflightTransaction?) -> Color {
-    guard let transaction else { return .secondary }
+  private var selectedProgress: Double? {
+    if mode == .simulatorRehearsal { return selectedRehearsal?.progress }
+    return selectedTransaction?.progress
+  }
+
+  private var selectedCompletedStepCount: Int {
+    if mode == .simulatorRehearsal { return selectedRehearsal?.completedStepCount ?? 0 }
+    return selectedTransaction?.completedStepCount ?? 0
+  }
+
+  private var selectedCurrentStep: PreflightStep? {
+    if mode == .simulatorRehearsal { return selectedRehearsal?.currentStep }
+    return selectedTransaction?.currentStep
+  }
+
+  private func phaseLabel(for sequenceID: PreflightSequenceID) -> String {
+    if mode == .simulatorRehearsal {
+      return PreflightCalibrationPresentation.phaseLabel(for: rehearsals[sequenceID])
+    }
+    return PreflightCalibrationPresentation.phaseLabel(for: transactions[sequenceID])
+  }
+
+  private func phaseColor(for sequenceID: PreflightSequenceID) -> Color {
+    if mode == .simulatorRehearsal {
+      guard let rehearsal = rehearsals[sequenceID] else { return .secondary }
+      return switch rehearsal.state {
+      case .notStarted: .secondary
+      case .running: .blue
+      case .completed: .green
+      case .cancelled: .secondary
+      }
+    }
+    guard let transaction = transactions[sequenceID] else { return .secondary }
     return switch transaction.state {
     case .notStarted: .secondary
-    case .active: .orange
-    case .cancelling: .orange
+    case .active, .cancelling: .orange
     case .succeeded: .green
     case .failed: .red
     case .cancelled: .secondary

@@ -2,38 +2,29 @@ import Testing
 
 @testable import PlotterApp
 
-@Suite("Workbench top bar layout")
+@Suite("Native workbench toolbar")
 struct WorkbenchTopBarLayoutTests {
-  @Test("bar is flush with the window content top edge")
-  func barHasNoExternalTopInset() {
-    #expect(WorkbenchTopBarLayoutMetrics.externalTopInset == 0)
-  }
-
-  @Test("flush placement does not remove useful internal spacing")
-  func contentRetainsInternalPadding() {
-    #expect(WorkbenchTopBarLayoutMetrics.horizontalContentPadding > 0)
-    #expect(WorkbenchTopBarLayoutMetrics.verticalContentPadding > 0)
-    #expect(WorkbenchTopBarLayoutMetrics.rowSpacing > 0)
-  }
-
-  @Test("top bar owns camera, plotter, and explicit motion guard indicators")
+  @Test("toolbar owns camera, plotter, and explicit motion guard indicators")
   func connectionIndicatorsAreFocused() {
     #expect(WorkbenchConnectionIndicator.allCases == [.camera, .plotter, .motionGuard])
+    #expect(WorkbenchConnectionIndicator.camera.title == "Camera")
+    #expect(WorkbenchConnectionIndicator.plotter.title == "Plotter")
+    #expect(WorkbenchConnectionIndicator.motionGuard.title == "Motion")
   }
 
   @Test("connection labels never imply a false positive")
   func connectionLabelsTrackTheirBooleanEvidence() {
-    #expect(WorkbenchConnectionIndicator.camera.label(isActive: true) == "CAMERA LIVE")
-    #expect(WorkbenchConnectionIndicator.camera.label(isActive: false) == "CAMERA OFF")
-    #expect(WorkbenchConnectionIndicator.plotter.label(isActive: true) == "PLOTTER CONNECTED")
+    #expect(WorkbenchConnectionIndicator.camera.label(isActive: true) == "Camera Live")
+    #expect(WorkbenchConnectionIndicator.camera.label(isActive: false) == "Camera Off")
+    #expect(WorkbenchConnectionIndicator.plotter.label(isActive: true) == "Plotter Connected")
     #expect(
-      WorkbenchConnectionIndicator.plotter.label(isActive: false) == "PLOTTER DISCONNECTED"
+      WorkbenchConnectionIndicator.plotter.label(isActive: false) == "Plotter Disconnected"
     )
     #expect(
-      WorkbenchConnectionIndicator.motionGuard.label(isActive: true) == "MOTION READY"
+      WorkbenchConnectionIndicator.motionGuard.label(isActive: true) == "Motion Ready"
     )
     #expect(
-      WorkbenchConnectionIndicator.motionGuard.label(isActive: false) == "MOTION BLOCKED"
+      WorkbenchConnectionIndicator.motionGuard.label(isActive: false) == "Motion Blocked"
     )
   }
 
@@ -41,7 +32,7 @@ struct WorkbenchTopBarLayoutTests {
   func statusSymbolReflectsAttention() {
     #expect(
       WorkbenchTopBarStatusStyle.systemImage(needsAttention: true)
-        == "exclamationmark.triangle"
+        == "exclamationmark.triangle.fill"
     )
     #expect(
       WorkbenchTopBarStatusStyle.systemImage(needsAttention: false)

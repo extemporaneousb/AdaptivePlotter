@@ -216,6 +216,7 @@ final class OperatorWorkspace {
   private(set) var boundaryPositions: [JogDirection: MachinePosition] = [:]
   var selectedPreflightSequenceID: PreflightSequenceID = .penUpConfirmation
   private(set) var preflightTransactions: [PreflightSequenceID: PreflightTransaction] = [:]
+  private(set) var preflightRehearsals: [PreflightSequenceID: PreflightRehearsal] = [:]
   private(set) var preflightError: String?
   private(set) var drawingFramePosterior: DrawingFramePosterior?
 
@@ -236,6 +237,8 @@ final class OperatorWorkspace {
   @ObservationIgnored private var pendingPreflightCaptureBoundaryNanoseconds: UInt64?
   @ObservationIgnored private var preflightAuthorityGeneration: UInt64 = 0
   @ObservationIgnored private var preflightVoiceStartupGeneration: UInt64?
+  @ObservationIgnored private let preflightRehearsalStepDelayNanoseconds: UInt64
+  @ObservationIgnored private var preflightRehearsalTask: Task<Void, Never>?
   @ObservationIgnored private var rememberedSerialDeviceIdentifier: String?
   @ObservationIgnored private var hasShutdown = false
   @ObservationIgnored private var lifetimeGeneration: UInt64 = 0
@@ -258,7 +261,8 @@ final class OperatorWorkspace {
     },
     nowNanoseconds: @escaping @Sendable () -> UInt64 = {
       UInt64(ProcessInfo.processInfo.systemUptime * 1_000_000_000)
-    }
+    },
+    preflightRehearsalStepDelayNanoseconds: UInt64 = 450_000_000
   ) {
     self.machineActions = machineActions
     self.cameraActions = cameraActions
@@ -268,6 +272,7 @@ final class OperatorWorkspace {
     self.persistSelectedSerialIdentifier = persistSelectedSerialIdentifier
     rememberedSerialDeviceIdentifier = loadSelectedSerialIdentifier()
     self.nowNanoseconds = nowNanoseconds
+    self.preflightRehearsalStepDelayNanoseconds = preflightRehearsalStepDelayNanoseconds
     if let rememberedSerialDeviceIdentifier {
       selectedSerialDevice = serialDevices.first {
         $0.identifier == rememberedSerialDeviceIdentifier
@@ -624,6 +629,9 @@ final class OperatorWorkspace {
 
   var frameModeSwitchUnavailableReason: String? {
     if frameModeSwitchInProgress { return "A frame source switch is already in progress." }
+    if activePreflightSequenceID != nil || preflightVoiceStartupGeneration != nil {
+      return "Finish or cancel the active Motion Preflight before switching frame source."
+    }
     if passiveProbeInProgress || jogRequestInProgress || penRequestInProgress
       || jogCancelRequestInProgress
     {
@@ -665,6 +673,24 @@ final class OperatorWorkspace {
       case .notStarted, .succeeded, .failed, .cancelled: false
       }
     }?.key
+  }
+
+  var activePreflightRehearsalID: PreflightSequenceID? {
+    preflightRehearsals.first { _, rehearsal in rehearsal.state == .running }?.key
+  }
+
+  var preflightRehearsalStatusText: String {
+    let sequenceID = activePreflightRehearsalID ?? selectedPreflightSequenceID
+    guard let rehearsal = preflightRehearsals[sequenceID] else {
+      return "ready to rehearse · microphone and controller remain off"
+    }
+    return switch rehearsal.state {
+    case .notStarted: "ready to rehearse · microphone and controller remain off"
+    case .running:
+      "rehearsing step \(rehearsal.completedStepCount + 1) of \(rehearsal.definition.steps.count)"
+    case .completed: "rehearsal complete · no physical evidence recorded"
+    case .cancelled: "rehearsal cancelled · no physical evidence recorded"
+    }
   }
 
   var motionPreflightReadinessText: String {
@@ -714,6 +740,17 @@ final class OperatorWorkspace {
     case .penDownConfirmation:
       return penUnavailableReason(for: .lower)
     }
+  }
+
+  func preflightRehearsalStartUnavailableReason(
+    for sequenceID: PreflightSequenceID
+  ) -> String? {
+    if frameMode != .simulated { return "Switch the Camera panel to SIMULATED first." }
+    if displayedFrame?.source != .simulated { return "The simulator has no rendered frame." }
+    if let activePreflightRehearsalID {
+      return "Finish or cancel \(PreflightSequenceCatalog.definition(for: activePreflightRehearsalID).title)."
+    }
+    return nil
   }
 
   var boundaryTeachingUnavailableReason: String? {
@@ -1194,6 +1231,64 @@ final class OperatorWorkspace {
       if case .cancelling = boundaryTeachingState { return }
     }
     await finishCancelledPreflight(sequenceID)
+  }
+
+  func startPreflightRehearsal(_ sequenceID: PreflightSequenceID) {
+    guard preflightRehearsalStartUnavailableReason(for: sequenceID) == nil else { return }
+    selectedPreflightSequenceID = sequenceID
+    preflightError = nil
+    var rehearsal = PreflightRehearsal(sequenceID: sequenceID)
+    do {
+      try rehearsal.start()
+    } catch {
+      preflightError = "Simulator rehearsal could not start: \(error)"
+      return
+    }
+    preflightRehearsals[sequenceID] = rehearsal
+    preflightRehearsalTask?.cancel()
+    preflightRehearsalTask = Task { [weak self] in
+      guard let self else { return }
+      while !Task.isCancelled {
+        do {
+          try await Task.sleep(nanoseconds: self.preflightRehearsalStepDelayNanoseconds)
+        } catch {
+          return
+        }
+        guard self.frameMode == .simulated,
+          var current = self.preflightRehearsals[sequenceID],
+          current.state == .running,
+          let step = current.currentStep
+        else { return }
+        do {
+          try current.advance()
+          self.preflightRehearsals[sequenceID] = current
+          if case .actuatePen(let command) = step.action {
+            self.simulatorPenState = command.commandedState
+          }
+          if current.state == .completed {
+            self.preflightRehearsalTask = nil
+            return
+          }
+        } catch {
+          self.preflightError = "Simulator rehearsal failed: \(error)"
+          self.preflightRehearsalTask = nil
+          return
+        }
+      }
+    }
+  }
+
+  func cancelPreflightRehearsal(_ sequenceID: PreflightSequenceID) {
+    guard var rehearsal = preflightRehearsals[sequenceID] else { return }
+    preflightRehearsalTask?.cancel()
+    preflightRehearsalTask = nil
+    rehearsal.cancel()
+    preflightRehearsals[sequenceID] = rehearsal
+  }
+
+  private func cancelActivePreflightRehearsal() {
+    guard let activePreflightRehearsalID else { return }
+    cancelPreflightRehearsal(activePreflightRehearsalID)
   }
 
   private func advancePreflightSequence(_ sequenceID: PreflightSequenceID) async {
@@ -1798,6 +1893,7 @@ final class OperatorWorkspace {
       return
     }
     guard let cameraActions else { return }
+    if mode == .live { cancelActivePreflightRehearsal() }
     frameModeSwitchInProgress = true
     defer { frameModeSwitchInProgress = false }
     frameTask?.cancel()
@@ -1824,11 +1920,7 @@ final class OperatorWorkspace {
         let content = try await cameraActions.simulatedContent(simulatorModelMode)
         guard canCommit(generation) else { return }
         frameMode = .simulated
-        displayedFrame = content.displayedFrame
-        cameraOverlays = content.overlays
-        simulatorEvidenceLabel = content.evidenceLabel
-        simulatorPenState = content.commandedPenState
-        simulatorLearningSummary = content.learningSummary
+        applySimulatedContent(content)
       } catch {
         guard canCommit(generation) else { return }
         displayedFrame = nil
@@ -1838,11 +1930,33 @@ final class OperatorWorkspace {
   }
 
   func selectSimulatorModelMode(_ mode: SimulatorModelMode) async {
-    guard !hasShutdown else { return }
-    simulatorModelMode = mode
-    guard frameMode == .simulated else { return }
-    frameMode = .live
-    await switchFrameMode(.simulated)
+    guard let generation = beginHardwareIntent() else { return }
+    defer { endHardwareIntent() }
+    guard mode != simulatorModelMode else { return }
+    guard frameMode == .simulated else {
+      simulatorModelMode = mode
+      return
+    }
+    guard let cameraActions else { return }
+    cancelActivePreflightRehearsal()
+    do {
+      let content = try await cameraActions.simulatedContent(mode)
+      guard canCommit(generation), frameMode == .simulated else { return }
+      simulatorModelMode = mode
+      cameraError = nil
+      applySimulatedContent(content)
+    } catch {
+      guard canCommit(generation) else { return }
+      cameraError = actionableDescription(error)
+    }
+  }
+
+  private func applySimulatedContent(_ content: SimulatedActionSurfaceContent) {
+    displayedFrame = content.displayedFrame
+    cameraOverlays = content.overlays
+    simulatorEvidenceLabel = content.evidenceLabel
+    simulatorPenState = content.commandedPenState
+    simulatorLearningSummary = content.learningSummary
   }
 
   func refreshCurrentState() async {
@@ -1873,6 +1987,8 @@ final class OperatorWorkspace {
     guard !hasShutdown else { return }
     hasShutdown = true
     lifetimeGeneration &+= 1
+    preflightRehearsalTask?.cancel()
+    preflightRehearsalTask = nil
     stopObserving()
     voiceTranscriptTask?.cancel()
     voiceTranscriptTask = nil

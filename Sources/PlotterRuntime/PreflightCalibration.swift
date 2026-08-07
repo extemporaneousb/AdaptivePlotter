@@ -662,6 +662,68 @@ public struct PreflightTransaction: Hashable, Sendable, Identifiable {
   }
 }
 
+public enum PreflightRehearsalState: Hashable, Sendable {
+  case notStarted
+  case running
+  case completed
+  case cancelled
+}
+
+public enum PreflightRehearsalError: Error, Equatable, Sendable {
+  case alreadyStarted
+  case notRunning
+}
+
+/// Deterministic presentation-only playback of a Motion Preflight definition.
+///
+/// A rehearsal advances the same typed steps shown for physical preflight, but
+/// it cannot emit controller events, speech transcripts, camera attestations,
+/// evidence summaries, or training readiness. The application may use it to
+/// explain the workflow while the simulator is selected.
+public struct PreflightRehearsal: Hashable, Sendable {
+  public let definition: PreflightSequenceDefinition
+  public private(set) var state: PreflightRehearsalState
+  public private(set) var completedStepCount: Int
+
+  public init(definition: PreflightSequenceDefinition) {
+    self.definition = definition
+    state = .notStarted
+    completedStepCount = 0
+  }
+
+  public init(sequenceID: PreflightSequenceID) {
+    self.init(definition: PreflightSequenceCatalog.definition(for: sequenceID))
+  }
+
+  public var currentStep: PreflightStep? {
+    guard state == .running, completedStepCount < definition.steps.count else { return nil }
+    return definition.steps[completedStepCount]
+  }
+
+  public var progress: Double {
+    guard !definition.steps.isEmpty else { return state == .completed ? 1 : 0 }
+    return Double(completedStepCount) / Double(definition.steps.count)
+  }
+
+  public mutating func start() throws {
+    guard state == .notStarted else { throw PreflightRehearsalError.alreadyStarted }
+    state = definition.steps.isEmpty ? .completed : .running
+  }
+
+  public mutating func advance() throws {
+    guard state == .running else { throw PreflightRehearsalError.notRunning }
+    completedStepCount += 1
+    if completedStepCount == definition.steps.count {
+      state = .completed
+    }
+  }
+
+  public mutating func cancel() {
+    guard state == .running else { return }
+    state = .cancelled
+  }
+}
+
 public enum PreflightReadinessPolicyError: Error, Equatable, Sendable {
   case minimumMustBeAtLeastTwo
 }

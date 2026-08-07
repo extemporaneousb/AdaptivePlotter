@@ -74,6 +74,7 @@ struct AdaptivePlotterApp: App {
       OperatorWorkspaceView(workspace: applicationDelegate.workspace)
         .frame(minWidth: 1_180, minHeight: 760)
     }
+    .windowToolbarStyle(.unifiedCompact)
 
     Window("Motion Preflight", id: "motion-preflight") {
       MotionPreflightWindow(workspace: applicationDelegate.workspace)
@@ -117,41 +118,51 @@ struct OperatorWorkspaceView: View {
   @State private var layout = WorkbenchLayoutState()
 
   var body: some View {
-    VStack(spacing: WorkbenchTopBarLayoutMetrics.externalTopInset) {
-      FlushWorkbenchTopBar(workspace: workspace, layout: $layout)
+    GeometryReader { proxy in
+      let geometry = layout.geometry(
+        in: proxy.size,
+        preferredDockWidth: 390,
+        spacing: 8,
+        minimumActionSurfaceWidth: 360
+      )
+      ZStack(alignment: .topLeading) {
+        ActionSurface(presentation: workspace.actionSurfacePresentation)
+          .frame(
+            width: geometry.actionSurface.width,
+            height: geometry.actionSurface.height
+          )
+          .position(
+            x: geometry.actionSurface.midX,
+            y: geometry.actionSurface.midY
+          )
 
-      GeometryReader { proxy in
-        let geometry = layout.geometry(
-          in: proxy.size,
-          preferredDockWidth: 390,
-          spacing: 8,
-          minimumActionSurfaceWidth: 360
-        )
-        ZStack(alignment: .topLeading) {
-          ActionSurface(presentation: workspace.actionSurfacePresentation)
-            .frame(
-              width: geometry.actionSurface.width,
-              height: geometry.actionSurface.height
-            )
-            .position(
-              x: geometry.actionSurface.midX,
-              y: geometry.actionSurface.midY
-            )
+        if let dock = geometry.leftDock {
+          dockColumn(side: .left)
+            .frame(width: dock.width, height: dock.height)
+            .position(x: dock.midX, y: dock.midY)
+        }
 
-          if let dock = geometry.leftDock {
-            dockColumn(side: .left)
-              .frame(width: dock.width, height: dock.height)
-              .position(x: dock.midX, y: dock.midY)
+        if let dock = geometry.rightDock {
+          dockColumn(side: .right)
+            .frame(width: dock.width, height: dock.height)
+            .position(x: dock.midX, y: dock.midY)
+        }
+
+        VStack {
+          Spacer()
+          HStack {
+            WorkbenchStatusBanner(workspace: workspace)
+              .frame(maxWidth: 420, alignment: .leading)
+            Spacer()
           }
-
-          if let dock = geometry.rightDock {
-            dockColumn(side: .right)
-              .frame(width: dock.width, height: dock.height)
-              .position(x: dock.midX, y: dock.midY)
-          }
+          .padding(12)
         }
       }
     }
+    .toolbar {
+      WorkbenchToolbar(workspace: workspace, layout: $layout)
+    }
+    .toolbarRole(.editor)
     .background(Color.black)
     .task {
       await workspace.refreshSerialDevices()
@@ -188,19 +199,38 @@ struct OperatorWorkspaceView: View {
 private struct MotionPreflightWindow: View {
   @Bindable var workspace: OperatorWorkspace
 
+  private var mode: PreflightCalibrationMode {
+    workspace.frameMode == .simulated ? .simulatorRehearsal : .physical
+  }
+
   var body: some View {
     PreflightCalibrationView(
       selectedSequenceID: $workspace.selectedPreflightSequenceID,
       transactions: workspace.preflightTransactions,
+      rehearsals: workspace.preflightRehearsals,
       readiness: workspace.preflightTrainingReadiness,
-      startUnavailableReason: workspace.preflightStartUnavailableReason(for:),
+      mode: mode,
+      startUnavailableReason: { sequenceID in
+        if mode == .simulatorRehearsal {
+          return workspace.preflightRehearsalStartUnavailableReason(for: sequenceID)
+        }
+        return workspace.preflightStartUnavailableReason(for: sequenceID)
+      },
       listeningStatus: workspace.voiceListeningText,
       errorText: workspace.preflightError,
       onStart: { sequenceID in
-        Task { await workspace.startPreflightSequence(sequenceID) }
+        if mode == .simulatorRehearsal {
+          workspace.startPreflightRehearsal(sequenceID)
+        } else {
+          Task { await workspace.startPreflightSequence(sequenceID) }
+        }
       },
       onCancel: { sequenceID in
-        Task { await workspace.cancelPreflightSequence(sequenceID) }
+        if mode == .simulatorRehearsal {
+          workspace.cancelPreflightRehearsal(sequenceID)
+        } else {
+          Task { await workspace.cancelPreflightSequence(sequenceID) }
+        }
       }
     )
   }
@@ -214,9 +244,8 @@ private struct DockedWorkbenchPanel<Content: View>: View {
   var body: some View {
     VStack(spacing: 0) {
       HStack(spacing: 7) {
-        Image(systemName: panel.systemImage)
-        Text(panel.rawValue.uppercased())
-          .font(.caption.monospaced().bold())
+        Label(panel.rawValue, systemImage: panel.systemImage)
+          .font(.headline)
         Spacer()
         Button {
           layout.toggleCollapsed(panel)
@@ -224,27 +253,25 @@ private struct DockedWorkbenchPanel<Content: View>: View {
           Image(systemName: layout[panel].isCollapsed ? "chevron.down" : "chevron.up")
         }
         .buttonStyle(.plain)
+        .help(layout[panel].isCollapsed ? "Expand \(panel.rawValue)" : "Collapse \(panel.rawValue)")
         Button {
           layout.hide(panel)
         } label: {
           Image(systemName: "xmark")
         }
         .buttonStyle(.plain)
+        .help("Close \(panel.rawValue)")
       }
-      .padding(.horizontal, 10)
-      .frame(height: 42)
+      .padding(.horizontal, 9)
+      .frame(height: 34)
 
       if !layout[panel].isCollapsed {
         Divider()
-        content.padding(8)
+        content.padding(9)
       }
     }
     .frame(maxWidth: .infinity, alignment: .top)
-    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 11))
-    .overlay {
-      RoundedRectangle(cornerRadius: 11)
-        .stroke(.white.opacity(0.2), lineWidth: 1)
-    }
+    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
   }
 }
 
@@ -267,16 +294,31 @@ private struct CameraPanel: View {
       .pickerStyle(.segmented)
 
       if workspace.frameMode == .live {
-        HStack {
-          Button("Refresh Cameras") { Task { await workspace.discoverCameras() } }
-          Button("Start Capture") { Task { await workspace.startCamera() } }
-          Button("Stop Capture") { Task { await workspace.stopCamera() } }
-          Button("Restart Capture") { Task { await workspace.restartCamera() } }
+        ControlGroup {
+          Button {
+            Task { await workspace.discoverCameras() }
+          } label: {
+            Label("Refresh", systemImage: "arrow.clockwise")
+          }
+          Button {
+            Task { await workspace.startCamera() }
+          } label: {
+            Label("Start", systemImage: "play.fill")
+          }
+          Button {
+            Task { await workspace.stopCamera() }
+          } label: {
+            Label("Stop", systemImage: "stop.fill")
+          }
+          Button {
+            Task { await workspace.restartCamera() }
+          } label: {
+            Label("Restart", systemImage: "arrow.clockwise")
+          }
         }
-        .controlSize(.small)
 
-        HStack {
-          Button(workspace.analysisFrameHeld ? "Resume Preview" : "Analyze Frame") {
+        ControlGroup {
+          Button {
             Task {
               if workspace.analysisFrameHeld {
                 await workspace.resumeLivePreview()
@@ -284,11 +326,19 @@ private struct CameraPanel: View {
                 await workspace.inspectLatestScene()
               }
             }
+          } label: {
+            Label(
+              workspace.analysisFrameHeld ? "Resume Preview" : "Analyze Frame",
+              systemImage: workspace.analysisFrameHeld ? "play" : "viewfinder"
+            )
           }
           .disabled(workspace.sceneInspectionInProgress || workspace.automaticVisionEnabled)
-          Button("Save Snapshot") { Task { await workspace.captureCameraSnapshot() } }
+          Button {
+            Task { await workspace.captureCameraSnapshot() }
+          } label: {
+            Label("Save Snapshot", systemImage: "camera")
+          }
         }
-        .controlSize(.small)
 
         Toggle(
           "Auto Analyze",
@@ -412,8 +462,8 @@ private struct MotionPanel: View {
       .font(.caption2)
       .foregroundStyle(.secondary)
 
-      Text("MANUAL MOTION")
-        .font(.caption.monospaced().bold())
+      Text("Manual Motion")
+        .font(.subheadline.weight(.semibold))
         .foregroundStyle(.secondary)
 
       HStack(spacing: 8) {
@@ -423,28 +473,34 @@ private struct MotionPanel: View {
       }
 
       VStack(spacing: 5) {
-        jogButton("Y+", direction: .yPositive)
+        jogButton("Y+", systemImage: "arrow.up", direction: .yPositive)
         HStack(spacing: 5) {
-          jogButton("X−", direction: .xNegative)
-          jogButton("X+", direction: .xPositive)
+          jogButton("X−", systemImage: "arrow.left", direction: .xNegative)
+          jogButton("X+", systemImage: "arrow.right", direction: .xPositive)
         }
-        jogButton("Y−", direction: .yNegative)
+        jogButton("Y−", systemImage: "arrow.down", direction: .yNegative)
       }
       .frame(maxWidth: .infinity)
 
-      HStack {
-        Button("COMMAND PEN UP") { Task { await workspace.requestPenActuation(.raise) } }
-          .buttonStyle(.bordered)
+      ControlGroup {
+        Button {
+          Task { await workspace.requestPenActuation(.raise) }
+        } label: {
+          Label("Pen Up", systemImage: "arrow.up.to.line")
+        }
           .tint(.blue)
           .disabled(workspace.penUnavailableReason(for: .raise) != nil)
-        Button("COMMAND PEN DOWN") { Task { await workspace.requestPenActuation(.lower) } }
-          .buttonStyle(.bordered)
+        Button {
+          Task { await workspace.requestPenActuation(.lower) }
+        } label: {
+          Label("Pen Down", systemImage: "arrow.down.to.line")
+        }
           .tint(.red)
           .disabled(workspace.penUnavailableReason(for: .lower) != nil)
       }
 
-      Text(workspace.penStateText.uppercased())
-        .font(.caption.monospaced().bold())
+      Text(workspace.penStateText)
+        .font(.caption.weight(.semibold))
         .foregroundStyle(.secondary)
       Text("Commanded state is controller evidence only; the camera cannot observe pen height.")
         .font(.caption2)
@@ -486,11 +542,21 @@ private struct MotionPanel: View {
     }
   }
 
-  private func jogButton(_ label: String, direction: JogDirection) -> some View {
-    Button(label) { Task { await workspace.requestJog(direction) } }
+  private func jogButton(
+    _ label: String,
+    systemImage: String,
+    direction: JogDirection
+  ) -> some View {
+    Button {
+      Task { await workspace.requestJog(direction) }
+    } label: {
+      Label(label, systemImage: systemImage)
+        .labelStyle(.iconOnly)
+        .frame(width: 32, height: 24)
+    }
       .buttonStyle(.borderedProminent)
       .disabled(workspace.motionUnavailableReason != nil)
-      .frame(minWidth: 64)
+      .help("Jog \(label)")
   }
 
   private func numericField(_ label: String, text: Binding<String>) -> some View {
@@ -552,27 +618,34 @@ private struct LearningPanel: View {
   var body: some View {
     SectionPanel(title: "MOTION PREFLIGHT") {
       Text(
-        "Run discrete voice-mediated setup sequences until boundary and pen-position preflight classes are complete. Starting a sequence turns speech listening on; completion or cancellation turns it off."
+        workspace.frameMode == .simulated
+          ? "Rehearse the typed setup sequence with no microphone, controller, evidence, or readiness authority."
+          : "Run discrete voice-mediated setup sequences until boundary and pen-position preflight classes are complete. Starting a sequence turns speech listening on; completion or cancellation turns it off."
       )
       .font(.caption)
       .foregroundStyle(.secondary)
 
-      Button("Calibrate Plotter") {
+      Button(workspace.frameMode == .simulated ? "Open Rehearsal" : "Calibrate Plotter") {
         openWindow(id: "motion-preflight")
       }
       .buttonStyle(.borderedProminent)
-      .disabled(!workspace.motionGuardIsActive)
+      .disabled(workspace.frameMode == .live && !workspace.motionGuardIsActive)
 
-      fact("Readiness", workspace.motionPreflightReadinessText)
-      fact("Speech", workspace.voiceListeningText)
-      fact("Drawing-frame posterior", workspace.drawingFramePosteriorText)
+      if workspace.frameMode == .simulated {
+        fact("Mode", "simulator rehearsal · not evidence")
+        fact("Playback", workspace.preflightRehearsalStatusText)
+      } else {
+        fact("Readiness", workspace.motionPreflightReadinessText)
+        fact("Speech", workspace.voiceListeningText)
+        fact("Drawing-frame posterior", workspace.drawingFramePosteriorText)
+      }
 
       if let error = workspace.preflightError {
         Text(error)
           .font(.caption.monospaced())
           .foregroundStyle(.orange)
           .textSelection(.enabled)
-      } else if !workspace.motionGuardIsActive {
+      } else if workspace.frameMode == .live && !workspace.motionGuardIsActive {
         Text("Connect the plotter and activate Motion Guard before opening Motion Preflight.")
           .font(.caption)
           .foregroundStyle(.secondary)
@@ -691,18 +764,15 @@ private struct SectionPanel<Content: View>: View {
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      Text(title)
-        .font(.caption.monospaced().bold())
-        .foregroundStyle(.secondary)
-      content
-    }
-    .frame(maxWidth: .infinity, alignment: .topLeading)
-    .padding(10)
-    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-    .overlay {
-      RoundedRectangle(cornerRadius: 10)
-        .stroke(.white.opacity(0.14), lineWidth: 1)
+    GroupBox {
+      VStack(alignment: .leading, spacing: 8) {
+        content
+      }
+      .frame(maxWidth: .infinity, alignment: .topLeading)
+      .padding(.top, 2)
+    } label: {
+      Text(title.capitalized)
+        .font(.headline)
     }
   }
 }

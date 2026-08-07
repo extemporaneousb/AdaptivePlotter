@@ -45,13 +45,14 @@ The repository contains one SwiftPM application with:
   overlay bound to the exact measured frame/configuration;
 - one camera-dominant action surface shared by live BGRA frames and a
   deterministic model-mismatch simulator;
-- a compact top-edge workbench bar with the remembered controller picker,
-  Connect, and Activate Motion, plus independently openable and collapsible
-  Motion left dock and Camera/Overlays/Learning right docks; opening
+- a native unified macOS toolbar with the remembered controller picker,
+  Connect, Activate Motion, truthful camera/plotter/motion status, and
+  independently openable and collapsible Motion left dock and
+  Camera/Overlays/Learning right docks; opening
   controls reserves space and reframes rather than covers the camera surface;
-- compact red/green camera-live, plotter-connected, and motion-guard indicators
-  at the top right, derived from current capture/frame, controller-inspection,
-  and session-activation facts;
+- compact camera-live, plotter-connected, and motion-guard indicators in the
+  toolbar, derived from current capture/frame, controller-inspection, and
+  session-activation facts;
 - distinct controller-link, motion-command, and motor-power reporting: a
   responsive USB controller is not presented as proof that motor supply power
   is present;
@@ -65,6 +66,9 @@ The repository contains one SwiftPM application with:
   acquires speech permission, turns listening on for that transaction, shows
   its participant/action/event timeline, and always stops listening on success,
   failure, or cancellation; there is no separate speech-on mode;
+- a simulator-only Motion Preflight rehearsal that plays the same typed
+  participant/action/event definitions without starting speech, touching the
+  controller, recording evidence, or satisfying physical readiness;
 - four voice-mediated boundary sequences plus Pen Up and Pen Down confirmation
   sequences. Exact `READY`, `STOP`, and physical pen confirmations are accepted
   only at their corresponding transaction step; ambient, wrong-context, and
@@ -282,6 +286,10 @@ physical confirmation and pair it with a current immutable camera frame without
 claiming that the camera proves pen height. Speech cannot request general axis
 motion, status, raw G-code, or an activation override. The current build uses
 on-device Apple recognition rather than adding a network or API dependency.
+When the camera source is SIMULATED, the same window becomes an explicitly
+non-authoritative rehearsal: Play advances the typed sequence so the UI flow
+can be inspected, but it cannot start the microphone, emit controller actions,
+record camera evidence, or satisfy Motion Preflight.
 
 A taught side is accepted only from `MotionOutcome.cancelled(finalPosition:)`:
 the Jog Cancel must settle at Idle and supply final controller MPos. A jog that
