@@ -1,19 +1,77 @@
+import AppKit
 import PlotterModel
 import PlotterRuntime
 import SwiftUI
 
-@main
 @MainActor
-struct AdaptivePlotterApp: App {
-  @State private var workspace = OperatorWorkspace(
+final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate {
+  let workspace = OperatorWorkspace(
     machineActions: MachineSessionComposition.actions,
     cameraActions: CameraComposition.actions,
     voiceActions: VoiceComposition.actions
   )
+  private var terminationTask: Task<Void, Never>?
+  private var terminationDeadlineTask: Task<Void, Never>?
+  private var didReplyToTermination = false
+
+  static let terminationDeadlineNanoseconds: UInt64 = 3_000_000_000
+
+  func applicationShouldRestoreApplicationState(_ app: NSApplication) -> Bool {
+    false
+  }
+
+  func applicationShouldSaveApplicationState(_ app: NSApplication) -> Bool {
+    false
+  }
+
+  func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+    true
+  }
+
+  func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+    if terminationTask != nil { return .terminateLater }
+    didReplyToTermination = false
+    terminationTask = Task { [weak self] in
+      guard let self else { return }
+      await self.workspace.shutdown()
+      self.completeTermination(of: sender)
+    }
+    terminationDeadlineTask = Task { [weak self] in
+      do {
+        try await Task.sleep(nanoseconds: Self.terminationDeadlineNanoseconds)
+      } catch {
+        return
+      }
+      self?.completeTermination(of: sender)
+    }
+    return .terminateLater
+  }
+
+  private func completeTermination(of application: NSApplication) {
+    guard !didReplyToTermination else { return }
+    didReplyToTermination = true
+    terminationTask?.cancel()
+    terminationDeadlineTask?.cancel()
+    terminationTask = nil
+    terminationDeadlineTask = nil
+    application.reply(toApplicationShouldTerminate: true)
+  }
+}
+
+@main
+@MainActor
+struct AdaptivePlotterApp: App {
+  @NSApplicationDelegateAdaptor(AdaptivePlotterApplicationDelegate.self)
+  private var applicationDelegate
+
+  init() {
+    UserDefaults.standard.set(true, forKey: "ApplePersistenceIgnoreState")
+    UserDefaults.standard.set(false, forKey: "NSQuitAlwaysKeepsWindows")
+  }
 
   var body: some Scene {
-    WindowGroup("AdaptivePlotter") {
-      OperatorWorkspaceView(workspace: workspace)
+    Window("AdaptivePlotter", id: "operator-workspace") {
+      OperatorWorkspaceView(workspace: applicationDelegate.workspace)
         .frame(minWidth: 1_180, minHeight: 760)
     }
   }
@@ -93,7 +151,6 @@ struct OperatorWorkspaceView: View {
       await workspace.refreshSerialDevices()
       await workspace.startPreferredCameraAtStartup()
     }
-    .onDisappear { Task { await workspace.shutdown() } }
   }
 
   private func dockColumn(side: WorkbenchDockSide) -> some View {

@@ -410,11 +410,49 @@ private final class VoiceAudioRequestRelay: @unchecked Sendable {
   }
 }
 
+struct VoiceRecognitionFailureSnapshot: Hashable, Sendable {
+  let domain: String
+  let code: Int
+  let description: String
+}
+
+enum VoiceRecognitionRecoveryDisposition: Hashable, Sendable {
+  case restart
+  case fail
+}
+
+/// Apple Speech reports an ordinary quiet recognition interval as
+/// kAFAssistantErrorDomain/1110. Treating that as terminal silently removes
+/// the priority STOP listener. Recovery is deliberately narrow and applies a
+/// bounded delay so a broken recognizer cannot create a tight restart loop.
+enum VoiceRecognitionRecoveryPolicy {
+  static func disposition(
+    for failure: VoiceRecognitionFailureSnapshot
+  ) -> VoiceRecognitionRecoveryDisposition {
+    if failure.domain == "kAFAssistantErrorDomain", failure.code == 1_110 {
+      return .restart
+    }
+    return .fail
+  }
+
+  static func restartDelayNanoseconds(afterConsecutiveFailure count: Int) -> UInt64 {
+    let boundedCount = min(max(count, 1), 5)
+    let delays: [UInt64] = [
+      100_000_000,
+      200_000_000,
+      400_000_000,
+      800_000_000,
+      1_000_000_000,
+    ]
+    return delays[boundedCount - 1]
+  }
+}
+
 private struct VoiceRecognitionCallbackSnapshot: Sendable {
   let generation: UUID
   let text: String?
   let isFinal: Bool
-  let errorDescription: String?
+  let failure: VoiceRecognitionFailureSnapshot?
 }
 
 /// Speech framework callback objects are not Sendable. This bridge receives a
@@ -444,7 +482,10 @@ public actor NativeVoiceInteractionDriver: VoiceInteractionDriving {
 
   private var recognizer: SFSpeechRecognizer?
   private var recognitionTask: SFSpeechRecognitionTask?
+  private var recognitionRestartTask: Task<Void, Never>?
   private var recognitionGeneration: UUID?
+  private var recognitionRestartToken: UUID?
+  private var consecutiveTransientFailures = 0
   private var hasInputTap = false
   private var authorization: VoiceAuthorizationState
   private var listeningState: VoiceListeningState = .stopped
@@ -496,6 +537,10 @@ public actor NativeVoiceInteractionDriver: VoiceInteractionDriving {
       return
     }
     self.recognizer = recognizer
+    consecutiveTransientFailures = 0
+    recognitionRestartToken = nil
+    recognitionRestartTask?.cancel()
+    recognitionRestartTask = nil
 
     let input = audioEngine.inputNode
     let format = input.inputFormat(forBus: 0)
@@ -542,12 +587,20 @@ public actor NativeVoiceInteractionDriver: VoiceInteractionDriving {
     recognitionGeneration = generation
     let callbackBridge = VoiceRecognitionCallbackBridge(driver: self)
     recognitionTask = recognizer.recognitionTask(with: request) { result, error in
+      let failure = error.map { error -> VoiceRecognitionFailureSnapshot in
+        let nsError = error as NSError
+        return VoiceRecognitionFailureSnapshot(
+          domain: nsError.domain,
+          code: nsError.code,
+          description: String(describing: error)
+        )
+      }
       callbackBridge.deliver(
         VoiceRecognitionCallbackSnapshot(
           generation: generation,
           text: result?.bestTranscription.formattedString,
           isFinal: result?.isFinal ?? false,
-          errorDescription: error.map { String(describing: $0) }
+          failure: failure
         ))
     }
   }
@@ -558,6 +611,7 @@ public actor NativeVoiceInteractionDriver: VoiceInteractionDriving {
     }
 
     if let text = callback.text {
+      consecutiveTransientFailures = 0
       transcriptSequence &+= 1
       let now = DispatchTime.now().uptimeNanoseconds
       let monotonic = max(now, (latestTranscript?.monotonicNanoseconds ?? 0) &+ 1)
@@ -584,14 +638,59 @@ public actor NativeVoiceInteractionDriver: VoiceInteractionDriving {
       return
     }
 
-    if let errorDescription = callback.errorDescription {
-      stopAudioResources()
-      listeningState = .failed(.recognition(errorDescription))
+    if let failure = callback.failure {
+      switch VoiceRecognitionRecoveryPolicy.disposition(for: failure) {
+      case .restart:
+        scheduleRecognitionRestart()
+      case .fail:
+        stopAudioResources()
+        listeningState = .failed(.recognition(failure.description))
+      }
     }
+  }
+
+  private func scheduleRecognitionRestart() {
+    recognitionGeneration = nil
+    recognitionTask?.cancel()
+    recognitionTask = nil
+    audioRelay.endCurrent()
+
+    consecutiveTransientFailures = min(consecutiveTransientFailures + 1, 5)
+    let delay = VoiceRecognitionRecoveryPolicy.restartDelayNanoseconds(
+      afterConsecutiveFailure: consecutiveTransientFailures
+    )
+    let token = UUID()
+    recognitionRestartToken = token
+    recognitionRestartTask?.cancel()
+    recognitionRestartTask = Task { [weak self] in
+      do {
+        try await Task.sleep(nanoseconds: delay)
+      } catch {
+        return
+      }
+      guard !Task.isCancelled else { return }
+      await self?.resumeRecognition(after: token)
+    }
+  }
+
+  private func resumeRecognition(after token: UUID) {
+    guard recognitionRestartToken == token, listeningState == .listening else { return }
+    recognitionRestartToken = nil
+    recognitionRestartTask = nil
+    guard let recognizer, recognizer.isAvailable else {
+      stopAudioResources()
+      listeningState = .failed(.recognizerUnavailable(localeIdentifier: localeIdentifier))
+      return
+    }
+    beginRecognitionCycle(using: recognizer)
   }
 
   private func stopAudioResources() {
     recognitionGeneration = nil
+    recognitionRestartToken = nil
+    recognitionRestartTask?.cancel()
+    recognitionRestartTask = nil
+    consecutiveTransientFailures = 0
     recognitionTask?.cancel()
     recognitionTask = nil
     audioRelay.endCurrent()

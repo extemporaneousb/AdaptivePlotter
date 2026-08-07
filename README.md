@@ -53,7 +53,8 @@ The repository contains one SwiftPM application with:
   `G4 P0.3` profile;
 - a native voice-operator session using the selected Mac audio input, Apple's
   Speech framework, and `AVSpeechSynthesizer`, with explicit permission and
-  listening state, newest-only transcripts, and spoken current outcomes;
+  listening state, newest-only transcripts, spoken current outcomes, and
+  bounded automatic recovery from Apple's ordinary no-speech interval;
 - a deterministic closed voice grammar for bounded X+/X-/Y+/Y- jogs, Pen Up,
   current status, and Jog Cancel. Normal commands run once from a final
   transcript; exact partial `STOP` is prioritized and deduplicated;
@@ -62,6 +63,12 @@ The repository contains one SwiftPM application with:
   until Idle and reports the actual final MPos or ambiguity;
 - an optional observed-jog operation that brackets exactly one accepted motion
   with immutable live C920 frames and controller-owned start/final MPos samples;
+- one SwiftUI operator window whose local launcher ignores stale AppKit window
+  restoration and whose app delegate refuses future state save/restore;
+  closing it drains the delegate-owned workspace, terminates the app, and
+  releases camera, microphone, and serial ownership instead of leaving a hidden
+  session; termination remains bounded to three seconds if a hardware intent
+  does not drain;
 - a current-session jog-response dataset with fixed training/holdout membership,
   a fitted 2x2 machine-delta-to-camera-delta matrix, and separate residuals;
 - typed geometry, a polyline `DrawingProgram`, affine camera/field math, and one
@@ -81,7 +88,15 @@ controller-aware completion deadline passed fresh 1 mm X and Y round trips at
 30 mm/min check on the delivered controller-evidence path again passed both
 axes: X reported +1.020/-1.020 mm and Y +0.998/-0.998 mm, ending at the exact
 starting MPos. Bracketed C920 samples showed the green cap move and return. The
-camera did not and cannot establish pen height from that view.
+camera did not and cannot establish pen height from that view. A subsequent
+current-session observation pass recorded eight integrated 1 mm jogs at the
+actual 100 mm/min feed: four fixed training episodes and four fixed holdout
+episodes, with confidence 1.000 cap measurements and exact return to controller
+X0/Y0 after every inverse pair. The through-origin camera-response fit was
+`[[-1.6907, 0.1585], [-0.1581, -1.2680]]` pixels/mm, with 0.164 px training RMS
+(0.205 px maximum) and 0.337 px holdout RMS (0.551 px maximum). This is
+inspectable current-session response evidence, not a motion transform or
+calibration authority.
 
 The current paper area has two visible wood rails parallel to X. They reduce
 usable Y and are treated as physical obstacles: the operator must apply a

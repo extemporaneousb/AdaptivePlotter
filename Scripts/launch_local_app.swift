@@ -110,6 +110,10 @@ private struct AdaptivePlotterLauncher {
         configuration.addsToRecentItems = false
         configuration.createsNewApplicationInstance = true
         configuration.allowsRunningApplicationSubstitution = false
+        configuration.arguments = [
+            "-ApplePersistenceIgnoreState", "YES",
+            "-NSQuitAlwaysKeepsWindows", "NO",
+        ]
 
         let completion = LaunchCompletion()
         NSWorkspace.shared.openApplication(

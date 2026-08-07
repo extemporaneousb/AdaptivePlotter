@@ -213,6 +213,45 @@ struct VoiceInteractionTests {
     #expect(OperatorVoiceCommandParser.parsePriority("stop") == .cancelCurrentMotion)
   }
 
+  @Test("quiet recognition intervals restart with a bounded delay")
+  func quietRecognitionRecoveryIsNarrowAndBounded() {
+    let noSpeech = VoiceRecognitionFailureSnapshot(
+      domain: "kAFAssistantErrorDomain",
+      code: 1_110,
+      description: "No speech detected"
+    )
+    #expect(VoiceRecognitionRecoveryPolicy.disposition(for: noSpeech) == .restart)
+    #expect(
+      VoiceRecognitionRecoveryPolicy.restartDelayNanoseconds(afterConsecutiveFailure: 1)
+        == 100_000_000
+    )
+    #expect(
+      VoiceRecognitionRecoveryPolicy.restartDelayNanoseconds(afterConsecutiveFailure: 5)
+        == 1_000_000_000
+    )
+    #expect(
+      VoiceRecognitionRecoveryPolicy.restartDelayNanoseconds(afterConsecutiveFailure: 50)
+        == 1_000_000_000
+    )
+  }
+
+  @Test("unrelated recognition failures remain terminal")
+  func unrelatedRecognitionFailureDoesNotRetry() {
+    let denied = VoiceRecognitionFailureSnapshot(
+      domain: "SFSpeechRecognizerErrorDomain",
+      code: 203,
+      description: "Recognition failed"
+    )
+    let sameCodeWrongDomain = VoiceRecognitionFailureSnapshot(
+      domain: "DifferentDomain",
+      code: 1_110,
+      description: "Different failure"
+    )
+
+    #expect(VoiceRecognitionRecoveryPolicy.disposition(for: denied) == .fail)
+    #expect(VoiceRecognitionRecoveryPolicy.disposition(for: sameCodeWrongDomain) == .fail)
+  }
+
   private func sessionDefaults() throws -> OperatorVoiceSessionDefaults {
     try OperatorVoiceSessionDefaults(xStepMM: 1, yStepMM: 2, feedMMPerMinute: 40)
   }

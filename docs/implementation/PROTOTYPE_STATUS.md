@@ -29,7 +29,9 @@ Pen Up, or current status. Exact partial `STOP` and `cancel jog` utterances take
 the priority Jog Cancel path without waiting for a voice-requested jog to end;
 partial/final repeats from one utterance send one request. Invalid X/Y/feed text
 does not disable STOP. Voice cannot lower the pen or reach the machine in
-SIMULATED mode.
+SIMULATED mode. Apple's ordinary no-speech interval restarts recognition with a
+bounded 100 ms to 1 s delay while leaving unrelated recognition failures
+terminal and visible.
 
 The on/off comparison was run with USB continuously attached. Both states
 returned the same BlackBox X32/grblHAL identity, `Idle`, MPos X/Y 0.000, no
@@ -53,7 +55,15 @@ Idle completion, no asserted pins, and no ambiguity. C920 frames bracketed
 around those moves show the detected green cap displace and return. Those
 separately captured samples are physical visual confirmation, but they are not
 an integrated `PhysicalJogObservation` because restarting capture changed the
-camera configuration identity between samples.
+camera configuration identity between samples. A later current-session pass
+closed that evidence gap with eight integrated 1 mm observations at the actual
+100 mm/min feed: four immutable training episodes and four immutable holdout
+episodes, all with 1.000 cap confidence. Every inverse pair returned to
+controller X0/Y0. The resulting through-origin diagnostic matrix was
+`[[-1.6907, 0.1585], [-0.1581, -1.2680]]` pixels/mm; training RMS/max residuals
+were 0.164/0.205 px and holdout RMS/max residuals were 0.337/0.551 px. The fit
+remains current-session diagnostic evidence only and grants no motion or model
+promotion authority.
 The rebuilt app now has camera permission and captured three current 1920x1080
 C920 frames with exact manifest provenance. The production detector finds the
 cap and two useful frame sides consistently in all three without deriving any
@@ -205,6 +215,15 @@ identity, app distribution configuration, or CI result is required.
   purposes. Recognition is currently configured to require Apple's on-device
   path; failure is shown directly rather than silently switching to a network
   recognizer.
+- The local product has one SwiftUI operator window backed by a delegate-owned
+  `OperatorWorkspace`. The local launcher starts with
+  `ApplePersistenceIgnoreState`, and the delegate rejects AppKit
+  application-state save and restore, so stale state cannot suppress the next
+  operator window. Closing the last window first drains
+  `OperatorWorkspace.shutdown()` for at most three seconds and then terminates
+  the process, so camera, microphone, and serial resources cannot remain owned
+  by an invisible windowless session and a second UI cannot compete for the
+  same workspace authority.
 
 ### Affine training and online-learning boundary
 
