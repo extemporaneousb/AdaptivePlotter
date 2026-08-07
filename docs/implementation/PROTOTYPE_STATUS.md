@@ -26,7 +26,10 @@ and the adjacent state says commanded Up/Down or unknown without claiming visual
 confirmation.
 
 Speech is switched on or off from the Camera menu and remains inert outside one
-explicitly armed boundary interaction. The operator chooses X−, X+, Y−, or Y+;
+explicitly armed boundary interaction. The Camera menu gives the numbered path
+from a green Plotter Connected indicator through applying typed limits,
+commanding Pen Up, and confirming speech is listening. The operator then
+presses one direction-specific `Start Test` control for X−, X+, Y−, or Y+;
 the app supplies an audible start cue and spoken prompt, then accepts exact
 `READY` only while that side is awaiting confirmation. `READY` starts one
 closed, capped jog. Exact `STOP` is accepted only while that boundary jog is

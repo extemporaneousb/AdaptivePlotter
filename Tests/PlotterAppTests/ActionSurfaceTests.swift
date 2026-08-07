@@ -88,8 +88,8 @@ func liveAndSimulatorShareRenderer() throws {
 
   #expect(ActionSurfacePresentation.rendererIdentity == "canonical-stamped-frame")
   #expect(livePresentation.rendererIdentity == simulatedPresentation.rendererIdentity)
-  #expect(livePresentation.sourceLabel == "LIVE")
-  #expect(simulatedPresentation.sourceLabel == "SIMULATED")
+  #expect(livePresentation.sourceBadgeLabel == nil)
+  #expect(simulatedPresentation.sourceBadgeLabel == "SIMULATED")
 }
 
 @Test("Presentation image interprets padded BGRA, RGBA, and gray rows exactly")

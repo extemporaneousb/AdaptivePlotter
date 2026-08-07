@@ -181,6 +181,22 @@ struct OperatorWorkspaceView: View {
   }
 }
 
+enum SpeechMovementTestPresentation {
+  static let title = "SPEECH MOVEMENT TEST"
+
+  static let cameraSteps = [
+    "Confirm the PLOTTER CONNECTED indicator is green.",
+    "In Motion, apply Typed Limits and press COMMAND PEN UP.",
+    "Turn Speech On and confirm Listening says listening.",
+    "In Motion, press one Start X−, X+, Y−, or Y+ Test button to arm that direction.",
+    "After the signal, say READY. While the carriage is moving, say STOP.",
+  ]
+
+  static func startButtonLabel(for direction: JogDirection) -> String {
+    "Start \(direction.shortLabel) Test"
+  }
+}
+
 private struct DockedWorkbenchPanel<Content: View>: View {
   let panel: WorkbenchPanel
   @Binding var layout: WorkbenchLayoutState
@@ -379,11 +395,19 @@ private struct CameraPanel: View {
       }
       .controlSize(.small)
 
-      Text(
-        "Speech is interpreted only inside an explicitly started boundary-teaching step: READY starts its selected direction, and STOP cancels that moving jog. Other speech cannot become a motion command."
-      )
-      .font(.caption2)
-      .foregroundStyle(.secondary)
+      VStack(alignment: .leading, spacing: 4) {
+        Text("NEXT: \(SpeechMovementTestPresentation.title)")
+          .font(.caption.monospaced().bold())
+        ForEach(SpeechMovementTestPresentation.cameraSteps.indices, id: \.self) { index in
+          Text("\(index + 1). \(SpeechMovementTestPresentation.cameraSteps[index])")
+            .font(.caption2)
+        }
+        Text("Until a direction is armed, speech has no motion meaning.")
+          .font(.caption2.monospaced().bold())
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .padding(8)
+      .background(.quaternary, in: RoundedRectangle(cornerRadius: 7))
 
       fact("Permission", workspace.voicePermissionText)
       fact("Listening", workspace.voiceListeningText)
@@ -414,6 +438,52 @@ private struct MotionPanel: View {
 
   var body: some View {
     SectionPanel(title: "BOUNDED RELATIVE MOTION") {
+      Text(SpeechMovementTestPresentation.title)
+        .font(.caption.monospaced().bold())
+        .foregroundStyle(.secondary)
+
+      Text(
+        "First connect the plotter, apply Typed Limits, command Pen Up, and turn Speech On. Speech does nothing until one direction is armed here. Press one Start Test button, wait for the signal, then say READY. Say STOP only while that test is moving. A cancelled jog's final MPos is a boundary observation, not calibration."
+      )
+      .font(.caption2)
+      .foregroundStyle(.secondary)
+
+      LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {
+        ForEach(JogDirection.allCases) { direction in
+          Button(SpeechMovementTestPresentation.startButtonLabel(for: direction)) {
+            Task { await workspace.beginBoundaryTeaching(direction) }
+          }
+          .buttonStyle(.borderedProminent)
+          .disabled(workspace.boundaryTeachingUnavailableReason != nil)
+        }
+      }
+
+      if workspace.boundaryTeachingState != .idle {
+        Button("Cancel Speech Movement Test") {
+          Task { await workspace.cancelBoundaryTeaching() }
+        }
+        .buttonStyle(.bordered)
+        .tint(.orange)
+      }
+
+      fact("Test state", workspace.boundaryTeachingStateText)
+      fact("Test result", workspace.boundaryTeachingResultText)
+      ForEach(JogDirection.allCases) { direction in
+        fact("Boundary \(direction.shortLabel)", workspace.boundaryPositionText(for: direction))
+      }
+
+      if let reason = workspace.boundaryTeachingUnavailableReason,
+        workspace.boundaryTeachingState == .idle
+      {
+        Text("Setup required: \(reason)").font(.caption).foregroundStyle(.orange)
+      }
+
+      Divider()
+
+      Text("MANUAL MOTION AND SETUP")
+        .font(.caption.monospaced().bold())
+        .foregroundStyle(.secondary)
+
       HStack(spacing: 8) {
         numericField("X step", text: $workspace.xStepText)
         numericField("Y step", text: $workspace.yStepText)
@@ -494,48 +564,6 @@ private struct MotionPanel: View {
         Text("Pen down: \(reason)")
           .font(.caption)
           .foregroundStyle(.orange)
-      }
-
-      Divider()
-
-      Text("BOUNDARY TEACHING")
-        .font(.caption.monospaced().bold())
-        .foregroundStyle(.secondary)
-
-      Text(
-        "Choose one side to arm a single interaction. After the signal, physically confirm the pen is up and clear, then say READY to begin that bounded jog. Say STOP at the physical extreme. The recorded MPos is a taught boundary observation, not automatic calibration."
-      )
-      .font(.caption2)
-      .foregroundStyle(.secondary)
-
-      LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {
-        ForEach(JogDirection.allCases) { direction in
-          Button("Teach \(direction.shortLabel)") {
-            Task { await workspace.beginBoundaryTeaching(direction) }
-          }
-          .buttonStyle(.borderedProminent)
-          .disabled(workspace.boundaryTeachingUnavailableReason != nil)
-        }
-      }
-
-      if workspace.boundaryTeachingState != .idle {
-        Button("Cancel Boundary Teaching") {
-          Task { await workspace.cancelBoundaryTeaching() }
-        }
-        .buttonStyle(.bordered)
-        .tint(.orange)
-      }
-
-      fact("State", workspace.boundaryTeachingStateText)
-      fact("Result", workspace.boundaryTeachingResultText)
-      ForEach(JogDirection.allCases) { direction in
-        fact("Boundary \(direction.shortLabel)", workspace.boundaryPositionText(for: direction))
-      }
-
-      if let reason = workspace.boundaryTeachingUnavailableReason,
-        workspace.boundaryTeachingState == .idle
-      {
-        Text(reason).font(.caption).foregroundStyle(.orange)
       }
 
       Button("Cancel Current Jog") {

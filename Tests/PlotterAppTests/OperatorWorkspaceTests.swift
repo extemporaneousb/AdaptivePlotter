@@ -1089,9 +1089,9 @@ func truthfulControllerAndMotionProjection() async {
   #expect(workspace.controllerConnectionActionTitle == "Connect")
   #expect(
     workspace.workbenchStatusText
-      == "Motion blocked: Select and connect one serial device."
+      == "Movement test setup: Select and connect one serial device."
   )
-  #expect(workspace.workbenchStatusNeedsAttention)
+  #expect(!workspace.workbenchStatusNeedsAttention)
   #expect(workspace.penStateText == "unknown — no physical pose assumed")
 
   await workspace.selectSerialDevice(device)
@@ -1404,6 +1404,7 @@ func machineStatusProjection() async throws {
   #expect(workspace.currentOperationText == "relative jog")
   #expect(workspace.lastMotionOutcomeText.contains("ambiguous"))
   #expect(workspace.actionableError?.contains("Hold") == true)
+  #expect(workspace.workbenchStatusNeedsAttention)
 }
 
 @Test("Camera snapshot updates state, frame age, pixels, and actionable error")
@@ -1500,6 +1501,54 @@ func cameraLiveStatusRequiresRunningLiveFrame() async throws {
   await noFrameWorkspace.startCamera()
   #expect(!noFrameWorkspace.cameraIsLive)
   noFrameWorkspace.stopObserving()
+}
+
+@Test("Automatic analysis does not age out a healthy live camera behind its displayed result")
+@MainActor
+func cameraLiveStatusUsesCaptureHeartbeatDuringAutomaticAnalysis() async throws {
+  let cameraID = CameraDeviceID(rawValue: "camera")
+  let analyzedFrame = try testDisplayedFrame(
+    source: .live(cameraID),
+    captureNanoseconds: 1_000_000_000
+  )
+  let camera = CameraFixture(
+    snapshot: CameraCaptureSnapshot(
+      devices: [CameraDevice(id: cameraID, name: "Camera")],
+      selectedDeviceID: cameraID,
+      state: .running,
+      latestFrame: analyzedFrame,
+      error: nil
+    ),
+    simulated: try testDisplayedFrame(source: .simulated)
+  )
+  let workspace = OperatorWorkspace(
+    cameraActions: cameraActions(camera),
+    nowNanoseconds: { 3_000_000_000 }
+  )
+
+  await workspace.startCamera()
+  await workspace.setAutomaticVisionAnalysis(true)
+  #expect(!workspace.cameraIsLive)
+
+  let currentCapture = try testDisplayedFrame(
+    source: .live(cameraID),
+    captureNanoseconds: 2_500_000_000
+  )
+  await camera.setSnapshot(
+    CameraCaptureSnapshot(
+      devices: [CameraDevice(id: cameraID, name: "Camera")],
+      selectedDeviceID: cameraID,
+      state: .running,
+      latestFrame: currentCapture,
+      error: nil
+    )
+  )
+  await workspace.refreshCurrentState()
+
+  #expect(workspace.displayedFrame == analyzedFrame)
+  #expect(workspace.latestLiveCameraFrame == currentCapture)
+  #expect(workspace.cameraIsLive)
+  workspace.stopObserving()
 }
 
 @Test("Switching to simulator cannot invoke the machine session")

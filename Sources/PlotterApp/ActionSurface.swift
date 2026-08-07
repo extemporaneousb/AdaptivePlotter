@@ -78,14 +78,9 @@ struct ActionSurfacePresentation: Sendable {
     }
   }
 
-  var sourceLabel: String {
-    guard let source = displayedFrame?.source else { return "NO SOURCE" }
-    switch source {
-    case .live:
-      return "LIVE"
-    case .simulated:
-      return "SIMULATED"
-    }
+  var sourceBadgeLabel: String? {
+    guard case .simulated = displayedFrame?.source else { return nil }
+    return "SIMULATED"
   }
 }
 
@@ -178,13 +173,15 @@ struct ActionSurface: View {
       }
       .background(Color.black)
       .overlay(alignment: .topLeading) {
-        Text(presentation.sourceLabel)
-          .font(.caption.monospaced().bold())
-          .foregroundStyle(.white)
-          .padding(.horizontal, 9)
-          .padding(.vertical, 6)
-          .background(sourceColor.opacity(0.88))
-          .padding(8)
+        if let sourceBadgeLabel = presentation.sourceBadgeLabel {
+          Text(sourceBadgeLabel)
+            .font(.caption.monospaced().bold())
+            .foregroundStyle(.white)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 6)
+            .background(Color.blue.opacity(0.88))
+            .padding(8)
+        }
       }
       .overlay(alignment: .topTrailing) {
         if let frame = presentation.displayedFrame?.frame {
@@ -207,14 +204,6 @@ struct ActionSurface: View {
         }
       }
       .clipShape(RoundedRectangle(cornerRadius: 7))
-    }
-  }
-
-  private var sourceColor: Color {
-    guard let source = presentation.displayedFrame?.source else { return .gray }
-    switch source {
-    case .live: return Color.red
-    case .simulated: return Color.blue
     }
   }
 

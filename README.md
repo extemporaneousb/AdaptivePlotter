@@ -265,7 +265,11 @@ sophisticated or reinforcement-learning models belong after the direct
 controller-camera-draw-observe loop supplies trustworthy outcomes.
 
 The voice surface follows the same rule. Speech is inert until the operator
-presses a boundary-side control. In that interaction, exact `READY` advances
+presses a direction-specific speech-movement-test control. The Camera panel
+shows the activation sequence directly: confirm the plotter is connected, in
+Motion apply typed limits and command Pen Up, turn Speech On and confirm
+listening, then press one `Start X−/X+/Y−/Y+ Test` button. In that interaction,
+exact `READY` advances
 the armed side into one closed, capped jog, and exact `STOP` requests Jog Cancel
 only while that jog is moving. Neither word is an ambient priority command, and
 speech cannot request general axis motion, Pen Up, status, raw G-code, or a

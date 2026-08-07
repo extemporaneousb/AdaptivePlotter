@@ -196,6 +196,7 @@ final class OperatorWorkspace {
 
   private(set) var cameraSnapshot: CameraCaptureSnapshot?
   private(set) var displayedFrame: DisplayedFrame?
+  private(set) var latestLiveCameraFrame: DisplayedFrame?
   private(set) var cameraOverlays: [CameraOverlayMeasurement] = []
   private(set) var cameraError: String?
   private(set) var visionError: String?
@@ -286,12 +287,12 @@ final class OperatorWorkspace {
 
   var cameraIsLive: Bool {
     guard frameMode == .live, case .running = cameraSnapshot?.state,
-      let displayedFrame, case .live(let deviceID) = displayedFrame.source,
+      let latestLiveCameraFrame, case .live(let deviceID) = latestLiveCameraFrame.source,
       deviceID == selectedCameraID
     else { return false }
     let now = nowNanoseconds()
-    guard now >= displayedFrame.frame.captureNanoseconds else { return false }
-    return now - displayedFrame.frame.captureNanoseconds <= 1_000_000_000
+    guard now >= latestLiveCameraFrame.frame.captureNanoseconds else { return false }
+    return now - latestLiveCameraFrame.frame.captureNanoseconds <= 1_000_000_000
   }
 
   var controllerIsConnected: Bool {
@@ -599,12 +600,12 @@ final class OperatorWorkspace {
 
   var workbenchStatusText: String {
     if let actionableError { return actionableError }
-    if let reason = motionUnavailableReason { return "Motion blocked: \(reason)" }
+    if let reason = motionUnavailableReason { return "Movement test setup: \(reason)" }
     return "Motion request eligible; motor power is not reported by controller."
   }
 
   var workbenchStatusNeedsAttention: Bool {
-    actionableError != nil || motionUnavailableReason != nil
+    actionableError != nil
   }
 
   var machinePositionText: String {
@@ -1247,6 +1248,7 @@ final class OperatorWorkspace {
       guard canCommit(generation) else { return }
       cameraSnapshot = snapshot
       displayedFrame = nil
+      latestLiveCameraFrame = nil
       cameraOverlays = []
     } catch {
       let snapshot = await cameraActions.snapshot()
@@ -1265,6 +1267,7 @@ final class OperatorWorkspace {
     frameMode = .live
     cameraSnapshot = snapshot
     displayedFrame = cameraSnapshot?.latestFrame
+    latestLiveCameraFrame = validatedLiveCameraFrame(in: snapshot)
     updateCameraError()
     beginFrameUpdates(generation: generation)
   }
@@ -1279,6 +1282,7 @@ final class OperatorWorkspace {
     let snapshot = await cameraActions.stop()
     guard canCommit(generation) else { return }
     cameraSnapshot = snapshot
+    latestLiveCameraFrame = nil
     updateCameraError()
   }
 
@@ -1294,6 +1298,7 @@ final class OperatorWorkspace {
     frameMode = .live
     cameraSnapshot = snapshot
     displayedFrame = cameraSnapshot?.latestFrame
+    latestLiveCameraFrame = validatedLiveCameraFrame(in: snapshot)
     cameraOverlays = []
     analysisFrameHeld = false
     lastSceneMeasurement = nil
@@ -1408,12 +1413,14 @@ final class OperatorWorkspace {
       frameMode = .live
       cameraSnapshot = snapshot
       displayedFrame = cameraSnapshot?.latestFrame
+      latestLiveCameraFrame = validatedLiveCameraFrame(in: snapshot)
       updateCameraError()
       beginFrameUpdates(generation: generation)
     case .simulated:
       let snapshot = await cameraActions.stop()
       guard canCommit(generation) else { return }
       cameraSnapshot = snapshot
+      latestLiveCameraFrame = nil
       do {
         let content = try await cameraActions.simulatedContent(simulatorModelMode)
         guard canCommit(generation) else { return }
@@ -1496,11 +1503,11 @@ final class OperatorWorkspace {
   }
 
   private func receive(_ frame: DisplayedFrame, generation: UInt64? = nil) {
-    guard !hasShutdown, frameMode == .live, !analysisFrameHeld,
-      !automaticVisionEnabled
-    else { return }
+    guard !hasShutdown, frameMode == .live else { return }
     if let generation, !canCommit(generation) { return }
-    guard case .live = frame.source else { return }
+    guard case .live(let deviceID) = frame.source, deviceID == selectedCameraID else { return }
+    latestLiveCameraFrame = frame
+    guard !analysisFrameHeld, !automaticVisionEnabled else { return }
     displayedFrame = frame
   }
 
@@ -1769,6 +1776,14 @@ final class OperatorWorkspace {
     cameraError = cameraSnapshot?.error?.actionableDescription
   }
 
+  private func validatedLiveCameraFrame(in snapshot: CameraCaptureSnapshot) -> DisplayedFrame? {
+    guard let frame = snapshot.latestFrame,
+      case .live(let deviceID) = frame.source,
+      deviceID == snapshot.selectedDeviceID
+    else { return nil }
+    return frame
+  }
+
   private func clearMachineAuthority(clearSelection: Bool) {
     if clearSelection { selectedSerialDevice = nil }
     passiveProbeResult = nil
@@ -1831,6 +1846,7 @@ final class OperatorWorkspace {
     frameMode = .live
     cameraSnapshot = nil
     displayedFrame = nil
+    latestLiveCameraFrame = nil
     cameraOverlays = []
     cameraError = nil
     visionError = nil
