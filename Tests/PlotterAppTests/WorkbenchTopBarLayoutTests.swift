@@ -16,18 +16,18 @@ struct WorkbenchTopBarLayoutTests {
     #expect(WorkbenchTopBarLayoutMetrics.rowSpacing > 0)
   }
 
-  @Test("persistent facts distinguish controller link from motion permission")
-  func statusFactsAreTruthfulAndCompact() {
+  @Test("top bar owns exactly the live camera and connected plotter indicators")
+  func connectionIndicatorsAreFocused() {
+    #expect(WorkbenchConnectionIndicator.allCases == [.camera, .plotter])
+  }
+
+  @Test("connection labels never imply a false positive")
+  func connectionLabelsTrackTheirBooleanEvidence() {
+    #expect(WorkbenchConnectionIndicator.camera.label(isActive: true) == "CAMERA LIVE")
+    #expect(WorkbenchConnectionIndicator.camera.label(isActive: false) == "CAMERA OFF")
+    #expect(WorkbenchConnectionIndicator.plotter.label(isActive: true) == "PLOTTER CONNECTED")
     #expect(
-      WorkbenchTopBarStatusFact.allCases == [
-        .source,
-        .camera,
-        .frame,
-        .link,
-        .motor,
-        .motion,
-        .operation,
-      ]
+      WorkbenchConnectionIndicator.plotter.label(isActive: false) == "PLOTTER DISCONNECTED"
     )
   }
 

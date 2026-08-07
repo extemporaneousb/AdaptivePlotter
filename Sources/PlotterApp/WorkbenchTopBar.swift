@@ -13,14 +13,27 @@ enum WorkbenchTopBarLayoutMetrics {
   static let rowSpacing: CGFloat = 4
 }
 
-enum WorkbenchTopBarStatusFact: String, CaseIterable {
-  case source
+enum WorkbenchConnectionIndicator: CaseIterable, Hashable, Identifiable {
   case camera
-  case frame
-  case link
-  case motor
-  case motion
-  case operation
+  case plotter
+
+  var id: Self { self }
+
+  var systemImage: String {
+    switch self {
+    case .camera: "video.fill"
+    case .plotter: "printer.fill"
+    }
+  }
+
+  func label(isActive: Bool) -> String {
+    switch (self, isActive) {
+    case (.camera, true): "CAMERA LIVE"
+    case (.camera, false): "CAMERA OFF"
+    case (.plotter, true): "PLOTTER CONNECTED"
+    case (.plotter, false): "PLOTTER DISCONNECTED"
+    }
+  }
 }
 
 enum WorkbenchTopBarStatusStyle {
@@ -58,13 +71,12 @@ struct FlushWorkbenchTopBar: View {
 
         Spacer()
 
-        fact(.source, workspace.frameMode.rawValue)
-        fact(.camera, workspace.cameraStateText)
-        fact(.frame, workspace.frameAgeText)
-        fact(.link, workspace.controllerConnectionText)
-        fact(.motor, workspace.motorPowerText)
-        fact(.motion, workspace.motionPermissionText)
-        fact(.operation, workspace.currentOperationText)
+        TimelineView(.periodic(from: .now, by: 0.25)) { _ in
+          HStack(spacing: 6) {
+            connectionIndicator(.camera, isActive: workspace.cameraIsLive)
+            connectionIndicator(.plotter, isActive: workspace.controllerIsConnected)
+          }
+        }
       }
 
       HStack(spacing: 5) {
@@ -89,14 +101,26 @@ struct FlushWorkbenchTopBar: View {
     }
   }
 
-  private func fact(_ name: WorkbenchTopBarStatusFact, _ value: String) -> some View {
-    HStack(spacing: 3) {
-      Text(name.rawValue.uppercased())
-        .font(.caption2)
-        .foregroundStyle(.secondary)
-      Text(value)
-        .font(.caption2.monospaced())
-        .textSelection(.enabled)
+  private func connectionIndicator(
+    _ indicator: WorkbenchConnectionIndicator,
+    isActive: Bool
+  ) -> some View {
+    HStack(spacing: 5) {
+      ZStack {
+        Circle()
+          .fill(isActive ? Color.green : Color.red)
+          .frame(width: 22, height: 22)
+        Image(systemName: indicator.systemImage)
+          .font(.system(size: 10, weight: .bold))
+          .foregroundStyle(.white)
+      }
+      Text(indicator.label(isActive: isActive))
+        .font(.caption2.monospaced().bold())
     }
+    .padding(.horizontal, 7)
+    .padding(.vertical, 4)
+    .background(.black.opacity(0.18), in: Capsule())
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(indicator.label(isActive: isActive))
   }
 }

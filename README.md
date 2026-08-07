@@ -27,6 +27,9 @@ The repository contains one SwiftPM application with:
 - the fixed passive query sequence `$I`, `$G`, `?`, `$$`, `$#`;
 - one persistent selected-device controller session with repeatable passive
   probes and best-effort SQLite diagnostics;
+- one controller picker that remembers the last selected device without
+  connecting on selection, plus one explicit Connect action whose green status
+  requires a successful blocker-free passive inspection;
 - a closed typed relative-jog command with explicit local bounds, feed and
   distance limits, known pen-up state, Idle completion polling, and sticky
   ambiguous outcomes;
@@ -42,6 +45,8 @@ The repository contains one SwiftPM application with:
 - a compact top-edge workbench bar plus independently openable and collapsible
   Motion/Controller left docks and Camera/Overlays/Learning right docks; opening
   controls reserves space and reframes rather than covers the camera surface;
+- compact red/green camera-live and plotter-connected indicators at the top
+  right, derived from current capture/frame and controller-inspection facts;
 - distinct controller-link, motion-command, and motor-power reporting: a
   responsive USB controller is not presented as proof that motor supply power
   is present;
@@ -55,12 +60,17 @@ The repository contains one SwiftPM application with:
   Speech framework, and `AVSpeechSynthesizer`, with explicit permission and
   listening state, newest-only transcripts, spoken current outcomes, and
   bounded automatic recovery from Apple's ordinary no-speech interval;
-- a deterministic closed voice grammar for bounded X+/X-/Y+/Y- jogs, Pen Up,
-  current status, and Jog Cancel. Normal commands run once from a final
-  transcript; exact partial `STOP` is prioritized and deduplicated;
+- a button-armed boundary-teaching interaction with only two context-bound
+  speech commands: `READY` is accepted only after the operator chooses a side,
+  and `STOP` is accepted only while that side's capped jog is moving. Ambient,
+  wrong-context, and compound phrases have no controller meaning;
 - one closed GRBL realtime Jog Cancel byte (`0x85`) for an active `$J` move.
   It has no ordinary acknowledgement: the original jog owner continues polling
   until Idle and reports the actual final MPos or ambiguity;
+- boundary positions recorded only when that jog resolves as cancelled with a
+  controller-reported final MPos. Reaching the command cap is normal completion,
+  not evidence of a physical boundary; proximity beeps are not produced because
+  there is not yet a trusted distance-to-boundary estimate;
 - an optional observed-jog operation that brackets exactly one accepted motion
   with immutable live C920 frames and controller-owned start/final MPos samples;
 - one SwiftUI operator window whose local launcher ignores stale AppKit window
@@ -254,13 +264,24 @@ or replay training data, or automatically change controller behavior. More
 sophisticated or reinforcement-learning models belong after the direct
 controller-camera-draw-observe loop supplies trustworthy outcomes.
 
-The voice surface follows the same rule. Speech recognition produces one of a
-small set of typed operator intents and has no machine link, G-code, coordinate
-projection, or safety authority. The current build requires on-device Apple
-recognition rather than adding a network or API dependency. A future OpenAI
-Realtime dialogue layer may help explain state and collect direct teaching
-input, but it must remain above this same typed boundary. It must not become the
-Jog Cancel path, a motion authority, or a calibration workflow.
+The voice surface follows the same rule. Speech is inert until the operator
+presses a boundary-side control. In that interaction, exact `READY` advances
+the armed side into one closed, capped jog, and exact `STOP` requests Jog Cancel
+only while that jog is moving. Neither word is an ambient priority command, and
+speech cannot request general axis motion, Pen Up, status, raw G-code, or a
+safety override. The current build requires on-device Apple recognition rather
+than adding a network or API dependency. Spoken prompts and a start cue provide
+turn-taking; faster proximity beeps are intentionally absent until a trusted
+distance-to-boundary estimate exists. A future OpenAI Realtime dialogue layer
+may explain state or collect teaching input, but it must remain above this same
+typed boundary and must not become a motion authority or calibration workflow.
+
+A taught side is accepted only from `MotionOutcome.cancelled(finalPosition:)`:
+the Jog Cancel must settle at Idle and supply final controller MPos. A jog that
+reaches its requested command cap is completed motion, not a measured boundary.
+This increment still requires direct physical validation with the attached
+plotter before its prompts, cancellation timing, or recorded boundary positions
+are claimed as observed hardware behavior.
 
 ## What the UI must show
 

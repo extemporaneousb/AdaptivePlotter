@@ -43,11 +43,37 @@ enum SimulatorModelMode: String, CaseIterable, Identifiable, Sendable {
   var id: Self { self }
 }
 
-enum JogDirection: Sendable {
+enum JogDirection: String, CaseIterable, Identifiable, Sendable {
   case xNegative
   case xPositive
   case yNegative
   case yPositive
+
+  var id: Self { self }
+
+  var shortLabel: String {
+    switch self {
+    case .xNegative: "X−"
+    case .xPositive: "X+"
+    case .yNegative: "Y−"
+    case .yPositive: "Y+"
+    }
+  }
+}
+
+enum BoundaryTeachingState: Equatable, Sendable {
+  case idle
+  case awaitingReady(JogDirection)
+  case moving(JogDirection)
+  case cancelling(JogDirection)
+
+  var direction: JogDirection? {
+    switch self {
+    case .idle: nil
+    case .awaitingReady(let direction), .moving(let direction), .cancelling(let direction):
+      direction
+    }
+  }
 }
 
 struct SimulatedActionSurfaceContent: Sendable {
@@ -80,16 +106,6 @@ struct LiveSceneInspection: Sendable {
 @MainActor
 @Observable
 final class OperatorWorkspace {
-  private static let voiceGrammarSentinelDefaults = try! OperatorVoiceSessionDefaults(
-    xStepMM: 1,
-    yStepMM: 1,
-    feedMMPerMinute: 1
-  )
-
-  private enum VoiceProjectionError: Error {
-    case invalidDefaults
-  }
-
   private enum MotionPriors {
     static let stepMM = "1.0"
     static let feedMMPerMinute = "100"
@@ -121,6 +137,7 @@ final class OperatorWorkspace {
     let transcripts: @Sendable () async -> AsyncStream<VoiceTranscript>
     let speak: @Sendable (String) async -> Void
     let stopSpeaking: @Sendable () async -> Void
+    let signal: @Sendable () async -> Void
   }
 
   struct CameraActions: Sendable {
@@ -199,19 +216,24 @@ final class OperatorWorkspace {
   private(set) var lastVoiceActionableResultText = "none"
   private(set) var lastSpokenFeedbackText = "none"
   private(set) var voiceError: String?
+  private(set) var boundaryTeachingState: BoundaryTeachingState = .idle
+  private(set) var boundaryTeachingResultText = "Choose one side to begin."
+  private(set) var boundaryPositions: [JogDirection: MachinePosition] = [:]
 
   @ObservationIgnored private let machineActions: MachineActions?
   @ObservationIgnored private let cameraActions: CameraActions?
   @ObservationIgnored private let voiceActions: VoiceActions?
   @ObservationIgnored private let serialDeviceDiscovery: @Sendable () -> [MachineLinkDescriptor]
+  @ObservationIgnored private let persistSelectedSerialIdentifier: @Sendable (String) -> Void
   @ObservationIgnored private let nowNanoseconds: @Sendable () -> UInt64
   @ObservationIgnored private var frameTask: Task<Void, Never>?
   @ObservationIgnored private var visionUpdateTask: Task<Void, Never>?
   @ObservationIgnored private var voiceTranscriptTask: Task<Void, Never>?
   @ObservationIgnored private var voiceStateTask: Task<Void, Never>?
-  @ObservationIgnored private var voiceNormalIntentTask: Task<Void, Never>?
-  @ObservationIgnored private var voicePriorityIntentTask: Task<Void, Never>?
-  @ObservationIgnored private var lastPriorityCancelUtteranceID: UUID?
+  @ObservationIgnored private var boundaryMotionTask: Task<Void, Never>?
+  @ObservationIgnored private var boundaryCancelTask: Task<Void, Never>?
+  @ObservationIgnored private var lastBoundaryStopUtteranceID: UUID?
+  @ObservationIgnored private var rememberedSerialDeviceIdentifier: String?
   @ObservationIgnored private var hasShutdown = false
   @ObservationIgnored private var lifetimeGeneration: UInt64 = 0
   @ObservationIgnored private var activeHardwareIntentCount = 0
@@ -225,6 +247,12 @@ final class OperatorWorkspace {
     serialDeviceDiscovery: @escaping @Sendable () -> [MachineLinkDescriptor] = {
       SerialPortDiscovery.discover()
     },
+    loadSelectedSerialIdentifier: @escaping @Sendable () -> String? = {
+      UserDefaults.standard.string(forKey: "AdaptivePlotter.selectedSerialDeviceIdentifier")
+    },
+    persistSelectedSerialIdentifier: @escaping @Sendable (String) -> Void = { identifier in
+      UserDefaults.standard.set(identifier, forKey: "AdaptivePlotter.selectedSerialDeviceIdentifier")
+    },
     nowNanoseconds: @escaping @Sendable () -> UInt64 = {
       UInt64(ProcessInfo.processInfo.systemUptime * 1_000_000_000)
     }
@@ -234,7 +262,14 @@ final class OperatorWorkspace {
     self.voiceActions = voiceActions
     self.serialDevices = serialDevices
     self.serialDeviceDiscovery = serialDeviceDiscovery
+    self.persistSelectedSerialIdentifier = persistSelectedSerialIdentifier
+    rememberedSerialDeviceIdentifier = loadSelectedSerialIdentifier()
     self.nowNanoseconds = nowNanoseconds
+    if let rememberedSerialDeviceIdentifier {
+      selectedSerialDevice = serialDevices.first {
+        $0.identifier == rememberedSerialDeviceIdentifier
+      }
+    }
   }
 
   var actionSurfacePresentation: ActionSurfacePresentation {
@@ -248,6 +283,26 @@ final class OperatorWorkspace {
   var cameraDevices: [CameraDevice] { cameraSnapshot?.devices ?? [] }
   var selectedCameraID: CameraDeviceID? { cameraSnapshot?.selectedDeviceID }
   var isShutdown: Bool { hasShutdown }
+
+  var cameraIsLive: Bool {
+    guard frameMode == .live, case .running = cameraSnapshot?.state,
+      let displayedFrame, case .live(let deviceID) = displayedFrame.source,
+      deviceID == selectedCameraID
+    else { return false }
+    let now = nowNanoseconds()
+    guard now >= displayedFrame.frame.captureNanoseconds else { return false }
+    return now - displayedFrame.frame.captureNanoseconds <= 1_000_000_000
+  }
+
+  var controllerIsConnected: Bool {
+    guard passiveProbeResult?.blockers.isEmpty == true,
+      let machine = machineSnapshot?.machine,
+      machine.connection == .connected,
+      machine.controllerState?.isRecognized == true,
+      machine.stickyAmbiguity == nil
+    else { return false }
+    return true
+  }
 
   var cameraStateText: String {
     guard frameMode == .live else { return simulatorModelMode.rawValue.lowercased() }
@@ -428,13 +483,11 @@ final class OperatorWorkspace {
 
   var controllerConnectionText: String {
     guard selectedSerialDevice != nil else { return "not selected" }
-    guard let machine = machineSnapshot?.machine else { return "selected; no session" }
+    if controllerIsConnected { return "connected" }
+    guard let machine = machineSnapshot?.machine else { return "not connected" }
     switch machine.connection {
     case .connected:
-      guard let state = machine.controllerState, state.isRecognized else {
-        return "connected; state unknown"
-      }
-      return "last inspection responsive"
+      return passiveProbeInProgress ? "connecting" : "not connected"
     case .disconnected:
       return "disconnected"
     case .connecting:
@@ -521,9 +574,27 @@ final class OperatorWorkspace {
   }
 
   var controllerConnectionActionTitle: String {
-    machineSnapshot?.machine.connection == .connected
-      ? "Refresh Controller State"
-      : "Connect & Inspect Controller"
+    "Connect"
+  }
+
+  var boundaryTeachingStateText: String {
+    switch boundaryTeachingState {
+    case .idle: return "idle"
+    case .awaitingReady(let direction): return "\(direction.shortLabel) armed · say READY"
+    case .moving(let direction): return "moving \(direction.shortLabel) · say STOP"
+    case .cancelling(let direction): return "cancelling \(direction.shortLabel)"
+    }
+  }
+
+  var boundaryTeachingUnavailableReason: String? {
+    if boundaryTeachingState != .idle { return "Finish or cancel the current boundary interaction." }
+    if !voiceListening { return "Turn Speech On in the Camera panel first." }
+    return motionUnavailableReason
+  }
+
+  func boundaryPositionText(for direction: JogDirection) -> String {
+    guard let position = boundaryPositions[direction] else { return "not measured" }
+    return String(format: "X %.3f Y %.3f", position.point.x, position.point.y)
   }
 
   var workbenchStatusText: String {
@@ -801,10 +872,15 @@ final class OperatorWorkspace {
     {
       await machineActions?.disconnect()
       guard canCommit(generation) else { return }
-      clearMachineAuthority()
+      clearMachineAuthority(clearSelection: true)
     }
     guard canCommit(generation) else { return }
     serialDevices = discovered
+    if selectedSerialDevice == nil, let rememberedSerialDeviceIdentifier {
+      selectedSerialDevice = discovered.first {
+        $0.identifier == rememberedSerialDeviceIdentifier
+      }
+    }
   }
 
   func disconnectMachineSession() async {
@@ -815,14 +891,46 @@ final class OperatorWorkspace {
     else { return }
     await machineActions?.disconnect()
     guard canCommit(generation) else { return }
-    clearMachineAuthority()
+    clearMachineAuthority(clearSelection: false)
   }
 
+  /// Updates only the operator's pending device choice. A picker change is not
+  /// a successful connection and cannot turn the status indicator green.
   func selectSerialDevice(_ descriptor: MachineLinkDescriptor) async {
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
     guard !passiveProbeInProgress && !jogRequestInProgress && !penRequestInProgress else { return }
     guard serialDevices.contains(where: { $0.identifier == descriptor.identifier }) else { return }
+    if selectedSerialDevice?.identifier != descriptor.identifier, machineSnapshot != nil {
+      await machineActions?.disconnect()
+      guard canCommit(generation) else { return }
+      clearMachineAuthority(clearSelection: false)
+    }
+    guard canCommit(generation) else { return }
+    selectedSerialDevice = descriptor
+    rememberedSerialDeviceIdentifier = descriptor.identifier
+    persistSelectedSerialIdentifier(descriptor.identifier)
+  }
+
+  /// Test/support entrypoint for establishing the same selected-device session
+  /// without asserting that its passive inspection succeeded.
+  func establishMachineSession(_ descriptor: MachineLinkDescriptor) async {
+    await selectSerialDevice(descriptor)
+    await openSelectedMachineSession()
+  }
+
+  func connectSelectedController() async {
+    guard selectedSerialDevice != nil else { return }
+    await openSelectedMachineSession()
+    guard machineError == nil, machineSnapshot != nil else { return }
+    await requestPassiveProbe()
+  }
+
+  private func openSelectedMachineSession() async {
+    guard let descriptor = selectedSerialDevice else { return }
+    guard let generation = beginHardwareIntent() else { return }
+    defer { endHardwareIntent() }
+    guard !passiveProbeInProgress && !jogRequestInProgress && !penRequestInProgress else { return }
     guard let machineActions else {
       machineError = "Native machine composition is unavailable."
       return
@@ -832,12 +940,13 @@ final class OperatorWorkspace {
       let snapshot = try await machineActions.select(descriptor)
       guard canCommit(generation) else { return }
       machineSnapshot = snapshot
-      selectedSerialDevice = descriptor
       passiveProbeResult = nil
       limitsApplied = false
     } catch {
       guard canCommit(generation) else { return }
       machineError = actionableDescription(error)
+      machineSnapshot = nil
+      passiveProbeResult = nil
     }
   }
 
@@ -847,6 +956,7 @@ final class OperatorWorkspace {
     guard passiveProbeUnavailableReason == nil, let machineActions else { return }
     passiveProbeInProgress = true
     machineError = nil
+    passiveProbeResult = nil
     defer { passiveProbeInProgress = false }
     let operation = Task { try await machineActions.requestPassiveProbe() }
     await Task.yield()
@@ -899,7 +1009,8 @@ final class OperatorWorkspace {
         return
       }
       voiceListening = true
-      lastVoiceActionableResultText = "listening for one closed operator intent per utterance"
+      lastVoiceActionableResultText =
+        "speech on; no words are actionable until a boundary side is armed"
       beginVoiceTranscriptUpdates(actions: voiceActions)
       beginVoiceStateUpdates(actions: voiceActions)
     } catch {
@@ -911,66 +1022,55 @@ final class OperatorWorkspace {
 
   func stopVoiceListening() async {
     guard let voiceActions else { return }
+    switch boundaryTeachingState {
+    case .moving, .cancelling:
+      lastVoiceActionableResultText =
+        "Speech stays on while boundary motion is active; use the visible Cancel Jog control."
+      return
+    case .awaitingReady:
+      boundaryTeachingState = .idle
+      boundaryTeachingResultText = "Boundary interaction cancelled before motion."
+    case .idle:
+      break
+    }
     voiceTranscriptTask?.cancel()
     voiceTranscriptTask = nil
     voiceStateTask?.cancel()
     voiceStateTask = nil
-    lastPriorityCancelUtteranceID = nil
+    lastBoundaryStopUtteranceID = nil
     await voiceActions.stopListening()
     voiceListening = false
     lastVoiceActionableResultText = "voice listening stopped"
   }
 
-  func handleVoiceIntent(_ intent: OperatorVoiceIntent) async {
-    guard !hasShutdown else { return }
-    lastVoiceIntentText = voiceIntentLabel(intent)
-    switch intent {
-    case .relativeJog(let request):
-      if let reason = motionUnavailableReason {
-        await publishVoiceFeedback(
-          result: "refused: \(reason)",
-          spoken: "Request refused. \(reason)"
-        )
-        return
-      }
-      lastVoiceActionableResultText =
-        "submitted; waiting for controller acceptance and observed Idle completion"
-      await requestRelativeJog(request)
-      await publishMotionVoiceFeedback()
+  func beginBoundaryTeaching(_ direction: JogDirection) async {
+    guard boundaryTeachingUnavailableReason == nil, let voiceActions else { return }
+    lastBoundaryStopUtteranceID = nil
+    boundaryTeachingState = .awaitingReady(direction)
+    boundaryTeachingResultText =
+      "\(direction.shortLabel) armed. Confirm the pen is physically up and clear, then say READY."
+    lastVoiceIntentText = "boundary \(direction.shortLabel) armed"
+    lastVoiceActionableResultText = boundaryTeachingResultText
+    await voiceActions.signal()
+    await publishVoiceFeedback(
+      result: boundaryTeachingResultText,
+      spoken: "Boundary interaction armed. Confirm the tool is physically up and clear, then use the displayed confirmation."
+    )
+  }
 
-    case .raisePen:
-      if let reason = penUnavailableReason(for: .raise) {
-        await publishVoiceFeedback(
-          result: "refused: \(reason)",
-          spoken: "Request refused. \(reason)"
-        )
-        return
-      }
-      await requestPenActuation(.raise)
-      let result = lastPenOutcomeText
-      let spoken: String
-      switch machineSnapshot?.lastPenOutcome {
-      case .commandedAndSettled:
-        spoken = "Vertical actuator is commanded high. Physical pose is not observed."
-      case .refused(let refusal):
-        spoken = "Request refused. \(refusal.actionableDescription)"
-      case .ambiguous(let ambiguity):
-        spoken = "Request outcome is ambiguous. \(ambiguity.actionableDescription)"
-      case nil:
-        spoken = "No actuator result is available."
-      }
-      await publishVoiceFeedback(result: result, spoken: spoken)
-
-    case .requestStatus:
-      await refreshCurrentState()
-      var result =
-        "controller \(controllerStateText) · MPos \(machinePositionText) · operation \(currentOperationText) · motion \(motionPermissionText)"
-      if let reason = motionUnavailableReason { result += " · blocker: \(reason)" }
-      await publishVoiceFeedback(result: result, spoken: "Status. \(result)")
-
-    case .cancelCurrentMotion:
+  func cancelBoundaryTeaching() async {
+    switch boundaryTeachingState {
+    case .idle:
+      return
+    case .awaitingReady:
+      boundaryTeachingState = .idle
+      boundaryTeachingResultText = "Boundary interaction cancelled before motion."
+    case .moving(let direction):
+      boundaryTeachingState = .cancelling(direction)
+      boundaryTeachingResultText = "Jog cancellation requested. Waiting for final controller position."
       await requestJogCancel()
-      await publishJogCancelVoiceFeedback()
+    case .cancelling:
+      return
     }
   }
 
@@ -1050,11 +1150,12 @@ final class OperatorWorkspace {
   /// Routes an already typed relative-jog intent through the same presentation
   /// and runtime boundary as a button press. Callers cannot supply controller
   /// commands or bypass MachineController validation.
-  func requestRelativeJog(_ request: RelativeJogRequest) async {
-    guard let generation = beginHardwareIntent() else { return }
+  @discardableResult
+  func requestRelativeJog(_ request: RelativeJogRequest) async -> MotionOutcome? {
+    guard let generation = beginHardwareIntent() else { return nil }
     defer { endHardwareIntent() }
     guard motionUnavailableReason == nil, !jogRequestInProgress, let machineActions else {
-      return
+      return nil
     }
 
     jogRequestInProgress = true
@@ -1062,32 +1163,36 @@ final class OperatorWorkspace {
     defer { jogRequestInProgress = false }
     let recordsObservation = recordJogObservations
     let observationSplit = selectedObservationSplit
-    let operation = Task { () -> PhysicalJogObservationOutcome? in
+    let operation = Task { () -> (PhysicalJogObservationOutcome?, MotionOutcome?) in
       if recordsObservation {
         guard let cameraActions else {
-          return .notRecorded(
-            motionOutcome: nil,
-            failure: .liveCameraRequired
+          return (
+            .notRecorded(
+              motionOutcome: nil,
+              failure: .liveCameraRequired
+            ),
+            nil
           )
         }
         let observationRequest = PhysicalJogObservationRequest(
           motion: request,
           split: observationSplit
         )
-        return await machineActions.requestObservedJog(
+        let outcome = await machineActions.requestObservedJog(
           observationRequest,
           cameraActions.observeVisibleTool
         )
+        return (outcome, outcome.motionOutcome)
       }
-      _ = await machineActions.requestRelativeJog(request)
-      return nil
+      let outcome = await machineActions.requestRelativeJog(request)
+      return (nil, outcome)
     }
     await Task.yield()
     let interimSnapshot = await machineActions.snapshot()
     if canCommit(generation) { machineSnapshot = interimSnapshot }
-    let observationOutcome = await operation.value
+    let (observationOutcome, motionOutcome) = await operation.value
     let finalSnapshot = await machineActions.snapshot()
-    guard canCommit(generation) else { return }
+    guard canCommit(generation) else { return nil }
     machineSnapshot = finalSnapshot
     if recordsObservation, let outcome = observationOutcome {
       switch outcome {
@@ -1098,6 +1203,7 @@ final class OperatorWorkspace {
         break
       }
     }
+    return motionOutcome
   }
 
   func discoverCameras() async {
@@ -1366,7 +1472,7 @@ final class OperatorWorkspace {
     voiceTranscriptTask = nil
     voiceStateTask?.cancel()
     voiceStateTask = nil
-    lastPriorityCancelUtteranceID = nil
+    lastBoundaryStopUtteranceID = nil
     await voiceActions?.stopListening()
     await voiceActions?.stopSpeaking()
     voiceListening = false
@@ -1374,7 +1480,7 @@ final class OperatorWorkspace {
     _ = await cameraActions?.stop()
     await machineActions?.disconnect()
     clearCameraAuthority()
-    clearMachineAuthority()
+    clearMachineAuthority(clearSelection: true)
   }
 
   private func beginFrameUpdates(generation: UInt64) {
@@ -1448,168 +1554,190 @@ final class OperatorWorkspace {
     case .listening:
       voiceListening = true
     case .stopped, .requestingPermission:
+      let lostActiveListener = voiceListening
       voiceListening = false
+      if lostActiveListener {
+        failClosedBoundaryAfterSpeechLoss("Speech listening stopped unexpectedly.")
+      }
     case .failed(let error):
       voiceListening = false
       voiceError = error.actionableDescription
       lastVoiceActionableResultText = error.actionableDescription
+      failClosedBoundaryAfterSpeechLoss(error.actionableDescription)
+    }
+  }
+
+  private func failClosedBoundaryAfterSpeechLoss(_ reason: String) {
+    switch boundaryTeachingState {
+    case .idle:
+      return
+    case .awaitingReady:
+      boundaryTeachingState = .idle
+      boundaryTeachingResultText = "Boundary interaction cancelled: \(reason)"
+    case .moving(let direction):
+      boundaryTeachingState = .cancelling(direction)
+      boundaryTeachingResultText =
+        "Speech failed during motion. Requesting Jog Cancel; use the visible cancel control if needed."
+      guard boundaryCancelTask == nil else { return }
+      boundaryCancelTask = Task { [weak self] in
+        guard let self else { return }
+        await self.requestJogCancel()
+        self.boundaryCancelTask = nil
+      }
+    case .cancelling:
+      return
     }
   }
 
   private func receiveVoiceTranscript(_ transcript: VoiceTranscript) async {
     guard voiceListening, !hasShutdown else { return }
     voiceTranscriptText = transcript.text.isEmpty ? "none" : transcript.text
+    let parser = BoundaryVoiceCommandParser()
+    switch boundaryTeachingState {
+    case .idle:
+      lastVoiceIntentText = "none · no boundary interaction armed"
 
-    if let priorityIntent = OperatorVoiceCommandParser.parsePriority(transcript.text) {
-      guard lastPriorityCancelUtteranceID != transcript.utteranceID else { return }
-      lastPriorityCancelUtteranceID = transcript.utteranceID
-      dispatchPriorityVoiceIntent(priorityIntent)
+    case .awaitingReady(let direction):
+      guard transcript.isFinal,
+        parser.parse(transcript.text, in: .awaitingReady) == .ready,
+        boundaryMotionTask == nil
+      else { return }
+      lastVoiceIntentText = "boundary \(direction.shortLabel) ready"
+      boundaryMotionTask = Task { [weak self] in
+        guard let self else { return }
+        await self.executeBoundaryMotion(direction)
+        self.boundaryMotionTask = nil
+      }
+
+    case .moving(let direction):
+      guard parser.parse(transcript.text, in: .moving) == .stop,
+        lastBoundaryStopUtteranceID != transcript.utteranceID,
+        boundaryCancelTask == nil
+      else { return }
+      lastBoundaryStopUtteranceID = transcript.utteranceID
+      boundaryTeachingState = .cancelling(direction)
+      boundaryTeachingResultText = "Jog cancellation requested. Waiting for final controller position."
+      lastVoiceIntentText = "boundary \(direction.shortLabel) interruption"
+      boundaryCancelTask = Task { [weak self] in
+        guard let self else { return }
+        await self.requestJogCancel()
+        self.boundaryCancelTask = nil
+      }
+
+    case .cancelling:
       return
     }
+  }
 
-    guard transcript.isFinal else { return }
+  private func executeBoundaryMotion(_ direction: JogDirection) async {
+    guard let request = makeBoundaryJogRequest(direction) else {
+      boundaryTeachingState = .idle
+      return
+    }
+    let motionTask = Task { [weak self] in
+      await self?.requestRelativeJog(request)
+    }
+    await Task.yield()
+    if jogRequestInProgress {
+      while jogRequestInProgress {
+        if let snapshot = await machineActions?.snapshot() {
+          machineSnapshot = snapshot
+          if snapshot.machine.connection == .moving {
+            boundaryTeachingState = .moving(direction)
+            boundaryTeachingResultText =
+              "Moving \(direction.shortLabel) under the displayed limits. The active interaction now accepts STOP."
+            await voiceActions?.signal()
+            break
+          }
+        }
+        try? await Task.sleep(nanoseconds: 10_000_000)
+      }
+    }
+    let exactOutcome = await motionTask.value
 
-    let preliminary = OperatorVoiceCommandParser.parse(
-      transcript.text,
-      defaults: Self.voiceGrammarSentinelDefaults
-    )
-    switch preliminary {
-    case .intent(.raisePen), .intent(.requestStatus):
-      if let intent = preliminary.acceptedIntent { dispatchNormalVoiceIntent(intent) }
-      return
-    case .intent(.cancelCurrentMotion):
-      dispatchPriorityVoiceIntent(.cancelCurrentMotion)
-      return
-    case .intent(.relativeJog):
-      break
-    case .rejected(let rejection):
+    guard !hasShutdown else { return }
+    boundaryTeachingState = .idle
+    guard let outcome = exactOutcome else {
+      boundaryTeachingResultText = "No motion outcome is available; no boundary was recorded."
       await publishVoiceFeedback(
-        result: "rejected: \(rejection.actionableDescription)",
-        spoken: OperatorVoiceSpokenFeedbackPolicy.rejection(rejection)
+        result: boundaryTeachingResultText,
+        spoken: "No motion outcome is available. No side position was recorded."
       )
       return
-    case .noCommand:
-      lastVoiceIntentText = "none"
-      lastVoiceActionableResultText = "no closed operator intent recognized"
-      return
     }
+    switch outcome {
+    case .cancelled(let finalPosition):
+      boundaryPositions[direction] = finalPosition
+      boundaryTeachingResultText = String(
+        format: "%@ recorded at X %.3f Y %.3f from cancelled jog final position.",
+        direction.shortLabel,
+        finalPosition.point.x,
+        finalPosition.point.y
+      )
+      await publishVoiceFeedback(
+        result: boundaryTeachingResultText,
+        spoken: "Side position recorded from the interrupted movement."
+      )
+    case .acceptedThenCompleted:
+      boundaryTeachingResultText =
+        "The bounded jog reached its command cap. No boundary was recorded; arm the side again to continue."
+      await publishVoiceFeedback(
+        result: boundaryTeachingResultText,
+        spoken: "The bounded movement completed. No side position was recorded."
+      )
+    case .refused(let refusal):
+      boundaryTeachingResultText = "Motion refused: \(refusal.actionableDescription)"
+      await publishVoiceFeedback(
+        result: boundaryTeachingResultText,
+        spoken: "Movement refused. Check the displayed reason."
+      )
+    case .ambiguous(let ambiguity):
+      boundaryTeachingResultText = "Motion ambiguous: \(ambiguity.actionableDescription)"
+      await publishVoiceFeedback(
+        result: boundaryTeachingResultText,
+        spoken: "Movement outcome is ambiguous. No side position was recorded."
+      )
+    }
+  }
 
-    let defaults: OperatorVoiceSessionDefaults
+  private func makeBoundaryJogRequest(_ direction: JogDirection) -> RelativeJogRequest? {
+    guard boundaryTeachingState == .awaitingReady(direction),
+      motionUnavailableReason == nil,
+      let machine = machineSnapshot?.machine,
+      let position = machine.position,
+      let limits = machine.motionLimits,
+      let feed = inputNumber(feedText), feed > 0
+    else {
+      boundaryTeachingResultText =
+        "Boundary motion cannot start: \(motionUnavailableReason ?? "current motion values are invalid")."
+      return nil
+    }
+    let availableDistance: Double
+    switch direction {
+    case .xNegative: availableDistance = position.point.x - limits.bounds.minX
+    case .xPositive: availableDistance = limits.bounds.maxX - position.point.x
+    case .yNegative: availableDistance = position.point.y - limits.bounds.minY
+    case .yPositive: availableDistance = limits.bounds.maxY - position.point.y
+    }
+    let distance = min(availableDistance, limits.maximumDistanceMM)
+    guard distance.isFinite, distance > 0 else {
+      boundaryTeachingResultText =
+        "No positive bounded travel remains in \(direction.shortLabel); no motion was sent."
+      return nil
+    }
     do {
-      guard let xStep = inputNumber(xStepText), let yStep = inputNumber(yStepText),
-        let feed = inputNumber(feedText)
-      else {
-        throw VoiceProjectionError.invalidDefaults
+      let delta: Vector2<MachineSpace>
+      switch direction {
+      case .xNegative: delta = try Vector2(dx: -distance, dy: 0)
+      case .xPositive: delta = try Vector2(dx: distance, dy: 0)
+      case .yNegative: delta = try Vector2(dx: 0, dy: -distance)
+      case .yPositive: delta = try Vector2(dx: 0, dy: distance)
       }
-      defaults = try OperatorVoiceSessionDefaults(
-        xStepMM: xStep,
-        yStepMM: yStep,
-        feedMMPerMinute: feed
-      )
+      return RelativeJogRequest(delta: delta, feedMMPerMinute: feed)
     } catch {
-      await publishVoiceFeedback(
-        result: "rejected: Enter positive numeric X step, Y step, and feed values.",
-        spoken: OperatorVoiceSpokenFeedbackPolicy.invalidSessionDefaults
-      )
-      return
+      boundaryTeachingResultText = "Boundary motion request is invalid; no motion was sent."
+      return nil
     }
-
-    switch OperatorVoiceCommandParser.parse(transcript.text, defaults: defaults) {
-    case .intent(let intent):
-      dispatchNormalVoiceIntent(intent)
-
-    case .rejected(let rejection):
-      await publishVoiceFeedback(
-        result: "rejected: \(rejection.actionableDescription)",
-        spoken: OperatorVoiceSpokenFeedbackPolicy.rejection(rejection)
-      )
-
-    case .noCommand:
-      lastVoiceIntentText = "none"
-      lastVoiceActionableResultText = "no closed operator intent recognized"
-    }
-  }
-
-  private func dispatchNormalVoiceIntent(_ intent: OperatorVoiceIntent) {
-    lastVoiceIntentText = voiceIntentLabel(intent)
-    guard voiceNormalIntentTask == nil, voicePriorityIntentTask == nil else {
-      Task { [weak self] in
-        await self?.publishVoiceFeedback(
-          result: "refused: Wait for the current voice-requested operation to finish.",
-          spoken: OperatorVoiceSpokenFeedbackPolicy.operationAlreadyInFlight
-        )
-      }
-      return
-    }
-    voiceNormalIntentTask = Task { [weak self] in
-      guard let self else { return }
-      await self.handleVoiceIntent(intent)
-      self.voiceNormalIntentTask = nil
-    }
-  }
-
-  private func dispatchPriorityVoiceIntent(_ intent: OperatorVoiceIntent) {
-    lastVoiceIntentText = voiceIntentLabel(intent)
-    guard voicePriorityIntentTask == nil else { return }
-    voicePriorityIntentTask = Task { [weak self] in
-      guard let self else { return }
-      await self.handleVoiceIntent(intent)
-      self.voicePriorityIntentTask = nil
-    }
-  }
-
-  private func publishMotionVoiceFeedback() async {
-    guard let outcome = machineSnapshot?.lastMotionOutcome else {
-      await publishVoiceFeedback(
-        result: "no motion outcome available",
-        spoken: "No movement result is available."
-      )
-      return
-    }
-    let spoken: String
-    switch outcome {
-    case .refused(let refusal):
-      spoken = "Request refused. \(refusal.actionableDescription)"
-    case .acceptedThenCompleted(let position):
-      spoken = String(
-        format: "Request completed. Position X %.3f, Y %.3f.",
-        position.point.x,
-        position.point.y
-      )
-    case .cancelled(let position):
-      spoken = String(
-        format: "Request interrupted. Position X %.3f, Y %.3f.",
-        position.point.x,
-        position.point.y
-      )
-    case .ambiguous(let ambiguity):
-      spoken = "Request outcome is ambiguous. \(ambiguity.actionableDescription)"
-    }
-    await publishVoiceFeedback(result: lastMotionOutcomeText, spoken: spoken)
-  }
-
-  private func publishJogCancelVoiceFeedback() async {
-    guard let outcome = machineSnapshot?.lastJogCancelOutcome else {
-      let reason = jogCancelUnavailableReason ?? "No interruption result is available."
-      await publishVoiceFeedback(result: "refused: \(reason)", spoken: "Request refused. \(reason)")
-      return
-    }
-    let spoken: String
-    switch outcome {
-    case .refused(let refusal):
-      spoken = "Request refused. \(refusal.actionableDescription)"
-    case .transmitted:
-      spoken = "Interruption signal sent. Controller acknowledgement is not implied."
-    case .completed(let position):
-      spoken = String(
-        format: "Interruption completed. Position X %.3f, Y %.3f.",
-        position.point.x,
-        position.point.y
-      )
-    case .ambiguous(let ambiguity):
-      spoken = "Interruption outcome is ambiguous. \(ambiguity.actionableDescription)"
-    }
-    await publishVoiceFeedback(result: lastJogCancelOutcomeText, spoken: spoken)
   }
 
   private func publishVoiceFeedback(result: String, spoken: String) async {
@@ -1621,32 +1749,13 @@ final class OperatorWorkspace {
   }
 
   private func commandFreeSpokenFeedback(_ candidate: String) -> String {
-    if OperatorVoiceCommandParser.parsePriority(candidate) != nil {
-      return "Current result is shown in the voice panel."
-    }
-    let parsed = OperatorVoiceCommandParser.parse(
-      candidate,
-      defaults: Self.voiceGrammarSentinelDefaults
-    )
-    guard parsed.acceptedIntent == nil else {
+    let parser = BoundaryVoiceCommandParser()
+    if parser.parse(candidate, in: .awaitingReady) != nil
+      || parser.parse(candidate, in: .moving) != nil
+    {
       return "Current result is shown in the voice panel."
     }
     return candidate
-  }
-
-  private func voiceIntentLabel(_ intent: OperatorVoiceIntent) -> String {
-    switch intent {
-    case .relativeJog(let request):
-      return String(
-        format: "relative X %.3f Y %.3f at %.1f mm/min",
-        request.delta.dx,
-        request.delta.dy,
-        request.feedMMPerMinute
-      )
-    case .raisePen: return "raise pen"
-    case .requestStatus: return "report current facts"
-    case .cancelCurrentMotion: return "cancel current jog"
-    }
   }
 
   private func receiveVision(_ result: PlotterSceneAnalysisResult) {
@@ -1660,8 +1769,8 @@ final class OperatorWorkspace {
     cameraError = cameraSnapshot?.error?.actionableDescription
   }
 
-  private func clearMachineAuthority() {
-    selectedSerialDevice = nil
+  private func clearMachineAuthority(clearSelection: Bool) {
+    if clearSelection { selectedSerialDevice = nil }
     passiveProbeResult = nil
     machineSnapshot = nil
     machineError = nil
@@ -1677,6 +1786,9 @@ final class OperatorWorkspace {
     jogResponseDataset = nil
     jogResponseCandidate = nil
     jogResponseLearnerError = nil
+    boundaryTeachingState = .idle
+    boundaryTeachingResultText = "Choose one side to begin."
+    boundaryPositions = [:]
     minimumXText = "-100"
     maximumXText = "100"
     minimumYText = "-40"

@@ -111,7 +111,7 @@ func motionPriorsStayCenteredOnSessionStartZero() async throws {
     serialDevices: [device]
   )
 
-  await workspace.selectSerialDevice(device)
+  await workspace.establishMachineSession(device)
 
   #expect(workspace.xStepText == "1.0")
   #expect(workspace.yStepText == "1.0")
@@ -159,7 +159,7 @@ func runtimeMotionBlockersProjectExactly() async {
       machineActions: machineActions(fixture),
       serialDevices: [device]
     )
-    await workspace.selectSerialDevice(device)
+    await workspace.establishMachineSession(device)
 
     #expect(workspace.motionUnavailableReason == expected)
   }
@@ -181,7 +181,7 @@ func stickyAmbiguityPrecedesConnectionBlocker() async {
     serialDevices: [device]
   )
 
-  await workspace.selectSerialDevice(device)
+  await workspace.establishMachineSession(device)
 
   #expect(
     workspace.motionUnavailableReason
@@ -211,7 +211,7 @@ func passiveProbeCanRetry() async throws {
     machineActions: machineActions(fixture),
     serialDevices: [device]
   )
-  await workspace.selectSerialDevice(device)
+  await workspace.establishMachineSession(device)
 
   await workspace.requestPassiveProbe()
   await workspace.requestPassiveProbe()
@@ -219,6 +219,104 @@ func passiveProbeCanRetry() async throws {
   #expect(await fixture.probeCount == 2)
   #expect(workspace.passiveProbeResult?.blockers.isEmpty == true)
   #expect(workspace.passiveProbeUnavailableReason == nil)
+}
+
+@Test("Remembered serial choice selects a matching discovered device without opening it")
+@MainActor
+func rememberedSerialChoiceIsRestoredWithoutConnection() async {
+  let machine = MachineFixture()
+  let first = MachineLinkDescriptor(
+    identifier: "/dev/cu.first",
+    displayName: "First",
+    bsdPath: "/dev/cu.first",
+    transport: .bsdSerial
+  )
+  let remembered = MachineLinkDescriptor(
+    identifier: "/dev/cu.remembered",
+    displayName: "Remembered",
+    bsdPath: "/dev/cu.remembered",
+    transport: .bsdSerial
+  )
+  let workspace = OperatorWorkspace(
+    machineActions: machineActions(machine),
+    serialDeviceDiscovery: { [first, remembered] },
+    loadSelectedSerialIdentifier: { remembered.identifier },
+    persistSelectedSerialIdentifier: { _ in }
+  )
+
+  await workspace.refreshSerialDevices()
+
+  #expect(workspace.selectedSerialDevice == remembered)
+  #expect(await machine.selectCount == 0)
+  #expect(await machine.probeCount == 0)
+  #expect(!workspace.controllerIsConnected)
+}
+
+@Test("Choosing a serial device persists the choice without connecting")
+@MainActor
+func choosingSerialDeviceOnlyPersistsPreference() async {
+  let machine = MachineFixture()
+  let recorder = SynchronousStringRecorder()
+  let device = testDevice()
+  let workspace = OperatorWorkspace(
+    machineActions: machineActions(machine),
+    serialDevices: [device],
+    loadSelectedSerialIdentifier: { nil },
+    persistSelectedSerialIdentifier: { recorder.append($0) }
+  )
+
+  await workspace.selectSerialDevice(device)
+
+  #expect(workspace.selectedSerialDevice == device)
+  #expect(recorder.values == [device.identifier])
+  #expect(await machine.selectCount == 0)
+  #expect(await machine.probeCount == 0)
+  #expect(!workspace.controllerIsConnected)
+}
+
+@Test("Connect selects the pending device and reports connected only after a clean probe")
+@MainActor
+func connectSelectedControllerRequiresSuccessfulProbe() async {
+  let machine = MachineFixture()
+  let device = testDevice()
+  let workspace = OperatorWorkspace(
+    machineActions: machineActions(machine),
+    serialDevices: [device],
+    loadSelectedSerialIdentifier: { nil },
+    persistSelectedSerialIdentifier: { _ in }
+  )
+  await workspace.selectSerialDevice(device)
+
+  #expect(!workspace.controllerIsConnected)
+  await workspace.connectSelectedController()
+
+  #expect(await machine.selectedDescriptors == [device])
+  #expect(await machine.probeCount == 1)
+  #expect(workspace.passiveProbeResult?.blockers.isEmpty == true)
+  #expect(workspace.controllerIsConnected)
+  #expect(workspace.controllerConnectionText == "connected")
+}
+
+@Test("A failed controller select or probe never reports connected")
+@MainActor
+func failedControllerConnectionStaysFalse() async {
+  let device = testDevice()
+
+  for failure in [FixtureMachineFailure.select, .probe] {
+    let machine = MachineFixture(failure: failure)
+    let workspace = OperatorWorkspace(
+      machineActions: machineActions(machine),
+      serialDevices: [device],
+      loadSelectedSerialIdentifier: { nil },
+      persistSelectedSerialIdentifier: { _ in }
+    )
+    await workspace.selectSerialDevice(device)
+
+    await workspace.connectSelectedController()
+
+    #expect(!workspace.controllerIsConnected)
+    #expect(workspace.controllerConnectionText != "connected")
+  }
 }
 
 @Test("Jog buttons send one typed request and do not depend on camera state")
@@ -231,7 +329,7 @@ func typedJogDoesNotRequireCamera() async throws {
     cameraActions: nil,
     serialDevices: [device]
   )
-  await workspace.selectSerialDevice(device)
+  await workspace.establishMachineSession(device)
   await applyTestLimits(workspace)
   await workspace.requestPenActuation(.raise)
   workspace.xStepText = "2.5"
@@ -277,7 +375,7 @@ func simulatorCannotRecordPhysicalJogEvidence() async throws {
     cameraActions: cameraActions(camera),
     serialDevices: [device]
   )
-  await workspace.selectSerialDevice(device)
+  await workspace.establishMachineSession(device)
   await applyTestLimits(workspace)
   await workspace.requestPenActuation(.raise)
   await workspace.switchFrameMode(.simulated)
@@ -317,7 +415,7 @@ func simulatorBlocksEveryPhysicalCommandIntent() async throws {
     cameraActions: cameraActions(camera),
     serialDevices: [device]
   )
-  await workspace.selectSerialDevice(device)
+  await workspace.establishMachineSession(device)
   await applyTestLimits(workspace)
   await workspace.switchFrameMode(.simulated)
   workspace.setRecordJogObservations(false)
@@ -356,7 +454,7 @@ func simulatorSwitchCannotHideActiveJogCancel() async throws {
     cameraActions: cameraActions(camera),
     serialDevices: [device]
   )
-  await workspace.selectSerialDevice(device)
+  await workspace.establishMachineSession(device)
   await applyTestLimits(workspace)
   await workspace.requestPenActuation(.raise)
   let jogTask = Task { await workspace.requestJog(.xPositive) }
@@ -397,7 +495,7 @@ func observedJogFailureProjectsExactly() async throws {
     cameraActions: cameraActions(camera),
     serialDevices: [device]
   )
-  await workspace.selectSerialDevice(device)
+  await workspace.establishMachineSession(device)
   await applyTestLimits(workspace)
   await workspace.requestPenActuation(.raise)
   await workspace.startCamera()
@@ -452,7 +550,7 @@ func ambiguousObservedJogRecordsNothing() async throws {
     cameraActions: cameraActions(camera),
     serialDevices: [device]
   )
-  await workspace.selectSerialDevice(device)
+  await workspace.establishMachineSession(device)
   await applyTestLimits(workspace)
   await workspace.requestPenActuation(.raise)
   await workspace.startCamera()
@@ -508,7 +606,7 @@ func observedJogSuccessProjectsExactFacts() async throws {
     cameraActions: cameraActions(camera),
     serialDevices: [device]
   )
-  await workspace.selectSerialDevice(device)
+  await workspace.establishMachineSession(device)
   await applyTestLimits(workspace)
   await workspace.requestPenActuation(.raise)
   await workspace.startCamera()
@@ -712,7 +810,7 @@ func refusalCanRetry() async throws {
     machineActions: machineActions(fixture),
     serialDevices: [device]
   )
-  await workspace.selectSerialDevice(device)
+  await workspace.establishMachineSession(device)
   await applyTestLimits(workspace)
   await workspace.requestPenActuation(.raise)
 
@@ -724,103 +822,6 @@ func refusalCanRetry() async throws {
 
   #expect(await fixture.jogRequests.count == 2)
   #expect(workspace.lastMotionOutcomeText.contains("completed at X 1.000 Y 0.000"))
-}
-
-@Test("Voice jog routes one typed request through the existing bounded motion path")
-@MainActor
-func voiceJogRoutesTypedIntent() async throws {
-  let voice = VoiceFixture()
-  let machine = MachineFixture()
-  let device = testDevice()
-  let workspace = OperatorWorkspace(
-    machineActions: machineActions(machine),
-    voiceActions: voiceActions(voice),
-    serialDevices: [device]
-  )
-  await workspace.selectSerialDevice(device)
-  await applyTestLimits(workspace)
-  await workspace.requestPenActuation(.raise)
-  let request = RelativeJogRequest(
-    delta: try Vector2(dx: -2.5, dy: 0),
-    feedMMPerMinute: 75
-  )
-
-  await workspace.handleVoiceIntent(.relativeJog(request))
-
-  #expect(await machine.jogRequests == [request])
-  #expect(workspace.lastVoiceIntentText == "relative X -2.500 Y 0.000 at 75.0 mm/min")
-  #expect(workspace.lastVoiceActionableResultText == "completed at X 0.000 Y 0.000")
-  #expect(workspace.lastSpokenFeedbackText.contains("Request completed."))
-  #expect(await voice.spoken.count == 1)
-}
-
-@Test("Voice pen-down text has no accepted app intent or machine path")
-@MainActor
-func voiceCannotRoutePenDown() async throws {
-  let defaults = try OperatorVoiceSessionDefaults(
-    xStepMM: 1,
-    yStepMM: 1,
-    feedMMPerMinute: 50
-  )
-  let parsed = OperatorVoiceCommandParser.parse("pen down", defaults: defaults)
-  let machine = MachineFixture()
-  let workspace = OperatorWorkspace(machineActions: machineActions(machine))
-
-  #expect(parsed == .rejected(.penDownNotAvailable))
-  #expect(parsed.acceptedIntent == nil)
-  #expect(await machine.penRequests.isEmpty)
-  #expect(workspace.lastVoiceIntentText == "none")
-}
-
-@Test("Voice motion is blocked in simulator before reaching MachineActions")
-@MainActor
-func simulatorBlocksVoiceMotion() async throws {
-  let machine = MachineFixture(snapshot: testRunSnapshot(pen: .up))
-  let device = testDevice()
-  let camera = CameraFixture(
-    snapshot: CameraCaptureSnapshot(
-      devices: [],
-      selectedDeviceID: nil,
-      state: .stopped,
-      latestFrame: nil,
-      error: nil
-    ),
-    simulated: try testDisplayedFrame(source: .simulated)
-  )
-  let workspace = OperatorWorkspace(
-    machineActions: machineActions(machine),
-    cameraActions: cameraActions(camera),
-    serialDevices: [device]
-  )
-  await workspace.selectSerialDevice(device)
-  await applyTestLimits(workspace)
-  await workspace.switchFrameMode(.simulated)
-  let request = RelativeJogRequest(
-    delta: try Vector2(dx: 1, dy: 0),
-    feedMMPerMinute: 50
-  )
-
-  await workspace.handleVoiceIntent(.relativeJog(request))
-
-  #expect(await machine.jogRequests.isEmpty)
-  #expect(
-    workspace.lastVoiceActionableResultText
-      == "refused: SIMULATED source cannot issue physical machine commands. Switch to LIVE first."
-  )
-}
-
-@Test("Voice status reports one exact current blocker without requiring a camera")
-@MainActor
-func voiceStatusProjectsExactBlocker() async {
-  let workspace = OperatorWorkspace()
-
-  await workspace.handleVoiceIntent(.requestStatus)
-
-  #expect(
-    workspace.lastVoiceActionableResultText
-      == "controller unknown · MPos unknown · operation none · motion blocked · blocker: Native machine composition is unavailable."
-  )
-  #expect(workspace.cameraSnapshot == nil)
 }
 
 @Test("Voice permission and listening state project the exact denied subsystem")
@@ -840,285 +841,204 @@ func voicePermissionProjectionIsTruthful() async {
   #expect(await voice.startCount == 0)
 }
 
-@Test("A corrected voice refusal is immediately retryable")
+@Test("Ambient speech cannot issue controller actions outside a boundary interaction")
 @MainActor
-func voiceRefusalCanRetry() async throws {
-  let completed = MotionOutcome.acceptedThenCompleted(
-    finalPosition: try MachinePosition(x: 1, y: 0)
-  )
-  let machine = MachineFixture(outcomes: [
-    .refused(.feedExceedsMaximum(requested: 90, maximum: 80)),
-    completed,
-  ])
-  let device = testDevice()
-  let workspace = OperatorWorkspace(
-    machineActions: machineActions(machine),
-    serialDevices: [device]
-  )
-  await workspace.selectSerialDevice(device)
-  await applyTestLimits(workspace)
-  await workspace.requestPenActuation(.raise)
-  let request = RelativeJogRequest(
-    delta: try Vector2(dx: 1, dy: 0),
-    feedMMPerMinute: 75
-  )
-
-  await workspace.handleVoiceIntent(.relativeJog(request))
-  #expect(workspace.lastVoiceActionableResultText.contains("refused"))
-  #expect(workspace.motionUnavailableReason == nil)
-
-  await workspace.handleVoiceIntent(.relativeJog(request))
-  #expect(await machine.jogRequests.count == 2)
-  #expect(workspace.lastVoiceActionableResultText == "completed at X 1.000 Y 0.000")
-}
-
-@Test("Partial and final STOP for one utterance send one priority cancel")
-@MainActor
-func voicePriorityCancelIsDeduplicated() async {
-  let machine = MachineFixture(cancelOutcomes: [.transmitted])
+func ambientSpeechIsInert() async {
+  let machine = MachineFixture()
   let voice = VoiceFixture()
-  let device = testDevice()
   let workspace = OperatorWorkspace(
     machineActions: machineActions(machine),
-    voiceActions: voiceActions(voice),
-    serialDevices: [device]
+    voiceActions: voiceActions(voice)
   )
-  await workspace.selectSerialDevice(device)
-  workspace.xStepText = "not-a-number"
-  workspace.yStepText = ""
-  workspace.feedText = "invalid"
   await workspace.startVoiceListening()
   while await voice.streamSubscriberCount == 0 { await Task.yield() }
-  let utteranceID = UUID()
+  let baseline = await machine.totalInvocationCount
 
-  await voice.yield(
-    VoiceTranscript(
-      utteranceID: utteranceID,
-      sequence: 1,
-      text: "stop",
-      isFinal: false,
-      monotonicNanoseconds: 1
+  let phrases = ["stop", "x plus", "pen up", "status"]
+  for (index, phrase) in phrases.enumerated() {
+    await voice.yield(
+      VoiceTranscript(
+        utteranceID: UUID(),
+        sequence: UInt64(index + 1),
+        text: phrase,
+        isFinal: true,
+        monotonicNanoseconds: UInt64(index + 1)
+      )
     )
-  )
-  while await machine.cancelRequestCount == 0 { await Task.yield() }
-  await voice.yield(
-    VoiceTranscript(
-      utteranceID: utteranceID,
-      sequence: 2,
-      text: "stop",
-      isFinal: true,
-      monotonicNanoseconds: 2
-    )
-  )
-  for _ in 0..<20 { await Task.yield() }
-  await voice.yield(
-    VoiceTranscript(
-      utteranceID: utteranceID,
-      sequence: 3,
-      text: "stop",
-      isFinal: true,
-      monotonicNanoseconds: 3
-    )
-  )
-  for _ in 0..<20 { await Task.yield() }
+    while workspace.voiceTranscriptText != phrase { await Task.yield() }
+  }
 
-  #expect(await machine.cancelRequestCount == 1)
-  #expect(workspace.lastJogCancelOutcomeText.contains("cancel byte sent"))
-  #expect(workspace.lastSpokenFeedbackText.contains("Interruption signal sent"))
+  #expect(await machine.totalInvocationCount == baseline)
+  #expect(await machine.jogRequests.isEmpty)
+  #expect(await machine.penRequests.isEmpty)
+  #expect(await machine.cancelRequestCount == 0)
+  #expect(workspace.boundaryTeachingState == .idle)
   await workspace.stopVoiceListening()
 }
 
-@Test("Priority STOP bypasses a blocked normal voice jog without queueing another jog")
+@Test("READY starts one bounded boundary jog")
 @MainActor
-func voicePriorityCancelBypassesBlockedJog() async throws {
+func boundaryReadyStartsOneBoundedJog() async throws {
   let jogGate = AsyncGate()
-  let finalPosition = try MachinePosition(x: 0.2, y: 0)
+  let machine = MachineFixture(
+    outcomes: [.acceptedThenCompleted(finalPosition: try MachinePosition(x: 5, y: 0))]
+  )
+  let voice = VoiceFixture()
+  let workspace = await preparedBoundaryWorkspace(
+    machine: machine,
+    voice: voice,
+    jogGate: jogGate
+  )
+
+  await workspace.beginBoundaryTeaching(.xPositive)
+  #expect(workspace.boundaryTeachingState == .awaitingReady(.xPositive))
+  #expect(await voice.signalCount == 1)
+
+  await voice.yield(
+    VoiceTranscript(
+      utteranceID: UUID(),
+      sequence: 1,
+      text: "ready",
+      isFinal: true,
+      monotonicNanoseconds: 1
+    )
+  )
+  while workspace.boundaryTeachingState != .moving(.xPositive) { await Task.yield() }
+  #expect(await voice.signalCount == 2)
+  await jogGate.open()
+  while await machine.jogRequests.isEmpty { await Task.yield() }
+  while workspace.boundaryTeachingState != .idle { await Task.yield() }
+
+  let request = try #require(await machine.jogRequests.only)
+  #expect(request.delta.dx == 5)
+  #expect(request.delta.dy == 0)
+  #expect(request.feedMMPerMinute == 100)
+  #expect(workspace.boundaryPositions.isEmpty)
+  await workspace.stopVoiceListening()
+}
+
+@Test("Partial STOP during boundary motion cancels once and records only its final side")
+@MainActor
+func boundaryStopIsDeduplicatedAndRecordsCancelledPosition() async throws {
+  let jogGate = AsyncGate()
+  let finalPosition = try MachinePosition(x: 3.25, y: 0)
   let machine = MachineFixture(
     outcomes: [.cancelled(finalPosition: finalPosition)],
     cancelOutcomes: [.transmitted]
   )
   let voice = VoiceFixture()
-  let device = testDevice()
-  let workspace = OperatorWorkspace(
-    machineActions: machineActions(machine, jogGate: jogGate),
-    voiceActions: voiceActions(voice),
-    serialDevices: [device]
+  let workspace = await preparedBoundaryWorkspace(
+    machine: machine,
+    voice: voice,
+    jogGate: jogGate
   )
-  await workspace.selectSerialDevice(device)
-  await applyTestLimits(workspace)
-  await workspace.requestPenActuation(.raise)
-  await workspace.startVoiceListening()
-  while await voice.streamSubscriberCount == 0 { await Task.yield() }
-
+  await workspace.beginBoundaryTeaching(.xPositive)
   await voice.yield(
     VoiceTranscript(
       utteranceID: UUID(),
       sequence: 1,
-      text: "x plus",
+      text: "ready",
       isFinal: true,
       monotonicNanoseconds: 1
     )
   )
-  while await jogGate.waiterCount == 0 { await Task.yield() }
+  while workspace.boundaryTeachingState != .moving(.xPositive) { await Task.yield() }
 
+  let stopUtterance = UUID()
   await voice.yield(
     VoiceTranscript(
-      utteranceID: UUID(),
+      utteranceID: stopUtterance,
       sequence: 2,
-      text: "y plus",
-      isFinal: true,
+      text: "stop",
+      isFinal: false,
       monotonicNanoseconds: 2
     )
   )
-  for _ in 0..<20 { await Task.yield() }
+  while await machine.cancelRequestCount == 0 { await Task.yield() }
   await voice.yield(
     VoiceTranscript(
-      utteranceID: UUID(),
+      utteranceID: stopUtterance,
       sequence: 3,
       text: "stop",
-      isFinal: false,
+      isFinal: true,
       monotonicNanoseconds: 3
     )
   )
-  while await machine.cancelRequestCount == 0 { await Task.yield() }
-
-  #expect(await machine.jogRequests.isEmpty)
+  for _ in 0..<20 { await Task.yield() }
   #expect(await machine.cancelRequestCount == 1)
+
   await jogGate.open()
-  while await machine.jogRequests.isEmpty { await Task.yield() }
-  while workspace.jogRequestInProgress { await Task.yield() }
+  while workspace.boundaryTeachingState != .idle { await Task.yield() }
 
   #expect(await machine.jogRequests.count == 1)
-  #expect(workspace.lastMotionOutcomeText == "cancelled at X 0.200 Y 0.000")
+  #expect(workspace.boundaryPositions == [.xPositive: finalPosition])
+  #expect(workspace.boundaryPositionText(for: .xPositive) == "X 3.250 Y 0.000")
+  #expect(workspace.boundaryPositionText(for: .xNegative) == "not measured")
   await workspace.stopVoiceListening()
 }
 
-@Test("A final jog heard during priority cancel is discarded instead of delayed")
+@Test("Natural boundary jog completion records no side")
 @MainActor
-func voiceCancelDiscardsLaterNormalIntent() async {
-  let cancelGate = AsyncGate()
-  let machine = MachineFixture(cancelOutcomes: [.transmitted])
-  let voice = VoiceFixture()
-  let device = testDevice()
-  let workspace = OperatorWorkspace(
-    machineActions: machineActions(machine, cancelGate: cancelGate),
-    voiceActions: voiceActions(voice),
-    serialDevices: [device]
+func completedBoundaryJogDoesNotManufactureBoundary() async throws {
+  let machine = MachineFixture(
+    outcomes: [.acceptedThenCompleted(finalPosition: try MachinePosition(x: 5, y: 0))]
   )
-  await workspace.selectSerialDevice(device)
-  await applyTestLimits(workspace)
-  await workspace.requestPenActuation(.raise)
-  await workspace.startVoiceListening()
-  while await voice.streamSubscriberCount == 0 { await Task.yield() }
+  let voice = VoiceFixture()
+  let workspace = await preparedBoundaryWorkspace(machine: machine, voice: voice)
+  await workspace.beginBoundaryTeaching(.xPositive)
 
   await voice.yield(
     VoiceTranscript(
       utteranceID: UUID(),
       sequence: 1,
-      text: "stop",
-      isFinal: false,
+      text: "ready",
+      isFinal: true,
       monotonicNanoseconds: 1
     )
   )
-  while await cancelGate.waiterCount == 0 { await Task.yield() }
+  while await machine.jogRequests.isEmpty { await Task.yield() }
+  while workspace.boundaryTeachingState != .idle { await Task.yield() }
+
+  #expect(workspace.boundaryPositions.isEmpty)
+  #expect(workspace.boundaryTeachingResultText.contains("No boundary was recorded"))
+  await workspace.stopVoiceListening()
+}
+
+@Test("Speech failure during boundary motion fails closed through Jog Cancel")
+@MainActor
+func boundarySpeechFailureRequestsJogCancel() async throws {
+  let jogGate = AsyncGate()
+  let finalPosition = try MachinePosition(x: 2, y: 0)
+  let machine = MachineFixture(
+    outcomes: [.cancelled(finalPosition: finalPosition)],
+    cancelOutcomes: [.transmitted]
+  )
+  let voice = VoiceFixture()
+  let workspace = await preparedBoundaryWorkspace(
+    machine: machine,
+    voice: voice,
+    jogGate: jogGate
+  )
+  await workspace.beginBoundaryTeaching(.xPositive)
   await voice.yield(
     VoiceTranscript(
       utteranceID: UUID(),
-      sequence: 2,
-      text: "x plus",
+      sequence: 1,
+      text: "ready",
       isFinal: true,
-      monotonicNanoseconds: 2
+      monotonicNanoseconds: 1
     )
   )
-  while workspace.lastVoiceIntentText != "relative X 1.000 Y 0.000 at 100.0 mm/min" {
-    await Task.yield()
-  }
+  while workspace.boundaryTeachingState != .moving(.xPositive) { await Task.yield() }
 
-  await cancelGate.open()
+  await voice.failListening(.recognition("microphone input ended"))
   while await machine.cancelRequestCount == 0 { await Task.yield() }
-  for _ in 0..<20 { await Task.yield() }
 
-  #expect(await machine.jogRequests.isEmpty)
+  #expect(workspace.boundaryTeachingState == .cancelling(.xPositive))
   #expect(await machine.cancelRequestCount == 1)
-  await workspace.stopVoiceListening()
-}
-
-@Test("Invalid jog fields do not block status or pen up and spoken feedback is command-free")
-@MainActor
-func nonmotionVoiceIntentsIgnoreJogDefaults() async throws {
-  let machine = MachineFixture()
-  let voice = VoiceFixture()
-  let device = testDevice()
-  let workspace = OperatorWorkspace(
-    machineActions: machineActions(machine),
-    voiceActions: voiceActions(voice),
-    serialDevices: [device]
-  )
-  await workspace.selectSerialDevice(device)
-  workspace.xStepText = "bad-x"
-  workspace.yStepText = "bad-y"
-  workspace.feedText = "bad-feed"
-  await workspace.startVoiceListening()
-  while await voice.streamSubscriberCount == 0 { await Task.yield() }
-
-  await voice.yield(
-    VoiceTranscript(
-      utteranceID: UUID(),
-      sequence: 1,
-      text: "status",
-      isFinal: true,
-      monotonicNanoseconds: 1
-    )
-  )
-  while workspace.lastVoiceIntentText != "report current facts" { await Task.yield() }
-  for _ in 0..<20 { await Task.yield() }
-
-  await voice.yield(
-    VoiceTranscript(
-      utteranceID: UUID(),
-      sequence: 2,
-      text: "pen up",
-      isFinal: true,
-      monotonicNanoseconds: 2
-    )
-  )
-  while await machine.penRequests.isEmpty { await Task.yield() }
-  for _ in 0..<20 { await Task.yield() }
-
-  await voice.yield(
-    VoiceTranscript(
-      utteranceID: UUID(),
-      sequence: 3,
-      text: "x plus",
-      isFinal: true,
-      monotonicNanoseconds: 3
-    )
-  )
-  while !workspace.lastVoiceActionableResultText.contains("Enter positive numeric") {
-    await Task.yield()
-  }
-  await voice.yield(
-    VoiceTranscript(
-      utteranceID: UUID(),
-      sequence: 4,
-      text: "pen down",
-      isFinal: true,
-      monotonicNanoseconds: 4
-    )
-  )
-  while await voice.spoken.count < 4 { await Task.yield() }
-
-  #expect(await machine.penRequests == [.raise])
-  #expect(await machine.jogRequests.isEmpty)
-  let defaults = try OperatorVoiceSessionDefaults(
-    xStepMM: 1,
-    yStepMM: 1,
-    feedMMPerMinute: 100
-  )
-  for spoken in await voice.spoken {
-    #expect(OperatorVoiceCommandParser.parsePriority(spoken) == nil)
-    #expect(OperatorVoiceCommandParser.parse(spoken, defaults: defaults).acceptedIntent == nil)
-  }
+  await jogGate.open()
+  while workspace.boundaryTeachingState != .idle { await Task.yield() }
+  #expect(workspace.boundaryPositions == [.xPositive: finalPosition])
   await workspace.stopVoiceListening()
 }
 
@@ -1131,7 +1051,7 @@ func typedPenControls() async throws {
     machineActions: machineActions(fixture),
     serialDevices: [device]
   )
-  await workspace.selectSerialDevice(device)
+  await workspace.establishMachineSession(device)
 
   #expect(workspace.penUnavailableReason(for: .raise) == nil)
   #expect(
@@ -1158,13 +1078,15 @@ func truthfulControllerAndMotionProjection() async {
   let device = testDevice()
   let workspace = OperatorWorkspace(
     machineActions: machineActions(fixture),
-    serialDevices: [device]
+    serialDevices: [device],
+    loadSelectedSerialIdentifier: { nil },
+    persistSelectedSerialIdentifier: { _ in }
   )
 
   #expect(workspace.controllerConnectionText == "not selected")
   #expect(workspace.motorPowerText == "unverified")
   #expect(workspace.motionPermissionText == "blocked")
-  #expect(workspace.controllerConnectionActionTitle == "Connect & Inspect Controller")
+  #expect(workspace.controllerConnectionActionTitle == "Connect")
   #expect(
     workspace.workbenchStatusText
       == "Motion blocked: Select and connect one serial device."
@@ -1173,11 +1095,16 @@ func truthfulControllerAndMotionProjection() async {
   #expect(workspace.penStateText == "unknown — no physical pose assumed")
 
   await workspace.selectSerialDevice(device)
-  #expect(workspace.controllerConnectionText == "last inspection responsive")
+  #expect(workspace.controllerConnectionText == "not connected")
+  #expect(!workspace.controllerIsConnected)
+
+  await workspace.connectSelectedController()
+  #expect(workspace.controllerConnectionText == "connected")
+  #expect(workspace.controllerIsConnected)
   #expect(workspace.controllerStateText == "idle")
   #expect(workspace.motorPowerText == "not reported by controller")
   #expect(workspace.motionPermissionText == "blocked")
-  #expect(workspace.controllerConnectionActionTitle == "Refresh Controller State")
+  #expect(workspace.controllerConnectionActionTitle == "Connect")
 
   await applyTestLimits(workspace)
   await workspace.requestPenActuation(.raise)
@@ -1199,7 +1126,7 @@ func independentJogValues() async throws {
     machineActions: machineActions(fixture),
     serialDevices: [device]
   )
-  await workspace.selectSerialDevice(device)
+  await workspace.establishMachineSession(device)
   await applyTestLimits(workspace)
   await workspace.requestPenActuation(.raise)
   workspace.xStepText = "1.25"
@@ -1230,7 +1157,7 @@ func nonPositiveStepMagnitudesAreDisabled() async {
       machineActions: machineActions(fixture),
       serialDevices: [device]
     )
-    await workspace.selectSerialDevice(device)
+    await workspace.establishMachineSession(device)
     await applyTestLimits(workspace)
     await workspace.requestPenActuation(.raise)
     workspace.xStepText = input.x
@@ -1255,7 +1182,7 @@ func serialRefreshDisconnectsDisappearedSelection() async {
     serialDevices: [device],
     serialDeviceDiscovery: { [] }
   )
-  await workspace.selectSerialDevice(device)
+  await workspace.establishMachineSession(device)
   await workspace.requestPassiveProbe()
   await applyTestLimits(workspace)
   await workspace.requestPenActuation(.raise)
@@ -1271,7 +1198,7 @@ func serialRefreshDisconnectsDisappearedSelection() async {
   #expect(workspace.penStateText == "unknown — no physical pose assumed")
 }
 
-@Test("Disconnect and same-path reselect require fresh facts, limits, and a new pen raise")
+@Test("Disconnect preserves the device choice but requires fresh facts, limits, and pen state")
 @MainActor
 func disconnectAndReselectRequireFreshAuthority() async {
   let fixture = MachineFixture()
@@ -1280,7 +1207,7 @@ func disconnectAndReselectRequireFreshAuthority() async {
     machineActions: machineActions(fixture),
     serialDevices: [device]
   )
-  await workspace.selectSerialDevice(device)
+  await workspace.establishMachineSession(device)
   await applyTestLimits(workspace)
   await workspace.requestPenActuation(.raise)
   #expect(workspace.motionUnavailableReason == nil)
@@ -1288,14 +1215,14 @@ func disconnectAndReselectRequireFreshAuthority() async {
   await workspace.disconnectMachineSession()
 
   #expect(await fixture.disconnectCount == 1)
-  #expect(workspace.selectedSerialDevice == nil)
+  #expect(workspace.selectedSerialDevice == device)
   #expect(workspace.machineSnapshot == nil)
   #expect(workspace.passiveProbeResult == nil)
   #expect(!workspace.limitsApplied)
   #expect(workspace.penStateText == "unknown — no physical pose assumed")
   #expect(workspace.minimumXText == "-100")
 
-  await workspace.selectSerialDevice(device)
+  await workspace.establishMachineSession(device)
   #expect(workspace.selectedSerialDevice?.identifier == device.identifier)
   #expect(workspace.passiveProbeResult == nil)
   #expect(!workspace.limitsApplied)
@@ -1341,7 +1268,7 @@ func shutdownTearsDownExactlyOnce() async throws {
     cameraActions: cameraActions(camera),
     serialDevices: [device]
   )
-  await workspace.selectSerialDevice(device)
+  await workspace.establishMachineSession(device)
   await workspace.requestPassiveProbe()
   await applyTestLimits(workspace)
   await workspace.requestPenActuation(.raise)
@@ -1387,7 +1314,7 @@ func shutdownWinsDelayedStartAndSelection() async throws {
     serialDevices: [device]
   )
 
-  let selectTask = Task { await workspace.selectSerialDevice(device) }
+  let selectTask = Task { await workspace.establishMachineSession(device) }
   let startTask = Task { await workspace.startCamera() }
   while true {
     let selectWaiters = await selectGate.waiterCount
@@ -1415,7 +1342,7 @@ func shutdownWinsDelayedStartAndSelection() async throws {
   #expect(workspace.displayedFrame == nil)
 
   await workspace.startCamera()
-  await workspace.selectSerialDevice(device)
+  await workspace.establishMachineSession(device)
   #expect(await camera.startCount == 1)
   #expect(await machine.selectCount == 1)
 }
@@ -1430,7 +1357,7 @@ func shutdownWinsDelayedProbe() async {
     machineActions: machineActions(machine, probeGate: probeGate),
     serialDevices: [device]
   )
-  await workspace.selectSerialDevice(device)
+  await workspace.establishMachineSession(device)
 
   let probeTask = Task { await workspace.requestPassiveProbe() }
   while await probeGate.waiterCount == 0 { await Task.yield() }
@@ -1470,7 +1397,7 @@ func machineStatusProjection() async throws {
     serialDevices: [device]
   )
 
-  await workspace.selectSerialDevice(device)
+  await workspace.establishMachineSession(device)
 
   #expect(workspace.controllerStateText == "hold")
   #expect(workspace.machinePositionText == "X 12.500   Y -3.250")
@@ -1514,6 +1441,65 @@ func cameraProjection() async throws {
   await workspace.discoverCameras()
   #expect(workspace.cameraError == CameraCaptureError.permissionDenied.actionableDescription)
   workspace.stopObserving()
+}
+
+@Test("Camera live status requires a running capture and a current live frame")
+@MainActor
+func cameraLiveStatusRequiresRunningLiveFrame() async throws {
+  let cameraID = CameraDeviceID(rawValue: "camera")
+  let liveFrame = try testDisplayedFrame(
+    source: .live(cameraID),
+    captureNanoseconds: 1_500_000_000
+  )
+  let camera = CameraFixture(
+    snapshot: CameraCaptureSnapshot(
+      devices: [CameraDevice(id: cameraID, name: "Camera")],
+      selectedDeviceID: cameraID,
+      state: .running,
+      latestFrame: liveFrame,
+      error: nil
+    ),
+    simulated: try testDisplayedFrame(source: .simulated)
+  )
+  let workspace = OperatorWorkspace(
+    cameraActions: cameraActions(camera),
+    nowNanoseconds: { 2_000_000_000 }
+  )
+
+  await workspace.startCamera()
+  #expect(workspace.cameraIsLive)
+
+  await camera.setSnapshot(
+    CameraCaptureSnapshot(
+      devices: [CameraDevice(id: cameraID, name: "Camera")],
+      selectedDeviceID: cameraID,
+      state: .ready,
+      latestFrame: liveFrame,
+      error: nil
+    )
+  )
+  await workspace.discoverCameras()
+  #expect(!workspace.cameraIsLive)
+
+  workspace.stopObserving()
+
+  let noFrameCamera = CameraFixture(
+    snapshot: CameraCaptureSnapshot(
+      devices: [CameraDevice(id: cameraID, name: "Camera")],
+      selectedDeviceID: cameraID,
+      state: .running,
+      latestFrame: nil,
+      error: nil
+    ),
+    simulated: try testDisplayedFrame(source: .simulated)
+  )
+  let noFrameWorkspace = OperatorWorkspace(
+    cameraActions: cameraActions(noFrameCamera),
+    nowNanoseconds: { 2_000_000_000 }
+  )
+  await noFrameWorkspace.startCamera()
+  #expect(!noFrameWorkspace.cameraIsLive)
+  noFrameWorkspace.stopObserving()
 }
 
 @Test("Switching to simulator cannot invoke the machine session")
@@ -1582,6 +1568,11 @@ func freshFramePollingWaitsForAValueNewerThanTheBoundary() async throws {
   #expect(await attempts.loadCount == 3)
 }
 
+private enum FixtureMachineFailure: Error, Equatable, Sendable {
+  case select
+  case probe
+}
+
 private actor MachineFixture {
   private(set) var snapshot: RunInterpreterSnapshot
   private var outcomes: [MotionOutcome]
@@ -1589,21 +1580,25 @@ private actor MachineFixture {
   private(set) var observedJogRequests: [PhysicalJogObservationRequest] = []
   private(set) var probeCount = 0
   private(set) var selectCount = 0
+  private(set) var selectedDescriptors: [MachineLinkDescriptor] = []
   private(set) var penRequests: [PenCommand] = []
   private(set) var cancelRequestCount = 0
   private(set) var limitCount = 0
   private(set) var disconnectCount = 0
   private(set) var lastLimits: MotionLimits?
   private var cancelOutcomes: [JogCancelOutcome]
+  private let failure: FixtureMachineFailure?
 
   init(
     snapshot: RunInterpreterSnapshot = testRunSnapshot(),
     outcomes: [MotionOutcome] = [],
-    cancelOutcomes: [JogCancelOutcome] = []
+    cancelOutcomes: [JogCancelOutcome] = [],
+    failure: FixtureMachineFailure? = nil
   ) {
     self.snapshot = snapshot
     self.outcomes = outcomes
     self.cancelOutcomes = cancelOutcomes
+    self.failure = failure
   }
 
   var totalInvocationCount: Int {
@@ -1612,13 +1607,16 @@ private actor MachineFixture {
       + penRequests.count + cancelRequestCount
   }
 
-  func select(_ descriptor: MachineLinkDescriptor) -> RunInterpreterSnapshot {
+  func select(_ descriptor: MachineLinkDescriptor) throws -> RunInterpreterSnapshot {
     selectCount += 1
+    selectedDescriptors.append(descriptor)
+    if failure == .select { throw FixtureMachineFailure.select }
     return snapshot
   }
 
-  func probe() -> PassiveProbeResult {
+  func probe() throws -> PassiveProbeResult {
     probeCount += 1
+    if failure == .probe { throw FixtureMachineFailure.probe }
     let result = PassiveProbeResult(
       link: snapshot.machine.link,
       startedAt: RuntimeTimestamp(monotonicNanoseconds: UInt64(probeCount)),
@@ -1683,6 +1681,32 @@ private actor MachineFixture {
     replaceMachine(limits: limits)
   }
 
+  func beginJog(_ request: RelativeJogRequest) {
+    let machine = snapshot.machine
+    snapshot = RunInterpreterSnapshot(
+      currentOperation: .relativeJog(request),
+      machine: MachineSnapshot(
+        connection: .moving,
+        link: machine.link,
+        lastProbe: machine.lastProbe,
+        blockers: machine.blockers,
+        controllerState: machine.controllerState,
+        position: machine.position,
+        pins: machine.pins,
+        penState: machine.penState,
+        stickyAmbiguity: machine.stickyAmbiguity,
+        motionLimits: machine.motionLimits,
+        operationInFlight: true,
+        lastMotionOutcome: machine.lastMotionOutcome,
+        lastPenOutcome: machine.lastPenOutcome
+      ),
+      lastMotionOutcome: snapshot.lastMotionOutcome,
+      lastPhysicalJogObservationOutcome: snapshot.lastPhysicalJogObservationOutcome,
+      lastPenOutcome: snapshot.lastPenOutcome,
+      lastProbe: snapshot.lastProbe
+    )
+  }
+
   func jog(_ request: RelativeJogRequest) -> MotionOutcome {
     jogRequests.append(request)
     let outcome = outcomes.isEmpty
@@ -1692,7 +1716,12 @@ private actor MachineFixture {
       : outcomes.removeFirst()
     snapshot = RunInterpreterSnapshot(
       currentOperation: .idle,
-      machine: replacing(snapshot.machine, outcome: outcome),
+      machine: replacing(
+        snapshot.machine,
+        connection: .connected,
+        operationInFlight: false,
+        outcome: outcome
+      ),
       lastMotionOutcome: outcome,
       lastProbe: snapshot.lastProbe
     )
@@ -1816,15 +1845,16 @@ private func machineActions(
   OperatorWorkspace.MachineActions(
     select: { descriptor in
       await selectGate?.wait()
-      return await fixture.select(descriptor)
+      return try await fixture.select(descriptor)
     },
     snapshot: { await fixture.snapshot },
     requestPassiveProbe: {
       await probeGate?.wait()
-      return await fixture.probe()
+      return try await fixture.probe()
     },
     updateMotionLimits: { limits in await fixture.updateLimits(limits) },
     requestRelativeJog: { request in
+      await fixture.beginJog(request)
       await jogGate?.wait()
       return await fixture.jog(request)
     },
@@ -1846,8 +1876,10 @@ private actor VoiceFixture {
   private(set) var startCount = 0
   private(set) var stopCount = 0
   private(set) var spoken: [String] = []
+  private(set) var signalCount = 0
   private let authorization: VoiceAuthorizationState
   private var isListening = false
+  private var listeningError: VoiceInteractionError?
 
   init(authorization: VoiceAuthorizationState = .authorized) {
     self.authorization = authorization
@@ -1867,6 +1899,11 @@ private actor VoiceFixture {
     continuation = nil
   }
 
+  func failListening(_ error: VoiceInteractionError) {
+    listeningError = error
+    isListening = false
+  }
+
   func transcripts() -> AsyncStream<VoiceTranscript> {
     let pair = AsyncStream.makeStream(
       of: VoiceTranscript.self,
@@ -1882,9 +1919,15 @@ private actor VoiceFixture {
   }
 
   func snapshot() -> VoiceInteractionSnapshot {
-    VoiceInteractionSnapshot(
+    let state: VoiceListeningState
+    if let listeningError {
+      state = .failed(listeningError)
+    } else {
+      state = isListening ? .listening : .stopped
+    }
+    return VoiceInteractionSnapshot(
       authorization: authorization,
-      listeningState: isListening ? .listening : .stopped,
+      listeningState: state,
       recognitionPolicy: .onDeviceRequired,
       latestTranscript: nil
     )
@@ -1892,6 +1935,10 @@ private actor VoiceFixture {
 
   func speak(_ text: String) {
     spoken.append(text)
+  }
+
+  func signal() {
+    signalCount += 1
   }
 }
 
@@ -1903,7 +1950,8 @@ private func voiceActions(_ fixture: VoiceFixture) -> OperatorWorkspace.VoiceAct
     snapshot: { await fixture.snapshot() },
     transcripts: { await fixture.transcripts() },
     speak: { text in await fixture.speak(text) },
-    stopSpeaking: {}
+    stopSpeaking: {},
+    signal: { await fixture.signal() }
   )
 }
 
@@ -2061,6 +2109,19 @@ private actor FreshValueFixture<Value: Sendable> {
   }
 }
 
+private final class SynchronousStringRecorder: @unchecked Sendable {
+  private let lock = NSLock()
+  private var storage: [String] = []
+
+  var values: [String] {
+    lock.withLock { storage }
+  }
+
+  func append(_ value: String) {
+    lock.withLock { storage.append(value) }
+  }
+}
+
 private func testDevice() -> MachineLinkDescriptor {
   MachineLinkDescriptor(
     identifier: "test-serial",
@@ -2105,12 +2166,14 @@ private func testRunSnapshot(
 
 private func replacing(
   _ machine: MachineSnapshot,
+  connection: MachineConnectionState? = nil,
   pen: PenState? = nil,
   limits: MotionLimits? = nil,
+  operationInFlight: Bool? = nil,
   outcome: MotionOutcome? = nil
 ) -> MachineSnapshot {
   MachineSnapshot(
-    connection: machine.connection,
+    connection: connection ?? machine.connection,
     link: machine.link,
     lastProbe: machine.lastProbe,
     blockers: machine.blockers,
@@ -2120,7 +2183,7 @@ private func replacing(
     penState: pen ?? machine.penState,
     stickyAmbiguity: machine.stickyAmbiguity,
     motionLimits: limits ?? machine.motionLimits,
-    operationInFlight: machine.operationInFlight,
+    operationInFlight: operationInFlight ?? machine.operationInFlight,
     lastMotionOutcome: outcome ?? machine.lastMotionOutcome
   )
 }
@@ -2134,6 +2197,34 @@ private func applyTestLimits(_ workspace: OperatorWorkspace) async {
   workspace.maximumDistanceText = "5"
   workspace.maximumFeedText = "100"
   await workspace.applyMotionLimits()
+}
+
+@MainActor
+private func preparedBoundaryWorkspace(
+  machine: MachineFixture,
+  voice: VoiceFixture,
+  jogGate: AsyncGate? = nil,
+  cancelGate: AsyncGate? = nil
+) async -> OperatorWorkspace {
+  let device = testDevice()
+  let workspace = OperatorWorkspace(
+    machineActions: machineActions(
+      machine,
+      jogGate: jogGate,
+      cancelGate: cancelGate
+    ),
+    voiceActions: voiceActions(voice),
+    serialDevices: [device],
+    loadSelectedSerialIdentifier: { nil },
+    persistSelectedSerialIdentifier: { _ in }
+  )
+  await workspace.selectSerialDevice(device)
+  await workspace.connectSelectedController()
+  await applyTestLimits(workspace)
+  await workspace.requestPenActuation(.raise)
+  await workspace.startVoiceListening()
+  while await voice.streamSubscriberCount == 0 { await Task.yield() }
+  return workspace
 }
 
 @MainActor
@@ -2165,7 +2256,7 @@ private func observationWorkspace(
     cameraActions: cameraActions(camera),
     serialDevices: [device]
   )
-  await workspace.selectSerialDevice(device)
+  await workspace.establishMachineSession(device)
   await applyTestLimits(workspace)
   await workspace.requestPenActuation(.raise)
   await workspace.startCamera()

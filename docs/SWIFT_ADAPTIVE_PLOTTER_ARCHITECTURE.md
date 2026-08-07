@@ -89,13 +89,22 @@ authority, command recovery, or replay.
 The SwiftUI layer owns presentation and operator input. It does not calculate
 machine coordinates or send serial bytes directly.
 
-Native speech is another operator-input adapter, not another authority. It may
-produce only the closed `OperatorVoiceIntent` values accepted by the app
-projection. A priority `STOP` maps specifically to GRBL Jog Cancel for an active
-`$J` request; it is not feed hold, abort, or an emergency stop. Normal voice
-motion still passes through `RunInterpreter` and every `MachineController`
-check. Spoken output describes current typed results and never upgrades
-controller acceptance into physical completion.
+Native speech is another operator-input adapter, not another authority. The app
+must first arm a specific X−, X+, Y−, or Y+ boundary interaction from a visible
+control. The parser receives that state as context: exact `READY` is actionable
+only while the chosen side is awaiting confirmation, and exact `STOP` is
+actionable only while its closed, capped `$J` request is moving. The same words
+heard elsewhere, compound phrases, and the old ambient axis/pen/status grammar
+produce no controller intent. There is no out-of-context priority STOP path.
+
+`STOP` in the moving context maps specifically to GRBL Jog Cancel; it is not
+feed hold, abort, or an emergency stop. A boundary may be recorded only from a
+cancelled jog that reached Idle with a final controller MPos. A jog that reaches
+the requested command cap is ordinary completion and must not be presented as a
+physical extreme. Spoken prompts and a start cue support turn-taking, but the
+app does not emit proximity-dependent beeps without a trusted estimate of
+remaining distance. Spoken output describes current typed results and never
+upgrades controller acceptance into physical completion.
 
 ## 3. Development and concurrency
 
@@ -243,16 +252,20 @@ Old journal files are diagnostics. A new session may always create a new file.
 
 One window is sufficient. It should contain:
 
-- device refresh and explicit serial selection;
-- Connect/Probe and, when implemented, Run/Hold/Abort;
+- one serial-device picker that remembers the last selection without treating
+  selection as connection;
+- one explicit Connect action whose connected presentation requires a
+  successful blocker-free passive inspection;
+- compact current camera-live and plotter-connected red/green indicators;
 - controller status and the last actionable error;
 - camera image;
 - vector preview;
 - current stroke/operation;
 - last command outcome;
 - intended/observed line and simple error after inspection.
-- explicit voice permission/listening/transcript/result state and direct Jog
-  Cancel while the native voice operator is enabled.
+- speech on/off in the Camera menu, explicit permission/listening/transcript/
+  result state, side-arming boundary controls, and visible Jog Cancel fallback
+  during the context-bound teaching interaction.
 
 Raw serial text may be available in a small developer disclosure when needed.
 
@@ -288,6 +301,10 @@ without creating history, replay, or a generalized model platform.
 
 Software task cancellation is not an emergency stop. `Hold` uses the
 controller's feed hold. Emergency stop means the physical power cutoff.
+
+The context-bound boundary interaction requires physical validation on the
+attached plotter before prompt timing, cancellation latency, or recorded final
+MPos values can be claimed as observed behavior.
 
 ## 10. Tests worth keeping
 

@@ -13,6 +13,10 @@ passive probes, bounded relative jogs, and typed pen actuation. A compact flush
 top bar opens five independently collapsible and hideable workbench panels in
 reserved left/right docks. The docks reframe the action surface and never cover
 it; all detailed controls begin hidden so the camera owns the primary area.
+The Controller panel has one remembered device picker and one Connect action;
+selection alone does not open a session. The top right shows current red/green
+camera-live and plotter-connected indicators, and the plotter turns green only
+after a blocker-free passive inspection succeeds.
 
 Controller presentation separates the last responsive serial inspection from
 software eligibility to send a motion request. It explicitly reports that
@@ -21,17 +25,23 @@ proof of energized motors. Pen buttons are actions, not selected-state controls,
 and the adjacent state says commanded Up/Down or unknown without claiming visual
 confirmation.
 
-The Motion dock now also contains a native Voice Operator. The operator starts
-and stops listening explicitly, sees microphone/speech authorization,
-listening state, newest transcript, understood typed intent, current result,
-and the last spoken feedback. Final utterances can request one bounded X/Y jog,
-Pen Up, or current status. Exact partial `STOP` and `cancel jog` utterances take
-the priority Jog Cancel path without waiting for a voice-requested jog to end;
-partial/final repeats from one utterance send one request. Invalid X/Y/feed text
-does not disable STOP. Voice cannot lower the pen or reach the machine in
-SIMULATED mode. Apple's ordinary no-speech interval restarts recognition with a
-bounded 100 ms to 1 s delay while leaving unrelated recognition failures
-terminal and visible.
+Speech is switched on or off from the Camera menu and remains inert outside one
+explicitly armed boundary interaction. The operator chooses X−, X+, Y−, or Y+;
+the app supplies an audible start cue and spoken prompt, then accepts exact
+`READY` only while that side is awaiting confirmation. `READY` starts one
+closed, capped jog. Exact `STOP` is accepted only while that boundary jog is
+moving and requests GRBL Jog Cancel. Wrong-context, ambient, obsolete axis/pen/
+status phrases, and compound phrases are rejected rather than partially
+executed. There is no out-of-context priority STOP path. Apple's ordinary
+no-speech interval still restarts recognition with a bounded 100 ms to 1 s
+delay while unrelated recognition failures remain terminal and visible.
+
+A side is recorded only when cancellation resolves at Idle as
+`MotionOutcome.cancelled(finalPosition:)`; that final controller MPos is the
+measurement. If the jog reaches its command cap, normal completion is reported
+and no boundary is recorded. The software does not increase beep cadence near a
+boundary because it has no trusted remaining-distance estimate. Physical
+validation of this boundary-teaching increment is still pending.
 
 The on/off comparison was run with USB continuously attached. Both states
 returned the same BlackBox X32/grblHAL identity, `Idle`, MPos X/Y 0.000, no
@@ -207,10 +217,10 @@ identity, app distribution configuration, or CI result is required.
 - SIMULATED mode cannot reach the machine action surface for jog or pen commands.
   Ordinary LIVE jog remains camera-independent when observation recording is off.
 - Native Speech/AVAudioEngine input and AVSpeechSynthesizer output remain inside
-  one process. Transcript delivery is newest-only. A closed grammar produces
-  typed relative-jog, Pen Up, status, or Jog Cancel intents; it contains no raw
-  controller payload, Pen Down, arbitrary language-to-action authority, or
-  per-command confirmation workflow.
+  one process. Transcript delivery is newest-only. The application supplies the
+  parser context: only `READY` in `awaitingReady` and `STOP` in `moving` can
+  advance the button-armed boundary interaction. Speech contains no ambient
+  axis, pen, status, raw-controller, or arbitrary language-to-action authority.
 - The signed local bundle declares camera, microphone, and speech-recognition
   purposes. Recognition is currently configured to require Apple's on-device
   path; failure is shown directly rather than silently switching to a network
@@ -323,6 +333,10 @@ open.
 ## Not yet implemented
 
 - Live measurement of preview and auto-analysis throughput/latency on this Mac.
+- Physical validation of the context-bound `READY`/`STOP` boundary workflow,
+  its audible turn-taking, Jog Cancel timing, and final-MPos boundary records.
+- Proximity-dependent beeps; there is no trusted distance-to-boundary estimate
+  from which to derive a safe cadence.
 - Open-ended voice dialogue or OpenAI Realtime integration. A later semantic
   dialogue layer may explain state or collect direct teaching input only by
   proposing the same closed typed intents; it will not own controller access.

@@ -102,7 +102,8 @@ private enum VoiceComposition {
     snapshot: { await driver.snapshot() },
     transcripts: { await driver.transcripts() },
     speak: { text in await speech.speak(text) },
-    stopSpeaking: { await speech.stopSpeaking() }
+    stopSpeaking: { await speech.stopSpeaking() },
+    signal: { await MainActor.run { NSSound.beep() } }
   )
 }
 
@@ -362,6 +363,40 @@ private struct CameraPanel: View {
           .foregroundStyle(.orange)
           .textSelection(.enabled)
       }
+
+      Divider()
+
+      Text("SPEECH")
+        .font(.caption.monospaced().bold())
+        .foregroundStyle(.secondary)
+
+      HStack {
+        Button("Speech On") { Task { await workspace.startVoiceListening() } }
+          .buttonStyle(.borderedProminent)
+          .disabled(workspace.voiceListeningUnavailableReason != nil)
+        Button("Speech Off") { Task { await workspace.stopVoiceListening() } }
+          .disabled(!workspace.voiceListening)
+      }
+      .controlSize(.small)
+
+      Text(
+        "Speech is interpreted only inside an explicitly started boundary-teaching step: READY starts its selected direction, and STOP cancels that moving jog. Other speech cannot become a motion command."
+      )
+      .font(.caption2)
+      .foregroundStyle(.secondary)
+
+      fact("Permission", workspace.voicePermissionText)
+      fact("Listening", workspace.voiceListeningText)
+      fact("Transcript", workspace.voiceTranscriptText)
+      fact("Understood", workspace.lastVoiceIntentText)
+      fact("Voice result", workspace.lastVoiceActionableResultText)
+      fact("Last spoken", workspace.lastSpokenFeedbackText)
+
+      if let reason = workspace.voiceListeningUnavailableReason,
+        !workspace.voiceListening
+      {
+        Text(reason).font(.caption).foregroundStyle(.orange)
+      }
     }
   }
 
@@ -463,46 +498,55 @@ private struct MotionPanel: View {
 
       Divider()
 
-      Text("VOICE OPERATOR")
+      Text("BOUNDARY TEACHING")
         .font(.caption.monospaced().bold())
         .foregroundStyle(.secondary)
 
-      HStack {
-        Button("Start Listening") { Task { await workspace.startVoiceListening() } }
-          .buttonStyle(.borderedProminent)
-          .disabled(workspace.voiceListeningUnavailableReason != nil)
-        Button("Stop Listening") { Task { await workspace.stopVoiceListening() } }
-          .disabled(!workspace.voiceListening)
-        Button("Cancel Jog") {
-          Task {
-            await workspace.handleVoiceIntent(.cancelCurrentMotion)
-          }
-        }
-        .buttonStyle(.bordered)
-        .tint(.orange)
-        .disabled(workspace.jogCancelUnavailableReason != nil)
-      }
-      .controlSize(.small)
-
       Text(
-        "Closed local commands can request a bounded axis move, raise the pen, report current facts, or cancel the current jog. Voice cannot lower the pen. Cancel Jog is a controller jog-cancel request, not an emergency stop."
+        "Choose one side to arm a single interaction. After the signal, physically confirm the pen is up and clear, then say READY to begin that bounded jog. Say STOP at the physical extreme. The recorded MPos is a taught boundary observation, not automatic calibration."
       )
       .font(.caption2)
       .foregroundStyle(.secondary)
 
-      fact("Permission", workspace.voicePermissionText)
-      fact("Listening", workspace.voiceListeningText)
-      fact("Transcript", workspace.voiceTranscriptText)
-      fact("Understood", workspace.lastVoiceIntentText)
-      fact("Voice result", workspace.lastVoiceActionableResultText)
-      fact("Last spoken", workspace.lastSpokenFeedbackText)
-      fact("Jog cancel", workspace.lastJogCancelOutcomeText)
+      LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {
+        ForEach(JogDirection.allCases) { direction in
+          Button("Teach \(direction.shortLabel)") {
+            Task { await workspace.beginBoundaryTeaching(direction) }
+          }
+          .buttonStyle(.borderedProminent)
+          .disabled(workspace.boundaryTeachingUnavailableReason != nil)
+        }
+      }
 
-      if let reason = workspace.voiceListeningUnavailableReason,
-        !workspace.voiceListening
+      if workspace.boundaryTeachingState != .idle {
+        Button("Cancel Boundary Teaching") {
+          Task { await workspace.cancelBoundaryTeaching() }
+        }
+        .buttonStyle(.bordered)
+        .tint(.orange)
+      }
+
+      fact("State", workspace.boundaryTeachingStateText)
+      fact("Result", workspace.boundaryTeachingResultText)
+      ForEach(JogDirection.allCases) { direction in
+        fact("Boundary \(direction.shortLabel)", workspace.boundaryPositionText(for: direction))
+      }
+
+      if let reason = workspace.boundaryTeachingUnavailableReason,
+        workspace.boundaryTeachingState == .idle
       {
         Text(reason).font(.caption).foregroundStyle(.orange)
       }
+
+      Button("Cancel Current Jog") {
+        Task { await workspace.requestJogCancel() }
+      }
+      .buttonStyle(.bordered)
+      .tint(.orange)
+      .disabled(workspace.jogCancelUnavailableReason != nil)
+
+      fact("Jog cancel", workspace.lastJogCancelOutcomeText)
+
       if let reason = workspace.jogCancelUnavailableReason {
         Text("Cancel jog: \(reason)").font(.caption).foregroundStyle(.orange)
       }
@@ -542,53 +586,37 @@ private struct DevicePanel: View {
 
   var body: some View {
     SectionPanel(title: "CONTROLLER SESSION") {
-      Button("Refresh Serial Devices") { Task { await workspace.refreshSerialDevices() } }
-        .disabled(workspace.passiveProbeInProgress || workspace.jogRequestInProgress)
-
-      if workspace.serialDevices.isEmpty {
-        Text("No discovered /dev/cu.* serial devices.")
-          .font(.caption.monospaced())
-          .foregroundStyle(.secondary)
-      } else {
-        ForEach(workspace.serialDevices, id: \.identifier) { device in
-          Button {
+      Picker(
+        "Device",
+        selection: Binding(
+          get: { workspace.selectedSerialDevice },
+          set: { device in
+            guard let device else { return }
             Task { await workspace.selectSerialDevice(device) }
-          } label: {
-            HStack {
-              VStack(alignment: .leading, spacing: 2) {
-                Text(device.displayName)
-                Text(device.bsdPath ?? device.identifier)
-                  .font(.caption2.monospaced())
-                  .foregroundStyle(.secondary)
-              }
-              Spacer()
-              Text(
-                workspace.selectedSerialDevice?.identifier == device.identifier
-                  ? "SELECTED" : "SELECT"
-              )
-              .font(.caption2.monospaced().bold())
-              .foregroundStyle(
-                workspace.selectedSerialDevice?.identifier == device.identifier
-                  ? Color.accentColor : Color.secondary
-              )
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
           }
-          .buttonStyle(.plain)
-          .padding(6)
-          .background(
-            workspace.selectedSerialDevice?.identifier == device.identifier
-              ? Color.accentColor.opacity(0.18) : Color.clear
-          )
-          .clipShape(RoundedRectangle(cornerRadius: 5))
+        )
+      ) {
+        Text("Select a serial device").tag(nil as MachineLinkDescriptor?)
+        ForEach(workspace.serialDevices, id: \.identifier) { device in
+          Text(device.displayName).tag(Optional(device))
         }
       }
+      .pickerStyle(.menu)
+      .disabled(
+        workspace.serialDevices.isEmpty
+          || workspace.passiveProbeInProgress
+          || workspace.jogRequestInProgress
+      )
 
-      Button(workspace.controllerConnectionActionTitle) {
-        Task { await workspace.requestPassiveProbe() }
+      Button("Connect") {
+        Task { await workspace.connectSelectedController() }
       }
         .buttonStyle(.borderedProminent)
-        .disabled(workspace.passiveProbeUnavailableReason != nil)
+        .controlSize(.large)
+        .frame(maxWidth: .infinity)
+        .disabled(
+          workspace.passiveProbeUnavailableReason != nil || workspace.controllerIsConnected
+        )
 
       Text(
         "Connect opens the selected serial session and passively reads identity, controller state, MPos, pins, and limits. It issues no motion or pen command."
@@ -596,15 +624,10 @@ private struct DevicePanel: View {
       .font(.caption2)
       .foregroundStyle(.secondary)
 
-      Button("Disconnect Session") { Task { await workspace.disconnectMachineSession() } }
-        .disabled(
-          workspace.selectedSerialDevice == nil
-            || workspace.passiveProbeInProgress
-            || workspace.jogRequestInProgress
-            || workspace.penRequestInProgress
-        )
-
-      fact("Link", workspace.controllerConnectionText)
+      fact(
+        "Link",
+        workspace.controllerIsConnected ? "CONNECTED" : workspace.controllerConnectionText
+      )
       fact("Controller", workspace.controllerStateText)
       fact("Motor power", workspace.motorPowerText)
       fact("Motion request", workspace.motionPermissionText)
@@ -613,7 +636,10 @@ private struct DevicePanel: View {
         Text(reason).font(.caption).foregroundStyle(.orange)
       }
       if let result = workspace.passiveProbeResult {
-        ControllerInspectionSummary(result: result)
+        ControllerInspectionSummary(
+          result: result,
+          controllerIsConnected: workspace.controllerIsConnected
+        )
       }
     }
   }
@@ -632,12 +658,13 @@ private struct DevicePanel: View {
 
 private struct ControllerInspectionSummary: View {
   let result: PassiveProbeResult
+  let controllerIsConnected: Bool
 
   var body: some View {
     VStack(alignment: .leading, spacing: 4) {
-      Text(result.blockers.isEmpty ? "CONTROLLER CONNECTED" : "CONNECTION NEEDS ATTENTION")
+      Text(controllerIsConnected ? "CONTROLLER CONNECTED" : "CONNECTION NEEDS ATTENTION")
         .font(.caption.monospaced().bold())
-        .foregroundStyle(result.blockers.isEmpty ? Color.secondary : Color.orange)
+        .foregroundStyle(controllerIsConnected ? Color.secondary : Color.orange)
       Text("\(result.exchanges.count) exchanges")
         .font(.caption2.monospaced())
       ForEach(Array(result.blockers.enumerated()), id: \.offset) { entry in

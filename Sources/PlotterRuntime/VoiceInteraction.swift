@@ -1,260 +1,43 @@
 @preconcurrency import AVFoundation
 import Foundation
-import PlotterModel
 @preconcurrency import Speech
 
-public enum OperatorVoiceSessionDefaultsError: Error, Hashable, Sendable {
-  case invalidXStep
-  case invalidYStep
-  case invalidFeed
+/// Speech accepted by the live application is scoped to one explicitly armed
+/// boundary interaction. The context is supplied by the application state; a
+/// word heard outside that state cannot become a controller intent.
+public enum BoundaryVoiceContext: Hashable, Sendable {
+  case awaitingReady
+  case moving
 }
 
-/// The numeric values an operator has already made visible for this session.
-/// Voice commands can use them, but cannot introduce an untyped controller command.
-public struct OperatorVoiceSessionDefaults: Hashable, Sendable {
-  public let xStepMM: Double
-  public let yStepMM: Double
-  public let feedMMPerMinute: Double
-
-  public init(xStepMM: Double, yStepMM: Double, feedMMPerMinute: Double) throws {
-    guard xStepMM.isFinite, xStepMM > 0 else {
-      throw OperatorVoiceSessionDefaultsError.invalidXStep
-    }
-    guard yStepMM.isFinite, yStepMM > 0 else {
-      throw OperatorVoiceSessionDefaultsError.invalidYStep
-    }
-    guard feedMMPerMinute.isFinite, feedMMPerMinute > 0 else {
-      throw OperatorVoiceSessionDefaultsError.invalidFeed
-    }
-    self.xStepMM = xStepMM
-    self.yStepMM = yStepMM
-    self.feedMMPerMinute = feedMMPerMinute
-  }
+public enum BoundaryVoiceCommand: Hashable, Sendable {
+  case ready
+  case stop
 }
 
-/// A deliberately closed voice-to-runtime boundary. There is no raw text,
-/// G-code, byte payload, pen-down command, or safety override in this type.
-public enum OperatorVoiceIntent: Hashable, Sendable {
-  case relativeJog(RelativeJogRequest)
-  case raisePen
-  case requestStatus
-  case cancelCurrentMotion
-
-  public var isPriority: Bool {
-    if case .cancelCurrentMotion = self { return true }
-    return false
-  }
-}
-
-public enum OperatorVoiceParseRejection: Hashable, Sendable {
-  case multipleCommandsNotAllowed
-  case invalidJogSyntax
-  case invalidDistance(String)
-  case invalidFeed(String)
-  case penDownNotAvailable
-  case unrecognizedCommand
-
-  public var actionableDescription: String {
-    switch self {
-    case .multipleCommandsNotAllowed:
-      return "Say one command at a time."
-    case .invalidJogSyntax:
-      return
-        "Say an axis and direction, for example: x plus, or move y minus 0.5 at 60."
-    case .invalidDistance(let value):
-      return "The jog distance '\(value)' must be one finite number greater than zero."
-    case .invalidFeed(let value):
-      return "The jog feed '\(value)' must be one finite number greater than zero."
-    case .penDownNotAvailable:
-      return "Voice control cannot lower the pen. Use a direct typed operator control."
-    case .unrecognizedCommand:
-      return "No command matched. Say x plus, x minus, y plus, y minus, pen up, status, or stop."
-    }
-  }
-}
-
-/// Spoken rejection copy is deliberately separate from the detailed display
-/// reason. These fixed messages contain no accepted voice-command examples, so
-/// synthesizer output cannot teach the live recognizer a physical intent.
-public enum OperatorVoiceSpokenFeedbackPolicy {
-  public static func rejection(_ rejection: OperatorVoiceParseRejection) -> String {
-    switch rejection {
-    case .multipleCommandsNotAllowed:
-      return "Voice request rejected. Give one instruction at a time."
-    case .invalidJogSyntax:
-      return "Voice request rejected. Check the displayed movement syntax."
-    case .invalidDistance:
-      return "Voice request rejected. Check the displayed movement distance."
-    case .invalidFeed:
-      return "Voice request rejected. Check the displayed movement feed."
-    case .penDownNotAvailable:
-      return "Voice request rejected. Voice lowering is unavailable."
-    case .unrecognizedCommand:
-      return "Voice request rejected. Check the displayed instruction list."
-    }
-  }
-
-  public static let invalidSessionDefaults =
-    "Voice request rejected. Enter valid movement values in the visible fields."
-
-  public static let operationAlreadyInFlight =
-    "Voice request refused. Wait for the current operation to finish."
-}
-
-public enum OperatorVoiceParseResult: Hashable, Sendable {
-  case intent(OperatorVoiceIntent)
-  case noCommand
-  case rejected(OperatorVoiceParseRejection)
-
-  public var acceptedIntent: OperatorVoiceIntent? {
-    guard case .intent(let intent) = self else { return nil }
-    return intent
-  }
-
-  public var priorityIntent: OperatorVoiceIntent? {
-    guard case .intent(let intent) = self, intent.isPriority else { return nil }
-    return intent
-  }
-}
-
-public struct OperatorVoiceCommandParser: Sendable {
-  private static let jogPattern = try! NSRegularExpression(
-    pattern:
-      #"^(?:(?:move|jog)\s+)?([xy])\s+(plus|positive|minus|negative)(?:\s+([^\s]+)(?:\s+(?:mm|millimeter|millimeters))?)?(?:\s+(?:at|feed)\s+([^\s]+)(?:\s+(?:mm/min|millimeter per minute|millimeters per minute))?)?$"#,
-    options: []
-  )
-
-  private static let jogPrefixPattern = try! NSRegularExpression(
-    pattern: #"^(?:(?:move|jog)\s+)?[xy]\s+(?:plus|positive|minus|negative)\b"#,
-    options: []
-  )
-
+public struct BoundaryVoiceCommandParser: Sendable {
   public init() {}
 
-  public static func parse(
-    _ transcript: String,
-    defaults: OperatorVoiceSessionDefaults
-  ) -> OperatorVoiceParseResult {
-    Self().parse(transcript, defaults: defaults)
-  }
-
-  /// Defaults-free fast path for the only command allowed to preempt normal
-  /// final-transcript handling. Multi-command speech never reaches this path.
-  public static func parsePriority(_ transcript: String) -> OperatorVoiceIntent? {
-    Self().parsePriority(transcript)
-  }
-
-  public func parsePriority(_ transcript: String) -> OperatorVoiceIntent? {
-    let command = normalized(transcript)
-    guard !command.isEmpty, !hasMultipleCommandBoundary(command) else { return nil }
-    switch command {
-    case "stop", "cancel jog": return .cancelCurrentMotion
-    default: return nil
-    }
-  }
-
-  public func parse(
-    _ transcript: String,
-    defaults: OperatorVoiceSessionDefaults
-  ) -> OperatorVoiceParseResult {
-    let command = normalized(transcript)
-    guard !command.isEmpty else { return .noCommand }
-
-    if hasMultipleCommandBoundary(command) {
-      return .rejected(.multipleCommandsNotAllowed)
-    }
-
-    if let priorityIntent = parsePriority(command) {
-      return .intent(priorityIntent)
-    }
-
-    switch command {
-    case "pen up", "raise pen", "raise the pen":
-      return .intent(.raisePen)
-    case "pen down", "lower pen", "lower the pen":
-      return .rejected(.penDownNotAvailable)
-    case "status", "machine status", "controller status", "report status":
-      return .intent(.requestStatus)
+  public func parse(_ transcript: String, in context: BoundaryVoiceContext) -> BoundaryVoiceCommand? {
+    let words = transcript
+      .lowercased()
+      .unicodeScalars
+      .map { CharacterSet.alphanumerics.contains($0) ? Character(String($0)) : " " }
+    let command = String(words)
+      .split(whereSeparator: { $0.isWhitespace })
+      .joined(separator: " ")
+    switch (context, command) {
+    case (.awaitingReady, "ready"):
+      return .ready
+    case (.moving, "stop"):
+      return .stop
     default:
-      break
-    }
-
-    let range = NSRange(command.startIndex..<command.endIndex, in: command)
-    guard let match = Self.jogPattern.firstMatch(in: command, range: range) else {
-      if Self.jogPrefixPattern.firstMatch(in: command, range: range) != nil {
-        return .rejected(.invalidJogSyntax)
-      }
-      return .rejected(.unrecognizedCommand)
-    }
-
-    guard let axis = capture(1, from: match, in: command),
-      let direction = capture(2, from: match, in: command)
-    else {
-      return .rejected(.invalidJogSyntax)
-    }
-
-    let distanceText = capture(3, from: match, in: command)
-    let feedText = capture(4, from: match, in: command)
-    let defaultDistance = axis == "x" ? defaults.xStepMM : defaults.yStepMM
-
-    let distance: Double
-    if let distanceText {
-      guard let parsed = Double(distanceText), parsed.isFinite, parsed > 0 else {
-        return .rejected(.invalidDistance(distanceText))
-      }
-      distance = parsed
-    } else {
-      distance = defaultDistance
-    }
-
-    let feed: Double
-    if let feedText {
-      guard let parsed = Double(feedText), parsed.isFinite, parsed > 0 else {
-        return .rejected(.invalidFeed(feedText))
-      }
-      feed = parsed
-    } else {
-      feed = defaults.feedMMPerMinute
-    }
-
-    let sign = (direction == "minus" || direction == "negative") ? -1.0 : 1.0
-    let delta = try? Vector2<MachineSpace>(
-      dx: axis == "x" ? sign * distance : 0,
-      dy: axis == "y" ? sign * distance : 0
-    )
-    guard let delta else {
-      return .rejected(.invalidDistance(distanceText ?? String(distance)))
-    }
-    return .intent(
-      .relativeJog(RelativeJogRequest(delta: delta, feedMMPerMinute: feed)))
-  }
-
-  private func normalized(_ transcript: String) -> String {
-    let lowercase = transcript.lowercased().replacingOccurrences(of: "−", with: "-")
-    let trimmed = lowercase.trimmingCharacters(
-      in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ".?!")))
-    return trimmed.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
-  }
-
-  private func hasMultipleCommandBoundary(_ command: String) -> Bool {
-    command.contains(" and ") || command.contains(" then ") || command.contains(";")
-      || command.contains(",")
-  }
-
-  private func capture(
-    _ index: Int,
-    from match: NSTextCheckingResult,
-    in text: String
-  ) -> String? {
-    let range = match.range(at: index)
-    guard range.location != NSNotFound, let swiftRange = Range(range, in: text) else {
       return nil
     }
-    return String(text[swiftRange])
   }
 }
 
-public enum VoiceAuthorizationState: String, Hashable, Sendable {
+ public enum VoiceAuthorizationState: String, Hashable, Sendable {
   case notDetermined
   case authorized
   case speechDenied
@@ -314,7 +97,7 @@ public enum VoiceListeningState: Hashable, Sendable {
 
 public struct VoiceTranscript: Hashable, Sendable {
   /// Stable across every partial and final result from one recognizer cycle.
-  /// Consumers use it to dispatch a priority stop at most once.
+  /// Consumers use it to dispatch a context-bound STOP at most once.
   public let utteranceID: UUID
   public let sequence: UInt64
   public let text: String
@@ -423,7 +206,7 @@ enum VoiceRecognitionRecoveryDisposition: Hashable, Sendable {
 
 /// Apple Speech reports an ordinary quiet recognition interval as
 /// kAFAssistantErrorDomain/1110. Treating that as terminal silently removes
-/// the priority STOP listener. Recovery is deliberately narrow and applies a
+/// the context-bound STOP listener. Recovery is deliberately narrow and applies a
 /// bounded delay so a broken recognizer cannot create a tight restart loop.
 enum VoiceRecognitionRecoveryPolicy {
   static func disposition(
