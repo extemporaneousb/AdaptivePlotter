@@ -118,6 +118,7 @@ final class OperatorWorkspace {
     let snapshot: @Sendable () async -> RunInterpreterSnapshot?
     let requestPassiveProbe: @Sendable () async throws -> PassiveProbeResult
     let activateMotionGuard: @Sendable () async -> MotionGuardActivationOutcome
+    let deactivateMotionGuard: @Sendable () async -> Void
     let requestRelativeJog: @Sendable (RelativeJogRequest) async -> MotionOutcome
     let requestObservedJog: @Sendable (
       PhysicalJogObservationRequest,
@@ -176,6 +177,7 @@ final class OperatorWorkspace {
   private(set) var passiveProbeResult: PassiveProbeResult?
   private(set) var machineSnapshot: RunInterpreterSnapshot?
   private(set) var machineError: String?
+  private(set) var controllerConnectionActionInProgress = false
   private(set) var passiveProbeInProgress = false
   private(set) var jogRequestInProgress = false
   private(set) var penRequestInProgress = false
@@ -588,6 +590,25 @@ final class OperatorWorkspace {
     return nil
   }
 
+  var motionGuardControlTitle: String {
+    motionGuardIsActive ? "Deactivate Motion Guard" : "Activate Motion Guard"
+  }
+
+  var motionGuardControlUnavailableReason: String? {
+    guard motionGuardIsActive else { return motionGuardActivationUnavailableReason }
+    if motionGuardActivationInProgress { return "Motion Guard update is in progress." }
+    if let activePreflightSequenceID {
+      return "Finish or cancel \(PreflightSequenceCatalog.definition(for: activePreflightSequenceID).title)."
+    }
+    guard let snapshot = machineSnapshot else {
+      return MotionRefusal.notConnected.actionableDescription
+    }
+    if snapshot.machine.operationInFlight || snapshot.currentOperation != .idle {
+      return MotionRefusal.operationInFlight.actionableDescription
+    }
+    return nil
+  }
+
   var voicePermissionText: String {
     switch voiceAuthorizationState {
     case .notDetermined: "not requested"
@@ -653,7 +674,31 @@ final class OperatorWorkspace {
   }
 
   var controllerConnectionActionTitle: String {
-    "Connect"
+    controllerLinkIsOpen ? "Disconnect" : "Connect"
+  }
+
+  var controllerConnectionActionUnavailableReason: String? {
+    if controllerConnectionActionInProgress {
+      return "Controller connection action is already in progress."
+    }
+    if controllerLinkIsOpen {
+      if let activePreflightSequenceID {
+        return "Finish or cancel \(PreflightSequenceCatalog.definition(for: activePreflightSequenceID).title)."
+      }
+      if passiveProbeInProgress || jogRequestInProgress || penRequestInProgress
+        || jogCancelRequestInProgress || motionGuardActivationInProgress
+      {
+        return "Wait for the current controller operation."
+      }
+      if machineSnapshot?.machine.operationInFlight == true {
+        return "Wait for the current controller operation."
+      }
+      if let operation = machineSnapshot?.currentOperation, operation != .idle {
+        return "Wait for the current controller operation."
+      }
+      return nil
+    }
+    return passiveProbeUnavailableReason
   }
 
   var boundaryTeachingStateText: String {
@@ -787,7 +832,7 @@ final class OperatorWorkspace {
   var workbenchStatusText: String {
     if let actionableError { return actionableError }
     if !controllerIsConnected { return "Select the remembered controller and press Connect." }
-    if !motionGuardIsActive { return "Plotter connected. Activate Motion to enable calibration." }
+    if !motionGuardIsActive { return "Plotter connected. Activate Motion Guard to enable motion controls." }
     if machineSnapshot?.machine.penState != .up {
       return "Motion Guard active. Run the Pen Up preflight before carriage travel."
     }
@@ -1067,6 +1112,17 @@ final class OperatorWorkspace {
     await machineActions?.disconnect()
     guard canCommit(generation) else { return }
     await clearMachineAuthority(clearSelection: false)
+  }
+
+  func performControllerConnectionAction() async {
+    guard controllerConnectionActionUnavailableReason == nil else { return }
+    controllerConnectionActionInProgress = true
+    defer { controllerConnectionActionInProgress = false }
+    if controllerLinkIsOpen {
+      await disconnectMachineSession()
+    } else {
+      await connectSelectedController()
+    }
   }
 
   /// Updates only the operator's pending device choice. A picker change is not
@@ -1779,6 +1835,30 @@ final class OperatorWorkspace {
       lastMotionGuardActivationText = "refused: \(refusal.actionableDescription)"
       machineError = refusal.actionableDescription
     }
+  }
+
+  func performMotionGuardControlAction() async {
+    guard motionGuardControlUnavailableReason == nil else { return }
+    if motionGuardIsActive {
+      await deactivateMotionGuard()
+    } else {
+      await activateMotionGuard()
+    }
+  }
+
+  private func deactivateMotionGuard() async {
+    guard let generation = beginHardwareIntent() else { return }
+    defer { endHardwareIntent() }
+    guard motionGuardControlUnavailableReason == nil, motionGuardIsActive,
+      let machineActions
+    else { return }
+    motionGuardActivationInProgress = true
+    defer { motionGuardActivationInProgress = false }
+    await machineActions.deactivateMotionGuard()
+    let snapshot = await machineActions.snapshot()
+    guard canCommit(generation) else { return }
+    machineSnapshot = snapshot
+    lastMotionGuardActivationText = "deactivated for this controller session"
   }
 
   func requestJog(_ direction: JogDirection) async {
@@ -2680,6 +2760,16 @@ final class OperatorWorkspace {
     boundaryTeachingResultText = "Choose one side to begin."
     boundaryPositions = [:]
     await clearPreflightAuthority()
+  }
+
+  private var controllerLinkIsOpen: Bool {
+    guard let connection = machineSnapshot?.machine.connection else { return false }
+    switch connection {
+    case .connecting, .connected, .probing, .moving, .actuatingPen:
+      return true
+    case .disconnected, .blocked:
+      return false
+    }
   }
 
   private func clearPreflightAuthority() async {

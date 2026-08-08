@@ -17,6 +17,9 @@ enum MachineSessionComposition {
     activateMotionGuard: {
       await session.activateMotionGuard()
     },
+    deactivateMotionGuard: {
+      await session.deactivateMotionGuard()
+    },
     requestRelativeJog: { request in
       await session.requestRelativeJog(request)
     },
@@ -88,6 +91,10 @@ private actor PersistentMachineSession {
   func activateMotionGuard() async -> MotionGuardActivationOutcome {
     guard let interpreter else { return .refused(.noSerialDeviceSelected) }
     return await interpreter.activateMotionGuard()
+  }
+
+  func deactivateMotionGuard() async {
+    await interpreter?.deactivateMotionGuard()
   }
 
   func requestRelativeJog(_ request: RelativeJogRequest) async -> MotionOutcome {

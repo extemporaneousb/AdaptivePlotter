@@ -313,7 +313,7 @@ same `OperatorWorkspace`. The primary window contains:
 
 - one serial-device picker that remembers the last selection without treating
   selection as connection;
-- one explicit Connect action whose connected presentation requires a
+- one explicit Connect/Disconnect action whose connected presentation requires a
   successful blocker-free passive inspection;
 - compact current camera-live, plotter-connected, and motion-guard indicators;
 - controller status and the last actionable error;

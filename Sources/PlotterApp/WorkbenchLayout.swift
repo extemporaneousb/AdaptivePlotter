@@ -96,6 +96,13 @@ struct WorkbenchLayoutState: Equatable, Sendable {
     panels[panel] = value
   }
 
+  mutating func reveal(_ panel: WorkbenchPanel) {
+    var value = self[panel]
+    value.isVisible = true
+    value.isCollapsed = false
+    panels[panel] = value
+  }
+
   mutating func hideAll() {
     for panel in WorkbenchPanel.allCases {
       hide(panel)

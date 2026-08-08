@@ -98,12 +98,15 @@ struct WorkbenchToolbar: ToolbarContent {
         .disabled(workspace.controllerSelectionUnavailableReason != nil)
         .help("Controller selection is remembered between launches")
 
-        Button("Connect") {
-          Task { await workspace.connectSelectedController() }
+        Button(workspace.controllerConnectionActionTitle) {
+          Task { await workspace.performControllerConnectionAction() }
         }
         .buttonStyle(.borderedProminent)
-        .disabled(
-          workspace.passiveProbeUnavailableReason != nil || workspace.controllerIsConnected
+        .tint(workspace.controllerIsConnected ? .red : .accentColor)
+        .disabled(workspace.controllerConnectionActionUnavailableReason != nil)
+        .help(
+          workspace.controllerConnectionActionUnavailableReason
+            ?? "\(workspace.controllerConnectionActionTitle) the selected controller"
         )
 
         Button("Activate Motion") {
@@ -174,20 +177,34 @@ private struct WorkbenchStatusIndicator: View {
 
 struct WorkbenchStatusBanner: View {
   @Bindable var workspace: OperatorWorkspace
+  @Binding var layout: WorkbenchLayoutState
 
   var body: some View {
-    Label(
-      workspace.workbenchStatusText,
-      systemImage: WorkbenchTopBarStatusStyle.systemImage(
-        needsAttention: workspace.workbenchStatusNeedsAttention
+    Button {
+      layout.reveal(.motion)
+    } label: {
+      HStack(spacing: 6) {
+        Label(
+          workspace.workbenchStatusText,
+          systemImage: WorkbenchTopBarStatusStyle.systemImage(
+            needsAttention: workspace.workbenchStatusNeedsAttention
+          )
+        )
+        .lineLimit(2)
+        Image(systemName: "chevron.right")
+          .font(.caption2.weight(.semibold))
+      }
+      .font(.caption)
+      .foregroundStyle(
+        workspace.workbenchStatusNeedsAttention ? Color.orange : Color.secondary
       )
-    )
-    .font(.caption)
-    .foregroundStyle(workspace.workbenchStatusNeedsAttention ? Color.orange : Color.secondary)
-    .lineLimit(2)
-    .padding(.horizontal, 10)
-    .padding(.vertical, 7)
-    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-    .textSelection(.enabled)
+      .padding(.horizontal, 10)
+      .padding(.vertical, 7)
+      .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+    }
+    .buttonStyle(.plain)
+    .contentShape(RoundedRectangle(cornerRadius: 8))
+    .help("Show Motion controls")
+    .accessibilityHint("Opens and expands the Motion panel")
   }
 }

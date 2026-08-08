@@ -17,10 +17,12 @@ passive probes, bounded relative jogs, and typed pen actuation. A native unified
 macOS toolbar opens independently collapsible and hideable workbench panels in
 reserved left/right docks. The docks reframe the action surface and never cover
 it; all detailed controls begin hidden so the camera owns the primary area.
-The toolbar has one remembered device picker, one Connect action, and one
-Activate Motion action; selection alone does not open a session. It also shows
-current camera-live, plotter-connected, and motion-guard indicators. Plotter
-turns green only after a blocker-free passive inspection.
+The toolbar has one remembered device picker, one Connect/Disconnect action,
+and one Activate Motion action; selection alone does not open a session. It also
+shows current camera-live, plotter-connected, and motion-guard indicators. The
+bottom status is an action that reveals and expands the Motion dock, where the
+session guard can be activated or deactivated. Plotter turns green only after a
+blocker-free passive inspection.
 Motion turns green only when the guard is activated and an ordinary carriage
 request is currently eligible, including a known Pen Up state.
 

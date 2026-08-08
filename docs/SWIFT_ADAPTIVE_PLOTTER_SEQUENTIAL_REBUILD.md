@@ -23,7 +23,7 @@ framework, or polished UI is required for an ordinary feature.
 
 - One local native Swift process owns controller, camera, voice, vision,
   exploration context, and UI.
-- One remembered controller picker, explicit Connect, and explicit Activate
+- One remembered controller picker, explicit Connect/Disconnect, and explicit Activate
   Motion action are the complete operator startup surface.
 - Starting an `ExplorationSession` once keeps speech listening active across
   Motion Preflight and later learning episodes. There is no separate listening

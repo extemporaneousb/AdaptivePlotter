@@ -1554,7 +1554,7 @@ func truthfulControllerAndMotionProjection() async {
   #expect(workspace.motorPowerText == "not reported by controller")
   #expect(workspace.motionPermissionText == "blocked")
   #expect(!workspace.motionGuardIsActive)
-  #expect(workspace.controllerConnectionActionTitle == "Connect")
+  #expect(workspace.controllerConnectionActionTitle == "Disconnect")
 
   await connectAndActivateMotion(workspace)
   #expect(workspace.motionGuardIsActive)
@@ -1568,6 +1568,69 @@ func truthfulControllerAndMotionProjection() async {
   )
   #expect(!workspace.workbenchStatusNeedsAttention)
   #expect(workspace.penStateText == "commanded up — not visually observed")
+}
+
+@Test("Controller connection action toggles between connect and disconnect")
+@MainActor
+func controllerConnectionActionToggles() async {
+  let fixture = MachineFixture()
+  let device = testDevice()
+  let workspace = OperatorWorkspace(
+    machineActions: machineActions(fixture),
+    serialDevices: [device],
+    loadSelectedSerialIdentifier: { nil },
+    persistSelectedSerialIdentifier: { _ in }
+  )
+  await workspace.selectSerialDevice(device)
+
+  #expect(workspace.controllerConnectionActionTitle == "Connect")
+  #expect(workspace.controllerConnectionActionUnavailableReason == nil)
+
+  await workspace.performControllerConnectionAction()
+
+  #expect(workspace.controllerIsConnected)
+  #expect(workspace.controllerConnectionActionTitle == "Disconnect")
+  #expect(workspace.controllerConnectionActionUnavailableReason == nil)
+
+  await workspace.performControllerConnectionAction()
+
+  #expect(await fixture.disconnectCount == 1)
+  #expect(workspace.selectedSerialDevice == device)
+  #expect(!workspace.controllerIsConnected)
+  #expect(workspace.controllerConnectionActionTitle == "Connect")
+  #expect(workspace.controllerConnectionActionUnavailableReason == nil)
+}
+
+@Test("Motion panel control activates and deactivates the session guard")
+@MainActor
+func motionGuardControlToggles() async {
+  let fixture = MachineFixture()
+  let device = testDevice()
+  let workspace = OperatorWorkspace(
+    machineActions: machineActions(fixture),
+    serialDevices: [device]
+  )
+  await workspace.establishMachineSession(device)
+  await workspace.connectSelectedController()
+
+  #expect(workspace.motionGuardControlTitle == "Activate Motion Guard")
+  #expect(workspace.motionGuardControlUnavailableReason == nil)
+
+  await workspace.performMotionGuardControlAction()
+
+  #expect(workspace.motionGuardIsActive)
+  #expect(workspace.motionGuardControlTitle == "Deactivate Motion Guard")
+  #expect(workspace.motionGuardControlUnavailableReason == nil)
+
+  await workspace.performMotionGuardControlAction()
+
+  #expect(await fixture.guardDeactivationCount == 1)
+  #expect(!workspace.motionGuardIsActive)
+  #expect(workspace.motionGuardControlTitle == "Activate Motion Guard")
+  #expect(
+    workspace.motionUnavailableReason
+      == MotionRefusal.motionGuardInactive.actionableDescription
+  )
 }
 
 @Test("X and Y jog values remain independent")
@@ -2305,6 +2368,7 @@ private actor MachineFixture {
   private(set) var penRequests: [PenCommand] = []
   private(set) var cancelRequestCount = 0
   private(set) var guardActivationCount = 0
+  private(set) var guardDeactivationCount = 0
   private(set) var disconnectCount = 0
   private var cancelOutcomes: [JogCancelOutcome]
   private let failure: FixtureMachineFailure?
@@ -2322,7 +2386,8 @@ private actor MachineFixture {
   }
 
   var totalInvocationCount: Int {
-    selectCount + probeCount + guardActivationCount + disconnectCount + jogRequests.count
+    selectCount + probeCount + guardActivationCount + guardDeactivationCount + disconnectCount
+      + jogRequests.count
       + observedJogRequests.count
       + penRequests.count + cancelRequestCount
   }
@@ -2406,6 +2471,18 @@ private actor MachineFixture {
       lastProbe: snapshot.lastProbe
     )
     return .activated
+  }
+
+  func deactivateMotionGuard() {
+    guardDeactivationCount += 1
+    snapshot = RunInterpreterSnapshot(
+      currentOperation: snapshot.currentOperation,
+      machine: replacing(snapshot.machine, motionGuardState: .inactive),
+      lastMotionOutcome: snapshot.lastMotionOutcome,
+      lastPhysicalJogObservationOutcome: snapshot.lastPhysicalJogObservationOutcome,
+      lastPenOutcome: snapshot.lastPenOutcome,
+      lastProbe: snapshot.lastProbe
+    )
   }
 
   func beginJog(_ request: RelativeJogRequest) {
@@ -2578,6 +2655,7 @@ private func machineActions(
       return try await fixture.probe()
     },
     activateMotionGuard: { await fixture.activateMotionGuard() },
+    deactivateMotionGuard: { await fixture.deactivateMotionGuard() },
     requestRelativeJog: { request in
       await fixture.beginJog(request)
       await jogGate?.wait()

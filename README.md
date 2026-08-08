@@ -53,8 +53,8 @@ The repository contains one SwiftPM application with:
 - one persistent selected-device controller session with repeatable passive
   probes and best-effort SQLite diagnostics;
 - one controller picker that remembers the last selected device without
-  connecting on selection, plus one explicit Connect action whose green status
-  requires a successful blocker-free passive inspection;
+  connecting on selection, plus one explicit Connect/Disconnect action whose
+  green status requires a successful blocker-free passive inspection;
 - a closed typed relative-jog command with a session motion guard, controller-
   reported axis feed ceilings, known pen-up state, Idle completion polling,
   end-stop/alarm refusal, and sticky ambiguous outcomes; there is no operator-
@@ -75,7 +75,8 @@ The repository contains one SwiftPM application with:
   controls reserves space and reframes rather than covers the camera surface;
 - compact camera-live, plotter-connected, and motion-guard indicators in the
   toolbar, derived from current capture/frame, controller-inspection, and
-  session-activation facts;
+  session-activation facts, plus a clickable bottom status that reveals and
+  expands the Motion dock and its session Motion Guard control;
 - distinct controller-link, motion-command, and motor-power reporting: a
   responsive USB controller is not presented as proof that motor supply power
   is present;

@@ -151,7 +151,7 @@ struct OperatorWorkspaceView: View {
         VStack {
           Spacer()
           HStack {
-            WorkbenchStatusBanner(workspace: workspace)
+            WorkbenchStatusBanner(workspace: workspace, layout: $layout)
               .frame(maxWidth: 420, alignment: .leading)
             Spacer()
           }
@@ -471,6 +471,17 @@ private struct MotionPanel: View {
       Text("Manual Motion")
         .font(.subheadline.weight(.semibold))
         .foregroundStyle(.secondary)
+
+      Button(workspace.motionGuardControlTitle) {
+        Task { await workspace.performMotionGuardControlAction() }
+      }
+      .buttonStyle(.bordered)
+      .tint(workspace.motionGuardIsActive ? .orange : .green)
+      .disabled(workspace.motionGuardControlUnavailableReason != nil)
+      .help(
+        workspace.motionGuardControlUnavailableReason
+          ?? "Change Motion Guard authorization for this controller session"
+      )
 
       HStack(spacing: 8) {
         numericField("X step", text: $workspace.xStepText)

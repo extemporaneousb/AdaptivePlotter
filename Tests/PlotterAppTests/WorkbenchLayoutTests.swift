@@ -5,6 +5,17 @@ import Testing
 
 @Suite("Camera-first workbench layout")
 struct WorkbenchLayoutTests {
+  @Test("revealing a panel makes it visible and expanded")
+  func revealMakesPanelVisibleAndExpanded() {
+    var layout = WorkbenchLayoutState()
+    layout.toggleCollapsed(.motion)
+
+    layout.reveal(.motion)
+
+    #expect(layout[.motion].isVisible)
+    #expect(!layout[.motion].isCollapsed)
+  }
+
   @Test("all detailed panels begin hidden and remain independently toggleable")
   func visibility() {
     var layout = WorkbenchLayoutState()
