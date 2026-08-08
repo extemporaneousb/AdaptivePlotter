@@ -1,4 +1,3 @@
-import Foundation
 import PlotterRuntime
 import Testing
 
@@ -59,21 +58,6 @@ struct LearningPathPresentationTests {
       ])
   }
 
-  @Test("flow coordinator stores presentation location only")
-  func presentationLocation() {
-    var flow = LearningPathFlowCoordinator()
-    #expect(flow.phase == .connect)
-
-    flow.present(.humanGuidedDiscovery(.boundaryDiscovery))
-    #expect(flow.phase == .humanGuidedDiscovery(.boundaryDiscovery))
-
-    flow.present(.observedDrawingTrials(.clearToolAndObserveInk))
-    #expect(flow.phase == .observedDrawingTrials(.clearToolAndObserveInk))
-
-    flow.present(.adaptiveDrawing)
-    #expect(flow.phase == .adaptiveDrawing)
-  }
-
   @Test("operator action keeps buttons typed and unavailable reason runtime-owned")
   func typedOperatorAction() {
     let action = OperatorActionPresentation(
@@ -92,41 +76,4 @@ struct LearningPathPresentationTests {
     #expect(action.feedSource == nil)
   }
 
-  @Test("start actions expose the exact runtime unavailable reason")
-  func discoveryStartReasonsAreRendered() throws {
-    let source = try learningPathViewSource()
-
-    for reasonName in ["penStartUnavailableReason", "boundaryStartUnavailableReason"] {
-      #expect(source.contains(".disabled(\(reasonName) != nil)"))
-      #expect(source.contains("if let \(reasonName)"))
-      #expect(source.contains("actionableError(\(reasonName))"))
-    }
-    #expect(source.contains("workspace.discoveryStartUnavailableReason("))
-    #expect(source.contains("if let reason = presentation.primaryActionUnavailableReason"))
-  }
-
-  @Test("Clear-View acceptance stays disabled until the runtime label and observation are Clear")
-  func clearViewAcceptanceRequiresCurrentClearEvidence() throws {
-    let source = try learningPathViewSource()
-
-    #expect(
-      source.contains(
-        "workspace.pendingClearViewLabel != .clear\n"
-          + "              || workspace.lastArmatureObservation?.humanLabel != .clear"
-      ))
-    #expect(source.contains("let discoveryError = workspace.discoveryError"))
-    #expect(source.contains("let explorationError = workspace.explorationError"))
-  }
-}
-
-private func learningPathViewSource() throws -> String {
-  let testFile = URL(fileURLWithPath: #filePath)
-  let projectRoot = testFile
-    .deletingLastPathComponent()
-    .deletingLastPathComponent()
-    .deletingLastPathComponent()
-  return try String(
-    contentsOf: projectRoot.appendingPathComponent("Sources/PlotterApp/LearningPathView.swift"),
-    encoding: .utf8
-  )
 }

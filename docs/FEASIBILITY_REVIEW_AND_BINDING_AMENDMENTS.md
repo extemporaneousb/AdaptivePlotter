@@ -6,9 +6,11 @@ Target: one local Mac, one attached plotter, one camera, one operator
 ## Precedence
 
 This document overrides broader or older product descriptions when they conflict
-with the direct authority and evidence rules below. The current five-stage
-Learning Path changes organization and ergonomics only. It does not replace or
-extend mechanical authority.
+with the direct authority and evidence rules below. The five-stage Learning Path
+and its repeat controls organize work and evidence; they do not replace or
+extend mechanical authority. The operator-stopped Boundary Discovery correction
+changes operation lifetime, not its direct controller safeguards or evidence
+threshold.
 
 ## Feasibility verdict
 
@@ -19,7 +21,8 @@ Swift process. The application already has the required narrow owners:
   session;
 - `CameraCapture` and `VisionWorker` for exact-frame capture and measurement;
 - `OperatorWorkspace` for projection and orchestration;
-- SwiftUI for one camera-first workbench and one shared Learning Path;
+- SwiftUI for one camera-first workbench with the Learning Path integrated into
+  the singleton main window;
 - `NativeSpeechAnnouncer` for bounded advisory output only.
 
 The feasible path is empirical and incremental. It does not require entered
@@ -54,6 +57,70 @@ The current deterministic sequences are:
 
 Adaptive Drawing remains Future until multi-stroke observation and checkpoint
 learning are operational.
+
+## Binding workbench interaction
+
+The main frame has three user-resizable vertical regions:
+
+1. a native, selection-driven Learning Path navigator containing the big picture
+   and the exact numbered stage/step order;
+2. the always-mounted camera/action surface, which remains the largest protected
+   region;
+3. the selected exercise detail with instructions, evidence, questions, and a
+   pinned action strip.
+
+There is one singleton application window. No auxiliary Learning Path window,
+Open Learning Path action, fixed custom dock allocator, or exercise-specific
+toolbar Stop belongs in the target. Motion, camera, overlay, and diagnostic
+utilities may use one optional native inspector, which collapses before the
+camera is starved.
+
+`Jog Observations` is not a Learning Path exercise or an inspector utility. Its
+standalone recording surface and jog-response diagnostic model are superseded.
+Repeated learning evidence belongs to the numbered exercise that produced it
+and enters only that exercise's typed attempt set. Do not preserve the old
+workflow by renaming it `Record Another Attempt`.
+
+Path selection is presentation state only. Reviewing a completed/future item
+must not mutate a transaction, accepted evidence, controller/camera state, or
+machine eligibility. The current action remains separately identifiable and a
+Return to Current action restores its selection.
+
+The pinned action strip owns the exercise controls. Start is positive and green;
+Cancel is a distinct red exercise-cancellation intent; contextual Stop is red
+and active only during stoppable motion; Restart appears only for a stopped,
+cancelled, or failed attempt that has a defined restart route. Once an exercise
+starts, typed choices such as YES/NO replace Start when the runtime is awaiting
+that choice. Critical words are structured presentation values, not parsed from
+arbitrary prose.
+
+## Binding revision and attempt semantics
+
+Visible sequence order defines the normal performance order. It does not define
+data invalidation.
+
+`Redo Current Step` creates a replacement attempt. On successful commit, the
+new artifact replaces the accepted artifact for that step and the prior accepted
+artifact becomes superseded. Invalidation follows explicit, transitive data-
+dependency edges from the replaced artifact. A later step with no such edge is
+retained. In particular, redoing Pen Interaction does not invalidate independent
+boundary measurements merely because Pen Interaction precedes Boundary
+Discovery. Current Pen Up remains a direct prerequisite for a new carriage move
+without rewriting historical boundary evidence.
+
+`Record Another Attempt` adds one compatible attempt instead of replacing the
+accepted attempt set. Every attempt retains its provenance and inclusion status.
+The derived aggregate is recomputed from all valid compatible attempts and
+reports the valid count `N` plus the estimator/revision used. Numeric and
+geometric values use a declared estimator with uncertainty; categorical values
+use counts or a typed posterior; current state observations use the latest
+accepted observation. Exact frames, controller events, strings, and state labels
+are not arithmetically averaged. Incompatible camera configuration, coordinate
+space, units, or algorithm revision prevents silent pooling.
+
+An unclear, refused, or ambiguous attempt remains evidence of that outcome but
+does not enter a successful-value aggregate. Neither Redo nor another attempt
+may automatically resend, redraw, expand motion scope, or grant authority.
 
 ## Direct motion eligibility
 
@@ -101,10 +168,11 @@ Controller acceptance, final Idle/MPos, a camera frame, inferred geometry, a
 human label, and observed ink are distinct facts. Only observed ink proves a
 mark.
 
-## Stop contract
+## Cancel and Stop contract
 
-One visible workbench toolbar Stop owns contextual software cancellation. It is
-not the physical emergency cutoff.
+One visible Stop in the persistent exercise action strip owns contextual
+software stopping. It is enabled only for stoppable motion and is not the
+physical emergency cutoff.
 
 For Boundary Discovery the order is binding:
 
@@ -116,10 +184,25 @@ For Boundary Discovery the order is binding:
 6. measure the chosen side and update the posterior;
 7. advance the transaction.
 
+The active discovery owns boundary motion until that Stop event or a real typed
+controller terminal condition such as an asserted limit, alarm, disconnect, or
+fault. Hard-coded application search distances such as an X/Y millimetre cap
+must not terminate the exercise. A finite controller command horizon may be
+renewed only under the same logical owner after an unambiguous completed
+segment, with Stop admission closed before renewal. Natural segment completion
+creates no boundary evidence and cannot be surfaced as successful completion.
+An ambiguous segment is never renewed.
+
 A repeated button press must not emit another cancel. Manual Stop uses the same
 surface and primitive but creates no boundary evidence. Shutdown closes new
 intent admission, settles the already latched owner once, then drains and
 disconnects.
+
+Cancel is an exercise disposition, not an alias for successful Stop. Cancelling
+an attempt during active motion may use the one shared mechanical cancel/settle
+primitive, but it records no boundary or trial success and cannot race a second
+cancel. Restart begins a fresh attempt after the previous owner has settled; it
+never reuses or resends an ambiguous write.
 
 ## Feed contract
 
@@ -189,6 +272,14 @@ Do not introduce:
 - a renamed startup ceremony;
 - persistent workflow restoration or historical replay;
 - a compatibility alias for deleted concepts;
+- an auxiliary Learning Path window or fixed-dock compatibility layout;
+- a standalone Jog Observations surface, jog-response dataset, or renamed
+  compatibility route outside a numbered Learning Path exercise;
+- a hard-coded application travel horizon that normally ends Boundary
+  Discovery before the operator's Stop;
+- invalidation derived from row order instead of declared data dependencies;
+- naïve averaging of frames, categorical labels, controller events, or current
+  state facts;
 - a second process, service, bridge, event bus, or duplicated state owner;
 - ambient natural-language machine control;
 - model-selected movement except a future explicit bounded experiment inside

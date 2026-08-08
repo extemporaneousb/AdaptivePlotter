@@ -36,12 +36,13 @@ tests, bundle privacy declarations, and current UI.
 
 ### Workbench and Learning Path
 
-- One primary camera-first workspace and one shared Learning Path window use the
-  same delegate-owned `OperatorWorkspace`.
-- Detailed Motion, Camera, Overlays, and Learning Path panels start hidden and
-  reserve side rails instead of covering camera pixels.
-- The toolbar owns one device picker, Connect/Disconnect, Enable Motion, one
-  contextual Stop, and compact camera/plotter/motion indicators.
+- The current source still has a primary camera-first workspace plus an
+  auxiliary Learning Path window, a fixed custom dock allocator, a toolbar
+  contextual Stop, and a standalone Jog Observations diagnostic surface.
+- Those presentation surfaces are superseded. The accepted next increment has
+  one singleton window with resizable Learning Path, always-mounted camera, and
+  selected exercise/action regions. Stop moves into the exercise action strip;
+  no separate Learning Path or Jog Observations window/control survives.
 - Visible motion language is Enable Motion, Motion Enabled, or Motion Disabled.
   The internal runtime retains `MotionGuard` as its precise safety type.
 - The Learning Path shows Complete, Current, Next, Future, and Needs Attention,
@@ -52,6 +53,9 @@ tests, bundle privacy declarations, and current UI.
 - Start actions cannot silently no-op; their direct unavailable reason is shown.
 - Clear acceptance is unavailable until the current label and observation are
   both Clear.
+
+The accepted workbench and typed Redo/Record Another Attempt semantics are
+specified but not yet implemented in the source described above.
 
 ### Controller
 
@@ -79,7 +83,8 @@ tests, bundle privacy declarations, and current UI.
 
 - `ContextualStopTarget` covers Boundary Discovery, manual jog, observed jog,
   and drawing trial.
-- The primary toolbar is the only visible contextual software Stop.
+- The primary toolbar is currently the only visible contextual software Stop;
+  that placement is outgoing.
 - Boundary Stop records the operator event before one cancel byte, awaits the
   original owner through Idle/final MPos, captures a strictly newer exact frame,
   updates the selected side posterior, and advances.
@@ -94,6 +99,11 @@ tests, bundle privacy declarations, and current UI.
   dependent on the final human observation of Up.
 - Boundary Discovery supports four directions, but one successful relevant side
   is sufficient for the visible transition.
+- The current implementation uses fixed 300 mm X and 150 mm Y jog horizons and
+  fails the transaction if the request completes before Stop. Those hard-coded
+  horizons are a known defect: the accepted behavior is one operator-stopped
+  logical boundary owner, with a real controller limit/fault producing Needs
+  Attention rather than boundary evidence.
 - Other directions remain optional evidence.
 - Boundary evidence retains final controller MPos, exact post-stop frame and
   configuration, observed tool centroid, side association, uncertainty, and
@@ -127,6 +137,17 @@ tests, bundle privacy declarations, and current UI.
 - Compare Intended and Observed Geometry records one of two typed human
   assessments.
 - Missing or unclear ink is explicit and never triggers redraw.
+
+### Outgoing Jog Observations diagnostic
+
+- The current source can separately record physical jog observations and fit a
+  current-session online jog-response diagnostic.
+- This is not a numbered Learning Path exercise and is inconsistent with the
+  accepted attempt model. The next increment removes its UI, observed-jog Stop
+  target, dataset/model path, tests, and documentation unless an implementation
+  audit proves a lower-level primitive is consumed by a real numbered exercise.
+- `Record Another Attempt` must be implemented on each exercise's typed attempt
+  group and must not rename or wrap this diagnostic.
 
 ### Camera and vision
 
@@ -170,9 +191,9 @@ tests, bundle privacy declarations, and current UI.
 
 ## Automated evidence for this increment
 
-Automated coverage includes:
+The currently recorded automated coverage includes:
 
-- exact five-stage/substep presentation and UI wiring;
+- exact five-stage/substep presentation vocabulary and typed operator actions;
 - one-cancel manual and boundary Stop behavior;
 - Stop-before-cancel event order, Idle/final MPos, exact newer frame, posterior,
   and one-boundary progression;
@@ -220,8 +241,12 @@ The repository's prior attended sessions recorded the following physical facts:
   Up.
 
 Those facts remain bounded to their recorded sessions. They do not validate the
-new integrated Learning Path, spoken cue timing, controller-ceiling boundary
-request, unified Stop progression, or full observed line trial.
+new integrated Learning Path, spoken cue timing, operator-stopped Boundary
+Discovery, unified Stop progression, or full observed line trial.
+
+The recorded jog-response matrix is historical evidence only. Its existence
+does not justify retaining the outgoing Jog Observations product surface or
+model path.
 
 ## Not yet physically verified
 
@@ -232,7 +257,8 @@ unverified for the integrated current build:
 - audible native announcement completion before movement;
 - no audio-input permission prompt in a clean interactive run;
 - Pen Interaction's full physical sequence and final observed Up;
-- Boundary Discovery at the controller-reported ceiling;
+- operator-stopped Boundary Discovery without a hard-coded application travel
+  horizon;
 - one-button one-cancel behavior on the attached controller;
 - exact post-stop frame and visible progression on live hardware;
 - Clear-pose repeatability;
@@ -242,7 +268,8 @@ unverified for the integrated current build:
 
 ## Next attended action
 
-Close any raw SwiftPM process, run `make run-app`, verify one exact bundled
-instance, keep the cutoff reachable, then execute the checklist in
-[First Hardware Session](FIRST_HARDWARE_SESSION.md). Record controller,
-camera, human-observation, and ink evidence separately.
+First land the one-window workbench, attempt model, Jog Observations deletion,
+and operator-stopped Boundary Discovery increment. Then close any raw SwiftPM
+process, run `make run-app`, verify one exact bundled instance, keep the cutoff
+reachable, and execute [First Hardware Session](FIRST_HARDWARE_SESSION.md).
+Record controller, camera, human-observation, and ink evidence separately.

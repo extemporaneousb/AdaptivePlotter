@@ -48,12 +48,11 @@ The following foundation is present:
 - controller `ok` versus Idle/final-MPos distinction;
 - sticky ambiguity and no automatic resend/redraw;
 - internal `MotionGuard` with one visible Enable Motion action;
-- current-session physical jog observation and diagnostic fitting;
 - armature visibility evidence and isolated-ink observation;
 - stable local signing and LaunchServices bundle launch;
 - exact-instance activation and raw-process refusal.
 
-## Work item 1 — Learning Path presentation — implemented
+## Work item 1 — Learning Path sequence model — implemented
 
 The UI presents one numbered path with Complete, Current, Next, Future, and
 Needs Attention. It retains completed rows, uses one current action panel, shows
@@ -62,6 +61,10 @@ reasons.
 
 There is no global percentage, arbitrary stage tab order, second start ceremony,
 or duplicate open action. Adaptive Drawing remains Future.
+
+The outgoing presentation still uses an auxiliary Learning Path window, a fixed
+dock allocator, and toolbar Stop. Those surfaces are superseded by Work item 7
+and must be deleted rather than retained as compatibility routes.
 
 ## Work item 2 — Human-Guided Discovery — implemented in software
 
@@ -73,10 +76,18 @@ and human physical observation remain separate.
 
 ### Boundary Discovery
 
-A typed direction maps to one bounded Pen Up jog. Stop records its event before
-one cancel, awaits the original owner through Idle/final MPos, captures a
-strictly newer exact frame, updates a side posterior, and advances. One relevant
-side is sufficient for the current path; other sides remain optional.
+A typed direction maps to one operator-stopped Pen Up boundary-motion owner.
+Stop records its event before one cancel, awaits the original owner through
+Idle/final MPos, captures a strictly newer exact frame, updates a side posterior,
+and advances. One relevant side is sufficient for the current path; other sides
+remain optional.
+
+The current implementation's fixed 300 mm X and 150 mm Y request horizons are
+superseded. Work item 7 must remove them as normal termination behavior.
+Boundary motion remains one logical attempt until operator Stop or a real
+controller limit, alarm, disconnect, or fault. Finite GRBL segments may continue
+only after unambiguous completion, with Stop closing renewal first; a segment
+completion never becomes boundary evidence and ambiguity is never resent.
 
 ### Clear-View Discovery
 
@@ -87,11 +98,16 @@ evidence for vision-consuming travel, not manual-motion authority.
 Automated behavior is complete. The integrated physical sequence still needs an
 attended run.
 
-## Work item 3 — Unified Stop — implemented in software
+## Work item 3 — Unified Stop runtime — implemented in software
 
-The primary toolbar is the only contextual software Stop. It covers boundary,
-manual, observed-jog, and drawing targets. A target latch prevents repeated
-cancel bytes. Manual cancellation creates no boundary evidence.
+One typed Stop route currently covers boundary, manual, observed-jog, and
+drawing targets. The observed-jog target is outgoing and Work item 7 deletes it
+with its standalone diagnostic workflow. The retained route covers boundary,
+manual, and drawing targets.
+A target latch prevents repeated cancel bytes. Manual cancellation creates no
+boundary evidence. Work item 7 relocates its only visual control from the
+toolbar into the persistent exercise action strip without duplicating the
+runtime route.
 
 Shutdown closes new admission, settles a latched motion once, then drains and
 disconnects. Regression coverage includes the former boundary-stall path and
@@ -133,7 +149,53 @@ It records one attributable episode, exact frames, controller evidence, anchor,
 new-ink observation, residual, and typed human comparison. Unclear ink causes no
 redraw. Physical end-to-end ink validation remains pending.
 
-## Work item 7 — Repeatable geometric learning — next
+## Work item 7 — One-window learning workbench and repeat semantics — next
+
+This is the next coordinated implementation increment. It must:
+
+- retain exactly one singleton main window;
+- delete the auxiliary Learning Path window, Open Learning Path action, fixed
+  custom dock allocator, and exercise-specific toolbar Stop;
+- render a user-resizable Learning Path navigator, always-mounted camera, and
+  selected exercise/action region;
+- keep browsing selection local to the window and distinct from the current
+  runtime step;
+- restore the useful focused question card, current timeline highlighting, and
+  pinned footer hierarchy without restoring removed workflow concepts;
+- render UP, DOWN, YES, NO, STOP, and typed directions as structured accessible
+  cues;
+- provide typed Start, Cancel, Stop, and Restart states with exactly one
+  mechanical cancel path;
+- remove the standalone Jog Observations controls, observed-jog target, online
+  jog-response dataset/model, and associated source/tests/docs unless a
+  lower-level primitive has a concrete typed consumer in a numbered Learning
+  Path exercise; do not preserve or rename that workflow as Record Another
+  Attempt;
+- replace hard-coded 300 mm X / 150 mm Y Boundary Discovery completion with one
+  typed operator-stopped logical owner; prove Stop prevents any segment renewal,
+  natural segment completion creates no evidence, faults become Needs Attention,
+  and ambiguity is never renewed;
+- implement Redo Current Step as atomic accepted-value replacement followed by
+  transitive invalidation over declared data dependencies, not row order;
+- prove that redoing Pen Interaction does not discard independent boundary
+  observations;
+- implement Record Another Attempt as preserved compatible attempts plus a typed
+  aggregate over every valid attempt, with `N`, estimator identity, uncertainty
+  or categorical counts, and full provenance;
+- refuse silent aggregation across incompatible frame/configuration, coordinate,
+  units, or algorithm revisions;
+- remove old source, views, tests, and documentation that encode the outgoing
+  model.
+
+Cancel is not a successful Boundary Stop. During active motion it may share the
+one cancel/settle primitive but records an abandoned attempt and no boundary or
+trial success. Restart begins only after the original owner settles and never
+resends an ambiguous write.
+
+The copy-paste coordinator specification is
+[Learning Workbench Multi-Agent Execution Prompt](implementation/LEARNING_WORKBENCH_MULTI_AGENT_EXECUTION_PROMPT.md).
+
+## Work item 8 — Repeatable geometric learning — after the workbench increment
 
 After the attended single-trial loop is reliable:
 
@@ -146,14 +208,14 @@ After the attended single-trial loop is reliable:
 
 Do not promote a model automatically from trial count or one good residual.
 
-## Work item 8 — Stroke and shape preference — later
+## Work item 9 — Stroke and shape preference — later
 
 Add closed typed candidate shapes only after observed line evidence is reliable.
 Retain exact proposed/executed actions, observed ink, human comparison, and
 residual. Preference or reward summarizes the episode; it cannot hide a refusal
 or ambiguous physical outcome.
 
-## Work item 9 — Active experiment selection — later
+## Work item 10 — Active experiment selection — later
 
 Active learning may select among already safe typed experiments to reduce model
 uncertainty or disagreement. It must show the candidates, selected experiment,
@@ -162,7 +224,7 @@ selection propensity when applicable, expected evidence, and stop boundary.
 It may not create controller text, enlarge physical scope, bypass Enable Motion,
 or turn model confidence into authority.
 
-## Work item 10 — Adaptive Drawing — future
+## Work item 11 — Adaptive Drawing — future
 
 Stage 5 becomes available only after the app supports:
 
@@ -178,6 +240,13 @@ Stage 5 becomes available only after the app supports:
 Software completion requires:
 
 - exact five-stage and numbered-substep presentation tests;
+- one-window selection/action/layout model tests that do not parse source text;
+- dependency-aware Redo replacement and nondependency-retention tests;
+- two-attempt and N-attempt typed aggregation/provenance tests;
+- Cancel-versus-Stop disposition and one-cancel settlement tests;
+- boundary-motion tests covering continuation under one owner, Stop-versus-
+  renewal races, no app-distance completion, limit/fault handling, and no
+  ambiguity resend;
 - one-Stop boundary, manual, and shutdown regression tests;
 - announcement queue order/identity tests;
 - controller-axis feed selection and fallback tests;

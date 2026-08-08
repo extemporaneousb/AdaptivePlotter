@@ -35,9 +35,11 @@ Human-Guided Discovery is ordered as:
 
 1. **3.1 Pen Interaction** — observe Up, authorize and observe Down, retract,
    and finish with an explicit human confirmation of Up.
-2. **3.2 Boundary Discovery** — choose a direction, start one bounded jog, use
-   the contextual Stop, settle at controller Idle with final MPos, capture a
-   strictly newer exact frame, and update that side observation.
+2. **3.2 Boundary Discovery** — choose a direction, start operator-stopped
+   boundary motion, use the contextual Stop at the observed side, settle at
+   controller Idle with final MPos, capture a strictly newer exact frame, and
+   update that side observation. A fixed application travel distance is not a
+   boundary and cannot complete this exercise.
 3. **3.3 Clear-View Discovery** — label an exact frame Blocked, Partial, or
    Clear and accept one repeatable Clear pose.
 
@@ -56,11 +58,58 @@ Observed Drawing Trials are ordered as:
 Only observed ink proves that a mark exists. Adaptive Drawing remains visibly
 Future until multi-stroke observation and checkpoint learning are implemented.
 
-Buttons are authoritative for questions, labels, progression, assessment, and
-Stop. Spoken movement announcements are output-only and advisory. They are
-serialized and completion-aware; a bounded speech-output failure never grants
-authority and never makes the visible buttons unusable. No audio-input or
-speech-recognition subsystem is part of the product.
+The accepted workbench target is one singleton window with three user-resizable
+vertical regions: the Learning Path navigator on the left, the always-mounted
+camera/action surface in the center, and the selected exercise plus its controls
+on the right. Selecting a completed or future row changes presentation only.
+The camera remains visible while the operator reads, starts, answers, stops,
+cancels, retries, or reviews an exercise. There is no auxiliary Learning Path
+window and no launcher panel for one.
+
+The right exercise region keeps the current instruction and action strip
+visible. Critical cues such as **UP**, **DOWN**, **YES**, **NO**, **STOP**, and
+typed directions use structured emphasis rather than undifferentiated prose or
+fragile string parsing. **START** is the positive entry action, **CANCEL**
+abandons the current exercise attempt through its typed cancellation route,
+**STOP** becomes active only for stoppable motion, and **RESTART** is offered
+only after a stopped, cancelled, or failed current attempt can truthfully be
+restarted.
+
+Buttons are authoritative for questions, labels, progression, assessment,
+Cancel, Stop, and Restart. Spoken movement announcements are output-only and
+advisory. They are serialized and completion-aware; a bounded speech-output
+failure never grants authority and never makes the visible buttons unusable. No
+audio-input or speech-recognition subsystem is part of the product.
+
+There is no separate **Jog Observations** exercise or diagnostic control
+surface. Repeated evidence is collected only by **Record Another Attempt** on a
+numbered Learning Path exercise, using that exercise's typed attempt and
+aggregate semantics. The removed jog-response diagnostic must not survive as a
+renamed or hidden compatibility workflow.
+
+## Redo and additional attempts
+
+**Redo Current Step** replaces that step's accepted value with the new accepted
+value. It invalidates the transitive outputs that actually consumed the
+replaced value. Execution order is not itself a data-dependency graph: redoing
+Pen Interaction does not discard independent boundary measurements merely
+because Boundary Discovery followed it in the visible path. Current mechanical
+facts still apply to any new motion without retroactively erasing valid recorded
+evidence.
+
+Replacement is committed atomically after the new attempt succeeds. The old
+value is no longer current and is excluded from derived current results; any
+retained diagnostic record is explicitly marked superseded.
+
+**Record Another Attempt** preserves each compatible attempt and recomputes the
+typed aggregate from all valid attempts in that group. The aggregate exposes its
+valid sample count. Numeric or geometric measurements use their declared
+estimator and uncertainty; categorical observations use counts or a typed
+posterior; current state facts such as observed pen pose use the latest accepted
+observation and are never arithmetically averaged. Exact frames and controller
+events remain provenance, not averageable values. Attempts with incompatible
+camera/configuration identity, units, coordinate space, or algorithm revision
+must not be silently pooled.
 
 ## Direct mechanical authority
 
@@ -89,11 +138,13 @@ Controller `ok` means acceptance, not completion. A jog completes only after
 bounded polling reaches fresh Idle with final MPos. An uncertain outcome becomes
 sticky and is never automatically resent.
 
-## Stop semantics
+## Cancel and Stop semantics
 
-The workbench toolbar owns one visible contextual **Stop** while a typed software
-operation is cancellable. It is not a physical emergency stop; the physical
-power cutoff remains the operator's safety boundary.
+The persistent exercise action strip owns one visible contextual **Stop**. It is
+enabled only while a typed software operation is stoppable. It is not a physical
+emergency stop; the physical power cutoff remains the operator's safety
+boundary. The window toolbar retains global connection and status controls, not
+exercise-specific cancellation.
 
 During Boundary Discovery, Stop has one deterministic order:
 
@@ -104,9 +155,24 @@ During Boundary Discovery, Stop has one deterministic order:
 5. measure and update the relevant boundary observation;
 6. advance the visible sequence.
 
-The same toolbar surface cancels a manual jog without creating boundary
-evidence. Drawing cancellation retains the controller owner's Pen Up behavior;
-an ambiguous outcome causes no follow-on command.
+Boundary motion remains owned by the active discovery attempt until Stop or a
+real controller limit, alarm, disconnect, or other typed fault. The application
+must not end it normally at a hard-coded X/Y distance. Any controller-native
+finite command horizon is an implementation detail that must continue the same
+logical owner without inventing a successful boundary, duplicating motion after
+ambiguity, or racing Stop. Reaching a controller safety limit is Needs Attention,
+not observed-boundary evidence.
+
+The same Stop route cancels a manual jog without creating boundary evidence.
+Drawing Stop retains the controller owner's Pen Up behavior; an ambiguous
+outcome causes no follow-on command.
+
+Cancel is a distinct exercise intent. It never masquerades as a successful
+Boundary Stop and never manufactures boundary, trial, or completion evidence.
+If cancellation must settle active motion, the runtime emits at most the same
+single mechanical cancel and awaits the original owner before marking the
+attempt cancelled. Restart creates a fresh attempt for the same current step;
+it does not resend an ambiguous command or silently revive an old owner.
 
 ## Travel feed selection
 
@@ -189,6 +255,9 @@ can create competing camera/serial owners.
   separates automated, camera, controller, and physical evidence.
 - [Physical session procedure](docs/implementation/FIRST_HARDWARE_SESSION.md)
   is the operator checklist for the next attended hardware pass.
+- [Learning workbench execution prompt](docs/implementation/LEARNING_WORKBENCH_MULTI_AGENT_EXECUTION_PROMPT.md)
+  is the copy-paste coordinator prompt for implementing the accepted one-window
+  UI and dependency-aware attempt semantics.
 
 ## Development contract
 

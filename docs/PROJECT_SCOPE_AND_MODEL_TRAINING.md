@@ -41,6 +41,22 @@ Learning status does not authorize ordinary movement. Manual motion continues to
 depend only on direct machine facts. A stage action may require the evidence it
 actually consumes.
 
+## One-window Learning Path
+
+The Learning Path is integrated into the singleton camera-first main frame. A
+user-resizable left navigator shows the big picture and exact numbered path; the
+camera remains mounted and visible in the center; a user-resizable right region
+shows the selected exercise, evidence, questions, and pinned action controls.
+Browsing a row is presentation only and never advances, resets, or authorizes
+work. The current runtime action remains identifiable while history is reviewed.
+
+The exercise action strip shows only typed operations: Start, contextual choices,
+Cancel, motion-only Stop, Restart after settlement, Redo Current Step, and Record
+Another Attempt where their runtime semantics are available. Critical cues are
+structured and emphasized so UP/DOWN, YES/NO, STOP, and directions cannot be
+lost inside prose. There is no separate Learning Path window or fixed-dock
+compatibility surface.
+
 ## Human-Guided Discovery
 
 ### 3.1 Pen Interaction
@@ -52,10 +68,19 @@ Commanded pen state and observed physical pose remain distinct evidence.
 
 ### 3.2 Boundary Discovery
 
-The operator selects a side, confirms the path is clear, and starts one bounded
-Pen Up jog. One contextual Stop records the choice before one cancel byte is
-issued. The original owner settles at Idle with final MPos; a strictly newer
-exact frame then supplies the tool centroid and drawing-frame side association.
+The operator selects a side, confirms the path is clear, and starts one
+operator-stopped Pen Up boundary motion. One contextual Stop records the choice
+before one cancel byte is issued. The original owner settles at Idle with final
+MPos; a strictly newer exact frame then supplies the tool centroid and
+drawing-frame side association.
+
+Boundary Discovery does not complete at a fixed application-selected travel
+distance. It remains active until the operator stops at the observed side or a
+real controller terminal condition ends the attempt. A controller limit, alarm,
+disconnect, fault, or unambiguous finite-segment completion without Stop yields
+Needs Attention and no boundary evidence. Any continuation across finite
+controller commands remains one logical attempt, admits no renewal after
+ambiguity, and cannot race the Stop latch.
 
 One successful relevant side is sufficient for the current path. Additional
 directions refine the current-session posterior but are not required for manual
@@ -100,6 +125,35 @@ Evidence is typed by what it actually establishes:
 Only observed ink proves a drawn mark. A model candidate, preview, `ok`, Idle,
 or simulator frame cannot substitute.
 
+## Step revisions, dependencies, and attempts
+
+Each accepted step result is a typed artifact revision. It names the exact
+attempt that produced it and the artifact revisions it actually consumed.
+Normal execution remains sequential, but invalidation follows this dependency
+graph rather than sequence number.
+
+Redo Current Step produces a replacement attempt. Once that attempt succeeds,
+its artifact becomes current, the old accepted value becomes superseded, and all
+transitive derived artifacts that consumed the old revision are invalidated.
+Chronologically later but independent evidence is retained. Redoing the current
+Pen Interaction result therefore does not discard recorded boundary
+measurements; current Pen Up may still be required before any new movement.
+
+Record Another Attempt preserves the existing valid attempts and adds one more.
+The visible derived result is recalculated from every valid compatible attempt
+and reports its sample count. Aggregation is type-specific:
+
+- numeric and geometric measurements use a declared estimator and uncertainty;
+- categorical observations use counts, proportions, or a typed posterior;
+- current state facts use the latest accepted observation;
+- exact frames, controller exchanges, text, identifiers, and ambiguity are
+  retained individually and never averaged.
+
+An attempt excluded because it is unclear, refused, ambiguous, or incompatible
+remains visible evidence of that outcome. Camera configuration, algorithm
+revision, units, and coordinate spaces are grouping identities; incompatible
+attempts cannot be silently combined.
+
 ## Episode and dataset contract
 
 `ExplorationEpisode` remains a technical in-memory evidence record. It is not a
@@ -114,25 +168,29 @@ retain:
 - exact frames and camera configuration;
 - anchor, observed ink, residual, human assessment, and termination.
 
+Multiple attempts remain separate episodes or attempt records even when they
+contribute to one typed aggregate. The aggregate references its included attempt
+identities; it never replaces their exact provenance.
+
 The word **training** is reserved for an actual model dataset partition or
-fitting operation. The current online jog-response dataset uses preassigned
-training and reserved observations to fit and evaluate a through-origin
-camera-displacement diagnostic. That candidate grants no motion authority and
-is not promoted automatically.
+fitting operation. There is no standalone Jog Observations workflow or online
+jog-response diagnostic in the target product. A repeated physical observation
+must belong to a numbered Learning Path exercise, retain that exercise's typed
+attempt provenance, and enter only a compatible declared aggregate. Removing
+the old diagnostic does not authorize replacing it with a hidden dataset or a
+renamed compatibility action.
 
 ## Model targets
 
 Near-term models should remain small and attributable:
 
-1. **Tool displacement response** — estimate camera-pixel displacement from
-   closed Pen Up X/Y jogs within one camera configuration.
-2. **Drawing-frame side posterior** — associate exact-frame boundary
+1. **Drawing-frame side posterior** — associate exact-frame boundary
    observations with camera-space sides and retain uncertainty.
-3. **Clear-view overlap** — summarize observed armature/tool overlap in one
+2. **Clear-view overlap** — summarize observed armature/tool overlap in one
    exact camera region and propose a repeatable Clear pose.
-4. **Ink residual** — compare intended anchor-relative line geometry with
+3. **Ink residual** — compare intended anchor-relative line geometry with
    observed new ink.
-5. **Stroke and shape preference** — later, compare candidate physical outcomes
+4. **Stroke and shape preference** — later, compare candidate physical outcomes
    using retained observed-ink evidence.
 
 Models must retain units, coordinate spaces, frame/configuration identity,
@@ -179,7 +237,8 @@ Until then, Stage 5 remains Future.
 
 ## Spoken output and buttons
 
-Buttons own every question, label, assessment, progression decision, and Stop.
+Buttons own every question, label, assessment, progression decision, Cancel,
+Stop, Restart, Redo, and additional-attempt request.
 Spoken announcements are serialized output preceding relevant movement. The app
 awaits a bounded completion outcome and rechecks the typed context. Output
 failure is advisory and does not block the visible action or relax safeguards.
@@ -196,7 +255,8 @@ An attended physical pass should proceed only through the signed bundle:
 3. complete Pen Interaction and leave the pen explicitly observed Up;
 4. choose one Boundary Discovery direction;
 5. confirm the spoken cue finishes before movement;
-6. press Stop once at the observed boundary;
+6. press the contextual Stop in the exercise action strip once at the observed
+   boundary;
 7. verify Idle/final MPos and a strictly newer exact frame;
 8. accept a Clear view;
 9. execute one Observed Drawing Trial;

@@ -1,6 +1,6 @@
 # Attended Hardware Session
 
-Status: operator checklist for the next integrated physical pass
+Status: operator checklist after the accepted one-window workbench increment lands
 Requirement: one operator present with the physical power cutoff reachable
 
 ## Purpose
@@ -8,6 +8,10 @@ Requirement: one operator present with the physical power cutoff reachable
 This pass validates the integrated signed-bundle workflow from Connect through
 one Observed Drawing Trial. It must keep controller, camera, human observation,
 and observed ink claims separate.
+
+Do not use this checklist against the superseded auxiliary-window build. First
+land the one-window workbench, typed attempt semantics, Jog Observations removal,
+and operator-stopped Boundary Discovery described by the canonical plan.
 
 Do not run this checklist unattended. If the operator or reachable cutoff is
 absent, stop and record physical validation as skipped.
@@ -48,6 +52,12 @@ After a successful launch, verify one process, the expected bundle/executable,
 regular foreground activation, and Dock/application-switcher presence. Do not
 use the raw executable for camera or hardware validation.
 
+Verify the singleton main frame shows the resizable Learning Path navigator,
+always-mounted camera, and selected exercise region together. The camera must
+remain visible while navigating and acting. There must be no Open Learning Path
+action, auxiliary Learning Path window, standalone Jog Observations surface, or
+exercise-specific toolbar Stop.
+
 ## 1. Connect
 
 1. Select `/dev/cu.usbserial-A10OF67O` if it remains the attached controller.
@@ -72,8 +82,9 @@ session. It does not establish a workspace envelope or learned boundary.
 
 ## 3.1 Pen Interaction
 
-1. Open the Learning Path and verify the exact five stages remain visible.
-2. Begin Pen Interaction.
+1. Select Pen Interaction in the integrated Learning Path and verify the exact
+   five stages remain visible.
+2. Press the exercise action strip's green **Start**.
 3. Observe the mechanism before answering whether the pen is Up.
 4. Confirm the visible lowering cue appears first.
 5. Confirm the complete spoken lowering announcement finishes before actuation.
@@ -100,7 +111,7 @@ Do not infer pen height from controller state or one camera frame.
 3. Answer YES only when the path is clear and the cutoff is reachable.
 4. Confirm the complete spoken movement announcement finishes before motion.
 5. Observe movement directly.
-6. Press the one toolbar **Stop** once at the observed boundary.
+6. Press the one exercise action strip **Stop** once at the observed boundary.
 7. Do not press any secondary cancellation control; none should exist.
 
 Verify and record in order:
@@ -115,7 +126,11 @@ Verify and record in order:
 7. the Learning Path advances to Clear-View Discovery after this one relevant
    boundary.
 
-Natural completion at the bounded search horizon is not a boundary observation.
+There must be no normal fixed-distance completion before Stop. A controller
+limit, alarm, disconnect, or fault ends the attempt as Needs Attention and is
+not a boundary observation. If an underlying finite segment completes while the
+attempt remains healthy, continuation stays under the same logical owner and
+must not duplicate after Stop or ambiguity.
 Requested feed is not proof of achieved physical speed.
 
 ## 3.3 Clear-View Discovery
@@ -158,6 +173,8 @@ During the pass verify:
 - no audio-input permission prompt or input-level presentation appears;
 - buttons remain usable if spoken output fails or times out;
 - no ambient speech can answer, move, or Stop;
+- no standalone Jog Observations control or online jog-response diagnostic is
+  presented as part of the Learning Path;
 - ordinary manual XY jog remains available from direct machine facts without
   requiring Learning Path completion;
 - SIMULATED mode cannot reach controller actions or create physical evidence;
@@ -171,7 +188,9 @@ Stop the attempt immediately if:
 - an unexpected instance owns camera or serial resources;
 - controller state, pins, position, pen state, or sticky ambiguity is unclear;
 - movement starts before its full spoken cue finishes;
-- one toolbar Stop emits more than one cancellation;
+- one action-strip Stop emits more than one cancellation;
+- Boundary Discovery ends normally at an application-selected travel distance
+  instead of waiting for Stop;
 - the original owner does not settle at Idle with final MPos;
 - frame provenance crosses camera configurations;
 - the app proposes resend, resume, or redraw after uncertainty;
