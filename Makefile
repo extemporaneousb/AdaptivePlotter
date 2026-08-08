@@ -1,6 +1,22 @@
-.PHONY: build app launcher run-app validate-app validate-launcher test check strict-check
+.PHONY: help build app launcher run-app validate-app validate-launcher test check strict-check
 
 SWIFT_FLAGS ?=
+
+help:
+	@printf '%s\n' \
+		'Usage: make <target> [SWIFT_FLAGS="..."]' \
+		'' \
+		'Targets:' \
+		'  help               Show this help.' \
+		'  build              Compile the Swift package.' \
+		'  app                Build the signed local application bundle.' \
+		'  launcher           Build the single-instance application launcher.' \
+		'  run-app            Build and launch the supported local application.' \
+		'  validate-app       Validate the application bundle and launcher.' \
+		'  validate-launcher  Test launcher identity and instance handling.' \
+		'  test               Run the Swift test suite in parallel.' \
+		'  check              Validate the app, tests, and repository contract.' \
+		'  strict-check       Run check with strict concurrency and warnings as errors.'
 
 build:
 	swift build $(SWIFT_FLAGS)
