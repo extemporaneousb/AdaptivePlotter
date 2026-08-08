@@ -486,6 +486,7 @@ func simulatorSwitchCannotHidePhysicalPreflight() async throws {
     machineActions: machineActions(machine),
     cameraActions: cameraActions(camera),
     voiceActions: voiceActions(voice),
+    explorationActions: explorationActions(voice),
     serialDevices: [device],
     nowNanoseconds: { 1 }
   )
@@ -494,6 +495,7 @@ func simulatorSwitchCannotHidePhysicalPreflight() async throws {
   await workspace.connectSelectedController()
   await workspace.activateMotionGuard()
   await workspace.startCamera()
+  await workspace.startExploration()
   await workspace.startPreflightSequence(.penUpConfirmation)
   while await voice.streamSubscriberCount == 0 { await Task.yield() }
 
@@ -504,7 +506,7 @@ func simulatorSwitchCannotHidePhysicalPreflight() async throws {
   #expect(workspace.voiceListening)
   #expect(
     workspace.cameraError
-      == "Finish or cancel the active Motion Preflight before switching frame source."
+      == "End Exploration before changing its live/simulated authority."
   )
   #expect(await camera.simulatorCount == 0)
 
@@ -912,6 +914,7 @@ func penUpPreflightOwnsSpeechAndExactFrame() async throws {
     machineActions: machineActions(machine),
     cameraActions: cameraActions(camera),
     voiceActions: voiceActions(voice),
+    explorationActions: explorationActions(voice),
     serialDevices: [device],
     nowNanoseconds: { 42 }
   )
@@ -920,6 +923,7 @@ func penUpPreflightOwnsSpeechAndExactFrame() async throws {
   await workspace.connectSelectedController()
   await workspace.activateMotionGuard()
   await workspace.startCamera()
+  await workspace.startExploration()
   await workspace.startPreflightSequence(.penUpConfirmation)
   for _ in 0..<2_000 {
     if await voice.streamSubscriberCount > 0 { break }
@@ -950,8 +954,8 @@ func penUpPreflightOwnsSpeechAndExactFrame() async throws {
 
   let transaction = try #require(workspace.preflightTransactions[.penUpConfirmation])
   #expect(transaction.state == .succeeded)
-  #expect(await voice.stopCount == 1)
-  #expect(!workspace.voiceListening)
+  #expect(await voice.stopCount == 0)
+  #expect(workspace.voiceListening)
   #expect(await machine.penRequests == [.raise])
   #expect(
     transaction.evidenceSummaries.contains {
@@ -963,7 +967,7 @@ func penUpPreflightOwnsSpeechAndExactFrame() async throws {
   #expect(await camera.sceneInspectionBoundaries == [42])
 }
 
-@Test("Changing camera authority tears down an awaiting preflight microphone")
+@Test("Changing camera authority is refused while persistent exploration owns it")
 @MainActor
 func cameraAuthorityChangeStopsPreflightListening() async throws {
   let firstCamera = CameraDevice(id: CameraDeviceID(rawValue: "camera-a"), name: "Camera A")
@@ -989,6 +993,7 @@ func cameraAuthorityChangeStopsPreflightListening() async throws {
     machineActions: machineActions(machine),
     cameraActions: cameraActions(camera),
     voiceActions: voiceActions(voice),
+    explorationActions: explorationActions(voice),
     serialDevices: [device],
     nowNanoseconds: { 126 }
   )
@@ -997,6 +1002,7 @@ func cameraAuthorityChangeStopsPreflightListening() async throws {
   await workspace.connectSelectedController()
   await workspace.activateMotionGuard()
   await workspace.startCamera()
+  await workspace.startExploration()
   await workspace.startPreflightSequence(.penUpConfirmation)
   for _ in 0..<2_000 {
     if await voice.streamSubscriberCount > 0 { break }
@@ -1007,14 +1013,20 @@ func cameraAuthorityChangeStopsPreflightListening() async throws {
 
   await workspace.selectCamera(secondCamera.id)
 
-  #expect(await voice.stopCount == 1)
-  #expect(!workspace.voiceListening)
-  #expect(workspace.activePreflightSequenceID == nil)
-  #expect(workspace.preflightTransactions.isEmpty)
+  #expect(await voice.stopCount == 0)
+  #expect(workspace.voiceListening)
+  #expect(workspace.activePreflightSequenceID == .penUpConfirmation)
+  #expect(workspace.selectedCameraID == firstCamera.id)
+  #expect(workspace.cameraError == "End Exploration before changing its camera configuration.")
+
+  await workspace.cancelPreflightSequence(.penUpConfirmation)
+  await workspace.endExploration()
+  await workspace.selectCamera(secondCamera.id)
+  #expect(await voice.stopCount >= 1)
   #expect(workspace.selectedCameraID == secondCamera.id)
 }
 
-@Test("Camera restart cancels and settles boundary motion before erasing preflight authority")
+@Test("Camera restart cannot reconfigure an active exploration boundary motion")
 @MainActor
 func cameraRestartSettlesBoundaryMotionBeforeAuthorityErasure() async throws {
   let cameraID = CameraDeviceID(rawValue: "camera")
@@ -1041,6 +1053,7 @@ func cameraRestartSettlesBoundaryMotionBeforeAuthorityErasure() async throws {
     machineActions: machineActions(machine, jogGate: jogGate),
     cameraActions: cameraActions(camera),
     voiceActions: voiceActions(voice),
+    explorationActions: explorationActions(voice),
     serialDevices: [device],
     nowNanoseconds: { 2 }
   )
@@ -1050,6 +1063,7 @@ func cameraRestartSettlesBoundaryMotionBeforeAuthorityErasure() async throws {
   await workspace.activateMotionGuard()
   await workspace.requestPenActuation(.raise)
   await workspace.startCamera()
+  await workspace.startExploration()
   await workspace.startPreflightSequence(.boundaryPositiveX)
   while await voice.streamSubscriberCount == 0 { await Task.yield() }
   await voice.yield(
@@ -1063,26 +1077,29 @@ func cameraRestartSettlesBoundaryMotionBeforeAuthorityErasure() async throws {
   )
   while workspace.boundaryTeachingState != .moving(.xPositive) { await Task.yield() }
 
-  let restartTask = Task { await workspace.restartCamera() }
-  while await machine.cancelRequestCount == 0 { await Task.yield() }
-
+  await workspace.restartCamera()
   #expect(await camera.restartCount == 0)
-  #expect(workspace.boundaryTeachingState == .cancelling(.xPositive))
-  #expect(workspace.preflightTransactions[.boundaryPositiveX]?.state == .cancelling)
+  #expect(workspace.boundaryTeachingState == .moving(.xPositive))
+  #expect(workspace.cameraError == "End Exploration before restarting its camera configuration.")
 
+  let cancelTask = Task { await workspace.cancelPreflightSequence(.boundaryPositiveX) }
+  while await machine.cancelRequestCount == 0 { await Task.yield() }
   await jogGate.open()
-  await restartTask.value
+  await cancelTask.value
+  for _ in 0..<2_000 {
+    if workspace.boundaryTeachingState == .idle { break }
+    await Task.yield()
+  }
 
   #expect(await machine.cancelRequestCount == 1)
-  #expect(await camera.restartCount == 1)
+  #expect(await camera.restartCount == 0)
   #expect(workspace.boundaryTeachingState == .idle)
-  #expect(workspace.preflightTransactions.isEmpty)
-  #expect(!workspace.voiceListening)
+  #expect(workspace.voiceListening)
 }
 
-@Test("Camera authority change invalidates suspended preflight microphone authorization")
+@Test("camera selection is refused while exploration microphone startup is suspended")
 @MainActor
-func cameraAuthorityChangeInvalidatesSuspendedAuthorization() async throws {
+func cameraSelectionRefusesSuspendedExplorationStartup() async throws {
   let firstCamera = CameraDevice(id: CameraDeviceID(rawValue: "camera-a"), name: "Camera A")
   let secondCamera = CameraDevice(id: CameraDeviceID(rawValue: "camera-b"), name: "Camera B")
   let displayedFrame = try testDisplayedFrame(source: .live(firstCamera.id))
@@ -1096,14 +1113,15 @@ func cameraAuthorityChangeInvalidatesSuspendedAuthorization() async throws {
     ),
     simulated: displayedFrame
   )
-  let authorizationGate = AsyncGate()
-  let voice = VoiceFixture(authorizationGate: authorizationGate)
+  let startupGate = AsyncGate()
+  let voice = VoiceFixture(startupGate: startupGate)
   let machine = MachineFixture()
   let device = testDevice()
   let workspace = OperatorWorkspace(
     machineActions: machineActions(machine),
     cameraActions: cameraActions(camera),
     voiceActions: voiceActions(voice),
+    explorationActions: explorationActions(voice),
     serialDevices: [device],
     nowNanoseconds: { 2 }
   )
@@ -1112,23 +1130,25 @@ func cameraAuthorityChangeInvalidatesSuspendedAuthorization() async throws {
   await workspace.connectSelectedController()
   await workspace.activateMotionGuard()
   await workspace.startCamera()
-  let preflightTask = Task { await workspace.startPreflightSequence(.penUpConfirmation) }
-  while await authorizationGate.waiterCount == 0 { await Task.yield() }
+  let startTask = Task { await workspace.startExploration() }
+  while await startupGate.waiterCount == 0 { await Task.yield() }
 
   await workspace.selectCamera(secondCamera.id)
-  await authorizationGate.open()
-  await preflightTask.value
+  await startupGate.open()
+  await startTask.value
 
-  #expect(await voice.startCount == 0)
-  #expect(!workspace.voiceListening)
-  #expect(!(await voice.isCurrentlyListening))
+  #expect(await voice.startCount == 1)
+  #expect(workspace.voiceListening)
+  #expect(await voice.isCurrentlyListening)
   #expect(workspace.preflightTransactions.isEmpty)
-  #expect(workspace.selectedCameraID == secondCamera.id)
+  #expect(workspace.selectedCameraID == firstCamera.id)
+  #expect(workspace.cameraError == "End Exploration before changing its camera configuration.")
+  await workspace.endExploration()
 }
 
-@Test("Cancelling preflight invalidates and stops suspended microphone startup")
+@Test("ending exploration invalidates suspended microphone startup")
 @MainActor
-func preflightCancellationInvalidatesSuspendedMicrophoneStartup() async throws {
+func explorationEndInvalidatesSuspendedMicrophoneStartup() async throws {
   let cameraID = CameraDeviceID(rawValue: "camera")
   let displayedFrame = try testDisplayedFrame(source: .live(cameraID))
   let camera = CameraFixture(
@@ -1149,6 +1169,7 @@ func preflightCancellationInvalidatesSuspendedMicrophoneStartup() async throws {
     machineActions: machineActions(machine),
     cameraActions: cameraActions(camera),
     voiceActions: voiceActions(voice),
+    explorationActions: explorationActions(voice),
     serialDevices: [device],
     nowNanoseconds: { 2 }
   )
@@ -1157,23 +1178,20 @@ func preflightCancellationInvalidatesSuspendedMicrophoneStartup() async throws {
   await workspace.connectSelectedController()
   await workspace.activateMotionGuard()
   await workspace.startCamera()
-  let preflightTask = Task { await workspace.startPreflightSequence(.penUpConfirmation) }
+  let startTask = Task { await workspace.startExploration() }
   while await startupGate.waiterCount == 0 { await Task.yield() }
   #expect(await voice.isCurrentlyListening)
 
-  await workspace.cancelPreflightSequence(.penUpConfirmation)
-  #expect(
-    workspace.preflightStartUnavailableReason(for: .penUpConfirmation)?
-      .contains("previous Motion Preflight microphone request") == true
-  )
+  await workspace.endExploration()
   await startupGate.open()
-  await preflightTask.value
+  await startTask.value
 
   #expect(await voice.startCount == 1)
   #expect(await voice.stopCount >= 1)
   #expect(!(await voice.isCurrentlyListening))
   #expect(!workspace.voiceListening)
-  #expect(workspace.preflightTransactions[.penUpConfirmation]?.state == .cancelled)
+  #expect(workspace.preflightTransactions.isEmpty)
+  #expect(workspace.explorationSessionSnapshot?.state == .inactive)
 }
 
 @Test("Boundary preflight updates the drawing-frame posterior from the exact inspected frame")
@@ -1219,6 +1237,7 @@ func boundaryPreflightUpdatesExactFramePosterior() async throws {
     machineActions: machineActions(machine, jogGate: jogGate),
     cameraActions: cameraActions(camera),
     voiceActions: voiceActions(voice),
+    explorationActions: explorationActions(voice),
     serialDevices: [device],
     nowNanoseconds: { 84 }
   )
@@ -1228,6 +1247,7 @@ func boundaryPreflightUpdatesExactFramePosterior() async throws {
   await workspace.activateMotionGuard()
   await workspace.requestPenActuation(.raise)
   await workspace.startCamera()
+  await workspace.startExploration()
   await workspace.startPreflightSequence(.boundaryPositiveX)
   for _ in 0..<2_000 {
     if await voice.streamSubscriberCount > 0 { break }
@@ -1274,8 +1294,11 @@ func boundaryPreflightUpdatesExactFramePosterior() async throws {
   #expect(workspace.boundaryPositions[.xPositive] == finalPosition)
   #expect(posterior.observationCount == 1)
   #expect(posterior.observations[0].controllerPosition == finalPosition)
-  #expect(posterior.estimate.geometry.points[0].y == -0.25)
-  #expect(posterior.estimate.geometry.points[1].y == -0.25)
+  #expect(posterior.estimate == nil)
+  let positiveXSide = try #require(posterior.sidePosteriors[.positiveX])
+  #expect(positiveXSide.geometry.points[0].y < 0)
+  #expect(positiveXSide.geometry.points[1].y < 0)
+  #expect(positiveXSide.standardDeviationPixels < 20)
   #expect(posterior.latestObservationKey.frameID == inspectionFrame.frame.id)
   #expect(
     posterior.latestObservationKey.cameraConfigurationID
@@ -1284,10 +1307,10 @@ func boundaryPreflightUpdatesExactFramePosterior() async throws {
   #expect(
     workspace.cameraOverlays.contains {
       $0.frameID == inspectionFrame.frame.id
-        && $0.provenance.algorithmRevision == "motion-preflight-posterior-v1"
+        && $0.provenance.algorithmRevision == "motion-preflight-posterior-v2"
     }
   )
-  #expect(await voice.stopCount == 1)
+  #expect(await voice.stopCount == 0)
   #expect(await camera.sceneInspectionBoundaries == [84])
 }
 
@@ -2117,6 +2140,7 @@ func simulatorPreflightRehearsalIsPresentationOnly() async throws {
     machineActions: machineActions(machine),
     cameraActions: cameraActions(camera),
     voiceActions: voiceActions(voice),
+    explorationActions: explorationActions(voice),
     preflightRehearsalStepDelayNanoseconds: 0
   )
 
@@ -2157,6 +2181,7 @@ func simulatorVoicePracticeUsesMicrophoneWithoutPhysicalAuthority() async throws
     machineActions: machineActions(machine),
     cameraActions: cameraActions(camera),
     voiceActions: voiceActions(voice),
+    explorationActions: explorationActions(voice),
     preflightRehearsalStepDelayNanoseconds: 0
   )
 
@@ -2252,6 +2277,7 @@ func disablingSimulatorVoicePracticeTearsDownTransaction() async throws {
   let workspace = OperatorWorkspace(
     cameraActions: cameraActions(camera),
     voiceActions: voiceActions(voice),
+    explorationActions: explorationActions(voice),
     preflightRehearsalStepDelayNanoseconds: 0
   )
 
@@ -2361,6 +2387,7 @@ private actor MachineFixture {
   private(set) var snapshot: RunInterpreterSnapshot
   private var outcomes: [MotionOutcome]
   private(set) var jogRequests: [RelativeJogRequest] = []
+  private(set) var drawingStrokeRequests: [DrawingStrokeRequest] = []
   private(set) var observedJogRequests: [PhysicalJogObservationRequest] = []
   private(set) var probeCount = 0
   private(set) var selectCount = 0
@@ -2388,7 +2415,7 @@ private actor MachineFixture {
   var totalInvocationCount: Int {
     selectCount + probeCount + guardActivationCount + guardDeactivationCount + disconnectCount
       + jogRequests.count
-      + observedJogRequests.count
+      + drawingStrokeRequests.count + observedJogRequests.count
       + penRequests.count + cancelRequestCount
   }
 
@@ -2532,6 +2559,33 @@ private actor MachineFixture {
     return outcome
   }
 
+  func drawingStroke(_ request: DrawingStrokeRequest) -> DrawingStrokeOutcome {
+    drawingStrokeRequests.append(request)
+    let start = snapshot.machine.position ?? (try! MachinePosition(x: 0, y: 0))
+    let final = try! MachinePosition(
+      x: start.point.x + request.delta.dx,
+      y: start.point.y + request.delta.dy
+    )
+    let evidence = DrawingStrokeEvidence(
+      request: request,
+      startPosition: start,
+      startSampleNanoseconds: 10,
+      finalPosition: final,
+      finalSampleNanoseconds: 20
+    )
+    let outcome = DrawingStrokeOutcome.completed(evidence: evidence)
+    snapshot = RunInterpreterSnapshot(
+      currentOperation: .idle,
+      machine: replacing(snapshot.machine, connection: .connected, operationInFlight: false),
+      lastMotionOutcome: snapshot.lastMotionOutcome,
+      lastDrawingStrokeOutcome: outcome,
+      lastPhysicalJogObservationOutcome: snapshot.lastPhysicalJogObservationOutcome,
+      lastPenOutcome: snapshot.lastPenOutcome,
+      lastProbe: snapshot.lastProbe
+    )
+    return outcome
+  }
+
   func observedJog(
     _ request: PhysicalJogObservationRequest,
     observe: @Sendable (PhysicalObservationPhase, UInt64) async
@@ -2661,6 +2715,7 @@ private func machineActions(
       await jogGate?.wait()
       return await fixture.jog(request)
     },
+    requestDrawingStroke: { request in await fixture.drawingStroke(request) },
     requestObservedJog: { request, observe in
       await fixture.observedJog(request, observe: observe)
     },
@@ -2673,7 +2728,7 @@ private func machineActions(
   )
 }
 
-private actor VoiceFixture {
+private actor VoiceFixture: VoiceInteractionDriving, VoiceSpeechOutput {
   private var continuation: AsyncStream<VoiceTranscript>.Continuation?
   private(set) var streamSubscriberCount = 0
   private(set) var authorizationRequestCount = 0
@@ -2756,6 +2811,8 @@ private actor VoiceFixture {
     spoken.append(text)
   }
 
+  func stopSpeaking() {}
+
   func signal() {
     signalCount += 1
   }
@@ -2771,6 +2828,22 @@ private func voiceActions(_ fixture: VoiceFixture) -> OperatorWorkspace.VoiceAct
     speak: { text in await fixture.speak(text) },
     stopSpeaking: {},
     signal: { await fixture.signal() }
+  )
+}
+
+private func explorationActions(_ fixture: VoiceFixture) -> OperatorWorkspace.ExplorationActions {
+  let session = ExplorationSession(driver: fixture, speechOutput: fixture)
+  return OperatorWorkspace.ExplorationActions(
+    start: { input, id in await session.start(input: input, id: id) },
+    activateEpisode: { try await session.activateEpisode($0) },
+    completeEpisode: { id, termination in
+      try await session.completeEpisode(id, termination: termination)
+    },
+    ingest: { await session.ingest($0) },
+    speakFeedback: { await session.speakFeedback($0) },
+    end: { await session.end() },
+    snapshot: { await session.snapshot() },
+    events: { await session.events() }
   )
 }
 
@@ -2907,6 +2980,7 @@ private func cameraActions(
     inspectScene: { boundary in
       await fixture.inspectScene(newerThanNanoseconds: boundary)
     },
+    captureFrame: { _ in await fixture.snapshot().latestFrame },
     captureSnapshot: { "/tmp/adaptiveplotter-test-snapshot" },
     setAutomaticInspection: { cadence in await fixture.setAutomaticInspection(cadence) },
     analysisUpdates: { AsyncStream { $0.finish() } },
@@ -2916,7 +2990,11 @@ private func cameraActions(
         newerThanNanoseconds: boundary
       )
     },
-    simulatedContent: { mode in try await fixture.simulatedContent(mode) }
+    simulatedContent: { mode in try await fixture.simulatedContent(mode) },
+    simulatedExplorationFrames: { throw CameraFixtureError.simulatedContentFailed },
+    observeAnchorDot: { _ in fatalError("unused test fixture operation") },
+    observeIsolatedInk: { _ in fatalError("unused test fixture operation") },
+    exportLearningEpisode: { _, _ in "/tmp/adaptiveplotter-test-learning" }
   )
 }
 
@@ -3060,6 +3138,7 @@ private func preparedBoundaryWorkspace(
       cancelGate: cancelGate
     ),
     voiceActions: voiceActions(voice),
+    explorationActions: explorationActions(voice),
     serialDevices: [device],
     loadSelectedSerialIdentifier: { nil },
     persistSelectedSerialIdentifier: { _ in }
@@ -3201,7 +3280,7 @@ private func testGreenCapMeasurement() throws -> GreenCapMeasurement {
   GreenCapMeasurement(
     pixelCount: 4,
     boundingBox: PixelRect(x: 0, y: 0, width: 1, height: 1),
-    centroid: try Point2(x: 0.5, y: -0.25),
+    centroid: try Point2(x: 50, y: -20),
     confidence: 0.9
   )
 }
@@ -3209,9 +3288,9 @@ private func testGreenCapMeasurement() throws -> GreenCapMeasurement {
 private func testDrawingFrameEstimate() throws -> DrawingFrameEstimate {
   let points: [Point2<CameraPixelSpace>] = [
     try Point2(x: 0, y: 0),
-    try Point2(x: 1, y: 0),
-    try Point2(x: 1, y: 1),
-    try Point2(x: 0, y: 1),
+    try Point2(x: 100, y: 0),
+    try Point2(x: 100, y: 100),
+    try Point2(x: 0, y: 100),
     try Point2(x: 0, y: 0),
   ]
   return DrawingFrameEstimate(

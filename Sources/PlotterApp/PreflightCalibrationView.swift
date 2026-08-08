@@ -7,7 +7,7 @@ import SwiftUI
 /// This type only turns those typed values into compact operator-facing text.
 enum PreflightCalibrationPresentation {
   static let title = "Motion Preflight"
-  static let subtitle = "Calibrate Plotter · voice, controller, and live-camera evidence"
+  static let subtitle = "Persistent speech session · controller and exact live-camera evidence"
 
   static func title(for id: PreflightSequenceID) -> String {
     switch id {
@@ -69,9 +69,9 @@ enum PreflightCalibrationPresentation {
   static func actionDescription(_ action: PreflightAction) -> String {
     switch action {
     case .startSpeechListening:
-      "Start speech listening for this sequence."
+      "Enter this episode's speech context; session listening remains active."
     case .stopSpeechListening:
-      "Stop speech listening for this sequence."
+      "Complete this episode's speech context; session listening remains active."
     case .speakPrompt(let prompt):
       "Speak: “\(prompt)”"
     case .awaitVoice(let response):
@@ -96,9 +96,9 @@ enum PreflightCalibrationPresentation {
   static func eventDescription(_ expectation: PreflightEventExpectation) -> String {
     switch expectation {
     case .speechListeningStarted:
-      "Speech listening is active for this sequence."
+      "The persistent session applies this episode's contextual grammar."
     case .speechListeningStopped:
-      "Speech listening is stopped."
+      "The episode context completes without tearing down session listening."
     case .promptSpoken:
       "The spoken prompt finishes."
     case .exactVoiceResponse(let response):
@@ -269,7 +269,7 @@ struct PreflightCalibrationView: View {
 
   private var headerStatusText: String {
     if mode == .simulatorRehearsal { return "Simulator Rehearsal" }
-    return readiness.isReady ? "Ready to Train" : "Preflight Required"
+    return readiness.isReady ? "Evidence Complete" : "Evidence Needed"
   }
 
   private var headerStatusColor: Color {
@@ -305,7 +305,7 @@ struct PreflightCalibrationView: View {
       return "Need \(readiness.minimumSuccessfulSequenceClasses) sequence classes · missing: \(missing)"
     }
     if !readiness.hasSuccessfulPenUpConfirmation {
-      return "Complete Pen Up confirmation before training"
+      return "Complete Pen Up confirmation before continuing"
     }
     return "Current pen state is \(readiness.currentPenState.rawValue) · Pen Up required"
   }

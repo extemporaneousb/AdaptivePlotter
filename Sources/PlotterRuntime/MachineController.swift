@@ -25,6 +25,7 @@ public struct MachineSnapshot: Codable, Hashable, Sendable {
   public let stickyAmbiguity: MotionAmbiguity?
   public let operationInFlight: Bool
   public let lastMotionOutcome: MotionOutcome?
+  public let lastDrawingStrokeOutcome: DrawingStrokeOutcome?
   public let lastPenOutcome: PenOutcome?
   public let jogCancellationInFlight: Bool
   public let lastJogCancelOutcome: JogCancelOutcome?
@@ -42,6 +43,7 @@ public struct MachineSnapshot: Codable, Hashable, Sendable {
     stickyAmbiguity: MotionAmbiguity? = nil,
     operationInFlight: Bool = false,
     lastMotionOutcome: MotionOutcome? = nil,
+    lastDrawingStrokeOutcome: DrawingStrokeOutcome? = nil,
     lastPenOutcome: PenOutcome? = nil,
     jogCancellationInFlight: Bool = false,
     lastJogCancelOutcome: JogCancelOutcome? = nil
@@ -58,6 +60,7 @@ public struct MachineSnapshot: Codable, Hashable, Sendable {
     self.stickyAmbiguity = stickyAmbiguity
     self.operationInFlight = operationInFlight
     self.lastMotionOutcome = lastMotionOutcome
+    self.lastDrawingStrokeOutcome = lastDrawingStrokeOutcome
     self.lastPenOutcome = lastPenOutcome
     self.jogCancellationInFlight = jogCancellationInFlight
     self.lastJogCancelOutcome = lastJogCancelOutcome
@@ -89,6 +92,7 @@ public actor MachineController {
   private enum ActiveOperation {
     case passiveProbe
     case relativeJog
+    case drawingStroke
     case penActuation
   }
 
@@ -153,6 +157,7 @@ public actor MachineController {
   private var controllerMotionTiming: ControllerMotionTiming?
   private var activeOperation: ActiveOperation?
   private var lastMotionOutcome: MotionOutcome?
+  private var lastDrawingStrokeOutcome: DrawingStrokeOutcome?
   private var lastPenOutcome: PenOutcome?
   private var activeJogCommandTransmitted = false
   private var jogCancellationProgress: JogCancellationProgress?
@@ -230,6 +235,7 @@ public actor MachineController {
       stickyAmbiguity: stickyAmbiguity,
       operationInFlight: activeOperation != nil,
       lastMotionOutcome: lastMotionOutcome,
+      lastDrawingStrokeOutcome: lastDrawingStrokeOutcome,
       lastPenOutcome: lastPenOutcome,
       jogCancellationInFlight: jogCancellationProgress != nil,
       lastJogCancelOutcome: lastJogCancelOutcome
@@ -253,7 +259,9 @@ public actor MachineController {
   }
 
   public func disconnect() async {
-    if activeOperation == .relativeJog || activeOperation == .penActuation {
+    if activeOperation == .relativeJog || activeOperation == .drawingStroke
+      || activeOperation == .penActuation
+    {
       setAmbiguous(.disconnected)
     }
     await link.close()
@@ -324,8 +332,18 @@ public actor MachineController {
     await executeRelativeJog(request)
   }
 
+  /// Executes exactly one closed pen-down XY stroke. This operation deliberately
+  /// does not reuse the ordinary Pen Up admission rule of `RelativeJogRequest`.
+  /// It retains controller ownership until a final Idle status supplies MPos.
+  public func requestDrawingStroke(
+    _ request: DrawingStrokeRequest
+  ) async -> DrawingStrokeOutcome {
+    await executeDrawingStroke(request)
+  }
+
   /// Requests GRBL's realtime Jog Cancel for the one currently transmitted
-  /// `$J` operation. This is not feed hold and it is not an emergency stop.
+  /// `$J` jog or drawing stroke. This is not feed hold and it is not an
+  /// emergency stop.
   /// The byte has no ordinary acknowledgement, so the original jog poll remains
   /// the sole reader and resolves this request only after observing Idle.
   public func requestJogCancel() async -> JogCancelOutcome {
@@ -338,7 +356,7 @@ public actor MachineController {
     guard connection == .moving else {
       return finishJogCancel(.refused(connection == .disconnected ? .notConnected : .noActiveJog))
     }
-    guard activeOperation == .relativeJog else {
+    guard activeOperation == .relativeJog || activeOperation == .drawingStroke else {
       return finishJogCancel(.refused(.noActiveJog))
     }
     guard jogCancellationProgress == nil else {
@@ -352,7 +370,7 @@ public actor MachineController {
       resolveCancelWriteWaiters()
       return finishJogCancel(.ambiguous(stickyAmbiguity))
     }
-    guard activeOperation == .relativeJog,
+    guard activeOperation == .relativeJog || activeOperation == .drawingStroke,
       activeJogCommandTransmitted,
       jogCancellationProgress == .transmitting
     else {
@@ -366,7 +384,7 @@ public actor MachineController {
       let outcomeAfterWrite: JogCancelOutcome?
       if let stickyAmbiguity {
         outcomeAfterWrite = .ambiguous(stickyAmbiguity)
-      } else if activeOperation != .relativeJog
+      } else if activeOperation != .relativeJog && activeOperation != .drawingStroke
         || !activeJogCommandTransmitted
         || jogCancellationProgress != .transmitting
       {
@@ -592,6 +610,229 @@ public actor MachineController {
     )
   }
 
+  private func executeDrawingStroke(
+    _ request: DrawingStrokeRequest
+  ) async -> DrawingStrokeOutcome {
+    guard activeOperation == nil else {
+      return finishDrawingStroke(request: request, outcome: .refused(.operationInFlight))
+    }
+    let motionRequest = RelativeJogRequest(
+      delta: request.delta,
+      feedMMPerMinute: request.feedMMPerMinute
+    )
+    let wireResult = Self.makeWireRelativeJog(motionRequest)
+    guard let wire = wireResult.wire else {
+      let refusal = Self.drawingStrokeRefusal(
+        from: wireResult.refusal ?? .nonFiniteDelta
+      )
+      return finishDrawingStroke(request: request, outcome: .refused(refusal))
+    }
+    if let refusal = validateDrawingStrokeSessionAndRequest(wire) {
+      return finishDrawingStroke(request: request, outcome: .refused(refusal))
+    }
+
+    activeOperation = .drawingStroke
+    defer {
+      activeJogCommandTransmitted = false
+      if jogCancellationProgress != nil {
+        let reason = stickyAmbiguity
+          ?? .transport("drawing stroke ended without a final Jog Cancel outcome")
+        completeActiveJogCancellation(.ambiguous(reason))
+      }
+      jogCancellationProgress = nil
+      activeOperation = nil
+      if connection == .moving || connection == .actuatingPen { connection = .connected }
+    }
+
+    do {
+      try await link.discardPendingInput()
+    } catch {
+      await closeAndInvalidateKnowledge()
+      return finishDrawingStroke(
+        request: request,
+        outcome: .refused(
+          .freshStatusUnavailable(
+            "could not discard pending controller input: \(String(describing: error))"
+          )
+        )
+      )
+    }
+
+    let preflightDeadline = addingClamped(clock.nowNanoseconds(), queryTimeoutNanoseconds)
+    switch await requestMotionStatus(deadline: preflightDeadline) {
+    case .status(let report):
+      apply(report)
+      if let refusal = validateFreshControllerStatus() {
+        await closeAndInvalidateKnowledge()
+        return finishDrawingStroke(
+          request: request,
+          outcome: .refused(Self.drawingStrokeRefusal(from: refusal))
+        )
+      }
+    case .ambiguous(let reason):
+      await closeAndInvalidateKnowledge()
+      return finishDrawingStroke(
+        request: request,
+        outcome: .refused(
+          .freshStatusUnavailable(Self.preflightFailureDescription(reason))
+        )
+      )
+    }
+
+    guard let startPosition = position else {
+      await closeAndInvalidateKnowledge()
+      return finishDrawingStroke(
+        request: request,
+        outcome: .refused(
+          .freshStatusUnavailable("fresh status omitted a valid MPos")
+        )
+      )
+    }
+    let startSampleNanoseconds = clock.nowNanoseconds()
+
+    connection = .moving
+    let command = wire.bytes
+    do {
+      try await serializedWrite(command)
+      activeJogCommandTransmitted = true
+      recordRawIOBestEffort(
+        RawMachineIO(direction: .transmit, bytes: command, timestamp: timestamp())
+      )
+    } catch let error as MachineLinkError {
+      return finishDrawingStroke(
+        request: request,
+        outcome: drawingStrokeOutcomeForWriteError(error)
+      )
+    } catch {
+      return finishDrawingStroke(
+        request: request,
+        outcome: ambiguousDrawingStroke(.transport(String(describing: error)))
+      )
+    }
+
+    switch await awaitCommandAcknowledgement(context: "drawing stroke") {
+    case .accepted:
+      break
+    case .rejected(let reason):
+      connection = .connected
+      if jogCancellationProgress != nil {
+        completeActiveJogCancellation(.refused(.noActiveJog))
+      }
+      return finishDrawingStroke(
+        request: request,
+        outcome: .refused(.controllerRejected(reason))
+      )
+    case .ambiguous(let reason):
+      return finishDrawingStroke(
+        request: request,
+        outcome: ambiguousDrawingStroke(reason)
+      )
+    }
+
+    let timeout = Self.completionTimeoutNanoseconds(
+      for: wire.request,
+      controllerMotionTiming: controllerMotionTiming,
+      graceNanoseconds: completionGraceNanoseconds
+    )
+    let deadline = addingClamped(clock.nowNanoseconds(), timeout)
+    while clock.nowNanoseconds() < deadline {
+      switch await requestMotionStatus(deadline: deadline) {
+      case .status(let report):
+        apply(report)
+        switch report.controllerState {
+        case .idle:
+          if jogCancellationProgress == .transmitting {
+            await waitForCancelWriteResolution()
+          }
+          guard let finalPosition = report.machinePosition else {
+            return finishDrawingStroke(
+              request: request,
+              outcome: ambiguousDrawingStroke(
+                .malformedReply("Idle status omitted a valid MPos")
+              )
+            )
+          }
+          connection = .connected
+          let evidence = DrawingStrokeEvidence(
+            request: request,
+            startPosition: startPosition,
+            startSampleNanoseconds: startSampleNanoseconds,
+            finalPosition: finalPosition,
+            finalSampleNanoseconds: clock.nowNanoseconds()
+          )
+          if jogCancellationProgress == .transmitted {
+            let penRaiseOutcome = await transmitPenActuation(.raise)
+            if case .ambiguous(let reason) = penRaiseOutcome {
+              return finishDrawingStroke(
+                request: request,
+                outcome: .ambiguous(reason)
+              )
+            }
+            if jogCancellationProgress == .transmitted {
+              completeActiveJogCancellation(.completed(finalPosition: finalPosition))
+            }
+            return finishDrawingStroke(
+              request: request,
+              outcome: .cancelled(
+                evidence: evidence,
+                penRaiseOutcome: penRaiseOutcome
+              )
+            )
+          }
+          if let stickyAmbiguity {
+            return finishDrawingStroke(
+              request: request,
+              outcome: .ambiguous(stickyAmbiguity)
+            )
+          }
+          return finishDrawingStroke(
+            request: request,
+            outcome: .completed(evidence: evidence)
+          )
+        case .run, .jog:
+          do {
+            try await sleepBeforeNextPoll(deadline: deadline)
+          } catch {
+            return finishDrawingStroke(
+              request: request,
+              outcome: ambiguousDrawingStroke(
+                .completionTimedOut(deadlineNanoseconds: deadline)
+              )
+            )
+          }
+        case .alarm:
+          return finishDrawingStroke(
+            request: request,
+            outcome: ambiguousDrawingStroke(.controllerAlarm(report.state))
+          )
+        case .hold:
+          return finishDrawingStroke(
+            request: request,
+            outcome: ambiguousDrawingStroke(.controllerHold)
+          )
+        case .door, .check, .home, .sleep, .tool, .unknown:
+          return finishDrawingStroke(
+            request: request,
+            outcome: ambiguousDrawingStroke(
+              .unexpectedControllerState(report.controllerState)
+            )
+          )
+        }
+      case .ambiguous(let reason):
+        return finishDrawingStroke(
+          request: request,
+          outcome: ambiguousDrawingStroke(reason)
+        )
+      }
+    }
+    return finishDrawingStroke(
+      request: request,
+      outcome: ambiguousDrawingStroke(
+        .completionTimedOut(deadlineNanoseconds: deadline)
+      )
+    )
+  }
+
   /// Sends one closed pen command followed by the fixed settle dwell. A successful
   /// result records the controller-commanded state, not a visually proven state.
   public func requestPenActuation(_ command: PenCommand) async -> PenOutcome {
@@ -638,6 +879,13 @@ public actor MachineController {
       )
     }
 
+    return await transmitPenActuation(command)
+  }
+
+  /// Performs the already-admitted closed pen command. Drawing-stroke
+  /// cancellation uses this exact wire path after its final Idle/MPos sample,
+  /// while the drawing stroke remains the single active operation.
+  private func transmitPenActuation(_ command: PenCommand) async -> PenOutcome {
     connection = .actuatingPen
     let profile = PenActuationProfile.localPlotter
     let actuationBytes = profile.actuationBytes(for: command)
@@ -827,6 +1075,15 @@ public actor MachineController {
     makeWireRelativeJog(request).wire?.bytes ?? Data()
   }
 
+  public static func encodeDrawingStroke(_ request: DrawingStrokeRequest) -> Data {
+    encodeRelativeJog(
+      RelativeJogRequest(
+        delta: request.delta,
+        feedMMPerMinute: request.feedMMPerMinute
+      )
+    )
+  }
+
   /// GRBL/grblHAL realtime Jog Cancel. This is deliberately not the feed-hold
   /// byte (`!`) and not an emergency-stop claim.
   public static let encodeJogCancel = Data([0x85])
@@ -856,6 +1113,26 @@ public actor MachineController {
     if let maximumFeed = controllerMaximumFeed(for: wire),
       wire.feedMMPerMinute > maximumFeed
     {
+      return .feedExceedsMaximum(
+        requested: wire.feedMMPerMinute,
+        maximum: maximumFeed
+      )
+    }
+    return nil
+  }
+
+  private func validateDrawingStrokeSessionAndRequest(
+    _ wire: WireRelativeJog
+  ) -> DrawingStrokeRefusal? {
+    guard selectionIsExplicit else { return .noSerialDeviceSelected }
+    if let stickyAmbiguity { return .stickyAmbiguity(stickyAmbiguity) }
+    guard connection == .connected else { return .notConnected }
+    guard motionGuardState == .active else { return .motionGuardInactive }
+    guard penState == .down else { return .penNotDown(penState) }
+    guard let maximumFeed = controllerMaximumFeed(for: wire) else {
+      return .controllerFeedCapabilityUnknown
+    }
+    if wire.feedMMPerMinute > maximumFeed {
       return .feedExceedsMaximum(
         requested: wire.feedMMPerMinute,
         maximum: maximumFeed
@@ -964,6 +1241,31 @@ public actor MachineController {
       ),
       nil
     )
+  }
+
+  private static func drawingStrokeRefusal(
+    from refusal: MotionRefusal
+  ) -> DrawingStrokeRefusal {
+    switch refusal {
+    case .noSerialDeviceSelected: return .noSerialDeviceSelected
+    case .notConnected: return .notConnected
+    case .motionGuardInactive: return .motionGuardInactive
+    case .controllerStateUnknown: return .controllerStateUnknown
+    case .controllerNotIdle(let state): return .controllerNotIdle(state)
+    case .controllerAlarm(let detail): return .controllerAlarm(detail)
+    case .relevantLimitAsserted(let pins): return .relevantLimitAsserted(pins)
+    case .machinePositionUnknown: return .machinePositionUnknown
+    case .nonFiniteDelta: return .nonFiniteDelta
+    case .zeroDelta: return .zeroDelta
+    case .nonPositiveFeed(let feed): return .nonPositiveFeed(feed)
+    case .feedExceedsMaximum(let requested, let maximum):
+      return .feedExceedsMaximum(requested: requested, maximum: maximum)
+    case .penNotUp(let state): return .penNotDown(state)
+    case .operationInFlight: return .operationInFlight
+    case .stickyAmbiguity(let ambiguity): return .stickyAmbiguity(ambiguity)
+    case .controllerRejected(let detail): return .controllerRejected(detail)
+    case .freshStatusUnavailable(let detail): return .freshStatusUnavailable(detail)
+    }
   }
 
   private static func preflightFailureDescription(_ reason: MotionAmbiguity) -> String {
@@ -1191,6 +1493,28 @@ public actor MachineController {
     }
   }
 
+  private func drawingStrokeOutcomeForWriteError(
+    _ error: MachineLinkError
+  ) -> DrawingStrokeOutcome {
+    switch error {
+    case .writeTimedOut(let written, let total):
+      if written > 0 {
+        return ambiguousDrawingStroke(.partialWrite(bytesWritten: written, totalBytes: total))
+      }
+      return ambiguousDrawingStroke(.writeTimedOut(bytesWritten: written, totalBytes: total))
+    case .writeCancelled(let written, let total):
+      if written > 0 {
+        return ambiguousDrawingStroke(.partialWrite(bytesWritten: written, totalBytes: total))
+      }
+      return ambiguousDrawingStroke(.writeCancelled(bytesWritten: written, totalBytes: total))
+    case .disconnected, .notOpen:
+      invalidateConnectionKnowledge()
+      return ambiguousDrawingStroke(.disconnected)
+    default:
+      return ambiguousDrawingStroke(.transport(String(describing: error)))
+    }
+  }
+
   private func ambiguityForCancelWriteError(_ error: MachineLinkError) -> MotionAmbiguity {
     switch error {
     case .writeTimedOut(let written, let total):
@@ -1232,6 +1556,11 @@ public actor MachineController {
   }
 
   private func ambiguous(_ reason: MotionAmbiguity) -> MotionOutcome {
+    setAmbiguous(reason)
+    return .ambiguous(reason)
+  }
+
+  private func ambiguousDrawingStroke(_ reason: MotionAmbiguity) -> DrawingStrokeOutcome {
     setAmbiguous(reason)
     return .ambiguous(reason)
   }
@@ -1296,6 +1625,15 @@ public actor MachineController {
       outcome: finishMotion(request: request, outcome: outcome),
       completedEvidence: completedEvidence
     )
+  }
+
+  private func finishDrawingStroke(
+    request: DrawingStrokeRequest,
+    outcome: DrawingStrokeOutcome
+  ) -> DrawingStrokeOutcome {
+    lastDrawingStrokeOutcome = outcome
+    recordDrawingStrokeBestEffort(request: request, outcome: outcome)
+    return outcome
   }
 
   private func finishPen(command: PenCommand, outcome: PenOutcome) -> PenOutcome {
@@ -1562,6 +1900,28 @@ public actor MachineController {
         runID: runID,
         timestamp: record.timestamp,
         kind: "machine.relative_jog.result",
+        schemaVersion: 1,
+        payload: payload
+      )
+    }
+  }
+
+  private func recordDrawingStrokeBestEffort(
+    request: DrawingStrokeRequest,
+    outcome: DrawingStrokeOutcome
+  ) {
+    guard let ledger, let runID else { return }
+    let record = DrawingStrokeDiagnosticRecord(
+      request: request,
+      outcome: outcome,
+      timestamp: timestamp()
+    )
+    guard let payload = try? JSONEncoder().encode(record) else { return }
+    Task {
+      try? await ledger.appendEvent(
+        runID: runID,
+        timestamp: record.timestamp,
+        kind: "machine.drawing_stroke.result",
         schemaVersion: 1,
         payload: payload
       )

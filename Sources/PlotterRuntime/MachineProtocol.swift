@@ -52,6 +52,19 @@ public struct RelativeJogRequest: Codable, Hashable, Sendable {
   }
 }
 
+/// One closed finite XY move whose admission requires the controller-commanded
+/// pen state to be Down. Ordinary carriage travel continues to use
+/// `RelativeJogRequest` and continues to require Pen Up.
+public struct DrawingStrokeRequest: Codable, Hashable, Sendable {
+  public let delta: Vector2<MachineSpace>
+  public let feedMMPerMinute: Double
+
+  public init(delta: Vector2<MachineSpace>, feedMMPerMinute: Double) {
+    self.delta = delta
+    self.feedMMPerMinute = feedMMPerMinute
+  }
+}
+
 /// Explicit operator authorization for machine-affecting commands in the
 /// current controller session. It is cleared by disconnects and controller
 /// faults; it is never inferred from a successful probe.
@@ -268,6 +281,65 @@ public enum MotionOutcome: Codable, Hashable, Sendable {
   case ambiguous(MotionAmbiguity)
 }
 
+/// Pre-write reasons a closed drawing stroke can be refused. This is distinct
+/// from `MotionRefusal` so the Pen Down requirement cannot weaken or be confused
+/// with ordinary Pen Up carriage travel.
+public enum DrawingStrokeRefusal: Codable, Hashable, Sendable {
+  case noSerialDeviceSelected
+  case notConnected
+  case motionGuardInactive
+  case controllerStateUnknown
+  case controllerNotIdle(ControllerState)
+  case controllerAlarm(String)
+  case relevantLimitAsserted(String)
+  case machinePositionUnknown
+  case nonFiniteDelta
+  case zeroDelta
+  case nonPositiveFeed(Double)
+  case controllerFeedCapabilityUnknown
+  case feedExceedsMaximum(requested: Double, maximum: Double)
+  case penNotDown(PenState)
+  case operationInFlight
+  case stickyAmbiguity(MotionAmbiguity)
+  case controllerRejected(String)
+  case freshStatusUnavailable(String)
+}
+
+/// Exact controller-owned position samples for one accepted drawing stroke.
+/// The evidence makes no claim about visible ink or physical pen contact.
+public struct DrawingStrokeEvidence: Codable, Hashable, Sendable {
+  public let request: DrawingStrokeRequest
+  public let startPosition: MachinePosition
+  public let startSampleNanoseconds: UInt64
+  public let finalPosition: MachinePosition
+  public let finalSampleNanoseconds: UInt64
+
+  init(
+    request: DrawingStrokeRequest,
+    startPosition: MachinePosition,
+    startSampleNanoseconds: UInt64,
+    finalPosition: MachinePosition,
+    finalSampleNanoseconds: UInt64
+  ) {
+    self.request = request
+    self.startPosition = startPosition
+    self.startSampleNanoseconds = startSampleNanoseconds
+    self.finalPosition = finalPosition
+    self.finalSampleNanoseconds = finalSampleNanoseconds
+  }
+}
+
+/// A completed stroke remains Pen Down so its caller can perform the explicit
+/// raise that belongs to the drawing episode. A clean cancellation performs one
+/// fixed typed Pen Up attempt while retaining the stroke owner, and reports that
+/// exact result. Any uncertain post-write result is top-level `ambiguous`.
+public enum DrawingStrokeOutcome: Codable, Hashable, Sendable {
+  case refused(DrawingStrokeRefusal)
+  case completed(evidence: DrawingStrokeEvidence)
+  case cancelled(evidence: DrawingStrokeEvidence, penRaiseOutcome: PenOutcome)
+  case ambiguous(MotionAmbiguity)
+}
+
 /// Reasons the closed GRBL realtime jog-cancel surface can refuse without
 /// putting bytes on the wire.
 public enum JogCancelRefusal: Codable, Hashable, Sendable {
@@ -386,6 +458,49 @@ extension MotionRefusal {
   }
 }
 
+extension DrawingStrokeRefusal {
+  public var actionableDescription: String {
+    switch self {
+    case .noSerialDeviceSelected:
+      return "Select one serial controller before drawing."
+    case .notConnected:
+      return "Connect and run the passive controller probe before drawing."
+    case .motionGuardInactive:
+      return "Activate Motion Guard before drawing."
+    case .controllerStateUnknown:
+      return "Query the controller until its current state is known."
+    case .controllerNotIdle(let state):
+      return "Wait for controller Idle; current state is \(state.rawValue)."
+    case .controllerAlarm(let detail):
+      return "Controller alarm: \(detail). Clear it physically, then reconnect and probe."
+    case .relevantLimitAsserted(let pins):
+      return "A motion limit is asserted (Pn:\(pins)); inspect the machine before drawing."
+    case .machinePositionUnknown:
+      return "Probe the controller until a valid MPos is available before drawing."
+    case .nonFiniteDelta:
+      return "The drawing stroke requires finite X and Y deltas."
+    case .zeroDelta:
+      return "The drawing stroke requires one nonzero machine delta."
+    case .nonPositiveFeed(let feed):
+      return "Drawing feed must be positive and finite; received \(feed)."
+    case .controllerFeedCapabilityUnknown:
+      return "Probe the controller until its X/Y feed capabilities are known before drawing."
+    case .feedExceedsMaximum(let requested, let maximum):
+      return "Drawing feed \(requested) mm/min exceeds the controller-reported axis limit \(maximum)."
+    case .penNotDown:
+      return "Issue a successful Pen Down command before drawing."
+    case .operationInFlight:
+      return "Wait for the current controller operation to finish."
+    case .stickyAmbiguity(let ambiguity):
+      return "Drawing is disabled after an ambiguous command: \(ambiguity.actionableDescription)"
+    case .controllerRejected(let detail):
+      return "Controller rejected the drawing stroke (\(detail)); inspect the controller state before retrying."
+    case .freshStatusUnavailable(let detail):
+      return "Fresh pre-stroke controller status was unavailable (\(detail)); reconnect and probe before retrying."
+    }
+  }
+}
+
 extension MotionAmbiguity {
   public var actionableDescription: String {
     switch self {
@@ -425,6 +540,22 @@ public struct MotionDiagnosticRecord: Codable, Hashable, Sendable {
   public init(
     request: RelativeJogRequest,
     outcome: MotionOutcome,
+    timestamp: RuntimeTimestamp
+  ) {
+    self.request = request
+    self.outcome = outcome
+    self.timestamp = timestamp
+  }
+}
+
+public struct DrawingStrokeDiagnosticRecord: Codable, Hashable, Sendable {
+  public let request: DrawingStrokeRequest
+  public let outcome: DrawingStrokeOutcome
+  public let timestamp: RuntimeTimestamp
+
+  public init(
+    request: DrawingStrokeRequest,
+    outcome: DrawingStrokeOutcome,
     timestamp: RuntimeTimestamp
   ) {
     self.request = request

@@ -234,142 +234,157 @@ struct PreflightCalibrationTests {
     }
   }
 
-  @Test("second exact-frame boundary observation shifts the posterior deterministically")
-  func posteriorFusesMatchingTopology() throws {
+  @Test("first unique nearest edge association persists for the declared side")
+  func posteriorAssociationPersists() throws {
     let configurationID = CameraConfigurationID()
     let prior = try boundaryObservation(
       frameID: FrameID(rawValue: "frame-a"),
       cameraConfigurationID: configurationID,
       direction: .negativeX,
-      estimate: frameEstimate(
-        offset: 0,
-        confidence: 0.4,
-        basis: "measured top/right with inferred bottom/left"
-      ),
-      confidence: 0.25
+      estimate: frameEstimate(offset: 0),
+      centroid: Point2(x: 5, y: -2)
     )
     let incoming = try boundaryObservation(
       frameID: FrameID(rawValue: "frame-b"),
       cameraConfigurationID: configurationID,
-      direction: .positiveX,
-      estimate: frameEstimate(
-        offset: 4,
-        confidence: 0.8,
-        basis: "measured boundary with inferred opposite sides"
-      ),
-      confidence: 0.75
+      direction: .negativeX,
+      estimate: frameEstimate(offset: 20),
+      centroid: Point2(x: 5, y: -3)
     )
 
     let posterior = try DrawingFramePosterior(prior: prior).adding(incoming)
 
     #expect(posterior.observationCount == 2)
-    #expect(posterior.estimate.geometry.points[0].x == 3)
-    #expect(posterior.estimate.geometry.points[0].y == 3)
-    #expect(abs(posterior.estimate.confidence - 0.7) < 1e-12)
-    #expect(posterior.estimate.basis.contains("measured"))
-    #expect(posterior.estimate.basis.contains("inferred"))
+    #expect(posterior.associations[.negativeX]?.candidateEdgeIndex == 0)
+    #expect(posterior.sidePosteriors[.negativeX]?.observationCount == 2)
+    #expect(posterior.estimate == nil)
     #expect(posterior.latestObservationKey.frameID == FrameID(rawValue: "frame-b"))
     #expect(posterior.observations.map(\.key.frameID.rawValue) == ["frame-a", "frame-b"])
   }
 
-  @Test("duplicate keys replace and camera reconfiguration resets the posterior")
-  func posteriorHonorsExactIdentity() throws {
+  @Test("ambiguous nearest edge association rejects only the posterior observation")
+  func posteriorRejectsAmbiguousAssociation() throws {
+    let observation = try boundaryObservation(
+      frameID: FrameID(rawValue: "center"),
+      cameraConfigurationID: CameraConfigurationID(),
+      direction: .negativeX,
+      estimate: frameEstimate(offset: 0),
+      centroid: Point2(x: 5, y: 5),
+      associationMargin: 1
+    )
+    #expect(throws: DrawingFramePosteriorError.self) {
+      _ = try DrawingFramePosterior(prior: observation)
+    }
+  }
+
+  @Test("nonduplicate observations narrow one side and duplicate keys replace")
+  func posteriorNarrowsAndDeduplicates() throws {
+    let configurationID = CameraConfigurationID()
+    let first = try boundaryObservation(
+      frameID: FrameID(rawValue: "same-frame"),
+      cameraConfigurationID: configurationID,
+      direction: .negativeX,
+      estimate: frameEstimate(offset: 0),
+      centroid: Point2(x: 5, y: -2)
+    )
+    let initial = try DrawingFramePosterior(prior: first)
+    let second = try boundaryObservation(
+      frameID: FrameID(rawValue: "second-frame"),
+      cameraConfigurationID: configurationID,
+      direction: .negativeX,
+      estimate: frameEstimate(offset: 0),
+      centroid: Point2(x: 5, y: -2.5)
+    )
+    var posterior = try initial.adding(second)
+    #expect(
+      try #require(posterior.sidePosteriors[.negativeX]).offsetVariance
+        < #require(initial.sidePosteriors[.negativeX]).offsetVariance)
+    let replacement = try boundaryObservation(
+      frameID: FrameID(rawValue: "same-frame"),
+      cameraConfigurationID: configurationID,
+      direction: .negativeX,
+      estimate: frameEstimate(offset: 0),
+      centroid: Point2(x: 5, y: -3)
+    )
+    posterior = try posterior.adding(replacement)
+    #expect(posterior.observationCount == 2)
+  }
+
+  @Test("camera reconfiguration invalidates all associations")
+  func posteriorCameraInvalidation() throws {
     let firstConfiguration = CameraConfigurationID()
     let secondConfiguration = CameraConfigurationID()
-    let frameID = FrameID(rawValue: "same-frame")
     let first = try boundaryObservation(
-      frameID: frameID,
+      frameID: FrameID(rawValue: "first-camera"),
       cameraConfigurationID: firstConfiguration,
       direction: .negativeX,
       estimate: frameEstimate(offset: 0),
-      confidence: 1
+      centroid: Point2(x: 5, y: -2)
     )
-    let replacement = try boundaryObservation(
-      frameID: frameID,
-      cameraConfigurationID: firstConfiguration,
-      direction: .negativeX,
-      estimate: frameEstimate(offset: 5),
-      confidence: 1
-    )
-    var posterior = try DrawingFramePosterior(prior: first).adding(replacement)
-    #expect(posterior.observationCount == 1)
-    #expect(posterior.estimate.geometry.points[0].x == 5)
-
     let reconfigured = try boundaryObservation(
       frameID: FrameID(rawValue: "new-camera-frame"),
       cameraConfigurationID: secondConfiguration,
       direction: .positiveY,
-      estimate: frameEstimate(offset: 20),
-      confidence: 1
+      estimate: frameEstimate(offset: 0),
+      centroid: Point2(x: -2, y: 5)
     )
-    posterior = try posterior.adding(reconfigured)
+    let posterior = try DrawingFramePosterior(prior: first).adding(reconfigured)
     #expect(posterior.cameraConfigurationID == secondConfiguration)
     #expect(posterior.observationCount == 1)
+    #expect(posterior.associations[.negativeX] == nil)
+    #expect(posterior.associations[.positiveY]?.candidateEdgeIndex == 3)
     #expect(posterior.latestObservationKey.frameID == FrameID(rawValue: "new-camera-frame"))
-    #expect(posterior.estimate.geometry.points[0].x == 20)
   }
 
-  @Test("controller boundary and exact-frame tool centroid constrain the nearest visual edge")
-  func posteriorUsesBoundaryEvidence() throws {
-    let controllerPosition = try MachinePosition(x: 12.5, y: -3)
-    let observedToolCentroid: Point2<CameraPixelSpace> = try Point2(x: 5, y: -2)
-    let observation = try DrawingFrameBoundaryObservation(
-      frameID: FrameID(rawValue: "boundary-anchor"),
-      cameraConfigurationID: CameraConfigurationID(),
-      direction: .positiveX,
-      controllerPosition: controllerPosition,
-      observedToolCentroid: observedToolCentroid,
-      estimate: frameEstimate(offset: 0),
-      confidence: 1
-    )
-
-    let posterior = try DrawingFramePosterior(prior: observation)
-
-    #expect(posterior.observations[0].controllerPosition == controllerPosition)
-    #expect(posterior.observations[0].observedToolCentroid == observedToolCentroid)
-    #expect(posterior.estimate.geometry.points[0].y == -2)
-    #expect(posterior.estimate.geometry.points[1].y == -2)
-    #expect(posterior.estimate.geometry.points[2].y == 10)
-    #expect(posterior.estimate.geometry.points[3].y == 10)
-    #expect(posterior.estimate.basis.contains("controller final MPos"))
-  }
-
-  @Test("same-camera observations with incompatible topology are rejected")
-  func topologyMustMatch() throws {
+  @Test("four side lines derive corners while missing sides remain uncertain")
+  func posteriorCornersAndMissingSides() throws {
     let configurationID = CameraConfigurationID()
-    let prior = try boundaryObservation(
-      frameID: FrameID(rawValue: "closed"),
+    let inputs: [(PreflightBoundaryDirection, Point2<CameraPixelSpace>)] = [
+      (.negativeX, try Point2(x: 5, y: -2)),
+      (.positiveX, try Point2(x: 12, y: 5)),
+      (.negativeY, try Point2(x: 5, y: 12)),
+      (.positiveY, try Point2(x: -2, y: 5)),
+    ]
+    let observations = try inputs.enumerated().map { index, input in
+      try boundaryObservation(
+        frameID: FrameID(rawValue: "corner-\(index)"),
+        cameraConfigurationID: configurationID,
+        direction: input.0,
+        estimate: frameEstimate(offset: 0),
+        centroid: input.1
+      )
+    }
+    var posterior = try DrawingFramePosterior(prior: observations[0])
+    #expect(posterior.estimate == nil)
+    #expect(posterior.derivedCorners.isEmpty)
+    for observation in observations.dropFirst() { posterior = try posterior.adding(observation) }
+    #expect(posterior.sidePosteriors.count == 4)
+    #expect(posterior.derivedCorners.count == 4)
+    #expect(posterior.estimate?.geometry.points.count == 5)
+  }
+
+  @Test("controller MPos is retained provenance and does not constrain image geometry")
+  func controllerPositionIsProvenanceOnly() throws {
+    let configurationID = CameraConfigurationID()
+    let first = try boundaryObservation(
+      frameID: FrameID(rawValue: "mpos-a"),
       cameraConfigurationID: configurationID,
       direction: .negativeX,
+      controllerPosition: MachinePosition(x: 0, y: 0),
       estimate: frameEstimate(offset: 0),
-      confidence: 1
+      centroid: Point2(x: 5, y: -2)
     )
-    let openEstimate = DrawingFrameEstimate(
-      geometry: try Polyline(points: [
-        Point2(x: 0, y: 0),
-        Point2(x: 10, y: 0),
-        Point2(x: 10, y: 10),
-        Point2(x: 0, y: 10),
-      ]),
-      confidence: 0.5,
-      basis: "measured with inferred geometry"
-    )
-    let incoming = try boundaryObservation(
-      frameID: FrameID(rawValue: "open"),
+    let changedMPos = try boundaryObservation(
+      frameID: FrameID(rawValue: "mpos-b"),
       cameraConfigurationID: configurationID,
-      direction: .positiveX,
-      estimate: openEstimate,
-      confidence: 1
+      direction: .negativeX,
+      controllerPosition: MachinePosition(x: 10_000, y: -20_000),
+      estimate: frameEstimate(offset: 0),
+      centroid: Point2(x: 5, y: -2)
     )
-
-    #expect(
-      throws: DrawingFramePosteriorError.topologyMismatch(
-        expectedPointCount: 5,
-        actualPointCount: 4
-      )
-    ) {
-      _ = try DrawingFramePosterior(prior: prior).adding(incoming)
-    }
+    let posterior = try DrawingFramePosterior(prior: first).adding(changedMPos)
+    #expect(posterior.observations.last?.controllerPosition == changedMPos.controllerPosition)
+    #expect(abs(try #require(posterior.sidePosteriors[.negativeX]).offsetPixels + 1.96078431372549) < 1e-9)
   }
 }
 
@@ -396,22 +411,26 @@ private func boundaryObservation(
   frameID: FrameID,
   cameraConfigurationID: CameraConfigurationID,
   direction: PreflightBoundaryDirection,
+  controllerPosition: MachinePosition? = nil,
   estimate: DrawingFrameEstimate,
-  confidence: Double
+  centroid: Point2<CameraPixelSpace>,
+  observationVariance: Double = 4,
+  associationMargin: Double = 1,
+  broadPriorVariance: Double = 100
 ) throws -> DrawingFrameBoundaryObservation {
-  let start = estimate.geometry.points[0]
-  let end = estimate.geometry.points[1]
   return try DrawingFrameBoundaryObservation(
     frameID: frameID,
+    frameSHA256: "sha-\(frameID.rawValue)",
+    captureNanoseconds: UInt64(direction.stableTestIndex + 1),
     cameraConfigurationID: cameraConfigurationID,
     direction: direction,
-    controllerPosition: try MachinePosition(x: Double(direction.stableTestIndex), y: 0),
-    observedToolCentroid: try Point2(
-      x: (start.x + end.x) / 2,
-      y: (start.y + end.y) / 2
-    ),
+    controllerPosition: controllerPosition
+      ?? (try MachinePosition(x: Double(direction.stableTestIndex), y: 0)),
+    observedToolCentroid: centroid,
     estimate: estimate,
-    confidence: confidence
+    observationVariance: observationVariance,
+    associationDistanceMargin: associationMargin,
+    broadPriorVariance: broadPriorVariance
   )
 }
 

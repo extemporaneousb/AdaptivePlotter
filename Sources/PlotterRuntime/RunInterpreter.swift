@@ -19,6 +19,7 @@ public enum RunOperation: Hashable, Sendable {
   case idle
   case passiveProbe
   case relativeJog(RelativeJogRequest)
+  case drawingStroke(DrawingStrokeRequest)
   case observedJog(PhysicalJogObservationRequest)
   case penActuation(PenCommand)
 }
@@ -27,6 +28,7 @@ public struct RunInterpreterSnapshot: Hashable, Sendable {
   public let currentOperation: RunOperation
   public let machine: MachineSnapshot
   public let lastMotionOutcome: MotionOutcome?
+  public let lastDrawingStrokeOutcome: DrawingStrokeOutcome?
   public let lastPhysicalJogObservationOutcome: PhysicalJogObservationOutcome?
   public let lastPenOutcome: PenOutcome?
   public let lastProbe: PassiveProbeResult?
@@ -37,6 +39,7 @@ public struct RunInterpreterSnapshot: Hashable, Sendable {
     currentOperation: RunOperation,
     machine: MachineSnapshot,
     lastMotionOutcome: MotionOutcome?,
+    lastDrawingStrokeOutcome: DrawingStrokeOutcome? = nil,
     lastPhysicalJogObservationOutcome: PhysicalJogObservationOutcome? = nil,
     lastPenOutcome: PenOutcome? = nil,
     lastProbe: PassiveProbeResult?,
@@ -46,6 +49,7 @@ public struct RunInterpreterSnapshot: Hashable, Sendable {
     self.currentOperation = currentOperation
     self.machine = machine
     self.lastMotionOutcome = lastMotionOutcome
+    self.lastDrawingStrokeOutcome = lastDrawingStrokeOutcome
     self.lastPhysicalJogObservationOutcome = lastPhysicalJogObservationOutcome
     self.lastPenOutcome = lastPenOutcome
     self.lastProbe = lastProbe
@@ -63,6 +67,7 @@ public actor RunInterpreter {
   private var currentOperation: RunOperation = .idle
   private var lastProbe: PassiveProbeResult?
   private var lastMotionOutcome: MotionOutcome?
+  private var lastDrawingStrokeOutcome: DrawingStrokeOutcome?
   private var lastPhysicalJogObservationOutcome: PhysicalJogObservationOutcome?
   private var lastPenOutcome: PenOutcome?
   private var jogCancelRequestInFlight = false
@@ -78,6 +83,7 @@ public actor RunInterpreter {
       currentOperation: currentOperation,
       machine: machine,
       lastMotionOutcome: lastMotionOutcome,
+      lastDrawingStrokeOutcome: lastDrawingStrokeOutcome,
       lastPhysicalJogObservationOutcome: lastPhysicalJogObservationOutcome,
       lastPenOutcome: lastPenOutcome,
       lastProbe: lastProbe,
@@ -115,6 +121,22 @@ public actor RunInterpreter {
     return outcome
   }
 
+  public func requestDrawingStroke(
+    _ request: DrawingStrokeRequest
+  ) async -> DrawingStrokeOutcome {
+    guard currentOperation == .idle else {
+      let outcome = DrawingStrokeOutcome.refused(.operationInFlight)
+      lastDrawingStrokeOutcome = outcome
+      return outcome
+    }
+    generation &+= 1
+    currentOperation = .drawingStroke(request)
+    let outcome = await machineController.requestDrawingStroke(request)
+    lastDrawingStrokeOutcome = outcome
+    currentOperation = .idle
+    return outcome
+  }
+
   /// Priority subordinate request for the active `$J` operation. It deliberately
   /// does not replace `currentOperation`; the original jog remains the only
   /// owner of controller replies and final Idle completion.
@@ -123,7 +145,7 @@ public actor RunInterpreter {
       return .refused(.alreadyRequested)
     }
     switch currentOperation {
-    case .relativeJog, .observedJog:
+    case .relativeJog, .drawingStroke, .observedJog:
       break
     case .idle, .passiveProbe, .penActuation:
       let outcome = await machineController.requestJogCancel()

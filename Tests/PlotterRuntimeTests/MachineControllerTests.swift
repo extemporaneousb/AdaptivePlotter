@@ -1287,6 +1287,229 @@ struct RelativeJogTests {
   }
 }
 
+@Suite("Closed drawing stroke")
+struct DrawingStrokeTests {
+  @Test("drawing stroke uses closed locale-independent GRBL and returns controller evidence")
+  func successAndExactEncoding() async throws {
+    let request = try stroke(dx: 1.25, dy: -0.5, feed: 125.5)
+    #expect(
+      MachineController.encodeDrawingStroke(request)
+        == Data("$J=G91 G21 X1.250 Y-0.500 F125.500\n".utf8)
+    )
+    let ready = try await readyDrawingStrokeController(
+      request: request,
+      motion: [
+        strokeExchange(request, ["ok\r\n"]),
+        statusExchange("<Idle|MPos:1.250,-0.500,0.000>"),
+      ]
+    )
+
+    let outcome = await ready.controller.requestDrawingStroke(request)
+    guard case .completed(let evidence) = outcome else {
+      Issue.record("Expected completed drawing stroke, got \(outcome)")
+      return
+    }
+    #expect(evidence.request == request)
+    #expect(evidence.startPosition == (try MachinePosition(x: 0, y: 0)))
+    #expect(evidence.finalPosition == (try MachinePosition(x: 1.25, y: -0.5)))
+    #expect(evidence.finalSampleNanoseconds >= evidence.startSampleNanoseconds)
+    let snapshot = await ready.controller.snapshot()
+    #expect(snapshot.penState == .down)
+    #expect(snapshot.lastDrawingStrokeOutcome == outcome)
+    #expect(snapshot.stickyAmbiguity == nil)
+  }
+
+  @Test("Pen Up and unknown pen refuse drawing without weakening ordinary jog")
+  func penStateRefusals() async throws {
+    let request = try stroke(dx: 1, dy: 0, feed: 60)
+    let unknown = try await readyDrawingStrokeController(
+      request: request,
+      commandedPen: nil
+    )
+    let unknownWrites = unknown.link.completedWriteCount
+    #expect(
+      await unknown.controller.requestDrawingStroke(request)
+        == .refused(.penNotDown(.unknown))
+    )
+    #expect(unknown.link.completedWriteCount == unknownWrites)
+
+    let up = try await readyDrawingStrokeController(
+      request: request,
+      motion: [
+        strokeExchange(request, ["ok\r\n"]),
+        statusExchange("<Idle|MPos:1.000,0.000,0.000>"),
+      ],
+      commandedPen: .raise
+    )
+    let upWrites = up.link.completedWriteCount
+    #expect(
+      await up.controller.requestDrawingStroke(request)
+        == .refused(.penNotDown(.up))
+    )
+    #expect(up.link.completedWriteCount == upWrites)
+    #expect(
+      await up.controller.requestRelativeJog(
+        RelativeJogRequest(delta: request.delta, feedMMPerMinute: request.feedMMPerMinute)
+      ) == .acceptedThenCompleted(finalPosition: try MachinePosition(x: 1, y: 0))
+    )
+  }
+
+  @Test("closed numeric, feed, alarm, and end-stop refusals write no stroke bytes")
+  func directRefusals() async throws {
+    let request = try stroke(dx: 1, dy: 0, feed: 60)
+    let numeric = try await readyDrawingStrokeController(
+      request: request,
+      commandedPen: .lower
+    )
+    let numericWrites = numeric.link.completedWriteCount
+    #expect(
+      await numeric.controller.requestDrawingStroke(try stroke(dx: 0, dy: 0, feed: 60))
+        == .refused(.zeroDelta)
+    )
+    #expect(
+      await numeric.controller.requestDrawingStroke(try stroke(dx: 1, dy: 0, feed: 0))
+        == .refused(.nonPositiveFeed(0))
+    )
+    #expect(numeric.link.completedWriteCount == numericWrites)
+
+    let excessive = try stroke(dx: 1, dy: 0, feed: 501)
+    let feed = try await readyDrawingStrokeController(
+      request: excessive,
+      commandedPen: .lower
+    )
+    let feedWrites = feed.link.completedWriteCount
+    #expect(
+      await feed.controller.requestDrawingStroke(excessive)
+        == .refused(.feedExceedsMaximum(requested: 501, maximum: 500))
+    )
+    #expect(feed.link.completedWriteCount == feedWrites)
+
+    let alarm = try await readyDrawingStrokeController(
+      request: request,
+      freshStatusExchange: statusExchange("<Alarm|MPos:0.000,0.000,0.000>"),
+      commandedPen: .lower
+    )
+    #expect(
+      await alarm.controller.requestDrawingStroke(request)
+        == .refused(.controllerAlarm("controller is in Alarm"))
+    )
+
+    let endStop = try await readyDrawingStrokeController(
+      request: request,
+      freshStatusExchange: statusExchange("<Idle|MPos:0.000,0.000,0.000|Pn:X>"),
+      commandedPen: .lower
+    )
+    #expect(
+      await endStop.controller.requestDrawingStroke(request)
+        == .refused(.relevantLimitAsserted("X"))
+    )
+  }
+
+  @Test("STOP cancels once, raises once, and leaves the stroke cancelled in place")
+  func cancellationRaisesExactlyOnce() async throws {
+    let request = try stroke(dx: 1, dy: 0, feed: 60)
+    let ready = try await cancellableDrawingStrokeController(
+      request: request,
+      cancelExchange: SimulatedCommandExchange(
+        expectedWrite: MachineController.encodeJogCancel,
+        reads: []
+      ),
+      includePenRaise: true
+    )
+    let strokeTask = Task { await ready.controller.requestDrawingStroke(request) }
+    defer { strokeTask.cancel() }
+    await ready.readGate.waitUntilBlockedRead()
+
+    let cancelTask = Task { await ready.controller.requestJogCancel() }
+    defer { cancelTask.cancel() }
+    await waitForWriteCount(ready.base, atLeast: ready.writesThroughCancel)
+    #expect(
+      await ready.controller.requestDrawingStroke(request)
+        == .refused(.operationInFlight)
+    )
+    await ready.readGate.release()
+
+    let finalPosition = try MachinePosition(x: 0.4, y: 0)
+    #expect(await cancelTask.value == .completed(finalPosition: finalPosition))
+    let outcome = await strokeTask.value
+    guard case .cancelled(let evidence, let penRaiseOutcome) = outcome else {
+      Issue.record("Expected cancelled drawing stroke, got \(outcome)")
+      return
+    }
+    #expect(evidence.finalPosition == finalPosition)
+    #expect(
+      penRaiseOutcome == .commandedAndSettled(command: .raise, commandedState: .up)
+    )
+    let snapshot = await ready.controller.snapshot()
+    #expect(snapshot.penState == .up)
+    #expect(snapshot.lastDrawingStrokeOutcome == outcome)
+    #expect(ready.base.completedWriteCount == ready.writesThroughCancel + 3)
+  }
+
+  @Test("ambiguous STOP sends no Pen Up and cannot be resent")
+  func ambiguousCancellationStopsFollowOn() async throws {
+    let request = try stroke(dx: 1, dy: 0, feed: 60)
+    let ambiguity = MotionAmbiguity.writeTimedOut(bytesWritten: 0, totalBytes: 1)
+    let ready = try await cancellableDrawingStrokeController(
+      request: request,
+      cancelExchange: SimulatedCommandExchange(
+        expectedWrite: MachineController.encodeJogCancel,
+        reads: [],
+        writeError: .writeTimedOut(bytesWritten: 0, totalBytes: 1)
+      ),
+      includePenRaise: false
+    )
+    let strokeTask = Task { await ready.controller.requestDrawingStroke(request) }
+    defer { strokeTask.cancel() }
+    await ready.readGate.waitUntilBlockedRead()
+
+    #expect(await ready.controller.requestJogCancel() == .ambiguous(ambiguity))
+    let writesAfterCancel = ready.base.completedWriteCount
+    await ready.readGate.release()
+    #expect(await strokeTask.value == .ambiguous(ambiguity))
+    let writesAfterStroke = ready.base.completedWriteCount
+    #expect(writesAfterStroke == writesAfterCancel + 1)
+    #expect(
+      await ready.controller.requestDrawingStroke(request)
+        == .refused(.stickyAmbiguity(ambiguity))
+    )
+    #expect(ready.base.completedWriteCount == writesAfterStroke)
+    let snapshot = await ready.controller.snapshot()
+    #expect(snapshot.penState == .unknown)
+    #expect(snapshot.stickyAmbiguity == ambiguity)
+  }
+
+  @Test("timeout and disconnect are sticky and never resend the stroke")
+  func postWriteAmbiguityNoResend() async throws {
+    let request = try stroke(dx: 0.001, dy: 0, feed: 200)
+    let cases: [[SimulatedCommandExchange]] = [
+      [strokeExchange(request, ["ok\r\n"]), emptyStatusExchange()],
+      [strokeExchange(request, ["ok\r\n"]), disconnectingStatusExchange()],
+    ]
+
+    for motion in cases {
+      let ready = try await readyDrawingStrokeController(
+        request: request,
+        motion: motion,
+        commandedPen: .lower,
+        queryTimeoutNanoseconds: 10,
+        completionGraceNanoseconds: 10
+      )
+      let first = await ready.controller.requestDrawingStroke(request)
+      guard case .ambiguous(let ambiguity) = first else {
+        Issue.record("Expected ambiguous drawing stroke, got \(first)")
+        continue
+      }
+      let writesAfterFirst = ready.link.completedWriteCount
+      #expect(
+        await ready.controller.requestDrawingStroke(request)
+          == .refused(.stickyAmbiguity(ambiguity))
+      )
+      #expect(ready.link.completedWriteCount == writesAfterFirst)
+    }
+  }
+}
+
 @Suite("Typed pen actuation")
 struct PenActuationTests {
   @Test("local pen profile is a closed exact wire surface")
@@ -1469,6 +1692,13 @@ private func jog(dx: Double, dy: Double, feed: Double) throws -> RelativeJogRequ
   )
 }
 
+private func stroke(dx: Double, dy: Double, feed: Double) throws -> DrawingStrokeRequest {
+  DrawingStrokeRequest(
+    delta: try Vector2<MachineSpace>(dx: dx, dy: dy),
+    feedMMPerMinute: feed
+  )
+}
+
 private func penExchange(_ command: PenCommand, chunks: [String]) -> SimulatedCommandExchange {
   SimulatedCommandExchange(
     expectedWrite: MachineController.encodePenActuation(command),
@@ -1502,6 +1732,16 @@ private func parsedConfiguration(_ key: String, _ value: String) -> ParsedContro
 private func exchange(_ request: RelativeJogRequest, _ chunks: [String]) -> SimulatedCommandExchange {
   SimulatedCommandExchange(
     expectedWrite: MachineController.encodeRelativeJog(request),
+    reads: chunks.map { ScheduledMachineRead(outcome: .bytes(Data($0.utf8))) }
+  )
+}
+
+private func strokeExchange(
+  _ request: DrawingStrokeRequest,
+  _ chunks: [String]
+) -> SimulatedCommandExchange {
+  SimulatedCommandExchange(
+    expectedWrite: MachineController.encodeDrawingStroke(request),
     reads: chunks.map { ScheduledMachineRead(outcome: .bytes(Data($0.utf8))) }
   )
 }
@@ -1608,6 +1848,110 @@ private func cancellableJogController(
   #expect(
     await controller.requestPenActuation(.raise)
       == .commandedAndSettled(command: .raise, commandedState: .up)
+  )
+  return (controller, base, readGate, writesThroughCancel)
+}
+
+private func drawingControllerConfigurationExchange() -> SimulatedCommandExchange {
+  ControllerTranscriptFixtures.exchange(
+    .configuration,
+    chunks: [
+      "$110=500\r\n$111=500\r\n$120=10\r\n$121=10\r\nok\r\n"
+    ]
+  )
+}
+
+private func readyDrawingStrokeController(
+  request: DrawingStrokeRequest,
+  status: String = "<Idle|MPos:0.000,0.000,0.000>",
+  freshStatusExchange: SimulatedCommandExchange? = nil,
+  motion: [SimulatedCommandExchange] = [],
+  commandedPen: PenCommand? = .lower,
+  queryTimeoutNanoseconds: UInt64 = 1_000,
+  completionGraceNanoseconds: UInt64 = 1_000
+) async throws -> (controller: MachineController, link: SimulatedGRBLLink) {
+  let fixture = try await Fixture.make()
+  var exchanges = ControllerTranscriptFixtures.successfulPassiveProbe(delayNanoseconds: 0)
+  exchanges[2] = ControllerTranscriptFixtures.exchange(.status, chunks: ["\(status)\r\n"])
+  exchanges[3] = drawingControllerConfigurationExchange()
+  if let commandedPen {
+    exchanges.append(statusExchange(status))
+    exchanges.append(contentsOf: successfulPenCommands(commandedPen))
+  }
+  exchanges.append(freshStatusExchange ?? statusExchange(status))
+  exchanges.append(contentsOf: motion)
+  let link = SimulatedGRBLLink(exchanges: exchanges, clock: fixture.clock)
+  let controller = MachineController(
+    link: link,
+    ledger: fixture.ledger,
+    runID: fixture.runID,
+    clock: fixture.clock,
+    queryTimeoutNanoseconds: queryTimeoutNanoseconds,
+    statusPollIntervalNanoseconds: 1,
+    completionGraceNanoseconds: completionGraceNanoseconds
+  )
+  _ = await controller.runPassiveProbe()
+  #expect(await controller.activateMotionGuard() == .activated)
+  if let commandedPen {
+    #expect(
+      await controller.requestPenActuation(commandedPen)
+        == .commandedAndSettled(
+          command: commandedPen,
+          commandedState: commandedPen.commandedState
+        )
+    )
+  }
+  return (controller, link)
+}
+
+private func cancellableDrawingStrokeController(
+  request: DrawingStrokeRequest,
+  cancelExchange: SimulatedCommandExchange,
+  includePenRaise: Bool
+) async throws -> (
+  controller: MachineController,
+  base: SimulatedGRBLLink,
+  readGate: MachineReadGate,
+  writesThroughCancel: Int
+) {
+  let fixture = try await Fixture.make()
+  let status = "<Idle|MPos:0.000,0.000,0.000>"
+  var exchanges = ControllerTranscriptFixtures.successfulPassiveProbe(delayNanoseconds: 0)
+  exchanges[2] = ControllerTranscriptFixtures.exchange(.status, chunks: ["\(status)\r\n"])
+  exchanges[3] = drawingControllerConfigurationExchange()
+  exchanges.append(statusExchange(status))
+  exchanges.append(contentsOf: successfulPenCommands(.lower))
+  exchanges.append(statusExchange(status))
+  exchanges.append(strokeExchange(request, ["ok\r\n"]))
+  exchanges.append(statusExchange("<Jog|MPos:0.200,0.000,0.000>"))
+  exchanges.append(cancelExchange)
+  let writesThroughCancel = exchanges.count
+  exchanges.append(statusExchange("<Idle|MPos:0.400,0.000,0.000>"))
+  if includePenRaise {
+    exchanges.append(contentsOf: successfulPenCommands(.raise))
+  }
+
+  let base = SimulatedGRBLLink(exchanges: exchanges, clock: fixture.clock)
+  let readGate = MachineReadGate()
+  let link = PostJogStatusReadBlockingLink(
+    base: base,
+    jogBytes: MachineController.encodeDrawingStroke(request),
+    gate: readGate
+  )
+  let controller = MachineController(
+    link: link,
+    ledger: fixture.ledger,
+    runID: fixture.runID,
+    clock: fixture.clock,
+    queryTimeoutNanoseconds: 1_000,
+    statusPollIntervalNanoseconds: 1,
+    completionGraceNanoseconds: 1_000
+  )
+  _ = await controller.runPassiveProbe()
+  #expect(await controller.activateMotionGuard() == .activated)
+  #expect(
+    await controller.requestPenActuation(.lower)
+      == .commandedAndSettled(command: .lower, commandedState: .down)
   )
   return (controller, base, readGate, writesThroughCancel)
 }

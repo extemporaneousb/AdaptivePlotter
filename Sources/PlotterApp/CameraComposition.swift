@@ -2,6 +2,14 @@ import Foundation
 import PlotterModel
 import PlotterRuntime
 
+struct SimulatedExplorationCameraFrames: Hashable, Sendable {
+  let cleanReference: DisplayedFrame
+  let anchoredBaseline: DisplayedFrame
+  let postLine: DisplayedFrame
+  let observationRegion: PixelRect
+  let projectedStrokeDelta: Vector2<CameraPixelSpace>
+}
+
 enum CameraComposition {
   private static let session = CameraSourceSession()
 
@@ -30,6 +38,9 @@ enum CameraComposition {
     inspectScene: { boundary in
       try await session.inspectScene(newerThanNanoseconds: boundary)
     },
+    captureFrame: { boundary in
+      try await session.captureFrame(newerThanNanoseconds: boundary)
+    },
     captureSnapshot: {
       try await session.captureSnapshot()
     },
@@ -44,6 +55,18 @@ enum CameraComposition {
     },
     simulatedContent: { mode in
       try await session.simulatedContent(mode: mode)
+    },
+    simulatedExplorationFrames: {
+      try await session.simulatedExplorationFrames()
+    },
+    observeAnchorDot: { request in
+      await session.observeAnchorDot(request)
+    },
+    observeIsolatedInk: { request in
+      await session.observeIsolatedInk(request)
+    },
+    exportLearningEpisode: { frames, episodeID in
+      try await session.exportLearningEpisode(frames: frames, episodeID: episodeID)
     }
   )
 }
@@ -154,6 +177,24 @@ private actor CameraSourceSession {
     return LiveSceneInspection(displayedFrame: displayedFrame, measurement: measurement)
   }
 
+  func captureFrame(newerThanNanoseconds boundary: UInt64) async throws -> DisplayedFrame? {
+    try await boundedlyAwaitNewestCameraValue {
+      try await self.live.materializeLatestFrame(newerThanNanoseconds: boundary)
+    }
+  }
+
+  func observeAnchorDot(_ request: AnchorDotObservationRequest) async
+    -> AnchorDotObservationOutcome
+  {
+    await vision.observeAnchorDot(request)
+  }
+
+  func observeIsolatedInk(_ request: IsolatedInkObservationRequest) async
+    -> IsolatedInkObservationOutcome
+  {
+    await vision.observeIsolatedInk(request)
+  }
+
   func captureSnapshot() async throws -> String {
     let snapshot = await live.snapshot()
     guard let displayedFrame = try await live.materializeLatestFrame(),
@@ -163,6 +204,59 @@ private actor CameraSourceSession {
       throw CameraCaptureError.captureFailed("No current selected-camera frame is available.")
     }
     return try startupFrameRecorder.recordSnapshot(displayedFrame, device: device).path
+  }
+
+  func exportLearningEpisode(
+    frames: [StartupFrameRecorder.LearningFrame],
+    episodeID: String
+  ) async throws -> String {
+    let snapshot = await live.snapshot()
+    guard let selectedDeviceID = snapshot.selectedDeviceID,
+      let device = snapshot.devices.first(where: { $0.id == selectedDeviceID })
+    else {
+      throw CameraCaptureError.captureFailed(
+        "No selected live camera is available for learning-frame export."
+      )
+    }
+    return try startupFrameRecorder.recordLearningEpisode(
+      frames,
+      episodeID: episodeID,
+      device: device
+    ).path
+  }
+
+  /// Deterministic pixels for the same app-level exploration coordinator used
+  /// by live operation. No machine adapter participates in this path.
+  func simulatedExplorationFrames() throws -> SimulatedExplorationCameraFrames {
+    let oldInk = SimulatedCameraStroke(
+      start: try Point2(x: 95, y: 90),
+      end: try Point2(x: 150, y: 90),
+      green: 170
+    )
+    let anchorPoint = try Point2<CameraPixelSpace>(x: 250, y: 300)
+    let anchor = try [-1.0, 0.0, 1.0].map { yOffset in
+      SimulatedCameraStroke(
+        start: try Point2(x: anchorPoint.x - 1, y: anchorPoint.y + yOffset),
+        end: try Point2(x: anchorPoint.x + 1, y: anchorPoint.y + yOffset),
+        green: 220
+      )
+    }
+    let projectedDelta = try Vector2<CameraPixelSpace>(dx: 48, dy: -8)
+    let line = SimulatedCameraStroke(
+      start: anchorPoint,
+      end: try Point2(x: anchorPoint.x + 47, y: anchorPoint.y - 6),
+      green: 220
+    )
+    let clean = try simulator.render(strokes: [oldInk])
+    let anchored = try simulator.render(strokes: [oldInk] + anchor)
+    let post = try simulator.render(strokes: [oldInk] + anchor + [line])
+    return SimulatedExplorationCameraFrames(
+      cleanReference: clean,
+      anchoredBaseline: anchored,
+      postLine: post,
+      observationRegion: PixelRect(x: 210, y: 250, width: 150, height: 100),
+      projectedStrokeDelta: projectedDelta
+    )
   }
 
   func setAutomaticInspection(_ cadence: VisionAnalysisCadence?) async

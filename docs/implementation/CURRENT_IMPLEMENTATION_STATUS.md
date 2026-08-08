@@ -33,46 +33,47 @@ proof of energized motors. Pen buttons are actions, not selected-state controls,
 and the adjacent state says commanded Up/Down or unknown without claiming visual
 confirmation.
 
-Speech is owned by a first-class Motion Preflight transaction under Learning.
-The operator selects one of four boundary sequences or the Pen Up/Pen Down
-sequence and presses Start. That action acquires permission and starts listening
-for the transaction; success, failure, or cancellation stops listening. There
-is no separate speech toggle. Each sequence shows its participant/action/event
-timeline and accepts only the exact phrase required by the current step.
+Speech is owned by one persistent `ExplorationSession` started and ended from
+the Learning window. It keeps one microphone/recognizer lifetime across Motion
+Preflight, Armature Guidance, and Isolated Line episodes; episode completion or
+cancellation changes contextual grammar without stopping listening. There is no
+separate speech toggle. Permission-free injected simulator speech uses the same
+routing boundary. Every nonempty operator hypothesis interrupts spoken feedback
+before parsing, and stable partial `STOP` is accepted once per utterance only in
+a cancellable active context. Each Motion Preflight sequence still shows its
+participant/action/event timeline and accepts only the exact phrase required by
+the current step.
 `READY` starts one closed internal boundary-search jog. Exact `STOP` is accepted
 only while that jog is moving and requests GRBL Jog Cancel. Pen confirmations
 pair the spoken physical observation with an exact immutable camera frame
 without claiming that the camera proves height. Wrong-context, ambient, and
 compound phrases are rejected rather than partially executed.
 
-This lifecycle is implemented bootstrap behavior, not the selected final voice
-architecture. The next implementation replaces sequence-owned listening with
-one persistent `ExplorationSession` that remains warm across Motion Preflight,
-Armature Guidance, ink inspection, and comparison episodes. It will preserve a
-small contextual reflex grammar for typed actions while adding a separate
-teaching-label path for visibility, features, rankings, and rewards. That
-session, its expanded grammar, and its latency instrumentation are not yet
-implemented.
+The session has a closed contextual reflex grammar and a separate teaching-label
+path for visibility, shape features, rankings, and reward. Its in-memory
+`ExplorationEpisode` records preassigned training/reserved split, exact speech
+hypothesis/acceptance/feedback timing, typed proposed and executed actions,
+controller evidence, exact frame provenance, assessment, and residual. It is
+not an audio recorder, replay system, or experiment database.
 
-With the camera source set to SIMULATED, Motion Preflight presents a typed
-rehearsal of the same participant/action/event timeline. A **Practice with
-Voice** checkbox selects the input path. Off is deterministic silent playback
-and does not request speech or microphone permission. On makes sequence start
-own microphone start/stop, speaks the sequence cue, and pauses at operator steps
-until the same exact context-bound phrase is recognized; simulated actions
-advance the remaining steps. Cancellation, disabling the checkbox, source
-change, recognition loss, and shutdown invalidate the listener and stop the
-microphone. Both paths are structurally unable to touch `MachineActions`, record
-physical evidence, satisfy a live episode observation, update the drawing-frame
-posterior, or affect motion eligibility.
+With the camera source set to SIMULATED, Learning can execute the complete
+persistent-session ordering: Motion Preflight, blocked then clear Armature
+Guidance, an accepted clear pose, exact clean/anchor/post frames, deterministic
+anchor and line outcomes, paired ink subtraction, intended/observed/residual
+overlays, and one contextual spoken assessment. Voice practice off selects
+permission-free injected speech; on selects the real microphone. The full
+simulator runner has no `MachineActions` path, and automated coverage proves it
+invokes no controller closure. Its frames and outcomes remain simulated and
+cannot satisfy physical evidence or update a physical model.
 
-A side is recorded only when cancellation resolves at Idle as
+A boundary side is recorded only when cancellation resolves at Idle as
 `MotionOutcome.cancelled(finalPosition:)`. Current code records the final
-controller MPos as provenance, uses the strictly newer exact-frame tool centroid
-to shift the nearest inferred image edge, and confidence-averages the resulting
-quadrilateral. It does not numerically fuse MPos, maintain per-side uncertainty,
-or narrow confidence under repeated observations; the selected architecture
-replaces that heuristic in the next slice.
+controller MPos as provenance and uses the strictly newer exact-frame tool
+centroid to update one uniquely associated camera edge. Each side has an
+image-space precision posterior; repeated nonduplicate observations narrow its
+offset variance. Controller MPos is never numerically fused into image geometry.
+Partial side posteriors and uncertainty remain visible; a closed frame estimate
+does not exist until all four associated side lines intersect.
 If the jog reaches its internal search horizon, normal completion is reported
 and no boundary is recorded. Physical validation of this Motion Preflight
 increment is still pending.
@@ -116,8 +117,9 @@ over white paper. `S720` moved down but did not mark; one explicit adjustment to
 the closed local profile at `S760` produced a green contact dot. An `S40`
 command was separately observed lifting the tip after the earlier down attempt;
 the final `S40` after contact was acknowledged and left the controller-commanded
-state Up. Every command and settle completed without ambiguity. Drawing and
-observed-ink extraction remain unimplemented.
+state Up. Every command and settle completed without ambiguity. The closed
+drawing-stroke and paired observed-ink software paths are now implemented, but
+they have not yet been exercised on the physical machine.
 
 ## Simplifications now implemented
 
@@ -197,6 +199,11 @@ TCC attribution.
   unknown, and is never resent.
 - A successful pen outcome means both controller commands were acknowledged. It
   is explicitly not camera proof that the mechanism reached the requested pose.
+- `DrawingStrokeRequest` is a distinct finite XY operation admitted only while
+  controller-commanded pen state is Down. It owns acceptance through final
+  Idle/MPos. A settled `STOP` raises once and ends cancelled in place; ambiguity
+  sends no Pen Up or follow-on command and becomes sticky. Ordinary jog remains
+  Pen-Up-only.
 
 ### Current-session diagnostics
 
@@ -266,8 +273,8 @@ TCC attribution.
   purposes. Recognition is currently configured to require Apple's on-device
   path; failure is shown directly rather than silently switching to a network
   recognizer.
-- The local product has one primary SwiftUI operator window and one Motion
-  Preflight utility window backed by the same delegate-owned
+- The local product has one primary SwiftUI operator window and one Learning
+  window backed by the same delegate-owned
   `OperatorWorkspace`. The local launcher starts with
   `ApplePersistenceIgnoreState`, and the delegate rejects AppKit
   application-state save and restore, so stale state cannot suppress the next
@@ -296,9 +303,10 @@ TCC attribution.
   evidence; this implementation does not disguise that as affine training.
 - There is no spline/neural model family, replay store, continuous visual servo,
   or model update inside an irreversible ink stroke.
-- The Learning panel contains two distinct surfaces. **Motion Preflight** opens
-  the current voice-mediated zero-order learning/preflight utility and documents
-  the active sequence. The current-session diagnostic controls **Record Jog
+- The Learning window contains Motion Preflight, Armature Guidance, and Isolated
+  Line sections under one persistent session, plus a live
+  participant/action/observation sequence. The current-session diagnostic
+  controls **Record Jog
   Observations**, selects the next immutable training/holdout split, clears
   current samples, and shows sample
   counts, last paired result, response matrix, and separate residuals under the
@@ -321,8 +329,9 @@ TCC attribution.
 - The affine drawing-model trainer, held-out acceptance decision, immutable
   version replacement, and pen-down pinning are implemented in the model layer
   and simulator. Physical jog evidence can be converted through one identified
-  field registration into sealed training observations. The live app does not
-  yet collect observed ink, own an accepted physical drawing model, fit a live
+  field registration into sealed training observations. The app can now collect
+  one exact clean/anchored/post frame triplet and paired anchor/line observation.
+  It does not yet own an accepted physical drawing model, fit a live drawing
   candidate, or apply one to drawing execution.
 
 ## Current C920 scene priors
@@ -392,33 +401,30 @@ That observation remains evidence for the unchecked silent path. The later
 fixtures but has not yet been exercised with the actual microphone in the
 signed app bundle.
 
-## Not yet implemented
+## Not yet implemented or not yet physically verified
 
 - Live measurement of preview and auto-analysis throughput/latency on this Mac.
 - Physical validation of the context-bound `READY`/`STOP` boundary workflow,
   its audible turn-taking, Jog Cancel timing, and final-MPos boundary records.
-- Persistent ExplorationSession microphone ownership, barge-in, contextual
-  reflex routing beyond `READY`/`STOP`, teaching labels, and end-to-end latency
-  measurement. No OpenAI or network speech dependency is selected.
+- Signed-bundle physical verification of persistent microphone ownership,
+  barge-in, spoken armature labels, and measured end-to-end voice latency. No
+  OpenAI or network speech dependency is selected.
 - FaceTime-camera operator-presence observation. It is not a motion gate, and a
   second camera owner or identity/video-recording subsystem has not been added.
-- Armature Guidance, including one fixed camera observation region, spoken
-  clear/partial/blocked labels, and one taught clear tool pose/path.
-- Isolated line drawing, ink detection, and simple residual display.
+- Physical Armature Guidance observations and acceptance of one real clear pose.
+- One physical anchor and isolated line, exact post-clear ink observation, and
+  camera-space residual. Software and deterministic simulator coverage exist.
 - Small multi-stroke drawing and optional affine correction.
 - Portrait-to-vector input.
 
 ## Next action
 
-The fresh passive probe, Pen Up/Pen Down contact check, and 1 mm X/Y round trips
-in [First Hardware Session](FIRST_HARDWARE_SESSION.md) are complete. The next
-coherent slice is one persistent ExplorationSession carrying physical Motion
-Preflight into Armature Guidance, followed by one taught clear pose, one short
-observed anchor dot at the recorded start, one isolated-line operation, tool
-clear, exact-frame ink observation, and anchored residual display. The
-standalone coordinator/worker handoff is
-[Next Slice Multi-Agent Execution Prompt](NEXT_SLICE_MULTI_AGENT_PROMPT.md).
+The coherent software slice and deterministic simulator loop are complete. The
+next action is one operator-gated physical pass through the Learning window:
+Pen Up plus one cancelled boundary observation, Armature Guidance and one
+human-clear pose, exact clean reference, one anchor, one fixed short isolated
+line, clear return, exact post-line observation, and one spoken assessment.
 Stop the affected physical episode on an alarm, asserted limit, disconnect,
 unexpected actuation, or ambiguity; do not Home, unlock, reset, write settings,
-resume, or automatically redraw. Cap motion, a stationary dot, and controller
-`ok` must not stand in for observed-line success.
+resume, or automatically redraw. Cap motion, a stationary dot, controller `ok`,
+and simulator output must not stand in for observed physical line success.

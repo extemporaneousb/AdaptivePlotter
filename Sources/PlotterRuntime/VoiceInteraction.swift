@@ -95,6 +95,12 @@ public enum VoiceListeningState: Hashable, Sendable {
   case failed(VoiceInteractionError)
 }
 
+public enum VoiceHypothesisStability: String, Hashable, Sendable {
+  case unstablePartial
+  case stablePartial
+  case final
+}
+
 public struct VoiceTranscript: Hashable, Sendable {
   /// Stable across every partial and final result from one recognizer cycle.
   /// Consumers use it to dispatch a context-bound STOP at most once.
@@ -102,6 +108,12 @@ public struct VoiceTranscript: Hashable, Sendable {
   public let sequence: UInt64
   public let text: String
   public let isFinal: Bool
+  /// Apple Speech does not expose a general partial-result stability bit.
+  /// Exact single-token STOP is deliberately treated as a stable partial at
+  /// this boundary because its only contextual authority is cancellation.
+  /// Injected deterministic transcripts may explicitly mark another partial
+  /// stable; native motion-producing phrases otherwise wait for a final result.
+  public let stability: VoiceHypothesisStability
   public let monotonicNanoseconds: UInt64
 
   public init(
@@ -109,13 +121,31 @@ public struct VoiceTranscript: Hashable, Sendable {
     sequence: UInt64,
     text: String,
     isFinal: Bool,
+    stability: VoiceHypothesisStability? = nil,
     monotonicNanoseconds: UInt64
   ) {
     self.utteranceID = utteranceID
     self.sequence = sequence
     self.text = text
     self.isFinal = isFinal
+    if isFinal {
+      self.stability = .final
+    } else if let stability {
+      self.stability = stability == .final ? .unstablePartial : stability
+    } else {
+      self.stability = Self.normalized(text) == "stop" ? .stablePartial : .unstablePartial
+    }
     self.monotonicNanoseconds = monotonicNanoseconds
+  }
+
+  private static func normalized(_ text: String) -> String {
+    let characters = text
+      .lowercased()
+      .unicodeScalars
+      .map { CharacterSet.alphanumerics.contains($0) ? Character(String($0)) : " " }
+    return String(characters)
+      .split(whereSeparator: { $0.isWhitespace })
+      .joined(separator: " ")
   }
 }
 
@@ -274,6 +304,8 @@ public actor NativeVoiceInteractionDriver: VoiceInteractionDriving {
   private var listeningState: VoiceListeningState = .stopped
   private var latestTranscript: VoiceTranscript?
   private var transcriptSequence: UInt64 = 0
+  private var lifecycleGeneration: UInt64 = 0
+  private var listeningRequested = false
 
   public init(
     locale: Locale = .current,
@@ -295,23 +327,36 @@ public actor NativeVoiceInteractionDriver: VoiceInteractionDriving {
   }
 
   public func requestAuthorization() async -> VoiceAuthorizationState {
+    let generation = lifecycleGeneration
     listeningState = .requestingPermission
-    authorization = await Self.obtainAuthorization()
-    if authorization != .authorized {
-      listeningState = .failed(.authorization(authorization))
+    let result = await Self.obtainAuthorization()
+    authorization = result
+    guard lifecycleGeneration == generation else { return result }
+    if result != .authorized {
+      listeningState = .failed(.authorization(result))
     } else {
       listeningState = .stopped
     }
-    return authorization
+    return result
   }
 
   public func startListening() async {
     if listeningState == .listening { return }
 
+    lifecycleGeneration &+= 1
+    let generation = lifecycleGeneration
+    listeningRequested = true
+
     if authorization != .authorized {
-      _ = await requestAuthorization()
+      listeningState = .requestingPermission
+      authorization = await Self.obtainAuthorization()
     }
-    guard authorization == .authorized else { return }
+    guard listeningRequested, lifecycleGeneration == generation else { return }
+    guard authorization == .authorized else {
+      listeningRequested = false
+      listeningState = .failed(.authorization(authorization))
+      return
+    }
 
     guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: localeIdentifier)),
       recognizer.isAvailable
@@ -352,6 +397,8 @@ public actor NativeVoiceInteractionDriver: VoiceInteractionDriving {
   }
 
   public func stopListening() {
+    listeningRequested = false
+    lifecycleGeneration &+= 1
     stopAudioResources()
     listeningState = .stopped
   }

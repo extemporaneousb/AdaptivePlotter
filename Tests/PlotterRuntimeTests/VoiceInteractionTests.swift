@@ -70,6 +70,35 @@ struct VoiceInteractionTests {
     #expect(received.utteranceID == utteranceID)
   }
 
+  @Test("only exact partial STOP receives native reflex stability by default")
+  func partialStabilityIsNarrow() {
+    let stop = VoiceTranscript(
+      utteranceID: UUID(),
+      sequence: 1,
+      text: " STOP! ",
+      isFinal: false,
+      monotonicNanoseconds: 1
+    )
+    let continueHypothesis = VoiceTranscript(
+      utteranceID: UUID(),
+      sequence: 2,
+      text: "continue",
+      isFinal: false,
+      monotonicNanoseconds: 2
+    )
+    let final = VoiceTranscript(
+      utteranceID: UUID(),
+      sequence: 3,
+      text: "continue",
+      isFinal: true,
+      monotonicNanoseconds: 3
+    )
+
+    #expect(stop.stability == .stablePartial)
+    #expect(continueHypothesis.stability == .unstablePartial)
+    #expect(final.stability == .final)
+  }
+
   @Test("speech output is injectable without a native audio dependency")
   func injectableSpeechOutput() async {
     let output = RecordingVoiceSpeechOutput()

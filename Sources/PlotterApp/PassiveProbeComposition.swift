@@ -23,6 +23,9 @@ enum MachineSessionComposition {
     requestRelativeJog: { request in
       await session.requestRelativeJog(request)
     },
+    requestDrawingStroke: { request in
+      await session.requestDrawingStroke(request)
+    },
     requestObservedJog: { request, observe in
       await session.requestObservedJog(request, observe: observe)
     },
@@ -100,6 +103,11 @@ private actor PersistentMachineSession {
   func requestRelativeJog(_ request: RelativeJogRequest) async -> MotionOutcome {
     guard let interpreter else { return .refused(.noSerialDeviceSelected) }
     return await interpreter.requestRelativeJog(request)
+  }
+
+  func requestDrawingStroke(_ request: DrawingStrokeRequest) async -> DrawingStrokeOutcome {
+    guard let interpreter else { return .refused(.noSerialDeviceSelected) }
+    return await interpreter.requestDrawingStroke(request)
   }
 
   func requestJogCancel() async -> JogCancelOutcome {

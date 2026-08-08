@@ -23,6 +23,22 @@ public struct SimulatedPaperStroke: Sendable, Equatable {
   }
 }
 
+public struct SimulatedIsolatedInkFrames: Sendable, Equatable {
+  public let cleanReference: StampedFrame
+  public let anchoredBaseline: StampedFrame
+  public let postLine: StampedFrame
+
+  public init(
+    cleanReference: StampedFrame,
+    anchoredBaseline: StampedFrame,
+    postLine: StampedFrame
+  ) {
+    self.cleanReference = cleanReference
+    self.anchoredBaseline = anchoredBaseline
+    self.postLine = postLine
+  }
+}
+
 /// An independent paper renderer. Controller replies never enter this API, so
 /// controller completion cannot manufacture synthetic ink success.
 public struct PaperSceneSimulator: Sendable {
@@ -75,6 +91,53 @@ public struct PaperSceneSimulator: Sendable {
     return try source.renderModelMismatch(
       scene,
       captureNanoseconds: captureNanoseconds
+    )
+  }
+
+  /// Produces the three exact views consumed by paired isolated-ink analysis.
+  /// The anchor is a small stationary cross; the post frame adds only the line.
+  public func renderIsolatedInkSequence(
+    preexistingInk: [SimulatedPaperStroke],
+    anchor: PaperPixelPoint,
+    lineEnd: PaperPixelPoint,
+    cleanSequence: UInt64,
+    cleanCaptureNanoseconds: UInt64,
+    cameraConfigurationID: CameraConfigurationID
+  ) throws -> SimulatedIsolatedInkFrames {
+    let anchorStrokes = [
+      SimulatedPaperStroke(
+        start: PaperPixelPoint(x: anchor.x - 1, y: anchor.y),
+        end: PaperPixelPoint(x: anchor.x + 1, y: anchor.y)
+      ),
+      SimulatedPaperStroke(
+        start: PaperPixelPoint(x: anchor.x, y: anchor.y - 1),
+        end: PaperPixelPoint(x: anchor.x, y: anchor.y + 1)
+      ),
+    ]
+    let clean = try render(
+      strokes: preexistingInk,
+      sequence: cleanSequence,
+      captureNanoseconds: cleanCaptureNanoseconds,
+      cameraConfigurationID: cameraConfigurationID
+    )
+    let anchored = try render(
+      strokes: preexistingInk + anchorStrokes,
+      sequence: cleanSequence + 1,
+      captureNanoseconds: cleanCaptureNanoseconds + 1,
+      cameraConfigurationID: cameraConfigurationID
+    )
+    let post = try render(
+      strokes: preexistingInk + anchorStrokes + [
+        SimulatedPaperStroke(start: anchor, end: lineEnd)
+      ],
+      sequence: cleanSequence + 2,
+      captureNanoseconds: cleanCaptureNanoseconds + 2,
+      cameraConfigurationID: cameraConfigurationID
+    )
+    return SimulatedIsolatedInkFrames(
+      cleanReference: clean,
+      anchoredBaseline: anchored,
+      postLine: post
     )
   }
 }

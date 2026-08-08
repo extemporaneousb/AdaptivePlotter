@@ -8,7 +8,8 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
   let workspace = OperatorWorkspace(
     machineActions: MachineSessionComposition.actions,
     cameraActions: CameraComposition.actions,
-    voiceActions: VoiceComposition.actions
+    voiceActions: VoiceComposition.actions,
+    explorationActions: VoiceComposition.explorationActions
   )
   private var terminationTask: Task<Void, Never>?
   private var terminationDeadlineTask: Task<Void, Never>?
@@ -76,10 +77,10 @@ struct AdaptivePlotterApp: App {
     }
     .windowToolbarStyle(.unifiedCompact)
 
-    Window("Motion Preflight", id: "motion-preflight") {
-      MotionPreflightWindow(workspace: applicationDelegate.workspace)
+    Window("Learning", id: "exploration-learning") {
+      LearningWindow(workspace: applicationDelegate.workspace)
     }
-    .defaultSize(width: 920, height: 680)
+    .defaultSize(width: 1_180, height: 760)
   }
 }
 
@@ -88,6 +89,7 @@ private enum VoiceComposition {
     recognitionPolicy: .onDeviceRequired
   )
   private static let speech = NativeVoiceSpeechOutput()
+  private static let exploration = ExplorationSession(driver: driver, speechOutput: speech)
 
   static let actions = OperatorWorkspace.VoiceActions(
     requestAuthorization: { await driver.requestAuthorization() },
@@ -110,6 +112,19 @@ private enum VoiceComposition {
     speak: { text in await speech.speak(text) },
     stopSpeaking: { await speech.stopSpeaking() },
     signal: { await MainActor.run { NSSound.beep() } }
+  )
+
+  static let explorationActions = OperatorWorkspace.ExplorationActions(
+    start: { input, id in await exploration.start(input: input, id: id) },
+    activateEpisode: { context in try await exploration.activateEpisode(context) },
+    completeEpisode: { id, termination in
+      try await exploration.completeEpisode(id, termination: termination)
+    },
+    ingest: { transcript in await exploration.ingest(transcript) },
+    speakFeedback: { text in await exploration.speakFeedback(text) },
+    end: { await exploration.end() },
+    snapshot: { await exploration.snapshot() },
+    events: { await exploration.events() }
   )
 }
 
@@ -196,7 +211,7 @@ struct OperatorWorkspaceView: View {
   }
 }
 
-private struct MotionPreflightWindow: View {
+private struct LearningWindow: View {
   @Bindable var workspace: OperatorWorkspace
 
   private var mode: PreflightCalibrationMode {
@@ -204,7 +219,64 @@ private struct MotionPreflightWindow: View {
   }
 
   var body: some View {
-    PreflightCalibrationView(
+    VStack(spacing: 0) {
+      explorationHeader
+      Divider()
+      HSplitView {
+        TabView {
+          motionPreflight
+            .tabItem { Label("Motion Preflight", systemImage: "arrow.left.and.right") }
+          armatureGuidance
+            .tabItem { Label("Armature Guidance", systemImage: "viewfinder") }
+          isolatedLine
+            .tabItem { Label("Isolated Line", systemImage: "pencil.line") }
+        }
+        .frame(minWidth: 760)
+
+        explorationTimeline
+          .frame(minWidth: 300, idealWidth: 340, maxWidth: 420)
+      }
+    }
+  }
+
+  private var explorationHeader: some View {
+    HStack(spacing: 14) {
+      VStack(alignment: .leading, spacing: 3) {
+        Text("Learning")
+          .font(.title2.weight(.semibold))
+        Text("\(workspace.explorationPhaseText) · \(workspace.explorationSessionText)")
+          .font(.caption.monospaced())
+          .foregroundStyle(.secondary)
+      }
+      Spacer()
+      VStack(alignment: .trailing, spacing: 2) {
+        Text("Speech permission: \(workspace.voicePermissionText)")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+        Text(workspace.explorationNextActionText)
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .lineLimit(2)
+      }
+      Button(workspace.explorationActionTitle) {
+        Task {
+          if workspace.explorationIsActive {
+            await workspace.endExploration()
+          } else {
+            await workspace.startExploration()
+          }
+        }
+      }
+      .buttonStyle(.borderedProminent)
+      .disabled(!workspace.explorationIsActive && workspace.explorationStartUnavailableReason != nil)
+    }
+    .padding(14)
+    .background(.ultraThinMaterial)
+  }
+
+  private var motionPreflight: some View {
+    VStack(spacing: 0) {
+      PreflightCalibrationView(
       selectedSequenceID: $workspace.selectedPreflightSequenceID,
       simulatorVoicePracticeEnabled: Binding(
         get: { workspace.simulatorVoicePracticeEnabled },
@@ -239,6 +311,127 @@ private struct MotionPreflightWindow: View {
         }
       }
     )
+      HStack {
+        if workspace.frameMode == .simulated {
+          Button("Run Full Deterministic Episode") {
+            Task { await workspace.runSimulatedExploration() }
+          }
+          .buttonStyle(.borderedProminent)
+          .disabled(!workspace.explorationIsActive || workspace.explorationOperationInProgress)
+        } else {
+          Button("Continue to Armature Guidance") {
+            Task { await workspace.continueToArmatureGuidance() }
+          }
+          .buttonStyle(.borderedProminent)
+          .disabled(workspace.continueToArmatureUnavailableReason != nil)
+          if let reason = workspace.continueToArmatureUnavailableReason {
+            Text(reason).font(.caption).foregroundStyle(.orange)
+          }
+        }
+        Spacer()
+      }
+      .padding(10)
+    }
+  }
+
+  private var armatureGuidance: some View {
+    ScrollView {
+      VStack(alignment: .leading, spacing: 14) {
+        Text("Armature Guidance").font(.title2.weight(.semibold))
+        Text("Each move is one explicit 1 mm Pen Up jog. The fixed region and inferred overlap are guidance only; the operator's visibility label is retained even when vision disagrees.")
+          .foregroundStyle(.secondary)
+        Text(workspace.armatureGuidanceText).font(.callout.monospaced())
+        HStack {
+          Button("X− 1 mm") { Task { await workspace.moveArmature(.negativeXOneMillimeter) } }
+          Button("X+ 1 mm") { Task { await workspace.moveArmature(.positiveXOneMillimeter) } }
+          Button("Y− 1 mm") { Task { await workspace.moveArmature(.negativeYOneMillimeter) } }
+          Button("Y+ 1 mm") { Task { await workspace.moveArmature(.positiveYOneMillimeter) } }
+        }
+        .disabled(workspace.explorationFlow.phase != .armatureGuidance || workspace.frameMode != .live)
+        HStack {
+          Text("Label exact frame:")
+          Button("Blocked") { Task { await workspace.recordArmatureVisibility(.blocked) } }
+          Button("Partial") { Task { await workspace.recordArmatureVisibility(.partial) } }
+          Button("Clear") { Task { await workspace.recordArmatureVisibility(.clear) } }
+        }
+        .disabled(workspace.explorationFlow.phase != .armatureGuidance || workspace.frameMode != .live)
+        Button("Accept Current Clear Pose") {
+          Task { await workspace.acceptCurrentArmaturePose() }
+        }
+        .buttonStyle(.borderedProminent)
+        .disabled(workspace.lastArmatureObservation?.humanLabel != .clear)
+        Text("Voice labels ‘blocked’, ‘partial’, and ‘clear’ use the same recording path; say ‘accept this pose’ only after a clear observation.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+      .padding(18)
+      .frame(maxWidth: .infinity, alignment: .leading)
+    }
+  }
+
+  private var isolatedLine: some View {
+    ScrollView {
+      VStack(alignment: .leading, spacing: 14) {
+        Text("Isolated Line").font(.title2.weight(.semibold))
+        Text("One exact clean/anchor/post frame triplet. Missing ink is reported on that frame and never triggers a redraw.")
+          .foregroundStyle(.secondary)
+        HStack {
+          Button("1 · Capture Clean Reference") {
+            Task { await workspace.captureExplorationCleanReference() }
+          }
+          Button("2 · Record Current MPos as Start") {
+            workspace.recordExplorationLineStart()
+          }
+        }
+        HStack {
+          Button("3 · Return Clear and Detect Anchor") {
+            Task { await workspace.captureExplorationAnchor() }
+          }
+          Button("4 · Return to Start") {
+            Task { await workspace.prepareExplorationStrokeStart() }
+          }
+          Button("5 · Draw One 5 mm Line") {
+            Task { await workspace.runExplorationStroke() }
+          }
+          .buttonStyle(.borderedProminent)
+        }
+        .disabled(workspace.frameMode != .live || workspace.explorationOperationInProgress)
+        Text("Use the Motion Preflight Pen Down/Up transactions to create the anchor before step 3. At the returned start, complete Pen Down confirmation again before step 5.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+        GroupBox("Current observation") {
+          VStack(alignment: .leading, spacing: 6) {
+            Text(workspace.explorationEvidenceText).font(.callout.monospaced())
+            Text("Assessment: \(workspace.currentExplorationEpisode?.humanAssessment?.summary ?? "none")")
+            Text("Frame export: \(workspace.explorationExportPath ?? "not exported")")
+          }
+          .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        if let error = workspace.explorationError {
+          Text(error).font(.caption.monospaced()).foregroundStyle(.orange)
+        }
+      }
+      .padding(18)
+      .frame(maxWidth: .infinity, alignment: .leading)
+    }
+  }
+
+  private var explorationTimeline: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text("ACTIVE SEQUENCE").font(.caption.monospaced().bold()).foregroundStyle(.secondary)
+      Text("participant · action · observation")
+        .font(.caption2)
+        .foregroundStyle(.secondary)
+      List(workspace.explorationTimeline) { entry in
+        VStack(alignment: .leading, spacing: 3) {
+          Text(entry.participant.rawValue).font(.caption2.monospaced().bold())
+          Text(entry.action).font(.callout.weight(.medium))
+          Text(entry.observation).font(.caption).foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 3)
+      }
+    }
+    .padding(10)
   }
 }
 
@@ -633,17 +826,17 @@ private struct LearningPanel: View {
   @Environment(\.openWindow) private var openWindow
 
   var body: some View {
-    SectionPanel(title: "MOTION PREFLIGHT") {
+    SectionPanel(title: "LEARNING") {
       Text(
         workspace.frameMode == .simulated
-          ? "Rehearse the typed setup sequence silently or enable Practice with Voice in the rehearsal window. Neither mode can reach the controller, create physical evidence, or affect readiness."
-          : "Run discrete voice-mediated setup sequences until boundary and pen-position preflight classes are complete. Starting a sequence turns speech listening on; completion or cancellation turns it off."
+          ? "Run the full deterministic exploration through the same app-level coordinator. It cannot reach the controller or create physical evidence."
+          : "One persistent speech session contains Motion Preflight, Armature Guidance, and the single isolated-line episode."
       )
       .font(.caption)
       .foregroundStyle(.secondary)
 
-      Button(workspace.frameMode == .simulated ? "Open Rehearsal" : "Calibrate Plotter") {
-        openWindow(id: "motion-preflight")
+      Button("Open Learning") {
+        openWindow(id: "exploration-learning")
       }
       .buttonStyle(.borderedProminent)
       .disabled(workspace.frameMode == .live && !workspace.motionGuardIsActive)

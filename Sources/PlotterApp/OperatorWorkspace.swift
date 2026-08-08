@@ -120,6 +120,7 @@ final class OperatorWorkspace {
     let activateMotionGuard: @Sendable () async -> MotionGuardActivationOutcome
     let deactivateMotionGuard: @Sendable () async -> Void
     let requestRelativeJog: @Sendable (RelativeJogRequest) async -> MotionOutcome
+    let requestDrawingStroke: @Sendable (DrawingStrokeRequest) async -> DrawingStrokeOutcome
     let requestObservedJog: @Sendable (
       PhysicalJogObservationRequest,
       @Sendable (PhysicalObservationPhase, UInt64) async
@@ -141,6 +142,21 @@ final class OperatorWorkspace {
     let signal: @Sendable () async -> Void
   }
 
+  struct ExplorationActions: Sendable {
+    let start: @Sendable (ExplorationSessionInput, ExplorationSessionID) async
+      -> ExplorationSessionSnapshot
+    let activateEpisode: @Sendable (ExplorationEpisodeVoiceContext) async throws -> Void
+    let completeEpisode: @Sendable (
+      ExplorationEpisodeID,
+      ExplorationEpisodeTermination
+    ) async throws -> ExplorationEpisodeVoiceContext
+    let ingest: @Sendable (VoiceTranscript) async -> ExplorationVoiceRoutingResult
+    let speakFeedback: @Sendable (String) async -> ExplorationFeedbackReceipt?
+    let end: @Sendable () async -> Void
+    let snapshot: @Sendable () async -> ExplorationSessionSnapshot
+    let events: @Sendable () async -> AsyncStream<ExplorationSessionEvent>
+  }
+
   struct CameraActions: Sendable {
     let discover: @Sendable () async -> CameraCaptureSnapshot
     let select: @Sendable (CameraDeviceID) async throws -> CameraCaptureSnapshot
@@ -150,6 +166,7 @@ final class OperatorWorkspace {
     let snapshot: @Sendable () async -> CameraCaptureSnapshot
     let frames: @Sendable () async -> AsyncStream<DisplayedFrame>
     let inspectScene: @Sendable (UInt64) async throws -> LiveSceneInspection?
+    let captureFrame: @Sendable (UInt64) async throws -> DisplayedFrame?
     let captureSnapshot: @Sendable () async throws -> String
     let setAutomaticInspection: @Sendable (VisionAnalysisCadence?) async
       -> PlotterSceneAnalysisSnapshot
@@ -158,6 +175,15 @@ final class OperatorWorkspace {
       -> Result<VisibleToolFrameObservation, PhysicalJogObservationFailure>
     let simulatedContent: @Sendable (SimulatorModelMode) async throws
       -> SimulatedActionSurfaceContent
+    let simulatedExplorationFrames: @Sendable () async throws
+      -> SimulatedExplorationCameraFrames
+    let observeAnchorDot: @Sendable (AnchorDotObservationRequest) async
+      -> AnchorDotObservationOutcome
+    let observeIsolatedInk: @Sendable (IsolatedInkObservationRequest) async
+      -> IsolatedInkObservationOutcome
+    let exportLearningEpisode: @Sendable (
+      [StartupFrameRecorder.LearningFrame], String
+    ) async throws -> String
   }
 
   var visibleLayers = Set(CanvasLayer.allCases)
@@ -222,10 +248,27 @@ final class OperatorWorkspace {
   private(set) var preflightRehearsals: [PreflightSequenceID: PreflightRehearsal] = [:]
   private(set) var preflightError: String?
   private(set) var drawingFramePosterior: DrawingFramePosterior?
+  private(set) var explorationSessionSnapshot: ExplorationSessionSnapshot?
+  private(set) var explorationFlow = ExplorationFlowCoordinator()
+  private(set) var explorationTimeline: [ExplorationTimelineEntry] = []
+  private(set) var explorationError: String?
+  private(set) var currentExplorationEpisode: ExplorationEpisode?
+  private(set) var completedExplorationEpisodes: [ExplorationEpisode] = []
+  private(set) var armatureGuidanceState: ArmatureGuidanceState?
+  private(set) var lastArmatureObservation: ArmaturePoseObservation?
+  private(set) var explorationCleanReference: DisplayedFrame?
+  private(set) var explorationAnchoredBaseline: DisplayedFrame?
+  private(set) var explorationPostLineFrame: DisplayedFrame?
+  private(set) var lastAnchorObservation: AnchorDotObservation?
+  private(set) var lastInkObservation: IsolatedInkObservation?
+  private(set) var explorationInkStatus = "no isolated-line observation yet"
+  private(set) var explorationExportPath: String?
+  private(set) var explorationOperationInProgress = false
 
   @ObservationIgnored private let machineActions: MachineActions?
   @ObservationIgnored private let cameraActions: CameraActions?
   @ObservationIgnored private let voiceActions: VoiceActions?
+  @ObservationIgnored private let explorationActions: ExplorationActions?
   @ObservationIgnored private let serialDeviceDiscovery: @Sendable () -> [MachineLinkDescriptor]
   @ObservationIgnored private let persistSelectedSerialIdentifier: @Sendable (String) -> Void
   @ObservationIgnored private let nowNanoseconds: @Sendable () -> UInt64
@@ -233,13 +276,17 @@ final class OperatorWorkspace {
   @ObservationIgnored private var visionUpdateTask: Task<Void, Never>?
   @ObservationIgnored private var voiceTranscriptTask: Task<Void, Never>?
   @ObservationIgnored private var voiceStateTask: Task<Void, Never>?
+  @ObservationIgnored private var explorationEventTask: Task<Void, Never>?
+  @ObservationIgnored private var explorationGeneration: UInt64 = 0
+  @ObservationIgnored private var explorationControllerSessionID = UUID()
+  @ObservationIgnored private var explorationCoordinateRevision: UInt64 = 0
+  @ObservationIgnored private var explorationToolPaperRevision = UUID()
   @ObservationIgnored private var boundaryMotionTask: Task<Void, Never>?
   @ObservationIgnored private var boundaryCancelTask: Task<Void, Never>?
   @ObservationIgnored private var lastBoundaryStopUtteranceID: UUID?
   @ObservationIgnored private var pendingPreflightInspection: LiveSceneInspection?
   @ObservationIgnored private var pendingPreflightCaptureBoundaryNanoseconds: UInt64?
   @ObservationIgnored private var preflightAuthorityGeneration: UInt64 = 0
-  @ObservationIgnored private var preflightVoiceStartupGeneration: UInt64?
   @ObservationIgnored private var preflightRehearsalGeneration: UInt64 = 0
   @ObservationIgnored private var preflightRehearsalVoiceStartupGeneration: UInt64?
   @ObservationIgnored private var preflightRehearsalListeningID: PreflightSequenceID?
@@ -257,6 +304,7 @@ final class OperatorWorkspace {
     machineActions: MachineActions? = nil,
     cameraActions: CameraActions? = nil,
     voiceActions: VoiceActions? = nil,
+    explorationActions: ExplorationActions? = nil,
     serialDevices: [MachineLinkDescriptor] = [],
     serialDeviceDiscovery: @escaping @Sendable () -> [MachineLinkDescriptor] = {
       SerialPortDiscovery.discover()
@@ -275,6 +323,7 @@ final class OperatorWorkspace {
     self.machineActions = machineActions
     self.cameraActions = cameraActions
     self.voiceActions = voiceActions
+    self.explorationActions = explorationActions
     self.serialDevices = serialDevices
     self.serialDeviceDiscovery = serialDeviceDiscovery
     self.persistSelectedSerialIdentifier = persistSelectedSerialIdentifier
@@ -393,6 +442,7 @@ final class OperatorWorkspace {
     case .passiveProbe: "controller inspection"
     case .relativeJog: "relative jog"
     case .observedJog: "observed relative jog"
+    case .drawingStroke: "isolated drawing stroke"
     case .penActuation(let command): "pen \(command.rawValue)"
     }
   }
@@ -625,12 +675,94 @@ final class OperatorWorkspace {
     return voiceListening ? "listening" : "stopped"
   }
 
+  var explorationIsActive: Bool {
+    guard let snapshot = explorationSessionSnapshot else { return false }
+    if case .listening = snapshot.state { return true }
+    return false
+  }
+
+  private var explorationOwnsAuthority: Bool {
+    guard let snapshot = explorationSessionSnapshot else { return false }
+    return switch snapshot.state {
+    case .inactive, .failed: false
+    case .starting, .listening, .ending: true
+    }
+  }
+
+  var explorationActionTitle: String {
+    explorationIsActive ? "End Exploration" : "Start Exploration"
+  }
+
+  var explorationSessionText: String {
+    guard let snapshot = explorationSessionSnapshot else { return "inactive" }
+    return switch snapshot.state {
+    case .inactive: "inactive"
+    case .starting: "starting"
+    case .listening:
+      snapshot.input == .injected ? "listening · injected simulator input" : "listening · microphone"
+    case .ending: "ending"
+    case .failed(let failure): "failed: \(failure)"
+    }
+  }
+
+  var explorationPhaseText: String { explorationFlow.phase.title }
+
+  var explorationEvidenceText: String {
+    if let observation = lastInkObservation {
+      if let residual = observation.residual {
+        return String(
+          format: "observed %d new line pixels · endpoint RMS %.1f px · cross-track RMS %.1f px",
+          observation.observedPixelCount,
+          residual.rootMeanSquareEndpointPixels,
+          residual.rootMeanSquareCrossTrackPixels
+        )
+      }
+      return String(
+        format: "observed %d new line pixels · relative %.1f px at %.1f° · absolute residual unavailable",
+        observation.observedPixelCount,
+        observation.displacementPixels.magnitude,
+        observation.orientationRadians * 180 / .pi
+      )
+    }
+    return explorationInkStatus
+  }
+
+  var armatureGuidanceText: String {
+    guard let state = armatureGuidanceState else { return "no current-session observations" }
+    let accepted = state.acceptedClearPose == nil ? "no clear pose accepted" : "clear pose accepted"
+    return "\(state.observations.count) exact-frame labels · \(accepted)"
+  }
+
+  var explorationNextActionText: String {
+    if explorationOperationInProgress { return "one closed learning action is in progress" }
+    switch explorationFlow.phase {
+    case .inactive: return "Start Exploration."
+    case .motionPreflight: return frameMode == .simulated
+      ? "Run the deterministic simulator episode."
+      : "Complete Pen Up and one cancelled boundary observation, then continue."
+    case .armatureGuidance: return "Use 1 mm pen-up moves, label visibility, then accept one clear pose."
+    case .cleanReference: return "Capture the exact clean reference at the accepted clear pose."
+    case .chooseLineStart: return "Jog pen-up to a harmless start and record the current MPos."
+    case .anchorDot: return "Create one Pen Down/Up anchor, return clear, and capture the anchored baseline."
+    case .anchoredBaseline: return "Return pen-up to the start and confirm Pen Down for the one stroke."
+    case .isolatedStroke: return "Execute the one fixed short line. STOP cancels without clear-pose return."
+    case .postLineObservation: return "Return clear and capture one strictly newer post-line frame."
+    case .awaitingAssessment: return "Give one spoken shape or reward assessment."
+    case .completed: return "Review this episode or end Exploration."
+    case .stopped: return "Start a new Exploration session."
+    }
+  }
+
+  var explorationStartUnavailableReason: String? {
+    if hasShutdown { return "The operator workspace has shut down." }
+    if explorationIsActive { return "The exploration session is already active." }
+    if explorationActions == nil { return "Exploration voice composition is unavailable." }
+    return nil
+  }
+
   var voiceListeningUnavailableReason: String? {
     if hasShutdown { return "The operator workspace has shut down." }
     if voiceActions == nil { return "Native voice composition is unavailable." }
-    if preflightVoiceStartupGeneration != nil {
-      return "A Motion Preflight microphone request is still settling."
-    }
     if voiceListening { return "Voice listening is already active." }
     return nil
   }
@@ -656,7 +788,10 @@ final class OperatorWorkspace {
 
   var frameModeSwitchUnavailableReason: String? {
     if frameModeSwitchInProgress { return "A frame source switch is already in progress." }
-    if activePreflightSequenceID != nil || preflightVoiceStartupGeneration != nil {
+    if explorationOwnsAuthority {
+      return "End Exploration before changing its live/simulated authority."
+    }
+    if activePreflightSequenceID != nil {
       return "Finish or cancel the active Motion Preflight before switching frame source."
     }
     if passiveProbeInProgress || jogRequestInProgress || penRequestInProgress
@@ -769,24 +904,694 @@ final class OperatorWorkspace {
     return "preflight required · current pen state \(readiness.currentPenState.rawValue), Pen Up required"
   }
 
+  var continueToArmatureUnavailableReason: String? {
+    guard explorationIsActive, currentExplorationEpisode?.rung == .motionPreflight else {
+      return "Start the Motion Preflight exploration episode."
+    }
+    if activePreflightSequenceID != nil { return "Finish the active Motion Preflight transaction." }
+    if frameMode == .live {
+      guard machineSnapshot?.machine.penState == .up else {
+        return "Complete the physical Pen Up confirmation."
+      }
+      guard drawingFramePosterior?.sidePosteriors.isEmpty == false else {
+        return "Record one unambiguous cancelled-boundary observation."
+      }
+    }
+    return nil
+  }
+
+  func continueToArmatureGuidance() async {
+    guard continueToArmatureUnavailableReason == nil else { return }
+    do {
+      try explorationFlow.completeMotionPreflight()
+      await completeCurrentExplorationEpisode(termination: .completed)
+      await activateExplorationEpisode(
+        rung: .armatureGuidance,
+        allowedIntents: [
+          .stop, .continueAction, .keepGoing, .reverse,
+          .xPositive, .xNegative, .yPositive, .yNegative,
+          .accept, .skip, .endSession,
+        ],
+        teachingLabelKinds: [.visibility],
+        stopIsCancellable: true
+      )
+      appendExplorationTimeline(
+        participant: .vision,
+        action: "advance learning rung",
+        observation: "Armature Guidance active; manual motion remains independent"
+      )
+    } catch {
+      explorationError = "Could not enter Armature Guidance: \(error)"
+    }
+  }
+
+  /// Runs the same app-level ordering and worker-owned vision APIs as live
+  /// exploration. It deliberately has no path to `MachineActions`.
+  func runSimulatedExploration() async {
+    guard frameMode == .simulated, explorationIsActive,
+      explorationFlow.phase == .motionPreflight,
+      let cameraActions
+    else { return }
+    explorationOperationInProgress = true
+    defer { explorationOperationInProgress = false }
+    explorationError = nil
+    do {
+      let frames = try await cameraActions.simulatedExplorationFrames()
+      appendExplorationTimeline(
+        participant: .simulator,
+        action: "rehearse Pen Up and boundary STOP",
+        observation: "typed simulated outcomes only; no controller adapter was called"
+      )
+      let simulatedFrameGeometry = DrawingFrameEstimate(
+        geometry: try Polyline(points: [
+          Point2<CameraPixelSpace>(x: 20, y: 20),
+          Point2<CameraPixelSpace>(x: 620, y: 20),
+          Point2<CameraPixelSpace>(x: 620, y: 460),
+          Point2<CameraPixelSpace>(x: 20, y: 460),
+          Point2<CameraPixelSpace>(x: 20, y: 20),
+        ]),
+        confidence: 0.95,
+        basis: "deterministic simulator frame prior"
+      )
+      let boundaryObservation = try DrawingFrameBoundaryObservation(
+        frameID: frames.cleanReference.frame.id,
+        frameSHA256: frames.cleanReference.frame.contentSHA256,
+        captureNanoseconds: frames.cleanReference.frame.captureNanoseconds,
+        cameraConfigurationID: frames.cleanReference.frame.cameraConfigurationID,
+        direction: .positiveY,
+        controllerPosition: MachinePosition(x: 0, y: 0),
+        observedToolCentroid: Point2<CameraPixelSpace>(x: 320, y: 5),
+        estimate: simulatedFrameGeometry,
+        observationVariance: 4,
+        associationDistanceMargin: 8,
+        broadPriorVariance: 400
+      )
+      drawingFramePosterior = try DrawingFramePosterior(prior: boundaryObservation)
+      appendExplorationTimeline(
+        participant: .vision,
+        action: "adjust boundary side posterior",
+        observation: "one exact simulated frame and final MPos; image geometry only"
+      )
+      try explorationFlow.completeMotionPreflight()
+      await completeCurrentExplorationEpisode(termination: .completed)
+      await activateExplorationEpisode(
+        rung: .armatureGuidance,
+        allowedIntents: [
+          .stop, .continueAction, .keepGoing, .reverse,
+          .xPositive, .xNegative, .yPositive, .yNegative,
+          .accept, .skip, .endSession,
+        ],
+        teachingLabelKinds: [.visibility],
+        stopIsCancellable: true
+      )
+
+      let context = ArmatureGuidanceContext(
+        controllerSessionID: explorationControllerSessionID,
+        coordinateRevision: explorationCoordinateRevision,
+        cameraConfigurationID: frames.cleanReference.frame.cameraConfigurationID,
+        observationRegion: frames.observationRegion,
+        toolPaperRevision: explorationToolPaperRevision
+      )
+      var guidance = ArmatureGuidanceState(context: context)
+      let blocked = try guidance.record(
+        frame: frames.cleanReference.frame,
+        controllerPosition: MachinePosition(x: 0, y: 0),
+        armatureBounds: nil,
+        humanLabel: .blocked,
+        outcome: .continueInDirection(.positiveXOneMillimeter)
+      )
+      appendExplorationTimeline(
+        participant: .simulator,
+        action: "label blocked pose",
+        observation: "exact frame \(blocked.frameID.rawValue) at simulated MPos (0, 0)"
+      )
+      let clearBounds = try AxisAlignedBounds<CameraPixelSpace>(
+        minX: 0, minY: 0, maxX: 10, maxY: 10
+      )
+      let clear = try guidance.record(
+        frame: frames.cleanReference.frame,
+        controllerPosition: MachinePosition(x: 1, y: 0),
+        armatureBounds: clearBounds,
+        humanLabel: .clear,
+        outcome: .acceptedPose
+      )
+      try guidance.acceptClearPose(
+        observationID: clear.id,
+        returnFeedMMPerMinute: 100
+      )
+      armatureGuidanceState = guidance
+      lastArmatureObservation = clear
+      try explorationFlow.acceptClearPose(id: clear.id.rawValue.uuidString.lowercased())
+      appendExplorationTimeline(
+        participant: .operatorHuman,
+        action: "accept clear pose",
+        observation: "simulated label only; human/physical visibility not claimed"
+      )
+      await completeCurrentExplorationEpisode(termination: .completed)
+      await activateExplorationEpisode(
+        rung: .isolatedInk,
+        allowedIntents: [.stop, .accept, .again, .skip, .endSession],
+        teachingLabelKinds: [.shapeFeature, .reward],
+        stopIsCancellable: true
+      )
+
+      explorationCleanReference = frames.cleanReference
+      displayedFrame = frames.cleanReference
+      try explorationFlow.recordCleanReference(frames.cleanReference)
+      appendFrameEvidence(.cleanReference, frame: frames.cleanReference.frame)
+      let lineStart = try MachinePosition(x: 12, y: 8)
+      try explorationFlow.recordLineStart(lineStart)
+      if var episode = currentExplorationEpisode {
+        episode.lineStartPosition = lineStart
+        currentExplorationEpisode = episode
+      }
+
+      let anchorOutcome = await cameraActions.observeAnchorDot(
+        AnchorDotObservationRequest(
+          cleanReference: frames.cleanReference.frame,
+          anchoredBaseline: frames.anchoredBaseline.frame,
+          region: frames.observationRegion,
+          thresholds: GreenPixelThresholds(minimumGreen: 75, minimumGreenExcess: 20),
+          algorithmRevision: "isolated-ink-v1"
+        )
+      )
+      let anchor: AnchorDotObservation
+      switch anchorOutcome {
+      case .observed(let observation): anchor = observation
+      case .rejected(let rejection):
+        throw ExplorationSimulationError.anchorRejected(String(describing: rejection.reason))
+      }
+      lastAnchorObservation = anchor
+      explorationAnchoredBaseline = frames.anchoredBaseline
+      displayedFrame = frames.anchoredBaseline
+      cameraOverlays = [anchor.overlay]
+      try explorationFlow.recordAnchoredBaseline(
+        frames.anchoredBaseline,
+        anchorCentroid: anchor.centroid
+      )
+      appendFrameEvidence(.anchoredBaseline, frame: frames.anchoredBaseline.frame)
+      if var episode = currentExplorationEpisode {
+        episode.anchorDotCentroid = anchor.centroid
+        currentExplorationEpisode = episode
+      }
+
+      try explorationFlow.beginIsolatedStroke()
+      if var episode = currentExplorationEpisode {
+        episode.proposedAction = ExplorationActionSummary(
+          kind: .drawingStroke,
+          parameters: "simulated fixed +5 mm X"
+        )
+        episode.executedAction = episode.proposedAction
+        episode.controllerEvidence = ExplorationControllerEvidence(
+          startPosition: lineStart,
+          finalPosition: try MachinePosition(x: 17, y: 8),
+          startSampleNanoseconds: 10,
+          settlementNanoseconds: 20,
+          outcome: .completed,
+          summary: "deterministic simulator outcome; not controller evidence"
+        )
+        currentExplorationEpisode = episode
+      }
+      try explorationFlow.settleForPostLineObservation()
+      explorationPostLineFrame = frames.postLine
+      displayedFrame = frames.postLine
+      try explorationFlow.recordPostLineFrame(frames.postLine)
+      appendFrameEvidence(.postLine, frame: frames.postLine.frame)
+
+      let inkOutcome = await cameraActions.observeIsolatedInk(
+        IsolatedInkObservationRequest(
+          cleanReference: frames.cleanReference.frame,
+          anchoredBaseline: frames.anchoredBaseline.frame,
+          postLine: frames.postLine.frame,
+          region: frames.observationRegion,
+          thresholds: GreenPixelThresholds(minimumGreen: 75, minimumGreenExcess: 20),
+          projectedActualStrokeDelta: frames.projectedStrokeDelta,
+          algorithmRevision: "isolated-ink-v1"
+        )
+      )
+      switch inkOutcome {
+      case .observed(let observation):
+        acceptInkObservation(observation, source: .simulator)
+      case .rejected(let rejection):
+        throw ExplorationSimulationError.inkRejected(String(describing: rejection.reason))
+      }
+      appendExplorationTimeline(
+        participant: .simulator,
+        action: "complete deterministic line",
+        observation: "intended, observed, and residual overlays share the exact post-line frame"
+      )
+
+      guard let explorationActions else { return }
+      let transcript = VoiceTranscript(
+        utteranceID: UUID(),
+        sequence: 1,
+        text: "good straight line",
+        isFinal: true,
+        monotonicNanoseconds: nowNanoseconds()
+      )
+      _ = await explorationActions.ingest(transcript)
+      for _ in 0..<200 {
+        if explorationFlow.phase == .completed, currentExplorationEpisode == nil { break }
+        await Task.yield()
+      }
+      guard explorationFlow.phase == .completed, currentExplorationEpisode == nil else {
+        throw ExplorationSimulationError.assessmentNotAccepted
+      }
+    } catch {
+      explorationError = "Simulator exploration stopped: \(error)"
+      explorationInkStatus = "simulator episode stopped · \(error)"
+      explorationFlow.stop()
+      await completeCurrentExplorationEpisode(termination: .failed(String(describing: error)))
+    }
+  }
+
+  func recordArmatureVisibility(_ label: ArmatureVisibilityLabel) async {
+    guard frameMode == .live, explorationFlow.phase == .armatureGuidance,
+      let cameraActions, let position = machineSnapshot?.machine.position
+    else { return }
+    explorationOperationInProgress = true
+    defer { explorationOperationInProgress = false }
+    do {
+      let boundary = displayedFrame?.frame.captureNanoseconds ?? 0
+      guard let inspection = try await cameraActions.inspectScene(boundary) else {
+        throw ExplorationLiveError.freshFrameUnavailable
+      }
+      let context = armatureContext(
+        frame: inspection.displayedFrame.frame,
+        region: armatureGuidanceState?.context.observationRegion
+          ?? defaultInkRegion(for: inspection.displayedFrame.frame)
+      )
+      var guidance = armatureGuidanceState ?? ArmatureGuidanceState(context: context)
+      guidance.updateContext(context)
+      let observation = try guidance.record(
+        frame: inspection.displayedFrame.frame,
+        controllerPosition: position,
+        armatureBounds: inspection.measurement.armature?.bounds,
+        humanLabel: label,
+        outcome: .stopped
+      )
+      armatureGuidanceState = guidance
+      lastArmatureObservation = observation
+      displayedFrame = inspection.displayedFrame
+      cameraOverlays = inspection.measurement.overlays + [observationRegionOverlay(
+        frame: inspection.displayedFrame.frame,
+        region: context.observationRegion,
+        source: .planned
+      )]
+      appendFrameEvidence(.armatureObservation, frame: inspection.displayedFrame.frame)
+      appendExplorationTimeline(
+        participant: .operatorHuman,
+        action: "label armature \(label.rawValue)",
+        observation: observation.estimateAgreedWithHuman
+          ? "vision estimate agreed on exact frame"
+          : "vision disagreed; human label retained"
+      )
+    } catch {
+      explorationError = "Armature observation failed: \(error)"
+    }
+  }
+
+  func moveArmature(_ action: ArmatureGuidanceAction) async {
+    guard frameMode == .live, explorationFlow.phase == .armatureGuidance,
+      machineSnapshot?.machine.penState == .up,
+      let machineActions, let position = machineSnapshot?.machine.position
+    else { return }
+    explorationOperationInProgress = true
+    defer { explorationOperationInProgress = false }
+    do {
+      let context: ArmatureGuidanceContext
+      if let existing = armatureGuidanceState?.context {
+        context = existing
+      } else if let frame = displayedFrame?.frame {
+        context = armatureContext(frame: frame, region: defaultInkRegion(for: frame))
+      } else {
+        throw ExplorationLiveError.freshFrameUnavailable
+      }
+      var guidance = armatureGuidanceState ?? ArmatureGuidanceState(context: context)
+      guard let proposal = try guidance.proposedActions(
+        from: position,
+        feedMMPerMinute: Double(feedText) ?? 100
+      ).first(where: { $0.action == action }) else {
+        throw ExplorationLiveError.armatureProposalUnavailable
+      }
+      let outcome = await machineActions.requestRelativeJog(proposal.request)
+      machineSnapshot = await machineActions.snapshot()
+      appendExplorationTimeline(
+        participant: .controller,
+        action: "armature \(action.rawValue)",
+        observation: String(describing: outcome)
+      )
+      if case .ambiguous(let ambiguity) = outcome {
+        guidance.invalidateAutomatedReturn(.explicitlyDiscarded)
+        armatureGuidanceState = guidance
+        explorationFlow.stop()
+        await completeCurrentExplorationEpisode(
+          termination: .ambiguous(ambiguity.actionableDescription)
+        )
+      } else {
+        armatureGuidanceState = guidance
+      }
+    } catch {
+      explorationError = "Armature move failed: \(error)"
+    }
+  }
+
+  func acceptCurrentArmaturePose() async {
+    guard explorationFlow.phase == .armatureGuidance,
+      let observation = lastArmatureObservation,
+      observation.humanLabel == .clear,
+      var guidance = armatureGuidanceState
+    else { return }
+    do {
+      try guidance.acceptClearPose(
+        observationID: observation.id,
+        returnFeedMMPerMinute: Double(feedText) ?? 100
+      )
+      armatureGuidanceState = guidance
+      try explorationFlow.acceptClearPose(id: observation.id.rawValue.uuidString.lowercased())
+      if var episode = currentExplorationEpisode {
+        episode.executedAction = ExplorationActionSummary(
+          kind: .acceptClearPose,
+          parameters: "human-clear observation \(observation.id.rawValue.uuidString.lowercased())"
+        )
+        currentExplorationEpisode = episode
+      }
+      await completeCurrentExplorationEpisode(termination: .completed)
+      await activateExplorationEpisode(
+        rung: .isolatedInk,
+        allowedIntents: [
+          .ready, .stop, .penIsPhysicallyUp, .penIsPhysicallyDown,
+          .accept, .again, .skip, .endSession,
+        ],
+        teachingLabelKinds: [.shapeFeature, .reward],
+        stopIsCancellable: true
+      )
+    } catch {
+      explorationError = "Clear-pose acceptance failed: \(error)"
+    }
+  }
+
+  func captureExplorationCleanReference() async {
+    guard frameMode == .live, explorationFlow.phase == .cleanReference,
+      let clear = armatureGuidanceState?.acceptedClearPose,
+      machineSnapshot?.machine.position == clear.position,
+      machineSnapshot?.machine.penState == .up,
+      let cameraActions
+    else { return }
+    explorationOperationInProgress = true
+    defer { explorationOperationInProgress = false }
+    do {
+      guard let frame = try await cameraActions.captureFrame(
+        displayedFrame?.frame.captureNanoseconds ?? 0
+      ) else { throw ExplorationLiveError.freshFrameUnavailable }
+      try explorationFlow.recordCleanReference(frame)
+      explorationCleanReference = frame
+      displayedFrame = frame
+      cameraOverlays = [observationRegionOverlay(
+        frame: frame.frame,
+        region: armatureGuidanceState?.context.observationRegion
+          ?? defaultInkRegion(for: frame.frame),
+        source: .planned
+      )]
+      appendFrameEvidence(.cleanReference, frame: frame.frame)
+      appendExplorationTimeline(
+        participant: .camera,
+        action: "capture clean reference",
+        observation: "\(frame.frame.id.rawValue) · \(frame.frame.contentSHA256.prefix(12))"
+      )
+    } catch {
+      explorationError = "Clean-reference capture failed: \(error)"
+    }
+  }
+
+  func recordExplorationLineStart() {
+    guard explorationFlow.phase == .chooseLineStart,
+      machineSnapshot?.machine.penState == .up,
+      let position = machineSnapshot?.machine.position
+    else { return }
+    do {
+      try explorationFlow.recordLineStart(position)
+      if var episode = currentExplorationEpisode {
+        episode.lineStartPosition = position
+        currentExplorationEpisode = episode
+      }
+      appendExplorationTimeline(
+        participant: .controller,
+        action: "record line start",
+        observation: String(format: "MPos X %.3f Y %.3f", position.point.x, position.point.y)
+      )
+    } catch {
+      explorationError = "Line-start recording failed: \(error)"
+    }
+  }
+
+  /// Called after one physical Pen Down confirmation followed by Pen Up at the
+  /// recorded start. It returns clear before admitting the anchored baseline.
+  func captureExplorationAnchor() async {
+    guard frameMode == .live, explorationFlow.phase == .anchorDot,
+      machineSnapshot?.machine.penState == .up,
+      preflightTransactions[.penDownConfirmation]?.state == .succeeded,
+      preflightTransactions[.penUpConfirmation]?.state == .succeeded,
+      let clean = explorationCleanReference,
+      let cameraActions
+    else { return }
+    explorationOperationInProgress = true
+    defer { explorationOperationInProgress = false }
+    do {
+      try await returnToAcceptedClearPose()
+      guard let anchored = try await cameraActions.captureFrame(
+        max(clean.frame.captureNanoseconds, nowNanoseconds() == 0 ? 0 : clean.frame.captureNanoseconds)
+      ) else { throw ExplorationLiveError.freshFrameUnavailable }
+      let region = armatureGuidanceState?.context.observationRegion
+        ?? defaultInkRegion(for: clean.frame)
+      let outcome = await cameraActions.observeAnchorDot(
+        AnchorDotObservationRequest(
+          cleanReference: clean.frame,
+          anchoredBaseline: anchored.frame,
+          region: region,
+          thresholds: GreenPixelThresholds(minimumGreen: 75, minimumGreenExcess: 20),
+          algorithmRevision: "isolated-ink-v1"
+        )
+      )
+      switch outcome {
+      case .observed(let observation):
+        try explorationFlow.recordAnchoredBaseline(
+          anchored,
+          anchorCentroid: observation.centroid
+        )
+        explorationAnchoredBaseline = anchored
+        lastAnchorObservation = observation
+        displayedFrame = anchored
+        cameraOverlays = [observation.overlay]
+        appendFrameEvidence(.anchoredBaseline, frame: anchored.frame)
+        if var episode = currentExplorationEpisode {
+          episode.anchorDotCentroid = observation.centroid
+          episode.visionEstimate = ExplorationAssessment(
+            summary: "one new anchor component · \(observation.pixelCount) pixels",
+            provenance: "\(observation.algorithmRevision) on exact clean/anchored pair"
+          )
+          currentExplorationEpisode = episode
+        }
+        appendExplorationTimeline(
+          participant: .vision,
+          action: "detect anchor dot",
+          observation: String(
+            format: "centroid %.1f, %.1f · %d pixels",
+            observation.centroid.x,
+            observation.centroid.y,
+            observation.pixelCount
+          )
+        )
+      case .rejected(let rejection):
+        explorationInkStatus = "anchor rejected · \(rejection.reason)"
+        explorationFlow.stop()
+        await completeCurrentExplorationEpisode(
+          termination: .failed("anchor rejected: \(rejection.reason)")
+        )
+      }
+    } catch {
+      explorationError = "Anchor capture failed: \(error)"
+      explorationFlow.stop()
+      await completeCurrentExplorationEpisode(termination: .failed(String(describing: error)))
+    }
+  }
+
+  func prepareExplorationStrokeStart() async {
+    guard frameMode == .live, explorationFlow.phase == .anchoredBaseline,
+      let start = explorationFlow.lineStartPosition,
+      machineSnapshot?.machine.penState == .up,
+      let machineActions, let current = machineSnapshot?.machine.position
+    else { return }
+    explorationOperationInProgress = true
+    defer { explorationOperationInProgress = false }
+    do {
+      if current != start {
+        let request = RelativeJogRequest(
+          delta: try Vector2(
+            dx: start.point.x - current.point.x,
+            dy: start.point.y - current.point.y
+          ),
+          feedMMPerMinute: Double(feedText) ?? 100
+        )
+        let outcome = await machineActions.requestRelativeJog(request)
+        machineSnapshot = await machineActions.snapshot()
+        guard case .acceptedThenCompleted(let final) = outcome, final == start else {
+          throw ExplorationLiveError.controllerOutcome(String(describing: outcome))
+        }
+      }
+      try explorationFlow.beginIsolatedStroke()
+      appendExplorationTimeline(
+        participant: .controller,
+        action: "return to recorded line start",
+        observation: "Idle with exact final MPos; Pen Up remains required"
+      )
+    } catch {
+      explorationError = "Could not prepare the stroke start: \(error)"
+      if case ExplorationLiveError.controllerOutcome(let detail) = error {
+        explorationFlow.stop()
+        await completeCurrentExplorationEpisode(termination: .ambiguous(detail))
+      }
+    }
+  }
+
+  /// Executes exactly one closed 5 mm pen-down stroke. Completed strokes get
+  /// one explicit raise and clear-pose return; clean cancellation has already
+  /// raised once in the controller and stops in place; ambiguity sends nothing.
+  func runExplorationStroke() async {
+    guard frameMode == .live, explorationFlow.phase == .isolatedStroke,
+      machineSnapshot?.machine.penState == .down,
+      let machineActions, let cameraActions,
+      let clean = explorationCleanReference,
+      let anchored = explorationAnchoredBaseline
+    else { return }
+    explorationOperationInProgress = true
+    defer { explorationOperationInProgress = false }
+    let request = DrawingStrokeRequest(
+      delta: try! Vector2(dx: 5, dy: 0),
+      feedMMPerMinute: Double(feedText) ?? 100
+    )
+    if var episode = currentExplorationEpisode {
+      episode.proposedAction = ExplorationActionSummary(
+        kind: .drawingStroke,
+        parameters: "+5.000 mm X at \(request.feedMMPerMinute) mm/min"
+      )
+      currentExplorationEpisode = episode
+    }
+    let outcome = await machineActions.requestDrawingStroke(request)
+    machineSnapshot = await machineActions.snapshot()
+    switch outcome {
+    case .refused(let refusal):
+      explorationInkStatus = "stroke refused · \(refusal)"
+      explorationFlow.stop()
+      await completeCurrentExplorationEpisode(
+        termination: .failed("stroke refused: \(refusal)")
+      )
+      return
+    case .ambiguous(let ambiguity):
+      explorationInkStatus = "stroke ambiguous · no follow-on bytes sent"
+      explorationFlow.stop()
+      await completeCurrentExplorationEpisode(
+        termination: .ambiguous(ambiguity.actionableDescription)
+      )
+      return
+    case .cancelled(let evidence, let penRaiseOutcome):
+      recordStrokeEvidence(evidence, outcome: .cancelled, summary: "STOP settled in place")
+      explorationInkStatus = "stroke cancelled in place · \(penRaiseOutcome) · no clear return"
+      explorationFlow.stop()
+      await completeCurrentExplorationEpisode(termination: .cancelled(utteranceID: nil))
+      return
+    case .completed(let evidence):
+      recordStrokeEvidence(evidence, outcome: .completed, summary: "Idle with final MPos")
+      if var episode = currentExplorationEpisode {
+        episode.executedAction = episode.proposedAction
+        currentExplorationEpisode = episode
+      }
+      let raise = await machineActions.requestPenActuation(.raise)
+      machineSnapshot = await machineActions.snapshot()
+      guard case .commandedAndSettled = raise else {
+        explorationInkStatus = "post-stroke Pen Up was not settled · no return or camera claim"
+        explorationFlow.stop()
+        let termination: ExplorationEpisodeTermination = switch raise {
+        case .ambiguous(let ambiguity): .ambiguous(ambiguity.actionableDescription)
+        case .refused(let refusal): .failed("Pen Up refused: \(refusal)")
+        case .commandedAndSettled: .completed
+        }
+        await completeCurrentExplorationEpisode(termination: termination)
+        return
+      }
+      do {
+        try await returnToAcceptedClearPose()
+        try explorationFlow.settleForPostLineObservation()
+        guard let post = try await cameraActions.captureFrame(evidence.finalSampleNanoseconds) else {
+          throw ExplorationLiveError.freshFrameUnavailable
+        }
+        try explorationFlow.recordPostLineFrame(post)
+        explorationPostLineFrame = post
+        displayedFrame = post
+        appendFrameEvidence(.postLine, frame: post.frame)
+        let actualDelta = try Vector2<MachineSpace>(
+          dx: evidence.finalPosition.point.x - evidence.startPosition.point.x,
+          dy: evidence.finalPosition.point.y - evidence.startPosition.point.y
+        )
+        let projected = try jogResponseCandidate?.matrix.cameraDelta(for: actualDelta)
+        let inkOutcome = await cameraActions.observeIsolatedInk(
+          IsolatedInkObservationRequest(
+            cleanReference: clean.frame,
+            anchoredBaseline: anchored.frame,
+            postLine: post.frame,
+            region: armatureGuidanceState?.context.observationRegion
+              ?? defaultInkRegion(for: post.frame),
+            thresholds: GreenPixelThresholds(minimumGreen: 75, minimumGreenExcess: 20),
+            projectedActualStrokeDelta: projected,
+            algorithmRevision: "isolated-ink-v1"
+          )
+        )
+        switch inkOutcome {
+        case .observed(let observation):
+          acceptInkObservation(observation, source: .vision)
+          do {
+            explorationExportPath = try await cameraActions.exportLearningEpisode(
+              [
+                StartupFrameRecorder.LearningFrame(role: .cleanReference, displayedFrame: clean),
+                StartupFrameRecorder.LearningFrame(role: .anchoredBaseline, displayedFrame: anchored),
+                StartupFrameRecorder.LearningFrame(role: .postLine, displayedFrame: post),
+              ],
+              currentExplorationEpisode?.id.rawValue ?? UUID().uuidString.lowercased()
+            )
+          } catch {
+            explorationError = "Frames remain available in memory, but learning export failed: \(error)"
+          }
+        case .rejected(let rejection):
+          explorationInkStatus = "ink rejected on exact post frame · \(rejection.reason) · no redraw"
+          cameraOverlays = []
+          await completeCurrentExplorationEpisode(
+            termination: .failed("ink rejected: \(rejection.reason)")
+          )
+          explorationFlow.stop()
+        }
+      } catch {
+        explorationError = "Post-line observation failed: \(error)"
+        explorationFlow.stop()
+        await completeCurrentExplorationEpisode(termination: .failed(String(describing: error)))
+      }
+    }
+  }
+
   var drawingFramePosteriorText: String {
     guard let posterior = drawingFramePosterior else { return "no boundary posterior yet" }
-    return String(
-      format: "%d exact-frame observations · confidence %.2f",
-      posterior.observationCount,
-      posterior.estimate.confidence
-    )
+    let completion = posterior.estimate == nil ? "partial image-space sides" : "four-side intersections"
+    return "\(posterior.observationCount) exact-frame observations · \(posterior.sidePosteriors.count) associated sides · \(completion)"
   }
 
   func preflightStartUnavailableReason(for sequenceID: PreflightSequenceID) -> String? {
     if let activePreflightSequenceID {
       return "Finish or cancel \(PreflightSequenceCatalog.definition(for: activePreflightSequenceID).title)."
     }
-    if preflightVoiceStartupGeneration != nil {
-      return "Wait for the previous Motion Preflight microphone request to settle."
+    guard explorationIsActive else { return "Start Exploration first; it owns speech listening." }
+    guard currentExplorationEpisode?.rung == .motionPreflight else {
+      return "The active exploration episode is not Motion Preflight."
     }
     if !motionGuardIsActive { return "Connect the plotter and activate Motion Guard first." }
-    if voiceActions == nil { return "Native voice composition is unavailable." }
     if frameMode != .live || !cameraIsLive {
       return "A current LIVE camera frame is required for Motion Preflight."
     }
@@ -832,7 +1637,9 @@ final class OperatorWorkspace {
   var workbenchStatusText: String {
     if let actionableError { return actionableError }
     if !controllerIsConnected { return "Select the remembered controller and press Connect." }
-    if !motionGuardIsActive { return "Plotter connected. Activate Motion Guard to enable motion controls." }
+    if !motionGuardIsActive {
+      return "Plotter connected. Activate Motion Guard to enable this preflight action."
+    }
     if machineSnapshot?.machine.penState != .up {
       return "Motion Guard active. Run the Pen Up preflight before carriage travel."
     }
@@ -1130,7 +1937,7 @@ final class OperatorWorkspace {
   func selectSerialDevice(_ descriptor: MachineLinkDescriptor) async {
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
-    guard activePreflightSequenceID == nil else { return }
+    guard activePreflightSequenceID == nil, !explorationOwnsAuthority else { return }
     guard !passiveProbeInProgress && !jogRequestInProgress && !penRequestInProgress else { return }
     guard serialDevices.contains(where: { $0.identifier == descriptor.identifier }) else { return }
     if selectedSerialDevice?.identifier != descriptor.identifier, machineSnapshot != nil {
@@ -1223,6 +2030,156 @@ final class OperatorWorkspace {
     let snapshot = await machineActions.snapshot()
     guard canCommit(generation) else { return }
     machineSnapshot = snapshot
+  }
+
+  func startExploration() async {
+    guard explorationStartUnavailableReason == nil, let explorationActions else { return }
+    explorationGeneration &+= 1
+    let generation = explorationGeneration
+    explorationError = nil
+    explorationTimeline = []
+    completedExplorationEpisodes = []
+    currentExplorationEpisode = nil
+    armatureGuidanceState = nil
+    lastArmatureObservation = nil
+    explorationCleanReference = nil
+    explorationAnchoredBaseline = nil
+    explorationPostLineFrame = nil
+    lastAnchorObservation = nil
+    lastInkObservation = nil
+    explorationInkStatus = "no isolated-line observation yet"
+    explorationExportPath = nil
+    explorationToolPaperRevision = UUID()
+    let sessionID = ExplorationSessionID()
+    let input: ExplorationSessionInput =
+      frameMode == .simulated && !simulatorVoicePracticeEnabled ? .injected : .microphone
+    explorationSessionSnapshot = ExplorationSessionSnapshot(
+      id: sessionID,
+      input: input,
+      state: .starting,
+      voice: nil,
+      activeEpisode: nil,
+      latestTranscript: nil,
+      latestRoutingResult: nil,
+      latestFeedback: nil
+    )
+    let snapshot = await explorationActions.start(input, sessionID)
+    guard !hasShutdown, generation == explorationGeneration else {
+      await explorationActions.end()
+      return
+    }
+    explorationSessionSnapshot = snapshot
+    switch snapshot.state {
+    case .listening:
+      voiceListening = true
+      voiceAuthorizationState = snapshot.voice?.authorization
+        ?? (input == .injected ? .notDetermined : voiceAuthorizationState)
+      explorationFlow.start(authority: frameMode == .simulated ? .simulated : .live)
+      appendExplorationTimeline(
+        participant: frameMode == .simulated ? .simulator : .voice,
+        action: "start exploration",
+        observation: input == .injected
+          ? "permission-free deterministic speech input is active"
+          : "one persistent microphone session is active"
+      )
+      beginExplorationUpdates(actions: explorationActions, generation: generation)
+      await activateExplorationEpisode(
+        rung: .motionPreflight,
+        allowedIntents: [.ready, .stop, .penIsPhysicallyUp, .penIsPhysicallyDown, .skip, .endSession],
+        teachingLabelKinds: [],
+        stopIsCancellable: true
+      )
+    case .failed(let failure):
+      voiceListening = false
+      explorationError = "Exploration could not start: \(failure)"
+    case .inactive, .starting, .ending:
+      voiceListening = false
+      explorationError = "Exploration did not enter listening state."
+    }
+  }
+
+  func endExploration() async {
+    guard let explorationActions else { return }
+    explorationGeneration &+= 1
+    explorationEventTask?.cancel()
+    explorationEventTask = nil
+    if let episode = currentExplorationEpisode {
+      do {
+        _ = try await explorationActions.completeEpisode(
+          episode.id,
+          .endedSession(utteranceID: nil)
+        )
+        var completed = episode
+        completed.termination = .endedSession(utteranceID: nil)
+        completedExplorationEpisodes.append(completed)
+      } catch {
+        explorationError = "Could not close the active exploration episode: \(error)"
+      }
+      currentExplorationEpisode = nil
+    }
+    await explorationActions.end()
+    explorationSessionSnapshot = await explorationActions.snapshot()
+    voiceListening = false
+    explorationFlow.stop()
+    explorationOperationInProgress = false
+    appendExplorationTimeline(
+      participant: .operatorHuman,
+      action: "end exploration",
+      observation: "microphone and episode interpretation stopped"
+    )
+  }
+
+  func injectExplorationTranscript(_ transcript: VoiceTranscript) async {
+    guard explorationSessionSnapshot?.input == .injected, let explorationActions else { return }
+    _ = await explorationActions.ingest(transcript)
+  }
+
+  private func activateExplorationEpisode(
+    rung: ExplorationLearningRung,
+    allowedIntents: Set<ExplorationVoiceIntent>,
+    teachingLabelKinds: Set<ExplorationTeachingLabelKind>,
+    stopIsCancellable: Bool
+  ) async {
+    guard currentExplorationEpisode == nil,
+      let sessionID = explorationSessionSnapshot?.id,
+      let explorationActions
+    else { return }
+    let source: ExplorationSource = frameMode == .simulated ? .simulated : .live
+    let episode = ExplorationEpisode(
+      sessionID: sessionID,
+      rung: rung,
+      source: source,
+      split: completedExplorationEpisodes.count.isMultiple(of: 2) ? .training : .reserved,
+      startedNanoseconds: nowNanoseconds()
+    )
+    let context = ExplorationEpisodeVoiceContext(
+      episodeID: episode.id,
+      rung: rung,
+      source: source,
+      allowedIntents: allowedIntents,
+      teachingLabelKinds: teachingLabelKinds,
+      stopIsCancellable: stopIsCancellable
+    )
+    do {
+      try await explorationActions.activateEpisode(context)
+      currentExplorationEpisode = episode
+    } catch {
+      explorationError = "Could not activate \(rung.rawValue): \(error)"
+    }
+  }
+
+  private func completeCurrentExplorationEpisode(
+    termination: ExplorationEpisodeTermination
+  ) async {
+    guard var episode = currentExplorationEpisode, let explorationActions else { return }
+    do {
+      _ = try await explorationActions.completeEpisode(episode.id, termination)
+      episode.termination = termination
+      completedExplorationEpisodes.append(episode)
+      currentExplorationEpisode = nil
+    } catch {
+      explorationError = "Could not complete \(episode.rung.rawValue): \(error)"
+    }
   }
 
   func startVoiceListening() async {
@@ -1518,31 +2475,22 @@ final class OperatorWorkspace {
     {
       switch step.action {
       case .startSpeechListening:
-        if voiceListening { await stopVoiceListening() }
-        let authorityGeneration = preflightAuthorityGeneration
-        let started = await startPreflightVoiceListening(
-          for: sequenceID,
-          authorityGeneration: authorityGeneration
-        )
-        guard preflightAuthorityIsCurrent(
-          sequenceID: sequenceID,
-          generation: authorityGeneration
-        ) else { return }
-        guard started else {
-          await failPreflight(sequenceID, reason: voiceError ?? voicePermissionText)
+        guard explorationIsActive, currentExplorationEpisode?.rung == .motionPreflight else {
+          await failPreflight(
+            sequenceID,
+            reason: "Start one Exploration session before Motion Preflight."
+          )
           return
         }
         guard recordPreflight(.speechListeningStarted, for: sequenceID) else { return }
 
       case .stopSpeechListening:
-        await stopVoiceListening()
         guard recordPreflight(.speechListeningStopped, for: sequenceID) else { return }
 
       case .speakPrompt(let prompt):
         lastVoiceActionableResultText = prompt
         let spoken = "Motion Preflight is ready. Follow the displayed instruction."
-        await voiceActions?.speak(spoken)
-        lastSpokenFeedbackText = spoken
+        _ = await explorationActions?.speakFeedback(spoken)
         guard recordPreflight(.promptSpoken, for: sequenceID) else { return }
 
       case .awaitVoice(.ready):
@@ -1694,28 +2642,41 @@ final class OperatorWorkspace {
       let measurement = inspection.measurement
       let observation = try DrawingFrameBoundaryObservation(
         frameID: measurement.frameID,
+        frameSHA256: measurement.frameSHA256,
+        captureNanoseconds: inspection.displayedFrame.frame.captureNanoseconds,
         cameraConfigurationID: measurement.cameraConfigurationID,
         direction: direction,
         controllerPosition: controllerPosition,
         observedToolCentroid: observedToolCentroid,
         estimate: estimate,
-        confidence: max(0.01, estimate.confidence)
+        observationVariance: max(1, (1 - estimate.confidence) * 100),
+        associationDistanceMargin: 8,
+        broadPriorVariance: 400
       )
       drawingFramePosterior = try drawingFramePosterior?.adding(observation)
         ?? DrawingFramePosterior(prior: observation)
       guard let drawingFramePosterior else { return false }
-      let posteriorOverlay = CameraOverlayMeasurement(
-        frameID: measurement.frameID,
-        cameraConfigurationID: measurement.cameraConfigurationID,
-        geometry: .polyline(drawingFramePosterior.estimate.geometry),
-        provenance: CameraMeasurementProvenance(
-          kind: .drawingFrameEstimate,
-          source: .inferred,
-          algorithmRevision: "motion-preflight-posterior-v1"
-        )
-      )
       cameraOverlays.removeAll { $0.provenance.kind == .drawingFrameEstimate }
-      cameraOverlays.append(posteriorOverlay)
+      let posteriorGeometries: [Polyline<CameraPixelSpace>] =
+        if let closedEstimate = drawingFramePosterior.estimate {
+          [closedEstimate.geometry]
+        } else {
+          drawingFramePosterior.sidePosteriors
+            .sorted { $0.key.rawValue < $1.key.rawValue }
+            .map(\.value.geometry)
+        }
+      cameraOverlays.append(contentsOf: posteriorGeometries.map { geometry in
+        CameraOverlayMeasurement(
+          frameID: measurement.frameID,
+          cameraConfigurationID: measurement.cameraConfigurationID,
+          geometry: .polyline(geometry),
+          provenance: CameraMeasurementProvenance(
+            kind: .drawingFrameEstimate,
+            source: .inferred,
+            algorithmRevision: "motion-preflight-posterior-v2"
+          )
+        )
+      })
       return recordPreflight(
         .drawingFramePosteriorAdjusted(
           direction,
@@ -1758,16 +2719,17 @@ final class OperatorWorkspace {
     boundaryTeachingState = .idle
     pendingPreflightInspection = nil
     pendingPreflightCaptureBoundaryNanoseconds = nil
-    await stopVoiceListening()
+    lastVoiceActionableResultText = "Motion Preflight stopped: \(reason)"
   }
 
   private func finishCancelledPreflight(_ sequenceID: PreflightSequenceID) async {
-    await stopVoiceListening()
     if preflightTransactions[sequenceID]?.currentStep?.action == .stopSpeechListening {
       _ = recordPreflight(.speechListeningStopped, for: sequenceID)
     }
     pendingPreflightInspection = nil
     pendingPreflightCaptureBoundaryNanoseconds = nil
+    lastVoiceActionableResultText =
+      "Motion Preflight transaction cancelled; Exploration listening remains active."
   }
 
   func beginBoundaryTeaching(_ direction: JogDirection) async {
@@ -1977,7 +2939,10 @@ final class OperatorWorkspace {
   func selectCamera(_ id: CameraDeviceID) async {
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
-    guard let cameraActions else { return }
+    guard let cameraActions, !explorationOwnsAuthority else {
+      cameraError = "End Exploration before changing its camera configuration."
+      return
+    }
     clearAutomaticVisionPresentation()
     await clearPreflightAuthority()
     cameraError = nil
@@ -2027,6 +2992,10 @@ final class OperatorWorkspace {
   func restartCamera() async {
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
+    guard !explorationOwnsAuthority else {
+      cameraError = "End Exploration before restarting its camera configuration."
+      return
+    }
     frameTask?.cancel()
     frameTask = nil
     clearAutomaticVisionPresentation()
@@ -2236,11 +3205,15 @@ final class OperatorWorkspace {
     preflightRehearsalTask?.cancel()
     preflightRehearsalTask = nil
     stopObserving()
+    explorationGeneration &+= 1
+    explorationEventTask?.cancel()
+    explorationEventTask = nil
     invalidateVoiceUpdates()
     lastBoundaryStopUtteranceID = nil
     lastPreflightRehearsalUtteranceID = nil
     await voiceActions?.stopListening()
     await voiceActions?.stopSpeaking()
+    await explorationActions?.end()
     voiceListening = false
     preflightRehearsalListeningID = nil
     await waitForHardwareIntentsToDrain()
@@ -2284,6 +3257,309 @@ final class OperatorWorkspace {
         self.cameraSnapshot = await cameraActions.snapshot()
         if let result = snapshot.latestResult { self.receiveVision(result) }
       }
+    }
+  }
+
+  private func beginExplorationUpdates(
+    actions: ExplorationActions,
+    generation: UInt64
+  ) {
+    explorationEventTask?.cancel()
+    explorationEventTask = Task { [weak self] in
+      let stream = await actions.events()
+      for await event in stream {
+        guard !Task.isCancelled, let self,
+          !self.hasShutdown, self.explorationGeneration == generation
+        else { return }
+        await self.receiveExplorationEvent(event)
+      }
+    }
+  }
+
+  private func receiveExplorationEvent(_ event: ExplorationSessionEvent) async {
+    switch event {
+    case .stateChanged(let state):
+      explorationSessionSnapshot = await explorationActions?.snapshot()
+      switch state {
+      case .listening:
+        voiceListening = true
+      case .inactive, .ending:
+        voiceListening = false
+      case .starting:
+        break
+      case .failed(let failure):
+        voiceListening = false
+        explorationError = "Exploration voice failed: \(failure)"
+        explorationFlow.stop()
+      }
+
+    case .episodeActivated(let context):
+      appendExplorationTimeline(
+        participant: .voice,
+        action: "activate \(context.rung.rawValue)",
+        observation: "contextual intents only; microphone ownership unchanged"
+      )
+
+    case .episodeCompleted(_, let termination):
+      appendExplorationTimeline(
+        participant: .voice,
+        action: "complete active episode",
+        observation: "\(termination) · listening remains active"
+      )
+
+    case .feedback(let receipt):
+      lastSpokenFeedbackText = receipt.text
+      if var episode = currentExplorationEpisode, !episode.speech.isEmpty {
+        episode.speech[episode.speech.count - 1].attachFeedback(receipt)
+        currentExplorationEpisode = episode
+      }
+
+    case .routed(let routing):
+      explorationSessionSnapshot = await explorationActions?.snapshot()
+      switch routing {
+      case .acceptedIntent(let receipt):
+        voiceTranscriptText = receipt.transcript.text
+        lastVoiceIntentText = receipt.intent.rawValue
+        if var episode = currentExplorationEpisode {
+          episode.speech.append(ExplorationSpeechRecord(receipt))
+          currentExplorationEpisode = episode
+        }
+        appendExplorationTimeline(
+          participant: .operatorHuman,
+          action: "say \(receipt.transcript.text)",
+          observation: "accepted as \(receipt.intent.rawValue)"
+        )
+        if receipt.intent == .endSession {
+          await endExploration()
+          return
+        }
+        if receipt.intent == .stop, explorationOperationInProgress, frameMode == .live {
+          await requestJogCancel()
+          return
+        }
+        if receipt.context.rung == .armatureGuidance {
+          switch receipt.intent {
+          case .xNegative: await moveArmature(.negativeXOneMillimeter)
+          case .xPositive: await moveArmature(.positiveXOneMillimeter)
+          case .yNegative: await moveArmature(.negativeYOneMillimeter)
+          case .yPositive: await moveArmature(.positiveYOneMillimeter)
+          case .accept: await acceptCurrentArmaturePose()
+          default: break
+          }
+          return
+        }
+        await receiveVoiceTranscript(
+          receipt.transcript,
+          listenerGeneration: voiceListenerGeneration
+        )
+
+      case .acceptedTeachingLabel(let receipt):
+        voiceTranscriptText = receipt.transcript.text
+        lastVoiceIntentText = "teaching label"
+        if var episode = currentExplorationEpisode {
+          episode.speech.append(ExplorationSpeechRecord(receipt))
+          episode.humanAssessment = ExplorationAssessment(
+            summary: receipt.label.rawTranscript,
+            provenance: "voice utterance \(receipt.transcript.utteranceID.uuidString.lowercased())"
+          )
+          currentExplorationEpisode = episode
+        }
+        appendExplorationTimeline(
+          participant: .operatorHuman,
+          action: "teach",
+          observation: receipt.label.rawTranscript
+        )
+        await receiveExplorationTeachingLabel(receipt)
+
+      case .rejected(let rejection):
+        lastVoiceIntentText = "rejected · \(rejection.rawValue)"
+      }
+    }
+  }
+
+  private func receiveExplorationTeachingLabel(
+    _ receipt: AcceptedExplorationTeachingLabel
+  ) async {
+    switch receipt.label.classification {
+    case .visibility(let label, _):
+      lastVoiceActionableResultText = "Armature visibility: \(label.rawValue)"
+      let runtimeLabel: ArmatureVisibilityLabel = switch label {
+      case .clear: .clear
+      case .partial: .partial
+      case .blocked: .blocked
+      }
+      await recordArmatureVisibility(runtimeLabel)
+    case .shapeFeature, .ranking, .reward:
+      lastVoiceActionableResultText = "Human assessment recorded."
+      if explorationFlow.phase == .awaitingAssessment {
+        do {
+          try explorationFlow.acceptAssessment(receipt.label.rawTranscript)
+          await completeCurrentExplorationEpisode(termination: .completed)
+        } catch {
+          explorationError = "Could not accept assessment: \(error)"
+        }
+      }
+    }
+  }
+
+  private func defaultInkRegion(for frame: StampedFrame) -> PixelRect {
+    let width = max(1, min(180, frame.width / 3))
+    let height = max(1, min(120, frame.height / 3))
+    return PixelRect(
+      x: max(0, (frame.width - width) / 2),
+      y: max(0, (frame.height - height) / 2),
+      width: width,
+      height: height
+    )
+  }
+
+  private func armatureContext(
+    frame: StampedFrame,
+    region: PixelRect
+  ) -> ArmatureGuidanceContext {
+    ArmatureGuidanceContext(
+      controllerSessionID: explorationControllerSessionID,
+      coordinateRevision: explorationCoordinateRevision,
+      cameraConfigurationID: frame.cameraConfigurationID,
+      observationRegion: region,
+      toolPaperRevision: explorationToolPaperRevision
+    )
+  }
+
+  private func observationRegionOverlay(
+    frame: StampedFrame,
+    region: PixelRect,
+    source: CameraOverlaySource
+  ) -> CameraOverlayMeasurement {
+    let bounds = try! AxisAlignedBounds<CameraPixelSpace>(
+      minX: Double(region.x),
+      minY: Double(region.y),
+      maxX: Double(region.x + region.width),
+      maxY: Double(region.y + region.height)
+    )
+    return CameraOverlayMeasurement(
+      frameID: frame.id,
+      cameraConfigurationID: frame.cameraConfigurationID,
+      geometry: .bounds(bounds),
+      provenance: CameraMeasurementProvenance(
+        kind: .armatureEstimate,
+        source: source,
+        algorithmRevision: "exploration-fixed-ink-region-v1"
+      )
+    )
+  }
+
+  private func appendFrameEvidence(
+    _ role: ExplorationFrameRole,
+    frame: StampedFrame,
+    algorithmRevision: String = "camera-selected-frame-v1"
+  ) {
+    guard var episode = currentExplorationEpisode else { return }
+    episode.frames.removeAll { $0.role == role }
+    episode.frames.append(ExplorationFrameEvidence(
+      role: role,
+      frameID: frame.id,
+      contentSHA256: frame.contentSHA256,
+      captureNanoseconds: frame.captureNanoseconds,
+      cameraConfigurationID: frame.cameraConfigurationID,
+      algorithmRevision: algorithmRevision
+    ))
+    currentExplorationEpisode = episode
+  }
+
+  private func recordStrokeEvidence(
+    _ evidence: DrawingStrokeEvidence,
+    outcome: ExplorationControllerOutcome,
+    summary: String
+  ) {
+    guard var episode = currentExplorationEpisode else { return }
+    episode.controllerEvidence = ExplorationControllerEvidence(
+      startPosition: evidence.startPosition,
+      finalPosition: evidence.finalPosition,
+      startSampleNanoseconds: evidence.startSampleNanoseconds,
+      settlementNanoseconds: evidence.finalSampleNanoseconds,
+      outcome: outcome,
+      summary: summary
+    )
+    currentExplorationEpisode = episode
+  }
+
+  private func acceptInkObservation(
+    _ observation: IsolatedInkObservation,
+    source: ExplorationTimelineEntry.Participant
+  ) {
+    lastInkObservation = observation
+    cameraOverlays = observation.overlays
+    explorationInkStatus = observation.residual == nil
+      ? "new ink observed; absolute residual unavailable without a current-session projection"
+      : "new ink observed with anchor-relative projected residual"
+    if var episode = currentExplorationEpisode {
+      episode.anchorDotCentroid = observation.anchorCentroid
+      episode.visionEstimate = ExplorationAssessment(
+        summary: "\(observation.observedPixelCount) new line pixels",
+        provenance: "\(observation.algorithmRevision) exact three-frame subtraction"
+      )
+      if let residual = observation.residual {
+        episode.residual = ExplorationResidual(
+          rmsPixels: residual.rootMeanSquareEndpointPixels,
+          maximumPixels: residual.maximumEndpointPixels,
+          crossTrackPixels: residual.rootMeanSquareCrossTrackPixels,
+          summary: "camera-space anchor-relative residual",
+          provenance: observation.algorithmRevision
+        )
+      } else {
+        episode.residual = ExplorationResidual(
+          summary: "absolute camera-space residual unavailable; relative displacement/orientation only",
+          provenance: observation.algorithmRevision
+        )
+      }
+      currentExplorationEpisode = episode
+    }
+    appendExplorationTimeline(
+      participant: source,
+      action: "observe isolated ink",
+      observation: explorationEvidenceText
+    )
+  }
+
+  private func returnToAcceptedClearPose() async throws {
+    guard let guidance = armatureGuidanceState,
+      let current = machineSnapshot?.machine.position,
+      let machineActions
+    else { throw ExplorationLiveError.controllerOutcome("clear-pose state unavailable") }
+    if guidance.acceptedClearPose?.position == current { return }
+    let request = try guidance.penUpReturnRequest(
+      from: current,
+      currentContext: guidance.context
+    )
+    let outcome = await machineActions.requestRelativeJog(request)
+    machineSnapshot = await machineActions.snapshot()
+    guard case .acceptedThenCompleted(let final) = outcome,
+      final == guidance.acceptedClearPose?.position
+    else {
+      throw ExplorationLiveError.controllerOutcome(String(describing: outcome))
+    }
+    appendExplorationTimeline(
+      participant: .controller,
+      action: "return to accepted clear pose",
+      observation: "Idle with exact final MPos"
+    )
+  }
+
+  private func appendExplorationTimeline(
+    participant: ExplorationTimelineEntry.Participant,
+    action: String,
+    observation: String
+  ) {
+    explorationTimeline.append(
+      ExplorationTimelineEntry(
+        monotonicNanoseconds: nowNanoseconds(),
+        participant: participant,
+        action: action,
+        observation: observation
+      ))
+    if explorationTimeline.count > 24 {
+      explorationTimeline.removeFirst(explorationTimeline.count - 24)
     }
   }
 
@@ -2707,7 +3983,11 @@ final class OperatorWorkspace {
     let commandFreeSpoken = commandFreeSpokenFeedback(spoken)
     lastVoiceActionableResultText = result
     lastSpokenFeedbackText = commandFreeSpoken
-    await voiceActions?.speak(commandFreeSpoken)
+    if explorationIsActive {
+      _ = await explorationActions?.speakFeedback(commandFreeSpoken)
+    } else {
+      await voiceActions?.speak(commandFreeSpoken)
+    }
   }
 
   private func commandFreeSpokenFeedback(_ candidate: String) -> String {
@@ -2777,7 +4057,7 @@ final class OperatorWorkspace {
     await cancelAndSettleBoundaryMotionBeforePreflightErasure()
     invalidateVoiceUpdates()
     lastBoundaryStopUtteranceID = nil
-    if voiceListening {
+    if voiceListening && !explorationIsActive {
       await voiceActions?.stopListening()
       voiceListening = false
       lastVoiceActionableResultText =
@@ -2825,74 +4105,6 @@ final class OperatorWorkspace {
     await cancelTask?.value
     let motionTask = boundaryMotionTask
     await motionTask?.value
-  }
-
-  private func startPreflightVoiceListening(
-    for sequenceID: PreflightSequenceID,
-    authorityGeneration: UInt64
-  ) async -> Bool {
-    guard preflightAuthorityIsCurrent(
-      sequenceID: sequenceID,
-      generation: authorityGeneration
-    ), preflightVoiceStartupGeneration == nil,
-      voiceListeningUnavailableReason == nil,
-      let voiceActions
-    else { return false }
-
-    preflightVoiceStartupGeneration = authorityGeneration
-    defer {
-      if preflightVoiceStartupGeneration == authorityGeneration {
-        preflightVoiceStartupGeneration = nil
-      }
-    }
-
-    voiceError = nil
-    let authorization = await voiceActions.requestAuthorization()
-    guard preflightAuthorityIsCurrent(
-      sequenceID: sequenceID,
-      generation: authorityGeneration
-    ) else { return false }
-    voiceAuthorizationState = authorization
-    guard authorization == .authorized else {
-      lastVoiceActionableResultText = voicePermissionText
-      return false
-    }
-
-    do {
-      try await voiceActions.startListening()
-      guard preflightAuthorityIsCurrent(
-        sequenceID: sequenceID,
-        generation: authorityGeneration
-      ) else {
-        await voiceActions.stopListening()
-        return false
-      }
-      voiceListening = true
-      lastVoiceActionableResultText =
-        "speech listening active for the current Motion Preflight sequence"
-      beginVoiceUpdates(actions: voiceActions)
-      return true
-    } catch {
-      guard preflightAuthorityIsCurrent(
-        sequenceID: sequenceID,
-        generation: authorityGeneration
-      ) else {
-        await voiceActions.stopListening()
-        return false
-      }
-      voiceListening = false
-      voiceError = actionableDescription(error)
-      lastVoiceActionableResultText = "Voice listening failed: \(voiceError ?? "unknown error")"
-      return false
-    }
-  }
-
-  private func preflightAuthorityIsCurrent(
-    sequenceID: PreflightSequenceID,
-    generation: UInt64
-  ) -> Bool {
-    !hasShutdown && preflightAuthorityGeneration == generation
-      && activePreflightSequenceID == sequenceID
   }
 
   private func recordJogResponseEpisode(_ observation: PhysicalJogObservation) {

@@ -95,6 +95,107 @@ func manualCameraSnapshotPreservesExactFrame() throws {
   #expect(png.starts(with: [0x89, 0x50, 0x4E, 0x47]))
 }
 
+@Test("Learning export writes only the ordered exact three-frame episode")
+func learningExportPreservesThreeFrameProvenance() throws {
+  let root = FileManager.default.temporaryDirectory
+    .appendingPathComponent("AdaptivePlotter-learning-frame-test-\(UUID())", isDirectory: true)
+  defer { try? FileManager.default.removeItem(at: root) }
+  let device = CameraDevice(id: CameraDeviceID(rawValue: "c920"), name: "HD Pro Webcam C920")
+  let configurationID = CameraConfigurationID()
+  let recorder = StartupFrameRecorder(rootDirectory: root)
+  let roles = StartupFrameRecorder.LearningFrameRole.allCases
+  let selected = try roles.enumerated().map { index, role in
+    StartupFrameRecorder.LearningFrame(
+      role: role,
+      displayedFrame: DisplayedFrame(
+        source: .live(device.id),
+        frame: try StampedFrame(
+          id: FrameID(rawValue: role.rawValue),
+          sequence: UInt64(index + 10),
+          captureNanoseconds: UInt64(index + 1) * 1_000,
+          cameraConfigurationID: configurationID,
+          width: 2,
+          height: 2,
+          rowBytes: 8,
+          pixelFormat: .bgra8,
+          bytes: OwnedFrameBytes([
+            0, 255, 0, 255, 0, 255, 0, 255,
+            0, 255, 0, 255, 0, 255, 0, 255,
+          ])
+        )
+      )
+    )
+  }
+
+  let directory = try recorder.recordLearningEpisode(
+    selected.reversed(),
+    episodeID: "episode-ink-1",
+    device: device
+  )
+  let manifest = try JSONDecoder().decode(
+    StartupFrameRecorder.Manifest.self,
+    from: Data(contentsOf: directory.appendingPathComponent("manifest.json"))
+  )
+
+  #expect(manifest.episodeID == "episode-ink-1")
+  #expect(manifest.purpose.contains("not calibration"))
+  #expect(manifest.samples.compactMap(\.role) == roles)
+  #expect(manifest.samples.map(\.frameID) == roles.map(\.rawValue))
+  for sample in manifest.samples {
+    let png = try Data(contentsOf: directory.appendingPathComponent(sample.filename))
+    #expect(png.starts(with: [0x89, 0x50, 0x4E, 0x47]))
+  }
+}
+
+@Test("Learning export rejects incomplete or cross-configuration episodes")
+func learningExportRejectsInvalidTriplets() throws {
+  let root = FileManager.default.temporaryDirectory
+    .appendingPathComponent("AdaptivePlotter-learning-frame-invalid-\(UUID())", isDirectory: true)
+  defer { try? FileManager.default.removeItem(at: root) }
+  let device = CameraDevice(id: CameraDeviceID(rawValue: "c920"), name: "HD Pro Webcam C920")
+  let recorder = StartupFrameRecorder(rootDirectory: root)
+  let firstConfiguration = CameraConfigurationID()
+  let secondConfiguration = CameraConfigurationID()
+
+  func selected(
+    _ role: StartupFrameRecorder.LearningFrameRole,
+    sequence: UInt64,
+    configuration: CameraConfigurationID
+  ) throws -> StartupFrameRecorder.LearningFrame {
+    StartupFrameRecorder.LearningFrame(
+      role: role,
+      displayedFrame: DisplayedFrame(
+        source: .live(device.id),
+        frame: try StampedFrame(
+          sequence: sequence,
+          captureNanoseconds: sequence,
+          cameraConfigurationID: configuration,
+          width: 1,
+          height: 1,
+          rowBytes: 4,
+          pixelFormat: .bgra8,
+          bytes: OwnedFrameBytes([0, 255, 0, 255])
+        )
+      )
+    )
+  }
+
+  let clean = try selected(.cleanReference, sequence: 1, configuration: firstConfiguration)
+  #expect(throws: StartupFrameRecorder.RecordingError.self) {
+    _ = try recorder.recordLearningEpisode([clean], episodeID: "episode", device: device)
+  }
+
+  let anchor = try selected(.anchoredBaseline, sequence: 2, configuration: firstConfiguration)
+  let post = try selected(.postLine, sequence: 3, configuration: secondConfiguration)
+  #expect(throws: StartupFrameRecorder.RecordingError.self) {
+    _ = try recorder.recordLearningEpisode(
+      [clean, anchor, post],
+      episodeID: "episode",
+      device: device
+    )
+  }
+}
+
 private extension Array {
   var only: Element? { count == 1 ? self[0] : nil }
 }

@@ -168,6 +168,16 @@ public struct DrawingFrameEstimate: Hashable, Sendable {
   public let geometry: Polyline<CameraPixelSpace>
   public let confidence: Double
   public let basis: String
+
+  public init(
+    geometry: Polyline<CameraPixelSpace>,
+    confidence: Double,
+    basis: String
+  ) {
+    self.geometry = geometry
+    self.confidence = confidence
+    self.basis = basis
+  }
 }
 
 public struct PlotterSceneMeasurement: Hashable, Sendable {

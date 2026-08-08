@@ -4,10 +4,11 @@ import Testing
 
 @testable import PlotterApp
 
-@Test("motion preflight owns the compact calibration title")
+@Test("motion preflight is an episode inside persistent learning")
 func motionPreflightTitle() {
   #expect(PreflightCalibrationPresentation.title == "Motion Preflight")
-  #expect(PreflightCalibrationPresentation.subtitle.contains("Calibrate Plotter"))
+  #expect(PreflightCalibrationPresentation.subtitle.contains("Persistent speech session"))
+  #expect(!PreflightCalibrationPresentation.subtitle.localizedCaseInsensitiveContains("calibrate"))
 }
 
 @Test("simulator rehearsal presentation remains distinct from physical preflight")
@@ -64,7 +65,7 @@ func boundaryTimelineSemantics() {
     #expect(definition.steps.map(\.participant).contains(.vision))
     #expect(
       PreflightCalibrationPresentation.actionDescription(definition.steps[0].action)
-        == "Start speech listening for this sequence."
+        == "Enter this episode's speech context; session listening remains active."
     )
     #expect(
       definition.steps.contains {
@@ -105,7 +106,7 @@ func penTimelineSemantics() {
     #expect(definition.steps.map(\.participant).contains(.camera))
     #expect(
       PreflightCalibrationPresentation.actionDescription(definition.steps[0].action)
-        == "Start speech listening for this sequence."
+        == "Enter this episode's speech context; session listening remains active."
     )
     #expect(
       definition.steps.contains {

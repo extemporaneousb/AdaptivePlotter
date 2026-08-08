@@ -103,6 +103,102 @@ struct RunInterpreterTests {
     #expect(snapshot.lastMotionOutcome == outcome)
   }
 
+  @Test("typed drawing stroke is distinct and ordinary jog still refuses Pen Down")
+  func typedDrawingStroke() async throws {
+    let request = DrawingStrokeRequest(
+      delta: try Vector2<MachineSpace>(dx: 1, dy: 0),
+      feedMMPerMinute: 60
+    )
+    let jogRequest = RelativeJogRequest(
+      delta: request.delta,
+      feedMMPerMinute: request.feedMMPerMinute
+    )
+    var exchanges = ControllerTranscriptFixtures.successfulPassiveProbe()
+    exchanges[2] = ControllerTranscriptFixtures.exchange(
+      .status,
+      chunks: ["<Idle|MPos:0.000,0.000,0.000>\r\n"]
+    )
+    exchanges[3] = interpreterDrawingConfigurationExchange()
+    exchanges.append(contentsOf: [
+      interpreterStatusExchange("<Idle|MPos:0.000,0.000,0.000>"),
+      SimulatedCommandExchange(
+        expectedWrite: MachineController.encodePenActuation(.lower),
+        reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+      ),
+      SimulatedCommandExchange(
+        expectedWrite: MachineController.encodePenSettle,
+        reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+      ),
+      interpreterStatusExchange("<Idle|MPos:0.000,0.000,0.000>"),
+      SimulatedCommandExchange(
+        expectedWrite: MachineController.encodeDrawingStroke(request),
+        reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+      ),
+      interpreterStatusExchange("<Idle|MPos:1.000,0.000,0.000>"),
+    ])
+    let fixture = try await InterpreterFixture.make(exchanges: exchanges)
+    _ = try await fixture.interpreter.requestPassiveProbe()
+    #expect(await fixture.interpreter.activateMotionGuard() == .activated)
+    #expect(
+      await fixture.interpreter.requestPenActuation(.lower)
+        == .commandedAndSettled(command: .lower, commandedState: .down)
+    )
+    #expect(
+      await fixture.interpreter.requestRelativeJog(jogRequest)
+        == .refused(.penNotUp(.down))
+    )
+
+    let outcome = await fixture.interpreter.requestDrawingStroke(request)
+    guard case .completed(let evidence) = outcome else {
+      Issue.record("Expected completed drawing stroke, got \(outcome)")
+      return
+    }
+    #expect(evidence.startPosition == (try MachinePosition(x: 0, y: 0)))
+    #expect(evidence.finalPosition == (try MachinePosition(x: 1, y: 0)))
+    let snapshot = await fixture.interpreter.snapshot()
+    #expect(snapshot.currentOperation == .idle)
+    #expect(snapshot.lastDrawingStrokeOutcome == outcome)
+    #expect(snapshot.machine.lastDrawingStrokeOutcome == outcome)
+    #expect(snapshot.machine.penState == .down)
+  }
+
+  @Test("drawing STOP remains subordinate until Idle and the automatic Pen Up settles")
+  func drawingStrokeCancel() async throws {
+    let ready = try await readyInterpreterDrawingCancellationFixture()
+    let strokeTask = Task {
+      await ready.interpreter.requestDrawingStroke(ready.request)
+    }
+    defer { strokeTask.cancel() }
+    await ready.gate.waitUntilBlockedRead()
+
+    let cancelTask = Task { await ready.interpreter.requestJogCancel() }
+    defer { cancelTask.cancel() }
+    await waitForInterpreterWriteCount(ready.link, atLeast: ready.writesThroughCancel)
+    await waitForInterpreterCancelTransmission(ready.interpreter)
+    #expect(
+      await ready.interpreter.requestDrawingStroke(ready.request)
+        == .refused(.operationInFlight)
+    )
+    await ready.gate.release()
+
+    let finalPosition = try MachinePosition(x: 0.4, y: 0)
+    #expect(await cancelTask.value == .completed(finalPosition: finalPosition))
+    let outcome = await strokeTask.value
+    guard case .cancelled(let evidence, let penRaiseOutcome) = outcome else {
+      Issue.record("Expected cancelled drawing stroke, got \(outcome)")
+      return
+    }
+    #expect(evidence.finalPosition == finalPosition)
+    #expect(
+      penRaiseOutcome == .commandedAndSettled(command: .raise, commandedState: .up)
+    )
+    let snapshot = await ready.interpreter.snapshot()
+    #expect(snapshot.currentOperation == .idle)
+    #expect(snapshot.lastDrawingStrokeOutcome == outcome)
+    #expect(snapshot.machine.penState == .up)
+    #expect(ready.link.completedWriteCount == ready.writesThroughCancel + 3)
+  }
+
   @Test("priority Jog Cancel passes through while the interpreter is awaiting Idle")
   func priorityJogCancel() async throws {
     let ready = try await readyInterpreterCancellationFixture()
@@ -503,6 +599,15 @@ private func interpreterStatusExchange(
   )
 }
 
+private func interpreterDrawingConfigurationExchange() -> SimulatedCommandExchange {
+  ControllerTranscriptFixtures.exchange(
+    .configuration,
+    chunks: [
+      "$110=500\r\n$111=500\r\n$120=10\r\n$121=10\r\nok\r\n"
+    ]
+  )
+}
+
 private func physicalJogRequest() throws -> PhysicalJogObservationRequest {
   PhysicalJogObservationRequest(
     motion: RelativeJogRequest(
@@ -696,6 +801,82 @@ private func readyInterpreterCancellationFixture() async throws -> (
   #expect(
     await interpreter.requestPenActuation(.raise)
       == .commandedAndSettled(command: .raise, commandedState: .up)
+  )
+  return (interpreter, request, link, gate, writesThroughCancel)
+}
+
+private func readyInterpreterDrawingCancellationFixture() async throws -> (
+  interpreter: RunInterpreter,
+  request: DrawingStrokeRequest,
+  link: SimulatedGRBLLink,
+  gate: InterpreterMachineReadGate,
+  writesThroughCancel: Int
+) {
+  let request = DrawingStrokeRequest(
+    delta: try Vector2<MachineSpace>(dx: 1, dy: 0),
+    feedMMPerMinute: 60
+  )
+  var exchanges = ControllerTranscriptFixtures.successfulPassiveProbe()
+  exchanges[2] = ControllerTranscriptFixtures.exchange(
+    .status,
+    chunks: ["<Idle|MPos:0.000,0.000,0.000>\r\n"]
+  )
+  exchanges[3] = interpreterDrawingConfigurationExchange()
+  exchanges.append(contentsOf: [
+    interpreterStatusExchange("<Idle|MPos:0.000,0.000,0.000>"),
+    SimulatedCommandExchange(
+      expectedWrite: MachineController.encodePenActuation(.lower),
+      reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+    ),
+    SimulatedCommandExchange(
+      expectedWrite: MachineController.encodePenSettle,
+      reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+    ),
+    interpreterStatusExchange("<Idle|MPos:0.000,0.000,0.000>"),
+    SimulatedCommandExchange(
+      expectedWrite: MachineController.encodeDrawingStroke(request),
+      reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+    ),
+    interpreterStatusExchange("<Jog|MPos:0.200,0.000,0.000>"),
+    SimulatedCommandExchange(
+      expectedWrite: MachineController.encodeJogCancel,
+      reads: []
+    ),
+  ])
+  let writesThroughCancel = exchanges.count
+  exchanges.append(contentsOf: [
+    interpreterStatusExchange("<Idle|MPos:0.400,0.000,0.000>"),
+    SimulatedCommandExchange(
+      expectedWrite: MachineController.encodePenActuation(.raise),
+      reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+    ),
+    SimulatedCommandExchange(
+      expectedWrite: MachineController.encodePenSettle,
+      reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+    ),
+  ])
+
+  let clock = DeterministicRuntimeClock()
+  let link = SimulatedGRBLLink(exchanges: exchanges, clock: clock)
+  let gate = InterpreterMachineReadGate()
+  let blockingLink = InterpreterPostJogReadBlockingLink(
+    base: link,
+    jogBytes: MachineController.encodeDrawingStroke(request),
+    gate: gate
+  )
+  let controller = MachineController(
+    link: blockingLink,
+    clock: clock,
+    queryTimeoutNanoseconds: 1_000,
+    statusPollIntervalNanoseconds: 1,
+    completionGraceNanoseconds: 1_000
+  )
+  let interpreter = RunInterpreter(machineController: controller)
+  _ = try await interpreter.requestPassiveProbe()
+  #expect(await interpreter.activateMotionGuard() == .activated)
+  #expect(
+    await interpreter.requestPenActuation(.lower)
+      == .commandedAndSettled(command: .lower, commandedState: .down)
   )
   return (interpreter, request, link, gate, writesThroughCancel)
 }

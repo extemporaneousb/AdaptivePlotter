@@ -826,30 +826,51 @@ public struct DrawingFrameBoundaryObservationKey: Hashable, Sendable {
 }
 
 public enum DrawingFramePosteriorError: Error, Equatable, Sendable {
-  case invalidObservationConfidence
+  case invalidObservationVariance
+  case invalidAssociationDistanceMargin
+  case invalidBroadPriorVariance
   case invalidEstimateConfidence
   case invalidBoundaryGeometry
-  case topologyMismatch(expectedPointCount: Int, actualPointCount: Int)
+  case ambiguousEdgeAssociation(
+    nearestDistance: Double,
+    runnerUpDistance: Double,
+    requiredMargin: Double
+  )
+  case candidateEdgeAlreadyAssociated(candidateEdgeIndex: Int)
 }
 
 public struct DrawingFrameBoundaryObservation: Hashable, Sendable {
   public let key: DrawingFrameBoundaryObservationKey
+  public let frameSHA256: String
+  public let captureNanoseconds: UInt64
   public let controllerPosition: MachinePosition
   public let observedToolCentroid: Point2<CameraPixelSpace>
   public let estimate: DrawingFrameEstimate
-  public let confidence: Double
+  public let observationVariance: Double
+  public let associationDistanceMargin: Double
+  public let broadPriorVariance: Double
 
   public init(
     frameID: FrameID,
+    frameSHA256: String,
+    captureNanoseconds: UInt64,
     cameraConfigurationID: CameraConfigurationID,
     direction: PreflightBoundaryDirection,
     controllerPosition: MachinePosition,
     observedToolCentroid: Point2<CameraPixelSpace>,
     estimate: DrawingFrameEstimate,
-    confidence: Double
+    observationVariance: Double,
+    associationDistanceMargin: Double,
+    broadPriorVariance: Double
   ) throws {
-    guard confidence.isFinite, confidence > 0, confidence <= 1 else {
-      throw DrawingFramePosteriorError.invalidObservationConfidence
+    guard observationVariance.isFinite, observationVariance > 0 else {
+      throw DrawingFramePosteriorError.invalidObservationVariance
+    }
+    guard associationDistanceMargin.isFinite, associationDistanceMargin >= 0 else {
+      throw DrawingFramePosteriorError.invalidAssociationDistanceMargin
+    }
+    guard broadPriorVariance.isFinite, broadPriorVariance > 0 else {
+      throw DrawingFramePosteriorError.invalidBroadPriorVariance
     }
     guard estimate.confidence.isFinite, estimate.confidence >= 0, estimate.confidence <= 1 else {
       throw DrawingFramePosteriorError.invalidEstimateConfidence
@@ -859,23 +880,82 @@ public struct DrawingFrameBoundaryObservation: Hashable, Sendable {
       cameraConfigurationID: cameraConfigurationID,
       direction: direction
     )
+    self.frameSHA256 = frameSHA256
+    self.captureNanoseconds = captureNanoseconds
     self.controllerPosition = controllerPosition
     self.observedToolCentroid = observedToolCentroid
     self.estimate = estimate
-    self.confidence = confidence
+    self.observationVariance = observationVariance
+    self.associationDistanceMargin = associationDistanceMargin
+    self.broadPriorVariance = broadPriorVariance
   }
 }
 
-/// Immutable current-camera posterior. Each exact frame/configuration/direction
-/// key contributes at most once. A camera reconfiguration replaces the prior
-/// rather than fusing geometry that no longer addresses the same pixels.
+public struct DrawingFrameSideAssociation: Hashable, Sendable {
+  public let machineSide: PreflightBoundaryDirection
+  public let candidateEdgeIndex: Int
+  public let referenceStart: Point2<CameraPixelSpace>
+  public let referenceEnd: Point2<CameraPixelSpace>
+  public let initializedFromFrameID: FrameID
+}
+
+public struct DrawingFrameSidePosterior: Hashable, Sendable {
+  public let association: DrawingFrameSideAssociation
+  public let orientationRadians: Double
+  public let orientationVariance: Double
+  public let offsetPixels: Double
+  public let offsetVariance: Double
+  public let observationCount: Int
+
+  public var standardDeviationPixels: Double { sqrt(offsetVariance) }
+
+  public var geometry: Polyline<CameraPixelSpace> {
+    let line = Self.lineComponents(for: association)
+    let shiftX = line.normalX * offsetPixels
+    let shiftY = line.normalY * offsetPixels
+    return try! Polyline(points: [
+      Point2(
+        x: association.referenceStart.x + shiftX,
+        y: association.referenceStart.y + shiftY
+      ),
+      Point2(
+        x: association.referenceEnd.x + shiftX,
+        y: association.referenceEnd.y + shiftY
+      ),
+    ])
+  }
+
+  fileprivate static func lineComponents(
+    for association: DrawingFrameSideAssociation
+  ) -> (tangentX: Double, tangentY: Double, normalX: Double, normalY: Double) {
+    let dx = association.referenceEnd.x - association.referenceStart.x
+    let dy = association.referenceEnd.y - association.referenceStart.y
+    let length = hypot(dx, dy)
+    return (dx / length, dy / length, -dy / length, dx / length)
+  }
+}
+
+public enum DrawingFrameCorner: Int, Codable, CaseIterable, Hashable, Sendable {
+  case candidateVertex0
+  case candidateVertex1
+  case candidateVertex2
+  case candidateVertex3
+}
+
+/// Immutable current-camera posterior. The sequence direction is the machine-
+/// side identity. Its first unambiguous observation establishes a persistent
+/// camera-edge association; later exact centroids update only that side's
+/// image-space offset. Controller MPos remains stored provenance only.
 public struct DrawingFramePosterior: Hashable, Sendable {
   public let cameraConfigurationID: CameraConfigurationID
   public let latestObservationKey: DrawingFrameBoundaryObservationKey
   public let observationsByKey: [
     DrawingFrameBoundaryObservationKey: DrawingFrameBoundaryObservation
   ]
-  public let estimate: DrawingFrameEstimate
+  public let sidePosteriors: [PreflightBoundaryDirection: DrawingFrameSidePosterior]
+  public let associations: [PreflightBoundaryDirection: DrawingFrameSideAssociation]
+  public let derivedCorners: [DrawingFrameCorner: Point2<CameraPixelSpace>]
+  public let estimate: DrawingFrameEstimate?
 
   public init(prior observation: DrawingFrameBoundaryObservation) throws {
     try self.init(
@@ -891,23 +971,14 @@ public struct DrawingFramePosterior: Hashable, Sendable {
     let observations = Self.stablySorted(Array(observationsByKey.values))
     precondition(!observations.isEmpty)
     let first = observations[0]
-    let expectedPointCount = first.estimate.geometry.points.count
-    let expectedClosed = first.estimate.geometry.start == first.estimate.geometry.end
-    for observation in observations.dropFirst() {
-      let actualPointCount = observation.estimate.geometry.points.count
-      guard actualPointCount == expectedPointCount,
-        (observation.estimate.geometry.start == observation.estimate.geometry.end) == expectedClosed
-      else {
-        throw DrawingFramePosteriorError.topologyMismatch(
-          expectedPointCount: expectedPointCount,
-          actualPointCount: actualPointCount
-        )
-      }
-    }
     cameraConfigurationID = first.key.cameraConfigurationID
     self.latestObservationKey = latestObservationKey
     self.observationsByKey = observationsByKey
-    estimate = try Self.fuse(observations)
+    let fitted = try Self.fitSides(observations)
+    sidePosteriors = fitted
+    associations = fitted.mapValues(\.association)
+    derivedCorners = Self.corners(from: fitted)
+    estimate = try Self.closedEstimate(from: fitted, corners: derivedCorners)
   }
 
   public var observationCount: Int { observationsByKey.count }
@@ -937,101 +1008,162 @@ public struct DrawingFramePosterior: Hashable, Sendable {
       if lhs.key.direction.stableOrder != rhs.key.direction.stableOrder {
         return lhs.key.direction.stableOrder < rhs.key.direction.stableOrder
       }
+      if lhs.captureNanoseconds != rhs.captureNanoseconds {
+        return lhs.captureNanoseconds < rhs.captureNanoseconds
+      }
       return lhs.key.frameID.rawValue < rhs.key.frameID.rawValue
     }
   }
 
-  private static func fuse(
+  private static func fitSides(
     _ observations: [DrawingFrameBoundaryObservation]
-  ) throws -> DrawingFrameEstimate {
-    let weightSum = observations.reduce(0) { $0 + $1.confidence }
-    let pointCount = observations[0].estimate.geometry.points.count
-    let anchoredPoints = try observations.map(boundaryAnchoredPoints)
-    var points: [Point2<CameraPixelSpace>] = []
-    points.reserveCapacity(pointCount)
-    for pointIndex in 0..<pointCount {
-      let x = observations.indices.reduce(0) {
-        $0 + anchoredPoints[$1][pointIndex].x * observations[$1].confidence
-      } / weightSum
-      let y = observations.indices.reduce(0) {
-        $0 + anchoredPoints[$1][pointIndex].y * observations[$1].confidence
-      } / weightSum
-      points.append(try Point2(x: x, y: y))
+  ) throws -> [PreflightBoundaryDirection: DrawingFrameSidePosterior] {
+    var fitted: [PreflightBoundaryDirection: DrawingFrameSidePosterior] = [:]
+    var claimedCandidateEdges: [Int: PreflightBoundaryDirection] = [:]
+    for direction in PreflightBoundaryDirection.allCases {
+      let sideObservations = observations.filter { $0.key.direction == direction }
+      guard let first = sideObservations.first else { continue }
+      let association = try associate(first)
+      if let owner = claimedCandidateEdges[association.candidateEdgeIndex], owner != direction {
+        throw DrawingFramePosteriorError.candidateEdgeAlreadyAssociated(
+          candidateEdgeIndex: association.candidateEdgeIndex
+        )
+      }
+      claimedCandidateEdges[association.candidateEdgeIndex] = direction
+      let line = DrawingFrameSidePosterior.lineComponents(for: association)
+      var precision = 1 / first.broadPriorVariance
+      var weightedOffset = 0.0
+      for observation in sideObservations {
+        let measuredOffset =
+          (observation.observedToolCentroid.x - association.referenceStart.x) * line.normalX
+          + (observation.observedToolCentroid.y - association.referenceStart.y) * line.normalY
+        let observationPrecision = 1 / observation.observationVariance
+        precision += observationPrecision
+        weightedOffset += measuredOffset * observationPrecision
+      }
+      let dx = association.referenceEnd.x - association.referenceStart.x
+      let dy = association.referenceEnd.y - association.referenceStart.y
+      fitted[direction] = DrawingFrameSidePosterior(
+        association: association,
+        orientationRadians: atan2(dy, dx),
+        orientationVariance: first.broadPriorVariance,
+        offsetPixels: weightedOffset / precision,
+        offsetVariance: 1 / precision,
+        observationCount: sideObservations.count
+      )
     }
-    let confidence = observations.reduce(0) {
-      $0 + $1.estimate.confidence * $1.confidence
-    } / weightSum
-    let sourceBases = Set(observations.map(\.estimate.basis)).sorted().joined(separator: " | ")
-    return DrawingFrameEstimate(
-      geometry: try Polyline(points: points),
-      confidence: confidence,
-      basis: "confidence-weighted boundary posterior constrained by controller final MPos and exact-frame observed tool centroids; unobserved frame geometry remains inferred; source basis: \(sourceBases)"
+    return fitted
+  }
+
+  private static func associate(
+    _ observation: DrawingFrameBoundaryObservation
+  ) throws -> DrawingFrameSideAssociation {
+    let points = observation.estimate.geometry.points
+    guard points.count == 5, points.first == points.last else {
+      throw DrawingFramePosteriorError.invalidBoundaryGeometry
+    }
+    var candidates: [(index: Int, distance: Double)] = []
+    for index in 0..<4 {
+      let start = points[index]
+      let end = points[index + 1]
+      let distance = segmentDistance(
+        from: observation.observedToolCentroid,
+        start: start,
+        end: end
+      )
+      candidates.append((index: index, distance: distance))
+    }
+    candidates.sort { lhs, rhs in
+      lhs.distance == rhs.distance ? lhs.index < rhs.index : lhs.distance < rhs.distance
+    }
+    guard candidates.count >= 2,
+      candidates[0].distance.isFinite,
+      candidates[1].distance.isFinite
+    else {
+      throw DrawingFramePosteriorError.invalidBoundaryGeometry
+    }
+    guard candidates[1].distance - candidates[0].distance
+      >= observation.associationDistanceMargin
+    else {
+      throw DrawingFramePosteriorError.ambiguousEdgeAssociation(
+        nearestDistance: candidates[0].distance,
+        runnerUpDistance: candidates[1].distance,
+        requiredMargin: observation.associationDistanceMargin
+      )
+    }
+    let index = candidates[0].index
+    return DrawingFrameSideAssociation(
+      machineSide: observation.key.direction,
+      candidateEdgeIndex: index,
+      referenceStart: points[index],
+      referenceEnd: points[index + 1],
+      initializedFromFrameID: observation.key.frameID
     )
   }
 
-  /// Moves the closest side of the inferred quadrilateral along its normal so
-  /// it passes through the tool centroid observed at the controller boundary.
-  /// The chosen side is an image-space vision decision; direction and final
-  /// MPos remain typed evidence on the observation rather than being treated as
-  /// interchangeable pixel coordinates.
-  private static func boundaryAnchoredPoints(
-    _ observation: DrawingFrameBoundaryObservation
-  ) throws -> [Point2<CameraPixelSpace>] {
-    let source = observation.estimate.geometry.points
-    guard source.count == 5, source.first == source.last else {
-      throw DrawingFramePosteriorError.invalidBoundaryGeometry
-    }
-    let uniquePointCount = source.count - 1
-    var selectedEdge: Int?
-    var selectedDistanceSquared = Double.infinity
-
-    for startIndex in 0..<uniquePointCount {
-      let endIndex = (startIndex + 1) % uniquePointCount
-      let start = source[startIndex]
-      let end = source[endIndex]
-      let dx = end.x - start.x
-      let dy = end.y - start.y
-      let lengthSquared = dx * dx + dy * dy
-      guard lengthSquared > 0 else { continue }
-      let rawProjection =
-        ((observation.observedToolCentroid.x - start.x) * dx
-          + (observation.observedToolCentroid.y - start.y) * dy) / lengthSquared
-      let projection = min(1, max(0, rawProjection))
-      let closestX = start.x + projection * dx
-      let closestY = start.y + projection * dy
-      let offsetX = observation.observedToolCentroid.x - closestX
-      let offsetY = observation.observedToolCentroid.y - closestY
-      let distanceSquared = offsetX * offsetX + offsetY * offsetY
-      if distanceSquared < selectedDistanceSquared {
-        selectedDistanceSquared = distanceSquared
-        selectedEdge = startIndex
-      }
-    }
-
-    guard let startIndex = selectedEdge else {
-      throw DrawingFramePosteriorError.invalidBoundaryGeometry
-    }
-    let endIndex = (startIndex + 1) % uniquePointCount
-    let start = source[startIndex]
-    let end = source[endIndex]
+  private static func segmentDistance(
+    from point: Point2<CameraPixelSpace>,
+    start: Point2<CameraPixelSpace>,
+    end: Point2<CameraPixelSpace>
+  ) -> Double {
     let dx = end.x - start.x
     let dy = end.y - start.y
     let lengthSquared = dx * dx + dy * dy
-    guard lengthSquared > 0 else {
-      throw DrawingFramePosteriorError.invalidBoundaryGeometry
-    }
-    let projection =
-      ((observation.observedToolCentroid.x - start.x) * dx
-        + (observation.observedToolCentroid.y - start.y) * dy) / lengthSquared
-    let projectedX = start.x + projection * dx
-    let projectedY = start.y + projection * dy
-    let shiftX = observation.observedToolCentroid.x - projectedX
-    let shiftY = observation.observedToolCentroid.y - projectedY
+    guard lengthSquared > 0 else { return .infinity }
+    let raw = ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared
+    let projection = min(1, max(0, raw))
+    return hypot(
+      point.x - (start.x + projection * dx),
+      point.y - (start.y + projection * dy)
+    )
+  }
 
-    var adjusted = source
-    adjusted[startIndex] = try Point2(x: start.x + shiftX, y: start.y + shiftY)
-    adjusted[endIndex] = try Point2(x: end.x + shiftX, y: end.y + shiftY)
-    adjusted[uniquePointCount] = adjusted[0]
-    return adjusted
+  private static func corners(
+    from sides: [PreflightBoundaryDirection: DrawingFrameSidePosterior]
+  ) -> [DrawingFrameCorner: Point2<CameraPixelSpace>] {
+    let byEdge = Dictionary(uniqueKeysWithValues: sides.values.map {
+      ($0.association.candidateEdgeIndex, $0)
+    })
+    var result: [DrawingFrameCorner: Point2<CameraPixelSpace>] = [:]
+    for vertex in DrawingFrameCorner.allCases {
+      let incomingIndex = (vertex.rawValue + 3) % 4
+      let outgoingIndex = vertex.rawValue
+      guard let incoming = byEdge[incomingIndex], let outgoing = byEdge[outgoingIndex],
+        let intersection = lineIntersection(incoming.geometry, outgoing.geometry)
+      else { continue }
+      result[vertex] = intersection
+    }
+    return result
+  }
+
+  private static func lineIntersection(
+    _ first: Polyline<CameraPixelSpace>,
+    _ second: Polyline<CameraPixelSpace>
+  ) -> Point2<CameraPixelSpace>? {
+    let p = first.start
+    let rX = first.end.x - first.start.x
+    let rY = first.end.y - first.start.y
+    let q = second.start
+    let sX = second.end.x - second.start.x
+    let sY = second.end.y - second.start.y
+    let denominator = rX * sY - rY * sX
+    guard abs(denominator) > 1e-12 else { return nil }
+    let t = ((q.x - p.x) * sY - (q.y - p.y) * sX) / denominator
+    return try? Point2(x: p.x + t * rX, y: p.y + t * rY)
+  }
+
+  private static func closedEstimate(
+    from sides: [PreflightBoundaryDirection: DrawingFrameSidePosterior],
+    corners: [DrawingFrameCorner: Point2<CameraPixelSpace>]
+  ) throws -> DrawingFrameEstimate? {
+    guard sides.count == 4, corners.count == 4 else { return nil }
+    let ordered = DrawingFrameCorner.allCases.compactMap { corners[$0] }
+    guard ordered.count == 4 else { return nil }
+    let averageVariance = sides.values.reduce(0) { $0 + $1.offsetVariance } / 4
+    return DrawingFrameEstimate(
+      geometry: try Polyline(points: ordered + [ordered[0]]),
+      confidence: 1 / (1 + sqrt(averageVariance)),
+      basis: "per-side image-space offset posterior; exact tool centroids update variance; controller final MPos retained as provenance only"
+    )
   }
 }
