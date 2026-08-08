@@ -27,13 +27,19 @@ Use one process and direct typed calls:
 
 ```mermaid
 flowchart LR
-    VOICE["Native voice input and speech output"] --> UI["SwiftUI app"]
-    UI --> RUN["RunInterpreter"]
+    UI["SwiftUI views"] --> WORKSPACE["OperatorWorkspace"]
+    WORKSPACE --> MACHINE["MachineActions"]
+    MACHINE --> RUN["RunInterpreter"]
     RUN --> CTRL["MachineController"]
-    RUN --> CAM["CameraCapture"]
-    RUN --> VISION["Vision functions"]
-    RUN --> JOURNAL["RunLedger optional session diagnostics"]
-    RUN --> GEOM["Pure geometry and affine transform"]
+    CTRL --> JOURNAL["RunLedger optional session diagnostics"]
+    WORKSPACE --> CAMERA["CameraActions"]
+    CAMERA --> CAPTURE["CameraCapture"]
+    CAMERA --> VISION["VisionWorker and bounded pipeline"]
+    WORKSPACE --> VOICE["VoiceActions"]
+    VOICE --> SPEECH["Native speech input and output"]
+    WORKSPACE --> PREFLIGHT["Motion Preflight and drawing-frame posterior"]
+    WORKSPACE --> LEARNING["Current-session jog-response dataset"]
+    WORKSPACE --> GEOM["Pure geometry and affine model primitives"]
 ```
 
 Keep the current SwiftPM targets:
@@ -55,8 +61,9 @@ registry, plugin system, or live Python process.
 - the selected serial link;
 - raw transmit/receive;
 - GRBL parsing;
-- controller state, alarm, limits, and outstanding command;
-- immediate feed, distance, and workspace validation.
+- controller state, alarms, asserted end-stops, and outstanding command;
+- immediate closed-request, finite-delta, feed-capability, pen-state, session-
+  activation, in-flight, and ambiguity validation.
 
 `CameraCapture` owns:
 
@@ -74,13 +81,18 @@ needed, owns:
 
 `RunInterpreter` owns only:
 
-- the current requested operation;
-- the current stroke/step;
-- whether a command is outstanding;
-- the latest controller, camera, and ink result presented to the UI;
-- stopping the current run on a concrete error.
+- machine-operation coordination above `MachineController`;
+- controller selection, inspection, jog/pen/cancel request serialization, and
+  the latest machine snapshot presented to the app;
+- stopping the current machine operation on a concrete error.
 
 It should be a small coordinator, not a workflow engine.
+
+`OperatorWorkspace` is the MainActor presentation model. It combines the closed
+machine, camera, and voice action adapters; owns Motion Preflight transactions,
+the drawing-frame posterior, current-session jog-response diagnostics, and
+view-visible state; and never sends serial bytes or calculates raw controller
+commands itself.
 
 `RunLedger` owns optional current-session diagnostic events. Despite the
 retained name, it is not required for controller work, historical product
@@ -116,9 +128,12 @@ for routine work.
 `make build`, `make test`, and `make check` are the supported commands.
 `make strict-check` is optional diagnostic work.
 
-No Xcode project, signed app, distribution configuration, CI job, or
-cross-machine verification is part of the product. Add a local app wrapper only
-if the camera API demonstrates a concrete bundle-identity need.
+No Xcode project, distribution identity, notarization configuration, CI job, or
+cross-machine verification is part of the product. The checked-in build scripts
+do assemble a local `.app` and LaunchServices launcher because camera,
+microphone, and speech TCC attribution requires a stable application identity.
+The bundle uses an available local identity or explicit ad-hoc fallback; this is
+local runtime infrastructure, not a release pipeline.
 
 ## 4. Geometry
 
@@ -255,7 +270,8 @@ Old journal files are diagnostics. A new session may always create a new file.
 
 ## 8. Minimal UI
 
-One window is sufficient. It should contain:
+Use one primary operator window and one Motion Preflight utility window backed
+by the same `OperatorWorkspace`. The primary window contains:
 
 - one serial-device picker that remembers the last selection without treating
   selection as connection;
@@ -268,7 +284,7 @@ One window is sufficient. It should contain:
 - current stroke/operation;
 - last command outcome;
 - intended/observed line and simple error after inspection.
-- a Learning-menu Motion Preflight entry with sequence-owned microphone
+- a Learning-panel Motion Preflight entry with sequence-owned microphone
   activation, visible permission/listening/transcript/result state, boundary
   and pen sequence timelines, and a visible cancel fallback during the active
   transaction.
@@ -325,7 +341,7 @@ MPos values can be claimed as observed behavior.
 - affine forward/inverse and out-of-bounds tests;
 - drawing-plan ordering tests that keep pen up for travel and clear the tool
   before inspection;
-- deterministic frame-selection and simple ink/residual tests;
+- exact-frame identity, pixel-format/stride, and simple ink/residual tests;
 - one app test proving passive probes can be retried without restart.
 
 Do not require replay-equivalence, archival export, quota, accessibility,

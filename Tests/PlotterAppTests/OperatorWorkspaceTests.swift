@@ -324,7 +324,7 @@ func typedJogDoesNotRequireCamera() async throws {
     serialDevices: [device]
   )
   await workspace.establishMachineSession(device)
-  await applyTestLimits(workspace)
+  await connectAndActivateMotion(workspace)
   await workspace.requestPenActuation(.raise)
   workspace.xStepText = "2.5"
   workspace.yStepText = "9.25"
@@ -366,7 +366,7 @@ func simulatorCannotRecordPhysicalJogEvidence() async throws {
     serialDevices: [device]
   )
   await workspace.establishMachineSession(device)
-  await applyTestLimits(workspace)
+  await connectAndActivateMotion(workspace)
   await workspace.requestPenActuation(.raise)
   await workspace.switchFrameMode(.simulated)
   workspace.setRecordJogObservations(true)
@@ -406,7 +406,7 @@ func simulatorBlocksEveryPhysicalCommandIntent() async throws {
     serialDevices: [device]
   )
   await workspace.establishMachineSession(device)
-  await applyTestLimits(workspace)
+  await connectAndActivateMotion(workspace)
   await workspace.switchFrameMode(.simulated)
   workspace.setRecordJogObservations(false)
 
@@ -445,7 +445,7 @@ func simulatorSwitchCannotHideActiveJogCancel() async throws {
     serialDevices: [device]
   )
   await workspace.establishMachineSession(device)
-  await applyTestLimits(workspace)
+  await connectAndActivateMotion(workspace)
   await workspace.requestPenActuation(.raise)
   let jogTask = Task { await workspace.requestJog(.xPositive) }
   while await jogGate.waiterCount == 0 { await Task.yield() }
@@ -533,7 +533,7 @@ func observedJogFailureProjectsExactly() async throws {
     serialDevices: [device]
   )
   await workspace.establishMachineSession(device)
-  await applyTestLimits(workspace)
+  await connectAndActivateMotion(workspace)
   await workspace.requestPenActuation(.raise)
   await workspace.startCamera()
   workspace.selectObservationSplit(.holdout)
@@ -588,7 +588,7 @@ func ambiguousObservedJogRecordsNothing() async throws {
     serialDevices: [device]
   )
   await workspace.establishMachineSession(device)
-  await applyTestLimits(workspace)
+  await connectAndActivateMotion(workspace)
   await workspace.requestPenActuation(.raise)
   await workspace.startCamera()
   workspace.setRecordJogObservations(true)
@@ -644,7 +644,7 @@ func observedJogSuccessProjectsExactFacts() async throws {
     serialDevices: [device]
   )
   await workspace.establishMachineSession(device)
-  await applyTestLimits(workspace)
+  await connectAndActivateMotion(workspace)
   await workspace.requestPenActuation(.raise)
   await workspace.startCamera()
   workspace.selectObservationSplit(.holdout)
@@ -848,7 +848,7 @@ func refusalCanRetry() async throws {
     serialDevices: [device]
   )
   await workspace.establishMachineSession(device)
-  await applyTestLimits(workspace)
+  await connectAndActivateMotion(workspace)
   await workspace.requestPenActuation(.raise)
 
   await workspace.requestJog(.xPositive)
@@ -1508,7 +1508,7 @@ func typedPenControls() async throws {
       == PenRefusal.motionGuardInactive.actionableDescription
   )
 
-  await applyTestLimits(workspace)
+  await connectAndActivateMotion(workspace)
   await workspace.requestPenActuation(.raise)
   #expect(await fixture.penRequests == [.raise])
   #expect(workspace.penStateText == "commanded up — not visually observed")
@@ -1556,7 +1556,7 @@ func truthfulControllerAndMotionProjection() async {
   #expect(!workspace.motionGuardIsActive)
   #expect(workspace.controllerConnectionActionTitle == "Connect")
 
-  await applyTestLimits(workspace)
+  await connectAndActivateMotion(workspace)
   #expect(workspace.motionGuardIsActive)
   #expect(!workspace.motionGuardAllowsCarriageMotion)
   await workspace.requestPenActuation(.raise)
@@ -1580,7 +1580,7 @@ func independentJogValues() async throws {
     serialDevices: [device]
   )
   await workspace.establishMachineSession(device)
-  await applyTestLimits(workspace)
+  await connectAndActivateMotion(workspace)
   await workspace.requestPenActuation(.raise)
   workspace.xStepText = "1.25"
   workspace.yStepText = "3.75"
@@ -1611,7 +1611,7 @@ func nonPositiveStepMagnitudesAreDisabled() async {
       serialDevices: [device]
     )
     await workspace.establishMachineSession(device)
-    await applyTestLimits(workspace)
+    await connectAndActivateMotion(workspace)
     await workspace.requestPenActuation(.raise)
     workspace.xStepText = input.x
     workspace.yStepText = input.y
@@ -1637,7 +1637,7 @@ func serialRefreshDisconnectsDisappearedSelection() async {
   )
   await workspace.establishMachineSession(device)
   await workspace.requestPassiveProbe()
-  await applyTestLimits(workspace)
+  await connectAndActivateMotion(workspace)
   await workspace.requestPenActuation(.raise)
 
   await workspace.refreshSerialDevices()
@@ -1661,7 +1661,7 @@ func disconnectAndReselectRequireFreshAuthority() async {
     serialDevices: [device]
   )
   await workspace.establishMachineSession(device)
-  await applyTestLimits(workspace)
+  await connectAndActivateMotion(workspace)
   await workspace.requestPenActuation(.raise)
   #expect(workspace.motionUnavailableReason == nil)
 
@@ -1689,7 +1689,7 @@ func disconnectAndReselectRequireFreshAuthority() async {
       == MotionRefusal.motionGuardInactive.actionableDescription
   )
 
-  await applyTestLimits(workspace)
+  await connectAndActivateMotion(workspace)
   #expect(
     workspace.motionUnavailableReason
       == MotionRefusal.penNotUp(.unknown).actionableDescription
@@ -1722,7 +1722,7 @@ func shutdownTearsDownExactlyOnce() async throws {
   )
   await workspace.establishMachineSession(device)
   await workspace.requestPassiveProbe()
-  await applyTestLimits(workspace)
+  await connectAndActivateMotion(workspace)
   await workspace.requestPenActuation(.raise)
   await workspace.startCamera()
 
@@ -2805,7 +2805,7 @@ private func replacing(
 }
 
 @MainActor
-private func applyTestLimits(_ workspace: OperatorWorkspace) async {
+private func connectAndActivateMotion(_ workspace: OperatorWorkspace) async {
   if !workspace.controllerIsConnected {
     await workspace.connectSelectedController()
   }
@@ -2833,7 +2833,7 @@ private func preparedBoundaryWorkspace(
   )
   await workspace.selectSerialDevice(device)
   await workspace.connectSelectedController()
-  await applyTestLimits(workspace)
+  await connectAndActivateMotion(workspace)
   await workspace.requestPenActuation(.raise)
   await workspace.startVoiceListening()
   while await voice.streamSubscriberCount == 0 { await Task.yield() }
@@ -2870,7 +2870,7 @@ private func observationWorkspace(
     serialDevices: [device]
   )
   await workspace.establishMachineSession(device)
-  await applyTestLimits(workspace)
+  await connectAndActivateMotion(workspace)
   await workspace.requestPenActuation(.raise)
   await workspace.startCamera()
   workspace.setRecordJogObservations(true)

@@ -7,8 +7,9 @@ Scope: this Mac and its attached plotter only
 
 This document overrides any requirement elsewhere in the repository for:
 
-- full Xcode, signing, notarization, sandboxing, release packaging, CI, or a
-  supported-machine matrix;
+- full Xcode, distribution signing, notarization, sandboxing, release packaging,
+  CI, or a supported-machine matrix. The local TCC-attributable app bundle is
+  retained;
 - mandatory strict Swift concurrency or warnings-as-errors;
 - phase-wide development or landing gates;
 - separate motion and pen arms, expiring approvals, or a general execution
@@ -17,8 +18,8 @@ This document overrides any requirement elsewhere in the repository for:
   evidence, retention/quota/tombstone policy, or algorithm re-evaluation;
 - accessibility work, a complete observability workspace, operator studies, or
   polished diagnostics;
-- spline fields, advanced adaptive models, model-promotion machinery, bootstrap
-  statistics, or factorial physical-trial programs.
+- spline fields, advanced adaptive models, generalized model-promotion
+  machinery, bootstrap statistics, or factorial physical-trial programs.
 
 When older text conflicts with this document, choose the smaller direct local
 implementation.
@@ -128,10 +129,14 @@ fieldPoint = affine(machinePoint) + optional constant tool offset
 ```
 
 Use direct point or line measurements to adjust it manually or by a simple fit.
-No candidate/accepted promotion system is required for the first product. No
+The repository already contains a deliberately small immutable accepted
+snapshot, explicit candidate fit, fixed training/holdout membership, held-out
+acceptance decision, and pen-up checkpoint rule. Those primitives are exercised
+by tests and the deterministic simulator; they are not a prerequisite for the
+first observed line and are not yet a live ink-training workflow. Do not expand
+them into generalized promotion UI, history, or experiment infrastructure. No
 backlash learner, pen-mark model, spline, bootstrap, covariance program,
-factorial trial matrix, trust-region model evolution, or grouped holdout system
-is required.
+factorial trial matrix, or trust-region model evolution is required.
 
 If drawing quality is acceptable, stop. If it is not, identify the dominant
 repeatable error and add the smallest correction for that observed problem.
@@ -168,7 +173,9 @@ Hardware absence or an unrelated physical failure never blocks landing.
 - One local Swift application process; no live Python or localhost bridge.
 - No arbitrary G-code input.
 - No automatic unlock, homing, settings write, alarm clear, reset, or resume.
-- Commands stay inside explicit local feed, distance, and workspace limits.
+- Commands use closed finite requests, stay within controller-reported feed
+  capability, and stop on current alarm/end-stop/ambiguity facts. Operator-
+  entered distance caps and workspace coordinates are not motion prerequisites.
 - Controller `ok` is not proof of ink.
 - Actual observed ink is the drawing result.
 - An ambiguous command is not automatically resent or redrawn.

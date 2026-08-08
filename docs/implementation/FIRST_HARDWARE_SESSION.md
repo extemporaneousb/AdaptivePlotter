@@ -82,9 +82,11 @@ executable CDHash until that one-time approval is completed with the operator.
    may trigger another decision. Do not execute `.build/debug/AdaptivePlotter` or the app's
    `Contents/MacOS/AdaptivePlotter` binary directly for camera acceptance.
 
-5. Choose **Refresh Serial Devices**, select the controller path, and choose
-   **Connect & Inspect Controller**. Once connected, the same action is labeled
-   **Refresh Controller State**.
+5. Choose **Refresh Serial Devices** if needed, select the controller from the
+   remembered toolbar picker, and choose **Connect**. Selection alone does not
+   open the controller. After the passive inspection completes without a blocker,
+   the Plotter indicator turns green; use the controller panel's probe action for
+   a later refresh in the same session.
 6. Confirm that the UI reports the five exchanges or gives a concrete error.
 7. Repeat the probe in the same app launch if useful. A failed probe is not a
    one-shot event and old journal files do not block retry.
@@ -109,7 +111,7 @@ executable CDHash until that one-time approval is completed with the operator.
    produces no frames and no sample directory; that is an external permission
    boundary, not camera evidence.
 4. Confirm that frame sequence advances and frame age remains current.
-5. Use the compact top bar to open **Camera** and **Overlays**. Confirm they dock
+5. Use the native toolbar to open **Camera** and **Overlays**. Confirm they dock
    on the right, reserve space, and leave the complete camera surface visible.
    Collapse, close, and restore them; **Hide All** must return the full content
    width to the camera.
@@ -133,14 +135,15 @@ executable CDHash until that one-time approval is completed with the operator.
    and that the surface remains labeled not physical evidence. Switch back to
    **LIVE** and confirm source labels are exact
    and no overlay from the other source/configuration remains visible.
-11. Open **Learning** and confirm it is a direct current-session diagnostic, not
-    a sequence or readiness flow. With **Record Jog Observations** off, ordinary
-    LIVE jogging must remain camera-independent. With it on, select the fixed
-    training/holdout membership for the next jog and confirm the panel reports
-    the exact paired result, sample counts, response matrix, and separate
-    residuals under `DIAGNOSTIC — NOT MOTION AUTHORITY`. **Clear Samples** must
-    discard only the current diagnostic set. SIMULATED mode must not issue a
-    physical jog or pen command.
+11. Open **Learning** and verify its two distinct surfaces. **Motion Preflight**
+    opens the voice-mediated sequence utility; in SIMULATED mode it must identify
+    itself as rehearsal and grant no readiness. The jog-response diagnostic
+    controls **Record Jog Observations**, fixed training/holdout membership for
+    the next jog, current sample counts, the response matrix, and separate
+    residuals under `DIAGNOSTIC — NOT MOTION AUTHORITY`. With recording off,
+    ordinary LIVE jogging remains camera-independent. **Clear Samples** discards
+    only the current diagnostic set. SIMULATED mode must not issue a physical jog
+    or pen command.
 12. Confirm that the first successful live start created three PNGs plus
    `manifest.json` beneath:
 
@@ -159,7 +162,7 @@ connected component near camera pixel (1094.05, 375.76), while a small green
 controller light is a separate distractor. The blue-taped top and right paper
 edges are strong line priors; the attached rulers, their markings, magnets, and
 machine shadows are distractors rather than scale evidence. See
-[Prototype Status](PROTOTYPE_STATUS.md#current-c920-scene-priors) for the measured
+[Current Implementation Status](CURRENT_IMPLEMENTATION_STATUS.md#current-c920-scene-priors) for the measured
 single-scene priors.
 
 ## Current local priors and observed controller facts
@@ -195,8 +198,10 @@ single-scene priors.
   the fixed typed Pen Up command and settle dwell once; both were acknowledged
   and the app recorded commanded state Up. Because the pen began up, this proves
   a clean command path, not observable servo travel from a lowered pose.
-- Applied local limits were X 27.692...30.692, Y -11.502...-8.502, a 1 mm
-  per-command cap, and 100 mm/min maximum feed.
+- The historical test build used an X 27.692...30.692 / Y -11.502...-8.502
+  harness envelope, a 1 mm cap, and 100 mm/min feed. Those operator-applied
+  limits were later removed from the product and are not current prerequisites;
+  the values remain here only to describe how this recorded test was run.
 - The X request completed Idle at X 30.212 / Y -10.002. The 1.020 mm reported
   delta is one-step quantization at the probed `$100=40.18235` steps/mm. The
   explicit inverse completed at the exact starting MPos.
@@ -213,8 +218,9 @@ single-scene priors.
 
 - A fresh passive probe again reported Idle, no asserted X/Y pins, and MPos
   X 29.192 / Y -10.002. The operator again directly confirmed the pen was up.
-- Conservative session-local bounds were only ±2 mm around that MPos, with a
-  1 mm per-command cap and 30 mm/min maximum feed.
+- This historical recheck used a temporary ±2 mm harness envelope, a 1 mm cap,
+  and 30 mm/min feed. That harness no longer exists in the current application;
+  the record does not reinstate typed limits.
 - X completed at 30.212 / -10.002 (+1.020 mm) and returned exactly to
   29.192 / -10.002 (-1.020 mm). Y then completed at 29.192 / -9.004
   (+0.998 mm) and returned exactly to 29.192 / -10.002 (-0.998 mm).

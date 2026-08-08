@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-forbidden_pattern='URLSession|localhost|127\\.0\\.0\\.1|PlotterBridge|BridgeProcessSupervisor|PlanInstruction'
+forbidden_pattern='URLSession|localhost|127\\.0\\.0\\.1|PlotterBridge|BridgeProcessSupervisor|PlanInstruction|TranscriptReplay|OfflineRuntimePrototype'
 
 if rg -n --glob '*.swift' "$forbidden_pattern" Sources Tests; then
     echo "forbidden live/compatibility surface found" >&2

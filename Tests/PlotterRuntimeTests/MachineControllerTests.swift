@@ -448,25 +448,6 @@ struct MachineControllerTests {
     }
   }
 
-  @Test("recorded transcript uses the same exact passive probe surface")
-  func transcriptReplay() async throws {
-    let fixture = try await Fixture.make()
-    let link = try TranscriptReplayLink(
-      entries: OfflineRuntimePrototype.simulatedPassiveTranscript(),
-      clock: fixture.clock
-    )
-    let controller = MachineController(
-      link: link,
-      ledger: fixture.ledger,
-      runID: fixture.runID,
-      clock: fixture.clock,
-      queryTimeoutNanoseconds: 10_000_000
-    )
-    let result = await controller.runPassiveProbe()
-    #expect(result.blockers.isEmpty)
-    #expect(result.exchanges.map(\.query) == PassiveQuery.allCases)
-  }
-
   @Test("closed session log does not block the probe")
   func storageDoesNotBlockWrite() async throws {
     let fixture = try await Fixture.make()

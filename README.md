@@ -1,8 +1,10 @@
 # AdaptivePlotter
 
 AdaptivePlotter is a local Swift macOS application for this operator Mac and
-its attached plotter. There is no distribution, release, signing, notarization,
-sandbox, CI, support-matrix, or second-computer requirement.
+its attached plotter. There is no distribution, release-signing, notarization,
+sandbox, CI, support-matrix, or second-computer requirement. A locally signed
+bundle and LaunchServices launcher exist only to give camera, microphone, and
+speech permissions the correct application identity.
 
 The goal is direct:
 
@@ -20,6 +22,23 @@ connect controller and camera
 
 Getting that loop working takes precedence over infrastructure, generalized
 architecture, exhaustive evidence systems, advanced modeling, and polished UI.
+
+## Documentation map
+
+- This README is the canonical current product contract and local run guide.
+- [Project Scope and Model Training](docs/PROJECT_SCOPE_AND_MODEL_TRAINING.md)
+  is the canonical statement of purpose, learning layers, physical training
+  procedure, and training goals.
+- [Minimal Local Architecture](docs/SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md)
+  records live ownership and authority boundaries.
+- [Direct Implementation Plan](docs/SWIFT_ADAPTIVE_PLOTTER_SEQUENTIAL_REBUILD.md)
+  is the ordered engineering backlog, not a readiness gate.
+- [Current Implementation Status](docs/implementation/CURRENT_IMPLEMENTATION_STATUS.md)
+  distinguishes implemented, simulated, physically observed, and missing work.
+- [First Hardware Session](docs/implementation/FIRST_HARDWARE_SESSION.md) is a
+  historical physical evidence record; it does not define the current UI.
+- [Feasibility Review](docs/FEASIBILITY_REVIEW_AND_BINDING_AMENDMENTS.md) is the
+  binding scope constraint when older planning language suggests a larger system.
 
 ## Current state
 
@@ -84,16 +103,20 @@ The repository contains one SwiftPM application with:
   internal search horizon is normal completion, not boundary evidence;
 - an optional observed-jog operation that brackets exactly one accepted motion
   with immutable live C920 frames and controller-owned start/final MPos samples;
-- one SwiftUI operator window whose local launcher ignores stale AppKit window
-  restoration and whose app delegate refuses future state save/restore;
-  closing it drains the delegate-owned workspace, terminates the app, and
-  releases camera, microphone, and serial ownership instead of leaving a hidden
-  session; termination remains bounded to three seconds if a hardware intent
-  does not drain;
+- one primary SwiftUI operator window plus one Motion Preflight utility window,
+  both backed by the same delegate-owned workspace. The local launcher ignores
+  stale AppKit restoration and the app delegate refuses future state
+  save/restore; closing the last window drains the workspace, terminates the app,
+  and releases camera, microphone, and serial ownership instead of leaving a
+  hidden session. Termination remains bounded to three seconds if a hardware
+  intent does not drain;
 - a current-session jog-response dataset with fixed training/holdout membership,
   a fitted 2x2 machine-delta-to-camera-delta matrix, and separate residuals;
-- typed geometry, a polyline `DrawingProgram`, affine camera/field math, and one
-  immutable affine-model learning path with training/holdout evaluation.
+- typed geometry, a polyline `DrawingProgram`, affine camera/field math, sealed
+  conversion from physical jog evidence into registered training observations,
+  and one immutable affine-model trainer with training/holdout evaluation. The
+  trainer is exercised by tests and the simulator; it is not yet an ink-backed
+  live application workflow.
 
 Typed Pen Up and Pen Down are implemented and physically verified over white
 paper. The historical `S720` down value moved the mechanism but left no mark;
@@ -189,16 +212,6 @@ make strict-check
 Do not turn `strict-check` into a prerequisite for ordinary development or
 landing unless a concrete concurrency problem makes it relevant.
 
-Fixture provenance can still be checked when useful:
-
-```bash
-Scripts/validate_evidence_manifest.sh
-Scripts/validate_evidence_manifest.sh --verify-source
-```
-
-The second command requires the legacy source archive at its recorded path or
-`LEGACY_PLOTTER_ROOT`.
-
 ## Development contract
 
 Use the repo-local AdaptivePlotter skill and Blackdog for retained changes.
@@ -238,13 +251,13 @@ is corrected.
 Keep one native process and direct Swift calls:
 
 ```text
-PlotterApp
-  -> RunInterpreter       current operation and visible status
-  -> MachineController    serial bytes and controller state
-  -> CameraCapture        latest local frame
-  -> VisionPipeline       bounded newest-only feature measurement
-  -> JogResponseDataset   current-session diagnostic fit only
-  -> RunLedger            optional current-session diagnostics
+PlotterApp / OperatorWorkspace
+  -> MachineActions -> RunInterpreter -> MachineController
+  -> CameraActions  -> CameraCapture + VisionWorker/Pipeline
+  -> VoiceActions   -> VoiceInteractionSession
+  -> MotionPreflight transactions + DrawingFramePosterior
+  -> OnlineJogResponseDataset      current-session diagnostic only
+  -> RunLedger                     optional session diagnostics
 ```
 
 The session log records useful controller exchanges when storage is available.
@@ -267,13 +280,17 @@ Use the simplest geometry that works:
 
 If the affine transform draws acceptably, stop adding model complexity.
 
-The current jog-response fit is deliberately inspectable preparation for later
-online adaptation on this one machine. It records what controller motion and
-camera displacement were actually observed, keeps holdout episodes separate,
-and reports residuals. It cannot issue motion, accept a drawing model, persist
-or replay training data, or automatically change controller behavior. More
-sophisticated or reinforcement-learning models belong after the direct
-controller-camera-draw-observe loop supplies trustworthy outcomes.
+There are three intentionally distinct learning layers. Motion Preflight updates
+the current drawing-frame posterior and pen setup; it is not model training. The
+wired current-session jog-response learner records actual controller and camera
+displacement, keeps holdout episodes separate, and reports residuals; it cannot
+issue motion, accept a drawing model, persist data, or change controller
+behavior. The affine drawing trainer is implemented and demonstrated in the
+simulator, but live ink-backed collection and acceptance are not yet wired into
+the operator app. The exact procedure and goals are in
+[Project Scope and Model Training](docs/PROJECT_SCOPE_AND_MODEL_TRAINING.md).
+More sophisticated or reinforcement-learning models belong only after the
+controller-camera-draw-observe loop supplies trustworthy held-out ink outcomes.
 
 The voice surface follows the same rule. It lives under Learning as Motion
 Preflight. The operator chooses one boundary or pen sequence and presses Start;

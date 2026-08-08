@@ -1,7 +1,11 @@
-# Prototype Status
+# Current Implementation Status
 
 Status date: 2026-08-07
 Target: this Mac and attached plotter only
+
+The canonical product purpose and training procedure are in
+[Project Scope and Model Training](../PROJECT_SCOPE_AND_MODEL_TRAINING.md).
+This document records implementation and physical-evidence status.
 
 ## Bottom line
 
@@ -105,6 +109,10 @@ observed-ink extraction remain unimplemented.
   the controller command path.
 - SQLite uses WAL with normal rather than full synchronous durability.
 - Recorded-run reducer/replay state and its UI timeline were removed.
+- The remaining transcript replay/offline runtime composition was removed; the
+  scripted GRBL link now exists only in `PlotterTestSupport`.
+- Unused stable-frame selection, phantom coordinate spaces, polygon geometry,
+  and the self-validating legacy evidence-fixture archive were removed.
 - Accessibility-specific SwiftUI behavior and tests were removed.
 - Normal build/test no longer forces complete strict concurrency or
   warnings-as-errors.
@@ -123,8 +131,10 @@ observed-ink extraction remain unimplemented.
 | Operator travel prior | About 250 mm X by less than 100 mm usable Y after two X-parallel wood rails were added; controller zero is near physical center; not a safety limit |
 | SQLite | System library available |
 
-This environment is sufficient. No other Mac, full Xcode install, signing
-identity, app distribution configuration, or CI result is required.
+This environment is sufficient. No other Mac, full Xcode install, distribution
+signing identity, app distribution configuration, or CI result is required. The
+local bundle still uses an available development identity or ad-hoc fallback for
+TCC attribution.
 
 ## Delivered source
 
@@ -215,12 +225,11 @@ identity, app distribution configuration, or CI result is required.
   the same renderer. It is labeled `SIMULATED — NOT PHYSICAL EVIDENCE` and has no
   machine-link dependency.
 - A fully wired X−/X+/Y−/Y+ widget with independent X/Y step values, feed,
-  direct session limits, actual Pen Up/Pen Down commands, MPos, controller state,
-  current operation, last outcomes, and one actionable disabled reason.
-- Provisional local motion inputs of 1 mm per axis, 100 mm/min, 5 mm maximum
-  command distance, and X -100...100 / Y -40...40 around the observed
-  session-start zero. These reflect the operator's roughly 2.5:1 travel prior
-  and must still be reviewed and explicitly applied.
+  actual Pen Up/Pen Down commands, MPos, controller state, current operation,
+  last outcomes, and one actionable disabled reason. It has no operator-entered
+  coordinate envelope, maximum-jog field, typed-limit review, or apply step.
+- The initial UI values are 1 mm per axis and 100 mm/min. They are editable
+  request values, not calibration, learned bounds, or retained motion authority.
 - Optional **Record Jog Observations** changes one manual jog into one typed
   `PhysicalJogObservationRequest`: an exact attested live frame/cap measurement,
   exactly one controller jog with controller-owned start/final evidence, then an
@@ -238,7 +247,8 @@ identity, app distribution configuration, or CI result is required.
   purposes. Recognition is currently configured to require Apple's on-device
   path; failure is shown directly rather than silently switching to a network
   recognizer.
-- The local product has one SwiftUI operator window backed by a delegate-owned
+- The local product has one primary SwiftUI operator window and one Motion
+  Preflight utility window backed by the same delegate-owned
   `OperatorWorkspace`. The local launcher starts with
   `ApplePersistenceIgnoreState`, and the delegate rejects AppKit
   application-state save and restore, so stale state cannot suppress the next
@@ -267,9 +277,10 @@ identity, app distribution configuration, or CI result is required.
   evidence; this implementation does not disguise that as affine training.
 - There is no spline/neural model family, replay store, continuous visual servo,
   or model update inside an irreversible ink stroke.
-- The Learning panel is a direct current-session diagnostic, not a sequence or
-  readiness flow. It controls **Record Jog Observations**, selects the next
-  immutable training/holdout split, clears current samples, and shows sample
+- The Learning panel contains two distinct surfaces. **Motion Preflight** opens
+  the voice-mediated setup utility and documents the active sequence. The
+  current-session diagnostic controls **Record Jog Observations**, selects the
+  next immutable training/holdout split, clears current samples, and shows sample
   counts, last paired result, response matrix, and separate residuals under the
   label `DIAGNOSTIC — NOT MOTION AUTHORITY`.
 - Physical observation provenance binds immutable attested frame bytes/hash,
@@ -286,6 +297,12 @@ identity, app distribution configuration, or CI result is required.
   this one machine without introducing a deep model. Reinforcement learning or
   other adaptive policies remain deferred until drawing actions have trustworthy
   camera/ink outcomes and an explicit safe policy boundary.
+- The affine drawing-model trainer, held-out acceptance decision, immutable
+  version replacement, and pen-down pinning are implemented in the model layer
+  and simulator. Physical jog evidence can be converted through one identified
+  field registration into sealed training observations. The live app does not
+  yet collect observed ink, own an accepted physical drawing model, fit a live
+  candidate, or apply one to drawing execution.
 
 ## Current C920 scene priors
 

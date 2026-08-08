@@ -1,11 +1,8 @@
 import Foundation
 
-public enum SourceRasterSpace: Sendable {}
 public enum CameraPixelSpace: Sendable {}
-public enum CameraPlaneSpace: Sendable {}
 public enum FieldSpace: Sendable {}
 public enum MachineSpace: Sendable {}
-public enum ToolSpace: Sendable {}
 
 public enum GeometryError: Error, Equatable, Sendable {
   case nonFiniteCoordinate
@@ -160,54 +157,6 @@ extension Polyline: CanonicalEncodable {
   public func encodeCanonical(to encoder: inout CanonicalEncoder) throws {
     try encoder.appendCount(points.count)
     for point in points { try point.encodeCanonical(to: &encoder) }
-  }
-}
-
-public struct Polygon2<Space>: Hashable, Sendable, Codable {
-  public let vertices: [Point2<Space>]
-  public let bounds: AxisAlignedBounds<Space>
-
-  public init(vertices: [Point2<Space>]) throws {
-    guard vertices.count >= 3 else {
-      throw GeometryError.insufficientPoints(required: 3, actual: vertices.count)
-    }
-    let signedDoubleArea = vertices.indices.reduce(0.0) { partial, index in
-      let next = vertices[(index + 1) % vertices.count]
-      let current = vertices[index]
-      return partial + current.x * next.y - next.x * current.y
-    }
-    guard signedDoubleArea.isFinite, abs(signedDoubleArea) > 1e-12 else {
-      throw GeometryError.degenerateGeometry
-    }
-    self.vertices = vertices
-    var minX = vertices[0].x
-    var minY = vertices[0].y
-    var maxX = vertices[0].x
-    var maxY = vertices[0].y
-    for vertex in vertices.dropFirst() {
-      minX = min(minX, vertex.x)
-      minY = min(minY, vertex.y)
-      maxX = max(maxX, vertex.x)
-      maxY = max(maxY, vertex.y)
-    }
-    bounds = AxisAlignedBounds(
-      validatedMinX: minX, validatedMinY: minY,
-      validatedMaxX: maxX, validatedMaxY: maxY
-    )
-  }
-
-  private enum CodingKeys: String, CodingKey { case vertices }
-
-  public init(from decoder: Decoder) throws {
-    let container = try decoder.container(keyedBy: CodingKeys.self)
-    try self.init(vertices: container.decode([Point2<Space>].self, forKey: .vertices))
-  }
-}
-
-extension Polygon2: CanonicalEncodable {
-  public func encodeCanonical(to encoder: inout CanonicalEncoder) throws {
-    try encoder.appendCount(vertices.count)
-    for vertex in vertices { try vertex.encodeCanonical(to: &encoder) }
   }
 }
 

@@ -21,7 +21,8 @@ must not require complete strict concurrency or warnings-as-errors;
 - No live Python, HTTP, localhost bridge, DTO mirror, compatibility lane, or
   external service.
 - SwiftPM and the installed Command Line Tools are enough.
-- No release/signing/notarization/sandbox/CI/support-matrix work.
+- No release, Developer ID/distribution signing, notarization, sandbox, CI, or
+  support-matrix work. Keep the local TCC-attributable bundle and launcher.
 - No accessibility scope.
 - No archival replay, algorithm re-evaluation, content-addressed evidence,
   exports, quotas, tombstones, or old-run admission scans.
@@ -106,9 +107,11 @@ Deliver:
 - one fixed observation rectangle;
 - a visible capture/interruption error.
 
-Use a local app wrapper only if the camera API actually needs stable bundle
-identity. Do not add a camera evidence archive, formal freshness framework,
-multi-camera support matrix, accessibility layer, or generalized vision bus.
+The camera API did require attributable bundle identity, so the repository now
+builds a local `.app` and launches that exact bundle through LaunchServices. Keep
+that local TCC path. Do not turn it into distribution infrastructure or add a
+camera evidence archive, multi-camera support matrix, accessibility layer, or
+generalized vision bus.
 
 Done when the app shows the real camera and can capture the newest frame on
 demand.

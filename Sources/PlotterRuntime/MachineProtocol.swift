@@ -19,7 +19,6 @@ public struct MachineLinkDescriptor: Codable, Hashable, Sendable {
   public enum Transport: String, Codable, Hashable, Sendable {
     case bsdSerial
     case simulated
-    case transcriptReplay
   }
 
   public init(identifier: String, displayName: String, bsdPath: String?, transport: Transport) {
