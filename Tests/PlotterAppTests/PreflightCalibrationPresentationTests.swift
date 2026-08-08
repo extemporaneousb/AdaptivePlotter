@@ -14,7 +14,14 @@ func motionPreflightTitle() {
 func simulatorRehearsalPresentation() throws {
   var rehearsal = PreflightRehearsal(sequenceID: .penUpConfirmation)
   #expect(PreflightCalibrationPresentation.phaseLabel(for: rehearsal) == "NOT REHEARSED")
-  #expect(PreflightCalibrationMode.simulatorRehearsal.subtitle.contains("no microphone"))
+  #expect(
+    PreflightCalibrationMode.simulatorRehearsal
+      .subtitle(voicePracticeEnabled: false).contains("no microphone")
+  )
+  #expect(
+    PreflightCalibrationMode.simulatorRehearsal
+      .subtitle(voicePracticeEnabled: true).contains("microphone input")
+  )
   try rehearsal.start()
   #expect(PreflightCalibrationPresentation.phaseLabel(for: rehearsal) == "REHEARSING")
   while rehearsal.state == .running { try rehearsal.advance() }

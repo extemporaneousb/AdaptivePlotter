@@ -204,6 +204,7 @@ final class OperatorWorkspace {
   private(set) var simulatorEvidenceLabel = SimulatedOverlaySceneContent.evidenceLabel
   private(set) var simulatorPenState: PenState = .unknown
   private(set) var simulatorLearningSummary = "Switch to SIMULATED to inspect model behavior."
+  private(set) var simulatorVoicePracticeEnabled = false
   private(set) var voiceAuthorizationState: VoiceAuthorizationState = .notDetermined
   private(set) var voiceListening = false
   private(set) var voiceTranscriptText = "none"
@@ -237,6 +238,11 @@ final class OperatorWorkspace {
   @ObservationIgnored private var pendingPreflightCaptureBoundaryNanoseconds: UInt64?
   @ObservationIgnored private var preflightAuthorityGeneration: UInt64 = 0
   @ObservationIgnored private var preflightVoiceStartupGeneration: UInt64?
+  @ObservationIgnored private var preflightRehearsalGeneration: UInt64 = 0
+  @ObservationIgnored private var preflightRehearsalVoiceStartupGeneration: UInt64?
+  @ObservationIgnored private var preflightRehearsalListeningID: PreflightSequenceID?
+  @ObservationIgnored private var lastPreflightRehearsalUtteranceID: UUID?
+  @ObservationIgnored private var voiceListenerGeneration: UInt64 = 0
   @ObservationIgnored private let preflightRehearsalStepDelayNanoseconds: UInt64
   @ObservationIgnored private var preflightRehearsalTask: Task<Void, Never>?
   @ObservationIgnored private var rememberedSerialDeviceIdentifier: String?
@@ -682,12 +688,19 @@ final class OperatorWorkspace {
   var preflightRehearsalStatusText: String {
     let sequenceID = activePreflightRehearsalID ?? selectedPreflightSequenceID
     guard let rehearsal = preflightRehearsals[sequenceID] else {
-      return "ready to rehearse · microphone and controller remain off"
+      return simulatorVoicePracticeEnabled
+        ? "ready to rehearse with voice · controller remains off"
+        : "ready to rehearse silently · microphone and controller remain off"
     }
     return switch rehearsal.state {
-    case .notStarted: "ready to rehearse · microphone and controller remain off"
+    case .notStarted:
+      simulatorVoicePracticeEnabled
+        ? "ready to rehearse with voice · controller remains off"
+        : "ready to rehearse silently · microphone and controller remain off"
     case .running:
-      "rehearsing step \(rehearsal.completedStepCount + 1) of \(rehearsal.definition.steps.count)"
+      simulatorVoicePracticeEnabled
+        ? "voice rehearsal step \(rehearsal.completedStepCount + 1) of \(rehearsal.definition.steps.count)"
+        : "silent rehearsal step \(rehearsal.completedStepCount + 1) of \(rehearsal.definition.steps.count)"
     case .completed: "rehearsal complete · no physical evidence recorded"
     case .cancelled: "rehearsal cancelled · no physical evidence recorded"
     }
@@ -749,6 +762,13 @@ final class OperatorWorkspace {
     if displayedFrame?.source != .simulated { return "The simulator has no rendered frame." }
     if let activePreflightRehearsalID {
       return "Finish or cancel \(PreflightSequenceCatalog.definition(for: activePreflightRehearsalID).title)."
+    }
+    if simulatorVoicePracticeEnabled {
+      if voiceActions == nil { return "Native voice composition is unavailable." }
+      if preflightRehearsalVoiceStartupGeneration != nil {
+        return "Wait for the previous simulator microphone request to settle."
+      }
+      if voiceListening { return "Voice listening is already active." }
     }
     return nil
   }
@@ -1167,8 +1187,7 @@ final class OperatorWorkspace {
       voiceListening = true
       lastVoiceActionableResultText =
         "speech listening active for the current Motion Preflight sequence"
-      beginVoiceTranscriptUpdates(actions: voiceActions)
-      beginVoiceStateUpdates(actions: voiceActions)
+      beginVoiceUpdates(actions: voiceActions)
     } catch {
       voiceListening = false
       voiceError = actionableDescription(error)
@@ -1189,10 +1208,7 @@ final class OperatorWorkspace {
     case .idle:
       break
     }
-    voiceTranscriptTask?.cancel()
-    voiceTranscriptTask = nil
-    voiceStateTask?.cancel()
-    voiceStateTask = nil
+    invalidateVoiceUpdates()
     lastBoundaryStopUtteranceID = nil
     await voiceActions.stopListening()
     voiceListening = false
@@ -1233,10 +1249,22 @@ final class OperatorWorkspace {
     await finishCancelledPreflight(sequenceID)
   }
 
-  func startPreflightRehearsal(_ sequenceID: PreflightSequenceID) {
+  func setSimulatorVoicePracticeEnabled(_ enabled: Bool) async {
+    guard simulatorVoicePracticeEnabled != enabled else { return }
+    if let activePreflightRehearsalID {
+      await cancelPreflightRehearsal(activePreflightRehearsalID)
+    }
+    simulatorVoicePracticeEnabled = enabled
+    preflightError = nil
+  }
+
+  func startPreflightRehearsal(_ sequenceID: PreflightSequenceID) async {
     guard preflightRehearsalStartUnavailableReason(for: sequenceID) == nil else { return }
+    preflightRehearsalGeneration &+= 1
+    let generation = preflightRehearsalGeneration
     selectedPreflightSequenceID = sequenceID
     preflightError = nil
+    lastPreflightRehearsalUtteranceID = nil
     var rehearsal = PreflightRehearsal(sequenceID: sequenceID)
     do {
       try rehearsal.start()
@@ -1245,6 +1273,13 @@ final class OperatorWorkspace {
       return
     }
     preflightRehearsals[sequenceID] = rehearsal
+    continuePreflightRehearsal(sequenceID, generation: generation)
+  }
+
+  private func continuePreflightRehearsal(
+    _ sequenceID: PreflightSequenceID,
+    generation: UInt64
+  ) {
     preflightRehearsalTask?.cancel()
     preflightRehearsalTask = Task { [weak self] in
       guard let self else { return }
@@ -1254,11 +1289,50 @@ final class OperatorWorkspace {
         } catch {
           return
         }
-        guard self.frameMode == .simulated,
+        guard self.preflightRehearsalIsCurrent(sequenceID, generation: generation),
           var current = self.preflightRehearsals[sequenceID],
           current.state == .running,
           let step = current.currentStep
         else { return }
+
+        if self.simulatorVoicePracticeEnabled {
+          switch step.action {
+          case .startSpeechListening:
+            let started = await self.startPreflightRehearsalVoiceListening(
+              for: sequenceID,
+              generation: generation
+            )
+            guard self.preflightRehearsalIsCurrent(sequenceID, generation: generation)
+            else { return }
+            guard started else {
+              await self.failPreflightRehearsal(
+                sequenceID,
+                generation: generation,
+                reason: self.voiceError ?? self.voicePermissionText
+              )
+              return
+            }
+
+          case .stopSpeechListening:
+            await self.stopPreflightRehearsalVoiceListening(for: sequenceID)
+            guard self.preflightRehearsalIsCurrent(sequenceID, generation: generation)
+            else { return }
+
+          case .speakPrompt(let prompt):
+            await self.voiceActions?.speak(prompt)
+            self.lastSpokenFeedbackText = prompt
+            guard self.preflightRehearsalIsCurrent(sequenceID, generation: generation)
+            else { return }
+
+          case .awaitVoice, .awaitPhysicalPenConfirmation:
+            self.preflightRehearsalTask = nil
+            return
+
+          default:
+            break
+          }
+        }
+
         do {
           try current.advance()
           self.preflightRehearsals[sequenceID] = current
@@ -1278,17 +1352,108 @@ final class OperatorWorkspace {
     }
   }
 
-  func cancelPreflightRehearsal(_ sequenceID: PreflightSequenceID) {
+  func cancelPreflightRehearsal(_ sequenceID: PreflightSequenceID) async {
     guard var rehearsal = preflightRehearsals[sequenceID] else { return }
+    preflightRehearsalGeneration &+= 1
     preflightRehearsalTask?.cancel()
     preflightRehearsalTask = nil
     rehearsal.cancel()
     preflightRehearsals[sequenceID] = rehearsal
+    await stopPreflightRehearsalVoiceListening(for: sequenceID)
   }
 
-  private func cancelActivePreflightRehearsal() {
+  private func cancelActivePreflightRehearsal() async {
     guard let activePreflightRehearsalID else { return }
-    cancelPreflightRehearsal(activePreflightRehearsalID)
+    await cancelPreflightRehearsal(activePreflightRehearsalID)
+  }
+
+  private func preflightRehearsalIsCurrent(
+    _ sequenceID: PreflightSequenceID,
+    generation: UInt64
+  ) -> Bool {
+    !hasShutdown && frameMode == .simulated
+      && preflightRehearsalGeneration == generation
+      && activePreflightRehearsalID == sequenceID
+  }
+
+  private func startPreflightRehearsalVoiceListening(
+    for sequenceID: PreflightSequenceID,
+    generation: UInt64
+  ) async -> Bool {
+    guard preflightRehearsalIsCurrent(sequenceID, generation: generation),
+      simulatorVoicePracticeEnabled,
+      preflightRehearsalVoiceStartupGeneration == nil,
+      !voiceListening,
+      let voiceActions
+    else { return false }
+
+    preflightRehearsalVoiceStartupGeneration = generation
+    defer {
+      if preflightRehearsalVoiceStartupGeneration == generation {
+        preflightRehearsalVoiceStartupGeneration = nil
+      }
+    }
+
+    voiceError = nil
+    let authorization = await voiceActions.requestAuthorization()
+    guard !Task.isCancelled,
+      preflightRehearsalIsCurrent(sequenceID, generation: generation),
+      simulatorVoicePracticeEnabled
+    else { return false }
+    voiceAuthorizationState = authorization
+    guard authorization == .authorized else {
+      lastVoiceActionableResultText = voicePermissionText
+      return false
+    }
+
+    do {
+      try await voiceActions.startListening()
+      guard !Task.isCancelled,
+        preflightRehearsalIsCurrent(sequenceID, generation: generation),
+        simulatorVoicePracticeEnabled
+      else {
+        await voiceActions.stopListening()
+        return false
+      }
+      voiceListening = true
+      preflightRehearsalListeningID = sequenceID
+      lastVoiceActionableResultText =
+        "speech listening active for simulator voice practice"
+      beginVoiceUpdates(actions: voiceActions)
+      return true
+    } catch {
+      guard preflightRehearsalIsCurrent(sequenceID, generation: generation) else {
+        await voiceActions.stopListening()
+        return false
+      }
+      voiceListening = false
+      voiceError = actionableDescription(error)
+      lastVoiceActionableResultText = "Voice rehearsal failed: \(voiceError ?? "unknown error")"
+      return false
+    }
+  }
+
+  private func stopPreflightRehearsalVoiceListening(
+    for sequenceID: PreflightSequenceID
+  ) async {
+    guard preflightRehearsalListeningID == sequenceID
+      || preflightRehearsalVoiceStartupGeneration != nil
+    else { return }
+    invalidateVoiceUpdates()
+    await voiceActions?.stopListening()
+    voiceListening = false
+    preflightRehearsalListeningID = nil
+    lastVoiceActionableResultText = "simulator voice practice stopped"
+  }
+
+  private func failPreflightRehearsal(
+    _ sequenceID: PreflightSequenceID,
+    generation: UInt64,
+    reason: String
+  ) async {
+    guard preflightRehearsalIsCurrent(sequenceID, generation: generation) else { return }
+    preflightError = "Simulator voice rehearsal failed: \(reason)"
+    await cancelPreflightRehearsal(sequenceID)
   }
 
   private func advancePreflightSequence(_ sequenceID: PreflightSequenceID) async {
@@ -1893,7 +2058,7 @@ final class OperatorWorkspace {
       return
     }
     guard let cameraActions else { return }
-    if mode == .live { cancelActivePreflightRehearsal() }
+    if mode == .live { await cancelActivePreflightRehearsal() }
     frameModeSwitchInProgress = true
     defer { frameModeSwitchInProgress = false }
     frameTask?.cancel()
@@ -1938,7 +2103,7 @@ final class OperatorWorkspace {
       return
     }
     guard let cameraActions else { return }
-    cancelActivePreflightRehearsal()
+    await cancelActivePreflightRehearsal()
     do {
       let content = try await cameraActions.simulatedContent(mode)
       guard canCommit(generation), frameMode == .simulated else { return }
@@ -1987,17 +2152,17 @@ final class OperatorWorkspace {
     guard !hasShutdown else { return }
     hasShutdown = true
     lifetimeGeneration &+= 1
+    preflightRehearsalGeneration &+= 1
     preflightRehearsalTask?.cancel()
     preflightRehearsalTask = nil
     stopObserving()
-    voiceTranscriptTask?.cancel()
-    voiceTranscriptTask = nil
-    voiceStateTask?.cancel()
-    voiceStateTask = nil
+    invalidateVoiceUpdates()
     lastBoundaryStopUtteranceID = nil
+    lastPreflightRehearsalUtteranceID = nil
     await voiceActions?.stopListening()
     await voiceActions?.stopSpeaking()
     voiceListening = false
+    preflightRehearsalListeningID = nil
     await waitForHardwareIntentsToDrain()
     _ = await cameraActions?.stop()
     await machineActions?.disconnect()
@@ -2042,35 +2207,60 @@ final class OperatorWorkspace {
     }
   }
 
-  private func beginVoiceTranscriptUpdates(actions: VoiceActions) {
+  private func beginVoiceUpdates(actions: VoiceActions) {
+    invalidateVoiceUpdates()
+    let generation = voiceListenerGeneration
+    beginVoiceTranscriptUpdates(actions: actions, generation: generation)
+    beginVoiceStateUpdates(actions: actions, generation: generation)
+  }
+
+  private func invalidateVoiceUpdates() {
+    voiceListenerGeneration &+= 1
     voiceTranscriptTask?.cancel()
+    voiceTranscriptTask = nil
+    voiceStateTask?.cancel()
+    voiceStateTask = nil
+  }
+
+  private func beginVoiceTranscriptUpdates(actions: VoiceActions, generation: UInt64) {
     voiceTranscriptTask = Task { [weak self] in
       let stream = await actions.transcripts()
       for await transcript in stream {
-        guard !Task.isCancelled, let self else { return }
-        await self.receiveVoiceTranscript(transcript)
+        guard !Task.isCancelled, let self,
+          self.voiceListenerGeneration == generation
+        else { return }
+        await self.receiveVoiceTranscript(transcript, listenerGeneration: generation)
       }
-      guard !Task.isCancelled, let self, !self.hasShutdown else { return }
+      guard !Task.isCancelled, let self, !self.hasShutdown,
+        self.voiceListenerGeneration == generation
+      else { return }
       let snapshot = await actions.snapshot()
-      guard !Task.isCancelled, !self.hasShutdown else { return }
-      self.receiveVoiceSnapshot(snapshot)
+      guard !Task.isCancelled, !self.hasShutdown,
+        self.voiceListenerGeneration == generation
+      else { return }
+      self.receiveVoiceSnapshot(snapshot, listenerGeneration: generation)
     }
   }
 
-  private func beginVoiceStateUpdates(actions: VoiceActions) {
-    voiceStateTask?.cancel()
+  private func beginVoiceStateUpdates(actions: VoiceActions, generation: UInt64) {
     voiceStateTask = Task { [weak self] in
       while !Task.isCancelled {
         let snapshot = await actions.snapshot()
-        guard !Task.isCancelled, let self, !self.hasShutdown else { return }
-        self.receiveVoiceSnapshot(snapshot)
+        guard !Task.isCancelled, let self, !self.hasShutdown,
+          self.voiceListenerGeneration == generation
+        else { return }
+        self.receiveVoiceSnapshot(snapshot, listenerGeneration: generation)
         guard case .listening = snapshot.listeningState else { return }
         try? await Task.sleep(nanoseconds: 250_000_000)
       }
     }
   }
 
-  private func receiveVoiceSnapshot(_ snapshot: VoiceInteractionSnapshot) {
+  private func receiveVoiceSnapshot(
+    _ snapshot: VoiceInteractionSnapshot,
+    listenerGeneration: UInt64
+  ) {
+    guard listenerGeneration == voiceListenerGeneration else { return }
     voiceAuthorizationState = snapshot.authorization
     switch snapshot.listeningState {
     case .listening:
@@ -2079,14 +2269,31 @@ final class OperatorWorkspace {
       let lostActiveListener = voiceListening
       voiceListening = false
       if lostActiveListener {
+        failClosedPreflightRehearsalAfterSpeechLoss("Speech listening stopped unexpectedly.")
         failClosedBoundaryAfterSpeechLoss("Speech listening stopped unexpectedly.")
       }
     case .failed(let error):
       voiceListening = false
       voiceError = error.actionableDescription
       lastVoiceActionableResultText = error.actionableDescription
+      failClosedPreflightRehearsalAfterSpeechLoss(error.actionableDescription)
       failClosedBoundaryAfterSpeechLoss(error.actionableDescription)
     }
+  }
+
+  private func failClosedPreflightRehearsalAfterSpeechLoss(_ reason: String) {
+    guard let sequenceID = preflightRehearsalListeningID,
+      var rehearsal = preflightRehearsals[sequenceID],
+      rehearsal.state == .running
+    else { return }
+    preflightRehearsalGeneration &+= 1
+    preflightRehearsalTask?.cancel()
+    preflightRehearsalTask = nil
+    rehearsal.cancel()
+    preflightRehearsals[sequenceID] = rehearsal
+    preflightRehearsalListeningID = nil
+    preflightError = "Simulator voice rehearsal failed: \(reason)"
+    invalidateVoiceUpdates()
   }
 
   private func failClosedBoundaryAfterSpeechLoss(_ reason: String) {
@@ -2118,9 +2325,44 @@ final class OperatorWorkspace {
     }
   }
 
-  private func receiveVoiceTranscript(_ transcript: VoiceTranscript) async {
-    guard voiceListening, !hasShutdown else { return }
+  private func receiveVoiceTranscript(
+    _ transcript: VoiceTranscript,
+    listenerGeneration: UInt64
+  ) async {
+    guard voiceListening, !hasShutdown,
+      listenerGeneration == voiceListenerGeneration
+    else { return }
     voiceTranscriptText = transcript.text.isEmpty ? "none" : transcript.text
+
+    if simulatorVoicePracticeEnabled,
+      let sequenceID = activePreflightRehearsalID,
+      preflightRehearsalListeningID == sequenceID,
+      var rehearsal = preflightRehearsals[sequenceID],
+      let context = rehearsal.voiceContext,
+      let response = PreflightVoiceResponseParser().parse(transcript.text, in: context)
+    {
+      switch response {
+      case .ready, .penIsPhysicallyUp, .penIsPhysicallyDown:
+        guard transcript.isFinal else { return }
+      case .stop:
+        guard lastPreflightRehearsalUtteranceID != transcript.utteranceID else { return }
+        lastPreflightRehearsalUtteranceID = transcript.utteranceID
+      }
+      let generation = preflightRehearsalGeneration
+      do {
+        try rehearsal.advance()
+        preflightRehearsals[sequenceID] = rehearsal
+        lastVoiceIntentText = "Simulator rehearsal accepted \(response.exactPhrase)"
+        continuePreflightRehearsal(sequenceID, generation: generation)
+      } catch {
+        await failPreflightRehearsal(
+          sequenceID,
+          generation: generation,
+          reason: actionableDescription(error)
+        )
+      }
+      return
+    }
 
     if let sequenceID = activePreflightSequenceID,
       let context = preflightTransactions[sequenceID]?.voiceContext
@@ -2443,10 +2685,7 @@ final class OperatorWorkspace {
   private func clearPreflightAuthority() async {
     preflightAuthorityGeneration &+= 1
     await cancelAndSettleBoundaryMotionBeforePreflightErasure()
-    voiceTranscriptTask?.cancel()
-    voiceTranscriptTask = nil
-    voiceStateTask?.cancel()
-    voiceStateTask = nil
+    invalidateVoiceUpdates()
     lastBoundaryStopUtteranceID = nil
     if voiceListening {
       await voiceActions?.stopListening()
@@ -2541,8 +2780,7 @@ final class OperatorWorkspace {
       voiceListening = true
       lastVoiceActionableResultText =
         "speech listening active for the current Motion Preflight sequence"
-      beginVoiceTranscriptUpdates(actions: voiceActions)
-      beginVoiceStateUpdates(actions: voiceActions)
+      beginVoiceUpdates(actions: voiceActions)
       return true
     } catch {
       guard preflightAuthorityIsCurrent(

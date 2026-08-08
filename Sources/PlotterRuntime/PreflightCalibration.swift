@@ -677,9 +677,10 @@ public enum PreflightRehearsalError: Error, Equatable, Sendable {
 /// Deterministic presentation-only playback of a Motion Preflight definition.
 ///
 /// A rehearsal advances the same typed steps shown for physical preflight, but
-/// it cannot emit controller events, speech transcripts, camera attestations,
-/// evidence summaries, or training readiness. The application may use it to
-/// explain the workflow while the simulator is selected.
+/// it cannot emit controller events, camera attestations, evidence summaries,
+/// or training readiness. An application may use `voiceContext` to advance an
+/// operator step from a real transcript while still keeping the rehearsal
+/// completely outside physical and learning authority.
 public struct PreflightRehearsal: Hashable, Sendable {
   public let definition: PreflightSequenceDefinition
   public private(set) var state: PreflightRehearsalState
@@ -703,6 +704,17 @@ public struct PreflightRehearsal: Hashable, Sendable {
   public var progress: Double {
     guard !definition.steps.isEmpty else { return state == .completed ? 1 : 0 }
     return Double(completedStepCount) / Double(definition.steps.count)
+  }
+
+  public var voiceContext: PreflightVoiceContext? {
+    guard let currentStep, let expectedResponse = currentStep.expectedVoiceResponse else {
+      return nil
+    }
+    return PreflightVoiceContext(
+      sequenceID: definition.id,
+      stepID: currentStep.id,
+      expectedResponse: expectedResponse
+    )
   }
 
   public mutating func start() throws {

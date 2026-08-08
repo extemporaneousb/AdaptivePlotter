@@ -89,9 +89,13 @@ The repository contains one SwiftPM application with:
   bootstrap implementation, starting a sequence acquires speech permission,
   turns listening on for that transaction, shows its participant/action/event
   timeline, and stops listening when the transaction ends;
-- a simulator-only Motion Preflight rehearsal that plays the same typed
-  participant/action/event definitions without starting speech, touching the
-  controller, recording physical evidence, or affecting motion eligibility;
+- a simulator-only Motion Preflight rehearsal with a native **Practice with
+  Voice** checkbox. Unchecked, it plays the typed participant/action/event
+  definitions without requesting speech permission. Checked, sequence start
+  opens the microphone and exact context-bound phrases advance operator steps
+  while simulated actions advance the rest. Neither path can touch the
+  controller, record physical evidence, update the drawing-frame posterior, or
+  affect motion eligibility;
 - four voice-mediated boundary sequences plus Pen Up and Pen Down confirmation
   sequences. Exact `READY`, `STOP`, and physical pen confirmations are accepted
   only at their corresponding transaction step; ambient, wrong-context, and
@@ -322,7 +326,10 @@ adjustments to closed typed intents. Its teaching path records flexible
 visibility observations, shape features, rankings, and rewards without giving
 free-form speech raw controller authority. Feedback is brief and interruptible.
 Simulation exercises the same episode and intent types but remains explicitly
-non-physical.
+non-physical. Current Motion Preflight rehearsal can be run silently for
+deterministic app practice or with **Practice with Voice** enabled so the human
+also rehearses timing and phrases; voice input in that mode advances only the
+non-authoritative simulated timeline.
 
 A taught side is accepted only from `MotionOutcome.cancelled(finalPosition:)`:
 the Jog Cancel must settle at Idle and supply final controller MPos. A jog that

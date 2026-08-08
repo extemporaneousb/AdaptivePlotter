@@ -2058,7 +2058,7 @@ func simulatorPreflightRehearsalIsPresentationOnly() async throws {
   )
 
   await workspace.switchFrameMode(.simulated)
-  workspace.startPreflightRehearsal(.boundaryNegativeX)
+  await workspace.startPreflightRehearsal(.boundaryNegativeX)
   for _ in 0..<2_000 {
     if workspace.preflightRehearsals[.boundaryNegativeX]?.state == .completed { break }
     await Task.yield()
@@ -2070,8 +2070,161 @@ func simulatorPreflightRehearsalIsPresentationOnly() async throws {
   #expect(workspace.preflightTransactions.isEmpty)
   #expect(!workspace.preflightTrainingReadiness.isReady)
   #expect(await voice.startCount == 0)
+  #expect(await voice.authorizationRequestCount == 0)
   #expect(await machine.totalInvocationCount == 0)
   #expect(workspace.preflightRehearsalStatusText.contains("no physical evidence"))
+}
+
+@Test("simulator voice practice pauses for exact phrases without gaining physical authority")
+@MainActor
+func simulatorVoicePracticeUsesMicrophoneWithoutPhysicalAuthority() async throws {
+  let machine = MachineFixture()
+  let voice = VoiceFixture()
+  let camera = CameraFixture(
+    snapshot: CameraCaptureSnapshot(
+      devices: [],
+      selectedDeviceID: nil,
+      state: .stopped,
+      latestFrame: nil,
+      error: nil
+    ),
+    simulated: try testDisplayedFrame(source: .simulated)
+  )
+  let workspace = OperatorWorkspace(
+    machineActions: machineActions(machine),
+    cameraActions: cameraActions(camera),
+    voiceActions: voiceActions(voice),
+    preflightRehearsalStepDelayNanoseconds: 0
+  )
+
+  await workspace.switchFrameMode(.simulated)
+  await workspace.setSimulatorVoicePracticeEnabled(true)
+  await workspace.startPreflightRehearsal(.boundaryPositiveX)
+  for _ in 0..<2_000 {
+    if workspace.preflightRehearsals[.boundaryPositiveX]?.voiceContext?.expectedResponse
+      == .ready
+    { break }
+    await Task.yield()
+  }
+
+  let awaitingReadyCount = try #require(
+    workspace.preflightRehearsals[.boundaryPositiveX]?.completedStepCount
+  )
+  #expect(workspace.voiceListening)
+  #expect(await voice.authorizationRequestCount == 1)
+  #expect(await voice.startCount == 1)
+
+  await voice.yield(
+    VoiceTranscript(
+      utteranceID: UUID(),
+      sequence: 1,
+      text: "READY AND STOP",
+      isFinal: true,
+      monotonicNanoseconds: 1
+    )
+  )
+  for _ in 0..<20 { await Task.yield() }
+  #expect(
+    workspace.preflightRehearsals[.boundaryPositiveX]?.completedStepCount
+      == awaitingReadyCount
+  )
+
+  await voice.yield(
+    VoiceTranscript(
+      utteranceID: UUID(),
+      sequence: 2,
+      text: "READY",
+      isFinal: true,
+      monotonicNanoseconds: 2
+    )
+  )
+  for _ in 0..<2_000 {
+    if workspace.preflightRehearsals[.boundaryPositiveX]?.voiceContext?.expectedResponse
+      == .stop
+    { break }
+    await Task.yield()
+  }
+  #expect(
+    workspace.preflightRehearsals[.boundaryPositiveX]?.voiceContext?.expectedResponse
+      == .stop
+  )
+
+  await voice.yield(
+    VoiceTranscript(
+      utteranceID: UUID(),
+      sequence: 3,
+      text: "STOP",
+      isFinal: false,
+      monotonicNanoseconds: 3
+    )
+  )
+  for _ in 0..<2_000 {
+    if workspace.preflightRehearsals[.boundaryPositiveX]?.state == .completed { break }
+    await Task.yield()
+  }
+
+  #expect(workspace.preflightRehearsals[.boundaryPositiveX]?.state == .completed)
+  #expect(await voice.stopCount == 1)
+  #expect(!workspace.voiceListening)
+  #expect(workspace.preflightTransactions.isEmpty)
+  #expect(workspace.drawingFramePosterior == nil)
+  #expect(!workspace.preflightTrainingReadiness.isReady)
+  #expect(await machine.totalInvocationCount == 0)
+}
+
+@Test("disabling simulator voice practice cancels listening and stale speech is inert")
+@MainActor
+func disablingSimulatorVoicePracticeTearsDownTransaction() async throws {
+  let voice = VoiceFixture()
+  let camera = CameraFixture(
+    snapshot: CameraCaptureSnapshot(
+      devices: [],
+      selectedDeviceID: nil,
+      state: .stopped,
+      latestFrame: nil,
+      error: nil
+    ),
+    simulated: try testDisplayedFrame(source: .simulated)
+  )
+  let workspace = OperatorWorkspace(
+    cameraActions: cameraActions(camera),
+    voiceActions: voiceActions(voice),
+    preflightRehearsalStepDelayNanoseconds: 0
+  )
+
+  await workspace.switchFrameMode(.simulated)
+  await workspace.setSimulatorVoicePracticeEnabled(true)
+  await workspace.startPreflightRehearsal(.penUpConfirmation)
+  for _ in 0..<2_000 {
+    if workspace.preflightRehearsals[.penUpConfirmation]?.voiceContext != nil { break }
+    await Task.yield()
+  }
+  #expect(workspace.voiceListening)
+
+  await workspace.setSimulatorVoicePracticeEnabled(false)
+  let cancelledCount = try #require(
+    workspace.preflightRehearsals[.penUpConfirmation]?.completedStepCount
+  )
+  await voice.yield(
+    VoiceTranscript(
+      utteranceID: UUID(),
+      sequence: 1,
+      text: "PEN IS PHYSICALLY UP",
+      isFinal: true,
+      monotonicNanoseconds: 1
+    )
+  )
+  for _ in 0..<20 { await Task.yield() }
+
+  #expect(!workspace.simulatorVoicePracticeEnabled)
+  #expect(!workspace.voiceListening)
+  #expect(await voice.stopCount == 1)
+  #expect(workspace.preflightRehearsals[.penUpConfirmation]?.state == .cancelled)
+  #expect(
+    workspace.preflightRehearsals[.penUpConfirmation]?.completedStepCount
+      == cancelledCount
+  )
+  #expect(workspace.preflightTransactions.isEmpty)
 }
 
 @Test("failed simulator variant preserves the rendered simulator and selected model")
@@ -2445,6 +2598,7 @@ private func machineActions(
 private actor VoiceFixture {
   private var continuation: AsyncStream<VoiceTranscript>.Continuation?
   private(set) var streamSubscriberCount = 0
+  private(set) var authorizationRequestCount = 0
   private(set) var startCount = 0
   private(set) var stopCount = 0
   private(set) var spoken: [String] = []
@@ -2468,6 +2622,7 @@ private actor VoiceFixture {
   var isCurrentlyListening: Bool { isListening }
 
   func requestAuthorization() async -> VoiceAuthorizationState {
+    authorizationRequestCount += 1
     await authorizationGate?.wait()
     return authorization
   }

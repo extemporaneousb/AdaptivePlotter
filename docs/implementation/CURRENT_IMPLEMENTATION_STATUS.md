@@ -53,11 +53,16 @@ session, its expanded grammar, and its latency instrumentation are not yet
 implemented.
 
 With the camera source set to SIMULATED, Motion Preflight presents a typed
-rehearsal of the same participant/action/event timeline. Playback advances the
-visible steps and simulated pen presentation, but it cannot start the
-microphone, touch the controller, record physical evidence, satisfy a live
-episode observation, or affect motion eligibility. This permits an end-to-end
-UI walkthrough without creating false hardware claims.
+rehearsal of the same participant/action/event timeline. A **Practice with
+Voice** checkbox selects the input path. Off is deterministic silent playback
+and does not request speech or microphone permission. On makes sequence start
+own microphone start/stop, speaks the sequence cue, and pauses at operator steps
+until the same exact context-bound phrase is recognized; simulated actions
+advance the remaining steps. Cancellation, disabling the checkbox, source
+change, recognition loss, and shutdown invalidate the listener and stop the
+microphone. Both paths are structurally unable to touch `MachineActions`, record
+physical evidence, satisfy a live episode observation, update the drawing-frame
+posterior, or affect motion eligibility.
 
 A side is recorded only when cancellation resolves at Idle as
 `MotionOutcome.cancelled(finalPosition:)`. Current code records the final
@@ -380,6 +385,10 @@ rendered rather than falling back to LIVE. The Learning panel opened Motion
 Preflight in Simulator Rehearsal mode, and Pen Up visibly progressed through all
 six typed steps to REHEARSED while the UI reported no microphone, controller,
 physical evidence, live episode observation, or effect on motion eligibility.
+That observation remains evidence for the unchecked silent path. The later
+**Practice with Voice** path is covered by automated microphone/phrase/lifecycle
+fixtures but has not yet been exercised with the actual microphone in the
+signed app bundle.
 
 ## Not yet implemented
 

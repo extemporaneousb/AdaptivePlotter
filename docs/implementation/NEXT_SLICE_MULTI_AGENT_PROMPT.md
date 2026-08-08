@@ -112,6 +112,11 @@ redraw, invert, resume, unlock, home, reset, clear an alarm, or write settings.
 - Motion Preflight currently starts/stops listening per transaction and accepts
   exact context-bound phrases. Partial/final transcript identity and newest-only
   speech output already exist. This lifecycle is the bootstrap to replace.
+- SIMULATED Motion Preflight has an explicit **Practice with Voice** checkbox.
+  Off is permission-free deterministic playback; on uses the real microphone
+  and exact phrases to advance only the simulated timeline. Both are excluded
+  from controller, physical-evidence, posterior, and readiness authority. Reuse
+  this input choice rather than deleting it when session ownership is widened.
 - A cancelled boundary jog plus final MPos and a strictly newer exact tool
   observation currently feeds a heuristic nearest-edge quadrilateral average.
   Final MPos is recorded but not numerically fused; uncertainty does not narrow.
@@ -357,7 +362,10 @@ The simulator must exercise the same app-level episode coordinator while
 remaining unable to reach physical `MachineActions`:
 
 1. Start Exploration and keep listening presentation active across episodes
-   without acquiring a real microphone in SIMULATED mode.
+   using the simulator's explicit input choice: injected deterministic speech
+   with voice practice off, or the real microphone with voice practice on.
+   Both choices must route through the same contextual intent boundary and
+   remain unable to reach physical `MachineActions`.
 2. Rehearse Pen Up and one boundary posterior adjustment.
 3. Present at least blocked then clear Armature Guidance observations and accept
    the clear pose.

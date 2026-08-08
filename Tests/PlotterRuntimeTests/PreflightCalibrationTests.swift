@@ -135,8 +135,13 @@ struct PreflightCalibrationTests {
     #expect(rehearsal.state == .running)
     #expect(rehearsal.currentStep == rehearsal.definition.steps.first)
     #expect(rehearsal.progress == 0)
+    #expect(rehearsal.voiceContext == nil)
 
-    for index in 0..<stepCount {
+    try rehearsal.advance()
+    try rehearsal.advance()
+    #expect(rehearsal.voiceContext?.expectedResponse == .ready)
+
+    for index in 2..<stepCount {
       try rehearsal.advance()
       #expect(rehearsal.completedStepCount == index + 1)
     }

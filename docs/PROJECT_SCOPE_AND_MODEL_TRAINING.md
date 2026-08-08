@@ -200,9 +200,12 @@ settled, not merely because its frame sequence is newer than the baseline.
 Only frames selected for a learning episode need durable exact bytes. This is a
 compact training dataset, not continuous video recording or a general replay
 archive. Simulation episodes use the same schema but remain explicitly
-non-physical and cannot satisfy hardware observations. A human label may be
-ground truth for current-scene visibility or preference without being promoted
-to a claim the camera itself proved.
+non-physical and cannot satisfy hardware observations. Their operator input may
+come from deterministic injected speech or, when **Practice with Voice** is
+enabled, the real microphone so the human can rehearse timing and phrases; that
+input choice does not change simulation authority. A human label may be ground
+truth for current-scene visibility or preference without being promoted to a
+claim the camera itself proved.
 
 The existing camera owner exports those deliberately admitted frames through
 the `CameraSamples` PNG/manifest path; no second artifact owner is introduced.

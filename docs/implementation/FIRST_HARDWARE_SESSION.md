@@ -145,7 +145,12 @@ executable CDHash until that one-time approval is completed with the operator.
 11. Open **Learning** and verify its two distinct surfaces. **Motion Preflight**
     opens the voice-mediated sequence utility; in SIMULATED mode it must identify
     itself as rehearsal, provide no physical episode observation, and have no
-    effect on motion eligibility. The jog-response diagnostic
+    effect on motion eligibility. Leave **Practice with Voice** unchecked and
+    verify silent playback does not request microphone permission. Then check it,
+    start a rehearsal, and verify the displayed exact phrase advances the
+    operator step while controller invocation and physical evidence remain zero.
+    Completion, Stop Rehearsal, unchecking the option, and switching to LIVE must
+    stop the rehearsal microphone. The jog-response diagnostic
     controls **Record Jog Observations**, fixed training/holdout membership for
     the next jog, current sample counts, the response matrix, and separate
     residuals under `DIAGNOSTIC — NOT MOTION AUTHORITY`. With recording off,

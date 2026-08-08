@@ -206,6 +206,12 @@ private struct MotionPreflightWindow: View {
   var body: some View {
     PreflightCalibrationView(
       selectedSequenceID: $workspace.selectedPreflightSequenceID,
+      simulatorVoicePracticeEnabled: Binding(
+        get: { workspace.simulatorVoicePracticeEnabled },
+        set: { enabled in
+          Task { await workspace.setSimulatorVoicePracticeEnabled(enabled) }
+        }
+      ),
       transactions: workspace.preflightTransactions,
       rehearsals: workspace.preflightRehearsals,
       readiness: workspace.preflightTrainingReadiness,
@@ -220,14 +226,14 @@ private struct MotionPreflightWindow: View {
       errorText: workspace.preflightError,
       onStart: { sequenceID in
         if mode == .simulatorRehearsal {
-          workspace.startPreflightRehearsal(sequenceID)
+          Task { await workspace.startPreflightRehearsal(sequenceID) }
         } else {
           Task { await workspace.startPreflightSequence(sequenceID) }
         }
       },
       onCancel: { sequenceID in
         if mode == .simulatorRehearsal {
-          workspace.cancelPreflightRehearsal(sequenceID)
+          Task { await workspace.cancelPreflightRehearsal(sequenceID) }
         } else {
           Task { await workspace.cancelPreflightSequence(sequenceID) }
         }
@@ -619,7 +625,7 @@ private struct LearningPanel: View {
     SectionPanel(title: "MOTION PREFLIGHT") {
       Text(
         workspace.frameMode == .simulated
-          ? "Rehearse the typed setup sequence with no microphone, controller, evidence, or readiness authority."
+          ? "Rehearse the typed setup sequence silently or enable Practice with Voice in the rehearsal window. Neither mode can reach the controller, create physical evidence, or affect readiness."
           : "Run discrete voice-mediated setup sequences until boundary and pen-position preflight classes are complete. Starting a sequence turns speech listening on; completion or cancellation turns it off."
       )
       .font(.caption)

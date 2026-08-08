@@ -137,12 +137,14 @@ enum PreflightCalibrationMode: Equatable {
   case physical
   case simulatorRehearsal
 
-  var subtitle: String {
+  func subtitle(voicePracticeEnabled: Bool) -> String {
     switch self {
     case .physical:
       PreflightCalibrationPresentation.subtitle
     case .simulatorRehearsal:
-      "Simulator walkthrough · no microphone, controller, evidence, or readiness authority"
+      voicePracticeEnabled
+        ? "Simulator practice · microphone input, no controller, evidence, or readiness authority"
+        : "Simulator practice · no microphone, controller, evidence, or readiness authority"
     }
   }
 }
@@ -155,6 +157,7 @@ enum PreflightCalibrationMode: Equatable {
 /// or issues motion itself.
 struct PreflightCalibrationView: View {
   @Binding var selectedSequenceID: PreflightSequenceID
+  @Binding var simulatorVoicePracticeEnabled: Bool
 
   let catalog: [PreflightSequenceDefinition]
   let transactions: [PreflightSequenceID: PreflightTransaction]
@@ -169,6 +172,7 @@ struct PreflightCalibrationView: View {
 
   init(
     selectedSequenceID: Binding<PreflightSequenceID>,
+    simulatorVoicePracticeEnabled: Binding<Bool> = .constant(false),
     catalog: [PreflightSequenceDefinition] = PreflightSequenceCatalog.all,
     transactions: [PreflightSequenceID: PreflightTransaction],
     rehearsals: [PreflightSequenceID: PreflightRehearsal] = [:],
@@ -181,6 +185,7 @@ struct PreflightCalibrationView: View {
     onCancel: @escaping (PreflightSequenceID) -> Void
   ) {
     _selectedSequenceID = selectedSequenceID
+    _simulatorVoicePracticeEnabled = simulatorVoicePracticeEnabled
     self.catalog = catalog
     self.transactions = transactions
     self.rehearsals = rehearsals
@@ -234,7 +239,7 @@ struct PreflightCalibrationView: View {
         VStack(alignment: .leading, spacing: 2) {
           Text(PreflightCalibrationPresentation.title)
             .font(.title2.weight(.semibold))
-          Text(mode.subtitle)
+          Text(mode.subtitle(voicePracticeEnabled: simulatorVoicePracticeEnabled))
             .font(.caption)
             .foregroundStyle(.secondary)
         }
@@ -359,7 +364,7 @@ struct PreflightCalibrationView: View {
         }
 
         VStack(alignment: .leading, spacing: 5) {
-          Text(mode == .simulatorRehearsal ? "SCRIPTED VOICE CUE" : "REQUIRED VOICE PHRASE")
+          Text(voicePhraseHeading)
             .font(.caption.weight(.semibold))
             .foregroundStyle(.secondary)
           Text(PreflightCalibrationPresentation.requiredVoicePhrase(for: selectedDefinition))
@@ -426,7 +431,9 @@ struct PreflightCalibrationView: View {
         .foregroundStyle(.secondary)
       if mode == .simulatorRehearsal {
         Label(
-          "Playback highlights the expected steps only. It cannot create evidence, readiness, controller position, camera measurements, or a drawing-frame posterior.",
+          simulatorVoicePracticeEnabled
+            ? "Voice advances operator steps; simulated actions advance the rest. Neither can create evidence, readiness, controller position, camera measurements, or a drawing-frame posterior."
+            : "Playback highlights the expected steps only. It cannot create evidence, readiness, controller position, camera measurements, or a drawing-frame posterior.",
           systemImage: "play.rectangle"
         )
         .font(.callout)
@@ -467,11 +474,20 @@ struct PreflightCalibrationView: View {
   private var controls: some View {
     HStack(spacing: 8) {
       VStack(alignment: .leading, spacing: 3) {
+        if mode == .simulatorRehearsal {
+          Toggle("Practice with Voice", isOn: $simulatorVoicePracticeEnabled)
+            .toggleStyle(.checkbox)
+            .font(.callout.weight(.medium))
+            .help("Use the microphone for operator phrases; simulated actions still cannot reach hardware or create physical evidence.")
+        }
+
         Label(
           mode == .simulatorRehearsal
-            ? "Simulator playback · microphone and controller remain off"
+            ? simulatorListeningSummary
             : listeningStatus,
-          systemImage: mode == .simulatorRehearsal ? "play.rectangle" : "mic.fill"
+          systemImage: mode == .simulatorRehearsal && !simulatorVoicePracticeEnabled
+            ? "play.rectangle"
+            : "mic.fill"
         )
           .font(.caption)
           .foregroundStyle(.secondary)
@@ -486,7 +502,7 @@ struct PreflightCalibrationView: View {
         } else {
           Text(
             mode == .simulatorRehearsal
-              ? "Play advances the typed timeline without satisfying preflight."
+              ? simulatorControlExplanation
               : "Start enables listening. Runtime checks retain controller authority."
           )
             .font(.caption)
@@ -523,6 +539,11 @@ struct PreflightCalibrationView: View {
 
   private var primaryActionTitle: String {
     if mode == .simulatorRehearsal {
+      if simulatorVoicePracticeEnabled {
+        return selectedRehearsal?.state == .completed
+          ? "Practice Again with Voice"
+          : "Start Voice Rehearsal"
+      }
       return selectedRehearsal?.state == .completed ? "Play Again" : "Play Rehearsal"
     }
     return isSucceeded(selectedTransaction) ? "Run Again" : "Start Sequence"
@@ -548,6 +569,25 @@ struct PreflightCalibrationView: View {
     guard let transaction else { return false }
     if case .succeeded = transaction.state { return true }
     return false
+  }
+
+  private var voicePhraseHeading: String {
+    if mode == .simulatorRehearsal {
+      return simulatorVoicePracticeEnabled ? "SAY THIS DURING REHEARSAL" : "SCRIPTED VOICE CUE"
+    }
+    return "REQUIRED VOICE PHRASE"
+  }
+
+  private var simulatorListeningSummary: String {
+    simulatorVoicePracticeEnabled
+      ? "Voice rehearsal · \(listeningStatus) · controller remains off"
+      : "Silent rehearsal · microphone and controller remain off"
+  }
+
+  private var simulatorControlExplanation: String {
+    simulatorVoicePracticeEnabled
+      ? "Start opens the microphone for this rehearsal; exact phrases advance only the simulated timeline."
+      : "Play advances the typed timeline without satisfying preflight."
   }
 
   private var selectedProgress: Double? {
