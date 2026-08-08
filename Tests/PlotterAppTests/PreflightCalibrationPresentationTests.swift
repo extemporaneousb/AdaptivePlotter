@@ -4,29 +4,29 @@ import Testing
 
 @testable import PlotterApp
 
-@Test("motion preflight is an episode inside persistent learning")
+@Test("motion preflight presents questions without calibration language")
 func motionPreflightTitle() {
   #expect(PreflightCalibrationPresentation.title == "Motion Preflight")
-  #expect(PreflightCalibrationPresentation.subtitle.contains("Persistent speech session"))
+  #expect(PreflightCalibrationPresentation.subtitle.contains("Questions"))
   #expect(!PreflightCalibrationPresentation.subtitle.localizedCaseInsensitiveContains("calibrate"))
 }
 
 @Test("simulator rehearsal presentation remains distinct from physical preflight")
 func simulatorRehearsalPresentation() throws {
-  var rehearsal = PreflightRehearsal(sequenceID: .penUpConfirmation)
-  #expect(PreflightCalibrationPresentation.phaseLabel(for: rehearsal) == "NOT REHEARSED")
+  var rehearsal = PreflightRehearsal(sequenceID: .penCycleConfirmation)
+  #expect(PreflightCalibrationPresentation.phaseLabel(for: rehearsal) == "NOT PRACTICED")
   #expect(
     PreflightCalibrationMode.simulatorRehearsal
       .subtitle(voicePracticeEnabled: false).contains("no microphone")
   )
   #expect(
     PreflightCalibrationMode.simulatorRehearsal
-      .subtitle(voicePracticeEnabled: true).contains("microphone input")
+      .subtitle(voicePracticeEnabled: true).contains("microphone")
   )
   try rehearsal.start()
-  #expect(PreflightCalibrationPresentation.phaseLabel(for: rehearsal) == "REHEARSING")
+  #expect(PreflightCalibrationPresentation.phaseLabel(for: rehearsal) == "PRACTICING")
   while rehearsal.state == .running { try rehearsal.advance() }
-  #expect(PreflightCalibrationPresentation.phaseLabel(for: rehearsal) == "REHEARSED")
+  #expect(PreflightCalibrationPresentation.phaseLabel(for: rehearsal) == "PRACTICED")
 }
 
 @Test("runtime catalog maps to the complete operator-facing sequence list")
@@ -36,9 +36,9 @@ func preflightCatalogLabels() {
   #expect(definitions.map(\.id) == PreflightSequenceID.allCases)
   #expect(
     definitions.map { PreflightCalibrationPresentation.title(for: $0.id) }
-      == ["X− Boundary", "X+ Boundary", "Y− Boundary", "Y+ Boundary", "Pen Up", "Pen Down"]
+      == ["X− Boundary", "X+ Boundary", "Y− Boundary", "Y+ Boundary", "Pen Cycle"]
   )
-  #expect(definitions.allSatisfy { !$0.voiceResponses.isEmpty })
+  #expect(definitions.allSatisfy { !$0.voiceQuestions.isEmpty })
   #expect(
     definitions.allSatisfy {
       !PreflightCalibrationPresentation.expectedEvidenceOutput(for: $0).isEmpty
@@ -53,19 +53,21 @@ func boundaryTimelineSemantics() {
   }
 
   for definition in definitions {
-    #expect(definition.steps.first?.action == .startSpeechListening)
-    #expect(definition.steps.last?.action == .stopSpeechListening)
     #expect(
-      PreflightCalibrationPresentation.requiredVoicePhrase(for: definition)
-        == "READY → STOP"
+      PreflightCalibrationPresentation.questionSummary(for: definition)
+        .contains("[YES / NO]")
     )
-    #expect(definition.steps.map(\.participant).contains(.operatorVoice))
+    #expect(
+      PreflightCalibrationPresentation.questionSummary(for: definition)
+        .contains("[YES / NO / STOP]")
+    )
+    #expect(definition.steps.map(\.participant).contains(.operatorChoice))
     #expect(definition.steps.map(\.participant).contains(.controller))
     #expect(definition.steps.map(\.participant).contains(.camera))
     #expect(definition.steps.map(\.participant).contains(.vision))
     #expect(
       PreflightCalibrationPresentation.actionDescription(definition.steps[0].action)
-        == "Enter this episode's speech context; session listening remains active."
+        .contains("Ask:")
     )
     #expect(
       definition.steps.contains {
@@ -74,7 +76,7 @@ func boundaryTimelineSemantics() {
     )
     #expect(
       PreflightCalibrationPresentation.eventDescription(
-        definition.steps[definition.steps.count - 2].expectedEvent
+        definition.steps[definition.steps.count - 1].expectedEvent
       ).contains("posterior")
     )
     #expect(
@@ -84,41 +86,27 @@ func boundaryTimelineSemantics() {
   }
 }
 
-@Test("pen timelines require exact physical confirmation")
+@Test("pen timeline asks the complete cycle using only YES or NO answers")
 func penTimelineSemantics() {
-  let penUp = PreflightSequenceCatalog.definition(for: .penUpConfirmation)
-  let penDown = PreflightSequenceCatalog.definition(for: .penDownConfirmation)
+  let pen = PreflightSequenceCatalog.definition(for: .penCycleConfirmation)
 
   #expect(
-    PreflightCalibrationPresentation.requiredVoicePhrase(for: penUp)
-      == "PEN IS PHYSICALLY UP"
+    pen.voiceQuestions.map(\.prompt)
+      == [
+        "Is the pen currently up?",
+        "Are we clear to put it down?",
+        "Is the pen currently down?",
+        "Is the pen up?",
+      ]
   )
+  #expect(pen.voiceQuestions.allSatisfy { $0.choiceLabel == "YES / NO" })
+  #expect(pen.steps.map(\.participant).contains(.operatorChoice))
+  #expect(pen.steps.map(\.participant).contains(.controller))
+  #expect(pen.steps.map(\.participant).contains(.camera))
   #expect(
-    PreflightCalibrationPresentation.requiredVoicePhrase(for: penDown)
-      == "PEN IS PHYSICALLY DOWN"
+    PreflightCalibrationPresentation.expectedEvidenceOutput(for: pen)
+      .contains("physical")
   )
-
-  for definition in [penUp, penDown] {
-    #expect(definition.steps.first?.action == .startSpeechListening)
-    #expect(definition.steps.last?.action == .stopSpeechListening)
-    #expect(definition.steps.map(\.participant).contains(.operatorVoice))
-    #expect(definition.steps.map(\.participant).contains(.controller))
-    #expect(definition.steps.map(\.participant).contains(.camera))
-    #expect(
-      PreflightCalibrationPresentation.actionDescription(definition.steps[0].action)
-        == "Enter this episode's speech context; session listening remains active."
-    )
-    #expect(
-      definition.steps.contains {
-        PreflightCalibrationPresentation.actionDescription($0.action)
-          .contains(PreflightCalibrationPresentation.requiredVoicePhrase(for: definition))
-      }
-    )
-    #expect(
-      PreflightCalibrationPresentation.expectedEvidenceOutput(for: definition)
-        .contains("physical")
-    )
-  }
 }
 
 @Test("supervised readiness requires successful boundary and pen sequence classes")
@@ -138,25 +126,11 @@ func preflightReadinessProgress() throws {
   #expect(readiness.successfulSequenceIDs == [.boundaryNegativeX])
   #expect(readiness.missingRequiredClasses == [.penPositionConfirmation])
 
-  var pen = PreflightTransaction(sequenceID: .penUpConfirmation)
+  var pen = PreflightTransaction(sequenceID: .penCycleConfirmation)
   try pen.begin()
-  try pen.record(.speechListeningStarted)
-  try pen.record(.promptSpoken)
-  try pen.record(.penCommandSettled(.raise, controllerSummary: "settled"))
-  try pen.record(
-    .physicalPenConfirmed(
-      .up,
-      response: .penIsPhysicallyUp,
-      operatorSummary: "observed clear"
-    )
-  )
-  try pen.record(
-    .freshFrameCaptured(
-      FrameID(rawValue: "pen-frame"),
-      CameraConfigurationID()
-    )
-  )
-  try pen.record(.speechListeningStopped)
+  for event in successfulPenCycleEvents() {
+    try pen.record(event)
+  }
 
   readiness = policy.evaluate(
     transactions: [boundary, pen],
@@ -182,10 +156,10 @@ private func successfulBoundaryEvents() throws -> [PreflightEvent] {
   let configurationID = CameraConfigurationID()
   let finalPosition = try MachinePosition(x: -120, y: 0)
   return [
-    .speechListeningStarted,
-    .promptSpoken,
-    .exactVoiceResponseAccepted(.ready),
+    .questionPresented,
+    .exactVoiceResponseAccepted(.yes),
     .boundaryJogStarted(.negativeX, controllerSummary: "moving"),
+    .questionPresented,
     .exactVoiceResponseAccepted(.stop),
     .boundaryJogCancelled(
       .negativeX,
@@ -208,6 +182,23 @@ private func successfulBoundaryEvents() throws -> [PreflightEvent] {
       cameraConfigurationID: configurationID,
       observationCount: 1
     ),
-    .speechListeningStopped,
+  ]
+}
+
+private func successfulPenCycleEvents() -> [PreflightEvent] {
+  let configurationID = CameraConfigurationID()
+  return [
+    .questionPresented,
+    .physicalPenConfirmed(.up, response: .yes, operatorSummary: "initially up"),
+    .questionPresented,
+    .exactVoiceResponseAccepted(.yes),
+    .penCommandSettled(.lower, controllerSummary: "lowered"),
+    .questionPresented,
+    .physicalPenConfirmed(.down, response: .yes, operatorSummary: "down"),
+    .freshFrameCaptured(FrameID(rawValue: "pen-down"), configurationID),
+    .penCommandSettled(.raise, controllerSummary: "raised"),
+    .questionPresented,
+    .physicalPenConfirmed(.up, response: .yes, operatorSummary: "finally up"),
+    .freshFrameCaptured(FrameID(rawValue: "pen-up"), configurationID),
   ]
 }

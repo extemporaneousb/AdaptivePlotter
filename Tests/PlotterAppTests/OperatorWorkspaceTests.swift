@@ -496,13 +496,13 @@ func simulatorSwitchCannotHidePhysicalPreflight() async throws {
   await workspace.activateMotionGuard()
   await workspace.startCamera()
   await workspace.startExploration()
-  await workspace.startPreflightSequence(.penUpConfirmation)
+  await workspace.startPreflightSequence(.penCycleConfirmation)
   while await voice.streamSubscriberCount == 0 { await Task.yield() }
 
   await workspace.switchFrameMode(.simulated)
 
   #expect(workspace.frameMode == .live)
-  #expect(workspace.activePreflightSequenceID == .penUpConfirmation)
+  #expect(workspace.activePreflightSequenceID == .penCycleConfirmation)
   #expect(workspace.voiceListening)
   #expect(
     workspace.cameraError
@@ -510,7 +510,7 @@ func simulatorSwitchCannotHidePhysicalPreflight() async throws {
   )
   #expect(await camera.simulatorCount == 0)
 
-  await workspace.cancelPreflightSequence(.penUpConfirmation)
+  await workspace.cancelPreflightSequence(.penCycleConfirmation)
 }
 
 @Test("Observed jog projects one exact camera failure without moving or recording")
@@ -880,7 +880,67 @@ func voicePermissionProjectionIsTruthful() async {
   #expect(await voice.startCount == 0)
 }
 
-@Test("Starting Pen Up preflight owns speech and pairs confirmation with the exact frame")
+@Test("Voice state projects the active input device and live input meter")
+@MainActor
+func voiceInputTelemetryIsTruthful() async {
+  let voice = VoiceFixture(inputDeviceName: "USB Speech Mic", inputLevel: 0.64)
+  let workspace = OperatorWorkspace(voiceActions: voiceActions(voice))
+
+  await workspace.refreshVoiceState()
+  #expect(workspace.voiceInputDeviceName == "USB Speech Mic")
+  #expect(workspace.voiceInputLevel == 0)
+
+  await workspace.startVoiceListening()
+  await workspace.refreshVoiceState()
+  #expect(workspace.voiceListening)
+  #expect(workspace.voiceInputDeviceText == "USB Speech Mic")
+  #expect(workspace.voiceInputLevel == 0.64)
+
+  await workspace.stopVoiceListening()
+  await workspace.refreshVoiceState()
+  #expect(!workspace.voiceListening)
+  #expect(workspace.voiceInputLevel == 0)
+}
+
+@Test("Turning preflight Voice off releases the microphone without ending Learning")
+@MainActor
+func disablingPhysicalPreflightVoicePreservesLearning() async {
+  let voice = VoiceFixture(inputDeviceName: "USB Speech Mic", inputLevel: 0.64)
+  let workspace = OperatorWorkspace(
+    voiceActions: voiceActions(voice),
+    explorationActions: explorationActions(voice)
+  )
+
+  await workspace.startExploration()
+  #expect(workspace.explorationIsActive)
+  #expect(workspace.voiceListening)
+  let sessionID = workspace.explorationSessionSnapshot?.id
+  let episodeID = workspace.currentExplorationEpisode?.id
+
+  await workspace.setPhysicalPreflightVoiceEnabled(false)
+
+  #expect(!workspace.physicalPreflightVoiceEnabled)
+  #expect(workspace.explorationIsActive)
+  #expect(!workspace.voiceListening)
+  #expect(workspace.voiceInputLevel == 0)
+  #expect(workspace.explorationSessionSnapshot?.input == .injected)
+  #expect(workspace.explorationSessionSnapshot?.id == sessionID)
+  #expect(workspace.currentExplorationEpisode?.id == episodeID)
+  #expect(workspace.explorationFlow.phase == .motionPreflight)
+  #expect(await voice.stopCount == 1)
+
+  await workspace.setPhysicalPreflightVoiceEnabled(true)
+
+  #expect(workspace.physicalPreflightVoiceEnabled)
+  #expect(workspace.explorationIsActive)
+  #expect(workspace.voiceListening)
+  #expect(workspace.explorationSessionSnapshot?.input == .microphone)
+  #expect(workspace.explorationSessionSnapshot?.id == sessionID)
+  #expect(workspace.currentExplorationEpisode?.id == episodeID)
+  #expect(await voice.startCount == 2)
+}
+
+@Test("Pen Cycle accepts four YES answers, lowers, retracts, and pairs both observations")
 @MainActor
 func penUpPreflightOwnsSpeechAndExactFrame() async throws {
   let configuration = testCameraConfiguration(0x201)
@@ -888,13 +948,21 @@ func penUpPreflightOwnsSpeechAndExactFrame() async throws {
     captureNanoseconds: 42,
     configuration: configuration
   )
-  let inspectionFrame = try testDisplayedFrame(
+  let downInspectionFrame = try testDisplayedFrame(
     captureNanoseconds: 43,
     configuration: configuration
   )
-  let inspection = LiveSceneInspection(
-    displayedFrame: inspectionFrame,
-    measurement: testSceneMeasurement(for: inspectionFrame)
+  let upInspectionFrame = try testDisplayedFrame(
+    captureNanoseconds: 44,
+    configuration: configuration
+  )
+  let downInspection = LiveSceneInspection(
+    displayedFrame: downInspectionFrame,
+    measurement: testSceneMeasurement(for: downInspectionFrame)
+  )
+  let upInspection = LiveSceneInspection(
+    displayedFrame: upInspectionFrame,
+    measurement: testSceneMeasurement(for: upInspectionFrame)
   )
   let camera = CameraFixture(
     snapshot: CameraCaptureSnapshot(
@@ -905,7 +973,7 @@ func penUpPreflightOwnsSpeechAndExactFrame() async throws {
       error: nil
     ),
     simulated: displayedFrame,
-    sceneInspections: [inspection]
+    sceneInspections: [downInspection, upInspection]
   )
   let machine = MachineFixture()
   let voice = VoiceFixture()
@@ -924,7 +992,7 @@ func penUpPreflightOwnsSpeechAndExactFrame() async throws {
   await workspace.activateMotionGuard()
   await workspace.startCamera()
   await workspace.startExploration()
-  await workspace.startPreflightSequence(.penUpConfirmation)
+  await workspace.startPreflightSequence(.penCycleConfirmation)
   for _ in 0..<2_000 {
     if await voice.streamSubscriberCount > 0 { break }
     await Task.yield()
@@ -934,37 +1002,125 @@ func penUpPreflightOwnsSpeechAndExactFrame() async throws {
   #expect(await voice.startCount == 1)
   #expect(workspace.voiceListening)
   #expect(
-    workspace.preflightTransactions[.penUpConfirmation]?.voiceContext?.expectedResponse
-      == .penIsPhysicallyUp
+    workspace.preflightTransactions[.penCycleConfirmation]?.voiceContext?.expectedResponses
+      == [.yes]
   )
 
-  await voice.yield(
-    VoiceTranscript(
-      utteranceID: UUID(),
-      sequence: 1,
-      text: PreflightVoiceResponse.penIsPhysicallyUp.exactPhrase,
-      isFinal: true,
-      monotonicNanoseconds: 1
+  let expectedStepIDs = [
+    "answer-initially-up",
+    "answer-clear-to-lower",
+    "answer-currently-down",
+    "answer-finally-up",
+  ]
+  for (index, stepID) in expectedStepIDs.enumerated() {
+    for _ in 0..<2_000 {
+      if workspace.preflightTransactions[.penCycleConfirmation]?.voiceContext?.stepID == stepID {
+        break
+      }
+      await Task.yield()
+    }
+    await voice.yield(
+      VoiceTranscript(
+        utteranceID: UUID(),
+        sequence: UInt64(index + 1),
+        text: PreflightVoiceResponse.yes.exactPhrase,
+        isFinal: true,
+        monotonicNanoseconds: UInt64(index + 1)
+      )
     )
-  )
+  }
   for _ in 0..<2_000 {
-    if workspace.preflightTransactions[.penUpConfirmation]?.state == .succeeded { break }
+    if workspace.preflightTransactions[.penCycleConfirmation]?.state == .succeeded { break }
     await Task.yield()
   }
 
-  let transaction = try #require(workspace.preflightTransactions[.penUpConfirmation])
+  let transaction = try #require(workspace.preflightTransactions[.penCycleConfirmation])
   #expect(transaction.state == .succeeded)
   #expect(await voice.stopCount == 0)
   #expect(workspace.voiceListening)
-  #expect(await machine.penRequests == [.raise])
+  #expect(await machine.penRequests == [.lower, .raise])
   #expect(
     transaction.evidenceSummaries.contains {
       $0.kind == .camera
-        && $0.frameID == inspectionFrame.frame.id
-        && $0.cameraConfigurationID == inspectionFrame.frame.cameraConfigurationID
+        && $0.frameID == upInspectionFrame.frame.id
+        && $0.cameraConfigurationID == upInspectionFrame.frame.cameraConfigurationID
     }
   )
-  #expect(await camera.sceneInspectionBoundaries == [42])
+  #expect(await camera.sceneInspectionBoundaries == [42, 42])
+}
+
+@Test("Physical preflight buttons work with Voice off and NO never advances unsafe motion")
+@MainActor
+func physicalPreflightButtonsWorkWithoutVoice() async throws {
+  let cameraID = CameraDeviceID(rawValue: "camera")
+  let displayedFrame = try testDisplayedFrame(
+    source: .live(cameraID),
+    captureNanoseconds: 50
+  )
+  let camera = CameraFixture(
+    snapshot: CameraCaptureSnapshot(
+      devices: [CameraDevice(id: cameraID, name: "Camera")],
+      selectedDeviceID: cameraID,
+      state: .running,
+      latestFrame: displayedFrame,
+      error: nil
+    ),
+    simulated: displayedFrame
+  )
+  let machine = MachineFixture()
+  let device = testDevice()
+  let workspace = OperatorWorkspace(
+    machineActions: machineActions(machine),
+    cameraActions: cameraActions(camera),
+    voiceActions: nil,
+    serialDevices: [device],
+    nowNanoseconds: { 50 }
+  )
+
+  await workspace.selectSerialDevice(device)
+  await workspace.connectSelectedController()
+  await workspace.activateMotionGuard()
+  await workspace.startCamera()
+  await workspace.setPhysicalPreflightVoiceEnabled(false)
+  await workspace.startPreflightSequence(.penCycleConfirmation)
+
+  #expect(!workspace.voiceListening)
+  #expect(
+    workspace.preflightTransactions[.penCycleConfirmation]?.voiceContext?.stepID
+      == "answer-initially-up"
+  )
+
+  await workspace.answerPreflightSequence(.yes, for: .penCycleConfirmation)
+  #expect(
+    workspace.preflightTransactions[.penCycleConfirmation]?.voiceContext?.stepID
+      == "answer-clear-to-lower"
+  )
+
+  await workspace.answerPreflightSequence(.no, for: .penCycleConfirmation)
+  #expect(await machine.penRequests.isEmpty)
+  #expect(
+    workspace.preflightTransactions[.penCycleConfirmation]?.voiceContext?.stepID
+      == "answer-clear-to-lower"
+  )
+
+  await workspace.answerPreflightSequence(.yes, for: .penCycleConfirmation)
+  #expect(await machine.penRequests == [.lower])
+  #expect(
+    workspace.preflightTransactions[.penCycleConfirmation]?.voiceContext?.stepID
+      == "answer-currently-down"
+  )
+
+  await workspace.answerPreflightSequence(.no, for: .penCycleConfirmation)
+  #expect(await machine.penRequests == [.lower, .raise])
+  let failedCycle = try #require(
+    workspace.preflightTransactions[.penCycleConfirmation]
+  )
+  if case .failed(let reason) = failedCycle.state {
+    #expect(reason.contains("commanded Pen Up"))
+  } else {
+    Issue.record("Expected a failed and retracted Pen Cycle after NO at the down observation")
+  }
+  #expect(!workspace.voiceListening)
 }
 
 @Test("Changing camera authority is refused while persistent exploration owns it")
@@ -1003,23 +1159,23 @@ func cameraAuthorityChangeStopsPreflightListening() async throws {
   await workspace.activateMotionGuard()
   await workspace.startCamera()
   await workspace.startExploration()
-  await workspace.startPreflightSequence(.penUpConfirmation)
+  await workspace.startPreflightSequence(.penCycleConfirmation)
   for _ in 0..<2_000 {
     if await voice.streamSubscriberCount > 0 { break }
     await Task.yield()
   }
-  #expect(workspace.activePreflightSequenceID == .penUpConfirmation)
+  #expect(workspace.activePreflightSequenceID == .penCycleConfirmation)
   #expect(workspace.voiceListening)
 
   await workspace.selectCamera(secondCamera.id)
 
   #expect(await voice.stopCount == 0)
   #expect(workspace.voiceListening)
-  #expect(workspace.activePreflightSequenceID == .penUpConfirmation)
+  #expect(workspace.activePreflightSequenceID == .penCycleConfirmation)
   #expect(workspace.selectedCameraID == firstCamera.id)
   #expect(workspace.cameraError == "End Exploration before changing its camera configuration.")
 
-  await workspace.cancelPreflightSequence(.penUpConfirmation)
+  await workspace.cancelPreflightSequence(.penCycleConfirmation)
   await workspace.endExploration()
   await workspace.selectCamera(secondCamera.id)
   #expect(await voice.stopCount >= 1)
@@ -1070,7 +1226,7 @@ func cameraRestartSettlesBoundaryMotionBeforeAuthorityErasure() async throws {
     VoiceTranscript(
       utteranceID: UUID(),
       sequence: 1,
-      text: "READY",
+      text: "YES",
       isFinal: true,
       monotonicNanoseconds: 1
     )
@@ -1258,7 +1414,7 @@ func boundaryPreflightUpdatesExactFramePosterior() async throws {
     VoiceTranscript(
       utteranceID: UUID(),
       sequence: 1,
-      text: PreflightVoiceResponse.ready.exactPhrase,
+      text: PreflightVoiceResponse.yes.exactPhrase,
       isFinal: true,
       monotonicNanoseconds: 1
     )
@@ -1269,12 +1425,13 @@ func boundaryPreflightUpdatesExactFramePosterior() async throws {
   }
   #expect(workspace.boundaryTeachingState == .moving(.xPositive))
 
+  let stopUtteranceID = UUID()
   await voice.yield(
     VoiceTranscript(
-      utteranceID: UUID(),
+      utteranceID: stopUtteranceID,
       sequence: 2,
       text: PreflightVoiceResponse.stop.exactPhrase,
-      isFinal: true,
+      isFinal: false,
       monotonicNanoseconds: 2
     )
   )
@@ -1282,6 +1439,17 @@ func boundaryPreflightUpdatesExactFramePosterior() async throws {
     if await machine.cancelRequestCount > 0 { break }
     await Task.yield()
   }
+  await voice.yield(
+    VoiceTranscript(
+      utteranceID: stopUtteranceID,
+      sequence: 3,
+      text: PreflightVoiceResponse.stop.exactPhrase,
+      isFinal: true,
+      monotonicNanoseconds: 3
+    )
+  )
+  for _ in 0..<20 { await Task.yield() }
+  #expect(await machine.cancelRequestCount == 1)
   await jogGate.open()
   for _ in 0..<2_000 {
     if workspace.preflightTransactions[.boundaryPositiveX]?.state == .succeeded { break }
@@ -1346,172 +1514,6 @@ func ambientSpeechIsInert() async {
   #expect(await machine.penRequests.isEmpty)
   #expect(await machine.cancelRequestCount == 0)
   #expect(workspace.boundaryTeachingState == .idle)
-  await workspace.stopVoiceListening()
-}
-
-@Test("READY starts one bounded boundary jog")
-@MainActor
-func boundaryReadyStartsOneBoundedJog() async throws {
-  let jogGate = AsyncGate()
-  let machine = MachineFixture(
-    outcomes: [.acceptedThenCompleted(finalPosition: try MachinePosition(x: 5, y: 0))]
-  )
-  let voice = VoiceFixture()
-  let workspace = await preparedBoundaryWorkspace(
-    machine: machine,
-    voice: voice,
-    jogGate: jogGate
-  )
-
-  await workspace.beginBoundaryTeaching(.xPositive)
-  #expect(workspace.boundaryTeachingState == .awaitingReady(.xPositive))
-  #expect(await voice.signalCount == 1)
-
-  await voice.yield(
-    VoiceTranscript(
-      utteranceID: UUID(),
-      sequence: 1,
-      text: "ready",
-      isFinal: true,
-      monotonicNanoseconds: 1
-    )
-  )
-  while workspace.boundaryTeachingState != .moving(.xPositive) { await Task.yield() }
-  #expect(await voice.signalCount == 2)
-  await jogGate.open()
-  while await machine.jogRequests.isEmpty { await Task.yield() }
-  while workspace.boundaryTeachingState != .idle { await Task.yield() }
-
-  let request = try #require(await machine.jogRequests.only)
-  #expect(request.delta.dx == 300)
-  #expect(request.delta.dy == 0)
-  #expect(request.feedMMPerMinute == 100)
-  #expect(workspace.boundaryPositions.isEmpty)
-  await workspace.stopVoiceListening()
-}
-
-@Test("Partial STOP during boundary motion cancels once and records only its final side")
-@MainActor
-func boundaryStopIsDeduplicatedAndRecordsCancelledPosition() async throws {
-  let jogGate = AsyncGate()
-  let finalPosition = try MachinePosition(x: 3.25, y: 0)
-  let machine = MachineFixture(
-    outcomes: [.cancelled(finalPosition: finalPosition)],
-    cancelOutcomes: [.transmitted]
-  )
-  let voice = VoiceFixture()
-  let workspace = await preparedBoundaryWorkspace(
-    machine: machine,
-    voice: voice,
-    jogGate: jogGate
-  )
-  await workspace.beginBoundaryTeaching(.xPositive)
-  await voice.yield(
-    VoiceTranscript(
-      utteranceID: UUID(),
-      sequence: 1,
-      text: "ready",
-      isFinal: true,
-      monotonicNanoseconds: 1
-    )
-  )
-  while workspace.boundaryTeachingState != .moving(.xPositive) { await Task.yield() }
-
-  let stopUtterance = UUID()
-  await voice.yield(
-    VoiceTranscript(
-      utteranceID: stopUtterance,
-      sequence: 2,
-      text: "stop",
-      isFinal: false,
-      monotonicNanoseconds: 2
-    )
-  )
-  while await machine.cancelRequestCount == 0 { await Task.yield() }
-  await voice.yield(
-    VoiceTranscript(
-      utteranceID: stopUtterance,
-      sequence: 3,
-      text: "stop",
-      isFinal: true,
-      monotonicNanoseconds: 3
-    )
-  )
-  for _ in 0..<20 { await Task.yield() }
-  #expect(await machine.cancelRequestCount == 1)
-
-  await jogGate.open()
-  while workspace.boundaryTeachingState != .idle { await Task.yield() }
-
-  #expect(await machine.jogRequests.count == 1)
-  #expect(workspace.boundaryPositions == [.xPositive: finalPosition])
-  #expect(workspace.boundaryPositionText(for: .xPositive) == "X 3.250 Y 0.000")
-  #expect(workspace.boundaryPositionText(for: .xNegative) == "not measured")
-  await workspace.stopVoiceListening()
-}
-
-@Test("Natural boundary jog completion records no side")
-@MainActor
-func completedBoundaryJogDoesNotManufactureBoundary() async throws {
-  let machine = MachineFixture(
-    outcomes: [.acceptedThenCompleted(finalPosition: try MachinePosition(x: 5, y: 0))]
-  )
-  let voice = VoiceFixture()
-  let workspace = await preparedBoundaryWorkspace(machine: machine, voice: voice)
-  await workspace.beginBoundaryTeaching(.xPositive)
-
-  await voice.yield(
-    VoiceTranscript(
-      utteranceID: UUID(),
-      sequence: 1,
-      text: "ready",
-      isFinal: true,
-      monotonicNanoseconds: 1
-    )
-  )
-  while await machine.jogRequests.isEmpty { await Task.yield() }
-  while workspace.boundaryTeachingState != .idle { await Task.yield() }
-
-  #expect(workspace.boundaryPositions.isEmpty)
-  #expect(workspace.boundaryTeachingResultText.contains("No boundary was recorded"))
-  await workspace.stopVoiceListening()
-}
-
-@Test("Speech failure during boundary motion fails closed through Jog Cancel")
-@MainActor
-func boundarySpeechFailureRequestsJogCancel() async throws {
-  let jogGate = AsyncGate()
-  let finalPosition = try MachinePosition(x: 2, y: 0)
-  let machine = MachineFixture(
-    outcomes: [.cancelled(finalPosition: finalPosition)],
-    cancelOutcomes: [.transmitted]
-  )
-  let voice = VoiceFixture()
-  let workspace = await preparedBoundaryWorkspace(
-    machine: machine,
-    voice: voice,
-    jogGate: jogGate
-  )
-  await workspace.beginBoundaryTeaching(.xPositive)
-  await voice.yield(
-    VoiceTranscript(
-      utteranceID: UUID(),
-      sequence: 1,
-      text: "ready",
-      isFinal: true,
-      monotonicNanoseconds: 1
-    )
-  )
-  while workspace.boundaryTeachingState != .moving(.xPositive) { await Task.yield() }
-
-  await voice.failListening(.recognition("microphone input ended"))
-  while await machine.cancelRequestCount == 0 { await Task.yield() }
-
-  #expect(workspace.boundaryTeachingState == .cancelling(.xPositive))
-  #expect(await machine.cancelRequestCount == 1)
-  await jogGate.open()
-  while workspace.boundaryTeachingState != .idle { await Task.yield() }
-  #expect(workspace.boundaryPositions == [.xPositive: finalPosition])
   await workspace.stopVoiceListening()
 }
 
@@ -2120,7 +2122,7 @@ func simulatorCannotReachMachineSession() async throws {
   #expect(await machine.totalInvocationCount == 0)
 }
 
-@Test("simulator preflight rehearsal completes without microphone controller or readiness authority")
+@Test("simulator button practice completes without microphone controller or readiness authority")
 @MainActor
 func simulatorPreflightRehearsalIsPresentationOnly() async throws {
   let machine = MachineFixture()
@@ -2147,6 +2149,18 @@ func simulatorPreflightRehearsalIsPresentationOnly() async throws {
   await workspace.switchFrameMode(.simulated)
   await workspace.startPreflightRehearsal(.boundaryNegativeX)
   for _ in 0..<2_000 {
+    if workspace.preflightRehearsals[.boundaryNegativeX]?.voiceContext != nil { break }
+    await Task.yield()
+  }
+  await workspace.answerPreflightRehearsal(.yes, for: .boundaryNegativeX)
+  for _ in 0..<2_000 {
+    if workspace.preflightRehearsals[.boundaryNegativeX]?.voiceContext?.expectedResponses
+      == [.yes, .stop]
+    { break }
+    await Task.yield()
+  }
+  await workspace.answerPreflightRehearsal(.stop, for: .boundaryNegativeX)
+  for _ in 0..<2_000 {
     if workspace.preflightRehearsals[.boundaryNegativeX]?.state == .completed { break }
     await Task.yield()
   }
@@ -2162,7 +2176,7 @@ func simulatorPreflightRehearsalIsPresentationOnly() async throws {
   #expect(workspace.preflightRehearsalStatusText.contains("no physical evidence"))
 }
 
-@Test("simulator voice practice pauses for exact phrases without gaining physical authority")
+@Test("simulator voice practice pauses for contextual choices without gaining physical authority")
 @MainActor
 func simulatorVoicePracticeUsesMicrophoneWithoutPhysicalAuthority() async throws {
   let machine = MachineFixture()
@@ -2189,8 +2203,8 @@ func simulatorVoicePracticeUsesMicrophoneWithoutPhysicalAuthority() async throws
   await workspace.setSimulatorVoicePracticeEnabled(true)
   await workspace.startPreflightRehearsal(.boundaryPositiveX)
   for _ in 0..<2_000 {
-    if workspace.preflightRehearsals[.boundaryPositiveX]?.voiceContext?.expectedResponse
-      == .ready
+    if workspace.preflightRehearsals[.boundaryPositiveX]?.voiceContext?.expectedResponses
+      == [.yes]
     { break }
     await Task.yield()
   }
@@ -2206,7 +2220,7 @@ func simulatorVoicePracticeUsesMicrophoneWithoutPhysicalAuthority() async throws
     VoiceTranscript(
       utteranceID: UUID(),
       sequence: 1,
-      text: "READY AND STOP",
+      text: "YES AND STOP",
       isFinal: true,
       monotonicNanoseconds: 1
     )
@@ -2221,20 +2235,20 @@ func simulatorVoicePracticeUsesMicrophoneWithoutPhysicalAuthority() async throws
     VoiceTranscript(
       utteranceID: UUID(),
       sequence: 2,
-      text: "READY",
+      text: "YES",
       isFinal: true,
       monotonicNanoseconds: 2
     )
   )
   for _ in 0..<2_000 {
-    if workspace.preflightRehearsals[.boundaryPositiveX]?.voiceContext?.expectedResponse
-      == .stop
+    if workspace.preflightRehearsals[.boundaryPositiveX]?.voiceContext?.expectedResponses
+      == [.yes, .stop]
     { break }
     await Task.yield()
   }
   #expect(
-    workspace.preflightRehearsals[.boundaryPositiveX]?.voiceContext?.expectedResponse
-      == .stop
+    workspace.preflightRehearsals[.boundaryPositiveX]?.voiceContext?.expectedResponses
+      == [.yes, .stop]
   )
 
   await voice.yield(
@@ -2283,22 +2297,22 @@ func disablingSimulatorVoicePracticeTearsDownTransaction() async throws {
 
   await workspace.switchFrameMode(.simulated)
   await workspace.setSimulatorVoicePracticeEnabled(true)
-  await workspace.startPreflightRehearsal(.penUpConfirmation)
+  await workspace.startPreflightRehearsal(.penCycleConfirmation)
   for _ in 0..<2_000 {
-    if workspace.preflightRehearsals[.penUpConfirmation]?.voiceContext != nil { break }
+    if workspace.preflightRehearsals[.penCycleConfirmation]?.voiceContext != nil { break }
     await Task.yield()
   }
   #expect(workspace.voiceListening)
 
   await workspace.setSimulatorVoicePracticeEnabled(false)
   let cancelledCount = try #require(
-    workspace.preflightRehearsals[.penUpConfirmation]?.completedStepCount
+    workspace.preflightRehearsals[.penCycleConfirmation]?.completedStepCount
   )
   await voice.yield(
     VoiceTranscript(
       utteranceID: UUID(),
       sequence: 1,
-      text: "PEN IS PHYSICALLY UP",
+      text: "YES",
       isFinal: true,
       monotonicNanoseconds: 1
     )
@@ -2308,9 +2322,9 @@ func disablingSimulatorVoicePracticeTearsDownTransaction() async throws {
   #expect(!workspace.simulatorVoicePracticeEnabled)
   #expect(!workspace.voiceListening)
   #expect(await voice.stopCount == 1)
-  #expect(workspace.preflightRehearsals[.penUpConfirmation]?.state == .cancelled)
+  #expect(workspace.preflightRehearsals[.penCycleConfirmation]?.state == .cancelled)
   #expect(
-    workspace.preflightRehearsals[.penUpConfirmation]?.completedStepCount
+    workspace.preflightRehearsals[.penCycleConfirmation]?.completedStepCount
       == cancelledCount
   )
   #expect(workspace.preflightTransactions.isEmpty)
@@ -2739,17 +2753,23 @@ private actor VoiceFixture: VoiceInteractionDriving, VoiceSpeechOutput {
   private let authorization: VoiceAuthorizationState
   private let authorizationGate: AsyncGate?
   private let startupGate: AsyncGate?
+  private let inputDeviceName: String?
+  private let inputLevel: Double
   private var isListening = false
   private var listeningError: VoiceInteractionError?
 
   init(
     authorization: VoiceAuthorizationState = .authorized,
     authorizationGate: AsyncGate? = nil,
-    startupGate: AsyncGate? = nil
+    startupGate: AsyncGate? = nil,
+    inputDeviceName: String? = "Test Microphone",
+    inputLevel: Double = 0.42
   ) {
     self.authorization = authorization
     self.authorizationGate = authorizationGate
     self.startupGate = startupGate
+    self.inputDeviceName = inputDeviceName
+    self.inputLevel = inputLevel
   }
 
   var isCurrentlyListening: Bool { isListening }
@@ -2803,7 +2823,9 @@ private actor VoiceFixture: VoiceInteractionDriving, VoiceSpeechOutput {
       authorization: authorization,
       listeningState: state,
       recognitionPolicy: .onDeviceRequired,
-      latestTranscript: nil
+      latestTranscript: nil,
+      inputDeviceName: inputDeviceName,
+      inputLevel: isListening ? inputLevel : 0
     )
   }
 
@@ -2835,6 +2857,7 @@ private func explorationActions(_ fixture: VoiceFixture) -> OperatorWorkspace.Ex
   let session = ExplorationSession(driver: fixture, speechOutput: fixture)
   return OperatorWorkspace.ExplorationActions(
     start: { input, id in await session.start(input: input, id: id) },
+    setInput: { await session.setInput($0) },
     activateEpisode: { try await session.activateEpisode($0) },
     completeEpisode: { id, termination in
       try await session.completeEpisode(id, termination: termination)
@@ -3121,35 +3144,6 @@ private func connectAndActivateMotion(_ workspace: OperatorWorkspace) async {
     await workspace.connectSelectedController()
   }
   await workspace.activateMotionGuard()
-}
-
-@MainActor
-private func preparedBoundaryWorkspace(
-  machine: MachineFixture,
-  voice: VoiceFixture,
-  jogGate: AsyncGate? = nil,
-  cancelGate: AsyncGate? = nil
-) async -> OperatorWorkspace {
-  let device = testDevice()
-  let workspace = OperatorWorkspace(
-    machineActions: machineActions(
-      machine,
-      jogGate: jogGate,
-      cancelGate: cancelGate
-    ),
-    voiceActions: voiceActions(voice),
-    explorationActions: explorationActions(voice),
-    serialDevices: [device],
-    loadSelectedSerialIdentifier: { nil },
-    persistSelectedSerialIdentifier: { _ in }
-  )
-  await workspace.selectSerialDevice(device)
-  await workspace.connectSelectedController()
-  await connectAndActivateMotion(workspace)
-  await workspace.requestPenActuation(.raise)
-  await workspace.startVoiceListening()
-  while await voice.streamSubscriberCount == 0 { await Task.yield() }
-  return workspace
 }
 
 @MainActor

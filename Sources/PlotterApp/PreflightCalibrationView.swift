@@ -1,3 +1,4 @@
+import Foundation
 import PlotterRuntime
 import SwiftUI
 
@@ -7,7 +8,7 @@ import SwiftUI
 /// This type only turns those typed values into compact operator-facing text.
 enum PreflightCalibrationPresentation {
   static let title = "Motion Preflight"
-  static let subtitle = "Persistent speech session · controller and exact live-camera evidence"
+  static let subtitle = "Questions, controller, and exact live-camera evidence"
 
   static func title(for id: PreflightSequenceID) -> String {
     switch id {
@@ -15,8 +16,7 @@ enum PreflightCalibrationPresentation {
     case .boundaryPositiveX: "X+ Boundary"
     case .boundaryNegativeY: "Y− Boundary"
     case .boundaryPositiveY: "Y+ Boundary"
-    case .penUpConfirmation: "Pen Up"
-    case .penDownConfirmation: "Pen Down"
+    case .penCycleConfirmation: "Pen Cycle"
     }
   }
 
@@ -26,13 +26,14 @@ enum PreflightCalibrationPresentation {
     case .boundaryPositiveX: "X+"
     case .boundaryNegativeY: "Y−"
     case .boundaryPositiveY: "Y+"
-    case .penUpConfirmation: "UP"
-    case .penDownConfirmation: "DOWN"
+    case .penCycleConfirmation: "CYCLE"
     }
   }
 
-  static func requiredVoicePhrase(for definition: PreflightSequenceDefinition) -> String {
-    definition.voiceResponses.map(\.exactPhrase).joined(separator: " → ")
+  static func questionSummary(for definition: PreflightSequenceDefinition) -> String {
+    definition.voiceQuestions
+      .map { "\($0.prompt) [\($0.choiceLabel)]" }
+      .joined(separator: "\n")
   }
 
   static func expectedEvidenceOutput(for definition: PreflightSequenceDefinition) -> String {
@@ -57,25 +58,21 @@ enum PreflightCalibrationPresentation {
   }
 
   static func phaseLabel(for rehearsal: PreflightRehearsal?) -> String {
-    guard let rehearsal else { return "NOT REHEARSED" }
+    guard let rehearsal else { return "NOT PRACTICED" }
     return switch rehearsal.state {
-    case .notStarted: "NOT REHEARSED"
-    case .running: "REHEARSING"
-    case .completed: "REHEARSED"
+    case .notStarted: "NOT PRACTICED"
+    case .running: "PRACTICING"
+    case .completed: "PRACTICED"
     case .cancelled: "CANCELLED"
     }
   }
 
   static func actionDescription(_ action: PreflightAction) -> String {
     switch action {
-    case .startSpeechListening:
-      "Enter this episode's speech context; session listening remains active."
-    case .stopSpeechListening:
-      "Complete this episode's speech context; session listening remains active."
-    case .speakPrompt(let prompt):
-      "Speak: “\(prompt)”"
-    case .awaitVoice(let response):
-      "Say \(response.exactPhrase)."
+    case .askQuestion(let question):
+      "Ask: “\(question.prompt)”"
+    case .awaitVoiceChoice(let question):
+      "Choose \(question.choiceLabel) by voice or button."
     case .startBoundaryJog(let direction):
       "Move slowly toward the \(direction.displayName) end stop."
     case .cancelBoundaryJogAndAwaitIdle(let direction):
@@ -88,21 +85,17 @@ enum PreflightCalibrationPresentation {
       "Constrain the nearest estimated drawing-frame edge using the \(direction.displayName) final MPos and exact-frame tool centroid."
     case .actuatePen(let command):
       "Command Pen \(command.commandedState == .up ? "Up" : "Down") and wait for settle."
-    case .awaitPhysicalPenConfirmation(let state, let response):
-      "Observe the mechanism and say \(response.exactPhrase) to confirm pen \(state.rawValue)."
+    case .awaitPhysicalPenConfirmation(let state, let question):
+      "Observe the mechanism, then choose \(question.choiceLabel) for pen \(state.rawValue)."
     }
   }
 
   static func eventDescription(_ expectation: PreflightEventExpectation) -> String {
     switch expectation {
-    case .speechListeningStarted:
-      "The persistent session applies this episode's contextual grammar."
-    case .speechListeningStopped:
-      "The episode context completes without tearing down session listening."
-    case .promptSpoken:
-      "The spoken prompt finishes."
-    case .exactVoiceResponse(let response):
-      "Exact \(response.exactPhrase) is accepted in this sequence."
+    case .questionPresented:
+      "The question is presented; Voice reads it when enabled."
+    case .exactVoiceResponse(let responses):
+      "\(responses.map(\.exactPhrase).sorted().joined(separator: " or ")) advances this question."
     case .boundaryJogStarted(let direction):
       "The closed \(direction.displayName) boundary jog is active."
     case .boundaryJogCancelled(let direction):
@@ -116,14 +109,14 @@ enum PreflightCalibrationPresentation {
     case .penCommandSettled(let command):
       "The Pen \(command.commandedState == .up ? "Up" : "Down") command settles without ambiguity."
     case .physicalPenConfirmed(let state, let response):
-      "Exact \(response.exactPhrase) records physical pen \(state.rawValue)."
+      "\(response.exactPhrase) records the operator's physical pen-\(state.rawValue) observation."
     }
   }
 
   static func evidenceKindLabel(_ kind: PreflightEvidenceKind) -> String {
     switch kind {
     case .speechSystem: "SPEECH"
-    case .operatorVoice: "VOICE"
+    case .operatorChoice: "CHOICE"
     case .operatorObservation: "OPERATOR"
     case .controller: "CONTROLLER"
     case .camera: "CAMERA"
@@ -143,21 +136,21 @@ enum PreflightCalibrationMode: Equatable {
       PreflightCalibrationPresentation.subtitle
     case .simulatorRehearsal:
       voicePracticeEnabled
-        ? "Simulator practice · microphone input, no controller, evidence, or readiness authority"
-        : "Simulator practice · no microphone, controller, evidence, or readiness authority"
+        ? "PRACTICE · microphone and buttons · no controller, evidence, or readiness authority"
+        : "PRACTICE · buttons only · no microphone, controller, evidence, or readiness authority"
     }
   }
 }
 
 /// Compact, non-paged presentation for the zero-order motion preflight.
 ///
-/// The host presents this from Learning and translates Start/Cancel into typed
-/// runtime requests. Starting a sequence also starts listening; there is no
-/// independent Speech mode in this surface. This view never interprets speech
-/// or issues motion itself.
+/// The host presents this from Learning and translates Start/Cancel and answer
+/// buttons into typed runtime requests. Voice is an optional adapter that reads
+/// questions and recognizes the same displayed choices. This view never
+/// interprets speech or issues motion itself.
 struct PreflightCalibrationView: View {
   @Binding var selectedSequenceID: PreflightSequenceID
-  @Binding var simulatorVoicePracticeEnabled: Bool
+  @Binding var voiceEnabled: Bool
 
   let catalog: [PreflightSequenceDefinition]
   let transactions: [PreflightSequenceID: PreflightTransaction]
@@ -166,26 +159,34 @@ struct PreflightCalibrationView: View {
   let mode: PreflightCalibrationMode
   let startUnavailableReason: (PreflightSequenceID) -> String?
   let listeningStatus: String
+  let voiceListening: Bool
+  let inputDeviceName: String?
+  let inputLevel: Double
   let errorText: String?
   let onStart: (PreflightSequenceID) -> Void
   let onCancel: (PreflightSequenceID) -> Void
+  let onAnswer: (PreflightSequenceID, PreflightVoiceResponse) -> Void
 
   init(
     selectedSequenceID: Binding<PreflightSequenceID>,
-    simulatorVoicePracticeEnabled: Binding<Bool> = .constant(false),
+    voiceEnabled: Binding<Bool> = .constant(true),
     catalog: [PreflightSequenceDefinition] = PreflightSequenceCatalog.all,
     transactions: [PreflightSequenceID: PreflightTransaction],
     rehearsals: [PreflightSequenceID: PreflightRehearsal] = [:],
     readiness: PreflightTrainingReadiness,
     mode: PreflightCalibrationMode = .physical,
     startUnavailableReason: @escaping (PreflightSequenceID) -> String? = { _ in nil },
-    listeningStatus: String = "Speech starts with a sequence.",
+    listeningStatus: String = "stopped",
+    voiceListening: Bool = false,
+    inputDeviceName: String? = nil,
+    inputLevel: Double = 0,
     errorText: String? = nil,
     onStart: @escaping (PreflightSequenceID) -> Void,
-    onCancel: @escaping (PreflightSequenceID) -> Void
+    onCancel: @escaping (PreflightSequenceID) -> Void,
+    onAnswer: @escaping (PreflightSequenceID, PreflightVoiceResponse) -> Void = { _, _ in }
   ) {
     _selectedSequenceID = selectedSequenceID
-    _simulatorVoicePracticeEnabled = simulatorVoicePracticeEnabled
+    _voiceEnabled = voiceEnabled
     self.catalog = catalog
     self.transactions = transactions
     self.rehearsals = rehearsals
@@ -193,9 +194,13 @@ struct PreflightCalibrationView: View {
     self.mode = mode
     self.startUnavailableReason = startUnavailableReason
     self.listeningStatus = listeningStatus
+    self.voiceListening = voiceListening
+    self.inputDeviceName = inputDeviceName
+    self.inputLevel = min(max(inputLevel, 0), 1)
     self.errorText = errorText
     self.onStart = onStart
     self.onCancel = onCancel
+    self.onAnswer = onAnswer
   }
 
   private var selectedDefinition: PreflightSequenceDefinition {
@@ -239,7 +244,7 @@ struct PreflightCalibrationView: View {
         VStack(alignment: .leading, spacing: 2) {
           Text(PreflightCalibrationPresentation.title)
             .font(.title2.weight(.semibold))
-          Text(mode.subtitle(voicePracticeEnabled: simulatorVoicePracticeEnabled))
+          Text(mode.subtitle(voicePracticeEnabled: voiceEnabled))
             .font(.caption)
             .foregroundStyle(.secondary)
         }
@@ -268,7 +273,7 @@ struct PreflightCalibrationView: View {
   }
 
   private var headerStatusText: String {
-    if mode == .simulatorRehearsal { return "Simulator Rehearsal" }
+    if mode == .simulatorRehearsal { return "Practice · Simulated" }
     return readiness.isReady ? "Evidence Complete" : "Evidence Needed"
   }
 
@@ -286,7 +291,7 @@ struct PreflightCalibrationView: View {
   private var headerSummary: String {
     if mode == .simulatorRehearsal {
       guard let selectedRehearsal else {
-        return "Choose a sequence and play its hypothetical participant/action/event flow"
+        return "Choose a sequence to practice its questions and choices without physical authority"
       }
       return "\(selectedRehearsal.completedStepCount) of \(selectedDefinition.steps.count) scripted steps · no evidence recorded"
     }
@@ -305,7 +310,7 @@ struct PreflightCalibrationView: View {
       return "Need \(readiness.minimumSuccessfulSequenceClasses) sequence classes · missing: \(missing)"
     }
     if !readiness.hasSuccessfulPenUpConfirmation {
-      return "Complete Pen Up confirmation before continuing"
+      return "Complete the Pen Cycle before training"
     }
     return "Current pen state is \(readiness.currentPenState.rawValue) · Pen Up required"
   }
@@ -363,17 +368,7 @@ struct PreflightCalibrationView: View {
           }
         }
 
-        VStack(alignment: .leading, spacing: 5) {
-          Text(voicePhraseHeading)
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(.secondary)
-          Text(PreflightCalibrationPresentation.requiredVoicePhrase(for: selectedDefinition))
-            .font(.body.weight(.semibold))
-            .textSelection(.enabled)
-        }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+        questionCard
 
         VStack(alignment: .leading, spacing: 8) {
           Text("Participants, actions, and events")
@@ -389,6 +384,45 @@ struct PreflightCalibrationView: View {
       }
       .padding(14)
     }
+  }
+
+  private var questionCard: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      if let question = selectedCurrentStep?.voiceQuestion {
+        Text("CURRENT QUESTION")
+          .font(.caption.monospaced().bold())
+          .foregroundStyle(.secondary)
+        Text(question.prompt)
+          .font(.title3.weight(.semibold))
+          .textSelection(.enabled)
+        HStack(spacing: 8) {
+          ForEach(question.choices, id: \.self) { response in
+            Button(response.exactPhrase) {
+              onAnswer(selectedDefinition.id, response)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(response == .stop ? .red : response == .no ? .gray : .accentColor)
+          }
+        }
+        Text(
+          voiceEnabled
+            ? "Answer by voice or press a button."
+            : "Voice is off. Press one of the answer buttons."
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
+      } else {
+        Text("QUESTIONS IN THIS SEQUENCE")
+          .font(.caption.monospaced().bold())
+          .foregroundStyle(.secondary)
+        Text(PreflightCalibrationPresentation.questionSummary(for: selectedDefinition))
+          .font(.callout.weight(.medium))
+          .textSelection(.enabled)
+      }
+    }
+    .padding(12)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
   }
 
   private func timelineRow(_ step: PreflightStep, ordinal: Int) -> some View {
@@ -426,14 +460,14 @@ struct PreflightCalibrationView: View {
 
   private var evidenceOutput: some View {
     VStack(alignment: .leading, spacing: 7) {
-      Text(mode == .simulatorRehearsal ? "Rehearsal output" : "Evidence and output")
+      Text(mode == .simulatorRehearsal ? "Practice output" : "Evidence and output")
         .font(.headline)
         .foregroundStyle(.secondary)
       if mode == .simulatorRehearsal {
         Label(
-          simulatorVoicePracticeEnabled
-            ? "Voice advances operator steps; simulated actions advance the rest. Neither can create evidence, readiness, controller position, camera measurements, or a drawing-frame posterior."
-            : "Playback highlights the expected steps only. It cannot create evidence, readiness, controller position, camera measurements, or a drawing-frame posterior.",
+          voiceEnabled
+            ? "Answer by voice or button; simulated actions advance the rest. Practice cannot create evidence, readiness, controller position, camera measurements, or a drawing-frame posterior."
+            : "Answer with the displayed buttons. Practice cannot create evidence, readiness, controller position, camera measurements, or a drawing-frame posterior.",
           systemImage: "play.rectangle"
         )
         .font(.callout)
@@ -445,7 +479,7 @@ struct PreflightCalibrationView: View {
       Divider()
 
       if mode == .simulatorRehearsal {
-        Text("No evidence is recorded during a simulator rehearsal.")
+        Text("No evidence is recorded during simulated practice.")
           .font(.callout)
           .foregroundStyle(.secondary)
       } else if let evidence = selectedTransaction?.evidenceSummaries, !evidence.isEmpty {
@@ -473,24 +507,16 @@ struct PreflightCalibrationView: View {
 
   private var controls: some View {
     HStack(spacing: 8) {
-      VStack(alignment: .leading, spacing: 3) {
-        if mode == .simulatorRehearsal {
-          Toggle("Practice with Voice", isOn: $simulatorVoicePracticeEnabled)
-            .toggleStyle(.checkbox)
-            .font(.callout.weight(.medium))
-            .help("Use the microphone for operator phrases; simulated actions still cannot reach hardware or create physical evidence.")
-        }
-
-        Label(
-          mode == .simulatorRehearsal
-            ? simulatorListeningSummary
-            : listeningStatus,
-          systemImage: mode == .simulatorRehearsal && !simulatorVoicePracticeEnabled
-            ? "play.rectangle"
-            : "mic.fill"
+      VStack(alignment: .leading, spacing: 6) {
+        Toggle(
+          mode == .simulatorRehearsal ? "Practice with Voice" : "Use Voice",
+          isOn: $voiceEnabled
         )
-          .font(.caption)
-          .foregroundStyle(.secondary)
+        .toggleStyle(.checkbox)
+        .font(.callout.weight(.semibold))
+        .help("Voice reads each question and accepts the same choices shown as buttons.")
+
+        microphoneStatus
 
         if !selectedIsInFlight,
           let reason = startUnavailableReason(selectedDefinition.id)
@@ -503,7 +529,7 @@ struct PreflightCalibrationView: View {
           Text(
             mode == .simulatorRehearsal
               ? simulatorControlExplanation
-              : "Start enables listening. Runtime checks retain controller authority."
+              : physicalControlExplanation
           )
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -519,7 +545,7 @@ struct PreflightCalibrationView: View {
 
       Spacer()
 
-      Button(mode == .simulatorRehearsal ? "Stop Rehearsal" : "Cancel Sequence") {
+      Button(mode == .simulatorRehearsal ? "Stop Practice" : "Cancel Sequence") {
         onCancel(selectedDefinition.id)
       }
       .disabled(!selectedIsActive)
@@ -537,14 +563,50 @@ struct PreflightCalibrationView: View {
     .background(.ultraThinMaterial)
   }
 
+  private var microphoneStatus: some View {
+    VStack(alignment: .leading, spacing: 4) {
+      HStack(spacing: 7) {
+        Circle()
+          .fill(voiceListening && voiceEnabled ? Color.green : Color.secondary.opacity(0.45))
+          .frame(width: 9, height: 9)
+        Text(
+          voiceEnabled
+            ? (voiceListening ? "LISTENING" : listeningStatus.uppercased())
+            : "VOICE OFF · BUTTONS ACTIVE"
+        )
+        .font(.caption.monospaced().bold())
+        Text("·")
+          .foregroundStyle(.secondary)
+        Text(inputDeviceName ?? "System default input unavailable")
+          .font(.caption)
+          .lineLimit(1)
+      }
+
+      HStack(spacing: 8) {
+        Text("INPUT")
+          .font(.caption2.monospaced().bold())
+          .foregroundStyle(.secondary)
+        ProgressView(value: voiceListening && voiceEnabled ? inputLevel : 0)
+          .progressViewStyle(.linear)
+          .tint(voiceListening && voiceEnabled ? .green : .secondary)
+          .frame(width: 180)
+        Text(String(format: "%3.0f%%", (voiceListening && voiceEnabled ? inputLevel : 0) * 100))
+          .font(.caption2.monospaced())
+          .foregroundStyle(.secondary)
+      }
+    }
+  }
+
   private var primaryActionTitle: String {
     if mode == .simulatorRehearsal {
-      if simulatorVoicePracticeEnabled {
+      if voiceEnabled {
         return selectedRehearsal?.state == .completed
-          ? "Practice Again with Voice"
-          : "Start Voice Rehearsal"
+          ? "Practice Again"
+          : "Start Practice"
       }
-      return selectedRehearsal?.state == .completed ? "Play Again" : "Play Rehearsal"
+      return selectedRehearsal?.state == .completed
+        ? "Practice Again with Buttons"
+        : "Start Button Practice"
     }
     return isSucceeded(selectedTransaction) ? "Run Again" : "Start Sequence"
   }
@@ -571,23 +633,22 @@ struct PreflightCalibrationView: View {
     return false
   }
 
-  private var voicePhraseHeading: String {
-    if mode == .simulatorRehearsal {
-      return simulatorVoicePracticeEnabled ? "SAY THIS DURING REHEARSAL" : "SCRIPTED VOICE CUE"
-    }
-    return "REQUIRED VOICE PHRASE"
-  }
-
   private var simulatorListeningSummary: String {
-    simulatorVoicePracticeEnabled
-      ? "Voice rehearsal · \(listeningStatus) · controller remains off"
-      : "Silent rehearsal · microphone and controller remain off"
+    voiceEnabled
+      ? "Voice practice · \(listeningStatus) · controller remains off"
+      : "Button practice · microphone and controller remain off"
   }
 
   private var simulatorControlExplanation: String {
-    simulatorVoicePracticeEnabled
-      ? "Start opens the microphone for this rehearsal; exact phrases advance only the simulated timeline."
-      : "Play advances the typed timeline without satisfying preflight."
+    voiceEnabled
+      ? "Start opens the microphone; voice and buttons advance only the simulated timeline."
+      : "Buttons advance the typed timeline without satisfying physical preflight."
+  }
+
+  private var physicalControlExplanation: String {
+    voiceEnabled
+      ? "Start uses the active Exploration microphone; buttons answer the same questions."
+      : "Voice is off. Start uses the displayed answer buttons; runtime checks retain controller authority."
   }
 
   private var selectedProgress: Double? {

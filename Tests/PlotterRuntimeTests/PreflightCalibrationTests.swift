@@ -6,7 +6,7 @@ import Testing
 
 @Suite("Motion Preflight calibration model")
 struct PreflightCalibrationTests {
-  @Test("catalog covers four boundaries and both physical pen positions")
+  @Test("catalog covers four boundaries and one complete multiple-choice pen cycle")
   func catalogIsCompleteAndSpeechBounded() {
     #expect(PreflightSequenceCatalog.title == "Motion Preflight")
     #expect(
@@ -14,76 +14,101 @@ struct PreflightCalibrationTests {
         == Set(PreflightSequenceID.allCases)
     )
 
-    for definition in PreflightSequenceCatalog.all {
-      #expect(definition.steps.first?.action == .startSpeechListening)
-      #expect(definition.steps.first?.expectedEvent == .speechListeningStarted)
-      #expect(definition.steps.last?.action == .stopSpeechListening)
-      #expect(definition.steps.last?.expectedEvent == .speechListeningStopped)
-    }
-
     let boundaryDefinitions = PreflightSequenceCatalog.all.filter {
       $0.sequenceClass == .boundaryMeasurement
     }
     #expect(boundaryDefinitions.count == 4)
-    #expect(boundaryDefinitions.allSatisfy { $0.voiceResponses == [.ready, .stop] })
+    #expect(
+      boundaryDefinitions.allSatisfy {
+        $0.voiceQuestions.map(\.choiceLabel) == ["YES / NO", "YES / NO / STOP"]
+      }
+    )
 
-    for id in [PreflightSequenceID.penUpConfirmation, .penDownConfirmation] {
-      let definition = PreflightSequenceCatalog.definition(for: id)
-      let confirmationIndex = definition.steps.firstIndex {
-        if case .awaitPhysicalPenConfirmation = $0.action { return true }
-        return false
-      }
-      let captureIndex = definition.steps.firstIndex { $0.action == .captureFreshCameraFrame }
-      #expect(confirmationIndex != nil)
-      #expect(captureIndex != nil)
-      if let confirmationIndex, let captureIndex {
-        #expect(captureIndex == confirmationIndex + 1)
-      }
-    }
+    let pen = PreflightSequenceCatalog.definition(for: .penCycleConfirmation)
+    #expect(
+      pen.voiceQuestions.map(\.prompt)
+        == [
+          "Is the pen currently up?",
+          "Are we clear to put it down?",
+          "Is the pen currently down?",
+          "Is the pen up?",
+        ]
+    )
+    #expect(pen.voiceQuestions.allSatisfy { $0.choiceLabel == "YES / NO" })
+    #expect(
+      pen.steps.compactMap { step -> PenCommand? in
+        if case .actuatePen(let command) = step.action { return command }
+        return nil
+      } == [.lower, .raise]
+    )
   }
 
   @Test("voice responses are exact and transaction-context bound")
   func parserIsNarrow() {
     let parser = PreflightVoiceResponseParser()
+    let question = PreflightVoiceQuestion(
+      prompt: "Is the pen currently up?",
+      negativeAcknowledgement: "Wait."
+    )
     let context = PreflightVoiceContext(
-      sequenceID: .penUpConfirmation,
-      stepID: "confirm-physical-pen",
-      expectedResponse: .penIsPhysicallyUp
+      sequenceID: .penCycleConfirmation,
+      stepID: "answer-initially-up",
+      question: question
     )
 
-    #expect(parser.parse("Pen is physically up.", in: context) == .penIsPhysicallyUp)
-    #expect(parser.parse("pen is physically down", in: context) == nil)
-    #expect(parser.parse("yes, pen is physically up", in: context) == nil)
-    #expect(parser.parse("pen is physically up now", in: context) == nil)
+    #expect(parser.parse("Yes.", in: context) == .yes)
+    #expect(parser.parse("no", in: context) == .no)
+    #expect(parser.parse("yes please", in: context) == nil)
+    #expect(parser.parse("stop", in: context) == nil)
   }
 
   @Test("transaction exposes progress and keeps controller camera and operator evidence distinct")
   func transactionIsObservable() throws {
     let configurationID = CameraConfigurationID()
-    var transaction = PreflightTransaction(sequenceID: .penUpConfirmation)
+    var transaction = PreflightTransaction(sequenceID: .penCycleConfirmation)
     try transaction.begin()
-    #expect(transaction.currentStep?.action == .startSpeechListening)
+    #expect(transaction.currentStep?.id == "question-initially-up")
     #expect(transaction.progress == 0)
 
-    try transaction.record(.speechListeningStarted)
-    try transaction.record(.promptSpoken)
-    try transaction.record(
-      .penCommandSettled(.raise, controllerSummary: "M3 S40 and dwell accepted")
-    )
-    let context = try #require(transaction.voiceContext)
-    #expect(context.expectedResponse == .penIsPhysicallyUp)
+    try transaction.record(.questionPresented)
+    #expect(transaction.voiceContext?.expectedResponses == [.yes])
     try transaction.record(
       .physicalPenConfirmed(
         .up,
-        response: .penIsPhysicallyUp,
+        response: .yes,
         operatorSummary: "tip visibly clear of paper"
+      )
+    )
+    try transaction.record(.questionPresented)
+    try transaction.record(.exactVoiceResponseAccepted(.yes))
+    try transaction.record(
+      .penCommandSettled(.lower, controllerSummary: "M3 S760 and dwell accepted")
+    )
+    try transaction.record(.questionPresented)
+    try transaction.record(
+      .physicalPenConfirmed(
+        .down,
+        response: .yes,
+        operatorSummary: "tip visibly touching paper"
+      )
+    )
+    try transaction.record(
+      .freshFrameCaptured(FrameID(rawValue: "pen-down-frame"), configurationID)
+    )
+    try transaction.record(
+      .penCommandSettled(.raise, controllerSummary: "M3 S40 and dwell accepted")
+    )
+    try transaction.record(.questionPresented)
+    try transaction.record(
+      .physicalPenConfirmed(
+        .up,
+        response: .yes,
+        operatorSummary: "tip visibly clear of paper again"
       )
     )
     try transaction.record(
       .freshFrameCaptured(FrameID(rawValue: "pen-up-frame"), configurationID)
     )
-    #expect(transaction.state == .active)
-    try transaction.record(.speechListeningStopped)
 
     #expect(transaction.state == .succeeded)
     #expect(transaction.progress == 1)
@@ -93,23 +118,19 @@ struct PreflightCalibrationTests {
     #expect(transaction.evidenceSummaries.map(\.kind).contains(.camera))
     #expect(!transaction.evidenceSummaries.map(\.kind).contains(.observedInk))
     let pairedFrame = try #require(
-      transaction.evidenceSummaries.first { $0.kind == .camera }
+      transaction.evidenceSummaries.last { $0.kind == .camera }
     )
     #expect(pairedFrame.frameID == FrameID(rawValue: "pen-up-frame"))
     #expect(pairedFrame.cameraConfigurationID == configurationID)
   }
 
-  @Test("cancelling an active transaction exposes speech teardown before cancellation completes")
+  @Test("cancelling an active transaction is independent of the optional voice adapter")
   func cancellationStopsSpeech() throws {
     var transaction = PreflightTransaction(sequenceID: .boundaryPositiveX)
     try transaction.begin()
-    try transaction.record(.speechListeningStarted)
+    try transaction.record(.questionPresented)
 
     transaction.cancel()
-    #expect(transaction.state == .cancelling)
-    #expect(transaction.currentStep?.action == .stopSpeechListening)
-
-    try transaction.record(.speechListeningStopped)
     #expect(transaction.state == .cancelled)
     #expect(transaction.currentStep == nil)
   }
@@ -119,11 +140,11 @@ struct PreflightCalibrationTests {
     var transaction = PreflightTransaction(sequenceID: .boundaryNegativeY)
     try transaction.begin()
 
-    #expect(throws: PreflightTransactionError.unexpectedEvent(stepID: "start-speech")) {
-      try transaction.record(.promptSpoken)
+    #expect(throws: PreflightTransactionError.unexpectedEvent(stepID: "question-ready")) {
+      try transaction.record(.exactVoiceResponseAccepted(.yes))
     }
     #expect(transaction.completedStepCount == 0)
-    #expect(transaction.currentStep?.id == "start-speech")
+    #expect(transaction.currentStep?.id == "question-ready")
   }
 
   @Test("rehearsal plays the typed timeline without evidence or readiness authority")
@@ -138,10 +159,9 @@ struct PreflightCalibrationTests {
     #expect(rehearsal.voiceContext == nil)
 
     try rehearsal.advance()
-    try rehearsal.advance()
-    #expect(rehearsal.voiceContext?.expectedResponse == .ready)
+    #expect(rehearsal.voiceContext?.expectedResponses == [.yes])
 
-    for index in 2..<stepCount {
+    for index in 1..<stepCount {
       try rehearsal.advance()
       #expect(rehearsal.completedStepCount == index + 1)
     }
@@ -156,7 +176,7 @@ struct PreflightCalibrationTests {
 
   @Test("rehearsal cancellation is terminal and does not synthesize steps")
   func rehearsalCanCancel() throws {
-    var rehearsal = PreflightRehearsal(sequenceID: .penUpConfirmation)
+    var rehearsal = PreflightRehearsal(sequenceID: .penCycleConfirmation)
     try rehearsal.start()
     try rehearsal.advance()
     rehearsal.cancel()
@@ -173,8 +193,7 @@ struct PreflightCalibrationTests {
   func readinessRequiresTwoClassesAndPenUp() throws {
     var negativeX = PreflightTransaction(sequenceID: .boundaryNegativeX)
     var positiveX = PreflightTransaction(sequenceID: .boundaryPositiveX)
-    var penUp = PreflightTransaction(sequenceID: .penUpConfirmation)
-    var penDown = PreflightTransaction(sequenceID: .penDownConfirmation)
+    var penCycle = PreflightTransaction(sequenceID: .penCycleConfirmation)
     try complete(&negativeX)
     try complete(&positiveX)
 
@@ -190,20 +209,9 @@ struct PreflightCalibrationTests {
     #expect(!readiness.hasSuccessfulPenUpConfirmation)
     #expect(!readiness.hasCurrentPenUpConfirmation)
 
-    try complete(&penDown)
+    try complete(&penCycle)
     readiness = policy.evaluate(
-      transactions: [negativeX, penDown],
-      currentPenState: .up
-    )
-    #expect(!readiness.isReady)
-    #expect(readiness.successfulSequenceClasses.count == 2)
-    #expect(readiness.missingRequiredClasses.isEmpty)
-    #expect(!readiness.hasSuccessfulPenUpConfirmation)
-    #expect(!readiness.hasCurrentPenUpConfirmation)
-
-    try complete(&penUp)
-    readiness = policy.evaluate(
-      transactions: [negativeX, penDown, penUp],
+      transactions: [negativeX, penCycle],
       currentPenState: .unknown
     )
     #expect(!readiness.isReady)
@@ -211,7 +219,7 @@ struct PreflightCalibrationTests {
     #expect(!readiness.hasCurrentPenUpConfirmation)
 
     readiness = policy.evaluate(
-      transactions: [penUp, penDown, negativeX],
+      transactions: [penCycle, negativeX],
       currentPenState: .up
     )
     #expect(readiness.isReady)
@@ -222,7 +230,7 @@ struct PreflightCalibrationTests {
     #expect(readiness.hasCurrentPenUpConfirmation)
 
     readiness = policy.evaluate(
-      transactions: [negativeX, penUp, penDown],
+      transactions: [negativeX, penCycle],
       currentPenState: .down
     )
     #expect(!readiness.isReady)
@@ -457,14 +465,10 @@ private func event(for action: PreflightAction) throws -> PreflightEvent {
   let frameID = FrameID(rawValue: "completion-frame")
   let configurationID = CameraConfigurationID()
   return switch action {
-  case .startSpeechListening:
-    .speechListeningStarted
-  case .stopSpeechListening:
-    .speechListeningStopped
-  case .speakPrompt:
-    .promptSpoken
-  case .awaitVoice(let response):
-    .exactVoiceResponseAccepted(response)
+  case .askQuestion:
+    .questionPresented
+  case .awaitVoiceChoice(let question):
+    .exactVoiceResponseAccepted(try #require(question.advancingResponses.first))
   case .startBoundaryJog(let direction):
     .boundaryJogStarted(direction, controllerSummary: "jog accepted")
   case .cancelBoundaryJogAndAwaitIdle(let direction):
@@ -494,10 +498,10 @@ private func event(for action: PreflightAction) throws -> PreflightEvent {
     )
   case .actuatePen(let command):
     .penCommandSettled(command, controllerSummary: "pen command settled")
-  case .awaitPhysicalPenConfirmation(let state, let response):
+  case .awaitPhysicalPenConfirmation(let state, let question):
     .physicalPenConfirmed(
       state,
-      response: response,
+      response: try #require(question.advancingResponses.first),
       operatorSummary: "operator confirmed physical position"
     )
   }

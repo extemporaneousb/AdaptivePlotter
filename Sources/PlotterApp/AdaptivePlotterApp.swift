@@ -116,6 +116,7 @@ private enum VoiceComposition {
 
   static let explorationActions = OperatorWorkspace.ExplorationActions(
     start: { input, id in await exploration.start(input: input, id: id) },
+    setInput: { input in await exploration.setInput(input) },
     activateEpisode: { context in try await exploration.activateEpisode(context) },
     completeEpisode: { id, termination in
       try await exploration.completeEpisode(id, termination: termination)
@@ -237,6 +238,9 @@ private struct LearningWindow: View {
           .frame(minWidth: 300, idealWidth: 340, maxWidth: 420)
       }
     }
+    .task {
+      await workspace.refreshVoiceState()
+    }
   }
 
   private var explorationHeader: some View {
@@ -278,10 +282,20 @@ private struct LearningWindow: View {
     VStack(spacing: 0) {
       PreflightCalibrationView(
       selectedSequenceID: $workspace.selectedPreflightSequenceID,
-      simulatorVoicePracticeEnabled: Binding(
-        get: { workspace.simulatorVoicePracticeEnabled },
+      voiceEnabled: Binding(
+        get: {
+          mode == .simulatorRehearsal
+            ? workspace.simulatorVoicePracticeEnabled
+            : workspace.physicalPreflightVoiceEnabled
+        },
         set: { enabled in
-          Task { await workspace.setSimulatorVoicePracticeEnabled(enabled) }
+          Task {
+            if mode == .simulatorRehearsal {
+              await workspace.setSimulatorVoicePracticeEnabled(enabled)
+            } else {
+              await workspace.setPhysicalPreflightVoiceEnabled(enabled)
+            }
+          }
         }
       ),
       transactions: workspace.preflightTransactions,
@@ -295,6 +309,9 @@ private struct LearningWindow: View {
         return workspace.preflightStartUnavailableReason(for: sequenceID)
       },
       listeningStatus: workspace.voiceListeningText,
+      voiceListening: workspace.voiceListening,
+      inputDeviceName: workspace.voiceInputDeviceName,
+      inputLevel: workspace.voiceInputLevel,
       errorText: workspace.preflightError,
       onStart: { sequenceID in
         if mode == .simulatorRehearsal {
@@ -308,6 +325,13 @@ private struct LearningWindow: View {
           Task { await workspace.cancelPreflightRehearsal(sequenceID) }
         } else {
           Task { await workspace.cancelPreflightSequence(sequenceID) }
+        }
+      },
+      onAnswer: { sequenceID, response in
+        if mode == .simulatorRehearsal {
+          Task { await workspace.answerPreflightRehearsal(response, for: sequenceID) }
+        } else {
+          Task { await workspace.answerPreflightSequence(response, for: sequenceID) }
         }
       }
     )
@@ -396,7 +420,7 @@ private struct LearningWindow: View {
           .buttonStyle(.borderedProminent)
         }
         .disabled(workspace.frameMode != .live || workspace.explorationOperationInProgress)
-        Text("Use the Motion Preflight Pen Down/Up transactions to create the anchor before step 3. At the returned start, complete Pen Down confirmation again before step 5.")
+        Text("Complete the Motion Preflight Pen Cycle at the recorded start to create the anchor before step 3. After step 4 returns Pen Up, use the explicit Motion Pen Down action before step 5.")
           .font(.caption)
           .foregroundStyle(.secondary)
         GroupBox("Current observation") {
@@ -829,24 +853,50 @@ private struct LearningPanel: View {
     SectionPanel(title: "LEARNING") {
       Text(
         workspace.frameMode == .simulated
-          ? "Run the full deterministic exploration through the same app-level coordinator. It cannot reach the controller or create physical evidence."
-          : "One persistent speech session contains Motion Preflight, Armature Guidance, and the single isolated-line episode."
+          ? "Practice voice recognition with the same visible answer buttons, or turn Voice off for button-only practice. The full deterministic exploration is also available; neither path can reach the controller or create physical evidence."
+          : "One persistent speech session contains question-guided Motion Preflight, Armature Guidance, and the isolated-line episode. Preflight buttons always work; optional Voice reads each question and recognizes the same choices."
       )
       .font(.caption)
       .foregroundStyle(.secondary)
 
-      Button("Open Learning") {
-        openWindow(id: "exploration-learning")
+      HStack {
+        Button("Open Learning") {
+          openWindow(id: "exploration-learning")
+        }
+        .buttonStyle(.borderedProminent)
+
+        if workspace.frameMode == .live {
+          Button("Open Motion Preflight") {
+            openWindow(id: "exploration-learning")
+          }
+          .disabled(!workspace.motionGuardIsActive)
+        }
       }
-      .buttonStyle(.borderedProminent)
-      .disabled(workspace.frameMode == .live && !workspace.motionGuardIsActive)
+
+      Button("Practice Voice (SIMULATED)") {
+        Task {
+          if workspace.frameMode != .simulated {
+            await workspace.switchFrameMode(.simulated)
+          }
+          guard workspace.frameMode == .simulated else { return }
+          await workspace.setSimulatorVoicePracticeEnabled(true)
+          openWindow(id: "exploration-learning")
+        }
+      }
+      .disabled(
+        workspace.frameMode != .simulated
+          && workspace.frameModeSwitchUnavailableReason != nil
+      )
+      .help("Switch to SIMULATED and practice recognition against the visible answer buttons.")
 
       if workspace.frameMode == .simulated {
-        fact("Mode", "simulator rehearsal · not evidence")
+        fact("Mode", "simulated practice · not evidence")
         fact("Playback", workspace.preflightRehearsalStatusText)
+        fact("Practice input", workspace.simulatorVoicePracticeEnabled ? "voice + buttons" : "buttons")
       } else {
         fact("Readiness", workspace.motionPreflightReadinessText)
-        fact("Speech", workspace.voiceListeningText)
+        fact("Question input", workspace.physicalPreflightVoiceEnabled ? "voice + buttons" : "buttons")
+        fact("Microphone", workspace.voiceListeningText)
         fact("Drawing-frame posterior", workspace.drawingFramePosteriorText)
       }
 

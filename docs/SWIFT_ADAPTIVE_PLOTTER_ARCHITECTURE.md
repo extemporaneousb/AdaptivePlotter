@@ -325,11 +325,11 @@ same `OperatorWorkspace`. The primary window contains:
 - persistent ExplorationSession permission/listening/transcript/context state;
 - Motion Preflight and Armature Guidance active-episode timelines, latest
   machine/vision assessment, human label, and visible cancel fallback;
-- a SIMULATED-source rehearsal of those exact typed timelines with an explicit
-  silent/voice checkbox. The silent path uses deterministic playback; the voice
-  path may acquire the microphone to practice human timing and context-bound
-  phrases. Neither path can reach the controller, create physical evidence, or
-  affect motion eligibility.
+- a clearly labeled SIMULATED practice path for the same typed question and
+  choice timelines. Buttons are always available; optional Voice reads the
+  question and accepts the same displayed choices. The microphone device,
+  listening state, and input level are visible. Neither path can reach the
+  controller, create physical evidence, or affect motion eligibility.
 
 Raw serial text may be available in a small developer disclosure when needed.
 

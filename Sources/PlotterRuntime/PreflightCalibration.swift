@@ -43,14 +43,13 @@ public enum PreflightSequenceID: String, Codable, CaseIterable, Hashable, Sendab
   case boundaryPositiveX
   case boundaryNegativeY
   case boundaryPositiveY
-  case penUpConfirmation
-  case penDownConfirmation
+  case penCycleConfirmation
 
   public var sequenceClass: PreflightSequenceClass {
     switch self {
     case .boundaryNegativeX, .boundaryPositiveX, .boundaryNegativeY, .boundaryPositiveY:
       .boundaryMeasurement
-    case .penUpConfirmation, .penDownConfirmation:
+    case .penCycleConfirmation:
       .penPositionConfirmation
     }
   }
@@ -58,7 +57,7 @@ public enum PreflightSequenceID: String, Codable, CaseIterable, Hashable, Sendab
 
 public enum PreflightParticipant: String, Codable, CaseIterable, Hashable, Sendable {
   case application
-  case operatorVoice
+  case operatorChoice
   case controller
   case camera
   case vision
@@ -66,7 +65,7 @@ public enum PreflightParticipant: String, Codable, CaseIterable, Hashable, Senda
   public var displayName: String {
     switch self {
     case .application: "AdaptivePlotter"
-    case .operatorVoice: "Operator"
+    case .operatorChoice: "Operator"
     case .controller: "Plotter controller"
     case .camera: "Camera"
     case .vision: "Vision"
@@ -74,29 +73,58 @@ public enum PreflightParticipant: String, Codable, CaseIterable, Hashable, Senda
   }
 }
 
-/// Exact phrases are accepted only while their defining preflight step is current.
+/// Short answers are accepted only while their defining preflight question is
+/// current. A response has no ambient controller meaning.
 public enum PreflightVoiceResponse: String, Codable, CaseIterable, Hashable, Sendable {
-  case ready = "READY"
+  case yes = "YES"
+  case no = "NO"
   case stop = "STOP"
-  case penIsPhysicallyUp = "PEN IS PHYSICALLY UP"
-  case penIsPhysicallyDown = "PEN IS PHYSICALLY DOWN"
 
   public var exactPhrase: String { rawValue }
+}
+
+public struct PreflightVoiceQuestion: Hashable, Sendable {
+  public let prompt: String
+  public let choices: [PreflightVoiceResponse]
+  public let advancingResponses: Set<PreflightVoiceResponse>
+  public let negativeAcknowledgement: String
+
+  public init(
+    prompt: String,
+    choices: [PreflightVoiceResponse] = [.yes, .no],
+    advancingResponses: Set<PreflightVoiceResponse> = [.yes],
+    negativeAcknowledgement: String
+  ) {
+    precondition(!choices.isEmpty)
+    precondition(advancingResponses.isSubset(of: Set(choices)))
+    self.prompt = prompt
+    self.choices = choices
+    self.advancingResponses = advancingResponses
+    self.negativeAcknowledgement = negativeAcknowledgement
+  }
+
+  public var choiceLabel: String {
+    choices.map(\.exactPhrase).joined(separator: " / ")
+  }
 }
 
 public struct PreflightVoiceContext: Hashable, Sendable {
   public let sequenceID: PreflightSequenceID
   public let stepID: String
-  public let expectedResponse: PreflightVoiceResponse
+  public let question: PreflightVoiceQuestion
 
   public init(
     sequenceID: PreflightSequenceID,
     stepID: String,
-    expectedResponse: PreflightVoiceResponse
+    question: PreflightVoiceQuestion
   ) {
     self.sequenceID = sequenceID
     self.stepID = stepID
-    self.expectedResponse = expectedResponse
+    self.question = question
+  }
+
+  public var expectedResponses: Set<PreflightVoiceResponse> {
+    question.advancingResponses
   }
 }
 
@@ -114,31 +142,25 @@ public struct PreflightVoiceResponseParser: Sendable {
     let phrase = String(normalized)
       .split(whereSeparator: \.isWhitespace)
       .joined(separator: " ")
-    return phrase == context.expectedResponse.exactPhrase
-      ? context.expectedResponse
-      : nil
+    return context.question.choices.first { phrase == $0.exactPhrase }
   }
 }
 
 public enum PreflightAction: Hashable, Sendable {
-  case startSpeechListening
-  case stopSpeechListening
-  case speakPrompt(String)
-  case awaitVoice(PreflightVoiceResponse)
+  case askQuestion(PreflightVoiceQuestion)
+  case awaitVoiceChoice(PreflightVoiceQuestion)
   case startBoundaryJog(PreflightBoundaryDirection)
   case cancelBoundaryJogAndAwaitIdle(PreflightBoundaryDirection)
   case captureFreshCameraFrame
   case measureBoundary(PreflightBoundaryDirection)
   case adjustDrawingFramePosterior(PreflightBoundaryDirection)
   case actuatePen(PenCommand)
-  case awaitPhysicalPenConfirmation(PenState, response: PreflightVoiceResponse)
+  case awaitPhysicalPenConfirmation(PenState, question: PreflightVoiceQuestion)
 }
 
 public enum PreflightEventExpectation: Hashable, Sendable {
-  case speechListeningStarted
-  case speechListeningStopped
-  case promptSpoken
-  case exactVoiceResponse(PreflightVoiceResponse)
+  case questionPresented
+  case exactVoiceResponse(Set<PreflightVoiceResponse>)
   case boundaryJogStarted(PreflightBoundaryDirection)
   case boundaryJogCancelled(PreflightBoundaryDirection)
   case freshFrameCaptured
@@ -149,14 +171,10 @@ public enum PreflightEventExpectation: Hashable, Sendable {
 
   fileprivate func accepts(_ event: PreflightEvent) -> Bool {
     switch (self, event) {
-    case (.speechListeningStarted, .speechListeningStarted):
-      true
-    case (.speechListeningStopped, .speechListeningStopped):
-      true
-    case (.promptSpoken, .promptSpoken):
+    case (.questionPresented, .questionPresented):
       true
     case (.exactVoiceResponse(let expected), .exactVoiceResponseAccepted(let actual)):
-      expected == actual
+      expected.contains(actual)
     case (.boundaryJogStarted(let expected), .boundaryJogStarted(let actual, _)):
       expected == actual
     case (.boundaryJogCancelled(let expected), .boundaryJogCancelled(let actual, _, _)):
@@ -201,10 +219,10 @@ public struct PreflightStep: Hashable, Sendable, Identifiable {
     self.expectedEvent = expectedEvent
   }
 
-  public var expectedVoiceResponse: PreflightVoiceResponse? {
+  public var voiceQuestion: PreflightVoiceQuestion? {
     switch action {
-    case .awaitVoice(let response), .awaitPhysicalPenConfirmation(_, let response):
-      response
+    case .awaitVoiceChoice(let question), .awaitPhysicalPenConfirmation(_, let question):
+      question
     default:
       nil
     }
@@ -231,8 +249,8 @@ public struct PreflightSequenceDefinition: Hashable, Sendable, Identifiable {
     self.steps = steps
   }
 
-  public var voiceResponses: [PreflightVoiceResponse] {
-    steps.compactMap(\.expectedVoiceResponse)
+  public var voiceQuestions: [PreflightVoiceQuestion] {
+    steps.compactMap(\.voiceQuestion)
   }
 }
 
@@ -253,10 +271,8 @@ public enum PreflightSequenceCatalog {
       boundary(.negativeY, id: id)
     case .boundaryPositiveY:
       boundary(.positiveY, id: id)
-    case .penUpConfirmation:
-      pen(.up, command: .raise, response: .penIsPhysicallyUp, id: id)
-    case .penDownConfirmation:
-      pen(.down, command: .lower, response: .penIsPhysicallyDown, id: id)
+    case .penCycleConfirmation:
+      penCycle(id: id)
     }
   }
 
@@ -264,30 +280,32 @@ public enum PreflightSequenceCatalog {
     _ direction: PreflightBoundaryDirection,
     id: PreflightSequenceID
   ) -> PreflightSequenceDefinition {
-    PreflightSequenceDefinition(
+    let readyQuestion = PreflightVoiceQuestion(
+      prompt: "Is the path clear and are you ready to move toward \(direction.displayName)?",
+      negativeAcknowledgement: "Okay. No motion will start. I will wait."
+    )
+    let boundaryQuestion = PreflightVoiceQuestion(
+      prompt: "Are we at the \(direction.displayName) boundary?",
+      choices: [.yes, .no, .stop],
+      advancingResponses: [.yes, .stop],
+      negativeAcknowledgement: "Continuing the bounded movement."
+    )
+    return PreflightSequenceDefinition(
       id: id,
       title: "\(direction.displayName) boundary",
-      summary: "Motion Preflight voice-mediated jog and exact-frame observation for the \(direction.displayName) edge.",
+      summary: "Motion Preflight question-guided jog and exact-frame observation for the \(direction.displayName) edge.",
       steps: [
         PreflightStep(
-          id: "start-speech",
+          id: "question-ready",
           participant: .application,
-          action: .startSpeechListening,
-          expectedEvent: .speechListeningStarted
+          action: .askQuestion(readyQuestion),
+          expectedEvent: .questionPresented
         ),
         PreflightStep(
-          id: "prompt-ready",
-          participant: .application,
-          action: .speakPrompt(
-            "Check the path toward \(direction.displayName), then say READY. Say STOP at the physical boundary."
-          ),
-          expectedEvent: .promptSpoken
-        ),
-        PreflightStep(
-          id: "voice-ready",
-          participant: .operatorVoice,
-          action: .awaitVoice(.ready),
-          expectedEvent: .exactVoiceResponse(.ready)
+          id: "answer-ready",
+          participant: .operatorChoice,
+          action: .awaitVoiceChoice(readyQuestion),
+          expectedEvent: .exactVoiceResponse(readyQuestion.advancingResponses)
         ),
         PreflightStep(
           id: "start-jog",
@@ -296,10 +314,16 @@ public enum PreflightSequenceCatalog {
           expectedEvent: .boundaryJogStarted(direction)
         ),
         PreflightStep(
-          id: "voice-stop",
-          participant: .operatorVoice,
-          action: .awaitVoice(.stop),
-          expectedEvent: .exactVoiceResponse(.stop)
+          id: "question-boundary",
+          participant: .application,
+          action: .askQuestion(boundaryQuestion),
+          expectedEvent: .questionPresented
+        ),
+        PreflightStep(
+          id: "answer-boundary",
+          participant: .operatorChoice,
+          action: .awaitVoiceChoice(boundaryQuestion),
+          expectedEvent: .exactVoiceResponse(boundaryQuestion.advancingResponses)
         ),
         PreflightStep(
           id: "cancel-and-idle",
@@ -325,65 +349,106 @@ public enum PreflightSequenceCatalog {
           action: .adjustDrawingFramePosterior(direction),
           expectedEvent: .drawingFramePosteriorAdjusted(direction)
         ),
-        PreflightStep(
-          id: "stop-speech",
-          participant: .application,
-          action: .stopSpeechListening,
-          expectedEvent: .speechListeningStopped
-        ),
       ]
     )
   }
 
-  private static func pen(
-    _ state: PenState,
-    command: PenCommand,
-    response: PreflightVoiceResponse,
-    id: PreflightSequenceID
-  ) -> PreflightSequenceDefinition {
-    let position = state == .up ? "up" : "down"
+  private static func penCycle(id: PreflightSequenceID) -> PreflightSequenceDefinition {
+    let initiallyUp = PreflightVoiceQuestion(
+      prompt: "Is the pen currently up?",
+      negativeAcknowledgement:
+        "The sequence needs an observed up position before it can continue. I will wait."
+    )
+    let clearToLower = PreflightVoiceQuestion(
+      prompt: "Are we clear to put it down?",
+      negativeAcknowledgement: "Okay. I will not lower it. I will wait."
+    )
+    let currentlyDown = PreflightVoiceQuestion(
+      prompt: "Is the pen currently down?",
+      negativeAcknowledgement:
+        "The down position was not confirmed. I will command Pen Up and end this cycle."
+    )
+    let finallyUp = PreflightVoiceQuestion(
+      prompt: "Is the pen up?",
+      negativeAcknowledgement: "The final up position was not confirmed. I will wait."
+    )
     return PreflightSequenceDefinition(
       id: id,
-      title: "Confirm pen \(position)",
-      summary: "Motion Preflight command and operator physical confirmation for pen \(position).",
+      title: "Pen cycle",
+      summary:
+        "Confirm up, authorize down, observe down, retract, and confirm up using YES or NO answers.",
       steps: [
         PreflightStep(
-          id: "start-speech",
+          id: "question-initially-up",
           participant: .application,
-          action: .startSpeechListening,
-          expectedEvent: .speechListeningStarted
+          action: .askQuestion(initiallyUp),
+          expectedEvent: .questionPresented
         ),
         PreflightStep(
-          id: "prompt-observe",
-          participant: .application,
-          action: .speakPrompt(
-            "Observe the pen after the command, then say \(response.exactPhrase)."
-          ),
-          expectedEvent: .promptSpoken
+          id: "answer-initially-up",
+          participant: .operatorChoice,
+          action: .awaitPhysicalPenConfirmation(.up, question: initiallyUp),
+          expectedEvent: .physicalPenConfirmed(.up, response: .yes)
         ),
         PreflightStep(
-          id: "command-pen",
+          id: "question-clear-to-lower",
+          participant: .application,
+          action: .askQuestion(clearToLower),
+          expectedEvent: .questionPresented
+        ),
+        PreflightStep(
+          id: "answer-clear-to-lower",
+          participant: .operatorChoice,
+          action: .awaitVoiceChoice(clearToLower),
+          expectedEvent: .exactVoiceResponse(clearToLower.advancingResponses)
+        ),
+        PreflightStep(
+          id: "command-down",
           participant: .controller,
-          action: .actuatePen(command),
-          expectedEvent: .penCommandSettled(command)
+          action: .actuatePen(.lower),
+          expectedEvent: .penCommandSettled(.lower)
         ),
         PreflightStep(
-          id: "confirm-physical-pen",
-          participant: .operatorVoice,
-          action: .awaitPhysicalPenConfirmation(state, response: response),
-          expectedEvent: .physicalPenConfirmed(state, response: response)
+          id: "question-currently-down",
+          participant: .application,
+          action: .askQuestion(currentlyDown),
+          expectedEvent: .questionPresented
         ),
         PreflightStep(
-          id: "capture-paired-frame",
+          id: "answer-currently-down",
+          participant: .operatorChoice,
+          action: .awaitPhysicalPenConfirmation(.down, question: currentlyDown),
+          expectedEvent: .physicalPenConfirmed(.down, response: .yes)
+        ),
+        PreflightStep(
+          id: "capture-down-frame",
           participant: .camera,
           action: .captureFreshCameraFrame,
           expectedEvent: .freshFrameCaptured
         ),
         PreflightStep(
-          id: "stop-speech",
+          id: "command-up",
+          participant: .controller,
+          action: .actuatePen(.raise),
+          expectedEvent: .penCommandSettled(.raise)
+        ),
+        PreflightStep(
+          id: "question-finally-up",
           participant: .application,
-          action: .stopSpeechListening,
-          expectedEvent: .speechListeningStopped
+          action: .askQuestion(finallyUp),
+          expectedEvent: .questionPresented
+        ),
+        PreflightStep(
+          id: "answer-finally-up",
+          participant: .operatorChoice,
+          action: .awaitPhysicalPenConfirmation(.up, question: finallyUp),
+          expectedEvent: .physicalPenConfirmed(.up, response: .yes)
+        ),
+        PreflightStep(
+          id: "capture-up-frame",
+          participant: .camera,
+          action: .captureFreshCameraFrame,
+          expectedEvent: .freshFrameCaptured
         ),
       ]
     )
@@ -392,7 +457,7 @@ public enum PreflightSequenceCatalog {
 
 public enum PreflightEvidenceKind: String, Codable, CaseIterable, Hashable, Sendable {
   case speechSystem
-  case operatorVoice
+  case operatorChoice
   case operatorObservation
   case controller
   case camera
@@ -422,9 +487,7 @@ public struct PreflightEvidenceSummary: Hashable, Sendable {
 }
 
 public enum PreflightEvent: Hashable, Sendable {
-  case speechListeningStarted
-  case speechListeningStopped
-  case promptSpoken
+  case questionPresented
   case exactVoiceResponseAccepted(PreflightVoiceResponse)
   case boundaryJogStarted(PreflightBoundaryDirection, controllerSummary: String)
   case boundaryJogCancelled(
@@ -457,22 +520,12 @@ public enum PreflightEvent: Hashable, Sendable {
 
   fileprivate var evidenceSummary: PreflightEvidenceSummary? {
     switch self {
-    case .speechListeningStarted:
-      PreflightEvidenceSummary(
-        kind: .speechSystem,
-        summary: "Speech listening started for this Motion Preflight transaction."
-      )
-    case .speechListeningStopped:
-      PreflightEvidenceSummary(
-        kind: .speechSystem,
-        summary: "Speech listening stopped for this Motion Preflight transaction."
-      )
-    case .promptSpoken:
+    case .questionPresented:
       nil
     case .exactVoiceResponseAccepted(let response):
       PreflightEvidenceSummary(
-        kind: .operatorVoice,
-        summary: "Accepted exact phrase: \(response.exactPhrase)"
+        kind: .operatorChoice,
+        summary: "Accepted contextual choice: \(response.exactPhrase)"
       )
     case .boundaryJogStarted(_, let summary),
       .boundaryJogCancelled(_, _, let summary),
@@ -543,13 +596,6 @@ public enum PreflightTransactionError: Error, Equatable, Sendable {
 /// A small in-memory transaction for driving and presenting one sequence.
 /// It has no persistence, replay, or cross-launch authority.
 public struct PreflightTransaction: Hashable, Sendable, Identifiable {
-  private static let cancellationSpeechStopStep = PreflightStep(
-    id: "stop-speech-after-cancel",
-    participant: .application,
-    action: .stopSpeechListening,
-    expectedEvent: .speechListeningStopped
-  )
-
   public let id: UUID
   public let definition: PreflightSequenceDefinition
   public private(set) var state: PreflightTransactionState
@@ -572,8 +618,6 @@ public struct PreflightTransaction: Hashable, Sendable, Identifiable {
     switch state {
     case .active where completedStepCount < definition.steps.count:
       return definition.steps[completedStepCount]
-    case .cancelling:
-      return Self.cancellationSpeechStopStep
     default:
       return nil
     }
@@ -585,13 +629,13 @@ public struct PreflightTransaction: Hashable, Sendable, Identifiable {
   }
 
   public var voiceContext: PreflightVoiceContext? {
-    guard let currentStep, let expectedResponse = currentStep.expectedVoiceResponse else {
+    guard let currentStep, let question = currentStep.voiceQuestion else {
       return nil
     }
     return PreflightVoiceContext(
       sequenceID: definition.id,
       stepID: currentStep.id,
-      expectedResponse: expectedResponse
+      question: question
     )
   }
 
@@ -601,18 +645,6 @@ public struct PreflightTransaction: Hashable, Sendable, Identifiable {
   }
 
   public mutating func record(_ event: PreflightEvent) throws {
-    if state == .cancelling {
-      guard Self.cancellationSpeechStopStep.expectedEvent.accepts(event) else {
-        throw PreflightTransactionError.unexpectedEvent(
-          stepID: Self.cancellationSpeechStopStep.id
-        )
-      }
-      if let evidence = event.evidenceSummary {
-        evidenceSummaries.append(evidence)
-      }
-      state = .cancelled
-      return
-    }
     guard state == .active else { throw PreflightTransactionError.notActive }
     guard let step = currentStep else { throw PreflightTransactionError.noCurrentStep }
     try Self.validateEvidence(in: event)
@@ -637,10 +669,8 @@ public struct PreflightTransaction: Hashable, Sendable, Identifiable {
     switch state {
     case .notStarted:
       state = .cancelled
-    case .active where completedStepCount == 0:
-      state = .cancelled
     case .active:
-      state = .cancelling
+      state = .cancelled
     default:
       break
     }
@@ -707,13 +737,13 @@ public struct PreflightRehearsal: Hashable, Sendable {
   }
 
   public var voiceContext: PreflightVoiceContext? {
-    guard let currentStep, let expectedResponse = currentStep.expectedVoiceResponse else {
+    guard let currentStep, let question = currentStep.voiceQuestion else {
       return nil
     }
     return PreflightVoiceContext(
       sequenceID: definition.id,
       stepID: currentStep.id,
-      expectedResponse: expectedResponse
+      question: question
     )
   }
 
@@ -780,8 +810,8 @@ public struct PreflightTrainingReadinessPolicy: Hashable, Sendable {
     self.requiredSequenceClasses = requiredSequenceClasses
   }
 
-  /// Transaction order has no authority. A completed Pen Up transaction proves
-  /// the voice-mediated observation occurred, while `currentPenState` supplies
+  /// Transaction order has no authority. A completed Pen Cycle proves the
+  /// operator confirmed the final up state, while `currentPenState` supplies
   /// the live train-safe state. Both are required.
   public func evaluate(
     transactions: [PreflightTransaction],
@@ -791,7 +821,7 @@ public struct PreflightTrainingReadinessPolicy: Hashable, Sendable {
     let successfulIDs = Set(successfulTransactions.map(\.definition.id))
     let successfulClasses = Set(successfulIDs.map(\.sequenceClass))
     let missingClasses = requiredSequenceClasses.subtracting(successfulClasses)
-    let hasSuccessfulPenUpConfirmation = successfulIDs.contains(.penUpConfirmation)
+    let hasSuccessfulPenUpConfirmation = successfulIDs.contains(.penCycleConfirmation)
     let hasCurrentPenUpConfirmation = hasSuccessfulPenUpConfirmation
       && currentPenState == .up
     return PreflightTrainingReadiness(

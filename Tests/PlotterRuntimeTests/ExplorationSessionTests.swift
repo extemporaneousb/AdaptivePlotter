@@ -40,6 +40,49 @@ struct ExplorationSessionTests {
     #expect(await driver.stopCount == 1)
   }
 
+  @Test("input can switch to buttons and back without replacing the active episode")
+  func inputSwitchPreservesSessionAndEpisode() async throws {
+    let driver = ExplorationVoiceDriverFixture()
+    let session = ExplorationSession(
+      driver: driver,
+      speechOutput: ExplorationSpeechOutputFixture()
+    )
+    let sessionID = ExplorationSessionID(UUID())
+    let episode = context(
+      rung: .motionPreflight,
+      allowedIntents: [.yes, .no, .stop],
+      stopIsCancellable: true
+    )
+
+    _ = await session.start(input: .microphone, id: sessionID)
+    try await session.activateEpisode(episode)
+
+    let buttons = await session.setInput(.injected)
+    #expect(buttons.state == .listening)
+    #expect(buttons.input == .injected)
+    #expect(buttons.id == sessionID)
+    #expect(buttons.activeEpisode == episode)
+    #expect(buttons.voice == nil)
+    #expect(await driver.startCount == 1)
+    #expect(await driver.stopCount == 1)
+
+    guard case .acceptedIntent(let yes) = await session.ingest(
+      makeTranscript("yes", isFinal: true, time: 10)
+    ) else {
+      Issue.record("injected YES should route through the preserved episode")
+      return
+    }
+    #expect(yes.intent == .yes)
+
+    let microphone = await session.setInput(.microphone)
+    #expect(microphone.state == .listening)
+    #expect(microphone.input == .microphone)
+    #expect(microphone.id == sessionID)
+    #expect(microphone.activeEpisode == episode)
+    #expect(await driver.startCount == 2)
+    #expect(await driver.stopCount == 1)
+  }
+
   @Test("microphone transcripts are subscribed and routed by the session")
   func microphoneTranscriptSubscription() async throws {
     let driver = ExplorationVoiceDriverFixture()
@@ -207,6 +250,8 @@ struct ExplorationSessionTests {
   @Test("all declared reflex intents stay typed and exact")
   func declaredReflexGrammar() async throws {
     let expected: [(String, ExplorationVoiceIntent)] = [
+      ("yes", .yes),
+      ("no", .no),
       ("continue", .continueAction),
       ("keep going", .keepGoing),
       ("reverse", .reverse),

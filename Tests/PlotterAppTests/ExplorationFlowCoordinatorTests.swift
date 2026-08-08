@@ -189,6 +189,7 @@ private func explorationActions(
 ) -> OperatorWorkspace.ExplorationActions {
   OperatorWorkspace.ExplorationActions(
     start: { input, id in await session.start(input: input, id: id) },
+    setInput: { await session.setInput($0) },
     activateEpisode: { try await session.activateEpisode($0) },
     completeEpisode: { id, termination in
       try await session.completeEpisode(id, termination: termination)

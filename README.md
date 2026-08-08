@@ -86,21 +86,19 @@ The repository contains one SwiftPM application with:
 - closed typed Pen Up/Pen Down actuation for this mechanism, serialized with
   probes and jogs and using the verified local `M3 S40` / `M3 S760` /
   `G4 P0.3` profile;
-- a first-class Motion Preflight window under Learning. In the current
-  bootstrap implementation, starting a sequence acquires speech permission,
-  turns listening on for that transaction, shows its participant/action/event
-  timeline, and stops listening when the transaction ends;
-- a simulator-only Motion Preflight rehearsal with a native **Practice with
-  Voice** checkbox. Unchecked, it plays the typed participant/action/event
-  definitions without requesting speech permission. Checked, sequence start
-  opens the microphone and exact context-bound phrases advance operator steps
-  while simulated actions advance the rest. Neither path can touch the
-  controller, record physical evidence, update the drawing-frame posterior, or
-  affect motion eligibility;
-- four voice-mediated boundary sequences plus Pen Up and Pen Down confirmation
-  sequences. Exact `READY`, `STOP`, and physical pen confirmations are accepted
-  only at their corresponding transaction step; ambient, wrong-context, and
-  compound phrases have no controller meaning;
+- a first-class Motion Preflight window under Learning. Every operator prompt
+  is a typed contextual question with visible answer buttons. **Use Voice** is
+  optional: when enabled, the app reads the question and recognizes the same
+  displayed choices; when disabled, the buttons remain fully functional;
+- a clearly discoverable **Practice Voice (SIMULATED)** path. Practice uses the
+  same questions and answer buttons, can run with the microphone or buttons
+  only, and cannot touch the controller, record physical evidence, update the
+  drawing-frame posterior, or affect motion eligibility;
+- four question-guided boundary sequences plus one complete Pen Cycle. Boundary
+  questions use `YES`/`NO` and, during active motion, `STOP`. The Pen Cycle asks
+  whether the pen is up, whether it is clear to lower, whether it is down after
+  lowering, then retracts and asks whether it is up. Wrong-context, ambient,
+  and compound phrases have no controller meaning;
 - one closed GRBL realtime Jog Cancel byte (`0x85`) for an active `$J` move.
   It has no ordinary acknowledgement: the original jog owner continues polling
   until Idle and reports the actual final MPos or ambiguity;
@@ -129,13 +127,12 @@ The repository contains one SwiftPM application with:
   trainer is exercised by tests and the simulator; it is not yet an ink-backed
   live application workflow.
 
-The selected next architecture replaces sequence-owned listening with one
-persistent `ExplorationSession`: start once under Learning, keep the microphone
-warm across Motion Preflight, Armature Guidance, ink inspection, and comparison
-episodes, dispatch a small low-latency reflex grammar to typed actions, and
-record flexible spoken observations as learning labels. That session and
-Armature Guidance are not yet implemented. The exact-phrase transaction above
-is current state, not the final voice product.
+The current architecture uses one persistent `ExplorationSession`: start once
+under Learning, keep the microphone warm across Motion Preflight, Armature
+Guidance, ink inspection, and comparison episodes, dispatch a small contextual
+reflex grammar to typed actions, and record flexible spoken observations as
+learning labels. The session, deterministic simulator loop, and Armature
+Guidance software are implemented; signed-bundle physical verification remains.
 
 Typed Pen Up and Pen Down are implemented and physically verified over white
 paper. The historical `S720` down value moved the mechanism but left no mark;
@@ -319,18 +316,19 @@ motion/time cost, completion, intervention, and ambiguity. The exact objective
 and promotion signal for each rung are in
 [Project Scope and Learning Architecture](docs/PROJECT_SCOPE_AND_MODEL_TRAINING.md).
 
-The current build starts and stops listening per Motion Preflight transaction
-and accepts exact context-bound phrases. The selected target keeps listening
-active for one `ExplorationSession`. Its low-latency reflex path maps stable
+The current build owns microphone input through one `ExplorationSession` during
+the integrated Learning flow. Motion Preflight itself is input-agnostic:
+visible buttons always answer its current multiple-choice question, while
+optional Voice reads the prompt and accepts the same short choices. The
+session's low-latency reflex path maps stable
 contextual utterances such as `STOP`, continue, reverse, and directional
 adjustments to closed typed intents. Its teaching path records flexible
 visibility observations, shape features, rankings, and rewards without giving
 free-form speech raw controller authority. Feedback is brief and interruptible.
 Simulation exercises the same episode and intent types but remains explicitly
-non-physical. Current Motion Preflight rehearsal can be run silently for
-deterministic app practice or with **Practice with Voice** enabled so the human
-also rehearses timing and phrases; voice input in that mode advances only the
-non-authoritative simulated timeline.
+non-physical. Motion Preflight practice can be run with buttons only or with
+**Practice with Voice** so the human can test recognition against the displayed
+choices; neither input can give the simulated timeline physical authority.
 
 A taught side is accepted only from `MotionOutcome.cancelled(finalPosition:)`:
 the Jog Cancel must settle at Idle and supply final controller MPos. A jog that
@@ -348,7 +346,8 @@ The rudimentary application needs only:
 - logical path preview and, after drawing, observed ink/error overlay;
 - current operation or stroke;
 - last command outcome;
-- current ExplorationSession context and whether listening is active;
+- current ExplorationSession context, whether listening is active, the active
+  microphone name, and a live input-level meter;
 - latest machine/vision assessment and human learning label;
 - a concise actionable error;
 - Run, `STOP`/Cancel Stroke, and End Exploration controls once those operations
@@ -360,17 +359,17 @@ are out of scope.
 
 ## Immediate build order
 
-1. Replace sequence-owned listening with one persistent `ExplorationSession`
-   and prove its reflex/teaching routing and latency in simulation.
-2. Exercise the session on the actual machine with Motion Preflight, including
-   spoken Jog Cancel, without entering coordinates or limits.
-3. Add Armature Guidance and teach one repeatable clear observation pose with
-   clear/partial/blocked voice labels.
-4. Draw one isolated line, clear the tool, observe the ink, and show error.
-5. Draw candidate strokes/shapes and collect spoken rankings and features.
-6. Let active selection choose bounded informative experiments before adding a
+1. Exercise the implemented persistent session on the actual machine with
+   question-guided Motion Preflight, including spoken Jog Cancel, without
+   entering coordinates or limits.
+2. Teach one repeatable physical clear observation pose through the implemented
+   Armature Guidance rung and its clear/partial/blocked labels.
+3. Run the implemented isolated-line loop physically, clear the tool, observe
+   the ink, and verify the displayed residual.
+4. Draw candidate strokes/shapes and collect spoken rankings and features.
+5. Let active selection choose bounded informative experiments before adding a
    broader reinforcement-learning policy.
-7. Draw a small multi-stroke vector program under passive human supervision.
+6. Draw a small multi-stroke vector program under passive human supervision.
 
 These are priorities, not repository gates. Software for a later item may land
 early when it directly shortens the path to a working app.

@@ -1,10 +1,10 @@
 @preconcurrency import AVFoundation
+@preconcurrency import CoreAudio
 import Foundation
 @preconcurrency import Speech
 
-/// Speech accepted by the live application is scoped to one explicitly armed
-/// boundary interaction. The context is supplied by the application state; a
-/// word heard outside that state cannot become a controller intent.
+/// Reflex speech remains scoped to an explicitly active exploration context.
+/// Motion Preflight questions use `PreflightVoiceResponseParser` instead.
 public enum BoundaryVoiceContext: Hashable, Sendable {
   case awaitingReady
   case moving
@@ -37,7 +37,7 @@ public struct BoundaryVoiceCommandParser: Sendable {
   }
 }
 
- public enum VoiceAuthorizationState: String, Hashable, Sendable {
+public enum VoiceAuthorizationState: String, Hashable, Sendable {
   case notDetermined
   case authorized
   case speechDenied
@@ -154,17 +154,25 @@ public struct VoiceInteractionSnapshot: Hashable, Sendable {
   public let listeningState: VoiceListeningState
   public let recognitionPolicy: VoiceRecognitionPolicy
   public let latestTranscript: VoiceTranscript?
+  public let inputDeviceName: String?
+  /// Linear 0...1 microphone energy derived from recent input buffers. This is
+  /// operator feedback only; it is not speech-recognition confidence.
+  public let inputLevel: Double
 
   public init(
     authorization: VoiceAuthorizationState,
     listeningState: VoiceListeningState,
     recognitionPolicy: VoiceRecognitionPolicy,
-    latestTranscript: VoiceTranscript?
+    latestTranscript: VoiceTranscript?,
+    inputDeviceName: String? = nil,
+    inputLevel: Double = 0
   ) {
     self.authorization = authorization
     self.listeningState = listeningState
     self.recognitionPolicy = recognitionPolicy
     self.latestTranscript = latestTranscript
+    self.inputDeviceName = inputDeviceName
+    self.inputLevel = min(max(inputLevel, 0), 1)
   }
 }
 
@@ -220,6 +228,58 @@ private final class VoiceAudioRequestRelay: @unchecked Sendable {
       return self.request
     }
     request?.endAudio()
+  }
+}
+
+enum VoiceInputLevelNormalizer {
+  static func normalize(rms: Double) -> Double {
+    guard rms.isFinite, rms > 0 else { return 0 }
+    let decibels = 20 * log10(max(rms, 0.000_001))
+    return min(max((decibels + 60) / 60, 0), 1)
+  }
+}
+
+private final class VoiceInputMeterRelay: @unchecked Sendable {
+  private let lock = NSLock()
+  private var level = 0.0
+
+  func measure(_ buffer: AVAudioPCMBuffer) {
+    guard let channels = buffer.floatChannelData else {
+      lock.withLock { level = 0 }
+      return
+    }
+    let frameCount = Int(buffer.frameLength)
+    let channelCount = Int(buffer.format.channelCount)
+    guard frameCount > 0, channelCount > 0 else {
+      lock.withLock { level = 0 }
+      return
+    }
+
+    var sumOfSquares = 0.0
+    var sampleCount = 0
+    for channel in 0..<channelCount {
+      let samples = channels[channel]
+      for frame in 0..<frameCount {
+        let sample = Double(samples[frame])
+        sumOfSquares += sample * sample
+      }
+      sampleCount += frameCount
+    }
+    let rms = sqrt(sumOfSquares / Double(sampleCount))
+    // The visible meter spans -60 dBFS (quiet) through 0 dBFS (clipping).
+    let normalized = VoiceInputLevelNormalizer.normalize(rms: rms)
+    lock.withLock {
+      // Fast attack and modest decay keep speech readable at the UI's 4 Hz poll.
+      level = normalized >= level ? normalized : (level * 0.72 + normalized * 0.28)
+    }
+  }
+
+  func snapshot() -> Double {
+    lock.withLock { level }
+  }
+
+  func reset() {
+    lock.withLock { level = 0 }
   }
 }
 
@@ -291,6 +351,7 @@ public actor NativeVoiceInteractionDriver: VoiceInteractionDriving {
   private let recognitionPolicy: VoiceRecognitionPolicy
   private let audioEngine: AVAudioEngine
   private let audioRelay = VoiceAudioRequestRelay()
+  private let inputMeterRelay = VoiceInputMeterRelay()
   private let transcriptBuffer = VoiceTranscriptBuffer()
 
   private var recognizer: SFSpeechRecognizer?
@@ -306,6 +367,7 @@ public actor NativeVoiceInteractionDriver: VoiceInteractionDriving {
   private var transcriptSequence: UInt64 = 0
   private var lifecycleGeneration: UInt64 = 0
   private var listeningRequested = false
+  private var inputDeviceName: String?
 
   public init(
     locale: Locale = .current,
@@ -315,6 +377,7 @@ public actor NativeVoiceInteractionDriver: VoiceInteractionDriving {
     self.recognitionPolicy = recognitionPolicy
     audioEngine = AVAudioEngine()
     authorization = Self.currentAuthorizationState()
+    inputDeviceName = Self.defaultInputDeviceName()
   }
 
   public func snapshot() -> VoiceInteractionSnapshot {
@@ -322,7 +385,9 @@ public actor NativeVoiceInteractionDriver: VoiceInteractionDriving {
       authorization: authorization,
       listeningState: listeningState,
       recognitionPolicy: recognitionPolicy,
-      latestTranscript: latestTranscript
+      latestTranscript: latestTranscript,
+      inputDeviceName: inputDeviceName,
+      inputLevel: listeningState == .listening ? inputMeterRelay.snapshot() : 0
     )
   }
 
@@ -371,6 +436,7 @@ public actor NativeVoiceInteractionDriver: VoiceInteractionDriving {
     recognitionRestartTask = nil
 
     let input = audioEngine.inputNode
+    inputDeviceName = Self.defaultInputDeviceName()
     let format = input.inputFormat(forBus: 0)
     guard format.sampleRate > 0, format.channelCount > 0 else {
       listeningState = .failed(.audioInputUnavailable)
@@ -379,8 +445,9 @@ public actor NativeVoiceInteractionDriver: VoiceInteractionDriving {
 
     if !hasInputTap {
       input.installTap(onBus: 0, bufferSize: 1_024, format: format) {
-        [audioRelay] buffer, _ in
+        [audioRelay, inputMeterRelay] buffer, _ in
         audioRelay.append(buffer)
+        inputMeterRelay.measure(buffer)
       }
       hasInputTap = true
     }
@@ -529,6 +596,46 @@ public actor NativeVoiceInteractionDriver: VoiceInteractionDriving {
       audioEngine.inputNode.removeTap(onBus: 0)
       hasInputTap = false
     }
+    inputMeterRelay.reset()
+  }
+
+  private static func defaultInputDeviceName() -> String? {
+    var address = AudioObjectPropertyAddress(
+      mSelector: kAudioHardwarePropertyDefaultInputDevice,
+      mScope: kAudioObjectPropertyScopeGlobal,
+      mElement: kAudioObjectPropertyElementMain
+    )
+    var deviceID = AudioDeviceID(kAudioObjectUnknown)
+    var deviceIDSize = UInt32(MemoryLayout<AudioDeviceID>.size)
+    guard AudioObjectGetPropertyData(
+      AudioObjectID(kAudioObjectSystemObject),
+      &address,
+      0,
+      nil,
+      &deviceIDSize,
+      &deviceID
+    ) == noErr,
+      deviceID != kAudioObjectUnknown
+    else { return nil }
+
+    address = AudioObjectPropertyAddress(
+      mSelector: kAudioObjectPropertyName,
+      mScope: kAudioObjectPropertyScopeGlobal,
+      mElement: kAudioObjectPropertyElementMain
+    )
+    var unmanagedName: Unmanaged<CFString>?
+    var nameSize = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+    guard AudioObjectGetPropertyData(
+      deviceID,
+      &address,
+      0,
+      nil,
+      &nameSize,
+      &unmanagedName
+    ) == noErr,
+      let unmanagedName
+    else { return nil }
+    return unmanagedName.takeUnretainedValue() as String
   }
 
   private static func currentAuthorizationState() -> VoiceAuthorizationState {

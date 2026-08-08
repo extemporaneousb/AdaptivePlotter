@@ -3,11 +3,15 @@ import Foundation
 public enum ExplorationSessionInput: String, Hashable, Sendable {
   /// Own the native microphone and on-device recognizer for this session.
   case microphone
-  /// Accept deterministic injected transcripts without touching TCC or audio.
+  /// Keep the contextual session active without touching TCC or audio. Tests
+  /// and simulator flows may inject deterministic transcripts; UI buttons use
+  /// their typed handlers directly.
   case injected
 }
 
 public enum ExplorationVoiceIntent: String, CaseIterable, Hashable, Sendable {
+  case yes
+  case no
   case ready
   case stop
   case continueAction
@@ -241,6 +245,8 @@ public struct ExplorationVoiceIntentParser: Sendable {
     }
 
     switch Self.normalized(transcript) {
+    case "yes": return .yes
+    case "no": return .no
     case "ready": return .ready
     case "stop": return .stop
     case "continue": return .continueAction
@@ -464,32 +470,80 @@ public actor ExplorationSession {
       return makeSnapshot()
     }
 
-    let stream = await driver.transcripts()
-    guard generation == startGeneration, state == .starting else {
+    await beginMicrophoneListening(generation: startGeneration)
+    return makeSnapshot()
+  }
+
+  /// Changes the input adapter without changing session or episode identity.
+  /// Switching to injected input releases the microphone while preserving the
+  /// active contextual episode so visible buttons can continue the same flow.
+  @discardableResult
+  public func setInput(_ requestedInput: ExplorationSessionInput) async
+    -> ExplorationSessionSnapshot
+  {
+    guard state == .listening else { return makeSnapshot() }
+    guard input != requestedInput else { return await snapshot() }
+
+    generation &+= 1
+    let inputGeneration = generation
+    let previousInput = input
+    state = .starting
+    transcriptTask?.cancel()
+    transcriptTask = nil
+    await eventBuffer.yield(.stateChanged(.starting))
+    await speechOutput.stopSpeaking()
+
+    if previousInput == .microphone {
       await driver.stopListening()
+      voiceSnapshot = await driver.snapshot()
+    }
+    guard generation == inputGeneration, state == .starting else {
       return makeSnapshot()
+    }
+
+    input = requestedInput
+    guard requestedInput == .microphone else {
+      voiceSnapshot = nil
+      state = .listening
+      await eventBuffer.yield(.stateChanged(.listening))
+      return makeSnapshot()
+    }
+
+    await beginMicrophoneListening(generation: inputGeneration)
+    return makeSnapshot()
+  }
+
+  private func beginMicrophoneListening(generation requestedGeneration: UInt64) async {
+    guard generation == requestedGeneration, state == .starting, input == .microphone else {
+      return
+    }
+
+    let stream = await driver.transcripts()
+    guard generation == requestedGeneration, state == .starting, input == .microphone else {
+      await driver.stopListening()
+      return
     }
     transcriptTask = Task { [weak self] in
       for await transcript in stream {
         guard !Task.isCancelled else { return }
-        await self?.receiveDriverTranscript(transcript, generation: startGeneration)
+        await self?.receiveDriverTranscript(transcript, generation: requestedGeneration)
       }
     }
 
     await driver.startListening()
-    guard generation == startGeneration, state == .starting else {
+    guard generation == requestedGeneration, state == .starting, input == .microphone else {
       transcriptTask?.cancel()
       transcriptTask = nil
       await driver.stopListening()
-      return makeSnapshot()
+      return
     }
 
     let snapshot = await driver.snapshot()
-    guard generation == startGeneration, state == .starting else {
+    guard generation == requestedGeneration, state == .starting, input == .microphone else {
       transcriptTask?.cancel()
       transcriptTask = nil
       await driver.stopListening()
-      return makeSnapshot()
+      return
     }
     voiceSnapshot = snapshot
     switch snapshot.listeningState {
@@ -497,14 +551,13 @@ public actor ExplorationSession {
       state = .listening
       await eventBuffer.yield(.stateChanged(.listening))
     case .failed(let error):
-      await transitionToFailure(.voice(error), generation: startGeneration)
+      await transitionToFailure(.voice(error), generation: requestedGeneration)
     case .stopped, .requestingPermission:
       await transitionToFailure(
         .listeningDidNotStart(snapshot.listeningState),
-        generation: startGeneration
+        generation: requestedGeneration
       )
     }
-    return makeSnapshot()
   }
 
   public func activateEpisode(_ context: ExplorationEpisodeVoiceContext) async throws {

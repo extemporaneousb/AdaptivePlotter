@@ -65,24 +65,28 @@ are not goals.
 | --- | --- | --- |
 | Controller and motion | Persistent connection, explicit session activation, relative jog, Jog Cancel, typed pen actuation | Keep the direct typed path and remove no additional motion behind learned bounds or setup forms. |
 | Camera and vision | Exact C920 frames, cap/frame-side analysis, inferred drawing frame and armature overlay | Turn observations and human labels into first-class exploration episodes and posterior/model updates. |
-| Voice | A Motion Preflight sequence starts and stops its own microphone and accepts exact context-bound phrases | One persistent `ExplorationSession` owns the warm microphone, low-latency reflex intents, teaching labels, and interruptible feedback. |
+| Voice | One persistent `ExplorationSession`; Motion Preflight questions always expose buttons and optionally read/accept the same choices by voice | Keep contextual reflex intents, teaching labels, interruptible feedback, and an explicit microphone/device/level presentation without giving speech ambient authority. |
 | Boundary learning | Cancelled boundary jog plus a newer tool observation feeds a heuristic nearest-edge quadrilateral update; final MPos is recorded but not numerically fused | Keep this as the first zero-order learning episode, then replace the heuristic with a per-side image-space posterior whose uncertainty narrows under repeated observations. |
 | Jog response | Current-session 2x2 controller-to-camera diagnostic with fixed holdout membership | Use it as local motion evidence, not a general motion blocker. |
 | Drawing model | Affine machine-to-`FieldSpace` training primitives and simulator exercise exist; live camera observations have no accepted `FieldRegistration` | Keep the next residual in `CameraPixelSpace`; create a cited current-session camera-to-field registration before admitting physical ink to the existing affine trainer. |
 | Armature visibility | Inferred image-space armature overlay exists | Add **Armature Guidance**, using human visibility labels and active pose selection to learn where ink can be seen. |
 | Preference and policy learning | Not implemented | Add spoken shape comparison after reliable ink observation, then bounded autonomous experiment selection. |
 
-The current sequence-local microphone and exact `READY`/`STOP` parser are a
-safe bootstrap, not the target interaction architecture.
+Motion Preflight's interaction contract is the current contextual question and
+its displayed choices. Voice is an optional input/output adapter over that
+contract, not a separate command language or a prerequisite for button use.
 
 ## ExplorationSession
 
 `ExplorationSession` is the first-class runtime and learning boundary. Starting
 it once activates listening and establishes the current controller, camera,
-tool, model, and interaction context. The microphone remains warm through
-Motion Preflight and later learning episodes. It stops only when the operator
-ends the exploration, the app shuts down, permission is lost, or a failure
-makes continued interpretation unreliable.
+tool, model, and interaction context. While Voice is enabled, the microphone
+remains warm through Motion Preflight and later learning episodes. Turning Voice
+off switches that same session and active episode to injected/button input and
+releases the microphone; turning it back on reacquires microphone input without
+replacing the episode. The microphone also stops when the operator ends the
+exploration, the app shuts down, permission is lost, or a failure makes
+continued interpretation unreliable.
 
 There is no separate **Start Listening** mode and no need to restart listening
 between sequences. Motion Preflight is the first episode inside this session,
@@ -201,8 +205,9 @@ Only frames selected for a learning episode need durable exact bytes. This is a
 compact training dataset, not continuous video recording or a general replay
 archive. Simulation episodes use the same schema but remain explicitly
 non-physical and cannot satisfy hardware observations. Their operator input may
-come from deterministic injected speech or, when **Practice with Voice** is
-enabled, the real microphone so the human can rehearse timing and phrases; that
+come from deterministic injected choices or, when **Practice with Voice** is
+enabled, the real microphone so the human can test recognition against the
+same displayed choices; that
 input choice does not change simulation authority. A human label may be ground
 truth for current-scene visibility or preference without being promoted to a
 claim the camera itself proved.
@@ -246,7 +251,7 @@ The next physical slice is intentionally small and action-heavy:
 2. Prove the session-owned microphone, barge-in, partial-result `STOP`, concise
    feedback, and typed-intent dispatch first in the simulator and then with one
    conservative physical jog.
-3. Run physical Pen Up confirmation, then one relevant boundary Motion
+3. Run the physical Pen Cycle, then one relevant boundary Motion
    Preflight episode. Update the selected
    image edge from the exact observation and show the result; do not ask for
    coordinates or stop other useful motion because every side is not yet taught.
@@ -258,13 +263,14 @@ The next physical slice is intentionally small and action-heavy:
    admitting useful Armature Guidance moves that already satisfy the evidence
    contract. This supplies a residual reference; it does not authorize or
    otherwise gate motion.
-6. Capture a clean frame at the clear pose. Choose the line-start MPos, transact
-   physical Pen Down confirmation followed by Pen Up, return clear, and capture
-   an exact anchor frame. The new dot identifies the pen-tip start in camera
-   pixels; that anchor frame becomes the line baseline. This is local first-mark
-   evidence, not a manual-motion gate.
-7. Return pen-up to the recorded start, draw one short isolated line, raise the
-   pen, move to the clear pose, wait for unambiguous return settlement, capture
+6. Capture a clean frame at the clear pose. Choose the line-start MPos, run the
+   physical Pen Cycle there, return clear, and capture an exact anchor frame.
+   The new dot identifies the pen-tip start in camera pixels; that anchor frame
+   becomes the line baseline. This is local first-mark evidence, not a
+   manual-motion gate.
+7. Return pen-up to the recorded start, explicitly lower with the Motion
+   control, draw one short isolated line, raise the pen, move to the clear pose,
+   wait for unambiguous return settlement, capture
    a newer exact frame, extract the ink, and show the intended-versus-observed
    `CameraPixelSpace` residual anchored at the dot.
 8. Record the complete episode and immediately repeat or adjust only when the

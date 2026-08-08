@@ -109,6 +109,17 @@ struct VoiceInteractionTests {
     #expect(await output.stopCount == 1)
   }
 
+  @Test("microphone RMS maps to a bounded settings-style input meter")
+  func inputMeterIsBounded() {
+    #expect(VoiceInputLevelNormalizer.normalize(rms: 0) == 0)
+    #expect(VoiceInputLevelNormalizer.normalize(rms: 0.001) == 0)
+    #expect(abs(VoiceInputLevelNormalizer.normalize(rms: 0.01) - (1.0 / 3.0)) < 1e-12)
+    #expect(abs(VoiceInputLevelNormalizer.normalize(rms: 0.1) - (2.0 / 3.0)) < 1e-12)
+    #expect(VoiceInputLevelNormalizer.normalize(rms: 1) == 1)
+    #expect(VoiceInputLevelNormalizer.normalize(rms: 10) == 1)
+    #expect(VoiceInputLevelNormalizer.normalize(rms: .nan) == 0)
+  }
+
   @Test("quiet recognition intervals restart with a bounded delay")
   func quietRecognitionRecoveryIsNarrowAndBounded() {
     let noSpeech = VoiceRecognitionFailureSnapshot(

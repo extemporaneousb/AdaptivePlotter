@@ -125,8 +125,9 @@ Deliver:
 - clean microphone teardown on end, permission loss, app shutdown, or an
   unrecoverable recognition failure.
 
-The current exact `READY`/`STOP` behavior remains the stage-0 parser while it is
-moved under the session. Do not replace it with ambient arbitrary motion.
+Motion Preflight uses the current question's visible `YES`/`NO`/`STOP` choices
+for both buttons and optional speech. The persistent session's reflex grammar
+remains contextual; do not replace either path with ambient arbitrary motion.
 
 Done when the simulator runs at least two consecutive episodes without
 restarting the microphone, operator speech interrupts machine speech, and no
@@ -134,7 +135,7 @@ out-of-context transcript reaches `MachineActions`.
 
 ## Work item 2 — Physical Motion Preflight episode
 
-Use the persistent session to exercise physical Pen Up confirmation and one
+Use the persistent session to exercise the physical Pen Cycle and one
 relevant boundary sequence on the attached machine. The Pen Down/Up first-mark
 transaction belongs to the anchored isolated-line episode below. Starting an
 episode may speak one short cue; it must not read instructions or require a

@@ -63,14 +63,14 @@ enum JogDirection: String, CaseIterable, Identifiable, Sendable {
 
 enum BoundaryTeachingState: Equatable, Sendable {
   case idle
-  case awaitingReady(JogDirection)
+  case awaitingConfirmation(JogDirection)
   case moving(JogDirection)
   case cancelling(JogDirection)
 
   var direction: JogDirection? {
     switch self {
     case .idle: nil
-    case .awaitingReady(let direction), .moving(let direction), .cancelling(let direction):
+    case .awaitingConfirmation(let direction), .moving(let direction), .cancelling(let direction):
       direction
     }
   }
@@ -145,6 +145,7 @@ final class OperatorWorkspace {
   struct ExplorationActions: Sendable {
     let start: @Sendable (ExplorationSessionInput, ExplorationSessionID) async
       -> ExplorationSessionSnapshot
+    let setInput: @Sendable (ExplorationSessionInput) async -> ExplorationSessionSnapshot
     let activateEpisode: @Sendable (ExplorationEpisodeVoiceContext) async throws -> Void
     let completeEpisode: @Sendable (
       ExplorationEpisodeID,
@@ -233,8 +234,11 @@ final class OperatorWorkspace {
   private(set) var simulatorPenState: PenState = .unknown
   private(set) var simulatorLearningSummary = "Switch to SIMULATED to inspect model behavior."
   private(set) var simulatorVoicePracticeEnabled = false
+  private(set) var physicalPreflightVoiceEnabled = true
   private(set) var voiceAuthorizationState: VoiceAuthorizationState = .notDetermined
   private(set) var voiceListening = false
+  private(set) var voiceInputDeviceName: String?
+  private(set) var voiceInputLevel = 0.0
   private(set) var voiceTranscriptText = "none"
   private(set) var lastVoiceIntentText = "none"
   private(set) var lastVoiceActionableResultText = "none"
@@ -243,7 +247,7 @@ final class OperatorWorkspace {
   private(set) var boundaryTeachingState: BoundaryTeachingState = .idle
   private(set) var boundaryTeachingResultText = "Choose one side to begin."
   private(set) var boundaryPositions: [JogDirection: MachinePosition] = [:]
-  var selectedPreflightSequenceID: PreflightSequenceID = .penUpConfirmation
+  var selectedPreflightSequenceID: PreflightSequenceID = .penCycleConfirmation
   private(set) var preflightTransactions: [PreflightSequenceID: PreflightTransaction] = [:]
   private(set) var preflightRehearsals: [PreflightSequenceID: PreflightRehearsal] = [:]
   private(set) var preflightError: String?
@@ -699,7 +703,9 @@ final class OperatorWorkspace {
     case .inactive: "inactive"
     case .starting: "starting"
     case .listening:
-      snapshot.input == .injected ? "listening · injected simulator input" : "listening · microphone"
+      snapshot.input == .injected
+        ? "active · microphone off · button/injected input"
+        : "listening · microphone"
     case .ending: "ending"
     case .failed(let failure): "failed: \(failure)"
     }
@@ -758,6 +764,10 @@ final class OperatorWorkspace {
     if explorationIsActive { return "The exploration session is already active." }
     if explorationActions == nil { return "Exploration voice composition is unavailable." }
     return nil
+  }
+
+  var voiceInputDeviceText: String {
+    voiceInputDeviceName ?? "System default input unavailable"
   }
 
   var voiceListeningUnavailableReason: String? {
@@ -839,8 +849,9 @@ final class OperatorWorkspace {
   var boundaryTeachingStateText: String {
     switch boundaryTeachingState {
     case .idle: return "idle"
-    case .awaitingReady(let direction): return "\(direction.shortLabel) armed · say READY"
-    case .moving(let direction): return "moving \(direction.shortLabel) · say STOP"
+    case .awaitingConfirmation(let direction):
+      return "\(direction.shortLabel) armed · answer YES to start"
+    case .moving(let direction): return "moving \(direction.shortLabel) · answer YES or STOP"
     case .cancelling(let direction): return "cancelling \(direction.shortLabel)"
     }
   }
@@ -869,20 +880,20 @@ final class OperatorWorkspace {
     let sequenceID = activePreflightRehearsalID ?? selectedPreflightSequenceID
     guard let rehearsal = preflightRehearsals[sequenceID] else {
       return simulatorVoicePracticeEnabled
-        ? "ready to rehearse with voice · controller remains off"
-        : "ready to rehearse silently · microphone and controller remain off"
+        ? "ready to practice with voice or buttons · controller remains off"
+        : "ready for button practice · microphone and controller remain off"
     }
     return switch rehearsal.state {
     case .notStarted:
       simulatorVoicePracticeEnabled
-        ? "ready to rehearse with voice · controller remains off"
-        : "ready to rehearse silently · microphone and controller remain off"
+        ? "ready to practice with voice or buttons · controller remains off"
+        : "ready for button practice · microphone and controller remain off"
     case .running:
       simulatorVoicePracticeEnabled
-        ? "voice rehearsal step \(rehearsal.completedStepCount + 1) of \(rehearsal.definition.steps.count)"
-        : "silent rehearsal step \(rehearsal.completedStepCount + 1) of \(rehearsal.definition.steps.count)"
-    case .completed: "rehearsal complete · no physical evidence recorded"
-    case .cancelled: "rehearsal cancelled · no physical evidence recorded"
+        ? "voice and button practice step \(rehearsal.completedStepCount + 1) of \(rehearsal.definition.steps.count)"
+        : "button practice step \(rehearsal.completedStepCount + 1) of \(rehearsal.definition.steps.count)"
+    case .completed: "practice complete · no physical evidence recorded"
+    case .cancelled: "practice cancelled · no physical evidence recorded"
     }
   }
 
@@ -899,7 +910,7 @@ final class OperatorWorkspace {
       return "preflight required · missing \(missing)"
     }
     if !readiness.hasSuccessfulPenUpConfirmation {
-      return "preflight required · complete Pen Up confirmation"
+      return "preflight required · complete the Pen Cycle"
     }
     return "preflight required · current pen state \(readiness.currentPenState.rawValue), Pen Up required"
   }
@@ -911,7 +922,7 @@ final class OperatorWorkspace {
     if activePreflightSequenceID != nil { return "Finish the active Motion Preflight transaction." }
     if frameMode == .live {
       guard machineSnapshot?.machine.penState == .up else {
-        return "Complete the physical Pen Up confirmation."
+        return "Complete the physical Pen Cycle and leave the pen Up."
       }
       guard drawingFramePosterior?.sidePosteriors.isEmpty == false else {
         return "Record one unambiguous cancelled-boundary observation."
@@ -1345,13 +1356,12 @@ final class OperatorWorkspace {
     }
   }
 
-  /// Called after one physical Pen Down confirmation followed by Pen Up at the
-  /// recorded start. It returns clear before admitting the anchored baseline.
+  /// Called after one successful physical Pen Cycle at the recorded start. It
+  /// returns clear before admitting the anchored baseline.
   func captureExplorationAnchor() async {
     guard frameMode == .live, explorationFlow.phase == .anchorDot,
       machineSnapshot?.machine.penState == .up,
-      preflightTransactions[.penDownConfirmation]?.state == .succeeded,
-      preflightTransactions[.penUpConfirmation]?.state == .succeeded,
+      preflightTransactions[.penCycleConfirmation]?.state == .succeeded,
       let clean = explorationCleanReference,
       let cameraActions
     else { return }
@@ -1587,9 +1597,22 @@ final class OperatorWorkspace {
     if let activePreflightSequenceID {
       return "Finish or cancel \(PreflightSequenceCatalog.definition(for: activePreflightSequenceID).title)."
     }
-    guard explorationIsActive else { return "Start Exploration first; it owns speech listening." }
-    guard currentExplorationEpisode?.rung == .motionPreflight else {
+    if physicalPreflightVoiceEnabled {
+      guard explorationIsActive else {
+        return "Start Exploration first, or turn Use Voice off for button-only operation."
+      }
+      guard currentExplorationEpisode?.rung == .motionPreflight else {
+        return "The active exploration episode is not Motion Preflight."
+      }
+      guard explorationSessionSnapshot?.input == .microphone else {
+        return "Exploration is using button input. Turn Use Voice off or reactivate its microphone."
+      }
+    } else if explorationIsActive,
+      currentExplorationEpisode?.rung != .motionPreflight
+    {
       return "The active exploration episode is not Motion Preflight."
+    } else if explorationOwnsAuthority, !explorationIsActive {
+      return "Wait for Exploration to finish changing its input."
     }
     if !motionGuardIsActive { return "Connect the plotter and activate Motion Guard first." }
     if frameMode != .live || !cameraIsLive {
@@ -1598,9 +1621,7 @@ final class OperatorWorkspace {
     switch sequenceID {
     case .boundaryNegativeX, .boundaryPositiveX, .boundaryNegativeY, .boundaryPositiveY:
       return motionUnavailableReason
-    case .penUpConfirmation:
-      return penUnavailableReason(for: .raise)
-    case .penDownConfirmation:
+    case .penCycleConfirmation:
       return penUnavailableReason(for: .lower)
     }
   }
@@ -1621,12 +1642,6 @@ final class OperatorWorkspace {
       if voiceListening { return "Voice listening is already active." }
     }
     return nil
-  }
-
-  var boundaryTeachingUnavailableReason: String? {
-    if boundaryTeachingState != .idle { return "Finish or cancel the current boundary interaction." }
-    if voiceActions == nil { return "Native voice composition is unavailable." }
-    return motionUnavailableReason
   }
 
   func boundaryPositionText(for direction: JogDirection) -> String {
@@ -2037,6 +2052,7 @@ final class OperatorWorkspace {
     explorationGeneration &+= 1
     let generation = explorationGeneration
     explorationError = nil
+    voiceError = nil
     explorationTimeline = []
     completedExplorationEpisodes = []
     currentExplorationEpisode = nil
@@ -2071,9 +2087,11 @@ final class OperatorWorkspace {
     explorationSessionSnapshot = snapshot
     switch snapshot.state {
     case .listening:
-      voiceListening = true
+      voiceListening = input == .microphone
       voiceAuthorizationState = snapshot.voice?.authorization
         ?? (input == .injected ? .notDetermined : voiceAuthorizationState)
+      voiceInputDeviceName = snapshot.voice?.inputDeviceName
+      voiceInputLevel = snapshot.voice?.inputLevel ?? 0
       explorationFlow.start(authority: frameMode == .simulated ? .simulated : .live)
       appendExplorationTimeline(
         participant: frameMode == .simulated ? .simulator : .voice,
@@ -2083,9 +2101,10 @@ final class OperatorWorkspace {
           : "one persistent microphone session is active"
       )
       beginExplorationUpdates(actions: explorationActions, generation: generation)
+      beginExplorationVoiceStateUpdates(actions: explorationActions, generation: generation)
       await activateExplorationEpisode(
         rung: .motionPreflight,
-        allowedIntents: [.ready, .stop, .penIsPhysicallyUp, .penIsPhysicallyDown, .skip, .endSession],
+        allowedIntents: [.yes, .no, .stop, .endSession],
         teachingLabelKinds: [],
         stopIsCancellable: true
       )
@@ -2101,6 +2120,7 @@ final class OperatorWorkspace {
   func endExploration() async {
     guard let explorationActions else { return }
     explorationGeneration &+= 1
+    invalidateVoiceUpdates()
     explorationEventTask?.cancel()
     explorationEventTask = nil
     if let episode = currentExplorationEpisode {
@@ -2120,6 +2140,7 @@ final class OperatorWorkspace {
     await explorationActions.end()
     explorationSessionSnapshot = await explorationActions.snapshot()
     voiceListening = false
+    voiceInputLevel = 0
     explorationFlow.stop()
     explorationOperationInProgress = false
     appendExplorationTimeline(
@@ -2215,7 +2236,7 @@ final class OperatorWorkspace {
       lastVoiceActionableResultText =
         "Speech stays on while boundary motion is active; use the visible Cancel Jog control."
       return
-    case .awaitingReady:
+    case .awaitingConfirmation:
       boundaryTeachingState = .idle
       boundaryTeachingResultText = "Boundary interaction cancelled before motion."
     case .idle:
@@ -2256,8 +2277,8 @@ final class OperatorWorkspace {
     preflightTransactions[sequenceID] = transaction
     if boundaryTeachingState != .idle {
       await cancelBoundaryTeaching()
-      if case .moving = boundaryTeachingState { return }
-      if case .cancelling = boundaryTeachingState { return }
+      let motionTask = boundaryMotionTask
+      await motionTask?.value
     }
     await finishCancelledPreflight(sequenceID)
   }
@@ -2268,6 +2289,40 @@ final class OperatorWorkspace {
       await cancelPreflightRehearsal(activePreflightRehearsalID)
     }
     simulatorVoicePracticeEnabled = enabled
+    preflightError = nil
+  }
+
+  func setPhysicalPreflightVoiceEnabled(_ enabled: Bool) async {
+    guard physicalPreflightVoiceEnabled != enabled else { return }
+    if let activePreflightSequenceID {
+      await cancelPreflightSequence(activePreflightSequenceID)
+    }
+    if explorationIsActive, let explorationActions {
+      let requestedInput: ExplorationSessionInput = enabled ? .microphone : .injected
+      explorationSessionSnapshot = await explorationActions.setInput(requestedInput)
+      if let voice = explorationSessionSnapshot?.voice {
+        voiceAuthorizationState = voice.authorization
+        voiceInputDeviceName = voice.inputDeviceName
+        voiceInputLevel = voice.listeningState == .listening ? voice.inputLevel : 0
+      } else {
+        voiceInputLevel = 0
+      }
+      voiceListening = explorationSessionSnapshot?.input == .microphone
+        && explorationSessionSnapshot?.state == .listening
+      if case .some(.failed(let failure)) = explorationSessionSnapshot?.state {
+        voiceError = "Exploration voice failed: \(failure)"
+      } else {
+        voiceError = nil
+        appendExplorationTimeline(
+          participant: .operatorHuman,
+          action: enabled ? "turn Voice on" : "turn Voice off",
+          observation: enabled
+            ? "microphone reacquired; active episode identity preserved"
+            : "microphone released; active episode preserved; answer buttons remain active"
+        )
+      }
+    }
+    physicalPreflightVoiceEnabled = enabled
     preflightError = nil
   }
 
@@ -2286,6 +2341,21 @@ final class OperatorWorkspace {
       return
     }
     preflightRehearsals[sequenceID] = rehearsal
+    if simulatorVoicePracticeEnabled {
+      let started = await startPreflightRehearsalVoiceListening(
+        for: sequenceID,
+        generation: generation
+      )
+      guard preflightRehearsalIsCurrent(sequenceID, generation: generation) else { return }
+      guard started else {
+        await failPreflightRehearsal(
+          sequenceID,
+          generation: generation,
+          reason: voiceError ?? voicePermissionText
+        )
+        return
+      }
+    }
     continuePreflightRehearsal(sequenceID, generation: generation)
   }
 
@@ -2308,42 +2378,21 @@ final class OperatorWorkspace {
           let step = current.currentStep
         else { return }
 
-        if self.simulatorVoicePracticeEnabled {
-          switch step.action {
-          case .startSpeechListening:
-            let started = await self.startPreflightRehearsalVoiceListening(
-              for: sequenceID,
-              generation: generation
-            )
+        switch step.action {
+        case .askQuestion(let question):
+          if self.simulatorVoicePracticeEnabled {
+            await self.voiceActions?.speak(question.prompt)
+            self.lastSpokenFeedbackText = question.prompt
             guard self.preflightRehearsalIsCurrent(sequenceID, generation: generation)
             else { return }
-            guard started else {
-              await self.failPreflightRehearsal(
-                sequenceID,
-                generation: generation,
-                reason: self.voiceError ?? self.voicePermissionText
-              )
-              return
-            }
-
-          case .stopSpeechListening:
-            await self.stopPreflightRehearsalVoiceListening(for: sequenceID)
-            guard self.preflightRehearsalIsCurrent(sequenceID, generation: generation)
-            else { return }
-
-          case .speakPrompt(let prompt):
-            await self.voiceActions?.speak(prompt)
-            self.lastSpokenFeedbackText = prompt
-            guard self.preflightRehearsalIsCurrent(sequenceID, generation: generation)
-            else { return }
-
-          case .awaitVoice, .awaitPhysicalPenConfirmation:
-            self.preflightRehearsalTask = nil
-            return
-
-          default:
-            break
           }
+
+        case .awaitVoiceChoice, .awaitPhysicalPenConfirmation:
+          self.preflightRehearsalTask = nil
+          return
+
+        default:
+          break
         }
 
         do {
@@ -2354,6 +2403,7 @@ final class OperatorWorkspace {
           }
           if current.state == .completed {
             self.preflightRehearsalTask = nil
+            await self.stopPreflightRehearsalVoiceListening(for: sequenceID)
             return
           }
         } catch {
@@ -2474,37 +2524,26 @@ final class OperatorWorkspace {
       let step = preflightTransactions[sequenceID]?.currentStep
     {
       switch step.action {
-      case .startSpeechListening:
-        guard explorationIsActive, currentExplorationEpisode?.rung == .motionPreflight else {
-          await failPreflight(
-            sequenceID,
-            reason: "Start one Exploration session before Motion Preflight."
-          )
-          return
+      case .askQuestion(let question):
+        lastVoiceActionableResultText = question.prompt
+        if physicalPreflightVoiceEnabled {
+          _ = await explorationActions?.speakFeedback(question.prompt)
         }
-        guard recordPreflight(.speechListeningStarted, for: sequenceID) else { return }
+        guard recordPreflight(.questionPresented, for: sequenceID) else { return }
 
-      case .stopSpeechListening:
-        guard recordPreflight(.speechListeningStopped, for: sequenceID) else { return }
-
-      case .speakPrompt(let prompt):
-        lastVoiceActionableResultText = prompt
-        let spoken = "Motion Preflight is ready. Follow the displayed instruction."
-        _ = await explorationActions?.speakFeedback(spoken)
-        guard recordPreflight(.promptSpoken, for: sequenceID) else { return }
-
-      case .awaitVoice(.ready):
+      case .awaitVoiceChoice:
         guard let direction = jogDirection(for: sequenceID) else {
-          await failPreflight(sequenceID, reason: "Boundary direction is unavailable.")
           return
         }
-        boundaryTeachingState = .awaitingReady(direction)
-        boundaryTeachingResultText =
-          "\(direction.shortLabel) armed. Speech is listening; say READY, then STOP at the boundary."
-        await voiceActions?.signal()
+        if case .idle = boundaryTeachingState {
+          boundaryTeachingState = .awaitingConfirmation(direction)
+          boundaryTeachingResultText =
+            "\(direction.shortLabel) armed. Answer YES to start; answer NO to wait."
+          if physicalPreflightVoiceEnabled { await voiceActions?.signal() }
+        }
         return
 
-      case .awaitVoice, .awaitPhysicalPenConfirmation:
+      case .awaitPhysicalPenConfirmation:
         return
 
       case .startBoundaryJog(let direction):
@@ -2723,39 +2762,17 @@ final class OperatorWorkspace {
   }
 
   private func finishCancelledPreflight(_ sequenceID: PreflightSequenceID) async {
-    if preflightTransactions[sequenceID]?.currentStep?.action == .stopSpeechListening {
-      _ = recordPreflight(.speechListeningStopped, for: sequenceID)
-    }
     pendingPreflightInspection = nil
     pendingPreflightCaptureBoundaryNanoseconds = nil
     lastVoiceActionableResultText =
       "Motion Preflight transaction cancelled; Exploration listening remains active."
   }
 
-  func beginBoundaryTeaching(_ direction: JogDirection) async {
-    guard boundaryTeachingUnavailableReason == nil, let voiceActions else { return }
-    if !voiceListening {
-      await startVoiceListening()
-    }
-    guard voiceListening else { return }
-    lastBoundaryStopUtteranceID = nil
-    boundaryTeachingState = .awaitingReady(direction)
-    boundaryTeachingResultText =
-      "\(direction.shortLabel) armed. Confirm the pen is physically up and clear, then say READY."
-    lastVoiceIntentText = "boundary \(direction.shortLabel) armed"
-    lastVoiceActionableResultText = boundaryTeachingResultText
-    await voiceActions.signal()
-    await publishVoiceFeedback(
-      result: boundaryTeachingResultText,
-      spoken: "Boundary interaction armed. Confirm the tool is physically up and clear, then use the displayed confirmation."
-    )
-  }
-
   func cancelBoundaryTeaching() async {
     switch boundaryTeachingState {
     case .idle:
       return
-    case .awaitingReady:
+    case .awaitingConfirmation:
       boundaryTeachingState = .idle
       boundaryTeachingResultText = "Boundary interaction cancelled before motion."
     case .moving(let direction):
@@ -3190,6 +3207,28 @@ final class OperatorWorkspace {
     }
   }
 
+  func refreshVoiceState() async {
+    guard !hasShutdown else { return }
+    if explorationOwnsAuthority, let explorationActions {
+      let session = await explorationActions.snapshot()
+      explorationSessionSnapshot = session
+      if let snapshot = session.voice {
+        voiceAuthorizationState = snapshot.authorization
+        voiceInputDeviceName = snapshot.inputDeviceName
+        voiceInputLevel = snapshot.listeningState == .listening ? snapshot.inputLevel : 0
+      } else {
+        voiceInputLevel = 0
+      }
+      voiceListening = session.input == .microphone && session.state == .listening
+      return
+    }
+    guard let voiceActions else { return }
+    let snapshot = await voiceActions.snapshot()
+    voiceAuthorizationState = snapshot.authorization
+    voiceInputDeviceName = snapshot.inputDeviceName
+    voiceInputLevel = snapshot.listeningState == .listening ? snapshot.inputLevel : 0
+  }
+
   func stopObserving() {
     frameTask?.cancel()
     frameTask = nil
@@ -3276,15 +3315,49 @@ final class OperatorWorkspace {
     }
   }
 
+  private func beginExplorationVoiceStateUpdates(
+    actions: ExplorationActions,
+    generation: UInt64
+  ) {
+    invalidateVoiceUpdates()
+    let listenerGeneration = voiceListenerGeneration
+    voiceStateTask = Task { [weak self] in
+      while !Task.isCancelled {
+        let session = await actions.snapshot()
+        guard !Task.isCancelled, let self, !self.hasShutdown,
+          self.explorationGeneration == generation,
+          self.voiceListenerGeneration == listenerGeneration
+        else { return }
+        self.explorationSessionSnapshot = session
+        if let voice = session.voice {
+          self.receiveVoiceSnapshot(voice, listenerGeneration: listenerGeneration)
+        } else {
+          self.voiceListening = false
+          self.voiceInputLevel = 0
+        }
+        guard session.state == .listening else { return }
+        try? await Task.sleep(nanoseconds: 250_000_000)
+      }
+    }
+  }
+
   private func receiveExplorationEvent(_ event: ExplorationSessionEvent) async {
     switch event {
     case .stateChanged(let state):
       explorationSessionSnapshot = await explorationActions?.snapshot()
+      if let voice = explorationSessionSnapshot?.voice {
+        voiceAuthorizationState = voice.authorization
+        voiceInputDeviceName = voice.inputDeviceName
+        voiceInputLevel = voice.listeningState == .listening ? voice.inputLevel : 0
+      } else {
+        voiceInputLevel = 0
+      }
       switch state {
       case .listening:
-        voiceListening = true
+        voiceListening = explorationSessionSnapshot?.input == .microphone
       case .inactive, .ending:
         voiceListening = false
+        voiceInputLevel = 0
       case .starting:
         break
       case .failed(let failure):
@@ -3618,18 +3691,22 @@ final class OperatorWorkspace {
   ) {
     guard listenerGeneration == voiceListenerGeneration else { return }
     voiceAuthorizationState = snapshot.authorization
+    voiceInputDeviceName = snapshot.inputDeviceName
+    voiceInputLevel = snapshot.listeningState == .listening ? snapshot.inputLevel : 0
     switch snapshot.listeningState {
     case .listening:
       voiceListening = true
     case .stopped, .requestingPermission:
       let lostActiveListener = voiceListening
       voiceListening = false
+      voiceInputLevel = 0
       if lostActiveListener {
         failClosedPreflightRehearsalAfterSpeechLoss("Speech listening stopped unexpectedly.")
         failClosedBoundaryAfterSpeechLoss("Speech listening stopped unexpectedly.")
       }
     case .failed(let error):
       voiceListening = false
+      voiceInputLevel = 0
       voiceError = error.actionableDescription
       lastVoiceActionableResultText = error.actionableDescription
       failClosedPreflightRehearsalAfterSpeechLoss(error.actionableDescription)
@@ -3663,7 +3740,7 @@ final class OperatorWorkspace {
     switch boundaryTeachingState {
     case .idle:
       return
-    case .awaitingReady:
+    case .awaitingConfirmation:
       boundaryTeachingState = .idle
       boundaryTeachingResultText = "Boundary interaction cancelled: \(reason)"
     case .moving(let direction):
@@ -3693,30 +3770,17 @@ final class OperatorWorkspace {
     if simulatorVoicePracticeEnabled,
       let sequenceID = activePreflightRehearsalID,
       preflightRehearsalListeningID == sequenceID,
-      var rehearsal = preflightRehearsals[sequenceID],
+      let rehearsal = preflightRehearsals[sequenceID],
       let context = rehearsal.voiceContext,
       let response = PreflightVoiceResponseParser().parse(transcript.text, in: context)
     {
-      switch response {
-      case .ready, .penIsPhysicallyUp, .penIsPhysicallyDown:
-        guard transcript.isFinal else { return }
-      case .stop:
+      if response == .stop {
         guard lastPreflightRehearsalUtteranceID != transcript.utteranceID else { return }
         lastPreflightRehearsalUtteranceID = transcript.utteranceID
+      } else {
+        guard transcript.isFinal else { return }
       }
-      let generation = preflightRehearsalGeneration
-      do {
-        try rehearsal.advance()
-        preflightRehearsals[sequenceID] = rehearsal
-        lastVoiceIntentText = "Simulator rehearsal accepted \(response.exactPhrase)"
-        continuePreflightRehearsal(sequenceID, generation: generation)
-      } catch {
-        await failPreflightRehearsal(
-          sequenceID,
-          generation: generation,
-          reason: actionableDescription(error)
-        )
-      }
+      await answerPreflightRehearsal(response, for: sequenceID, source: "voice")
       return
     }
 
@@ -3725,87 +3789,120 @@ final class OperatorWorkspace {
     {
       guard let response = PreflightVoiceResponseParser().parse(transcript.text, in: context)
       else { return }
-      switch response {
-      case .ready:
-        guard transcript.isFinal, boundaryMotionTask == nil else { return }
-        lastVoiceIntentText = "Motion Preflight accepted READY"
-        guard recordPreflight(.exactVoiceResponseAccepted(.ready), for: sequenceID) else { return }
-        await advancePreflightSequence(sequenceID)
-
-      case .stop:
+      if response == .stop {
         guard lastBoundaryStopUtteranceID != transcript.utteranceID,
           boundaryCancelTask == nil
         else { return }
         lastBoundaryStopUtteranceID = transcript.utteranceID
-        lastVoiceIntentText = "Motion Preflight accepted STOP"
-        guard recordPreflight(.exactVoiceResponseAccepted(.stop), for: sequenceID) else { return }
-        await advancePreflightSequence(sequenceID)
+      } else {
+        guard transcript.stability != .unstablePartial else { return }
+      }
+      await answerPreflightSequence(response, for: sequenceID, source: "voice")
+      return
+    }
 
-      case .penIsPhysicallyUp:
-        guard transcript.isFinal else { return }
-        lastVoiceIntentText = "operator confirmed pen physically up"
-        pendingPreflightCaptureBoundaryNanoseconds = nowNanoseconds()
-        guard recordPreflight(
-          .physicalPenConfirmed(
-            .up,
-            response: .penIsPhysicallyUp,
-            operatorSummary: "Exact voice confirmation accepted."
-          ),
-          for: sequenceID
-        ) else { return }
-        await advancePreflightSequence(sequenceID)
+    lastVoiceIntentText = "none · no active Motion Preflight question"
+  }
 
-      case .penIsPhysicallyDown:
-        guard transcript.isFinal else { return }
-        lastVoiceIntentText = "operator confirmed pen physically down"
-        pendingPreflightCaptureBoundaryNanoseconds = nowNanoseconds()
-        guard recordPreflight(
-          .physicalPenConfirmed(
-            .down,
-            response: .penIsPhysicallyDown,
-            operatorSummary: "Exact voice confirmation accepted."
-          ),
-          for: sequenceID
-        ) else { return }
-        await advancePreflightSequence(sequenceID)
+  func answerPreflightSequence(
+    _ response: PreflightVoiceResponse,
+    for sequenceID: PreflightSequenceID
+  ) async {
+    await answerPreflightSequence(response, for: sequenceID, source: "button")
+  }
+
+  func answerPreflightRehearsal(
+    _ response: PreflightVoiceResponse,
+    for sequenceID: PreflightSequenceID
+  ) async {
+    await answerPreflightRehearsal(response, for: sequenceID, source: "button")
+  }
+
+  private func answerPreflightSequence(
+    _ response: PreflightVoiceResponse,
+    for sequenceID: PreflightSequenceID,
+    source: String
+  ) async {
+    guard activePreflightSequenceID == sequenceID,
+      let step = preflightTransactions[sequenceID]?.currentStep,
+      let question = step.voiceQuestion,
+      question.choices.contains(response)
+    else { return }
+
+    guard question.advancingResponses.contains(response) else {
+      lastVoiceIntentText = "Motion Preflight received \(response.exactPhrase) by \(source)"
+      lastVoiceActionableResultText = question.negativeAcknowledgement
+      if physicalPreflightVoiceEnabled {
+        _ = await explorationActions?.speakFeedback(question.negativeAcknowledgement)
+      }
+      if case .awaitPhysicalPenConfirmation(.down, _) = step.action {
+        await requestPenActuation(.raise)
+        await failPreflight(
+          sequenceID,
+          reason: "Pen Down was not confirmed. The app commanded Pen Up and ended this cycle."
+        )
       }
       return
     }
 
-    let parser = BoundaryVoiceCommandParser()
-    switch boundaryTeachingState {
-    case .idle:
-      lastVoiceIntentText = "none · no boundary interaction armed"
-
-    case .awaitingReady(let direction):
-      guard transcript.isFinal,
-        parser.parse(transcript.text, in: .awaitingReady) == .ready,
-        boundaryMotionTask == nil
-      else { return }
-      lastVoiceIntentText = "boundary \(direction.shortLabel) ready"
-      boundaryMotionTask = Task { [weak self] in
-        guard let self else { return }
-        await self.executeBoundaryMotion(direction)
-        self.boundaryMotionTask = nil
+    lastVoiceIntentText =
+      "Motion Preflight accepted \(response.exactPhrase) by \(source)"
+    switch step.action {
+    case .awaitVoiceChoice:
+      guard recordPreflight(.exactVoiceResponseAccepted(response), for: sequenceID) else {
+        return
       }
-
-    case .moving(let direction):
-      guard parser.parse(transcript.text, in: .moving) == .stop,
-        lastBoundaryStopUtteranceID != transcript.utteranceID,
-        boundaryCancelTask == nil
-      else { return }
-      lastBoundaryStopUtteranceID = transcript.utteranceID
-      boundaryTeachingState = .cancelling(direction)
-      boundaryTeachingResultText = "Jog cancellation requested. Waiting for final controller position."
-      lastVoiceIntentText = "boundary \(direction.shortLabel) interruption"
-      boundaryCancelTask = Task { [weak self] in
-        guard let self else { return }
-        await self.requestJogCancel()
-        self.boundaryCancelTask = nil
-      }
-
-    case .cancelling:
+    case .awaitPhysicalPenConfirmation(let state, _):
+      pendingPreflightCaptureBoundaryNanoseconds = nowNanoseconds()
+      guard recordPreflight(
+        .physicalPenConfirmed(
+          state,
+          response: response,
+          operatorSummary: "\(response.exactPhrase) selected by \(source)."
+        ),
+        for: sequenceID
+      ) else { return }
+    default:
       return
+    }
+    await advancePreflightSequence(sequenceID)
+  }
+
+  private func answerPreflightRehearsal(
+    _ response: PreflightVoiceResponse,
+    for sequenceID: PreflightSequenceID,
+    source: String
+  ) async {
+    guard var rehearsal = preflightRehearsals[sequenceID],
+      rehearsal.state == .running,
+      let question = rehearsal.currentStep?.voiceQuestion,
+      question.choices.contains(response)
+    else { return }
+
+    guard question.advancingResponses.contains(response) else {
+      lastVoiceIntentText =
+        "Simulator practice received \(response.exactPhrase) by \(source)"
+      lastVoiceActionableResultText = question.negativeAcknowledgement
+      if simulatorVoicePracticeEnabled {
+        await voiceActions?.speak(question.negativeAcknowledgement)
+        lastSpokenFeedbackText = question.negativeAcknowledgement
+      }
+      return
+    }
+
+    let generation = preflightRehearsalGeneration
+    do {
+      try rehearsal.advance()
+      preflightRehearsals[sequenceID] = rehearsal
+      lastVoiceIntentText =
+        "Simulator practice accepted \(response.exactPhrase) by \(source)"
+      continuePreflightRehearsal(sequenceID, generation: generation)
+    } catch {
+      await failPreflightRehearsal(
+        sequenceID,
+        generation: generation,
+        reason: actionableDescription(error)
+      )
     }
   }
 
@@ -3827,13 +3924,14 @@ final class OperatorWorkspace {
             boundaryTeachingResultText =
               "Moving \(direction.shortLabel). The active Motion Preflight transaction now accepts STOP."
             if let sequenceID = activePreflightSequenceID {
-              _ = recordPreflight(
+              let recorded = recordPreflight(
                 .boundaryJogStarted(
                   preflightBoundaryDirection(from: direction),
                   controllerSummary: "Closed jog accepted and controller reported moving."
                 ),
                 for: sequenceID
               )
+              if recorded { await advancePreflightSequence(sequenceID) }
             }
             await voiceActions?.signal()
             break
@@ -3918,7 +4016,7 @@ final class OperatorWorkspace {
   }
 
   private func makeBoundaryJogRequest(_ direction: JogDirection) -> RelativeJogRequest? {
-    guard boundaryTeachingState == .awaitingReady(direction),
+    guard boundaryTeachingState == .awaitingConfirmation(direction),
       motionUnavailableReason == nil,
       let feed = inputNumber(feedText), feed > 0
     else {
@@ -3954,7 +4052,7 @@ final class OperatorWorkspace {
     case .boundaryPositiveX: .xPositive
     case .boundaryNegativeY: .yNegative
     case .boundaryPositiveY: .yPositive
-    case .penUpConfirmation, .penDownConfirmation: nil
+    case .penCycleConfirmation: nil
     }
   }
 
@@ -3980,8 +4078,8 @@ final class OperatorWorkspace {
 
   private func publishVoiceFeedback(result: String, spoken: String) async {
     guard !hasShutdown else { return }
-    let commandFreeSpoken = commandFreeSpokenFeedback(spoken)
     lastVoiceActionableResultText = result
+    let commandFreeSpoken = commandFreeSpokenFeedback(spoken)
     lastSpokenFeedbackText = commandFreeSpoken
     if explorationIsActive {
       _ = await explorationActions?.speakFeedback(commandFreeSpoken)
@@ -4063,7 +4161,7 @@ final class OperatorWorkspace {
       lastVoiceActionableResultText =
         "voice listening stopped because preflight authority changed"
     }
-    selectedPreflightSequenceID = .penUpConfirmation
+    selectedPreflightSequenceID = .penCycleConfirmation
     preflightTransactions = [:]
     preflightError = nil
     drawingFramePosterior = nil
@@ -4083,11 +4181,11 @@ final class OperatorWorkspace {
       preflightTransactions[sequenceID] = transaction
     }
 
-    if case .awaitingReady(let direction) = boundaryTeachingState,
+    if case .awaitingConfirmation(let direction) = boundaryTeachingState,
       boundaryMotionTask != nil
     {
       while boundaryMotionTask != nil,
-        boundaryTeachingState == .awaitingReady(direction)
+        boundaryTeachingState == .awaitingConfirmation(direction)
       {
         if let snapshot = await machineActions?.snapshot(),
           snapshot.machine.connection == .moving

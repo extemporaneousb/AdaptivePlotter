@@ -1,6 +1,6 @@
 # Current Implementation Status
 
-Status date: 2026-08-07
+Status date: 2026-08-08
 Target: this Mac and attached plotter only
 
 The canonical product purpose and training procedure are in
@@ -37,17 +37,30 @@ Speech is owned by one persistent `ExplorationSession` started and ended from
 the Learning window. It keeps one microphone/recognizer lifetime across Motion
 Preflight, Armature Guidance, and Isolated Line episodes; episode completion or
 cancellation changes contextual grammar without stopping listening. There is no
-separate speech toggle. Permission-free injected simulator speech uses the same
-routing boundary. Every nonempty operator hypothesis interrupts spoken feedback
-before parsing, and stable partial `STOP` is accepted once per utterance only in
-a cancellable active context. Each Motion Preflight sequence still shows its
-participant/action/event timeline and accepts only the exact phrase required by
-the current step.
-`READY` starts one closed internal boundary-search jog. Exact `STOP` is accepted
-only while that jog is moving and requests GRBL Jog Cancel. Pen confirmations
-pair the spoken physical observation with an exact immutable camera frame
-without claiming that the camera proves height. Wrong-context, ambient, and
-compound phrases are rejected rather than partially executed.
+second recognizer owned by Motion Preflight. Permission-free injected simulator
+speech uses the same routing boundary. Every nonempty operator hypothesis
+interrupts spoken feedback before parsing, and stable partial `STOP` is accepted
+once per utterance only in a cancellable active context.
+
+Motion Preflight presents contextual questions and the complete set of answer
+buttons for each current step. **Use Voice** is optional: when enabled, the
+persistent session reads the same question and recognizes the same short
+choices; turning it off switches the same active episode to injected/button
+input and releases the microphone, while the physical answer buttons remain
+usable. Re-enabling it reacquires microphone input without replacing the
+session or episode. The surface shows `LISTENING`, the active
+system input device, and a live 0...1 input-energy meter that is explicitly not
+recognition confidence.
+
+There are four boundary sequences and one Pen Cycle. Boundary prompts use
+`YES`/`NO`, plus `STOP` during active motion; only `YES` or `STOP` can request
+the typed cancellation path. The Pen Cycle asks whether the pen is initially
+up, whether it is clear to lower, whether it is down after the settled lower
+command, then raises and asks whether it is up. On-screen choices and speech
+use one handler, so they cannot diverge in controller authority. Pen-state
+answers remain operator observations paired with exact immutable camera frames;
+the camera is not claimed to prove height. Wrong-context, ambient, and compound
+phrases are rejected rather than partially executed.
 
 The session has a closed contextual reflex grammar and a separate teaching-label
 path for visibility, shape features, rankings, and reward. Its in-memory
@@ -65,6 +78,14 @@ permission-free injected speech; on selects the real microphone. The full
 simulator runner has no `MachineActions` path, and automated coverage proves it
 invokes no controller closure. Its frames and outcomes remain simulated and
 cannot satisfy physical evidence or update a physical model.
+
+The Learning panel also exposes **Practice Voice (SIMULATED)** directly. It
+opens the same question-and-choice timeline without physical authority; Voice
+practice reads each question and accepts the displayed choices, while turning
+Voice off leaves button-only practice. Completing or cancelling this standalone
+practice stops its microphone. The practice path cannot touch `MachineActions`,
+record physical evidence, satisfy a live episode observation, update the
+drawing-frame posterior, or affect motion eligibility.
 
 A boundary side is recorded only when cancellation resolves at Idle as
 `MotionOutcome.cancelled(finalPosition:)`. Current code records the final
@@ -265,10 +286,10 @@ TCC attribution.
 - SIMULATED mode cannot reach the machine action surface for jog or pen commands.
   Ordinary LIVE jog remains camera-independent when observation recording is off.
 - Native Speech/AVAudioEngine input and AVSpeechSynthesizer output remain inside
-  one process. Transcript delivery is newest-only. The application supplies the
-  parser context: only `READY` in `awaitingReady` and `STOP` in `moving` can
-  advance the button-armed boundary interaction. Speech contains no ambient
-  axis, pen, status, raw-controller, or arbitrary language-to-action authority.
+  one process. Transcript delivery is newest-only. Motion Preflight accepts only
+  a displayed choice for its current question; the same choice may arrive from
+  speech or a button. Speech contains no ambient axis, pen, status,
+  raw-controller, or arbitrary language-to-action authority.
 - The signed local bundle declares camera, microphone, and speech-recognition
   purposes. Recognition is currently configured to require Apple's on-device
   path; failure is shown directly rather than silently switching to a network
@@ -404,11 +425,13 @@ signed app bundle.
 ## Not yet implemented or not yet physically verified
 
 - Live measurement of preview and auto-analysis throughput/latency on this Mac.
-- Physical validation of the context-bound `READY`/`STOP` boundary workflow,
-  its audible turn-taking, Jog Cancel timing, and final-MPos boundary records.
-- Signed-bundle physical verification of persistent microphone ownership,
-  barge-in, spoken armature labels, and measured end-to-end voice latency. No
-  OpenAI or network speech dependency is selected.
+- Physical validation of the question-guided boundary and Pen Cycle workflows,
+  optional Voice turn-taking, on-device microphone meter, Jog Cancel timing,
+  and final-MPos boundary records.
+- Signed-bundle physical verification of persistent ExplorationSession
+  microphone ownership, barge-in, contextual reflex routing, teaching labels,
+  and measured end-to-end latency. No OpenAI or network speech dependency is
+  selected.
 - FaceTime-camera operator-presence observation. It is not a motion gate, and a
   second camera owner or identity/video-recording subsystem has not been added.
 - Physical Armature Guidance observations and acceptance of one real clear pose.
