@@ -29,6 +29,7 @@ public struct MachineSnapshot: Codable, Hashable, Sendable {
   public let lastPenOutcome: PenOutcome?
   public let jogCancellationInFlight: Bool
   public let lastJogCancelOutcome: JogCancelOutcome?
+  public let controllerAxisFeedLimits: ControllerAxisFeedLimits?
 
   public init(
     connection: MachineConnectionState,
@@ -46,7 +47,8 @@ public struct MachineSnapshot: Codable, Hashable, Sendable {
     lastDrawingStrokeOutcome: DrawingStrokeOutcome? = nil,
     lastPenOutcome: PenOutcome? = nil,
     jogCancellationInFlight: Bool = false,
-    lastJogCancelOutcome: JogCancelOutcome? = nil
+    lastJogCancelOutcome: JogCancelOutcome? = nil,
+    controllerAxisFeedLimits: ControllerAxisFeedLimits? = nil
   ) {
     self.connection = connection
     self.link = link
@@ -64,6 +66,7 @@ public struct MachineSnapshot: Codable, Hashable, Sendable {
     self.lastPenOutcome = lastPenOutcome
     self.jogCancellationInFlight = jogCancellationInFlight
     self.lastJogCancelOutcome = lastJogCancelOutcome
+    self.controllerAxisFeedLimits = controllerAxisFeedLimits
   }
 }
 
@@ -126,11 +129,6 @@ public actor MachineController {
     let maximumYFeedMMPerMinute: Double
     let xAccelerationMMPerSecondSquared: Double
     let yAccelerationMMPerSecondSquared: Double
-  }
-
-  private struct ControllerAxisFeedLimits: Equatable, Sendable {
-    let maximumXFeedMMPerMinute: Double
-    let maximumYFeedMMPerMinute: Double
   }
 
   private let link: any MachineLink
@@ -238,7 +236,8 @@ public actor MachineController {
       lastDrawingStrokeOutcome: lastDrawingStrokeOutcome,
       lastPenOutcome: lastPenOutcome,
       jogCancellationInFlight: jogCancellationProgress != nil,
-      lastJogCancelOutcome: lastJogCancelOutcome
+      lastJogCancelOutcome: lastJogCancelOutcome,
+      controllerAxisFeedLimits: controllerAxisFeedLimits
     )
   }
 
@@ -473,8 +472,8 @@ public actor MachineController {
       )
     }
 
-    let preflightDeadline = addingClamped(clock.nowNanoseconds(), queryTimeoutNanoseconds)
-    switch await requestMotionStatus(deadline: preflightDeadline) {
+    let admissionDeadline = addingClamped(clock.nowNanoseconds(), queryTimeoutNanoseconds)
+    switch await requestMotionStatus(deadline: admissionDeadline) {
     case .status(let report):
       apply(report)
       if let refusal = validateFreshControllerStatus() {
@@ -485,7 +484,7 @@ public actor MachineController {
       await closeAndInvalidateKnowledge()
       return finishMotionExecution(
         request: request,
-        outcome: .refused(.freshStatusUnavailable(Self.preflightFailureDescription(reason)))
+        outcome: .refused(.freshStatusUnavailable(Self.admissionFailureDescription(reason)))
       )
     }
 
@@ -658,8 +657,8 @@ public actor MachineController {
       )
     }
 
-    let preflightDeadline = addingClamped(clock.nowNanoseconds(), queryTimeoutNanoseconds)
-    switch await requestMotionStatus(deadline: preflightDeadline) {
+    let admissionDeadline = addingClamped(clock.nowNanoseconds(), queryTimeoutNanoseconds)
+    switch await requestMotionStatus(deadline: admissionDeadline) {
     case .status(let report):
       apply(report)
       if let refusal = validateFreshControllerStatus() {
@@ -674,7 +673,7 @@ public actor MachineController {
       return finishDrawingStroke(
         request: request,
         outcome: .refused(
-          .freshStatusUnavailable(Self.preflightFailureDescription(reason))
+          .freshStatusUnavailable(Self.admissionFailureDescription(reason))
         )
       )
     }
@@ -863,8 +862,8 @@ public actor MachineController {
       )
     }
 
-    let preflightDeadline = addingClamped(clock.nowNanoseconds(), queryTimeoutNanoseconds)
-    switch await requestMotionStatus(deadline: preflightDeadline) {
+    let admissionDeadline = addingClamped(clock.nowNanoseconds(), queryTimeoutNanoseconds)
+    switch await requestMotionStatus(deadline: admissionDeadline) {
     case .status(let report):
       apply(report)
       if let refusal = validateFreshPenStatus(command) {
@@ -875,7 +874,7 @@ public actor MachineController {
       await closeAndInvalidateKnowledge()
       return finishPen(
         command: command,
-        outcome: .refused(.freshStatusUnavailable(Self.preflightFailureDescription(reason)))
+        outcome: .refused(.freshStatusUnavailable(Self.admissionFailureDescription(reason)))
       )
     }
 
@@ -1268,7 +1267,7 @@ public actor MachineController {
     }
   }
 
-  private static func preflightFailureDescription(_ reason: MotionAmbiguity) -> String {
+  private static func admissionFailureDescription(_ reason: MotionAmbiguity) -> String {
     switch reason {
     case .disconnected:
       return "controller disconnected during the fresh status query"

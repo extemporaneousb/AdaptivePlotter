@@ -1,7 +1,9 @@
 import Foundation
 import PlotterModel
 
-public struct ExplorationSessionID: RawRepresentable, Hashable, Sendable, CustomStringConvertible {
+public struct LearningEvidenceSessionID: RawRepresentable, Hashable, Sendable,
+  CustomStringConvertible
+{
   public let rawValue: String
 
   public init(rawValue: String) {
@@ -30,12 +32,9 @@ public struct ExplorationEpisodeID: RawRepresentable, Hashable, Sendable, Custom
 }
 
 public enum ExplorationLearningRung: String, CaseIterable, Hashable, Sendable {
-  case motionPreflight
-  case armatureGuidance
-  case isolatedInk
-  case strokeShapePreference
-  case boundedAutonomy
-  case continuousDrawing
+  case humanGuidedDiscovery
+  case observedDrawingTrial
+  case adaptiveDrawing
 }
 
 public enum ExplorationSource: String, Hashable, Sendable {
@@ -52,9 +51,6 @@ public enum ExplorationDataSplit: String, Hashable, Sendable {
 
 public enum ExplorationEpisodeTermination: Hashable, Sendable {
   case completed
-  case cancelled(utteranceID: UUID?)
-  case skipped(utteranceID: UUID?)
-  case endedSession(utteranceID: UUID?)
   case failed(String)
   case ambiguous(String)
 }
@@ -233,70 +229,10 @@ public struct ExplorationReward: Hashable, Sendable {
   }
 }
 
-public struct ExplorationSpeechRecord: Hashable, Sendable {
-  public let utteranceID: UUID
-  public let transcriptSequence: UInt64
-  public let transcript: String
-  public let stability: VoiceHypothesisStability
-  public let hypothesisNanoseconds: UInt64
-  public let acceptedNanoseconds: UInt64
-  public var feedbackNanoseconds: UInt64?
-  public let acceptance: ExplorationSpeechAcceptance
-
-  public init(
-    utteranceID: UUID,
-    transcriptSequence: UInt64,
-    transcript: String,
-    stability: VoiceHypothesisStability,
-    hypothesisNanoseconds: UInt64,
-    acceptedNanoseconds: UInt64,
-    feedbackNanoseconds: UInt64? = nil,
-    acceptance: ExplorationSpeechAcceptance
-  ) {
-    self.utteranceID = utteranceID
-    self.transcriptSequence = transcriptSequence
-    self.transcript = transcript
-    self.stability = stability
-    self.hypothesisNanoseconds = hypothesisNanoseconds
-    self.acceptedNanoseconds = acceptedNanoseconds
-    self.feedbackNanoseconds = feedbackNanoseconds
-    self.acceptance = acceptance
-  }
-
-  public init(_ receipt: AcceptedExplorationIntent) {
-    self.init(
-      utteranceID: receipt.transcript.utteranceID,
-      transcriptSequence: receipt.transcript.sequence,
-      transcript: receipt.transcript.text,
-      stability: receipt.transcript.stability,
-      hypothesisNanoseconds: receipt.timing.hypothesisNanoseconds,
-      acceptedNanoseconds: receipt.timing.acceptedNanoseconds,
-      acceptance: .intent(receipt.intent)
-    )
-  }
-
-  public init(_ receipt: AcceptedExplorationTeachingLabel) {
-    self.init(
-      utteranceID: receipt.transcript.utteranceID,
-      transcriptSequence: receipt.transcript.sequence,
-      transcript: receipt.transcript.text,
-      stability: receipt.transcript.stability,
-      hypothesisNanoseconds: receipt.timing.hypothesisNanoseconds,
-      acceptedNanoseconds: receipt.timing.acceptedNanoseconds,
-      acceptance: .teachingLabel(receipt.label.classification)
-    )
-  }
-
-  public mutating func attachFeedback(_ receipt: ExplorationFeedbackReceipt) {
-    guard receipt.onsetNanoseconds > acceptedNanoseconds else { return }
-    feedbackNanoseconds = receipt.onsetNanoseconds
-  }
-}
-
 /// One current-slice, in-memory learning record. It deliberately has no
 /// persistence or replay behavior; camera byte export remains camera-owned.
 public struct ExplorationEpisode: Hashable, Sendable {
-  public let sessionID: ExplorationSessionID
+  public let sessionID: LearningEvidenceSessionID
   public let id: ExplorationEpisodeID
   public let rung: ExplorationLearningRung
   public let source: ExplorationSource
@@ -304,7 +240,6 @@ public struct ExplorationEpisode: Hashable, Sendable {
   public let startedNanoseconds: UInt64
 
   public var termination: ExplorationEpisodeTermination?
-  public var speech: [ExplorationSpeechRecord]
   public var candidateActions: [ExplorationActionCandidate]
   public var policySelection: ExplorationPolicySelection?
   public var proposedAction: ExplorationActionSummary?
@@ -319,7 +254,7 @@ public struct ExplorationEpisode: Hashable, Sendable {
   public var reward: ExplorationReward?
 
   public init(
-    sessionID: ExplorationSessionID,
+    sessionID: LearningEvidenceSessionID,
     id: ExplorationEpisodeID = ExplorationEpisodeID(),
     rung: ExplorationLearningRung,
     source: ExplorationSource,
@@ -333,7 +268,6 @@ public struct ExplorationEpisode: Hashable, Sendable {
     self.split = split
     self.startedNanoseconds = startedNanoseconds
     termination = nil
-    speech = []
     candidateActions = []
     policySelection = nil
     proposedAction = nil

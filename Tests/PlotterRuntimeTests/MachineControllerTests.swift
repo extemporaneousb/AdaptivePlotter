@@ -831,7 +831,7 @@ struct RelativeJogTests {
     }
   }
 
-  @Test("preflight discards stale buffered Idle before requesting current status")
+  @Test("admission discards stale buffered Idle before requesting current status")
   func staleBufferedIdleCannotAuthorizeJog() async throws {
     let request = try jog(dx: 1, dy: 0, feed: 60)
     let cases: [(String, MotionRefusal)] = [
@@ -860,7 +860,7 @@ struct RelativeJogTests {
     }
   }
 
-  @Test("pending-input discard failure closes preflight without status or jog writes")
+  @Test("pending-input discard failure closes admission without status or jog writes")
   func pendingInputDiscardFailure() async throws {
     let request = try jog(dx: 1, dy: 0, feed: 60)
     let ready = try await readyController()

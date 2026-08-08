@@ -163,7 +163,7 @@ public struct ArmatureEstimate: Hashable, Sendable {
 
 /// A coarse four-sided image-space frame inferred from the measured top and
 /// right sides. The unobserved bottom and left sides are a parallelogram prior,
-/// not direct pixel measurements or a machine-space calibration.
+/// not direct pixel measurements or a machine-to-camera registration.
 public struct DrawingFrameEstimate: Hashable, Sendable {
   public let geometry: Polyline<CameraPixelSpace>
   public let confidence: Double

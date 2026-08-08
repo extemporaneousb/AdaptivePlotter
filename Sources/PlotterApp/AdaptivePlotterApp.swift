@@ -8,8 +8,7 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
   let workspace = OperatorWorkspace(
     machineActions: MachineSessionComposition.actions,
     cameraActions: CameraComposition.actions,
-    voiceActions: VoiceComposition.actions,
-    explorationActions: VoiceComposition.explorationActions
+    announcementActions: SpeechComposition.actions
   )
   private var terminationTask: Task<Void, Never>?
   private var terminationDeadlineTask: Task<Void, Never>?
@@ -77,55 +76,19 @@ struct AdaptivePlotterApp: App {
     }
     .windowToolbarStyle(.unifiedCompact)
 
-    Window("Learning", id: "exploration-learning") {
+    Window("Learning Path", id: "learning-path") {
       LearningWindow(workspace: applicationDelegate.workspace)
     }
     .defaultSize(width: 1_180, height: 760)
   }
 }
 
-private enum VoiceComposition {
-  private static let driver = NativeVoiceInteractionDriver(
-    recognitionPolicy: .onDeviceRequired
-  )
-  private static let speech = NativeVoiceSpeechOutput()
-  private static let exploration = ExplorationSession(driver: driver, speechOutput: speech)
+private enum SpeechComposition {
+  private static let announcer = NativeSpeechAnnouncer()
 
-  static let actions = OperatorWorkspace.VoiceActions(
-    requestAuthorization: { await driver.requestAuthorization() },
-    startListening: {
-      await driver.startListening()
-      switch await driver.snapshot().listeningState {
-      case .listening:
-        return
-      case .failed(let error):
-        throw error
-      case .stopped, .requestingPermission:
-        throw VoiceInteractionError.recognition(
-          "The recognizer did not enter the listening state."
-        )
-      }
-    },
-    stopListening: { await driver.stopListening() },
-    snapshot: { await driver.snapshot() },
-    transcripts: { await driver.transcripts() },
-    speak: { text in await speech.speak(text) },
-    stopSpeaking: { await speech.stopSpeaking() },
-    signal: { await MainActor.run { NSSound.beep() } }
-  )
-
-  static let explorationActions = OperatorWorkspace.ExplorationActions(
-    start: { input, id in await exploration.start(input: input, id: id) },
-    setInput: { input in await exploration.setInput(input) },
-    activateEpisode: { context in try await exploration.activateEpisode(context) },
-    completeEpisode: { id, termination in
-      try await exploration.completeEpisode(id, termination: termination)
-    },
-    ingest: { transcript in await exploration.ingest(transcript) },
-    speakFeedback: { text in await exploration.speakFeedback(text) },
-    end: { await exploration.end() },
-    snapshot: { await exploration.snapshot() },
-    events: { await exploration.events() }
+  static let actions = OperatorWorkspace.AnnouncementActions(
+    announce: { text in await announcer.announce(text) },
+    cancelForShutdown: { await announcer.cancelForShutdown() }
   )
 }
 
@@ -207,7 +170,7 @@ struct OperatorWorkspaceView: View {
     case .motion: MotionPanel(workspace: workspace)
     case .camera: CameraPanel(workspace: workspace)
     case .overlays: OverlayPanel(workspace: workspace)
-    case .learning: LearningPanel(workspace: workspace)
+    case .learningPath: LearningPanel(workspace: workspace)
     }
   }
 }
@@ -215,247 +178,8 @@ struct OperatorWorkspaceView: View {
 private struct LearningWindow: View {
   @Bindable var workspace: OperatorWorkspace
 
-  private var mode: PreflightCalibrationMode {
-    workspace.frameMode == .simulated ? .simulatorRehearsal : .physical
-  }
-
   var body: some View {
-    VStack(spacing: 0) {
-      explorationHeader
-      Divider()
-      HSplitView {
-        TabView {
-          motionPreflight
-            .tabItem { Label("Motion Preflight", systemImage: "arrow.left.and.right") }
-          armatureGuidance
-            .tabItem { Label("Armature Guidance", systemImage: "viewfinder") }
-          isolatedLine
-            .tabItem { Label("Isolated Line", systemImage: "pencil.line") }
-        }
-        .frame(minWidth: 760)
-
-        explorationTimeline
-          .frame(minWidth: 300, idealWidth: 340, maxWidth: 420)
-      }
-    }
-    .task {
-      await workspace.refreshVoiceState()
-    }
-  }
-
-  private var explorationHeader: some View {
-    HStack(spacing: 14) {
-      VStack(alignment: .leading, spacing: 3) {
-        Text("Learning")
-          .font(.title2.weight(.semibold))
-        Text("\(workspace.explorationPhaseText) · \(workspace.explorationSessionText)")
-          .font(.caption.monospaced())
-          .foregroundStyle(.secondary)
-      }
-      Spacer()
-      VStack(alignment: .trailing, spacing: 2) {
-        Text("Speech permission: \(workspace.voicePermissionText)")
-          .font(.caption)
-          .foregroundStyle(.secondary)
-        Text(workspace.explorationNextActionText)
-          .font(.caption)
-          .foregroundStyle(.secondary)
-          .lineLimit(2)
-      }
-      Button(workspace.explorationActionTitle) {
-        Task {
-          if workspace.explorationIsActive {
-            await workspace.endExploration()
-          } else {
-            await workspace.startExploration()
-          }
-        }
-      }
-      .buttonStyle(.borderedProminent)
-      .disabled(!workspace.explorationIsActive && workspace.explorationStartUnavailableReason != nil)
-    }
-    .padding(14)
-    .background(.ultraThinMaterial)
-  }
-
-  private var motionPreflight: some View {
-    VStack(spacing: 0) {
-      PreflightCalibrationView(
-      selectedSequenceID: $workspace.selectedPreflightSequenceID,
-      voiceEnabled: Binding(
-        get: {
-          mode == .simulatorRehearsal
-            ? workspace.simulatorVoicePracticeEnabled
-            : workspace.physicalPreflightVoiceEnabled
-        },
-        set: { enabled in
-          Task {
-            if mode == .simulatorRehearsal {
-              await workspace.setSimulatorVoicePracticeEnabled(enabled)
-            } else {
-              await workspace.setPhysicalPreflightVoiceEnabled(enabled)
-            }
-          }
-        }
-      ),
-      transactions: workspace.preflightTransactions,
-      rehearsals: workspace.preflightRehearsals,
-      readiness: workspace.preflightTrainingReadiness,
-      mode: mode,
-      startUnavailableReason: { sequenceID in
-        if mode == .simulatorRehearsal {
-          return workspace.preflightRehearsalStartUnavailableReason(for: sequenceID)
-        }
-        return workspace.preflightStartUnavailableReason(for: sequenceID)
-      },
-      listeningStatus: workspace.voiceListeningText,
-      voiceListening: workspace.voiceListening,
-      inputDeviceName: workspace.voiceInputDeviceName,
-      inputLevel: workspace.voiceInputLevel,
-      errorText: workspace.preflightError,
-      onStart: { sequenceID in
-        if mode == .simulatorRehearsal {
-          Task { await workspace.startPreflightRehearsal(sequenceID) }
-        } else {
-          Task { await workspace.startPreflightSequence(sequenceID) }
-        }
-      },
-      onCancel: { sequenceID in
-        if mode == .simulatorRehearsal {
-          Task { await workspace.cancelPreflightRehearsal(sequenceID) }
-        } else {
-          Task { await workspace.cancelPreflightSequence(sequenceID) }
-        }
-      },
-      onAnswer: { sequenceID, response in
-        if mode == .simulatorRehearsal {
-          Task { await workspace.answerPreflightRehearsal(response, for: sequenceID) }
-        } else {
-          Task { await workspace.answerPreflightSequence(response, for: sequenceID) }
-        }
-      }
-    )
-      HStack {
-        if workspace.frameMode == .simulated {
-          Button("Run Full Deterministic Episode") {
-            Task { await workspace.runSimulatedExploration() }
-          }
-          .buttonStyle(.borderedProminent)
-          .disabled(!workspace.explorationIsActive || workspace.explorationOperationInProgress)
-        } else {
-          Button("Continue to Armature Guidance") {
-            Task { await workspace.continueToArmatureGuidance() }
-          }
-          .buttonStyle(.borderedProminent)
-          .disabled(workspace.continueToArmatureUnavailableReason != nil)
-          if let reason = workspace.continueToArmatureUnavailableReason {
-            Text(reason).font(.caption).foregroundStyle(.orange)
-          }
-        }
-        Spacer()
-      }
-      .padding(10)
-    }
-  }
-
-  private var armatureGuidance: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: 14) {
-        Text("Armature Guidance").font(.title2.weight(.semibold))
-        Text("Each move is one explicit 1 mm Pen Up jog. The fixed region and inferred overlap are guidance only; the operator's visibility label is retained even when vision disagrees.")
-          .foregroundStyle(.secondary)
-        Text(workspace.armatureGuidanceText).font(.callout.monospaced())
-        HStack {
-          Button("X− 1 mm") { Task { await workspace.moveArmature(.negativeXOneMillimeter) } }
-          Button("X+ 1 mm") { Task { await workspace.moveArmature(.positiveXOneMillimeter) } }
-          Button("Y− 1 mm") { Task { await workspace.moveArmature(.negativeYOneMillimeter) } }
-          Button("Y+ 1 mm") { Task { await workspace.moveArmature(.positiveYOneMillimeter) } }
-        }
-        .disabled(workspace.explorationFlow.phase != .armatureGuidance || workspace.frameMode != .live)
-        HStack {
-          Text("Label exact frame:")
-          Button("Blocked") { Task { await workspace.recordArmatureVisibility(.blocked) } }
-          Button("Partial") { Task { await workspace.recordArmatureVisibility(.partial) } }
-          Button("Clear") { Task { await workspace.recordArmatureVisibility(.clear) } }
-        }
-        .disabled(workspace.explorationFlow.phase != .armatureGuidance || workspace.frameMode != .live)
-        Button("Accept Current Clear Pose") {
-          Task { await workspace.acceptCurrentArmaturePose() }
-        }
-        .buttonStyle(.borderedProminent)
-        .disabled(workspace.lastArmatureObservation?.humanLabel != .clear)
-        Text("Voice labels ‘blocked’, ‘partial’, and ‘clear’ use the same recording path; say ‘accept this pose’ only after a clear observation.")
-          .font(.caption)
-          .foregroundStyle(.secondary)
-      }
-      .padding(18)
-      .frame(maxWidth: .infinity, alignment: .leading)
-    }
-  }
-
-  private var isolatedLine: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: 14) {
-        Text("Isolated Line").font(.title2.weight(.semibold))
-        Text("One exact clean/anchor/post frame triplet. Missing ink is reported on that frame and never triggers a redraw.")
-          .foregroundStyle(.secondary)
-        HStack {
-          Button("1 · Capture Clean Reference") {
-            Task { await workspace.captureExplorationCleanReference() }
-          }
-          Button("2 · Record Current MPos as Start") {
-            workspace.recordExplorationLineStart()
-          }
-        }
-        HStack {
-          Button("3 · Return Clear and Detect Anchor") {
-            Task { await workspace.captureExplorationAnchor() }
-          }
-          Button("4 · Return to Start") {
-            Task { await workspace.prepareExplorationStrokeStart() }
-          }
-          Button("5 · Draw One 5 mm Line") {
-            Task { await workspace.runExplorationStroke() }
-          }
-          .buttonStyle(.borderedProminent)
-        }
-        .disabled(workspace.frameMode != .live || workspace.explorationOperationInProgress)
-        Text("Complete the Motion Preflight Pen Cycle at the recorded start to create the anchor before step 3. After step 4 returns Pen Up, use the explicit Motion Pen Down action before step 5.")
-          .font(.caption)
-          .foregroundStyle(.secondary)
-        GroupBox("Current observation") {
-          VStack(alignment: .leading, spacing: 6) {
-            Text(workspace.explorationEvidenceText).font(.callout.monospaced())
-            Text("Assessment: \(workspace.currentExplorationEpisode?.humanAssessment?.summary ?? "none")")
-            Text("Frame export: \(workspace.explorationExportPath ?? "not exported")")
-          }
-          .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        if let error = workspace.explorationError {
-          Text(error).font(.caption.monospaced()).foregroundStyle(.orange)
-        }
-      }
-      .padding(18)
-      .frame(maxWidth: .infinity, alignment: .leading)
-    }
-  }
-
-  private var explorationTimeline: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      Text("ACTIVE SEQUENCE").font(.caption.monospaced().bold()).foregroundStyle(.secondary)
-      Text("participant · action · observation")
-        .font(.caption2)
-        .foregroundStyle(.secondary)
-      List(workspace.explorationTimeline) { entry in
-        VStack(alignment: .leading, spacing: 3) {
-          Text(entry.participant.rawValue).font(.caption2.monospaced().bold())
-          Text(entry.action).font(.callout.weight(.medium))
-          Text(entry.observation).font(.caption).foregroundStyle(.secondary)
-        }
-        .padding(.vertical, 3)
-      }
-    }
-    .padding(10)
+    LearningPathView(workspace: workspace)
   }
 }
 
@@ -531,7 +255,7 @@ private struct CameraPanel: View {
           Button {
             Task { await workspace.stopCamera() }
           } label: {
-            Label("Stop", systemImage: "stop.fill")
+            Label("Stop Camera", systemImage: "stop.fill")
           }
           Button {
             Task { await workspace.restartCamera() }
@@ -689,17 +413,6 @@ private struct MotionPanel: View {
         .font(.subheadline.weight(.semibold))
         .foregroundStyle(.secondary)
 
-      Button(workspace.motionGuardControlTitle) {
-        Task { await workspace.performMotionGuardControlAction() }
-      }
-      .buttonStyle(.bordered)
-      .tint(workspace.motionGuardIsActive ? .orange : .green)
-      .disabled(workspace.motionGuardControlUnavailableReason != nil)
-      .help(
-        workspace.motionGuardControlUnavailableReason
-          ?? "Change Motion Guard authorization for this controller session"
-      )
-
       HStack(spacing: 8) {
         numericField("X step", text: $workspace.xStepText)
         numericField("Y step", text: $workspace.yStepText)
@@ -743,7 +456,7 @@ private struct MotionPanel: View {
       fact("Controller link", workspace.controllerConnectionText)
       fact("Controller", workspace.controllerStateText)
       fact("Motor power", workspace.motorPowerText)
-      fact("Motion Guard", workspace.motionGuardStateText)
+      fact("Motion", workspace.motionGuardIsActive ? "enabled" : "disabled")
       fact("Motion request", workspace.motionPermissionText)
       fact("MPos", workspace.machinePositionText)
       fact("Operation", workspace.currentOperationText)
@@ -761,18 +474,6 @@ private struct MotionPanel: View {
           .foregroundStyle(.orange)
       }
 
-      Button("Cancel Current Jog") {
-        Task { await workspace.requestJogCancel() }
-      }
-      .buttonStyle(.bordered)
-      .tint(.orange)
-      .disabled(workspace.jogCancelUnavailableReason != nil)
-
-      fact("Jog cancel", workspace.lastJogCancelOutcomeText)
-
-      if let reason = workspace.jogCancelUnavailableReason {
-        Text("Cancel jog: \(reason)").font(.caption).foregroundStyle(.orange)
-      }
     }
   }
 
@@ -852,63 +553,21 @@ private struct LearningPanel: View {
   var body: some View {
     SectionPanel(title: "LEARNING") {
       Text(
-        workspace.frameMode == .simulated
-          ? "Practice voice recognition with the same visible answer buttons, or turn Voice off for button-only practice. The full deterministic exploration is also available; neither path can reach the controller or create physical evidence."
-          : "One persistent speech session contains question-guided Motion Preflight, Armature Guidance, and the isolated-line episode. Preflight buttons always work; optional Voice reads each question and recognizes the same choices."
+        "The Learning Path keeps Connect, Enable Motion, discovery, drawing trials, and future adaptive work visible without turning learning progress into motion authority."
       )
       .font(.caption)
       .foregroundStyle(.secondary)
 
-      HStack {
-        Button("Open Learning") {
-          openWindow(id: "exploration-learning")
-        }
-        .buttonStyle(.borderedProminent)
-
-        if workspace.frameMode == .live {
-          Button("Open Motion Preflight") {
-            openWindow(id: "exploration-learning")
-          }
-          .disabled(!workspace.motionGuardIsActive)
-        }
+      Button("Open Learning Path") {
+        openWindow(id: "learning-path")
       }
+      .buttonStyle(.borderedProminent)
 
-      Button("Practice Voice (SIMULATED)") {
-        Task {
-          if workspace.frameMode != .simulated {
-            await workspace.switchFrameMode(.simulated)
-          }
-          guard workspace.frameMode == .simulated else { return }
-          await workspace.setSimulatorVoicePracticeEnabled(true)
-          openWindow(id: "exploration-learning")
-        }
-      }
-      .disabled(
-        workspace.frameMode != .simulated
-          && workspace.frameModeSwitchUnavailableReason != nil
-      )
-      .help("Switch to SIMULATED and practice recognition against the visible answer buttons.")
-
-      if workspace.frameMode == .simulated {
-        fact("Mode", "simulated practice · not evidence")
-        fact("Playback", workspace.preflightRehearsalStatusText)
-        fact("Practice input", workspace.simulatorVoicePracticeEnabled ? "voice + buttons" : "buttons")
-      } else {
-        fact("Readiness", workspace.motionPreflightReadinessText)
-        fact("Question input", workspace.physicalPreflightVoiceEnabled ? "voice + buttons" : "buttons")
-        fact("Microphone", workspace.voiceListeningText)
-        fact("Drawing-frame posterior", workspace.drawingFramePosteriorText)
-      }
-
-      if let error = workspace.preflightError {
-        Text(error)
-          .font(.caption.monospaced())
-          .foregroundStyle(.orange)
-          .textSelection(.enabled)
-      } else if workspace.frameMode == .live && !workspace.motionGuardIsActive {
-        Text("Connect the plotter and activate Motion Guard before opening Motion Preflight.")
-          .font(.caption)
-          .foregroundStyle(.secondary)
+      ForEach(workspace.learningPathStagePresentations) { presentation in
+        fact(
+          "\(presentation.stage.number) \(presentation.stage.title)",
+          presentation.status.rawValue
+        )
       }
 
       Divider()

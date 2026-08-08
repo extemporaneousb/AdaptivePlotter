@@ -52,6 +52,44 @@ public struct RelativeJogRequest: Codable, Hashable, Sendable {
   }
 }
 
+public struct ControllerAxisFeedLimits: Codable, Hashable, Sendable {
+  public let maximumXFeedMMPerMinute: Double
+  public let maximumYFeedMMPerMinute: Double
+
+  public init(maximumXFeedMMPerMinute: Double, maximumYFeedMMPerMinute: Double) {
+    precondition(maximumXFeedMMPerMinute.isFinite && maximumXFeedMMPerMinute > 0)
+    precondition(maximumYFeedMMPerMinute.isFinite && maximumYFeedMMPerMinute > 0)
+    self.maximumXFeedMMPerMinute = maximumXFeedMMPerMinute
+    self.maximumYFeedMMPerMinute = maximumYFeedMMPerMinute
+  }
+
+  /// Returns the conservative controller-reported ceiling for the axes that
+  /// participate in this typed path. This selects a request feed; it is not a
+  /// claim about achieved physical velocity.
+  public func applicableFeedCeiling(for delta: Vector2<MachineSpace>) -> Double? {
+    var limits: [Double] = []
+    if delta.dx != 0 { limits.append(maximumXFeedMMPerMinute) }
+    if delta.dy != 0 { limits.append(maximumYFeedMMPerMinute) }
+    return limits.min()
+  }
+}
+
+public enum FeedSelectionSource: String, Codable, Hashable, Sendable {
+  case controllerReportedCeiling
+  case existingFallback
+}
+
+public struct TravelFeedSelection: Codable, Hashable, Sendable {
+  public let requestedFeedMMPerMinute: Double
+  public let source: FeedSelectionSource
+
+  public init(requestedFeedMMPerMinute: Double, source: FeedSelectionSource) {
+    precondition(requestedFeedMMPerMinute.isFinite && requestedFeedMMPerMinute > 0)
+    self.requestedFeedMMPerMinute = requestedFeedMMPerMinute
+    self.source = source
+  }
+}
+
 /// One closed finite XY move whose admission requires the controller-commanded
 /// pen state to be Down. Ordinary carriage travel continues to use
 /// `RelativeJogRequest` and continues to require Pen Up.
@@ -174,7 +212,7 @@ extension PenRefusal {
     case .notConnected:
       return "Connect and run the passive controller probe before actuating the pen."
     case .motionGuardInactive:
-      return "Activate Motion Guard before actuating the pen."
+      return "Enable Motion before actuating the pen."
     case .controllerStateUnknown:
       return "Query the controller until its current state is known."
     case .controllerNotIdle(let state):
@@ -425,7 +463,7 @@ extension MotionRefusal {
     case .notConnected:
       return "Connect and run the passive controller probe before moving."
     case .motionGuardInactive:
-      return "Activate Motion Guard before moving."
+      return "Enable Motion before moving."
     case .controllerStateUnknown:
       return "Query the controller until its current state is known."
     case .controllerNotIdle(let state):
@@ -466,7 +504,7 @@ extension DrawingStrokeRefusal {
     case .notConnected:
       return "Connect and run the passive controller probe before drawing."
     case .motionGuardInactive:
-      return "Activate Motion Guard before drawing."
+      return "Enable Motion before drawing."
     case .controllerStateUnknown:
       return "Query the controller until its current state is known."
     case .controllerNotIdle(let state):

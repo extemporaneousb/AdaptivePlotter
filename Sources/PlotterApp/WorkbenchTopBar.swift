@@ -30,8 +30,8 @@ enum WorkbenchConnectionIndicator: CaseIterable, Hashable, Identifiable {
     case (.camera, false): "Camera Off"
     case (.plotter, true): "Plotter Connected"
     case (.plotter, false): "Plotter Disconnected"
-    case (.motionGuard, true): "Motion Ready"
-    case (.motionGuard, false): "Motion Blocked"
+    case (.motionGuard, true): "Motion Enabled"
+    case (.motionGuard, false): "Motion Disabled"
     }
   }
 }
@@ -109,7 +109,7 @@ struct WorkbenchToolbar: ToolbarContent {
             ?? "\(workspace.controllerConnectionActionTitle) the selected controller"
         )
 
-        Button("Activate Motion") {
+        Button("Enable Motion") {
           Task { await workspace.activateMotionGuard() }
         }
         .buttonStyle(.borderedProminent)
@@ -121,6 +121,18 @@ struct WorkbenchToolbar: ToolbarContent {
     ToolbarItem(placement: .primaryAction) {
       TimelineView(.periodic(from: .now, by: 0.25)) { _ in
         HStack(spacing: 12) {
+          if workspace.contextualStopPresentation != nil {
+            Button {
+              Task { await workspace.stopCurrentOperation() }
+            } label: {
+              Label("Stop", systemImage: "stop.fill")
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.red)
+            .keyboardShortcut(.cancelAction)
+            .help("Stop the current software operation")
+          }
+
           WorkbenchStatusIndicator(
             indicator: .camera,
             label: workspace.frameMode == .simulated

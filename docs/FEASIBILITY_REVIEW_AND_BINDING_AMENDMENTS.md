@@ -1,219 +1,196 @@
 # Feasibility Review and Binding Amendments
 
-Status: binding simplification of the architecture and implementation plan
-Scope: this Mac and its attached plotter only
+Status: binding product and engineering constraints
+Target: one local Mac, one attached plotter, one camera, one operator
 
 ## Precedence
 
-This document overrides any requirement elsewhere in the repository for:
-
-- full Xcode, distribution signing, notarization, sandboxing, release packaging,
-  CI, or a supported-machine matrix. The local TCC-attributable app bundle is
-  retained;
-- mandatory strict Swift concurrency or warnings-as-errors;
-- phase-wide development or landing gates;
-- separate motion and pen arms, expiring approvals, or a general execution
-  authority framework;
-- comprehensive durable replay, archival run bundles, content-addressed
-  evidence, retention/quota/tombstone policy, or algorithm re-evaluation;
-- accessibility work, a complete observability workspace, operator studies, or
-  polished diagnostics;
-- premature spline fields, generalized model-promotion machinery, bootstrap
-  statistics, or factorial physical-trial programs before the learning ladder
-  produces a concrete residual they would address.
-
-When older text conflicts with this document, choose the smaller direct local
-implementation.
+This document overrides broader or older product descriptions when they conflict
+with the direct authority and evidence rules below. The current five-stage
+Learning Path changes organization and ergonomics only. It does not replace or
+extend mechanical authority.
 
 ## Feasibility verdict
 
-The product is feasible as one local Swift application. The critical question
-is not whether a generalized adaptive-control platform can be built. It is:
+The short controller-camera-draw-observe loop is feasible as a single native
+Swift process. The application already has the required narrow owners:
 
-> Can this plotter draw a requested vector path while the local camera sees the
-> resulting ink well enough to show and, if useful, correct a simple positional
-> error?
+- `MachineController` and `RunInterpreter` for one persistent typed controller
+  session;
+- `CameraCapture` and `VisionWorker` for exact-frame capture and measurement;
+- `OperatorWorkspace` for projection and orchestration;
+- SwiftUI for one camera-first workbench and one shared Learning Path;
+- `NativeSpeechAnnouncer` for bounded advisory output only.
 
-Take as an initial assumption that a large isolated green mark on clean white
-paper can be detected. Do not create a separate vision-research project before
-trying the complete loop.
+The feasible path is empirical and incremental. It does not require entered
+coordinate envelopes, homing, firmware writes, a second backend, or a global
+workflow authority.
 
-## Action and risk posture
+## Binding operator journey
 
-This plotter is a replaceable spare-parts and 3D-printed machine with physical
-end stops. Optimize the software for fast, attributable physical experiments,
-not for eliminating every possibility of machine wear. Once the controller is
-connected and the operator activates Motion Guard, issue the smallest useful
-typed operation, observe it, and continue. A model error, missing label, or
-incomplete preflight curriculum is data; it is not a reason to disable ordinary
-motion.
+The visible journey is:
 
-Keep the power cutoff reachable and retain direct alarm, asserted-end-stop,
-disconnect, feed-capability, pen-state, in-flight ownership, and ambiguity
-checks. Do not stack readiness workflows, entered bounds, model thresholds, or
-repeated confirmations above them.
+1. Connect
+2. Enable Motion
+3. Human-Guided Discovery
+4. Observed Drawing Trials
+5. Adaptive Drawing
 
-## Minimum physical loop
+Connect and Enable Motion are current-session mechanical prerequisites. Stages
+3–5 organize work and report status; they do not authorize manual movement.
+Stage completion must never be added to the manual motion admission path.
 
-The first useful physical result is:
+The current deterministic sequences are:
 
-```text
-select controller
--> connect and activate Motion Guard
--> start one voice ExplorationSession
--> run the Motion Preflight observation consumed by this trial
--> teach one armature-clear observation pose
--> select one fixed finite test line
--> command pen up and observe clearance
--> capture a clean reference at the clear pose
--> move to and record the line-start MPos
--> create one Pen Down/Pen Up anchor dot
--> return clear and capture the anchored baseline
--> detect the anchor and return pen-up to the recorded start
--> lower pen and draw the line
--> raise pen and move to one known clear pose
--> capture a newer post-line frame after settlement
--> detect the line relative to the anchored baseline
--> display intended line, observed line, and simple error
-```
+- 3.1 Pen Interaction
+- 3.2 Boundary Discovery
+- 3.3 Clear-View Discovery
+- 4.1 Capture Clean Reference
+- 4.2 Choose Line Start
+- 4.3 Create Anchor Mark
+- 4.4 Draw Isolated Line
+- 4.5 Clear Tool and Observe Ink
+- 4.6 Compare Intended and Observed Geometry
 
-The trial succeeds as an engineering result if the app completes the sequence,
-shows what actually happened, and does not repeat an ambiguous command. The
-line does not need to meet a premature statistical acceptance program.
-
-That preflight observation is local to this trial. It is not a prerequisite for
-ordinary manual motion or unrelated camera/controller work.
-
-## Tool visibility
-
-Before the first ink observation, establish one usable clear pose and one
-bounded pen-up path to it. Use the smallest adequate representation:
-
-- one fixed observation region;
-- one conservative 2D camera-space outline or bounding box for the complete
-  pen/holder/linkage/servo assembly;
-- one fixed margin;
-- one clear pose and path.
-
-For the first line test, move pen-up to one operator-chosen pose that visibly
-clears the fixed observation region. Do not build a polygon envelope, 3D model,
-generalized clearance planner, position-dependent occlusion model, or versioned
-evidence framework unless that simple pose demonstrably fails.
-
-Failure to find a clear pose stops that drawing attempt. It does not stop camera
-work, controller work, UI work, or a different bounded experiment.
+Adaptive Drawing remains Future until multi-stroke observation and checkpoint
+learning are operational.
 
 ## Direct motion eligibility
 
-There is one operator arming action: activate Motion Guard for the connected
-controller session. There is no composite readiness workflow. Each typed action
-derives eligibility directly from facts it actually consumes: a responsive
-selected controller, no current alarm or asserted limit, activation, suitable
-pen state, and a working camera only when the action's purpose requires visual
-observation.
+Every physical request is admitted from current direct facts, then checked again
+by the controller owner. Applicable facts include:
 
-Do not require completed preflight sequences, independent motion/pen arms,
-phase identities, retained evidence IDs, model-promotion state, or repeated
-operator acknowledgements before ordinary motion.
+- explicit selected controller and responsive open session;
+- current internal `MotionGuard` activation;
+- recognized Idle, non-alarm controller state;
+- no asserted relevant X/Y limit input;
+- known position where required;
+- finite nonzero typed delta and positive applicable feed;
+- controller-reported feed support;
+- required commanded pen state;
+- no operation already in flight;
+- no sticky ambiguity.
 
-Recheck a fact only when something invalidates it: disconnect, controller reset
-or alarm, configuration change, manual movement that loses known position,
-tool/pen change, or camera change. A transient error should be correctable and
-retryable in the same app launch.
+Ordinary manual movement does not require a camera, learned boundary, Clear pose,
+trial count, model confidence, or Learning Path completion. A vision-consuming
+operation may require its own exact frame. A drawing trial may require its own
+anchor and Clear pose. Those are local evidence dependencies, not global gates.
 
-Every machine command still receives immediate direct checks for the closed
-request type, finite values, controller-reported axis feed capability, current
-alarm/end-stop state, pen state, in-flight ownership, and sticky ambiguity. An
-unknown command outcome stops the current run and is never automatically
-resent. Operator-entered coordinates, travel envelopes, and maximum-jog values
-are not prerequisites or motion authority.
+The application must not add homing, reset, unlock, alarm clearing, entered
+limits, firmware writes, automatic resume, automatic resend, or automatic redraw.
 
-## Best-effort session log
+## Minimum physical loop
 
-SQLite may record ordered controller exchanges and operation summaries for the
-current session. It is observability only. Do not commit a command to the
-database before sending it, do not maintain a durable command-lifecycle state
-machine, and do not refuse hardware work because logging is unavailable.
-
-Do not let old databases block a new launch or a new passive session. Do not
-build command recovery from prior files, archival replay, content-addressed
-frame storage, export manifests, retention classes, quotas, garbage collection,
-tombstones, cross-launch scans, or exact UI reconstruction.
-
-After a process or machine interruption, never automatically resume or resend.
-Reconnect, query the controller, inspect the machine, and start a new explicit
-operation. Any old session log remains optional diagnostic data only.
-
-## Minimal model
-
-Start each rung of the learning ladder with the simplest model that works:
+The smallest attended useful loop is:
 
 ```text
-fieldPoint = affine(machinePoint) + optional constant tool offset
+supported signed bundle launch
+-> Connect
+-> Enable Motion
+-> confirm the pen physically Up
+-> issue one bounded Pen Up move
+-> settle at Idle with final MPos
+-> capture a strictly newer exact frame when the operation consumes vision
+-> draw one attributable isolated mark only when the pen state is appropriate
+-> clear the tool
+-> observe actual ink
+-> compare intended and observed geometry
 ```
 
-Use direct point or line measurements to adjust it manually or by a simple fit.
-The repository already contains a deliberately small immutable accepted
-snapshot, explicit candidate fit, fixed training/holdout membership, held-out
-acceptance decision, and pen-up checkpoint rule. Those primitives are exercised
-by tests and the deterministic simulator; they are not a prerequisite for the
-first observed line and are not yet a live ink-training workflow. Do not expand
-them into generalized promotion UI, history, or experiment infrastructure. No
-backlash learner, pen-mark model, spline, bootstrap, covariance program,
-factorial trial matrix, or trust-region model evolution is required.
+Controller acceptance, final Idle/MPos, a camera frame, inferred geometry, a
+human label, and observed ink are distinct facts. Only observed ink proves a
+mark.
 
-Keep the first isolated-line residual in `CameraPixelSpace`. Physical ink cannot
-enter the existing machine-to-`FieldSpace` trainer until a cited current-session
-`FieldRegistration` exists; that bridge is learning provenance, not a motion
-gate or an operator-entered calibration step.
+## Stop contract
 
-If drawing quality is acceptable, stop increasing the geometric model. Active
-experiment selection, spoken preference learning, and later reinforcement
-learning remain product goals because they address which experiment or drawing
-action to choose, not because the affine mapping must become complex. Add a
-geometric term only after repeated observed ink identifies a specific systematic
-error the affine transform cannot represent.
+One visible workbench toolbar Stop owns contextual software cancellation. It is
+not the physical emergency cutoff.
 
-## Minimal observability
+For Boundary Discovery the order is binding:
 
-Show only what helps operate or debug the current attempt:
+1. record `operatorStopRequested(direction)`;
+2. send one Jog Cancel byte;
+3. await the original jog owner through Idle and final MPos;
+4. set the fresh-frame boundary after controller settlement;
+5. accept only an exact frame strictly newer than that boundary;
+6. measure the chosen side and update the posterior;
+7. advance the transaction.
 
-- selected port and controller state;
-- latest camera frame and its age;
-- current operation/stroke;
-- last command and controller outcome;
-- intended and observed ink geometry;
-- simple residual/error;
-- one actionable error message.
+A repeated button press must not emit another cancel. Manual Stop uses the same
+surface and primitive but creates no boundary evidence. Shutdown closes new
+intent admission, settles the already latched owner once, then drains and
+disconnects.
 
-No accessibility work is required. The current active episode may show its
-participants, actions, observations, and next event. No historical semantic
-timeline, generalized model inspector, trial browser, replay mode, storage
-dashboard, or performance-signpost program is required.
+## Feed contract
 
-## Local development contract
+For non-drawing Pen Up travel, select the controller-reported ceiling for the
+participating axes. Multi-axis travel uses the minimum participating-axis
+ceiling. If the capability is missing, retain the existing positive feed
+request; do not create a blocker. Never turn reported feed into a claim of
+achieved physical speed. Pen Down drawing feed remains unchanged.
 
-The installed Command Line Tools, Swift compiler, macOS SDK, and SwiftPM are
-sufficient. Normal build/test uses the package's compatibility language mode.
-The optional strict check may be used diagnostically but cannot block ordinary
-work merely because a stricter compiler mode reports warnings.
+## Speech contract
 
-Blackdog remains mandatory for retained repository work. Within each Blackdog
-task, use focused tests during iteration and land a coherent working increment.
-Hardware absence or an unrelated physical failure never blocks landing.
+Spoken announcements are output-only, concise, serialized, and bounded. The
+visible cue exists before announcement starts. The operation awaits completion,
+timeout, cancellation, or explicit output failure, rechecks current typed state,
+and proceeds only through the button-owned action.
 
-## What remains fixed
+Speech-output failure is advisory. It cannot grant authority, block unrelated
+motion, or deadlock the workflow. No audio-input device, recognition permission,
+transcript, ambient command parser, or hidden compatibility mode belongs in the
+product.
 
-- One local Swift application process; no live Python or localhost bridge.
-- No arbitrary G-code input.
-- No automatic unlock, homing, settings write, alarm clear, reset, or resume.
-- One persistent voice `ExplorationSession` is the intended human teaching and
-  reflex surface; free-form speech never owns serial bytes.
-- Commands use closed finite requests, stay within controller-reported feed
-  capability, and stop on current alarm/end-stop/ambiguity facts. Operator-
-  entered distance caps and workspace coordinates are not motion prerequisites.
-- Controller `ok` is not proof of ink.
-- Actual observed ink is the drawing result.
-- An ambiguous command is not automatically resent or redrawn.
-- Preview/display coordinates never become machine coordinates.
-- Add no generalized infrastructure without a concrete current need.
+## Camera and geometry contract
+
+Camera liveness derives from a fresh validated capture heartbeat, not the
+currently displayed or analyzed frame. Measurements and overlays retain exact
+`FrameID` and `CameraConfigurationID`. Mismatched provenance is hidden or
+rejected.
+
+Frame-side and cap detections are camera-space measurements. Drawing-frame and
+armature envelopes are inferences. Controller MPos remains controller provenance
+until an explicit current-session registration gives it camera-space meaning.
+Ruler observations and motion priors are provisional diagnostics, never motion
+authority.
+
+## Local application contract
+
+Supported physical launch is `make run-app`. It builds and validates the current
+signed `com.bullard.AdaptivePlotter` bundle and uses LaunchServices. The launcher
+must:
+
+- activate one exact already-running bundled instance;
+- never request a forced new instance;
+- reject a same-name raw SwiftPM executable with PID and path;
+- reject wrong-path or duplicate bundle instances;
+- prove exact bundle identity, bundled executable, finished launch, regular
+  activation policy, and foreground activation;
+- never kill a user-owned process.
+
+The bundle declares camera purpose only. Closing the last window performs
+bounded workspace shutdown and terminates the application.
+
+## Evidence and validation discipline
+
+Report automated, simulated, controller, camera, human-observed, and
+ink-observed evidence separately. A passing test proves software behavior. It
+does not prove audible output, physical movement, pen pose, or ink.
+
+Physical validation requires an operator present with the power cutoff
+reachable. If that condition is absent, record the physical pass as skipped and
+leave all physical outcomes unclaimed.
+
+## Fixed exclusions
+
+Do not introduce:
+
+- a learning-stage motion gate or alternate authority state machine;
+- a renamed startup ceremony;
+- persistent workflow restoration or historical replay;
+- a compatibility alias for deleted concepts;
+- a second process, service, bridge, event bus, or duplicated state owner;
+- ambient natural-language machine control;
+- model-selected movement except a future explicit bounded experiment inside
+  Adaptive Drawing;
+- any implication that simulator output or controller settlement proves ink.

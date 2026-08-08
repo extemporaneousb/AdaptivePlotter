@@ -33,10 +33,13 @@ expect_plist_value LSUIElement false
 expect_plist_value NSHighResolutionCapable true
 expect_plist_value NSCameraUsageDescription \
     "AdaptivePlotter uses the selected local camera to display the plotter workspace and capture frames for visual measurements."
-expect_plist_value NSMicrophoneUsageDescription \
-    "AdaptivePlotter listens for the operator's closed set of local plotter commands while voice control is enabled."
-expect_plist_value NSSpeechRecognitionUsageDescription \
-    "AdaptivePlotter transcribes local operator speech into a closed set of typed plotter commands."
+
+for forbidden_key in NSMicrophoneUsageDescription NSSpeechRecognitionUsageDescription; do
+    if /usr/libexec/PlistBuddy -c "Print :$forbidden_key" "$plist" >/dev/null 2>&1; then
+        echo "unexpected $forbidden_key in camera-only $plist" >&2
+        exit 1
+    fi
+done
 
 if ! verification=$(
     /usr/bin/codesign --verify --deep --strict --verbose=2 "$bundle" 2>&1

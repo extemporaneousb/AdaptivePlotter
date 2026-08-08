@@ -178,7 +178,7 @@ struct StartupFrameRecorder: Sendable {
       throw RecordingError.noMatchingFrames
     }
     let manifest = Manifest(
-      purpose: "startup scene samples for offline vision analysis; not calibration evidence",
+      purpose: "startup scene samples for offline vision analysis; not motion or drawing evidence",
       cameraDeviceID: device.id.rawValue,
       cameraName: device.name,
       cameraConfigurationID: configurationID.rawValue.uuidString.lowercased(),
@@ -206,7 +206,7 @@ struct StartupFrameRecorder: Sendable {
     let filename = String(format: "frame-seq-%llu.png", frame.sequence)
     try Self.writePNG(frame, to: directory.appendingPathComponent(filename))
     let manifest = Manifest(
-      purpose: "operator-requested scene snapshot for offline vision analysis; not calibration evidence",
+      purpose: "operator-requested scene snapshot for offline vision analysis; not motion or drawing evidence",
       cameraDeviceID: device.id.rawValue,
       cameraName: device.name,
       cameraConfigurationID: frame.cameraConfigurationID.rawValue.uuidString.lowercased(),
@@ -320,7 +320,7 @@ struct StartupFrameRecorder: Sendable {
 
     let manifest = Manifest(
       purpose:
-        "selected exact frames for one isolated-line learning episode; not calibration, motion authority, or continuous recording",
+        "selected exact frames for one observed drawing trial; not motion authority, drawing proof by themselves, or continuous recording",
       episodeID: trimmedEpisodeID,
       cameraDeviceID: device.id.rawValue,
       cameraName: device.name,

@@ -1,19 +1,7 @@
 import Foundation
 import PlotterModel
 
-public enum PreflightSequenceClass: String, Codable, CaseIterable, Hashable, Sendable {
-  case boundaryMeasurement
-  case penPositionConfirmation
-
-  public var displayName: String {
-    switch self {
-    case .boundaryMeasurement: "Boundary measurement"
-    case .penPositionConfirmation: "Pen position confirmation"
-    }
-  }
-}
-
-public enum PreflightBoundaryDirection: String, Codable, CaseIterable, Hashable, Sendable {
+public enum BoundaryDirection: String, Codable, CaseIterable, Hashable, Sendable {
   case negativeX
   case positiveX
   case negativeY
@@ -38,24 +26,15 @@ public enum PreflightBoundaryDirection: String, Codable, CaseIterable, Hashable,
   }
 }
 
-public enum PreflightSequenceID: String, Codable, CaseIterable, Hashable, Sendable {
+public enum DiscoverySequenceID: String, Codable, CaseIterable, Hashable, Sendable {
   case boundaryNegativeX
   case boundaryPositiveX
   case boundaryNegativeY
   case boundaryPositiveY
-  case penCycleConfirmation
-
-  public var sequenceClass: PreflightSequenceClass {
-    switch self {
-    case .boundaryNegativeX, .boundaryPositiveX, .boundaryNegativeY, .boundaryPositiveY:
-      .boundaryMeasurement
-    case .penCycleConfirmation:
-      .penPositionConfirmation
-    }
-  }
+  case penInteraction
 }
 
-public enum PreflightParticipant: String, Codable, CaseIterable, Hashable, Sendable {
+public enum DiscoveryParticipant: String, Codable, CaseIterable, Hashable, Sendable {
   case application
   case operatorChoice
   case controller
@@ -73,33 +52,32 @@ public enum PreflightParticipant: String, Codable, CaseIterable, Hashable, Senda
   }
 }
 
-/// Short answers are accepted only while their defining preflight question is
+/// Short answers are accepted only while their defining discovery question is
 /// current. A response has no ambient controller meaning.
-public enum PreflightVoiceResponse: String, Codable, CaseIterable, Hashable, Sendable {
+public enum OperatorChoice: String, Codable, CaseIterable, Hashable, Sendable {
   case yes = "YES"
   case no = "NO"
-  case stop = "STOP"
 
   public var exactPhrase: String { rawValue }
 }
 
-public struct PreflightVoiceQuestion: Hashable, Sendable {
+public struct DiscoveryQuestion: Hashable, Sendable {
   public let prompt: String
-  public let choices: [PreflightVoiceResponse]
-  public let advancingResponses: Set<PreflightVoiceResponse>
+  public let choices: [OperatorChoice]
+  public let advancingChoices: Set<OperatorChoice>
   public let negativeAcknowledgement: String
 
   public init(
     prompt: String,
-    choices: [PreflightVoiceResponse] = [.yes, .no],
-    advancingResponses: Set<PreflightVoiceResponse> = [.yes],
+    choices: [OperatorChoice] = [.yes, .no],
+    advancingChoices: Set<OperatorChoice> = [.yes],
     negativeAcknowledgement: String
   ) {
     precondition(!choices.isEmpty)
-    precondition(advancingResponses.isSubset(of: Set(choices)))
+    precondition(advancingChoices.isSubset(of: Set(choices)))
     self.prompt = prompt
     self.choices = choices
-    self.advancingResponses = advancingResponses
+    self.advancingChoices = advancingChoices
     self.negativeAcknowledgement = negativeAcknowledgement
   }
 
@@ -108,74 +86,44 @@ public struct PreflightVoiceQuestion: Hashable, Sendable {
   }
 }
 
-public struct PreflightVoiceContext: Hashable, Sendable {
-  public let sequenceID: PreflightSequenceID
-  public let stepID: String
-  public let question: PreflightVoiceQuestion
-
-  public init(
-    sequenceID: PreflightSequenceID,
-    stepID: String,
-    question: PreflightVoiceQuestion
-  ) {
-    self.sequenceID = sequenceID
-    self.stepID = stepID
-    self.question = question
-  }
-
-  public var expectedResponses: Set<PreflightVoiceResponse> {
-    question.advancingResponses
-  }
-}
-
-public struct PreflightVoiceResponseParser: Sendable {
-  public init() {}
-
-  public func parse(
-    _ transcript: String,
-    in context: PreflightVoiceContext
-  ) -> PreflightVoiceResponse? {
-    let normalized = transcript
-      .uppercased()
-      .unicodeScalars
-      .map { CharacterSet.alphanumerics.contains($0) ? Character(String($0)) : " " }
-    let phrase = String(normalized)
-      .split(whereSeparator: \.isWhitespace)
-      .joined(separator: " ")
-    return context.question.choices.first { phrase == $0.exactPhrase }
-  }
-}
-
-public enum PreflightAction: Hashable, Sendable {
-  case askQuestion(PreflightVoiceQuestion)
-  case awaitVoiceChoice(PreflightVoiceQuestion)
-  case startBoundaryJog(PreflightBoundaryDirection)
-  case cancelBoundaryJogAndAwaitIdle(PreflightBoundaryDirection)
+public enum DiscoveryAction: Hashable, Sendable {
+  case askQuestion(DiscoveryQuestion)
+  case awaitOperatorChoice(DiscoveryQuestion)
+  case announce(String)
+  case startBoundaryJog(BoundaryDirection)
+  case awaitContextualStop(BoundaryDirection)
+  case cancelBoundaryJogAndAwaitIdle(BoundaryDirection)
   case captureFreshCameraFrame
-  case measureBoundary(PreflightBoundaryDirection)
-  case adjustDrawingFramePosterior(PreflightBoundaryDirection)
+  case measureBoundary(BoundaryDirection)
+  case adjustDrawingFramePosterior(BoundaryDirection)
   case actuatePen(PenCommand)
-  case awaitPhysicalPenConfirmation(PenState, question: PreflightVoiceQuestion)
+  case awaitPhysicalPenConfirmation(PenState, question: DiscoveryQuestion)
 }
 
-public enum PreflightEventExpectation: Hashable, Sendable {
+public enum DiscoveryEventExpectation: Hashable, Sendable {
   case questionPresented
-  case exactVoiceResponse(Set<PreflightVoiceResponse>)
-  case boundaryJogStarted(PreflightBoundaryDirection)
-  case boundaryJogCancelled(PreflightBoundaryDirection)
+  case operatorChoice(Set<OperatorChoice>)
+  case announcementCompleted
+  case boundaryJogStarted(BoundaryDirection)
+  case operatorStopRequested(BoundaryDirection)
+  case boundaryJogCancelled(BoundaryDirection)
   case freshFrameCaptured
-  case boundaryMeasured(PreflightBoundaryDirection)
-  case drawingFramePosteriorAdjusted(PreflightBoundaryDirection)
+  case boundaryMeasured(BoundaryDirection)
+  case drawingFramePosteriorAdjusted(BoundaryDirection)
   case penCommandSettled(PenCommand)
-  case physicalPenConfirmed(PenState, response: PreflightVoiceResponse)
+  case physicalPenConfirmed(PenState, response: OperatorChoice)
 
-  fileprivate func accepts(_ event: PreflightEvent) -> Bool {
+  fileprivate func accepts(_ event: DiscoveryEvent) -> Bool {
     switch (self, event) {
     case (.questionPresented, .questionPresented):
       true
-    case (.exactVoiceResponse(let expected), .exactVoiceResponseAccepted(let actual)):
+    case (.operatorChoice(let expected), .operatorChoiceAccepted(let actual)):
       expected.contains(actual)
+    case (.announcementCompleted, .announcementCompleted):
+      true
     case (.boundaryJogStarted(let expected), .boundaryJogStarted(let actual, _)):
+      expected == actual
+    case (.operatorStopRequested(let expected), .operatorStopRequested(let actual)):
       expected == actual
     case (.boundaryJogCancelled(let expected), .boundaryJogCancelled(let actual, _, _)):
       expected == actual
@@ -201,17 +149,17 @@ public enum PreflightEventExpectation: Hashable, Sendable {
   }
 }
 
-public struct PreflightStep: Hashable, Sendable, Identifiable {
+public struct DiscoveryStep: Hashable, Sendable, Identifiable {
   public let id: String
-  public let participant: PreflightParticipant
-  public let action: PreflightAction
-  public let expectedEvent: PreflightEventExpectation
+  public let participant: DiscoveryParticipant
+  public let action: DiscoveryAction
+  public let expectedEvent: DiscoveryEventExpectation
 
   public init(
     id: String,
-    participant: PreflightParticipant,
-    action: PreflightAction,
-    expectedEvent: PreflightEventExpectation
+    participant: DiscoveryParticipant,
+    action: DiscoveryAction,
+    expectedEvent: DiscoveryEventExpectation
   ) {
     self.id = id
     self.participant = participant
@@ -219,9 +167,9 @@ public struct PreflightStep: Hashable, Sendable, Identifiable {
     self.expectedEvent = expectedEvent
   }
 
-  public var voiceQuestion: PreflightVoiceQuestion? {
+  public var question: DiscoveryQuestion? {
     switch action {
-    case .awaitVoiceChoice(let question), .awaitPhysicalPenConfirmation(_, let question):
+    case .awaitOperatorChoice(let question), .awaitPhysicalPenConfirmation(_, let question):
       question
     default:
       nil
@@ -229,39 +177,37 @@ public struct PreflightStep: Hashable, Sendable, Identifiable {
   }
 }
 
-public struct PreflightSequenceDefinition: Hashable, Sendable, Identifiable {
-  public let id: PreflightSequenceID
-  public let sequenceClass: PreflightSequenceClass
+public struct DiscoverySequenceDefinition: Hashable, Sendable, Identifiable {
+  public let id: DiscoverySequenceID
   public let title: String
   public let summary: String
-  public let steps: [PreflightStep]
+  public let steps: [DiscoveryStep]
 
   public init(
-    id: PreflightSequenceID,
+    id: DiscoverySequenceID,
     title: String,
     summary: String,
-    steps: [PreflightStep]
+    steps: [DiscoveryStep]
   ) {
     self.id = id
-    sequenceClass = id.sequenceClass
     self.title = title
     self.summary = summary
     self.steps = steps
   }
 
-  public var voiceQuestions: [PreflightVoiceQuestion] {
-    steps.compactMap(\.voiceQuestion)
+  public var questions: [DiscoveryQuestion] {
+    steps.compactMap(\.question)
   }
 }
 
-public enum PreflightSequenceCatalog {
-  public static let title = "Motion Preflight"
+public enum DiscoverySequenceCatalog {
+  public static let title = "Human-Guided Discovery"
 
-  public static let all: [PreflightSequenceDefinition] = PreflightSequenceID.allCases.map {
+  public static let all: [DiscoverySequenceDefinition] = DiscoverySequenceID.allCases.map {
     definition(for: $0)
   }
 
-  public static func definition(for id: PreflightSequenceID) -> PreflightSequenceDefinition {
+  public static func definition(for id: DiscoverySequenceID) -> DiscoverySequenceDefinition {
     switch id {
     case .boundaryNegativeX:
       boundary(.negativeX, id: id)
@@ -271,79 +217,73 @@ public enum PreflightSequenceCatalog {
       boundary(.negativeY, id: id)
     case .boundaryPositiveY:
       boundary(.positiveY, id: id)
-    case .penCycleConfirmation:
-      penCycle(id: id)
+    case .penInteraction:
+      penInteraction(id: id)
     }
   }
 
   private static func boundary(
-    _ direction: PreflightBoundaryDirection,
-    id: PreflightSequenceID
-  ) -> PreflightSequenceDefinition {
-    let readyQuestion = PreflightVoiceQuestion(
+    _ direction: BoundaryDirection,
+    id: DiscoverySequenceID
+  ) -> DiscoverySequenceDefinition {
+    let readyQuestion = DiscoveryQuestion(
       prompt: "Is the path clear and are you ready to move toward \(direction.displayName)?",
       negativeAcknowledgement: "Okay. No motion will start. I will wait."
     )
-    let boundaryQuestion = PreflightVoiceQuestion(
-      prompt: "Are we at the \(direction.displayName) boundary?",
-      choices: [.yes, .no, .stop],
-      advancingResponses: [.yes, .stop],
-      negativeAcknowledgement: "Continuing the bounded movement."
-    )
-    return PreflightSequenceDefinition(
+    return DiscoverySequenceDefinition(
       id: id,
-      title: "\(direction.displayName) boundary",
-      summary: "Motion Preflight question-guided jog and exact-frame observation for the \(direction.displayName) edge.",
+      title: "\(direction.displayName) Boundary Discovery",
+      summary: "Move toward \(direction.displayName), Stop at the observed boundary, and update one exact-frame side observation.",
       steps: [
-        PreflightStep(
+        DiscoveryStep(
           id: "question-ready",
           participant: .application,
           action: .askQuestion(readyQuestion),
           expectedEvent: .questionPresented
         ),
-        PreflightStep(
+        DiscoveryStep(
           id: "answer-ready",
           participant: .operatorChoice,
-          action: .awaitVoiceChoice(readyQuestion),
-          expectedEvent: .exactVoiceResponse(readyQuestion.advancingResponses)
+          action: .awaitOperatorChoice(readyQuestion),
+          expectedEvent: .operatorChoice(readyQuestion.advancingChoices)
         ),
-        PreflightStep(
+        DiscoveryStep(
+          id: "announce-jog",
+          participant: .application,
+          action: .announce("Moving toward \(direction.displayName) boundary."),
+          expectedEvent: .announcementCompleted
+        ),
+        DiscoveryStep(
           id: "start-jog",
           participant: .controller,
           action: .startBoundaryJog(direction),
           expectedEvent: .boundaryJogStarted(direction)
         ),
-        PreflightStep(
-          id: "question-boundary",
-          participant: .application,
-          action: .askQuestion(boundaryQuestion),
-          expectedEvent: .questionPresented
-        ),
-        PreflightStep(
-          id: "answer-boundary",
+        DiscoveryStep(
+          id: "stop-boundary",
           participant: .operatorChoice,
-          action: .awaitVoiceChoice(boundaryQuestion),
-          expectedEvent: .exactVoiceResponse(boundaryQuestion.advancingResponses)
+          action: .awaitContextualStop(direction),
+          expectedEvent: .operatorStopRequested(direction)
         ),
-        PreflightStep(
+        DiscoveryStep(
           id: "cancel-and-idle",
           participant: .controller,
           action: .cancelBoundaryJogAndAwaitIdle(direction),
           expectedEvent: .boundaryJogCancelled(direction)
         ),
-        PreflightStep(
+        DiscoveryStep(
           id: "capture-frame",
           participant: .camera,
           action: .captureFreshCameraFrame,
           expectedEvent: .freshFrameCaptured
         ),
-        PreflightStep(
+        DiscoveryStep(
           id: "measure-boundary",
           participant: .vision,
           action: .measureBoundary(direction),
           expectedEvent: .boundaryMeasured(direction)
         ),
-        PreflightStep(
+        DiscoveryStep(
           id: "adjust-posterior",
           participant: .vision,
           action: .adjustDrawingFramePosterior(direction),
@@ -353,98 +293,110 @@ public enum PreflightSequenceCatalog {
     )
   }
 
-  private static func penCycle(id: PreflightSequenceID) -> PreflightSequenceDefinition {
-    let initiallyUp = PreflightVoiceQuestion(
+  private static func penInteraction(id: DiscoverySequenceID) -> DiscoverySequenceDefinition {
+    let initiallyUp = DiscoveryQuestion(
       prompt: "Is the pen currently up?",
       negativeAcknowledgement:
         "The sequence needs an observed up position before it can continue. I will wait."
     )
-    let clearToLower = PreflightVoiceQuestion(
+    let clearToLower = DiscoveryQuestion(
       prompt: "Are we clear to put it down?",
       negativeAcknowledgement: "Okay. I will not lower it. I will wait."
     )
-    let currentlyDown = PreflightVoiceQuestion(
+    let currentlyDown = DiscoveryQuestion(
       prompt: "Is the pen currently down?",
       negativeAcknowledgement:
         "The down position was not confirmed. I will command Pen Up and end this cycle."
     )
-    let finallyUp = PreflightVoiceQuestion(
+    let finallyUp = DiscoveryQuestion(
       prompt: "Is the pen up?",
       negativeAcknowledgement: "The final up position was not confirmed. I will wait."
     )
-    return PreflightSequenceDefinition(
+    return DiscoverySequenceDefinition(
       id: id,
-      title: "Pen cycle",
+      title: "Pen Interaction",
       summary:
         "Confirm up, authorize down, observe down, retract, and confirm up using YES or NO answers.",
       steps: [
-        PreflightStep(
+        DiscoveryStep(
           id: "question-initially-up",
           participant: .application,
           action: .askQuestion(initiallyUp),
           expectedEvent: .questionPresented
         ),
-        PreflightStep(
+        DiscoveryStep(
           id: "answer-initially-up",
           participant: .operatorChoice,
           action: .awaitPhysicalPenConfirmation(.up, question: initiallyUp),
           expectedEvent: .physicalPenConfirmed(.up, response: .yes)
         ),
-        PreflightStep(
+        DiscoveryStep(
           id: "question-clear-to-lower",
           participant: .application,
           action: .askQuestion(clearToLower),
           expectedEvent: .questionPresented
         ),
-        PreflightStep(
+        DiscoveryStep(
           id: "answer-clear-to-lower",
           participant: .operatorChoice,
-          action: .awaitVoiceChoice(clearToLower),
-          expectedEvent: .exactVoiceResponse(clearToLower.advancingResponses)
+          action: .awaitOperatorChoice(clearToLower),
+          expectedEvent: .operatorChoice(clearToLower.advancingChoices)
         ),
-        PreflightStep(
+        DiscoveryStep(
+          id: "announce-down",
+          participant: .application,
+          action: .announce("Lowering the pen."),
+          expectedEvent: .announcementCompleted
+        ),
+        DiscoveryStep(
           id: "command-down",
           participant: .controller,
           action: .actuatePen(.lower),
           expectedEvent: .penCommandSettled(.lower)
         ),
-        PreflightStep(
+        DiscoveryStep(
           id: "question-currently-down",
           participant: .application,
           action: .askQuestion(currentlyDown),
           expectedEvent: .questionPresented
         ),
-        PreflightStep(
+        DiscoveryStep(
           id: "answer-currently-down",
           participant: .operatorChoice,
           action: .awaitPhysicalPenConfirmation(.down, question: currentlyDown),
           expectedEvent: .physicalPenConfirmed(.down, response: .yes)
         ),
-        PreflightStep(
+        DiscoveryStep(
           id: "capture-down-frame",
           participant: .camera,
           action: .captureFreshCameraFrame,
           expectedEvent: .freshFrameCaptured
         ),
-        PreflightStep(
+        DiscoveryStep(
+          id: "announce-up",
+          participant: .application,
+          action: .announce("Raising the pen."),
+          expectedEvent: .announcementCompleted
+        ),
+        DiscoveryStep(
           id: "command-up",
           participant: .controller,
           action: .actuatePen(.raise),
           expectedEvent: .penCommandSettled(.raise)
         ),
-        PreflightStep(
+        DiscoveryStep(
           id: "question-finally-up",
           participant: .application,
           action: .askQuestion(finallyUp),
           expectedEvent: .questionPresented
         ),
-        PreflightStep(
+        DiscoveryStep(
           id: "answer-finally-up",
           participant: .operatorChoice,
           action: .awaitPhysicalPenConfirmation(.up, question: finallyUp),
           expectedEvent: .physicalPenConfirmed(.up, response: .yes)
         ),
-        PreflightStep(
+        DiscoveryStep(
           id: "capture-up-frame",
           participant: .camera,
           action: .captureFreshCameraFrame,
@@ -455,8 +407,7 @@ public enum PreflightSequenceCatalog {
   }
 }
 
-public enum PreflightEvidenceKind: String, Codable, CaseIterable, Hashable, Sendable {
-  case speechSystem
+public enum DiscoveryEvidenceKind: String, Codable, CaseIterable, Hashable, Sendable {
   case operatorChoice
   case operatorObservation
   case controller
@@ -467,14 +418,14 @@ public enum PreflightEvidenceKind: String, Codable, CaseIterable, Hashable, Send
 
 /// Current-transaction evidence only. `observedInk` is deliberately distinct
 /// from controller acceptance, camera capture, and inferred vision geometry.
-public struct PreflightEvidenceSummary: Hashable, Sendable {
-  public let kind: PreflightEvidenceKind
+public struct DiscoveryEvidenceSummary: Hashable, Sendable {
+  public let kind: DiscoveryEvidenceKind
   public let summary: String
   public let frameID: FrameID?
   public let cameraConfigurationID: CameraConfigurationID?
 
   public init(
-    kind: PreflightEvidenceKind,
+    kind: DiscoveryEvidenceKind,
     summary: String,
     frameID: FrameID? = nil,
     cameraConfigurationID: CameraConfigurationID? = nil
@@ -486,18 +437,20 @@ public struct PreflightEvidenceSummary: Hashable, Sendable {
   }
 }
 
-public enum PreflightEvent: Hashable, Sendable {
+public enum DiscoveryEvent: Hashable, Sendable {
   case questionPresented
-  case exactVoiceResponseAccepted(PreflightVoiceResponse)
-  case boundaryJogStarted(PreflightBoundaryDirection, controllerSummary: String)
+  case operatorChoiceAccepted(OperatorChoice)
+  case announcementCompleted
+  case boundaryJogStarted(BoundaryDirection, controllerSummary: String)
+  case operatorStopRequested(BoundaryDirection)
   case boundaryJogCancelled(
-    PreflightBoundaryDirection,
+    BoundaryDirection,
     finalPosition: MachinePosition,
     controllerSummary: String
   )
   case freshFrameCaptured(FrameID, CameraConfigurationID)
   case boundaryMeasured(
-    PreflightBoundaryDirection,
+    BoundaryDirection,
     controllerPosition: MachinePosition,
     observedToolCentroid: Point2<CameraPixelSpace>,
     frameID: FrameID,
@@ -506,7 +459,7 @@ public enum PreflightEvent: Hashable, Sendable {
     summary: String
   )
   case drawingFramePosteriorAdjusted(
-    PreflightBoundaryDirection,
+    BoundaryDirection,
     frameID: FrameID,
     cameraConfigurationID: CameraConfigurationID,
     observationCount: Int
@@ -514,27 +467,32 @@ public enum PreflightEvent: Hashable, Sendable {
   case penCommandSettled(PenCommand, controllerSummary: String)
   case physicalPenConfirmed(
     PenState,
-    response: PreflightVoiceResponse,
+    response: OperatorChoice,
     operatorSummary: String
   )
 
-  fileprivate var evidenceSummary: PreflightEvidenceSummary? {
+  fileprivate var evidenceSummary: DiscoveryEvidenceSummary? {
     switch self {
-    case .questionPresented:
+    case .questionPresented, .announcementCompleted:
       nil
-    case .exactVoiceResponseAccepted(let response):
-      PreflightEvidenceSummary(
+    case .operatorChoiceAccepted(let response):
+      DiscoveryEvidenceSummary(
         kind: .operatorChoice,
         summary: "Accepted contextual choice: \(response.exactPhrase)"
+      )
+    case .operatorStopRequested(let direction):
+      DiscoveryEvidenceSummary(
+        kind: .operatorChoice,
+        summary: "Operator requested Stop during \(direction.displayName) Boundary Discovery."
       )
     case .boundaryJogStarted(_, let summary),
       .boundaryJogCancelled(_, _, let summary),
       .penCommandSettled(_, let summary):
-      PreflightEvidenceSummary(kind: .controller, summary: summary)
+      DiscoveryEvidenceSummary(kind: .controller, summary: summary)
     case .freshFrameCaptured(let frameID, let configurationID):
-      PreflightEvidenceSummary(
+      DiscoveryEvidenceSummary(
         kind: .camera,
-        summary: "Captured exact preflight frame \(frameID.rawValue).",
+        summary: "Captured exact discovery frame \(frameID.rawValue).",
         frameID: frameID,
         cameraConfigurationID: configurationID
       )
@@ -547,7 +505,7 @@ public enum PreflightEvent: Hashable, Sendable {
       _,
       let summary
     ):
-      PreflightEvidenceSummary(
+      DiscoveryEvidenceSummary(
         kind: .visionMeasurement,
         summary:
           "\(direction.displayName) at controller X \(controllerPosition.point.x) Y \(controllerPosition.point.y), observed tool pixel X \(observedToolCentroid.x) Y \(observedToolCentroid.y): \(summary)",
@@ -560,14 +518,14 @@ public enum PreflightEvent: Hashable, Sendable {
       let configurationID,
       let observationCount
     ):
-      PreflightEvidenceSummary(
+      DiscoveryEvidenceSummary(
         kind: .visionMeasurement,
         summary: "\(direction.displayName) adjusted the drawing-frame posterior from \(observationCount) observations.",
         frameID: frameID,
         cameraConfigurationID: configurationID
       )
     case .physicalPenConfirmed(let state, _, let summary):
-      PreflightEvidenceSummary(
+      DiscoveryEvidenceSummary(
         kind: .operatorObservation,
         summary: "Pen physically \(state.rawValue): \(summary)"
       )
@@ -575,7 +533,7 @@ public enum PreflightEvent: Hashable, Sendable {
   }
 }
 
-public enum PreflightTransactionState: Hashable, Sendable {
+public enum DiscoveryTransactionState: Hashable, Sendable {
   case notStarted
   case active
   case cancelling
@@ -584,7 +542,7 @@ public enum PreflightTransactionState: Hashable, Sendable {
   case cancelled
 }
 
-public enum PreflightTransactionError: Error, Equatable, Sendable {
+public enum DiscoveryTransactionError: Error, Equatable, Sendable {
   case alreadyStarted
   case notActive
   case noCurrentStep
@@ -595,14 +553,14 @@ public enum PreflightTransactionError: Error, Equatable, Sendable {
 
 /// A small in-memory transaction for driving and presenting one sequence.
 /// It has no persistence, replay, or cross-launch authority.
-public struct PreflightTransaction: Hashable, Sendable, Identifiable {
+public struct DiscoveryTransaction: Hashable, Sendable, Identifiable {
   public let id: UUID
-  public let definition: PreflightSequenceDefinition
-  public private(set) var state: PreflightTransactionState
+  public let definition: DiscoverySequenceDefinition
+  public private(set) var state: DiscoveryTransactionState
   public private(set) var completedStepCount: Int
-  public private(set) var evidenceSummaries: [PreflightEvidenceSummary]
+  public private(set) var evidenceSummaries: [DiscoveryEvidenceSummary]
 
-  public init(id: UUID = UUID(), definition: PreflightSequenceDefinition) {
+  public init(id: UUID = UUID(), definition: DiscoverySequenceDefinition) {
     self.id = id
     self.definition = definition
     state = .notStarted
@@ -610,11 +568,11 @@ public struct PreflightTransaction: Hashable, Sendable, Identifiable {
     evidenceSummaries = []
   }
 
-  public init(id: UUID = UUID(), sequenceID: PreflightSequenceID) {
-    self.init(id: id, definition: PreflightSequenceCatalog.definition(for: sequenceID))
+  public init(id: UUID = UUID(), sequenceID: DiscoverySequenceID) {
+    self.init(id: id, definition: DiscoverySequenceCatalog.definition(for: sequenceID))
   }
 
-  public var currentStep: PreflightStep? {
+  public var currentStep: DiscoveryStep? {
     switch state {
     case .active where completedStepCount < definition.steps.count:
       return definition.steps[completedStepCount]
@@ -628,28 +586,17 @@ public struct PreflightTransaction: Hashable, Sendable, Identifiable {
     return Double(completedStepCount) / Double(definition.steps.count)
   }
 
-  public var voiceContext: PreflightVoiceContext? {
-    guard let currentStep, let question = currentStep.voiceQuestion else {
-      return nil
-    }
-    return PreflightVoiceContext(
-      sequenceID: definition.id,
-      stepID: currentStep.id,
-      question: question
-    )
-  }
-
   public mutating func begin() throws {
-    guard state == .notStarted else { throw PreflightTransactionError.alreadyStarted }
+    guard state == .notStarted else { throw DiscoveryTransactionError.alreadyStarted }
     state = definition.steps.isEmpty ? .succeeded : .active
   }
 
-  public mutating func record(_ event: PreflightEvent) throws {
-    guard state == .active else { throw PreflightTransactionError.notActive }
-    guard let step = currentStep else { throw PreflightTransactionError.noCurrentStep }
+  public mutating func record(_ event: DiscoveryEvent) throws {
+    guard state == .active else { throw DiscoveryTransactionError.notActive }
+    guard let step = currentStep else { throw DiscoveryTransactionError.noCurrentStep }
     try Self.validateEvidence(in: event)
     guard step.expectedEvent.accepts(event) else {
-      throw PreflightTransactionError.unexpectedEvent(stepID: step.id)
+      throw DiscoveryTransactionError.unexpectedEvent(stepID: step.id)
     }
     if let evidence = event.evidenceSummary {
       evidenceSummaries.append(evidence)
@@ -676,15 +623,15 @@ public struct PreflightTransaction: Hashable, Sendable, Identifiable {
     }
   }
 
-  private static func validateEvidence(in event: PreflightEvent) throws {
+  private static func validateEvidence(in event: DiscoveryEvent) throws {
     switch event {
     case .boundaryMeasured(_, _, _, _, _, let confidence, _):
       guard confidence.isFinite, confidence >= 0, confidence <= 1 else {
-        throw PreflightTransactionError.invalidBoundaryConfidence
+        throw DiscoveryTransactionError.invalidBoundaryConfidence
       }
     case .drawingFramePosteriorAdjusted(_, _, _, let count):
       guard count > 0 else {
-        throw PreflightTransactionError.invalidPosteriorObservationCount
+        throw DiscoveryTransactionError.invalidPosteriorObservationCount
       }
     default:
       break
@@ -692,162 +639,15 @@ public struct PreflightTransaction: Hashable, Sendable, Identifiable {
   }
 }
 
-public enum PreflightRehearsalState: Hashable, Sendable {
-  case notStarted
-  case running
-  case completed
-  case cancelled
-}
-
-public enum PreflightRehearsalError: Error, Equatable, Sendable {
-  case alreadyStarted
-  case notRunning
-}
-
-/// Deterministic presentation-only playback of a Motion Preflight definition.
-///
-/// A rehearsal advances the same typed steps shown for physical preflight, but
-/// it cannot emit controller events, camera attestations, evidence summaries,
-/// or training readiness. An application may use `voiceContext` to advance an
-/// operator step from a real transcript while still keeping the rehearsal
-/// completely outside physical and learning authority.
-public struct PreflightRehearsal: Hashable, Sendable {
-  public let definition: PreflightSequenceDefinition
-  public private(set) var state: PreflightRehearsalState
-  public private(set) var completedStepCount: Int
-
-  public init(definition: PreflightSequenceDefinition) {
-    self.definition = definition
-    state = .notStarted
-    completedStepCount = 0
-  }
-
-  public init(sequenceID: PreflightSequenceID) {
-    self.init(definition: PreflightSequenceCatalog.definition(for: sequenceID))
-  }
-
-  public var currentStep: PreflightStep? {
-    guard state == .running, completedStepCount < definition.steps.count else { return nil }
-    return definition.steps[completedStepCount]
-  }
-
-  public var progress: Double {
-    guard !definition.steps.isEmpty else { return state == .completed ? 1 : 0 }
-    return Double(completedStepCount) / Double(definition.steps.count)
-  }
-
-  public var voiceContext: PreflightVoiceContext? {
-    guard let currentStep, let question = currentStep.voiceQuestion else {
-      return nil
-    }
-    return PreflightVoiceContext(
-      sequenceID: definition.id,
-      stepID: currentStep.id,
-      question: question
-    )
-  }
-
-  public mutating func start() throws {
-    guard state == .notStarted else { throw PreflightRehearsalError.alreadyStarted }
-    state = definition.steps.isEmpty ? .completed : .running
-  }
-
-  public mutating func advance() throws {
-    guard state == .running else { throw PreflightRehearsalError.notRunning }
-    completedStepCount += 1
-    if completedStepCount == definition.steps.count {
-      state = .completed
-    }
-  }
-
-  public mutating func cancel() {
-    guard state == .running else { return }
-    state = .cancelled
-  }
-}
-
-public enum PreflightReadinessPolicyError: Error, Equatable, Sendable {
-  case minimumMustBeAtLeastTwo
-}
-
-public struct PreflightTrainingReadiness: Hashable, Sendable {
-  public let isReady: Bool
-  public let successfulSequenceIDs: Set<PreflightSequenceID>
-  public let successfulSequenceClasses: Set<PreflightSequenceClass>
-  public let missingRequiredClasses: Set<PreflightSequenceClass>
-  public let minimumSuccessfulSequenceClasses: Int
-  public let currentPenState: PenState
-  public let hasSuccessfulPenUpConfirmation: Bool
-  public let hasCurrentPenUpConfirmation: Bool
-}
-
-public struct PreflightTrainingReadinessPolicy: Hashable, Sendable {
-  public static let supervisedTraining = PreflightTrainingReadinessPolicy(
-    validatedMinimum: 2,
-    requiredSequenceClasses: Set(PreflightSequenceClass.allCases)
-  )
-
-  public let minimumSuccessfulSequenceClasses: Int
-  public let requiredSequenceClasses: Set<PreflightSequenceClass>
-
-  public init(
-    minimumSuccessfulSequenceClasses: Int = 2,
-    requiredSequenceClasses: Set<PreflightSequenceClass> = Set(
-      PreflightSequenceClass.allCases)
-  ) throws {
-    guard minimumSuccessfulSequenceClasses >= 2 else {
-      throw PreflightReadinessPolicyError.minimumMustBeAtLeastTwo
-    }
-    self.minimumSuccessfulSequenceClasses = minimumSuccessfulSequenceClasses
-    self.requiredSequenceClasses = requiredSequenceClasses
-  }
-
-  private init(
-    validatedMinimum: Int,
-    requiredSequenceClasses: Set<PreflightSequenceClass>
-  ) {
-    minimumSuccessfulSequenceClasses = validatedMinimum
-    self.requiredSequenceClasses = requiredSequenceClasses
-  }
-
-  /// Transaction order has no authority. A completed Pen Cycle proves the
-  /// operator confirmed the final up state, while `currentPenState` supplies
-  /// the live train-safe state. Both are required.
-  public func evaluate(
-    transactions: [PreflightTransaction],
-    currentPenState: PenState
-  ) -> PreflightTrainingReadiness {
-    let successfulTransactions = transactions.filter { $0.state == .succeeded }
-    let successfulIDs = Set(successfulTransactions.map(\.definition.id))
-    let successfulClasses = Set(successfulIDs.map(\.sequenceClass))
-    let missingClasses = requiredSequenceClasses.subtracting(successfulClasses)
-    let hasSuccessfulPenUpConfirmation = successfulIDs.contains(.penCycleConfirmation)
-    let hasCurrentPenUpConfirmation = hasSuccessfulPenUpConfirmation
-      && currentPenState == .up
-    return PreflightTrainingReadiness(
-      isReady: successfulClasses.count >= minimumSuccessfulSequenceClasses
-        && missingClasses.isEmpty
-        && hasCurrentPenUpConfirmation,
-      successfulSequenceIDs: successfulIDs,
-      successfulSequenceClasses: successfulClasses,
-      missingRequiredClasses: missingClasses,
-      minimumSuccessfulSequenceClasses: minimumSuccessfulSequenceClasses,
-      currentPenState: currentPenState,
-      hasSuccessfulPenUpConfirmation: hasSuccessfulPenUpConfirmation,
-      hasCurrentPenUpConfirmation: hasCurrentPenUpConfirmation
-    )
-  }
-}
-
 public struct DrawingFrameBoundaryObservationKey: Hashable, Sendable {
   public let frameID: FrameID
   public let cameraConfigurationID: CameraConfigurationID
-  public let direction: PreflightBoundaryDirection
+  public let direction: BoundaryDirection
 
   public init(
     frameID: FrameID,
     cameraConfigurationID: CameraConfigurationID,
-    direction: PreflightBoundaryDirection
+    direction: BoundaryDirection
   ) {
     self.frameID = frameID
     self.cameraConfigurationID = cameraConfigurationID
@@ -885,7 +685,7 @@ public struct DrawingFrameBoundaryObservation: Hashable, Sendable {
     frameSHA256: String,
     captureNanoseconds: UInt64,
     cameraConfigurationID: CameraConfigurationID,
-    direction: PreflightBoundaryDirection,
+    direction: BoundaryDirection,
     controllerPosition: MachinePosition,
     observedToolCentroid: Point2<CameraPixelSpace>,
     estimate: DrawingFrameEstimate,
@@ -922,7 +722,7 @@ public struct DrawingFrameBoundaryObservation: Hashable, Sendable {
 }
 
 public struct DrawingFrameSideAssociation: Hashable, Sendable {
-  public let machineSide: PreflightBoundaryDirection
+  public let machineSide: BoundaryDirection
   public let candidateEdgeIndex: Int
   public let referenceStart: Point2<CameraPixelSpace>
   public let referenceEnd: Point2<CameraPixelSpace>
@@ -982,8 +782,8 @@ public struct DrawingFramePosterior: Hashable, Sendable {
   public let observationsByKey: [
     DrawingFrameBoundaryObservationKey: DrawingFrameBoundaryObservation
   ]
-  public let sidePosteriors: [PreflightBoundaryDirection: DrawingFrameSidePosterior]
-  public let associations: [PreflightBoundaryDirection: DrawingFrameSideAssociation]
+  public let sidePosteriors: [BoundaryDirection: DrawingFrameSidePosterior]
+  public let associations: [BoundaryDirection: DrawingFrameSideAssociation]
   public let derivedCorners: [DrawingFrameCorner: Point2<CameraPixelSpace>]
   public let estimate: DrawingFrameEstimate?
 
@@ -1047,10 +847,10 @@ public struct DrawingFramePosterior: Hashable, Sendable {
 
   private static func fitSides(
     _ observations: [DrawingFrameBoundaryObservation]
-  ) throws -> [PreflightBoundaryDirection: DrawingFrameSidePosterior] {
-    var fitted: [PreflightBoundaryDirection: DrawingFrameSidePosterior] = [:]
-    var claimedCandidateEdges: [Int: PreflightBoundaryDirection] = [:]
-    for direction in PreflightBoundaryDirection.allCases {
+  ) throws -> [BoundaryDirection: DrawingFrameSidePosterior] {
+    var fitted: [BoundaryDirection: DrawingFrameSidePosterior] = [:]
+    var claimedCandidateEdges: [Int: BoundaryDirection] = [:]
+    for direction in BoundaryDirection.allCases {
       let sideObservations = observations.filter { $0.key.direction == direction }
       guard let first = sideObservations.first else { continue }
       let association = try associate(first)
@@ -1149,7 +949,7 @@ public struct DrawingFramePosterior: Hashable, Sendable {
   }
 
   private static func corners(
-    from sides: [PreflightBoundaryDirection: DrawingFrameSidePosterior]
+    from sides: [BoundaryDirection: DrawingFrameSidePosterior]
   ) -> [DrawingFrameCorner: Point2<CameraPixelSpace>] {
     let byEdge = Dictionary(uniqueKeysWithValues: sides.values.map {
       ($0.association.candidateEdgeIndex, $0)
@@ -1183,7 +983,7 @@ public struct DrawingFramePosterior: Hashable, Sendable {
   }
 
   private static func closedEstimate(
-    from sides: [PreflightBoundaryDirection: DrawingFrameSidePosterior],
+    from sides: [BoundaryDirection: DrawingFrameSidePosterior],
     corners: [DrawingFrameCorner: Point2<CameraPixelSpace>]
   ) throws -> DrawingFrameEstimate? {
     guard sides.count == 4, corners.count == 4 else { return nil }

@@ -10,6 +10,7 @@ if [ ! -f "$source_file" ]; then
     exit 1
 fi
 
+mkdir -p "$project_root/.build"
 staging_root=$(mktemp -d "$project_root/.build/.AdaptivePlotter-launcher.XXXXXX")
 staging_executable="$staging_root/AdaptivePlotterLauncher"
 trap 'rm -rf "$staging_root"' EXIT HUP INT TERM

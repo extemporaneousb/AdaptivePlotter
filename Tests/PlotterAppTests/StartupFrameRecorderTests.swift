@@ -5,7 +5,7 @@ import Testing
 
 @testable import PlotterApp
 
-@Test("Startup recorder writes spaced canonical PNG samples and a non-calibration manifest")
+@Test("Startup recorder writes spaced canonical PNG samples with bounded evidence claims")
 func startupFrameRecorderWritesPNGSet() async throws {
   let root = FileManager.default.temporaryDirectory
     .appendingPathComponent("AdaptivePlotter-startup-frame-test-\(UUID())", isDirectory: true)
@@ -45,7 +45,7 @@ func startupFrameRecorderWritesPNGSet() async throws {
     contentsOf: directory.appendingPathComponent("manifest.json"))
   let manifest = try JSONDecoder().decode(StartupFrameRecorder.Manifest.self, from: manifestData)
 
-  #expect(manifest.purpose.contains("not calibration evidence"))
+  #expect(manifest.purpose.contains("not motion or drawing evidence"))
   #expect(manifest.cameraDeviceID == "c920")
   #expect(manifest.samples.map(\.sequence) == [1, 3])
   for sample in manifest.samples {
@@ -85,7 +85,7 @@ func manualCameraSnapshotPreservesExactFrame() throws {
   let sample = try #require(manifest.samples.only)
 
   #expect(manifest.purpose.contains("operator-requested"))
-  #expect(manifest.purpose.contains("not calibration evidence"))
+  #expect(manifest.purpose.contains("not motion or drawing evidence"))
   #expect(manifest.cameraConfigurationID == configurationID.rawValue.uuidString.lowercased())
   #expect(sample.sequence == 42)
   #expect(sample.captureNanoseconds == 12_345)
@@ -138,7 +138,7 @@ func learningExportPreservesThreeFrameProvenance() throws {
   )
 
   #expect(manifest.episodeID == "episode-ink-1")
-  #expect(manifest.purpose.contains("not calibration"))
+  #expect(manifest.purpose.contains("not motion authority"))
   #expect(manifest.samples.compactMap(\.role) == roles)
   #expect(manifest.samples.map(\.frameID) == roles.map(\.rawValue))
   for sample in manifest.samples {

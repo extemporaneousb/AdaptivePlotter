@@ -1,367 +1,192 @@
-# First Hardware Session
+# Attended Hardware Session
 
-Status: historical physical evidence; powered 1 mm X/Y round trips and stationary green-dot contact verified
-Scope: camera analysis, repeatable passive interrogation, typed pen control, and 1 mm round trips
-
-This file records what was actually run and observed. Its staged instructions
-describe that historical evidence session; they are not current readiness gates
-and do not require repetition before unrelated motion. Current product policy is
-in [Project Scope and Learning Architecture](../PROJECT_SCOPE_AND_MODEL_TRAINING.md),
-and the next prepared run is in
-[Next Slice Multi-Agent Execution Prompt](NEXT_SLICE_MULTI_AGENT_PROMPT.md).
+Status: operator checklist for the next integrated physical pass
+Requirement: one operator present with the physical power cutoff reachable
 
 ## Purpose
 
-Use the native app to confirm that this Mac can show and analyze the plotter
-camera, open the actual controller, parse its current
-identity/status/settings/offsets, command the proven pen mechanism, and complete
-deliberately bounded 1 mm pen-up round trips.
+This pass validates the integrated signed-bundle workflow from Connect through
+one Observed Drawing Trial. It must keep controller, camera, human observation,
+and observed ink claims separate.
 
-The passive probe sends only:
+Do not run this checklist unattended. If the operator or reachable cutoff is
+absent, stop and record physical validation as skipped.
 
-```text
-$I
-$G
-?
-$$
-$#
+## Before launch
+
+1. Place the mechanism and paper where the operator can see them directly.
+2. Keep the physical power cutoff reachable.
+3. Confirm the intended camera and controller are attached.
+4. Inspect all AdaptivePlotter processes:
+
+   ```sh
+   ps -axo pid=,command= | rg '[A]daptivePlotter'
+   ```
+
+5. Close any raw SwiftPM executable manually. Do not kill an unknown or
+   user-owned process from an automated check.
+6. Ensure no duplicate bundle instance owns camera or serial resources.
+
+## Supported launch
+
+Run from the repository root:
+
+```sh
+make run-app
 ```
 
-The machine-affecting surfaces are a closed typed relative GRBL jog and typed
-Pen Up/Pen Down. The pen profile is fixed to the commands proven on this
-mechanism: `M3 S40` up, `M3 S760` down, and `G4 P0.3` settle. No UI field can
-supply raw G-code or servo values. Pen operations require a fresh recognized
-Idle/non-alarm state, explicit Motion Guard activation, and clear X/Y end-stop
-pins. Jog remains unavailable until Pen Up was acknowledged and settled. These
-are controller-commanded states, not camera proof of servo pose.
+The command must build and validate the signed
+`com.bullard.AdaptivePlotter` bundle, then use LaunchServices. Expected outcomes:
 
-## Before connecting
+- no existing instance: launch one exact bundle and report its PID;
+- one exact existing instance: activate it and report its PID, with an explicit
+  warning that rebuilt bits are not loaded into that process;
+- raw, wrong-path, or duplicate instance: refuse with PID/path and launch
+  nothing.
 
-1. Run:
+After a successful launch, verify one process, the expected bundle/executable,
+regular foreground activation, and Dock/application-switcher presence. Do not
+use the raw executable for camera or hardware validation.
 
-   ```bash
-   make check
-   make app
-   ```
+## 1. Connect
 
-2. Close other serial terminals or legacy Plotter processes.
-3. Put the mechanism in a harmless boot condition. Prefer motor/pen power
-   isolated if the controller can enumerate without it. Otherwise remove or
-   restrain the pen and keep the physical power cutoff reachable.
+1. Select `/dev/cu.usbserial-A10OF67O` if it remains the attached controller.
+2. Press **Connect**.
+3. Verify the UI reports Plotter Connected only after the current responsive
+   inspection.
+4. Record controller identity, state, pins, MPos, reported X/Y feed limits, and
+   any actionable refusal.
 
-That is the complete local prerequisite list. Full Xcode, Developer ID,
-distribution signing, entitlements, archival storage preparation, prior-run
-inspection, and evidence packaging are not required. `make app` prefers a valid
-`AdaptivePlotter Local Development` identity and reports its signing mode. This
-Mac currently has no valid identity: the automated self-signed import reached
-macOS's interactive trust approval and the incomplete key was removed. The
-current fallback is ad-hoc, so its designated requirement contains the changing
-executable CDHash until that one-time approval is completed with the operator.
+A connected USB controller does not prove motor power. Keep that claim
+unverified unless observed independently.
 
-## Run the probe
+## 2. Enable Motion
 
-1. Record the before state:
+1. Confirm controller state is Idle and no relevant limit input is asserted.
+2. Press the one visible **Enable Motion** action.
+3. Verify the status reads Motion Enabled.
+4. Confirm there is no second arming/deactivation control in the Motion panel.
 
-   ```bash
-   ls -l /dev/cu.*
-   ```
+Enable Motion authorizes only direct typed operations for this controller
+session. It does not establish a workspace envelope or learned boundary.
 
-2. Connect controller USB and apply only the power needed for enumeration.
-   Unexpected mechanism or servo movement means remove power and inspect the
-   hardware setup.
-3. Run `ls -l /dev/cu.*` again and identify the new controller path. Do not use
-   an unrelated Bluetooth path.
-4. Launch:
+## 3.1 Pen Interaction
 
-   ```bash
-   make run-app
-   ```
+1. Open the Learning Path and verify the exact five stages remain visible.
+2. Begin Pen Interaction.
+3. Observe the mechanism before answering whether the pen is Up.
+4. Confirm the visible lowering cue appears first.
+5. Confirm the complete spoken lowering announcement finishes before actuation.
+6. Answer whether the observed physical pen is Down.
+7. Confirm the visible raising cue and complete spoken announcement precede the
+   raise command.
+8. Observe and answer that the final physical pen position is Up.
+9. Verify Stage 3 advances to Boundary Discovery.
 
-   This compiles the checked-in AppKit launcher and uses `NSWorkspace` to ask
-   LaunchServices for a new instance of the exact
-   `.build/AdaptivePlotter.app` bundle. The launcher waits for activation to
-   succeed or fail, then exits while the application remains running. It does
-   not invoke `/usr/bin/open` or the macOS `open` command. LaunchServices makes
-   the prompt attributable to the locally signed
-   `com.bullard.AdaptivePlotter` application instead of naming the terminal or
-   Codex process that invoked `make`. The bound Info.plist supplies the camera
-   usage description. In current ad-hoc mode a rebuild changes the CDHash and
-   may trigger another decision. Do not execute `.build/debug/AdaptivePlotter` or the app's
-   `Contents/MacOS/AdaptivePlotter` binary directly for camera acceptance.
+Record separately:
 
-5. Choose **Refresh Serial Devices** if needed, select the controller from the
-   remembered toolbar picker, and choose **Connect**. Selection alone does not
-   open the controller. After the passive inspection completes without a blocker,
-   the Plotter indicator turns green; use the controller panel's probe action for
-   a later refresh in the same session.
-6. Confirm that the UI reports the five exchanges or gives a concrete error.
-7. Repeat the probe in the same app launch if useful. A failed probe is not a
-   one-shot event and old journal files do not block retry.
+- controller command acceptance/settlement;
+- commanded pen state;
+- human-observed pen state;
+- exact captured frame identity.
 
-## Verify the camera
+Do not infer pen height from controller state or one camera frame.
 
-1. When repeating first-permission acceptance, reset only AdaptivePlotter's
-   camera decision before launch:
+## 3.2 Boundary Discovery
 
-   ```bash
-   tccutil reset Camera com.bullard.AdaptivePlotter
-   ```
+1. Select one direction with a clear observable path.
+2. Confirm the current action shows the controller-reported applicable feed
+   ceiling and source. For a single-axis direction it must match that axis.
+3. Answer YES only when the path is clear and the cutoff is reachable.
+4. Confirm the complete spoken movement announcement finishes before motion.
+5. Observe movement directly.
+6. Press the one toolbar **Stop** once at the observed boundary.
+7. Do not press any secondary cancellation control; none should exist.
 
-   Do not reset or grant camera access for ChatGPT or Codex. The permission
-   prompt must name **AdaptivePlotter**. If it names another responsible
-   application, deny it, stop the exact AdaptivePlotter process, and diagnose
-   the launch path before continuing.
-2. Leave the action surface in **LIVE** mode. At startup the app discovers
-   cameras, prefers **HD Pro Webcam C920**, and starts it when that choice is
-   unambiguous. Manual refresh/select/start remains available.
-3. Allow the prompt only when it names **AdaptivePlotter**. A pending prompt
-   produces no frames and no sample directory; that is an external permission
-   boundary, not camera evidence.
-4. Confirm that frame sequence advances and frame age remains current.
-5. Use the native toolbar to open **Camera** and **Overlays**. Confirm they dock
-   on the right, reserve space, and leave the complete camera surface visible.
-   Collapse, close, and restore them; **Hide All** must return the full content
-   width to the camera.
-6. Choose **Analyze Frame**. Confirm preview holds one exact frame and shows one
-   cap box/centroid, blue measured top/right side lines, a dashed inferred
-   drawing frame, and a dashed inferred armature envelope. Toggle Pen cap,
-   Measured frame sides, Drawing frame estimate, and Armature independently. The
-   panel reports support, residual, confidence, and evidence source rather than
-   a mm scale. Choose **Resume Preview**.
-7. Enable **Auto Analyze** first at 2 Hz and then 5 Hz. Confirm frame sequence
-   advances, analyzed count rises, frame age stays current, and superseded count
-   may rise without an unbounded backlog. Record the displayed delivery,
-   preview/exact, analyzed/superseded, and latency values; do not claim a usable
-   10 Hz rate until it is observed on this Mac.
-8. Choose **Save Snapshot** and confirm the UI reports a new PNG/manifest
-   directory under `CameraSamples`.
-9. Stop and restart capture; confirm a new camera configuration is used and
-   frames resume.
-10. Switch to **SIMULATED**. Toggle **PRIOR MISMATCH** and **ACCEPTED TRAINING**;
-   confirm predicted/observed residuals collapse for the accepted affine model,
-   and that the surface remains labeled not physical evidence. Switch back to
-   **LIVE** and confirm source labels are exact
-   and no overlay from the other source/configuration remains visible.
-11. Open **Learning** and verify its two distinct surfaces. **Motion Preflight**
-    opens the voice-mediated sequence utility; in SIMULATED mode it must identify
-    itself as rehearsal, provide no physical episode observation, and have no
-    effect on motion eligibility. Leave **Practice with Voice** unchecked and
-    verify silent playback does not request microphone permission. Then check it,
-    start a rehearsal, and verify the displayed exact phrase advances the
-    operator step while controller invocation and physical evidence remain zero.
-    Completion, Stop Rehearsal, unchecking the option, and switching to LIVE must
-    stop the rehearsal microphone. The jog-response diagnostic
-    controls **Record Jog Observations**, fixed training/holdout membership for
-    the next jog, current sample counts, the response matrix, and separate
-    residuals under `DIAGNOSTIC — NOT MOTION AUTHORITY`. With recording off,
-    ordinary LIVE jogging remains camera-independent. **Clear Samples** discards
-    only the current diagnostic set. SIMULATED mode must not issue a physical jog
-    or pen command.
-12. Confirm that the first successful live start created three PNGs plus
-   `manifest.json` beneath:
+Verify and record in order:
 
-   ```text
-   ~/Library/Application Support/AdaptivePlotter/CameraSamples/
-   ```
+1. one contextual operator Stop event;
+2. one Jog Cancel request;
+3. original jog owner reaches Idle;
+4. final MPos is retained;
+5. exact camera frame is strictly newer than controller settlement;
+6. selected side measurement/posterior is accepted, or the UI gives a precise
+   current reason;
+7. the Learning Path advances to Clear-View Discovery after this one relevant
+   boundary.
 
-   The manifest binds camera identity, configuration, frame sequence/time,
-   dimensions, pixel layout, and raw-frame SHA-256. Treat the PNGs as offline
-   vision-development samples only. They are not calibration or observed-ink
-   evidence.
+Natural completion at the bounded search horizon is not a boundary observation.
+Requested feed is not proof of achieved physical speed.
 
-The first accepted set was recorded at 1920x1080 from the C920. All three PNGs
-reconstruct the manifest's exact BGRA SHA-256. The green cap is a stable dominant
-connected component near camera pixel (1094.05, 375.76), while a small green
-controller light is a separate distractor. The blue-taped top and right paper
-edges are strong line priors; the attached rulers, their markings, magnets, and
-machine shadows are distractors rather than scale evidence. See
-[Current Implementation Status](CURRENT_IMPLEMENTATION_STATUS.md#current-c920-scene-priors) for the measured
-single-scene priors.
+## 3.3 Clear-View Discovery
 
-## Current local priors and observed controller facts
+1. Use typed Pen Up moves only as needed to expose the tool/paper scene.
+2. Label exact frames Blocked or Partial as observed.
+3. Label an exact current frame Clear only when the operator agrees.
+4. Confirm **Accept Current Clear View** remains disabled until the current
+   runtime label and observation are Clear.
+5. Accept the Clear pose.
 
-- Operator description: about 250 mm usable X by 100 mm usable Y, with the
-  controller-reported zero near physical center. One millimetre is the intended
-  smallest routine UI move. These are priors, not proven limits.
-- The passive probe reports distinct scale settings: `$100=40.18235` X
-  steps/mm and `$101=45.09100` Y steps/mm.
-- It also reports `$110=$111=500` mm/min and `$120=$121=10` mm/s^2. The
-  firmware `$130/$131` travel values do not agree with the operator's physical
-  estimate and must not be promoted to local safety bounds.
-- The current motion panel starts at independent 1 mm X/Y steps and 100 mm/min.
-  The earlier per-command cap and operator-entered X/Y envelope have been
-  removed; Motion Preflight now establishes boundary and pen evidence.
-- Completed physical tests included 0.1 mm and 1 mm X jogs, 10 mm X jogs at 60
-  mm/min, two -5 mm Y jogs at 60 mm/min, and -10 mm X at 400 mm/min.
-- A following +10 mm X request at 900 mm/min timed out while the controller
-  still reported `Jog` and physical X had advanced. The runtime correctly made
-  that outcome sticky-ambiguous. That running build's deadline ignored the
-  controller's 500 mm/min cap and 10 mm/s^2 acceleration. Current source parses
-  those settings and applies triangular/trapezoidal motion timing without using
-  firmware travel as a bound. The fresh verification below supersedes that
-  ambiguous session for new bounded operations; it does not reinterpret or
-  clear the earlier command outcome.
+The accepted pose supports vision-consuming travel in this session. It is not a
+manual-motion gate.
 
-### 2026-08-05 powered deadline recheck
+## 4. Observed Drawing Trial
 
-- The signed app opened `/dev/cu.usbserial-A10OF67O` in a new session. The
-  passive probe reported Idle, no asserted X/Y pins, and MPos X 29.192 /
-  Y -10.002.
-- The operator directly confirmed the pen was physically up. The app then sent
-  the fixed typed Pen Up command and settle dwell once; both were acknowledged
-  and the app recorded commanded state Up. Because the pen began up, this proves
-  a clean command path, not observable servo travel from a lowered pose.
-- The historical test build used an X 27.692...30.692 / Y -11.502...-8.502
-  harness envelope, a 1 mm cap, and 100 mm/min feed. Those operator-applied
-  limits were later removed from the product and are not current prerequisites;
-  the values remain here only to describe how this recorded test was run.
-- The X request completed Idle at X 30.212 / Y -10.002. The 1.020 mm reported
-  delta is one-step quantization at the probed `$100=40.18235` steps/mm. The
-  explicit inverse completed at the exact starting MPos.
-- The Y request completed Idle at X 29.192 / Y -9.004. The 0.998 mm reported
-  delta matches quantization at `$101=45.09100` steps/mm. Its explicit inverse
-  completed at X 29.192 / Y -10.002.
-- All four jogs were accepted, reached observed Idle before their current
-  controller-aware deadlines, and ended non-ambiguous with no alarm, asserted
-  limit, Hold, disconnect, or automatic resend.
-- Pen Down was not issued. It remains a separate physical step requiring
-  explicit operator authorization over replaceable paper.
+Proceed through the exact numbered actions:
 
-### 2026-08-05 controller-evidence and camera-displacement recheck
+1. **Capture Clean Reference** — record the exact clean frame/configuration.
+2. **Choose Line Start** — record current controller MPos.
+3. **Create Anchor Mark** — verify announced lower/raise ordering and observe the
+   anchor after the tool returns Clear.
+4. **Draw Isolated Line** — verify one closed stroke and no resend.
+5. **Clear Tool and Observe Ink** — verify Pen Up travel uses the appropriate
+   reported ceiling and the tool returns Clear before the post frame.
+6. **Compare Intended and Observed Geometry** — inspect actual ink, then choose
+   one typed assessment.
 
-- A fresh passive probe again reported Idle, no asserted X/Y pins, and MPos
-  X 29.192 / Y -10.002. The operator again directly confirmed the pen was up.
-- This historical recheck used a temporary ±2 mm harness envelope, a 1 mm cap,
-  and 30 mm/min feed. That harness no longer exists in the current application;
-  the record does not reinstate typed limits.
-- X completed at 30.212 / -10.002 (+1.020 mm) and returned exactly to
-  29.192 / -10.002 (-1.020 mm). Y then completed at 29.192 / -9.004
-  (+0.998 mm) and returned exactly to 29.192 / -10.002 (-0.998 mm).
-- All four operations used the production typed controller path, included exact
-  controller-owned start/final MPos and monotonic sample times, reached Idle,
-  and produced no alarm, asserted limit, Hold, disconnect, ambiguity, or resend.
-- Separately bracketed C920 PNG samples processed by the production cap detector
-  showed displacement and return on both axes. The camera was restarted between
-  those samples, so their configuration IDs intentionally prevent them from
-  being admitted as one integrated physical-observation episode.
-- The camera cannot see or prove the pen-up/pen-down servo transition from this
-  view. Pen state in this check came from direct operator confirmation plus the
-  acknowledged typed Pen Up command; Pen Down was not issued.
+Record exact clean/anchor/post frame identities, controller start/final MPos,
+observed new ink, intended/observed overlay, residual when available, and the
+human comparison.
 
-### 2026-08-06 motor-power observability check
+If ink or geometry is unclear, select that outcome. The app must not redraw
+automatically.
 
-- The operator switched only the plotter/motor supply off while leaving USB
-  attached. The exact AdaptivePlotter process holding the serial device was
-  resolved and terminated before the coordinator reclaimed the port.
-- The identical passive query set still completed without blockers. The device
-  identified as the same grblHAL BlackBox X32 and reported `Idle`, MPos
-  X 0.000 / Y 0.000, no asserted X/Y pins, `Bf:100,1023`, `FS:0,0`, and `H:0`.
-- Those controller-observable facts matched the powered baseline. USB response,
-  `Idle`, MPos, and `H:0` do not establish that motor supply current is present.
-- AdaptivePlotter therefore reports controller-link responsiveness and
-  motion-command permission separately, and says motor power is not reported
-  by the controller. No motion or pen command was sent during this comparison.
+## Negative checks
 
-### 2026-08-06 stationary pen-contact check
+During the pass verify:
 
-- With power restored, the passive query set reported the same BlackBox X32,
-  recognized `Idle`, MPos X 0.000 / Y 0.000, and no asserted X/Y pins.
-- The typed `M3 S40` raise plus `G4 P0.3` completed first, establishing a fresh
-  controller-commanded Up state without ambiguity.
-- A stationary typed down at the historical `S720` value moved the mechanism,
-  but direct operator inspection after raising found no green dot on the white
-  paper. Controller acknowledgement was correctly not treated as ink evidence.
-- One explicit conservative local adjustment changed the closed down value to
-  `S760`; there was no automatic sweep or operator-supplied G-code surface.
-- The stationary `M3 S760` command completed within conservative ±1 mm local
-  bounds without any X/Y command. After the immediate `M3 S40` raise, the
-  operator inspected the paper and confirmed a green contact dot.
-- Every actuation and settle was acknowledged with no alarm, asserted limit,
-  disconnect, sticky ambiguity, or automatic resend. The final commanded state
-  was Up. Physical contact came from direct observation; this camera view still
-  cannot observe pen height.
+- no audio-input permission prompt or input-level presentation appears;
+- buttons remain usable if spoken output fails or times out;
+- no ambient speech can answer, move, or Stop;
+- ordinary manual XY jog remains available from direct machine facts without
+  requiring Learning Path completion;
+- SIMULATED mode cannot reach controller actions or create physical evidence;
+- exactly one app instance owns camera and serial resources.
 
-## Verify one bounded jog
+## Stop conditions
 
-1. Use the passive probe to confirm the attached controller supports the closed
-   `$J=G91 G21 ...` jog form, is Idle/non-alarm, has no asserted X/Y limit, and
-   reports current MPos.
-2. Press **Activate Motion** for the connected session. Do not enter coordinates,
-   a travel envelope, or a maximum-jog value; those controls do not exist.
-3. Keep the physical cutoff reachable and choose **COMMAND PEN UP**. Confirm the
-   controller acknowledges both the fixed up command and settle dwell, and
-   directly observe that the pen is clear. Stop if command and mechanism disagree.
-4. Send a 1 mm X jog at 100 mm/min. Wait for `ok` acceptance followed
-   by observed Idle completion and the expected final MPos.
-5. Send the exact inverse X jog and verify return. Then repeat the same 1 mm
-   round trip on Y only if X was unambiguous.
+Stop the attempt immediately if:
 
-Stop immediately on unexpected motion, alarm, asserted limit, disconnect, Hold,
-unexpected controller state, or ambiguous outcome. Do not Home, unlock/clear an
-alarm, reset, write settings, or Resume.
+- the operator loses direct view or cutoff access;
+- an unexpected instance owns camera or serial resources;
+- controller state, pins, position, pen state, or sticky ambiguity is unclear;
+- movement starts before its full spoken cue finishes;
+- one toolbar Stop emits more than one cancellation;
+- the original owner does not settle at Idle with final MPos;
+- frame provenance crosses camera configurations;
+- the app proposes resend, resume, or redraw after uncertainty;
+- UI status is being treated as physical movement or ink evidence.
 
-## Verify stationary pen actuation
+## Report format
 
-Do this only after both 1 mm round trips return unambiguously and the tool is in
-a harmless camera-visible location over replaceable paper.
+Report four sections independently:
 
-1. Choose **COMMAND PEN DOWN** once. Directly observe whether the pen reaches paper after
-   the acknowledged 0.3 s settle. Controller acknowledgement alone is not proof.
-2. Choose **COMMAND PEN UP** once. Directly observe clearance.
-3. Stop after that down/up pair. Do not jog while down and do not repeat a command
-   after any timeout, disconnect, reset greeting, rejection, or physical mismatch.
+1. **Automated** — exact commands and results.
+2. **Controller/camera** — wire settlement, MPos, frame/configuration, and
+   requested feed.
+3. **Human-observed** — physical pen pose, motion, Clear view, and cutoff access.
+4. **Ink-observed** — whether a mark exists and how intended/observed geometry
+   compares.
 
-This session establishes actuator behavior only. A stationary dot is ink
-evidence if visible, but it is not an XY model observation or drawing success.
-
-Each query has a two-second absolute deadline and bounded input size. Those
-limits prevent a stuck or noisy serial connection; they are not a broader
-development gate.
-
-## What to look at
-
-For a successful probe, inspect:
-
-- selected BSD device path;
-- controller identity/build response;
-- parser state;
-- current `<...>` status, alarm, and pin fields;
-- settings and coordinate-offset replies;
-- exact error when any query fails.
-
-When local storage is available, the app creates a small SQLite session log
-under:
-
-```text
-~/Library/Application Support/AdaptivePlotter/MachineSessions/
-```
-
-One file follows the selected-device machine session and may contain repeated
-probes plus jog diagnostics. The log is optional current-session data. A
-logging failure does not stop a probe or jog. Manual SQLite verification,
-database hashing, WAL export, immutable evidence packages, and preservation of
-every old run are not required.
-
-## Stop this attempt when
-
-- the controller path is absent or genuinely ambiguous;
-- another process owns the port;
-- the controller reports an alarm or asserted limit that makes the physical
-  state unclear;
-- the serial link disconnects or returns an unknown command outcome;
-- the mechanism moves unexpectedly during this passive procedure.
-
-Correct the concrete issue and retry. Do not unlock, home, reset, or write
-settings merely to force the passive probe to pass.
-
-## Next hardware step
-
-The recorded camera analysis, jog round trips, and stationary pen down/up pair
-are complete; they are not a chain to rerun mechanically. The next session
-starts one persistent ExplorationSession, physically exercises Motion Preflight,
-teaches one clear pose through Armature Guidance, creates one observed anchor dot
-at the recorded line start, and draws one short isolated segment before
-capturing a newer exact frame and displaying its anchored ink residual.
-Only a concrete current mechanical blocker or ambiguity stops the affected
-operation. Do not accept cap motion, controller `ok`, or the simulator as ink
-authority.
+An incomplete section remains explicitly unverified; do not fill it from another
+evidence class.

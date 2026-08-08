@@ -4,7 +4,7 @@ import Testing
 
 @Suite("Native workbench toolbar")
 struct WorkbenchTopBarLayoutTests {
-  @Test("toolbar owns camera, plotter, and explicit motion guard indicators")
+  @Test("toolbar owns camera plotter and motion indicators")
   func connectionIndicatorsAreFocused() {
     #expect(WorkbenchConnectionIndicator.allCases == [.camera, .plotter, .motionGuard])
     #expect(WorkbenchConnectionIndicator.camera.title == "Camera")
@@ -21,10 +21,10 @@ struct WorkbenchTopBarLayoutTests {
       WorkbenchConnectionIndicator.plotter.label(isActive: false) == "Plotter Disconnected"
     )
     #expect(
-      WorkbenchConnectionIndicator.motionGuard.label(isActive: true) == "Motion Ready"
+      WorkbenchConnectionIndicator.motionGuard.label(isActive: true) == "Motion Enabled"
     )
     #expect(
-      WorkbenchConnectionIndicator.motionGuard.label(isActive: false) == "Motion Blocked"
+      WorkbenchConnectionIndicator.motionGuard.label(isActive: false) == "Motion Disabled"
     )
   }
 

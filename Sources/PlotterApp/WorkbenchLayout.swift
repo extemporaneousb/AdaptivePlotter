@@ -10,7 +10,7 @@ enum WorkbenchPanel: String, CaseIterable, Identifiable, Sendable {
   case motion = "Motion"
   case camera = "Camera"
   case overlays = "Overlays"
-  case learning = "Learning"
+  case learningPath = "Learning Path"
 
   var id: Self { self }
 
@@ -18,7 +18,7 @@ enum WorkbenchPanel: String, CaseIterable, Identifiable, Sendable {
     switch self {
     case .motion:
       .left
-    case .camera, .overlays, .learning:
+    case .camera, .overlays, .learningPath:
       .right
     }
   }
@@ -28,7 +28,7 @@ enum WorkbenchPanel: String, CaseIterable, Identifiable, Sendable {
     case .motion: "move.3d"
     case .camera: "camera"
     case .overlays: "square.3.layers.3d"
-    case .learning: "chart.xyaxis.line"
+    case .learningPath: "chart.xyaxis.line"
     }
   }
 
@@ -37,7 +37,7 @@ enum WorkbenchPanel: String, CaseIterable, Identifiable, Sendable {
     case .motion: CGSize(width: 390, height: 520)
     case .camera: CGSize(width: 390, height: 530)
     case .overlays: CGSize(width: 330, height: 410)
-    case .learning: CGSize(width: 410, height: 510)
+    case .learningPath: CGSize(width: 410, height: 510)
     }
   }
 }

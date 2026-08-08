@@ -3,8 +3,10 @@ import Testing
 
 @testable import PlotterApp
 
-@Test("production simulator renders both prior and accepted-training variants")
+@Test("production simulator renders both prior and accepted-model variants")
 func productionSimulatorVariantsRender() async throws {
+  #expect(SimulatorModelMode.trained.rawValue == "ACCEPTED MODEL")
+
   let prior = try await CameraComposition.actions.simulatedContent(.prior)
   let trained = try await CameraComposition.actions.simulatedContent(.trained)
 

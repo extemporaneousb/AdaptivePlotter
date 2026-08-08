@@ -1,403 +1,215 @@
 # AdaptivePlotter
 
-AdaptivePlotter is a local Swift macOS application for this operator Mac and
-its attached plotter. There is no distribution, release-signing, notarization,
-sandbox, CI, support-matrix, or second-computer requirement. A locally signed
-bundle and LaunchServices launcher exist only to give camera, microphone, and
-speech permissions the correct application identity.
+AdaptivePlotter is a native macOS Swift application for a short
+controller-camera-draw-observe loop on one attached plotter. It keeps controller
+authority, camera evidence, human observation, inferred geometry, and observed
+ink separate.
 
-The goal is direct:
+The product is intentionally local and narrow:
 
-```text
-connect controller and camera
--> activate motion for this controller session
--> start one voice-mediated ExplorationSession
--> use Motion Preflight to teach the pen interaction and drawing-frame posterior
--> use Armature Guidance to find a clear observation pose
--> draw, clear the tool, and observe actual ink
--> speak a correction, visibility label, comparison, or reward
--> choose the next useful action and improve
-```
+- one signed application bundle and one native process;
+- one persistent controller owner and one camera owner;
+- a camera-first workbench with typed, bounded actions;
+- exact frame and camera-configuration provenance;
+- no arbitrary controller text, remote backend, second process, or hidden
+  compatibility workflow;
+- no automatic resend, resume, or redraw after an uncertain physical outcome.
 
-Getting that loop moving on the physical machine takes precedence over
-infrastructure, generalized architecture, exhaustive evidence systems, and UI
-ceremony. The product deliberately accepts bounded risk on this replaceable,
-end-stop-equipped machine in exchange for faster empirical progress.
+## Operator journey
 
-## Documentation map
+The persistent **Learning Path** organizes the current work:
 
-- This README is the canonical current product contract and local run guide.
-- [Project Scope and Learning Architecture](docs/PROJECT_SCOPE_AND_MODEL_TRAINING.md)
-  is the canonical statement of purpose, ExplorationSession contract, learning
-  ladder, physical training procedure, and training goals.
-- [Minimal Local Architecture](docs/SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md)
-  records live ownership and authority boundaries.
-- [Direct Implementation Plan](docs/SWIFT_ADAPTIVE_PLOTTER_SEQUENTIAL_REBUILD.md)
-  is the ordered engineering backlog, not a readiness gate.
-- [Current Implementation Status](docs/implementation/CURRENT_IMPLEMENTATION_STATUS.md)
-  distinguishes implemented, simulated, physically observed, and missing work.
-- [First Hardware Session](docs/implementation/FIRST_HARDWARE_SESSION.md) is a
-  historical physical evidence record; it does not define the current UI.
-- [Next Slice Multi-Agent Execution Prompt](docs/implementation/NEXT_SLICE_MULTI_AGENT_PROMPT.md)
-  is the standalone copy-paste handoff for the next implementation and physical
-  learning session; it is not an additional product contract.
-- [Feasibility Review](docs/FEASIBILITY_REVIEW_AND_BINDING_AMENDMENTS.md) is the
-  binding scope constraint when older planning language suggests a larger system.
+1. **Connect**
+2. **Enable Motion**
+3. **Human-Guided Discovery**
+4. **Observed Drawing Trials**
+5. **Adaptive Drawing**
 
-## Current state
+This numbering is ergonomic presentation, not a machine-authority ladder.
+Connect and Enable Motion are current-session mechanical prerequisites. Learning
+status never becomes a global motion gate, and ordinary manual jogs do not
+depend on learning completion. Each operation requires only the direct facts and
+evidence it consumes.
 
-The repository contains one SwiftPM application with:
+Human-Guided Discovery is ordered as:
 
-- native `/dev/cu.*` discovery and GRBL/grblHAL parsing;
-- the fixed passive query sequence `$I`, `$G`, `?`, `$$`, `$#`;
-- one persistent selected-device controller session with repeatable passive
-  probes and best-effort SQLite diagnostics;
-- one controller picker that remembers the last selected device without
-  connecting on selection, plus one explicit Connect/Disconnect action whose
-  green status requires a successful blocker-free passive inspection;
-- a closed typed relative-jog command with a session motion guard, controller-
-  reported axis feed ceilings, known pen-up state, Idle completion polling,
-  end-stop/alarm refusal, and sticky ambiguous outcomes; there is no operator-
-  entered coordinate envelope or maximum-jog prerequisite;
-- AVFoundation camera discovery, explicit selection, lifecycle/error state,
-  bounded preview materialization, and explicit immutable latest-frame capture;
-- startup preference for the attached C920 plus three provenance-bearing PNG
-  samples for offline vision analysis after camera access is granted;
-- connected-component green-cap and robust top/right frame-side measurement,
-  plus inferred drawing-frame and cap-anchored armature envelopes, with every
-  overlay bound to the exact measured frame/configuration;
-- one camera-dominant action surface shared by live BGRA frames and a
-  deterministic model-mismatch simulator;
-- a native unified macOS toolbar with the remembered controller picker,
-  Connect, Activate Motion, truthful camera/plotter/motion status, and
-  independently openable and collapsible Motion left dock and
-  Camera/Overlays/Learning right docks; opening
-  controls reserves space and reframes rather than covers the camera surface;
-- compact camera-live, plotter-connected, and motion-guard indicators in the
-  toolbar, derived from current capture/frame, controller-inspection, and
-  session-activation facts, plus a clickable bottom status that reveals and
-  expands the Motion dock and its session Motion Guard control;
-- distinct controller-link, motion-command, and motor-power reporting: a
-  responsive USB controller is not presented as proof that motor supply power
-  is present;
-- bounded continuous scene analysis at a selectable 2/5/10 Hz, with one active
-  and one newest pending frame plus visible delivery/materialization/analysis
-  counts and latency;
-- closed typed Pen Up/Pen Down actuation for this mechanism, serialized with
-  probes and jogs and using the verified local `M3 S40` / `M3 S760` /
-  `G4 P0.3` profile;
-- a first-class Motion Preflight window under Learning. Every operator prompt
-  is a typed contextual question with visible answer buttons. **Use Voice** is
-  optional: when enabled, the app reads the question and recognizes the same
-  displayed choices; when disabled, the buttons remain fully functional;
-- a clearly discoverable **Practice Voice (SIMULATED)** path. Practice uses the
-  same questions and answer buttons, can run with the microphone or buttons
-  only, and cannot touch the controller, record physical evidence, update the
-  drawing-frame posterior, or affect motion eligibility;
-- four question-guided boundary sequences plus one complete Pen Cycle. Boundary
-  questions use `YES`/`NO` and, during active motion, `STOP`. The Pen Cycle asks
-  whether the pen is up, whether it is clear to lower, whether it is down after
-  lowering, then retracts and asks whether it is up. Wrong-context, ambient,
-  and compound phrases have no controller meaning;
-- one closed GRBL realtime Jog Cancel byte (`0x85`) for an active `$J` move.
-  It has no ordinary acknowledgement: the original jog owner continues polling
-  until Idle and reports the actual final MPos or ambiguity;
-- boundary positions recorded only when the internal search jog resolves as
-  cancelled with a controller-reported final MPos. Each accepted observation
-  requires a camera frame newer than that completion, an observed tool centroid,
-  and the exact camera configuration. Current code shifts the nearest inferred
-  image edge from that centroid and confidence-averages quadrilaterals; final
-  MPos is recorded provenance/repeatability context, not a numerical image-space
-  constraint. Reaching the internal search horizon is normal completion, not
-  boundary evidence;
-- an optional observed-jog operation that brackets exactly one accepted motion
-  with immutable live C920 frames and controller-owned start/final MPos samples;
-- one primary SwiftUI operator window plus one Motion Preflight utility window,
-  both backed by the same delegate-owned workspace. The local launcher ignores
-  stale AppKit restoration and the app delegate refuses future state
-  save/restore; closing the last window drains the workspace, terminates the app,
-  and releases camera, microphone, and serial ownership instead of leaving a
-  hidden session. Termination remains bounded to three seconds if a hardware
-  intent does not drain;
-- a current-session jog-response dataset with fixed training/holdout membership,
-  a fitted 2x2 machine-delta-to-camera-delta matrix, and separate residuals;
-- typed geometry, a polyline `DrawingProgram`, affine camera/field math, sealed
-  conversion from physical jog evidence into registered training observations,
-  and one immutable affine-model trainer with training/holdout evaluation. The
-  trainer is exercised by tests and the simulator; it is not yet an ink-backed
-  live application workflow.
+1. **3.1 Pen Interaction** — observe Up, authorize and observe Down, retract,
+   and finish with an explicit human confirmation of Up.
+2. **3.2 Boundary Discovery** — choose a direction, start one bounded jog, use
+   the contextual Stop, settle at controller Idle with final MPos, capture a
+   strictly newer exact frame, and update that side observation.
+3. **3.3 Clear-View Discovery** — label an exact frame Blocked, Partial, or
+   Clear and accept one repeatable Clear pose.
 
-The current architecture uses one persistent `ExplorationSession`: start once
-under Learning, keep the microphone warm across Motion Preflight, Armature
-Guidance, ink inspection, and comparison episodes, dispatch a small contextual
-reflex grammar to typed actions, and record flexible spoken observations as
-learning labels. The session, deterministic simulator loop, and Armature
-Guidance software are implemented; signed-bundle physical verification remains.
+Pen Interaction plus one relevant boundary is sufficient to advance to
+Clear-View Discovery. The other directions remain optional observations.
 
-Typed Pen Up and Pen Down are implemented and physically verified over white
-paper. The historical `S720` down value moved the mechanism but left no mark;
-one explicit conservative adjustment to `S760` produced a green contact dot,
-and an `S40` command was separately observed lifting the tip after the earlier
-down attempt. The final `S40` command after the marked contact was acknowledged
-without ambiguity and left the controller-commanded state Up. These are direct
-operator observations because the camera cannot see the vertical pen transition.
-Drawing and observed-ink extraction are not implemented. The camera source path
-has captured and analyzed exact current C920 samples. The
-controller-aware completion deadline passed fresh 1 mm X and Y round trips at
-100 mm/min with Idle completion and exact inverse returns. A second conservative
-30 mm/min check on the delivered controller-evidence path again passed both
-axes: X reported +1.020/-1.020 mm and Y +0.998/-0.998 mm, ending at the exact
-starting MPos. Bracketed C920 samples showed the green cap move and return. The
-camera did not and cannot establish pen height from that view. A subsequent
-current-session observation pass recorded eight integrated 1 mm jogs at the
-actual 100 mm/min feed: four fixed training episodes and four fixed holdout
-episodes, with confidence 1.000 cap measurements and exact return to controller
-X0/Y0 after every inverse pair. The through-origin camera-response fit was
-`[[-1.6907, 0.1585], [-0.1581, -1.2680]]` pixels/mm, with 0.164 px training RMS
-(0.205 px maximum) and 0.337 px holdout RMS (0.551 px maximum). This is
-inspectable current-session response evidence, not a motion transform or
-calibration authority.
+Observed Drawing Trials are ordered as:
 
-The current paper area has two visible wood rails parallel to X. They remain
-camera-visible scene facts for learning and placement; the UI does not ask the
-operator to translate them into coordinates, bounds, or a maximum jog value.
+1. **4.1 Capture Clean Reference**
+2. **4.2 Choose Line Start**
+3. **4.3 Create Anchor Mark**
+4. **4.4 Draw Isolated Line**
+5. **4.5 Clear Tool and Observe Ink**
+6. **4.6 Compare Intended and Observed Geometry**
 
-On this BlackBox X32, identical passive observations with motor power on and
-off both report a responsive USB link, grblHAL `Idle`, MPos, no asserted pins,
-and the same status fields. The controller therefore does not report motor
-supply state. The UI separates `LINK last inspection responsive`, `MOTION
-request eligible` or `blocked`, and `Motor power: not reported by controller`
-rather than inventing a powered claim.
+Only observed ink proves that a mark exists. Adaptive Drawing remains visibly
+Future until multi-stroke observation and checkpoint learning are implemented.
 
-Old or corrupt journal files do not block a new session. The app does not have
-an archival replay product, artifact store, retention policy, accessibility
-program, advanced model family, or release pipeline.
+Buttons are authoritative for questions, labels, progression, assessment, and
+Stop. Spoken movement announcements are output-only and advisory. They are
+serialized and completion-aware; a bounded speech-output failure never grants
+authority and never makes the visible buttons unusable. No audio-input or
+speech-recognition subsystem is part of the product.
 
-## Build and run
+## Direct mechanical authority
 
-The installed Apple Command Line Tools and SwiftPM are the supported local
-toolchain:
+The internal runtime retains its precise `MotionGuard` type, but the operator
+surface says **Enable Motion**, **Motion Enabled**, or **Motion Disabled**.
+There is no second arming control.
 
-```bash
+Typed motion continues to require the applicable direct facts:
+
+- one explicitly selected, responsive controller session;
+- current internal motion authorization;
+- recognized non-alarm controller state and Idle admission;
+- no relevant asserted X/Y limit pin;
+- known MPos where the requested operation requires it;
+- controller-reported feed capability;
+- the appropriate commanded pen state;
+- one-operation ownership;
+- no sticky ambiguity.
+
+Disconnect and shutdown invalidate current authorization. The application does
+not home, clear alarms, unlock, reset, write firmware settings, accept entered
+workspace bounds, or use learned geometry or model confidence to admit manual
+motion.
+
+Controller `ok` means acceptance, not completion. A jog completes only after
+bounded polling reaches fresh Idle with final MPos. An uncertain outcome becomes
+sticky and is never automatically resent.
+
+## Stop semantics
+
+The workbench toolbar owns one visible contextual **Stop** while a typed software
+operation is cancellable. It is not a physical emergency stop; the physical
+power cutoff remains the operator's safety boundary.
+
+During Boundary Discovery, Stop has one deterministic order:
+
+1. record the contextual operator Stop event;
+2. emit exactly one GRBL Jog Cancel byte;
+3. await the original jog owner through Idle and final MPos;
+4. capture a strictly newer exact camera frame;
+5. measure and update the relevant boundary observation;
+6. advance the visible sequence.
+
+The same toolbar surface cancels a manual jog without creating boundary
+evidence. Drawing cancellation retains the controller owner's Pen Up behavior;
+an ambiguous outcome causes no follow-on command.
+
+## Travel feed selection
+
+Successful passive controller inspection exposes the reported X and Y maximum
+feeds as read-only runtime facts. Non-drawing, Pen Up discovery and travel select:
+
+- the X ceiling for X-only motion;
+- the Y ceiling for Y-only motion;
+- the minimum participating-axis ceiling for multi-axis motion.
+
+If that capability is unavailable, the existing positive request feed remains
+the fallback; its absence does not create a new learning prerequisite. The app
+does not write firmware settings. Pen Down drawing feed remains an ink-quality
+choice and is not automatically increased.
+
+## Camera and evidence
+
+`CameraCapture` owns AVFoundation discovery, selection, authorization, capture,
+and shutdown. `latestLiveCameraFrame` is the live heartbeat; it is deliberately
+separate from an analyzed or held display frame. `StampedFrame`, `FrameID`, and
+`CameraConfigurationID` bind pixels, measurements, and overlays to exact
+provenance.
+
+The evidence boundaries are explicit:
+
+- controller acceptance proves only that the command was accepted;
+- Idle and final MPos prove controller-side settlement;
+- a camera frame proves captured pixels at its recorded provenance;
+- vision geometry is an inference from those pixels;
+- a button label records a human observation;
+- observed ink is the only proof of a drawn mark.
+
+SIMULATED frames share the renderer but are labeled nonphysical and cannot reach
+machine actions or satisfy physical evidence.
+
+## Build, test, and launch
+
+Requirements: macOS 14 or later and Swift 6.1 or later.
+
+```sh
 make build
 make test
 make check
-make app
-make run-app
-```
-
-`make app` assembles `.build/AdaptivePlotter.app` around the current SwiftPM
-executable and prefers a valid local identity named `AdaptivePlotter Local
-Development` (or `ADAPTIVEPLOTTER_CODESIGN_IDENTITY`). It reports the selected
-mode and falls back to ad-hoc signing rather than pretending identity stability.
-Both modes bind `Contents/Info.plist` and the identifier
-`com.bullard.AdaptivePlotter`. This Mac currently has no valid code-signing
-identity: importing a self-signed key succeeded, but macOS required an
-interactive trust approval before use, so the incomplete key was removed. Until
-that one-time approval is completed, an ad-hoc designated requirement contains
-the executable CDHash and a changed executable can require a fresh camera
-decision.
-`make run-app` compiles the small checked-in AppKit launcher and asks
-LaunchServices to start a new instance of that exact bundle. The launcher waits
-for the launch result, reports an error if activation fails, and exits without
-owning the application lifetime. It does not invoke `/usr/bin/open` or the
-macOS `open` command. LaunchServices is required here so TCC names
-AdaptivePlotter rather than the terminal or Codex process that ran `make`. Use
-the bundle for physical camera work and expect to re-allow camera access after
-a rebuild until a stable local signing identity exists. The raw
-`.build/debug/AdaptivePlotter` executable remains useful for non-TCC
-command-line diagnosis but is not the physical-camera launch path.
-
-On the first successful live-camera start, the app writes three startup scene
-samples and a JSON manifest under the path below. **Save Snapshot** writes one
-additional exact frame and manifest there on request.
-
-```text
-~/Library/Application Support/AdaptivePlotter/CameraSamples/
-```
-
-Those files are vision-development inputs, not calibration or drawing evidence.
-The selected ExplorationSession implementation will reuse this camera-owned
-export path for the exact clean-reference, anchored-baseline, and post-line
-frames deliberately admitted to a learning episode; it will not turn startup
-samples into training evidence or add a second artifact store.
-
-Normal development uses Swift 5 language compatibility mode with the installed
-Swift 6 compiler. Strict concurrency and warnings-as-errors are optional:
-
-```bash
 make strict-check
 ```
 
-Do not turn `strict-check` into a prerequisite for ordinary development or
-landing unless a concrete concurrency problem makes it relevant.
+For supported local application launch:
+
+```sh
+make run-app
+```
+
+`make run-app` builds the current `.app`, prefers the stable
+`AdaptivePlotter Local Development` signing identity (or the explicit
+`ADAPTIVEPLOTTER_CODESIGN_IDENTITY`), validates the bundle and camera-only
+privacy declaration, then launches through LaunchServices.
+
+The launcher accepts only `com.bullard.AdaptivePlotter` at the expected bundle
+path. It activates one already-running exact bundled instance instead of
+creating another and reports its PID. It refuses a same-name raw SwiftPM
+executable or any conflicting instance with PID and path, and never kills a
+user-owned process. A rebuilt bundle does not replace the bits already loaded by
+an existing process.
+
+Do not use `swift run AdaptivePlotter` for camera, controller, or physical
+validation. Direct executable launch gives the wrong application identity and
+can create competing camera/serial owners.
+
+## Documentation map
+
+- [Binding amendments](docs/FEASIBILITY_REVIEW_AND_BINDING_AMENDMENTS.md)
+  define the non-negotiable authority and evidence rules.
+- [Project scope and model learning](docs/PROJECT_SCOPE_AND_MODEL_TRAINING.md)
+  defines the five-stage product scope and technically precise model terms.
+- [Architecture](docs/SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md) defines module and
+  owner boundaries.
+- [Direct implementation plan](docs/SWIFT_ADAPTIVE_PLOTTER_SEQUENTIAL_REBUILD.md)
+  records implemented and remaining delivery order.
+- [Current implementation status](docs/implementation/CURRENT_IMPLEMENTATION_STATUS.md)
+  separates automated, camera, controller, and physical evidence.
+- [Physical session procedure](docs/implementation/FIRST_HARDWARE_SESSION.md)
+  is the operator checklist for the next attended hardware pass.
 
 ## Development contract
 
-Use the repo-local AdaptivePlotter skill and Blackdog for retained changes.
-Blackdog remains the project workflow.
+Use the repository-local AdaptivePlotter skill and the Blackdog workflow in
+`AGENTS.md`. Implementation belongs in the task workspace returned by
+`blackdog task begin`; the recorded target branch is authoritative.
 
-Outside that workflow, development is deliberately lightweight:
+Normal integrated validation is:
 
-- implement the highest-value working capability next;
-- use focused tests while iterating and `make check` before landing;
-- hardware absence never blocks source work, simulation, UI work, or landing;
-- no phase document, evidence package, or historical replay is required for a
-  routine implementation change;
-- do not add an abstraction, framework, model family, or persistence feature
-  until the working local app needs it.
-
-Physical operations use direct runtime checks plus one explicit session Motion
-Guard activation. At session start, establish the selected controller and its
-current state, activate motion, and start one `ExplorationSession`. Complete a
-voice-mediated preflight observation only when the requested learning or
-drawing operation consumes it. Recheck only a fact invalidated by a disconnect,
-alarm/reset, configuration change, tool change, or camera change.
-
-A physical command may be refused only for a concrete current reason such as:
-
-- no unique selected serial device;
-- controller alarm, limit, disconnect, or outstanding ambiguous command;
-- motion has not been activated for the current controller session;
-- requested feed exceeds the controller-reported axis capability;
-- unknown pen state for a move that requires pen up;
-- missing current camera frame for an operation that actually needs vision.
-
-That refusal stops the affected run or command, not development and not
-unrelated hardware work. Show the reason and allow an immediate retry after it
-is corrected.
-
-## Minimal architecture
-
-Keep one native process and direct Swift calls:
-
-```text
-PlotterApp / OperatorWorkspace
-  -> MachineActions -> RunInterpreter -> MachineController
-  -> CameraActions  -> CameraCapture + VisionWorker/Pipeline
-  -> ExplorationSession -> VoiceInteractionSession + typed intent/label router
-  -> MotionPreflight + DrawingFramePosterior
-  -> ArmatureGuidance + visibility/occlusion estimate
-  -> ExplorationEpisodeDataset
-  -> OnlineJogResponseDataset      current-session diagnostic only
-  -> RunLedger                     optional session diagnostics
+```sh
+make build
+make test
+make check
+make strict-check
+git diff --check
 ```
 
-The session log records useful controller exchanges when storage is available.
-It is best effort: logging failure cannot prevent a controller operation. The
-in-memory controller result is the source for the current operation. Do not add
-pre-write database commits, command-lifecycle recovery, content-addressed blobs,
-immutable run bundles, replay reducers, algorithm re-evaluation, quotas,
-tombstones, export workflows, or old-run admission scans.
+Physical claims require an attended physical run with the cutoff reachable.
+Builds, tests, simulator output, controller `ok`, Idle, UI state, or camera
+preview must never be reported as physical movement or ink proof.
 
-Use the simplest geometry that works:
-
-- typed `FieldSpace`, `MachineSpace`, and `CameraPixelSpace` values;
-- polylines first;
-- one affine machine-to-field transform plus a constant tool offset if needed;
-- direct forward check of generated machine points;
-- an immutable accepted affine snapshot; candidates train on an explicit split,
-  must improve held-out error, and are accepted only at a pen-up checkpoint;
-- no spline field, neural model, bootstrap program, continuous pen-down model
-  update, or generalized adaptive-model UI.
-
-If the affine transform draws acceptably, stop adding model complexity.
-
-The learning ladder is Motion Preflight, Armature Guidance, isolated ink
-geometry, stroke/shape preference learning, bounded autonomous exploration,
-and continuous adaptive drawing. These are different learning problems with a
-shared `ExplorationEpisode` record, not different authority systems. Boundary
-observations update the drawing-frame posterior; Armature Guidance learns
-clear/partial/blocked visibility over pose; ink observations fit geometric
-error; spoken comparisons train preference; an active selector uses information
-gain/model disagreement to choose experiments; and reinforcement learning later
-selects action sequences evaluated on held-out drawing/preference quality,
-motion/time cost, completion, intervention, and ambiguity. The exact objective
-and promotion signal for each rung are in
-[Project Scope and Learning Architecture](docs/PROJECT_SCOPE_AND_MODEL_TRAINING.md).
-
-The current build owns microphone input through one `ExplorationSession` during
-the integrated Learning flow. Motion Preflight itself is input-agnostic:
-visible buttons always answer its current multiple-choice question, while
-optional Voice reads the prompt and accepts the same short choices. The
-session's low-latency reflex path maps stable
-contextual utterances such as `STOP`, continue, reverse, and directional
-adjustments to closed typed intents. Its teaching path records flexible
-visibility observations, shape features, rankings, and rewards without giving
-free-form speech raw controller authority. Feedback is brief and interruptible.
-Simulation exercises the same episode and intent types but remains explicitly
-non-physical. Motion Preflight practice can be run with buttons only or with
-**Practice with Voice** so the human can test recognition against the displayed
-choices; neither input can give the simulated timeline physical authority.
-
-A taught side is accepted only from `MotionOutcome.cancelled(finalPosition:)`:
-the Jog Cancel must settle at Idle and supply final controller MPos. A jog that
-reaches its requested command cap is completed motion, not a measured boundary.
-This increment still requires direct physical validation with the attached
-plotter before its prompts, cancellation timing, or recorded boundary positions
-are claimed as observed hardware behavior.
-
-## What the UI must show
-
-The rudimentary application needs only:
-
-- selected serial device and connection/controller state;
-- latest camera image when camera support exists;
-- logical path preview and, after drawing, observed ink/error overlay;
-- current operation or stroke;
-- last command outcome;
-- current ExplorationSession context, whether listening is active, the active
-  microphone name, and a live input-level meter;
-- latest machine/vision assessment and human learning label;
-- a concise actionable error;
-- Run, `STOP`/Cancel Stroke, and End Exploration controls once those operations
-  exist.
-
-Accessibility work, a multi-pane evidence workspace, semantic history timeline,
-model comparison UI, archival replay, storage management, and operator studies
-are out of scope.
-
-## Immediate build order
-
-1. Exercise the implemented persistent session on the actual machine with
-   question-guided Motion Preflight, including spoken Jog Cancel, without
-   entering coordinates or limits.
-2. Teach one repeatable physical clear observation pose through the implemented
-   Armature Guidance rung and its clear/partial/blocked labels.
-3. Run the implemented isolated-line loop physically, clear the tool, observe
-   the ink, and verify the displayed residual.
-4. Draw candidate strokes/shapes and collect spoken rankings and features.
-5. Let active selection choose bounded informative experiments before adding a
-   broader reinforcement-learning policy.
-6. Draw a small multi-stroke vector program under passive human supervision.
-
-These are priorities, not repository gates. Software for a later item may land
-early when it directly shortens the path to a working app.
-
-## Legacy boundary
-
-`/Users/bullard/Projects/Plotter` is forensic reference only. Do not copy its
-Python bridge, localhost protocol, DTOs, workflow wizard, compatibility paths,
-Blackdog state, virtual environment, or live source layout.
-
-The reviewed source documents originally came from legacy commit
-`4f5478e0230cb8028b13cf3ebf0e83b631bffe1c`. Current documents in this
-repository intentionally supersede their earlier process, replay, accessibility,
-and advanced-model requirements.
-
-## Next-agent directive
-
-> Continue AdaptivePlotter through the normal Blackdog workflow. Optimize for a
-> working voice-action-observation-learning loop on the attached machine. Use
-> the current Command Line Tools and SwiftPM. Do not add release infrastructure,
-> accessibility scope, archival replay, separate arms, or phase-wide gates.
-> The controller inspection, current camera analysis, verified `S760` Pen Down /
-> `S40` Pen Up contact pair, and bounded 1 mm X/Y round trips in
-> `docs/implementation/FIRST_HARDWARE_SESSION.md` are complete. The next slice
-> is the persistent ExplorationSession plus Armature Guidance, followed in the
-> same prepared hardware session by one clear pose, one isolated line, and one
-> exact-frame ink residual. Use
-> `docs/implementation/NEXT_SLICE_MULTI_AGENT_PROMPT.md` as the standalone
-> execution handoff. Refuse a physical command only for a minimal concrete
-> mechanical guard or ambiguous outcome, show the reason, and permit immediate
-> retry after correction.
+The legacy `/Users/bullard/Projects/Plotter` repository is forensic product
+evidence only. Do not port its bridges, routes, DTOs, lifecycle ceremonies,
+compatibility layers, or tests.

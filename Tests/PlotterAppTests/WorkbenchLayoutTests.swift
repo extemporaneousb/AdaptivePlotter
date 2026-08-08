@@ -19,6 +19,7 @@ struct WorkbenchLayoutTests {
   @Test("all detailed panels begin hidden and remain independently toggleable")
   func visibility() {
     var layout = WorkbenchLayoutState()
+    #expect(WorkbenchPanel.learningPath.rawValue == "Learning Path")
     #expect(WorkbenchPanel.allCases.allSatisfy { !layout[$0].isVisible })
 
     layout.toggleVisibility(.motion)
@@ -37,13 +38,13 @@ struct WorkbenchLayoutTests {
   @Test("panels use deterministic machine-left and vision-right docks")
   func deterministicDockAllocation() {
     var layout = WorkbenchLayoutState()
-    layout.toggleVisibility(.learning)
+    layout.toggleVisibility(.learningPath)
     layout.toggleVisibility(.camera)
     layout.toggleVisibility(.motion)
     layout.toggleVisibility(.overlays)
 
     #expect(layout.visiblePanels(in: .left) == [.motion])
-    #expect(layout.visiblePanels(in: .right) == [.camera, .overlays, .learning])
+    #expect(layout.visiblePanels(in: .right) == [.camera, .overlays, .learningPath])
   }
 
   @Test("no visible panels gives the entire content area to the action surface")
@@ -85,7 +86,7 @@ struct WorkbenchLayoutTests {
     layout.toggleVisibility(.motion)
     layout.toggleVisibility(.camera)
     layout.toggleVisibility(.overlays)
-    layout.toggleVisibility(.learning)
+    layout.toggleVisibility(.learningPath)
 
     let geometry = layout.geometry(
       in: CGSize(width: 1_200, height: 760),
