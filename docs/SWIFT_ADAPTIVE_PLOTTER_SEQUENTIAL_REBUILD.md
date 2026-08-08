@@ -1,282 +1,361 @@
 # AdaptivePlotter Direct Implementation Plan
 
+Status: ordered action backlog
+Canonical learning contract: [Project Scope and Learning Architecture](PROJECT_SCOPE_AND_MODEL_TRAINING.md)
+
 ## Prompt for the implementation team
 
-Build the smallest local Swift macOS application that makes this attached
-plotter draw and lets this camera observe the ink. Optimize for working hardware
-and short iteration time.
+Build the smallest local Swift macOS application that can move this attached
+plotter, see what it did, ask the operator for fast spoken feedback, and make the
+next action more informed. Optimize for physical learning and short iteration
+time.
 
-Use the repository's `AGENTS.md`, repo-local AdaptivePlotter skill, and Blackdog
-task workspace for retained changes. Keep Blackdog. Do not turn architecture,
-validation, hardware absence, or old run evidence into global progress gates.
+Use `AGENTS.md`, the repo-local AdaptivePlotter skill, and one Blackdog task
+workspace for retained changes. Use focused tests while iterating, run
+`make check` before landing, and try the actual hardware as soon as a typed
+operation is available and the operator is present. Hardware absence does not
+block coherent software landing; it leaves the physical claim pending.
 
-Use focused tests while working. Run `make check` before landing. Normal checks
-must not require complete strict concurrency or warnings-as-errors;
-`make strict-check` is optional diagnostic work.
+No phase document, readiness package, historical replay, generalized model
+framework, or polished UI is required for an ordinary feature.
 
-## Fixed minimal contract
+## Fixed product contract
 
-- One local Swift application process.
-- This Mac and attached controller/camera are the only supported environment.
-- No live Python, HTTP, localhost bridge, DTO mirror, compatibility lane, or
-  external service.
-- SwiftPM and the installed Command Line Tools are enough.
-- No release, Developer ID/distribution signing, notarization, sandbox, CI, or
-  support-matrix work. Keep the local TCC-attributable bundle and launcher.
-- No accessibility scope.
-- No archival replay, algorithm re-evaluation, content-addressed evidence,
-  exports, quotas, tombstones, or old-run admission scans.
-- No advanced adaptive model, spline, generalized promotion framework,
-  bootstrap statistics, or factorial experiment plan. The one affine model may
-  use an explicit training/holdout split and checkpoint-only immutable
-  acceptance.
-- No separate motion and pen arms or phase/action authority hierarchy.
-- No arbitrary G-code, automatic unlock/home/reset/settings writes, or automatic
-  resend/redraw after an ambiguous command.
+- One local native Swift process owns controller, camera, voice, vision,
+  exploration context, and UI.
+- One remembered controller picker, explicit Connect, and explicit Activate
+  Motion action are the complete operator startup surface.
+- Starting an `ExplorationSession` once keeps speech listening active across
+  Motion Preflight and later learning episodes. There is no separate listening
+  toggle and no sequence-owned microphone lifecycle.
+- Voice has a contextual reflex lane for closed typed actions and a flexible
+  teaching lane for labels, rankings, features, and rewards. Neither path can
+  emit raw G-code.
+- Actual observed ink is drawing authority. Controller `ok`, Idle, MPos, cap
+  movement, simulation, or human preference alone is not proof of a drawn line.
+- Learning evidence cites exact selected frames and attributable controller and
+  speech context. This compact current learning dataset is not an archival
+  replay product.
+- No operator-entered coordinates, travel envelope, maximum-jog value, firmware
+  travel setting, or learned drawing-frame bound admits ordinary motion.
+- No automatic resend, redraw, unlock, home, reset, settings write, alarm clear,
+  or resume after ambiguity.
+- No live Python, HTTP bridge, network speech dependency, release pipeline,
+  CI program, accessibility program, or multi-machine abstraction.
 
-## Working method
+## Working method and risk posture
 
-For each Blackdog task:
+For each slice:
 
-1. Choose the smallest change that gets closer to the live
-   controller-camera-draw-observe loop.
-2. Implement it directly in the existing targets.
-3. Run the narrowest relevant tests during iteration.
-4. Try the hardware immediately when the operation is available and physically
-   reasonable.
-5. If hardware is unavailable, label the physical result unverified and land
-   the software anyway.
-6. Run `make check` and land through Blackdog.
+1. Define one closed action and the observation or human label that makes its
+   outcome attributable.
+2. Exercise the complete flow in the deterministic simulator.
+3. Put the smallest useful action in the native UI with concise visible and
+   spoken feedback.
+4. Run it on the attached replaceable machine when the operator is beside the
+   physical cutoff.
+5. Treat a model miss, recognition miss, or failed visual extraction as data and
+   continue with a corrected or different experiment.
+6. Stop only the affected physical operation on a current alarm/asserted limit,
+   disconnect, unexpected actuation, physical mismatch, or sticky ambiguity.
+7. Land the coherent software increment with automated and physical claims
+   clearly separated.
 
-Do not require a new phase document, evidence bundle, replay fixture, operator
-study, model comparison, or generalized abstraction for an ordinary feature.
+The words “finite” and “deadline-bounded” describe a closed request and its
+completion wait. They do not create an operator-entered workspace bound or a
+global maximum-jog gate.
 
-## Runtime readiness
+## Direct motion eligibility
 
-At the start of a machine session, establish:
+Activate Motion is the only operator arming action. Every command immediately
+checks only what it consumes:
+
+- selected responsive controller and activated Motion Guard;
+- no current alarm, relevant asserted end stop, disconnect, or unsupported
+  controller state;
+- one in-flight owner and no earlier ambiguous outcome;
+- finite closed request and feed within controller-reported axis capability;
+- known appropriate pen state;
+- current exact camera frame only for an operation whose purpose requires
+  vision.
+
+Incomplete Motion Preflight, a missing learned boundary, unavailable model,
+low vision confidence, or absent camera for an ordinary manual jog does not
+disable unrelated motion. Correct a refusal and retry immediately.
+
+## Landed base
+
+The current implementation and hardware evidence are recorded only in
+[Current Implementation Status](implementation/CURRENT_IMPLEMENTATION_STATUS.md)
+and [First Hardware Session](implementation/FIRST_HARDWARE_SESSION.md). In
+summary, controller contact, typed pen actuation, 1 mm X/Y round trips, exact
+C920 analysis, Motion Preflight transactions, heuristic drawing-frame updates,
+current-session jog-response fitting, and affine training primitives exist. The
+per-side posterior specified below is not yet implemented.
+
+Do not rebuild those capabilities. The remaining plan begins at their current
+interface boundaries.
+
+## Work item 1 — Persistent ExplorationSession
+
+Replace sequence-owned speech lifetime with one Learning-owned session:
 
 ```text
-selected controller
-controller responsive and not in alarm
-Motion Guard activated for the current controller session
-known pen-up state before travel
-camera frame available if the requested operation needs vision
+Start Exploration
+-> microphone remains warm
+-> active episode supplies parser context
+-> typed reflex intent or structured teaching label
+-> action/assessment/brief feedback
+-> next episode
+-> explicit End Exploration or terminal failure
 ```
 
-That is one reusable session check. Recheck only after disconnect, reset/alarm,
-configuration change, manual loss of position, tool change, or camera change.
-
-Every command still receives direct closed-request, finite-value, controller
-feed-capability, alarm/end-stop, pen-state, in-flight, and ambiguity checks. A
-failure rejects that command with an actionable message and allows retry when
-corrected. There is no operator-entered coordinate envelope or maximum-jog
-prerequisite.
-
-## Work item 1 — Repeatable controller contact
-
 Deliver:
 
-- device refresh and explicit `/dev/cu.*` selection;
-- repeatable `$I`, `$G`, `?`, `$$`, `$#` passive probes in one app launch;
-- current controller state and raw error display;
-- no scan of prior journal files before connecting;
-- one optional journal per selected-device machine session, reused across that session's probes.
+- explicit session state, active learning rung/episode, permission/listening
+  state, latest transcript/intent/label, concise feedback, and failure;
+- barge-in that immediately stops app speech;
+- stable-partial `STOP` with duplicate suppression for one utterance;
+- final/stable contextual continue, reverse, direction, accept, again, skip,
+  and end-session intents only where the active episode declares them;
+- a teaching-label path that can store flexible visibility and preference
+  feedback without synthesizing controller commands;
+- timing points for recognition, intent dispatch, action settlement, next frame,
+  assessment, and feedback;
+- clean microphone teardown on end, permission loss, app shutdown, or an
+  unrecoverable recognition failure.
 
-Keep the two-second response deadline and bounded response size because they
-prevent a stuck serial read. Stop the current probe on transport error, alarm,
-or malformed required response. Permit immediate retry after correction.
+The current exact `READY`/`STOP` behavior remains the stage-0 parser while it is
+moved under the session. Do not replace it with ambient arbitrary motion.
 
-Done when the actual controller can be probed repeatedly without restarting or
-clearing historical data.
+Done when the simulator runs at least two consecutive episodes without
+restarting the microphone, operator speech interrupts machine speech, and no
+out-of-context transcript reaches `MachineActions`.
 
-## Work item 2 — Live camera
+## Work item 2 — Physical Motion Preflight episode
 
-Implementation status: the native source path, shared live/simulated renderer,
-and automated lifecycle/provenance tests are implemented. The real C920 has
-permission, advancing frames, exact newest-frame capture, and stop/restart
-evidence on this Mac. The rebuilt bundle passed a manual
-LIVE/SIMULATED/LIVE source-switch check on 2026-08-06. The simulator now also
-renders prior-mismatch and accepted-training variants atomically and can play
-the typed Motion Preflight timeline without acquiring physical authority.
+Use the persistent session to exercise physical Pen Up confirmation and one
+relevant boundary sequence on the attached machine. The Pen Down/Up first-mark
+transaction belongs to the anchored isolated-line episode below. Starting an
+episode may speak one short cue; it must not read instructions or require a
+separate listening action.
 
-Deliver:
-
-- local AVFoundation camera selection;
-- live preview;
-- latest-frame capture with a timestamp;
-- one fixed observation rectangle;
-- a visible capture/interruption error.
-
-The camera API did require attributable bundle identity, so the repository now
-builds a local `.app` and launches that exact bundle through LaunchServices. Keep
-that local TCC path. Do not turn it into distribution infrastructure or add a
-camera evidence archive, multi-camera support matrix, accessibility layer, or
-generalized vision bus.
-
-Done when the app shows the real camera and can capture the newest frame on
-demand.
-
-## Work item 3 — One bounded pen-up move
-
-Implementation status: the persistent session, typed relative-jog request,
-direct safety checks, closed GRBL jog encoding, acceptance/Idle completion,
-sticky ambiguity, manual widget, and automated simulation tests are implemented.
-The attached mechanism has completed non-ambiguous 1 mm X and Y round trips at
-100 mm/min and again at 30 mm/min, returning to the exact starting MPos.
-
-Deliver one direct low-speed relative move control. Before sending it, check:
-
-- controller connected and non-alarm;
-- pen known up;
-- requested delta finite and nonzero, with feed within controller capability;
-- no asserted end-stop;
-- no outstanding ambiguous command.
-
-Show completion or the exact error in memory. Record it in the best-effort
-session log when available. Do not require a distinct motion arm, model, camera,
-registration, trial bundle, persistence write, or phase acceptance record.
-
-Done when the real mechanism performs a small known pen-up move and can perform
-another after returning to idle.
-
-## Work item 4 — Pen control and clear pose
-
-Implementation status: typed Pen Up/Pen Down, fixed local servo values, fixed
-settle, serialized ownership, sticky uncertainty, direct UI, and automated tests
-are implemented. The powered Pen Up command path and pen-up X/Y travel are
-verified. Stationary Pen Down at the local `S760` value produced an
-operator-observed green contact dot and the following `S40` command returned
-the controller-commanded state Up; a separately observed clear pose remains.
-
-Deliver:
-
-- explicit Pen Up and Pen Down commands using locally verified servo values;
-- a conservative settle delay;
-- one known pen-up clear pose and bounded path that the operator verifies in the
-  live image.
-
-No separate pen arm, pen-mark learning model, 3D tool model, or generalized
-clearance planner.
-
-Done when the operator can raise/lower the pen and move the complete assembly to
-the one viewable pose.
-
-## Work item 5 — One observed line
-
-Deliver the first end-to-end result:
+An accepted boundary observation is:
 
 ```text
-capture clean baseline
--> travel pen-up to start
+selected side
++ cancelled jog final controller MPos at Idle
++ strictly newer exact-frame tool centroid
++ unchanged camera configuration
+```
+
+Replace the current heuristic quadrilateral average with one image-space offset
+and uncertainty per selected side. The sequence supplies side identity; the
+strictly newer tool centroid plus observation variance updates that side,
+repeated observations narrow uncertainty, corners derive from edge
+intersections, and the live overlay updates. Final MPos remains provenance and
+repeatability context until a registration gives it image-space meaning.
+Reaching the finite search horizon is ordinary motion completion and supplies
+no boundary. Missing other sides remain uncertain and do not block motion.
+
+For a side's first observation, associate the machine-side label with the
+nearest candidate camera edge only when a configured distance margin makes the
+choice unique. Persist it for that camera configuration; initialize orientation
+from the candidate edge and use a broad prior variance. An ambiguous association
+records no posterior observation and blocks no motion.
+
+Done when physical Jog Cancel latency and final-MPos/new-frame posterior update
+are observed once without automatic resend. Simulation and tests cannot satisfy
+this physical claim.
+
+## Work item 3 — Armature Guidance
+
+Armature Guidance is the first visibility and pose-selection episode. Establish one fixed ink
+observation region and move pen-up through small closed actions while comparing
+vision's visibility estimate with the operator's spoken ground truth:
+
+```text
+CLEAR | PARTIAL | BLOCKED
+KEEP GOING | REVERSE | STOP
+ACCEPT THIS POSE
+```
+
+Deliver:
+
+- one exact frame, controller MPos, conservative armature/region overlap
+  estimate, human label, and outcome per pose;
+- labelled pose observations and one accepted clear-pose fact; fit a visibility
+  estimate only after multiple nonduplicate poses;
+- one operator-accepted current-session clear pose and a typed pen-up return
+  path;
+- active selection of the next nearby pose when another observation is useful;
+- visible clear/partial/blocked estimate and disagreement, without making model
+  confidence a motion gate.
+
+Start with one clear-pose fact. Add a small pose/visibility model only when more
+than one observation is useful. Do not build 3D kinematics, generalized
+collision planning, or a full-field occlusion map.
+
+Invalidate automated clear-pose return after controller coordinate reset or
+reconnect, camera-configuration or observation-region change, or tool/paper
+change. That invalidates the automated return only; manual motion remains.
+
+Done when the simulator and then the operator identify one repeatable clear
+pose from which the current ink region is visible.
+
+## Work item 4 — One isolated ink line
+
+Implement the first complete drawing observation:
+
+```text
+capture exact clean reference at the clear pose
+-> move pen-up to one known start
+-> transact Pen Down confirmation then Pen Up to create one anchor dot
+-> return clear and capture an exact anchored baseline
+-> detect the new dot and bind its camera centroid to the start MPos
+-> return pen-up to the recorded start
 -> pen down
--> draw one bounded line
+-> execute one closed short stroke
 -> pen up
--> move to clear pose
--> capture post frame
--> isolate the new green line
--> show intended, observed, and error
+-> return to the Armature Guidance clear pose and settle
+-> capture a strictly newer exact frame after settlement
+-> isolate newly added green ink
+-> fit endpoints/centreline
+-> show intended, predicted, observed, and residual geometry
+-> record one ExplorationEpisode
 ```
 
-Use simple baseline subtraction and line/centreline fitting. An observation is
-usable when the mark is visible and uniquely associated with this line. If it
-is missing or unclear, show the image and error; do not automatically redraw.
+Ordinary relative jog must continue to require Pen Up. Pen-down XY motion needs
+its own closed stroke request and controller owner. Missing or unclear ink shows
+the exact frame and reason; it never triggers automatic redraw. The first large
+residual is useful evidence, not a failed project.
 
-Do not require covariance propagation, topology taxonomies, a generalized model
-promotion product, a replayable run bundle, or fixed trial counts.
+Camera-space residual requires a current machine-delta-to-camera-delta
+projection. If none exists, collect two linearly independent accepted observed
+pen-up jogs in that session or label the physical residual unavailable. The
+projection is measurement context, never motion authority.
 
-Done when one real command produces visible ink that the app displays against
-the requested line.
+The intended camera line starts at the detected anchor-dot centroid and ends at
+that point plus the projected actual stroke delta. The anchored frame is the
+line baseline, so the dot is not misclassified as new line ink. Without both the
+anchor and projection, report only displacement/orientation measurements and
+label absolute camera-space residual unavailable.
 
-## Work item 6 — Small vector drawing
+Done when one real command produces one attributable visible line and the app
+shows its residual. Controller evidence without new ink does not satisfy this
+definition.
 
-Deliver:
+## Work item 5 — Geometric learning
 
-- a hand-authored or imported polyline `DrawingProgram`;
-- preview generated from the same points used for execution;
-- sequential travel/draw/lift behavior;
-- observation after each stroke initially;
-- simple affine correction for later unexecuted strokes when useful;
-- Hold and Abort controls.
+First create one provenance-bearing current-session `FieldRegistration` from
+the accepted drawing-frame estimate and exact camera configuration. Until that
+bridge exists, isolated-line evidence and residuals remain in
+`CameraPixelSpace` and cannot enter the existing machine-to-`FieldSpace`
+trainer. The registration is model context, not motion authority.
 
-Track enough current-run state to avoid automatically repeating a command whose
-outcome is unknown. Do not build immutable plan-revision history, a replay
-reducer, in-stroke model update, or scheduling optimization. A later-stroke
-affine candidate may be accepted only from held-out improvement at a pen-up
-checkpoint.
+Then admit isolated-line episodes to the existing affine drawing-model boundary:
 
-Done when a small multi-stroke drawing completes and the UI shows the resulting
-ink and errors.
+- assign training/reserved membership before each outcome;
+- fit only training observations;
+- report training and held-out endpoint/centreline RMS and maximum error;
+- keep any constant tool/ink offset fixed until separate evidence identifies it;
+- accept a candidate only when reserved error improves;
+- apply a new immutable version only at a pen-up or run-complete checkpoint;
+- pin one model version through every pen-down stroke.
 
-## Work item 7 — Portrait input
+If the affine mapping is adequate, stop increasing geometric complexity. A
+failed candidate does not disable drawing or further experiments.
 
-Convert one captured or imported raster into polylines and send those polylines
-through the same preview and execution path. The source converter gets no
-machine, camera, safety, or persistence authority.
+## Work item 6 — Stroke and shape preference
 
-Do not add broad image tools, plugin architecture, alternate drawing engines,
-or an advanced vision research program.
+Draw small fixed candidate sets, beginning with simple line/stroke recipes and
+then four hearts. Collect pairwise or best-of-set spoken feedback plus optional
+features such as closure, width, symmetry, or smoothness.
 
-Done when a portrait-derived vector program draws through the already working
-path.
+Combine objective ink residual with a small contextual preference model. Keep
+reserved shapes/locations for evaluation. Do not build a general aesthetic
+model or neural generator.
 
-## Best-effort session log contract
+Done when the next candidate set is measurably more likely to match the
+operator's held-out choices without regressing geometric error or ambiguity.
 
-When SQLite is available, record ordered raw controller exchanges and operation
-summaries for the current session. The log is diagnostic only. Never require a
-database transaction before a hardware write, never build durable command
-recovery, and never refuse an operation because logging failed.
+## Work item 7 — Active selection and bounded policy learning
 
-After a crash or disconnect, do not resume automatically. Query the controller,
-inspect physical state, and start a new explicit operation.
+First choose experiments with a separate acquisition score based on expected
+information gain or model disagreement. Then
+evaluate a policy in shadow mode against the deterministic baseline. Use
+reinforcement learning only when sequential choices have meaningful future
+effects.
+
+Reward may combine:
+
+```text
+- geometric loss
++ human visibility/shape reward
+- motion and elapsed-time cost
+- intervention, ambiguity, and non-completion penalty
+```
+
+Do not add acquisition score to product reward. Promote a policy only on
+external held-out ink/preference quality, time/intervention, ambiguity, and
+completion; otherwise it can improve its score merely by seeking uncertainty.
+
+The policy chooses only enumerated finite macro-actions. It cannot bypass the
+MachineController, emit controller text, change the pen profile, home, unlock,
+reset, write settings, or promote itself. Begin with a contextual bandit if the
+problem is one-step; use sequential RL only when the data demonstrates delayed
+credit assignment.
+
+Done when held-out/shadow evaluation beats the baseline and a small operator-
+supervised physical batch improves reward without more ambiguity or emergency
+intervention.
+
+## Work item 8 — Continuous adaptive drawing
+
+Run a small multi-stroke `DrawingProgram` with the accepted geometric model and
+policy pinned for each pen-down stroke. Observe after each stroke initially,
+update only at pen-up checkpoints, and keep voice available for interruption and
+occasional teaching. Reduce intervention frequency only after physical runs
+show that passive supervision is credible.
+
+Portrait-to-vector input comes after this path works. It gets no controller,
+camera, safety, model-promotion, or persistence authority.
 
 ## Minimal UI contract
 
-The UI needs:
+Keep the camera dominant. Show only:
 
-- device and controller status;
-- camera image;
-- preview;
-- current operation/stroke;
-- last command outcome;
-- intended/observed ink and simple error;
-- Run, Hold, and Abort;
-- concise actionable errors.
+- remembered controller selection, Connect, Activate Motion, and truthful
+  camera/controller/motion indicators;
+- current ExplorationSession/listening state and active episode;
+- latest transcript/intent or teaching label;
+- current action, machine/vision assessment, and concise feedback;
+- Armature Guidance visibility/clear pose;
+- intended/observed ink and residual;
+- Run, `STOP`/Cancel Stroke, physical-cutoff reminder, and End Exploration where
+  applicable.
 
-Do not add accessibility work, a multi-pane evidence browser, semantic timeline,
-model/trial inspectors, replay mode, history navigation, storage dashboard, or
-developer telemetry program.
-
-## Model rule
-
-Use an affine transform and optional constant tool offset. The implemented
-trainer fits only the affine coefficients from explicit training observations,
-reports held-out error, and creates an immutable candidate. Acceptance is
-explicit and checkpoint-only; one model version remains pinned through a
-pen-down stroke. The online accumulator may collect observations and propose but
-cannot replace the accepted snapshot.
-
-Affine translation and constant cap-to-tip/ink offset cannot be separated from
-the same point pairs. Keep the offset fixed until independent cap-versus-tip/ink
-evidence exists. If the affine model works, keep it. If it does not, identify one
-repeated observed-ink error and add only the smallest correction for that error.
-
-Advanced model ideas are outside the development plan. They may return only by
-an explicit user request after the simple system demonstrably fails.
+An active participant/action/observation timeline is useful. Historical replay,
+model/trial browsers, storage dashboards, generalized workflow UI, and
+operator-entered calibration forms are not.
 
 ## Completion definition
 
-The rudimentary product is complete when:
+The initial active-learning product slice is complete when:
 
-- the local app connects to the real controller and camera;
-- it draws a small vector program within the learned drawing frame;
-- it lifts and clears the tool;
-- it observes and displays the actual ink;
-- it shows simple drawing error and can use an affine correction for remaining
-  strokes if helpful;
-- Hold/Abort and concrete error recovery work;
-- no Python bridge or alternate execution path exists;
+- one persistent voice session survives Motion Preflight and Armature Guidance;
+- the operator can stop and redirect motion without looking away from the
+  machine;
+- one physical boundary observation visibly updates the frame posterior;
+- one clear pose is taught from human/vision agreement;
+- one isolated real line is anchored and extracted from exact clean-reference,
+  anchored-baseline, and post-line frames and shown against its intended
+  geometry;
+- the episode contains attributable controller, frame, model, speech, and human
+  feedback;
+- no entered bounds, readiness ceremony, automatic redraw, or alternate machine
+  authority exists;
 - normal build/tests and Blackdog landing pass.
 
-It does not require archival replay, accessibility, advanced modeling,
-generalized observability, formal experimental sample counts, or distribution
-infrastructure.
+The next copy-paste implementation handoff is
+[Next Slice Multi-Agent Execution Prompt](implementation/NEXT_SLICE_MULTI_AGENT_PROMPT.md).

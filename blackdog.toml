@@ -8,7 +8,15 @@ worktrees_dir = "../.worktrees"
 
 [taxonomy]
 validation_commands = ["git diff --check"]
-doc_routing_defaults = ["AGENTS.md", "README.md", "docs/FEASIBILITY_REVIEW_AND_BINDING_AMENDMENTS.md", "docs/SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md", "docs/SWIFT_ADAPTIVE_PLOTTER_SEQUENTIAL_REBUILD.md"]
+doc_routing_defaults = [
+  "AGENTS.md",
+  "README.md",
+  "docs/PROJECT_SCOPE_AND_MODEL_TRAINING.md",
+  "docs/FEASIBILITY_REVIEW_AND_BINDING_AMENDMENTS.md",
+  "docs/SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md",
+  "docs/SWIFT_ADAPTIVE_PLOTTER_SEQUENTIAL_REBUILD.md",
+  "docs/implementation/CURRENT_IMPLEMENTATION_STATUS.md",
+]
 
 [landing]
 schema_version = 1

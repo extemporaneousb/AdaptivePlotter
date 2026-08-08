@@ -1,7 +1,14 @@
 # First Hardware Session
 
-Status: powered 1 mm X/Y round trips and stationary green-dot contact verified
+Status: historical physical evidence; powered 1 mm X/Y round trips and stationary green-dot contact verified
 Scope: camera analysis, repeatable passive interrogation, typed pen control, and 1 mm round trips
+
+This file records what was actually run and observed. Its staged instructions
+describe that historical evidence session; they are not current readiness gates
+and do not require repetition before unrelated motion. Current product policy is
+in [Project Scope and Learning Architecture](../PROJECT_SCOPE_AND_MODEL_TRAINING.md),
+and the next prepared run is in
+[Next Slice Multi-Agent Execution Prompt](NEXT_SLICE_MULTI_AGENT_PROMPT.md).
 
 ## Purpose
 
@@ -137,7 +144,8 @@ executable CDHash until that one-time approval is completed with the operator.
    and no overlay from the other source/configuration remains visible.
 11. Open **Learning** and verify its two distinct surfaces. **Motion Preflight**
     opens the voice-mediated sequence utility; in SIMULATED mode it must identify
-    itself as rehearsal and grant no readiness. The jog-response diagnostic
+    itself as rehearsal, provide no physical episode observation, and have no
+    effect on motion eligibility. The jog-response diagnostic
     controls **Record Jog Observations**, fixed training/holdout membership for
     the next jog, current sample counts, the response matrix, and separate
     residuals under `DIAGNOSTIC — NOT MOTION AUTHORITY`. With recording off,
@@ -343,10 +351,12 @@ settings merely to force the passive probe to pass.
 
 ## Next hardware step
 
-After camera analysis, both jog round trips, and the stationary pen down/up pair
-pass, establish one camera-visible observation region and one pen-up clear pose.
-The next implementation/physical slice is one bounded isolated line: Pen Up,
-travel to the start, Pen Down, draw one short segment with one pinned accepted
-model, Pen Up, clear the tool, capture a fresh exact frame, detect actual ink,
-and show intended/predicted/observed residuals. Do not accept cap motion,
-controller `ok`, or the simulator as ink authority.
+The recorded camera analysis, jog round trips, and stationary pen down/up pair
+are complete; they are not a chain to rerun mechanically. The next session
+starts one persistent ExplorationSession, physically exercises Motion Preflight,
+teaches one clear pose through Armature Guidance, creates one observed anchor dot
+at the recorded line start, and draws one short isolated segment before
+capturing a newer exact frame and displaying its anchored ink residual.
+Only a concrete current mechanical blocker or ambiguity stops the affected
+operation. Do not accept cap motion, controller `ok`, or the simulator as ink
+authority.

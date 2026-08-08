@@ -11,24 +11,25 @@ The goal is direct:
 ```text
 connect controller and camera
 -> activate motion for this controller session
--> complete Motion Preflight by voice
--> load or create a vector path
--> preview it
--> draw it under the controller's alarm and end-stop protections
--> lift and move the tool clear
--> look at the actual ink
--> show the result and simple position error
+-> start one voice-mediated ExplorationSession
+-> use Motion Preflight to teach the pen interaction and drawing-frame posterior
+-> use Armature Guidance to find a clear observation pose
+-> draw, clear the tool, and observe actual ink
+-> speak a correction, visibility label, comparison, or reward
+-> choose the next useful action and improve
 ```
 
-Getting that loop working takes precedence over infrastructure, generalized
-architecture, exhaustive evidence systems, advanced modeling, and polished UI.
+Getting that loop moving on the physical machine takes precedence over
+infrastructure, generalized architecture, exhaustive evidence systems, and UI
+ceremony. The product deliberately accepts bounded risk on this replaceable,
+end-stop-equipped machine in exchange for faster empirical progress.
 
 ## Documentation map
 
 - This README is the canonical current product contract and local run guide.
-- [Project Scope and Model Training](docs/PROJECT_SCOPE_AND_MODEL_TRAINING.md)
-  is the canonical statement of purpose, learning layers, physical training
-  procedure, and training goals.
+- [Project Scope and Learning Architecture](docs/PROJECT_SCOPE_AND_MODEL_TRAINING.md)
+  is the canonical statement of purpose, ExplorationSession contract, learning
+  ladder, physical training procedure, and training goals.
 - [Minimal Local Architecture](docs/SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md)
   records live ownership and authority boundaries.
 - [Direct Implementation Plan](docs/SWIFT_ADAPTIVE_PLOTTER_SEQUENTIAL_REBUILD.md)
@@ -37,6 +38,9 @@ architecture, exhaustive evidence systems, advanced modeling, and polished UI.
   distinguishes implemented, simulated, physically observed, and missing work.
 - [First Hardware Session](docs/implementation/FIRST_HARDWARE_SESSION.md) is a
   historical physical evidence record; it does not define the current UI.
+- [Next Slice Multi-Agent Execution Prompt](docs/implementation/NEXT_SLICE_MULTI_AGENT_PROMPT.md)
+  is the standalone copy-paste handoff for the next implementation and physical
+  learning session; it is not an additional product contract.
 - [Feasibility Review](docs/FEASIBILITY_REVIEW_AND_BINDING_AMENDMENTS.md) is the
   binding scope constraint when older planning language suggests a larger system.
 
@@ -81,13 +85,13 @@ The repository contains one SwiftPM application with:
 - closed typed Pen Up/Pen Down actuation for this mechanism, serialized with
   probes and jogs and using the verified local `M3 S40` / `M3 S760` /
   `G4 P0.3` profile;
-- a first-class Motion Preflight window under Learning. Starting a sequence
-  acquires speech permission, turns listening on for that transaction, shows
-  its participant/action/event timeline, and always stops listening on success,
-  failure, or cancellation; there is no separate speech-on mode;
+- a first-class Motion Preflight window under Learning. In the current
+  bootstrap implementation, starting a sequence acquires speech permission,
+  turns listening on for that transaction, shows its participant/action/event
+  timeline, and stops listening when the transaction ends;
 - a simulator-only Motion Preflight rehearsal that plays the same typed
   participant/action/event definitions without starting speech, touching the
-  controller, recording evidence, or satisfying physical readiness;
+  controller, recording physical evidence, or affecting motion eligibility;
 - four voice-mediated boundary sequences plus Pen Up and Pen Down confirmation
   sequences. Exact `READY`, `STOP`, and physical pen confirmations are accepted
   only at their corresponding transaction step; ambient, wrong-context, and
@@ -98,9 +102,11 @@ The repository contains one SwiftPM application with:
 - boundary positions recorded only when the internal search jog resolves as
   cancelled with a controller-reported final MPos. Each accepted observation
   requires a camera frame newer than that completion, an observed tool centroid,
-  and the exact camera configuration; the MPos/centroid pair constrains the
-  nearest visual edge in the current drawing-frame posterior. Reaching the
-  internal search horizon is normal completion, not boundary evidence;
+  and the exact camera configuration. Current code shifts the nearest inferred
+  image edge from that centroid and confidence-averages quadrilaterals; final
+  MPos is recorded provenance/repeatability context, not a numerical image-space
+  constraint. Reaching the internal search horizon is normal completion, not
+  boundary evidence;
 - an optional observed-jog operation that brackets exactly one accepted motion
   with immutable live C920 frames and controller-owned start/final MPos samples;
 - one primary SwiftUI operator window plus one Motion Preflight utility window,
@@ -117,6 +123,14 @@ The repository contains one SwiftPM application with:
   and one immutable affine-model trainer with training/holdout evaluation. The
   trainer is exercised by tests and the simulator; it is not yet an ink-backed
   live application workflow.
+
+The selected next architecture replaces sequence-owned listening with one
+persistent `ExplorationSession`: start once under Learning, keep the microphone
+warm across Motion Preflight, Armature Guidance, ink inspection, and comparison
+episodes, dispatch a small low-latency reflex grammar to typed actions, and
+record flexible spoken observations as learning labels. That session and
+Armature Guidance are not yet implemented. The exact-phrase transaction above
+is current state, not the final voice product.
 
 Typed Pen Up and Pen Down are implemented and physically verified over white
 paper. The historical `S720` down value moved the mechanism but left no mark;
@@ -201,6 +215,10 @@ additional exact frame and manifest there on request.
 ```
 
 Those files are vision-development inputs, not calibration or drawing evidence.
+The selected ExplorationSession implementation will reuse this camera-owned
+export path for the exact clean-reference, anchored-baseline, and post-line
+frames deliberately admitted to a learning episode; it will not turn startup
+samples into training evidence or add a second artifact store.
 
 Normal development uses Swift 5 language compatibility mode with the installed
 Swift 6 compiler. Strict concurrency and warnings-as-errors are optional:
@@ -229,9 +247,10 @@ Outside that workflow, development is deliberately lightweight:
 
 Physical operations use direct runtime checks plus one explicit session Motion
 Guard activation. At session start, establish the selected controller and its
-current state, activate motion, and complete the relevant voice-mediated
-preflight sequences. Recheck only a fact invalidated by a disconnect,
-alarm/reset, configuration change, or camera change.
+current state, activate motion, and start one `ExplorationSession`. Complete a
+voice-mediated preflight observation only when the requested learning or
+drawing operation consumes it. Recheck only a fact invalidated by a disconnect,
+alarm/reset, configuration change, tool change, or camera change.
 
 A physical command may be refused only for a concrete current reason such as:
 
@@ -254,8 +273,10 @@ Keep one native process and direct Swift calls:
 PlotterApp / OperatorWorkspace
   -> MachineActions -> RunInterpreter -> MachineController
   -> CameraActions  -> CameraCapture + VisionWorker/Pipeline
-  -> VoiceActions   -> VoiceInteractionSession
-  -> MotionPreflight transactions + DrawingFramePosterior
+  -> ExplorationSession -> VoiceInteractionSession + typed intent/label router
+  -> MotionPreflight + DrawingFramePosterior
+  -> ArmatureGuidance + visibility/occlusion estimate
+  -> ExplorationEpisodeDataset
   -> OnlineJogResponseDataset      current-session diagnostic only
   -> RunLedger                     optional session diagnostics
 ```
@@ -280,33 +301,28 @@ Use the simplest geometry that works:
 
 If the affine transform draws acceptably, stop adding model complexity.
 
-There are three intentionally distinct learning layers. Motion Preflight updates
-the current drawing-frame posterior and pen setup; it is not model training. The
-wired current-session jog-response learner records actual controller and camera
-displacement, keeps holdout episodes separate, and reports residuals; it cannot
-issue motion, accept a drawing model, persist data, or change controller
-behavior. The affine drawing trainer is implemented and demonstrated in the
-simulator, but live ink-backed collection and acceptance are not yet wired into
-the operator app. The exact procedure and goals are in
-[Project Scope and Model Training](docs/PROJECT_SCOPE_AND_MODEL_TRAINING.md).
-More sophisticated or reinforcement-learning models belong only after the
-controller-camera-draw-observe loop supplies trustworthy held-out ink outcomes.
+The learning ladder is Motion Preflight, Armature Guidance, isolated ink
+geometry, stroke/shape preference learning, bounded autonomous exploration,
+and continuous adaptive drawing. These are different learning problems with a
+shared `ExplorationEpisode` record, not different authority systems. Boundary
+observations update the drawing-frame posterior; Armature Guidance learns
+clear/partial/blocked visibility over pose; ink observations fit geometric
+error; spoken comparisons train preference; an active selector uses information
+gain/model disagreement to choose experiments; and reinforcement learning later
+selects action sequences evaluated on held-out drawing/preference quality,
+motion/time cost, completion, intervention, and ambiguity. The exact objective
+and promotion signal for each rung are in
+[Project Scope and Learning Architecture](docs/PROJECT_SCOPE_AND_MODEL_TRAINING.md).
 
-The voice surface follows the same rule. It lives under Learning as Motion
-Preflight. The operator chooses one boundary or pen sequence and presses Start;
-that transaction starts microphone listening automatically, displays the exact
-participants/actions/events, accepts only the phrase required by the current
-step, and stops listening when the transaction ends. Exact `READY` advances a
-boundary sequence into one closed internal search jog, and exact `STOP` requests
-Jog Cancel only while that jog is moving. Pen sequences require an exact spoken
-physical confirmation and pair it with a current immutable camera frame without
-claiming that the camera proves pen height. Speech cannot request general axis
-motion, status, raw G-code, or an activation override. The current build uses
-on-device Apple recognition rather than adding a network or API dependency.
-When the camera source is SIMULATED, the same window becomes an explicitly
-non-authoritative rehearsal: Play advances the typed sequence so the UI flow
-can be inspected, but it cannot start the microphone, emit controller actions,
-record camera evidence, or satisfy Motion Preflight.
+The current build starts and stops listening per Motion Preflight transaction
+and accepts exact context-bound phrases. The selected target keeps listening
+active for one `ExplorationSession`. Its low-latency reflex path maps stable
+contextual utterances such as `STOP`, continue, reverse, and directional
+adjustments to closed typed intents. Its teaching path records flexible
+visibility observations, shape features, rankings, and rewards without giving
+free-form speech raw controller authority. Feedback is brief and interruptible.
+Simulation exercises the same episode and intent types but remains explicitly
+non-physical.
 
 A taught side is accepted only from `MotionOutcome.cancelled(finalPosition:)`:
 the Jog Cancel must settle at Idle and supply final controller MPos. A jog that
@@ -324,8 +340,11 @@ The rudimentary application needs only:
 - logical path preview and, after drawing, observed ink/error overlay;
 - current operation or stroke;
 - last command outcome;
+- current ExplorationSession context and whether listening is active;
+- latest machine/vision assessment and human learning label;
 - a concise actionable error;
-- Run, Hold, and Abort controls once those operations exist.
+- Run, `STOP`/Cancel Stroke, and End Exploration controls once those operations
+  exist.
 
 Accessibility work, a multi-pane evidence workspace, semantic history timeline,
 model comparison UI, archival replay, storage management, and operator studies
@@ -333,14 +352,17 @@ are out of scope.
 
 ## Immediate build order
 
-1. Run the passive controller probe repeatedly on the actual controller.
-2. Verify the live camera preview and latest-frame capture on the plotter camera.
-3. Connect, activate Motion Guard, and complete the Pen Up and boundary Motion
-   Preflight sequences without entering coordinates or limits.
-4. Verify pen up/down through the corresponding voice-mediated sequences.
-5. Draw one isolated line, clear the tool, observe the ink, and show error.
-6. Draw a small multi-stroke vector program.
-7. Add portrait-to-vector input only after the same drawing path works.
+1. Replace sequence-owned listening with one persistent `ExplorationSession`
+   and prove its reflex/teaching routing and latency in simulation.
+2. Exercise the session on the actual machine with Motion Preflight, including
+   spoken Jog Cancel, without entering coordinates or limits.
+3. Add Armature Guidance and teach one repeatable clear observation pose with
+   clear/partial/blocked voice labels.
+4. Draw one isolated line, clear the tool, observe the ink, and show error.
+5. Draw candidate strokes/shapes and collect spoken rankings and features.
+6. Let active selection choose bounded informative experiments before adding a
+   broader reinforcement-learning policy.
+7. Draw a small multi-stroke vector program under passive human supervision.
 
 These are priorities, not repository gates. Software for a later item may land
 early when it directly shortens the path to a working app.
@@ -359,15 +381,16 @@ and advanced-model requirements.
 ## Next-agent directive
 
 > Continue AdaptivePlotter through the normal Blackdog workflow. Optimize for a
-> working local controller-camera-draw-observe loop. Use the current Command
-> Line Tools and SwiftPM. Do not add release infrastructure, accessibility
-> scope, archival replay, advanced models, separate arms, or phase-wide gates.
+> working voice-action-observation-learning loop on the attached machine. Use
+> the current Command Line Tools and SwiftPM. Do not add release infrastructure,
+> accessibility scope, archival replay, separate arms, or phase-wide gates.
 > The controller inspection, current camera analysis, verified `S760` Pen Down /
 > `S40` Pen Up contact pair, and bounded 1 mm X/Y round trips in
-> `docs/implementation/FIRST_HARDWARE_SESSION.md` are complete. The next
-> physical slice is one explicit clear pose followed by one bounded isolated
-> line and exact-frame ink observation; do not skip directly to multi-stroke
-> drawing.
-> Refuse a physical command
-> only for a concrete current hazard or ambiguous outcome, show the reason, and
-> permit retry as soon as it is corrected.
+> `docs/implementation/FIRST_HARDWARE_SESSION.md` are complete. The next slice
+> is the persistent ExplorationSession plus Armature Guidance, followed in the
+> same prepared hardware session by one clear pose, one isolated line, and one
+> exact-frame ink residual. Use
+> `docs/implementation/NEXT_SLICE_MULTI_AGENT_PROMPT.md` as the standalone
+> execution handoff. Refuse a physical command only for a minimal concrete
+> mechanical guard or ambiguous outcome, show the reason, and permit immediate
+> retry after correction.

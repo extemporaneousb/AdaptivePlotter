@@ -1,6 +1,6 @@
 # AdaptivePlotter Minimal Local Architecture
 
-Status: current architecture
+Status: selected target architecture; current implementation differences are recorded separately
 Target: this operator Mac and attached plotter only
 
 ## 1. Product decision
@@ -9,14 +9,17 @@ Build one small native Swift application that can:
 
 1. connect to the plotter controller;
 2. show the local camera;
-3. preview a vector path;
-4. execute the path after Motion Preflight establishes the drawing frame;
-5. observe the resulting ink after the tool moves clear;
-6. display intended versus observed geometry and a simple error.
+3. keep one voice-mediated ExplorationSession active at the machine;
+4. use Motion Preflight and Armature Guidance to learn the current scene through
+   action, camera assessment, and human correction;
+5. preview and execute a vector path under direct mechanical checks;
+6. observe resulting ink after the tool moves clear;
+7. display intended versus observed geometry, learn from the residual and
+   spoken feedback, and choose a useful next experiment.
 
 The application is not a platform, distributed system, calibration framework,
-evidence archive, accessibility product, or general adaptive-control research
-project.
+evidence archive, accessibility product, or general robotics framework. It is
+an active-learning drawing controller for this machine.
 
 The vertical slice is the architecture. Anything that does not shorten the
 path to that loop is deferred.
@@ -37,8 +40,11 @@ flowchart LR
     CAMERA --> VISION["VisionWorker and bounded pipeline"]
     WORKSPACE --> VOICE["VoiceActions"]
     VOICE --> SPEECH["Native speech input and output"]
-    WORKSPACE --> PREFLIGHT["Motion Preflight and drawing-frame posterior"]
-    WORKSPACE --> LEARNING["Current-session jog-response dataset"]
+    WORKSPACE --> EXPLORE["ExplorationSession and active episode"]
+    EXPLORE --> PREFLIGHT["Motion Preflight and drawing-frame posterior"]
+    EXPLORE --> ARMATURE["Armature Guidance and visibility estimate"]
+    EXPLORE --> EPISODES["ExplorationEpisode dataset"]
+    WORKSPACE --> LEARNING["Geometry, preference, and policy learners"]
     WORKSPACE --> GEOM["Pure geometry and affine model primitives"]
 ```
 
@@ -89,10 +95,10 @@ needed, owns:
 It should be a small coordinator, not a workflow engine.
 
 `OperatorWorkspace` is the MainActor presentation model. It combines the closed
-machine, camera, and voice action adapters; owns Motion Preflight transactions,
-the drawing-frame posterior, current-session jog-response diagnostics, and
-view-visible state; and never sends serial bytes or calculates raw controller
-commands itself.
+machine, camera, and voice action adapters; owns the ExplorationSession,
+Motion Preflight episodes, Armature Guidance, the drawing-frame posterior,
+current-session learning datasets, and view-visible state; and never sends
+serial bytes or calculates raw controller commands itself.
 
 `RunLedger` owns optional current-session diagnostic events. Despite the
 retained name, it is not required for controller work, historical product
@@ -101,22 +107,27 @@ authority, command recovery, or replay.
 The SwiftUI layer owns presentation and operator input. It does not calculate
 machine coordinates or send serial bytes directly.
 
-Native speech is another operator-input adapter, not another authority. The app
-must first arm a specific X−, X+, Y−, or Y+ boundary interaction from a visible
-control. The parser receives that state as context: exact `READY` is actionable
-only while the chosen side is awaiting confirmation, and exact `STOP` is
-actionable only while its closed, capped `$J` request is moving. The same words
-heard elsewhere, compound phrases, and the old ambient axis/pen/status grammar
-produce no controller intent. There is no out-of-context priority STOP path.
+Native speech is the low-latency operator teaching and reflex adapter, not a
+machine authority. `ExplorationSession` starts listening once and maintains the
+active episode context across Motion Preflight, Armature Guidance, ink
+inspection, and comparison work. There is no separate listening toggle and no
+sequence-level microphone teardown.
+
+The reflex parser receives episode state as context. `STOP` is actionable only
+while a cancellable typed operation is moving; continue/reverse/directional
+intents are actionable only where the episode declares them. A stable partial
+`STOP` may cancel immediately. Motion-producing intents require a final or
+otherwise stable contextual recognition. The teaching path may accept flexible
+visibility, feature, ranking, and reward language, but it records structured
+labels and cannot synthesize controller text.
 
 `STOP` in the moving context maps specifically to GRBL Jog Cancel; it is not
 feed hold, abort, or an emergency stop. A boundary may be recorded only from a
 cancelled jog that reached Idle with a final controller MPos. A jog that reaches
 the requested command cap is ordinary completion and must not be presented as a
-physical extreme. Spoken prompts and a start cue support turn-taking, but the
-app does not emit proximity-dependent beeps without a trusted estimate of
-remaining distance. Spoken output describes current typed results and never
-upgrades controller acceptance into physical completion.
+physical extreme. Spoken output is newest-only, brief, and interrupted by new
+operator speech. It describes current typed results and never upgrades
+controller acceptance into physical completion.
 
 ## 3. Development and concurrency
 
@@ -163,6 +174,22 @@ current learned drawing-frame posterior. That check informs drawing placement
 and observation; it is not a global motion-admission bound and is never an
 operator-entered coordinate envelope.
 
+The target drawing-frame posterior owns one image-space offset and uncertainty
+per selected side. A boundary episode associates its declared side with the
+exact post-stop tool centroid and an observation variance; a precision-weighted
+update narrows that side's uncertainty, and corner intersections update the
+overlay. Final controller MPos is stored as provenance and repeatability context
+but is not numerically fused into image geometry without a registration. The
+current heuristic quadrilateral average is an implementation gap recorded in
+the status document.
+
+Machine-side labels do not intrinsically identify camera edges. For the first
+observation of a side, choose the nearest edge from the current frame estimate
+only when a uniqueness margin makes the association unambiguous. Persist that
+association for the camera configuration, initialize orientation from the
+candidate edge and offset with a broad prior variance, and reject ambiguous
+association without blocking motion. Camera reconfiguration invalidates it.
+
 The implemented learning surface stays inside this model: one immutable accepted
 snapshot, fixed training/holdout observations, deterministic affine candidate
 fit, held-out metrics, and one explicit version-increasing acceptance operation.
@@ -174,24 +201,28 @@ If the affine transform produces usable drawings, it is complete. Add another
 term only after repeated observed ink identifies a specific systematic error
 that the affine transform cannot represent.
 
-## 5. Session readiness and command execution
+Initial isolated-line residuals remain in `CameraPixelSpace`. Before a physical
+ink episode can enter the existing machine-to-`FieldSpace` trainer, the current
+camera configuration and accepted frame estimate must produce one cited
+`FieldRegistration`. That registration is model provenance, not motion
+authority or operator-entered calibration.
+
+This simplicity rule applies to the geometric mapping, not to whether the
+product learns. Armature Guidance may maintain a small visibility estimate;
+shape comparison may fit a preference model; and a later policy may choose
+bounded experiments. Each consumes attributable `ExplorationEpisode` outcomes
+and begins with the smallest model appropriate to its objective.
+
+## 5. Direct motion eligibility and command execution
 
 There is no hierarchy of phase gates, action authority records, evidence IDs,
 or separate motion/pen arms.
 
-Before enabling machine-affecting controls for a session, check once:
-
-```text
-serial device selected
-controller responds and is not in alarm
-Motion Guard is activated for this controller session
-pen is known up before travel
-camera is producing frames if this operation requires observation
-```
-
-Recheck only a fact invalidated by disconnect, reset/alarm, configuration
-change, manual movement that loses known position, tool change, or camera
-change.
+There is one explicit operator arming action: activate Motion Guard for the
+connected controller session. It enables no bypass. It permits each typed action
+to derive eligibility directly from the current mechanical facts that action
+consumes. Motion Preflight completion, learned boundaries, model confidence,
+trial counts, and camera availability for a non-visual jog do not participate.
 
 Before each machine command, directly validate:
 
@@ -209,8 +240,8 @@ There is no one-attempt rule and no old-run admission scan.
 
 ### Command horizon
 
-Send one bounded operation at a time. Write the command, await its bounded
-reply/status, and keep the result in current memory. The optional session log
+Send one finite closed operation at a time. Write the command, await its
+deadline-bounded reply/status, and keep the result in current memory. The optional session log
 may mirror raw exchanges but is never on the command path.
 
 `ok` means the controller accepted a command; it does not prove physical motion
@@ -225,7 +256,7 @@ The camera implementation needs:
 - a live preview;
 - one latest-frame request with capture time;
 - one fixed observation region;
-- simple baseline/post-frame comparison;
+- clean-reference/anchor-baseline/post-line comparison;
 - line or centreline extraction for the chosen ink color;
 - intended and observed overlay plus RMS/maximum point or cross-track error.
 
@@ -234,6 +265,13 @@ when the new line is visible and unambiguously associated with the command.
 Do not require a general topology system, confidence framework, image corpus,
 algorithm version archive, or formal statistical threshold before trying it on
 the hardware.
+
+Absolute camera-space error needs a start anchor. Capture the clean reference,
+create one stationary Pen Down/Pen Up dot at the recorded start MPos, return
+clear, and capture the anchored baseline. The dot centroid anchors the intended
+line; the current response matrix projects its stroke delta. Use the anchored
+baseline for line differencing. Without anchor or projection, report only
+relative displacement/orientation and label absolute residual unavailable.
 
 Move the complete pen/holder/linkage/servo assembly pen-up to one known pose
 that visibly clears the observation region. The operator may set and verify
@@ -270,8 +308,8 @@ Old journal files are diagnostics. A new session may always create a new file.
 
 ## 8. Minimal UI
 
-Use one primary operator window and one Motion Preflight utility window backed
-by the same `OperatorWorkspace`. The primary window contains:
+Use one primary operator window and one Learning utility window backed by the
+same `OperatorWorkspace`. The primary window contains:
 
 - one serial-device picker that remembers the last selection without treating
   selection as connection;
@@ -283,13 +321,12 @@ by the same `OperatorWorkspace`. The primary window contains:
 - vector preview;
 - current stroke/operation;
 - last command outcome;
-- intended/observed line and simple error after inspection.
-- a Learning-panel Motion Preflight entry with sequence-owned microphone
-  activation, visible permission/listening/transcript/result state, boundary
-  and pen sequence timelines, and a visible cancel fallback during the active
-  transaction.
+- intended/observed line and simple error after inspection;
+- persistent ExplorationSession permission/listening/transcript/context state;
+- Motion Preflight and Armature Guidance active-episode timelines, latest
+  machine/vision assessment, human label, and visible cancel fallback;
 - a SIMULATED-source rehearsal of those exact typed timelines that has no
-  microphone, controller, evidence, or physical-readiness authority.
+  microphone, controller, physical evidence, or effect on motion eligibility.
 
 Raw serial text may be available in a small developer disclosure when needed.
 
@@ -297,7 +334,7 @@ Do not build:
 
 - a three-pane workspace;
 - historical or generalized model/trial inspectors;
-- semantic event timelines;
+- historical semantic timelines or replay; the active episode timeline remains;
 - replay or history modes;
 - storage management UI;
 - accessibility-specific behavior or tests;
@@ -323,8 +360,9 @@ without creating history, replay, or a generalized model platform.
 | Ink missing or unclear | Show the frame/result; do not automatically redraw the same location. |
 | Session-log write failure | Continue the operation; show logging as unavailable if useful. |
 
-Software task cancellation is not an emergency stop. `Hold` uses the
-controller's feed hold. Emergency stop means the physical power cutoff.
+Software `STOP`/Cancel Stroke uses the typed Jog Cancel path for the current jog
+or stroke. It is not feed hold or an emergency stop. Emergency stop means the
+physical power cutoff.
 
 The context-bound boundary interaction requires physical validation on the
 attached plotter before prompt timing, cancellation latency, or recorded final
@@ -336,6 +374,9 @@ MPos values can be claimed as observed behavior.
   extensions;
 - serial fragmentation/disconnect tests;
 - Motion Guard, controller feed-capability, alarm/end-stop, and ambiguity validation;
+- ExplorationSession lifetime, barge-in, contextual reflex routing, and
+  teaching-label tests;
+- Armature Guidance clear/partial/blocked label and active-pose tests;
 - one session-log test for ordinary diagnostic events and one proving logging
   failure does not block a controller probe;
 - affine forward/inverse and out-of-bounds tests;
@@ -352,13 +393,14 @@ contracts.
 
 ## 11. Delivery order
 
-1. Repeatable live passive controller contact.
-2. Live local camera preview.
-3. One bounded low-speed pen-up move.
-4. Direct pen up/down verification.
-5. One isolated line with post-draw image and residual.
-6. A small multi-stroke drawing.
-7. Portrait-to-vector input through the same path.
+1. Keep one ExplorationSession listening through multiple simulated episodes.
+2. Exercise Motion Preflight and Jog Cancel through that session on hardware.
+3. Teach one clear pose through Armature Guidance.
+4. Draw one isolated line and show its exact-frame residual.
+5. Collect spoken comparisons over several stroke/shape candidates.
+6. Let active selection choose informative experiments, then evaluate a bounded
+   policy against the deterministic baseline.
+7. Run a small multi-stroke drawing with passive human supervision.
 
 This is priority order, not a gate system. Work may cross items when that is the
 fastest route to the end-to-end result.
@@ -369,7 +411,7 @@ Retain:
 
 - native Swift process and direct calls;
 - parser/serial implementation;
-- bounded local motion checks;
+- direct mechanical motion checks on finite closed operations;
 - typed coordinate spaces;
 - polyline program and affine transform;
 - immutable affine snapshots, deterministic training/holdout evaluation, and
@@ -387,7 +429,7 @@ Remove or keep removed:
 - mandatory strict-concurrency/warnings-as-errors build flags;
 - phase-wide/action-authority ceremony and separate arms.
 
-Defer unless a working drawing proves the need:
+Defer until attributable outcomes prove the need:
 
 - generalized model families and promotion UI;
 - backlash or pen learning;
@@ -395,3 +437,7 @@ Defer unless a working drawing proves the need:
 - exhaustive evidence provenance;
 - rich observability/history;
 - optional tools and generalized source formats.
+
+Do not defer the learning ladder itself. Preference learning and bounded policy
+optimization are intended later rungs once isolated ink and comparison episodes
+provide valid transitions and rewards.

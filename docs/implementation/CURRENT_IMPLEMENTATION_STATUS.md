@@ -4,7 +4,7 @@ Status date: 2026-08-07
 Target: this Mac and attached plotter only
 
 The canonical product purpose and training procedure are in
-[Project Scope and Model Training](../PROJECT_SCOPE_AND_MODEL_TRAINING.md).
+[Project Scope and Learning Architecture](../PROJECT_SCOPE_AND_MODEL_TRAINING.md).
 This document records implementation and physical-evidence status.
 
 ## Bottom line
@@ -43,17 +43,29 @@ pair the spoken physical observation with an exact immutable camera frame
 without claiming that the camera proves height. Wrong-context, ambient, and
 compound phrases are rejected rather than partially executed.
 
+This lifecycle is implemented bootstrap behavior, not the selected final voice
+architecture. The next implementation replaces sequence-owned listening with
+one persistent `ExplorationSession` that remains warm across Motion Preflight,
+Armature Guidance, ink inspection, and comparison episodes. It will preserve a
+small contextual reflex grammar for typed actions while adding a separate
+teaching-label path for visibility, features, rankings, and rewards. That
+session, its expanded grammar, and its latency instrumentation are not yet
+implemented.
+
 With the camera source set to SIMULATED, Motion Preflight presents a typed
 rehearsal of the same participant/action/event timeline. Playback advances the
 visible steps and simulated pen presentation, but it cannot start the
-microphone, touch the controller, record evidence, or satisfy physical
-readiness. This permits an end-to-end UI walkthrough without creating false
-hardware claims.
+microphone, touch the controller, record physical evidence, satisfy a live
+episode observation, or affect motion eligibility. This permits an end-to-end
+UI walkthrough without creating false hardware claims.
 
 A side is recorded only when cancellation resolves at Idle as
-`MotionOutcome.cancelled(finalPosition:)`; that final controller MPos and a
-strictly newer exact-frame tool-centroid observation constrain the nearest
-visual edge and update the drawing-frame posterior.
+`MotionOutcome.cancelled(finalPosition:)`. Current code records the final
+controller MPos as provenance, uses the strictly newer exact-frame tool centroid
+to shift the nearest inferred image edge, and confidence-averages the resulting
+quadrilateral. It does not numerically fuse MPos, maintain per-side uncertainty,
+or narrow confidence under repeated observations; the selected architecture
+replaces that heuristic in the next slice.
 If the jog reaches its internal search horizon, normal completion is reported
 and no boundary is recorded. Physical validation of this Motion Preflight
 increment is still pending.
@@ -278,9 +290,10 @@ TCC attribution.
 - There is no spline/neural model family, replay store, continuous visual servo,
   or model update inside an irreversible ink stroke.
 - The Learning panel contains two distinct surfaces. **Motion Preflight** opens
-  the voice-mediated setup utility and documents the active sequence. The
-  current-session diagnostic controls **Record Jog Observations**, selects the
-  next immutable training/holdout split, clears current samples, and shows sample
+  the current voice-mediated zero-order learning/preflight utility and documents
+  the active sequence. The current-session diagnostic controls **Record Jog
+  Observations**, selects the next immutable training/holdout split, clears
+  current samples, and shows sample
   counts, last paired result, response matrix, and separate residuals under the
   label `DIAGNOSTIC — NOT MOTION AUTHORITY`.
 - Physical observation provenance binds immutable attested frame bytes/hash,
@@ -294,9 +307,10 @@ TCC attribution.
   never fit the candidate. It has no controller, interpreter, inverse-command,
   acceptance, promotion, persistence, replay, or recovery authority.
 - This small diagnostic makes the eventual online-learning data path visible on
-  this one machine without introducing a deep model. Reinforcement learning or
-  other adaptive policies remain deferred until drawing actions have trustworthy
-  camera/ink outcomes and an explicit safe policy boundary.
+  this one machine without introducing a deep model. Active experiment
+  selection, preference learning, and bounded policy optimization are intended
+  later rungs, after drawing actions produce attributable camera/ink and human
+  outcomes. They do not need a deep model, but they do need valid transitions.
 - The affine drawing-model trainer, held-out acceptance decision, immutable
   version replacement, and pen-down pinning are implemented in the model layer
   and simulator. Physical jog evidence can be converted through one identified
@@ -365,21 +379,20 @@ were exercised in the rebuilt app. Accepted Training remained selected and
 rendered rather than falling back to LIVE. The Learning panel opened Motion
 Preflight in Simulator Rehearsal mode, and Pen Up visibly progressed through all
 six typed steps to REHEARSED while the UI reported no microphone, controller,
-evidence, or readiness authority.
+physical evidence, live episode observation, or effect on motion eligibility.
 
 ## Not yet implemented
 
 - Live measurement of preview and auto-analysis throughput/latency on this Mac.
 - Physical validation of the context-bound `READY`/`STOP` boundary workflow,
   its audible turn-taking, Jog Cancel timing, and final-MPos boundary records.
-- Proximity-dependent beeps; there is no trusted distance-to-boundary estimate
-  from which to derive a safe cadence.
-- Open-ended voice dialogue or OpenAI Realtime integration. A later semantic
-  dialogue layer may explain state or collect direct teaching input only by
-  proposing the same closed typed intents; it will not own controller access.
+- Persistent ExplorationSession microphone ownership, barge-in, contextual
+  reflex routing beyond `READY`/`STOP`, teaching labels, and end-to-end latency
+  measurement. No OpenAI or network speech dependency is selected.
 - FaceTime-camera operator-presence observation. It is not a motion gate, and a
   second camera owner or identity/video-recording subsystem has not been added.
-- One fixed camera observation region and clear tool pose.
+- Armature Guidance, including one fixed camera observation region, spoken
+  clear/partial/blocked labels, and one taught clear tool pose/path.
 - Isolated line drawing, ink detection, and simple residual display.
 - Small multi-stroke drawing and optional affine correction.
 - Portrait-to-vector input.
@@ -387,10 +400,14 @@ evidence, or readiness authority.
 ## Next action
 
 The fresh passive probe, Pen Up/Pen Down contact check, and 1 mm X/Y round trips
-in [First Hardware Session](FIRST_HARDWARE_SESSION.md) are
-complete. The next software/physical slice is one camera-visible clear pose and
-one bounded isolated-line operation followed by tool clear, exact-frame ink
-observation, and residual display. Stop on any alarm, asserted limit,
-disconnect, unexpected actuation, or ambiguity; do not Home, unlock, reset,
-write settings, or resume. Cap motion, a stationary dot, and controller `ok`
-must not stand in for observed-line success.
+in [First Hardware Session](FIRST_HARDWARE_SESSION.md) are complete. The next
+coherent slice is one persistent ExplorationSession carrying physical Motion
+Preflight into Armature Guidance, followed by one taught clear pose, one short
+observed anchor dot at the recorded start, one isolated-line operation, tool
+clear, exact-frame ink observation, and anchored residual display. The
+standalone coordinator/worker handoff is
+[Next Slice Multi-Agent Execution Prompt](NEXT_SLICE_MULTI_AGENT_PROMPT.md).
+Stop the affected physical episode on an alarm, asserted limit, disconnect,
+unexpected actuation, or ambiguity; do not Home, unlock, reset, write settings,
+resume, or automatically redraw. Cap motion, a stationary dot, and controller
+`ok` must not stand in for observed-line success.
