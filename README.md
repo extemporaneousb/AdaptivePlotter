@@ -42,7 +42,11 @@ Human-Guided Discovery is ordered as:
    bottom-center contact sample. Typed operator direction, never a nearest
    camera edge, identifies the side. Per-side machine-space aggregates define
    the estimated center and learned local millimetre frame. The operator then
-   explicitly starts one stoppable Pen Up move to that center.
+   explicitly starts one stoppable Pen Up move to that center. Center arrival
+   accepts a controller-reported final MPos within 0.05 mm of the derived target
+   so normal step quantization cannot create an unreachable retry loop. A failed
+   or stopped center move preserves all four accepted sides and exposes **Retry
+   Center Arrival**, not a Boundary-discovery restart.
 3. **3.3 Visibility Target and Clear-View Registration** — register the tool's
    camera-space contact point and target ROI while the armature is present;
    find and accept a repeatable clear pose with explicit 10, 5, 2, or optional

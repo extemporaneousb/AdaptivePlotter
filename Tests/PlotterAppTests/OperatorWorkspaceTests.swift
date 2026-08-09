@@ -736,6 +736,7 @@ struct OperatorWorkspaceTests {
     let owner = LearningPathItemID.humanGuidedDiscovery(
       .pairedBoundaryDiscoveryAndCentering
     )
+    let acceptedAggregates = workspace.boundarySideAggregates
     let moveTask = Task {
       try await performPublicAction(.moveToEstimatedCenter, owner: owner, workspace: workspace)
     }
@@ -755,13 +756,98 @@ struct OperatorWorkspaceTests {
     try await moveTask.value
 
     #expect(workspace.centerArrivalPosition == nil)
+    #expect(workspace.boundarySideAggregates == acceptedAggregates)
     #expect(workspace.currentLearningPathItemID == owner)
-    #expect(workspace.currentExerciseActionStripPresentation?.actions.map(\.kind) == [.restart])
+    let recovery = try #require(workspace.currentExerciseActionStripPresentation)
+    #expect(recovery.actions.map(\.kind) == [.moveToEstimatedCenter])
+    #expect(recovery.actions.map(\.title) == ["Retry Center Arrival"])
+    #expect(workspace.centerArrivalRetryRequired)
+    #expect(workspace.restartableExerciseItemID == nil)
     #expect(workspace.lastContextualStopAuditRecord?.actor == "Operator")
     #expect(workspace.lastContextualStopAuditRecord?.action == "Stop")
     #expect(workspace.lastContextualStopAuditRecord?.outcome.contains("stopped") == true)
     #expect(await harness.runtime.snapshot().currentOperation == nil)
     #expect(await harness.machineActionLog.values.isEmpty)
+  }
+
+  @Test("Center arrival accepts reproduced controller quantization residual")
+  func centerArrivalAcceptsQuantizedSettlement() async throws {
+    let target = try MachinePosition(x: -51.975, y: -73.684)
+    let reproduced = try MachinePosition(x: -51.963, y: -73.673)
+    #expect(CenterArrivalSettlementPolicy.defaultToleranceMM == 0.05)
+    #expect(CenterArrivalSettlementPolicy.accepts(actual: reproduced, target: target))
+
+    let log = EventLog()
+    let machine = try MachineFixture(
+      log: log,
+      relativeJogSettlementOffset: try Vector2(dx: 0.012, dy: 0.011)
+    )
+    let camera = try CameraFixture()
+    let workspace = workspace(machine: machine, camera: camera, log: log)
+    await workspace.establishMachineSession(machine.descriptor)
+    await workspace.requestPassiveProbe()
+    await workspace.startCamera()
+    try await completePenInteraction(workspace)
+    try await completeLiveBoundaries(workspace, machine: machine)
+
+    let owner = LearningPathItemID.humanGuidedDiscovery(
+      .pairedBoundaryDiscoveryAndCentering
+    )
+    try await performPublicAction(.moveToEstimatedCenter, owner: owner, workspace: workspace)
+
+    let expectedCenter = try MachinePosition(x: 0, y: 0)
+    #expect(workspace.centerArrivalPosition == expectedCenter)
+    #expect(workspace.learningArtifactGraph.currentRevision(for: .centerArrival) != nil)
+    #expect(!workspace.centerArrivalRetryRequired)
+    #expect(
+      workspace.currentLearningPathItemID
+        == .humanGuidedDiscovery(.visibilityTargetAndClearViewRegistration)
+    )
+  }
+
+  @Test("Out-of-tolerance center settlement offers center-only retry")
+  func centerArrivalRejectsOutsideToleranceWithoutBoundaryRestart() async throws {
+    let target = try MachinePosition(x: 0, y: 0)
+    let outside = try MachinePosition(x: 0.04, y: 0.04)
+    #expect(!CenterArrivalSettlementPolicy.accepts(actual: outside, target: target))
+
+    let log = EventLog()
+    let machine = try MachineFixture(
+      log: log,
+      relativeJogSettlementOffset: try Vector2(dx: 0.04, dy: 0.04)
+    )
+    let camera = try CameraFixture()
+    let workspace = workspace(machine: machine, camera: camera, log: log)
+    await workspace.establishMachineSession(machine.descriptor)
+    await workspace.requestPassiveProbe()
+    await workspace.startCamera()
+    try await completePenInteraction(workspace)
+    try await completeLiveBoundaries(workspace, machine: machine)
+    let acceptedAggregates = workspace.boundarySideAggregates
+    let acceptedCenter = workspace.estimatedMachineCenter
+
+    let owner = LearningPathItemID.humanGuidedDiscovery(
+      .pairedBoundaryDiscoveryAndCentering
+    )
+    try await performPublicAction(.moveToEstimatedCenter, owner: owner, workspace: workspace)
+
+    #expect(workspace.centerArrivalPosition == nil)
+    #expect(workspace.learningArtifactGraph.currentRevision(for: .centerArrival) == nil)
+    #expect(workspace.boundarySideAggregates == acceptedAggregates)
+    #expect(workspace.estimatedMachineCenter == acceptedCenter)
+    #expect(workspace.centerArrivalRetryRequired)
+    #expect(workspace.restartableExerciseItemID == nil)
+    let recovery = try #require(workspace.currentExerciseActionStripPresentation)
+    #expect(recovery.actions.map(\.kind) == [.moveToEstimatedCenter])
+    #expect(recovery.actions.map(\.title) == ["Retry Center Arrival"])
+    let activity = workspace.selectedOperatorActionPresentation(for: owner).activity
+    #expect(activity?.action == "Move to Estimated Center")
+    #expect(
+      activity?.detail.accessibilityText.contains("outside the 0.050 mm tolerance") == true
+    )
+    #expect(
+      activity?.acceptedResult.accessibilityText.contains("four accepted Boundary") == true
+    )
   }
 
   @Test("SIMULATED learning is discarded and the parked LIVE authority is restored")
@@ -1569,6 +1655,27 @@ private func completeSimulatedStageFour(_ workspace: OperatorWorkspace) async th
 }
 
 @MainActor
+private func completeLiveBoundaries(
+  _ workspace: OperatorWorkspace,
+  machine: MachineFixture
+) async throws {
+  let samples: [(BoundaryDirection, Double, Double)] = [
+    (.negativeX, -100, 0),
+    (.positiveX, 100, 0),
+    (.negativeY, 100, -50),
+    (.positiveY, 100, 50),
+  ]
+  for (direction, x, y) in samples {
+    await workspace.beginPairedBoundarySide(direction)
+    try await waitUntil { workspace.contextualStopPresentation != nil }
+    try await machine.setPosition(x: x, y: y)
+    try await stopActiveOperation(workspace)
+  }
+  #expect(workspace.pairedBoundaryProgress.isComplete)
+  #expect(workspace.boundarySideAggregates.count == BoundaryDirection.allCases.count)
+}
+
+@MainActor
 private func completePenInteraction(_ workspace: OperatorWorkspace) async throws {
   if let reason = workspace.discoveryStartUnavailableReason(for: .penInteraction) {
     throw StepMismatch(expected: "available", actual: reason)
@@ -1809,6 +1916,7 @@ private actor MachineFixture {
   let feedLimits: ControllerAxisFeedLimits?
   let reportsBoundaryMoving: Bool
   let holdCancellationSettlement: Bool
+  let relativeJogSettlementOffset: Vector2<MachineSpace>?
   private(set) var cancelCount = 0
   private(set) var cancelIntents: [JogCancelIntent] = []
   private(set) var requestedFeeds: [Double] = []
@@ -1830,13 +1938,19 @@ private actor MachineFixture {
     log: EventLog,
     feedLimits: ControllerAxisFeedLimits? = nil,
     reportsBoundaryMoving: Bool = true,
-    holdCancellationSettlement: Bool = false
+    holdCancellationSettlement: Bool = false,
+    relativeJogSettlementOffset: Vector2<MachineSpace>? = nil
   ) throws {
     self.log = log
     self.feedLimits = feedLimits
     self.reportsBoundaryMoving = reportsBoundaryMoving
     self.holdCancellationSettlement = holdCancellationSettlement
+    self.relativeJogSettlementOffset = relativeJogSettlementOffset
     position = try MachinePosition(x: 0, y: 0)
+  }
+
+  func setPosition(x: Double, y: Double) throws {
+    position = try MachinePosition(x: x, y: y)
   }
 
   func snapshot() -> RunInterpreterSnapshot {
@@ -1875,6 +1989,17 @@ private actor MachineFixture {
     if cancelPending {
       cancelPending = false
       return settleCancelled()
+    }
+    if let relativeJogSettlementOffset {
+      position = try! MachinePosition(
+        x: position.point.x + request.delta.dx + relativeJogSettlementOffset.dx,
+        y: position.point.y + request.delta.dy + relativeJogSettlementOffset.dy
+      )
+      moving = false
+      activeRequest = nil
+      let outcome = MotionOutcome.acceptedThenCompleted(finalPosition: position)
+      lastMotion = outcome
+      return outcome
     }
     let outcome = await withCheckedContinuation { continuation in
       self.continuation = continuation

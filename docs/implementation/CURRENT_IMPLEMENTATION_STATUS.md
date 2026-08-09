@@ -313,6 +313,12 @@ The repository's prior attended sessions recorded the following physical facts:
 - typed Pen Up and Pen Down were physically observed; the local lower profile at
   `S760` produced a green contact dot, and the final `S40` left commanded state
   Up.
+- one attended Stage 3.2 run accepted all four typed Boundary sides and derived
+  center X -51.975 / Y -73.684. The controller moved to X -51.963 / Y -73.673,
+  then center retries alternated Y between -73.673 and -73.695 while X remained
+  -51.963. Each approximately 0.016 mm diagonal residual was physically
+  negligible but exceeded the former 0.010 mm software tolerance, reproducing
+  an unreachable Restart loop. No Stage 3.3 motion or ink followed.
 
 Those facts remain bounded to their recorded sessions. They do not validate the
 new integrated Learning Path, spoken cue timing, operator-stopped Boundary
@@ -323,8 +329,8 @@ not justify restoring the removed jog-response product surface or model path.
 
 ## Not yet physically verified
 
-This increment did not perform an attended hardware run. The following remain
-unverified for the integrated current build:
+The attended run above used the pre-fix bundle and stopped at the reproduced
+center-arrival loop. The following remain unverified for the revised build:
 
 - real existing-bundle activation and foreground/Dock behavior;
 - audible native announcement completion before movement;
@@ -333,8 +339,8 @@ unverified for the integrated current build:
 - operator-stopped Boundary Discovery without a hard-coded application travel
   horizon;
 - one-button one-cancel behavior on the attached controller;
-- exact post-stop frames, all four forced/selected side transitions, center
-  derivation, and center arrival on live hardware;
+- the revised 0.05 mm center-arrival acceptance, center-only retry presentation,
+  and progression into Stage 3.3 on live hardware;
 - coarse-to-fine Clear-pose search and repeatability;
 - accepted target contact point/ROI, blank baseline compatibility, one physical
   octagonal target, two-frame target visibility, isolated line, clear-pose

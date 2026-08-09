@@ -36,6 +36,21 @@ enum OperatorFrameMode: String, CaseIterable, Identifiable, Sendable {
   var id: Self { self }
 }
 
+enum CenterArrivalSettlementPolicy {
+  /// A controller-reported final MPos may be quantized on both axes. Fifty
+  /// microns is still mechanically negligible for this center handoff while
+  /// remaining above the reproduced diagonal one-step residual.
+  static let defaultToleranceMM = 0.05
+
+  static func residualMM(actual: MachinePosition, target: MachinePosition) -> Double {
+    actual.point.distance(to: target.point)
+  }
+
+  static func accepts(actual: MachinePosition, target: MachinePosition) -> Bool {
+    residualMM(actual: actual, target: target) <= defaultToleranceMM
+  }
+}
+
 enum JogDirection: String, CaseIterable, Identifiable, Sendable {
   case xNegative
   case xPositive
@@ -404,6 +419,7 @@ final class OperatorWorkspace {
     let estimatedMachineCenter: EstimatedMachineCenter?
     let learnedLocalCoordinateFrame: LearnedLocalCoordinateFrame?
     let centerArrivalPosition: MachinePosition?
+    let centerArrivalRetryRequired: Bool
     let targetPoseRegistrationFrame: DisplayedFrame?
     let registeredTargetMachinePosition: MachinePosition?
     let targetContactPointEstimate: ToolContactPointEstimate?
@@ -575,6 +591,7 @@ final class OperatorWorkspace {
   private(set) var estimatedMachineCenter: EstimatedMachineCenter?
   private(set) var learnedLocalCoordinateFrame: LearnedLocalCoordinateFrame?
   private(set) var centerArrivalPosition: MachinePosition?
+  private(set) var centerArrivalRetryRequired = false
   private(set) var targetPoseRegistrationFrame: DisplayedFrame?
   private(set) var registeredTargetMachinePosition: MachinePosition?
   private(set) var targetContactPointEstimate: ToolContactPointEstimate?
@@ -1553,15 +1570,23 @@ final class OperatorWorkspace {
           ownerID: ownerID,
           action: "Move to Estimated Center"
         )
-        guard
-          recordProtocolPoseSettlement(
-            action: "Move to Estimated Center",
-            target: destination,
-            actual: final
-          )
-        else {
+        _ = recordProtocolPoseSettlement(
+          action: "Move to Estimated Center",
+          target: destination,
+          actual: final,
+          toleranceMM: CenterArrivalSettlementPolicy.defaultToleranceMM
+        )
+        guard CenterArrivalSettlementPolicy.accepts(actual: final, target: destination) else {
+          let residual = lastProtocolPoseSettlement?.residualMM ?? .infinity
           throw LearningPathOperationError.controllerOutcome(
-            "Center travel settled at a different final MPos. Restart recomputes the remaining delta."
+            String(
+              format:
+                "Center travel settled %.3f mm from the target, outside the %.3f mm tolerance. "
+                + "The four accepted boundaries remain current; Retry Center Arrival "
+                + "recomputes only the remaining delta.",
+              residual,
+              CenterArrivalSettlementPolicy.defaultToleranceMM
+            )
           )
         }
       }
@@ -1584,6 +1609,7 @@ final class OperatorWorkspace {
       learningArtifactGraph = graph
       applyArtifactInvalidations(commit.invalidatedRevisionIDs)
       centerArrivalPosition = destination
+      centerArrivalRetryRequired = false
       explorationError = nil
       finishActiveExerciseAttempt(disposition: .succeeded)
     } catch {
@@ -1591,7 +1617,8 @@ final class OperatorWorkspace {
       if activeExerciseAttemptOwnerID == ownerID {
         finishActiveExerciseAttempt(disposition: attemptDisposition(for: explorationError ?? ""))
       }
-      restartableExerciseItemID = ownerID
+      centerArrivalRetryRequired = true
+      restartableExerciseItemID = nil
     }
   }
 
@@ -3739,6 +3766,7 @@ final class OperatorWorkspace {
       learnedLocalCoordinateFrame = stagedLocalFrame
       if stagedCenter == nil {
         centerArrivalPosition = nil
+        centerArrivalRetryRequired = false
       }
       if let forcedNext = stagedProgress.allowedDirections.onlyElement {
         selectedBoundaryDirection = forcedNext
@@ -5933,8 +5961,10 @@ final class OperatorWorkspace {
         estimatedMachineCenter = nil
         learnedLocalCoordinateFrame = nil
         centerArrivalPosition = nil
+        centerArrivalRetryRequired = false
       case .centerArrival:
         centerArrivalPosition = nil
+        centerArrivalRetryRequired = false
       case .targetPoseRegistration:
         targetPoseRegistrationFrame = nil
         registeredTargetMachinePosition = nil
@@ -6472,6 +6502,19 @@ final class OperatorWorkspace {
       pairedBoundaryProgress.isComplete,
       centerArrivalPosition == nil
     {
+      if centerArrivalRetryRequired {
+        return ExerciseActionStripPresentation(
+          ownerID: itemID,
+          actions: [
+            ExerciseActionDescriptor(
+              kind: .moveToEstimatedCenter,
+              title: "Retry Center Arrival",
+              role: .positive,
+              unavailableReason: reason
+            )
+          ]
+        )
+      }
       return ExerciseActionStripPresentation(
         ownerID: itemID,
         actions: [
@@ -6870,6 +6913,19 @@ final class OperatorWorkspace {
     transaction: DiscoveryTransaction?
   ) -> OperationActivityPresentation? {
     if itemID == .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering),
+      centerArrivalRetryRequired,
+      let explorationError
+    {
+      return OperationActivityPresentation(
+        actor: "Controller",
+        action: "Move to Estimated Center",
+        outcome: .needsAttention,
+        detail: [.text(explorationError)],
+        acceptedResult: [.text("All four accepted Boundary aggregates remain current.")],
+        recovery: [.text("Use Retry Center Arrival; it requests only the remaining delta.")]
+      )
+    }
+    if itemID == .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering),
       let activity = boundaryActivityRecords.last
     {
       let retained = activity.retainedRevisionIDs
@@ -7238,6 +7294,7 @@ final class OperatorWorkspace {
     estimatedMachineCenter = nil
     learnedLocalCoordinateFrame = nil
     centerArrivalPosition = nil
+    centerArrivalRetryRequired = false
     targetPoseRegistrationFrame = nil
     registeredTargetMachinePosition = nil
     targetContactPointEstimate = nil
@@ -7303,6 +7360,7 @@ final class OperatorWorkspace {
       estimatedMachineCenter: estimatedMachineCenter,
       learnedLocalCoordinateFrame: learnedLocalCoordinateFrame,
       centerArrivalPosition: centerArrivalPosition,
+      centerArrivalRetryRequired: centerArrivalRetryRequired,
       targetPoseRegistrationFrame: targetPoseRegistrationFrame,
       registeredTargetMachinePosition: registeredTargetMachinePosition,
       targetContactPointEstimate: targetContactPointEstimate,
@@ -7367,6 +7425,7 @@ final class OperatorWorkspace {
     estimatedMachineCenter = nil
     learnedLocalCoordinateFrame = nil
     centerArrivalPosition = nil
+    centerArrivalRetryRequired = false
     targetPoseRegistrationFrame = nil
     registeredTargetMachinePosition = nil
     targetContactPointEstimate = nil
@@ -7443,6 +7502,7 @@ final class OperatorWorkspace {
     estimatedMachineCenter = snapshot.estimatedMachineCenter
     learnedLocalCoordinateFrame = snapshot.learnedLocalCoordinateFrame
     centerArrivalPosition = snapshot.centerArrivalPosition
+    centerArrivalRetryRequired = snapshot.centerArrivalRetryRequired
     targetPoseRegistrationFrame = snapshot.targetPoseRegistrationFrame
     registeredTargetMachinePosition = snapshot.registeredTargetMachinePosition
     targetContactPointEstimate = snapshot.targetContactPointEstimate
@@ -7889,7 +7949,8 @@ final class OperatorWorkspace {
   private func recordProtocolPoseSettlement(
     action: String,
     target: MachinePosition,
-    actual: MachinePosition
+    actual: MachinePosition,
+    toleranceMM: Double = MotionPriors.controllerPositionToleranceMM
   ) -> Bool {
     let residual = actual.point.distance(to: target.point)
     lastProtocolPoseSettlement = ProtocolPoseSettlement(
@@ -7897,9 +7958,9 @@ final class OperatorWorkspace {
       target: target,
       actual: actual,
       residualMM: residual,
-      toleranceMM: MotionPriors.controllerPositionToleranceMM
+      toleranceMM: toleranceMM
     )
-    return residual <= MotionPriors.controllerPositionToleranceMM
+    return residual <= toleranceMM
   }
 
   /// One explicit, finite, Pen-Up exercise travel. This shares the runtime's

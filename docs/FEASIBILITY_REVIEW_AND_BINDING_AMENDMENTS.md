@@ -74,7 +74,13 @@ The exact post-settlement frame and bottom-center contact estimate remain
 registration evidence, but no detected edge or inferred quadrilateral may
 identify the machine side or veto its commit.
 An explicit, stoppable Pen Up **Move to Estimated Center** settles before Stage
-3.3 begins. The center is learned evidence, not a motion envelope.
+3.3 begins. The center-arrival artifact accepts a controller-reported final MPos
+within 0.05 mm of the derived target, accommodating normal two-axis controller
+quantization while retaining exact target, actual, residual, and tolerance
+evidence. A stopped or out-of-tolerance center move retains all four accepted
+Boundary aggregates and exposes **Retry Center Arrival**, which requests only
+the remaining delta; it does not restart Boundary discovery. The center is
+learned evidence, not a motion envelope.
 
 Stage 3.3 first captures the target-pose scene with the armature present and
 accepts an explicit camera-pixel tool contact-point estimate and ROI. The
