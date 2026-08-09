@@ -231,8 +231,7 @@ ordinary manual admission.
 `ContextualStopTarget` distinguishes Boundary Discovery, manual jog, and drawing
 trial. The persistent exercise action strip enables Stop only while a target
 exists. There is one Stop action route even when the selected row is being
-reviewed. The outgoing observed-jog target and its separate workflow are
-deleted.
+reviewed. The former observed-jog target and its separate workflow are absent.
 
 The one-cancel latch prevents repeated button presses and shutdown from emitting
 duplicate cancellation. Boundary Stop records the typed operator event before

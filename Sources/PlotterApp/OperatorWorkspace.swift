@@ -64,13 +64,14 @@ enum JogDirection: String, CaseIterable, Identifiable, Sendable {
 enum BoundaryTeachingState: Equatable, Sendable {
   case idle
   case awaitingConfirmation(JogDirection)
-  case moving(JogDirection)
+  case ownerActive(JogDirection)
   case cancelling(JogDirection)
 
   var direction: JogDirection? {
     switch self {
     case .idle: nil
-    case .awaitingConfirmation(let direction), .moving(let direction), .cancelling(let direction):
+    case .awaitingConfirmation(let direction), .ownerActive(let direction),
+      .cancelling(let direction):
       direction
     }
   }
@@ -79,7 +80,6 @@ enum BoundaryTeachingState: Equatable, Sendable {
 enum ContextualStopTarget: Hashable, Sendable {
   case boundaryDiscovery(transactionID: UUID, direction: BoundaryDirection)
   case manualJog
-  case observedJog
   case drawingTrial
 }
 
@@ -140,16 +140,39 @@ struct LiveSceneInspection: Sendable {
 @MainActor
 @Observable
 final class OperatorWorkspace {
-  private enum JogOwnerResult: Sendable {
-    case manual(MotionOutcome)
-    case observed(PhysicalJogObservationOutcome)
+  private enum ExerciseAttemptMode: Sendable {
+    case normal
+    case replacement
+    case additional
+  }
+
+  private struct DrawingTrialPayloadSnapshot {
+    let step: ObservedDrawingTrialStep
+    let cleanReference: DisplayedFrame?
+    let anchoredBaseline: DisplayedFrame?
+    let postLineFrame: DisplayedFrame?
+    let lineStart: MachinePosition?
+    let strokeEvidence: DrawingStrokeEvidence?
+    let anchorObservation: AnchorDotObservation?
+    let inkObservation: IsolatedInkObservation?
+    let inkStatus: String
+    let assessment: DrawingTrialAssessment?
+    let episode: ExplorationEpisode?
+    let completedEpisodes: [ExplorationEpisode]
+  }
+
+  private struct BoundaryDerivedValueSnapshot {
+    let posterior: DrawingFramePosterior?
+    let observationsByAttemptID: [ExerciseAttemptID: DrawingFrameBoundaryObservation]
+    let overlays: [CameraOverlayMeasurement]
   }
 
   private enum MotionPriors {
     static let stepMM = "1.0"
     static let feedMMPerMinute = "100"
-    static let boundarySearchXDistanceMM = 300.0
-    static let boundarySearchYDistanceMM = 150.0
+    /// Finite GRBL wire segment used only for renewal under one logical owner.
+    /// Reaching this distance is never a Boundary Discovery result.
+    static let boundaryWireSegmentMM = 10.0
   }
 
   struct MachineActions: Sendable {
@@ -160,13 +183,9 @@ final class OperatorWorkspace {
     let deactivateMotionGuard: @Sendable () async -> Void
     let requestRelativeJog: @Sendable (RelativeJogRequest) async -> MotionOutcome
     let requestDrawingStroke: @Sendable (DrawingStrokeRequest) async -> DrawingStrokeOutcome
-    let requestObservedJog: @Sendable (
-      PhysicalJogObservationRequest,
-      @Sendable (PhysicalObservationPhase, UInt64) async
-        -> Result<VisibleToolFrameObservation, PhysicalJogObservationFailure>
-    ) async -> PhysicalJogObservationOutcome
     let requestPenActuation: @Sendable (PenCommand) async -> PenOutcome
-    let requestJogCancel: @Sendable () async -> JogCancelOutcome
+    let requestBoundaryMotion: @Sendable (BoundaryMotionRequest) async -> BoundaryMotionOutcome
+    let requestJogCancel: @Sendable (JogCancelIntent) async -> JogCancelOutcome
     let disconnect: @Sendable () async -> Void
   }
 
@@ -189,8 +208,6 @@ final class OperatorWorkspace {
     let setAutomaticInspection: @Sendable (VisionAnalysisCadence?) async
       -> PlotterSceneAnalysisSnapshot
     let analysisUpdates: @Sendable () async -> AsyncStream<PlotterSceneAnalysisSnapshot>
-    let observeVisibleTool: @Sendable (PhysicalObservationPhase, UInt64) async
-      -> Result<VisibleToolFrameObservation, PhysicalJogObservationFailure>
     let simulatedContent: @Sendable (SimulatorModelMode) async throws
       -> SimulatedActionSurfaceContent
     let simulatedExplorationFrames: @Sendable () async throws
@@ -213,8 +230,6 @@ final class OperatorWorkspace {
   var xStepText = MotionPriors.stepMM
   var yStepText = MotionPriors.stepMM
   var feedText = MotionPriors.feedMMPerMinute
-  private(set) var recordJogObservations = false
-  private(set) var selectedObservationSplit: ModelObservationSplit = .training
 
   private(set) var serialDevices: [MachineLinkDescriptor] = []
   private(set) var selectedSerialDevice: MachineLinkDescriptor?
@@ -229,10 +244,6 @@ final class OperatorWorkspace {
   private(set) var frameModeSwitchInProgress = false
   private(set) var motionGuardActivationInProgress = false
   private(set) var lastMotionGuardActivationText = "not activated"
-  private(set) var physicalJogObservations: [PhysicalJogObservation] = []
-  private(set) var jogResponseDataset: OnlineJogResponseDataset?
-  private(set) var jogResponseCandidate: JogResponseCandidate?
-  private(set) var jogResponseLearnerError: String?
 
   private(set) var cameraSnapshot: CameraCaptureSnapshot?
   private(set) var displayedFrame: DisplayedFrame?
@@ -257,7 +268,9 @@ final class OperatorWorkspace {
   private(set) var discoveryTransactions: [DiscoverySequenceID: DiscoveryTransaction] = [:]
   private(set) var discoveryError: String?
   private(set) var drawingFramePosterior: DrawingFramePosterior?
-  private(set) var learningPathFlow = LearningPathFlowCoordinator()
+  private(set) var boundaryFrameObservationsByAttemptID: [
+    ExerciseAttemptID: DrawingFrameBoundaryObservation
+  ] = [:]
   private(set) var explorationError: String?
   private(set) var currentExplorationEpisode: ExplorationEpisode?
   private(set) var completedExplorationEpisodes: [ExplorationEpisode] = []
@@ -277,6 +290,20 @@ final class OperatorWorkspace {
   private(set) var lastTravelFeedSelection: TravelFeedSelection?
   private(set) var drawingTrialAssessment: DrawingTrialAssessment?
   private(set) var clearViewPoseAccepted = false
+  private(set) var learningArtifactGraph = LearningDependencyGraph()
+  private(set) var penAttemptHistory: ExerciseAttemptHistory<PenState>
+  private(set) var boundaryAttemptHistories: [
+    BoundaryDirection: [AttemptCompatibility: ExerciseAttemptHistory<Double>]
+  ] = [:]
+  private(set) var clearViewAttemptHistories: [
+    AttemptCompatibility: ExerciseAttemptHistory<ArmatureVisibilityLabel>
+  ] = [:]
+  private(set) var comparisonAttemptHistories: [
+    AttemptCompatibility: ExerciseAttemptHistory<DrawingTrialAssessment>
+  ] = [:]
+  private(set) var activeExerciseAttemptID: ExerciseAttemptID?
+  private(set) var activeExerciseAttemptOwnerID: LearningPathItemID?
+  private(set) var restartableExerciseItemID: LearningPathItemID?
 
   @ObservationIgnored private let machineActions: MachineActions?
   @ObservationIgnored private let cameraActions: CameraActions?
@@ -291,7 +318,7 @@ final class OperatorWorkspace {
   @ObservationIgnored private var explorationCoordinateRevision: UInt64 = 0
   @ObservationIgnored private var explorationToolPaperRevision = UUID()
   @ObservationIgnored private var boundaryMotionTask: Task<Void, Never>?
-  @ObservationIgnored private var manualJogTask: Task<JogOwnerResult, Never>?
+  @ObservationIgnored private var manualJogTask: Task<MotionOutcome, Never>?
   @ObservationIgnored private var drawingTrialTask: Task<DrawingStrokeOutcome, Never>?
   @ObservationIgnored private var activeStopTarget: ContextualStopTarget?
   @ObservationIgnored private var stopRequestIssuedForTarget: ContextualStopTarget?
@@ -302,6 +329,12 @@ final class OperatorWorkspace {
   @ObservationIgnored private var lifetimeGeneration: UInt64 = 0
   @ObservationIgnored private var activeHardwareIntentCount = 0
   @ObservationIgnored private var intentDrainWaiters: [CheckedContinuation<Void, Never>] = []
+  @ObservationIgnored private var activeExerciseAttemptMode: ExerciseAttemptMode?
+  @ObservationIgnored private var boundaryDerivedValueSnapshot: BoundaryDerivedValueSnapshot?
+  @ObservationIgnored private var acceptedAttemptSequence: UInt64 = 0
+  @ObservationIgnored private var currentDrawingTrialGroup = AttemptGroupIdentity(
+    rawValue: UUID().uuidString.lowercased()
+  )
 
   init(
     machineActions: MachineActions? = nil,
@@ -321,6 +354,15 @@ final class OperatorWorkspace {
       UInt64(ProcessInfo.processInfo.systemUptime * 1_000_000_000)
     }
   ) {
+    penAttemptHistory = try! ExerciseAttemptHistory(
+      compatibility: AttemptCompatibility(
+        cameraConfigurationID: nil,
+        coordinateSpace: .currentState,
+        units: .state,
+        group: AttemptGroupIdentity(rawValue: "pen-interaction"),
+        algorithmRevision: "typed-operator-pen-observation-v1"
+      )
+    )
     self.machineActions = machineActions
     self.cameraActions = cameraActions
     self.announcementActions = announcementActions
@@ -440,106 +482,10 @@ final class OperatorWorkspace {
     case .idle: "idle"
     case .passiveProbe: "controller inspection"
     case .relativeJog: "relative jog"
-    case .observedJog: "observed relative jog"
+    case .boundaryMotion: "Boundary Discovery motion"
     case .drawingStroke: "isolated drawing stroke"
     case .penActuation(let command): "pen \(command.rawValue)"
     }
-  }
-
-  var physicalJogObservationCountText: String {
-    "\(physicalJogObservations.count)"
-  }
-
-  var jogResponseDatasetCountText: String {
-    guard let summary = jogResponseDataset?.summary else { return "training 0 · holdout 0" }
-    return "training \(summary.trainingCount) · holdout \(summary.holdoutCount)"
-  }
-
-  var jogResponseMatrixText: String {
-    guard let matrix = jogResponseCandidate?.matrix else { return "unavailable" }
-    return String(
-      format: "[%.4f  %.4f;  %.4f  %.4f] px/mm",
-      matrix.cameraXPerMachineX,
-      matrix.cameraXPerMachineY,
-      matrix.cameraYPerMachineX,
-      matrix.cameraYPerMachineY
-    )
-  }
-
-  var jogResponseTrainingResidualText: String {
-    guard let metrics = jogResponseCandidate?.trainingMetrics else { return "unavailable" }
-    return String(
-      format: "RMS %.3f px · max %.3f px · n %d",
-      metrics.rootMeanSquarePixels,
-      metrics.maximumPixels,
-      metrics.episodeCount
-    )
-  }
-
-  var jogResponseHoldoutResidualText: String {
-    guard let metrics = jogResponseCandidate?.holdoutMetrics else { return "none" }
-    return String(
-      format: "RMS %.3f px · max %.3f px · n %d",
-      metrics.rootMeanSquarePixels,
-      metrics.maximumPixels,
-      metrics.episodeCount
-    )
-  }
-
-  var clearJogObservationSamplesUnavailableReason: String? {
-    jogRequestInProgress ? "Wait for the current jog to finish before clearing samples." : nil
-  }
-
-  var lastPhysicalJogObservationResultText: String {
-    guard let outcome = machineSnapshot?.lastPhysicalJogObservationOutcome else { return "none" }
-    switch outcome {
-    case .recorded(let observation):
-      return "recorded · \(observation.request.split.rawValue)"
-    case .notRecorded:
-      return "not recorded"
-    }
-  }
-
-  var lastPhysicalJogPositionsText: String {
-    guard case .recorded(let observation) = machineSnapshot?.lastPhysicalJogObservationOutcome else {
-      return "unknown"
-    }
-    return String(
-      format: "X %.3f Y %.3f → X %.3f Y %.3f",
-      observation.startPosition.point.x,
-      observation.startPosition.point.y,
-      observation.finalPosition.point.x,
-      observation.finalPosition.point.y
-    )
-  }
-
-  var lastPhysicalJogCameraDeltaText: String {
-    guard case .recorded(let observation) = machineSnapshot?.lastPhysicalJogObservationOutcome else {
-      return "unknown"
-    }
-    return String(
-      format: "Δx %.2f px · Δy %.2f px",
-      observation.cameraDelta.dx,
-      observation.cameraDelta.dy
-    )
-  }
-
-  var lastPhysicalJogConfidenceText: String {
-    guard case .recorded(let observation) = machineSnapshot?.lastPhysicalJogObservationOutcome else {
-      return "unknown"
-    }
-    return String(
-      format: "before %.3f · after %.3f",
-      observation.before.capConfidence,
-      observation.after.capConfidence
-    )
-  }
-
-  var lastPhysicalJogFailureText: String? {
-    guard case .notRecorded(_, let failure) = machineSnapshot?.lastPhysicalJogObservationOutcome else {
-      return nil
-    }
-    return failure.actionableDescription
   }
 
   var controllerStateText: String {
@@ -597,7 +543,7 @@ final class OperatorWorkspace {
   var controllerSelectionUnavailableReason: String? {
     if serialDevices.isEmpty { return "No serial controllers are available." }
     if let activeDiscoverySequenceID {
-      return "Finish \(DiscoverySequenceCatalog.definition(for: activeDiscoverySequenceID).title); use Stop while it is moving."
+      return "Finish \(DiscoverySequenceCatalog.definition(for: activeDiscoverySequenceID).title); use Stop while its logical owner is active."
     }
     if passiveProbeInProgress || jogRequestInProgress || penRequestInProgress
       || motionGuardActivationInProgress
@@ -678,6 +624,7 @@ final class OperatorWorkspace {
 
   private(set) var observedDrawingTrialStep: ObservedDrawingTrialStep = .captureCleanReference
   private(set) var pendingClearViewLabel: ArmatureVisibilityLabel?
+  private(set) var selectedBoundaryDirection: BoundaryDirection = .positiveX
 
   var activeDiscoverySequenceID: DiscoverySequenceID? {
     discoveryTransactions.first { _, transaction in
@@ -689,16 +636,15 @@ final class OperatorWorkspace {
   }
 
   var penInteractionCompleted: Bool {
-    guard discoveryTransactions[.penInteraction]?.state == .succeeded else { return false }
+    guard learningArtifactGraph.currentRevision(for: .penInteraction) != nil else { return false }
     return frameMode == .simulated
       ? simulatorPenState == .up
       : machineSnapshot?.machine.penState == .up
   }
 
   var relevantBoundaryObservationCount: Int {
-    discoveryTransactions.values.filter { transaction in
-      transaction.state == .succeeded
-        && boundaryDirection(for: transaction.definition.id) != nil
+    BoundaryDirection.allCases.filter {
+      learningArtifactGraph.currentRevision(for: .boundaryObservation($0)) != nil
     }.count
   }
 
@@ -708,52 +654,31 @@ final class OperatorWorkspace {
     return .clearViewDiscovery
   }
 
-  var learningPathStagePresentations: [LearningPathStagePresentation] {
-    let connected = controllerIsConnected
-    let enabled = connected && motionGuardIsActive
-    let discoveryComplete = penInteractionCompleted
-      && relevantBoundaryObservationCount > 0
-      && clearViewPoseAccepted
-    let trialsComplete = drawingTrialAssessment != nil
-    return [
-      LearningPathStagePresentation(
-        stage: .connect,
-        status: connected ? .complete : (machineError == nil ? .current : .needsAttention),
-        summary: connected
-          ? "The currently selected controller is responsive."
-          : "Select and connect one responsive controller."
-      ),
-      LearningPathStagePresentation(
-        stage: .enableMotion,
-        status: enabled ? .complete : (connected ? .current : .next),
-        summary: enabled
-          ? "Motion is enabled for direct, typed operations."
-          : "Enable Motion after the selected controller is responsive."
-      ),
-      LearningPathStagePresentation(
-        stage: .humanGuidedDiscovery,
-        status: discoveryComplete
-          ? .complete
-          : (enabled ? (discoveryError == nil ? .current : .needsAttention) : .next),
-        summary: discoveryComplete
-          ? "Pen Interaction, a relevant boundary, and a clear view were observed this session."
-          : "Complete Pen Interaction, one relevant Boundary Discovery, then accept a Clear-View observation."
-      ),
-      LearningPathStagePresentation(
-        stage: .observedDrawingTrials,
-        status: trialsComplete
-          ? .complete
-          : (discoveryComplete ? (explorationError == nil ? .current : .needsAttention) : .next),
-        summary: trialsComplete
-          ? "The local isolated-line trial has an operator comparison."
-          : "Create and observe one isolated mark, then compare intended and observed geometry."
-      ),
-      LearningPathStagePresentation(
-        stage: .adaptiveDrawing,
-        status: .future,
-        summary: "Adaptive Drawing is unavailable in this prototype."
-      ),
-    ]
+  var currentLearningPathItemID: LearningPathItemID {
+    if let activeExerciseAttemptOwnerID { return activeExerciseAttemptOwnerID }
+    if let restartableExerciseItemID { return restartableExerciseItemID }
+    if !controllerIsConnected { return .stage(.connect) }
+    if !motionGuardIsActive { return .stage(.enableMotion) }
+    if !penInteractionCompleted { return .humanGuidedDiscovery(.penInteraction) }
+    if relevantBoundaryObservationCount == 0 {
+      return .humanGuidedDiscovery(.boundaryDiscovery)
+    }
+    if !clearViewPoseAccepted { return .humanGuidedDiscovery(.clearViewDiscovery) }
+    if drawingTrialAssessment == nil {
+      return .observedDrawingTrial(observedDrawingTrialStep)
+    }
+    return .stage(.adaptiveDrawing)
+  }
+
+  var learningPathItemPresentations: [LearningPathItemPresentation] {
+    LearningPathItemID.navigationOrder.map { itemID in
+      LearningPathItemPresentation(
+        id: itemID,
+        status: learningPathStatus(for: itemID),
+        summary: learningPathSummary(for: itemID),
+        isRepeatable: itemIsRepeatable(itemID)
+      )
+    }
   }
 
   var contextualStopPresentation: ContextualStopPresentation? {
@@ -769,58 +694,156 @@ final class OperatorWorkspace {
       "Stop \(direction.displayName) Boundary Discovery, wait for Idle, then observe its final position and a fresh frame."
     case .manualJog:
       "Stop the active manual jog and wait for Idle."
-    case .observedJog:
-      "Stop the active observed jog and wait for its original owner to settle."
     case .drawingTrial:
       "Stop the drawing trial; the controller owns its single Pen Up cancellation."
     }
     return ContextualStopPresentation(detail: detail)
   }
 
-  var currentOperatorActionPresentation: OperatorActionPresentation? {
-    if let sequenceID = activeDiscoverySequenceID,
-      let transaction = discoveryTransactions[sequenceID],
-      let step = transaction.currentStep
-    {
-      let feedSelection: TravelFeedSelection? = switch step.action {
-      case .startBoundaryJog(let direction): travelFeedSelection(for: jogVector(direction))
+  var currentExerciseActionStripPresentation: ExerciseActionStripPresentation? {
+    exerciseActionStrip(for: currentLearningPathItemID)
+  }
+
+  func selectedOperatorActionPresentation(
+    for itemID: LearningPathItemID
+  ) -> OperatorActionPresentation {
+    switch itemID {
+    case .stage(let stage):
+      return OperatorActionPresentation(
+        itemID: itemID,
+        stepNumber: stage.number,
+        title: stage.title,
+        status: learningPathStatus(for: itemID),
+        instructions: [.text(learningPathSummary(for: itemID))],
+        expectedObservation: stageExpectedObservation(stage),
+        evidence: stageEvidence(stage),
+        actionStrip: exerciseActionStrip(for: itemID)
+      )
+
+    case .humanGuidedDiscovery(let discoveryStep):
+      let sequenceID = discoverySequenceID(for: discoveryStep)
+      let transaction = sequenceID.flatMap { discoveryTransactions[$0] }
+      let activeStep = transaction?.currentStep
+      let feedSelection: TravelFeedSelection? = switch activeStep?.action {
+      case .startBoundaryJog(let direction): travelFeedSelection(
+        for: boundaryFeedVector(direction)
+      )
       default: nil
       }
       return OperatorActionPresentation(
-        stepNumber: humanGuidedDiscoveryCurrentStep.stepNumber,
-        title: transaction.definition.title,
-        participant: step.participant.displayName,
-        action: discoveryActionText(step.action),
-        expectedObservation: discoveryExpectationText(step.expectedEvent),
-        choices: step.question?.choices ?? [],
+        itemID: itemID,
+        stepNumber: discoveryStep.stepNumber,
+        title: discoveryStep.title,
+        status: learningPathStatus(for: itemID),
+        participant: activeStep?.participant.displayName,
+        instructions: activeStep.map { discoveryInstructionFragments($0.action) }
+          ?? discoveryReviewInstructions(discoveryStep),
+        expectedObservation: activeStep.map {
+          discoveryExpectationFragments($0.expectedEvent)
+        } ?? discoveryReviewExpectation(discoveryStep),
+        question: activeStep.map { discoveryQuestionFragments($0.action) } ?? [],
+        timeline: transaction.flatMap { transaction in
+          guard transaction.state == .active, transaction.completedStepCount < transaction.definition.steps.count
+          else { return nil }
+          return ExerciseTimelinePresentation(
+            position: transaction.completedStepCount + 1,
+            total: transaction.definition.steps.count,
+            currentLabel: transaction.currentStep?.id ?? discoveryStep.title
+          )
+        },
+        evidence: discoveryEvidence(transaction),
+        actionStrip: exerciseActionStrip(for: itemID),
         requestedFeedMMPerMinute: feedSelection?.requestedFeedMMPerMinute,
         feedSource: feedSelection?.source
       )
-    }
 
-    guard clearViewPoseAccepted, drawingTrialAssessment == nil else { return nil }
-    return OperatorActionPresentation(
-      stepNumber: observedDrawingTrialStep.stepNumber,
-      title: observedDrawingTrialStep.title,
-      participant: drawingTrialParticipant(for: observedDrawingTrialStep),
-      action: drawingTrialActionText(for: observedDrawingTrialStep),
-      expectedObservation: drawingTrialExpectationText(for: observedDrawingTrialStep),
-      primaryActionTitle: observedDrawingTrialStep == .compareIntendedAndObservedGeometry
-        ? nil : drawingTrialPrimaryTitle(for: observedDrawingTrialStep),
-      primaryActionUnavailableReason: drawingTrialActionUnavailableReason(
-        for: observedDrawingTrialStep
-      ),
-      requestedFeedMMPerMinute: lastTravelFeedSelection?.requestedFeedMMPerMinute,
-      feedSource: lastTravelFeedSelection?.source
-    )
+    case .observedDrawingTrial(let trialStep):
+      return OperatorActionPresentation(
+        itemID: itemID,
+        stepNumber: trialStep.stepNumber,
+        title: trialStep.title,
+        status: learningPathStatus(for: itemID),
+        participant: drawingTrialParticipant(for: trialStep),
+        instructions: drawingTrialInstructionFragments(for: trialStep),
+        expectedObservation: drawingTrialExpectationFragments(for: trialStep),
+        timeline: ExerciseTimelinePresentation(
+          position: trialStep.rawValue,
+          total: ObservedDrawingTrialStep.allCases.count,
+          currentLabel: observedDrawingTrialStep.title
+        ),
+        evidence: drawingTrialEvidence(for: trialStep),
+        actionStrip: exerciseActionStrip(for: itemID),
+        requestedFeedMMPerMinute: lastTravelFeedSelection?.requestedFeedMMPerMinute,
+        feedSource: lastTravelFeedSelection?.source
+      )
+    }
+  }
+
+  func selectBoundaryDirection(_ direction: BoundaryDirection) {
+    guard !hasShutdown, activeDiscoverySequenceID == nil else { return }
+    selectedBoundaryDirection = direction
+  }
+
+  func performExerciseAction(
+    _ kind: ExerciseActionKind,
+    for ownerID: LearningPathItemID
+  ) async {
+    guard !hasShutdown,
+      let strip = exerciseActionStrip(for: ownerID),
+      strip.ownerID == ownerID,
+      let action = strip.actions.first(where: { $0.kind == kind }),
+      action.isEnabled
+    else { return }
+
+    switch kind {
+    case .start:
+      await startExercise(ownerID, mode: .normal)
+    case .choice(let choice):
+      guard ownerID == activeExerciseAttemptOwnerID else { return }
+      await answerCurrentQuestion(choice)
+    case .cancel:
+      await cancelExerciseAttempt(ownerID)
+    case .stop:
+      guard ownerID == activeExerciseAttemptOwnerID else { return }
+      await stopCurrentOperation()
+    case .restart:
+      guard restartableExerciseItemID == ownerID else { return }
+      restartableExerciseItemID = nil
+      await startExercise(ownerID, mode: .normal)
+    case .redoThisStep:
+      await startExercise(ownerID, mode: .replacement)
+    case .recordAnotherAttempt:
+      await startExercise(ownerID, mode: .additional)
+    case .recordClearViewLabel(let label):
+      guard ownerID == .humanGuidedDiscovery(.clearViewDiscovery) else { return }
+      await recordClearViewLabel(label)
+    case .acceptCurrentClearView:
+      guard ownerID == .humanGuidedDiscovery(.clearViewDiscovery) else { return }
+      await acceptCurrentClearViewPose()
+    case .recordDrawingTrialAssessment(let assessment):
+      guard ownerID == .observedDrawingTrial(.compareIntendedAndObservedGeometry) else { return }
+      await recordDrawingTrialAssessment(assessment)
+    }
   }
 
   func beginPenInteraction() async {
+    guard discoveryStartUnavailableReason(for: .penInteraction) == nil else { return }
+    beginExerciseAttempt(
+      ownerID: .humanGuidedDiscovery(.penInteraction),
+      mode: activeExerciseAttemptMode ?? .normal
+    )
     await startDiscoverySequence(.penInteraction)
   }
 
   func beginBoundaryDiscovery(_ direction: BoundaryDirection) async {
-    await startDiscoverySequence(sequenceID(for: direction))
+    let sequenceID = sequenceID(for: direction)
+    guard discoveryStartUnavailableReason(for: sequenceID) == nil else { return }
+    selectedBoundaryDirection = direction
+    beginExerciseAttempt(
+      ownerID: .humanGuidedDiscovery(.boundaryDiscovery),
+      mode: activeExerciseAttemptMode ?? .normal
+    )
+    await startDiscoverySequence(sequenceID)
   }
 
   func answerCurrentQuestion(_ choice: OperatorChoice) async {
@@ -830,6 +853,12 @@ final class OperatorWorkspace {
 
   func recordClearViewLabel(_ label: ArmatureVisibilityLabel) async {
     guard humanGuidedDiscoveryCurrentStep == .clearViewDiscovery else { return }
+    if activeExerciseAttemptOwnerID == nil {
+      beginExerciseAttempt(
+        ownerID: .humanGuidedDiscovery(.clearViewDiscovery),
+        mode: activeExerciseAttemptMode ?? .normal
+      )
+    }
     explorationError = nil
     do {
       let frame: DisplayedFrame
@@ -873,8 +902,18 @@ final class OperatorWorkspace {
       armatureGuidanceState = guidance
       lastArmatureObservation = observation
       pendingClearViewLabel = label
+      if label != .clear {
+        recordClearViewAttempt(
+          label: nil,
+          disposition: .unclear("Operator labelled the exact frame \(label.rawValue).")
+        )
+        finishActiveExerciseAttempt(
+          disposition: .unclear("Operator labelled the exact frame \(label.rawValue).")
+        )
+      }
     } catch {
       explorationError = "Clear-View observation failed: \(error)"
+      finishActiveExerciseAttempt(disposition: .failed(String(describing: error)))
     }
   }
 
@@ -888,17 +927,29 @@ final class OperatorWorkspace {
         observationID: observation.id,
         returnFeedMMPerMinute: positiveFallbackTravelFeed()
       )
-      armatureGuidanceState = guidance
-      clearViewPoseAccepted = true
-      observedDrawingTrialStep = .captureCleanReference
-      learningPathFlow.present(.observedDrawingTrials(.captureCleanReference))
+      try commitClearViewAttemptAndArtifact(guidance: guidance)
+      finishActiveExerciseAttempt(disposition: .succeeded)
     } catch {
       explorationError = "Clear-View acceptance failed: \(error)"
+      recordClearViewAttempt(
+        label: nil,
+        disposition: .failed("Atomic accepted-artifact commit failed: \(error)")
+      )
+      finishActiveExerciseAttempt(disposition: .failed(String(describing: error)))
+      restartableExerciseItemID = .humanGuidedDiscovery(.clearViewDiscovery)
     }
   }
 
   func performCurrentLearningPathAction() async {
     guard clearViewPoseAccepted, !explorationOperationInProgress else { return }
+    let attemptedStep = observedDrawingTrialStep
+    if activeExerciseAttemptOwnerID == nil {
+      beginExerciseAttempt(
+        ownerID: .observedDrawingTrial(attemptedStep),
+        mode: activeExerciseAttemptMode ?? .normal
+      )
+    }
+    let payloadSnapshot = drawingTrialPayloadSnapshot()
     explorationOperationInProgress = true
     explorationError = nil
     defer { explorationOperationInProgress = false }
@@ -906,43 +957,61 @@ final class OperatorWorkspace {
       switch observedDrawingTrialStep {
       case .captureCleanReference:
         try await captureDrawingTrialCleanReference()
-        advanceDrawingTrial(to: .chooseLineStart)
       case .chooseLineStart:
         try recordDrawingTrialLineStart()
-        advanceDrawingTrial(to: .createAnchorMark)
       case .createAnchorMark:
         try await createDrawingTrialAnchor()
-        advanceDrawingTrial(to: .drawIsolatedLine)
       case .drawIsolatedLine:
         try await drawIsolatedTrialLine()
-        if observedDrawingTrialStep == .drawIsolatedLine {
-          advanceDrawingTrial(to: .clearToolAndObserveInk)
-        }
       case .clearToolAndObserveInk:
         try await clearToolAndObserveTrialInk()
-        if observedDrawingTrialStep == .clearToolAndObserveInk {
-          advanceDrawingTrial(to: .compareIntendedAndObservedGeometry)
-        }
       case .compareIntendedAndObservedGeometry:
         break
       }
+      if attemptedStep != .compareIntendedAndObservedGeometry {
+        try commitDrawingArtifact(for: attemptedStep)
+        advanceDrawingTrialAfterSuccess(attemptedStep)
+        finishActiveExerciseAttempt(disposition: .succeeded)
+      }
     } catch {
-      explorationError = "\(observedDrawingTrialStep.title) failed: \(error)"
+      restoreDrawingTrialPayload(payloadSnapshot)
+      explorationError = "\(attemptedStep.title) failed: \(error)"
+      let disposition = attemptDisposition(for: String(describing: error))
+      finishActiveExerciseAttempt(disposition: disposition)
+      restartableExerciseItemID = .observedDrawingTrial(attemptedStep)
     }
   }
 
   func recordDrawingTrialAssessment(_ assessment: DrawingTrialAssessment) async {
     guard observedDrawingTrialStep == .compareIntendedAndObservedGeometry else { return }
-    drawingTrialAssessment = assessment
-    learningPathFlow.present(.adaptiveDrawing)
-    if var episode = currentExplorationEpisode {
-      episode.humanAssessment = ExplorationAssessment(
+    if activeExerciseAttemptOwnerID == nil {
+      beginExerciseAttempt(
+        ownerID: .observedDrawingTrial(.compareIntendedAndObservedGeometry),
+        mode: activeExerciseAttemptMode ?? .normal
+      )
+    }
+    let payloadSnapshot = drawingTrialPayloadSnapshot()
+    do {
+      var episode = currentExplorationEpisode
+      episode?.humanAssessment = ExplorationAssessment(
         summary: assessment.title,
         provenance: "typed local operator comparison"
       )
-      episode.termination = .completed
+      episode?.termination = .completed
+      try commitComparisonAttemptAndArtifact(assessment)
+      drawingTrialAssessment = assessment
       currentExplorationEpisode = episode
-      completedExplorationEpisodes.append(episode)
+      if let episode { completedExplorationEpisodes.append(episode) }
+      finishActiveExerciseAttempt(disposition: .succeeded)
+    } catch {
+      restoreDrawingTrialPayload(payloadSnapshot)
+      explorationError = "Comparison failed: \(error)"
+      recordComparisonAttempt(
+        assessment: nil,
+        disposition: .failed("Atomic accepted-artifact commit failed: \(error)")
+      )
+      finishActiveExerciseAttempt(disposition: .failed(String(describing: error)))
+      restartableExerciseItemID = .observedDrawingTrial(.compareIntendedAndObservedGeometry)
     }
   }
 
@@ -954,7 +1023,7 @@ final class OperatorWorkspace {
 
   func discoveryStartUnavailableReason(for sequenceID: DiscoverySequenceID) -> String? {
     if let activeDiscoverySequenceID {
-      return "Finish \(DiscoverySequenceCatalog.definition(for: activeDiscoverySequenceID).title); use Stop while it is moving."
+      return "Finish \(DiscoverySequenceCatalog.definition(for: activeDiscoverySequenceID).title); use Stop while its logical owner is active."
     }
     if frameMode == .simulated {
       return displayedFrame?.source == .simulated
@@ -966,7 +1035,7 @@ final class OperatorWorkspace {
     }
     switch sequenceID {
     case .boundaryNegativeX, .boundaryPositiveX, .boundaryNegativeY, .boundaryPositiveY:
-      return motionUnavailableReason
+      return directCarriageMotionUnavailableReason
     case .penInteraction:
       return penUnavailableReason(for: .lower)
     }
@@ -984,7 +1053,7 @@ final class OperatorWorkspace {
       return "Plotter connected. Enable Motion before this action."
     }
     if machineSnapshot?.machine.penState != .up {
-      return "Motion enabled. Complete Pen Interaction and leave the pen Up before carriage travel."
+      return "Motion enabled. Raise the pen so the commanded state is Up before carriage travel."
     }
     return "Motion enabled; carriage motion is available."
   }
@@ -1044,7 +1113,6 @@ final class OperatorWorkspace {
   }
 
   var actionableError: String? {
-    if recordJogObservations, let failure = lastPhysicalJogFailureText { return failure }
     if let cameraError { return cameraError }
     if let visionError { return visionError }
     if let machineError { return machineError }
@@ -1077,6 +1145,18 @@ final class OperatorWorkspace {
   /// Presentation availability only. MachineController repeats every physical
   /// safety check when it receives the typed request.
   var motionUnavailableReason: String? {
+    if let reason = directCarriageMotionUnavailableReason { return reason }
+    guard let xStep = inputNumber(xStepText), let yStep = inputNumber(yStepText),
+      let feed = inputNumber(feedText)
+    else { return "Enter numeric X step, Y step, and feed values." }
+    guard xStep > 0, yStep > 0 else {
+      return "X and Y step magnitudes must be greater than zero."
+    }
+    guard feed > 0 else { return "Feed must be greater than zero." }
+    return nil
+  }
+
+  private var directCarriageMotionUnavailableReason: String? {
     if jogRequestInProgress { return "A relative jog is already in progress." }
     if frameModeSwitchInProgress { return "Wait for the frame source switch to finish." }
     if frameMode == .simulated {
@@ -1117,29 +1197,6 @@ final class OperatorWorkspace {
     }
     if machine.penState != .up {
       return MotionRefusal.penNotUp(machine.penState).actionableDescription
-    }
-    if recordJogObservations {
-      if frameMode != .live {
-        return PhysicalJogObservationFailure.liveCameraRequired.actionableDescription
-      }
-      if cameraActions == nil {
-        return "Native camera composition is unavailable; disable jog recording or restore the camera."
-      }
-      guard case .running = cameraSnapshot?.state else {
-        return "Start the selected LIVE camera before recording a jog observation."
-      }
-      if let pinnedConfiguration = jogResponseDataset?.cameraConfigurationID,
-        let displayedConfiguration = displayedFrame?.frame.cameraConfigurationID,
-        displayedConfiguration != pinnedConfiguration
-      {
-        return "Displayed LIVE camera configuration differs from the recorded sample set. Clear Samples before recording another jog."
-      }
-    }
-    guard let xStep = inputNumber(xStepText), let yStep = inputNumber(yStepText),
-      inputNumber(feedText) != nil
-    else { return "Enter numeric X step, Y step, and feed values." }
-    guard xStep > 0, yStep > 0 else {
-      return "X and Y step magnitudes must be greater than zero."
     }
     return nil
   }
@@ -1194,24 +1251,6 @@ final class OperatorWorkspace {
     } else {
       visibleLayers.remove(layer)
     }
-  }
-
-  func setRecordJogObservations(_ enabled: Bool) {
-    guard !hasShutdown, !jogRequestInProgress else { return }
-    recordJogObservations = enabled
-  }
-
-  func selectObservationSplit(_ split: ModelObservationSplit) {
-    guard !hasShutdown, !jogRequestInProgress else { return }
-    selectedObservationSplit = split
-  }
-
-  func clearJogObservationSamples() {
-    guard !hasShutdown, clearJogObservationSamplesUnavailableReason == nil else { return }
-    physicalJogObservations = []
-    jogResponseDataset = nil
-    jogResponseCandidate = nil
-    jogResponseLearnerError = nil
   }
 
   func refreshSerialDevices() async {
@@ -1359,6 +1398,12 @@ final class OperatorWorkspace {
 
   func startDiscoverySequence(_ sequenceID: DiscoverySequenceID) async {
     guard discoveryStartUnavailableReason(for: sequenceID) == nil else { return }
+    if activeExerciseAttemptOwnerID == nil {
+      beginExerciseAttempt(
+        ownerID: learningPathItemID(for: sequenceID),
+        mode: .normal
+      )
+    }
     selectedDiscoverySequenceID = sequenceID
     discoveryError = nil
     pendingDiscoveryInspection = nil
@@ -1370,6 +1415,12 @@ final class OperatorWorkspace {
       await advanceDiscoverySequence(sequenceID)
     } catch {
       discoveryError = "Human-Guided Discovery could not start: \(error)"
+      recordDiscoveryAttempt(
+        sequenceID: sequenceID,
+        disposition: .failed(String(describing: error))
+      )
+      finishActiveExerciseAttempt(disposition: .failed(String(describing: error)))
+      restartableExerciseItemID = learningPathItemID(for: sequenceID)
     }
   }
 
@@ -1543,8 +1594,54 @@ final class OperatorWorkspace {
         associationDistanceMargin: 8,
         broadPriorVariance: 400
       )
-      drawingFramePosterior = try drawingFramePosterior?.adding(observation)
-        ?? DrawingFramePosterior(prior: observation)
+      guard let attemptID = activeExerciseAttemptID else {
+        throw LearningPathOperationError.requiredState("No active typed boundary attempt.")
+      }
+      var stagedObservations = boundaryFrameObservationsByAttemptID
+      stagedObservations[attemptID] = observation
+      var includedAttemptIDs = Set(
+        boundaryAttemptHistories.values.flatMap { histories in
+          histories.values
+            .filter {
+              $0.compatibility.cameraConfigurationID == measurement.cameraConfigurationID
+                && $0.compatibility.coordinateSpace == .machine
+                && $0.compatibility.units == .millimeters
+                && $0.compatibility.algorithmRevision == "boundary-side-posterior-v1"
+            }
+            .flatMap(\.includedSuccessfulAttempts)
+            .map(\.id)
+        }
+      )
+      if activeExerciseAttemptMode == .replacement,
+        let replacedAttemptID = learningArtifactGraph.currentRevision(
+          for: .boundaryObservation(direction)
+        )?.attemptID
+      {
+        includedAttemptIDs.remove(replacedAttemptID)
+      }
+      includedAttemptIDs.insert(attemptID)
+      let includedObservations: [DrawingFrameBoundaryObservation] = stagedObservations.compactMap {
+        entry in
+        let (id, candidate) = entry
+        guard includedAttemptIDs.contains(id),
+          candidate.key.cameraConfigurationID == measurement.cameraConfigurationID
+        else { return nil }
+        return candidate
+      }
+      guard let first = includedObservations.first else {
+        throw LearningPathOperationError.requiredState(
+          "No compatible accepted boundary observation is available for the posterior."
+        )
+      }
+      var stagedPosterior = try DrawingFramePosterior(prior: first)
+      for candidate in includedObservations where candidate.key != first.key
+        && candidate.key != observation.key
+      {
+        stagedPosterior = try stagedPosterior.adding(candidate)
+      }
+      stagedPosterior = try stagedPosterior.adding(observation)
+      boundaryFrameObservationsByAttemptID = stagedObservations
+      drawingFramePosterior = stagedPosterior
       guard let drawingFramePosterior else { return false }
       cameraOverlays.removeAll { $0.provenance.kind == .drawingFrameEstimate }
       let posteriorGeometries: [Polyline<CameraPixelSpace>] =
@@ -1591,6 +1688,9 @@ final class OperatorWorkspace {
     do {
       try transaction.record(event)
       discoveryTransactions[sequenceID] = transaction
+      if transaction.state == .succeeded {
+        commitSuccessfulDiscoveryAttempt(sequenceID)
+      }
       return true
     } catch {
       transaction.fail("Unexpected discovery event: \(error)")
@@ -1606,6 +1706,10 @@ final class OperatorWorkspace {
       discoveryTransactions[sequenceID] = transaction
     }
     discoveryError = reason
+    let disposition = attemptDisposition(for: reason)
+    recordDiscoveryAttempt(sequenceID: sequenceID, disposition: disposition)
+    finishActiveExerciseAttempt(disposition: disposition)
+    restartableExerciseItemID = learningPathItemID(for: sequenceID)
     boundaryTeachingState = .idle
     pendingDiscoveryInspection = nil
     pendingDiscoveryCaptureBoundaryNanoseconds = nil
@@ -1626,29 +1730,34 @@ final class OperatorWorkspace {
       boundaryTeachingState = .cancelling(jogDirection(from: direction))
       boundaryTeachingResultText = "Stop requested. Waiting for the original motion owner to reach Idle."
       let owner = boundaryMotionTask
-      await requestSingleJogCancel(for: target)
+      await requestSingleJogCancel(for: target, intent: .operatorStop)
       await owner?.value
 
-    case .manualJog, .observedJog:
+    case .manualJog:
       let owner = manualJogTask
-      await requestSingleJogCancel(for: target)
+      await requestSingleJogCancel(for: target, intent: .operatorStop)
       _ = await owner?.value
 
     case .drawingTrial:
       let owner = drawingTrialTask
-      await requestSingleJogCancel(for: target)
+      await requestSingleJogCancel(for: target, intent: .operatorStop)
       _ = await owner?.value
+      finishActiveExerciseAttempt(disposition: .cancelled)
+      restartableExerciseItemID = .observedDrawingTrial(.drawIsolatedLine)
     }
   }
 
-  private func requestSingleJogCancel(for target: ContextualStopTarget) async {
+  private func requestSingleJogCancel(
+    for target: ContextualStopTarget,
+    intent: JogCancelIntent
+  ) async {
     guard let generation = beginHardwareIntent(), let machineActions else { return }
     defer { endHardwareIntent() }
     guard !jogCancelRequestInProgress, stopRequestIssuedForTarget != target else { return }
     stopRequestIssuedForTarget = target
     jogCancelRequestInProgress = true
     defer { jogCancelRequestInProgress = false }
-    _ = await machineActions.requestJogCancel()
+    _ = await machineActions.requestJogCancel(intent)
     let snapshot = await machineActions.snapshot()
     guard canCommit(generation) else { return }
     machineSnapshot = snapshot
@@ -1714,59 +1823,25 @@ final class OperatorWorkspace {
     defer {
       jogRequestInProgress = false
       manualJogTask = nil
-      if activeStopTarget == .manualJog || activeStopTarget == .observedJog {
+      if activeStopTarget == .manualJog {
         activeStopTarget = nil
         stopRequestIssuedForTarget = nil
       }
     }
-    let recordsObservation = recordJogObservations
-    let observationSplit = selectedObservationSplit
-    let operation = Task { () -> JogOwnerResult in
-      if recordsObservation {
-        guard let cameraActions else {
-          return .observed(
-            .notRecorded(
-              motionOutcome: nil,
-              failure: .liveCameraRequired
-            )
-          )
-        }
-        let observationRequest = PhysicalJogObservationRequest(
-          motion: request,
-          split: observationSplit
-        )
-        let outcome = await machineActions.requestObservedJog(
-          observationRequest,
-          cameraActions.observeVisibleTool
-        )
-        return .observed(outcome)
-      }
-      let outcome = await machineActions.requestRelativeJog(request)
-      return .manual(outcome)
+    let operation = Task {
+      await machineActions.requestRelativeJog(request)
     }
     manualJogTask = operation
-    activeStopTarget = recordsObservation ? .observedJog : .manualJog
+    activeStopTarget = .manualJog
     stopRequestIssuedForTarget = nil
     await Task.yield()
     let interimSnapshot = await machineActions.snapshot()
     if canCommit(generation) { machineSnapshot = interimSnapshot }
-    let ownerResult = await operation.value
+    let outcome = await operation.value
     let finalSnapshot = await machineActions.snapshot()
     guard canCommit(generation) else { return nil }
     machineSnapshot = finalSnapshot
-    switch ownerResult {
-    case .observed(let outcome):
-      switch outcome {
-      case .recorded(let observation):
-        physicalJogObservations.append(observation)
-        recordJogResponseEpisode(observation)
-      case .notRecorded:
-        break
-      }
-      return outcome.motionOutcome
-    case .manual(let outcome):
-      return outcome
-    }
+    return outcome
   }
 
   func discoverCameras() async {
@@ -2300,7 +2375,7 @@ final class OperatorWorkspace {
   }
 
   private func executeBoundaryMotion(_ direction: JogDirection) async {
-    guard let request = makeBoundaryJogRequest(direction),
+    guard let request = makeBoundaryMotionRequest(direction),
       let machineActions,
       let sequenceID = activeDiscoverySequenceID,
       let transactionID = discoveryTransactions[sequenceID]?.id
@@ -2316,35 +2391,29 @@ final class OperatorWorkspace {
     )
     activeStopTarget = stopTarget
     stopRequestIssuedForTarget = nil
-    let controllerTask = Task { await machineActions.requestRelativeJog(request) }
+    let controllerTask = Task { await machineActions.requestBoundaryMotion(request) }
     await Task.yield()
-    for _ in 0..<200 {
-      guard !Task.isCancelled else { break }
-      let snapshot = await machineActions.snapshot()
-      machineSnapshot = snapshot
-      if snapshot?.machine.connection == .moving {
-        boundaryTeachingState = .moving(direction)
-        boundaryTeachingResultText =
-          "Moving \(direction.shortLabel). Stop is available for this Boundary Discovery."
-        guard recordDiscovery(
-          .boundaryJogStarted(
-            discoveryDirection,
-            controllerSummary: "Closed jog accepted and controller reported moving."
-          ),
-          for: sequenceID
-        ) else { return }
-        await advanceDiscoverySequence(sequenceID)
-        break
-      }
-      try? await Task.sleep(nanoseconds: 10_000_000)
-    }
+    machineSnapshot = await machineActions.snapshot()
+    boundaryTeachingState = .ownerActive(direction)
+    boundaryTeachingResultText =
+      "Boundary owner active toward \(direction.shortLabel). Stop is available during admission and motion."
+    guard recordDiscovery(
+      .boundaryJogStarted(
+        discoveryDirection,
+        controllerSummary:
+          "Logical Boundary Discovery owner started; direct controller admission remains runtime-owned."
+      ),
+      for: sequenceID
+    ) else { return }
+    await advanceDiscoverySequence(sequenceID)
 
     let outcome = await controllerTask.value
     machineSnapshot = await machineActions.snapshot()
     guard !hasShutdown else { return }
 
     switch outcome {
-    case .cancelled(let finalPosition):
+    case .settled(let settlement) where settlement.intent == .operatorStop:
+      let finalPosition = settlement.finalPosition
       pendingDiscoveryCaptureBoundaryNanoseconds = nowNanoseconds()
       boundaryPositions[direction] = finalPosition
       boundaryTeachingResultText = String(
@@ -2363,54 +2432,1096 @@ final class OperatorWorkspace {
       ) else { return }
       await advanceDiscoverySequence(sequenceID)
 
-    case .acceptedThenCompleted:
-      await failDiscovery(
-        sequenceID,
-        reason: "The bounded jog completed before Stop. No boundary evidence was recorded."
-      )
-    case .refused(let refusal):
-      await failDiscovery(sequenceID, reason: refusal.actionableDescription)
-    case .ambiguous(let ambiguity):
-      await failDiscovery(sequenceID, reason: ambiguity.actionableDescription)
+    case .settled(let settlement):
+      if var transaction = discoveryTransactions[sequenceID] {
+        transaction.cancel()
+        discoveryTransactions[sequenceID] = transaction
+      }
+      boundaryTeachingResultText =
+        settlement.intent == .shutdown
+        ? "Boundary Discovery settled during shutdown; no boundary evidence was recorded."
+        : "Boundary Discovery was cancelled; no boundary evidence was recorded."
+      pendingDiscoveryInspection = nil
+      pendingDiscoveryCaptureBoundaryNanoseconds = nil
+      recordDiscoveryAttempt(sequenceID: sequenceID, disposition: .cancelled)
+      finishActiveExerciseAttempt(disposition: .cancelled)
+      if settlement.intent == .cancelAttempt {
+        restartableExerciseItemID = .humanGuidedDiscovery(.boundaryDiscovery)
+      }
+
+    case .needsAttention(_, let terminal):
+      await failDiscovery(sequenceID, reason: boundaryTerminalDescription(terminal))
     }
     boundaryTeachingState = .idle
     activeStopTarget = nil
     stopRequestIssuedForTarget = nil
   }
 
-  private func makeBoundaryJogRequest(_ direction: JogDirection) -> RelativeJogRequest? {
+  private func makeBoundaryMotionRequest(_ direction: JogDirection) -> BoundaryMotionRequest? {
     guard boundaryTeachingState == .awaitingConfirmation(direction),
-      motionUnavailableReason == nil
+      directCarriageMotionUnavailableReason == nil
     else {
       boundaryTeachingResultText =
-        "Boundary motion cannot start: \(motionUnavailableReason ?? "current motion values are invalid")."
+        "Boundary motion cannot start: \(directCarriageMotionUnavailableReason ?? "current direct controller facts are unavailable")."
       return nil
-    }
-    let distance: Double
-    switch direction {
-    case .xNegative, .xPositive:
-      distance = MotionPriors.boundarySearchXDistanceMM
-    case .yNegative, .yPositive:
-      distance = MotionPriors.boundarySearchYDistanceMM
     }
     do {
       let delta: Vector2<MachineSpace>
       switch direction {
-      case .xNegative: delta = try Vector2(dx: -distance, dy: 0)
-      case .xPositive: delta = try Vector2(dx: distance, dy: 0)
-      case .yNegative: delta = try Vector2(dx: 0, dy: -distance)
-      case .yPositive: delta = try Vector2(dx: 0, dy: distance)
+      case .xNegative: delta = try Vector2(dx: -MotionPriors.boundaryWireSegmentMM, dy: 0)
+      case .xPositive: delta = try Vector2(dx: MotionPriors.boundaryWireSegmentMM, dy: 0)
+      case .yNegative: delta = try Vector2(dx: 0, dy: -MotionPriors.boundaryWireSegmentMM)
+      case .yPositive: delta = try Vector2(dx: 0, dy: MotionPriors.boundaryWireSegmentMM)
       }
       let selection = travelFeedSelection(for: delta)
       lastTravelFeedSelection = selection
-      return RelativeJogRequest(
-        delta: delta,
-        feedMMPerMinute: selection.requestedFeedMMPerMinute
+      return BoundaryMotionRequest(
+        direction: boundaryDirection(from: direction),
+        segment: RelativeJogRequest(
+          delta: delta,
+          feedMMPerMinute: selection.requestedFeedMMPerMinute
+        )
       )
     } catch {
       boundaryTeachingResultText = "Boundary motion request is invalid; no motion was sent."
       return nil
     }
+  }
+
+  private func startExercise(
+    _ ownerID: LearningPathItemID,
+    mode: ExerciseAttemptMode
+  ) async {
+    guard activeExerciseAttemptOwnerID == nil else { return }
+    activeExerciseAttemptMode = mode
+    restartableExerciseItemID = nil
+    switch ownerID {
+    case .humanGuidedDiscovery(.penInteraction):
+      await beginPenInteraction()
+    case .humanGuidedDiscovery(.boundaryDiscovery):
+      await beginBoundaryDiscovery(selectedBoundaryDirection)
+    case .humanGuidedDiscovery(.clearViewDiscovery):
+      beginExerciseAttempt(ownerID: ownerID, mode: mode)
+      pendingClearViewLabel = nil
+    case .observedDrawingTrial(let step):
+      observedDrawingTrialStep = step
+      beginExerciseAttempt(ownerID: ownerID, mode: mode)
+      if step != .compareIntendedAndObservedGeometry {
+        await performCurrentLearningPathAction()
+      }
+    case .stage:
+      activeExerciseAttemptMode = nil
+    }
+  }
+
+  private func cancelExerciseAttempt(_ ownerID: LearningPathItemID) async {
+    guard activeExerciseAttemptOwnerID == ownerID else { return }
+    if let sequenceID = activeDiscoverySequenceID,
+      var transaction = discoveryTransactions[sequenceID]
+    {
+      transaction.cancel()
+      discoveryTransactions[sequenceID] = transaction
+      if let target = activeStopTarget {
+        boundaryTeachingState = .cancelling(
+          jogDirection(for: sequenceID) ?? jogDirection(from: selectedBoundaryDirection)
+        )
+        let owner = boundaryMotionTask
+        await requestSingleJogCancel(for: target, intent: .cancelAttempt)
+        await owner?.value
+      }
+      recordDiscoveryAttempt(sequenceID: sequenceID, disposition: .cancelled)
+    } else if let target = activeStopTarget, target == .drawingTrial {
+      let owner = drawingTrialTask
+      await requestSingleJogCancel(for: target, intent: .cancelAttempt)
+      _ = await owner?.value
+    }
+    if ownerID == .humanGuidedDiscovery(.clearViewDiscovery) {
+      recordClearViewAttempt(label: nil, disposition: .cancelled)
+    } else if ownerID == .observedDrawingTrial(.compareIntendedAndObservedGeometry) {
+      recordComparisonAttempt(assessment: nil, disposition: .cancelled)
+    }
+    pendingClearViewLabel = nil
+    finishActiveExerciseAttempt(disposition: .cancelled)
+    restartableExerciseItemID = ownerID
+  }
+
+  private func beginExerciseAttempt(
+    ownerID: LearningPathItemID,
+    mode: ExerciseAttemptMode
+  ) {
+    guard activeExerciseAttemptID == nil else { return }
+    activeExerciseAttemptID = ExerciseAttemptID()
+    activeExerciseAttemptOwnerID = ownerID
+    activeExerciseAttemptMode = mode
+    if ownerID == .humanGuidedDiscovery(.boundaryDiscovery) {
+      boundaryDerivedValueSnapshot = BoundaryDerivedValueSnapshot(
+        posterior: drawingFramePosterior,
+        observationsByAttemptID: boundaryFrameObservationsByAttemptID,
+        overlays: cameraOverlays
+      )
+    }
+  }
+
+  private func finishActiveExerciseAttempt(disposition: ExerciseAttemptDisposition) {
+    if activeExerciseAttemptOwnerID == .humanGuidedDiscovery(.boundaryDiscovery) {
+      if disposition != .succeeded, let snapshot = boundaryDerivedValueSnapshot {
+        drawingFramePosterior = snapshot.posterior
+        boundaryFrameObservationsByAttemptID = snapshot.observationsByAttemptID
+        cameraOverlays = snapshot.overlays
+      }
+      boundaryDerivedValueSnapshot = nil
+    }
+    activeExerciseAttemptID = nil
+    activeExerciseAttemptOwnerID = nil
+    activeExerciseAttemptMode = nil
+  }
+
+  private func recordAttempt<Value: Hashable & Sendable>(
+    _ attempt: ExerciseAttempt<Value>,
+    in history: inout ExerciseAttemptHistory<Value>,
+    replacingAttemptID: ExerciseAttemptID?
+  ) throws {
+    if activeExerciseAttemptMode == .replacement {
+      guard let replacingAttemptID else {
+        throw LearningPathOperationError.requiredState(
+          "The accepted attempt selected for replacement is unavailable."
+        )
+      }
+      try history.recordReplacement(attempt, replacing: replacingAttemptID)
+    } else {
+      try history.record(attempt)
+    }
+  }
+
+  /// Stages replacement across compatibility-bound histories without pooling.
+  /// An incompatible successful Redo supersedes the accepted source sample and
+  /// records the new value in its own history; an unsuccessful Redo records only
+  /// excluded provenance and leaves the old accepted sample included.
+  private func recordAttempt<Value: Hashable & Sendable>(
+    _ attempt: ExerciseAttempt<Value>,
+    in histories: inout [AttemptCompatibility: ExerciseAttemptHistory<Value>],
+    replacingAttemptID: ExerciseAttemptID?
+  ) throws {
+    var targetHistory = try histories[attempt.compatibility]
+      ?? ExerciseAttemptHistory(compatibility: attempt.compatibility)
+    guard activeExerciseAttemptMode == .replacement else {
+      try targetHistory.record(attempt)
+      histories[attempt.compatibility] = targetHistory
+      return
+    }
+    guard let replacingAttemptID else {
+      throw LearningPathOperationError.requiredState(
+        "The accepted attempt selected for replacement is unavailable."
+      )
+    }
+
+    if targetHistory.records.contains(where: { $0.attempt.id == replacingAttemptID }) {
+      try targetHistory.recordReplacement(attempt, replacing: replacingAttemptID)
+      histories[attempt.compatibility] = targetHistory
+      return
+    }
+
+    guard let sourceCompatibility = histories.first(where: { _, history in
+      history.records.contains(where: { $0.attempt.id == replacingAttemptID })
+    })?.key else {
+      throw ExerciseAttemptError.replacementTargetNotFound(replacingAttemptID)
+    }
+    try targetHistory.record(attempt)
+    if attempt.disposition.contributesSuccessfulValue {
+      var sourceHistory = histories[sourceCompatibility]!
+      try sourceHistory.supersedeIncludedAttempt(replacingAttemptID, by: attempt.id)
+      histories[sourceCompatibility] = sourceHistory
+    }
+    histories[attempt.compatibility] = targetHistory
+  }
+
+  private func commitSuccessfulDiscoveryAttempt(_ sequenceID: DiscoverySequenceID) {
+    guard let attemptID = activeExerciseAttemptID else { return }
+    do {
+      switch sequenceID {
+      case .penInteraction:
+        let sequence = acceptedAttemptSequence &+ 1
+        var history = penAttemptHistory
+        let replacingAttemptID = learningArtifactGraph.currentRevision(for: .penInteraction)?
+          .attemptID
+        try recordAttempt(
+          ExerciseAttempt(
+            id: attemptID,
+            disposition: .succeeded,
+            compatibility: history.compatibility,
+            acceptedSequence: sequence,
+            value: .up
+          ),
+          in: &history,
+          replacingAttemptID: replacingAttemptID
+        )
+        var graph = learningArtifactGraph
+        let commit = try graph.commitReplacement(
+          LearningArtifactRevision(
+            kind: .penInteraction,
+            attemptID: attemptID,
+            disposition: .succeeded
+          )
+        )
+        penAttemptHistory = history
+        acceptedAttemptSequence = sequence
+        learningArtifactGraph = graph
+        applyArtifactInvalidations(commit.invalidatedRevisionIDs)
+
+      case .boundaryNegativeX, .boundaryPositiveX, .boundaryNegativeY, .boundaryPositiveY:
+        guard let direction = boundaryDirection(for: sequenceID),
+          let position = boundaryPositions[jogDirection(from: direction)]
+        else { return }
+        let compatibility = boundaryCompatibility(direction)
+        var histories = boundaryAttemptHistories[direction] ?? [:]
+        let value = switch direction {
+        case .negativeX, .positiveX: position.point.x
+        case .negativeY, .positiveY: position.point.y
+        }
+        let sequence = acceptedAttemptSequence &+ 1
+        let observationKind = LearningArtifactKind.boundaryObservation(direction)
+        let replacingAttemptID = learningArtifactGraph.currentRevision(for: observationKind)?
+          .attemptID
+        try recordAttempt(
+          ExerciseAttempt(
+            id: attemptID,
+            disposition: .succeeded,
+            compatibility: compatibility,
+            acceptedSequence: sequence,
+            value: value
+          ),
+          in: &histories,
+          replacingAttemptID: replacingAttemptID
+        )
+
+        var graph = learningArtifactGraph
+        let observation = try graph.commitReplacement(
+          LearningArtifactRevision(
+            kind: observationKind,
+            attemptID: attemptID,
+            disposition: .succeeded
+          )
+        )
+        let posterior = try graph.commitReplacement(
+          LearningArtifactRevision(
+            kind: .boundaryPosterior(direction),
+            attemptID: attemptID,
+            disposition: .succeeded,
+            consumedRevisionIDs: [observation.currentRevision.id]
+          )
+        )
+        let association = try graph.commitReplacement(
+          LearningArtifactRevision(
+            kind: .boundaryAssociation(direction),
+            attemptID: attemptID,
+            disposition: .succeeded,
+            consumedRevisionIDs: [observation.currentRevision.id]
+          )
+        )
+        boundaryAttemptHistories[direction] = histories
+        acceptedAttemptSequence = sequence
+        learningArtifactGraph = graph
+        applyArtifactInvalidations(
+          observation.invalidatedRevisionIDs
+            .union(posterior.invalidatedRevisionIDs)
+            .union(association.invalidatedRevisionIDs)
+        )
+      }
+      discoveryError = nil
+      restartableExerciseItemID = nil
+      finishActiveExerciseAttempt(disposition: .succeeded)
+    } catch {
+      recordDiscoveryAttempt(
+        sequenceID: sequenceID,
+        disposition: .failed("Atomic accepted-artifact commit failed: \(error)")
+      )
+      discoveryError = "Accepted discovery artifact could not commit: \(error)"
+      restartableExerciseItemID = learningPathItemID(for: sequenceID)
+      finishActiveExerciseAttempt(disposition: .failed(String(describing: error)))
+    }
+  }
+
+  private func recordDiscoveryAttempt(
+    sequenceID: DiscoverySequenceID,
+    disposition: ExerciseAttemptDisposition
+  ) {
+    guard let attemptID = activeExerciseAttemptID else { return }
+    do {
+      if sequenceID == .penInteraction {
+        let sequence = acceptedAttemptSequence &+ 1
+        var history = penAttemptHistory
+        let replacingAttemptID = learningArtifactGraph.currentRevision(for: .penInteraction)?
+          .attemptID
+        try recordAttempt(
+          ExerciseAttempt(
+            id: attemptID,
+            disposition: disposition,
+            compatibility: history.compatibility,
+            acceptedSequence: sequence,
+            value: nil
+          ),
+          in: &history,
+          replacingAttemptID: replacingAttemptID
+        )
+        penAttemptHistory = history
+        acceptedAttemptSequence = sequence
+      } else if let direction = boundaryDirection(for: sequenceID) {
+        let compatibility = boundaryCompatibility(direction)
+        var histories = boundaryAttemptHistories[direction] ?? [:]
+        let sequence = acceptedAttemptSequence &+ 1
+        let replacingAttemptID = learningArtifactGraph.currentRevision(
+          for: .boundaryObservation(direction)
+        )?.attemptID
+        try recordAttempt(
+          ExerciseAttempt(
+            id: attemptID,
+            disposition: disposition,
+            compatibility: compatibility,
+            acceptedSequence: sequence,
+            value: nil
+          ),
+          in: &histories,
+          replacingAttemptID: replacingAttemptID
+        )
+        boundaryAttemptHistories[direction] = histories
+        acceptedAttemptSequence = sequence
+      }
+    } catch {
+      discoveryError = "Attempt provenance could not be recorded: \(error)"
+    }
+  }
+
+  private func boundaryCompatibility(_ direction: BoundaryDirection) -> AttemptCompatibility {
+    AttemptCompatibility(
+      cameraConfigurationID: displayedFrame?.frame.cameraConfigurationID,
+      coordinateSpace: .machine,
+      units: .millimeters,
+      group: AttemptGroupIdentity(rawValue: "boundary-\(direction.rawValue)"),
+      algorithmRevision: "boundary-side-posterior-v1"
+    )
+  }
+
+  func boundaryAggregate(
+    for direction: BoundaryDirection,
+    compatibility: AttemptCompatibility
+  ) -> NumericAttemptAggregate? {
+    guard let history = boundaryAttemptHistories[direction]?[compatibility] else { return nil }
+    return try? NumericAttemptAggregate(history: history)
+  }
+
+  var currentPenStateAggregate: LatestStateAggregate<PenState>? {
+    try? LatestStateAggregate(history: penAttemptHistory)
+  }
+
+  func clearViewAggregate(
+    compatibility: AttemptCompatibility
+  ) -> CategoricalAttemptAggregate<ArmatureVisibilityLabel>? {
+    guard let history = clearViewAttemptHistories[compatibility] else { return nil }
+    return try? CategoricalAttemptAggregate(history: history)
+  }
+
+  func comparisonAggregate(
+    compatibility: AttemptCompatibility
+  ) -> CategoricalAttemptAggregate<DrawingTrialAssessment>? {
+    guard let history = comparisonAttemptHistories[compatibility] else { return nil }
+    return try? CategoricalAttemptAggregate(history: history)
+  }
+
+  private func recordClearViewAttempt(
+    label: ArmatureVisibilityLabel?,
+    disposition: ExerciseAttemptDisposition
+  ) {
+    guard let attemptID = activeExerciseAttemptID else { return }
+    let compatibility = AttemptCompatibility(
+      cameraConfigurationID: lastArmatureObservation?.cameraConfigurationID,
+      coordinateSpace: .categorical,
+      units: .categorical,
+      group: AttemptGroupIdentity(rawValue: "clear-view"),
+      algorithmRevision: "armature-guidance-v1"
+    )
+    do {
+      var histories = clearViewAttemptHistories
+      let sequence = acceptedAttemptSequence &+ 1
+      let replacingAttemptID = learningArtifactGraph.currentRevision(for: .clearPose)?.attemptID
+      try recordAttempt(
+        ExerciseAttempt(
+          id: attemptID,
+          disposition: disposition,
+          compatibility: compatibility,
+          acceptedSequence: sequence,
+          value: label
+        ),
+        in: &histories,
+        replacingAttemptID: replacingAttemptID
+      )
+      clearViewAttemptHistories = histories
+      acceptedAttemptSequence = sequence
+    } catch {
+      explorationError = "Clear-View attempt provenance could not be recorded: \(error)"
+    }
+  }
+
+  private func commitClearViewAttemptAndArtifact(
+    guidance: ArmatureGuidanceState
+  ) throws {
+    guard let attemptID = activeExerciseAttemptID else {
+      throw LearningPathOperationError.requiredState("No active typed exercise attempt.")
+    }
+    let compatibility = AttemptCompatibility(
+      cameraConfigurationID: lastArmatureObservation?.cameraConfigurationID,
+      coordinateSpace: .categorical,
+      units: .categorical,
+      group: AttemptGroupIdentity(rawValue: "clear-view"),
+      algorithmRevision: "armature-guidance-v1"
+    )
+    var histories = clearViewAttemptHistories
+    let sequence = acceptedAttemptSequence &+ 1
+    let replacingAttemptID = learningArtifactGraph.currentRevision(for: .clearPose)?.attemptID
+    try recordAttempt(
+      ExerciseAttempt(
+        id: attemptID,
+        disposition: .succeeded,
+        compatibility: compatibility,
+        acceptedSequence: sequence,
+        value: .clear
+      ),
+      in: &histories,
+      replacingAttemptID: replacingAttemptID
+    )
+    var graph = learningArtifactGraph
+    let commit = try graph.commitReplacement(
+      LearningArtifactRevision(
+        kind: .clearPose,
+        attemptID: attemptID,
+        disposition: .succeeded
+      )
+    )
+
+    clearViewAttemptHistories = histories
+    acceptedAttemptSequence = sequence
+    learningArtifactGraph = graph
+    armatureGuidanceState = guidance
+    clearViewPoseAccepted = true
+    observedDrawingTrialStep = .captureCleanReference
+    applyArtifactInvalidations(commit.invalidatedRevisionIDs)
+  }
+
+  private func recordComparisonAttempt(
+    assessment: DrawingTrialAssessment?,
+    disposition: ExerciseAttemptDisposition
+  ) {
+    guard let attemptID = activeExerciseAttemptID else { return }
+    let compatibility = AttemptCompatibility(
+      cameraConfigurationID: explorationPostLineFrame?.frame.cameraConfigurationID,
+      coordinateSpace: .categorical,
+      units: .categorical,
+      group: currentDrawingTrialGroup,
+      algorithmRevision: "typed-trial-comparison-v1"
+    )
+    do {
+      var histories = comparisonAttemptHistories
+      let sequence = acceptedAttemptSequence &+ 1
+      let replacingAttemptID = learningArtifactGraph.currentRevision(
+        for: .comparison(currentDrawingTrialGroup)
+      )?.attemptID
+      try recordAttempt(
+        ExerciseAttempt(
+          id: attemptID,
+          disposition: disposition,
+          compatibility: compatibility,
+          acceptedSequence: sequence,
+          value: assessment
+        ),
+        in: &histories,
+        replacingAttemptID: replacingAttemptID
+      )
+      comparisonAttemptHistories = histories
+      acceptedAttemptSequence = sequence
+    } catch {
+      explorationError = "Comparison attempt provenance could not be recorded: \(error)"
+    }
+  }
+
+  private func commitDrawingArtifact(for step: ObservedDrawingTrialStep) throws {
+    guard let attemptID = activeExerciseAttemptID else {
+      throw LearningPathOperationError.requiredState("No active typed exercise attempt.")
+    }
+    let group = currentDrawingTrialGroup
+    var graph = learningArtifactGraph
+    func required(_ kind: LearningArtifactKind) throws -> LearningArtifactRevisionID {
+      guard let id = graph.currentRevision(for: kind)?.id else {
+        throw LearningPathOperationError.requiredState("Required artifact \(kind) is unavailable.")
+      }
+      return id
+    }
+    let kind: LearningArtifactKind
+    let dependencies: Set<LearningArtifactRevisionID>
+    switch step {
+    case .captureCleanReference:
+      kind = .cleanReference(group)
+      dependencies = [try required(.clearPose)]
+    case .chooseLineStart:
+      kind = .lineStart(group)
+      dependencies = []
+    case .createAnchorMark:
+      kind = .anchorMark(group)
+      dependencies = [
+        try required(.cleanReference(group)),
+        try required(.lineStart(group)),
+        try required(.clearPose),
+      ]
+    case .drawIsolatedLine:
+      kind = .isolatedLine(group)
+      dependencies = [try required(.lineStart(group)), try required(.anchorMark(group))]
+    case .clearToolAndObserveInk:
+      kind = .postFrame(group)
+      dependencies = [try required(.isolatedLine(group)), try required(.clearPose)]
+    case .compareIntendedAndObservedGeometry:
+      kind = .comparison(group)
+      dependencies = [
+        try required(.inkObservation(group)), try required(.residual(group)),
+      ]
+    }
+    let primary = try graph.commitReplacement(
+      LearningArtifactRevision(
+        kind: kind,
+        attemptID: attemptID,
+        disposition: .succeeded,
+        consumedRevisionIDs: dependencies
+      )
+    )
+    var invalidated = primary.invalidatedRevisionIDs
+
+    if step == .clearToolAndObserveInk {
+      let clean = try required(.cleanReference(group))
+      let anchor = try required(.anchorMark(group))
+      let post = try required(.postFrame(group))
+      let ink = try graph.commitReplacement(
+          LearningArtifactRevision(
+            kind: .inkObservation(group),
+            attemptID: attemptID,
+            disposition: .succeeded,
+            consumedRevisionIDs: [clean, anchor, post]
+          )
+        )
+      let residual = try graph.commitReplacement(
+          LearningArtifactRevision(
+            kind: .residual(group),
+            attemptID: attemptID,
+            disposition: .succeeded,
+            consumedRevisionIDs: [ink.currentRevision.id]
+          )
+        )
+      invalidated.formUnion(ink.invalidatedRevisionIDs)
+      invalidated.formUnion(residual.invalidatedRevisionIDs)
+    }
+    learningArtifactGraph = graph
+    applyArtifactInvalidations(invalidated)
+  }
+
+  private func drawingTrialPayloadSnapshot() -> DrawingTrialPayloadSnapshot {
+    DrawingTrialPayloadSnapshot(
+      step: observedDrawingTrialStep,
+      cleanReference: explorationCleanReference,
+      anchoredBaseline: explorationAnchoredBaseline,
+      postLineFrame: explorationPostLineFrame,
+      lineStart: drawingTrialLineStart,
+      strokeEvidence: drawingTrialStrokeEvidence,
+      anchorObservation: lastAnchorObservation,
+      inkObservation: lastInkObservation,
+      inkStatus: explorationInkStatus,
+      assessment: drawingTrialAssessment,
+      episode: currentExplorationEpisode,
+      completedEpisodes: completedExplorationEpisodes
+    )
+  }
+
+  private func restoreDrawingTrialPayload(_ snapshot: DrawingTrialPayloadSnapshot) {
+    observedDrawingTrialStep = snapshot.step
+    explorationCleanReference = snapshot.cleanReference
+    explorationAnchoredBaseline = snapshot.anchoredBaseline
+    explorationPostLineFrame = snapshot.postLineFrame
+    drawingTrialLineStart = snapshot.lineStart
+    drawingTrialStrokeEvidence = snapshot.strokeEvidence
+    lastAnchorObservation = snapshot.anchorObservation
+    lastInkObservation = snapshot.inkObservation
+    explorationInkStatus = snapshot.inkStatus
+    drawingTrialAssessment = snapshot.assessment
+    currentExplorationEpisode = snapshot.episode
+    completedExplorationEpisodes = snapshot.completedEpisodes
+  }
+
+  private func advanceDrawingTrialAfterSuccess(_ step: ObservedDrawingTrialStep) {
+    switch step {
+    case .captureCleanReference: advanceDrawingTrial(to: .chooseLineStart)
+    case .chooseLineStart: advanceDrawingTrial(to: .createAnchorMark)
+    case .createAnchorMark: advanceDrawingTrial(to: .drawIsolatedLine)
+    case .drawIsolatedLine: advanceDrawingTrial(to: .clearToolAndObserveInk)
+    case .clearToolAndObserveInk:
+      advanceDrawingTrial(to: .compareIntendedAndObservedGeometry)
+    case .compareIntendedAndObservedGeometry:
+      break
+    }
+  }
+
+  private func commitComparisonAttemptAndArtifact(
+    _ assessment: DrawingTrialAssessment
+  ) throws {
+    guard let attemptID = activeExerciseAttemptID else {
+      throw LearningPathOperationError.requiredState("No active typed exercise attempt.")
+    }
+    let compatibility = AttemptCompatibility(
+      cameraConfigurationID: explorationPostLineFrame?.frame.cameraConfigurationID,
+      coordinateSpace: .categorical,
+      units: .categorical,
+      group: currentDrawingTrialGroup,
+      algorithmRevision: "typed-trial-comparison-v1"
+    )
+    var histories = comparisonAttemptHistories
+    let sequence = acceptedAttemptSequence &+ 1
+    let comparisonKind = LearningArtifactKind.comparison(currentDrawingTrialGroup)
+    let replacingAttemptID = learningArtifactGraph.currentRevision(for: comparisonKind)?.attemptID
+    try recordAttempt(
+      ExerciseAttempt(
+        id: attemptID,
+        disposition: .succeeded,
+        compatibility: compatibility,
+        acceptedSequence: sequence,
+        value: assessment
+      ),
+      in: &histories,
+      replacingAttemptID: replacingAttemptID
+    )
+
+    var graph = learningArtifactGraph
+    guard let ink = graph.currentRevision(for: .inkObservation(currentDrawingTrialGroup))?.id,
+      let residual = graph.currentRevision(for: .residual(currentDrawingTrialGroup))?.id
+    else {
+      throw LearningPathOperationError.requiredState("Observed ink and residual artifacts are required.")
+    }
+    let commit = try graph.commitReplacement(
+      LearningArtifactRevision(
+        kind: comparisonKind,
+        attemptID: attemptID,
+        disposition: .succeeded,
+        consumedRevisionIDs: [ink, residual]
+      )
+    )
+    comparisonAttemptHistories = histories
+    acceptedAttemptSequence = sequence
+    learningArtifactGraph = graph
+    applyArtifactInvalidations(commit.invalidatedRevisionIDs)
+  }
+
+  private func applyArtifactInvalidations(_ revisionIDs: Set<LearningArtifactRevisionID>) {
+    for revisionID in revisionIDs {
+      guard let revision = learningArtifactGraph.revision(id: revisionID) else { continue }
+      switch revision.kind {
+      case .penInteraction, .boundaryObservation, .boundaryPosterior, .boundaryAssociation:
+        break
+      case .clearPose:
+        clearViewPoseAccepted = false
+      case .cleanReference:
+        explorationCleanReference = nil
+        observedDrawingTrialStep = .captureCleanReference
+      case .lineStart:
+        drawingTrialLineStart = nil
+        setObservedDrawingTrialStepEarlier(ifNeeded: .chooseLineStart)
+      case .anchorMark:
+        explorationAnchoredBaseline = nil
+        lastAnchorObservation = nil
+        setObservedDrawingTrialStepEarlier(ifNeeded: .createAnchorMark)
+      case .isolatedLine:
+        drawingTrialStrokeEvidence = nil
+        setObservedDrawingTrialStepEarlier(ifNeeded: .drawIsolatedLine)
+      case .postFrame:
+        explorationPostLineFrame = nil
+        setObservedDrawingTrialStepEarlier(ifNeeded: .clearToolAndObserveInk)
+      case .inkObservation, .residual:
+        lastInkObservation = nil
+        drawingTrialAssessment = nil
+        setObservedDrawingTrialStepEarlier(ifNeeded: .clearToolAndObserveInk)
+      case .comparison:
+        drawingTrialAssessment = nil
+        setObservedDrawingTrialStepEarlier(ifNeeded: .compareIntendedAndObservedGeometry)
+      }
+    }
+  }
+
+  private func setObservedDrawingTrialStepEarlier(ifNeeded step: ObservedDrawingTrialStep) {
+    if observedDrawingTrialStep.rawValue > step.rawValue {
+      observedDrawingTrialStep = step
+    }
+  }
+
+  private func attemptDisposition(for reason: String) -> ExerciseAttemptDisposition {
+    let lowered = reason.lowercased()
+    if lowered.contains("unclear") { return .unclear(reason) }
+    if lowered.contains("ambiguous") || lowered.contains("unknown post-write") {
+      return .ambiguous(reason)
+    }
+    if lowered.contains("refus") || lowered.contains("alarm") || lowered.contains("limit")
+      || lowered.contains("disconnect")
+    {
+      return .refused(reason)
+    }
+    return .failed(reason)
+  }
+
+  private func boundaryTerminalDescription(_ terminal: BoundaryMotionTerminal) -> String {
+    switch terminal {
+    case .limitAsserted(let pins, _): "Controller limit asserted (\(pins)); no boundary evidence was recorded."
+    case .alarm(let alarm): "Controller alarm: \(alarm); no boundary evidence was recorded."
+    case .refusal(let refusal): refusal.actionableDescription
+    case .disconnected: "Controller disconnected; no boundary evidence was recorded."
+    case .fault(let ambiguity): ambiguity.actionableDescription
+    }
+  }
+
+  private func learningPathItemID(for sequenceID: DiscoverySequenceID) -> LearningPathItemID {
+    sequenceID == .penInteraction
+      ? .humanGuidedDiscovery(.penInteraction)
+      : .humanGuidedDiscovery(.boundaryDiscovery)
+  }
+
+  private func discoverySequenceID(
+    for step: HumanGuidedDiscoveryStep
+  ) -> DiscoverySequenceID? {
+    switch step {
+    case .penInteraction: .penInteraction
+    case .boundaryDiscovery: sequenceID(for: selectedBoundaryDirection)
+    case .clearViewDiscovery: nil
+    }
+  }
+
+  private func learningPathStatus(for itemID: LearningPathItemID) -> LearningPathStageStatus {
+    if itemID == .stage(.adaptiveDrawing) { return .future }
+    if itemIsComplete(itemID) { return .complete }
+    let representsCurrentStage: Bool = if case .stage(let stage) = itemID {
+      currentLearningPathItemID.stage == stage
+    } else {
+      false
+    }
+    if itemID == currentLearningPathItemID || representsCurrentStage {
+      if itemID.stage == .humanGuidedDiscovery, discoveryError != nil { return .needsAttention }
+      if itemID.stage == .observedDrawingTrials, explorationError != nil {
+        return .needsAttention
+      }
+      if itemID == .stage(.connect), machineError != nil { return .needsAttention }
+      return .current
+    }
+    return .next
+  }
+
+  private func itemIsComplete(_ itemID: LearningPathItemID) -> Bool {
+    let discoveryComplete = penInteractionCompleted
+      && relevantBoundaryObservationCount > 0 && clearViewPoseAccepted
+    return switch itemID {
+    case .stage(.connect): controllerIsConnected
+    case .stage(.enableMotion): controllerIsConnected && motionGuardIsActive
+    case .stage(.humanGuidedDiscovery): discoveryComplete
+    case .stage(.observedDrawingTrials): drawingTrialAssessment != nil
+    case .stage(.adaptiveDrawing): false
+    case .humanGuidedDiscovery(.penInteraction): penInteractionCompleted
+    case .humanGuidedDiscovery(.boundaryDiscovery): relevantBoundaryObservationCount > 0
+    case .humanGuidedDiscovery(.clearViewDiscovery): clearViewPoseAccepted
+    case .observedDrawingTrial(let step):
+      drawingTrialAssessment != nil
+        || (step.rawValue < observedDrawingTrialStep.rawValue
+          && drawingArtifactRevision(for: step) != nil)
+    }
+  }
+
+  private func itemIsRepeatable(_ itemID: LearningPathItemID) -> Bool {
+    switch itemID {
+    case .humanGuidedDiscovery(.penInteraction),
+      .humanGuidedDiscovery(.boundaryDiscovery),
+      .humanGuidedDiscovery(.clearViewDiscovery),
+      .observedDrawingTrial(.compareIntendedAndObservedGeometry):
+      true
+    default:
+      false
+    }
+  }
+
+  private func learningPathSummary(for itemID: LearningPathItemID) -> String {
+    switch itemID {
+    case .stage(.connect):
+      controllerIsConnected ? "The selected controller is responsive." : "Select and connect one responsive controller."
+    case .stage(.enableMotion):
+      motionGuardIsActive ? "Motion is enabled for typed operations." : "Enable Motion for this controller session."
+    case .stage(.humanGuidedDiscovery):
+      "Observe Pen Interaction, at least one Boundary, and a Clear view."
+    case .humanGuidedDiscovery(.penInteraction):
+      "Observe the physical pen UP, DOWN, then UP again."
+    case .humanGuidedDiscovery(.boundaryDiscovery):
+      "Move under one logical owner until the operator presses STOP."
+    case .humanGuidedDiscovery(.clearViewDiscovery):
+      "Label an exact view Blocked, Partial, or Clear and accept a Clear pose."
+    case .stage(.observedDrawingTrials):
+      "Create one attributable line, observe actual ink, and compare geometry."
+    case .observedDrawingTrial(let step): drawingTrialActionText(for: step)
+    case .stage(.adaptiveDrawing):
+      "Adaptive Drawing remains Future until multi-stroke checkpoint learning is implemented."
+    }
+  }
+
+  private func exerciseActionStrip(
+    for itemID: LearningPathItemID
+  ) -> ExerciseActionStripPresentation? {
+    if activeExerciseAttemptOwnerID == itemID {
+      var actions: [ExerciseActionDescriptor] = []
+      if case .humanGuidedDiscovery(.clearViewDiscovery) = itemID {
+        actions.append(contentsOf: ArmatureVisibilityLabel.allCases.map { label in
+          ExerciseActionDescriptor(
+            kind: .recordClearViewLabel(label),
+            title: label.rawValue.capitalized
+          )
+        })
+        actions.append(
+          ExerciseActionDescriptor(
+            kind: .acceptCurrentClearView,
+            title: "Accept Clear Pose",
+            role: .positive,
+            unavailableReason: pendingClearViewLabel == .clear
+              ? nil : "Record a Clear exact-frame observation first."
+          )
+        )
+      } else if case .observedDrawingTrial(.compareIntendedAndObservedGeometry) = itemID {
+        actions.append(contentsOf: DrawingTrialAssessment.allCases.map { assessment in
+          ExerciseActionDescriptor(
+            kind: .recordDrawingTrialAssessment(assessment),
+            title: assessment.title,
+            role: assessment == .observedGeometryAccepted ? .positive : .standard
+          )
+        })
+      } else if let sequenceID = activeDiscoverySequenceID,
+        let choices = discoveryTransactions[sequenceID]?.currentStep?.question?.choices
+      {
+        actions.append(contentsOf: choices.map { choice in
+          ExerciseActionDescriptor(
+            kind: .choice(choice),
+            title: choice.exactPhrase,
+            role: choice == .yes ? .positive : .standard
+          )
+        })
+      }
+      actions.append(
+        ExerciseActionDescriptor(kind: .cancel, title: "Cancel", role: .destructive)
+      )
+      if contextualStopPresentation != nil {
+        actions.append(
+          ExerciseActionDescriptor(kind: .stop, title: "Stop", role: .destructive)
+        )
+      }
+      return ExerciseActionStripPresentation(
+        ownerID: itemID,
+        actions: actions,
+        directionSelection: itemID == .humanGuidedDiscovery(.boundaryDiscovery)
+          ? ExerciseDirectionSelectionPresentation(selected: selectedBoundaryDirection) : nil
+      )
+    }
+
+    if restartableExerciseItemID == itemID {
+      guard machineSnapshot?.machine.stickyAmbiguity == nil else { return nil }
+      return ExerciseActionStripPresentation(
+        ownerID: itemID,
+        actions: [
+          ExerciseActionDescriptor(
+            kind: .restart,
+            title: "Restart",
+            role: .positive
+          )
+        ]
+      )
+    }
+
+    if itemIsComplete(itemID), itemID.isExercise {
+      var actions = [
+        ExerciseActionDescriptor(kind: .redoThisStep, title: "Redo This Step")
+      ]
+      if itemIsRepeatable(itemID) {
+        actions.append(
+          ExerciseActionDescriptor(
+            kind: .recordAnotherAttempt,
+            title: "Record Another Attempt"
+          )
+        )
+      }
+      return ExerciseActionStripPresentation(
+        ownerID: itemID,
+        actions: actions,
+        directionSelection: itemID == .humanGuidedDiscovery(.boundaryDiscovery)
+          ? ExerciseDirectionSelectionPresentation(selected: selectedBoundaryDirection) : nil
+      )
+    }
+
+    guard itemID == currentLearningPathItemID else { return nil }
+    let reason: String?
+    switch itemID {
+    case .humanGuidedDiscovery(.penInteraction):
+      reason = discoveryStartUnavailableReason(for: .penInteraction)
+    case .humanGuidedDiscovery(.boundaryDiscovery):
+      reason = discoveryStartUnavailableReason(for: sequenceID(for: selectedBoundaryDirection))
+    case .humanGuidedDiscovery(.clearViewDiscovery):
+      reason = frameMode == .simulated || cameraIsLive
+        ? nil : "A current LIVE camera frame is required."
+    case .observedDrawingTrial(let step):
+      reason = drawingTrialActionUnavailableReason(for: step)
+    case .stage:
+      return nil
+    }
+    return ExerciseActionStripPresentation(
+      ownerID: itemID,
+      actions: [
+        ExerciseActionDescriptor(
+          kind: .start,
+          title: "Start",
+          role: .positive,
+          unavailableReason: reason
+        )
+      ],
+      directionSelection: itemID == .humanGuidedDiscovery(.boundaryDiscovery)
+        ? ExerciseDirectionSelectionPresentation(selected: selectedBoundaryDirection) : nil
+    )
+  }
+
+  private func stageExpectedObservation(_ stage: LearningPathStage) -> [PresentationFragment] {
+    switch stage {
+    case .connect: [.text("A responsive selected controller session.")]
+    case .enableMotion: [.text("The current session reports Motion Enabled.")]
+    case .humanGuidedDiscovery: [.cue(.up), .text("boundary evidence, and a Clear view.")]
+    case .observedDrawingTrials: [.text("Observed ink and a typed geometry comparison.")]
+    case .adaptiveDrawing: [.text("Future multi-stroke observed adaptation.")]
+    }
+  }
+
+  private func stageEvidence(_ stage: LearningPathStage) -> [ExerciseEvidencePresentation] {
+    switch stage {
+    case .connect:
+      [ExerciseEvidencePresentation(label: "Controller", fragments: [.text(controllerConnectionText)])]
+    case .enableMotion:
+      [ExerciseEvidencePresentation(label: "Motion", fragments: [.text(motionGuardStateText)])]
+    case .humanGuidedDiscovery:
+      [ExerciseEvidencePresentation(label: "Boundary samples", fragments: [.text("N=\(relevantBoundaryObservationCount)")])]
+    case .observedDrawingTrials:
+      [ExerciseEvidencePresentation(label: "Ink", fragments: [.text(explorationInkStatus)])]
+    case .adaptiveDrawing:
+      []
+    }
+  }
+
+  private func discoveryReviewInstructions(
+    _ step: HumanGuidedDiscoveryStep
+  ) -> [PresentationFragment] {
+    switch step {
+    case .penInteraction:
+      [.text("Confirm"), .cue(.up), .text("then"), .cue(.down), .text("then finish"), .cue(.up)]
+    case .boundaryDiscovery:
+      [.text("Choose a direction, observe the side, then press"), .cue(.stop)]
+    case .clearViewDiscovery:
+      [.text("Record an exact Clear-view observation.")]
+    }
+  }
+
+  private func discoveryReviewExpectation(
+    _ step: HumanGuidedDiscoveryStep
+  ) -> [PresentationFragment] {
+    switch step {
+    case .penInteraction: [.text("Latest accepted physical pose is"), .cue(.up)]
+    case .boundaryDiscovery: [.text("Idle/final MPos followed by one strictly newer exact frame.")]
+    case .clearViewDiscovery: [.text("One accepted Clear pose with exact frame provenance.")]
+    }
+  }
+
+  private func discoveryInstructionFragments(
+    _ action: DiscoveryAction
+  ) -> [PresentationFragment] {
+    switch action {
+    case .startBoundaryJog(let direction): [.text("Start motion toward"), .cue(.direction(direction))]
+    case .awaitContextualStop(let direction): [.text("Observe"), .cue(.direction(direction)), .text("and press"), .cue(.stop)]
+    case .awaitPhysicalPenConfirmation(let state, _): [.text("Confirm the pen is physically"), .cue(state == .up ? .up : .down)]
+    case .actuatePen(let command): [.text("Command pen"), .cue(command.commandedState == .up ? .up : .down)]
+    default: [.text(discoveryActionText(action))]
+    }
+  }
+
+  private func discoveryExpectationFragments(
+    _ expectation: DiscoveryEventExpectation
+  ) -> [PresentationFragment] {
+    switch expectation {
+    case .operatorChoice: [.cue(.yes), .text("or"), .cue(.no), .text("is recorded for this question.")]
+    case .operatorStopRequested: [.cue(.stop), .text("is latched before cancellation.")]
+    case .physicalPenConfirmed(let state, _): [.text("The operator confirms"), .cue(state == .up ? .up : .down)]
+    default: [.text(discoveryExpectationText(expectation))]
+    }
+  }
+
+  private func discoveryQuestionFragments(_ action: DiscoveryAction) -> [PresentationFragment] {
+    switch action {
+    case .awaitOperatorChoice:
+      [.text("Choose"), .cue(.yes), .text("or"), .cue(.no)]
+    case .awaitPhysicalPenConfirmation(let state, _):
+      [.text("Is the pen physically"), .cue(state == .up ? .up : .down), .text("?")]
+    default:
+      []
+    }
+  }
+
+  private func discoveryEvidence(
+    _ transaction: DiscoveryTransaction?
+  ) -> [ExerciseEvidencePresentation] {
+    transaction?.evidenceSummaries.enumerated().map { index, evidence in
+      ExerciseEvidencePresentation(
+        label: "Evidence \(index + 1)",
+        fragments: [.text(evidence.summary)]
+      )
+    } ?? []
+  }
+
+  private func drawingTrialInstructionFragments(
+    for step: ObservedDrawingTrialStep
+  ) -> [PresentationFragment] {
+    [.text(drawingTrialActionText(for: step))]
+  }
+
+  private func drawingTrialExpectationFragments(
+    for step: ObservedDrawingTrialStep
+  ) -> [PresentationFragment] {
+    [.text(drawingTrialExpectationText(for: step))]
+  }
+
+  private func drawingTrialEvidence(
+    for step: ObservedDrawingTrialStep
+  ) -> [ExerciseEvidencePresentation] {
+    switch step {
+    case .captureCleanReference:
+      [ExerciseEvidencePresentation(label: "Reference", fragments: [.text(explorationCleanReference?.frame.id.rawValue ?? "not captured")])]
+    case .chooseLineStart:
+      [ExerciseEvidencePresentation(label: "Line start", fragments: [.text(drawingTrialLineStart.map { String(format: "X %.3f Y %.3f", $0.point.x, $0.point.y) } ?? "not chosen")])]
+    case .createAnchorMark:
+      [ExerciseEvidencePresentation(label: "Anchor", fragments: [.text(lastAnchorObservation == nil ? "not observed" : "observed")])]
+    case .drawIsolatedLine:
+      [ExerciseEvidencePresentation(label: "Controller", fragments: [.text(drawingTrialStrokeEvidence == nil ? "not settled" : "settled")])]
+    case .clearToolAndObserveInk:
+      [ExerciseEvidencePresentation(label: "Ink", fragments: [.text(explorationInkStatus)])]
+    case .compareIntendedAndObservedGeometry:
+      [ExerciseEvidencePresentation(label: "Comparison", fragments: [.text(drawingTrialAssessment?.title ?? "not recorded")])]
+    }
+  }
+
+  private func drawingArtifactRevision(
+    for step: ObservedDrawingTrialStep
+  ) -> LearningArtifactRevision? {
+    let kind: LearningArtifactKind = switch step {
+    case .captureCleanReference: .cleanReference(currentDrawingTrialGroup)
+    case .chooseLineStart: .lineStart(currentDrawingTrialGroup)
+    case .createAnchorMark: .anchorMark(currentDrawingTrialGroup)
+    case .drawIsolatedLine: .isolatedLine(currentDrawingTrialGroup)
+    case .clearToolAndObserveInk: .postFrame(currentDrawingTrialGroup)
+    case .compareIntendedAndObservedGeometry: .comparison(currentDrawingTrialGroup)
+    }
+    return learningArtifactGraph.currentRevision(for: kind)
   }
 
   private func jogDirection(for sequenceID: DiscoverySequenceID) -> JogDirection? {
@@ -2473,12 +3584,6 @@ final class OperatorWorkspace {
     jogCancelRequestInProgress = false
     motionGuardActivationInProgress = false
     lastMotionGuardActivationText = "not activated"
-    recordJogObservations = false
-    selectedObservationSplit = .training
-    physicalJogObservations = []
-    jogResponseDataset = nil
-    jogResponseCandidate = nil
-    jogResponseLearnerError = nil
     boundaryTeachingState = .idle
     boundaryTeachingResultText = "Choose one side to begin."
     boundaryPositions = [:]
@@ -2501,6 +3606,8 @@ final class OperatorWorkspace {
     discoveryTransactions = [:]
     discoveryError = nil
     drawingFramePosterior = nil
+    boundaryFrameObservationsByAttemptID = [:]
+    boundaryDerivedValueSnapshot = nil
     pendingDiscoveryInspection = nil
     pendingDiscoveryCaptureBoundaryNanoseconds = nil
     clearViewPoseAccepted = false
@@ -2517,16 +3624,34 @@ final class OperatorWorkspace {
     lastAnchorObservation = nil
     lastInkObservation = nil
     currentExplorationEpisode = nil
-    learningPathFlow.present(.connect)
+    learningArtifactGraph = LearningDependencyGraph()
+    penAttemptHistory = try! ExerciseAttemptHistory(
+      compatibility: penAttemptHistory.compatibility
+    )
+    boundaryAttemptHistories = [:]
+    clearViewAttemptHistories = [:]
+    comparisonAttemptHistories = [:]
+    activeExerciseAttemptID = nil
+    activeExerciseAttemptOwnerID = nil
+    activeExerciseAttemptMode = nil
+    restartableExerciseItemID = nil
+    currentDrawingTrialGroup = AttemptGroupIdentity(
+      rawValue: UUID().uuidString.lowercased()
+    )
   }
 
   private func cancelAndSettleDiscoveryMotionBeforeErasure() async {
     guard boundaryTeachingState != .idle || boundaryMotionTask != nil else { return }
 
-    // Preserve the typed Stop step until the one cancel byte has been sent and
-    // the original motion owner has settled. Cancelling the transaction first
-    // would erase `currentStep` and strand the physical jog.
-    if activeStopTarget != nil { await stopCurrentOperation() }
+    if let target = activeStopTarget {
+      if let sequenceID = activeDiscoverySequenceID,
+        var transaction = discoveryTransactions[sequenceID]
+      {
+        transaction.cancel()
+        discoveryTransactions[sequenceID] = transaction
+      }
+      await requestSingleJogCancel(for: target, intent: .cancelAttempt)
+    }
     let motionTask = boundaryMotionTask
     await motionTask?.value
     if let sequenceID = activeDiscoverySequenceID,
@@ -2548,15 +3673,16 @@ final class OperatorWorkspace {
     case .boundaryDiscovery(let transactionID, let direction):
       let sequenceID = sequenceID(for: direction)
       if discoveryTransactions[sequenceID]?.id == transactionID,
-        case .awaitContextualStop(direction) = discoveryTransactions[sequenceID]?.currentStep?.action
+        var transaction = discoveryTransactions[sequenceID]
       {
-        _ = recordDiscovery(.operatorStopRequested(direction), for: sequenceID)
+        transaction.cancel()
+        discoveryTransactions[sequenceID] = transaction
         boundaryTeachingState = .cancelling(jogDirection(from: direction))
         boundaryTeachingResultText =
-          "Stop requested during shutdown. Waiting for the original motion owner to reach Idle."
+          "Shutdown requested. Waiting for the original motion owner to reach Idle."
       }
       owner = boundaryMotionTask
-    case .manualJog, .observedJog:
+    case .manualJog:
       owner = manualJogTask.map { task in Task { _ = await task.value } }
     case .drawingTrial:
       owner = drawingTrialTask.map { task in Task { _ = await task.value } }
@@ -2565,43 +3691,13 @@ final class OperatorWorkspace {
     if stopRequestIssuedForTarget != target, let machineActions {
       stopRequestIssuedForTarget = target
       jogCancelRequestInProgress = true
-      _ = await machineActions.requestJogCancel()
+      _ = await machineActions.requestJogCancel(.shutdown)
       jogCancelRequestInProgress = false
     }
     await owner?.value
     activeStopTarget = nil
     stopRequestIssuedForTarget = nil
     boundaryTeachingState = .idle
-  }
-
-  private func recordJogResponseEpisode(_ observation: PhysicalJogObservation) {
-    if jogResponseDataset == nil {
-      do {
-        jogResponseDataset = try OnlineJogResponseDataset(
-          cameraConfigurationID: observation.before.cameraConfigurationID,
-          algorithmRevision: observation.before.algorithmRevision
-        )
-      } catch {
-        jogResponseCandidate = nil
-        jogResponseLearnerError = jogResponseErrorDescription(error)
-        return
-      }
-    }
-    guard var nextDataset = jogResponseDataset else { return }
-    do {
-      try nextDataset.record(observation)
-      jogResponseDataset = nextDataset
-      do {
-        jogResponseCandidate = try nextDataset.proposeCandidate()
-        jogResponseLearnerError = nil
-      } catch {
-        jogResponseCandidate = nil
-        jogResponseLearnerError = jogResponseErrorDescription(error)
-      }
-    } catch {
-      jogResponseCandidate = nil
-      jogResponseLearnerError = jogResponseErrorDescription(error)
-    }
   }
 
   private func clearCameraAuthority() async {
@@ -2678,12 +3774,12 @@ final class OperatorWorkspace {
     }
   }
 
-  private func jogVector(_ direction: BoundaryDirection) -> Vector2<MachineSpace> {
+  private func boundaryFeedVector(_ direction: BoundaryDirection) -> Vector2<MachineSpace> {
     switch direction {
-    case .negativeX: try! Vector2(dx: -MotionPriors.boundarySearchXDistanceMM, dy: 0)
-    case .positiveX: try! Vector2(dx: MotionPriors.boundarySearchXDistanceMM, dy: 0)
-    case .negativeY: try! Vector2(dx: 0, dy: -MotionPriors.boundarySearchYDistanceMM)
-    case .positiveY: try! Vector2(dx: 0, dy: MotionPriors.boundarySearchYDistanceMM)
+    case .negativeX: try! Vector2(dx: -1, dy: 0)
+    case .positiveX: try! Vector2(dx: 1, dy: 0)
+    case .negativeY: try! Vector2(dx: 0, dy: -1)
+    case .positiveY: try! Vector2(dx: 0, dy: 1)
     }
   }
 
@@ -2692,7 +3788,8 @@ final class OperatorWorkspace {
     case .askQuestion(let question): question.prompt
     case .awaitOperatorChoice(let question): "Choose \(question.choiceLabel) for this question."
     case .announce(let message): "Announce: \(message)"
-    case .startBoundaryJog(let direction): "Start the bounded \(direction.displayName) jog."
+    case .startBoundaryJog(let direction):
+      "Start the logical \(direction.displayName) Boundary Discovery owner."
     case .awaitContextualStop: "Observe the boundary and use the contextual Stop."
     case .cancelBoundaryJogAndAwaitIdle: "Send one jog cancel and await the original motion owner."
     case .captureFreshCameraFrame: "Capture an exact frame newer than the settled operation."
@@ -2710,7 +3807,8 @@ final class OperatorWorkspace {
     case .questionPresented: "The contextual question is visible."
     case .operatorChoice: "One contextual YES or NO choice is recorded."
     case .announcementCompleted: "Speech output completes or reaches its advisory bound."
-    case .boundaryJogStarted: "The controller reports the closed jog moving."
+    case .boundaryJogStarted:
+      "The logical boundary owner is active while direct controller admission remains runtime-owned."
     case .operatorStopRequested: "Stop is recorded before cancellation begins."
     case .boundaryJogCancelled: "The original motion owner reaches Idle with final MPos."
     case .freshFrameCaptured: "The exact captured frame is strictly newer."
@@ -2756,17 +3854,6 @@ final class OperatorWorkspace {
     }
   }
 
-  private func drawingTrialPrimaryTitle(for step: ObservedDrawingTrialStep) -> String {
-    switch step {
-    case .captureCleanReference: "Capture Clean Reference"
-    case .chooseLineStart: "Choose Current Line Start"
-    case .createAnchorMark: "Create Anchor Mark"
-    case .drawIsolatedLine: "Draw Isolated Line"
-    case .clearToolAndObserveInk: "Clear Tool and Observe Ink"
-    case .compareIntendedAndObservedGeometry: "Record Comparison"
-    }
-  }
-
   private func drawingTrialActionUnavailableReason(
     for step: ObservedDrawingTrialStep
   ) -> String? {
@@ -2797,7 +3884,6 @@ final class OperatorWorkspace {
 
   private func advanceDrawingTrial(to step: ObservedDrawingTrialStep) {
     observedDrawingTrialStep = step
-    learningPathFlow.present(.observedDrawingTrials(step))
   }
 
   private func captureDrawingTrialCleanReference() async throws {
@@ -3008,6 +4094,7 @@ final class OperatorWorkspace {
       lastInkObservation = nil
       explorationInkStatus = "ink or geometry unclear: \(rejection.reason); no redraw requested"
       cameraOverlays = []
+      throw LearningPathOperationError.inkRejected(String(describing: rejection.reason))
     }
   }
 
@@ -3067,35 +4154,6 @@ final class OperatorWorkspace {
     return String(describing: error)
   }
 
-  private func jogResponseErrorDescription(_ error: any Error) -> String {
-    guard let error = error as? OnlineJogResponseError else {
-      return "Jog-response diagnostic failed: \(String(describing: error))"
-    }
-    return switch error {
-    case .invalidAlgorithmRevision:
-      "Jog-response diagnostic requires a nonempty vision revision."
-    case .duplicateEpisodeID(let id):
-      "Jog-response diagnostic rejected duplicate sample \(id)."
-    case .cameraConfigurationMismatch:
-      "Recorded camera configuration differs from this sample set. Clear Samples before recording again."
-    case .algorithmRevisionMismatch:
-      "Vision revision differs from this sample set. Clear Samples before recording again."
-    case .episodeAlgorithmRevisionChanged:
-      "Vision revision changed between the before and after frames."
-    case .invalidCameraProvenance(let id):
-      "Sample \(id) has invalid camera provenance."
-    case .invalidActualControllerDelta(let id):
-      "Sample \(id) has no valid observed controller delta."
-    case .invalidCameraDelta(let id):
-      "Sample \(id) has no valid camera delta."
-    case .insufficientTrainingEpisodes(let required, let actual):
-      "Need \(required) training samples spanning both machine axes; \(actual) recorded."
-    case .rankDeficientTrainingGeometry:
-      "Training samples do not span both machine axes; record an independent axis direction."
-    case .nonFiniteCandidate:
-      "Jog-response diagnostic produced non-finite values."
-    }
-  }
 }
 
 private extension Array {

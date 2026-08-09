@@ -705,48 +705,6 @@ struct RelativeJogTests {
         == .acceptedThenCompleted(finalPosition: try MachinePosition(x: 25, y: -10)))
   }
 
-  @Test("completed jog returns its exact fresh-start and final-Idle controller evidence")
-  func completedMotionEvidence() async throws {
-    let request = try jog(dx: 1, dy: 0, feed: 60)
-    let ready = try await readyController(motion: [
-      exchange(request, ["ok\r\n"]),
-      statusExchange("<Idle|MPos:1.000,0.000,0.000>"),
-    ])
-
-    let execution = await ready.controller.requestRelativeJogWithEvidence(request)
-
-    #expect(
-      execution.outcome
-        == .acceptedThenCompleted(finalPosition: try MachinePosition(x: 1, y: 0)))
-    let evidence = try #require(execution.completedEvidence)
-    let expectedStart = try MachinePosition(x: 0, y: 0)
-    let expectedFinal = try MachinePosition(x: 1, y: 0)
-    #expect(evidence.request == request)
-    #expect(evidence.startPosition == expectedStart)
-    #expect(evidence.finalPosition == expectedFinal)
-    #expect(evidence.startSampleNanoseconds > 0)
-    #expect(evidence.finalSampleNanoseconds >= evidence.startSampleNanoseconds)
-  }
-
-  @Test("refused and ambiguous jogs cannot manufacture completed motion evidence")
-  func incompleteMotionHasNoCompletedEvidence() async throws {
-    let request = try jog(dx: 1, dy: 0, feed: 60)
-    let refused = try await readyController(
-      freshStatusExchange: statusExchange("<Idle|MPos:0.000,0.000,0.000|Pn:X>")
-    )
-    let refusedExecution = await refused.controller.requestRelativeJogWithEvidence(request)
-    #expect(refusedExecution.completedEvidence == nil)
-    #expect(refusedExecution.outcome == .refused(.relevantLimitAsserted("X")))
-
-    let ambiguous = try await readyController(motion: [
-      exchange(request, ["ok\r\n"]),
-      disconnectingStatusExchange(),
-    ])
-    let ambiguousExecution = await ambiguous.controller.requestRelativeJogWithEvidence(request)
-    #expect(ambiguousExecution.completedEvidence == nil)
-    #expect(ambiguousExecution.outcome == .ambiguous(.disconnected))
-  }
-
   @Test("wire quantization is the single safety and encoding identity")
   func wireQuantizationSafety() async throws {
     let roundedToZero = try await readyController()

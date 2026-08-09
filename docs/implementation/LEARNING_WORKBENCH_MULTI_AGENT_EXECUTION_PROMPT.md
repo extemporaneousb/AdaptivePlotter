@@ -1,5 +1,9 @@
 # AdaptivePlotter Coordinated Learning Workbench Implementation
 
+Status: retained implementation and acceptance record for completed Work item 7.
+Statements below that describe outgoing source identify the surfaces this
+increment removed; they are not endorsements of current behavior.
+
 You are the coordinating implementation agent for
 `/Users/bullard/Projects/AdaptivePlotter`. This is an execution request, not a
 request to stop after analysis, a proposal, or a mock-up. Plan the work, freeze

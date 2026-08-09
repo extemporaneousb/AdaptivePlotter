@@ -19,8 +19,8 @@ public enum RunOperation: Hashable, Sendable {
   case idle
   case passiveProbe
   case relativeJog(RelativeJogRequest)
+  case boundaryMotion(BoundaryMotionRequest)
   case drawingStroke(DrawingStrokeRequest)
-  case observedJog(PhysicalJogObservationRequest)
   case penActuation(PenCommand)
 }
 
@@ -28,8 +28,8 @@ public struct RunInterpreterSnapshot: Hashable, Sendable {
   public let currentOperation: RunOperation
   public let machine: MachineSnapshot
   public let lastMotionOutcome: MotionOutcome?
+  public let lastBoundaryMotionOutcome: BoundaryMotionOutcome?
   public let lastDrawingStrokeOutcome: DrawingStrokeOutcome?
-  public let lastPhysicalJogObservationOutcome: PhysicalJogObservationOutcome?
   public let lastPenOutcome: PenOutcome?
   public let lastProbe: PassiveProbeResult?
   public let jogCancellationInFlight: Bool
@@ -39,8 +39,8 @@ public struct RunInterpreterSnapshot: Hashable, Sendable {
     currentOperation: RunOperation,
     machine: MachineSnapshot,
     lastMotionOutcome: MotionOutcome?,
+    lastBoundaryMotionOutcome: BoundaryMotionOutcome? = nil,
     lastDrawingStrokeOutcome: DrawingStrokeOutcome? = nil,
-    lastPhysicalJogObservationOutcome: PhysicalJogObservationOutcome? = nil,
     lastPenOutcome: PenOutcome? = nil,
     lastProbe: PassiveProbeResult?,
     jogCancellationInFlight: Bool = false,
@@ -49,8 +49,8 @@ public struct RunInterpreterSnapshot: Hashable, Sendable {
     self.currentOperation = currentOperation
     self.machine = machine
     self.lastMotionOutcome = lastMotionOutcome
+    self.lastBoundaryMotionOutcome = lastBoundaryMotionOutcome
     self.lastDrawingStrokeOutcome = lastDrawingStrokeOutcome
-    self.lastPhysicalJogObservationOutcome = lastPhysicalJogObservationOutcome
     self.lastPenOutcome = lastPenOutcome
     self.lastProbe = lastProbe
     self.jogCancellationInFlight = jogCancellationInFlight
@@ -61,15 +61,27 @@ public struct RunInterpreterSnapshot: Hashable, Sendable {
 /// Serializes the current operator-requested operation. MachineController still
 /// owns protocol encoding, safety validation, transport, and physical outcome.
 public actor RunInterpreter {
+  private struct ActiveBoundaryMotion {
+    let request: BoundaryMotionRequest
+    var renewalOpen = true
+    var cancelIntent: JogCancelIntent?
+    var cancelTask: Task<JogCancelOutcome, Never>?
+    var cancelOutcome: JogCancelOutcome?
+    var completedSegmentCount = 0
+    var lastSettledPosition: MachinePosition?
+    var completionWaiters: [CheckedContinuation<Void, Never>] = []
+  }
+
   private let machineController: MachineController
   private var generation: UInt64 = 0
   private var activeTransition: InterpreterTransitionToken?
   private var currentOperation: RunOperation = .idle
   private var lastProbe: PassiveProbeResult?
   private var lastMotionOutcome: MotionOutcome?
+  private var lastBoundaryMotionOutcome: BoundaryMotionOutcome?
   private var lastDrawingStrokeOutcome: DrawingStrokeOutcome?
-  private var lastPhysicalJogObservationOutcome: PhysicalJogObservationOutcome?
   private var lastPenOutcome: PenOutcome?
+  private var activeBoundaryMotion: ActiveBoundaryMotion?
   private var jogCancelRequestInFlight = false
   private var lastJogCancelOutcome: JogCancelOutcome?
 
@@ -83,8 +95,8 @@ public actor RunInterpreter {
       currentOperation: currentOperation,
       machine: machine,
       lastMotionOutcome: lastMotionOutcome,
+      lastBoundaryMotionOutcome: lastBoundaryMotionOutcome,
       lastDrawingStrokeOutcome: lastDrawingStrokeOutcome,
-      lastPhysicalJogObservationOutcome: lastPhysicalJogObservationOutcome,
       lastPenOutcome: lastPenOutcome,
       lastProbe: lastProbe,
       jogCancellationInFlight: jogCancelRequestInFlight || machine.jogCancellationInFlight,
@@ -121,6 +133,113 @@ public actor RunInterpreter {
     return outcome
   }
 
+  /// Runs finite GRBL jog segments under one logical Boundary Discovery owner.
+  /// Natural segment completion yields and rechecks the Stop latch before any
+  /// renewal; it is never surfaced as successful boundary evidence.
+  public func requestBoundaryMotion(
+    _ request: BoundaryMotionRequest
+  ) async -> BoundaryMotionOutcome {
+    guard currentOperation == .idle else {
+      let outcome = BoundaryMotionOutcome.needsAttention(
+        ownerID: request.ownerID,
+        terminal: .refusal(.operationInFlight)
+      )
+      lastBoundaryMotionOutcome = outcome
+      return outcome
+    }
+    generation &+= 1
+    currentOperation = .boundaryMotion(request)
+    activeBoundaryMotion = ActiveBoundaryMotion(request: request)
+    activeBoundaryMotion?.lastSettledPosition = await machineController.snapshot().position
+    defer {
+      if case .boundaryMotion(let current) = currentOperation,
+        current.ownerID == request.ownerID
+      {
+        currentOperation = .idle
+      }
+      if activeBoundaryMotion?.request.ownerID == request.ownerID {
+        let waiters = activeBoundaryMotion?.completionWaiters ?? []
+        activeBoundaryMotion = nil
+        for waiter in waiters { waiter.resume() }
+      }
+    }
+
+    while activeBoundaryMotion?.renewalOpen == true {
+      let motionOutcome = await machineController.requestRelativeJog(request.segment)
+      lastMotionOutcome = motionOutcome
+      if case .acceptedThenCompleted = motionOutcome {
+        activeBoundaryMotion?.completedSegmentCount += 1
+      }
+      if case .acceptedThenCompleted(let position) = motionOutcome {
+        activeBoundaryMotion?.lastSettledPosition = position
+      }
+
+      if activeBoundaryMotion?.cancelIntent != nil {
+        switch motionOutcome {
+        case .acceptedThenCompleted, .cancelled, .refused(.operationInFlight):
+          return await finishBoundarySettlement(
+            request: request,
+            segmentOutcome: motionOutcome
+          )
+        case .refused(let refusal):
+          return finishBoundaryNeedsAttention(
+            request: request,
+            terminal: Self.boundaryTerminal(for: refusal)
+          )
+        case .ambiguous(let ambiguity):
+          return finishBoundaryNeedsAttention(
+            request: request,
+            terminal: Self.boundaryTerminal(for: ambiguity)
+          )
+        }
+      }
+
+      switch motionOutcome {
+      case .acceptedThenCompleted(let finalPosition):
+        let machine = await machineController.snapshot()
+        if machine.pins.hasRelevantLimitAsserted {
+          return finishBoundaryNeedsAttention(
+            request: request,
+            terminal: .limitAsserted(
+              pins: machine.pins.rawValue,
+              finalPosition: finalPosition
+            )
+          )
+        }
+        await Task.yield()
+        if activeBoundaryMotion?.cancelIntent != nil {
+          return await finishBoundarySettlement(
+            request: request,
+            segmentOutcome: motionOutcome
+          )
+        }
+        guard activeBoundaryMotion?.renewalOpen == true else {
+          return finishBoundaryNeedsAttention(
+            request: request,
+            terminal: .fault(.transport("boundary renewal closed without a disposition"))
+          )
+        }
+      case .cancelled:
+        return finishBoundaryNeedsAttention(
+          request: request,
+          terminal: .fault(.transport("boundary segment cancelled without a typed intent"))
+        )
+      case .refused(let refusal):
+        return finishBoundaryNeedsAttention(
+          request: request,
+          terminal: Self.boundaryTerminal(for: refusal)
+        )
+      case .ambiguous(let ambiguity):
+        return finishBoundaryNeedsAttention(
+          request: request,
+          terminal: Self.boundaryTerminal(for: ambiguity)
+        )
+      }
+    }
+
+    return await finishBoundarySettlement(request: request, segmentOutcome: nil)
+  }
+
   public func requestDrawingStroke(
     _ request: DrawingStrokeRequest
   ) async -> DrawingStrokeOutcome {
@@ -140,13 +259,36 @@ public actor RunInterpreter {
   /// Priority subordinate request for the active `$J` operation. It deliberately
   /// does not replace `currentOperation`; the original jog remains the only
   /// owner of controller replies and final Idle completion.
-  public func requestJogCancel() async -> JogCancelOutcome {
+  public func requestJogCancel(
+    _ intent: JogCancelIntent = .operatorStop
+  ) async -> JogCancelOutcome {
+    if case .boundaryMotion(let request) = currentOperation,
+      activeBoundaryMotion?.request.ownerID == request.ownerID
+    {
+      guard activeBoundaryMotion?.cancelIntent == nil else {
+        return .refused(.alreadyRequested)
+      }
+      activeBoundaryMotion?.renewalOpen = false
+      activeBoundaryMotion?.cancelIntent = intent
+      let controller = machineController
+      let task = Task { await controller.requestJogCancel() }
+      activeBoundaryMotion?.cancelTask = task
+      let outcome = await task.value
+      if activeBoundaryMotion?.request.ownerID == request.ownerID {
+        activeBoundaryMotion?.cancelOutcome = outcome
+      }
+      lastJogCancelOutcome = outcome
+      return outcome
+    }
+
     guard !jogCancelRequestInFlight else {
       return .refused(.alreadyRequested)
     }
     switch currentOperation {
-    case .relativeJog, .drawingStroke, .observedJog:
+    case .relativeJog, .drawingStroke:
       break
+    case .boundaryMotion:
+      return .refused(.noActiveJog)
     case .idle, .passiveProbe, .penActuation:
       let outcome = await machineController.requestJogCancel()
       lastJogCancelOutcome = outcome
@@ -157,98 +299,6 @@ public actor RunInterpreter {
     defer { jogCancelRequestInFlight = false }
     let outcome = await machineController.requestJogCancel()
     lastJogCancelOutcome = outcome
-    return outcome
-  }
-
-  /// Captures exact visible-tool evidence around one controller-owned jog.
-  ///
-  /// The observation provider owns camera selection and vision analysis. This
-  /// method only serializes the before/move/after ordering. A camera failure is
-  /// diagnostic evidence failure, never machine ambiguity, and a transmitted
-  /// motion is never resent or inverted here.
-  public func requestObservedJog(
-    _ request: PhysicalJogObservationRequest,
-    observe: @Sendable (
-      _ phase: PhysicalObservationPhase,
-      _ newerThanNanoseconds: UInt64
-    ) async -> Result<VisibleToolFrameObservation, PhysicalJogObservationFailure>
-  ) async -> PhysicalJogObservationOutcome {
-    guard currentOperation == .idle else {
-      let motionOutcome = MotionOutcome.refused(.operationInFlight)
-      return .notRecorded(
-        motionOutcome: motionOutcome,
-        failure: .motionNotCompleted(motionOutcome)
-      )
-    }
-
-    generation &+= 1
-    currentOperation = .observedJog(request)
-    defer { currentOperation = .idle }
-
-    let before: VisibleToolFrameObservation
-    switch await observe(.beforeMotion, 0) {
-    case .success(let observation):
-      before = observation
-    case .failure(let failure):
-      let outcome = PhysicalJogObservationOutcome.notRecorded(
-        motionOutcome: nil,
-        failure: failure
-      )
-      lastPhysicalJogObservationOutcome = outcome
-      return outcome
-    }
-
-    let execution = await machineController.requestRelativeJogWithEvidence(request.motion)
-    let motionOutcome = execution.outcome
-    lastMotionOutcome = motionOutcome
-
-    guard case .acceptedThenCompleted(let finalPosition) = motionOutcome else {
-      let outcome = PhysicalJogObservationOutcome.notRecorded(
-        motionOutcome: motionOutcome,
-        failure: .motionNotCompleted(motionOutcome)
-      )
-      lastPhysicalJogObservationOutcome = outcome
-      return outcome
-    }
-    guard let controllerEvidence = execution.completedEvidence,
-      controllerEvidence.request == request.motion,
-      controllerEvidence.finalPosition == finalPosition
-    else {
-      let outcome = PhysicalJogObservationOutcome.notRecorded(
-        motionOutcome: motionOutcome,
-        failure: .controllerMotionEvidenceUnavailable
-      )
-      lastPhysicalJogObservationOutcome = outcome
-      return outcome
-    }
-
-    let after: VisibleToolFrameObservation
-    switch await observe(.afterMotion, controllerEvidence.finalSampleNanoseconds) {
-    case .success(let observation):
-      after = observation
-    case .failure(let failure):
-      let outcome = PhysicalJogObservationOutcome.notRecorded(
-        motionOutcome: motionOutcome,
-        failure: failure
-      )
-      lastPhysicalJogObservationOutcome = outcome
-      return outcome
-    }
-
-    let outcome = PhysicalJogObservationOutcome.resolve(
-      motionOutcome: motionOutcome,
-      observation: try PhysicalJogObservation(
-        observationID: UUID().uuidString,
-        request: request,
-        startPosition: controllerEvidence.startPosition,
-        startControllerSampleNanoseconds: controllerEvidence.startSampleNanoseconds,
-        finalPosition: controllerEvidence.finalPosition,
-        finalControllerSampleNanoseconds: controllerEvidence.finalSampleNanoseconds,
-        before: before,
-        after: after
-      )
-    )
-    lastPhysicalJogObservationOutcome = outcome
     return outcome
   }
 
@@ -267,6 +317,14 @@ public actor RunInterpreter {
   }
 
   public func disconnect() async {
+    if let boundary = activeBoundaryMotion {
+      if let cancelTask = boundary.cancelTask {
+        _ = await cancelTask.value
+      } else {
+        _ = await requestJogCancel(.shutdown)
+      }
+      await waitForBoundaryCompletion(ownerID: boundary.request.ownerID)
+    }
     generation &+= 1
     activeTransition = nil
     currentOperation = .idle
@@ -300,5 +358,120 @@ public actor RunInterpreter {
     generation &+= 1
     activeTransition = nil
     currentOperation = .idle
+  }
+
+  private func finishBoundarySettlement(
+    request: BoundaryMotionRequest,
+    segmentOutcome: MotionOutcome?
+  ) async -> BoundaryMotionOutcome {
+    guard let boundary = activeBoundaryMotion,
+      boundary.request.ownerID == request.ownerID,
+      let intent = boundary.cancelIntent
+    else {
+      return finishBoundaryNeedsAttention(
+        request: request,
+        terminal: .fault(.transport("boundary owner lost its typed disposition"))
+      )
+    }
+    let cancelOutcome: JogCancelOutcome
+    if let task = boundary.cancelTask {
+      cancelOutcome = await task.value
+    } else {
+      cancelOutcome = boundary.cancelOutcome ?? .refused(.noActiveJog)
+    }
+    activeBoundaryMotion?.cancelOutcome = cancelOutcome
+
+    let finalPosition: MachinePosition?
+    switch segmentOutcome {
+    case .acceptedThenCompleted(let position), .cancelled(let position):
+      finalPosition = position
+    case .none, .refused, .ambiguous:
+      if case .completed(let position) = cancelOutcome {
+        finalPosition = position
+      } else {
+        finalPosition = nil
+      }
+    }
+    let settledPosition = finalPosition ?? boundary.lastSettledPosition
+    if let settledPosition,
+      cancelOutcome == .completed(finalPosition: settledPosition)
+        || cancelOutcome == .refused(.noActiveJog)
+    {
+      let outcome = BoundaryMotionOutcome.settled(
+        BoundaryMotionSettlement(
+          ownerID: request.ownerID,
+          intent: intent,
+          completedSegmentCount: boundary.completedSegmentCount,
+          finalPosition: settledPosition,
+          jogCancelOutcome: cancelOutcome
+        )
+      )
+      lastBoundaryMotionOutcome = outcome
+      return outcome
+    }
+    switch cancelOutcome {
+    case .ambiguous(let ambiguity):
+      return finishBoundaryNeedsAttention(
+        request: request,
+        terminal: Self.boundaryTerminal(for: ambiguity)
+      )
+    case .refused(.notConnected):
+      return finishBoundaryNeedsAttention(request: request, terminal: .disconnected)
+    case .refused(.stickyAmbiguity(let ambiguity)):
+      return finishBoundaryNeedsAttention(
+        request: request,
+        terminal: Self.boundaryTerminal(for: ambiguity)
+      )
+    case .refused(let refusal):
+      return finishBoundaryNeedsAttention(
+        request: request,
+        terminal: .fault(.transport("Jog Cancel refused: \(refusal.actionableDescription)"))
+      )
+    case .transmitted, .completed:
+      return finishBoundaryNeedsAttention(
+        request: request,
+        terminal: .fault(.transport("boundary settlement omitted final MPos"))
+      )
+    }
+  }
+
+  private func waitForBoundaryCompletion(ownerID: BoundaryMotionOwnerID) async {
+    guard activeBoundaryMotion?.request.ownerID == ownerID else { return }
+    await withCheckedContinuation { continuation in
+      activeBoundaryMotion?.completionWaiters.append(continuation)
+    }
+  }
+
+  private func finishBoundaryNeedsAttention(
+    request: BoundaryMotionRequest,
+    terminal: BoundaryMotionTerminal
+  ) -> BoundaryMotionOutcome {
+    activeBoundaryMotion?.renewalOpen = false
+    let outcome = BoundaryMotionOutcome.needsAttention(
+      ownerID: request.ownerID,
+      terminal: terminal
+    )
+    lastBoundaryMotionOutcome = outcome
+    return outcome
+  }
+
+  private static func boundaryTerminal(for refusal: MotionRefusal) -> BoundaryMotionTerminal {
+    switch refusal {
+    case .notConnected: .disconnected
+    case .controllerAlarm(let detail): .alarm(detail)
+    case .relevantLimitAsserted(let pins): .limitAsserted(pins: pins, finalPosition: nil)
+    case .stickyAmbiguity(let ambiguity): boundaryTerminal(for: ambiguity)
+    default: .refusal(refusal)
+    }
+  }
+
+  private static func boundaryTerminal(
+    for ambiguity: MotionAmbiguity
+  ) -> BoundaryMotionTerminal {
+    switch ambiguity {
+    case .disconnected: .disconnected
+    case .controllerAlarm(let detail): .alarm(detail)
+    default: .fault(ambiguity)
+    }
   }
 }

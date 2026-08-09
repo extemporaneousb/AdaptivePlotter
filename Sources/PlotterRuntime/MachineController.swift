@@ -158,6 +158,7 @@ public actor MachineController {
   private var lastDrawingStrokeOutcome: DrawingStrokeOutcome?
   private var lastPenOutcome: PenOutcome?
   private var activeJogCommandTransmitted = false
+  private var preTransmissionJogCancellationRequested = false
   private var jogCancellationProgress: JogCancellationProgress?
   private var jogCancellationContinuation: CheckedContinuation<JogCancelOutcome, Never>?
   private var cancelWriteResolutionWaiters: [CheckedContinuation<Void, Never>] = []
@@ -318,16 +319,6 @@ public actor MachineController {
   }
 
   public func requestRelativeJog(_ request: RelativeJogRequest) async -> MotionOutcome {
-    await executeRelativeJog(request).outcome
-  }
-
-  /// Executes one jog and returns the controller samples that authorized and
-  /// completed that exact command. Callers cannot use this evidence to bypass
-  /// normal motion validation; it is produced only by the same closed path as
-  /// `requestRelativeJog`.
-  public func requestRelativeJogWithEvidence(
-    _ request: RelativeJogRequest
-  ) async -> MotionExecutionResult {
     await executeRelativeJog(request)
   }
 
@@ -352,11 +343,10 @@ public actor MachineController {
     if let stickyAmbiguity {
       return finishJogCancel(.refused(.stickyAmbiguity(stickyAmbiguity)))
     }
-    guard connection == .moving else {
-      return finishJogCancel(.refused(connection == .disconnected ? .notConnected : .noActiveJog))
-    }
     guard activeOperation == .relativeJog || activeOperation == .drawingStroke else {
-      return finishJogCancel(.refused(.noActiveJog))
+      return finishJogCancel(
+        .refused(connection == .disconnected ? .notConnected : .noActiveJog)
+      )
     }
     guard jogCancellationProgress == nil else {
       return finishJogCancel(.refused(.alreadyRequested), replaceLastOutcome: false)
@@ -370,9 +360,15 @@ public actor MachineController {
       return finishJogCancel(.ambiguous(stickyAmbiguity))
     }
     guard activeOperation == .relativeJog || activeOperation == .drawingStroke,
-      activeJogCommandTransmitted,
       jogCancellationProgress == .transmitting
     else {
+      releaseWireWrite()
+      jogCancellationProgress = nil
+      resolveCancelWriteWaiters()
+      return finishJogCancel(.refused(.noActiveJog))
+    }
+    guard activeJogCommandTransmitted else {
+      preTransmissionJogCancellationRequested = true
       releaseWireWrite()
       jogCancellationProgress = nil
       resolveCancelWriteWaiters()
@@ -427,13 +423,13 @@ public actor MachineController {
 
   private func executeRelativeJog(
     _ request: RelativeJogRequest
-  ) async -> MotionExecutionResult {
+  ) async -> MotionOutcome {
     guard activeOperation == nil else {
-      return finishMotionExecution(request: request, outcome: .refused(.operationInFlight))
+      return finishMotion(request: request, outcome: .refused(.operationInFlight))
     }
     let wireResult = Self.makeWireRelativeJog(request)
     guard let wire = wireResult.wire else {
-      return finishMotionExecution(
+      return finishMotion(
         request: request,
         outcome: .refused(wireResult.refusal ?? .nonFiniteDelta)
       )
@@ -442,12 +438,13 @@ public actor MachineController {
       let outcome = MotionOutcome.refused(refusal)
       lastMotionOutcome = outcome
       recordMotionBestEffort(request: request, outcome: outcome)
-      return MotionExecutionResult(outcome: outcome)
+      return outcome
     }
 
     activeOperation = .relativeJog
     defer {
       activeJogCommandTransmitted = false
+      preTransmissionJogCancellationRequested = false
       if jogCancellationProgress != nil {
         let reason = stickyAmbiguity
           ?? .transport("jog ended without a final Jog Cancel outcome")
@@ -462,7 +459,7 @@ public actor MachineController {
       try await link.discardPendingInput()
     } catch {
       await closeAndInvalidateKnowledge()
-      return finishMotionExecution(
+      return finishMotion(
         request: request,
         outcome: .refused(
           .freshStatusUnavailable(
@@ -471,6 +468,9 @@ public actor MachineController {
         )
       )
     }
+    if preTransmissionJogCancellationRequested {
+      return finishMotion(request: request, outcome: .refused(.operationInFlight))
+    }
 
     let admissionDeadline = addingClamped(clock.nowNanoseconds(), queryTimeoutNanoseconds)
     switch await requestMotionStatus(deadline: admissionDeadline) {
@@ -478,24 +478,27 @@ public actor MachineController {
       apply(report)
       if let refusal = validateFreshControllerStatus() {
         await closeAndInvalidateKnowledge()
-        return finishMotionExecution(request: request, outcome: .refused(refusal))
+        return finishMotion(request: request, outcome: .refused(refusal))
       }
     case .ambiguous(let reason):
       await closeAndInvalidateKnowledge()
-      return finishMotionExecution(
+      return finishMotion(
         request: request,
         outcome: .refused(.freshStatusUnavailable(Self.admissionFailureDescription(reason)))
       )
     }
 
-    guard let startPosition = position else {
+    guard position != nil else {
       await closeAndInvalidateKnowledge()
-      return finishMotionExecution(
+      return finishMotion(
         request: request,
         outcome: .refused(.freshStatusUnavailable("fresh status omitted a valid MPos"))
       )
     }
-    let startSampleNanoseconds = clock.nowNanoseconds()
+    if preTransmissionJogCancellationRequested {
+      connection = .connected
+      return finishMotion(request: request, outcome: .refused(.operationInFlight))
+    }
 
     connection = .moving
     let command = wire.bytes
@@ -506,9 +509,9 @@ public actor MachineController {
         RawMachineIO(direction: .transmit, bytes: command, timestamp: timestamp())
       )
     } catch let error as MachineLinkError {
-      return finishMotionExecution(request: request, outcome: outcomeForWriteError(error))
+      return finishMotion(request: request, outcome: outcomeForWriteError(error))
     } catch {
-      return finishMotionExecution(
+      return finishMotion(
         request: request,
         outcome: ambiguous(.transport(String(describing: error)))
       )
@@ -523,9 +526,9 @@ public actor MachineController {
         completeActiveJogCancellation(.refused(.noActiveJog))
       }
       let outcome = MotionOutcome.refused(.controllerRejected(reason))
-      return finishMotionExecution(request: request, outcome: outcome)
+      return finishMotion(request: request, outcome: outcome)
     case .ambiguous(let reason):
-      return finishMotionExecution(request: request, outcome: ambiguous(reason))
+      return finishMotion(request: request, outcome: ambiguous(reason))
     }
 
     let timeout = Self.completionTimeoutNanoseconds(
@@ -545,7 +548,7 @@ public actor MachineController {
             await waitForCancelWriteResolution()
           }
           guard let finalPosition = report.machinePosition else {
-            return finishMotionExecution(
+            return finishMotion(
               request: request,
               outcome: ambiguous(.malformedReply("Idle status omitted a valid MPos"))
             )
@@ -553,57 +556,48 @@ public actor MachineController {
           connection = .connected
           if jogCancellationProgress == .transmitted {
             completeActiveJogCancellation(.completed(finalPosition: finalPosition))
-            return finishMotionExecution(
+            return finishMotion(
               request: request,
               outcome: .cancelled(finalPosition: finalPosition)
             )
           }
           if let stickyAmbiguity {
-            return finishMotionExecution(
+            return finishMotion(
               request: request,
               outcome: .ambiguous(stickyAmbiguity)
             )
           }
-          let outcome = MotionOutcome.acceptedThenCompleted(finalPosition: finalPosition)
-          let evidence = CompletedMotionEvidence(
+          return finishMotion(
             request: request,
-            startPosition: startPosition,
-            startSampleNanoseconds: startSampleNanoseconds,
-            finalPosition: finalPosition,
-            finalSampleNanoseconds: clock.nowNanoseconds()
-          )
-          return finishMotionExecution(
-            request: request,
-            outcome: outcome,
-            completedEvidence: evidence
+            outcome: .acceptedThenCompleted(finalPosition: finalPosition)
           )
         case .run, .jog:
           do {
             try await sleepBeforeNextPoll(deadline: deadline)
           } catch {
-            return finishMotionExecution(
+            return finishMotion(
               request: request,
               outcome: ambiguous(.completionTimedOut(deadlineNanoseconds: deadline))
             )
           }
         case .alarm:
-          return finishMotionExecution(
+          return finishMotion(
             request: request,
             outcome: ambiguous(.controllerAlarm(report.state))
           )
         case .hold:
-          return finishMotionExecution(request: request, outcome: ambiguous(.controllerHold))
+          return finishMotion(request: request, outcome: ambiguous(.controllerHold))
         case .door, .check, .home, .sleep, .tool, .unknown:
-          return finishMotionExecution(
+          return finishMotion(
             request: request,
             outcome: ambiguous(.unexpectedControllerState(report.controllerState))
           )
         }
       case .ambiguous(let reason):
-        return finishMotionExecution(request: request, outcome: ambiguous(reason))
+        return finishMotion(request: request, outcome: ambiguous(reason))
       }
     }
-    return finishMotionExecution(
+    return finishMotion(
       request: request,
       outcome: ambiguous(.completionTimedOut(deadlineNanoseconds: deadline))
     )
@@ -633,6 +627,7 @@ public actor MachineController {
     activeOperation = .drawingStroke
     defer {
       activeJogCommandTransmitted = false
+      preTransmissionJogCancellationRequested = false
       if jogCancellationProgress != nil {
         let reason = stickyAmbiguity
           ?? .transport("drawing stroke ended without a final Jog Cancel outcome")
@@ -655,6 +650,9 @@ public actor MachineController {
           )
         )
       )
+    }
+    if preTransmissionJogCancellationRequested {
+      return finishDrawingStroke(request: request, outcome: .refused(.operationInFlight))
     }
 
     let admissionDeadline = addingClamped(clock.nowNanoseconds(), queryTimeoutNanoseconds)
@@ -686,6 +684,10 @@ public actor MachineController {
           .freshStatusUnavailable("fresh status omitted a valid MPos")
         )
       )
+    }
+    if preTransmissionJogCancellationRequested {
+      connection = .connected
+      return finishDrawingStroke(request: request, outcome: .refused(.operationInFlight))
     }
     let startSampleNanoseconds = clock.nowNanoseconds()
 
@@ -1613,17 +1615,6 @@ public actor MachineController {
     lastMotionOutcome = outcome
     recordMotionBestEffort(request: request, outcome: outcome)
     return outcome
-  }
-
-  private func finishMotionExecution(
-    request: RelativeJogRequest,
-    outcome: MotionOutcome,
-    completedEvidence: CompletedMotionEvidence? = nil
-  ) -> MotionExecutionResult {
-    MotionExecutionResult(
-      outcome: finishMotion(request: request, outcome: outcome),
-      completedEvidence: completedEvidence
-    )
   }
 
   private func finishDrawingStroke(

@@ -380,39 +380,13 @@ struct CameraCaptureTests {
       ) == nil
     )
 
-    let priors = try PlotterSceneVisionPriors(
-      capSearchRegion: PixelRect(x: 0, y: 0, width: 12, height: 12),
-      topFrameSideRegion: PixelRect(x: 0, y: 0, width: 12, height: 3),
-      rightFrameSideRegion: PixelRect(x: 9, y: 0, width: 3, height: 12),
-      minimumCapPixels: 3,
-      maximumCapPixels: 16,
-      lineResidualLimitPixels: 2,
-      algorithmRevision: "attested-cap-test-v1"
-    )
-    let measurement = try await VisionWorker().inspectPlotterScene(
-      in: attestation.frame,
-      priors: priors
-    )
-    let visible = try VisibleToolFrameObservation(
-      phase: .beforeMotion,
-      attestation: attestation,
-      measurement: measurement
-    )
-    #expect(visible.frameID == attestation.frame.id)
-    #expect(visible.frameSHA256 == attestation.frame.contentSHA256)
   }
 
-  @Test("physical evidence capabilities have no replay conformance")
+  @Test("live camera attestation has no replay conformance")
   func evidenceCapabilitiesAreNotCodable() {
     let attestationType: Any.Type = LiveCameraFrameAttestation.self
-    let visibleType: Any.Type = VisibleToolFrameObservation.self
-    let physicalType: Any.Type = PhysicalJogObservation.self
     #expect(!(attestationType is any Encodable.Type))
     #expect(!(attestationType is any Decodable.Type))
-    #expect(!(visibleType is any Encodable.Type))
-    #expect(!(visibleType is any Decodable.Type))
-    #expect(!(physicalType is any Encodable.Type))
-    #expect(!(physicalType is any Decodable.Type))
   }
 
   @Test("simulator emits the same displayed-frame contract with a known transform")

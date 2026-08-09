@@ -89,7 +89,7 @@ renamed or hidden compatibility workflow.
 
 ## Redo and additional attempts
 
-**Redo Current Step** replaces that step's accepted value with the new accepted
+**Redo This Step** replaces that step's accepted value with the new accepted
 value. It invalidates the transitive outputs that actually consumed the
 replaced value. Execution order is not itself a data-dependency graph: redoing
 Pen Interaction does not discard independent boundary measurements merely

@@ -5,6 +5,15 @@ import Testing
 
 @Suite("Local application lifecycle")
 struct ApplicationLifecycleTests {
+  @Test("application policy exposes one singleton operator window")
+  func singletonOperatorWindow() {
+    #expect(AdaptivePlotterScenePolicy.windowCount == 1)
+    #expect(AdaptivePlotterScenePolicy.singletonWindowID == "operator-workspace")
+    #expect(
+      LearningWorkbenchLayoutPolicy.minimumWindowWidth == 1_440
+    )
+  }
+
   @Test("closing the last window terminates the local application")
   @MainActor
   func lastWindowCloseTerminates() {

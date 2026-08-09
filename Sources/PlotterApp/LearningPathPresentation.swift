@@ -9,7 +9,6 @@ enum LearningPathStage: Int, CaseIterable, Hashable, Identifiable, Sendable {
   case adaptiveDrawing
 
   var id: Self { self }
-
   var number: String { String(rawValue) }
 
   var title: String {
@@ -37,7 +36,6 @@ enum HumanGuidedDiscoveryStep: Int, CaseIterable, Hashable, Identifiable, Sendab
   case clearViewDiscovery
 
   var id: Self { self }
-
   var stepNumber: String { "3.\(rawValue)" }
 
   var title: String {
@@ -58,7 +56,6 @@ enum ObservedDrawingTrialStep: Int, CaseIterable, Hashable, Identifiable, Sendab
   case compareIntendedAndObservedGeometry
 
   var id: Self { self }
-
   var stepNumber: String { "4.\(rawValue)" }
 
   var title: String {
@@ -73,78 +70,328 @@ enum ObservedDrawingTrialStep: Int, CaseIterable, Hashable, Identifiable, Sendab
   }
 }
 
-struct LearningPathStagePresentation: Identifiable, Hashable, Sendable {
-  let stage: LearningPathStage
-  let status: LearningPathStageStatus
-  let summary: String
+/// Stable identity for every selectable row in the visible Learning Path.
+///
+/// Stage rows and their numbered exercises are separate presentation targets.
+/// The runtime current item is carried independently by
+/// ``LearningPathSelectionState`` so browsing never changes runtime authority.
+enum LearningPathItemID: Hashable, Identifiable, Sendable {
+  case stage(LearningPathStage)
+  case humanGuidedDiscovery(HumanGuidedDiscoveryStep)
+  case observedDrawingTrial(ObservedDrawingTrialStep)
 
-  var id: LearningPathStage { stage }
+  var id: Self { self }
 
-  init(
-    stage: LearningPathStage,
-    status: LearningPathStageStatus,
-    summary: String
-  ) {
-    self.stage = stage
-    self.status = status
-    self.summary = summary
+  static let navigationOrder: [Self] = [
+    .stage(.connect),
+    .stage(.enableMotion),
+    .stage(.humanGuidedDiscovery),
+    .humanGuidedDiscovery(.penInteraction),
+    .humanGuidedDiscovery(.boundaryDiscovery),
+    .humanGuidedDiscovery(.clearViewDiscovery),
+    .stage(.observedDrawingTrials),
+    .observedDrawingTrial(.captureCleanReference),
+    .observedDrawingTrial(.chooseLineStart),
+    .observedDrawingTrial(.createAnchorMark),
+    .observedDrawingTrial(.drawIsolatedLine),
+    .observedDrawingTrial(.clearToolAndObserveInk),
+    .observedDrawingTrial(.compareIntendedAndObservedGeometry),
+    .stage(.adaptiveDrawing),
+  ]
+
+  var stage: LearningPathStage {
+    switch self {
+    case .stage(let stage): stage
+    case .humanGuidedDiscovery: .humanGuidedDiscovery
+    case .observedDrawingTrial: .observedDrawingTrials
+    }
+  }
+
+  var number: String {
+    switch self {
+    case .stage(let stage): stage.number
+    case .humanGuidedDiscovery(let step): step.stepNumber
+    case .observedDrawingTrial(let step): step.stepNumber
+    }
+  }
+
+  var title: String {
+    switch self {
+    case .stage(let stage): stage.title
+    case .humanGuidedDiscovery(let step): step.title
+    case .observedDrawingTrial(let step): step.title
+    }
+  }
+
+  var isExercise: Bool {
+    switch self {
+    case .humanGuidedDiscovery, .observedDrawingTrial: true
+    case .stage(.connect), .stage(.enableMotion): true
+    case .stage(.humanGuidedDiscovery), .stage(.observedDrawingTrials), .stage(.adaptiveDrawing):
+      false
+    }
+  }
+
+  var navigationDepth: Int {
+    switch self {
+    case .humanGuidedDiscovery, .observedDrawingTrial: 1
+    case .stage: 0
+    }
   }
 }
 
-struct OperatorActionPresentation {
+struct LearningPathItemPresentation: Identifiable, Hashable, Sendable {
+  let id: LearningPathItemID
+  let status: LearningPathStageStatus
+  let summary: String
+  let isRepeatable: Bool
+
+  init(
+    id: LearningPathItemID,
+    status: LearningPathStageStatus,
+    summary: String,
+    isRepeatable: Bool = false
+  ) {
+    self.id = id
+    self.status = status
+    self.summary = summary
+    self.isRepeatable = isRepeatable
+  }
+}
+
+/// Window-local selection. None of these operations has a callback or runtime
+/// reference, which makes selection structurally incapable of starting work.
+struct LearningPathSelectionState: Equatable, Sendable {
+  private(set) var current: LearningPathItemID
+  private(set) var selected: LearningPathItemID
+
+  init(current: LearningPathItemID) {
+    self.current = current
+    selected = current
+  }
+
+  var isReviewingAnotherItem: Bool { selected != current }
+
+  mutating func select(_ item: LearningPathItemID) {
+    selected = item
+  }
+
+  mutating func returnToCurrent() {
+    selected = current
+  }
+
+  /// Follows runtime progression only when the operator was still looking at
+  /// the previous current row. An intentional review selection is preserved.
+  mutating func updateCurrent(_ item: LearningPathItemID) {
+    let followedCurrent = selected == current
+    current = item
+    if followedCurrent {
+      selected = item
+    }
+  }
+}
+
+enum PresentationCue: Hashable, Sendable {
+  case up
+  case down
+  case yes
+  case no
+  case stop
+  case direction(BoundaryDirection)
+
+  var visibleText: String {
+    switch self {
+    case .up: "UP"
+    case .down: "DOWN"
+    case .yes: "YES"
+    case .no: "NO"
+    case .stop: "STOP"
+    case .direction(let direction): direction.displayName
+    }
+  }
+
+  var accessibilityValue: String {
+    switch self {
+    case .up: "Pen up"
+    case .down: "Pen down"
+    case .yes: "Yes"
+    case .no: "No"
+    case .stop: "Stop"
+    case .direction(.negativeX): "Move in the negative X direction"
+    case .direction(.positiveX): "Move in the positive X direction"
+    case .direction(.negativeY): "Move in the negative Y direction"
+    case .direction(.positiveY): "Move in the positive Y direction"
+    }
+  }
+}
+
+enum PresentationFragment: Hashable, Sendable {
+  case text(String)
+  case cue(PresentationCue)
+
+  var visibleText: String {
+    switch self {
+    case .text(let text): text
+    case .cue(let cue): cue.visibleText
+    }
+  }
+
+  var accessibilityValue: String {
+    switch self {
+    case .text(let text): text
+    case .cue(let cue): cue.accessibilityValue
+    }
+  }
+}
+
+extension Collection where Element == PresentationFragment {
+  var accessibilityText: String {
+    map(\.accessibilityValue).joined(separator: " ")
+  }
+}
+
+struct ExerciseTimelinePresentation: Hashable, Sendable {
+  let position: Int
+  let total: Int
+  let currentLabel: String
+
+  init(position: Int, total: Int, currentLabel: String) {
+    precondition(total > 0)
+    precondition((1...total).contains(position))
+    self.position = position
+    self.total = total
+    self.currentLabel = currentLabel
+  }
+
+  var positionText: String { "Step \(position) of \(total)" }
+}
+
+struct ExerciseEvidencePresentation: Identifiable, Hashable, Sendable {
+  let label: String
+  let fragments: [PresentationFragment]
+
+  var id: String { label }
+
+  init(label: String, fragments: [PresentationFragment]) {
+    self.label = label
+    self.fragments = fragments
+  }
+}
+
+enum ExerciseActionKind: Hashable, Sendable {
+  case start
+  case choice(OperatorChoice)
+  case cancel
+  case stop
+  case restart
+  case redoThisStep
+  case recordAnotherAttempt
+  case recordClearViewLabel(ArmatureVisibilityLabel)
+  case acceptCurrentClearView
+  case recordDrawingTrialAssessment(DrawingTrialAssessment)
+}
+
+enum ExerciseActionRole: Hashable, Sendable {
+  case positive
+  case destructive
+  case standard
+}
+
+struct ExerciseActionDescriptor: Identifiable, Hashable, Sendable {
+  let kind: ExerciseActionKind
+  let title: String
+  let role: ExerciseActionRole
+  let unavailableReason: String?
+
+  var id: ExerciseActionKind { kind }
+  var isEnabled: Bool { unavailableReason == nil }
+
+  init(
+    kind: ExerciseActionKind,
+    title: String,
+    role: ExerciseActionRole = .standard,
+    unavailableReason: String? = nil
+  ) {
+    self.kind = kind
+    self.title = title
+    self.role = role
+    self.unavailableReason = unavailableReason
+  }
+}
+
+struct ExerciseDirectionSelectionPresentation: Hashable, Sendable {
+  let options: [BoundaryDirection]
+  let selected: BoundaryDirection
+
+  init(
+    options: [BoundaryDirection] = BoundaryDirection.allCases,
+    selected: BoundaryDirection
+  ) {
+    precondition(options.contains(selected))
+    self.options = options
+    self.selected = selected
+  }
+}
+
+struct ExerciseActionStripPresentation: Hashable, Sendable {
+  let ownerID: LearningPathItemID
+  let actions: [ExerciseActionDescriptor]
+  let directionSelection: ExerciseDirectionSelectionPresentation?
+
+  init(
+    ownerID: LearningPathItemID,
+    actions: [ExerciseActionDescriptor],
+    directionSelection: ExerciseDirectionSelectionPresentation? = nil
+  ) {
+    precondition(Set(actions.map(\.id)).count == actions.count)
+    self.ownerID = ownerID
+    self.actions = actions
+    self.directionSelection = directionSelection
+  }
+}
+
+struct OperatorActionPresentation: Hashable, Sendable {
+  let itemID: LearningPathItemID
   let stepNumber: String
   let title: String
-  let participant: String
-  let action: String
-  let expectedObservation: String
-  let primaryActionTitle: String?
-  let primaryActionUnavailableReason: String?
-  let choices: [OperatorChoice]
+  let status: LearningPathStageStatus
+  let participant: String?
+  let instructions: [PresentationFragment]
+  let expectedObservation: [PresentationFragment]
+  let question: [PresentationFragment]
+  let timeline: ExerciseTimelinePresentation?
+  let evidence: [ExerciseEvidencePresentation]
+  let actionStrip: ExerciseActionStripPresentation?
   let requestedFeedMMPerMinute: Double?
   let feedSource: FeedSelectionSource?
 
   init(
+    itemID: LearningPathItemID,
     stepNumber: String,
     title: String,
-    participant: String,
-    action: String,
-    expectedObservation: String,
-    primaryActionTitle: String? = nil,
-    primaryActionUnavailableReason: String? = nil,
-    choices: [OperatorChoice] = [],
+    status: LearningPathStageStatus,
+    participant: String? = nil,
+    instructions: [PresentationFragment],
+    expectedObservation: [PresentationFragment] = [],
+    question: [PresentationFragment] = [],
+    timeline: ExerciseTimelinePresentation? = nil,
+    evidence: [ExerciseEvidencePresentation] = [],
+    actionStrip: ExerciseActionStripPresentation? = nil,
     requestedFeedMMPerMinute: Double? = nil,
     feedSource: FeedSelectionSource? = nil
   ) {
+    self.itemID = itemID
     self.stepNumber = stepNumber
     self.title = title
+    self.status = status
     self.participant = participant
-    self.action = action
+    self.instructions = instructions
     self.expectedObservation = expectedObservation
-    self.primaryActionTitle = primaryActionTitle
-    self.primaryActionUnavailableReason = primaryActionUnavailableReason
-    self.choices = choices
+    self.question = question
+    self.timeline = timeline
+    self.evidence = evidence
+    self.actionStrip = actionStrip
     self.requestedFeedMMPerMinute = requestedFeedMMPerMinute
     self.feedSource = feedSource
-  }
-}
-
-enum LearningPathFlowPhase: Hashable, Sendable {
-  case connect
-  case enableMotion
-  case humanGuidedDiscovery(HumanGuidedDiscoveryStep)
-  case observedDrawingTrials(ObservedDrawingTrialStep)
-  case adaptiveDrawing
-}
-
-/// Presentation-only location within the Learning Path.
-///
-/// Runtime eligibility remains owned by the typed operation that consumes the
-/// relevant controller, camera, pen, or observation facts. Changing this value
-/// never grants motion authority and never makes a machine request eligible.
-struct LearningPathFlowCoordinator: Hashable, Sendable {
-  private(set) var phase: LearningPathFlowPhase = .connect
-
-  mutating func present(_ phase: LearningPathFlowPhase) {
-    self.phase = phase
   }
 }

@@ -99,7 +99,7 @@ arbitrary prose.
 Visible sequence order defines the normal performance order. It does not define
 data invalidation.
 
-`Redo Current Step` creates a replacement attempt. On successful commit, the
+`Redo This Step` creates a replacement attempt. On successful commit, the
 new artifact replaces the accepted artifact for that step and the prior accepted
 artifact becomes superseded. Invalidation follows explicit, transitive data-
 dependency edges from the replaced artifact. A later step with no such edge is

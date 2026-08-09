@@ -28,6 +28,7 @@ struct OperatorWorkspaceTests {
     _ = await owner.value
 
     #expect(await machine.cancelCount == 1)
+    #expect(await machine.cancelIntents == [.operatorStop])
     #expect(workspace.relevantBoundaryObservationCount == 0)
     #expect(workspace.discoveryTransactions.isEmpty)
     #expect(workspace.contextualStopPresentation == nil)
@@ -60,18 +61,68 @@ struct OperatorWorkspaceTests {
     await workspace.beginBoundaryDiscovery(.positiveX)
     await workspace.answerCurrentQuestion(.yes)
     try await waitUntil { workspace.contextualStopPresentation != nil }
+    let liveActions = try #require(workspace.currentExerciseActionStripPresentation).actions
+    #expect(liveActions.filter { $0.kind == .stop }.count == 1)
+    #expect(liveActions.filter { $0.kind == .cancel }.count == 1)
     async let first: Void = workspace.stopCurrentOperation()
     async let repeated: Void = workspace.stopCurrentOperation()
     _ = await (first, repeated)
 
     #expect(await machine.cancelCount == 1)
+    #expect(await machine.cancelIntents == [.operatorStop])
     #expect(await machine.requestedFeeds.last == 900)
     #expect(workspace.discoveryTransactions[.boundaryPositiveX]?.state == .succeeded)
     #expect(workspace.relevantBoundaryObservationCount == 1)
     #expect(workspace.drawingFramePosterior?.observationCount == 1)
     #expect(workspace.humanGuidedDiscoveryCurrentStep == .clearViewDiscovery)
     let events = await log.values
-    #expect(events.firstIndex(of: "announce:Moving toward X+ boundary.")! < events.firstIndex(of: "machine:jog")!)
+    #expect(events.firstIndex(of: "announce:Moving toward X+ boundary.")! < events.firstIndex(of: "machine:boundary")!)
+    await workspace.shutdown()
+  }
+
+  @Test("logical boundary owner exposes Stop without a moving-state timer or natural success")
+  func boundaryOwnerDoesNotAssumeMovingOrNaturalSuccess() async throws {
+    let log = EventLog()
+    let machine = try MachineFixture(log: log, reportsBoundaryMoving: false)
+    let camera = try CameraFixture()
+    let workspace = workspace(machine: machine, camera: camera, log: log)
+    await workspace.establishMachineSession(machine.descriptor)
+    await workspace.requestPassiveProbe()
+    await workspace.startCamera()
+    try await completePenInteraction(workspace)
+
+    await workspace.beginBoundaryDiscovery(.negativeY)
+    await workspace.answerCurrentQuestion(.yes)
+    try await waitUntil { workspace.contextualStopPresentation != nil }
+
+    #expect(workspace.machineSnapshot?.machine.connection == .connected)
+    #expect(workspace.relevantBoundaryObservationCount == 0)
+    #expect(workspace.drawingFramePosterior == nil)
+    await workspace.stopCurrentOperation()
+    #expect(workspace.relevantBoundaryObservationCount == 1)
+    await workspace.shutdown()
+  }
+
+  @Test("invalid manual step text does not gate Boundary Discovery")
+  func manualStepTextIsNotBoundaryAuthority() async throws {
+    let log = EventLog()
+    let machine = try MachineFixture(log: log)
+    let camera = try CameraFixture()
+    let workspace = workspace(machine: machine, camera: camera, log: log)
+    await workspace.establishMachineSession(machine.descriptor)
+    await workspace.requestPassiveProbe()
+    await workspace.startCamera()
+    try await completePenInteraction(workspace)
+    workspace.xStepText = "not-a-number"
+    workspace.yStepText = ""
+
+    #expect(workspace.motionUnavailableReason != nil)
+    #expect(workspace.discoveryStartUnavailableReason(for: .boundaryPositiveX) == nil)
+    await workspace.beginBoundaryDiscovery(.positiveX)
+    await workspace.answerCurrentQuestion(.yes)
+    try await waitUntil { workspace.contextualStopPresentation != nil }
+    await workspace.stopCurrentOperation()
+    #expect(workspace.relevantBoundaryObservationCount == 1)
     await workspace.shutdown()
   }
 
@@ -91,6 +142,7 @@ struct OperatorWorkspaceTests {
     await workspace.shutdown()
 
     #expect(await machine.cancelCount == 1)
+    #expect(await machine.cancelIntents == [.shutdown])
     #expect(await machine.requestedFeeds.last == 100)
     #expect(workspace.discoveryTransactions.isEmpty)
     #expect(workspace.contextualStopPresentation == nil)
@@ -124,6 +176,342 @@ struct OperatorWorkspaceTests {
     #expect(workspace.lastAnnouncementResultText == "Announcement completed.")
     await workspace.shutdown()
   }
+
+  @Test("review projections are inert and preserve the runtime current owner")
+  func reviewProjectionIsInert() async throws {
+    let log = EventLog()
+    let machine = try MachineFixture(log: log)
+    let workspace = workspace(machine: machine, log: log)
+    await workspace.establishMachineSession(machine.descriptor)
+    await workspace.requestPassiveProbe()
+
+    let current = workspace.currentLearningPathItemID
+    let transactionCount = workspace.discoveryTransactions.count
+    let revisionCount = workspace.learningArtifactGraph.revisions.count
+    let requestedFeedCount = await machine.requestedFeeds.count
+    for itemID in LearningPathItemID.navigationOrder {
+      _ = workspace.selectedOperatorActionPresentation(for: itemID)
+    }
+
+    #expect(workspace.currentLearningPathItemID == current)
+    #expect(workspace.discoveryTransactions.count == transactionCount)
+    #expect(workspace.learningArtifactGraph.revisions.count == revisionCount)
+    #expect(await machine.requestedFeeds.count == requestedFeedCount)
+    #expect(await machine.cancelCount == 0)
+    #expect(
+      workspace.learningPathItemPresentations.first {
+        $0.id == .stage(.humanGuidedDiscovery)
+      }?.status == .current
+    )
+    #expect(
+      workspace.learningPathItemPresentations.first {
+        $0.id == .humanGuidedDiscovery(.penInteraction)
+      }?.status == .current
+    )
+    let adaptive = workspace.selectedOperatorActionPresentation(for: .stage(.adaptiveDrawing))
+    #expect(adaptive.status == .future)
+    #expect(adaptive.actionStrip == nil)
+    await workspace.shutdown()
+  }
+
+  @Test("Start becomes typed choices and Cancel settles to a fresh Restart route")
+  func exerciseActionTransitions() async throws {
+    let log = EventLog()
+    let machine = try MachineFixture(log: log)
+    let camera = try CameraFixture()
+    let workspace = workspace(machine: machine, camera: camera, log: log)
+    await workspace.establishMachineSession(machine.descriptor)
+    await workspace.requestPassiveProbe()
+    await workspace.startCamera()
+    let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+
+    #expect(workspace.currentExerciseActionStripPresentation?.actions.map(\.kind) == [.start])
+    await workspace.performExerciseAction(.start, for: owner)
+    let liveActions = workspace.currentExerciseActionStripPresentation?.actions.map(\.kind) ?? []
+    #expect(liveActions.contains(.choice(.yes)))
+    #expect(liveActions.contains(.choice(.no)))
+    #expect(liveActions.contains(.cancel))
+    #expect(!liveActions.contains(.start))
+
+    await workspace.performExerciseAction(.cancel, for: owner)
+    #expect(workspace.activeExerciseAttemptID == nil)
+    #expect(workspace.currentLearningPathItemID == owner)
+    #expect(workspace.currentExerciseActionStripPresentation?.actions.map(\.kind) == [.restart])
+    await workspace.shutdown()
+  }
+
+  @Test("Boundary Cancel uses cancelAttempt and records no Stop success or boundary evidence")
+  func boundaryCancelHasNoSuccessEvidence() async throws {
+    let log = EventLog()
+    let machine = try MachineFixture(log: log)
+    let camera = try CameraFixture()
+    let workspace = workspace(machine: machine, camera: camera, log: log)
+    await workspace.establishMachineSession(machine.descriptor)
+    await workspace.requestPassiveProbe()
+    await workspace.startCamera()
+    try await completePenInteraction(workspace)
+
+    let owner = LearningPathItemID.humanGuidedDiscovery(.boundaryDiscovery)
+    await workspace.beginBoundaryDiscovery(.negativeX)
+    await workspace.answerCurrentQuestion(.yes)
+    try await waitUntil { workspace.contextualStopPresentation != nil }
+    await workspace.performExerciseAction(.cancel, for: owner)
+
+    #expect(await machine.cancelIntents == [.cancelAttempt])
+    #expect(workspace.relevantBoundaryObservationCount == 0)
+    #expect(workspace.drawingFramePosterior == nil)
+    #expect(workspace.discoveryTransactions[.boundaryNegativeX]?.state == .cancelled)
+    #expect(
+      workspace.discoveryTransactions[.boundaryNegativeX]?.evidenceSummaries
+        .contains(where: { $0.summary.contains("Operator requested Stop") }) == false
+    )
+    #expect(workspace.currentExerciseActionStripPresentation?.actions.map(\.kind) == [.restart])
+    await workspace.shutdown()
+  }
+
+  @Test("Record Another Attempt preserves compatible boundary samples and recomputes N")
+  func boundaryAdditionalAttemptAggregates() async throws {
+    let log = EventLog()
+    let machine = try MachineFixture(log: log)
+    let camera = try CameraFixture()
+    let workspace = workspace(machine: machine, camera: camera, log: log)
+    await workspace.establishMachineSession(machine.descriptor)
+    await workspace.requestPassiveProbe()
+    await workspace.startCamera()
+    try await completePenInteraction(workspace)
+
+    await workspace.beginBoundaryDiscovery(.positiveX)
+    await workspace.answerCurrentQuestion(.yes)
+    try await waitUntil { workspace.contextualStopPresentation != nil }
+    await workspace.stopCurrentOperation()
+
+    let owner = LearningPathItemID.humanGuidedDiscovery(.boundaryDiscovery)
+    let attemptsBeforeReview = workspace.boundaryAttemptHistories[.positiveX]?
+      .values.first?.attempts.count
+    let revisionsBeforeReview = workspace.learningArtifactGraph.revisions.count
+    let machineActionsBeforeReview = await machine.requestedFeeds.count
+    let repeatActions = try #require(
+      workspace.selectedOperatorActionPresentation(for: owner).actionStrip
+    ).actions.map(\.kind)
+    #expect(repeatActions.contains(.redoThisStep))
+    #expect(repeatActions.contains(.recordAnotherAttempt))
+    #expect(attemptsBeforeReview == workspace.boundaryAttemptHistories[.positiveX]?
+      .values.first?.attempts.count)
+    #expect(revisionsBeforeReview == workspace.learningArtifactGraph.revisions.count)
+    let machineActionsAfterReview = await machine.requestedFeeds.count
+    #expect(machineActionsBeforeReview == machineActionsAfterReview)
+    await workspace.performExerciseAction(.recordAnotherAttempt, for: owner)
+    await workspace.answerCurrentQuestion(.yes)
+    try await waitUntil { workspace.contextualStopPresentation != nil }
+    await workspace.stopCurrentOperation()
+
+    let histories = try #require(workspace.boundaryAttemptHistories[.positiveX])
+    let history = try #require(histories.values.first)
+    let aggregate = try NumericAttemptAggregate(history: history)
+    #expect(aggregate.validSampleCount == 2)
+    #expect(aggregate.includedAttemptIDs.count == 2)
+    #expect(aggregate.estimator.revision == "1")
+    #expect(workspace.drawingFramePosterior?.observationCount == 2)
+    #expect(workspace.drawingFramePosterior?.observationsByKey.count == 2)
+    await workspace.shutdown()
+  }
+
+  @Test("Redo replaces one accepted boundary sample while Record Another keeps compatible samples")
+  func boundaryRedoSupersedesOnlyReplacedSample() async throws {
+    let log = EventLog()
+    let machine = try MachineFixture(log: log)
+    let camera = try CameraFixture()
+    let workspace = workspace(machine: machine, camera: camera, log: log)
+    await workspace.establishMachineSession(machine.descriptor)
+    await workspace.requestPassiveProbe()
+    await workspace.startCamera()
+    try await completePenInteraction(workspace)
+
+    await workspace.beginBoundaryDiscovery(.positiveX)
+    await workspace.answerCurrentQuestion(.yes)
+    try await waitUntil { workspace.contextualStopPresentation != nil }
+    await workspace.stopCurrentOperation()
+    let owner = LearningPathItemID.humanGuidedDiscovery(.boundaryDiscovery)
+    let oldAttemptID = try #require(
+      workspace.boundaryAttemptHistories[.positiveX]?.values.first?.attempts.first?.id
+    )
+    let oldObservationKey = try #require(
+      workspace.boundaryFrameObservationsByAttemptID[oldAttemptID]?.key
+    )
+
+    await workspace.performExerciseAction(.redoThisStep, for: owner)
+    await workspace.answerCurrentQuestion(.yes)
+    try await waitUntil { workspace.contextualStopPresentation != nil }
+    await workspace.stopCurrentOperation()
+
+    let history = try #require(workspace.boundaryAttemptHistories[.positiveX]?.values.first)
+    let aggregate = try NumericAttemptAggregate(history: history)
+    let replacementID = try #require(history.attempts.last?.id)
+    #expect(history.records.count == 2)
+    #expect(history.records.first?.inclusionState == .superseded(by: replacementID))
+    #expect(history.records.last?.inclusionState == .included)
+    #expect(aggregate.validSampleCount == 1)
+    #expect(aggregate.includedAttemptIDs == [replacementID])
+    #expect(!aggregate.includedAttemptIDs.contains(oldAttemptID))
+    #expect(workspace.drawingFramePosterior?.observationCount == 1)
+    #expect(workspace.drawingFramePosterior?.observationsByKey[oldObservationKey] == nil)
+    #expect(workspace.boundaryFrameObservationsByAttemptID[oldAttemptID]?.key == oldObservationKey)
+    #expect(workspace.boundaryFrameObservationsByAttemptID[replacementID] != nil)
+    await workspace.shutdown()
+  }
+
+  @Test("cancelled boundary Redo preserves the accepted included sample")
+  func cancelledBoundaryRedoPreservesAggregate() async throws {
+    let log = EventLog()
+    let machine = try MachineFixture(log: log)
+    let camera = try CameraFixture()
+    let workspace = workspace(machine: machine, camera: camera, log: log)
+    await workspace.establishMachineSession(machine.descriptor)
+    await workspace.requestPassiveProbe()
+    await workspace.startCamera()
+    try await completePenInteraction(workspace)
+
+    await workspace.beginBoundaryDiscovery(.negativeX)
+    await workspace.answerCurrentQuestion(.yes)
+    try await waitUntil { workspace.contextualStopPresentation != nil }
+    await workspace.stopCurrentOperation()
+    let owner = LearningPathItemID.humanGuidedDiscovery(.boundaryDiscovery)
+    let acceptedAttemptID = try #require(
+      workspace.boundaryAttemptHistories[.negativeX]?.values.first?.attempts.first?.id
+    )
+    let acceptedPosterior = workspace.drawingFramePosterior
+
+    await workspace.performExerciseAction(.redoThisStep, for: owner)
+    await workspace.answerCurrentQuestion(.yes)
+    try await waitUntil { workspace.contextualStopPresentation != nil }
+    await workspace.performExerciseAction(.cancel, for: owner)
+
+    let history = try #require(workspace.boundaryAttemptHistories[.negativeX]?.values.first)
+    let aggregate = try NumericAttemptAggregate(history: history)
+    #expect(history.records.count == 2)
+    #expect(history.records.first?.inclusionState == .included)
+    #expect(history.records.last?.inclusionState == .excludedUnsuccessful)
+    #expect(history.attempts.last?.disposition == .cancelled)
+    #expect(aggregate.validSampleCount == 1)
+    #expect(aggregate.includedAttemptIDs == [acceptedAttemptID])
+    #expect(workspace.drawingFramePosterior == acceptedPosterior)
+    await workspace.shutdown()
+  }
+
+  @Test("configuration-changing boundary Redo supersedes across separate histories without pooling")
+  func incompatibleBoundaryRedoRemainsSeparate() async throws {
+    let log = EventLog()
+    let machine = try MachineFixture(log: log)
+    let camera = try CameraFixture(rotatesConfiguration: true)
+    let workspace = workspace(machine: machine, camera: camera, log: log)
+    await workspace.establishMachineSession(machine.descriptor)
+    await workspace.requestPassiveProbe()
+    await workspace.startCamera()
+    try await completePenInteraction(workspace)
+
+    await workspace.beginBoundaryDiscovery(.positiveY)
+    await workspace.answerCurrentQuestion(.yes)
+    try await waitUntil { workspace.contextualStopPresentation != nil }
+    await workspace.stopCurrentOperation()
+    let acceptedAttemptID = try #require(
+      workspace.learningArtifactGraph.currentRevision(for: .boundaryObservation(.positiveY))?
+        .attemptID
+    )
+
+    let owner = LearningPathItemID.humanGuidedDiscovery(.boundaryDiscovery)
+    await workspace.performExerciseAction(.redoThisStep, for: owner)
+    await workspace.answerCurrentQuestion(.yes)
+    try await waitUntil { workspace.contextualStopPresentation != nil }
+    await workspace.stopCurrentOperation()
+
+    let replacementAttemptID = try #require(
+      workspace.learningArtifactGraph.currentRevision(for: .boundaryObservation(.positiveY))?
+        .attemptID
+    )
+    let histories = try #require(workspace.boundaryAttemptHistories[.positiveY])
+    let oldHistory = try #require(histories.values.first(where: {
+      $0.attempts.contains(where: { $0.id == acceptedAttemptID })
+    }))
+    let newHistory = try #require(histories.values.first(where: {
+      $0.attempts.contains(where: { $0.id == replacementAttemptID })
+    }))
+    #expect(histories.count == 2)
+    #expect(acceptedAttemptID != replacementAttemptID)
+    #expect(oldHistory.records.first?.inclusionState == .superseded(by: replacementAttemptID))
+    #expect(oldHistory.includedSuccessfulAttempts.isEmpty)
+    #expect(newHistory.records.first?.inclusionState == .included)
+    #expect(newHistory.includedSuccessfulAttempts.map(\.id) == [replacementAttemptID])
+    #expect(try NumericAttemptAggregate(history: newHistory).validSampleCount == 1)
+    await workspace.shutdown()
+  }
+
+  @Test("Redo Pen Interaction replaces only its revision and retains independent boundary evidence")
+  func redoPenRetainsBoundary() async throws {
+    let log = EventLog()
+    let machine = try MachineFixture(log: log)
+    let camera = try CameraFixture()
+    let workspace = workspace(machine: machine, camera: camera, log: log)
+    await workspace.establishMachineSession(machine.descriptor)
+    await workspace.requestPassiveProbe()
+    await workspace.startCamera()
+    try await completePenInteraction(workspace)
+    await workspace.beginBoundaryDiscovery(.positiveY)
+    await workspace.answerCurrentQuestion(.yes)
+    try await waitUntil { workspace.contextualStopPresentation != nil }
+    await workspace.stopCurrentOperation()
+
+    let oldPen = try #require(
+      workspace.learningArtifactGraph.currentRevision(for: .penInteraction)
+    )
+    let oldBoundary = try #require(
+      workspace.learningArtifactGraph.currentRevision(for: .boundaryObservation(.positiveY))
+    )
+    let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+    await workspace.performExerciseAction(.redoThisStep, for: owner)
+    try await finishPenInteraction(workspace)
+
+    let newPen = try #require(
+      workspace.learningArtifactGraph.currentRevision(for: .penInteraction)
+    )
+    let retainedBoundary = try #require(
+      workspace.learningArtifactGraph.currentRevision(for: .boundaryObservation(.positiveY))
+    )
+    #expect(newPen.id != oldPen.id)
+    #expect(workspace.learningArtifactGraph.revision(id: oldPen.id)?.state == .superseded)
+    #expect(retainedBoundary.id == oldBoundary.id)
+    #expect(workspace.relevantBoundaryObservationCount == 1)
+    await workspace.shutdown()
+  }
+
+  @Test("cancelled replacement leaves the accepted artifact current")
+  func cancelledReplacementKeepsAcceptedArtifact() async throws {
+    let log = EventLog()
+    let machine = try MachineFixture(log: log)
+    let camera = try CameraFixture()
+    let workspace = workspace(machine: machine, camera: camera, log: log)
+    await workspace.establishMachineSession(machine.descriptor)
+    await workspace.requestPassiveProbe()
+    await workspace.startCamera()
+    try await completePenInteraction(workspace)
+    let accepted = try #require(
+      workspace.learningArtifactGraph.currentRevision(for: .penInteraction)
+    )
+    let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+
+    await workspace.performExerciseAction(.redoThisStep, for: owner)
+    await workspace.performExerciseAction(.cancel, for: owner)
+
+    #expect(
+      workspace.learningArtifactGraph.currentRevision(for: .penInteraction)?.id == accepted.id
+    )
+    #expect(workspace.learningArtifactGraph.revision(id: accepted.id)?.state == .current)
+    #expect(workspace.penAttemptHistory.attempts.last?.disposition == .cancelled)
+    #expect(workspace.penAttemptHistory.records.first?.inclusionState == .included)
+    #expect(workspace.penAttemptHistory.records.last?.inclusionState == .excludedUnsuccessful)
+    #expect(workspace.currentPenStateAggregate?.validSampleCount == 1)
+    #expect(workspace.currentPenStateAggregate?.includedAttemptIDs == [accepted.attemptID])
+    await workspace.shutdown()
+  }
 }
 
 @MainActor
@@ -132,6 +520,11 @@ private func completePenInteraction(_ workspace: OperatorWorkspace) async throws
     throw StepMismatch(expected: "available", actual: reason)
   }
   await workspace.beginPenInteraction()
+  try await finishPenInteraction(workspace)
+}
+
+@MainActor
+private func finishPenInteraction(_ workspace: OperatorWorkspace) async throws {
   try requireStep(workspace, "answer-initially-up")
   await workspace.answerCurrentQuestion(.yes)
   try requireStep(workspace, "answer-clear-to-lower")
@@ -181,9 +574,9 @@ private func workspace(
       deactivateMotionGuard: {},
       requestRelativeJog: { await machine.requestRelativeJog($0) },
       requestDrawingStroke: { _ in fatalError("unused") },
-      requestObservedJog: { _, _ in fatalError("unused") },
       requestPenActuation: { await machine.requestPen($0) },
-      requestJogCancel: { await machine.cancel() },
+      requestBoundaryMotion: { await machine.requestBoundaryMotion($0) },
+      requestJogCancel: { await machine.cancel(intent: $0) },
       disconnect: {}
     ),
     cameraActions: camera.map(cameraActions),
@@ -215,7 +608,6 @@ private func cameraActions(_ fixture: CameraFixture) -> OperatorWorkspace.Camera
     captureSnapshot: { "unused" },
     setAutomaticInspection: { _ in .stopped },
     analysisUpdates: { AsyncStream { $0.finish() } },
-    observeVisibleTool: { _, _ in fatalError("unused") },
     simulatedContent: { _ in fatalError("unused") },
     simulatedExplorationFrames: { fatalError("unused") },
     observeAnchorDot: { _ in fatalError("unused") },
@@ -268,33 +660,46 @@ private actor MachineFixture {
   )
   let log: EventLog
   let feedLimits: ControllerAxisFeedLimits?
+  let reportsBoundaryMoving: Bool
   private(set) var cancelCount = 0
+  private(set) var cancelIntents: [JogCancelIntent] = []
   private(set) var requestedFeeds: [Double] = []
   private var moving = false
   private var cancelPending = false
+  private var pendingCancelIntent: JogCancelIntent?
   private var continuation: CheckedContinuation<MotionOutcome, Never>?
+  private var boundaryContinuation: CheckedContinuation<BoundaryMotionOutcome, Never>?
   private var position: MachinePosition
   private var penState: PenState = .up
   private var lastMotion: MotionOutcome?
   private var lastPen: PenOutcome?
   private var lastCancel: JogCancelOutcome?
   private var activeRequest: RelativeJogRequest?
+  private var activeBoundaryRequest: BoundaryMotionRequest?
 
-  init(log: EventLog, feedLimits: ControllerAxisFeedLimits? = nil) throws {
+  init(
+    log: EventLog,
+    feedLimits: ControllerAxisFeedLimits? = nil,
+    reportsBoundaryMoving: Bool = true
+  ) throws {
     self.log = log
     self.feedLimits = feedLimits
+    self.reportsBoundaryMoving = reportsBoundaryMoving
     position = try MachinePosition(x: 0, y: 0)
   }
 
   func snapshot() -> RunInterpreterSnapshot {
     RunInterpreterSnapshot(
-      currentOperation: activeRequest.map(RunOperation.relativeJog) ?? .idle,
+      currentOperation: activeBoundaryRequest.map(RunOperation.boundaryMotion)
+        ?? activeRequest.map(RunOperation.relativeJog) ?? .idle,
       machine: MachineSnapshot(
-        connection: moving ? .moving : .connected,
+        connection: moving && (activeBoundaryRequest == nil || reportsBoundaryMoving)
+          ? .moving : .connected,
         link: descriptor,
         lastProbe: nil,
         blockers: [],
-        controllerState: moving ? .jog : .idle,
+        controllerState: moving && (activeBoundaryRequest == nil || reportsBoundaryMoving)
+          ? .jog : .idle,
         position: position,
         penState: penState,
         motionGuardState: .active,
@@ -328,17 +733,40 @@ private actor MachineFixture {
     return outcome
   }
 
-  func cancel() -> JogCancelOutcome {
+  func requestBoundaryMotion(_ request: BoundaryMotionRequest) async -> BoundaryMotionOutcome {
+    requestedFeeds.append(request.segment.feedMMPerMinute)
+    activeBoundaryRequest = request
+    moving = true
+    await log.append("machine:boundary")
+    if let pendingCancelIntent {
+      self.pendingCancelIntent = nil
+      return settleBoundary(request: request, intent: pendingCancelIntent)
+    }
+    let outcome = await withCheckedContinuation { continuation in
+      boundaryContinuation = continuation
+    }
+    activeBoundaryRequest = nil
+    return outcome
+  }
+
+  func cancel(intent: JogCancelIntent) -> JogCancelOutcome {
     cancelCount += 1
-    if let continuation {
+    cancelIntents.append(intent)
+    let cancelOutcome = JogCancelOutcome.completed(finalPosition: position)
+    if let boundaryContinuation, let request = activeBoundaryRequest {
+      self.boundaryContinuation = nil
+      let outcome = settleBoundary(request: request, intent: intent)
+      boundaryContinuation.resume(returning: outcome)
+    } else if let continuation {
       self.continuation = nil
       let outcome = settleCancelled()
       continuation.resume(returning: outcome)
     } else {
       cancelPending = true
+      pendingCancelIntent = intent
     }
-    lastCancel = .completed(finalPosition: position)
-    return lastCancel!
+    lastCancel = cancelOutcome
+    return cancelOutcome
   }
 
   func requestPen(_ command: PenCommand) async -> PenOutcome {
@@ -356,14 +784,35 @@ private actor MachineFixture {
     activeRequest = nil
     return outcome
   }
+
+  private func settleBoundary(
+    request: BoundaryMotionRequest,
+    intent: JogCancelIntent
+  ) -> BoundaryMotionOutcome {
+    moving = false
+    activeBoundaryRequest = nil
+    return .settled(
+      BoundaryMotionSettlement(
+        ownerID: request.ownerID,
+        intent: intent,
+        completedSegmentCount: 0,
+        finalPosition: position,
+        jogCancelOutcome: .completed(finalPosition: position)
+      )
+    )
+  }
 }
 
-private struct CameraFixture: Sendable {
+private final class CameraFixture: @unchecked Sendable {
   let device: CameraDevice
   let snapshot: CameraCaptureSnapshot
   private let configurationID: CameraConfigurationID
+  private let rotatesConfiguration: Bool
+  private let lock = NSLock()
+  private var inspectionCount = 0
 
-  init() throws {
+  init(rotatesConfiguration: Bool = false) throws {
+    self.rotatesConfiguration = rotatesConfiguration
     configurationID = CameraConfigurationID()
     device = CameraDevice(id: CameraDeviceID(rawValue: "camera"), name: "Fixture camera")
     let initial = DisplayedFrame(
@@ -380,6 +829,12 @@ private struct CameraFixture: Sendable {
   }
 
   func inspection(after captureBoundary: UInt64) throws -> LiveSceneInspection {
+    lock.lock()
+    inspectionCount += 1
+    let inspectionConfigurationID = rotatesConfiguration
+      ? CameraConfigurationID()
+      : configurationID
+    lock.unlock()
     let capture = captureBoundary &+ 1
     let fresh = DisplayedFrame(
       source: .live(device.id),
@@ -387,7 +842,7 @@ private struct CameraFixture: Sendable {
         id: "fresh-\(capture)",
         sequence: capture,
         capture: capture,
-        configurationID: configurationID
+        configurationID: inspectionConfigurationID
       )
     )
     let geometry = try Polyline<CameraPixelSpace>(points: [
@@ -400,7 +855,7 @@ private struct CameraFixture: Sendable {
     let measurement = PlotterSceneMeasurement(
       frameID: fresh.frame.id,
       frameSHA256: fresh.frame.contentSHA256,
-      cameraConfigurationID: configurationID,
+      cameraConfigurationID: inspectionConfigurationID,
       greenComponentCount: 1,
       cap: GreenCapMeasurement(
         pixelCount: 10,

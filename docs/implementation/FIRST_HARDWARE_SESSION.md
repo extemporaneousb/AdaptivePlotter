@@ -1,6 +1,6 @@
 # Attended Hardware Session
 
-Status: operator checklist after the accepted one-window workbench increment lands
+Status: operator checklist for the integrated one-window workbench
 Requirement: one operator present with the physical power cutoff reachable
 
 ## Purpose
@@ -9,9 +9,8 @@ This pass validates the integrated signed-bundle workflow from Connect through
 one Observed Drawing Trial. It must keep controller, camera, human observation,
 and observed ink claims separate.
 
-Do not use this checklist against the superseded auxiliary-window build. First
-land the one-window workbench, typed attempt semantics, Jog Observations removal,
-and operator-stopped Boundary Discovery described by the canonical plan.
+Use this checklist only with the integrated one-window workbench and its typed
+attempt, dependency, and operator-stopped Boundary Discovery behavior.
 
 Do not run this checklist unattended. If the operator or reachable cutoff is
 absent, stop and record physical validation as skipped.

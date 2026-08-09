@@ -42,39 +42,20 @@ enum WorkbenchTopBarStatusStyle {
   }
 }
 
+enum WorkbenchToolbarControl: CaseIterable, Hashable, Sendable {
+  case controllerSelection
+  case connection
+  case enableMotion
+}
+
 /// Native macOS window-toolbar controls for the camera-first workbench.
 ///
-/// The controller picker, connection actions, panel access, and three truthful
-/// status indicators stay in the window chrome instead of consuming camera
-/// pixels in a custom two-row strip.
+/// Only controller/session controls and compact truthful status live here.
+/// Exercise Stop and utility-panel launchers belong to the workbench content.
 struct WorkbenchToolbar: ToolbarContent {
   @Bindable var workspace: OperatorWorkspace
-  @Binding var layout: WorkbenchLayoutState
 
   var body: some ToolbarContent {
-    ToolbarItemGroup(placement: .navigation) {
-      ForEach(WorkbenchPanel.allCases) { panel in
-        Button {
-          layout.toggleVisibility(panel)
-        } label: {
-          Label(panel.rawValue, systemImage: panel.systemImage)
-        }
-        .help(layout[panel].isVisible ? "Hide \(panel.rawValue)" : "Show \(panel.rawValue)")
-      }
-
-      Menu {
-        Button("Hide All Panels") { layout.hideAll() }
-        Divider()
-        ForEach(WorkbenchPanel.allCases) { panel in
-          Button(layout[panel].isVisible ? "Hide \(panel.rawValue)" : "Show \(panel.rawValue)") {
-            layout.toggleVisibility(panel)
-          }
-        }
-      } label: {
-        Label("Panel Options", systemImage: "ellipsis.circle")
-      }
-    }
-
     ToolbarItem(placement: .principal) {
       HStack(spacing: 8) {
         Picker(
@@ -121,18 +102,6 @@ struct WorkbenchToolbar: ToolbarContent {
     ToolbarItem(placement: .primaryAction) {
       TimelineView(.periodic(from: .now, by: 0.25)) { _ in
         HStack(spacing: 12) {
-          if workspace.contextualStopPresentation != nil {
-            Button {
-              Task { await workspace.stopCurrentOperation() }
-            } label: {
-              Label("Stop", systemImage: "stop.fill")
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(.red)
-            .keyboardShortcut(.cancelAction)
-            .help("Stop the current software operation")
-          }
-
           WorkbenchStatusIndicator(
             indicator: .camera,
             label: workspace.frameMode == .simulated
@@ -184,39 +153,5 @@ private struct WorkbenchStatusIndicator: View {
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(label)
     .help(label)
-  }
-}
-
-struct WorkbenchStatusBanner: View {
-  @Bindable var workspace: OperatorWorkspace
-  @Binding var layout: WorkbenchLayoutState
-
-  var body: some View {
-    Button {
-      layout.reveal(.motion)
-    } label: {
-      HStack(spacing: 6) {
-        Label(
-          workspace.workbenchStatusText,
-          systemImage: WorkbenchTopBarStatusStyle.systemImage(
-            needsAttention: workspace.workbenchStatusNeedsAttention
-          )
-        )
-        .lineLimit(2)
-        Image(systemName: "chevron.right")
-          .font(.caption2.weight(.semibold))
-      }
-      .font(.caption)
-      .foregroundStyle(
-        workspace.workbenchStatusNeedsAttention ? Color.orange : Color.secondary
-      )
-      .padding(.horizontal, 10)
-      .padding(.vertical, 7)
-      .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-    }
-    .buttonStyle(.plain)
-    .contentShape(RoundedRectangle(cornerRadius: 8))
-    .help("Show Motion controls")
-    .accessibilityHint("Opens and expands the Motion panel")
   }
 }

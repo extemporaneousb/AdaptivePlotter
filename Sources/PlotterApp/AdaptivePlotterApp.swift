@@ -70,17 +70,21 @@ struct AdaptivePlotterApp: App {
   }
 
   var body: some Scene {
-    Window("AdaptivePlotter", id: "operator-workspace") {
+    Window("AdaptivePlotter", id: AdaptivePlotterScenePolicy.singletonWindowID) {
       OperatorWorkspaceView(workspace: applicationDelegate.workspace)
-        .frame(minWidth: 1_180, minHeight: 760)
+        .frame(
+          minWidth: LearningWorkbenchLayoutPolicy.minimumWindowWidth,
+          minHeight: AdaptivePlotterScenePolicy.minimumWindowHeight
+        )
     }
     .windowToolbarStyle(.unifiedCompact)
-
-    Window("Learning Path", id: "learning-path") {
-      LearningWindow(workspace: applicationDelegate.workspace)
-    }
-    .defaultSize(width: 1_180, height: 760)
   }
+}
+
+enum AdaptivePlotterScenePolicy {
+  static let singletonWindowID = "operator-workspace"
+  static let windowCount = 1
+  static let minimumWindowHeight: CGFloat = 760
 }
 
 private enum SpeechComposition {
@@ -94,131 +98,106 @@ private enum SpeechComposition {
 
 struct OperatorWorkspaceView: View {
   @Bindable var workspace: OperatorWorkspace
-  @State private var layout = WorkbenchLayoutState()
+  @State private var selection = LearningPathSelectionState(current: .stage(.connect))
+  @State private var utilitiesArePresented = false
 
   var body: some View {
     GeometryReader { proxy in
-      let geometry = layout.geometry(
-        in: proxy.size,
-        preferredDockWidth: 390,
-        spacing: 8,
-        minimumActionSurfaceWidth: 360
-      )
-      ZStack(alignment: .topLeading) {
-        ActionSurface(presentation: workspace.actionSurfacePresentation)
-          .frame(
-            width: geometry.actionSurface.width,
-            height: geometry.actionSurface.height
-          )
-          .position(
-            x: geometry.actionSurface.midX,
-            y: geometry.actionSurface.midY
-          )
+      HSplitView {
+        LearningPathNavigator(workspace: workspace, selection: $selection)
+          .frame(minWidth: 220, idealWidth: 280, maxWidth: 440)
 
-        if let dock = geometry.leftDock {
-          dockColumn(side: .left)
-            .frame(width: dock.width, height: dock.height)
-            .position(x: dock.midX, y: dock.midY)
-        }
+        VSplitView {
+          ActionSurface(presentation: workspace.actionSurfacePresentation)
+            .frame(minWidth: 640, minHeight: 420)
 
-        if let dock = geometry.rightDock {
-          dockColumn(side: .right)
-            .frame(width: dock.width, height: dock.height)
-            .position(x: dock.midX, y: dock.midY)
-        }
-
-        VStack {
-          Spacer()
-          HStack {
-            WorkbenchStatusBanner(workspace: workspace, layout: $layout)
-              .frame(maxWidth: 420, alignment: .leading)
-            Spacer()
+          ScrollView {
+            MotionPanel(workspace: workspace)
+              .padding(10)
           }
-          .padding(12)
+          .frame(minHeight: 220, idealHeight: 260, maxHeight: 360)
+          .background(Color(nsColor: .controlBackgroundColor))
+        }
+        .frame(minWidth: 640, maxWidth: .infinity, maxHeight: .infinity)
+
+        LearningPathView(
+          workspace: workspace,
+          selection: $selection,
+          showUtilities: { utilitiesArePresented = true }
+        )
+        .frame(minWidth: 300, idealWidth: 380, maxWidth: 520)
+      }
+      .onChange(of: proxy.size.width) { _, width in
+        if utilitiesArePresented,
+          width < LearningWorkbenchLayoutPolicy.minimumWindowWidth
+        {
+          utilitiesArePresented = false
         }
       }
     }
+    .background(Color.black)
+    .inspector(isPresented: $utilitiesArePresented) {
+      WorkbenchUtilities(workspace: workspace)
+        .inspectorColumnWidth(min: 280, ideal: 360, max: 440)
+    }
+    .onChange(of: workspace.currentLearningPathItemID, initial: true) { _, itemID in
+      selection.updateCurrent(itemID)
+    }
     .toolbar {
-      WorkbenchToolbar(workspace: workspace, layout: $layout)
+      WorkbenchToolbar(workspace: workspace)
     }
     .toolbarRole(.editor)
-    .background(Color.black)
     .task {
       await workspace.refreshSerialDevices()
       await workspace.startPreferredCameraAtStartup()
     }
   }
-
-  private func dockColumn(side: WorkbenchDockSide) -> some View {
-    ScrollView {
-      LazyVStack(spacing: 8) {
-        ForEach(layout.visiblePanels(in: side)) { panel in
-          DockedWorkbenchPanel(panel: panel, layout: $layout) {
-            panelContent(panel)
-          }
-        }
-      }
-      .padding(8)
-    }
-    .scrollIndicators(.visible)
-    .background(.black.opacity(0.32))
-  }
-
-  @ViewBuilder
-  private func panelContent(_ panel: WorkbenchPanel) -> some View {
-    switch panel {
-    case .motion: MotionPanel(workspace: workspace)
-    case .camera: CameraPanel(workspace: workspace)
-    case .overlays: OverlayPanel(workspace: workspace)
-    case .learningPath: LearningPanel(workspace: workspace)
-    }
-  }
 }
 
-private struct LearningWindow: View {
+private struct WorkbenchUtilities: View {
   @Bindable var workspace: OperatorWorkspace
+  @State private var selectedUtility: WorkbenchUtility = .camera
 
   var body: some View {
-    LearningPathView(workspace: workspace)
+    VStack(spacing: 10) {
+      Picker("Utility", selection: $selectedUtility) {
+        ForEach(WorkbenchUtility.allCases) { utility in
+          Label(utility.title, systemImage: utility.systemImage).tag(utility)
+        }
+      }
+      .pickerStyle(.segmented)
+
+      ScrollView {
+        switch selectedUtility {
+        case .camera:
+          CameraPanel(workspace: workspace)
+        case .overlays:
+          OverlayPanel(workspace: workspace)
+        }
+      }
+    }
+    .padding(10)
   }
 }
 
-private struct DockedWorkbenchPanel<Content: View>: View {
-  let panel: WorkbenchPanel
-  @Binding var layout: WorkbenchLayoutState
-  @ViewBuilder let content: Content
+private enum WorkbenchUtility: CaseIterable, Identifiable {
+  case camera
+  case overlays
 
-  var body: some View {
-    VStack(spacing: 0) {
-      HStack(spacing: 7) {
-        Label(panel.rawValue, systemImage: panel.systemImage)
-          .font(.headline)
-        Spacer()
-        Button {
-          layout.toggleCollapsed(panel)
-        } label: {
-          Image(systemName: layout[panel].isCollapsed ? "chevron.down" : "chevron.up")
-        }
-        .buttonStyle(.plain)
-        .help(layout[panel].isCollapsed ? "Expand \(panel.rawValue)" : "Collapse \(panel.rawValue)")
-        Button {
-          layout.hide(panel)
-        } label: {
-          Image(systemName: "xmark")
-        }
-        .buttonStyle(.plain)
-        .help("Close \(panel.rawValue)")
-      }
-      .padding(.horizontal, 9)
-      .frame(height: 34)
+  var id: Self { self }
 
-      if !layout[panel].isCollapsed {
-        Divider()
-        content.padding(9)
-      }
+  var title: String {
+    switch self {
+    case .camera: "Camera"
+    case .overlays: "Overlays"
     }
-    .frame(maxWidth: .infinity, alignment: .top)
-    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+  }
+
+  var systemImage: String {
+    switch self {
+    case .camera: "camera"
+    case .overlays: "square.3.layers.3d"
+    }
   }
 }
 
@@ -542,133 +521,6 @@ private struct OverlayPanel: View {
             .foregroundStyle(.secondary)
         }
       }
-    }
-  }
-}
-
-private struct LearningPanel: View {
-  @Bindable var workspace: OperatorWorkspace
-  @Environment(\.openWindow) private var openWindow
-
-  var body: some View {
-    SectionPanel(title: "LEARNING") {
-      Text(
-        "The Learning Path keeps Connect, Enable Motion, discovery, drawing trials, and future adaptive work visible without turning learning progress into motion authority."
-      )
-      .font(.caption)
-      .foregroundStyle(.secondary)
-
-      Button("Open Learning Path") {
-        openWindow(id: "learning-path")
-      }
-      .buttonStyle(.borderedProminent)
-
-      ForEach(workspace.learningPathStagePresentations) { presentation in
-        fact(
-          "\(presentation.stage.number) \(presentation.stage.title)",
-          presentation.status.rawValue
-        )
-      }
-
-      Divider()
-
-      Text("JOG OBSERVATIONS")
-        .font(.caption.monospaced().bold())
-        .foregroundStyle(.secondary)
-
-      Text(
-        "Physical jog samples require one successful bounded motion plus exact live cap measurements before and after it. The camera does not observe pen height."
-      )
-      .font(.caption)
-      .foregroundStyle(.secondary)
-
-      Text("DIAGNOSTIC — NOT MOTION AUTHORITY")
-        .font(.caption.monospaced().bold())
-        .foregroundStyle(.orange)
-
-      Toggle(
-        "Record Jog Observations",
-        isOn: Binding(
-          get: { workspace.recordJogObservations },
-          set: { workspace.setRecordJogObservations($0) }
-        )
-      )
-      .toggleStyle(.switch)
-      .disabled(workspace.jogRequestInProgress)
-
-      Picker(
-        "Fixed assignment for next sample",
-        selection: Binding(
-          get: { workspace.selectedObservationSplit },
-          set: { workspace.selectObservationSplit($0) }
-        )
-      ) {
-        Text("TRAINING").tag(ModelObservationSplit.training)
-        Text("HOLDOUT").tag(ModelObservationSplit.holdout)
-      }
-      .pickerStyle(.segmented)
-      .disabled(workspace.jogRequestInProgress)
-
-      Text("The selected assignment is copied into the request and cannot change on a recorded sample.")
-        .font(.caption2)
-        .foregroundStyle(.secondary)
-
-      Button("Clear Samples") { workspace.clearJogObservationSamples() }
-        .disabled(workspace.clearJogObservationSamplesUnavailableReason != nil)
-
-      if let reason = workspace.clearJogObservationSamplesUnavailableReason {
-        Text(reason)
-          .font(.caption)
-          .foregroundStyle(.orange)
-      }
-
-      if workspace.frameMode == .simulated {
-        Text("SIMULATED — no physical observation can be recorded")
-          .font(.caption.monospaced().bold())
-          .foregroundStyle(.blue)
-        Text(workspace.simulatorLearningSummary)
-          .font(.caption2)
-          .foregroundStyle(.secondary)
-      }
-
-      fact("Samples", workspace.physicalJogObservationCountText)
-      fact("Dataset", workspace.jogResponseDatasetCountText)
-      fact("Response matrix", workspace.jogResponseMatrixText)
-      fact("Training residual", workspace.jogResponseTrainingResidualText)
-      fact("Holdout residual", workspace.jogResponseHoldoutResidualText)
-      fact("Last result", workspace.lastPhysicalJogObservationResultText)
-      fact("Start / final MPos", workspace.lastPhysicalJogPositionsText)
-      fact("Camera delta", workspace.lastPhysicalJogCameraDeltaText)
-      fact("Cap confidence", workspace.lastPhysicalJogConfidenceText)
-
-      if let failure = workspace.lastPhysicalJogFailureText {
-        Text(failure)
-          .font(.caption)
-          .foregroundStyle(.orange)
-          .textSelection(.enabled)
-      } else if let learnerError = workspace.jogResponseLearnerError {
-        Text(learnerError)
-          .font(.caption)
-          .foregroundStyle(.orange)
-          .textSelection(.enabled)
-      } else if workspace.recordJogObservations,
-        let reason = workspace.motionUnavailableReason
-      {
-        Text(reason)
-          .font(.caption)
-          .foregroundStyle(.orange)
-      }
-    }
-  }
-
-  private func fact(_ label: String, _ value: String) -> some View {
-    HStack(alignment: .firstTextBaseline) {
-      Text(label).font(.caption2).foregroundStyle(.secondary)
-      Spacer()
-      Text(value)
-        .font(.caption.monospaced())
-        .multilineTextAlignment(.trailing)
-        .textSelection(.enabled)
     }
   }
 }

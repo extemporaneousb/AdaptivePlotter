@@ -51,7 +51,7 @@ Browsing a row is presentation only and never advances, resets, or authorizes
 work. The current runtime action remains identifiable while history is reviewed.
 
 The exercise action strip shows only typed operations: Start, contextual choices,
-Cancel, motion-only Stop, Restart after settlement, Redo Current Step, and Record
+Cancel, motion-only Stop, Restart after settlement, Redo This Step, and Record
 Another Attempt where their runtime semantics are available. Critical cues are
 structured and emphasized so UP/DOWN, YES/NO, STOP, and directions cannot be
 lost inside prose. There is no separate Learning Path window or fixed-dock
@@ -132,7 +132,7 @@ attempt that produced it and the artifact revisions it actually consumed.
 Normal execution remains sequential, but invalidation follows this dependency
 graph rather than sequence number.
 
-Redo Current Step produces a replacement attempt. Once that attempt succeeds,
+Redo This Step produces a replacement attempt. Once that attempt succeeds,
 its artifact becomes current, the old accepted value becomes superseded, and all
 transitive derived artifacts that consumed the old revision are invalidated.
 Chronologically later but independent evidence is retained. Redoing the current

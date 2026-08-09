@@ -4,6 +4,16 @@ import Testing
 
 @Suite("Native workbench toolbar")
 struct WorkbenchTopBarLayoutTests {
+  @Test("toolbar contains only global controller and session controls")
+  func globalControlsOnly() {
+    #expect(
+      WorkbenchToolbarControl.allCases == [
+        .controllerSelection,
+        .connection,
+        .enableMotion,
+      ])
+  }
+
   @Test("toolbar owns camera plotter and motion indicators")
   func connectionIndicatorsAreFocused() {
     #expect(WorkbenchConnectionIndicator.allCases == [.camera, .plotter, .motionGuard])

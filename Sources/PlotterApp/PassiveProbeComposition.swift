@@ -26,14 +26,14 @@ enum MachineSessionComposition {
     requestDrawingStroke: { request in
       await session.requestDrawingStroke(request)
     },
-    requestObservedJog: { request, observe in
-      await session.requestObservedJog(request, observe: observe)
-    },
     requestPenActuation: { command in
       await session.requestPenActuation(command)
     },
-    requestJogCancel: {
-      await session.requestJogCancel()
+    requestBoundaryMotion: { request in
+      await session.requestBoundaryMotion(request)
+    },
+    requestJogCancel: { intent in
+      await session.requestJogCancel(intent)
     },
     disconnect: {
       await session.disconnect()
@@ -110,24 +110,19 @@ private actor PersistentMachineSession {
     return await interpreter.requestDrawingStroke(request)
   }
 
-  func requestJogCancel() async -> JogCancelOutcome {
-    guard let interpreter else { return .refused(.noSerialDeviceSelected) }
-    return await interpreter.requestJogCancel()
-  }
-
-  func requestObservedJog(
-    _ request: PhysicalJogObservationRequest,
-    observe: @Sendable (PhysicalObservationPhase, UInt64) async
-      -> Result<VisibleToolFrameObservation, PhysicalJogObservationFailure>
-  ) async -> PhysicalJogObservationOutcome {
+  func requestBoundaryMotion(_ request: BoundaryMotionRequest) async -> BoundaryMotionOutcome {
     guard let interpreter else {
-      let motionOutcome = MotionOutcome.refused(.noSerialDeviceSelected)
-      return .notRecorded(
-        motionOutcome: motionOutcome,
-        failure: .motionNotCompleted(motionOutcome)
+      return .needsAttention(
+        ownerID: request.ownerID,
+        terminal: .refusal(.noSerialDeviceSelected)
       )
     }
-    return await interpreter.requestObservedJog(request, observe: observe)
+    return await interpreter.requestBoundaryMotion(request)
+  }
+
+  func requestJogCancel(_ intent: JogCancelIntent) async -> JogCancelOutcome {
+    guard let interpreter else { return .refused(.noSerialDeviceSelected) }
+    return await interpreter.requestJogCancel(intent)
   }
 
   func requestPenActuation(_ command: PenCommand) async -> PenOutcome {

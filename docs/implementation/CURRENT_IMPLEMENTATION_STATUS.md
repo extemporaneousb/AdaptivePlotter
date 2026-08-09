@@ -36,26 +36,27 @@ tests, bundle privacy declarations, and current UI.
 
 ### Workbench and Learning Path
 
-- The current source still has a primary camera-first workspace plus an
-  auxiliary Learning Path window, a fixed custom dock allocator, a toolbar
-  contextual Stop, and a standalone Jog Observations diagnostic surface.
-- Those presentation surfaces are superseded. The accepted next increment has
-  one singleton window with resizable Learning Path, always-mounted camera, and
-  selected exercise/action regions. Stop moves into the exercise action strip;
-  no separate Learning Path or Jog Observations window/control survives.
+- One singleton window contains a user-resizable Learning Path navigator, the
+  always-mounted protected camera/action surface, and selected exercise detail.
+- The persistent pinned exercise strip is the sole exercise-control location;
+  no auxiliary path window, fixed dock allocator, panel-launcher chrome,
+  separate jog-recording surface, or exercise-specific toolbar Stop survives.
 - Visible motion language is Enable Motion, Motion Enabled, or Motion Disabled.
   The internal runtime retains `MotionGuard` as its precise safety type.
 - The Learning Path shows Complete, Current, Next, Future, and Needs Attention,
   with no global percentage.
-- One current panel shows number, participant, action, expected observation,
-  requested feed/source, typed choices, and an actionable runtime-owned
-  unavailable reason.
+- Structured exercise detail shows number, participant, timeline, instructions,
+  expected observation, evidence, requested feed/source, typed choices, and an
+  actionable runtime-owned unavailable reason.
 - Start actions cannot silently no-op; their direct unavailable reason is shown.
 - Clear acceptance is unavailable until the current label and observation are
   both Clear.
 
-The accepted workbench and typed Redo/Record Another Attempt semantics are
-specified but not yet implemented in the source described above.
+Redo This Step and Record Another Attempt are distinct typed actions. Successful
+replacement atomically supersedes the old accepted artifact and invalidates only
+declared transitive consumers. Additional attempts retain compatible provenance
+and expose typed aggregates with sample count, estimator identity, uncertainty
+or categorical counts, and included attempt identities.
 
 ### Controller
 
@@ -81,10 +82,9 @@ specified but not yet implemented in the source described above.
 
 ### Unified Stop
 
-- `ContextualStopTarget` covers Boundary Discovery, manual jog, observed jog,
-  and drawing trial.
-- The primary toolbar is currently the only visible contextual software Stop;
-  that placement is outgoing.
+- `ContextualStopTarget` covers Boundary Discovery, manual jog, and drawing
+  trial.
+- The pinned exercise action strip is the only visible contextual software Stop.
 - Boundary Stop records the operator event before one cancel byte, awaits the
   original owner through Idle/final MPos, captures a strictly newer exact frame,
   updates the selected side posterior, and advances.
@@ -99,11 +99,11 @@ specified but not yet implemented in the source described above.
   dependent on the final human observation of Up.
 - Boundary Discovery supports four directions, but one successful relevant side
   is sufficient for the visible transition.
-- The current implementation uses fixed 300 mm X and 150 mm Y jog horizons and
-  fails the transaction if the request completes before Stop. Those hard-coded
-  horizons are a known defect: the accepted behavior is one operator-stopped
-  logical boundary owner, with a real controller limit/fault producing Needs
-  Attention rather than boundary evidence.
+- One typed logical boundary owner renews finite GRBL wire segments after
+  unambiguous natural completion. Stop closes renewal before controller cancel;
+  a real limit, alarm, refusal, disconnect, fault, or ambiguity produces Needs
+  Attention and no boundary evidence. There is no application-selected
+  completion horizon.
 - Other directions remain optional evidence.
 - Boundary evidence retains final controller MPos, exact post-stop frame and
   configuration, observed tool centroid, side association, uncertainty, and
@@ -138,16 +138,21 @@ specified but not yet implemented in the source described above.
   assessments.
 - Missing or unclear ink is explicit and never triggers redraw.
 
-### Outgoing Jog Observations diagnostic
+### Artifact revisions and exercise attempts
 
-- The current source can separately record physical jog observations and fit a
-  current-session online jog-response diagnostic.
-- This is not a numbered Learning Path exercise and is inconsistent with the
-  accepted attempt model. The next increment removes its UI, observed-jog Stop
-  target, dataset/model path, tests, and documentation unless an implementation
-  audit proves a lower-level primitive is consumed by a real numbered exercise.
-- `Record Another Attempt` must be implemented on each exercise's typed attempt
-  group and must not rename or wrap this diagnostic.
+- Each accepted step result has a typed artifact revision and exact attempt ID.
+- Declared consumed-revision edges, not row order, drive transitive
+  invalidation. Independent boundary observations survive a Pen Interaction
+  replacement; replacing a Clear pose or clean reference invalidates only the
+  trial artifacts that cite that exact revision.
+- Failed, refused, unclear, cancelled, and ambiguous attempts remain provenance
+  but cannot manufacture an accepted value or enter a successful aggregate.
+- Compatibility binds camera configuration, coordinate space, units,
+  direction/group, and algorithm revision. Incompatible attempts are not pooled.
+- Numeric aggregates expose estimator revision and uncertainty; categorical
+  aggregates expose counts/proportions; current state uses the latest accepted
+  observation. Exact frames, controller events, strings, identifiers, refusals,
+  and ambiguity remain individual provenance.
 
 ### Camera and vision
 
@@ -191,13 +196,18 @@ specified but not yet implemented in the source described above.
 
 ## Automated evidence for this increment
 
-The currently recorded automated coverage includes:
+The automated coverage includes:
 
-- exact five-stage/substep presentation vocabulary and typed operator actions;
-- one-cancel manual and boundary Stop behavior;
+- exact five-stage/substep presentation vocabulary, pure navigator selection,
+  protected camera allocation, structured cues, and typed operator actions;
+- atomic replacement, explicit dependency invalidation, compatible attempt
+  aggregation, unsuccessful-attempt exclusion, and latest-state selection;
+- one logical boundary owner across finite segments, Stop-versus-renewal
+  latching, and one-cancel manual and boundary Stop behavior;
 - Stop-before-cancel event order, Idle/final MPos, exact newer frame, posterior,
   and one-boundary progression;
-- active-boundary shutdown settlement;
+- Cancel and active-boundary shutdown settlement without successful boundary
+  evidence;
 - controller-ceiling and fallback feed selection;
 - output announcement ordering, identity isolation, and advisory failure;
 - typed discovery transactions and 4.6 assessment;
@@ -244,9 +254,8 @@ Those facts remain bounded to their recorded sessions. They do not validate the
 new integrated Learning Path, spoken cue timing, operator-stopped Boundary
 Discovery, unified Stop progression, or full observed line trial.
 
-The recorded jog-response matrix is historical evidence only. Its existence
-does not justify retaining the outgoing Jog Observations product surface or
-model path.
+The recorded response matrix is historical evidence only. Its existence does
+not justify restoring the removed jog-response product surface or model path.
 
 ## Not yet physically verified
 
@@ -268,8 +277,7 @@ unverified for the integrated current build:
 
 ## Next attended action
 
-First land the one-window workbench, attempt model, Jog Observations deletion,
-and operator-stopped Boundary Discovery increment. Then close any raw SwiftPM
-process, run `make run-app`, verify one exact bundled instance, keep the cutoff
-reachable, and execute [First Hardware Session](FIRST_HARDWARE_SESSION.md).
-Record controller, camera, human-observation, and ink evidence separately.
+Close any raw SwiftPM process manually, run `make run-app`, verify one exact
+bundled instance, keep the cutoff reachable, and execute
+[First Hardware Session](FIRST_HARDWARE_SESSION.md). Record controller, camera,
+human-observation, and ink evidence separately.

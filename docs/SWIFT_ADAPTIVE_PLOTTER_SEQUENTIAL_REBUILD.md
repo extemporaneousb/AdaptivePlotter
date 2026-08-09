@@ -62,9 +62,9 @@ reasons.
 There is no global percentage, arbitrary stage tab order, second start ceremony,
 or duplicate open action. Adaptive Drawing remains Future.
 
-The outgoing presentation still uses an auxiliary Learning Path window, a fixed
-dock allocator, and toolbar Stop. Those surfaces are superseded by Work item 7
-and must be deleted rather than retained as compatibility routes.
+The Learning Path now lives in the singleton camera-first window. Its navigator,
+always-mounted camera, and exercise detail use native resizable regions, and the
+one contextual Stop lives only in the pinned exercise action strip.
 
 ## Work item 2 — Human-Guided Discovery — implemented in software
 
@@ -82,12 +82,11 @@ Idle/final MPos, captures a strictly newer exact frame, updates a side posterior
 and advances. One relevant side is sufficient for the current path; other sides
 remain optional.
 
-The current implementation's fixed 300 mm X and 150 mm Y request horizons are
-superseded. Work item 7 must remove them as normal termination behavior.
 Boundary motion remains one logical attempt until operator Stop or a real
-controller limit, alarm, disconnect, or fault. Finite GRBL segments may continue
+controller limit, alarm, disconnect, or fault. Finite GRBL segments continue
 only after unambiguous completion, with Stop closing renewal first; a segment
-completion never becomes boundary evidence and ambiguity is never resent.
+completion never becomes boundary evidence and ambiguity is never resent. There
+is no application-selected completion horizon.
 
 ### Clear-View Discovery
 
@@ -100,14 +99,11 @@ attended run.
 
 ## Work item 3 — Unified Stop runtime — implemented in software
 
-One typed Stop route currently covers boundary, manual, observed-jog, and
-drawing targets. The observed-jog target is outgoing and Work item 7 deletes it
-with its standalone diagnostic workflow. The retained route covers boundary,
-manual, and drawing targets.
-A target latch prevents repeated cancel bytes. Manual cancellation creates no
-boundary evidence. Work item 7 relocates its only visual control from the
-toolbar into the persistent exercise action strip without duplicating the
-runtime route.
+One typed Stop route covers boundary, manual, and drawing targets. The former
+observed-jog target and standalone diagnostic workflow are absent. A target
+latch prevents repeated cancel bytes. Manual cancellation creates no boundary
+evidence. Its only visual control is in the persistent exercise action strip
+without duplicating the runtime route.
 
 Shutdown closes new admission, settles a latched motion once, then drains and
 disconnects. Regression coverage includes the former boundary-stall path and
@@ -149,9 +145,9 @@ It records one attributable episode, exact frames, controller evidence, anchor,
 new-ink observation, residual, and typed human comparison. Unclear ink causes no
 redraw. Physical end-to-end ink validation remains pending.
 
-## Work item 7 — One-window learning workbench and repeat semantics — next
+## Work item 7 — One-window learning workbench and repeat semantics — implemented
 
-This is the next coordinated implementation increment. It must:
+This coordinated increment delivers:
 
 - retain exactly one singleton main window;
 - delete the auxiliary Learning Path window, Open Learning Path action, fixed
@@ -171,11 +167,11 @@ This is the next coordinated implementation increment. It must:
   lower-level primitive has a concrete typed consumer in a numbered Learning
   Path exercise; do not preserve or rename that workflow as Record Another
   Attempt;
-- replace hard-coded 300 mm X / 150 mm Y Boundary Discovery completion with one
-  typed operator-stopped logical owner; prove Stop prevents any segment renewal,
+- removal of the former fixed X/Y Boundary Discovery completion horizons in
+  favor of one typed operator-stopped logical owner; Stop prevents segment renewal,
   natural segment completion creates no evidence, faults become Needs Attention,
   and ambiguity is never renewed;
-- implement Redo Current Step as atomic accepted-value replacement followed by
+- implement Redo This Step as atomic accepted-value replacement followed by
   transitive invalidation over declared data dependencies, not row order;
 - prove that redoing Pen Interaction does not discard independent boundary
   observations;
@@ -184,8 +180,8 @@ This is the next coordinated implementation increment. It must:
   or categorical counts, and full provenance;
 - refuse silent aggregation across incompatible frame/configuration, coordinate,
   units, or algorithm revisions;
-- remove old source, views, tests, and documentation that encode the outgoing
-  model.
+- deletion of old source, views, tests, and documentation that encoded the
+  outgoing model.
 
 Cancel is not a successful Boundary Stop. During active motion it may share the
 one cancel/settle primitive but records an abandoned attempt and no boundary or
@@ -195,7 +191,7 @@ resends an ambiguous write.
 The copy-paste coordinator specification is
 [Learning Workbench Multi-Agent Execution Prompt](implementation/LEARNING_WORKBENCH_MULTI_AGENT_EXECUTION_PROMPT.md).
 
-## Work item 8 — Repeatable geometric learning — after the workbench increment
+## Work item 8 — Repeatable geometric learning — next
 
 After the attended single-trial loop is reliable:
 

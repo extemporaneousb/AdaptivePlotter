@@ -231,6 +231,228 @@ struct RunInterpreterTests {
     #expect(snapshot.lastMotionOutcome == .cancelled(finalPosition: finalPosition))
   }
 
+  @Test("boundary natural segment completion renews the same logical owner and records no result")
+  func boundaryNaturalCompletionRenewsSameOwner() async throws {
+    let ready = try await readyBoundaryCancellationFixture(naturalCompletionsBeforeBlock: 1)
+    let boundaryTask = Task {
+      await ready.interpreter.requestBoundaryMotion(ready.request)
+    }
+    defer { boundaryTask.cancel() }
+    await ready.gate.waitUntilBlockedRead()
+
+    let snapshot = await ready.interpreter.snapshot()
+    #expect(snapshot.currentOperation == .boundaryMotion(ready.request))
+    #expect(snapshot.lastBoundaryMotionOutcome == nil)
+    #expect(ready.link.completedWriteCount == ready.writesThroughActiveStatus)
+
+    let cancelTask = Task {
+      await ready.interpreter.requestJogCancel(.cancelAttempt)
+    }
+    defer { cancelTask.cancel() }
+    await waitForInterpreterWriteCount(ready.link, atLeast: ready.writesThroughCancel)
+    await ready.gate.release()
+
+    let finalPosition = try MachinePosition(x: 1.4, y: 0)
+    #expect(await cancelTask.value == .completed(finalPosition: finalPosition))
+    guard case .settled(let settlement) = await boundaryTask.value else {
+      Issue.record("Expected the renewed boundary owner to settle")
+      return
+    }
+    #expect(settlement.ownerID == ready.request.ownerID)
+    #expect(settlement.intent == .cancelAttempt)
+    #expect(settlement.completedSegmentCount == 1)
+    #expect(settlement.finalPosition == finalPosition)
+  }
+
+  @Test("Stop racing renewed-segment admission prevents the renewal write")
+  func boundaryStopAdmissionRace() async throws {
+    let ready = try await readyBoundaryAdmissionRaceFixture()
+    let boundaryTask = Task {
+      await ready.interpreter.requestBoundaryMotion(ready.request)
+    }
+    defer { boundaryTask.cancel() }
+    await ready.gate.waitUntilBlockedRead()
+
+    #expect(
+      await ready.interpreter.requestJogCancel(.operatorStop)
+        == .refused(.noActiveJog)
+    )
+    await ready.gate.release()
+
+    guard case .settled(let settlement) = await boundaryTask.value else {
+      Issue.record("Expected the Stop latch to settle the owner at the previous segment")
+      return
+    }
+    #expect(settlement.intent == .operatorStop)
+    #expect(settlement.completedSegmentCount == 1)
+    #expect(settlement.finalPosition == (try MachinePosition(x: 1, y: 0)))
+    #expect(settlement.jogCancelOutcome == .refused(.noActiveJog))
+    #expect(ready.link.completedWriteCount == ready.expectedWriteCount)
+  }
+
+  @Test("boundary Stop latches once, cancels once, and settles the original owner")
+  func boundaryStopSettlesOnce() async throws {
+    let ready = try await readyBoundaryCancellationFixture(naturalCompletionsBeforeBlock: 0)
+    let boundaryTask = Task {
+      await ready.interpreter.requestBoundaryMotion(ready.request)
+    }
+    defer { boundaryTask.cancel() }
+    await ready.gate.waitUntilBlockedRead()
+
+    let stopTask = Task {
+      await ready.interpreter.requestJogCancel(.operatorStop)
+    }
+    defer { stopTask.cancel() }
+    await waitForInterpreterWriteCount(ready.link, atLeast: ready.writesThroughCancel)
+    #expect(
+      await ready.interpreter.requestJogCancel(.operatorStop)
+        == .refused(.alreadyRequested)
+    )
+    #expect(ready.link.completedWriteCount == ready.writesThroughCancel)
+    await ready.gate.release()
+
+    let finalPosition = try MachinePosition(x: 0.4, y: 0)
+    #expect(await stopTask.value == .completed(finalPosition: finalPosition))
+    guard case .settled(let settlement) = await boundaryTask.value else {
+      Issue.record("Expected operator-stopped boundary settlement")
+      return
+    }
+    #expect(settlement.intent == .operatorStop)
+    #expect(settlement.completedSegmentCount == 0)
+    #expect(settlement.finalPosition == finalPosition)
+    #expect(settlement.jogCancelOutcome == .completed(finalPosition: finalPosition))
+    #expect(ready.link.completedWriteCount == ready.writesThroughCancel + 1)
+  }
+
+  @Test("Boundary Cancel settles once without an operator-Stop disposition")
+  func boundaryCancelDisposition() async throws {
+    let ready = try await readyBoundaryCancellationFixture(naturalCompletionsBeforeBlock: 0)
+    let boundaryTask = Task {
+      await ready.interpreter.requestBoundaryMotion(ready.request)
+    }
+    defer { boundaryTask.cancel() }
+    await ready.gate.waitUntilBlockedRead()
+    let cancelTask = Task {
+      await ready.interpreter.requestJogCancel(.cancelAttempt)
+    }
+    defer { cancelTask.cancel() }
+    await waitForInterpreterWriteCount(ready.link, atLeast: ready.writesThroughCancel)
+    await ready.gate.release()
+
+    _ = await cancelTask.value
+    guard case .settled(let settlement) = await boundaryTask.value else {
+      Issue.record("Expected cancelled-attempt boundary settlement")
+      return
+    }
+    #expect(settlement.intent == .cancelAttempt)
+    #expect(settlement.intent != .operatorStop)
+    #expect(ready.link.completedWriteCount == ready.writesThroughCancel + 1)
+  }
+
+  @Test("shutdown closes boundary renewal and settles once")
+  func boundaryShutdownSettlement() async throws {
+    let ready = try await readyBoundaryCancellationFixture(naturalCompletionsBeforeBlock: 0)
+    let boundaryTask = Task {
+      await ready.interpreter.requestBoundaryMotion(ready.request)
+    }
+    defer { boundaryTask.cancel() }
+    await ready.gate.waitUntilBlockedRead()
+    let disconnectTask = Task { await ready.interpreter.disconnect() }
+    defer { disconnectTask.cancel() }
+    await waitForInterpreterWriteCount(ready.link, atLeast: ready.writesThroughCancel)
+    await ready.gate.release()
+
+    await disconnectTask.value
+    guard case .settled(let settlement) = await boundaryTask.value else {
+      Issue.record("Expected shutdown boundary settlement")
+      return
+    }
+    #expect(settlement.intent == .shutdown)
+    #expect(ready.link.completedWriteCount == ready.writesThroughCancel + 1)
+    #expect(await ready.interpreter.snapshot().machine.connection == .disconnected)
+  }
+
+  @Test("shutdown during renewed-segment admission awaits the owner without a renewal write")
+  func boundaryShutdownAdmissionRace() async throws {
+    let ready = try await readyBoundaryAdmissionRaceFixture()
+    let boundaryTask = Task {
+      await ready.interpreter.requestBoundaryMotion(ready.request)
+    }
+    defer { boundaryTask.cancel() }
+    await ready.gate.waitUntilBlockedRead()
+    let disconnectTask = Task { await ready.interpreter.disconnect() }
+    defer { disconnectTask.cancel() }
+    await waitForInterpreterJogCancelOutcome(
+      ready.interpreter,
+      expected: .refused(.noActiveJog)
+    )
+    await ready.gate.release()
+
+    await disconnectTask.value
+    guard case .settled(let settlement) = await boundaryTask.value else {
+      Issue.record("Expected shutdown to await the pre-transmission boundary owner")
+      return
+    }
+    #expect(settlement.intent == .shutdown)
+    #expect(settlement.completedSegmentCount == 1)
+    #expect(settlement.jogCancelOutcome == .refused(.noActiveJog))
+    #expect(ready.link.completedWriteCount == ready.expectedWriteCount)
+    #expect(await ready.interpreter.snapshot().machine.connection == .disconnected)
+  }
+
+  @Test("boundary controller terminals become Needs Attention and never renew")
+  func boundaryTerminalOutcomes() async throws {
+    let cases: [(BoundaryTerminalScript, BoundaryMotionTerminal)] = [
+      (
+        .limit,
+        .limitAsserted(
+          pins: "X",
+          finalPosition: try MachinePosition(x: 1, y: 0)
+        )
+      ),
+      (.alarm, .alarm("ALARM:1")),
+      (.refusal, .refusal(.controllerRejected("error:15"))),
+      (.disconnect, .disconnected),
+      (.fault, .fault(.malformedReply("untrusted controller text"))),
+    ]
+
+    for (script, expectedTerminal) in cases {
+      let ready = try await readyBoundaryTerminalFixture(script)
+      let outcome = await ready.interpreter.requestBoundaryMotion(ready.request)
+
+      #expect(
+        outcome == .needsAttention(
+          ownerID: ready.request.ownerID,
+          terminal: expectedTerminal
+        )
+      )
+      #expect(ready.link.completedWriteCount == ready.expectedWriteCount)
+      #expect(await ready.interpreter.snapshot().currentOperation == .idle)
+    }
+  }
+
+  @Test("ambiguous boundary segment is sticky and is never renewed or resent")
+  func ambiguousBoundaryDoesNotRenew() async throws {
+    let ready = try await readyBoundaryTerminalFixture(.fault)
+    let outcome = await ready.interpreter.requestBoundaryMotion(ready.request)
+    let writesAfterAmbiguity = ready.link.completedWriteCount
+
+    #expect(
+      outcome == .needsAttention(
+        ownerID: ready.request.ownerID,
+        terminal: .fault(.malformedReply("untrusted controller text"))
+      )
+    )
+    #expect(
+      await ready.interpreter.requestBoundaryMotion(ready.request)
+        == .needsAttention(
+          ownerID: ready.request.ownerID,
+          terminal: .fault(.malformedReply("untrusted controller text"))
+        )
+    )
+    #expect(ready.link.completedWriteCount == writesAfterAmbiguity)
+  }
+
   @Test("interpreter projects the controller refusal when no session is connected")
   func disconnectedJogCancelRefusal() async throws {
     let fixture = try await InterpreterFixture.make()
@@ -339,205 +561,6 @@ struct RunInterpreterTests {
     #expect(scriptedLink.completedWriteCount == PassiveQuery.allCases.count + 3)
   }
 
-  @Test("failed before observation sends no machine writes")
-  func failedBeforeObservationSendsNoMachineWrites() async throws {
-    let fixture = try await InterpreterFixture.make()
-    let request = try physicalJogRequest()
-
-    let outcome = await fixture.interpreter.requestObservedJog(
-      request,
-      observe: { phase, newerThan in
-        #expect(phase == .beforeMotion)
-        #expect(newerThan == 0)
-        return .failure(.frameUnavailable(.beforeMotion))
-      }
-    )
-
-    #expect(
-      outcome == .notRecorded(
-        motionOutcome: nil,
-        failure: .frameUnavailable(.beforeMotion)
-      )
-    )
-    #expect(fixture.link.completedWriteCount == 0)
-    #expect(await fixture.interpreter.snapshot().lastMotionOutcome == nil)
-  }
-
-  @Test("observed jog captures strictly ordered evidence around one motion")
-  func observedJogCapturesStrictlyOrderedEvidence() async throws {
-    let request = try physicalJogRequest()
-    let before = try await visibleObservation(
-      id: "before", sequence: 1, captureNanoseconds: 100)
-    let midMotion = try await visibleObservation(
-      id: "mid-motion", sequence: 2, captureNanoseconds: 200, capOffsetX: 1)
-    let after = try await visibleObservation(
-      id: "after", sequence: 3, captureNanoseconds: 350, capOffsetX: 3, capOffsetY: -2)
-    let script = FreshObservationScript(before: before, postCandidates: [midMotion, after])
-    let fixture = try await readyObservedJogFixture(
-      request: request.motion,
-      clockStartNanoseconds: 100,
-      finalStatusDelayNanoseconds: 150
-    )
-    let writesBeforeMotion = fixture.link.completedWriteCount
-
-    let outcome = await fixture.interpreter.requestObservedJog(
-      request,
-      observe: { phase, newerThan in
-        await script.next(phase: phase, newerThan: newerThan)
-      }
-    )
-
-    guard case .recorded(let observation) = outcome else {
-      Issue.record("Expected a recorded observed jog, got \(outcome)")
-      return
-    }
-    let expectedStart = try MachinePosition(x: 0, y: 0)
-    let expectedFinal = try MachinePosition(x: 1, y: 0)
-    let expectedCameraDelta = try Vector2<CameraPixelSpace>(dx: 3, dy: -2)
-    #expect(observation.startPosition == expectedStart)
-    #expect(observation.finalPosition == expectedFinal)
-    #expect(observation.startControllerSampleNanoseconds == 150)
-    #expect(observation.finalControllerSampleNanoseconds == 300)
-    #expect(observation.before.captureNanoseconds <= observation.startControllerSampleNanoseconds)
-    #expect(observation.after.captureNanoseconds > observation.finalControllerSampleNanoseconds)
-    #expect(observation.before == before)
-    #expect(observation.after == after)
-    #expect(observation.cameraDelta == expectedCameraDelta)
-    #expect(
-      await script.calls == [
-        ObservationCall(phase: .beforeMotion, newerThan: 0),
-        ObservationCall(phase: .afterMotion, newerThan: 300),
-      ]
-    )
-    #expect(fixture.link.completedWriteCount == writesBeforeMotion + 3)
-    let snapshot = await fixture.interpreter.snapshot()
-    #expect(snapshot.currentOperation == .idle)
-    #expect(snapshot.lastMotionOutcome == .acceptedThenCompleted(
-      finalPosition: try MachinePosition(x: 1, y: 0)))
-    #expect(snapshot.lastPhysicalJogObservationOutcome == outcome)
-  }
-
-  @Test("motion refusal skips after observation and preserves the refusal")
-  func motionRefusalSkipsAfterObservation() async throws {
-    let fixture = try await InterpreterFixture.make()
-    let before = try await visibleObservation(
-      id: "before", sequence: 1, captureNanoseconds: 10)
-    let script = ObservationScript(results: [.success(before)])
-    let request = try physicalJogRequest()
-
-    let outcome = await fixture.interpreter.requestObservedJog(
-      request,
-      observe: { phase, newerThan in
-        await script.next(phase: phase, newerThan: newerThan)
-      }
-    )
-    let refusal = MotionOutcome.refused(.notConnected)
-
-    #expect(
-      outcome == .notRecorded(
-        motionOutcome: refusal,
-        failure: .motionNotCompleted(refusal)
-      )
-    )
-    #expect(await script.calls.count == 1)
-    #expect(fixture.link.completedWriteCount == 0)
-  }
-
-  @Test("missing post-completion frame preserves completed motion without resend")
-  func missingPostCompletionFramePreservesCompletedMotion() async throws {
-    let request = try physicalJogRequest()
-    let before = try await visibleObservation(
-      id: "before", sequence: 1, captureNanoseconds: 100)
-    let midMotion = try await visibleObservation(
-      id: "mid-motion", sequence: 2, captureNanoseconds: 200, capOffsetX: 1)
-    let script = FreshObservationScript(before: before, postCandidates: [midMotion])
-    let fixture = try await readyObservedJogFixture(
-      request: request.motion,
-      clockStartNanoseconds: 100,
-      finalStatusDelayNanoseconds: 150
-    )
-    let writesBeforeMotion = fixture.link.completedWriteCount
-    let completed = MotionOutcome.acceptedThenCompleted(
-      finalPosition: try MachinePosition(x: 1, y: 0))
-
-    let outcome = await fixture.interpreter.requestObservedJog(
-      request,
-      observe: { phase, newerThan in
-        await script.next(phase: phase, newerThan: newerThan)
-      }
-    )
-
-    #expect(
-      outcome == .notRecorded(
-        motionOutcome: completed,
-        failure: .frameUnavailable(.afterMotion)
-      )
-    )
-    #expect(
-      await script.calls == [
-        ObservationCall(phase: .beforeMotion, newerThan: 0),
-        ObservationCall(phase: .afterMotion, newerThan: 300),
-      ]
-    )
-    #expect(fixture.link.completedWriteCount == writesBeforeMotion + 3)
-    let snapshot = await fixture.interpreter.snapshot()
-    #expect(snapshot.lastMotionOutcome == completed)
-    #expect(snapshot.machine.stickyAmbiguity == nil)
-    let expectedFinal = try MachinePosition(x: 1, y: 0)
-    #expect(snapshot.machine.position == expectedFinal)
-  }
-
-  @Test("observed operation refuses duplicate jog pen and probe requests")
-  func observedOperationSerializesAllPhysicalRequests() async throws {
-    let fixture = try await InterpreterFixture.make()
-    let request = try physicalJogRequest()
-    let gate = BlockingObservation()
-    let observedTask = Task {
-      await fixture.interpreter.requestObservedJog(
-        request,
-        observe: { phase, newerThan in
-          await gate.observe(phase: phase, newerThan: newerThan)
-        }
-      )
-    }
-    await gate.waitUntilRequested()
-
-    #expect(
-      await fixture.interpreter.requestRelativeJog(request.motion)
-        == .refused(.operationInFlight)
-    )
-    #expect(
-      await fixture.interpreter.requestPenActuation(.raise)
-        == .refused(.operationInFlight)
-    )
-    await #expect(throws: RunInterpreterError.transitionAlreadyInFlight) {
-      try await fixture.interpreter.requestPassiveProbe()
-    }
-    let duplicate = await fixture.interpreter.requestObservedJog(
-      request,
-      observe: { _, _ in
-        Issue.record("A duplicate observed jog must not request a camera frame")
-        return .failure(.frameUnavailable(.beforeMotion))
-      }
-    )
-    let refused = MotionOutcome.refused(.operationInFlight)
-    #expect(
-      duplicate == .notRecorded(
-        motionOutcome: refused,
-        failure: .motionNotCompleted(refused)
-      )
-    )
-
-    await gate.release(with: .failure(.frameUnavailable(.beforeMotion)))
-    #expect(
-      await observedTask.value == .notRecorded(
-        motionOutcome: nil,
-        failure: .frameUnavailable(.beforeMotion)
-      )
-    )
-    #expect(fixture.link.completedWriteCount == 0)
-  }
-
   @Test("pre-command open failure records the current failure and probe finish")
   func openFailureIsRecorded() async throws {
     let directory = FileManager.default.temporaryDirectory
@@ -606,138 +629,6 @@ private func interpreterDrawingConfigurationExchange() -> SimulatedCommandExchan
       "$110=500\r\n$111=500\r\n$120=10\r\n$121=10\r\nok\r\n"
     ]
   )
-}
-
-private func physicalJogRequest() throws -> PhysicalJogObservationRequest {
-  PhysicalJogObservationRequest(
-    motion: RelativeJogRequest(
-      delta: try Vector2<MachineSpace>(dx: 1, dy: 0),
-      feedMMPerMinute: 60
-    ),
-    split: .training
-  )
-}
-
-private func visibleObservation(
-  id: String,
-  sequence: UInt64,
-  captureNanoseconds: UInt64,
-  configurationID: CameraConfigurationID = CameraConfigurationID(
-    UUID(uuidString: "00000000-0000-0000-0000-000000000123")!
-  ),
-  capOffsetX: Int = 0,
-  capOffsetY: Int = 0
-) async throws -> VisibleToolFrameObservation {
-  let frame = try observedJogCapFrame(
-    id: FrameID(rawValue: id),
-    sequence: sequence,
-    captureNanoseconds: captureNanoseconds,
-    configurationID: configurationID,
-    capOffsetX: capOffsetX,
-    capOffsetY: capOffsetY
-  )
-  return try VisibleToolFrameObservation(
-    phase: sequence == 1 ? .beforeMotion : .afterMotion,
-    displayedFrame: DisplayedFrame(
-      source: .live(CameraDeviceID(rawValue: "observed-jog-camera")),
-      frame: frame
-    ),
-    measurement: try await observedJogSceneMeasurement(frame)
-  )
-}
-
-private func observedJogCapFrame(
-  id: FrameID,
-  sequence: UInt64,
-  captureNanoseconds: UInt64,
-  configurationID: CameraConfigurationID,
-  capOffsetX: Int,
-  capOffsetY: Int
-) throws -> StampedFrame {
-  let width = 12
-  let height = 12
-  var bytes = Array(repeating: UInt8(0), count: width * height * 4)
-  for y in (4 + capOffsetY)...(5 + capOffsetY) {
-    for x in (4 + capOffsetX)...(5 + capOffsetX) {
-      let offset = (y * width + x) * 4
-      bytes[offset + 1] = 255
-      bytes[offset + 3] = 255
-    }
-  }
-  return try StampedFrame(
-    id: id,
-    sequence: sequence,
-    captureNanoseconds: captureNanoseconds,
-    cameraConfigurationID: configurationID,
-    width: width,
-    height: height,
-    rowBytes: width * 4,
-    pixelFormat: .bgra8,
-    bytes: OwnedFrameBytes(bytes)
-  )
-}
-
-private func observedJogSceneMeasurement(
-  _ frame: StampedFrame
-) async throws -> PlotterSceneMeasurement {
-  let priors = try PlotterSceneVisionPriors(
-    capSearchRegion: PixelRect(x: 0, y: 0, width: frame.width, height: frame.height),
-    topFrameSideRegion: PixelRect(x: 0, y: 0, width: frame.width, height: 3),
-    rightFrameSideRegion: PixelRect(
-      x: frame.width - 3,
-      y: 0,
-      width: 3,
-      height: frame.height
-    ),
-    minimumCapPixels: 3,
-    maximumCapPixels: 16,
-    lineResidualLimitPixels: 2,
-    algorithmRevision: "observed-jog-test-v1"
-  )
-  return try await VisionWorker().inspectPlotterScene(in: frame, priors: priors)
-}
-
-private func readyObservedJogFixture(
-  request: RelativeJogRequest,
-  clockStartNanoseconds: UInt64 = 1_000_000,
-  finalStatusDelayNanoseconds: UInt64 = 0
-) async throws -> InterpreterFixture {
-  var exchanges = ControllerTranscriptFixtures.successfulPassiveProbe()
-  exchanges[2] = ControllerTranscriptFixtures.exchange(
-    .status,
-    chunks: ["<Idle|MPos:0.000,0.000,0.000>\r\n"]
-  )
-  exchanges.append(contentsOf: [
-    interpreterStatusExchange("<Idle|MPos:0.000,0.000,0.000>"),
-    SimulatedCommandExchange(
-      expectedWrite: MachineController.encodePenActuation(.raise),
-      reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
-    ),
-    SimulatedCommandExchange(
-      expectedWrite: MachineController.encodePenSettle,
-      reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
-    ),
-    interpreterStatusExchange("<Idle|MPos:0.000,0.000,0.000>"),
-    SimulatedCommandExchange(
-      expectedWrite: MachineController.encodeRelativeJog(request),
-      reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
-    ),
-    interpreterStatusExchange(
-      "<Idle|MPos:1.000,0.000,0.000>",
-      delayNanoseconds: finalStatusDelayNanoseconds
-    ),
-  ])
-  let fixture = try await InterpreterFixture.make(
-    exchanges: exchanges,
-    clock: DeterministicRuntimeClock(startNanoseconds: clockStartNanoseconds)
-  )
-  _ = try await fixture.interpreter.requestPassiveProbe()
-  #expect(await fixture.interpreter.activateMotionGuard() == .activated)
-  #expect(
-    await fixture.interpreter.requestPenActuation(.raise)
-      == .commandedAndSettled(command: .raise, commandedState: .up)
-  )
-  return fixture
 }
 
 private func readyInterpreterCancellationFixture() async throws -> (
@@ -881,6 +772,274 @@ private func readyInterpreterDrawingCancellationFixture() async throws -> (
   return (interpreter, request, link, gate, writesThroughCancel)
 }
 
+private func readyBoundaryCancellationFixture(
+  naturalCompletionsBeforeBlock: Int
+) async throws -> (
+  interpreter: RunInterpreter,
+  request: BoundaryMotionRequest,
+  link: SimulatedGRBLLink,
+  gate: InterpreterMachineReadGate,
+  writesThroughActiveStatus: Int,
+  writesThroughCancel: Int
+) {
+  precondition(naturalCompletionsBeforeBlock >= 0)
+  let segment = RelativeJogRequest(
+    delta: try Vector2<MachineSpace>(dx: 1, dy: 0),
+    feedMMPerMinute: 60
+  )
+  let request = BoundaryMotionRequest(direction: .positiveX, segment: segment)
+  var exchanges = ControllerTranscriptFixtures.successfulPassiveProbe()
+  exchanges[2] = ControllerTranscriptFixtures.exchange(
+    .status,
+    chunks: ["<Idle|MPos:0.000,0.000,0.000>\r\n"]
+  )
+  exchanges.append(contentsOf: [
+    interpreterStatusExchange("<Idle|MPos:0.000,0.000,0.000>"),
+    SimulatedCommandExchange(
+      expectedWrite: MachineController.encodePenActuation(.raise),
+      reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+    ),
+    SimulatedCommandExchange(
+      expectedWrite: MachineController.encodePenSettle,
+      reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+    ),
+  ])
+  for completedIndex in 0..<naturalCompletionsBeforeBlock {
+    let start = Double(completedIndex)
+    let final = Double(completedIndex + 1)
+    exchanges.append(contentsOf: [
+      interpreterStatusExchange(
+        String(format: "<Idle|MPos:%.3f,0.000,0.000>", start)
+      ),
+      SimulatedCommandExchange(
+        expectedWrite: MachineController.encodeRelativeJog(segment),
+        reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+      ),
+      interpreterStatusExchange(
+        String(format: "<Idle|MPos:%.3f,0.000,0.000>", final)
+      ),
+    ])
+  }
+  let start = Double(naturalCompletionsBeforeBlock)
+  exchanges.append(contentsOf: [
+    interpreterStatusExchange(
+      String(format: "<Idle|MPos:%.3f,0.000,0.000>", start)
+    ),
+    SimulatedCommandExchange(
+      expectedWrite: MachineController.encodeRelativeJog(segment),
+      reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+    ),
+    interpreterStatusExchange(
+      String(format: "<Jog|MPos:%.3f,0.000,0.000>", start + 0.2)
+    ),
+  ])
+  let writesThroughActiveStatus = exchanges.count
+  exchanges.append(
+    SimulatedCommandExchange(expectedWrite: MachineController.encodeJogCancel, reads: [])
+  )
+  let writesThroughCancel = exchanges.count
+  exchanges.append(
+    interpreterStatusExchange(
+      String(format: "<Idle|MPos:%.3f,0.000,0.000>", start + 0.4)
+    )
+  )
+
+  let clock = DeterministicRuntimeClock()
+  let link = SimulatedGRBLLink(exchanges: exchanges, clock: clock)
+  let gate = InterpreterMachineReadGate()
+  let blockingLink = InterpreterPostJogReadBlockingLink(
+    base: link,
+    jogBytes: MachineController.encodeRelativeJog(segment),
+    gate: gate,
+    blockAfterJogNumber: naturalCompletionsBeforeBlock + 1
+  )
+  let controller = MachineController(
+    link: blockingLink,
+    clock: clock,
+    queryTimeoutNanoseconds: 1_000,
+    statusPollIntervalNanoseconds: 1,
+    completionGraceNanoseconds: 1_000
+  )
+  let interpreter = RunInterpreter(machineController: controller)
+  _ = try await interpreter.requestPassiveProbe()
+  #expect(await interpreter.activateMotionGuard() == .activated)
+  #expect(
+    await interpreter.requestPenActuation(.raise)
+      == .commandedAndSettled(command: .raise, commandedState: .up)
+  )
+  return (
+    interpreter,
+    request,
+    link,
+    gate,
+    writesThroughActiveStatus,
+    writesThroughCancel
+  )
+}
+
+private func readyBoundaryAdmissionRaceFixture() async throws -> (
+  interpreter: RunInterpreter,
+  request: BoundaryMotionRequest,
+  link: SimulatedGRBLLink,
+  gate: InterpreterMachineReadGate,
+  expectedWriteCount: Int
+) {
+  let segment = RelativeJogRequest(
+    delta: try Vector2<MachineSpace>(dx: 1, dy: 0),
+    feedMMPerMinute: 60
+  )
+  let request = BoundaryMotionRequest(direction: .positiveX, segment: segment)
+  var exchanges = ControllerTranscriptFixtures.successfulPassiveProbe()
+  exchanges[2] = ControllerTranscriptFixtures.exchange(
+    .status,
+    chunks: ["<Idle|MPos:0.000,0.000,0.000>\r\n"]
+  )
+  exchanges.append(contentsOf: [
+    interpreterStatusExchange("<Idle|MPos:0.000,0.000,0.000>"),
+    SimulatedCommandExchange(
+      expectedWrite: MachineController.encodePenActuation(.raise),
+      reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+    ),
+    SimulatedCommandExchange(
+      expectedWrite: MachineController.encodePenSettle,
+      reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+    ),
+    interpreterStatusExchange("<Idle|MPos:0.000,0.000,0.000>"),
+    SimulatedCommandExchange(
+      expectedWrite: MachineController.encodeRelativeJog(segment),
+      reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+    ),
+    interpreterStatusExchange("<Idle|MPos:1.000,0.000,0.000>"),
+    interpreterStatusExchange("<Idle|MPos:1.000,0.000,0.000>"),
+  ])
+  let expectedWriteCount = exchanges.count
+  let clock = DeterministicRuntimeClock()
+  let link = SimulatedGRBLLink(exchanges: exchanges, clock: clock)
+  let gate = InterpreterMachineReadGate()
+  let blockingLink = BoundaryRenewalAdmissionBlockingLink(
+    base: link,
+    jogBytes: MachineController.encodeRelativeJog(segment),
+    gate: gate
+  )
+  let controller = MachineController(
+    link: blockingLink,
+    clock: clock,
+    queryTimeoutNanoseconds: 1_000,
+    statusPollIntervalNanoseconds: 1,
+    completionGraceNanoseconds: 1_000
+  )
+  let interpreter = RunInterpreter(machineController: controller)
+  _ = try await interpreter.requestPassiveProbe()
+  #expect(await interpreter.activateMotionGuard() == .activated)
+  #expect(
+    await interpreter.requestPenActuation(.raise)
+      == .commandedAndSettled(command: .raise, commandedState: .up)
+  )
+  return (interpreter, request, link, gate, expectedWriteCount)
+}
+
+private enum BoundaryTerminalScript {
+  case limit
+  case alarm
+  case refusal
+  case disconnect
+  case fault
+}
+
+private func readyBoundaryTerminalFixture(
+  _ script: BoundaryTerminalScript
+) async throws -> (
+  interpreter: RunInterpreter,
+  request: BoundaryMotionRequest,
+  link: SimulatedGRBLLink,
+  expectedWriteCount: Int
+) {
+  let segment = RelativeJogRequest(
+    delta: try Vector2<MachineSpace>(dx: 1, dy: 0),
+    feedMMPerMinute: 60
+  )
+  let request = BoundaryMotionRequest(direction: .positiveX, segment: segment)
+  var exchanges = ControllerTranscriptFixtures.successfulPassiveProbe()
+  exchanges[2] = ControllerTranscriptFixtures.exchange(
+    .status,
+    chunks: ["<Idle|MPos:0.000,0.000,0.000>\r\n"]
+  )
+  exchanges.append(contentsOf: [
+    interpreterStatusExchange("<Idle|MPos:0.000,0.000,0.000>"),
+    SimulatedCommandExchange(
+      expectedWrite: MachineController.encodePenActuation(.raise),
+      reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+    ),
+    SimulatedCommandExchange(
+      expectedWrite: MachineController.encodePenSettle,
+      reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+    ),
+    interpreterStatusExchange("<Idle|MPos:0.000,0.000,0.000>"),
+  ])
+  switch script {
+  case .refusal:
+    exchanges.append(
+      SimulatedCommandExchange(
+        expectedWrite: MachineController.encodeRelativeJog(segment),
+        reads: [ScheduledMachineRead(outcome: .bytes(Data("error:15\r\n".utf8)))]
+      )
+    )
+  case .limit:
+    exchanges.append(contentsOf: [
+      SimulatedCommandExchange(
+        expectedWrite: MachineController.encodeRelativeJog(segment),
+        reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+      ),
+      interpreterStatusExchange("<Idle|MPos:1.000,0.000,0.000|Pn:X>"),
+    ])
+  case .alarm:
+    exchanges.append(contentsOf: [
+      SimulatedCommandExchange(
+        expectedWrite: MachineController.encodeRelativeJog(segment),
+        reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+      ),
+      interpreterStatusExchange("ALARM:1"),
+    ])
+  case .disconnect:
+    exchanges.append(contentsOf: [
+      SimulatedCommandExchange(
+        expectedWrite: MachineController.encodeRelativeJog(segment),
+        reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+      ),
+      SimulatedCommandExchange(
+        expectedWrite: PassiveQuery.status.wireBytes,
+        reads: [ScheduledMachineRead(outcome: .disconnect)]
+      ),
+    ])
+  case .fault:
+    exchanges.append(contentsOf: [
+      SimulatedCommandExchange(
+        expectedWrite: MachineController.encodeRelativeJog(segment),
+        reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+      ),
+      interpreterStatusExchange("untrusted controller text"),
+    ])
+  }
+  let expectedWriteCount = exchanges.count
+  let clock = DeterministicRuntimeClock()
+  let link = SimulatedGRBLLink(exchanges: exchanges, clock: clock)
+  let controller = MachineController(
+    link: link,
+    clock: clock,
+    queryTimeoutNanoseconds: 1_000,
+    statusPollIntervalNanoseconds: 1,
+    completionGraceNanoseconds: 1_000
+  )
+  let interpreter = RunInterpreter(machineController: controller)
+  _ = try await interpreter.requestPassiveProbe()
+  #expect(await interpreter.activateMotionGuard() == .activated)
+  #expect(
+    await interpreter.requestPenActuation(.raise)
+      == .commandedAndSettled(command: .raise, commandedState: .up)
+  )
+  return (interpreter, request, link, expectedWriteCount)
+}
+
 private func waitForInterpreterWriteCount(
   _ link: SimulatedGRBLLink,
   atLeast expected: Int
@@ -900,6 +1059,17 @@ private func waitForInterpreterCancelTransmission(_ interpreter: RunInterpreter)
     await Task.yield()
   }
   Issue.record("Timed out waiting for the interpreter to project Jog Cancel transmission")
+}
+
+private func waitForInterpreterJogCancelOutcome(
+  _ interpreter: RunInterpreter,
+  expected: JogCancelOutcome
+) async {
+  for _ in 0..<1_000 {
+    if await interpreter.snapshot().lastJogCancelOutcome == expected { return }
+    await Task.yield()
+  }
+  Issue.record("Timed out waiting for interpreter Jog Cancel outcome \(expected)")
 }
 
 private actor InterpreterMachineReadGate {
@@ -932,18 +1102,23 @@ private actor InterpreterMachineReadGate {
 
 private actor InterpreterPostJogReadState {
   private let jogBytes: Data
-  private var jogWritten = false
+  private let blockAfterJogNumber: Int
+  private var jogWriteCount = 0
   private var blockNextRead = false
   private var didBlock = false
 
-  init(jogBytes: Data) {
+  init(jogBytes: Data, blockAfterJogNumber: Int) {
+    precondition(blockAfterJogNumber > 0)
     self.jogBytes = jogBytes
+    self.blockAfterJogNumber = blockAfterJogNumber
   }
 
   func noteWrite(_ bytes: Data) {
     if bytes == jogBytes {
-      jogWritten = true
-    } else if jogWritten, bytes == PassiveQuery.status.wireBytes, !didBlock {
+      jogWriteCount += 1
+    } else if jogWriteCount == blockAfterJogNumber,
+      bytes == PassiveQuery.status.wireBytes, !didBlock
+    {
       blockNextRead = true
     }
   }
@@ -962,9 +1137,17 @@ private final class InterpreterPostJogReadBlockingLink: MachineLink, @unchecked 
   private let state: InterpreterPostJogReadState
   private let gate: InterpreterMachineReadGate
 
-  init(base: any MachineLink, jogBytes: Data, gate: InterpreterMachineReadGate) {
+  init(
+    base: any MachineLink,
+    jogBytes: Data,
+    gate: InterpreterMachineReadGate,
+    blockAfterJogNumber: Int = 1
+  ) {
     self.base = base
-    state = InterpreterPostJogReadState(jogBytes: jogBytes)
+    state = InterpreterPostJogReadState(
+      jogBytes: jogBytes,
+      blockAfterJogNumber: blockAfterJogNumber
+    )
     self.gate = gate
     descriptor = base.descriptor
   }
@@ -987,9 +1170,65 @@ private final class InterpreterPostJogReadBlockingLink: MachineLink, @unchecked 
   }
 }
 
-private struct ObservationCall: Equatable, Sendable {
-  let phase: PhysicalObservationPhase
-  let newerThan: UInt64
+private actor BoundaryRenewalAdmissionBlockState {
+  private let jogBytes: Data
+  private var jogWriteCount = 0
+  private var statusWritesAfterFirstJog = 0
+  private var blockNextRead = false
+  private var didBlock = false
+
+  init(jogBytes: Data) {
+    self.jogBytes = jogBytes
+  }
+
+  func noteWrite(_ bytes: Data) {
+    if bytes == jogBytes {
+      jogWriteCount += 1
+    } else if jogWriteCount == 1, bytes == PassiveQuery.status.wireBytes {
+      statusWritesAfterFirstJog += 1
+      if statusWritesAfterFirstJog == 2, !didBlock {
+        blockNextRead = true
+      }
+    }
+  }
+
+  func consumeBlockFlag() -> Bool {
+    guard blockNextRead, !didBlock else { return false }
+    blockNextRead = false
+    didBlock = true
+    return true
+  }
+}
+
+private final class BoundaryRenewalAdmissionBlockingLink: MachineLink, @unchecked Sendable {
+  let descriptor: MachineLinkDescriptor
+  private let base: any MachineLink
+  private let state: BoundaryRenewalAdmissionBlockState
+  private let gate: InterpreterMachineReadGate
+
+  init(base: any MachineLink, jogBytes: Data, gate: InterpreterMachineReadGate) {
+    self.base = base
+    state = BoundaryRenewalAdmissionBlockState(jogBytes: jogBytes)
+    self.gate = gate
+    descriptor = base.descriptor
+  }
+
+  func open() async throws { try await base.open() }
+  func close() async { await base.close() }
+  func discardPendingInput() async throws { try await base.discardPendingInput() }
+
+  func write(_ bytes: Data) async throws {
+    try await base.write(bytes)
+    await state.noteWrite(bytes)
+  }
+
+  func read(maximumBytes: Int, timeoutNanoseconds: UInt64) async throws -> Data {
+    if await state.consumeBlockFlag() { await gate.block() }
+    return try await base.read(
+      maximumBytes: maximumBytes,
+      timeoutNanoseconds: timeoutNanoseconds
+    )
+  }
 }
 
 private actor TaskStartHandshake {
@@ -1006,101 +1245,6 @@ private actor TaskStartHandshake {
   func waitUntilStarted() async {
     guard !started else { return }
     await withCheckedContinuation { waiters.append($0) }
-  }
-}
-
-private actor ObservationScript {
-  private var results: [
-    Result<VisibleToolFrameObservation, PhysicalJogObservationFailure>
-  ]
-  private(set) var calls: [ObservationCall] = []
-
-  init(
-    results: [Result<VisibleToolFrameObservation, PhysicalJogObservationFailure>]
-  ) {
-    self.results = results
-  }
-
-  func next(
-    phase: PhysicalObservationPhase,
-    newerThan: UInt64
-  ) -> Result<VisibleToolFrameObservation, PhysicalJogObservationFailure> {
-    calls.append(ObservationCall(phase: phase, newerThan: newerThan))
-    guard !results.isEmpty else { return .failure(.frameUnavailable(phase)) }
-    return results.removeFirst()
-  }
-}
-
-private actor FreshObservationScript {
-  private let before: VisibleToolFrameObservation
-  private var postCandidates: [VisibleToolFrameObservation]
-  private(set) var calls: [ObservationCall] = []
-
-  init(
-    before: VisibleToolFrameObservation,
-    postCandidates: [VisibleToolFrameObservation]
-  ) {
-    self.before = before
-    self.postCandidates = postCandidates
-  }
-
-  func next(
-    phase: PhysicalObservationPhase,
-    newerThan: UInt64
-  ) -> Result<VisibleToolFrameObservation, PhysicalJogObservationFailure> {
-    calls.append(ObservationCall(phase: phase, newerThan: newerThan))
-    switch phase {
-    case .beforeMotion:
-      return .success(before)
-    case .afterMotion:
-      guard let index = postCandidates.firstIndex(where: {
-        $0.captureNanoseconds > newerThan
-      }) else {
-        return .failure(.frameUnavailable(.afterMotion))
-      }
-      return .success(postCandidates.remove(at: index))
-    }
-  }
-}
-
-private actor BlockingObservation {
-  private var requested = false
-  private var requestedWaiters: [CheckedContinuation<Void, Never>] = []
-  private var result: Result<VisibleToolFrameObservation, PhysicalJogObservationFailure>?
-  private var resultWaiters: [
-    CheckedContinuation<
-      Result<VisibleToolFrameObservation, PhysicalJogObservationFailure>, Never
-    >
-  ] = []
-
-  func observe(
-    phase _: PhysicalObservationPhase,
-    newerThan _: UInt64
-  ) async -> Result<VisibleToolFrameObservation, PhysicalJogObservationFailure> {
-    requested = true
-    let waiters = requestedWaiters
-    requestedWaiters.removeAll()
-    waiters.forEach { $0.resume() }
-    if let result { return result }
-    return await withCheckedContinuation { continuation in
-      resultWaiters.append(continuation)
-    }
-  }
-
-  func waitUntilRequested() async {
-    if requested { return }
-    await withCheckedContinuation { continuation in
-      requestedWaiters.append(continuation)
-    }
-  }
-
-  func release(
-    with result: Result<VisibleToolFrameObservation, PhysicalJogObservationFailure>
-  ) {
-    self.result = result
-    let waiters = resultWaiters
-    resultWaiters.removeAll()
-    waiters.forEach { $0.resume(returning: result) }
   }
 }
 

@@ -26,6 +26,87 @@ public enum BoundaryDirection: String, Codable, CaseIterable, Hashable, Sendable
   }
 }
 
+public struct BoundaryMotionOwnerID: Codable, Hashable, Sendable {
+  public let rawValue: UUID
+
+  public init(rawValue: UUID = UUID()) {
+    self.rawValue = rawValue
+  }
+}
+
+/// One logical operator-stopped boundary operation. `segment` is a finite GRBL
+/// wire request, not an application boundary or successful completion horizon.
+public struct BoundaryMotionRequest: Hashable, Sendable {
+  public let ownerID: BoundaryMotionOwnerID
+  public let direction: BoundaryDirection
+  public let segment: RelativeJogRequest
+
+  public init(
+    ownerID: BoundaryMotionOwnerID = BoundaryMotionOwnerID(),
+    direction: BoundaryDirection,
+    segment: RelativeJogRequest
+  ) {
+    precondition(Self.matches(direction: direction, delta: segment.delta))
+    self.ownerID = ownerID
+    self.direction = direction
+    self.segment = segment
+  }
+
+  private static func matches(
+    direction: BoundaryDirection,
+    delta: Vector2<MachineSpace>
+  ) -> Bool {
+    switch direction {
+    case .negativeX: delta.dx < 0 && delta.dy == 0
+    case .positiveX: delta.dx > 0 && delta.dy == 0
+    case .negativeY: delta.dy < 0 && delta.dx == 0
+    case .positiveY: delta.dy > 0 && delta.dx == 0
+    }
+  }
+}
+
+public enum JogCancelIntent: String, Codable, Hashable, Sendable {
+  case operatorStop
+  case cancelAttempt
+  case shutdown
+}
+
+public struct BoundaryMotionSettlement: Hashable, Sendable {
+  public let ownerID: BoundaryMotionOwnerID
+  public let intent: JogCancelIntent
+  public let completedSegmentCount: Int
+  public let finalPosition: MachinePosition
+  public let jogCancelOutcome: JogCancelOutcome
+
+  public init(
+    ownerID: BoundaryMotionOwnerID,
+    intent: JogCancelIntent,
+    completedSegmentCount: Int,
+    finalPosition: MachinePosition,
+    jogCancelOutcome: JogCancelOutcome
+  ) {
+    precondition(completedSegmentCount >= 0)
+    self.ownerID = ownerID
+    self.intent = intent
+    self.completedSegmentCount = completedSegmentCount
+    self.finalPosition = finalPosition
+    self.jogCancelOutcome = jogCancelOutcome
+  }
+}
+
+public enum BoundaryMotionTerminal: Hashable, Sendable {
+  case limitAsserted(pins: String, finalPosition: MachinePosition?)
+  case alarm(String)
+  case refusal(MotionRefusal)
+  case disconnected
+  case fault(MotionAmbiguity)
+}
+
+public enum BoundaryMotionOutcome: Hashable, Sendable {
+  case settled(BoundaryMotionSettlement)
+  case needsAttention(ownerID: BoundaryMotionOwnerID, terminal: BoundaryMotionTerminal)
+}
+
 public enum DiscoverySequenceID: String, Codable, CaseIterable, Hashable, Sendable {
   case boundaryNegativeX
   case boundaryPositiveX

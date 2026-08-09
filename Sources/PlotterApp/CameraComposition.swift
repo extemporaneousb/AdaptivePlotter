@@ -50,9 +50,6 @@ enum CameraComposition {
     analysisUpdates: {
       await session.analysisUpdates()
     },
-    observeVisibleTool: { phase, boundary in
-      await session.observeVisibleTool(phase: phase, newerThanNanoseconds: boundary)
-    },
     simulatedContent: { mode in
       try await session.simulatedContent(mode: mode)
     },
@@ -282,44 +279,6 @@ private actor CameraSourceSession {
 
   func analysisUpdates() async -> AsyncStream<PlotterSceneAnalysisSnapshot> {
     await analysisPipeline.updates()
-  }
-
-  func observeVisibleTool(
-    phase: PhysicalObservationPhase,
-    newerThanNanoseconds boundary: UInt64
-  ) async -> Result<VisibleToolFrameObservation, PhysicalJogObservationFailure> {
-    let attestation: LiveCameraFrameAttestation
-    do {
-      guard
-        let frame = try await boundedlyAwaitNewestCameraValue(
-          load: {
-            try await self.live.materializeLatestAttestedFrame(
-              newerThanNanoseconds: boundary
-            )
-          }
-        )
-      else {
-        return .failure(.frameUnavailable(phase))
-      }
-      attestation = frame
-    } catch {
-      return .failure(.frameUnavailable(phase))
-    }
-
-    do {
-      let measurement = try await vision.inspectPlotterScene(in: attestation.frame)
-      return .success(
-        try VisibleToolFrameObservation(
-          phase: phase,
-          attestation: attestation,
-          measurement: measurement
-        )
-      )
-    } catch let failure as PhysicalJogObservationFailure {
-      return .failure(failure)
-    } catch {
-      return .failure(.measurementFailed(phase, String(describing: error)))
-    }
   }
 
   func simulatedContent(mode: SimulatorModelMode) throws -> SimulatedActionSurfaceContent {

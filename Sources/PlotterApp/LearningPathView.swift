@@ -2,212 +2,164 @@ import Foundation
 import PlotterRuntime
 import SwiftUI
 
-struct LearningPathView: View {
+struct LearningPathNavigator: View {
   @Bindable var workspace: OperatorWorkspace
-  @State private var boundaryDirection: BoundaryDirection = .negativeX
+  @Binding var selection: LearningPathSelectionState
 
   var body: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: 16) {
-        header
-
-        ForEach(workspace.learningPathStagePresentations) { presentation in
-          stageCard(presentation)
-        }
-
-        if let action = workspace.currentOperatorActionPresentation {
-          operatorActionPanel(action)
-        }
+    VStack(alignment: .leading, spacing: 0) {
+      VStack(alignment: .leading, spacing: 5) {
+        Text("Learning Path")
+          .font(.title2.weight(.semibold))
+        Text("Select a row to review it. Selection never starts or advances an exercise.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
       }
-      .padding(18)
-      .frame(maxWidth: 920, alignment: .leading)
-      .frame(maxWidth: .infinity, alignment: .top)
+      .padding(14)
+
+      if selection.isReviewingAnotherItem {
+        Button {
+          selection.returnToCurrent()
+        } label: {
+          Label("Return to Current", systemImage: "arrow.uturn.backward.circle.fill")
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(.borderedProminent)
+        .padding(.horizontal, 12)
+        .padding(.bottom, 10)
+      }
+
+      Divider()
+
+      ScrollView {
+        LazyVStack(alignment: .leading, spacing: 2) {
+          ForEach(workspace.learningPathItemPresentations) { item in
+            navigatorRow(item)
+          }
+        }
+        .padding(8)
+      }
+    }
+    .background(Color(nsColor: .controlBackgroundColor))
+  }
+
+  private func navigatorRow(_ item: LearningPathItemPresentation) -> some View {
+    Button {
+      selection.select(item.id)
+    } label: {
+      HStack(alignment: .top, spacing: 8) {
+        Image(systemName: statusSystemImage(item.status))
+          .foregroundStyle(statusColor(item.status))
+          .frame(width: 17)
+
+        VStack(alignment: .leading, spacing: 3) {
+          HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(item.id.number)
+              .font(.caption.monospaced().bold())
+              .foregroundStyle(.secondary)
+            Text(item.id.title)
+              .font(.callout.weight(item.id == selection.current ? .semibold : .regular))
+              .fixedSize(horizontal: false, vertical: true)
+          }
+
+          HStack(spacing: 5) {
+            Text(item.status.rawValue)
+              .font(.caption2.weight(.medium))
+              .foregroundStyle(statusColor(item.status))
+            if item.id == selection.current {
+              Text("Runtime current")
+                .font(.caption2.monospaced().bold())
+                .foregroundStyle(Color.accentColor)
+            }
+          }
+        }
+        Spacer(minLength: 0)
+      }
+      .padding(.leading, CGFloat(item.id.navigationDepth) * 18)
+      .padding(.horizontal, 8)
+      .padding(.vertical, 7)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .contentShape(Rectangle())
+      .background(
+        item.id == selection.selected ? Color.accentColor.opacity(0.16) : Color.clear,
+        in: RoundedRectangle(cornerRadius: 7)
+      )
+    }
+    .buttonStyle(.plain)
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(
+      "\(item.id.number) \(item.id.title), \(item.status.rawValue)"
+        + (item.id == selection.current ? ", runtime current" : "")
+    )
+    .accessibilityHint("Reviews this row without starting an action")
+  }
+}
+
+/// Selected exercise detail. The scrollable detail and the pinned action strip
+/// are deliberately separate so long evidence cannot push controls off-screen.
+struct LearningPathView: View {
+  @Bindable var workspace: OperatorWorkspace
+  @Binding var selection: LearningPathSelectionState
+  let showUtilities: () -> Void
+
+  var body: some View {
+    let actionWorkspace = workspace
+    let selectedPresentation = workspace.selectedOperatorActionPresentation(
+      for: selection.selected
+    )
+    let pinnedActionStrip = workspace.currentExerciseActionStripPresentation
+      ?? selectedPresentation.actionStrip
+
+    VStack(spacing: 0) {
+      detailHeader
+      Divider()
+
+      ScrollView {
+        selectedDetail(selectedPresentation)
+          .padding(14)
+      }
+
+      if let strip = pinnedActionStrip {
+        Divider()
+        ExerciseActionStripView(
+          presentation: strip,
+          reviewedItemID: selection.selected,
+          perform: { kind, ownerID in
+            await actionWorkspace.performExerciseAction(kind, for: ownerID)
+          },
+          selectDirection: { direction in
+            await actionWorkspace.selectBoundaryDirection(direction)
+          }
+        )
+      }
     }
     .background(Color(nsColor: .windowBackgroundColor))
   }
 
-  private var header: some View {
-    VStack(alignment: .leading, spacing: 5) {
-      Text("Learning Path")
-        .font(.largeTitle.weight(.semibold))
-      Text(
-        "The numbered stages organize operator work. They do not replace the direct controller, motion, pen, camera, or evidence checks required by each action."
-      )
-      .font(.callout)
-      .foregroundStyle(.secondary)
-    }
-  }
-
-  @ViewBuilder
-  private func stageCard(_ presentation: LearningPathStagePresentation) -> some View {
-    VStack(alignment: .leading, spacing: 10) {
-      HStack(alignment: .firstTextBaseline, spacing: 10) {
-        Text(presentation.stage.number)
-          .font(.title3.monospaced().bold())
-          .frame(width: 28, alignment: .leading)
-        Text(presentation.stage.title)
-          .font(.title3.weight(.semibold))
-        Spacer()
-        statusLabel(presentation.status)
-      }
-
-      Text(presentation.summary)
-        .font(.callout)
-        .foregroundStyle(.secondary)
-
-      switch presentation.stage {
-      case .humanGuidedDiscovery:
-        humanGuidedDiscoveryRows(stageStatus: presentation.status)
-      case .observedDrawingTrials:
-        observedDrawingTrialRows(stageStatus: presentation.status)
-      case .adaptiveDrawing:
-        Text("Multi-stroke drawing with observation and checkpoint learning is not yet available.")
-          .font(.caption)
+  private var detailHeader: some View {
+    HStack(spacing: 8) {
+      VStack(alignment: .leading, spacing: 2) {
+        Text("SELECTED EXERCISE")
+          .font(.caption2.monospaced().bold())
           .foregroundStyle(.secondary)
-      case .connect, .enableMotion:
-        EmptyView()
+        Text("\(selection.selected.number) \(selection.selected.title)")
+          .font(.headline)
+          .lineLimit(2)
       }
+      Spacer()
+      Button(action: showUtilities) {
+        Label("Utilities", systemImage: "sidebar.trailing")
+      }
+      .buttonStyle(.bordered)
+      .help("Show Camera and Overlay utilities")
     }
-    .padding(14)
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-    .overlay {
-      RoundedRectangle(cornerRadius: 10)
-        .stroke(stageBorderColor(presentation.status), lineWidth: 1)
-    }
+    .padding(12)
   }
 
-  private func humanGuidedDiscoveryRows(
-    stageStatus: LearningPathStageStatus
-  ) -> some View {
-    VStack(alignment: .leading, spacing: 7) {
-      ForEach(HumanGuidedDiscoveryStep.allCases) { step in
-        sequenceRow(
-          stepNumber: step.stepNumber,
-          title: step.title,
-          status: discoveryStatus(for: step, stageStatus: stageStatus)
-        )
-      }
-
-      if stageStatus == .current || stageStatus == .needsAttention {
-        discoveryCurrentControl
-
-        if let discoveryError = workspace.discoveryError {
-          actionableError(discoveryError)
-        }
-        if workspace.humanGuidedDiscoveryCurrentStep == .clearViewDiscovery,
-          let explorationError = workspace.explorationError
-        {
-          actionableError(explorationError)
-        }
-      }
-    }
-  }
-
-  private func observedDrawingTrialRows(
-    stageStatus: LearningPathStageStatus
-  ) -> some View {
-    VStack(alignment: .leading, spacing: 7) {
-      ForEach(ObservedDrawingTrialStep.allCases) { step in
-        sequenceRow(
-          stepNumber: step.stepNumber,
-          title: step.title,
-          status: drawingTrialStatus(for: step, stageStatus: stageStatus)
-        )
-      }
-
-      if stageStatus == .current || stageStatus == .needsAttention,
-        let explorationError = workspace.explorationError
-      {
-        actionableError(explorationError)
-      }
-    }
-  }
-
-  @ViewBuilder
-  private var discoveryCurrentControl: some View {
-    if workspace.currentOperatorActionPresentation == nil {
-      switch workspace.humanGuidedDiscoveryCurrentStep {
-      case .penInteraction:
-        let penStartUnavailableReason = workspace.discoveryStartUnavailableReason(
-          for: .penInteraction
-        )
-        VStack(alignment: .leading, spacing: 6) {
-          Button("Begin Pen Interaction") {
-            Task { await workspace.beginPenInteraction() }
-          }
-          .buttonStyle(.borderedProminent)
-          .disabled(penStartUnavailableReason != nil)
-
-          if let penStartUnavailableReason {
-            actionableError(penStartUnavailableReason)
-          }
-        }
-
-      case .boundaryDiscovery:
-        let boundaryStartUnavailableReason = workspace.discoveryStartUnavailableReason(
-          for: discoverySequenceID(for: boundaryDirection)
-        )
-        VStack(alignment: .leading, spacing: 8) {
-          Picker("Boundary direction", selection: $boundaryDirection) {
-            ForEach(BoundaryDirection.allCases, id: \.self) { direction in
-              Text(direction.displayName).tag(direction)
-            }
-          }
-          .pickerStyle(.segmented)
-
-          Button("Begin Boundary Discovery") {
-            Task { await workspace.beginBoundaryDiscovery(boundaryDirection) }
-          }
-          .buttonStyle(.borderedProminent)
-          .disabled(boundaryStartUnavailableReason != nil)
-
-          if let boundaryStartUnavailableReason {
-            actionableError(boundaryStartUnavailableReason)
-          }
-
-          Text(
-            "One relevant boundary observation is sufficient for the current path. Other directions remain optional additional observations."
-          )
-          .font(.caption)
-          .foregroundStyle(.secondary)
-        }
-
-      case .clearViewDiscovery:
-        VStack(alignment: .leading, spacing: 8) {
-          Text("Label the exact current frame")
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(.secondary)
-          HStack {
-            Button("Blocked") {
-              Task { await workspace.recordClearViewLabel(.blocked) }
-            }
-            Button("Partial") {
-              Task { await workspace.recordClearViewLabel(.partial) }
-            }
-            Button("Clear") {
-              Task { await workspace.recordClearViewLabel(.clear) }
-            }
-          }
-          Button("Accept Current Clear View") {
-            Task { await workspace.acceptCurrentClearViewPose() }
-          }
-          .buttonStyle(.borderedProminent)
-          .disabled(
-            workspace.pendingClearViewLabel != .clear
-              || workspace.lastArmatureObservation?.humanLabel != .clear
-          )
-        }
-      }
-    }
-  }
-
-  private func operatorActionPanel(_ presentation: OperatorActionPresentation) -> some View {
-    VStack(alignment: .leading, spacing: 12) {
+  private func selectedDetail(_ presentation: OperatorActionPresentation) -> some View {
+    VStack(alignment: .leading, spacing: 14) {
       HStack(alignment: .firstTextBaseline) {
-        Text("CURRENT ACTION")
-          .font(.caption.monospaced().bold())
-          .foregroundStyle(.secondary)
+        statusLabel(presentation.status)
         Spacer()
         Text(presentation.stepNumber)
           .font(.caption.monospaced().bold())
@@ -216,110 +168,116 @@ struct LearningPathView: View {
 
       Text(presentation.title)
         .font(.title2.weight(.semibold))
+        .fixedSize(horizontal: false, vertical: true)
 
-      actionFact("Participant", presentation.participant)
-      actionFact("Action", presentation.action)
-      actionFact("Expected observation", presentation.expectedObservation)
+      if let participant = presentation.participant {
+        labeledValue("Participant", participant)
+      }
+
+      if let timeline = presentation.timeline {
+        timelineCard(timeline)
+      }
+
+      if !presentation.question.isEmpty {
+        fragmentCard(
+          label: "Focused question",
+          fragments: presentation.question,
+          color: Color.accentColor.opacity(0.12)
+        )
+      }
+
+      if !presentation.instructions.isEmpty {
+        fragmentCard(
+          label: "Instruction",
+          fragments: presentation.instructions,
+          color: Color(nsColor: .controlBackgroundColor)
+        )
+      }
+
+      if !presentation.expectedObservation.isEmpty {
+        fragmentCard(
+          label: "Expected observation",
+          fragments: presentation.expectedObservation,
+          color: Color.green.opacity(0.09)
+        )
+      }
 
       if let requestedFeedMMPerMinute = presentation.requestedFeedMMPerMinute {
-        actionFact(
+        labeledValue(
           "Requested feed",
           String(format: "%.1f mm/min", requestedFeedMMPerMinute)
         )
       }
       if let feedSource = presentation.feedSource {
-        actionFact("Feed source", feedSourceLabel(feedSource))
+        labeledValue("Feed source", feedSourceLabel(feedSource))
       }
 
-      Divider()
-
-      if !presentation.choices.isEmpty {
-        HStack(spacing: 8) {
-          ForEach(presentation.choices, id: \.self) { choice in
-            Button(choice.exactPhrase) {
-              Task { await workspace.answerCurrentQuestion(choice) }
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(choice == .no ? .gray : .accentColor)
-          }
-        }
-        .disabled(presentation.primaryActionUnavailableReason != nil)
-      } else if presentation.stepNumber
-        == ObservedDrawingTrialStep.compareIntendedAndObservedGeometry.stepNumber
-      {
+      if !presentation.evidence.isEmpty {
         VStack(alignment: .leading, spacing: 8) {
-          Text(presentation.primaryActionTitle ?? "Record Assessment")
-            .font(.callout.weight(.semibold))
-          HStack(spacing: 8) {
-            Button("Observed Geometry Accepted") {
-              Task {
-                await workspace.recordDrawingTrialAssessment(.observedGeometryAccepted)
-              }
-            }
-            Button("Ink or Geometry Unclear") {
-              Task {
-                await workspace.recordDrawingTrialAssessment(.inkOrGeometryUnclear)
-              }
+          Text("EVIDENCE")
+            .font(.caption2.monospaced().bold())
+            .foregroundStyle(.secondary)
+          ForEach(presentation.evidence) { evidence in
+            VStack(alignment: .leading, spacing: 4) {
+              Text(evidence.label)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+              fragmentText(evidence.fragments)
+                .font(.callout)
+                .textSelection(.enabled)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(evidence.fragments.accessibilityText)
             }
           }
-          .buttonStyle(.bordered)
-          .disabled(presentation.primaryActionUnavailableReason != nil)
         }
-      } else if let title = presentation.primaryActionTitle {
-        Button(title) {
-          Task { await workspace.performCurrentLearningPathAction() }
-        }
-        .buttonStyle(.borderedProminent)
-        .disabled(presentation.primaryActionUnavailableReason != nil)
       }
+    }
+    .frame(maxWidth: .infinity, alignment: .topLeading)
+  }
 
-      if let reason = presentation.primaryActionUnavailableReason {
-        Label(reason, systemImage: "exclamationmark.triangle.fill")
-          .font(.caption)
-          .foregroundStyle(.orange)
-          .textSelection(.enabled)
-      }
-
-      if workspace.contextualStopPresentation != nil {
-        Text("Stop is available in the main workbench toolbar for the current operation.")
-          .font(.caption)
+  private func timelineCard(_ timeline: ExerciseTimelinePresentation) -> some View {
+    VStack(alignment: .leading, spacing: 6) {
+      HStack {
+        Text("CURRENT TIMELINE POSITION")
+          .font(.caption2.monospaced().bold())
           .foregroundStyle(.secondary)
+        Spacer()
+        Text(timeline.positionText)
+          .font(.caption.monospaced().bold())
+          .foregroundStyle(Color.accentColor)
       }
+      ProgressView(value: Double(timeline.position), total: Double(timeline.total))
+        .accessibilityLabel("Exercise timeline")
+        .accessibilityValue(timeline.positionText)
+      Text(timeline.currentLabel)
+        .font(.callout.weight(.semibold))
     }
-    .padding(16)
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+    .padding(10)
+    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 9))
   }
 
-  private func sequenceRow(
-    stepNumber: String,
-    title: String,
-    status: LearningPathStageStatus
+  private func fragmentCard(
+    label: String,
+    fragments: [PresentationFragment],
+    color: Color
   ) -> some View {
-    HStack(spacing: 9) {
-      Image(systemName: statusSystemImage(status))
-        .foregroundStyle(statusColor(status))
-        .frame(width: 18)
-      Text(stepNumber)
-        .font(.caption.monospaced().bold())
+    VStack(alignment: .leading, spacing: 6) {
+      Text(label.uppercased())
+        .font(.caption2.monospaced().bold())
         .foregroundStyle(.secondary)
-        .frame(width: 34, alignment: .leading)
-      Text(title)
-        .font(.callout.weight(status == .current ? .semibold : .regular))
-      Spacer()
-      Text(status.rawValue)
-        .font(.caption)
-        .foregroundStyle(statusColor(status))
+      fragmentText(fragments)
+        .font(.body)
+        .fixedSize(horizontal: false, vertical: true)
+        .textSelection(.enabled)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(fragments.accessibilityText)
     }
+    .padding(11)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(color, in: RoundedRectangle(cornerRadius: 9))
   }
 
-  private func statusLabel(_ status: LearningPathStageStatus) -> some View {
-    Label(status.rawValue, systemImage: statusSystemImage(status))
-      .font(.caption.weight(.semibold))
-      .foregroundStyle(statusColor(status))
-  }
-
-  private func actionFact(_ label: String, _ value: String) -> some View {
+  private func labeledValue(_ label: String, _ value: String) -> some View {
     VStack(alignment: .leading, spacing: 2) {
       Text(label.uppercased())
         .font(.caption2.monospaced().bold())
@@ -329,91 +287,169 @@ struct LearningPathView: View {
         .textSelection(.enabled)
     }
   }
+}
 
-  private func actionableError(_ message: String) -> some View {
-    Label(message, systemImage: "exclamationmark.triangle.fill")
-      .font(.caption)
-      .foregroundStyle(.orange)
-      .textSelection(.enabled)
+private struct ExerciseActionStripView: View {
+  let presentation: ExerciseActionStripPresentation
+  let reviewedItemID: LearningPathItemID
+  let perform: (ExerciseActionKind, LearningPathItemID) async -> Void
+  let selectDirection: @Sendable (BoundaryDirection) async -> Void
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 9) {
+      HStack(alignment: .firstTextBaseline) {
+        Text("EXERCISE ACTIONS")
+          .font(.caption2.monospaced().bold())
+          .foregroundStyle(.secondary)
+        Spacer()
+        Text("\(presentation.ownerID.number) \(presentation.ownerID.title)")
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(.secondary)
+      }
+
+      if reviewedItemID != presentation.ownerID {
+        Label(
+          "Reviewing \(reviewedItemID.number); controls remain with the runtime action owner.",
+          systemImage: "eye"
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
+      }
+
+      if let directionSelection = presentation.directionSelection {
+        Picker(
+          "Boundary direction",
+          selection: Binding(
+            get: { directionSelection.selected },
+            set: { direction in
+              Task { await selectDirection(direction) }
+            }
+          )
+        ) {
+          ForEach(directionSelection.options, id: \.self) { direction in
+            Text(direction.displayName).tag(direction)
+          }
+        }
+        .pickerStyle(.segmented)
+        .accessibilityValue(
+          PresentationCue.direction(directionSelection.selected).accessibilityValue
+        )
+      }
+
+      ViewThatFits(in: .horizontal) {
+        HStack(spacing: 8) {
+          ForEach(presentation.actions) { action in
+            actionButton(action)
+          }
+        }
+
+        VStack(alignment: .leading, spacing: 7) {
+          ForEach(presentation.actions) { action in
+            actionButton(action)
+          }
+        }
+      }
+
+      ForEach(presentation.actions.filter { $0.unavailableReason != nil }) { action in
+        if let reason = action.unavailableReason {
+          Label("\(action.title): \(reason)", systemImage: "exclamationmark.triangle.fill")
+            .font(.caption)
+            .foregroundStyle(.orange)
+            .textSelection(.enabled)
+        }
+      }
+    }
+    .padding(12)
+    .background(.bar)
   }
 
-  private func discoveryStatus(
-    for step: HumanGuidedDiscoveryStep,
-    stageStatus: LearningPathStageStatus
-  ) -> LearningPathStageStatus {
-    if stageStatus == .complete { return .complete }
-    if step == .penInteraction, workspace.penInteractionCompleted { return .complete }
-    if step == .boundaryDiscovery, workspace.relevantBoundaryObservationCount > 0 {
-      return .complete
+  @ViewBuilder
+  private func actionButton(_ action: ExerciseActionDescriptor) -> some View {
+    let button = Button(action.title) {
+      Task { await perform(action.kind, presentation.ownerID) }
     }
-    if step == workspace.humanGuidedDiscoveryCurrentStep {
-      return stageStatus == .needsAttention ? .needsAttention : .current
-    }
-    return step.rawValue < workspace.humanGuidedDiscoveryCurrentStep.rawValue ? .complete : .next
-  }
+    .disabled(!action.isEnabled)
 
-  private func drawingTrialStatus(
-    for step: ObservedDrawingTrialStep,
-    stageStatus: LearningPathStageStatus
-  ) -> LearningPathStageStatus {
-    if stageStatus == .future { return .future }
-    if stageStatus == .complete { return .complete }
-    guard let action = workspace.currentOperatorActionPresentation,
-      let current = ObservedDrawingTrialStep.allCases.first(where: {
-        $0.stepNumber == action.stepNumber
-      })
-    else {
-      return stageStatus == .current ? .next : stageStatus
-    }
-    if step == current {
-      return stageStatus == .needsAttention ? .needsAttention : .current
-    }
-    return step.rawValue < current.rawValue ? .complete : .next
-  }
-
-  private func stageBorderColor(_ status: LearningPathStageStatus) -> Color {
-    switch status {
-    case .complete: .green.opacity(0.5)
-    case .current: .accentColor.opacity(0.7)
-    case .next, .future: .secondary.opacity(0.25)
-    case .needsAttention: .orange.opacity(0.8)
+    switch action.role {
+    case .positive:
+      button
+        .buttonStyle(.borderedProminent)
+        .tint(.green)
+    case .destructive:
+      if action.kind == .stop {
+        button
+          .buttonStyle(.borderedProminent)
+          .tint(.red)
+          .keyboardShortcut(.cancelAction)
+      } else {
+        button
+          .buttonStyle(.borderedProminent)
+          .tint(.red)
+      }
+    case .standard:
+      if case .choice(let choice) = action.kind {
+        button
+          .buttonStyle(.borderedProminent)
+          .tint(choice == .yes ? .green : .orange)
+      } else {
+        button.buttonStyle(.bordered)
+      }
     }
   }
+}
 
-  private func statusColor(_ status: LearningPathStageStatus) -> Color {
-    switch status {
-    case .complete: .green
-    case .current: .accentColor
-    case .next: .secondary
-    case .future: .secondary
-    case .needsAttention: .orange
+private func fragmentText(_ fragments: [PresentationFragment]) -> Text {
+  fragments.enumerated().reduce(Text("")) { result, entry in
+    let (index, fragment) = entry
+    let separator = index == 0 ? "" : " "
+    switch fragment {
+    case .text(let text):
+      return result + Text(separator + text)
+    case .cue(let cue):
+      return result
+        + Text(separator + cue.visibleText)
+        .bold()
+        .foregroundColor(cueColor(cue))
     }
   }
+}
 
-  private func statusSystemImage(_ status: LearningPathStageStatus) -> String {
-    switch status {
-    case .complete: "checkmark.circle.fill"
-    case .current: "arrow.right.circle.fill"
-    case .next: "circle"
-    case .future: "clock"
-    case .needsAttention: "exclamationmark.triangle.fill"
-    }
+private func cueColor(_ cue: PresentationCue) -> Color {
+  switch cue {
+  case .no, .stop, .down: .red
+  case .yes, .up: .green
+  case .direction: .accentColor
   }
+}
 
-  private func feedSourceLabel(_ source: FeedSelectionSource) -> String {
-    switch source {
-    case .controllerReportedCeiling: "Controller-reported ceiling"
-    case .existingFallback: "Existing fallback"
-    }
+private func statusLabel(_ status: LearningPathStageStatus) -> some View {
+  Label(status.rawValue, systemImage: statusSystemImage(status))
+    .font(.caption.weight(.semibold))
+    .foregroundStyle(statusColor(status))
+}
+
+private func statusColor(_ status: LearningPathStageStatus) -> Color {
+  switch status {
+  case .complete: .green
+  case .current: .accentColor
+  case .next, .future: .secondary
+  case .needsAttention: .orange
   }
+}
 
-  private func discoverySequenceID(for direction: BoundaryDirection) -> DiscoverySequenceID {
-    switch direction {
-    case .negativeX: .boundaryNegativeX
-    case .positiveX: .boundaryPositiveX
-    case .negativeY: .boundaryNegativeY
-    case .positiveY: .boundaryPositiveY
-    }
+private func statusSystemImage(_ status: LearningPathStageStatus) -> String {
+  switch status {
+  case .complete: "checkmark.circle.fill"
+  case .current: "arrow.right.circle.fill"
+  case .next: "circle"
+  case .future: "clock"
+  case .needsAttention: "exclamationmark.triangle.fill"
   }
+}
 
+private func feedSourceLabel(_ source: FeedSelectionSource) -> String {
+  switch source {
+  case .controllerReportedCeiling: "Controller-reported ceiling"
+  case .existingFallback: "Existing fallback"
+  }
 }
