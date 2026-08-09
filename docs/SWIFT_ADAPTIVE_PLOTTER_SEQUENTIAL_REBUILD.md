@@ -81,7 +81,9 @@ Stop records its event before one cancel, awaits the original owner through
 Idle/final MPos, captures a strictly newer exact frame, and updates that side.
 The operator chooses any first side, its opposite is forced, then chooses either
 sign on the remaining axis and records its forced opposite. Four accepted final
-MPos observations derive a typed midpoint. One explicit stoppable Pen Up move
+MPos samples enter per-direction aggregates; exact frame/contact evidence
+remains separate for registration. The four current aggregate estimates derive
+a typed midpoint and invertible learned local coordinate frame. One explicit stoppable Pen Up move
 settles at that estimated center before the next exercise.
 
 Boundary motion remains one logical attempt until operator Stop or a real
@@ -244,6 +246,24 @@ registration, exact dependency revisions, and full mocked-operator simulator
 coverage. The complete contract is
 [Visibility Target and Clear-View Protocol](implementation/VISIBILITY_TARGET_AND_CLEAR_VIEW_PROTOCOL.md).
 
+## Work item 8a — Boundary evidence, local coordinates, and simulator viewport — implemented in software
+
+This correction makes typed operator direction authoritative, commits one exact
+post-settlement attempt and current per-direction aggregate atomically, removes
+the Boundary nearest-edge/posterior family, gives Redo whole-aggregate
+replacement semantics, and derives a lower-side-origin local millimetre frame
+for presentation only. Numeric Boundary compatibility is independent of camera
+configuration; optical registration still consumes compatible exact
+machine/contact samples.
+
+The causal simulator now auto-fits translated or negative truth bounds with one
+stable invertible uniform transform, exposes exact-frame presentation-only truth
+and learned annotations, publishes Stop immediately for cooperative Boundary and
+manual motion, and removes the inert model picker. Software tests cover Stop
+races and canonical-pixel/hash isolation. Attended physical verification remains
+pending. The retained execution record is
+[Boundary Evidence and Simulator Viewport Execution Prompt](implementation/BOUNDARY_EVIDENCE_AND_SIMULATOR_VIEWPORT_EXECUTION_PROMPT.md).
+
 ## Work item 9 — Repeatable geometric learning — next
 
 After the attended single-trial loop is reliable:
@@ -299,7 +319,10 @@ Software completion requires:
 - one-Stop boundary, manual, and shutdown regression tests;
 - announcement queue order/identity tests;
 - controller-axis feed selection and fallback tests;
-- exact-frame freshness and posterior tests;
+- exact-frame freshness and atomic boundary aggregate tests;
+- whole-aggregate Boundary Redo after N=3 and failed-fallback retention tests;
+- learned-local-coordinate round-trip and camera-restart survival tests;
+- simulator auto-fit, annotation/hash isolation, and cooperative Stop-race tests;
 - forced-opposite four-side order, center derivation, and stoppable center-arrival
   tests;
 - contact-point/ROI, continuing Clear search, 10/5/2/1 mm move, blank-baseline,

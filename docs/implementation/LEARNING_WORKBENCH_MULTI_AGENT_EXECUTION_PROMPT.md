@@ -11,6 +11,11 @@ They remain below only as the exact execution record for the earlier landed
 increment. Current product behavior and new implementation work must follow the
 new protocol and canonical documents, not the older visible-journey section.
 
+The Boundary posterior and fixed-scale simulator assumptions in this historical
+record were superseded by
+[Boundary Evidence and Simulator Viewport Execution Prompt](BOUNDARY_EVIDENCE_AND_SIMULATOR_VIEWPORT_EXECUTION_PROMPT.md).
+The body below remains unchanged as the earlier execution record.
+
 You are the coordinating implementation agent for
 `/Users/bullard/Projects/AdaptivePlotter`. This is an execution request, not a
 request to stop after analysis, a proposal, or a mock-up. Plan the work, freeze

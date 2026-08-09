@@ -98,18 +98,22 @@ or natural finite-segment completion produces no accepted side.
 
 Every accepted side retains:
 
-- direction and accepted artifact revision;
+- typed direction and current aggregate artifact revision;
 - controller session and coordinate revision;
-- final controller MPos after Stop/Idle;
-- exact fresh frame and camera configuration;
+- aggregate estimate in millimetres, N, estimator, uncertainty, included
+  attempt IDs, and superseded/excluded provenance;
+- each attempt's owner/Stop identity and disposition plus final controller MPos
+  after Stop/Idle;
+- each attempt's exact fresh frame, SHA, capture time, and camera configuration;
 - a typed camera-space tool-contact estimate, not an armature or cap centroid;
-- side-association estimator, uncertainty, and algorithm revision.
+- contact estimator revision and confidence.
 
 The contact estimate is initially the bottom-center of the measured green tool
-component with an explicit estimator revision and confidence. Boundary-side
-correspondences remain typed vision inferences paired with the operator's Stop
-and side association; they are eligible for a fit only when their confidence
-and compatibility checks pass. The operator explicitly accepts the centered
+component with an explicit estimator revision and confidence. The selected
+machine side comes only from typed operator intent. No nearest drawing-frame
+edge, candidate-edge uniqueness, inferred quadrilateral association, or closed
+posterior may veto a successful observation. Exact compatible machine/contact
+samples remain eligible for an optical fit. The operator explicitly accepts the centered
 target-pose contact overlay before it may define the target ROI, and that
 accepted center pair independently validates the boundary-derived fit.
 
@@ -123,10 +127,14 @@ center.x = midpoint(X-.finalMPos.x, X+.finalMPos.x)
 center.y = midpoint(Y-.finalMPos.y, Y+.finalMPos.y)
 ```
 
-The artifact reports both spans, the four consumed revisions, estimator
-revision, sample counts, and available uncertainty. Its compatibility does not
-include camera configuration. Replacing one side retains the other three and
-invalidates only the center and downstream artifacts that consumed it.
+The artifact reports both spans, the four consumed aggregate revisions,
+estimator revision, sample counts, and available uncertainty. Its compatibility
+does not include camera configuration. The same four aggregates derive an
+invertible LearnedLocalCoordinateFrame with X-/Y- as local zero. Raw MPos is
+retained as secondary controller-origin provenance. The local frame is
+presentation evidence only, never homing, an offset, envelope, calibration,
+clamp, or motion admission. Replacing one side retains the other three and
+invalidates only the center/local frame and explicit downstream consumers.
 
 The operator reviews the four positions, center, current position, requested
 delta, and feed, then presses **Move to Estimated Center**. This starts one
@@ -236,18 +244,20 @@ target-plan revision. Synthetic success is software evidence only.
 
 ## Machine-camera registration
 
-The machine-space center and the camera registration have different
-compatibility domains. `EstimatedCenter` survives a camera restart while its
-controller session and coordinate revision remain current.
+The machine-space aggregates, center, arrival, learned local frame, and camera
+registration have different compatibility domains. Machine-space evidence
+survives a camera restart while its controller session and coordinate revision
+remain current.
 
 Quantitative Stage 4 geometry requires an affine current-session
 `MachineCameraRegistration` fitted from at least three non-collinear compatible
 MachinePosition/contact-point pairs. The normal path uses the four boundary
 pairs and validates with the accepted center contact point. It retains camera
 configuration, controller session, coordinate revision, correspondence frame
-and artifact identities, estimator revision, RMS/max pixel residual, and
+SHA/time, attempt and artifact identities, contact estimator/confidence, source,
+estimator revision, RMS/max pixel residual, and
 uncertainty. A camera change invalidates this registration and camera-dependent
-baselines, not the machine-space center.
+baselines, not the side aggregates, machine-space center, arrival, or local frame.
 
 No identity transform or historical camera prior may stand in for this
 registration.
@@ -273,7 +283,7 @@ The accepted visibility target is the stable visual reference for a line trial.
 ## Artifact dependency graph
 
 ```text
-four Boundary Observation revisions
+four BoundarySideAggregate revisions
   -> Estimated Center
   -> Center Arrival
   -> Target-Pose Registration
@@ -290,10 +300,15 @@ four Boundary Observation revisions
   -> Comparison
 ```
 
-The machine-camera registration separately consumes compatible boundary
-contact-point revisions plus target registration. Stage 4 line plans consume
-that registration. Camera reconfiguration invalidates camera registrations and
-baselines but not the estimated machine center. Invalidation never deletes
+LearnedLocalCoordinateFrame separately consumes the same four aggregate
+revisions. The machine-camera registration separately consumes compatible exact
+boundary machine/contact samples, explicit current-camera MPos/contact captures,
+plus target registration. The explicit collection action is capture-only: the
+operator must position the Pen Up through ordinary direct controls, and the
+action itself never moves or rewrites accepted Boundary evidence. Stage 4 line plans
+consume that registration. Camera reconfiguration invalidates camera
+registrations and baselines but not side aggregates, center, arrival, or the
+local frame. Invalidation never deletes
 partial-ink, refusal, cancellation, or ambiguity provenance. Failed replacement
 attempts never change the current accepted artifact.
 
@@ -314,6 +329,9 @@ stateful and causal:
 - dynamic contact point, armature bounds, ROI, and clear-view movement;
 - persistent simulated ink paths, including partial target ink;
 - frames rendered from current pose, ink, and camera configuration;
+- one uniform invertible auto-fit for translated/negative truth bounds;
+- exact-frame presentation-only truth, direction, learned-side/center, contact,
+  motion-trail, owner, target-ROI, and ink annotations;
 - monotonic exact frame IDs and timestamps;
 - the same compound visibility-target phase and scene dispositions;
 - fault injection for refusal, Stop races, stale capability, ambiguity,
@@ -337,6 +355,8 @@ Focused tests must cover:
 - Stop/Cancel/stale capability/ambiguity/shutdown for boundary, centering,
   search travel, target drawing, and line drawing;
 - four-side midpoint derivation and controller-context incompatibility;
+- N=1/2/3 side aggregation, whole-aggregate Redo, failed-fallback retention,
+  local-coordinate round trip, and camera-independent numeric compatibility;
 - camera reconfiguration preserving center but invalidating camera artifacts;
 - non-clear labels preserving one active search transaction;
 - exact 10/5/2/1 mm search actions with no model-selected movement;
@@ -350,6 +370,8 @@ Focused tests must cover:
 - target-present trial-local baseline and quantitative line projection only
   through a valid machine-camera registration;
 - dependency-scoped replacement and retention of physical-scene provenance;
+- simulator auto-fit, canonical-pixel/hash isolation, immediate Stop,
+  segment/frame race, at-truth Stop without spinning, and manual Stop parity;
 - two full mocked-operator simulated variants, one complete Stage 4 trial, no
   `MachineActions`, and explicit nonphysical evidence.
 

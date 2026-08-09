@@ -78,6 +78,72 @@ func overlayIdentityMismatchIsHidden() throws {
   #expect(presentation.overlays == [matching])
 }
 
+@Test("Simulated annotations require exact frame configuration and viewport identity")
+func simulatedAnnotationIdentityAndToggle() throws {
+  let configuration = CameraConfigurationID()
+  let displayed = try testDisplayedFrame(
+    source: .simulated,
+    configuration: configuration
+  )
+  let viewport = SimulatedCameraViewportID(rawValue: "viewport-a")
+  let point = try Point2<CameraPixelSpace>(x: 12, y: 18)
+  func annotation(
+    frameID: FrameID,
+    configurationID: CameraConfigurationID,
+    viewportID: SimulatedCameraViewportID
+  ) -> SimulatedLearningAnnotation {
+    SimulatedLearningAnnotation(
+      kind: .currentContact,
+      anchor: point,
+      geometry: .point(point),
+      visibleLabel: "MPOS",
+      accessibleValue: "Simulated current position",
+      frameID: frameID,
+      cameraConfigurationID: configurationID,
+      viewportID: viewportID
+    )
+  }
+  let matching = annotation(
+    frameID: displayed.frame.id,
+    configurationID: configuration,
+    viewportID: viewport
+  )
+  let wrongFrame = annotation(
+    frameID: FrameID(),
+    configurationID: configuration,
+    viewportID: viewport
+  )
+  let wrongConfiguration = annotation(
+    frameID: displayed.frame.id,
+    configurationID: CameraConfigurationID(),
+    viewportID: viewport
+  )
+  let wrongViewport = annotation(
+    frameID: displayed.frame.id,
+    configurationID: configuration,
+    viewportID: SimulatedCameraViewportID(rawValue: "viewport-b")
+  )
+
+  let visible = ActionSurfacePresentation(
+    displayedFrame: displayed,
+    overlays: [],
+    simulatedAnnotations: [wrongFrame, wrongConfiguration, wrongViewport, matching],
+    simulatedViewportID: viewport
+  )
+  #expect(visible.simulatedAnnotations == [matching])
+  #expect(visible.rendererIdentity == "canonical-stamped-frame")
+
+  let hidden = ActionSurfacePresentation(
+    displayedFrame: displayed,
+    overlays: [],
+    simulatedAnnotations: [matching],
+    simulatedViewportID: viewport,
+    simulatedAnnotationsAreVisible: false
+  )
+  #expect(hidden.simulatedAnnotations.isEmpty)
+  #expect(hidden.displayedFrame?.frame == visible.displayedFrame?.frame)
+}
+
 @Test("Live and simulated frames use the same canonical renderer")
 func liveAndSimulatorShareRenderer() throws {
   let live = try testDisplayedFrame(source: .live(CameraDeviceID(rawValue: "camera-a")))

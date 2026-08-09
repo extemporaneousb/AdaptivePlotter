@@ -68,7 +68,11 @@ Stage 3.2 records all four directions. The operator chooses any first side; its
 opposite is forced next. The operator then chooses either sign on the remaining
 axis; its opposite is forced last. Each side is a separate explicit Start and
 operator Stop under the existing logical Boundary owner. Four accepted final
-MPos observations derive the machine-space center from the X and Y midpoints.
+MPos samples enter one accepted aggregate per typed direction; the four current
+aggregate estimates derive the machine-space center from the X and Y midpoints.
+The exact post-settlement frame and bottom-center contact estimate remain
+registration evidence, but no detected edge or inferred quadrilateral may
+identify the machine side or veto its commit.
 An explicit, stoppable Pen Up **Move to Estimated Center** settles before Stage
 3.3 begins. The center is learned evidence, not a motion envelope.
 
@@ -156,6 +160,12 @@ boundary measurements merely because Pen Interaction precedes Boundary
 Discovery. Current Pen Up remains a direct prerequisite for a new carriage move
 without rewriting historical boundary evidence.
 
+A Boundary Redo replaces the complete accepted per-direction aggregate, not one
+member while leaving the old set current. Success starts the replacement at
+N=1 and supersedes the prior aggregate revision. Any unsuccessful or ambiguous
+replacement retains the entire accepted fallback and every current dependent
+unchanged.
+
 `Record Another Attempt` adds one compatible attempt instead of replacing the
 accepted attempt set. Every attempt retains its provenance and inclusion status.
 The derived aggregate is recomputed from all valid compatible attempts and
@@ -163,8 +173,12 @@ reports the valid count `N` plus the estimator/revision used. Numeric and
 geometric values use a declared estimator with uncertainty; categorical values
 use counts or a typed posterior; current state observations use the latest
 accepted observation. Exact frames, controller events, strings, and state labels
-are not arithmetically averaged. Incompatible camera configuration, coordinate
-space, units, or algorithm revision prevents silent pooling.
+are not arithmetically averaged. Boundary machine-space aggregation excludes
+camera configuration from compatibility and instead binds direction, controller
+session, coordinate revision, machine coordinates, millimetres, and numeric
+estimator revision. Optical observations retain their exact source, frame,
+camera configuration, contact estimator, and algorithm revision and are never
+averaged before registration.
 
 An unclear, refused, or ambiguous attempt remains evidence of that outcome but
 does not enter a successful-value aggregate. Neither Redo nor another attempt
@@ -231,8 +245,10 @@ For Boundary Discovery the order is binding:
 3. await the original jog owner through Idle and final MPos;
 4. set the fresh-frame boundary after controller settlement;
 5. accept only an exact frame strictly newer than that boundary;
-6. measure the chosen side and update the posterior;
-7. advance the transaction.
+6. obtain one typed bottom-center contact estimate on that exact frame;
+7. atomically commit attempt evidence and the selected side aggregate;
+8. recompute paired progress, center, and learned local coordinates;
+9. advance the transaction.
 
 The active discovery owns boundary motion until that Stop event or a real typed
 controller terminal condition such as an asserted limit, alarm, disconnect, or
@@ -283,7 +299,9 @@ currently displayed or analyzed frame. Measurements and overlays retain exact
 rejected.
 
 Frame-side and cap detections are camera-space measurements. Drawing-frame and
-armature envelopes are inferences. Tool contact point is a separate typed
+armature envelopes are optional diagnostics. Machine direction comes from the
+typed operator action; nearest-edge classification, candidate-edge uniqueness,
+and a closed drawing-frame posterior are not Boundary authority. Tool contact point is a separate typed
 camera-space estimate with exact frame/configuration, ROI, estimator revision,
 confidence, and operator acceptance; it is not the cap centroid. Controller
 MPos remains controller provenance until an explicit compatible
@@ -297,7 +315,11 @@ coordinate space, paper revision, and ROI; Idle, Pen Up, a declared MPos
 tolerance, strictly fresh frames, and acceptable image-space alignment and
 background residual. Center compatibility is controller-session evidence and
 does not silently become invalid merely because the camera restarts; camera
-registration compatibility does.
+registration compatibility does. Raw GRBL MPos remains millimetre-valued
+controller position relative to the current controller origin. After all four
+side aggregates exist, the app may derive an invertible local presentation with
+X-/Y- as zero; that frame is not homing, a controller offset, an entered
+envelope, camera calibration, clamping, or motion admission.
 
 ## Local application contract
 

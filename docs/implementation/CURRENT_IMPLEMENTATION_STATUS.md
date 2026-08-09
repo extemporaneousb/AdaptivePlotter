@@ -70,6 +70,12 @@ declared transitive consumers. Additional attempts retain compatible provenance
 and expose typed aggregates with sample count, estimator identity, uncertainty
 or categorical counts, and included attempt identities.
 
+Boundary Redo replaces the complete accepted aggregate for its named side and
+starts the successful replacement at N=1. An unsuccessful replacement or
+additional attempt remains typed activity while the old aggregate, graph,
+center, arrival, local frame, current action, and side-bearing retry actions
+remain available.
+
 ### Controller
 
 - Explicit `/dev/cu.*` discovery and selection.
@@ -101,7 +107,8 @@ or categorical counts, and included attempt identities.
   current owner.
 - Boundary Stop records the operator event before one cancel byte, awaits the
   original owner through Idle/final MPos, captures a strictly newer exact frame,
-  updates the selected side posterior, and advances.
+  obtains one typed bottom-center contact estimate, atomically commits exact
+  attempt evidence and the selected side aggregate, and advances.
 - Repeated Stop calls share a target latch and emit one cancel.
 - Manual Stop uses the same mechanical primitive, rejects stale capabilities,
   and creates no boundary evidence.
@@ -122,10 +129,12 @@ or categorical counts, and included attempt identities.
   a real limit, alarm, refusal, disconnect, fault, or ambiguity produces Needs
   Attention and no boundary evidence. There is no application-selected
   completion horizon.
-- Boundary evidence retains final controller MPos, exact post-stop frame and
-  configuration, typed tool contact estimate, side association, uncertainty,
-  and posterior count. Four accepted sides derive the midpoint and one explicit
-  stoppable Pen Up move settles at the estimated center.
+- Boundary evidence retains typed direction, owner/Stop identity and
+  disposition, final controller MPos, exact post-stop frame/SHA/time/
+  configuration, typed tool contact estimate, inclusion provenance, numeric
+  estimator, N, and uncertainty. No camera edge identifies or vetoes a side.
+  Four current side aggregates derive the midpoint and learned local
+  millimetre frame; one explicit stoppable Pen Up move settles at the center.
 - Visibility Target and Clear-View Registration retains the armature-present
   target-pose frame, accepted bottom-center contact-point estimate/ROI, explicit
   10/5/2/optional-1 mm search moves, one repeatable Clear pose, a blank ROI
@@ -173,8 +182,15 @@ or categorical counts, and included attempt identities.
   only the trial artifacts that cite that exact revision.
 - Failed, refused, unclear, cancelled, and ambiguous attempts remain provenance
   but cannot manufacture an accepted value or enter a successful aggregate.
-- Compatibility binds camera configuration, coordinate space, units,
-  direction/group, and algorithm revision. Incompatible attempts are not pooled.
+- Boundary numeric compatibility binds direction, controller session,
+  coordinate revision, machine space, millimetres, and numeric-estimator
+  revision; camera configuration does not split it. Optical registration
+  separately binds exact frame/source/configuration/contact-estimator and
+  algorithm identity.
+- Current-camera registration recovery is the typed **Collect Current-Camera
+  Contact Evidence** action. Each press captures one exact current MPos/contact
+  correspondence without motion; it does not redo a Boundary or replace its
+  accepted aggregate.
 - Numeric aggregates expose estimator revision and uncertainty; categorical
   aggregates expose counts/proportions; current state uses the latest accepted
   observation. Exact frames, controller events, strings, identifiers, refusals,
@@ -193,7 +209,7 @@ or categorical counts, and included attempt identities.
   the selected cadence; all exact-provenance semantic overlay layers begin
   visible and remain individually hideable.
 - Green-cap and frame-side camera measurements; drawing-frame and armature
-  overlays explicitly inferred.
+  overlays explicitly inferred and non-authoritative for Boundary identity.
 - A one-entry frame/configuration image cache and shared LIVE/SIMULATED
   aspect-fit renderer.
 - SIMULATED uses the same Learning Path, motion controls, questions, camera
@@ -201,6 +217,12 @@ or categorical counts, and included attempt identities.
   authorization, MPos, pen pose, manual jog, renewable Boundary Stop/Cancel,
   compound target drawing, paper revision, persistent ink, line drawing, and
   deterministic causal camera evidence.
+- The simulator uses one stable invertible uniform auto-fit for translated or
+  negative truth bounds. Exact-frame truth/learned annotations render above
+  canonical pixels and cannot alter frame SHA, vision, learning, or authority.
+- Cooperative Boundary/manual motion publishes Stop immediately, advances
+  causal frames only after accepted segments, and lets Stop/Cancel/shutdown or
+  sticky ambiguity win before any later motion or frame mutation.
 - A complete simulated Learning Path reaches Adaptive Drawing with zero
   `MachineActions` calls. Every simulated evidence surface is marked
   `SIMULATED — NOT PHYSICAL EVIDENCE`; returning to LIVE discards simulated
@@ -241,16 +263,19 @@ The automated coverage includes:
   aggregation, unsuccessful-attempt exclusion, and latest-state selection;
 - one logical boundary owner across finite segments, Stop-versus-renewal
   latching, and one-cancel manual and boundary Stop behavior;
-- Stop-before-cancel event order, Idle/final MPos, exact newer frame, posterior,
-  forced-opposite direction order, four-side center derivation, and explicit
-  center arrival;
+- Stop-before-cancel event order, Idle/final MPos, exact newer frame/contact,
+  atomic per-side aggregate commit, forced-opposite direction order, four-side
+  center/local-frame derivation, and explicit center arrival;
+- N=3 Boundary aggregation, whole-aggregate Redo, failed-fallback retention,
+  camera-independent numeric compatibility, and optical mismatch rejection;
 - Cancel and active-boundary shutdown settlement without successful boundary
   evidence;
 - controller-ceiling and fallback feed selection;
 - output announcement ordering, identity isolation, and advisory failure;
 - continuing Blocked/Partial clear search, typed target contact/ROI, target
   operation Stop/recovery, two-frame agreement, and 4.6 assessment;
-- causal simulator isolation and complete mocked-operator workflow variants;
+- simulator auto-fit, annotation/hash isolation, cooperative Stop races,
+  isolation, and complete mocked-operator workflow variants;
 - launcher exact-instance decisions and synthetic raw-process refusal;
 - signed bundle and camera-only privacy validation;
 - full normal and strict Swift builds/tests.

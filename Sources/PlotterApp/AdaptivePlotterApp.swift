@@ -132,7 +132,10 @@ struct OperatorWorkspaceView: View {
 
           VSplitView {
             ActionSurface(presentation: workspace.actionSurfacePresentation)
-              .frame(minWidth: 640, minHeight: 420)
+              .frame(
+                minWidth: LearningWorkbenchLayoutPolicy.minimumActionSurfaceWidth,
+                minHeight: LearningWorkbenchLayoutPolicy.minimumActionSurfaceHeight
+              )
 
             if paneVisibility.motionIsPresented {
               ScrollView {
@@ -144,7 +147,11 @@ struct OperatorWorkspaceView: View {
             }
           }
         }
-        .frame(minWidth: 640, maxWidth: .infinity, maxHeight: .infinity)
+        .frame(
+          minWidth: LearningWorkbenchLayoutPolicy.minimumActionSurfaceWidth,
+          maxWidth: .infinity,
+          maxHeight: .infinity
+        )
 
         if paneVisibility.exerciseDetailIsPresented {
           LearningPathView(
@@ -396,19 +403,6 @@ private struct CameraPanel: View {
       .foregroundStyle(.secondary)
 
       if utilityPresentation.mode == .simulated {
-        Picker(
-          "Model",
-          selection: Binding(
-            get: { workspace.simulatorModelMode },
-            set: { mode in Task { await workspace.selectSimulatorModelMode(mode) } }
-          )
-        ) {
-          ForEach(SimulatorModelMode.allCases) { mode in
-            Text(mode.rawValue).tag(mode)
-          }
-        }
-        .pickerStyle(.segmented)
-
         Text(workspace.simulatorEvidenceLabel)
           .font(.caption.monospaced().bold())
           .foregroundStyle(.blue)

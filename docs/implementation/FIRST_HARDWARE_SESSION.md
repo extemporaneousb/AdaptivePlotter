@@ -114,12 +114,15 @@ Do not infer pen height from controller state or one camera frame.
 5. Observe movement directly and press the one exercise-strip **Stop Boundary**
    once at the observed side. Do not press Cancel unless abandoning the attempt.
 6. Verify one operator Stop event, one Jog Cancel, original-owner Idle/final
-   MPos, one strictly newer exact frame, and one accepted side observation.
+   MPos, one strictly newer exact frame/SHA/configuration, one typed
+   bottom-center contact estimate, and one atomic accepted side aggregate.
 7. Confirm the next direction is the forced opposite of the first. Repeat the
    same Start/Stop/settle/frame sequence.
 8. Choose either sign on the remaining axis, then repeat its forced opposite.
-9. Verify all four sides are accepted and the UI shows the estimated X/Y center
-   and uncertainty/provenance.
+9. Verify all four side aggregates are accepted and the UI shows local
+   coordinates as primary learned-area presentation, raw signed controller MPos
+   as provenance, both spans, the estimated local center, N, uncertainty, and
+   consumed revisions.
 10. Press the explicit **Move to Estimated Center** action and retain its Stop
     within reach. Verify Pen Up travel settles at Idle/final MPos before 3.3.
 

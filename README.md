@@ -38,8 +38,11 @@ Human-Guided Discovery is ordered as:
 2. **3.2 Paired Boundary Discovery and Centering** — choose any first side,
    record it with operator-stopped boundary motion, record its forced opposite,
    choose either sign on the remaining axis, then record that forced opposite.
-   The four final MPos observations define the estimated machine center. The
-   operator then explicitly starts one stoppable Pen Up move to that center.
+   Each Stop retains the settled MPos plus one exact newer frame and typed
+   bottom-center contact sample. Typed operator direction, never a nearest
+   camera edge, identifies the side. Per-side machine-space aggregates define
+   the estimated center and learned local millimetre frame. The operator then
+   explicitly starts one stoppable Pen Up move to that center.
 3. **3.3 Visibility Target and Clear-View Registration** — register the tool's
    camera-space contact point and target ROI while the armature is present;
    find and accept a repeatable clear pose with explicit 10, 5, 2, or optional
@@ -125,15 +128,26 @@ Replacement is committed atomically after the new attempt succeeds. The old
 value is no longer current and is excluded from derived current results; any
 retained diagnostic record is explicitly marked superseded.
 
+For a Boundary side, Redo replaces the entire accepted aggregate. A successful
+replacement begins again at N=1; a failed, refused, cancelled, or ambiguous
+replacement leaves the old aggregate, graph, center, arrival, local frame, and
+current path unchanged.
+
 **Record Another Attempt** preserves each compatible attempt and recomputes the
 typed aggregate from all valid attempts in that group. The aggregate exposes its
 valid sample count. Numeric or geometric measurements use their declared
 estimator and uncertainty; categorical observations use counts or a typed
 posterior; current state facts such as observed pen pose use the latest accepted
 observation and are never arithmetically averaged. Exact frames and controller
-events remain provenance, not averageable values. Attempts with incompatible
-camera/configuration identity, units, coordinate space, or algorithm revision
-must not be silently pooled.
+events remain provenance, not averageable values. Boundary numeric compatibility
+uses direction, controller session, coordinate revision, machine coordinates,
+millimetres, and numeric-estimator revision; camera configuration is deliberately
+absent. Optical registration separately requires compatible exact frames,
+camera configuration, contact estimator, and algorithm revision.
+When a current camera lacks three compatible non-collinear correspondences, the
+operator gets a typed **Collect Current-Camera Contact Evidence** action. It
+captures exact MPos/contact provenance only; it admits no motion and leaves all
+accepted machine-space Boundary authority unchanged.
 
 ## Direct mechanical authority
 
@@ -184,8 +198,10 @@ During Boundary Discovery, Stop has one deterministic order:
 2. emit exactly one GRBL Jog Cancel byte;
 3. await the original jog owner through Idle and final MPos;
 4. capture a strictly newer exact camera frame;
-5. measure and update the relevant boundary observation;
-6. advance the visible sequence.
+5. obtain one typed bottom-center tool-contact estimate;
+6. atomically commit the exact attempt evidence and accepted side aggregate;
+7. recompute paired progress, center, and learned local coordinates;
+8. advance the visible sequence.
 
 Boundary motion remains owned by the active discovery attempt until Stop or a
 real controller limit, alarm, disconnect, or other typed fault. The application
@@ -251,6 +267,12 @@ target drawing, clear-view search, two-frame target observation, and the Stage 4
 line trial therefore exercise the same visible actions instead of consuming a
 pre-rendered success script.
 
+The simulator fits arbitrary translated or negative truth bounds into each
+camera configuration with one stable uniform transform. Its truth envelope,
+direction labels, learned markers, current pose, target ROI, trail, and ink
+annotations are exact-frame presentation only: they never alter canonical
+pixels, frame hashes, vision results, accepted evidence, or physical authority.
+
 LIVE and SIMULATED use the same Learning Path, motion panel, camera utilities,
 questions, and action locations. The deterministic simulator implements its
 own session, motion authorization, MPos, pen pose, manual jog, Boundary owner,
@@ -307,6 +329,9 @@ can create competing camera/serial owners.
 - [Learning workbench execution prompt](docs/implementation/LEARNING_WORKBENCH_MULTI_AGENT_EXECUTION_PROMPT.md)
   is the copy-paste coordinator prompt for implementing the accepted one-window
   UI and dependency-aware attempt semantics.
+- [Boundary evidence and simulator viewport execution prompt](docs/implementation/BOUNDARY_EVIDENCE_AND_SIMULATOR_VIEWPORT_EXECUTION_PROMPT.md)
+  is the retained coordinator record for the atomic Boundary aggregate,
+  learned-local-coordinate, recovery, and simulator auto-fit correction.
 
 ## Development contract
 

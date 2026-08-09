@@ -147,36 +147,254 @@ public struct ToolContactPointEstimate: Codable, Hashable, Sendable {
   }
 }
 
-public struct AcceptedBoundarySide: Codable, Hashable, Sendable {
+public enum BoundarySideEvidenceError: Error, Equatable, Sendable {
+  case emptyFrameSHA256
+  case inconsistentContactProvenance
+  case successfulEvidenceRequiresOperatorStop
+}
+
+/// Immutable evidence from one exact Boundary attempt. Camera/contact values
+/// remain exact attempt provenance and are never averaged into side identity.
+public struct BoundarySideAttemptEvidence: Codable, Hashable, Sendable {
+  public let attemptID: ExerciseAttemptID
+  public let direction: BoundaryDirection
+  public let controllerSessionID: UUID
+  public let coordinateRevision: UInt64
+  public let ownerID: BoundaryMotionOwnerID
+  public let stopCapabilityID: UUID
+  public let stopIntent: JogCancelIntent
+  public let finalPosition: MachinePosition
+  public let frameSource: FrameSourceIdentity
+  public let frameID: FrameID
+  public let frameSHA256: String
+  public let captureNanoseconds: UInt64
+  public let cameraConfigurationID: CameraConfigurationID
+  public let contactPoint: ToolContactPointEstimate
+  public let contactEstimatorRevision: String
+  public let contactConfidence: Double
+  public let disposition: ExerciseAttemptDisposition
+
+  public init(
+    attemptID: ExerciseAttemptID,
+    direction: BoundaryDirection,
+    controllerSessionID: UUID,
+    coordinateRevision: UInt64,
+    ownerID: BoundaryMotionOwnerID,
+    stopCapabilityID: UUID,
+    stopIntent: JogCancelIntent,
+    finalPosition: MachinePosition,
+    frameSource: FrameSourceIdentity,
+    frameID: FrameID,
+    frameSHA256: String,
+    captureNanoseconds: UInt64,
+    cameraConfigurationID: CameraConfigurationID,
+    contactPoint: ToolContactPointEstimate,
+    disposition: ExerciseAttemptDisposition
+  ) throws {
+    guard !frameSHA256.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+      throw BoundarySideEvidenceError.emptyFrameSHA256
+    }
+    guard contactPoint.source == frameSource,
+      contactPoint.frameID == frameID,
+      contactPoint.cameraConfigurationID == cameraConfigurationID
+    else {
+      throw BoundarySideEvidenceError.inconsistentContactProvenance
+    }
+    if disposition == .succeeded, stopIntent != .operatorStop {
+      throw BoundarySideEvidenceError.successfulEvidenceRequiresOperatorStop
+    }
+    self.attemptID = attemptID
+    self.direction = direction
+    self.controllerSessionID = controllerSessionID
+    self.coordinateRevision = coordinateRevision
+    self.ownerID = ownerID
+    self.stopCapabilityID = stopCapabilityID
+    self.stopIntent = stopIntent
+    self.finalPosition = finalPosition
+    self.frameSource = frameSource
+    self.frameID = frameID
+    self.frameSHA256 = frameSHA256
+    self.captureNanoseconds = captureNanoseconds
+    self.cameraConfigurationID = cameraConfigurationID
+    self.contactPoint = contactPoint
+    contactEstimatorRevision = contactPoint.estimatorRevision
+    contactConfidence = contactPoint.confidence
+    self.disposition = disposition
+  }
+
+  public var machineValueMM: Double {
+    direction.isXAxis ? finalPosition.point.x : finalPosition.point.y
+  }
+}
+
+/// The complete identity for pooling machine-space Boundary values. Camera
+/// configuration is deliberately absent; optical compatibility is separate.
+public struct BoundaryNumericCompatibility: Codable, Hashable, Sendable {
+  public let direction: BoundaryDirection
+  public let controllerSessionID: UUID
+  public let coordinateRevision: UInt64
+  public let coordinateSpace: AttemptCoordinateSpace
+  public let units: AttemptUnits
+  public let numericEstimatorRevision: String
+
+  public init(
+    direction: BoundaryDirection,
+    controllerSessionID: UUID,
+    coordinateRevision: UInt64,
+    numericEstimatorRevision: String
+  ) {
+    precondition(!numericEstimatorRevision.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    self.direction = direction
+    self.controllerSessionID = controllerSessionID
+    self.coordinateRevision = coordinateRevision
+    coordinateSpace = .machine
+    units = .millimeters
+    self.numericEstimatorRevision = numericEstimatorRevision
+  }
+
+  public var attemptCompatibility: AttemptCompatibility {
+    AttemptCompatibility(
+      cameraConfigurationID: nil,
+      coordinateSpace: coordinateSpace,
+      units: units,
+      group: AttemptGroupIdentity(
+        rawValue:
+          "boundary-side-\(direction.rawValue)-\(controllerSessionID.uuidString)-\(coordinateRevision)"
+      ),
+      algorithmRevision: numericEstimatorRevision
+    )
+  }
+}
+
+public struct BoundarySideAttemptProvenance: Hashable, Sendable {
+  public let attemptID: ExerciseAttemptID
+  public let disposition: ExerciseAttemptDisposition
+  public let inclusionState: ExerciseAttemptInclusionState
+}
+
+public enum BoundarySideAggregateError: Error, Equatable, Sendable {
+  case incompatibleHistory(expected: AttemptCompatibility, actual: AttemptCompatibility)
+  case noIncludedSamples
+  case attemptIdentityMismatch
+  case attemptDispositionMismatch
+  case directionMismatch(expected: BoundaryDirection, actual: BoundaryDirection)
+  case incompatibleControllerContext
+  case nonFiniteMachineValue(ExerciseAttemptID)
+}
+
+/// Current accepted numeric value for one typed machine direction. Its frame
+/// and contact samples remain in the referenced exact attempt evidence.
+public struct BoundarySideAggregate: Hashable, Sendable {
   public let direction: BoundaryDirection
   public let revisionID: LearningArtifactRevisionID
   public let controllerSessionID: UUID
   public let coordinateRevision: UInt64
-  public let finalPosition: MachinePosition
-  public let contactPoint: ToolContactPointEstimate
-  public let sideEstimatorRevision: String
-  public let uncertaintyPixels: Double
+  public let coordinateSpace: AttemptCoordinateSpace
+  public let units: AttemptUnits
+  public let estimateMM: Double
+  public let validSampleCount: Int
+  public let estimator: AggregateEstimatorIdentity
+  public let uncertainty: NumericUncertainty
+  public let includedAttemptIDs: [ExerciseAttemptID]
+  public let supersededAttempts: [BoundarySideAttemptProvenance]
+  public let excludedAttempts: [BoundarySideAttemptProvenance]
 
   public init(
     direction: BoundaryDirection,
-    revisionID: LearningArtifactRevisionID,
-    controllerSessionID: UUID,
-    coordinateRevision: UInt64,
-    finalPosition: MachinePosition,
-    contactPoint: ToolContactPointEstimate,
-    sideEstimatorRevision: String,
-    uncertaintyPixels: Double
-  ) {
-    precondition(!sideEstimatorRevision.isEmpty)
-    precondition(uncertaintyPixels.isFinite && uncertaintyPixels >= 0)
+    revisionID: LearningArtifactRevisionID = LearningArtifactRevisionID(),
+    history: ExerciseAttemptHistory<BoundarySideAttemptEvidence>,
+    estimator: AggregateEstimatorIdentity = AggregateEstimatorIdentity(
+      name: "arithmetic-mean",
+      revision: "boundary-machine-coordinate-v1"
+    )
+  ) throws {
+    let included = history.includedSuccessfulAttempts
+    guard let first = included.first, let firstEvidence = first.value else {
+      throw BoundarySideAggregateError.noIncludedSamples
+    }
+    let compatibility = BoundaryNumericCompatibility(
+      direction: direction,
+      controllerSessionID: firstEvidence.controllerSessionID,
+      coordinateRevision: firstEvidence.coordinateRevision,
+      numericEstimatorRevision: estimator.revision
+    )
+    guard history.compatibility == compatibility.attemptCompatibility else {
+      throw BoundarySideAggregateError.incompatibleHistory(
+        expected: compatibility.attemptCompatibility,
+        actual: history.compatibility
+      )
+    }
+
+    let values = try included.map { attempt -> Double in
+      guard let evidence = attempt.value, evidence.attemptID == attempt.id else {
+        throw BoundarySideAggregateError.attemptIdentityMismatch
+      }
+      guard evidence.disposition == attempt.disposition else {
+        throw BoundarySideAggregateError.attemptDispositionMismatch
+      }
+      guard evidence.direction == direction else {
+        throw BoundarySideAggregateError.directionMismatch(
+          expected: direction,
+          actual: evidence.direction
+        )
+      }
+      guard evidence.controllerSessionID == firstEvidence.controllerSessionID,
+        evidence.coordinateRevision == firstEvidence.coordinateRevision
+      else {
+        throw BoundarySideAggregateError.incompatibleControllerContext
+      }
+      let value = evidence.machineValueMM
+      guard value.isFinite else {
+        throw BoundarySideAggregateError.nonFiniteMachineValue(attempt.id)
+      }
+      return value
+    }
+    let mean = values.reduce(0, +) / Double(values.count)
+    let uncertainty: NumericUncertainty = if values.count == 1 {
+      .unavailable(validSampleCount: 1)
+    } else {
+      .sampleStandardDeviation(
+        sqrt(values.reduce(0) { $0 + ($1 - mean) * ($1 - mean) } / Double(values.count - 1))
+      )
+    }
+    let superseded = history.records.compactMap { record -> BoundarySideAttemptProvenance? in
+      guard case .superseded = record.inclusionState else { return nil }
+      return BoundarySideAttemptProvenance(
+        attemptID: record.attempt.id,
+        disposition: record.attempt.disposition,
+        inclusionState: record.inclusionState
+      )
+    }
+    let excluded = history.records.compactMap { record -> BoundarySideAttemptProvenance? in
+      guard record.inclusionState == .excludedUnsuccessful else { return nil }
+      return BoundarySideAttemptProvenance(
+        attemptID: record.attempt.id,
+        disposition: record.attempt.disposition,
+        inclusionState: record.inclusionState
+      )
+    }
     self.direction = direction
     self.revisionID = revisionID
-    self.controllerSessionID = controllerSessionID
-    self.coordinateRevision = coordinateRevision
-    self.finalPosition = finalPosition
-    self.contactPoint = contactPoint
-    self.sideEstimatorRevision = sideEstimatorRevision
-    self.uncertaintyPixels = uncertaintyPixels
+    controllerSessionID = firstEvidence.controllerSessionID
+    coordinateRevision = firstEvidence.coordinateRevision
+    coordinateSpace = .machine
+    units = .millimeters
+    estimateMM = mean
+    validSampleCount = values.count
+    self.estimator = estimator
+    self.uncertainty = uncertainty
+    includedAttemptIDs = included.map(\.id)
+    supersededAttempts = superseded
+    excludedAttempts = excluded
+  }
+
+  public var numericCompatibility: BoundaryNumericCompatibility {
+    BoundaryNumericCompatibility(
+      direction: direction,
+      controllerSessionID: controllerSessionID,
+      coordinateRevision: coordinateRevision,
+      numericEstimatorRevision: estimator.revision
+    )
   }
 }
 
@@ -185,6 +403,7 @@ public enum EstimatedMachineCenterError: Error, Equatable, Sendable {
   case incompatibleControllerContext
   case duplicateDirection(BoundaryDirection)
   case invalidSpans
+  case incompatibleEstimator
 }
 
 /// A machine-space midpoint derived from four accepted controller positions.
@@ -200,20 +419,20 @@ public struct EstimatedMachineCenter: Codable, Hashable, Sendable {
   public let estimatorRevision: String
 
   public static func derive(
-    from observations: [AcceptedBoundarySide],
+    from aggregates: [BoundarySideAggregate],
     estimatorRevision: String = "opposite-side-midpoint-v1"
   ) throws -> Self {
-    var byDirection: [BoundaryDirection: AcceptedBoundarySide] = [:]
-    for observation in observations {
-      guard byDirection[observation.direction] == nil else {
-        throw EstimatedMachineCenterError.duplicateDirection(observation.direction)
+    var byDirection: [BoundaryDirection: BoundarySideAggregate] = [:]
+    for aggregate in aggregates {
+      guard byDirection[aggregate.direction] == nil else {
+        throw EstimatedMachineCenterError.duplicateDirection(aggregate.direction)
       }
-      byDirection[observation.direction] = observation
+      byDirection[aggregate.direction] = aggregate
     }
     for direction in BoundaryDirection.allCases where byDirection[direction] == nil {
       throw EstimatedMachineCenterError.missingDirection(direction)
     }
-    let contexts = Set(observations.map {
+    let contexts = Set(aggregates.map {
       ControllerCoordinateContext(
         controllerSessionID: $0.controllerSessionID,
         coordinateRevision: $0.coordinateRevision
@@ -222,10 +441,13 @@ public struct EstimatedMachineCenter: Codable, Hashable, Sendable {
     guard contexts.count == 1, let context = contexts.first else {
       throw EstimatedMachineCenterError.incompatibleControllerContext
     }
-    let negativeX = byDirection[.negativeX]!.finalPosition.point.x
-    let positiveX = byDirection[.positiveX]!.finalPosition.point.x
-    let negativeY = byDirection[.negativeY]!.finalPosition.point.y
-    let positiveY = byDirection[.positiveY]!.finalPosition.point.y
+    guard Set(aggregates.map { $0.estimator.revision }).count == 1 else {
+      throw EstimatedMachineCenterError.incompatibleEstimator
+    }
+    let negativeX = byDirection[.negativeX]!.estimateMM
+    let positiveX = byDirection[.positiveX]!.estimateMM
+    let negativeY = byDirection[.negativeY]!.estimateMM
+    let positiveY = byDirection[.positiveY]!.estimateMM
     let xSpan = positiveX - negativeX
     let ySpan = positiveY - negativeY
     guard xSpan.isFinite, ySpan.isFinite, xSpan > 0, ySpan > 0 else {
@@ -237,10 +459,94 @@ public struct EstimatedMachineCenter: Codable, Hashable, Sendable {
       ySpanMM: ySpan,
       controllerSessionID: context.controllerSessionID,
       coordinateRevision: context.coordinateRevision,
-      consumedRevisionIDs: Set(observations.map(\.revisionID)),
-      sampleCountByAxis: ["X": 2, "Y": 2],
+      consumedRevisionIDs: Set(aggregates.map(\.revisionID)),
+      sampleCountByAxis: [
+        "X": byDirection[.negativeX]!.validSampleCount + byDirection[.positiveX]!.validSampleCount,
+        "Y": byDirection[.negativeY]!.validSampleCount + byDirection[.positiveY]!.validSampleCount,
+      ],
       estimatorRevision: estimatorRevision
     )
+  }
+}
+
+public enum LearnedLocalCoordinateFrameError: Error, Equatable, Sendable {
+  case missingDirection(BoundaryDirection)
+  case duplicateDirection(BoundaryDirection)
+  case incompatibleControllerContext
+  case incompatibleEstimator
+  case invalidSpans
+}
+
+/// A presentation-only local frame whose origin is the X-/Y- intersection.
+/// It is an invertible translation in millimetres and is never motion authority.
+public struct LearnedLocalCoordinateFrame: Hashable, Sendable {
+  public let controllerSessionID: UUID
+  public let coordinateRevision: UInt64
+  public let origin: Point2<MachineSpace>
+  public let xSpanMM: Double
+  public let ySpanMM: Double
+  public let consumedAggregateRevisionIDs: [BoundaryDirection: LearningArtifactRevisionID]
+  public let estimator: AggregateEstimatorIdentity
+  public let units: AttemptUnits
+
+  public static func derive(
+    from aggregates: [BoundarySideAggregate],
+    estimator: AggregateEstimatorIdentity = AggregateEstimatorIdentity(
+      name: "lower-side-origin",
+      revision: "boundary-local-coordinate-v1"
+    )
+  ) throws -> Self {
+    var byDirection: [BoundaryDirection: BoundarySideAggregate] = [:]
+    for aggregate in aggregates {
+      guard byDirection[aggregate.direction] == nil else {
+        throw LearnedLocalCoordinateFrameError.duplicateDirection(aggregate.direction)
+      }
+      byDirection[aggregate.direction] = aggregate
+    }
+    for direction in BoundaryDirection.allCases where byDirection[direction] == nil {
+      throw LearnedLocalCoordinateFrameError.missingDirection(direction)
+    }
+    let contexts = Set(aggregates.map {
+      ControllerCoordinateContext(
+        controllerSessionID: $0.controllerSessionID,
+        coordinateRevision: $0.coordinateRevision
+      )
+    })
+    guard contexts.count == 1, let context = contexts.first else {
+      throw LearnedLocalCoordinateFrameError.incompatibleControllerContext
+    }
+    guard Set(aggregates.map { $0.estimator.revision }).count == 1 else {
+      throw LearnedLocalCoordinateFrameError.incompatibleEstimator
+    }
+    let lowerX = byDirection[.negativeX]!.estimateMM
+    let upperX = byDirection[.positiveX]!.estimateMM
+    let lowerY = byDirection[.negativeY]!.estimateMM
+    let upperY = byDirection[.positiveY]!.estimateMM
+    let xSpan = upperX - lowerX
+    let ySpan = upperY - lowerY
+    guard xSpan.isFinite, ySpan.isFinite, xSpan > 0, ySpan > 0 else {
+      throw LearnedLocalCoordinateFrameError.invalidSpans
+    }
+    return Self(
+      controllerSessionID: context.controllerSessionID,
+      coordinateRevision: context.coordinateRevision,
+      origin: try Point2(x: lowerX, y: lowerY),
+      xSpanMM: xSpan,
+      ySpanMM: ySpan,
+      consumedAggregateRevisionIDs: Dictionary(uniqueKeysWithValues: aggregates.map {
+        ($0.direction, $0.revisionID)
+      }),
+      estimator: estimator,
+      units: .millimeters
+    )
+  }
+
+  public func localPoint(fromRaw rawPoint: Point2<MachineSpace>) throws -> Point2<MachineSpace> {
+    try Point2(x: rawPoint.x - origin.x, y: rawPoint.y - origin.y)
+  }
+
+  public func rawPoint(fromLocal localPoint: Point2<MachineSpace>) throws -> Point2<MachineSpace> {
+    try Point2(x: localPoint.x + origin.x, y: localPoint.y + origin.y)
   }
 }
 
@@ -261,6 +567,7 @@ public enum MachineCameraRegistrationError: Error, Equatable, Sendable {
   case correspondenceSourceMismatch
   case correspondenceControllerMismatch
   case correspondenceCameraMismatch
+  case correspondenceContactEstimatorMismatch
   case correspondenceFitMismatch
   case validationResidualExceeded(actualPixels: Double, maximumPixels: Double)
 }
@@ -272,7 +579,13 @@ public struct MachineCameraCorrespondenceProvenance: Codable, Hashable, Sendable
   public let controllerSessionID: UUID
   public let coordinateRevision: UInt64
   public let frameID: FrameID
+  public let frameSHA256: String
+  public let captureNanoseconds: UInt64
   public let cameraConfigurationID: CameraConfigurationID
+  public let attemptID: ExerciseAttemptID
+  public let contactEstimatorRevision: String
+  public let algorithmRevision: String
+  public let contactConfidence: Double
   public let artifactRevisionID: LearningArtifactRevisionID
 
   public init(
@@ -282,16 +595,34 @@ public struct MachineCameraCorrespondenceProvenance: Codable, Hashable, Sendable
     controllerSessionID: UUID,
     coordinateRevision: UInt64,
     frameID: FrameID,
+    frameSHA256: String,
+    captureNanoseconds: UInt64,
     cameraConfigurationID: CameraConfigurationID,
+    attemptID: ExerciseAttemptID,
+    contactEstimatorRevision: String,
+    algorithmRevision: String,
+    contactConfidence: Double,
     artifactRevisionID: LearningArtifactRevisionID
   ) {
+    precondition(!frameSHA256.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    precondition(
+      !contactEstimatorRevision.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    )
+    precondition(!algorithmRevision.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    precondition(contactConfidence.isFinite && contactConfidence >= 0 && contactConfidence <= 1)
     self.machinePoint = machinePoint
     self.contactPoint = contactPoint
     self.source = source
     self.controllerSessionID = controllerSessionID
     self.coordinateRevision = coordinateRevision
     self.frameID = frameID
+    self.frameSHA256 = frameSHA256
+    self.captureNanoseconds = captureNanoseconds
     self.cameraConfigurationID = cameraConfigurationID
+    self.attemptID = attemptID
+    self.contactEstimatorRevision = contactEstimatorRevision
+    self.algorithmRevision = algorithmRevision
+    self.contactConfidence = contactConfidence
     self.artifactRevisionID = artifactRevisionID
   }
 }
@@ -305,6 +636,7 @@ public struct MachineCameraRegistration: Codable, Hashable, Sendable {
   public let correspondenceProvenance: [MachineCameraCorrespondenceProvenance]
   public let correspondenceFrameIDs: Set<FrameID>
   public let correspondenceRevisionIDs: Set<LearningArtifactRevisionID>
+  public let contactEstimatorRevision: String
   public let validationTargetFrameID: FrameID
   public let validationMachinePoint: Point2<MachineSpace>
   public let validationContactPoint: Point2<CameraPixelSpace>
@@ -347,6 +679,12 @@ public struct MachineCameraRegistration: Codable, Hashable, Sendable {
     guard Set(correspondenceProvenance.map(\.cameraConfigurationID)) == [cameraConfigurationID] else {
       throw MachineCameraRegistrationError.correspondenceCameraMismatch
     }
+    let contactEstimatorRevisions = Set(correspondenceProvenance.map(\.contactEstimatorRevision))
+    guard contactEstimatorRevisions.count == 1,
+      let contactEstimatorRevision = contactEstimatorRevisions.first
+    else {
+      throw MachineCameraRegistrationError.correspondenceContactEstimatorMismatch
+    }
     let fitPairs = Set(fit.correspondences)
     let provenancePairs = Set(correspondenceProvenance.map {
       MachineCameraRegistrationCorrespondence(
@@ -373,6 +711,7 @@ public struct MachineCameraRegistration: Codable, Hashable, Sendable {
     self.correspondenceProvenance = correspondenceProvenance
     correspondenceFrameIDs = Set(correspondenceProvenance.map(\.frameID))
     correspondenceRevisionIDs = Set(correspondenceProvenance.map(\.artifactRevisionID))
+    self.contactEstimatorRevision = contactEstimatorRevision
     self.validationTargetFrameID = validationTargetFrameID
     self.validationMachinePoint = validationMachinePoint
     self.validationContactPoint = validationContactPoint
@@ -533,7 +872,7 @@ public enum DiscoveryAction: Hashable, Sendable {
   case cancelBoundaryJogAndAwaitIdle(BoundaryDirection)
   case captureFreshCameraFrame
   case measureBoundary(BoundaryDirection)
-  case adjustDrawingFramePosterior(BoundaryDirection)
+  case commitBoundaryObservation(BoundaryDirection)
   case actuatePen(PenCommand)
   case awaitPhysicalPenConfirmation(PenState, question: DiscoveryQuestion)
 }
@@ -547,7 +886,7 @@ public enum DiscoveryEventExpectation: Hashable, Sendable {
   case boundaryJogCancelled(BoundaryDirection)
   case freshFrameCaptured
   case boundaryMeasured(BoundaryDirection)
-  case drawingFramePosteriorAdjusted(BoundaryDirection)
+  case boundaryObservationCommitted(BoundaryDirection)
   case penCommandSettled(PenCommand)
   case physicalPenConfirmed(PenState, response: OperatorChoice)
 
@@ -569,11 +908,8 @@ public enum DiscoveryEventExpectation: Hashable, Sendable {
       true
     case (.boundaryMeasured(let expected), .boundaryMeasured(let actual, _, _, _, _, _, _)):
       expected == actual
-    case (
-      .drawingFramePosteriorAdjusted(let expected),
-      .drawingFramePosteriorAdjusted(let actual, _, _, _)
-    ):
-      expected == actual
+    case (.boundaryObservationCommitted(let expected), .boundaryObservationCommitted(let evidence, let aggregate)):
+      expected == evidence.direction && aggregate.direction == expected
     case (.penCommandSettled(let expected), .penCommandSettled(let actual, _)):
       expected == actual
     case (
@@ -706,10 +1042,10 @@ public enum DiscoverySequenceCatalog {
           expectedEvent: .boundaryMeasured(direction)
         ),
         DiscoveryStep(
-          id: "adjust-posterior",
-          participant: .vision,
-          action: .adjustDrawingFramePosterior(direction),
-          expectedEvent: .drawingFramePosteriorAdjusted(direction)
+          id: "commit-boundary-observation",
+          participant: .application,
+          action: .commitBoundaryObservation(direction),
+          expectedEvent: .boundaryObservationCommitted(direction)
         ),
       ]
     )
@@ -864,11 +1200,9 @@ public enum DiscoveryEvent: Hashable, Sendable {
     confidence: Double,
     summary: String
   )
-  case drawingFramePosteriorAdjusted(
-    BoundaryDirection,
-    frameID: FrameID,
-    cameraConfigurationID: CameraConfigurationID,
-    observationCount: Int
+  case boundaryObservationCommitted(
+    BoundarySideAttemptEvidence,
+    aggregate: BoundarySideAggregate
   )
   case penCommandSettled(PenCommand, controllerSummary: String)
   case physicalPenConfirmed(
@@ -918,17 +1252,13 @@ public enum DiscoveryEvent: Hashable, Sendable {
         frameID: frameID,
         cameraConfigurationID: configurationID
       )
-    case .drawingFramePosteriorAdjusted(
-      let direction,
-      let frameID,
-      let configurationID,
-      let observationCount
-    ):
+    case .boundaryObservationCommitted(let evidence, let aggregate):
       DiscoveryEvidenceSummary(
         kind: .visionMeasurement,
-        summary: "\(direction.displayName) adjusted the drawing-frame posterior from \(observationCount) observations.",
-        frameID: frameID,
-        cameraConfigurationID: configurationID
+        summary:
+          "Committed \(evidence.direction.displayName) Boundary aggregate revision \(aggregate.revisionID.rawValue) from N=\(aggregate.validSampleCount) exact attempt sample(s).",
+        frameID: evidence.frameID,
+        cameraConfigurationID: evidence.cameraConfigurationID
       )
     case .physicalPenConfirmed(let state, _, let summary):
       DiscoveryEvidenceSummary(
@@ -954,7 +1284,7 @@ public enum DiscoveryTransactionError: Error, Equatable, Sendable {
   case noCurrentStep
   case unexpectedEvent(stepID: String)
   case invalidBoundaryConfidence
-  case invalidPosteriorObservationCount
+  case invalidBoundaryCommit
 }
 
 /// A small in-memory transaction for driving and presenting one sequence.
@@ -1035,371 +1365,16 @@ public struct DiscoveryTransaction: Hashable, Sendable, Identifiable {
       guard confidence.isFinite, confidence >= 0, confidence <= 1 else {
         throw DiscoveryTransactionError.invalidBoundaryConfidence
       }
-    case .drawingFramePosteriorAdjusted(_, _, _, let count):
-      guard count > 0 else {
-        throw DiscoveryTransactionError.invalidPosteriorObservationCount
+    case .boundaryObservationCommitted(let evidence, let aggregate):
+      guard evidence.disposition == .succeeded,
+        aggregate.direction == evidence.direction,
+        aggregate.includedAttemptIDs.contains(evidence.attemptID),
+        aggregate.validSampleCount > 0
+      else {
+        throw DiscoveryTransactionError.invalidBoundaryCommit
       }
     default:
       break
     }
-  }
-}
-
-public struct DrawingFrameBoundaryObservationKey: Hashable, Sendable {
-  public let frameID: FrameID
-  public let cameraConfigurationID: CameraConfigurationID
-  public let direction: BoundaryDirection
-
-  public init(
-    frameID: FrameID,
-    cameraConfigurationID: CameraConfigurationID,
-    direction: BoundaryDirection
-  ) {
-    self.frameID = frameID
-    self.cameraConfigurationID = cameraConfigurationID
-    self.direction = direction
-  }
-}
-
-public enum DrawingFramePosteriorError: Error, Equatable, Sendable {
-  case invalidObservationVariance
-  case invalidAssociationDistanceMargin
-  case invalidBroadPriorVariance
-  case invalidEstimateConfidence
-  case invalidBoundaryGeometry
-  case ambiguousEdgeAssociation(
-    nearestDistance: Double,
-    runnerUpDistance: Double,
-    requiredMargin: Double
-  )
-  case candidateEdgeAlreadyAssociated(candidateEdgeIndex: Int)
-}
-
-public struct DrawingFrameBoundaryObservation: Hashable, Sendable {
-  public let key: DrawingFrameBoundaryObservationKey
-  public let frameSHA256: String
-  public let captureNanoseconds: UInt64
-  public let controllerPosition: MachinePosition
-  public let observedToolCentroid: Point2<CameraPixelSpace>
-  public let estimate: DrawingFrameEstimate
-  public let observationVariance: Double
-  public let associationDistanceMargin: Double
-  public let broadPriorVariance: Double
-
-  public init(
-    frameID: FrameID,
-    frameSHA256: String,
-    captureNanoseconds: UInt64,
-    cameraConfigurationID: CameraConfigurationID,
-    direction: BoundaryDirection,
-    controllerPosition: MachinePosition,
-    observedToolCentroid: Point2<CameraPixelSpace>,
-    estimate: DrawingFrameEstimate,
-    observationVariance: Double,
-    associationDistanceMargin: Double,
-    broadPriorVariance: Double
-  ) throws {
-    guard observationVariance.isFinite, observationVariance > 0 else {
-      throw DrawingFramePosteriorError.invalidObservationVariance
-    }
-    guard associationDistanceMargin.isFinite, associationDistanceMargin >= 0 else {
-      throw DrawingFramePosteriorError.invalidAssociationDistanceMargin
-    }
-    guard broadPriorVariance.isFinite, broadPriorVariance > 0 else {
-      throw DrawingFramePosteriorError.invalidBroadPriorVariance
-    }
-    guard estimate.confidence.isFinite, estimate.confidence >= 0, estimate.confidence <= 1 else {
-      throw DrawingFramePosteriorError.invalidEstimateConfidence
-    }
-    key = DrawingFrameBoundaryObservationKey(
-      frameID: frameID,
-      cameraConfigurationID: cameraConfigurationID,
-      direction: direction
-    )
-    self.frameSHA256 = frameSHA256
-    self.captureNanoseconds = captureNanoseconds
-    self.controllerPosition = controllerPosition
-    self.observedToolCentroid = observedToolCentroid
-    self.estimate = estimate
-    self.observationVariance = observationVariance
-    self.associationDistanceMargin = associationDistanceMargin
-    self.broadPriorVariance = broadPriorVariance
-  }
-}
-
-public struct DrawingFrameSideAssociation: Hashable, Sendable {
-  public let machineSide: BoundaryDirection
-  public let candidateEdgeIndex: Int
-  public let referenceStart: Point2<CameraPixelSpace>
-  public let referenceEnd: Point2<CameraPixelSpace>
-  public let initializedFromFrameID: FrameID
-}
-
-public struct DrawingFrameSidePosterior: Hashable, Sendable {
-  public let association: DrawingFrameSideAssociation
-  public let orientationRadians: Double
-  public let orientationVariance: Double
-  public let offsetPixels: Double
-  public let offsetVariance: Double
-  public let observationCount: Int
-
-  public var standardDeviationPixels: Double { sqrt(offsetVariance) }
-
-  public var geometry: Polyline<CameraPixelSpace> {
-    let line = Self.lineComponents(for: association)
-    let shiftX = line.normalX * offsetPixels
-    let shiftY = line.normalY * offsetPixels
-    return try! Polyline(points: [
-      Point2(
-        x: association.referenceStart.x + shiftX,
-        y: association.referenceStart.y + shiftY
-      ),
-      Point2(
-        x: association.referenceEnd.x + shiftX,
-        y: association.referenceEnd.y + shiftY
-      ),
-    ])
-  }
-
-  fileprivate static func lineComponents(
-    for association: DrawingFrameSideAssociation
-  ) -> (tangentX: Double, tangentY: Double, normalX: Double, normalY: Double) {
-    let dx = association.referenceEnd.x - association.referenceStart.x
-    let dy = association.referenceEnd.y - association.referenceStart.y
-    let length = hypot(dx, dy)
-    return (dx / length, dy / length, -dy / length, dx / length)
-  }
-}
-
-public enum DrawingFrameCorner: Int, Codable, CaseIterable, Hashable, Sendable {
-  case candidateVertex0
-  case candidateVertex1
-  case candidateVertex2
-  case candidateVertex3
-}
-
-/// Immutable current-camera posterior. The sequence direction is the machine-
-/// side identity. Its first unambiguous observation establishes a persistent
-/// camera-edge association; later exact centroids update only that side's
-/// image-space offset. Controller MPos remains stored provenance only.
-public struct DrawingFramePosterior: Hashable, Sendable {
-  public let cameraConfigurationID: CameraConfigurationID
-  public let latestObservationKey: DrawingFrameBoundaryObservationKey
-  public let observationsByKey: [
-    DrawingFrameBoundaryObservationKey: DrawingFrameBoundaryObservation
-  ]
-  public let sidePosteriors: [BoundaryDirection: DrawingFrameSidePosterior]
-  public let associations: [BoundaryDirection: DrawingFrameSideAssociation]
-  public let derivedCorners: [DrawingFrameCorner: Point2<CameraPixelSpace>]
-  public let estimate: DrawingFrameEstimate?
-
-  public init(prior observation: DrawingFrameBoundaryObservation) throws {
-    try self.init(
-      latestObservationKey: observation.key,
-      observationsByKey: [observation.key: observation]
-    )
-  }
-
-  private init(
-    latestObservationKey: DrawingFrameBoundaryObservationKey,
-    observationsByKey: [DrawingFrameBoundaryObservationKey: DrawingFrameBoundaryObservation]
-  ) throws {
-    let observations = Self.stablySorted(Array(observationsByKey.values))
-    precondition(!observations.isEmpty)
-    let first = observations[0]
-    cameraConfigurationID = first.key.cameraConfigurationID
-    self.latestObservationKey = latestObservationKey
-    self.observationsByKey = observationsByKey
-    let fitted = try Self.fitSides(observations)
-    sidePosteriors = fitted
-    associations = fitted.mapValues(\.association)
-    derivedCorners = Self.corners(from: fitted)
-    estimate = try Self.closedEstimate(from: fitted, corners: derivedCorners)
-  }
-
-  public var observationCount: Int { observationsByKey.count }
-
-  public var observations: [DrawingFrameBoundaryObservation] {
-    Self.stablySorted(Array(observationsByKey.values))
-  }
-
-  public func adding(
-    _ observation: DrawingFrameBoundaryObservation
-  ) throws -> DrawingFramePosterior {
-    guard observation.key.cameraConfigurationID == cameraConfigurationID else {
-      return try DrawingFramePosterior(prior: observation)
-    }
-    var updated = observationsByKey
-    updated[observation.key] = observation
-    return try DrawingFramePosterior(
-      latestObservationKey: observation.key,
-      observationsByKey: updated
-    )
-  }
-
-  private static func stablySorted(
-    _ observations: [DrawingFrameBoundaryObservation]
-  ) -> [DrawingFrameBoundaryObservation] {
-    observations.sorted { lhs, rhs in
-      if lhs.key.direction.stableOrder != rhs.key.direction.stableOrder {
-        return lhs.key.direction.stableOrder < rhs.key.direction.stableOrder
-      }
-      if lhs.captureNanoseconds != rhs.captureNanoseconds {
-        return lhs.captureNanoseconds < rhs.captureNanoseconds
-      }
-      return lhs.key.frameID.rawValue < rhs.key.frameID.rawValue
-    }
-  }
-
-  private static func fitSides(
-    _ observations: [DrawingFrameBoundaryObservation]
-  ) throws -> [BoundaryDirection: DrawingFrameSidePosterior] {
-    var fitted: [BoundaryDirection: DrawingFrameSidePosterior] = [:]
-    var claimedCandidateEdges: [Int: BoundaryDirection] = [:]
-    for direction in BoundaryDirection.allCases {
-      let sideObservations = observations.filter { $0.key.direction == direction }
-      guard let first = sideObservations.first else { continue }
-      let association = try associate(first)
-      if let owner = claimedCandidateEdges[association.candidateEdgeIndex], owner != direction {
-        throw DrawingFramePosteriorError.candidateEdgeAlreadyAssociated(
-          candidateEdgeIndex: association.candidateEdgeIndex
-        )
-      }
-      claimedCandidateEdges[association.candidateEdgeIndex] = direction
-      let line = DrawingFrameSidePosterior.lineComponents(for: association)
-      var precision = 1 / first.broadPriorVariance
-      var weightedOffset = 0.0
-      for observation in sideObservations {
-        let measuredOffset =
-          (observation.observedToolCentroid.x - association.referenceStart.x) * line.normalX
-          + (observation.observedToolCentroid.y - association.referenceStart.y) * line.normalY
-        let observationPrecision = 1 / observation.observationVariance
-        precision += observationPrecision
-        weightedOffset += measuredOffset * observationPrecision
-      }
-      let dx = association.referenceEnd.x - association.referenceStart.x
-      let dy = association.referenceEnd.y - association.referenceStart.y
-      fitted[direction] = DrawingFrameSidePosterior(
-        association: association,
-        orientationRadians: atan2(dy, dx),
-        orientationVariance: first.broadPriorVariance,
-        offsetPixels: weightedOffset / precision,
-        offsetVariance: 1 / precision,
-        observationCount: sideObservations.count
-      )
-    }
-    return fitted
-  }
-
-  private static func associate(
-    _ observation: DrawingFrameBoundaryObservation
-  ) throws -> DrawingFrameSideAssociation {
-    let points = observation.estimate.geometry.points
-    guard points.count == 5, points.first == points.last else {
-      throw DrawingFramePosteriorError.invalidBoundaryGeometry
-    }
-    var candidates: [(index: Int, distance: Double)] = []
-    for index in 0..<4 {
-      let start = points[index]
-      let end = points[index + 1]
-      let distance = segmentDistance(
-        from: observation.observedToolCentroid,
-        start: start,
-        end: end
-      )
-      candidates.append((index: index, distance: distance))
-    }
-    candidates.sort { lhs, rhs in
-      lhs.distance == rhs.distance ? lhs.index < rhs.index : lhs.distance < rhs.distance
-    }
-    guard candidates.count >= 2,
-      candidates[0].distance.isFinite,
-      candidates[1].distance.isFinite
-    else {
-      throw DrawingFramePosteriorError.invalidBoundaryGeometry
-    }
-    guard candidates[1].distance - candidates[0].distance
-      >= observation.associationDistanceMargin
-    else {
-      throw DrawingFramePosteriorError.ambiguousEdgeAssociation(
-        nearestDistance: candidates[0].distance,
-        runnerUpDistance: candidates[1].distance,
-        requiredMargin: observation.associationDistanceMargin
-      )
-    }
-    let index = candidates[0].index
-    return DrawingFrameSideAssociation(
-      machineSide: observation.key.direction,
-      candidateEdgeIndex: index,
-      referenceStart: points[index],
-      referenceEnd: points[index + 1],
-      initializedFromFrameID: observation.key.frameID
-    )
-  }
-
-  private static func segmentDistance(
-    from point: Point2<CameraPixelSpace>,
-    start: Point2<CameraPixelSpace>,
-    end: Point2<CameraPixelSpace>
-  ) -> Double {
-    let dx = end.x - start.x
-    let dy = end.y - start.y
-    let lengthSquared = dx * dx + dy * dy
-    guard lengthSquared > 0 else { return .infinity }
-    let raw = ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared
-    let projection = min(1, max(0, raw))
-    return hypot(
-      point.x - (start.x + projection * dx),
-      point.y - (start.y + projection * dy)
-    )
-  }
-
-  private static func corners(
-    from sides: [BoundaryDirection: DrawingFrameSidePosterior]
-  ) -> [DrawingFrameCorner: Point2<CameraPixelSpace>] {
-    let byEdge = Dictionary(uniqueKeysWithValues: sides.values.map {
-      ($0.association.candidateEdgeIndex, $0)
-    })
-    var result: [DrawingFrameCorner: Point2<CameraPixelSpace>] = [:]
-    for vertex in DrawingFrameCorner.allCases {
-      let incomingIndex = (vertex.rawValue + 3) % 4
-      let outgoingIndex = vertex.rawValue
-      guard let incoming = byEdge[incomingIndex], let outgoing = byEdge[outgoingIndex],
-        let intersection = lineIntersection(incoming.geometry, outgoing.geometry)
-      else { continue }
-      result[vertex] = intersection
-    }
-    return result
-  }
-
-  private static func lineIntersection(
-    _ first: Polyline<CameraPixelSpace>,
-    _ second: Polyline<CameraPixelSpace>
-  ) -> Point2<CameraPixelSpace>? {
-    let p = first.start
-    let rX = first.end.x - first.start.x
-    let rY = first.end.y - first.start.y
-    let q = second.start
-    let sX = second.end.x - second.start.x
-    let sY = second.end.y - second.start.y
-    let denominator = rX * sY - rY * sX
-    guard abs(denominator) > 1e-12 else { return nil }
-    let t = ((q.x - p.x) * sY - (q.y - p.y) * sX) / denominator
-    return try? Point2(x: p.x + t * rX, y: p.y + t * rY)
-  }
-
-  private static func closedEstimate(
-    from sides: [BoundaryDirection: DrawingFrameSidePosterior],
-    corners: [DrawingFrameCorner: Point2<CameraPixelSpace>]
-  ) throws -> DrawingFrameEstimate? {
-    guard sides.count == 4, corners.count == 4 else { return nil }
-    let ordered = DrawingFrameCorner.allCases.compactMap { corners[$0] }
-    guard ordered.count == 4 else { return nil }
-    let averageVariance = sides.values.reduce(0) { $0 + $1.offsetVariance } / 4
-    return DrawingFrameEstimate(
-      geometry: try Polyline(points: ordered + [ordered[0]]),
-      confidence: 1 / (1 + sqrt(averageVariance)),
-      basis: "per-side image-space offset posterior; exact tool centroids update variance; controller final MPos retained as provenance only"
-    )
   }
 }

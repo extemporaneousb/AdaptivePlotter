@@ -73,7 +73,9 @@ operator-stopped Pen Up boundary motion. There is no additional generic YES/NO
 start ceremony. One capability-bound contextual Stop records the first semantic
 intent before one cancel byte is issued. The original owner settles at Idle
 with final MPos; a strictly newer exact frame then supplies the typed tool
-contact-point estimate and drawing-frame side association.
+contact-point estimate. The operator's typed direction is the machine-side
+identity. Drawing-frame geometry remains an optional diagnostic and no nearest
+edge, uniqueness rule, or inferred quadrilateral may veto the accepted sample.
 
 Boundary Discovery does not complete at a fixed application-selected travel
 distance. It remains active until the operator stops at the observed side or a
@@ -85,8 +87,9 @@ owner and is never a successful side observation.
 The first side is operator-selected from X+, X-, Y+, or Y-. Its opposite is
 forced next. The operator then chooses either sign of the remaining axis and the
 fourth side is its forced opposite. Redo and Record Another Attempt explicitly
-name a side. Four accepted final MPos observations derive an
-`EstimatedMachineCenter` from the two axis midpoints. The operator explicitly
+name a side. Each direction owns an accepted machine-space aggregate; the four
+aggregate estimates derive an `EstimatedMachineCenter` and invertible
+lower-side-origin `LearnedLocalCoordinateFrame`. The operator explicitly
 starts one stoppable Pen Up move to that center. Neither the sides nor the center
 become a manual-motion envelope.
 
@@ -160,6 +163,12 @@ arrival, multi-move Blocked/Partial/Clear search, two-frame target agreement,
 Stage 4 observation, target interruption recovery without redraw, and ambiguity
 with no follow-on command.
 
+One uniform world-to-camera transform auto-fits arbitrary translated or negative
+truth bounds with declared padding and armature/protocol margin. Exact-frame
+simulator truth and learned-evidence annotations are presentation-only and
+cannot change canonical pixels, hashes, vision results, learning state, camera
+registration, or physical authority.
+
 Switching to SIMULATED parks accepted LIVE authority and starts a separate
 simulated learning set. Returning to LIVE discards the simulated set and
 restores the parked LIVE authority unchanged.
@@ -194,6 +203,12 @@ Chronologically later but independent evidence is retained. Redoing the current
 Pen Interaction result therefore does not discard recorded boundary
 measurements; current Pen Up may still be required before any new movement.
 
+Boundary Redo replaces the entire currently accepted aggregate for the named
+direction and starts its successful replacement at N=1. A failed, refused,
+cancelled, or ambiguous Boundary Redo preserves every prior included sample,
+current aggregate, graph edge, center, arrival, local frame, and downstream
+accepted authority.
+
 Record Another Attempt preserves the existing valid attempts and adds one more.
 The visible derived result is recalculated from every valid compatible attempt
 and reports its sample count. Aggregation is type-specific:
@@ -205,9 +220,11 @@ and reports its sample count. Aggregation is type-specific:
   retained individually and never averaged.
 
 An attempt excluded because it is unclear, refused, ambiguous, or incompatible
-remains visible evidence of that outcome. Camera configuration, algorithm
-revision, units, and coordinate spaces are grouping identities; incompatible
-attempts cannot be silently combined.
+remains visible evidence of that outcome. Boundary numeric aggregation groups by
+direction, controller session, coordinate revision, machine coordinates,
+millimetres, and numeric estimator revision, deliberately excluding camera
+configuration. Optical registration independently requires compatible exact
+frame, source, camera configuration, contact estimator, and algorithm identity.
 
 ## Episode and dataset contract
 

@@ -15,6 +15,8 @@ struct LearningWorkbenchLayoutTests {
     #expect(allocation.cameraWidth >= policy.minimumCameraWidth)
     #expect(allocation.cameraWidth > allocation.navigatorWidth)
     #expect(allocation.cameraWidth > allocation.detailWidth)
+    #expect(LearningWorkbenchLayoutPolicy.minimumActionSurfaceWidth == 640)
+    #expect(LearningWorkbenchLayoutPolicy.minimumActionSurfaceHeight == 480)
   }
 
   @Test("camera receives wide and full-screen growth")

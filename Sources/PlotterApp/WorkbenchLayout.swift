@@ -17,6 +17,8 @@ struct LearningWorkbenchAllocation: Equatable, Sendable {
 
 struct LearningWorkbenchLayoutPolicy: Equatable, Sendable {
   static let minimumWindowWidth: CGFloat = 1_440
+  static let minimumActionSurfaceWidth: CGFloat = 640
+  static let minimumActionSurfaceHeight: CGFloat = 480
 
   let preferredNavigatorWidth: CGFloat
   let preferredDetailWidth: CGFloat
@@ -26,7 +28,7 @@ struct LearningWorkbenchLayoutPolicy: Equatable, Sendable {
   init(
     preferredNavigatorWidth: CGFloat = 280,
     preferredDetailWidth: CGFloat = 380,
-    minimumCameraWidth: CGFloat = 640,
+    minimumCameraWidth: CGFloat = Self.minimumActionSurfaceWidth,
     dividerSpacing: CGFloat = 8
   ) {
     self.preferredNavigatorWidth = Self.nonnegativeFinite(preferredNavigatorWidth)

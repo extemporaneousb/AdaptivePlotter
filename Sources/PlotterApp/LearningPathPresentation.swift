@@ -389,6 +389,7 @@ enum ExerciseActionKind: Hashable, Sendable {
   case selectDirection(ExerciseDirectionSelectionPurpose, BoundaryDirection)
   case moveToEstimatedCenter
   case captureTargetPoseRegistration
+  case collectCurrentCameraContactEvidence
   case acceptTargetContactPointAndROI
   case rejectTargetContactPointAndROI
   case moveForClearView(ClearViewSearchMove)
@@ -512,21 +513,30 @@ enum OperationActivityOutcome: String, Hashable, Sendable {
 struct OperationActivityPresentation: Hashable, Sendable {
   let actor: String
   let action: String
+  let phase: String?
+  let outcomeLabel: String
   let outcome: OperationActivityOutcome
   let detail: [PresentationFragment]
+  let acceptedResult: [PresentationFragment]
   let recovery: [PresentationFragment]
 
   init(
     actor: String,
     action: String,
+    phase: String? = nil,
+    outcomeLabel: String? = nil,
     outcome: OperationActivityOutcome,
     detail: [PresentationFragment] = [],
+    acceptedResult: [PresentationFragment] = [],
     recovery: [PresentationFragment] = []
   ) {
     self.actor = actor
     self.action = action
+    self.phase = phase
+    self.outcomeLabel = outcomeLabel ?? outcome.rawValue
     self.outcome = outcome
     self.detail = detail
+    self.acceptedResult = acceptedResult
     self.recovery = recovery
   }
 }

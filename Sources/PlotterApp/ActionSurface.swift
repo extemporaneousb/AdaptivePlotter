@@ -63,18 +63,34 @@ struct ActionSurfacePresentation: Sendable {
 
   let displayedFrame: DisplayedFrame?
   let overlays: [CameraOverlayMeasurement]
+  let simulatedAnnotations: [SimulatedLearningAnnotation]
+  let simulatedViewportID: SimulatedCameraViewportID?
+  let simulatedAnnotationsAreVisible: Bool
 
   var rendererIdentity: String { Self.rendererIdentity }
 
   init(
     displayedFrame: DisplayedFrame?,
-    overlays: [CameraOverlayMeasurement]
+    overlays: [CameraOverlayMeasurement],
+    simulatedAnnotations: [SimulatedLearningAnnotation] = [],
+    simulatedViewportID: SimulatedCameraViewportID? = nil,
+    simulatedAnnotationsAreVisible: Bool = true
   ) {
     self.displayedFrame = displayedFrame
+    self.simulatedViewportID = simulatedViewportID
+    self.simulatedAnnotationsAreVisible = simulatedAnnotationsAreVisible
     if let displayedFrame {
       self.overlays = overlays.filter { $0.matches(displayedFrame) }
+      if simulatedAnnotationsAreVisible, let simulatedViewportID {
+        self.simulatedAnnotations = simulatedAnnotations.filter {
+          $0.matches(displayedFrame, viewportID: simulatedViewportID)
+        }
+      } else {
+        self.simulatedAnnotations = []
+      }
     } else {
       self.overlays = []
+      self.simulatedAnnotations = []
     }
   }
 
@@ -143,6 +159,7 @@ enum FieldOverlayProjection {
 struct ActionSurface: View {
   let presentation: ActionSurfacePresentation
   @StateObject private var imageCache = FramePresentationImageCache()
+  @State private var simulatedAnnotationsAreVisible = true
 
   var body: some View {
     let frameImage = presentation.displayedFrame.flatMap {
@@ -170,18 +187,38 @@ struct ActionSurface: View {
         for overlay in presentation.overlays {
           draw(overlay, in: &context, transform: transform)
         }
+        if simulatedAnnotationsAreVisible {
+          for annotation in presentation.simulatedAnnotations {
+            draw(annotation, in: &context, transform: transform)
+          }
+        }
       }
       .background(Color.black)
       .overlay(alignment: .topLeading) {
-        if let sourceBadgeLabel = presentation.sourceBadgeLabel {
-          Text(sourceBadgeLabel)
-            .font(.caption.monospaced().bold())
-            .foregroundStyle(.white)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 6)
-            .background(Color.blue.opacity(0.88))
-            .padding(8)
+        VStack(alignment: .leading, spacing: 6) {
+          if let sourceBadgeLabel = presentation.sourceBadgeLabel {
+            Text(sourceBadgeLabel)
+              .font(.caption.monospaced().bold())
+              .foregroundStyle(.white)
+              .padding(.horizontal, 9)
+              .padding(.vertical, 6)
+              .background(Color.blue.opacity(0.88))
+          }
+          if !presentation.simulatedAnnotations.isEmpty {
+            Button(
+              simulatedAnnotationsAreVisible
+                ? "Hide Simulator Annotations" : "Show Simulator Annotations"
+            ) {
+              simulatedAnnotationsAreVisible.toggle()
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .accessibilityValue(
+              simulatedAnnotationsAreVisible ? "Visible" : "Hidden"
+            )
+          }
         }
+        .padding(8)
       }
       .overlay(alignment: .topTrailing) {
         if let frame = presentation.displayedFrame?.frame {
@@ -204,6 +241,86 @@ struct ActionSurface: View {
         }
       }
       .clipShape(RoundedRectangle(cornerRadius: 7))
+      .accessibilityValue(
+        simulatedAnnotationsAreVisible
+          ? presentation.simulatedAnnotations.map(\.accessibleValue).joined(separator: ", ")
+          : "Simulator annotations hidden"
+      )
+    }
+  }
+
+  private func draw(
+    _ annotation: SimulatedLearningAnnotation,
+    in context: inout GraphicsContext,
+    transform: CameraPixelToViewTransform
+  ) {
+    let style = annotationStyle(for: annotation.kind)
+    let stroke = SwiftUI.StrokeStyle(lineWidth: style.width, dash: style.dash)
+    switch annotation.geometry {
+    case .point(let point):
+      let center = transform.point(point)
+      let radius = max(3, transform.scale * 1.5)
+      context.stroke(
+        Path(ellipseIn: CGRect(
+          x: center.x - radius,
+          y: center.y - radius,
+          width: radius * 2,
+          height: radius * 2
+        )),
+        with: .color(style.color),
+        style: stroke
+      )
+    case .bounds(let bounds):
+      guard let min = try? Point2<CameraPixelSpace>(x: bounds.minX, y: bounds.minY),
+        let max = try? Point2<CameraPixelSpace>(x: bounds.maxX, y: bounds.maxY)
+      else { return }
+      let minimum = transform.point(min)
+      let maximum = transform.point(max)
+      context.stroke(
+        Path(CGRect(
+          x: minimum.x,
+          y: minimum.y,
+          width: maximum.x - minimum.x,
+          height: maximum.y - minimum.y
+        )),
+        with: .color(style.color),
+        style: stroke
+      )
+    case .polyline(let polyline):
+      var path = Path()
+      path.move(to: transform.point(polyline.start))
+      for point in polyline.points.dropFirst() {
+        path.addLine(to: transform.point(point))
+      }
+      context.stroke(path, with: .color(style.color), style: stroke)
+    }
+    context.draw(
+      Text(annotation.visibleLabel)
+        .font(.caption2.monospaced().bold())
+        .foregroundStyle(style.color),
+      at: transform.point(annotation.anchor),
+      anchor: .bottomLeading
+    )
+  }
+
+  private func annotationStyle(
+    for kind: SimulatedLearningAnnotationKind
+  ) -> (color: Color, width: CGFloat, dash: [CGFloat]) {
+    switch kind {
+    case .truthEnvelope, .directionLabel:
+      return (.orange, 2, [8, 5])
+    case .acceptedLearnedSide, .learnedCenter:
+      return (.cyan, 3, [])
+    case .currentContact:
+      return (.green, 2.5, [])
+    case .recentMotionTrail:
+      return (.white.opacity(0.75), 1.5, [3, 3])
+    case .currentOperation:
+      return (.red, 3, [])
+    case .targetROI:
+      return (.yellow, 2.5, [6, 3])
+    case .ink:
+      return (.blue, 2, [])
     }
   }
 

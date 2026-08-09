@@ -28,7 +28,7 @@ PlotterRuntime
   controller protocol and parser
   MachineController / RunInterpreter
   CameraCapture / VisionWorker / analysis pipeline
-  HumanGuidedDiscovery transactions and boundary posterior
+  HumanGuidedDiscovery transactions and boundary aggregates
   typed step artifacts, attempt groups, and dependency invalidation
   armature guidance and isolated-ink observation
   output-only SpeechAnnouncements
@@ -105,7 +105,7 @@ question -> YES -> spoken cue -> operator-stopped boundary owner
 -> contextual Stop event -> one cancel
 -> original owner Idle/final MPos
 -> strictly newer exact frame
--> side measurement -> posterior update
+-> typed contact measurement -> atomic side-evidence/aggregate commit
 ```
 
 The boundary owner is a typed operation distinct from an ordinary manual
@@ -116,9 +116,11 @@ unambiguously completed segment may renew under that same logical owner; Stop
 closes renewal before cancellation, and ambiguity is never renewed or resent.
 Segment completion alone records no boundary evidence.
 
-`DrawingFramePosterior` retains associated side observations and uncertainty in
-camera space. Controller MPos is retained as provenance, not numerically fused
-into pixels.
+The accepted side aggregate is machine-space authority and derives only from the
+typed operator direction and compatible settled MPos samples. Exact frames and
+bottom-center contact estimates remain separate optical-registration samples.
+Generic drawing-frame analysis is diagnostic and cannot classify or veto a
+Boundary side.
 
 ### SpeechAnnouncements
 
@@ -252,8 +254,9 @@ and its separate workflow are absent.
 
 The one-cancel latch prevents repeated button presses and shutdown from emitting
 duplicate cancellation. Boundary Stop records the typed operator event before
-the byte and awaits the original boundary task through its frame/posterior
-continuation. Manual Stop awaits its owner and creates no discovery evidence.
+the byte and awaits the original boundary task through its exact-frame/contact
+and atomic aggregate continuation. Manual Stop awaits its owner and creates no
+discovery evidence.
 A stale capability is inert and cannot cancel a later operation.
 
 Cancel is a typed exercise disposition. If no motion is active it abandons the
@@ -309,6 +312,13 @@ arrival, coarse-to-fine Clear search, visibility-target drawing, two-frame
 agreement, and target-anchored line observation therefore traverse the same
 workspace actions and artifact dependencies as LIVE.
 
+`SimulatedWorldToCameraTransform` uses one invertible uniform auto-fit for the
+truth boundary plus declared protocol extents. It is stable within one camera
+configuration. Simulator truth, learned markers, owner/direction, contact,
+trail, ROI, and ink annotations carry exact frame/configuration/viewport
+identity and render above canonical pixels without affecting frame hashes or
+vision.
+
 ## 9. Learning evidence and models
 
 `ExplorationEpisode` is retained only as a typed evidence record. It may contain
@@ -328,7 +338,7 @@ aggregate.
 The principal dependency chain is:
 
 ```text
-four boundary observations -> estimated center -> center arrival
+four boundary-side aggregates -> estimated center -> center arrival
 -> target-pose registration -> accepted Clear pose
 -> pre-target blank baseline -> visibility-target execution
 -> two-frame target observation -> visibility registration
@@ -337,8 +347,11 @@ four boundary observations -> estimated center -> center arrival
 ```
 
 The machine-camera registration separately consumes compatible accepted
-machine/contact pairs. Center evidence is controller-session compatible and is
-not invalidated only because the camera restarts. Camera registration, ROI,
+exact machine/contact samples. The learned local coordinate frame separately
+consumes the same four side-aggregate revisions and never enters motion
+admission. Aggregate, center, arrival, and local-frame evidence is
+controller-session compatible and is not invalidated only because the camera
+restarts. Camera registration, ROI,
 baseline, and image observation are bound to camera source/session,
 configuration, coordinate space, paper revision, and algorithm revision.
 
@@ -353,8 +366,10 @@ aggregate from all valid compatible attempts. Aggregates expose `N`, estimator
 identity, and uncertainty or categorical counts as applicable. Exact frames and
 controller events remain separate provenance. Current-state facts such as pen
 pose select the latest accepted observation rather than an arithmetic mean.
-Attempts cannot be pooled across incompatible camera configurations, coordinate
-spaces, units, or algorithm revisions.
+Boundary numeric samples cannot be pooled across direction, controller session,
+coordinate revision, machine space, millimetre units, or estimator revision;
+camera configuration is not one of those numeric keys. Optical samples remain
+strictly camera-compatible.
 
 ## 10. Launch and lifecycle
 

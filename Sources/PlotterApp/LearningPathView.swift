@@ -288,14 +288,20 @@ struct LearningPathView: View {
           .font(.caption2.monospaced().bold())
           .foregroundStyle(.secondary)
         Spacer()
-        Label(activity.outcome.rawValue, systemImage: activitySystemImage(activity.outcome))
+        Label(activity.outcomeLabel, systemImage: activitySystemImage(activity.outcome))
           .font(.caption.weight(.semibold))
           .foregroundStyle(activityColor(activity.outcome))
       }
       labeledValue("Actor", activity.actor)
       labeledValue("Action", activity.action)
+      if let phase = activity.phase {
+        labeledValue("Phase", phase)
+      }
       if !activity.detail.isEmpty {
         activityFragments("Detail", activity.detail)
+      }
+      if !activity.acceptedResult.isEmpty {
+        activityFragments("Accepted result", activity.acceptedResult)
       }
       if !activity.recovery.isEmpty {
         activityFragments("Recovery", activity.recovery)

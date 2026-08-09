@@ -48,21 +48,21 @@ struct LearningArtifactsTests {
   func penReplacementRetainsIndependentBoundary() throws {
     var graph = LearningDependencyGraph()
     let pen = revision(kind: .penInteraction)
-    let boundary = revision(kind: .boundaryObservation(.positiveX))
+    let boundary = revision(kind: .boundarySideAggregate(.positiveX))
     _ = try graph.commitReplacement(pen)
     _ = try graph.commitReplacement(boundary)
 
     let commit = try graph.commitReplacement(revision(kind: .penInteraction))
 
     #expect(commit.invalidatedRevisionIDs.isEmpty)
-    #expect(graph.currentRevision(for: .boundaryObservation(.positiveX))?.id == boundary.id)
+    #expect(graph.currentRevision(for: .boundarySideAggregate(.positiveX))?.id == boundary.id)
   }
 
   @Test("Clear pose replacement invalidates only drawing artifacts that consumed it")
   func clearPoseReplacementInvalidatesConsumers() throws {
     var graph = LearningDependencyGraph()
     let clear = revision(kind: .clearPose)
-    let boundary = revision(kind: .boundaryObservation(.negativeY))
+    let boundary = revision(kind: .boundarySideAggregate(.negativeY))
     _ = try graph.commitReplacement(clear)
     _ = try graph.commitReplacement(boundary)
     let baseline = revision(kind: .preTargetClearViewBaseline, consumes: [clear.id])
@@ -73,7 +73,7 @@ struct LearningArtifactsTests {
     let commit = try graph.commitReplacement(revision(kind: .clearPose))
 
     #expect(commit.invalidatedRevisionIDs == [baseline.id, target.id])
-    #expect(graph.currentRevision(for: .boundaryObservation(.negativeY))?.id == boundary.id)
+    #expect(graph.currentRevision(for: .boundarySideAggregate(.negativeY))?.id == boundary.id)
   }
 
   @Test("target-anchored trial baseline replacement invalidates only its consuming trial chain")
@@ -102,36 +102,33 @@ struct LearningArtifactsTests {
     #expect(graph.currentRevision(for: .targetAnchoredTrialBaseline(groupB))?.id == baselineB.id)
   }
 
-  @Test("one boundary-side replacement invalidates only its posterior and associations")
+  @Test("one current side aggregate replacement invalidates center and explicit consumers only")
   func boundarySideReplacementIsDirectional() throws {
     var graph = LearningDependencyGraph()
-    let left = revision(kind: .boundaryObservation(.negativeX))
-    let right = revision(kind: .boundaryObservation(.positiveX))
-    _ = try graph.commitReplacement(left)
-    _ = try graph.commitReplacement(right)
-    let leftPosterior = revision(
-      kind: .boundaryPosterior(.negativeX),
-      consumes: [left.id]
+    let sides = BoundaryDirection.allCases.map {
+      revision(kind: .boundarySideAggregate($0))
+    }
+    for side in sides { _ = try graph.commitReplacement(side) }
+    let center = revision(
+      kind: .estimatedMachineCenter,
+      consumes: Set(sides.map(\.id))
     )
-    let leftAssociation = revision(
-      kind: .boundaryAssociation(.negativeX),
-      consumes: [leftPosterior.id]
-    )
-    let rightPosterior = revision(
-      kind: .boundaryPosterior(.positiveX),
-      consumes: [right.id]
-    )
-    _ = try graph.commitReplacement(leftPosterior)
-    _ = try graph.commitReplacement(leftAssociation)
-    _ = try graph.commitReplacement(rightPosterior)
+    _ = try graph.commitReplacement(center)
+    let arrival = revision(kind: .centerArrival, consumes: [center.id])
+    _ = try graph.commitReplacement(arrival)
+    let unrelated = revision(kind: .penInteraction)
+    _ = try graph.commitReplacement(unrelated)
 
     let commit = try graph.commitReplacement(
-      revision(kind: .boundaryObservation(.negativeX))
+      revision(kind: .boundarySideAggregate(.negativeX))
     )
 
-    #expect(commit.invalidatedRevisionIDs == [leftPosterior.id, leftAssociation.id])
-    #expect(graph.currentRevision(for: .boundaryObservation(.positiveX))?.id == right.id)
-    #expect(graph.currentRevision(for: .boundaryPosterior(.positiveX))?.id == rightPosterior.id)
+    #expect(commit.invalidatedRevisionIDs == [center.id, arrival.id])
+    for direction in [.positiveX, .negativeY, .positiveY] as [BoundaryDirection] {
+      let original = sides.first { $0.kind == .boundarySideAggregate(direction) }
+      #expect(graph.currentRevision(for: .boundarySideAggregate(direction))?.id == original?.id)
+    }
+    #expect(graph.currentRevision(for: .penInteraction)?.id == unrelated.id)
   }
 
   @Test("Camera invalidation reports a current root separately when it has no consumers")
@@ -154,10 +151,10 @@ struct LearningArtifactsTests {
   @Test("Camera invalidation follows declared edges while boundary and center remain current")
   func cameraInvalidationIsExplicitAndTransitive() throws {
     var graph = LearningDependencyGraph()
-    let negativeX = revision(kind: .boundaryObservation(.negativeX))
-    let positiveX = revision(kind: .boundaryObservation(.positiveX))
-    let negativeY = revision(kind: .boundaryObservation(.negativeY))
-    let positiveY = revision(kind: .boundaryObservation(.positiveY))
+    let negativeX = revision(kind: .boundarySideAggregate(.negativeX))
+    let positiveX = revision(kind: .boundarySideAggregate(.positiveX))
+    let negativeY = revision(kind: .boundarySideAggregate(.negativeY))
+    let positiveY = revision(kind: .boundarySideAggregate(.positiveY))
     for boundary in [negativeX, positiveX, negativeY, positiveY] {
       _ = try graph.commitReplacement(boundary)
     }
@@ -337,6 +334,14 @@ struct LearningArtifactsTests {
       acceptedSequence: 4,
       value: 6.0
     )
+    let oneSample = try NumericAttemptAggregate(history: ExerciseAttemptHistory(
+      compatibility: compatibility,
+      attempts: [first]
+    ))
+    let twoSamples = try NumericAttemptAggregate(history: ExerciseAttemptHistory(
+      compatibility: compatibility,
+      attempts: [first, second]
+    ))
     let history = try ExerciseAttemptHistory(
       compatibility: compatibility,
       attempts: [first, refused, second, third]
@@ -344,6 +349,10 @@ struct LearningArtifactsTests {
 
     let aggregate = try NumericAttemptAggregate(history: history)
 
+    #expect(oneSample.validSampleCount == 1)
+    #expect(oneSample.uncertainty == .unavailable(validSampleCount: 1))
+    #expect(twoSamples.validSampleCount == 2)
+    #expect(twoSamples.uncertainty == .sampleStandardDeviation(sqrt(2)))
     #expect(aggregate.validSampleCount == 3)
     #expect(aggregate.estimator == AggregateEstimatorIdentity(name: "arithmetic-mean", revision: "1"))
     #expect(aggregate.estimate == 4)
@@ -442,6 +451,79 @@ struct LearningArtifactsTests {
     #expect(aggregate.validSampleCount == 1)
     #expect(aggregate.estimate == 10)
     #expect(aggregate.includedAttemptIDs == [original.id])
+  }
+
+  @Test("whole-aggregate Redo after N=3 supersedes every included sample and restarts at N=1")
+  func wholeAggregateRedoAfterThreeSamples() throws {
+    let compatibility = numericCompatibility()
+    let originals = try [2.0, 4.0, 6.0].enumerated().map { index, value in
+      try ExerciseAttempt(
+        disposition: .succeeded,
+        compatibility: compatibility,
+        acceptedSequence: UInt64(index + 1),
+        value: value
+      )
+    }
+    var history = try ExerciseAttemptHistory(
+      compatibility: compatibility,
+      attempts: originals
+    )
+    let replacement = try ExerciseAttempt(
+      disposition: .succeeded,
+      compatibility: compatibility,
+      acceptedSequence: 4,
+      value: 20.0
+    )
+
+    let commit = try history.recordWholeIncludedSetReplacement(replacement)
+    let aggregate = try NumericAttemptAggregate(history: history)
+
+    #expect(commit.acceptedReplacement)
+    #expect(commit.supersededAttemptIDs == originals.map(\.id))
+    #expect(history.records.dropLast().allSatisfy {
+      $0.inclusionState == .superseded(by: replacement.id)
+    })
+    #expect(history.records.last?.inclusionState == .included)
+    #expect(aggregate.validSampleCount == 1)
+    #expect(aggregate.estimate == 20)
+    #expect(aggregate.uncertainty == .unavailable(validSampleCount: 1))
+    #expect(aggregate.includedAttemptIDs == [replacement.id])
+  }
+
+  @Test("failed whole-aggregate Redo retains N=3 byte-for-value inclusion and appends evidence")
+  func failedWholeAggregateRedoAfterThreeSamples() throws {
+    let compatibility = numericCompatibility()
+    let originals = try [2.0, 4.0, 6.0].enumerated().map { index, value in
+      try ExerciseAttempt(
+        disposition: .succeeded,
+        compatibility: compatibility,
+        acceptedSequence: UInt64(index + 1),
+        value: value
+      )
+    }
+    var history = try ExerciseAttemptHistory(
+      compatibility: compatibility,
+      attempts: originals
+    )
+    let beforeRecords = history.records
+    let beforeAggregate = try NumericAttemptAggregate(history: history)
+    let failed = try ExerciseAttempt(
+      disposition: .failed("aggregate construction failed"),
+      compatibility: compatibility,
+      acceptedSequence: 4,
+      value: 99.0
+    )
+
+    let commit = try history.recordWholeIncludedSetReplacement(failed)
+    let afterAggregate = try NumericAttemptAggregate(history: history)
+
+    #expect(!commit.acceptedReplacement)
+    #expect(commit.supersededAttemptIDs.isEmpty)
+    #expect(Array(history.records.dropLast()) == beforeRecords)
+    #expect(history.records.last?.attempt.value == 99.0)
+    #expect(history.records.last?.inclusionState == .excludedUnsuccessful)
+    #expect(afterAggregate == beforeAggregate)
+    #expect(afterAggregate.validSampleCount == 3)
   }
 
   @Test("successful Redo can supersede an old sample across compatibility histories")

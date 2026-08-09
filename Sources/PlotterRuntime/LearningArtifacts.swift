@@ -74,15 +74,15 @@ public struct AttemptCompatibility: Codable, Hashable, Sendable {
 
 public enum ExerciseAttemptError: Error, Hashable, Sendable {
   case successfulAttemptRequiresValue
-  case unsuccessfulAttemptCannotContainValue
   case duplicateAttempt(ExerciseAttemptID)
   case incompatibleAttempt(expected: AttemptCompatibility, actual: AttemptCompatibility)
   case replacementTargetNotFound(ExerciseAttemptID)
   case replacementTargetNotIncluded(ExerciseAttemptID)
+  case replacementIncludedSetEmpty
 }
 
-/// One exact attempt. Failed dispositions remain in history but cannot carry a
-/// successful value into an aggregate.
+/// One exact attempt. Unsuccessful attempts may retain a partial evidence value,
+/// but only a successful disposition can include that value in an aggregate.
 public struct ExerciseAttempt<Value: Hashable & Sendable>: Hashable, Sendable {
   public let id: ExerciseAttemptID
   public let disposition: ExerciseAttemptDisposition
@@ -99,9 +99,6 @@ public struct ExerciseAttempt<Value: Hashable & Sendable>: Hashable, Sendable {
   ) throws {
     if disposition.contributesSuccessfulValue, value == nil {
       throw ExerciseAttemptError.successfulAttemptRequiresValue
-    }
-    if !disposition.contributesSuccessfulValue, value != nil {
-      throw ExerciseAttemptError.unsuccessfulAttemptCannotContainValue
     }
     self.id = id
     self.disposition = disposition
@@ -139,6 +136,15 @@ public struct ExerciseAttemptRecord<Value: Hashable & Sendable>: Hashable, Senda
 
 public struct ExerciseAttemptReplacementCommit: Hashable, Sendable {
   public let replacedAttemptID: ExerciseAttemptID
+  public let replacementAttemptID: ExerciseAttemptID
+  public let replacementDisposition: ExerciseAttemptDisposition
+  public let acceptedReplacement: Bool
+}
+
+/// Result of the narrow Redo operation that replaces one complete accepted
+/// aggregate input set. The former included attempts remain provenance.
+public struct ExerciseAttemptWholeSetReplacementCommit: Hashable, Sendable {
+  public let supersededAttemptIDs: [ExerciseAttemptID]
   public let replacementAttemptID: ExerciseAttemptID
   public let replacementDisposition: ExerciseAttemptDisposition
   public let acceptedReplacement: Bool
@@ -224,6 +230,46 @@ public struct ExerciseAttemptHistory<Value: Hashable & Sendable>: Sendable {
     records = updatedRecords
     return ExerciseAttemptReplacementCommit(
       replacedAttemptID: replacedAttemptID,
+      replacementAttemptID: replacement.id,
+      replacementDisposition: replacement.disposition,
+      acceptedReplacement: acceptedReplacement
+    )
+  }
+
+  /// Atomically replaces the entire currently included set. A successful Redo
+  /// supersedes every included sample and begins the accepted set at N == 1.
+  /// An unsuccessful Redo appends excluded provenance without changing any
+  /// existing inclusion state.
+  @discardableResult
+  public mutating func recordWholeIncludedSetReplacement(
+    _ replacement: ExerciseAttempt<Value>
+  ) throws -> ExerciseAttemptWholeSetReplacementCommit {
+    try validateNewAttempt(replacement)
+    let includedIndices = records.indices.filter {
+      records[$0].inclusionState == .included
+        && records[$0].attempt.disposition.contributesSuccessfulValue
+    }
+    guard !includedIndices.isEmpty else {
+      throw ExerciseAttemptError.replacementIncludedSetEmpty
+    }
+
+    var updatedRecords = records
+    let acceptedReplacement = replacement.disposition.contributesSuccessfulValue
+    let supersededAttemptIDs = includedIndices.map { records[$0].attempt.id }
+    if acceptedReplacement {
+      for index in includedIndices {
+        updatedRecords[index].inclusionState = .superseded(by: replacement.id)
+      }
+    }
+    updatedRecords.append(
+      ExerciseAttemptRecord(
+        attempt: replacement,
+        inclusionState: acceptedReplacement ? .included : .excludedUnsuccessful
+      )
+    )
+    records = updatedRecords
+    return ExerciseAttemptWholeSetReplacementCommit(
+      supersededAttemptIDs: acceptedReplacement ? supersededAttemptIDs : [],
       replacementAttemptID: replacement.id,
       replacementDisposition: replacement.disposition,
       acceptedReplacement: acceptedReplacement
@@ -603,9 +649,7 @@ public struct LearningArtifactRevisionID: Codable, Hashable, Sendable {
 
 public enum LearningArtifactKind: Codable, Hashable, Sendable {
   case penInteraction
-  case boundaryObservation(BoundaryDirection)
-  case boundaryPosterior(BoundaryDirection)
-  case boundaryAssociation(BoundaryDirection)
+  case boundarySideAggregate(BoundaryDirection)
   case estimatedMachineCenter
   case centerArrival
   case targetPoseRegistration

@@ -66,6 +66,228 @@ public struct SimulatedLearningBoundaryTruth: Codable, Hashable, Sendable {
   }
 }
 
+public enum SimulatedWorldToCameraTransformError: Error, Hashable, Sendable {
+  case invalidFrameDimensions
+  case invalidPadding
+  case invalidMargin
+  case insufficientDrawableArea
+}
+
+/// Stable identity for one exact causal simulator viewport. It is derived from
+/// the complete fit configuration, not allocated per frame or per view resize.
+public struct SimulatedCameraViewportID: RawRepresentable, Codable, Hashable, Sendable {
+  public let rawValue: String
+
+  public init(rawValue: String) {
+    precondition(!rawValue.isEmpty)
+    self.rawValue = rawValue
+  }
+}
+
+/// Pure, invertible machine-world to camera-pixel fit. Simulator world +X maps
+/// right and simulator world +Y deliberately maps down, matching the canonical
+/// top-left-origin camera convention used by the shared renderer.
+public struct SimulatedWorldToCameraTransform: Codable, Hashable, Sendable {
+  public let truth: SimulatedLearningBoundaryTruth
+  public let frameWidth: Int
+  public let frameHeight: Int
+  public let paddingPixels: Double
+  public let armatureMarginMM: Double
+  public let protocolMarginMM: Double
+  public let scalePixelsPerMillimeter: Double
+  public let originX: Double
+  public let originY: Double
+  public let viewportID: SimulatedCameraViewportID
+
+  public init(
+    truth: SimulatedLearningBoundaryTruth,
+    frameWidth: Int,
+    frameHeight: Int,
+    paddingPixels: Double = 28,
+    armatureMarginMM: Double = 8,
+    protocolMarginMM: Double = 2.5
+  ) throws {
+    guard frameWidth > 0, frameHeight > 0 else {
+      throw SimulatedWorldToCameraTransformError.invalidFrameDimensions
+    }
+    guard paddingPixels.isFinite, paddingPixels >= 0 else {
+      throw SimulatedWorldToCameraTransformError.invalidPadding
+    }
+    guard armatureMarginMM.isFinite, armatureMarginMM >= 0,
+      protocolMarginMM.isFinite, protocolMarginMM >= 0
+    else {
+      throw SimulatedWorldToCameraTransformError.invalidMargin
+    }
+    let drawableWidth = Double(frameWidth) - 2 * paddingPixels
+    let drawableHeight = Double(frameHeight) - 2 * paddingPixels
+    guard drawableWidth > 0, drawableHeight > 0 else {
+      throw SimulatedWorldToCameraTransformError.insufficientDrawableArea
+    }
+    let margin = armatureMarginMM + protocolMarginMM
+    let fittedWidth = truth.positiveXMM - truth.negativeXMM + 2 * margin
+    let fittedHeight = truth.positiveYMM - truth.negativeYMM + 2 * margin
+    let scale = min(drawableWidth / fittedWidth, drawableHeight / fittedHeight)
+    guard scale.isFinite, scale > 0 else {
+      throw SimulatedWorldToCameraTransformError.insufficientDrawableArea
+    }
+    let centerX = (truth.negativeXMM + truth.positiveXMM) / 2
+    let centerY = (truth.negativeYMM + truth.positiveYMM) / 2
+    let originX = Double(frameWidth) / 2 - centerX * scale
+    let originY = Double(frameHeight) / 2 - centerY * scale
+
+    self.truth = truth
+    self.frameWidth = frameWidth
+    self.frameHeight = frameHeight
+    self.paddingPixels = paddingPixels
+    self.armatureMarginMM = armatureMarginMM
+    self.protocolMarginMM = protocolMarginMM
+    scalePixelsPerMillimeter = scale
+    self.originX = originX
+    self.originY = originY
+    viewportID = SimulatedCameraViewportID(rawValue: Self.identity(
+      truth: truth,
+      frameWidth: frameWidth,
+      frameHeight: frameHeight,
+      paddingPixels: paddingPixels,
+      armatureMarginMM: armatureMarginMM,
+      protocolMarginMM: protocolMarginMM,
+      scale: scale,
+      originX: originX,
+      originY: originY
+    ))
+  }
+
+  public var fittedWorldBounds: SimulatedLearningBoundaryTruth {
+    let margin = armatureMarginMM + protocolMarginMM
+    return SimulatedLearningBoundaryTruth(
+      negativeXMM: truth.negativeXMM - margin,
+      positiveXMM: truth.positiveXMM + margin,
+      negativeYMM: truth.negativeYMM - margin,
+      positiveYMM: truth.positiveYMM + margin
+    )
+  }
+
+  public func cameraPoint(
+    for position: SimulatedLearningMPos
+  ) -> Point2<CameraPixelSpace> {
+    try! Point2(
+      x: originX + position.xMM * scalePixelsPerMillimeter,
+      y: originY + position.yMM * scalePixelsPerMillimeter
+    )
+  }
+
+  public func worldPosition(
+    for point: Point2<CameraPixelSpace>
+  ) -> SimulatedLearningMPos {
+    try! SimulatedLearningMPos(
+      xMM: (point.x - originX) / scalePixelsPerMillimeter,
+      yMM: (point.y - originY) / scalePixelsPerMillimeter
+    )
+  }
+
+  private static func identity(
+    truth: SimulatedLearningBoundaryTruth,
+    frameWidth: Int,
+    frameHeight: Int,
+    paddingPixels: Double,
+    armatureMarginMM: Double,
+    protocolMarginMM: Double,
+    scale: Double,
+    originX: Double,
+    originY: Double
+  ) -> String {
+    let doubles = [
+      truth.negativeXMM, truth.positiveXMM, truth.negativeYMM, truth.positiveYMM,
+      paddingPixels, armatureMarginMM, protocolMarginMM, scale, originX, originY,
+    ].map { String($0.bitPattern, radix: 16) }.joined(separator: "-")
+    return "simulated-viewport-v1-\(frameWidth)x\(frameHeight)-\(doubles)"
+  }
+}
+
+public enum SimulatedLearningAnnotationKind: Codable, Hashable, Sendable {
+  case truthEnvelope
+  case directionLabel(BoundaryDirection)
+  case acceptedLearnedSide(BoundaryDirection)
+  case learnedCenter
+  case currentContact
+  case recentMotionTrail
+  case currentOperation
+  case targetROI
+  case ink
+}
+
+public enum SimulatedLearningAnnotationGeometry: Codable, Hashable, Sendable {
+  case point(Point2<CameraPixelSpace>)
+  case bounds(AxisAlignedBounds<CameraPixelSpace>)
+  case polyline(Polyline<CameraPixelSpace>)
+}
+
+/// Presentation-only simulator annotation. It is exact-frame,
+/// exact-configuration, and exact-viewport bound and never enters frame bytes.
+public struct SimulatedLearningAnnotation: Hashable, Sendable {
+  public static let algorithmRevision = "simulated-learning-annotation-v1"
+
+  public let kind: SimulatedLearningAnnotationKind
+  public let anchor: Point2<CameraPixelSpace>
+  public let geometry: SimulatedLearningAnnotationGeometry
+  public let visibleLabel: String
+  public let accessibleValue: String
+  public let algorithmRevision: String
+  public let frameID: FrameID
+  public let cameraConfigurationID: CameraConfigurationID
+  public let viewportID: SimulatedCameraViewportID
+  public let evidenceNotice: SimulatedLearningEvidenceNotice
+
+  public init(
+    kind: SimulatedLearningAnnotationKind,
+    anchor: Point2<CameraPixelSpace>,
+    geometry: SimulatedLearningAnnotationGeometry,
+    visibleLabel: String,
+    accessibleValue: String,
+    algorithmRevision: String = Self.algorithmRevision,
+    frameID: FrameID,
+    cameraConfigurationID: CameraConfigurationID,
+    viewportID: SimulatedCameraViewportID
+  ) {
+    self.kind = kind
+    self.anchor = anchor
+    self.geometry = geometry
+    self.visibleLabel = visibleLabel
+    self.accessibleValue = accessibleValue
+    self.algorithmRevision = algorithmRevision
+    self.frameID = frameID
+    self.cameraConfigurationID = cameraConfigurationID
+    self.viewportID = viewportID
+    evidenceNotice = .notPhysicalEvidence
+  }
+
+  public func matches(
+    _ displayedFrame: DisplayedFrame,
+    viewportID: SimulatedCameraViewportID
+  ) -> Bool {
+    guard case .simulated = displayedFrame.source else { return false }
+    return frameID == displayedFrame.frame.id
+      && cameraConfigurationID == displayedFrame.frame.cameraConfigurationID
+      && self.viewportID == viewportID
+  }
+}
+
+public struct SimulatedLearningAnnotationContext: Hashable, Sendable {
+  public let acceptedBoundaryPositions: [BoundaryDirection: SimulatedLearningMPos]
+  public let learnedCenter: SimulatedLearningMPos?
+  public let targetROI: AxisAlignedBounds<CameraPixelSpace>?
+
+  public init(
+    acceptedBoundaryPositions: [BoundaryDirection: SimulatedLearningMPos] = [:],
+    learnedCenter: SimulatedLearningMPos? = nil,
+    targetROI: AxisAlignedBounds<CameraPixelSpace>? = nil
+  ) {
+    self.acceptedBoundaryPositions = acceptedBoundaryPositions
+    self.learnedCenter = learnedCenter
+    self.targetROI = targetROI
+  }
+}
+
 public struct SimulatedLearningInkSegment: Codable, Hashable, Sendable {
   public let start: SimulatedLearningMPos
   public let end: SimulatedLearningMPos
@@ -78,6 +300,7 @@ public struct SimulatedLearningInkSegment: Codable, Hashable, Sendable {
 
 public enum SimulatedLearningFault: Codable, Hashable, Sendable {
   case refuseNextOperation
+  case ambiguityBeforeNextBoundarySegment
   case ambiguityAtVisibilityTargetPhase(VisibilityTargetOperationPhase)
   case partialVisibilityTarget(segmentCount: Int)
   case cameraConfigurationChangeBeforeNextFrame
@@ -95,6 +318,9 @@ public struct SimulatedLearningSceneFrame: Hashable, Sendable {
   public let armatureBounds: AxisAlignedBounds<CameraPixelSpace>
   public let inkSegmentCount: Int
   public let toolPaperRevision: UUID
+  public let worldToCameraTransform: SimulatedWorldToCameraTransform
+  public let viewportID: SimulatedCameraViewportID
+  public let annotations: [SimulatedLearningAnnotation]
   public let evidenceNotice: SimulatedLearningEvidenceNotice
 
   fileprivate init(
@@ -103,7 +329,9 @@ public struct SimulatedLearningSceneFrame: Hashable, Sendable {
     contactPoint: Point2<CameraPixelSpace>,
     armatureBounds: AxisAlignedBounds<CameraPixelSpace>,
     inkSegmentCount: Int,
-    toolPaperRevision: UUID
+    toolPaperRevision: UUID,
+    worldToCameraTransform: SimulatedWorldToCameraTransform,
+    annotations: [SimulatedLearningAnnotation]
   ) {
     self.displayedFrame = displayedFrame
     self.controllerPosition = controllerPosition
@@ -111,6 +339,9 @@ public struct SimulatedLearningSceneFrame: Hashable, Sendable {
     self.armatureBounds = armatureBounds
     self.inkSegmentCount = inkSegmentCount
     self.toolPaperRevision = toolPaperRevision
+    self.worldToCameraTransform = worldToCameraTransform
+    viewportID = worldToCameraTransform.viewportID
+    self.annotations = annotations
     evidenceNotice = .notPhysicalEvidence
   }
 }
@@ -189,16 +420,34 @@ public struct SimulatedLearningOperation: Hashable, Sendable {
   }
 }
 
+public enum SimulatedLearningAmbiguityContext: Codable, Hashable, Sendable {
+  case boundarySegment(BoundaryDirection)
+  case visibilityTarget(VisibilityTargetOperationPhase)
+}
+
 public struct SimulatedLearningStickyAmbiguity: Codable, Hashable, Sendable {
   public let operationID: SimulatedLearningOperationID
-  public let phase: VisibilityTargetOperationPhase
+  public let context: SimulatedLearningAmbiguityContext
+
+  public var phase: VisibilityTargetOperationPhase? {
+    guard case .visibilityTarget(let phase) = context else { return nil }
+    return phase
+  }
 
   public init(
     operationID: SimulatedLearningOperationID,
     phase: VisibilityTargetOperationPhase
   ) {
     self.operationID = operationID
-    self.phase = phase
+    context = .visibilityTarget(phase)
+  }
+
+  public init(
+    operationID: SimulatedLearningOperationID,
+    boundaryDirection: BoundaryDirection
+  ) {
+    self.operationID = operationID
+    context = .boundarySegment(boundaryDirection)
   }
 }
 
@@ -211,6 +460,7 @@ public struct SimulatedLearningSnapshot: Hashable, Sendable {
   public let stickyAmbiguity: SimulatedLearningStickyAmbiguity?
   public let boundaryTruth: SimulatedLearningBoundaryTruth
   public let cameraConfigurationID: CameraConfigurationID
+  public let viewportID: SimulatedCameraViewportID
   public let frameSequence: UInt64
   public let persistentInkSegmentCount: Int
   public let toolPaperRevision: UUID
@@ -225,6 +475,7 @@ public struct SimulatedLearningSnapshot: Hashable, Sendable {
     stickyAmbiguity: SimulatedLearningStickyAmbiguity?,
     boundaryTruth: SimulatedLearningBoundaryTruth,
     cameraConfigurationID: CameraConfigurationID,
+    viewportID: SimulatedCameraViewportID,
     frameSequence: UInt64,
     persistentInkSegmentCount: Int,
     toolPaperRevision: UUID
@@ -237,6 +488,7 @@ public struct SimulatedLearningSnapshot: Hashable, Sendable {
     self.stickyAmbiguity = stickyAmbiguity
     self.boundaryTruth = boundaryTruth
     self.cameraConfigurationID = cameraConfigurationID
+    self.viewportID = viewportID
     self.frameSequence = frameSequence
     self.persistentInkSegmentCount = persistentInkSegmentCount
     self.toolPaperRevision = toolPaperRevision
@@ -396,13 +648,13 @@ public actor SimulatedLearningRuntime {
   private var frameTimestamp: UInt64 = 1
   private var inkSegments: [SimulatedLearningInkSegment] = []
   private var toolPaperRevision = UUID()
+  private var recentMotionTrail: [SimulatedLearningMPos]
   private var injectedFaults: [SimulatedLearningFault] = []
   private var cooperativeExecutionOperationID: SimulatedLearningOperationID?
   private var visibilityTargetSceneByOperationID:
     [SimulatedLearningOperationID: VisibilityTargetSceneDisposition] = [:]
-  private let frameWidth: Int
-  private let frameHeight: Int
-  private let pixelsPerMillimeter: Double
+  private var worldToCameraTransform: SimulatedWorldToCameraTransform
+  private var latestCausalSceneFrame: SimulatedLearningSceneFrame?
   private var outcomeWaiters:
     [SimulatedLearningOperationID: [CheckedContinuation<SimulatedLearningOperationOutcome, Never>]] =
       [:]
@@ -412,15 +664,22 @@ public actor SimulatedLearningRuntime {
     boundaryTruth: SimulatedLearningBoundaryTruth = SimulatedLearningBoundaryTruth(),
     frameWidth: Int = 640,
     frameHeight: Int = 480,
-    pixelsPerMillimeter: Double = 4
+    paddingPixels: Double = 28,
+    armatureMarginMM: Double = 8,
+    protocolMarginMM: Double = 2.5
   ) {
-    precondition(frameWidth > 0 && frameHeight > 0)
-    precondition(pixelsPerMillimeter.isFinite && pixelsPerMillimeter > 0)
+    let transform = try! SimulatedWorldToCameraTransform(
+      truth: boundaryTruth,
+      frameWidth: frameWidth,
+      frameHeight: frameHeight,
+      paddingPixels: paddingPixels,
+      armatureMarginMM: armatureMarginMM,
+      protocolMarginMM: protocolMarginMM
+    )
     mpos = initialMPos
+    recentMotionTrail = [initialMPos]
     self.boundaryTruth = boundaryTruth
-    self.frameWidth = frameWidth
-    self.frameHeight = frameHeight
-    self.pixelsPerMillimeter = pixelsPerMillimeter
+    worldToCameraTransform = transform
     cameraConfigurationID = CameraConfigurationID()
   }
 
@@ -434,6 +693,40 @@ public actor SimulatedLearningRuntime {
 
   public func persistentInk() -> [SimulatedLearningInkSegment] {
     inkSegments
+  }
+
+  public func cameraViewport() -> SimulatedWorldToCameraTransform {
+    worldToCameraTransform
+  }
+
+  public func latestPublishedCausalFrame() -> SimulatedLearningSceneFrame? {
+    latestCausalSceneFrame
+  }
+
+  /// A true camera refit changes optical identity. SwiftUI view resizing never
+  /// calls this; it remains a presentation-only aspect-fit operation.
+  @discardableResult
+  public func refitCamera(
+    frameWidth: Int,
+    frameHeight: Int,
+    paddingPixels: Double = 28,
+    armatureMarginMM: Double = 8,
+    protocolMarginMM: Double = 2.5
+  ) throws -> SimulatedLearningSnapshot {
+    let replacement = try SimulatedWorldToCameraTransform(
+      truth: boundaryTruth,
+      frameWidth: frameWidth,
+      frameHeight: frameHeight,
+      paddingPixels: paddingPixels,
+      armatureMarginMM: armatureMarginMM,
+      protocolMarginMM: protocolMarginMM
+    )
+    if replacement != worldToCameraTransform {
+      worldToCameraTransform = replacement
+      cameraConfigurationID = CameraConfigurationID()
+      latestCausalSceneFrame = nil
+    }
+    return makeSnapshot()
   }
 
   /// Explicit simulated human fact. It clears only the causal paper scene and
@@ -634,12 +927,13 @@ public actor SimulatedLearningRuntime {
     case .positiveY: proposedMPos.yMM >= limit
     }
     if reachesTruth {
-      mpos = switch direction {
+      let clampedPosition = switch direction {
       case .negativeX, .positiveX: try! SimulatedLearningMPos(xMM: limit, yMM: mpos.yMM)
       case .negativeY, .positiveY: try! SimulatedLearningMPos(xMM: mpos.xMM, yMM: limit)
       }
+      updateMPos(clampedPosition)
     } else {
-      mpos = proposedMPos
+      updateMPos(proposedMPos)
     }
     let completedCount = completedBoundarySegmentCounts[operationID, default: 0] + 1
     completedBoundarySegmentCounts[operationID] = completedCount
@@ -677,14 +971,14 @@ public actor SimulatedLearningRuntime {
       guard let updatedMPos = mpos.applying(delta) else {
         return .refused(.resultingPositionNonFinite)
       }
-      mpos = updatedMPos
+      updateMPos(updatedMPos)
       return .accepted(settle(operation, disposition: .naturallyCompleted))
     case .drawing(let delta):
       guard let updatedMPos = mpos.applying(delta) else {
         return .refused(.resultingPositionNonFinite)
       }
       let start = mpos
-      mpos = updatedMPos
+      updateMPos(updatedMPos)
       if removeFirstFault(matching: {
         if case .absentInk = $0 { return true }
         return false
@@ -731,13 +1025,91 @@ public actor SimulatedLearningRuntime {
       ) {
         return terminal
       }
-      return completeNaturally(operationID)
+      let completion = completeNaturally(operationID)
+      if case .success = completion.result,
+        case .success(let frame) = renderSceneFrame(
+          annotationContext: SimulatedLearningAnnotationContext()
+        )
+      {
+        latestCausalSceneFrame = frame
+      }
+      return completion
     case .visibilityTarget(let plan):
       return await executeVisibilityTargetNaturally(
         operation,
         plan: plan,
         pacing: pacing
       )
+    }
+  }
+
+  /// Cooperatively renews finite simulator segments beneath one logical
+  /// operator-stopped Boundary owner. Segment motion and causal-frame
+  /// publication have separate intent boundaries so Stop/Cancel/shutdown can
+  /// win without a later position or frame mutation. Reaching truth parks the
+  /// owner on its outcome continuation instead of spinning or succeeding.
+  public func executeBoundaryCooperatively(
+    _ operationID: SimulatedLearningOperationID,
+    pacing: any SimulatedLearningExecutionPacing = SimulatedLearningInteractivePacing()
+  ) async -> SimulatedLearningResponse<SimulatedLearningOperationOutcome> {
+    if let outcome = outcomes[operationID] {
+      return .refused(.operationAlreadySettled(operationID, outcome.disposition))
+    }
+    guard let operation = currentOperation, operation.id == operationID else {
+      return .refused(.staleOperation(requested: operationID, active: currentOperation?.id))
+    }
+    guard case .boundary(let direction, _) = operation.kind else {
+      return .refused(.operationIsNotBoundary)
+    }
+    guard cooperativeExecutionOperationID == nil else {
+      return .refused(.operationAlreadyActive(cooperativeExecutionOperationID!))
+    }
+    cooperativeExecutionOperationID = operationID
+    defer {
+      if cooperativeExecutionOperationID == operationID {
+        cooperativeExecutionOperationID = nil
+      }
+    }
+
+    while true {
+      if atBoundaryTruth(direction) {
+        return await waitForOutcome(of: operationID)
+      }
+      if let terminal = await suspendAndRecheck(
+        operation,
+        pacing: pacing,
+        visibilityTargetSceneDisposition: nil
+      ) {
+        return terminal
+      }
+      if removeFirstFault(matching: {
+        if case .ambiguityBeforeNextBoundarySegment = $0 { return true }
+        return false
+      }) != nil {
+        stickyAmbiguity = SimulatedLearningStickyAmbiguity(
+          operationID: operationID,
+          boundaryDirection: direction
+        )
+        return .accepted(settle(operation, disposition: .failed))
+      }
+      let continuation = recordBoundarySegmentCompletion(for: operationID)
+      if case .failure(let refusal) = continuation.result {
+        return .refused(refusal)
+      }
+
+      if let terminal = await suspendAndRecheck(
+        operation,
+        pacing: pacing,
+        visibilityTargetSceneDisposition: nil
+      ) {
+        return terminal
+      }
+      switch renderSceneFrame(annotationContext: SimulatedLearningAnnotationContext()) {
+      case .success(let frame):
+        latestCausalSceneFrame = frame
+      case .failure(let refusal):
+        return .refused(refusal)
+      }
     }
   }
 
@@ -784,7 +1156,7 @@ public actor SimulatedLearningRuntime {
       uncheckedDXMM: plan.approachDelta.dx,
       dyMM: plan.approachDelta.dy
     )) else { return .refused(.resultingPositionNonFinite) }
-    mpos = perimeterStart
+    updateMPos(perimeterStart)
     if ambiguousPhase == .lowerPen {
       stickyAmbiguity = SimulatedLearningStickyAmbiguity(
         operationID: operation.id,
@@ -831,7 +1203,7 @@ public actor SimulatedLearningRuntime {
         dyMM: delta.dy
       )) else { return .refused(.resultingPositionNonFinite) }
       if !omitInk { inkSegments.append(SimulatedLearningInkSegment(start: start, end: end)) }
-      mpos = end
+      updateMPos(end)
     }
     if ambiguousPhase == .raisePen {
       stickyAmbiguity = SimulatedLearningStickyAmbiguity(
@@ -893,7 +1265,7 @@ public actor SimulatedLearningRuntime {
       uncheckedDXMM: plan.approachDelta.dx,
       dyMM: plan.approachDelta.dy
     )) else { return .refused(.resultingPositionNonFinite) }
-    mpos = perimeterStart
+    updateMPos(perimeterStart)
 
     if let terminal = await suspendAndRecheck(
       operation,
@@ -933,7 +1305,7 @@ public actor SimulatedLearningRuntime {
       if !omitInk {
         inkSegments.append(SimulatedLearningInkSegment(start: start, end: end))
       }
-      mpos = end
+      updateMPos(end)
     }
 
     if let terminal = await suspendAndRecheck(
@@ -998,7 +1370,9 @@ public actor SimulatedLearningRuntime {
     ))
   }
 
-  public func captureSceneFrame() -> SimulatedLearningResponse<SimulatedLearningSceneFrame> {
+  public func captureSceneFrame(
+    annotationContext: SimulatedLearningAnnotationContext = SimulatedLearningAnnotationContext()
+  ) -> SimulatedLearningResponse<SimulatedLearningSceneFrame> {
     if removeFirstFault(matching: {
       if case .cameraConfigurationChangeBeforeNextFrame = $0 { return true }
       return false
@@ -1016,18 +1390,44 @@ public actor SimulatedLearningRuntime {
     {
       renderedPosition = shifted
     }
+    let result = renderSceneFrame(
+      renderedPosition: renderedPosition,
+      annotationContext: annotationContext
+    )
+    if case .success(let frame) = result {
+      latestCausalSceneFrame = frame
+    }
+    return SimulatedLearningResponse(result: result)
+  }
+
+  private func renderSceneFrame(
+    renderedPosition: SimulatedLearningMPos? = nil,
+    annotationContext: SimulatedLearningAnnotationContext
+  ) -> Result<SimulatedLearningSceneFrame, SimulatedLearningRefusal> {
+    let renderedPosition = renderedPosition ?? mpos
+    let transform = worldToCameraTransform
+    let frameWidth = transform.frameWidth
+    let frameHeight = transform.frameHeight
     do {
-      let contact = cameraPoint(for: renderedPosition)
+      let contact = transform.cameraPoint(for: renderedPosition)
+      let armatureTopLeft = transform.cameraPoint(for: try SimulatedLearningMPos(
+        xMM: renderedPosition.xMM - 1.75,
+        yMM: renderedPosition.yMM - 7.5
+      ))
+      let armatureBottomRight = transform.cameraPoint(for: try SimulatedLearningMPos(
+        xMM: renderedPosition.xMM + 1.75,
+        yMM: renderedPosition.yMM
+      ))
       let armature = try AxisAlignedBounds<CameraPixelSpace>(
-        minX: contact.x - 7,
-        minY: contact.y - 30,
-        maxX: contact.x + 7,
-        maxY: contact.y
+        minX: armatureTopLeft.x,
+        minY: armatureTopLeft.y,
+        maxX: armatureBottomRight.x,
+        maxY: armatureBottomRight.y
       )
       var strokes = inkSegments.map {
         SimulatedCameraStroke(
-          start: cameraPoint(for: $0.start),
-          end: cameraPoint(for: $0.end),
+          start: transform.cameraPoint(for: $0.start),
+          end: transform.cameraPoint(for: $0.end),
           green: 190
         )
       }
@@ -1074,17 +1474,177 @@ public actor SimulatedLearningRuntime {
       let displayed = try source.render(strokes: strokes, captureNanoseconds: frameTimestamp)
       frameSequence &+= 1
       frameTimestamp &+= 1
-      return .accepted(SimulatedLearningSceneFrame(
+      let annotations = try makeAnnotations(
+        displayedFrame: displayed,
+        renderedPosition: renderedPosition,
+        contact: contact,
+        armature: armature,
+        context: annotationContext
+      )
+      return .success(SimulatedLearningSceneFrame(
         displayedFrame: displayed,
         controllerPosition: renderedPosition,
         contactPoint: contact,
         armatureBounds: armature,
         inkSegmentCount: inkSegments.count,
-        toolPaperRevision: toolPaperRevision
+        toolPaperRevision: toolPaperRevision,
+        worldToCameraTransform: transform,
+        annotations: annotations
       ))
     } catch {
-      return .refused(.frameRenderingFailed(String(describing: error)))
+      return .failure(.frameRenderingFailed(String(describing: error)))
     }
+  }
+
+  private func makeAnnotations(
+    displayedFrame: DisplayedFrame,
+    renderedPosition: SimulatedLearningMPos,
+    contact: Point2<CameraPixelSpace>,
+    armature: AxisAlignedBounds<CameraPixelSpace>,
+    context: SimulatedLearningAnnotationContext
+  ) throws -> [SimulatedLearningAnnotation] {
+    let transform = worldToCameraTransform
+    let frameID = displayedFrame.frame.id
+    let configurationID = displayedFrame.frame.cameraConfigurationID
+    let viewportID = transform.viewportID
+    func annotation(
+      _ kind: SimulatedLearningAnnotationKind,
+      anchor: Point2<CameraPixelSpace>,
+      geometry: SimulatedLearningAnnotationGeometry,
+      label: String,
+      value: String
+    ) -> SimulatedLearningAnnotation {
+      SimulatedLearningAnnotation(
+        kind: kind,
+        anchor: anchor,
+        geometry: geometry,
+        visibleLabel: label,
+        accessibleValue: value,
+        frameID: frameID,
+        cameraConfigurationID: configurationID,
+        viewportID: viewportID
+      )
+    }
+
+    let truthMin = transform.cameraPoint(for: try SimulatedLearningMPos(
+      xMM: boundaryTruth.negativeXMM,
+      yMM: boundaryTruth.negativeYMM
+    ))
+    let truthMax = transform.cameraPoint(for: try SimulatedLearningMPos(
+      xMM: boundaryTruth.positiveXMM,
+      yMM: boundaryTruth.positiveYMM
+    ))
+    let truthBounds = try AxisAlignedBounds<CameraPixelSpace>(
+      minX: truthMin.x, minY: truthMin.y, maxX: truthMax.x, maxY: truthMax.y
+    )
+    var result = [annotation(
+      .truthEnvelope,
+      anchor: truthMin,
+      geometry: .bounds(truthBounds),
+      label: "SIMULATED TRUTH",
+      value: "Simulator truth envelope; not learned or physical evidence"
+    )]
+
+    let centerX = (boundaryTruth.negativeXMM + boundaryTruth.positiveXMM) / 2
+    let centerY = (boundaryTruth.negativeYMM + boundaryTruth.positiveYMM) / 2
+    for direction in BoundaryDirection.allCases {
+      let world = switch direction {
+      case .negativeX: try SimulatedLearningMPos(xMM: boundaryTruth.negativeXMM, yMM: centerY)
+      case .positiveX: try SimulatedLearningMPos(xMM: boundaryTruth.positiveXMM, yMM: centerY)
+      case .negativeY: try SimulatedLearningMPos(xMM: centerX, yMM: boundaryTruth.negativeYMM)
+      case .positiveY: try SimulatedLearningMPos(xMM: centerX, yMM: boundaryTruth.positiveYMM)
+      }
+      let point = transform.cameraPoint(for: world)
+      result.append(annotation(
+        .directionLabel(direction),
+        anchor: point,
+        geometry: .point(point),
+        label: direction.displayName,
+        value: "Simulator truth direction \(direction.displayName)"
+      ))
+    }
+
+    for direction in BoundaryDirection.allCases {
+      guard let position = context.acceptedBoundaryPositions[direction] else { continue }
+      let point = transform.cameraPoint(for: position)
+      result.append(annotation(
+        .acceptedLearnedSide(direction),
+        anchor: point,
+        geometry: .point(point),
+        label: "LEARNED \(direction.displayName)",
+        value: "Accepted simulated learned side \(direction.displayName)"
+      ))
+    }
+    if let learnedCenter = context.learnedCenter {
+      let point = transform.cameraPoint(for: learnedCenter)
+      result.append(annotation(
+        .learnedCenter,
+        anchor: point,
+        geometry: .point(point),
+        label: "LEARNED CENTER",
+        value: "Accepted simulated learned center"
+      ))
+    }
+
+    result.append(annotation(
+      .currentContact,
+      anchor: contact,
+      geometry: .bounds(armature),
+      label: "MPOS",
+      value: "Simulated MPos X \(renderedPosition.xMM), Y \(renderedPosition.yMM)"
+    ))
+    if recentMotionTrail.count > 1 {
+      let trail = try Polyline<CameraPixelSpace>(
+        points: recentMotionTrail.map { transform.cameraPoint(for: $0) }
+      )
+      result.append(annotation(
+        .recentMotionTrail,
+        anchor: trail.start,
+        geometry: .polyline(trail),
+        label: "RECENT MOTION",
+        value: "Bounded simulated motion trail with \(trail.points.count) positions"
+      ))
+    }
+    if let operation = currentOperation {
+      let label: String = switch operation.kind {
+      case .manualJog: "MANUAL OWNER \(operation.id.sequence)"
+      case .boundary(let direction, _):
+        "BOUNDARY \(direction.displayName) OWNER \(operation.id.sequence)"
+      case .drawing: "DRAW OWNER \(operation.id.sequence)"
+      case .visibilityTarget: "TARGET OWNER \(operation.id.sequence)"
+      }
+      result.append(annotation(
+        .currentOperation,
+        anchor: contact,
+        geometry: .point(contact),
+        label: label,
+        value: "Current simulated operation \(label)"
+      ))
+    }
+    if let roi = context.targetROI {
+      let anchor = try Point2<CameraPixelSpace>(x: roi.minX, y: roi.minY)
+      result.append(annotation(
+        .targetROI,
+        anchor: anchor,
+        geometry: .bounds(roi),
+        label: "TARGET ROI",
+        value: "Simulated target region of interest"
+      ))
+    }
+    for segment in inkSegments {
+      let polyline = try Polyline<CameraPixelSpace>(points: [
+        transform.cameraPoint(for: segment.start),
+        transform.cameraPoint(for: segment.end),
+      ])
+      result.append(annotation(
+        .ink,
+        anchor: polyline.start,
+        geometry: .polyline(polyline),
+        label: "SIMULATED INK",
+        value: "Simulated retained ink segment; not physical evidence"
+      ))
+    }
+    return result
   }
 
   /// Waits for the outcome of the specified original owner. A later operation
@@ -1180,6 +1740,7 @@ public actor SimulatedLearningRuntime {
       stickyAmbiguity: stickyAmbiguity,
       boundaryTruth: boundaryTruth,
       cameraConfigurationID: cameraConfigurationID,
+      viewportID: worldToCameraTransform.viewportID,
       frameSequence: frameSequence,
       persistentInkSegmentCount: inkSegments.count,
       toolPaperRevision: toolPaperRevision
@@ -1203,13 +1764,24 @@ public actor SimulatedLearningRuntime {
     return true
   }
 
-  private func cameraPoint(
-    for position: SimulatedLearningMPos
-  ) -> Point2<CameraPixelSpace> {
-    try! Point2(
-      x: Double(frameWidth) / 2 + position.xMM * pixelsPerMillimeter,
-      y: Double(frameHeight) / 2 + position.yMM * pixelsPerMillimeter
-    )
+  private func updateMPos(_ position: SimulatedLearningMPos) {
+    mpos = position
+    if recentMotionTrail.last != position {
+      recentMotionTrail.append(position)
+      if recentMotionTrail.count > 24 {
+        recentMotionTrail.removeFirst(recentMotionTrail.count - 24)
+      }
+    }
+  }
+
+  private func atBoundaryTruth(_ direction: BoundaryDirection) -> Bool {
+    let limit = boundaryTruth.limit(for: direction)
+    return switch direction {
+    case .negativeX: mpos.xMM <= limit
+    case .positiveX: mpos.xMM >= limit
+    case .negativeY: mpos.yMM <= limit
+    case .positiveY: mpos.yMM >= limit
+    }
   }
 
   private static func boundaryDelta(
