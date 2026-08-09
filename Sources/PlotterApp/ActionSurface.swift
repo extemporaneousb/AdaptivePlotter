@@ -100,62 +100,6 @@ struct ActionSurfacePresentation: Sendable {
   }
 }
 
-struct CameraConfiguredFieldRegistration: Hashable, Sendable {
-  let registration: FieldRegistration
-  let cameraConfigurationID: CameraConfigurationID
-
-  init(
-    registration: FieldRegistration,
-    cameraConfigurationID: CameraConfigurationID
-  ) {
-    self.registration = registration
-    self.cameraConfigurationID = cameraConfigurationID
-  }
-}
-
-enum FieldOverlayProjectionError: Error, Equatable, Sendable {
-  case cameraConfigurationMismatch(
-    registration: CameraConfigurationID,
-    displayedFrame: CameraConfigurationID
-  )
-}
-
-enum FieldOverlayProjection {
-  static func overlay(
-    _ fieldGeometry: Polyline<FieldSpace>,
-    on displayedFrame: DisplayedFrame,
-    using configuredRegistration: CameraConfiguredFieldRegistration,
-    kind: CameraOverlayKind,
-    source: CameraOverlaySource,
-    algorithmRevision: String
-  ) throws -> CameraOverlayMeasurement {
-    guard
-      configuredRegistration.cameraConfigurationID
-        == displayedFrame.frame.cameraConfigurationID
-    else {
-      throw FieldOverlayProjectionError.cameraConfigurationMismatch(
-        registration: configuredRegistration.cameraConfigurationID,
-        displayedFrame: displayedFrame.frame.cameraConfigurationID
-      )
-    }
-    let cameraGeometry = try Polyline<CameraPixelSpace>(
-      points: fieldGeometry.points.map {
-        try configuredRegistration.registration.cameraPoint(from: $0)
-      }
-    )
-    return CameraOverlayMeasurement(
-      frameID: displayedFrame.frame.id,
-      cameraConfigurationID: displayedFrame.frame.cameraConfigurationID,
-      geometry: .polyline(cameraGeometry),
-      provenance: CameraMeasurementProvenance(
-        kind: kind,
-        source: source,
-        algorithmRevision: algorithmRevision
-      )
-    )
-  }
-}
-
 struct ActionSurface: View {
   let presentation: ActionSurfacePresentation
   @StateObject private var imageCache = FramePresentationImageCache()

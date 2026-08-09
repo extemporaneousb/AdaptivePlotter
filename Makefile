@@ -1,5 +1,7 @@
 .PHONY: help build app launcher run-app validate-app validate-launcher test check strict-check
 
+.DEFAULT_GOAL := help
+
 SWIFT_FLAGS ?=
 
 help:

@@ -83,7 +83,6 @@ struct AdaptivePlotterApp: App {
 
 enum AdaptivePlotterScenePolicy {
   static let singletonWindowID = "operator-workspace"
-  static let windowCount = 1
   static let minimumWindowHeight: CGFloat = 760
 }
 

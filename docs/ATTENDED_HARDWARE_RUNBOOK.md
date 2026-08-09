@@ -1,6 +1,6 @@
-# Attended Hardware Session
+# Attended Hardware Runbook
 
-Status: operator checklist for the integrated one-window workbench
+Status: current operator checklist for the integrated one-window workbench
 Requirement: one operator present with the physical power cutoff reachable
 
 ## Purpose

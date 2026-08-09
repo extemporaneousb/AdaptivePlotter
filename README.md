@@ -1,362 +1,159 @@
 # AdaptivePlotter
 
-AdaptivePlotter is a native macOS Swift application for a short
-controller-camera-draw-observe loop on one attached plotter. It keeps controller
-authority, camera evidence, human observation, inferred geometry, and observed
-ink separate.
+AdaptivePlotter is a native macOS Swift application for one attached plotter.
+It closes a short controller-camera-draw-observe loop while keeping controller
+authority, captured pixels, vision inference, human observation, and observed
+ink distinct.
 
-The product is intentionally local and narrow:
+The product is deliberately local:
 
-- one signed application bundle and one native process;
-- one persistent controller owner and one camera owner;
-- a camera-first workbench with typed, bounded actions;
+- one signed application bundle and one foreground process;
+- one controller owner and one camera owner;
+- one camera-first operator window;
+- typed, bounded commands rather than arbitrary controller text;
 - exact frame and camera-configuration provenance;
-- no arbitrary controller text, remote backend, second process, or hidden
-  compatibility workflow;
 - no automatic resend, resume, or redraw after an uncertain physical outcome.
 
 ## Operator journey
 
-The persistent **Learning Path** organizes the current work:
+The persistent **Learning Path** is an ergonomic organization, not a motion
+authority ladder:
 
 1. **Connect**
 2. **Enable Motion**
 3. **Human-Guided Discovery**
+   - **3.1 Pen Interaction**
+   - **3.2 Paired Boundary Discovery and Centering**
+   - **3.3 Visibility Target and Clear-View Registration**
 4. **Observed Drawing Trials**
-5. **Adaptive Drawing**
+   - choose a target-anchored isolated line;
+   - capture its baseline;
+   - move and draw under one operation owner;
+   - return to the accepted clear pose;
+   - observe new ink and compare geometry.
+5. **Adaptive Drawing** — Future
 
-This numbering is ergonomic presentation, not a machine-authority ladder.
-Connect and Enable Motion are current-session mechanical prerequisites. Learning
-status never becomes a global motion gate, and ordinary manual jogs do not
-depend on learning completion. Each operation requires only the direct facts and
-evidence it consumes.
+Connect and Enable Motion are direct current-session prerequisites. Ordinary
+manual jogs do not depend on Learning Path completion. Selecting a row changes
+presentation only; it cannot change runtime current state, admit motion, or
+alter accepted evidence.
 
-Human-Guided Discovery is ordered as:
+The exact Boundary, visibility-target, clear-view, and drawing-trial sequence is
+defined once in
+[Discovery and Observed-Trial Protocol](docs/DISCOVERY_AND_OBSERVED_TRIAL_PROTOCOL.md).
 
-1. **3.1 Pen Interaction** — observe Up, follow the spoken lowering cue,
-   observe Down, retract, and finish with an explicit human confirmation of Up.
-2. **3.2 Paired Boundary Discovery and Centering** — choose any first side,
-   record it with operator-stopped boundary motion, record its forced opposite,
-   choose either sign on the remaining axis, then record that forced opposite.
-   Each Stop retains the settled MPos plus one exact newer frame and typed
-   bottom-center contact sample. Typed operator direction, never a nearest
-   camera edge, identifies the side. Per-side machine-space aggregates define
-   the estimated center and learned local millimetre frame. The operator then
-   explicitly starts one stoppable Pen Up move to that center. Center arrival
-   accepts a controller-reported final MPos within 0.05 mm of the derived target
-   so normal step quantization cannot create an unreachable retry loop. A failed
-   or stopped center move preserves all four accepted sides and exposes **Retry
-   Center Arrival**, not a Boundary-discovery restart.
-3. **3.3 Visibility Target and Clear-View Registration** — register the tool's
-   camera-space contact point and target ROI while the armature is present;
-   find and accept a repeatable clear pose with explicit 10, 5, 2, or optional
-   1 mm Pen Up search moves; capture a blank baseline at that clear pose; return
-   to the registered target pose; draw one 4 mm diameter octagonal visibility
-   target under one operation owner; return to the accepted clear pose; observe
-   the existing target in two fresh frames; and accept the registration.
+## Mechanical authority
 
-A fixed application travel distance is never a boundary. Natural completion of
-an underlying finite GRBL segment renews the same logical owner and cannot
-complete a side. Stage 3.2 completes only after all four sides and the explicit
-center move. A Blocked or Partial clear-view label keeps the same search
-transaction active; it does not fail the entire step.
+`MachineController` owns serial state, direct safety checks, command
+serialization, settlement, and sticky ambiguity. `RunInterpreter` owns the one
+active logical operation. The UI issues typed intents but cannot weaken either
+owner.
 
-Observed Drawing Trials are ordered as:
+Applicable motion requires the direct facts consumed by that request, including
+a selected responsive session, current Motion authorization, recognized
+controller state, compatible pins, known MPos where needed, correct pen state,
+one-operation ownership, and no sticky ambiguity.
 
-1. **4.1 Choose Isolated Line Plan**
-2. **4.2 Capture Target-Anchored Baseline**
-3. **4.3 Move to Line Start**
-4. **4.4 Draw Isolated Line**
-5. **4.5 Return to Clear Pose and Observe New Ink**
-6. **4.6 Compare Intended and Observed Geometry**
+The application does not home, unlock, clear alarms, reset the controller, write
+firmware settings, accept entered workspace bounds, or use learning stage or
+model confidence as manual-motion authority.
 
-The first line plan starts at a selected perimeter point of the accepted
-visibility target and extends 5 mm outward. The baseline is captured at the
-accepted clear pose immediately before leaving it. The trial never redraws
-automatically after an uncertain physical outcome.
+Controller `ok` means acceptance, not completion. Motion completes only after
+fresh Idle and final MPos. Unknown post-write state is sticky and is never
+automatically resent.
 
-The complete actor, provenance, recovery, and simulator contract is
-[Visibility Target and Clear-View Protocol](docs/implementation/VISIBILITY_TARGET_AND_CLEAR_VIEW_PROTOCOL.md).
+## Stop and evidence
 
-Only observed ink proves that a mark exists. Adaptive Drawing remains visibly
-Future until multi-stroke observation and checkpoint learning are implemented.
+The active exercise owns one contextual **Stop**. Manual motion owns **Stop
+Manual Jog** in the Motion region. Repeated Stop cannot emit repeated semantic
+results or cancellation bytes.
 
-The accepted workbench target is one singleton window with three user-resizable
-vertical regions: the Learning Path navigator on the left, the always-mounted
-camera/action surface in the center, and the selected exercise plus its controls
-on the right. The navigator, exercise detail, and lower Motion region also have
-explicit Hide/Show controls; hiding them never dismounts the camera or changes
-runtime authority. Selecting a completed or future row changes presentation only.
-The camera remains visible while the operator reads, starts, answers, stops,
-cancels, retries, or reviews an exercise. There is no auxiliary Learning Path
-window and no launcher panel for one.
+Boundary Stop records the typed operator intent, closes renewal, emits one GRBL
+Jog Cancel, awaits the original owner through final Idle/MPos, captures one
+strictly newer frame, estimates the bottom-center contact point, and atomically
+commits the selected side attempt and aggregate. Typed operator direction—not a
+detected camera edge—identifies the side.
 
-The right exercise region keeps the current instruction and action strip
-visible. Critical cues such as **UP**, **DOWN**, **YES**, **NO**, **STOP**, and
-typed directions use structured emphasis rather than undifferentiated prose or
-fragile string parsing. **START** is the positive entry action, **CANCEL**
-abandons the current exercise attempt through its typed cancellation route,
-**STOP** becomes active only for stoppable motion, and **RESTART** is offered
-only after a stopped, cancelled, or failed current attempt can truthfully be
-restarted.
+After four sides, **Move to Estimated Center** accepts a controller-reported
+final MPos within 0.05 mm of the derived target. A stopped or out-of-tolerance
+move preserves all four accepted side aggregates and exposes **Retry Center
+Arrival**, which requests only the remaining delta; it never restarts Boundary
+Discovery.
 
-Boundary Discovery has no generic preparatory YES/NO ceremony. Selecting a
-direction is inert; the explicit Start action admits the logical owner, and the
-next operator action is its owner-bound Stop or Cancel. The manual Motion panel
-labels X/Y distance and feed units, labels every direction control, and exposes
-its own red **Stop Manual Jog** only while that exact manual owner is active.
+Evidence claims remain separate:
 
-Buttons are authoritative for questions, labels, progression, assessment,
-Cancel, Stop, and Restart. Spoken movement announcements are output-only and
-advisory. They are serialized and completion-aware; a bounded speech-output
-failure never grants authority and never makes the visible buttons unusable. No
-audio-input or speech-recognition subsystem is part of the product.
-
-There is no separate **Jog Observations** exercise or diagnostic control
-surface. Repeated evidence is collected only by **Record Another Attempt** on a
-numbered Learning Path exercise, using that exercise's typed attempt and
-aggregate semantics. The removed jog-response diagnostic must not survive as a
-renamed or hidden compatibility workflow.
-
-## Redo and additional attempts
-
-**Redo This Step** replaces that step's accepted value with the new accepted
-value. It invalidates the transitive outputs that actually consumed the
-replaced value. Execution order is not itself a data-dependency graph: redoing
-Pen Interaction does not discard independent boundary measurements merely
-because Boundary Discovery followed it in the visible path. Current mechanical
-facts still apply to any new motion without retroactively erasing valid recorded
-evidence.
-
-Replacement is committed atomically after the new attempt succeeds. The old
-value is no longer current and is excluded from derived current results; any
-retained diagnostic record is explicitly marked superseded.
-
-For a Boundary side, Redo replaces the entire accepted aggregate. A successful
-replacement begins again at N=1; a failed, refused, cancelled, or ambiguous
-replacement leaves the old aggregate, graph, center, arrival, local frame, and
-current path unchanged.
-
-**Record Another Attempt** preserves each compatible attempt and recomputes the
-typed aggregate from all valid attempts in that group. The aggregate exposes its
-valid sample count. Numeric or geometric measurements use their declared
-estimator and uncertainty; categorical observations use counts or a typed
-posterior; current state facts such as observed pen pose use the latest accepted
-observation and are never arithmetically averaged. Exact frames and controller
-events remain provenance, not averageable values. Boundary numeric compatibility
-uses direction, controller session, coordinate revision, machine coordinates,
-millimetres, and numeric-estimator revision; camera configuration is deliberately
-absent. Optical registration separately requires compatible exact frames,
-camera configuration, contact estimator, and algorithm revision.
-When a current camera lacks three compatible non-collinear correspondences, the
-operator gets a typed **Collect Current-Camera Contact Evidence** action. It
-captures exact MPos/contact provenance only; it admits no motion and leaves all
-accepted machine-space Boundary authority unchanged.
-
-## Direct mechanical authority
-
-The internal runtime retains its precise `MotionGuard` type, but the operator
-surface says **Enable Motion**, **Motion Enabled**, or **Motion Disabled**.
-There is no second arming control.
-
-The green Motion Enabled indicator reports current-session authorization and
-therefore remains green while that authorized session is busy moving or
-actuating. A separate request-status projection reports Ready, Busy,
-Unavailable with the exact reason, or Needs Attention. Needs Attention detail
-names the actor, action, outcome, and recovery rather than replacing those facts
-with a bare status label. The optional Utilities region has an explicit Hide
-action and yields width before the protected camera.
-
-Typed motion continues to require the applicable direct facts:
-
-- one explicitly selected, responsive controller session;
-- current internal motion authorization;
-- recognized non-alarm controller state and Idle admission;
-- no relevant asserted X/Y limit pin;
-- known MPos where the requested operation requires it;
-- controller-reported feed capability;
-- the appropriate commanded pen state;
-- one-operation ownership;
-- no sticky ambiguity.
-
-Disconnect and shutdown invalidate current authorization. The application does
-not home, clear alarms, unlock, reset, write firmware settings, accept entered
-workspace bounds, or use learned geometry or model confidence to admit manual
-motion.
-
-Controller `ok` means acceptance, not completion. A jog completes only after
-bounded polling reaches fresh Idle with final MPos. An uncertain outcome becomes
-sticky and is never automatically resent.
-
-## Cancel and Stop semantics
-
-The persistent exercise action strip owns one visible contextual **Stop**. It is
-enabled only while a typed software operation is stoppable. It is not a physical
-emergency stop; the physical power cutoff remains the operator's safety
-boundary. The window toolbar retains global connection and status controls, not
-exercise-specific cancellation.
-
-During Boundary Discovery, Stop has one deterministic order:
-
-1. record the contextual operator Stop event;
-2. emit exactly one GRBL Jog Cancel byte;
-3. await the original jog owner through Idle and final MPos;
-4. capture a strictly newer exact camera frame;
-5. obtain one typed bottom-center tool-contact estimate;
-6. atomically commit the exact attempt evidence and accepted side aggregate;
-7. recompute paired progress, center, and learned local coordinates;
-8. advance the visible sequence.
-
-Boundary motion remains owned by the active discovery attempt until Stop or a
-real controller limit, alarm, disconnect, or other typed fault. The application
-must not end it normally at a hard-coded X/Y distance. Any controller-native
-finite command horizon is an implementation detail that must continue the same
-logical owner without inventing a successful boundary, duplicating motion after
-ambiguity, or racing Stop. Reaching a controller safety limit is Needs Attention,
-not observed-boundary evidence.
-
-The same Stop route cancels a manual jog without creating boundary evidence.
-Drawing Stop retains the controller owner's Pen Up behavior; an ambiguous
-outcome causes no follow-on command.
-
-Cancel is a distinct exercise intent. It never masquerades as a successful
-Boundary Stop and never manufactures boundary, trial, or completion evidence.
-If cancellation must settle active motion, the runtime emits at most the same
-single mechanical cancel and awaits the original owner before marking the
-attempt cancelled. Restart creates a fresh attempt for the same current step;
-it does not resend an ambiguous command or silently revive an old owner.
-
-## Travel feed selection
-
-Successful passive controller inspection exposes the reported X and Y maximum
-feeds as read-only runtime facts. Non-drawing, Pen Up discovery and travel select:
-
-- the X ceiling for X-only motion;
-- the Y ceiling for Y-only motion;
-- the minimum participating-axis ceiling for multi-axis motion.
-
-If that capability is unavailable, the existing positive request feed remains
-the fallback; its absence does not create a new learning prerequisite. The app
-does not write firmware settings. Pen Down drawing feed remains an ink-quality
-choice and is not automatically increased.
-
-## Camera and evidence
-
-`CameraCapture` owns AVFoundation discovery, selection, authorization, capture,
-and shutdown. `latestLiveCameraFrame` is the live heartbeat; it is deliberately
-separate from an analyzed or held display frame. `StampedFrame`, `FrameID`, and
-`CameraConfigurationID` bind pixels, measurements, and overlays to exact
-provenance.
-
-After a successful LIVE camera start or restart, bounded automatic scene
-analysis starts at the selected cadence and all semantic overlay layers are
-visible by default. The operator can still stop automatic analysis or hide
-individual overlay kinds. Utilities remains reachable at the supported minimum
-window width by yielding a collapsible side pane before reducing camera width.
-
-The evidence boundaries are explicit:
-
-- controller acceptance proves only that the command was accepted;
+- command acceptance proves controller acceptance only;
 - Idle and final MPos prove controller-side settlement;
-- a camera frame proves captured pixels at its recorded provenance;
+- a frame proves captured pixels with recorded provenance;
 - vision geometry is an inference from those pixels;
-- a button label records a human observation;
-- observed ink is the only proof of a drawn mark.
+- a button records a human observation;
+- only observed ink proves that a mark exists;
+- simulator output is software evidence and never physical evidence.
 
-SIMULATED frames share the renderer but are labeled nonphysical and cannot reach
-machine actions or satisfy physical evidence. Their pixels are causal:
-simulated MPos, pen pose, accepted motion segments, paper identity, and retained
-ink determine the rendered scene. Boundary Stop positions, center arrival,
-target drawing, clear-view search, two-frame target observation, and the Stage 4
-line trial therefore exercise the same visible actions instead of consuming a
-pre-rendered success script.
+Redo replaces a current accepted result only after the replacement commits.
+Failure preserves the old accepted result and its dependents. Record Another
+Attempt retains compatible samples and recomputes the typed aggregate. Exact
+frames and controller events remain individual provenance.
 
-The simulator fits arbitrary translated or negative truth bounds into each
-camera configuration with one stable uniform transform. Its truth envelope,
-direction labels, learned markers, current pose, target ROI, trail, and ink
-annotations are exact-frame presentation only: they never alter canonical
-pixels, frame hashes, vision results, accepted evidence, or physical authority.
+## Workbench
 
-LIVE and SIMULATED use the same Learning Path, motion panel, camera utilities,
-questions, and action locations. The deterministic simulator implements its
-own session, motion authorization, MPos, pen pose, manual jog, Boundary owner,
-Stop/Cancel, drawing, and camera evidence. Simulated learning is discarded when
-returning to LIVE; parked LIVE accepted authority is restored unchanged.
+One singleton window contains a resizable Learning Path navigator, an
+always-mounted camera/action surface, selected exercise detail, a Motion region,
+and optional Utilities. Hiding a pane is presentation-only. A pane that owns the
+only active Stop cannot be hidden until its operation settles.
+
+The toolbar owns global controller selection, Connect/Disconnect, Enable Motion,
+and compact status. Exercise Start, choices, Cancel, Stop, Restart, Redo, and
+Record Another Attempt remain with the selected exercise. Buttons are the
+authoritative input surface; speech is output-only advisory guidance.
 
 ## Build, test, and launch
 
-Requirements: macOS 14 or later and Swift 6.1 or later.
+Requirements:
 
-```sh
+- macOS 14 or later;
+- Swift 6.2 or later;
+- Xcode Command Line Tools;
+- a signed-bundle launch for camera or controller work.
+
+Common commands:
+
+```bash
+make help
 make build
 make test
 make check
 make strict-check
-```
-
-For supported local application launch:
-
-```sh
+make app
+make validate-app
 make run-app
 ```
 
-`make run-app` builds the current `.app`, prefers the stable
-`AdaptivePlotter Local Development` signing identity (or the explicit
-`ADAPTIVEPLOTTER_CODESIGN_IDENTITY`), validates the bundle and camera-only
-privacy declaration, then launches through LaunchServices.
+`make run-app` constructs the signed bundle and uses the single-instance
+launcher. Do not run the raw SwiftPM executable for camera, microphone, or
+serial work. The launcher activates the exact existing bundle when possible and
+refuses wrong-path or competing raw processes without terminating them.
 
-The launcher accepts only `com.bullard.AdaptivePlotter` at the expected bundle
-path. It activates one already-running exact bundled instance instead of
-creating another and reports its PID. It refuses a same-name raw SwiftPM
-executable or any conflicting instance with PID and path, and never kills a
-user-owned process. A rebuilt bundle does not replace the bits already loaded by
-an existing process.
+## Authoritative documents
 
-Do not use `swift run AdaptivePlotter` for camera, controller, or physical
-validation. Direct executable launch gives the wrong application identity and
-can create competing camera/serial owners.
+- [Product Contract](docs/PRODUCT_CONTRACT.md) — product boundary, authority,
+  evidence, safety, and valid model-learning direction.
+- [Architecture](docs/SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md) — package and
+  runtime ownership boundaries.
+- [Discovery and Observed-Trial Protocol](docs/DISCOVERY_AND_OBSERVED_TRIAL_PROTOCOL.md)
+  — exact current operator/runtime protocol.
+- [Roadmap](docs/ROADMAP.md) — unfinished work only.
+- [Current Evidence](docs/CURRENT_EVIDENCE.md) — current automated, environment,
+  and attended physical evidence.
+- [Attended Hardware Runbook](docs/ATTENDED_HARDWARE_RUNBOOK.md) — supported
+  physical verification procedure.
 
-## Documentation map
-
-- [Binding amendments](docs/FEASIBILITY_REVIEW_AND_BINDING_AMENDMENTS.md)
-  define the non-negotiable authority and evidence rules.
-- [Project scope and model learning](docs/PROJECT_SCOPE_AND_MODEL_TRAINING.md)
-  defines the five-stage product scope and technically precise model terms.
-- [Architecture](docs/SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md) defines module and
-  owner boundaries.
-- [Direct implementation plan](docs/SWIFT_ADAPTIVE_PLOTTER_SEQUENTIAL_REBUILD.md)
-  records implemented and remaining delivery order.
-- [Current implementation status](docs/implementation/CURRENT_IMPLEMENTATION_STATUS.md)
-  separates automated, camera, controller, and physical evidence.
-- [Physical session procedure](docs/implementation/FIRST_HARDWARE_SESSION.md)
-  is the operator checklist for the next attended hardware pass.
-- [Learning workbench execution prompt](docs/implementation/LEARNING_WORKBENCH_MULTI_AGENT_EXECUTION_PROMPT.md)
-  is the copy-paste coordinator prompt for implementing the accepted one-window
-  UI and dependency-aware attempt semantics.
-- [Boundary evidence and simulator viewport execution prompt](docs/implementation/BOUNDARY_EVIDENCE_AND_SIMULATOR_VIEWPORT_EXECUTION_PROMPT.md)
-  is the retained coordinator record for the atomic Boundary aggregate,
-  learned-local-coordinate, recovery, and simulator auto-fit correction.
+Git history and Blackdog replay artifacts retain implementation history and
+execution prompts. They are not duplicated as current product documentation.
 
 ## Development contract
 
-Use the repository-local AdaptivePlotter skill and the Blackdog workflow in
-`AGENTS.md`. Implementation belongs in the task workspace returned by
-`blackdog task begin`; the recorded target branch is authoritative.
-
-Normal integrated validation is:
-
-```sh
-make build
-make test
-make check
-make strict-check
-git diff --check
-```
-
-Physical claims require an attended physical run with the cutoff reachable.
-Builds, tests, simulator output, controller `ok`, Idle, UI state, or camera
-preview must never be reported as physical movement or ink proof.
-
-The legacy `/Users/bullard/Projects/Plotter` repository is forensic product
-evidence only. Do not port its bridges, routes, DTOs, lifecycle ceremonies,
-compatibility layers, or tests.
+Follow `AGENTS.md`, `.codex/skills/adaptiveplotter/SKILL.md`, and
+`blackdog.toml`. Normal implementation starts with repo-local Blackdog and lands
+through its recorded target branch. Keep automated, simulator, controller,
+camera, human, and observed-ink evidence explicitly classified.

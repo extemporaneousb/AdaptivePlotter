@@ -730,9 +730,8 @@ struct OperatorWorkspaceTests {
       moveToCenter: false
     )
     let workspace = harness.workspace
-    workspace.replaceSimulatedExecutionPacingForTesting(
-      SimulatedLearningInteractivePacing(stepDelay: .milliseconds(250))
-    )
+    let pacing = ManualJogStopPacing()
+    workspace.replaceSimulatedExecutionPacingForTesting(pacing)
     let owner = LearningPathItemID.humanGuidedDiscovery(
       .pairedBoundaryDiscoveryAndCentering
     )
@@ -740,6 +739,7 @@ struct OperatorWorkspaceTests {
     let moveTask = Task {
       try await performPublicAction(.moveToEstimatedCenter, owner: owner, workspace: workspace)
     }
+    await pacing.waitUntilSuspended()
     try await waitUntil {
       workspace.selectedOperatorActionPresentation(for: owner).actionStrip?.actions
         .contains(where: { if case .stop = $0.kind { true } else { false } }) == true
@@ -752,7 +752,14 @@ struct OperatorWorkspaceTests {
     let stop = try #require(
       strip.actions.first(where: { if case .stop = $0.kind { true } else { false } })?.kind
     )
-    await workspace.performExerciseAction(stop, for: owner)
+    let stopTask = Task {
+      await workspace.performExerciseAction(stop, for: owner)
+    }
+    try await waitUntilAsync {
+      await harness.runtime.snapshot().currentOperation == nil
+    }
+    await pacing.resume()
+    await stopTask.value
     try await moveTask.value
 
     #expect(workspace.centerArrivalPosition == nil)
@@ -2237,6 +2244,40 @@ private func waitUntilAsync(
     try await Task.sleep(for: .milliseconds(1))
   }
   throw TestTimeout()
+}
+
+private actor ManualJogStopPacing: SimulatedLearningExecutionPacing {
+  private var didSuspend = false
+  private var resumeRequested = false
+  private var suspendedContinuation: CheckedContinuation<Void, Never>?
+  private var suspensionWaiters: [CheckedContinuation<Void, Never>] = []
+
+  func suspendBetweenSteps() async {
+    didSuspend = true
+    let waiters = suspensionWaiters
+    suspensionWaiters.removeAll()
+    for waiter in waiters {
+      waiter.resume()
+    }
+    if resumeRequested { return }
+    await withCheckedContinuation { continuation in
+      suspendedContinuation = continuation
+    }
+  }
+
+  func waitUntilSuspended() async {
+    if didSuspend { return }
+    await withCheckedContinuation { continuation in
+      suspensionWaiters.append(continuation)
+    }
+  }
+
+  func resume() {
+    resumeRequested = true
+    let continuation = suspendedContinuation
+    suspendedContinuation = nil
+    continuation?.resume()
+  }
 }
 
 private struct TestTimeout: Error {}

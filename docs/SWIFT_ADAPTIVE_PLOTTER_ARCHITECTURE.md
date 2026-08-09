@@ -1,422 +1,250 @@
-# AdaptivePlotter Minimal Local Architecture
+# AdaptivePlotter Architecture
 
-Status: current target architecture
-Platform: native macOS Swift/SwiftPM
+Status: current native macOS architecture
 
-## 1. Product decision
+This document owns package boundaries, runtime owners, and dependency direction.
+Product invariants live in [Product Contract](PRODUCT_CONTRACT.md); the exact
+operator sequence lives in
+[Discovery and Observed-Trial Protocol](DISCOVERY_AND_OBSERVED_TRIAL_PROTOCOL.md).
 
-AdaptivePlotter is one signed local application with one operator workspace,
-one Learning Path, one controller owner, and one camera owner. The application
-does not depend on a local web service, Python process, bridge, remote API,
-duplicated state store, or arbitrary language-to-controller translation.
-
-The camera-first workbench is the primary action surface. One singleton window
-uses a stable, user-resizable three-region split: Learning Path navigator,
-always-mounted camera/action surface, and selected exercise detail/action strip.
-The camera keeps a protected minimum and remains visible throughout operator
-interaction. The toolbar owns global controller selection, Connect/Disconnect,
-Enable Motion, and compact truthful camera/plotter/motion indicators; it does not
-own exercise-specific Stop.
-
-## 2. Package shape
+## Package topology
 
 ```text
 PlotterModel
-  typed geometry, identifiers, drawing programs, residuals, model snapshots
+  typed coordinates and geometry
+  identifiers and canonical drawing programs
+  registration, transforms, residuals, model candidates and datasets
 
 PlotterRuntime
-  controller protocol and parser
-  MachineController / RunInterpreter
-  CameraCapture / VisionWorker / analysis pipeline
-  HumanGuidedDiscovery transactions and boundary aggregates
-  typed step artifacts, attempt groups, and dependency invalidation
+  GRBL protocol, MachineController and RunInterpreter
+  CameraCapture, VisionWorker and bounded analysis
+  HumanGuidedDiscovery and learning artifacts
   armature guidance and isolated-ink observation
-  output-only SpeechAnnouncements
-  in-memory learning evidence
+  causal learning simulator and output-only announcements
 
 PlotterApp
-  OperatorWorkspace
-  camera and controller composition
-  Learning Path presentation
-  SwiftUI workbench and lifecycle
+  OperatorWorkspace composition and projection
+  SwiftUI workbench, camera surface and lifecycle
 
 PlotterTestSupport
-  deterministic links, clocks, scene fixtures, and controller transcripts
+  deterministic links, clocks, transcripts and scene fixtures
 ```
 
 Dependencies point inward. Runtime does not import SwiftUI. App composition
-constructs closures around the runtime actors; views receive one observable
+constructs closures around runtime actors; views receive one observable
 `OperatorWorkspace`.
 
-## 3. Runtime owners
+## Runtime owners
 
 ### MachineController
 
-`MachineController` exclusively owns the selected `MachineLink`, probe parsing,
-controller state, internal `MotionGuard`, command serialization, deadlines,
-final settlement, and sticky ambiguity.
+`MachineController` exclusively owns the selected `MachineLink`, GRBL parsing,
+passive inspection, internal Motion authorization, direct admission checks,
+command serialization, deadlines, final settlement, and sticky ambiguity.
 
-Its wire surfaces are closed:
+Its write surface is closed:
 
-- passive `$I`, `$G`, `?`, `$$`, `$#` inspection;
-- typed `RelativeJogRequest` encoded as locale-independent GRBL `$J`;
-- typed `PenCommand` using the closed local pen profile;
-- typed `DrawingStrokeRequest`;
-- one GRBL realtime Jog Cancel byte for the one active compatible operation.
+- typed finite relative jogs;
+- typed pen commands using the local pen profile;
+- typed drawing strokes;
+- one GRBL realtime Jog Cancel byte for the exact active operation.
 
-The UI cannot provide G-code, bytes, servo values, homing, unlock, reset, alarm
-clear, or firmware writes.
+UI and learning code cannot provide G-code, bytes, servo values, homing, unlock,
+reset, alarm clear, or firmware writes.
 
 ### RunInterpreter
 
-`RunInterpreter` exposes one current operation and delegates execution to
-`MachineController`. It does not replay history or create an alternate motion
-authority. Its Jog Cancel function is the internal mechanical primitive behind
-the workspace's single contextual Stop.
+`RunInterpreter` owns one current logical operation and delegates mechanical
+execution to `MachineController`. It does not replay history or duplicate
+controller state. Its Jog Cancel route is the mechanical primitive behind the
+workspace's contextual Stop capabilities.
 
-### CameraCapture
+### CameraCapture and VisionWorker
 
-`CameraCapture` owns AVFoundation device discovery, explicit selection,
-authorization, stream lifetime, newest-frame delivery, exact-frame capture, and
-shutdown. Preview materialization is bounded; exact analysis materializes an
-immutable `StampedFrame`.
+`CameraCapture` owns AVFoundation device discovery, selection, authorization,
+stream lifetime, capture heartbeat, exact-frame materialization, and shutdown.
+`latestLiveCameraFrame` reports capture liveness; a held or analyzed display
+frame does not.
 
-`latestLiveCameraFrame` is the capture heartbeat. `displayedFrame` may be held
-for analysis and must not drive liveness.
-
-### VisionWorker and analysis pipeline
-
-`VisionWorker` consumes exact bytes and produces typed camera-space
-measurements. The bounded analysis pipeline has one active request and one
-newest pending request. Overlay provenance includes exact frame,
-camera-configuration, kind, source, and algorithm revision.
+`VisionWorker` consumes immutable frame bytes and emits typed measurements.
+The analysis pipeline admits one active request and retains only the newest
+pending request. Measurement and overlay provenance include exact frame,
+camera-configuration, source, kind, and algorithm revision.
 
 ### Human-Guided Discovery
 
-`DiscoveryTransaction` is a small in-memory deterministic transaction. It
-records typed questions, button choices, announcements, controller events,
-frames, human observations, and vision evidence. It has no persistence,
-historical replay, or cross-launch authority.
+`DiscoveryTransaction` records current-session typed questions, button choices,
+announcements, controller events, frames, human observations, and vision facts.
+It is not persistent workflow authority.
 
-Boundary transactions use the binding order:
+A Boundary operation is distinct from an ordinary manual jog. Selecting a side
+is inert; explicit Start admits one renewable logical owner. Operator Stop
+closes renewal, emits one cancel, awaits final Idle/MPos, captures a strictly
+newer exact frame, obtains a typed contact estimate, and atomically commits the
+attempt and per-side aggregate. No preparatory generic YES/NO question or camera
+edge association exists in this sequence.
 
-```text
-question -> YES -> spoken cue -> operator-stopped boundary owner
--> contextual Stop event -> one cancel
--> original owner Idle/final MPos
--> strictly newer exact frame
--> typed contact measurement -> atomic side-evidence/aggregate commit
-```
+The machine-space aggregate consumes typed direction and compatible settled
+MPos samples. Exact frames and contact estimates remain individual optical
+registration inputs. Estimated center and learned local coordinates derive from
+the four current aggregate revisions.
 
-The boundary owner is a typed operation distinct from an ordinary manual
-`RelativeJogRequest`. It remains active until the operator Stop or a real typed
-controller terminal condition. It does not expose a hard-coded X/Y search
-distance as exercise completion. If GRBL requires finite jog segments, only an
-unambiguously completed segment may renew under that same logical owner; Stop
-closes renewal before cancellation, and ambiguity is never renewed or resent.
-Segment completion alone records no boundary evidence.
-
-The accepted side aggregate is machine-space authority and derives only from the
-typed operator direction and compatible settled MPos samples. Exact frames and
-bottom-center contact estimates remain separate optical-registration samples.
-Generic drawing-frame analysis is diagnostic and cannot classify or veto a
-Boundary side.
+`CenterArrivalSettlementPolicy` compares exact target and final controller MPos
+using Euclidean residual and a 0.05 mm tolerance. Failed or stopped center travel
+leaves the four aggregate revisions current and projects one center-only **Retry
+Center Arrival** action; it does not route through generic exercise Restart.
 
 ### SpeechAnnouncements
 
-`NativeSpeechAnnouncer` is output-only. A pure identity-bound queue serializes
-requests. Each caller receives `completed`, `failed`, `timedOut`, or `cancelled`.
-Late synthesizer callbacks cannot resolve a successor request. Shutdown cancels
-the active and queued output exactly once.
-
-Speech is advisory. It owns no machine intent, question answer, Stop decision,
-or workflow state.
+`NativeSpeechAnnouncer` is an identity-bound output queue. Each request ends as
+completed, failed, timed out, or cancelled. Late callbacks cannot resolve a
+successor request. Speech owns no answer, machine intent, Stop, or workflow
+state.
 
 ### OperatorWorkspace
 
-`OperatorWorkspace` projects runtime state and sequences current actions. It
-does not replace the controller checks. Its responsibilities include:
+`OperatorWorkspace` is the single app-side observable owner. It projects facts
+and sequences typed actions without replacing runtime admission.
 
-- controller/camera selection and current status;
-- action-specific disabled reasons;
-- five-stage Learning Path presentation;
-- presentation-only navigator selection distinct from the runtime current step;
-- exact current participant/action/expected-observation projection;
-- button routing to typed runtime operations;
-- typed Start, Cancel, Stop, Restart, Redo, and Record Another Attempt routing;
-- the one contextual Stop target and one-cancel latch shared by Stop, Cancel,
-  and shutdown settlement without conflating their semantic dispositions;
-- current-session discovery, Clear-view, and drawing-trial evidence;
-- paired-side progress, estimated-center arrival, tool contact/ROI, paper-scene
-  disposition, visibility-target registration, and machine-camera fit evidence;
-- current accepted step artifacts, preserved attempts, typed aggregates, and
-  explicit data-dependency invalidation;
-- advisory announcement ordering;
+It owns:
+
+- controller and camera selection/status projection;
+- Learning Path runtime current state and separate navigator selection;
+- current exercise presentation and typed actions;
+- contextual Stop identity and one-cancel latching;
+- discovery, visibility, and observed-trial orchestration;
+- accepted artifact slots, attempt histories, aggregates, and dependency
+  invalidation;
+- LIVE/SIMULATED authority parking;
 - bounded shutdown.
 
-Disconnect, camera/controller authority change, and shutdown clear dependent
-current-session presentation facts. Learning completion cannot remain true after
-its supporting session evidence is invalidated.
+Views own no independent workflow state. Presentation helpers may format or
+reduce immutable values but cannot admit commands or promote evidence.
 
-## 4. Operator presentation
+### RunLedger
 
-The exact visible stage model is:
+`RunLedger` stores ordered diagnostic transactions and facts. It does not decide
+eligibility, restore a workflow, or promote model state.
 
-```text
-1 Connect
-2 Enable Motion
-  3 Human-Guided Discovery
-  3.1 Pen Interaction
-  3.2 Paired Boundary Discovery and Centering
-  3.3 Visibility Target and Clear-View Registration
-4 Observed Drawing Trials
-  4.1 Choose Isolated Line Plan
-  4.2 Capture Target-Anchored Baseline
-  4.3 Move to Line Start
-  4.4 Draw Isolated Line
-  4.5 Return to Clear Pose and Observe New Ink
-  4.6 Compare Intended and Observed Geometry
-5 Adaptive Drawing (Future)
-```
+## Workbench composition
 
-Stage states are Complete, Current, Next, Future, and Needs Attention. There is
-no global percentage. A deterministic transaction may show its local numbered
-position. Previous steps remain visible.
-
-Navigator selection is window-local presentation state. It cannot make a
-controller request eligible, change the runtime current step, or mutate accepted
-evidence. The current step remains a separate runtime projection; reviewing
-another row exposes a Return to Current affordance.
-
-The main split is structurally stable:
+One SwiftUI window contains:
 
 ```text
-Learning Path navigator | camera/action surface | selected exercise and actions
+Learning Path navigator | camera/action surface | exercise detail/actions
+                                      + Motion region
+                                      + optional Utilities inspector
 ```
 
-The navigator is a native sidebar-style list. The camera is outside selection
-conditionals. Native split dividers resize the visible regions, while explicit
-Hide/Show controls collapse and restore the navigator, exercise detail, and
-lower Motion region. A pane that owns the only contextual Stop cannot be hidden
-until that operation settles. The exercise detail recovers the prior presentation's useful
-question-card and timeline hierarchy without restoring its removed workflow
-model. Its pinned action strip shows the state-appropriate Start, choices,
-Cancel, Stop, Restart, Redo, or Record Another Attempt control. Critical cues
-such as UP, DOWN, YES, NO, STOP, and typed directions are structured fragments
-with accessible emphasis, never view-side searches through prose.
+The camera surface remains mounted while selection or pane visibility changes.
+Native split views own user resizing. Static minimum dimensions are inputs to
+the real SwiftUI layout; there is no parallel arithmetic layout simulator.
 
-Toolbar status separates responsive-session state, Motion authorization, and
-transient request availability. Authorization remains enabled while the one
-owner is moving or actuating; Ready/Busy/Unavailable/Needs Attention is a
-separate projection. Operation activity records identify actor, action,
-outcome, detail, and recovery. The optional Utilities region has explicit
-Show/Hide state and yields a collapsible side pane before the protected camera.
-Successful LIVE camera start and restart enable bounded automatic scene
-analysis at the selected cadence; semantic overlay layers begin visible and
-remain exact-frame/configuration filtered.
+The toolbar owns global controller selection, Connect/Disconnect, Enable
+Motion, and compact current status. Exercise detail owns Start, choices, Cancel,
+Stop, Restart, Redo, and Record Another Attempt. Manual jog owns Stop Manual Jog
+in Motion. A unique active Stop remains reachable even while another row is
+being reviewed.
 
-There is no standalone Jog Observations presentation or hidden diagnostic
-workflow. Repeat collection is an action on a numbered exercise and uses that
-exercise's typed artifact, attempt group, and aggregate. The removed online
-jog-response path is not reused as a generic repeat mechanism.
+Pane and Utilities visibility are window-local presentation state. They cannot
+change runtime current state, controller authorization, accepted evidence, or
+camera lifetime. A pane holding the only active Stop cannot collapse.
 
-## 5. Mechanical admission
-
-The direct request path is:
+## Mechanical request path
 
 ```text
 button-owned typed intent
 -> OperatorWorkspace presentation check
--> RunInterpreter operation ownership
--> MachineController repeats direct safety checks
--> typed controller command or boundary-motion segment
+-> RunInterpreter one-owner admission
+-> MachineController direct checks
+-> typed controller write
 -> acceptance
 -> bounded status polling
--> Idle and final MPos, or typed refusal/ambiguity
+-> final Idle/MPos or typed refusal/ambiguity
 ```
 
-The repeated runtime checks include selected responsive session, current
-internal authorization, controller state/alarm/pins, operation ownership,
-position, pen state, feed support, and sticky ambiguity. Learning stage,
-boundary count, Clear pose, trial count, and model confidence are absent from
-ordinary manual admission.
+Learning stage, boundary count, Clear pose, trial count, local coordinate frame,
+and model confidence are absent from ordinary manual-motion admission.
 
-`ok` is never completion. Unknown post-write state is sticky and never resent.
+Finite Boundary segments may renew only under the same owner after unambiguous
+completion. Natural segment completion produces no side evidence. Stop closes
+renewal before cancellation. Sticky ambiguity produces no successor write.
 
-## 6. Exercise actions, Stop ownership, and shutdown
+Shutdown closes new admission, cancels advisory output, settles an already
+latched mechanical owner once, drains remaining hardware intents, stops camera
+capture, disconnects the controller, and clears workspace presentation.
 
-`ContextualStopTarget` distinguishes Boundary Discovery, manual jog, and drawing
-trial and carries a unique capability identity. Exercise targets render Stop in
-the persistent exercise action strip; a manual target renders **Stop Manual
-Jog** in the Motion panel. Exactly one contextual Stop is visible for the exact
-active owner even when another row is reviewed. The former observed-jog target
-and its separate workflow are absent.
+## Coordinates, frames, and registration
 
-The one-cancel latch prevents repeated button presses and shutdown from emitting
-duplicate cancellation. Boundary Stop records the typed operator event before
-the byte and awaits the original boundary task through its exact-frame/contact
-and atomic aggregate continuation. Manual Stop awaits its owner and creates no
-discovery evidence.
-A stale capability is inert and cannot cancel a later operation.
+- `MachineSpace` is controller position and motion.
+- `CameraPixelSpace` is captured image geometry.
+- `FieldSpace` is drawing-program and accepted-model geometry.
+- learned local millimetres are a derived presentation mapping over current
+  Boundary aggregates.
 
-Cancel is a typed exercise disposition. If no motion is active it abandons the
-current attempt directly. If motion must settle, Cancel uses the same one-cancel
-mechanical primitive and awaits the original owner, but it does not record the
-successful Boundary Stop event or manufacture completion evidence. Restart is
-available only after settlement and creates a new attempt; it cannot resend an
-ambiguous operation. Start and typed choices continue to use existing direct
-eligibility facts.
+`FrameID` identifies exact bytes. `CameraConfigurationID` rotates when optical
+capture context changes. Frame-derived evidence and overlays cannot cross that
+boundary silently.
 
-Shutdown first closes admission and increments the lifetime generation. It then
-cancels advisory output, settles an already latched motion owner once, drains
-other hardware intents, stops the camera, disconnects the controller, and clears
-the workspace. Closing the last window has a bounded AppKit termination deadline.
+Machine-space Boundary aggregates are compatible by direction, controller
+session, coordinate revision, space, units, and estimator. Camera configuration
+does not split them. Machine-camera registration instead consumes compatible
+exact machine/contact samples with their original frame and configuration.
 
-## 7. Feed selection
+The simulator uses an invertible uniform world-to-camera auto-fit whose identity
+is recorded in every causal simulated frame. Presentation annotations are bound
+to exact frame/configuration/viewport identity and do not modify canonical pixel
+bytes or hashes.
 
-The passive probe exposes read-only `ControllerAxisFeedLimits` in
-`MachineSnapshot`. `TravelFeedSelection` records the requested value and whether
-it came from `controllerReportedCeiling` or `existingFallback`.
+## Artifact dependencies
 
-Pen Up non-drawing travel uses the relevant axis ceiling, or the minimum for a
-multi-axis path. Missing capability falls back to the existing positive feed.
-No firmware write occurs. `DrawingStrokeRequest` retains its explicit drawing
-feed.
-
-## 8. Frames, coordinates, and observation
-
-Coordinate types remain explicit:
-
-- `MachineSpace` for controller positions and deltas;
-- `CameraPixelSpace` for captured pixels and observed geometry;
-- `FieldSpace` for drawing programs and accepted transforms.
-
-`FrameID` identifies exact bytes. `CameraConfigurationID` changes across camera
-selection/restart and prevents measurements from silently crossing optical
-contexts. The shared aspect-fit renderer projects top-left-origin camera pixels
-into the view.
-
-SIMULATED content uses the same renderer and the same Learning Path/action
-presentation. A separate typed actor owns simulated session, Motion
-authorization, MPos, pen pose, manual jog, renewable Boundary motion,
-Stop/Cancel, compound visibility-target and line operations, paper revision,
-persistent ink, and causal frames. It cannot invoke machine actions or produce
-physical evidence. Every simulated evidence surface carries the exact
-`SIMULATED — NOT PHYSICAL EVIDENCE` notice. LIVE accepted learning authority is
-parked across simulation and restored unchanged when simulation is discarded.
-
-The simulator renderer consumes its typed state rather than a pre-rendered
-success-frame list. Accepted operation segments update MPos and, while Pen Down,
-paper ink. Boundary Stop results, four-side center derivation, explicit center
-arrival, coarse-to-fine Clear search, visibility-target drawing, two-frame
-agreement, and target-anchored line observation therefore traverse the same
-workspace actions and artifact dependencies as LIVE.
-
-`SimulatedWorldToCameraTransform` uses one invertible uniform auto-fit for the
-truth boundary plus declared protocol extents. It is stable within one camera
-configuration. Simulator truth, learned markers, owner/direction, contact,
-trail, ROI, and ink annotations carry exact frame/configuration/viewport
-identity and render above canonical pixels without affecting frame hashes or
-vision.
-
-## 9. Learning evidence and models
-
-`ExplorationEpisode` is retained only as a typed evidence record. It may contain
-exact action, controller, frame, ink, residual, assessment, source, and actual
-dataset-split fields. It is not a lifecycle owner.
-
-Actual model fitting may use training and reserved observations. Model
-candidates remain diagnostic until explicitly compared with held-out evidence.
-Active learning is reserved for a future model-selected bounded experiment; it
-does not describe the current stage sequence.
-
-Every repeatable learning step produces a typed artifact revision with an
-attempt identity and explicit dependencies on the artifacts it consumed. The
-accepted artifact slot is distinct from attempt history and from a derived
-aggregate.
-
-The principal dependency chain is:
+The current dependency spine is:
 
 ```text
-four boundary-side aggregates -> estimated center -> center arrival
--> target-pose registration -> accepted Clear pose
--> pre-target blank baseline -> visibility-target execution
+four boundary aggregates -> estimated center -> center arrival
+-> target pose/contact/ROI -> accepted clear pose
+-> blank baseline -> visibility-target execution
 -> two-frame target observation -> visibility registration
 -> target-present trial baseline -> line plan/execution
 -> post-line frame -> ink observation -> comparison
 ```
 
-The machine-camera registration separately consumes compatible accepted
-exact machine/contact samples. The learned local coordinate frame separately
-consumes the same four side-aggregate revisions and never enters motion
-admission. Aggregate, center, arrival, and local-frame evidence is
-controller-session compatible and is not invalidated only because the camera
-restarts. Camera registration, ROI,
-baseline, and image observation are bound to camera source/session,
-configuration, coordinate space, paper revision, and algorithm revision.
+Machine-camera registration separately consumes compatible exact Boundary or
+current-camera machine/contact samples. Learned local coordinates separately
+consume the same four side aggregates and never enter motion admission.
 
-Redo runs a replacement attempt and atomically changes the accepted artifact on
-success. The replaced artifact becomes superseded and is excluded from current
-derived results. Only transitive dependents named by the artifact dependency
-graph are invalidated; chronological successors without a dependency edge
-survive.
+Redo stages a replacement and atomically changes the accepted slot on success.
+Only named transitive dependents are invalidated. Record Another Attempt adds a
+compatible sample and recomputes the aggregate. Exact evidence remains
+individually attributable.
 
-Record Another Attempt preserves a compatible sample and recomputes the typed
-aggregate from all valid compatible attempts. Aggregates expose `N`, estimator
-identity, and uncertainty or categorical counts as applicable. Exact frames and
-controller events remain separate provenance. Current-state facts such as pen
-pose select the latest accepted observation rather than an arithmetic mean.
-Boundary numeric samples cannot be pooled across direction, controller session,
-coordinate revision, machine space, millimetre units, or estimator revision;
-camera configuration is not one of those numeric keys. Optical samples remain
-strictly camera-compatible.
+## Model boundary
 
-## 10. Launch and lifecycle
+`PlotterModel` may hold future-facing immutable drawing programs, transforms,
+residuals, candidate fitting, dataset splits, and acceptance criteria. These
+types are legitimate architecture when they implement the documented Adaptive
+Drawing direction; their existence is not a claim that model-selected drawing
+is current.
 
-`make run-app` is the physical launch boundary:
+Accepted-model changes require explicit evidence comparison and occur only at a
+safe checkpoint. No model chooses hidden motion, bypasses controller admission,
+or redraws an ambiguous stroke.
 
-```text
-swift build
--> construct signed .app
--> validate bundle/signature/privacy
--> compile launcher
--> inspect current-user processes
--> activate exact existing bundle OR LaunchServices-open exact bundle
--> prove identity/path/regular foreground activation
-```
+## Launch and failure behavior
 
-The launcher refuses raw SwiftPM executables, wrong-path instances, or
-duplicates and reports their PID/path without terminating them. It never forces
-a new application instance. The bundle identifier is
-`com.bullard.AdaptivePlotter` and the preferred identity is
-`AdaptivePlotter Local Development`.
+`make run-app` builds and validates the signed `.app`, builds the single-instance
+launcher, inspects current-user processes, and either activates the exact bundle
+or launches it through LaunchServices. Wrong-path, raw, or duplicate processes
+cause refusal with PID/path; the launcher does not terminate them.
 
-## 11. Failure behavior
+Failures are typed and actionable. They name the missing direct fact, retained
+accepted artifact where applicable, and explicit recovery. No failure path
+silently changes authority, retries a write, or invents physical evidence.
 
-Failures must be typed and actionable:
+## Validation boundary
 
-- controller refusal identifies the current direct fact;
-- ambiguity remains sticky and prevents automatic follow-on;
-- missing newer camera frame names the freshness requirement;
-- a boundary segment's natural completion records no boundary and may continue
-  only under the same unambiguous active owner;
-- a real controller limit, alarm, disconnect, or fault ends the boundary attempt
-  as Needs Attention rather than success;
-- unclear ink records no success and triggers no redraw;
-- speech-output failure leaves visible buttons available;
-- conflicting process identity refuses supported launch with PID/path.
-
-No failure path silently changes authority or invents physical evidence.
-
-## 12. Validation boundary
-
-Automated tests cover parsing, direct safety checks, one-cancel behavior,
-shutdown settlement, announcement serialization, exact-frame provenance,
-presentation, dependency-aware replacement, attempt aggregation, simulator
-isolation, bundle validation, and launcher decisions. UI tests exercise pure
-selection/action/layout models and application lifecycle rather than parsing
-Swift source text or preserving superseded view structure.
-
-Audible output, camera throughput, physical movement, physical pen pose, and ink
-require attended validation. They remain unverified whenever that pass is
-skipped.
+Automated tests cover parsing, direct admission, one-owner cancellation,
+shutdown settlement, exact-frame provenance, dependency-aware attempts,
+simulator isolation, presentation reducers, bundle validation, and launcher
+decisions. Audible output, camera throughput, physical movement, physical pen
+pose, human observations, and ink require attended validation.

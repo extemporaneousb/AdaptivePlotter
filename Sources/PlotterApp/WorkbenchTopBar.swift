@@ -42,12 +42,6 @@ enum WorkbenchTopBarStatusStyle {
   }
 }
 
-enum WorkbenchToolbarControl: CaseIterable, Hashable, Sendable {
-  case controllerSelection
-  case connection
-  case enableMotion
-}
-
 struct WorkbenchControllerSlotPresentation: Equatable, Sendable {
   let title: String
   let isSerialSelectionEnabled: Bool

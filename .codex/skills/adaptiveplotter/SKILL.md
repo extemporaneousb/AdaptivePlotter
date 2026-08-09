@@ -58,6 +58,8 @@ Use this repo-local skill for normal development requests. The skill is backed b
 
 - `AGENTS.md`
 - `README.md`
-- `docs/FEASIBILITY_REVIEW_AND_BINDING_AMENDMENTS.md`
+- `docs/PRODUCT_CONTRACT.md`
 - `docs/SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md`
-- `docs/SWIFT_ADAPTIVE_PLOTTER_SEQUENTIAL_REBUILD.md`
+- `docs/DISCOVERY_AND_OBSERVED_TRIAL_PROTOCOL.md`
+- `docs/ROADMAP.md`
+- `docs/CURRENT_EVIDENCE.md`
