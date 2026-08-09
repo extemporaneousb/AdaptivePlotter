@@ -8,7 +8,8 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
   let workspace = OperatorWorkspace(
     machineActions: MachineSessionComposition.actions,
     cameraActions: CameraComposition.actions,
-    announcementActions: SpeechComposition.actions
+    announcementActions: SpeechComposition.actions,
+    acceptedArtifactCheckpointActions: AcceptedArtifactCheckpointComposition.actions
   )
   private var terminationTask: Task<Void, Never>?
   private var terminationDeadlineTask: Task<Void, Never>?

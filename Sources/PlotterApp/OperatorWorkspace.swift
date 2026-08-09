@@ -51,6 +51,38 @@ enum CenterArrivalSettlementPolicy {
   }
 }
 
+enum AcceptedArtifactCheckpointStatus: Equatable, Sendable {
+  case unavailable
+  case quarantined(sideCount: Int)
+  case saved(sideCount: Int, centerArrival: Bool)
+  case restored(sideCount: Int, centerArrival: Bool, residualMM: Double)
+  case incompatible(String)
+  case rejected(String)
+
+  var text: String {
+    switch self {
+    case .unavailable:
+      "No durable accepted-artifact checkpoint is available."
+    case .quarantined(let sideCount):
+      "A checkpoint containing \(sideCount) accepted Boundary side(s) is parked until a fresh passive controller probe matches."
+    case .saved(let sideCount, let centerArrival):
+      "Saved \(sideCount) accepted Boundary side(s)\(centerArrival ? " plus center arrival" : "") atomically."
+    case .restored(let sideCount, let centerArrival, let residualMM):
+      String(
+        format:
+          "Restored %d accepted Boundary side(s)%@ after controller-context revalidation (MPos residual %.3f mm).",
+        sideCount,
+        centerArrival ? " plus center arrival" : "",
+        residualMM
+      )
+    case .incompatible(let reason):
+      "The accepted-artifact checkpoint remains quarantined: \(reason) No workflow or command was replayed."
+    case .rejected(let reason):
+      "The accepted-artifact checkpoint was rejected: \(reason) No workflow or command was replayed."
+    }
+  }
+}
+
 enum JogDirection: String, CaseIterable, Identifiable, Sendable {
   case xNegative
   case xPositive
@@ -512,6 +544,11 @@ final class OperatorWorkspace {
     let cancelForShutdown: @Sendable () async -> Void
   }
 
+  struct AcceptedArtifactCheckpointActions: Sendable {
+    let load: @Sendable () -> AcceptedArtifactCheckpointLoadResult
+    let save: @Sendable (AcceptedMachineArtifactCheckpoint) throws -> Void
+  }
+
   struct CameraActions: Sendable {
     let discover: @Sendable () async -> CameraCaptureSnapshot
     let select: @Sendable (CameraDeviceID) async throws -> CameraCaptureSnapshot
@@ -642,10 +679,13 @@ final class OperatorWorkspace {
   private(set) var activeExerciseAttemptID: ExerciseAttemptID?
   private(set) var activeExerciseAttemptOwnerID: LearningPathItemID?
   private(set) var restartableExerciseItemID: LearningPathItemID?
+  private(set) var acceptedArtifactCheckpointStatus: AcceptedArtifactCheckpointStatus = .unavailable
 
   @ObservationIgnored private let machineActions: MachineActions?
   @ObservationIgnored private let cameraActions: CameraActions?
   @ObservationIgnored private let announcementActions: AnnouncementActions?
+  @ObservationIgnored private let acceptedArtifactCheckpointActions:
+    AcceptedArtifactCheckpointActions?
   @ObservationIgnored private let simulatedLearningRuntime: SimulatedLearningRuntime
   @ObservationIgnored private var simulatedExecutionPacing: any SimulatedLearningExecutionPacing
   @ObservationIgnored private let serialDeviceDiscovery: @Sendable () -> [MachineLinkDescriptor]
@@ -694,11 +734,14 @@ final class OperatorWorkspace {
   @ObservationIgnored private var currentDrawingTrialGroup = AttemptGroupIdentity(
     rawValue: UUID().uuidString.lowercased()
   )
+  @ObservationIgnored private var parkedAcceptedMachineArtifactCheckpoint:
+    AcceptedMachineArtifactCheckpoint?
 
   init(
     machineActions: MachineActions? = nil,
     cameraActions: CameraActions? = nil,
     announcementActions: AnnouncementActions? = nil,
+    acceptedArtifactCheckpointActions: AcceptedArtifactCheckpointActions? = nil,
     simulatedLearningRuntime: SimulatedLearningRuntime = SimulatedLearningRuntime(),
     simulatedExecutionPacing: any SimulatedLearningExecutionPacing =
       SimulatedLearningInteractivePacing(),
@@ -731,6 +774,7 @@ final class OperatorWorkspace {
     self.machineActions = machineActions
     self.cameraActions = cameraActions
     self.announcementActions = announcementActions
+    self.acceptedArtifactCheckpointActions = acceptedArtifactCheckpointActions
     self.simulatedLearningRuntime = simulatedLearningRuntime
     self.serialDevices = serialDevices
     self.serialDeviceDiscovery = serialDeviceDiscovery
@@ -741,6 +785,19 @@ final class OperatorWorkspace {
     if let rememberedSerialDeviceIdentifier {
       selectedSerialDevice = serialDevices.first {
         $0.identifier == rememberedSerialDeviceIdentifier
+      }
+    }
+    if let acceptedArtifactCheckpointActions {
+      switch acceptedArtifactCheckpointActions.load() {
+      case .absent:
+        acceptedArtifactCheckpointStatus = .unavailable
+      case .loaded(let checkpoint):
+        parkedAcceptedMachineArtifactCheckpoint = checkpoint
+        acceptedArtifactCheckpointStatus = .quarantined(
+          sideCount: checkpoint.boundarySideAggregates.count
+        )
+      case .rejected(let reason):
+        acceptedArtifactCheckpointStatus = .rejected(reason)
       }
     }
   }
@@ -1611,6 +1668,7 @@ final class OperatorWorkspace {
       centerArrivalPosition = destination
       centerArrivalRetryRequired = false
       explorationError = nil
+      persistAcceptedMachineArtifacts()
       finishActiveExerciseAttempt(disposition: .succeeded)
     } catch {
       explorationError = actionableDescription(error)
@@ -3292,6 +3350,10 @@ final class OperatorWorkspace {
       guard canCommit(generation) else { return }
       passiveProbeResult = result
       machineSnapshot = finalSnapshot
+      revalidateParkedAcceptedArtifactCheckpoint(
+        with: result,
+        currentPosition: finalSnapshot?.machine.position
+      )
     } catch {
       let finalSnapshot = await machineActions.snapshot()
       guard canCommit(generation) else { return }
@@ -3793,6 +3855,7 @@ final class OperatorWorkspace {
           "Exact attempt evidence and the N=\(aggregate.validSampleCount) machine-space aggregate committed atomically."
         )
       )
+      persistAcceptedMachineArtifacts()
       finishActiveExerciseAttempt(disposition: .succeeded)
     } catch {
       await failDiscovery(
@@ -6209,13 +6272,6 @@ final class OperatorWorkspace {
         if stopDispositionLatch == nil {
           actions.append(
             ExerciseActionDescriptor(
-              kind: .cancel,
-              title: "Cancel Attempt",
-              role: .destructive
-            )
-          )
-          actions.append(
-            ExerciseActionDescriptor(
               kind: .stop(contextualStopPresentation.capabilityID),
               title: target.operationOwner.isBoundaryOwner ? "Stop Boundary" : "Stop",
               role: .destructive
@@ -6608,7 +6664,11 @@ final class OperatorWorkspace {
     case .connect:
       [
         ExerciseEvidencePresentation(
-          label: "Controller", fragments: [.text(controllerConnectionText)])
+          label: "Controller", fragments: [.text(controllerConnectionText)]),
+        ExerciseEvidencePresentation(
+          label: "Accepted artifact checkpoint",
+          fragments: [.text(acceptedArtifactCheckpointStatus.text)]
+        ),
       ]
     case .enableMotion:
       [ExerciseEvidencePresentation(label: "Motion", fragments: [.text(motionGuardStateText)])]
@@ -7217,6 +7277,110 @@ final class OperatorWorkspace {
     boundaryTeachingState = .idle
     boundaryTeachingResultText = "Choose one side to begin."
     await clearDiscoveryAuthority()
+    if let parkedAcceptedMachineArtifactCheckpoint {
+      acceptedArtifactCheckpointStatus = .quarantined(
+        sideCount: parkedAcceptedMachineArtifactCheckpoint.boundarySideAggregates.count
+      )
+    }
+  }
+
+  private func persistAcceptedMachineArtifacts() {
+    guard frameMode == .live,
+      let acceptedArtifactCheckpointActions,
+      let passiveProbeResult,
+      passiveProbeResult.blockers.isEmpty,
+      let machinePosition = machineSnapshot?.machine.position,
+      !boundarySideAggregates.isEmpty
+    else { return }
+    do {
+      let context = try ControllerCheckpointContext(probe: passiveProbeResult)
+      let aggregates = BoundaryDirection.allCases.compactMap { boundarySideAggregates[$0] }
+      let acceptedEvidence = aggregates.flatMap { aggregate in
+        aggregate.includedAttemptIDs.compactMap { boundaryAttemptEvidenceByAttemptID[$0] }
+      }
+      let allowedKinds: Set<LearningArtifactKind> = Set(
+        BoundaryDirection.allCases.map(LearningArtifactKind.boundarySideAggregate)
+          + [.estimatedMachineCenter, .centerArrival]
+      )
+      let revisions = learningArtifactGraph.revisions.filter {
+        $0.state == .current && allowedKinds.contains($0.kind)
+      }
+      let checkpoint = try AcceptedMachineArtifactCheckpoint(
+        controllerContext: context,
+        machinePositionAtSave: machinePosition,
+        controllerSessionID: controllerSessionID,
+        coordinateRevision: explorationCoordinateRevision,
+        acceptedAttemptSequence: acceptedAttemptSequence,
+        pairedBoundaryProgress: pairedBoundaryProgress,
+        acceptedBoundaryEvidence: acceptedEvidence,
+        boundarySideAggregates: aggregates,
+        estimatedMachineCenter: estimatedMachineCenter,
+        learnedLocalCoordinateFrame: learnedLocalCoordinateFrame,
+        centerArrivalPosition: centerArrivalPosition,
+        acceptedRevisions: revisions
+      )
+      try acceptedArtifactCheckpointActions.save(checkpoint)
+      parkedAcceptedMachineArtifactCheckpoint = checkpoint
+      acceptedArtifactCheckpointStatus = .saved(
+        sideCount: aggregates.count,
+        centerArrival: centerArrivalPosition != nil
+      )
+    } catch {
+      acceptedArtifactCheckpointStatus = .rejected(
+        "Saving accepted machine artifacts failed: \(error)"
+      )
+    }
+  }
+
+  private func revalidateParkedAcceptedArtifactCheckpoint(
+    with probe: PassiveProbeResult,
+    currentPosition: MachinePosition?
+  ) {
+    guard frameMode == .live,
+      boundarySideAggregates.isEmpty,
+      let checkpoint = parkedAcceptedMachineArtifactCheckpoint,
+      let currentPosition
+    else { return }
+    do {
+      let context = try ControllerCheckpointContext(probe: probe)
+      switch checkpoint.compatibility(with: context, currentPosition: currentPosition) {
+      case .incompatible(let reason):
+        acceptedArtifactCheckpointStatus = .incompatible(reason)
+      case .compatible(let residualMM):
+        let histories = try checkpoint.restoredBoundaryHistories()
+        let graph = try checkpoint.restoredLearningGraph()
+        try checkpoint.validate()
+        boundaryAttemptHistories = histories
+        boundaryAttemptEvidenceByAttemptID = Dictionary(
+          uniqueKeysWithValues: checkpoint.acceptedBoundaryEvidence.map {
+            ($0.attemptID, $0)
+          }
+        )
+        boundarySideAggregates = Dictionary(
+          uniqueKeysWithValues: checkpoint.boundarySideAggregates.map {
+            ($0.direction, $0)
+          }
+        )
+        pairedBoundaryProgress = checkpoint.pairedBoundaryProgress
+        estimatedMachineCenter = checkpoint.estimatedMachineCenter
+        learnedLocalCoordinateFrame = checkpoint.learnedLocalCoordinateFrame
+        centerArrivalPosition = checkpoint.centerArrivalPosition
+        centerArrivalRetryRequired = false
+        learningArtifactGraph = graph
+        controllerSessionID = checkpoint.controllerSessionID
+        explorationCoordinateRevision = checkpoint.coordinateRevision
+        acceptedAttemptSequence = checkpoint.acceptedAttemptSequence
+        acceptedArtifactCheckpointStatus = .restored(
+          sideCount: checkpoint.boundarySideAggregates.count,
+          centerArrival: checkpoint.centerArrivalPosition != nil,
+          residualMM: residualMM
+        )
+      }
+    } catch {
+      acceptedArtifactCheckpointStatus = .rejected(
+        "Fresh controller revalidation failed: \(error)"
+      )
+    }
   }
 
   private var controllerLinkIsOpen: Bool {

@@ -21,6 +21,7 @@ PlotterRuntime
   HumanGuidedDiscovery and learning artifacts
   armature guidance and isolated-ink observation
   causal learning simulator and output-only announcements
+  in-memory workflow evidence plus durable accepted-artifact checkpoints
 
 PlotterApp
   OperatorWorkspace composition and projection
@@ -83,6 +84,13 @@ closes renewal, emits one cancel, awaits final Idle/MPos, captures a strictly
 newer exact frame, obtains a typed contact estimate, and atomically commits the
 attempt and per-side aggregate. No preparatory generic YES/NO question or camera
 edge association exists in this sequence.
+
+Accepted artifacts are a separate persistence boundary. The durable checkpoint
+contains only current accepted machine-space Boundary payloads and dependency
+revisions. It is loaded as quarantined evidence and promoted only after a fresh
+compatible passive controller probe and MPos comparison. It cannot serialize or
+restore a `DiscoveryTransaction`, operation ownership, authorization, live Stop
+capability, pending command, or successor action.
 
 The machine-space aggregate consumes typed direction and compatible settled
 MPos samples. Exact frames and contact estimates remain individual optical
@@ -185,6 +193,14 @@ capture, disconnects the controller, and clears workspace presentation.
 `FrameID` identifies exact bytes. `CameraConfigurationID` rotates when optical
 capture context changes. Frame-derived evidence and overlays cannot cross that
 boundary silently.
+
+Cancel is a typed exercise disposition presented only when no physical movement
+owner is active. While motion is active, its unique Stop is the sole visible
+movement-ending action. The runtime first-intent latch still rejects stale or
+programmatic races. Cancel abandons the settled current attempt without
+recording the successful Boundary Stop event or manufacturing completion
+evidence. Restart is available only after settlement and creates a new attempt;
+it cannot resend an ambiguous operation.
 
 Machine-space Boundary aggregates are compatible by direction, controller
 session, coordinate revision, space, units, and estimator. Camera configuration

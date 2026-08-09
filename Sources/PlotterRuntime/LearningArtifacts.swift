@@ -108,7 +108,7 @@ public struct ExerciseAttempt<Value: Hashable & Sendable>: Hashable, Sendable {
   }
 }
 
-public enum ExerciseAttemptInclusionState: Hashable, Sendable {
+public enum ExerciseAttemptInclusionState: Codable, Hashable, Sendable {
   /// A successful value currently contributes to compatible aggregates.
   case included
   /// An unsuccessful attempt remains provenance but has no successful value.
@@ -337,7 +337,7 @@ public enum NumericAggregateError: Error, Hashable, Sendable {
   case nonFiniteValue(ExerciseAttemptID)
 }
 
-public enum NumericUncertainty: Hashable, Sendable {
+public enum NumericUncertainty: Codable, Hashable, Sendable {
   case unavailable(validSampleCount: Int)
   case sampleStandardDeviation(Double)
 }

@@ -66,7 +66,9 @@ automatically resent.
 
 The active exercise owns one contextual **Stop**. Manual motion owns **Stop
 Manual Jog** in the Motion region. Repeated Stop cannot emit repeated semantic
-results or cancellation bytes.
+results or cancellation bytes. While physical movement owns an exercise, its
+capability-bound Stop is the only movement-ending action shown; Cancel becomes
+available only after movement settles.
 
 Boundary Stop records the typed operator intent, closes renewal, emits one GRBL
 Jog Cancel, awaits the original owner through final Idle/MPos, captures one
@@ -79,6 +81,14 @@ final MPos within 0.05 mm of the derived target. A stopped or out-of-tolerance
 move preserves all four accepted side aggregates and exposes **Retry Center
 Arrival**, which requests only the remaining delta; it never restarts Boundary
 Discovery.
+
+Accepted LIVE machine-space Boundary artifacts are durably checkpointed by
+atomic file replacement after each accepted commit. Relaunch loads the file as
+quarantined evidence. Fresh passive `$I`, `$G`, `?`, `$$`, and `$#` evidence
+must match the recorded controller context, and MPos must be within 0.05 mm,
+before accepted sides, center, local frame, or center arrival become current.
+The checkpoint contains no active workflow, Motion authorization, operation
+owner, live Stop capability, pending command, or replay instruction.
 
 Evidence claims remain separate:
 

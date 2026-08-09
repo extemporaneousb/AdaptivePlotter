@@ -116,7 +116,7 @@ struct OperatorWorkspaceTests {
     try await waitUntil { workspace.contextualStopPresentation != nil }
     let liveActions = try #require(workspace.currentExerciseActionStripPresentation).actions
     #expect(liveActions.filter { if case .stop = $0.kind { true } else { false } }.count == 1)
-    #expect(liveActions.filter { $0.kind == .cancel }.count == 1)
+    #expect(liveActions.filter { $0.kind == .cancel }.isEmpty)
     #expect(!liveActions.contains(where: { if case .choice = $0.kind { true } else { false } }))
     let stopKind = try #require(
       liveActions.first(where: {
@@ -145,8 +145,86 @@ struct OperatorWorkspaceTests {
     await workspace.shutdown()
   }
 
-  @Test("Boundary Stop and Cancel races latch one semantic disposition and one cancel")
-  func boundaryStopCancelFirstIntentWins() async throws {
+  @Test("relaunch restores accepted boundaries only after fresh controller revalidation")
+  func acceptedBoundariesSurviveSoftwareRelaunchWithoutReplayingMotion() async throws {
+    let log = EventLog()
+    let machine = try MachineFixture(log: log)
+    let checkpointBox = CheckpointBox()
+    let checkpointActions = OperatorWorkspace.AcceptedArtifactCheckpointActions(
+      load: { checkpointBox.load() },
+      save: { checkpointBox.save($0) }
+    )
+    let first = workspace(
+      machine: machine,
+      camera: try CameraFixture(),
+      checkpointActions: checkpointActions,
+      log: log
+    )
+    await first.establishMachineSession(machine.descriptor)
+    await first.requestPassiveProbe()
+    await first.startCamera()
+    #expect(
+      first.cameraIsLive,
+      "state=\(first.cameraStateText) source=\(String(describing: first.latestLiveCameraFrame?.source)) age=\(first.frameAgeText)"
+    )
+    try await completePenInteraction(first)
+    try await completeLiveBoundaries(first, machine: machine)
+
+    let saved = try #require(checkpointBox.checkpoint)
+    #expect(saved.boundarySideAggregates.count == 4)
+    let cancelCountAtRelaunch = await machine.cancelCount
+    let motionLogAtRelaunch = await log.values
+
+    let relaunched = workspace(
+      machine: machine,
+      camera: try CameraFixture(),
+      checkpointActions: checkpointActions,
+      log: log
+    )
+    #expect(relaunched.boundarySideAggregates.isEmpty)
+    if case .quarantined(sideCount: 4) = relaunched.acceptedArtifactCheckpointStatus {
+      // Expected: disk data is not authority before fresh controller evidence.
+    } else {
+      Issue.record("Expected the loaded checkpoint to remain quarantined before probing.")
+    }
+    await relaunched.establishMachineSession(machine.descriptor)
+    await relaunched.requestPassiveProbe()
+    await relaunched.startCamera()
+
+    #expect(relaunched.boundarySideAggregates == first.boundarySideAggregates)
+    #expect(relaunched.estimatedMachineCenter == first.estimatedMachineCenter)
+    #expect(relaunched.learnedLocalCoordinateFrame == first.learnedLocalCoordinateFrame)
+    #expect(relaunched.activeExerciseAttemptID == nil)
+    #expect(relaunched.contextualStopPresentation == nil)
+    #expect(await machine.cancelCount == cancelCountAtRelaunch)
+    #expect(await log.values == motionLogAtRelaunch)
+    if case .restored(sideCount: 4, centerArrival: false, _) =
+      relaunched.acceptedArtifactCheckpointStatus
+    {
+      // Expected: accepted artifacts only, after matching context and MPos.
+    } else {
+      Issue.record("Expected accepted boundaries to restore after fresh revalidation.")
+    }
+    #expect(
+      relaunched.currentLearningPathItemID == .humanGuidedDiscovery(.penInteraction),
+      "A relaunch still requires fresh physical Pen-state confirmation."
+    )
+    try await completePenInteraction(relaunched)
+    #expect(
+      relaunched.currentLearningPathItemID
+        == .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
+    )
+    #expect(
+      relaunched.currentExerciseActionStripPresentation?.actions.first?.kind
+        == .moveToEstimatedCenter
+    )
+    #expect(relaunched.boundarySideAggregates == first.boundarySideAggregates)
+    await first.shutdown()
+    await relaunched.shutdown()
+  }
+
+  @Test("active Boundary motion exposes only Stop and rejects a programmatic Cancel")
+  func activeBoundaryHasOnlyStop() async throws {
     let stopLog = EventLog()
     let stopMachine = try MachineFixture(log: stopLog, holdCancellationSettlement: true)
     let stopWorkspace = workspace(
@@ -166,43 +244,16 @@ struct OperatorWorkspaceTests {
         if case .stop = $0.kind { true } else { false }
       })?.kind
     )
+    await stopWorkspace.performExerciseAction(.cancel, for: owner)
+    #expect(await stopMachine.cancelIntents.isEmpty)
+    #expect(stopWorkspace.discoveryTransactions[.boundaryPositiveX]?.state == .active)
     let stopTask = Task { await stopWorkspace.performExerciseAction(stopKind, for: owner) }
     try await waitUntilAsync { await stopMachine.cancelCount == 1 }
-    await stopWorkspace.performExerciseAction(.cancel, for: owner)
-    #expect(await stopMachine.cancelIntents == [.operatorStop])
     await stopMachine.settleHeldCancellation()
     await stopTask.value
+    #expect(await stopMachine.cancelIntents == [.operatorStop])
     #expect(stopWorkspace.relevantBoundaryObservationCount == 1)
     await stopWorkspace.shutdown()
-
-    let cancelLog = EventLog()
-    let cancelMachine = try MachineFixture(log: cancelLog, holdCancellationSettlement: true)
-    let cancelWorkspace = workspace(
-      machine: cancelMachine,
-      camera: try CameraFixture(),
-      log: cancelLog
-    )
-    await cancelWorkspace.establishMachineSession(cancelMachine.descriptor)
-    await cancelWorkspace.requestPassiveProbe()
-    await cancelWorkspace.startCamera()
-    try await completePenInteraction(cancelWorkspace)
-    await cancelWorkspace.performExerciseAction(.start, for: owner)
-    try await waitUntil { cancelWorkspace.contextualStopPresentation != nil }
-    let staleStopKind = try #require(
-      cancelWorkspace.currentExerciseActionStripPresentation?.actions.first(where: {
-        if case .stop = $0.kind { true } else { false }
-      })?.kind
-    )
-    let cancelTask = Task { await cancelWorkspace.performExerciseAction(.cancel, for: owner) }
-    try await waitUntilAsync { await cancelMachine.cancelCount == 1 }
-    await cancelWorkspace.performExerciseAction(staleStopKind, for: owner)
-    #expect(await cancelMachine.cancelIntents == [.cancelAttempt])
-    await cancelMachine.settleHeldCancellation()
-    await cancelTask.value
-    #expect(cancelWorkspace.relevantBoundaryObservationCount == 0)
-    #expect(
-      cancelWorkspace.currentExerciseActionStripPresentation?.actions.map(\.kind) == [.restart])
-    await cancelWorkspace.shutdown()
   }
 
   @Test(
@@ -1056,8 +1107,8 @@ struct OperatorWorkspaceTests {
     await workspace.shutdown()
   }
 
-  @Test("Boundary Cancel uses cancelAttempt and records no Stop success or boundary evidence")
-  func boundaryCancelHasNoSuccessEvidence() async throws {
+  @Test("Boundary Cancel is unavailable until its movement owner settles")
+  func boundaryCancelUnavailableDuringMotion() async throws {
     let log = EventLog()
     let machine = try MachineFixture(log: log)
     let camera = try CameraFixture()
@@ -1070,17 +1121,18 @@ struct OperatorWorkspaceTests {
     let owner = LearningPathItemID.humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
     await workspace.beginPairedBoundarySide(.negativeX)
     try await waitUntil { workspace.contextualStopPresentation != nil }
+    #expect(
+      workspace.currentExerciseActionStripPresentation?.actions.contains(where: {
+        $0.kind == .cancel
+      }) == false
+    )
     await workspace.performExerciseAction(.cancel, for: owner)
 
-    #expect(await machine.cancelIntents == [.cancelAttempt])
+    #expect(await machine.cancelIntents.isEmpty)
     #expect(workspace.relevantBoundaryObservationCount == 0)
     #expect(workspace.boundarySideAggregates.isEmpty)
-    #expect(workspace.discoveryTransactions[.boundaryNegativeX]?.state == .cancelled)
-    #expect(
-      workspace.discoveryTransactions[.boundaryNegativeX]?.evidenceSummaries
-        .contains(where: { $0.summary.contains("Operator requested Stop") }) == false
-    )
-    #expect(workspace.currentExerciseActionStripPresentation?.actions.map(\.kind) == [.restart])
+    #expect(workspace.discoveryTransactions[.boundaryNegativeX]?.state == .active)
+    try await stopActiveOperation(workspace)
     await workspace.shutdown()
   }
 
@@ -1168,8 +1220,8 @@ struct OperatorWorkspaceTests {
     #expect(await harness.machineActionLog.values.isEmpty)
   }
 
-  @Test("cancelled boundary Redo preserves the accepted included sample")
-  func cancelledBoundaryRedoPreservesAggregate() async throws {
+  @Test("Cancel cannot abandon a Boundary Redo while its movement owner is active")
+  func boundaryRedoCancelUnavailableDuringMotion() async throws {
     let harness = makeSimulatedHarness()
     let workspace = harness.workspace
     try await completeSimulatedVisibilityProtocol(
@@ -1192,16 +1244,15 @@ struct OperatorWorkspaceTests {
 
     let history = try #require(workspace.boundaryAttemptHistories[.negativeX]?.values.first)
     let aggregate = try #require(workspace.boundarySideAggregates[.negativeX])
-    #expect(history.records.count == 2)
+    #expect(history.records.count == 1)
     #expect(history.records.first?.inclusionState == .included)
-    #expect(history.records.last?.inclusionState == .excludedUnsuccessful)
-    #expect(history.attempts.last?.disposition == .cancelled)
     #expect(aggregate.validSampleCount == 1)
     #expect(aggregate.includedAttemptIDs == [acceptedAttemptID])
     #expect(workspace.boundarySideAggregates[.negativeX] == acceptedAggregate)
     #expect(workspace.estimatedMachineCenter == acceptedCenter)
     #expect(workspace.learnedLocalCoordinateFrame == acceptedLocalFrame)
     #expect(await harness.machineActionLog.values.isEmpty)
+    try await stopActiveOperation(workspace)
   }
 
   @Test("camera-changing Boundary Redo keeps numeric compatibility independent of camera")
@@ -1720,6 +1771,7 @@ private func workspace(
   machine: MachineFixture,
   camera: CameraFixture? = nil,
   announcements: AnnouncementFixture? = nil,
+  checkpointActions: OperatorWorkspace.AcceptedArtifactCheckpointActions? = nil,
   log _: EventLog
 ) -> OperatorWorkspace {
   let clock = TestClock()
@@ -1728,13 +1780,7 @@ private func workspace(
       select: { _ in await machine.snapshot() },
       snapshot: { await machine.snapshot() },
       requestPassiveProbe: {
-        PassiveProbeResult(
-          link: machine.descriptor,
-          startedAt: RuntimeTimestamp(monotonicNanoseconds: 1),
-          completedAt: RuntimeTimestamp(monotonicNanoseconds: 2),
-          exchanges: [],
-          blockers: []
-        )
+        await machine.passiveProbeResult()
       },
       activateMotionGuard: { .activated },
       deactivateMotionGuard: {},
@@ -1771,6 +1817,7 @@ private func workspace(
         cancelForShutdown: { await fixture.cancelForShutdown() }
       )
     },
+    acceptedArtifactCheckpointActions: checkpointActions,
     serialDevices: [machine.descriptor],
     serialDeviceDiscovery: { [machine.descriptor] },
     loadSelectedSerialIdentifier: { nil },
@@ -1895,6 +1942,29 @@ private final class TestClock: @unchecked Sendable {
   }
 }
 
+private final class CheckpointBox: @unchecked Sendable {
+  private let lock = NSLock()
+  private var stored: AcceptedMachineArtifactCheckpoint?
+
+  var checkpoint: AcceptedMachineArtifactCheckpoint? {
+    lock.lock()
+    defer { lock.unlock() }
+    return stored
+  }
+
+  func load() -> AcceptedArtifactCheckpointLoadResult {
+    lock.lock()
+    defer { lock.unlock() }
+    return stored.map(AcceptedArtifactCheckpointLoadResult.loaded) ?? .absent
+  }
+
+  func save(_ checkpoint: AcceptedMachineArtifactCheckpoint) {
+    lock.lock()
+    stored = checkpoint
+    lock.unlock()
+  }
+}
+
 private actor AnnouncementFixture {
   let log: EventLog
   var outcomes: [SpeechAnnouncementOutcome]
@@ -1985,6 +2055,36 @@ private actor MachineFixture {
       lastPenOutcome: lastPen,
       lastProbe: nil,
       lastJogCancelOutcome: lastCancel
+    )
+  }
+
+  func passiveProbeResult() -> PassiveProbeResult {
+    let reports: [(PassiveQuery, [String])] = [
+      (.buildInfo, ["[VER:1.1h.20200101:workspace-fixture]"]),
+      (.parserState, ["[GC:G0 G54 G17 G21 G90 G94 M5 M9 T0 F0 S0]"]),
+      (
+        .status,
+        [String(format: "<Idle|MPos:%.3f,%.3f,0.000>", position.point.x, position.point.y)]
+      ),
+      (.configuration, ["$100=80.000", "$101=80.000", "$110=900.000"]),
+      (.coordinateOffsets, ["[G54:0.000,0.000,0.000]", "[G92:0.000,0.000,0.000]"]),
+    ]
+    return PassiveProbeResult(
+      link: descriptor,
+      startedAt: RuntimeTimestamp(monotonicNanoseconds: 1),
+      completedAt: RuntimeTimestamp(monotonicNanoseconds: 2),
+      exchanges: reports.map { query, report in
+        let text = query == .status ? report : report + ["ok"]
+        return PassiveProbeExchange(
+          query: query,
+          commandID: UUID(),
+          rawIO: [],
+          lines: text.map { GRBLParser.parseLine(Data($0.utf8)) },
+          completed: true,
+          blocker: nil
+        )
+      },
+      blockers: []
     )
   }
 

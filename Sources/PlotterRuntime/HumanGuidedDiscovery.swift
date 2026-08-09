@@ -266,7 +266,7 @@ public struct BoundaryNumericCompatibility: Codable, Hashable, Sendable {
   }
 }
 
-public struct BoundarySideAttemptProvenance: Hashable, Sendable {
+public struct BoundarySideAttemptProvenance: Codable, Hashable, Sendable {
   public let attemptID: ExerciseAttemptID
   public let disposition: ExerciseAttemptDisposition
   public let inclusionState: ExerciseAttemptInclusionState
@@ -284,7 +284,7 @@ public enum BoundarySideAggregateError: Error, Equatable, Sendable {
 
 /// Current accepted numeric value for one typed machine direction. Its frame
 /// and contact samples remain in the referenced exact attempt evidence.
-public struct BoundarySideAggregate: Hashable, Sendable {
+public struct BoundarySideAggregate: Codable, Hashable, Sendable {
   public let direction: BoundaryDirection
   public let revisionID: LearningArtifactRevisionID
   public let controllerSessionID: UUID
@@ -479,7 +479,7 @@ public enum LearnedLocalCoordinateFrameError: Error, Equatable, Sendable {
 
 /// A presentation-only local frame whose origin is the X-/Y- intersection.
 /// It is an invertible translation in millimetres and is never motion authority.
-public struct LearnedLocalCoordinateFrame: Hashable, Sendable {
+public struct LearnedLocalCoordinateFrame: Codable, Hashable, Sendable {
   public let controllerSessionID: UUID
   public let coordinateRevision: UInt64
   public let origin: Point2<MachineSpace>

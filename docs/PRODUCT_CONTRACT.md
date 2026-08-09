@@ -84,6 +84,10 @@ typed fault ends the owner. Ambiguous motion never renews or resends.
 The physical power cutoff remains the emergency boundary. The software Stop is
 not represented as a hardware emergency stop.
 
+While a physical movement owner is active, its capability-bound Stop is the
+only movement-ending exercise action presented. Cancel becomes available after
+movement settles. A stale or programmatic Cancel cannot end the active owner.
+
 ## Evidence discipline
 
 Evidence classes are reported separately:
@@ -129,6 +133,22 @@ remaining delta; whole-Boundary Restart is not a valid recovery for this case.
 
 Machine-camera registration separately consumes compatible exact machine/contact
 samples. It never averages frames into new provenance.
+
+## Durable accepted artifacts
+
+Current accepted LIVE machine-space Boundary evidence, aggregates, paired
+progress, derived center/local frame, optional center arrival, and their current
+dependency revisions may be checkpointed durably by atomic file replacement.
+The file is quarantined on launch until a fresh passive controller probe matches
+device/build, parser state, settings, coordinate offsets, and current MPos within
+0.05 mm.
+
+The durable schema contains no active transaction, current question, Motion
+authorization, operation owner, live Stop capability, pending command,
+ambiguity recovery, resend, redraw, or workflow continuation. Historical owner
+and Stop identifiers inside immutable accepted evidence are provenance only and
+cannot be reinstalled as capabilities. A mismatch causes no machine action and
+leaves the file non-authoritative.
 
 ## Attempts and dependencies
 

@@ -26,6 +26,9 @@ The current source implements:
 - dependency-scoped artifact replacement and compatible aggregation;
 - output-only announcements;
 - signed-bundle construction, validation, and single-instance launch refusal.
+- atomic durable accepted-Boundary checkpoints that remain quarantined until
+  matching fresh controller context and MPos evidence is available;
+- Stop-only exercise presentation while physical movement owns the operation.
 
 Adaptive Drawing remains Future. Future-facing drawing/model primitives are
 present and tested, but no current app route promotes a model or performs
@@ -45,6 +48,12 @@ The cleanup rebased onto commit 38fe494 has passed:
 - three earlier consecutive controlled runs of the supervised-travel Stop test;
 - Scripts/check_repository_contract.sh;
 - git diff --check.
+
+The accepted-artifact increment additionally passed a strict Swift build, three
+focused checkpoint store/compatibility tests, one focused relaunch restoration
+test, focused active Stop and Boundary Cancel tests, repository-contract checks,
+and git diff checks. The long journey suite was skipped at the operator's
+request; physical relaunch recovery remains unverified.
 
 Automated and simulator evidence prove software behavior only.
 
@@ -99,6 +108,7 @@ The current integrated build still lacks attended verification of:
 - one-cancel behavior and exact post-stop frames on the current build;
 - the revised 0.05 mm center-arrival acceptance, center-only Retry Center
   Arrival presentation, and progression into Stage 3.3 on live hardware;
+- durable accepted-Boundary restoration across a signed software relaunch;
 - coarse-to-fine Clear search and repeatability;
 - physical target contact/ROI, blank baseline, octagonal target, two-frame
   target observation, isolated line, new-ink observation, and comparison;
