@@ -862,7 +862,16 @@ private func runVisibilityRoute(
   remainingFirst: BoundaryDirection,
   includeLine: Bool = false
 ) async throws -> SimulatedRouteEvidence {
-  let runtime = try await enabledRuntime()
+  // The causal route needs viable vision geometry, not the production
+  // simulator's presentation footprint. Exact 640x480 rendering has its own
+  // focused contract test.
+  let runtime = SimulatedLearningRuntime(
+    frameWidth: 320,
+    frameHeight: 240,
+    paddingPixels: 14
+  )
+  _ = try accepted(await runtime.connect())
+  _ = try accepted(await runtime.enableMotion())
   let session = UUID()
   var progress = PairedBoundaryProgress()
   var boundaries: [SimulatedBoundaryRouteSample] = []
@@ -1038,7 +1047,7 @@ private func runVisibilityRoute(
       coordinateRevision: 1,
       toolPaperRevision: UUID(),
       controllerPositionToleranceMM: 0.01,
-      expectedDiameterPixels: 15...26,
+      expectedDiameterPixels: 8...13,
       minimumTargetPixels: 20,
       maximumCentroidSpreadPixels: 0.01,
       maximumAreaRatio: 1.01,
@@ -1077,7 +1086,7 @@ private func runVisibilityRoute(
     )
     let postLine = try accepted(await runtime.captureSceneFrame())
     let cameraLineStart = try Point2<CameraPixelSpace>(
-      x: targetCenter.x + 8,
+      x: targetCenter.x + 5,
       y: targetCenter.y
     )
     let lineOutcome = await VisionWorker().observeIsolatedInk(IsolatedInkObservationRequest(
@@ -1105,7 +1114,7 @@ private func runVisibilityRoute(
       alignmentSearchRadiusPixels: 2,
       maximumAlignmentShiftPixels: 1,
       maximumBackgroundMeanAbsoluteDifference: 0.01,
-      projectedActualStrokeDelta: try Vector2(dx: 20, dy: 0),
+      projectedActualStrokeDelta: try Vector2(dx: 10, dy: 0),
       algorithmRevision: "simulated-line-v1",
       minimumLinePixels: 10
     ))

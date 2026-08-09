@@ -1,8 +1,9 @@
-.PHONY: help build app launcher run-app validate-app validate-launcher test check strict-check
+.PHONY: help build app launcher run-app validate-app validate-launcher quick-test journey-test test check strict-check
 
 .DEFAULT_GOAL := help
 
 SWIFT_FLAGS ?=
+JOURNEY_TEST_FILTER := OperatorWorkspaceTests/(simulatedLearningPathHasFullActionParity|simulatedStageFourUsesPersistentCausalInk|visibilityAttemptMutationsAreAtomic|cameraRecoveryPreservesMachineAuthorityAndCollectsEvidence|cameraChangeMakesExistingTargetUnusableWithoutRedraw|boundaryRepeatActionsAggregateAndReplaceAcceptedSet|boundaryAtomicFailurePreservesAcceptedAuthority)|SimulatedLearningRuntimeTests/(completeCausalLineRoute|completeCausalVisibilityRoutes)
 
 help:
 	@printf '%s\n' \
@@ -16,7 +17,9 @@ help:
 		'  run-app            Build and launch the supported local application.' \
 		'  validate-app       Validate the application bundle and launcher.' \
 		'  validate-launcher  Test launcher identity and instance handling.' \
-		'  test               Run the Swift test suite in parallel.' \
+		'  quick-test         Run unit and component tests, excluding retained journeys.' \
+		'  journey-test       Run retained causal journeys sequentially.' \
+		'  test               Run the complete Swift test suite in parallel.' \
 		'  check              Validate the app, tests, and repository contract.' \
 		'  strict-check       Run check with strict concurrency and warnings as errors.'
 
@@ -38,6 +41,12 @@ validate-app: app validate-launcher
 
 run-app: app launcher
 	@.build/AdaptivePlotterLauncher "$(CURDIR)/.build/AdaptivePlotter.app"
+
+quick-test:
+	swift test --parallel --skip '$(JOURNEY_TEST_FILTER)' $(SWIFT_FLAGS)
+
+journey-test:
+	swift test --no-parallel --filter '$(JOURNEY_TEST_FILTER)' $(SWIFT_FLAGS)
 
 test:
 	swift test --parallel $(SWIFT_FLAGS)

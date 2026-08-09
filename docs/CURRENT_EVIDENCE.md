@@ -38,29 +38,21 @@ model-selected drawing.
 
 ## Automated evidence
 
-The cleanup rebased onto commit 38fe494 has passed:
+The current software baseline has passed:
 
-- make check — signed app construction and validation, launcher logic and
-  validation, negative bundle validation, repository-contract checks, diff
-  checks, and 313 tests;
-- make strict-check — the same gate with complete Swift concurrency checking
-  and warnings as errors, including 313 tests;
-- focused merged-tree tests for controlled supervised-travel Stop, reproduced
-  quantized center arrival, and out-of-tolerance center-only retry;
-- three earlier consecutive controlled runs of the supervised-travel Stop test;
+- make quick-test — 303 unit and component tests in a 0.494-second test run
+  (1.83 seconds wall time on the recorded local host);
+- make journey-test — the nine retained causal route tests, including both
+  boundary-order arguments, run sequentially to avoid pixel-analysis
+  contention. They completed in a 72.490-second test run (73.66 seconds wall
+  time);
+- make strict-check — signed app construction and validation, launcher logic
+  and validation, negative bundle validation, all 312 tests, complete Swift
+  concurrency checking, warnings as errors, repository-contract checks, and
+  diff checks. The test run completed in 53.219 seconds and the complete cold
+  strict gate in 123.13 seconds;
 - Scripts/check_repository_contract.sh;
 - git diff --check.
-
-The accepted-artifact increment additionally passed a strict Swift build, three
-focused checkpoint store/compatibility tests, one focused relaunch restoration
-test, focused active Stop and Boundary Cancel tests, repository-contract checks,
-and git diff checks. The long journey suite was skipped at the operator's
-request; physical relaunch recovery remains unverified.
-
-The camera-advised Boundary approach increment passed ordinary and strict Swift
-builds, three focused tier/bounds/fallback tests, the focused Stop-during-planning
-wire-suppression test, repository-contract checks, and git diff checks. Long
-journey suites were not run. Live camera/controller timing remains unverified.
 
 Automated and simulator evidence prove software behavior only.
 

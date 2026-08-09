@@ -131,6 +131,8 @@ Common commands:
 ```bash
 make help
 make build
+make quick-test
+make journey-test
 make test
 make check
 make strict-check
@@ -138,6 +140,12 @@ make app
 make validate-app
 make run-app
 ```
+
+Use `make quick-test` during ordinary edits. It keeps the unit and component
+suite while excluding the retained end-to-end simulated Learning Path routes.
+Use `make journey-test` when changing those routes, and `make test` for the
+complete suite. `make check` and `make strict-check` always run the complete
+suite; the strict gate is intended once before landing, not after every edit.
 
 `make run-app` constructs the signed bundle and uses the single-instance
 launcher. Do not run the raw SwiftPM executable for camera, microphone, or
