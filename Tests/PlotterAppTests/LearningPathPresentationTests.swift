@@ -1,3 +1,4 @@
+import Foundation
 import PlotterRuntime
 import Testing
 
@@ -122,19 +123,66 @@ struct LearningPathPresentationTests {
 
   @Test("action descriptors keep semantic role and exact unavailable reason")
   func typedActionDescriptor() {
+    let stopCapability = ContextualStopCapabilityID(
+      rawValue: UUID(uuidString: "00000000-0000-0000-0000-000000000101")!
+    )
     let start = ExerciseActionDescriptor(
       kind: .start,
       title: "Start",
       role: .positive,
       unavailableReason: "A responsive controller session is required."
     )
-    let stop = ExerciseActionDescriptor(kind: .stop, title: "Stop", role: .destructive)
+    let stop = ExerciseActionDescriptor(
+      kind: .stop(stopCapability),
+      title: "Stop",
+      role: .destructive
+    )
 
     #expect(!start.isEnabled)
     #expect(start.unavailableReason == "A responsive controller session is required.")
     #expect(start.role == .positive)
     #expect(stop.isEnabled)
     #expect(stop.role == .destructive)
+  }
+
+  @Test("Stop carries the exact logical-owner capability")
+  func stopCapabilityIdentity() {
+    let first = ContextualStopCapabilityID(
+      rawValue: UUID(uuidString: "00000000-0000-0000-0000-000000000201")!
+    )
+    let successor = ContextualStopCapabilityID(
+      rawValue: UUID(uuidString: "00000000-0000-0000-0000-000000000202")!
+    )
+
+    #expect(ExerciseActionKind.stop(first) == .stop(first))
+    #expect(ExerciseActionKind.stop(first) != .stop(successor))
+  }
+
+  @Test("focused questions retain their actual structured prompt and typed choices")
+  func structuredQuestion() {
+    let question = ExerciseQuestionPresentation(
+      prompt: [.text("Is the pen physically"), .cue(.up), .text("?")],
+      choices: [.yes, .no]
+    )
+
+    #expect(question.prompt.accessibilityText == "Is the pen physically Pen up ?")
+    #expect(question.choices == [.yes, .no])
+  }
+
+  @Test("operation activity retains actor outcome detail and recovery")
+  func operationActivity() {
+    let activity = OperationActivityPresentation(
+      actor: "Controller",
+      action: "Boundary Discovery X+",
+      outcome: .needsAttention,
+      detail: [.text("Controller reported Alarm.")],
+      recovery: [.text("Inspect the controller before restarting.")]
+    )
+
+    #expect(activity.actor == "Controller")
+    #expect(activity.outcome.rawValue == "Needs Attention")
+    #expect(activity.detail.accessibilityText == "Controller reported Alarm.")
+    #expect(activity.recovery.accessibilityText == "Inspect the controller before restarting.")
   }
 
   @Test("one action strip has one owner and distinct repeat actions")

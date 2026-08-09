@@ -100,9 +100,14 @@ struct OperatorWorkspaceView: View {
   @Bindable var workspace: OperatorWorkspace
   @State private var selection = LearningPathSelectionState(current: .stage(.connect))
   @State private var utilitiesArePresented = false
+  private let utilitiesPolicy = UtilitiesVisibilityPolicy()
 
   var body: some View {
     GeometryReader { proxy in
+      let utilities = utilitiesPolicy.presentation(
+        isPresented: utilitiesArePresented,
+        availableContentWidth: proxy.size.width
+      )
       HSplitView {
         LearningPathNavigator(workspace: workspace, selection: $selection)
           .frame(minWidth: 220, idealWidth: 280, maxWidth: 440)
@@ -123,13 +128,20 @@ struct OperatorWorkspaceView: View {
         LearningPathView(
           workspace: workspace,
           selection: $selection,
-          showUtilities: { utilitiesArePresented = true }
+          utilities: utilities,
+          performUtilitiesAction: { action in
+            utilitiesArePresented = utilitiesPolicy.transition(
+              isPresented: utilitiesArePresented,
+              action: action,
+              availableContentWidth: proxy.size.width
+            )
+          }
         )
         .frame(minWidth: 300, idealWidth: 380, maxWidth: 520)
       }
       .onChange(of: proxy.size.width) { _, width in
         if utilitiesArePresented,
-          width < LearningWorkbenchLayoutPolicy.minimumWindowWidth
+          utilitiesPolicy.shouldCollapsePresentedUtilities(availableContentWidth: width)
         {
           utilitiesArePresented = false
         }
@@ -137,8 +149,11 @@ struct OperatorWorkspaceView: View {
     }
     .background(Color.black)
     .inspector(isPresented: $utilitiesArePresented) {
-      WorkbenchUtilities(workspace: workspace)
-        .inspectorColumnWidth(min: 280, ideal: 360, max: 440)
+      WorkbenchUtilities(
+        workspace: workspace,
+        close: { utilitiesArePresented = false }
+      )
+      .inspectorColumnWidth(min: 280, ideal: 360, max: 440)
     }
     .onChange(of: workspace.currentLearningPathItemID, initial: true) { _, itemID in
       selection.updateCurrent(itemID)
@@ -156,10 +171,22 @@ struct OperatorWorkspaceView: View {
 
 private struct WorkbenchUtilities: View {
   @Bindable var workspace: OperatorWorkspace
+  let close: () -> Void
   @State private var selectedUtility: WorkbenchUtility = .camera
 
   var body: some View {
     VStack(spacing: 10) {
+      HStack {
+        Text("Utilities")
+          .font(.headline)
+        Spacer()
+        Button(action: close) {
+          Label("Hide Utilities", systemImage: "xmark")
+        }
+        .buttonStyle(.bordered)
+        .help("Hide Utilities")
+      }
+
       Picker("Utility", selection: $selectedUtility) {
         ForEach(WorkbenchUtility.allCases) { utility in
           Label(utility.title, systemImage: utility.systemImage).tag(utility)
@@ -205,6 +232,7 @@ private struct CameraPanel: View {
   @Bindable var workspace: OperatorWorkspace
 
   var body: some View {
+    let utilityPresentation = workspace.cameraUtilityPresentation
     SectionPanel(title: "CAMERA AND VISION") {
       Picker(
         "Frame source",
@@ -219,104 +247,41 @@ private struct CameraPanel: View {
       }
       .pickerStyle(.segmented)
 
-      if workspace.frameMode == .live {
-        ControlGroup {
-          Button {
-            Task { await workspace.discoverCameras() }
-          } label: {
-            Label("Refresh", systemImage: "arrow.clockwise")
-          }
-          Button {
-            Task { await workspace.startCamera() }
-          } label: {
-            Label("Start", systemImage: "play.fill")
-          }
-          Button {
-            Task { await workspace.stopCamera() }
-          } label: {
-            Label("Stop Camera", systemImage: "stop.fill")
-          }
-          Button {
-            Task { await workspace.restartCamera() }
-          } label: {
-            Label("Restart", systemImage: "arrow.clockwise")
-          }
-        }
+      cameraUtilityControls(utilityPresentation)
 
-        ControlGroup {
-          Button {
-            Task {
-              if workspace.analysisFrameHeld {
-                await workspace.resumeLivePreview()
-              } else {
-                await workspace.inspectLatestScene()
-              }
-            }
-          } label: {
-            Label(
-              workspace.analysisFrameHeld ? "Resume Preview" : "Analyze Frame",
-              systemImage: workspace.analysisFrameHeld ? "play" : "viewfinder"
-            )
-          }
-          .disabled(workspace.sceneInspectionInProgress || workspace.automaticVisionEnabled)
-          Button {
-            Task { await workspace.captureCameraSnapshot() }
-          } label: {
-            Label("Save Snapshot", systemImage: "camera")
-          }
-        }
-
-        Toggle(
-          "Auto Analyze",
-          isOn: Binding(
-            get: { workspace.automaticVisionEnabled },
-            set: { enabled in Task { await workspace.setAutomaticVisionAnalysis(enabled) } }
-          )
+      Picker(
+        "Analysis cadence",
+        selection: Binding(
+          get: { workspace.visionAnalysisCadence },
+          set: { cadence in Task { await workspace.updateVisionAnalysisCadence(cadence) } }
         )
-        .toggleStyle(.switch)
-
-        Picker(
-          "Analysis cadence",
-          selection: Binding(
-            get: { workspace.visionAnalysisCadence },
-            set: { cadence in Task { await workspace.updateVisionAnalysisCadence(cadence) } }
-          )
-        ) {
-          ForEach(VisionAnalysisCadence.allCases, id: \.self) { cadence in
-            Text("\(cadence.rawValue) Hz").tag(cadence)
-          }
+      ) {
+        ForEach(VisionAnalysisCadence.allCases, id: \.self) { cadence in
+          Text("\(cadence.rawValue) Hz").tag(cadence)
         }
-        .pickerStyle(.segmented)
+      }
+      .pickerStyle(.segmented)
+      .disabled(
+        utilityPresentation.analysisCadenceUnavailableReason != nil
+      )
+      .help(
+        utilityPresentation.analysisCadenceUnavailableReason
+          ?? "Select the automatic analysis cadence"
+      )
 
-        Text(
-          "Preview and analysis are independent. Vision keeps one active frame and one newest pending frame; older pending work is replaced."
-        )
-        .font(.caption)
-        .foregroundStyle(.secondary)
+      if let reason = utilityPresentation.analysisCadenceUnavailableReason {
+        Label("Analysis cadence: \(reason)", systemImage: "info.circle")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
 
-        if workspace.cameraDevices.isEmpty {
-          Text("No discovered camera.")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        } else {
-          ForEach(workspace.cameraDevices) { device in
-            Button {
-              Task { await workspace.selectCamera(device.id) }
-            } label: {
-              HStack {
-                Image(
-                  systemName: workspace.selectedCameraID == device.id
-                    ? "largecircle.fill.circle" : "circle"
-                )
-                Text(device.name)
-                Spacer()
-              }
-              .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-          }
-        }
-      } else {
+      Text(
+        "LIVE and SIMULATED use the same operator controls. Unavailable actions name the source capability they require; SIMULATED never invokes camera hardware."
+      )
+      .font(.caption)
+      .foregroundStyle(.secondary)
+
+      if utilityPresentation.mode == .simulated {
         Picker(
           "Model",
           selection: Binding(
@@ -337,20 +302,39 @@ private struct CameraPanel: View {
           .font(.caption)
           .foregroundStyle(.secondary)
         fact("Simulated pen", workspace.simulatorPenState.rawValue)
+      } else if workspace.cameraDevices.isEmpty {
+        Text("No discovered camera.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      } else {
+        ForEach(workspace.cameraDevices) { device in
+          Button {
+            Task { await workspace.selectCamera(device.id) }
+          } label: {
+            HStack {
+              Image(
+                systemName: workspace.selectedCameraID == device.id
+                  ? "largecircle.fill.circle" : "circle"
+              )
+              Text(device.name)
+              Spacer()
+            }
+            .contentShape(Rectangle())
+          }
+          .buttonStyle(.plain)
+        }
       }
 
       fact("State", workspace.cameraStateText)
       fact("Current frame age", workspace.frameAgeText)
-      if workspace.frameMode == .live {
-        fact("Vision", workspace.sceneMeasurementText)
-        fact("Capture path", workspace.captureThroughputText)
-        fact("Analysis path", workspace.visionThroughputText)
-        if let path = workspace.lastCameraSnapshotPath {
-          Text(path)
-            .font(.caption2.monospaced())
-            .foregroundStyle(.secondary)
-            .textSelection(.enabled)
-        }
+      fact("Vision", workspace.sceneMeasurementText)
+      fact("Capture path", workspace.captureThroughputText)
+      fact("Analysis path", workspace.visionThroughputText)
+      if let path = workspace.lastCameraSnapshotPath {
+        Text(path)
+          .font(.caption2.monospaced())
+          .foregroundStyle(.secondary)
+          .textSelection(.enabled)
       }
       if let error = workspace.cameraError {
         Text(error)
@@ -368,6 +352,30 @@ private struct CameraPanel: View {
     }
   }
 
+  private func cameraUtilityControls(
+    _ presentation: CameraUtilityPresentation
+  ) -> some View {
+    VStack(alignment: .leading, spacing: 6) {
+      ForEach(presentation.actions) { action in
+        Button {
+          Task { await workspace.performCameraUtilityAction(action.kind) }
+        } label: {
+          Label(action.title, systemImage: action.systemImage)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(.bordered)
+        .disabled(!action.isEnabled)
+        .help(action.unavailableReason ?? action.title)
+
+        if let reason = action.unavailableReason {
+          Text("\(action.title): \(reason)")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        }
+      }
+    }
+  }
+
   private func fact(_ label: String, _ value: String) -> some View {
     HStack(alignment: .firstTextBaseline) {
       Text(label).font(.caption2).foregroundStyle(.secondary)
@@ -381,21 +389,18 @@ private struct MotionPanel: View {
   @Bindable var workspace: OperatorWorkspace
 
   var body: some View {
-    SectionPanel(title: "RELATIVE MOTION") {
+    let presentation = workspace.manualMotionPresentation
+    SectionPanel(title: "MANUAL RELATIVE MOTION") {
       Text(
         "Manual steps remain finite typed requests. The controller's end-stops and alarms, one-operation serialization, pen-up travel, and ambiguous outcomes are checked directly."
       )
       .font(.caption2)
       .foregroundStyle(.secondary)
 
-      Text("Manual Motion")
-        .font(.subheadline.weight(.semibold))
-        .foregroundStyle(.secondary)
-
       HStack(spacing: 8) {
-        numericField("X step", text: $workspace.xStepText)
-        numericField("Y step", text: $workspace.yStepText)
-        numericField("Feed", text: $workspace.feedText)
+        numericField(ManualMotionPresentation.xDistanceLabel, text: $workspace.xStepText)
+        numericField(ManualMotionPresentation.yDistanceLabel, text: $workspace.yStepText)
+        numericField(ManualMotionPresentation.feedLabel, text: $workspace.feedText)
       }
 
       VStack(spacing: 5) {
@@ -408,21 +413,35 @@ private struct MotionPanel: View {
       }
       .frame(maxWidth: .infinity)
 
+      if let stop = presentation.stopAction {
+        Button {
+          Task { await workspace.stopManualJog(capabilityID: stop.capabilityID) }
+        } label: {
+          Label(stop.title, systemImage: "stop.fill")
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(.red)
+        .keyboardShortcut(.cancelAction)
+        .help(stop.detail)
+        .accessibilityHint(stop.detail)
+      }
+
       ControlGroup {
         Button {
           Task { await workspace.requestPenActuation(.raise) }
         } label: {
           Label("Pen Up", systemImage: "arrow.up.to.line")
         }
-          .tint(.blue)
-          .disabled(workspace.penUnavailableReason(for: .raise) != nil)
+        .tint(.blue)
+        .disabled(workspace.penUnavailableReason(for: .raise) != nil)
         Button {
           Task { await workspace.requestPenActuation(.lower) }
         } label: {
           Label("Pen Down", systemImage: "arrow.down.to.line")
         }
-          .tint(.red)
-          .disabled(workspace.penUnavailableReason(for: .lower) != nil)
+        .tint(.red)
+        .disabled(workspace.penUnavailableReason(for: .lower) != nil)
       }
 
       Text(workspace.penStateText)
@@ -442,7 +461,7 @@ private struct MotionPanel: View {
       fact("Last outcome", workspace.lastMotionOutcomeText)
       fact("Last pen", workspace.lastPenOutcomeText)
 
-      if let reason = workspace.motionUnavailableReason {
+      if let reason = presentation.jogControlsUnavailableReason {
         Text(reason)
           .font(.caption)
           .foregroundStyle(.orange)
@@ -465,12 +484,21 @@ private struct MotionPanel: View {
       Task { await workspace.requestJog(direction) }
     } label: {
       Label(label, systemImage: systemImage)
-        .labelStyle(.iconOnly)
-        .frame(width: 32, height: 24)
+        .frame(minWidth: 64, minHeight: 24)
     }
-      .buttonStyle(.borderedProminent)
-      .disabled(workspace.motionUnavailableReason != nil)
-      .help("Jog \(label)")
+    .buttonStyle(.borderedProminent)
+    .disabled(workspace.manualMotionPresentation.jogControlsUnavailableReason != nil)
+    .help(jogAccessibilityLabel(direction))
+    .accessibilityLabel(jogAccessibilityLabel(direction))
+  }
+
+  private func jogAccessibilityLabel(_ direction: JogDirection) -> String {
+    switch direction {
+    case .xNegative: "Jog X negative"
+    case .xPositive: "Jog X positive"
+    case .yNegative: "Jog Y negative"
+    case .yPositive: "Jog Y positive"
+    }
   }
 
   private func numericField(_ label: String, text: Binding<String>) -> some View {

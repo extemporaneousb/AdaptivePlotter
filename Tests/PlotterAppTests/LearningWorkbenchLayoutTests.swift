@@ -48,4 +48,87 @@ struct LearningWorkbenchLayoutTests {
       #expect(allocation.detailWidth == 0)
     }
   }
+
+  @Test("Utilities refuses Show before the camera-safe width")
+  func utilitiesMinimumWidth() {
+    let utilitiesPolicy = UtilitiesVisibilityPolicy()
+    let presentation = utilitiesPolicy.presentation(
+      isPresented: false,
+      availableContentWidth: LearningWorkbenchLayoutPolicy.minimumWindowWidth
+    )
+
+    #expect(presentation.action == .show)
+    #expect(presentation.actionTitle == "Show Utilities")
+    #expect(!presentation.isActionEnabled)
+    #expect(
+      presentation.unavailableReason?.contains(
+        "\(Int(utilitiesPolicy.minimumWidthToShow)) points"
+      ) == true
+    )
+    #expect(
+      !utilitiesPolicy.transition(
+        isPresented: false,
+        action: .show,
+        availableContentWidth: LearningWorkbenchLayoutPolicy.minimumWindowWidth
+      )
+    )
+  }
+
+  @Test("Utilities Show and Hide are deterministic and idempotent")
+  func utilitiesTransitions() {
+    let utilitiesPolicy = UtilitiesVisibilityPolicy()
+    let wideWidth = utilitiesPolicy.minimumWidthToShow
+
+    #expect(
+      utilitiesPolicy.transition(
+        isPresented: false,
+        action: .show,
+        availableContentWidth: wideWidth
+      )
+    )
+    #expect(
+      utilitiesPolicy.transition(
+        isPresented: true,
+        action: .show,
+        availableContentWidth: 0
+      )
+    )
+    #expect(
+      !utilitiesPolicy.transition(
+        isPresented: true,
+        action: .hide,
+        availableContentWidth: 0
+      )
+    )
+    #expect(
+      !utilitiesPolicy.transition(
+        isPresented: false,
+        action: .hide,
+        availableContentWidth: wideWidth
+      )
+    )
+
+    let shown = utilitiesPolicy.presentation(
+      isPresented: true,
+      availableContentWidth: LearningWorkbenchLayoutPolicy.minimumWindowWidth
+    )
+    #expect(shown.action == .hide)
+    #expect(shown.actionTitle == "Hide Utilities")
+    #expect(shown.isActionEnabled)
+  }
+
+  @Test("presented Utilities collapses before the protected workbench is starved")
+  func utilitiesCollapse() {
+    let utilitiesPolicy = UtilitiesVisibilityPolicy()
+    #expect(
+      !utilitiesPolicy.shouldCollapsePresentedUtilities(
+        availableContentWidth: LearningWorkbenchLayoutPolicy.minimumWindowWidth
+      )
+    )
+    #expect(
+      utilitiesPolicy.shouldCollapsePresentedUtilities(
+        availableContentWidth: LearningWorkbenchLayoutPolicy.minimumWindowWidth - 1
+      )
+    )
+  }
 }

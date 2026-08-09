@@ -307,27 +307,11 @@ public enum DiscoverySequenceCatalog {
     _ direction: BoundaryDirection,
     id: DiscoverySequenceID
   ) -> DiscoverySequenceDefinition {
-    let readyQuestion = DiscoveryQuestion(
-      prompt: "Is the path clear and are you ready to move toward \(direction.displayName)?",
-      negativeAcknowledgement: "Okay. No motion will start. I will wait."
-    )
     return DiscoverySequenceDefinition(
       id: id,
       title: "\(direction.displayName) Boundary Discovery",
       summary: "Move toward \(direction.displayName), Stop at the observed boundary, and update one exact-frame side observation.",
       steps: [
-        DiscoveryStep(
-          id: "question-ready",
-          participant: .application,
-          action: .askQuestion(readyQuestion),
-          expectedEvent: .questionPresented
-        ),
-        DiscoveryStep(
-          id: "answer-ready",
-          participant: .operatorChoice,
-          action: .awaitOperatorChoice(readyQuestion),
-          expectedEvent: .operatorChoice(readyQuestion.advancingChoices)
-        ),
         DiscoveryStep(
           id: "announce-jog",
           participant: .application,

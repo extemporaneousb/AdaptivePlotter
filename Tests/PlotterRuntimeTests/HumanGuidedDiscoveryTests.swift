@@ -14,17 +14,16 @@ struct HumanGuidedDiscoveryTests {
   @Test("boundary sequence makes Stop a distinct event before cancel and evidence")
   func boundaryStopOrdering() throws {
     let definition = DiscoverySequenceCatalog.definition(for: .boundaryPositiveX)
-    #expect(definition.steps.map(\.id) == [
-      "question-ready", "answer-ready", "announce-jog", "start-jog",
-      "stop-boundary", "cancel-and-idle", "capture-frame", "measure-boundary",
-      "adjust-posterior",
-    ])
-    #expect(definition.steps[4].action == .awaitContextualStop(.positiveX))
+    #expect(
+      definition.steps.map(\.id) == [
+        "announce-jog", "start-jog", "stop-boundary", "cancel-and-idle",
+        "capture-frame", "measure-boundary", "adjust-posterior",
+      ])
+    #expect(definition.steps[2].action == .awaitContextualStop(.positiveX))
+    #expect(definition.questions.isEmpty)
 
     var transaction = DiscoveryTransaction(definition: definition)
     try transaction.begin()
-    try transaction.record(.questionPresented)
-    try transaction.record(.operatorChoiceAccepted(.yes))
     try transaction.record(.announcementCompleted)
     try transaction.record(
       .boundaryJogStarted(.positiveX, controllerSummary: "moving")
@@ -40,6 +39,43 @@ struct HumanGuidedDiscoveryTests {
       .boundaryJogCancelled(.positiveX, finalPosition: final, controllerSummary: "Idle")
     )
     #expect(transaction.currentStep?.id == "capture-frame")
+  }
+
+  @Test("boundary starts without contextual YES or NO while Pen Interaction retains prompts")
+  func boundaryHasNoReadyQuestionAndPenPromptsRemain() {
+    for (sequenceID, direction) in [
+      (DiscoverySequenceID.boundaryNegativeX, BoundaryDirection.negativeX),
+      (.boundaryPositiveX, .positiveX),
+      (.boundaryNegativeY, .negativeY),
+      (.boundaryPositiveY, .positiveY),
+    ] {
+      let definition = DiscoverySequenceCatalog.definition(for: sequenceID)
+      #expect(definition.questions.isEmpty)
+      #expect(
+        definition.steps.first?.action
+          == .announce("Moving toward \(direction.displayName) boundary.")
+      )
+      #expect(definition.steps.dropFirst().first?.action == .startBoundaryJog(direction))
+      #expect(
+        definition.steps.contains { step in
+          if case .askQuestion = step.action { return true }
+          return false
+        } == false)
+      #expect(
+        definition.steps.contains { step in
+          if case .awaitOperatorChoice = step.action { return true }
+          return false
+        } == false)
+    }
+
+    let pen = DiscoverySequenceCatalog.definition(for: .penInteraction)
+    #expect(
+      pen.questions.map(\.prompt) == [
+        "Is the pen currently up?",
+        "Are we clear to put it down?",
+        "Is the pen currently down?",
+        "Is the pen up?",
+      ])
   }
 
   @Test("pen interaction has announcements before both typed actuations")

@@ -68,11 +68,12 @@ Commanded pen state and observed physical pose remain distinct evidence.
 
 ### 3.2 Boundary Discovery
 
-The operator selects a side, confirms the path is clear, and starts one
-operator-stopped Pen Up boundary motion. One contextual Stop records the choice
-before one cancel byte is issued. The original owner settles at Idle with final
-MPos; a strictly newer exact frame then supplies the tool centroid and
-drawing-frame side association.
+The operator selects a side and presses the one explicit Start for an
+operator-stopped Pen Up boundary motion. There is no additional generic YES/NO
+start ceremony. One capability-bound contextual Stop records the first semantic
+intent before one cancel byte is issued. The original owner settles at Idle
+with final MPos; a strictly newer exact frame then supplies the tool centroid
+and drawing-frame side association.
 
 Boundary Discovery does not complete at a fixed application-selected travel
 distance. It remains active until the operator stops at the observed side or a
@@ -85,6 +86,12 @@ ambiguity, and cannot race the Stop latch.
 One successful relevant side is sufficient for the current path. Additional
 directions refine the current-session posterior but are not required for manual
 motion or Clear-View Discovery.
+
+Manual jog owns its own unique Stop capability and presents **Stop Manual Jog**
+in the Motion panel. A stale capability cannot stop a later jog. The toolbar's
+Motion Enabled state reports session authorization, including while the one
+owner is busy; transient request availability and its exact refusal reason are
+separate projections.
 
 ### 3.3 Clear-View Discovery
 
@@ -108,6 +115,20 @@ The three-frame clean/anchor/post subtraction may produce an
 `IsolatedInkObservation` with residual geometry. A rejection records
 `Ink or Geometry Unclear` and never causes a redraw. The episode retains exact
 frame, controller, action, assessment, and residual provenance in memory.
+
+## Simulator parity and isolation
+
+SIMULATED uses the same one-window Learning Path, motion controls, camera
+utilities, questions, and action strip as LIVE. Its typed in-memory runtime owns
+a simulated session, Motion authorization, known MPos, pen pose, manual jog,
+renewable Boundary operation, Stop/Cancel disposition, drawing operation, and
+deterministic frames. Every simulator evidence surface is marked
+`SIMULATED — NOT PHYSICAL EVIDENCE`; the path invokes no `MachineActions` and
+cannot create physical controller, camera, pen-pose, movement, or ink evidence.
+
+Switching to SIMULATED parks accepted LIVE authority and starts a separate
+simulated learning set. Returning to LIVE discards the simulated set and
+restores the parked LIVE authority unchanged.
 
 ## Evidence hierarchy
 

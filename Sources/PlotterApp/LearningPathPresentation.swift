@@ -278,11 +278,108 @@ struct ExerciseEvidencePresentation: Identifiable, Hashable, Sendable {
   }
 }
 
+/// Unforgeable presentation authority for one currently stoppable logical owner.
+/// Views must return this exact value with Stop so a stale control cannot stop a
+/// successor operation that happens to occupy the same visual location.
+struct ContextualStopCapabilityID: RawRepresentable, Hashable, Sendable {
+  let rawValue: UUID
+
+  init(rawValue: UUID = UUID()) {
+    self.rawValue = rawValue
+  }
+}
+
+struct ContextualStopActionPresentation: Hashable, Sendable {
+  let capabilityID: ContextualStopCapabilityID
+  let title: String
+  let detail: String
+}
+
+struct ManualMotionPresentation: Hashable, Sendable {
+  static let xDistanceLabel = "X distance (mm)"
+  static let yDistanceLabel = "Y distance (mm)"
+  static let feedLabel = "Feed (mm/min)"
+
+  let stopAction: ContextualStopActionPresentation?
+  let jogUnavailableReason: String?
+
+  var isStoppable: Bool { stopAction != nil }
+  var jogControlsUnavailableReason: String? {
+    if stopAction != nil {
+      return jogUnavailableReason ?? "Stop the active manual jog before starting another."
+    }
+    return jogUnavailableReason
+  }
+}
+
+enum MotionRequestStatusPresentation: Hashable, Sendable {
+  case ready
+  case busy(String)
+  case unavailable(String)
+  case needsAttention(String)
+
+  var label: String {
+    switch self {
+    case .ready: "Ready"
+    case .busy: "Busy"
+    case .unavailable: "Unavailable"
+    case .needsAttention: "Needs Attention"
+    }
+  }
+
+  var detail: String? {
+    switch self {
+    case .ready: nil
+    case .busy(let detail), .unavailable(let detail), .needsAttention(let detail): detail
+    }
+  }
+}
+
+enum CameraUtilityActionKind: String, CaseIterable, Hashable, Identifiable, Sendable {
+  case refresh
+  case start
+  case stop
+  case restart
+  case analyzeOrResume
+  case saveSnapshot
+  case toggleAutomaticAnalysis
+
+  var id: Self { self }
+}
+
+struct CameraUtilityActionPresentation: Identifiable, Hashable, Sendable {
+  let kind: CameraUtilityActionKind
+  let title: String
+  let systemImage: String
+  let unavailableReason: String?
+
+  var id: CameraUtilityActionKind { kind }
+  var isEnabled: Bool { unavailableReason == nil }
+}
+
+struct CameraUtilityPresentation: Hashable, Sendable {
+  let mode: OperatorFrameMode
+  let actions: [CameraUtilityActionPresentation]
+  let analysisCadenceUnavailableReason: String?
+
+  init(
+    mode: OperatorFrameMode,
+    actions: [CameraUtilityActionPresentation],
+    analysisCadenceUnavailableReason: String? = nil
+  ) {
+    precondition(Set(actions.map(\.id)).count == actions.count)
+    precondition(actions.map(\.kind) == CameraUtilityActionKind.allCases)
+    self.mode = mode
+    self.actions = actions
+    self.analysisCadenceUnavailableReason = analysisCadenceUnavailableReason
+  }
+}
+
 enum ExerciseActionKind: Hashable, Sendable {
   case start
   case choice(OperatorChoice)
   case cancel
-  case stop
+  case stop(ContextualStopCapabilityID)
   case restart
   case redoThisStep
   case recordAnotherAttempt
@@ -350,6 +447,46 @@ struct ExerciseActionStripPresentation: Hashable, Sendable {
   }
 }
 
+struct ExerciseQuestionPresentation: Hashable, Sendable {
+  let prompt: [PresentationFragment]
+  let choices: [OperatorChoice]
+
+  init(prompt: [PresentationFragment], choices: [OperatorChoice]) {
+    precondition(!prompt.isEmpty)
+    self.prompt = prompt
+    self.choices = choices
+  }
+}
+
+enum OperationActivityOutcome: String, Hashable, Sendable {
+  case inProgress = "In Progress"
+  case succeeded = "Succeeded"
+  case cancelled = "Cancelled"
+  case needsAttention = "Needs Attention"
+}
+
+struct OperationActivityPresentation: Hashable, Sendable {
+  let actor: String
+  let action: String
+  let outcome: OperationActivityOutcome
+  let detail: [PresentationFragment]
+  let recovery: [PresentationFragment]
+
+  init(
+    actor: String,
+    action: String,
+    outcome: OperationActivityOutcome,
+    detail: [PresentationFragment] = [],
+    recovery: [PresentationFragment] = []
+  ) {
+    self.actor = actor
+    self.action = action
+    self.outcome = outcome
+    self.detail = detail
+    self.recovery = recovery
+  }
+}
+
 struct OperatorActionPresentation: Hashable, Sendable {
   let itemID: LearningPathItemID
   let stepNumber: String
@@ -358,9 +495,10 @@ struct OperatorActionPresentation: Hashable, Sendable {
   let participant: String?
   let instructions: [PresentationFragment]
   let expectedObservation: [PresentationFragment]
-  let question: [PresentationFragment]
+  let question: ExerciseQuestionPresentation?
   let timeline: ExerciseTimelinePresentation?
   let evidence: [ExerciseEvidencePresentation]
+  let activity: OperationActivityPresentation?
   let actionStrip: ExerciseActionStripPresentation?
   let requestedFeedMMPerMinute: Double?
   let feedSource: FeedSelectionSource?
@@ -373,9 +511,10 @@ struct OperatorActionPresentation: Hashable, Sendable {
     participant: String? = nil,
     instructions: [PresentationFragment],
     expectedObservation: [PresentationFragment] = [],
-    question: [PresentationFragment] = [],
+    question: ExerciseQuestionPresentation? = nil,
     timeline: ExerciseTimelinePresentation? = nil,
     evidence: [ExerciseEvidencePresentation] = [],
+    activity: OperationActivityPresentation? = nil,
     actionStrip: ExerciseActionStripPresentation? = nil,
     requestedFeedMMPerMinute: Double? = nil,
     feedSource: FeedSelectionSource? = nil
@@ -390,6 +529,7 @@ struct OperatorActionPresentation: Hashable, Sendable {
     self.question = question
     self.timeline = timeline
     self.evidence = evidence
+    self.activity = activity
     self.actionStrip = actionStrip
     self.requestedFeedMMPerMinute = requestedFeedMMPerMinute
     self.feedSource = feedSource

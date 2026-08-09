@@ -94,6 +94,13 @@ starts, typed choices such as YES/NO replace Start when the runtime is awaiting
 that choice. Critical words are structured presentation values, not parsed from
 arbitrary prose.
 
+Motion Enabled is authorization state, not a synonym for an idle manual request;
+it remains enabled while the authorized owner is busy. The UI separately
+projects Ready, Busy, a named unavailable reason, or Needs Attention. A Needs
+Attention presentation identifies actor, attempted action, typed outcome, and a
+recovery instruction. The optional Utilities region has an explicit Hide action
+and collapses before the protected camera is starved.
+
 ## Binding revision and attempt semantics
 
 Visible sequence order defines the normal performance order. It does not define
@@ -193,10 +200,11 @@ segment, with Stop admission closed before renewal. Natural segment completion
 creates no boundary evidence and cannot be surfaced as successful completion.
 An ambiguous segment is never renewed.
 
-A repeated button press must not emit another cancel. Manual Stop uses the same
-surface and primitive but creates no boundary evidence. Shutdown closes new
-intent admission, settles the already latched owner once, then drains and
-disconnects.
+A repeated button press must not emit another cancel. Manual motion exposes the
+same capability-bound primitive as **Stop Manual Jog** in the Motion panel, not
+as an exercise action, and creates no boundary evidence. A stale manual
+capability cannot affect a later owner. Shutdown closes new intent admission,
+settles the already latched owner once, then drains and disconnects.
 
 Cancel is an exercise disposition, not an alias for successful Stop. Cancelling
 an attempt during active motion may use the one shared mechanical cancel/settle

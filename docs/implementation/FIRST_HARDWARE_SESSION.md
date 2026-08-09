@@ -107,11 +107,14 @@ Do not infer pen height from controller state or one camera frame.
 1. Select one direction with a clear observable path.
 2. Confirm the current action shows the controller-reported applicable feed
    ceiling and source. For a single-axis direction it must match that axis.
-3. Answer YES only when the path is clear and the cutoff is reachable.
+3. With the path clear and the cutoff reachable, press the one explicit
+   **Start**. There is no additional generic YES/NO question.
 4. Confirm the complete spoken movement announcement finishes before motion.
 5. Observe movement directly.
-6. Press the one exercise action strip **Stop** once at the observed boundary.
-7. Do not press any secondary cancellation control; none should exist.
+6. Press the one exercise action strip **Stop Boundary** once at the observed
+   boundary.
+7. Do not press Cancel Attempt unless the attempt should be abandoned; it is
+   not a successful Boundary Stop.
 
 Verify and record in order:
 

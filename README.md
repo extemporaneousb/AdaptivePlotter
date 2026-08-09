@@ -75,6 +75,12 @@ abandons the current exercise attempt through its typed cancellation route,
 only after a stopped, cancelled, or failed current attempt can truthfully be
 restarted.
 
+Boundary Discovery has no generic preparatory YES/NO ceremony. Selecting a
+direction is inert; the explicit Start action admits the logical owner, and the
+next operator action is its owner-bound Stop or Cancel. The manual Motion panel
+labels X/Y distance and feed units, labels every direction control, and exposes
+its own red **Stop Manual Jog** only while that exact manual owner is active.
+
 Buttons are authoritative for questions, labels, progression, assessment,
 Cancel, Stop, and Restart. Spoken movement announcements are output-only and
 advisory. They are serialized and completion-aware; a bounded speech-output
@@ -116,6 +122,14 @@ must not be silently pooled.
 The internal runtime retains its precise `MotionGuard` type, but the operator
 surface says **Enable Motion**, **Motion Enabled**, or **Motion Disabled**.
 There is no second arming control.
+
+The green Motion Enabled indicator reports current-session authorization and
+therefore remains green while that authorized session is busy moving or
+actuating. A separate request-status projection reports Ready, Busy,
+Unavailable with the exact reason, or Needs Attention. Needs Attention detail
+names the actor, action, outcome, and recovery rather than replacing those facts
+with a bare status label. The optional Utilities region has an explicit Hide
+action and yields width before the protected camera.
 
 Typed motion continues to require the applicable direct facts:
 
@@ -207,6 +221,12 @@ The evidence boundaries are explicit:
 
 SIMULATED frames share the renderer but are labeled nonphysical and cannot reach
 machine actions or satisfy physical evidence.
+
+LIVE and SIMULATED use the same Learning Path, motion panel, camera utilities,
+questions, and action locations. The deterministic simulator implements its
+own session, motion authorization, MPos, pen pose, manual jog, Boundary owner,
+Stop/Cancel, drawing, and camera evidence. Simulated learning is discarded when
+returning to LIVE; parked LIVE accepted authority is restored unchanged.
 
 ## Build, test, and launch
 

@@ -100,14 +100,16 @@ struct LearningPathNavigator: View {
 struct LearningPathView: View {
   @Bindable var workspace: OperatorWorkspace
   @Binding var selection: LearningPathSelectionState
-  let showUtilities: () -> Void
+  let utilities: UtilitiesPresentation
+  let performUtilitiesAction: (UtilitiesVisibilityAction) -> Void
 
   var body: some View {
     let actionWorkspace = workspace
     let selectedPresentation = workspace.selectedOperatorActionPresentation(
       for: selection.selected
     )
-    let pinnedActionStrip = workspace.currentExerciseActionStripPresentation
+    let pinnedActionStrip =
+      workspace.currentExerciseActionStripPresentation
       ?? selectedPresentation.actionStrip
 
     VStack(spacing: 0) {
@@ -147,11 +149,17 @@ struct LearningPathView: View {
           .lineLimit(2)
       }
       Spacer()
-      Button(action: showUtilities) {
-        Label("Utilities", systemImage: "sidebar.trailing")
+      Button {
+        performUtilitiesAction(utilities.action)
+      } label: {
+        Label(utilities.actionTitle, systemImage: "sidebar.trailing")
       }
       .buttonStyle(.bordered)
-      .help("Show Camera and Overlay utilities")
+      .disabled(!utilities.isActionEnabled)
+      .help(
+        utilities.unavailableReason
+          ?? "\(utilities.actionTitle) for Camera and Overlay controls"
+      )
     }
     .padding(12)
   }
@@ -178,12 +186,8 @@ struct LearningPathView: View {
         timelineCard(timeline)
       }
 
-      if !presentation.question.isEmpty {
-        fragmentCard(
-          label: "Focused question",
-          fragments: presentation.question,
-          color: Color.accentColor.opacity(0.12)
-        )
+      if let question = presentation.question {
+        questionCard(question)
       }
 
       if !presentation.instructions.isEmpty {
@@ -210,6 +214,10 @@ struct LearningPathView: View {
       }
       if let feedSource = presentation.feedSource {
         labeledValue("Feed source", feedSourceLabel(feedSource))
+      }
+
+      if let activity = presentation.activity {
+        operationActivityCard(activity)
       }
 
       if !presentation.evidence.isEmpty {
@@ -254,6 +262,71 @@ struct LearningPathView: View {
     }
     .padding(10)
     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 9))
+  }
+
+  private func questionCard(_ question: ExerciseQuestionPresentation) -> some View {
+    VStack(alignment: .leading, spacing: 6) {
+      Text("FOCUSED QUESTION")
+        .font(.caption2.monospaced().bold())
+        .foregroundStyle(.secondary)
+      fragmentText(question.prompt)
+        .font(.body)
+        .fixedSize(horizontal: false, vertical: true)
+        .textSelection(.enabled)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(question.prompt.accessibilityText)
+        .accessibilityValue(question.choices.map(\.exactPhrase).joined(separator: " or "))
+    }
+    .padding(11)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 9))
+  }
+
+  private func operationActivityCard(
+    _ activity: OperationActivityPresentation
+  ) -> some View {
+    VStack(alignment: .leading, spacing: 8) {
+      HStack(alignment: .firstTextBaseline) {
+        Text("OPERATION ACTIVITY")
+          .font(.caption2.monospaced().bold())
+          .foregroundStyle(.secondary)
+        Spacer()
+        Label(activity.outcome.rawValue, systemImage: activitySystemImage(activity.outcome))
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(activityColor(activity.outcome))
+      }
+      labeledValue("Actor", activity.actor)
+      labeledValue("Action", activity.action)
+      if !activity.detail.isEmpty {
+        activityFragments("Detail", activity.detail)
+      }
+      if !activity.recovery.isEmpty {
+        activityFragments("Recovery", activity.recovery)
+      }
+    }
+    .padding(11)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(
+      activityColor(activity.outcome).opacity(0.09),
+      in: RoundedRectangle(cornerRadius: 9)
+    )
+    .accessibilityElement(children: .contain)
+  }
+
+  private func activityFragments(
+    _ label: String,
+    _ fragments: [PresentationFragment]
+  ) -> some View {
+    VStack(alignment: .leading, spacing: 2) {
+      Text(label.uppercased())
+        .font(.caption2.monospaced().bold())
+        .foregroundStyle(.secondary)
+      fragmentText(fragments)
+        .font(.callout)
+        .textSelection(.enabled)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(fragments.accessibilityText)
+    }
   }
 
   private func fragmentCard(
@@ -376,7 +449,7 @@ private struct ExerciseActionStripView: View {
         .buttonStyle(.borderedProminent)
         .tint(.green)
     case .destructive:
-      if action.kind == .stop {
+      if case .stop = action.kind {
         button
           .buttonStyle(.borderedProminent)
           .tint(.red)
@@ -395,6 +468,24 @@ private struct ExerciseActionStripView: View {
         button.buttonStyle(.bordered)
       }
     }
+  }
+}
+
+private func activityColor(_ outcome: OperationActivityOutcome) -> Color {
+  switch outcome {
+  case .inProgress: .accentColor
+  case .succeeded: .green
+  case .cancelled: .secondary
+  case .needsAttention: .orange
+  }
+}
+
+private func activitySystemImage(_ outcome: OperationActivityOutcome) -> String {
+  switch outcome {
+  case .inProgress: "arrow.triangle.2.circlepath"
+  case .succeeded: "checkmark.circle.fill"
+  case .cancelled: "xmark.circle"
+  case .needsAttention: "exclamationmark.triangle.fill"
   }
 }
 

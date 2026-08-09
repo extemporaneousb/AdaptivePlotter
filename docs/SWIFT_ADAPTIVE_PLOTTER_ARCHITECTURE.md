@@ -198,6 +198,13 @@ Cancel, Stop, Restart, Redo, or Record Another Attempt control. Critical cues
 such as UP, DOWN, YES, NO, STOP, and typed directions are structured fragments
 with accessible emphasis, never view-side searches through prose.
 
+Toolbar status separates responsive-session state, Motion authorization, and
+transient request availability. Authorization remains enabled while the one
+owner is moving or actuating; Ready/Busy/Unavailable/Needs Attention is a
+separate projection. Operation activity records identify actor, action,
+outcome, detail, and recovery. The optional Utilities region has explicit
+Show/Hide state and yields width before the protected camera.
+
 There is no standalone Jog Observations presentation or hidden diagnostic
 workflow. Repeat collection is an action on a numbered exercise and uses that
 exercise's typed artifact, attempt group, and aggregate. The removed online
@@ -229,14 +236,17 @@ ordinary manual admission.
 ## 6. Exercise actions, Stop ownership, and shutdown
 
 `ContextualStopTarget` distinguishes Boundary Discovery, manual jog, and drawing
-trial. The persistent exercise action strip enables Stop only while a target
-exists. There is one Stop action route even when the selected row is being
-reviewed. The former observed-jog target and its separate workflow are absent.
+trial and carries a unique capability identity. Exercise targets render Stop in
+the persistent exercise action strip; a manual target renders **Stop Manual
+Jog** in the Motion panel. Exactly one contextual Stop is visible for the exact
+active owner even when another row is reviewed. The former observed-jog target
+and its separate workflow are absent.
 
 The one-cancel latch prevents repeated button presses and shutdown from emitting
 duplicate cancellation. Boundary Stop records the typed operator event before
 the byte and awaits the original boundary task through its frame/posterior
 continuation. Manual Stop awaits its owner and creates no discovery evidence.
+A stale capability is inert and cannot cancel a later operation.
 
 Cancel is a typed exercise disposition. If no motion is active it abandons the
 current attempt directly. If motion must settle, Cancel uses the same one-cancel
@@ -275,8 +285,13 @@ selection/restart and prevents measurements from silently crossing optical
 contexts. The shared aspect-fit renderer projects top-left-origin camera pixels
 into the view.
 
-SIMULATED content uses the same renderer but cannot invoke machine actions or
-produce physical evidence.
+SIMULATED content uses the same renderer and the same Learning Path/action
+presentation. A separate typed actor owns simulated session, Motion
+authorization, MPos, pen pose, manual jog, renewable Boundary motion,
+Stop/Cancel, and drawing outcomes. It cannot invoke machine actions or produce
+physical evidence. Every simulated evidence surface carries the exact
+`SIMULATED — NOT PHYSICAL EVIDENCE` notice. LIVE accepted learning authority is
+parked across simulation and restored unchanged when simulation is discarded.
 
 ## 9. Learning evidence and models
 

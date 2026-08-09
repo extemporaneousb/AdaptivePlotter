@@ -15,6 +15,69 @@ public enum RunInterpreterError: Error, Equatable, Sendable {
   case staleTransition
 }
 
+/// A boundary operation whose logical owner is already registered with the
+/// interpreter. Publishing this handle is the admission acknowledgement; a
+/// caller may expose Stop only after it receives the handle.
+public struct BoundaryMotionOperation: Sendable {
+  public let ownerID: BoundaryMotionOwnerID
+  private let task: Task<BoundaryMotionOutcome, Never>
+
+  public init(
+    ownerID: BoundaryMotionOwnerID,
+    task: Task<BoundaryMotionOutcome, Never>
+  ) {
+    self.ownerID = ownerID
+    self.task = task
+  }
+
+  public func outcome() async -> BoundaryMotionOutcome {
+    await task.value
+  }
+}
+
+public enum BoundaryMotionAdmission: Sendable {
+  case admitted(BoundaryMotionOperation)
+  case rejected(BoundaryMotionOutcome)
+}
+
+public struct RelativeJogOperation: Sendable {
+  public let id: UUID
+  private let task: Task<MotionOutcome, Never>
+
+  public init(id: UUID, task: Task<MotionOutcome, Never>) {
+    self.id = id
+    self.task = task
+  }
+
+  public func outcome() async -> MotionOutcome {
+    await task.value
+  }
+}
+
+public enum RelativeJogAdmission: Sendable {
+  case admitted(RelativeJogOperation)
+  case rejected(MotionOutcome)
+}
+
+public struct DrawingStrokeOperation: Sendable {
+  public let id: UUID
+  private let task: Task<DrawingStrokeOutcome, Never>
+
+  public init(id: UUID, task: Task<DrawingStrokeOutcome, Never>) {
+    self.id = id
+    self.task = task
+  }
+
+  public func outcome() async -> DrawingStrokeOutcome {
+    await task.value
+  }
+}
+
+public enum DrawingStrokeAdmission: Sendable {
+  case admitted(DrawingStrokeOperation)
+  case rejected(DrawingStrokeOutcome)
+}
+
 public enum RunOperation: Hashable, Sendable {
   case idle
   case passiveProbe
@@ -120,37 +183,75 @@ public actor RunInterpreter {
   }
 
   public func requestRelativeJog(_ request: RelativeJogRequest) async -> MotionOutcome {
+    switch beginRelativeJog(request) {
+    case .admitted(let operation):
+      return await operation.outcome()
+    case .rejected(let outcome):
+      return outcome
+    }
+  }
+
+  public func beginRelativeJog(_ request: RelativeJogRequest) -> RelativeJogAdmission {
     guard currentOperation == .idle else {
       let outcome = MotionOutcome.refused(.operationInFlight)
       lastMotionOutcome = outcome
-      return outcome
+      return .rejected(outcome)
     }
     generation &+= 1
     currentOperation = .relativeJog(request)
+    let operationID = UUID()
+    let task = Task { await self.runAdmittedRelativeJog(request) }
+    return .admitted(RelativeJogOperation(id: operationID, task: task))
+  }
+
+  private func runAdmittedRelativeJog(_ request: RelativeJogRequest) async -> MotionOutcome {
     let outcome = await machineController.requestRelativeJog(request)
     lastMotionOutcome = outcome
-    currentOperation = .idle
+    if case .relativeJog = currentOperation { currentOperation = .idle }
     return outcome
   }
 
-  /// Runs finite GRBL jog segments under one logical Boundary Discovery owner.
-  /// Natural segment completion yields and rechecks the Stop latch before any
-  /// renewal; it is never surfaced as successful boundary evidence.
-  public func requestBoundaryMotion(
+  /// Registers the logical owner before returning. This closes the UI/runtime
+  /// race where Stop could be published while the request task was still
+  /// waiting to enter this actor.
+  public func beginBoundaryMotion(
     _ request: BoundaryMotionRequest
-  ) async -> BoundaryMotionOutcome {
+  ) async -> BoundaryMotionAdmission {
     guard currentOperation == .idle else {
       let outcome = BoundaryMotionOutcome.needsAttention(
         ownerID: request.ownerID,
         terminal: .refusal(.operationInFlight)
       )
       lastBoundaryMotionOutcome = outcome
-      return outcome
+      return .rejected(outcome)
     }
     generation &+= 1
     currentOperation = .boundaryMotion(request)
     activeBoundaryMotion = ActiveBoundaryMotion(request: request)
     activeBoundaryMotion?.lastSettledPosition = await machineController.snapshot().position
+    let task = Task { await self.runAdmittedBoundaryMotion(request) }
+    return .admitted(BoundaryMotionOperation(ownerID: request.ownerID, task: task))
+  }
+
+  /// Compatibility entry point for non-UI callers. UI composition uses
+  /// `beginBoundaryMotion` so it cannot publish Stop before admission.
+  public func requestBoundaryMotion(
+    _ request: BoundaryMotionRequest
+  ) async -> BoundaryMotionOutcome {
+    switch await beginBoundaryMotion(request) {
+    case .admitted(let operation):
+      return await operation.outcome()
+    case .rejected(let outcome):
+      return outcome
+    }
+  }
+
+  /// Runs finite GRBL jog segments under one admitted logical Boundary
+  /// Discovery owner. Natural segment completion yields and rechecks the Stop
+  /// latch before renewal; it is never successful boundary evidence.
+  private func runAdmittedBoundaryMotion(
+    _ request: BoundaryMotionRequest
+  ) async -> BoundaryMotionOutcome {
     defer {
       if case .boundaryMotion(let current) = currentOperation,
         current.ownerID == request.ownerID
@@ -243,16 +344,35 @@ public actor RunInterpreter {
   public func requestDrawingStroke(
     _ request: DrawingStrokeRequest
   ) async -> DrawingStrokeOutcome {
+    switch beginDrawingStroke(request) {
+    case .admitted(let operation):
+      return await operation.outcome()
+    case .rejected(let outcome):
+      return outcome
+    }
+  }
+
+  public func beginDrawingStroke(
+    _ request: DrawingStrokeRequest
+  ) -> DrawingStrokeAdmission {
     guard currentOperation == .idle else {
       let outcome = DrawingStrokeOutcome.refused(.operationInFlight)
       lastDrawingStrokeOutcome = outcome
-      return outcome
+      return .rejected(outcome)
     }
     generation &+= 1
     currentOperation = .drawingStroke(request)
+    let operationID = UUID()
+    let task = Task { await self.runAdmittedDrawingStroke(request) }
+    return .admitted(DrawingStrokeOperation(id: operationID, task: task))
+  }
+
+  private func runAdmittedDrawingStroke(
+    _ request: DrawingStrokeRequest
+  ) async -> DrawingStrokeOutcome {
     let outcome = await machineController.requestDrawingStroke(request)
     lastDrawingStrokeOutcome = outcome
-    currentOperation = .idle
+    if case .drawingStroke = currentOperation { currentOperation = .idle }
     return outcome
   }
 

@@ -63,14 +63,14 @@ enum JogDirection: String, CaseIterable, Identifiable, Sendable {
 
 enum BoundaryTeachingState: Equatable, Sendable {
   case idle
-  case awaitingConfirmation(JogDirection)
+  case awaitingOwnerAdmission(JogDirection)
   case ownerActive(JogDirection)
   case cancelling(JogDirection)
 
   var direction: JogDirection? {
     switch self {
     case .idle: nil
-    case .awaitingConfirmation(let direction), .ownerActive(let direction),
+    case .awaitingOwnerAdmission(let direction), .ownerActive(let direction),
       .cancelling(let direction):
       direction
     }
@@ -78,14 +78,59 @@ enum BoundaryTeachingState: Equatable, Sendable {
 }
 
 enum ContextualStopTarget: Hashable, Sendable {
-  case boundaryDiscovery(transactionID: UUID, direction: BoundaryDirection)
-  case manualJog
-  case drawingTrial
+  case boundaryDiscovery(
+    capabilityID: ContextualStopCapabilityID,
+    transactionID: UUID,
+    operationOwner: ContextualMotionOwnerID,
+    attemptID: ExerciseAttemptID,
+    direction: BoundaryDirection
+  )
+  case manualJog(capabilityID: ContextualStopCapabilityID, operationOwner: ContextualMotionOwnerID)
+  case drawingTrial(capabilityID: ContextualStopCapabilityID, operationOwner: ContextualMotionOwnerID)
+
+  var capabilityID: ContextualStopCapabilityID {
+    switch self {
+    case .boundaryDiscovery(let capabilityID, _, _, _, _),
+      .manualJog(let capabilityID, _),
+      .drawingTrial(let capabilityID, _):
+      capabilityID
+    }
+  }
+
+  var operationOwner: ContextualMotionOwnerID {
+    switch self {
+    case .boundaryDiscovery(_, _, let owner, _, _),
+      .manualJog(_, let owner),
+      .drawingTrial(_, let owner):
+      owner
+    }
+  }
+}
+
+enum ContextualMotionOwnerID: Hashable, Sendable {
+  case liveBoundary(BoundaryMotionOwnerID)
+  case liveOperation(UUID)
+  case simulated(SimulatedLearningOperationID)
 }
 
 struct ContextualStopPresentation: Hashable, Sendable {
-  let title = "Stop"
+  let capabilityID: ContextualStopCapabilityID
+  let title: String
   let detail: String
+}
+
+struct ContextualStopAuditRecord: Hashable, Sendable {
+  let capabilityID: ContextualStopCapabilityID
+  let actor: String
+  let action: String
+  let disposition: JogCancelIntent
+  let outcome: String
+}
+
+private struct ContextualStopDispositionLatch: Hashable, Sendable {
+  let capabilityID: ContextualStopCapabilityID
+  let intent: JogCancelIntent
+  let actor: String
 }
 
 enum DrawingTrialAssessment: String, CaseIterable, Identifiable, Hashable, Sendable {
@@ -137,6 +182,19 @@ struct LiveSceneInspection: Sendable {
   let measurement: PlotterSceneMeasurement
 }
 
+private struct DiscoverySceneInspection: Sendable {
+  let displayedFrame: DisplayedFrame
+  let frameSHA256: String
+  let observedToolCentroid: Point2<CameraPixelSpace>?
+  let drawingFrame: DrawingFrameEstimate?
+  let overlays: [CameraOverlayMeasurement]
+
+  var frameID: FrameID { displayedFrame.frame.id }
+  var cameraConfigurationID: CameraConfigurationID {
+    displayedFrame.frame.cameraConfigurationID
+  }
+}
+
 @MainActor
 @Observable
 final class OperatorWorkspace {
@@ -167,6 +225,56 @@ final class OperatorWorkspace {
     let overlays: [CameraOverlayMeasurement]
   }
 
+  /// Live accepted learning authority is parked while the deterministic
+  /// simulator runs. Simulated artifacts can drive the same presentation but
+  /// are discarded when LIVE resumes and can never become physical evidence.
+  private struct LearningAuthoritySnapshot {
+    let boundaryTeachingState: BoundaryTeachingState
+    let boundaryTeachingResultText: String
+    let boundaryPositions: [JogDirection: MachinePosition]
+    let selectedDiscoverySequenceID: DiscoverySequenceID
+    let discoveryTransactions: [DiscoverySequenceID: DiscoveryTransaction]
+    let discoveryError: String?
+    let drawingFramePosterior: DrawingFramePosterior?
+    let boundaryFrameObservationsByAttemptID: [ExerciseAttemptID: DrawingFrameBoundaryObservation]
+    let explorationError: String?
+    let currentExplorationEpisode: ExplorationEpisode?
+    let completedExplorationEpisodes: [ExplorationEpisode]
+    let armatureGuidanceState: ArmatureGuidanceState?
+    let lastArmatureObservation: ArmaturePoseObservation?
+    let explorationCleanReference: DisplayedFrame?
+    let explorationAnchoredBaseline: DisplayedFrame?
+    let explorationPostLineFrame: DisplayedFrame?
+    let drawingTrialLineStart: MachinePosition?
+    let drawingTrialStrokeEvidence: DrawingStrokeEvidence?
+    let lastAnchorObservation: AnchorDotObservation?
+    let lastInkObservation: IsolatedInkObservation?
+    let explorationInkStatus: String
+    let explorationExportPath: String?
+    let lastTravelFeedSelection: TravelFeedSelection?
+    let drawingTrialAssessment: DrawingTrialAssessment?
+    let clearViewPoseAccepted: Bool
+    let learningArtifactGraph: LearningDependencyGraph
+    let penAttemptHistory: ExerciseAttemptHistory<PenState>
+    let boundaryAttemptHistories: [
+      BoundaryDirection: [AttemptCompatibility: ExerciseAttemptHistory<Double>]
+    ]
+    let clearViewAttemptHistories: [
+      AttemptCompatibility: ExerciseAttemptHistory<ArmatureVisibilityLabel>
+    ]
+    let comparisonAttemptHistories: [
+      AttemptCompatibility: ExerciseAttemptHistory<DrawingTrialAssessment>
+    ]
+    let restartableExerciseItemID: LearningPathItemID?
+    let observedDrawingTrialStep: ObservedDrawingTrialStep
+    let pendingClearViewLabel: ArmatureVisibilityLabel?
+    let selectedBoundaryDirection: BoundaryDirection
+    let acceptedAttemptSequence: UInt64
+    let currentDrawingTrialGroup: AttemptGroupIdentity
+    let explorationCoordinateRevision: UInt64
+    let explorationToolPaperRevision: UUID
+  }
+
   private enum MotionPriors {
     static let stepMM = "1.0"
     static let feedMMPerMinute = "100"
@@ -182,9 +290,12 @@ final class OperatorWorkspace {
     let activateMotionGuard: @Sendable () async -> MotionGuardActivationOutcome
     let deactivateMotionGuard: @Sendable () async -> Void
     let requestRelativeJog: @Sendable (RelativeJogRequest) async -> MotionOutcome
+    let beginRelativeJog: @Sendable (RelativeJogRequest) async -> RelativeJogAdmission
     let requestDrawingStroke: @Sendable (DrawingStrokeRequest) async -> DrawingStrokeOutcome
+    let beginDrawingStroke: @Sendable (DrawingStrokeRequest) async -> DrawingStrokeAdmission
     let requestPenActuation: @Sendable (PenCommand) async -> PenOutcome
     let requestBoundaryMotion: @Sendable (BoundaryMotionRequest) async -> BoundaryMotionOutcome
+    let beginBoundaryMotion: @Sendable (BoundaryMotionRequest) async -> BoundaryMotionAdmission
     let requestJogCancel: @Sendable (JogCancelIntent) async -> JogCancelOutcome
     let disconnect: @Sendable () async -> Void
   }
@@ -244,6 +355,7 @@ final class OperatorWorkspace {
   private(set) var frameModeSwitchInProgress = false
   private(set) var motionGuardActivationInProgress = false
   private(set) var lastMotionGuardActivationText = "not activated"
+  private(set) var lastContextualStopAuditRecord: ContextualStopAuditRecord?
 
   private(set) var cameraSnapshot: CameraCaptureSnapshot?
   private(set) var displayedFrame: DisplayedFrame?
@@ -261,6 +373,7 @@ final class OperatorWorkspace {
   private(set) var simulatorEvidenceLabel = SimulatedOverlaySceneContent.evidenceLabel
   private(set) var simulatorPenState: PenState = .unknown
   private(set) var simulatorLearningSummary = "Switch to SIMULATED to inspect model behavior."
+  private(set) var simulatedLearningSnapshot: SimulatedLearningSnapshot?
   private(set) var boundaryTeachingState: BoundaryTeachingState = .idle
   private(set) var boundaryTeachingResultText = "Choose one side to begin."
   private(set) var boundaryPositions: [JogDirection: MachinePosition] = [:]
@@ -308,6 +421,7 @@ final class OperatorWorkspace {
   @ObservationIgnored private let machineActions: MachineActions?
   @ObservationIgnored private let cameraActions: CameraActions?
   @ObservationIgnored private let announcementActions: AnnouncementActions?
+  @ObservationIgnored private let simulatedLearningRuntime: SimulatedLearningRuntime
   @ObservationIgnored private let serialDeviceDiscovery: @Sendable () -> [MachineLinkDescriptor]
   @ObservationIgnored private let persistSelectedSerialIdentifier: @Sendable (String) -> Void
   @ObservationIgnored private let nowNanoseconds: @Sendable () -> UInt64
@@ -320,9 +434,11 @@ final class OperatorWorkspace {
   @ObservationIgnored private var boundaryMotionTask: Task<Void, Never>?
   @ObservationIgnored private var manualJogTask: Task<MotionOutcome, Never>?
   @ObservationIgnored private var drawingTrialTask: Task<DrawingStrokeOutcome, Never>?
+  @ObservationIgnored private var simulatedOperationTask:
+    Task<SimulatedLearningOperationOutcome?, Never>?
   @ObservationIgnored private var activeStopTarget: ContextualStopTarget?
-  @ObservationIgnored private var stopRequestIssuedForTarget: ContextualStopTarget?
-  @ObservationIgnored private var pendingDiscoveryInspection: LiveSceneInspection?
+  @ObservationIgnored private var stopDispositionLatch: ContextualStopDispositionLatch?
+  @ObservationIgnored private var pendingDiscoveryInspection: DiscoverySceneInspection?
   @ObservationIgnored private var pendingDiscoveryCaptureBoundaryNanoseconds: UInt64?
   @ObservationIgnored private var rememberedSerialDeviceIdentifier: String?
   @ObservationIgnored private var hasShutdown = false
@@ -331,6 +447,7 @@ final class OperatorWorkspace {
   @ObservationIgnored private var intentDrainWaiters: [CheckedContinuation<Void, Never>] = []
   @ObservationIgnored private var activeExerciseAttemptMode: ExerciseAttemptMode?
   @ObservationIgnored private var boundaryDerivedValueSnapshot: BoundaryDerivedValueSnapshot?
+  @ObservationIgnored private var parkedLiveLearningAuthority: LearningAuthoritySnapshot?
   @ObservationIgnored private var acceptedAttemptSequence: UInt64 = 0
   @ObservationIgnored private var currentDrawingTrialGroup = AttemptGroupIdentity(
     rawValue: UUID().uuidString.lowercased()
@@ -340,6 +457,7 @@ final class OperatorWorkspace {
     machineActions: MachineActions? = nil,
     cameraActions: CameraActions? = nil,
     announcementActions: AnnouncementActions? = nil,
+    simulatedLearningRuntime: SimulatedLearningRuntime = SimulatedLearningRuntime(),
     serialDevices: [MachineLinkDescriptor] = [],
     serialDeviceDiscovery: @escaping @Sendable () -> [MachineLinkDescriptor] = {
       SerialPortDiscovery.discover()
@@ -366,6 +484,7 @@ final class OperatorWorkspace {
     self.machineActions = machineActions
     self.cameraActions = cameraActions
     self.announcementActions = announcementActions
+    self.simulatedLearningRuntime = simulatedLearningRuntime
     self.serialDevices = serialDevices
     self.serialDeviceDiscovery = serialDeviceDiscovery
     self.persistSelectedSerialIdentifier = persistSelectedSerialIdentifier
@@ -408,6 +527,35 @@ final class OperatorWorkspace {
       machine.stickyAmbiguity == nil
     else { return false }
     return true
+  }
+
+  /// A responsive operator session remains established while its one owner is
+  /// moving or actuating. This is status truth, not motion admission.
+  var controllerSessionEstablished: Bool {
+    if frameMode == .simulated {
+      return simulatedLearningSnapshot?.session == .connected
+    }
+    guard passiveProbeResult?.blockers.isEmpty == true,
+      let machine = machineSnapshot?.machine,
+      machine.controllerState?.isRecognized == true,
+      machine.stickyAmbiguity == nil
+    else { return false }
+    switch machine.connection {
+    case .connected, .moving, .actuatingPen:
+      return true
+    case .disconnected, .connecting, .probing, .blocked:
+      return false
+    }
+  }
+
+  /// Session authorization only. Transient operation ownership, Pen pose, and
+  /// editable manual fields are presented separately as request availability.
+  var motionAuthorizationEnabled: Bool {
+    if frameMode == .simulated {
+      return simulatedLearningSnapshot?.motionAuthorization == .enabled
+    }
+    return controllerSessionEstablished
+      && machineSnapshot?.machine.motionGuardState == .active
   }
 
   var cameraStateText: String {
@@ -477,6 +625,16 @@ final class OperatorWorkspace {
   }
 
   var currentOperationText: String {
+    if frameMode == .simulated {
+      guard let operation = simulatedLearningSnapshot?.currentOperation else {
+        return "simulated idle"
+      }
+      return switch operation.kind {
+      case .manualJog: "simulated manual jog"
+      case .boundary: "simulated Boundary Discovery motion"
+      case .drawing: "simulated isolated drawing stroke"
+      }
+    }
     guard let operation = machineSnapshot?.currentOperation else { return "none" }
     return switch operation {
     case .idle: "idle"
@@ -489,10 +647,16 @@ final class OperatorWorkspace {
   }
 
   var controllerStateText: String {
-    machineSnapshot?.machine.controllerState?.rawValue ?? "unknown"
+    if frameMode == .simulated {
+      return simulatedLearningSnapshot?.currentOperation == nil ? "simulated Idle" : "simulated active"
+    }
+    return machineSnapshot?.machine.controllerState?.rawValue ?? "unknown"
   }
 
   var controllerConnectionText: String {
+    if frameMode == .simulated {
+      return controllerSessionEstablished ? "simulator connected" : "simulator disconnected"
+    }
     guard selectedSerialDevice != nil else { return "not selected" }
     if controllerIsConnected { return "connected" }
     guard let machine = machineSnapshot?.machine else { return "not connected" }
@@ -518,16 +682,17 @@ final class OperatorWorkspace {
   /// BlackBox does not report whether motor supply current is present, so the
   /// UI must not turn a responsive serial link into a powered-motors claim.
   var motorPowerText: String {
+    if frameMode == .simulated { return "not present — nonphysical simulator" }
     guard machineSnapshot?.machine.connection == .connected else { return "unverified" }
     return "not reported by controller"
   }
 
   var motionPermissionText: String {
-    motionUnavailableReason == nil ? "request eligible" : "blocked"
+    motionUnavailableReason == nil ? "request eligible" : "unavailable"
   }
 
   var motionGuardIsActive: Bool {
-    controllerIsConnected && machineSnapshot?.machine.motionGuardState == .active
+    motionAuthorizationEnabled
   }
 
   /// Drives the green top-bar badge. Session activation alone is not enough:
@@ -555,8 +720,13 @@ final class OperatorWorkspace {
 
   var motionGuardActivationUnavailableReason: String? {
     if motionGuardActivationInProgress { return "Enable Motion is in progress." }
-    if motionGuardIsActive { return "Motion is already enabled." }
-    if !controllerIsConnected { return "Connect the selected plotter first." }
+    if motionAuthorizationEnabled { return "Motion is already enabled." }
+    if !controllerSessionEstablished {
+      return frameMode == .simulated
+        ? "Connect the learning simulator first."
+        : "Connect the selected plotter first."
+    }
+    if frameMode == .simulated { return nil }
     guard let snapshot = machineSnapshot else {
       return MotionRefusal.notConnected.actionableDescription
     }
@@ -586,7 +756,10 @@ final class OperatorWorkspace {
   }
 
   var controllerConnectionActionTitle: String {
-    controllerLinkIsOpen ? "Disconnect" : "Connect"
+    if frameMode == .simulated {
+      return controllerSessionEstablished ? "Disconnect" : "Connect"
+    }
+    return controllerLinkIsOpen ? "Disconnect" : "Connect"
   }
 
   var controllerConnectionActionUnavailableReason: String? {
@@ -602,12 +775,19 @@ final class OperatorWorkspace {
     {
       return "Wait for the current operation."
     }
+    if frameMode == .simulated {
+      return simulatedLearningSnapshot?.currentOperation == nil
+        ? nil : "Stop or finish the current simulated operation first."
+    }
     if controllerLinkIsOpen { return nil }
     return passiveProbeUnavailableReason
   }
 
   var frameModeSwitchUnavailableReason: String? {
     if frameModeSwitchInProgress { return "A frame source switch is already in progress." }
+    if activeExerciseAttemptOwnerID != nil {
+      return "Finish or Cancel the active Learning Path attempt before changing frame source."
+    }
     if activeDiscoverySequenceID != nil {
       return "Finish the active Human-Guided Discovery transaction first."
     }
@@ -638,7 +818,7 @@ final class OperatorWorkspace {
   var penInteractionCompleted: Bool {
     guard learningArtifactGraph.currentRevision(for: .penInteraction) != nil else { return false }
     return frameMode == .simulated
-      ? simulatorPenState == .up
+      ? simulatedLearningSnapshot?.penPose == .up
       : machineSnapshot?.machine.penState == .up
   }
 
@@ -657,8 +837,8 @@ final class OperatorWorkspace {
   var currentLearningPathItemID: LearningPathItemID {
     if let activeExerciseAttemptOwnerID { return activeExerciseAttemptOwnerID }
     if let restartableExerciseItemID { return restartableExerciseItemID }
-    if !controllerIsConnected { return .stage(.connect) }
-    if !motionGuardIsActive { return .stage(.enableMotion) }
+    if !controllerSessionEstablished { return .stage(.connect) }
+    if !motionAuthorizationEnabled { return .stage(.enableMotion) }
     if !penInteractionCompleted { return .humanGuidedDiscovery(.penInteraction) }
     if relevantBoundaryObservationCount == 0 {
       return .humanGuidedDiscovery(.boundaryDiscovery)
@@ -682,22 +862,158 @@ final class OperatorWorkspace {
   }
 
   var contextualStopPresentation: ContextualStopPresentation? {
-    guard let activeStopTarget else { return nil }
-    if case .boundaryDiscovery(let transactionID, let direction) = activeStopTarget {
+    guard let activeStopTarget, stopDispositionLatch == nil else { return nil }
+    if case .boundaryDiscovery(_, let transactionID, _, _, let direction) = activeStopTarget {
       let sequenceID = sequenceID(for: direction)
       guard discoveryTransactions[sequenceID]?.id == transactionID,
         case .awaitContextualStop(direction) = discoveryTransactions[sequenceID]?.currentStep?.action
       else { return nil }
     }
     let detail = switch activeStopTarget {
-    case .boundaryDiscovery(_, let direction):
+    case .boundaryDiscovery(_, _, _, _, let direction):
       "Stop \(direction.displayName) Boundary Discovery, wait for Idle, then observe its final position and a fresh frame."
     case .manualJog:
       "Stop the active manual jog and wait for Idle."
     case .drawingTrial:
       "Stop the drawing trial; the controller owns its single Pen Up cancellation."
     }
-    return ContextualStopPresentation(detail: detail)
+    return ContextualStopPresentation(
+      capabilityID: activeStopTarget.capabilityID,
+      title: "Stop",
+      detail: detail
+    )
+  }
+
+  var manualMotionPresentation: ManualMotionPresentation {
+    let stopAction: ContextualStopActionPresentation?
+    if let target = activeStopTarget,
+      case .manualJog = target,
+      stopDispositionLatch == nil
+    {
+      stopAction = ContextualStopActionPresentation(
+        capabilityID: target.capabilityID,
+        title: "Stop Manual Jog",
+        detail: "Stop only this manual jog and wait for its original owner to settle."
+      )
+    } else {
+      stopAction = nil
+    }
+    return ManualMotionPresentation(
+      stopAction: stopAction,
+      jogUnavailableReason: motionUnavailableReason
+    )
+  }
+
+  func stopManualJog(capabilityID: ContextualStopCapabilityID) async {
+    guard let target = activeStopTarget,
+      target.capabilityID == capabilityID,
+      case .manualJog = target
+    else { return }
+    await stopCurrentOperation(capabilityID: capabilityID)
+  }
+
+  var motionRequestStatusPresentation: MotionRequestStatusPresentation {
+    if frameMode == .simulated {
+      if simulatedLearningSnapshot?.currentOperation != nil || jogRequestInProgress
+        || penRequestInProgress || jogCancelRequestInProgress || activeStopTarget != nil
+      {
+        return .busy(currentOperationText)
+      }
+      if let reason = motionUnavailableReason { return .unavailable(reason) }
+      return .ready
+    }
+    if let ambiguity = machineSnapshot?.machine.stickyAmbiguity {
+      return .needsAttention(ambiguity.actionableDescription)
+    }
+    if let machineError { return .needsAttention(machineError) }
+    if jogRequestInProgress || penRequestInProgress || jogCancelRequestInProgress
+      || activeStopTarget != nil
+    {
+      return .busy(currentOperationText)
+    }
+    if let reason = motionUnavailableReason { return .unavailable(reason) }
+    return .ready
+  }
+
+  var cameraUtilityPresentation: CameraUtilityPresentation {
+    let simulated = frameMode == .simulated
+    let switchReason = frameModeSwitchUnavailableReason
+    let liveOnly = "This action requires a LIVE camera source."
+    let actions = CameraUtilityActionKind.allCases.map { kind in
+      let title: String
+      let systemImage: String
+      let unavailableReason: String?
+      switch kind {
+      case .refresh:
+        title = "Refresh Source"
+        systemImage = "arrow.clockwise"
+        unavailableReason = switchReason
+      case .start:
+        title = "Start Source"
+        systemImage = "play.fill"
+        unavailableReason = switchReason
+      case .stop:
+        title = "Stop Source"
+        systemImage = "stop.fill"
+        unavailableReason = switchReason
+      case .restart:
+        title = "Restart Source"
+        systemImage = "arrow.counterclockwise"
+        unavailableReason = switchReason
+      case .analyzeOrResume:
+        title = analysisFrameHeld ? "Resume Preview" : "Analyze Current Frame"
+        systemImage = analysisFrameHeld ? "play.rectangle" : "viewfinder"
+        unavailableReason = simulated ? liveOnly : displayedFrame == nil ? "No current frame." : nil
+      case .saveSnapshot:
+        title = "Save Snapshot"
+        systemImage = "camera"
+        unavailableReason = simulated ? liveOnly : displayedFrame == nil ? "No current frame." : nil
+      case .toggleAutomaticAnalysis:
+        title = automaticVisionEnabled ? "Stop Auto Analysis" : "Start Auto Analysis"
+        systemImage = automaticVisionEnabled ? "pause.circle" : "waveform.path.ecg"
+        unavailableReason = simulated ? liveOnly : nil
+      }
+      return CameraUtilityActionPresentation(
+        kind: kind,
+        title: title,
+        systemImage: systemImage,
+        unavailableReason: unavailableReason
+      )
+    }
+    return CameraUtilityPresentation(
+      mode: frameMode,
+      actions: actions,
+      analysisCadenceUnavailableReason: simulated ? liveOnly : nil
+    )
+  }
+
+  func performCameraUtilityAction(_ kind: CameraUtilityActionKind) async {
+    guard cameraUtilityPresentation.actions.first(where: { $0.kind == kind })?.isEnabled == true
+    else { return }
+    if frameMode == .simulated {
+      switch kind {
+      case .refresh, .start, .restart:
+        await refreshSimulatedContent()
+      case .stop:
+        displayedFrame = nil
+        cameraOverlays = []
+        simulatorLearningSummary =
+          "Simulated source stopped. \(SimulatedLearningEvidenceNotice.evidenceLabel)"
+      case .analyzeOrResume, .saveSnapshot, .toggleAutomaticAnalysis:
+        return
+      }
+      return
+    }
+    switch kind {
+    case .refresh: await discoverCameras()
+    case .start: await startCamera()
+    case .stop: await stopCamera()
+    case .restart: await restartCamera()
+    case .analyzeOrResume:
+      if analysisFrameHeld { await resumeLivePreview() } else { await inspectLatestScene() }
+    case .saveSnapshot: await captureCameraSnapshot()
+    case .toggleAutomaticAnalysis: await setAutomaticVisionAnalysis(!automaticVisionEnabled)
+    }
   }
 
   var currentExerciseActionStripPresentation: ExerciseActionStripPresentation? {
@@ -717,6 +1033,7 @@ final class OperatorWorkspace {
         instructions: [.text(learningPathSummary(for: itemID))],
         expectedObservation: stageExpectedObservation(stage),
         evidence: stageEvidence(stage),
+        activity: operationActivityPresentation(for: itemID, transaction: nil),
         actionStrip: exerciseActionStrip(for: itemID)
       )
 
@@ -741,7 +1058,7 @@ final class OperatorWorkspace {
         expectedObservation: activeStep.map {
           discoveryExpectationFragments($0.expectedEvent)
         } ?? discoveryReviewExpectation(discoveryStep),
-        question: activeStep.map { discoveryQuestionFragments($0.action) } ?? [],
+        question: activeStep.flatMap { discoveryQuestionPresentation($0.action) },
         timeline: transaction.flatMap { transaction in
           guard transaction.state == .active, transaction.completedStepCount < transaction.definition.steps.count
           else { return nil }
@@ -752,6 +1069,7 @@ final class OperatorWorkspace {
           )
         },
         evidence: discoveryEvidence(transaction),
+        activity: operationActivityPresentation(for: itemID, transaction: transaction),
         actionStrip: exerciseActionStrip(for: itemID),
         requestedFeedMMPerMinute: feedSelection?.requestedFeedMMPerMinute,
         feedSource: feedSelection?.source
@@ -772,6 +1090,7 @@ final class OperatorWorkspace {
           currentLabel: observedDrawingTrialStep.title
         ),
         evidence: drawingTrialEvidence(for: trialStep),
+        activity: operationActivityPresentation(for: itemID, transaction: nil),
         actionStrip: exerciseActionStrip(for: itemID),
         requestedFeedMMPerMinute: lastTravelFeedSelection?.requestedFeedMMPerMinute,
         feedSource: lastTravelFeedSelection?.source
@@ -803,9 +1122,9 @@ final class OperatorWorkspace {
       await answerCurrentQuestion(choice)
     case .cancel:
       await cancelExerciseAttempt(ownerID)
-    case .stop:
+    case .stop(let capabilityID):
       guard ownerID == activeExerciseAttemptOwnerID else { return }
-      await stopCurrentOperation()
+      await stopCurrentOperation(capabilityID: capabilityID)
     case .restart:
       guard restartableExerciseItemID == ownerID else { return }
       restartableExerciseItemID = nil
@@ -839,6 +1158,10 @@ final class OperatorWorkspace {
     let sequenceID = sequenceID(for: direction)
     guard discoveryStartUnavailableReason(for: sequenceID) == nil else { return }
     selectedBoundaryDirection = direction
+    let jogDirection = jogDirection(from: direction)
+    boundaryTeachingState = .awaitingOwnerAdmission(jogDirection)
+    boundaryTeachingResultText =
+      "\(jogDirection.shortLabel) selected. Start accepted; admitting one logical Boundary Discovery owner."
     beginExerciseAttempt(
       ownerID: .humanGuidedDiscovery(.boundaryDiscovery),
       mode: activeExerciseAttemptMode ?? .normal
@@ -867,8 +1190,8 @@ final class OperatorWorkspace {
       if frameMode == .simulated {
         guard let displayedFrame else { throw LearningPathOperationError.freshFrameUnavailable }
         frame = displayedFrame
-        if let currentPosition = machineSnapshot?.machine.position {
-          position = currentPosition
+        if let simulated = simulatedLearningSnapshot?.mpos {
+          position = try MachinePosition(x: simulated.xMM, y: simulated.yMM)
         } else {
           position = try MachinePosition(x: 0, y: 0)
         }
@@ -1026,8 +1349,13 @@ final class OperatorWorkspace {
       return "Finish \(DiscoverySequenceCatalog.definition(for: activeDiscoverySequenceID).title); use Stop while its logical owner is active."
     }
     if frameMode == .simulated {
-      return displayedFrame?.source == .simulated
-        ? nil : "The simulator has no rendered frame."
+      if displayedFrame?.source != .simulated { return "The simulator has no rendered frame." }
+      if !controllerSessionEstablished { return "Connect the learning simulator first." }
+      if !motionAuthorizationEnabled { return "Enable simulated Motion first." }
+      if simulatedLearningSnapshot?.currentOperation != nil {
+        return "Stop or finish the current simulated operation first."
+      }
+      return nil
     }
     if !motionGuardIsActive { return "Connect the plotter and Enable Motion first." }
     if frameMode != .live || !cameraIsLive {
@@ -1048,11 +1376,20 @@ final class OperatorWorkspace {
 
   var workbenchStatusText: String {
     if let actionableError { return actionableError }
-    if !controllerIsConnected { return "Select the remembered controller and press Connect." }
-    if !motionGuardIsActive {
-      return "Plotter connected. Enable Motion before this action."
+    if !controllerSessionEstablished {
+      return frameMode == .simulated
+        ? "Press Connect to start the nonphysical learning simulator session."
+        : "Select the remembered controller and press Connect."
     }
-    if machineSnapshot?.machine.penState != .up {
+    if !motionAuthorizationEnabled {
+      return frameMode == .simulated
+        ? "Simulator connected. Enable Motion before this action."
+        : "Plotter connected. Enable Motion before this action."
+    }
+    let penIsUp = frameMode == .simulated
+      ? simulatedLearningSnapshot?.penPose == .up
+      : machineSnapshot?.machine.penState == .up
+    if !penIsUp {
       return "Motion enabled. Raise the pen so the commanded state is Up before carriage travel."
     }
     return "Motion enabled; carriage motion is available."
@@ -1063,12 +1400,18 @@ final class OperatorWorkspace {
   }
 
   var machinePositionText: String {
+    if frameMode == .simulated, let mpos = simulatedLearningSnapshot?.mpos {
+      return String(format: "simulated X %.3f   Y %.3f", mpos.xMM, mpos.yMM)
+    }
     guard let point = machineSnapshot?.machine.position?.point else { return "unknown" }
     return String(format: "X %.3f   Y %.3f", point.x, point.y)
   }
 
   var penStateText: String {
-    switch machineSnapshot?.machine.penState ?? .unknown {
+    if frameMode == .simulated, let pose = simulatedLearningSnapshot?.penPose {
+      return "simulated \(pose.rawValue) — not a physical observation"
+    }
+    return switch machineSnapshot?.machine.penState ?? .unknown {
     case .unknown:
       "unknown — no physical pose assumed"
     case .up:
@@ -1079,6 +1422,9 @@ final class OperatorWorkspace {
   }
 
   var lastMotionOutcomeText: String {
+    if frameMode == .simulated {
+      return lastContextualStopAuditRecord?.outcome ?? "no simulated motion outcome"
+    }
     guard let outcome = machineSnapshot?.lastMotionOutcome else { return "none" }
     switch outcome {
     case .refused(let reason):
@@ -1101,6 +1447,9 @@ final class OperatorWorkspace {
   }
 
   var lastPenOutcomeText: String {
+    if frameMode == .simulated, let pose = simulatedLearningSnapshot?.penPose {
+      return "simulated \(pose.rawValue); not physical evidence"
+    }
     guard let outcome = machineSnapshot?.lastPenOutcome else { return "none" }
     switch outcome {
     case .refused(let reason):
@@ -1115,6 +1464,7 @@ final class OperatorWorkspace {
   var actionableError: String? {
     if let cameraError { return cameraError }
     if let visionError { return visionError }
+    if frameMode == .simulated { return discoveryError ?? explorationError }
     if let machineError { return machineError }
     if let blocker = machineSnapshot?.machine.blockers.first {
       return machineBlockerLabel(blocker)
@@ -1145,7 +1495,11 @@ final class OperatorWorkspace {
   /// Presentation availability only. MachineController repeats every physical
   /// safety check when it receives the typed request.
   var motionUnavailableReason: String? {
-    if let reason = directCarriageMotionUnavailableReason { return reason }
+    if frameMode == .simulated {
+      if let reason = simulatedManualMotionUnavailableReason { return reason }
+    } else if let reason = directCarriageMotionUnavailableReason {
+      return reason
+    }
     guard let xStep = inputNumber(xStepText), let yStep = inputNumber(yStepText),
       let feed = inputNumber(feedText)
     else { return "Enter numeric X step, Y step, and feed values." }
@@ -1153,6 +1507,18 @@ final class OperatorWorkspace {
       return "X and Y step magnitudes must be greater than zero."
     }
     guard feed > 0 else { return "Feed must be greater than zero." }
+    return nil
+  }
+
+  private var simulatedManualMotionUnavailableReason: String? {
+    guard controllerSessionEstablished else { return "Connect the learning simulator first." }
+    guard motionAuthorizationEnabled else { return "Enable simulated Motion first." }
+    guard simulatedLearningSnapshot?.currentOperation == nil else {
+      return "A simulated operation already owns motion."
+    }
+    guard simulatedLearningSnapshot?.penPose == .up else {
+      return "Set the simulated pen Up before manual carriage motion."
+    }
     return nil
   }
 
@@ -1205,7 +1571,12 @@ final class OperatorWorkspace {
     if penRequestInProgress { return "A pen command is already in progress." }
     if frameModeSwitchInProgress { return "Wait for the frame source switch to finish." }
     if frameMode == .simulated {
-      return "SIMULATED source cannot issue physical machine commands. Switch to LIVE first."
+      if !controllerSessionEstablished { return "Connect the learning simulator first." }
+      if !motionAuthorizationEnabled { return "Enable simulated Motion first." }
+      if simulatedLearningSnapshot?.currentOperation != nil {
+        return "Stop or finish the current simulated operation first."
+      }
+      return nil
     }
     if machineActions == nil { return "Native machine composition is unavailable." }
     if selectedSerialDevice == nil { return "Select and connect one serial device." }
@@ -1289,6 +1660,18 @@ final class OperatorWorkspace {
     guard controllerConnectionActionUnavailableReason == nil else { return }
     controllerConnectionActionInProgress = true
     defer { controllerConnectionActionInProgress = false }
+    if frameMode == .simulated {
+      let response = if controllerSessionEstablished {
+        await simulatedLearningRuntime.disconnect()
+      } else {
+        await simulatedLearningRuntime.connect()
+      }
+      applySimulatedSnapshotResponse(
+        response,
+        action: controllerSessionEstablished ? "Disconnect simulator" : "Connect simulator"
+      )
+      return
+    }
     if controllerLinkIsOpen {
       await disconnectMachineSession()
     } else {
@@ -1380,6 +1763,17 @@ final class OperatorWorkspace {
   }
 
   func requestPenActuation(_ command: PenCommand) async {
+    if frameMode == .simulated {
+      guard penUnavailableReason(for: command) == nil else { return }
+      penRequestInProgress = true
+      defer { penRequestInProgress = false }
+      let pose: SimulatedLearningPenPose = command.commandedState == .up ? .up : .down
+      applySimulatedSnapshotResponse(
+        await simulatedLearningRuntime.setPenPose(pose),
+        action: "Set simulated pen \(pose.rawValue)"
+      )
+      return
+    }
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
     guard penUnavailableReason(for: command) == nil, let machineActions else { return }
@@ -1433,11 +1827,6 @@ final class OperatorWorkspace {
         guard recordDiscovery(.questionPresented, for: sequenceID) else { return }
 
       case .awaitOperatorChoice:
-        if let direction = jogDirection(for: sequenceID), case .idle = boundaryTeachingState {
-          boundaryTeachingState = .awaitingConfirmation(direction)
-          boundaryTeachingResultText =
-            "\(direction.shortLabel) armed. Answer YES to start; answer NO to wait."
-        }
         return
 
       case .awaitPhysicalPenConfirmation:
@@ -1469,13 +1858,29 @@ final class OperatorWorkspace {
         return
 
       case .actuatePen(let command):
-        await requestPenActuation(command)
-        guard case .commandedAndSettled = machineSnapshot?.lastPenOutcome else {
-          await failDiscovery(sequenceID, reason: lastPenOutcomeText)
-          return
+        let controllerSummary: String
+        if frameMode == .simulated {
+          let pose: SimulatedLearningPenPose = command.commandedState == .up ? .up : .down
+          let response = await simulatedLearningRuntime.setPenPose(pose)
+          switch response.result {
+          case .success(let snapshot):
+            simulatedLearningSnapshot = snapshot
+            simulatorPenState = pose == .up ? .up : .down
+            controllerSummary = "Simulated pen \(pose.rawValue). \(response.evidenceNotice.label)"
+          case .failure(let refusal):
+            await failDiscovery(sequenceID, reason: "Simulated pen action refused: \(refusal).")
+            return
+          }
+        } else {
+          await requestPenActuation(command)
+          guard case .commandedAndSettled = machineSnapshot?.lastPenOutcome else {
+            await failDiscovery(sequenceID, reason: lastPenOutcomeText)
+            return
+          }
+          controllerSummary = lastPenOutcomeText
         }
         guard recordDiscovery(
-          .penCommandSettled(command, controllerSummary: lastPenOutcomeText),
+          .penCommandSettled(command, controllerSummary: controllerSummary),
           for: sequenceID
         ) else { return }
         pendingDiscoveryCaptureBoundaryNanoseconds = nowNanoseconds()
@@ -1485,9 +1890,9 @@ final class OperatorWorkspace {
 
       case .measureBoundary(let direction):
         guard let inspection = pendingDiscoveryInspection,
-          let estimate = inspection.measurement.drawingFrame,
+          let estimate = inspection.drawingFrame,
           let controllerPosition = boundaryPositions[jogDirection(from: direction)],
-          let observedToolCentroid = inspection.measurement.cap?.centroid
+          let observedToolCentroid = inspection.observedToolCentroid
         else {
           await failDiscovery(
             sequenceID,
@@ -1496,7 +1901,6 @@ final class OperatorWorkspace {
           )
           return
         }
-        let measurement = inspection.measurement
         let summary =
           "controller boundary paired with the observed tool centroid and visible frame sides; unobserved sides remain inferred"
         guard recordDiscovery(
@@ -1504,8 +1908,8 @@ final class OperatorWorkspace {
             direction,
             controllerPosition: controllerPosition,
             observedToolCentroid: observedToolCentroid,
-            frameID: measurement.frameID,
-            cameraConfigurationID: measurement.cameraConfigurationID,
+            frameID: inspection.frameID,
+            cameraConfigurationID: inspection.cameraConfigurationID,
             confidence: estimate.confidence,
             summary: summary
           ),
@@ -1533,12 +1937,52 @@ final class OperatorWorkspace {
       return false
     }
     do {
-      guard let inspection = try await cameraActions.inspectScene(captureBoundary) else {
-        await failDiscovery(
-          sequenceID,
-          reason: "No live frame newer than the completed discovery event is available."
+      let inspection: DiscoverySceneInspection
+      if frameMode == .simulated {
+        let content = try await cameraActions.simulatedContent(simulatorModelMode)
+        let cap = content.overlays.compactMap { overlay -> Point2<CameraPixelSpace>? in
+          guard overlay.provenance.kind == .penCap,
+            case .point(let point) = overlay.geometry
+          else { return nil }
+          return point
+        }.first
+        let frameGeometry = content.overlays.compactMap {
+          overlay -> Polyline<CameraPixelSpace>? in
+          guard overlay.provenance.kind == .drawingFrameEstimate,
+            case .polyline(let geometry) = overlay.geometry
+          else { return nil }
+          return geometry
+        }.first
+        inspection = DiscoverySceneInspection(
+          displayedFrame: content.displayedFrame,
+          frameSHA256: content.displayedFrame.frame.contentSHA256,
+          observedToolCentroid: cap,
+          drawingFrame: frameGeometry.map {
+            DrawingFrameEstimate(
+              geometry: $0,
+              confidence: 1,
+              basis: SimulatedLearningEvidenceNotice.evidenceLabel
+            )
+          },
+          overlays: content.overlays
         )
-        return false
+      } else {
+        guard let liveInspection = try await cameraActions.inspectScene(captureBoundary) else {
+          await failDiscovery(
+            sequenceID,
+            reason: "No live frame newer than the completed discovery event is available."
+          )
+          return false
+        }
+        let measurement = liveInspection.measurement
+        lastSceneMeasurement = measurement
+        inspection = DiscoverySceneInspection(
+          displayedFrame: liveInspection.displayedFrame,
+          frameSHA256: measurement.frameSHA256,
+          observedToolCentroid: measurement.cap?.centroid,
+          drawingFrame: measurement.drawingFrame,
+          overlays: measurement.overlays
+        )
       }
       guard inspection.displayedFrame.frame.captureNanoseconds > captureBoundary else {
         await failDiscovery(
@@ -1550,13 +1994,12 @@ final class OperatorWorkspace {
       pendingDiscoveryInspection = inspection
       pendingDiscoveryCaptureBoundaryNanoseconds = nil
       displayedFrame = inspection.displayedFrame
-      latestLiveCameraFrame = inspection.displayedFrame
-      lastSceneMeasurement = inspection.measurement
-      cameraOverlays = inspection.measurement.overlays
+      if frameMode == .live { latestLiveCameraFrame = inspection.displayedFrame }
+      cameraOverlays = inspection.overlays
       return recordDiscovery(
         .freshFrameCaptured(
-          inspection.measurement.frameID,
-          inspection.measurement.cameraConfigurationID
+          inspection.frameID,
+          inspection.cameraConfigurationID
         ),
         for: sequenceID
       )
@@ -1571,21 +2014,20 @@ final class OperatorWorkspace {
     sequenceID: DiscoverySequenceID
   ) -> Bool {
     guard let inspection = pendingDiscoveryInspection,
-      let estimate = inspection.measurement.drawingFrame,
+      let estimate = inspection.drawingFrame,
       let controllerPosition = boundaryPositions[jogDirection(from: direction)],
-      let observedToolCentroid = inspection.measurement.cap?.centroid
+      let observedToolCentroid = inspection.observedToolCentroid
     else {
       discoveryError =
         "Posterior adjustment requires final controller MPos, exact-frame tool centroid, and drawing-frame geometry."
       return false
     }
     do {
-      let measurement = inspection.measurement
       let observation = try DrawingFrameBoundaryObservation(
-        frameID: measurement.frameID,
-        frameSHA256: measurement.frameSHA256,
+        frameID: inspection.frameID,
+        frameSHA256: inspection.frameSHA256,
         captureNanoseconds: inspection.displayedFrame.frame.captureNanoseconds,
-        cameraConfigurationID: measurement.cameraConfigurationID,
+        cameraConfigurationID: inspection.cameraConfigurationID,
         direction: direction,
         controllerPosition: controllerPosition,
         observedToolCentroid: observedToolCentroid,
@@ -1603,7 +2045,7 @@ final class OperatorWorkspace {
         boundaryAttemptHistories.values.flatMap { histories in
           histories.values
             .filter {
-              $0.compatibility.cameraConfigurationID == measurement.cameraConfigurationID
+              $0.compatibility.cameraConfigurationID == inspection.cameraConfigurationID
                 && $0.compatibility.coordinateSpace == .machine
                 && $0.compatibility.units == .millimeters
                 && $0.compatibility.algorithmRevision == "boundary-side-posterior-v1"
@@ -1624,7 +2066,7 @@ final class OperatorWorkspace {
         entry in
         let (id, candidate) = entry
         guard includedAttemptIDs.contains(id),
-          candidate.key.cameraConfigurationID == measurement.cameraConfigurationID
+          candidate.key.cameraConfigurationID == inspection.cameraConfigurationID
         else { return nil }
         return candidate
       }
@@ -1654,8 +2096,8 @@ final class OperatorWorkspace {
         }
       cameraOverlays.append(contentsOf: posteriorGeometries.map { geometry in
         CameraOverlayMeasurement(
-          frameID: measurement.frameID,
-          cameraConfigurationID: measurement.cameraConfigurationID,
+          frameID: inspection.frameID,
+          cameraConfigurationID: inspection.cameraConfigurationID,
           geometry: .polyline(geometry),
           provenance: CameraMeasurementProvenance(
             kind: .drawingFrameEstimate,
@@ -1667,8 +2109,8 @@ final class OperatorWorkspace {
       return recordDiscovery(
         .drawingFramePosteriorAdjusted(
           direction,
-          frameID: measurement.frameID,
-          cameraConfigurationID: measurement.cameraConfigurationID,
+          frameID: inspection.frameID,
+          cameraConfigurationID: inspection.cameraConfigurationID,
           observationCount: drawingFramePosterior.observationCount
         ),
         for: sequenceID
@@ -1714,24 +2156,44 @@ final class OperatorWorkspace {
     pendingDiscoveryInspection = nil
     pendingDiscoveryCaptureBoundaryNanoseconds = nil
     activeStopTarget = nil
-    stopRequestIssuedForTarget = nil
+    stopDispositionLatch = nil
     boundaryTeachingResultText = "Discovery stopped: \(reason)"
   }
 
-  func stopCurrentOperation() async {
-    guard !jogCancelRequestInProgress, let target = activeStopTarget else { return }
+  func stopCurrentOperation(capabilityID: ContextualStopCapabilityID) async {
+    guard !jogCancelRequestInProgress, let target = activeStopTarget,
+      target.capabilityID == capabilityID,
+      latchContextualStopDisposition(
+        for: target,
+        intent: .operatorStop,
+        actor: "Operator",
+        action: "Stop"
+      )
+    else { return }
     switch target {
-    case .boundaryDiscovery(let transactionID, let direction):
+    case .boundaryDiscovery(_, let transactionID, _, _, let direction):
       let sequenceID = sequenceID(for: direction)
       guard discoveryTransactions[sequenceID]?.id == transactionID,
         case .awaitContextualStop(direction) = discoveryTransactions[sequenceID]?.currentStep?.action
-      else { return }
-      guard recordDiscovery(.operatorStopRequested(direction), for: sequenceID) else { return }
+      else {
+        await failDiscovery(sequenceID, reason: "The Stop capability no longer owns this Boundary Discovery transaction.")
+        return
+      }
+      let recorded = recordDiscovery(.operatorStopRequested(direction), for: sequenceID)
       boundaryTeachingState = .cancelling(jogDirection(from: direction))
       boundaryTeachingResultText = "Stop requested. Waiting for the original motion owner to reach Idle."
       let owner = boundaryMotionTask
       await requestSingleJogCancel(for: target, intent: .operatorStop)
       await owner?.value
+      if !recorded {
+        if case .failed = discoveryTransactions[sequenceID]?.state {
+          return
+        }
+        await failDiscovery(
+          sequenceID,
+          reason: "The typed operator Stop event could not be recorded."
+        )
+      }
 
     case .manualJog:
       let owner = manualJogTask
@@ -1751,19 +2213,119 @@ final class OperatorWorkspace {
     for target: ContextualStopTarget,
     intent: JogCancelIntent
   ) async {
-    guard let generation = beginHardwareIntent(), let machineActions else { return }
-    defer { endHardwareIntent() }
-    guard !jogCancelRequestInProgress, stopRequestIssuedForTarget != target else { return }
-    stopRequestIssuedForTarget = target
+    if case .simulated(let operationID) = target.operationOwner {
+      guard !jogCancelRequestInProgress,
+        activeStopTarget?.capabilityID == target.capabilityID,
+        stopDispositionLatch?.capabilityID == target.capabilityID,
+        stopDispositionLatch?.intent == intent
+      else { return }
+      jogCancelRequestInProgress = true
+      defer { jogCancelRequestInProgress = false }
+      let simulatedIntent: SimulatedLearningOperationIntent =
+        intent == .operatorStop ? .stop : .cancel
+      let response = await simulatedLearningRuntime.request(simulatedIntent, for: operationID)
+      switch response.result {
+      case .success(let outcome):
+        simulatedLearningSnapshot = await simulatedLearningRuntime.snapshot()
+        updateContextualStopAudit(
+          for: target,
+          outcome:
+            "\(outcome.disposition.rawValue); final simulated MPos X \(outcome.finalMPos.xMM) Y \(outcome.finalMPos.yMM); \(response.evidenceNotice.label)"
+        )
+      case .failure(let refusal):
+        updateContextualStopAudit(
+          for: target,
+          outcome: "refused: \(refusal); \(response.evidenceNotice.label)"
+        )
+      }
+      return
+    }
+    guard let machineActions else { return }
+    let generation: UInt64?
+    if intent == .shutdown {
+      // Shutdown has already closed new hardware admission. This cancel is the
+      // settlement of the exact owner admitted before that boundary, so it
+      // must not attempt to reopen ordinary command admission.
+      generation = nil
+    } else {
+      guard let admittedGeneration = beginHardwareIntent() else { return }
+      generation = admittedGeneration
+    }
+    defer {
+      if generation != nil { endHardwareIntent() }
+    }
+    guard !jogCancelRequestInProgress,
+      activeStopTarget?.capabilityID == target.capabilityID,
+      stopDispositionLatch?.capabilityID == target.capabilityID,
+      stopDispositionLatch?.intent == intent
+    else { return }
     jogCancelRequestInProgress = true
     defer { jogCancelRequestInProgress = false }
-    _ = await machineActions.requestJogCancel(intent)
+    let outcome = await machineActions.requestJogCancel(intent)
+    updateContextualStopAudit(for: target, outcome: String(describing: outcome))
     let snapshot = await machineActions.snapshot()
-    guard canCommit(generation) else { return }
-    machineSnapshot = snapshot
+    if let generation {
+      guard canCommit(generation) else { return }
+      machineSnapshot = snapshot
+    }
+  }
+
+  private func latchContextualStopDisposition(
+    for target: ContextualStopTarget,
+    intent: JogCancelIntent,
+    actor: String,
+    action: String
+  ) -> Bool {
+    guard activeStopTarget?.capabilityID == target.capabilityID,
+      stopDispositionLatch == nil
+    else { return false }
+    stopDispositionLatch = ContextualStopDispositionLatch(
+      capabilityID: target.capabilityID,
+      intent: intent,
+      actor: actor
+    )
+    lastContextualStopAuditRecord = ContextualStopAuditRecord(
+      capabilityID: target.capabilityID,
+      actor: actor,
+      action: action,
+      disposition: intent,
+      outcome: "requested; awaiting the original owner"
+    )
+    return true
+  }
+
+  private func updateContextualStopAudit(
+    for target: ContextualStopTarget,
+    outcome: String
+  ) {
+    guard let latch = stopDispositionLatch,
+      latch.capabilityID == target.capabilityID
+    else { return }
+    let action = switch latch.intent {
+    case .operatorStop: "Stop"
+    case .cancelAttempt: "Cancel Attempt"
+    case .shutdown: "Shutdown"
+    }
+    lastContextualStopAuditRecord = ContextualStopAuditRecord(
+      capabilityID: target.capabilityID,
+      actor: latch.actor,
+      action: action,
+      disposition: latch.intent,
+      outcome: outcome
+    )
   }
 
   func activateMotionGuard() async {
+    if frameMode == .simulated {
+      guard motionGuardActivationUnavailableReason == nil else { return }
+      motionGuardActivationInProgress = true
+      defer { motionGuardActivationInProgress = false }
+      applySimulatedSnapshotResponse(
+        await simulatedLearningRuntime.enableMotion(),
+        action: "Enable simulated motion"
+      )
+      return
+    }
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
     guard motionGuardActivationUnavailableReason == nil, let machineActions else { return }
@@ -1812,6 +2374,10 @@ final class OperatorWorkspace {
   /// commands or bypass MachineController validation.
   @discardableResult
   func requestRelativeJog(_ request: RelativeJogRequest) async -> MotionOutcome? {
+    if frameMode == .simulated {
+      await requestSimulatedRelativeJog(request)
+      return nil
+    }
     guard let generation = beginHardwareIntent() else { return nil }
     defer { endHardwareIntent() }
     guard motionUnavailableReason == nil, !jogRequestInProgress, let machineActions else {
@@ -1820,20 +2386,31 @@ final class OperatorWorkspace {
 
     jogRequestInProgress = true
     machineError = nil
+    let admittedOperation: RelativeJogOperation
+    switch await machineActions.beginRelativeJog(request) {
+    case .admitted(let operation):
+      admittedOperation = operation
+    case .rejected(let outcome):
+      jogRequestInProgress = false
+      machineSnapshot = await machineActions.snapshot()
+      return outcome
+    }
+    let stopTarget = ContextualStopTarget.manualJog(
+      capabilityID: ContextualStopCapabilityID(),
+      operationOwner: .liveOperation(admittedOperation.id)
+    )
     defer {
       jogRequestInProgress = false
       manualJogTask = nil
-      if activeStopTarget == .manualJog {
+      if activeStopTarget == stopTarget {
         activeStopTarget = nil
-        stopRequestIssuedForTarget = nil
+        stopDispositionLatch = nil
       }
     }
-    let operation = Task {
-      await machineActions.requestRelativeJog(request)
-    }
+    let operation = Task { await admittedOperation.outcome() }
     manualJogTask = operation
-    activeStopTarget = .manualJog
-    stopRequestIssuedForTarget = nil
+    activeStopTarget = stopTarget
+    stopDispositionLatch = nil
     await Task.yield()
     let interimSnapshot = await machineActions.snapshot()
     if canCommit(generation) { machineSnapshot = interimSnapshot }
@@ -1842,6 +2419,53 @@ final class OperatorWorkspace {
     guard canCommit(generation) else { return nil }
     machineSnapshot = finalSnapshot
     return outcome
+  }
+
+  private func requestSimulatedRelativeJog(_ request: RelativeJogRequest) async {
+    guard motionUnavailableReason == nil, !jogRequestInProgress else { return }
+    let vector: SimulatedLearningMotionVector
+    do {
+      vector = try SimulatedLearningMotionVector(
+        dxMM: request.delta.dx,
+        dyMM: request.delta.dy
+      )
+    } catch {
+      simulatorLearningSummary = "Simulated manual jog is invalid: \(error)."
+      return
+    }
+    let response = await simulatedLearningRuntime.beginManualJog(delta: vector)
+    let operation: SimulatedLearningOperation
+    switch response.result {
+    case .success(let admitted):
+      operation = admitted
+    case .failure(let refusal):
+      simulatorLearningSummary =
+        "Simulated manual jog refused: \(refusal). \(response.evidenceNotice.label)"
+      return
+    }
+    let target = ContextualStopTarget.manualJog(
+      capabilityID: ContextualStopCapabilityID(),
+      operationOwner: .simulated(operation.id)
+    )
+    jogRequestInProgress = true
+    activeStopTarget = target
+    stopDispositionLatch = nil
+    simulatedLearningSnapshot = await simulatedLearningRuntime.snapshot()
+    simulatorLearningSummary =
+      "Simulated manual jog active; use Stop Manual Jog. \(response.evidenceNotice.label)"
+    let outcomeTask = Task { [simulatedLearningRuntime] in
+      let waited = await simulatedLearningRuntime.waitForOutcome(of: operation.id)
+      return try? waited.result.get()
+    }
+    simulatedOperationTask = outcomeTask
+    _ = await outcomeTask.value
+    simulatedLearningSnapshot = await simulatedLearningRuntime.snapshot()
+    simulatedOperationTask = nil
+    jogRequestInProgress = false
+    if activeStopTarget == target { activeStopTarget = nil }
+    if stopDispositionLatch?.capabilityID == target.capabilityID {
+      stopDispositionLatch = nil
+    }
   }
 
   func discoverCameras() async {
@@ -2059,6 +2683,10 @@ final class OperatorWorkspace {
       let snapshot = await cameraActions.start()
       guard canCommit(generation) else { return }
       frameMode = .live
+      if let parkedLiveLearningAuthority {
+        restoreLearningAuthority(parkedLiveLearningAuthority)
+        self.parkedLiveLearningAuthority = nil
+      }
       cameraSnapshot = snapshot
       displayedFrame = cameraSnapshot?.latestFrame
       latestLiveCameraFrame = validatedLiveCameraFrame(in: snapshot)
@@ -2072,8 +2700,13 @@ final class OperatorWorkspace {
       do {
         let content = try await cameraActions.simulatedContent(simulatorModelMode)
         guard canCommit(generation) else { return }
+        parkedLiveLearningAuthority = captureLearningAuthority()
+        resetLearningAuthorityForSimulation()
         frameMode = .simulated
         applySimulatedContent(content)
+        let simulatedSnapshot = await simulatedLearningRuntime.snapshot()
+        simulatedLearningSnapshot = simulatedSnapshot
+        simulatorPenState = simulatedSnapshot.penPose == .up ? .up : .down
       } catch {
         guard canCommit(generation) else { return }
         displayedFrame = nil
@@ -2097,6 +2730,9 @@ final class OperatorWorkspace {
       simulatorModelMode = mode
       cameraError = nil
       applySimulatedContent(content)
+      if let simulatedLearningSnapshot {
+        simulatorPenState = simulatedLearningSnapshot.penPose == .up ? .up : .down
+      }
     } catch {
       guard canCommit(generation) else { return }
       cameraError = actionableDescription(error)
@@ -2109,6 +2745,35 @@ final class OperatorWorkspace {
     simulatorEvidenceLabel = content.evidenceLabel
     simulatorPenState = content.commandedPenState
     simulatorLearningSummary = content.learningSummary
+  }
+
+  private func refreshSimulatedContent() async {
+    guard frameMode == .simulated, let cameraActions else { return }
+    do {
+      let content = try await cameraActions.simulatedContent(simulatorModelMode)
+      applySimulatedContent(content)
+      if let simulatedLearningSnapshot {
+        simulatorPenState = simulatedLearningSnapshot.penPose == .up ? .up : .down
+      }
+    } catch {
+      cameraError = actionableDescription(error)
+    }
+  }
+
+  private func applySimulatedSnapshotResponse(
+    _ response: SimulatedLearningResponse<SimulatedLearningSnapshot>,
+    action: String
+  ) {
+    switch response.result {
+    case .success(let snapshot):
+      simulatedLearningSnapshot = snapshot
+      simulatorPenState = snapshot.penPose == .up ? .up : .down
+      simulatorLearningSummary =
+        "\(action) completed. \(response.evidenceNotice.label)"
+    case .failure(let refusal):
+      simulatorLearningSummary =
+        "\(action) refused: \(refusal). \(response.evidenceNotice.label)"
+    }
   }
 
   func refreshCurrentState() async {
@@ -2375,24 +3040,46 @@ final class OperatorWorkspace {
   }
 
   private func executeBoundaryMotion(_ direction: JogDirection) async {
+    if frameMode == .simulated {
+      await executeSimulatedBoundaryMotion(direction)
+      return
+    }
     guard let request = makeBoundaryMotionRequest(direction),
       let machineActions,
       let sequenceID = activeDiscoverySequenceID,
-      let transactionID = discoveryTransactions[sequenceID]?.id
+      let transactionID = discoveryTransactions[sequenceID]?.id,
+      let attemptID = activeExerciseAttemptID
     else {
       boundaryTeachingState = .idle
       return
     }
 
     let discoveryDirection = boundaryDirection(from: direction)
+    let admittedOperation: BoundaryMotionOperation
+    switch await machineActions.beginBoundaryMotion(request) {
+    case .admitted(let operation):
+      admittedOperation = operation
+    case .rejected(let outcome):
+      if case .needsAttention(_, let terminal) = outcome {
+        await failDiscovery(sequenceID, reason: boundaryTerminalDescription(terminal))
+      } else {
+        await failDiscovery(sequenceID, reason: "Boundary owner admission was rejected.")
+      }
+      return
+    }
+    guard admittedOperation.ownerID == request.ownerID else {
+      await failDiscovery(sequenceID, reason: "Boundary owner admission returned a mismatched owner identity.")
+      return
+    }
     let stopTarget = ContextualStopTarget.boundaryDiscovery(
+      capabilityID: ContextualStopCapabilityID(),
       transactionID: transactionID,
+      operationOwner: .liveBoundary(request.ownerID),
+      attemptID: attemptID,
       direction: discoveryDirection
     )
     activeStopTarget = stopTarget
-    stopRequestIssuedForTarget = nil
-    let controllerTask = Task { await machineActions.requestBoundaryMotion(request) }
-    await Task.yield()
+    stopDispositionLatch = nil
     machineSnapshot = await machineActions.snapshot()
     boundaryTeachingState = .ownerActive(direction)
     boundaryTeachingResultText =
@@ -2407,12 +3094,16 @@ final class OperatorWorkspace {
     ) else { return }
     await advanceDiscoverySequence(sequenceID)
 
-    let outcome = await controllerTask.value
+    let outcome = await admittedOperation.outcome()
     machineSnapshot = await machineActions.snapshot()
     guard !hasShutdown else { return }
 
     switch outcome {
-    case .settled(let settlement) where settlement.intent == .operatorStop:
+    case .settled(let settlement)
+      where settlement.ownerID == request.ownerID
+        && settlement.intent == .operatorStop
+        && stopDispositionLatch?.capabilityID == stopTarget.capabilityID
+        && stopDispositionLatch?.intent == .operatorStop:
       let finalPosition = settlement.finalPosition
       pendingDiscoveryCaptureBoundaryNanoseconds = nowNanoseconds()
       boundaryPositions[direction] = finalPosition
@@ -2433,6 +3124,17 @@ final class OperatorWorkspace {
       await advanceDiscoverySequence(sequenceID)
 
     case .settled(let settlement):
+      if settlement.ownerID != request.ownerID
+        || stopDispositionLatch?.capabilityID != stopTarget.capabilityID
+        || stopDispositionLatch?.intent != settlement.intent
+      {
+        await failDiscovery(
+          sequenceID,
+          reason:
+            "Boundary settlement owner/disposition did not match the first admitted operator action."
+        )
+        return
+      }
       if var transaction = discoveryTransactions[sequenceID] {
         transaction.cancel()
         discoveryTransactions[sequenceID] = transaction
@@ -2453,12 +3155,126 @@ final class OperatorWorkspace {
       await failDiscovery(sequenceID, reason: boundaryTerminalDescription(terminal))
     }
     boundaryTeachingState = .idle
-    activeStopTarget = nil
-    stopRequestIssuedForTarget = nil
+    if activeStopTarget == stopTarget { activeStopTarget = nil }
+    if stopDispositionLatch?.capabilityID == stopTarget.capabilityID {
+      stopDispositionLatch = nil
+    }
+  }
+
+  private func executeSimulatedBoundaryMotion(_ direction: JogDirection) async {
+    guard let sequenceID = activeDiscoverySequenceID,
+      let transactionID = discoveryTransactions[sequenceID]?.id,
+      let attemptID = activeExerciseAttemptID
+    else {
+      boundaryTeachingState = .idle
+      return
+    }
+    let discoveryDirection = boundaryDirection(from: direction)
+    let response = await simulatedLearningRuntime.beginBoundary(
+      direction: discoveryDirection,
+      finiteSegmentLengthMM: MotionPriors.boundaryWireSegmentMM
+    )
+    let operation: SimulatedLearningOperation
+    switch response.result {
+    case .success(let admitted):
+      operation = admitted
+    case .failure(let refusal):
+      await failDiscovery(
+        sequenceID,
+        reason: "Simulated Boundary owner admission was refused: \(refusal)."
+      )
+      return
+    }
+    // Exercise one finite segment beneath the same logical owner. It updates
+    // only simulator MPos and is never boundary success.
+    _ = await simulatedLearningRuntime.recordBoundarySegmentCompletion(for: operation.id)
+    simulatedLearningSnapshot = await simulatedLearningRuntime.snapshot()
+    let stopTarget = ContextualStopTarget.boundaryDiscovery(
+      capabilityID: ContextualStopCapabilityID(),
+      transactionID: transactionID,
+      operationOwner: .simulated(operation.id),
+      attemptID: attemptID,
+      direction: discoveryDirection
+    )
+    activeStopTarget = stopTarget
+    stopDispositionLatch = nil
+    boundaryTeachingState = .ownerActive(direction)
+    boundaryTeachingResultText =
+      "Simulated Boundary owner active toward \(direction.shortLabel). \(response.evidenceNotice.label)"
+    guard recordDiscovery(
+      .boundaryJogStarted(
+        discoveryDirection,
+        controllerSummary:
+          "Simulated logical Boundary owner \(operation.id.sequence) started. \(response.evidenceNotice.label)"
+      ),
+      for: sequenceID
+    ) else { return }
+    await advanceDiscoverySequence(sequenceID)
+
+    let outcomeTask = Task { [simulatedLearningRuntime] in
+      let waited = await simulatedLearningRuntime.waitForOutcome(of: operation.id)
+      return try? waited.result.get()
+    }
+    simulatedOperationTask = outcomeTask
+    guard let outcome = await outcomeTask.value else {
+      await failDiscovery(sequenceID, reason: "The simulated Boundary owner lost its outcome.")
+      return
+    }
+    simulatedOperationTask = nil
+    guard !hasShutdown else { return }
+    switch outcome.disposition {
+    case .stopped
+      where stopDispositionLatch?.capabilityID == stopTarget.capabilityID
+        && stopDispositionLatch?.intent == .operatorStop:
+      do {
+        let finalPosition = try MachinePosition(
+          x: outcome.finalMPos.xMM,
+          y: outcome.finalMPos.yMM
+        )
+        pendingDiscoveryCaptureBoundaryNanoseconds = nowNanoseconds()
+        boundaryPositions[direction] = finalPosition
+        boundaryTeachingResultText =
+          "Simulated Stop settled at X \(outcome.finalMPos.xMM) Y \(outcome.finalMPos.yMM). \(outcome.evidenceNotice.label)"
+        guard recordDiscovery(
+          .boundaryJogCancelled(
+            discoveryDirection,
+            finalPosition: finalPosition,
+            controllerSummary: boundaryTeachingResultText
+          ),
+          for: sequenceID
+        ) else { return }
+        await advanceDiscoverySequence(sequenceID)
+      } catch {
+        await failDiscovery(sequenceID, reason: "Simulated final MPos was invalid: \(error).")
+      }
+
+    case .cancelled:
+      if var transaction = discoveryTransactions[sequenceID] {
+        transaction.cancel()
+        discoveryTransactions[sequenceID] = transaction
+      }
+      recordDiscoveryAttempt(sequenceID: sequenceID, disposition: .cancelled)
+      finishActiveExerciseAttempt(disposition: .cancelled)
+      restartableExerciseItemID = .humanGuidedDiscovery(.boundaryDiscovery)
+      boundaryTeachingResultText =
+        "Simulated Boundary attempt cancelled. \(outcome.evidenceNotice.label)"
+
+    case .stopped, .naturallyCompleted:
+      await failDiscovery(
+        sequenceID,
+        reason:
+          "Simulated Boundary settlement did not match the first admitted operator disposition."
+      )
+    }
+    boundaryTeachingState = .idle
+    if activeStopTarget == stopTarget { activeStopTarget = nil }
+    if stopDispositionLatch?.capabilityID == stopTarget.capabilityID {
+      stopDispositionLatch = nil
+    }
   }
 
   private func makeBoundaryMotionRequest(_ direction: JogDirection) -> BoundaryMotionRequest? {
-    guard boundaryTeachingState == .awaitingConfirmation(direction),
+    guard boundaryTeachingState == .awaitingOwnerAdmission(direction),
       directCarriageMotionUnavailableReason == nil
     else {
       boundaryTeachingResultText =
@@ -2519,6 +3335,16 @@ final class OperatorWorkspace {
     if let sequenceID = activeDiscoverySequenceID,
       var transaction = discoveryTransactions[sequenceID]
     {
+      if let target = activeStopTarget,
+        !latchContextualStopDisposition(
+          for: target,
+          intent: .cancelAttempt,
+          actor: "Operator",
+          action: "Cancel Attempt"
+        )
+      {
+        return
+      }
       transaction.cancel()
       discoveryTransactions[sequenceID] = transaction
       if let target = activeStopTarget {
@@ -2530,7 +3356,15 @@ final class OperatorWorkspace {
         await owner?.value
       }
       recordDiscoveryAttempt(sequenceID: sequenceID, disposition: .cancelled)
-    } else if let target = activeStopTarget, target == .drawingTrial {
+    } else if let target = activeStopTarget,
+      case .drawingTrial = target
+    {
+      guard latchContextualStopDisposition(
+        for: target,
+        intent: .cancelAttempt,
+        actor: "Operator",
+        action: "Cancel Attempt"
+      ) else { return }
       let owner = drawingTrialTask
       await requestSingleJogCancel(for: target, intent: .cancelAttempt)
       _ = await owner?.value
@@ -3217,8 +4051,8 @@ final class OperatorWorkspace {
     let discoveryComplete = penInteractionCompleted
       && relevantBoundaryObservationCount > 0 && clearViewPoseAccepted
     return switch itemID {
-    case .stage(.connect): controllerIsConnected
-    case .stage(.enableMotion): controllerIsConnected && motionGuardIsActive
+    case .stage(.connect): controllerSessionEstablished
+    case .stage(.enableMotion): controllerSessionEstablished && motionAuthorizationEnabled
     case .stage(.humanGuidedDiscovery): discoveryComplete
     case .stage(.observedDrawingTrials): drawingTrialAssessment != nil
     case .stage(.adaptiveDrawing): false
@@ -3247,9 +4081,17 @@ final class OperatorWorkspace {
   private func learningPathSummary(for itemID: LearningPathItemID) -> String {
     switch itemID {
     case .stage(.connect):
-      controllerIsConnected ? "The selected controller is responsive." : "Select and connect one responsive controller."
+      controllerSessionEstablished
+        ? (frameMode == .simulated
+          ? "The nonphysical learning simulator session is connected."
+          : "The selected controller is responsive.")
+        : (frameMode == .simulated
+          ? "Connect the nonphysical learning simulator."
+          : "Select and connect one responsive controller.")
     case .stage(.enableMotion):
-      motionGuardIsActive ? "Motion is enabled for typed operations." : "Enable Motion for this controller session."
+      motionAuthorizationEnabled
+        ? "Motion is enabled for typed operations."
+        : "Enable Motion for this controller session."
     case .stage(.humanGuidedDiscovery):
       "Observe Pen Interaction, at least one Boundary, and a Clear view."
     case .humanGuidedDiscovery(.penInteraction):
@@ -3306,12 +4148,22 @@ final class OperatorWorkspace {
           )
         })
       }
-      actions.append(
-        ExerciseActionDescriptor(kind: .cancel, title: "Cancel", role: .destructive)
-      )
-      if contextualStopPresentation != nil {
+      if stopDispositionLatch == nil {
         actions.append(
-          ExerciseActionDescriptor(kind: .stop, title: "Stop", role: .destructive)
+          ExerciseActionDescriptor(kind: .cancel, title: "Cancel Attempt", role: .destructive)
+        )
+      }
+      if let contextualStopPresentation,
+        let target = activeStopTarget,
+        !isManualStopTarget(target)
+      {
+        actions.append(
+          ExerciseActionDescriptor(
+            kind: .stop(contextualStopPresentation.capabilityID),
+            title: itemID == .humanGuidedDiscovery(.boundaryDiscovery)
+              ? "Stop Boundary" : "Stop",
+            role: .destructive
+          )
         )
       }
       return ExerciseActionStripPresentation(
@@ -3386,6 +4238,11 @@ final class OperatorWorkspace {
     )
   }
 
+  private func isManualStopTarget(_ target: ContextualStopTarget) -> Bool {
+    if case .manualJog = target { return true }
+    return false
+  }
+
   private func stageExpectedObservation(_ stage: LearningPathStage) -> [PresentationFragment] {
     switch stage {
     case .connect: [.text("A responsive selected controller session.")]
@@ -3457,14 +4314,26 @@ final class OperatorWorkspace {
     }
   }
 
-  private func discoveryQuestionFragments(_ action: DiscoveryAction) -> [PresentationFragment] {
+  private func discoveryQuestionPresentation(
+    _ action: DiscoveryAction
+  ) -> ExerciseQuestionPresentation? {
     switch action {
-    case .awaitOperatorChoice:
-      [.text("Choose"), .cue(.yes), .text("or"), .cue(.no)]
-    case .awaitPhysicalPenConfirmation(let state, _):
-      [.text("Is the pen physically"), .cue(state == .up ? .up : .down), .text("?")]
+    case .awaitOperatorChoice(let question):
+      ExerciseQuestionPresentation(
+        prompt: [.text(question.prompt)],
+        choices: question.choices
+      )
+    case .awaitPhysicalPenConfirmation(let state, let question):
+      ExerciseQuestionPresentation(
+        prompt: [
+          .text(question.prompt),
+          .text("Required physical pose:"),
+          .cue(state == .up ? .up : .down),
+        ],
+        choices: question.choices
+      )
     default:
-      []
+      nil
     }
   }
 
@@ -3477,6 +4346,92 @@ final class OperatorWorkspace {
         fragments: [.text(evidence.summary)]
       )
     } ?? []
+  }
+
+  private func operationActivityPresentation(
+    for itemID: LearningPathItemID,
+    transaction: DiscoveryTransaction?
+  ) -> OperationActivityPresentation? {
+    if itemID.stage == .humanGuidedDiscovery, let discoveryError {
+      return OperationActivityPresentation(
+        actor: transaction?.currentStep?.participant.displayName ?? "Learning runtime",
+        action: transaction?.currentStep.map { discoveryActionText($0.action) }
+          ?? "Human-Guided Discovery",
+        outcome: .needsAttention,
+        detail: [.text(discoveryError)],
+        recovery: restartableExerciseItemID == itemID
+          ? [.text("Review the recorded outcome, then use Restart to create a new attempt.")]
+          : [.text("Resolve the named controller, camera, or observation fact before continuing.")]
+      )
+    }
+    if itemID.stage == .observedDrawingTrials, let explorationError {
+      return OperationActivityPresentation(
+        actor: drawingTrialParticipant(for: observedDrawingTrialStep),
+        action: drawingTrialActionText(for: observedDrawingTrialStep),
+        outcome: .needsAttention,
+        detail: [.text(explorationError)],
+        recovery: [.text("Use Restart only after the failed attempt has settled.")]
+      )
+    }
+    if itemID == .stage(.connect), let machineError {
+      return OperationActivityPresentation(
+        actor: "Controller session",
+        action: controllerConnectionActionTitle,
+        outcome: .needsAttention,
+        detail: [.text(machineError)],
+        recovery: [.text(workbenchStatusText)]
+      )
+    }
+    if let transaction {
+      switch transaction.state {
+      case .active, .cancelling:
+        if let step = transaction.currentStep {
+          return OperationActivityPresentation(
+            actor: step.participant.displayName,
+            action: discoveryActionText(step.action),
+            outcome: .inProgress,
+            detail: lastContextualStopAuditRecord.map {
+              [.text("\($0.actor) · \($0.action) · \($0.outcome)")]
+            } ?? [],
+            recovery: []
+          )
+        }
+      case .succeeded:
+        return OperationActivityPresentation(
+          actor: "Learning runtime",
+          action: transaction.definition.title,
+          outcome: .succeeded,
+          detail: transaction.evidenceSummaries.last.map { [.text($0.summary)] } ?? [],
+          recovery: []
+        )
+      case .cancelled:
+        return OperationActivityPresentation(
+          actor: lastContextualStopAuditRecord?.actor ?? "Operator",
+          action: lastContextualStopAuditRecord?.action ?? "Cancel Attempt",
+          outcome: .cancelled,
+          detail: lastContextualStopAuditRecord.map { [.text($0.outcome)] } ?? [],
+          recovery: [.text("Use Restart to create a new attempt.")]
+        )
+      case .failed:
+        break
+      case .notStarted:
+        break
+      }
+    }
+    if itemID == .humanGuidedDiscovery(.boundaryDiscovery),
+      let audit = lastContextualStopAuditRecord
+    {
+      return OperationActivityPresentation(
+        actor: audit.actor,
+        action: audit.action,
+        outcome: audit.disposition == .operatorStop ? .inProgress : .cancelled,
+        detail: [.text(audit.outcome)],
+        recovery: audit.disposition == .operatorStop
+          ? [.text("The original owner must settle before the fresh-frame observation continues.")]
+          : [.text("Use Restart to create a new attempt.")]
+      )
+    }
+    return nil
   }
 
   private func drawingTrialInstructionFragments(
@@ -3640,17 +4595,164 @@ final class OperatorWorkspace {
     )
   }
 
+  private func captureLearningAuthority() -> LearningAuthoritySnapshot {
+    LearningAuthoritySnapshot(
+      boundaryTeachingState: boundaryTeachingState,
+      boundaryTeachingResultText: boundaryTeachingResultText,
+      boundaryPositions: boundaryPositions,
+      selectedDiscoverySequenceID: selectedDiscoverySequenceID,
+      discoveryTransactions: discoveryTransactions,
+      discoveryError: discoveryError,
+      drawingFramePosterior: drawingFramePosterior,
+      boundaryFrameObservationsByAttemptID: boundaryFrameObservationsByAttemptID,
+      explorationError: explorationError,
+      currentExplorationEpisode: currentExplorationEpisode,
+      completedExplorationEpisodes: completedExplorationEpisodes,
+      armatureGuidanceState: armatureGuidanceState,
+      lastArmatureObservation: lastArmatureObservation,
+      explorationCleanReference: explorationCleanReference,
+      explorationAnchoredBaseline: explorationAnchoredBaseline,
+      explorationPostLineFrame: explorationPostLineFrame,
+      drawingTrialLineStart: drawingTrialLineStart,
+      drawingTrialStrokeEvidence: drawingTrialStrokeEvidence,
+      lastAnchorObservation: lastAnchorObservation,
+      lastInkObservation: lastInkObservation,
+      explorationInkStatus: explorationInkStatus,
+      explorationExportPath: explorationExportPath,
+      lastTravelFeedSelection: lastTravelFeedSelection,
+      drawingTrialAssessment: drawingTrialAssessment,
+      clearViewPoseAccepted: clearViewPoseAccepted,
+      learningArtifactGraph: learningArtifactGraph,
+      penAttemptHistory: penAttemptHistory,
+      boundaryAttemptHistories: boundaryAttemptHistories,
+      clearViewAttemptHistories: clearViewAttemptHistories,
+      comparisonAttemptHistories: comparisonAttemptHistories,
+      restartableExerciseItemID: restartableExerciseItemID,
+      observedDrawingTrialStep: observedDrawingTrialStep,
+      pendingClearViewLabel: pendingClearViewLabel,
+      selectedBoundaryDirection: selectedBoundaryDirection,
+      acceptedAttemptSequence: acceptedAttemptSequence,
+      currentDrawingTrialGroup: currentDrawingTrialGroup,
+      explorationCoordinateRevision: explorationCoordinateRevision,
+      explorationToolPaperRevision: explorationToolPaperRevision
+    )
+  }
+
+  private func resetLearningAuthorityForSimulation() {
+    boundaryTeachingState = .idle
+    boundaryTeachingResultText = "Choose one side to begin."
+    boundaryPositions = [:]
+    selectedDiscoverySequenceID = .penInteraction
+    discoveryTransactions = [:]
+    discoveryError = nil
+    drawingFramePosterior = nil
+    boundaryFrameObservationsByAttemptID = [:]
+    explorationError = nil
+    currentExplorationEpisode = nil
+    completedExplorationEpisodes = []
+    armatureGuidanceState = nil
+    lastArmatureObservation = nil
+    explorationCleanReference = nil
+    explorationAnchoredBaseline = nil
+    explorationPostLineFrame = nil
+    drawingTrialLineStart = nil
+    drawingTrialStrokeEvidence = nil
+    lastAnchorObservation = nil
+    lastInkObservation = nil
+    explorationInkStatus = "no isolated-line observation yet"
+    explorationExportPath = nil
+    lastTravelFeedSelection = nil
+    drawingTrialAssessment = nil
+    clearViewPoseAccepted = false
+    learningArtifactGraph = LearningDependencyGraph()
+    penAttemptHistory = try! ExerciseAttemptHistory(
+      compatibility: AttemptCompatibility(
+        cameraConfigurationID: nil,
+        coordinateSpace: .currentState,
+        units: .state,
+        group: AttemptGroupIdentity(rawValue: "simulated-pen-interaction"),
+        algorithmRevision: "simulated-typed-operator-pen-observation-v1"
+      )
+    )
+    boundaryAttemptHistories = [:]
+    clearViewAttemptHistories = [:]
+    comparisonAttemptHistories = [:]
+    activeExerciseAttemptID = nil
+    activeExerciseAttemptOwnerID = nil
+    activeExerciseAttemptMode = nil
+    restartableExerciseItemID = nil
+    observedDrawingTrialStep = .captureCleanReference
+    pendingClearViewLabel = nil
+    selectedBoundaryDirection = .positiveX
+    acceptedAttemptSequence = 0
+    currentDrawingTrialGroup = AttemptGroupIdentity(
+      rawValue: "simulated-\(UUID().uuidString.lowercased())"
+    )
+    explorationCoordinateRevision = 0
+    explorationToolPaperRevision = UUID()
+  }
+
+  private func restoreLearningAuthority(_ snapshot: LearningAuthoritySnapshot) {
+    boundaryTeachingState = snapshot.boundaryTeachingState
+    boundaryTeachingResultText = snapshot.boundaryTeachingResultText
+    boundaryPositions = snapshot.boundaryPositions
+    selectedDiscoverySequenceID = snapshot.selectedDiscoverySequenceID
+    discoveryTransactions = snapshot.discoveryTransactions
+    discoveryError = snapshot.discoveryError
+    drawingFramePosterior = snapshot.drawingFramePosterior
+    boundaryFrameObservationsByAttemptID = snapshot.boundaryFrameObservationsByAttemptID
+    explorationError = snapshot.explorationError
+    currentExplorationEpisode = snapshot.currentExplorationEpisode
+    completedExplorationEpisodes = snapshot.completedExplorationEpisodes
+    armatureGuidanceState = snapshot.armatureGuidanceState
+    lastArmatureObservation = snapshot.lastArmatureObservation
+    explorationCleanReference = snapshot.explorationCleanReference
+    explorationAnchoredBaseline = snapshot.explorationAnchoredBaseline
+    explorationPostLineFrame = snapshot.explorationPostLineFrame
+    drawingTrialLineStart = snapshot.drawingTrialLineStart
+    drawingTrialStrokeEvidence = snapshot.drawingTrialStrokeEvidence
+    lastAnchorObservation = snapshot.lastAnchorObservation
+    lastInkObservation = snapshot.lastInkObservation
+    explorationInkStatus = snapshot.explorationInkStatus
+    explorationExportPath = snapshot.explorationExportPath
+    lastTravelFeedSelection = snapshot.lastTravelFeedSelection
+    drawingTrialAssessment = snapshot.drawingTrialAssessment
+    clearViewPoseAccepted = snapshot.clearViewPoseAccepted
+    learningArtifactGraph = snapshot.learningArtifactGraph
+    penAttemptHistory = snapshot.penAttemptHistory
+    boundaryAttemptHistories = snapshot.boundaryAttemptHistories
+    clearViewAttemptHistories = snapshot.clearViewAttemptHistories
+    comparisonAttemptHistories = snapshot.comparisonAttemptHistories
+    restartableExerciseItemID = snapshot.restartableExerciseItemID
+    observedDrawingTrialStep = snapshot.observedDrawingTrialStep
+    pendingClearViewLabel = snapshot.pendingClearViewLabel
+    selectedBoundaryDirection = snapshot.selectedBoundaryDirection
+    acceptedAttemptSequence = snapshot.acceptedAttemptSequence
+    currentDrawingTrialGroup = snapshot.currentDrawingTrialGroup
+    explorationCoordinateRevision = snapshot.explorationCoordinateRevision
+    explorationToolPaperRevision = snapshot.explorationToolPaperRevision
+  }
+
   private func cancelAndSettleDiscoveryMotionBeforeErasure() async {
     guard boundaryTeachingState != .idle || boundaryMotionTask != nil else { return }
 
     if let target = activeStopTarget {
+      let admitted = latchContextualStopDisposition(
+        for: target,
+        intent: .cancelAttempt,
+        actor: "Application",
+        action: "Clear Discovery Authority"
+      )
       if let sequenceID = activeDiscoverySequenceID,
-        var transaction = discoveryTransactions[sequenceID]
+        var transaction = discoveryTransactions[sequenceID],
+        admitted
       {
         transaction.cancel()
         discoveryTransactions[sequenceID] = transaction
       }
-      await requestSingleJogCancel(for: target, intent: .cancelAttempt)
+      if admitted {
+        await requestSingleJogCancel(for: target, intent: .cancelAttempt)
+      }
     }
     let motionTask = boundaryMotionTask
     await motionTask?.value
@@ -3670,7 +4772,7 @@ final class OperatorWorkspace {
 
     let owner: Task<Void, Never>?
     switch target {
-    case .boundaryDiscovery(let transactionID, let direction):
+    case .boundaryDiscovery(_, let transactionID, _, _, let direction):
       let sequenceID = sequenceID(for: direction)
       if discoveryTransactions[sequenceID]?.id == transactionID,
         var transaction = discoveryTransactions[sequenceID]
@@ -3688,15 +4790,19 @@ final class OperatorWorkspace {
       owner = drawingTrialTask.map { task in Task { _ = await task.value } }
     }
 
-    if stopRequestIssuedForTarget != target, let machineActions {
-      stopRequestIssuedForTarget = target
-      jogCancelRequestInProgress = true
-      _ = await machineActions.requestJogCancel(.shutdown)
-      jogCancelRequestInProgress = false
+    if stopDispositionLatch == nil,
+      latchContextualStopDisposition(
+        for: target,
+        intent: .shutdown,
+        actor: "Application",
+        action: "Shutdown"
+      )
+    {
+      await requestSingleJogCancel(for: target, intent: .shutdown)
     }
     await owner?.value
-    activeStopTarget = nil
-    stopRequestIssuedForTarget = nil
+    if activeStopTarget == target { activeStopTarget = nil }
+    if stopDispositionLatch?.capabilityID == target.capabilityID { stopDispositionLatch = nil }
     boundaryTeachingState = .idle
   }
 
@@ -3859,7 +4965,13 @@ final class OperatorWorkspace {
   ) -> String? {
     if explorationOperationInProgress { return "The current learning action is still in progress." }
     if frameMode == .simulated {
-      return cameraActions == nil ? "The simulator camera composition is unavailable." : nil
+      if cameraActions == nil { return "The simulator camera composition is unavailable." }
+      if !controllerSessionEstablished { return "Connect the learning simulator first." }
+      if !motionAuthorizationEnabled { return "Enable simulated Motion first." }
+      if simulatedLearningSnapshot?.currentOperation != nil {
+        return "Stop or finish the current simulated operation first."
+      }
+      return nil
     }
     guard controllerIsConnected else { return "Connect the selected controller first." }
     guard motionGuardIsActive else { return "Enable Motion first." }
@@ -3914,10 +5026,10 @@ final class OperatorWorkspace {
   private func recordDrawingTrialLineStart() throws {
     let position: MachinePosition?
     if frameMode == .simulated {
-      position = if let currentPosition = machineSnapshot?.machine.position {
-        currentPosition
+      if let simulated = simulatedLearningSnapshot?.mpos {
+        position = try MachinePosition(x: simulated.xMM, y: simulated.yMM)
       } else {
-        try MachinePosition(x: 0, y: 0)
+        position = try MachinePosition(x: 0, y: 0)
       }
     } else {
       position = machineSnapshot?.machine.position
@@ -3935,6 +5047,14 @@ final class OperatorWorkspace {
     }
     let anchored: DisplayedFrame
     if frameMode == .simulated {
+      applySimulatedSnapshotResponse(
+        await simulatedLearningRuntime.setPenPose(.down),
+        action: "Create simulated anchor contact"
+      )
+      applySimulatedSnapshotResponse(
+        await simulatedLearningRuntime.setPenPose(.up),
+        action: "Raise simulated pen after anchor contact"
+      )
       anchored = try await cameraActions.simulatedExplorationFrames().anchoredBaseline
     } else {
       guard let machineActions else {
@@ -4005,7 +5125,29 @@ final class OperatorWorkspace {
   }
 
   private func drawIsolatedTrialLine() async throws {
-    if frameMode == .simulated { return }
+    if frameMode == .simulated {
+      applySimulatedSnapshotResponse(
+        await simulatedLearningRuntime.setPenPose(.down),
+        action: "Lower simulated pen for isolated line"
+      )
+      let response = await simulatedLearningRuntime.beginDrawing(
+        delta: try SimulatedLearningMotionVector(dxMM: 5, dyMM: 0)
+      )
+      let operation = try response.result.get()
+      let outcomeResponse = await simulatedLearningRuntime.completeNaturally(operation.id)
+      let outcome = try outcomeResponse.result.get()
+      guard outcome.disposition == .naturallyCompleted else {
+        throw LearningPathOperationError.controllerOutcome(
+          "Simulated drawing did not complete naturally."
+        )
+      }
+      simulatedLearningSnapshot = await simulatedLearningRuntime.snapshot()
+      applySimulatedSnapshotResponse(
+        await simulatedLearningRuntime.setPenPose(.up),
+        action: "Raise simulated pen after isolated line"
+      )
+      return
+    }
     guard let machineActions, let start = drawingTrialLineStart else {
       throw LearningPathOperationError.requiredState("Recorded line start is unavailable.")
     }
@@ -4022,14 +5164,25 @@ final class OperatorWorkspace {
       feedMMPerMinute: positiveFallbackTravelFeed()
     )
     _ = await announceAdvisory("Drawing one isolated line.")
-    let owner = Task { await machineActions.requestDrawingStroke(request) }
+    let admittedOperation: DrawingStrokeOperation
+    switch await machineActions.beginDrawingStroke(request) {
+    case .admitted(let operation):
+      admittedOperation = operation
+    case .rejected(let outcome):
+      throw LearningPathOperationError.controllerOutcome(String(describing: outcome))
+    }
+    let target = ContextualStopTarget.drawingTrial(
+      capabilityID: ContextualStopCapabilityID(),
+      operationOwner: .liveOperation(admittedOperation.id)
+    )
+    let owner = Task { await admittedOperation.outcome() }
     drawingTrialTask = owner
-    activeStopTarget = .drawingTrial
-    stopRequestIssuedForTarget = nil
+    activeStopTarget = target
+    stopDispositionLatch = nil
     let outcome = await owner.value
     drawingTrialTask = nil
-    activeStopTarget = nil
-    stopRequestIssuedForTarget = nil
+    if activeStopTarget == target { activeStopTarget = nil }
+    if stopDispositionLatch?.capabilityID == target.capabilityID { stopDispositionLatch = nil }
     machineSnapshot = await machineActions.snapshot()
     switch outcome {
     case .completed(let evidence):

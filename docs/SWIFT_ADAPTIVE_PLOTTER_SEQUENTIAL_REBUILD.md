@@ -191,6 +191,26 @@ resends an ambiguous write.
 The copy-paste coordinator specification is
 [Learning Workbench Multi-Agent Execution Prompt](implementation/LEARNING_WORKBENCH_MULTI_AGENT_EXECUTION_PROMPT.md).
 
+### Work item 7a — Stop identity, status truth, and simulator parity — implemented
+
+- bind every contextual Stop to one unique operation capability and latch the
+  first Stop/Cancel/shutdown disposition before mechanical settlement;
+- route Boundary Stop through the same action descriptor the UI renders, with
+  no extra generic YES/NO start ceremony;
+- render **Stop Manual Jog** in the labeled Motion panel and reject stale Stop
+  capabilities from prior jogs;
+- keep Motion Enabled tied to current-session authorization while Ready, Busy,
+  Unavailable, and Needs Attention describe the current request separately;
+- project Needs Attention with actor, action, outcome, detail, and recovery;
+- make Utilities explicitly hideable and keep it subordinate to camera width;
+- use the same Learning Path and camera-utility presentation in LIVE and
+  SIMULATED;
+- run the complete deterministic simulated path through Boundary Stop and the
+  observed drawing trial with zero `MachineActions` calls and explicit
+  nonphysical evidence labels;
+- discard simulated artifacts on return to LIVE and restore the parked LIVE
+  accepted authority unchanged.
+
 ## Work item 8 — Repeatable geometric learning — next
 
 After the attended single-trial loop is reliable:

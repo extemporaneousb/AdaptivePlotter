@@ -48,6 +48,14 @@ tests, bundle privacy declarations, and current UI.
 - Structured exercise detail shows number, participant, timeline, instructions,
   expected observation, evidence, requested feed/source, typed choices, and an
   actionable runtime-owned unavailable reason.
+- Needs Attention names the current actor, action, typed outcome, detail, and
+  recovery. The optional Utilities region has explicit Show/Hide control and
+  collapses before it can starve the protected camera.
+- Motion Enabled reflects current-session authorization and remains enabled
+  while its owner is busy. Ready, Busy, Unavailable with the exact reason, and
+  Needs Attention are separate request-status projections.
+- The Motion panel labels X/Y distance and feed units, labels each direction,
+  and shows one red Stop Manual Jog only for the exact active manual owner.
 - Start actions cannot silently no-op; their direct unavailable reason is shown.
 - Clear acceptance is unavailable until the current label and observation are
   both Clear.
@@ -83,13 +91,16 @@ or categorical counts, and included attempt identities.
 ### Unified Stop
 
 - `ContextualStopTarget` covers Boundary Discovery, manual jog, and drawing
-  trial.
-- The pinned exercise action strip is the only visible contextual software Stop.
+  trial with a unique capability identity.
+- Exercise Stop lives only in the pinned action strip; manual Stop lives only in
+  the Motion panel. Exactly one contextual software Stop is visible for the
+  current owner.
 - Boundary Stop records the operator event before one cancel byte, awaits the
   original owner through Idle/final MPos, captures a strictly newer exact frame,
   updates the selected side posterior, and advances.
 - Repeated Stop calls share a target latch and emit one cancel.
-- Manual Stop uses the same surface and creates no boundary evidence.
+- Manual Stop uses the same mechanical primitive, rejects stale capabilities,
+  and creates no boundary evidence.
 - Shutdown closes new admission, settles an active owner once, then drains,
   stops camera capture, disconnects, and clears current-session evidence.
 
@@ -99,6 +110,8 @@ or categorical counts, and included attempt identities.
   dependent on the final human observation of Up.
 - Boundary Discovery supports four directions, but one successful relevant side
   is sufficient for the visible transition.
+- Boundary selection is inert and Start directly admits the logical owner;
+  there is no generic preparatory Boundary YES/NO question.
 - One typed logical boundary owner renews finite GRBL wire segments after
   unambiguous natural completion. Stop closes renewal before controller cancel;
   a real limit, alarm, refusal, disconnect, fault, or ambiguity produces Needs
@@ -167,7 +180,14 @@ or categorical counts, and included attempt identities.
   overlays explicitly inferred.
 - A one-entry frame/configuration image cache and shared LIVE/SIMULATED
   aspect-fit renderer.
-- SIMULATED actions cannot reach machine closures and remain nonphysical.
+- SIMULATED uses the same Learning Path, motion controls, questions, camera
+  utilities, and action locations as LIVE. Its typed runtime covers session,
+  authorization, MPos, pen pose, manual jog, renewable Boundary Stop/Cancel,
+  drawing, and deterministic camera evidence.
+- A complete simulated Learning Path reaches Adaptive Drawing with zero
+  `MachineActions` calls. Every simulated evidence surface is marked
+  `SIMULATED — NOT PHYSICAL EVIDENCE`; returning to LIVE discards simulated
+  artifacts and restores the parked LIVE authority unchanged.
 
 ### Spoken output
 

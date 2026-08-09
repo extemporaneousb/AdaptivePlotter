@@ -74,3 +74,94 @@ struct LearningWorkbenchLayoutPolicy: Equatable, Sendable {
     return max(0, value)
   }
 }
+
+enum UtilitiesVisibilityAction: Hashable, Sendable {
+  case show
+  case hide
+}
+
+struct UtilitiesPresentation: Equatable, Sendable {
+  let isPresented: Bool
+  let action: UtilitiesVisibilityAction
+  let actionTitle: String
+  let unavailableReason: String?
+
+  var isActionEnabled: Bool { unavailableReason == nil }
+}
+
+/// Pure inspector admission policy. The caller supplies the workbench content
+/// width: while hidden it is the full window content width; while shown it is
+/// the width remaining after the native inspector. Checking Show admission
+/// against the protected workbench, inspector, and separator widths prevents
+/// an open-then-close flash.
+struct UtilitiesVisibilityPolicy: Equatable, Sendable {
+  let minimumWorkbenchWidth: CGFloat
+  let inspectorWidth: CGFloat
+  let inspectorSeparation: CGFloat
+
+  init(
+    minimumWorkbenchWidth: CGFloat = LearningWorkbenchLayoutPolicy.minimumWindowWidth,
+    inspectorWidth: CGFloat = 360,
+    inspectorSeparation: CGFloat = 8
+  ) {
+    self.minimumWorkbenchWidth = Self.nonnegativeFinite(minimumWorkbenchWidth)
+    self.inspectorWidth = Self.nonnegativeFinite(inspectorWidth)
+    self.inspectorSeparation = Self.nonnegativeFinite(inspectorSeparation)
+  }
+
+  var minimumWidthToShow: CGFloat {
+    minimumWorkbenchWidth + inspectorWidth + inspectorSeparation
+  }
+
+  func presentation(
+    isPresented: Bool,
+    availableContentWidth: CGFloat
+  ) -> UtilitiesPresentation {
+    if isPresented {
+      return UtilitiesPresentation(
+        isPresented: true,
+        action: .hide,
+        actionTitle: "Hide Utilities",
+        unavailableReason: nil
+      )
+    }
+
+    let width = Self.nonnegativeFinite(availableContentWidth)
+    let unavailableReason =
+      width >= minimumWidthToShow
+      ? nil
+      : "Widen the window to at least \(Int(minimumWidthToShow)) points to preserve the camera while Utilities is open."
+    return UtilitiesPresentation(
+      isPresented: false,
+      action: .show,
+      actionTitle: "Show Utilities",
+      unavailableReason: unavailableReason
+    )
+  }
+
+  func transition(
+    isPresented: Bool,
+    action: UtilitiesVisibilityAction,
+    availableContentWidth: CGFloat
+  ) -> Bool {
+    switch action {
+    case .hide:
+      return false
+    case .show:
+      guard !isPresented else { return true }
+      return presentation(
+        isPresented: false,
+        availableContentWidth: availableContentWidth
+      ).isActionEnabled
+    }
+  }
+
+  func shouldCollapsePresentedUtilities(availableContentWidth: CGFloat) -> Bool {
+    Self.nonnegativeFinite(availableContentWidth) < minimumWorkbenchWidth
+  }
+
+  private static func nonnegativeFinite(_ value: CGFloat) -> CGFloat {
+    guard value.isFinite else { return 0 }
+    return max(0, value)
+  }
+}

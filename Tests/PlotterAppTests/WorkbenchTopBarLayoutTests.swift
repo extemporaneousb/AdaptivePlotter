@@ -49,4 +49,39 @@ struct WorkbenchTopBarLayoutTests {
         == "info.circle"
     )
   }
+
+  @Test("enabled authorization is not rewritten by transient request state")
+  func motionAuthorizationRemainsTruthfulWhileBusy() {
+    let authorizationLabel = WorkbenchConnectionIndicator.motionGuard.label(isActive: true)
+    let requestState = MotionRequestStatusPresentation.busy(
+      "The current controller operation is settling."
+    )
+
+    #expect(authorizationLabel == "Motion Enabled")
+    #expect(requestState.label == "Busy")
+    #expect(requestState.detail == "The current controller operation is settling.")
+  }
+
+  @Test("request faults project Needs Attention separately from authorization")
+  func requestAttentionIsSeparate() {
+    let authorizationLabel = WorkbenchConnectionIndicator.motionGuard.label(isActive: true)
+    let requestState = MotionRequestStatusPresentation.needsAttention(
+      "Controller Alarm blocks a carriage request."
+    )
+
+    #expect(authorizationLabel == "Motion Enabled")
+    #expect(requestState.label == "Needs Attention")
+    #expect(requestState.detail == "Controller Alarm blocks a carriage request.")
+  }
+
+  @Test("simulated mode keeps the controller slot without serial selection")
+  func simulatedControllerSlotPreservesToolbarOrder() {
+    let live = WorkbenchControllerSlotPresentation(mode: .live)
+    let simulated = WorkbenchControllerSlotPresentation(mode: .simulated)
+
+    #expect(live.title == "Controller")
+    #expect(live.isSerialSelectionEnabled)
+    #expect(simulated.title == "Learning Simulator")
+    #expect(!simulated.isSerialSelectionEnabled)
+  }
 }
