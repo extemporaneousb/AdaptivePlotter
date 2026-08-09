@@ -2537,6 +2537,12 @@ final class OperatorWorkspace {
     latestLiveCameraFrame = validatedLiveCameraFrame(in: snapshot)
     updateCameraError()
     beginFrameUpdates(generation: generation)
+    if case .running = snapshot.state {
+      await enableAutomaticVisionAnalysis(
+        cameraActions: cameraActions,
+        generation: generation
+      )
+    }
   }
 
   func stopCamera() async {
@@ -2576,6 +2582,12 @@ final class OperatorWorkspace {
     lastSceneMeasurement = nil
     updateCameraError()
     beginFrameUpdates(generation: generation)
+    if case .running = snapshot.state {
+      await enableAutomaticVisionAnalysis(
+        cameraActions: cameraActions,
+        generation: generation
+      )
+    }
   }
 
   func inspectLatestScene() async {
@@ -2618,27 +2630,43 @@ final class OperatorWorkspace {
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
     guard frameMode == .live, let cameraActions else { return }
+    if enabled {
+      await enableAutomaticVisionAnalysis(
+        cameraActions: cameraActions,
+        generation: generation
+      )
+      return
+    }
     visionUpdateTask?.cancel()
     visionUpdateTask = nil
-    let snapshot = await cameraActions.setAutomaticInspection(
-      enabled ? visionAnalysisCadence : nil
-    )
+    let snapshot = await cameraActions.setAutomaticInspection(nil)
     guard canCommit(generation) else { return }
-    automaticVisionEnabled = enabled
+    automaticVisionEnabled = false
     visionError = snapshot.lastError
     analysisFrameHeld = false
     visionAnalysisSnapshot = snapshot
-    if enabled {
-      beginVisionUpdates(generation: generation)
-      if let result = snapshot.latestResult { receiveVision(result) }
-    } else {
-      lastSceneMeasurement = nil
-      cameraOverlays = []
-      let cameraSnapshot = await cameraActions.snapshot()
-      guard canCommit(generation) else { return }
-      self.cameraSnapshot = cameraSnapshot
-      if let latest = cameraSnapshot.latestFrame { displayedFrame = latest }
-    }
+    lastSceneMeasurement = nil
+    cameraOverlays = []
+    let cameraSnapshot = await cameraActions.snapshot()
+    guard canCommit(generation) else { return }
+    self.cameraSnapshot = cameraSnapshot
+    if let latest = cameraSnapshot.latestFrame { displayedFrame = latest }
+  }
+
+  private func enableAutomaticVisionAnalysis(
+    cameraActions: CameraActions,
+    generation: UInt64
+  ) async {
+    visionUpdateTask?.cancel()
+    visionUpdateTask = nil
+    let snapshot = await cameraActions.setAutomaticInspection(visionAnalysisCadence)
+    guard canCommit(generation), frameMode == .live else { return }
+    automaticVisionEnabled = true
+    visionError = snapshot.lastError
+    analysisFrameHeld = false
+    visionAnalysisSnapshot = snapshot
+    beginVisionUpdates(generation: generation)
+    if let result = snapshot.latestResult { receiveVision(result) }
   }
 
   func updateVisionAnalysisCadence(_ cadence: VisionAnalysisCadence) async {
@@ -2692,6 +2720,12 @@ final class OperatorWorkspace {
       latestLiveCameraFrame = validatedLiveCameraFrame(in: snapshot)
       updateCameraError()
       beginFrameUpdates(generation: generation)
+      if case .running = snapshot.state {
+        await enableAutomaticVisionAnalysis(
+          cameraActions: cameraActions,
+          generation: generation
+        )
+      }
     case .simulated:
       let snapshot = await cameraActions.stop()
       guard canCommit(generation) else { return }

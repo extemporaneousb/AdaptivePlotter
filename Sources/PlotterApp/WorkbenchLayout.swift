@@ -75,6 +75,49 @@ struct LearningWorkbenchLayoutPolicy: Equatable, Sendable {
   }
 }
 
+enum WorkbenchPane: Hashable, Sendable {
+  case navigator
+  case motion
+  case exerciseDetail
+}
+
+/// Window-local presentation state. Hidden panes do not mutate Learning Path,
+/// camera, controller, or exercise authority, and the camera is never a
+/// hideable pane.
+struct WorkbenchPaneVisibility: Equatable, Sendable {
+  var navigatorIsPresented: Bool
+  var motionIsPresented: Bool
+  var exerciseDetailIsPresented: Bool
+
+  init(
+    navigatorIsPresented: Bool = true,
+    motionIsPresented: Bool = true,
+    exerciseDetailIsPresented: Bool = true
+  ) {
+    self.navigatorIsPresented = navigatorIsPresented
+    self.motionIsPresented = motionIsPresented
+    self.exerciseDetailIsPresented = exerciseDetailIsPresented
+  }
+
+  func isPresented(_ pane: WorkbenchPane) -> Bool {
+    switch pane {
+    case .navigator: navigatorIsPresented
+    case .motion: motionIsPresented
+    case .exerciseDetail: exerciseDetailIsPresented
+    }
+  }
+
+  func toggling(_ pane: WorkbenchPane) -> WorkbenchPaneVisibility {
+    var result = self
+    switch pane {
+    case .navigator: result.navigatorIsPresented.toggle()
+    case .motion: result.motionIsPresented.toggle()
+    case .exerciseDetail: result.exerciseDetailIsPresented.toggle()
+    }
+    return result
+  }
+}
+
 enum UtilitiesVisibilityAction: Hashable, Sendable {
   case show
   case hide
@@ -95,27 +138,69 @@ struct UtilitiesPresentation: Equatable, Sendable {
 /// against the protected workbench, inspector, and separator widths prevents
 /// an open-then-close flash.
 struct UtilitiesVisibilityPolicy: Equatable, Sendable {
-  let minimumWorkbenchWidth: CGFloat
+  let minimumCameraWidth: CGFloat
+  let minimumNavigatorWidth: CGFloat
+  let minimumDetailWidth: CGFloat
+  let splitSeparation: CGFloat
   let inspectorWidth: CGFloat
   let inspectorSeparation: CGFloat
 
   init(
-    minimumWorkbenchWidth: CGFloat = LearningWorkbenchLayoutPolicy.minimumWindowWidth,
+    minimumCameraWidth: CGFloat = 640,
+    minimumNavigatorWidth: CGFloat = 220,
+    minimumDetailWidth: CGFloat = 300,
+    splitSeparation: CGFloat = 8,
     inspectorWidth: CGFloat = 360,
     inspectorSeparation: CGFloat = 8
   ) {
-    self.minimumWorkbenchWidth = Self.nonnegativeFinite(minimumWorkbenchWidth)
+    self.minimumCameraWidth = Self.nonnegativeFinite(minimumCameraWidth)
+    self.minimumNavigatorWidth = Self.nonnegativeFinite(minimumNavigatorWidth)
+    self.minimumDetailWidth = Self.nonnegativeFinite(minimumDetailWidth)
+    self.splitSeparation = Self.nonnegativeFinite(splitSeparation)
     self.inspectorWidth = Self.nonnegativeFinite(inspectorWidth)
     self.inspectorSeparation = Self.nonnegativeFinite(inspectorSeparation)
   }
 
+  /// Utilities can always be reached once the protected camera and inspector
+  /// fit. Side panes collapse before this lower bound is used.
   var minimumWidthToShow: CGFloat {
-    minimumWorkbenchWidth + inspectorWidth + inspectorSeparation
+    minimumCameraWidth + inspectorWidth + inspectorSeparation
+  }
+
+  func minimumContentWidth(for panes: WorkbenchPaneVisibility) -> CGFloat {
+    let presentedSideCount = [
+      panes.navigatorIsPresented,
+      panes.exerciseDetailIsPresented,
+    ].filter { $0 }.count
+    return minimumCameraWidth
+      + (panes.navigatorIsPresented ? minimumNavigatorWidth : 0)
+      + (panes.exerciseDetailIsPresented ? minimumDetailWidth : 0)
+      + CGFloat(presentedSideCount) * splitSeparation
+  }
+
+  /// Hides the navigator first, then the exercise detail only if necessary.
+  /// Callers may forbid detail collapse while it owns active exercise actions.
+  func preparingPanesToShow(
+    _ panes: WorkbenchPaneVisibility,
+    availableWindowWidth: CGFloat,
+    canCollapseExerciseDetail: Bool
+  ) -> WorkbenchPaneVisibility {
+    let width = Self.nonnegativeFinite(availableWindowWidth)
+    func fits(_ candidate: WorkbenchPaneVisibility) -> Bool {
+      width >= minimumContentWidth(for: candidate) + inspectorWidth + inspectorSeparation
+    }
+    guard !fits(panes) else { return panes }
+
+    var candidate = panes
+    candidate.navigatorIsPresented = false
+    guard !fits(candidate), canCollapseExerciseDetail else { return candidate }
+    candidate.exerciseDetailIsPresented = false
+    return candidate
   }
 
   func presentation(
     isPresented: Bool,
-    availableContentWidth: CGFloat
+    availableWindowWidth: CGFloat
   ) -> UtilitiesPresentation {
     if isPresented {
       return UtilitiesPresentation(
@@ -126,11 +211,11 @@ struct UtilitiesVisibilityPolicy: Equatable, Sendable {
       )
     }
 
-    let width = Self.nonnegativeFinite(availableContentWidth)
+    let width = Self.nonnegativeFinite(availableWindowWidth)
     let unavailableReason =
       width >= minimumWidthToShow
       ? nil
-      : "Widen the window to at least \(Int(minimumWidthToShow)) points to preserve the camera while Utilities is open."
+      : "Widen the window to at least \(Int(minimumWidthToShow)) points so the protected camera and Utilities can coexist."
     return UtilitiesPresentation(
       isPresented: false,
       action: .show,
@@ -142,7 +227,7 @@ struct UtilitiesVisibilityPolicy: Equatable, Sendable {
   func transition(
     isPresented: Bool,
     action: UtilitiesVisibilityAction,
-    availableContentWidth: CGFloat
+    availableWindowWidth: CGFloat
   ) -> Bool {
     switch action {
     case .hide:
@@ -151,13 +236,19 @@ struct UtilitiesVisibilityPolicy: Equatable, Sendable {
       guard !isPresented else { return true }
       return presentation(
         isPresented: false,
-        availableContentWidth: availableContentWidth
+        availableWindowWidth: availableWindowWidth
       ).isActionEnabled
     }
   }
 
-  func shouldCollapsePresentedUtilities(availableContentWidth: CGFloat) -> Bool {
-    Self.nonnegativeFinite(availableContentWidth) < minimumWorkbenchWidth
+  /// While the inspector is open, the geometry reader reports the remaining
+  /// workbench width. Close Utilities only if even the currently presented
+  /// side panes would violate the protected camera minimum.
+  func shouldCollapsePresentedUtilities(
+    availableContentWidth: CGFloat,
+    panes: WorkbenchPaneVisibility
+  ) -> Bool {
+    Self.nonnegativeFinite(availableContentWidth) < minimumContentWidth(for: panes)
   }
 
   private static func nonnegativeFinite(_ value: CGFloat) -> CGFloat {

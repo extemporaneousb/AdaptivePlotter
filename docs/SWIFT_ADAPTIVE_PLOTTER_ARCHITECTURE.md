@@ -191,7 +191,10 @@ Learning Path navigator | camera/action surface | selected exercise and actions
 ```
 
 The navigator is a native sidebar-style list. The camera is outside selection
-conditionals. The exercise detail recovers the prior presentation's useful
+conditionals. Native split dividers resize the visible regions, while explicit
+Hide/Show controls collapse and restore the navigator, exercise detail, and
+lower Motion region. A pane that owns the only contextual Stop cannot be hidden
+until that operation settles. The exercise detail recovers the prior presentation's useful
 question-card and timeline hierarchy without restoring its removed workflow
 model. Its pinned action strip shows the state-appropriate Start, choices,
 Cancel, Stop, Restart, Redo, or Record Another Attempt control. Critical cues
@@ -203,7 +206,10 @@ transient request availability. Authorization remains enabled while the one
 owner is moving or actuating; Ready/Busy/Unavailable/Needs Attention is a
 separate projection. Operation activity records identify actor, action,
 outcome, detail, and recovery. The optional Utilities region has explicit
-Show/Hide state and yields width before the protected camera.
+Show/Hide state and yields a collapsible side pane before the protected camera.
+Successful LIVE camera start and restart enable bounded automatic scene
+analysis at the selected cadence; semantic overlay layers begin visible and
+remain exact-frame/configuration filtered.
 
 There is no standalone Jog Observations presentation or hidden diagnostic
 workflow. Repeat collection is an action on a numbered exercise and uses that

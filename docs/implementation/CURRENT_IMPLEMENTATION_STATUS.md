@@ -50,7 +50,10 @@ tests, bundle privacy declarations, and current UI.
   actionable runtime-owned unavailable reason.
 - Needs Attention names the current actor, action, typed outcome, detail, and
   recovery. The optional Utilities region has explicit Show/Hide control and
-  collapses before it can starve the protected camera.
+  yields the navigator before it can starve the protected camera.
+- The navigator, exercise detail, and lower Motion region retain native split
+  resizing and also have explicit Hide/Show controls. A region containing the
+  sole active Stop cannot be hidden until its owner settles.
 - Motion Enabled reflects current-session authorization and remains enabled
   while its owner is busy. Ready, Busy, Unavailable with the exact reason, and
   Needs Attention are separate request-status projections.
@@ -176,6 +179,9 @@ or categorical counts, and included attempt identities.
 - `latestLiveCameraFrame` drives liveness independently of held analysis pixels.
 - Exact `FrameID` and `CameraConfigurationID` bind measurements and overlays.
 - Manual snapshot/analysis and bounded 2/5/10 Hz automatic analysis.
+- Successful LIVE camera start/restart enables bounded automatic analysis at
+  the selected cadence; all exact-provenance semantic overlay layers begin
+  visible and remain individually hideable.
 - Green-cap and frame-side camera measurements; drawing-frame and armature
   overlays explicitly inferred.
 - A one-entry frame/configuration image cache and shared LIVE/SIMULATED

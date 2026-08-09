@@ -8,6 +8,36 @@ import Testing
 @Suite("Operator workspace learning runtime")
 @MainActor
 struct OperatorWorkspaceTests {
+  @Test("successful LIVE camera start and restart enable automatic overlays")
+  func cameraStartEnablesAutomaticOverlays() async throws {
+    let log = EventLog()
+    let machine = try MachineFixture(log: log)
+    let camera = try CameraFixture()
+    let workspace = workspace(machine: machine, camera: camera, log: log)
+
+    await workspace.startCamera()
+    #expect(workspace.automaticVisionEnabled)
+    #expect(workspace.visibleLayers == Set(CanvasLayer.allCases))
+    #expect(camera.recordedAutomaticCadences == [.fiveFPS])
+    #expect(
+      workspace.cameraUtilityPresentation.actions.first {
+        $0.kind == .toggleAutomaticAnalysis
+      }?.title == "Stop Auto Analysis"
+    )
+
+    await workspace.restartCamera()
+    #expect(workspace.automaticVisionEnabled)
+    #expect(camera.recordedAutomaticCadences == [.fiveFPS, .fiveFPS])
+    await workspace.setAutomaticVisionAnalysis(false)
+    #expect(!workspace.automaticVisionEnabled)
+    #expect(
+      workspace.cameraUtilityPresentation.actions.first {
+        $0.kind == .toggleAutomaticAnalysis
+      }?.title == "Start Auto Analysis"
+    )
+    await workspace.shutdown()
+  }
+
   @Test("manual contextual Stop sends one cancel and creates no boundary evidence")
   func manualStopHasNoBoundaryEvidence() async throws {
     let log = EventLog()
@@ -903,7 +933,7 @@ private func cameraActions(_ fixture: CameraFixture) -> OperatorWorkspace.Camera
     inspectScene: { try fixture.inspection(after: $0) },
     captureFrame: { try fixture.inspection(after: $0).displayedFrame },
     captureSnapshot: { "unused" },
-    setAutomaticInspection: { _ in .stopped },
+    setAutomaticInspection: { fixture.setAutomaticInspection($0) },
     analysisUpdates: { AsyncStream { $0.finish() } },
     simulatedContent: { mode in
       try await CameraComposition.actions.simulatedContent(mode)
@@ -1129,6 +1159,7 @@ private final class CameraFixture: @unchecked Sendable {
   private let rotatesConfiguration: Bool
   private let lock = NSLock()
   private var inspectionCount = 0
+  private var automaticCadences: [VisionAnalysisCadence] = []
 
   init(rotatesConfiguration: Bool = false) throws {
     self.rotatesConfiguration = rotatesConfiguration
@@ -1195,6 +1226,31 @@ private final class CameraFixture: @unchecked Sendable {
       diagnosticSHA256: fresh.frame.contentSHA256
     )
     return LiveSceneInspection(displayedFrame: fresh, measurement: measurement)
+  }
+
+  var recordedAutomaticCadences: [VisionAnalysisCadence] {
+    lock.lock()
+    defer { lock.unlock() }
+    return automaticCadences
+  }
+
+  func setAutomaticInspection(
+    _ cadence: VisionAnalysisCadence?
+  ) -> PlotterSceneAnalysisSnapshot {
+    lock.lock()
+    if let cadence { automaticCadences.append(cadence) }
+    lock.unlock()
+    return PlotterSceneAnalysisSnapshot(
+      state: cadence.map(PlotterSceneAnalysisState.running) ?? .stopped,
+      submittedFrameCount: 0,
+      analyzedFrameCount: 0,
+      supersededFrameCount: 0,
+      failedFrameCount: 0,
+      activeFrameSequence: nil,
+      pendingFrameSequence: nil,
+      latestResult: nil,
+      lastError: nil
+    )
   }
 }
 

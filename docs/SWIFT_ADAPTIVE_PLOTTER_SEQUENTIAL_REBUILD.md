@@ -203,6 +203,11 @@ The copy-paste coordinator specification is
   Unavailable, and Needs Attention describe the current request separately;
 - project Needs Attention with actor, action, outcome, detail, and recovery;
 - make Utilities explicitly hideable and keep it subordinate to camera width;
+- make the navigator, exercise detail, and lower Motion region explicitly
+  collapsible/restorable while retaining native split resizing when visible;
+- keep the sole Stop-owning pane visible until its operation settles;
+- start bounded LIVE automatic vision analysis after successful camera
+  start/restart with all semantic overlay layers initially visible;
 - use the same Learning Path and camera-utility presentation in LIVE and
   SIMULATED;
 - run the complete deterministic simulated path through Boundary Stop and the

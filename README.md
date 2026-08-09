@@ -61,7 +61,9 @@ Future until multi-stroke observation and checkpoint learning are implemented.
 The accepted workbench target is one singleton window with three user-resizable
 vertical regions: the Learning Path navigator on the left, the always-mounted
 camera/action surface in the center, and the selected exercise plus its controls
-on the right. Selecting a completed or future row changes presentation only.
+on the right. The navigator, exercise detail, and lower Motion region also have
+explicit Hide/Show controls; hiding them never dismounts the camera or changes
+runtime authority. Selecting a completed or future row changes presentation only.
 The camera remains visible while the operator reads, starts, answers, stops,
 cancels, retries, or reviews an exercise. There is no auxiliary Learning Path
 window and no launcher panel for one.
@@ -209,6 +211,12 @@ and shutdown. `latestLiveCameraFrame` is the live heartbeat; it is deliberately
 separate from an analyzed or held display frame. `StampedFrame`, `FrameID`, and
 `CameraConfigurationID` bind pixels, measurements, and overlays to exact
 provenance.
+
+After a successful LIVE camera start or restart, bounded automatic scene
+analysis starts at the selected cadence and all semantic overlay layers are
+visible by default. The operator can still stop automatic analysis or hide
+individual overlay kinds. Utilities remains reachable at the supported minimum
+window width by yielding a collapsible side pane before reducing camera width.
 
 The evidence boundaries are explicit:
 

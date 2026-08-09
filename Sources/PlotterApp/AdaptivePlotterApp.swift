@@ -100,48 +100,70 @@ struct OperatorWorkspaceView: View {
   @Bindable var workspace: OperatorWorkspace
   @State private var selection = LearningPathSelectionState(current: .stage(.connect))
   @State private var utilitiesArePresented = false
+  @State private var paneVisibility = WorkbenchPaneVisibility()
   private let utilitiesPolicy = UtilitiesVisibilityPolicy()
 
   var body: some View {
     GeometryReader { proxy in
       let utilities = utilitiesPolicy.presentation(
         isPresented: utilitiesArePresented,
-        availableContentWidth: proxy.size.width
+        availableWindowWidth: proxy.size.width
       )
       HSplitView {
-        LearningPathNavigator(workspace: workspace, selection: $selection)
-          .frame(minWidth: 220, idealWidth: 280, maxWidth: 440)
+        if paneVisibility.navigatorIsPresented {
+          LearningPathNavigator(workspace: workspace, selection: $selection)
+            .frame(minWidth: 220, idealWidth: 280, maxWidth: 440)
+        }
 
-        VSplitView {
-          ActionSurface(presentation: workspace.actionSurfacePresentation)
-            .frame(minWidth: 640, minHeight: 420)
+        VStack(spacing: 0) {
+          WorkbenchPaneControls(
+            visibility: paneVisibility,
+            utilities: utilities,
+            exerciseDetailCollapseUnavailableReason:
+              exerciseDetailCollapseUnavailableReason,
+            motionCollapseUnavailableReason: motionCollapseUnavailableReason,
+            togglePane: { pane in
+              paneVisibility = paneVisibility.toggling(pane)
+            },
+            performUtilitiesAction: { action in
+              performUtilitiesAction(action, availableWindowWidth: proxy.size.width)
+            }
+          )
 
-          ScrollView {
-            MotionPanel(workspace: workspace)
-              .padding(10)
+          VSplitView {
+            ActionSurface(presentation: workspace.actionSurfacePresentation)
+              .frame(minWidth: 640, minHeight: 420)
+
+            if paneVisibility.motionIsPresented {
+              ScrollView {
+                MotionPanel(workspace: workspace)
+                  .padding(10)
+              }
+              .frame(minHeight: 220, idealHeight: 260, maxHeight: 360)
+              .background(Color(nsColor: .controlBackgroundColor))
+            }
           }
-          .frame(minHeight: 220, idealHeight: 260, maxHeight: 360)
-          .background(Color(nsColor: .controlBackgroundColor))
         }
         .frame(minWidth: 640, maxWidth: .infinity, maxHeight: .infinity)
 
-        LearningPathView(
-          workspace: workspace,
-          selection: $selection,
-          utilities: utilities,
-          performUtilitiesAction: { action in
-            utilitiesArePresented = utilitiesPolicy.transition(
-              isPresented: utilitiesArePresented,
-              action: action,
-              availableContentWidth: proxy.size.width
-            )
-          }
-        )
-        .frame(minWidth: 300, idealWidth: 380, maxWidth: 520)
+        if paneVisibility.exerciseDetailIsPresented {
+          LearningPathView(
+            workspace: workspace,
+            selection: $selection,
+            utilities: utilities,
+            performUtilitiesAction: { action in
+              performUtilitiesAction(action, availableWindowWidth: proxy.size.width)
+            }
+          )
+          .frame(minWidth: 300, idealWidth: 380, maxWidth: 520)
+        }
       }
       .onChange(of: proxy.size.width) { _, width in
         if utilitiesArePresented,
-          utilitiesPolicy.shouldCollapsePresentedUtilities(availableContentWidth: width)
+          utilitiesPolicy.shouldCollapsePresentedUtilities(
+            availableContentWidth: width,
+            panes: paneVisibility
+          )
         {
           utilitiesArePresented = false
         }
@@ -166,6 +188,107 @@ struct OperatorWorkspaceView: View {
       await workspace.refreshSerialDevices()
       await workspace.startPreferredCameraAtStartup()
     }
+  }
+
+  private var exerciseDetailCollapseUnavailableReason: String? {
+    guard let actions = workspace.currentExerciseActionStripPresentation?.actions,
+      actions.contains(where: { action in
+        switch action.kind {
+        case .choice, .cancel, .stop, .recordClearViewLabel,
+          .acceptCurrentClearView, .recordDrawingTrialAssessment:
+          true
+        case .start, .restart, .redoThisStep, .recordAnotherAttempt:
+          false
+        }
+      })
+    else { return nil }
+    return "Finish or cancel the active exercise attempt before hiding its controls."
+  }
+
+  private var motionCollapseUnavailableReason: String? {
+    workspace.manualMotionPresentation.stopAction == nil
+      ? nil : "Stop the active manual jog before hiding its Stop control."
+  }
+
+  private func performUtilitiesAction(
+    _ action: UtilitiesVisibilityAction,
+    availableWindowWidth: CGFloat
+  ) {
+    let willPresent = utilitiesPolicy.transition(
+      isPresented: utilitiesArePresented,
+      action: action,
+      availableWindowWidth: availableWindowWidth
+    )
+    if willPresent, !utilitiesArePresented {
+      paneVisibility = utilitiesPolicy.preparingPanesToShow(
+        paneVisibility,
+        availableWindowWidth: availableWindowWidth,
+        canCollapseExerciseDetail: exerciseDetailCollapseUnavailableReason == nil
+      )
+    }
+    utilitiesArePresented = willPresent
+  }
+}
+
+private struct WorkbenchPaneControls: View {
+  let visibility: WorkbenchPaneVisibility
+  let utilities: UtilitiesPresentation
+  let exerciseDetailCollapseUnavailableReason: String?
+  let motionCollapseUnavailableReason: String?
+  let togglePane: (WorkbenchPane) -> Void
+  let performUtilitiesAction: (UtilitiesVisibilityAction) -> Void
+
+  var body: some View {
+    HStack(spacing: 8) {
+      paneButton(
+        .navigator,
+        title: visibility.navigatorIsPresented ? "Hide Learning Path" : "Show Learning Path",
+        systemImage: "sidebar.left"
+      )
+      paneButton(
+        .motion,
+        title: visibility.motionIsPresented ? "Hide Motion" : "Show Motion",
+        systemImage: "rectangle.bottomthird.inset.filled",
+        unavailableReason: motionCollapseUnavailableReason
+      )
+      paneButton(
+        .exerciseDetail,
+        title: visibility.exerciseDetailIsPresented ? "Hide Exercise" : "Show Exercise",
+        systemImage: "sidebar.right",
+        unavailableReason: exerciseDetailCollapseUnavailableReason
+      )
+      Spacer(minLength: 8)
+      Button {
+        performUtilitiesAction(utilities.action)
+      } label: {
+        Label(utilities.actionTitle, systemImage: "slider.horizontal.3")
+      }
+      .buttonStyle(.bordered)
+      .controlSize(.small)
+      .disabled(!utilities.isActionEnabled)
+      .help(utilities.unavailableReason ?? utilities.actionTitle)
+    }
+    .padding(.horizontal, 10)
+    .padding(.vertical, 6)
+    .background(Color(nsColor: .controlBackgroundColor))
+  }
+
+  @ViewBuilder
+  private func paneButton(
+    _ pane: WorkbenchPane,
+    title: String,
+    systemImage: String,
+    unavailableReason: String? = nil
+  ) -> some View {
+    Button {
+      togglePane(pane)
+    } label: {
+      Label(title, systemImage: systemImage)
+    }
+    .buttonStyle(.bordered)
+    .controlSize(.small)
+    .disabled(unavailableReason != nil && visibility.isPresented(pane))
+    .help(unavailableReason ?? title)
   }
 }
 

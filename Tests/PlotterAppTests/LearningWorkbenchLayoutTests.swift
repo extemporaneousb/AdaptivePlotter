@@ -49,28 +49,52 @@ struct LearningWorkbenchLayoutTests {
     }
   }
 
-  @Test("Utilities refuses Show before the camera-safe width")
+  @Test("all non-camera panes collapse and restore independently")
+  func paneVisibility() {
+    let initial = WorkbenchPaneVisibility()
+    let navigatorHidden = initial.toggling(.navigator)
+    let motionHidden = navigatorHidden.toggling(.motion)
+    let detailHidden = motionHidden.toggling(.exerciseDetail)
+
+    #expect(!navigatorHidden.navigatorIsPresented)
+    #expect(navigatorHidden.motionIsPresented)
+    #expect(!motionHidden.motionIsPresented)
+    #expect(!detailHidden.exerciseDetailIsPresented)
+    #expect(detailHidden.toggling(.navigator).navigatorIsPresented)
+    #expect(detailHidden.toggling(.motion).motionIsPresented)
+    #expect(detailHidden.toggling(.exerciseDetail).exerciseDetailIsPresented)
+  }
+
+  @Test("Utilities is reachable at the supported window width by yielding a side pane")
   func utilitiesMinimumWidth() {
     let utilitiesPolicy = UtilitiesVisibilityPolicy()
     let presentation = utilitiesPolicy.presentation(
       isPresented: false,
-      availableContentWidth: LearningWorkbenchLayoutPolicy.minimumWindowWidth
+      availableWindowWidth: LearningWorkbenchLayoutPolicy.minimumWindowWidth
     )
 
     #expect(presentation.action == .show)
     #expect(presentation.actionTitle == "Show Utilities")
-    #expect(!presentation.isActionEnabled)
+    #expect(presentation.isActionEnabled)
     #expect(
-      presentation.unavailableReason?.contains(
-        "\(Int(utilitiesPolicy.minimumWidthToShow)) points"
-      ) == true
-    )
-    #expect(
-      !utilitiesPolicy.transition(
+      utilitiesPolicy.transition(
         isPresented: false,
         action: .show,
-        availableContentWidth: LearningWorkbenchLayoutPolicy.minimumWindowWidth
+        availableWindowWidth: LearningWorkbenchLayoutPolicy.minimumWindowWidth
       )
+    )
+
+    let prepared = utilitiesPolicy.preparingPanesToShow(
+      WorkbenchPaneVisibility(),
+      availableWindowWidth: LearningWorkbenchLayoutPolicy.minimumWindowWidth,
+      canCollapseExerciseDetail: true
+    )
+    #expect(!prepared.navigatorIsPresented)
+    #expect(prepared.exerciseDetailIsPresented)
+    #expect(
+      utilitiesPolicy.minimumContentWidth(for: prepared)
+        + utilitiesPolicy.inspectorWidth + utilitiesPolicy.inspectorSeparation
+        <= LearningWorkbenchLayoutPolicy.minimumWindowWidth
     )
   }
 
@@ -83,34 +107,34 @@ struct LearningWorkbenchLayoutTests {
       utilitiesPolicy.transition(
         isPresented: false,
         action: .show,
-        availableContentWidth: wideWidth
+        availableWindowWidth: wideWidth
       )
     )
     #expect(
       utilitiesPolicy.transition(
         isPresented: true,
         action: .show,
-        availableContentWidth: 0
+        availableWindowWidth: 0
       )
     )
     #expect(
       !utilitiesPolicy.transition(
         isPresented: true,
         action: .hide,
-        availableContentWidth: 0
+        availableWindowWidth: 0
       )
     )
     #expect(
       !utilitiesPolicy.transition(
         isPresented: false,
         action: .hide,
-        availableContentWidth: wideWidth
+        availableWindowWidth: wideWidth
       )
     )
 
     let shown = utilitiesPolicy.presentation(
       isPresented: true,
-      availableContentWidth: LearningWorkbenchLayoutPolicy.minimumWindowWidth
+      availableWindowWidth: LearningWorkbenchLayoutPolicy.minimumWindowWidth
     )
     #expect(shown.action == .hide)
     #expect(shown.actionTitle == "Hide Utilities")
@@ -120,15 +144,32 @@ struct LearningWorkbenchLayoutTests {
   @Test("presented Utilities collapses before the protected workbench is starved")
   func utilitiesCollapse() {
     let utilitiesPolicy = UtilitiesVisibilityPolicy()
+    let panes = WorkbenchPaneVisibility(navigatorIsPresented: false)
+    let minimum = utilitiesPolicy.minimumContentWidth(for: panes)
     #expect(
       !utilitiesPolicy.shouldCollapsePresentedUtilities(
-        availableContentWidth: LearningWorkbenchLayoutPolicy.minimumWindowWidth
+        availableContentWidth: minimum,
+        panes: panes
       )
     )
     #expect(
       utilitiesPolicy.shouldCollapsePresentedUtilities(
-        availableContentWidth: LearningWorkbenchLayoutPolicy.minimumWindowWidth - 1
+        availableContentWidth: minimum - 1,
+        panes: panes
       )
     )
+  }
+
+  @Test("Utilities does not hide an action-owning exercise pane")
+  func utilitiesPreservesActiveExerciseControls() {
+    let utilitiesPolicy = UtilitiesVisibilityPolicy()
+    let prepared = utilitiesPolicy.preparingPanesToShow(
+      WorkbenchPaneVisibility(),
+      availableWindowWidth: 1_200,
+      canCollapseExerciseDetail: false
+    )
+
+    #expect(!prepared.navigatorIsPresented)
+    #expect(prepared.exerciseDetailIsPresented)
   }
 }
