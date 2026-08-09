@@ -32,8 +32,8 @@ enum LearningPathStageStatus: String, CaseIterable, Hashable, Sendable {
 
 enum HumanGuidedDiscoveryStep: Int, CaseIterable, Hashable, Identifiable, Sendable {
   case penInteraction = 1
-  case boundaryDiscovery
-  case clearViewDiscovery
+  case pairedBoundaryDiscoveryAndCentering
+  case visibilityTargetAndClearViewRegistration
 
   var id: Self { self }
   var stepNumber: String { "3.\(rawValue)" }
@@ -41,18 +41,19 @@ enum HumanGuidedDiscoveryStep: Int, CaseIterable, Hashable, Identifiable, Sendab
   var title: String {
     switch self {
     case .penInteraction: "Pen Interaction"
-    case .boundaryDiscovery: "Boundary Discovery"
-    case .clearViewDiscovery: "Clear-View Discovery"
+    case .pairedBoundaryDiscoveryAndCentering: "Paired Boundary Discovery and Centering"
+    case .visibilityTargetAndClearViewRegistration:
+      "Visibility Target and Clear-View Registration"
     }
   }
 }
 
 enum ObservedDrawingTrialStep: Int, CaseIterable, Hashable, Identifiable, Sendable {
-  case captureCleanReference = 1
-  case chooseLineStart
-  case createAnchorMark
+  case chooseIsolatedLinePlan = 1
+  case captureTargetAnchoredBaseline
+  case moveToLineStart
   case drawIsolatedLine
-  case clearToolAndObserveInk
+  case returnToClearPoseAndObserveNewInk
   case compareIntendedAndObservedGeometry
 
   var id: Self { self }
@@ -60,11 +61,11 @@ enum ObservedDrawingTrialStep: Int, CaseIterable, Hashable, Identifiable, Sendab
 
   var title: String {
     switch self {
-    case .captureCleanReference: "Capture Clean Reference"
-    case .chooseLineStart: "Choose Line Start"
-    case .createAnchorMark: "Create Anchor Mark"
+    case .chooseIsolatedLinePlan: "Choose Isolated Line Plan"
+    case .captureTargetAnchoredBaseline: "Capture Target-Anchored Baseline"
+    case .moveToLineStart: "Move to Line Start"
     case .drawIsolatedLine: "Draw Isolated Line"
-    case .clearToolAndObserveInk: "Clear Tool and Observe Ink"
+    case .returnToClearPoseAndObserveNewInk: "Return to Clear Pose and Observe New Ink"
     case .compareIntendedAndObservedGeometry: "Compare Intended and Observed Geometry"
     }
   }
@@ -87,14 +88,14 @@ enum LearningPathItemID: Hashable, Identifiable, Sendable {
     .stage(.enableMotion),
     .stage(.humanGuidedDiscovery),
     .humanGuidedDiscovery(.penInteraction),
-    .humanGuidedDiscovery(.boundaryDiscovery),
-    .humanGuidedDiscovery(.clearViewDiscovery),
+    .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering),
+    .humanGuidedDiscovery(.visibilityTargetAndClearViewRegistration),
     .stage(.observedDrawingTrials),
-    .observedDrawingTrial(.captureCleanReference),
-    .observedDrawingTrial(.chooseLineStart),
-    .observedDrawingTrial(.createAnchorMark),
+    .observedDrawingTrial(.chooseIsolatedLinePlan),
+    .observedDrawingTrial(.captureTargetAnchoredBaseline),
+    .observedDrawingTrial(.moveToLineStart),
     .observedDrawingTrial(.drawIsolatedLine),
-    .observedDrawingTrial(.clearToolAndObserveInk),
+    .observedDrawingTrial(.returnToClearPoseAndObserveNewInk),
     .observedDrawingTrial(.compareIntendedAndObservedGeometry),
     .stage(.adaptiveDrawing),
   ]
@@ -383,8 +384,30 @@ enum ExerciseActionKind: Hashable, Sendable {
   case restart
   case redoThisStep
   case recordAnotherAttempt
+  case redoBoundary(BoundaryDirection)
+  case recordAnotherBoundaryAttempt(BoundaryDirection)
+  case selectDirection(ExerciseDirectionSelectionPurpose, BoundaryDirection)
+  case moveToEstimatedCenter
+  case captureTargetPoseRegistration
+  case acceptTargetContactPointAndROI
+  case rejectTargetContactPointAndROI
+  case moveForClearView(ClearViewSearchMove)
   case recordClearViewLabel(ArmatureVisibilityLabel)
-  case acceptCurrentClearView
+  case acceptClearPose
+  case capturePreTargetClearViewBaseline
+  case returnToRegisteredTargetPose
+  case drawVisibilityTarget
+  case returnToAcceptedClearPose
+  case observeExistingVisibilityTarget
+  case acceptVisibilityRegistration
+  case registerNewTargetArea
+  case moveToNewTargetArea(ClearViewSearchMove)
+  case paperReplaced
+  case chooseIsolatedLinePlan(BoundaryDirection)
+  case captureTargetAnchoredBaseline
+  case moveToLineStart
+  case drawIsolatedLine
+  case returnToClearPoseAndObserveNewInk
   case recordDrawingTrialAssessment(DrawingTrialAssessment)
 }
 
@@ -416,16 +439,34 @@ struct ExerciseActionDescriptor: Identifiable, Hashable, Sendable {
   }
 }
 
+enum ExerciseDirectionSelectionPurpose: String, Hashable, Sendable {
+  case boundary = "Boundary direction"
+  case clearViewSearch = "Clear-view direction"
+  case targetAreaRelocation = "New target-area direction"
+  case linePlan = "Line direction"
+
+  var label: String { rawValue }
+}
+
 struct ExerciseDirectionSelectionPresentation: Hashable, Sendable {
+  static let canonicalChoiceOrder: [BoundaryDirection] = [
+    .positiveX, .negativeX, .positiveY, .negativeY,
+  ]
+
+  let purpose: ExerciseDirectionSelectionPurpose
   let options: [BoundaryDirection]
   let selected: BoundaryDirection
 
   init(
-    options: [BoundaryDirection] = BoundaryDirection.allCases,
+    purpose: ExerciseDirectionSelectionPurpose,
+    options: [BoundaryDirection] = Self.canonicalChoiceOrder,
     selected: BoundaryDirection
   ) {
+    precondition(!options.isEmpty)
+    precondition(Set(options).count == options.count)
     precondition(options.contains(selected))
-    self.options = options
+    self.purpose = purpose
+    self.options = Self.canonicalChoiceOrder.filter(options.contains)
     self.selected = selected
   }
 }
@@ -434,16 +475,19 @@ struct ExerciseActionStripPresentation: Hashable, Sendable {
   let ownerID: LearningPathItemID
   let actions: [ExerciseActionDescriptor]
   let directionSelection: ExerciseDirectionSelectionPresentation?
+  let mustRemainVisible: Bool
 
   init(
     ownerID: LearningPathItemID,
     actions: [ExerciseActionDescriptor],
-    directionSelection: ExerciseDirectionSelectionPresentation? = nil
+    directionSelection: ExerciseDirectionSelectionPresentation? = nil,
+    mustRemainVisible: Bool = false
   ) {
     precondition(Set(actions.map(\.id)).count == actions.count)
     self.ownerID = ownerID
     self.actions = actions
     self.directionSelection = directionSelection
+    self.mustRemainVisible = mustRemainVisible
   }
 }
 

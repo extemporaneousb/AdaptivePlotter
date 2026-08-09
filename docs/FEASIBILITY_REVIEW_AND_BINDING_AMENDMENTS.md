@@ -29,6 +29,10 @@ The feasible path is empirical and incremental. It does not require entered
 coordinate envelopes, homing, firmware writes, a second backend, or a global
 workflow authority.
 
+The detailed actor, action, provenance, recovery, and simulation rules for the
+current discovery/trial slice are binding in
+[Visibility Target and Clear-View Protocol](implementation/VISIBILITY_TARGET_AND_CLEAR_VIEW_PROTOCOL.md).
+
 ## Binding operator journey
 
 The visible journey is:
@@ -46,17 +50,54 @@ Stage completion must never be added to the manual motion admission path.
 The current deterministic sequences are:
 
 - 3.1 Pen Interaction
-- 3.2 Boundary Discovery
-- 3.3 Clear-View Discovery
-- 4.1 Capture Clean Reference
-- 4.2 Choose Line Start
-- 4.3 Create Anchor Mark
+- 3.2 Paired Boundary Discovery and Centering
+- 3.3 Visibility Target and Clear-View Registration
+- 4.1 Choose Isolated Line Plan
+- 4.2 Capture Target-Anchored Baseline
+- 4.3 Move to Line Start
 - 4.4 Draw Isolated Line
-- 4.5 Clear Tool and Observe Ink
+- 4.5 Return to Clear Pose and Observe New Ink
 - 4.6 Compare Intended and Observed Geometry
 
 Adaptive Drawing remains Future until multi-stroke observation and checkpoint
 learning are operational.
+
+### Binding discovery and visibility-target protocol
+
+Stage 3.2 records all four directions. The operator chooses any first side; its
+opposite is forced next. The operator then chooses either sign on the remaining
+axis; its opposite is forced last. Each side is a separate explicit Start and
+operator Stop under the existing logical Boundary owner. Four accepted final
+MPos observations derive the machine-space center from the X and Y midpoints.
+An explicit, stoppable Pen Up **Move to Estimated Center** settles before Stage
+3.3 begins. The center is learned evidence, not a motion envelope.
+
+Stage 3.3 first captures the target-pose scene with the armature present and
+accepts an explicit camera-pixel tool contact-point estimate and ROI. The
+initial estimator is the detected green component's bottom center, not its
+centroid, and operator acceptance remains required. Clear-view search stays in
+one transaction while the operator labels fresh frames Blocked, Partial, or
+Clear and selects a direction plus an explicit 10, 5, 2, or optional 1 mm Pen
+Up move. Blocked and Partial request another move; they do not fail the step.
+
+After accepting a repeatable Clear pose, the app captures a strictly fresh blank
+baseline for the accepted ROI, returns to the registered target pose, and draws
+one `VisibilityTargetPlanV1`: a 4 mm diameter regular octagon under one compound
+operation owner. The app then returns Pen Up to the accepted Clear pose and
+observes the existing target in two fresh, compatible frames before accepting
+the visibility registration. Once lowering is accepted, the paper scene is
+`inkPossible`; interruption or ambiguity cannot automatically redraw the target.
+Recovery either observes the existing target against the retained compatible
+baseline or explicitly registers a new target area or paper revision.
+
+Stage 4 consumes that registration. It chooses a 5 mm outward line from a
+selected target perimeter point, captures a fresh target-present baseline at the
+accepted Clear pose immediately before leaving, moves to line start, draws once,
+returns to Clear, observes new ink, and compares intended and observed geometry.
+Quantitative geometry requires a current compatible machine-to-camera affine
+fit from at least three non-collinear accepted machine/contact pairs, with
+residuals and uncertainty retained. No identity or historical transform is a
+normal substitute.
 
 ## Binding workbench interaction
 
@@ -147,8 +188,10 @@ by the controller owner. Applicable facts include:
 
 Ordinary manual movement does not require a camera, learned boundary, Clear pose,
 trial count, model confidence, or Learning Path completion. A vision-consuming
-operation may require its own exact frame. A drawing trial may require its own
-anchor and Clear pose. Those are local evidence dependencies, not global gates.
+operation may require its own exact frame. Visibility-target and drawing-trial
+operations require only the exact target registration, Clear pose, baseline,
+scene disposition, and transform artifacts they consume. Those are local data
+dependencies, not global motion gates.
 
 The application must not add homing, reset, unlock, alarm clearing, entered
 limits, firmware writes, automatic resume, automatic resend, or automatic redraw.
@@ -240,10 +283,21 @@ currently displayed or analyzed frame. Measurements and overlays retain exact
 rejected.
 
 Frame-side and cap detections are camera-space measurements. Drawing-frame and
-armature envelopes are inferences. Controller MPos remains controller provenance
-until an explicit current-session registration gives it camera-space meaning.
-Ruler observations and motion priors are provisional diagnostics, never motion
-authority.
+armature envelopes are inferences. Tool contact point is a separate typed
+camera-space estimate with exact frame/configuration, ROI, estimator revision,
+confidence, and operator acceptance; it is not the cap centroid. Controller
+MPos remains controller provenance until an explicit compatible
+`MachineCameraRegistrationFit` gives it camera-space meaning. The fit retains
+its machine/contact pairs, affine transform, residuals, uncertainty, camera and
+paper identities, and algorithm revision. Ruler observations and motion priors
+are provisional diagnostics, never motion authority.
+
+Same-pose comparisons require the same camera source/session, configuration,
+coordinate space, paper revision, and ROI; Idle, Pen Up, a declared MPos
+tolerance, strictly fresh frames, and acceptable image-space alignment and
+background residual. Center compatibility is controller-session evidence and
+does not silently become invalid merely because the camera restarts; camera
+registration compatibility does.
 
 ## Local application contract
 

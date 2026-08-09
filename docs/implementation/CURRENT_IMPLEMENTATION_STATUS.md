@@ -1,6 +1,6 @@
 # Current Implementation Status
 
-Status date: 2026-08-08
+Status date: 2026-08-09
 Target: this Mac and attached plotter only
 
 This document separates implemented software, automated evidence, recorded
@@ -22,10 +22,11 @@ The implemented operator journey is:
 4. Observed Drawing Trials
 5. Adaptive Drawing
 
-Stage 3 is visibly ordered as Pen Interaction, Boundary Discovery, and
-Clear-View Discovery. Stage 4 is visibly ordered through the six clean/start/
-anchor/draw/clear/compare actions. Stage 5 is truthfully Future. These stages are
-ergonomic presentation and do not gate ordinary manual motion.
+Stage 3 is visibly ordered as Pen Interaction, Paired Boundary Discovery and
+Centering, and Visibility Target and Clear-View Registration. Stage 4 is
+visibly ordered through target-relative plan/baseline/start/draw/observe/compare
+actions. Stage 5 is truthfully Future. These stages are ergonomic presentation
+and do not gate ordinary manual motion.
 
 Buttons own every question, label, progression decision, typed comparison, and
 Stop. Spoken announcements are output-only, serialized, completion-aware, and
@@ -111,21 +112,29 @@ or categorical counts, and included attempt identities.
 
 - Pen Interaction uses typed YES/NO questions and leaves successful completion
   dependent on the final human observation of Up.
-- Boundary Discovery supports four directions, but one successful relevant side
-  is sufficient for the visible transition.
-- Boundary selection is inert and Start directly admits the logical owner;
-  there is no generic preparatory Boundary YES/NO question.
+- Paired Boundary Discovery requires all four directions. The operator chooses
+  the first side, its opposite is forced, then chooses either sign on the
+  remaining axis and records its forced opposite. Selection is inert and each
+  Start directly admits the logical owner; there is no generic preparatory
+  Boundary YES/NO question.
 - One typed logical boundary owner renews finite GRBL wire segments after
   unambiguous natural completion. Stop closes renewal before controller cancel;
   a real limit, alarm, refusal, disconnect, fault, or ambiguity produces Needs
   Attention and no boundary evidence. There is no application-selected
   completion horizon.
-- Other directions remain optional evidence.
 - Boundary evidence retains final controller MPos, exact post-stop frame and
-  configuration, observed tool centroid, side association, uncertainty, and
-  posterior count.
-- Clear-View Discovery records Blocked/Partial/Clear exact-frame labels and one
-  accepted repeatable Clear pose.
+  configuration, typed tool contact estimate, side association, uncertainty,
+  and posterior count. Four accepted sides derive the midpoint and one explicit
+  stoppable Pen Up move settles at the estimated center.
+- Visibility Target and Clear-View Registration retains the armature-present
+  target-pose frame, accepted bottom-center contact-point estimate/ROI, explicit
+  10/5/2/optional-1 mm search moves, one repeatable Clear pose, a blank ROI
+  baseline, one 4 mm octagonal target execution, and two compatible fresh target
+  observations.
+- Blocked and Partial continue the same search transaction. Once lowering is
+  accepted the paper scene is `inkPossible`; interruption and ambiguity never
+  auto-redraw. Recovery observes existing ink or explicitly changes target area
+  or paper revision.
 - Controller/camera authority invalidation clears dependent current-session
   completion presentation.
 
@@ -142,16 +151,17 @@ or categorical counts, and included attempt identities.
 
 ### Observed Drawing Trials
 
-- Capture Clean Reference retains an exact frame and begins one attributable
-  in-memory episode.
-- Choose Line Start retains current MPos.
-- Create Anchor Mark performs announced lower/raise, returns Clear, and observes
-  the anchor.
+- Choose Isolated Line Plan selects one visibility-target perimeter point and a
+  5 mm outward line.
+- Capture Target-Anchored Baseline captures a fresh target-present frame at the
+  accepted Clear pose immediately before departure.
+- Move to Line Start travels Pen Up to the selected perimeter point.
 - Draw Isolated Line uses one closed drawing request with no auto-resend.
-- Clear Tool and Observe Ink returns Pen Up to the accepted Clear pose and
-  compares exact clean/anchor/post frames.
-- Compare Intended and Observed Geometry records one of two typed human
-  assessments.
+- Return to Clear Pose and Observe New Ink captures strictly fresh compatible
+  pixels from the accepted pose.
+- Compare Intended and Observed Geometry records one typed human assessment and
+  quantitative residuals only when a compatible affine machine-camera fit from
+  non-collinear accepted pairs exists.
 - Missing or unclear ink is explicit and never triggers redraw.
 
 ### Artifact revisions and exercise attempts
@@ -159,8 +169,8 @@ or categorical counts, and included attempt identities.
 - Each accepted step result has a typed artifact revision and exact attempt ID.
 - Declared consumed-revision edges, not row order, drive transitive
   invalidation. Independent boundary observations survive a Pen Interaction
-  replacement; replacing a Clear pose or clean reference invalidates only the
-  trial artifacts that cite that exact revision.
+  replacement; replacing a Clear pose or target-anchored baseline invalidates
+  only the trial artifacts that cite that exact revision.
 - Failed, refused, unclear, cancelled, and ambiguous attempts remain provenance
   but cannot manufacture an accepted value or enter a successful aggregate.
 - Compatibility binds camera configuration, coordinate space, units,
@@ -189,7 +199,8 @@ or categorical counts, and included attempt identities.
 - SIMULATED uses the same Learning Path, motion controls, questions, camera
   utilities, and action locations as LIVE. Its typed runtime covers session,
   authorization, MPos, pen pose, manual jog, renewable Boundary Stop/Cancel,
-  drawing, and deterministic camera evidence.
+  compound target drawing, paper revision, persistent ink, line drawing, and
+  deterministic causal camera evidence.
 - A complete simulated Learning Path reaches Adaptive Drawing with zero
   `MachineActions` calls. Every simulated evidence surface is marked
   `SIMULATED — NOT PHYSICAL EVIDENCE`; returning to LIVE discards simulated
@@ -231,13 +242,15 @@ The automated coverage includes:
 - one logical boundary owner across finite segments, Stop-versus-renewal
   latching, and one-cancel manual and boundary Stop behavior;
 - Stop-before-cancel event order, Idle/final MPos, exact newer frame, posterior,
-  and one-boundary progression;
+  forced-opposite direction order, four-side center derivation, and explicit
+  center arrival;
 - Cancel and active-boundary shutdown settlement without successful boundary
   evidence;
 - controller-ceiling and fallback feed selection;
 - output announcement ordering, identity isolation, and advisory failure;
-- typed discovery transactions and 4.6 assessment;
-- simulator isolation;
+- continuing Blocked/Partial clear search, typed target contact/ROI, target
+  operation Stop/recovery, two-frame agreement, and 4.6 assessment;
+- causal simulator isolation and complete mocked-operator workflow variants;
 - launcher exact-instance decisions and synthetic raw-process refusal;
 - signed bundle and camera-only privacy validation;
 - full normal and strict Swift builds/tests.
@@ -295,10 +308,12 @@ unverified for the integrated current build:
 - operator-stopped Boundary Discovery without a hard-coded application travel
   horizon;
 - one-button one-cancel behavior on the attached controller;
-- exact post-stop frame and visible progression on live hardware;
-- Clear-pose repeatability;
-- anchor, isolated line, cleared-tool observation, and intended/observed
-  comparison with actual ink;
+- exact post-stop frames, all four forced/selected side transitions, center
+  derivation, and center arrival on live hardware;
+- coarse-to-fine Clear-pose search and repeatability;
+- accepted target contact point/ROI, blank baseline compatibility, one physical
+  octagonal target, two-frame target visibility, isolated line, clear-pose
+  observation, and intended/observed comparison with actual ink;
 - Adaptive Drawing, which is intentionally unavailable.
 
 ## Next attended action

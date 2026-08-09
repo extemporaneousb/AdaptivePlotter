@@ -62,8 +62,11 @@ public enum ExplorationActionKind: String, CaseIterable, Hashable, Sendable {
   case penDown
   case armatureMove
   case acceptClearPose
-  case captureCleanReference
-  case captureAnchoredBaseline
+  case captureTargetPoseRegistration
+  case capturePreTargetClearViewBaseline
+  case drawVisibilityTarget
+  case captureVisibilityTargetSample
+  case captureTargetAnchoredTrialBaseline
   case drawingStroke
   case returnToClearPose
   case capturePostLine
@@ -155,8 +158,10 @@ public enum ExplorationFrameRole: String, CaseIterable, Hashable, Sendable {
   case postAction
   case boundaryObservation
   case armatureObservation
-  case cleanReference
-  case anchoredBaseline
+  case targetPoseRegistration
+  case preTargetClearViewBaseline
+  case visibilityTargetSample
+  case targetAnchoredTrialBaseline
   case postLine
 }
 
@@ -247,7 +252,7 @@ public struct ExplorationEpisode: Hashable, Sendable {
   public var controllerEvidence: ExplorationControllerEvidence?
   public var frames: [ExplorationFrameEvidence]
   public var lineStartPosition: MachinePosition?
-  public var anchorDotCentroid: Point2<CameraPixelSpace>?
+  public var targetContactPoint: Point2<CameraPixelSpace>?
   public var visionEstimate: ExplorationAssessment?
   public var humanAssessment: ExplorationAssessment?
   public var residual: ExplorationResidual?
@@ -275,7 +280,7 @@ public struct ExplorationEpisode: Hashable, Sendable {
     controllerEvidence = nil
     frames = []
     lineStartPosition = nil
-    anchorDotCentroid = nil
+    targetContactPoint = nil
     visionEstimate = nil
     humanAssessment = nil
     residual = nil

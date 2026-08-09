@@ -32,6 +32,12 @@ enum MachineSessionComposition {
     beginDrawingStroke: { request in
       await session.beginDrawingStroke(request)
     },
+    beginVisibilityTarget: { request in
+      await session.beginVisibilityTarget(request)
+    },
+    requestVisibilityTargetIntent: { intent, operationID in
+      await session.requestVisibilityTargetIntent(intent, operationID: operationID)
+    },
     requestPenActuation: { command in
       await session.requestPenActuation(command)
     },
@@ -133,6 +139,29 @@ private actor PersistentMachineSession {
     return await interpreter.beginDrawingStroke(request)
   }
 
+  func beginVisibilityTarget(
+    _ request: VisibilityTargetOperationRequest
+  ) async -> VisibilityTargetAdmission {
+    guard let interpreter else {
+      return .rejected(
+        .needsAttention(
+          phase: .approach,
+          scene: .pristine,
+          failure: .approach(.refused(.noSerialDeviceSelected))
+        )
+      )
+    }
+    return await interpreter.beginVisibilityTarget(request)
+  }
+
+  func requestVisibilityTargetIntent(
+    _ intent: VisibilityTargetOperationIntent,
+    operationID: UUID
+  ) async -> VisibilityTargetIntentOutcome {
+    guard let interpreter else { return .staleOperation }
+    return await interpreter.requestVisibilityTargetIntent(intent, operationID: operationID)
+  }
+
   func requestBoundaryMotion(_ request: BoundaryMotionRequest) async -> BoundaryMotionOutcome {
     guard let interpreter else {
       return .needsAttention(
@@ -177,15 +206,18 @@ private actor PersistentMachineSession {
     clock: any RuntimeClock
   ) async -> (ledger: RunLedger?, runID: LedgerRunID?) {
     let fileManager = FileManager.default
-    guard let applicationSupport = try? fileManager.url(
-      for: .applicationSupportDirectory,
-      in: .userDomainMask,
-      appropriateFor: nil,
-      create: true
-    ) else {
+    guard
+      let applicationSupport = try? fileManager.url(
+        for: .applicationSupportDirectory,
+        in: .userDomainMask,
+        appropriateFor: nil,
+        create: true
+      )
+    else {
       return (nil, nil)
     }
-    let ledgerURL = applicationSupport
+    let ledgerURL =
+      applicationSupport
       .appendingPathComponent("AdaptivePlotter", isDirectory: true)
       .appendingPathComponent("MachineSessions", isDirectory: true)
       .appendingPathComponent("session-\(UUID().uuidString.lowercased())")

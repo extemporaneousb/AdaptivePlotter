@@ -24,98 +24,58 @@ public struct ExactFrameProvenance: Codable, Hashable, Sendable {
 }
 
 public struct IsolatedInkObservationRequest: Hashable, Sendable {
-  public let cleanReference: StampedFrame
-  public let anchoredBaseline: StampedFrame
-  public let postLine: StampedFrame
+  public let targetPresentBaseline: SamePoseFrameSample
+  public let postLine: SamePoseFrameSample
   public let region: PixelRect
   public let thresholds: GreenPixelThresholds
+  public let lineStartPoint: Point2<CameraPixelSpace>
+  public let controllerSessionID: UUID
+  public let coordinateRevision: UInt64
+  public let toolPaperRevision: UUID
+  public let controllerPositionToleranceMM: Double
+  public let alignmentSearchRadiusPixels: Int
+  public let maximumAlignmentShiftPixels: Int
+  public let maximumBackgroundMeanAbsoluteDifference: Double
   public let projectedActualStrokeDelta: Vector2<CameraPixelSpace>?
   public let algorithmRevision: String
-  public let minimumAnchorPixels: Int
   public let minimumLinePixels: Int
   public let maximumLineMinorToMajorVarianceRatio: Double
 
   public init(
-    cleanReference: StampedFrame,
-    anchoredBaseline: StampedFrame,
-    postLine: StampedFrame,
+    targetPresentBaseline: SamePoseFrameSample,
+    postLine: SamePoseFrameSample,
     region: PixelRect,
     thresholds: GreenPixelThresholds,
+    lineStartPoint: Point2<CameraPixelSpace>,
+    controllerSessionID: UUID,
+    coordinateRevision: UInt64,
+    toolPaperRevision: UUID,
+    controllerPositionToleranceMM: Double,
+    alignmentSearchRadiusPixels: Int,
+    maximumAlignmentShiftPixels: Int,
+    maximumBackgroundMeanAbsoluteDifference: Double,
     projectedActualStrokeDelta: Vector2<CameraPixelSpace>?,
     algorithmRevision: String,
-    minimumAnchorPixels: Int = 3,
     minimumLinePixels: Int = 5,
     maximumLineMinorToMajorVarianceRatio: Double = 0.25
   ) {
-    self.cleanReference = cleanReference
-    self.anchoredBaseline = anchoredBaseline
+    self.targetPresentBaseline = targetPresentBaseline
     self.postLine = postLine
     self.region = region
     self.thresholds = thresholds
+    self.lineStartPoint = lineStartPoint
+    self.controllerSessionID = controllerSessionID
+    self.coordinateRevision = coordinateRevision
+    self.toolPaperRevision = toolPaperRevision
+    self.controllerPositionToleranceMM = controllerPositionToleranceMM
+    self.alignmentSearchRadiusPixels = alignmentSearchRadiusPixels
+    self.maximumAlignmentShiftPixels = maximumAlignmentShiftPixels
+    self.maximumBackgroundMeanAbsoluteDifference = maximumBackgroundMeanAbsoluteDifference
     self.projectedActualStrokeDelta = projectedActualStrokeDelta
     self.algorithmRevision = algorithmRevision
-    self.minimumAnchorPixels = minimumAnchorPixels
     self.minimumLinePixels = minimumLinePixels
     self.maximumLineMinorToMajorVarianceRatio = maximumLineMinorToMajorVarianceRatio
   }
-}
-
-public struct AnchorDotObservationRequest: Hashable, Sendable {
-  public let cleanReference: StampedFrame
-  public let anchoredBaseline: StampedFrame
-  public let region: PixelRect
-  public let thresholds: GreenPixelThresholds
-  public let algorithmRevision: String
-  public let minimumAnchorPixels: Int
-
-  public init(
-    cleanReference: StampedFrame,
-    anchoredBaseline: StampedFrame,
-    region: PixelRect,
-    thresholds: GreenPixelThresholds,
-    algorithmRevision: String,
-    minimumAnchorPixels: Int = 3
-  ) {
-    self.cleanReference = cleanReference
-    self.anchoredBaseline = anchoredBaseline
-    self.region = region
-    self.thresholds = thresholds
-    self.algorithmRevision = algorithmRevision
-    self.minimumAnchorPixels = minimumAnchorPixels
-  }
-}
-
-public enum AnchorDotRejectionReason: Codable, Hashable, Sendable {
-  case invalidPolicy
-  case invalidRegion
-  case framesNotStrictlyIncreasing
-  case cameraConfigurationMismatch
-  case dimensionMismatch
-  case pixelFormatMismatch
-  case missing
-  case tooSmall(actualPixels: Int, minimumPixels: Int)
-  case ambiguous(candidateCount: Int)
-}
-
-public struct AnchorDotObservation: Codable, Hashable, Sendable {
-  public let cleanReference: ExactFrameProvenance
-  public let anchoredBaseline: ExactFrameProvenance
-  public let region: PixelRect
-  public let centroid: Point2<CameraPixelSpace>
-  public let pixelCount: Int
-  public let overlay: CameraOverlayMeasurement
-  public let algorithmRevision: String
-}
-
-public struct AnchorDotRejection: Codable, Hashable, Sendable {
-  public let reason: AnchorDotRejectionReason
-  public let cleanReference: ExactFrameProvenance
-  public let anchoredBaseline: ExactFrameProvenance
-}
-
-public enum AnchorDotObservationOutcome: Codable, Hashable, Sendable {
-  case observed(AnchorDotObservation)
-  case rejected(AnchorDotRejection)
 }
 
 public enum IsolatedInkRejectionReason: Codable, Hashable, Sendable {
@@ -123,11 +83,12 @@ public enum IsolatedInkRejectionReason: Codable, Hashable, Sendable {
   case invalidRegion
   case framesNotStrictlyIncreasing
   case cameraConfigurationMismatch
+  case sourceMismatch
+  case clearPoseMismatch(distanceMM: Double, toleranceMM: Double)
+  case excessiveAlignment(shiftX: Int, shiftY: Int, maximumPixels: Int)
+  case excessiveBackgroundResidual(actual: Double, maximum: Double)
   case dimensionMismatch
   case pixelFormatMismatch
-  case anchorMissing
-  case anchorTooSmall(actualPixels: Int, minimumPixels: Int)
-  case anchorAmbiguous(candidateCount: Int)
   case lineMissing
   case lineTooSmall(actualPixels: Int, minimumPixels: Int)
   case lineAmbiguous(candidateCount: Int)
@@ -136,8 +97,7 @@ public enum IsolatedInkRejectionReason: Codable, Hashable, Sendable {
 
 public struct IsolatedInkRejection: Codable, Hashable, Sendable {
   public let reason: IsolatedInkRejectionReason
-  public let cleanReference: ExactFrameProvenance
-  public let anchoredBaseline: ExactFrameProvenance
+  public let targetPresentBaseline: ExactFrameProvenance
   public let postLine: ExactFrameProvenance
 }
 
@@ -148,12 +108,15 @@ public struct IsolatedInkResidual: Codable, Hashable, Sendable {
 }
 
 public struct IsolatedInkObservation: Codable, Hashable, Sendable {
-  public let cleanReference: ExactFrameProvenance
-  public let anchoredBaseline: ExactFrameProvenance
+  public let targetPresentBaseline: ExactFrameProvenance
   public let postLine: ExactFrameProvenance
   public let region: PixelRect
-  public let anchorCentroid: Point2<CameraPixelSpace>
-  public let anchorPixelCount: Int
+  public let lineStartPoint: Point2<CameraPixelSpace>
+  public let source: FrameSourceIdentity
+  public let controllerSessionID: UUID
+  public let coordinateRevision: UInt64
+  public let toolPaperRevision: UUID
+  public let alignment: IntegerFrameAlignment
   public let observedEndpoints: [Point2<CameraPixelSpace>]
   public let observedCentreline: Polyline<CameraPixelSpace>
   public let observedPixelCount: Int
@@ -170,75 +133,340 @@ public enum IsolatedInkObservationOutcome: Codable, Hashable, Sendable {
   case rejected(IsolatedInkRejection)
 }
 
+public struct SamePoseFrameSample: Hashable, Sendable {
+  public let source: FrameSourceIdentity
+  public let frame: StampedFrame
+  public let controllerPosition: MachinePosition
+
+  public init(displayedFrame: DisplayedFrame, controllerPosition: MachinePosition) {
+    source = displayedFrame.source
+    frame = displayedFrame.frame
+    self.controllerPosition = controllerPosition
+  }
+
+  public init(
+    source: FrameSourceIdentity,
+    frame: StampedFrame,
+    controllerPosition: MachinePosition
+  ) {
+    self.source = source
+    self.frame = frame
+    self.controllerPosition = controllerPosition
+  }
+}
+
+public struct VisibilityTargetObservationRequest: Hashable, Sendable {
+  public let baseline: SamePoseFrameSample
+  public let targetSamples: [SamePoseFrameSample]
+  public let region: PixelRect
+  public let thresholds: GreenPixelThresholds
+  public let controllerSessionID: UUID
+  public let coordinateRevision: UInt64
+  public let toolPaperRevision: UUID
+  public let controllerPositionToleranceMM: Double
+  public let expectedDiameterPixels: ClosedRange<Double>
+  public let minimumTargetPixels: Int
+  public let maximumCentroidSpreadPixels: Double
+  public let maximumAreaRatio: Double
+  public let maximumBackgroundMeanAbsoluteDifference: Double
+  public let alignmentSearchRadiusPixels: Int
+  public let maximumAlignmentShiftPixels: Int
+  public let estimatorRevision: String
+  public let algorithmRevision: String
+  public let targetPlanRevision: String
+
+  public init(
+    baseline: SamePoseFrameSample,
+    targetSamples: [SamePoseFrameSample],
+    region: PixelRect,
+    thresholds: GreenPixelThresholds,
+    controllerSessionID: UUID,
+    coordinateRevision: UInt64,
+    toolPaperRevision: UUID,
+    controllerPositionToleranceMM: Double,
+    expectedDiameterPixels: ClosedRange<Double>,
+    minimumTargetPixels: Int,
+    maximumCentroidSpreadPixels: Double,
+    maximumAreaRatio: Double,
+    maximumBackgroundMeanAbsoluteDifference: Double,
+    alignmentSearchRadiusPixels: Int = 2,
+    maximumAlignmentShiftPixels: Int = 1,
+    estimatorRevision: String = "two-frame-component-mean-v1",
+    algorithmRevision: String,
+    targetPlanRevision: String = VisibilityTargetPlanV1.revision
+  ) {
+    self.baseline = baseline
+    self.targetSamples = targetSamples
+    self.region = region
+    self.thresholds = thresholds
+    self.controllerSessionID = controllerSessionID
+    self.coordinateRevision = coordinateRevision
+    self.toolPaperRevision = toolPaperRevision
+    self.controllerPositionToleranceMM = controllerPositionToleranceMM
+    self.expectedDiameterPixels = expectedDiameterPixels
+    self.minimumTargetPixels = minimumTargetPixels
+    self.maximumCentroidSpreadPixels = maximumCentroidSpreadPixels
+    self.maximumAreaRatio = maximumAreaRatio
+    self.maximumBackgroundMeanAbsoluteDifference = maximumBackgroundMeanAbsoluteDifference
+    self.alignmentSearchRadiusPixels = alignmentSearchRadiusPixels
+    self.maximumAlignmentShiftPixels = maximumAlignmentShiftPixels
+    self.estimatorRevision = estimatorRevision
+    self.algorithmRevision = algorithmRevision
+    self.targetPlanRevision = targetPlanRevision
+  }
+}
+
+public struct IntegerFrameAlignment: Codable, Hashable, Sendable {
+  public let shiftX: Int
+  public let shiftY: Int
+  public let backgroundMeanAbsoluteDifference: Double
+  public let estimatorRevision: String
+}
+
+public struct VisibilityTargetComponentSample: Codable, Hashable, Sendable {
+  public let frame: ExactFrameProvenance
+  public let centroid: Point2<CameraPixelSpace>
+  public let pixelCount: Int
+  public let bounds: AxisAlignedBounds<CameraPixelSpace>
+  public let alignment: IntegerFrameAlignment
+}
+
+public enum VisibilityTargetObservationRejection: Codable, Hashable, Sendable {
+  case invalidPolicy
+  case requiresExactlyTwoTargetFrames(actual: Int)
+  case framesNotStrictlyIncreasing
+  case sourceMismatch
+  case cameraConfigurationMismatch
+  case dimensionMismatch
+  case pixelFormatMismatch
+  case invalidRegion
+  case clearPoseMismatch(frameID: FrameID, distanceMM: Double, toleranceMM: Double)
+  case excessiveAlignment(frameID: FrameID, shiftX: Int, shiftY: Int, maximumPixels: Int)
+  case excessiveBackgroundResidual(frameID: FrameID, actual: Double, maximum: Double)
+  case targetMissing(frameID: FrameID)
+  case targetTooSmall(frameID: FrameID, actualPixels: Int, minimumPixels: Int)
+  case targetAmbiguous(frameID: FrameID, candidateCount: Int)
+  case expectedDiameterMismatch(frameID: FrameID, actualPixels: Double)
+  case unstableCentroid(actualPixels: Double, maximumPixels: Double)
+  case unstableAreaRatio(actual: Double, maximum: Double)
+}
+
+/// Stable target evidence from exactly two post-target frames compared with one
+/// compatible same-pose pre-target baseline.
+public struct VisibilityTargetObservation: Codable, Hashable, Sendable {
+  public let source: FrameSourceIdentity
+  public let baseline: ExactFrameProvenance
+  public let samples: [VisibilityTargetComponentSample]
+  public let includedFrameIDs: [FrameID]
+  public let validSampleCount: Int
+  public let estimatorRevision: String
+  public let algorithmRevision: String
+  public let targetPlanRevision: String
+  public let centroid: Point2<CameraPixelSpace>
+  public let centroidUncertainty: Vector2<CameraPixelSpace>
+  public let areaRatio: Double
+  public let expectedDiameterPixels: ClosedRange<Double>
+  public let controllerSessionID: UUID
+  public let coordinateRevision: UInt64
+  public let toolPaperRevision: UUID
+  public let region: PixelRect
+  public let overlays: [CameraOverlayMeasurement]
+}
+
+public enum VisibilityTargetObservationOutcome: Codable, Hashable, Sendable {
+  case observed(VisibilityTargetObservation)
+  case rejected(VisibilityTargetObservationRejection)
+}
+
 extension VisionWorker {
-  public func observeAnchorDot(
-    _ request: AnchorDotObservationRequest
-  ) -> AnchorDotObservationOutcome {
-    let clean = ExactFrameProvenance(frame: request.cleanReference)
-    let anchored = ExactFrameProvenance(frame: request.anchoredBaseline)
-    func reject(_ reason: AnchorDotRejectionReason) -> AnchorDotObservationOutcome {
-      .rejected(AnchorDotRejection(
-        reason: reason,
-        cleanReference: clean,
-        anchoredBaseline: anchored
+  public func observeVisibilityTarget(
+    _ request: VisibilityTargetObservationRequest
+  ) -> VisibilityTargetObservationOutcome {
+    guard request.targetSamples.count == 2 else {
+      return .rejected(.requiresExactlyTwoTargetFrames(actual: request.targetSamples.count))
+    }
+    guard request.controllerPositionToleranceMM.isFinite,
+      request.controllerPositionToleranceMM >= 0,
+      request.expectedDiameterPixels.lowerBound.isFinite,
+      request.expectedDiameterPixels.upperBound.isFinite,
+      request.expectedDiameterPixels.lowerBound > 0,
+      request.expectedDiameterPixels.upperBound >= request.expectedDiameterPixels.lowerBound,
+      request.minimumTargetPixels > 0,
+      request.maximumCentroidSpreadPixels.isFinite,
+      request.maximumCentroidSpreadPixels >= 0,
+      request.maximumAreaRatio.isFinite,
+      request.maximumAreaRatio >= 1,
+      request.maximumBackgroundMeanAbsoluteDifference.isFinite,
+      request.maximumBackgroundMeanAbsoluteDifference >= 0,
+      request.alignmentSearchRadiusPixels >= 0,
+      request.maximumAlignmentShiftPixels >= 0,
+      request.maximumAlignmentShiftPixels <= request.alignmentSearchRadiusPixels,
+      !request.estimatorRevision.isEmpty,
+      !request.algorithmRevision.isEmpty,
+      !request.targetPlanRevision.isEmpty
+    else { return .rejected(.invalidPolicy) }
+
+    let frames = [request.baseline.frame] + request.targetSamples.map(\.frame)
+    guard Set([request.baseline.source] + request.targetSamples.map(\.source)).count == 1 else {
+      return .rejected(.sourceMismatch)
+    }
+    guard Set(frames.map(\.cameraConfigurationID)).count == 1 else {
+      return .rejected(.cameraConfigurationMismatch)
+    }
+    guard Set(frames.map { "\($0.width)x\($0.height)" }).count == 1 else {
+      return .rejected(.dimensionMismatch)
+    }
+    guard Set(frames.map(\.pixelFormat)).count == 1 else {
+      return .rejected(.pixelFormatMismatch)
+    }
+    guard zip(frames, frames.dropFirst()).allSatisfy({ lhs, rhs in
+      lhs.captureNanoseconds < rhs.captureNanoseconds && lhs.id != rhs.id
+    }), Set(frames.map(\.id)).count == 3
+    else { return .rejected(.framesNotStrictlyIncreasing) }
+    guard Self.contains(request.region, in: request.baseline.frame) else {
+      return .rejected(.invalidRegion)
+    }
+
+    var samples: [VisibilityTargetComponentSample] = []
+    for target in request.targetSamples {
+      let poseDistance = request.baseline.controllerPosition.point.distance(
+        to: target.controllerPosition.point
+      )
+      guard poseDistance <= request.controllerPositionToleranceMM else {
+        return .rejected(.clearPoseMismatch(
+          frameID: target.frame.id,
+          distanceMM: poseDistance,
+          toleranceMM: request.controllerPositionToleranceMM
+        ))
+      }
+      let alignment = Self.bestIntegerAlignment(
+        request.baseline.frame,
+        target.frame,
+        excluding: request.region,
+        searchRadius: request.alignmentSearchRadiusPixels
+      )
+      guard max(abs(alignment.shiftX), abs(alignment.shiftY))
+        <= request.maximumAlignmentShiftPixels
+      else {
+        return .rejected(.excessiveAlignment(
+          frameID: target.frame.id,
+          shiftX: alignment.shiftX,
+          shiftY: alignment.shiftY,
+          maximumPixels: request.maximumAlignmentShiftPixels
+        ))
+      }
+      guard alignment.backgroundMeanAbsoluteDifference
+        <= request.maximumBackgroundMeanAbsoluteDifference
+      else {
+        return .rejected(.excessiveBackgroundResidual(
+          frameID: target.frame.id,
+          actual: alignment.backgroundMeanAbsoluteDifference,
+          maximum: request.maximumBackgroundMeanAbsoluteDifference
+        ))
+      }
+      let pixels = Self.newGreenPixels(
+        from: request.baseline.frame,
+        to: target.frame,
+        region: request.region,
+        thresholds: request.thresholds,
+        observationShiftX: alignment.shiftX,
+        observationShiftY: alignment.shiftY
+      )
+      guard !pixels.isEmpty else {
+        return .rejected(.targetMissing(frameID: target.frame.id))
+      }
+      let components = Self.components(pixels)
+      let eligible = components.filter { $0.count >= request.minimumTargetPixels }
+      guard !eligible.isEmpty else {
+        return .rejected(.targetTooSmall(
+          frameID: target.frame.id,
+          actualPixels: components.map(\.count).max() ?? 0,
+          minimumPixels: request.minimumTargetPixels
+        ))
+      }
+      guard eligible.count == 1 else {
+        return .rejected(.targetAmbiguous(
+          frameID: target.frame.id,
+          candidateCount: eligible.count
+        ))
+      }
+      let component = eligible[0]
+      let minX = component.map(\.x).min()!
+      let maxX = component.map(\.x).max()!
+      let minY = component.map(\.y).min()!
+      let maxY = component.map(\.y).max()!
+      let diameter = Double(max(maxX - minX, maxY - minY))
+      guard request.expectedDiameterPixels.contains(diameter) else {
+        return .rejected(.expectedDiameterMismatch(
+          frameID: target.frame.id,
+          actualPixels: diameter
+        ))
+      }
+      let bounds = try! AxisAlignedBounds<CameraPixelSpace>(
+        minX: Double(minX) - 0.5,
+        minY: Double(minY) - 0.5,
+        maxX: Double(maxX) + 0.5,
+        maxY: Double(maxY) + 0.5
+      )
+      samples.append(VisibilityTargetComponentSample(
+        frame: ExactFrameProvenance(frame: target.frame),
+        centroid: Self.centroid(component),
+        pixelCount: component.count,
+        bounds: bounds,
+        alignment: alignment
       ))
     }
-    guard request.minimumAnchorPixels > 0, !request.algorithmRevision.isEmpty else {
-      return reject(.invalidPolicy)
+
+    let centroidSpread = samples[0].centroid.distance(to: samples[1].centroid)
+    guard centroidSpread <= request.maximumCentroidSpreadPixels else {
+      return .rejected(.unstableCentroid(
+        actualPixels: centroidSpread,
+        maximumPixels: request.maximumCentroidSpreadPixels
+      ))
     }
-    guard request.cleanReference.cameraConfigurationID
-      == request.anchoredBaseline.cameraConfigurationID
-    else { return reject(.cameraConfigurationMismatch) }
-    guard request.cleanReference.width == request.anchoredBaseline.width,
-      request.cleanReference.height == request.anchoredBaseline.height
-    else { return reject(.dimensionMismatch) }
-    guard request.cleanReference.pixelFormat == request.anchoredBaseline.pixelFormat else {
-      return reject(.pixelFormatMismatch)
+    let counts = samples.map { Double($0.pixelCount) }
+    let areaRatio = counts.max()! / counts.min()!
+    guard areaRatio <= request.maximumAreaRatio else {
+      return .rejected(.unstableAreaRatio(actual: areaRatio, maximum: request.maximumAreaRatio))
     }
-    guard request.cleanReference.captureNanoseconds
-      < request.anchoredBaseline.captureNanoseconds,
-      request.cleanReference.id != request.anchoredBaseline.id
-    else { return reject(.framesNotStrictlyIncreasing) }
-    guard Self.contains(request.region, in: request.cleanReference) else {
-      return reject(.invalidRegion)
-    }
-    let pixels = Self.newGreenPixels(
-      from: request.cleanReference,
-      to: request.anchoredBaseline,
-      region: request.region,
-      thresholds: request.thresholds
+    let mean = try! Point2<CameraPixelSpace>(
+      x: samples.reduce(0) { $0 + $1.centroid.x } / 2,
+      y: samples.reduce(0) { $0 + $1.centroid.y } / 2
     )
-    guard !pixels.isEmpty else { return reject(.missing) }
-    let components = Self.components(pixels)
-    let eligible = components.filter { $0.count >= request.minimumAnchorPixels }
-    guard !eligible.isEmpty else {
-      return reject(.tooSmall(
-        actualPixels: components.map(\.count).max() ?? 0,
-        minimumPixels: request.minimumAnchorPixels
-      ))
-    }
-    guard eligible.count == 1 else {
-      return reject(.ambiguous(candidateCount: eligible.count))
-    }
-    let component = eligible[0]
-    let centroid = Self.centroid(component)
-    return .observed(AnchorDotObservation(
-      cleanReference: clean,
-      anchoredBaseline: anchored,
-      region: request.region,
-      centroid: centroid,
-      pixelCount: component.count,
-      overlay: CameraOverlayMeasurement(
-        frameID: request.anchoredBaseline.id,
-        cameraConfigurationID: request.anchoredBaseline.cameraConfigurationID,
-        geometry: .point(centroid),
+    let uncertainty = try! Vector2<CameraPixelSpace>(
+      dx: abs(samples[0].centroid.x - samples[1].centroid.x) / sqrt(2),
+      dy: abs(samples[0].centroid.y - samples[1].centroid.y) / sqrt(2)
+    )
+    let overlays = samples.map {
+      CameraOverlayMeasurement(
+        frameID: $0.frame.frameID,
+        cameraConfigurationID: $0.frame.cameraConfigurationID,
+        geometry: .point($0.centroid),
         provenance: CameraMeasurementProvenance(
           kind: .observedInk,
           source: .measured,
           algorithmRevision: request.algorithmRevision
         )
-      ),
-      algorithmRevision: request.algorithmRevision
+      )
+    }
+    return .observed(VisibilityTargetObservation(
+      source: request.baseline.source,
+      baseline: ExactFrameProvenance(frame: request.baseline.frame),
+      samples: samples,
+      includedFrameIDs: samples.map { $0.frame.frameID },
+      validSampleCount: samples.count,
+      estimatorRevision: request.estimatorRevision,
+      algorithmRevision: request.algorithmRevision,
+      targetPlanRevision: request.targetPlanRevision,
+      centroid: mean,
+      centroidUncertainty: uncertainty,
+      areaRatio: areaRatio,
+      expectedDiameterPixels: request.expectedDiameterPixels,
+      controllerSessionID: request.controllerSessionID,
+      coordinateRevision: request.coordinateRevision,
+      toolPaperRevision: request.toolPaperRevision,
+      region: request.region,
+      overlays: overlays
     ))
   }
 
@@ -246,26 +474,34 @@ extension VisionWorker {
     _ request: IsolatedInkObservationRequest
   ) -> IsolatedInkObservationOutcome {
     let provenance = (
-      clean: ExactFrameProvenance(frame: request.cleanReference),
-      anchored: ExactFrameProvenance(frame: request.anchoredBaseline),
-      post: ExactFrameProvenance(frame: request.postLine)
+      baseline: ExactFrameProvenance(frame: request.targetPresentBaseline.frame),
+      post: ExactFrameProvenance(frame: request.postLine.frame)
     )
     func reject(_ reason: IsolatedInkRejectionReason) -> IsolatedInkObservationOutcome {
       .rejected(IsolatedInkRejection(
         reason: reason,
-        cleanReference: provenance.clean,
-        anchoredBaseline: provenance.anchored,
+        targetPresentBaseline: provenance.baseline,
         postLine: provenance.post
       ))
     }
 
-    guard request.minimumAnchorPixels > 0, request.minimumLinePixels >= 2,
+    guard request.minimumLinePixels >= 2,
       request.maximumLineMinorToMajorVarianceRatio.isFinite,
       request.maximumLineMinorToMajorVarianceRatio >= 0,
       request.maximumLineMinorToMajorVarianceRatio < 1,
+      request.controllerPositionToleranceMM.isFinite,
+      request.controllerPositionToleranceMM >= 0,
+      request.alignmentSearchRadiusPixels >= 0,
+      request.maximumAlignmentShiftPixels >= 0,
+      request.maximumAlignmentShiftPixels <= request.alignmentSearchRadiusPixels,
+      request.maximumBackgroundMeanAbsoluteDifference.isFinite,
+      request.maximumBackgroundMeanAbsoluteDifference >= 0,
       !request.algorithmRevision.isEmpty
     else { return reject(.invalidPolicy) }
-    let frames = [request.cleanReference, request.anchoredBaseline, request.postLine]
+    guard request.targetPresentBaseline.source == request.postLine.source else {
+      return reject(.sourceMismatch)
+    }
+    let frames = [request.targetPresentBaseline.frame, request.postLine.frame]
     guard Set(frames.map(\.cameraConfigurationID)).count == 1 else {
       return reject(.cameraConfigurationMismatch)
     }
@@ -275,36 +511,53 @@ extension VisionWorker {
     guard Set(frames.map(\.pixelFormat)).count == 1 else {
       return reject(.pixelFormatMismatch)
     }
-    guard request.cleanReference.captureNanoseconds < request.anchoredBaseline.captureNanoseconds,
-      request.anchoredBaseline.captureNanoseconds < request.postLine.captureNanoseconds,
-      Set(frames.map(\.id)).count == 3
+    guard request.targetPresentBaseline.frame.captureNanoseconds
+      < request.postLine.frame.captureNanoseconds,
+      Set(frames.map(\.id)).count == 2
     else { return reject(.framesNotStrictlyIncreasing) }
-    guard Self.contains(request.region, in: request.cleanReference) else {
+    guard Self.contains(request.region, in: request.targetPresentBaseline.frame) else {
       return reject(.invalidRegion)
     }
-
-    let anchorOutcome = observeAnchorDot(AnchorDotObservationRequest(
-      cleanReference: request.cleanReference,
-      anchoredBaseline: request.anchoredBaseline,
-      region: request.region,
-      thresholds: request.thresholds,
-      algorithmRevision: request.algorithmRevision,
-      minimumAnchorPixels: request.minimumAnchorPixels
-    ))
-    let anchorObservation: AnchorDotObservation
-    switch anchorOutcome {
-    case .observed(let observation):
-      anchorObservation = observation
-    case .rejected(let rejection):
-      return reject(Self.isolatedReason(for: rejection.reason))
+    let poseDistance = request.targetPresentBaseline.controllerPosition.point.distance(
+      to: request.postLine.controllerPosition.point
+    )
+    guard poseDistance <= request.controllerPositionToleranceMM else {
+      return reject(.clearPoseMismatch(
+        distanceMM: poseDistance,
+        toleranceMM: request.controllerPositionToleranceMM
+      ))
     }
-    let anchorCentroid = anchorObservation.centroid
+    let alignment = Self.bestIntegerAlignment(
+      request.targetPresentBaseline.frame,
+      request.postLine.frame,
+      excluding: request.region,
+      searchRadius: request.alignmentSearchRadiusPixels
+    )
+    guard max(abs(alignment.shiftX), abs(alignment.shiftY))
+      <= request.maximumAlignmentShiftPixels
+    else {
+      return reject(.excessiveAlignment(
+        shiftX: alignment.shiftX,
+        shiftY: alignment.shiftY,
+        maximumPixels: request.maximumAlignmentShiftPixels
+      ))
+    }
+    guard alignment.backgroundMeanAbsoluteDifference
+      <= request.maximumBackgroundMeanAbsoluteDifference
+    else {
+      return reject(.excessiveBackgroundResidual(
+        actual: alignment.backgroundMeanAbsoluteDifference,
+        maximum: request.maximumBackgroundMeanAbsoluteDifference
+      ))
+    }
 
     let linePixels = Self.newGreenPixels(
-      from: request.anchoredBaseline,
-      to: request.postLine,
+      from: request.targetPresentBaseline.frame,
+      to: request.postLine.frame,
       region: request.region,
-      thresholds: request.thresholds
+      thresholds: request.thresholds,
+      observationShiftX: alignment.shiftX,
+      observationShiftY: alignment.shiftY
     )
     guard !linePixels.isEmpty else { return reject(.lineMissing) }
     let lineComponents = Self.components(linePixels)
@@ -331,20 +584,24 @@ extension VisionWorker {
     var residual: IsolatedInkResidual?
     if let delta = request.projectedActualStrokeDelta,
       delta.dx.isFinite, delta.dy.isFinite, delta.magnitude > 0,
-      let intendedEnd = try? anchorCentroid.translated(by: delta),
-      let intendedLine = try? Polyline(points: [anchorCentroid, intendedEnd])
+      let intendedEnd = try? request.lineStartPoint.translated(by: delta),
+      let intendedLine = try? Polyline(points: [request.lineStartPoint, intendedEnd])
     {
       intended = intendedLine
-      let direct = fit.start.distance(to: anchorCentroid) + fit.end.distance(to: intendedEnd)
-      let reversed = fit.end.distance(to: anchorCentroid) + fit.start.distance(to: intendedEnd)
+      let direct = fit.start.distance(to: request.lineStartPoint) + fit.end.distance(to: intendedEnd)
+      let reversed = fit.end.distance(to: request.lineStartPoint) + fit.start.distance(to: intendedEnd)
       if reversed < direct { observedEndpoints.reverse() }
       let endpointErrors = [
-        observedEndpoints[0].distance(to: anchorCentroid),
+        observedEndpoints[0].distance(to: request.lineStartPoint),
         observedEndpoints[1].distance(to: intendedEnd),
       ]
       let crossTrackSquared = line.map {
         let point = try! Point2<CameraPixelSpace>(x: Double($0.x), y: Double($0.y))
-        let distance = Self.infiniteLineDistance(point, start: anchorCentroid, end: intendedEnd)
+        let distance = Self.infiniteLineDistance(
+          point,
+          start: request.lineStartPoint,
+          end: intendedEnd
+        )
         return distance * distance
       }
       residual = IsolatedInkResidual(
@@ -363,8 +620,8 @@ extension VisionWorker {
     else { return reject(.lineNotLineLike(minorToMajorVarianceRatio: .infinity)) }
     var overlays: [CameraOverlayMeasurement] = [
       CameraOverlayMeasurement(
-        frameID: request.postLine.id,
-        cameraConfigurationID: request.postLine.cameraConfigurationID,
+        frameID: request.postLine.frame.id,
+        cameraConfigurationID: request.postLine.frame.cameraConfigurationID,
         geometry: .polyline(centreline),
         provenance: CameraMeasurementProvenance(
           kind: .observedInk,
@@ -375,8 +632,8 @@ extension VisionWorker {
     ]
     if let intended {
       overlays.append(CameraOverlayMeasurement(
-        frameID: request.postLine.id,
-        cameraConfigurationID: request.postLine.cameraConfigurationID,
+        frameID: request.postLine.frame.id,
+        cameraConfigurationID: request.postLine.frame.cameraConfigurationID,
         geometry: .polyline(intended),
         provenance: CameraMeasurementProvenance(
           kind: .intendedPath,
@@ -387,8 +644,8 @@ extension VisionWorker {
       for pair in zip(intended.points, observedEndpoints) {
         if pair.0 != pair.1, let geometry = try? Polyline(points: [pair.0, pair.1]) {
           overlays.append(CameraOverlayMeasurement(
-            frameID: request.postLine.id,
-            cameraConfigurationID: request.postLine.cameraConfigurationID,
+            frameID: request.postLine.frame.id,
+            cameraConfigurationID: request.postLine.frame.cameraConfigurationID,
             geometry: .polyline(geometry),
             provenance: CameraMeasurementProvenance(
               kind: .residual,
@@ -400,12 +657,15 @@ extension VisionWorker {
       }
     }
     return .observed(IsolatedInkObservation(
-      cleanReference: provenance.clean,
-      anchoredBaseline: provenance.anchored,
+      targetPresentBaseline: provenance.baseline,
       postLine: provenance.post,
       region: request.region,
-      anchorCentroid: anchorCentroid,
-      anchorPixelCount: anchorObservation.pixelCount,
+      lineStartPoint: request.lineStartPoint,
+      source: request.targetPresentBaseline.source,
+      controllerSessionID: request.controllerSessionID,
+      coordinateRevision: request.coordinateRevision,
+      toolPaperRevision: request.toolPaperRevision,
+      alignment: alignment,
       observedEndpoints: observedEndpoints,
       observedCentreline: centreline,
       observedPixelCount: line.count,
@@ -431,23 +691,6 @@ private extension VisionWorker {
     let minorToMajorVarianceRatio: Double
   }
 
-  static func isolatedReason(
-    for reason: AnchorDotRejectionReason
-  ) -> IsolatedInkRejectionReason {
-    switch reason {
-    case .invalidPolicy: .invalidPolicy
-    case .invalidRegion: .invalidRegion
-    case .framesNotStrictlyIncreasing: .framesNotStrictlyIncreasing
-    case .cameraConfigurationMismatch: .cameraConfigurationMismatch
-    case .dimensionMismatch: .dimensionMismatch
-    case .pixelFormatMismatch: .pixelFormatMismatch
-    case .missing: .anchorMissing
-    case .tooSmall(let actual, let minimum):
-      .anchorTooSmall(actualPixels: actual, minimumPixels: minimum)
-    case .ambiguous(let count): .anchorAmbiguous(candidateCount: count)
-    }
-  }
-
   static func contains(_ region: PixelRect, in frame: StampedFrame) -> Bool {
     region.x >= 0 && region.y >= 0 && region.width > 0 && region.height > 0
       && region.x + region.width <= frame.width
@@ -458,12 +701,19 @@ private extension VisionWorker {
     from reference: StampedFrame,
     to observation: StampedFrame,
     region: PixelRect,
-    thresholds: GreenPixelThresholds
+    thresholds: GreenPixelThresholds,
+    observationShiftX: Int = 0,
+    observationShiftY: Int = 0
   ) -> Set<InkPixel> {
     var result: Set<InkPixel> = []
     for y in region.y..<(region.y + region.height) {
       for x in region.x..<(region.x + region.width) {
-        if isGreen(observation, x: x, y: y, thresholds: thresholds)
+        let observedX = x + observationShiftX
+        let observedY = y + observationShiftY
+        guard observedX >= 0, observedX < observation.width,
+          observedY >= 0, observedY < observation.height
+        else { continue }
+        if isGreen(observation, x: observedX, y: observedY, thresholds: thresholds)
           && !isGreen(reference, x: x, y: y, thresholds: thresholds)
         {
           result.insert(InkPixel(x: x, y: y))
@@ -471,6 +721,87 @@ private extension VisionWorker {
       }
     }
     return result
+  }
+
+  static func bestIntegerAlignment(
+    _ baseline: StampedFrame,
+    _ observation: StampedFrame,
+    excluding region: PixelRect,
+    searchRadius: Int
+  ) -> IntegerFrameAlignment {
+    var best: (shiftX: Int, shiftY: Int, residual: Double)?
+    for shiftY in (-searchRadius)...searchRadius {
+      for shiftX in (-searchRadius)...searchRadius {
+        let residual = backgroundMeanAbsoluteDifference(
+          baseline,
+          observation,
+          excluding: region,
+          observationShiftX: shiftX,
+          observationShiftY: shiftY
+        )
+        let candidate = (shiftX: shiftX, shiftY: shiftY, residual: residual)
+        if let current = best {
+          let candidateRank = (
+            candidate.residual,
+            max(abs(candidate.shiftX), abs(candidate.shiftY)),
+            abs(candidate.shiftX) + abs(candidate.shiftY),
+            candidate.shiftY,
+            candidate.shiftX
+          )
+          let currentRank = (
+            current.residual,
+            max(abs(current.shiftX), abs(current.shiftY)),
+            abs(current.shiftX) + abs(current.shiftY),
+            current.shiftY,
+            current.shiftX
+          )
+          if candidateRank < currentRank { best = candidate }
+        } else {
+          best = candidate
+        }
+      }
+    }
+    let selected = best ?? (0, 0, 0)
+    return IntegerFrameAlignment(
+      shiftX: selected.shiftX,
+      shiftY: selected.shiftY,
+      backgroundMeanAbsoluteDifference: selected.residual,
+      estimatorRevision: "bounded-integer-background-mad-v1"
+    )
+  }
+
+  static func backgroundMeanAbsoluteDifference(
+    _ baseline: StampedFrame,
+    _ observation: StampedFrame,
+    excluding region: PixelRect,
+    observationShiftX: Int,
+    observationShiftY: Int
+  ) -> Double {
+    var absoluteDifference = 0.0
+    var byteCount = 0
+    for y in 0..<baseline.height {
+      for x in 0..<baseline.width {
+        let inRegion = x >= region.x && x < region.x + region.width
+          && y >= region.y && y < region.y + region.height
+        guard !inRegion else { continue }
+        let observedX = x + observationShiftX
+        let observedY = y + observationShiftY
+        guard observedX >= 0, observedX < observation.width,
+          observedY >= 0, observedY < observation.height
+        else { continue }
+        let baseOffset = y * baseline.rowBytes + x * baseline.pixelFormat.bytesPerPixel
+        let observedOffset = observedY * observation.rowBytes
+          + observedX * observation.pixelFormat.bytesPerPixel
+        for component in 0..<baseline.pixelFormat.bytesPerPixel {
+          absoluteDifference += abs(
+            Double(baseline.bytes[baseOffset + component])
+              - Double(observation.bytes[observedOffset + component])
+          )
+          byteCount += 1
+        }
+      }
+    }
+    return byteCount == 0 ? 0 : absoluteDifference / Double(byteCount)
   }
 
   static func isGreen(

@@ -37,8 +37,8 @@ struct LearningPathPresentationTests {
     #expect(
       HumanGuidedDiscoveryStep.allCases.map(\.title) == [
         "Pen Interaction",
-        "Boundary Discovery",
-        "Clear-View Discovery",
+        "Paired Boundary Discovery and Centering",
+        "Visibility Target and Clear-View Registration",
       ])
   }
 
@@ -50,11 +50,11 @@ struct LearningPathPresentationTests {
       ])
     #expect(
       ObservedDrawingTrialStep.allCases.map(\.title) == [
-        "Capture Clean Reference",
-        "Choose Line Start",
-        "Create Anchor Mark",
+        "Choose Isolated Line Plan",
+        "Capture Target-Anchored Baseline",
+        "Move to Line Start",
         "Draw Isolated Line",
-        "Clear Tool and Observe Ink",
+        "Return to Clear Pose and Observe New Ink",
         "Compare Intended and Observed Geometry",
       ])
   }
@@ -67,14 +67,14 @@ struct LearningPathPresentationTests {
         "2 Enable Motion",
         "3 Human-Guided Discovery",
         "3.1 Pen Interaction",
-        "3.2 Boundary Discovery",
-        "3.3 Clear-View Discovery",
+        "3.2 Paired Boundary Discovery and Centering",
+        "3.3 Visibility Target and Clear-View Registration",
         "4 Observed Drawing Trials",
-        "4.1 Capture Clean Reference",
-        "4.2 Choose Line Start",
-        "4.3 Create Anchor Mark",
+        "4.1 Choose Isolated Line Plan",
+        "4.2 Capture Target-Anchored Baseline",
+        "4.3 Move to Line Start",
         "4.4 Draw Isolated Line",
-        "4.5 Clear Tool and Observe Ink",
+        "4.5 Return to Clear Pose and Observe New Ink",
         "4.6 Compare Intended and Observed Geometry",
         "5 Adaptive Drawing",
       ])
@@ -200,5 +200,191 @@ struct LearningPathPresentationTests {
 
     #expect(strip.actions.map(\.kind) == [.redoThisStep, .recordAnotherAttempt])
     #expect(strip.ownerID == .humanGuidedDiscovery(.penInteraction))
+  }
+
+  @Test("boundary direction presentation distinguishes available choices from a forced opposite")
+  func boundaryDirectionChoices() {
+    let available = ExerciseDirectionSelectionPresentation(
+      purpose: .boundary,
+      options: BoundaryDirection.allCases,
+      selected: .positiveX
+    )
+    let forced = ExerciseDirectionSelectionPresentation(
+      purpose: .boundary,
+      options: [.negativeX],
+      selected: .negativeX
+    )
+
+    #expect(available.purpose.label == "Boundary direction")
+    #expect(available.options == [.positiveX, .negativeX, .positiveY, .negativeY])
+    #expect(forced.options == [.negativeX])
+    #expect(forced.selected == .negativeX)
+  }
+
+  @Test("Clear-view search exposes only exact operator-selected 10 5 2 and 1 millimeter moves")
+  func exactClearViewSearchMoves() {
+    let direction = BoundaryDirection.positiveY
+    let moves = ClearViewSearchDistance.allCases.map {
+      ClearViewSearchMove(direction: direction, distance: $0)
+    }
+    let descriptors = moves.map {
+      ExerciseActionDescriptor(
+        kind: .moveForClearView($0),
+        title: "Move \($0.direction.displayName) \($0.distance.displayName)"
+      )
+    }
+
+    #expect(
+      moves.map(\.distance) == [
+        .tenMillimeters,
+        .fiveMillimeters,
+        .twoMillimeters,
+        .oneMillimeter,
+      ])
+    #expect(
+      descriptors.map(\.title) == [
+        "Move Y+ 10 mm",
+        "Move Y+ 5 mm",
+        "Move Y+ 2 mm",
+        "Move Y+ 1 mm",
+      ])
+    #expect(descriptors.map(\.isEnabled) == [true, true, true, true])
+  }
+
+  @Test("visibility workflow actions are typed and remain owned by one pinned strip")
+  func typedVisibilityWorkflowActions() {
+    let owner = LearningPathItemID.humanGuidedDiscovery(
+      .visibilityTargetAndClearViewRegistration
+    )
+    let strip = ExerciseActionStripPresentation(
+      ownerID: owner,
+      actions: [
+        ExerciseActionDescriptor(
+          kind: .captureTargetPoseRegistration,
+          title: "Capture Target-Pose Registration"
+        ),
+        ExerciseActionDescriptor(
+          kind: .acceptTargetContactPointAndROI,
+          title: "Accept Contact Point and ROI",
+          role: .positive
+        ),
+        ExerciseActionDescriptor(
+          kind: .rejectTargetContactPointAndROI,
+          title: "Reject Contact Point and ROI"
+        ),
+        ExerciseActionDescriptor(
+          kind: .registerNewTargetArea,
+          title: "Register New Target Area"
+        ),
+        ExerciseActionDescriptor(
+          kind: .moveToNewTargetArea(
+            ClearViewSearchMove(direction: .negativeY, distance: .tenMillimeters)
+          ),
+          title: "Move New Target Area Y− 10 mm"
+        ),
+        ExerciseActionDescriptor(
+          kind: .paperReplaced,
+          title: "Paper Replaced",
+          role: .destructive
+        ),
+      ],
+      mustRemainVisible: true
+    )
+
+    #expect(strip.ownerID == owner)
+    #expect(strip.mustRemainVisible)
+    #expect(
+      strip.actions.map(\.kind) == [
+        .captureTargetPoseRegistration,
+        .acceptTargetContactPointAndROI,
+        .rejectTargetContactPointAndROI,
+        .registerNewTargetArea,
+        .moveToNewTargetArea(
+          ClearViewSearchMove(direction: .negativeY, distance: .tenMillimeters)
+        ),
+        .paperReplaced,
+      ])
+  }
+
+  @Test("visibility recovery distinguishes observing ink from relocating or replacing paper")
+  func typedVisibilityRecovery() {
+    #expect(
+      ExerciseActionKind.observeExistingVisibilityTarget
+        != .registerNewTargetArea
+    )
+    #expect(ExerciseActionKind.registerNewTargetArea != .paperReplaced)
+    #expect(ExerciseActionKind.drawVisibilityTarget != .observeExistingVisibilityTarget)
+  }
+
+  @Test("new target-area recovery requires typed relocation before an explicit new registration")
+  func typedTargetAreaRelocation() {
+    let selection = ExerciseDirectionSelectionPresentation(
+      purpose: .targetAreaRelocation,
+      selected: .positiveX
+    )
+    let moves = ClearViewSearchDistance.allCases.map {
+      ExerciseActionKind.moveToNewTargetArea(
+        ClearViewSearchMove(direction: selection.selected, distance: $0)
+      )
+    }
+    let captureBeforeMove = ExerciseActionDescriptor(
+      kind: .captureTargetPoseRegistration,
+      title: "Capture Target-Pose Registration",
+      role: .positive,
+      unavailableReason: "Move to a new target area first."
+    )
+    let captureAfterMove = ExerciseActionDescriptor(
+      kind: .captureTargetPoseRegistration,
+      title: "Capture Target-Pose Registration",
+      role: .positive
+    )
+
+    #expect(selection.purpose.label == "New target-area direction")
+    #expect(moves.count == 4)
+    #expect(
+      moves.first
+        == .moveToNewTargetArea(
+          ClearViewSearchMove(direction: .positiveX, distance: .tenMillimeters)
+        )
+    )
+    #expect(ExerciseActionKind.captureTargetPoseRegistration != .registerNewTargetArea)
+    #expect(!captureBeforeMove.isEnabled)
+    #expect(captureBeforeMove.unavailableReason == "Move to a new target area first.")
+    #expect(captureAfterMove.isEnabled)
+    #expect(
+      ExerciseActionKind.moveToNewTargetArea(
+        ClearViewSearchMove(direction: .positiveX, distance: .twoMillimeters)
+      )
+        != .moveForClearView(
+          ClearViewSearchMove(direction: .positiveX, distance: .twoMillimeters)
+        )
+    )
+  }
+
+  @Test(
+    "completed boundary repeat controls name one side and keep Redo distinct from another attempt")
+  func sideSpecificBoundaryRepeatControls() {
+    let strip = ExerciseActionStripPresentation(
+      ownerID: .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering),
+      actions: [
+        ExerciseActionDescriptor(
+          kind: .redoBoundary(.positiveX),
+          title: "Redo X+ Boundary"
+        ),
+        ExerciseActionDescriptor(
+          kind: .recordAnotherBoundaryAttempt(.positiveX),
+          title: "Record Another X+ Attempt"
+        ),
+      ]
+    )
+
+    #expect(
+      strip.actions.map(\.title) == [
+        "Redo X+ Boundary",
+        "Record Another X+ Attempt",
+      ])
+    #expect(strip.actions[0].kind != strip.actions[1].kind)
+    #expect(strip.actions[0].kind == .redoBoundary(.positiveX))
+    #expect(strip.actions[1].kind == .recordAnotherBoundaryAttempt(.positiveX))
   }
 }

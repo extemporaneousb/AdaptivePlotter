@@ -15,6 +15,55 @@ public struct RegistrationCorrespondence: Hashable, Codable, Sendable {
   }
 }
 
+public struct MachineCameraRegistrationCorrespondence: Hashable, Codable, Sendable {
+  public let machine: Point2<MachineSpace>
+  public let camera: Point2<CameraPixelSpace>
+
+  public init(machine: Point2<MachineSpace>, camera: Point2<CameraPixelSpace>) {
+    self.machine = machine
+    self.camera = camera
+  }
+}
+
+/// A current-session affine fit from controller coordinates to exact camera
+/// pixels. Context and evidence identities deliberately live in the runtime's
+/// provenance wrapper; this value contains only the fitted geometry and errors.
+public struct MachineCameraRegistrationFit: Hashable, Codable, Sendable {
+  public let cameraFromMachine: AffineTransform2<MachineSpace, CameraPixelSpace>
+  public let correspondences: [MachineCameraRegistrationCorrespondence]
+  public let rootMeanSquareErrorPixels: Double
+  public let maximumErrorPixels: Double
+
+  public static func fit(
+    correspondences: [MachineCameraRegistrationCorrespondence]
+  ) throws -> Self {
+    guard correspondences.count >= 3 else { throw RegistrationError.insufficientPoints }
+    let transform = try fitMachineCameraAffine(correspondences)
+    let errors = try correspondences.map {
+      try transform.applying(to: $0.machine).distance(to: $0.camera)
+    }
+    let rms = sqrt(errors.reduce(0) { $0 + $1 * $1 } / Double(errors.count))
+    return Self(
+      cameraFromMachine: transform,
+      correspondences: correspondences,
+      rootMeanSquareErrorPixels: rms,
+      maximumErrorPixels: errors.max() ?? 0
+    )
+  }
+
+  public func cameraPoint(
+    from machinePoint: Point2<MachineSpace>
+  ) throws -> Point2<CameraPixelSpace> {
+    try cameraFromMachine.applying(to: machinePoint)
+  }
+
+  public func machinePoint(
+    from cameraPoint: Point2<CameraPixelSpace>
+  ) throws -> Point2<MachineSpace> {
+    try cameraFromMachine.inverted().applying(to: cameraPoint)
+  }
+}
+
 /// One affine camera-to-field fit for the current local setup.
 ///
 /// All supplied correspondences participate in the fit. The reported residual
@@ -70,6 +119,57 @@ private func fitAffine(
 
   let normalized = samples.map { sample in
     ((sample.camera.x - centerX) / scale, (sample.camera.y - centerY) / scale, sample.field)
+  }
+  let sxx = normalized.reduce(0) { $0 + $1.0 * $1.0 } / count
+  let syy = normalized.reduce(0) { $0 + $1.1 * $1.1 } / count
+  let sxy = normalized.reduce(0) { $0 + $1.0 * $1.1 } / count
+  guard sxx * syy - sxy * sxy > 1e-10 else {
+    throw RegistrationError.degenerateGeometry
+  }
+
+  var normal = Array(repeating: Array(repeating: 0.0, count: 3), count: 3)
+  var targetX = Array(repeating: 0.0, count: 3)
+  var targetY = Array(repeating: 0.0, count: 3)
+  for sample in normalized {
+    let row = [sample.0, sample.1, 1.0]
+    for i in 0..<3 {
+      targetX[i] += row[i] * sample.2.x
+      targetY[i] += row[i] * sample.2.y
+      for j in 0..<3 { normal[i][j] += row[i] * row[j] }
+    }
+  }
+  let betaX = try solve3x3(normal, targetX)
+  let betaY = try solve3x3(normal, targetY)
+  let m11 = betaX[0] / scale
+  let m12 = betaX[1] / scale
+  let m21 = betaY[0] / scale
+  let m22 = betaY[1] / scale
+  return try AffineTransform2(
+    m11: m11,
+    m12: m12,
+    m21: m21,
+    m22: m22,
+    tx: betaX[2] - m11 * centerX - m12 * centerY,
+    ty: betaY[2] - m21 * centerX - m22 * centerY
+  )
+}
+
+private func fitMachineCameraAffine(
+  _ samples: [MachineCameraRegistrationCorrespondence]
+) throws -> AffineTransform2<MachineSpace, CameraPixelSpace> {
+  let count = Double(samples.count)
+  let centerX = samples.reduce(0) { $0 + $1.machine.x } / count
+  let centerY = samples.reduce(0) { $0 + $1.machine.y } / count
+  let averageSquaredRadius = samples.reduce(0) { partial, sample in
+    let x = sample.machine.x - centerX
+    let y = sample.machine.y - centerY
+    return partial + x * x + y * y
+  } / count
+  let scale = sqrt(averageSquaredRadius)
+  guard scale.isFinite, scale > 1e-12 else { throw RegistrationError.degenerateGeometry }
+
+  let normalized = samples.map { sample in
+    ((sample.machine.x - centerX) / scale, (sample.machine.y - centerY) / scale, sample.camera)
   }
   let sxx = normalized.reduce(0) { $0 + $1.0 * $1.0 } / count
   let syy = normalized.reduce(0) { $0 + $1.1 * $1.1 } / count

@@ -191,16 +191,7 @@ struct OperatorWorkspaceView: View {
   }
 
   private var exerciseDetailCollapseUnavailableReason: String? {
-    guard let actions = workspace.currentExerciseActionStripPresentation?.actions,
-      actions.contains(where: { action in
-        switch action.kind {
-        case .choice, .cancel, .stop, .recordClearViewLabel,
-          .acceptCurrentClearView, .recordDrawingTrialAssessment:
-          true
-        case .start, .restart, .redoThisStep, .recordAnotherAttempt:
-          false
-        }
-      })
+    guard workspace.currentExerciseActionStripPresentation?.mustRemainVisible == true
     else { return nil }
     return "Finish or cancel the active exercise attempt before hiding its controls."
   }

@@ -33,27 +33,43 @@ evidence it consumes.
 
 Human-Guided Discovery is ordered as:
 
-1. **3.1 Pen Interaction** — observe Up, authorize and observe Down, retract,
-   and finish with an explicit human confirmation of Up.
-2. **3.2 Boundary Discovery** — choose a direction, start operator-stopped
-   boundary motion, use the contextual Stop at the observed side, settle at
-   controller Idle with final MPos, capture a strictly newer exact frame, and
-   update that side observation. A fixed application travel distance is not a
-   boundary and cannot complete this exercise.
-3. **3.3 Clear-View Discovery** — label an exact frame Blocked, Partial, or
-   Clear and accept one repeatable Clear pose.
+1. **3.1 Pen Interaction** — observe Up, follow the spoken lowering cue,
+   observe Down, retract, and finish with an explicit human confirmation of Up.
+2. **3.2 Paired Boundary Discovery and Centering** — choose any first side,
+   record it with operator-stopped boundary motion, record its forced opposite,
+   choose either sign on the remaining axis, then record that forced opposite.
+   The four final MPos observations define the estimated machine center. The
+   operator then explicitly starts one stoppable Pen Up move to that center.
+3. **3.3 Visibility Target and Clear-View Registration** — register the tool's
+   camera-space contact point and target ROI while the armature is present;
+   find and accept a repeatable clear pose with explicit 10, 5, 2, or optional
+   1 mm Pen Up search moves; capture a blank baseline at that clear pose; return
+   to the registered target pose; draw one 4 mm diameter octagonal visibility
+   target under one operation owner; return to the accepted clear pose; observe
+   the existing target in two fresh frames; and accept the registration.
 
-Pen Interaction plus one relevant boundary is sufficient to advance to
-Clear-View Discovery. The other directions remain optional observations.
+A fixed application travel distance is never a boundary. Natural completion of
+an underlying finite GRBL segment renews the same logical owner and cannot
+complete a side. Stage 3.2 completes only after all four sides and the explicit
+center move. A Blocked or Partial clear-view label keeps the same search
+transaction active; it does not fail the entire step.
 
 Observed Drawing Trials are ordered as:
 
-1. **4.1 Capture Clean Reference**
-2. **4.2 Choose Line Start**
-3. **4.3 Create Anchor Mark**
+1. **4.1 Choose Isolated Line Plan**
+2. **4.2 Capture Target-Anchored Baseline**
+3. **4.3 Move to Line Start**
 4. **4.4 Draw Isolated Line**
-5. **4.5 Clear Tool and Observe Ink**
+5. **4.5 Return to Clear Pose and Observe New Ink**
 6. **4.6 Compare Intended and Observed Geometry**
+
+The first line plan starts at a selected perimeter point of the accepted
+visibility target and extends 5 mm outward. The baseline is captured at the
+accepted clear pose immediately before leaving it. The trial never redraws
+automatically after an uncertain physical outcome.
+
+The complete actor, provenance, recovery, and simulator contract is
+[Visibility Target and Clear-View Protocol](docs/implementation/VISIBILITY_TARGET_AND_CLEAR_VIEW_PROTOCOL.md).
 
 Only observed ink proves that a mark exists. Adaptive Drawing remains visibly
 Future until multi-stroke observation and checkpoint learning are implemented.
@@ -228,7 +244,12 @@ The evidence boundaries are explicit:
 - observed ink is the only proof of a drawn mark.
 
 SIMULATED frames share the renderer but are labeled nonphysical and cannot reach
-machine actions or satisfy physical evidence.
+machine actions or satisfy physical evidence. Their pixels are causal:
+simulated MPos, pen pose, accepted motion segments, paper identity, and retained
+ink determine the rendered scene. Boundary Stop positions, center arrival,
+target drawing, clear-view search, two-frame target observation, and the Stage 4
+line trial therefore exercise the same visible actions instead of consuming a
+pre-rendered success script.
 
 LIVE and SIMULATED use the same Learning Path, motion panel, camera utilities,
 questions, and action locations. The deterministic simulator implements its

@@ -74,13 +74,15 @@ The sequence asks for explicit physical Up, authorization to lower, observed
 Down, and final observed Up. Announcements precede lower/raise. Controller state
 and human physical observation remain separate.
 
-### Boundary Discovery
+### Paired Boundary Discovery and Centering
 
 A typed direction maps to one operator-stopped Pen Up boundary-motion owner.
 Stop records its event before one cancel, awaits the original owner through
-Idle/final MPos, captures a strictly newer exact frame, updates a side posterior,
-and advances. One relevant side is sufficient for the current path; other sides
-remain optional.
+Idle/final MPos, captures a strictly newer exact frame, and updates that side.
+The operator chooses any first side, its opposite is forced, then chooses either
+sign on the remaining axis and records its forced opposite. Four accepted final
+MPos observations derive a typed midpoint. One explicit stoppable Pen Up move
+settles at that estimated center before the next exercise.
 
 Boundary motion remains one logical attempt until operator Stop or a real
 controller limit, alarm, disconnect, or fault. Finite GRBL segments continue
@@ -88,11 +90,21 @@ only after unambiguous completion, with Stop closing renewal first; a segment
 completion never becomes boundary evidence and ambiguity is never resent. There
 is no application-selected completion horizon.
 
-### Clear-View Discovery
+### Visibility Target and Clear-View Registration
 
-The operator labels an exact frame Blocked, Partial, or Clear. Accept is disabled
-until the current runtime observation is Clear. The accepted pose is local
-evidence for vision-consuming travel, not manual-motion authority.
+The app captures the centered armature-present target pose, proposes a typed
+bottom-center tool contact estimate and ROI, and requires operator acceptance.
+The operator then searches with explicit direction plus 10, 5, 2, or optional 1
+mm Pen Up moves. Blocked and Partial labels continue the same transaction; Clear
+accepts a repeatable pose. At that pose the app captures a blank ROI baseline,
+returns to the registered target pose, draws one 4 mm diameter regular octagon
+under one compound operation owner, returns Pen Up to Clear, and accepts the
+existing target only after two compatible fresh observations agree.
+
+The paper scene becomes `inkPossible` once lowering is accepted. Interrupted or
+ambiguous drawing cannot redraw automatically. Recovery observes the existing
+target against the compatible baseline or explicitly registers a new target
+area/paper revision.
 
 Automated behavior is complete. The integrated physical sequence still needs an
 attended run.
@@ -134,16 +146,21 @@ facts.
 
 The current trial is:
 
-1. Capture Clean Reference
-2. Choose Line Start
-3. Create Anchor Mark
+1. Choose Isolated Line Plan
+2. Capture Target-Anchored Baseline
+3. Move to Line Start
 4. Draw Isolated Line
-5. Clear Tool and Observe Ink
+5. Return to Clear Pose and Observe New Ink
 6. Compare Intended and Observed Geometry
 
-It records one attributable episode, exact frames, controller evidence, anchor,
-new-ink observation, residual, and typed human comparison. Unclear ink causes no
-redraw. Physical end-to-end ink validation remains pending.
+The plan starts on a selected point of the visibility-target perimeter and
+extends 5 mm outward. The fresh target-present baseline is captured at the
+accepted Clear pose immediately before leaving it. Quantitative comparison uses
+a compatible affine machine-camera registration fitted from at least three
+non-collinear accepted pairs, with residuals and uncertainty. It records one
+attributable episode, exact frames, controller evidence, target, new-ink
+observation, residual, and typed human comparison. Unclear ink causes no redraw.
+Physical end-to-end ink validation remains pending.
 
 ## Work item 7 — One-window learning workbench and repeat semantics — implemented
 
@@ -216,7 +233,18 @@ The copy-paste coordinator specification is
 - discard simulated artifacts on return to LIVE and restore the parked LIVE
   accepted authority unchanged.
 
-## Work item 8 — Repeatable geometric learning — next
+## Work item 8 — Causal visibility-target learning — implemented in software
+
+This increment replaces the single-boundary, label-only Clear pose, anchor dot,
+and pre-rendered simulated-success path with the paired-boundary, center,
+visibility-target, and target-anchored trial protocol. It provides typed target
+contact/ROI evidence, clear-search move sizes, paper-scene recovery, a compound
+octagon operation, two-frame target agreement, affine machine-camera
+registration, exact dependency revisions, and full mocked-operator simulator
+coverage. The complete contract is
+[Visibility Target and Clear-View Protocol](implementation/VISIBILITY_TARGET_AND_CLEAR_VIEW_PROTOCOL.md).
+
+## Work item 9 — Repeatable geometric learning — next
 
 After the attended single-trial loop is reliable:
 
@@ -229,14 +257,14 @@ After the attended single-trial loop is reliable:
 
 Do not promote a model automatically from trial count or one good residual.
 
-## Work item 9 — Stroke and shape preference — later
+## Work item 10 — Stroke and shape preference — later
 
 Add closed typed candidate shapes only after observed line evidence is reliable.
 Retain exact proposed/executed actions, observed ink, human comparison, and
 residual. Preference or reward summarizes the episode; it cannot hide a refusal
 or ambiguous physical outcome.
 
-## Work item 10 — Active experiment selection — later
+## Work item 11 — Active experiment selection — later
 
 Active learning may select among already safe typed experiments to reduce model
 uncertainty or disagreement. It must show the candidates, selected experiment,
@@ -245,7 +273,7 @@ selection propensity when applicable, expected evidence, and stop boundary.
 It may not create controller text, enlarge physical scope, bypass Enable Motion,
 or turn model confidence into authority.
 
-## Work item 11 — Adaptive Drawing — future
+## Work item 12 — Adaptive Drawing — future
 
 Stage 5 becomes available only after the app supports:
 
@@ -272,7 +300,14 @@ Software completion requires:
 - announcement queue order/identity tests;
 - controller-axis feed selection and fallback tests;
 - exact-frame freshness and posterior tests;
-- drawing-trial no-redraw tests;
+- forced-opposite four-side order, center derivation, and stoppable center-arrival
+  tests;
+- contact-point/ROI, continuing Clear search, 10/5/2/1 mm move, blank-baseline,
+  octagon geometry, compound-owner Stop, and paper-scene recovery tests;
+- two-frame target agreement, affine machine-camera fit, target-present trial
+  baseline, and drawing-trial no-redraw tests;
+- full mocked-operator causal simulator variants through visibility registration
+  and Stage 4 with zero physical machine calls;
 - launcher identity, existing-instance, and raw-process tests;
 - bundle/signature/privacy validation;
 - full and strict repository checks;

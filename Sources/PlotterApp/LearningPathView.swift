@@ -128,9 +128,6 @@ struct LearningPathView: View {
           reviewedItemID: selection.selected,
           perform: { kind, ownerID in
             await actionWorkspace.performExerciseAction(kind, for: ownerID)
-          },
-          selectDirection: { direction in
-            await actionWorkspace.selectBoundaryDirection(direction)
           }
         )
       }
@@ -366,7 +363,6 @@ private struct ExerciseActionStripView: View {
   let presentation: ExerciseActionStripPresentation
   let reviewedItemID: LearningPathItemID
   let perform: (ExerciseActionKind, LearningPathItemID) async -> Void
-  let selectDirection: @Sendable (BoundaryDirection) async -> Void
 
   var body: some View {
     VStack(alignment: .leading, spacing: 9) {
@@ -390,12 +386,24 @@ private struct ExerciseActionStripView: View {
       }
 
       if let directionSelection = presentation.directionSelection {
+        Text(
+          directionSelection.options.count == 1
+            ? "Required next direction" : "Available direction choices"
+        )
+        .font(.caption2.monospaced().bold())
+        .foregroundStyle(.secondary)
+
         Picker(
-          "Boundary direction",
+          directionSelection.purpose.label,
           selection: Binding(
             get: { directionSelection.selected },
             set: { direction in
-              Task { await selectDirection(direction) }
+              Task {
+                await perform(
+                  .selectDirection(directionSelection.purpose, direction),
+                  presentation.ownerID
+                )
+              }
             }
           )
         ) {
@@ -404,22 +412,24 @@ private struct ExerciseActionStripView: View {
           }
         }
         .pickerStyle(.segmented)
+        .disabled(directionSelection.options.count == 1)
         .accessibilityValue(
           PresentationCue.direction(directionSelection.selected).accessibilityValue
         )
+        .accessibilityHint(
+          directionSelection.options.count == 1
+            ? "This opposite boundary is required next."
+            : "Selects a direction without starting motion."
+        )
       }
 
-      ViewThatFits(in: .horizontal) {
-        HStack(spacing: 8) {
-          ForEach(presentation.actions) { action in
-            actionButton(action)
-          }
-        }
-
-        VStack(alignment: .leading, spacing: 7) {
-          ForEach(presentation.actions) { action in
-            actionButton(action)
-          }
+      LazyVGrid(
+        columns: [GridItem(.adaptive(minimum: 132), spacing: 8)],
+        alignment: .leading,
+        spacing: 7
+      ) {
+        ForEach(presentation.actions) { action in
+          actionButton(action)
         }
       }
 
@@ -438,10 +448,14 @@ private struct ExerciseActionStripView: View {
 
   @ViewBuilder
   private func actionButton(_ action: ExerciseActionDescriptor) -> some View {
-    let button = Button(action.title) {
+    let button = Button {
       Task { await perform(action.kind, presentation.ownerID) }
+    } label: {
+      Text(action.title)
+        .frame(maxWidth: .infinity)
     }
     .disabled(!action.isEnabled)
+    .help(action.unavailableReason ?? action.title)
 
     switch action.role {
     case .positive:

@@ -145,6 +145,8 @@ does not replace the controller checks. Its responsibilities include:
 - the one contextual Stop target and one-cancel latch shared by Stop, Cancel,
   and shutdown settlement without conflating their semantic dispositions;
 - current-session discovery, Clear-view, and drawing-trial evidence;
+- paired-side progress, estimated-center arrival, tool contact/ROI, paper-scene
+  disposition, visibility-target registration, and machine-camera fit evidence;
 - current accepted step artifacts, preserved attempts, typed aggregates, and
   explicit data-dependency invalidation;
 - advisory announcement ordering;
@@ -161,16 +163,16 @@ The exact visible stage model is:
 ```text
 1 Connect
 2 Enable Motion
-3 Human-Guided Discovery
+  3 Human-Guided Discovery
   3.1 Pen Interaction
-  3.2 Boundary Discovery
-  3.3 Clear-View Discovery
+  3.2 Paired Boundary Discovery and Centering
+  3.3 Visibility Target and Clear-View Registration
 4 Observed Drawing Trials
-  4.1 Capture Clean Reference
-  4.2 Choose Line Start
-  4.3 Create Anchor Mark
+  4.1 Choose Isolated Line Plan
+  4.2 Capture Target-Anchored Baseline
+  4.3 Move to Line Start
   4.4 Draw Isolated Line
-  4.5 Clear Tool and Observe Ink
+  4.5 Return to Clear Pose and Observe New Ink
   4.6 Compare Intended and Observed Geometry
 5 Adaptive Drawing (Future)
 ```
@@ -294,10 +296,18 @@ into the view.
 SIMULATED content uses the same renderer and the same Learning Path/action
 presentation. A separate typed actor owns simulated session, Motion
 authorization, MPos, pen pose, manual jog, renewable Boundary motion,
-Stop/Cancel, and drawing outcomes. It cannot invoke machine actions or produce
+Stop/Cancel, compound visibility-target and line operations, paper revision,
+persistent ink, and causal frames. It cannot invoke machine actions or produce
 physical evidence. Every simulated evidence surface carries the exact
 `SIMULATED — NOT PHYSICAL EVIDENCE` notice. LIVE accepted learning authority is
 parked across simulation and restored unchanged when simulation is discarded.
+
+The simulator renderer consumes its typed state rather than a pre-rendered
+success-frame list. Accepted operation segments update MPos and, while Pen Down,
+paper ink. Boundary Stop results, four-side center derivation, explicit center
+arrival, coarse-to-fine Clear search, visibility-target drawing, two-frame
+agreement, and target-anchored line observation therefore traverse the same
+workspace actions and artifact dependencies as LIVE.
 
 ## 9. Learning evidence and models
 
@@ -314,6 +324,23 @@ Every repeatable learning step produces a typed artifact revision with an
 attempt identity and explicit dependencies on the artifacts it consumed. The
 accepted artifact slot is distinct from attempt history and from a derived
 aggregate.
+
+The principal dependency chain is:
+
+```text
+four boundary observations -> estimated center -> center arrival
+-> target-pose registration -> accepted Clear pose
+-> pre-target blank baseline -> visibility-target execution
+-> two-frame target observation -> visibility registration
+-> target-present trial baseline -> line plan/execution
+-> post-line frame -> ink observation -> comparison
+```
+
+The machine-camera registration separately consumes compatible accepted
+machine/contact pairs. Center evidence is controller-session compatible and is
+not invalidated only because the camera restarts. Camera registration, ROI,
+baseline, and image observation are bound to camera source/session,
+configuration, coordinate space, paper revision, and algorithm revision.
 
 Redo runs a replacement attempt and atomically changes the accepted artifact on
 success. The replaced artifact becomes superseded and is excluded from current

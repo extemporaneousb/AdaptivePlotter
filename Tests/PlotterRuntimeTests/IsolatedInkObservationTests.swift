@@ -1,275 +1,678 @@
 import Foundation
 import PlotterModel
-import PlotterRuntime
 import PlotterTestSupport
 import Testing
 
-@Suite("Paired isolated-ink observation")
+@testable import PlotterRuntime
+
+@Suite("Visibility target and isolated ink observation")
 struct IsolatedInkObservationTests {
-  @Test("anchor-only observation is available before the drawing stroke")
-  func anchorOnlyObservation() async throws {
+  @Test("two same-pose target frames produce N=2 stable target evidence")
+  func stableVisibilityTarget() async throws {
     let camera = CameraConfigurationID()
-    let frames = try PaperSceneSimulator(width: 20, height: 12).renderIsolatedInkSequence(
+    let simulator = PaperSceneSimulator(width: 40, height: 30)
+    let target = targetStrokes(center: PaperPixelPoint(x: 18, y: 15), radius: 4)
+    let baseline = try simulator.render(
+      strokes: [], sequence: 1, captureNanoseconds: 1,
+      cameraConfigurationID: camera)
+    let first = try simulator.render(
+      strokes: target, sequence: 2, captureNanoseconds: 2,
+      cameraConfigurationID: camera)
+    let second = try simulator.render(
+      strokes: target, sequence: 3, captureNanoseconds: 3,
+      cameraConfigurationID: camera)
+    let clearPose = try MachinePosition(x: 12, y: -5)
+
+    let outcome = await VisionWorker().observeVisibilityTarget(
+      visibilityRequest(
+        baseline: sample(baseline, clearPose),
+        targets: [
+          sample(first, clearPose),
+          sample(second, clearPose),
+        ]
+      )
+    )
+    guard case .observed(let observation) = outcome else {
+      Issue.record("expected stable target; got \(outcome)")
+      return
+    }
+    #expect(observation.validSampleCount == 2)
+    #expect(observation.includedFrameIDs == [first.id, second.id])
+    #expect(observation.estimatorRevision == "two-frame-component-mean-v1")
+    #expect(observation.algorithmRevision == "visibility-test-v1")
+    #expect(observation.targetPlanRevision == VisibilityTargetPlanV1.revision)
+    #expect(observation.samples.allSatisfy { $0.pixelCount > 20 })
+    #expect(observation.centroidUncertainty.dx == 0)
+    #expect(observation.centroidUncertainty.dy == 0)
+    #expect(observation.areaRatio == 1)
+  }
+
+  @Test("same camera pixels at a different reported clear pose are rejected")
+  func clearPoseMismatch() async throws {
+    let camera = CameraConfigurationID()
+    let simulator = PaperSceneSimulator(width: 40, height: 30)
+    let target = targetStrokes(center: PaperPixelPoint(x: 18, y: 15), radius: 4)
+    let baseline = try simulator.render(
+      strokes: [], sequence: 1, captureNanoseconds: 1,
+      cameraConfigurationID: camera)
+    let first = try simulator.render(
+      strokes: target, sequence: 2, captureNanoseconds: 2,
+      cameraConfigurationID: camera)
+    let second = try simulator.render(
+      strokes: target, sequence: 3, captureNanoseconds: 3,
+      cameraConfigurationID: camera)
+    let acceptedPose = try MachinePosition(x: 4, y: 5)
+    let wrongPose = try MachinePosition(x: 4.2, y: 5)
+    let outcome = await VisionWorker().observeVisibilityTarget(
+      visibilityRequest(
+        baseline: sample(baseline, acceptedPose),
+        targets: [
+          sample(first, acceptedPose),
+          sample(second, wrongPose),
+        ]
+      )
+    )
+    guard case .rejected(.clearPoseMismatch(let frameID, let distance, let tolerance)) = outcome
+    else {
+      Issue.record("expected typed pose mismatch; got \(outcome)")
+      return
+    }
+    #expect(frameID == second.id)
+    #expect(distance > tolerance)
+  }
+
+  @Test("camera reconfiguration rejects target comparison")
+  func targetCameraMismatch() async throws {
+    let simulator = PaperSceneSimulator(width: 40, height: 30)
+    let firstCamera = CameraConfigurationID()
+    let target = targetStrokes(center: PaperPixelPoint(x: 18, y: 15), radius: 4)
+    let baseline = try simulator.render(
+      strokes: [], sequence: 1, captureNanoseconds: 1,
+      cameraConfigurationID: firstCamera)
+    let first = try simulator.render(
+      strokes: target, sequence: 2, captureNanoseconds: 2,
+      cameraConfigurationID: firstCamera)
+    let second = try simulator.render(
+      strokes: target, sequence: 3, captureNanoseconds: 3,
+      cameraConfigurationID: CameraConfigurationID())
+    let pose = try MachinePosition(x: 0, y: 0)
+    let outcome = await VisionWorker().observeVisibilityTarget(
+      visibilityRequest(
+        baseline: sample(baseline, pose),
+        targets: [
+          sample(first, pose),
+          sample(second, pose),
+        ]
+      )
+    )
+    #expect(outcome == .rejected(.cameraConfigurationMismatch))
+  }
+
+  @Test("simulated and live frames cannot enter one target observation")
+  func targetSourceMismatch() async throws {
+    let camera = CameraConfigurationID()
+    let simulator = PaperSceneSimulator(width: 40, height: 30)
+    let target = targetStrokes(center: PaperPixelPoint(x: 18, y: 15), radius: 4)
+    let baseline = try simulator.render(
+      strokes: [], sequence: 1, captureNanoseconds: 1,
+      cameraConfigurationID: camera)
+    let first = try simulator.render(
+      strokes: target, sequence: 2, captureNanoseconds: 2,
+      cameraConfigurationID: camera)
+    let second = try simulator.render(
+      strokes: target, sequence: 3, captureNanoseconds: 3,
+      cameraConfigurationID: camera)
+    let pose = try MachinePosition(x: 0, y: 0)
+    let request = visibilityRequest(
+      baseline: sample(baseline, pose),
+      targets: [
+        sample(first, pose),
+        sample(second, pose, source: .live(CameraDeviceID(rawValue: "live-test"))),
+      ]
+    )
+    #expect(await VisionWorker().observeVisibilityTarget(request) == .rejected(.sourceMismatch))
+  }
+
+  @Test("4 mm target at 2 px per mm uses diameter rather than bounding-box diagonal")
+  func exactFourMillimeterProjection() async throws {
+    let camera = CameraConfigurationID()
+    let simulator = PaperSceneSimulator(width: 40, height: 30)
+    let target = targetStrokes(center: PaperPixelPoint(x: 18, y: 15), radius: 4)
+    let baseline = try simulator.render(
+      strokes: [], sequence: 1, captureNanoseconds: 1,
+      cameraConfigurationID: camera)
+    let first = try simulator.render(
+      strokes: target, sequence: 2, captureNanoseconds: 2,
+      cameraConfigurationID: camera)
+    let second = try simulator.render(
+      strokes: target, sequence: 3, captureNanoseconds: 3,
+      cameraConfigurationID: camera)
+    let pose = try MachinePosition(x: 0, y: 0)
+
+    let outcome = await VisionWorker().observeVisibilityTarget(
+      visibilityRequest(
+        baseline: sample(baseline, pose),
+        targets: [sample(first, pose), sample(second, pose)],
+        expectedDiameterPixels: 8...8
+      )
+    )
+    guard case .observed(let observation) = outcome else {
+      Issue.record("expected exact projected diameter to be accepted; got \(outcome)")
+      return
+    }
+    #expect(observation.samples.allSatisfy {
+      $0.bounds.maxX - $0.bounds.minX == 9 && $0.bounds.maxY - $0.bounds.minY == 9
+    })
+  }
+
+  @Test("bounded integer alignment is retained and used for target differencing")
+  func boundedTargetAlignment() async throws {
+    let camera = CameraConfigurationID()
+    let simulator = PaperSceneSimulator(width: 40, height: 30)
+    let background = [SimulatedPaperStroke(
+      start: PaperPixelPoint(x: 2, y: 2),
+      end: PaperPixelPoint(x: 5, y: 7)
+    )]
+    let target = targetStrokes(center: PaperPixelPoint(x: 18, y: 15), radius: 4)
+    let baseline = try simulator.render(
+      strokes: background, sequence: 1, captureNanoseconds: 1,
+      cameraConfigurationID: camera)
+    let first = try shiftFrame(
+      simulator.render(
+        strokes: background + target, sequence: 2, captureNanoseconds: 2,
+        cameraConfigurationID: camera),
+      dx: 1,
+      dy: 0
+    )
+    let second = try shiftFrame(
+      simulator.render(
+        strokes: background + target, sequence: 3, captureNanoseconds: 3,
+        cameraConfigurationID: camera),
+      dx: 1,
+      dy: 0
+    )
+    let pose = try MachinePosition(x: 0, y: 0)
+
+    let outcome = await VisionWorker().observeVisibilityTarget(
+      visibilityRequest(
+        baseline: sample(baseline, pose),
+        targets: [sample(first, pose), sample(second, pose)]
+      )
+    )
+    guard case .observed(let observation) = outcome else {
+      Issue.record("expected aligned target; got \(outcome)")
+      return
+    }
+    #expect(observation.samples.map(\.alignment.shiftX) == [1, 1])
+    #expect(observation.samples.map(\.alignment.shiftY) == [0, 0])
+    #expect(observation.samples.allSatisfy { $0.alignment.backgroundMeanAbsoluteDifference == 0 })
+  }
+
+  @Test("detected alignment outside acceptance policy is rejected")
+  func excessiveTargetAlignment() async throws {
+    let camera = CameraConfigurationID()
+    let simulator = PaperSceneSimulator(width: 40, height: 30)
+    let background = [SimulatedPaperStroke(
+      start: PaperPixelPoint(x: 2, y: 2),
+      end: PaperPixelPoint(x: 5, y: 7)
+    )]
+    let target = targetStrokes(center: PaperPixelPoint(x: 18, y: 15), radius: 4)
+    let baseline = try simulator.render(
+      strokes: background, sequence: 1, captureNanoseconds: 1,
+      cameraConfigurationID: camera)
+    let first = try shiftFrame(
+      simulator.render(
+        strokes: background + target, sequence: 2, captureNanoseconds: 2,
+        cameraConfigurationID: camera),
+      dx: 2,
+      dy: 0
+    )
+    let second = try shiftFrame(
+      simulator.render(
+        strokes: background + target, sequence: 3, captureNanoseconds: 3,
+        cameraConfigurationID: camera),
+      dx: 2,
+      dy: 0
+    )
+    let pose = try MachinePosition(x: 0, y: 0)
+    let outcome = await VisionWorker().observeVisibilityTarget(
+      visibilityRequest(
+        baseline: sample(baseline, pose),
+        targets: [sample(first, pose), sample(second, pose)]
+      )
+    )
+    guard case .rejected(.excessiveAlignment(_, let shiftX, let shiftY, let maximum)) = outcome
+    else {
+      Issue.record("expected excessive alignment; got \(outcome)")
+      return
+    }
+    #expect(shiftX == 2)
+    #expect(shiftY == 0)
+    #expect(maximum == 1)
+  }
+
+  @Test("background change outside target ROI is rejected after alignment")
+  func excessiveTargetBackgroundResidual() async throws {
+    let camera = CameraConfigurationID()
+    let simulator = PaperSceneSimulator(width: 40, height: 30)
+    let target = targetStrokes(center: PaperPixelPoint(x: 18, y: 15), radius: 4)
+    let changedBackground = [SimulatedPaperStroke(
+      start: PaperPixelPoint(x: 0, y: 20),
+      end: PaperPixelPoint(x: 7, y: 29)
+    )]
+    let baseline = try simulator.render(
+      strokes: [], sequence: 1, captureNanoseconds: 1,
+      cameraConfigurationID: camera)
+    let first = try simulator.render(
+      strokes: changedBackground + target, sequence: 2, captureNanoseconds: 2,
+      cameraConfigurationID: camera)
+    let second = try simulator.render(
+      strokes: changedBackground + target, sequence: 3, captureNanoseconds: 3,
+      cameraConfigurationID: camera)
+    let pose = try MachinePosition(x: 0, y: 0)
+    let outcome = await VisionWorker().observeVisibilityTarget(
+      visibilityRequest(
+        baseline: sample(baseline, pose),
+        targets: [sample(first, pose), sample(second, pose)],
+        alignmentSearchRadiusPixels: 0,
+        maximumAlignmentShiftPixels: 0
+      )
+    )
+    guard case .rejected(.excessiveBackgroundResidual(_, let actual, let maximum)) = outcome
+    else {
+      Issue.record("expected background residual rejection; got \(outcome)")
+      return
+    }
+    #expect(actual > maximum)
+  }
+
+  @Test("trial-local target-present baseline isolates the new line")
+  func targetAnchoredLineObservation() async throws {
+    let camera = CameraConfigurationID()
+    let simulator = PaperSceneSimulator(width: 48, height: 32)
+    let lineStart = PaperPixelPoint(x: 24, y: 16)
+    let frames = try simulator.renderVisibilityTargetAndLineSequence(
       preexistingInk: [],
-      anchor: PaperPixelPoint(x: 4, y: 6),
-      lineEnd: PaperPixelPoint(x: 14, y: 6),
-      cleanSequence: 1,
-      cleanCaptureNanoseconds: 1,
+      targetCenter: PaperPixelPoint(x: 20, y: 16),
+      lineStart: lineStart,
+      lineEnd: PaperPixelPoint(x: 31, y: 16),
+      baselineSequence: 10,
+      baselineCaptureNanoseconds: 10,
       cameraConfigurationID: camera
     )
-    let outcome = await VisionWorker().observeAnchorDot(AnchorDotObservationRequest(
-      cleanReference: frames.cleanReference,
-      anchoredBaseline: frames.anchoredBaseline,
-      region: PixelRect(x: 0, y: 0, width: 20, height: 12),
-      thresholds: GreenPixelThresholds(minimumGreen: 150, minimumGreenExcess: 80),
-      algorithmRevision: "anchor-test-v1"
+    let outcome = await VisionWorker().observeIsolatedInk(IsolatedInkObservationRequest(
+      targetPresentBaseline: sample(
+        frames.targetPresentBaseline,
+        try MachinePosition(x: 0, y: 0)
+      ),
+      postLine: sample(frames.postLine, try MachinePosition(x: 0, y: 0)),
+      region: PixelRect(x: 0, y: 0, width: 48, height: 32),
+      thresholds: thresholds,
+      lineStartPoint: try Point2(x: 24, y: 16),
+      controllerSessionID: UUID(),
+      coordinateRevision: 1,
+      toolPaperRevision: UUID(),
+      controllerPositionToleranceMM: 0.01,
+      alignmentSearchRadiusPixels: 2,
+      maximumAlignmentShiftPixels: 1,
+      maximumBackgroundMeanAbsoluteDifference: 0.1,
+      projectedActualStrokeDelta: try Vector2(dx: 7, dy: 0),
+      algorithmRevision: "line-test-v1",
+      minimumLinePixels: 5
     ))
     guard case .observed(let observation) = outcome else {
-      Issue.record("expected anchor observation before stroke")
+      Issue.record("expected line observation; got \(outcome)")
       return
     }
-    #expect(observation.centroid == (try Point2(x: 4, y: 6)))
-    #expect(observation.pixelCount == 5)
-    #expect(observation.overlay.frameID == frames.anchoredBaseline.id)
-  }
-
-  @Test("clean to anchor and anchor to line isolate new ink and deterministic residual")
-  func pairedObservation() async throws {
-    let camera = CameraConfigurationID()
-    let frames = try PaperSceneSimulator(width: 24, height: 16).renderIsolatedInkSequence(
-      preexistingInk: [
-        SimulatedPaperStroke(
-          start: PaperPixelPoint(x: 1, y: 2),
-          end: PaperPixelPoint(x: 20, y: 2)
-        )
-      ],
-      anchor: PaperPixelPoint(x: 5, y: 8),
-      lineEnd: PaperPixelPoint(x: 18, y: 8),
-      cleanSequence: 1,
-      cleanCaptureNanoseconds: 100,
-      cameraConfigurationID: camera
-    )
-    let request = IsolatedInkObservationRequest(
-      cleanReference: frames.cleanReference,
-      anchoredBaseline: frames.anchoredBaseline,
-      postLine: frames.postLine,
-      region: PixelRect(x: 0, y: 0, width: 24, height: 16),
-      thresholds: GreenPixelThresholds(minimumGreen: 150, minimumGreenExcess: 80),
-      projectedActualStrokeDelta: try Vector2(dx: 13, dy: 0),
-      algorithmRevision: "isolated-test-v1"
-    )
-    let outcome = await VisionWorker().observeIsolatedInk(request)
-    guard case .observed(let observation) = outcome else {
-      Issue.record("expected observed isolated line")
-      return
-    }
-    #expect(observation.anchorCentroid == (try Point2(x: 5, y: 8)))
-    #expect(observation.anchorPixelCount == 5)
-    #expect(observation.observedPixelCount == 12)
-    #expect(observation.observedCentreline.points.allSatisfy { $0.y == 8 })
-    #expect(observation.intendedLine?.end == (try Point2(x: 18, y: 8)))
-    #expect(abs((observation.residual?.rootMeanSquareEndpointPixels ?? -1) - sqrt(2)) < 1e-12)
-    #expect(observation.residual?.maximumEndpointPixels == 2)
-    #expect(observation.residual?.rootMeanSquareCrossTrackPixels == 0)
-    #expect(observation.overlays.first?.frameID == frames.postLine.id)
-    #expect(observation.overlays.allSatisfy { $0.cameraConfigurationID == camera })
-    #expect(observation.cleanReference.frameSHA256 == frames.cleanReference.contentSHA256)
-    #expect(observation.anchoredBaseline.frameID == frames.anchoredBaseline.id)
+    #expect(observation.targetPresentBaseline.frameID == frames.targetPresentBaseline.id)
     #expect(observation.postLine.frameID == frames.postLine.id)
+    #expect(observation.lineStartPoint == (try Point2(x: 24, y: 16)))
+    #expect(observation.observedPixelCount >= 7)
+    #expect(observation.residual != nil)
   }
 
-  @Test("without projected camera delta result remains relative-only")
-  func relativeOnly() async throws {
+  @Test("absent new line is a typed rejection and cannot manufacture ink")
+  func absentLine() async throws {
     let camera = CameraConfigurationID()
-    let frames = try PaperSceneSimulator(width: 20, height: 12).renderIsolatedInkSequence(
-      preexistingInk: [],
-      anchor: PaperPixelPoint(x: 3, y: 6),
-      lineEnd: PaperPixelPoint(x: 14, y: 6),
-      cleanSequence: 1,
-      cleanCaptureNanoseconds: 1,
-      cameraConfigurationID: camera
-    )
-    let outcome = await VisionWorker().observeIsolatedInk(request(frames, projection: nil))
-    guard case .observed(let observation) = outcome else {
-      Issue.record("expected relative observation")
-      return
-    }
-    #expect(observation.intendedLine == nil)
-    #expect(observation.residual == nil)
-    #expect(observation.displacementPixels.magnitude > 0)
-    #expect(observation.orientationRadians.isFinite)
+    let simulator = PaperSceneSimulator(width: 30, height: 20)
+    let target = targetStrokes(center: PaperPixelPoint(x: 15, y: 10), radius: 4)
+    let first = try simulator.render(
+      strokes: target, sequence: 1, captureNanoseconds: 1,
+      cameraConfigurationID: camera)
+    let second = try simulator.render(
+      strokes: target, sequence: 2, captureNanoseconds: 2,
+      cameraConfigurationID: camera)
+    let outcome = await VisionWorker().observeIsolatedInk(IsolatedInkObservationRequest(
+      targetPresentBaseline: sample(first, try MachinePosition(x: 0, y: 0)),
+      postLine: sample(second, try MachinePosition(x: 0, y: 0)),
+      region: PixelRect(x: 0, y: 0, width: 30, height: 20),
+      thresholds: thresholds,
+      lineStartPoint: try Point2(x: 19, y: 10),
+      controllerSessionID: UUID(),
+      coordinateRevision: 1,
+      toolPaperRevision: UUID(),
+      controllerPositionToleranceMM: 0.01,
+      alignmentSearchRadiusPixels: 2,
+      maximumAlignmentShiftPixels: 1,
+      maximumBackgroundMeanAbsoluteDifference: 0.1,
+      projectedActualStrokeDelta: try Vector2(dx: 5, dy: 0),
+      algorithmRevision: "line-test-v1"
+    ))
+    #expect(rejectionReason(outcome) == .lineMissing)
   }
 
-  @Test("padded rows are honored while pre-existing green remains excluded")
-  func paddedRows() async throws {
-    let camera = CameraConfigurationID()
-    let clean = try inkFrame(
-      sequence: 1, time: 1, camera: camera, rowBytes: 36,
-      greenPixels: Set((1...6).map { InkTestPoint(x: $0, y: 1) }))
-    let anchorPoints: Set<InkTestPoint> = [
-      InkTestPoint(x: 3, y: 5), InkTestPoint(x: 4, y: 5), InkTestPoint(x: 5, y: 5),
-    ]
-    let anchored = try inkFrame(
-      sequence: 2, time: 2, camera: camera, rowBytes: 40,
-      greenPixels: Set((1...6).map { InkTestPoint(x: $0, y: 1) }).union(anchorPoints))
-    let linePoints = Set((1...5).map { InkTestPoint(x: 7, y: $0) })
-    let post = try inkFrame(
-      sequence: 3, time: 3, camera: camera, rowBytes: 44,
-      greenPixels: Set((1...6).map { InkTestPoint(x: $0, y: 1) })
-        .union(anchorPoints).union(linePoints))
-    let frames = SimulatedIsolatedInkFrames(
-      cleanReference: clean, anchoredBaseline: anchored, postLine: post)
-    let outcome = await VisionWorker().observeIsolatedInk(
-      request(frames, projection: try Vector2(dx: 0, dy: -4), minimumLinePixels: 5))
-    guard case .observed(let observation) = outcome else {
-      Issue.record("expected padded-row observation")
-      return
-    }
-    #expect(observation.anchorPixelCount == 3)
-    #expect(observation.observedPixelCount == 5)
+  @Test("Stage 4 line comparison rejects a source change")
+  func lineSourceMismatch() async throws {
+    let frames = try lineFrames()
+    let pose = try MachinePosition(x: 0, y: 0)
+    let outcome = await VisionWorker().observeIsolatedInk(lineRequest(
+      baseline: sample(frames.targetPresentBaseline, pose),
+      post: sample(
+        frames.postLine,
+        pose,
+        source: .live(CameraDeviceID(rawValue: "live-stage4"))
+      )
+    ))
+    #expect(rejectionReason(outcome) == .sourceMismatch)
   }
 
-  @Test("camera, dimensions, pixel format, and frame order mismatches are typed")
-  func compatibilityRejections() async throws {
-    let camera = CameraConfigurationID()
-    let otherCamera = CameraConfigurationID()
-    let clean = try inkFrame(sequence: 1, time: 1, camera: camera, greenPixels: [])
-    let anchored = try inkFrame(
-      sequence: 2, time: 2, camera: camera,
-      greenPixels: [InkTestPoint(x: 2, y: 2), InkTestPoint(x: 3, y: 2), InkTestPoint(x: 4, y: 2)])
-    let wrongCamera = try inkFrame(
-      sequence: 3, time: 3, camera: otherCamera,
-      greenPixels: Set((2...8).map { InkTestPoint(x: $0, y: 2) }))
-    let mismatch = SimulatedIsolatedInkFrames(
-      cleanReference: clean, anchoredBaseline: anchored, postLine: wrongCamera)
-    let cameraOutcome = await VisionWorker().observeIsolatedInk(request(mismatch, projection: nil))
-    #expect(rejectionReason(cameraOutcome) == .cameraConfigurationMismatch)
-
-    let stale = SimulatedIsolatedInkFrames(
-      cleanReference: clean,
-      anchoredBaseline: anchored,
-      postLine: try inkFrame(
-        sequence: 3, time: 2, camera: camera,
-        greenPixels: Set((2...8).map { InkTestPoint(x: $0, y: 2) }))
-    )
-    let orderOutcome = await VisionWorker().observeIsolatedInk(request(stale, projection: nil))
-    #expect(rejectionReason(orderOutcome) == .framesNotStrictlyIncreasing)
-
-    let dimensionPost = try StampedFrame(
-      sequence: 3, captureNanoseconds: 3, cameraConfigurationID: camera,
-      width: 9, height: 8, rowBytes: 36, pixelFormat: .bgra8,
-      bytes: OwnedFrameBytes([UInt8](repeating: 255, count: 36 * 8)))
-    let dimensionMismatch = SimulatedIsolatedInkFrames(
-      cleanReference: clean, anchoredBaseline: anchored, postLine: dimensionPost)
-    #expect(
-      rejectionReason(await VisionWorker().observeIsolatedInk(request(dimensionMismatch, projection: nil)))
-        == .dimensionMismatch)
-
-    let grayPost = try StampedFrame(
-      sequence: 3, captureNanoseconds: 3, cameraConfigurationID: camera,
-      width: 8, height: 8, rowBytes: 8, pixelFormat: .gray8,
-      bytes: OwnedFrameBytes([UInt8](repeating: 255, count: 64)))
-    let pixelMismatch = SimulatedIsolatedInkFrames(
-      cleanReference: clean, anchoredBaseline: anchored, postLine: grayPost)
-    #expect(
-      rejectionReason(await VisionWorker().observeIsolatedInk(request(pixelMismatch, projection: nil)))
-        == .pixelFormatMismatch)
-  }
-
-  @Test("missing, too-small, ambiguous, and non-line-like evidence have direct reasons")
-  func evidenceRejections() async throws {
-    let camera = CameraConfigurationID()
-    let blank = try inkFrame(sequence: 1, time: 1, camera: camera, greenPixels: [])
-    let blank2 = try inkFrame(sequence: 2, time: 2, camera: camera, greenPixels: [])
-    let blank3 = try inkFrame(sequence: 3, time: 3, camera: camera, greenPixels: [])
-    let missing = SimulatedIsolatedInkFrames(
-      cleanReference: blank, anchoredBaseline: blank2, postLine: blank3)
-    #expect(rejectionReason(await VisionWorker().observeIsolatedInk(request(missing, projection: nil))) == .anchorMissing)
-
-    let smallAnchor = try inkFrame(
-      sequence: 2, time: 2, camera: camera,
-      greenPixels: [InkTestPoint(x: 2, y: 2)])
-    let tooSmall = SimulatedIsolatedInkFrames(
-      cleanReference: blank, anchoredBaseline: smallAnchor, postLine: blank3)
-    #expect(
-      rejectionReason(await VisionWorker().observeIsolatedInk(request(tooSmall, projection: nil)))
-        == .anchorTooSmall(actualPixels: 1, minimumPixels: 3))
-
-    let twoAnchors: Set<InkTestPoint> = [
-      InkTestPoint(x: 1, y: 2), InkTestPoint(x: 2, y: 2), InkTestPoint(x: 3, y: 2),
-      InkTestPoint(x: 5, y: 6), InkTestPoint(x: 6, y: 6), InkTestPoint(x: 7, y: 6),
-    ]
-    let ambiguousAnchor = try inkFrame(
-      sequence: 2, time: 2, camera: camera, greenPixels: twoAnchors)
-    let ambiguous = SimulatedIsolatedInkFrames(
-      cleanReference: blank, anchoredBaseline: ambiguousAnchor,
-      postLine: try inkFrame(sequence: 3, time: 3, camera: camera, greenPixels: twoAnchors))
-    #expect(
-      rejectionReason(await VisionWorker().observeIsolatedInk(request(ambiguous, projection: nil)))
-        == .anchorAmbiguous(candidateCount: 2))
-
-    let anchor: Set<InkTestPoint> = [
-      InkTestPoint(x: 1, y: 1), InkTestPoint(x: 2, y: 1), InkTestPoint(x: 3, y: 1),
-    ]
-    let square: Set<InkTestPoint> = Set((5...7).flatMap { y in
-      (5...7).map { x in InkTestPoint(x: x, y: y) }
-    })
-    let nonLineFrames = SimulatedIsolatedInkFrames(
-      cleanReference: blank,
-      anchoredBaseline: try inkFrame(sequence: 2, time: 2, camera: camera, greenPixels: anchor),
-      postLine: try inkFrame(
-        sequence: 3, time: 3, camera: camera, greenPixels: anchor.union(square)))
-    guard case .lineNotLineLike = rejectionReason(
-      await VisionWorker().observeIsolatedInk(request(nonLineFrames, projection: nil)))
+  @Test("Stage 4 line comparison rejects a different controller pose")
+  func linePoseMismatch() async throws {
+    let frames = try lineFrames()
+    let outcome = await VisionWorker().observeIsolatedInk(lineRequest(
+      baseline: sample(frames.targetPresentBaseline, try MachinePosition(x: 0, y: 0)),
+      post: sample(frames.postLine, try MachinePosition(x: 0.2, y: 0))
+    ))
+    guard case .rejected(let rejection) = outcome,
+      case .clearPoseMismatch(let distance, let tolerance) = rejection.reason
     else {
-      Issue.record("expected non-line-like rejection")
+      Issue.record("expected Stage 4 pose mismatch; got \(outcome)")
       return
     }
+    #expect(distance > tolerance)
+  }
 
-    let lineMissingFrames = SimulatedIsolatedInkFrames(
-      cleanReference: blank,
-      anchoredBaseline: try inkFrame(sequence: 2, time: 2, camera: camera, greenPixels: anchor),
-      postLine: try inkFrame(sequence: 3, time: 3, camera: camera, greenPixels: anchor)
+  @Test("two accepted target attempts aggregate across attempts without losing frame provenance")
+  func visibilityTargetAttemptAggregate() async throws {
+    let camera = CameraConfigurationID()
+    let paper = UUID()
+    let firstObservation = try await targetObservation(
+      centerX: 18,
+      sequenceBase: 10,
+      camera: camera,
+      toolPaperRevision: paper
     )
-    #expect(
-      rejectionReason(await VisionWorker().observeIsolatedInk(request(lineMissingFrames, projection: nil)))
-        == .lineMissing)
+    let secondObservation = try await targetObservation(
+      centerX: 20,
+      sequenceBase: 20,
+      camera: camera,
+      toolPaperRevision: paper
+    )
+    let compatibility = targetAttemptCompatibility(camera: camera)
+    let first = try ExerciseAttempt(
+      disposition: .succeeded,
+      compatibility: compatibility,
+      acceptedSequence: 1,
+      value: firstObservation
+    )
+    let excluded = try ExerciseAttempt<VisibilityTargetObservation>(
+      disposition: .unclear("armature still overlaps the target"),
+      compatibility: compatibility,
+      acceptedSequence: 2,
+      value: nil
+    )
+    let second = try ExerciseAttempt(
+      disposition: .succeeded,
+      compatibility: compatibility,
+      acceptedSequence: 3,
+      value: secondObservation
+    )
+    let history = try ExerciseAttemptHistory(
+      compatibility: compatibility,
+      attempts: [first, excluded, second]
+    )
 
-    let firstLine = Set((1...5).map { InkTestPoint(x: 6, y: $0) })
-    let secondLine = Set((1...5).map { InkTestPoint(x: 4, y: $0) })
-    let ambiguousLineFrames = SimulatedIsolatedInkFrames(
-      cleanReference: blank,
-      anchoredBaseline: try inkFrame(sequence: 2, time: 2, camera: camera, greenPixels: anchor),
-      postLine: try inkFrame(
-        sequence: 3, time: 3, camera: camera,
-        greenPixels: anchor.union(firstLine).union(secondLine))
-    )
+    let aggregate = try VisibilityTargetAttemptAggregate(history: history)
+    #expect(aggregate.validAttemptCount == 2)
+    #expect(aggregate.includedAttemptIDs == [first.id, second.id])
+    #expect(aggregate.estimator.revision == "visibility-target-attempt-v1")
+    #expect(aggregate.centroidEstimate.x == 19)
+    #expect(aggregate.centroidEstimate.y == 15)
+    let expectedUncertainty = try Vector2<CameraPixelSpace>(dx: sqrt(2), dy: 0)
     #expect(
-      rejectionReason(await VisionWorker().observeIsolatedInk(request(ambiguousLineFrames, projection: nil)))
-        == .lineAmbiguous(candidateCount: 2))
+      aggregate.uncertainty
+        == .componentSampleStandardDeviation(expectedUncertainty)
+    )
+    #expect(aggregate.includedObservations.map(\.validSampleCount) == [2, 2])
+    #expect(
+      aggregate.includedObservations.flatMap(\.includedFrameIDs).count == 4
+    )
+    #expect(history.attempts.contains { $0.id == excluded.id && $0.value == nil })
+  }
+
+  @Test("N target attempts expose valid attempt N and reject paper-context pooling")
+  func visibilityTargetNAttemptAggregateAndCompatibility() async throws {
+    let camera = CameraConfigurationID()
+    let paper = UUID()
+    let compatibility = targetAttemptCompatibility(camera: camera)
+    var observations: [VisibilityTargetObservation] = []
+    for (index, center) in [17, 18, 19].enumerated() {
+      observations.append(try await targetObservation(
+        centerX: center,
+        sequenceBase: UInt64(30 + index * 10),
+        camera: camera,
+        toolPaperRevision: paper
+      ))
+    }
+    let attempts = try observations.enumerated().map { index, observation in
+      try ExerciseAttempt(
+        disposition: .succeeded,
+        compatibility: compatibility,
+        acceptedSequence: UInt64(index + 1),
+        value: observation
+      )
+    }
+    let history = try ExerciseAttemptHistory(
+      compatibility: compatibility,
+      attempts: attempts
+    )
+    #expect(try VisibilityTargetAttemptAggregate(history: history).validAttemptCount == 3)
+
+    let incompatibleObservation = try await targetObservation(
+      centerX: 18,
+      sequenceBase: 70,
+      camera: camera,
+      toolPaperRevision: UUID()
+    )
+    let incompatibleAttempt = try ExerciseAttempt(
+      disposition: .succeeded,
+      compatibility: compatibility,
+      acceptedSequence: 4,
+      value: incompatibleObservation
+    )
+    var incompatibleHistory = history
+    try incompatibleHistory.record(incompatibleAttempt)
+    #expect(
+      throws: VisibilityTargetAttemptAggregateError.observationContextMismatch(
+        incompatibleAttempt.id
+      )
+    ) {
+      _ = try VisibilityTargetAttemptAggregate(history: incompatibleHistory)
+    }
   }
 }
 
-private struct InkTestPoint: Hashable {
-  let x: Int
-  let y: Int
+private let thresholds = GreenPixelThresholds(minimumGreen: 150, minimumGreenExcess: 80)
+
+private func sample(
+  _ frame: StampedFrame,
+  _ position: MachinePosition,
+  source: FrameSourceIdentity = .simulated
+) -> SamePoseFrameSample {
+  SamePoseFrameSample(source: source, frame: frame, controllerPosition: position)
 }
 
-private func request(
-  _ frames: SimulatedIsolatedInkFrames,
-  projection: Vector2<CameraPixelSpace>?,
-  minimumLinePixels: Int = 5
+private func visibilityRequest(
+  baseline: SamePoseFrameSample,
+  targets: [SamePoseFrameSample],
+  expectedDiameterPixels: ClosedRange<Double> = 8...13,
+  alignmentSearchRadiusPixels: Int = 2,
+  maximumAlignmentShiftPixels: Int = 1,
+  toolPaperRevision: UUID = UUID(
+    uuidString: "00000000-0000-0000-0000-000000000011"
+  )!
+) -> VisibilityTargetObservationRequest {
+  VisibilityTargetObservationRequest(
+    baseline: baseline,
+    targetSamples: targets,
+    region: PixelRect(x: 8, y: 5, width: 22, height: 20),
+    thresholds: thresholds,
+    controllerSessionID: UUID(uuidString: "00000000-0000-0000-0000-000000000010")!,
+    coordinateRevision: 3,
+    toolPaperRevision: toolPaperRevision,
+    controllerPositionToleranceMM: 0.05,
+    expectedDiameterPixels: expectedDiameterPixels,
+    minimumTargetPixels: 20,
+    maximumCentroidSpreadPixels: 0.5,
+    maximumAreaRatio: 1.1,
+    maximumBackgroundMeanAbsoluteDifference: 0.1,
+    alignmentSearchRadiusPixels: alignmentSearchRadiusPixels,
+    maximumAlignmentShiftPixels: maximumAlignmentShiftPixels,
+    algorithmRevision: "visibility-test-v1"
+  )
+}
+
+private func targetAttemptCompatibility(
+  camera: CameraConfigurationID
+) -> AttemptCompatibility {
+  AttemptCompatibility(
+    cameraConfigurationID: camera,
+    coordinateSpace: .cameraPixels,
+    units: .pixels,
+    group: AttemptGroupIdentity(rawValue: "visibility-target-test"),
+    algorithmRevision: "visibility-test-v1"
+  )
+}
+
+private func targetObservation(
+  centerX: Int,
+  sequenceBase: UInt64,
+  camera: CameraConfigurationID,
+  toolPaperRevision: UUID
+) async throws -> VisibilityTargetObservation {
+  let simulator = PaperSceneSimulator(width: 40, height: 30)
+  let target = targetStrokes(center: PaperPixelPoint(x: centerX, y: 15), radius: 4)
+  let baseline = try simulator.render(
+    strokes: [],
+    sequence: sequenceBase,
+    captureNanoseconds: sequenceBase,
+    cameraConfigurationID: camera
+  )
+  let first = try simulator.render(
+    strokes: target,
+    sequence: sequenceBase + 1,
+    captureNanoseconds: sequenceBase + 1,
+    cameraConfigurationID: camera
+  )
+  let second = try simulator.render(
+    strokes: target,
+    sequence: sequenceBase + 2,
+    captureNanoseconds: sequenceBase + 2,
+    cameraConfigurationID: camera
+  )
+  let pose = try MachinePosition(x: 0, y: 0)
+  let outcome = await VisionWorker().observeVisibilityTarget(
+    visibilityRequest(
+      baseline: sample(baseline, pose),
+      targets: [sample(first, pose), sample(second, pose)],
+      toolPaperRevision: toolPaperRevision
+    )
+  )
+  guard case .observed(let observation) = outcome else {
+    throw TargetObservationFixtureError.rejected(String(describing: outcome))
+  }
+  return observation
+}
+
+private enum TargetObservationFixtureError: Error {
+  case rejected(String)
+}
+
+private func lineFrames() throws -> SimulatedTargetAndLineFrames {
+  try PaperSceneSimulator(width: 48, height: 32).renderVisibilityTargetAndLineSequence(
+    preexistingInk: [],
+    targetCenter: PaperPixelPoint(x: 20, y: 16),
+    lineStart: PaperPixelPoint(x: 24, y: 16),
+    lineEnd: PaperPixelPoint(x: 31, y: 16),
+    baselineSequence: 10,
+    baselineCaptureNanoseconds: 10,
+    cameraConfigurationID: CameraConfigurationID()
+  )
+}
+
+private func lineRequest(
+  baseline: SamePoseFrameSample,
+  post: SamePoseFrameSample
 ) -> IsolatedInkObservationRequest {
   IsolatedInkObservationRequest(
-    cleanReference: frames.cleanReference,
-    anchoredBaseline: frames.anchoredBaseline,
-    postLine: frames.postLine,
-    region: PixelRect(x: 0, y: 0, width: frames.cleanReference.width, height: frames.cleanReference.height),
-    thresholds: GreenPixelThresholds(minimumGreen: 150, minimumGreenExcess: 80),
-    projectedActualStrokeDelta: projection,
-    algorithmRevision: "isolated-test-v1",
-    minimumLinePixels: minimumLinePixels
+    targetPresentBaseline: baseline,
+    postLine: post,
+    region: PixelRect(x: 6, y: 4, width: 36, height: 24),
+    thresholds: thresholds,
+    lineStartPoint: try! Point2(x: 24, y: 16),
+    controllerSessionID: UUID(uuidString: "00000000-0000-0000-0000-000000000020")!,
+    coordinateRevision: 2,
+    toolPaperRevision: UUID(uuidString: "00000000-0000-0000-0000-000000000021")!,
+    controllerPositionToleranceMM: 0.01,
+    alignmentSearchRadiusPixels: 2,
+    maximumAlignmentShiftPixels: 1,
+    maximumBackgroundMeanAbsoluteDifference: 0.1,
+    projectedActualStrokeDelta: try! Vector2(dx: 7, dy: 0),
+    algorithmRevision: "line-test-v1",
+    minimumLinePixels: 5
   )
+}
+
+private func shiftFrame(_ frame: StampedFrame, dx: Int, dy: Int) throws -> StampedFrame {
+  let components = frame.pixelFormat.bytesPerPixel
+  var shifted = [UInt8](repeating: 255, count: frame.rowBytes * frame.height)
+  for y in 0..<frame.height {
+    for x in 0..<frame.width {
+      let targetX = x + dx
+      let targetY = y + dy
+      guard targetX >= 0, targetX < frame.width, targetY >= 0, targetY < frame.height else {
+        continue
+      }
+      let sourceOffset = y * frame.rowBytes + x * components
+      let targetOffset = targetY * frame.rowBytes + targetX * components
+      for component in 0..<components {
+        shifted[targetOffset + component] = frame.bytes[sourceOffset + component]
+      }
+    }
+  }
+  return try StampedFrame(
+    sequence: frame.sequence,
+    captureNanoseconds: frame.captureNanoseconds,
+    cameraConfigurationID: frame.cameraConfigurationID,
+    width: frame.width,
+    height: frame.height,
+    rowBytes: frame.rowBytes,
+    pixelFormat: frame.pixelFormat,
+    bytes: OwnedFrameBytes(shifted)
+  )
+}
+
+private func targetStrokes(center: PaperPixelPoint, radius: Int) -> [SimulatedPaperStroke] {
+  let vertices = (0..<8).map { index in
+    let angle = Double(index) * .pi / 4
+    return PaperPixelPoint(
+      x: center.x + Int((Double(radius) * cos(angle)).rounded()),
+      y: center.y + Int((Double(radius) * sin(angle)).rounded())
+    )
+  }
+  return (0..<8).map { index in
+    SimulatedPaperStroke(start: vertices[index], end: vertices[(index + 1) % 8])
+  }
 }
 
 private func rejectionReason(
@@ -277,33 +680,4 @@ private func rejectionReason(
 ) -> IsolatedInkRejectionReason? {
   guard case .rejected(let rejection) = outcome else { return nil }
   return rejection.reason
-}
-
-private func inkFrame(
-  sequence: UInt64,
-  time: UInt64,
-  camera: CameraConfigurationID,
-  rowBytes: Int = 32,
-  greenPixels: Set<InkTestPoint>
-) throws -> StampedFrame {
-  let width = 8
-  let height = 8
-  var bytes = [UInt8](repeating: 255, count: rowBytes * height)
-  for point in greenPixels where point.x >= 0 && point.x < width && point.y >= 0 && point.y < height {
-    let offset = point.y * rowBytes + point.x * 4
-    bytes[offset] = 20
-    bytes[offset + 1] = 190
-    bytes[offset + 2] = 30
-    bytes[offset + 3] = 255
-  }
-  return try StampedFrame(
-    sequence: sequence,
-    captureNanoseconds: time,
-    cameraConfigurationID: camera,
-    width: width,
-    height: height,
-    rowBytes: rowBytes,
-    pixelFormat: .bgra8,
-    bytes: OwnedFrameBytes(bytes)
-  )
 }

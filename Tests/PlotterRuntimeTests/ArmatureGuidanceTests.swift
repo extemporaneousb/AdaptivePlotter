@@ -16,7 +16,10 @@ struct ArmatureGuidanceTests {
       controllerPosition: MachinePosition(x: 0, y: 0),
       armatureBounds: try AxisAlignedBounds(minX: 0, minY: 0, maxX: 4, maxY: 4),
       humanLabel: .clear,
-      outcome: .continueInDirection(.positiveXOneMillimeter)
+      outcome: .continueInDirection(ClearViewSearchMove(
+        direction: .positiveX,
+        distance: .tenMillimeters
+      ))
     )
     let partial = try state.record(
       frame: try guidanceFrame(sequence: 2, camera: camera),
@@ -81,7 +84,7 @@ struct ArmatureGuidanceTests {
     #expect(request.feedMMPerMinute == 80)
   }
 
-  @Test("nearby proposals are finite, enumerated, and deterministic")
+  @Test("10 5 2 and 1 mm search moves are finite operator-selected actions")
   func deterministicProposals() throws {
     let camera = CameraConfigurationID()
     var state = ArmatureGuidanceState(context: guidanceContext(camera: camera))
@@ -90,13 +93,19 @@ struct ArmatureGuidanceTests {
       controllerPosition: MachinePosition(x: 0, y: 0),
       armatureBounds: nil,
       humanLabel: .blocked,
-      outcome: .continueInDirection(.positiveYOneMillimeter)
+      outcome: .continueInDirection(ClearViewSearchMove(
+        direction: .positiveY,
+        distance: .fiveMillimeters
+      ))
     )
     let proposals = try state.proposedActions(
       from: MachinePosition(x: 0, y: 0), feedMMPerMinute: 50)
-    #expect(proposals.map(\.action).first == .positiveYOneMillimeter)
-    #expect(Set(proposals.map(\.action)) == Set(ArmatureGuidanceAction.allCases))
-    #expect(proposals.allSatisfy { $0.request.delta.magnitude == 1 })
+    let preferred = ClearViewSearchMove(direction: .positiveY, distance: .fiveMillimeters)
+    #expect(proposals.map(\.move).first == preferred)
+    #expect(Set(proposals.map { $0.move.distance }) == Set(ClearViewSearchDistance.allCases))
+    #expect(Set(proposals.map { $0.move.direction }) == Set(BoundaryDirection.allCases))
+    #expect(proposals.count == 16)
+    #expect(Set(proposals.map { $0.request.delta.magnitude }) == [1, 2, 5, 10])
   }
 
   @Test("context changes invalidate automated return but never manual motion")

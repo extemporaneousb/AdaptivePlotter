@@ -24,6 +24,363 @@ public enum BoundaryDirection: String, Codable, CaseIterable, Hashable, Sendable
     case .positiveY: 3
     }
   }
+
+  public var opposite: Self {
+    switch self {
+    case .negativeX: .positiveX
+    case .positiveX: .negativeX
+    case .negativeY: .positiveY
+    case .positiveY: .negativeY
+    }
+  }
+
+  public var isXAxis: Bool {
+    self == .negativeX || self == .positiveX
+  }
+}
+
+public enum PairedBoundaryProgressError: Error, Equatable, Sendable {
+  case directionNotCurrentlyAllowed(BoundaryDirection)
+  case directionAlreadyAccepted(BoundaryDirection)
+  case duplicateRevision(LearningArtifactRevisionID)
+}
+
+/// Pure sequencing policy for the four operator-observed sides. Selecting a
+/// direction is intentionally outside this value; only an accepted artifact
+/// revision advances it.
+public struct PairedBoundaryProgress: Codable, Hashable, Sendable {
+  public private(set) var acceptedDirections: [BoundaryDirection]
+  public private(set) var acceptedRevisionIDs: [BoundaryDirection: LearningArtifactRevisionID]
+
+  public init(
+    acceptedDirections: [BoundaryDirection] = [],
+    acceptedRevisionIDs: [BoundaryDirection: LearningArtifactRevisionID] = [:]
+  ) {
+    precondition(acceptedDirections.count == acceptedRevisionIDs.count)
+    precondition(Set(acceptedDirections).count == acceptedDirections.count)
+    precondition(Set(acceptedRevisionIDs.values).count == acceptedRevisionIDs.count)
+    self.acceptedDirections = acceptedDirections
+    self.acceptedRevisionIDs = acceptedRevisionIDs
+  }
+
+  public var allowedDirections: [BoundaryDirection] {
+    switch acceptedDirections.count {
+    case 0:
+      return BoundaryDirection.allCases
+    case 1:
+      return [acceptedDirections[0].opposite]
+    case 2:
+      let remainingAxisIsX = !acceptedDirections[0].isXAxis
+      return BoundaryDirection.allCases.filter { $0.isXAxis == remainingAxisIsX }
+    case 3:
+      return [acceptedDirections[2].opposite]
+    default:
+      return []
+    }
+  }
+
+  public var isComplete: Bool { acceptedDirections.count == 4 }
+
+  public mutating func accept(
+    _ direction: BoundaryDirection,
+    revisionID: LearningArtifactRevisionID
+  ) throws {
+    guard acceptedRevisionIDs[direction] == nil else {
+      throw PairedBoundaryProgressError.directionAlreadyAccepted(direction)
+    }
+    guard !acceptedRevisionIDs.values.contains(revisionID) else {
+      throw PairedBoundaryProgressError.duplicateRevision(revisionID)
+    }
+    guard allowedDirections.contains(direction) else {
+      throw PairedBoundaryProgressError.directionNotCurrentlyAllowed(direction)
+    }
+    acceptedDirections.append(direction)
+    acceptedRevisionIDs[direction] = revisionID
+  }
+}
+
+public enum ToolContactPointEstimateError: Error, Equatable, Sendable {
+  case invalidConfidence
+  case emptyEstimatorRevision
+}
+
+/// The estimated paper-contact point is the bottom-center of the measured tool
+/// component. It is deliberately retained separately from the component's
+/// centroid so downstream registration never silently substitutes one for the
+/// other.
+public struct ToolContactPointEstimate: Codable, Hashable, Sendable {
+  public let point: Point2<CameraPixelSpace>
+  public let componentCentroid: Point2<CameraPixelSpace>
+  public let componentBounds: AxisAlignedBounds<CameraPixelSpace>
+  public let confidence: Double
+  public let estimatorRevision: String
+  public let source: FrameSourceIdentity
+  public let frameID: FrameID
+  public let cameraConfigurationID: CameraConfigurationID
+
+  public init(
+    componentCentroid: Point2<CameraPixelSpace>,
+    componentBounds: AxisAlignedBounds<CameraPixelSpace>,
+    confidence: Double,
+    estimatorRevision: String,
+    source: FrameSourceIdentity,
+    frameID: FrameID,
+    cameraConfigurationID: CameraConfigurationID
+  ) throws {
+    guard confidence.isFinite, confidence >= 0, confidence <= 1 else {
+      throw ToolContactPointEstimateError.invalidConfidence
+    }
+    guard !estimatorRevision.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+      throw ToolContactPointEstimateError.emptyEstimatorRevision
+    }
+    point = try Point2(
+      x: (componentBounds.minX + componentBounds.maxX) / 2,
+      y: componentBounds.maxY
+    )
+    self.componentCentroid = componentCentroid
+    self.componentBounds = componentBounds
+    self.confidence = confidence
+    self.estimatorRevision = estimatorRevision
+    self.source = source
+    self.frameID = frameID
+    self.cameraConfigurationID = cameraConfigurationID
+  }
+}
+
+public struct AcceptedBoundarySide: Codable, Hashable, Sendable {
+  public let direction: BoundaryDirection
+  public let revisionID: LearningArtifactRevisionID
+  public let controllerSessionID: UUID
+  public let coordinateRevision: UInt64
+  public let finalPosition: MachinePosition
+  public let contactPoint: ToolContactPointEstimate
+  public let sideEstimatorRevision: String
+  public let uncertaintyPixels: Double
+
+  public init(
+    direction: BoundaryDirection,
+    revisionID: LearningArtifactRevisionID,
+    controllerSessionID: UUID,
+    coordinateRevision: UInt64,
+    finalPosition: MachinePosition,
+    contactPoint: ToolContactPointEstimate,
+    sideEstimatorRevision: String,
+    uncertaintyPixels: Double
+  ) {
+    precondition(!sideEstimatorRevision.isEmpty)
+    precondition(uncertaintyPixels.isFinite && uncertaintyPixels >= 0)
+    self.direction = direction
+    self.revisionID = revisionID
+    self.controllerSessionID = controllerSessionID
+    self.coordinateRevision = coordinateRevision
+    self.finalPosition = finalPosition
+    self.contactPoint = contactPoint
+    self.sideEstimatorRevision = sideEstimatorRevision
+    self.uncertaintyPixels = uncertaintyPixels
+  }
+}
+
+public enum EstimatedMachineCenterError: Error, Equatable, Sendable {
+  case missingDirection(BoundaryDirection)
+  case incompatibleControllerContext
+  case duplicateDirection(BoundaryDirection)
+  case invalidSpans
+}
+
+/// A machine-space midpoint derived from four accepted controller positions.
+/// Camera configuration is intentionally absent from its compatibility domain.
+public struct EstimatedMachineCenter: Codable, Hashable, Sendable {
+  public let point: Point2<MachineSpace>
+  public let xSpanMM: Double
+  public let ySpanMM: Double
+  public let controllerSessionID: UUID
+  public let coordinateRevision: UInt64
+  public let consumedRevisionIDs: Set<LearningArtifactRevisionID>
+  public let sampleCountByAxis: [String: Int]
+  public let estimatorRevision: String
+
+  public static func derive(
+    from observations: [AcceptedBoundarySide],
+    estimatorRevision: String = "opposite-side-midpoint-v1"
+  ) throws -> Self {
+    var byDirection: [BoundaryDirection: AcceptedBoundarySide] = [:]
+    for observation in observations {
+      guard byDirection[observation.direction] == nil else {
+        throw EstimatedMachineCenterError.duplicateDirection(observation.direction)
+      }
+      byDirection[observation.direction] = observation
+    }
+    for direction in BoundaryDirection.allCases where byDirection[direction] == nil {
+      throw EstimatedMachineCenterError.missingDirection(direction)
+    }
+    let contexts = Set(observations.map {
+      ControllerCoordinateContext(
+        controllerSessionID: $0.controllerSessionID,
+        coordinateRevision: $0.coordinateRevision
+      )
+    })
+    guard contexts.count == 1, let context = contexts.first else {
+      throw EstimatedMachineCenterError.incompatibleControllerContext
+    }
+    let negativeX = byDirection[.negativeX]!.finalPosition.point.x
+    let positiveX = byDirection[.positiveX]!.finalPosition.point.x
+    let negativeY = byDirection[.negativeY]!.finalPosition.point.y
+    let positiveY = byDirection[.positiveY]!.finalPosition.point.y
+    let xSpan = positiveX - negativeX
+    let ySpan = positiveY - negativeY
+    guard xSpan.isFinite, ySpan.isFinite, xSpan > 0, ySpan > 0 else {
+      throw EstimatedMachineCenterError.invalidSpans
+    }
+    return Self(
+      point: try Point2(x: negativeX + xSpan / 2, y: negativeY + ySpan / 2),
+      xSpanMM: xSpan,
+      ySpanMM: ySpan,
+      controllerSessionID: context.controllerSessionID,
+      coordinateRevision: context.coordinateRevision,
+      consumedRevisionIDs: Set(observations.map(\.revisionID)),
+      sampleCountByAxis: ["X": 2, "Y": 2],
+      estimatorRevision: estimatorRevision
+    )
+  }
+}
+
+public struct ControllerCoordinateContext: Codable, Hashable, Sendable {
+  public let controllerSessionID: UUID
+  public let coordinateRevision: UInt64
+
+  public init(controllerSessionID: UUID, coordinateRevision: UInt64) {
+    self.controllerSessionID = controllerSessionID
+    self.coordinateRevision = coordinateRevision
+  }
+}
+
+/// Runtime provenance around the geometry-only affine fit.
+public enum MachineCameraRegistrationError: Error, Equatable, Sendable {
+  case invalidValidationPolicy
+  case insufficientCorrespondenceProvenance
+  case correspondenceSourceMismatch
+  case correspondenceControllerMismatch
+  case correspondenceCameraMismatch
+  case correspondenceFitMismatch
+  case validationResidualExceeded(actualPixels: Double, maximumPixels: Double)
+}
+
+public struct MachineCameraCorrespondenceProvenance: Codable, Hashable, Sendable {
+  public let machinePoint: Point2<MachineSpace>
+  public let contactPoint: Point2<CameraPixelSpace>
+  public let source: FrameSourceIdentity
+  public let controllerSessionID: UUID
+  public let coordinateRevision: UInt64
+  public let frameID: FrameID
+  public let cameraConfigurationID: CameraConfigurationID
+  public let artifactRevisionID: LearningArtifactRevisionID
+
+  public init(
+    machinePoint: Point2<MachineSpace>,
+    contactPoint: Point2<CameraPixelSpace>,
+    source: FrameSourceIdentity,
+    controllerSessionID: UUID,
+    coordinateRevision: UInt64,
+    frameID: FrameID,
+    cameraConfigurationID: CameraConfigurationID,
+    artifactRevisionID: LearningArtifactRevisionID
+  ) {
+    self.machinePoint = machinePoint
+    self.contactPoint = contactPoint
+    self.source = source
+    self.controllerSessionID = controllerSessionID
+    self.coordinateRevision = coordinateRevision
+    self.frameID = frameID
+    self.cameraConfigurationID = cameraConfigurationID
+    self.artifactRevisionID = artifactRevisionID
+  }
+}
+
+public struct MachineCameraRegistration: Codable, Hashable, Sendable {
+  public let fit: MachineCameraRegistrationFit
+  public let source: FrameSourceIdentity
+  public let controllerSessionID: UUID
+  public let coordinateRevision: UInt64
+  public let cameraConfigurationID: CameraConfigurationID
+  public let correspondenceProvenance: [MachineCameraCorrespondenceProvenance]
+  public let correspondenceFrameIDs: Set<FrameID>
+  public let correspondenceRevisionIDs: Set<LearningArtifactRevisionID>
+  public let validationTargetFrameID: FrameID
+  public let validationMachinePoint: Point2<MachineSpace>
+  public let validationContactPoint: Point2<CameraPixelSpace>
+  public let validationResidualPixels: Double
+  public let maximumValidationResidualPixels: Double
+  public let estimatorRevision: String
+  public let uncertaintyPixels: Double
+
+  public init(
+    fit: MachineCameraRegistrationFit,
+    source: FrameSourceIdentity,
+    controllerSessionID: UUID,
+    coordinateRevision: UInt64,
+    cameraConfigurationID: CameraConfigurationID,
+    correspondenceProvenance: [MachineCameraCorrespondenceProvenance],
+    validationTargetFrameID: FrameID,
+    validationMachinePoint: Point2<MachineSpace>,
+    validationContactPoint: Point2<CameraPixelSpace>,
+    maximumValidationResidualPixels: Double,
+    estimatorRevision: String,
+    uncertaintyPixels: Double
+  ) throws {
+    precondition(!estimatorRevision.isEmpty)
+    precondition(uncertaintyPixels.isFinite && uncertaintyPixels >= 0)
+    guard maximumValidationResidualPixels.isFinite, maximumValidationResidualPixels >= 0 else {
+      throw MachineCameraRegistrationError.invalidValidationPolicy
+    }
+    guard correspondenceProvenance.count >= 3 else {
+      throw MachineCameraRegistrationError.insufficientCorrespondenceProvenance
+    }
+    guard Set(correspondenceProvenance.map(\.source)) == [source] else {
+      throw MachineCameraRegistrationError.correspondenceSourceMismatch
+    }
+    guard correspondenceProvenance.allSatisfy({
+      $0.controllerSessionID == controllerSessionID
+        && $0.coordinateRevision == coordinateRevision
+    }) else {
+      throw MachineCameraRegistrationError.correspondenceControllerMismatch
+    }
+    guard Set(correspondenceProvenance.map(\.cameraConfigurationID)) == [cameraConfigurationID] else {
+      throw MachineCameraRegistrationError.correspondenceCameraMismatch
+    }
+    let fitPairs = Set(fit.correspondences)
+    let provenancePairs = Set(correspondenceProvenance.map {
+      MachineCameraRegistrationCorrespondence(
+        machine: $0.machinePoint,
+        camera: $0.contactPoint
+      )
+    })
+    guard fitPairs == provenancePairs else {
+      throw MachineCameraRegistrationError.correspondenceFitMismatch
+    }
+    let predicted = try fit.cameraPoint(from: validationMachinePoint)
+    let validationResidual = predicted.distance(to: validationContactPoint)
+    guard validationResidual <= maximumValidationResidualPixels else {
+      throw MachineCameraRegistrationError.validationResidualExceeded(
+        actualPixels: validationResidual,
+        maximumPixels: maximumValidationResidualPixels
+      )
+    }
+    self.fit = fit
+    self.source = source
+    self.controllerSessionID = controllerSessionID
+    self.coordinateRevision = coordinateRevision
+    self.cameraConfigurationID = cameraConfigurationID
+    self.correspondenceProvenance = correspondenceProvenance
+    correspondenceFrameIDs = Set(correspondenceProvenance.map(\.frameID))
+    correspondenceRevisionIDs = Set(correspondenceProvenance.map(\.artifactRevisionID))
+    self.validationTargetFrameID = validationTargetFrameID
+    self.validationMachinePoint = validationMachinePoint
+    self.validationContactPoint = validationContactPoint
+    validationResidualPixels = validationResidual
+    self.maximumValidationResidualPixels = maximumValidationResidualPixels
+    self.estimatorRevision = estimatorRevision
+    self.uncertaintyPixels = uncertaintyPixels
+  }
 }
 
 public struct BoundaryMotionOwnerID: Codable, Hashable, Sendable {
@@ -364,10 +721,6 @@ public enum DiscoverySequenceCatalog {
       negativeAcknowledgement:
         "The sequence needs an observed up position before it can continue. I will wait."
     )
-    let clearToLower = DiscoveryQuestion(
-      prompt: "Are we clear to put it down?",
-      negativeAcknowledgement: "Okay. I will not lower it. I will wait."
-    )
     let currentlyDown = DiscoveryQuestion(
       prompt: "Is the pen currently down?",
       negativeAcknowledgement:
@@ -381,7 +734,7 @@ public enum DiscoverySequenceCatalog {
       id: id,
       title: "Pen Interaction",
       summary:
-        "Confirm up, authorize down, observe down, retract, and confirm up using YES or NO answers.",
+        "Confirm up, lower after the explicit spoken cue, observe down, retract, and confirm up.",
       steps: [
         DiscoveryStep(
           id: "question-initially-up",
@@ -394,18 +747,6 @@ public enum DiscoverySequenceCatalog {
           participant: .operatorChoice,
           action: .awaitPhysicalPenConfirmation(.up, question: initiallyUp),
           expectedEvent: .physicalPenConfirmed(.up, response: .yes)
-        ),
-        DiscoveryStep(
-          id: "question-clear-to-lower",
-          participant: .application,
-          action: .askQuestion(clearToLower),
-          expectedEvent: .questionPresented
-        ),
-        DiscoveryStep(
-          id: "answer-clear-to-lower",
-          participant: .operatorChoice,
-          action: .awaitOperatorChoice(clearToLower),
-          expectedEvent: .operatorChoice(clearToLower.advancingChoices)
         ),
         DiscoveryStep(
           id: "announce-down",

@@ -21,26 +21,47 @@ public enum ArmatureVisibilityLabel: String, Codable, CaseIterable, Hashable, Se
   }
 }
 
-public enum ArmatureGuidanceAction: String, Codable, CaseIterable, Hashable, Sendable {
-  case negativeXOneMillimeter
-  case positiveXOneMillimeter
-  case negativeYOneMillimeter
-  case positiveYOneMillimeter
+public enum ClearViewSearchDistance: Double, Codable, CaseIterable, Hashable, Sendable {
+  case tenMillimeters = 10
+  case fiveMillimeters = 5
+  case twoMillimeters = 2
+  case oneMillimeter = 1
 
-  public static let standardNearby = Self.allCases
+  public var millimeters: Double { rawValue }
+
+  public var displayName: String {
+    "\(Int(rawValue)) mm"
+  }
+}
+
+/// One operator-selected finite Pen-Up search move. The direction and distance
+/// are both explicit intent; no visibility fit selects or admits this move.
+public struct ClearViewSearchMove: Codable, Hashable, Sendable {
+  public let direction: BoundaryDirection
+  public let distance: ClearViewSearchDistance
+
+  public init(direction: BoundaryDirection, distance: ClearViewSearchDistance) {
+    self.direction = direction
+    self.distance = distance
+  }
 
   public var delta: Vector2<MachineSpace> {
-    switch self {
-    case .negativeXOneMillimeter: try! Vector2(dx: -1, dy: 0)
-    case .positiveXOneMillimeter: try! Vector2(dx: 1, dy: 0)
-    case .negativeYOneMillimeter: try! Vector2(dx: 0, dy: -1)
-    case .positiveYOneMillimeter: try! Vector2(dx: 0, dy: 1)
+    let millimeters = distance.millimeters
+    return switch direction {
+    case .negativeX: try! Vector2<MachineSpace>(dx: -millimeters, dy: 0)
+    case .positiveX: try! Vector2<MachineSpace>(dx: millimeters, dy: 0)
+    case .negativeY: try! Vector2<MachineSpace>(dx: 0, dy: -millimeters)
+    case .positiveY: try! Vector2<MachineSpace>(dx: 0, dy: millimeters)
     }
+  }
+
+  public func request(feedMMPerMinute: Double) -> RelativeJogRequest {
+    RelativeJogRequest(delta: delta, feedMMPerMinute: feedMMPerMinute)
   }
 }
 
 public enum ArmatureGuidanceOutcome: Codable, Hashable, Sendable {
-  case continueInDirection(ArmatureGuidanceAction)
+  case continueInDirection(ClearViewSearchMove)
   case reverse
   case stopped
   case acceptedPose
@@ -141,7 +162,7 @@ public struct ArmatureClearPose: Codable, Hashable, Sendable {
 }
 
 public struct ArmatureGuidanceProposal: Codable, Hashable, Sendable {
-  public let action: ArmatureGuidanceAction
+  public let move: ClearViewSearchMove
   public let request: RelativeJogRequest
 }
 
@@ -173,14 +194,16 @@ public struct ArmatureGuidanceState: Codable, Hashable, Sendable {
   public private(set) var visibilityFit: ArmatureVisibilityFit?
   public private(set) var acceptedClearPose: ArmatureClearPose?
   public private(set) var automatedReturnInvalidation: ArmatureGuidanceInvalidationReason?
-  public let nearbyActions: [ArmatureGuidanceAction]
+  public let availableSearchMoves: [ClearViewSearchMove]
 
   public init(
     context: ArmatureGuidanceContext,
-    nearbyActions: [ArmatureGuidanceAction] = ArmatureGuidanceAction.standardNearby
+    availableSearchMoves: [ClearViewSearchMove] = Self.standardSearchMoves
   ) {
     self.context = context
-    self.nearbyActions = nearbyActions.isEmpty ? ArmatureGuidanceAction.standardNearby : nearbyActions
+    self.availableSearchMoves = availableSearchMoves.isEmpty
+      ? Self.standardSearchMoves
+      : availableSearchMoves
     observations = []
     visibilityFit = nil
     acceptedClearPose = nil
@@ -277,11 +300,11 @@ public struct ArmatureGuidanceState: Codable, Hashable, Sendable {
     guard feedMMPerMinute.isFinite, feedMMPerMinute > 0 else {
       throw ArmatureGuidanceError.invalidProposalFeed
     }
-    let preferred = preferredActionOrder()
+    let preferred = preferredMoveOrder()
     return preferred.map {
       ArmatureGuidanceProposal(
-        action: $0,
-        request: RelativeJogRequest(delta: $0.delta, feedMMPerMinute: feedMMPerMinute)
+        move: $0,
+        request: $0.request(feedMMPerMinute: feedMMPerMinute)
       )
     }
   }
@@ -310,30 +333,38 @@ public struct ArmatureGuidanceState: Codable, Hashable, Sendable {
       : nil
   }
 
-  private func preferredActionOrder() -> [ArmatureGuidanceAction] {
-    guard let latest = observations.last else { return nearbyActions }
+  private func preferredMoveOrder() -> [ClearViewSearchMove] {
+    guard let latest = observations.last else { return availableSearchMoves }
     switch latest.outcome {
-    case .continueInDirection(let action):
-      return [action] + nearbyActions.filter { $0 != action }
+    case .continueInDirection(let move):
+      return [move] + availableSearchMoves.filter { $0 != move }
     case .reverse:
       guard observations.count >= 2,
         case .continueInDirection(let previous) = observations[observations.count - 2].outcome,
         let reverse = Self.reverse(of: previous)
-      else { return Array(nearbyActions.reversed()) }
-      return [reverse] + nearbyActions.filter { $0 != reverse }
+      else { return Array(availableSearchMoves.reversed()) }
+      return [reverse] + availableSearchMoves.filter { $0 != reverse }
     case .stopped, .acceptedPose:
       return []
     }
   }
 
-  private static func reverse(of action: ArmatureGuidanceAction) -> ArmatureGuidanceAction? {
-    switch action {
-    case .negativeXOneMillimeter: .positiveXOneMillimeter
-    case .positiveXOneMillimeter: .negativeXOneMillimeter
-    case .negativeYOneMillimeter: .positiveYOneMillimeter
-    case .positiveYOneMillimeter: .negativeYOneMillimeter
+  private static func reverse(of move: ClearViewSearchMove) -> ClearViewSearchMove? {
+    let direction: BoundaryDirection = switch move.direction {
+    case .negativeX: .positiveX
+    case .positiveX: .negativeX
+    case .negativeY: .positiveY
+    case .positiveY: .negativeY
     }
+    return ClearViewSearchMove(direction: direction, distance: move.distance)
   }
+
+  public static let standardSearchMoves: [ClearViewSearchMove] =
+    ClearViewSearchDistance.allCases.flatMap { distance in
+      BoundaryDirection.allCases.map { direction in
+        ClearViewSearchMove(direction: direction, distance: distance)
+      }
+    }
 
   private static func contextMismatch(
     expected: ArmatureGuidanceContext,

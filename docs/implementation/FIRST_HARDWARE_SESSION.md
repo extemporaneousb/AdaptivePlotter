@@ -102,31 +102,26 @@ Record separately:
 
 Do not infer pen height from controller state or one camera frame.
 
-## 3.2 Boundary Discovery
+## 3.2 Paired Boundary Discovery and Centering
 
-1. Select one direction with a clear observable path.
+1. Choose whichever of X+, X-, Y+, or Y- is nearest to the current position and
+   has a clear observable path.
 2. Confirm the current action shows the controller-reported applicable feed
    ceiling and source. For a single-axis direction it must match that axis.
-3. With the path clear and the cutoff reachable, press the one explicit
-   **Start**. There is no additional generic YES/NO question.
+3. With the path clear and cutoff reachable, press the explicit **Start**. There
+   is no generic YES/NO ceremony.
 4. Confirm the complete spoken movement announcement finishes before motion.
-5. Observe movement directly.
-6. Press the one exercise action strip **Stop Boundary** once at the observed
-   boundary.
-7. Do not press Cancel Attempt unless the attempt should be abandoned; it is
-   not a successful Boundary Stop.
-
-Verify and record in order:
-
-1. one contextual operator Stop event;
-2. one Jog Cancel request;
-3. original jog owner reaches Idle;
-4. final MPos is retained;
-5. exact camera frame is strictly newer than controller settlement;
-6. selected side measurement/posterior is accepted, or the UI gives a precise
-   current reason;
-7. the Learning Path advances to Clear-View Discovery after this one relevant
-   boundary.
+5. Observe movement directly and press the one exercise-strip **Stop Boundary**
+   once at the observed side. Do not press Cancel unless abandoning the attempt.
+6. Verify one operator Stop event, one Jog Cancel, original-owner Idle/final
+   MPos, one strictly newer exact frame, and one accepted side observation.
+7. Confirm the next direction is the forced opposite of the first. Repeat the
+   same Start/Stop/settle/frame sequence.
+8. Choose either sign on the remaining axis, then repeat its forced opposite.
+9. Verify all four sides are accepted and the UI shows the estimated X/Y center
+   and uncertainty/provenance.
+10. Press the explicit **Move to Estimated Center** action and retain its Stop
+    within reach. Verify Pen Up travel settles at Idle/final MPos before 3.3.
 
 There must be no normal fixed-distance completion before Stop. A controller
 limit, alarm, disconnect, or fault ends the attempt as Needs Attention and is
@@ -135,35 +130,55 @@ attempt remains healthy, continuation stays under the same logical owner and
 must not duplicate after Stop or ambiguity.
 Requested feed is not proof of achieved physical speed.
 
-## 3.3 Clear-View Discovery
+## 3.3 Visibility Target and Clear-View Registration
 
-1. Use typed Pen Up moves only as needed to expose the tool/paper scene.
-2. Label exact frames Blocked or Partial as observed.
-3. Label an exact current frame Clear only when the operator agrees.
-4. Confirm **Accept Current Clear View** remains disabled until the current
-   runtime label and observation are Clear.
-5. Accept the Clear pose.
+1. At the estimated center with Pen Up, capture the exact **Target-Pose
+   Registration** frame. The armature is expected to be present; this is not the
+   blank baseline.
+2. Inspect the proposed target ROI and tool contact point. Confirm it refers to
+   the marker contact location (initially the green component bottom center),
+   not the cap centroid, then accept or reject it explicitly.
+3. Choose a Pen Up Clear-search direction and one explicit 10, 5, 2, or optional
+   1 mm move. Settle, capture a newer exact frame, and label it Blocked, Partial,
+   or Clear. Blocked/Partial must keep the same transaction active.
+4. Repeat coarse-to-fine moves until a reproducible Clear view is observed, then
+   accept the Clear pose.
+5. Capture the **Pre-Target Clear-View Baseline** and confirm the accepted ROI is
+   blank. Record exact frame/configuration, MPos, paper revision, and ROI.
+6. Press **Return to Registered Target Pose** and verify settlement.
+7. Press **Draw Visibility Target** once. Verify one compound owner performs
+   Pen Up approach, lower, eight segments forming a 4 mm diameter regular
+   octagon, and raise. Keep the one contextual Stop and cutoff reachable.
+8. Press **Return to Accepted Clear Pose** and verify Pen Up settlement.
+9. Press **Observe Existing Visibility Target**. Verify two strictly fresh,
+   compatible frames agree on the target and list both included frame IDs.
+10. Accept the visibility registration only after inspecting the evidence.
 
-The accepted pose supports vision-consuming travel in this session. It is not a
-manual-motion gate.
+If target drawing is cancelled, partial, or ambiguous after Pen Down acceptance,
+do not redraw. Use Observe Existing Target only with the retained compatible
+baseline, or explicitly register a new target area/paper revision. The Clear pose
+and target evidence are local dependencies, not manual-motion gates.
 
 ## 4. Observed Drawing Trial
 
 Proceed through the exact numbered actions:
 
-1. **Capture Clean Reference** — record the exact clean frame/configuration.
-2. **Choose Line Start** — record current controller MPos.
-3. **Create Anchor Mark** — verify announced lower/raise ordering and observe the
-   anchor after the tool returns Clear.
+1. **Choose Isolated Line Plan** — choose one target-perimeter direction and the
+   displayed 5 mm outward line.
+2. **Capture Target-Anchored Baseline** — at the accepted Clear pose, record one
+   fresh frame in which the target is present.
+3. **Move to Line Start** — verify Pen Up travel to the selected target
+   perimeter point.
 4. **Draw Isolated Line** — verify one closed stroke and no resend.
-5. **Clear Tool and Observe Ink** — verify Pen Up travel uses the appropriate
-   reported ceiling and the tool returns Clear before the post frame.
+5. **Return to Clear Pose and Observe New Ink** — verify Pen Up settlement and a
+   strictly fresh compatible post-line frame.
 6. **Compare Intended and Observed Geometry** — inspect actual ink, then choose
-   one typed assessment.
+   one typed assessment and inspect quantitative residual only when the current
+   affine registration is valid.
 
-Record exact clean/anchor/post frame identities, controller start/final MPos,
-observed new ink, intended/observed overlay, residual when available, and the
-human comparison.
+Record exact target-baseline/post frame identities, controller start/final MPos,
+registration identity/residuals, observed new ink, intended/observed overlay,
+line residual when available, and the human comparison.
 
 If ink or geometry is unclear, select that outcome. The app must not redraw
 automatically.

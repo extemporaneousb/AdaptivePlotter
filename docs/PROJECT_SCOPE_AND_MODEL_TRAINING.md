@@ -33,8 +33,8 @@ The Learning Path is the sole visible journey:
 | --- | --- | --- |
 | 1 Connect | Select and establish one responsive controller session. | Real current-session prerequisite. |
 | 2 Enable Motion | Perform the one visible operator arming action. | Real current-session prerequisite backed by internal `MotionGuard`. |
-| 3 Human-Guided Discovery | Observe pen interaction, one or more boundaries, and a Clear pose. | Presentation and local evidence only. |
-| 4 Observed Drawing Trials | Create attributable marks, clear the tool, observe ink, and compare geometry. | Presentation and local evidence only. |
+| 3 Human-Guided Discovery | Observe pen interaction, all paired boundaries, center the tool, and register a visible target from a Clear pose. | Presentation and local evidence only. |
+| 4 Observed Drawing Trials | Draw a target-anchored attributable line, clear the tool, observe new ink, and compare geometry. | Presentation and local evidence only. |
 | 5 Adaptive Drawing | Multi-stroke drawing with observation and checkpoint learning. | Future until implemented. |
 
 Learning status does not authorize ordinary movement. Manual motion continues to
@@ -66,26 +66,29 @@ raise commands are announced before actuation and settle through the controller
 owner. The sequence succeeds only after the final human confirmation of Up.
 Commanded pen state and observed physical pose remain distinct evidence.
 
-### 3.2 Boundary Discovery
+### 3.2 Paired Boundary Discovery and Centering
 
 The operator selects a side and presses the one explicit Start for an
 operator-stopped Pen Up boundary motion. There is no additional generic YES/NO
 start ceremony. One capability-bound contextual Stop records the first semantic
 intent before one cancel byte is issued. The original owner settles at Idle
-with final MPos; a strictly newer exact frame then supplies the tool centroid
-and drawing-frame side association.
+with final MPos; a strictly newer exact frame then supplies the typed tool
+contact-point estimate and drawing-frame side association.
 
 Boundary Discovery does not complete at a fixed application-selected travel
 distance. It remains active until the operator stops at the observed side or a
 real controller terminal condition ends the attempt. A controller limit, alarm,
-disconnect, fault, or unambiguous finite-segment completion without Stop yields
-Needs Attention and no boundary evidence. Any continuation across finite
-controller commands remains one logical attempt, admits no renewal after
-ambiguity, and cannot race the Stop latch.
+disconnect, fault, or ambiguity yields Needs Attention and no boundary
+evidence. Unambiguous finite-segment completion renews under the same logical
+owner and is never a successful side observation.
 
-One successful relevant side is sufficient for the current path. Additional
-directions refine the current-session posterior but are not required for manual
-motion or Clear-View Discovery.
+The first side is operator-selected from X+, X-, Y+, or Y-. Its opposite is
+forced next. The operator then chooses either sign of the remaining axis and the
+fourth side is its forced opposite. Redo and Record Another Attempt explicitly
+name a side. Four accepted final MPos observations derive an
+`EstimatedMachineCenter` from the two axis midpoints. The operator explicitly
+starts one stoppable Pen Up move to that center. Neither the sides nor the center
+become a manual-motion envelope.
 
 Manual jog owns its own unique Stop capability and presents **Stop Manual Jog**
 in the Motion panel. A stale capability cannot stop a later jog. The toolbar's
@@ -93,38 +96,69 @@ Motion Enabled state reports session authorization, including while the one
 owner is busy; transient request availability and its exact refusal reason are
 separate projections.
 
-### 3.3 Clear-View Discovery
+### 3.3 Visibility Target and Clear-View Registration
 
-The operator labels the exact current frame Blocked, Partial, or Clear. A Clear
-label and its matching armature observation may establish a repeatable Pen Up
-pose for vision-consuming drawing trials. It is not a workspace boundary or a
-manual-motion gate.
+At the centered target pose, the armature remains in view. The app captures one
+exact target-pose registration frame and proposes a `ToolContactPointEstimate`
+and ROI. The initial estimator is the detected green component's bottom center,
+not its centroid; it retains exact frame/configuration and algorithm provenance
+and requires operator acceptance.
+
+The operator searches for a Clear view with typed Pen Up moves. Each move names
+a direction and 10, 5, 2, or optional 1 mm distance. It settles before a
+strictly newer frame is labeled Blocked, Partial, or Clear. Blocked and Partial
+continue the same transaction. A Clear label and matching observation establish
+the repeatable Clear pose. The app then captures a blank ROI baseline at that
+pose, returns to the registered target pose, and draws one 4 mm diameter regular
+octagon under a single `VisibilityTargetOperation` owner. It returns Pen Up to
+the accepted Clear pose and requires two compatible fresh frames to agree on the
+existing target before visibility registration can be accepted.
+
+Once Pen Down is accepted the paper is `inkPossible`. Cancellation, partial
+completion, or ambiguity never redraws automatically. A compatible baseline can
+be used to Observe Existing Target; otherwise recovery creates a new target-area
+identity and requires an explicit Pen Up relocation before recapture, or records
+Paper Replaced and increments both paper and target-area revisions.
 
 ## Observed Drawing Trials
 
 The deterministic sequence is:
 
-1. capture an exact clean reference;
-2. choose and retain a controller line start;
-3. create one attributable anchor mark;
-4. draw one closed isolated line;
-5. return the tool to the accepted Clear pose and capture post-line pixels;
-6. record a typed human comparison of intended and observed geometry.
+1. **4.1 Choose Isolated Line Plan** — select a visibility-target perimeter
+   direction and define one 5 mm outward line;
+2. **4.2 Capture Target-Anchored Baseline** — at the accepted Clear pose,
+   capture a fresh frame in which the existing visibility target is present;
+3. **4.3 Move to Line Start** — travel Pen Up to the selected perimeter point;
+4. **4.4 Draw Isolated Line** — execute one closed line operation;
+5. **4.5 Return to Clear Pose and Observe New Ink** — return Pen Up and capture
+   strictly fresh compatible pixels;
+6. **4.6 Compare Intended and Observed Geometry** — record a typed human
+   comparison and, when registration is valid, quantitative residual geometry.
 
-The three-frame clean/anchor/post subtraction may produce an
-`IsolatedInkObservation` with residual geometry. A rejection records
-`Ink or Geometry Unclear` and never causes a redraw. The episode retains exact
-frame, controller, action, assessment, and residual provenance in memory.
+No stage redraws automatically. Quantitative comparison requires a compatible
+`MachineCameraRegistrationFit` from at least three non-collinear accepted
+machine/contact pairs, with transform residuals and uncertainty retained. Exact
+frames, controller actions, registration, scene disposition, assessment, and
+residual provenance remain attributable in memory.
 
 ## Simulator parity and isolation
 
 SIMULATED uses the same one-window Learning Path, motion controls, camera
 utilities, questions, and action strip as LIVE. Its typed in-memory runtime owns
 a simulated session, Motion authorization, known MPos, pen pose, manual jog,
-renewable Boundary operation, Stop/Cancel disposition, drawing operation, and
+renewable Boundary operation, Stop/Cancel disposition, compound visibility
+target operation, drawing operation, paper revision, persistent ink, and causal
 deterministic frames. Every simulator evidence surface is marked
 `SIMULATED — NOT PHYSICAL EVIDENCE`; the path invokes no `MachineActions` and
 cannot create physical controller, camera, pen-pose, movement, or ink evidence.
+
+The full simulated path cannot use pre-rendered discovery success frames.
+Rendered pixels are derived from the simulated MPos, pen pose, operation
+segments, camera geometry, paper identity, and retained ink. Mocked operator
+actions must prove both initial direction variants, forced opposites, center
+arrival, multi-move Blocked/Partial/Clear search, two-frame target agreement,
+Stage 4 observation, target interruption recovery without redraw, and ambiguity
+with no follow-on command.
 
 Switching to SIMULATED parks accepted LIVE authority and starts a separate
 simulated learning set. Returning to LIVE discards the simulated set and
@@ -187,7 +221,7 @@ retain:
 - typed proposed and executed action summaries;
 - controller start/final evidence and ambiguity;
 - exact frames and camera configuration;
-- anchor, observed ink, residual, human assessment, and termination.
+- visibility target, observed ink, residual, human assessment, and termination.
 
 Multiple attempts remain separate episodes or attempt records even when they
 contribute to one typed aggregate. The aggregate references its included attempt
@@ -205,13 +239,15 @@ renamed compatibility action.
 
 Near-term models should remain small and attributable:
 
-1. **Drawing-frame side posterior** — associate exact-frame boundary
-   observations with camera-space sides and retain uncertainty.
-2. **Clear-view overlap** — summarize observed armature/tool overlap in one
-   exact camera region and propose a repeatable Clear pose.
-3. **Ink residual** — compare intended anchor-relative line geometry with
-   observed new ink.
-4. **Stroke and shape preference** — later, compare candidate physical outcomes
+1. **Paired boundary center** — retain four side observations and a typed
+   controller-space midpoint with uncertainty.
+2. **Tool contact and clear-view overlap** — retain the contact-point estimator,
+   ROI, armature overlap, explicit search moves, and repeatable Clear pose.
+3. **Machine-camera registration** — fit an affine transform from compatible
+   non-collinear machine/contact pairs and retain residuals and uncertainty.
+4. **Ink residual** — compare intended visibility-target-relative line geometry
+   with observed new ink.
+5. **Stroke and shape preference** — later, compare candidate physical outcomes
    using retained observed-ink evidence.
 
 Models must retain units, coordinate spaces, frame/configuration identity,
@@ -274,14 +310,17 @@ An attended physical pass should proceed only through the signed bundle:
 1. verify one running bundled instance and the physical cutoff;
 2. Connect and Enable Motion;
 3. complete Pen Interaction and leave the pen explicitly observed Up;
-4. choose one Boundary Discovery direction;
-5. confirm the spoken cue finishes before movement;
-6. press the contextual Stop in the exercise action strip once at the observed
-   boundary;
-7. verify Idle/final MPos and a strictly newer exact frame;
-8. accept a Clear view;
-9. execute one Observed Drawing Trial;
-10. inspect actual ink before recording the typed comparison.
+4. choose the first Boundary direction, then record its forced opposite;
+5. choose either sign on the remaining axis, then record its forced opposite;
+6. verify each contextual Stop settles at Idle/final MPos with a strictly newer
+   exact frame;
+7. explicitly move to the estimated center;
+8. register the contact point/ROI, search with explicit coarse-to-fine moves,
+   and accept a Clear pose plus blank baseline;
+9. draw the visibility target once, return Clear, and accept two-frame target
+   observation;
+10. execute the target-anchored Observed Drawing Trial and inspect actual ink
+    before recording the typed comparison.
 
 If no operator is present, physical validation is skipped. Automated tests,
 simulator execution, and controller responses remain software/controller

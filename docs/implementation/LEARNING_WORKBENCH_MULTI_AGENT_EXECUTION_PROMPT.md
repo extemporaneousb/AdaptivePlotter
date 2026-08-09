@@ -4,6 +4,13 @@ Status: retained implementation and acceptance record for completed Work item 7.
 Statements below that describe outgoing source identify the surfaces this
 increment removed; they are not endorsements of current behavior.
 
+The stage 3/4 vocabulary and one-side/anchor-dot workflow frozen in this
+historical prompt were superseded on 2026-08-09 by
+[Visibility Target and Clear-View Protocol](VISIBILITY_TARGET_AND_CLEAR_VIEW_PROTOCOL.md).
+They remain below only as the exact execution record for the earlier landed
+increment. Current product behavior and new implementation work must follow the
+new protocol and canonical documents, not the older visible-journey section.
+
 You are the coordinating implementation agent for
 `/Users/bullard/Projects/AdaptivePlotter`. This is an execution request, not a
 request to stop after analysis, a proposal, or a mock-up. Plan the work, freeze

@@ -7,6 +7,348 @@ import Testing
 
 @Suite("Run interpreter shell")
 struct RunInterpreterTests {
+  @Test("visibility target plan is exact closed 4 mm octagon")
+  func visibilityTargetGeometry() throws {
+    let plan = VisibilityTargetPlanV1()
+    #expect(plan.diameterMM == 4)
+    #expect(plan.radiusMM == 2)
+    #expect(plan.segmentCount == 8)
+    #expect(plan.relativeVertices.count == 8)
+    #expect(plan.drawingDeltas.count == 8)
+    #expect(plan.approachDelta == (try Vector2<MachineSpace>(dx: 2, dy: 0)))
+    let sum = plan.drawingDeltas.reduce((dx: 0.0, dy: 0.0)) {
+      ($0.dx + $1.dx, $0.dy + $1.dy)
+    }
+    #expect(abs(sum.dx) < 1e-12)
+    #expect(abs(sum.dy) < 1e-12)
+    #expect(plan.algorithmRevision == "visibility-target-octagon-v1")
+  }
+
+  @Test("compound target owns approach lower eight segments and final Pen Up")
+  func compoundVisibilityTargetSuccess() async throws {
+    let plan = VisibilityTargetPlanV1()
+    let request = VisibilityTargetOperationRequest(
+      plan: plan,
+      approachFeedMMPerMinute: 60,
+      drawingFeedMMPerMinute: 60
+    )
+    var exchanges = ControllerTranscriptFixtures.successfulPassiveProbe()
+    exchanges[2] = ControllerTranscriptFixtures.exchange(
+      .status,
+      chunks: ["<Idle|MPos:0.000,0.000,0.000>\r\n"]
+    )
+    exchanges[3] = interpreterDrawingConfigurationExchange()
+    exchanges.append(contentsOf: [
+      interpreterStatusExchange("<Idle|MPos:0.000,0.000,0.000>"),
+      SimulatedCommandExchange(
+        expectedWrite: MachineController.encodePenActuation(.raise),
+        reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]),
+      SimulatedCommandExchange(
+        expectedWrite: MachineController.encodePenSettle,
+        reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]),
+      interpreterStatusExchange("<Idle|MPos:0.000,0.000,0.000>"),
+      SimulatedCommandExchange(
+        expectedWrite: MachineController.encodeRelativeJog(
+          plan.approachRequest(feedMMPerMinute: 60)
+        ),
+        reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]),
+      interpreterStatusExchange("<Idle|MPos:2.000,0.000,0.000>"),
+      interpreterStatusExchange("<Idle|MPos:2.000,0.000,0.000>"),
+      SimulatedCommandExchange(
+        expectedWrite: MachineController.encodePenActuation(.lower),
+        reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]),
+      SimulatedCommandExchange(
+        expectedWrite: MachineController.encodePenSettle,
+        reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]),
+    ])
+    var position = try Point2<MachineSpace>(x: 2, y: 0)
+    for stroke in plan.drawingRequests(feedMMPerMinute: 60) {
+      let start = position
+      position = try position.translated(by: stroke.delta)
+      exchanges.append(interpreterStatusExchange(machineStatus(start)))
+      exchanges.append(SimulatedCommandExchange(
+        expectedWrite: MachineController.encodeDrawingStroke(stroke),
+        reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+      ))
+      exchanges.append(interpreterStatusExchange(machineStatus(position)))
+    }
+    exchanges.append(contentsOf: [
+      interpreterStatusExchange(machineStatus(position)),
+      SimulatedCommandExchange(
+        expectedWrite: MachineController.encodePenActuation(.raise),
+        reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]),
+      SimulatedCommandExchange(
+        expectedWrite: MachineController.encodePenSettle,
+        reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]),
+    ])
+    let fixture = try await InterpreterFixture.make(exchanges: exchanges)
+    _ = try await fixture.interpreter.requestPassiveProbe()
+    #expect(await fixture.interpreter.activateMotionGuard() == .activated)
+    #expect(
+      await fixture.interpreter.requestPenActuation(.raise)
+        == .commandedAndSettled(command: .raise, commandedState: .up)
+    )
+
+    let outcome = await fixture.interpreter.requestVisibilityTarget(request)
+    #expect(
+      outcome == .completed(
+        finalPosition: try MachinePosition(x: 2, y: 0),
+        scene: .inkPossible
+      )
+    )
+    let snapshot = await fixture.interpreter.snapshot()
+    #expect(snapshot.currentOperation == .idle)
+    #expect(snapshot.machine.penState == .up)
+    #expect(snapshot.lastVisibilityTargetOutcome == outcome)
+  }
+
+  @Test("target Stop during Pen Down settles before any drawing segment")
+  func visibilityTargetStopBetweenPhases() async throws {
+    let ready = try await readyVisibilityTargetLowerPhaseFixture()
+    guard case .admitted(let operation) = await ready.interpreter.beginVisibilityTarget(
+      ready.request
+    ) else {
+      Issue.record("expected target admission")
+      return
+    }
+    await ready.gate.waitUntilBlockedWrite()
+    #expect(
+      await ready.interpreter.requestVisibilityTargetIntent(
+        .stop,
+        operationID: operation.id
+      ) == .accepted(intent: .stop, jogCancelOutcome: nil)
+    )
+    await ready.gate.release()
+
+    #expect(
+      await operation.outcome()
+        == .stopped(scene: .inkPossible, jogCancelOutcome: nil)
+    )
+    #expect(ready.link.completedWriteCount == ready.expectedWriteCount)
+    let snapshot = await ready.interpreter.snapshot()
+    #expect(snapshot.machine.penState == .up)
+    #expect(snapshot.currentOperation == .idle)
+  }
+
+  @Test("Stop versus next target segment latches first and emits no next drawing command")
+  func visibilityTargetStopAdmissionRace() async throws {
+    let ready = try await readyVisibilityTargetAdmissionRaceFixture()
+    guard case .admitted(let operation) = await ready.interpreter.beginVisibilityTarget(
+      ready.request
+    ) else {
+      Issue.record("expected target admission")
+      return
+    }
+    await ready.gate.waitUntilBlockedRead()
+
+    #expect(
+      await ready.interpreter.requestVisibilityTargetIntent(
+        .stop,
+        operationID: operation.id
+      ) == .accepted(intent: .stop, jogCancelOutcome: .refused(.noActiveJog))
+    )
+    #expect(
+      await ready.interpreter.requestVisibilityTargetIntent(
+        .stop,
+        operationID: operation.id
+      ) == .alreadyLatched(.stop)
+    )
+    await ready.gate.release()
+
+    #expect(
+      await operation.outcome()
+        == .stopped(
+          scene: .inkPossible,
+          jogCancelOutcome: .refused(.noActiveJog)
+        )
+    )
+    #expect(ready.link.completedWriteCount == ready.expectedWriteCount)
+    let snapshot = await ready.interpreter.snapshot()
+    #expect(snapshot.machine.penState == .up)
+    #expect(snapshot.currentOperation == .idle)
+  }
+
+  @Test("target Stop during an active segment emits one cancel and settles Pen Up")
+  func visibilityTargetStopDuringSegment() async throws {
+    let ready = try await readyVisibilityTargetCancellationFixture()
+    guard case .admitted(let operation) = await ready.interpreter.beginVisibilityTarget(
+      ready.request
+    ) else {
+      Issue.record("expected target admission")
+      return
+    }
+    await ready.gate.waitUntilBlockedRead()
+    let stopTask = Task {
+      await ready.interpreter.requestVisibilityTargetIntent(
+        .stop,
+        operationID: operation.id
+      )
+    }
+    defer { stopTask.cancel() }
+    await waitForInterpreterCancelTransmission(ready.interpreter)
+    #expect(
+      await ready.interpreter.requestVisibilityTargetIntent(
+        .stop,
+        operationID: operation.id
+      ) == .alreadyLatched(.stop)
+    )
+    await ready.gate.release()
+
+    #expect(
+      await stopTask.value
+        == .accepted(
+          intent: .stop,
+          jogCancelOutcome: .completed(finalPosition: ready.finalPosition)
+        )
+    )
+    #expect(
+      await operation.outcome()
+        == .stopped(
+          scene: .inkPossible,
+          jogCancelOutcome: .completed(finalPosition: ready.finalPosition)
+        )
+    )
+    #expect(ready.link.completedWriteCount == ready.expectedWriteCount)
+    #expect(await ready.interpreter.snapshot().machine.penState == .up)
+  }
+
+  @Test("target Cancel records cancelled disposition and no later segment")
+  func visibilityTargetCancelDuringSegment() async throws {
+    let ready = try await readyVisibilityTargetCancellationFixture()
+    guard case .admitted(let operation) = await ready.interpreter.beginVisibilityTarget(
+      ready.request
+    ) else {
+      Issue.record("expected target admission")
+      return
+    }
+    await ready.gate.waitUntilBlockedRead()
+    let cancelTask = Task {
+      await ready.interpreter.requestVisibilityTargetIntent(
+        .cancel,
+        operationID: operation.id
+      )
+    }
+    defer { cancelTask.cancel() }
+    await waitForInterpreterCancelTransmission(ready.interpreter)
+    await ready.gate.release()
+
+    #expect(
+      await cancelTask.value
+        == .accepted(
+          intent: .cancel,
+          jogCancelOutcome: .completed(finalPosition: ready.finalPosition)
+        )
+    )
+    #expect(
+      await operation.outcome()
+        == .cancelled(
+          scene: .inkPossible,
+          jogCancelOutcome: .completed(finalPosition: ready.finalPosition)
+        )
+    )
+    #expect(ready.link.completedWriteCount == ready.expectedWriteCount)
+    #expect(await ready.interpreter.snapshot().machine.penState == .up)
+  }
+
+  @Test("shutdown latches target owner, settles once, and disconnects")
+  func visibilityTargetShutdownDuringSegment() async throws {
+    let ready = try await readyVisibilityTargetCancellationFixture()
+    guard case .admitted(let operation) = await ready.interpreter.beginVisibilityTarget(
+      ready.request
+    ) else {
+      Issue.record("expected target admission")
+      return
+    }
+    await ready.gate.waitUntilBlockedRead()
+    let disconnectTask = Task { await ready.interpreter.disconnect() }
+    defer { disconnectTask.cancel() }
+    await waitForInterpreterCancelTransmission(ready.interpreter)
+    await ready.gate.release()
+    await disconnectTask.value
+
+    #expect(
+      await operation.outcome()
+        == .shutdown(
+          scene: .inkPossible,
+          jogCancelOutcome: .completed(finalPosition: ready.finalPosition)
+        )
+    )
+    #expect(ready.link.completedWriteCount == ready.expectedWriteCount)
+    #expect(await ready.interpreter.snapshot().machine.connection == .disconnected)
+  }
+
+  @Test("target approach refusal remains pristine and emits no target command")
+  func visibilityTargetApproachRefusal() async throws {
+    var exchanges = ControllerTranscriptFixtures.successfulPassiveProbe()
+    exchanges[2] = ControllerTranscriptFixtures.exchange(
+      .status,
+      chunks: ["<Idle|MPos:0.000,0.000,0.000>\r\n"]
+    )
+    let fixture = try await InterpreterFixture.make(exchanges: exchanges)
+    _ = try await fixture.interpreter.requestPassiveProbe()
+    let request = visibilityTargetRequest()
+
+    #expect(
+      await fixture.interpreter.requestVisibilityTarget(request)
+        == .needsAttention(
+          phase: .approach,
+          scene: .pristine,
+          failure: .approach(.refused(.motionGuardInactive))
+        )
+    )
+    #expect(fixture.link.completedWriteCount == exchanges.count)
+    #expect(await fixture.interpreter.snapshot().machine.penState == .unknown)
+  }
+
+  @Test("ambiguous accepted target approach is sticky and emits no lower or drawing command")
+  func visibilityTargetApproachAmbiguity() async throws {
+    let plan = VisibilityTargetPlanV1()
+    let request = visibilityTargetRequest(plan: plan)
+    var exchanges = ControllerTranscriptFixtures.successfulPassiveProbe()
+    exchanges[2] = ControllerTranscriptFixtures.exchange(
+      .status,
+      chunks: ["<Idle|MPos:0.000,0.000,0.000>\r\n"]
+    )
+    exchanges.append(contentsOf: [
+      interpreterStatusExchange("<Idle|MPos:0.000,0.000,0.000>"),
+      SimulatedCommandExchange(
+        expectedWrite: MachineController.encodePenActuation(.raise),
+        reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+      ),
+      SimulatedCommandExchange(
+        expectedWrite: MachineController.encodePenSettle,
+        reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+      ),
+      interpreterStatusExchange("<Idle|MPos:0.000,0.000,0.000>"),
+      SimulatedCommandExchange(
+        expectedWrite: MachineController.encodeRelativeJog(
+          plan.approachRequest(feedMMPerMinute: 60)
+        ),
+        reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+      ),
+      interpreterStatusExchange("untrusted controller text"),
+    ])
+    let fixture = try await InterpreterFixture.make(exchanges: exchanges)
+    _ = try await fixture.interpreter.requestPassiveProbe()
+    #expect(await fixture.interpreter.activateMotionGuard() == .activated)
+    #expect(
+      await fixture.interpreter.requestPenActuation(.raise)
+        == .commandedAndSettled(command: .raise, commandedState: .up)
+    )
+
+    let outcome = await fixture.interpreter.requestVisibilityTarget(request)
+    guard case .needsAttention(.approach, .pristine, .approach(.ambiguous)) = outcome else {
+      Issue.record("expected ambiguous approach with pristine scene; got \(outcome)")
+      return
+    }
+    #expect(fixture.link.completedWriteCount == exchanges.count)
+    let snapshot = await fixture.interpreter.snapshot()
+    // Accepted motion followed by ambiguous controller state invalidates the
+    // previously observed Pen Up fact; the runtime must not manufacture pose.
+    #expect(snapshot.machine.penState == .unknown)
+    #expect(snapshot.machine.stickyAmbiguity != nil)
+  }
+
   @Test("stale transition completion is rejected")
   func staleTransition() async throws {
     let fixture = try await InterpreterFixture.make()
@@ -622,6 +964,15 @@ private func interpreterStatusExchange(
   )
 }
 
+private func machineStatus(_ point: Point2<MachineSpace>) -> String {
+  String(
+    format: "<Idle|MPos:%.3f,%.3f,0.000>",
+    locale: Locale(identifier: "en_US_POSIX"),
+    point.x,
+    point.y
+  )
+}
+
 private func interpreterDrawingConfigurationExchange() -> SimulatedCommandExchange {
   ControllerTranscriptFixtures.exchange(
     .configuration,
@@ -629,6 +980,214 @@ private func interpreterDrawingConfigurationExchange() -> SimulatedCommandExchan
       "$110=500\r\n$111=500\r\n$120=10\r\n$121=10\r\nok\r\n"
     ]
   )
+}
+
+private func visibilityTargetRequest(
+  plan: VisibilityTargetPlanV1 = VisibilityTargetPlanV1()
+) -> VisibilityTargetOperationRequest {
+  VisibilityTargetOperationRequest(
+    plan: plan,
+    approachFeedMMPerMinute: 60,
+    drawingFeedMMPerMinute: 60
+  )
+}
+
+private func visibilityTargetPreparedExchanges(
+  plan: VisibilityTargetPlanV1
+) throws -> [SimulatedCommandExchange] {
+  var exchanges = ControllerTranscriptFixtures.successfulPassiveProbe()
+  exchanges[2] = ControllerTranscriptFixtures.exchange(
+    .status,
+    chunks: ["<Idle|MPos:0.000,0.000,0.000>\r\n"]
+  )
+  exchanges[3] = interpreterDrawingConfigurationExchange()
+  exchanges.append(contentsOf: [
+    interpreterStatusExchange("<Idle|MPos:0.000,0.000,0.000>"),
+    SimulatedCommandExchange(
+      expectedWrite: MachineController.encodePenActuation(.raise),
+      reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+    ),
+    SimulatedCommandExchange(
+      expectedWrite: MachineController.encodePenSettle,
+      reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+    ),
+    interpreterStatusExchange("<Idle|MPos:0.000,0.000,0.000>"),
+    SimulatedCommandExchange(
+      expectedWrite: MachineController.encodeRelativeJog(
+        plan.approachRequest(feedMMPerMinute: 60)
+      ),
+      reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+    ),
+    interpreterStatusExchange("<Idle|MPos:2.000,0.000,0.000>"),
+    interpreterStatusExchange("<Idle|MPos:2.000,0.000,0.000>"),
+    SimulatedCommandExchange(
+      expectedWrite: MachineController.encodePenActuation(.lower),
+      reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+    ),
+    SimulatedCommandExchange(
+      expectedWrite: MachineController.encodePenSettle,
+      reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+    ),
+  ])
+  return exchanges
+}
+
+private func makeVisibilityTargetInterpreter(
+  exchanges: [SimulatedCommandExchange],
+  link: any MachineLink,
+  clock: DeterministicRuntimeClock
+) async throws -> RunInterpreter {
+  let controller = MachineController(
+    link: link,
+    clock: clock,
+    queryTimeoutNanoseconds: 1_000,
+    statusPollIntervalNanoseconds: 1,
+    completionGraceNanoseconds: 1_000
+  )
+  let interpreter = RunInterpreter(machineController: controller)
+  _ = try await interpreter.requestPassiveProbe()
+  #expect(await interpreter.activateMotionGuard() == .activated)
+  #expect(
+    await interpreter.requestPenActuation(.raise)
+      == .commandedAndSettled(command: .raise, commandedState: .up)
+  )
+  return interpreter
+}
+
+private func readyVisibilityTargetLowerPhaseFixture() async throws -> (
+  interpreter: RunInterpreter,
+  request: VisibilityTargetOperationRequest,
+  link: SimulatedGRBLLink,
+  gate: MachineWriteGate,
+  expectedWriteCount: Int
+) {
+  let plan = VisibilityTargetPlanV1()
+  let request = visibilityTargetRequest(plan: plan)
+  var exchanges = try visibilityTargetPreparedExchanges(plan: plan)
+  exchanges.append(contentsOf: [
+    interpreterStatusExchange("<Idle|MPos:2.000,0.000,0.000>"),
+    SimulatedCommandExchange(
+      expectedWrite: MachineController.encodePenActuation(.raise),
+      reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+    ),
+    SimulatedCommandExchange(
+      expectedWrite: MachineController.encodePenSettle,
+      reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+    ),
+  ])
+  let clock = DeterministicRuntimeClock()
+  let link = SimulatedGRBLLink(exchanges: exchanges, clock: clock)
+  let gate = MachineWriteGate()
+  let blocking = BlockingMachineLink(
+    base: link,
+    blockedWrite: MachineController.encodePenActuation(.lower),
+    gate: gate
+  )
+  let interpreter = try await makeVisibilityTargetInterpreter(
+    exchanges: exchanges,
+    link: blocking,
+    clock: clock
+  )
+  return (interpreter, request, link, gate, exchanges.count)
+}
+
+private func readyVisibilityTargetAdmissionRaceFixture() async throws -> (
+  interpreter: RunInterpreter,
+  request: VisibilityTargetOperationRequest,
+  link: SimulatedGRBLLink,
+  gate: InterpreterMachineReadGate,
+  expectedWriteCount: Int
+) {
+  let plan = VisibilityTargetPlanV1()
+  let request = visibilityTargetRequest(plan: plan)
+  let firstStroke = plan.drawingRequests(feedMMPerMinute: 60)[0]
+  let firstFinal = try Point2<MachineSpace>(
+    x: 2 + firstStroke.delta.dx,
+    y: firstStroke.delta.dy
+  )
+  var exchanges = try visibilityTargetPreparedExchanges(plan: plan)
+  exchanges.append(contentsOf: [
+    interpreterStatusExchange("<Idle|MPos:2.000,0.000,0.000>"),
+    SimulatedCommandExchange(
+      expectedWrite: MachineController.encodeDrawingStroke(firstStroke),
+      reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+    ),
+    interpreterStatusExchange(machineStatus(firstFinal)),
+    interpreterStatusExchange(machineStatus(firstFinal)),
+    interpreterStatusExchange(machineStatus(firstFinal)),
+    SimulatedCommandExchange(
+      expectedWrite: MachineController.encodePenActuation(.raise),
+      reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+    ),
+    SimulatedCommandExchange(
+      expectedWrite: MachineController.encodePenSettle,
+      reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+    ),
+  ])
+  let clock = DeterministicRuntimeClock()
+  let link = SimulatedGRBLLink(exchanges: exchanges, clock: clock)
+  let gate = InterpreterMachineReadGate()
+  let blocking = BoundaryRenewalAdmissionBlockingLink(
+    base: link,
+    jogBytes: MachineController.encodeDrawingStroke(firstStroke),
+    gate: gate
+  )
+  let interpreter = try await makeVisibilityTargetInterpreter(
+    exchanges: exchanges,
+    link: blocking,
+    clock: clock
+  )
+  return (interpreter, request, link, gate, exchanges.count)
+}
+
+private func readyVisibilityTargetCancellationFixture() async throws -> (
+  interpreter: RunInterpreter,
+  request: VisibilityTargetOperationRequest,
+  link: SimulatedGRBLLink,
+  gate: InterpreterMachineReadGate,
+  finalPosition: MachinePosition,
+  expectedWriteCount: Int
+) {
+  let plan = VisibilityTargetPlanV1()
+  let request = visibilityTargetRequest(plan: plan)
+  let firstStroke = plan.drawingRequests(feedMMPerMinute: 60)[0]
+  let finalPosition = try MachinePosition(x: 1.7, y: 0.7)
+  var exchanges = try visibilityTargetPreparedExchanges(plan: plan)
+  exchanges.append(contentsOf: [
+    interpreterStatusExchange("<Idle|MPos:2.000,0.000,0.000>"),
+    SimulatedCommandExchange(
+      expectedWrite: MachineController.encodeDrawingStroke(firstStroke),
+      reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+    ),
+    interpreterStatusExchange("<Jog|MPos:1.850,0.350,0.000>"),
+    SimulatedCommandExchange(
+      expectedWrite: MachineController.encodeJogCancel,
+      reads: []
+    ),
+    interpreterStatusExchange("<Idle|MPos:1.700,0.700,0.000>"),
+    SimulatedCommandExchange(
+      expectedWrite: MachineController.encodePenActuation(.raise),
+      reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+    ),
+    SimulatedCommandExchange(
+      expectedWrite: MachineController.encodePenSettle,
+      reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
+    ),
+  ])
+  let clock = DeterministicRuntimeClock()
+  let link = SimulatedGRBLLink(exchanges: exchanges, clock: clock)
+  let gate = InterpreterMachineReadGate()
+  let blocking = InterpreterPostJogReadBlockingLink(
+    base: link,
+    jogBytes: MachineController.encodeDrawingStroke(firstStroke),
+    gate: gate
+  )
+  let interpreter = try await makeVisibilityTargetInterpreter(
+    exchanges: exchanges,
+    link: blocking,
+    clock: clock
+  )
+  return (interpreter, request, link, gate, finalPosition, exchanges.count)
 }
 
 private func readyInterpreterCancellationFixture() async throws -> (

@@ -103,6 +103,111 @@ public struct DrawingStrokeRequest: Codable, Hashable, Sendable {
   }
 }
 
+public enum VisibilityTargetStartConvention: String, Codable, Hashable, Sendable {
+  case positiveXPerimeter
+}
+
+/// The one frozen visibility target: a closed regular octagon whose diameter is
+/// 4 mm. Vertices and deltas are target-center-relative machine geometry; they
+/// do not define a workspace envelope.
+public struct VisibilityTargetPlanV1: Codable, Hashable, Sendable {
+  public static let revision = "visibility-target-octagon-v1"
+
+  public let diameterMM: Double
+  public let radiusMM: Double
+  public let segmentCount: Int
+  public let startConvention: VisibilityTargetStartConvention
+  public let relativeVertices: [Point2<MachineSpace>]
+  public let approachDelta: Vector2<MachineSpace>
+  public let drawingDeltas: [Vector2<MachineSpace>]
+  public let algorithmRevision: String
+
+  public init() {
+    diameterMM = 4
+    radiusMM = 2
+    segmentCount = 8
+    startConvention = .positiveXPerimeter
+    let vertices = (0..<8).map { index in
+      let angle = Double(index) * .pi / 4
+      return try! Point2<MachineSpace>(x: 2 * cos(angle), y: 2 * sin(angle))
+    }
+    relativeVertices = vertices
+    approachDelta = try! Vector2<MachineSpace>(dx: 2, dy: 0)
+    drawingDeltas = (0..<8).map { index in
+      try! vertices[index].vector(to: vertices[(index + 1) % vertices.count])
+    }
+    algorithmRevision = Self.revision
+  }
+
+  public func approachRequest(feedMMPerMinute: Double) -> RelativeJogRequest {
+    RelativeJogRequest(delta: approachDelta, feedMMPerMinute: feedMMPerMinute)
+  }
+
+  public func drawingRequests(feedMMPerMinute: Double) -> [DrawingStrokeRequest] {
+    drawingDeltas.map {
+      DrawingStrokeRequest(delta: $0, feedMMPerMinute: feedMMPerMinute)
+    }
+  }
+}
+
+public enum VisibilityTargetSceneDisposition: String, Codable, Hashable, Sendable {
+  case pristine
+  case inkPossible
+  case targetObserved
+  case targetUnusable
+}
+
+public struct VisibilityTargetOperationRequest: Codable, Hashable, Sendable {
+  public let id: UUID
+  public let plan: VisibilityTargetPlanV1
+  public let approachFeedMMPerMinute: Double
+  public let drawingFeedMMPerMinute: Double
+
+  public init(
+    id: UUID = UUID(),
+    plan: VisibilityTargetPlanV1 = VisibilityTargetPlanV1(),
+    approachFeedMMPerMinute: Double,
+    drawingFeedMMPerMinute: Double
+  ) {
+    self.id = id
+    self.plan = plan
+    self.approachFeedMMPerMinute = approachFeedMMPerMinute
+    self.drawingFeedMMPerMinute = drawingFeedMMPerMinute
+  }
+}
+
+public enum VisibilityTargetOperationPhase: Codable, Hashable, Sendable {
+  case approach
+  case lowerPen
+  case drawSegment(Int)
+  case raisePen
+}
+
+public enum VisibilityTargetOperationIntent: String, Codable, Hashable, Sendable {
+  case stop
+  case cancel
+  case shutdown
+}
+
+public enum VisibilityTargetOperationFailure: Codable, Hashable, Sendable {
+  case approach(MotionOutcome)
+  case pen(PenOutcome)
+  case drawing(segmentIndex: Int, outcome: DrawingStrokeOutcome)
+  case stoppedWithoutSettlement
+}
+
+public enum VisibilityTargetOperationOutcome: Codable, Hashable, Sendable {
+  case completed(finalPosition: MachinePosition, scene: VisibilityTargetSceneDisposition)
+  case stopped(scene: VisibilityTargetSceneDisposition, jogCancelOutcome: JogCancelOutcome?)
+  case cancelled(scene: VisibilityTargetSceneDisposition, jogCancelOutcome: JogCancelOutcome?)
+  case shutdown(scene: VisibilityTargetSceneDisposition, jogCancelOutcome: JogCancelOutcome?)
+  case needsAttention(
+    phase: VisibilityTargetOperationPhase,
+    scene: VisibilityTargetSceneDisposition,
+    failure: VisibilityTargetOperationFailure
+  )
+}
+
 /// Explicit operator authorization for machine-affecting commands in the
 /// current controller session. It is cleared by disconnects and controller
 /// faults; it is never inferred from a successful probe.

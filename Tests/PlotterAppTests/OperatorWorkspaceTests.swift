@@ -86,7 +86,8 @@ struct OperatorWorkspaceTests {
     await workspace.shutdown()
   }
 
-  @Test("boundary Stop records Stop first, settles owner, captures fresh frame, and updates posterior")
+  @Test(
+    "boundary Stop records Stop first, settles owner, captures fresh frame, and updates posterior")
   func boundaryStopCompletesTransaction() async throws {
     let log = EventLog()
     let machine = try MachineFixture(
@@ -109,7 +110,7 @@ struct OperatorWorkspaceTests {
     await workspace.startCamera()
     try await completePenInteraction(workspace)
 
-    let owner = LearningPathItemID.humanGuidedDiscovery(.boundaryDiscovery)
+    let owner = LearningPathItemID.humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
     #expect(workspace.currentLearningPathItemID == owner)
     await workspace.performExerciseAction(.start, for: owner)
     try await waitUntil { workspace.contextualStopPresentation != nil }
@@ -117,9 +118,10 @@ struct OperatorWorkspaceTests {
     #expect(liveActions.filter { if case .stop = $0.kind { true } else { false } }.count == 1)
     #expect(liveActions.filter { $0.kind == .cancel }.count == 1)
     #expect(!liveActions.contains(where: { if case .choice = $0.kind { true } else { false } }))
-    let stopKind = try #require(liveActions.first(where: {
-      if case .stop = $0.kind { true } else { false }
-    })?.kind)
+    let stopKind = try #require(
+      liveActions.first(where: {
+        if case .stop = $0.kind { true } else { false }
+      })?.kind)
     async let first: Void = workspace.performExerciseAction(stopKind, for: owner)
     async let repeated: Void = workspace.performExerciseAction(stopKind, for: owner)
     _ = await (first, repeated)
@@ -130,13 +132,15 @@ struct OperatorWorkspaceTests {
     #expect(workspace.discoveryTransactions[.boundaryPositiveX]?.state == .succeeded)
     #expect(workspace.relevantBoundaryObservationCount == 1)
     #expect(workspace.drawingFramePosterior?.observationCount == 1)
-    #expect(workspace.humanGuidedDiscoveryCurrentStep == .clearViewDiscovery)
+    #expect(workspace.humanGuidedDiscoveryCurrentStep == .pairedBoundaryDiscoveryAndCentering)
     #expect(workspace.lastContextualStopAuditRecord?.actor == "Operator")
     #expect(workspace.lastContextualStopAuditRecord?.action == "Stop")
     #expect(workspace.lastContextualStopAuditRecord?.disposition == .operatorStop)
     #expect(workspace.currentExerciseActionStripPresentation?.actions.map(\.kind) == [.start])
     let events = await log.values
-    #expect(events.firstIndex(of: "announce:Moving toward X+ boundary.")! < events.firstIndex(of: "machine:boundary")!)
+    #expect(
+      events.firstIndex(of: "announce:Moving toward X+ boundary.")! < events.firstIndex(
+        of: "machine:boundary")!)
     await workspace.shutdown()
   }
 
@@ -153,7 +157,7 @@ struct OperatorWorkspaceTests {
     await stopWorkspace.requestPassiveProbe()
     await stopWorkspace.startCamera()
     try await completePenInteraction(stopWorkspace)
-    let owner = LearningPathItemID.humanGuidedDiscovery(.boundaryDiscovery)
+    let owner = LearningPathItemID.humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
     await stopWorkspace.performExerciseAction(.start, for: owner)
     try await waitUntil { stopWorkspace.contextualStopPresentation != nil }
     let stopKind = try #require(
@@ -195,92 +199,560 @@ struct OperatorWorkspaceTests {
     await cancelMachine.settleHeldCancellation()
     await cancelTask.value
     #expect(cancelWorkspace.relevantBoundaryObservationCount == 0)
-    #expect(cancelWorkspace.currentExerciseActionStripPresentation?.actions.map(\.kind) == [.restart])
+    #expect(
+      cancelWorkspace.currentExerciseActionStripPresentation?.actions.map(\.kind) == [.restart])
     await cancelWorkspace.shutdown()
   }
 
-  @Test("SIMULATED runs the complete Learning Path through Boundary Stop without MachineActions")
-  func simulatedLearningPathHasFullActionParity() async throws {
-    let machineActionLog = EventLog()
-    let clock = TestClock()
-    let workspace = OperatorWorkspace(
-      machineActions: isolatedMachineActions(log: machineActionLog),
-      cameraActions: CameraComposition.actions,
-      serialDevices: [],
-      serialDeviceDiscovery: { [] },
-      loadSelectedSerialIdentifier: { nil },
-      persistSelectedSerialIdentifier: { _ in },
-      nowNanoseconds: { clock.next() }
+  @Test(
+    "SIMULATED public actions complete both paired-boundary orders through visibility registration",
+    arguments: [
+      [BoundaryDirection.positiveX, .negativeX, .positiveY, .negativeY],
+      [BoundaryDirection.positiveY, .negativeY, .negativeX, .positiveX],
+    ]
+  )
+  func simulatedLearningPathHasFullActionParity(
+    boundaryOrder: [BoundaryDirection]
+  ) async throws {
+    let harness = makeSimulatedHarness()
+    try await completeSimulatedVisibilityProtocol(
+      harness.workspace,
+      boundaryOrder: boundaryOrder
     )
 
-    await workspace.switchFrameMode(.simulated)
-    #expect(workspace.frameMode == .simulated)
-    #expect(workspace.currentLearningPathItemID == .stage(.connect))
-    #expect(workspace.simulatorEvidenceLabel == "SIMULATED — NOT PHYSICAL EVIDENCE")
-    #expect(workspace.cameraUtilityPresentation.actions.map(\.kind) == CameraUtilityActionKind.allCases)
+    #expect(harness.workspace.visibilityRegistrationAccepted)
+    #expect(harness.workspace.visibilityTargetObservation?.validSampleCount == 2)
+    #expect(harness.workspace.visibilityTargetObservation?.includedFrameIDs.count == 2)
+    #expect(harness.workspace.displayedFrame?.source == .simulated)
+    #expect(
+      await harness.runtime.persistentInk().count == VisibilityTargetPlanV1().drawingDeltas.count)
+    #expect(await harness.machineActionLog.values.isEmpty)
+  }
 
-    await workspace.performControllerConnectionAction()
-    #expect(workspace.currentLearningPathItemID == .stage(.enableMotion))
-    await workspace.activateMotionGuard()
-    #expect(workspace.controllerSessionEstablished)
-    #expect(workspace.motionAuthorizationEnabled)
-    #expect(workspace.currentLearningPathItemID == .humanGuidedDiscovery(.penInteraction))
+  @Test("SIMULATED public actions complete the target-anchored line comparison")
+  func simulatedStageFourUsesPersistentCausalInk() async throws {
+    let harness = makeSimulatedHarness()
+    try await completeSimulatedVisibilityProtocol(
+      harness.workspace,
+      boundaryOrder: [.positiveX, .negativeX, .positiveY, .negativeY]
+    )
+    let targetInkCount = await harness.runtime.persistentInk().count
+    let lastTargetCapture = try #require(
+      harness.workspace.visibilityTargetObservation?.samples.last?.frame.captureNanoseconds
+    )
 
-    let penOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
-    await performStart(workspace, owner: penOwner)
-    for _ in 0..<4 {
-      let presentation = workspace.selectedOperatorActionPresentation(for: penOwner)
-      #expect(presentation.question?.prompt.isEmpty == false)
-      #expect(presentation.question?.choices == [.yes, .no])
-      await workspace.performExerciseAction(.choice(.yes), for: penOwner)
+    try await completeSimulatedStageFour(harness.workspace)
+
+    #expect(harness.workspace.currentLearningPathItemID == .stage(.adaptiveDrawing))
+    #expect(harness.workspace.drawingTrialAssessment == .observedGeometryAccepted)
+    #expect(await harness.runtime.persistentInk().count == targetInkCount + 1)
+    #expect(
+      harness.workspace.explorationPostLineFrame?.frame.captureNanoseconds ?? 0
+        > lastTargetCapture
+    )
+    #expect(await harness.machineActionLog.values.isEmpty)
+  }
+
+  @Test("Visibility Record Another aggregates two attempts without replacing target execution")
+  func visibilityRecordAnotherAggregatesExistingTarget() async throws {
+    let harness = makeSimulatedHarness()
+    try await completeSimulatedVisibilityProtocol(
+      harness.workspace,
+      boundaryOrder: [.positiveX, .negativeX, .positiveY, .negativeY]
+    )
+    let owner = LearningPathItemID.humanGuidedDiscovery(
+      .visibilityTargetAndClearViewRegistration
+    )
+    let executionID = try #require(
+      harness.workspace.learningArtifactGraph.currentRevision(for: .visibilityTargetExecution)?.id
+    )
+    let acceptedRegistrationID = try #require(
+      harness.workspace.learningArtifactGraph.currentRevision(for: .visibilityRegistration)?.id
+    )
+
+    try await performPublicAction(.recordAnotherAttempt, owner: owner, workspace: harness.workspace)
+    #expect(
+      harness.workspace.learningArtifactGraph.currentRevision(for: .visibilityRegistration)?.id
+        == acceptedRegistrationID
+    )
+    try await performPublicAction(
+      .observeExistingVisibilityTarget,
+      owner: owner,
+      workspace: harness.workspace
+    )
+    #expect(
+      harness.workspace.learningArtifactGraph.currentRevision(for: .visibilityRegistration)?.id
+        == acceptedRegistrationID
+    )
+    try await performPublicAction(
+      .acceptVisibilityRegistration,
+      owner: owner,
+      workspace: harness.workspace
+    )
+
+    #expect(
+      harness.workspace.learningArtifactGraph.currentRevision(for: .visibilityTargetExecution)?.id
+        == executionID
+    )
+    #expect(
+      harness.workspace.learningArtifactGraph.currentRevision(for: .visibilityRegistration)?.id
+        != acceptedRegistrationID
+    )
+    let history = try #require(
+      harness.workspace.visibilityObservationAttemptHistories.values.first(where: {
+        $0.includedSuccessfulAttempts.count == 2
+      })
+    )
+    let aggregate = try VisibilityTargetAttemptAggregate(history: history)
+    #expect(aggregate.validAttemptCount == 2)
+    #expect(aggregate.includedAttemptIDs.count == 2)
+    #expect(aggregate.includedObservations.flatMap(\.includedFrameIDs).count == 4)
+    #expect(await harness.machineActionLog.values.isEmpty)
+  }
+
+  @Test("cancelled Visibility Redo restores accepted graph and requires relocation before capture")
+  func cancelledVisibilityRedoIsAtomic() async throws {
+    let harness = makeSimulatedHarness()
+    try await completeSimulatedVisibilityProtocol(
+      harness.workspace,
+      boundaryOrder: [.positiveY, .negativeY, .positiveX, .negativeX]
+    )
+    let owner = LearningPathItemID.humanGuidedDiscovery(
+      .visibilityTargetAndClearViewRegistration
+    )
+    let acceptedRegistrationID = try #require(
+      harness.workspace.learningArtifactGraph.currentRevision(for: .visibilityRegistration)?.id
+    )
+    let acceptedExecutionID = try #require(
+      harness.workspace.learningArtifactGraph.currentRevision(for: .visibilityTargetExecution)?.id
+    )
+    let acceptedAreaID = harness.workspace.targetAreaIdentity
+    let acceptedInk = await harness.runtime.persistentInk()
+
+    try await performPublicAction(.redoThisStep, owner: owner, workspace: harness.workspace)
+    let capture = try #require(
+      harness.workspace.selectedOperatorActionPresentation(for: owner).actionStrip?.actions
+        .first(where: { $0.kind == .captureTargetPoseRegistration })
+    )
+    #expect(!capture.isEnabled)
+    #expect(capture.unavailableReason == "Move to a new target area first.")
+    #expect(
+      harness.workspace.learningArtifactGraph.currentRevision(for: .visibilityRegistration)?.id
+        == acceptedRegistrationID
+    )
+    try await performPublicAction(.cancel, owner: owner, workspace: harness.workspace)
+
+    #expect(harness.workspace.visibilityRegistrationAccepted)
+    #expect(harness.workspace.targetAreaIdentity == acceptedAreaID)
+    #expect(
+      harness.workspace.learningArtifactGraph.currentRevision(for: .visibilityRegistration)?.id
+        == acceptedRegistrationID
+    )
+    #expect(
+      harness.workspace.learningArtifactGraph.currentRevision(for: .visibilityTargetExecution)?.id
+        == acceptedExecutionID
+    )
+    #expect(await harness.runtime.persistentInk() == acceptedInk)
+    #expect(await harness.machineActionLog.values.isEmpty)
+  }
+
+  @Test("successful Visibility Redo relocates and atomically replaces the accepted registration")
+  func successfulVisibilityRedoUsesNewTargetArea() async throws {
+    let harness = makeSimulatedHarness()
+    try await completeSimulatedVisibilityProtocol(
+      harness.workspace,
+      boundaryOrder: [.positiveX, .negativeX, .positiveY, .negativeY]
+    )
+    let workspace = harness.workspace
+    let owner = LearningPathItemID.humanGuidedDiscovery(
+      .visibilityTargetAndClearViewRegistration
+    )
+    let oldAreaID = workspace.targetAreaIdentity
+    let oldRegistrationID = try #require(
+      workspace.learningArtifactGraph.currentRevision(for: .visibilityRegistration)?.id
+    )
+    let oldInkCount = await harness.runtime.persistentInk().count
+
+    try await performPublicAction(.redoThisStep, owner: owner, workspace: workspace)
+    try await selectPublicDirection(
+      .positiveY,
+      purpose: .targetAreaRelocation,
+      owner: owner,
+      workspace: workspace
+    )
+    try await performPublicAction(
+      .moveToNewTargetArea(
+        ClearViewSearchMove(direction: .positiveY, distance: .tenMillimeters)
+      ),
+      owner: owner,
+      workspace: workspace
+    )
+    try await performPublicAction(
+      .captureTargetPoseRegistration, owner: owner, workspace: workspace)
+    try await performPublicAction(
+      .acceptTargetContactPointAndROI, owner: owner, workspace: workspace)
+    try await selectPublicDirection(
+      .positiveX,
+      purpose: .clearViewSearch,
+      owner: owner,
+      workspace: workspace
+    )
+    try await performPublicAction(
+      .moveForClearView(
+        ClearViewSearchMove(direction: .positiveX, distance: .tenMillimeters)
+      ),
+      owner: owner,
+      workspace: workspace
+    )
+    try await performPublicAction(
+      .moveForClearView(
+        ClearViewSearchMove(direction: .positiveX, distance: .twoMillimeters)
+      ),
+      owner: owner,
+      workspace: workspace
+    )
+    try await performPublicAction(.recordClearViewLabel(.clear), owner: owner, workspace: workspace)
+    try await performPublicAction(.acceptClearPose, owner: owner, workspace: workspace)
+    try await performPublicAction(
+      .capturePreTargetClearViewBaseline,
+      owner: owner,
+      workspace: workspace
+    )
+    try await performPublicAction(.returnToRegisteredTargetPose, owner: owner, workspace: workspace)
+    try await performPublicAction(.drawVisibilityTarget, owner: owner, workspace: workspace)
+    try await performPublicAction(.returnToAcceptedClearPose, owner: owner, workspace: workspace)
+    try await performPublicAction(
+      .observeExistingVisibilityTarget,
+      owner: owner,
+      workspace: workspace
+    )
+    #expect(
+      workspace.learningArtifactGraph.currentRevision(for: .visibilityRegistration)?.id
+        == oldRegistrationID
+    )
+    try await performPublicAction(.acceptVisibilityRegistration, owner: owner, workspace: workspace)
+
+    #expect(workspace.targetAreaIdentity != oldAreaID)
+    #expect(workspace.retiredTargetAreaDispositions[oldAreaID] == .targetObserved)
+    #expect(
+      workspace.learningArtifactGraph.currentRevision(for: .visibilityRegistration)?.id
+        != oldRegistrationID
+    )
+    #expect(
+      workspace.learningArtifactGraph.revision(id: oldRegistrationID)?.state == .superseded
+    )
+    #expect(await harness.runtime.persistentInk().count > oldInkCount)
+    #expect(await harness.machineActionLog.values.isEmpty)
+  }
+
+  @Test("stopped Visibility Redo preserves accepted registration and records attempted-area ink")
+  func stoppedVisibilityRedoRetainsAttemptedAreaProvenance() async throws {
+    let harness = makeSimulatedHarness(
+      simulatedExecutionPacing: SimulatedLearningInteractivePacing(stepDelay: .milliseconds(150))
+    )
+    try await completeSimulatedVisibilityProtocol(
+      harness.workspace,
+      boundaryOrder: [.positiveX, .negativeX, .positiveY, .negativeY]
+    )
+    let workspace = harness.workspace
+    let owner = LearningPathItemID.humanGuidedDiscovery(
+      .visibilityTargetAndClearViewRegistration
+    )
+    let acceptedAreaID = workspace.targetAreaIdentity
+    let acceptedRegistrationID = try #require(
+      workspace.learningArtifactGraph.currentRevision(for: .visibilityRegistration)?.id
+    )
+    let acceptedInkCount = await harness.runtime.persistentInk().count
+
+    try await performPublicAction(.redoThisStep, owner: owner, workspace: workspace)
+    let attemptedAreaID = workspace.targetAreaIdentity
+    #expect(attemptedAreaID != acceptedAreaID)
+    try await selectPublicDirection(
+      .positiveY,
+      purpose: .targetAreaRelocation,
+      owner: owner,
+      workspace: workspace
+    )
+    try await performPublicAction(
+      .moveToNewTargetArea(
+        ClearViewSearchMove(direction: .positiveY, distance: .tenMillimeters)
+      ),
+      owner: owner,
+      workspace: workspace
+    )
+    try await performPublicAction(
+      .captureTargetPoseRegistration, owner: owner, workspace: workspace)
+    try await performPublicAction(
+      .acceptTargetContactPointAndROI, owner: owner, workspace: workspace)
+    try await selectPublicDirection(
+      .positiveX,
+      purpose: .clearViewSearch,
+      owner: owner,
+      workspace: workspace
+    )
+    try await performPublicAction(
+      .moveForClearView(
+        ClearViewSearchMove(direction: .positiveX, distance: .tenMillimeters)
+      ),
+      owner: owner,
+      workspace: workspace
+    )
+    try await performPublicAction(
+      .moveForClearView(
+        ClearViewSearchMove(direction: .positiveX, distance: .twoMillimeters)
+      ),
+      owner: owner,
+      workspace: workspace
+    )
+    try await performPublicAction(.recordClearViewLabel(.clear), owner: owner, workspace: workspace)
+    try await performPublicAction(.acceptClearPose, owner: owner, workspace: workspace)
+    try await performPublicAction(
+      .capturePreTargetClearViewBaseline,
+      owner: owner,
+      workspace: workspace
+    )
+    try await performPublicAction(.returnToRegisteredTargetPose, owner: owner, workspace: workspace)
+
+    let drawTask = Task {
+      try await performPublicAction(.drawVisibilityTarget, owner: owner, workspace: workspace)
     }
-    #expect(workspace.penInteractionCompleted)
-
-    let boundaryOwner = LearningPathItemID.humanGuidedDiscovery(.boundaryDiscovery)
-    #expect(workspace.currentLearningPathItemID == boundaryOwner)
-    await performStart(workspace, owner: boundaryOwner)
     try await waitUntil {
+      workspace.contextualStopPresentation != nil
+    }
+    try await Task.sleep(for: .milliseconds(550))
+    #expect(await harness.runtime.persistentInk().count > acceptedInkCount)
+    let stop = try #require(
+      workspace.selectedOperatorActionPresentation(for: owner).actionStrip?.actions
+        .first(where: { if case .stop = $0.kind { true } else { false } })?.kind
+    )
+    await workspace.performExerciseAction(stop, for: owner)
+    try await drawTask.value
+
+    #expect(workspace.targetAreaIdentity == acceptedAreaID)
+    #expect(workspace.visibilityRegistrationAccepted)
+    #expect(
+      workspace.learningArtifactGraph.currentRevision(for: .visibilityRegistration)?.id
+        == acceptedRegistrationID
+    )
+    #expect(
+      workspace.retiredTargetAreaDispositions[attemptedAreaID] == .inkPossible
+        || workspace.retiredTargetAreaDispositions[attemptedAreaID] == .targetUnusable
+    )
+    #expect(await harness.runtime.persistentInk().count > acceptedInkCount)
+    let reviewActions =
+      workspace.selectedOperatorActionPresentation(for: owner).actionStrip?.actions
+      ?? []
+    #expect(reviewActions.contains(where: { $0.kind == .drawVisibilityTarget }) == false)
+    #expect(await harness.machineActionLog.values.isEmpty)
+  }
+
+  @Test("cancelled Visibility Record Another remains excluded provenance")
+  func failedVisibilityRecordAnotherIsExcluded() async throws {
+    let harness = makeSimulatedHarness()
+    try await completeSimulatedVisibilityProtocol(
+      harness.workspace,
+      boundaryOrder: [.positiveY, .negativeY, .positiveX, .negativeX]
+    )
+    let workspace = harness.workspace
+    let owner = LearningPathItemID.humanGuidedDiscovery(
+      .visibilityTargetAndClearViewRegistration
+    )
+    let acceptedRegistrationID = try #require(
+      workspace.learningArtifactGraph.currentRevision(for: .visibilityRegistration)?.id
+    )
+    try await performPublicAction(.recordAnotherAttempt, owner: owner, workspace: workspace)
+    try await performPublicAction(.cancel, owner: owner, workspace: workspace)
+
+    let history = try #require(
+      workspace.visibilityObservationAttemptHistories.values.first(where: {
+        $0.records.count == 2
+      })
+    )
+    #expect(history.records.first?.inclusionState == .included)
+    #expect(history.records.last?.inclusionState == .excludedUnsuccessful)
+    #expect(history.records.last?.attempt.disposition == .cancelled)
+    #expect(try VisibilityTargetAttemptAggregate(history: history).validAttemptCount == 1)
+    #expect(
+      workspace.learningArtifactGraph.currentRevision(for: .visibilityRegistration)?.id
+        == acceptedRegistrationID
+    )
+    #expect(workspace.visibilityRegistrationAccepted)
+  }
+
+  @Test("camera configuration change preserves machine facts and requires four contact refreshes")
+  func cameraChangePreservesMachineAuthority() async throws {
+    let harness = makeSimulatedHarness()
+    try await completeSimulatedVisibilityProtocol(
+      harness.workspace,
+      boundaryOrder: [.positiveX, .negativeX, .positiveY, .negativeY],
+      throughVisibility: false
+    )
+    let workspace = harness.workspace
+    let boundaryOwner = LearningPathItemID.humanGuidedDiscovery(
+      .pairedBoundaryDiscoveryAndCentering
+    )
+    let penRevisionID = try #require(
+      workspace.learningArtifactGraph.currentRevision(for: .penInteraction)?.id
+    )
+    let sideRevisionIDs = workspace.acceptedBoundarySides.mapValues(\.revisionID)
+    let sidePositions = workspace.acceptedBoundarySides.mapValues(\.finalPosition)
+    let center = try #require(workspace.estimatedMachineCenter)
+    let centerRevisionID = try #require(
+      workspace.learningArtifactGraph.currentRevision(for: .estimatedMachineCenter)?.id
+    )
+    let arrival = try #require(workspace.centerArrivalPosition)
+    let arrivalRevisionID = try #require(
+      workspace.learningArtifactGraph.currentRevision(for: .centerArrival)?.id
+    )
+
+    await harness.runtime.injectFault(.cameraConfigurationChangeBeforeNextFrame)
+    await workspace.performCameraUtilityAction(.refresh)
+
+    #expect(
+      workspace.learningArtifactGraph.currentRevision(for: .penInteraction)?.id == penRevisionID)
+    #expect(workspace.acceptedBoundarySides.mapValues(\.revisionID) == sideRevisionIDs)
+    #expect(workspace.acceptedBoundarySides.mapValues(\.finalPosition) == sidePositions)
+    #expect(workspace.estimatedMachineCenter == center)
+    #expect(
+      workspace.learningArtifactGraph.currentRevision(for: .estimatedMachineCenter)?.id
+        == centerRevisionID
+    )
+    #expect(workspace.centerArrivalPosition == arrival)
+    #expect(
+      workspace.learningArtifactGraph.currentRevision(for: .centerArrival)?.id == arrivalRevisionID)
+    #expect(workspace.currentLearningPathItemID == boundaryOwner)
+    #expect(
+      workspace.currentExerciseActionStripPresentation?.actions.compactMap { action in
+        if case .redoBoundary(let direction) = action.kind { direction } else { nil }
+      }.count == 4
+    )
+    #expect(
       workspace.currentExerciseActionStripPresentation?.actions.contains(where: {
-        if case .stop = $0.kind { true } else { false }
-      }) == true
+        $0.kind == .moveToEstimatedCenter
+      }) == false
+    )
+
+    for (index, direction) in BoundaryDirection.allCases.enumerated() {
+      try await redoSimulatedBoundary(direction, workspace: workspace)
+      let remaining =
+        workspace.currentExerciseActionStripPresentation?.actions.compactMap {
+          action -> BoundaryDirection? in
+          if case .redoBoundary(let value) = action.kind { value } else { nil }
+        } ?? []
+      #expect(remaining.count == 3 - index)
     }
-    let boundaryActions = try #require(
-      workspace.currentExerciseActionStripPresentation?.actions
+    #expect(
+      workspace.currentExerciseActionStripPresentation?.actions.map(\.kind)
+        == [.moveToEstimatedCenter]
     )
-    #expect(!boundaryActions.contains(where: { if case .choice = $0.kind { true } else { false } }))
-    let stopKind = try #require(boundaryActions.first(where: {
-      if case .stop = $0.kind { true } else { false }
-    })?.kind)
-    await workspace.performExerciseAction(stopKind, for: boundaryOwner)
-    #expect(workspace.relevantBoundaryObservationCount == 1)
-    #expect(workspace.lastContextualStopAuditRecord?.disposition == .operatorStop)
+    try await performPublicAction(
+      .moveToEstimatedCenter,
+      owner: boundaryOwner,
+      workspace: workspace
+    )
+    #expect(
+      workspace.centerArrivalPosition != nil,
+      "Center recovery failed: \(workspace.explorationError ?? "nil")"
+    )
+    #expect(
+      workspace.currentLearningPathItemID
+        == .humanGuidedDiscovery(.visibilityTargetAndClearViewRegistration),
+      "Current item remained \(workspace.currentLearningPathItemID); exploration error: \(workspace.explorationError ?? "nil")"
+    )
+    #expect(await harness.machineActionLog.values.isEmpty)
+  }
 
-    let clearOwner = LearningPathItemID.humanGuidedDiscovery(.clearViewDiscovery)
-    #expect(workspace.currentLearningPathItemID == clearOwner)
-    await performStart(workspace, owner: clearOwner)
-    await workspace.performExerciseAction(.recordClearViewLabel(.clear), for: clearOwner)
-    await workspace.performExerciseAction(.acceptCurrentClearView, for: clearOwner)
-    #expect(workspace.clearViewPoseAccepted)
+  @Test("camera change preserves target-area ink provenance and exposes recovery only")
+  func cameraChangeMakesExistingTargetUnusableWithoutRedraw() async throws {
+    let harness = makeSimulatedHarness()
+    try await completeSimulatedVisibilityProtocol(
+      harness.workspace,
+      boundaryOrder: [.positiveY, .negativeY, .positiveX, .negativeX]
+    )
+    let workspace = harness.workspace
+    let boundaryOwner = LearningPathItemID.humanGuidedDiscovery(
+      .pairedBoundaryDiscoveryAndCentering
+    )
+    let visibilityOwner = LearningPathItemID.humanGuidedDiscovery(
+      .visibilityTargetAndClearViewRegistration
+    )
+    let targetAreaID = workspace.targetAreaIdentity
+    let targetFrameID = workspace.targetPoseRegistrationFrame?.frame.id
+    let targetObservation = workspace.visibilityTargetObservation
+    let ink = await harness.runtime.persistentInk()
 
-    for step in ObservedDrawingTrialStep.allCases where step != .compareIntendedAndObservedGeometry {
-      let owner = LearningPathItemID.observedDrawingTrial(step)
-      #expect(workspace.currentLearningPathItemID == owner)
-      await performStart(workspace, owner: owner)
+    await harness.runtime.injectFault(.cameraConfigurationChangeBeforeNextFrame)
+    await workspace.performCameraUtilityAction(.refresh)
+
+    #expect(workspace.targetAreaIdentity == targetAreaID)
+    #expect(workspace.targetPoseRegistrationFrame?.frame.id == targetFrameID)
+    #expect(workspace.visibilityTargetObservation == targetObservation)
+    #expect(workspace.visibilityTargetSceneDisposition == .targetUnusable)
+    #expect(workspace.retiredTargetAreaDispositions[targetAreaID] == .targetUnusable)
+    #expect(await harness.runtime.persistentInk() == ink)
+    #expect(workspace.currentLearningPathItemID == boundaryOwner)
+
+    for direction in BoundaryDirection.allCases {
+      try await redoSimulatedBoundary(direction, workspace: workspace)
     }
-    let comparisonOwner = LearningPathItemID.observedDrawingTrial(
-      .compareIntendedAndObservedGeometry
+    try await performPublicAction(
+      .moveToEstimatedCenter,
+      owner: boundaryOwner,
+      workspace: workspace
     )
-    #expect(workspace.currentLearningPathItemID == comparisonOwner)
-    await performStart(workspace, owner: comparisonOwner)
-    await workspace.performExerciseAction(
-      .recordDrawingTrialAssessment(.observedGeometryAccepted),
-      for: comparisonOwner
+    try await performPublicAction(.start, owner: visibilityOwner, workspace: workspace)
+    let actions = try #require(
+      workspace.selectedOperatorActionPresentation(for: visibilityOwner).actionStrip?.actions
     )
+    #expect(actions.contains(where: { $0.kind == .registerNewTargetArea }))
+    #expect(actions.contains(where: { $0.kind == .paperReplaced }))
+    #expect(actions.contains(where: { $0.kind == .drawVisibilityTarget }) == false)
+    #expect(actions.contains(where: { $0.kind == .returnToRegisteredTargetPose }) == false)
+    #expect(actions.contains(where: { $0.kind == .returnToAcceptedClearPose }) == false)
+    #expect(await harness.machineActionLog.values.isEmpty)
+  }
 
-    #expect(workspace.currentLearningPathItemID == .stage(.adaptiveDrawing))
-    #expect(workspace.drawingTrialAssessment == .observedGeometryAccepted)
-    #expect(workspace.displayedFrame?.source == .simulated)
-    #expect(await machineActionLog.values.isEmpty)
+  @Test("SIMULATED supervised travel exposes a public Stop and accepts no arrival")
+  func simulatedSupervisedTravelStopIsPublicAndNonprogressing() async throws {
+    let harness = makeSimulatedHarness(
+      simulatedExecutionPacing: SimulatedLearningInteractivePacing(stepDelay: .milliseconds(250))
+    )
+    try await completeSimulatedVisibilityProtocol(
+      harness.workspace,
+      boundaryOrder: [.positiveX, .negativeX, .positiveY, .negativeY],
+      throughVisibility: false,
+      moveToCenter: false
+    )
+    let workspace = harness.workspace
+    let owner = LearningPathItemID.humanGuidedDiscovery(
+      .pairedBoundaryDiscoveryAndCentering
+    )
+    let moveTask = Task {
+      try await performPublicAction(.moveToEstimatedCenter, owner: owner, workspace: workspace)
+    }
+    try await waitUntil {
+      workspace.selectedOperatorActionPresentation(for: owner).actionStrip?.actions
+        .contains(where: { if case .stop = $0.kind { true } else { false } }) == true
+    }
+    let strip = try #require(
+      workspace.selectedOperatorActionPresentation(for: owner).actionStrip
+    )
+    #expect(strip.mustRemainVisible)
+    #expect(strip.actions.filter { if case .stop = $0.kind { true } else { false } }.count == 1)
+    let stop = try #require(
+      strip.actions.first(where: { if case .stop = $0.kind { true } else { false } })?.kind
+    )
+    await workspace.performExerciseAction(stop, for: owner)
+    try await moveTask.value
+
+    #expect(workspace.centerArrivalPosition == nil)
+    #expect(workspace.currentLearningPathItemID == owner)
+    #expect(workspace.currentExerciseActionStripPresentation?.actions.map(\.kind) == [.restart])
+    #expect(workspace.lastContextualStopAuditRecord?.actor == "Operator")
+    #expect(workspace.lastContextualStopAuditRecord?.action == "Stop")
+    #expect(workspace.lastContextualStopAuditRecord?.outcome.contains("stopped") == true)
+    #expect(await harness.runtime.snapshot().currentOperation == nil)
+    #expect(await harness.machineActionLog.values.isEmpty)
   }
 
   @Test("SIMULATED learning is discarded and the parked LIVE authority is restored")
@@ -293,7 +765,7 @@ struct OperatorWorkspaceTests {
     await workspace.requestPassiveProbe()
     await workspace.startCamera()
     try await completePenInteraction(workspace)
-    await workspace.beginBoundaryDiscovery(.positiveY)
+    await workspace.beginPairedBoundarySide(.positiveY)
     try await waitUntil { workspace.contextualStopPresentation != nil }
     try await stopActiveOperation(workspace)
 
@@ -331,7 +803,7 @@ struct OperatorWorkspaceTests {
     await workspace.startCamera()
     try await completePenInteraction(workspace)
 
-    await workspace.beginBoundaryDiscovery(.negativeY)
+    await workspace.beginPairedBoundarySide(.negativeY)
     try await waitUntil { workspace.contextualStopPresentation != nil }
 
     #expect(workspace.machineSnapshot?.machine.connection == .connected)
@@ -357,7 +829,7 @@ struct OperatorWorkspaceTests {
 
     #expect(workspace.motionUnavailableReason != nil)
     #expect(workspace.discoveryStartUnavailableReason(for: .boundaryPositiveX) == nil)
-    await workspace.beginBoundaryDiscovery(.positiveX)
+    await workspace.beginPairedBoundarySide(.positiveX)
     try await waitUntil { workspace.contextualStopPresentation != nil }
     try await stopActiveOperation(workspace)
     #expect(workspace.relevantBoundaryObservationCount == 1)
@@ -374,7 +846,7 @@ struct OperatorWorkspaceTests {
     await workspace.requestPassiveProbe()
     await workspace.startCamera()
 
-    await workspace.beginBoundaryDiscovery(.negativeY)
+    await workspace.beginPairedBoundarySide(.negativeY)
     try await waitUntil { workspace.contextualStopPresentation != nil }
     await workspace.shutdown()
 
@@ -386,7 +858,8 @@ struct OperatorWorkspaceTests {
     #expect(workspace.isShutdown)
   }
 
-  @Test("announcement failure is advisory and Pen Interaction preserves output-before-actuation order")
+  @Test(
+    "announcement failure is advisory and Pen Interaction preserves output-before-actuation order")
   func announcementFailureDoesNotGatePenInteraction() async throws {
     let log = EventLog()
     let machine = try MachineFixture(log: log)
@@ -408,8 +881,12 @@ struct OperatorWorkspaceTests {
 
     #expect(workspace.penInteractionCompleted)
     let events = await log.values
-    #expect(events.firstIndex(of: "announce:Lowering the pen.")! < events.firstIndex(of: "machine:pen-lower")!)
-    #expect(events.firstIndex(of: "announce:Raising the pen.")! < events.firstIndex(of: "machine:pen-raise")!)
+    #expect(
+      events.firstIndex(of: "announce:Lowering the pen.")! < events.firstIndex(
+        of: "machine:pen-lower")!)
+    #expect(
+      events.firstIndex(of: "announce:Raising the pen.")! < events.firstIndex(
+        of: "machine:pen-raise")!)
     #expect(workspace.lastAnnouncementResultText == "Announcement completed.")
     await workspace.shutdown()
   }
@@ -488,8 +965,8 @@ struct OperatorWorkspaceTests {
     await workspace.startCamera()
     try await completePenInteraction(workspace)
 
-    let owner = LearningPathItemID.humanGuidedDiscovery(.boundaryDiscovery)
-    await workspace.beginBoundaryDiscovery(.negativeX)
+    let owner = LearningPathItemID.humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
+    await workspace.beginPairedBoundarySide(.negativeX)
     try await waitUntil { workspace.contextualStopPresentation != nil }
     await workspace.performExerciseAction(.cancel, for: owner)
 
@@ -507,35 +984,32 @@ struct OperatorWorkspaceTests {
 
   @Test("Record Another Attempt preserves compatible boundary samples and recomputes N")
   func boundaryAdditionalAttemptAggregates() async throws {
-    let log = EventLog()
-    let machine = try MachineFixture(log: log)
-    let camera = try CameraFixture()
-    let workspace = workspace(machine: machine, camera: camera, log: log)
-    await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
-    await workspace.startCamera()
-    try await completePenInteraction(workspace)
+    let harness = makeSimulatedHarness()
+    let workspace = harness.workspace
+    try await completeSimulatedVisibilityProtocol(
+      workspace,
+      boundaryOrder: [.positiveX, .negativeX, .positiveY, .negativeY],
+      throughVisibility: false
+    )
 
-    await workspace.beginBoundaryDiscovery(.positiveX)
-    try await waitUntil { workspace.contextualStopPresentation != nil }
-    try await stopActiveOperation(workspace)
-
-    let owner = LearningPathItemID.humanGuidedDiscovery(.boundaryDiscovery)
+    let owner = LearningPathItemID.humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
     let attemptsBeforeReview = workspace.boundaryAttemptHistories[.positiveX]?
       .values.first?.attempts.count
     let revisionsBeforeReview = workspace.learningArtifactGraph.revisions.count
-    let machineActionsBeforeReview = await machine.requestedFeeds.count
+    let machineActionsBeforeReview = await harness.machineActionLog.values.count
     let repeatActions = try #require(
       workspace.selectedOperatorActionPresentation(for: owner).actionStrip
     ).actions.map(\.kind)
-    #expect(repeatActions.contains(.redoThisStep))
-    #expect(repeatActions.contains(.recordAnotherAttempt))
-    #expect(attemptsBeforeReview == workspace.boundaryAttemptHistories[.positiveX]?
-      .values.first?.attempts.count)
+    #expect(repeatActions.contains(.redoBoundary(.positiveX)))
+    #expect(repeatActions.contains(.recordAnotherBoundaryAttempt(.positiveX)))
+    #expect(
+      attemptsBeforeReview
+        == workspace.boundaryAttemptHistories[.positiveX]?
+        .values.first?.attempts.count)
     #expect(revisionsBeforeReview == workspace.learningArtifactGraph.revisions.count)
-    let machineActionsAfterReview = await machine.requestedFeeds.count
+    let machineActionsAfterReview = await harness.machineActionLog.values.count
     #expect(machineActionsBeforeReview == machineActionsAfterReview)
-    await workspace.performExerciseAction(.recordAnotherAttempt, for: owner)
+    await workspace.performExerciseAction(.recordAnotherBoundaryAttempt(.positiveX), for: owner)
     try await waitUntil { workspace.contextualStopPresentation != nil }
     try await stopActiveOperation(workspace)
 
@@ -545,26 +1019,23 @@ struct OperatorWorkspaceTests {
     #expect(aggregate.validSampleCount == 2)
     #expect(aggregate.includedAttemptIDs.count == 2)
     #expect(aggregate.estimator.revision == "1")
-    #expect(workspace.drawingFramePosterior?.observationCount == 2)
-    #expect(workspace.drawingFramePosterior?.observationsByKey.count == 2)
-    await workspace.shutdown()
+    // The frame posterior is the all-side derived value: four original sides
+    // plus this compatible additional +X observation.
+    #expect(workspace.drawingFramePosterior?.observationCount == 5)
+    #expect(workspace.drawingFramePosterior?.observationsByKey.count == 5)
+    #expect(await harness.machineActionLog.values.isEmpty)
   }
 
   @Test("Redo replaces one accepted boundary sample while Record Another keeps compatible samples")
   func boundaryRedoSupersedesOnlyReplacedSample() async throws {
-    let log = EventLog()
-    let machine = try MachineFixture(log: log)
-    let camera = try CameraFixture()
-    let workspace = workspace(machine: machine, camera: camera, log: log)
-    await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
-    await workspace.startCamera()
-    try await completePenInteraction(workspace)
-
-    await workspace.beginBoundaryDiscovery(.positiveX)
-    try await waitUntil { workspace.contextualStopPresentation != nil }
-    try await stopActiveOperation(workspace)
-    let owner = LearningPathItemID.humanGuidedDiscovery(.boundaryDiscovery)
+    let harness = makeSimulatedHarness()
+    let workspace = harness.workspace
+    try await completeSimulatedVisibilityProtocol(
+      workspace,
+      boundaryOrder: [.positiveX, .negativeX, .positiveY, .negativeY],
+      throughVisibility: false
+    )
+    let owner = LearningPathItemID.humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
     let oldAttemptID = try #require(
       workspace.boundaryAttemptHistories[.positiveX]?.values.first?.attempts.first?.id
     )
@@ -572,7 +1043,7 @@ struct OperatorWorkspaceTests {
       workspace.boundaryFrameObservationsByAttemptID[oldAttemptID]?.key
     )
 
-    await workspace.performExerciseAction(.redoThisStep, for: owner)
+    await workspace.performExerciseAction(.redoBoundary(.positiveX), for: owner)
     try await waitUntil { workspace.contextualStopPresentation != nil }
     try await stopActiveOperation(workspace)
 
@@ -585,34 +1056,31 @@ struct OperatorWorkspaceTests {
     #expect(aggregate.validSampleCount == 1)
     #expect(aggregate.includedAttemptIDs == [replacementID])
     #expect(!aggregate.includedAttemptIDs.contains(oldAttemptID))
-    #expect(workspace.drawingFramePosterior?.observationCount == 1)
+    // Replacement removes the superseded +X sample while retaining the other
+    // three independent sides and the accepted replacement.
+    #expect(workspace.drawingFramePosterior?.observationCount == 4)
     #expect(workspace.drawingFramePosterior?.observationsByKey[oldObservationKey] == nil)
     #expect(workspace.boundaryFrameObservationsByAttemptID[oldAttemptID]?.key == oldObservationKey)
     #expect(workspace.boundaryFrameObservationsByAttemptID[replacementID] != nil)
-    await workspace.shutdown()
+    #expect(await harness.machineActionLog.values.isEmpty)
   }
 
   @Test("cancelled boundary Redo preserves the accepted included sample")
   func cancelledBoundaryRedoPreservesAggregate() async throws {
-    let log = EventLog()
-    let machine = try MachineFixture(log: log)
-    let camera = try CameraFixture()
-    let workspace = workspace(machine: machine, camera: camera, log: log)
-    await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
-    await workspace.startCamera()
-    try await completePenInteraction(workspace)
-
-    await workspace.beginBoundaryDiscovery(.negativeX)
-    try await waitUntil { workspace.contextualStopPresentation != nil }
-    try await stopActiveOperation(workspace)
-    let owner = LearningPathItemID.humanGuidedDiscovery(.boundaryDiscovery)
+    let harness = makeSimulatedHarness()
+    let workspace = harness.workspace
+    try await completeSimulatedVisibilityProtocol(
+      workspace,
+      boundaryOrder: [.negativeX, .positiveX, .negativeY, .positiveY],
+      throughVisibility: false
+    )
+    let owner = LearningPathItemID.humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
     let acceptedAttemptID = try #require(
       workspace.boundaryAttemptHistories[.negativeX]?.values.first?.attempts.first?.id
     )
     let acceptedPosterior = workspace.drawingFramePosterior
 
-    await workspace.performExerciseAction(.redoThisStep, for: owner)
+    await workspace.performExerciseAction(.redoBoundary(.negativeX), for: owner)
     try await waitUntil { workspace.contextualStopPresentation != nil }
     await workspace.performExerciseAction(.cancel, for: owner)
 
@@ -625,30 +1093,26 @@ struct OperatorWorkspaceTests {
     #expect(aggregate.validSampleCount == 1)
     #expect(aggregate.includedAttemptIDs == [acceptedAttemptID])
     #expect(workspace.drawingFramePosterior == acceptedPosterior)
-    await workspace.shutdown()
+    #expect(await harness.machineActionLog.values.isEmpty)
   }
 
   @Test("configuration-changing boundary Redo supersedes across separate histories without pooling")
   func incompatibleBoundaryRedoRemainsSeparate() async throws {
-    let log = EventLog()
-    let machine = try MachineFixture(log: log)
-    let camera = try CameraFixture(rotatesConfiguration: true)
-    let workspace = workspace(machine: machine, camera: camera, log: log)
-    await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
-    await workspace.startCamera()
-    try await completePenInteraction(workspace)
-
-    await workspace.beginBoundaryDiscovery(.positiveY)
-    try await waitUntil { workspace.contextualStopPresentation != nil }
-    try await stopActiveOperation(workspace)
+    let harness = makeSimulatedHarness()
+    let workspace = harness.workspace
+    try await completeSimulatedVisibilityProtocol(
+      workspace,
+      boundaryOrder: [.positiveY, .negativeY, .positiveX, .negativeX],
+      throughVisibility: false
+    )
     let acceptedAttemptID = try #require(
       workspace.learningArtifactGraph.currentRevision(for: .boundaryObservation(.positiveY))?
         .attemptID
     )
 
-    let owner = LearningPathItemID.humanGuidedDiscovery(.boundaryDiscovery)
-    await workspace.performExerciseAction(.redoThisStep, for: owner)
+    let owner = LearningPathItemID.humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
+    await harness.runtime.injectFault(.cameraConfigurationChangeBeforeNextFrame)
+    await workspace.performExerciseAction(.redoBoundary(.positiveY), for: owner)
     try await waitUntil { workspace.contextualStopPresentation != nil }
     try await stopActiveOperation(workspace)
 
@@ -657,12 +1121,14 @@ struct OperatorWorkspaceTests {
         .attemptID
     )
     let histories = try #require(workspace.boundaryAttemptHistories[.positiveY])
-    let oldHistory = try #require(histories.values.first(where: {
-      $0.attempts.contains(where: { $0.id == acceptedAttemptID })
-    }))
-    let newHistory = try #require(histories.values.first(where: {
-      $0.attempts.contains(where: { $0.id == replacementAttemptID })
-    }))
+    let oldHistory = try #require(
+      histories.values.first(where: {
+        $0.attempts.contains(where: { $0.id == acceptedAttemptID })
+      }))
+    let newHistory = try #require(
+      histories.values.first(where: {
+        $0.attempts.contains(where: { $0.id == replacementAttemptID })
+      }))
     #expect(histories.count == 2)
     #expect(acceptedAttemptID != replacementAttemptID)
     #expect(oldHistory.records.first?.inclusionState == .superseded(by: replacementAttemptID))
@@ -670,7 +1136,7 @@ struct OperatorWorkspaceTests {
     #expect(newHistory.records.first?.inclusionState == .included)
     #expect(newHistory.includedSuccessfulAttempts.map(\.id) == [replacementAttemptID])
     #expect(try NumericAttemptAggregate(history: newHistory).validSampleCount == 1)
-    await workspace.shutdown()
+    #expect(await harness.machineActionLog.values.isEmpty)
   }
 
   @Test("Redo Pen Interaction replaces only its revision and retains independent boundary evidence")
@@ -683,7 +1149,7 @@ struct OperatorWorkspaceTests {
     await workspace.requestPassiveProbe()
     await workspace.startCamera()
     try await completePenInteraction(workspace)
-    await workspace.beginBoundaryDiscovery(.positiveY)
+    await workspace.beginPairedBoundarySide(.positiveY)
     try await waitUntil { workspace.contextualStopPresentation != nil }
     try await stopActiveOperation(workspace)
 
@@ -759,6 +1225,274 @@ private func performStart(
   await workspace.performExerciseAction(.start, for: owner)
 }
 
+private struct SimulatedWorkspaceHarness {
+  let workspace: OperatorWorkspace
+  let runtime: SimulatedLearningRuntime
+  let machineActionLog: EventLog
+}
+
+private func sequenceIDForTest(_ direction: BoundaryDirection) -> DiscoverySequenceID {
+  switch direction {
+  case .negativeX: .boundaryNegativeX
+  case .positiveX: .boundaryPositiveX
+  case .negativeY: .boundaryNegativeY
+  case .positiveY: .boundaryPositiveY
+  }
+}
+
+@MainActor
+private func makeSimulatedHarness(
+  pixelsPerMillimeter: Double = 4,
+  simulatedExecutionPacing: any SimulatedLearningExecutionPacing =
+    SimulatedLearningImmediatePacing()
+) -> SimulatedWorkspaceHarness {
+  let machineActionLog = EventLog()
+  let clock = TestClock()
+  let runtime = SimulatedLearningRuntime(pixelsPerMillimeter: pixelsPerMillimeter)
+  return SimulatedWorkspaceHarness(
+    workspace: OperatorWorkspace(
+      machineActions: isolatedMachineActions(log: machineActionLog),
+      cameraActions: CameraComposition.actions,
+      simulatedLearningRuntime: runtime,
+      simulatedExecutionPacing: simulatedExecutionPacing,
+      serialDevices: [],
+      serialDeviceDiscovery: { [] },
+      loadSelectedSerialIdentifier: { nil },
+      persistSelectedSerialIdentifier: { _ in },
+      nowNanoseconds: { clock.next() }
+    ),
+    runtime: runtime,
+    machineActionLog: machineActionLog
+  )
+}
+
+@MainActor
+private func performPublicAction(
+  _ kind: ExerciseActionKind,
+  owner: LearningPathItemID,
+  workspace: OperatorWorkspace
+) async throws {
+  let presentation = workspace.selectedOperatorActionPresentation(for: owner)
+  let action = try #require(
+    presentation.actionStrip?.actions.first(where: { $0.kind == kind }),
+    "Missing public action \(kind); visible actions: \(String(describing: presentation.actionStrip?.actions.map(\.kind))); exploration error: \(workspace.explorationError ?? "nil")"
+  )
+  #expect(action.isEnabled)
+  await workspace.performExerciseAction(kind, for: owner)
+}
+
+@MainActor
+private func selectPublicDirection(
+  _ direction: BoundaryDirection,
+  purpose: ExerciseDirectionSelectionPurpose,
+  owner: LearningPathItemID,
+  workspace: OperatorWorkspace
+) async throws {
+  let selection = try #require(
+    workspace.selectedOperatorActionPresentation(for: owner).actionStrip?.directionSelection
+  )
+  #expect(selection.purpose == purpose)
+  #expect(selection.options.contains(direction))
+  await workspace.performExerciseAction(.selectDirection(purpose, direction), for: owner)
+}
+
+@MainActor
+private func redoSimulatedBoundary(
+  _ direction: BoundaryDirection,
+  workspace: OperatorWorkspace
+) async throws {
+  let owner = LearningPathItemID.humanGuidedDiscovery(
+    .pairedBoundaryDiscoveryAndCentering
+  )
+  try await performPublicAction(.redoBoundary(direction), owner: owner, workspace: workspace)
+  try await waitUntil {
+    workspace.selectedOperatorActionPresentation(for: owner).actionStrip?.actions
+      .contains(where: { if case .stop = $0.kind { true } else { false } }) == true
+  }
+  let stop = try #require(
+    workspace.selectedOperatorActionPresentation(for: owner).actionStrip?.actions
+      .first(where: { if case .stop = $0.kind { true } else { false } })?.kind
+  )
+  await workspace.performExerciseAction(stop, for: owner)
+  try await waitUntil { workspace.activeExerciseAttemptID == nil }
+}
+
+@MainActor
+private func completeSimulatedVisibilityProtocol(
+  _ workspace: OperatorWorkspace,
+  boundaryOrder: [BoundaryDirection],
+  throughVisibility: Bool = true,
+  moveToCenter: Bool = true
+) async throws {
+  await workspace.switchFrameMode(.simulated)
+  #expect(workspace.frameMode == .simulated)
+  #expect(workspace.simulatorEvidenceLabel == "SIMULATED — NOT PHYSICAL EVIDENCE")
+  await workspace.performControllerConnectionAction()
+  await workspace.activateMotionGuard()
+
+  let penOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+  try await performPublicAction(.start, owner: penOwner, workspace: workspace)
+  var physicalPoseQuestionCount = 0
+  for _ in 0..<8 where !workspace.penInteractionCompleted {
+    let presentation = workspace.selectedOperatorActionPresentation(for: penOwner)
+    #expect(presentation.question?.prompt.isEmpty == false)
+    #expect(presentation.question?.choices == [.yes, .no])
+    #expect(presentation.actionStrip?.actions.contains(where: { $0.kind == .start }) == false)
+    physicalPoseQuestionCount += 1
+    try await performPublicAction(.choice(.yes), owner: penOwner, workspace: workspace)
+  }
+  #expect(workspace.penInteractionCompleted)
+  #expect(physicalPoseQuestionCount == 3)
+
+  let boundaryOwner = LearningPathItemID.humanGuidedDiscovery(
+    .pairedBoundaryDiscoveryAndCentering
+  )
+  for direction in boundaryOrder {
+    try await selectPublicDirection(
+      direction,
+      purpose: .boundary,
+      owner: boundaryOwner,
+      workspace: workspace
+    )
+    try await performPublicAction(.start, owner: boundaryOwner, workspace: workspace)
+    try await waitUntil {
+      workspace.selectedOperatorActionPresentation(for: boundaryOwner).actionStrip?.actions
+        .contains(where: { if case .stop = $0.kind { true } else { false } }) == true
+    }
+    let stop = try #require(
+      workspace.selectedOperatorActionPresentation(for: boundaryOwner).actionStrip?.actions
+        .first(where: { if case .stop = $0.kind { true } else { false } })?.kind
+    )
+    await workspace.performExerciseAction(stop, for: boundaryOwner)
+    #expect(
+      workspace.activeExerciseAttemptID == nil,
+      "transaction=\(String(describing: workspace.discoveryTransactions[sequenceIDForTest(direction)]?.state)) error=\(workspace.discoveryError ?? "nil") count=\(workspace.relevantBoundaryObservationCount)"
+    )
+    try await waitUntil { workspace.activeExerciseAttemptID == nil }
+  }
+  #expect(workspace.pairedBoundaryProgress.isComplete)
+  #expect(workspace.acceptedBoundarySides.count == 4)
+  #expect(workspace.currentLearningPathItemID == boundaryOwner)
+  #expect(
+    workspace.selectedOperatorActionPresentation(for: boundaryOwner).actionStrip?.actions
+      .map(\.kind) == [.moveToEstimatedCenter]
+  )
+  if !moveToCenter { return }
+  try await performPublicAction(.moveToEstimatedCenter, owner: boundaryOwner, workspace: workspace)
+  if !throughVisibility { return }
+
+  let visibilityOwner = LearningPathItemID.humanGuidedDiscovery(
+    .visibilityTargetAndClearViewRegistration
+  )
+  try await performPublicAction(.start, owner: visibilityOwner, workspace: workspace)
+  try await performPublicAction(
+    .captureTargetPoseRegistration,
+    owner: visibilityOwner,
+    workspace: workspace
+  )
+  try await performPublicAction(
+    .acceptTargetContactPointAndROI,
+    owner: visibilityOwner,
+    workspace: workspace
+  )
+  let visibilityAttemptID = try #require(workspace.activeExerciseAttemptID)
+  try await performPublicAction(
+    .recordClearViewLabel(.blocked),
+    owner: visibilityOwner,
+    workspace: workspace
+  )
+  #expect(workspace.activeExerciseAttemptID == visibilityAttemptID)
+  #expect(
+    workspace.selectedOperatorActionPresentation(for: visibilityOwner).actionStrip?.actions
+      .first(where: { $0.kind == .acceptClearPose })?.isEnabled == false
+  )
+  try await selectPublicDirection(
+    .positiveX,
+    purpose: .clearViewSearch,
+    owner: visibilityOwner,
+    workspace: workspace
+  )
+  try await performPublicAction(
+    .moveForClearView(ClearViewSearchMove(direction: .positiveX, distance: .tenMillimeters)),
+    owner: visibilityOwner,
+    workspace: workspace
+  )
+  try await performPublicAction(
+    .recordClearViewLabel(.partial),
+    owner: visibilityOwner,
+    workspace: workspace
+  )
+  #expect(workspace.activeExerciseAttemptID == visibilityAttemptID)
+  #expect(
+    workspace.selectedOperatorActionPresentation(for: visibilityOwner).actionStrip?.actions
+      .first(where: { $0.kind == .acceptClearPose })?.isEnabled == false
+  )
+  try await performPublicAction(
+    .moveForClearView(ClearViewSearchMove(direction: .positiveX, distance: .twoMillimeters)),
+    owner: visibilityOwner,
+    workspace: workspace
+  )
+  try await performPublicAction(
+    .recordClearViewLabel(.clear),
+    owner: visibilityOwner,
+    workspace: workspace
+  )
+  #expect(workspace.activeExerciseAttemptID == visibilityAttemptID)
+  try await performPublicAction(.acceptClearPose, owner: visibilityOwner, workspace: workspace)
+  try await performPublicAction(
+    .capturePreTargetClearViewBaseline,
+    owner: visibilityOwner,
+    workspace: workspace
+  )
+  try await performPublicAction(
+    .returnToRegisteredTargetPose,
+    owner: visibilityOwner,
+    workspace: workspace
+  )
+  try await performPublicAction(.drawVisibilityTarget, owner: visibilityOwner, workspace: workspace)
+  try await performPublicAction(
+    .returnToAcceptedClearPose,
+    owner: visibilityOwner,
+    workspace: workspace
+  )
+  try await performPublicAction(
+    .observeExistingVisibilityTarget,
+    owner: visibilityOwner,
+    workspace: workspace
+  )
+  try await performPublicAction(
+    .acceptVisibilityRegistration,
+    owner: visibilityOwner,
+    workspace: workspace
+  )
+}
+
+@MainActor
+private func completeSimulatedStageFour(_ workspace: OperatorWorkspace) async throws {
+  let actions: [(LearningPathItemID, ExerciseActionKind)] = [
+    (.observedDrawingTrial(.chooseIsolatedLinePlan), .chooseIsolatedLinePlan(.positiveX)),
+    (.observedDrawingTrial(.captureTargetAnchoredBaseline), .captureTargetAnchoredBaseline),
+    (.observedDrawingTrial(.moveToLineStart), .moveToLineStart),
+    (.observedDrawingTrial(.drawIsolatedLine), .drawIsolatedLine),
+    (
+      .observedDrawingTrial(.returnToClearPoseAndObserveNewInk),
+      .returnToClearPoseAndObserveNewInk
+    ),
+  ]
+  for (owner, kind) in actions {
+    try await performPublicAction(kind, owner: owner, workspace: workspace)
+  }
+  let comparison = LearningPathItemID.observedDrawingTrial(
+    .compareIntendedAndObservedGeometry
+  )
+  try await performPublicAction(.start, owner: comparison, workspace: workspace)
+  try await performPublicAction(
+    .recordDrawingTrialAssessment(.observedGeometryAccepted),
+    owner: comparison,
+    workspace: workspace
+  )
+}
+
 @MainActor
 private func completePenInteraction(_ workspace: OperatorWorkspace) async throws {
   if let reason = workspace.discoveryStartUnavailableReason(for: .penInteraction) {
@@ -771,8 +1505,6 @@ private func completePenInteraction(_ workspace: OperatorWorkspace) async throws
 @MainActor
 private func finishPenInteraction(_ workspace: OperatorWorkspace) async throws {
   try requireStep(workspace, "answer-initially-up")
-  await workspace.answerCurrentQuestion(.yes)
-  try requireStep(workspace, "answer-clear-to-lower")
   await workspace.answerCurrentQuestion(.yes)
   try requireStep(workspace, "answer-currently-down")
   await workspace.answerCurrentQuestion(.yes)
@@ -828,6 +1560,8 @@ private func workspace(
       },
       requestDrawingStroke: { _ in fatalError("unused") },
       beginDrawingStroke: { _ in fatalError("unused") },
+      beginVisibilityTarget: { _ in fatalError("unused") },
+      requestVisibilityTargetIntent: { _, _ in fatalError("unused") },
       requestPenActuation: { await machine.requestPen($0) },
       requestBoundaryMotion: { await machine.requestBoundaryMotion($0) },
       beginBoundaryMotion: { request in
@@ -897,6 +1631,20 @@ private func isolatedMachineActions(log: EventLog) -> OperatorWorkspace.MachineA
       await log.append("beginDrawingStroke")
       return .rejected(.refused(.notConnected))
     },
+    beginVisibilityTarget: { _ in
+      await log.append("beginVisibilityTarget")
+      return .rejected(
+        .needsAttention(
+          phase: .approach,
+          scene: .pristine,
+          failure: .approach(.refused(.notConnected))
+        )
+      )
+    },
+    requestVisibilityTargetIntent: { _, _ in
+      await log.append("requestVisibilityTargetIntent")
+      return .staleOperation
+    },
     requestPenActuation: { _ in
       await log.append("requestPenActuation")
       return .refused(.notConnected)
@@ -935,15 +1683,8 @@ private func cameraActions(_ fixture: CameraFixture) -> OperatorWorkspace.Camera
     captureSnapshot: { "unused" },
     setAutomaticInspection: { fixture.setAutomaticInspection($0) },
     analysisUpdates: { AsyncStream { $0.finish() } },
-    simulatedContent: { mode in
-      try await CameraComposition.actions.simulatedContent(mode)
-    },
-    simulatedExplorationFrames: {
-      try await CameraComposition.actions.simulatedExplorationFrames()
-    },
-    observeAnchorDot: { _ in fatalError("unused") },
     observeIsolatedInk: { _ in fatalError("unused") },
-    exportLearningEpisode: { _, _ in fatalError("unused") }
+    observeVisibilityTarget: { _ in fatalError("unused") },
   )
 }
 
@@ -1181,7 +1922,8 @@ private final class CameraFixture: @unchecked Sendable {
   func inspection(after captureBoundary: UInt64) throws -> LiveSceneInspection {
     lock.lock()
     inspectionCount += 1
-    let inspectionConfigurationID = rotatesConfiguration
+    let inspectionConfigurationID =
+      rotatesConfiguration
       ? CameraConfigurationID()
       : configurationID
     lock.unlock()

@@ -410,6 +410,123 @@ public struct PointAttemptAggregate<Space>: Hashable, Sendable {
   }
 }
 
+public enum VisibilityTargetAttemptAggregateError: Error, Hashable, Sendable {
+  case noSuccessfulValues
+  case invalidObservation(ExerciseAttemptID)
+  case observationContextMismatch(ExerciseAttemptID)
+  case nonFiniteEstimate
+}
+
+/// An across-attempt aggregate for Record Another Attempt on one already drawn
+/// visibility target. Each included observation retains its own exact baseline,
+/// two target frame IDs, estimator, and within-attempt uncertainty; this type
+/// estimates only across compatible accepted attempts.
+public struct VisibilityTargetAttemptAggregate: Hashable, Sendable {
+  public let validAttemptCount: Int
+  public let estimator: AggregateEstimatorIdentity
+  public let centroidEstimate: Point2<CameraPixelSpace>
+  public let uncertainty: PointSampleUncertainty<CameraPixelSpace>
+  public let includedAttemptIDs: [ExerciseAttemptID]
+  public let includedObservations: [VisibilityTargetObservation]
+  public let source: FrameSourceIdentity
+  public let cameraConfigurationID: CameraConfigurationID
+  public let controllerSessionID: UUID
+  public let coordinateRevision: UInt64
+  public let toolPaperRevision: UUID
+  public let region: PixelRect
+  public let targetPlanRevision: String
+
+  public init(
+    history: ExerciseAttemptHistory<VisibilityTargetObservation>,
+    estimator: AggregateEstimatorIdentity = AggregateEstimatorIdentity(
+      name: "component-arithmetic-mean",
+      revision: "visibility-target-attempt-v1"
+    )
+  ) throws {
+    let included = history.includedSuccessfulAttempts
+    guard !included.isEmpty else {
+      throw VisibilityTargetAttemptAggregateError.noSuccessfulValues
+    }
+    guard let firstAttempt = included.first, let first = firstAttempt.value else {
+      throw VisibilityTargetAttemptAggregateError.invalidObservation(
+        included.first?.id ?? ExerciseAttemptID()
+      )
+    }
+    guard first.validSampleCount == 2,
+      first.samples.count == 2,
+      first.includedFrameIDs.count == 2,
+      first.algorithmRevision == history.compatibility.algorithmRevision,
+      history.compatibility.cameraConfigurationID == first.baseline.cameraConfigurationID,
+      history.compatibility.coordinateSpace == .cameraPixels,
+      history.compatibility.units == .pixels
+    else {
+      throw VisibilityTargetAttemptAggregateError.invalidObservation(firstAttempt.id)
+    }
+
+    let observations = try included.map { attempt in
+      guard let observation = attempt.value,
+        observation.validSampleCount == 2,
+        observation.samples.count == 2,
+        observation.includedFrameIDs.count == 2
+      else {
+        throw VisibilityTargetAttemptAggregateError.invalidObservation(attempt.id)
+      }
+      guard observation.source == first.source,
+        observation.baseline.cameraConfigurationID == first.baseline.cameraConfigurationID,
+        observation.controllerSessionID == first.controllerSessionID,
+        observation.coordinateRevision == first.coordinateRevision,
+        observation.toolPaperRevision == first.toolPaperRevision,
+        observation.region == first.region,
+        observation.targetPlanRevision == first.targetPlanRevision,
+        observation.algorithmRevision == first.algorithmRevision
+      else {
+        throw VisibilityTargetAttemptAggregateError.observationContextMismatch(attempt.id)
+      }
+      return observation
+    }
+    let meanX = observations.reduce(0) { $0 + $1.centroid.x }
+      / Double(observations.count)
+    let meanY = observations.reduce(0) { $0 + $1.centroid.y }
+      / Double(observations.count)
+    guard meanX.isFinite, meanY.isFinite else {
+      throw VisibilityTargetAttemptAggregateError.nonFiniteEstimate
+    }
+    let estimate = try Point2<CameraPixelSpace>(x: meanX, y: meanY)
+    let aggregateUncertainty: PointSampleUncertainty<CameraPixelSpace>
+    if observations.count < 2 {
+      aggregateUncertainty = .unavailable(validSampleCount: observations.count)
+    } else {
+      let denominator = Double(observations.count - 1)
+      let dx = sqrt(observations.reduce(0) {
+        $0 + ($1.centroid.x - meanX) * ($1.centroid.x - meanX)
+      } / denominator)
+      let dy = sqrt(observations.reduce(0) {
+        $0 + ($1.centroid.y - meanY) * ($1.centroid.y - meanY)
+      } / denominator)
+      guard dx.isFinite, dy.isFinite else {
+        throw VisibilityTargetAttemptAggregateError.nonFiniteEstimate
+      }
+      aggregateUncertainty = .componentSampleStandardDeviation(
+        try Vector2(dx: dx, dy: dy)
+      )
+    }
+
+    validAttemptCount = observations.count
+    self.estimator = estimator
+    centroidEstimate = estimate
+    uncertainty = aggregateUncertainty
+    includedAttemptIDs = included.map(\.id)
+    includedObservations = observations
+    source = first.source
+    cameraConfigurationID = first.baseline.cameraConfigurationID
+    controllerSessionID = first.controllerSessionID
+    coordinateRevision = first.coordinateRevision
+    toolPaperRevision = first.toolPaperRevision
+    region = first.region
+    targetPlanRevision = first.targetPlanRevision
+  }
+}
+
 public enum CategoricalAggregateError: Error, Hashable, Sendable {
   case noSuccessfulValues
 }
@@ -489,12 +606,19 @@ public enum LearningArtifactKind: Codable, Hashable, Sendable {
   case boundaryObservation(BoundaryDirection)
   case boundaryPosterior(BoundaryDirection)
   case boundaryAssociation(BoundaryDirection)
+  case estimatedMachineCenter
+  case centerArrival
+  case targetPoseRegistration
   case clearPose
-  case cleanReference(AttemptGroupIdentity)
-  case lineStart(AttemptGroupIdentity)
-  case anchorMark(AttemptGroupIdentity)
-  case isolatedLine(AttemptGroupIdentity)
-  case postFrame(AttemptGroupIdentity)
+  case preTargetClearViewBaseline
+  case visibilityTargetExecution
+  case visibilityTargetObservation
+  case visibilityRegistration
+  case machineCameraRegistration
+  case targetAnchoredTrialBaseline(AttemptGroupIdentity)
+  case linePlan(AttemptGroupIdentity)
+  case lineExecution(AttemptGroupIdentity)
+  case postLineFrame(AttemptGroupIdentity)
   case inkObservation(AttemptGroupIdentity)
   case residual(AttemptGroupIdentity)
   case comparison(AttemptGroupIdentity)
@@ -537,12 +661,43 @@ public enum LearningDependencyGraphError: Error, Hashable, Sendable {
   case unsuccessfulReplacement(ExerciseAttemptDisposition)
   case invalidInitialState(LearningArtifactRevisionState)
   case dependencyUnavailable(LearningArtifactRevisionID)
+  case explicitReplacementRevisionUnavailable(LearningArtifactRevisionID)
+  case explicitReplacementKindMismatch(
+    revisionID: LearningArtifactRevisionID,
+    expected: LearningArtifactKind,
+    actual: LearningArtifactKind
+  )
+  case explicitReplacementStateMismatch(
+    revisionID: LearningArtifactRevisionID,
+    actual: LearningArtifactRevisionState
+  )
+  case explicitReplacementCurrentConflict(
+    kind: LearningArtifactKind,
+    revisionID: LearningArtifactRevisionID
+  )
 }
 
 public struct LearningArtifactCommit: Hashable, Sendable {
   public let currentRevision: LearningArtifactRevision
   public let supersededRevisionID: LearningArtifactRevisionID?
   public let invalidatedRevisionIDs: Set<LearningArtifactRevisionID>
+}
+
+public struct LearningArtifactInvalidation: Hashable, Sendable {
+  public let rootInvalidatedRevisionIDs: Set<LearningArtifactRevisionID>
+  public let transitiveInvalidatedRevisionIDs: Set<LearningArtifactRevisionID>
+
+  public var allInvalidatedRevisionIDs: Set<LearningArtifactRevisionID> {
+    rootInvalidatedRevisionIDs.union(transitiveInvalidatedRevisionIDs)
+  }
+
+  public init(
+    rootInvalidatedRevisionIDs: Set<LearningArtifactRevisionID>,
+    transitiveInvalidatedRevisionIDs: Set<LearningArtifactRevisionID>
+  ) {
+    self.rootInvalidatedRevisionIDs = rootInvalidatedRevisionIDs
+    self.transitiveInvalidatedRevisionIDs = transitiveInvalidatedRevisionIDs
+  }
 }
 
 /// In-memory accepted-revision index and explicit dependency graph. It is not a
@@ -564,6 +719,42 @@ public struct LearningDependencyGraph: Sendable {
   public func currentRevision(for kind: LearningArtifactKind) -> LearningArtifactRevision? {
     guard let id = currentRevisionIDByKind[kind] else { return nil }
     return revisionsByID[id]
+  }
+
+  /// Invalidates exactly the caller-declared current camera-dependent roots and
+  /// their explicit transitive consumers. Camera policy belongs to the caller;
+  /// the graph neither selects roots nor infers dependencies from sequence.
+  /// Existing revisions remain indexed with their identities and provenance.
+  @discardableResult
+  public mutating func invalidateForCameraChange(
+    rootKinds: Set<LearningArtifactKind>
+  ) -> LearningArtifactInvalidation {
+    let rootRevisionIDs: Set<LearningArtifactRevisionID> = Set(rootKinds.compactMap {
+      kind -> LearningArtifactRevisionID? in
+      guard let revisionID = currentRevisionIDByKind[kind],
+        revisionsByID[revisionID]?.state == .current
+      else { return nil }
+      return revisionID
+    })
+    let transitiveRevisionIDs = Self.transitiveDependents(
+      of: rootRevisionIDs,
+      in: revisionsByID
+    )
+    let allInvalidatedRevisionIDs = rootRevisionIDs.union(transitiveRevisionIDs)
+
+    for revisionID in allInvalidatedRevisionIDs {
+      guard revisionsByID[revisionID]?.state == .current else { continue }
+      let kind = revisionsByID[revisionID]!.kind
+      revisionsByID[revisionID]?.state = .invalidated
+      if currentRevisionIDByKind[kind] == revisionID {
+        currentRevisionIDByKind.removeValue(forKey: kind)
+      }
+    }
+
+    return LearningArtifactInvalidation(
+      rootInvalidatedRevisionIDs: rootRevisionIDs,
+      transitiveInvalidatedRevisionIDs: transitiveRevisionIDs
+    )
   }
 
   /// Commits only a successful candidate. The replacement and every declared
@@ -621,12 +812,77 @@ public struct LearningDependencyGraph: Sendable {
     )
   }
 
+  /// Finalizes a staged replacement whose exact accepted predecessor was
+  /// already invalidated in the draft by replacement of one of its declared
+  /// dependencies. This is not a recovery or policy API: callers must name the
+  /// exact same-kind invalidated revision. No other invalidation is changed.
+  @discardableResult
+  public mutating func commitReplacement(
+    _ candidate: LearningArtifactRevision,
+    supersedingInvalidatedRevision revisionID: LearningArtifactRevisionID
+  ) throws -> LearningArtifactCommit {
+    guard revisionsByID[candidate.id] == nil else {
+      throw LearningDependencyGraphError.duplicateRevision(candidate.id)
+    }
+    guard candidate.disposition == .succeeded else {
+      throw LearningDependencyGraphError.unsuccessfulReplacement(candidate.disposition)
+    }
+    guard candidate.state == .candidate else {
+      throw LearningDependencyGraphError.invalidInitialState(candidate.state)
+    }
+    guard let replacedRevision = revisionsByID[revisionID] else {
+      throw LearningDependencyGraphError.explicitReplacementRevisionUnavailable(revisionID)
+    }
+    guard replacedRevision.kind == candidate.kind else {
+      throw LearningDependencyGraphError.explicitReplacementKindMismatch(
+        revisionID: revisionID,
+        expected: candidate.kind,
+        actual: replacedRevision.kind
+      )
+    }
+    guard replacedRevision.state == .invalidated else {
+      throw LearningDependencyGraphError.explicitReplacementStateMismatch(
+        revisionID: revisionID,
+        actual: replacedRevision.state
+      )
+    }
+    if let currentRevisionID = currentRevisionIDByKind[candidate.kind] {
+      throw LearningDependencyGraphError.explicitReplacementCurrentConflict(
+        kind: candidate.kind,
+        revisionID: currentRevisionID
+      )
+    }
+    for dependencyID in candidate.consumedRevisionIDs {
+      guard revisionsByID[dependencyID]?.state == .current else {
+        throw LearningDependencyGraphError.dependencyUnavailable(dependencyID)
+      }
+    }
+
+    var currentCandidate = candidate
+    currentCandidate.state = .current
+    revisionsByID[revisionID]?.state = .superseded
+    revisionsByID[currentCandidate.id] = currentCandidate
+    currentRevisionIDByKind[currentCandidate.kind] = currentCandidate.id
+    return LearningArtifactCommit(
+      currentRevision: currentCandidate,
+      supersededRevisionID: revisionID,
+      invalidatedRevisionIDs: []
+    )
+  }
+
   private static func transitiveDependents(
     of revisionID: LearningArtifactRevisionID?,
     in revisions: [LearningArtifactRevisionID: LearningArtifactRevision]
   ) -> Set<LearningArtifactRevisionID> {
     guard let revisionID else { return [] }
-    var pending = [revisionID]
+    return transitiveDependents(of: [revisionID], in: revisions)
+  }
+
+  private static func transitiveDependents(
+    of revisionIDs: Set<LearningArtifactRevisionID>,
+    in revisions: [LearningArtifactRevisionID: LearningArtifactRevision]
+  ) -> Set<LearningArtifactRevisionID> {
+    var pending = Array(revisionIDs)
     var dependents: Set<LearningArtifactRevisionID> = []
     while let dependencyID = pending.popLast() {
       for revision in revisions.values

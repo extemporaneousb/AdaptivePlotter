@@ -73,6 +73,60 @@ struct WorkbenchPresentationTests {
     )
   }
 
+  @Test("active runtime action strip can keep its sole controls visible")
+  func activeExerciseControlsRemainVisible() {
+    let active = ExerciseActionStripPresentation(
+      ownerID: .humanGuidedDiscovery(.visibilityTargetAndClearViewRegistration),
+      actions: [
+        ExerciseActionDescriptor(
+          kind: .recordClearViewLabel(.blocked),
+          title: "Blocked"
+        ),
+        ExerciseActionDescriptor(
+          kind: .cancel,
+          title: "Cancel Attempt",
+          role: .destructive
+        ),
+      ],
+      mustRemainVisible: true
+    )
+    let idle = ExerciseActionStripPresentation(
+      ownerID: .observedDrawingTrial(.chooseIsolatedLinePlan),
+      actions: [
+        ExerciseActionDescriptor(kind: .start, title: "Start", role: .positive)
+      ]
+    )
+
+    #expect(active.mustRemainVisible)
+    #expect(!idle.mustRemainVisible)
+  }
+
+  @Test("exact evidence remains structured alongside actor action outcome and recovery")
+  func operationAndEvidenceProjection() {
+    let activity = OperationActivityPresentation(
+      actor: "Operator",
+      action: "Observe Existing Visibility Target",
+      outcome: .needsAttention,
+      detail: [.text("Ink may exist after accepted Pen Down.")],
+      recovery: [.text("Return to the accepted Clear pose and observe; do not redraw.")]
+    )
+    let evidence = ExerciseEvidencePresentation(
+      label: "Exact frames",
+      fragments: [
+        .text("baseline frame-40"),
+        .text("post frames frame-44 and frame-45"),
+        .text("camera configuration camera-A"),
+      ]
+    )
+
+    #expect(activity.actor == "Operator")
+    #expect(activity.action == "Observe Existing Visibility Target")
+    #expect(activity.outcome == .needsAttention)
+    #expect(activity.recovery.accessibilityText.contains("do not redraw"))
+    #expect(evidence.label == "Exact frames")
+    #expect(evidence.fragments.accessibilityText.contains("frame-44 and frame-45"))
+  }
+
   private func actions(
     unavailableReason: String?
   ) -> [CameraUtilityActionPresentation] {

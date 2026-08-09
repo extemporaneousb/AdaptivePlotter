@@ -1,3 +1,4 @@
+import Foundation
 import PlotterModel
 import PlotterRuntime
 
@@ -23,18 +24,18 @@ public struct SimulatedPaperStroke: Sendable, Equatable {
   }
 }
 
-public struct SimulatedIsolatedInkFrames: Sendable, Equatable {
-  public let cleanReference: StampedFrame
-  public let anchoredBaseline: StampedFrame
+public struct SimulatedTargetAndLineFrames: Sendable, Equatable {
+  public let preTargetClearViewBaseline: StampedFrame
+  public let targetPresentBaseline: StampedFrame
   public let postLine: StampedFrame
 
   public init(
-    cleanReference: StampedFrame,
-    anchoredBaseline: StampedFrame,
+    preTargetClearViewBaseline: StampedFrame,
+    targetPresentBaseline: StampedFrame,
     postLine: StampedFrame
   ) {
-    self.cleanReference = cleanReference
-    self.anchoredBaseline = anchoredBaseline
+    self.preTargetClearViewBaseline = preTargetClearViewBaseline
+    self.targetPresentBaseline = targetPresentBaseline
     self.postLine = postLine
   }
 }
@@ -94,49 +95,52 @@ public struct PaperSceneSimulator: Sendable {
     )
   }
 
-  /// Produces the three exact views consumed by paired isolated-ink analysis.
-  /// The anchor is a small stationary cross; the post frame adds only the line.
-  public func renderIsolatedInkSequence(
+  /// Produces the same-pose blank baseline, the accepted closed visibility
+  /// target, and the trial-local target-present frame with one added line.
+  public func renderVisibilityTargetAndLineSequence(
     preexistingInk: [SimulatedPaperStroke],
-    anchor: PaperPixelPoint,
+    targetCenter: PaperPixelPoint,
+    targetRadiusPixels: Int = 4,
+    lineStart: PaperPixelPoint,
     lineEnd: PaperPixelPoint,
-    cleanSequence: UInt64,
-    cleanCaptureNanoseconds: UInt64,
+    baselineSequence: UInt64,
+    baselineCaptureNanoseconds: UInt64,
     cameraConfigurationID: CameraConfigurationID
-  ) throws -> SimulatedIsolatedInkFrames {
-    let anchorStrokes = [
-      SimulatedPaperStroke(
-        start: PaperPixelPoint(x: anchor.x - 1, y: anchor.y),
-        end: PaperPixelPoint(x: anchor.x + 1, y: anchor.y)
-      ),
-      SimulatedPaperStroke(
-        start: PaperPixelPoint(x: anchor.x, y: anchor.y - 1),
-        end: PaperPixelPoint(x: anchor.x, y: anchor.y + 1)
-      ),
-    ]
-    let clean = try render(
+  ) throws -> SimulatedTargetAndLineFrames {
+    precondition(targetRadiusPixels > 0)
+    let vertices = (0..<8).map { index in
+      let angle = Double(index) * .pi / 4
+      return PaperPixelPoint(
+        x: targetCenter.x + Int((Double(targetRadiusPixels) * cos(angle)).rounded()),
+        y: targetCenter.y + Int((Double(targetRadiusPixels) * sin(angle)).rounded())
+      )
+    }
+    let targetStrokes = (0..<8).map { index in
+      SimulatedPaperStroke(start: vertices[index], end: vertices[(index + 1) % 8])
+    }
+    let baseline = try render(
       strokes: preexistingInk,
-      sequence: cleanSequence,
-      captureNanoseconds: cleanCaptureNanoseconds,
+      sequence: baselineSequence,
+      captureNanoseconds: baselineCaptureNanoseconds,
       cameraConfigurationID: cameraConfigurationID
     )
-    let anchored = try render(
-      strokes: preexistingInk + anchorStrokes,
-      sequence: cleanSequence + 1,
-      captureNanoseconds: cleanCaptureNanoseconds + 1,
+    let targetPresent = try render(
+      strokes: preexistingInk + targetStrokes,
+      sequence: baselineSequence + 1,
+      captureNanoseconds: baselineCaptureNanoseconds + 1,
       cameraConfigurationID: cameraConfigurationID
     )
     let post = try render(
-      strokes: preexistingInk + anchorStrokes + [
-        SimulatedPaperStroke(start: anchor, end: lineEnd)
+      strokes: preexistingInk + targetStrokes + [
+        SimulatedPaperStroke(start: lineStart, end: lineEnd)
       ],
-      sequence: cleanSequence + 2,
-      captureNanoseconds: cleanCaptureNanoseconds + 2,
+      sequence: baselineSequence + 2,
+      captureNanoseconds: baselineCaptureNanoseconds + 2,
       cameraConfigurationID: cameraConfigurationID
     )
-    return SimulatedIsolatedInkFrames(
-      cleanReference: clean,
-      anchoredBaseline: anchored,
+    return SimulatedTargetAndLineFrames(
+      preTargetClearViewBaseline: baseline,
+      targetPresentBaseline: targetPresent,
       postLine: post
     )
   }
