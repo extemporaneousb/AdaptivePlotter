@@ -65,21 +65,7 @@ Required before activation:
 The existing future-facing action, dataset, and model types may support this
 work. They do not make active experiment selection a current product feature.
 
-## 4. Faster attended Boundary approach
-
-Goal: reduce the current 10 mm segment-by-segment Boundary approach time without
-turning vision into boundary authority.
-
-Required outcomes:
-
-- longer coarse segments while the current frame indicates substantial space;
-- decreasing finite segment lengths near the likely side;
-- one logical owner and one operator Stop throughout the approach;
-- vision remains advisory and cannot accept a side or bypass Stop;
-- no renewal after ambiguity, limit, alarm, disconnect, or stale evidence;
-- deterministic tests separated from attended hardware timing evidence.
-
-## 5. Adaptive Drawing
+## 4. Adaptive Drawing
 
 Goal: execute useful multi-stroke programs while preserving checkpoint evidence
 and refusing ambiguous continuation.

@@ -29,6 +29,8 @@ The current source implements:
 - atomic durable accepted-Boundary checkpoints that remain quarantined until
   matching fresh controller context and MPos evidence is available;
 - Stop-only exercise presentation while physical movement owns the operation.
+- bounded camera-advised Boundary renewal tiers (40/20/10/5/2 mm) after an
+  initial 10 mm probe, with conservative fallback and Stop-race suppression;
 
 Adaptive Drawing remains Future. Future-facing drawing/model primitives are
 present and tested, but no current app route promotes a model or performs
@@ -54,6 +56,11 @@ focused checkpoint store/compatibility tests, one focused relaunch restoration
 test, focused active Stop and Boundary Cancel tests, repository-contract checks,
 and git diff checks. The long journey suite was skipped at the operator's
 request; physical relaunch recovery remains unverified.
+
+The camera-advised Boundary approach increment passed ordinary and strict Swift
+builds, three focused tier/bounds/fallback tests, the focused Stop-during-planning
+wire-suppression test, repository-contract checks, and git diff checks. Long
+journey suites were not run. Live camera/controller timing remains unverified.
 
 Automated and simulator evidence prove software behavior only.
 
@@ -109,6 +116,8 @@ The current integrated build still lacks attended verification of:
 - the revised 0.05 mm center-arrival acceptance, center-only Retry Center
   Arrival presentation, and progression into Stage 3.3 on live hardware;
 - durable accepted-Boundary restoration across a signed software relaunch;
+- attended timing and stopping behavior of camera-advised coarse-to-fine
+  Boundary renewal on live hardware;
 - coarse-to-fine Clear search and repeatability;
 - physical target contact/ROI, blank baseline, octagonal target, two-frame
   target observation, isolated line, new-ink observation, and comparison;

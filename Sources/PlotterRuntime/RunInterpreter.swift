@@ -261,7 +261,8 @@ public actor RunInterpreter {
   /// race where Stop could be published while the request task was still
   /// waiting to enter this actor.
   public func beginBoundaryMotion(
-    _ request: BoundaryMotionRequest
+    _ request: BoundaryMotionRequest,
+    renewalPlanner: BoundaryMotionRenewalPlanner? = nil
   ) async -> BoundaryMotionAdmission {
     guard currentOperation == .idle else {
       let outcome = BoundaryMotionOutcome.needsAttention(
@@ -275,7 +276,9 @@ public actor RunInterpreter {
     currentOperation = .boundaryMotion(request)
     activeBoundaryMotion = ActiveBoundaryMotion(request: request)
     activeBoundaryMotion?.lastSettledPosition = await machineController.snapshot().position
-    let task = Task { await self.runAdmittedBoundaryMotion(request) }
+    let task = Task {
+      await self.runAdmittedBoundaryMotion(request, renewalPlanner: renewalPlanner)
+    }
     return .admitted(BoundaryMotionOperation(ownerID: request.ownerID, task: task))
   }
 
@@ -296,7 +299,8 @@ public actor RunInterpreter {
   /// Discovery owner. Natural segment completion yields and rechecks the Stop
   /// latch before renewal; it is never successful boundary evidence.
   private func runAdmittedBoundaryMotion(
-    _ request: BoundaryMotionRequest
+    _ request: BoundaryMotionRequest,
+    renewalPlanner: BoundaryMotionRenewalPlanner?
   ) async -> BoundaryMotionOutcome {
     defer {
       if case .boundaryMotion(let current) = currentOperation,
@@ -311,8 +315,21 @@ public actor RunInterpreter {
       }
     }
 
+    var currentSegment = request.segment
+    let controllerStartPosition = await machineController.snapshot().position
+    guard var segmentStartPosition =
+      activeBoundaryMotion?.lastSettledPosition ?? controllerStartPosition
+    else {
+      return finishBoundaryNeedsAttention(
+        request: request,
+        terminal: .fault(.transport("boundary motion started without a controller position"))
+      )
+    }
     while activeBoundaryMotion?.renewalOpen == true {
-      let motionOutcome = await machineController.requestRelativeJog(request.segment)
+      if activeBoundaryMotion?.cancelIntent != nil {
+        return await finishBoundarySettlement(request: request, segmentOutcome: nil)
+      }
+      let motionOutcome = await machineController.requestRelativeJog(currentSegment)
       lastMotionOutcome = motionOutcome
       if case .acceptedThenCompleted = motionOutcome {
         activeBoundaryMotion?.completedSegmentCount += 1
@@ -366,6 +383,27 @@ public actor RunInterpreter {
             terminal: .fault(.transport("boundary renewal closed without a disposition"))
           )
         }
+        if let renewalPlanner {
+          let progress = BoundaryMotionSegmentProgress(
+            ownerID: request.ownerID,
+            direction: request.direction,
+            completedSegmentCount: activeBoundaryMotion?.completedSegmentCount ?? 0,
+            completedSegment: currentSegment,
+            startPosition: segmentStartPosition,
+            finalPosition: finalPosition
+          )
+          let proposedLength = await renewalPlanner.nextSegmentLength(after: progress)
+          if activeBoundaryMotion?.cancelIntent != nil {
+            return await finishBoundarySettlement(
+              request: request,
+              segmentOutcome: motionOutcome
+            )
+          }
+          currentSegment = request.segment(
+            lengthMM: request.renewalBounds.clamped(proposedLength)
+          )
+        }
+        segmentStartPosition = finalPosition
       case .cancelled:
         return finishBoundaryNeedsAttention(
           request: request,

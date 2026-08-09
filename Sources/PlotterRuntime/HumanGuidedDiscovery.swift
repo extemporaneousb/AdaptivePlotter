@@ -730,22 +730,62 @@ public struct BoundaryMotionOwnerID: Codable, Hashable, Sendable {
   }
 }
 
+/// Hard limits on camera-advised renewal lengths. The initial segment remains
+/// an explicit controller request; these bounds only constrain later segments.
+public struct BoundaryMotionSegmentBounds: Hashable, Sendable {
+  public let minimumMM: Double
+  public let fallbackMM: Double
+  public let maximumMM: Double
+
+  public init(minimumMM: Double, fallbackMM: Double, maximumMM: Double) {
+    precondition(minimumMM.isFinite && fallbackMM.isFinite && maximumMM.isFinite)
+    precondition(minimumMM > 0 && minimumMM <= fallbackMM && fallbackMM <= maximumMM)
+    self.minimumMM = minimumMM
+    self.fallbackMM = fallbackMM
+    self.maximumMM = maximumMM
+  }
+
+  public static func fixed(_ lengthMM: Double) -> Self {
+    Self(minimumMM: lengthMM, fallbackMM: lengthMM, maximumMM: lengthMM)
+  }
+
+  public func clamped(_ proposedMM: Double?) -> Double {
+    guard let proposedMM, proposedMM.isFinite else { return fallbackMM }
+    return min(maximumMM, max(minimumMM, proposedMM))
+  }
+}
+
 /// One logical operator-stopped boundary operation. `segment` is a finite GRBL
 /// wire request, not an application boundary or successful completion horizon.
 public struct BoundaryMotionRequest: Hashable, Sendable {
   public let ownerID: BoundaryMotionOwnerID
   public let direction: BoundaryDirection
   public let segment: RelativeJogRequest
+  public let renewalBounds: BoundaryMotionSegmentBounds
 
   public init(
     ownerID: BoundaryMotionOwnerID = BoundaryMotionOwnerID(),
     direction: BoundaryDirection,
-    segment: RelativeJogRequest
+    segment: RelativeJogRequest,
+    renewalBounds: BoundaryMotionSegmentBounds? = nil
   ) {
     precondition(Self.matches(direction: direction, delta: segment.delta))
     self.ownerID = ownerID
     self.direction = direction
     self.segment = segment
+    self.renewalBounds = renewalBounds ?? .fixed(segment.delta.magnitude)
+  }
+
+  public func segment(lengthMM: Double) -> RelativeJogRequest {
+    let lengthMM = renewalBounds.clamped(lengthMM)
+    let delta: Vector2<MachineSpace>
+    switch direction {
+    case .negativeX: delta = try! Vector2(dx: -lengthMM, dy: 0)
+    case .positiveX: delta = try! Vector2(dx: lengthMM, dy: 0)
+    case .negativeY: delta = try! Vector2(dx: 0, dy: -lengthMM)
+    case .positiveY: delta = try! Vector2(dx: 0, dy: lengthMM)
+    }
+    return RelativeJogRequest(delta: delta, feedMMPerMinute: segment.feedMMPerMinute)
   }
 
   private static func matches(

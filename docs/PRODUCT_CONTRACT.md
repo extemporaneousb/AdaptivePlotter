@@ -81,6 +81,13 @@ remains active and the prior segment completed unambiguously. Segment completion
 is not boundary evidence. Operator Stop, a real limit/alarm/disconnect, or a
 typed fault ends the owner. Ambiguous motion never renews or resends.
 
+Boundary renewal length may use fresh exact-frame vision as advice only. The
+first wire request is 10 mm. Later requests are restricted to 40, 20, 10, 5,
+or 2 mm, retain the admitted direction and controller-derived feed, and become
+non-increasing after the first valid projection. Missing, stale, incompatible,
+or low-confidence observations fall back to 10 mm or less. Stop is rechecked
+on both sides of the asynchronous advisory wait.
+
 The physical power cutoff remains the emergency boundary. The software Stop is
 not represented as a hardware emergency stop.
 

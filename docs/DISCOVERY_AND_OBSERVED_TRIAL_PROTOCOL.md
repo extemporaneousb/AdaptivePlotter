@@ -31,7 +31,11 @@ semantic disposition. Sticky ambiguity suppresses new physical motion.
 
 1. The operator selects any first X or Y direction. Selection is inert.
 2. Explicit **Start** admits one operator-stopped Boundary owner.
-3. The controller moves in renewable finite segments under that same owner.
+3. The controller begins with one 10 mm probe segment under that same owner.
+   After each unambiguous Idle/MPos, a strictly newer advisory frame may project
+   remaining camera-space clearance and choose 40, 20, 10, 5, or 2 mm. The
+   planner retains 4 mm estimated clearance, consumes at most half the remaining
+   estimate, and never increases again after its first valid projection.
 4. **Stop** is visible immediately and remains bound to that owner.
 5. Operator Stop closes renewal and emits one Jog Cancel.
 6. The original owner settles through fresh Idle and final MPos.
@@ -46,6 +50,11 @@ semantic disposition. Sticky ambiguity suppresses new physical motion.
     Pen Up move.
 13. Arrival succeeds when the exact final controller MPos is within 0.05 mm
     Euclidean residual of the derived target.
+
+The advisory frame used between segments is not accepted side evidence. A
+missing, stale, camera-incompatible, low-confidence, or geometrically unusable
+observation selects 10 mm or less and cannot alter direction, feed, Stop, or
+side acceptance.
 14. Stop or out-of-tolerance settlement retains all four side aggregates and
     exposes **Retry Center Arrival** for only the remaining delta.
 

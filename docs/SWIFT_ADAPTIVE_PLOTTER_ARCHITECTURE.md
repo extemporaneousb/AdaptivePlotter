@@ -85,6 +85,14 @@ newer exact frame, obtains a typed contact estimate, and atomically commits the
 attempt and per-side aggregate. No preparatory generic YES/NO question or camera
 edge association exists in this sequence.
 
+`BoundaryApproachPlanner` consumes consecutive compatible exact-frame cap
+bottom-center observations and the controller's settled MPos displacement. It
+derives an observed pixels/mm scale, ray-projects motion to the inferred drawing
+frame envelope, and chooses a bounded coarse-to-fine segment tier. Its async
+runtime seam returns only a length; `RunInterpreter` reconstructs direction and
+feed from the admitted request and checks the Stop latch before and after the
+wait and immediately before any successor write.
+
 Accepted artifacts are a separate persistence boundary. The durable checkpoint
 contains only current accepted machine-space Boundary payloads and dependency
 revisions. It is loaded as quarantined evidence and promoted only after a fresh

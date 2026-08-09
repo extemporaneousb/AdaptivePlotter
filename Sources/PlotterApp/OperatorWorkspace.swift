@@ -223,6 +223,7 @@ enum BoundaryActivityOperation: Hashable, Sendable {
 enum BoundaryActivityPhase: String, Hashable, Sendable {
   case admission = "Admission"
   case moving = "Moving"
+  case renewalPlanning = "Renewal planning"
   case stopLatched = "Stop latched"
   case settling = "Controller settlement"
   case frameCapture = "Fresh-frame capture"
@@ -534,7 +535,9 @@ final class OperatorWorkspace {
         -> VisibilityTargetIntentOutcome
     let requestPenActuation: @Sendable (PenCommand) async -> PenOutcome
     let requestBoundaryMotion: @Sendable (BoundaryMotionRequest) async -> BoundaryMotionOutcome
-    let beginBoundaryMotion: @Sendable (BoundaryMotionRequest) async -> BoundaryMotionAdmission
+    let beginBoundaryMotion:
+      @Sendable (BoundaryMotionRequest, BoundaryMotionRenewalPlanner?) async
+        -> BoundaryMotionAdmission
     let requestJogCancel: @Sendable (JogCancelIntent) async -> JogCancelOutcome
     let disconnect: @Sendable () async -> Void
   }
@@ -4930,8 +4933,21 @@ final class OperatorWorkspace {
     }
 
     let discoveryDirection = boundaryDirection(from: direction)
+    machineSnapshot = await machineActions.snapshot()
+    let approachSeed = await captureBoundaryApproachObservation(
+      at: machineSnapshot?.machine.position
+    )
+    let approachPlanner = BoundaryApproachPlanner(seed: approachSeed)
+    let renewalPlanner = BoundaryMotionRenewalPlanner { @MainActor [weak self] progress in
+      guard let self else { return nil }
+      return await self.planBoundaryRenewal(
+        after: progress,
+        planner: approachPlanner,
+        attemptID: attemptID
+      )
+    }
     let admittedOperation: BoundaryMotionOperation
-    switch await machineActions.beginBoundaryMotion(request) {
+    switch await machineActions.beginBoundaryMotion(request, renewalPlanner) {
     case .admitted(let operation):
       admittedOperation = operation
     case .rejected(let outcome):
@@ -5253,12 +5269,78 @@ final class OperatorWorkspace {
         segment: RelativeJogRequest(
           delta: delta,
           feedMMPerMinute: selection.requestedFeedMMPerMinute
+        ),
+        renewalBounds: BoundaryMotionSegmentBounds(
+          minimumMM: 2,
+          fallbackMM: MotionPriors.boundaryWireSegmentMM,
+          maximumMM: 40
         )
       )
     } catch {
       boundaryTeachingResultText = "Boundary motion request is invalid; no motion was sent."
       return nil
     }
+  }
+
+  private func captureBoundaryApproachObservation(
+    at machinePosition: MachinePosition?
+  ) async -> BoundaryApproachObservation? {
+    guard let cameraActions, let machinePosition else { return nil }
+    do {
+      guard let inspection = try await cameraActions.inspectScene(nowNanoseconds()),
+        let cap = inspection.measurement.cap,
+        let drawingFrame = inspection.measurement.drawingFrame
+      else { return nil }
+      let contact = try Point2<CameraPixelSpace>(
+        x: Double(cap.boundingBox.x) + (Double(cap.boundingBox.width) / 2),
+        y: Double(cap.boundingBox.y + cap.boundingBox.height)
+      )
+      displayedFrame = inspection.displayedFrame
+      latestLiveCameraFrame = inspection.displayedFrame
+      cameraOverlays = inspection.measurement.overlays
+      return BoundaryApproachObservation(
+        source: inspection.displayedFrame.source,
+        cameraConfigurationID: inspection.displayedFrame.frame.cameraConfigurationID,
+        captureNanoseconds: inspection.displayedFrame.frame.captureNanoseconds,
+        machinePosition: machinePosition,
+        toolContact: contact,
+        toolConfidence: cap.confidence,
+        drawingFrame: drawingFrame.geometry,
+        drawingFrameConfidence: drawingFrame.confidence
+      )
+    } catch {
+      return nil
+    }
+  }
+
+  private func planBoundaryRenewal(
+    after progress: BoundaryMotionSegmentProgress,
+    planner: BoundaryApproachPlanner,
+    attemptID: ExerciseAttemptID
+  ) async -> Double? {
+    let observation = await captureBoundaryApproachObservation(at: progress.finalPosition)
+    let advice = await planner.advise(after: observation)
+    let projection = advice.estimatedRemainingMM.map {
+      String(format: ", estimated %.1f mm remaining", $0)
+    } ?? ""
+    appendBoundaryActivity(
+      actor: .vision,
+      direction: progress.direction,
+      phase: .renewalPlanning,
+      disposition: .succeeded,
+      attemptID: attemptID,
+      operationOwnerID: .liveBoundary(progress.ownerID),
+      finalPosition: progress.finalPosition,
+      frameID: observation == nil ? nil : displayedFrame?.frame.id,
+      cameraConfigurationID: observation?.cameraConfigurationID,
+      detail: .message(
+        "Segment \(progress.completedSegmentCount) completed at "
+          + "\(String(format: "%.1f", progress.completedSegment.delta.magnitude)) mm; "
+          + "next segment \(String(format: "%.1f", advice.nextSegmentLengthMM)) mm "
+          + "(\(advice.basis.rawValue)\(projection))."
+      )
+    )
+    return advice.nextSegmentLengthMM
   }
 
   private func startExercise(

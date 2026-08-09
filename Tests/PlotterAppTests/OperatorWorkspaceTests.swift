@@ -1799,7 +1799,7 @@ private func workspace(
       requestVisibilityTargetIntent: { _, _ in fatalError("unused") },
       requestPenActuation: { await machine.requestPen($0) },
       requestBoundaryMotion: { await machine.requestBoundaryMotion($0) },
-      beginBoundaryMotion: { request in
+      beginBoundaryMotion: { request, _ in
         .admitted(
           BoundaryMotionOperation(
             ownerID: request.ownerID,
@@ -1889,7 +1889,7 @@ private func isolatedMachineActions(log: EventLog) -> OperatorWorkspace.MachineA
       await log.append("requestBoundaryMotion")
       return .needsAttention(ownerID: request.ownerID, terminal: .refusal(.notConnected))
     },
-    beginBoundaryMotion: { request in
+    beginBoundaryMotion: { request, _ in
       await log.append("beginBoundaryMotion")
       return .rejected(
         .needsAttention(ownerID: request.ownerID, terminal: .refusal(.notConnected))

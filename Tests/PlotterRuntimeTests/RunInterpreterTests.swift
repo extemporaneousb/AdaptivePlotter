@@ -632,6 +632,41 @@ struct RunInterpreterTests {
     #expect(ready.link.completedWriteCount == ready.expectedWriteCount)
   }
 
+  @Test("Stop while camera renewal planning is suspended prevents another wire request")
+  func boundaryStopDuringRenewalPlanning() async throws {
+    let ready = try await readyBoundaryCancellationFixture(naturalCompletionsBeforeBlock: 1)
+    let plannerGate = InterpreterMachineReadGate()
+    let planner = BoundaryMotionRenewalPlanner { _ in
+      await plannerGate.block()
+      return 40
+    }
+    let admission = await ready.interpreter.beginBoundaryMotion(
+      ready.request,
+      renewalPlanner: planner
+    )
+    guard case .admitted(let operation) = admission else {
+      Issue.record("Expected Boundary admission")
+      return
+    }
+    await plannerGate.waitUntilBlockedRead()
+    let writesBeforeStop = ready.link.completedWriteCount
+
+    #expect(
+      await ready.interpreter.requestJogCancel(.operatorStop)
+        == .refused(.noActiveJog)
+    )
+    await plannerGate.release()
+
+    guard case .settled(let settlement) = await operation.outcome() else {
+      Issue.record("Expected Stop to settle at the completed probe segment")
+      return
+    }
+    #expect(settlement.intent == .operatorStop)
+    #expect(settlement.completedSegmentCount == 1)
+    #expect(settlement.finalPosition == (try MachinePosition(x: 1, y: 0)))
+    #expect(ready.link.completedWriteCount == writesBeforeStop)
+  }
+
   @Test("boundary Stop latches once, cancels once, and settles the original owner")
   func boundaryStopSettlesOnce() async throws {
     let ready = try await readyBoundaryCancellationFixture(naturalCompletionsBeforeBlock: 0)
