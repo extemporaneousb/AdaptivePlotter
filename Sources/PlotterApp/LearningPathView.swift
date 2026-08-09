@@ -469,7 +469,7 @@ private struct ExerciseActionStripView: View {
         .buttonStyle(.borderedProminent)
         .tint(.green)
     case .destructive:
-      if case .stop = action.kind {
+      if action.kind.isImmediateStopOrVisionCancel {
         button
           .buttonStyle(.borderedProminent)
           .tint(.red)
@@ -487,6 +487,17 @@ private struct ExerciseActionStripView: View {
       } else {
         button.buttonStyle(.bordered)
       }
+    }
+  }
+}
+
+private extension ExerciseActionKind {
+  var isImmediateStopOrVisionCancel: Bool {
+    switch self {
+    case .stop, .cancelVisibilityObservation:
+      true
+    default:
+      false
     }
   }
 }

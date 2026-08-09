@@ -158,7 +158,7 @@ public struct SamePoseFrameSample: Hashable, Sendable {
 public struct VisibilityTargetObservationRequest: Hashable, Sendable {
   public let baseline: SamePoseFrameSample
   public let targetSamples: [SamePoseFrameSample]
-  public let region: PixelRect
+  public let targetSearchROI: PixelRect
   public let thresholds: GreenPixelThresholds
   public let controllerSessionID: UUID
   public let coordinateRevision: UInt64
@@ -178,7 +178,7 @@ public struct VisibilityTargetObservationRequest: Hashable, Sendable {
   public init(
     baseline: SamePoseFrameSample,
     targetSamples: [SamePoseFrameSample],
-    region: PixelRect,
+    targetSearchROI: PixelRect,
     thresholds: GreenPixelThresholds,
     controllerSessionID: UUID,
     coordinateRevision: UInt64,
@@ -193,11 +193,11 @@ public struct VisibilityTargetObservationRequest: Hashable, Sendable {
     maximumAlignmentShiftPixels: Int = 1,
     estimatorRevision: String = "two-frame-component-mean-v1",
     algorithmRevision: String,
-    targetPlanRevision: String = VisibilityTargetPlanV1.revision
+    targetPlanRevision: String
   ) {
     self.baseline = baseline
     self.targetSamples = targetSamples
-    self.region = region
+    self.targetSearchROI = targetSearchROI
     self.thresholds = thresholds
     self.controllerSessionID = controllerSessionID
     self.coordinateRevision = coordinateRevision
@@ -221,6 +221,19 @@ public struct IntegerFrameAlignment: Codable, Hashable, Sendable {
   public let shiftY: Int
   public let backgroundMeanAbsoluteDifference: Double
   public let estimatorRevision: String
+  public let supportRegion: PixelRect
+  public let exclusionRegion: PixelRect
+  public let evaluatedPixelCount: Int
+}
+
+public struct VisibilityTargetObservationProgress: Hashable, Sendable {
+  public let sampleIndex: Int
+  public let sampleCount: Int
+
+  public init(sampleIndex: Int, sampleCount: Int) {
+    self.sampleIndex = sampleIndex
+    self.sampleCount = sampleCount
+  }
 }
 
 public struct VisibilityTargetComponentSample: Codable, Hashable, Sendable {
@@ -240,6 +253,9 @@ public enum VisibilityTargetObservationRejection: Codable, Hashable, Sendable {
   case dimensionMismatch
   case pixelFormatMismatch
   case invalidRegion
+  case observationAlreadyInProgress
+  case insufficientAlignmentSupport(frameID: FrameID, actualPixels: Int, minimumPixels: Int)
+  case indeterminateAlignment(frameID: FrameID)
   case clearPoseMismatch(frameID: FrameID, distanceMM: Double, toleranceMM: Double)
   case excessiveAlignment(frameID: FrameID, shiftX: Int, shiftY: Int, maximumPixels: Int)
   case excessiveBackgroundResidual(frameID: FrameID, actual: Double, maximum: Double)
@@ -276,12 +292,15 @@ public struct VisibilityTargetObservation: Codable, Hashable, Sendable {
 public enum VisibilityTargetObservationOutcome: Codable, Hashable, Sendable {
   case observed(VisibilityTargetObservation)
   case rejected(VisibilityTargetObservationRejection)
+  case cancelled
 }
 
 extension VisionWorker {
   public func observeVisibilityTarget(
-    _ request: VisibilityTargetObservationRequest
+    _ request: VisibilityTargetObservationRequest,
+    progress: @Sendable (VisibilityTargetObservationProgress) -> Void = { _ in }
   ) -> VisibilityTargetObservationOutcome {
+    guard !Task.isCancelled else { return .cancelled }
     guard request.targetSamples.count == 2 else {
       return .rejected(.requiresExactlyTwoTargetFrames(actual: request.targetSamples.count))
     }
@@ -323,12 +342,28 @@ extension VisionWorker {
       lhs.captureNanoseconds < rhs.captureNanoseconds && lhs.id != rhs.id
     }), Set(frames.map(\.id)).count == 3
     else { return .rejected(.framesNotStrictlyIncreasing) }
-    guard Self.contains(request.region, in: request.baseline.frame) else {
+    guard Self.contains(request.targetSearchROI, in: request.baseline.frame) else {
       return .rejected(.invalidRegion)
     }
+    let alignmentSupportROI = Self.expanded(
+      request.targetSearchROI,
+      by: 32,
+      clippedTo: request.baseline.frame
+    )
+    let alignmentExclusionROI = Self.expanded(
+      request.targetSearchROI,
+      by: request.alignmentSearchRadiusPixels,
+      clippedTo: request.baseline.frame
+    )
 
     var samples: [VisibilityTargetComponentSample] = []
-    for target in request.targetSamples {
+    for (index, target) in request.targetSamples.enumerated() {
+      guard !Task.isCancelled else { return .cancelled }
+      progress(VisibilityTargetObservationProgress(
+        sampleIndex: index + 1,
+        sampleCount: request.targetSamples.count
+      ))
+      guard !Task.isCancelled else { return .cancelled }
       let poseDistance = request.baseline.controllerPosition.point.distance(
         to: target.controllerPosition.point
       )
@@ -339,12 +374,28 @@ extension VisionWorker {
           toleranceMM: request.controllerPositionToleranceMM
         ))
       }
-      let alignment = Self.bestIntegerAlignment(
+      let alignment: IntegerFrameAlignment
+      switch Self.bestLocalIntegerAlignment(
         request.baseline.frame,
         target.frame,
-        excluding: request.region,
-        searchRadius: request.alignmentSearchRadiusPixels
-      )
+        supportRegion: alignmentSupportROI,
+        excluding: alignmentExclusionROI,
+        searchRadius: request.alignmentSearchRadiusPixels,
+        minimumSupportPixels: 1_024
+      ) {
+      case .aligned(let value):
+        alignment = value
+      case .insufficientSupport(let actual):
+        return .rejected(.insufficientAlignmentSupport(
+          frameID: target.frame.id,
+          actualPixels: actual,
+          minimumPixels: 1_024
+        ))
+      case .indeterminate:
+        return .rejected(.indeterminateAlignment(frameID: target.frame.id))
+      case .cancelled:
+        return .cancelled
+      }
       guard max(abs(alignment.shiftX), abs(alignment.shiftY))
         <= request.maximumAlignmentShiftPixels
       else {
@@ -364,18 +415,18 @@ extension VisionWorker {
           maximum: request.maximumBackgroundMeanAbsoluteDifference
         ))
       }
-      let pixels = Self.newGreenPixels(
+      guard let pixels = Self.cancellableNewGreenPixels(
         from: request.baseline.frame,
         to: target.frame,
-        region: request.region,
+        region: request.targetSearchROI,
         thresholds: request.thresholds,
         observationShiftX: alignment.shiftX,
         observationShiftY: alignment.shiftY
-      )
+      ) else { return .cancelled }
       guard !pixels.isEmpty else {
         return .rejected(.targetMissing(frameID: target.frame.id))
       }
-      let components = Self.components(pixels)
+      guard let components = Self.cancellableComponents(pixels) else { return .cancelled }
       let eligible = components.filter { $0.count >= request.minimumTargetPixels }
       guard !eligible.isEmpty else {
         return .rejected(.targetTooSmall(
@@ -465,7 +516,7 @@ extension VisionWorker {
       controllerSessionID: request.controllerSessionID,
       coordinateRevision: request.coordinateRevision,
       toolPaperRevision: request.toolPaperRevision,
-      region: request.region,
+      region: request.targetSearchROI,
       overlays: overlays
     ))
   }
@@ -691,6 +742,30 @@ private extension VisionWorker {
     let minorToMajorVarianceRatio: Double
   }
 
+  struct BackgroundResidual {
+    let meanAbsoluteDifference: Double
+    let pixelCount: Int
+  }
+
+  enum LocalIntegerAlignmentOutcome {
+    case aligned(IntegerFrameAlignment)
+    case insufficientSupport(actualPixels: Int)
+    case indeterminate
+    case cancelled
+  }
+
+  static func expanded(
+    _ region: PixelRect,
+    by margin: Int,
+    clippedTo frame: StampedFrame
+  ) -> PixelRect {
+    let minX = max(0, region.x - margin)
+    let minY = max(0, region.y - margin)
+    let maxX = min(frame.width, region.x + region.width + margin)
+    let maxY = min(frame.height, region.y + region.height + margin)
+    return PixelRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+  }
+
   static func contains(_ region: PixelRect, in frame: StampedFrame) -> Bool {
     region.x >= 0 && region.y >= 0 && region.width > 0 && region.height > 0
       && region.x + region.width <= frame.width
@@ -723,6 +798,142 @@ private extension VisionWorker {
     return result
   }
 
+  static func cancellableNewGreenPixels(
+    from reference: StampedFrame,
+    to observation: StampedFrame,
+    region: PixelRect,
+    thresholds: GreenPixelThresholds,
+    observationShiftX: Int = 0,
+    observationShiftY: Int = 0
+  ) -> Set<InkPixel>? {
+    var result: Set<InkPixel> = []
+    for y in region.y..<(region.y + region.height) {
+      if (y - region.y).isMultiple(of: 16), Task.isCancelled { return nil }
+      for x in region.x..<(region.x + region.width) {
+        let observedX = x + observationShiftX
+        let observedY = y + observationShiftY
+        guard observedX >= 0, observedX < observation.width,
+          observedY >= 0, observedY < observation.height
+        else { continue }
+        if isGreen(observation, x: observedX, y: observedY, thresholds: thresholds)
+          && !isGreen(reference, x: x, y: y, thresholds: thresholds)
+        {
+          result.insert(InkPixel(x: x, y: y))
+        }
+      }
+    }
+    return Task.isCancelled ? nil : result
+  }
+
+  static func bestLocalIntegerAlignment(
+    _ baseline: StampedFrame,
+    _ observation: StampedFrame,
+    supportRegion: PixelRect,
+    excluding exclusionRegion: PixelRect,
+    searchRadius: Int,
+    minimumSupportPixels: Int
+  ) -> LocalIntegerAlignmentOutcome {
+    var candidates: [(shiftX: Int, shiftY: Int, residual: Double)] = []
+    var minimumCandidateSupport = Int.max
+    var evaluatedPixelCount = 0
+    for shiftY in (-searchRadius)...searchRadius {
+      for shiftX in (-searchRadius)...searchRadius {
+        guard !Task.isCancelled else { return .cancelled }
+        guard let residual = cancellableBackgroundMeanAbsoluteDifference(
+          baseline,
+          observation,
+          supportRegion: supportRegion,
+          excluding: exclusionRegion,
+          observationShiftX: shiftX,
+          observationShiftY: shiftY
+        ) else { return .cancelled }
+        minimumCandidateSupport = min(minimumCandidateSupport, residual.pixelCount)
+        evaluatedPixelCount += residual.pixelCount
+        candidates.append((
+          shiftX: shiftX,
+          shiftY: shiftY,
+          residual: residual.meanAbsoluteDifference
+        ))
+      }
+    }
+    guard minimumCandidateSupport >= minimumSupportPixels else {
+      return .insufficientSupport(actualPixels: max(0, minimumCandidateSupport))
+    }
+    candidates.sort { lhs, rhs in
+      (
+        lhs.residual,
+        max(abs(lhs.shiftX), abs(lhs.shiftY)),
+        abs(lhs.shiftX) + abs(lhs.shiftY),
+        lhs.shiftY,
+        lhs.shiftX
+      ) < (
+        rhs.residual,
+        max(abs(rhs.shiftX), abs(rhs.shiftY)),
+        abs(rhs.shiftX) + abs(rhs.shiftY),
+        rhs.shiftY,
+        rhs.shiftX
+      )
+    }
+    guard let selected = candidates.first else {
+      return .insufficientSupport(actualPixels: 0)
+    }
+    if selected.shiftX != 0 || selected.shiftY != 0,
+      candidates.dropFirst().first.map({ abs($0.residual - selected.residual) <= 1e-9 }) == true
+    {
+      return .indeterminate
+    }
+    return .aligned(IntegerFrameAlignment(
+      shiftX: selected.shiftX,
+      shiftY: selected.shiftY,
+      backgroundMeanAbsoluteDifference: selected.residual,
+      estimatorRevision: "bounded-integer-local-background-mad-v2",
+      supportRegion: supportRegion,
+      exclusionRegion: exclusionRegion,
+      evaluatedPixelCount: evaluatedPixelCount
+    ))
+  }
+
+  static func cancellableBackgroundMeanAbsoluteDifference(
+    _ baseline: StampedFrame,
+    _ observation: StampedFrame,
+    supportRegion: PixelRect,
+    excluding exclusionRegion: PixelRect,
+    observationShiftX: Int,
+    observationShiftY: Int
+  ) -> BackgroundResidual? {
+    var absoluteDifference = 0.0
+    var pixelCount = 0
+    for y in supportRegion.y..<(supportRegion.y + supportRegion.height) {
+      if (y - supportRegion.y).isMultiple(of: 16), Task.isCancelled { return nil }
+      for x in supportRegion.x..<(supportRegion.x + supportRegion.width) {
+        let excluded = x >= exclusionRegion.x && x < exclusionRegion.x + exclusionRegion.width
+          && y >= exclusionRegion.y && y < exclusionRegion.y + exclusionRegion.height
+        guard !excluded else { continue }
+        let observedX = x + observationShiftX
+        let observedY = y + observationShiftY
+        guard observedX >= 0, observedX < observation.width,
+          observedY >= 0, observedY < observation.height
+        else { continue }
+        let baseOffset = y * baseline.rowBytes + x * baseline.pixelFormat.bytesPerPixel
+        let observedOffset = observedY * observation.rowBytes
+          + observedX * observation.pixelFormat.bytesPerPixel
+        for component in 0..<baseline.pixelFormat.bytesPerPixel {
+          absoluteDifference += abs(
+            Double(baseline.bytes[baseOffset + component])
+              - Double(observation.bytes[observedOffset + component])
+          )
+        }
+        pixelCount += 1
+      }
+    }
+    guard !Task.isCancelled else { return nil }
+    let byteCount = pixelCount * baseline.pixelFormat.bytesPerPixel
+    return BackgroundResidual(
+      meanAbsoluteDifference: byteCount == 0 ? 0 : absoluteDifference / Double(byteCount),
+      pixelCount: pixelCount
+    )
+  }
+
   static func bestIntegerAlignment(
     _ baseline: StampedFrame,
     _ observation: StampedFrame,
@@ -730,6 +941,7 @@ private extension VisionWorker {
     searchRadius: Int
   ) -> IntegerFrameAlignment {
     var best: (shiftX: Int, shiftY: Int, residual: Double)?
+    var evaluatedPixelCount = 0
     for shiftY in (-searchRadius)...searchRadius {
       for shiftX in (-searchRadius)...searchRadius {
         let residual = backgroundMeanAbsoluteDifference(
@@ -739,7 +951,12 @@ private extension VisionWorker {
           observationShiftX: shiftX,
           observationShiftY: shiftY
         )
-        let candidate = (shiftX: shiftX, shiftY: shiftY, residual: residual)
+        evaluatedPixelCount += residual.pixelCount
+        let candidate = (
+          shiftX: shiftX,
+          shiftY: shiftY,
+          residual: residual.meanAbsoluteDifference
+        )
         if let current = best {
           let candidateRank = (
             candidate.residual,
@@ -766,7 +983,10 @@ private extension VisionWorker {
       shiftX: selected.shiftX,
       shiftY: selected.shiftY,
       backgroundMeanAbsoluteDifference: selected.residual,
-      estimatorRevision: "bounded-integer-background-mad-v1"
+      estimatorRevision: "bounded-integer-background-mad-v1",
+      supportRegion: PixelRect(x: 0, y: 0, width: baseline.width, height: baseline.height),
+      exclusionRegion: region,
+      evaluatedPixelCount: evaluatedPixelCount
     )
   }
 
@@ -776,9 +996,9 @@ private extension VisionWorker {
     excluding region: PixelRect,
     observationShiftX: Int,
     observationShiftY: Int
-  ) -> Double {
+  ) -> BackgroundResidual {
     var absoluteDifference = 0.0
-    var byteCount = 0
+    var pixelCount = 0
     for y in 0..<baseline.height {
       for x in 0..<baseline.width {
         let inRegion = x >= region.x && x < region.x + region.width
@@ -797,11 +1017,15 @@ private extension VisionWorker {
             Double(baseline.bytes[baseOffset + component])
               - Double(observation.bytes[observedOffset + component])
           )
-          byteCount += 1
         }
+        pixelCount += 1
       }
     }
-    return byteCount == 0 ? 0 : absoluteDifference / Double(byteCount)
+    let byteCount = pixelCount * baseline.pixelFormat.bytesPerPixel
+    return BackgroundResidual(
+      meanAbsoluteDifference: byteCount == 0 ? 0 : absoluteDifference / Double(byteCount),
+      pixelCount: pixelCount
+    )
   }
 
   static func isGreen(
@@ -840,6 +1064,34 @@ private extension VisionWorker {
       var queue = [seed]
       var component: [InkPixel] = []
       while let current = queue.popLast() {
+        component.append(current)
+        for y in (current.y - 1)...(current.y + 1) {
+          for x in (current.x - 1)...(current.x + 1) where x != current.x || y != current.y {
+            let neighbor = InkPixel(x: x, y: y)
+            if remaining.remove(neighbor) != nil { queue.append(neighbor) }
+          }
+        }
+      }
+      result.append(component)
+    }
+    return result.sorted {
+      if $0.count != $1.count { return $0.count > $1.count }
+      let l = centroid($0)
+      let r = centroid($1)
+      return pointOrder(l, before: r)
+    }
+  }
+
+  static func cancellableComponents(_ pixels: Set<InkPixel>) -> [[InkPixel]]? {
+    var remaining = pixels
+    var result: [[InkPixel]] = []
+    while let seed = remaining.first {
+      guard !Task.isCancelled else { return nil }
+      remaining.remove(seed)
+      var queue = [seed]
+      var component: [InkPixel] = []
+      while let current = queue.popLast() {
+        guard !Task.isCancelled else { return nil }
         component.append(current)
         for y in (current.y - 1)...(current.y + 1) {
           for x in (current.x - 1)...(current.x + 1) where x != current.x || y != current.y {

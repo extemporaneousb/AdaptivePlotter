@@ -68,6 +68,11 @@ stream lifetime, capture heartbeat, exact-frame materialization, and shutdown.
 frame does not.
 
 `VisionWorker` consumes immutable frame bytes and emits typed measurements.
+Visibility-target observation is a foreground owner with an ID, cancel
+capability, authority generation/context, phase, and stored Task. Cooperative
+cancellation reaches capture polling and Vision loops; shutdown and authority
+erasure cancel and await it before teardown. Late or incompatible completions
+are discarded before artifact or overlay mutation.
 The analysis pipeline admits one active request and retains only the newest
 pending request. Measurement and overlay provenance include exact frame,
 camera-configuration, source, kind, and algorithm revision.

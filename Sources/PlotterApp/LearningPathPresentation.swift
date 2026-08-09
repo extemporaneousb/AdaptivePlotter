@@ -290,6 +290,46 @@ struct ContextualStopCapabilityID: RawRepresentable, Hashable, Sendable {
   }
 }
 
+/// Capability-bound cancellation for one foreground visibility observation.
+/// It is intentionally distinct from controller Stop and whole-attempt Cancel.
+struct VisibilityObservationCancelCapabilityID: RawRepresentable, Hashable, Sendable {
+  let rawValue: UUID
+
+  init(rawValue: UUID = UUID()) {
+    self.rawValue = rawValue
+  }
+}
+
+struct VisibilityObservationOperationID: RawRepresentable, Hashable, Sendable {
+  let rawValue: UUID
+
+  init(rawValue: UUID = UUID()) {
+    self.rawValue = rawValue
+  }
+}
+
+enum VisibilityObservationPhase: String, CaseIterable, Hashable, Sendable {
+  case preparing = "Preparing exact target ROI"
+  case acquiringFirstFrame = "Acquiring target frame 1 of 2"
+  case acquiringSecondFrame = "Acquiring target frame 2 of 2"
+  case analyzingFirstFrame = "Analyzing target frame 1 of 2 in the exact ROI"
+  case analyzingSecondFrame = "Analyzing target frame 2 of 2 in the exact ROI"
+  case cancelling = "Cancelling Vision"
+  case committing = "Validating and committing exact-frame evidence"
+}
+
+struct VisibilityObservationOperationPresentation: Hashable, Sendable {
+  let id: VisibilityObservationOperationID
+  let cancelCapabilityID: VisibilityObservationCancelCapabilityID
+  let phase: VisibilityObservationPhase
+  let region: PixelRect
+  let targetPlanRevision: String
+
+  var busyDetail: String {
+    "\(phase.rawValue) · ROI \(region.width)x\(region.height) px · plan \(targetPlanRevision)"
+  }
+}
+
 struct ContextualStopActionPresentation: Hashable, Sendable {
   let capabilityID: ContextualStopCapabilityID
   let title: String
@@ -380,6 +420,7 @@ enum ExerciseActionKind: Hashable, Sendable {
   case start
   case choice(OperatorChoice)
   case cancel
+  case cancelVisibilityObservation(VisibilityObservationCancelCapabilityID)
   case stop(ContextualStopCapabilityID)
   case restart
   case redoThisStep

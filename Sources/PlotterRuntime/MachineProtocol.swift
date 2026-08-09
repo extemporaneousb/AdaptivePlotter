@@ -107,25 +107,73 @@ public enum VisibilityTargetStartConvention: String, Codable, Hashable, Sendable
   case positiveXPerimeter
 }
 
-/// The one frozen visibility target: a closed regular octagon whose diameter is
-/// 4 mm. Vertices and deltas are target-center-relative machine geometry; they
-/// do not define a workspace envelope.
-public struct VisibilityTargetPlanV1: Codable, Hashable, Sendable {
-  public static let revision = "visibility-target-octagon-v1"
+public enum VisibilityTargetTraversalDirection: String, Codable, Hashable, Sendable {
+  case forward
+  case reverse
+}
+
+/// One controller-settled edge traversal within the revisioned visibility
+/// target. `segmentIndex` identifies the geometric octagon edge while
+/// `traversalIndex` identifies its position in the complete two-pass sequence.
+public struct VisibilityTargetTraversalStep: Codable, Hashable, Sendable {
+  public let passIndex: Int
+  public let direction: VisibilityTargetTraversalDirection
+  public let segmentIndex: Int
+  public let traversalIndex: Int
+  public let delta: Vector2<MachineSpace>
+
+  public init(
+    passIndex: Int,
+    direction: VisibilityTargetTraversalDirection,
+    segmentIndex: Int,
+    traversalIndex: Int,
+    delta: Vector2<MachineSpace>
+  ) {
+    precondition(passIndex >= 0)
+    precondition(segmentIndex >= 0)
+    precondition(traversalIndex >= 0)
+    self.passIndex = passIndex
+    self.direction = direction
+    self.segmentIndex = segmentIndex
+    self.traversalIndex = traversalIndex
+    self.delta = delta
+  }
+}
+
+public struct VisibilityTargetTraversalRequest: Codable, Hashable, Sendable {
+  public let step: VisibilityTargetTraversalStep
+  public let drawingRequest: DrawingStrokeRequest
+
+  public init(step: VisibilityTargetTraversalStep, drawingRequest: DrawingStrokeRequest) {
+    self.step = step
+    self.drawingRequest = drawingRequest
+  }
+}
+
+/// The frozen double-trace visibility target: one closed regular 4 mm octagon
+/// traversed once forward and then immediately over the same edges in reverse.
+/// Both passes share one Pen Down interval and one logical operation owner.
+/// Geometry is target-center-relative and does not define a workspace envelope.
+public struct VisibilityTargetPlanV2: Codable, Hashable, Sendable {
+  public static let revision = "visibility-target-octagon-double-trace-v2"
 
   public let diameterMM: Double
   public let radiusMM: Double
-  public let segmentCount: Int
+  public let perimeterSegmentCount: Int
+  public let passCount: Int
   public let startConvention: VisibilityTargetStartConvention
   public let relativeVertices: [Point2<MachineSpace>]
   public let approachDelta: Vector2<MachineSpace>
-  public let drawingDeltas: [Vector2<MachineSpace>]
+  public let traversalSteps: [VisibilityTargetTraversalStep]
   public let algorithmRevision: String
+
+  public var drawingStepCount: Int { traversalSteps.count }
 
   public init() {
     diameterMM = 4
     radiusMM = 2
-    segmentCount = 8
+    perimeterSegmentCount = 8
+    passCount = 2
     startConvention = .positiveXPerimeter
     let vertices = (0..<8).map { index in
       let angle = Double(index) * .pi / 4
@@ -133,9 +181,29 @@ public struct VisibilityTargetPlanV1: Codable, Hashable, Sendable {
     }
     relativeVertices = vertices
     approachDelta = try! Vector2<MachineSpace>(dx: 2, dy: 0)
-    drawingDeltas = (0..<8).map { index in
+    let forwardDeltas = (0..<8).map { index in
       try! vertices[index].vector(to: vertices[(index + 1) % vertices.count])
     }
+    let forward = forwardDeltas.enumerated().map { index, delta in
+      VisibilityTargetTraversalStep(
+        passIndex: 0,
+        direction: .forward,
+        segmentIndex: index,
+        traversalIndex: index,
+        delta: delta
+      )
+    }
+    let reverse = forwardDeltas.indices.reversed().enumerated().map { offset, segmentIndex in
+      let forwardDelta = forwardDeltas[segmentIndex]
+      return VisibilityTargetTraversalStep(
+        passIndex: 1,
+        direction: .reverse,
+        segmentIndex: segmentIndex,
+        traversalIndex: forward.count + offset,
+        delta: try! Vector2(dx: -forwardDelta.dx, dy: -forwardDelta.dy)
+      )
+    }
+    traversalSteps = forward + reverse
     algorithmRevision = Self.revision
   }
 
@@ -143,9 +211,17 @@ public struct VisibilityTargetPlanV1: Codable, Hashable, Sendable {
     RelativeJogRequest(delta: approachDelta, feedMMPerMinute: feedMMPerMinute)
   }
 
-  public func drawingRequests(feedMMPerMinute: Double) -> [DrawingStrokeRequest] {
-    drawingDeltas.map {
-      DrawingStrokeRequest(delta: $0, feedMMPerMinute: feedMMPerMinute)
+  public func traversalRequests(
+    feedMMPerMinute: Double
+  ) -> [VisibilityTargetTraversalRequest] {
+    traversalSteps.map {
+      VisibilityTargetTraversalRequest(
+        step: $0,
+        drawingRequest: DrawingStrokeRequest(
+          delta: $0.delta,
+          feedMMPerMinute: feedMMPerMinute
+        )
+      )
     }
   }
 }
@@ -159,13 +235,13 @@ public enum VisibilityTargetSceneDisposition: String, Codable, Hashable, Sendabl
 
 public struct VisibilityTargetOperationRequest: Codable, Hashable, Sendable {
   public let id: UUID
-  public let plan: VisibilityTargetPlanV1
+  public let plan: VisibilityTargetPlanV2
   public let approachFeedMMPerMinute: Double
   public let drawingFeedMMPerMinute: Double
 
   public init(
     id: UUID = UUID(),
-    plan: VisibilityTargetPlanV1 = VisibilityTargetPlanV1(),
+    plan: VisibilityTargetPlanV2 = VisibilityTargetPlanV2(),
     approachFeedMMPerMinute: Double,
     drawingFeedMMPerMinute: Double
   ) {
@@ -179,8 +255,34 @@ public struct VisibilityTargetOperationRequest: Codable, Hashable, Sendable {
 public enum VisibilityTargetOperationPhase: Codable, Hashable, Sendable {
   case approach
   case lowerPen
-  case drawSegment(Int)
+  case draw(VisibilityTargetTraversalStep)
   case raisePen
+}
+
+/// Controller-side progress only. It records what the operation admitted and
+/// settled; it is never a claim that ink was visibly present.
+public struct VisibilityTargetOperationProgress: Codable, Hashable, Sendable {
+  public let planRevision: String
+  public let phase: VisibilityTargetOperationPhase
+  public let dispositionRequestedDuringPhase: VisibilityTargetOperationPhase?
+  public let completedTraversalStepCount: Int
+  public let lastCompletedTraversalStep: VisibilityTargetTraversalStep?
+
+  public init(
+    planRevision: String,
+    phase: VisibilityTargetOperationPhase,
+    dispositionRequestedDuringPhase: VisibilityTargetOperationPhase? = nil,
+    completedTraversalStepCount: Int,
+    lastCompletedTraversalStep: VisibilityTargetTraversalStep?
+  ) {
+    precondition(!planRevision.isEmpty)
+    precondition(completedTraversalStepCount >= 0)
+    self.planRevision = planRevision
+    self.phase = phase
+    self.dispositionRequestedDuringPhase = dispositionRequestedDuringPhase
+    self.completedTraversalStepCount = completedTraversalStepCount
+    self.lastCompletedTraversalStep = lastCompletedTraversalStep
+  }
 }
 
 public enum VisibilityTargetOperationIntent: String, Codable, Hashable, Sendable {
@@ -192,19 +294,36 @@ public enum VisibilityTargetOperationIntent: String, Codable, Hashable, Sendable
 public enum VisibilityTargetOperationFailure: Codable, Hashable, Sendable {
   case approach(MotionOutcome)
   case pen(PenOutcome)
-  case drawing(segmentIndex: Int, outcome: DrawingStrokeOutcome)
+  case drawing(step: VisibilityTargetTraversalStep, outcome: DrawingStrokeOutcome)
   case stoppedWithoutSettlement
 }
 
 public enum VisibilityTargetOperationOutcome: Codable, Hashable, Sendable {
-  case completed(finalPosition: MachinePosition, scene: VisibilityTargetSceneDisposition)
-  case stopped(scene: VisibilityTargetSceneDisposition, jogCancelOutcome: JogCancelOutcome?)
-  case cancelled(scene: VisibilityTargetSceneDisposition, jogCancelOutcome: JogCancelOutcome?)
-  case shutdown(scene: VisibilityTargetSceneDisposition, jogCancelOutcome: JogCancelOutcome?)
+  case completed(
+    finalPosition: MachinePosition,
+    scene: VisibilityTargetSceneDisposition,
+    progress: VisibilityTargetOperationProgress
+  )
+  case stopped(
+    scene: VisibilityTargetSceneDisposition,
+    jogCancelOutcome: JogCancelOutcome?,
+    progress: VisibilityTargetOperationProgress
+  )
+  case cancelled(
+    scene: VisibilityTargetSceneDisposition,
+    jogCancelOutcome: JogCancelOutcome?,
+    progress: VisibilityTargetOperationProgress
+  )
+  case shutdown(
+    scene: VisibilityTargetSceneDisposition,
+    jogCancelOutcome: JogCancelOutcome?,
+    progress: VisibilityTargetOperationProgress
+  )
   case needsAttention(
     phase: VisibilityTargetOperationPhase,
     scene: VisibilityTargetSceneDisposition,
-    failure: VisibilityTargetOperationFailure
+    failure: VisibilityTargetOperationFailure,
+    progress: VisibilityTargetOperationProgress
   )
 }
 

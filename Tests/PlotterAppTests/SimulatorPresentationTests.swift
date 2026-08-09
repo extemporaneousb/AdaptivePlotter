@@ -17,7 +17,7 @@ func simulatedCameraRefreshUsesLearningRuntime() async throws {
   _ = try await runtime.setPenPose(.up).result.get()
 
   let workspace = OperatorWorkspace(
-    cameraActions: CameraComposition.actions,
+    cameraActions: CameraComposition.makeIsolatedActionsForTesting(),
     simulatedLearningRuntime: runtime,
     serialDevices: [],
     serialDeviceDiscovery: { [] },

@@ -47,6 +47,39 @@ func aspectFitMappingMultipleSizes() throws {
   #expect(tall.imageRect == CGRect(x: 0, y: 150, width: 200, height: 100))
 }
 
+@Test("Target ROI focus magnifies exact camera coordinates without changing provenance")
+func targetROIFocusMappingAndIdentity() throws {
+  let region = PixelRect(x: 300, y: 200, width: 40, height: 20)
+  let transform = try #require(
+    CameraPixelToViewTransform(
+      frameWidth: 640,
+      frameHeight: 480,
+      viewWidth: 400,
+      viewHeight: 400,
+      focusRegion: region
+    )
+  )
+  #expect(transform.visibleCameraRect == CGRect(x: 300, y: 200, width: 40, height: 20))
+  #expect(transform.point(try Point2(x: 300, y: 200)) == CGPoint(x: 0, y: 100))
+  #expect(transform.point(try Point2(x: 340, y: 220)) == CGPoint(x: 400, y: 300))
+
+  let displayed = try testDisplayedFrame()
+  let matching = ActionSurfaceFocus(
+    frameID: displayed.frame.id,
+    cameraConfigurationID: displayed.frame.cameraConfigurationID,
+    region: PixelRect(x: 1, y: 1, width: 2, height: 2),
+    label: "target"
+  )
+  #expect(ActionSurfacePresentation(displayedFrame: displayed, overlays: [], focus: matching).focus == matching)
+  let stale = ActionSurfaceFocus(
+    frameID: FrameID(),
+    cameraConfigurationID: displayed.frame.cameraConfigurationID,
+    region: matching.region,
+    label: "stale"
+  )
+  #expect(ActionSurfacePresentation(displayedFrame: displayed, overlays: [], focus: stale).focus == nil)
+}
+
 @Test("Overlay is hidden when frame or camera configuration identity differs")
 func overlayIdentityMismatchIsHidden() throws {
   let configuration = CameraConfigurationID()

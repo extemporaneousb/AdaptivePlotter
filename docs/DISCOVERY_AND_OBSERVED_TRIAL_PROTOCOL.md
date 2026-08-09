@@ -145,7 +145,9 @@ configuration, ROI, armature evidence, source, and algorithm revision.
 
 1. Capture a blank baseline at the accepted Clear pose.
 2. Return to the registered target pose.
-3. Draw one 4 mm diameter octagonal target under one owner.
+3. Execute `visibility-target-octagon-double-trace-v2`: draw one 4 mm diameter
+   octagon forward, then retrace the same perimeter in reverse under the same
+   owner and Pen Down interval.
 4. Return to the accepted Clear pose.
 5. Capture two fresh exact observation frames.
 6. Require compatible target detection and two-frame agreement.
@@ -155,6 +157,14 @@ The target plan is immutable for the attempt and cites the target pose,
 machine-camera registration, camera context, blank baseline, paper revision,
 and drawing parameters. The target is never automatically redrawn after an
 uncertain result.
+
+Observation is one foreground, single-flight Vision operation. It publishes
+ownership before capture, pauses competing automatic analysis, searches bounded
+target-local support, and presents an exact-frame ROI magnifier. Controller,
+motion, pen, camera, source, analysis, Restart, and learning mutations are
+refused until settlement. **Cancel Vision** is the sole mutating action and
+preserves possible ink and the active attempt. Only a matching operation
+generation and complete captured authority context may commit.
 
 If the physical scene is unusable, record the disposition:
 

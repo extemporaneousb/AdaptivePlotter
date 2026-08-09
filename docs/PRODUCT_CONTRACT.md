@@ -46,6 +46,12 @@ capture lifetime, and exact-frame materialization.
 They do not decide controller eligibility, machine direction, or model
 acceptance.
 
+Foreground visibility observation has one owner published before suspension.
+It searches only bounded target-local support, reports honest phases, refuses
+competing mutations, and exposes one capability-bound Cancel Vision action.
+Cancellation preserves target, baseline, ROI, and active attempt; stale
+generations cannot commit.
+
 `OperatorWorkspace` projects current facts and routes typed UI intent. It is the
 single observable app owner, not a replacement controller or camera authority.
 
@@ -94,6 +100,11 @@ not represented as a hardware emergency stop.
 While a physical movement owner is active, its capability-bound Stop is the
 only movement-ending exercise action presented. Cancel becomes available after
 movement settles. A stale or programmatic Cancel cannot end the active owner.
+
+The V2 visibility mark is one 4 mm regular octagon traced forward and then
+reverse over the same perimeter under one compound owner and Pen Down interval.
+The executed plan revision flows from controller progress into execution and
+observation evidence.
 
 ## Evidence discipline
 

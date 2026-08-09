@@ -29,6 +29,8 @@ The current source implements:
 - atomic durable accepted-Boundary checkpoints that remain quarantined until
   matching fresh controller context and MPos evidence is available;
 - Stop-only exercise presentation while physical movement owns the operation.
+- software-validated V2 double-trace target planning and exclusive,
+  cancellable, target-ROI-local foreground Vision with exact-frame magnification;
 - bounded camera-advised Boundary renewal tiers (40/20/10/5/2 mm) after an
   initial 10 mm probe, with conservative fallback and Stop-race suppression;
 
@@ -99,6 +101,9 @@ simulator behavior.
 ## Not yet physically verified
 
 The current integrated build still lacks attended verification of:
+
+- the V2 double trace, ROI observation latency/cancellation, magnified live
+  target presentation, and complete foreground-Vision interlock matrix;
 
 - existing-bundle activation and foreground/Dock behavior;
 - output announcement completion before movement;

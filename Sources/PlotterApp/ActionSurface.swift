@@ -18,17 +18,26 @@ struct CameraPixelToViewTransform: Equatable, Sendable {
   let scale: Double
   let originX: Double
   let originY: Double
+  let visibleCameraRect: CGRect
 
   init?(
     frameWidth: Int,
     frameHeight: Int,
     viewWidth: Double,
     viewHeight: Double,
+    focusRegion: PixelRect? = nil,
     policy: ActionSurfaceScalePolicy = .aspectFit
   ) {
     guard frameWidth > 0, frameHeight > 0, viewWidth > 0, viewHeight > 0 else { return nil }
-    let horizontalScale = viewWidth / Double(frameWidth)
-    let verticalScale = viewHeight / Double(frameHeight)
+    let requestedRect = focusRegion.map {
+      CGRect(x: $0.x, y: $0.y, width: $0.width, height: $0.height)
+    } ?? CGRect(x: 0, y: 0, width: frameWidth, height: frameHeight)
+    let frameRect = CGRect(x: 0, y: 0, width: frameWidth, height: frameHeight)
+    let clippedRect = requestedRect.intersection(frameRect)
+    guard !clippedRect.isNull, clippedRect.width > 0, clippedRect.height > 0 else { return nil }
+    visibleCameraRect = clippedRect
+    let horizontalScale = viewWidth / clippedRect.width
+    let verticalScale = viewHeight / clippedRect.height
     switch policy {
     case .aspectFit:
       scale = min(horizontalScale, verticalScale)
@@ -37,8 +46,8 @@ struct CameraPixelToViewTransform: Equatable, Sendable {
     self.frameHeight = Double(frameHeight)
     self.viewWidth = viewWidth
     self.viewHeight = viewHeight
-    originX = (viewWidth - Double(frameWidth) * scale) / 2
-    originY = (viewHeight - Double(frameHeight) * scale) / 2
+    originX = (viewWidth - clippedRect.width * scale) / 2 - clippedRect.minX * scale
+    originY = (viewHeight - clippedRect.height * scale) / 2 - clippedRect.minY * scale
   }
 
   var imageRect: CGRect {
@@ -58,6 +67,18 @@ struct CameraPixelToViewTransform: Equatable, Sendable {
   }
 }
 
+struct ActionSurfaceFocus: Hashable, Sendable {
+  let frameID: FrameID
+  let cameraConfigurationID: CameraConfigurationID
+  let region: PixelRect
+  let label: String
+
+  func matches(_ displayedFrame: DisplayedFrame) -> Bool {
+    frameID == displayedFrame.frame.id
+      && cameraConfigurationID == displayedFrame.frame.cameraConfigurationID
+  }
+}
+
 struct ActionSurfacePresentation: Sendable {
   static let rendererIdentity = "canonical-stamped-frame"
 
@@ -66,6 +87,7 @@ struct ActionSurfacePresentation: Sendable {
   let simulatedAnnotations: [SimulatedLearningAnnotation]
   let simulatedViewportID: SimulatedCameraViewportID?
   let simulatedAnnotationsAreVisible: Bool
+  let focus: ActionSurfaceFocus?
 
   var rendererIdentity: String { Self.rendererIdentity }
 
@@ -74,7 +96,8 @@ struct ActionSurfacePresentation: Sendable {
     overlays: [CameraOverlayMeasurement],
     simulatedAnnotations: [SimulatedLearningAnnotation] = [],
     simulatedViewportID: SimulatedCameraViewportID? = nil,
-    simulatedAnnotationsAreVisible: Bool = true
+    simulatedAnnotationsAreVisible: Bool = true,
+    focus: ActionSurfaceFocus? = nil
   ) {
     self.displayedFrame = displayedFrame
     self.simulatedViewportID = simulatedViewportID
@@ -88,9 +111,11 @@ struct ActionSurfacePresentation: Sendable {
       } else {
         self.simulatedAnnotations = []
       }
+      self.focus = focus.flatMap { $0.matches(displayedFrame) ? $0 : nil }
     } else {
       self.overlays = []
       self.simulatedAnnotations = []
+      self.focus = nil
     }
   }
 
@@ -104,6 +129,7 @@ struct ActionSurface: View {
   let presentation: ActionSurfacePresentation
   @StateObject private var imageCache = FramePresentationImageCache()
   @State private var simulatedAnnotationsAreVisible = true
+  @State private var showsFullFrame = false
 
   var body: some View {
     let frameImage = presentation.displayedFrame.flatMap {
@@ -117,7 +143,8 @@ struct ActionSurface: View {
             frameWidth: displayedFrame.frame.width,
             frameHeight: displayedFrame.frame.height,
             viewWidth: size.width,
-            viewHeight: size.height
+            viewHeight: size.height,
+            focusRegion: showsFullFrame ? nil : presentation.focus?.region
           )
         else { return }
 
@@ -161,6 +188,28 @@ struct ActionSurface: View {
               simulatedAnnotationsAreVisible ? "Visible" : "Hidden"
             )
           }
+          if let focus = presentation.focus {
+            Button(showsFullFrame ? "Show Target ROI" : "Show Full Frame") {
+              showsFullFrame.toggle()
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .help(
+              showsFullFrame
+                ? "Magnify the exact target ROI for this frame"
+                : "Show the complete exact camera frame without changing Vision's ROI"
+            )
+            Text(
+              showsFullFrame
+                ? "FULL FRAME · \(focus.label) available"
+                : "TARGET ROI \(focus.region.width)x\(focus.region.height) · \(focus.label)"
+            )
+            .font(.caption2.monospaced().bold())
+            .foregroundStyle(.white)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 4)
+            .background(.black.opacity(0.7))
+          }
         }
         .padding(8)
       }
@@ -185,6 +234,9 @@ struct ActionSurface: View {
         }
       }
       .clipShape(RoundedRectangle(cornerRadius: 7))
+      .onChange(of: presentation.focus) { _, _ in
+        showsFullFrame = false
+      }
       .accessibilityValue(
         simulatedAnnotationsAreVisible
           ? presentation.simulatedAnnotations.map(\.accessibleValue).joined(separator: ", ")

@@ -172,7 +172,10 @@ public actor RunInterpreter {
     let request: VisibilityTargetOperationRequest
     var phase: VisibilityTargetOperationPhase = .approach
     var scene: VisibilityTargetSceneDisposition = .pristine
+    var completedTraversalStepCount = 0
+    var lastCompletedTraversalStep: VisibilityTargetTraversalStep?
     var intent: VisibilityTargetOperationIntent?
+    var intentPhase: VisibilityTargetOperationPhase?
     var jogCancelTask: Task<JogCancelOutcome, Never>?
     var jogCancelOutcome: JogCancelOutcome?
     var completionWaiters: [CheckedContinuation<Void, Never>] = []
@@ -464,10 +467,12 @@ public actor RunInterpreter {
     _ request: VisibilityTargetOperationRequest
   ) -> VisibilityTargetAdmission {
     guard currentOperation == .idle else {
+      let progress = Self.initialVisibilityTargetProgress(for: request)
       let outcome = VisibilityTargetOperationOutcome.needsAttention(
         phase: .approach,
         scene: .pristine,
-        failure: .approach(.refused(.operationInFlight))
+        failure: .approach(.refused(.operationInFlight)),
+        progress: progress
       )
       lastVisibilityTargetOutcome = outcome
       return .rejected(outcome)
@@ -501,10 +506,11 @@ public actor RunInterpreter {
     }
     if let latched = active.intent { return .alreadyLatched(latched) }
     active.intent = intent
+    active.intentPhase = active.phase
     activeVisibilityTarget = active
 
     let shouldCancelJog: Bool = switch active.phase {
-    case .approach, .drawSegment: true
+    case .approach, .draw: true
     case .lowerPen, .raisePen: false
     }
     let cancelOutcome: JogCancelOutcome?
@@ -546,7 +552,8 @@ public actor RunInterpreter {
         .needsAttention(
           phase: .approach,
           scene: .pristine,
-          failure: .approach(.refused(.nonPositiveFeed(request.approachFeedMMPerMinute)))
+          failure: .approach(.refused(.nonPositiveFeed(request.approachFeedMMPerMinute))),
+          progress: visibilityTargetProgress(for: request)
         )
       )
     }
@@ -566,7 +573,8 @@ public actor RunInterpreter {
         return finishVisibilityTarget(.needsAttention(
           phase: .approach,
           scene: .pristine,
-          failure: .stoppedWithoutSettlement
+          failure: .stoppedWithoutSettlement,
+          progress: visibilityTargetProgress(for: request)
         ))
       }
       return await settleVisibilityTargetDisposition(disposition, requestID: request.id)
@@ -574,7 +582,8 @@ public actor RunInterpreter {
       return finishVisibilityTarget(.needsAttention(
         phase: .approach,
         scene: .pristine,
-        failure: .approach(approachOutcome)
+        failure: .approach(approachOutcome),
+        progress: visibilityTargetProgress(for: request)
       ))
     }
 
@@ -591,31 +600,35 @@ public actor RunInterpreter {
       return finishVisibilityTarget(.needsAttention(
         phase: .lowerPen,
         scene: .pristine,
-        failure: .pen(lowerOutcome)
+        failure: .pen(lowerOutcome),
+        progress: visibilityTargetProgress(for: request)
       ))
     case .ambiguous:
       activeVisibilityTarget?.scene = .inkPossible
       return finishVisibilityTarget(.needsAttention(
         phase: .lowerPen,
         scene: .inkPossible,
-        failure: .pen(lowerOutcome)
+        failure: .pen(lowerOutcome),
+        progress: visibilityTargetProgress(for: request)
       ))
     }
 
     var finalPosition: MachinePosition?
-    let drawingRequests = request.plan.drawingRequests(
+    let traversalRequests = request.plan.traversalRequests(
       feedMMPerMinute: request.drawingFeedMMPerMinute
     )
-    for (index, drawingRequest) in drawingRequests.enumerated() {
+    for traversalRequest in traversalRequests {
       if let disposition = latchedVisibilityTargetDisposition(id: request.id) {
         return await settleVisibilityTargetDisposition(disposition, requestID: request.id)
       }
-      setVisibilityTargetPhase(.drawSegment(index), id: request.id)
-      let outcome = await machineController.requestDrawingStroke(drawingRequest)
+      let step = traversalRequest.step
+      setVisibilityTargetPhase(.draw(step), id: request.id)
+      let outcome = await machineController.requestDrawingStroke(traversalRequest.drawingRequest)
       lastDrawingStrokeOutcome = outcome
       switch outcome {
       case .completed(let evidence):
         finalPosition = evidence.finalPosition
+        recordVisibilityTargetTraversalCompletion(step, id: request.id)
         if let disposition = latchedVisibilityTargetDisposition(id: request.id) {
           return await settleVisibilityTargetDisposition(disposition, requestID: request.id)
         }
@@ -625,9 +638,10 @@ public actor RunInterpreter {
           case .commandedAndSettled = penRaiseOutcome
         else {
           return finishVisibilityTarget(.needsAttention(
-            phase: .drawSegment(index),
+            phase: .draw(step),
             scene: .inkPossible,
-            failure: .drawing(segmentIndex: index, outcome: outcome)
+            failure: .drawing(step: step, outcome: outcome),
+            progress: visibilityTargetProgress(for: request)
           ))
         }
         return await settleVisibilityTargetDisposition(disposition, requestID: request.id)
@@ -641,15 +655,16 @@ public actor RunInterpreter {
           )
         }
         return await raiseAfterVisibilityTargetFailure(
-          phase: .drawSegment(index),
-          failure: .drawing(segmentIndex: index, outcome: outcome),
+          phase: .draw(step),
+          failure: .drawing(step: step, outcome: outcome),
           requestID: request.id
         )
       case .ambiguous:
         return finishVisibilityTarget(.needsAttention(
-          phase: .drawSegment(index),
+          phase: .draw(step),
           scene: .inkPossible,
-          failure: .drawing(segmentIndex: index, outcome: outcome)
+          failure: .drawing(step: step, outcome: outcome),
+          progress: visibilityTargetProgress(for: request)
         ))
       }
     }
@@ -661,7 +676,8 @@ public actor RunInterpreter {
       return finishVisibilityTarget(.needsAttention(
         phase: .raisePen,
         scene: .inkPossible,
-        failure: .pen(raiseOutcome)
+        failure: .pen(raiseOutcome),
+        progress: visibilityTargetProgress(for: request)
       ))
     }
     if let disposition = latchedVisibilityTargetDisposition(id: request.id) {
@@ -671,10 +687,15 @@ public actor RunInterpreter {
       return finishVisibilityTarget(.needsAttention(
         phase: .raisePen,
         scene: .inkPossible,
-        failure: .stoppedWithoutSettlement
+        failure: .stoppedWithoutSettlement,
+        progress: visibilityTargetProgress(for: request)
       ))
     }
-    return finishVisibilityTarget(.completed(finalPosition: finalPosition, scene: .inkPossible))
+    return finishVisibilityTarget(.completed(
+      finalPosition: finalPosition,
+      scene: .inkPossible,
+      progress: visibilityTargetProgress(for: request)
+    ))
   }
 
   private func raiseAfterVisibilityTargetFailure(
@@ -689,13 +710,15 @@ public actor RunInterpreter {
       return finishVisibilityTarget(.needsAttention(
         phase: .raisePen,
         scene: .inkPossible,
-        failure: .pen(raiseOutcome)
+        failure: .pen(raiseOutcome),
+        progress: visibilityTargetProgressForActiveRequest(requestID: requestID)
       ))
     }
     return finishVisibilityTarget(.needsAttention(
       phase: phase,
       scene: .inkPossible,
-      failure: failure
+      failure: failure,
+      progress: visibilityTargetProgressForActiveRequest(requestID: requestID)
     ))
   }
 
@@ -714,7 +737,8 @@ public actor RunInterpreter {
           return finishVisibilityTarget(.needsAttention(
             phase: .raisePen,
             scene: scene,
-            failure: .pen(raise)
+            failure: .pen(raise),
+            progress: visibilityTargetProgressForActiveRequest(requestID: requestID)
           ))
         }
       }
@@ -733,6 +757,48 @@ public actor RunInterpreter {
     activeVisibilityTarget?.phase = phase
   }
 
+  private func recordVisibilityTargetTraversalCompletion(
+    _ step: VisibilityTargetTraversalStep,
+    id: UUID
+  ) {
+    guard activeVisibilityTarget?.request.id == id else { return }
+    activeVisibilityTarget?.completedTraversalStepCount += 1
+    activeVisibilityTarget?.lastCompletedTraversalStep = step
+  }
+
+  private static func initialVisibilityTargetProgress(
+    for request: VisibilityTargetOperationRequest
+  ) -> VisibilityTargetOperationProgress {
+    VisibilityTargetOperationProgress(
+      planRevision: request.plan.algorithmRevision,
+      phase: .approach,
+      completedTraversalStepCount: 0,
+      lastCompletedTraversalStep: nil
+    )
+  }
+
+  private func visibilityTargetProgress(
+    for request: VisibilityTargetOperationRequest
+  ) -> VisibilityTargetOperationProgress {
+    guard let active = activeVisibilityTarget, active.request.id == request.id else {
+      return Self.initialVisibilityTargetProgress(for: request)
+    }
+    return VisibilityTargetOperationProgress(
+      planRevision: request.plan.algorithmRevision,
+      phase: active.phase,
+      dispositionRequestedDuringPhase: active.intentPhase,
+      completedTraversalStepCount: active.completedTraversalStepCount,
+      lastCompletedTraversalStep: active.lastCompletedTraversalStep
+    )
+  }
+
+  private func visibilityTargetProgressForActiveRequest(
+    requestID: UUID
+  ) -> VisibilityTargetOperationProgress {
+    precondition(activeVisibilityTarget?.request.id == requestID)
+    return visibilityTargetProgress(for: activeVisibilityTarget!.request)
+  }
+
   private func latchedVisibilityTargetDisposition(
     id: UUID
   ) -> VisibilityTargetOperationIntent? {
@@ -745,10 +811,13 @@ public actor RunInterpreter {
     scene: VisibilityTargetSceneDisposition
   ) -> VisibilityTargetOperationOutcome {
     let cancel = activeVisibilityTarget?.jogCancelOutcome
+    let progress = visibilityTargetProgressForActiveRequest(
+      requestID: activeVisibilityTarget!.request.id
+    )
     return switch intent {
-    case .stop: .stopped(scene: scene, jogCancelOutcome: cancel)
-    case .cancel: .cancelled(scene: scene, jogCancelOutcome: cancel)
-    case .shutdown: .shutdown(scene: scene, jogCancelOutcome: cancel)
+    case .stop: .stopped(scene: scene, jogCancelOutcome: cancel, progress: progress)
+    case .cancel: .cancelled(scene: scene, jogCancelOutcome: cancel, progress: progress)
+    case .shutdown: .shutdown(scene: scene, jogCancelOutcome: cancel, progress: progress)
     }
   }
 

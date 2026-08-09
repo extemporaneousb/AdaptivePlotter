@@ -150,11 +150,15 @@ Requested feed is not proof of achieved physical speed.
    blank. Record exact frame/configuration, MPos, paper revision, and ROI.
 6. Press **Return to Registered Target Pose** and verify settlement.
 7. Press **Draw Visibility Target** once. Verify one compound owner performs
-   Pen Up approach, lower, eight segments forming a 4 mm diameter regular
-   octagon, and raise. Keep the one contextual Stop and cutoff reachable.
+   Pen Up approach, lower, eight forward segments forming a 4 mm regular
+   octagon, eight reverse segments retracing that perimeter, and one raise.
+   Record plan revision `visibility-target-octagon-double-trace-v2`; keep the
+   one contextual Stop and cutoff reachable.
 8. Press **Return to Accepted Clear Pose** and verify Pen Up settlement.
-9. Press **Observe Existing Visibility Target**. Verify two strictly fresh,
-   compatible frames agree on the target and list both included frame IDs.
+9. Press **Observe Existing Visibility Target**. Verify the exact target ROI is
+   magnified, progress names both captures and both analyses, competing controls
+   are refused, repeated Observe cannot queue, and only **Cancel Vision** remains.
+   Then verify two strictly fresh compatible frames agree and list both IDs.
 10. Accept the visibility registration only after inspecting the evidence.
 
 If target drawing is cancelled, partial, or ambiguous after Pen Down acceptance,

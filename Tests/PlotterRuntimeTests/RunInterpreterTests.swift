@@ -7,26 +7,44 @@ import Testing
 
 @Suite("Run interpreter shell")
 struct RunInterpreterTests {
-  @Test("visibility target plan is exact closed 4 mm octagon")
+  @Test("visibility target plan is an exact forward and reverse 4 mm octagon")
   func visibilityTargetGeometry() throws {
-    let plan = VisibilityTargetPlanV1()
+    let plan = VisibilityTargetPlanV2()
     #expect(plan.diameterMM == 4)
     #expect(plan.radiusMM == 2)
-    #expect(plan.segmentCount == 8)
+    #expect(plan.perimeterSegmentCount == 8)
+    #expect(plan.passCount == 2)
     #expect(plan.relativeVertices.count == 8)
-    #expect(plan.drawingDeltas.count == 8)
+    #expect(plan.drawingStepCount == 16)
     #expect(plan.approachDelta == (try Vector2<MachineSpace>(dx: 2, dy: 0)))
-    let sum = plan.drawingDeltas.reduce((dx: 0.0, dy: 0.0)) {
-      ($0.dx + $1.dx, $0.dy + $1.dy)
+    let forward = Array(plan.traversalSteps.prefix(8))
+    let reverse = Array(plan.traversalSteps.suffix(8))
+    #expect(forward.map(\.passIndex) == Array(repeating: 0, count: 8))
+    #expect(forward.map(\.direction) == Array(repeating: .forward, count: 8))
+    #expect(forward.map(\.segmentIndex) == Array(0..<8))
+    #expect(reverse.map(\.passIndex) == Array(repeating: 1, count: 8))
+    #expect(reverse.map(\.direction) == Array(repeating: .reverse, count: 8))
+    #expect(reverse.map(\.segmentIndex) == Array((0..<8).reversed()))
+    for (forwardStep, reverseStep) in zip(forward, reverse.reversed()) {
+      #expect(reverseStep.delta.dx == -forwardStep.delta.dx)
+      #expect(reverseStep.delta.dy == -forwardStep.delta.dy)
     }
-    #expect(abs(sum.dx) < 1e-12)
-    #expect(abs(sum.dy) < 1e-12)
-    #expect(plan.algorithmRevision == "visibility-target-octagon-v1")
+    let forwardSum = forward.reduce((dx: 0.0, dy: 0.0)) {
+      ($0.dx + $1.delta.dx, $0.dy + $1.delta.dy)
+    }
+    let reverseSum = reverse.reduce((dx: 0.0, dy: 0.0)) {
+      ($0.dx + $1.delta.dx, $0.dy + $1.delta.dy)
+    }
+    #expect(abs(forwardSum.dx) < 1e-12)
+    #expect(abs(forwardSum.dy) < 1e-12)
+    #expect(abs(reverseSum.dx) < 1e-12)
+    #expect(abs(reverseSum.dy) < 1e-12)
+    #expect(plan.algorithmRevision == "visibility-target-octagon-double-trace-v2")
   }
 
-  @Test("compound target owns approach lower eight segments and final Pen Up")
+  @Test("compound target owns approach one lower two opposite passes and one final Pen Up")
   func compoundVisibilityTargetSuccess() async throws {
-    let plan = VisibilityTargetPlanV1()
+    let plan = VisibilityTargetPlanV2()
     let request = VisibilityTargetOperationRequest(
       plan: plan,
       approachFeedMMPerMinute: 60,
@@ -62,7 +80,8 @@ struct RunInterpreterTests {
         reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]),
     ])
     var position = try Point2<MachineSpace>(x: 2, y: 0)
-    for stroke in plan.drawingRequests(feedMMPerMinute: 60) {
+    for traversal in plan.traversalRequests(feedMMPerMinute: 60) {
+      let stroke = traversal.drawingRequest
       let start = position
       position = try position.translated(by: stroke.delta)
       exchanges.append(interpreterStatusExchange(machineStatus(start)))
@@ -93,7 +112,8 @@ struct RunInterpreterTests {
     #expect(
       outcome == .completed(
         finalPosition: try MachinePosition(x: 2, y: 0),
-        scene: .inkPossible
+        scene: .inkPossible,
+        progress: completedVisibilityTargetProgress(plan)
       )
     )
     let snapshot = await fixture.interpreter.snapshot()
@@ -122,7 +142,15 @@ struct RunInterpreterTests {
 
     #expect(
       await operation.outcome()
-        == .stopped(scene: .inkPossible, jogCancelOutcome: nil)
+        == .stopped(
+          scene: .inkPossible,
+          jogCancelOutcome: nil,
+          progress: visibilityTargetDispositionProgress(
+            plan: ready.request.plan,
+            intentPhase: .lowerPen,
+            completedSteps: []
+          )
+        )
     )
     #expect(ready.link.completedWriteCount == ready.expectedWriteCount)
     let snapshot = await ready.interpreter.snapshot()
@@ -159,7 +187,12 @@ struct RunInterpreterTests {
       await operation.outcome()
         == .stopped(
           scene: .inkPossible,
-          jogCancelOutcome: .refused(.noActiveJog)
+          jogCancelOutcome: .refused(.noActiveJog),
+          progress: visibilityTargetDispositionProgress(
+            plan: ready.request.plan,
+            intentPhase: .draw(ready.request.plan.traversalSteps[1]),
+            completedSteps: [ready.request.plan.traversalSteps[0]]
+          )
         )
     )
     #expect(ready.link.completedWriteCount == ready.expectedWriteCount)
@@ -205,7 +238,12 @@ struct RunInterpreterTests {
       await operation.outcome()
         == .stopped(
           scene: .inkPossible,
-          jogCancelOutcome: .completed(finalPosition: ready.finalPosition)
+          jogCancelOutcome: .completed(finalPosition: ready.finalPosition),
+          progress: visibilityTargetDispositionProgress(
+            plan: ready.request.plan,
+            intentPhase: .draw(ready.request.plan.traversalSteps[0]),
+            completedSteps: []
+          )
         )
     )
     #expect(ready.link.completedWriteCount == ready.expectedWriteCount)
@@ -243,7 +281,12 @@ struct RunInterpreterTests {
       await operation.outcome()
         == .cancelled(
           scene: .inkPossible,
-          jogCancelOutcome: .completed(finalPosition: ready.finalPosition)
+          jogCancelOutcome: .completed(finalPosition: ready.finalPosition),
+          progress: visibilityTargetDispositionProgress(
+            plan: ready.request.plan,
+            intentPhase: .draw(ready.request.plan.traversalSteps[0]),
+            completedSteps: []
+          )
         )
     )
     #expect(ready.link.completedWriteCount == ready.expectedWriteCount)
@@ -270,7 +313,12 @@ struct RunInterpreterTests {
       await operation.outcome()
         == .shutdown(
           scene: .inkPossible,
-          jogCancelOutcome: .completed(finalPosition: ready.finalPosition)
+          jogCancelOutcome: .completed(finalPosition: ready.finalPosition),
+          progress: visibilityTargetDispositionProgress(
+            plan: ready.request.plan,
+            intentPhase: .draw(ready.request.plan.traversalSteps[0]),
+            completedSteps: []
+          )
         )
     )
     #expect(ready.link.completedWriteCount == ready.expectedWriteCount)
@@ -293,7 +341,8 @@ struct RunInterpreterTests {
         == .needsAttention(
           phase: .approach,
           scene: .pristine,
-          failure: .approach(.refused(.motionGuardInactive))
+          failure: .approach(.refused(.motionGuardInactive)),
+          progress: initialVisibilityTargetProgress(request.plan)
         )
     )
     #expect(fixture.link.completedWriteCount == exchanges.count)
@@ -302,7 +351,7 @@ struct RunInterpreterTests {
 
   @Test("ambiguous accepted target approach is sticky and emits no lower or drawing command")
   func visibilityTargetApproachAmbiguity() async throws {
-    let plan = VisibilityTargetPlanV1()
+    let plan = VisibilityTargetPlanV2()
     let request = visibilityTargetRequest(plan: plan)
     var exchanges = ControllerTranscriptFixtures.successfulPassiveProbe()
     exchanges[2] = ControllerTranscriptFixtures.exchange(
@@ -337,10 +386,12 @@ struct RunInterpreterTests {
     )
 
     let outcome = await fixture.interpreter.requestVisibilityTarget(request)
-    guard case .needsAttention(.approach, .pristine, .approach(.ambiguous)) = outcome else {
+    guard case .needsAttention(.approach, .pristine, .approach(.ambiguous), let progress) = outcome
+    else {
       Issue.record("expected ambiguous approach with pristine scene; got \(outcome)")
       return
     }
+    #expect(progress == initialVisibilityTargetProgress(plan))
     #expect(fixture.link.completedWriteCount == exchanges.count)
     let snapshot = await fixture.interpreter.snapshot()
     // Accepted motion followed by ambiguous controller state invalidates the
@@ -1018,7 +1069,7 @@ private func interpreterDrawingConfigurationExchange() -> SimulatedCommandExchan
 }
 
 private func visibilityTargetRequest(
-  plan: VisibilityTargetPlanV1 = VisibilityTargetPlanV1()
+  plan: VisibilityTargetPlanV2 = VisibilityTargetPlanV2()
 ) -> VisibilityTargetOperationRequest {
   VisibilityTargetOperationRequest(
     plan: plan,
@@ -1027,8 +1078,44 @@ private func visibilityTargetRequest(
   )
 }
 
+private func initialVisibilityTargetProgress(
+  _ plan: VisibilityTargetPlanV2
+) -> VisibilityTargetOperationProgress {
+  VisibilityTargetOperationProgress(
+    planRevision: plan.algorithmRevision,
+    phase: .approach,
+    completedTraversalStepCount: 0,
+    lastCompletedTraversalStep: nil
+  )
+}
+
+private func completedVisibilityTargetProgress(
+  _ plan: VisibilityTargetPlanV2
+) -> VisibilityTargetOperationProgress {
+  VisibilityTargetOperationProgress(
+    planRevision: plan.algorithmRevision,
+    phase: .raisePen,
+    completedTraversalStepCount: plan.drawingStepCount,
+    lastCompletedTraversalStep: plan.traversalSteps.last
+  )
+}
+
+private func visibilityTargetDispositionProgress(
+  plan: VisibilityTargetPlanV2,
+  intentPhase: VisibilityTargetOperationPhase,
+  completedSteps: [VisibilityTargetTraversalStep]
+) -> VisibilityTargetOperationProgress {
+  VisibilityTargetOperationProgress(
+    planRevision: plan.algorithmRevision,
+    phase: .raisePen,
+    dispositionRequestedDuringPhase: intentPhase,
+    completedTraversalStepCount: completedSteps.count,
+    lastCompletedTraversalStep: completedSteps.last
+  )
+}
+
 private func visibilityTargetPreparedExchanges(
-  plan: VisibilityTargetPlanV1
+  plan: VisibilityTargetPlanV2
 ) throws -> [SimulatedCommandExchange] {
   var exchanges = ControllerTranscriptFixtures.successfulPassiveProbe()
   exchanges[2] = ControllerTranscriptFixtures.exchange(
@@ -1096,7 +1183,7 @@ private func readyVisibilityTargetLowerPhaseFixture() async throws -> (
   gate: MachineWriteGate,
   expectedWriteCount: Int
 ) {
-  let plan = VisibilityTargetPlanV1()
+  let plan = VisibilityTargetPlanV2()
   let request = visibilityTargetRequest(plan: plan)
   var exchanges = try visibilityTargetPreparedExchanges(plan: plan)
   exchanges.append(contentsOf: [
@@ -1133,9 +1220,9 @@ private func readyVisibilityTargetAdmissionRaceFixture() async throws -> (
   gate: InterpreterMachineReadGate,
   expectedWriteCount: Int
 ) {
-  let plan = VisibilityTargetPlanV1()
+  let plan = VisibilityTargetPlanV2()
   let request = visibilityTargetRequest(plan: plan)
-  let firstStroke = plan.drawingRequests(feedMMPerMinute: 60)[0]
+  let firstStroke = plan.traversalRequests(feedMMPerMinute: 60)[0].drawingRequest
   let firstFinal = try Point2<MachineSpace>(
     x: 2 + firstStroke.delta.dx,
     y: firstStroke.delta.dy
@@ -1183,9 +1270,9 @@ private func readyVisibilityTargetCancellationFixture() async throws -> (
   finalPosition: MachinePosition,
   expectedWriteCount: Int
 ) {
-  let plan = VisibilityTargetPlanV1()
+  let plan = VisibilityTargetPlanV2()
   let request = visibilityTargetRequest(plan: plan)
-  let firstStroke = plan.drawingRequests(feedMMPerMinute: 60)[0]
+  let firstStroke = plan.traversalRequests(feedMMPerMinute: 60)[0].drawingRequest
   let finalPosition = try MachinePosition(x: 1.7, y: 0.7)
   var exchanges = try visibilityTargetPreparedExchanges(plan: plan)
   exchanges.append(contentsOf: [

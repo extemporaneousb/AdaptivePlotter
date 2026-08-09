@@ -5,7 +5,18 @@ import PlotterRuntime
 enum CameraComposition {
   private static let session = CameraSourceSession()
 
-  static let actions = OperatorWorkspace.CameraActions(
+  static let actions = makeActions(session: session)
+
+  /// Produces an independently owned camera/vision composition for tests that
+  /// exercise multiple workspaces concurrently in one process. Production uses
+  /// `actions`, whose single session remains the application-wide hardware
+  /// authority.
+  static func makeIsolatedActionsForTesting() -> OperatorWorkspace.CameraActions {
+    makeActions(session: CameraSourceSession())
+  }
+
+  private static func makeActions(session: CameraSourceSession) -> OperatorWorkspace.CameraActions {
+    OperatorWorkspace.CameraActions(
     discover: {
       await session.discover()
     },
@@ -45,10 +56,11 @@ enum CameraComposition {
     observeIsolatedInk: { request in
       await session.observeIsolatedInk(request)
     },
-    observeVisibilityTarget: { request in
-      await session.observeVisibilityTarget(request)
+    observeVisibilityTarget: { request, progress in
+      await session.observeVisibilityTarget(request, progress: progress)
     },
-  )
+    )
+  }
 }
 
 func boundedlyAwaitNewestCameraValue<Value: Sendable>(
@@ -72,6 +84,8 @@ private actor CameraSourceSession {
   private let startupFrameRecorder = StartupFrameRecorder()
   private var startupFrameTask: Task<Void, Never>?
   private var automaticInspectionFrameTask: Task<Void, Never>?
+  private var automaticInspectionCadence: VisionAnalysisCadence?
+  private var foregroundVisibilityObservationInProgress = false
 
   init() {
     let vision = VisionWorker()
@@ -147,10 +161,23 @@ private actor CameraSourceSession {
     await vision.observeIsolatedInk(request)
   }
 
-  func observeVisibilityTarget(_ request: VisibilityTargetObservationRequest) async
+  func observeVisibilityTarget(
+    _ request: VisibilityTargetObservationRequest,
+    progress: @escaping @Sendable (VisibilityTargetObservationProgress) -> Void
+  ) async
     -> VisibilityTargetObservationOutcome
   {
-    await vision.observeVisibilityTarget(request)
+    guard !foregroundVisibilityObservationInProgress else {
+      return .rejected(.observationAlreadyInProgress)
+    }
+    foregroundVisibilityObservationInProgress = true
+    await pauseAutomaticInspection()
+    let outcome = await vision.observeVisibilityTarget(request, progress: progress)
+    foregroundVisibilityObservationInProgress = false
+    if let cadence = automaticInspectionCadence {
+      await startAutomaticInspection(cadence)
+    }
+    return outcome
   }
 
   func captureSnapshot() async throws -> String {
@@ -168,9 +195,19 @@ private actor CameraSourceSession {
     -> PlotterSceneAnalysisSnapshot
   {
     guard let cadence else {
+      automaticInspectionCadence = nil
       await stopAutomaticInspection()
       return await analysisPipeline.snapshot()
     }
+    automaticInspectionCadence = cadence
+    guard !foregroundVisibilityObservationInProgress else {
+      return await analysisPipeline.snapshot()
+    }
+    await startAutomaticInspection(cadence)
+    return await analysisPipeline.snapshot()
+  }
+
+  private func startAutomaticInspection(_ cadence: VisionAnalysisCadence) async {
     await analysisPipeline.start(cadence: cadence)
     if automaticInspectionFrameTask == nil {
       let stream = await live.frames()
@@ -182,7 +219,6 @@ private actor CameraSourceSession {
         }
       }
     }
-    return await analysisPipeline.snapshot()
   }
 
   func analysisUpdates() async -> AsyncStream<PlotterSceneAnalysisSnapshot> {
@@ -212,6 +248,11 @@ private actor CameraSourceSession {
   }
 
   private func stopAutomaticInspection() async {
+    automaticInspectionCadence = nil
+    await pauseAutomaticInspection()
+  }
+
+  private func pauseAutomaticInspection() async {
     automaticInspectionFrameTask?.cancel()
     automaticInspectionFrameTask = nil
     await analysisPipeline.stop()

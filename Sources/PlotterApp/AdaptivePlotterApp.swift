@@ -314,6 +314,8 @@ private struct WorkbenchUtilities: View {
         }
       }
       .pickerStyle(.segmented)
+      .disabled(workspace.frameModeSwitchUnavailableReason != nil)
+      .help(workspace.frameModeSwitchUnavailableReason ?? "Choose the frame source")
 
       ScrollView {
         switch selectedUtility {
@@ -430,6 +432,11 @@ private struct CameraPanel: View {
             .contentShape(Rectangle())
           }
           .buttonStyle(.plain)
+          .disabled(workspace.foregroundVisionOperationUnavailableReason != nil)
+          .help(
+            workspace.foregroundVisionOperationUnavailableReason
+              ?? "Select \(device.name)"
+          )
         }
       }
 
@@ -581,6 +588,11 @@ private struct MotionPanel: View {
       }
 
     }
+    .disabled(workspace.foregroundVisionOperationUnavailableReason != nil)
+    .help(
+      workspace.foregroundVisionOperationUnavailableReason
+        ?? "Manual relative motion controls"
+    )
   }
 
   private func jogButton(

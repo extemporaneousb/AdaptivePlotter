@@ -278,7 +278,7 @@ struct OperatorWorkspaceTests {
     #expect(harness.workspace.visibilityTargetObservation?.includedFrameIDs.count == 2)
     #expect(harness.workspace.displayedFrame?.source == .simulated)
     #expect(
-      await harness.runtime.persistentInk().count == VisibilityTargetPlanV1().drawingDeltas.count)
+      await harness.runtime.persistentInk().count == VisibilityTargetPlanV2().drawingStepCount)
     #expect(await harness.machineActionLog.values.isEmpty)
   }
 
@@ -458,6 +458,147 @@ struct OperatorWorkspaceTests {
     )
     #expect(await harness.runtime.persistentInk().count == acceptedInkCount)
     #expect(await harness.machineActionLog.values.isEmpty)
+  }
+
+  @Test("foreground Vision refuses every competing mutation and ignores a late stale result")
+  func foregroundVisionIsExclusiveAndCancellationIsStaleSafe() async throws {
+    let gate = VisibilityObservationGate(cancellationDisposition: .staleRejection)
+    let harness = makeSimulatedHarness(cameraActions: gatedCameraActions(gate: gate))
+    try await completeSimulatedVisibilityProtocol(
+      harness.workspace,
+      runtime: harness.runtime,
+      boundaryOrder: [.positiveX, .negativeX, .positiveY, .negativeY],
+      observeVisibility: false
+    )
+    let workspace = harness.workspace
+    let owner = LearningPathItemID.humanGuidedDiscovery(
+      .visibilityTargetAndClearViewRegistration
+    )
+    let attemptID = try #require(workspace.activeExerciseAttemptID)
+    let baselineID = try #require(workspace.preTargetClearViewBaseline?.frame.id)
+    let executionID = try #require(
+      workspace.learningArtifactGraph.currentRevision(for: .visibilityTargetExecution)?.id
+    )
+    let ink = await harness.runtime.persistentInk()
+    let visibleLayers = workspace.visibleLayers
+
+    let observe = Task {
+      await workspace.performExerciseAction(.observeExistingVisibilityTarget, for: owner)
+    }
+    try await waitUntilAsync { await gate.callCount == 1 }
+    let runtimeBefore = await harness.runtime.snapshot()
+    let operation = try #require(workspace.visibilityObservationOperation)
+    #expect(operation.phase == .analyzingFirstFrame)
+    #expect(
+      workspace.currentExerciseActionStripPresentation?.actions.map(\.kind)
+        == [.cancelVisibilityObservation(operation.cancelCapabilityID)]
+    )
+
+    await workspace.performExerciseAction(.observeExistingVisibilityTarget, for: owner)
+    await workspace.performExerciseAction(.cancel, for: owner)
+    await workspace.performExerciseAction(.acceptVisibilityRegistration, for: owner)
+    await workspace.performControllerConnectionAction()
+    await workspace.requestPassiveProbe()
+    await workspace.activateMotionGuard()
+    await workspace.requestJog(.xPositive)
+    await workspace.requestPenActuation(.lower)
+    await workspace.beginPenInteraction()
+    await workspace.recordClearViewLabel(.blocked)
+    await workspace.acceptClearPose()
+    workspace.setLayer(.observedInk, visible: false)
+    await workspace.performCameraUtilityAction(.refresh)
+    await workspace.setAutomaticVisionAnalysis(true)
+    await workspace.switchFrameMode(.live)
+
+    #expect(await gate.callCount == 1)
+    let runtimeAfterCompetingActions = await harness.runtime.snapshot()
+    #expect(runtimeAfterCompetingActions.session == runtimeBefore.session)
+    #expect(runtimeAfterCompetingActions.motionAuthorization == runtimeBefore.motionAuthorization)
+    #expect(runtimeAfterCompetingActions.penPose == runtimeBefore.penPose)
+    #expect(runtimeAfterCompetingActions.mpos == runtimeBefore.mpos)
+    #expect(runtimeAfterCompetingActions.currentOperation == runtimeBefore.currentOperation)
+    #expect(runtimeAfterCompetingActions.stickyAmbiguity == runtimeBefore.stickyAmbiguity)
+    #expect(runtimeAfterCompetingActions.cameraConfigurationID == runtimeBefore.cameraConfigurationID)
+    #expect(runtimeAfterCompetingActions.viewportID == runtimeBefore.viewportID)
+    #expect(
+      runtimeAfterCompetingActions.persistentInkSegmentCount
+        == runtimeBefore.persistentInkSegmentCount
+    )
+    #expect(runtimeAfterCompetingActions.toolPaperRevision == runtimeBefore.toolPaperRevision)
+    #expect(await harness.runtime.persistentInk() == ink)
+    #expect(await harness.machineActionLog.values.isEmpty)
+    #expect(workspace.visibleLayers == visibleLayers)
+    #expect(workspace.activeExerciseAttemptID == attemptID)
+    #expect(workspace.preTargetClearViewBaseline?.frame.id == baselineID)
+    #expect(
+      workspace.learningArtifactGraph.currentRevision(for: .visibilityTargetExecution)?.id
+        == executionID
+    )
+    #expect(workspace.visibilityTargetSceneDisposition == .inkPossible)
+
+    await workspace.performExerciseAction(
+      .cancelVisibilityObservation(operation.cancelCapabilityID),
+      for: owner
+    )
+    await observe.value
+
+    #expect(await gate.cancelRequestCount == 1)
+    #expect(workspace.visibilityObservationOperation == nil)
+    #expect(workspace.activeExerciseAttemptID == attemptID)
+    #expect(workspace.preTargetClearViewBaseline?.frame.id == baselineID)
+    #expect(workspace.visibilityTargetSceneDisposition == .inkPossible)
+    #expect(workspace.visibilityTargetObservation == nil)
+    #expect(
+      workspace.learningArtifactGraph.currentRevision(for: .visibilityTargetExecution)?.id
+        == executionID
+    )
+    #expect(await harness.runtime.persistentInk() == ink)
+    #expect(workspace.explorationError?.contains("cancelled") == true)
+    await workspace.shutdown()
+  }
+
+  @Test("shutdown cancels and settles foreground Vision before camera and controller teardown")
+  func shutdownOrdersForegroundVisionSettlement() async throws {
+    let log = EventLog()
+    let gate = VisibilityObservationGate(
+      cancellationDisposition: .cancelled,
+      log: log
+    )
+    let harness = makeSimulatedHarness(
+      cameraActions: gatedCameraActions(gate: gate, log: log),
+      eventLog: log
+    )
+    try await completeSimulatedVisibilityProtocol(
+      harness.workspace,
+      runtime: harness.runtime,
+      boundaryOrder: [.positiveY, .negativeY, .positiveX, .negativeX],
+      observeVisibility: false
+    )
+    await log.clear()
+    let owner = LearningPathItemID.humanGuidedDiscovery(
+      .visibilityTargetAndClearViewRegistration
+    )
+    let observe = Task {
+      await harness.workspace.performExerciseAction(
+        .observeExistingVisibilityTarget,
+        for: owner
+      )
+    }
+    try await waitUntilAsync { await gate.callCount == 1 }
+    await log.clear()
+
+    await harness.workspace.shutdown()
+    await observe.value
+
+    #expect(harness.workspace.isShutdown)
+    #expect(harness.workspace.visibilityObservationOperation == nil)
+    #expect(await gate.cancelRequestCount == 1)
+    #expect(await log.values == [
+      "vision-cancel-requested",
+      "vision-returned",
+      "camera-stop",
+      "disconnect",
+    ])
   }
 
   @Test("camera recovery preserves machine facts and collects contact evidence without motion")
@@ -1110,10 +1251,12 @@ private func sequenceIDForTest(_ direction: BoundaryDirection) -> DiscoverySeque
 
 @MainActor
 private func makeSimulatedHarness(
+  cameraActions: OperatorWorkspace.CameraActions? = nil,
+  eventLog: EventLog? = nil,
   simulatedExecutionPacing: any SimulatedLearningExecutionPacing =
     SimulatedLearningImmediatePacing()
 ) -> SimulatedWorkspaceHarness {
-  let machineActionLog = EventLog()
+  let machineActionLog = eventLog ?? EventLog()
   let clock = TestClock()
   // Workspace state-machine tests need causal pixels and viable vision
   // geometry, not the production simulator's default presentation footprint.
@@ -1126,7 +1269,7 @@ private func makeSimulatedHarness(
   return SimulatedWorkspaceHarness(
     workspace: OperatorWorkspace(
       machineActions: isolatedMachineActions(log: machineActionLog),
-      cameraActions: CameraComposition.actions,
+      cameraActions: cameraActions ?? CameraComposition.makeIsolatedActionsForTesting(),
       simulatedLearningRuntime: runtime,
       simulatedExecutionPacing: simulatedExecutionPacing,
       serialDevices: [],
@@ -1198,7 +1341,8 @@ private func completeSimulatedVisibilityProtocol(
   runtime: SimulatedLearningRuntime,
   boundaryOrder: [BoundaryDirection],
   throughVisibility: Bool = true,
-  moveToCenter: Bool = true
+  moveToCenter: Bool = true,
+  observeVisibility: Bool = true
 ) async throws {
   await workspace.switchFrameMode(.simulated)
   #expect(workspace.frameMode == .simulated)
@@ -1342,6 +1486,7 @@ private func completeSimulatedVisibilityProtocol(
     owner: visibilityOwner,
     workspace: workspace
   )
+  if !observeVisibility { return }
   try await performPublicAction(
     .observeExistingVisibilityTarget,
     owner: visibilityOwner,
@@ -1535,13 +1680,19 @@ private func isolatedMachineActions(log: EventLog) -> OperatorWorkspace.MachineA
       await log.append("beginDrawingStroke")
       return .rejected(.refused(.notConnected))
     },
-    beginVisibilityTarget: { _ in
+    beginVisibilityTarget: { request in
       await log.append("beginVisibilityTarget")
       return .rejected(
         .needsAttention(
           phase: .approach,
           scene: .pristine,
-          failure: .approach(.refused(.notConnected))
+          failure: .approach(.refused(.notConnected)),
+          progress: VisibilityTargetOperationProgress(
+            planRevision: request.plan.algorithmRevision,
+            phase: .approach,
+            completedTraversalStepCount: 0,
+            lastCompletedTraversalStep: nil
+          )
         )
       )
     },
@@ -1588,13 +1739,104 @@ private func cameraActions(_ fixture: CameraFixture) -> OperatorWorkspace.Camera
     setAutomaticInspection: { fixture.setAutomaticInspection($0) },
     analysisUpdates: { AsyncStream { $0.finish() } },
     observeIsolatedInk: { _ in fatalError("unused") },
-    observeVisibilityTarget: { _ in fatalError("unused") },
+    observeVisibilityTarget: { _, _ in fatalError("unused") },
   )
 }
 
 private actor EventLog {
   private(set) var values: [String] = []
   func append(_ value: String) { values.append(value) }
+  func clear() { values.removeAll(keepingCapacity: true) }
+}
+
+private actor VisibilityObservationGate {
+  enum CancellationDisposition: Sendable {
+    case cancelled
+    case staleRejection
+  }
+
+  private let cancellationDisposition: CancellationDisposition
+  private let log: EventLog?
+  private var continuation: CheckedContinuation<VisibilityTargetObservationOutcome, Never>?
+  private var cancellationFrameID: FrameID?
+  private(set) var callCount = 0
+  private(set) var cancelRequestCount = 0
+
+  init(
+    cancellationDisposition: CancellationDisposition,
+    log: EventLog? = nil
+  ) {
+    self.cancellationDisposition = cancellationDisposition
+    self.log = log
+  }
+
+  func observe(
+    _ request: VisibilityTargetObservationRequest,
+    progress: @escaping @Sendable (VisibilityTargetObservationProgress) -> Void
+  ) async -> VisibilityTargetObservationOutcome {
+    callCount += 1
+    cancellationFrameID = request.targetSamples.first?.frame.id
+    progress(VisibilityTargetObservationProgress(sampleIndex: 1, sampleCount: 2))
+    let outcome = await withTaskCancellationHandler {
+      await withCheckedContinuation { continuation in
+        if Task.isCancelled {
+          continuation.resume(returning: cancellationOutcome())
+        } else {
+          self.continuation = continuation
+        }
+      }
+    } onCancel: {
+      Task { await self.requestCancellation() }
+    }
+    await log?.append("vision-returned")
+    return outcome
+  }
+
+  private func requestCancellation() async {
+    cancelRequestCount += 1
+    await log?.append("vision-cancel-requested")
+    continuation?.resume(returning: cancellationOutcome())
+    continuation = nil
+  }
+
+  private func cancellationOutcome() -> VisibilityTargetObservationOutcome {
+    switch cancellationDisposition {
+    case .cancelled:
+      return .cancelled
+    case .staleRejection:
+      return .rejected(.targetMissing(
+        frameID: cancellationFrameID ?? FrameID(rawValue: "late-stale-frame")
+      ))
+    }
+  }
+}
+
+private func gatedCameraActions(
+  gate: VisibilityObservationGate,
+  log: EventLog? = nil
+) -> OperatorWorkspace.CameraActions {
+  let base = CameraComposition.makeIsolatedActionsForTesting()
+  return OperatorWorkspace.CameraActions(
+    discover: base.discover,
+    select: base.select,
+    start: base.start,
+    stop: {
+      await log?.append("camera-stop")
+      return await base.stop()
+    },
+    restart: base.restart,
+    snapshot: base.snapshot,
+    frames: base.frames,
+    inspectScene: base.inspectScene,
+    captureFrame: base.captureFrame,
+    captureSnapshot: base.captureSnapshot,
+    setAutomaticInspection: base.setAutomaticInspection,
+    analysisUpdates: base.analysisUpdates,
+    observeIsolatedInk: base.observeIsolatedInk,
+    observeVisibilityTarget: { request, progress in
+      await gate.observe(request, progress: progress)
+    }
+  )
 }
 
 private final class TestClock: @unchecked Sendable {

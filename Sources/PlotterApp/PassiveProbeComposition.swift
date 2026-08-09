@@ -147,7 +147,13 @@ private actor PersistentMachineSession {
         .needsAttention(
           phase: .approach,
           scene: .pristine,
-          failure: .approach(.refused(.noSerialDeviceSelected))
+          failure: .approach(.refused(.noSerialDeviceSelected)),
+          progress: VisibilityTargetOperationProgress(
+            planRevision: request.plan.algorithmRevision,
+            phase: .approach,
+            completedTraversalStepCount: 0,
+            lastCompletedTraversalStep: nil
+          )
         )
       )
     }

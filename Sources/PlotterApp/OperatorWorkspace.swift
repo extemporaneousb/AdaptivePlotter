@@ -423,6 +423,7 @@ final class OperatorWorkspace {
     let preTargetClearViewBaseline: DisplayedFrame?
     let visibilityTargetSceneDisposition: VisibilityTargetSceneDisposition
     let visibilityTargetObservation: VisibilityTargetObservation?
+    let executedVisibilityTargetPlanRevision: String?
     let visibilityRegistrationAccepted: Bool
     let machineCameraRegistration: MachineCameraRegistration?
     let clearViewPoseAccepted: Bool
@@ -435,6 +436,23 @@ final class OperatorWorkspace {
     let retiredTargetAreaDispositions: [UUID: VisibilityTargetSceneDisposition]
     let learningArtifactGraph: LearningDependencyGraph
     let observedDrawingTrialStep: ObservedDrawingTrialStep
+  }
+
+  private struct VisibilityObservationAuthorityContext: Sendable {
+    let operationID: VisibilityObservationOperationID
+    let generation: UInt64
+    let attemptID: ExerciseAttemptID
+    let baselineFrameID: FrameID
+    let baselineSHA256: String
+    let source: FrameSourceIdentity
+    let cameraConfigurationID: CameraConfigurationID
+    let controllerSessionID: UUID
+    let coordinateRevision: UInt64
+    let toolPaperRevision: UUID
+    let targetAreaIdentity: UUID
+    let clearPosition: MachinePosition
+    let region: PixelRect
+    let targetPlanRevision: String
   }
 
   /// Live accepted learning authority is parked while the deterministic
@@ -462,6 +480,7 @@ final class OperatorWorkspace {
     let preTargetClearViewBaseline: DisplayedFrame?
     let visibilityTargetSceneDisposition: VisibilityTargetSceneDisposition
     let visibilityTargetObservation: VisibilityTargetObservation?
+    let executedVisibilityTargetPlanRevision: String?
     let visibilityObservationAttemptHistories:
       [AttemptCompatibility: ExerciseAttemptHistory<VisibilityTargetObservation>]
     let acceptedVisibilityObservationAttemptID: ExerciseAttemptID?
@@ -571,7 +590,10 @@ final class OperatorWorkspace {
       @Sendable (IsolatedInkObservationRequest) async
         -> IsolatedInkObservationOutcome
     let observeVisibilityTarget:
-      @Sendable (VisibilityTargetObservationRequest) async
+      @Sendable (
+        VisibilityTargetObservationRequest,
+        @escaping @Sendable (VisibilityTargetObservationProgress) -> Void
+      ) async
         -> VisibilityTargetObservationOutcome
   }
 
@@ -641,6 +663,9 @@ final class OperatorWorkspace {
   private(set) var preTargetClearViewBaseline: DisplayedFrame?
   private(set) var visibilityTargetSceneDisposition: VisibilityTargetSceneDisposition = .pristine
   private(set) var visibilityTargetObservation: VisibilityTargetObservation?
+  private(set) var executedVisibilityTargetPlanRevision: String?
+  private(set) var visibilityObservationOperation:
+    VisibilityObservationOperationPresentation?
   private(set) var visibilityObservationAttemptHistories:
     [AttemptCompatibility: ExerciseAttemptHistory<VisibilityTargetObservation>] = [:]
   private(set) var acceptedVisibilityObservationAttemptID: ExerciseAttemptID?
@@ -707,6 +732,8 @@ final class OperatorWorkspace {
   @ObservationIgnored private var exerciseMotionTask: Task<MotionOutcome, Never>?
   @ObservationIgnored private var visibilityTargetTask:
     Task<VisibilityTargetOperationOutcome, Never>?
+  @ObservationIgnored private var visibilityObservationTask: Task<Void, Never>?
+  @ObservationIgnored private var visibilityObservationGeneration: UInt64 = 0
   @ObservationIgnored private var drawingTrialTask: Task<DrawingStrokeOutcome, Never>?
   @ObservationIgnored private var simulatedOperationTask:
     Task<SimulatedLearningOperationOutcome?, Never>?
@@ -819,18 +846,37 @@ final class OperatorWorkspace {
 
   var actionSurfacePresentation: ActionSurfacePresentation {
     let visibleKinds = Set(visibleLayers.map(\.overlayKind))
+    let focus = displayedFrame.flatMap { frame -> ActionSurfaceFocus? in
+      guard let region = targetObservationRegion,
+        visibilityTargetSceneDisposition != .pristine
+          || visibilityObservationOperation != nil
+      else { return nil }
+      return ActionSurfaceFocus(
+        frameID: frame.frame.id,
+        cameraConfigurationID: frame.frame.cameraConfigurationID,
+        region: region,
+        label: "FRAME \(frame.frame.sequence)"
+      )
+    }
     return ActionSurfacePresentation(
       displayedFrame: displayedFrame,
       overlays: cameraOverlays.filter { visibleKinds.contains($0.provenance.kind) },
       simulatedAnnotations: simulatedAnnotations,
       simulatedViewportID: simulatedViewportID,
-      simulatedAnnotationsAreVisible: simulatedAnnotationsAreVisible
+      simulatedAnnotationsAreVisible: simulatedAnnotationsAreVisible,
+      focus: focus
     )
   }
 
   var cameraDevices: [CameraDevice] { cameraSnapshot?.devices ?? [] }
   var selectedCameraID: CameraDeviceID? { cameraSnapshot?.selectedDeviceID }
   var isShutdown: Bool { hasShutdown }
+
+  var foregroundVisionOperationUnavailableReason: String? {
+    visibilityObservationOperation.map {
+      "Cancel Vision or wait for its exact target-ROI observation to settle. \($0.busyDetail)"
+    }
+  }
 
   var cameraIsLive: Bool {
     guard frameMode == .live, case .running = cameraSnapshot?.state,
@@ -1040,6 +1086,7 @@ final class OperatorWorkspace {
   }
 
   var controllerSelectionUnavailableReason: String? {
+    if let reason = foregroundVisionOperationUnavailableReason { return reason }
     if serialDevices.isEmpty { return "No serial controllers are available." }
     if let activeDiscoverySequenceID {
       return
@@ -1054,6 +1101,7 @@ final class OperatorWorkspace {
   }
 
   var motionGuardActivationUnavailableReason: String? {
+    if let reason = foregroundVisionOperationUnavailableReason { return reason }
     if motionGuardActivationInProgress { return "Enable Motion is in progress." }
     if motionAuthorizationEnabled { return "Motion is already enabled." }
     if !controllerSessionEstablished {
@@ -1098,6 +1146,7 @@ final class OperatorWorkspace {
   }
 
   var controllerConnectionActionUnavailableReason: String? {
+    if let reason = foregroundVisionOperationUnavailableReason { return reason }
     if controllerConnectionActionInProgress {
       return "The controller connection action is already in progress."
     }
@@ -1120,6 +1169,7 @@ final class OperatorWorkspace {
   }
 
   var frameModeSwitchUnavailableReason: String? {
+    if let reason = foregroundVisionOperationUnavailableReason { return reason }
     if frameModeSwitchInProgress { return "A frame source switch is already in progress." }
     if activeExerciseAttemptOwnerID != nil {
       return "Finish or Cancel the active Learning Path attempt before changing frame source."
@@ -1257,6 +1307,7 @@ final class OperatorWorkspace {
   }
 
   func stopManualJog(capabilityID: ContextualStopCapabilityID) async {
+    guard visibilityObservationOperation == nil else { return }
     guard let target = activeStopTarget,
       target.capabilityID == capabilityID,
       case .manualJog = target
@@ -1265,6 +1316,9 @@ final class OperatorWorkspace {
   }
 
   var motionRequestStatusPresentation: MotionRequestStatusPresentation {
+    if let operation = visibilityObservationOperation {
+      return .busy(operation.busyDetail)
+    }
     if frameMode == .simulated {
       if simulatedLearningSnapshot?.currentOperation != nil || jogRequestInProgress
         || penRequestInProgress || jogCancelRequestInProgress || activeStopTarget != nil
@@ -1290,6 +1344,7 @@ final class OperatorWorkspace {
   var cameraUtilityPresentation: CameraUtilityPresentation {
     let simulated = frameMode == .simulated
     let switchReason = frameModeSwitchUnavailableReason
+    let foregroundReason = foregroundVisionOperationUnavailableReason
     let liveOnly = "This action requires a LIVE camera source."
     let actions = CameraUtilityActionKind.allCases.map { kind in
       let title: String
@@ -1315,15 +1370,17 @@ final class OperatorWorkspace {
       case .analyzeOrResume:
         title = analysisFrameHeld ? "Resume Preview" : "Analyze Current Frame"
         systemImage = analysisFrameHeld ? "play.rectangle" : "viewfinder"
-        unavailableReason = simulated ? liveOnly : displayedFrame == nil ? "No current frame." : nil
+        unavailableReason =
+          foregroundReason ?? (simulated ? liveOnly : displayedFrame == nil ? "No current frame." : nil)
       case .saveSnapshot:
         title = "Save Snapshot"
         systemImage = "camera"
-        unavailableReason = simulated ? liveOnly : displayedFrame == nil ? "No current frame." : nil
+        unavailableReason =
+          foregroundReason ?? (simulated ? liveOnly : displayedFrame == nil ? "No current frame." : nil)
       case .toggleAutomaticAnalysis:
         title = automaticVisionEnabled ? "Stop Auto Analysis" : "Start Auto Analysis"
         systemImage = automaticVisionEnabled ? "pause.circle" : "waveform.path.ecg"
-        unavailableReason = simulated ? liveOnly : nil
+        unavailableReason = foregroundReason ?? (simulated ? liveOnly : nil)
       }
       return CameraUtilityActionPresentation(
         kind: kind,
@@ -1335,7 +1392,7 @@ final class OperatorWorkspace {
     return CameraUtilityPresentation(
       mode: frameMode,
       actions: actions,
-      analysisCadenceUnavailableReason: simulated ? liveOnly : nil
+      analysisCadenceUnavailableReason: foregroundReason ?? (simulated ? liveOnly : nil)
     )
   }
 
@@ -1454,7 +1511,7 @@ final class OperatorWorkspace {
   }
 
   func selectBoundaryDirection(_ direction: BoundaryDirection) {
-    guard !hasShutdown, activeDiscoverySequenceID == nil,
+    guard visibilityObservationOperation == nil, !hasShutdown, activeDiscoverySequenceID == nil,
       pairedBoundaryProgress.allowedDirections.contains(direction)
     else { return }
     selectedBoundaryDirection = direction
@@ -1464,6 +1521,14 @@ final class OperatorWorkspace {
     _ kind: ExerciseActionKind,
     for ownerID: LearningPathItemID
   ) async {
+    if let operation = visibilityObservationOperation {
+      guard
+        case .cancelVisibilityObservation(let capabilityID) = kind,
+        capabilityID == operation.cancelCapabilityID
+      else { return }
+      await cancelVisibilityObservation(capabilityID: capabilityID)
+      return
+    }
     if case .selectDirection(let purpose, let direction) = kind {
       guard !hasShutdown,
         let selection = exerciseActionStrip(for: ownerID)?.directionSelection,
@@ -1493,6 +1558,8 @@ final class OperatorWorkspace {
       await answerCurrentQuestion(choice)
     case .cancel:
       await cancelExerciseAttempt(ownerID)
+    case .cancelVisibilityObservation:
+      return
     case .stop(let capabilityID):
       guard ownerID == activeExerciseAttemptOwnerID else { return }
       await stopCurrentOperation(capabilityID: capabilityID)
@@ -1940,7 +2007,7 @@ final class OperatorWorkspace {
         estimatorRevision: "boundary-affine-with-center-validation-v1",
         uncertaintyPixels: max(fit.maximumErrorPixels, 0)
       )
-      let plan = VisibilityTargetPlanV1()
+      let plan = VisibilityTargetPlanV2()
       let targetMachinePoints = try plan.relativeVertices.map { vertex in
         try Point2<MachineSpace>(
           x: targetMachinePosition.point.x + vertex.x,
@@ -2165,11 +2232,13 @@ final class OperatorWorkspace {
   }
 
   func answerCurrentQuestion(_ choice: OperatorChoice) async {
+    guard visibilityObservationOperation == nil else { return }
     guard let sequenceID = activeDiscoverySequenceID else { return }
     await answerDiscoverySequence(choice, for: sequenceID)
   }
 
   func recordClearViewLabel(_ label: ArmatureVisibilityLabel) async {
+    guard visibilityObservationOperation == nil else { return }
     guard humanGuidedDiscoveryCurrentStep == .visibilityTargetAndClearViewRegistration else {
       return
     }
@@ -2237,7 +2306,8 @@ final class OperatorWorkspace {
   }
 
   func acceptClearPose() async {
-    guard pendingClearViewLabel == .clear,
+    guard visibilityObservationOperation == nil,
+      pendingClearViewLabel == .clear,
       let observation = lastArmatureObservation,
       observation.estimateAgreedWithHuman,
       var guidance = armatureGuidanceState
@@ -2356,7 +2426,7 @@ final class OperatorWorkspace {
     let ownerID = LearningPathItemID.humanGuidedDiscovery(
       .visibilityTargetAndClearViewRegistration
     )
-    let plan = VisibilityTargetPlanV1()
+    let plan = VisibilityTargetPlanV2()
     if frameMode == .simulated {
       let operation: SimulatedLearningOperation
       do {
@@ -2366,6 +2436,7 @@ final class OperatorWorkspace {
         explorationError = "Simulated visibility-target admission was refused: \(error)."
         return
       }
+      executedVisibilityTargetPlanRevision = plan.algorithmRevision
       let target = ContextualStopTarget.visibilityTarget(
         capabilityID: ContextualStopCapabilityID(),
         operationOwner: .simulated(operation.id),
@@ -2407,7 +2478,9 @@ final class OperatorWorkspace {
     )
     let operation: VisibilityTargetOperation
     switch await machineActions.beginVisibilityTarget(request) {
-    case .admitted(let admitted): operation = admitted
+    case .admitted(let admitted):
+      operation = admitted
+      executedVisibilityTargetPlanRevision = plan.algorithmRevision
     case .rejected(let outcome):
       applyVisibilityTargetOutcome(outcome, registeredCenter: targetCenter, plan: plan)
       return
@@ -2438,7 +2511,7 @@ final class OperatorWorkspace {
   private func applySimulatedVisibilityTargetOutcome(
     _ outcome: SimulatedLearningOperationOutcome,
     registeredCenter: MachinePosition,
-    plan: VisibilityTargetPlanV1
+    plan: VisibilityTargetPlanV2
   ) {
     let scene = outcome.visibilityTargetSceneDisposition ?? .pristine
     visibilityTargetSceneDisposition = scene
@@ -2463,7 +2536,9 @@ final class OperatorWorkspace {
           "Visibility target final MPos did not match the registered target plan. Existing ink may be present; no redraw is available."
         return
       }
-      commitVisibilityTargetExecutionArtifact()
+      commitVisibilityTargetExecutionArtifact(
+        planRevision: outcome.visibilityTargetProgress?.planRevision ?? plan.algorithmRevision
+      )
     case .stopped, .cancelled, .shutdown:
       explorationError =
         "Visibility target settled as \(scene.rawValue). Observe Existing Target if ink is possible; never redraw at this ROI."
@@ -2476,10 +2551,10 @@ final class OperatorWorkspace {
   private func applyVisibilityTargetOutcome(
     _ outcome: VisibilityTargetOperationOutcome,
     registeredCenter: MachinePosition,
-    plan: VisibilityTargetPlanV1
+    plan: VisibilityTargetPlanV2
   ) {
     switch outcome {
-    case .completed(let final, let scene):
+    case .completed(let final, let scene, let progress):
       visibilityTargetSceneDisposition = scene
       guard
         let expected = try? MachinePosition(
@@ -2496,19 +2571,22 @@ final class OperatorWorkspace {
           "Visibility target final MPos did not match the registered target plan. Existing ink may be present; no redraw is available."
         return
       }
-      commitVisibilityTargetExecutionArtifact()
-    case .stopped(let scene, _), .cancelled(let scene, _), .shutdown(let scene, _):
+      commitVisibilityTargetExecutionArtifact(planRevision: progress.planRevision)
+    case .stopped(let scene, _, let progress), .cancelled(let scene, _, let progress),
+      .shutdown(let scene, _, let progress):
       visibilityTargetSceneDisposition = scene
+      executedVisibilityTargetPlanRevision = progress.planRevision
       explorationError =
         "Visibility target settled as \(scene.rawValue). Observe Existing Target if ink is possible; never redraw at this ROI."
-    case .needsAttention(let phase, let scene, let failure):
+    case .needsAttention(let phase, let scene, let failure, let progress):
       visibilityTargetSceneDisposition = scene
+      executedVisibilityTargetPlanRevision = progress.planRevision
       explorationError =
         "Visibility target needs attention at \(phase): \(failure). Scene is \(scene.rawValue); ambiguous work is never resumed or redrawn."
     }
   }
 
-  private func commitVisibilityTargetExecutionArtifact() {
+  private func commitVisibilityTargetExecutionArtifact(planRevision: String) {
     do {
       let sourceGraph = visibilityDraftArtifactGraph ?? learningArtifactGraph
       guard let attemptID = activeExerciseAttemptID,
@@ -2537,6 +2615,7 @@ final class OperatorWorkspace {
         applyArtifactInvalidations(commit.invalidatedRevisionIDs)
       }
       visibilityTargetSceneDisposition = .inkPossible
+      executedVisibilityTargetPlanRevision = planRevision
       explorationError = nil
     } catch {
       explorationError = "Visibility-target artifact commit failed: \(actionableDescription(error))"
@@ -2545,29 +2624,109 @@ final class OperatorWorkspace {
 
   private func observeExistingVisibilityTarget() async {
     guard
+      visibilityObservationOperation == nil,
       visibilityTargetSceneDisposition == .inkPossible
         || visibilityTargetSceneDisposition == .targetObserved,
       let baseline = preTargetClearViewBaseline,
       let clearPosition = armatureGuidanceState?.acceptedClearPose?.position,
       let region = targetObservationRegion,
+      let targetPlanRevision = executedVisibilityTargetPlanRevision,
+      let attemptID = activeExerciseAttemptID,
       (try? currentMachinePosition()).map({ protocolPositionsMatch($0, clearPosition) }) == true,
       let cameraActions
     else { return }
+
+    visibilityObservationGeneration &+= 1
+    let operationID = VisibilityObservationOperationID()
+    let capabilityID = VisibilityObservationCancelCapabilityID()
+    let context = VisibilityObservationAuthorityContext(
+      operationID: operationID,
+      generation: visibilityObservationGeneration,
+      attemptID: attemptID,
+      baselineFrameID: baseline.frame.id,
+      baselineSHA256: baseline.frame.contentSHA256,
+      source: baseline.source,
+      cameraConfigurationID: baseline.frame.cameraConfigurationID,
+      controllerSessionID: controllerSessionID,
+      coordinateRevision: explorationCoordinateRevision,
+      toolPaperRevision: explorationToolPaperRevision,
+      targetAreaIdentity: targetAreaIdentity,
+      clearPosition: clearPosition,
+      region: region,
+      targetPlanRevision: targetPlanRevision
+    )
+    visibilityObservationOperation = VisibilityObservationOperationPresentation(
+      id: operationID,
+      cancelCapabilityID: capabilityID,
+      phase: .preparing,
+      region: region,
+      targetPlanRevision: targetPlanRevision
+    )
+    explorationError = nil
+
+    let task = Task { @MainActor [weak self] in
+      guard let self else { return }
+      await self.runVisibilityObservation(
+        context: context,
+        baseline: baseline,
+        cameraActions: cameraActions
+      )
+    }
+    visibilityObservationTask = task
+    await task.value
+  }
+
+  private func runVisibilityObservation(
+    context: VisibilityObservationAuthorityContext,
+    baseline: DisplayedFrame,
+    cameraActions: CameraActions
+  ) async {
+    let shouldResumeAutomaticVision = await suspendAutomaticVisionForForegroundObservation(
+      cameraActions: cameraActions,
+      operationID: context.operationID
+    )
+    await executeVisibilityObservation(
+      context: context,
+      baseline: baseline,
+      cameraActions: cameraActions
+    )
+    await restoreAutomaticVisionAfterForegroundObservation(
+      shouldResume: shouldResumeAutomaticVision,
+      cameraActions: cameraActions,
+      operationID: context.operationID
+    )
+    settleVisibilityObservationOwner(context.operationID)
+  }
+
+  private func executeVisibilityObservation(
+    context: VisibilityObservationAuthorityContext,
+    baseline: DisplayedFrame,
+    cameraActions: CameraActions
+  ) async {
     do {
+      try Task.checkCancellation()
+      guard visibilityObservationContextIsCurrent(context) else { return }
+      updateVisibilityObservationPhase(.acquiringFirstFrame, operationID: context.operationID)
       let first = try await captureProtocolFrame(newerThan: baseline.frame.captureNanoseconds)
+      try Task.checkCancellation()
+      guard visibilityObservationContextIsCurrent(context) else { return }
+      updateVisibilityObservationPhase(.acquiringSecondFrame, operationID: context.operationID)
       let second = try await captureProtocolFrame(newerThan: first.frame.captureNanoseconds)
+      try Task.checkCancellation()
+      guard visibilityObservationContextIsCurrent(context) else { return }
       let expectedDiameter = expectedVisibilityTargetDiameterPixels()
+      updateVisibilityObservationPhase(.analyzingFirstFrame, operationID: context.operationID)
       let outcome = await cameraActions.observeVisibilityTarget(
         VisibilityTargetObservationRequest(
           baseline: SamePoseFrameSample(
             displayedFrame: baseline,
-            controllerPosition: clearPosition
+            controllerPosition: context.clearPosition
           ),
           targetSamples: [
-            SamePoseFrameSample(displayedFrame: first, controllerPosition: clearPosition),
-            SamePoseFrameSample(displayedFrame: second, controllerPosition: clearPosition),
+            SamePoseFrameSample(displayedFrame: first, controllerPosition: context.clearPosition),
+            SamePoseFrameSample(displayedFrame: second, controllerPosition: context.clearPosition),
           ],
-          region: region,
+          targetSearchROI: context.region,
           thresholds: GreenPixelThresholds(minimumGreen: 75, minimumGreenExcess: 20),
           controllerSessionID: controllerSessionID,
           coordinateRevision: explorationCoordinateRevision,
@@ -2578,11 +2737,26 @@ final class OperatorWorkspace {
           maximumCentroidSpreadPixels: 2,
           maximumAreaRatio: 1.25,
           maximumBackgroundMeanAbsoluteDifference: 4,
-          algorithmRevision: "visibility-target-two-frame-v1"
-        )
+          algorithmRevision: "visibility-target-two-frame-local-roi-v2",
+          targetPlanRevision: context.targetPlanRevision
+        ),
+        { [weak self] progress in
+          Task { @MainActor [weak self] in
+            self?.updateVisibilityObservationPhase(
+              progress.sampleIndex == 1 ? .analyzingFirstFrame : .analyzingSecondFrame,
+              operationID: context.operationID
+            )
+          }
+        }
       )
+      try Task.checkCancellation()
+      guard visibilityObservationContextIsCurrent(context) else { return }
       switch outcome {
       case .observed(let observation):
+        updateVisibilityObservationPhase(.committing, operationID: context.operationID)
+        guard observation.targetPlanRevision == context.targetPlanRevision,
+          visibilityObservationContextIsCurrent(context)
+        else { return }
         try commitVisibilityTargetObservationArtifact()
         visibilityTargetObservation = observation
         visibilityTargetSceneDisposition = .targetObserved
@@ -2590,13 +2764,142 @@ final class OperatorWorkspace {
         cameraOverlays = observation.overlays
         explorationError = nil
       case .rejected(let rejection):
+        if case .observationAlreadyInProgress = rejection {
+          explorationError =
+            "Vision refused a duplicate target observation. The existing target and ROI remain current."
+          return
+        }
         visibilityTargetObservation = nil
         visibilityTargetSceneDisposition = .targetUnusable
         explorationError =
           "Visibility target unusable: \(rejection). Register New Target Area or record Paper Replaced; no redraw is available."
+      case .cancelled:
+        explorationError =
+          "Vision observation cancelled. Existing target ink, baseline, accepted ROI, and active attempt remain current; Observe Existing Target when ready."
       }
+    } catch is CancellationError {
+      explorationError =
+        "Vision observation cancelled. Existing target ink, baseline, accepted ROI, and active attempt remain current; Observe Existing Target when ready."
     } catch {
+      guard visibilityObservationContextIsCurrent(context) else { return }
       explorationError = "Visibility target observation failed: \(actionableDescription(error))"
+    }
+  }
+
+  private func suspendAutomaticVisionForForegroundObservation(
+    cameraActions: CameraActions,
+    operationID: VisibilityObservationOperationID
+  ) async -> Bool {
+    guard automaticVisionEnabled else { return false }
+    visionUpdateTask?.cancel()
+    visionUpdateTask = nil
+    let snapshot = await cameraActions.setAutomaticInspection(nil)
+    guard visibilityObservationOperation?.id == operationID else { return false }
+    automaticVisionEnabled = false
+    visionAnalysisSnapshot = snapshot
+    visionError = snapshot.lastError
+    analysisFrameHeld = false
+    lastSceneMeasurement = nil
+    cameraOverlays = []
+    return true
+  }
+
+  private func restoreAutomaticVisionAfterForegroundObservation(
+    shouldResume: Bool,
+    cameraActions: CameraActions,
+    operationID: VisibilityObservationOperationID
+  ) async {
+    guard shouldResume, !hasShutdown, frameMode == .live,
+      visibilityObservationOperation?.id == operationID
+    else { return }
+    let generation = lifetimeGeneration
+    let snapshot = await cameraActions.setAutomaticInspection(visionAnalysisCadence)
+    guard canCommit(generation), frameMode == .live,
+      visibilityObservationOperation?.id == operationID
+    else { return }
+    automaticVisionEnabled = true
+    visionAnalysisSnapshot = snapshot
+    visionError = snapshot.lastError
+    analysisFrameHeld = false
+    beginVisionUpdates(generation: generation)
+    if let result = snapshot.latestResult { receiveVision(result) }
+  }
+
+  private func updateVisibilityObservationPhase(
+    _ phase: VisibilityObservationPhase,
+    operationID: VisibilityObservationOperationID
+  ) {
+    guard let operation = visibilityObservationOperation,
+      operation.id == operationID,
+      operation.phase != .cancelling
+    else { return }
+    visibilityObservationOperation = VisibilityObservationOperationPresentation(
+      id: operation.id,
+      cancelCapabilityID: operation.cancelCapabilityID,
+      phase: phase,
+      region: operation.region,
+      targetPlanRevision: operation.targetPlanRevision
+    )
+  }
+
+  private func visibilityObservationContextIsCurrent(
+    _ context: VisibilityObservationAuthorityContext
+  ) -> Bool {
+    guard !hasShutdown,
+      visibilityObservationGeneration == context.generation,
+      visibilityObservationOperation?.id == context.operationID,
+      activeExerciseAttemptID == context.attemptID,
+      preTargetClearViewBaseline?.frame.id == context.baselineFrameID,
+      preTargetClearViewBaseline?.frame.contentSHA256 == context.baselineSHA256,
+      preTargetClearViewBaseline?.source == context.source,
+      preTargetClearViewBaseline?.frame.cameraConfigurationID == context.cameraConfigurationID,
+      controllerSessionID == context.controllerSessionID,
+      explorationCoordinateRevision == context.coordinateRevision,
+      explorationToolPaperRevision == context.toolPaperRevision,
+      targetAreaIdentity == context.targetAreaIdentity,
+      targetObservationRegion == context.region,
+      executedVisibilityTargetPlanRevision == context.targetPlanRevision,
+      visibilityTargetSceneDisposition == .inkPossible
+        || visibilityTargetSceneDisposition == .targetObserved,
+      (try? currentMachinePosition()).map({ protocolPositionsMatch($0, context.clearPosition) }) == true
+    else { return false }
+    return true
+  }
+
+  private func settleVisibilityObservationOwner(
+    _ operationID: VisibilityObservationOperationID
+  ) {
+    guard visibilityObservationOperation?.id == operationID else { return }
+    visibilityObservationTask = nil
+    visibilityObservationOperation = nil
+  }
+
+  private func cancelVisibilityObservation(
+    capabilityID: VisibilityObservationCancelCapabilityID
+  ) async {
+    guard let operation = visibilityObservationOperation,
+      operation.cancelCapabilityID == capabilityID
+    else { return }
+    await cancelAndSettleVisibilityObservation()
+    explorationError =
+      "Vision observation cancelled. Existing target ink, baseline, accepted ROI, and active attempt remain current; Observe Existing Target when ready."
+  }
+
+  private func cancelAndSettleVisibilityObservation() async {
+    guard let operation = visibilityObservationOperation else { return }
+    visibilityObservationGeneration &+= 1
+    visibilityObservationOperation = VisibilityObservationOperationPresentation(
+      id: operation.id,
+      cancelCapabilityID: operation.cancelCapabilityID,
+      phase: .cancelling,
+      region: operation.region,
+      targetPlanRevision: operation.targetPlanRevision
+    )
+    let owner = visibilityObservationTask
+    owner?.cancel()
+    await owner?.value
+    if visibilityObservationOperation?.id == operation.id {
+      settleVisibilityObservationOwner(operation.id)
     }
   }
 
@@ -2634,7 +2937,7 @@ final class OperatorWorkspace {
   private func expectedVisibilityTargetDiameterPixels() -> ClosedRange<Double> {
     guard let fit = machineCameraRegistration?.fit,
       let center = registeredTargetMachinePosition,
-      let projected = try? VisibilityTargetPlanV1().relativeVertices.map({ vertex in
+      let projected = try? VisibilityTargetPlanV2().relativeVertices.map({ vertex in
         try fit.cameraPoint(
           from: Point2<MachineSpace>(
             x: center.point.x + vertex.x,
@@ -2754,6 +3057,7 @@ final class OperatorWorkspace {
       preTargetClearViewBaseline: preTargetClearViewBaseline,
       visibilityTargetSceneDisposition: visibilityTargetSceneDisposition,
       visibilityTargetObservation: visibilityTargetObservation,
+      executedVisibilityTargetPlanRevision: executedVisibilityTargetPlanRevision,
       visibilityRegistrationAccepted: visibilityRegistrationAccepted,
       machineCameraRegistration: machineCameraRegistration,
       clearViewPoseAccepted: clearViewPoseAccepted,
@@ -2781,6 +3085,7 @@ final class OperatorWorkspace {
     preTargetClearViewBaseline = snapshot.preTargetClearViewBaseline
     visibilityTargetSceneDisposition = snapshot.visibilityTargetSceneDisposition
     visibilityTargetObservation = snapshot.visibilityTargetObservation
+    executedVisibilityTargetPlanRevision = snapshot.executedVisibilityTargetPlanRevision
     visibilityRegistrationAccepted = snapshot.visibilityRegistrationAccepted
     machineCameraRegistration = snapshot.machineCameraRegistration
     clearViewPoseAccepted = snapshot.clearViewPoseAccepted
@@ -2804,6 +3109,7 @@ final class OperatorWorkspace {
     targetContactPointAndROIAccepted = false
     preTargetClearViewBaseline = nil
     visibilityTargetObservation = nil
+    executedVisibilityTargetPlanRevision = nil
     visibilityRegistrationAccepted = false
     machineCameraRegistration = nil
     visibilityTargetSceneDisposition = .pristine
@@ -2835,7 +3141,9 @@ final class OperatorWorkspace {
   }
 
   func performCurrentLearningPathAction() async {
-    guard clearViewPoseAccepted, !explorationOperationInProgress else { return }
+    guard visibilityObservationOperation == nil, clearViewPoseAccepted,
+      !explorationOperationInProgress
+    else { return }
     let attemptedStep = observedDrawingTrialStep
     if activeExerciseAttemptOwnerID == nil {
       beginExerciseAttempt(
@@ -2877,7 +3185,9 @@ final class OperatorWorkspace {
   }
 
   func recordDrawingTrialAssessment(_ assessment: DrawingTrialAssessment) async {
-    guard observedDrawingTrialStep == .compareIntendedAndObservedGeometry else { return }
+    guard visibilityObservationOperation == nil,
+      observedDrawingTrialStep == .compareIntendedAndObservedGeometry
+    else { return }
     if activeExerciseAttemptOwnerID == nil {
       beginExerciseAttempt(
         ownerID: .observedDrawingTrial(.compareIntendedAndObservedGeometry),
@@ -2919,6 +3229,7 @@ final class OperatorWorkspace {
   }
 
   func discoveryStartUnavailableReason(for sequenceID: DiscoverySequenceID) -> String? {
+    if let reason = foregroundVisionOperationUnavailableReason { return reason }
     if let activeDiscoverySequenceID {
       return
         "Finish \(DiscoverySequenceCatalog.definition(for: activeDiscoverySequenceID).title); use Stop while its logical owner is active."
@@ -2960,6 +3271,9 @@ final class OperatorWorkspace {
   }
 
   var workbenchStatusText: String {
+    if let operation = visibilityObservationOperation {
+      return "Vision owns the foreground operation. \(operation.busyDetail) Only Cancel Vision is available."
+    }
     if let actionableError { return actionableError }
     if !controllerSessionEstablished {
       return frameMode == .simulated
@@ -3071,6 +3385,7 @@ final class OperatorWorkspace {
   }
 
   var passiveProbeUnavailableReason: String? {
+    if let reason = foregroundVisionOperationUnavailableReason { return reason }
     if passiveProbeInProgress { return "Controller connection inspection is already in progress." }
     if frameModeSwitchInProgress { return "Wait for the frame source switch to finish." }
     if machineActions == nil { return "Native machine composition is unavailable." }
@@ -3081,6 +3396,7 @@ final class OperatorWorkspace {
   /// Presentation availability only. MachineController repeats every physical
   /// safety check when it receives the typed request.
   var motionUnavailableReason: String? {
+    if let reason = foregroundVisionOperationUnavailableReason { return reason }
     if frameMode == .simulated {
       if let reason = simulatedManualMotionUnavailableReason { return reason }
     } else if let reason = directCarriageMotionUnavailableReason {
@@ -3121,6 +3437,7 @@ final class OperatorWorkspace {
   }
 
   private var directCarriageMotionUnavailableReason: String? {
+    if let reason = foregroundVisionOperationUnavailableReason { return reason }
     if jogRequestInProgress { return "A relative jog is already in progress." }
     if frameModeSwitchInProgress { return "Wait for the frame source switch to finish." }
     if frameMode == .simulated {
@@ -3166,6 +3483,7 @@ final class OperatorWorkspace {
   }
 
   func penUnavailableReason(for command: PenCommand) -> String? {
+    if let reason = foregroundVisionOperationUnavailableReason { return reason }
     if penRequestInProgress { return "A pen command is already in progress." }
     if frameModeSwitchInProgress { return "Wait for the frame source switch to finish." }
     if frameMode == .simulated {
@@ -3214,7 +3532,7 @@ final class OperatorWorkspace {
   }
 
   func setLayer(_ layer: CanvasLayer, visible: Bool) {
-    guard !hasShutdown else { return }
+    guard visibilityObservationOperation == nil, !hasShutdown else { return }
     if visible {
       visibleLayers.insert(layer)
     } else {
@@ -3223,6 +3541,7 @@ final class OperatorWorkspace {
   }
 
   func refreshSerialDevices() async {
+    guard visibilityObservationOperation == nil else { return }
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
     guard !passiveProbeInProgress && !jogRequestInProgress && !penRequestInProgress else { return }
@@ -3244,6 +3563,7 @@ final class OperatorWorkspace {
   }
 
   func disconnectMachineSession() async {
+    guard visibilityObservationOperation == nil else { return }
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
     guard selectedSerialDevice != nil, !passiveProbeInProgress, !jogRequestInProgress,
@@ -3281,6 +3601,7 @@ final class OperatorWorkspace {
   /// Updates only the operator's pending device choice. A picker change is not
   /// a successful connection and cannot turn the status indicator green.
   func selectSerialDevice(_ descriptor: MachineLinkDescriptor) async {
+    guard visibilityObservationOperation == nil else { return }
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
     guard activeDiscoverySequenceID == nil, !explorationOperationInProgress else { return }
@@ -3300,11 +3621,13 @@ final class OperatorWorkspace {
   /// Test/support entrypoint for establishing the same selected-device session
   /// without asserting that its passive inspection succeeded.
   func establishMachineSession(_ descriptor: MachineLinkDescriptor) async {
+    guard visibilityObservationOperation == nil else { return }
     await selectSerialDevice(descriptor)
     await openSelectedMachineSession()
   }
 
   func connectSelectedController() async {
+    guard visibilityObservationOperation == nil else { return }
     guard selectedSerialDevice != nil else { return }
     await openSelectedMachineSession()
     guard machineError == nil, machineSnapshot != nil else { return }
@@ -3336,6 +3659,7 @@ final class OperatorWorkspace {
   }
 
   func requestPassiveProbe() async {
+    guard visibilityObservationOperation == nil else { return }
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
     guard passiveProbeUnavailableReason == nil, let machineActions else { return }
@@ -3956,7 +4280,8 @@ final class OperatorWorkspace {
   }
 
   func stopCurrentOperation(capabilityID: ContextualStopCapabilityID) async {
-    guard !jogCancelRequestInProgress, let target = activeStopTarget,
+    guard visibilityObservationOperation == nil, !jogCancelRequestInProgress,
+      let target = activeStopTarget,
       target.capabilityID == capabilityID,
       latchContextualStopDisposition(
         for: target,
@@ -4350,6 +4675,7 @@ final class OperatorWorkspace {
   }
 
   func discoverCameras() async {
+    guard visibilityObservationOperation == nil else { return }
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
     guard let cameraActions else {
@@ -4380,6 +4706,10 @@ final class OperatorWorkspace {
   }
 
   func selectCamera(_ id: CameraDeviceID) async {
+    guard visibilityObservationOperation == nil else {
+      cameraError = foregroundVisionOperationUnavailableReason
+      return
+    }
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
     guard let cameraActions, activeDiscoverySequenceID == nil,
@@ -4408,6 +4738,7 @@ final class OperatorWorkspace {
   }
 
   func startCamera() async {
+    guard visibilityObservationOperation == nil else { return }
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
     guard let cameraActions else { return }
@@ -4435,6 +4766,7 @@ final class OperatorWorkspace {
   }
 
   func stopCamera() async {
+    guard visibilityObservationOperation == nil else { return }
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
     frameTask?.cancel()
@@ -4449,6 +4781,7 @@ final class OperatorWorkspace {
   }
 
   func restartCamera() async {
+    guard visibilityObservationOperation == nil else { return }
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
     guard activeDiscoverySequenceID == nil, !explorationOperationInProgress else {
@@ -4480,6 +4813,7 @@ final class OperatorWorkspace {
   }
 
   func inspectLatestScene() async {
+    guard visibilityObservationOperation == nil else { return }
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
     guard frameMode == .live, !automaticVisionEnabled,
@@ -4506,6 +4840,7 @@ final class OperatorWorkspace {
   }
 
   func resumeLivePreview() async {
+    guard visibilityObservationOperation == nil else { return }
     guard frameMode == .live, let cameraActions else { return }
     analysisFrameHeld = false
     lastSceneMeasurement = nil
@@ -4516,6 +4851,7 @@ final class OperatorWorkspace {
   }
 
   func setAutomaticVisionAnalysis(_ enabled: Bool) async {
+    guard visibilityObservationOperation == nil else { return }
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
     guard frameMode == .live, let cameraActions else { return }
@@ -4559,12 +4895,14 @@ final class OperatorWorkspace {
   }
 
   func updateVisionAnalysisCadence(_ cadence: VisionAnalysisCadence) async {
+    guard visibilityObservationOperation == nil else { return }
     visionAnalysisCadence = cadence
     guard automaticVisionEnabled else { return }
     await setAutomaticVisionAnalysis(true)
   }
 
   func captureCameraSnapshot() async {
+    guard visibilityObservationOperation == nil else { return }
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
     guard frameMode == .live, let cameraActions else { return }
@@ -4580,6 +4918,7 @@ final class OperatorWorkspace {
   }
 
   func switchFrameMode(_ mode: OperatorFrameMode) async {
+    guard visibilityObservationOperation == nil else { return }
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
     guard mode != frameMode || displayedFrame == nil else { return }
@@ -4679,6 +5018,7 @@ final class OperatorWorkspace {
   }
 
   func refreshCurrentState() async {
+    guard visibilityObservationOperation == nil else { return }
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
     if let machineActions {
@@ -4707,6 +5047,7 @@ final class OperatorWorkspace {
     hasShutdown = true
     lifetimeGeneration &+= 1
     stopObserving()
+    await cancelAndSettleVisibilityObservation()
     await announcementActions?.cancelForShutdown()
     await stopAndSettleActiveMotionForShutdown()
     await waitForHardwareIntentsToDrain()
@@ -4733,6 +5074,7 @@ final class OperatorWorkspace {
     if let generation, !canCommit(generation) { return }
     guard case .live(let deviceID) = frame.source, deviceID == selectedCameraID else { return }
     latestLiveCameraFrame = frame
+    guard visibilityObservationOperation == nil else { return }
     guard !analysisFrameHeld, !automaticVisionEnabled else { return }
     displayedFrame = frame
   }
@@ -5347,7 +5689,7 @@ final class OperatorWorkspace {
     _ ownerID: LearningPathItemID,
     mode: ExerciseAttemptMode
   ) async {
-    guard activeExerciseAttemptOwnerID == nil else { return }
+    guard visibilityObservationOperation == nil, activeExerciseAttemptOwnerID == nil else { return }
     activeExerciseAttemptMode = mode
     restartableExerciseItemID = nil
     switch ownerID {
@@ -6332,7 +6674,7 @@ final class OperatorWorkspace {
     case .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering):
       "Observe both X sides and both Y sides in paired order, then move Pen Up to their estimated center."
     case .humanGuidedDiscovery(.visibilityTargetAndClearViewRegistration):
-      "Register the target pose, find and accept Clear, draw one 4 mm closed target, return Clear, and accept two-frame observation."
+      "Register the target pose, find and accept Clear, double-trace one 4 mm closed target forward then reverse, return Clear, and accept two-frame observation."
     case .stage(.observedDrawingTrials):
       "Create one attributable line, observe actual ink, and compare geometry."
     case .observedDrawingTrial(let step): drawingTrialActionText(for: step)
@@ -6344,6 +6686,23 @@ final class OperatorWorkspace {
   private func exerciseActionStrip(
     for itemID: LearningPathItemID
   ) -> ExerciseActionStripPresentation? {
+    if let operation = visibilityObservationOperation {
+      let ownerID = LearningPathItemID.humanGuidedDiscovery(
+        .visibilityTargetAndClearViewRegistration
+      )
+      guard itemID == ownerID else { return nil }
+      return ExerciseActionStripPresentation(
+        ownerID: ownerID,
+        actions: [
+          ExerciseActionDescriptor(
+            kind: .cancelVisibilityObservation(operation.cancelCapabilityID),
+            title: "Cancel Vision",
+            role: .destructive
+          )
+        ],
+        mustRemainVisible: true
+      )
+    }
     if activeExerciseAttemptOwnerID == itemID {
       var actions: [ExerciseActionDescriptor] = []
       var directionSelection: ExerciseDirectionSelectionPresentation?
@@ -6777,7 +7136,7 @@ final class OperatorWorkspace {
     case .visibilityTargetAndClearViewRegistration:
       [
         .text(
-          "Register the target pose, find Clear, then draw and observe one closed visibility target."
+          "Register the target pose, find Clear, then double-trace and observe one closed visibility target."
         )
       ]
     }
@@ -7015,7 +7374,11 @@ final class OperatorWorkspace {
       evidence.append(
         ExerciseEvidencePresentation(
           label: "Target scene",
-          fragments: [.text(visibilityTargetSceneDisposition.rawValue)]
+          fragments: [
+            .text(
+              "\(visibilityTargetSceneDisposition.rawValue) · executed plan \(executedVisibilityTargetPlanRevision ?? "not executed")"
+            )
+          ]
         ))
       if let observation = visibilityTargetObservation {
         evidence.append(
@@ -7023,7 +7386,7 @@ final class OperatorWorkspace {
             label: "Target observation",
             fragments: [
               .text(
-                "frames \(observation.includedFrameIDs.map(\.rawValue).joined(separator: ", ")) · N=\(observation.validSampleCount) · \(observation.estimatorRevision) · uncertainty X \(observation.centroidUncertainty.dx) Y \(observation.centroidUncertainty.dy)"
+                "frames \(observation.includedFrameIDs.map(\.rawValue).joined(separator: ", ")) · N=\(observation.validSampleCount) · plan \(observation.targetPlanRevision) · \(observation.estimatorRevision) · uncertainty X \(observation.centroidUncertainty.dx) Y \(observation.centroidUncertainty.dy)"
               )
             ]
           ))
@@ -7054,6 +7417,22 @@ final class OperatorWorkspace {
     for itemID: LearningPathItemID,
     transaction: DiscoveryTransaction?
   ) -> OperationActivityPresentation? {
+    if itemID == .humanGuidedDiscovery(.visibilityTargetAndClearViewRegistration),
+      let operation = visibilityObservationOperation
+    {
+      return OperationActivityPresentation(
+        actor: "Camera and Vision",
+        action: "Observe Existing Target",
+        phase: operation.phase.rawValue,
+        outcome: .inProgress,
+        detail: [
+          .text(
+            "Vision is restricted to the exact \(operation.region.width)x\(operation.region.height) px target ROI. Plan \(operation.targetPlanRevision)."
+          )
+        ],
+        recovery: [.text("Cancel Vision remains available; no other operation is admitted.")]
+      )
+    }
     if itemID == .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering),
       centerArrivalRetryRequired,
       let explorationError
@@ -7327,7 +7706,9 @@ final class OperatorWorkspace {
   }
 
   private func receiveVision(_ result: PlotterSceneAnalysisResult) {
-    guard frameMode == .live, automaticVisionEnabled else { return }
+    guard frameMode == .live, automaticVisionEnabled,
+      visibilityObservationOperation == nil
+    else { return }
     displayedFrame = result.displayedFrame
     lastSceneMeasurement = result.measurement
     cameraOverlays = result.measurement.overlays
@@ -7530,6 +7911,7 @@ final class OperatorWorkspace {
   }
 
   private func clearDiscoveryAuthority() async {
+    await cancelAndSettleVisibilityObservation()
     await cancelAndSettleDiscoveryMotionBeforeErasure()
     selectedDiscoverySequenceID = .penInteraction
     discoveryTransactions = [:]
@@ -7550,6 +7932,7 @@ final class OperatorWorkspace {
     preTargetClearViewBaseline = nil
     visibilityTargetSceneDisposition = .pristine
     visibilityTargetObservation = nil
+    executedVisibilityTargetPlanRevision = nil
     visibilityObservationAttemptHistories = [:]
     acceptedVisibilityObservationAttemptID = nil
     visibilityRegistrationAccepted = false
@@ -7616,6 +7999,7 @@ final class OperatorWorkspace {
       preTargetClearViewBaseline: preTargetClearViewBaseline,
       visibilityTargetSceneDisposition: visibilityTargetSceneDisposition,
       visibilityTargetObservation: visibilityTargetObservation,
+      executedVisibilityTargetPlanRevision: executedVisibilityTargetPlanRevision,
       visibilityObservationAttemptHistories: visibilityObservationAttemptHistories,
       acceptedVisibilityObservationAttemptID: acceptedVisibilityObservationAttemptID,
       visibilityRegistrationAccepted: visibilityRegistrationAccepted,
@@ -7681,6 +8065,7 @@ final class OperatorWorkspace {
     preTargetClearViewBaseline = nil
     visibilityTargetSceneDisposition = .pristine
     visibilityTargetObservation = nil
+    executedVisibilityTargetPlanRevision = nil
     visibilityObservationAttemptHistories = [:]
     acceptedVisibilityObservationAttemptID = nil
     visibilityRegistrationAccepted = false
@@ -7758,6 +8143,7 @@ final class OperatorWorkspace {
     preTargetClearViewBaseline = snapshot.preTargetClearViewBaseline
     visibilityTargetSceneDisposition = snapshot.visibilityTargetSceneDisposition
     visibilityTargetObservation = snapshot.visibilityTargetObservation
+    executedVisibilityTargetPlanRevision = snapshot.executedVisibilityTargetPlanRevision
     visibilityObservationAttemptHistories = snapshot.visibilityObservationAttemptHistories
     acceptedVisibilityObservationAttemptID = snapshot.acceptedVisibilityObservationAttemptID
     visibilityRegistrationAccepted = snapshot.visibilityRegistrationAccepted

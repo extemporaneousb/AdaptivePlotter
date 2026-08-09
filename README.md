@@ -13,6 +13,8 @@ The product is deliberately local:
 - typed, bounded commands rather than arbitrary controller text;
 - exact frame and camera-configuration provenance;
 - no automatic resend, resume, or redraw after an uncertain physical outcome.
+- one revisioned 4 mm target traced forward and reverse, followed by
+  single-flight, cancellable, target-ROI-local foreground Vision.
 
 ## Operator journey
 
@@ -69,6 +71,12 @@ Manual Jog** in the Motion region. Repeated Stop cannot emit repeated semantic
 results or cancellation bytes. While physical movement owns an exercise, its
 capability-bound Stop is the only movement-ending action shown; Cancel becomes
 available only after movement settles.
+
+Foreground visibility observation publishes its owner before capture. While it
+is active, controller, motion, pen, camera, source, analysis, and learning
+mutations are refused; capability-bound **Cancel Vision** is the sole operation
+control. Read-only Learning Path review and the ROI/full-frame display toggle
+remain inert.
 
 Boundary Stop records the typed operator intent, closes renewal, emits one GRBL
 Jog Cancel, awaits the original owner through final Idle/MPos, captures one

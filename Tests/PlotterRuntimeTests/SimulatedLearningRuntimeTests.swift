@@ -181,6 +181,42 @@ struct SimulatedLearningRuntimeTests {
     #expect(await runtime.snapshot().penPose == .up)
   }
 
+  @Test("target Stop between passes never starts the reverse traversal")
+  func cooperativeTargetStopBetweenPasses() async throws {
+    let runtime = try await enabledRuntime()
+    let plan = VisibilityTargetPlanV2()
+    let operation = try accepted(await runtime.beginVisibilityTarget(plan: plan))
+    let pacing = ControlledSimulatedExecutionPacing()
+    let execution = Task {
+      await runtime.executeNaturally(operation.id, pacing: pacing)
+    }
+
+    // Resume approach, lower, and all eight forward steps. Suspension 11 is
+    // immediately before the first reverse step is allowed to mutate the scene.
+    for suspension in 1...10 {
+      await pacing.waitUntilSuspended(suspension)
+      await pacing.resumeNext()
+    }
+    await pacing.waitUntilSuspended(11)
+    #expect(await runtime.persistentInk().count == plan.perimeterSegmentCount)
+
+    let stopped = try accepted(await runtime.stop(operation.id))
+    await pacing.resumeNext()
+    #expect(try accepted(await execution.value) == stopped)
+    #expect(await runtime.persistentInk().count == plan.perimeterSegmentCount)
+    #expect(await runtime.snapshot().penPose == .up)
+    #expect(
+      stopped.visibilityTargetProgress
+        == VisibilityTargetOperationProgress(
+          planRevision: plan.algorithmRevision,
+          phase: .draw(plan.traversalSteps[8]),
+          dispositionRequestedDuringPhase: .draw(plan.traversalSteps[8]),
+          completedTraversalStepCount: 8,
+          lastCompletedTraversalStep: plan.traversalSteps[7]
+        )
+    )
+  }
+
   @Test("cooperative finite travel lets Stop win before position changes")
   func cooperativeFiniteTravelCanStop() async throws {
     let runtime = try await enabledRuntime()
@@ -276,7 +312,8 @@ struct SimulatedLearningRuntimeTests {
   @Test("cooperative target ambiguity emits no segment after the ambiguous phase")
   func cooperativeTargetAmbiguityStopsProgress() async throws {
     let runtime = try await enabledRuntime()
-    await runtime.injectFault(.ambiguityAtVisibilityTargetPhase(.drawSegment(1)))
+    let plan = VisibilityTargetPlanV2()
+    await runtime.injectFault(.ambiguityAtVisibilityTargetPhase(.draw(plan.traversalSteps[1])))
     let operation = try accepted(await runtime.beginVisibilityTarget())
 
     let outcome = try accepted(await runtime.executeNaturally(
@@ -285,13 +322,13 @@ struct SimulatedLearningRuntimeTests {
     ))
 
     #expect(outcome.disposition == .failed)
-    #expect(outcome.visibilityTargetFailurePhase == .drawSegment(1))
+    #expect(outcome.visibilityTargetFailurePhase == .draw(plan.traversalSteps[1]))
     #expect(outcome.visibilityTargetSceneDisposition == .inkPossible)
     #expect(await runtime.persistentInk().count == 1)
     #expect(await runtime.snapshot().penPose == .down)
   }
 
-  @Test("zero-delay cooperative target completes all eight segments")
+  @Test("zero-delay cooperative target completes both opposite eight-segment passes")
   func immediateCooperativeTargetCompletes() async throws {
     let runtime = try await enabledRuntime()
     let operation = try accepted(await runtime.beginVisibilityTarget())
@@ -303,7 +340,16 @@ struct SimulatedLearningRuntimeTests {
 
     #expect(outcome.disposition == .naturallyCompleted)
     #expect(outcome.visibilityTargetSceneDisposition == .inkPossible)
-    #expect(await runtime.persistentInk().count == 8)
+    #expect(await runtime.persistentInk().count == VisibilityTargetPlanV2().drawingStepCount)
+    #expect(
+      outcome.visibilityTargetProgress
+        == VisibilityTargetOperationProgress(
+          planRevision: VisibilityTargetPlanV2.revision,
+          phase: .raisePen,
+          completedTraversalStepCount: VisibilityTargetPlanV2().drawingStepCount,
+          lastCompletedTraversalStep: VisibilityTargetPlanV2().traversalSteps.last
+        )
+    )
     #expect(await runtime.snapshot().penPose == .up)
   }
 
@@ -351,7 +397,7 @@ struct SimulatedLearningRuntimeTests {
       #expect(route.center.point == (try Point2<MachineSpace>(x: 0, y: 0)))
       #expect(route.target.validSampleCount == 2)
       #expect(route.target.includedFrameIDs.count == 2)
-      #expect(route.target.targetPlanRevision == VisibilityTargetPlanV1.revision)
+      #expect(route.target.targetPlanRevision == VisibilityTargetPlanV2.revision)
       #expect(route.registration.source == .simulated)
       #expect(route.registration.validationResidualPixels < 1e-9)
       #expect(route.evidenceLabel == SimulatedLearningEvidenceNotice.evidenceLabel)
@@ -377,7 +423,7 @@ struct SimulatedLearningRuntimeTests {
   @Test("partial target and camera faults retain causal scene provenance")
   func partialTargetAndFrameFaults() async throws {
     let runtime = try await enabledRuntime()
-    await runtime.injectFault(.partialVisibilityTarget(segmentCount: 3))
+    await runtime.injectFault(.partialVisibilityTarget(traversalStepCount: 3))
     let operation = try accepted(await runtime.beginVisibilityTarget())
     let outcome = try accepted(await runtime.completeVisibilityTargetNaturally(operation.id))
     #expect(outcome.disposition == .failed)
@@ -441,12 +487,15 @@ struct SimulatedLearningRuntimeTests {
     #expect(await lowerRuntime.snapshot().penPose == .unknown)
 
     let segmentRuntime = try await enabledRuntime()
-    await segmentRuntime.injectFault(.ambiguityAtVisibilityTargetPhase(.drawSegment(2)))
+    let plan = VisibilityTargetPlanV2()
+    await segmentRuntime.injectFault(
+      .ambiguityAtVisibilityTargetPhase(.draw(plan.traversalSteps[2]))
+    )
     let segment = try accepted(await segmentRuntime.beginVisibilityTarget())
     let segmentOutcome = try accepted(
       await segmentRuntime.completeVisibilityTargetNaturally(segment.id)
     )
-    #expect(segmentOutcome.visibilityTargetFailurePhase == .drawSegment(2))
+    #expect(segmentOutcome.visibilityTargetFailurePhase == .draw(plan.traversalSteps[2]))
     #expect(await segmentRuntime.persistentInk().count == 2)
     // No third segment and no final Pen Up were issued after ambiguity.
     #expect(await segmentRuntime.snapshot().penPose == .down)
@@ -485,7 +534,7 @@ struct SimulatedLearningRuntimeTests {
     let operation = try accepted(await runtime.beginVisibilityTarget())
     _ = try accepted(await runtime.completeVisibilityTargetNaturally(operation.id))
     let before = await runtime.snapshot()
-    #expect(before.persistentInkSegmentCount == 8)
+    #expect(before.persistentInkSegmentCount == VisibilityTargetPlanV2().drawingStepCount)
 
     let after = try accepted(await runtime.recordPaperReplaced())
     #expect(after.persistentInkSegmentCount == 0)
@@ -681,7 +730,7 @@ struct SimulatedLearningRuntimeTests {
     _ = try accepted(await drawingRuntime.completeVisibilityTargetNaturally(target.id))
     let scene = try accepted(await drawingRuntime.captureSceneFrame())
     let ink = scene.annotations.filter { $0.kind == .ink }
-    #expect(ink.count == 8)
+    #expect(ink.count == VisibilityTargetPlanV2().drawingStepCount)
     let inkPoints = ink.flatMap { annotation -> [Point2<CameraPixelSpace>] in
       guard case .polyline(let line) = annotation.geometry else { return [] }
       return line.points
@@ -1041,7 +1090,7 @@ private func runVisibilityRoute(
           )
         )
       },
-      region: roi,
+      targetSearchROI: roi,
       thresholds: GreenPixelThresholds(minimumGreen: 140, minimumGreenExcess: 70),
       controllerSessionID: session,
       coordinateRevision: 1,
@@ -1052,7 +1101,8 @@ private func runVisibilityRoute(
       maximumCentroidSpreadPixels: 0.01,
       maximumAreaRatio: 1.01,
       maximumBackgroundMeanAbsoluteDifference: 0.01,
-      algorithmRevision: "simulated-target-v1"
+      algorithmRevision: "simulated-target-v1",
+      targetPlanRevision: VisibilityTargetPlanV2.revision
     )
   )
   guard case .observed(let target) = targetOutcomeVision else {

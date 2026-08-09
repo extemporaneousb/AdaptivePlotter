@@ -1,4 +1,5 @@
 import Foundation
+import PlotterRuntime
 import Testing
 
 @testable import PlotterApp
@@ -99,6 +100,33 @@ struct WorkbenchPresentationTests {
 
     #expect(active.mustRemainVisible)
     #expect(!idle.mustRemainVisible)
+  }
+
+  @Test("foreground Vision exposes one capability-bound cancel and truthful ROI phase")
+  func visibilityObservationPresentation() {
+    let operation = VisibilityObservationOperationPresentation(
+      id: VisibilityObservationOperationID(),
+      cancelCapabilityID: VisibilityObservationCancelCapabilityID(),
+      phase: .analyzingSecondFrame,
+      region: PixelRect(x: 10, y: 20, width: 36, height: 28),
+      targetPlanRevision: VisibilityTargetPlanV2.revision
+    )
+    #expect(operation.busyDetail.contains("frame 2 of 2"))
+    #expect(operation.busyDetail.contains("36x28 px"))
+    #expect(operation.busyDetail.contains(VisibilityTargetPlanV2.revision))
+    #expect(
+      ExerciseActionKind.cancelVisibilityObservation(operation.cancelCapabilityID)
+        != .cancel
+    )
+    #expect(VisibilityObservationPhase.allCases == [
+      .preparing,
+      .acquiringFirstFrame,
+      .acquiringSecondFrame,
+      .analyzingFirstFrame,
+      .analyzingSecondFrame,
+      .cancelling,
+      .committing,
+    ])
   }
 
   @Test("exact evidence remains structured alongside actor action outcome and recovery")

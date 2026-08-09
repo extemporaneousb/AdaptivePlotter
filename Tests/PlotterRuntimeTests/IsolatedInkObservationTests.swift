@@ -10,7 +10,7 @@ struct IsolatedInkObservationTests {
   @Test("two same-pose target frames produce N=2 stable target evidence")
   func stableVisibilityTarget() async throws {
     let camera = CameraConfigurationID()
-    let simulator = PaperSceneSimulator(width: 40, height: 30)
+    let simulator = PaperSceneSimulator(width: 100, height: 80)
     let target = targetStrokes(center: PaperPixelPoint(x: 18, y: 15), radius: 4)
     let baseline = try simulator.render(
       strokes: [], sequence: 1, captureNanoseconds: 1,
@@ -40,7 +40,7 @@ struct IsolatedInkObservationTests {
     #expect(observation.includedFrameIDs == [first.id, second.id])
     #expect(observation.estimatorRevision == "two-frame-component-mean-v1")
     #expect(observation.algorithmRevision == "visibility-test-v1")
-    #expect(observation.targetPlanRevision == VisibilityTargetPlanV1.revision)
+    #expect(observation.targetPlanRevision == VisibilityTargetPlanV2.revision)
     #expect(observation.samples.allSatisfy { $0.pixelCount > 20 })
     #expect(observation.centroidUncertainty.dx == 0)
     #expect(observation.centroidUncertainty.dy == 0)
@@ -50,7 +50,7 @@ struct IsolatedInkObservationTests {
   @Test("same camera pixels at a different reported clear pose are rejected")
   func clearPoseMismatch() async throws {
     let camera = CameraConfigurationID()
-    let simulator = PaperSceneSimulator(width: 40, height: 30)
+    let simulator = PaperSceneSimulator(width: 100, height: 80)
     let target = targetStrokes(center: PaperPixelPoint(x: 18, y: 15), radius: 4)
     let baseline = try simulator.render(
       strokes: [], sequence: 1, captureNanoseconds: 1,
@@ -83,7 +83,7 @@ struct IsolatedInkObservationTests {
 
   @Test("camera reconfiguration rejects target comparison")
   func targetCameraMismatch() async throws {
-    let simulator = PaperSceneSimulator(width: 40, height: 30)
+    let simulator = PaperSceneSimulator(width: 100, height: 80)
     let firstCamera = CameraConfigurationID()
     let target = targetStrokes(center: PaperPixelPoint(x: 18, y: 15), radius: 4)
     let baseline = try simulator.render(
@@ -111,7 +111,7 @@ struct IsolatedInkObservationTests {
   @Test("simulated and live frames cannot enter one target observation")
   func targetSourceMismatch() async throws {
     let camera = CameraConfigurationID()
-    let simulator = PaperSceneSimulator(width: 40, height: 30)
+    let simulator = PaperSceneSimulator(width: 100, height: 80)
     let target = targetStrokes(center: PaperPixelPoint(x: 18, y: 15), radius: 4)
     let baseline = try simulator.render(
       strokes: [], sequence: 1, captureNanoseconds: 1,
@@ -136,7 +136,7 @@ struct IsolatedInkObservationTests {
   @Test("4 mm target at 2 px per mm uses diameter rather than bounding-box diagonal")
   func exactFourMillimeterProjection() async throws {
     let camera = CameraConfigurationID()
-    let simulator = PaperSceneSimulator(width: 40, height: 30)
+    let simulator = PaperSceneSimulator(width: 100, height: 80)
     let target = targetStrokes(center: PaperPixelPoint(x: 18, y: 15), radius: 4)
     let baseline = try simulator.render(
       strokes: [], sequence: 1, captureNanoseconds: 1,
@@ -168,7 +168,7 @@ struct IsolatedInkObservationTests {
   @Test("bounded integer alignment is retained and used for target differencing")
   func boundedTargetAlignment() async throws {
     let camera = CameraConfigurationID()
-    let simulator = PaperSceneSimulator(width: 40, height: 30)
+    let simulator = PaperSceneSimulator(width: 100, height: 80)
     let background = [SimulatedPaperStroke(
       start: PaperPixelPoint(x: 2, y: 2),
       end: PaperPixelPoint(x: 5, y: 7)
@@ -211,7 +211,7 @@ struct IsolatedInkObservationTests {
   @Test("detected alignment outside acceptance policy is rejected")
   func excessiveTargetAlignment() async throws {
     let camera = CameraConfigurationID()
-    let simulator = PaperSceneSimulator(width: 40, height: 30)
+    let simulator = PaperSceneSimulator(width: 100, height: 80)
     let background = [SimulatedPaperStroke(
       start: PaperPixelPoint(x: 2, y: 2),
       end: PaperPixelPoint(x: 5, y: 7)
@@ -254,7 +254,7 @@ struct IsolatedInkObservationTests {
   @Test("background change outside target ROI is rejected after alignment")
   func excessiveTargetBackgroundResidual() async throws {
     let camera = CameraConfigurationID()
-    let simulator = PaperSceneSimulator(width: 40, height: 30)
+    let simulator = PaperSceneSimulator(width: 100, height: 80)
     let target = targetStrokes(center: PaperPixelPoint(x: 18, y: 15), radius: 4)
     let changedBackground = [SimulatedPaperStroke(
       start: PaperPixelPoint(x: 0, y: 20),
@@ -284,6 +284,196 @@ struct IsolatedInkObservationTests {
       return
     }
     #expect(actual > maximum)
+  }
+
+  @Test("distant full-frame changes do not enter target-local alignment")
+  func distantBackgroundChangeIsIgnored() async throws {
+    let camera = CameraConfigurationID()
+    let simulator = PaperSceneSimulator(width: 100, height: 80)
+    let target = targetStrokes(center: PaperPixelPoint(x: 18, y: 15), radius: 4)
+    let distantChange = [SimulatedPaperStroke(
+      start: PaperPixelPoint(x: 90, y: 70),
+      end: PaperPixelPoint(x: 99, y: 79)
+    )]
+    let baseline = try simulator.render(
+      strokes: [], sequence: 1, captureNanoseconds: 1,
+      cameraConfigurationID: camera)
+    let first = try simulator.render(
+      strokes: distantChange + target, sequence: 2, captureNanoseconds: 2,
+      cameraConfigurationID: camera)
+    let second = try simulator.render(
+      strokes: distantChange + target, sequence: 3, captureNanoseconds: 3,
+      cameraConfigurationID: camera)
+    let pose = try MachinePosition(x: 0, y: 0)
+
+    let outcome = await VisionWorker().observeVisibilityTarget(
+      visibilityRequest(
+        baseline: sample(baseline, pose),
+        targets: [sample(first, pose), sample(second, pose)]
+      )
+    )
+
+    guard case .observed(let observation) = outcome else {
+      Issue.record("expected distant change to be ignored; got \(outcome)")
+      return
+    }
+    #expect(observation.samples.allSatisfy {
+      $0.alignment.supportRegion == PixelRect(x: 0, y: 0, width: 62, height: 57)
+        && $0.alignment.exclusionRegion == PixelRect(x: 6, y: 3, width: 26, height: 24)
+    })
+  }
+
+  @Test("small clipped alignment collar is rejected without a full-frame fallback")
+  func insufficientLocalAlignmentSupport() async throws {
+    let camera = CameraConfigurationID()
+    let simulator = PaperSceneSimulator(width: 40, height: 30)
+    let target = targetStrokes(center: PaperPixelPoint(x: 18, y: 15), radius: 4)
+    let baseline = try simulator.render(
+      strokes: [], sequence: 1, captureNanoseconds: 1,
+      cameraConfigurationID: camera)
+    let first = try simulator.render(
+      strokes: target, sequence: 2, captureNanoseconds: 2,
+      cameraConfigurationID: camera)
+    let second = try simulator.render(
+      strokes: target, sequence: 3, captureNanoseconds: 3,
+      cameraConfigurationID: camera)
+    let pose = try MachinePosition(x: 0, y: 0)
+
+    let outcome = await VisionWorker().observeVisibilityTarget(
+      visibilityRequest(
+        baseline: sample(baseline, pose),
+        targets: [sample(first, pose), sample(second, pose)]
+      )
+    )
+
+    guard case .rejected(
+      .insufficientAlignmentSupport(_, let actualPixels, let minimumPixels)
+    ) = outcome else {
+      Issue.record("expected insufficient local support; got \(outcome)")
+      return
+    }
+    #expect(actualPixels < minimumPixels)
+    #expect(minimumPixels == 1_024)
+  }
+
+  @Test("equally optimal nonzero local alignments are rejected as indeterminate")
+  func indeterminateLocalAlignmentTie() async throws {
+    let width = 100
+    let height = 80
+    let camera = CameraConfigurationID()
+    let baselineBytes = (0..<(width * height)).map { index in
+      UInt8((index % width).isMultiple(of: 2) ? 0 : 255)
+    }
+    let observationBytes = baselineBytes.map { 255 &- $0 }
+    let baseline = try StampedFrame(
+      sequence: 1,
+      captureNanoseconds: 1,
+      cameraConfigurationID: camera,
+      width: width,
+      height: height,
+      rowBytes: width,
+      pixelFormat: .gray8,
+      bytes: OwnedFrameBytes(baselineBytes)
+    )
+    func observation(sequence: UInt64) throws -> StampedFrame {
+      try StampedFrame(
+        sequence: sequence,
+        captureNanoseconds: sequence,
+        cameraConfigurationID: camera,
+        width: width,
+        height: height,
+        rowBytes: width,
+        pixelFormat: .gray8,
+        bytes: OwnedFrameBytes(observationBytes)
+      )
+    }
+    let first = try observation(sequence: 2)
+    let second = try observation(sequence: 3)
+    let pose = try MachinePosition(x: 0, y: 0)
+
+    let outcome = await VisionWorker().observeVisibilityTarget(
+      visibilityRequest(
+        baseline: sample(baseline, pose),
+        targets: [sample(first, pose), sample(second, pose)]
+      )
+    )
+
+    guard case .rejected(.indeterminateAlignment(let frameID)) = outcome else {
+      Issue.record("expected a tied nonzero alignment to be indeterminate; got \(outcome)")
+      return
+    }
+    #expect(frameID == first.id)
+  }
+
+  @Test("full-HD BGRA target observation has frame-size-independent alignment cost")
+  func fullHDLocalAlignmentCost() async throws {
+    let camera = CameraConfigurationID()
+    let simulator = PaperSceneSimulator(width: 1_920, height: 1_080)
+    let target = targetStrokes(center: PaperPixelPoint(x: 960, y: 540), radius: 4)
+    let baseline = try simulator.render(
+      strokes: [], sequence: 1, captureNanoseconds: 1,
+      cameraConfigurationID: camera)
+    let first = try simulator.render(
+      strokes: target, sequence: 2, captureNanoseconds: 2,
+      cameraConfigurationID: camera)
+    let second = try simulator.render(
+      strokes: target, sequence: 3, captureNanoseconds: 3,
+      cameraConfigurationID: camera)
+    let pose = try MachinePosition(x: 0, y: 0)
+
+    let outcome = await VisionWorker().observeVisibilityTarget(
+      visibilityRequest(
+        baseline: sample(baseline, pose),
+        targets: [sample(first, pose), sample(second, pose)],
+        targetSearchROI: PixelRect(x: 950, y: 530, width: 22, height: 20)
+      )
+    )
+
+    guard case .observed(let observation) = outcome else {
+      Issue.record("expected full-HD local observation; got \(outcome)")
+      return
+    }
+    #expect(baseline.pixelFormat == .bgra8)
+    #expect(observation.samples.allSatisfy {
+      $0.alignment.supportRegion == PixelRect(x: 918, y: 498, width: 86, height: 84)
+        && $0.alignment.exclusionRegion == PixelRect(x: 948, y: 528, width: 26, height: 24)
+        && $0.alignment.evaluatedPixelCount == 165_000
+    })
+  }
+
+  @Test("target observation reports sample progress and settles as cancelled")
+  func cancellableTargetObservationProgress() async throws {
+    let camera = CameraConfigurationID()
+    let simulator = PaperSceneSimulator(width: 100, height: 80)
+    let target = targetStrokes(center: PaperPixelPoint(x: 18, y: 15), radius: 4)
+    let baseline = try simulator.render(
+      strokes: [], sequence: 1, captureNanoseconds: 1,
+      cameraConfigurationID: camera)
+    let first = try simulator.render(
+      strokes: target, sequence: 2, captureNanoseconds: 2,
+      cameraConfigurationID: camera)
+    let second = try simulator.render(
+      strokes: target, sequence: 3, captureNanoseconds: 3,
+      cameraConfigurationID: camera)
+    let pose = try MachinePosition(x: 0, y: 0)
+    let request = visibilityRequest(
+      baseline: sample(baseline, pose),
+      targets: [sample(first, pose), sample(second, pose)]
+    )
+    let progress = TargetProgressRecorder()
+
+    let task = Task {
+      await VisionWorker().observeVisibilityTarget(request) { update in
+        progress.append(update)
+        withUnsafeCurrentTask { $0?.cancel() }
+      }
+    }
+    let outcome = await task.value
+
+    #expect(outcome == .cancelled)
+    #expect(progress.values == [
+      VisibilityTargetObservationProgress(sampleIndex: 1, sampleCount: 2)
+    ])
   }
 
   @Test("trial-local target-present baseline isolates the new line")
@@ -515,6 +705,7 @@ private func sample(
 private func visibilityRequest(
   baseline: SamePoseFrameSample,
   targets: [SamePoseFrameSample],
+  targetSearchROI: PixelRect = PixelRect(x: 8, y: 5, width: 22, height: 20),
   expectedDiameterPixels: ClosedRange<Double> = 8...13,
   alignmentSearchRadiusPixels: Int = 2,
   maximumAlignmentShiftPixels: Int = 1,
@@ -525,7 +716,7 @@ private func visibilityRequest(
   VisibilityTargetObservationRequest(
     baseline: baseline,
     targetSamples: targets,
-    region: PixelRect(x: 8, y: 5, width: 22, height: 20),
+    targetSearchROI: targetSearchROI,
     thresholds: thresholds,
     controllerSessionID: UUID(uuidString: "00000000-0000-0000-0000-000000000010")!,
     coordinateRevision: 3,
@@ -538,7 +729,8 @@ private func visibilityRequest(
     maximumBackgroundMeanAbsoluteDifference: 0.1,
     alignmentSearchRadiusPixels: alignmentSearchRadiusPixels,
     maximumAlignmentShiftPixels: maximumAlignmentShiftPixels,
-    algorithmRevision: "visibility-test-v1"
+    algorithmRevision: "visibility-test-v1",
+    targetPlanRevision: VisibilityTargetPlanV2.revision
   )
 }
 
@@ -560,7 +752,7 @@ private func targetObservation(
   camera: CameraConfigurationID,
   toolPaperRevision: UUID
 ) async throws -> VisibilityTargetObservation {
-  let simulator = PaperSceneSimulator(width: 40, height: 30)
+  let simulator = PaperSceneSimulator(width: 100, height: 80)
   let target = targetStrokes(center: PaperPixelPoint(x: centerX, y: 15), radius: 4)
   let baseline = try simulator.render(
     strokes: [],
@@ -596,6 +788,23 @@ private func targetObservation(
 
 private enum TargetObservationFixtureError: Error {
   case rejected(String)
+}
+
+private final class TargetProgressRecorder: @unchecked Sendable {
+  private let lock = NSLock()
+  private var storage: [VisibilityTargetObservationProgress] = []
+
+  var values: [VisibilityTargetObservationProgress] {
+    lock.lock()
+    defer { lock.unlock() }
+    return storage
+  }
+
+  func append(_ progress: VisibilityTargetObservationProgress) {
+    lock.lock()
+    storage.append(progress)
+    lock.unlock()
+  }
 }
 
 private func lineFrames() throws -> SimulatedTargetAndLineFrames {
