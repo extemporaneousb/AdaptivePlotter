@@ -37,6 +37,15 @@ The current source implements:
 - independently reset camera-advised Boundary renewal tiers (40/20/10/5/2 mm)
   for every direction after an initial 10 mm probe, with recoverable baseline
   establishment, conservative fallback, and Stop-race suppression;
+- pause and restoration of automatic background analysis around a LIVE Boundary
+  owner so explicit renewal inspections can use the camera/Vision pipeline;
+- one quantization-aware 0.05 mm Euclidean controller-pose settlement policy
+  shared by production pose comparisons;
+- one Stage 3.3 public action that captures the exact target pose, runs bounded
+  camera calibration when required, and builds a reviewable proposal while
+  preserving separate explicit accept/reject authority;
+- required noninteractive presentation for a protocol-forced Boundary
+  direction;
 
 Adaptive Drawing remains Future. Future-facing drawing/model primitives are
 present and tested, but no current app route promotes a model or performs
@@ -94,11 +103,22 @@ Prior attended sessions recorded:
   Y -73.673, then retries alternated Y between -73.673 and -73.695 while X
   remained -51.963. The approximately 0.016 mm diagonal residual reproduced
   the former unreachable 0.010 mm arrival loop. No Stage 3.3 motion or ink
-  followed.
+  followed;
+- an attended 2026-08-09 pre-fix Stage 3.2 controller ledger recorded every
+  Boundary jog at the controller maximum F500. X+ used mostly 10 mm renewals
+  with one 40 mm renewal, while Y+ sustained multiple 40 mm renewals. This
+  proves the requested feed and renewal pattern, not achieved physical speed;
+- that 2026-08-09 run accepted all four typed sides, reached 3.3, and repeatedly
+  failed camera calibration at exact sample 2. The requested X was -36.620 and
+  final controller X was -36.633: a 0.013 mm residual rejected by the former
+  0.010 mm threshold even though the configured X resolution is approximately
+  0.0249 mm/step. The controller ended Idle and Pen Up, and the UI offered
+  **Return to Captured Target Pose**. No observed-ink evidence was recorded.
 
-These facts are bounded to their recorded sessions. They do not validate the
-current integrated Learning Path or the newly landed Boundary aggregate and
-simulator behavior.
+These facts are bounded to their recorded sessions. The 2026-08-09 run is
+attended controller/app evidence for the pre-fix build only; it does not
+physically validate the shared 0.05 mm policy, the combined 3.3 action, or the
+Boundary analysis scheduling changes.
 
 ## Not yet physically verified
 
@@ -112,11 +132,15 @@ The current integrated build still lacks attended verification of:
 - absence of audio-input permission prompts in a clean interactive run;
 - the full Pen Interaction sequence;
 - one-cancel behavior and exact post-stop frames on the current build;
-- the revised 0.05 mm center-arrival acceptance, center-only Retry Center
-  Arrival presentation, and progression into Stage 3.3 on live hardware;
+- the shared 0.05 mm pose policy across center arrival, camera-calibration
+  samples, captured/registered-pose returns, and every other production pose
+  comparison on live hardware;
+- the combined Stage 3.3 capture/calibrate/build action and separate proposal
+  accept/reject presentation on live hardware;
 - durable accepted-Boundary restoration across a signed software relaunch;
-- attended timing and stopping behavior of camera-advised coarse-to-fine
-  Boundary renewal on live hardware;
+- post-fix attended timing and stopping behavior of camera-advised
+  coarse-to-fine Boundary renewal, including pause/restore of automatic
+  background analysis, on live hardware;
 - coarse-to-fine Clear search and repeatability;
 - physical target contact/ROI, blank baseline, octagonal target, two-frame
   target observation, isolated line, new-ink observation, and comparison;

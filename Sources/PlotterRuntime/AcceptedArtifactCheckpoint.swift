@@ -77,7 +77,6 @@ public enum AcceptedArtifactCheckpointValidationError: Error, Equatable, Sendabl
 public struct AcceptedMachineArtifactCheckpoint: Codable, Hashable, Sendable {
   public static let schemaVersion: UInt16 = 1
   public static let algorithmRevision = "accepted-machine-artifacts-v1"
-  public static let revalidationPositionToleranceMM = 0.05
 
   public let schemaVersion: UInt16
   public let algorithmRevision: String
@@ -137,13 +136,16 @@ public struct AcceptedMachineArtifactCheckpoint: Codable, Hashable, Sendable {
         "The selected device, build information, parser state, settings, or coordinate offsets changed."
       )
     }
-    let residual = machinePositionAtSave.point.distance(to: currentPosition.point)
-    guard residual.isFinite, residual <= Self.revalidationPositionToleranceMM else {
+    let residual = ControllerPositionAcceptancePolicy.residualMM(
+      currentPosition,
+      from: machinePositionAtSave
+    )
+    guard ControllerPositionAcceptancePolicy.accepts(residualMM: residual) else {
       return .incompatible(
         String(
           format: "Controller MPos differs by %.3f mm; checkpoint tolerance is %.3f mm.",
           residual,
-          Self.revalidationPositionToleranceMM
+          ControllerPositionAcceptancePolicy.toleranceMM
         )
       )
     }
@@ -151,15 +153,22 @@ public struct AcceptedMachineArtifactCheckpoint: Codable, Hashable, Sendable {
   }
 
   public func restoredBoundaryHistories()
-    throws -> [BoundaryDirection: [AttemptCompatibility: ExerciseAttemptHistory<BoundarySideAttemptEvidence>]]
+    throws -> [BoundaryDirection: [AttemptCompatibility: ExerciseAttemptHistory<
+      BoundarySideAttemptEvidence
+    >]]
   {
-    let evidenceByID = Dictionary(uniqueKeysWithValues: acceptedBoundaryEvidence.map {
-      ($0.attemptID, $0)
-    })
+    let evidenceByID = Dictionary(
+      uniqueKeysWithValues: acceptedBoundaryEvidence.map {
+        ($0.attemptID, $0)
+      })
     var histories:
-      [BoundaryDirection: [AttemptCompatibility: ExerciseAttemptHistory<BoundarySideAttemptEvidence>]] = [:]
+      [BoundaryDirection: [AttemptCompatibility: ExerciseAttemptHistory<
+        BoundarySideAttemptEvidence
+      >]] = [:]
     var sequence: UInt64 = 0
-    for aggregate in boundarySideAggregates.sorted(by: { $0.direction.rawValue < $1.direction.rawValue }) {
+    for aggregate in boundarySideAggregates.sorted(by: {
+      $0.direction.rawValue < $1.direction.rawValue
+    }) {
       let compatibility = aggregate.numericCompatibility.attemptCompatibility
       var history = try ExerciseAttemptHistory<BoundarySideAttemptEvidence>(
         compatibility: compatibility
@@ -230,9 +239,10 @@ public struct AcceptedMachineArtifactCheckpoint: Codable, Hashable, Sendable {
     guard pairedBoundaryProgress.acceptedDirections.count == boundarySideAggregates.count,
       Set(pairedBoundaryProgress.acceptedDirections) == Set(boundarySideAggregates.map(\.direction))
     else { throw AcceptedArtifactCheckpointValidationError.invalidProgress }
-    let evidenceByID = Dictionary(uniqueKeysWithValues: acceptedBoundaryEvidence.map {
-      ($0.attemptID, $0)
-    })
+    let evidenceByID = Dictionary(
+      uniqueKeysWithValues: acceptedBoundaryEvidence.map {
+        ($0.attemptID, $0)
+      })
     for aggregate in boundarySideAggregates {
       guard aggregate.controllerSessionID == controllerSessionID,
         aggregate.coordinateRevision == coordinateRevision,
@@ -269,9 +279,10 @@ public struct AcceptedMachineArtifactCheckpoint: Codable, Hashable, Sendable {
       BoundaryDirection.allCases.map(LearningArtifactKind.boundarySideAggregate)
         + [.estimatedMachineCenter, .centerArrival]
     )
-    guard acceptedRevisions.allSatisfy({
-      $0.state == .current && $0.disposition == .succeeded && allowedKinds.contains($0.kind)
-    }),
+    guard
+      acceptedRevisions.allSatisfy({
+        $0.state == .current && $0.disposition == .succeeded && allowedKinds.contains($0.kind)
+      }),
       Set(acceptedRevisions.map(\.kind)).count == acceptedRevisions.count
     else { throw AcceptedArtifactCheckpointValidationError.invalidRevisionSet }
     let graph = try restoredLearningGraph()

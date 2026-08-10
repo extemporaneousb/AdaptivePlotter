@@ -90,11 +90,30 @@ strictly newer frame, estimates the bottom-center contact point, and atomically
 commits the selected side attempt and aggregate. Typed operator direction—not a
 detected camera edge—identifies the side.
 
+While a LIVE Boundary owner is active, automatic background analysis pauses so
+the explicit renewal inspections can use the camera/Vision pipeline without
+competing work. The previous automatic-analysis cadence is restored only after
+that owner settles. A forced opposite direction is displayed as required,
+noninteractive content rather than as a disabled choice.
+
 After four sides, **Move to Estimated Center** accepts a controller-reported
 final MPos within 0.05 mm of the derived target. A stopped or out-of-tolerance
 move preserves all four accepted side aggregates and exposes **Retry Center
 Arrival**, which requests only the remaining delta; it never restarts Boundary
 Discovery.
+
+Every production controller-pose comparison uses one quantization-aware
+settlement policy: fresh attributable controller MPos and Euclidean residual at
+most 0.05 mm. Here, **exact** means exact controller provenance under that
+policy; it does not mean mathematically zero residual from an unrepresentable
+stepper position.
+
+At 3.3, one public **Capture Target Pose and Build Geometry Proposal** action
+captures the exact target pose and frame, runs the bounded three-sample Pen Up
+camera calibration when needed, returns under the same settlement policy, and
+stages the proposal. There is no preceding generic Start or separate public
+capture/build ceremony. The action never accepts geometry. The operator still
+explicitly accepts or rejects the target pose, camera fit, and ROI after review.
 
 Accepted LIVE machine-space Boundary artifacts are durably checkpointed by
 atomic file replacement after each accepted commit. Relaunch loads the file as

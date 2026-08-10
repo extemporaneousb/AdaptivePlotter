@@ -127,7 +127,7 @@ struct LearningPathView: View {
             resetAllPlan: resetAllPlan
           )
         }
-          .padding(14)
+        .padding(14)
       }
 
       if let strip = pinnedActionStrip {
@@ -607,40 +607,55 @@ private struct ExerciseActionStripView: View {
 
       if let directionSelection = presentation.directionSelection {
         Text(
-          directionSelection.options.count == 1
-            ? "Required next direction" : "Available direction choices"
+          directionSelection.allowsSelection
+            ? "Available direction choices" : "Required next direction"
         )
         .font(.caption2.monospaced().bold())
         .foregroundStyle(.secondary)
 
-        Picker(
-          directionSelection.purpose.label,
-          selection: Binding(
-            get: { directionSelection.selected },
-            set: { direction in
-              Task {
-                await perform(
-                  .selectDirection(directionSelection.purpose, direction),
-                  presentation.ownerID
-                )
+        if directionSelection.allowsSelection {
+          Picker(
+            directionSelection.purpose.label,
+            selection: Binding(
+              get: { directionSelection.selected },
+              set: { direction in
+                Task {
+                  await perform(
+                    .selectDirection(directionSelection.purpose, direction),
+                    presentation.ownerID
+                  )
+                }
               }
+            )
+          ) {
+            ForEach(directionSelection.options, id: \.self) { direction in
+              Text(direction.displayName).tag(direction)
             }
-          )
-        ) {
-          ForEach(directionSelection.options, id: \.self) { direction in
-            Text(direction.displayName).tag(direction)
           }
+          .pickerStyle(.segmented)
+          .accessibilityValue(
+            PresentationCue.direction(directionSelection.selected).accessibilityValue
+          )
+          .accessibilityHint("Selects a direction without starting motion.")
+        } else {
+          HStack(spacing: 12) {
+            Text(directionSelection.purpose.label)
+              .foregroundStyle(.primary)
+            Spacer(minLength: 12)
+            Text(directionSelection.selected.displayName)
+              .font(.body.monospaced().bold())
+              .foregroundStyle(.primary)
+              .padding(.horizontal, 12)
+              .padding(.vertical, 5)
+              .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+          }
+          .accessibilityElement(children: .ignore)
+          .accessibilityLabel(directionSelection.purpose.label)
+          .accessibilityValue(
+            PresentationCue.direction(directionSelection.selected).accessibilityValue
+          )
+          .accessibilityHint("This opposite boundary is required next.")
         }
-        .pickerStyle(.segmented)
-        .disabled(directionSelection.options.count == 1)
-        .accessibilityValue(
-          PresentationCue.direction(directionSelection.selected).accessibilityValue
-        )
-        .accessibilityHint(
-          directionSelection.options.count == 1
-            ? "This opposite boundary is required next."
-            : "Selects a direction without starting motion."
-        )
       }
 
       LazyVGrid(
@@ -717,8 +732,8 @@ private struct ExerciseActionStripView: View {
   }
 }
 
-private extension ExerciseActionKind {
-  var isImmediateStopOrVisionCancel: Bool {
+extension ExerciseActionKind {
+  fileprivate var isImmediateStopOrVisionCancel: Bool {
     switch self {
     case .stop, .cancelVisibilityObservation:
       true

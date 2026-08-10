@@ -76,6 +76,11 @@ are discarded before artifact or overlay mutation.
 The analysis pipeline admits one active request and retains only the newest
 pending request. Measurement and overlay provenance include exact frame,
 camera-configuration, source, kind, and algorithm revision.
+Automatic background analysis is a schedulable producer, not an authority. A
+LIVE Boundary owner pauses it after publishing Stop, uses explicit exact-frame
+inspections for renewal advice, and restores the prior cadence after the owner
+settles. This prevents background work from starving time-sensitive advisory
+inspection without changing controller or evidence authority.
 
 ### Human-Guided Discovery
 
@@ -112,10 +117,14 @@ MPos samples. Separate current-camera calibration owns exact frame/contact
 provenance for optical registration. Estimated center and learned local
 coordinates derive from the four current aggregate revisions.
 
-`CenterArrivalSettlementPolicy` compares exact target and final controller MPos
-using Euclidean residual and a 0.05 mm tolerance. Failed or stopped center travel
-leaves the four aggregate revisions current and projects one center-only **Retry
-Center Arrival** action; it does not route through generic exercise Restart.
+`ControllerPositionAcceptancePolicy` compares every production requested pose
+and final controller MPos using Euclidean residual and a quantization-aware
+0.05 mm tolerance. Exact pose means fresh attributable MPos in compatible
+controller context, not mathematically zero residual. Failed or stopped center
+travel leaves the four aggregate revisions current and projects one center-only
+**Retry Center Arrival** action; it does not route through generic exercise
+Restart. The same policy governs bounded camera-calibration samples, returns to
+captured or registered poses, and other production pose checks.
 
 ### SpeechAnnouncements
 
@@ -140,6 +149,12 @@ It owns:
   invalidation;
 - LIVE/SIMULATED authority parking;
 - bounded shutdown.
+
+At Stage 3.3, `OperatorWorkspace` routes one public capture-and-build intent. It
+captures target-pose MPos and an exact frame, runs the bounded three-sample Pen
+Up calibration if required, returns under the shared settlement policy, and
+stages a proposal. Proposal acceptance and rejection remain separate typed
+operator intents.
 
 Views own no independent workflow state. Presentation helpers may format or
 reduce immutable values but cannot admit commands or promote evidence.
@@ -168,6 +183,9 @@ Motion, and compact current status. Exercise detail owns Start, choices, Cancel,
 Stop, Restart, Redo, and Record Another Attempt. Manual jog owns Stop Manual Jog
 in Motion. A unique active Stop remains reachable even while another row is
 being reviewed.
+
+A protocol-forced Boundary direction is rendered as required noninteractive
+content. A chooser is rendered only when two or more valid directions remain.
 
 Pane and Utilities visibility are window-local presentation state. They cannot
 change runtime current state, controller authorization, accepted evidence, or

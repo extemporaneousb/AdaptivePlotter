@@ -25,11 +25,19 @@ Cancel abandons the current attempt. Stop settles an admitted stoppable owner.
 They may share one mechanical Jog Cancel primitive but never share a successful
 semantic disposition. Sticky ambiguity suppresses new physical motion.
 
+Every production comparison of a requested controller pose with settled MPos
+uses fresh attributable controller evidence, compatible context, and at most
+0.05 mm Euclidean residual. **Exact pose** names that quantization-aware policy;
+it does not require mathematically zero residual when configured steps/mm cannot
+represent the requested coordinate exactly.
+
 ## 3.2 Paired Boundary Discovery and Centering
 
 ### Direction sequence
 
-1. The operator selects any first X or Y direction. Selection is inert.
+1. The operator selects any first X or Y direction. Selection is inert. When
+   the protocol requires the opposite side, the UI presents that direction as
+   required noninteractive content rather than a disabled choice.
 2. Explicit **Start** admits one operator-stopped Boundary owner.
 3. The controller begins with one 10 mm probe segment under that same owner.
    After each unambiguous Idle/MPos, a strictly newer advisory frame may project
@@ -40,6 +48,9 @@ semantic disposition. Sticky ambiguity suppresses new physical motion.
    unavailable, the first later compatible frame establishes that side's
    baseline; one more 10 mm probe can then produce coarse advice instead of
    leaving the rest of that side permanently on the fallback tier.
+   During the LIVE owner, automatic background analysis is paused so these
+   explicit renewal inspections do not compete for the camera/Vision pipeline;
+   its prior cadence is restored only after the Boundary owner settles.
 4. **Stop** is visible immediately and remains bound to that owner.
 5. Operator Stop closes renewal and emits one Jog Cancel.
 6. The original owner settles through fresh Idle and final MPos.
@@ -117,17 +128,22 @@ repeat side discovery or manufacture a center-arrival artifact.
 
 At the accepted target pose:
 
-1. record current controller MPos;
-2. capture one exact compatible frame;
+1. press one explicit **Capture Target Pose and Build Geometry Proposal**
+   action;
+2. under that action, record current controller MPos and capture one exact
+   compatible frame;
 3. measure the bottom-center tool contact point, which is not the component
    centroid;
 4. fit machine-camera registration from compatible exact machine/contact
    samples or run the one bounded three-sample Pen Up calibration owner and
-   return to the captured target MPos;
+   return to the captured target MPos under the shared pose policy;
 5. stage the fit, projected target ROI, margin, validation residual, and
    provenance as a non-authoritative proposal;
 6. inspect the complete exact frame, ROI outline, and adjustable
    presentation-only zoom; then explicitly accept or reject the proposal.
+
+There is no preceding generic Start and no separate public Capture then Build
+sequence.
 
 Calibration never accepts geometry. One explicit acceptance atomically makes
 the target-pose, machine-camera, and typed target-ROI revisions current. No one
@@ -157,7 +173,8 @@ revision, target-ROI revision, and Clear-pose revision.
 ## 3.6 Return to Registered Target Pose
 
 Move Pen Up under one stoppable owner to the registered target MPos. Completion
-requires Idle, exact final MPos, no sticky ambiguity, and a retained settlement.
+requires Idle, final MPos accepted by the shared 0.05 mm pose policy, no sticky
+ambiguity, and a retained settlement.
 
 ## 3.7 Draw Visibility Target
 

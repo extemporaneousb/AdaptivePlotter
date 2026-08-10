@@ -160,19 +160,22 @@ struct IsolatedInkObservationTests {
       Issue.record("expected exact projected diameter to be accepted; got \(outcome)")
       return
     }
-    #expect(observation.samples.allSatisfy {
-      $0.bounds.maxX - $0.bounds.minX == 9 && $0.bounds.maxY - $0.bounds.minY == 9
-    })
+    #expect(
+      observation.samples.allSatisfy {
+        $0.bounds.maxX - $0.bounds.minX == 9 && $0.bounds.maxY - $0.bounds.minY == 9
+      })
   }
 
   @Test("bounded integer alignment is retained and used for target differencing")
   func boundedTargetAlignment() async throws {
     let camera = CameraConfigurationID()
     let simulator = PaperSceneSimulator(width: 100, height: 80)
-    let background = [SimulatedPaperStroke(
-      start: PaperPixelPoint(x: 2, y: 2),
-      end: PaperPixelPoint(x: 5, y: 7)
-    )]
+    let background = [
+      SimulatedPaperStroke(
+        start: PaperPixelPoint(x: 2, y: 2),
+        end: PaperPixelPoint(x: 5, y: 7)
+      )
+    ]
     let target = targetStrokes(center: PaperPixelPoint(x: 18, y: 15), radius: 4)
     let baseline = try simulator.render(
       strokes: background, sequence: 1, captureNanoseconds: 1,
@@ -212,10 +215,12 @@ struct IsolatedInkObservationTests {
   func excessiveTargetAlignment() async throws {
     let camera = CameraConfigurationID()
     let simulator = PaperSceneSimulator(width: 100, height: 80)
-    let background = [SimulatedPaperStroke(
-      start: PaperPixelPoint(x: 2, y: 2),
-      end: PaperPixelPoint(x: 5, y: 7)
-    )]
+    let background = [
+      SimulatedPaperStroke(
+        start: PaperPixelPoint(x: 2, y: 2),
+        end: PaperPixelPoint(x: 5, y: 7)
+      )
+    ]
     let target = targetStrokes(center: PaperPixelPoint(x: 18, y: 15), radius: 4)
     let baseline = try simulator.render(
       strokes: background, sequence: 1, captureNanoseconds: 1,
@@ -256,10 +261,12 @@ struct IsolatedInkObservationTests {
     let camera = CameraConfigurationID()
     let simulator = PaperSceneSimulator(width: 100, height: 80)
     let target = targetStrokes(center: PaperPixelPoint(x: 18, y: 15), radius: 4)
-    let changedBackground = [SimulatedPaperStroke(
-      start: PaperPixelPoint(x: 0, y: 20),
-      end: PaperPixelPoint(x: 7, y: 29)
-    )]
+    let changedBackground = [
+      SimulatedPaperStroke(
+        start: PaperPixelPoint(x: 0, y: 20),
+        end: PaperPixelPoint(x: 7, y: 29)
+      )
+    ]
     let baseline = try simulator.render(
       strokes: [], sequence: 1, captureNanoseconds: 1,
       cameraConfigurationID: camera)
@@ -291,10 +298,12 @@ struct IsolatedInkObservationTests {
     let camera = CameraConfigurationID()
     let simulator = PaperSceneSimulator(width: 100, height: 80)
     let target = targetStrokes(center: PaperPixelPoint(x: 18, y: 15), radius: 4)
-    let distantChange = [SimulatedPaperStroke(
-      start: PaperPixelPoint(x: 90, y: 70),
-      end: PaperPixelPoint(x: 99, y: 79)
-    )]
+    let distantChange = [
+      SimulatedPaperStroke(
+        start: PaperPixelPoint(x: 90, y: 70),
+        end: PaperPixelPoint(x: 99, y: 79)
+      )
+    ]
     let baseline = try simulator.render(
       strokes: [], sequence: 1, captureNanoseconds: 1,
       cameraConfigurationID: camera)
@@ -317,10 +326,11 @@ struct IsolatedInkObservationTests {
       Issue.record("expected distant change to be ignored; got \(outcome)")
       return
     }
-    #expect(observation.samples.allSatisfy {
-      $0.alignment.supportRegion == PixelRect(x: 0, y: 0, width: 62, height: 57)
-        && $0.alignment.exclusionRegion == PixelRect(x: 6, y: 3, width: 26, height: 24)
-    })
+    #expect(
+      observation.samples.allSatisfy {
+        $0.alignment.supportRegion == PixelRect(x: 0, y: 0, width: 62, height: 57)
+          && $0.alignment.exclusionRegion == PixelRect(x: 6, y: 3, width: 26, height: 24)
+      })
   }
 
   @Test("small clipped alignment collar is rejected without a full-frame fallback")
@@ -346,9 +356,11 @@ struct IsolatedInkObservationTests {
       )
     )
 
-    guard case .rejected(
-      .insufficientAlignmentSupport(_, let actualPixels, let minimumPixels)
-    ) = outcome else {
+    guard
+      case .rejected(
+        .insufficientAlignmentSupport(_, let actualPixels, let minimumPixels)
+      ) = outcome
+    else {
       Issue.record("expected insufficient local support; got \(outcome)")
       return
     }
@@ -434,11 +446,12 @@ struct IsolatedInkObservationTests {
       return
     }
     #expect(baseline.pixelFormat == .bgra8)
-    #expect(observation.samples.allSatisfy {
-      $0.alignment.supportRegion == PixelRect(x: 918, y: 498, width: 86, height: 84)
-        && $0.alignment.exclusionRegion == PixelRect(x: 948, y: 528, width: 26, height: 24)
-        && $0.alignment.evaluatedPixelCount == 165_000
-    })
+    #expect(
+      observation.samples.allSatisfy {
+        $0.alignment.supportRegion == PixelRect(x: 918, y: 498, width: 86, height: 84)
+          && $0.alignment.exclusionRegion == PixelRect(x: 948, y: 528, width: 26, height: 24)
+          && $0.alignment.evaluatedPixelCount == 165_000
+      })
   }
 
   @Test("target observation reports sample progress and settles as cancelled")
@@ -471,9 +484,10 @@ struct IsolatedInkObservationTests {
     let outcome = await task.value
 
     #expect(outcome == .cancelled)
-    #expect(progress.values == [
-      VisibilityTargetObservationProgress(sampleIndex: 1, sampleCount: 2)
-    ])
+    #expect(
+      progress.values == [
+        VisibilityTargetObservationProgress(sampleIndex: 1, sampleCount: 2)
+      ])
   }
 
   @Test("trial-local target-present baseline isolates the new line")
@@ -490,26 +504,27 @@ struct IsolatedInkObservationTests {
       baselineCaptureNanoseconds: 10,
       cameraConfigurationID: camera
     )
-    let outcome = await VisionWorker().observeIsolatedInk(IsolatedInkObservationRequest(
-      targetPresentBaseline: sample(
-        frames.targetPresentBaseline,
-        try MachinePosition(x: 0, y: 0)
-      ),
-      postLine: sample(frames.postLine, try MachinePosition(x: 0, y: 0)),
-      region: PixelRect(x: 0, y: 0, width: 48, height: 32),
-      thresholds: thresholds,
-      lineStartPoint: try Point2(x: 24, y: 16),
-      controllerSessionID: UUID(),
-      coordinateRevision: 1,
-      toolPaperRevision: UUID(),
-      controllerPositionToleranceMM: 0.01,
-      alignmentSearchRadiusPixels: 2,
-      maximumAlignmentShiftPixels: 1,
-      maximumBackgroundMeanAbsoluteDifference: 0.1,
-      projectedActualStrokeDelta: try Vector2(dx: 7, dy: 0),
-      algorithmRevision: "line-test-v1",
-      minimumLinePixels: 5
-    ))
+    let outcome = await VisionWorker().observeIsolatedInk(
+      IsolatedInkObservationRequest(
+        targetPresentBaseline: sample(
+          frames.targetPresentBaseline,
+          try MachinePosition(x: 0, y: 0)
+        ),
+        postLine: sample(frames.postLine, try MachinePosition(x: 0, y: 0)),
+        region: PixelRect(x: 0, y: 0, width: 48, height: 32),
+        thresholds: thresholds,
+        lineStartPoint: try Point2(x: 24, y: 16),
+        controllerSessionID: UUID(),
+        coordinateRevision: 1,
+        toolPaperRevision: UUID(),
+        controllerPositionToleranceMM: ControllerPositionAcceptancePolicy.toleranceMM,
+        alignmentSearchRadiusPixels: 2,
+        maximumAlignmentShiftPixels: 1,
+        maximumBackgroundMeanAbsoluteDifference: 0.1,
+        projectedActualStrokeDelta: try Vector2(dx: 7, dy: 0),
+        algorithmRevision: "line-test-v1",
+        minimumLinePixels: 5
+      ))
     guard case .observed(let observation) = outcome else {
       Issue.record("expected line observation; got \(outcome)")
       return
@@ -532,22 +547,23 @@ struct IsolatedInkObservationTests {
     let second = try simulator.render(
       strokes: target, sequence: 2, captureNanoseconds: 2,
       cameraConfigurationID: camera)
-    let outcome = await VisionWorker().observeIsolatedInk(IsolatedInkObservationRequest(
-      targetPresentBaseline: sample(first, try MachinePosition(x: 0, y: 0)),
-      postLine: sample(second, try MachinePosition(x: 0, y: 0)),
-      region: PixelRect(x: 0, y: 0, width: 30, height: 20),
-      thresholds: thresholds,
-      lineStartPoint: try Point2(x: 19, y: 10),
-      controllerSessionID: UUID(),
-      coordinateRevision: 1,
-      toolPaperRevision: UUID(),
-      controllerPositionToleranceMM: 0.01,
-      alignmentSearchRadiusPixels: 2,
-      maximumAlignmentShiftPixels: 1,
-      maximumBackgroundMeanAbsoluteDifference: 0.1,
-      projectedActualStrokeDelta: try Vector2(dx: 5, dy: 0),
-      algorithmRevision: "line-test-v1"
-    ))
+    let outcome = await VisionWorker().observeIsolatedInk(
+      IsolatedInkObservationRequest(
+        targetPresentBaseline: sample(first, try MachinePosition(x: 0, y: 0)),
+        postLine: sample(second, try MachinePosition(x: 0, y: 0)),
+        region: PixelRect(x: 0, y: 0, width: 30, height: 20),
+        thresholds: thresholds,
+        lineStartPoint: try Point2(x: 19, y: 10),
+        controllerSessionID: UUID(),
+        coordinateRevision: 1,
+        toolPaperRevision: UUID(),
+        controllerPositionToleranceMM: ControllerPositionAcceptancePolicy.toleranceMM,
+        alignmentSearchRadiusPixels: 2,
+        maximumAlignmentShiftPixels: 1,
+        maximumBackgroundMeanAbsoluteDifference: 0.1,
+        projectedActualStrokeDelta: try Vector2(dx: 5, dy: 0),
+        algorithmRevision: "line-test-v1"
+      ))
     #expect(rejectionReason(outcome) == .lineMissing)
   }
 
@@ -555,24 +571,26 @@ struct IsolatedInkObservationTests {
   func lineSourceMismatch() async throws {
     let frames = try lineFrames()
     let pose = try MachinePosition(x: 0, y: 0)
-    let outcome = await VisionWorker().observeIsolatedInk(lineRequest(
-      baseline: sample(frames.targetPresentBaseline, pose),
-      post: sample(
-        frames.postLine,
-        pose,
-        source: .live(CameraDeviceID(rawValue: "live-stage4"))
-      )
-    ))
+    let outcome = await VisionWorker().observeIsolatedInk(
+      lineRequest(
+        baseline: sample(frames.targetPresentBaseline, pose),
+        post: sample(
+          frames.postLine,
+          pose,
+          source: .live(CameraDeviceID(rawValue: "live-stage4"))
+        )
+      ))
     #expect(rejectionReason(outcome) == .sourceMismatch)
   }
 
   @Test("Stage 4 line comparison rejects a different controller pose")
   func linePoseMismatch() async throws {
     let frames = try lineFrames()
-    let outcome = await VisionWorker().observeIsolatedInk(lineRequest(
-      baseline: sample(frames.targetPresentBaseline, try MachinePosition(x: 0, y: 0)),
-      post: sample(frames.postLine, try MachinePosition(x: 0.2, y: 0))
-    ))
+    let outcome = await VisionWorker().observeIsolatedInk(
+      lineRequest(
+        baseline: sample(frames.targetPresentBaseline, try MachinePosition(x: 0, y: 0)),
+        post: sample(frames.postLine, try MachinePosition(x: 0.2, y: 0))
+      ))
     guard case .rejected(let rejection) = outcome,
       case .clearPoseMismatch(let distance, let tolerance) = rejection.reason
     else {
@@ -647,12 +665,13 @@ struct IsolatedInkObservationTests {
     let compatibility = targetAttemptCompatibility(camera: camera)
     var observations: [VisibilityTargetObservation] = []
     for (index, center) in [17, 18, 19].enumerated() {
-      observations.append(try await targetObservation(
-        centerX: center,
-        sequenceBase: UInt64(30 + index * 10),
-        camera: camera,
-        toolPaperRevision: paper
-      ))
+      observations.append(
+        try await targetObservation(
+          centerX: center,
+          sequenceBase: UInt64(30 + index * 10),
+          camera: camera,
+          toolPaperRevision: paper
+        ))
     }
     let attempts = try observations.enumerated().map { index, observation in
       try ExerciseAttempt(
@@ -721,7 +740,7 @@ private func visibilityRequest(
     controllerSessionID: UUID(uuidString: "00000000-0000-0000-0000-000000000010")!,
     coordinateRevision: 3,
     toolPaperRevision: toolPaperRevision,
-    controllerPositionToleranceMM: 0.05,
+    controllerPositionToleranceMM: ControllerPositionAcceptancePolicy.toleranceMM,
     expectedDiameterPixels: expectedDiameterPixels,
     minimumTargetPixels: 20,
     maximumCentroidSpreadPixels: 0.5,
@@ -832,7 +851,7 @@ private func lineRequest(
     controllerSessionID: UUID(uuidString: "00000000-0000-0000-0000-000000000020")!,
     coordinateRevision: 2,
     toolPaperRevision: UUID(uuidString: "00000000-0000-0000-0000-000000000021")!,
-    controllerPositionToleranceMM: 0.01,
+    controllerPositionToleranceMM: ControllerPositionAcceptancePolicy.toleranceMM,
     alignmentSearchRadiusPixels: 2,
     maximumAlignmentShiftPixels: 1,
     maximumBackgroundMeanAbsoluteDifference: 0.1,

@@ -116,8 +116,9 @@ Do not infer pen height from controller state or one camera frame.
 6. Verify one operator Stop event, one Jog Cancel, original-owner Idle/final
    MPos, and one atomic accepted machine-side aggregate. Camera/Vision state
    must not affect this acceptance.
-7. Confirm the next direction is the forced opposite of the first. Repeat the
-   same Start/Stop/settle/commit sequence.
+7. Confirm the next direction is shown as required noninteractive content, not
+   a disabled chooser, and is the forced opposite of the first. Repeat the same
+   Start/Stop/settle/commit sequence.
 8. Choose either sign on the remaining axis, then repeat its forced opposite.
 9. Verify all four side aggregates are accepted and the UI shows local
    coordinates as primary learned-area presentation, raw signed controller MPos
@@ -135,13 +136,16 @@ Requested feed is not proof of achieved physical speed.
 
 ## 3.3 Register Target Pose and Camera Geometry
 
-1. At the estimated center with Pen Up, capture the exact **Target-Pose
-   Registration** frame. The armature is expected to be present; this is not the
-   blank baseline.
-2. Run **Build Geometry Proposal**. If compatible samples are insufficient,
-   retain Stop while the bounded three-sample Pen Up calibration runs and
-   returns to the captured target MPos. This action must not accept the result.
-3. Inspect the proposed target ROI and tool contact point. Confirm it refers to
+1. At the estimated center with Pen Up, press **Capture Target Pose and Build
+   Geometry Proposal** once. The action captures the exact target-pose frame
+   and, if compatible samples are insufficient, runs the bounded three-sample
+   Pen Up calibration and returns to the captured target MPos. The armature is
+   expected in the frame; this is not the blank baseline. Retain Stop while
+   calibration moves, and verify each requested pose and the return settle to
+   fresh Idle/MPos within the shared 0.05 mm Euclidean policy. This action must
+   not accept the result. Verify there was no preceding generic Start or second
+   public Build action.
+2. Inspect the proposed target ROI and tool contact point. Confirm it refers to
    the marker contact location (initially the green component bottom center),
    not the cap centroid. Verify **Full Frame**, adjustable presentation zoom,
    and **Exact ROI** do not change the outlined Vision ROI. Accept or reject the
@@ -164,8 +168,8 @@ Requested feed is not proof of achieved physical speed.
 
 ## 3.6 Return to Registered Target Pose
 
-Press **Return Pen Up to Registered Target Pose** and verify Idle/exact final
-MPos settlement.
+Press **Return Pen Up to Registered Target Pose** and verify fresh Idle/final
+MPos settlement within 0.05 mm Euclidean residual.
 
 ## 3.7 Draw Visibility Target
 

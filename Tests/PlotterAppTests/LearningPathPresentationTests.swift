@@ -232,8 +232,10 @@ struct LearningPathPresentationTests {
 
     #expect(available.purpose.label == "Boundary direction")
     #expect(available.options == [.positiveX, .negativeX, .positiveY, .negativeY])
+    #expect(available.allowsSelection)
     #expect(forced.options == [.negativeX])
     #expect(forced.selected == .negativeX)
+    #expect(!forced.allowsSelection)
   }
 
   @Test("Clear-view search exposes only exact operator-selected 10 5 2 and 1 millimeter moves")
@@ -275,12 +277,8 @@ struct LearningPathPresentationTests {
       ownerID: owner,
       actions: [
         ExerciseActionDescriptor(
-          kind: .captureTargetPoseRegistration,
-          title: "Capture Target-Pose Registration"
-        ),
-        ExerciseActionDescriptor(
-          kind: .buildTargetGeometryProposal,
-          title: "Build Geometry Proposal",
+          kind: .captureTargetPoseAndBuildGeometryProposal,
+          title: "Capture Target Pose and Build Geometry Proposal",
           role: .positive
         ),
         ExerciseActionDescriptor(
@@ -310,8 +308,7 @@ struct LearningPathPresentationTests {
     #expect(strip.mustRemainVisible)
     #expect(
       strip.actions.map(\.kind) == [
-        .captureTargetPoseRegistration,
-        .buildTargetGeometryProposal,
+        .captureTargetPoseAndBuildGeometryProposal,
         .rejectTargetGeometryProposal,
         .registerNewTargetArea,
         .moveToNewTargetArea(
@@ -320,7 +317,7 @@ struct LearningPathPresentationTests {
         .paperReplaced,
       ])
     #expect(
-      strip.actions.count { $0.kind == .buildTargetGeometryProposal } == 1
+      strip.actions.count { $0.kind == .captureTargetPoseAndBuildGeometryProposal } == 1
     )
   }
 
@@ -346,14 +343,14 @@ struct LearningPathPresentationTests {
       )
     }
     let captureBeforeMove = ExerciseActionDescriptor(
-      kind: .captureTargetPoseRegistration,
-      title: "Capture Target-Pose Registration",
+      kind: .captureTargetPoseAndBuildGeometryProposal,
+      title: "Capture Target Pose and Build Geometry Proposal",
       role: .positive,
       unavailableReason: "Move to a new target area first."
     )
     let captureAfterMove = ExerciseActionDescriptor(
-      kind: .captureTargetPoseRegistration,
-      title: "Capture Target-Pose Registration",
+      kind: .captureTargetPoseAndBuildGeometryProposal,
+      title: "Capture Target Pose and Build Geometry Proposal",
       role: .positive
     )
 
@@ -365,7 +362,9 @@ struct LearningPathPresentationTests {
           ClearViewSearchMove(direction: .positiveX, distance: .tenMillimeters)
         )
     )
-    #expect(ExerciseActionKind.captureTargetPoseRegistration != .registerNewTargetArea)
+    #expect(
+      ExerciseActionKind.captureTargetPoseAndBuildGeometryProposal != .registerNewTargetArea
+    )
     #expect(!captureBeforeMove.isEnabled)
     #expect(captureBeforeMove.unavailableReason == "Move to a new target area first.")
     #expect(captureAfterMove.isEnabled)

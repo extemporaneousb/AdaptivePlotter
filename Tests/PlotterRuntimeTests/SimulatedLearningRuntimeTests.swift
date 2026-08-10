@@ -220,9 +220,10 @@ struct SimulatedLearningRuntimeTests {
   @Test("cooperative finite travel lets Stop win before position changes")
   func cooperativeFiniteTravelCanStop() async throws {
     let runtime = try await enabledRuntime()
-    let operation = try accepted(await runtime.beginManualJog(
-      delta: SimulatedLearningMotionVector(dxMM: 10, dyMM: -5)
-    ))
+    let operation = try accepted(
+      await runtime.beginManualJog(
+        delta: SimulatedLearningMotionVector(dxMM: 10, dyMM: -5)
+      ))
     let pacing = ControlledSimulatedExecutionPacing()
     let execution = Task {
       await runtime.executeNaturally(operation.id, pacing: pacing)
@@ -238,9 +239,10 @@ struct SimulatedLearningRuntimeTests {
     #expect(await runtime.snapshot().mpos == .zero)
 
     _ = try accepted(await runtime.setPenPose(.down))
-    let drawing = try accepted(await runtime.beginDrawing(
-      delta: SimulatedLearningMotionVector(dxMM: 3, dyMM: 0)
-    ))
+    let drawing = try accepted(
+      await runtime.beginDrawing(
+        delta: SimulatedLearningMotionVector(dxMM: 3, dyMM: 0)
+      ))
     let drawingPacing = ControlledSimulatedExecutionPacing()
     let drawingExecution = Task {
       await runtime.executeNaturally(drawing.id, pacing: drawingPacing)
@@ -258,13 +260,15 @@ struct SimulatedLearningRuntimeTests {
   @Test("manual jog naturally completes through cooperative pacing and refreshes its frame")
   func cooperativeManualJogNaturalCompletion() async throws {
     let runtime = try await enabledRuntime()
-    let operation = try accepted(await runtime.beginManualJog(
-      delta: SimulatedLearningMotionVector(dxMM: 4, dyMM: -3)
-    ))
-    let outcome = try accepted(await runtime.executeNaturally(
-      operation.id,
-      pacing: SimulatedLearningImmediatePacing()
-    ))
+    let operation = try accepted(
+      await runtime.beginManualJog(
+        delta: SimulatedLearningMotionVector(dxMM: 4, dyMM: -3)
+      ))
+    let outcome = try accepted(
+      await runtime.executeNaturally(
+        operation.id,
+        pacing: SimulatedLearningImmediatePacing()
+      ))
     #expect(outcome.disposition == .naturallyCompleted)
     #expect(outcome.finalMPos == (try SimulatedLearningMPos(xMM: 4, yMM: -3)))
     let frame = try #require(await runtime.latestPublishedCausalFrame())
@@ -316,10 +320,11 @@ struct SimulatedLearningRuntimeTests {
     await runtime.injectFault(.ambiguityAtVisibilityTargetPhase(.draw(plan.traversalSteps[1])))
     let operation = try accepted(await runtime.beginVisibilityTarget())
 
-    let outcome = try accepted(await runtime.executeNaturally(
-      operation.id,
-      pacing: SimulatedLearningImmediatePacing()
-    ))
+    let outcome = try accepted(
+      await runtime.executeNaturally(
+        operation.id,
+        pacing: SimulatedLearningImmediatePacing()
+      ))
 
     #expect(outcome.disposition == .failed)
     #expect(outcome.visibilityTargetFailurePhase == .draw(plan.traversalSteps[1]))
@@ -333,10 +338,11 @@ struct SimulatedLearningRuntimeTests {
     let runtime = try await enabledRuntime()
     let operation = try accepted(await runtime.beginVisibilityTarget())
 
-    let outcome = try accepted(await runtime.executeNaturally(
-      operation.id,
-      pacing: SimulatedLearningImmediatePacing()
-    ))
+    let outcome = try accepted(
+      await runtime.executeNaturally(
+        operation.id,
+        pacing: SimulatedLearningImmediatePacing()
+      ))
 
     #expect(outcome.disposition == .naturallyCompleted)
     #expect(outcome.visibilityTargetSceneDisposition == .inkPossible)
@@ -462,17 +468,19 @@ struct SimulatedLearningRuntimeTests {
     )
     let oneMillimeterX = try SimulatedLearningMotionVector(dxMM: 1, dyMM: 0)
     #expect(
-      refusal(await approachRuntime.beginManualJog(
-        delta: oneMillimeterX
-      )) == .stickyAmbiguity(sticky)
+      refusal(
+        await approachRuntime.beginManualJog(
+          delta: oneMillimeterX
+        )) == .stickyAmbiguity(sticky)
     )
     _ = try accepted(await approachRuntime.disconnect())
     #expect(await approachRuntime.snapshot().stickyAmbiguity == nil)
     _ = try accepted(await approachRuntime.connect())
     _ = try accepted(await approachRuntime.enableMotion())
-    let newSessionMove = try accepted(await approachRuntime.beginManualJog(
-      delta: oneMillimeterX
-    ))
+    let newSessionMove = try accepted(
+      await approachRuntime.beginManualJog(
+        delta: oneMillimeterX
+      ))
     _ = try accepted(await approachRuntime.cancel(newSessionMove.id))
 
     let lowerRuntime = try await enabledRuntime()
@@ -503,16 +511,15 @@ struct SimulatedLearningRuntimeTests {
 
   @Test("simulated target Stop Cancel and shutdown retain first disposition without ink")
   func targetFirstIntentDispositions() async throws {
-    let cases: [
-      (
+    let cases:
+      [(
         SimulatedLearningOperationIntent,
         SimulatedLearningOperationDisposition
-      )
-    ] = [
-      (.stop, .stopped),
-      (.cancel, .cancelled),
-      (.shutdown, .shutdown),
-    ]
+      )] = [
+        (.stop, .stopped),
+        (.cancel, .cancelled),
+        (.shutdown, .shutdown),
+      ]
     for (intent, disposition) in cases {
       let runtime = try await enabledRuntime()
       let operation = try accepted(await runtime.beginVisibilityTarget())
@@ -542,9 +549,10 @@ struct SimulatedLearningRuntimeTests {
     #expect(after.cameraConfigurationID == before.cameraConfigurationID)
     #expect(await runtime.persistentInk().isEmpty)
 
-    let active = try accepted(await runtime.beginManualJog(
-      delta: SimulatedLearningMotionVector(dxMM: 1, dyMM: 0)
-    ))
+    let active = try accepted(
+      await runtime.beginManualJog(
+        delta: SimulatedLearningMotionVector(dxMM: 1, dyMM: 0)
+      ))
     #expect(
       refusal(await runtime.recordPaperReplaced())
         == .operationAlreadyActive(active.id)
@@ -621,12 +629,14 @@ struct SimulatedLearningRuntimeTests {
       #expect(abs(roundTrip.xMM - probe.xMM) < 1e-10)
       #expect(abs(roundTrip.yMM - probe.yMM) < 1e-10)
 
-      let xStep = transform.cameraPoint(for: try SimulatedLearningMPos(
-        xMM: probe.xMM + 1, yMM: probe.yMM
-      ))
-      let yStep = transform.cameraPoint(for: try SimulatedLearningMPos(
-        xMM: probe.xMM, yMM: probe.yMM + 1
-      ))
+      let xStep = transform.cameraPoint(
+        for: try SimulatedLearningMPos(
+          xMM: probe.xMM + 1, yMM: probe.yMM
+        ))
+      let yStep = transform.cameraPoint(
+        for: try SimulatedLearningMPos(
+          xMM: probe.xMM, yMM: probe.yMM + 1
+        ))
       let base = transform.cameraPoint(for: probe)
       #expect(abs((xStep.x - base.x) - transform.scalePixelsPerMillimeter) < 1e-10)
       #expect(abs((yStep.y - base.y) - transform.scalePixelsPerMillimeter) < 1e-10)
@@ -634,12 +644,14 @@ struct SimulatedLearningRuntimeTests {
       #expect(yStep.y > base.y)
 
       let fitted = transform.fittedWorldBounds
-      let minimum = transform.cameraPoint(for: try SimulatedLearningMPos(
-        xMM: fitted.negativeXMM, yMM: fitted.negativeYMM
-      ))
-      let maximum = transform.cameraPoint(for: try SimulatedLearningMPos(
-        xMM: fitted.positiveXMM, yMM: fitted.positiveYMM
-      ))
+      let minimum = transform.cameraPoint(
+        for: try SimulatedLearningMPos(
+          xMM: fitted.negativeXMM, yMM: fitted.negativeYMM
+        ))
+      let maximum = transform.cameraPoint(
+        for: try SimulatedLearningMPos(
+          xMM: fitted.positiveXMM, yMM: fitted.positiveYMM
+        ))
       #expect(minimum.x >= transform.paddingPixels - 1e-10)
       #expect(minimum.y >= transform.paddingPixels - 1e-10)
       #expect(maximum.x <= Double(transform.frameWidth) - transform.paddingPixels + 1e-10)
@@ -678,21 +690,25 @@ struct SimulatedLearningRuntimeTests {
     let plain = try accepted(await runtime.captureSceneFrame())
     let learnedX = try SimulatedLearningMPos(xMM: -40, yMM: 0)
     let learnedCenter = try SimulatedLearningMPos(xMM: 0.5, yMM: -0.25)
-    let annotated = try accepted(await runtime.captureSceneFrame(annotationContext: .init(
-      acceptedBoundaryPositions: [.negativeX: learnedX],
-      learnedCenter: learnedCenter,
-      targetROI: try AxisAlignedBounds(minX: 300, minY: 220, maxX: 340, maxY: 260)
-    )))
+    let annotated = try accepted(
+      await runtime.captureSceneFrame(
+        annotationContext: .init(
+          acceptedBoundaryPositions: [.negativeX: learnedX],
+          learnedCenter: learnedCenter,
+          targetROI: try AxisAlignedBounds(minX: 300, minY: 220, maxX: 340, maxY: 260)
+        )))
 
-    #expect(plain.displayedFrame.frame.contentSHA256 == annotated.displayedFrame.frame.contentSHA256)
+    #expect(
+      plain.displayedFrame.frame.contentSHA256 == annotated.displayedFrame.frame.contentSHA256)
     #expect(plain.viewportID == annotated.viewportID)
     #expect(annotated.worldToCameraTransform.viewportID == annotated.viewportID)
-    #expect(annotated.annotations.allSatisfy {
-      $0.frameID == annotated.displayedFrame.frame.id
-        && $0.cameraConfigurationID == annotated.displayedFrame.frame.cameraConfigurationID
-        && $0.viewportID == annotated.viewportID
-        && $0.evidenceNotice == .notPhysicalEvidence
-    })
+    #expect(
+      annotated.annotations.allSatisfy {
+        $0.frameID == annotated.displayedFrame.frame.id
+          && $0.cameraConfigurationID == annotated.displayedFrame.frame.cameraConfigurationID
+          && $0.viewportID == annotated.viewportID
+          && $0.evidenceNotice == .notPhysicalEvidence
+      })
     #expect(plain.annotations.allSatisfy { $0.kind != .learnedCenter })
     #expect(annotated.annotations.contains { $0.kind == .learnedCenter })
     #expect(annotated.annotations.contains { $0.kind == .acceptedLearnedSide(.negativeX) })
@@ -704,10 +720,11 @@ struct SimulatedLearningRuntimeTests {
   func usefulPaddedSceneFootprint() async throws {
     for direction in BoundaryDirection.allCases {
       let runtime = try await enabledRuntime()
-      let operation = try accepted(await runtime.beginBoundary(
-        direction: direction,
-        finiteSegmentLengthMM: 1_000
-      ))
+      let operation = try accepted(
+        await runtime.beginBoundary(
+          direction: direction,
+          finiteSegmentLengthMM: 1_000
+        ))
       _ = try accepted(await runtime.recordBoundarySegmentCompletion(for: operation.id))
       _ = try accepted(await runtime.stop(operation.id))
       let scene = try accepted(await runtime.captureSceneFrame())
@@ -716,12 +733,12 @@ struct SimulatedLearningRuntimeTests {
       #expect(
         scene.armatureBounds.maxX
           <= Double(scene.worldToCameraTransform.frameWidth)
-            - scene.worldToCameraTransform.paddingPixels
+          - scene.worldToCameraTransform.paddingPixels
       )
       #expect(
         scene.armatureBounds.maxY
           <= Double(scene.worldToCameraTransform.frameHeight)
-            - scene.worldToCameraTransform.paddingPixels
+          - scene.worldToCameraTransform.paddingPixels
       )
     }
 
@@ -735,16 +752,18 @@ struct SimulatedLearningRuntimeTests {
       guard case .polyline(let line) = annotation.geometry else { return [] }
       return line.points
     }
-    #expect(inkPoints.allSatisfy {
-      $0.x >= scene.worldToCameraTransform.paddingPixels
-        && $0.y >= scene.worldToCameraTransform.paddingPixels
-        && $0.x <= Double(scene.worldToCameraTransform.frameWidth)
-          - scene.worldToCameraTransform.paddingPixels
-        && $0.y <= Double(scene.worldToCameraTransform.frameHeight)
-          - scene.worldToCameraTransform.paddingPixels
-    })
+    #expect(
+      inkPoints.allSatisfy {
+        $0.x >= scene.worldToCameraTransform.paddingPixels
+          && $0.y >= scene.worldToCameraTransform.paddingPixels
+          && $0.x <= Double(scene.worldToCameraTransform.frameWidth)
+            - scene.worldToCameraTransform.paddingPixels
+          && $0.y <= Double(scene.worldToCameraTransform.frameHeight)
+            - scene.worldToCameraTransform.paddingPixels
+      })
     let projectedDiameter = (inkPoints.map(\.x).max() ?? 0) - (inkPoints.map(\.x).min() ?? 0)
-    #expect(abs(projectedDiameter - 4 * scene.worldToCameraTransform.scalePixelsPerMillimeter) < 1e-8)
+    #expect(
+      abs(projectedDiameter - 4 * scene.worldToCameraTransform.scalePixelsPerMillimeter) < 1e-8)
 
     let truth = try #require(scene.annotations.first { $0.kind == .truthEnvelope })
     guard case .bounds(let bounds) = truth.geometry else { return }
@@ -768,10 +787,11 @@ struct SimulatedLearningRuntimeTests {
   @Test("cooperative Boundary Stop wins before segment and between segment and frame")
   func cooperativeBoundaryStopRaces() async throws {
     let beforeSegment = try await enabledRuntime()
-    let first = try accepted(await beforeSegment.beginBoundary(
-      direction: .positiveX,
-      finiteSegmentLengthMM: 10
-    ))
+    let first = try accepted(
+      await beforeSegment.beginBoundary(
+        direction: .positiveX,
+        finiteSegmentLengthMM: 10
+      ))
     let firstPacing = ControlledSimulatedExecutionPacing()
     let firstExecution = Task {
       await beforeSegment.executeBoundaryCooperatively(first.id, pacing: firstPacing)
@@ -784,10 +804,11 @@ struct SimulatedLearningRuntimeTests {
     #expect(await beforeSegment.snapshot().frameSequence == 1)
 
     let between = try await enabledRuntime()
-    let second = try accepted(await between.beginBoundary(
-      direction: .positiveX,
-      finiteSegmentLengthMM: 10
-    ))
+    let second = try accepted(
+      await between.beginBoundary(
+        direction: .positiveX,
+        finiteSegmentLengthMM: 10
+      ))
     let secondPacing = ControlledSimulatedExecutionPacing()
     let secondExecution = Task {
       await between.executeBoundaryCooperatively(second.id, pacing: secondPacing)
@@ -813,10 +834,11 @@ struct SimulatedLearningRuntimeTests {
     let runtime = SimulatedLearningRuntime(boundaryTruth: truth)
     _ = try accepted(await runtime.connect())
     _ = try accepted(await runtime.enableMotion())
-    let operation = try accepted(await runtime.beginBoundary(
-      direction: .positiveX,
-      finiteSegmentLengthMM: 10
-    ))
+    let operation = try accepted(
+      await runtime.beginBoundary(
+        direction: .positiveX,
+        finiteSegmentLengthMM: 10
+      ))
     let pacing = ControlledSimulatedExecutionPacing()
     let execution = Task {
       await runtime.executeBoundaryCooperatively(operation.id, pacing: pacing)
@@ -840,14 +862,16 @@ struct SimulatedLearningRuntimeTests {
   func cooperativeBoundaryAmbiguity() async throws {
     let runtime = try await enabledRuntime()
     await runtime.injectFault(.ambiguityBeforeNextBoundarySegment)
-    let operation = try accepted(await runtime.beginBoundary(
-      direction: .negativeY,
-      finiteSegmentLengthMM: 5
-    ))
-    let outcome = try accepted(await runtime.executeBoundaryCooperatively(
-      operation.id,
-      pacing: SimulatedLearningImmediatePacing()
-    ))
+    let operation = try accepted(
+      await runtime.beginBoundary(
+        direction: .negativeY,
+        finiteSegmentLengthMM: 5
+      ))
+    let outcome = try accepted(
+      await runtime.executeBoundaryCooperatively(
+        operation.id,
+        pacing: SimulatedLearningImmediatePacing()
+      ))
     #expect(outcome.disposition == .failed)
     #expect(outcome.finalMPos == .zero)
     #expect(await runtime.snapshot().frameSequence == 1)
@@ -937,7 +961,8 @@ private func runVisibilityRoute(
       let continuation = try accepted(
         await runtime.recordBoundarySegmentCompletion(for: operation.id)
       )
-      let coordinate: Double = direction.isXAxis
+      let coordinate: Double =
+        direction.isXAxis
         ? continuation.mpos.xMM
         : continuation.mpos.yMM
       let limit = await runtime.snapshot().boundaryTruth.limit(for: direction)
@@ -971,23 +996,25 @@ private func runVisibilityRoute(
     var history = try ExerciseAttemptHistory<BoundarySideAttemptEvidence>(
       compatibility: compatibility
     )
-    try history.record(ExerciseAttempt(
-      id: attemptID,
-      disposition: .succeeded,
-      compatibility: compatibility,
-      acceptedSequence: UInt64(boundaries.count + 1),
-      value: evidence
-    ))
-    boundaries.append(SimulatedBoundaryRouteSample(
-      aggregate: try BoundarySideAggregate(
-        direction: direction,
-        revisionID: revision,
-        history: history
-      ),
-      evidence: evidence,
-      contactPoint: scene.contactPoint,
-      frame: scene.displayedFrame
-    ))
+    try history.record(
+      ExerciseAttempt(
+        id: attemptID,
+        disposition: .succeeded,
+        compatibility: compatibility,
+        acceptedSequence: UInt64(boundaries.count + 1),
+        value: evidence
+      ))
+    boundaries.append(
+      SimulatedBoundaryRouteSample(
+        aggregate: try BoundarySideAggregate(
+          direction: direction,
+          revisionID: revision,
+          history: history
+        ),
+        evidence: evidence,
+        contactPoint: scene.contactPoint,
+        frame: scene.displayedFrame
+      ))
   }
   let center = try EstimatedMachineCenter.derive(from: boundaries.map(\.aggregate))
   let current = await runtime.snapshot().mpos
@@ -1081,7 +1108,7 @@ private func runVisibilityRoute(
       controllerSessionID: session,
       coordinateRevision: 1,
       toolPaperRevision: UUID(),
-      controllerPositionToleranceMM: 0.01,
+      controllerPositionToleranceMM: ControllerPositionAcceptancePolicy.toleranceMM,
       expectedDiameterPixels: 8...13,
       minimumTargetPixels: 20,
       maximumCentroidSpreadPixels: 0.01,
@@ -1125,35 +1152,36 @@ private func runVisibilityRoute(
       x: targetCenter.x + 5,
       y: targetCenter.y
     )
-    let lineOutcome = await VisionWorker().observeIsolatedInk(IsolatedInkObservationRequest(
-      targetPresentBaseline: SamePoseFrameSample(
-        displayedFrame: trialBaseline.displayedFrame,
-        controllerPosition: try MachinePosition(
-          x: trialBaseline.controllerPosition.xMM,
-          y: trialBaseline.controllerPosition.yMM
-        )
-      ),
-      postLine: SamePoseFrameSample(
-        displayedFrame: postLine.displayedFrame,
-        controllerPosition: try MachinePosition(
-          x: postLine.controllerPosition.xMM,
-          y: postLine.controllerPosition.yMM
-        )
-      ),
-      region: PixelRect(x: roi.x, y: roi.y, width: 70, height: roi.height),
-      thresholds: GreenPixelThresholds(minimumGreen: 140, minimumGreenExcess: 70),
-      lineStartPoint: cameraLineStart,
-      controllerSessionID: session,
-      coordinateRevision: 1,
-      toolPaperRevision: target.toolPaperRevision,
-      controllerPositionToleranceMM: 0.01,
-      alignmentSearchRadiusPixels: 2,
-      maximumAlignmentShiftPixels: 1,
-      maximumBackgroundMeanAbsoluteDifference: 0.01,
-      projectedActualStrokeDelta: try Vector2(dx: 10, dy: 0),
-      algorithmRevision: "simulated-line-v1",
-      minimumLinePixels: 10
-    ))
+    let lineOutcome = await VisionWorker().observeIsolatedInk(
+      IsolatedInkObservationRequest(
+        targetPresentBaseline: SamePoseFrameSample(
+          displayedFrame: trialBaseline.displayedFrame,
+          controllerPosition: try MachinePosition(
+            x: trialBaseline.controllerPosition.xMM,
+            y: trialBaseline.controllerPosition.yMM
+          )
+        ),
+        postLine: SamePoseFrameSample(
+          displayedFrame: postLine.displayedFrame,
+          controllerPosition: try MachinePosition(
+            x: postLine.controllerPosition.xMM,
+            y: postLine.controllerPosition.yMM
+          )
+        ),
+        region: PixelRect(x: roi.x, y: roi.y, width: 70, height: roi.height),
+        thresholds: GreenPixelThresholds(minimumGreen: 140, minimumGreenExcess: 70),
+        lineStartPoint: cameraLineStart,
+        controllerSessionID: session,
+        coordinateRevision: 1,
+        toolPaperRevision: target.toolPaperRevision,
+        controllerPositionToleranceMM: ControllerPositionAcceptancePolicy.toleranceMM,
+        alignmentSearchRadiusPixels: 2,
+        maximumAlignmentShiftPixels: 1,
+        maximumBackgroundMeanAbsoluteDifference: 0.01,
+        projectedActualStrokeDelta: try Vector2(dx: 10, dy: 0),
+        algorithmRevision: "simulated-line-v1",
+        minimumLinePixels: 10
+      ))
     guard case .observed(let observedLine) = lineOutcome else {
       throw SimulatedRouteError.lineRejected(String(describing: lineOutcome))
     }

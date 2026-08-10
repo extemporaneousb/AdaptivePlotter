@@ -70,6 +70,9 @@ Manual Pen Up motion does not require completed discovery or a learned model.
 
 Navigator selection is presentation-only. Browsing a completed or future row
 cannot change runtime current state, accepted evidence, or command eligibility.
+When the protocol determines the next Boundary direction, the workbench shows
+it as required noninteractive content. A disabled choice control must not imply
+that the operator has another selection to make.
 
 ## Motion and Stop invariants
 
@@ -93,6 +96,13 @@ or 2 mm, retain the admitted direction and controller-derived feed, and become
 non-increasing after the first valid projection. Missing, stale, incompatible,
 or low-confidence observations fall back to 10 mm or less. Stop is rechecked
 on both sides of the asynchronous advisory wait.
+
+For a LIVE Boundary owner, automatic background analysis pauses after the Stop
+capability is published and before renewal begins. Explicit renewal inspections
+then use the camera/Vision pipeline without competing background requests. The
+previous automatic cadence is restored only after the same Boundary owner has
+settled, regardless of success, Stop, refusal, or failure. This scheduling rule
+does not promote camera advice into Boundary acceptance authority.
 
 The physical power cutoff remains the emergency boundary. The software Stop is
 not represented as a hardware emergency stop.
@@ -150,8 +160,22 @@ out-of-tolerance center move preserves all four accepted aggregates, center, and
 local frame. Recovery is **Retry Center Arrival**, which requests only the
 remaining delta; whole-Boundary Restart is not a valid recovery for this case.
 
+All production comparisons between a requested controller pose and settled
+MPos share this quantization-aware 0.05 mm Euclidean policy. An exact pose
+requires fresh attributable controller MPos and compatible controller context;
+it does not require mathematically zero residual when the requested coordinate
+is not representable at the configured steps/mm.
+
 Machine-camera registration separately consumes compatible exact machine/contact
 samples. It never averages frames into new provenance.
+
+Stage 3.3 exposes one public capture-and-build action. It records the target
+MPos and exact frame, runs the bounded three-sample Pen Up calibration when
+compatible samples are insufficient, returns to the recorded target under the
+shared pose policy, and stages a reviewable non-authoritative proposal. Proposal
+construction has no preceding generic Start or separate public capture step and
+never accepts geometry; explicit operator acceptance or rejection remains a
+separate action.
 
 ## Durable accepted artifacts
 

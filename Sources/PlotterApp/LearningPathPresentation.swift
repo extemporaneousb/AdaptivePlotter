@@ -212,10 +212,11 @@ struct LearningVacatePlan: Hashable, Identifiable, Sendable {
   let physicalInkMayRemain: Bool
 
   var id: String {
-    let scopeID = switch scope {
-    case .from: "from-\(anchor.number)"
-    case .all: "all"
-    }
+    let scopeID =
+      switch scope {
+      case .from: "from-\(anchor.number)"
+      case .all: "all"
+      }
     return "\(source.rawValue)-\(scopeID)"
   }
 
@@ -522,8 +523,7 @@ enum ExerciseActionKind: Hashable, Sendable {
   case recordAnotherBoundaryAttempt(BoundaryDirection)
   case selectDirection(ExerciseDirectionSelectionPurpose, BoundaryDirection)
   case moveToEstimatedCenter
-  case captureTargetPoseRegistration
-  case buildTargetGeometryProposal
+  case captureTargetPoseAndBuildGeometryProposal
   case acceptTargetGeometryProposal
   case rejectTargetGeometryProposal
   case moveForClearView(ClearViewSearchMove)
@@ -610,6 +610,8 @@ struct ExerciseDirectionSelectionPresentation: Hashable, Sendable {
   let purpose: ExerciseDirectionSelectionPurpose
   let options: [BoundaryDirection]
   let selected: BoundaryDirection
+
+  var allowsSelection: Bool { options.count > 1 }
 
   init(
     purpose: ExerciseDirectionSelectionPurpose,

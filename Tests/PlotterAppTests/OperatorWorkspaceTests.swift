@@ -135,6 +135,7 @@ struct OperatorWorkspaceTests {
     #expect(workspace.boundarySideAggregates[.positiveX]?.validSampleCount == 1)
     #expect(workspace.boundaryAttemptEvidenceByAttemptID.count == 1)
     #expect(camera.inspectionCallCount == inspectionsBeforeBoundary)
+    #expect(camera.recordedAutomaticInspectionRequests == [.fiveFPS, nil, .fiveFPS])
     #expect(workspace.humanGuidedDiscoveryCurrentStep == .pairedBoundaryDiscoveryAndCentering)
     #expect(workspace.lastContextualStopAuditRecord?.actor == "Operator")
     #expect(workspace.lastContextualStopAuditRecord?.action == "Stop")
@@ -465,7 +466,8 @@ struct OperatorWorkspaceTests {
     #expect(runtimeAfterCompetingActions.mpos == runtimeBefore.mpos)
     #expect(runtimeAfterCompetingActions.currentOperation == runtimeBefore.currentOperation)
     #expect(runtimeAfterCompetingActions.stickyAmbiguity == runtimeBefore.stickyAmbiguity)
-    #expect(runtimeAfterCompetingActions.cameraConfigurationID == runtimeBefore.cameraConfigurationID)
+    #expect(
+      runtimeAfterCompetingActions.cameraConfigurationID == runtimeBefore.cameraConfigurationID)
     #expect(runtimeAfterCompetingActions.viewportID == runtimeBefore.viewportID)
     #expect(
       runtimeAfterCompetingActions.persistentInkSegmentCount
@@ -540,12 +542,13 @@ struct OperatorWorkspaceTests {
     #expect(harness.workspace.isShutdown)
     #expect(harness.workspace.visibilityObservationOperation == nil)
     #expect(await gate.cancelRequestCount == 1)
-    #expect(await log.values == [
-      "vision-cancel-requested",
-      "vision-returned",
-      "camera-stop",
-      "disconnect",
-    ])
+    #expect(
+      await log.values == [
+        "vision-cancel-requested",
+        "vision-returned",
+        "camera-stop",
+        "disconnect",
+      ])
   }
 
   @Test("camera recovery preserves machine facts and stages ROI for explicit acceptance")
@@ -596,30 +599,12 @@ struct OperatorWorkspaceTests {
     let owner = LearningPathItemID.humanGuidedDiscovery(
       .registerTargetPoseAndCameraGeometry
     )
-    try await performPublicAction(.start, owner: owner, workspace: workspace)
-    try await performPublicAction(
-      .captureTargetPoseRegistration,
-      owner: owner,
-      workspace: workspace
-    )
-    let actions = try #require(
+    let initialActions = try #require(
       workspace.selectedOperatorActionPresentation(for: owner).actionStrip
     ).actions
-    #expect(
-      actions.map(\.kind) == [
-        .buildTargetGeometryProposal,
-        .rejectTargetGeometryProposal,
-        .cancel,
-      ]
-    )
-    let calibrationAction = try #require(
-      actions.first(where: { $0.kind == .buildTargetGeometryProposal })
-    )
-    #expect(calibrationAction.isEnabled)
-    #expect(calibrationAction.unavailableReason == nil)
-
+    #expect(initialActions.map(\.kind) == [.captureTargetPoseAndBuildGeometryProposal])
     try await performPublicAction(
-      .buildTargetGeometryProposal,
+      .captureTargetPoseAndBuildGeometryProposal,
       owner: owner,
       workspace: workspace
     )
@@ -655,9 +640,10 @@ struct OperatorWorkspaceTests {
     let reviewActions = try #require(
       workspace.selectedOperatorActionPresentation(for: owner).actionStrip
     ).actions.map(\.kind)
-    #expect(Array(reviewActions.prefix(2)) == [
-      .acceptTargetGeometryProposal, .rejectTargetGeometryProposal,
-    ])
+    #expect(
+      Array(reviewActions.prefix(2)) == [
+        .acceptTargetGeometryProposal, .rejectTargetGeometryProposal,
+      ])
     try await performPublicAction(
       .acceptTargetGeometryProposal,
       owner: owner,
@@ -697,20 +683,14 @@ struct OperatorWorkspaceTests {
     let owner = LearningPathItemID.humanGuidedDiscovery(
       .registerTargetPoseAndCameraGeometry
     )
-    try await performPublicAction(.start, owner: owner, workspace: workspace)
+    await harness.runtime.injectFault(.refuseNextOperation)
+
     try await performPublicAction(
-      .captureTargetPoseRegistration,
+      .captureTargetPoseAndBuildGeometryProposal,
       owner: owner,
       workspace: workspace
     )
     let targetPosition = try #require(workspace.registeredTargetMachinePosition)
-    await harness.runtime.injectFault(.refuseNextOperation)
-
-    try await performPublicAction(
-      .buildTargetGeometryProposal,
-      owner: owner,
-      workspace: workspace
-    )
 
     #expect(workspace.targetContactPointAndROIAccepted == false)
     #expect(workspace.targetObservationRegion == nil)
@@ -733,7 +713,7 @@ struct OperatorWorkspaceTests {
     let recovery = workspace.selectedOperatorActionPresentation(for: owner)
     #expect(
       recovery.actionStrip?.actions.map(\.kind) == [
-        .buildTargetGeometryProposal,
+        .captureTargetPoseAndBuildGeometryProposal,
         .rejectTargetGeometryProposal,
         .cancel,
       ]
@@ -742,6 +722,15 @@ struct OperatorWorkspaceTests {
     #expect(recovery.activity?.recovery.accessibilityText.contains("Return") == true)
     #expect(recovery.activity?.recovery.accessibilityText.contains("retry") == true)
     #expect(await harness.machineActionLog.values.isEmpty)
+
+    try await performPublicAction(
+      .captureTargetPoseAndBuildGeometryProposal,
+      owner: owner,
+      workspace: workspace
+    )
+    #expect(workspace.explorationError == nil)
+    #expect(workspace.proposedMachineCameraRegistration != nil)
+    #expect(workspace.proposedTargetObservationRegion != nil)
   }
 
   @Test("Stop during automatic camera calibration preserves the active 3.3 attempt")
@@ -759,20 +748,17 @@ struct OperatorWorkspaceTests {
     let owner = LearningPathItemID.humanGuidedDiscovery(
       .registerTargetPoseAndCameraGeometry
     )
-    try await performPublicAction(.start, owner: owner, workspace: workspace)
-    try await performPublicAction(
-      .captureTargetPoseRegistration,
-      owner: owner,
-      workspace: workspace
-    )
-    let attemptID = try #require(workspace.activeExerciseAttemptID)
     let pacing = CalibrationStopPacing()
     workspace.replaceSimulatedExecutionPacingForTesting(pacing)
 
     let calibration = Task { @MainActor in
-      await workspace.performExerciseAction(.buildTargetGeometryProposal, for: owner)
+      await workspace.performExerciseAction(
+        .captureTargetPoseAndBuildGeometryProposal,
+        for: owner
+      )
     }
     await pacing.waitUntilSuspended()
+    let attemptID = try #require(workspace.activeExerciseAttemptID)
     let stopKind = try #require(
       workspace.selectedOperatorActionPresentation(for: owner).actionStrip?.actions
         .first(where: { if case .stop = $0.kind { true } else { false } })?.kind
@@ -804,7 +790,7 @@ struct OperatorWorkspaceTests {
     let recovery = workspace.selectedOperatorActionPresentation(for: owner)
     #expect(
       recovery.actionStrip?.actions.map(\.kind) == [
-        .buildTargetGeometryProposal,
+        .captureTargetPoseAndBuildGeometryProposal,
         .rejectTargetGeometryProposal,
         .cancel,
       ]
@@ -829,22 +815,19 @@ struct OperatorWorkspaceTests {
     let owner = LearningPathItemID.humanGuidedDiscovery(
       .registerTargetPoseAndCameraGeometry
     )
-    try await performPublicAction(.start, owner: owner, workspace: workspace)
-    try await performPublicAction(
-      .captureTargetPoseRegistration,
-      owner: owner,
-      workspace: workspace
-    )
-    let targetPosition = try #require(workspace.registeredTargetMachinePosition)
     let pacing = CalibrationStopPacing()
     workspace.replaceSimulatedExecutionPacingForTesting(pacing)
     let completions = EventLog()
 
     let calibration = Task { @MainActor in
-      await workspace.performExerciseAction(.buildTargetGeometryProposal, for: owner)
+      await workspace.performExerciseAction(
+        .captureTargetPoseAndBuildGeometryProposal,
+        for: owner
+      )
       await completions.append("calibration-returned")
     }
     await pacing.waitUntilSuspended()
+    let targetPosition = try #require(workspace.registeredTargetMachinePosition)
     let shutdown = Task { @MainActor in
       await workspace.shutdown()
       await completions.append("shutdown-returned")
@@ -949,7 +932,9 @@ struct OperatorWorkspaceTests {
     let returnOwner = LearningPathItemID.humanGuidedDiscovery(.returnToRegisteredTargetPose)
     let drawOwner = LearningPathItemID.humanGuidedDiscovery(.drawVisibilityTarget)
     #expect(workspace.currentLearningPathItemID == returnOwner)
-    #expect(workspace.learningPathItemPresentations.first(where: { $0.id == returnOwner })?.status == .current)
+    #expect(
+      workspace.learningPathItemPresentations.first(where: { $0.id == returnOwner })?.status
+        == .current)
     #expect(workspace.selectedOperatorActionPresentation(for: drawOwner).actionStrip == nil)
 
     try await performPublicAction(.start, owner: returnOwner, workspace: workspace)
@@ -1170,8 +1155,11 @@ struct OperatorWorkspaceTests {
     let owner = LearningPathItemID.humanGuidedDiscovery(.registerTargetPoseAndCameraGeometry)
 
     try await performPublicAction(.redoThisStep, owner: owner, workspace: workspace)
-    try await performPublicAction(.captureTargetPoseRegistration, owner: owner, workspace: workspace)
-    try await performPublicAction(.buildTargetGeometryProposal, owner: owner, workspace: workspace)
+    try await performPublicAction(
+      .captureTargetPoseAndBuildGeometryProposal,
+      owner: owner,
+      workspace: workspace
+    )
     try await performPublicAction(.acceptTargetGeometryProposal, owner: owner, workspace: workspace)
 
     #expect(workspace.learningArtifactGraph.revision(id: oldTarget)?.state == .superseded)
@@ -1196,7 +1184,8 @@ struct OperatorWorkspaceTests {
     let owner = LearningPathItemID.humanGuidedDiscovery(.registerTargetPoseAndCameraGeometry)
     let oldArea = workspace.targetAreaIdentity
     let oldToolPaper = (await harness.runtime.snapshot()).toolPaperRevision
-    let oldTarget = workspace.learningArtifactGraph.currentRevision(for: .targetPoseRegistration)?.id
+    let oldTarget = workspace.learningArtifactGraph.currentRevision(for: .targetPoseRegistration)?
+      .id
     let oldFrame = workspace.targetPoseRegistrationFrame
     let active = try acceptedSimulated(
       await harness.runtime.beginManualJog(
@@ -1308,7 +1297,6 @@ struct OperatorWorkspaceTests {
     #expect(workspace.retiredTargetAreaDispositions[targetAreaID] == .targetUnusable)
     #expect(await harness.runtime.persistentInk() == ink)
     #expect(workspace.currentLearningPathItemID == visibilityOwner)
-    try await performPublicAction(.start, owner: visibilityOwner, workspace: workspace)
     let actions = try #require(
       workspace.selectedOperatorActionPresentation(for: visibilityOwner).actionStrip?.actions
     )
@@ -1324,8 +1312,8 @@ struct OperatorWorkspaceTests {
   func centerArrivalAcceptsQuantizedSettlement() async throws {
     let target = try MachinePosition(x: -51.975, y: -73.684)
     let reproduced = try MachinePosition(x: -51.963, y: -73.673)
-    #expect(CenterArrivalSettlementPolicy.defaultToleranceMM == 0.05)
-    #expect(CenterArrivalSettlementPolicy.accepts(actual: reproduced, target: target))
+    #expect(ControllerPositionAcceptancePolicy.toleranceMM == 0.05)
+    #expect(ControllerPositionAcceptancePolicy.accepts(reproduced, target: target))
 
     let log = EventLog()
     let machine = try MachineFixture(
@@ -1359,7 +1347,7 @@ struct OperatorWorkspaceTests {
   func centerArrivalRejectsOutsideToleranceWithoutBoundaryRestart() async throws {
     let target = try MachinePosition(x: 0, y: 0)
     let outside = try MachinePosition(x: 0.04, y: 0.04)
-    #expect(!CenterArrivalSettlementPolicy.accepts(actual: outside, target: target))
+    #expect(!ControllerPositionAcceptancePolicy.accepts(outside, target: target))
 
     let log = EventLog()
     let machine = try MachineFixture(
@@ -1423,7 +1411,8 @@ struct OperatorWorkspaceTests {
     await workspace.switchFrameMode(.simulated)
     #expect(workspace.learningArtifactGraph.currentRevision(for: .penInteraction) == nil)
     #expect(
-      workspace.learningArtifactGraph.currentRevision(for: .boundarySideAggregate(.positiveY)) == nil
+      workspace.learningArtifactGraph.currentRevision(for: .boundarySideAggregate(.positiveY))
+        == nil
     )
 
     await workspace.switchFrameMode(.live)
@@ -1745,7 +1734,8 @@ struct OperatorWorkspaceTests {
       #expect(Set(workspace.learningArtifactGraph.revisions) == graphRevisions)
       #expect(workspace.boundaryAttemptEvidenceByAttemptID == boundaryEvidence)
       #expect(workspace.restartableExerciseItemID == nil)
-      let recoveryActions = workspace.selectedOperatorActionPresentation(for: owner)
+      let recoveryActions =
+        workspace.selectedOperatorActionPresentation(for: owner)
         .actionStrip?.actions.map(\.kind) ?? []
       #expect(recoveryActions.first == .moveToEstimatedCenter)
       #expect(recoveryActions.contains(.redoBoundary(.positiveX)))
@@ -1922,11 +1912,12 @@ struct OperatorWorkspaceTests {
       boundaryOrder: [.positiveX, .negativeX, .positiveY, .negativeY]
     )
     try await completeSimulatedStageFour(workspace)
-    let linePlan = try #require(workspace.learningArtifactGraph.revisions.first { revision in
-      guard revision.state == .current else { return false }
-      if case .linePlan = revision.kind { return true }
-      return false
-    })
+    let linePlan = try #require(
+      workspace.learningArtifactGraph.revisions.first { revision in
+        guard revision.state == .current else { return false }
+        if case .linePlan = revision.kind { return true }
+        return false
+      })
     guard case .linePlan(let group) = linePlan.kind else {
       Issue.record("Expected the current line-plan revision to carry its attempt group.")
       return
@@ -2194,7 +2185,8 @@ private func completeSimulatedVisibilityProtocol(
   )
   #expect(workspace.boundarySideAggregates.count == 4)
   #expect(workspace.currentLearningPathItemID == boundaryOwner)
-  let boundaryReviewActions = workspace.selectedOperatorActionPresentation(for: boundaryOwner)
+  let boundaryReviewActions =
+    workspace.selectedOperatorActionPresentation(for: boundaryOwner)
     .actionStrip?.actions.map(\.kind) ?? []
   #expect(boundaryReviewActions.first == .moveToEstimatedCenter)
   #expect(boundaryReviewActions.contains(.redoBoundary(boundaryOrder[0])))
@@ -2205,14 +2197,8 @@ private func completeSimulatedVisibilityProtocol(
   let registrationOwner = LearningPathItemID.humanGuidedDiscovery(
     .registerTargetPoseAndCameraGeometry
   )
-  try await performPublicAction(.start, owner: registrationOwner, workspace: workspace)
   try await performPublicAction(
-    .captureTargetPoseRegistration,
-    owner: registrationOwner,
-    workspace: workspace
-  )
-  try await performPublicAction(
-    .buildTargetGeometryProposal,
+    .captureTargetPoseAndBuildGeometryProposal,
     owner: registrationOwner,
     workspace: workspace
   )
@@ -2625,9 +2611,10 @@ private actor VisibilityObservationGate {
     case .cancelled:
       return .cancelled
     case .staleRejection:
-      return .rejected(.targetMissing(
-        frameID: cancellationFrameID ?? FrameID(rawValue: "late-stale-frame")
-      ))
+      return .rejected(
+        .targetMissing(
+          frameID: cancellationFrameID ?? FrameID(rawValue: "late-stale-frame")
+        ))
     }
   }
 }
@@ -2944,7 +2931,7 @@ private final class CameraFixture: @unchecked Sendable {
   private let rotatesConfiguration: Bool
   private let lock = NSLock()
   private var inspectionCount = 0
-  private var automaticCadences: [VisionAnalysisCadence] = []
+  private var automaticInspectionRequests: [VisionAnalysisCadence?] = []
 
   var inspectionCallCount: Int {
     lock.lock()
@@ -3023,14 +3010,20 @@ private final class CameraFixture: @unchecked Sendable {
   var recordedAutomaticCadences: [VisionAnalysisCadence] {
     lock.lock()
     defer { lock.unlock() }
-    return automaticCadences
+    return automaticInspectionRequests.compactMap { $0 }
+  }
+
+  var recordedAutomaticInspectionRequests: [VisionAnalysisCadence?] {
+    lock.lock()
+    defer { lock.unlock() }
+    return automaticInspectionRequests
   }
 
   func setAutomaticInspection(
     _ cadence: VisionAnalysisCadence?
   ) -> PlotterSceneAnalysisSnapshot {
     lock.lock()
-    if let cadence { automaticCadences.append(cadence) }
+    automaticInspectionRequests.append(cadence)
     lock.unlock()
     return PlotterSceneAnalysisSnapshot(
       state: cadence.map(PlotterSceneAnalysisState.running) ?? .stopped,

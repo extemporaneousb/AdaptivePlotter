@@ -36,21 +36,6 @@ enum OperatorFrameMode: String, CaseIterable, Identifiable, Sendable {
   var id: Self { self }
 }
 
-enum CenterArrivalSettlementPolicy {
-  /// A controller-reported final MPos may be quantized on both axes. Fifty
-  /// microns is still mechanically negligible for this center handoff while
-  /// remaining above the reproduced diagonal one-step residual.
-  static let defaultToleranceMM = 0.05
-
-  static func residualMM(actual: MachinePosition, target: MachinePosition) -> Double {
-    actual.point.distance(to: target.point)
-  }
-
-  static func accepts(actual: MachinePosition, target: MachinePosition) -> Bool {
-    residualMM(actual: actual, target: target) <= defaultToleranceMM
-  }
-}
-
 enum AcceptedArtifactCheckpointStatus: Equatable, Sendable {
   case unavailable
   case cleared
@@ -540,7 +525,6 @@ final class OperatorWorkspace {
     /// Finite GRBL wire segment used only for renewal under one logical owner.
     /// Reaching this distance is never a Boundary Discovery result.
     static let boundaryWireSegmentMM = 10.0
-    static let controllerPositionToleranceMM = 0.01
   }
 
   struct MachineActions: Sendable {
@@ -880,9 +864,10 @@ final class OperatorWorkspace {
       guard let region = proposedTargetObservationRegion ?? targetObservationRegion else {
         return nil
       }
-      let authorityToken = targetGeometryProposalID.map {
-        "proposal-\($0.uuidString.lowercased())"
-      } ?? learningArtifactGraph.currentRevision(for: .targetROIRegistration)?.id.rawValue
+      let authorityToken =
+        targetGeometryProposalID.map {
+          "proposal-\($0.uuidString.lowercased())"
+        } ?? learningArtifactGraph.currentRevision(for: .targetROIRegistration)?.id.rawValue
         .uuidString.lowercased() ?? "unaccepted"
       return ActionSurfaceFocus(
         frameID: frame.frame.id,
@@ -1349,7 +1334,8 @@ final class OperatorWorkspace {
       return "Wait for the current controller or camera operation to settle first."
     }
     if let learningStickyAmbiguityReason {
-      return "Resolve the sticky motion ambiguity before vacating learning: \(learningStickyAmbiguityReason)"
+      return
+        "Resolve the sticky motion ambiguity before vacating learning: \(learningStickyAmbiguityReason)"
     }
     return nil
   }
@@ -1447,13 +1433,14 @@ final class OperatorWorkspace {
     guard let anchorIndex = LearningPathItemID.learningExerciseOrder.firstIndex(of: anchor)
     else { return nil }
     let currentRevisions = learningArtifactGraph.revisions.filter { $0.state == .current }
-    let revisionIDs = Set(currentRevisions.compactMap { revision -> LearningArtifactRevisionID? in
-      guard let item = learningPathItemID(for: revision.kind),
-        let index = LearningPathItemID.learningExerciseOrder.firstIndex(of: item),
-        index >= anchorIndex
-      else { return nil }
-      return revision.id
-    })
+    let revisionIDs = Set(
+      currentRevisions.compactMap { revision -> LearningArtifactRevisionID? in
+        guard let item = learningPathItemID(for: revision.kind),
+          let index = LearningPathItemID.learningExerciseOrder.firstIndex(of: item),
+          index >= anchorIndex
+        else { return nil }
+        return revision.id
+      })
     guard !revisionIDs.isEmpty || hasVacatablePayload(atOrAfter: anchorIndex) else { return nil }
 
     var endIndex = anchorIndex
@@ -1464,8 +1451,9 @@ final class OperatorWorkspace {
       endIndex = max(endIndex, index)
     }
     if currentLearningPathItemID == .stage(.adaptiveDrawing) {
-      endIndex = LearningPathItemID.learningExerciseOrder.index(before:
-        LearningPathItemID.learningExerciseOrder.endIndex)
+      endIndex = LearningPathItemID.learningExerciseOrder.index(
+        before:
+          LearningPathItemID.learningExerciseOrder.endIndex)
     } else if let currentAnchor = currentLearningPathItemID.learningRewindAnchor,
       let currentIndex = LearningPathItemID.learningExerciseOrder.firstIndex(of: currentAnchor)
     {
@@ -1488,7 +1476,7 @@ final class OperatorWorkspace {
         && acceptedArtifactCheckpointActions != nil,
       physicalInkMayRemain:
         visibilityTargetSceneDisposition != .pristine || drawingTrialStrokeEvidence != nil
-          || lastInkObservation != nil
+        || lastInkObservation != nil
     )
   }
 
@@ -1558,22 +1546,34 @@ final class OperatorWorkspace {
     }
     if includes(.humanGuidedDiscovery(.discoverAndAcceptClearView)),
       clearViewPoseAccepted || !clearViewAttemptHistories.isEmpty
-    { return true }
+    {
+      return true
+    }
     if includes(.humanGuidedDiscovery(.confirmBlankTargetBaseline)),
       preTargetClearViewBaseline != nil || blankTargetBaselineCandidate != nil
-    { return true }
+    {
+      return true
+    }
     if includes(.humanGuidedDiscovery(.returnToRegisteredTargetPose)),
       registeredTargetReturnSettlement != nil
-    { return true }
+    {
+      return true
+    }
     if includes(.humanGuidedDiscovery(.drawVisibilityTarget)),
       visibilityTargetSceneDisposition != .pristine
-    { return true }
+    {
+      return true
+    }
     if includes(.humanGuidedDiscovery(.returnAndObserveExistingTarget)),
       visibilityTargetObservation != nil || !visibilityObservationAttemptHistories.isEmpty
-    { return true }
+    {
+      return true
+    }
     if includes(.humanGuidedDiscovery(.acceptVisibilityRegistration)),
       visibilityRegistrationAccepted
-    { return true }
+    {
+      return true
+    }
     if includes(.observedDrawingTrial(.chooseIsolatedLinePlan)),
       currentExplorationEpisode != nil || drawingTrialLineStart != nil
         || targetAnchoredTrialBaseline != nil || drawingTrialStrokeEvidence != nil
@@ -1927,10 +1927,8 @@ final class OperatorWorkspace {
       return
     case .moveToEstimatedCenter:
       await moveToEstimatedCenter()
-    case .captureTargetPoseRegistration:
-      await captureTargetPoseRegistration()
-    case .buildTargetGeometryProposal:
-      await buildTargetGeometryProposal()
+    case .captureTargetPoseAndBuildGeometryProposal:
+      await captureTargetPoseAndBuildGeometryProposal()
     case .acceptTargetGeometryProposal:
       acceptTargetGeometryProposal()
     case .rejectTargetGeometryProposal:
@@ -2045,9 +2043,9 @@ final class OperatorWorkspace {
           action: "Move to Estimated Center",
           target: destination,
           actual: final,
-          toleranceMM: CenterArrivalSettlementPolicy.defaultToleranceMM
+          toleranceMM: ControllerPositionAcceptancePolicy.toleranceMM
         )
-        guard CenterArrivalSettlementPolicy.accepts(actual: final, target: destination) else {
+        guard ControllerPositionAcceptancePolicy.accepts(final, target: destination) else {
           let residual = lastProtocolPoseSettlement?.residualMM ?? .infinity
           throw LearningPathOperationError.controllerOutcome(
             String(
@@ -2056,7 +2054,7 @@ final class OperatorWorkspace {
                 + "The four accepted boundaries remain current; Retry Center Arrival "
                 + "recomputes only the remaining delta.",
               residual,
-              CenterArrivalSettlementPolicy.defaultToleranceMM
+              ControllerPositionAcceptancePolicy.toleranceMM
             )
           )
         }
@@ -2281,6 +2279,26 @@ final class OperatorWorkspace {
     }
   }
 
+  /// Runs Stage 3.3 as one operator action. Recovery after an interrupted
+  /// calibration retains the exact registered target and resumes at proposal
+  /// construction instead of demanding a duplicate capture.
+  private func captureTargetPoseAndBuildGeometryProposal() async {
+    let ownerID = LearningPathItemID.humanGuidedDiscovery(
+      .registerTargetPoseAndCameraGeometry
+    )
+    if activeExerciseAttemptOwnerID == nil {
+      await startExercise(ownerID, mode: activeExerciseAttemptMode ?? .normal)
+    }
+    guard activeExerciseAttemptOwnerID == ownerID else { return }
+    if targetPoseRegistrationFrame == nil {
+      await captureTargetPoseRegistration()
+    }
+    guard targetPoseRegistrationFrame != nil,
+      registeredTargetMachinePosition != nil
+    else { return }
+    await buildTargetGeometryProposal()
+  }
+
   private func compatibleRegistrationContactEvidence(
     for frame: DisplayedFrame
   ) -> [MachineCameraCorrespondenceProvenance] {
@@ -2405,17 +2423,18 @@ final class OperatorWorkspace {
       )
       let priorMachineRegistrationID = visibilityRepeatSnapshot?.learningArtifactGraph
         .currentRevision(for: .machineCameraRegistration)?.id
-      let machineRegistration = if activeExerciseAttemptMode == .replacement,
-        let priorMachineRegistrationID,
-        graph.revision(id: priorMachineRegistrationID)?.state == .invalidated
-      {
-        try graph.commitReplacement(
-          machineRegistrationCandidate,
-          supersedingInvalidatedRevision: priorMachineRegistrationID
-        )
-      } else {
-        try graph.commitReplacement(machineRegistrationCandidate)
-      }
+      let machineRegistration =
+        if activeExerciseAttemptMode == .replacement,
+          let priorMachineRegistrationID,
+          graph.revision(id: priorMachineRegistrationID)?.state == .invalidated
+        {
+          try graph.commitReplacement(
+            machineRegistrationCandidate,
+            supersedingInvalidatedRevision: priorMachineRegistrationID
+          )
+        } else {
+          try graph.commitReplacement(machineRegistrationCandidate)
+        }
       let targetROICandidate = LearningArtifactRevision(
         kind: .targetROIRegistration,
         attemptID: attemptID,
@@ -2427,17 +2446,18 @@ final class OperatorWorkspace {
       )
       let priorTargetROIID = visibilityRepeatSnapshot?.learningArtifactGraph
         .currentRevision(for: .targetROIRegistration)?.id
-      let targetROI = if activeExerciseAttemptMode == .replacement,
-        let priorTargetROIID,
-        graph.revision(id: priorTargetROIID)?.state == .invalidated
-      {
-        try graph.commitReplacement(
-          targetROICandidate,
-          supersedingInvalidatedRevision: priorTargetROIID
-        )
-      } else {
-        try graph.commitReplacement(targetROICandidate)
-      }
+      let targetROI =
+        if activeExerciseAttemptMode == .replacement,
+          let priorTargetROIID,
+          graph.revision(id: priorTargetROIID)?.state == .invalidated
+        {
+          try graph.commitReplacement(
+            targetROICandidate,
+            supersedingInvalidatedRevision: priorTargetROIID
+          )
+        } else {
+          try graph.commitReplacement(targetROICandidate)
+        }
       learningArtifactGraph = graph
       visibilityDraftArtifactGraph = nil
       applyArtifactInvalidations(
@@ -2457,7 +2477,8 @@ final class OperatorWorkspace {
       finishActiveExerciseAttempt(disposition: .succeeded)
       explorationError = nil
     } catch {
-      explorationError = "Target-geometry acceptance failed atomically: \(actionableDescription(error))"
+      explorationError =
+        "Target-geometry acceptance failed atomically: \(actionableDescription(error))"
     }
   }
 
@@ -2569,7 +2590,7 @@ final class OperatorWorkspace {
           && $0.coordinateRevision == explorationCoordinateRevision
       }
       explicitRegistrationContactEvidence.append(contentsOf: stagedSamples)
-    } catch where hasShutdown || Task.isCancelled {
+    } catch  where hasShutdown || Task.isCancelled {
       return
     } catch {
       proposedMachineCameraRegistration = nil
@@ -2805,6 +2826,9 @@ final class OperatorWorkspace {
     let ownerID = LearningPathItemID.humanGuidedDiscovery(
       .registerTargetPoseAndCameraGeometry
     )
+    if activeExerciseAttemptID == nil {
+      beginExerciseAttempt(ownerID: ownerID, mode: activeExerciseAttemptMode ?? .normal)
+    }
     do {
       _ = try await performSupervisedPenUpTravel(
         delta: move.delta,
@@ -2990,7 +3014,8 @@ final class OperatorWorkspace {
   }
 
   private func performNamedTravel(to destination: MachinePosition, action: String) async {
-    let ownerID = activeExerciseAttemptOwnerID
+    let ownerID =
+      activeExerciseAttemptOwnerID
       ?? .humanGuidedDiscovery(.returnToRegisteredTargetPose)
     do {
       let current = try currentMachinePosition()
@@ -3506,7 +3531,7 @@ final class OperatorWorkspace {
           controllerSessionID: controllerSessionID,
           coordinateRevision: explorationCoordinateRevision,
           toolPaperRevision: explorationToolPaperRevision,
-          controllerPositionToleranceMM: 0.01,
+          controllerPositionToleranceMM: ControllerPositionAcceptancePolicy.toleranceMM,
           expectedDiameterPixels: expectedDiameter,
           minimumTargetPixels: 8,
           maximumCentroidSpreadPixels: 2,
@@ -3601,6 +3626,40 @@ final class OperatorWorkspace {
     if let result = snapshot.latestResult { receiveVision(result) }
   }
 
+  private func suspendAutomaticVisionForBoundaryOwner(
+    cameraActions: CameraActions,
+    attemptID: ExerciseAttemptID
+  ) async -> Bool {
+    guard frameMode == .live, automaticVisionEnabled,
+      activeExerciseAttemptID == attemptID, !hasShutdown
+    else { return false }
+    visionUpdateTask?.cancel()
+    visionUpdateTask = nil
+    let snapshot = await cameraActions.setAutomaticInspection(nil)
+    guard activeExerciseAttemptID == attemptID, !hasShutdown else { return false }
+    automaticVisionEnabled = false
+    visionAnalysisSnapshot = snapshot
+    visionError = snapshot.lastError
+    analysisFrameHeld = false
+    return true
+  }
+
+  private func restoreAutomaticVisionAfterBoundaryOwner(
+    shouldResume: Bool,
+    cameraActions: CameraActions
+  ) async {
+    guard shouldResume, frameMode == .live, !hasShutdown else { return }
+    let generation = lifetimeGeneration
+    let snapshot = await cameraActions.setAutomaticInspection(visionAnalysisCadence)
+    guard canCommit(generation), frameMode == .live else { return }
+    automaticVisionEnabled = true
+    visionAnalysisSnapshot = snapshot
+    visionError = snapshot.lastError
+    analysisFrameHeld = false
+    beginVisionUpdates(generation: generation)
+    if let result = snapshot.latestResult { receiveVision(result) }
+  }
+
   private func updateVisibilityObservationPhase(
     _ phase: VisibilityObservationPhase,
     operationID: VisibilityObservationOperationID
@@ -3638,7 +3697,8 @@ final class OperatorWorkspace {
       visibilityTargetSceneDisposition == .inkPossible
         || visibilityTargetSceneDisposition == .targetObserved,
       acceptedClearReturnIsCurrent,
-      acceptedClearReturnSettlement.map({ protocolPositionsMatch($0.target, context.clearPosition) })
+      acceptedClearReturnSettlement.map({ protocolPositionsMatch($0.target, context.clearPosition) }
+      )
         == true
     else { return false }
     return true
@@ -3823,8 +3883,9 @@ final class OperatorWorkspace {
   }
 
   private func rejectVisibilityRegistration() {
-    guard activeExerciseAttemptOwnerID
-      == .humanGuidedDiscovery(.acceptVisibilityRegistration)
+    guard
+      activeExerciseAttemptOwnerID
+        == .humanGuidedDiscovery(.acceptVisibilityRegistration)
     else { return }
     finishActiveExerciseAttempt(disposition: .cancelled)
     restartableExerciseItemID = .humanGuidedDiscovery(.acceptVisibilityRegistration)
@@ -4040,9 +4101,10 @@ final class OperatorWorkspace {
         advanceDrawingTrialAfterSuccess(.drawIsolatedLine)
         let base =
           "The stroke owner produced evidence, so physical ink may exist. Drawing will not be restarted; continue with return/observation."
-        explorationError = commitFailure.map {
-          "\(base) The line-execution artifact also needs attention: \($0)"
-        } ?? "\(base) Post-stroke settlement needs attention: \(error)"
+        explorationError =
+          commitFailure.map {
+            "\(base) The line-execution artifact also needs attention: \($0)"
+          } ?? "\(base) Post-stroke settlement needs attention: \(error)"
         finishActiveExerciseAttempt(
           disposition: .failed("Ink may exist; automatic redraw is prohibited.")
         )
@@ -6074,7 +6136,23 @@ final class OperatorWorkspace {
     else { return }
     await advanceDiscoverySequence(sequenceID)
 
+    let shouldResumeAutomaticVision =
+      if let cameraActions {
+        await suspendAutomaticVisionForBoundaryOwner(
+          cameraActions: cameraActions,
+          attemptID: attemptID
+        )
+      } else {
+        false
+      }
     let outcome = await admittedOperation.outcome()
+    boundaryApproachVisionTasks[attemptID]?.cancel()
+    if let cameraActions {
+      await restoreAutomaticVisionAfterBoundaryOwner(
+        shouldResume: shouldResumeAutomaticVision,
+        cameraActions: cameraActions
+      )
+    }
     machineSnapshot = await machineActions.snapshot()
     guard !hasShutdown else { return }
 
@@ -6394,7 +6472,8 @@ final class OperatorWorkspace {
     planner: BoundaryApproachPlanner,
     attemptID: ExerciseAttemptID
   ) async -> Double? {
-    let advisory = boundaryApproachAdvisories[attemptID]
+    let advisory =
+      boundaryApproachAdvisories[attemptID]
       ?? BoundaryApproachAdvisory(
         observation: nil,
         advice: BoundaryApproachAdvice(
@@ -6447,7 +6526,8 @@ final class OperatorWorkspace {
           + "\(String(format: "%.1f", progress.completedSegment.delta.magnitude)) mm; "
           + "next segment \(String(format: "%.1f", advice.nextSegmentLengthMM)) mm "
           + "from the latest completed advisory (\(advice.basis.rawValue)\(projection)). "
-          + "Current Camera/Vision processing continues off the motion-owner critical path."
+          + "Background analysis is paused while this owner is active; exact renewal "
+          + "inspection continues off the motion-owner critical path."
       )
     )
     return advice.nextSegmentLengthMM
@@ -6614,7 +6694,8 @@ final class OperatorWorkspace {
     }
     pendingClearViewLabel = nil
     finishActiveExerciseAttempt(disposition: .cancelled)
-    let recoveryOnlyTarget = ownerID.stage == .humanGuidedDiscovery
+    let recoveryOnlyTarget =
+      ownerID.stage == .humanGuidedDiscovery
       && visibilityTargetSceneDisposition == .targetUnusable
     restartableExerciseItemID = boundaryRepeatWithFallback || recoveryOnlyTarget ? nil : ownerID
   }
@@ -7579,8 +7660,9 @@ final class OperatorWorkspace {
         } else if targetPoseRegistrationFrame == nil {
           actions = [
             ExerciseActionDescriptor(
-              kind: .captureTargetPoseRegistration,
-              title: "Capture Exact Target Pose"
+              kind: .captureTargetPoseAndBuildGeometryProposal,
+              title: "Capture Target Pose and Build Geometry Proposal",
+              role: .positive
             )
           ]
         } else if proposedTargetObservationRegion == nil {
@@ -7590,7 +7672,7 @@ final class OperatorWorkspace {
           if currentCameraCalibrationPhase != nil {
             actions = [
               ExerciseActionDescriptor(
-                kind: .buildTargetGeometryProposal,
+                kind: .captureTargetPoseAndBuildGeometryProposal,
                 title: "Building Geometry Proposal…",
                 unavailableReason: "Current-camera calibration is in progress."
               )
@@ -7603,15 +7685,16 @@ final class OperatorWorkspace {
               )
             ]
           } else {
-            let compatibleCount = targetPoseRegistrationFrame.map {
-              compatibleRegistrationContactEvidence(for: $0).count
-            } ?? 0
+            let compatibleCount =
+              targetPoseRegistrationFrame.map {
+                compatibleRegistrationContactEvidence(for: $0).count
+              } ?? 0
             actions = [
               ExerciseActionDescriptor(
-                kind: .buildTargetGeometryProposal,
+                kind: .captureTargetPoseAndBuildGeometryProposal,
                 title: compatibleCount >= 3
                   ? "Build Geometry Proposal from Existing Samples"
-                  : "Run Bounded Calibration and Build Proposal",
+                  : "Retry Bounded Calibration and Build Proposal",
                 role: .positive,
                 unavailableReason: isAtTarget == nil
                   ? "Current Controller MPos is unavailable." : nil
@@ -7648,10 +7731,11 @@ final class OperatorWorkspace {
             title: "Move for Clear View \(move.direction.displayName) \(distance.displayName)"
           )
         }
-        actions.append(contentsOf: ArmatureVisibilityLabel.allCases.map { label in
-          ExerciseActionDescriptor(
-            kind: .recordClearViewLabel(label), title: label.rawValue.capitalized)
-        })
+        actions.append(
+          contentsOf: ArmatureVisibilityLabel.allCases.map { label in
+            ExerciseActionDescriptor(
+              kind: .recordClearViewLabel(label), title: label.rawValue.capitalized)
+          })
         actions.append(
           ExerciseActionDescriptor(
             kind: .acceptClearPose,
@@ -7691,19 +7775,24 @@ final class OperatorWorkspace {
           ]
         }
       } else if case .humanGuidedDiscovery(.returnToRegisteredTargetPose) = itemID {
-        actions = [ExerciseActionDescriptor(
-          kind: .returnToRegisteredTargetPose,
-          title: "Return Pen Up to Registered Target Pose",
-          role: .positive
-        )]
+        actions = [
+          ExerciseActionDescriptor(
+            kind: .returnToRegisteredTargetPose,
+            title: "Return Pen Up to Registered Target Pose",
+            role: .positive
+          )
+        ]
       } else if case .humanGuidedDiscovery(.drawVisibilityTarget) = itemID {
-        actions = [ExerciseActionDescriptor(
-          kind: .drawVisibilityTarget,
-          title: "Draw Visibility Target Once",
-          role: .positive,
-          unavailableReason: registeredTargetReturnIsCurrent
-            ? nil : "Return Pen Up to the registered target and retain its current Idle settlement."
-        )]
+        actions = [
+          ExerciseActionDescriptor(
+            kind: .drawVisibilityTarget,
+            title: "Draw Visibility Target Once",
+            role: .positive,
+            unavailableReason: registeredTargetReturnIsCurrent
+              ? nil
+              : "Return Pen Up to the registered target and retain its current Idle settlement."
+          )
+        ]
       } else if case .humanGuidedDiscovery(.returnAndObserveExistingTarget) = itemID {
         if visibilityTargetSceneDisposition == .targetUnusable {
           actions = [
@@ -7712,16 +7801,18 @@ final class OperatorWorkspace {
             ExerciseActionDescriptor(kind: .paperReplaced, title: "Paper Replaced"),
           ]
         } else {
-          actions = [acceptedClearReturnIsCurrent
-            ? ExerciseActionDescriptor(
-              kind: .observeExistingVisibilityTarget,
-              title: "Observe Existing Target",
-              role: .positive
-            )
-            : ExerciseActionDescriptor(
-              kind: .returnToAcceptedClearPose,
-              title: "Return Pen Up to Accepted Clear Pose"
-            )]
+          actions = [
+            acceptedClearReturnIsCurrent
+              ? ExerciseActionDescriptor(
+                kind: .observeExistingVisibilityTarget,
+                title: "Observe Existing Target",
+                role: .positive
+              )
+              : ExerciseActionDescriptor(
+                kind: .returnToAcceptedClearPose,
+                title: "Return Pen Up to Accepted Clear Pose"
+              )
+          ]
         }
       } else if case .humanGuidedDiscovery(.acceptVisibilityRegistration) = itemID {
         actions = [
@@ -7860,7 +7951,8 @@ final class OperatorWorkspace {
     case .humanGuidedDiscovery(.discoverAndAcceptClearView),
       .humanGuidedDiscovery(.confirmBlankTargetBaseline),
       .humanGuidedDiscovery(.returnAndObserveExistingTarget):
-      reason = frameMode == .simulated || cameraIsLive
+      reason =
+        frameMode == .simulated || cameraIsLive
         ? nil : "A current LIVE camera frame is required."
     case .humanGuidedDiscovery(.returnToRegisteredTargetPose),
       .humanGuidedDiscovery(.drawVisibilityTarget),
@@ -7888,18 +7980,19 @@ final class OperatorWorkspace {
           ]
         )
       }
-      let centerMoveUnavailableReason = estimatedMachineCenter == nil
+      let centerMoveUnavailableReason =
+        estimatedMachineCenter == nil
         ? (discoveryError ?? "Accepted boundaries do not currently derive a valid center.")
         : reason
       return ExerciseActionStripPresentation(
         ownerID: itemID,
         actions: [
           ExerciseActionDescriptor(
-              kind: .moveToEstimatedCenter,
-              title: estimatedMachineCenter == nil
-                ? "Center Derivation Needs Attention" : "Move to Estimated Center",
-              role: .positive,
-              unavailableReason: centerMoveUnavailableReason
+            kind: .moveToEstimatedCenter,
+            title: estimatedMachineCenter == nil
+              ? "Center Derivation Needs Attention" : "Move to Estimated Center",
+            role: .positive,
+            unavailableReason: centerMoveUnavailableReason
           )
         ]
           + pairedBoundaryProgress.acceptedDirections.flatMap { direction in
@@ -7943,6 +8036,52 @@ final class OperatorWorkspace {
           )
         ],
         directionSelection: direction
+      )
+    }
+    if itemID == .humanGuidedDiscovery(.registerTargetPoseAndCameraGeometry) {
+      if visibilityTargetSceneDisposition == .targetUnusable {
+        return ExerciseActionStripPresentation(
+          ownerID: itemID,
+          actions: [
+            ExerciseActionDescriptor(
+              kind: .registerNewTargetArea,
+              title: "Register New Target Area"
+            ),
+            ExerciseActionDescriptor(kind: .paperReplaced, title: "Paper Replaced"),
+          ]
+        )
+      }
+      if targetAreaRelocationRequired && !targetAreaRelocationCompleted {
+        let directionSelection = ExerciseDirectionSelectionPresentation(
+          purpose: .targetAreaRelocation,
+          selected: selectedClearViewDirection
+        )
+        let actions = ClearViewSearchDistance.allCases.map { distance in
+          let move = ClearViewSearchMove(
+            direction: selectedClearViewDirection,
+            distance: distance
+          )
+          return ExerciseActionDescriptor(
+            kind: .moveToNewTargetArea(move),
+            title: "Move New Target Area \(move.direction.displayName) \(distance.displayName)"
+          )
+        }
+        return ExerciseActionStripPresentation(
+          ownerID: itemID,
+          actions: actions,
+          directionSelection: directionSelection
+        )
+      }
+      return ExerciseActionStripPresentation(
+        ownerID: itemID,
+        actions: [
+          ExerciseActionDescriptor(
+            kind: .captureTargetPoseAndBuildGeometryProposal,
+            title: "Capture Target Pose and Build Geometry Proposal",
+            role: .positive,
+            unavailableReason: reason
+          )
+        ]
       )
     }
     let directionSelection =
@@ -8015,9 +8154,17 @@ final class OperatorWorkspace {
     case .pairedBoundaryDiscoveryAndCentering:
       [.text("Choose a direction, observe the side, then press"), .cue(.stop)]
     case .registerTargetPoseAndCameraGeometry:
-      [.text("Capture one exact target frame, build a fit/ROI proposal, inspect the outlined ROI with presentation zoom, then explicitly accept or reject it.")]
+      [
+        .text(
+          "Capture one exact target frame, build a fit/ROI proposal, inspect the outlined ROI with presentation zoom, then explicitly accept or reject it."
+        )
+      ]
     case .discoverAndAcceptClearView:
-      [.text("Move Pen Up in bounded increments, label each exact frame, and accept only an agreed Clear pose.")]
+      [
+        .text(
+          "Move Pen Up in bounded increments, label each exact frame, and accept only an agreed Clear pose."
+        )
+      ]
     case .confirmBlankTargetBaseline:
       [.text("Capture at accepted Clear and answer whether the exact target ROI is blank.")]
     case .returnToRegisteredTargetPose:
@@ -8025,9 +8172,17 @@ final class OperatorWorkspace {
     case .drawVisibilityTarget:
       [.text("Execute the immutable visibility target once. Never redraw after ink may exist.")]
     case .returnAndObserveExistingTarget:
-      [.text("Return Pen Up to Clear, then observe the existing target from two strictly newer frames.")]
+      [
+        .text(
+          "Return Pen Up to Clear, then observe the existing target from two strictly newer frames."
+        )
+      ]
     case .acceptVisibilityRegistration:
-      [.text("Review exact frames, geometry, uncertainty, plan, and provenance; then accept or reject.")]
+      [
+        .text(
+          "Review exact frames, geometry, uncertainty, plan, and provenance; then accept or reject."
+        )
+      ]
     }
   }
 
@@ -8237,102 +8392,169 @@ final class OperatorWorkspace {
       return [
         ExerciseEvidencePresentation(
           label: "Exact target-pose capture",
-          fragments: [.text(targetPoseRegistrationFrame.map {
-            let mpos = registeredTargetMachinePosition.map {
-              String(format: " · MPos X %.3f Y %.3f", $0.point.x, $0.point.y)
-            } ?? ""
-            return "frame \($0.frame.id.rawValue) · SHA \($0.frame.contentSHA256) · config \($0.frame.cameraConfigurationID.rawValue.uuidString.lowercased())\(mpos)"
-          } ?? "not captured")]
+          fragments: [
+            .text(
+              targetPoseRegistrationFrame.map {
+                let mpos =
+                  registeredTargetMachinePosition.map {
+                    String(format: " · MPos X %.3f Y %.3f", $0.point.x, $0.point.y)
+                  } ?? ""
+                return
+                  "frame \($0.frame.id.rawValue) · SHA \($0.frame.contentSHA256) · config \($0.frame.cameraConfigurationID.rawValue.uuidString.lowercased())\(mpos)"
+              } ?? "not captured")
+          ]
         ),
         ExerciseEvidencePresentation(
-          label: targetGeometryProposalID == nil ? "Accepted contact, fit, and ROI" : "Staged contact, fit, and ROI proposal",
-          fragments: [.text(targetContactPointEstimate.map {
-            String(
-              format: "bottom-center contact %.1f, %.1f · ROI %@ · margin %@ · fit residual %@ · %@",
-              $0.point.x,
-              $0.point.y,
-              region.map(String.init(describing:)) ?? "not available",
-              margin.map { "\($0) px" } ?? "not set",
-              registration.map { String(format: "%.3f px", $0.validationResidualPixels) }
-                ?? "not fitted",
-              targetContactPointAndROIAccepted ? "accepted" : "not authoritative"
-            )
-          } ?? "not measured")]
+          label: targetGeometryProposalID == nil
+            ? "Accepted contact, fit, and ROI" : "Staged contact, fit, and ROI proposal",
+          fragments: [
+            .text(
+              targetContactPointEstimate.map {
+                String(
+                  format:
+                    "bottom-center contact %.1f, %.1f · ROI %@ · margin %@ · fit residual %@ · %@",
+                  $0.point.x,
+                  $0.point.y,
+                  region.map(String.init(describing:)) ?? "not available",
+                  margin.map { "\($0) px" } ?? "not set",
+                  registration.map { String(format: "%.3f px", $0.validationResidualPixels) }
+                    ?? "not fitted",
+                  targetContactPointAndROIAccepted ? "accepted" : "not authoritative"
+                )
+              } ?? "not measured")
+          ]
         ),
       ]
     case .discoverAndAcceptClearView:
       return [
         ExerciseEvidencePresentation(
           label: "Target ROI input",
-          fragments: [.text(targetObservationRegion.map {
-            "\($0) · revision \(learningArtifactGraph.currentRevision(for: .targetROIRegistration)?.id.rawValue.uuidString.lowercased() ?? "not current")"
-          } ?? "not accepted")]
+          fragments: [
+            .text(
+              targetObservationRegion.map {
+                "\($0) · revision \(learningArtifactGraph.currentRevision(for: .targetROIRegistration)?.id.rawValue.uuidString.lowercased() ?? "not current")"
+              } ?? "not accepted")
+          ]
         ),
         ExerciseEvidencePresentation(
           label: "Clear-pose decision",
-          fragments: [.text(armatureGuidanceState?.acceptedClearPose.map {
-            String(format: "X %.3f Y %.3f · observation %@ · accepted", $0.position.point.x, $0.position.point.y, $0.sourceObservationID.rawValue.uuidString.lowercased())
-          } ?? lastArmatureObservation.map {
-            String(format: "candidate X %.3f Y %.3f · label %@ · frame %@ · agreed %@", $0.controllerPosition.point.x, $0.controllerPosition.point.y, $0.humanLabel.rawValue, $0.frameID.rawValue, $0.estimateAgreedWithHuman ? "yes" : "no")
-          } ?? "no labelled observation")]
+          fragments: [
+            .text(
+              armatureGuidanceState?.acceptedClearPose.map {
+                String(
+                  format: "X %.3f Y %.3f · observation %@ · accepted", $0.position.point.x,
+                  $0.position.point.y, $0.sourceObservationID.rawValue.uuidString.lowercased())
+              } ?? lastArmatureObservation.map {
+                String(
+                  format: "candidate X %.3f Y %.3f · label %@ · frame %@ · agreed %@",
+                  $0.controllerPosition.point.x, $0.controllerPosition.point.y,
+                  $0.humanLabel.rawValue, $0.frameID.rawValue,
+                  $0.estimateAgreedWithHuman ? "yes" : "no")
+              } ?? "no labelled observation")
+          ]
         ),
       ]
     case .confirmBlankTargetBaseline:
       return [
         ExerciseEvidencePresentation(
           label: "Blank-baseline candidate",
-          fragments: [.text(blankTargetBaselineCandidate.map {
-            "frame \($0.frame.id.rawValue) · SHA \($0.frame.contentSHA256) · awaiting explicit Blank / Not Blank decision"
-          } ?? "no candidate")]
+          fragments: [
+            .text(
+              blankTargetBaselineCandidate.map {
+                "frame \($0.frame.id.rawValue) · SHA \($0.frame.contentSHA256) · awaiting explicit Blank / Not Blank decision"
+              } ?? "no candidate")
+          ]
         ),
         ExerciseEvidencePresentation(
           label: "Accepted blank baseline",
-          fragments: [.text(preTargetClearViewBaseline.map {
-            "frame \($0.frame.id.rawValue) · SHA \($0.frame.contentSHA256) · revision \(learningArtifactGraph.currentRevision(for: .preTargetClearViewBaseline)?.id.rawValue.uuidString.lowercased() ?? "not current")"
-          } ?? "not accepted")]
+          fragments: [
+            .text(
+              preTargetClearViewBaseline.map {
+                "frame \($0.frame.id.rawValue) · SHA \($0.frame.contentSHA256) · revision \(learningArtifactGraph.currentRevision(for: .preTargetClearViewBaseline)?.id.rawValue.uuidString.lowercased() ?? "not current")"
+              } ?? "not accepted")
+          ]
         ),
       ]
     case .returnToRegisteredTargetPose:
-      return [ExerciseEvidencePresentation(
-        label: "Registered-target settlement",
-        fragments: [.text(registeredTargetReturnSettlement.map {
-          String(format: "target X %.3f Y %.3f · final X %.3f Y %.3f · residual %.3f / %.3f mm · %@", $0.target.point.x, $0.target.point.y, $0.actual.point.x, $0.actual.point.y, $0.residualMM, $0.toleranceMM, registeredTargetReturnIsCurrent ? "current Pen Up + Idle" : "historical only")
-        } ?? "not settled")]
-      )]
+      return [
+        ExerciseEvidencePresentation(
+          label: "Registered-target settlement",
+          fragments: [
+            .text(
+              registeredTargetReturnSettlement.map {
+                String(
+                  format:
+                    "target X %.3f Y %.3f · final X %.3f Y %.3f · residual %.3f / %.3f mm · %@",
+                  $0.target.point.x, $0.target.point.y, $0.actual.point.x, $0.actual.point.y,
+                  $0.residualMM, $0.toleranceMM,
+                  registeredTargetReturnIsCurrent ? "current Pen Up + Idle" : "historical only")
+              } ?? "not settled")
+          ]
+        )
+      ]
     case .drawVisibilityTarget:
       return [
         ExerciseEvidencePresentation(
           label: "Accepted drawing inputs",
-          fragments: [.text("baseline \(preTargetClearViewBaseline?.frame.id.rawValue ?? "not accepted") · ROI \(targetObservationRegion.map(String.init(describing:)) ?? "not accepted")")]
+          fragments: [
+            .text(
+              "baseline \(preTargetClearViewBaseline?.frame.id.rawValue ?? "not accepted") · ROI \(targetObservationRegion.map(String.init(describing:)) ?? "not accepted")"
+            )
+          ]
         ),
         ExerciseEvidencePresentation(
           label: "One-shot target execution",
-          fragments: [.text(visibilityTargetExecutionAttemptEvidence.map {
-            "scene \($0.sceneDisposition.rawValue) · operation \(String(describing: $0.disposition)) · plan \($0.planRevision) · completed steps \($0.completedTraversalStepCount)/\(VisibilityTargetPlanV2().drawingStepCount) · revision \(learningArtifactGraph.currentRevision(for: .visibilityTargetExecution)?.id.rawValue.uuidString.lowercased() ?? "not current") · redraw unavailable after possible ink"
-          } ?? "scene \(visibilityTargetSceneDisposition.rawValue) · plan not executed · no execution-attempt evidence")]
+          fragments: [
+            .text(
+              visibilityTargetExecutionAttemptEvidence.map {
+                "scene \($0.sceneDisposition.rawValue) · operation \(String(describing: $0.disposition)) · plan \($0.planRevision) · completed steps \($0.completedTraversalStepCount)/\(VisibilityTargetPlanV2().drawingStepCount) · revision \(learningArtifactGraph.currentRevision(for: .visibilityTargetExecution)?.id.rawValue.uuidString.lowercased() ?? "not current") · redraw unavailable after possible ink"
+              }
+                ?? "scene \(visibilityTargetSceneDisposition.rawValue) · plan not executed · no execution-attempt evidence"
+            )
+          ]
         ),
       ]
     case .returnAndObserveExistingTarget:
-      var evidence = [ExerciseEvidencePresentation(
-        label: "Accepted-Clear return settlement",
-        fragments: [.text(acceptedClearReturnSettlement.map {
-          String(format: "target X %.3f Y %.3f · final X %.3f Y %.3f · residual %.3f / %.3f mm · %@", $0.target.point.x, $0.target.point.y, $0.actual.point.x, $0.actual.point.y, $0.residualMM, $0.toleranceMM, acceptedClearReturnIsCurrent ? "current Pen Up + Idle" : "historical only")
-        } ?? "not settled")]
-      )]
+      var evidence = [
+        ExerciseEvidencePresentation(
+          label: "Accepted-Clear return settlement",
+          fragments: [
+            .text(
+              acceptedClearReturnSettlement.map {
+                String(
+                  format:
+                    "target X %.3f Y %.3f · final X %.3f Y %.3f · residual %.3f / %.3f mm · %@",
+                  $0.target.point.x, $0.target.point.y, $0.actual.point.x, $0.actual.point.y,
+                  $0.residualMM, $0.toleranceMM,
+                  acceptedClearReturnIsCurrent ? "current Pen Up + Idle" : "historical only")
+              } ?? "not settled")
+          ]
+        )
+      ]
       if let observation = visibilityTargetObservation {
-        evidence.append(ExerciseEvidencePresentation(
-          label: "Existing-target observation",
-          fragments: [.text("frames \(observation.includedFrameIDs.map(\.rawValue).joined(separator: ", ")) · N=\(observation.validSampleCount) · centroid \(observation.centroid.x), \(observation.centroid.y) · uncertainty X \(observation.centroidUncertainty.dx) Y \(observation.centroidUncertainty.dy) · revision \(learningArtifactGraph.currentRevision(for: .visibilityTargetObservation)?.id.rawValue.uuidString.lowercased() ?? "not current")")]
-        ))
+        evidence.append(
+          ExerciseEvidencePresentation(
+            label: "Existing-target observation",
+            fragments: [
+              .text(
+                "frames \(observation.includedFrameIDs.map(\.rawValue).joined(separator: ", ")) · N=\(observation.validSampleCount) · centroid \(observation.centroid.x), \(observation.centroid.y) · uncertainty X \(observation.centroidUncertainty.dx) Y \(observation.centroidUncertainty.dy) · revision \(learningArtifactGraph.currentRevision(for: .visibilityTargetObservation)?.id.rawValue.uuidString.lowercased() ?? "not current")"
+              )
+            ]
+          ))
       }
       return evidence
     case .acceptVisibilityRegistration:
       var evidence: [ExerciseEvidencePresentation] = []
       if let observation = visibilityTargetObservation {
-        evidence.append(ExerciseEvidencePresentation(
-          label: "Registration candidate",
-          fragments: [.text("frames \(observation.includedFrameIDs.map(\.rawValue).joined(separator: ", ")) · plan \(observation.targetPlanRevision) · execution \(visibilityTargetExecutionAttemptEvidence.map { String(describing: $0.disposition) } ?? "unavailable") · \(observation.estimatorRevision) · area ratio \(observation.areaRatio)")]
-        ))
+        evidence.append(
+          ExerciseEvidencePresentation(
+            label: "Registration candidate",
+            fragments: [
+              .text(
+                "frames \(observation.includedFrameIDs.map(\.rawValue).joined(separator: ", ")) · plan \(observation.targetPlanRevision) · execution \(visibilityTargetExecutionAttemptEvidence.map { String(describing: $0.disposition) } ?? "unavailable") · \(observation.estimatorRevision) · area ratio \(observation.areaRatio)"
+              )
+            ]
+          ))
       }
       if let acceptedVisibilityObservationAttemptID,
         let history = visibilityObservationAttemptHistories.values.first(where: { history in
@@ -8340,15 +8562,25 @@ final class OperatorWorkspace {
         }),
         let aggregate = try? VisibilityTargetAttemptAggregate(history: history)
       {
-        evidence.append(ExerciseEvidencePresentation(
-          label: "Target attempt aggregate",
-          fragments: [.text("attempt N=\(aggregate.validAttemptCount) · frames=\(aggregate.includedObservations.flatMap(\.includedFrameIDs).count) · estimator \(aggregate.estimator.name) \(aggregate.estimator.revision) · included \(aggregate.includedAttemptIDs.map { $0.rawValue.uuidString.lowercased() }.joined(separator: ", ")) · uncertainty \(String(describing: aggregate.uncertainty))")]
-        ))
+        evidence.append(
+          ExerciseEvidencePresentation(
+            label: "Target attempt aggregate",
+            fragments: [
+              .text(
+                "attempt N=\(aggregate.validAttemptCount) · frames=\(aggregate.includedObservations.flatMap(\.includedFrameIDs).count) · estimator \(aggregate.estimator.name) \(aggregate.estimator.revision) · included \(aggregate.includedAttemptIDs.map { $0.rawValue.uuidString.lowercased() }.joined(separator: ", ")) · uncertainty \(String(describing: aggregate.uncertainty))"
+              )
+            ]
+          ))
       }
-      evidence.append(ExerciseEvidencePresentation(
-        label: "Visibility-registration authority",
-        fragments: [.text("\(visibilityRegistrationAccepted ? "accepted" : "not accepted") · revision \(learningArtifactGraph.currentRevision(for: .visibilityRegistration)?.id.rawValue.uuidString.lowercased() ?? "not current")")]
-      ))
+      evidence.append(
+        ExerciseEvidencePresentation(
+          label: "Visibility-registration authority",
+          fragments: [
+            .text(
+              "\(visibilityRegistrationAccepted ? "accepted" : "not accepted") · revision \(learningArtifactGraph.currentRevision(for: .visibilityRegistration)?.id.rawValue.uuidString.lowercased() ?? "not current")"
+            )
+          ]
+        ))
       return evidence
     }
   }
@@ -8424,8 +8656,7 @@ final class OperatorWorkspace {
           : [.text("Stop remains bound to the currently admitted Pen-Up move.")]
       )
     }
-    if itemID.stage == .humanGuidedDiscovery, let explorationError
-    {
+    if itemID.stage == .humanGuidedDiscovery, let explorationError {
       return OperationActivityPresentation(
         actor: visibilityActivityActor,
         action: visibilityActivityAction,
@@ -8452,7 +8683,9 @@ final class OperatorWorkspace {
         observedDrawingTrialStep == .returnToClearPoseAndObserveNewInk
       {
         recovery = [
-          .text("Ink may exist. Draw is unavailable; resolve Pen Up if needed, then return and observe the existing stroke.")
+          .text(
+            "Ink may exist. Draw is unavailable; resolve Pen Up if needed, then return and observe the existing stroke."
+          )
         ]
       } else if restartableExerciseItemID == itemID {
         recovery = [.text("Use Restart only after the failed attempt has settled.")]
@@ -8521,7 +8754,11 @@ final class OperatorWorkspace {
         outcome: audit.disposition == .operatorStop ? .inProgress : .cancelled,
         detail: [.text(audit.outcome)],
         recovery: audit.disposition == .operatorStop
-          ? [.text("The original owner must settle at Idle/final MPos before the controller-side commit continues.")]
+          ? [
+            .text(
+              "The original owner must settle at Idle/final MPos before the controller-side commit continues."
+            )
+          ]
           : [.text("Use Restart to create a new attempt.")]
       )
     }
@@ -8606,7 +8843,8 @@ final class OperatorWorkspace {
       visionDetail = "No foreground Vision operation is active."
     }
 
-    let boundaryAuthoritySuffix = isBoundaryReview
+    let boundaryAuthoritySuffix =
+      isBoundaryReview
       ? " Stage 3.2 boundary acceptance never calls Camera or Vision."
       : ""
     let commitIsActive: Bool = {
@@ -8623,7 +8861,10 @@ final class OperatorWorkspace {
         state: controllerState,
         role: .motionGate,
         blocksNewMotion: motionGateReason != nil,
-        detail: [.text(motionGateReason ?? "Controller facts currently admit a new direct carriage request.")]
+        detail: [
+          .text(
+            motionGateReason ?? "Controller facts currently admit a new direct carriage request.")
+        ]
       ),
       SubsystemStatusPresentation(
         id: "motion-owner",
@@ -9142,7 +9383,8 @@ final class OperatorWorkspace {
         episode.frames.removeAll {
           $0.role == .targetAnchoredTrialBaseline || $0.role == .postLine
         }
-      } else if step.rawValue <= ObservedDrawingTrialStep.returnToClearPoseAndObserveNewInk.rawValue {
+      } else if step.rawValue <= ObservedDrawingTrialStep.returnToClearPoseAndObserveNewInk.rawValue
+      {
         episode.frames.removeAll { $0.role == .postLine }
       }
       if step.rawValue <= ObservedDrawingTrialStep.drawIsolatedLine.rawValue {
@@ -9907,14 +10149,14 @@ final class OperatorWorkspace {
     _ actual: MachinePosition,
     _ target: MachinePosition
   ) -> Bool {
-    actual.point.distance(to: target.point) <= MotionPriors.controllerPositionToleranceMM
+    ControllerPositionAcceptancePolicy.accepts(actual, target: target)
   }
 
   private func recordProtocolPoseSettlement(
     action: String,
     target: MachinePosition,
     actual: MachinePosition,
-    toleranceMM: Double = MotionPriors.controllerPositionToleranceMM
+    toleranceMM: Double = ControllerPositionAcceptancePolicy.toleranceMM
   ) -> Bool {
     let residual = actual.point.distance(to: target.point)
     lastProtocolPoseSettlement = ProtocolPoseSettlement(
@@ -10280,7 +10522,7 @@ final class OperatorWorkspace {
         controllerSessionID: controllerSessionID,
         coordinateRevision: explorationCoordinateRevision,
         toolPaperRevision: explorationToolPaperRevision,
-        controllerPositionToleranceMM: 0.01,
+        controllerPositionToleranceMM: ControllerPositionAcceptancePolicy.toleranceMM,
         alignmentSearchRadiusPixels: 2,
         maximumAlignmentShiftPixels: 1,
         maximumBackgroundMeanAbsoluteDifference: 4,
