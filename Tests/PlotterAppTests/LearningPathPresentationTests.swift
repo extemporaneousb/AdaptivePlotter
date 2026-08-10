@@ -264,8 +264,8 @@ struct LearningPathPresentationTests {
           title: "Capture Target-Pose Registration"
         ),
         ExerciseActionDescriptor(
-          kind: .acceptTargetContactPointAndROI,
-          title: "Accept Contact Point and ROI",
+          kind: .calibrateCurrentCameraAndAcceptROI,
+          title: "Calibrate Current Camera and Accept ROI",
           role: .positive
         ),
         ExerciseActionDescriptor(
@@ -296,7 +296,7 @@ struct LearningPathPresentationTests {
     #expect(
       strip.actions.map(\.kind) == [
         .captureTargetPoseRegistration,
-        .acceptTargetContactPointAndROI,
+        .calibrateCurrentCameraAndAcceptROI,
         .rejectTargetContactPointAndROI,
         .registerNewTargetArea,
         .moveToNewTargetArea(
@@ -304,6 +304,9 @@ struct LearningPathPresentationTests {
         ),
         .paperReplaced,
       ])
+    #expect(
+      strip.actions.count { $0.kind == .calibrateCurrentCameraAndAcceptROI } == 1
+    )
   }
 
   @Test("visibility recovery distinguishes observing ink from relocating or replacing paper")

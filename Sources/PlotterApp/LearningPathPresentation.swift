@@ -500,8 +500,7 @@ enum ExerciseActionKind: Hashable, Sendable {
   case selectDirection(ExerciseDirectionSelectionPurpose, BoundaryDirection)
   case moveToEstimatedCenter
   case captureTargetPoseRegistration
-  case collectCurrentCameraContactEvidence
-  case acceptTargetContactPointAndROI
+  case calibrateCurrentCameraAndAcceptROI
   case rejectTargetContactPointAndROI
   case moveForClearView(ClearViewSearchMove)
   case recordClearViewLabel(ArmatureVisibilityLabel)

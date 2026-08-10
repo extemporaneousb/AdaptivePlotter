@@ -349,7 +349,7 @@ struct OperatorWorkspaceTests {
     try await performPublicAction(
       .captureTargetPoseRegistration, owner: owner, workspace: workspace)
     try await performPublicAction(
-      .acceptTargetContactPointAndROI, owner: owner, workspace: workspace)
+      .calibrateCurrentCameraAndAcceptROI, owner: owner, workspace: workspace)
     try await selectPublicDirection(
       .positiveX,
       purpose: .clearViewSearch,
@@ -602,8 +602,8 @@ struct OperatorWorkspaceTests {
     ])
   }
 
-  @Test("camera recovery preserves machine facts and collects contact evidence without motion")
-  func cameraRecoveryPreservesMachineAuthorityAndCollectsEvidence() async throws {
+  @Test("camera recovery preserves machine facts and automatically accepts current-camera ROI")
+  func cameraRecoveryPreservesMachineAuthorityAndAutomaticallyAcceptsROI() async throws {
     let harness = makeSimulatedHarness()
     let workspace = harness.workspace
     try await completeSimulatedVisibilityProtocol(
@@ -658,21 +658,260 @@ struct OperatorWorkspaceTests {
     )
     let actions = try #require(
       workspace.selectedOperatorActionPresentation(for: owner).actionStrip
-    ).actions.map(\.kind)
-    #expect(actions.contains(.collectCurrentCameraContactEvidence))
+    ).actions
+    #expect(
+      actions.map(\.kind) == [
+        .calibrateCurrentCameraAndAcceptROI,
+        .rejectTargetContactPointAndROI,
+        .cancel,
+      ]
+    )
+    let calibrationAction = try #require(
+      actions.first(where: { $0.kind == .calibrateCurrentCameraAndAcceptROI })
+    )
+    #expect(calibrationAction.isEnabled)
+    #expect(calibrationAction.unavailableReason == nil)
+
     try await performPublicAction(
-      .collectCurrentCameraContactEvidence,
+      .calibrateCurrentCameraAndAcceptROI,
       owner: owner,
       workspace: workspace
     )
 
-    let evidence = try #require(workspace.explicitRegistrationContactEvidence.last)
-    #expect(evidence.cameraConfigurationID == workspace.displayedFrame?.frame.cameraConfigurationID)
-    #expect(evidence.algorithmRevision == "explicit-current-camera-contact-v1")
+    let cameraConfigurationID = try #require(
+      workspace.targetPoseRegistrationFrame?.frame.cameraConfigurationID
+    )
+    let evidence = workspace.explicitRegistrationContactEvidence.filter {
+      $0.cameraConfigurationID == cameraConfigurationID
+        && $0.algorithmRevision == "automatic-current-camera-contact-v2"
+    }
+    #expect(evidence.count == 3)
+    let first = try #require(evidence.first?.machinePoint)
+    let second = try #require(evidence.dropFirst().first?.machinePoint)
+    let third = try #require(evidence.last?.machinePoint)
+    let signedDoubleArea =
+      (second.x - first.x) * (third.y - first.y)
+      - (second.y - first.y) * (third.x - first.x)
+    #expect(abs(signedDoubleArea) > 0.001)
+    let targetPosition = try #require(workspace.registeredTargetMachinePosition)
+    let runtimePosition = await harness.runtime.snapshot().mpos
+    #expect(abs(runtimePosition.xMM - targetPosition.point.x) <= 0.001)
+    #expect(abs(runtimePosition.yMM - targetPosition.point.y) <= 0.001)
+    #expect(workspace.targetContactPointAndROIAccepted)
+    #expect(workspace.targetObservationRegion != nil)
+    #expect(workspace.machineCameraRegistration != nil)
+    #expect(
+      workspace.learningArtifactGraph.currentRevision(for: .machineCameraRegistration) != nil
+    )
+    #expect(workspace.explorationError == nil)
     #expect(workspace.boundarySideAggregates == aggregates)
     #expect(workspace.estimatedMachineCenter == center)
     #expect(workspace.learnedLocalCoordinateFrame == localFrame)
     #expect(await harness.machineActionLog.values.isEmpty)
+  }
+
+  @Test(
+    "automatic current-camera calibration refusal preserves machine authority and exposes retry"
+  )
+  func automaticCurrentCameraCalibrationRefusalPreservesMachineAuthority() async throws {
+    let harness = makeSimulatedHarness()
+    let workspace = harness.workspace
+    try await completeSimulatedVisibilityProtocol(
+      workspace,
+      runtime: harness.runtime,
+      boundaryOrder: [.positiveX, .negativeX, .positiveY, .negativeY],
+      throughVisibility: false
+    )
+    let aggregates = workspace.boundarySideAggregates
+    let localFrame = try #require(workspace.learnedLocalCoordinateFrame)
+    let center = try #require(workspace.estimatedMachineCenter)
+    let centerArrival = try #require(workspace.centerArrivalPosition)
+
+    await harness.runtime.injectFault(.cameraConfigurationChangeBeforeNextFrame)
+    await workspace.performCameraUtilityAction(.refresh)
+    let owner = LearningPathItemID.humanGuidedDiscovery(
+      .visibilityTargetAndClearViewRegistration
+    )
+    try await performPublicAction(.start, owner: owner, workspace: workspace)
+    try await performPublicAction(
+      .captureTargetPoseRegistration,
+      owner: owner,
+      workspace: workspace
+    )
+    let targetPosition = try #require(workspace.registeredTargetMachinePosition)
+    await harness.runtime.injectFault(.refuseNextOperation)
+
+    try await performPublicAction(
+      .calibrateCurrentCameraAndAcceptROI,
+      owner: owner,
+      workspace: workspace
+    )
+
+    #expect(workspace.targetContactPointAndROIAccepted == false)
+    #expect(workspace.targetObservationRegion == nil)
+    #expect(workspace.machineCameraRegistration == nil)
+    #expect(
+      workspace.learningArtifactGraph.currentRevision(for: .machineCameraRegistration) == nil
+    )
+    #expect(workspace.boundarySideAggregates == aggregates)
+    #expect(workspace.learnedLocalCoordinateFrame == localFrame)
+    #expect(workspace.estimatedMachineCenter == center)
+    #expect(workspace.centerArrivalPosition == centerArrival)
+    #expect(workspace.pairedBoundaryProgress.isComplete)
+    #expect(workspace.explorationError?.contains("injectedRefusal") == true)
+    #expect(workspace.explicitRegistrationContactEvidence.isEmpty)
+
+    let runtimeSnapshot = await harness.runtime.snapshot()
+    #expect(runtimeSnapshot.currentOperation == nil)
+    #expect(abs(runtimeSnapshot.mpos.xMM - targetPosition.point.x) <= 0.001)
+    #expect(abs(runtimeSnapshot.mpos.yMM - targetPosition.point.y) <= 0.001)
+    let recovery = workspace.selectedOperatorActionPresentation(for: owner)
+    #expect(
+      recovery.actionStrip?.actions.map(\.kind) == [
+        .calibrateCurrentCameraAndAcceptROI,
+        .rejectTargetContactPointAndROI,
+        .cancel,
+      ]
+    )
+    #expect(recovery.activity?.outcome == .needsAttention)
+    #expect(recovery.activity?.recovery.accessibilityText.contains("Return") == true)
+    #expect(recovery.activity?.recovery.accessibilityText.contains("retry") == true)
+    #expect(await harness.machineActionLog.values.isEmpty)
+  }
+
+  @Test("Stop during automatic camera calibration preserves the active 3.3 attempt")
+  func automaticCurrentCameraCalibrationStopPreservesAttempt() async throws {
+    let harness = makeSimulatedHarness()
+    let workspace = harness.workspace
+    try await completeSimulatedVisibilityProtocol(
+      workspace,
+      runtime: harness.runtime,
+      boundaryOrder: [.positiveX, .negativeX, .positiveY, .negativeY],
+      throughVisibility: false
+    )
+    await harness.runtime.injectFault(.cameraConfigurationChangeBeforeNextFrame)
+    await workspace.performCameraUtilityAction(.refresh)
+    let owner = LearningPathItemID.humanGuidedDiscovery(
+      .visibilityTargetAndClearViewRegistration
+    )
+    try await performPublicAction(.start, owner: owner, workspace: workspace)
+    try await performPublicAction(
+      .captureTargetPoseRegistration,
+      owner: owner,
+      workspace: workspace
+    )
+    let attemptID = try #require(workspace.activeExerciseAttemptID)
+    let pacing = CalibrationStopPacing()
+    workspace.replaceSimulatedExecutionPacingForTesting(pacing)
+
+    let calibration = Task { @MainActor in
+      await workspace.performExerciseAction(.calibrateCurrentCameraAndAcceptROI, for: owner)
+    }
+    await pacing.waitUntilSuspended()
+    let stopKind = try #require(
+      workspace.selectedOperatorActionPresentation(for: owner).actionStrip?.actions
+        .first(where: { if case .stop = $0.kind { true } else { false } })?.kind
+    )
+    let stop = Task { @MainActor in
+      await workspace.performExerciseAction(stopKind, for: owner)
+    }
+    try await waitUntilAsync { await harness.runtime.snapshot().currentOperation == nil }
+
+    #expect(workspace.activeExerciseAttemptID == attemptID)
+    #expect(workspace.restartableExerciseItemID == nil)
+    let unwindingKinds =
+      workspace.selectedOperatorActionPresentation(for: owner).actionStrip?.actions.map(\.kind)
+      ?? []
+    #expect(unwindingKinds.contains(.restart) == false)
+    #expect(unwindingKinds.contains(.cancel) == false)
+
+    await pacing.resume()
+    await stop.value
+    await calibration.value
+
+    #expect(workspace.activeExerciseAttemptID == attemptID)
+    #expect(workspace.restartableExerciseItemID == nil)
+    #expect(workspace.targetContactPointAndROIAccepted == false)
+    #expect(workspace.targetObservationRegion == nil)
+    #expect(workspace.machineCameraRegistration == nil)
+    #expect(workspace.explicitRegistrationContactEvidence.isEmpty)
+    #expect(await harness.runtime.snapshot().currentOperation == nil)
+    let recovery = workspace.selectedOperatorActionPresentation(for: owner)
+    #expect(
+      recovery.actionStrip?.actions.map(\.kind) == [
+        .calibrateCurrentCameraAndAcceptROI,
+        .rejectTargetContactPointAndROI,
+        .cancel,
+      ]
+    )
+    #expect(recovery.actionStrip?.actions.contains(where: { $0.kind == .restart }) == false)
+    #expect(recovery.activity?.outcome == .needsAttention)
+    #expect(recovery.activity?.recovery.accessibilityText.contains("retry") == true)
+  }
+
+  @Test("shutdown settles a suspended automatic camera calibration without continuation")
+  func shutdownSettlesSuspendedAutomaticCameraCalibration() async throws {
+    let harness = makeSimulatedHarness()
+    let workspace = harness.workspace
+    try await completeSimulatedVisibilityProtocol(
+      workspace,
+      runtime: harness.runtime,
+      boundaryOrder: [.positiveX, .negativeX, .positiveY, .negativeY],
+      throughVisibility: false
+    )
+    await harness.runtime.injectFault(.cameraConfigurationChangeBeforeNextFrame)
+    await workspace.performCameraUtilityAction(.refresh)
+    let owner = LearningPathItemID.humanGuidedDiscovery(
+      .visibilityTargetAndClearViewRegistration
+    )
+    try await performPublicAction(.start, owner: owner, workspace: workspace)
+    try await performPublicAction(
+      .captureTargetPoseRegistration,
+      owner: owner,
+      workspace: workspace
+    )
+    let targetPosition = try #require(workspace.registeredTargetMachinePosition)
+    let pacing = CalibrationStopPacing()
+    workspace.replaceSimulatedExecutionPacingForTesting(pacing)
+    let completions = EventLog()
+
+    let calibration = Task { @MainActor in
+      await workspace.performExerciseAction(.calibrateCurrentCameraAndAcceptROI, for: owner)
+      await completions.append("calibration-returned")
+    }
+    await pacing.waitUntilSuspended()
+    let shutdown = Task { @MainActor in
+      await workspace.shutdown()
+      await completions.append("shutdown-returned")
+    }
+    try await waitUntilAsync {
+      guard workspace.isShutdown else { return false }
+      return await harness.runtime.snapshot().currentOperation == nil
+    }
+
+    #expect(workspace.targetContactPointAndROIAccepted == false)
+    #expect(workspace.targetObservationRegion == nil)
+    #expect(workspace.machineCameraRegistration == nil)
+    #expect(workspace.explicitRegistrationContactEvidence.isEmpty)
+    #expect(await completions.values.isEmpty)
+
+    await pacing.resume()
+    try await waitUntilAsync { await completions.values.count == 2 }
+    await calibration.value
+    await shutdown.value
+
+    let runtimeSnapshot = await harness.runtime.snapshot()
+    #expect(runtimeSnapshot.currentOperation == nil)
+    #expect(abs(runtimeSnapshot.mpos.xMM - targetPosition.point.x) <= 0.001)
+    #expect(abs(runtimeSnapshot.mpos.yMM - targetPosition.point.y) <= 0.001)
+    #expect(workspace.isShutdown)
+    #expect(workspace.targetContactPointAndROIAccepted == false)
+    #expect(workspace.targetObservationRegion == nil)
+    #expect(workspace.machineCameraRegistration == nil)
+    #expect(workspace.explicitRegistrationContactEvidence.isEmpty)
+    #expect(
+      await completions.values.sorted() == ["calibration-returned", "shutdown-returned"]
+    )
   }
 
   @Test("camera change preserves target-area ink provenance and exposes recovery only")
@@ -1597,7 +1836,7 @@ private func completeSimulatedVisibilityProtocol(
     workspace: workspace
   )
   try await performPublicAction(
-    .acceptTargetContactPointAndROI,
+    .calibrateCurrentCameraAndAcceptROI,
     owner: visibilityOwner,
     workspace: workspace
   )
@@ -2411,6 +2650,35 @@ private func frame(
     pixelFormat: .bgra8,
     bytes: OwnedFrameBytes([255, 255, 255, 255])
   )
+}
+
+private actor CalibrationStopPacing: SimulatedLearningExecutionPacing {
+  private var suspended = false
+  private var suspension: CheckedContinuation<Void, Never>?
+  private var suspensionWaiters: [CheckedContinuation<Void, Never>] = []
+
+  func suspendBetweenSteps() async {
+    await withCheckedContinuation { continuation in
+      suspension = continuation
+      suspended = true
+      let waiters = suspensionWaiters
+      suspensionWaiters.removeAll()
+      for waiter in waiters { waiter.resume() }
+    }
+  }
+
+  func waitUntilSuspended() async {
+    if suspended { return }
+    await withCheckedContinuation { continuation in
+      suspensionWaiters.append(continuation)
+    }
+  }
+
+  func resume() {
+    let continuation = suspension
+    suspension = nil
+    continuation?.resume()
+  }
 }
 
 @MainActor

@@ -513,7 +513,9 @@ final class OperatorWorkspace {
     let learningArtifactGraph: LearningDependencyGraph
     let penAttemptHistory: ExerciseAttemptHistory<PenState>
     let boundaryAttemptHistories:
-      [BoundaryDirection: [AttemptCompatibility: ExerciseAttemptHistory<BoundarySideAttemptEvidence>]]
+      [BoundaryDirection: [AttemptCompatibility: ExerciseAttemptHistory<
+        BoundarySideAttemptEvidence
+      >]]
     let clearViewAttemptHistories:
       [AttemptCompatibility: ExerciseAttemptHistory<ArmatureVisibilityLabel>]
     let comparisonAttemptHistories:
@@ -668,15 +670,14 @@ final class OperatorWorkspace {
   private(set) var visibilityTargetSceneDisposition: VisibilityTargetSceneDisposition = .pristine
   private(set) var visibilityTargetObservation: VisibilityTargetObservation?
   private(set) var executedVisibilityTargetPlanRevision: String?
-  private(set) var visibilityObservationOperation:
-    VisibilityObservationOperationPresentation?
+  private(set) var visibilityObservationOperation: VisibilityObservationOperationPresentation?
   private(set) var visibilityObservationAttemptHistories:
     [AttemptCompatibility: ExerciseAttemptHistory<VisibilityTargetObservation>] = [:]
   private(set) var acceptedVisibilityObservationAttemptID: ExerciseAttemptID?
   private(set) var visibilityRegistrationAccepted = false
   private(set) var machineCameraRegistration: MachineCameraRegistration?
-  private(set) var explicitRegistrationContactEvidence:
-    [MachineCameraCorrespondenceProvenance] = []
+  private(set) var explicitRegistrationContactEvidence: [MachineCameraCorrespondenceProvenance] = []
+  private(set) var currentCameraCalibrationPhase: String?
   private(set) var targetAreaIdentity = UUID()
   private(set) var targetAreaRelocationRequired = false
   private(set) var targetAreaRelocationCompleted = false
@@ -703,7 +704,8 @@ final class OperatorWorkspace {
   private(set) var learningArtifactGraph = LearningDependencyGraph()
   private(set) var penAttemptHistory: ExerciseAttemptHistory<PenState>
   private(set) var boundaryAttemptHistories:
-    [BoundaryDirection: [AttemptCompatibility: ExerciseAttemptHistory<BoundarySideAttemptEvidence>]] = [:]
+    [BoundaryDirection: [AttemptCompatibility: ExerciseAttemptHistory<BoundarySideAttemptEvidence>]] =
+      [:]
   private(set) var clearViewAttemptHistories:
     [AttemptCompatibility: ExerciseAttemptHistory<ArmatureVisibilityLabel>] = [:]
   private(set) var comparisonAttemptHistories:
@@ -735,6 +737,7 @@ final class OperatorWorkspace {
   @ObservationIgnored private var boundaryMotionTask: Task<Void, Never>?
   @ObservationIgnored private var manualJogTask: Task<MotionOutcome, Never>?
   @ObservationIgnored private var exerciseMotionTask: Task<MotionOutcome, Never>?
+  @ObservationIgnored private var currentCameraCalibrationTask: Task<Void, Never>?
   @ObservationIgnored private var visibilityTargetTask:
     Task<VisibilityTargetOperationOutcome, Never>?
   @ObservationIgnored private var visibilityObservationTask: Task<Void, Never>?
@@ -880,6 +883,12 @@ final class OperatorWorkspace {
   var foregroundVisionOperationUnavailableReason: String? {
     visibilityObservationOperation.map {
       "Cancel Vision or wait for its exact target-ROI observation to settle. \($0.busyDetail)"
+    }
+  }
+
+  var currentCameraCalibrationBusyReason: String? {
+    currentCameraCalibrationPhase.map {
+      "Automatic current-camera calibration is in progress (\($0)). Use Stop during an admitted move."
     }
   }
 
@@ -1092,6 +1101,7 @@ final class OperatorWorkspace {
 
   var controllerSelectionUnavailableReason: String? {
     if let reason = foregroundVisionOperationUnavailableReason { return reason }
+    if let reason = currentCameraCalibrationBusyReason { return reason }
     if serialDevices.isEmpty { return "No serial controllers are available." }
     if let activeDiscoverySequenceID {
       return
@@ -1107,6 +1117,7 @@ final class OperatorWorkspace {
 
   var motionGuardActivationUnavailableReason: String? {
     if let reason = foregroundVisionOperationUnavailableReason { return reason }
+    if let reason = currentCameraCalibrationBusyReason { return reason }
     if motionGuardActivationInProgress { return "Enable Motion is in progress." }
     if motionAuthorizationEnabled { return "Motion is already enabled." }
     if !controllerSessionEstablished {
@@ -1152,6 +1163,7 @@ final class OperatorWorkspace {
 
   var controllerConnectionActionUnavailableReason: String? {
     if let reason = foregroundVisionOperationUnavailableReason { return reason }
+    if let reason = currentCameraCalibrationBusyReason { return reason }
     if controllerConnectionActionInProgress {
       return "The controller connection action is already in progress."
     }
@@ -1175,6 +1187,7 @@ final class OperatorWorkspace {
 
   var frameModeSwitchUnavailableReason: String? {
     if let reason = foregroundVisionOperationUnavailableReason { return reason }
+    if let reason = currentCameraCalibrationBusyReason { return reason }
     if frameModeSwitchInProgress { return "A frame source switch is already in progress." }
     if activeExerciseAttemptOwnerID != nil {
       return "Finish or Cancel the active Learning Path attempt before changing frame source."
@@ -1588,6 +1601,7 @@ final class OperatorWorkspace {
     let simulated = frameMode == .simulated
     let switchReason = frameModeSwitchUnavailableReason
     let foregroundReason = foregroundVisionOperationUnavailableReason
+    let calibrationReason = currentCameraCalibrationBusyReason
     let liveOnly = "This action requires a LIVE camera source."
     let actions = CameraUtilityActionKind.allCases.map { kind in
       let title: String
@@ -1614,16 +1628,18 @@ final class OperatorWorkspace {
         title = analysisFrameHeld ? "Resume Preview" : "Analyze Current Frame"
         systemImage = analysisFrameHeld ? "play.rectangle" : "viewfinder"
         unavailableReason =
-          foregroundReason ?? (simulated ? liveOnly : displayedFrame == nil ? "No current frame." : nil)
+          calibrationReason ?? foregroundReason
+          ?? (simulated ? liveOnly : displayedFrame == nil ? "No current frame." : nil)
       case .saveSnapshot:
         title = "Save Snapshot"
         systemImage = "camera"
         unavailableReason =
-          foregroundReason ?? (simulated ? liveOnly : displayedFrame == nil ? "No current frame." : nil)
+          calibrationReason ?? foregroundReason
+          ?? (simulated ? liveOnly : displayedFrame == nil ? "No current frame." : nil)
       case .toggleAutomaticAnalysis:
         title = automaticVisionEnabled ? "Stop Auto Analysis" : "Start Auto Analysis"
         systemImage = automaticVisionEnabled ? "pause.circle" : "waveform.path.ecg"
-        unavailableReason = foregroundReason ?? (simulated ? liveOnly : nil)
+        unavailableReason = calibrationReason ?? foregroundReason ?? (simulated ? liveOnly : nil)
       }
       return CameraUtilityActionPresentation(
         kind: kind,
@@ -1635,7 +1651,8 @@ final class OperatorWorkspace {
     return CameraUtilityPresentation(
       mode: frameMode,
       actions: actions,
-      analysisCadenceUnavailableReason: foregroundReason ?? (simulated ? liveOnly : nil)
+      analysisCadenceUnavailableReason: calibrationReason ?? foregroundReason
+        ?? (simulated ? liveOnly : nil)
     )
   }
 
@@ -1834,10 +1851,8 @@ final class OperatorWorkspace {
       await moveToEstimatedCenter()
     case .captureTargetPoseRegistration:
       await captureTargetPoseRegistration()
-    case .collectCurrentCameraContactEvidence:
-      await collectCurrentCameraContactEvidence()
-    case .acceptTargetContactPointAndROI:
-      acceptTargetContactPointAndROI()
+    case .calibrateCurrentCameraAndAcceptROI:
+      await calibrateCurrentCameraAndAcceptROI()
     case .rejectTargetContactPointAndROI:
       rejectTargetContactPointAndROI()
     case .moveForClearView(let move):
@@ -2016,17 +2031,18 @@ final class OperatorWorkspace {
   }
 
   private func captureSimulatedProtocolScene() async throws -> SimulatedLearningSceneFrame {
-    let acceptedPositions = Dictionary(uniqueKeysWithValues: boundarySideAggregates.compactMap {
-      direction, aggregate -> (BoundaryDirection, SimulatedLearningMPos)? in
-      guard let attemptID = aggregate.includedAttemptIDs.last,
-        let evidence = boundaryAttemptEvidenceByAttemptID[attemptID],
-        let position = try? SimulatedLearningMPos(
-          xMM: evidence.finalPosition.point.x,
-          yMM: evidence.finalPosition.point.y
-        )
-      else { return nil }
-      return (direction, position)
-    })
+    let acceptedPositions = Dictionary(
+      uniqueKeysWithValues: boundarySideAggregates.compactMap {
+        direction, aggregate -> (BoundaryDirection, SimulatedLearningMPos)? in
+        guard let attemptID = aggregate.includedAttemptIDs.last,
+          let evidence = boundaryAttemptEvidenceByAttemptID[attemptID],
+          let position = try? SimulatedLearningMPos(
+            xMM: evidence.finalPosition.point.x,
+            yMM: evidence.finalPosition.point.y
+          )
+        else { return nil }
+        return (direction, position)
+      })
     let learnedCenter = estimatedMachineCenter.flatMap {
       try? SimulatedLearningMPos(xMM: $0.point.x, yMM: $0.point.y)
     }
@@ -2174,59 +2190,69 @@ final class OperatorWorkspace {
     }
   }
 
-  private func acceptTargetContactPointAndROI() {
+  private func compatibleRegistrationContactEvidence(
+    for frame: DisplayedFrame
+  ) -> [MachineCameraCorrespondenceProvenance] {
+    var exactSamples: [MachineCameraCorrespondenceProvenance] = []
+    for direction in BoundaryDirection.allCases {
+      guard let aggregate = boundarySideAggregates[direction] else { continue }
+      for attemptID in aggregate.includedAttemptIDs {
+        guard let evidence = boundaryAttemptEvidenceByAttemptID[attemptID],
+          evidence.frameSource == frame.source,
+          evidence.cameraConfigurationID == frame.frame.cameraConfigurationID,
+          evidence.controllerSessionID == controllerSessionID,
+          evidence.coordinateRevision == explorationCoordinateRevision,
+          evidence.contactEstimatorRevision == "green-tool-bottom-center-v1"
+        else { continue }
+        exactSamples.append(
+          MachineCameraCorrespondenceProvenance(
+            machinePoint: evidence.finalPosition.point,
+            contactPoint: evidence.contactPoint.point,
+            source: evidence.frameSource,
+            controllerSessionID: evidence.controllerSessionID,
+            coordinateRevision: evidence.coordinateRevision,
+            frameID: evidence.frameID,
+            frameSHA256: evidence.frameSHA256,
+            captureNanoseconds: evidence.captureNanoseconds,
+            cameraConfigurationID: evidence.cameraConfigurationID,
+            attemptID: evidence.attemptID,
+            contactEstimatorRevision: evidence.contactEstimatorRevision,
+            algorithmRevision: "boundary-exact-contact-correspondence-v1",
+            contactConfidence: evidence.contactConfidence,
+            artifactRevisionID: aggregate.revisionID
+          )
+        )
+      }
+    }
+    exactSamples.append(
+      contentsOf: explicitRegistrationContactEvidence.filter {
+        $0.source == frame.source
+          && $0.cameraConfigurationID == frame.frame.cameraConfigurationID
+          && $0.controllerSessionID == controllerSessionID
+          && $0.coordinateRevision == explorationCoordinateRevision
+          && $0.contactEstimatorRevision == "green-tool-bottom-center-v1"
+      }
+    )
+    return exactSamples
+  }
+
+  @discardableResult
+  private func acceptTargetContactPointAndROI(
+    correspondenceOverride: [MachineCameraCorrespondenceProvenance]? = nil
+  ) -> Bool {
     guard let frame = targetPoseRegistrationFrame,
       let contact = targetContactPointEstimate,
       contact.frameID == frame.frame.id
-    else { return }
+    else { return false }
     do {
       guard let targetMachinePosition = registeredTargetMachinePosition else {
         throw LearningPathOperationError.requiredState("Registered target MPos is unavailable.")
       }
-      var exactSamples: [MachineCameraCorrespondenceProvenance] = []
-      for direction in BoundaryDirection.allCases {
-        guard let aggregate = boundarySideAggregates[direction] else { continue }
-        for attemptID in aggregate.includedAttemptIDs {
-          guard let evidence = boundaryAttemptEvidenceByAttemptID[attemptID],
-            evidence.frameSource == frame.source,
-            evidence.cameraConfigurationID == frame.frame.cameraConfigurationID,
-            evidence.controllerSessionID == controllerSessionID,
-            evidence.coordinateRevision == explorationCoordinateRevision,
-            evidence.contactEstimatorRevision == "green-tool-bottom-center-v1"
-          else { continue }
-          exactSamples.append(
-            MachineCameraCorrespondenceProvenance(
-              machinePoint: evidence.finalPosition.point,
-              contactPoint: evidence.contactPoint.point,
-              source: evidence.frameSource,
-              controllerSessionID: evidence.controllerSessionID,
-              coordinateRevision: evidence.coordinateRevision,
-              frameID: evidence.frameID,
-              frameSHA256: evidence.frameSHA256,
-              captureNanoseconds: evidence.captureNanoseconds,
-              cameraConfigurationID: evidence.cameraConfigurationID,
-              attemptID: evidence.attemptID,
-              contactEstimatorRevision: evidence.contactEstimatorRevision,
-              algorithmRevision: "boundary-exact-contact-correspondence-v1",
-              contactConfidence: evidence.contactConfidence,
-              artifactRevisionID: boundarySideAggregates[evidence.direction]!.revisionID
-            )
-          )
-        }
-      }
-      exactSamples.append(
-        contentsOf: explicitRegistrationContactEvidence.filter {
-          $0.source == frame.source
-            && $0.cameraConfigurationID == frame.frame.cameraConfigurationID
-            && $0.controllerSessionID == controllerSessionID
-            && $0.coordinateRevision == explorationCoordinateRevision
-            && $0.contactEstimatorRevision == "green-tool-bottom-center-v1"
-        }
-      )
+      let exactSamples = correspondenceOverride ?? compatibleRegistrationContactEvidence(for: frame)
       guard exactSamples.count >= 3 else {
         explorationError =
-          "Machine-camera registration is unavailable for the current camera configuration: \(exactSamples.count) compatible exact contact samples are available; at least three non-collinear samples are required. Collect current-camera contact evidence explicitly; accepted machine-space Boundary aggregates and center remain current."
-        return
+          "Machine-camera registration needs automatic current-camera calibration: \(exactSamples.count) compatible exact contact samples are available; three non-collinear samples are required. Accepted machine-space Boundary aggregates and center remain current."
+        return false
       }
       let correspondences = exactSamples.map {
         MachineCameraRegistrationCorrespondence(
@@ -2310,110 +2336,302 @@ final class OperatorWorkspace {
       targetROIMarginPixels = margin
       targetContactPointAndROIAccepted = true
       explorationError = nil
+      return true
     } catch {
       machineCameraRegistration = nil
       explorationError = "Machine-camera registration failed: \(actionableDescription(error))"
+      return false
     }
   }
 
-  /// Records one exact current-camera machine/contact correspondence without
-  /// admitting motion or changing accepted machine-space Boundary authority.
-  private func collectCurrentCameraContactEvidence() async {
-    guard let attemptID = activeExerciseAttemptID else { return }
-    do {
-      let machinePosition = try currentMachinePosition()
-      let boundary = displayedFrame?.frame.captureNanoseconds ?? 0
-      let frame = try await captureProtocolFrame(newerThan: boundary)
-      let centroid: Point2<CameraPixelSpace>
-      let bounds: AxisAlignedBounds<CameraPixelSpace>
-      let confidence: Double
-      var evidenceFrame = frame
-      if frameMode == .simulated {
-        guard
-          let point = cameraOverlays.compactMap({ overlay -> Point2<CameraPixelSpace>? in
-            guard overlay.provenance.kind == .penCap, case .point(let point) = overlay.geometry
-            else { return nil }
-            return point
-          }).first,
-          let armatureBounds = cameraOverlays.compactMap({
-            overlay -> AxisAlignedBounds<CameraPixelSpace>? in
-            guard overlay.provenance.kind == .armatureEstimate,
-              case .bounds(let bounds) = overlay.geometry
-            else { return nil }
-            return bounds
-          }).first
-        else {
-          throw LearningPathOperationError.requiredState(
-            "Tool contact and armature overlays are unavailable."
-          )
-        }
-        centroid = try Point2(
-          x: (armatureBounds.minX + armatureBounds.maxX) / 2,
-          y: (armatureBounds.minY + armatureBounds.maxY) / 2
-        )
-        guard abs(point.x - centroid.x) <= 0.001,
-          abs(point.y - armatureBounds.maxY) <= 0.001
-        else {
-          throw LearningPathOperationError.requiredState(
-            "The causal simulator contact does not match the armature bottom-center."
-          )
-        }
-        bounds = armatureBounds
-        confidence = 1
-      } else {
-        guard let cameraActions,
-          let inspection = try await cameraActions.inspectScene(
-            frame.frame.captureNanoseconds - 1
-          ),
-          let cap = inspection.measurement.cap
-        else {
-          throw LearningPathOperationError.requiredState("A measured tool component is required.")
-        }
-        centroid = cap.centroid
-        bounds = try AxisAlignedBounds(
-          minX: Double(cap.boundingBox.x),
-          minY: Double(cap.boundingBox.y),
-          maxX: Double(cap.boundingBox.x + cap.boundingBox.width),
-          maxY: Double(cap.boundingBox.y + cap.boundingBox.height)
-        )
-        confidence = cap.confidence
-        evidenceFrame = inspection.displayedFrame
-        displayedFrame = inspection.displayedFrame
-        cameraOverlays = inspection.measurement.overlays
-      }
-      let contact = try ToolContactPointEstimate(
-        componentCentroid: centroid,
-        componentBounds: bounds,
-        confidence: confidence,
-        estimatorRevision: "green-tool-bottom-center-v1",
-        source: evidenceFrame.source,
-        frameID: evidenceFrame.frame.id,
-        cameraConfigurationID: evidenceFrame.frame.cameraConfigurationID
-      )
-      let sample = MachineCameraCorrespondenceProvenance(
-        machinePoint: machinePosition.point,
-        contactPoint: contact.point,
-        source: evidenceFrame.source,
-        controllerSessionID: controllerSessionID,
-        coordinateRevision: explorationCoordinateRevision,
-        frameID: evidenceFrame.frame.id,
-        frameSHA256: evidenceFrame.frame.contentSHA256,
-        captureNanoseconds: evidenceFrame.frame.captureNanoseconds,
-        cameraConfigurationID: evidenceFrame.frame.cameraConfigurationID,
-        attemptID: attemptID,
-        contactEstimatorRevision: contact.estimatorRevision,
-        algorithmRevision: "explicit-current-camera-contact-v1",
-        contactConfidence: contact.confidence,
-        artifactRevisionID: LearningArtifactRevisionID()
-      )
-      if !explicitRegistrationContactEvidence.contains(where: { $0.frameID == sample.frameID }) {
-        explicitRegistrationContactEvidence.append(sample)
-      }
-      explorationError =
-        "Recorded current-camera contact evidence at the current Controller MPos. No motion was admitted."
-    } catch {
-      explorationError = "Current-camera contact capture failed: \(actionableDescription(error))"
+  private func calibrateCurrentCameraAndAcceptROI() async {
+    guard currentCameraCalibrationTask == nil, !hasShutdown else { return }
+    let task = Task { @MainActor [weak self] in
+      guard let self else { return }
+      await self.executeCurrentCameraCalibrationAndAcceptROI()
     }
+    currentCameraCalibrationTask = task
+    await task.value
+    currentCameraCalibrationTask = nil
+  }
+
+  private func executeCurrentCameraCalibrationAndAcceptROI() async {
+    guard currentCameraCalibrationPhase == nil, !hasShutdown, !Task.isCancelled,
+      let frame = targetPoseRegistrationFrame,
+      let targetPosition = registeredTargetMachinePosition
+    else { return }
+
+    if compatibleRegistrationContactEvidence(for: frame).count >= 3,
+      acceptTargetContactPointAndROI()
+    {
+      return
+    }
+
+    let ownerID = LearningPathItemID.humanGuidedDiscovery(
+      .visibilityTargetAndClearViewRegistration
+    )
+    currentCameraCalibrationPhase = "Preparing bounded calibration"
+    explorationError = nil
+    defer { currentCameraCalibrationPhase = nil }
+
+    do {
+      var stagedSamples: [MachineCameraCorrespondenceProvenance] = []
+      let current = try currentMachinePosition()
+      guard protocolPositionsMatch(current, targetPosition) else {
+        throw LearningPathOperationError.requiredState(
+          "Return to the registered target pose before calibrating the current camera."
+        )
+      }
+      let plan = try CurrentCameraCalibrationPlan(
+        targetPosition: targetPosition,
+        boundarySideAggregates: boundarySideAggregates,
+        controllerSessionID: controllerSessionID,
+        coordinateRevision: explorationCoordinateRevision
+      )
+
+      currentCameraCalibrationPhase = "Capturing exact sample 1 of 3 at the target pose"
+      stagedSamples.append(try await captureCurrentCameraContactEvidence())
+      try requireCalibrationContinuation()
+
+      for sampleIndex in 1..<plan.samplePositions.count {
+        try requireCalibrationContinuation()
+        let expected = plan.samplePositions[sampleIndex]
+        currentCameraCalibrationPhase = "Moving Pen Up to exact sample \(sampleIndex + 1) of 3"
+        let final = try await performSupervisedPenUpTravel(
+          delta: plan.motionDeltas[sampleIndex - 1],
+          ownerID: ownerID,
+          action: "Current-Camera Calibration Sample \(sampleIndex + 1) of 3"
+        )
+        try requireCalibrationContinuation()
+        guard
+          recordProtocolPoseSettlement(
+            action: "Current-Camera Calibration Sample \(sampleIndex + 1) of 3",
+            target: expected,
+            actual: final
+          )
+        else {
+          throw LearningPathOperationError.controllerOutcome(
+            "Calibration travel did not settle at exact sample \(sampleIndex + 1) of 3."
+          )
+        }
+        currentCameraCalibrationPhase = "Capturing exact sample \(sampleIndex + 1) of 3"
+        stagedSamples.append(try await captureCurrentCameraContactEvidence())
+        try requireCalibrationContinuation()
+      }
+
+      try requireCalibrationContinuation()
+      currentCameraCalibrationPhase = "Returning Pen Up to the registered target pose"
+      let returned = try await performSupervisedPenUpTravel(
+        delta: plan.motionDeltas[2],
+        ownerID: ownerID,
+        action: "Return from Current-Camera Calibration"
+      )
+      try requireCalibrationContinuation()
+      guard
+        recordProtocolPoseSettlement(
+          action: "Return from Current-Camera Calibration",
+          target: targetPosition,
+          actual: returned
+        )
+      else {
+        throw LearningPathOperationError.controllerOutcome(
+          "Calibration return did not settle at the registered target pose."
+        )
+      }
+      try requireCalibrationContinuation()
+      currentCameraCalibrationPhase = "Fitting registration and accepting the target ROI"
+      guard acceptTargetContactPointAndROI(correspondenceOverride: stagedSamples) else {
+        throw LearningPathOperationError.requiredState(
+          explorationError ?? "The current-camera registration fit was not accepted."
+        )
+      }
+      explicitRegistrationContactEvidence.removeAll {
+        $0.source == frame.source
+          && $0.cameraConfigurationID == frame.frame.cameraConfigurationID
+          && $0.controllerSessionID == controllerSessionID
+          && $0.coordinateRevision == explorationCoordinateRevision
+      }
+      explicitRegistrationContactEvidence.append(contentsOf: stagedSamples)
+    } catch where hasShutdown || Task.isCancelled {
+      return
+    } catch {
+      machineCameraRegistration = nil
+      targetContactPointAndROIAccepted = false
+      explorationError = "Current-camera calibration failed: \(actionableDescription(error))"
+    }
+  }
+
+  /// Captures one exact current-camera machine/contact correspondence. Motion,
+  /// sequencing, and target return remain owned by the automatic calibration.
+  private func captureCurrentCameraContactEvidence() async throws
+    -> MachineCameraCorrespondenceProvenance
+  {
+    try requireCalibrationContinuation()
+    guard let attemptID = activeExerciseAttemptID else {
+      throw LearningPathOperationError.requiredState(
+        "No active target-registration attempt owns this calibration sample."
+      )
+    }
+    guard
+      let centerArrivalRevisionID = learningArtifactGraph.currentRevision(
+        for: .centerArrival
+      )?.id
+    else {
+      throw LearningPathOperationError.requiredState(
+        "The accepted center-arrival coordinate artifact is unavailable."
+      )
+    }
+    let machinePositionBeforeCapture = try await freshCalibrationMachinePosition()
+    try requireCalibrationContinuation()
+    let boundary = displayedFrame?.frame.captureNanoseconds ?? 0
+    let frame = try await captureProtocolFrame(newerThan: boundary)
+    try requireCalibrationContinuation()
+    let centroid: Point2<CameraPixelSpace>
+    let bounds: AxisAlignedBounds<CameraPixelSpace>
+    let confidence: Double
+    var evidenceFrame = frame
+    if frameMode == .simulated {
+      guard
+        let point = cameraOverlays.compactMap({ overlay -> Point2<CameraPixelSpace>? in
+          guard overlay.provenance.kind == .penCap, case .point(let point) = overlay.geometry
+          else { return nil }
+          return point
+        }).first,
+        let armatureBounds = cameraOverlays.compactMap({
+          overlay -> AxisAlignedBounds<CameraPixelSpace>? in
+          guard overlay.provenance.kind == .armatureEstimate,
+            case .bounds(let bounds) = overlay.geometry
+          else { return nil }
+          return bounds
+        }).first
+      else {
+        throw LearningPathOperationError.requiredState(
+          "Tool contact and armature overlays are unavailable."
+        )
+      }
+      centroid = try Point2(
+        x: (armatureBounds.minX + armatureBounds.maxX) / 2,
+        y: (armatureBounds.minY + armatureBounds.maxY) / 2
+      )
+      guard abs(point.x - centroid.x) <= 0.001,
+        abs(point.y - armatureBounds.maxY) <= 0.001
+      else {
+        throw LearningPathOperationError.requiredState(
+          "The causal simulator contact does not match the armature bottom-center."
+        )
+      }
+      bounds = armatureBounds
+      confidence = 1
+    } else {
+      guard let cameraActions,
+        let inspection = try await cameraActions.inspectScene(
+          frame.frame.captureNanoseconds - 1
+        ),
+        let cap = inspection.measurement.cap
+      else {
+        throw LearningPathOperationError.requiredState("A measured tool component is required.")
+      }
+      try requireCalibrationContinuation()
+      centroid = cap.centroid
+      bounds = try AxisAlignedBounds(
+        minX: Double(cap.boundingBox.x),
+        minY: Double(cap.boundingBox.y),
+        maxX: Double(cap.boundingBox.x + cap.boundingBox.width),
+        maxY: Double(cap.boundingBox.y + cap.boundingBox.height)
+      )
+      confidence = cap.confidence
+      evidenceFrame = inspection.displayedFrame
+      displayedFrame = inspection.displayedFrame
+      cameraOverlays = inspection.measurement.overlays
+    }
+    let contact = try ToolContactPointEstimate(
+      componentCentroid: centroid,
+      componentBounds: bounds,
+      confidence: confidence,
+      estimatorRevision: "green-tool-bottom-center-v1",
+      source: evidenceFrame.source,
+      frameID: evidenceFrame.frame.id,
+      cameraConfigurationID: evidenceFrame.frame.cameraConfigurationID
+    )
+    let machinePositionAfterCapture = try await freshCalibrationMachinePosition()
+    try requireCalibrationContinuation()
+    guard protocolPositionsMatch(machinePositionBeforeCapture, machinePositionAfterCapture) else {
+      throw LearningPathOperationError.controllerOutcome(
+        "Controller MPos changed while the camera sample was being captured; the sample was discarded."
+      )
+    }
+    return MachineCameraCorrespondenceProvenance(
+      machinePoint: machinePositionAfterCapture.point,
+      contactPoint: contact.point,
+      source: evidenceFrame.source,
+      controllerSessionID: controllerSessionID,
+      coordinateRevision: explorationCoordinateRevision,
+      frameID: evidenceFrame.frame.id,
+      frameSHA256: evidenceFrame.frame.contentSHA256,
+      captureNanoseconds: evidenceFrame.frame.captureNanoseconds,
+      cameraConfigurationID: evidenceFrame.frame.cameraConfigurationID,
+      attemptID: attemptID,
+      contactEstimatorRevision: contact.estimatorRevision,
+      algorithmRevision: "automatic-current-camera-contact-v2",
+      contactConfidence: contact.confidence,
+      artifactRevisionID: centerArrivalRevisionID
+    )
+  }
+
+  private func requireCalibrationContinuation() throws {
+    guard !hasShutdown, !Task.isCancelled else {
+      throw LearningPathOperationError.requiredState(
+        "Application shutdown cancelled automatic current-camera calibration."
+      )
+    }
+  }
+
+  private func freshCalibrationMachinePosition() async throws -> MachinePosition {
+    try requireCalibrationContinuation()
+    if frameMode == .simulated {
+      let snapshot = await simulatedLearningRuntime.snapshot()
+      try requireCalibrationContinuation()
+      guard snapshot.currentOperation == nil, snapshot.stickyAmbiguity == nil,
+        snapshot.penPose == .up
+      else {
+        throw LearningPathOperationError.controllerOutcome(
+          "The simulated controller was not settled at an unambiguous Pen-Up position."
+        )
+      }
+      simulatedLearningSnapshot = snapshot
+      return try MachinePosition(x: snapshot.mpos.xMM, y: snapshot.mpos.yMM)
+    }
+
+    guard let machineActions, let baselineProbe = passiveProbeResult else {
+      throw LearningPathOperationError.requiredState(
+        "A current passive controller probe is required for exact calibration evidence."
+      )
+    }
+    let baselineContext = try ControllerCheckpointContext(probe: baselineProbe)
+    let probe = try await machineActions.requestPassiveProbe()
+    try requireCalibrationContinuation()
+    let refreshedContext = try ControllerCheckpointContext(probe: probe)
+    guard refreshedContext == baselineContext else {
+      throw LearningPathOperationError.controllerOutcome(
+        "Controller configuration or coordinate context changed during calibration; the sample was discarded. Disconnect and reconnect before revalidating accepted machine artifacts."
+      )
+    }
+    let snapshot = await machineActions.snapshot()
+    try requireCalibrationContinuation()
+    guard let snapshot, snapshot.currentOperation == .idle,
+      snapshot.machine.connection == .connected,
+      snapshot.machine.controllerState == .idle,
+      snapshot.machine.stickyAmbiguity == nil,
+      snapshot.machine.penState == .up,
+      let position = snapshot.machine.position
+    else {
+      throw LearningPathOperationError.controllerOutcome(
+        "Fresh controller status did not prove an unambiguous Idle Pen-Up MPos."
+      )
+    }
+    passiveProbeResult = probe
+    machineSnapshot = snapshot
+    return position
   }
 
   private func rejectTargetContactPointAndROI() {
@@ -3104,7 +3322,8 @@ final class OperatorWorkspace {
       executedVisibilityTargetPlanRevision == context.targetPlanRevision,
       visibilityTargetSceneDisposition == .inkPossible
         || visibilityTargetSceneDisposition == .targetObserved,
-      (try? currentMachinePosition()).map({ protocolPositionsMatch($0, context.clearPosition) }) == true
+      (try? currentMachinePosition()).map({ protocolPositionsMatch($0, context.clearPosition) })
+        == true
     else { return false }
     return true
   }
@@ -3515,7 +3734,8 @@ final class OperatorWorkspace {
 
   var workbenchStatusText: String {
     if let operation = visibilityObservationOperation {
-      return "Vision owns the foreground operation. \(operation.busyDetail) Only Cancel Vision is available."
+      return
+        "Vision owns the foreground operation. \(operation.busyDetail) Only Cancel Vision is available."
     }
     if let actionableError { return actionableError }
     if !controllerSessionEstablished {
@@ -3629,6 +3849,7 @@ final class OperatorWorkspace {
 
   var passiveProbeUnavailableReason: String? {
     if let reason = foregroundVisionOperationUnavailableReason { return reason }
+    if let reason = currentCameraCalibrationBusyReason { return reason }
     if passiveProbeInProgress { return "Controller connection inspection is already in progress." }
     if frameModeSwitchInProgress { return "Wait for the frame source switch to finish." }
     if machineActions == nil { return "Native machine composition is unavailable." }
@@ -3640,6 +3861,7 @@ final class OperatorWorkspace {
   /// safety check when it receives the typed request.
   var motionUnavailableReason: String? {
     if let reason = foregroundVisionOperationUnavailableReason { return reason }
+    if let reason = currentCameraCalibrationBusyReason { return reason }
     if frameMode == .simulated {
       if let reason = simulatedManualMotionUnavailableReason { return reason }
     } else if let reason = directCarriageMotionUnavailableReason {
@@ -3727,6 +3949,7 @@ final class OperatorWorkspace {
 
   func penUnavailableReason(for command: PenCommand) -> String? {
     if let reason = foregroundVisionOperationUnavailableReason { return reason }
+    if let reason = currentCameraCalibrationBusyReason { return reason }
     if penRequestInProgress { return "A pen command is already in progress." }
     if frameModeSwitchInProgress { return "Wait for the frame source switch to finish." }
     if frameMode == .simulated {
@@ -3785,6 +4008,7 @@ final class OperatorWorkspace {
 
   func refreshSerialDevices() async {
     guard visibilityObservationOperation == nil else { return }
+    guard currentCameraCalibrationBusyReason == nil else { return }
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
     guard !passiveProbeInProgress && !jogRequestInProgress && !penRequestInProgress else { return }
@@ -3807,6 +4031,7 @@ final class OperatorWorkspace {
 
   func disconnectMachineSession() async {
     guard visibilityObservationOperation == nil else { return }
+    guard currentCameraCalibrationBusyReason == nil else { return }
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
     guard selectedSerialDevice != nil, !passiveProbeInProgress, !jogRequestInProgress,
@@ -3845,6 +4070,7 @@ final class OperatorWorkspace {
   /// a successful connection and cannot turn the status indicator green.
   func selectSerialDevice(_ descriptor: MachineLinkDescriptor) async {
     guard visibilityObservationOperation == nil else { return }
+    guard currentCameraCalibrationBusyReason == nil else { return }
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
     guard activeDiscoverySequenceID == nil, !explorationOperationInProgress else { return }
@@ -3865,12 +4091,14 @@ final class OperatorWorkspace {
   /// without asserting that its passive inspection succeeded.
   func establishMachineSession(_ descriptor: MachineLinkDescriptor) async {
     guard visibilityObservationOperation == nil else { return }
+    guard currentCameraCalibrationBusyReason == nil else { return }
     await selectSerialDevice(descriptor)
     await openSelectedMachineSession()
   }
 
   func connectSelectedController() async {
     guard visibilityObservationOperation == nil else { return }
+    guard currentCameraCalibrationBusyReason == nil else { return }
     guard selectedSerialDevice != nil else { return }
     await openSelectedMachineSession()
     guard machineError == nil, machineSnapshot != nil else { return }
@@ -3878,6 +4106,7 @@ final class OperatorWorkspace {
   }
 
   private func openSelectedMachineSession() async {
+    guard currentCameraCalibrationBusyReason == nil else { return }
     guard let descriptor = selectedSerialDevice else { return }
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
@@ -3903,6 +4132,7 @@ final class OperatorWorkspace {
 
   func requestPassiveProbe() async {
     guard visibilityObservationOperation == nil else { return }
+    guard currentCameraCalibrationBusyReason == nil else { return }
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
     guard passiveProbeUnavailableReason == nil, let machineActions else { return }
@@ -4285,7 +4515,8 @@ final class OperatorWorkspace {
       ).attemptCompatibility
       var stagedHistories = boundaryAttemptHistories
       var directionHistories = stagedHistories[direction] ?? [:]
-      var history = try directionHistories[compatibility]
+      var history =
+        try directionHistories[compatibility]
         ?? ExerciseAttemptHistory(compatibility: compatibility)
       let acceptedSequence = acceptedAttemptSequence &+ 1
       let attempt = try ExerciseAttempt(
@@ -4463,7 +4694,8 @@ final class OperatorWorkspace {
     let boundaryDirection = boundaryDirection(for: sequenceID)
     let boundaryAttemptID = activeExerciseAttemptID
     let acceptedFallback = boundaryDirection.flatMap { boundarySideAggregates[$0] }
-    let isBoundaryRepeat = boundaryDirection != nil
+    let isBoundaryRepeat =
+      boundaryDirection != nil
       && (activeExerciseAttemptMode == .replacement || activeExerciseAttemptMode == .additional)
     recordDiscoveryAttempt(sequenceID: sequenceID, disposition: disposition)
     if let direction = boundaryDirection, let attemptID = boundaryAttemptID {
@@ -4554,7 +4786,8 @@ final class OperatorWorkspace {
         attemptID: attemptID,
         operationOwnerID: operationOwner,
         stopCapabilityID: capabilityID,
-        detail: .message("Operator Stop latched before controller cancellation and any segment renewal.")
+        detail: .message(
+          "Operator Stop latched before controller cancellation and any segment renewal.")
       )
       boundaryTeachingState = .cancelling(jogDirection(from: direction))
       boundaryTeachingResultText =
@@ -4581,8 +4814,10 @@ final class OperatorWorkspace {
       let owner = exerciseMotionTask
       await requestSingleJogCancel(for: target, intent: .operatorStop)
       _ = await owner?.value
-      finishActiveExerciseAttempt(disposition: .cancelled)
-      restartableExerciseItemID = ownerID
+      if currentCameraCalibrationPhase == nil {
+        finishActiveExerciseAttempt(disposition: .cancelled)
+        restartableExerciseItemID = ownerID
+      }
 
     case .visibilityTarget(_, let operationOwner, let ownerID):
       await requestVisibilityTargetIntent(.operatorStop, operationOwner: operationOwner)
@@ -4919,6 +5154,7 @@ final class OperatorWorkspace {
 
   func discoverCameras() async {
     guard visibilityObservationOperation == nil else { return }
+    guard currentCameraCalibrationBusyReason == nil else { return }
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
     guard let cameraActions else {
@@ -4953,6 +5189,10 @@ final class OperatorWorkspace {
       cameraError = foregroundVisionOperationUnavailableReason
       return
     }
+    guard currentCameraCalibrationBusyReason == nil else {
+      cameraError = currentCameraCalibrationBusyReason
+      return
+    }
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
     guard let cameraActions, activeDiscoverySequenceID == nil,
@@ -4982,6 +5222,7 @@ final class OperatorWorkspace {
 
   func startCamera() async {
     guard visibilityObservationOperation == nil else { return }
+    guard currentCameraCalibrationBusyReason == nil else { return }
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
     guard let cameraActions else { return }
@@ -5010,6 +5251,7 @@ final class OperatorWorkspace {
 
   func stopCamera() async {
     guard visibilityObservationOperation == nil else { return }
+    guard currentCameraCalibrationBusyReason == nil else { return }
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
     frameTask?.cancel()
@@ -5025,6 +5267,7 @@ final class OperatorWorkspace {
 
   func restartCamera() async {
     guard visibilityObservationOperation == nil else { return }
+    guard currentCameraCalibrationBusyReason == nil else { return }
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
     guard activeDiscoverySequenceID == nil, !explorationOperationInProgress else {
@@ -5057,6 +5300,7 @@ final class OperatorWorkspace {
 
   func inspectLatestScene() async {
     guard visibilityObservationOperation == nil else { return }
+    guard currentCameraCalibrationBusyReason == nil else { return }
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
     guard frameMode == .live, !automaticVisionEnabled,
@@ -5084,6 +5328,7 @@ final class OperatorWorkspace {
 
   func resumeLivePreview() async {
     guard visibilityObservationOperation == nil else { return }
+    guard currentCameraCalibrationBusyReason == nil else { return }
     guard frameMode == .live, let cameraActions else { return }
     analysisFrameHeld = false
     lastSceneMeasurement = nil
@@ -5095,6 +5340,7 @@ final class OperatorWorkspace {
 
   func setAutomaticVisionAnalysis(_ enabled: Bool) async {
     guard visibilityObservationOperation == nil else { return }
+    guard currentCameraCalibrationBusyReason == nil else { return }
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
     guard frameMode == .live, let cameraActions else { return }
@@ -5290,9 +5536,13 @@ final class OperatorWorkspace {
     hasShutdown = true
     lifetimeGeneration &+= 1
     stopObserving()
+    let calibration = currentCameraCalibrationTask
+    calibration?.cancel()
     await cancelAndSettleVisibilityObservation()
     await announcementActions?.cancelForShutdown()
     await stopAndSettleActiveMotionForShutdown()
+    await calibration?.value
+    currentCameraCalibrationTask = nil
     await waitForHardwareIntentsToDrain()
     _ = await cameraActions?.stop()
     await machineActions?.disconnect()
@@ -5567,7 +5817,8 @@ final class OperatorWorkspace {
       attemptID: attemptID,
       operationOwnerID: .liveBoundary(request.ownerID),
       stopCapabilityID: stopTarget.capabilityID,
-      detail: .message("The logical Boundary owner was admitted under current direct controller facts.")
+      detail: .message(
+        "The logical Boundary owner was admitted under current direct controller facts.")
     )
     machineSnapshot = await machineActions.snapshot()
     boundaryTeachingState = .ownerActive(direction)
@@ -5657,7 +5908,8 @@ final class OperatorWorkspace {
       pendingDiscoveryInspection = nil
       pendingDiscoveryCaptureBoundaryNanoseconds = nil
       let acceptedFallback = boundarySideAggregates[discoveryDirection]
-      let repeatAttempt = activeExerciseAttemptMode == .replacement
+      let repeatAttempt =
+        activeExerciseAttemptMode == .replacement
         || activeExerciseAttemptMode == .additional
       recordDiscoveryAttempt(sequenceID: sequenceID, disposition: .cancelled)
       appendBoundaryActivity(
@@ -5678,7 +5930,8 @@ final class OperatorWorkspace {
       )
       finishActiveExerciseAttempt(disposition: .cancelled)
       if settlement.intent == .cancelAttempt {
-        restartableExerciseItemID = repeatAttempt && acceptedFallback != nil
+        restartableExerciseItemID =
+          repeatAttempt && acceptedFallback != nil
           ? nil : .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
       }
 
@@ -5808,11 +6061,13 @@ final class OperatorWorkspace {
         discoveryTransactions[sequenceID] = transaction
       }
       let acceptedFallback = boundarySideAggregates[discoveryDirection]
-      let repeatAttempt = activeExerciseAttemptMode == .replacement
+      let repeatAttempt =
+        activeExerciseAttemptMode == .replacement
         || activeExerciseAttemptMode == .additional
       recordDiscoveryAttempt(sequenceID: sequenceID, disposition: .cancelled)
       finishActiveExerciseAttempt(disposition: .cancelled)
-      restartableExerciseItemID = repeatAttempt && acceptedFallback != nil
+      restartableExerciseItemID =
+        repeatAttempt && acceptedFallback != nil
         ? nil : .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
       boundaryTeachingResultText =
         "Simulated Boundary attempt cancelled. \(outcome.evidenceNotice.label)"
@@ -5905,9 +6160,10 @@ final class OperatorWorkspace {
   ) async -> Double? {
     let observation = await captureBoundaryApproachObservation(at: progress.finalPosition)
     let advice = await planner.advise(after: observation)
-    let projection = advice.estimatedRemainingMM.map {
-      String(format: ", estimated %.1f mm remaining", $0)
-    } ?? ""
+    let projection =
+      advice.estimatedRemainingMM.map {
+        String(format: ", estimated %.1f mm remaining", $0)
+      } ?? ""
     appendBoundaryActivity(
       actor: .vision,
       direction: progress.direction,
@@ -6308,7 +6564,8 @@ final class OperatorWorkspace {
       } else if let direction = boundaryDirection(for: sequenceID) {
         let compatibility = boundaryCompatibility(direction)
         var histories = boundaryAttemptHistories[direction] ?? [:]
-        var history = try histories[compatibility]
+        var history =
+          try histories[compatibility]
           ?? ExerciseAttemptHistory(compatibility: compatibility)
         let sequence = acceptedAttemptSequence &+ 1
         let attempt = try ExerciseAttempt<BoundarySideAttemptEvidence>(
@@ -7017,22 +7274,48 @@ final class OperatorWorkspace {
               )
             ]
           } else if !targetContactPointAndROIAccepted {
-            actions = [
-              ExerciseActionDescriptor(
-                kind: .collectCurrentCameraContactEvidence,
-                title: "Collect Current-Camera Contact Evidence"
-              ),
-              ExerciseActionDescriptor(
-                kind: .acceptTargetContactPointAndROI,
-                title: "Accept Contact Point and ROI",
-                role: .positive
-              ),
-              ExerciseActionDescriptor(
-                kind: .rejectTargetContactPointAndROI,
-                title: "Reject Contact Point and ROI",
-                role: .destructive
-              ),
-            ]
+            let targetPosition = registeredTargetMachinePosition
+            let isAtTarget = currentPosition.map { current in
+              targetPosition.map { protocolPositionsMatch(current, $0) } ?? false
+            }
+            if currentCameraCalibrationPhase != nil {
+              actions = [
+                ExerciseActionDescriptor(
+                  kind: .calibrateCurrentCameraAndAcceptROI,
+                  title: "Calibrating Camera…",
+                  unavailableReason: "Automatic current-camera calibration is in progress."
+                )
+              ]
+            } else if isAtTarget == false {
+              actions = [
+                ExerciseActionDescriptor(
+                  kind: .returnToRegisteredTargetPose,
+                  title: "Return to Registered Target Pose"
+                )
+              ]
+            } else {
+              let compatibleCount =
+                targetPoseRegistrationFrame.map {
+                  compatibleRegistrationContactEvidence(for: $0).count
+                } ?? 0
+              actions = [
+                ExerciseActionDescriptor(
+                  kind: .calibrateCurrentCameraAndAcceptROI,
+                  title: compatibleCount >= 3
+                    ? "Accept Contact Point and ROI"
+                    : "Calibrate Current Camera and Accept ROI",
+                  role: .positive,
+                  unavailableReason: isAtTarget == nil
+                    ? "Current Controller MPos is unavailable."
+                    : nil
+                ),
+                ExerciseActionDescriptor(
+                  kind: .rejectTargetContactPointAndROI,
+                  title: "Reject Contact Point and ROI",
+                  role: .destructive
+                ),
+              ]
+            }
           } else if !clearViewPoseAccepted {
             directionSelection = ExerciseDirectionSelectionPresentation(
               purpose: .clearViewSearch,
@@ -7160,7 +7443,7 @@ final class OperatorWorkspace {
             )
           })
       }
-      if stopDispositionLatch == nil {
+      if stopDispositionLatch == nil && currentCameraCalibrationPhase == nil {
         actions.append(
           ExerciseActionDescriptor(kind: .cancel, title: "Cancel Attempt", role: .destructive)
         )
@@ -7264,18 +7547,19 @@ final class OperatorWorkspace {
             role: .positive,
             unavailableReason: reason
           )
-        ] + pairedBoundaryProgress.acceptedDirections.flatMap { direction in
-          [
-            ExerciseActionDescriptor(
-              kind: .redoBoundary(direction),
-              title: "Redo \(direction.displayName) Boundary"
-            ),
-            ExerciseActionDescriptor(
-              kind: .recordAnotherBoundaryAttempt(direction),
-              title: "Record Another \(direction.displayName) Attempt"
-            ),
-          ]
-        }
+        ]
+          + pairedBoundaryProgress.acceptedDirections.flatMap { direction in
+            [
+              ExerciseActionDescriptor(
+                kind: .redoBoundary(direction),
+                title: "Redo \(direction.displayName) Boundary"
+              ),
+              ExerciseActionDescriptor(
+                kind: .recordAnotherBoundaryAttempt(direction),
+                title: "Record Another \(direction.displayName) Attempt"
+              ),
+            ]
+          }
       )
     }
     if case .observedDrawingTrial(let step) = itemID {
@@ -7379,7 +7663,7 @@ final class OperatorWorkspace {
     case .visibilityTargetAndClearViewRegistration:
       [
         .text(
-          "Register the target pose, find Clear, then double-trace and observe one closed visibility target."
+          "Capture the target pose. The app calibrates the current camera automatically when needed. Then find Clear; the machine draws and observes one closed visibility target."
         )
       ]
     }
@@ -7500,27 +7784,28 @@ final class OperatorWorkspace {
           )
         )
       }
-      evidence.append(contentsOf: BoundaryDirection.allCases.compactMap { direction in
-        guard let aggregate = boundarySideAggregates[direction],
-          let attemptID = aggregate.includedAttemptIDs.last,
-          let attemptEvidence = boundaryAttemptEvidenceByAttemptID[attemptID]
-        else { return nil }
-        return
-          ExerciseEvidencePresentation(
-            label: "Raw Controller MPos · \(direction.displayName)",
-            fragments: [
-              .text(
-                String(
-                  format: "X %.3f Y %.3f · aggregate %.3f mm · N=%d · revision %@",
-                  attemptEvidence.finalPosition.point.x,
-                  attemptEvidence.finalPosition.point.y,
-                  aggregate.estimateMM,
-                  aggregate.validSampleCount,
-                  aggregate.revisionID.rawValue.uuidString.lowercased()
-                ))
-            ]
-          )
-      })
+      evidence.append(
+        contentsOf: BoundaryDirection.allCases.compactMap { direction in
+          guard let aggregate = boundarySideAggregates[direction],
+            let attemptID = aggregate.includedAttemptIDs.last,
+            let attemptEvidence = boundaryAttemptEvidenceByAttemptID[attemptID]
+          else { return nil }
+          return
+            ExerciseEvidencePresentation(
+              label: "Raw Controller MPos · \(direction.displayName)",
+              fragments: [
+                .text(
+                  String(
+                    format: "X %.3f Y %.3f · aggregate %.3f mm · N=%d · revision %@",
+                    attemptEvidence.finalPosition.point.x,
+                    attemptEvidence.finalPosition.point.y,
+                    aggregate.estimateMM,
+                    aggregate.validSampleCount,
+                    aggregate.revisionID.rawValue.uuidString.lowercased()
+                  ))
+              ]
+            )
+        })
       if let center = estimatedMachineCenter {
         evidence.append(
           ExerciseEvidencePresentation(
@@ -7710,6 +7995,24 @@ final class OperatorWorkspace {
       )
     }
     if itemID == .humanGuidedDiscovery(.visibilityTargetAndClearViewRegistration),
+      let currentCameraCalibrationPhase
+    {
+      return OperationActivityPresentation(
+        actor: activeStopTarget == nil ? "Camera and learning runtime" : "Plotter controller",
+        action: "Calibrate Current Camera and Accept ROI",
+        phase: currentCameraCalibrationPhase,
+        outcome: .inProgress,
+        detail: [
+          .text(
+            "The app owns three exact non-collinear contact samples and returns to the registered target pose. The later visibility target is still a separate machine-drawn action."
+          )
+        ],
+        recovery: activeStopTarget == nil
+          ? [.text("No operator calibration move or hand-drawn triangle is required.")]
+          : [.text("Stop remains bound to the currently admitted Pen-Up move.")]
+      )
+    }
+    if itemID == .humanGuidedDiscovery(.visibilityTargetAndClearViewRegistration),
       let explorationError
     {
       return OperationActivityPresentation(
@@ -7809,6 +8112,9 @@ final class OperatorWorkspace {
   }
 
   private var visibilityActivityAction: String {
+    if explorationError?.hasPrefix("Current-camera calibration failed:") == true {
+      return "Calibrate Current Camera and Accept ROI"
+    }
     if targetAreaRelocationRequired && !targetAreaRelocationCompleted {
       return "Move to New Target Area"
     }
@@ -7822,6 +8128,13 @@ final class OperatorWorkspace {
   }
 
   private var visibilityActivityRecovery: [PresentationFragment] {
+    if explorationError?.hasPrefix("Current-camera calibration failed:") == true {
+      return [
+        .text(
+          "If the plotter moved, use Return to Registered Target Pose. Then retry the one automatic calibration action; do not draw a calibration triangle."
+        )
+      ]
+    }
     if targetAreaRelocationRequired && !targetAreaRelocationCompleted {
       return [.text("Choose a direction and one 10, 5, 2, or 1 mm Pen-Up move.")]
     }
@@ -8960,6 +9273,11 @@ final class OperatorWorkspace {
     ownerID: LearningPathItemID,
     action: String
   ) async throws -> MachinePosition {
+    guard !hasShutdown, !Task.isCancelled else {
+      throw LearningPathOperationError.requiredState(
+        "Application shutdown closed admission for supervised Pen-Up travel."
+      )
+    }
     let selection = travelFeedSelection(for: delta)
     lastTravelFeedSelection = selection
     if frameMode == .simulated {
@@ -8975,6 +9293,23 @@ final class OperatorWorkspace {
       )
       activeStopTarget = target
       stopDispositionLatch = nil
+      if hasShutdown || Task.isCancelled {
+        _ = latchContextualStopDisposition(
+          for: target,
+          intent: .shutdown,
+          actor: "Application",
+          action: "Shutdown"
+        )
+        await requestSingleJogCancel(for: target, intent: .shutdown)
+        if activeStopTarget == target { activeStopTarget = nil }
+        if stopDispositionLatch?.capabilityID == target.capabilityID {
+          stopDispositionLatch = nil
+        }
+        simulatedLearningSnapshot = await simulatedLearningRuntime.snapshot()
+        throw LearningPathOperationError.requiredState(
+          "Application shutdown cancelled supervised Pen-Up travel before execution."
+        )
+      }
       let owner = Task { [simulatedLearningRuntime, simulatedExecutionPacing] in
         try? await simulatedLearningRuntime.executeNaturally(
           operation.id,
@@ -9022,6 +9357,23 @@ final class OperatorWorkspace {
     exerciseMotionTask = owner
     activeStopTarget = target
     stopDispositionLatch = nil
+    if hasShutdown || Task.isCancelled {
+      _ = latchContextualStopDisposition(
+        for: target,
+        intent: .shutdown,
+        actor: "Application",
+        action: "Shutdown"
+      )
+      await requestSingleJogCancel(for: target, intent: .shutdown)
+      _ = await owner.value
+      exerciseMotionTask = nil
+      if activeStopTarget == target { activeStopTarget = nil }
+      if stopDispositionLatch?.capabilityID == target.capabilityID { stopDispositionLatch = nil }
+      machineSnapshot = await machineActions.snapshot()
+      throw LearningPathOperationError.requiredState(
+        "Application shutdown cancelled supervised Pen-Up travel during admission."
+      )
+    }
     let outcome = await owner.value
     exerciseMotionTask = nil
     if activeStopTarget == target { activeStopTarget = nil }
