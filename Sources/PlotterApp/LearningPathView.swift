@@ -237,6 +237,10 @@ struct LearningPathView: View {
         operationActivityCard(activity)
       }
 
+      if !presentation.subsystemStatuses.isEmpty {
+        subsystemAuthorityCard(presentation.subsystemStatuses)
+      }
+
       if !presentation.evidence.isEmpty {
         VStack(alignment: .leading, spacing: 8) {
           Text("EVIDENCE")
@@ -415,6 +419,44 @@ struct LearningPathView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(fragments.accessibilityText)
     }
+  }
+
+  private func subsystemAuthorityCard(
+    _ statuses: [SubsystemStatusPresentation]
+  ) -> some View {
+    VStack(alignment: .leading, spacing: 9) {
+      Text("SYSTEM AUTHORITY")
+        .font(.caption2.monospaced().bold())
+        .foregroundStyle(.secondary)
+      ForEach(statuses) { status in
+        VStack(alignment: .leading, spacing: 3) {
+          HStack(alignment: .firstTextBaseline, spacing: 7) {
+            Text(status.subsystem)
+              .font(.callout.weight(.semibold))
+            Text(status.state)
+              .font(.caption.monospaced())
+              .foregroundStyle(.secondary)
+            Spacer()
+            Text(status.blocksNewMotion ? "BLOCKING NEW MOTION" : "NOT BLOCKING")
+              .font(.caption2.monospaced().bold())
+              .foregroundStyle(status.blocksNewMotion ? Color.red : Color.green)
+          }
+          Text(status.role.rawValue.uppercased())
+            .font(.caption2.monospaced().bold())
+            .foregroundStyle(.secondary)
+          fragmentText(status.detail)
+            .font(.caption)
+            .textSelection(.enabled)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(status.detail.accessibilityText)
+        }
+        .padding(.vertical, 3)
+      }
+    }
+    .padding(11)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(Color.blue.opacity(0.06), in: RoundedRectangle(cornerRadius: 9))
+    .accessibilityElement(children: .contain)
   }
 
   private func fragmentCard(

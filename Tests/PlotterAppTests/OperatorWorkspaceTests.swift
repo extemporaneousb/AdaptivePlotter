@@ -87,7 +87,7 @@ struct OperatorWorkspaceTests {
   }
 
   @Test(
-    "boundary Stop records Stop first, settles owner, captures fresh frame, and commits typed evidence")
+    "boundary Stop commits controller evidence without consulting Camera or Vision")
   func boundaryStopCompletesTransaction() async throws {
     let log = EventLog()
     let machine = try MachineFixture(
@@ -109,6 +109,7 @@ struct OperatorWorkspaceTests {
     await workspace.requestPassiveProbe()
     await workspace.startCamera()
     try await completePenInteraction(workspace)
+    let inspectionsBeforeBoundary = camera.inspectionCallCount
 
     let owner = LearningPathItemID.humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
     #expect(workspace.currentLearningPathItemID == owner)
@@ -133,15 +134,48 @@ struct OperatorWorkspaceTests {
     #expect(workspace.relevantBoundaryObservationCount == 1)
     #expect(workspace.boundarySideAggregates[.positiveX]?.validSampleCount == 1)
     #expect(workspace.boundaryAttemptEvidenceByAttemptID.count == 1)
+    #expect(camera.inspectionCallCount == inspectionsBeforeBoundary)
     #expect(workspace.humanGuidedDiscoveryCurrentStep == .pairedBoundaryDiscoveryAndCentering)
     #expect(workspace.lastContextualStopAuditRecord?.actor == "Operator")
     #expect(workspace.lastContextualStopAuditRecord?.action == "Stop")
     #expect(workspace.lastContextualStopAuditRecord?.disposition == .operatorStop)
     #expect(workspace.currentExerciseActionStripPresentation?.actions.map(\.kind) == [.start])
+    let authority = workspace.selectedOperatorActionPresentation(for: owner).subsystemStatuses
+    #expect(authority.first(where: { $0.id == "camera" })?.blocksNewMotion == false)
+    #expect(authority.first(where: { $0.id == "vision" })?.blocksNewMotion == false)
+    #expect(
+      authority.first(where: { $0.id == "vision" })?.detail.accessibilityText
+        .contains("boundary acceptance never calls Camera or Vision") == true
+    )
     let events = await log.values
     #expect(
       events.firstIndex(of: "announce:Moving toward X+ boundary.")! < events.firstIndex(
         of: "machine:boundary")!)
+    await workspace.shutdown()
+  }
+
+  @Test("all four typed boundaries commit with no Camera composition")
+  func allBoundaryDirectionsNeedNoCamera() async throws {
+    let log = EventLog()
+    let machine = try MachineFixture(log: log)
+    let workspace = workspace(machine: machine, log: log)
+    await workspace.establishMachineSession(machine.descriptor)
+    await workspace.requestPassiveProbe()
+
+    let directions: [BoundaryDirection] = [.positiveX, .negativeX, .negativeY, .positiveY]
+    for (index, direction) in directions.enumerated() {
+      #expect(workspace.discoveryStartUnavailableReason(for: sequenceIDForTest(direction)) == nil)
+      await workspace.beginPairedBoundarySide(direction)
+      try await waitUntil { workspace.contextualStopPresentation != nil }
+      let capability = try #require(workspace.contextualStopPresentation?.capabilityID)
+      await workspace.stopCurrentOperation(capabilityID: capability)
+      try await waitUntil { workspace.relevantBoundaryObservationCount == index + 1 }
+      #expect(workspace.discoveryTransactions[sequenceIDForTest(direction)]?.state == .succeeded)
+      #expect(workspace.boundarySideAggregates[direction] != nil)
+    }
+
+    #expect(workspace.pairedBoundaryProgress.isComplete)
+    #expect(workspace.boundarySideAggregates.count == 4)
     await workspace.shutdown()
   }
 
@@ -2911,6 +2945,12 @@ private final class CameraFixture: @unchecked Sendable {
   private let lock = NSLock()
   private var inspectionCount = 0
   private var automaticCadences: [VisionAnalysisCadence] = []
+
+  var inspectionCallCount: Int {
+    lock.lock()
+    defer { lock.unlock() }
+    return inspectionCount
+  }
 
   init(rotatesConfiguration: Bool = false) throws {
     self.rotatesConfiguration = rotatesConfiguration

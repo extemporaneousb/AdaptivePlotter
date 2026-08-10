@@ -127,18 +127,6 @@ private func makeCheckpoint() throws -> AcceptedMachineArtifactCheckpoint {
   let coordinateRevision: UInt64 = 7
   let attemptID = ExerciseAttemptID()
   let revisionID = LearningArtifactRevisionID()
-  let frameID = FrameID()
-  let cameraID = CameraConfigurationID()
-  let source = FrameSourceIdentity.live(CameraDeviceID(rawValue: "checkpoint-camera"))
-  let contact = try ToolContactPointEstimate(
-    componentCentroid: Point2(x: 20, y: 20),
-    componentBounds: AxisAlignedBounds(minX: 18, minY: 16, maxX: 22, maxY: 24),
-    confidence: 0.9,
-    estimatorRevision: "green-tool-bottom-center-v1",
-    source: source,
-    frameID: frameID,
-    cameraConfigurationID: cameraID
-  )
   let evidence = try BoundarySideAttemptEvidence(
     attemptID: attemptID,
     direction: .positiveX,
@@ -148,12 +136,6 @@ private func makeCheckpoint() throws -> AcceptedMachineArtifactCheckpoint {
     stopCapabilityID: UUID(),
     stopIntent: .operatorStop,
     finalPosition: MachinePosition(x: 10, y: 0),
-    frameSource: source,
-    frameID: frameID,
-    frameSHA256: String(repeating: "a", count: 64),
-    captureNanoseconds: 100,
-    cameraConfigurationID: cameraID,
-    contactPoint: contact,
     disposition: .succeeded
   )
   let compatibility = BoundaryNumericCompatibility(

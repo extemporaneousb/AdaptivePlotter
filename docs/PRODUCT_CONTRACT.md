@@ -133,10 +133,11 @@ Pen Interaction records explicit Up/Down observations and ends with human
 confirmation of Up.
 
 Boundary side identity comes from the operator's typed X−, X+, Y−, or Y+
-selection. A successful side attempt retains final settled MPos, Stop owner and
-disposition, one strictly newer exact frame, and one typed contact estimate.
-Camera edge classification and generic drawing-frame geometry are diagnostic
-only and cannot identify or veto the selected machine side.
+selection. A successful side attempt retains controller session/revision, final
+settled MPos, Stop owner, and Stop disposition. It does not capture or require a
+camera frame, cap/contact centroid, confidence, or Vision result. Camera edge
+classification and generic drawing-frame geometry are advisory approach-planning
+or diagnostic facts only and cannot identify or veto the selected machine side.
 
 Compatible successful side attempts form one per-direction machine-space
 aggregate. The four current aggregates derive estimated center and learned local
@@ -160,6 +161,11 @@ dependency revisions may be checkpointed durably by atomic file replacement.
 The file is quarantined on launch until a fresh passive controller probe matches
 device/build, parser state, settings, coordinate offsets, and current MPos within
 0.05 mm.
+
+Checkpoint reuse is a convenience, not a requirement to preserve Boundary
+coordinates across software schema changes. An incompatible checkpoint may be
+discarded and the four fast Boundary stops repeated; no compatibility migration
+may reintroduce Camera or Vision as machine-boundary authority.
 
 The durable schema contains no active transaction, current question, Motion
 authorization, operation owner, live Stop capability, pending command,

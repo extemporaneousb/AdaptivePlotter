@@ -5,6 +5,7 @@ import PlotterModel
 /// finite Boundary segment. It is not accepted Boundary evidence.
 public struct BoundaryApproachObservation: Hashable, Sendable {
   public let source: FrameSourceIdentity
+  public let frameID: FrameID
   public let cameraConfigurationID: CameraConfigurationID
   public let captureNanoseconds: UInt64
   public let machinePosition: MachinePosition
@@ -15,6 +16,7 @@ public struct BoundaryApproachObservation: Hashable, Sendable {
 
   public init(
     source: FrameSourceIdentity,
+    frameID: FrameID,
     cameraConfigurationID: CameraConfigurationID,
     captureNanoseconds: UInt64,
     machinePosition: MachinePosition,
@@ -24,6 +26,7 @@ public struct BoundaryApproachObservation: Hashable, Sendable {
     drawingFrameConfidence: Double
   ) {
     self.source = source
+    self.frameID = frameID
     self.cameraConfigurationID = cameraConfigurationID
     self.captureNanoseconds = captureNanoseconds
     self.machinePosition = machinePosition

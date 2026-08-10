@@ -114,10 +114,10 @@ Do not infer pen height from controller state or one camera frame.
 5. Observe movement directly and press the one exercise-strip **Stop Boundary**
    once at the observed side. Do not press Cancel unless abandoning the attempt.
 6. Verify one operator Stop event, one Jog Cancel, original-owner Idle/final
-   MPos, one strictly newer exact frame/SHA/configuration, one typed
-   bottom-center contact estimate, and one atomic accepted side aggregate.
+   MPos, and one atomic accepted machine-side aggregate. Camera/Vision state
+   must not affect this acceptance.
 7. Confirm the next direction is the forced opposite of the first. Repeat the
-   same Start/Stop/settle/frame sequence.
+   same Start/Stop/settle/commit sequence.
 8. Choose either sign on the remaining axis, then repeat its forced opposite.
 9. Verify all four side aggregates are accepted and the UI shows local
    coordinates as primary learned-area presentation, raw signed controller MPos

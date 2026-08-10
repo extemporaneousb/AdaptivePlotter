@@ -148,13 +148,12 @@ public struct ToolContactPointEstimate: Codable, Hashable, Sendable {
 }
 
 public enum BoundarySideEvidenceError: Error, Equatable, Sendable {
-  case emptyFrameSHA256
-  case inconsistentContactProvenance
   case successfulEvidenceRequiresOperatorStop
 }
 
-/// Immutable evidence from one exact Boundary attempt. Camera/contact values
-/// remain exact attempt provenance and are never averaged into side identity.
+/// Immutable machine-side evidence from one exact Boundary attempt. Controller
+/// settlement is authoritative for accepting a side. Camera and Vision
+/// provenance belongs to later optical-registration evidence, not this record.
 public struct BoundarySideAttemptEvidence: Codable, Hashable, Sendable {
   public let attemptID: ExerciseAttemptID
   public let direction: BoundaryDirection
@@ -164,14 +163,6 @@ public struct BoundarySideAttemptEvidence: Codable, Hashable, Sendable {
   public let stopCapabilityID: UUID
   public let stopIntent: JogCancelIntent
   public let finalPosition: MachinePosition
-  public let frameSource: FrameSourceIdentity
-  public let frameID: FrameID
-  public let frameSHA256: String
-  public let captureNanoseconds: UInt64
-  public let cameraConfigurationID: CameraConfigurationID
-  public let contactPoint: ToolContactPointEstimate
-  public let contactEstimatorRevision: String
-  public let contactConfidence: Double
   public let disposition: ExerciseAttemptDisposition
 
   public init(
@@ -183,23 +174,8 @@ public struct BoundarySideAttemptEvidence: Codable, Hashable, Sendable {
     stopCapabilityID: UUID,
     stopIntent: JogCancelIntent,
     finalPosition: MachinePosition,
-    frameSource: FrameSourceIdentity,
-    frameID: FrameID,
-    frameSHA256: String,
-    captureNanoseconds: UInt64,
-    cameraConfigurationID: CameraConfigurationID,
-    contactPoint: ToolContactPointEstimate,
     disposition: ExerciseAttemptDisposition
   ) throws {
-    guard !frameSHA256.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-      throw BoundarySideEvidenceError.emptyFrameSHA256
-    }
-    guard contactPoint.source == frameSource,
-      contactPoint.frameID == frameID,
-      contactPoint.cameraConfigurationID == cameraConfigurationID
-    else {
-      throw BoundarySideEvidenceError.inconsistentContactProvenance
-    }
     if disposition == .succeeded, stopIntent != .operatorStop {
       throw BoundarySideEvidenceError.successfulEvidenceRequiresOperatorStop
     }
@@ -211,14 +187,6 @@ public struct BoundarySideAttemptEvidence: Codable, Hashable, Sendable {
     self.stopCapabilityID = stopCapabilityID
     self.stopIntent = stopIntent
     self.finalPosition = finalPosition
-    self.frameSource = frameSource
-    self.frameID = frameID
-    self.frameSHA256 = frameSHA256
-    self.captureNanoseconds = captureNanoseconds
-    self.cameraConfigurationID = cameraConfigurationID
-    self.contactPoint = contactPoint
-    contactEstimatorRevision = contactPoint.estimatorRevision
-    contactConfidence = contactPoint.confidence
     self.disposition = disposition
   }
 
@@ -910,8 +878,6 @@ public enum DiscoveryAction: Hashable, Sendable {
   case startBoundaryJog(BoundaryDirection)
   case awaitContextualStop(BoundaryDirection)
   case cancelBoundaryJogAndAwaitIdle(BoundaryDirection)
-  case captureFreshCameraFrame
-  case measureBoundary(BoundaryDirection)
   case commitBoundaryObservation(BoundaryDirection)
   case actuatePen(PenCommand)
   case awaitPhysicalPenConfirmation(PenState, question: DiscoveryQuestion)
@@ -924,8 +890,6 @@ public enum DiscoveryEventExpectation: Hashable, Sendable {
   case boundaryJogStarted(BoundaryDirection)
   case operatorStopRequested(BoundaryDirection)
   case boundaryJogCancelled(BoundaryDirection)
-  case freshFrameCaptured
-  case boundaryMeasured(BoundaryDirection)
   case boundaryObservationCommitted(BoundaryDirection)
   case penCommandSettled(PenCommand)
   case physicalPenConfirmed(PenState, response: OperatorChoice)
@@ -943,10 +907,6 @@ public enum DiscoveryEventExpectation: Hashable, Sendable {
     case (.operatorStopRequested(let expected), .operatorStopRequested(let actual)):
       expected == actual
     case (.boundaryJogCancelled(let expected), .boundaryJogCancelled(let actual, _, _)):
-      expected == actual
-    case (.freshFrameCaptured, .freshFrameCaptured):
-      true
-    case (.boundaryMeasured(let expected), .boundaryMeasured(let actual, _, _, _, _, _, _)):
       expected == actual
     case (.boundaryObservationCommitted(let expected), .boundaryObservationCommitted(let evidence, let aggregate)):
       expected == evidence.direction && aggregate.direction == expected
@@ -1043,7 +1003,7 @@ public enum DiscoverySequenceCatalog {
     return DiscoverySequenceDefinition(
       id: id,
       title: "\(direction.displayName) Boundary Discovery",
-      summary: "Move toward \(direction.displayName), Stop at the observed boundary, and update one exact-frame side observation.",
+      summary: "Move toward \(direction.displayName), Stop at the observed boundary, and commit the final controller position.",
       steps: [
         DiscoveryStep(
           id: "announce-jog",
@@ -1068,18 +1028,6 @@ public enum DiscoverySequenceCatalog {
           participant: .controller,
           action: .cancelBoundaryJogAndAwaitIdle(direction),
           expectedEvent: .boundaryJogCancelled(direction)
-        ),
-        DiscoveryStep(
-          id: "capture-frame",
-          participant: .camera,
-          action: .captureFreshCameraFrame,
-          expectedEvent: .freshFrameCaptured
-        ),
-        DiscoveryStep(
-          id: "measure-boundary",
-          participant: .vision,
-          action: .measureBoundary(direction),
-          expectedEvent: .boundaryMeasured(direction)
         ),
         DiscoveryStep(
           id: "commit-boundary-observation",
@@ -1149,12 +1097,6 @@ public enum DiscoverySequenceCatalog {
           expectedEvent: .physicalPenConfirmed(.down, response: .yes)
         ),
         DiscoveryStep(
-          id: "capture-down-frame",
-          participant: .camera,
-          action: .captureFreshCameraFrame,
-          expectedEvent: .freshFrameCaptured
-        ),
-        DiscoveryStep(
           id: "announce-up",
           participant: .application,
           action: .announce("Raising the pen."),
@@ -1177,12 +1119,6 @@ public enum DiscoverySequenceCatalog {
           participant: .operatorChoice,
           action: .awaitPhysicalPenConfirmation(.up, question: finallyUp),
           expectedEvent: .physicalPenConfirmed(.up, response: .yes)
-        ),
-        DiscoveryStep(
-          id: "capture-up-frame",
-          participant: .camera,
-          action: .captureFreshCameraFrame,
-          expectedEvent: .freshFrameCaptured
         ),
       ]
     )
@@ -1230,16 +1166,6 @@ public enum DiscoveryEvent: Hashable, Sendable {
     finalPosition: MachinePosition,
     controllerSummary: String
   )
-  case freshFrameCaptured(FrameID, CameraConfigurationID)
-  case boundaryMeasured(
-    BoundaryDirection,
-    controllerPosition: MachinePosition,
-    observedToolCentroid: Point2<CameraPixelSpace>,
-    frameID: FrameID,
-    cameraConfigurationID: CameraConfigurationID,
-    confidence: Double,
-    summary: String
-  )
   case boundaryObservationCommitted(
     BoundarySideAttemptEvidence,
     aggregate: BoundarySideAggregate
@@ -1269,36 +1195,11 @@ public enum DiscoveryEvent: Hashable, Sendable {
       .boundaryJogCancelled(_, _, let summary),
       .penCommandSettled(_, let summary):
       DiscoveryEvidenceSummary(kind: .controller, summary: summary)
-    case .freshFrameCaptured(let frameID, let configurationID):
-      DiscoveryEvidenceSummary(
-        kind: .camera,
-        summary: "Captured exact discovery frame \(frameID.rawValue).",
-        frameID: frameID,
-        cameraConfigurationID: configurationID
-      )
-    case .boundaryMeasured(
-      let direction,
-      let controllerPosition,
-      let observedToolCentroid,
-      let frameID,
-      let configurationID,
-      _,
-      let summary
-    ):
-      DiscoveryEvidenceSummary(
-        kind: .visionMeasurement,
-        summary:
-          "\(direction.displayName) at controller X \(controllerPosition.point.x) Y \(controllerPosition.point.y), observed tool pixel X \(observedToolCentroid.x) Y \(observedToolCentroid.y): \(summary)",
-        frameID: frameID,
-        cameraConfigurationID: configurationID
-      )
     case .boundaryObservationCommitted(let evidence, let aggregate):
       DiscoveryEvidenceSummary(
-        kind: .visionMeasurement,
+        kind: .controller,
         summary:
-          "Committed \(evidence.direction.displayName) Boundary aggregate revision \(aggregate.revisionID.rawValue) from N=\(aggregate.validSampleCount) exact attempt sample(s).",
-        frameID: evidence.frameID,
-        cameraConfigurationID: evidence.cameraConfigurationID
+          "Committed \(evidence.direction.displayName) Boundary aggregate revision \(aggregate.revisionID.rawValue) from N=\(aggregate.validSampleCount) Stop/Idle/final-MPos sample(s). Vision was not consulted."
       )
     case .physicalPenConfirmed(let state, _, let summary):
       DiscoveryEvidenceSummary(
@@ -1323,7 +1224,6 @@ public enum DiscoveryTransactionError: Error, Equatable, Sendable {
   case notActive
   case noCurrentStep
   case unexpectedEvent(stepID: String)
-  case invalidBoundaryConfidence
   case invalidBoundaryCommit
 }
 
@@ -1401,10 +1301,6 @@ public struct DiscoveryTransaction: Hashable, Sendable, Identifiable {
 
   private static func validateEvidence(in event: DiscoveryEvent) throws {
     switch event {
-    case .boundaryMeasured(_, _, _, _, _, let confidence, _):
-      guard confidence.isFinite, confidence >= 0, confidence <= 1 else {
-        throw DiscoveryTransactionError.invalidBoundaryConfidence
-      }
     case .boundaryObservationCommitted(let evidence, let aggregate):
       guard evidence.disposition == .succeeded,
         aggregate.direction == evidence.direction,

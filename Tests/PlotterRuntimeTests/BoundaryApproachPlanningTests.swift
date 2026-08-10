@@ -159,6 +159,7 @@ struct BoundaryApproachPlanningTests {
   ) throws -> BoundaryApproachObservation {
     BoundaryApproachObservation(
       source: source,
+      frameID: FrameID(rawValue: "approach-\(capture)"),
       cameraConfigurationID: camera,
       captureNanoseconds: capture,
       machinePosition: try MachinePosition(x: machineX, y: 0),
@@ -195,6 +196,7 @@ struct BoundaryApproachPlanningTests {
     }
     return BoundaryApproachObservation(
       source: source,
+      frameID: FrameID(rawValue: "approach-\(capture)"),
       cameraConfigurationID: camera,
       captureNanoseconds: capture,
       machinePosition: machinePosition,

@@ -85,18 +85,20 @@ It is not persistent workflow authority.
 
 A Boundary operation is distinct from an ordinary manual jog. Selecting a side
 is inert; explicit Start admits one renewable logical owner. Operator Stop
-closes renewal, emits one cancel, awaits final Idle/MPos, captures a strictly
-newer exact frame, obtains a typed contact estimate, and atomically commits the
-attempt and per-side aggregate. No preparatory generic YES/NO question or camera
-edge association exists in this sequence.
+closes renewal, emits one cancel, awaits final Idle/MPos, and atomically commits
+the controller-side attempt and per-side aggregate. The commit contains no
+frame, cap/contact centroid, confidence, or Vision result. No preparatory generic
+YES/NO question or camera edge association exists in this sequence.
 
 `BoundaryApproachPlanner` consumes consecutive compatible exact-frame cap
 bottom-center observations and the controller's settled MPos displacement. It
 derives an observed pixels/mm scale, ray-projects motion to the inferred drawing
 frame envelope, and chooses a bounded coarse-to-fine segment tier. Its async
-runtime seam returns only a length; `RunInterpreter` reconstructs direction and
-feed from the admitted request and checks the Stop latch before and after the
-wait and immediately before any successor write.
+runtime seam consumes only the latest completed advisory and launches the next
+Camera/Vision inspection off the motion-owner critical path. It immediately
+returns the cached tier or 10 mm fallback. `RunInterpreter` reconstructs
+direction and feed from the admitted request and checks the Stop latch before
+and after advice retrieval and immediately before any successor write.
 
 Accepted artifacts are a separate persistence boundary. The durable checkpoint
 contains only current accepted machine-space Boundary payloads and dependency
@@ -106,9 +108,9 @@ restore a `DiscoveryTransaction`, operation ownership, authorization, live Stop
 capability, pending command, or successor action.
 
 The machine-space aggregate consumes typed direction and compatible settled
-MPos samples. Exact frames and contact estimates remain individual optical
-registration inputs. Estimated center and learned local coordinates derive from
-the four current aggregate revisions.
+MPos samples. Separate current-camera calibration owns exact frame/contact
+provenance for optical registration. Estimated center and learned local
+coordinates derive from the four current aggregate revisions.
 
 `CenterArrivalSettlementPolicy` compares exact target and final controller MPos
 using Euclidean residual and a 0.05 mm tolerance. Failed or stopped center travel
@@ -238,9 +240,9 @@ four boundary aggregates -> estimated center -> center arrival
 -> post-line frame -> ink observation -> comparison
 ```
 
-Machine-camera registration separately consumes compatible exact Boundary or
-current-camera machine/contact samples. Learned local coordinates separately
-consume the same four side aggregates and never enter motion admission.
+Machine-camera registration separately consumes compatible exact current-camera
+machine/contact samples. Learned local coordinates separately consume the same
+four side aggregates and never enter motion admission.
 
 Redo stages a replacement and atomically changes the accepted slot on success.
 Only named transitive dependents are invalidated. Record Another Attempt adds a

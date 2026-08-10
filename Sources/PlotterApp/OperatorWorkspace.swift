@@ -216,7 +216,7 @@ enum BoundaryActivityOperation: Hashable, Sendable {
 
   var actionLabel: String {
     switch self {
-    case .normal(let direction): "Record \(direction.displayName) boundary contact"
+    case .normal(let direction): "Record \(direction.displayName) boundary stop"
     case .replacement(let direction, _): "Redo \(direction.displayName) Boundary"
     case .additional(let direction, _): "Record Another \(direction.displayName) Attempt"
     }
@@ -229,8 +229,6 @@ enum BoundaryActivityPhase: String, Hashable, Sendable {
   case renewalPlanning = "Renewal planning"
   case stopLatched = "Stop latched"
   case settling = "Controller settlement"
-  case frameCapture = "Fresh-frame capture"
-  case contactMeasurement = "Tool-contact measurement"
   case commit = "Atomic accepted commit"
   case recovery = "Recovery"
 }
@@ -266,21 +264,11 @@ enum BoundaryActivityDisposition: Hashable, Sendable {
 
 enum BoundaryActivityDetail: Hashable, Sendable {
   case message(String)
-  case missingFreshFrame(settlementRetained: Bool)
-  case missingToolContact(frameCaptured: Bool)
   case atomicCommitRejected(stage: String)
 
   var text: String {
     switch self {
     case .message(let text): text
-    case .missingFreshFrame(let settlementRetained):
-      settlementRetained
-        ? "Stop succeeded at final MPos, but no strictly newer exact frame was available."
-        : "A strictly newer exact frame was unavailable."
-    case .missingToolContact(let frameCaptured):
-      frameCaptured
-        ? "Stop succeeded at final MPos and a fresh frame was captured, but no acceptable bottom-center tool-contact estimate was available."
-        : "No acceptable bottom-center tool-contact estimate was available."
     case .atomicCommitRejected(let stage):
       "The staged Boundary commit was rejected at \(stage); no accepted model value changed."
     }
@@ -335,14 +323,15 @@ private struct ContextualStopDispositionLatch: Hashable, Sendable {
   let actor: String
 }
 
+private struct BoundaryApproachAdvisory: Sendable {
+  let observation: BoundaryApproachObservation?
+  let advice: BoundaryApproachAdvice
+}
+
 enum BoundaryAtomicCommitFailurePoint: String, CaseIterable, Hashable, Sendable {
   case settlement
-  case newerFrame
-  case contactEstimate
   case aggregateConstruction
   case artifactGraphCommit
-  case centerDerivation
-  case localCoordinateDerivation
 }
 
 enum DrawingTrialAssessment: String, CaseIterable, Identifiable, Hashable, Sendable {
@@ -399,21 +388,6 @@ struct VisibilityTargetExecutionAttemptEvidence: Hashable, Sendable {
   let sceneDisposition: VisibilityTargetSceneDisposition
   let completedTraversalStepCount: Int
   let lastCompletedTraversalStep: VisibilityTargetTraversalStep?
-}
-
-private struct DiscoverySceneInspection: Sendable {
-  let displayedFrame: DisplayedFrame
-  let frameSHA256: String
-  let observedToolCentroid: Point2<CameraPixelSpace>?
-  let observedToolBounds: AxisAlignedBounds<CameraPixelSpace>?
-  let observedToolConfidence: Double?
-  let drawingFrame: DrawingFrameEstimate?
-  let overlays: [CameraOverlayMeasurement]
-
-  var frameID: FrameID { displayedFrame.frame.id }
-  var cameraConfigurationID: CameraConfigurationID {
-    displayedFrame.frame.cameraConfigurationID
-  }
 }
 
 @MainActor
@@ -772,6 +746,10 @@ final class OperatorWorkspace {
   @ObservationIgnored private var explorationCoordinateRevision: UInt64 = 0
   @ObservationIgnored private var explorationToolPaperRevision = UUID()
   @ObservationIgnored private var boundaryMotionTask: Task<Void, Never>?
+  @ObservationIgnored private var boundaryApproachVisionTasks:
+    [ExerciseAttemptID: Task<Void, Never>] = [:]
+  @ObservationIgnored private var boundaryApproachAdvisories:
+    [ExerciseAttemptID: BoundaryApproachAdvisory] = [:]
   @ObservationIgnored private var manualJogTask: Task<MotionOutcome, Never>?
   @ObservationIgnored private var exerciseMotionTask: Task<MotionOutcome, Never>?
   @ObservationIgnored private var currentCameraCalibrationTask: Task<Void, Never>?
@@ -782,18 +760,17 @@ final class OperatorWorkspace {
   @ObservationIgnored private var visibilityObservationTask: Task<Void, Never>?
   @ObservationIgnored private var visibilityObservationGeneration: UInt64 = 0
   @ObservationIgnored private var drawingTrialTask: Task<DrawingStrokeOutcome, Never>?
+  @ObservationIgnored private var drawingTrialStrokeCompletedNaturally = false
   @ObservationIgnored private var simulatedOperationTask:
     Task<SimulatedLearningOperationOutcome?, Never>?
   @ObservationIgnored private var activeStopTarget: ContextualStopTarget?
   @ObservationIgnored private var stopDispositionLatch: ContextualStopDispositionLatch?
-  @ObservationIgnored private var pendingDiscoveryInspection: DiscoverySceneInspection?
   @ObservationIgnored private var pendingBoundaryFinalPositions:
     [ExerciseAttemptID: MachinePosition] = [:]
   @ObservationIgnored private var pendingBoundaryOwnerIDs:
     [ExerciseAttemptID: BoundaryMotionOwnerID] = [:]
   @ObservationIgnored private var pendingBoundaryStopCapabilities:
     [ExerciseAttemptID: ContextualStopCapabilityID] = [:]
-  @ObservationIgnored private var pendingDiscoveryCaptureBoundaryNanoseconds: UInt64?
   @ObservationIgnored private var rememberedSerialDeviceIdentifier: String?
   @ObservationIgnored private var hasShutdown = false
   @ObservationIgnored private var lifetimeGeneration: UInt64 = 0
@@ -1620,7 +1597,7 @@ final class OperatorWorkspace {
     let detail =
       switch activeStopTarget {
       case .pairedBoundary(_, _, _, _, let direction):
-        "Stop \(direction.displayName) Boundary Discovery, wait for Idle, then observe its final position and a fresh frame."
+        "Stop \(direction.displayName) Boundary Discovery, wait for Idle, then commit its final controller position."
       case .manualJog:
         "Stop the active manual jog and wait for Idle."
       case .exerciseMotion(_, _, _, let action):
@@ -1798,6 +1775,7 @@ final class OperatorWorkspace {
         expectedObservation: stageExpectedObservation(stage),
         evidence: stageEvidence(stage),
         activity: operationActivityPresentation(for: itemID, transaction: nil),
+        subsystemStatuses: subsystemStatusPresentations(for: itemID, transaction: nil),
         actionStrip: exerciseActionStrip(for: itemID)
       )
 
@@ -1837,6 +1815,10 @@ final class OperatorWorkspace {
         },
         evidence: discoveryEvidence(transaction) + protocolEvidence(for: discoveryStep),
         activity: operationActivityPresentation(for: itemID, transaction: transaction),
+        subsystemStatuses: subsystemStatusPresentations(
+          for: itemID,
+          transaction: transaction
+        ),
         actionStrip: exerciseActionStrip(for: itemID),
         requestedFeedMMPerMinute: feedSelection?.requestedFeedMMPerMinute,
         feedSource: feedSelection?.source
@@ -1858,6 +1840,7 @@ final class OperatorWorkspace {
         ),
         evidence: drawingTrialEvidence(for: trialStep),
         activity: operationActivityPresentation(for: itemID, transaction: nil),
+        subsystemStatuses: subsystemStatusPresentations(for: itemID, transaction: nil),
         actionStrip: exerciseActionStrip(for: itemID),
         requestedFeedMMPerMinute: lastTravelFeedSelection?.requestedFeedMMPerMinute,
         feedSource: lastTravelFeedSelection?.source
@@ -2301,47 +2284,13 @@ final class OperatorWorkspace {
   private func compatibleRegistrationContactEvidence(
     for frame: DisplayedFrame
   ) -> [MachineCameraCorrespondenceProvenance] {
-    var exactSamples: [MachineCameraCorrespondenceProvenance] = []
-    for direction in BoundaryDirection.allCases {
-      guard let aggregate = boundarySideAggregates[direction] else { continue }
-      for attemptID in aggregate.includedAttemptIDs {
-        guard let evidence = boundaryAttemptEvidenceByAttemptID[attemptID],
-          evidence.frameSource == frame.source,
-          evidence.cameraConfigurationID == frame.frame.cameraConfigurationID,
-          evidence.controllerSessionID == controllerSessionID,
-          evidence.coordinateRevision == explorationCoordinateRevision,
-          evidence.contactEstimatorRevision == "green-tool-bottom-center-v1"
-        else { continue }
-        exactSamples.append(
-          MachineCameraCorrespondenceProvenance(
-            machinePoint: evidence.finalPosition.point,
-            contactPoint: evidence.contactPoint.point,
-            source: evidence.frameSource,
-            controllerSessionID: evidence.controllerSessionID,
-            coordinateRevision: evidence.coordinateRevision,
-            frameID: evidence.frameID,
-            frameSHA256: evidence.frameSHA256,
-            captureNanoseconds: evidence.captureNanoseconds,
-            cameraConfigurationID: evidence.cameraConfigurationID,
-            attemptID: evidence.attemptID,
-            contactEstimatorRevision: evidence.contactEstimatorRevision,
-            algorithmRevision: "boundary-exact-contact-correspondence-v1",
-            contactConfidence: evidence.contactConfidence,
-            artifactRevisionID: aggregate.revisionID
-          )
-        )
-      }
+    explicitRegistrationContactEvidence.filter {
+      $0.source == frame.source
+        && $0.cameraConfigurationID == frame.frame.cameraConfigurationID
+        && $0.controllerSessionID == controllerSessionID
+        && $0.coordinateRevision == explorationCoordinateRevision
+        && $0.contactEstimatorRevision == "green-tool-bottom-center-v1"
     }
-    exactSamples.append(
-      contentsOf: explicitRegistrationContactEvidence.filter {
-        $0.source == frame.source
-          && $0.cameraConfigurationID == frame.frame.cameraConfigurationID
-          && $0.controllerSessionID == controllerSessionID
-          && $0.coordinateRevision == explorationCoordinateRevision
-          && $0.contactEstimatorRevision == "green-tool-bottom-center-v1"
-      }
-    )
-    return exactSamples
   }
 
   @discardableResult
@@ -4050,6 +3999,9 @@ final class OperatorWorkspace {
       )
     }
     let payloadSnapshot = drawingTrialPayloadSnapshot()
+    if attemptedStep == .drawIsolatedLine {
+      drawingTrialStrokeCompletedNaturally = false
+    }
     explorationOperationInProgress = true
     explorationError = nil
     defer { explorationOperationInProgress = false }
@@ -4074,6 +4026,29 @@ final class OperatorWorkspace {
         finishActiveExerciseAttempt(disposition: .succeeded)
       }
     } catch {
+      if attemptedStep == .drawIsolatedLine,
+        drawingTrialStrokeEvidence != payloadSnapshot.strokeEvidence
+      {
+        var commitFailure: String?
+        if drawingTrialStrokeCompletedNaturally {
+          do {
+            try commitDrawingArtifact(for: .drawIsolatedLine)
+          } catch {
+            commitFailure = String(describing: error)
+          }
+        }
+        advanceDrawingTrialAfterSuccess(.drawIsolatedLine)
+        let base =
+          "The stroke owner produced evidence, so physical ink may exist. Drawing will not be restarted; continue with return/observation."
+        explorationError = commitFailure.map {
+          "\(base) The line-execution artifact also needs attention: \($0)"
+        } ?? "\(base) Post-stroke settlement needs attention: \(error)"
+        finishActiveExerciseAttempt(
+          disposition: .failed("Ink may exist; automatic redraw is prohibited.")
+        )
+        restartableExerciseItemID = nil
+        return
+      }
       restoreDrawingTrialPayload(payloadSnapshot)
       explorationError = "\(attemptedStep.title) failed: \(error)"
       let disposition = attemptDisposition(for: String(describing: error))
@@ -4133,18 +4108,19 @@ final class OperatorWorkspace {
         "Finish \(DiscoverySequenceCatalog.definition(for: activeDiscoverySequenceID).title); use Stop while its logical owner is active."
     }
     if frameMode == .simulated {
-      if displayedFrame?.source != .simulated { return "The simulator has no rendered frame." }
       if !controllerSessionEstablished { return "Connect the learning simulator first." }
       if !motionAuthorizationEnabled { return "Enable simulated Motion first." }
       if simulatedLearningSnapshot?.currentOperation != nil {
         return "Stop or finish the current simulated operation first."
       }
-      return nil
+      switch sequenceID {
+      case .boundaryNegativeX, .boundaryPositiveX, .boundaryNegativeY, .boundaryPositiveY:
+        return nil
+      case .penInteraction:
+        return nil
+      }
     }
     if !motionGuardIsActive { return "Connect the plotter and Enable Motion first." }
-    if frameMode != .live || !cameraIsLive {
-      return "A current LIVE camera frame is required for Human-Guided Discovery."
-    }
     switch sequenceID {
     case .boundaryNegativeX, .boundaryPositiveX, .boundaryNegativeY, .boundaryPositiveY:
       return directCarriageMotionUnavailableReason
@@ -4636,8 +4612,6 @@ final class OperatorWorkspace {
     }
     selectedDiscoverySequenceID = sequenceID
     discoveryError = nil
-    pendingDiscoveryInspection = nil
-    pendingDiscoveryCaptureBoundaryNanoseconds = nil
     var transaction = DiscoveryTransaction(sequenceID: sequenceID)
     do {
       try transaction.begin()
@@ -4721,167 +4695,10 @@ final class OperatorWorkspace {
             for: sequenceID
           )
         else { return }
-        pendingDiscoveryCaptureBoundaryNanoseconds = nowNanoseconds()
-
-      case .captureFreshCameraFrame:
-        guard await captureDiscoveryInspection(sequenceID) else { return }
-
-      case .measureBoundary(let direction):
-        guard let attemptID = activeExerciseAttemptID,
-          let inspection = pendingDiscoveryInspection,
-          let controllerPosition = pendingBoundaryFinalPositions[attemptID],
-          let observedToolCentroid = inspection.observedToolCentroid,
-          let observedToolConfidence = inspection.observedToolConfidence
-        else {
-          await failDiscovery(
-            sequenceID,
-            reason:
-              "Boundary Discovery requires attempt-bound final Controller MPos and an acceptable exact-frame bottom-center tool-contact component. Generic drawing-frame geometry is optional diagnostic evidence."
-          )
-          return
-        }
-        let summary =
-          "typed operator-selected side paired with final Controller MPos and an exact-frame bottom-center tool-contact component"
-        guard
-          recordDiscovery(
-            .boundaryMeasured(
-              direction,
-              controllerPosition: controllerPosition,
-              observedToolCentroid: observedToolCentroid,
-              frameID: inspection.frameID,
-              cameraConfigurationID: inspection.cameraConfigurationID,
-              confidence: observedToolConfidence,
-              summary: summary
-            ),
-            for: sequenceID
-          )
-        else { return }
-
       case .commitBoundaryObservation(let direction):
         await commitBoundaryObservation(direction: direction, sequenceID: sequenceID)
         return
       }
-    }
-  }
-
-  private func captureDiscoveryInspection(_ sequenceID: DiscoverySequenceID) async -> Bool {
-    guard let cameraActions else {
-      await failDiscovery(sequenceID, reason: "Native camera composition is unavailable.")
-      return false
-    }
-    guard let captureBoundary = pendingDiscoveryCaptureBoundaryNanoseconds else {
-      await failDiscovery(
-        sequenceID,
-        reason: "No controller or operator event boundary is available for a fresh frame."
-      )
-      return false
-    }
-    if boundaryDirection(for: sequenceID) != nil,
-      boundaryAtomicCommitFailurePoints.contains(.newerFrame)
-    {
-      await failDiscovery(
-        sequenceID,
-        reason: "Injected failure: no strictly newer exact Boundary frame is available."
-      )
-      return false
-    }
-    do {
-      let inspection: DiscoverySceneInspection
-      if frameMode == .simulated {
-        let priorCapture = lastSimulatedProtocolCaptureNanoseconds
-        let scene = try await captureSimulatedProtocolScene()
-        guard scene.displayedFrame.frame.captureNanoseconds > priorCapture else {
-          throw LearningPathOperationError.freshFrameUnavailable
-        }
-        lastSimulatedProtocolCaptureNanoseconds = scene.displayedFrame.frame.captureNanoseconds
-        applySimulatedProtocolScene(scene)
-        let capBounds = scene.armatureBounds
-        let componentCentroid = try Point2<CameraPixelSpace>(
-          x: (capBounds.minX + capBounds.maxX) / 2,
-          y: (capBounds.minY + capBounds.maxY) / 2
-        )
-        inspection = DiscoverySceneInspection(
-          displayedFrame: scene.displayedFrame,
-          frameSHA256: scene.displayedFrame.frame.contentSHA256,
-          observedToolCentroid: componentCentroid,
-          observedToolBounds: capBounds,
-          observedToolConfidence: 1,
-          // Generic drawing-frame inference is diagnostic only. Boundary side
-          // identity comes from the typed operator-selected direction and must
-          // not be manufactured by direction-conditioned simulator geometry.
-          drawingFrame: nil,
-          overlays: cameraOverlays
-        )
-      } else {
-        guard let liveInspection = try await cameraActions.inspectScene(captureBoundary) else {
-          await failDiscovery(
-            sequenceID,
-            reason: "No live frame newer than the completed discovery event is available."
-          )
-          return false
-        }
-        let measurement = liveInspection.measurement
-        let capBounds = try measurement.cap.map { cap in
-          try AxisAlignedBounds<CameraPixelSpace>(
-            minX: Double(cap.boundingBox.x),
-            minY: Double(cap.boundingBox.y),
-            maxX: Double(cap.boundingBox.x + cap.boundingBox.width),
-            maxY: Double(cap.boundingBox.y + cap.boundingBox.height)
-          )
-        }
-        lastSceneMeasurement = measurement
-        inspection = DiscoverySceneInspection(
-          displayedFrame: liveInspection.displayedFrame,
-          frameSHA256: measurement.frameSHA256,
-          observedToolCentroid: measurement.cap?.centroid,
-          observedToolBounds: capBounds,
-          observedToolConfidence: measurement.cap?.confidence,
-          drawingFrame: measurement.drawingFrame,
-          overlays: measurement.overlays
-        )
-      }
-      guard
-        frameMode == .simulated
-          || inspection.displayedFrame.frame.captureNanoseconds > captureBoundary
-      else {
-        await failDiscovery(
-          sequenceID,
-          reason: "Camera returned a frame that predates the completed discovery event."
-        )
-        return false
-      }
-      pendingDiscoveryInspection = inspection
-      pendingDiscoveryCaptureBoundaryNanoseconds = nil
-      displayedFrame = inspection.displayedFrame
-      if frameMode == .live { latestLiveCameraFrame = inspection.displayedFrame }
-      cameraOverlays = inspection.overlays
-      if let direction = boundaryDirection(for: sequenceID),
-        let attemptID = activeExerciseAttemptID
-      {
-        appendBoundaryActivity(
-          actor: .camera,
-          direction: direction,
-          phase: .frameCapture,
-          disposition: .succeeded,
-          attemptID: attemptID,
-          operationOwnerID: pendingBoundaryOwnerIDs[attemptID].map { .liveBoundary($0) },
-          stopCapabilityID: pendingBoundaryStopCapabilities[attemptID],
-          finalPosition: pendingBoundaryFinalPositions[attemptID],
-          frameID: inspection.frameID,
-          cameraConfigurationID: inspection.cameraConfigurationID,
-          detail: .message("Captured one exact frame strictly newer than controller settlement.")
-        )
-      }
-      return recordDiscovery(
-        .freshFrameCaptured(
-          inspection.frameID,
-          inspection.cameraConfigurationID
-        ),
-        for: sequenceID
-      )
-    } catch {
-      await failDiscovery(sequenceID, reason: actionableDescription(error))
-      return false
     }
   }
 
@@ -4890,37 +4707,18 @@ final class OperatorWorkspace {
     sequenceID: DiscoverySequenceID
   ) async {
     guard let attemptID = activeExerciseAttemptID,
-      let inspection = pendingDiscoveryInspection,
       let finalPosition = pendingBoundaryFinalPositions[attemptID],
       let ownerID = pendingBoundaryOwnerIDs[attemptID],
-      let stopCapabilityID = pendingBoundaryStopCapabilities[attemptID],
-      let componentCentroid = inspection.observedToolCentroid,
-      let componentBounds = inspection.observedToolBounds,
-      let componentConfidence = inspection.observedToolConfidence
+      let stopCapabilityID = pendingBoundaryStopCapabilities[attemptID]
     else {
       await failDiscovery(
         sequenceID,
         reason:
-          "The atomic Boundary commit is missing attempt-bound settlement, owner, Stop, exact-frame, or bottom-center contact evidence."
+          "The Boundary commit is missing its attempt-bound Stop/Idle/final-MPos controller settlement."
       )
       return
     }
     do {
-      if boundaryAtomicCommitFailurePoints.contains(.contactEstimate) {
-        throw LearningPathOperationError.requiredState(
-          "Injected bottom-center tool-contact rejection."
-        )
-      }
-      let contactPoint = try ToolContactPointEstimate(
-        componentCentroid: componentCentroid,
-        componentBounds: componentBounds,
-        confidence: componentConfidence,
-        estimatorRevision: "green-tool-bottom-center-v1",
-        source: inspection.displayedFrame.source,
-        frameID: inspection.frameID,
-        cameraConfigurationID: inspection.cameraConfigurationID
-      )
-
       let aggregateRevision = LearningArtifactRevision(
         kind: .boundarySideAggregate(direction),
         attemptID: attemptID,
@@ -4935,12 +4733,6 @@ final class OperatorWorkspace {
         stopCapabilityID: stopCapabilityID.rawValue,
         stopIntent: .operatorStop,
         finalPosition: finalPosition,
-        frameSource: inspection.displayedFrame.source,
-        frameID: inspection.frameID,
-        frameSHA256: inspection.frameSHA256,
-        captureNanoseconds: inspection.displayedFrame.frame.captureNanoseconds,
-        cameraConfigurationID: inspection.cameraConfigurationID,
-        contactPoint: contactPoint,
         disposition: .succeeded
       )
       let compatibility = BoundaryNumericCompatibility(
@@ -4990,7 +4782,7 @@ final class OperatorWorkspace {
       }
       var stagedGraph = learningArtifactGraph
       let aggregateCommit = try stagedGraph.commitReplacement(aggregateRevision)
-      var invalidatedRevisionIDs = aggregateCommit.invalidatedRevisionIDs
+      let invalidatedRevisionIDs = aggregateCommit.invalidatedRevisionIDs
 
       var stagedProgress = PairedBoundaryProgress()
       var progressOrder = pairedBoundaryProgress.acceptedDirections
@@ -5001,43 +4793,6 @@ final class OperatorWorkspace {
           acceptedDirection,
           revisionID: acceptedAggregate.revisionID
         )
-      }
-
-      var stagedCenter: EstimatedMachineCenter?
-      var stagedLocalFrame: LearnedLocalCoordinateFrame?
-      if stagedProgress.isComplete {
-        if boundaryAtomicCommitFailurePoints.contains(.centerDerivation) {
-          throw LearningPathOperationError.requiredState(
-            "Injected estimated-center derivation failure."
-          )
-        }
-        let aggregates = BoundaryDirection.allCases.compactMap { stagedAggregates[$0] }
-        let center = try EstimatedMachineCenter.derive(from: aggregates)
-        let centerRevision = LearningArtifactRevision(
-          kind: .estimatedMachineCenter,
-          attemptID: attemptID,
-          disposition: .succeeded,
-          consumedRevisionIDs: center.consumedRevisionIDs
-        )
-        let centerCommit: LearningArtifactCommit
-        if let priorCenter = learningArtifactGraph.currentRevision(for: .estimatedMachineCenter),
-          stagedGraph.revision(id: priorCenter.id)?.state == .invalidated
-        {
-          centerCommit = try stagedGraph.commitReplacement(
-            centerRevision,
-            supersedingInvalidatedRevision: priorCenter.id
-          )
-        } else {
-          centerCommit = try stagedGraph.commitReplacement(centerRevision)
-        }
-        invalidatedRevisionIDs.formUnion(centerCommit.invalidatedRevisionIDs)
-        stagedCenter = center
-        if boundaryAtomicCommitFailurePoints.contains(.localCoordinateDerivation) {
-          throw LearningPathOperationError.requiredState(
-            "Injected learned-local-coordinate derivation failure."
-          )
-        }
-        stagedLocalFrame = try LearnedLocalCoordinateFrame.derive(from: aggregates)
       }
 
       var stagedTransaction = discoveryTransactions[sequenceID]!
@@ -5061,9 +4816,7 @@ final class OperatorWorkspace {
       discoveryTransactions[sequenceID] = stagedTransaction
       learningArtifactGraph = stagedGraph
       applyArtifactInvalidations(invalidatedRevisionIDs)
-      estimatedMachineCenter = stagedCenter
-      learnedLocalCoordinateFrame = stagedLocalFrame
-      if stagedCenter == nil {
+      if !stagedProgress.isComplete {
         centerArrivalPosition = nil
         centerArrivalRetryRequired = false
       }
@@ -5085,21 +4838,75 @@ final class OperatorWorkspace {
         operationOwnerID: .liveBoundary(ownerID),
         stopCapabilityID: stopCapabilityID,
         finalPosition: finalPosition,
-        frameID: inspection.frameID,
-        cameraConfigurationID: inspection.cameraConfigurationID,
         affectedRevisionIDs: [aggregate.revisionID],
         detail: .message(
-          "Exact attempt evidence and the N=\(aggregate.validSampleCount) machine-space aggregate committed atomically."
+          "Typed direction + operator Stop + controller Idle/final MPos committed atomically as N=\(aggregate.validSampleCount). Camera and Vision were not consulted and could not veto the commit."
         )
       )
       persistAcceptedMachineArtifacts()
       finishActiveExerciseAttempt(disposition: .succeeded)
+      if stagedProgress.isComplete {
+        do {
+          try deriveCenterAndLocalFrame(afterBoundaryAttempt: attemptID)
+          persistAcceptedMachineArtifacts()
+        } catch {
+          discoveryError =
+            "All four machine boundaries are accepted, but center/local derivation needs attention: \(actionableDescription(error)) No Boundary motion will repeat automatically."
+          appendBoundaryActivity(
+            actor: .workspace,
+            direction: direction,
+            phase: .recovery,
+            disposition: .failed(actionableDescription(error)),
+            attemptID: attemptID,
+            operationOwnerID: .liveBoundary(ownerID),
+            stopCapabilityID: stopCapabilityID,
+            finalPosition: finalPosition,
+            retainedRevisionIDs: [aggregate.revisionID],
+            detail: .message(discoveryError!),
+            recovery: .continueWithAcceptedFallback(direction),
+            acceptedFallbackRemainsCurrent: true
+          )
+        }
+      }
     } catch {
       await failDiscovery(
         sequenceID,
         reason: "Atomic Boundary observation commit failed: \(error)"
       )
     }
+  }
+
+  private func deriveCenterAndLocalFrame(
+    afterBoundaryAttempt attemptID: ExerciseAttemptID
+  ) throws {
+    guard pairedBoundaryProgress.isComplete else { return }
+    let aggregates = BoundaryDirection.allCases.compactMap { boundarySideAggregates[$0] }
+    let center = try EstimatedMachineCenter.derive(from: aggregates)
+    let localFrame = try LearnedLocalCoordinateFrame.derive(from: aggregates)
+    let centerRevision = LearningArtifactRevision(
+      kind: .estimatedMachineCenter,
+      attemptID: attemptID,
+      disposition: .succeeded,
+      consumedRevisionIDs: center.consumedRevisionIDs
+    )
+    var stagedGraph = learningArtifactGraph
+    let centerCommit: LearningArtifactCommit
+    if let priorCenter = learningArtifactGraph.currentRevision(for: .estimatedMachineCenter),
+      stagedGraph.revision(id: priorCenter.id)?.state == .invalidated
+    {
+      centerCommit = try stagedGraph.commitReplacement(
+        centerRevision,
+        supersedingInvalidatedRevision: priorCenter.id
+      )
+    } else {
+      centerCommit = try stagedGraph.commitReplacement(centerRevision)
+    }
+    learningArtifactGraph = stagedGraph
+    applyArtifactInvalidations(centerCommit.invalidatedRevisionIDs)
+    estimatedMachineCenter = center
+    learnedLocalCoordinateFrame = localFrame
+    centerArrivalPosition = nil
+    centerArrivalRetryRequired = false
   }
 
   private func recordDiscovery(_ event: DiscoveryEvent, for sequenceID: DiscoverySequenceID) -> Bool
@@ -5143,14 +4950,6 @@ final class OperatorWorkspace {
         } else {
           .failed(reason)
         }
-      let detail: BoundaryActivityDetail =
-        if reason.localizedCaseInsensitiveContains("frame") {
-          .missingFreshFrame(settlementRetained: pendingBoundaryFinalPositions[attemptID] != nil)
-        } else if reason.localizedCaseInsensitiveContains("contact") {
-          .missingToolContact(frameCaptured: pendingDiscoveryInspection != nil)
-        } else {
-          .message(reason)
-        }
       appendBoundaryActivity(
         actor: .workspace,
         direction: direction,
@@ -5162,10 +4961,8 @@ final class OperatorWorkspace {
         },
         stopCapabilityID: pendingBoundaryStopCapabilities[attemptID],
         finalPosition: pendingBoundaryFinalPositions[attemptID],
-        frameID: pendingDiscoveryInspection?.frameID,
-        cameraConfigurationID: pendingDiscoveryInspection?.cameraConfigurationID,
         retainedRevisionIDs: acceptedFallback.map { [$0.revisionID] } ?? [],
-        detail: detail,
+        detail: .message(reason),
         recovery: acceptedFallback != nil
           ? .continueWithAcceptedFallback(direction)
           : .restartNormal(direction),
@@ -5183,8 +4980,6 @@ final class OperatorWorkspace {
       restartableExerciseItemID = nil
     }
     boundaryTeachingState = .idle
-    pendingDiscoveryInspection = nil
-    pendingDiscoveryCaptureBoundaryNanoseconds = nil
     activeStopTarget = nil
     stopDispositionLatch = nil
     boundaryTeachingResultText = "Discovery stopped: \(reason)"
@@ -5266,11 +5061,21 @@ final class OperatorWorkspace {
     case .drawingTrial:
       let liveOwner = drawingTrialTask
       let simulatedOwner = simulatedOperationTask
+      let inkMayExist = liveOwner != nil || simulatedOwner != nil
       await requestSingleJogCancel(for: target, intent: .operatorStop)
       _ = await liveOwner?.value
       _ = await simulatedOwner?.value
       finishActiveExerciseAttempt(disposition: .cancelled)
-      restartableExerciseItemID = .observedDrawingTrial(.drawIsolatedLine)
+      if inkMayExist {
+        if observedDrawingTrialStep == .drawIsolatedLine {
+          advanceDrawingTrialAfterSuccess(.drawIsolatedLine)
+        }
+        explorationError =
+          "Drawing stopped after stroke admission; physical ink may exist. Draw is unavailable. Continue with return/observation."
+        restartableExerciseItemID = nil
+      } else {
+        restartableExerciseItemID = .observedDrawingTrial(.drawIsolatedLine)
+      }
     }
   }
 
@@ -6179,7 +5984,6 @@ final class OperatorWorkspace {
           for: sequenceID
         )
       else { return }
-      pendingDiscoveryCaptureBoundaryNanoseconds = nowNanoseconds()
     default:
       return
     }
@@ -6203,10 +6007,10 @@ final class OperatorWorkspace {
 
     let discoveryDirection = boundaryDirection(from: direction)
     machineSnapshot = await machineActions.snapshot()
-    let approachSeed = await captureBoundaryApproachObservation(
-      at: machineSnapshot?.machine.position
-    )
-    let approachPlanner = BoundaryApproachPlanner(seed: approachSeed)
+    // Admit the motion owner and publish Stop without awaiting Camera/Vision.
+    // Optional observations after a completed probe may increase only a later
+    // bounded segment; absence or latency stays on the controller fallback.
+    let approachPlanner = BoundaryApproachPlanner(seed: nil)
     let renewalPlanner = BoundaryMotionRenewalPlanner { @MainActor [weak self] progress in
       guard let self else { return nil }
       return await self.planBoundaryRenewal(
@@ -6288,7 +6092,6 @@ final class OperatorWorkspace {
         )
         return
       }
-      pendingDiscoveryCaptureBoundaryNanoseconds = nowNanoseconds()
       pendingBoundaryFinalPositions[attemptID] = finalPosition
       appendBoundaryActivity(
         actor: .controller,
@@ -6339,8 +6142,6 @@ final class OperatorWorkspace {
         settlement.intent == .shutdown
         ? "Boundary Discovery settled during shutdown; no boundary evidence was recorded."
         : "Boundary Discovery was cancelled; no boundary evidence was recorded."
-      pendingDiscoveryInspection = nil
-      pendingDiscoveryCaptureBoundaryNanoseconds = nil
       let acceptedFallback = boundarySideAggregates[discoveryDirection]
       let repeatAttempt =
         activeExerciseAttemptMode == .replacement
@@ -6470,7 +6271,6 @@ final class OperatorWorkspace {
           )
           return
         }
-        pendingDiscoveryCaptureBoundaryNanoseconds = nowNanoseconds()
         pendingBoundaryFinalPositions[attemptID] = finalPosition
         boundaryTeachingResultText =
           "Simulated Stop settled at X \(outcome.finalMPos.xMM) Y \(outcome.finalMPos.yMM). \(outcome.evidenceNotice.label)"
@@ -6565,6 +6365,7 @@ final class OperatorWorkspace {
         let cap = inspection.measurement.cap,
         let drawingFrame = inspection.measurement.drawingFrame
       else { return nil }
+      guard !Task.isCancelled else { return nil }
       let contact = try Point2<CameraPixelSpace>(
         x: Double(cap.boundingBox.x) + (Double(cap.boundingBox.width) / 2),
         y: Double(cap.boundingBox.y + cap.boundingBox.height)
@@ -6574,6 +6375,7 @@ final class OperatorWorkspace {
       cameraOverlays = inspection.measurement.overlays
       return BoundaryApproachObservation(
         source: inspection.displayedFrame.source,
+        frameID: inspection.displayedFrame.frame.id,
         cameraConfigurationID: inspection.displayedFrame.frame.cameraConfigurationID,
         captureNanoseconds: inspection.displayedFrame.frame.captureNanoseconds,
         machinePosition: machinePosition,
@@ -6592,8 +6394,40 @@ final class OperatorWorkspace {
     planner: BoundaryApproachPlanner,
     attemptID: ExerciseAttemptID
   ) async -> Double? {
-    let observation = await captureBoundaryApproachObservation(at: progress.finalPosition)
-    let advice = await planner.advise(after: observation)
+    let advisory = boundaryApproachAdvisories[attemptID]
+      ?? BoundaryApproachAdvisory(
+        observation: nil,
+        advice: BoundaryApproachAdvice(
+          nextSegmentLengthMM: MotionPriors.boundaryWireSegmentMM,
+          basis: .missingObservationFallback
+        )
+      )
+    if boundaryApproachVisionTasks[attemptID] == nil,
+      stopDispositionLatch == nil,
+      activeExerciseAttemptID == attemptID
+    {
+      boundaryApproachVisionTasks[attemptID] = Task { [weak self] in
+        guard let self else { return }
+        let observation = await self.captureBoundaryApproachObservation(
+          at: progress.finalPosition
+        )
+        let advice = await planner.advise(after: observation)
+        guard !Task.isCancelled,
+          self.activeExerciseAttemptID == attemptID,
+          self.stopDispositionLatch == nil
+        else {
+          self.boundaryApproachVisionTasks[attemptID] = nil
+          return
+        }
+        self.boundaryApproachAdvisories[attemptID] = BoundaryApproachAdvisory(
+          observation: observation,
+          advice: advice
+        )
+        self.boundaryApproachVisionTasks[attemptID] = nil
+      }
+    }
+    let observation = advisory.observation
+    let advice = advisory.advice
     let projection =
       advice.estimatedRemainingMM.map {
         String(format: ", estimated %.1f mm remaining", $0)
@@ -6606,13 +6440,14 @@ final class OperatorWorkspace {
       attemptID: attemptID,
       operationOwnerID: .liveBoundary(progress.ownerID),
       finalPosition: progress.finalPosition,
-      frameID: observation == nil ? nil : displayedFrame?.frame.id,
+      frameID: observation?.frameID,
       cameraConfigurationID: observation?.cameraConfigurationID,
       detail: .message(
         "Segment \(progress.completedSegmentCount) completed at "
           + "\(String(format: "%.1f", progress.completedSegment.delta.magnitude)) mm; "
           + "next segment \(String(format: "%.1f", advice.nextSegmentLengthMM)) mm "
-          + "(\(advice.basis.rawValue)\(projection))."
+          + "from the latest completed advisory (\(advice.basis.rawValue)\(projection)). "
+          + "Current Camera/Vision processing continues off the motion-owner critical path."
       )
     )
     return advice.nextSegmentLengthMM
@@ -6798,6 +6633,8 @@ final class OperatorWorkspace {
     if activeExerciseAttemptOwnerID == .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering),
       let attemptID = activeExerciseAttemptID
     {
+      boundaryApproachVisionTasks.removeValue(forKey: attemptID)?.cancel()
+      boundaryApproachAdvisories.removeValue(forKey: attemptID)
       pendingBoundaryFinalPositions.removeValue(forKey: attemptID)
       pendingBoundaryOwnerIDs.removeValue(forKey: attemptID)
       pendingBoundaryStopCapabilities.removeValue(forKey: attemptID)
@@ -8051,14 +7888,18 @@ final class OperatorWorkspace {
           ]
         )
       }
+      let centerMoveUnavailableReason = estimatedMachineCenter == nil
+        ? (discoveryError ?? "Accepted boundaries do not currently derive a valid center.")
+        : reason
       return ExerciseActionStripPresentation(
         ownerID: itemID,
         actions: [
           ExerciseActionDescriptor(
-            kind: .moveToEstimatedCenter,
-            title: "Move to Estimated Center",
-            role: .positive,
-            unavailableReason: reason
+              kind: .moveToEstimatedCenter,
+              title: estimatedMachineCenter == nil
+                ? "Center Derivation Needs Attention" : "Move to Estimated Center",
+              role: .positive,
+              unavailableReason: centerMoveUnavailableReason
           )
         ]
           + pairedBoundaryProgress.acceptedDirections.flatMap { direction in
@@ -8606,12 +8447,24 @@ final class OperatorWorkspace {
       )
     }
     if itemID.stage == .observedDrawingTrials, let explorationError {
+      let recovery: [PresentationFragment]
+      if drawingTrialStrokeEvidence != nil,
+        observedDrawingTrialStep == .returnToClearPoseAndObserveNewInk
+      {
+        recovery = [
+          .text("Ink may exist. Draw is unavailable; resolve Pen Up if needed, then return and observe the existing stroke.")
+        ]
+      } else if restartableExerciseItemID == itemID {
+        recovery = [.text("Use Restart only after the failed attempt has settled.")]
+      } else {
+        recovery = [.text("Resolve the named subsystem fact before continuing.")]
+      }
       return OperationActivityPresentation(
         actor: drawingTrialParticipant(for: observedDrawingTrialStep),
         action: drawingTrialActionText(for: observedDrawingTrialStep),
         outcome: .needsAttention,
         detail: [.text(explorationError)],
-        recovery: [.text("Use Restart only after the failed attempt has settled.")]
+        recovery: recovery
       )
     }
     if itemID == .stage(.connect), let machineError {
@@ -8668,11 +8521,153 @@ final class OperatorWorkspace {
         outcome: audit.disposition == .operatorStop ? .inProgress : .cancelled,
         detail: [.text(audit.outcome)],
         recovery: audit.disposition == .operatorStop
-          ? [.text("The original owner must settle before the fresh-frame observation continues.")]
+          ? [.text("The original owner must settle at Idle/final MPos before the controller-side commit continues.")]
           : [.text("Use Restart to create a new attempt.")]
       )
     }
     return nil
+  }
+
+  private func subsystemStatusPresentations(
+    for itemID: LearningPathItemID,
+    transaction: DiscoveryTransaction?
+  ) -> [SubsystemStatusPresentation] {
+    let motionGateReason: String? = {
+      if !controllerSessionEstablished {
+        return frameMode == .simulated
+          ? "Connect the learning simulator first."
+          : "Select and connect one responsive controller."
+      }
+      if !motionAuthorizationEnabled { return "Enable Motion for this controller session." }
+      // Coordinator/operation ownership is reported in its own row instead of
+      // being mislabeled as a Controller safety refusal.
+      if visibilityObservationOperation != nil || currentCameraCalibrationPhase != nil
+        || activeStopTarget != nil
+      {
+        return nil
+      }
+      return directCarriageMotionUnavailableReason
+    }()
+    let controllerState: String
+    if !controllerSessionEstablished {
+      controllerState = "Disconnected"
+    } else if !motionAuthorizationEnabled {
+      controllerState = "Motion disabled"
+    } else if activeStopTarget != nil {
+      controllerState = "Operation active"
+    } else if visibilityObservationOperation != nil || currentCameraCalibrationPhase != nil {
+      controllerState = "Ready / coordinator held"
+    } else if motionGateReason != nil {
+      controllerState = "Admission blocked"
+    } else {
+      controllerState = "Idle / admissible"
+    }
+
+    let motionOwnerDetail: String
+    if let activeStopTarget {
+      motionOwnerDetail =
+        "An admitted operation owns motion under Stop capability \(activeStopTarget.capabilityID.rawValue.uuidString.lowercased())."
+    } else {
+      motionOwnerDetail = "No admitted operation currently owns controller motion."
+    }
+
+    let isBoundaryReview =
+      itemID == .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
+    let visionDetail: String
+    let visionState: String
+    let visionBlocksMotion: Bool
+    let visionRole: SubsystemAuthorityRole
+    if let operation = visibilityObservationOperation {
+      visionState = operation.phase.rawValue
+      visionBlocksMotion = true
+      visionRole = .operationOwner
+      visionDetail =
+        "Foreground target-ROI observation owns a still-scene evidence transaction. It blocks new motion until it settles or Cancel Vision is used."
+    } else if let currentCameraCalibrationPhase {
+      visionState = currentCameraCalibrationPhase
+      visionBlocksMotion = true
+      visionRole = .operationOwner
+      visionDetail =
+        "Current-camera calibration owns a multi-step optical-registration operation. New manual motion is blocked until it settles; any currently admitted move is also shown under Motion owner."
+    } else if sceneInspectionInProgress {
+      visionState = "Inspecting one frame"
+      visionBlocksMotion = false
+      visionRole = .advisoryEvidence
+      visionDetail = "One camera frame is being processed for overlays and diagnostics."
+    } else if automaticVisionEnabled {
+      visionState = "Automatic analysis"
+      visionBlocksMotion = false
+      visionRole = .advisoryEvidence
+      visionDetail = "Background analysis updates overlays; it has no motion authority."
+    } else {
+      visionState = "Idle"
+      visionBlocksMotion = false
+      visionRole = .advisoryEvidence
+      visionDetail = "No foreground Vision operation is active."
+    }
+
+    let boundaryAuthoritySuffix = isBoundaryReview
+      ? " Stage 3.2 boundary acceptance never calls Camera or Vision."
+      : ""
+    let commitIsActive: Bool = {
+      guard case .commitBoundaryObservation = transaction?.currentStep?.action else {
+        return false
+      }
+      return true
+    }()
+
+    return [
+      SubsystemStatusPresentation(
+        id: "controller",
+        subsystem: "Controller",
+        state: controllerState,
+        role: .motionGate,
+        blocksNewMotion: motionGateReason != nil,
+        detail: [.text(motionGateReason ?? "Controller facts currently admit a new direct carriage request.")]
+      ),
+      SubsystemStatusPresentation(
+        id: "motion-owner",
+        subsystem: "Motion owner",
+        state: activeStopTarget == nil ? "Unowned" : "Owned",
+        role: .operationOwner,
+        blocksNewMotion: activeStopTarget != nil,
+        detail: [.text(motionOwnerDetail)]
+      ),
+      SubsystemStatusPresentation(
+        id: "camera",
+        subsystem: "Camera",
+        state: cameraStateText,
+        role: .advisoryEvidence,
+        blocksNewMotion: false,
+        detail: [
+          .text(
+            "Frame age: \(frameAgeText). Camera state does not accept or reject a machine boundary.\(boundaryAuthoritySuffix)"
+          )
+        ]
+      ),
+      SubsystemStatusPresentation(
+        id: "vision",
+        subsystem: "Vision / processing",
+        state: visionState,
+        role: visionRole,
+        blocksNewMotion: visionBlocksMotion,
+        detail: [.text(visionDetail + boundaryAuthoritySuffix)]
+      ),
+      SubsystemStatusPresentation(
+        id: "learning-commit",
+        subsystem: "Learning commit",
+        state: commitIsActive ? "Committing controller settlement" : "Idle",
+        role: .evidenceCommit,
+        blocksNewMotion: false,
+        detail: [
+          .text(
+            isBoundaryReview
+              ? "Boundary commit consumes typed direction + operator Stop + controller Idle/final MPos only."
+              : "Learning commits record evidence after the owning operation settles."
+          )
+        ]
+      ),
+    ]
   }
 
   private var visibilityActivityActor: String {
@@ -9066,8 +9061,6 @@ final class OperatorWorkspace {
     learnedLocalCoordinateFrame = nil
     centerArrivalPosition = nil
     centerArrivalRetryRequired = false
-    pendingDiscoveryInspection = nil
-    pendingDiscoveryCaptureBoundaryNanoseconds = nil
     pendingBoundaryFinalPositions = [:]
     pendingBoundaryOwnerIDs = [:]
     pendingBoundaryStopCapabilities = [:]
@@ -9223,8 +9216,6 @@ final class OperatorWorkspace {
     targetAreaRelocationRequired = false
     targetAreaRelocationCompleted = false
     retiredTargetAreaDispositions = [:]
-    pendingDiscoveryInspection = nil
-    pendingDiscoveryCaptureBoundaryNanoseconds = nil
     pendingBoundaryFinalPositions = [:]
     pendingBoundaryOwnerIDs = [:]
     pendingBoundaryStopCapabilities = [:]
@@ -9668,11 +9659,8 @@ final class OperatorWorkspace {
       "Start the logical \(direction.displayName) Boundary Discovery owner."
     case .awaitContextualStop: "Observe the boundary and use the contextual Stop."
     case .cancelBoundaryJogAndAwaitIdle: "Send one jog cancel and await the original motion owner."
-    case .captureFreshCameraFrame: "Capture an exact frame newer than the settled operation."
-    case .measureBoundary(let direction):
-      "Measure the \(direction.displayName) boundary on that frame."
     case .commitBoundaryObservation(let direction):
-      "Atomically commit the \(direction.displayName) exact attempt evidence and accepted machine-space aggregate."
+      "Commit \(direction.displayName) from typed direction + Stop + controller Idle/final MPos. Camera and Vision are not consulted."
     case .actuatePen(let command): "Command Pen \(command.commandedState.rawValue)."
     case .awaitPhysicalPenConfirmation(let state, _):
       "Confirm whether the pen is physically \(state.rawValue)."
@@ -9688,10 +9676,8 @@ final class OperatorWorkspace {
       "The logical boundary owner is active while direct controller admission remains runtime-owned."
     case .operatorStopRequested: "Stop is recorded before cancellation begins."
     case .boundaryJogCancelled: "The original motion owner reaches Idle with final MPos."
-    case .freshFrameCaptured: "The exact captured frame is strictly newer."
-    case .boundaryMeasured: "The boundary observation pairs exact image and controller evidence."
     case .boundaryObservationCommitted:
-      "Exact attempt evidence and the current side aggregate commit together."
+      "Controller settlement evidence and the current side aggregate commit together."
     case .penCommandSettled: "The typed pen command and dwell settle."
     case .physicalPenConfirmed: "The operator confirms the visible physical pen pose."
     }
@@ -10177,6 +10163,7 @@ final class OperatorWorkspace {
     switch outcome {
     case .completed(let evidence):
       drawingTrialStrokeEvidence = evidence
+      drawingTrialStrokeCompletedNaturally = true
       recordStrokeEvidence(evidence, outcome: .completed, summary: "Idle with final MPos")
       _ = await announceAdvisory("Raising the pen after the isolated line.")
       let raise = await machineActions.requestPenActuation(.raise)
@@ -10186,6 +10173,7 @@ final class OperatorWorkspace {
       }
     case .cancelled(let evidence, let penRaiseOutcome):
       drawingTrialStrokeEvidence = evidence
+      drawingTrialStrokeCompletedNaturally = false
       recordStrokeEvidence(evidence, outcome: .cancelled, summary: "Stop settled in place")
       throw LearningPathOperationError.controllerOutcome(
         "Drawing stopped; controller Pen Up outcome: \(penRaiseOutcome)"

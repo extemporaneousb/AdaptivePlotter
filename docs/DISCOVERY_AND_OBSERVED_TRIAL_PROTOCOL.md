@@ -43,28 +43,27 @@ semantic disposition. Sticky ambiguity suppresses new physical motion.
 4. **Stop** is visible immediately and remains bound to that owner.
 5. Operator Stop closes renewal and emits one Jog Cancel.
 6. The original owner settles through fresh Idle and final MPos.
-7. The camera supplies one frame strictly newer than settlement.
-8. Vision supplies one typed bottom-center contact estimate from that exact
-   frame.
-9. The workspace atomically commits the side attempt and accepted aggregate.
-10. The forced opposite side becomes next.
-11. After the pair, the operator selects either sign on the other axis and then
+7. The workspace atomically commits typed direction, Stop owner/disposition,
+   controller session/revision, and final MPos as the side attempt and aggregate.
+8. The forced opposite side becomes next.
+9. After the pair, the operator selects either sign on the other axis and then
     records its forced opposite.
-12. After four sides, explicit **Move to Estimated Center** admits one stoppable
+10. After four sides, explicit **Move to Estimated Center** admits one stoppable
     Pen Up move.
-13. Arrival succeeds when the exact final controller MPos is within 0.05 mm
+11. Arrival succeeds when the exact final controller MPos is within 0.05 mm
     Euclidean residual of the derived target.
 
 The advisory frame used between segments is not accepted side evidence. A
 missing, stale, camera-incompatible, low-confidence, or geometrically unusable
 observation selects 10 mm or less and cannot alter direction, feed, Stop, or
 side acceptance.
-14. Stop or out-of-tolerance settlement retains all four side aggregates and
-    exposes **Retry Center Arrival** for only the remaining delta.
+Stop or out-of-tolerance center settlement retains all four side aggregates and
+exposes **Retry Center Arrival** for only the remaining delta.
 
 There is no generic preparatory YES/NO question. A detected drawing-frame edge,
 quadrilateral, or nearest-edge association cannot identify or veto a side. The
-typed direction is authoritative; the contact estimate is optical evidence.
+typed direction and settled controller position are authoritative. Optical
+contact evidence begins in 3.3 and is not part of a Boundary attempt.
 
 Natural completion of one finite segment is not side evidence. An unambiguous
 segment may renew while the same owner remains active. A controller limit,
@@ -73,14 +72,12 @@ inventing success.
 
 ### Side attempts and aggregates
 
-A successful exact attempt retains:
+A successful machine-side attempt retains:
 
 - attempt and operation-owner identity;
 - typed direction and Stop disposition;
 - controller session and coordinate revision;
 - final settled MPos;
-- frame source, ID, SHA-256, capture time, and camera configuration;
-- contact estimator, confidence, and contact point.
 
 The accepted aggregate for one direction retains its revision, numeric
 compatibility, estimate in millimetres, sample count, estimator, uncertainty,

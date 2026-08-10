@@ -872,6 +872,8 @@ private struct SimulatedRouteEvidence {
 private struct SimulatedBoundaryRouteSample {
   let aggregate: BoundarySideAggregate
   let evidence: BoundarySideAttemptEvidence
+  let contactPoint: Point2<CameraPixelSpace>
+  let frame: DisplayedFrame
 }
 
 private actor ControlledSimulatedExecutionPacing: SimulatedLearningExecutionPacing {
@@ -946,18 +948,6 @@ private func runVisibilityRoute(
     let revision = LearningArtifactRevisionID()
     try progress.accept(direction, revisionID: revision)
     let attemptID = ExerciseAttemptID()
-    let contact = try ToolContactPointEstimate(
-      componentCentroid: Point2(
-        x: scene.contactPoint.x,
-        y: scene.contactPoint.y - 10
-      ),
-      componentBounds: scene.armatureBounds,
-      confidence: 1,
-      estimatorRevision: "simulated-component-bottom-center-v1",
-      source: .simulated,
-      frameID: scene.displayedFrame.frame.id,
-      cameraConfigurationID: scene.displayedFrame.frame.cameraConfigurationID
-    )
     let evidence = try BoundarySideAttemptEvidence(
       attemptID: attemptID,
       direction: direction,
@@ -970,12 +960,6 @@ private func runVisibilityRoute(
         x: stopped.finalMPos.xMM,
         y: stopped.finalMPos.yMM
       ),
-      frameSource: .simulated,
-      frameID: scene.displayedFrame.frame.id,
-      frameSHA256: scene.displayedFrame.frame.contentSHA256,
-      captureNanoseconds: scene.displayedFrame.frame.captureNanoseconds,
-      cameraConfigurationID: scene.displayedFrame.frame.cameraConfigurationID,
-      contactPoint: contact,
       disposition: .succeeded
     )
     let compatibility = BoundaryNumericCompatibility(
@@ -1000,7 +984,9 @@ private func runVisibilityRoute(
         revisionID: revision,
         history: history
       ),
-      evidence: evidence
+      evidence: evidence,
+      contactPoint: scene.contactPoint,
+      frame: scene.displayedFrame
     ))
   }
   let center = try EstimatedMachineCenter.derive(from: boundaries.map(\.aggregate))
@@ -1014,7 +1000,7 @@ private func runVisibilityRoute(
   let fitCorrespondences = boundaries.map {
     MachineCameraRegistrationCorrespondence(
       machine: $0.evidence.finalPosition.point,
-      camera: $0.evidence.contactPoint.point
+      camera: $0.contactPoint
     )
   }
   let registrationFit = try MachineCameraRegistrationFit.fit(
@@ -1029,18 +1015,18 @@ private func runVisibilityRoute(
     correspondenceProvenance: boundaries.map {
       MachineCameraCorrespondenceProvenance(
         machinePoint: $0.evidence.finalPosition.point,
-        contactPoint: $0.evidence.contactPoint.point,
-        source: $0.evidence.frameSource,
+        contactPoint: $0.contactPoint,
+        source: $0.frame.source,
         controllerSessionID: $0.evidence.controllerSessionID,
         coordinateRevision: $0.evidence.coordinateRevision,
-        frameID: $0.evidence.frameID,
-        frameSHA256: $0.evidence.frameSHA256,
-        captureNanoseconds: $0.evidence.captureNanoseconds,
-        cameraConfigurationID: $0.evidence.cameraConfigurationID,
+        frameID: $0.frame.frame.id,
+        frameSHA256: $0.frame.frame.contentSHA256,
+        captureNanoseconds: $0.frame.frame.captureNanoseconds,
+        cameraConfigurationID: $0.frame.frame.cameraConfigurationID,
         attemptID: $0.evidence.attemptID,
-        contactEstimatorRevision: $0.evidence.contactEstimatorRevision,
+        contactEstimatorRevision: "simulated-component-bottom-center-v1",
         algorithmRevision: "simulated-correspondence-v1",
-        contactConfidence: $0.evidence.contactConfidence,
+        contactConfidence: 1,
         artifactRevisionID: $0.aggregate.revisionID
       )
     },

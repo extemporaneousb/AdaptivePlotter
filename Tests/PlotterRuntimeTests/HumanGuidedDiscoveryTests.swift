@@ -11,13 +11,13 @@ struct HumanGuidedDiscoveryTests {
     #expect(OperatorChoice.allCases == [.yes, .no])
   }
 
-  @Test("Boundary Stop orders settlement, exact evidence, and one atomic aggregate commit")
+  @Test("Boundary Stop commits controller settlement without Camera or Vision steps")
   func boundaryStopOrdering() throws {
     let definition = DiscoverySequenceCatalog.definition(for: .boundaryPositiveX)
     #expect(
       definition.steps.map(\.id) == [
         "announce-jog", "start-jog", "stop-boundary", "cancel-and-idle",
-        "capture-frame", "measure-boundary", "commit-boundary-observation",
+        "commit-boundary-observation",
       ])
     #expect(definition.steps[2].action == .awaitContextualStop(.positiveX))
     #expect(definition.steps.last?.action == .commitBoundaryObservation(.positiveX))
@@ -37,7 +37,9 @@ struct HumanGuidedDiscoveryTests {
     try transaction.record(
       .boundaryJogCancelled(.positiveX, finalPosition: final, controllerSummary: "Idle")
     )
-    #expect(transaction.currentStep?.id == "capture-frame")
+    #expect(transaction.currentStep?.id == "commit-boundary-observation")
+    #expect(definition.steps.contains { $0.participant == .camera } == false)
+    #expect(definition.steps.contains { $0.participant == .vision } == false)
   }
 
   @Test("Boundary has no generic choice ceremony or posterior phase")
@@ -109,13 +111,11 @@ struct HumanGuidedDiscoveryTests {
   @Test("negative observed fixture derives spans, center, local mapping, and round trip")
   func observedNegativeFixture() throws {
     let session = UUID()
-    let firstCamera = CameraConfigurationID()
-    let secondCamera = CameraConfigurationID()
     let aggregates = try [
-      aggregate(.negativeX, positions: [(-351.473, -38.877, firstCamera)], session: session),
-      aggregate(.positiveX, positions: [(-164.923, -38.877, secondCamera)], session: session),
-      aggregate(.negativeY, positions: [(-351.473, -76.534, firstCamera)], session: session),
-      aggregate(.positiveY, positions: [(-351.473, 82.633, secondCamera)], session: session),
+      aggregate(.negativeX, positions: [(-351.473, -38.877)], session: session),
+      aggregate(.positiveX, positions: [(-164.923, -38.877)], session: session),
+      aggregate(.negativeY, positions: [(-351.473, -76.534)], session: session),
+      aggregate(.positiveY, positions: [(-351.473, 82.633)], session: session),
     ]
 
     let center = try EstimatedMachineCenter.derive(from: aggregates)
@@ -142,10 +142,10 @@ struct HumanGuidedDiscoveryTests {
   func aggregateContextMismatch() throws {
     let session = UUID()
     let aggregates = try [
-      aggregate(.negativeX, positions: [(-10, 0, CameraConfigurationID())], session: session),
-      aggregate(.positiveX, positions: [(10, 0, CameraConfigurationID())], session: session),
-      aggregate(.negativeY, positions: [(0, -10, CameraConfigurationID())], session: session),
-      aggregate(.positiveY, positions: [(0, 10, CameraConfigurationID())], session: UUID()),
+      aggregate(.negativeX, positions: [(-10, 0)], session: session),
+      aggregate(.positiveX, positions: [(10, 0)], session: session),
+      aggregate(.negativeY, positions: [(0, -10)], session: session),
+      aggregate(.positiveY, positions: [(0, 10)], session: UUID()),
     ]
     #expect(throws: EstimatedMachineCenterError.incompatibleControllerContext) {
       _ = try EstimatedMachineCenter.derive(from: aggregates)
@@ -155,12 +155,11 @@ struct HumanGuidedDiscoveryTests {
     }
   }
 
-  @Test("camera changes do not split numeric Boundary aggregation")
-  func cameraAgnosticNumericCompatibility() throws {
-    let cameras = [CameraConfigurationID(), CameraConfigurationID(), CameraConfigurationID()]
+  @Test("Boundary aggregation contains no camera compatibility dimension")
+  func machineOnlyNumericCompatibility() throws {
     let side = try aggregate(
       .positiveX,
-      positions: [(10, 0, cameras[0]), (12, 0, cameras[1]), (14, 0, cameras[2])],
+      positions: [(10, 0), (12, 0), (14, 0)],
       session: UUID()
     )
     #expect(side.validSampleCount == 3)
@@ -175,33 +174,29 @@ struct HumanGuidedDiscoveryTests {
     #expect(deviation == 2)
   }
 
-  @Test("same camera contact point for all machine sides is irrelevant to side identity")
-  func sameNearestEdgeIsIrrelevant() throws {
+  @Test("machine side identity requires no camera contact classification")
+  func cameraContactIsAbsentFromSideIdentity() throws {
     let session = UUID()
-    let camera = CameraConfigurationID()
-    let contact = try Point2<CameraPixelSpace>(x: 100, y: 100)
     let aggregates = try [
-      aggregate(.negativeX, positions: [(-10, 0, camera)], session: session, contact: contact),
-      aggregate(.positiveX, positions: [(10, 0, camera)], session: session, contact: contact),
-      aggregate(.negativeY, positions: [(0, -5, camera)], session: session, contact: contact),
-      aggregate(.positiveY, positions: [(0, 5, camera)], session: session, contact: contact),
+      aggregate(.negativeX, positions: [(-10, 0)], session: session),
+      aggregate(.positiveX, positions: [(10, 0)], session: session),
+      aggregate(.negativeY, positions: [(0, -5)], session: session),
+      aggregate(.positiveY, positions: [(0, 5)], session: session),
     ]
     #expect(try EstimatedMachineCenter.derive(from: aggregates).point == Point2(x: 0, y: 0))
   }
 
-  @Test("exact attempt evidence retains owner, Stop, final MPos, exact frame, and contact estimator")
+  @Test("Boundary attempt evidence retains only controller-side acceptance facts")
   func exactAttemptEvidence() throws {
     let attemptID = ExerciseAttemptID()
     let ownerID = BoundaryMotionOwnerID()
     let stopCapabilityID = UUID()
-    let camera = CameraConfigurationID()
     let evidence = try boundaryEvidence(
       attemptID: attemptID,
       direction: .negativeX,
       x: -351.473,
       y: -38.877,
       session: UUID(),
-      camera: camera,
       ownerID: ownerID,
       stopCapabilityID: stopCapabilityID
     )
@@ -210,12 +205,6 @@ struct HumanGuidedDiscoveryTests {
     #expect(evidence.stopCapabilityID == stopCapabilityID)
     #expect(evidence.stopIntent == .operatorStop)
     #expect(evidence.finalPosition.point.x == -351.473)
-    #expect(evidence.frameSource == .simulated)
-    #expect(evidence.frameSHA256.hasPrefix("sha-"))
-    #expect(evidence.captureNanoseconds == 100)
-    #expect(evidence.cameraConfigurationID == camera)
-    #expect(evidence.contactEstimatorRevision == "component-bottom-center-v1")
-    #expect(evidence.contactConfidence == 0.9)
     #expect(evidence.disposition == .succeeded)
   }
 
@@ -289,10 +278,9 @@ private struct RegistrationTestContext {
 
 private func aggregate(
   _ direction: BoundaryDirection,
-  positions: [(Double, Double, CameraConfigurationID)],
+  positions: [(Double, Double)],
   session: UUID,
-  coordinateRevision: UInt64 = 7,
-  contact: Point2<CameraPixelSpace>? = nil
+  coordinateRevision: UInt64 = 7
 ) throws -> BoundarySideAggregate {
   let estimator = AggregateEstimatorIdentity(
     name: "arithmetic-mean",
@@ -315,9 +303,7 @@ private func aggregate(
       x: position.0,
       y: position.1,
       session: session,
-      coordinateRevision: coordinateRevision,
-      camera: position.2,
-      contact: contact
+      coordinateRevision: coordinateRevision
     )
     try history.record(ExerciseAttempt(
       id: attemptID,
@@ -341,32 +327,9 @@ private func boundaryEvidence(
   y: Double,
   session: UUID,
   coordinateRevision: UInt64 = 7,
-  camera: CameraConfigurationID,
   ownerID: BoundaryMotionOwnerID = BoundaryMotionOwnerID(),
-  stopCapabilityID: UUID = UUID(),
-  contact: Point2<CameraPixelSpace>? = nil
+  stopCapabilityID: UUID = UUID()
 ) throws -> BoundarySideAttemptEvidence {
-  let frameID = FrameID(rawValue: "frame-\(attemptID.rawValue.uuidString)")
-  let contactPoint: Point2<CameraPixelSpace>
-  if let contact {
-    contactPoint = contact
-  } else {
-    contactPoint = try Point2(x: 100, y: 100)
-  }
-  let estimate = try ToolContactPointEstimate(
-    componentCentroid: Point2(x: contactPoint.x, y: contactPoint.y - 2),
-    componentBounds: AxisAlignedBounds(
-      minX: contactPoint.x - 2,
-      minY: contactPoint.y - 4,
-      maxX: contactPoint.x + 2,
-      maxY: contactPoint.y
-    ),
-    confidence: 0.9,
-    estimatorRevision: "component-bottom-center-v1",
-    source: .simulated,
-    frameID: frameID,
-    cameraConfigurationID: camera
-  )
   return try BoundarySideAttemptEvidence(
     attemptID: attemptID,
     direction: direction,
@@ -376,12 +339,6 @@ private func boundaryEvidence(
     stopCapabilityID: stopCapabilityID,
     stopIntent: .operatorStop,
     finalPosition: MachinePosition(x: x, y: y),
-    frameSource: .simulated,
-    frameID: frameID,
-    frameSHA256: "sha-\(attemptID.rawValue.uuidString)",
-    captureNanoseconds: 100,
-    cameraConfigurationID: camera,
-    contactPoint: estimate,
     disposition: .succeeded
   )
 }

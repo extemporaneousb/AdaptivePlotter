@@ -549,6 +549,22 @@ enum ExerciseActionKind: Hashable, Sendable {
   case recordDrawingTrialAssessment(DrawingTrialAssessment)
 }
 
+enum SubsystemAuthorityRole: String, Hashable, Sendable {
+  case motionGate = "Motion gate"
+  case operationOwner = "Operation owner"
+  case advisoryEvidence = "Advisory evidence"
+  case evidenceCommit = "Evidence commit"
+}
+
+struct SubsystemStatusPresentation: Identifiable, Hashable, Sendable {
+  let id: String
+  let subsystem: String
+  let state: String
+  let role: SubsystemAuthorityRole
+  let blocksNewMotion: Bool
+  let detail: [PresentationFragment]
+}
+
 enum ExerciseActionRole: Hashable, Sendable {
   case positive
   case destructive
@@ -690,6 +706,7 @@ struct OperatorActionPresentation: Hashable, Sendable {
   let timeline: ExerciseTimelinePresentation?
   let evidence: [ExerciseEvidencePresentation]
   let activity: OperationActivityPresentation?
+  let subsystemStatuses: [SubsystemStatusPresentation]
   let actionStrip: ExerciseActionStripPresentation?
   let requestedFeedMMPerMinute: Double?
   let feedSource: FeedSelectionSource?
@@ -706,6 +723,7 @@ struct OperatorActionPresentation: Hashable, Sendable {
     timeline: ExerciseTimelinePresentation? = nil,
     evidence: [ExerciseEvidencePresentation] = [],
     activity: OperationActivityPresentation? = nil,
+    subsystemStatuses: [SubsystemStatusPresentation] = [],
     actionStrip: ExerciseActionStripPresentation? = nil,
     requestedFeedMMPerMinute: Double? = nil,
     feedSource: FeedSelectionSource? = nil
@@ -721,6 +739,7 @@ struct OperatorActionPresentation: Hashable, Sendable {
     self.timeline = timeline
     self.evidence = evidence
     self.activity = activity
+    self.subsystemStatuses = subsystemStatuses
     self.actionStrip = actionStrip
     self.requestedFeedMMPerMinute = requestedFeedMMPerMinute
     self.feedSource = feedSource

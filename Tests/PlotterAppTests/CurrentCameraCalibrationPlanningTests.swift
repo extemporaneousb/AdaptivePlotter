@@ -256,19 +256,6 @@ private func boundaryAggregate(
     numericEstimatorRevision: estimator.revision
   ).attemptCompatibility
   let attemptID = ExerciseAttemptID()
-  let frameID = FrameID(rawValue: "frame-\(attemptID.rawValue.uuidString)")
-  let cameraConfigurationID = CameraConfigurationID(
-    UUID(uuidString: "00000000-0000-0000-0000-000000000302")!
-  )
-  let contactPoint = try ToolContactPointEstimate(
-    componentCentroid: Point2(x: 100, y: 98),
-    componentBounds: AxisAlignedBounds(minX: 98, minY: 96, maxX: 102, maxY: 100),
-    confidence: 0.9,
-    estimatorRevision: "component-bottom-center-v1",
-    source: .simulated,
-    frameID: frameID,
-    cameraConfigurationID: cameraConfigurationID
-  )
   let position =
     direction.isXAxis
     ? try MachinePosition(x: estimateMM, y: 0)
@@ -282,12 +269,6 @@ private func boundaryAggregate(
     stopCapabilityID: UUID(),
     stopIntent: .operatorStop,
     finalPosition: position,
-    frameSource: .simulated,
-    frameID: frameID,
-    frameSHA256: "sha-\(attemptID.rawValue.uuidString)",
-    captureNanoseconds: 1,
-    cameraConfigurationID: cameraConfigurationID,
-    contactPoint: contactPoint,
     disposition: .succeeded
   )
   var history = try ExerciseAttemptHistory<BoundarySideAttemptEvidence>(
