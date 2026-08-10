@@ -4,6 +4,15 @@ import Testing
 
 @Suite("Learning workbench layout policy")
 struct LearningWorkbenchLayoutTests {
+  @Test("exercise actions preserve readable button widths across pane sizes")
+  func readableExerciseActionWidths() {
+    #expect(ExerciseActionLayoutPolicy.minimumButtonWidth == 180)
+    #expect(ExerciseActionLayoutPolicy.maximumColumnCount(availableWidth: 300) == 1)
+    #expect(ExerciseActionLayoutPolicy.maximumColumnCount(availableWidth: 500) == 2)
+    #expect(ExerciseActionLayoutPolicy.maximumColumnCount(availableWidth: 600) == 3)
+    #expect(ExerciseActionLayoutPolicy.maximumColumnCount(availableWidth: .infinity) == 1)
+  }
+
   @Test("all non-camera panes collapse and restore independently")
   func paneVisibility() {
     let initial = WorkbenchPaneVisibility()

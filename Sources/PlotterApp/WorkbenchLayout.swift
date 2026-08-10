@@ -7,6 +7,23 @@ enum LearningWorkbenchLayoutPolicy {
   static let minimumActionSurfaceHeight: CGFloat = 480
 }
 
+/// Keeps workflow action titles readable in the pinned exercise pane. The
+/// grid gives up a column before compressing a button below this width; labels
+/// then grow vertically instead of being truncated.
+enum ExerciseActionLayoutPolicy {
+  static let minimumButtonWidth: CGFloat = 180
+  static let minimumButtonHeight: CGFloat = 32
+  static let horizontalSpacing: CGFloat = 8
+
+  static func maximumColumnCount(availableWidth: CGFloat) -> Int {
+    let width = max(0, availableWidth.isFinite ? availableWidth : 0)
+    return max(
+      1,
+      Int((width + horizontalSpacing) / (minimumButtonWidth + horizontalSpacing))
+    )
+  }
+}
+
 enum WorkbenchPane: Hashable, Sendable {
   case navigator
   case motion

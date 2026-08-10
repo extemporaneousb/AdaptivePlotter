@@ -430,7 +430,12 @@ private struct ExerciseActionStripView: View {
       }
 
       LazyVGrid(
-        columns: [GridItem(.adaptive(minimum: 132), spacing: 8)],
+        columns: [
+          GridItem(
+            .adaptive(minimum: ExerciseActionLayoutPolicy.minimumButtonWidth),
+            spacing: ExerciseActionLayoutPolicy.horizontalSpacing
+          )
+        ],
         alignment: .leading,
         spacing: 7
       ) {
@@ -458,7 +463,14 @@ private struct ExerciseActionStripView: View {
       Task { await perform(action.kind, presentation.ownerID) }
     } label: {
       Text(action.title)
-        .frame(maxWidth: .infinity)
+        .multilineTextAlignment(.center)
+        .lineLimit(nil)
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.vertical, 2)
+        .frame(
+          maxWidth: .infinity,
+          minHeight: ExerciseActionLayoutPolicy.minimumButtonHeight
+        )
     }
     .disabled(!action.isEnabled)
     .help(action.unavailableReason ?? action.title)
