@@ -343,6 +343,13 @@ public struct AcceptedArtifactCheckpointStore: Sendable {
     try encoded.write(to: fileURL, options: [.atomic])
   }
 
+  /// Removes the durable authority file. Absence is already the cleared state,
+  /// so repeated explicit resets are idempotent.
+  public func clear() throws {
+    guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
+    try FileManager.default.removeItem(at: fileURL)
+  }
+
   private static func sha256(_ data: Data) -> String {
     SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
   }

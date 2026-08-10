@@ -247,6 +247,15 @@ Only named transitive dependents are invalidated. Record Another Attempt adds a
 compatible sample and recomputes the aggregate. Exact evidence remains
 individually attributable.
 
+`LearningVacatePlan` is the immutable preview and stale-state guard for deliberate
+chronological rewinds. `OperatorWorkspace` derives its artifact roots from visible
+Learning Path order, then asks `LearningDependencyGraph` to invalidate the named
+current revisions and their causal consumers while clearing the matching payload
+slots and active aggregate histories. This sequencing policy stays outside the
+graph: causal Redo and chronological Vacate are intentionally distinct operations.
+The plan is source-bound (LIVE or SIMULATED), includes the accepted-attempt
+sequence and current revision identities, and must still match when confirmed.
+
 ## Model boundary
 
 `PlotterModel` may hold future-facing immutable drawing programs, transforms,

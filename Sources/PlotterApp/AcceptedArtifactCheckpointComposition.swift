@@ -18,7 +18,8 @@ enum AcceptedArtifactCheckpointComposition {
     let store = AcceptedArtifactCheckpointStore(fileURL: url)
     return OperatorWorkspace.AcceptedArtifactCheckpointActions(
       load: { store.load() },
-      save: { try store.save($0) }
+      save: { try store.save($0) },
+      clear: { try store.clear() }
     )
   }()
 }

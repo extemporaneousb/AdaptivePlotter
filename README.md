@@ -125,6 +125,16 @@ and compact status. Exercise Start, choices, Cancel, Stop, Restart, Redo, and
 Record Another Attempt remain with the selected exercise. Buttons are the
 authoritative input surface; speech is output-only advisory guidance.
 
+Selecting an older Learning Path row remains review-only. Its Learning Authority
+section can explicitly **Vacate Learning From Here…**, which previews the exact
+chronological suffix and requires typing a row-specific confirmation phrase.
+**Reset All LIVE/SIMULATED Learning…** uses a separate source-specific phrase and
+returns learning to Pen Interaction without disconnecting the controller or
+changing Enable Motion. A LIVE rewind that reaches Boundary learning also removes
+the durable accepted-Boundary checkpoint. Neither action erases physical ink;
+contaminated target areas remain unusable until the operator chooses a new area or
+records paper replacement.
+
 ## Build, test, and launch
 
 Requirements:

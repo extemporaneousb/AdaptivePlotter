@@ -228,6 +228,21 @@ replacement commit. Record Another Attempt recomputes the compatible aggregate
 and the same named dependents. Chronological successors without a dependency
 edge survive.
 
+Vacate Learning From Here is deliberately different from Redo. It is an explicit
+operator-authored chronological rewind, so it invalidates the selected exercise's
+current accepted authority and every later Learning Path exercise even when two
+rows have no causal dependency edge. Selecting or reviewing a row alone never
+does this. The confirmation sheet lists the exact suffix and requires its exact
+typed phrase; any accepted-state change makes that preview stale and requires a
+new confirmation.
+
+Reset All Learning is the same operation anchored at Pen Interaction. It preserves
+the selected responsive controller and current Enable Motion fact. LIVE Boundary
+rewinds clear the durable accepted-artifact checkpoint before in-memory state is
+changed. SIMULATED rewinds cannot touch parked LIVE authority. Neither operation
+starts, stops, resends, redraws, disconnects, or changes pen state, and neither
+erases ink already on paper.
+
 Camera reconfiguration invalidates optical registration, ROI, baseline, and
 image-derived descendants. It does not by itself invalidate compatible side
 aggregates, center, center arrival, or learned local coordinates.

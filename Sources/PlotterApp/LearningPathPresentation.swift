@@ -100,6 +100,18 @@ enum LearningPathItemID: Hashable, Identifiable, Sendable {
     .stage(.adaptiveDrawing),
   ]
 
+  static let learningExerciseOrder: [Self] = [
+    .humanGuidedDiscovery(.penInteraction),
+    .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering),
+    .humanGuidedDiscovery(.visibilityTargetAndClearViewRegistration),
+    .observedDrawingTrial(.chooseIsolatedLinePlan),
+    .observedDrawingTrial(.captureTargetAnchoredBaseline),
+    .observedDrawingTrial(.moveToLineStart),
+    .observedDrawingTrial(.drawIsolatedLine),
+    .observedDrawingTrial(.returnToClearPoseAndObserveNewInk),
+    .observedDrawingTrial(.compareIntendedAndObservedGeometry),
+  ]
+
   var stage: LearningPathStage {
     switch self {
     case .stage(let stage): stage
@@ -133,10 +145,68 @@ enum LearningPathItemID: Hashable, Identifiable, Sendable {
     }
   }
 
+  var learningRewindAnchor: Self? {
+    switch self {
+    case .stage(.humanGuidedDiscovery):
+      .humanGuidedDiscovery(.penInteraction)
+    case .stage(.observedDrawingTrials):
+      .observedDrawingTrial(.chooseIsolatedLinePlan)
+    case .humanGuidedDiscovery, .observedDrawingTrial:
+      self
+    case .stage(.connect), .stage(.enableMotion), .stage(.adaptiveDrawing):
+      nil
+    }
+  }
+
   var navigationDepth: Int {
     switch self {
     case .humanGuidedDiscovery, .observedDrawingTrial: 1
     case .stage: 0
+    }
+  }
+}
+
+enum LearningVacateSource: String, Hashable, Sendable {
+  case live = "LIVE"
+  case simulated = "SIMULATED"
+}
+
+enum LearningVacateScope: Hashable, Sendable {
+  case from(LearningPathItemID)
+  case all
+}
+
+/// Immutable preview and stale-state guard for an explicit learning rewind.
+/// The UI must present this exact plan before passing it back for mutation.
+struct LearningVacatePlan: Hashable, Identifiable, Sendable {
+  let scope: LearningVacateScope
+  let source: LearningVacateSource
+  let anchor: LearningPathItemID
+  let affectedItems: [LearningPathItemID]
+  let expectedCurrentRevisionIDs: Set<LearningArtifactRevisionID>
+  let expectedAcceptedAttemptSequence: UInt64
+  let removesDurableCheckpoint: Bool
+  let physicalInkMayRemain: Bool
+
+  var id: String {
+    let scopeID = switch scope {
+    case .from: "from-\(anchor.number)"
+    case .all: "all"
+    }
+    return "\(source.rawValue)-\(scopeID)"
+  }
+
+  var title: String {
+    switch scope {
+    case .from: "Vacate Learning From Here"
+    case .all: "Reset All \(source.rawValue) Learning"
+    }
+  }
+
+  var confirmationPhrase: String {
+    switch scope {
+    case .from: "VACATE \(anchor.number) FORWARD"
+    case .all: "RESET ALL \(source.rawValue) LEARNING"
     }
   }
 }

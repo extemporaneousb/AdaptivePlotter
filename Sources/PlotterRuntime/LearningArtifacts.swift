@@ -773,6 +773,17 @@ public struct LearningDependencyGraph: Sendable {
   public mutating func invalidateForCameraChange(
     rootKinds: Set<LearningArtifactKind>
   ) -> LearningArtifactInvalidation {
+    invalidateCurrentRevisions(rootKinds: rootKinds)
+  }
+
+  /// Invalidates the named current revisions plus their explicit transitive
+  /// consumers. The caller owns the policy that selected the roots; this graph
+  /// never infers visible workflow order. Existing revisions remain indexed as
+  /// invalidated provenance and cannot contribute current authority.
+  @discardableResult
+  public mutating func invalidateCurrentRevisions(
+    rootKinds: Set<LearningArtifactKind>
+  ) -> LearningArtifactInvalidation {
     let rootRevisionIDs: Set<LearningArtifactRevisionID> = Set(rootKinds.compactMap {
       kind -> LearningArtifactRevisionID? in
       guard let revisionID = currentRevisionIDByKind[kind],

@@ -30,6 +30,26 @@ struct AcceptedArtifactCheckpointTests {
     #expect(!encoded.contains("DiscoveryTransaction"))
   }
 
+  @Test("explicit clear removes the durable authority file idempotently")
+  func clear() throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let url = directory.appendingPathComponent("checkpoint.json")
+    let store = AcceptedArtifactCheckpointStore(fileURL: url)
+
+    try store.save(makeCheckpoint())
+    #expect(FileManager.default.fileExists(atPath: url.path))
+    try store.clear()
+    #expect(!FileManager.default.fileExists(atPath: url.path))
+    if case .absent = store.load() {
+      // Expected.
+    } else {
+      Issue.record("Expected an absent checkpoint after explicit clear.")
+    }
+    try store.clear()
+  }
+
   @Test("tampering is rejected before any artifact can be decoded")
   func corruptionRejected() throws {
     let directory = FileManager.default.temporaryDirectory

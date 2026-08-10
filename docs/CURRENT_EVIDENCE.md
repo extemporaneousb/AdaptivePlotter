@@ -24,6 +24,9 @@ The current source implements:
 - visibility target, Clear pose, and one isolated-line observed trial;
 - causal, nonphysical simulator parity;
 - dependency-scoped artifact replacement and compatible aggregation;
+- explicit typed-confirmation Vacate From Here and Reset All Learning controls,
+  with chronological rewind, stale-preview rejection, LIVE/SIMULATED isolation,
+  and durable Boundary-checkpoint removal;
 - output-only announcements;
 - signed-bundle construction, validation, and single-instance launch refusal.
 - atomic durable accepted-Boundary checkpoints that remain quarantined until
@@ -42,17 +45,15 @@ model-selected drawing.
 
 The current software baseline has passed:
 
-- make quick-test — 303 unit and component tests in a 0.494-second test run
-  (1.83 seconds wall time on the recorded local host);
-- make journey-test — the nine retained causal route tests, including both
-  boundary-order arguments, run sequentially to avoid pixel-analysis
-  contention. They completed in a 72.490-second test run (73.66 seconds wall
-  time);
-- make strict-check — signed app construction and validation, launcher logic
-  and validation, negative bundle validation, all 312 tests, complete Swift
-  concurrency checking, warnings as errors, repository-contract checks, and
-  diff checks. The test run completed in 53.219 seconds and the complete cold
-  strict gate in 123.13 seconds;
+- make quick-test — 319 unit and component tests in a 7.505-second test run;
+- make check — signed app construction and validation, launcher logic and
+  validation, negative bundle validation, all 328 tests, repository-contract
+  checks, and diff checks. The test run completed in 9.097 seconds;
+- make strict-check — the same signed-app and 328-test gate with complete Swift
+  concurrency checking and warnings as errors. The confirming test run completed
+  in 7.785 seconds;
+- the nine retained causal journey cases ran inside both full parallel check
+  suites; standalone sequential make journey-test was not rerun for this change;
 - Scripts/check_repository_contract.sh;
 - git diff --check.
 

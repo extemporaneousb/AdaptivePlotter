@@ -152,7 +152,8 @@ struct OperatorWorkspaceTests {
     let checkpointBox = CheckpointBox()
     let checkpointActions = OperatorWorkspace.AcceptedArtifactCheckpointActions(
       load: { checkpointBox.load() },
-      save: { checkpointBox.save($0) }
+      save: { checkpointBox.save($0) },
+      clear: { checkpointBox.clear() }
     )
     let first = workspace(
       machine: machine,
@@ -1214,6 +1215,180 @@ struct OperatorWorkspaceTests {
     #expect(workspace.currentPenStateAggregate?.includedAttemptIDs == [accepted.attemptID])
     await workspace.shutdown()
   }
+
+  @Test("Reset All LIVE Learning clears durable authority but retains session facts")
+  func resetAllLiveLearningClearsCheckpointAndRetainsSessionFacts() async throws {
+    let log = EventLog()
+    let machine = try MachineFixture(log: log)
+    let checkpointBox = CheckpointBox()
+    let checkpointActions = OperatorWorkspace.AcceptedArtifactCheckpointActions(
+      load: { checkpointBox.load() },
+      save: { checkpointBox.save($0) },
+      clear: { checkpointBox.clear() }
+    )
+    let workspace = workspace(
+      machine: machine,
+      camera: try CameraFixture(),
+      checkpointActions: checkpointActions,
+      log: log
+    )
+    await workspace.establishMachineSession(machine.descriptor)
+    await workspace.requestPassiveProbe()
+    await workspace.startCamera()
+    try await completePenInteraction(workspace)
+    let stalePlan = try #require(workspace.resetAllLearningPlan)
+    await workspace.beginPairedBoundarySide(.positiveX)
+    try await waitUntil { workspace.contextualStopPresentation != nil }
+    try await stopActiveOperation(workspace)
+    #expect(checkpointBox.checkpoint != nil)
+    #expect(!workspace.performLearningVacate(stalePlan))
+    #expect(workspace.boundarySideAggregates[.positiveX] != nil)
+    #expect(
+      workspace.learningAuthorityError?.contains("changed after the confirmation preview") == true
+    )
+
+    let plan = try #require(workspace.resetAllLearningPlan)
+    #expect(plan.source == .live)
+    #expect(plan.anchor == .humanGuidedDiscovery(.penInteraction))
+    #expect(plan.removesDurableCheckpoint)
+    #expect(plan.confirmationPhrase == "RESET ALL LIVE LEARNING")
+    #expect(workspace.performLearningVacate(plan))
+
+    #expect(checkpointBox.checkpoint == nil)
+    #expect(workspace.learningArtifactGraph.currentRevision(for: .penInteraction) == nil)
+    #expect(
+      workspace.learningArtifactGraph.currentRevision(for: .boundarySideAggregate(.positiveX))
+        == nil
+    )
+    #expect(workspace.penAttemptHistory.records.isEmpty)
+    #expect(workspace.boundarySideAggregates.isEmpty)
+    #expect(workspace.controllerSessionEstablished)
+    #expect(workspace.motionAuthorizationEnabled)
+    #expect(
+      workspace.currentLearningPathItemID == .humanGuidedDiscovery(.penInteraction)
+    )
+    #expect(workspace.acceptedArtifactCheckpointStatus == .cleared)
+    await workspace.shutdown()
+  }
+
+  @Test("Vacate from Boundary retains Pen and removes every later SIMULATED learning")
+  func vacateBoundaryForwardRetainsEarlierLearning() async throws {
+    let harness = makeSimulatedHarness()
+    let workspace = harness.workspace
+    try await completeSimulatedVisibilityProtocol(
+      workspace,
+      runtime: harness.runtime,
+      boundaryOrder: [.positiveX, .negativeX, .positiveY, .negativeY]
+    )
+    let penRevisionID = try #require(
+      workspace.learningArtifactGraph.currentRevision(for: .penInteraction)?.id
+    )
+    let anchor = LearningPathItemID.humanGuidedDiscovery(
+      .pairedBoundaryDiscoveryAndCentering
+    )
+    let plan = try #require(workspace.learningVacatePlan(from: anchor))
+    #expect(plan.source == .simulated)
+    #expect(!plan.removesDurableCheckpoint)
+    #expect(plan.physicalInkMayRemain)
+    #expect(plan.confirmationPhrase == "VACATE 3.2 FORWARD")
+    #expect(workspace.performLearningVacate(plan))
+
+    #expect(
+      workspace.learningArtifactGraph.currentRevision(for: .penInteraction)?.id
+        == penRevisionID
+    )
+    #expect(workspace.boundarySideAggregates.isEmpty)
+    #expect(workspace.estimatedMachineCenter == nil)
+    #expect(!workspace.visibilityRegistrationAccepted)
+    #expect(workspace.visibilityTargetSceneDisposition == .targetUnusable)
+    #expect(workspace.drawingTrialAssessment == nil)
+    #expect(workspace.currentLearningPathItemID == anchor)
+    await workspace.shutdown()
+  }
+
+  @Test("Vacate comparison only preserves the observed line and performs no redraw")
+  func vacateComparisonOnlyPreservesObservedLine() async throws {
+    let harness = makeSimulatedHarness()
+    let workspace = harness.workspace
+    try await completeSimulatedVisibilityProtocol(
+      workspace,
+      runtime: harness.runtime,
+      boundaryOrder: [.positiveX, .negativeX, .positiveY, .negativeY]
+    )
+    try await completeSimulatedStageFour(workspace)
+    let linePlan = try #require(workspace.learningArtifactGraph.revisions.first { revision in
+      guard revision.state == .current else { return false }
+      if case .linePlan = revision.kind { return true }
+      return false
+    })
+    guard case .linePlan(let group) = linePlan.kind else {
+      Issue.record("Expected the current line-plan revision to carry its attempt group.")
+      return
+    }
+    let linePlanID = linePlan.id
+    let inkID = try #require(
+      workspace.learningArtifactGraph.currentRevision(for: .inkObservation(group))?.id
+    )
+    let inkBefore = await harness.runtime.persistentInk()
+    let anchor = LearningPathItemID.observedDrawingTrial(
+      .compareIntendedAndObservedGeometry
+    )
+    let plan = try #require(workspace.learningVacatePlan(from: anchor))
+    #expect(plan.affectedItems == [anchor])
+    #expect(plan.expectedCurrentRevisionIDs.count == 1)
+    #expect(workspace.performLearningVacate(plan))
+
+    #expect(workspace.drawingTrialAssessment == nil)
+    #expect(workspace.learningArtifactGraph.currentRevision(for: .comparison(group)) == nil)
+    #expect(
+      workspace.learningArtifactGraph.currentRevision(for: .linePlan(group))?.id == linePlanID
+    )
+    #expect(
+      workspace.learningArtifactGraph.currentRevision(for: .inkObservation(group))?.id == inkID
+    )
+    #expect(workspace.currentLearningPathItemID == anchor)
+    #expect(await harness.runtime.persistentInk() == inkBefore)
+    await workspace.shutdown()
+  }
+
+  @Test("Vacate a completed transition row even when it owns no artifact revision")
+  func vacateCompletedTransitionWithoutArtifact() async throws {
+    let harness = makeSimulatedHarness()
+    let workspace = harness.workspace
+    try await completeSimulatedVisibilityProtocol(
+      workspace,
+      runtime: harness.runtime,
+      boundaryOrder: [.positiveX, .negativeX, .positiveY, .negativeY]
+    )
+    try await performPublicAction(
+      .chooseIsolatedLinePlan(.positiveX),
+      owner: .observedDrawingTrial(.chooseIsolatedLinePlan),
+      workspace: workspace
+    )
+    try await performPublicAction(
+      .captureTargetAnchoredBaseline,
+      owner: .observedDrawingTrial(.captureTargetAnchoredBaseline),
+      workspace: workspace
+    )
+    try await performPublicAction(
+      .moveToLineStart,
+      owner: .observedDrawingTrial(.moveToLineStart),
+      workspace: workspace
+    )
+    #expect(workspace.lastProtocolPoseSettlement != nil)
+
+    let anchor = LearningPathItemID.observedDrawingTrial(.moveToLineStart)
+    let plan = try #require(workspace.learningVacatePlan(from: anchor))
+    #expect(plan.expectedCurrentRevisionIDs.isEmpty)
+    #expect(plan.affectedItems.first == anchor)
+    #expect(plan.affectedItems.last == .observedDrawingTrial(.drawIsolatedLine))
+    #expect(workspace.performLearningVacate(plan))
+
+    #expect(workspace.currentLearningPathItemID == anchor)
+    #expect(workspace.lastProtocolPoseSettlement == nil)
+    #expect(workspace.targetAnchoredTrialBaseline != nil)
+    await workspace.shutdown()
+  }
 }
 
 @MainActor
@@ -1871,6 +2046,12 @@ private final class CheckpointBox: @unchecked Sendable {
   func save(_ checkpoint: AcceptedMachineArtifactCheckpoint) {
     lock.lock()
     stored = checkpoint
+    lock.unlock()
+  }
+
+  func clear() {
+    lock.lock()
+    stored = nil
     lock.unlock()
   }
 }

@@ -53,6 +53,7 @@ enum CenterArrivalSettlementPolicy {
 
 enum AcceptedArtifactCheckpointStatus: Equatable, Sendable {
   case unavailable
+  case cleared
   case quarantined(sideCount: Int)
   case saved(sideCount: Int, centerArrival: Bool)
   case restored(sideCount: Int, centerArrival: Bool, residualMM: Double)
@@ -63,6 +64,8 @@ enum AcceptedArtifactCheckpointStatus: Equatable, Sendable {
     switch self {
     case .unavailable:
       "No durable accepted-artifact checkpoint is available."
+    case .cleared:
+      "The durable accepted-artifact checkpoint was explicitly cleared."
     case .quarantined(let sideCount):
       "A checkpoint containing \(sideCount) accepted Boundary side(s) is parked until a fresh passive controller probe matches."
     case .saved(let sideCount, let centerArrival):
@@ -569,6 +572,7 @@ final class OperatorWorkspace {
   struct AcceptedArtifactCheckpointActions: Sendable {
     let load: @Sendable () -> AcceptedArtifactCheckpointLoadResult
     let save: @Sendable (AcceptedMachineArtifactCheckpoint) throws -> Void
+    let clear: @Sendable () throws -> Void
   }
 
   struct CameraActions: Sendable {
@@ -708,6 +712,7 @@ final class OperatorWorkspace {
   private(set) var activeExerciseAttemptOwnerID: LearningPathItemID?
   private(set) var restartableExerciseItemID: LearningPathItemID?
   private(set) var acceptedArtifactCheckpointStatus: AcceptedArtifactCheckpointStatus = .unavailable
+  private(set) var learningAuthorityError: String?
 
   @ObservationIgnored private let machineActions: MachineActions?
   @ObservationIgnored private let cameraActions: CameraActions?
@@ -1255,6 +1260,244 @@ final class OperatorWorkspace {
         isRepeatable: itemIsRepeatable(itemID)
       )
     }
+  }
+
+  var resetAllLearningPlan: LearningVacatePlan? {
+    makeLearningVacatePlan(
+      scope: .all,
+      anchor: .humanGuidedDiscovery(.penInteraction)
+    )
+  }
+
+  func learningVacatePlan(from itemID: LearningPathItemID) -> LearningVacatePlan? {
+    guard let anchor = itemID.learningRewindAnchor else { return nil }
+    return makeLearningVacatePlan(scope: .from(anchor), anchor: anchor)
+  }
+
+  var learningVacateUnavailableReason: String? {
+    if hasShutdown { return "The workspace is shutting down." }
+    if activeExerciseAttemptID != nil {
+      return "Cancel or finish the active exercise attempt before vacating learning."
+    }
+    if activeStopTarget != nil || explorationOperationInProgress
+      || visibilityObservationOperation != nil
+    {
+      return "Stop or cancel the active learning operation and wait for settlement first."
+    }
+    if passiveProbeInProgress || jogRequestInProgress || penRequestInProgress
+      || jogCancelRequestInProgress || machineSnapshot?.machine.operationInFlight == true
+      || activeHardwareIntentCount > 0
+    {
+      return "Wait for the current controller or camera operation to settle first."
+    }
+    if let learningStickyAmbiguityReason {
+      return "Resolve the sticky motion ambiguity before vacating learning: \(learningStickyAmbiguityReason)"
+    }
+    return nil
+  }
+
+  @discardableResult
+  func performLearningVacate(_ plan: LearningVacatePlan) -> Bool {
+    if let unavailableReason = learningVacateUnavailableReason {
+      learningAuthorityError = unavailableReason
+      return false
+    }
+    return performAvailableLearningVacate(plan)
+  }
+
+  private func performAvailableLearningVacate(_ plan: LearningVacatePlan) -> Bool {
+    let freshPlan: LearningVacatePlan? =
+      switch plan.scope {
+      case .from:
+        learningVacatePlan(from: plan.anchor)
+      case .all:
+        resetAllLearningPlan
+      }
+    guard freshPlan == plan else {
+      learningAuthorityError =
+        "Learning changed after the confirmation preview. Review the new vacate plan and confirm again."
+      return false
+    }
+
+    if plan.removesDurableCheckpoint {
+      do {
+        try acceptedArtifactCheckpointActions?.clear()
+      } catch {
+        learningAuthorityError =
+          "The durable accepted-artifact checkpoint could not be cleared: \(error)"
+        return false
+      }
+    }
+
+    let rootKinds = Set(
+      learningArtifactGraph.revisions.compactMap { revision -> LearningArtifactKind? in
+        guard plan.expectedCurrentRevisionIDs.contains(revision.id), revision.state == .current
+        else { return nil }
+        return revision.kind
+      }
+    )
+    var graph = learningArtifactGraph
+    let invalidation = graph.invalidateCurrentRevisions(rootKinds: rootKinds)
+    learningArtifactGraph = graph
+    applyArtifactInvalidations(invalidation.allInvalidatedRevisionIDs)
+
+    switch plan.anchor {
+    case .humanGuidedDiscovery(.penInteraction):
+      clearPenLearningForRewind()
+      clearBoundaryLearningForRewind()
+      clearVisibilityLearningForRewind()
+      clearDrawingLearningForRewind(from: .chooseIsolatedLinePlan)
+    case .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering):
+      clearBoundaryLearningForRewind()
+      clearVisibilityLearningForRewind()
+      clearDrawingLearningForRewind(from: .chooseIsolatedLinePlan)
+    case .humanGuidedDiscovery(.visibilityTargetAndClearViewRegistration):
+      clearVisibilityLearningForRewind()
+      clearDrawingLearningForRewind(from: .chooseIsolatedLinePlan)
+    case .observedDrawingTrial(let step):
+      clearDrawingLearningForRewind(from: step)
+    case .stage:
+      learningAuthorityError = "The requested Learning Path row is not a rewind anchor."
+      return false
+    }
+
+    activeExerciseAttemptID = nil
+    activeExerciseAttemptOwnerID = nil
+    activeExerciseAttemptMode = nil
+    restartableExerciseItemID = nil
+    visibilityRepeatSnapshot = nil
+    visibilityDraftArtifactGraph = nil
+    visibilityDraftClearViewAttemptHistories = nil
+    visibilityDraftAcceptedAttemptSequence = nil
+    explorationError = nil
+    learningAuthorityError = nil
+
+    if plan.removesDurableCheckpoint {
+      parkedAcceptedMachineArtifactCheckpoint = nil
+      acceptedArtifactCheckpointStatus = .cleared
+    }
+    return true
+  }
+
+  private func makeLearningVacatePlan(
+    scope: LearningVacateScope,
+    anchor: LearningPathItemID
+  ) -> LearningVacatePlan? {
+    guard let anchorIndex = LearningPathItemID.learningExerciseOrder.firstIndex(of: anchor)
+    else { return nil }
+    let currentRevisions = learningArtifactGraph.revisions.filter { $0.state == .current }
+    let revisionIDs = Set(currentRevisions.compactMap { revision -> LearningArtifactRevisionID? in
+      guard let item = learningPathItemID(for: revision.kind),
+        let index = LearningPathItemID.learningExerciseOrder.firstIndex(of: item),
+        index >= anchorIndex
+      else { return nil }
+      return revision.id
+    })
+    guard !revisionIDs.isEmpty || hasVacatablePayload(atOrAfter: anchorIndex) else { return nil }
+
+    var endIndex = anchorIndex
+    for revision in currentRevisions {
+      guard let item = learningPathItemID(for: revision.kind),
+        let index = LearningPathItemID.learningExerciseOrder.firstIndex(of: item)
+      else { continue }
+      endIndex = max(endIndex, index)
+    }
+    if currentLearningPathItemID == .stage(.adaptiveDrawing) {
+      endIndex = LearningPathItemID.learningExerciseOrder.index(before:
+        LearningPathItemID.learningExerciseOrder.endIndex)
+    } else if let currentAnchor = currentLearningPathItemID.learningRewindAnchor,
+      let currentIndex = LearningPathItemID.learningExerciseOrder.firstIndex(of: currentAnchor)
+    {
+      endIndex = max(endIndex, currentIndex)
+    }
+
+    let source: LearningVacateSource = frameMode == .live ? .live : .simulated
+    let boundaryIndex = LearningPathItemID.learningExerciseOrder.firstIndex(
+      of: .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
+    )!
+    return LearningVacatePlan(
+      scope: scope,
+      source: source,
+      anchor: anchor,
+      affectedItems: Array(LearningPathItemID.learningExerciseOrder[anchorIndex...endIndex]),
+      expectedCurrentRevisionIDs: revisionIDs,
+      expectedAcceptedAttemptSequence: acceptedAttemptSequence,
+      removesDurableCheckpoint:
+        source == .live && anchorIndex <= boundaryIndex
+        && acceptedArtifactCheckpointActions != nil,
+      physicalInkMayRemain:
+        visibilityTargetSceneDisposition != .pristine || drawingTrialStrokeEvidence != nil
+          || lastInkObservation != nil
+    )
+  }
+
+  private func learningPathItemID(for kind: LearningArtifactKind) -> LearningPathItemID? {
+    switch kind {
+    case .penInteraction:
+      .humanGuidedDiscovery(.penInteraction)
+    case .boundarySideAggregate, .estimatedMachineCenter, .centerArrival:
+      .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
+    case .targetPoseRegistration, .clearPose, .preTargetClearViewBaseline,
+      .visibilityTargetExecution, .visibilityTargetObservation, .visibilityRegistration,
+      .machineCameraRegistration:
+      .humanGuidedDiscovery(.visibilityTargetAndClearViewRegistration)
+    case .linePlan:
+      .observedDrawingTrial(.chooseIsolatedLinePlan)
+    case .targetAnchoredTrialBaseline:
+      .observedDrawingTrial(.captureTargetAnchoredBaseline)
+    case .lineExecution:
+      .observedDrawingTrial(.drawIsolatedLine)
+    case .postLineFrame, .inkObservation, .residual:
+      .observedDrawingTrial(.returnToClearPoseAndObserveNewInk)
+    case .comparison:
+      .observedDrawingTrial(.compareIntendedAndObservedGeometry)
+    }
+  }
+
+  private func hasVacatablePayload(atOrAfter anchorIndex: Int) -> Bool {
+    if currentLearningPathItemID == .stage(.adaptiveDrawing) {
+      return true
+    }
+    if let currentAnchor = currentLearningPathItemID.learningRewindAnchor,
+      let currentIndex = LearningPathItemID.learningExerciseOrder.firstIndex(of: currentAnchor),
+      currentIndex > anchorIndex
+    {
+      return true
+    }
+    func includes(_ item: LearningPathItemID) -> Bool {
+      guard let index = LearningPathItemID.learningExerciseOrder.firstIndex(of: item) else {
+        return false
+      }
+      return index >= anchorIndex
+    }
+    if includes(.humanGuidedDiscovery(.penInteraction)),
+      !penAttemptHistory.records.isEmpty || discoveryTransactions[.penInteraction] != nil
+    {
+      return true
+    }
+    if includes(.humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)),
+      !boundaryAttemptHistories.isEmpty || !boundarySideAggregates.isEmpty
+        || discoveryTransactions.keys.contains(where: { $0 != .penInteraction })
+        || centerArrivalPosition != nil
+    {
+      return true
+    }
+    if includes(.humanGuidedDiscovery(.visibilityTargetAndClearViewRegistration)),
+      targetPoseRegistrationFrame != nil || visibilityTargetSceneDisposition != .pristine
+        || visibilityRegistrationAccepted || !clearViewAttemptHistories.isEmpty
+        || !visibilityObservationAttemptHistories.isEmpty
+    {
+      return true
+    }
+    if includes(.observedDrawingTrial(.chooseIsolatedLinePlan)),
+      currentExplorationEpisode != nil || drawingTrialLineStart != nil
+        || targetAnchoredTrialBaseline != nil || drawingTrialStrokeEvidence != nil
+        || explorationPostLineFrame != nil || drawingTrialAssessment != nil
+        || !comparisonAttemptHistories.isEmpty
+    {
+      return true
+    }
+    return false
   }
 
   var contextualStopPresentation: ContextualStopPresentation? {
@@ -7908,6 +8151,120 @@ final class OperatorWorkspace {
     // Pen current state, accepted boundary controller MPos revisions, estimated
     // center, and accepted center arrival belong to the unchanged controller
     // session/coordinate authority and deliberately survive camera replacement.
+  }
+
+  private func clearPenLearningForRewind() {
+    discoveryTransactions.removeValue(forKey: .penInteraction)
+    penAttemptHistory = try! ExerciseAttemptHistory(
+      compatibility: penAttemptHistory.compatibility
+    )
+    selectedDiscoverySequenceID = .penInteraction
+  }
+
+  private func clearBoundaryLearningForRewind() {
+    selectedDiscoverySequenceID = sequenceID(for: selectedBoundaryDirection)
+    discoveryTransactions = discoveryTransactions.filter { key, _ in
+      key == .penInteraction
+    }
+    discoveryError = nil
+    boundaryTeachingState = .idle
+    boundaryTeachingResultText = "Choose one side to begin."
+    pairedBoundaryProgress = PairedBoundaryProgress()
+    boundaryAttemptEvidenceByAttemptID = [:]
+    boundarySideAggregates = [:]
+    boundaryAttemptHistories = [:]
+    estimatedMachineCenter = nil
+    learnedLocalCoordinateFrame = nil
+    centerArrivalPosition = nil
+    centerArrivalRetryRequired = false
+    pendingDiscoveryInspection = nil
+    pendingDiscoveryCaptureBoundaryNanoseconds = nil
+    pendingBoundaryFinalPositions = [:]
+    pendingBoundaryOwnerIDs = [:]
+    pendingBoundaryStopCapabilities = [:]
+  }
+
+  private func clearVisibilityLearningForRewind() {
+    let physicalTargetMayRemain = visibilityTargetSceneDisposition != .pristine
+    targetPoseRegistrationFrame = nil
+    registeredTargetMachinePosition = nil
+    targetContactPointEstimate = nil
+    targetObservationRegion = nil
+    targetROIMarginPixels = nil
+    targetContactPointAndROIAccepted = false
+    preTargetClearViewBaseline = nil
+    visibilityTargetObservation = nil
+    executedVisibilityTargetPlanRevision = nil
+    visibilityObservationAttemptHistories = [:]
+    acceptedVisibilityObservationAttemptID = nil
+    visibilityRegistrationAccepted = false
+    machineCameraRegistration = nil
+    clearViewPoseAccepted = false
+    clearViewAttemptHistories = [:]
+    pendingClearViewLabel = nil
+    armatureGuidanceState = nil
+    lastArmatureObservation = nil
+    visibilityTargetSceneDisposition = physicalTargetMayRemain ? .targetUnusable : .pristine
+    targetAreaRelocationRequired = false
+    targetAreaRelocationCompleted = false
+    cameraOverlays = []
+  }
+
+  private func clearDrawingLearningForRewind(from step: ObservedDrawingTrialStep) {
+    if let episodeID = currentExplorationEpisode?.id {
+      completedExplorationEpisodes.removeAll { $0.id == episodeID }
+    }
+
+    if step == .chooseIsolatedLinePlan {
+      currentExplorationEpisode = nil
+      drawingTrialLineStart = nil
+      currentDrawingTrialGroup = AttemptGroupIdentity(
+        rawValue: frameMode == .simulated
+          ? "simulated-\(UUID().uuidString.lowercased())"
+          : UUID().uuidString.lowercased()
+      )
+    } else if var episode = currentExplorationEpisode {
+      episode.termination = nil
+      episode.humanAssessment = nil
+      if step.rawValue <= ObservedDrawingTrialStep.captureTargetAnchoredBaseline.rawValue {
+        episode.frames.removeAll {
+          $0.role == .targetAnchoredTrialBaseline || $0.role == .postLine
+        }
+      } else if step.rawValue <= ObservedDrawingTrialStep.returnToClearPoseAndObserveNewInk.rawValue {
+        episode.frames.removeAll { $0.role == .postLine }
+      }
+      if step.rawValue <= ObservedDrawingTrialStep.drawIsolatedLine.rawValue {
+        episode.executedAction = nil
+        episode.controllerEvidence = nil
+      }
+      if step.rawValue <= ObservedDrawingTrialStep.returnToClearPoseAndObserveNewInk.rawValue {
+        episode.visionEstimate = nil
+        episode.residual = nil
+        episode.reward = nil
+      }
+      currentExplorationEpisode = episode
+    }
+
+    if step.rawValue <= ObservedDrawingTrialStep.captureTargetAnchoredBaseline.rawValue {
+      targetAnchoredTrialBaseline = nil
+    }
+    if step.rawValue <= ObservedDrawingTrialStep.moveToLineStart.rawValue {
+      lastProtocolPoseSettlement = nil
+    }
+    if step.rawValue <= ObservedDrawingTrialStep.drawIsolatedLine.rawValue {
+      drawingTrialStrokeEvidence = nil
+    }
+    if step.rawValue <= ObservedDrawingTrialStep.returnToClearPoseAndObserveNewInk.rawValue {
+      explorationPostLineFrame = nil
+      lastInkObservation = nil
+      explorationInkStatus = "no isolated-line observation yet"
+      cameraOverlays = []
+    }
+    drawingTrialAssessment = nil
+    comparisonAttemptHistories = [:]
+    explorationExportPath = nil
+    lastTravelFeedSelection = nil
+    observedDrawingTrialStep = step
   }
 
   private func clearDiscoveryAuthority() async {
