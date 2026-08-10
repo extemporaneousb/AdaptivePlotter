@@ -35,7 +35,11 @@ semantic disposition. Sticky ambiguity suppresses new physical motion.
    After each unambiguous Idle/MPos, a strictly newer advisory frame may project
    remaining camera-space clearance and choose 40, 20, 10, 5, or 2 mm. The
    planner retains 4 mm estimated clearance, consumes at most half the remaining
-   estimate, and never increases again after its first valid projection.
+   estimate, and never increases again after its first valid projection. Every
+   directional owner has an independent planner. If its initial camera seed is
+   unavailable, the first later compatible frame establishes that side's
+   baseline; one more 10 mm probe can then produce coarse advice instead of
+   leaving the rest of that side permanently on the fallback tier.
 4. **Stop** is visible immediately and remains bound to that owner.
 5. Operator Stop closes renewal and emits one Jog Cancel.
 6. The original owner settles through fresh Idle and final MPos.

@@ -37,6 +37,7 @@ public struct BoundaryApproachObservation: Hashable, Sendable {
 public enum BoundaryApproachAdviceBasis: String, Hashable, Sendable {
   case projectedEnvelope
   case missingObservationFallback
+  case establishingBaselineFallback
   case incompatibleObservationFallback
   case insufficientMotionFallback
   case noForwardIntersectionFallback
@@ -78,15 +79,21 @@ public actor BoundaryApproachPlanner {
     guard let current else {
       return fallback(.missingObservationFallback)
     }
-    guard let previous = previousObservation,
+    guard Self.isProjectionEligible(current) else {
+      return fallback(.incompatibleObservationFallback)
+    }
+    guard let previous = previousObservation else {
+      previousObservation = current
+      return fallback(.establishingBaselineFallback)
+    }
+    guard Self.isProjectionEligible(previous),
       previous.source == current.source,
-      previous.cameraConfigurationID == current.cameraConfigurationID,
-      current.captureNanoseconds > previous.captureNanoseconds,
-      previous.toolConfidence >= 0.5,
-      current.toolConfidence >= 0.5,
-      previous.drawingFrameConfidence >= 0.5,
-      current.drawingFrameConfidence >= 0.5
+      previous.cameraConfigurationID == current.cameraConfigurationID
     else {
+      previousObservation = current
+      return fallback(.establishingBaselineFallback)
+    }
+    guard current.captureNanoseconds > previous.captureNanoseconds else {
       return fallback(.incompatibleObservationFallback)
     }
 
@@ -128,6 +135,10 @@ public actor BoundaryApproachPlanner {
   private func fallback(_ basis: BoundaryApproachAdviceBasis) -> BoundaryApproachAdvice {
     selectedLengthMM = min(selectedLengthMM, 10)
     return BoundaryApproachAdvice(nextSegmentLengthMM: selectedLengthMM, basis: basis)
+  }
+
+  private static func isProjectionEligible(_ observation: BoundaryApproachObservation) -> Bool {
+    observation.toolConfidence >= 0.5 && observation.drawingFrameConfidence >= 0.5
   }
 
   private static func forwardIntersectionDistance(

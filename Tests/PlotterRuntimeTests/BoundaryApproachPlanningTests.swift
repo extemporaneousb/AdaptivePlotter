@@ -113,6 +113,42 @@ struct BoundaryApproachPlanningTests {
     #expect(stale.basis == .incompatibleObservationFallback)
   }
 
+  @Test("every new side can establish a baseline after a missing seed and accelerate")
+  func everySideCanEstablishBaselineAfterMissingSeed() async throws {
+    let camera = CameraConfigurationID()
+    let source = FrameSourceIdentity.live(CameraDeviceID(rawValue: "camera"))
+    let envelope = try rectangle(maxX: 220, maxY: 220)
+
+    for direction in BoundaryDirection.allCases {
+      let planner = BoundaryApproachPlanner(seed: nil)
+      let baseline = await planner.advise(
+        after: try observation(
+          source: source,
+          camera: camera,
+          capture: 100,
+          direction: direction,
+          travelMM: 0,
+          envelope: envelope
+        )
+      )
+      #expect(baseline.nextSegmentLengthMM == 10)
+      #expect(baseline.basis == .establishingBaselineFallback)
+
+      let accelerated = await planner.advise(
+        after: try observation(
+          source: source,
+          camera: camera,
+          capture: 101,
+          direction: direction,
+          travelMM: 10,
+          envelope: envelope
+        )
+      )
+      #expect(accelerated.nextSegmentLengthMM == 40)
+      #expect(accelerated.basis == .projectedEnvelope)
+    }
+  }
+
   private func observation(
     source: FrameSourceIdentity,
     camera: CameraConfigurationID,
@@ -133,10 +169,48 @@ struct BoundaryApproachPlanningTests {
     )
   }
 
-  private func rectangle(maxX: Double) throws -> Polyline<CameraPixelSpace> {
+  private func observation(
+    source: FrameSourceIdentity,
+    camera: CameraConfigurationID,
+    capture: UInt64,
+    direction: BoundaryDirection,
+    travelMM: Double,
+    envelope: Polyline<CameraPixelSpace>
+  ) throws -> BoundaryApproachObservation {
+    let machinePosition: MachinePosition
+    let toolContact: Point2<CameraPixelSpace>
+    switch direction {
+    case .negativeX:
+      machinePosition = try MachinePosition(x: -travelMM, y: 0)
+      toolContact = try Point2(x: 110 - travelMM, y: 110)
+    case .positiveX:
+      machinePosition = try MachinePosition(x: travelMM, y: 0)
+      toolContact = try Point2(x: 110 + travelMM, y: 110)
+    case .negativeY:
+      machinePosition = try MachinePosition(x: 0, y: -travelMM)
+      toolContact = try Point2(x: 110, y: 110 - travelMM)
+    case .positiveY:
+      machinePosition = try MachinePosition(x: 0, y: travelMM)
+      toolContact = try Point2(x: 110, y: 110 + travelMM)
+    }
+    return BoundaryApproachObservation(
+      source: source,
+      cameraConfigurationID: camera,
+      captureNanoseconds: capture,
+      machinePosition: machinePosition,
+      toolContact: toolContact,
+      toolConfidence: 0.9,
+      drawingFrame: envelope,
+      drawingFrameConfidence: 0.8
+    )
+  }
+
+  private func rectangle(maxX: Double, maxY: Double = 100) throws
+    -> Polyline<CameraPixelSpace>
+  {
     try Polyline(points: [
       Point2(x: 0, y: 0), Point2(x: maxX, y: 0),
-      Point2(x: maxX, y: 100), Point2(x: 0, y: 100), Point2(x: 0, y: 0),
+      Point2(x: maxX, y: maxY), Point2(x: 0, y: maxY), Point2(x: 0, y: 0),
     ])
   }
 }

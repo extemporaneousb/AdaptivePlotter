@@ -34,8 +34,9 @@ The current source implements:
 - Stop-only exercise presentation while physical movement owns the operation.
 - software-validated V2 double-trace target planning and exclusive,
   cancellable, target-ROI-local foreground Vision with exact-frame magnification;
-- bounded camera-advised Boundary renewal tiers (40/20/10/5/2 mm) after an
-  initial 10 mm probe, with conservative fallback and Stop-race suppression;
+- independently reset camera-advised Boundary renewal tiers (40/20/10/5/2 mm)
+  for every direction after an initial 10 mm probe, with recoverable baseline
+  establishment, conservative fallback, and Stop-race suppression;
 
 Adaptive Drawing remains Future. Future-facing drawing/model primitives are
 present and tested, but no current app route promotes a model or performs
@@ -45,13 +46,13 @@ model-selected drawing.
 
 The current software baseline has passed:
 
-- make quick-test — 319 unit and component tests in a 7.505-second test run;
+- make quick-test — 330 unit and component tests in a 5.259-second test run;
 - make check — signed app construction and validation, launcher logic and
-  validation, negative bundle validation, all 328 tests, repository-contract
-  checks, and diff checks. The test run completed in 9.097 seconds;
-- make strict-check — the same signed-app and 328-test gate with complete Swift
+  validation, negative bundle validation, all 338 tests, repository-contract
+  checks, and diff checks. The test run completed in 9.892 seconds;
+- make strict-check — the same signed-app and 338-test gate with complete Swift
   concurrency checking and warnings as errors. The confirming test run completed
-  in 7.785 seconds;
+  in 8.689 seconds;
 - the nine retained causal journey cases ran inside both full parallel check
   suites; standalone sequential make journey-test was not rerun for this change;
 - Scripts/check_repository_contract.sh;
