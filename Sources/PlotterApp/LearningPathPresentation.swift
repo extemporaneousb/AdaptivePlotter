@@ -33,7 +33,13 @@ enum LearningPathStageStatus: String, CaseIterable, Hashable, Sendable {
 enum HumanGuidedDiscoveryStep: Int, CaseIterable, Hashable, Identifiable, Sendable {
   case penInteraction = 1
   case pairedBoundaryDiscoveryAndCentering
-  case visibilityTargetAndClearViewRegistration
+  case registerTargetPoseAndCameraGeometry
+  case discoverAndAcceptClearView
+  case confirmBlankTargetBaseline
+  case returnToRegisteredTargetPose
+  case drawVisibilityTarget
+  case returnAndObserveExistingTarget
+  case acceptVisibilityRegistration
 
   var id: Self { self }
   var stepNumber: String { "3.\(rawValue)" }
@@ -42,8 +48,13 @@ enum HumanGuidedDiscoveryStep: Int, CaseIterable, Hashable, Identifiable, Sendab
     switch self {
     case .penInteraction: "Pen Interaction"
     case .pairedBoundaryDiscoveryAndCentering: "Paired Boundary Discovery and Centering"
-    case .visibilityTargetAndClearViewRegistration:
-      "Visibility Target and Clear-View Registration"
+    case .registerTargetPoseAndCameraGeometry: "Register Target Pose and Camera Geometry"
+    case .discoverAndAcceptClearView: "Discover and Accept Clear View"
+    case .confirmBlankTargetBaseline: "Confirm Blank Target Baseline"
+    case .returnToRegisteredTargetPose: "Return to Registered Target Pose"
+    case .drawVisibilityTarget: "Draw Visibility Target"
+    case .returnAndObserveExistingTarget: "Return and Observe Existing Target"
+    case .acceptVisibilityRegistration: "Accept Visibility Registration"
     }
   }
 }
@@ -89,7 +100,13 @@ enum LearningPathItemID: Hashable, Identifiable, Sendable {
     .stage(.humanGuidedDiscovery),
     .humanGuidedDiscovery(.penInteraction),
     .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering),
-    .humanGuidedDiscovery(.visibilityTargetAndClearViewRegistration),
+    .humanGuidedDiscovery(.registerTargetPoseAndCameraGeometry),
+    .humanGuidedDiscovery(.discoverAndAcceptClearView),
+    .humanGuidedDiscovery(.confirmBlankTargetBaseline),
+    .humanGuidedDiscovery(.returnToRegisteredTargetPose),
+    .humanGuidedDiscovery(.drawVisibilityTarget),
+    .humanGuidedDiscovery(.returnAndObserveExistingTarget),
+    .humanGuidedDiscovery(.acceptVisibilityRegistration),
     .stage(.observedDrawingTrials),
     .observedDrawingTrial(.chooseIsolatedLinePlan),
     .observedDrawingTrial(.captureTargetAnchoredBaseline),
@@ -103,7 +120,13 @@ enum LearningPathItemID: Hashable, Identifiable, Sendable {
   static let learningExerciseOrder: [Self] = [
     .humanGuidedDiscovery(.penInteraction),
     .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering),
-    .humanGuidedDiscovery(.visibilityTargetAndClearViewRegistration),
+    .humanGuidedDiscovery(.registerTargetPoseAndCameraGeometry),
+    .humanGuidedDiscovery(.discoverAndAcceptClearView),
+    .humanGuidedDiscovery(.confirmBlankTargetBaseline),
+    .humanGuidedDiscovery(.returnToRegisteredTargetPose),
+    .humanGuidedDiscovery(.drawVisibilityTarget),
+    .humanGuidedDiscovery(.returnAndObserveExistingTarget),
+    .humanGuidedDiscovery(.acceptVisibilityRegistration),
     .observedDrawingTrial(.chooseIsolatedLinePlan),
     .observedDrawingTrial(.captureTargetAnchoredBaseline),
     .observedDrawingTrial(.moveToLineStart),
@@ -500,17 +523,21 @@ enum ExerciseActionKind: Hashable, Sendable {
   case selectDirection(ExerciseDirectionSelectionPurpose, BoundaryDirection)
   case moveToEstimatedCenter
   case captureTargetPoseRegistration
-  case calibrateCurrentCameraAndAcceptROI
-  case rejectTargetContactPointAndROI
+  case buildTargetGeometryProposal
+  case acceptTargetGeometryProposal
+  case rejectTargetGeometryProposal
   case moveForClearView(ClearViewSearchMove)
   case recordClearViewLabel(ArmatureVisibilityLabel)
   case acceptClearPose
-  case capturePreTargetClearViewBaseline
+  case captureBlankTargetBaselineCandidate
+  case confirmBlankTargetBaseline
+  case rejectBlankTargetBaseline
   case returnToRegisteredTargetPose
   case drawVisibilityTarget
   case returnToAcceptedClearPose
   case observeExistingVisibilityTarget
   case acceptVisibilityRegistration
+  case rejectVisibilityRegistration
   case registerNewTargetArea
   case moveToNewTargetArea(ClearViewSearchMove)
   case paperReplaced

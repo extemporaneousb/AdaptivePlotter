@@ -64,20 +64,164 @@ func targetROIFocusMappingAndIdentity() throws {
   #expect(transform.point(try Point2(x: 340, y: 220)) == CGPoint(x: 400, y: 300))
 
   let displayed = try testDisplayedFrame()
+  let context = ActionSurfaceViewportContext(
+    source: displayed.source,
+    cameraConfigurationID: displayed.frame.cameraConfigurationID,
+    targetAreaIdentity: UUID(),
+    roiAuthorityToken: "roi-1",
+    region: PixelRect(x: 1, y: 1, width: 2, height: 2)
+  )
   let matching = ActionSurfaceFocus(
     frameID: displayed.frame.id,
     cameraConfigurationID: displayed.frame.cameraConfigurationID,
     region: PixelRect(x: 1, y: 1, width: 2, height: 2),
-    label: "target"
+    label: "target",
+    viewportContext: context
   )
   #expect(ActionSurfacePresentation(displayedFrame: displayed, overlays: [], focus: matching).focus == matching)
   let stale = ActionSurfaceFocus(
     frameID: FrameID(),
     cameraConfigurationID: displayed.frame.cameraConfigurationID,
     region: matching.region,
-    label: "stale"
+    label: "stale",
+    viewportContext: context
   )
   #expect(ActionSurfacePresentation(displayedFrame: displayed, overlays: [], focus: stale).focus == nil)
+}
+
+@Test("Viewport defaults full-frame, interpolates, and reaches the exact ROI")
+func viewportZoomEndpointsAndInterpolation() {
+  let context = ActionSurfaceViewportContext(
+    source: .simulated,
+    cameraConfigurationID: CameraConfigurationID(),
+    targetAreaIdentity: UUID(),
+    roiAuthorityToken: "roi-1",
+    region: PixelRect(x: 300, y: 200, width: 40, height: 20)
+  )
+  var viewport = ActionSurfaceViewportState()
+  viewport.synchronize(with: context)
+  #expect(viewport.zoom == 0)
+  #expect(viewport.visibleRegion(frameWidth: 640, frameHeight: 480) == nil)
+
+  viewport.zoom = 0.5
+  #expect(
+    viewport.visibleRegion(frameWidth: 640, frameHeight: 480)
+      == PixelRect(x: 150, y: 100, width: 340, height: 250)
+  )
+  viewport.showExactROI()
+  #expect(viewport.visibleRegion(frameWidth: 640, frameHeight: 480) == context.region)
+}
+
+@Test("Viewport survives frame and phase churn and resets for every ROI authority change")
+func viewportStableContextPersistence() {
+  let region = PixelRect(x: 20, y: 30, width: 40, height: 50)
+  let context = ActionSurfaceViewportContext(
+    source: .simulated,
+    cameraConfigurationID: CameraConfigurationID(),
+    targetAreaIdentity: UUID(),
+    roiAuthorityToken: "roi-1",
+    region: region
+  )
+  var viewport = ActionSurfaceViewportState()
+  viewport.synchronize(with: context)
+  viewport.zoom = 0.72
+  let firstFocus = ActionSurfaceFocus(
+    frameID: FrameID(),
+    cameraConfigurationID: context.cameraConfigurationID,
+    region: region,
+    label: "capture phase",
+    viewportContext: context
+  )
+  let laterFocus = ActionSurfaceFocus(
+    frameID: FrameID(),
+    cameraConfigurationID: context.cameraConfigurationID,
+    region: region,
+    label: "observation phase",
+    viewportContext: context
+  )
+  #expect(firstFocus.frameID != laterFocus.frameID)
+  #expect(firstFocus.label != laterFocus.label)
+  #expect(firstFocus.viewportContext == laterFocus.viewportContext)
+  viewport.synchronize(with: laterFocus.viewportContext)
+  #expect(viewport.zoom == 0.72)
+
+  let changedContexts = [
+    ActionSurfaceViewportContext(
+      source: .live(CameraDeviceID(rawValue: "camera-b")),
+      cameraConfigurationID: context.cameraConfigurationID,
+      targetAreaIdentity: context.targetAreaIdentity,
+      roiAuthorityToken: context.roiAuthorityToken,
+      region: region
+    ),
+    ActionSurfaceViewportContext(
+      source: context.source,
+      cameraConfigurationID: CameraConfigurationID(),
+      targetAreaIdentity: context.targetAreaIdentity,
+      roiAuthorityToken: context.roiAuthorityToken,
+      region: region
+    ),
+    ActionSurfaceViewportContext(
+      source: context.source,
+      cameraConfigurationID: context.cameraConfigurationID,
+      targetAreaIdentity: UUID(),
+      roiAuthorityToken: context.roiAuthorityToken,
+      region: region
+    ),
+    ActionSurfaceViewportContext(
+      source: context.source,
+      cameraConfigurationID: context.cameraConfigurationID,
+      targetAreaIdentity: context.targetAreaIdentity,
+      roiAuthorityToken: "roi-2",
+      region: region
+    ),
+    ActionSurfaceViewportContext(
+      source: context.source,
+      cameraConfigurationID: context.cameraConfigurationID,
+      targetAreaIdentity: context.targetAreaIdentity,
+      roiAuthorityToken: context.roiAuthorityToken,
+      region: PixelRect(x: 21, y: 30, width: 40, height: 50)
+    ),
+  ]
+  for changedContext in changedContexts {
+    var changedViewport = ActionSurfaceViewportState()
+    changedViewport.synchronize(with: context)
+    changedViewport.zoom = 0.72
+    changedViewport.synchronize(with: changedContext)
+    #expect(changedViewport.zoom == 0)
+  }
+}
+
+@Test("Viewport and ROI outline use true frame intersections")
+func viewportClipsROIAtEveryFrameEdge() {
+  let cases: [(PixelRect, PixelRect?)] = [
+    (
+      PixelRect(x: -10, y: -5, width: 20, height: 20),
+      PixelRect(x: 0, y: 0, width: 10, height: 15)
+    ),
+    (
+      PixelRect(x: 90, y: 95, width: 20, height: 20),
+      PixelRect(x: 90, y: 95, width: 10, height: 5)
+    ),
+    (
+      PixelRect(x: 25, y: -4, width: 30, height: 12),
+      PixelRect(x: 25, y: 0, width: 30, height: 8)
+    ),
+    (PixelRect(x: 101, y: 10, width: 20, height: 20), nil),
+  ]
+
+  for (region, expected) in cases {
+    #expect(cameraFrameIntersection(region, frameWidth: 100, frameHeight: 100) == expected)
+    var viewport = ActionSurfaceViewportState()
+    viewport.synchronize(with: ActionSurfaceViewportContext(
+      source: .simulated,
+      cameraConfigurationID: CameraConfigurationID(),
+      targetAreaIdentity: UUID(),
+      roiAuthorityToken: "roi-edge",
+      region: region
+    ))
+    viewport.showExactROI()
+    #expect(viewport.visibleRegion(frameWidth: 100, frameHeight: 100) == expected)
+  }
 }
 
 @Test("Overlay is hidden when frame or camera configuration identity differs")

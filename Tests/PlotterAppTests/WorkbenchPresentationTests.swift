@@ -77,7 +77,7 @@ struct WorkbenchPresentationTests {
   @Test("active runtime action strip can keep its sole controls visible")
   func activeExerciseControlsRemainVisible() {
     let active = ExerciseActionStripPresentation(
-      ownerID: .humanGuidedDiscovery(.visibilityTargetAndClearViewRegistration),
+      ownerID: .humanGuidedDiscovery(.discoverAndAcceptClearView),
       actions: [
         ExerciseActionDescriptor(
           kind: .recordClearViewLabel(.blocked),

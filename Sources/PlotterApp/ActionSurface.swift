@@ -72,10 +72,87 @@ struct ActionSurfaceFocus: Hashable, Sendable {
   let cameraConfigurationID: CameraConfigurationID
   let region: PixelRect
   let label: String
+  let viewportContext: ActionSurfaceViewportContext
 
   func matches(_ displayedFrame: DisplayedFrame) -> Bool {
     frameID == displayedFrame.frame.id
       && cameraConfigurationID == displayedFrame.frame.cameraConfigurationID
+  }
+}
+
+/// Stable presentation identity for an authoritative or staged target ROI.
+/// Exact frame identity deliberately does not participate: live frames and
+/// analysis phases may advance without overriding the operator's viewport.
+struct ActionSurfaceViewportContext: Hashable, Sendable {
+  let source: FrameSourceIdentity
+  let cameraConfigurationID: CameraConfigurationID
+  let targetAreaIdentity: UUID
+  let roiAuthorityToken: String
+  let region: PixelRect
+}
+
+/// The effective camera-pixel region shared by viewport projection and the ROI
+/// outline. An empty or wholly out-of-frame ROI has no drawable intersection.
+func cameraFrameIntersection(
+  _ region: PixelRect,
+  frameWidth: Int,
+  frameHeight: Int
+) -> PixelRect? {
+  guard frameWidth > 0, frameHeight > 0, region.width > 0, region.height > 0 else {
+    return nil
+  }
+  let minimumX = max(0, region.x)
+  let minimumY = max(0, region.y)
+  let maximumX = min(frameWidth, region.x + region.width)
+  let maximumY = min(frameHeight, region.y + region.height)
+  guard maximumX > minimumX, maximumY > minimumY else { return nil }
+  return PixelRect(
+    x: minimumX,
+    y: minimumY,
+    width: maximumX - minimumX,
+    height: maximumY - minimumY
+  )
+}
+
+/// Window-local, presentation-only viewport state. `zoom == 0` is the complete
+/// camera frame and `zoom == 1` is the exact Vision ROI. Intermediate values
+/// interpolate the visible camera rectangle without mutating evidence or ROI.
+struct ActionSurfaceViewportState: Equatable, Sendable {
+  private(set) var context: ActionSurfaceViewportContext?
+  var zoom: Double = 0
+
+  mutating func synchronize(with context: ActionSurfaceViewportContext?) {
+    guard self.context != context else { return }
+    self.context = context
+    zoom = 0
+  }
+
+  mutating func showFullFrame() { zoom = 0 }
+  mutating func showExactROI() { zoom = 1 }
+
+  func visibleRegion(frameWidth: Int, frameHeight: Int) -> PixelRect? {
+    guard let context, frameWidth > 0, frameHeight > 0 else { return nil }
+    let t = min(1, max(0, zoom))
+    if t == 0 { return nil }
+    let frame = PixelRect(x: 0, y: 0, width: frameWidth, height: frameHeight)
+    guard
+      let roi = cameraFrameIntersection(
+        context.region,
+        frameWidth: frameWidth,
+        frameHeight: frameHeight
+      )
+    else { return nil }
+    if t == 1 { return roi }
+    let x = Int((Double(frame.x) + Double(roi.x - frame.x) * t).rounded())
+    let y = Int((Double(frame.y) + Double(roi.y - frame.y) * t).rounded())
+    let width = max(1, Int((Double(frame.width) + Double(roi.width - frame.width) * t).rounded()))
+    let height = max(1, Int((Double(frame.height) + Double(roi.height - frame.height) * t).rounded()))
+    return PixelRect(
+      x: min(max(0, x), frameWidth - 1),
+      y: min(max(0, y), frameHeight - 1),
+      width: min(width, frameWidth - min(max(0, x), frameWidth - 1)),
+      height: min(height, frameHeight - min(max(0, y), frameHeight - 1))
+    )
   }
 }
 
@@ -127,9 +204,17 @@ struct ActionSurfacePresentation: Sendable {
 
 struct ActionSurface: View {
   let presentation: ActionSurfacePresentation
+  @Binding private var viewport: ActionSurfaceViewportState
   @StateObject private var imageCache = FramePresentationImageCache()
   @State private var simulatedAnnotationsAreVisible = true
-  @State private var showsFullFrame = false
+
+  init(
+    presentation: ActionSurfacePresentation,
+    viewport: Binding<ActionSurfaceViewportState> = .constant(ActionSurfaceViewportState())
+  ) {
+    self.presentation = presentation
+    _viewport = viewport
+  }
 
   var body: some View {
     let frameImage = presentation.displayedFrame.flatMap {
@@ -137,32 +222,36 @@ struct ActionSurface: View {
     }
     GeometryReader { proxy in
       Canvas { context, size in
-        guard
-          let displayedFrame = presentation.displayedFrame,
+        guard let displayedFrame = presentation.displayedFrame,
+          let visibleRegion = viewport.visibleRegion(
+            frameWidth: displayedFrame.frame.width,
+            frameHeight: displayedFrame.frame.height
+          ),
           let transform = CameraPixelToViewTransform(
             frameWidth: displayedFrame.frame.width,
             frameHeight: displayedFrame.frame.height,
             viewWidth: size.width,
             viewHeight: size.height,
-            focusRegion: showsFullFrame ? nil : presentation.focus?.region
+            focusRegion: visibleRegion
           )
-        else { return }
-
-        if let frameImage {
-          context.draw(
-            Image(decorative: frameImage, scale: 1),
-            in: transform.imageRect
+        else {
+          guard let displayedFrame = presentation.displayedFrame,
+            let transform = CameraPixelToViewTransform(
+              frameWidth: displayedFrame.frame.width,
+              frameHeight: displayedFrame.frame.height,
+              viewWidth: size.width,
+              viewHeight: size.height
+            )
+          else { return }
+          drawFrameAndOverlays(
+            frameImage: frameImage,
+            context: &context,
+            transform: transform
           )
+          return
         }
 
-        for overlay in presentation.overlays {
-          draw(overlay, in: &context, transform: transform)
-        }
-        if simulatedAnnotationsAreVisible {
-          for annotation in presentation.simulatedAnnotations {
-            draw(annotation, in: &context, transform: transform)
-          }
-        }
+        drawFrameAndOverlays(frameImage: frameImage, context: &context, transform: transform)
       }
       .background(Color.black)
       .overlay(alignment: .topLeading) {
@@ -189,20 +278,34 @@ struct ActionSurface: View {
             )
           }
           if let focus = presentation.focus {
-            Button(showsFullFrame ? "Show Target ROI" : "Show Full Frame") {
-              showsFullFrame.toggle()
+            HStack(spacing: 6) {
+              Button("Full Frame") {
+                viewport.showFullFrame()
+              }
+              .disabled(viewport.zoom == 0)
+              Button("Exact ROI") {
+                viewport.showExactROI()
+              }
+              .disabled(viewport.zoom == 1)
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
-            .help(
-              showsFullFrame
-                ? "Magnify the exact target ROI for this frame"
-                : "Show the complete exact camera frame without changing Vision's ROI"
-            )
+            Slider(value: $viewport.zoom, in: 0...1) {
+              Text("Presentation zoom")
+            } minimumValueLabel: {
+              Text("Full")
+            } maximumValueLabel: {
+              Text("ROI")
+            }
+            .frame(width: 210)
+            .help("Change only the displayed viewport. Vision continues to use the exact accepted ROI.")
+            .accessibilityValue(Int((viewport.zoom * 100).rounded()).description + " percent")
             Text(
-              showsFullFrame
-                ? "FULL FRAME · \(focus.label) available"
-                : "TARGET ROI \(focus.region.width)x\(focus.region.height) · \(focus.label)"
+              viewport.zoom == 0
+                ? "FULL FRAME · ROI \(focus.region.width)x\(focus.region.height) outlined"
+                : viewport.zoom == 1
+                  ? "EXACT ROI \(focus.region.width)x\(focus.region.height) · \(focus.label)"
+                  : "PRESENTATION ZOOM \(Int((viewport.zoom * 100).rounded()))% · ROI unchanged"
             )
             .font(.caption2.monospaced().bold())
             .foregroundStyle(.white)
@@ -234,14 +337,55 @@ struct ActionSurface: View {
         }
       }
       .clipShape(RoundedRectangle(cornerRadius: 7))
-      .onChange(of: presentation.focus) { _, _ in
-        showsFullFrame = false
+      .onChange(of: presentation.focus?.viewportContext, initial: true) { _, context in
+        viewport.synchronize(with: context)
       }
       .accessibilityValue(
         simulatedAnnotationsAreVisible
           ? presentation.simulatedAnnotations.map(\.accessibleValue).joined(separator: ", ")
           : "Simulator annotations hidden"
       )
+    }
+  }
+
+  private func drawFrameAndOverlays(
+    frameImage: CGImage?,
+    context: inout GraphicsContext,
+    transform: CameraPixelToViewTransform
+  ) {
+    if let frameImage {
+      context.draw(Image(decorative: frameImage, scale: 1), in: transform.imageRect)
+    }
+    if let focus = presentation.focus,
+      let displayedFrame = presentation.displayedFrame,
+      let effectiveRegion = cameraFrameIntersection(
+        focus.region,
+        frameWidth: displayedFrame.frame.width,
+        frameHeight: displayedFrame.frame.height
+      ),
+      let minimum = try? Point2<CameraPixelSpace>(
+        x: Double(effectiveRegion.x), y: Double(effectiveRegion.y)
+      ),
+      let maximum = try? Point2<CameraPixelSpace>(
+        x: Double(effectiveRegion.x + effectiveRegion.width),
+        y: Double(effectiveRegion.y + effectiveRegion.height)
+      )
+    {
+      let min = transform.point(minimum)
+      let max = transform.point(maximum)
+      context.stroke(
+        Path(CGRect(x: min.x, y: min.y, width: max.x - min.x, height: max.y - min.y)),
+        with: .color(.yellow),
+        style: StrokeStyle(lineWidth: 2, dash: [7, 4])
+      )
+    }
+    for overlay in presentation.overlays {
+      draw(overlay, in: &context, transform: transform)
+    }
+    if simulatedAnnotationsAreVisible {
+      for annotation in presentation.simulatedAnnotations {
+        draw(annotation, in: &context, transform: transform)
+      }
     }
   }
 

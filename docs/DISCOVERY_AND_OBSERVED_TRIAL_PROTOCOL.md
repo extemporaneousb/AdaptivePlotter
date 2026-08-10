@@ -116,23 +116,28 @@ center, learned local frame, exact failed settlement, and Needs Attention
 detail. The retry recomputes the remaining delta from current MPos. It does not
 repeat side discovery or manufacture a center-arrival artifact.
 
-## 3.3 Visibility Target and Clear-View Registration
-
-### Target pose and ROI
+## 3.3 Register Target Pose and Camera Geometry
 
 At the accepted target pose:
 
 1. record current controller MPos;
 2. capture one exact compatible frame;
-3. record the tool contact point and target ROI;
-4. construct or refresh machine-camera registration from compatible exact
-   machine/contact samples.
+3. measure the bottom-center tool contact point, which is not the component
+   centroid;
+4. fit machine-camera registration from compatible exact machine/contact
+   samples or run the one bounded three-sample Pen Up calibration owner and
+   return to the captured target MPos;
+5. stage the fit, projected target ROI, margin, validation residual, and
+   provenance as a non-authoritative proposal;
+6. inspect the complete exact frame, ROI outline, and adjustable
+   presentation-only zoom; then explicitly accept or reject the proposal.
 
-If the current camera lacks enough compatible samples, the UI names that exact
-fact and offers an explicit capture-only evidence action. It does not redo a
-Boundary, move the plotter, or erase machine-space aggregates.
+Calibration never accepts geometry. One explicit acceptance atomically makes
+the target-pose, machine-camera, and typed target-ROI revisions current. No one
+of those revisions becomes current if proposal construction or acceptance
+fails. Viewport zoom never mutates the target ROI used by Vision.
 
-### Clear search
+## 3.4 Discover and Accept Clear View
 
 The operator chooses a typed Pen Up search direction and one of 10, 5, 2, or
 optional 1 mm. Each **Start** admits one bounded move. After settlement, the
@@ -145,22 +150,35 @@ cancel. The app does not infer a useful pose from elapsed travel alone.
 An accepted Clear pose records controller context, MPos, exact frame and camera
 configuration, ROI, armature evidence, source, and algorithm revision.
 
-### Visibility target
+## 3.5 Confirm Blank Target Baseline
 
-1. Capture a blank baseline at the accepted Clear pose.
-2. Return to the registered target pose.
-3. Execute `visibility-target-octagon-double-trace-v2`: draw one 4 mm diameter
+At the accepted Clear MPos, capture a fresh exact candidate frame and explicitly
+choose **Confirm ROI Is Blank** or **Not Blank**. Capture alone creates no
+baseline authority. Acceptance records frame/configuration, MPos, paper
+revision, target-ROI revision, and Clear-pose revision.
+
+## 3.6 Return to Registered Target Pose
+
+Move Pen Up under one stoppable owner to the registered target MPos. Completion
+requires Idle, exact final MPos, no sticky ambiguity, and a retained settlement.
+
+## 3.7 Draw Visibility Target
+
+Execute `visibility-target-octagon-double-trace-v2`: draw one 4 mm diameter
    octagon forward, then retrace the same perimeter in reverse under the same
    owner and Pen Down interval.
-4. Return to the accepted Clear pose.
-5. Capture two fresh exact observation frames.
-6. Require compatible target detection and two-frame agreement.
-7. Accept the visibility registration.
 
 The target plan is immutable for the attempt and cites the target pose,
-machine-camera registration, camera context, blank baseline, paper revision,
-and drawing parameters. The target is never automatically redrawn after an
-uncertain result.
+machine-camera registration, target-ROI registration, camera context, blank
+baseline, paper revision, and drawing parameters. Possible ink advances to
+observation or explicit recovery. The target is never automatically redrawn
+after an uncertain result.
+
+## 3.8 Return and Observe Existing Target
+
+Return Pen Up under one stoppable owner to accepted Clear and retain Idle/final
+MPos. Then capture two strictly newer exact frames and require compatible
+target detection plus two-frame agreement in the accepted ROI.
 
 Observation is one foreground, single-flight Vision operation. It publishes
 ownership before capture, pauses competing automatic analysis, searches bounded
@@ -169,6 +187,19 @@ motion, pen, camera, source, analysis, Restart, and learning mutations are
 refused until settlement. **Cancel Vision** is the sole mutating action and
 preserves possible ink and the active attempt. Only a matching operation
 generation and complete captured authority context may commit.
+
+**Record Another Observation** repeats only this two-frame observation against
+the existing target and baseline. It never executes 3.7 again.
+
+## 3.9 Accept Visibility Registration
+
+Review the exact frames, centroid, area, uncertainty, immutable plan revision,
+ROI, retained execution-attempt disposition, and consumed revision provenance.
+The controller must remain Pen Up and Idle at the accepted Clear pose. Motion
+after observation routes back through the 3.8 Return action; exact settlement
+reuses the existing observation and does not capture or draw again. Explicit
+acceptance creates the current visibility-registration revision. Rejection
+retains the observation and physical target provenance and performs no redraw.
 
 If the physical scene is unusable, record the disposition:
 

@@ -101,6 +101,7 @@ struct OperatorWorkspaceView: View {
   @State private var selection = LearningPathSelectionState(current: .stage(.connect))
   @State private var utilitiesArePresented = false
   @State private var paneVisibility = WorkbenchPaneVisibility()
+  @State private var actionSurfaceViewport = ActionSurfaceViewportState()
   private let utilitiesPolicy = UtilitiesVisibilityPolicy()
 
   var body: some View {
@@ -131,7 +132,10 @@ struct OperatorWorkspaceView: View {
           )
 
           VSplitView {
-            ActionSurface(presentation: workspace.actionSurfacePresentation)
+            ActionSurface(
+              presentation: workspace.actionSurfacePresentation,
+              viewport: $actionSurfaceViewport
+            )
               .frame(
                 minWidth: LearningWorkbenchLayoutPolicy.minimumActionSurfaceWidth,
                 minHeight: LearningWorkbenchLayoutPolicy.minimumActionSurfaceHeight

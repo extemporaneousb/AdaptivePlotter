@@ -133,38 +133,72 @@ attempt remains healthy, continuation stays under the same logical owner and
 must not duplicate after Stop or ambiguity.
 Requested feed is not proof of achieved physical speed.
 
-## 3.3 Visibility Target and Clear-View Registration
+## 3.3 Register Target Pose and Camera Geometry
 
 1. At the estimated center with Pen Up, capture the exact **Target-Pose
    Registration** frame. The armature is expected to be present; this is not the
    blank baseline.
-2. Inspect the proposed target ROI and tool contact point. Confirm it refers to
+2. Run **Build Geometry Proposal**. If compatible samples are insufficient,
+   retain Stop while the bounded three-sample Pen Up calibration runs and
+   returns to the captured target MPos. This action must not accept the result.
+3. Inspect the proposed target ROI and tool contact point. Confirm it refers to
    the marker contact location (initially the green component bottom center),
-   not the cap centroid, then accept or reject it explicitly.
-3. Choose a Pen Up Clear-search direction and one explicit 10, 5, 2, or optional
+   not the cap centroid. Verify **Full Frame**, adjustable presentation zoom,
+   and **Exact ROI** do not change the outlined Vision ROI. Accept or reject the
+   target pose, camera fit, and ROI explicitly.
+
+## 3.4 Discover and Accept Clear View
+
+1. Choose a Pen Up Clear-search direction and one explicit 10, 5, 2, or optional
    1 mm move. Settle, capture a newer exact frame, and label it Blocked, Partial,
    or Clear. Blocked/Partial must keep the same transaction active.
-4. Repeat coarse-to-fine moves until a reproducible Clear view is observed, then
+2. Repeat coarse-to-fine moves until a reproducible Clear view is observed, then
    accept the Clear pose.
-5. Capture the **Pre-Target Clear-View Baseline** and confirm the accepted ROI is
+
+## 3.5 Confirm Blank Target Baseline
+
+1. Capture the blank-baseline candidate and confirm the accepted ROI is
    blank. Record exact frame/configuration, MPos, paper revision, and ROI.
-6. Press **Return to Registered Target Pose** and verify settlement.
-7. Press **Draw Visibility Target** once. Verify one compound owner performs
+2. If it is not blank, press **Not Blank**. Verify no baseline revision is
+   accepted.
+
+## 3.6 Return to Registered Target Pose
+
+Press **Return Pen Up to Registered Target Pose** and verify Idle/exact final
+MPos settlement.
+
+## 3.7 Draw Visibility Target
+
+Press **Draw Visibility Target Once**. Verify one compound owner performs
    Pen Up approach, lower, eight forward segments forming a 4 mm regular
    octagon, eight reverse segments retracing that perimeter, and one raise.
    Record plan revision `visibility-target-octagon-double-trace-v2`; keep the
    one contextual Stop and cutoff reachable.
-8. Press **Return to Accepted Clear Pose** and verify Pen Up settlement.
-9. Press **Observe Existing Visibility Target**. Verify the exact target ROI is
-   magnified, progress names both captures and both analyses, competing controls
+
+## 3.8 Return and Observe Existing Target
+
+1. Press **Return Pen Up to Accepted Clear Pose** and verify settlement.
+2. Press **Observe Existing Target**. Verify the exact target ROI is outlined,
+   presentation zoom remains where the operator leaves it while new frames
+   arrive, progress names both captures and both analyses, competing controls
    are refused, repeated Observe cannot queue, and only **Cancel Vision** remains.
    Then verify two strictly fresh compatible frames agree and list both IDs.
-10. Accept the visibility registration only after inspecting the evidence.
+3. Verify **Record Another Observation** captures again without drawing again.
+
+## 3.9 Accept Visibility Registration
+
+Accept the visibility registration only after inspecting exact frames,
+geometry, uncertainty, ROI, plan revision, and consumed artifact revisions.
+The controller must still be Pen Up and Idle at the accepted Clear pose. If it
+has moved since observation, 3.8 must expose the direct Return action and reuse
+the existing observation after settlement rather than capturing or drawing
+again. Rejecting the decision must retain the observation and perform no motion.
 
 If target drawing is cancelled, partial, or ambiguous after Pen Down acceptance,
 do not redraw. Use Observe Existing Target only with the retained compatible
-baseline, or explicitly register a new target area/paper revision. The Clear pose
-and target evidence are local dependencies, not manual-motion gates.
+baseline and the retained execution-attempt disposition, or explicitly register
+a new target area/paper revision. The Clear pose and target evidence are local
+dependencies, not manual-motion gates.
 
 ## 4. Observed Drawing Trial
 

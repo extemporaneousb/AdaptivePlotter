@@ -33,12 +33,21 @@ struct LearningPathPresentationTests {
 
   @Test("Human-Guided Discovery exposes the exact ordered substeps")
   func exactDiscoverySteps() {
-    #expect(HumanGuidedDiscoveryStep.allCases.map(\.stepNumber) == ["3.1", "3.2", "3.3"])
+    #expect(
+      HumanGuidedDiscoveryStep.allCases.map(\.stepNumber)
+        == ["3.1", "3.2", "3.3", "3.4", "3.5", "3.6", "3.7", "3.8", "3.9"]
+    )
     #expect(
       HumanGuidedDiscoveryStep.allCases.map(\.title) == [
         "Pen Interaction",
         "Paired Boundary Discovery and Centering",
-        "Visibility Target and Clear-View Registration",
+        "Register Target Pose and Camera Geometry",
+        "Discover and Accept Clear View",
+        "Confirm Blank Target Baseline",
+        "Return to Registered Target Pose",
+        "Draw Visibility Target",
+        "Return and Observe Existing Target",
+        "Accept Visibility Registration",
       ])
   }
 
@@ -68,7 +77,13 @@ struct LearningPathPresentationTests {
         "3 Human-Guided Discovery",
         "3.1 Pen Interaction",
         "3.2 Paired Boundary Discovery and Centering",
-        "3.3 Visibility Target and Clear-View Registration",
+        "3.3 Register Target Pose and Camera Geometry",
+        "3.4 Discover and Accept Clear View",
+        "3.5 Confirm Blank Target Baseline",
+        "3.6 Return to Registered Target Pose",
+        "3.7 Draw Visibility Target",
+        "3.8 Return and Observe Existing Target",
+        "3.9 Accept Visibility Registration",
         "4 Observed Drawing Trials",
         "4.1 Choose Isolated Line Plan",
         "4.2 Capture Target-Anchored Baseline",
@@ -251,10 +266,10 @@ struct LearningPathPresentationTests {
     #expect(descriptors.map(\.isEnabled) == [true, true, true, true])
   }
 
-  @Test("visibility workflow actions are typed and remain owned by one pinned strip")
+  @Test("target-geometry actions are typed and remain owned by their pinned 3.3 strip")
   func typedVisibilityWorkflowActions() {
     let owner = LearningPathItemID.humanGuidedDiscovery(
-      .visibilityTargetAndClearViewRegistration
+      .registerTargetPoseAndCameraGeometry
     )
     let strip = ExerciseActionStripPresentation(
       ownerID: owner,
@@ -264,12 +279,12 @@ struct LearningPathPresentationTests {
           title: "Capture Target-Pose Registration"
         ),
         ExerciseActionDescriptor(
-          kind: .calibrateCurrentCameraAndAcceptROI,
-          title: "Calibrate Current Camera and Accept ROI",
+          kind: .buildTargetGeometryProposal,
+          title: "Build Geometry Proposal",
           role: .positive
         ),
         ExerciseActionDescriptor(
-          kind: .rejectTargetContactPointAndROI,
+          kind: .rejectTargetGeometryProposal,
           title: "Reject Contact Point and ROI"
         ),
         ExerciseActionDescriptor(
@@ -296,8 +311,8 @@ struct LearningPathPresentationTests {
     #expect(
       strip.actions.map(\.kind) == [
         .captureTargetPoseRegistration,
-        .calibrateCurrentCameraAndAcceptROI,
-        .rejectTargetContactPointAndROI,
+        .buildTargetGeometryProposal,
+        .rejectTargetGeometryProposal,
         .registerNewTargetArea,
         .moveToNewTargetArea(
           ClearViewSearchMove(direction: .negativeY, distance: .tenMillimeters)
@@ -305,7 +320,7 @@ struct LearningPathPresentationTests {
         .paperReplaced,
       ])
     #expect(
-      strip.actions.count { $0.kind == .calibrateCurrentCameraAndAcceptROI } == 1
+      strip.actions.count { $0.kind == .buildTargetGeometryProposal } == 1
     )
   }
 

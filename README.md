@@ -26,7 +26,13 @@ authority ladder:
 3. **Human-Guided Discovery**
    - **3.1 Pen Interaction**
    - **3.2 Paired Boundary Discovery and Centering**
-   - **3.3 Visibility Target and Clear-View Registration**
+   - **3.3 Register Target Pose and Camera Geometry**
+   - **3.4 Discover and Accept Clear View**
+   - **3.5 Confirm Blank Target Baseline**
+   - **3.6 Return to Registered Target Pose**
+   - **3.7 Draw Visibility Target**
+   - **3.8 Return and Observe Existing Target**
+   - **3.9 Accept Visibility Registration**
 4. **Observed Drawing Trials**
    - choose a target-anchored isolated line;
    - capture its baseline;

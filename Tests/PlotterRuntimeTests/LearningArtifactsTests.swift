@@ -76,6 +76,58 @@ struct LearningArtifactsTests {
     #expect(graph.currentRevision(for: .boundarySideAggregate(.negativeY))?.id == boundary.id)
   }
 
+  @Test("Stage 3 visibility chain is rooted in typed target ROI authority")
+  func targetROIInvalidatesClearBaselineExecutionAndObservation() throws {
+    var graph = LearningDependencyGraph()
+    let targetPose = revision(kind: .targetPoseRegistration)
+    let machineRegistration = revision(
+      kind: .machineCameraRegistration,
+      consumes: [targetPose.id]
+    )
+    let targetROI = revision(
+      kind: .targetROIRegistration,
+      consumes: [targetPose.id, machineRegistration.id]
+    )
+    let clear = revision(kind: .clearPose, consumes: [targetROI.id])
+    let baseline = revision(
+      kind: .preTargetClearViewBaseline,
+      consumes: [clear.id, targetROI.id]
+    )
+    let execution = revision(
+      kind: .visibilityTargetExecution,
+      consumes: [baseline.id, targetPose.id, machineRegistration.id, targetROI.id]
+    )
+    let observation = revision(
+      kind: .visibilityTargetObservation,
+      consumes: [execution.id, baseline.id, targetROI.id]
+    )
+    let registration = revision(
+      kind: .visibilityRegistration,
+      consumes: [observation.id, machineRegistration.id, targetROI.id]
+    )
+    for artifact in [
+      targetPose, machineRegistration, targetROI, clear, baseline, execution, observation,
+      registration,
+    ] {
+      _ = try graph.commitReplacement(artifact)
+    }
+
+    let commit = try graph.commitReplacement(
+      revision(
+        kind: .targetROIRegistration,
+        consumes: [targetPose.id, machineRegistration.id]
+      )
+    )
+
+    #expect(commit.invalidatedRevisionIDs == [
+      clear.id, baseline.id, execution.id, observation.id, registration.id,
+    ])
+    #expect(graph.currentRevision(for: .targetPoseRegistration)?.id == targetPose.id)
+    #expect(
+      graph.currentRevision(for: .machineCameraRegistration)?.id == machineRegistration.id
+    )
+  }
+
   @Test("target-anchored trial baseline replacement invalidates only its consuming trial chain")
   func targetAnchoredBaselineReplacementInvalidatesTrial() throws {
     var graph = LearningDependencyGraph()

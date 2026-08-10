@@ -653,6 +653,7 @@ public enum LearningArtifactKind: Codable, Hashable, Sendable {
   case estimatedMachineCenter
   case centerArrival
   case targetPoseRegistration
+  case targetROIRegistration
   case clearPose
   case preTargetClearViewBaseline
   case visibilityTargetExecution

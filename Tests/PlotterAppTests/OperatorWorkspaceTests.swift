@@ -317,116 +317,50 @@ struct OperatorWorkspaceTests {
       boundaryOrder: [.positiveX, .negativeX, .positiveY, .negativeY]
     )
     let workspace = harness.workspace
-    let owner = LearningPathItemID.humanGuidedDiscovery(
-      .visibilityTargetAndClearViewRegistration
-    )
-    let oldAreaID = workspace.targetAreaIdentity
-    let oldRegistrationID = try #require(
-      workspace.learningArtifactGraph.currentRevision(for: .visibilityRegistration)?.id
-    )
-    let oldInkCount = await harness.runtime.persistentInk().count
-
-    try await performPublicAction(.redoThisStep, owner: owner, workspace: workspace)
-    let unavailableCapture = try #require(
-      workspace.selectedOperatorActionPresentation(for: owner).actionStrip?.actions
-        .first(where: { $0.kind == .captureTargetPoseRegistration })
-    )
-    #expect(!unavailableCapture.isEnabled)
-    #expect(unavailableCapture.unavailableReason == "Move to a new target area first.")
-    try await selectPublicDirection(
-      .positiveY,
-      purpose: .targetAreaRelocation,
-      owner: owner,
-      workspace: workspace
-    )
-    try await performPublicAction(
-      .moveToNewTargetArea(
-        ClearViewSearchMove(direction: .positiveY, distance: .tenMillimeters)
-      ),
-      owner: owner,
-      workspace: workspace
-    )
-    try await performPublicAction(
-      .captureTargetPoseRegistration, owner: owner, workspace: workspace)
-    try await performPublicAction(
-      .calibrateCurrentCameraAndAcceptROI, owner: owner, workspace: workspace)
-    try await selectPublicDirection(
-      .positiveX,
-      purpose: .clearViewSearch,
-      owner: owner,
-      workspace: workspace
-    )
-    try await performPublicAction(
-      .moveForClearView(
-        ClearViewSearchMove(direction: .positiveX, distance: .tenMillimeters)
-      ),
-      owner: owner,
-      workspace: workspace
-    )
-    try await performPublicAction(
-      .moveForClearView(
-        ClearViewSearchMove(direction: .positiveX, distance: .twoMillimeters)
-      ),
-      owner: owner,
-      workspace: workspace
-    )
-    try await performPublicAction(.recordClearViewLabel(.clear), owner: owner, workspace: workspace)
-    try await performPublicAction(.acceptClearPose, owner: owner, workspace: workspace)
-    try await performPublicAction(
-      .capturePreTargetClearViewBaseline,
-      owner: owner,
-      workspace: workspace
-    )
-    try await performPublicAction(.returnToRegisteredTargetPose, owner: owner, workspace: workspace)
-    try await performPublicAction(.drawVisibilityTarget, owner: owner, workspace: workspace)
-    try await performPublicAction(.returnToAcceptedClearPose, owner: owner, workspace: workspace)
-    try await performPublicAction(
-      .observeExistingVisibilityTarget,
-      owner: owner,
-      workspace: workspace
-    )
-    #expect(
-      workspace.learningArtifactGraph.currentRevision(for: .visibilityRegistration)?.id
-        == oldRegistrationID
-    )
-    try await performPublicAction(.acceptVisibilityRegistration, owner: owner, workspace: workspace)
-
-    #expect(workspace.targetAreaIdentity != oldAreaID)
-    #expect(workspace.retiredTargetAreaDispositions[oldAreaID] == .targetObserved)
-    #expect(
-      workspace.learningArtifactGraph.currentRevision(for: .visibilityRegistration)?.id
-        != oldRegistrationID
-    )
-    #expect(
-      workspace.learningArtifactGraph.revision(id: oldRegistrationID)?.state == .superseded
-    )
-    #expect(await harness.runtime.persistentInk().count > oldInkCount)
-
-    let replacementExecutionID = try #require(
+    let executionID = try #require(
       workspace.learningArtifactGraph.currentRevision(for: .visibilityTargetExecution)?.id
     )
-    let replacementRegistrationID = try #require(
+    let registrationID = try #require(
       workspace.learningArtifactGraph.currentRevision(for: .visibilityRegistration)?.id
     )
-    try await performPublicAction(.recordAnotherAttempt, owner: owner, workspace: workspace)
+    let inkCount = await harness.runtime.persistentInk().count
+    let observationOwner = LearningPathItemID.humanGuidedDiscovery(
+      .returnAndObserveExistingTarget
+    )
+    try await performPublicAction(
+      .recordAnotherAttempt,
+      owner: observationOwner,
+      workspace: workspace
+    )
     #expect(
-      workspace.learningArtifactGraph.currentRevision(for: .visibilityRegistration)?.id
-        == replacementRegistrationID
+      workspace.learningArtifactGraph.currentRevision(for: .visibilityTargetExecution)?.id
+        == executionID
     )
     try await performPublicAction(
       .observeExistingVisibilityTarget,
-      owner: owner,
+      owner: observationOwner,
       workspace: workspace
     )
-    try await performPublicAction(.acceptVisibilityRegistration, owner: owner, workspace: workspace)
+    #expect(workspace.learningArtifactGraph.currentRevision(for: .visibilityRegistration) == nil)
+
+    let acceptanceOwner = LearningPathItemID.humanGuidedDiscovery(
+      .acceptVisibilityRegistration
+    )
+    try await performPublicAction(.start, owner: acceptanceOwner, workspace: workspace)
+    try await performPublicAction(
+      .acceptVisibilityRegistration,
+      owner: acceptanceOwner,
+      workspace: workspace
+    )
     #expect(
       workspace.learningArtifactGraph.currentRevision(for: .visibilityTargetExecution)?.id
-        == replacementExecutionID
+        == executionID
     )
     #expect(
       workspace.learningArtifactGraph.currentRevision(for: .visibilityRegistration)?.id
-        != replacementRegistrationID
+        != registrationID
     )
+    #expect(await harness.runtime.persistentInk().count == inkCount)
     let aggregateHistory = try #require(
       workspace.visibilityObservationAttemptHistories.values.first(where: {
         $0.includedSuccessfulAttempts.count == 2
@@ -436,28 +370,6 @@ struct OperatorWorkspaceTests {
     #expect(aggregate.validAttemptCount == 2)
     #expect(aggregate.includedAttemptIDs.count == 2)
     #expect(aggregate.includedObservations.flatMap(\.includedFrameIDs).count == 4)
-
-    let acceptedAreaID = workspace.targetAreaIdentity
-    let acceptedRegistrationID = try #require(
-      workspace.learningArtifactGraph.currentRevision(for: .visibilityRegistration)?.id
-    )
-    let acceptedExecutionID = try #require(
-      workspace.learningArtifactGraph.currentRevision(for: .visibilityTargetExecution)?.id
-    )
-    let acceptedInkCount = await harness.runtime.persistentInk().count
-    try await performPublicAction(.redoThisStep, owner: owner, workspace: workspace)
-    try await performPublicAction(.cancel, owner: owner, workspace: workspace)
-    #expect(workspace.visibilityRegistrationAccepted)
-    #expect(workspace.targetAreaIdentity == acceptedAreaID)
-    #expect(
-      workspace.learningArtifactGraph.currentRevision(for: .visibilityRegistration)?.id
-        == acceptedRegistrationID
-    )
-    #expect(
-      workspace.learningArtifactGraph.currentRevision(for: .visibilityTargetExecution)?.id
-        == acceptedExecutionID
-    )
-    #expect(await harness.runtime.persistentInk().count == acceptedInkCount)
     #expect(await harness.machineActionLog.values.isEmpty)
   }
 
@@ -473,7 +385,7 @@ struct OperatorWorkspaceTests {
     )
     let workspace = harness.workspace
     let owner = LearningPathItemID.humanGuidedDiscovery(
-      .visibilityTargetAndClearViewRegistration
+      .returnAndObserveExistingTarget
     )
     let attemptID = try #require(workspace.activeExerciseAttemptID)
     let baselineID = try #require(workspace.preTargetClearViewBaseline?.frame.id)
@@ -577,7 +489,7 @@ struct OperatorWorkspaceTests {
     )
     await log.clear()
     let owner = LearningPathItemID.humanGuidedDiscovery(
-      .visibilityTargetAndClearViewRegistration
+      .returnAndObserveExistingTarget
     )
     let observe = Task {
       await harness.workspace.performExerciseAction(
@@ -602,8 +514,8 @@ struct OperatorWorkspaceTests {
     ])
   }
 
-  @Test("camera recovery preserves machine facts and automatically accepts current-camera ROI")
-  func cameraRecoveryPreservesMachineAuthorityAndAutomaticallyAcceptsROI() async throws {
+  @Test("camera recovery preserves machine facts and stages ROI for explicit acceptance")
+  func cameraRecoveryPreservesMachineAuthorityAndStagesROIProposal() async throws {
     let harness = makeSimulatedHarness()
     let workspace = harness.workspace
     try await completeSimulatedVisibilityProtocol(
@@ -642,13 +554,13 @@ struct OperatorWorkspaceTests {
       workspace.learningArtifactGraph.currentRevision(for: .centerArrival)?.id == arrivalRevisionID)
     #expect(
       workspace.currentLearningPathItemID
-        == .humanGuidedDiscovery(.visibilityTargetAndClearViewRegistration),
+        == .humanGuidedDiscovery(.registerTargetPoseAndCameraGeometry),
       "Camera restart must not rewind completed machine-space Boundary work."
     )
     #expect(workspace.pairedBoundaryProgress.isComplete)
 
     let owner = LearningPathItemID.humanGuidedDiscovery(
-      .visibilityTargetAndClearViewRegistration
+      .registerTargetPoseAndCameraGeometry
     )
     try await performPublicAction(.start, owner: owner, workspace: workspace)
     try await performPublicAction(
@@ -661,19 +573,19 @@ struct OperatorWorkspaceTests {
     ).actions
     #expect(
       actions.map(\.kind) == [
-        .calibrateCurrentCameraAndAcceptROI,
-        .rejectTargetContactPointAndROI,
+        .buildTargetGeometryProposal,
+        .rejectTargetGeometryProposal,
         .cancel,
       ]
     )
     let calibrationAction = try #require(
-      actions.first(where: { $0.kind == .calibrateCurrentCameraAndAcceptROI })
+      actions.first(where: { $0.kind == .buildTargetGeometryProposal })
     )
     #expect(calibrationAction.isEnabled)
     #expect(calibrationAction.unavailableReason == nil)
 
     try await performPublicAction(
-      .calibrateCurrentCameraAndAcceptROI,
+      .buildTargetGeometryProposal,
       owner: owner,
       workspace: workspace
     )
@@ -697,12 +609,31 @@ struct OperatorWorkspaceTests {
     let runtimePosition = await harness.runtime.snapshot().mpos
     #expect(abs(runtimePosition.xMM - targetPosition.point.x) <= 0.001)
     #expect(abs(runtimePosition.yMM - targetPosition.point.y) <= 0.001)
+    #expect(!workspace.targetContactPointAndROIAccepted)
+    #expect(workspace.targetObservationRegion == nil)
+    #expect(workspace.machineCameraRegistration == nil)
+    #expect(workspace.proposedTargetObservationRegion != nil)
+    #expect(workspace.proposedMachineCameraRegistration != nil)
+    #expect(
+      workspace.learningArtifactGraph.currentRevision(for: .machineCameraRegistration) == nil
+    )
+    #expect(workspace.learningArtifactGraph.currentRevision(for: .targetROIRegistration) == nil)
+    let reviewActions = try #require(
+      workspace.selectedOperatorActionPresentation(for: owner).actionStrip
+    ).actions.map(\.kind)
+    #expect(Array(reviewActions.prefix(2)) == [
+      .acceptTargetGeometryProposal, .rejectTargetGeometryProposal,
+    ])
+    try await performPublicAction(
+      .acceptTargetGeometryProposal,
+      owner: owner,
+      workspace: workspace
+    )
     #expect(workspace.targetContactPointAndROIAccepted)
     #expect(workspace.targetObservationRegion != nil)
     #expect(workspace.machineCameraRegistration != nil)
-    #expect(
-      workspace.learningArtifactGraph.currentRevision(for: .machineCameraRegistration) != nil
-    )
+    #expect(workspace.learningArtifactGraph.currentRevision(for: .machineCameraRegistration) != nil)
+    #expect(workspace.learningArtifactGraph.currentRevision(for: .targetROIRegistration) != nil)
     #expect(workspace.explorationError == nil)
     #expect(workspace.boundarySideAggregates == aggregates)
     #expect(workspace.estimatedMachineCenter == center)
@@ -730,7 +661,7 @@ struct OperatorWorkspaceTests {
     await harness.runtime.injectFault(.cameraConfigurationChangeBeforeNextFrame)
     await workspace.performCameraUtilityAction(.refresh)
     let owner = LearningPathItemID.humanGuidedDiscovery(
-      .visibilityTargetAndClearViewRegistration
+      .registerTargetPoseAndCameraGeometry
     )
     try await performPublicAction(.start, owner: owner, workspace: workspace)
     try await performPublicAction(
@@ -742,7 +673,7 @@ struct OperatorWorkspaceTests {
     await harness.runtime.injectFault(.refuseNextOperation)
 
     try await performPublicAction(
-      .calibrateCurrentCameraAndAcceptROI,
+      .buildTargetGeometryProposal,
       owner: owner,
       workspace: workspace
     )
@@ -768,8 +699,8 @@ struct OperatorWorkspaceTests {
     let recovery = workspace.selectedOperatorActionPresentation(for: owner)
     #expect(
       recovery.actionStrip?.actions.map(\.kind) == [
-        .calibrateCurrentCameraAndAcceptROI,
-        .rejectTargetContactPointAndROI,
+        .buildTargetGeometryProposal,
+        .rejectTargetGeometryProposal,
         .cancel,
       ]
     )
@@ -792,7 +723,7 @@ struct OperatorWorkspaceTests {
     await harness.runtime.injectFault(.cameraConfigurationChangeBeforeNextFrame)
     await workspace.performCameraUtilityAction(.refresh)
     let owner = LearningPathItemID.humanGuidedDiscovery(
-      .visibilityTargetAndClearViewRegistration
+      .registerTargetPoseAndCameraGeometry
     )
     try await performPublicAction(.start, owner: owner, workspace: workspace)
     try await performPublicAction(
@@ -805,7 +736,7 @@ struct OperatorWorkspaceTests {
     workspace.replaceSimulatedExecutionPacingForTesting(pacing)
 
     let calibration = Task { @MainActor in
-      await workspace.performExerciseAction(.calibrateCurrentCameraAndAcceptROI, for: owner)
+      await workspace.performExerciseAction(.buildTargetGeometryProposal, for: owner)
     }
     await pacing.waitUntilSuspended()
     let stopKind = try #require(
@@ -839,8 +770,8 @@ struct OperatorWorkspaceTests {
     let recovery = workspace.selectedOperatorActionPresentation(for: owner)
     #expect(
       recovery.actionStrip?.actions.map(\.kind) == [
-        .calibrateCurrentCameraAndAcceptROI,
-        .rejectTargetContactPointAndROI,
+        .buildTargetGeometryProposal,
+        .rejectTargetGeometryProposal,
         .cancel,
       ]
     )
@@ -862,7 +793,7 @@ struct OperatorWorkspaceTests {
     await harness.runtime.injectFault(.cameraConfigurationChangeBeforeNextFrame)
     await workspace.performCameraUtilityAction(.refresh)
     let owner = LearningPathItemID.humanGuidedDiscovery(
-      .visibilityTargetAndClearViewRegistration
+      .registerTargetPoseAndCameraGeometry
     )
     try await performPublicAction(.start, owner: owner, workspace: workspace)
     try await performPublicAction(
@@ -876,7 +807,7 @@ struct OperatorWorkspaceTests {
     let completions = EventLog()
 
     let calibration = Task { @MainActor in
-      await workspace.performExerciseAction(.calibrateCurrentCameraAndAcceptROI, for: owner)
+      await workspace.performExerciseAction(.buildTargetGeometryProposal, for: owner)
       await completions.append("calibration-returned")
     }
     await pacing.waitUntilSuspended()
@@ -914,6 +845,408 @@ struct OperatorWorkspaceTests {
     )
   }
 
+  @Test("used targets expose recovery instead of Redo on every pre-draw Stage 3 row")
+  func usedTargetCannotBeMadePristineByRedo() async throws {
+    let harness = makeSimulatedHarness()
+    try await completeSimulatedVisibilityProtocol(
+      harness.workspace,
+      runtime: harness.runtime,
+      boundaryOrder: [.positiveX, .negativeX, .positiveY, .negativeY]
+    )
+    let workspace = harness.workspace
+    let rows: [HumanGuidedDiscoveryStep] = [
+      .registerTargetPoseAndCameraGeometry,
+      .discoverAndAcceptClearView,
+      .confirmBlankTargetBaseline,
+      .returnToRegisteredTargetPose,
+    ]
+    for row in rows {
+      let owner = LearningPathItemID.humanGuidedDiscovery(row)
+      let kinds = try #require(
+        workspace.selectedOperatorActionPresentation(for: owner).actionStrip
+      ).actions.map(\.kind)
+      #expect(kinds == [.registerNewTargetArea, .paperReplaced])
+      #expect(kinds.contains(.redoThisStep) == false)
+      #expect(kinds.contains(.drawVisibilityTarget) == false)
+    }
+    let expectedEvidenceLabels: [HumanGuidedDiscoveryStep: [String]] = [
+      .registerTargetPoseAndCameraGeometry: [
+        "Exact target-pose capture", "Accepted contact, fit, and ROI",
+      ],
+      .discoverAndAcceptClearView: ["Target ROI input", "Clear-pose decision"],
+      .confirmBlankTargetBaseline: ["Blank-baseline candidate", "Accepted blank baseline"],
+      .returnToRegisteredTargetPose: ["Registered-target settlement"],
+      .drawVisibilityTarget: ["Accepted drawing inputs", "One-shot target execution"],
+      .returnAndObserveExistingTarget: [
+        "Accepted-Clear return settlement", "Existing-target observation",
+      ],
+      .acceptVisibilityRegistration: [
+        "Registration candidate", "Target attempt aggregate",
+        "Visibility-registration authority",
+      ],
+    ]
+    for (row, expectedLabels) in expectedEvidenceLabels {
+      let presentation = workspace.selectedOperatorActionPresentation(
+        for: .humanGuidedDiscovery(row)
+      )
+      #expect(presentation.evidence.map(\.label) == expectedLabels)
+    }
+    #expect(workspace.visibilityTargetSceneDisposition == .targetObserved)
+  }
+
+  @Test("3.6 requires a current Pen-Up Idle target settlement after later manual motion")
+  func targetReturnReadinessUsesCurrentControllerFacts() async throws {
+    let harness = makeSimulatedHarness()
+    try await completeSimulatedVisibilityProtocol(
+      harness.workspace,
+      runtime: harness.runtime,
+      boundaryOrder: [.positiveX, .negativeX, .positiveY, .negativeY],
+      drawVisibility: false
+    )
+    let workspace = harness.workspace
+    #expect(workspace.registeredTargetReturnSettlement != nil)
+    _ = await workspace.requestRelativeJog(
+      try RelativeJogRequest(
+        delta: Vector2(dx: 1, dy: 0),
+        feedMMPerMinute: 100
+      )
+    )
+
+    let returnOwner = LearningPathItemID.humanGuidedDiscovery(.returnToRegisteredTargetPose)
+    let drawOwner = LearningPathItemID.humanGuidedDiscovery(.drawVisibilityTarget)
+    #expect(workspace.currentLearningPathItemID == returnOwner)
+    #expect(workspace.learningPathItemPresentations.first(where: { $0.id == returnOwner })?.status == .current)
+    #expect(workspace.selectedOperatorActionPresentation(for: drawOwner).actionStrip == nil)
+
+    try await performPublicAction(.start, owner: returnOwner, workspace: workspace)
+    try await performPublicAction(
+      .returnToRegisteredTargetPose,
+      owner: returnOwner,
+      workspace: workspace
+    )
+    #expect(workspace.currentLearningPathItemID == drawOwner)
+  }
+
+  @Test("3.8 requires its retained Clear settlement even when a manual jog reaches Clear")
+  func observationCannotBypassClearReturnSettlement() async throws {
+    let harness = makeSimulatedHarness()
+    try await completeSimulatedVisibilityProtocol(
+      harness.workspace,
+      runtime: harness.runtime,
+      boundaryOrder: [.positiveY, .negativeY, .positiveX, .negativeX],
+      returnToClear: false
+    )
+    let workspace = harness.workspace
+    let clear = try #require(workspace.armatureGuidanceState?.acceptedClearPose?.position)
+    let current = await harness.runtime.snapshot().mpos
+    _ = await workspace.requestRelativeJog(
+      try RelativeJogRequest(
+        delta: Vector2(
+          dx: clear.point.x - current.xMM,
+          dy: clear.point.y - current.yMM
+        ),
+        feedMMPerMinute: 100
+      )
+    )
+    #expect(workspace.acceptedClearReturnSettlement == nil)
+
+    let owner = LearningPathItemID.humanGuidedDiscovery(.returnAndObserveExistingTarget)
+    try await performPublicAction(.start, owner: owner, workspace: workspace)
+    let beforeSettlement = try #require(
+      workspace.selectedOperatorActionPresentation(for: owner).actionStrip
+    ).actions.map(\.kind)
+    #expect(beforeSettlement.contains(.returnToAcceptedClearPose))
+    #expect(beforeSettlement.contains(.observeExistingVisibilityTarget) == false)
+
+    try await performPublicAction(.returnToAcceptedClearPose, owner: owner, workspace: workspace)
+    #expect(workspace.acceptedClearReturnSettlement != nil)
+    let afterSettlement = try #require(
+      workspace.selectedOperatorActionPresentation(for: owner).actionStrip
+    ).actions.map(\.kind)
+    #expect(afterSettlement.contains(.observeExistingVisibilityTarget))
+  }
+
+  @Test("manual motion after observation routes through 3.8 Return without re-observing")
+  func preAcceptanceMotionHasDirectReturnRecovery() async throws {
+    let harness = makeSimulatedHarness()
+    try await completeSimulatedVisibilityProtocol(
+      harness.workspace,
+      runtime: harness.runtime,
+      boundaryOrder: [.positiveY, .negativeY, .positiveX, .negativeX],
+      acceptVisibility: false
+    )
+    let workspace = harness.workspace
+    let existingObservation = try #require(workspace.visibilityTargetObservation)
+    _ = await workspace.requestRelativeJog(
+      try RelativeJogRequest(
+        delta: Vector2(dx: 1, dy: 0),
+        feedMMPerMinute: 100
+      )
+    )
+
+    let observationOwner = LearningPathItemID.humanGuidedDiscovery(
+      .returnAndObserveExistingTarget
+    )
+    let acceptanceOwner = LearningPathItemID.humanGuidedDiscovery(
+      .acceptVisibilityRegistration
+    )
+    #expect(workspace.currentLearningPathItemID == observationOwner)
+    try await performPublicAction(.start, owner: observationOwner, workspace: workspace)
+    let recoveryKinds = try #require(
+      workspace.selectedOperatorActionPresentation(for: observationOwner).actionStrip
+    ).actions.map(\.kind)
+    #expect(recoveryKinds.contains(.returnToAcceptedClearPose))
+    #expect(recoveryKinds.contains(.observeExistingVisibilityTarget) == false)
+    try await performPublicAction(
+      .returnToAcceptedClearPose,
+      owner: observationOwner,
+      workspace: workspace
+    )
+
+    #expect(workspace.activeExerciseAttemptID == nil)
+    #expect(workspace.visibilityTargetObservation == existingObservation)
+    #expect(workspace.currentLearningPathItemID == acceptanceOwner)
+    try await performPublicAction(.start, owner: acceptanceOwner, workspace: workspace)
+    try await performPublicAction(
+      .acceptVisibilityRegistration,
+      owner: acceptanceOwner,
+      workspace: workspace
+    )
+    #expect(workspace.visibilityRegistrationAccepted)
+  }
+
+  @Test("visibility final-MPos mismatch settles 3.7 and advances to existing-target observation")
+  func visibilityFinalMPosMismatchCannotExposeRedraw() async throws {
+    let harness = makeSimulatedHarness()
+    try await completeSimulatedVisibilityProtocol(
+      harness.workspace,
+      runtime: harness.runtime,
+      boundaryOrder: [.positiveX, .negativeX, .positiveY, .negativeY],
+      drawVisibility: false
+    )
+    let workspace = harness.workspace
+    workspace.replaceSimulatedVisibilityTargetFinalMPosOffsetForTesting(
+      try Vector2(dx: 1, dy: 0)
+    )
+    let drawOwner = LearningPathItemID.humanGuidedDiscovery(.drawVisibilityTarget)
+    try await performPublicAction(.start, owner: drawOwner, workspace: workspace)
+    try await performPublicAction(.drawVisibilityTarget, owner: drawOwner, workspace: workspace)
+
+    #expect(workspace.activeExerciseAttemptID == nil)
+    #expect(workspace.visibilityTargetSceneDisposition == .inkPossible)
+    #expect(
+      workspace.learningArtifactGraph.currentRevision(for: .visibilityTargetExecution) != nil
+    )
+    #expect(
+      workspace.currentLearningPathItemID
+        == .humanGuidedDiscovery(.returnAndObserveExistingTarget)
+    )
+    #expect(workspace.selectedOperatorActionPresentation(for: drawOwner).actionStrip == nil)
+    #expect(workspace.explorationError?.contains("no redraw") == true)
+  }
+
+  @Test("late target Stop retains execution provenance and reaches explicit 3.9 acceptance")
+  func lateVisibilityStopCanObserveButNeverRedraw() async throws {
+    let harness = makeSimulatedHarness()
+    try await completeSimulatedVisibilityProtocol(
+      harness.workspace,
+      runtime: harness.runtime,
+      boundaryOrder: [.positiveX, .negativeX, .positiveY, .negativeY],
+      drawVisibility: false
+    )
+    let workspace = harness.workspace
+    let pacing = LateVisibilityStopPacing()
+    workspace.replaceSimulatedExecutionPacingForTesting(pacing)
+    let drawOwner = LearningPathItemID.humanGuidedDiscovery(.drawVisibilityTarget)
+    try await performPublicAction(.start, owner: drawOwner, workspace: workspace)
+    let draw = Task { @MainActor in
+      await workspace.performExerciseAction(.drawVisibilityTarget, for: drawOwner)
+    }
+    await pacing.waitUntilLateStopPoint()
+    let stopKind = try #require(
+      workspace.selectedOperatorActionPresentation(for: drawOwner).actionStrip?.actions
+        .first(where: { if case .stop = $0.kind { true } else { false } })?.kind
+    )
+    let stop = Task { @MainActor in
+      await workspace.performExerciseAction(stopKind, for: drawOwner)
+    }
+    try await waitUntilAsync { await harness.runtime.snapshot().currentOperation == nil }
+    await pacing.resume()
+    await stop.value
+    await draw.value
+
+    #expect(workspace.activeExerciseAttemptID == nil)
+    #expect(workspace.visibilityTargetSceneDisposition == .inkPossible)
+    #expect(workspace.visibilityTargetExecutionAttemptEvidence?.disposition == .stopped)
+    #expect(
+      workspace.visibilityTargetExecutionAttemptEvidence?.completedTraversalStepCount
+        == VisibilityTargetPlanV2().drawingStepCount
+    )
+    #expect(
+      workspace.learningArtifactGraph.currentRevision(for: .visibilityTargetExecution) != nil
+    )
+    #expect(workspace.selectedOperatorActionPresentation(for: drawOwner).actionStrip == nil)
+
+    let observationOwner = LearningPathItemID.humanGuidedDiscovery(
+      .returnAndObserveExistingTarget
+    )
+    try await performPublicAction(.start, owner: observationOwner, workspace: workspace)
+    try await performPublicAction(
+      .returnToAcceptedClearPose,
+      owner: observationOwner,
+      workspace: workspace
+    )
+    try await performPublicAction(
+      .observeExistingVisibilityTarget,
+      owner: observationOwner,
+      workspace: workspace
+    )
+    #expect(
+      workspace.learningArtifactGraph.currentRevision(for: .visibilityTargetObservation) != nil
+    )
+
+    let acceptanceOwner = LearningPathItemID.humanGuidedDiscovery(
+      .acceptVisibilityRegistration
+    )
+    try await performPublicAction(.start, owner: acceptanceOwner, workspace: workspace)
+    try await performPublicAction(
+      .acceptVisibilityRegistration,
+      owner: acceptanceOwner,
+      workspace: workspace
+    )
+    #expect(workspace.visibilityRegistrationAccepted)
+  }
+
+  @Test("3.3 Redo supersedes accepted roots and invalidates only their consumers")
+  func targetGeometryRedoSupersedesAllThreeRootRevisions() async throws {
+    let harness = makeSimulatedHarness()
+    try await completeSimulatedVisibilityProtocol(
+      harness.workspace,
+      runtime: harness.runtime,
+      boundaryOrder: [.positiveX, .negativeX, .positiveY, .negativeY],
+      drawVisibility: false
+    )
+    let workspace = harness.workspace
+    let graph = workspace.learningArtifactGraph
+    let oldTarget = try #require(graph.currentRevision(for: .targetPoseRegistration)?.id)
+    let oldMachine = try #require(graph.currentRevision(for: .machineCameraRegistration)?.id)
+    let oldROI = try #require(graph.currentRevision(for: .targetROIRegistration)?.id)
+    let oldClear = try #require(graph.currentRevision(for: .clearPose)?.id)
+    let oldBaseline = try #require(graph.currentRevision(for: .preTargetClearViewBaseline)?.id)
+    let owner = LearningPathItemID.humanGuidedDiscovery(.registerTargetPoseAndCameraGeometry)
+
+    try await performPublicAction(.redoThisStep, owner: owner, workspace: workspace)
+    try await performPublicAction(.captureTargetPoseRegistration, owner: owner, workspace: workspace)
+    try await performPublicAction(.buildTargetGeometryProposal, owner: owner, workspace: workspace)
+    try await performPublicAction(.acceptTargetGeometryProposal, owner: owner, workspace: workspace)
+
+    #expect(workspace.learningArtifactGraph.revision(id: oldTarget)?.state == .superseded)
+    #expect(workspace.learningArtifactGraph.revision(id: oldMachine)?.state == .superseded)
+    #expect(workspace.learningArtifactGraph.revision(id: oldROI)?.state == .superseded)
+    #expect(workspace.learningArtifactGraph.revision(id: oldClear)?.state == .invalidated)
+    #expect(workspace.learningArtifactGraph.revision(id: oldBaseline)?.state == .invalidated)
+    #expect(workspace.learningArtifactGraph.currentRevision(for: .targetPoseRegistration) != nil)
+    #expect(workspace.learningArtifactGraph.currentRevision(for: .machineCameraRegistration) != nil)
+    #expect(workspace.learningArtifactGraph.currentRevision(for: .targetROIRegistration) != nil)
+  }
+
+  @Test("Paper Replaced is atomic on refusal and clears authority only after success")
+  func paperReplacementRefusalPreservesAcceptedState() async throws {
+    let harness = makeSimulatedHarness()
+    try await completeSimulatedVisibilityProtocol(
+      harness.workspace,
+      runtime: harness.runtime,
+      boundaryOrder: [.positiveY, .negativeY, .positiveX, .negativeX]
+    )
+    let workspace = harness.workspace
+    let owner = LearningPathItemID.humanGuidedDiscovery(.registerTargetPoseAndCameraGeometry)
+    let oldArea = workspace.targetAreaIdentity
+    let oldToolPaper = (await harness.runtime.snapshot()).toolPaperRevision
+    let oldTarget = workspace.learningArtifactGraph.currentRevision(for: .targetPoseRegistration)?.id
+    let oldFrame = workspace.targetPoseRegistrationFrame
+    let active = try acceptedSimulated(
+      await harness.runtime.beginManualJog(
+        delta: try SimulatedLearningMotionVector(dxMM: 1, dyMM: 0)
+      )
+    )
+
+    try await performPublicAction(.paperReplaced, owner: owner, workspace: workspace)
+    #expect(workspace.targetAreaIdentity == oldArea)
+    #expect(workspace.targetPoseRegistrationFrame == oldFrame)
+    #expect(
+      workspace.learningArtifactGraph.currentRevision(for: .targetPoseRegistration)?.id
+        == oldTarget
+    )
+    #expect((await harness.runtime.snapshot()).toolPaperRevision == oldToolPaper)
+    #expect(workspace.explorationError?.contains("refused") == true)
+
+    _ = try acceptedSimulated(await harness.runtime.cancel(active.id))
+    try await performPublicAction(.paperReplaced, owner: owner, workspace: workspace)
+    #expect(workspace.targetAreaIdentity != oldArea)
+    #expect(workspace.targetPoseRegistrationFrame == nil)
+    #expect(workspace.learningArtifactGraph.currentRevision(for: .targetPoseRegistration) == nil)
+    #expect((await harness.runtime.snapshot()).toolPaperRevision != oldToolPaper)
+    #expect((await harness.runtime.snapshot()).persistentInkSegmentCount == 0)
+    #expect(workspace.explorationError == nil)
+  }
+
+  @Test("Register New Target Area transitively invalidates Stage 3 and Stage 4 authority")
+  func registerNewTargetAreaInvalidatesAllConsumers() async throws {
+    let harness = makeSimulatedHarness()
+    try await completeSimulatedVisibilityProtocol(
+      harness.workspace,
+      runtime: harness.runtime,
+      boundaryOrder: [.positiveX, .negativeX, .positiveY, .negativeY]
+    )
+    try await completeSimulatedStageFour(harness.workspace)
+    let workspace = harness.workspace
+    let oldArea = workspace.targetAreaIdentity
+    let oldInkCount = (await harness.runtime.snapshot()).persistentInkSegmentCount
+    let oldTarget = try #require(
+      workspace.learningArtifactGraph.currentRevision(for: .targetPoseRegistration)?.id
+    )
+    let oldStageFourRevisionIDs = workspace.learningArtifactGraph.revisions.compactMap {
+      revision -> LearningArtifactRevisionID? in
+      guard revision.state == .current else { return nil }
+      switch revision.kind {
+      case .linePlan, .targetAnchoredTrialBaseline, .lineExecution, .postLineFrame,
+        .inkObservation, .residual, .comparison:
+        return revision.id
+      default:
+        return nil
+      }
+    }
+    let owner = LearningPathItemID.humanGuidedDiscovery(.registerTargetPoseAndCameraGeometry)
+
+    try await performPublicAction(.registerNewTargetArea, owner: owner, workspace: workspace)
+
+    #expect(workspace.targetAreaIdentity != oldArea)
+    #expect(workspace.targetAreaRelocationRequired)
+    #expect(workspace.retiredTargetAreaDispositions[oldArea] == .targetObserved)
+    #expect(workspace.learningArtifactGraph.revision(id: oldTarget)?.state == .invalidated)
+    for kind in [
+      LearningArtifactKind.targetPoseRegistration,
+      .machineCameraRegistration,
+      .targetROIRegistration,
+      .clearPose,
+      .preTargetClearViewBaseline,
+      .visibilityTargetExecution,
+      .visibilityTargetObservation,
+      .visibilityRegistration,
+    ] {
+      #expect(workspace.learningArtifactGraph.currentRevision(for: kind) == nil)
+    }
+    for revisionID in oldStageFourRevisionIDs {
+      #expect(workspace.learningArtifactGraph.revision(id: revisionID)?.state == .invalidated)
+    }
+    #expect(workspace.drawingTrialAssessment == nil)
+    #expect((await harness.runtime.snapshot()).persistentInkSegmentCount == oldInkCount)
+    #expect(
+      workspace.currentLearningPathItemID
+        == .humanGuidedDiscovery(.registerTargetPoseAndCameraGeometry)
+    )
+  }
+
   @Test("camera change preserves target-area ink provenance and exposes recovery only")
   func cameraChangeMakesExistingTargetUnusableWithoutRedraw() async throws {
     let harness = makeSimulatedHarness()
@@ -924,7 +1257,7 @@ struct OperatorWorkspaceTests {
     )
     let workspace = harness.workspace
     let visibilityOwner = LearningPathItemID.humanGuidedDiscovery(
-      .visibilityTargetAndClearViewRegistration
+      .registerTargetPoseAndCameraGeometry
     )
     let targetAreaID = workspace.targetAreaIdentity
     let targetFrameID = workspace.targetPoseRegistrationFrame?.frame.id
@@ -984,7 +1317,7 @@ struct OperatorWorkspaceTests {
     #expect(!workspace.centerArrivalRetryRequired)
     #expect(
       workspace.currentLearningPathItemID
-        == .humanGuidedDiscovery(.visibilityTargetAndClearViewRegistration)
+        == .humanGuidedDiscovery(.registerTargetPoseAndCameraGeometry)
     )
   }
 
@@ -1712,6 +2045,12 @@ private func performPublicAction(
   await workspace.performExerciseAction(kind, for: owner)
 }
 
+private func acceptedSimulated<Value: Sendable>(
+  _ response: SimulatedLearningResponse<Value>
+) throws -> Value {
+  try response.result.get()
+}
+
 @MainActor
 private func selectPublicDirection(
   _ direction: BoundaryDirection,
@@ -1756,7 +2095,10 @@ private func completeSimulatedVisibilityProtocol(
   boundaryOrder: [BoundaryDirection],
   throughVisibility: Bool = true,
   moveToCenter: Bool = true,
-  observeVisibility: Bool = true
+  observeVisibility: Bool = true,
+  drawVisibility: Bool = true,
+  returnToClear: Bool = true,
+  acceptVisibility: Bool = true
 ) async throws {
   await workspace.switchFrameMode(.simulated)
   #expect(workspace.frameMode == .simulated)
@@ -1826,89 +2168,120 @@ private func completeSimulatedVisibilityProtocol(
   try await performPublicAction(.moveToEstimatedCenter, owner: boundaryOwner, workspace: workspace)
   if !throughVisibility { return }
 
-  let visibilityOwner = LearningPathItemID.humanGuidedDiscovery(
-    .visibilityTargetAndClearViewRegistration
+  let registrationOwner = LearningPathItemID.humanGuidedDiscovery(
+    .registerTargetPoseAndCameraGeometry
   )
-  try await performPublicAction(.start, owner: visibilityOwner, workspace: workspace)
+  try await performPublicAction(.start, owner: registrationOwner, workspace: workspace)
   try await performPublicAction(
     .captureTargetPoseRegistration,
-    owner: visibilityOwner,
+    owner: registrationOwner,
     workspace: workspace
   )
   try await performPublicAction(
-    .calibrateCurrentCameraAndAcceptROI,
-    owner: visibilityOwner,
+    .buildTargetGeometryProposal,
+    owner: registrationOwner,
     workspace: workspace
   )
-  let visibilityAttemptID = try #require(workspace.activeExerciseAttemptID)
+  try await performPublicAction(
+    .acceptTargetGeometryProposal,
+    owner: registrationOwner,
+    workspace: workspace
+  )
+
+  let clearOwner = LearningPathItemID.humanGuidedDiscovery(.discoverAndAcceptClearView)
+  try await performPublicAction(.start, owner: clearOwner, workspace: workspace)
+  let clearAttemptID = try #require(workspace.activeExerciseAttemptID)
   try await performPublicAction(
     .recordClearViewLabel(.blocked),
-    owner: visibilityOwner,
+    owner: clearOwner,
     workspace: workspace
   )
-  #expect(workspace.activeExerciseAttemptID == visibilityAttemptID)
+  #expect(workspace.activeExerciseAttemptID == clearAttemptID)
   #expect(
-    workspace.selectedOperatorActionPresentation(for: visibilityOwner).actionStrip?.actions
+    workspace.selectedOperatorActionPresentation(for: clearOwner).actionStrip?.actions
       .first(where: { $0.kind == .acceptClearPose })?.isEnabled == false
   )
   try await selectPublicDirection(
     .positiveX,
     purpose: .clearViewSearch,
-    owner: visibilityOwner,
+    owner: clearOwner,
     workspace: workspace
   )
   try await performPublicAction(
     .moveForClearView(ClearViewSearchMove(direction: .positiveX, distance: .tenMillimeters)),
-    owner: visibilityOwner,
+    owner: clearOwner,
     workspace: workspace
   )
   try await performPublicAction(
     .recordClearViewLabel(.partial),
-    owner: visibilityOwner,
+    owner: clearOwner,
     workspace: workspace
   )
-  #expect(workspace.activeExerciseAttemptID == visibilityAttemptID)
+  #expect(workspace.activeExerciseAttemptID == clearAttemptID)
   #expect(
-    workspace.selectedOperatorActionPresentation(for: visibilityOwner).actionStrip?.actions
+    workspace.selectedOperatorActionPresentation(for: clearOwner).actionStrip?.actions
       .first(where: { $0.kind == .acceptClearPose })?.isEnabled == false
   )
   try await performPublicAction(
     .moveForClearView(ClearViewSearchMove(direction: .positiveX, distance: .twoMillimeters)),
-    owner: visibilityOwner,
+    owner: clearOwner,
     workspace: workspace
   )
   try await performPublicAction(
     .recordClearViewLabel(.clear),
-    owner: visibilityOwner,
+    owner: clearOwner,
     workspace: workspace
   )
-  #expect(workspace.activeExerciseAttemptID == visibilityAttemptID)
-  try await performPublicAction(.acceptClearPose, owner: visibilityOwner, workspace: workspace)
+  #expect(workspace.activeExerciseAttemptID == clearAttemptID)
+  try await performPublicAction(.acceptClearPose, owner: clearOwner, workspace: workspace)
+
+  let baselineOwner = LearningPathItemID.humanGuidedDiscovery(.confirmBlankTargetBaseline)
+  try await performPublicAction(.start, owner: baselineOwner, workspace: workspace)
   try await performPublicAction(
-    .capturePreTargetClearViewBaseline,
-    owner: visibilityOwner,
+    .captureBlankTargetBaselineCandidate,
+    owner: baselineOwner,
     workspace: workspace
   )
+  try await performPublicAction(
+    .confirmBlankTargetBaseline,
+    owner: baselineOwner,
+    workspace: workspace
+  )
+
+  let targetReturnOwner = LearningPathItemID.humanGuidedDiscovery(.returnToRegisteredTargetPose)
+  try await performPublicAction(.start, owner: targetReturnOwner, workspace: workspace)
   try await performPublicAction(
     .returnToRegisteredTargetPose,
-    owner: visibilityOwner,
+    owner: targetReturnOwner,
     workspace: workspace
   )
-  try await performPublicAction(.drawVisibilityTarget, owner: visibilityOwner, workspace: workspace)
+  if !drawVisibility { return }
+
+  let drawOwner = LearningPathItemID.humanGuidedDiscovery(.drawVisibilityTarget)
+  try await performPublicAction(.start, owner: drawOwner, workspace: workspace)
+  try await performPublicAction(.drawVisibilityTarget, owner: drawOwner, workspace: workspace)
+  if !returnToClear { return }
+
+  let observationOwner = LearningPathItemID.humanGuidedDiscovery(.returnAndObserveExistingTarget)
+  try await performPublicAction(.start, owner: observationOwner, workspace: workspace)
   try await performPublicAction(
     .returnToAcceptedClearPose,
-    owner: visibilityOwner,
+    owner: observationOwner,
     workspace: workspace
   )
   if !observeVisibility { return }
   try await performPublicAction(
     .observeExistingVisibilityTarget,
-    owner: visibilityOwner,
+    owner: observationOwner,
     workspace: workspace
   )
+  if !acceptVisibility { return }
+
+  let acceptanceOwner = LearningPathItemID.humanGuidedDiscovery(.acceptVisibilityRegistration)
+  try await performPublicAction(.start, owner: acceptanceOwner, workspace: workspace)
   try await performPublicAction(
     .acceptVisibilityRegistration,
-    owner: visibilityOwner,
+    owner: acceptanceOwner,
     workspace: workspace
   )
 }
@@ -2650,6 +3023,37 @@ private func frame(
     pixelFormat: .bgra8,
     bytes: OwnedFrameBytes([255, 255, 255, 255])
   )
+}
+
+private actor LateVisibilityStopPacing: SimulatedLearningExecutionPacing {
+  private let lateStopSuspension = VisibilityTargetPlanV2().drawingStepCount + 3
+  private var suspensionCount = 0
+  private var suspension: CheckedContinuation<Void, Never>?
+  private var waiters: [CheckedContinuation<Void, Never>] = []
+
+  func suspendBetweenSteps() async {
+    suspensionCount += 1
+    guard suspensionCount == lateStopSuspension else { return }
+    await withCheckedContinuation { continuation in
+      suspension = continuation
+      let pending = waiters
+      waiters.removeAll()
+      for waiter in pending { waiter.resume() }
+    }
+  }
+
+  func waitUntilLateStopPoint() async {
+    if suspensionCount >= lateStopSuspension { return }
+    await withCheckedContinuation { continuation in
+      waiters.append(continuation)
+    }
+  }
+
+  func resume() {
+    let continuation = suspension
+    suspension = nil
+    continuation?.resume()
+  }
 }
 
 private actor CalibrationStopPacing: SimulatedLearningExecutionPacing {
