@@ -21,6 +21,8 @@ The current source implements:
   per-side machine-space aggregates, atomic replacement, estimated center, and
   learned local coordinates;
 - explicit current-camera registration evidence collection;
+- operator-selected signed-axis 50 or 10 mm Pen-Up moves for Clear-pose search
+  and new-target-area relocation;
 - visibility target, Clear pose, and one isolated-line observed trial;
 - causal, nonphysical simulator parity;
 - dependency-scoped artifact replacement and compatible aggregation;
@@ -66,7 +68,9 @@ model-selected drawing.
 
 The current software baseline has passed:
 
-- make quick-test — 341 unit and component tests in a 9.391-second test run;
+- make quick-test — 344 unit and component tests in an 11.377-second test run;
+- make journey-test — 18 retained causal journey tests in a 44.462-second test
+  run;
 - make check — signed app construction and validation, launcher logic and
   validation, negative bundle validation, all 359 tests, repository-contract
   checks, and diff checks. The test run completed in 15.335 seconds;

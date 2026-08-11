@@ -154,8 +154,8 @@ fails. Viewport zoom never mutates the target ROI used by Vision.
 
 ## 3.4 Discover and Accept Clear View
 
-The operator chooses a typed Pen Up search direction and one of 10, 5, 2, or
-optional 1 mm. Each **Start** admits one bounded move. After settlement, the
+The operator chooses a typed Pen Up signed axis direction and either 50 or
+10 mm. Each action admits one bounded move. After settlement, the
 camera captures an exact frame and Vision reports Clear, Partial, or Blocked.
 The bounded move may own newest-only scene analysis while it is in flight and
 must stop it at controller settlement. The subsequent explicit inspection

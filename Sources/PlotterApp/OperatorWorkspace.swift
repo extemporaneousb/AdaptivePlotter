@@ -8804,7 +8804,7 @@ final class OperatorWorkspace {
       ]
     }
     if targetAreaRelocationRequired && !targetAreaRelocationCompleted {
-      return [.text("Choose a direction and one 10, 5, 2, or 1 mm Pen-Up move.")]
+      return [.text("Choose a signed axis direction and one 50 or 10 mm Pen-Up move.")]
     }
     switch visibilityTargetSceneDisposition {
     case .inkPossible:

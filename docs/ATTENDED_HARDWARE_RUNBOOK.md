@@ -155,8 +155,8 @@ Requested feed is not proof of achieved physical speed.
 
 ## 3.4 Discover and Accept Clear View
 
-1. Choose a Pen Up Clear-search direction and one explicit 10, 5, 2, or optional
-   1 mm move. Settle, capture a newer exact frame, and label it Blocked, Partial,
+1. Choose a Pen Up signed axis direction and one explicit 50 or 10 mm move.
+   Settle, capture a newer exact frame, and label it Blocked, Partial,
    or Clear. Blocked/Partial must keep the same transaction active.
 2. Repeat coarse-to-fine moves until a reproducible Clear view is observed, then
    accept the Clear pose.

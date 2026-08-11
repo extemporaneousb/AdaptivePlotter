@@ -245,7 +245,7 @@ func completeSimulatedVisibilityProtocol(
     workspace: workspace
   )
   try await performPublicAction(
-    .moveForClearView(ClearViewSearchMove(direction: .positiveX, distance: .tenMillimeters)),
+    .moveForClearView(ClearViewSearchMove(direction: .positiveX, distance: .fiftyMillimeters)),
     owner: clearOwner,
     workspace: workspace
   )
@@ -260,7 +260,7 @@ func completeSimulatedVisibilityProtocol(
       .first(where: { $0.kind == .acceptClearPose })?.isEnabled == false
   )
   try await performPublicAction(
-    .moveForClearView(ClearViewSearchMove(direction: .positiveX, distance: .twoMillimeters)),
+    .moveForClearView(ClearViewSearchMove(direction: .positiveX, distance: .tenMillimeters)),
     owner: clearOwner,
     workspace: workspace
   )

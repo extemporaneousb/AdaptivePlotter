@@ -238,7 +238,7 @@ struct LearningPathPresentationTests {
     #expect(!forced.allowsSelection)
   }
 
-  @Test("Clear-view search exposes only exact operator-selected 10 5 2 and 1 millimeter moves")
+  @Test("Clear-view search exposes only exact operator-selected 50 and 10 millimeter moves")
   func exactClearViewSearchMoves() {
     let direction = BoundaryDirection.positiveY
     let moves = ClearViewSearchDistance.allCases.map {
@@ -253,19 +253,15 @@ struct LearningPathPresentationTests {
 
     #expect(
       moves.map(\.distance) == [
+        .fiftyMillimeters,
         .tenMillimeters,
-        .fiveMillimeters,
-        .twoMillimeters,
-        .oneMillimeter,
       ])
     #expect(
       descriptors.map(\.title) == [
+        "Move Y+ 50 mm",
         "Move Y+ 10 mm",
-        "Move Y+ 5 mm",
-        "Move Y+ 2 mm",
-        "Move Y+ 1 mm",
       ])
-    #expect(descriptors.map(\.isEnabled) == [true, true, true, true])
+    #expect(descriptors.map(\.isEnabled) == [true, true])
   }
 
   @Test("target-geometry actions are typed and remain owned by their pinned 3.3 strip")
@@ -355,11 +351,11 @@ struct LearningPathPresentationTests {
     )
 
     #expect(selection.purpose.label == "New target-area direction")
-    #expect(moves.count == 4)
+    #expect(moves.count == 2)
     #expect(
       moves.first
         == .moveToNewTargetArea(
-          ClearViewSearchMove(direction: .positiveX, distance: .tenMillimeters)
+          ClearViewSearchMove(direction: .positiveX, distance: .fiftyMillimeters)
         )
     )
     #expect(
@@ -370,10 +366,10 @@ struct LearningPathPresentationTests {
     #expect(captureAfterMove.isEnabled)
     #expect(
       ExerciseActionKind.moveToNewTargetArea(
-        ClearViewSearchMove(direction: .positiveX, distance: .twoMillimeters)
+        ClearViewSearchMove(direction: .positiveX, distance: .fiftyMillimeters)
       )
         != .moveForClearView(
-          ClearViewSearchMove(direction: .positiveX, distance: .twoMillimeters)
+          ClearViewSearchMove(direction: .positiveX, distance: .fiftyMillimeters)
         )
     )
   }

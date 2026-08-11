@@ -22,10 +22,8 @@ public enum ArmatureVisibilityLabel: String, Codable, CaseIterable, Hashable, Se
 }
 
 public enum ClearViewSearchDistance: Double, Codable, CaseIterable, Hashable, Sendable {
+  case fiftyMillimeters = 50
   case tenMillimeters = 10
-  case fiveMillimeters = 5
-  case twoMillimeters = 2
-  case oneMillimeter = 1
 
   public var millimeters: Double { rawValue }
 

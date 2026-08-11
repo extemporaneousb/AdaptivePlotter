@@ -84,7 +84,7 @@ struct ArmatureGuidanceTests {
     #expect(request.feedMMPerMinute == 80)
   }
 
-  @Test("10 5 2 and 1 mm search moves are finite operator-selected actions")
+  @Test("50 and 10 mm search moves are finite operator-selected actions in either direction")
   func deterministicProposals() throws {
     let camera = CameraConfigurationID()
     var state = ArmatureGuidanceState(context: guidanceContext(camera: camera))
@@ -95,17 +95,28 @@ struct ArmatureGuidanceTests {
       humanLabel: .blocked,
       outcome: .continueInDirection(ClearViewSearchMove(
         direction: .positiveY,
-        distance: .fiveMillimeters
+        distance: .tenMillimeters
       ))
     )
     let proposals = try state.proposedActions(
       from: MachinePosition(x: 0, y: 0), feedMMPerMinute: 50)
-    let preferred = ClearViewSearchMove(direction: .positiveY, distance: .fiveMillimeters)
+    let preferred = ClearViewSearchMove(direction: .positiveY, distance: .tenMillimeters)
     #expect(proposals.map(\.move).first == preferred)
     #expect(Set(proposals.map { $0.move.distance }) == Set(ClearViewSearchDistance.allCases))
     #expect(Set(proposals.map { $0.move.direction }) == Set(BoundaryDirection.allCases))
-    #expect(proposals.count == 16)
-    #expect(Set(proposals.map { $0.request.delta.magnitude }) == [1, 2, 5, 10])
+    #expect(proposals.count == 8)
+    #expect(Set(proposals.map { $0.request.delta.magnitude }) == [10, 50])
+    let expectedDeltas: Set<Vector2<MachineSpace>> = [
+      try Vector2(dx: -50, dy: 0),
+      try Vector2(dx: 50, dy: 0),
+      try Vector2(dx: 0, dy: -50),
+      try Vector2(dx: 0, dy: 50),
+      try Vector2(dx: -10, dy: 0),
+      try Vector2(dx: 10, dy: 0),
+      try Vector2(dx: 0, dy: -10),
+      try Vector2(dx: 0, dy: 10),
+    ]
+    #expect(Set(proposals.map { $0.request.delta }) == expectedDeltas)
   }
 
   @Test("context changes invalidate automated return but never manual motion")
