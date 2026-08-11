@@ -33,6 +33,58 @@ enum FixedCameraOpticalSettlingPolicy {
   static let maximumBackgroundMeanAbsoluteDifference: Double = 4
 }
 
+struct VisibilityTargetROIInsets: Hashable, Sendable {
+  let perimeterPixels: Int
+  let bottomExtensionPixels: Int
+
+  var presentation: String {
+    let bottomPixels = perimeterPixels + bottomExtensionPixels
+    return
+      "L/R/T \(perimeterPixels) px · B \(bottomPixels) px (\(bottomExtensionPixels) px extension)"
+  }
+}
+
+struct VisibilityTargetROIProposal: Hashable, Sendable {
+  let region: PixelRect
+  let insets: VisibilityTargetROIInsets
+}
+
+enum VisibilityTargetROIPolicy {
+  static let perimeterMarginPixels = 12
+  static let bottomExtensionFraction = 0.5
+
+  static func proposal(
+    projectedPoints: [Point2<CameraPixelSpace>],
+    frameWidth: Int,
+    frameHeight: Int
+  ) -> VisibilityTargetROIProposal? {
+    guard !projectedPoints.isEmpty, frameWidth > 0, frameHeight > 0 else { return nil }
+
+    let margin = perimeterMarginPixels
+    let minX = Int(floor(projectedPoints.map(\.x).min()!)) - margin
+    let maxX = Int(ceil(projectedPoints.map(\.x).max()!)) + margin
+    let minY = Int(floor(projectedPoints.map(\.y).min()!)) - margin
+    let maxY = Int(ceil(projectedPoints.map(\.y).max()!)) + margin
+    let x = max(0, min(frameWidth - 1, minX))
+    let y = max(0, min(frameHeight - 1, minY))
+    let width = max(1, min(frameWidth - x, maxX - x + 1))
+    let baseHeight = max(1, min(frameHeight - y, maxY - y + 1))
+    let requestedBottomExtension = Int(
+      ceil(Double(baseHeight) * bottomExtensionFraction)
+    )
+    let height = min(frameHeight - y, baseHeight + requestedBottomExtension)
+    let bottomExtension = height - baseHeight
+
+    return VisibilityTargetROIProposal(
+      region: PixelRect(x: x, y: y, width: width, height: height),
+      insets: VisibilityTargetROIInsets(
+        perimeterPixels: margin,
+        bottomExtensionPixels: bottomExtension
+      )
+    )
+  }
+}
+
 enum CanvasLayer: String, CaseIterable, Identifiable {
   case intendedPath = "Intended path"
   case modelPrediction = "Plotter estimate"
@@ -432,7 +484,7 @@ final class OperatorWorkspace {
     let registeredTargetMachinePosition: MachinePosition?
     let targetContactPointEstimate: ToolContactPointEstimate?
     let targetObservationRegion: PixelRect?
-    let targetROIMarginPixels: Int?
+    let targetROIInsets: VisibilityTargetROIInsets?
     let targetContactPointAndROIAccepted: Bool
     let preTargetClearViewBaseline: DisplayedFrame?
     let visibilityTargetSceneDisposition: VisibilityTargetSceneDisposition
@@ -492,7 +544,7 @@ final class OperatorWorkspace {
     let registeredTargetMachinePosition: MachinePosition?
     let targetContactPointEstimate: ToolContactPointEstimate?
     let targetObservationRegion: PixelRect?
-    let targetROIMarginPixels: Int?
+    let targetROIInsets: VisibilityTargetROIInsets?
     let targetContactPointAndROIAccepted: Bool
     let preTargetClearViewBaseline: DisplayedFrame?
     let visibilityTargetSceneDisposition: VisibilityTargetSceneDisposition
@@ -688,10 +740,10 @@ final class OperatorWorkspace {
   private(set) var targetContactPointEstimate: ToolContactPointEstimate?
   private(set) var proposedMachineCameraRegistration: MachineCameraRegistration?
   private(set) var proposedTargetObservationRegion: PixelRect?
-  private(set) var proposedTargetROIMarginPixels: Int?
+  private(set) var proposedTargetROIInsets: VisibilityTargetROIInsets?
   private(set) var targetGeometryProposalID: UUID?
   private(set) var targetObservationRegion: PixelRect?
-  private(set) var targetROIMarginPixels: Int?
+  private(set) var targetROIInsets: VisibilityTargetROIInsets?
   private(set) var targetContactPointAndROIAccepted = false
   private(set) var preTargetClearViewBaseline: DisplayedFrame?
   private(set) var blankTargetBaselineCandidate: DisplayedFrame?
@@ -2293,7 +2345,7 @@ final class OperatorWorkspace {
       )
       proposedMachineCameraRegistration = nil
       proposedTargetObservationRegion = nil
-      proposedTargetROIMarginPixels = nil
+      proposedTargetROIInsets = nil
       targetGeometryProposalID = nil
       targetContactPointAndROIAccepted = false
       explorationError = nil
@@ -2382,24 +2434,22 @@ final class OperatorWorkspace {
         )
       }
       let projected = try targetMachinePoints.map { try fit.cameraPoint(from: $0) }
-      // Stage 3 retains only the target-local ROI. Stage 4 derives its own
-      // region from this ROI and the registration-projected line geometry.
-      let margin = 12
-      let minX = Int(floor(projected.map(\.x).min()!)) - margin
-      let maxX = Int(ceil(projected.map(\.x).max()!)) + margin
-      let minY = Int(floor(projected.map(\.y).min()!)) - margin
-      let maxY = Int(ceil(projected.map(\.y).max()!)) + margin
-      let x = max(0, min(frame.frame.width - 1, minX))
-      let y = max(0, min(frame.frame.height - 1, minY))
-      let observationRegion = PixelRect(
-        x: x,
-        y: y,
-        width: max(1, min(frame.frame.width - x, maxX - x + 1)),
-        height: max(1, min(frame.frame.height - y, maxY - y + 1))
-      )
+      // Stage 3 retains only the target-local ROI. The bottom-only extension
+      // covers tool-to-ink Y error without admitting unrelated candidates on
+      // the other three sides. Stage 4 derives its own region from this ROI
+      // and the registration-projected line geometry.
+      guard let roiProposal = VisibilityTargetROIPolicy.proposal(
+        projectedPoints: projected,
+        frameWidth: frame.frame.width,
+        frameHeight: frame.frame.height
+      ) else {
+        throw LearningPathOperationError.requiredState(
+          "Projected visibility-target ROI is unavailable."
+        )
+      }
       proposedMachineCameraRegistration = registration
-      proposedTargetObservationRegion = observationRegion
-      proposedTargetROIMarginPixels = margin
+      proposedTargetObservationRegion = roiProposal.region
+      proposedTargetROIInsets = roiProposal.insets
       targetGeometryProposalID = UUID()
       targetContactPointAndROIAccepted = false
       explorationError = nil
@@ -2407,7 +2457,7 @@ final class OperatorWorkspace {
     } catch {
       proposedMachineCameraRegistration = nil
       proposedTargetObservationRegion = nil
-      proposedTargetROIMarginPixels = nil
+      proposedTargetROIInsets = nil
       targetGeometryProposalID = nil
       explorationError = "Machine-camera registration failed: \(actionableDescription(error))"
       return false
@@ -2423,7 +2473,7 @@ final class OperatorWorkspace {
       let centerArrival = sourceGraph.currentRevision(for: .centerArrival)?.id,
       let registration = proposedMachineCameraRegistration,
       let region = proposedTargetObservationRegion,
-      let margin = proposedTargetROIMarginPixels
+      let insets = proposedTargetROIInsets
     else { return }
     do {
       var graph = sourceGraph
@@ -2490,10 +2540,10 @@ final class OperatorWorkspace {
       )
       machineCameraRegistration = registration
       targetObservationRegion = region
-      targetROIMarginPixels = margin
+      targetROIInsets = insets
       proposedMachineCameraRegistration = nil
       proposedTargetObservationRegion = nil
-      proposedTargetROIMarginPixels = nil
+      proposedTargetROIInsets = nil
       targetGeometryProposalID = nil
       targetContactPointAndROIAccepted = true
       visibilityRegistrationAccepted = false
@@ -2618,7 +2668,7 @@ final class OperatorWorkspace {
     } catch {
       proposedMachineCameraRegistration = nil
       proposedTargetObservationRegion = nil
-      proposedTargetROIMarginPixels = nil
+      proposedTargetROIInsets = nil
       targetGeometryProposalID = nil
       targetContactPointAndROIAccepted = false
       explorationError = "Current-camera calibration failed: \(actionableDescription(error))"
@@ -2804,15 +2854,15 @@ final class OperatorWorkspace {
     targetContactPointEstimate = nil
     proposedMachineCameraRegistration = nil
     proposedTargetObservationRegion = nil
-    proposedTargetROIMarginPixels = nil
+    proposedTargetROIInsets = nil
     targetGeometryProposalID = nil
     proposedMachineCameraRegistration = nil
     proposedTargetObservationRegion = nil
-    proposedTargetROIMarginPixels = nil
+    proposedTargetROIInsets = nil
     targetGeometryProposalID = nil
     targetContactPointAndROIAccepted = false
     targetObservationRegion = nil
-    targetROIMarginPixels = nil
+    targetROIInsets = nil
     machineCameraRegistration = nil
     explorationError =
       "Operator rejected the staged target geometry. No target-pose, camera-fit, or ROI revision became authoritative; capture a new exact target frame."
@@ -3559,7 +3609,7 @@ final class OperatorWorkspace {
             FixedCameraOpticalSettlingPolicy.alignmentSearchRadiusPixels,
           maximumAlignmentShiftPixels:
             FixedCameraOpticalSettlingPolicy.maximumAlignmentShiftPixels,
-          algorithmRevision: "visibility-target-two-frame-local-roi-v3",
+          algorithmRevision: "visibility-target-two-frame-local-roi-v4",
           targetPlanRevision: context.targetPlanRevision
         ),
         { [weak self] progress in
@@ -3863,7 +3913,7 @@ final class OperatorWorkspace {
       registeredTargetMachinePosition: registeredTargetMachinePosition,
       targetContactPointEstimate: targetContactPointEstimate,
       targetObservationRegion: targetObservationRegion,
-      targetROIMarginPixels: targetROIMarginPixels,
+      targetROIInsets: targetROIInsets,
       targetContactPointAndROIAccepted: targetContactPointAndROIAccepted,
       preTargetClearViewBaseline: preTargetClearViewBaseline,
       visibilityTargetSceneDisposition: visibilityTargetSceneDisposition,
@@ -3894,7 +3944,7 @@ final class OperatorWorkspace {
     registeredTargetMachinePosition = snapshot.registeredTargetMachinePosition
     targetContactPointEstimate = snapshot.targetContactPointEstimate
     targetObservationRegion = snapshot.targetObservationRegion
-    targetROIMarginPixels = snapshot.targetROIMarginPixels
+    targetROIInsets = snapshot.targetROIInsets
     targetContactPointAndROIAccepted = snapshot.targetContactPointAndROIAccepted
     preTargetClearViewBaseline = snapshot.preTargetClearViewBaseline
     visibilityTargetSceneDisposition = snapshot.visibilityTargetSceneDisposition
@@ -3923,10 +3973,10 @@ final class OperatorWorkspace {
     targetContactPointEstimate = nil
     proposedMachineCameraRegistration = nil
     proposedTargetObservationRegion = nil
-    proposedTargetROIMarginPixels = nil
+    proposedTargetROIInsets = nil
     targetGeometryProposalID = nil
     targetObservationRegion = nil
-    targetROIMarginPixels = nil
+    targetROIInsets = nil
     targetContactPointAndROIAccepted = false
     preTargetClearViewBaseline = nil
     blankTargetBaselineCandidate = nil
@@ -7172,7 +7222,7 @@ final class OperatorWorkspace {
         targetContactPointEstimate = nil
       case .targetROIRegistration:
         targetObservationRegion = nil
-        targetROIMarginPixels = nil
+        targetROIInsets = nil
         targetContactPointAndROIAccepted = false
       case .clearPose:
         clearViewPoseAccepted = false
@@ -8244,7 +8294,7 @@ final class OperatorWorkspace {
       return evidence
     case .registerTargetPoseAndCameraGeometry:
       let region = proposedTargetObservationRegion ?? targetObservationRegion
-      let margin = proposedTargetROIMarginPixels ?? targetROIMarginPixels
+      let insets = proposedTargetROIInsets ?? targetROIInsets
       let registration = proposedMachineCameraRegistration ?? machineCameraRegistration
       return [
         ExerciseEvidencePresentation(
@@ -8269,11 +8319,11 @@ final class OperatorWorkspace {
               targetContactPointEstimate.map {
                 String(
                   format:
-                    "bottom-center contact %.1f, %.1f · ROI %@ · margin %@ · fit residual %@ · %@",
+                    "bottom-center contact %.1f, %.1f · ROI %@ · padding %@ · fit residual %@ · %@",
                   $0.point.x,
                   $0.point.y,
                   region.map(String.init(describing:)) ?? "not available",
-                  margin.map { "\($0) px" } ?? "not set",
+                  insets?.presentation ?? "not set",
                   registration.map { String(format: "%.3f px", $0.validationResidualPixels) }
                     ?? "not fitted",
                   targetContactPointAndROIAccepted ? "accepted" : "not authoritative"
@@ -9103,10 +9153,10 @@ final class OperatorWorkspace {
     targetContactPointEstimate = priorScene == .pristine ? nil : priorContact
     proposedMachineCameraRegistration = nil
     proposedTargetObservationRegion = nil
-    proposedTargetROIMarginPixels = nil
+    proposedTargetROIInsets = nil
     targetGeometryProposalID = nil
     targetObservationRegion = nil
-    targetROIMarginPixels = nil
+    targetROIInsets = nil
     targetContactPointAndROIAccepted = false
     preTargetClearViewBaseline = priorScene == .pristine ? nil : priorBaseline
     blankTargetBaselineCandidate = nil
@@ -9181,10 +9231,10 @@ final class OperatorWorkspace {
       targetContactPointEstimate = nil
       proposedMachineCameraRegistration = nil
       proposedTargetObservationRegion = nil
-      proposedTargetROIMarginPixels = nil
+      proposedTargetROIInsets = nil
       targetGeometryProposalID = nil
       targetObservationRegion = nil
-      targetROIMarginPixels = nil
+      targetROIInsets = nil
       targetContactPointAndROIAccepted = false
       machineCameraRegistration = nil
       targetAreaRelocationRequired = false
@@ -9302,10 +9352,10 @@ final class OperatorWorkspace {
     targetContactPointEstimate = nil
     proposedMachineCameraRegistration = nil
     proposedTargetObservationRegion = nil
-    proposedTargetROIMarginPixels = nil
+    proposedTargetROIInsets = nil
     targetGeometryProposalID = nil
     targetObservationRegion = nil
-    targetROIMarginPixels = nil
+    targetROIInsets = nil
     targetContactPointAndROIAccepted = false
     preTargetClearViewBaseline = nil
     blankTargetBaselineCandidate = nil
@@ -9374,7 +9424,7 @@ final class OperatorWorkspace {
       registeredTargetMachinePosition: registeredTargetMachinePosition,
       targetContactPointEstimate: targetContactPointEstimate,
       targetObservationRegion: targetObservationRegion,
-      targetROIMarginPixels: targetROIMarginPixels,
+      targetROIInsets: targetROIInsets,
       targetContactPointAndROIAccepted: targetContactPointAndROIAccepted,
       preTargetClearViewBaseline: preTargetClearViewBaseline,
       visibilityTargetSceneDisposition: visibilityTargetSceneDisposition,
@@ -9444,10 +9494,10 @@ final class OperatorWorkspace {
     targetContactPointEstimate = nil
     proposedMachineCameraRegistration = nil
     proposedTargetObservationRegion = nil
-    proposedTargetROIMarginPixels = nil
+    proposedTargetROIInsets = nil
     targetGeometryProposalID = nil
     targetObservationRegion = nil
-    targetROIMarginPixels = nil
+    targetROIInsets = nil
     targetContactPointAndROIAccepted = false
     preTargetClearViewBaseline = nil
     blankTargetBaselineCandidate = nil
@@ -9529,7 +9579,7 @@ final class OperatorWorkspace {
     registeredTargetMachinePosition = snapshot.registeredTargetMachinePosition
     targetContactPointEstimate = snapshot.targetContactPointEstimate
     targetObservationRegion = snapshot.targetObservationRegion
-    targetROIMarginPixels = snapshot.targetROIMarginPixels
+    targetROIInsets = snapshot.targetROIInsets
     targetContactPointAndROIAccepted = snapshot.targetContactPointAndROIAccepted
     preTargetClearViewBaseline = snapshot.preTargetClearViewBaseline
     visibilityTargetSceneDisposition = snapshot.visibilityTargetSceneDisposition

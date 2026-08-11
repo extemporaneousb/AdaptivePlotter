@@ -6,6 +6,27 @@ import Testing
 @testable import PlotterRuntime
 
 extension OperatorWorkspaceTests {
+  @Test("Visibility-target ROI adds 50 percent at the bottom only")
+  func visibilityTargetROIAddsBottomOnlyExtension() throws {
+    let projected = [
+      try Point2<CameraPixelSpace>(x: 100, y: 100),
+      try Point2<CameraPixelSpace>(x: 109, y: 107),
+    ]
+
+    let proposal = try #require(
+      VisibilityTargetROIPolicy.proposal(
+        projectedPoints: projected,
+        frameWidth: 1_920,
+        frameHeight: 1_080
+      )
+    )
+
+    #expect(proposal.region == PixelRect(x: 88, y: 88, width: 34, height: 48))
+    #expect(proposal.insets.perimeterPixels == 12)
+    #expect(proposal.insets.bottomExtensionPixels == 16)
+    #expect(proposal.insets.presentation == "L/R/T 12 px · B 28 px (16 px extension)")
+  }
+
   @Test(
     "SIMULATED public actions complete both paired-boundary orders through visibility registration",
     arguments: [

@@ -139,8 +139,10 @@ At the accepted target pose:
 4. fit machine-camera registration from compatible exact machine/contact
    samples or run the one bounded three-sample Pen Up calibration owner and
    return to the captured target MPos under the shared pose policy;
-5. stage the fit, projected target ROI, margin, validation residual, and
-   provenance as a non-authoritative proposal;
+5. stage the fit, projected target ROI, validation residual, and provenance as
+   a non-authoritative proposal; the ROI retains a 12 px perimeter on left,
+   right, and top, then extends its pre-expansion height by 50 percent at the
+   bottom to cover tool-to-ink Y error without broadening the other sides;
 6. inspect the complete exact frame, ROI outline, and adjustable
    presentation-only zoom; then explicitly accept or reject the proposal.
 

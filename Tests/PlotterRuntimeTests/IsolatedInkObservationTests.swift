@@ -7,6 +7,66 @@ import Testing
 
 @Suite("Visibility target and isolated ink observation")
 struct IsolatedInkObservationTests {
+  @Test("bottom-only ROI extension admits a target below the legacy bottom edge")
+  func bottomOnlyROIExtensionAdmitsTarget() async throws {
+    let camera = CameraConfigurationID()
+    let simulator = PaperSceneSimulator(width: 100, height: 80)
+    let background = [
+      SimulatedPaperStroke(
+        start: PaperPixelPoint(x: 2, y: 2),
+        end: PaperPixelPoint(x: 5, y: 7)
+      )
+    ]
+    let target = targetStrokes(center: PaperPixelPoint(x: 18, y: 29), radius: 4)
+    let baseline = try simulator.render(
+      strokes: background, sequence: 1, captureNanoseconds: 1,
+      cameraConfigurationID: camera)
+    let first = try simulator.render(
+      strokes: background + target, sequence: 2, captureNanoseconds: 2,
+      cameraConfigurationID: camera)
+    let second = try simulator.render(
+      strokes: background + target, sequence: 3, captureNanoseconds: 3,
+      cameraConfigurationID: camera)
+    let clearPose = try MachinePosition(x: 12, y: -5)
+    let samples = [sample(first, clearPose), sample(second, clearPose)]
+    let legacyROI = PixelRect(x: 8, y: 5, width: 22, height: 20)
+
+    let legacyOutcome = await VisionWorker().observeVisibilityTarget(
+      visibilityRequest(
+        baseline: sample(baseline, clearPose),
+        targets: samples,
+        targetSearchROI: legacyROI
+      )
+    )
+    guard case .rejected = legacyOutcome else {
+      Issue.record("expected the legacy ROI to miss the target; got \(legacyOutcome)")
+      return
+    }
+
+    let expandedROI = PixelRect(
+      x: legacyROI.x,
+      y: legacyROI.y,
+      width: legacyROI.width,
+      height: legacyROI.height + legacyROI.height / 2
+    )
+    let expandedOutcome = await VisionWorker().observeVisibilityTarget(
+      visibilityRequest(
+        baseline: sample(baseline, clearPose),
+        targets: samples,
+        targetSearchROI: expandedROI
+      )
+    )
+    guard case .observed(let observation) = expandedOutcome else {
+      Issue.record("expected the expanded ROI to observe the target; got \(expandedOutcome)")
+      return
+    }
+    #expect(observation.region == expandedROI)
+    #expect(
+      observation.samples.allSatisfy {
+        $0.centroid.y > Double(legacyROI.y + legacyROI.height)
+      })
+  }
+
   @Test("two same-pose target frames produce N=2 stable target evidence")
   func stableVisibilityTarget() async throws {
     let camera = CameraConfigurationID()
