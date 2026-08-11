@@ -1145,12 +1145,6 @@ final class OperatorWorkspace {
     motionAuthorizationEnabled
   }
 
-  /// Drives the green top-bar badge. Session activation alone is not enough:
-  /// green means an ordinary carriage request is eligible right now.
-  var motionGuardAllowsCarriageMotion: Bool {
-    motionGuardIsActive && motionUnavailableReason == nil
-  }
-
   var motionGuardStateText: String {
     motionGuardIsActive ? "active" : "inactive"
   }
@@ -4109,15 +4103,6 @@ final class OperatorWorkspace {
     }
   }
 
-  var boundaryAggregateText: String {
-    guard !boundarySideAggregates.isEmpty else { return "no accepted boundary aggregates yet" }
-    return BoundaryDirection.allCases.compactMap { direction in
-      boundarySideAggregates[direction].map {
-        "\(direction.displayName) N=\($0.validSampleCount) \(String(format: "%.3f", $0.estimateMM)) mm"
-      }
-    }.joined(separator: " · ")
-  }
-
   func discoveryStartUnavailableReason(for sequenceID: DiscoverySequenceID) -> String? {
     if let reason = foregroundVisionOperationUnavailableReason { return reason }
     if let activeDiscoverySequenceID {
@@ -4146,21 +4131,6 @@ final class OperatorWorkspace {
     }
   }
 
-  func boundaryPositionText(for direction: JogDirection) -> String {
-    let boundaryDirection = boundaryDirection(from: direction)
-    guard let aggregate = boundarySideAggregates[boundaryDirection],
-      let attemptID = aggregate.includedAttemptIDs.last,
-      let position = boundaryAttemptEvidenceByAttemptID[attemptID]?.finalPosition
-    else { return "not measured" }
-    return String(
-      format: "raw Controller MPos X %.3f Y %.3f · aggregate %.3f mm · N=%d",
-      position.point.x,
-      position.point.y,
-      aggregate.estimateMM,
-      aggregate.validSampleCount
-    )
-  }
-
   var workbenchStatusText: String {
     if let operation = visibilityObservationOperation {
       return
@@ -4185,10 +4155,6 @@ final class OperatorWorkspace {
       return "Motion enabled. Raise the pen so the commanded state is Up before carriage travel."
     }
     return "Motion enabled; carriage motion is available."
-  }
-
-  var workbenchStatusNeedsAttention: Bool {
-    actionableError != nil
   }
 
   var machinePositionText: String {
@@ -5735,24 +5701,6 @@ final class OperatorWorkspace {
     }
   }
 
-  func refreshCurrentState() async {
-    guard visibilityObservationOperation == nil else { return }
-    guard let generation = beginHardwareIntent() else { return }
-    defer { endHardwareIntent() }
-    if let machineActions {
-      let snapshot = await machineActions.snapshot()
-      guard canCommit(generation) else { return }
-      machineSnapshot = snapshot
-    }
-    if frameMode == .live, let cameraActions {
-      let snapshot = await cameraActions.snapshot()
-      guard canCommit(generation) else { return }
-      cameraSnapshot = snapshot
-      if let latest = cameraSnapshot?.latestFrame { receive(latest, generation: generation) }
-      updateCameraError()
-    }
-  }
-
   func stopObserving() {
     frameTask?.cancel()
     frameTask = nil
@@ -5849,29 +5797,6 @@ final class OperatorWorkspace {
       cameraConfigurationID: frame.cameraConfigurationID,
       observationRegion: region,
       toolPaperRevision: explorationToolPaperRevision
-    )
-  }
-
-  private func observationRegionOverlay(
-    frame: StampedFrame,
-    region: PixelRect,
-    source: CameraOverlaySource
-  ) -> CameraOverlayMeasurement {
-    let bounds = try! AxisAlignedBounds<CameraPixelSpace>(
-      minX: Double(region.x),
-      minY: Double(region.y),
-      maxX: Double(region.x + region.width),
-      maxY: Double(region.y + region.height)
-    )
-    return CameraOverlayMeasurement(
-      frameID: frame.id,
-      cameraConfigurationID: frame.cameraConfigurationID,
-      geometry: .bounds(bounds),
-      provenance: CameraMeasurementProvenance(
-        kind: .armatureEstimate,
-        source: source,
-        algorithmRevision: "exploration-fixed-ink-region-v1"
-      )
     )
   }
 
@@ -6925,27 +6850,6 @@ final class OperatorWorkspace {
 
   var currentPenStateAggregate: LatestStateAggregate<PenState>? {
     try? LatestStateAggregate(history: penAttemptHistory)
-  }
-
-  func clearViewAggregate(
-    compatibility: AttemptCompatibility
-  ) -> CategoricalAttemptAggregate<ArmatureVisibilityLabel>? {
-    guard let history = clearViewAttemptHistories[compatibility] else { return nil }
-    return try? CategoricalAttemptAggregate(history: history)
-  }
-
-  func comparisonAggregate(
-    compatibility: AttemptCompatibility
-  ) -> CategoricalAttemptAggregate<DrawingTrialAssessment>? {
-    guard let history = comparisonAttemptHistories[compatibility] else { return nil }
-    return try? CategoricalAttemptAggregate(history: history)
-  }
-
-  func visibilityObservationAggregate(
-    compatibility: AttemptCompatibility
-  ) -> VisibilityTargetAttemptAggregate? {
-    guard let history = visibilityObservationAttemptHistories[compatibility] else { return nil }
-    return try? VisibilityTargetAttemptAggregate(history: history)
   }
 
   private func recordClearViewAttempt(

@@ -13,9 +13,6 @@ doc_routing_defaults = [
   "README.md",
   "docs/PRODUCT_CONTRACT.md",
   "docs/SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md",
-  "docs/DISCOVERY_AND_OBSERVED_TRIAL_PROTOCOL.md",
-  "docs/ROADMAP.md",
-  "docs/CURRENT_EVIDENCE.md",
 ]
 
 [landing]

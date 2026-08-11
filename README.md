@@ -85,10 +85,11 @@ control. Read-only Learning Path review and the ROI/full-frame display toggle
 remain inert.
 
 Boundary Stop records the typed operator intent, closes renewal, emits one GRBL
-Jog Cancel, awaits the original owner through final Idle/MPos, captures one
-strictly newer frame, estimates the bottom-center contact point, and atomically
-commits the selected side attempt and aggregate. Typed operator direction—not a
-detected camera edge—identifies the side.
+Jog Cancel, awaits the original owner through final Idle/MPos, and atomically
+commits the selected side attempt and aggregate without Camera or Vision
+evidence. Typed operator direction—not a detected camera edge—identifies the
+side. Strictly newer frames may advise later renewal segments, but cannot
+identify or veto the machine-space Boundary result.
 
 LIVE camera start, restart, and source selection never start an unowned analysis
 loop. Boundary renewal uses only its finite explicit inspections. Supervised
@@ -174,7 +175,7 @@ a new area or records paper replacement.
 Requirements:
 
 - macOS 14 or later;
-- Swift 6.2 or later;
+- Swift 6.1.2 or later;
 - Xcode Command Line Tools;
 - a signed-bundle launch for camera or controller work.
 
