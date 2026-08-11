@@ -18,7 +18,7 @@ struct OperatorWorkspaceTests {
     await workspace.startCamera()
     #expect(workspace.automaticVisionEnabled)
     #expect(workspace.visibleLayers == Set(CanvasLayer.allCases))
-    #expect(camera.recordedAutomaticCadences == [.fiveFPS])
+    #expect(camera.recordedAutomaticCadences == [.twoFPS])
     #expect(
       workspace.cameraUtilityPresentation.actions.first {
         $0.kind == .toggleAutomaticAnalysis
@@ -27,7 +27,7 @@ struct OperatorWorkspaceTests {
 
     await workspace.restartCamera()
     #expect(workspace.automaticVisionEnabled)
-    #expect(camera.recordedAutomaticCadences == [.fiveFPS, .fiveFPS])
+    #expect(camera.recordedAutomaticCadences == [.twoFPS, .twoFPS])
     await workspace.setAutomaticVisionAnalysis(false)
     #expect(!workspace.automaticVisionEnabled)
     #expect(
@@ -135,7 +135,7 @@ struct OperatorWorkspaceTests {
     #expect(workspace.boundarySideAggregates[.positiveX]?.validSampleCount == 1)
     #expect(workspace.boundaryAttemptEvidenceByAttemptID.count == 1)
     #expect(camera.inspectionCallCount == inspectionsBeforeBoundary)
-    #expect(camera.recordedAutomaticInspectionRequests == [.fiveFPS, nil, .fiveFPS])
+    #expect(camera.recordedAutomaticInspectionRequests == [.twoFPS, nil, .twoFPS])
     #expect(workspace.humanGuidedDiscoveryCurrentStep == .pairedBoundaryDiscoveryAndCentering)
     #expect(workspace.lastContextualStopAuditRecord?.actor == "Operator")
     #expect(workspace.lastContextualStopAuditRecord?.action == "Stop")

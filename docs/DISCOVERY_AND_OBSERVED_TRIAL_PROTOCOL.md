@@ -158,6 +158,9 @@ fails. Viewport zoom never mutates the target ROI used by Vision.
 The operator chooses a typed Pen Up search direction and one of 10, 5, 2, or
 optional 1 mm. Each **Start** admits one bounded move. After settlement, the
 camera captures an exact frame and Vision reports Clear, Partial, or Blocked.
+That explicit inspection first cancels competing automatic analysis, freezes
+preview publication on the exact input frame while raw camera delivery remains
+active, and resumes from the newest buffered frame only after Vision settles.
 
 Partial or Blocked keeps the search transaction current. The operator may move
 again, change direction/distance, record an attributable human observation, or
@@ -204,6 +207,8 @@ motion, pen, camera, source, analysis, Restart, and learning mutations are
 refused until settlement. **Cancel Vision** is the sole mutating action and
 preserves possible ink and the active attempt. Only a matching operation
 generation and complete captured authority context may commit.
+Preview publication is held during computation without stopping the camera
+session; success, rejection, failure, and cancellation all release that hold.
 
 **Record Another Observation** repeats only this two-frame observation against
 the existing target and baseline. It never executes 3.7 again.

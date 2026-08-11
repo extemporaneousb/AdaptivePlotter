@@ -63,6 +63,12 @@ public struct OwnedFrameBytes: Codable, Hashable, Sendable {
   public var data: Data { storage }
   public var count: Int { storage.count }
   public subscript(index: Int) -> UInt8 { storage[index] }
+
+  public func withUnsafeBytes<Result>(
+    _ body: (UnsafeRawBufferPointer) throws -> Result
+  ) rethrows -> Result {
+    try storage.withUnsafeBytes(body)
+  }
 }
 
 public enum FrameError: Error, Equatable, Sendable {

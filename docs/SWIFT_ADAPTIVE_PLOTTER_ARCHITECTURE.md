@@ -64,8 +64,11 @@ workspace's contextual Stop capabilities.
 
 `CameraCapture` owns AVFoundation device discovery, selection, authorization,
 stream lifetime, capture heartbeat, exact-frame materialization, and shutdown.
-`latestLiveCameraFrame` reports capture liveness; a held or analyzed display
-frame does not.
+Capability-scoped preview holds suppress materialization and publication without
+stopping AVFoundation delivery or changing camera configuration. The newest raw
+buffer replaces older buffers during a hold; releasing the final current-session
+capability publishes at most one newest preview. A held display frame remains
+the exact computation input and is not relabeled as newly captured evidence.
 
 `VisionWorker` consumes immutable frame bytes and emits typed measurements.
 Visibility-target observation is a foreground owner with an ID, cancel
@@ -81,6 +84,13 @@ LIVE Boundary owner pauses it after publishing Stop, uses explicit exact-frame
 inspections for renewal advice, and restores the prior cadence after the owner
 settles. This prevents background work from starving time-sensitive advisory
 inspection without changing controller or evidence authority.
+All expensive Vision paths use the same still-frame computation lease: preview
+publication pauses, raw capture continues, and prior automatic cadence resumes
+only after success, failure, or cancellation settles. Automatic cadence is a
+post-completion recovery interval, not permission to run continuously when one
+analysis exceeds its nominal period. Pixel scans use immutable-buffer access
+and cooperative row-level cancellation so explicit inspection can preempt
+background analysis without waiting for a full-frame scan.
 
 ### Human-Guided Discovery
 

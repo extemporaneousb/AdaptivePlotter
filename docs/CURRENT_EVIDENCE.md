@@ -40,6 +40,10 @@ The current source implements:
   establishment, conservative fallback, and Stop-race suppression;
 - pause and restoration of automatic background analysis around a LIVE Boundary
   owner so explicit renewal inspections can use the camera/Vision pipeline;
+- capability-scoped preview publication holds for every expensive Vision path:
+  raw capture continues, only the newest buffer survives, explicit inspection
+  preempts cooperative background work, and automatic analysis reserves a
+  post-completion live-preview recovery interval at a 2 Hz default;
 - one quantization-aware 0.05 mm Euclidean controller-pose settlement policy
   shared by production pose comparisons;
 - one Stage 3.3 public action that captures the exact target pose, runs bounded
@@ -56,13 +60,13 @@ model-selected drawing.
 
 The current software baseline has passed:
 
-- make quick-test — 330 unit and component tests in a 5.259-second test run;
+- make quick-test — 340 unit and component tests in a 5.470-second test run;
 - make check — signed app construction and validation, launcher logic and
-  validation, negative bundle validation, all 338 tests, repository-contract
-  checks, and diff checks. The test run completed in 9.892 seconds;
-- make strict-check — the same signed-app and 338-test gate with complete Swift
+  validation, negative bundle validation, all 358 tests, repository-contract
+  checks, and diff checks. The test run completed in 6.307 seconds;
+- make strict-check — the same signed-app and 358-test gate with complete Swift
   concurrency checking and warnings as errors. The confirming test run completed
-  in 8.689 seconds;
+  in 7.929 seconds;
 - the nine retained causal journey cases ran inside both full parallel check
   suites; standalone sequential make journey-test was not rerun for this change;
 - Scripts/check_repository_contract.sh;
@@ -143,6 +147,8 @@ The current integrated build still lacks attended verification of:
 - post-fix attended timing and stopping behavior of camera-advised
   coarse-to-fine Boundary renewal, including pause/restore of automatic
   background analysis, on live hardware;
+- attended UI latency, raw-capture continuity, and newest-frame preview resume
+  while automatic and explicit Vision hold preview publication;
 - coarse-to-fine Clear search and repeatability;
 - physical target contact/ROI, blank baseline, octagonal target, two-frame
   target observation, isolated line, new-ink observation, and comparison;

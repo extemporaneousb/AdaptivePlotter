@@ -61,11 +61,38 @@ struct PlotterSceneAnalysisPipelineTests {
     await pipeline.stop()
   }
 
+  @Test("cadence reserves a live-preview recovery interval after slow analysis completes")
+  func cadenceStartsAfterCompletionRecovery() async throws {
+    let clock = DeterministicRuntimeClock(startNanoseconds: 10)
+    let starts = StartRecorder()
+    let activity = ActivityRecorder()
+    let pipeline = PlotterSceneAnalysisPipeline(
+      clock: clock,
+      activityHandler: { active in await activity.record(active) }
+    ) { frame in
+      await starts.record(clock.nowNanoseconds())
+      clock.advance(nanoseconds: 900_000_000)
+      return sceneMeasurement(for: frame)
+    }
+    await pipeline.start(cadence: .twoFPS)
+    await pipeline.submit(try displayedFrame(sequence: 1))
+    try await waitUntil { await pipeline.snapshot().analyzedFrameCount == 1 }
+    await pipeline.submit(try displayedFrame(sequence: 2))
+    try await waitUntil { await pipeline.snapshot().analyzedFrameCount == 2 }
+
+    let values = await starts.values
+    #expect(values == [10, 1_400_000_010])
+    #expect(await activity.values == [true, false, true, false])
+    await pipeline.stop()
+  }
+
   @Test("stopping discards a late result from an already active analyzer")
   func stopRejectsLateResult() async throws {
     let gate = AnalysisGate()
+    let activity = ActivityRecorder()
     let pipeline = PlotterSceneAnalysisPipeline(
-      clock: DeterministicRuntimeClock()
+      clock: DeterministicRuntimeClock(),
+      activityHandler: { active in await activity.record(active) }
     ) { frame in
       await gate.block(frame.sequence)
       return sceneMeasurement(for: frame)
@@ -81,6 +108,24 @@ struct PlotterSceneAnalysisPipelineTests {
     #expect(snapshot.state == .stopped)
     #expect(snapshot.analyzedFrameCount == 0)
     #expect(snapshot.latestResult == nil)
+    #expect(await activity.values == [true, false])
+  }
+
+  @Test("failed analysis always releases its preview owner")
+  func failureReleasesActivity() async throws {
+    let activity = ActivityRecorder()
+    let pipeline = PlotterSceneAnalysisPipeline(
+      clock: DeterministicRuntimeClock(),
+      activityHandler: { active in await activity.record(active) }
+    ) { _ in
+      throw PipelineTestError.syntheticFailure
+    }
+    await pipeline.start(cadence: .twoFPS)
+    await pipeline.submit(try displayedFrame(sequence: 9))
+    try await waitUntil { await pipeline.snapshot().failedFrameCount == 1 }
+    #expect(await activity.values == [true, false])
+    #expect(await pipeline.snapshot().activeFrameSequence == nil)
+    await pipeline.stop()
   }
 
   @Test("stop and restart never expose a result from the prior camera lifecycle")
@@ -127,6 +172,14 @@ private actor StartRecorder {
   private(set) var values: [UInt64] = []
 
   func record(_ value: UInt64) {
+    values.append(value)
+  }
+}
+
+private actor ActivityRecorder {
+  private(set) var values: [Bool] = []
+
+  func record(_ value: Bool) {
     values.append(value)
   }
 }
@@ -178,4 +231,5 @@ private func waitUntil(
 
 private enum PipelineTestError: Error {
   case timedOut
+  case syntheticFailure
 }

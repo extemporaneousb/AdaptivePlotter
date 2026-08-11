@@ -621,7 +621,7 @@ final class OperatorWorkspace {
   private(set) var visionError: String?
   private(set) var sceneInspectionInProgress = false
   private(set) var analysisFrameHeld = false
-  var visionAnalysisCadence: VisionAnalysisCadence = .fiveFPS
+  var visionAnalysisCadence: VisionAnalysisCadence = .twoFPS
   private(set) var automaticVisionEnabled = false
   private(set) var visionAnalysisSnapshot: PlotterSceneAnalysisSnapshot = .stopped
   private(set) var lastSceneMeasurement: PlotterSceneMeasurement?
@@ -914,6 +914,7 @@ final class OperatorWorkspace {
       let latestLiveCameraFrame, case .live(let deviceID) = latestLiveCameraFrame.source,
       deviceID == selectedCameraID
     else { return false }
+    if cameraSnapshot?.diagnostics.previewPublicationPaused == true { return true }
     let now = nowNanoseconds()
     guard now >= latestLiveCameraFrame.frame.captureNanoseconds else { return false }
     return now - latestLiveCameraFrame.frame.captureNanoseconds <= 1_000_000_000
@@ -1006,8 +1007,9 @@ final class OperatorWorkspace {
 
   var captureThroughputText: String {
     let diagnostics = cameraSnapshot?.diagnostics ?? .zero
+    let held = diagnostics.previewPublicationPaused ? " · preview held for Vision" : ""
     return
-      "received \(diagnostics.receivedFrameCount) · preview \(diagnostics.previewMaterializedFrameCount) · exact \(diagnostics.exactMaterializedFrameCount)"
+      "received \(diagnostics.receivedFrameCount) · preview \(diagnostics.previewMaterializedFrameCount) · exact \(diagnostics.exactMaterializedFrameCount)\(held)"
   }
 
   var visionThroughputText: String {
@@ -5881,10 +5883,21 @@ final class OperatorWorkspace {
         guard !Task.isCancelled, let self,
           self.canCommit(generation), self.automaticVisionEnabled
         else { return }
+        let activityChanged =
+          self.visionAnalysisSnapshot.activeFrameSequence != snapshot.activeFrameSequence
+        let priorResultFrameID =
+          self.visionAnalysisSnapshot.latestResult?.displayedFrame.frame.id
+        let resultChanged =
+          priorResultFrameID != snapshot.latestResult?.displayedFrame.frame.id
         self.visionAnalysisSnapshot = snapshot
         self.visionError = snapshot.lastError
-        self.cameraSnapshot = await cameraActions.snapshot()
-        if let result = snapshot.latestResult { self.receiveVision(result) }
+        if activityChanged || resultChanged {
+          let cameraSnapshot = await cameraActions.snapshot()
+          guard !Task.isCancelled, self.canCommit(generation), self.automaticVisionEnabled
+          else { return }
+          self.cameraSnapshot = cameraSnapshot
+        }
+        if resultChanged, let result = snapshot.latestResult { self.receiveVision(result) }
       }
     }
   }
@@ -8832,10 +8845,15 @@ final class OperatorWorkspace {
       visionRole = .advisoryEvidence
       visionDetail = "One camera frame is being processed for overlays and diagnostics."
     } else if automaticVisionEnabled {
-      visionState = "Automatic analysis"
+      let analysisIsActive = visionAnalysisSnapshot.activeFrameSequence != nil
+      visionState = analysisIsActive
+        ? "Automatic analysis · preview held"
+        : "Automatic analysis · live recovery"
       visionBlocksMotion = false
       visionRole = .advisoryEvidence
-      visionDetail = "Background analysis updates overlays; it has no motion authority."
+      visionDetail = analysisIsActive
+        ? "One immutable frame is being analyzed off the main actor. Preview publication is held until it settles; raw camera delivery continues."
+        : "Background analysis is between computations. Live preview publication is available; analysis has no motion authority."
     } else {
       visionState = "Idle"
       visionBlocksMotion = false

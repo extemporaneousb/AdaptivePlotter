@@ -10,6 +10,8 @@ public enum VisionAnalysisCadence: Int, Codable, CaseIterable, Hashable, Sendabl
   }
 }
 
+public typealias PlotterSceneAnalysisActivityHandler = @Sendable (Bool) async -> Void
+
 public enum PlotterSceneAnalysisState: Codable, Hashable, Sendable {
   case stopped
   case running(VisionAnalysisCadence)
@@ -82,12 +84,15 @@ public struct PlotterSceneAnalysisSnapshot: Hashable, Sendable {
 
 /// Bounded newest-only scene analysis. At most one frame is being analyzed and
 /// one newer frame is pending; submitting another frame replaces that pending
-/// frame. Camera delivery and preview never wait for vision work.
+/// frame. Camera delivery never waits for vision work; clients may use the
+/// activity callback to hold preview publication while the immutable frame is
+/// being analyzed.
 public actor PlotterSceneAnalysisPipeline {
   typealias Analyzer = @Sendable (StampedFrame) async throws -> PlotterSceneMeasurement
 
   private let clock: any RuntimeClock
   private let analyzer: Analyzer
+  private let activityHandler: PlotterSceneAnalysisActivityHandler
   private var state: PlotterSceneAnalysisState = .stopped
   private var pendingFrame: DisplayedFrame?
   private var activeFrameSequence: UInt64?
@@ -97,7 +102,7 @@ public actor PlotterSceneAnalysisPipeline {
   private var failedFrameCount: UInt64 = 0
   private var latestResult: PlotterSceneAnalysisResult?
   private var lastError: String?
-  private var lastAnalysisStartNanoseconds: UInt64?
+  private var lastAnalysisCompletionNanoseconds: UInt64?
   private var drainTask: Task<Void, Never>?
   private var generation: UInt64 = 0
   private var continuations:
@@ -105,24 +110,28 @@ public actor PlotterSceneAnalysisPipeline {
 
   public init(
     worker: VisionWorker = VisionWorker(),
-    clock: any RuntimeClock = SystemRuntimeClock()
+    clock: any RuntimeClock = SystemRuntimeClock(),
+    activityHandler: @escaping PlotterSceneAnalysisActivityHandler = { _ in }
   ) {
     self.clock = clock
+    self.activityHandler = activityHandler
     analyzer = { frame in try await worker.inspectPlotterScene(in: frame) }
   }
 
   init(
     clock: any RuntimeClock,
+    activityHandler: @escaping PlotterSceneAnalysisActivityHandler = { _ in },
     analyzer: @escaping Analyzer
   ) {
     self.clock = clock
+    self.activityHandler = activityHandler
     self.analyzer = analyzer
   }
 
   public func start(cadence: VisionAnalysisCadence) {
     if case .stopped = state {
       generation &+= 1
-      lastAnalysisStartNanoseconds = nil
+      lastAnalysisCompletionNanoseconds = nil
     }
     state = .running(cadence)
     lastError = nil
@@ -130,7 +139,8 @@ public actor PlotterSceneAnalysisPipeline {
     scheduleDrainIfNeeded()
   }
 
-  public func stop() {
+  public func stop() async {
+    let analysisWasActive = activeFrameSequence != nil
     generation &+= 1
     drainTask?.cancel()
     drainTask = nil
@@ -138,7 +148,9 @@ public actor PlotterSceneAnalysisPipeline {
     activeFrameSequence = nil
     latestResult = nil
     lastError = nil
+    lastAnalysisCompletionNanoseconds = nil
     state = .stopped
+    if analysisWasActive { await activityHandler(false) }
     publishSnapshot()
   }
 
@@ -178,9 +190,9 @@ public actor PlotterSceneAnalysisPipeline {
   private func drain(generation taskGeneration: UInt64) async {
     while !Task.isCancelled, taskGeneration == generation {
       guard case .running(let cadence) = state else { break }
-      if let lastAnalysisStartNanoseconds {
+      if let lastAnalysisCompletionNanoseconds {
         let earliest = addingClamped(
-          lastAnalysisStartNanoseconds,
+          lastAnalysisCompletionNanoseconds,
           cadence.minimumIntervalNanoseconds
         )
         let now = clock.nowNanoseconds()
@@ -198,12 +210,22 @@ public actor PlotterSceneAnalysisPipeline {
       pendingFrame = nil
       activeFrameSequence = frame.frame.sequence
       let started = clock.nowNanoseconds()
-      lastAnalysisStartNanoseconds = started
+      await activityHandler(true)
+      guard !Task.isCancelled, taskGeneration == generation else { break }
       publishSnapshot()
+      let result: Result<PlotterSceneMeasurement, Error>
       do {
-        let measurement = try await analyzer(frame.frame)
-        let completed = clock.nowNanoseconds()
-        guard !Task.isCancelled, taskGeneration == generation else { break }
+        result = .success(try await analyzer(frame.frame))
+      } catch {
+        result = .failure(error)
+      }
+      guard !Task.isCancelled, taskGeneration == generation else { break }
+      let completed = clock.nowNanoseconds()
+      lastAnalysisCompletionNanoseconds = completed
+      await activityHandler(false)
+      guard !Task.isCancelled, taskGeneration == generation else { break }
+      switch result {
+      case .success(let measurement):
         analyzedFrameCount &+= 1
         activeFrameSequence = nil
         lastError = nil
@@ -213,8 +235,7 @@ public actor PlotterSceneAnalysisPipeline {
           analysisDurationNanoseconds: completed >= started ? completed - started : 0,
           completedNanoseconds: completed
         )
-      } catch {
-        guard !Task.isCancelled, taskGeneration == generation else { break }
+      case .failure(let error):
         failedFrameCount &+= 1
         activeFrameSequence = nil
         lastError = String(describing: error)

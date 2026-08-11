@@ -96,6 +96,14 @@ competing work. The previous automatic-analysis cadence is restored only after
 that owner settles. A forced opposite direction is displayed as required,
 noninteractive content rather than as a disabled choice.
 
+Every expensive Vision computation owns one immutable frame. While it runs,
+`CameraCapture` keeps AVFoundation alive and retains the newest raw buffer, but
+pauses preview materialization/publication so frame hashing and SwiftUI updates
+cannot compete with analysis. Preview resumes from at most one newest buffered
+frame after settlement. Automatic analysis defaults to 2 Hz and reserves the
+selected cadence interval after completion as live-preview recovery time;
+explicit inspection cancels background work before acquiring its exact frame.
+
 After four sides, **Move to Estimated Center** accepts a controller-reported
 final MPos within 0.05 mm of the derived target. A stopped or out-of-tolerance
 move preserves all four accepted side aggregates and exposes **Retry Center

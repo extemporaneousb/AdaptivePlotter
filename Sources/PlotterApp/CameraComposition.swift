@@ -77,10 +77,46 @@ func boundedlyAwaitNewestCameraValue<Value: Sendable>(
   return nil
 }
 
+private actor AutomaticAnalysisPreviewGate {
+  private let live: CameraCapture
+  private var pauseToken: CameraPreviewPauseToken?
+  private var analysisActive = false
+  private var revision: UInt64 = 0
+
+  init(live: CameraCapture) {
+    self.live = live
+  }
+
+  func setAnalysisActive(_ active: Bool) async {
+    revision &+= 1
+    let requestedRevision = revision
+    analysisActive = active
+    if active {
+      guard pauseToken == nil else { return }
+      let issuedToken = await live.pausePreviewPublication()
+      guard analysisActive, revision == requestedRevision, pauseToken == nil else {
+        await live.resumePreviewPublication(issuedToken)
+        return
+      }
+      pauseToken = issuedToken
+      return
+    }
+    guard let pauseToken else { return }
+    self.pauseToken = nil
+    await live.resumePreviewPublication(pauseToken)
+  }
+}
+
 private actor CameraSourceSession {
-  private let live = CameraCapture()
+  private struct VisionComputationLease: Sendable {
+    let previewPauseToken: CameraPreviewPauseToken
+    let automaticCadenceToRestore: VisionAnalysisCadence?
+  }
+
+  private let live: CameraCapture
   private let vision: VisionWorker
   private let analysisPipeline: PlotterSceneAnalysisPipeline
+  private let automaticAnalysisPreviewGate: AutomaticAnalysisPreviewGate
   private let startupFrameRecorder = StartupFrameRecorder()
   private var startupFrameTask: Task<Void, Never>?
   private var automaticInspectionFrameTask: Task<Void, Never>?
@@ -88,9 +124,18 @@ private actor CameraSourceSession {
   private var foregroundVisibilityObservationInProgress = false
 
   init() {
+    let live = CameraCapture()
     let vision = VisionWorker()
+    let previewGate = AutomaticAnalysisPreviewGate(live: live)
+    self.live = live
     self.vision = vision
-    analysisPipeline = PlotterSceneAnalysisPipeline(worker: vision)
+    automaticAnalysisPreviewGate = previewGate
+    analysisPipeline = PlotterSceneAnalysisPipeline(
+      worker: vision,
+      activityHandler: { active in
+        await previewGate.setAnalysisActive(active)
+      }
+    )
   }
 
   func discover() async -> CameraCaptureSnapshot {
@@ -136,17 +181,27 @@ private actor CameraSourceSession {
   func inspectScene(newerThanNanoseconds boundary: UInt64 = 0) async throws
     -> LiveSceneInspection?
   {
-    guard
-      let displayedFrame = try await boundedlyAwaitNewestCameraValue(
-        load: {
-          try await self.live.materializeLatestFrame(
-            newerThanNanoseconds: boundary
-          )
-        }
-      )
-    else { return nil }
-    let measurement = try await vision.inspectPlotterScene(in: displayedFrame.frame)
-    return LiveSceneInspection(displayedFrame: displayedFrame, measurement: measurement)
+    let lease = await beginExclusiveVisionComputation()
+    do {
+      guard
+        let displayedFrame = try await boundedlyAwaitNewestCameraValue(
+          load: {
+            try await self.live.materializeLatestFrame(
+              newerThanNanoseconds: boundary
+            )
+          }
+        )
+      else {
+        await endExclusiveVisionComputation(lease)
+        return nil
+      }
+      let measurement = try await vision.inspectPlotterScene(in: displayedFrame.frame)
+      await endExclusiveVisionComputation(lease)
+      return LiveSceneInspection(displayedFrame: displayedFrame, measurement: measurement)
+    } catch {
+      await endExclusiveVisionComputation(lease)
+      throw error
+    }
   }
 
   func captureFrame(newerThanNanoseconds boundary: UInt64) async throws -> DisplayedFrame? {
@@ -158,7 +213,10 @@ private actor CameraSourceSession {
   func observeIsolatedInk(_ request: IsolatedInkObservationRequest) async
     -> IsolatedInkObservationOutcome
   {
-    await vision.observeIsolatedInk(request)
+    let lease = await beginExclusiveVisionComputation()
+    let outcome = await vision.observeIsolatedInk(request)
+    await endExclusiveVisionComputation(lease)
+    return outcome
   }
 
   func observeVisibilityTarget(
@@ -171,12 +229,10 @@ private actor CameraSourceSession {
       return .rejected(.observationAlreadyInProgress)
     }
     foregroundVisibilityObservationInProgress = true
-    await pauseAutomaticInspection()
+    let lease = await beginExclusiveVisionComputation()
     let outcome = await vision.observeVisibilityTarget(request, progress: progress)
     foregroundVisibilityObservationInProgress = false
-    if let cadence = automaticInspectionCadence {
-      await startAutomaticInspection(cadence)
-    }
+    await endExclusiveVisionComputation(lease)
     return outcome
   }
 
@@ -256,6 +312,25 @@ private actor CameraSourceSession {
     automaticInspectionFrameTask?.cancel()
     automaticInspectionFrameTask = nil
     await analysisPipeline.stop()
+  }
+
+  private func beginExclusiveVisionComputation() async -> VisionComputationLease {
+    let previewPauseToken = await live.pausePreviewPublication()
+    let cadence = automaticInspectionCadence
+    if cadence != nil { await pauseAutomaticInspection() }
+    return VisionComputationLease(
+      previewPauseToken: previewPauseToken,
+      automaticCadenceToRestore: cadence
+    )
+  }
+
+  private func endExclusiveVisionComputation(_ lease: VisionComputationLease) async {
+    await live.resumePreviewPublication(lease.previewPauseToken)
+    guard let cadence = lease.automaticCadenceToRestore,
+      automaticInspectionCadence == cadence,
+      !foregroundVisibilityObservationInProgress
+    else { return }
+    await startAutomaticInspection(cadence)
   }
 
 }

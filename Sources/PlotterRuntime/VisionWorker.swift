@@ -480,31 +480,34 @@ public actor VisionWorker {
     var maxY = Int.min
     let sampled = region.width * region.height
 
-    for y in region.y..<(region.y + region.height) {
-      for x in region.x..<(region.x + region.width) {
-        let (red, green, blue) = try rgb(frame: frame, x: x, y: y)
-        let luma = 0.2126 * Double(red) + 0.7152 * Double(green) + 0.0722 * Double(blue)
-        lumaSum += luma
-        let isMatch: Bool
-        switch request {
-        case .statistics:
-          isMatch = false
-        case .greenInk(_, let thresholds, _):
-          let competing = max(red, blue)
-          isMatch =
-            green >= thresholds.minimumGreen
-            && Int(green) - Int(competing) >= Int(thresholds.minimumGreenExcess)
-        case .darkOcclusion(_, let maximumLuma, _):
-          isMatch = luma <= Double(maximumLuma)
-        }
-        if isMatch {
-          matching += 1
-          xSum += Double(x)
-          ySum += Double(y)
-          minX = min(minX, x)
-          minY = min(minY, y)
-          maxX = max(maxX, x)
-          maxY = max(maxY, y)
+    try frame.bytes.withUnsafeBytes { bytes in
+      for y in region.y..<(region.y + region.height) {
+        try Task.checkCancellation()
+        for x in region.x..<(region.x + region.width) {
+          let (red, green, blue) = Self.rgb(frame: frame, bytes: bytes, x: x, y: y)
+          let luma = 0.2126 * Double(red) + 0.7152 * Double(green) + 0.0722 * Double(blue)
+          lumaSum += luma
+          let isMatch: Bool
+          switch request {
+          case .statistics:
+            isMatch = false
+          case .greenInk(_, let thresholds, _):
+            let competing = max(red, blue)
+            isMatch =
+              green >= thresholds.minimumGreen
+              && Int(green) - Int(competing) >= Int(thresholds.minimumGreenExcess)
+          case .darkOcclusion(_, let maximumLuma, _):
+            isMatch = luma <= Double(maximumLuma)
+          }
+          if isMatch {
+            matching += 1
+            xSum += Double(x)
+            ySum += Double(y)
+            minX = min(minX, x)
+            minY = min(minY, y)
+            maxX = max(maxX, x)
+            maxY = max(maxY, y)
+          }
         }
       }
     }
@@ -617,24 +620,30 @@ public actor VisionWorker {
     priors: PlotterSceneVisionPriors
   ) throws -> [PixelComponent] {
     let count = region.width * region.height
-    var matching = [Bool](repeating: false, count: count)
-    for localY in 0..<region.height {
-      for localX in 0..<region.width {
-        let (red, green, blue) = try rgb(
-          frame: frame,
-          x: region.x + localX,
-          y: region.y + localY
-        )
-        matching[localY * region.width + localX] =
-          green >= priors.minimumGreen
-          && Int(green) - Int(red) >= Int(priors.minimumGreenOverRed)
-          && Int(green) - Int(blue) >= Int(priors.minimumGreenOverBlue)
+    let matching = try frame.bytes.withUnsafeBytes { bytes in
+      var matching = [Bool](repeating: false, count: count)
+      for localY in 0..<region.height {
+        try Task.checkCancellation()
+        for localX in 0..<region.width {
+          let (red, green, blue) = Self.rgb(
+            frame: frame,
+            bytes: bytes,
+            x: region.x + localX,
+            y: region.y + localY
+          )
+          matching[localY * region.width + localX] =
+            green >= priors.minimumGreen
+            && Int(green) - Int(red) >= Int(priors.minimumGreenOverRed)
+            && Int(green) - Int(blue) >= Int(priors.minimumGreenOverBlue)
+        }
       }
+      return matching
     }
 
     var visited = [Bool](repeating: false, count: count)
     var components: [PixelComponent] = []
     for seed in 0..<count where matching[seed] && !visited[seed] {
+      try Task.checkCancellation()
       var queue = [seed]
       var cursor = 0
       visited[seed] = true
@@ -646,6 +655,7 @@ public actor VisionWorker {
       var maxX = Int.min
       var maxY = Int.min
       while cursor < queue.count {
+        if cursor.isMultiple(of: 4_096) { try Task.checkCancellation() }
         let index = queue[cursor]
         cursor += 1
         let localX = index % region.width
@@ -694,37 +704,41 @@ public actor VisionWorker {
     orientation: FrameSideOrientation,
     priors: PlotterSceneVisionPriors
   ) throws -> FrameSideMeasurement? {
-    var points: [RegressionPoint] = []
     let primaryCount = orientation == .top ? region.width : region.height
-    for primary in 0..<primaryCount {
-      var secondaryMatches: [Int] = []
-      let secondaryCount = orientation == .top ? region.height : region.width
-      for secondary in 0..<secondaryCount {
-        let x = orientation == .top ? region.x + primary : region.x + secondary
-        let y = orientation == .top ? region.y + secondary : region.y + primary
-        let (red, green, blue) = try rgb(frame: frame, x: x, y: y)
-        guard blue >= priors.minimumBlue,
-          Int(blue) - Int(red) >= Int(priors.minimumBlueOverRed),
-          Int(blue) - Int(green) >= Int(priors.minimumBlueOverGreen)
-        else { continue }
-        secondaryMatches.append(secondary)
+    let points = try frame.bytes.withUnsafeBytes { bytes in
+      var points: [RegressionPoint] = []
+      for primary in 0..<primaryCount {
+        try Task.checkCancellation()
+        var secondaryMatches: [Int] = []
+        let secondaryCount = orientation == .top ? region.height : region.width
+        for secondary in 0..<secondaryCount {
+          let x = orientation == .top ? region.x + primary : region.x + secondary
+          let y = orientation == .top ? region.y + secondary : region.y + primary
+          let (red, green, blue) = Self.rgb(frame: frame, bytes: bytes, x: x, y: y)
+          guard blue >= priors.minimumBlue,
+            Int(blue) - Int(red) >= Int(priors.minimumBlueOverRed),
+            Int(blue) - Int(green) >= Int(priors.minimumBlueOverGreen)
+          else { continue }
+          secondaryMatches.append(secondary)
+        }
+        guard secondaryMatches.count >= 4 else { continue }
+        let fraction = orientation == .top ? 0.90 : 0.10
+        let index = Int((Double(secondaryMatches.count - 1) * fraction).rounded(.down))
+        if orientation == .top {
+          points.append(
+            RegressionPoint(
+              independent: Double(region.x + primary),
+              dependent: Double(region.y + secondaryMatches[index])
+            ))
+        } else {
+          points.append(
+            RegressionPoint(
+              independent: Double(region.y + primary),
+              dependent: Double(region.x + secondaryMatches[index])
+            ))
+        }
       }
-      guard secondaryMatches.count >= 4 else { continue }
-      let fraction = orientation == .top ? 0.90 : 0.10
-      let index = Int((Double(secondaryMatches.count - 1) * fraction).rounded(.down))
-      if orientation == .top {
-        points.append(
-          RegressionPoint(
-            independent: Double(region.x + primary),
-            dependent: Double(region.y + secondaryMatches[index])
-          ))
-      } else {
-        points.append(
-          RegressionPoint(
-            independent: Double(region.y + primary),
-            dependent: Double(region.x + secondaryMatches[index])
-          ))
-      }
+      return points
     }
 
     let minimumSupport = max(
@@ -832,16 +846,21 @@ public actor VisionWorker {
     return (slope, meanDependent - slope * meanIndependent)
   }
 
-  private func rgb(frame: StampedFrame, x: Int, y: Int) throws -> (UInt8, UInt8, UInt8) {
+  private static func rgb(
+    frame: StampedFrame,
+    bytes: UnsafeRawBufferPointer,
+    x: Int,
+    y: Int
+  ) -> (UInt8, UInt8, UInt8) {
     let offset = y * frame.rowBytes + x * frame.pixelFormat.bytesPerPixel
     switch frame.pixelFormat {
     case .gray8:
-      let value = frame.bytes[offset]
+      let value = bytes[offset]
       return (value, value, value)
     case .rgba8:
-      return (frame.bytes[offset], frame.bytes[offset + 1], frame.bytes[offset + 2])
+      return (bytes[offset], bytes[offset + 1], bytes[offset + 2])
     case .bgra8:
-      return (frame.bytes[offset + 2], frame.bytes[offset + 1], frame.bytes[offset])
+      return (bytes[offset + 2], bytes[offset + 1], bytes[offset])
     }
   }
 }

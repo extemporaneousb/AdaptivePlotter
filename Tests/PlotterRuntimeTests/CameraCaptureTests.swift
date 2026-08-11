@@ -357,6 +357,42 @@ struct CameraCaptureTests {
     #expect(try await capture.materializeLatestFrame(newerThanNanoseconds: 150) == nil)
   }
 
+  @Test("preview pause retains newest raw capture and publishes it once after all owners settle")
+  func previewPauseAndResume() async throws {
+    let device = CameraDevice(id: CameraDeviceID(rawValue: "camera"), name: "Camera")
+    let driver = TestCameraDriver(devices: [device])
+    let capture = CameraCapture(driver: driver)
+    await capture.discoverDevices()
+    await capture.start()
+
+    await driver.emit(sample(value: 1, time: 100))
+    try await waitUntil { await capture.snapshot().latestFrame?.frame.sequence == 1 }
+    let first = try #require(await capture.snapshot().latestFrame)
+    let firstPause = await capture.pausePreviewPublication()
+    let nestedPause = await capture.pausePreviewPublication()
+    #expect(await capture.diagnostics().previewPublicationPaused)
+
+    await driver.emit(sample(value: 2, time: 200))
+    await driver.emit(sample(value: 3, time: 300))
+    try await waitUntil { await capture.diagnostics().receivedFrameCount == 3 }
+    #expect(await capture.snapshot().latestFrame?.frame.id == first.frame.id)
+    #expect(await capture.diagnostics().previewMaterializedFrameCount == 1)
+
+    await capture.resumePreviewPublication(firstPause)
+    #expect(await capture.diagnostics().previewPublicationPaused)
+    #expect(await capture.snapshot().latestFrame?.frame.id == first.frame.id)
+
+    await capture.resumePreviewPublication(nestedPause)
+    #expect(!(await capture.diagnostics()).previewPublicationPaused)
+    let resumed = try #require(await capture.snapshot().latestFrame)
+    #expect(resumed.frame.sequence == 3)
+    #expect(resumed.frame.bytes[0] == 3)
+    #expect(await capture.diagnostics().previewMaterializedFrameCount == 2)
+
+    await capture.resumePreviewPublication(nestedPause)
+    #expect(await capture.diagnostics().previewMaterializedFrameCount == 2)
+  }
+
   @Test("only CameraCapture issues live evidence attestations")
   func liveFrameAttestation() async throws {
     let device = CameraDevice(id: CameraDeviceID(rawValue: "camera"), name: "Camera")

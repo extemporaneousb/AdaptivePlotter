@@ -40,11 +40,21 @@ and sticky ambiguity.
 mechanical execution to `MachineController`.
 
 `CameraCapture` exclusively owns camera discovery, authorization, selection,
-capture lifetime, and exact-frame materialization.
+capture lifetime, exact-frame materialization, and capability-scoped preview
+publication holds. A hold never stops raw capture or changes camera identity;
+it retains only the newest raw buffer and publishes at most one newest preview
+when every matching hold settles.
 
 `VisionWorker` and the analysis pipeline produce measurements and diagnostics.
 They do not decide controller eligibility, machine direction, or model
 acceptance.
+
+Expensive Vision runs against one immutable exact frame off the main actor.
+Automatic analysis defaults to 2 Hz, pauses preview publication while active,
+and measures its cadence recovery interval from completion rather than start so
+slow analysis cannot become an uninterrupted CPU loop. Explicit inspection
+cancels cooperative background analysis before acquiring its frame and restores
+the prior cadence only after preview and computation ownership settle.
 
 Foreground visibility observation has one owner published before suspension.
 It searches only bounded target-local support, reports honest phases, refuses

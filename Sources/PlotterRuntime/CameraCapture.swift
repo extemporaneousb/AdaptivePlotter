@@ -59,26 +59,39 @@ public struct CameraCaptureDiagnostics: Codable, Hashable, Sendable {
   public static let zero = CameraCaptureDiagnostics(
     receivedFrameCount: 0,
     previewMaterializedFrameCount: 0,
-    exactMaterializedFrameCount: 0
+    exactMaterializedFrameCount: 0,
+    previewPublicationPaused: false
   )
 
   public let receivedFrameCount: UInt64
   public let previewMaterializedFrameCount: UInt64
   public let exactMaterializedFrameCount: UInt64
+  public let previewPublicationPaused: Bool
 
   public init(
     receivedFrameCount: UInt64,
     previewMaterializedFrameCount: UInt64,
-    exactMaterializedFrameCount: UInt64
+    exactMaterializedFrameCount: UInt64,
+    previewPublicationPaused: Bool = false
   ) {
     self.receivedFrameCount = receivedFrameCount
     self.previewMaterializedFrameCount = previewMaterializedFrameCount
     self.exactMaterializedFrameCount = exactMaterializedFrameCount
+    self.previewPublicationPaused = previewPublicationPaused
   }
 
   public var totalMaterializedFrameCount: UInt64 {
     previewMaterializedFrameCount + exactMaterializedFrameCount
   }
+}
+
+/// A current-camera-session capability that freezes preview publication without
+/// stopping AVFoundation delivery. The camera owner continues retaining only
+/// the newest raw buffer so an exact computation can settle without driving
+/// frame hashing, preview publication, or SwiftUI invalidation.
+public struct CameraPreviewPauseToken: Hashable, Sendable {
+  fileprivate let id: UUID
+  fileprivate let lifecycleGeneration: UUID
 }
 
 public struct CameraCaptureSnapshot: Codable, Hashable, Sendable {
@@ -327,6 +340,7 @@ public actor CameraCapture {
   private var receivedFrameCount: UInt64 = 0
   private var previewMaterializedFrameCount: UInt64 = 0
   private var exactMaterializedFrameCount: UInt64 = 0
+  private var previewPauseIDs: Set<UUID> = []
   private var frameContinuations: [UUID: AsyncStream<DisplayedFrame>.Continuation] = [:]
 
   public init(
@@ -567,8 +581,33 @@ public actor CameraCapture {
     CameraCaptureDiagnostics(
       receivedFrameCount: receivedFrameCount,
       previewMaterializedFrameCount: previewMaterializedFrameCount,
-      exactMaterializedFrameCount: exactMaterializedFrameCount
+      exactMaterializedFrameCount: exactMaterializedFrameCount,
+      previewPublicationPaused: !previewPauseIDs.isEmpty
     )
+  }
+
+  public func pausePreviewPublication() -> CameraPreviewPauseToken {
+    let id = UUID()
+    previewPauseIDs.insert(id)
+    return CameraPreviewPauseToken(id: id, lifecycleGeneration: lifecycleGeneration)
+  }
+
+  /// Releases one matching pause and publishes at most one newest buffered
+  /// preview. Stale or repeated releases cannot resume a newer camera session.
+  public func resumePreviewPublication(_ token: CameraPreviewPauseToken) async {
+    guard token.lifecycleGeneration == lifecycleGeneration,
+      previewPauseIDs.remove(token.id) != nil,
+      previewPauseIDs.isEmpty,
+      state == .running,
+      let latestCapture,
+      latestFrame?.frame.id != latestCapture.id
+    else { return }
+    do {
+      publish(try materialize(latestCapture, reason: .preview))
+    } catch {
+      await stopDriverAndFail(
+        .captureFailed("Could not resume camera preview publication: \(error)"))
+    }
   }
 
   public func frames() -> AsyncStream<DisplayedFrame> {
@@ -624,6 +663,7 @@ public actor CameraCapture {
       lastTimestamp = timestamp
       receivedFrameCount &+= 1
       latestCapture = buffered
+      guard previewPauseIDs.isEmpty else { return }
       guard shouldMaterializePreview(captureNanoseconds: timestamp) else { return }
       do {
         publish(try materialize(buffered, reason: .preview))
@@ -653,6 +693,7 @@ public actor CameraCapture {
     cameraConfigurationID = nil
     latestCapture = nil
     lastMaterializedCaptureNanoseconds = nil
+    previewPauseIDs = []
     finishEventChannel()
     return generation
   }
