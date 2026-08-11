@@ -20,6 +20,9 @@ Every interactive step exposes:
 
 Announcements are advisory output. Buttons own answers, Start, Cancel, Stop,
 Restart, Redo, and Record Another Attempt.
+Boundary announcements name the plotter and say positive or negative X/Y in
+words. Compact X−/X+/Y−/Y+ glyphs remain visual labels and are never sent to
+speech synthesis.
 
 Cancel abandons the current attempt. Stop settles an admitted stoppable owner.
 They may share one mechanical Jog Cancel primitive but never share a successful

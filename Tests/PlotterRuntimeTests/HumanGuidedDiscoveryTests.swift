@@ -77,6 +77,21 @@ struct HumanGuidedDiscoveryTests {
       ])
   }
 
+  @Test("Boundary announcements speak every signed axis without symbol pronunciation")
+  func boundaryAnnouncementsUseSignedWords() {
+    let expected: [(DiscoverySequenceID, String)] = [
+      (.boundaryNegativeX, "Moving the plotter toward the negative X boundary."),
+      (.boundaryPositiveX, "Moving the plotter toward the positive X boundary."),
+      (.boundaryNegativeY, "Moving the plotter toward the negative Y boundary."),
+      (.boundaryPositiveY, "Moving the plotter toward the positive Y boundary."),
+    ]
+
+    for (sequenceID, announcement) in expected {
+      let definition = DiscoverySequenceCatalog.definition(for: sequenceID)
+      #expect(definition.steps.first?.action == .announce(announcement))
+    }
+  }
+
   @Test("observed Pen Up advances directly to spoken lowering cue")
   func penUpAdvancesDirectlyToLoweringCue() throws {
     let definition = DiscoverySequenceCatalog.definition(for: .penInteraction)

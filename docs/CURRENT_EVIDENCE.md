@@ -129,7 +129,8 @@ The current integrated build still lacks attended verification of:
   target presentation, and complete foreground-Vision interlock matrix;
 
 - existing-bundle activation and foreground/Dock behavior;
-- output announcement completion before movement;
+- output announcement completion before movement, including word-based positive
+  and negative X/Y Boundary wording;
 - absence of audio-input permission prompts in a clean interactive run;
 - the full Pen Interaction sequence;
 - one-cancel behavior and exact post-stop frames on the current build;

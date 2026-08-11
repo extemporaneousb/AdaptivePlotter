@@ -110,7 +110,9 @@ Do not infer pen height from controller state or one camera frame.
    ceiling and source. For a single-axis direction it must match that axis.
 3. With the path clear and cutoff reachable, press the explicit **Start**. There
    is no generic YES/NO ceremony.
-4. Confirm the complete spoken movement announcement finishes before motion.
+4. Confirm the complete spoken movement announcement—for example, **Moving the
+   plotter toward the negative X boundary**—finishes before motion. The signed
+   direction must be spoken as a word, not inferred from the visual X− glyph.
 5. Observe movement directly and press the one exercise-strip **Stop Boundary**
    once at the observed side. Do not press Cancel unless abandoning the attempt.
 6. Verify one operator Stop event, one Jog Cancel, original-owner Idle/final

@@ -150,8 +150,8 @@ struct OperatorWorkspaceTests {
     )
     let events = await log.values
     #expect(
-      events.firstIndex(of: "announce:Moving toward X+ boundary.")! < events.firstIndex(
-        of: "machine:boundary")!)
+      events.firstIndex(of: "announce:Moving the plotter toward the positive X boundary.")!
+        < events.firstIndex(of: "machine:boundary")!)
     await workspace.shutdown()
   }
 

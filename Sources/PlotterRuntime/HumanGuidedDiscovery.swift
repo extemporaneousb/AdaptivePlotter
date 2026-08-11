@@ -16,6 +16,15 @@ public enum BoundaryDirection: String, Codable, CaseIterable, Hashable, Sendable
     }
   }
 
+  fileprivate var spokenName: String {
+    switch self {
+    case .negativeX: "negative X"
+    case .positiveX: "positive X"
+    case .negativeY: "negative Y"
+    case .positiveY: "positive Y"
+    }
+  }
+
   fileprivate var stableOrder: Int {
     switch self {
     case .negativeX: 0
@@ -1008,7 +1017,7 @@ public enum DiscoverySequenceCatalog {
         DiscoveryStep(
           id: "announce-jog",
           participant: .application,
-          action: .announce("Moving toward \(direction.displayName) boundary."),
+          action: .announce("Moving the plotter toward the \(direction.spokenName) boundary."),
           expectedEvent: .announcementCompleted
         ),
         DiscoveryStep(
