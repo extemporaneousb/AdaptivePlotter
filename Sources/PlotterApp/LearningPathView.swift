@@ -102,14 +102,14 @@ struct LearningPathView: View {
   @Binding var selection: LearningPathSelectionState
   let utilities: UtilitiesPresentation
   let performUtilitiesAction: (UtilitiesVisibilityAction) -> Void
-  @State private var pendingVacatePlan: LearningVacatePlan?
+  @State private var pendingResetPlan: LearningVacatePlan?
 
   var body: some View {
     let actionWorkspace = workspace
     let selectedPresentation = workspace.selectedOperatorActionPresentation(
       for: selection.selected
     )
-    let selectedVacatePlan = workspace.learningVacatePlan(from: selection.selected)
+    let selectedResetPlan = workspace.learningVacatePlan(from: selection.selected)
     let resetAllPlan = workspace.resetAllLearningPlan
     let pinnedActionStrip =
       workspace.currentExerciseActionStripPresentation
@@ -122,8 +122,8 @@ struct LearningPathView: View {
       ScrollView {
         VStack(alignment: .leading, spacing: 16) {
           selectedDetail(selectedPresentation)
-          learningAuthorityActions(
-            selectedPlan: selectedVacatePlan,
+          learningResetActions(
+            selectedPlan: selectedResetPlan,
             resetAllPlan: resetAllPlan
           )
         }
@@ -142,14 +142,14 @@ struct LearningPathView: View {
       }
     }
     .background(Color(nsColor: .windowBackgroundColor))
-    .sheet(item: $pendingVacatePlan) { plan in
-      LearningVacateConfirmationSheet(
+    .sheet(item: $pendingResetPlan) { plan in
+      LearningResetSheet(
         workspace: workspace,
         plan: plan,
         completed: {
           selection.updateCurrent(workspace.currentLearningPathItemID)
           selection.returnToCurrent()
-          pendingVacatePlan = nil
+          pendingResetPlan = nil
         }
       )
     }
@@ -265,49 +265,46 @@ struct LearningPathView: View {
   }
 
   @ViewBuilder
-  private func learningAuthorityActions(
+  private func learningResetActions(
     selectedPlan: LearningVacatePlan?,
     resetAllPlan: LearningVacatePlan?
   ) -> some View {
     if selectedPlan != nil || resetAllPlan != nil || workspace.learningAuthorityError != nil {
       VStack(alignment: .leading, spacing: 9) {
-        Text("LEARNING AUTHORITY")
+        Text("RESET LEARNING")
           .font(.caption2.monospaced().bold())
           .foregroundStyle(.secondary)
         Text(
-          "Reviewing an older row is non-destructive. These explicit actions invalidate accepted learning; they never move the machine, disconnect it, disable motion, or erase physical ink."
+          "Resetting clears saved Learning Path results from the selected step onward. It does not move the plotter or erase marks on the paper."
         )
         .font(.caption)
         .foregroundStyle(.secondary)
 
         if let selectedPlan {
-          Button(role: .destructive) {
-            pendingVacatePlan = selectedPlan
+          Button {
+            pendingResetPlan = selectedPlan
           } label: {
-            Label("Vacate Learning From Here…", systemImage: "arrow.uturn.backward.circle")
+            Label("\(selectedPlan.title)…", systemImage: "arrow.uturn.backward.circle")
           }
           .buttonStyle(.bordered)
           .disabled(workspace.learningVacateUnavailableReason != nil)
           .help(
             workspace.learningVacateUnavailableReason
-              ?? "Preview and explicitly confirm invalidation from \(selectedPlan.anchor.number) forward"
+              ?? "Review the steps that will be reset from \(selectedPlan.anchor.number) onward"
           )
         }
 
         if let resetAllPlan {
-          Button(role: .destructive) {
-            pendingVacatePlan = resetAllPlan
+          Button {
+            pendingResetPlan = resetAllPlan
           } label: {
-            Label(
-              "Reset All \(resetAllPlan.source.rawValue) Learning…",
-              systemImage: "trash.slash"
-            )
+            Label("\(resetAllPlan.title)…", systemImage: "arrow.counterclockwise")
           }
           .buttonStyle(.bordered)
           .disabled(workspace.learningVacateUnavailableReason != nil)
           .help(
             workspace.learningVacateUnavailableReason
-              ?? "Preview and explicitly confirm a reset to Pen Interaction"
+              ?? "Review the steps that will be reset"
           )
         }
 
@@ -492,23 +489,22 @@ struct LearningPathView: View {
   }
 }
 
-private struct LearningVacateConfirmationSheet: View {
+private struct LearningResetSheet: View {
   @Bindable var workspace: OperatorWorkspace
   let plan: LearningVacatePlan
   let completed: () -> Void
   @Environment(\.dismiss) private var dismiss
-  @State private var confirmationText = ""
 
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
       Text(plan.title)
         .font(.title2.weight(.semibold))
       Text(
-        "This invalidates current \(plan.source.rawValue) learning from \(plan.anchor.number) \(plan.anchor.title) forward. Connect/Disconnect and Enable Motion remain direct session facts."
+        "This will clear saved \(plan.source.rawValue) Learning Path results from \(plan.anchor.number) \(plan.anchor.title) onward."
       )
       .fixedSize(horizontal: false, vertical: true)
 
-      GroupBox("Learning Path rows rewound or vacated") {
+      GroupBox("Steps to reset") {
         VStack(alignment: .leading, spacing: 5) {
           ForEach(plan.affectedItems) { item in
             Text("\(item.number)  \(item.title)")
@@ -519,16 +515,9 @@ private struct LearningVacateConfirmationSheet: View {
         .padding(.top, 4)
       }
 
-      Label(
-        "\(plan.expectedCurrentRevisionIDs.count) accepted artifact revision(s) will stop being current. Historical revision identity remains provenance, not authority.",
-        systemImage: "clock.arrow.circlepath"
-      )
-      .font(.caption)
-      .foregroundStyle(.secondary)
-
       if plan.removesDurableCheckpoint {
         Label(
-          "The durable LIVE Boundary checkpoint will also be removed so it cannot return after relaunch.",
+          "The saved LIVE Boundary checkpoint will also be cleared.",
           systemImage: "externaldrive.badge.xmark"
         )
         .font(.caption)
@@ -536,20 +525,11 @@ private struct LearningVacateConfirmationSheet: View {
       }
       if plan.physicalInkMayRemain {
         Label(
-          "Physical ink remains on the paper. Before drawing again, choose an uncontaminated area or explicitly replace the paper.",
+          "Marks already on the paper will remain. Choose a clean area or replace the paper before drawing there again.",
           systemImage: "exclamationmark.triangle.fill"
         )
         .font(.caption.weight(.semibold))
         .foregroundStyle(.orange)
-      }
-
-      VStack(alignment: .leading, spacing: 5) {
-        Text("Type exactly: \(plan.confirmationPhrase)")
-          .font(.callout.monospaced().bold())
-        TextField("Confirmation phrase", text: $confirmationText)
-          .textFieldStyle(.roundedBorder)
-          .font(.body.monospaced())
-          .textContentType(.none)
       }
 
       if let error = workspace.learningAuthorityError {
@@ -563,19 +543,17 @@ private struct LearningVacateConfirmationSheet: View {
         Spacer()
         Button("Cancel") { dismiss() }
           .keyboardShortcut(.cancelAction)
-        Button(plan.title, role: .destructive) {
+        Button(plan.title) {
           if workspace.performLearningVacate(plan) {
             completed()
             dismiss()
           }
         }
         .buttonStyle(.borderedProminent)
-        .tint(.red)
-        .disabled(confirmationText != plan.confirmationPhrase)
       }
     }
     .padding(20)
-    .frame(minWidth: 520, idealWidth: 560, maxWidth: 620)
+    .frame(minWidth: 460, idealWidth: 500, maxWidth: 560)
   }
 }
 

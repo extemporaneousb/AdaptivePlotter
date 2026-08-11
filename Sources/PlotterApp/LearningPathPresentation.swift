@@ -199,8 +199,8 @@ enum LearningVacateScope: Hashable, Sendable {
   case all
 }
 
-/// Immutable preview and stale-state guard for an explicit learning rewind.
-/// The UI must present this exact plan before passing it back for mutation.
+/// Immutable preview and stale-state guard for an explicit learning reset.
+/// The UI presents this plan before passing it back for mutation.
 struct LearningVacatePlan: Hashable, Identifiable, Sendable {
   let scope: LearningVacateScope
   let source: LearningVacateSource
@@ -222,15 +222,8 @@ struct LearningVacatePlan: Hashable, Identifiable, Sendable {
 
   var title: String {
     switch scope {
-    case .from: "Vacate Learning From Here"
-    case .all: "Reset All \(source.rawValue) Learning"
-    }
-  }
-
-  var confirmationPhrase: String {
-    switch scope {
-    case .from: "VACATE \(anchor.number) FORWARD"
-    case .all: "RESET ALL \(source.rawValue) LEARNING"
+    case .from: "Reset From This Step"
+    case .all: "Reset All Learning"
     }
   }
 }

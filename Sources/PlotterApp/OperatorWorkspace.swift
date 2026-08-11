@@ -1320,7 +1320,7 @@ final class OperatorWorkspace {
   var learningVacateUnavailableReason: String? {
     if hasShutdown { return "The workspace is shutting down." }
     if activeExerciseAttemptID != nil {
-      return "Cancel or finish the active exercise attempt before vacating learning."
+      return "Cancel or finish the active exercise attempt before resetting learning."
     }
     if activeStopTarget != nil || explorationOperationInProgress
       || visibilityObservationOperation != nil
@@ -1335,7 +1335,7 @@ final class OperatorWorkspace {
     }
     if let learningStickyAmbiguityReason {
       return
-        "Resolve the sticky motion ambiguity before vacating learning: \(learningStickyAmbiguityReason)"
+        "Resolve the sticky motion ambiguity before resetting learning: \(learningStickyAmbiguityReason)"
     }
     return nil
   }
@@ -1359,7 +1359,7 @@ final class OperatorWorkspace {
       }
     guard freshPlan == plan else {
       learningAuthorityError =
-        "Learning changed after the confirmation preview. Review the new vacate plan and confirm again."
+        "Learning changed while the reset summary was open. Review the updated steps and try again."
       return false
     }
 

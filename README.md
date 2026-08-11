@@ -150,15 +150,15 @@ and compact status. Exercise Start, choices, Cancel, Stop, Restart, Redo, and
 Record Another Attempt remain with the selected exercise. Buttons are the
 authoritative input surface; speech is output-only advisory guidance.
 
-Selecting an older Learning Path row remains review-only. Its Learning Authority
-section can explicitly **Vacate Learning From Here…**, which previews the exact
-chronological suffix and requires typing a row-specific confirmation phrase.
-**Reset All LIVE/SIMULATED Learning…** uses a separate source-specific phrase and
-returns learning to Pen Interaction without disconnecting the controller or
-changing Enable Motion. A LIVE rewind that reaches Boundary learning also removes
-the durable accepted-Boundary checkpoint. Neither action erases physical ink;
-contaminated target areas remain unusable until the operator chooses a new area or
-records paper replacement.
+Selecting an older Learning Path row remains review-only. Its Reset Learning
+section offers **Reset From This Step…**, which shows the exact later steps that
+will also be cleared and uses one ordinary Reset button—no phrase entry.
+**Reset All Learning…** uses the same compact summary and returns the current LIVE
+or SIMULATED learning source to Pen Interaction without disconnecting the
+controller or changing Enable Motion. A LIVE reset that reaches Boundary learning
+also removes the saved accepted-Boundary checkpoint. Neither action erases marks
+on the paper; contaminated target areas remain unusable until the operator chooses
+a new area or records paper replacement.
 
 ## Build, test, and launch
 

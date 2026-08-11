@@ -212,15 +212,15 @@ typed aggregate. Aggregates report sample count, estimator, compatibility, and
 uncertainty. Unsuccessful evidence remains attributable but cannot contribute a
 successful value.
 
-Review navigation is always presentation-only. An explicit Vacate Learning From
-Here operation is the separate chronological-reset authority: it previews the
-selected exercise and every later affected Learning Path exercise, requires the
-operator to type the exact displayed confirmation phrase, rejects a stale preview,
-and is unavailable while an attempt, motion, foreground-Vision, camera, or
-controller operation is active. Reset All Learning is the same guarded operation
-anchored at Pen Interaction. It never changes Connect/Disconnect or Enable Motion.
+Review navigation is always presentation-only. **Reset From This Step** is the
+separate chronological reset: it shows the selected exercise and every later
+affected Learning Path exercise in a compact summary with one Reset button. It
+does not require phrase entry. The reset rejects a stale summary and is unavailable
+while an attempt, motion, foreground-Vision, camera, or controller operation is
+active. **Reset All Learning** is the same guarded operation anchored at Pen
+Interaction. It never changes Connect/Disconnect or Enable Motion.
 
-LIVE and SIMULATED learning reset independently. Vacating LIVE Pen or Boundary
+LIVE and SIMULATED learning reset independently. Resetting LIVE Pen or Boundary
 learning removes the durable accepted-machine-artifact checkpoint before changing
 in-memory authority; failure to remove it aborts the reset. Invalidated revision
 identity may remain provenance, but old attempt values do not remain active

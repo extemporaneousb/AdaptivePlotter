@@ -277,13 +277,13 @@ replacement commit. Record Another Attempt recomputes the compatible aggregate
 and the same named dependents. Chronological successors without a dependency
 edge survive.
 
-Vacate Learning From Here is deliberately different from Redo. It is an explicit
-operator-authored chronological rewind, so it invalidates the selected exercise's
-current accepted authority and every later Learning Path exercise even when two
-rows have no causal dependency edge. Selecting or reviewing a row alone never
-does this. The confirmation sheet lists the exact suffix and requires its exact
-typed phrase; any accepted-state change makes that preview stale and requires a
-new confirmation.
+Reset From This Step is deliberately different from Redo. It is an explicit
+operator-authored chronological reset, so it clears the selected exercise's
+current accepted result and every later Learning Path exercise even when two rows
+have no causal dependency edge. Selecting or reviewing a row alone never does
+this. The compact reset sheet lists the exact suffix and has one Reset button; it
+does not require phrase entry. Any accepted-state change makes the summary stale
+and requires the operator to review the updated steps.
 
 Reset All Learning is the same operation anchored at Pen Interaction. It preserves
 the selected responsive controller and current Enable Motion fact. LIVE Boundary

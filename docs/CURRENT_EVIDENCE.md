@@ -24,9 +24,10 @@ The current source implements:
 - visibility target, Clear pose, and one isolated-line observed trial;
 - causal, nonphysical simulator parity;
 - dependency-scoped artifact replacement and compatible aggregation;
-- explicit typed-confirmation Vacate From Here and Reset All Learning controls,
-  with chronological rewind, stale-preview rejection, LIVE/SIMULATED isolation,
-  and durable Boundary-checkpoint removal;
+- simple Reset From This Step and Reset All Learning controls with a compact
+  affected-step summary and one Reset button; the underlying chronological
+  reset retains stale-summary rejection, LIVE/SIMULATED isolation, and durable
+  Boundary-checkpoint removal;
 - output-only announcements;
 - signed-bundle construction, validation, and single-instance launch refusal.
 - atomic durable accepted-Boundary checkpoints that remain quarantined until

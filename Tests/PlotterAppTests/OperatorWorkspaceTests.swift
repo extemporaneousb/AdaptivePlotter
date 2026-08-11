@@ -1840,14 +1840,14 @@ struct OperatorWorkspaceTests {
     #expect(!workspace.performLearningVacate(stalePlan))
     #expect(workspace.boundarySideAggregates[.positiveX] != nil)
     #expect(
-      workspace.learningAuthorityError?.contains("changed after the confirmation preview") == true
+      workspace.learningAuthorityError?.contains("changed while the reset summary was open") == true
     )
 
     let plan = try #require(workspace.resetAllLearningPlan)
     #expect(plan.source == .live)
     #expect(plan.anchor == .humanGuidedDiscovery(.penInteraction))
     #expect(plan.removesDurableCheckpoint)
-    #expect(plan.confirmationPhrase == "RESET ALL LIVE LEARNING")
+    #expect(plan.title == "Reset All Learning")
     #expect(workspace.performLearningVacate(plan))
 
     #expect(checkpointBox.checkpoint == nil)
@@ -1867,8 +1867,8 @@ struct OperatorWorkspaceTests {
     await workspace.shutdown()
   }
 
-  @Test("Vacate from Boundary retains Pen and removes every later SIMULATED learning")
-  func vacateBoundaryForwardRetainsEarlierLearning() async throws {
+  @Test("Reset from Boundary retains Pen and removes every later SIMULATED result")
+  func resetBoundaryForwardRetainsEarlierLearning() async throws {
     let harness = makeSimulatedHarness()
     let workspace = harness.workspace
     try await completeSimulatedVisibilityProtocol(
@@ -1886,7 +1886,7 @@ struct OperatorWorkspaceTests {
     #expect(plan.source == .simulated)
     #expect(!plan.removesDurableCheckpoint)
     #expect(plan.physicalInkMayRemain)
-    #expect(plan.confirmationPhrase == "VACATE 3.2 FORWARD")
+    #expect(plan.title == "Reset From This Step")
     #expect(workspace.performLearningVacate(plan))
 
     #expect(
@@ -1902,8 +1902,8 @@ struct OperatorWorkspaceTests {
     await workspace.shutdown()
   }
 
-  @Test("Vacate comparison only preserves the observed line and performs no redraw")
-  func vacateComparisonOnlyPreservesObservedLine() async throws {
+  @Test("Reset comparison only preserves the observed line and performs no redraw")
+  func resetComparisonOnlyPreservesObservedLine() async throws {
     let harness = makeSimulatedHarness()
     let workspace = harness.workspace
     try await completeSimulatedVisibilityProtocol(
@@ -1948,8 +1948,8 @@ struct OperatorWorkspaceTests {
     await workspace.shutdown()
   }
 
-  @Test("Vacate a completed transition row even when it owns no artifact revision")
-  func vacateCompletedTransitionWithoutArtifact() async throws {
+  @Test("Reset a completed transition row even when it owns no artifact revision")
+  func resetCompletedTransitionWithoutArtifact() async throws {
     let harness = makeSimulatedHarness()
     let workspace = harness.workspace
     try await completeSimulatedVisibilityProtocol(
