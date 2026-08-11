@@ -42,18 +42,19 @@ represent the requested coordinate exactly.
    the protocol requires the opposite side, the UI presents that direction as
    required noninteractive content rather than a disabled choice.
 2. Explicit **Start** admits one operator-stopped Boundary owner.
-3. The controller begins with one 10 mm probe segment under that same owner.
+3. The controller begins with one 20 mm probe segment under that same owner.
    After each unambiguous Idle/MPos, a strictly newer advisory frame may project
-   remaining camera-space clearance and choose 40, 20, 10, 5, or 2 mm. The
+   remaining camera-space clearance and choose 50, 20, 10, 5, or 2 mm. The
    planner retains 4 mm estimated clearance, consumes at most half the remaining
    estimate, and never increases again after its first valid projection. Every
    directional owner has an independent planner. If its initial camera seed is
    unavailable, the first later compatible frame establishes that side's
-   baseline; one more 10 mm probe can then produce coarse advice instead of
+   baseline; one more 20 mm probe can then produce coarse advice instead of
    leaving the rest of that side permanently on the fallback tier.
    During the LIVE owner, automatic background analysis is paused so these
    explicit renewal inspections do not compete for the camera/Vision pipeline;
-   its prior cadence is restored only after the Boundary owner settles.
+   its prior cadence is restored only after the Boundary owner and any explicit
+   inspection have both settled.
 4. **Stop** is visible immediately and remains bound to that owner.
 5. Operator Stop closes renewal and emits one Jog Cancel.
 6. The original owner settles through fresh Idle and final MPos.
@@ -69,7 +70,7 @@ represent the requested coordinate exactly.
 
 The advisory frame used between segments is not accepted side evidence. A
 missing, stale, camera-incompatible, low-confidence, or geometrically unusable
-observation selects 10 mm or less and cannot alter direction, feed, Stop, or
+observation selects 20 mm or less and cannot alter direction, feed, Stop, or
 side acceptance.
 Stop or out-of-tolerance center settlement retains all four side aggregates and
 exposes **Retry Center Arrival** for only the remaining delta.

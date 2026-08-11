@@ -35,11 +35,13 @@ The current source implements:
 - Stop-only exercise presentation while physical movement owns the operation.
 - software-validated V2 double-trace target planning and exclusive,
   cancellable, target-ROI-local foreground Vision with exact-frame magnification;
-- independently reset camera-advised Boundary renewal tiers (40/20/10/5/2 mm)
-  for every direction after an initial 10 mm probe, with recoverable baseline
+- independently reset camera-advised Boundary renewal tiers (50/20/10/5/2 mm)
+  for every direction after an initial 20 mm probe, with recoverable baseline
   establishment, conservative fallback, and Stop-race suppression;
 - pause and restoration of automatic background analysis around a LIVE Boundary
   owner so explicit renewal inspections can use the camera/Vision pipeline;
+  cancellation is awaited before background analysis resumes so an obsolete
+  advisory cannot continue consuming CPU alongside its successor;
 - capability-scoped preview publication holds for every expensive Vision path:
   raw capture continues, only the newest buffer survives, explicit inspection
   preempts cooperative background work, and automatic analysis reserves a
@@ -60,13 +62,13 @@ model-selected drawing.
 
 The current software baseline has passed:
 
-- make quick-test — 340 unit and component tests in a 5.470-second test run;
+- make quick-test — 341 unit and component tests in a 9.391-second test run;
 - make check — signed app construction and validation, launcher logic and
-  validation, negative bundle validation, all 358 tests, repository-contract
-  checks, and diff checks. The test run completed in 6.307 seconds;
-- make strict-check — the same signed-app and 358-test gate with complete Swift
+  validation, negative bundle validation, all 359 tests, repository-contract
+  checks, and diff checks. The test run completed in 15.335 seconds;
+- make strict-check — the same signed-app and 359-test gate with complete Swift
   concurrency checking and warnings as errors. The confirming test run completed
-  in 7.929 seconds;
+  in 9.630 seconds;
 - the nine retained causal journey cases ran inside both full parallel check
   suites; standalone sequential make journey-test was not rerun for this change;
 - Scripts/check_repository_contract.sh;
@@ -144,9 +146,9 @@ The current integrated build still lacks attended verification of:
 - the combined Stage 3.3 capture/calibrate/build action and separate proposal
   accept/reject presentation on live hardware;
 - durable accepted-Boundary restoration across a signed software relaunch;
-- post-fix attended timing and stopping behavior of camera-advised
-  coarse-to-fine Boundary renewal, including pause/restore of automatic
-  background analysis, on live hardware;
+- post-fix attended timing and stopping behavior of camera-advised 20-to-50 mm
+  coarse-to-fine Boundary renewal, including settled advisory cancellation and
+  pause/restore of automatic background analysis, on live hardware;
 - attended UI latency, raw-capture continuity, and newest-frame preview resume
   while automatic and explicit Vision hold preview publication;
 - coarse-to-fine Clear search and repeatability;

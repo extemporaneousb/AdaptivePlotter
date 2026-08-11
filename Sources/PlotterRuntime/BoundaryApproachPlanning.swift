@@ -68,10 +68,10 @@ public struct BoundaryApproachAdvice: Hashable, Sendable {
 /// Stateful so a valid approach can accelerate once, then only hold or
 /// decrease segment length as the inferred envelope gets nearer.
 public actor BoundaryApproachPlanner {
-  public static let segmentTiersMM: [Double] = [40, 20, 10, 5, 2]
+  public static let segmentTiersMM: [Double] = [50, 20, 10, 5, 2]
 
   private var previousObservation: BoundaryApproachObservation?
-  private var selectedLengthMM = 10.0
+  private var selectedLengthMM = 20.0
   private var hasAcceptedProjection = false
 
   public init(seed: BoundaryApproachObservation?) {
@@ -136,7 +136,7 @@ public actor BoundaryApproachPlanner {
   }
 
   private func fallback(_ basis: BoundaryApproachAdviceBasis) -> BoundaryApproachAdvice {
-    selectedLengthMM = min(selectedLengthMM, 10)
+    selectedLengthMM = min(selectedLengthMM, 20)
     return BoundaryApproachAdvice(nextSegmentLengthMM: selectedLengthMM, basis: basis)
   }
 

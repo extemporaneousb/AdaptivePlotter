@@ -155,6 +155,67 @@ struct OperatorWorkspaceTests {
     await workspace.shutdown()
   }
 
+  @Test("Boundary Stop settles advisory Vision before automatic analysis resumes")
+  func boundaryStopSettlesAdvisoryBeforeAutomaticVisionResumes() async throws {
+    let log = EventLog()
+    let machine = try MachineFixture(log: log)
+    let camera = try CameraFixture()
+    let inspectionGate = BoundaryInspectionGate()
+    let motionGate = BoundaryRenewalMotionGate()
+    let workspace = workspace(
+      machine: machine,
+      cameraActionsOverride: boundaryGatedCameraActions(camera, gate: inspectionGate),
+      boundaryMotionBegin: { request, renewalPlanner in
+        .admitted(
+          BoundaryMotionOperation(
+            ownerID: request.ownerID,
+            task: Task { await motionGate.run(request, renewalPlanner: renewalPlanner) }
+          )
+        )
+      },
+      jogCancel: { await motionGate.cancel($0) },
+      log: log
+    )
+    await workspace.establishMachineSession(machine.descriptor)
+    await workspace.requestPassiveProbe()
+    await workspace.startCamera()
+    try await completePenInteraction(workspace)
+
+    let owner = LearningPathItemID.humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
+    await workspace.performExerciseAction(.start, for: owner)
+    try await waitUntil {
+      workspace.contextualStopPresentation != nil
+        && camera.recordedAutomaticInspectionRequests == [.twoFPS, nil]
+    }
+    let pendingRequest = await motionGate.request
+    let admittedRequest = try #require(pendingRequest)
+    #expect(admittedRequest.segment.delta.magnitude == 20)
+    #expect(admittedRequest.renewalBounds.fallbackMM == 20)
+    #expect(admittedRequest.renewalBounds.maximumMM == 50)
+
+    try await machine.setPosition(x: 20, y: 0)
+    await motionGate.releaseFirstSegment()
+    try await waitUntilAsync { await inspectionGate.isStarted }
+    let stopKind = try #require(
+      workspace.currentExerciseActionStripPresentation?.actions.first(where: {
+        if case .stop = $0.kind { true } else { false }
+      })?.kind)
+    let stopTask = Task { @MainActor in
+      await workspace.performExerciseAction(stopKind, for: owner)
+    }
+    try await waitUntilAsync { await inspectionGate.isCancelled }
+
+    #expect(camera.recordedAutomaticInspectionRequests == [.twoFPS, nil])
+    #expect(!workspace.automaticVisionEnabled)
+    await inspectionGate.release()
+    await stopTask.value
+
+    #expect(camera.recordedAutomaticInspectionRequests == [.twoFPS, nil, .twoFPS])
+    #expect(workspace.automaticVisionEnabled)
+    #expect(workspace.boundarySideAggregates[.positiveX]?.validSampleCount == 1)
+    await workspace.shutdown()
+  }
+
   @Test("all four typed boundaries commit with no Camera composition")
   func allBoundaryDirectionsNeedNoCamera() async throws {
     let log = EventLog()
@@ -2390,11 +2451,27 @@ private func requireStep(_ workspace: OperatorWorkspace, _ expected: String) thr
 private func workspace(
   machine: MachineFixture,
   camera: CameraFixture? = nil,
+  cameraActionsOverride: OperatorWorkspace.CameraActions? = nil,
+  boundaryMotionBegin:
+    (@Sendable (BoundaryMotionRequest, BoundaryMotionRenewalPlanner?) async
+      -> BoundaryMotionAdmission)? = nil,
+  jogCancel: (@Sendable (JogCancelIntent) async -> JogCancelOutcome)? = nil,
   announcements: AnnouncementFixture? = nil,
   checkpointActions: OperatorWorkspace.AcceptedArtifactCheckpointActions? = nil,
   log _: EventLog
 ) -> OperatorWorkspace {
   let clock = TestClock()
+  let beginBoundaryMotion = boundaryMotionBegin ?? { @Sendable request, _ in
+    BoundaryMotionAdmission.admitted(
+      BoundaryMotionOperation(
+        ownerID: request.ownerID,
+        task: Task { await machine.requestBoundaryMotion(request) }
+      )
+    )
+  }
+  let requestJogCancel = jogCancel ?? { @Sendable intent in
+    await machine.cancel(intent: intent)
+  }
   return OperatorWorkspace(
     machineActions: .init(
       select: { _ in await machine.snapshot() },
@@ -2419,18 +2496,11 @@ private func workspace(
       requestVisibilityTargetIntent: { _, _ in fatalError("unused") },
       requestPenActuation: { await machine.requestPen($0) },
       requestBoundaryMotion: { await machine.requestBoundaryMotion($0) },
-      beginBoundaryMotion: { request, _ in
-        .admitted(
-          BoundaryMotionOperation(
-            ownerID: request.ownerID,
-            task: Task { await machine.requestBoundaryMotion(request) }
-          )
-        )
-      },
-      requestJogCancel: { await machine.cancel(intent: $0) },
+      beginBoundaryMotion: beginBoundaryMotion,
+      requestJogCancel: requestJogCancel,
       disconnect: {}
     ),
-    cameraActions: camera.map(cameraActions),
+    cameraActions: cameraActionsOverride ?? camera.map(cameraActions),
     announcementActions: announcements.map { fixture in
       .init(
         announce: { await fixture.announce($0) },
@@ -3037,6 +3107,137 @@ private final class CameraFixture: @unchecked Sendable {
       lastError: nil
     )
   }
+}
+
+private actor BoundaryRenewalMotionGate {
+  private var segmentReleased = false
+  private var segmentContinuation: CheckedContinuation<Void, Never>?
+  private var pendingCancelIntent: JogCancelIntent?
+  private var cancelContinuation: CheckedContinuation<JogCancelIntent, Never>?
+  private var finalPosition: MachinePosition?
+  private(set) var request: BoundaryMotionRequest?
+
+  func run(
+    _ request: BoundaryMotionRequest,
+    renewalPlanner: BoundaryMotionRenewalPlanner?
+  ) async -> BoundaryMotionOutcome {
+    self.request = request
+    await waitForFirstSegmentRelease()
+    let finalPosition = try! MachinePosition(
+      x: request.segment.delta.dx,
+      y: request.segment.delta.dy
+    )
+    self.finalPosition = finalPosition
+    if let renewalPlanner {
+      _ = await renewalPlanner.nextSegmentLength(
+        after: BoundaryMotionSegmentProgress(
+          ownerID: request.ownerID,
+          direction: request.direction,
+          completedSegmentCount: 1,
+          completedSegment: request.segment,
+          startPosition: try! MachinePosition(x: 0, y: 0),
+          finalPosition: finalPosition
+        )
+      )
+    }
+    let intent = await waitForCancelIntent()
+    return .settled(
+      BoundaryMotionSettlement(
+        ownerID: request.ownerID,
+        intent: intent,
+        completedSegmentCount: 1,
+        finalPosition: finalPosition,
+        jogCancelOutcome: .completed(finalPosition: finalPosition)
+      )
+    )
+  }
+
+  func releaseFirstSegment() {
+    segmentReleased = true
+    segmentContinuation?.resume()
+    segmentContinuation = nil
+  }
+
+  func cancel(_ intent: JogCancelIntent) -> JogCancelOutcome {
+    if let cancelContinuation {
+      self.cancelContinuation = nil
+      cancelContinuation.resume(returning: intent)
+    } else {
+      pendingCancelIntent = intent
+    }
+    return .completed(finalPosition: finalPosition ?? (try! MachinePosition(x: 0, y: 0)))
+  }
+
+  private func waitForFirstSegmentRelease() async {
+    guard !segmentReleased else { return }
+    await withCheckedContinuation { segmentContinuation = $0 }
+  }
+
+  private func waitForCancelIntent() async -> JogCancelIntent {
+    if let pendingCancelIntent {
+      self.pendingCancelIntent = nil
+      return pendingCancelIntent
+    }
+    return await withCheckedContinuation { cancelContinuation = $0 }
+  }
+}
+
+private actor BoundaryInspectionGate {
+  private var started = false
+  private var cancelled = false
+  private var released = false
+  private var continuation: CheckedContinuation<Void, Never>?
+
+  var isStarted: Bool { started }
+  var isCancelled: Bool { cancelled }
+
+  func inspect(_ inspection: LiveSceneInspection) async throws -> LiveSceneInspection {
+    started = true
+    await withTaskCancellationHandler {
+      if !released {
+        await withCheckedContinuation { continuation = $0 }
+      }
+    } onCancel: {
+      Task { await self.recordCancellation() }
+    }
+    try Task.checkCancellation()
+    return inspection
+  }
+
+  func release() {
+    released = true
+    continuation?.resume()
+    continuation = nil
+  }
+
+  private func recordCancellation() {
+    cancelled = true
+  }
+}
+
+private func boundaryGatedCameraActions(
+  _ fixture: CameraFixture,
+  gate: BoundaryInspectionGate
+) -> OperatorWorkspace.CameraActions {
+  let base = cameraActions(fixture)
+  return OperatorWorkspace.CameraActions(
+    discover: base.discover,
+    select: base.select,
+    start: base.start,
+    stop: base.stop,
+    restart: base.restart,
+    snapshot: base.snapshot,
+    frames: base.frames,
+    inspectScene: { boundary in
+      try await gate.inspect(fixture.inspection(after: boundary))
+    },
+    captureFrame: base.captureFrame,
+    captureSnapshot: base.captureSnapshot,
+    setAutomaticInspection: base.setAutomaticInspection,
+    analysisUpdates: base.analysisUpdates,
+    observeIsolatedInk: base.observeIsolatedInk,
+    observeVisibilityTarget: base.observeVisibilityTarget
+  )
 }
 
 private func frame(

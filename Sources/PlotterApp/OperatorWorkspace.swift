@@ -524,7 +524,7 @@ final class OperatorWorkspace {
     static let feedMMPerMinute = "100"
     /// Finite GRBL wire segment used only for renewal under one logical owner.
     /// Reaching this distance is never a Boundary Discovery result.
-    static let boundaryWireSegmentMM = 10.0
+    static let boundaryWireSegmentMM = 20.0
   }
 
   struct MachineActions: Sendable {
@@ -6159,7 +6159,7 @@ final class OperatorWorkspace {
         false
       }
     let outcome = await admittedOperation.outcome()
-    boundaryApproachVisionTasks[attemptID]?.cancel()
+    await cancelAndSettleBoundaryApproachVision(for: attemptID)
     if let cameraActions {
       await restoreAutomaticVisionAfterBoundaryOwner(
         shouldResume: shouldResumeAutomaticVision,
@@ -6438,7 +6438,7 @@ final class OperatorWorkspace {
         renewalBounds: BoundaryMotionSegmentBounds(
           minimumMM: 2,
           fallbackMM: MotionPriors.boundaryWireSegmentMM,
-          maximumMM: 40
+          maximumMM: 50
         )
       )
     } catch {
@@ -6478,6 +6478,27 @@ final class OperatorWorkspace {
     } catch {
       return nil
     }
+  }
+
+  /// Ends the exact-frame advisory before automatic analysis can resume. A
+  /// cancelled Task is still running until Camera/Vision unwinds its exclusive
+  /// computation lease, so cancellation without settlement can overlap the old
+  /// inspection with the restored background producer.
+  private func cancelAndSettleBoundaryApproachVision(
+    for attemptID: ExerciseAttemptID
+  ) async {
+    let task = boundaryApproachVisionTasks.removeValue(forKey: attemptID)
+    task?.cancel()
+    await task?.value
+    boundaryApproachAdvisories.removeValue(forKey: attemptID)
+  }
+
+  private func cancelAndSettleAllBoundaryApproachVision() async {
+    let tasks = Array(boundaryApproachVisionTasks.values)
+    boundaryApproachVisionTasks.removeAll()
+    for task in tasks { task.cancel() }
+    for task in tasks { await task.value }
+    boundaryApproachAdvisories.removeAll()
   }
 
   private func planBoundaryRenewal(
@@ -9442,6 +9463,7 @@ final class OperatorWorkspace {
   private func clearDiscoveryAuthority() async {
     await cancelAndSettleVisibilityObservation()
     await cancelAndSettleDiscoveryMotionBeforeErasure()
+    await cancelAndSettleAllBoundaryApproachVision()
     selectedDiscoverySequenceID = .penInteraction
     discoveryTransactions = [:]
     discoveryError = nil

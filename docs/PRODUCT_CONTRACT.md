@@ -101,18 +101,19 @@ is not boundary evidence. Operator Stop, a real limit/alarm/disconnect, or a
 typed fault ends the owner. Ambiguous motion never renews or resends.
 
 Boundary renewal length may use fresh exact-frame vision as advice only. The
-first wire request is 10 mm. Later requests are restricted to 40, 20, 10, 5,
+first wire request is 20 mm. Later requests are restricted to 50, 20, 10, 5,
 or 2 mm, retain the admitted direction and controller-derived feed, and become
 non-increasing after the first valid projection. Missing, stale, incompatible,
-or low-confidence observations fall back to 10 mm or less. Stop is rechecked
+or low-confidence observations fall back to 20 mm or less. Stop is rechecked
 on both sides of the asynchronous advisory wait.
 
 For a LIVE Boundary owner, automatic background analysis pauses after the Stop
 capability is published and before renewal begins. Explicit renewal inspections
 then use the camera/Vision pipeline without competing background requests. The
-previous automatic cadence is restored only after the same Boundary owner has
-settled, regardless of success, Stop, refusal, or failure. This scheduling rule
-does not promote camera advice into Boundary acceptance authority.
+previous automatic cadence is restored only after the same Boundary owner and
+any explicit advisory task have both settled, regardless of success, Stop,
+refusal, or failure. This scheduling rule does not promote camera advice into
+Boundary acceptance authority.
 
 The physical power cutoff remains the emergency boundary. The software Stop is
 not represented as a hardware emergency stop.

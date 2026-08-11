@@ -82,8 +82,9 @@ camera-configuration, source, kind, and algorithm revision.
 Automatic background analysis is a schedulable producer, not an authority. A
 LIVE Boundary owner pauses it after publishing Stop, uses explicit exact-frame
 inspections for renewal advice, and restores the prior cadence after the owner
-settles. This prevents background work from starving time-sensitive advisory
-inspection without changing controller or evidence authority.
+and its explicit advisory inspection settle. This prevents background work from
+overlapping stale advisory computation or starving time-sensitive inspection
+without changing controller or evidence authority.
 All expensive Vision paths use the same still-frame computation lease: preview
 publication pauses, raw capture continues, and prior automatic cadence resumes
 only after success, failure, or cancellation settles. Automatic cadence is a
@@ -111,7 +112,7 @@ derives an observed pixels/mm scale, ray-projects motion to the inferred drawing
 frame envelope, and chooses a bounded coarse-to-fine segment tier. Its async
 runtime seam consumes only the latest completed advisory and launches the next
 Camera/Vision inspection off the motion-owner critical path. It immediately
-returns the cached tier or 10 mm fallback. `RunInterpreter` reconstructs
+returns the cached tier or 20 mm fallback. `RunInterpreter` reconstructs
 direction and feed from the admitted request and checks the Stop latch before
 and after advice retrieval and immediately before any successor write.
 

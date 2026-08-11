@@ -10,14 +10,14 @@ struct BoundaryApproachPlanningTests {
     let request = BoundaryMotionRequest(
       direction: .negativeY,
       segment: RelativeJogRequest(
-        delta: try Vector2(dx: 0, dy: -10),
+        delta: try Vector2(dx: 0, dy: -20),
         feedMMPerMinute: 275
       ),
-      renewalBounds: BoundaryMotionSegmentBounds(minimumMM: 2, fallbackMM: 10, maximumMM: 40)
+      renewalBounds: BoundaryMotionSegmentBounds(minimumMM: 2, fallbackMM: 20, maximumMM: 50)
     )
 
     let coarse = request.segment(lengthMM: 200)
-    #expect(coarse.delta == (try Vector2(dx: 0, dy: -40)))
+    #expect(coarse.delta == (try Vector2(dx: 0, dy: -50)))
     #expect(coarse.feedMMPerMinute == 275)
 
     let fine = request.segment(lengthMM: 0.1)
@@ -25,7 +25,7 @@ struct BoundaryApproachPlanningTests {
     #expect(fine.feedMMPerMinute == 275)
   }
 
-  @Test("first exact probe can accelerate to 40 mm and later advice only decreases")
+  @Test("first valid projection can accelerate to 50 mm and later advice only decreases")
   func tieredMonotonicApproach() async throws {
     let camera = CameraConfigurationID()
     let source = FrameSourceIdentity.live(CameraDeviceID(rawValue: "camera"))
@@ -43,7 +43,7 @@ struct BoundaryApproachPlanningTests {
         envelope: envelope
       )
     )
-    #expect(first.nextSegmentLengthMM == 40)
+    #expect(first.nextSegmentLengthMM == 50)
     #expect(first.basis == .projectedEnvelope)
 
     let second = await planner.advise(
@@ -52,7 +52,7 @@ struct BoundaryApproachPlanningTests {
         envelope: envelope
       )
     )
-    #expect(second.nextSegmentLengthMM == 40)
+    #expect(second.nextSegmentLengthMM == 50)
 
     let third = await planner.advise(
       after: try observation(
@@ -71,7 +71,7 @@ struct BoundaryApproachPlanningTests {
     #expect(fourth.nextSegmentLengthMM == 5)
   }
 
-  @Test("missing or incompatible frames fall back to 10 mm and cannot re-accelerate")
+  @Test("missing or incompatible frames fall back to 20 mm and cannot re-accelerate")
   func conservativeFallback() async throws {
     let camera = CameraConfigurationID()
     let source = FrameSourceIdentity.live(CameraDeviceID(rawValue: "camera"))
@@ -88,11 +88,11 @@ struct BoundaryApproachPlanningTests {
           source: source, camera: camera, capture: 11, machineX: 10, pixelX: 20,
           envelope: envelope
         )
-      ).nextSegmentLengthMM == 40
+      ).nextSegmentLengthMM == 50
     )
 
     let missing = await planner.advise(after: nil)
-    #expect(missing.nextSegmentLengthMM == 10)
+    #expect(missing.nextSegmentLengthMM == 20)
     #expect(missing.basis == .missingObservationFallback)
 
     let later = await planner.advise(
@@ -101,7 +101,7 @@ struct BoundaryApproachPlanningTests {
         envelope: envelope
       )
     )
-    #expect(later.nextSegmentLengthMM == 10)
+    #expect(later.nextSegmentLengthMM == 20)
 
     let stale = await planner.advise(
       after: try observation(
@@ -109,7 +109,7 @@ struct BoundaryApproachPlanningTests {
         envelope: envelope
       )
     )
-    #expect(stale.nextSegmentLengthMM == 10)
+    #expect(stale.nextSegmentLengthMM == 20)
     #expect(stale.basis == .incompatibleObservationFallback)
   }
 
@@ -117,7 +117,7 @@ struct BoundaryApproachPlanningTests {
   func everySideCanEstablishBaselineAfterMissingSeed() async throws {
     let camera = CameraConfigurationID()
     let source = FrameSourceIdentity.live(CameraDeviceID(rawValue: "camera"))
-    let envelope = try rectangle(maxX: 220, maxY: 220)
+    let envelope = try rectangle(maxX: 300, maxY: 300)
 
     for direction in BoundaryDirection.allCases {
       let planner = BoundaryApproachPlanner(seed: nil)
@@ -131,7 +131,7 @@ struct BoundaryApproachPlanningTests {
           envelope: envelope
         )
       )
-      #expect(baseline.nextSegmentLengthMM == 10)
+      #expect(baseline.nextSegmentLengthMM == 20)
       #expect(baseline.basis == .establishingBaselineFallback)
 
       let accelerated = await planner.advise(
@@ -144,7 +144,7 @@ struct BoundaryApproachPlanningTests {
           envelope: envelope
         )
       )
-      #expect(accelerated.nextSegmentLengthMM == 40)
+      #expect(accelerated.nextSegmentLengthMM == 50)
       #expect(accelerated.basis == .projectedEnvelope)
     }
   }
@@ -183,16 +183,16 @@ struct BoundaryApproachPlanningTests {
     switch direction {
     case .negativeX:
       machinePosition = try MachinePosition(x: -travelMM, y: 0)
-      toolContact = try Point2(x: 110 - travelMM, y: 110)
+      toolContact = try Point2(x: 150 - travelMM, y: 150)
     case .positiveX:
       machinePosition = try MachinePosition(x: travelMM, y: 0)
-      toolContact = try Point2(x: 110 + travelMM, y: 110)
+      toolContact = try Point2(x: 150 + travelMM, y: 150)
     case .negativeY:
       machinePosition = try MachinePosition(x: 0, y: -travelMM)
-      toolContact = try Point2(x: 110, y: 110 - travelMM)
+      toolContact = try Point2(x: 150, y: 150 - travelMM)
     case .positiveY:
       machinePosition = try MachinePosition(x: 0, y: travelMM)
-      toolContact = try Point2(x: 110, y: 110 + travelMM)
+      toolContact = try Point2(x: 150, y: 150 + travelMM)
     }
     return BoundaryApproachObservation(
       source: source,
