@@ -163,6 +163,11 @@ That explicit inspection first cancels competing automatic analysis, freezes
 preview publication on the exact input frame while raw camera delivery remains
 active, and resumes from the newest buffered frame only after Vision settles.
 
+The operator's explicit human label owns the Clear-pose acceptance decision.
+The action strip shows both that recorded label and Vision's exact-frame report.
+A disagreement remains attributable evidence but cannot veto an explicit
+**Accept Clear Pose**.
+
 Partial or Blocked keeps the search transaction current. The operator may move
 again, change direction/distance, record an attributable human observation, or
 cancel. The app does not infer a useful pose from elapsed travel alone.

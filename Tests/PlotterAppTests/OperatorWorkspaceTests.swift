@@ -722,6 +722,60 @@ struct OperatorWorkspaceTests {
     #expect(await harness.machineActionLog.values.isEmpty)
   }
 
+  @Test("operator Clear remains acceptance authority when exact-frame Vision disagrees")
+  func operatorClearCanAcceptVisionDisagreement() throws {
+    let camera = CameraConfigurationID()
+    let context = ArmatureGuidanceContext(
+      controllerSessionID: UUID(),
+      coordinateRevision: 1,
+      cameraConfigurationID: camera,
+      observationRegion: PixelRect(x: 10, y: 10, width: 10, height: 10),
+      toolPaperRevision: UUID()
+    )
+    let frame = try StampedFrame(
+      sequence: 1,
+      captureNanoseconds: 1,
+      cameraConfigurationID: camera,
+      width: 30,
+      height: 30,
+      rowBytes: 30,
+      pixelFormat: .gray8,
+      bytes: OwnedFrameBytes([UInt8](repeating: 255, count: 900))
+    )
+    var guidance = ArmatureGuidanceState(context: context)
+    let observation = try guidance.record(
+      frame: frame,
+      controllerPosition: MachinePosition(x: 1, y: 2),
+      armatureBounds: nil,
+      humanLabel: .clear,
+      outcome: .stopped
+    )
+
+    #expect(observation.humanLabel == .clear)
+    #expect(observation.overlapEstimate.visibility == .blocked)
+    #expect(observation.estimateAgreedWithHuman == false)
+    #expect(
+      ClearPoseAcceptancePolicy.labelTitle(
+        .clear,
+        pendingLabel: .clear,
+        observation: observation
+      ) == "Clear (recorded; Vision: Blocked)"
+    )
+    #expect(
+      ClearPoseAcceptancePolicy.admits(
+        pendingLabel: .clear,
+        observation: observation
+      )
+    )
+
+    try guidance.acceptClearPose(
+      observationID: observation.id,
+      returnFeedMMPerMinute: 100
+    )
+    #expect(guidance.acceptedClearPose?.sourceObservationID == observation.id)
+    #expect(guidance.observations.last?.estimateAgreedWithHuman == false)
+  }
+
   @Test(
     "automatic current-camera calibration refusal preserves machine authority and exposes retry"
   )

@@ -3,6 +3,26 @@ import Observation
 import PlotterModel
 import PlotterRuntime
 
+enum ClearPoseAcceptancePolicy {
+  static func admits(
+    pendingLabel: ArmatureVisibilityLabel?,
+    observation: ArmaturePoseObservation?
+  ) -> Bool {
+    pendingLabel == .clear && observation?.humanLabel == .clear
+  }
+
+  static func labelTitle(
+    _ label: ArmatureVisibilityLabel,
+    pendingLabel: ArmatureVisibilityLabel?,
+    observation: ArmaturePoseObservation?
+  ) -> String {
+    guard pendingLabel == label, observation?.humanLabel == label,
+      let estimate = observation?.overlapEstimate.visibility.rawValue.capitalized
+    else { return label.rawValue.capitalized }
+    return "\(label.rawValue.capitalized) (recorded; Vision: \(estimate))"
+  }
+}
+
 enum CanvasLayer: String, CaseIterable, Identifiable {
   case intendedPath = "Intended path"
   case modelPrediction = "Plotter estimate"
@@ -2921,9 +2941,11 @@ final class OperatorWorkspace {
 
   func acceptClearPose() async {
     guard visibilityObservationOperation == nil,
-      pendingClearViewLabel == .clear,
       let observation = lastArmatureObservation,
-      observation.estimateAgreedWithHuman,
+      ClearPoseAcceptancePolicy.admits(
+        pendingLabel: pendingClearViewLabel,
+        observation: observation
+      ),
       var guidance = armatureGuidanceState
     else { return }
     do {
@@ -7767,17 +7789,25 @@ final class OperatorWorkspace {
         }
         actions.append(
           contentsOf: ArmatureVisibilityLabel.allCases.map { label in
-            ExerciseActionDescriptor(
-              kind: .recordClearViewLabel(label), title: label.rawValue.capitalized)
+            return ExerciseActionDescriptor(
+              kind: .recordClearViewLabel(label),
+              title: ClearPoseAcceptancePolicy.labelTitle(
+                label,
+                pendingLabel: pendingClearViewLabel,
+                observation: lastArmatureObservation
+              )
+            )
           })
         actions.append(
           ExerciseActionDescriptor(
             kind: .acceptClearPose,
             title: "Accept Clear Pose",
             role: .positive,
-            unavailableReason: pendingClearViewLabel == .clear
-              && lastArmatureObservation?.estimateAgreedWithHuman == true
-              ? nil : "Record an agreed Clear exact-frame observation first."
+            unavailableReason: ClearPoseAcceptancePolicy.admits(
+              pendingLabel: pendingClearViewLabel,
+              observation: lastArmatureObservation
+            )
+              ? nil : "Record a Clear exact-frame observation first."
           )
         )
       } else if case .humanGuidedDiscovery(.confirmBlankTargetBaseline) = itemID {

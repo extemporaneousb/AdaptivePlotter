@@ -49,6 +49,11 @@ when every matching hold settles.
 They do not decide controller eligibility, machine direction, or model
 acceptance.
 
+For Clear-pose discovery, the operator's explicit human Clear label owns the
+acceptance decision. Vision's exact-frame overlap estimate remains separate
+evidence: the app displays and retains disagreement, but it cannot veto
+**Accept Clear Pose**.
+
 Expensive Vision runs against one immutable exact frame off the main actor.
 Automatic analysis defaults to 2 Hz, pauses preview publication while active,
 and measures its cadence recovery interval from completion rather than start so
