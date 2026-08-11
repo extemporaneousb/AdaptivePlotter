@@ -376,34 +376,8 @@ private struct CameraPanel: View {
 
       cameraUtilityControls(utilityPresentation)
 
-      Picker(
-        "Analysis cadence",
-        selection: Binding(
-          get: { workspace.visionAnalysisCadence },
-          set: { cadence in Task { await workspace.updateVisionAnalysisCadence(cadence) } }
-        )
-      ) {
-        ForEach(VisionAnalysisCadence.allCases, id: \.self) { cadence in
-          Text("\(cadence.rawValue) Hz").tag(cadence)
-        }
-      }
-      .pickerStyle(.segmented)
-      .disabled(
-        utilityPresentation.analysisCadenceUnavailableReason != nil
-      )
-      .help(
-        utilityPresentation.analysisCadenceUnavailableReason
-          ?? "Select the automatic analysis cadence"
-      )
-
-      if let reason = utilityPresentation.analysisCadenceUnavailableReason {
-        Label("Analysis cadence: \(reason)", systemImage: "info.circle")
-          .font(.caption)
-          .foregroundStyle(.secondary)
-      }
-
       Text(
-        "LIVE and SIMULATED use the same operator controls. Unavailable actions name the source capability they require; SIMULATED never invokes camera hardware."
+        "LIVE preview does not analyze frames continuously. Scene analysis is finite: explicit Analyze Current Frame, a Learning Path motion window, or an owned Vision observation."
       )
       .font(.caption)
       .foregroundStyle(.secondary)
@@ -445,7 +419,6 @@ private struct CameraPanel: View {
       }
 
       fact("State", workspace.cameraStateText)
-      fact("Current frame age", workspace.frameAgeText)
       fact("Vision", workspace.sceneMeasurementText)
       fact("Capture path", workspace.captureThroughputText)
       fact("Analysis path", workspace.visionThroughputText)

@@ -79,19 +79,16 @@ are discarded before artifact or overlay mutation.
 The analysis pipeline admits one active request and retains only the newest
 pending request. Measurement and overlay provenance include exact frame,
 camera-configuration, source, kind, and algorithm revision.
-Automatic background analysis is a schedulable producer, not an authority. A
-LIVE Boundary owner pauses it after publishing Stop, uses explicit exact-frame
-inspections for renewal advice, and restores the prior cadence after the owner
-and its explicit advisory inspection settle. This prevents background work from
-overlapping stale advisory computation or starving time-sensitive inspection
-without changing controller or evidence authority.
+Newest-only scene analysis is a scoped producer, not an authority. Camera
+startup does not enable it. Supervised Pen-Up Learning Path movement may own it
+at 2 Hz; final settlement stops it and discards pending work. A LIVE Boundary
+owner instead uses finite explicit exact-frame inspections for renewal advice.
+No producer survives its movement or inspection owner.
 All expensive Vision paths use the same still-frame computation lease: preview
-publication pauses, raw capture continues, and prior automatic cadence resumes
-only after success, failure, or cancellation settles. Automatic cadence is a
-post-completion recovery interval, not permission to run continuously when one
-analysis exceeds its nominal period. Pixel scans use immutable-buffer access
-and cooperative row-level cancellation so explicit inspection can preempt
-background analysis without waiting for a full-frame scan.
+publication pauses and raw capture continues. Motion-scoped cadence is a
+post-completion recovery interval, not permission to outlive the motion owner.
+Pixel scans use immutable-buffer access and cooperative row-level cancellation
+so finite explicit inspection can settle without waiting for a full-frame scan.
 
 ### Human-Guided Discovery
 

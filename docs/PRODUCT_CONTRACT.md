@@ -55,11 +55,11 @@ evidence: the app displays and retains disagreement, but it cannot veto
 **Accept Clear Pose**.
 
 Expensive Vision runs against one immutable exact frame off the main actor.
-Automatic analysis defaults to 2 Hz, pauses preview publication while active,
-and measures its cadence recovery interval from completion rather than start so
-slow analysis cannot become an uninterrupted CPU loop. Explicit inspection
-cancels cooperative background analysis before acquiring its frame and restores
-the prior cadence only after preview and computation ownership settle.
+Camera start never admits analysis by itself. A supervised Pen-Up Learning Path
+movement may own newest-only analysis at 2 Hz, with its recovery interval
+measured from completion rather than start. Settlement cancels active work,
+discards pending frames, and returns Vision to stopped. Explicit inspection is
+finite and acquires its exact frame only after competing computation settles.
 
 Foreground visibility observation has one owner published before suspension.
 It searches only bounded target-local support, reports honest phases, refuses
@@ -112,13 +112,10 @@ non-increasing after the first valid projection. Missing, stale, incompatible,
 or low-confidence observations fall back to 20 mm or less. Stop is rechecked
 on both sides of the asynchronous advisory wait.
 
-For a LIVE Boundary owner, automatic background analysis pauses after the Stop
-capability is published and before renewal begins. Explicit renewal inspections
-then use the camera/Vision pipeline without competing background requests. The
-previous automatic cadence is restored only after the same Boundary owner and
-any explicit advisory task have both settled, regardless of success, Stop,
-refusal, or failure. This scheduling rule does not promote camera advice into
-Boundary acceptance authority.
+For a LIVE Boundary owner, only explicit renewal inspections use the
+camera/Vision pipeline; no startup or stopped-state background producer exists.
+This scheduling rule does not promote camera advice into Boundary acceptance
+authority.
 
 The physical power cutoff remains the emergency boundary. The software Stop is
 not represented as a hardware emergency stop.

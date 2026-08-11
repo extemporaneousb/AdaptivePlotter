@@ -256,6 +256,53 @@ struct IsolatedInkObservationTests {
     #expect(maximum == 1)
   }
 
+  @Test("bounded two-pixel camera wobble is aligned under the production settling policy")
+  func productionCameraWobbleTolerance() async throws {
+    let camera = CameraConfigurationID()
+    let simulator = PaperSceneSimulator(width: 100, height: 80)
+    let background = [
+      SimulatedPaperStroke(
+        start: PaperPixelPoint(x: 2, y: 2),
+        end: PaperPixelPoint(x: 5, y: 7)
+      )
+    ]
+    let target = targetStrokes(center: PaperPixelPoint(x: 18, y: 15), radius: 4)
+    let baseline = try simulator.render(
+      strokes: background, sequence: 1, captureNanoseconds: 1,
+      cameraConfigurationID: camera)
+    let first = try shiftFrame(
+      simulator.render(
+        strokes: background + target, sequence: 2, captureNanoseconds: 2,
+        cameraConfigurationID: camera),
+      dx: 2,
+      dy: 0
+    )
+    let second = try shiftFrame(
+      simulator.render(
+        strokes: background + target, sequence: 3, captureNanoseconds: 3,
+        cameraConfigurationID: camera),
+      dx: 2,
+      dy: 0
+    )
+    let pose = try MachinePosition(x: 0, y: 0)
+
+    let outcome = await VisionWorker().observeVisibilityTarget(
+      visibilityRequest(
+        baseline: sample(baseline, pose),
+        targets: [sample(first, pose), sample(second, pose)],
+        alignmentSearchRadiusPixels: 3,
+        maximumAlignmentShiftPixels: 2
+      )
+    )
+
+    guard case .observed(let observation) = outcome else {
+      Issue.record("expected two-pixel camera wobble to align; got \(outcome)")
+      return
+    }
+    #expect(observation.samples.map(\.alignment.shiftX) == [2, 2])
+    #expect(observation.samples.map(\.alignment.shiftY) == [0, 0])
+  }
+
   @Test("background change outside target ROI is rejected after alignment")
   func excessiveTargetBackgroundResidual() async throws {
     let camera = CameraConfigurationID()

@@ -38,14 +38,18 @@ The current source implements:
 - independently reset camera-advised Boundary renewal tiers (50/20/10/5/2 mm)
   for every direction after an initial 20 mm probe, with recoverable baseline
   establishment, conservative fallback, and Stop-race suppression;
-- pause and restoration of automatic background analysis around a LIVE Boundary
-  owner so explicit renewal inspections can use the camera/Vision pipeline;
-  cancellation is awaited before background analysis resumes so an obsolete
-  advisory cannot continue consuming CPU alongside its successor;
+- camera start/restart/source selection that leaves scene analysis stopped, plus
+  newest-only 2 Hz analysis scoped to supervised Pen-Up Learning Path movement
+  and stopped at owner settlement;
 - capability-scoped preview publication holds for every expensive Vision path:
-  raw capture continues, only the newest buffer survives, explicit inspection
-  preempts cooperative background work, and automatic analysis reserves a
-  post-completion live-preview recovery interval at a 2 Hz default;
+  raw capture continues, only the newest buffer survives, and finite explicit
+  inspection releases both preview and computation ownership on settlement;
+- fixed-camera optical alignment that searches 3 px and accepts at most 2 px of
+  global translation for mount wobble, with new algorithm revisions and no
+  change to controller MPos settlement authority;
+- camera-frame observation isolated to the preview and 4 Hz camera heartbeat;
+  settled Plotter, Motion, command, and Camera-panel text no longer inherit the
+  per-frame refresh path;
 - one quantization-aware 0.05 mm Euclidean controller-pose settlement policy
   shared by production pose comparisons;
 - one Stage 3.3 public action that captures the exact target pose, runs bounded
@@ -148,9 +152,9 @@ The current integrated build still lacks attended verification of:
 - durable accepted-Boundary restoration across a signed software relaunch;
 - post-fix attended timing and stopping behavior of camera-advised 20-to-50 mm
   coarse-to-fine Boundary renewal, including settled advisory cancellation and
-  pause/restore of automatic background analysis, on live hardware;
+  absence of stopped-state background analysis, on live hardware;
 - attended UI latency, raw-capture continuity, and newest-frame preview resume
-  while automatic and explicit Vision hold preview publication;
+  while motion-scoped or finite explicit Vision holds preview publication;
 - coarse-to-fine Clear search and repeatability;
 - physical target contact/ROI, blank baseline, octagonal target, two-frame
   target observation, isolated line, new-ink observation, and comparison;

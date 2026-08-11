@@ -8,33 +8,29 @@ import Testing
 @Suite("Operator workspace learning runtime")
 @MainActor
 struct OperatorWorkspaceTests {
-  @Test("successful LIVE camera start and restart enable automatic overlays")
-  func cameraStartEnablesAutomaticOverlays() async throws {
+  @Test("production camera settling accepts bounded wobble without changing MPos authority")
+  func fixedCameraSettlingPolicyIsOpticalOnly() {
+    #expect(FixedCameraOpticalSettlingPolicy.alignmentSearchRadiusPixels == 3)
+    #expect(FixedCameraOpticalSettlingPolicy.maximumAlignmentShiftPixels == 2)
+    #expect(FixedCameraOpticalSettlingPolicy.maximumCentroidSpreadPixels == 2)
+    #expect(ControllerPositionAcceptancePolicy.toleranceMM == 0.05)
+  }
+
+  @Test("LIVE camera start and restart keep scene analysis idle")
+  func cameraStartKeepsSceneAnalysisIdle() async throws {
     let log = EventLog()
     let machine = try MachineFixture(log: log)
     let camera = try CameraFixture()
     let workspace = workspace(machine: machine, camera: camera, log: log)
 
     await workspace.startCamera()
-    #expect(workspace.automaticVisionEnabled)
+    #expect(!workspace.scopedVisionAnalysisActive)
     #expect(workspace.visibleLayers == Set(CanvasLayer.allCases))
-    #expect(camera.recordedAutomaticCadences == [.twoFPS])
-    #expect(
-      workspace.cameraUtilityPresentation.actions.first {
-        $0.kind == .toggleAutomaticAnalysis
-      }?.title == "Stop Auto Analysis"
-    )
+    #expect(camera.recordedAutomaticInspectionRequests.isEmpty)
 
     await workspace.restartCamera()
-    #expect(workspace.automaticVisionEnabled)
-    #expect(camera.recordedAutomaticCadences == [.twoFPS, .twoFPS])
-    await workspace.setAutomaticVisionAnalysis(false)
-    #expect(!workspace.automaticVisionEnabled)
-    #expect(
-      workspace.cameraUtilityPresentation.actions.first {
-        $0.kind == .toggleAutomaticAnalysis
-      }?.title == "Start Auto Analysis"
-    )
+    #expect(!workspace.scopedVisionAnalysisActive)
+    #expect(camera.recordedAutomaticInspectionRequests.isEmpty)
     await workspace.shutdown()
   }
 
@@ -135,7 +131,7 @@ struct OperatorWorkspaceTests {
     #expect(workspace.boundarySideAggregates[.positiveX]?.validSampleCount == 1)
     #expect(workspace.boundaryAttemptEvidenceByAttemptID.count == 1)
     #expect(camera.inspectionCallCount == inspectionsBeforeBoundary)
-    #expect(camera.recordedAutomaticInspectionRequests == [.twoFPS, nil, .twoFPS])
+    #expect(camera.recordedAutomaticInspectionRequests.isEmpty)
     #expect(workspace.humanGuidedDiscoveryCurrentStep == .pairedBoundaryDiscoveryAndCentering)
     #expect(workspace.lastContextualStopAuditRecord?.actor == "Operator")
     #expect(workspace.lastContextualStopAuditRecord?.action == "Stop")
@@ -155,8 +151,8 @@ struct OperatorWorkspaceTests {
     await workspace.shutdown()
   }
 
-  @Test("Boundary Stop settles advisory Vision before automatic analysis resumes")
-  func boundaryStopSettlesAdvisoryBeforeAutomaticVisionResumes() async throws {
+  @Test("Boundary Stop settles advisory Vision without starting background analysis")
+  func boundaryStopSettlesAdvisoryWithoutBackgroundAnalysis() async throws {
     let log = EventLog()
     let machine = try MachineFixture(log: log)
     let camera = try CameraFixture()
@@ -185,8 +181,8 @@ struct OperatorWorkspaceTests {
     await workspace.performExerciseAction(.start, for: owner)
     try await waitUntil {
       workspace.contextualStopPresentation != nil
-        && camera.recordedAutomaticInspectionRequests == [.twoFPS, nil]
     }
+    #expect(camera.recordedAutomaticInspectionRequests.isEmpty)
     let pendingRequest = await motionGate.request
     let admittedRequest = try #require(pendingRequest)
     #expect(admittedRequest.segment.delta.magnitude == 20)
@@ -205,13 +201,11 @@ struct OperatorWorkspaceTests {
     }
     try await waitUntilAsync { await inspectionGate.isCancelled }
 
-    #expect(camera.recordedAutomaticInspectionRequests == [.twoFPS, nil])
-    #expect(!workspace.automaticVisionEnabled)
+    #expect(camera.recordedAutomaticInspectionRequests.isEmpty)
     await inspectionGate.release()
     await stopTask.value
 
-    #expect(camera.recordedAutomaticInspectionRequests == [.twoFPS, nil, .twoFPS])
-    #expect(workspace.automaticVisionEnabled)
+    #expect(camera.recordedAutomaticInspectionRequests.isEmpty)
     #expect(workspace.boundarySideAggregates[.positiveX]?.validSampleCount == 1)
     await workspace.shutdown()
   }
@@ -516,7 +510,6 @@ struct OperatorWorkspaceTests {
     await workspace.acceptClearPose()
     workspace.setLayer(.observedInk, visible: false)
     await workspace.performCameraUtilityAction(.refresh)
-    await workspace.setAutomaticVisionAnalysis(true)
     await workspace.switchFrameMode(.live)
 
     #expect(await gate.callCount == 1)
@@ -1449,6 +1442,8 @@ struct OperatorWorkspaceTests {
     try await performPublicAction(.moveToEstimatedCenter, owner: owner, workspace: workspace)
 
     let expectedCenter = try MachinePosition(x: 0, y: 0)
+    #expect(camera.recordedAutomaticInspectionRequests == [.twoFPS, nil])
+    #expect(!workspace.scopedVisionAnalysisActive)
     #expect(workspace.centerArrivalPosition == expectedCenter)
     #expect(workspace.learningArtifactGraph.currentRevision(for: .centerArrival) != nil)
     #expect(!workspace.centerArrivalRetryRequired)

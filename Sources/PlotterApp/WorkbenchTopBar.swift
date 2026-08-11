@@ -118,8 +118,8 @@ struct WorkbenchToolbar: ToolbarContent {
     }
 
     ToolbarItem(placement: .primaryAction) {
-      TimelineView(.periodic(from: .now, by: 0.25)) { _ in
-        HStack(spacing: 12) {
+      HStack(spacing: 12) {
+        TimelineView(.periodic(from: .now, by: 0.25)) { _ in
           WorkbenchStatusIndicator(
             indicator: .camera,
             label: workspace.frameMode == .simulated
@@ -129,22 +129,22 @@ struct WorkbenchToolbar: ToolbarContent {
               ? .blue
               : workspace.cameraIsLive ? .green : .red
           )
-          WorkbenchStatusIndicator(
-            indicator: .plotter,
-            label: WorkbenchConnectionIndicator.plotter.label(
-              isActive: workspace.controllerSessionEstablished
-            ),
-            color: workspace.controllerSessionEstablished ? .green : .red
-          )
-          WorkbenchStatusIndicator(
-            indicator: .motionGuard,
-            label: WorkbenchConnectionIndicator.motionGuard.label(
-              isActive: workspace.motionAuthorizationEnabled
-            ),
-            color: workspace.motionAuthorizationEnabled ? .green : .red
-          )
-          MotionRequestStatusView(presentation: workspace.motionRequestStatusPresentation)
         }
+        WorkbenchStatusIndicator(
+          indicator: .plotter,
+          label: WorkbenchConnectionIndicator.plotter.label(
+            isActive: workspace.controllerSessionEstablished
+          ),
+          color: workspace.controllerSessionEstablished ? .green : .red
+        )
+        WorkbenchStatusIndicator(
+          indicator: .motionGuard,
+          label: WorkbenchConnectionIndicator.motionGuard.label(
+            isActive: workspace.motionAuthorizationEnabled
+          ),
+          color: workspace.motionAuthorizationEnabled ? .green : .red
+        )
+        MotionRequestStatusView(presentation: workspace.motionRequestStatusPresentation)
       }
     }
   }

@@ -90,19 +90,20 @@ strictly newer frame, estimates the bottom-center contact point, and atomically
 commits the selected side attempt and aggregate. Typed operator direction—not a
 detected camera edge—identifies the side.
 
-While a LIVE Boundary owner is active, automatic background analysis pauses so
-the explicit renewal inspections can use the camera/Vision pipeline without
-competing work. The previous automatic-analysis cadence is restored only after
-that owner settles. A forced opposite direction is displayed as required,
-noninteractive content rather than as a disabled choice.
+LIVE camera start, restart, and source selection never start an unowned analysis
+loop. Boundary renewal uses only its finite explicit inspections. Supervised
+Pen-Up Learning Path travel may admit newest-only scene analysis at 2 Hz while
+the movement owner is active; it stops and discards pending work when that owner
+settles. A forced opposite direction is displayed as required, noninteractive
+content rather than as a disabled choice.
 
 Every expensive Vision computation owns one immutable frame. While it runs,
 `CameraCapture` keeps AVFoundation alive and retains the newest raw buffer, but
 pauses preview materialization/publication so frame hashing and SwiftUI updates
 cannot compete with analysis. Preview resumes from at most one newest buffered
-frame after settlement. Automatic analysis defaults to 2 Hz and reserves the
-selected cadence interval after completion as live-preview recovery time;
-explicit inspection cancels background work before acquiring its exact frame.
+frame after settlement. Explicit inspection is finite and motion-scoped
+analysis reserves a 2 Hz post-completion recovery interval; neither can survive
+its owning operation.
 
 After four sides, **Move to Estimated Center** accepts a controller-reported
 final MPos within 0.05 mm of the derived target. A stopped or out-of-tolerance

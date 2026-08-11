@@ -470,7 +470,6 @@ enum CameraUtilityActionKind: String, CaseIterable, Hashable, Identifiable, Send
   case restart
   case analyzeOrResume
   case saveSnapshot
-  case toggleAutomaticAnalysis
 
   var id: Self { self }
 }
@@ -488,18 +487,15 @@ struct CameraUtilityActionPresentation: Identifiable, Hashable, Sendable {
 struct CameraUtilityPresentation: Hashable, Sendable {
   let mode: OperatorFrameMode
   let actions: [CameraUtilityActionPresentation]
-  let analysisCadenceUnavailableReason: String?
 
   init(
     mode: OperatorFrameMode,
-    actions: [CameraUtilityActionPresentation],
-    analysisCadenceUnavailableReason: String? = nil
+    actions: [CameraUtilityActionPresentation]
   ) {
     precondition(Set(actions.map(\.id)).count == actions.count)
     precondition(actions.map(\.kind) == CameraUtilityActionKind.allCases)
     self.mode = mode
     self.actions = actions
-    self.analysisCadenceUnavailableReason = analysisCadenceUnavailableReason
   }
 }
 

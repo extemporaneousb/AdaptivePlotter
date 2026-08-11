@@ -60,8 +60,7 @@ struct WorkbenchPresentationTests {
     )
     let simulated = CameraUtilityPresentation(
       mode: .simulated,
-      actions: actions(unavailableReason: "LIVE camera capture only."),
-      analysisCadenceUnavailableReason: "LIVE automatic analysis only."
+      actions: actions(unavailableReason: "LIVE camera capture only.")
     )
 
     #expect(live.actions.map(\.kind) == CameraUtilityActionKind.allCases)
@@ -69,9 +68,6 @@ struct WorkbenchPresentationTests {
     #expect(live.actions.map(\.kind) == simulated.actions.map(\.kind))
     #expect(live.actions.allSatisfy { $0.isEnabled })
     #expect(simulated.actions.allSatisfy { !$0.isEnabled })
-    #expect(
-      simulated.analysisCadenceUnavailableReason == "LIVE automatic analysis only."
-    )
   }
 
   @Test("active runtime action strip can keep its sole controls visible")
@@ -176,7 +172,6 @@ struct WorkbenchPresentationTests {
     case .restart: "Restart Camera"
     case .analyzeOrResume: "Analyze Frame"
     case .saveSnapshot: "Save Snapshot"
-    case .toggleAutomaticAnalysis: "Enable Auto Analyze"
     }
   }
 }

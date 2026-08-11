@@ -51,10 +51,8 @@ represent the requested coordinate exactly.
    unavailable, the first later compatible frame establishes that side's
    baseline; one more 20 mm probe can then produce coarse advice instead of
    leaving the rest of that side permanently on the fallback tier.
-   During the LIVE owner, automatic background analysis is paused so these
-   explicit renewal inspections do not compete for the camera/Vision pipeline;
-   its prior cadence is restored only after the Boundary owner and any explicit
-   inspection have both settled.
+   During the LIVE owner, these finite explicit renewal inspections are the only
+   scene-analysis producer; camera startup and stopped state admit none.
 4. **Stop** is visible immediately and remains bound to that owner.
 5. Operator Stop closes renewal and emits one Jog Cancel.
 6. The original owner settles through fresh Idle and final MPos.
@@ -159,9 +157,11 @@ fails. Viewport zoom never mutates the target ROI used by Vision.
 The operator chooses a typed Pen Up search direction and one of 10, 5, 2, or
 optional 1 mm. Each **Start** admits one bounded move. After settlement, the
 camera captures an exact frame and Vision reports Clear, Partial, or Blocked.
-That explicit inspection first cancels competing automatic analysis, freezes
-preview publication on the exact input frame while raw camera delivery remains
-active, and resumes from the newest buffered frame only after Vision settles.
+The bounded move may own newest-only scene analysis while it is in flight and
+must stop it at controller settlement. The subsequent explicit inspection
+freezes preview publication on its exact input frame while raw camera delivery
+remains active, and resumes from the newest buffered frame only after Vision
+settles.
 
 The operator's explicit human label owns the Clear-pose acceptance decision.
 The action strip shows both that recorded label and Vision's exact-frame report.
@@ -207,9 +207,11 @@ MPos. Then capture two strictly newer exact frames and require compatible
 target detection plus two-frame agreement in the accepted ROI.
 
 Observation is one foreground, single-flight Vision operation. It publishes
-ownership before capture, pauses competing automatic analysis, searches bounded
-target-local support, and presents an exact-frame ROI magnifier. Controller,
-motion, pen, camera, source, analysis, Restart, and learning mutations are
+ownership before capture, searches bounded target-local support, and presents
+an exact-frame ROI magnifier. Fixed-camera comparison searches at most 3 px and
+accepts at most 2 px of global translation for mount wobble; the separate
+controller pose tolerance remains 0.05 mm. Controller, motion, pen, camera,
+source, analysis, Restart, and learning mutations are
 refused until settlement. **Cancel Vision** is the sole mutating action and
 preserves possible ink and the active attempt. Only a matching operation
 generation and complete captured authority context may commit.
