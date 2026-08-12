@@ -121,9 +121,14 @@ stepper position.
 At 3.3, one public **Capture Target Pose and Build Geometry Proposal** action
 captures the exact target pose and frame, runs the bounded three-sample Pen Up
 camera calibration when needed, returns under the same settlement policy, and
-stages the proposal. There is no preceding generic Start or separate public
-capture/build ceremony. The action never accepts geometry. The operator still
-explicitly accepts or rejects the target pose, camera fit, and ROI after review.
+stages the proposal. The proposal records the detected cap bottom-centre as an
+exact-frame cap anchor, never as the hidden pen tip, and fixes a 128 px-radius
+circular acquisition region directly to that anchor. There is no preceding
+generic Start or separate public capture/build ceremony. The action never
+accepts geometry. The operator still explicitly accepts or rejects the target
+pose, cap-based camera fit, and search circle after review. The two-frame target
+observation later learns the cap-to-tip translation; Stage 4 projections consume
+that accepted translation.
 The calibration's first fresh probe establishes an operation-local controller
 baseline. Later probes use a field-level semantic comparison, so app-owned Pen
 Up and motion modal changes remain visible without masquerading as coordinate

@@ -7,64 +7,73 @@ import Testing
 
 @Suite("Visibility target and isolated ink observation")
 struct IsolatedInkObservationTests {
-  @Test("bottom-only ROI extension admits a target below the legacy bottom edge")
-  func bottomOnlyROIExtensionAdmitsTarget() async throws {
+  @Test("circular cap-to-tip search admits an offset target only inside its radius")
+  func circularCapToTipSearchMasksItsBoundingBox() async throws {
     let camera = CameraConfigurationID()
     let simulator = PaperSceneSimulator(width: 100, height: 80)
     let background = [
       SimulatedPaperStroke(
-        start: PaperPixelPoint(x: 2, y: 2),
-        end: PaperPixelPoint(x: 5, y: 7)
+        start: PaperPixelPoint(x: 50, y: 5),
+        end: PaperPixelPoint(x: 55, y: 10)
       )
     ]
     let target = targetStrokes(center: PaperPixelPoint(x: 18, y: 29), radius: 4)
+    let boundingCornerTarget = targetStrokes(
+      center: PaperPixelPoint(x: 38, y: 35),
+      radius: 4
+    )
     let baseline = try simulator.render(
       strokes: background, sequence: 1, captureNanoseconds: 1,
       cameraConfigurationID: camera)
+    let cornerFirst = try simulator.render(
+      strokes: background + boundingCornerTarget, sequence: 2, captureNanoseconds: 2,
+      cameraConfigurationID: camera)
+    let cornerSecond = try simulator.render(
+      strokes: background + boundingCornerTarget, sequence: 3, captureNanoseconds: 3,
+      cameraConfigurationID: camera)
     let first = try simulator.render(
-      strokes: background + target, sequence: 2, captureNanoseconds: 2,
+      strokes: background + target, sequence: 4, captureNanoseconds: 4,
       cameraConfigurationID: camera)
     let second = try simulator.render(
-      strokes: background + target, sequence: 3, captureNanoseconds: 3,
+      strokes: background + target, sequence: 5, captureNanoseconds: 5,
       cameraConfigurationID: camera)
     let clearPose = try MachinePosition(x: 12, y: -5)
+    let cornerOutcome = await VisionWorker().observeVisibilityTarget(
+      visibilityRequest(
+        baseline: sample(baseline, clearPose),
+        targets: [sample(cornerFirst, clearPose), sample(cornerSecond, clearPose)],
+        targetSearchCenterX: 18,
+        targetSearchCenterY: 15,
+        targetSearchRadius: 20
+      )
+    )
+    guard case .rejected = cornerOutcome else {
+      Issue.record(
+        "expected the circle to mask a target inside only its bounding corner; got \(cornerOutcome)"
+      )
+      return
+    }
+
     let samples = [sample(first, clearPose), sample(second, clearPose)]
-    let legacyROI = PixelRect(x: 8, y: 5, width: 22, height: 20)
-
-    let legacyOutcome = await VisionWorker().observeVisibilityTarget(
+    let insideCircleOutcome = await VisionWorker().observeVisibilityTarget(
       visibilityRequest(
         baseline: sample(baseline, clearPose),
         targets: samples,
-        targetSearchROI: legacyROI
+        targetSearchCenterX: 18,
+        targetSearchCenterY: 15,
+        targetSearchRadius: 20
       )
     )
-    guard case .rejected = legacyOutcome else {
-      Issue.record("expected the legacy ROI to miss the target; got \(legacyOutcome)")
+    guard case .observed(let observation) = insideCircleOutcome else {
+      Issue.record("expected the circle to observe the offset target; got \(insideCircleOutcome)")
       return
     }
-
-    let expandedROI = PixelRect(
-      x: legacyROI.x,
-      y: legacyROI.y,
-      width: legacyROI.width,
-      height: legacyROI.height + legacyROI.height / 2
-    )
-    let expandedOutcome = await VisionWorker().observeVisibilityTarget(
-      visibilityRequest(
-        baseline: sample(baseline, clearPose),
-        targets: samples,
-        targetSearchROI: expandedROI
-      )
-    )
-    guard case .observed(let observation) = expandedOutcome else {
-      Issue.record("expected the expanded ROI to observe the target; got \(expandedOutcome)")
-      return
-    }
-    #expect(observation.region == expandedROI)
-    #expect(
-      observation.samples.allSatisfy {
-        $0.centroid.y > Double(legacyROI.y + legacyROI.height)
-      })
+    #expect(observation.searchCircle.center == (try Point2(x: 18, y: 15)))
+    #expect(observation.searchCircle.radiusPixels == 20)
+    #expect(observation.samples.allSatisfy { observation.searchCircle.contains(
+      x: Int($0.centroid.x.rounded()),
+      y: Int($0.centroid.y.rounded())
+    ) })
   }
 
   @Test("two same-pose target frames produce N=2 stable target evidence")
@@ -105,6 +114,66 @@ struct IsolatedInkObservationTests {
     #expect(observation.centroidUncertainty.dx == 0)
     #expect(observation.centroidUncertainty.dy == 0)
     #expect(observation.areaRatio == 1)
+  }
+
+  @Test("observed ink learns a nonzero cap-to-tip offset with exact-frame provenance")
+  func learnsCapToTipOffset() async throws {
+    let camera = CameraConfigurationID()
+    let simulator = PaperSceneSimulator(width: 100, height: 80)
+    let target = targetStrokes(center: PaperPixelPoint(x: 18, y: 15), radius: 4)
+    let anchorFrame = try simulator.render(
+      strokes: [], sequence: 1, captureNanoseconds: 1,
+      cameraConfigurationID: camera)
+    let baseline = try simulator.render(
+      strokes: [], sequence: 2, captureNanoseconds: 2,
+      cameraConfigurationID: camera)
+    let first = try simulator.render(
+      strokes: target, sequence: 3, captureNanoseconds: 3,
+      cameraConfigurationID: camera)
+    let second = try simulator.render(
+      strokes: target, sequence: 4, captureNanoseconds: 4,
+      cameraConfigurationID: camera)
+    let pose = try MachinePosition(x: 0, y: 0)
+    let displayedAnchor = DisplayedFrame(source: .simulated, frame: anchorFrame)
+    let outcome = await VisionWorker().observeVisibilityTarget(
+      visibilityRequest(
+        baseline: sample(baseline, pose),
+        targets: [sample(first, pose), sample(second, pose)],
+        targetSearchCenterX: 40,
+        targetSearchCenterY: 30,
+        targetSearchRadius: 35,
+        searchCircleAnchor: displayedAnchor
+      )
+    )
+    guard case .observed(let observation) = outcome else {
+      Issue.record("expected cap-offset target observation; got \(outcome)")
+      return
+    }
+    let capAnchor = try ToolCapAnchorEstimate(
+      componentCentroid: Point2(x: 40, y: 25),
+      componentBounds: AxisAlignedBounds(minX: 35, minY: 20, maxX: 45, maxY: 30),
+      confidence: 0.9,
+      estimatorRevision: "test-cap-anchor-v1",
+      source: .simulated,
+      frameID: anchorFrame.id,
+      cameraConfigurationID: camera
+    )
+    let registration = try PenTipOffsetRegistration(
+      capAnchor: capAnchor,
+      anchorFrame: displayedAnchor,
+      observation: observation,
+      estimatorRevision: "test-cap-to-tip-v1"
+    )
+
+    #expect(registration.capAnchor == (try Point2(x: 40, y: 30)))
+    #expect(registration.observedTip == (try Point2(x: 18, y: 15)))
+    #expect(registration.capToTipOffset == (try Vector2(dx: -22, dy: -15)))
+    #expect(registration.capAnchorFrame.frameID == anchorFrame.id)
+    #expect(registration.observedFrameIDs == [first.id, second.id])
+    #expect(
+      try registration.tipPoint(from: Point2(x: 50, y: 40))
+        == Point2(x: 28, y: 25)
+    )
   }
 
   @Test("same camera pixels at a different reported clear pose are rejected")
@@ -166,6 +235,36 @@ struct IsolatedInkObservationTests {
       )
     )
     #expect(outcome == .rejected(.cameraConfigurationMismatch))
+  }
+
+  @Test("search circle refuses a different anchor-frame camera configuration")
+  func searchCircleAnchorCameraMismatch() async throws {
+    let simulator = PaperSceneSimulator(width: 100, height: 80)
+    let camera = CameraConfigurationID()
+    let target = targetStrokes(center: PaperPixelPoint(x: 18, y: 15), radius: 4)
+    let anchor = try simulator.render(
+      strokes: [], sequence: 1, captureNanoseconds: 1,
+      cameraConfigurationID: CameraConfigurationID())
+    let baseline = try simulator.render(
+      strokes: [], sequence: 2, captureNanoseconds: 2,
+      cameraConfigurationID: camera)
+    let first = try simulator.render(
+      strokes: target, sequence: 3, captureNanoseconds: 3,
+      cameraConfigurationID: camera)
+    let second = try simulator.render(
+      strokes: target, sequence: 4, captureNanoseconds: 4,
+      cameraConfigurationID: camera)
+    let pose = try MachinePosition(x: 0, y: 0)
+
+    let outcome = await VisionWorker().observeVisibilityTarget(
+      visibilityRequest(
+        baseline: sample(baseline, pose),
+        targets: [sample(first, pose), sample(second, pose)],
+        searchCircleAnchor: DisplayedFrame(source: .simulated, frame: anchor)
+      )
+    )
+
+    #expect(outcome == .rejected(.searchCircleProvenanceMismatch))
   }
 
   @Test("simulated and live frames cannot enter one target observation")
@@ -232,8 +331,8 @@ struct IsolatedInkObservationTests {
     let simulator = PaperSceneSimulator(width: 100, height: 80)
     let background = [
       SimulatedPaperStroke(
-        start: PaperPixelPoint(x: 2, y: 2),
-        end: PaperPixelPoint(x: 5, y: 7)
+        start: PaperPixelPoint(x: 50, y: 5),
+        end: PaperPixelPoint(x: 55, y: 10)
       )
     ]
     let target = targetStrokes(center: PaperPixelPoint(x: 18, y: 15), radius: 4)
@@ -277,8 +376,8 @@ struct IsolatedInkObservationTests {
     let simulator = PaperSceneSimulator(width: 100, height: 80)
     let background = [
       SimulatedPaperStroke(
-        start: PaperPixelPoint(x: 2, y: 2),
-        end: PaperPixelPoint(x: 5, y: 7)
+        start: PaperPixelPoint(x: 50, y: 5),
+        end: PaperPixelPoint(x: 55, y: 10)
       )
     ]
     let target = targetStrokes(center: PaperPixelPoint(x: 18, y: 15), radius: 4)
@@ -322,8 +421,8 @@ struct IsolatedInkObservationTests {
     let simulator = PaperSceneSimulator(width: 100, height: 80)
     let background = [
       SimulatedPaperStroke(
-        start: PaperPixelPoint(x: 2, y: 2),
-        end: PaperPixelPoint(x: 5, y: 7)
+        start: PaperPixelPoint(x: 50, y: 5),
+        end: PaperPixelPoint(x: 55, y: 10)
       )
     ]
     let target = targetStrokes(center: PaperPixelPoint(x: 18, y: 15), radius: 4)
@@ -363,7 +462,7 @@ struct IsolatedInkObservationTests {
     #expect(observation.samples.map(\.alignment.shiftY) == [0, 0])
   }
 
-  @Test("background change outside target ROI is rejected after alignment")
+  @Test("background change outside target search circle is rejected after alignment")
   func excessiveTargetBackgroundResidual() async throws {
     let camera = CameraConfigurationID()
     let simulator = PaperSceneSimulator(width: 100, height: 80)
@@ -435,8 +534,8 @@ struct IsolatedInkObservationTests {
     }
     #expect(
       observation.samples.allSatisfy {
-        $0.alignment.supportRegion == PixelRect(x: 0, y: 0, width: 62, height: 57)
-          && $0.alignment.exclusionRegion == PixelRect(x: 6, y: 3, width: 26, height: 24)
+        $0.alignment.supportRegion == PixelRect(x: 0, y: 0, width: 65, height: 62)
+          && $0.alignment.exclusionRegion == PixelRect(x: 2, y: 0, width: 33, height: 32)
       })
   }
 
@@ -544,7 +643,9 @@ struct IsolatedInkObservationTests {
       visibilityRequest(
         baseline: sample(baseline, pose),
         targets: [sample(first, pose), sample(second, pose)],
-        targetSearchROI: PixelRect(x: 950, y: 530, width: 22, height: 20)
+        targetSearchCenterX: 960,
+        targetSearchCenterY: 540,
+        targetSearchRadius: 14
       )
     )
 
@@ -555,9 +656,9 @@ struct IsolatedInkObservationTests {
     #expect(baseline.pixelFormat == .bgra8)
     #expect(
       observation.samples.allSatisfy {
-        $0.alignment.supportRegion == PixelRect(x: 918, y: 498, width: 86, height: 84)
-          && $0.alignment.exclusionRegion == PixelRect(x: 948, y: 528, width: 26, height: 24)
-          && $0.alignment.evaluatedPixelCount == 165_000
+        $0.alignment.supportRegion == PixelRect(x: 914, y: 494, width: 93, height: 93)
+          && $0.alignment.exclusionRegion == PixelRect(x: 944, y: 524, width: 33, height: 33)
+          && $0.alignment.evaluatedPixelCount < 250_000
       })
   }
 
@@ -711,17 +812,20 @@ struct IsolatedInkObservationTests {
   func visibilityTargetAttemptAggregate() async throws {
     let camera = CameraConfigurationID()
     let paper = UUID()
+    let searchCircleAnchor = try targetSearchAnchor(camera: camera)
     let firstObservation = try await targetObservation(
       centerX: 18,
       sequenceBase: 10,
       camera: camera,
-      toolPaperRevision: paper
+      toolPaperRevision: paper,
+      searchCircleAnchor: searchCircleAnchor
     )
     let secondObservation = try await targetObservation(
       centerX: 20,
       sequenceBase: 20,
       camera: camera,
-      toolPaperRevision: paper
+      toolPaperRevision: paper,
+      searchCircleAnchor: searchCircleAnchor
     )
     let compatibility = targetAttemptCompatibility(camera: camera)
     let first = try ExerciseAttempt(
@@ -770,6 +874,7 @@ struct IsolatedInkObservationTests {
     let camera = CameraConfigurationID()
     let paper = UUID()
     let compatibility = targetAttemptCompatibility(camera: camera)
+    let searchCircleAnchor = try targetSearchAnchor(camera: camera)
     var observations: [VisibilityTargetObservation] = []
     for (index, center) in [17, 18, 19].enumerated() {
       observations.append(
@@ -777,7 +882,8 @@ struct IsolatedInkObservationTests {
           centerX: center,
           sequenceBase: UInt64(30 + index * 10),
           camera: camera,
-          toolPaperRevision: paper
+          toolPaperRevision: paper,
+          searchCircleAnchor: searchCircleAnchor
         ))
     }
     let attempts = try observations.enumerated().map { index, observation in
@@ -798,7 +904,8 @@ struct IsolatedInkObservationTests {
       centerX: 18,
       sequenceBase: 70,
       camera: camera,
-      toolPaperRevision: UUID()
+      toolPaperRevision: UUID(),
+      searchCircleAnchor: searchCircleAnchor
     )
     let incompatibleAttempt = try ExerciseAttempt(
       disposition: .succeeded,
@@ -831,7 +938,10 @@ private func sample(
 private func visibilityRequest(
   baseline: SamePoseFrameSample,
   targets: [SamePoseFrameSample],
-  targetSearchROI: PixelRect = PixelRect(x: 8, y: 5, width: 22, height: 20),
+  targetSearchCenterX: Double = 18,
+  targetSearchCenterY: Double = 15,
+  targetSearchRadius: Double = 14,
+  searchCircleAnchor: DisplayedFrame? = nil,
   expectedDiameterPixels: ClosedRange<Double> = 8...13,
   alignmentSearchRadiusPixels: Int = 2,
   maximumAlignmentShiftPixels: Int = 1,
@@ -839,10 +949,16 @@ private func visibilityRequest(
     uuidString: "00000000-0000-0000-0000-000000000011"
   )!
 ) -> VisibilityTargetObservationRequest {
-  VisibilityTargetObservationRequest(
+  let searchCircle = try! VisibilityTargetSearchCircle(
+    center: Point2(x: targetSearchCenterX, y: targetSearchCenterY),
+    radiusPixels: targetSearchRadius,
+    anchor: searchCircleAnchor ?? DisplayedFrame(source: baseline.source, frame: baseline.frame),
+    algorithmRevision: "test-cap-tip-search-circle-v1"
+  )
+  return VisibilityTargetObservationRequest(
     baseline: baseline,
     targetSamples: targets,
-    targetSearchROI: targetSearchROI,
+    targetSearchCircle: searchCircle,
     thresholds: thresholds,
     controllerSessionID: UUID(uuidString: "00000000-0000-0000-0000-000000000010")!,
     coordinateRevision: 3,
@@ -876,7 +992,8 @@ private func targetObservation(
   centerX: Int,
   sequenceBase: UInt64,
   camera: CameraConfigurationID,
-  toolPaperRevision: UUID
+  toolPaperRevision: UUID,
+  searchCircleAnchor: DisplayedFrame
 ) async throws -> VisibilityTargetObservation {
   let simulator = PaperSceneSimulator(width: 100, height: 80)
   let target = targetStrokes(center: PaperPixelPoint(x: centerX, y: 15), radius: 4)
@@ -903,6 +1020,7 @@ private func targetObservation(
     visibilityRequest(
       baseline: sample(baseline, pose),
       targets: [sample(first, pose), sample(second, pose)],
+      searchCircleAnchor: searchCircleAnchor,
       toolPaperRevision: toolPaperRevision
     )
   )
@@ -910,6 +1028,18 @@ private func targetObservation(
     throw TargetObservationFixtureError.rejected(String(describing: outcome))
   }
   return observation
+}
+
+private func targetSearchAnchor(
+  camera: CameraConfigurationID
+) throws -> DisplayedFrame {
+  let frame = try PaperSceneSimulator(width: 100, height: 80).render(
+    strokes: [],
+    sequence: 1,
+    captureNanoseconds: 1,
+    cameraConfigurationID: camera
+  )
+  return DisplayedFrame(source: .simulated, frame: frame)
 }
 
 private enum TargetObservationFixtureError: Error {

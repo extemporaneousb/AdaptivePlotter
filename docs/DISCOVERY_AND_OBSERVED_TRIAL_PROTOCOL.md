@@ -134,28 +134,28 @@ At the accepted target pose:
    action;
 2. under that action, record current controller MPos and capture one exact
    compatible frame;
-3. measure the bottom-center tool contact point, which is not the component
-   centroid;
-4. fit machine-camera registration from compatible exact machine/contact
+3. measure the visible cap bottom-centre as an exact-frame **cap anchor**; this
+   is neither the component centroid nor the hidden paper-contact point;
+4. fit machine-camera registration from compatible exact machine/cap-anchor
    samples or run the one bounded three-sample Pen Up calibration owner and
    return to the captured target MPos under the shared pose policy;
    the calibration's first fresh passive probe establishes an operation-local
    controller-context baseline, and every later before/after-capture probe must
    match and advance that baseline;
-5. stage the fit, projected target ROI, validation residual, and provenance as
-   a non-authoritative proposal; the ROI retains a 12 px perimeter on left,
-   right, and top, then extends its pre-expansion height by 50 percent at the
-   bottom to cover tool-to-ink Y error without broadening the other sides;
-6. inspect the complete exact frame, ROI outline, and adjustable
+5. stage the fit, validation residual, and a 128 px-radius circular search
+   region as a non-authoritative proposal. The circle centre is the cap anchor
+   from the exact target-pose frame, not a reprojected fit result; its exact
+   frame ID, SHA, source, and camera configuration remain provenance;
+6. inspect the complete exact frame, magenta circle, and adjustable
    presentation-only zoom; then explicitly accept or reject the proposal.
 
 There is no preceding generic Start and no separate public Capture then Build
 sequence.
 
 Calibration never accepts geometry. One explicit acceptance atomically makes
-the target-pose, machine-camera, and typed target-ROI revisions current. No one
+the target-pose, machine-camera, and typed target-search revisions current. No one
 of those revisions becomes current if proposal construction or acceptance
-fails. Viewport zoom never mutates the target ROI used by Vision.
+fails. Viewport zoom never mutates the circular search support used by Vision.
 
 An application-owned parser transition such as Pen Up `M5/S0` to `M3/S40` is
 recorded but does not invalidate coordinate identity. A device, build, units,
@@ -186,14 +186,15 @@ again, change direction/distance, record an attributable human observation, or
 cancel. The app does not infer a useful pose from elapsed travel alone.
 
 An accepted Clear pose records controller context, MPos, exact frame and camera
-configuration, ROI, armature evidence, source, and algorithm revision.
+configuration, search-circle context, armature evidence, source, and algorithm
+revision.
 
 ## 3.5 Confirm Blank Target Baseline
 
 At the accepted Clear MPos, capture a fresh exact candidate frame and explicitly
-choose **Confirm ROI Is Blank** or **Not Blank**. Capture alone creates no
-baseline authority. Acceptance records frame/configuration, MPos, paper
-revision, target-ROI revision, and Clear-pose revision.
+choose **Confirm Search Circle Is Blank** or **Not Blank**. Capture alone creates
+no baseline authority. Acceptance records frame/configuration, MPos, paper
+revision, target-search revision, and Clear-pose revision.
 
 ## 3.6 Return to Registered Target Pose
 
@@ -217,12 +218,13 @@ after an uncertain result.
 
 Return Pen Up under one stoppable owner to accepted Clear and retain Idle/final
 MPos. Then capture two strictly newer exact frames and require compatible
-target detection plus two-frame agreement in the accepted ROI.
+target detection plus two-frame agreement in the accepted circular search
+region.
 
 Observation is one foreground, single-flight Vision operation. It publishes
-ownership before capture, searches bounded target-local support, and presents
-an exact-frame ROI magnifier. Fixed-camera comparison searches at most 3 px and
-accepts at most 2 px of global translation for mount wobble; the separate
+ownership before capture, searches only pixels inside the bounded circle, and
+presents its bounding magnifier. Fixed-camera comparison searches at most 3 px
+and accepts at most 2 px of global translation for mount wobble; the separate
 controller pose tolerance remains 0.05 mm. Controller, motion, pen, camera,
 source, analysis, Restart, and learning mutations are
 refused until settlement. **Cancel Vision** is the sole mutating action and
@@ -237,11 +239,13 @@ the existing target and baseline. It never executes 3.7 again.
 ## 3.9 Accept Visibility Registration
 
 Review the exact frames, centroid, area, uncertainty, immutable plan revision,
-ROI, retained execution-attempt disposition, and consumed revision provenance.
+search-circle anchor, derived cap-to-tip X/Y translation, retained execution-
+attempt disposition, and consumed revision provenance.
 The controller must remain Pen Up and Idle at the accepted Clear pose. Motion
 after observation routes back through the 3.8 Return action; exact settlement
 reuses the existing observation and does not capture or draw again. Explicit
-acceptance creates the current visibility-registration revision. Rejection
+acceptance atomically creates the current cap-to-tip and visibility-registration
+revisions. Rejection
 retains the observation and physical target provenance and performs no redraw.
 
 If the physical scene is unusable, record the disposition:

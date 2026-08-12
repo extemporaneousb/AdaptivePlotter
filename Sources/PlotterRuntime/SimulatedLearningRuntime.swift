@@ -209,16 +209,17 @@ public enum SimulatedLearningAnnotationKind: Codable, Hashable, Sendable {
   case directionLabel(BoundaryDirection)
   case acceptedLearnedSide(BoundaryDirection)
   case learnedCenter
-  case currentContact
+  case currentCapAnchor
   case recentMotionTrail
   case currentOperation
-  case targetROI
+  case targetSearchCircle
   case ink
 }
 
 public enum SimulatedLearningAnnotationGeometry: Codable, Hashable, Sendable {
   case point(Point2<CameraPixelSpace>)
   case bounds(AxisAlignedBounds<CameraPixelSpace>)
+  case circle(center: Point2<CameraPixelSpace>, radiusPixels: Double)
   case polyline(Polyline<CameraPixelSpace>)
 }
 
@@ -275,16 +276,16 @@ public struct SimulatedLearningAnnotation: Hashable, Sendable {
 public struct SimulatedLearningAnnotationContext: Hashable, Sendable {
   public let acceptedBoundaryPositions: [BoundaryDirection: SimulatedLearningMPos]
   public let learnedCenter: SimulatedLearningMPos?
-  public let targetROI: AxisAlignedBounds<CameraPixelSpace>?
+  public let targetSearchCircle: VisibilityTargetSearchCircle?
 
   public init(
     acceptedBoundaryPositions: [BoundaryDirection: SimulatedLearningMPos] = [:],
     learnedCenter: SimulatedLearningMPos? = nil,
-    targetROI: AxisAlignedBounds<CameraPixelSpace>? = nil
+    targetSearchCircle: VisibilityTargetSearchCircle? = nil
   ) {
     self.acceptedBoundaryPositions = acceptedBoundaryPositions
     self.learnedCenter = learnedCenter
-    self.targetROI = targetROI
+    self.targetSearchCircle = targetSearchCircle
   }
 }
 
@@ -314,7 +315,7 @@ public enum SimulatedLearningFault: Codable, Hashable, Sendable {
 public struct SimulatedLearningSceneFrame: Hashable, Sendable {
   public let displayedFrame: DisplayedFrame
   public let controllerPosition: SimulatedLearningMPos
-  public let contactPoint: Point2<CameraPixelSpace>
+  public let capAnchorPoint: Point2<CameraPixelSpace>
   public let armatureBounds: AxisAlignedBounds<CameraPixelSpace>
   public let inkSegmentCount: Int
   public let toolPaperRevision: UUID
@@ -326,7 +327,7 @@ public struct SimulatedLearningSceneFrame: Hashable, Sendable {
   fileprivate init(
     displayedFrame: DisplayedFrame,
     controllerPosition: SimulatedLearningMPos,
-    contactPoint: Point2<CameraPixelSpace>,
+    capAnchorPoint: Point2<CameraPixelSpace>,
     armatureBounds: AxisAlignedBounds<CameraPixelSpace>,
     inkSegmentCount: Int,
     toolPaperRevision: UUID,
@@ -335,7 +336,7 @@ public struct SimulatedLearningSceneFrame: Hashable, Sendable {
   ) {
     self.displayedFrame = displayedFrame
     self.controllerPosition = controllerPosition
-    self.contactPoint = contactPoint
+    self.capAnchorPoint = capAnchorPoint
     self.armatureBounds = armatureBounds
     self.inkSegmentCount = inkSegmentCount
     self.toolPaperRevision = toolPaperRevision
@@ -1425,7 +1426,7 @@ public actor SimulatedLearningRuntime {
     let frameWidth = transform.frameWidth
     let frameHeight = transform.frameHeight
     do {
-      let contact = transform.cameraPoint(for: renderedPosition)
+      let capAnchor = transform.cameraPoint(for: renderedPosition)
       let armatureTopLeft = transform.cameraPoint(for: try SimulatedLearningMPos(
         xMM: renderedPosition.xMM - 1.75,
         yMM: renderedPosition.yMM - 7.5
@@ -1458,7 +1459,8 @@ public actor SimulatedLearningRuntime {
         ))
       }
       // The simulated armature is visible in the same pixels as the paper. Its
-      // bottom-center is the contact point used by registration.
+      // bottom-center is the visible cap anchor used by registration; it is
+      // not asserted to be the hidden paper-contact point.
       let armatureVerticalCount = max(1, Int(armature.maxX - armature.minX))
       for offset in 0...armatureVerticalCount {
         let x = armature.minX + Double(offset)
@@ -1493,14 +1495,14 @@ public actor SimulatedLearningRuntime {
       let annotations = try makeAnnotations(
         displayedFrame: displayed,
         renderedPosition: renderedPosition,
-        contact: contact,
+        capAnchor: capAnchor,
         armature: armature,
         context: annotationContext
       )
       return .success(SimulatedLearningSceneFrame(
         displayedFrame: displayed,
         controllerPosition: renderedPosition,
-        contactPoint: contact,
+        capAnchorPoint: capAnchor,
         armatureBounds: armature,
         inkSegmentCount: inkSegments.count,
         toolPaperRevision: toolPaperRevision,
@@ -1515,7 +1517,7 @@ public actor SimulatedLearningRuntime {
   private func makeAnnotations(
     displayedFrame: DisplayedFrame,
     renderedPosition: SimulatedLearningMPos,
-    contact: Point2<CameraPixelSpace>,
+    capAnchor: Point2<CameraPixelSpace>,
     armature: AxisAlignedBounds<CameraPixelSpace>,
     context: SimulatedLearningAnnotationContext
   ) throws -> [SimulatedLearningAnnotation] {
@@ -1603,8 +1605,8 @@ public actor SimulatedLearningRuntime {
     }
 
     result.append(annotation(
-      .currentContact,
-      anchor: contact,
+      .currentCapAnchor,
+      anchor: capAnchor,
       geometry: .bounds(armature),
       label: "MPOS",
       value: "Simulated MPos X \(renderedPosition.xMM), Y \(renderedPosition.yMM)"
@@ -1631,20 +1633,22 @@ public actor SimulatedLearningRuntime {
       }
       result.append(annotation(
         .currentOperation,
-        anchor: contact,
-        geometry: .point(contact),
+        anchor: capAnchor,
+        geometry: .point(capAnchor),
         label: label,
         value: "Current simulated operation \(label)"
       ))
     }
-    if let roi = context.targetROI {
-      let anchor = try Point2<CameraPixelSpace>(x: roi.minX, y: roi.minY)
+    if let searchCircle = context.targetSearchCircle {
       result.append(annotation(
-        .targetROI,
-        anchor: anchor,
-        geometry: .bounds(roi),
-        label: "TARGET ROI",
-        value: "Simulated target region of interest"
+        .targetSearchCircle,
+        anchor: searchCircle.center,
+        geometry: .circle(
+          center: searchCircle.center,
+          radiusPixels: searchCircle.radiusPixels
+        ),
+        label: "CAP→TIP SEARCH",
+        value: "Simulated circular cap-to-tip acquisition region"
       ))
     }
     for segment in inkSegments {

@@ -163,7 +163,7 @@ struct BoundaryApproachPlanningTests {
       cameraConfigurationID: camera,
       captureNanoseconds: capture,
       machinePosition: try MachinePosition(x: machineX, y: 0),
-      toolContact: try Point2(x: pixelX, y: 50),
+      toolCapAnchor: try Point2(x: pixelX, y: 50),
       toolConfidence: 0.9,
       drawingFrame: envelope,
       drawingFrameConfidence: 0.8
@@ -179,20 +179,20 @@ struct BoundaryApproachPlanningTests {
     envelope: Polyline<CameraPixelSpace>
   ) throws -> BoundaryApproachObservation {
     let machinePosition: MachinePosition
-    let toolContact: Point2<CameraPixelSpace>
+    let toolCapAnchor: Point2<CameraPixelSpace>
     switch direction {
     case .negativeX:
       machinePosition = try MachinePosition(x: -travelMM, y: 0)
-      toolContact = try Point2(x: 150 - travelMM, y: 150)
+      toolCapAnchor = try Point2(x: 150 - travelMM, y: 150)
     case .positiveX:
       machinePosition = try MachinePosition(x: travelMM, y: 0)
-      toolContact = try Point2(x: 150 + travelMM, y: 150)
+      toolCapAnchor = try Point2(x: 150 + travelMM, y: 150)
     case .negativeY:
       machinePosition = try MachinePosition(x: 0, y: -travelMM)
-      toolContact = try Point2(x: 150, y: 150 - travelMM)
+      toolCapAnchor = try Point2(x: 150, y: 150 - travelMM)
     case .positiveY:
       machinePosition = try MachinePosition(x: 0, y: travelMM)
-      toolContact = try Point2(x: 150, y: 150 + travelMM)
+      toolCapAnchor = try Point2(x: 150, y: 150 + travelMM)
     }
     return BoundaryApproachObservation(
       source: source,
@@ -200,7 +200,7 @@ struct BoundaryApproachPlanningTests {
       cameraConfigurationID: camera,
       captureNanoseconds: capture,
       machinePosition: machinePosition,
-      toolContact: toolContact,
+      toolCapAnchor: toolCapAnchor,
       toolConfidence: 0.9,
       drawingFrame: envelope,
       drawingFrameConfidence: 0.8

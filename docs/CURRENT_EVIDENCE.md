@@ -36,9 +36,11 @@ The current source implements:
   matching fresh controller context and MPos evidence is available;
 - Stop-only exercise presentation while physical movement owns the operation.
 - software-validated V2 double-trace target planning and exclusive,
-  cancellable, target-ROI-local foreground Vision with exact-frame magnification;
-- target ROI construction with a 12 px perimeter and a bottom-only extension
-  equal to 50 percent of the pre-expansion ROI height;
+  cancellable, circular target-local foreground Vision with exact-frame
+  magnification;
+- a magenta 128 px-radius search circle centred directly on the exact target-
+  pose cap anchor, circular Vision masking, and accepted cap-to-tip translation
+  from the two-frame target centroid;
 - independently reset camera-advised Boundary renewal tiers (50/20/10/5/2 mm)
   for every direction after an initial 20 mm probe, with recoverable baseline
   establishment, conservative fallback, and Stop-race suppression;
@@ -179,8 +181,9 @@ The current integrated build still lacks attended verification of:
 - attended UI latency, raw-capture continuity, and newest-frame preview resume
   while motion-scoped or finite explicit Vision holds preview publication;
 - coarse-to-fine Clear search and repeatability;
-- physical target contact/ROI, blank baseline, octagonal target, two-frame
-  target observation, isolated line, new-ink observation, and comparison;
+- physical cap anchor/search circle, blank baseline, octagonal target, two-frame
+  target observation, cap-to-tip translation, isolated line, new-ink
+  observation, and comparison;
 - Adaptive Drawing, which is intentionally unavailable.
 
 ## Next attended action

@@ -396,11 +396,11 @@ struct VisibilityObservationOperationID: RawRepresentable, Hashable, Sendable {
 }
 
 enum VisibilityObservationPhase: String, CaseIterable, Hashable, Sendable {
-  case preparing = "Preparing exact target ROI"
+  case preparing = "Preparing exact cap-to-tip search circle"
   case acquiringFirstFrame = "Acquiring target frame 1 of 2"
   case acquiringSecondFrame = "Acquiring target frame 2 of 2"
-  case analyzingFirstFrame = "Analyzing target frame 1 of 2 in the exact ROI"
-  case analyzingSecondFrame = "Analyzing target frame 2 of 2 in the exact ROI"
+  case analyzingFirstFrame = "Analyzing target frame 1 of 2 in the exact circle"
+  case analyzingSecondFrame = "Analyzing target frame 2 of 2 in the exact circle"
   case cancelling = "Cancelling Vision"
   case committing = "Validating and committing exact-frame evidence"
 }
@@ -409,11 +409,11 @@ struct VisibilityObservationOperationPresentation: Hashable, Sendable {
   let id: VisibilityObservationOperationID
   let cancelCapabilityID: VisibilityObservationCancelCapabilityID
   let phase: VisibilityObservationPhase
-  let region: PixelRect
+  let searchCircle: VisibilityTargetSearchCircle
   let targetPlanRevision: String
 
   var busyDetail: String {
-    "\(phase.rawValue) · ROI \(region.width)x\(region.height) px · plan \(targetPlanRevision)"
+    "\(phase.rawValue) · circular cap→tip search R \(Int(searchCircle.radiusPixels.rounded())) px · plan \(targetPlanRevision)"
   }
 }
 

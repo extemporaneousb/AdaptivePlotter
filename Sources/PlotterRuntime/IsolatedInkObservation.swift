@@ -155,10 +155,89 @@ public struct SamePoseFrameSample: Hashable, Sendable {
   }
 }
 
+public enum VisibilityTargetSearchCircleError: Error, Equatable, Sendable {
+  case invalidRadius
+  case emptyAlgorithmRevision
+  case anchorOutsideFrame
+}
+
+/// Camera-configuration-specific acquisition support for the first visibility
+/// mark. The centre is the cap landmark measured in one exact target-pose
+/// frame. Until the ink centroid is observed, the cap-to-tip displacement is
+/// unknown, so Vision searches this bounded circle rather than pretending the
+/// cap landmark is the paper-contact point.
+public struct VisibilityTargetSearchCircle: Codable, Hashable, Sendable,
+  CustomStringConvertible
+{
+  public let center: Point2<CameraPixelSpace>
+  public let radiusPixels: Double
+  public let boundingROI: PixelRect
+  public let anchorFrame: ExactFrameProvenance
+  public let source: FrameSourceIdentity
+  public let algorithmRevision: String
+
+  public init(
+    center: Point2<CameraPixelSpace>,
+    radiusPixels: Double,
+    anchor: DisplayedFrame,
+    algorithmRevision: String
+  ) throws {
+    guard radiusPixels.isFinite, radiusPixels > 0 else {
+      throw VisibilityTargetSearchCircleError.invalidRadius
+    }
+    guard !algorithmRevision.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+      throw VisibilityTargetSearchCircleError.emptyAlgorithmRevision
+    }
+    guard center.x >= 0, center.x < Double(anchor.frame.width),
+      center.y >= 0, center.y < Double(anchor.frame.height)
+    else {
+      throw VisibilityTargetSearchCircleError.anchorOutsideFrame
+    }
+    let minimumX = max(0, Int(floor(center.x - radiusPixels)))
+    let minimumY = max(0, Int(floor(center.y - radiusPixels)))
+    let maximumXExclusive = min(
+      anchor.frame.width,
+      Int(ceil(center.x + radiusPixels)) + 1
+    )
+    let maximumYExclusive = min(
+      anchor.frame.height,
+      Int(ceil(center.y + radiusPixels)) + 1
+    )
+    self.center = center
+    self.radiusPixels = radiusPixels
+    boundingROI = PixelRect(
+      x: minimumX,
+      y: minimumY,
+      width: maximumXExclusive - minimumX,
+      height: maximumYExclusive - minimumY
+    )
+    anchorFrame = ExactFrameProvenance(frame: anchor.frame)
+    source = anchor.source
+    self.algorithmRevision = algorithmRevision
+  }
+
+  public func contains(x: Int, y: Int) -> Bool {
+    let dx = Double(x) - center.x
+    let dy = Double(y) - center.y
+    return dx * dx + dy * dy <= radiusPixels * radiusPixels
+  }
+
+  public var description: String {
+    String(
+      format: "circle center %.1f, %.1f · radius %.0f px · bounds %@ · anchor %@",
+      center.x,
+      center.y,
+      radiusPixels,
+      String(describing: boundingROI),
+      anchorFrame.frameID.rawValue
+    )
+  }
+}
+
 public struct VisibilityTargetObservationRequest: Hashable, Sendable {
   public let baseline: SamePoseFrameSample
   public let targetSamples: [SamePoseFrameSample]
-  public let targetSearchROI: PixelRect
+  public let targetSearchCircle: VisibilityTargetSearchCircle
   public let thresholds: GreenPixelThresholds
   public let controllerSessionID: UUID
   public let coordinateRevision: UInt64
@@ -178,7 +257,7 @@ public struct VisibilityTargetObservationRequest: Hashable, Sendable {
   public init(
     baseline: SamePoseFrameSample,
     targetSamples: [SamePoseFrameSample],
-    targetSearchROI: PixelRect,
+    targetSearchCircle: VisibilityTargetSearchCircle,
     thresholds: GreenPixelThresholds,
     controllerSessionID: UUID,
     coordinateRevision: UInt64,
@@ -197,7 +276,7 @@ public struct VisibilityTargetObservationRequest: Hashable, Sendable {
   ) {
     self.baseline = baseline
     self.targetSamples = targetSamples
-    self.targetSearchROI = targetSearchROI
+    self.targetSearchCircle = targetSearchCircle
     self.thresholds = thresholds
     self.controllerSessionID = controllerSessionID
     self.coordinateRevision = coordinateRevision
@@ -250,6 +329,7 @@ public enum VisibilityTargetObservationRejection: Codable, Hashable, Sendable {
   case framesNotStrictlyIncreasing
   case sourceMismatch
   case cameraConfigurationMismatch
+  case searchCircleProvenanceMismatch
   case dimensionMismatch
   case pixelFormatMismatch
   case invalidRegion
@@ -285,8 +365,87 @@ public struct VisibilityTargetObservation: Codable, Hashable, Sendable {
   public let controllerSessionID: UUID
   public let coordinateRevision: UInt64
   public let toolPaperRevision: UUID
-  public let region: PixelRect
+  public let searchCircle: VisibilityTargetSearchCircle
   public let overlays: [CameraOverlayMeasurement]
+}
+
+public enum PenTipOffsetRegistrationError: Error, Equatable, Sendable {
+  case emptyEstimatorRevision
+  case capAnchorFrameMismatch
+  case sourceMismatch
+  case cameraConfigurationMismatch
+  case searchCircleAnchorMismatch
+  case missingObservationFrames
+}
+
+/// Learned camera-pixel translation from the visible cap landmark to the
+/// centre of ink made at the same machine target pose. This is intentionally
+/// separate from machine-camera registration: the latter maps carriage motion
+/// to the cap landmark, while this value locates the hidden pen tip.
+public struct PenTipOffsetRegistration: Codable, Hashable, Sendable {
+  public let capAnchor: Point2<CameraPixelSpace>
+  public let observedTip: Point2<CameraPixelSpace>
+  public let capToTipOffset: Vector2<CameraPixelSpace>
+  public let capAnchorFrame: ExactFrameProvenance
+  public let observedFrameIDs: [FrameID]
+  public let source: FrameSourceIdentity
+  public let cameraConfigurationID: CameraConfigurationID
+  public let targetPlanRevision: String
+  public let observedTipUncertainty: Vector2<CameraPixelSpace>
+  public let capAnchorConfidence: Double
+  public let estimatorRevision: String
+
+  public init(
+    capAnchor: ToolCapAnchorEstimate,
+    anchorFrame: DisplayedFrame,
+    observation: VisibilityTargetObservation,
+    estimatorRevision: String
+  ) throws {
+    guard !estimatorRevision.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+      throw PenTipOffsetRegistrationError.emptyEstimatorRevision
+    }
+    guard capAnchor.frameID == anchorFrame.frame.id,
+      capAnchor.cameraConfigurationID == anchorFrame.frame.cameraConfigurationID
+    else {
+      throw PenTipOffsetRegistrationError.capAnchorFrameMismatch
+    }
+    guard capAnchor.source == anchorFrame.source,
+      observation.source == anchorFrame.source
+    else {
+      throw PenTipOffsetRegistrationError.sourceMismatch
+    }
+    guard observation.samples.allSatisfy({
+      $0.frame.cameraConfigurationID == anchorFrame.frame.cameraConfigurationID
+    }) else {
+      throw PenTipOffsetRegistrationError.cameraConfigurationMismatch
+    }
+    guard observation.searchCircle.center == capAnchor.point,
+      observation.searchCircle.anchorFrame.frameID == anchorFrame.frame.id,
+      observation.searchCircle.anchorFrame.frameSHA256 == anchorFrame.frame.contentSHA256
+    else {
+      throw PenTipOffsetRegistrationError.searchCircleAnchorMismatch
+    }
+    guard !observation.includedFrameIDs.isEmpty else {
+      throw PenTipOffsetRegistrationError.missingObservationFrames
+    }
+    self.capAnchor = capAnchor.point
+    observedTip = observation.centroid
+    capToTipOffset = try capAnchor.point.vector(to: observation.centroid)
+    capAnchorFrame = ExactFrameProvenance(frame: anchorFrame.frame)
+    observedFrameIDs = observation.includedFrameIDs
+    source = observation.source
+    cameraConfigurationID = anchorFrame.frame.cameraConfigurationID
+    targetPlanRevision = observation.targetPlanRevision
+    observedTipUncertainty = observation.centroidUncertainty
+    capAnchorConfidence = capAnchor.confidence
+    self.estimatorRevision = estimatorRevision
+  }
+
+  public func tipPoint(
+    from projectedCapAnchor: Point2<CameraPixelSpace>
+  ) throws -> Point2<CameraPixelSpace> {
+    try projectedCapAnchor.translated(by: capToTipOffset)
+  }
 }
 
 public enum VisibilityTargetObservationOutcome: Codable, Hashable, Sendable {
@@ -332,6 +491,12 @@ extension VisionWorker {
     guard Set(frames.map(\.cameraConfigurationID)).count == 1 else {
       return .rejected(.cameraConfigurationMismatch)
     }
+    guard request.targetSearchCircle.source == request.baseline.source,
+      request.targetSearchCircle.anchorFrame.cameraConfigurationID
+        == request.baseline.frame.cameraConfigurationID
+    else {
+      return .rejected(.searchCircleProvenanceMismatch)
+    }
     guard Set(frames.map { "\($0.width)x\($0.height)" }).count == 1 else {
       return .rejected(.dimensionMismatch)
     }
@@ -342,16 +507,17 @@ extension VisionWorker {
       lhs.captureNanoseconds < rhs.captureNanoseconds && lhs.id != rhs.id
     }), Set(frames.map(\.id)).count == 3
     else { return .rejected(.framesNotStrictlyIncreasing) }
-    guard Self.contains(request.targetSearchROI, in: request.baseline.frame) else {
+    let targetSearchBounds = request.targetSearchCircle.boundingROI
+    guard Self.contains(targetSearchBounds, in: request.baseline.frame) else {
       return .rejected(.invalidRegion)
     }
     let alignmentSupportROI = Self.expanded(
-      request.targetSearchROI,
+      targetSearchBounds,
       by: 32,
       clippedTo: request.baseline.frame
     )
     let alignmentExclusionROI = Self.expanded(
-      request.targetSearchROI,
+      targetSearchBounds,
       by: request.alignmentSearchRadiusPixels,
       clippedTo: request.baseline.frame
     )
@@ -418,7 +584,7 @@ extension VisionWorker {
       guard let pixels = Self.cancellableNewGreenPixels(
         from: request.baseline.frame,
         to: target.frame,
-        region: request.targetSearchROI,
+        searchCircle: request.targetSearchCircle,
         thresholds: request.thresholds,
         observationShiftX: alignment.shiftX,
         observationShiftY: alignment.shiftY
@@ -516,7 +682,7 @@ extension VisionWorker {
       controllerSessionID: request.controllerSessionID,
       coordinateRevision: request.coordinateRevision,
       toolPaperRevision: request.toolPaperRevision,
-      region: request.targetSearchROI,
+      searchCircle: request.targetSearchCircle,
       overlays: overlays
     ))
   }
@@ -801,15 +967,17 @@ private extension VisionWorker {
   static func cancellableNewGreenPixels(
     from reference: StampedFrame,
     to observation: StampedFrame,
-    region: PixelRect,
+    searchCircle: VisibilityTargetSearchCircle,
     thresholds: GreenPixelThresholds,
     observationShiftX: Int = 0,
     observationShiftY: Int = 0
   ) -> Set<InkPixel>? {
+    let region = searchCircle.boundingROI
     var result: Set<InkPixel> = []
     for y in region.y..<(region.y + region.height) {
       if (y - region.y).isMultiple(of: 16), Task.isCancelled { return nil }
       for x in region.x..<(region.x + region.width) {
+        guard searchCircle.contains(x: x, y: y) else { continue }
         let observedX = x + observationShiftX
         let observedY = y + observationShiftY
         guard observedX >= 0, observedX < observation.width,

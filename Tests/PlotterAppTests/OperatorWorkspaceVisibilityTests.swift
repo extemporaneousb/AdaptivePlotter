@@ -6,25 +6,35 @@ import Testing
 @testable import PlotterRuntime
 
 extension OperatorWorkspaceTests {
-  @Test("Visibility-target ROI adds 50 percent at the bottom only")
-  func visibilityTargetROIAddsBottomOnlyExtension() throws {
-    let projected = [
-      try Point2<CameraPixelSpace>(x: 100, y: 100),
-      try Point2<CameraPixelSpace>(x: 109, y: 107),
-    ]
+  @Test("Visibility-target search circle is fixed to the exact cap-anchor capture")
+  func visibilityTargetSearchCircleUsesExactCapAnchor() throws {
+    let frame = try StampedFrame(
+      id: FrameID(rawValue: "cap-anchor-frame"),
+      sequence: 7,
+      captureNanoseconds: 700,
+      cameraConfigurationID: CameraConfigurationID(),
+      width: 640,
+      height: 480,
+      rowBytes: 640,
+      pixelFormat: .gray8,
+      bytes: OwnedFrameBytes(Array(repeating: 0, count: 640 * 480))
+    )
+    let displayed = DisplayedFrame(source: .simulated, frame: frame)
+    let capAnchor = try Point2<CameraPixelSpace>(x: 320, y: 240)
 
     let proposal = try #require(
-      VisibilityTargetROIPolicy.proposal(
-        projectedPoints: projected,
-        frameWidth: 1_920,
-        frameHeight: 1_080
+      VisibilityTargetSearchCirclePolicy.proposal(
+        capAnchor: capAnchor,
+        anchorFrame: displayed
       )
     )
 
-    #expect(proposal.region == PixelRect(x: 88, y: 88, width: 34, height: 48))
-    #expect(proposal.insets.perimeterPixels == 12)
-    #expect(proposal.insets.bottomExtensionPixels == 16)
-    #expect(proposal.insets.presentation == "L/R/T 12 px · B 28 px (16 px extension)")
+    #expect(proposal.center == capAnchor)
+    #expect(proposal.radiusPixels == 128)
+    #expect(proposal.boundingROI == PixelRect(x: 192, y: 112, width: 257, height: 257))
+    #expect(proposal.anchorFrame.frameID == frame.id)
+    #expect(proposal.anchorFrame.frameSHA256 == frame.contentSHA256)
+    #expect(proposal.algorithmRevision == "visibility-target-cap-tip-search-circle-v1")
   }
 
   @Test(
@@ -47,6 +57,12 @@ extension OperatorWorkspaceTests {
     #expect(harness.workspace.visibilityRegistrationAccepted)
     #expect(harness.workspace.visibilityTargetObservation?.validSampleCount == 2)
     #expect(harness.workspace.visibilityTargetObservation?.includedFrameIDs.count == 2)
+    #expect(harness.workspace.penTipOffsetRegistration != nil)
+    #expect(
+      harness.workspace.learningArtifactGraph.currentRevision(
+        for: .penTipOffsetRegistration
+      ) != nil
+    )
     #expect(harness.workspace.displayedFrame?.source == .simulated)
     #expect(
       await harness.runtime.persistentInk().count == VisibilityTargetPlanV2().drawingStepCount)
@@ -347,9 +363,9 @@ extension OperatorWorkspaceTests {
     let cameraConfigurationID = try #require(
       workspace.targetPoseRegistrationFrame?.frame.cameraConfigurationID
     )
-    let evidence = workspace.explicitRegistrationContactEvidence.filter {
+    let evidence = workspace.explicitRegistrationCapAnchorEvidence.filter {
       $0.cameraConfigurationID == cameraConfigurationID
-        && $0.algorithmRevision == "automatic-current-camera-contact-v2"
+        && $0.algorithmRevision == "automatic-current-camera-cap-anchor-v3"
     }
     #expect(evidence.count == 3)
     let first = try #require(evidence.first?.machinePoint)
@@ -363,10 +379,10 @@ extension OperatorWorkspaceTests {
     let runtimePosition = await harness.runtime.snapshot().mpos
     #expect(abs(runtimePosition.xMM - targetPosition.point.x) <= 0.001)
     #expect(abs(runtimePosition.yMM - targetPosition.point.y) <= 0.001)
-    #expect(!workspace.targetContactPointAndROIAccepted)
-    #expect(workspace.targetObservationRegion == nil)
+    #expect(!workspace.targetCapAnchorAndSearchCircleAccepted)
+    #expect(workspace.targetSearchCircle == nil)
     #expect(workspace.machineCameraRegistration == nil)
-    #expect(workspace.proposedTargetObservationRegion != nil)
+    #expect(workspace.proposedTargetSearchCircle != nil)
     #expect(workspace.proposedMachineCameraRegistration != nil)
     #expect(
       workspace.learningArtifactGraph.currentRevision(for: .machineCameraRegistration) == nil
@@ -384,8 +400,8 @@ extension OperatorWorkspaceTests {
       owner: owner,
       workspace: workspace
     )
-    #expect(workspace.targetContactPointAndROIAccepted)
-    #expect(workspace.targetObservationRegion != nil)
+    #expect(workspace.targetCapAnchorAndSearchCircleAccepted)
+    #expect(workspace.targetSearchCircle != nil)
     #expect(workspace.machineCameraRegistration != nil)
     #expect(workspace.learningArtifactGraph.currentRevision(for: .machineCameraRegistration) != nil)
     #expect(workspace.learningArtifactGraph.currentRevision(for: .targetROIRegistration) != nil)
@@ -435,8 +451,8 @@ extension OperatorWorkspaceTests {
     )
     let targetPosition = try #require(workspace.registeredTargetMachinePosition)
 
-    #expect(workspace.targetContactPointAndROIAccepted == false)
-    #expect(workspace.targetObservationRegion == nil)
+    #expect(workspace.targetCapAnchorAndSearchCircleAccepted == false)
+    #expect(workspace.targetSearchCircle == nil)
     #expect(workspace.machineCameraRegistration == nil)
     #expect(
       workspace.learningArtifactGraph.currentRevision(for: .machineCameraRegistration) == nil
@@ -448,7 +464,7 @@ extension OperatorWorkspaceTests {
     #expect(workspace.pairedBoundaryProgress.isComplete)
     #expect(workspace.explorationError?.contains("injectedRefusal") == true)
     #expect(workspace.explorationError?.contains("controllerOutcome(") == false)
-    #expect(workspace.explicitRegistrationContactEvidence.isEmpty)
+    #expect(workspace.explicitRegistrationCapAnchorEvidence.isEmpty)
 
     let runtimeSnapshot = await harness.runtime.snapshot()
     #expect(runtimeSnapshot.currentOperation == nil)
@@ -481,7 +497,7 @@ extension OperatorWorkspaceTests {
     )
     #expect(workspace.explorationError == nil)
     #expect(workspace.proposedMachineCameraRegistration != nil)
-    #expect(workspace.proposedTargetObservationRegion != nil)
+    #expect(workspace.proposedTargetSearchCircle != nil)
   }
 
   @Test("LIVE calibration ignores the stale pre-pen probe and establishes a local baseline")
@@ -589,10 +605,10 @@ extension OperatorWorkspaceTests {
 
     #expect(workspace.activeExerciseAttemptID == attemptID)
     #expect(workspace.restartableExerciseItemID == nil)
-    #expect(workspace.targetContactPointAndROIAccepted == false)
-    #expect(workspace.targetObservationRegion == nil)
+    #expect(workspace.targetCapAnchorAndSearchCircleAccepted == false)
+    #expect(workspace.targetSearchCircle == nil)
     #expect(workspace.machineCameraRegistration == nil)
-    #expect(workspace.explicitRegistrationContactEvidence.isEmpty)
+    #expect(workspace.explicitRegistrationCapAnchorEvidence.isEmpty)
     #expect(await harness.runtime.snapshot().currentOperation == nil)
     let recovery = workspace.selectedOperatorActionPresentation(for: owner)
     #expect(
@@ -644,10 +660,10 @@ extension OperatorWorkspaceTests {
       return await harness.runtime.snapshot().currentOperation == nil
     }
 
-    #expect(workspace.targetContactPointAndROIAccepted == false)
-    #expect(workspace.targetObservationRegion == nil)
+    #expect(workspace.targetCapAnchorAndSearchCircleAccepted == false)
+    #expect(workspace.targetSearchCircle == nil)
     #expect(workspace.machineCameraRegistration == nil)
-    #expect(workspace.explicitRegistrationContactEvidence.isEmpty)
+    #expect(workspace.explicitRegistrationCapAnchorEvidence.isEmpty)
     #expect(await completions.values.isEmpty)
 
     await pacing.resume()
@@ -660,10 +676,10 @@ extension OperatorWorkspaceTests {
     #expect(abs(runtimeSnapshot.mpos.xMM - targetPosition.point.x) <= 0.001)
     #expect(abs(runtimeSnapshot.mpos.yMM - targetPosition.point.y) <= 0.001)
     #expect(workspace.isShutdown)
-    #expect(workspace.targetContactPointAndROIAccepted == false)
-    #expect(workspace.targetObservationRegion == nil)
+    #expect(workspace.targetCapAnchorAndSearchCircleAccepted == false)
+    #expect(workspace.targetSearchCircle == nil)
     #expect(workspace.machineCameraRegistration == nil)
-    #expect(workspace.explicitRegistrationContactEvidence.isEmpty)
+    #expect(workspace.explicitRegistrationCapAnchorEvidence.isEmpty)
     #expect(
       await completions.values.sorted() == ["calibration-returned", "shutdown-returned"]
     )
@@ -695,9 +711,9 @@ extension OperatorWorkspaceTests {
     }
     let expectedEvidenceLabels: [HumanGuidedDiscoveryStep: [String]] = [
       .registerTargetPoseAndCameraGeometry: [
-        "Exact target-pose capture", "Accepted contact, fit, and ROI",
+        "Exact target-pose capture", "Accepted cap anchor, fit, and search circle",
       ],
-      .discoverAndAcceptClearView: ["Target ROI input", "Clear-pose decision"],
+      .discoverAndAcceptClearView: ["Target search-circle input", "Clear-pose decision"],
       .confirmBlankTargetBaseline: ["Blank-baseline candidate", "Accepted blank baseline"],
       .returnToRegisteredTargetPose: ["Registered-target settlement"],
       .drawVisibilityTarget: ["Accepted drawing inputs", "One-shot target execution"],
@@ -706,6 +722,7 @@ extension OperatorWorkspaceTests {
       ],
       .acceptVisibilityRegistration: [
         "Registration candidate", "Target attempt aggregate",
+        "Cap-to-tip registration",
         "Visibility-registration authority",
       ],
     ]

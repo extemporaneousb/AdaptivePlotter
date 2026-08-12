@@ -43,9 +43,11 @@ Candidate work:
 - explicit ambiguity handling without automatic redraw.
 
 Prefer the simplest interpretable model that improves held-out physical trials.
-Affine geometry, cap-to-tip offset, direction-dependent backlash, and a
-regularized low-resolution residual field are progressively more complex
-options, not mandatory stages.
+Stage 3 now establishes the camera-configuration-specific cap-to-tip
+translation needed to locate ink from the visible cap anchor. Affine correction
+beyond that baseline, direction-dependent backlash, and a regularized low-
+resolution residual field remain progressively more complex options, not
+mandatory stages.
 
 ## 3. Active experiment selection
 

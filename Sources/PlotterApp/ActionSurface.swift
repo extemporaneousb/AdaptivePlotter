@@ -70,6 +70,7 @@ struct CameraPixelToViewTransform: Equatable, Sendable {
 struct ActionSurfaceFocus: Hashable, Sendable {
   let frameID: FrameID
   let cameraConfigurationID: CameraConfigurationID
+  let searchCircle: VisibilityTargetSearchCircle
   let region: PixelRect
   let label: String
   let viewportContext: ActionSurfaceViewportContext
@@ -80,19 +81,19 @@ struct ActionSurfaceFocus: Hashable, Sendable {
   }
 }
 
-/// Stable presentation identity for an authoritative or staged target ROI.
+/// Stable presentation identity for an authoritative or staged target-search circle.
 /// Exact frame identity deliberately does not participate: live frames and
 /// analysis phases may advance without overriding the operator's viewport.
 struct ActionSurfaceViewportContext: Hashable, Sendable {
   let source: FrameSourceIdentity
   let cameraConfigurationID: CameraConfigurationID
   let targetAreaIdentity: UUID
-  let roiAuthorityToken: String
+  let searchAuthorityToken: String
   let region: PixelRect
 }
 
-/// The effective camera-pixel region shared by viewport projection and the ROI
-/// outline. An empty or wholly out-of-frame ROI has no drawable intersection.
+/// The effective camera-pixel bounds used by viewport projection and clipping.
+/// Empty or wholly out-of-frame search bounds have no drawable intersection.
 func cameraFrameIntersection(
   _ region: PixelRect,
   frameWidth: Int,
@@ -115,8 +116,8 @@ func cameraFrameIntersection(
 }
 
 /// Window-local, presentation-only viewport state. `zoom == 0` is the complete
-/// camera frame and `zoom == 1` is the exact Vision ROI. Intermediate values
-/// interpolate the visible camera rectangle without mutating evidence or ROI.
+/// camera frame and `zoom == 1` is the circle's bounding box. Intermediate
+/// values interpolate the viewport without mutating search evidence.
 struct ActionSurfaceViewportState: Equatable, Sendable {
   private(set) var context: ActionSurfaceViewportContext?
   var zoom: Double = 0
@@ -128,7 +129,7 @@ struct ActionSurfaceViewportState: Equatable, Sendable {
   }
 
   mutating func showFullFrame() { zoom = 0 }
-  mutating func showExactROI() { zoom = 1 }
+  mutating func showSearchBounds() { zoom = 1 }
 
   func visibleRegion(frameWidth: Int, frameHeight: Int) -> PixelRect? {
     guard let context, frameWidth > 0, frameHeight > 0 else { return nil }
@@ -283,8 +284,8 @@ struct ActionSurface: View {
                 viewport.showFullFrame()
               }
               .operatorButton(isEnabled: viewport.zoom != 0)
-              Button("Exact ROI") {
-                viewport.showExactROI()
+              Button("Search Bounds") {
+                viewport.showSearchBounds()
               }
               .operatorButton(isEnabled: viewport.zoom != 1)
             }
@@ -294,17 +295,19 @@ struct ActionSurface: View {
             } minimumValueLabel: {
               Text("Full")
             } maximumValueLabel: {
-              Text("ROI")
+              Text("Search")
             }
             .frame(width: 210)
-            .help("Change only the displayed viewport. Vision continues to use the exact accepted ROI.")
+            .help(
+              "Change only the displayed viewport. Vision continues to use the exact accepted circular search region."
+            )
             .accessibilityValue(Int((viewport.zoom * 100).rounded()).description + " percent")
             Text(
               viewport.zoom == 0
-                ? "FULL FRAME · ROI \(focus.region.width)x\(focus.region.height) outlined"
+                ? "FULL FRAME · CAP→TIP SEARCH CIRCLE R \(Int(focus.searchCircle.radiusPixels.rounded())) px"
                 : viewport.zoom == 1
-                  ? "EXACT ROI \(focus.region.width)x\(focus.region.height) · \(focus.label)"
-                  : "PRESENTATION ZOOM \(Int((viewport.zoom * 100).rounded()))% · ROI unchanged"
+                  ? "SEARCH BOUNDS \(focus.region.width)x\(focus.region.height) · \(focus.label)"
+                  : "PRESENTATION ZOOM \(Int((viewport.zoom * 100).rounded()))% · SEARCH CIRCLE unchanged"
             )
             .font(.caption2.monospaced().bold())
             .foregroundStyle(.white)
@@ -357,25 +360,23 @@ struct ActionSurface: View {
     }
     if let focus = presentation.focus,
       let displayedFrame = presentation.displayedFrame,
-      let effectiveRegion = cameraFrameIntersection(
+      cameraFrameIntersection(
         focus.region,
         frameWidth: displayedFrame.frame.width,
         frameHeight: displayedFrame.frame.height
-      ),
-      let minimum = try? Point2<CameraPixelSpace>(
-        x: Double(effectiveRegion.x), y: Double(effectiveRegion.y)
-      ),
-      let maximum = try? Point2<CameraPixelSpace>(
-        x: Double(effectiveRegion.x + effectiveRegion.width),
-        y: Double(effectiveRegion.y + effectiveRegion.height)
-      )
+      ) != nil
     {
-      let min = transform.point(minimum)
-      let max = transform.point(maximum)
+      let center = transform.point(focus.searchCircle.center)
+      let radius = focus.searchCircle.radiusPixels * transform.scale
       context.stroke(
-        Path(CGRect(x: min.x, y: min.y, width: max.x - min.x, height: max.y - min.y)),
-        with: .color(.yellow),
-        style: StrokeStyle(lineWidth: 2, dash: [7, 4])
+        Path(ellipseIn: CGRect(
+          x: center.x - radius,
+          y: center.y - radius,
+          width: radius * 2,
+          height: radius * 2
+        )),
+        with: .color(Color(red: 1, green: 0, blue: 1)),
+        style: StrokeStyle(lineWidth: 3, dash: [9, 5])
       )
     }
     for overlay in presentation.overlays {
@@ -425,6 +426,19 @@ struct ActionSurface: View {
         with: .color(style.color),
         style: stroke
       )
+    case .circle(let center, let radiusPixels):
+      let projectedCenter = transform.point(center)
+      let radius = radiusPixels * transform.scale
+      context.stroke(
+        Path(ellipseIn: CGRect(
+          x: projectedCenter.x - radius,
+          y: projectedCenter.y - radius,
+          width: radius * 2,
+          height: radius * 2
+        )),
+        with: .color(style.color),
+        style: stroke
+      )
     case .polyline(let polyline):
       var path = Path()
       path.move(to: transform.point(polyline.start))
@@ -450,14 +464,14 @@ struct ActionSurface: View {
       return (.orange, 2, [8, 5])
     case .acceptedLearnedSide, .learnedCenter:
       return (.cyan, 3, [])
-    case .currentContact:
+    case .currentCapAnchor:
       return (.green, 2.5, [])
     case .recentMotionTrail:
       return (.white.opacity(0.75), 1.5, [3, 3])
     case .currentOperation:
       return (.red, 3, [])
-    case .targetROI:
-      return (.yellow, 2.5, [6, 3])
+    case .targetSearchCircle:
+      return (Color(red: 1, green: 0, blue: 1), 3, [9, 5])
     case .ink:
       return (.blue, 2, [])
     }

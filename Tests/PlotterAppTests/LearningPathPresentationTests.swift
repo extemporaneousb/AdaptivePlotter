@@ -279,7 +279,7 @@ struct LearningPathPresentationTests {
         ),
         ExerciseActionDescriptor(
           kind: .rejectTargetGeometryProposal,
-          title: "Reject Contact Point and ROI"
+          title: "Reject Cap Anchor and Search Circle"
         ),
         ExerciseActionDescriptor(
           kind: .registerNewTargetArea,

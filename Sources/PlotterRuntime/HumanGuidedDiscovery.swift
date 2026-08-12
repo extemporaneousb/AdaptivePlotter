@@ -108,16 +108,16 @@ public struct PairedBoundaryProgress: Codable, Hashable, Sendable {
   }
 }
 
-public enum ToolContactPointEstimateError: Error, Equatable, Sendable {
+public enum ToolCapAnchorEstimateError: Error, Equatable, Sendable {
   case invalidConfidence
   case emptyEstimatorRevision
 }
 
-/// The estimated paper-contact point is the bottom-center of the measured tool
-/// component. It is deliberately retained separately from the component's
-/// centroid so downstream registration never silently substitutes one for the
-/// other.
-public struct ToolContactPointEstimate: Codable, Hashable, Sendable {
+/// Stable visible landmark at the bottom-centre of the detected pen-cap
+/// component. This is not the hidden paper-contact point. Machine-camera
+/// registration follows this cap anchor; a separately observed cap-to-tip
+/// offset is required before projecting intended ink geometry.
+public struct ToolCapAnchorEstimate: Codable, Hashable, Sendable {
   public let point: Point2<CameraPixelSpace>
   public let componentCentroid: Point2<CameraPixelSpace>
   public let componentBounds: AxisAlignedBounds<CameraPixelSpace>
@@ -137,10 +137,10 @@ public struct ToolContactPointEstimate: Codable, Hashable, Sendable {
     cameraConfigurationID: CameraConfigurationID
   ) throws {
     guard confidence.isFinite, confidence >= 0, confidence <= 1 else {
-      throw ToolContactPointEstimateError.invalidConfidence
+      throw ToolCapAnchorEstimateError.invalidConfidence
     }
     guard !estimatorRevision.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-      throw ToolContactPointEstimateError.emptyEstimatorRevision
+      throw ToolCapAnchorEstimateError.emptyEstimatorRevision
     }
     point = try Point2(
       x: (componentBounds.minX + componentBounds.maxX) / 2,
@@ -260,7 +260,7 @@ public enum BoundarySideAggregateError: Error, Equatable, Sendable {
 }
 
 /// Current accepted numeric value for one typed machine direction. Its frame
-/// and contact samples remain in the referenced exact attempt evidence.
+/// and cap-anchor samples remain in the referenced exact attempt evidence.
 public struct BoundarySideAggregate: Codable, Hashable, Sendable {
   public let direction: BoundaryDirection
   public let revisionID: LearningArtifactRevisionID
@@ -544,14 +544,14 @@ public enum MachineCameraRegistrationError: Error, Equatable, Sendable {
   case correspondenceSourceMismatch
   case correspondenceControllerMismatch
   case correspondenceCameraMismatch
-  case correspondenceContactEstimatorMismatch
+  case correspondenceCapAnchorEstimatorMismatch
   case correspondenceFitMismatch
   case validationResidualExceeded(actualPixels: Double, maximumPixels: Double)
 }
 
 public struct MachineCameraCorrespondenceProvenance: Codable, Hashable, Sendable {
   public let machinePoint: Point2<MachineSpace>
-  public let contactPoint: Point2<CameraPixelSpace>
+  public let capAnchorPoint: Point2<CameraPixelSpace>
   public let source: FrameSourceIdentity
   public let controllerSessionID: UUID
   public let coordinateRevision: UInt64
@@ -560,14 +560,14 @@ public struct MachineCameraCorrespondenceProvenance: Codable, Hashable, Sendable
   public let captureNanoseconds: UInt64
   public let cameraConfigurationID: CameraConfigurationID
   public let attemptID: ExerciseAttemptID
-  public let contactEstimatorRevision: String
+  public let capAnchorEstimatorRevision: String
   public let algorithmRevision: String
-  public let contactConfidence: Double
+  public let capAnchorConfidence: Double
   public let artifactRevisionID: LearningArtifactRevisionID
 
   public init(
     machinePoint: Point2<MachineSpace>,
-    contactPoint: Point2<CameraPixelSpace>,
+    capAnchorPoint: Point2<CameraPixelSpace>,
     source: FrameSourceIdentity,
     controllerSessionID: UUID,
     coordinateRevision: UInt64,
@@ -576,19 +576,19 @@ public struct MachineCameraCorrespondenceProvenance: Codable, Hashable, Sendable
     captureNanoseconds: UInt64,
     cameraConfigurationID: CameraConfigurationID,
     attemptID: ExerciseAttemptID,
-    contactEstimatorRevision: String,
+    capAnchorEstimatorRevision: String,
     algorithmRevision: String,
-    contactConfidence: Double,
+    capAnchorConfidence: Double,
     artifactRevisionID: LearningArtifactRevisionID
   ) {
     precondition(!frameSHA256.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     precondition(
-      !contactEstimatorRevision.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      !capAnchorEstimatorRevision.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     )
     precondition(!algorithmRevision.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-    precondition(contactConfidence.isFinite && contactConfidence >= 0 && contactConfidence <= 1)
+    precondition(capAnchorConfidence.isFinite && capAnchorConfidence >= 0 && capAnchorConfidence <= 1)
     self.machinePoint = machinePoint
-    self.contactPoint = contactPoint
+    self.capAnchorPoint = capAnchorPoint
     self.source = source
     self.controllerSessionID = controllerSessionID
     self.coordinateRevision = coordinateRevision
@@ -597,9 +597,9 @@ public struct MachineCameraCorrespondenceProvenance: Codable, Hashable, Sendable
     self.captureNanoseconds = captureNanoseconds
     self.cameraConfigurationID = cameraConfigurationID
     self.attemptID = attemptID
-    self.contactEstimatorRevision = contactEstimatorRevision
+    self.capAnchorEstimatorRevision = capAnchorEstimatorRevision
     self.algorithmRevision = algorithmRevision
-    self.contactConfidence = contactConfidence
+    self.capAnchorConfidence = capAnchorConfidence
     self.artifactRevisionID = artifactRevisionID
   }
 }
@@ -613,10 +613,10 @@ public struct MachineCameraRegistration: Codable, Hashable, Sendable {
   public let correspondenceProvenance: [MachineCameraCorrespondenceProvenance]
   public let correspondenceFrameIDs: Set<FrameID>
   public let correspondenceRevisionIDs: Set<LearningArtifactRevisionID>
-  public let contactEstimatorRevision: String
+  public let capAnchorEstimatorRevision: String
   public let validationTargetFrameID: FrameID
   public let validationMachinePoint: Point2<MachineSpace>
-  public let validationContactPoint: Point2<CameraPixelSpace>
+  public let validationCapAnchorPoint: Point2<CameraPixelSpace>
   public let validationResidualPixels: Double
   public let maximumValidationResidualPixels: Double
   public let estimatorRevision: String
@@ -631,7 +631,7 @@ public struct MachineCameraRegistration: Codable, Hashable, Sendable {
     correspondenceProvenance: [MachineCameraCorrespondenceProvenance],
     validationTargetFrameID: FrameID,
     validationMachinePoint: Point2<MachineSpace>,
-    validationContactPoint: Point2<CameraPixelSpace>,
+    validationCapAnchorPoint: Point2<CameraPixelSpace>,
     maximumValidationResidualPixels: Double,
     estimatorRevision: String,
     uncertaintyPixels: Double
@@ -656,24 +656,24 @@ public struct MachineCameraRegistration: Codable, Hashable, Sendable {
     guard Set(correspondenceProvenance.map(\.cameraConfigurationID)) == [cameraConfigurationID] else {
       throw MachineCameraRegistrationError.correspondenceCameraMismatch
     }
-    let contactEstimatorRevisions = Set(correspondenceProvenance.map(\.contactEstimatorRevision))
-    guard contactEstimatorRevisions.count == 1,
-      let contactEstimatorRevision = contactEstimatorRevisions.first
+    let capAnchorEstimatorRevisions = Set(correspondenceProvenance.map(\.capAnchorEstimatorRevision))
+    guard capAnchorEstimatorRevisions.count == 1,
+      let capAnchorEstimatorRevision = capAnchorEstimatorRevisions.first
     else {
-      throw MachineCameraRegistrationError.correspondenceContactEstimatorMismatch
+      throw MachineCameraRegistrationError.correspondenceCapAnchorEstimatorMismatch
     }
     let fitPairs = Set(fit.correspondences)
     let provenancePairs = Set(correspondenceProvenance.map {
       MachineCameraRegistrationCorrespondence(
         machine: $0.machinePoint,
-        camera: $0.contactPoint
+        camera: $0.capAnchorPoint
       )
     })
     guard fitPairs == provenancePairs else {
       throw MachineCameraRegistrationError.correspondenceFitMismatch
     }
     let predicted = try fit.cameraPoint(from: validationMachinePoint)
-    let validationResidual = predicted.distance(to: validationContactPoint)
+    let validationResidual = predicted.distance(to: validationCapAnchorPoint)
     guard validationResidual <= maximumValidationResidualPixels else {
       throw MachineCameraRegistrationError.validationResidualExceeded(
         actualPixels: validationResidual,
@@ -688,10 +688,10 @@ public struct MachineCameraRegistration: Codable, Hashable, Sendable {
     self.correspondenceProvenance = correspondenceProvenance
     correspondenceFrameIDs = Set(correspondenceProvenance.map(\.frameID))
     correspondenceRevisionIDs = Set(correspondenceProvenance.map(\.artifactRevisionID))
-    self.contactEstimatorRevision = contactEstimatorRevision
+    self.capAnchorEstimatorRevision = capAnchorEstimatorRevision
     self.validationTargetFrameID = validationTargetFrameID
     self.validationMachinePoint = validationMachinePoint
-    self.validationContactPoint = validationContactPoint
+    self.validationCapAnchorPoint = validationCapAnchorPoint
     validationResidualPixels = validationResidual
     self.maximumValidationResidualPixels = maximumValidationResidualPixels
     self.estimatorRevision = estimatorRevision

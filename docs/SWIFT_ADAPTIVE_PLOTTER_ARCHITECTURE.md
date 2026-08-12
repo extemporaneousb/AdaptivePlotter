@@ -106,11 +106,11 @@ A Boundary operation is distinct from an ordinary manual jog. Selecting a side
 is inert; explicit Start admits one renewable logical owner. Operator Stop
 closes renewal, emits one cancel, awaits final Idle/MPos, and atomically commits
 the controller-side attempt and per-side aggregate. The commit contains no
-frame, cap/contact centroid, confidence, or Vision result. No preparatory generic
+frame, cap-anchor point, confidence, or Vision result. No preparatory generic
 YES/NO question or camera edge association exists in this sequence.
 
-`BoundaryApproachPlanner` consumes consecutive compatible exact-frame cap
-bottom-center observations and the controller's settled MPos displacement. It
+`BoundaryApproachPlanner` consumes consecutive compatible exact-frame cap-
+anchor observations and the controller's settled MPos displacement. It
 derives an observed pixels/mm scale, ray-projects motion to the inferred drawing
 frame envelope, and chooses a bounded coarse-to-fine segment tier. Its async
 runtime seam consumes only the latest completed advisory and launches the next
@@ -268,7 +268,8 @@ it cannot resend an ambiguous operation.
 Machine-space Boundary aggregates are compatible by direction, controller
 session, coordinate revision, space, units, and estimator. Camera configuration
 does not split them. Machine-camera registration instead consumes compatible
-exact machine/contact samples with their original frame and configuration.
+exact machine/cap-anchor samples with their original frame and configuration.
+The visible cap bottom-centre is not the hidden pen tip.
 
 The simulator uses an invertible uniform world-to-camera auto-fit whose identity
 is recorded in every causal simulated frame. Presentation annotations are bound
@@ -281,16 +282,19 @@ The current dependency spine is:
 
 ```text
 four boundary aggregates -> estimated center -> center arrival
--> target pose/contact/ROI -> accepted clear pose
+-> target pose/cap anchor/circular search region -> accepted clear pose
 -> blank baseline -> visibility-target execution
--> two-frame target observation -> visibility registration
+-> two-frame target observation -> cap-to-tip offset -> visibility registration
 -> target-present trial baseline -> line plan/execution
 -> post-line frame -> ink observation -> comparison
 ```
 
 Machine-camera registration separately consumes compatible exact current-camera
-machine/contact samples. Learned local coordinates separately consume the same
-four side aggregates and never enter motion admission.
+machine/cap-anchor samples. The accepted two-frame target centroid learns a
+camera-configuration-specific cap-to-tip translation, and later intended-ink
+projections add that translation to cap-based registration output. Learned local
+coordinates separately consume the same four side aggregates and never enter
+motion admission.
 
 Redo stages a replacement and atomically changes the accepted slot on success.
 Only named transitive dependents are invalidated. Record Another Attempt adds a

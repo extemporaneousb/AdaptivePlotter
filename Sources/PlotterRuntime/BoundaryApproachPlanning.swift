@@ -9,7 +9,7 @@ public struct BoundaryApproachObservation: Hashable, Sendable {
   public let cameraConfigurationID: CameraConfigurationID
   public let captureNanoseconds: UInt64
   public let machinePosition: MachinePosition
-  public let toolContact: Point2<CameraPixelSpace>
+  public let toolCapAnchor: Point2<CameraPixelSpace>
   public let toolConfidence: Double
   public let drawingFrame: Polyline<CameraPixelSpace>
   public let drawingFrameConfidence: Double
@@ -20,7 +20,7 @@ public struct BoundaryApproachObservation: Hashable, Sendable {
     cameraConfigurationID: CameraConfigurationID,
     captureNanoseconds: UInt64,
     machinePosition: MachinePosition,
-    toolContact: Point2<CameraPixelSpace>,
+    toolCapAnchor: Point2<CameraPixelSpace>,
     toolConfidence: Double,
     drawingFrame: Polyline<CameraPixelSpace>,
     drawingFrameConfidence: Double
@@ -30,7 +30,7 @@ public struct BoundaryApproachObservation: Hashable, Sendable {
     self.cameraConfigurationID = cameraConfigurationID
     self.captureNanoseconds = captureNanoseconds
     self.machinePosition = machinePosition
-    self.toolContact = toolContact
+    self.toolCapAnchor = toolCapAnchor
     self.toolConfidence = toolConfidence
     self.drawingFrame = drawingFrame
     self.drawingFrameConfidence = drawingFrameConfidence
@@ -101,15 +101,15 @@ public actor BoundaryApproachPlanner {
     }
 
     let machineTravelMM = previous.machinePosition.point.distance(to: current.machinePosition.point)
-    let pixelTravel = previous.toolContact.distance(to: current.toolContact)
+    let pixelTravel = previous.toolCapAnchor.distance(to: current.toolCapAnchor)
     guard machineTravelMM >= 0.5, pixelTravel >= 2 else {
       return fallback(.insufficientMotionFallback)
     }
 
-    let directionX = current.toolContact.x - previous.toolContact.x
-    let directionY = current.toolContact.y - previous.toolContact.y
+    let directionX = current.toolCapAnchor.x - previous.toolCapAnchor.x
+    let directionY = current.toolCapAnchor.y - previous.toolCapAnchor.y
     guard let remainingPixels = Self.forwardIntersectionDistance(
-      origin: current.toolContact,
+      origin: current.toolCapAnchor,
       directionX: directionX,
       directionY: directionY,
       envelope: current.drawingFrame

@@ -76,7 +76,7 @@ struct LearningArtifactsTests {
     #expect(graph.currentRevision(for: .boundarySideAggregate(.negativeY))?.id == boundary.id)
   }
 
-  @Test("Stage 3 visibility chain is rooted in typed target ROI authority")
+  @Test("Stage 3 visibility chain is rooted in typed target-search authority")
   func targetROIInvalidatesClearBaselineExecutionAndObservation() throws {
     var graph = LearningDependencyGraph()
     let targetPose = revision(kind: .targetPoseRegistration)
@@ -101,13 +101,17 @@ struct LearningArtifactsTests {
       kind: .visibilityTargetObservation,
       consumes: [execution.id, baseline.id, targetROI.id]
     )
+    let tipOffset = revision(
+      kind: .penTipOffsetRegistration,
+      consumes: [observation.id, targetPose.id]
+    )
     let registration = revision(
       kind: .visibilityRegistration,
-      consumes: [observation.id, machineRegistration.id, targetROI.id]
+      consumes: [observation.id, machineRegistration.id, targetROI.id, tipOffset.id]
     )
     for artifact in [
       targetPose, machineRegistration, targetROI, clear, baseline, execution, observation,
-      registration,
+      tipOffset, registration,
     ] {
       _ = try graph.commitReplacement(artifact)
     }
@@ -120,7 +124,7 @@ struct LearningArtifactsTests {
     )
 
     #expect(commit.invalidatedRevisionIDs == [
-      clear.id, baseline.id, execution.id, observation.id, registration.id,
+      clear.id, baseline.id, execution.id, observation.id, tipOffset.id, registration.id,
     ])
     #expect(graph.currentRevision(for: .targetPoseRegistration)?.id == targetPose.id)
     #expect(

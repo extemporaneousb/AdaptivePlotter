@@ -33,54 +33,22 @@ enum FixedCameraOpticalSettlingPolicy {
   static let maximumBackgroundMeanAbsoluteDifference: Double = 4
 }
 
-struct VisibilityTargetROIInsets: Hashable, Sendable {
-  let perimeterPixels: Int
-  let bottomExtensionPixels: Int
-
-  var presentation: String {
-    let bottomPixels = perimeterPixels + bottomExtensionPixels
-    return
-      "L/R/T \(perimeterPixels) px · B \(bottomPixels) px (\(bottomExtensionPixels) px extension)"
-  }
-}
-
-struct VisibilityTargetROIProposal: Hashable, Sendable {
-  let region: PixelRect
-  let insets: VisibilityTargetROIInsets
-}
-
-enum VisibilityTargetROIPolicy {
-  static let perimeterMarginPixels = 12
-  static let bottomExtensionFraction = 0.5
+enum VisibilityTargetSearchCirclePolicy {
+  /// Initial camera-pixel bound while the cap-to-tip translation is unknown.
+  /// This is deliberately much larger than the 4 mm mark but remains finite
+  /// for cancellable target-local Vision.
+  static let acquisitionRadiusPixels: Double = 128
+  static let algorithmRevision = "visibility-target-cap-tip-search-circle-v1"
 
   static func proposal(
-    projectedPoints: [Point2<CameraPixelSpace>],
-    frameWidth: Int,
-    frameHeight: Int
-  ) -> VisibilityTargetROIProposal? {
-    guard !projectedPoints.isEmpty, frameWidth > 0, frameHeight > 0 else { return nil }
-
-    let margin = perimeterMarginPixels
-    let minX = Int(floor(projectedPoints.map(\.x).min()!)) - margin
-    let maxX = Int(ceil(projectedPoints.map(\.x).max()!)) + margin
-    let minY = Int(floor(projectedPoints.map(\.y).min()!)) - margin
-    let maxY = Int(ceil(projectedPoints.map(\.y).max()!)) + margin
-    let x = max(0, min(frameWidth - 1, minX))
-    let y = max(0, min(frameHeight - 1, minY))
-    let width = max(1, min(frameWidth - x, maxX - x + 1))
-    let baseHeight = max(1, min(frameHeight - y, maxY - y + 1))
-    let requestedBottomExtension = Int(
-      ceil(Double(baseHeight) * bottomExtensionFraction)
-    )
-    let height = min(frameHeight - y, baseHeight + requestedBottomExtension)
-    let bottomExtension = height - baseHeight
-
-    return VisibilityTargetROIProposal(
-      region: PixelRect(x: x, y: y, width: width, height: height),
-      insets: VisibilityTargetROIInsets(
-        perimeterPixels: margin,
-        bottomExtensionPixels: bottomExtension
-      )
+    capAnchor: Point2<CameraPixelSpace>,
+    anchorFrame: DisplayedFrame
+  ) -> VisibilityTargetSearchCircle? {
+    try? VisibilityTargetSearchCircle(
+      center: capAnchor,
+      radiusPixels: acquisitionRadiusPixels,
+      anchor: anchorFrame,
+      algorithmRevision: algorithmRevision
     )
   }
 }
@@ -460,7 +428,7 @@ private struct CalibrationMachineObservation: Sendable {
   let contextBaseline: ControllerContextBaseline?
 }
 
-private struct CalibrationContactCapture: Sendable {
+private struct CalibrationCapAnchorCapture: Sendable {
   let evidence: MachineCameraCorrespondenceProvenance
   let contextBaseline: ControllerContextBaseline?
 }
@@ -525,13 +493,13 @@ final class OperatorWorkspace {
   private struct VisibilityRegistrationPayloadSnapshot {
     let targetPoseRegistrationFrame: DisplayedFrame?
     let registeredTargetMachinePosition: MachinePosition?
-    let targetContactPointEstimate: ToolContactPointEstimate?
-    let targetObservationRegion: PixelRect?
-    let targetROIInsets: VisibilityTargetROIInsets?
-    let targetContactPointAndROIAccepted: Bool
+    let targetCapAnchorEstimate: ToolCapAnchorEstimate?
+    let targetSearchCircle: VisibilityTargetSearchCircle?
+    let targetCapAnchorAndSearchCircleAccepted: Bool
     let preTargetClearViewBaseline: DisplayedFrame?
     let visibilityTargetSceneDisposition: VisibilityTargetSceneDisposition
     let visibilityTargetObservation: VisibilityTargetObservation?
+    let penTipOffsetRegistration: PenTipOffsetRegistration?
     let executedVisibilityTargetPlanRevision: String?
     let visibilityTargetExecutionAttemptEvidence: VisibilityTargetExecutionAttemptEvidence?
     let visibilityRegistrationAccepted: Bool
@@ -563,7 +531,7 @@ final class OperatorWorkspace {
     let toolPaperRevision: UUID
     let targetAreaIdentity: UUID
     let clearPosition: MachinePosition
-    let region: PixelRect
+    let searchCircle: VisibilityTargetSearchCircle
     let targetPlanRevision: String
   }
 
@@ -585,13 +553,13 @@ final class OperatorWorkspace {
     let centerArrivalRetryRequired: Bool
     let targetPoseRegistrationFrame: DisplayedFrame?
     let registeredTargetMachinePosition: MachinePosition?
-    let targetContactPointEstimate: ToolContactPointEstimate?
-    let targetObservationRegion: PixelRect?
-    let targetROIInsets: VisibilityTargetROIInsets?
-    let targetContactPointAndROIAccepted: Bool
+    let targetCapAnchorEstimate: ToolCapAnchorEstimate?
+    let targetSearchCircle: VisibilityTargetSearchCircle?
+    let targetCapAnchorAndSearchCircleAccepted: Bool
     let preTargetClearViewBaseline: DisplayedFrame?
     let visibilityTargetSceneDisposition: VisibilityTargetSceneDisposition
     let visibilityTargetObservation: VisibilityTargetObservation?
+    let penTipOffsetRegistration: PenTipOffsetRegistration?
     let executedVisibilityTargetPlanRevision: String?
     let visibilityTargetExecutionAttemptEvidence: VisibilityTargetExecutionAttemptEvidence?
     let visibilityObservationAttemptHistories:
@@ -784,18 +752,17 @@ final class OperatorWorkspace {
   private(set) var centerArrivalRetryRequired = false
   private(set) var targetPoseRegistrationFrame: DisplayedFrame?
   private(set) var registeredTargetMachinePosition: MachinePosition?
-  private(set) var targetContactPointEstimate: ToolContactPointEstimate?
+  private(set) var targetCapAnchorEstimate: ToolCapAnchorEstimate?
   private(set) var proposedMachineCameraRegistration: MachineCameraRegistration?
-  private(set) var proposedTargetObservationRegion: PixelRect?
-  private(set) var proposedTargetROIInsets: VisibilityTargetROIInsets?
+  private(set) var proposedTargetSearchCircle: VisibilityTargetSearchCircle?
   private(set) var targetGeometryProposalID: UUID?
-  private(set) var targetObservationRegion: PixelRect?
-  private(set) var targetROIInsets: VisibilityTargetROIInsets?
-  private(set) var targetContactPointAndROIAccepted = false
+  private(set) var targetSearchCircle: VisibilityTargetSearchCircle?
+  private(set) var targetCapAnchorAndSearchCircleAccepted = false
   private(set) var preTargetClearViewBaseline: DisplayedFrame?
   private(set) var blankTargetBaselineCandidate: DisplayedFrame?
   private(set) var visibilityTargetSceneDisposition: VisibilityTargetSceneDisposition = .pristine
   private(set) var visibilityTargetObservation: VisibilityTargetObservation?
+  private(set) var penTipOffsetRegistration: PenTipOffsetRegistration?
   private(set) var executedVisibilityTargetPlanRevision: String?
   private(set) var visibilityTargetExecutionAttemptEvidence:
     VisibilityTargetExecutionAttemptEvidence?
@@ -805,7 +772,7 @@ final class OperatorWorkspace {
   private(set) var acceptedVisibilityObservationAttemptID: ExerciseAttemptID?
   private(set) var visibilityRegistrationAccepted = false
   private(set) var machineCameraRegistration: MachineCameraRegistration?
-  private(set) var explicitRegistrationContactEvidence: [MachineCameraCorrespondenceProvenance] = []
+  private(set) var explicitRegistrationCapAnchorEvidence: [MachineCameraCorrespondenceProvenance] = []
   private(set) var currentCameraCalibrationPhase: String?
   private var currentCameraCalibrationFailure: CurrentCameraCalibrationFailure?
   private(set) var targetAreaIdentity = UUID()
@@ -1001,9 +968,13 @@ final class OperatorWorkspace {
   var actionSurfacePresentation: ActionSurfacePresentation {
     let visibleKinds = Set(visibleLayers.map(\.overlayKind))
     let focus = displayedFrame.flatMap { frame -> ActionSurfaceFocus? in
-      guard let region = proposedTargetObservationRegion ?? targetObservationRegion else {
+      guard let searchCircle = proposedTargetSearchCircle ?? targetSearchCircle else {
         return nil
       }
+      guard searchCircle.source == frame.source,
+        searchCircle.anchorFrame.cameraConfigurationID
+          == frame.frame.cameraConfigurationID
+      else { return nil }
       let authorityToken =
         targetGeometryProposalID.map {
           "proposal-\($0.uuidString.lowercased())"
@@ -1012,14 +983,15 @@ final class OperatorWorkspace {
       return ActionSurfaceFocus(
         frameID: frame.frame.id,
         cameraConfigurationID: frame.frame.cameraConfigurationID,
-        region: region,
-        label: "FRAME \(frame.frame.sequence)",
+        searchCircle: searchCircle,
+        region: searchCircle.boundingROI,
+        label: "CAP ANCHOR FRAME \(searchCircle.anchorFrame.frameID.rawValue)",
         viewportContext: ActionSurfaceViewportContext(
           source: frame.source,
           cameraConfigurationID: frame.frame.cameraConfigurationID,
           targetAreaIdentity: targetAreaIdentity,
-          roiAuthorityToken: authorityToken,
-          region: region
+          searchAuthorityToken: authorityToken,
+          region: searchCircle.boundingROI
         )
       )
     }
@@ -1039,7 +1011,7 @@ final class OperatorWorkspace {
 
   var foregroundVisionOperationUnavailableReason: String? {
     visibilityObservationOperation.map {
-      "Cancel Vision or wait for its exact target-ROI observation to settle. \($0.busyDetail)"
+      "Cancel Vision or wait for its exact circular target observation to settle. \($0.busyDetail)"
     }
   }
 
@@ -1394,7 +1366,7 @@ final class OperatorWorkspace {
     {
       return .pairedBoundaryDiscoveryAndCentering
     }
-    if !targetContactPointAndROIAccepted { return .registerTargetPoseAndCameraGeometry }
+    if !targetCapAnchorAndSearchCircleAccepted { return .registerTargetPoseAndCameraGeometry }
     if !clearViewPoseAccepted { return .discoverAndAcceptClearView }
     if preTargetClearViewBaseline == nil { return .confirmBlankTargetBaseline }
     if visibilityTargetSceneDisposition == .pristine {
@@ -1632,7 +1604,7 @@ final class OperatorWorkspace {
       .humanGuidedDiscovery(.drawVisibilityTarget)
     case .visibilityTargetObservation:
       .humanGuidedDiscovery(.returnAndObserveExistingTarget)
-    case .visibilityRegistration:
+    case .penTipOffsetRegistration, .visibilityRegistration:
       .humanGuidedDiscovery(.acceptVisibilityRegistration)
     case .linePlan:
       .observedDrawingTrial(.chooseIsolatedLinePlan)
@@ -2257,19 +2229,11 @@ final class OperatorWorkspace {
     let learnedCenter = estimatedMachineCenter.flatMap {
       try? SimulatedLearningMPos(xMM: $0.point.x, yMM: $0.point.y)
     }
-    let targetROI = targetObservationRegion.flatMap {
-      try? AxisAlignedBounds<CameraPixelSpace>(
-        minX: Double($0.x),
-        minY: Double($0.y),
-        maxX: Double($0.x + $0.width),
-        maxY: Double($0.y + $0.height)
-      )
-    }
     let scene = try await simulatedLearningRuntime.captureSceneFrame(
       annotationContext: SimulatedLearningAnnotationContext(
         acceptedBoundaryPositions: acceptedPositions,
         learnedCenter: learnedCenter,
-        targetROI: targetROI
+        targetSearchCircle: targetSearchCircle
       )
     ).result.get()
     simulatedLearningSnapshot = await simulatedLearningRuntime.snapshot()
@@ -2284,7 +2248,7 @@ final class OperatorWorkspace {
       CameraOverlayMeasurement(
         frameID: scene.displayedFrame.frame.id,
         cameraConfigurationID: scene.displayedFrame.frame.cameraConfigurationID,
-        geometry: .point(scene.contactPoint),
+        geometry: .point(scene.capAnchorPoint),
         provenance: CameraMeasurementProvenance(
           kind: .penCap,
           source: .simulated,
@@ -2346,7 +2310,7 @@ final class OperatorWorkspace {
           }).first
         else {
           throw LearningPathOperationError.requiredState(
-            "Tool contact and armature overlays are unavailable."
+            "Cap-anchor and armature overlays are unavailable."
           )
         }
         bounds = armatureBounds
@@ -2358,7 +2322,7 @@ final class OperatorWorkspace {
           abs(point.y - armatureBounds.maxY) <= 0.001
         else {
           throw LearningPathOperationError.requiredState(
-            "The causal simulator contact does not match the armature bottom-center."
+            "The causal simulator cap anchor does not match the armature bottom-center."
           )
         }
         confidence = 1
@@ -2385,20 +2349,19 @@ final class OperatorWorkspace {
       }
       targetPoseRegistrationFrame = registrationFrame
       registeredTargetMachinePosition = targetMachinePosition
-      targetContactPointEstimate = try ToolContactPointEstimate(
+      targetCapAnchorEstimate = try ToolCapAnchorEstimate(
         componentCentroid: centroid,
         componentBounds: bounds,
         confidence: confidence,
-        estimatorRevision: "green-tool-bottom-center-v1",
+        estimatorRevision: "green-cap-bottom-center-anchor-v2",
         source: registrationFrame.source,
         frameID: registrationFrame.frame.id,
         cameraConfigurationID: registrationFrame.frame.cameraConfigurationID
       )
       proposedMachineCameraRegistration = nil
-      proposedTargetObservationRegion = nil
-      proposedTargetROIInsets = nil
+      proposedTargetSearchCircle = nil
       targetGeometryProposalID = nil
-      targetContactPointAndROIAccepted = false
+      targetCapAnchorAndSearchCircleAccepted = false
       explorationError = nil
     } catch {
       explorationError = "Target-pose registration failed: \(actionableDescription(error))"
@@ -2425,15 +2388,15 @@ final class OperatorWorkspace {
     await buildTargetGeometryProposal()
   }
 
-  private func compatibleRegistrationContactEvidence(
+  private func compatibleRegistrationCapAnchorEvidence(
     for frame: DisplayedFrame
   ) -> [MachineCameraCorrespondenceProvenance] {
-    explicitRegistrationContactEvidence.filter {
+    explicitRegistrationCapAnchorEvidence.filter {
       $0.source == frame.source
         && $0.cameraConfigurationID == frame.frame.cameraConfigurationID
         && $0.controllerSessionID == controllerSessionID
         && $0.coordinateRevision == explorationCoordinateRevision
-        && $0.contactEstimatorRevision == "green-tool-bottom-center-v1"
+        && $0.capAnchorEstimatorRevision == "green-cap-bottom-center-anchor-v2"
     }
   }
 
@@ -2442,23 +2405,24 @@ final class OperatorWorkspace {
     correspondenceOverride: [MachineCameraCorrespondenceProvenance]? = nil
   ) -> Bool {
     guard let frame = targetPoseRegistrationFrame,
-      let contact = targetContactPointEstimate,
-      contact.frameID == frame.frame.id
+      let capAnchor = targetCapAnchorEstimate,
+      capAnchor.frameID == frame.frame.id
     else { return false }
     do {
       guard let targetMachinePosition = registeredTargetMachinePosition else {
         throw LearningPathOperationError.requiredState("Registered target MPos is unavailable.")
       }
-      let exactSamples = correspondenceOverride ?? compatibleRegistrationContactEvidence(for: frame)
+      let exactSamples =
+        correspondenceOverride ?? compatibleRegistrationCapAnchorEvidence(for: frame)
       guard exactSamples.count >= 3 else {
         explorationError =
-          "Machine-camera registration needs automatic current-camera calibration: \(exactSamples.count) compatible exact contact samples are available; three non-collinear samples are required. Accepted machine-space Boundary aggregates and center remain current."
+          "Machine-camera registration needs automatic current-camera calibration: \(exactSamples.count) compatible exact cap-anchor samples are available; three non-collinear samples are required. Accepted machine-space Boundary aggregates and center remain current."
         return false
       }
       let correspondences = exactSamples.map {
         MachineCameraRegistrationCorrespondence(
           machine: $0.machinePoint,
-          camera: $0.contactPoint
+          camera: $0.capAnchorPoint
         )
       }
       let fit = try MachineCameraRegistrationFit.fit(correspondences: correspondences)
@@ -2472,43 +2436,31 @@ final class OperatorWorkspace {
         correspondenceProvenance: provenance,
         validationTargetFrameID: frame.frame.id,
         validationMachinePoint: targetMachinePosition.point,
-        validationContactPoint: contact.point,
+        validationCapAnchorPoint: capAnchor.point,
         maximumValidationResidualPixels: 8,
-        estimatorRevision: "boundary-affine-with-center-validation-v1",
+        estimatorRevision: "boundary-affine-cap-anchor-with-target-validation-v2",
         uncertaintyPixels: max(fit.maximumErrorPixels, 0)
       )
-      let plan = VisibilityTargetPlanV2()
-      let targetMachinePoints = try plan.relativeVertices.map { vertex in
-        try Point2<MachineSpace>(
-          x: targetMachinePosition.point.x + vertex.x,
-          y: targetMachinePosition.point.y + vertex.y
-        )
-      }
-      let projected = try targetMachinePoints.map { try fit.cameraPoint(from: $0) }
-      // Stage 3 retains only the target-local ROI. The bottom-only extension
-      // covers tool-to-ink Y error without admitting unrelated candidates on
-      // the other three sides. Stage 4 derives its own region from this ROI
-      // and the registration-projected line geometry.
-      guard let roiProposal = VisibilityTargetROIPolicy.proposal(
-        projectedPoints: projected,
-        frameWidth: frame.frame.width,
-        frameHeight: frame.frame.height
+      // The fit is validated against this cap landmark, but its residual must
+      // not move the acquisition anchor. The exact target-pose cap measurement
+      // owns the circle centre; the later ink observation learns cap -> tip.
+      guard let searchCircle = VisibilityTargetSearchCirclePolicy.proposal(
+        capAnchor: capAnchor.point,
+        anchorFrame: frame
       ) else {
         throw LearningPathOperationError.requiredState(
-          "Projected visibility-target ROI is unavailable."
+          "Cap-anchored visibility-target search circle is unavailable."
         )
       }
       proposedMachineCameraRegistration = registration
-      proposedTargetObservationRegion = roiProposal.region
-      proposedTargetROIInsets = roiProposal.insets
+      proposedTargetSearchCircle = searchCircle
       targetGeometryProposalID = UUID()
-      targetContactPointAndROIAccepted = false
+      targetCapAnchorAndSearchCircleAccepted = false
       explorationError = nil
       return true
     } catch {
       proposedMachineCameraRegistration = nil
-      proposedTargetObservationRegion = nil
-      proposedTargetROIInsets = nil
+      proposedTargetSearchCircle = nil
       targetGeometryProposalID = nil
       explorationError = "Machine-camera registration failed: \(actionableDescription(error))"
       return false
@@ -2516,15 +2468,14 @@ final class OperatorWorkspace {
   }
 
   /// Makes the reviewed proposal authoritative in one graph transaction. No
-  /// target pose, fit, or ROI revision becomes current before this decision.
+  /// target pose, fit, or search-circle revision becomes current before this decision.
   private func acceptTargetGeometryProposal() {
     let sourceGraph = visibilityDraftArtifactGraph ?? learningArtifactGraph
     guard let attemptID = activeExerciseAttemptID,
       activeExerciseAttemptOwnerID == .humanGuidedDiscovery(.registerTargetPoseAndCameraGeometry),
       let centerArrival = sourceGraph.currentRevision(for: .centerArrival)?.id,
       let registration = proposedMachineCameraRegistration,
-      let region = proposedTargetObservationRegion,
-      let insets = proposedTargetROIInsets
+      let searchCircle = proposedTargetSearchCircle
     else { return }
     do {
       var graph = sourceGraph
@@ -2590,13 +2541,11 @@ final class OperatorWorkspace {
           .union(targetROI.invalidatedRevisionIDs)
       )
       machineCameraRegistration = registration
-      targetObservationRegion = region
-      targetROIInsets = insets
+      targetSearchCircle = searchCircle
       proposedMachineCameraRegistration = nil
-      proposedTargetObservationRegion = nil
-      proposedTargetROIInsets = nil
+      proposedTargetSearchCircle = nil
       targetGeometryProposalID = nil
-      targetContactPointAndROIAccepted = true
+      targetCapAnchorAndSearchCircleAccepted = true
       visibilityRegistrationAccepted = false
       finishActiveExerciseAttempt(disposition: .succeeded)
       explorationError = nil
@@ -2623,7 +2572,7 @@ final class OperatorWorkspace {
       let targetPosition = registeredTargetMachinePosition
     else { return }
 
-    if compatibleRegistrationContactEvidence(for: frame).count >= 3,
+    if compatibleRegistrationCapAnchorEvidence(for: frame).count >= 3,
       stageTargetGeometryProposal()
     {
       return
@@ -2673,7 +2622,7 @@ final class OperatorWorkspace {
         operationID: operationID,
         attemptID: attemptID
       )
-      let firstCapture = try await captureCurrentCameraContactEvidence(
+      let firstCapture = try await captureCurrentCameraCapAnchorEvidence(
         contextBaseline: contextBaseline,
         operationID: operationID
       )
@@ -2711,7 +2660,7 @@ final class OperatorWorkspace {
           operationID: operationID,
           attemptID: attemptID
         )
-        let capture = try await captureCurrentCameraContactEvidence(
+        let capture = try await captureCurrentCameraCapAnchorEvidence(
           contextBaseline: contextBaseline,
           operationID: operationID
         )
@@ -2745,7 +2694,7 @@ final class OperatorWorkspace {
       }
       try requireCalibrationContinuation()
       await updateCurrentCameraCalibrationPhase(
-        "Fitting a reviewable registration and ROI proposal",
+        "Fitting a reviewable registration and search-circle proposal",
         operationID: operationID,
         attemptID: attemptID
       )
@@ -2754,13 +2703,13 @@ final class OperatorWorkspace {
           explorationError ?? "The current-camera registration fit was not accepted."
         )
       }
-      explicitRegistrationContactEvidence.removeAll {
+      explicitRegistrationCapAnchorEvidence.removeAll {
         $0.source == frame.source
           && $0.cameraConfigurationID == frame.frame.cameraConfigurationID
           && $0.controllerSessionID == controllerSessionID
           && $0.coordinateRevision == explorationCoordinateRevision
       }
-      explicitRegistrationContactEvidence.append(contentsOf: stagedSamples)
+      explicitRegistrationCapAnchorEvidence.append(contentsOf: stagedSamples)
       currentCameraCalibrationFailure = nil
       await recordWorkflowTelemetry(
         WorkflowTelemetryEvent(
@@ -2775,10 +2724,9 @@ final class OperatorWorkspace {
       return
     } catch {
       proposedMachineCameraRegistration = nil
-      proposedTargetObservationRegion = nil
-      proposedTargetROIInsets = nil
+      proposedTargetSearchCircle = nil
       targetGeometryProposalID = nil
-      targetContactPointAndROIAccepted = false
+      targetCapAnchorAndSearchCircleAccepted = false
       let failure = currentCameraCalibrationFailure(for: error, targetPosition: targetPosition)
       currentCameraCalibrationFailure = failure
       explorationError =
@@ -2797,12 +2745,12 @@ final class OperatorWorkspace {
     }
   }
 
-  /// Captures one exact current-camera machine/contact correspondence. Motion,
+  /// Captures one exact current-camera machine/cap-anchor correspondence. Motion,
   /// sequencing, and target return remain owned by the automatic calibration.
-  private func captureCurrentCameraContactEvidence(
+  private func captureCurrentCameraCapAnchorEvidence(
     contextBaseline: ControllerContextBaseline?,
     operationID: UUID
-  ) async throws -> CalibrationContactCapture
+  ) async throws -> CalibrationCapAnchorCapture
   {
     try requireCalibrationContinuation()
     guard let attemptID = activeExerciseAttemptID else {
@@ -2847,7 +2795,7 @@ final class OperatorWorkspace {
         }).first
       else {
         throw LearningPathOperationError.requiredState(
-          "Tool contact and armature overlays are unavailable."
+          "Cap-anchor and armature overlays are unavailable."
         )
       }
       centroid = try Point2(
@@ -2858,7 +2806,7 @@ final class OperatorWorkspace {
         abs(point.y - armatureBounds.maxY) <= 0.001
       else {
         throw LearningPathOperationError.requiredState(
-          "The causal simulator contact does not match the armature bottom-center."
+          "The causal simulator cap anchor does not match the armature bottom-center."
         )
       }
       bounds = armatureBounds
@@ -2885,11 +2833,11 @@ final class OperatorWorkspace {
       displayedFrame = inspection.displayedFrame
       cameraOverlays = inspection.measurement.overlays
     }
-    let contact = try ToolContactPointEstimate(
+    let capAnchor = try ToolCapAnchorEstimate(
       componentCentroid: centroid,
       componentBounds: bounds,
       confidence: confidence,
-      estimatorRevision: "green-tool-bottom-center-v1",
+      estimatorRevision: "green-cap-bottom-center-anchor-v2",
       source: evidenceFrame.source,
       frameID: evidenceFrame.frame.id,
       cameraConfigurationID: evidenceFrame.frame.cameraConfigurationID
@@ -2904,10 +2852,10 @@ final class OperatorWorkspace {
         "Controller MPos changed while the camera sample was being captured; the sample was discarded."
       )
     }
-    return CalibrationContactCapture(
+    return CalibrationCapAnchorCapture(
       evidence: MachineCameraCorrespondenceProvenance(
         machinePoint: afterCapture.position.point,
-        contactPoint: contact.point,
+        capAnchorPoint: capAnchor.point,
         source: evidenceFrame.source,
         controllerSessionID: controllerSessionID,
         coordinateRevision: explorationCoordinateRevision,
@@ -2916,9 +2864,9 @@ final class OperatorWorkspace {
         captureNanoseconds: evidenceFrame.frame.captureNanoseconds,
         cameraConfigurationID: evidenceFrame.frame.cameraConfigurationID,
         attemptID: attemptID,
-        contactEstimatorRevision: contact.estimatorRevision,
-        algorithmRevision: "automatic-current-camera-contact-v2",
-        contactConfidence: contact.confidence,
+        capAnchorEstimatorRevision: capAnchor.estimatorRevision,
+        algorithmRevision: "automatic-current-camera-cap-anchor-v3",
+        capAnchorConfidence: capAnchor.confidence,
         artifactRevisionID: centerArrivalRevisionID
       ),
       contextBaseline: afterCapture.contextBaseline
@@ -3025,28 +2973,22 @@ final class OperatorWorkspace {
     currentCameraCalibrationFailure = nil
     targetPoseRegistrationFrame = nil
     registeredTargetMachinePosition = nil
-    targetContactPointEstimate = nil
+    targetCapAnchorEstimate = nil
     proposedMachineCameraRegistration = nil
-    proposedTargetObservationRegion = nil
-    proposedTargetROIInsets = nil
+    proposedTargetSearchCircle = nil
     targetGeometryProposalID = nil
-    proposedMachineCameraRegistration = nil
-    proposedTargetObservationRegion = nil
-    proposedTargetROIInsets = nil
-    targetGeometryProposalID = nil
-    targetContactPointAndROIAccepted = false
-    targetObservationRegion = nil
-    targetROIInsets = nil
+    targetCapAnchorAndSearchCircleAccepted = false
+    targetSearchCircle = nil
     machineCameraRegistration = nil
     explorationError =
-      "Operator rejected the staged target geometry. No target-pose, camera-fit, or ROI revision became authoritative; capture a new exact target frame."
+      "Operator rejected the staged target geometry. No target-pose, camera-fit, or search-circle revision became authoritative; capture a new exact target frame."
   }
 
   private func moveForClearView(_ move: ClearViewSearchMove) async {
     let ownerID = LearningPathItemID.humanGuidedDiscovery(
       .discoverAndAcceptClearView
     )
-    guard targetContactPointAndROIAccepted else { return }
+    guard targetCapAnchorAndSearchCircleAccepted else { return }
     if activeExerciseAttemptID == nil {
       beginExerciseAttempt(ownerID: ownerID, mode: activeExerciseAttemptMode ?? .normal)
     }
@@ -3144,7 +3086,7 @@ final class OperatorWorkspace {
       }
       let context = armatureContext(
         frame: frame.frame,
-        region: targetObservationRegion ?? defaultInkRegion(for: frame.frame)
+        region: targetSearchCircle?.boundingROI ?? defaultInkRegion(for: frame.frame)
       )
       var guidance = armatureGuidanceState ?? ArmatureGuidanceState(context: context)
       guidance.updateContext(context)
@@ -3456,7 +3398,7 @@ final class OperatorWorkspace {
       )
     case .stopped:
       let message =
-        "Visibility target settled as \(scene.rawValue). Observe Existing Target if ink is possible; never redraw at this ROI."
+        "Visibility target settled as \(scene.rawValue). Observe Existing Target if ink is possible; never redraw in this target area."
       if scene != .pristine {
         commitVisibilityTargetExecutionArtifact(
           planRevision: outcome.visibilityTargetProgress?.planRevision ?? plan.algorithmRevision,
@@ -3470,7 +3412,7 @@ final class OperatorWorkspace {
       }
     case .cancelled:
       let message =
-        "Visibility target settled as \(scene.rawValue). Observe Existing Target if ink is possible; never redraw at this ROI."
+        "Visibility target settled as \(scene.rawValue). Observe Existing Target if ink is possible; never redraw in this target area."
       if scene != .pristine {
         commitVisibilityTargetExecutionArtifact(
           planRevision: outcome.visibilityTargetProgress?.planRevision ?? plan.algorithmRevision,
@@ -3484,7 +3426,7 @@ final class OperatorWorkspace {
       }
     case .shutdown:
       let message =
-        "Visibility target settled as \(scene.rawValue). Observe Existing Target if ink is possible; never redraw at this ROI."
+        "Visibility target settled as \(scene.rawValue). Observe Existing Target if ink is possible; never redraw in this target area."
       if scene != .pristine {
         commitVisibilityTargetExecutionArtifact(
           planRevision: outcome.visibilityTargetProgress?.planRevision ?? plan.algorithmRevision,
@@ -3555,7 +3497,7 @@ final class OperatorWorkspace {
       visibilityTargetSceneDisposition = scene
       executedVisibilityTargetPlanRevision = progress.planRevision
       let message =
-        "Visibility target settled as \(scene.rawValue). Observe Existing Target if ink is possible; never redraw at this ROI."
+        "Visibility target settled as \(scene.rawValue). Observe Existing Target if ink is possible; never redraw in this target area."
       if scene != .pristine {
         commitVisibilityTargetExecutionArtifact(
           planRevision: progress.planRevision,
@@ -3571,7 +3513,7 @@ final class OperatorWorkspace {
       visibilityTargetSceneDisposition = scene
       executedVisibilityTargetPlanRevision = progress.planRevision
       let message =
-        "Visibility target settled as \(scene.rawValue). Observe Existing Target if ink is possible; never redraw at this ROI."
+        "Visibility target settled as \(scene.rawValue). Observe Existing Target if ink is possible; never redraw in this target area."
       if scene != .pristine {
         commitVisibilityTargetExecutionArtifact(
           planRevision: progress.planRevision,
@@ -3587,7 +3529,7 @@ final class OperatorWorkspace {
       visibilityTargetSceneDisposition = scene
       executedVisibilityTargetPlanRevision = progress.planRevision
       let message =
-        "Visibility target settled as \(scene.rawValue). Observe Existing Target if ink is possible; never redraw at this ROI."
+        "Visibility target settled as \(scene.rawValue). Observe Existing Target if ink is possible; never redraw in this target area."
       if scene != .pristine {
         commitVisibilityTargetExecutionArtifact(
           planRevision: progress.planRevision,
@@ -3678,7 +3620,7 @@ final class OperatorWorkspace {
         || visibilityTargetSceneDisposition == .targetObserved,
       let baseline = preTargetClearViewBaseline,
       let clearPosition = armatureGuidanceState?.acceptedClearPose?.position,
-      let region = targetObservationRegion,
+      let searchCircle = targetSearchCircle,
       let targetPlanRevision = executedVisibilityTargetPlanRevision,
       let attemptID = activeExerciseAttemptID,
       acceptedClearReturnIsCurrent,
@@ -3701,14 +3643,14 @@ final class OperatorWorkspace {
       toolPaperRevision: explorationToolPaperRevision,
       targetAreaIdentity: targetAreaIdentity,
       clearPosition: clearPosition,
-      region: region,
+      searchCircle: searchCircle,
       targetPlanRevision: targetPlanRevision
     )
     visibilityObservationOperation = VisibilityObservationOperationPresentation(
       id: operationID,
       cancelCapabilityID: capabilityID,
       phase: .preparing,
-      region: region,
+      searchCircle: searchCircle,
       targetPlanRevision: targetPlanRevision
     )
     explorationError = nil
@@ -3766,7 +3708,7 @@ final class OperatorWorkspace {
             SamePoseFrameSample(displayedFrame: first, controllerPosition: context.clearPosition),
             SamePoseFrameSample(displayedFrame: second, controllerPosition: context.clearPosition),
           ],
-          targetSearchROI: context.region,
+          targetSearchCircle: context.searchCircle,
           thresholds: GreenPixelThresholds(minimumGreen: 75, minimumGreenExcess: 20),
           controllerSessionID: controllerSessionID,
           coordinateRevision: explorationCoordinateRevision,
@@ -3783,7 +3725,7 @@ final class OperatorWorkspace {
             FixedCameraOpticalSettlingPolicy.alignmentSearchRadiusPixels,
           maximumAlignmentShiftPixels:
             FixedCameraOpticalSettlingPolicy.maximumAlignmentShiftPixels,
-          algorithmRevision: "visibility-target-two-frame-local-roi-v4",
+          algorithmRevision: "visibility-target-two-frame-cap-tip-circle-v5",
           targetPlanRevision: context.targetPlanRevision
         ),
         { [weak self] progress in
@@ -3817,16 +3759,17 @@ final class OperatorWorkspace {
           return
         }
         visibilityTargetObservation = nil
+        penTipOffsetRegistration = nil
         visibilityTargetSceneDisposition = .targetUnusable
         explorationError =
           "Visibility target unusable: \(rejection). Register New Target Area or record Paper Replaced; no redraw is available."
       case .cancelled:
         explorationError =
-          "Vision observation cancelled. Existing target ink, baseline, accepted ROI, and active attempt remain current; Observe Existing Target when ready."
+          "Vision observation cancelled. Existing target ink, baseline, accepted search circle, and active attempt remain current; Observe Existing Target when ready."
       }
     } catch is CancellationError {
       explorationError =
-        "Vision observation cancelled. Existing target ink, baseline, accepted ROI, and active attempt remain current; Observe Existing Target when ready."
+        "Vision observation cancelled. Existing target ink, baseline, accepted search circle, and active attempt remain current; Observe Existing Target when ready."
     } catch {
       guard visibilityObservationContextIsCurrent(context) else { return }
       explorationError = "Visibility target observation failed: \(actionableDescription(error))"
@@ -3845,7 +3788,7 @@ final class OperatorWorkspace {
       id: operation.id,
       cancelCapabilityID: operation.cancelCapabilityID,
       phase: phase,
-      region: operation.region,
+      searchCircle: operation.searchCircle,
       targetPlanRevision: operation.targetPlanRevision
     )
   }
@@ -3865,7 +3808,7 @@ final class OperatorWorkspace {
       explorationCoordinateRevision == context.coordinateRevision,
       explorationToolPaperRevision == context.toolPaperRevision,
       targetAreaIdentity == context.targetAreaIdentity,
-      targetObservationRegion == context.region,
+      targetSearchCircle == context.searchCircle,
       executedVisibilityTargetPlanRevision == context.targetPlanRevision,
       visibilityTargetSceneDisposition == .inkPossible
         || visibilityTargetSceneDisposition == .targetObserved,
@@ -3893,7 +3836,7 @@ final class OperatorWorkspace {
     else { return }
     await cancelAndSettleVisibilityObservation()
     explorationError =
-      "Vision observation cancelled. Existing target ink, baseline, accepted ROI, and active attempt remain current; Observe Existing Target when ready."
+      "Vision observation cancelled. Existing target ink, baseline, accepted search circle, and active attempt remain current; Observe Existing Target when ready."
   }
 
   private func cancelAndSettleVisibilityObservation() async {
@@ -3903,7 +3846,7 @@ final class OperatorWorkspace {
       id: operation.id,
       cancelCapabilityID: operation.cancelCapabilityID,
       phase: .cancelling,
-      region: operation.region,
+      searchCircle: operation.searchCircle,
       targetPlanRevision: operation.targetPlanRevision
     )
     let owner = visibilityObservationTask
@@ -3970,7 +3913,12 @@ final class OperatorWorkspace {
       observation.validSampleCount == 2,
       visibilityTargetSceneDisposition == .targetObserved,
       acceptedClearReturnIsCurrent,
-      machineCameraRegistration != nil,
+      let machineRegistration = machineCameraRegistration,
+      let capAnchor = targetCapAnchorEstimate,
+      let capAnchorFrame = targetPoseRegistrationFrame,
+      machineRegistration.source == capAnchorFrame.source,
+      machineRegistration.cameraConfigurationID
+        == capAnchorFrame.frame.cameraConfigurationID,
       let attemptID = activeExerciseAttemptID,
       let observationRevision = sourceGraph.currentRevision(
         for: .visibilityTargetObservation
@@ -3980,9 +3928,18 @@ final class OperatorWorkspace {
       )?.id,
       let targetROIRevision = sourceGraph.currentRevision(
         for: .targetROIRegistration
+      )?.id,
+      let targetPoseRevision = sourceGraph.currentRevision(
+        for: .targetPoseRegistration
       )?.id
     else { return }
     do {
+      let tipOffset = try PenTipOffsetRegistration(
+        capAnchor: capAnchor,
+        anchorFrame: capAnchorFrame,
+        observation: observation,
+        estimatorRevision: "cap-anchor-to-visibility-centroid-v1"
+      )
       let compatibility = AttemptCompatibility(
         cameraConfigurationID: observation.samples.first?.frame.cameraConfigurationID,
         coordinateSpace: .cameraPixels,
@@ -4011,12 +3968,35 @@ final class OperatorWorkspace {
           ? acceptedVisibilityObservationAttemptID : nil
       )
       var graph = sourceGraph
+      let tipOffsetCandidate = LearningArtifactRevision(
+        kind: .penTipOffsetRegistration,
+        attemptID: attemptID,
+        disposition: .succeeded,
+        consumedRevisionIDs: [observationRevision, targetPoseRevision]
+      )
+      let priorTipOffsetID = visibilityRepeatSnapshot?.learningArtifactGraph
+        .currentRevision(for: .penTipOffsetRegistration)?.id
+      let tipOffsetCommit =
+        if activeExerciseAttemptMode != .normal,
+          let priorTipOffsetID,
+          graph.revision(id: priorTipOffsetID)?.state == .invalidated
+        {
+          try graph.commitReplacement(
+            tipOffsetCandidate,
+            supersedingInvalidatedRevision: priorTipOffsetID
+          )
+        } else {
+          try graph.commitReplacement(tipOffsetCandidate)
+        }
       let candidate = LearningArtifactRevision(
         kind: .visibilityRegistration,
         attemptID: attemptID,
         disposition: .succeeded,
         consumedRevisionIDs: [
-          observationRevision, machineRegistrationRevision, targetROIRevision,
+          observationRevision,
+          machineRegistrationRevision,
+          targetROIRevision,
+          tipOffsetCommit.currentRevision.id,
         ]
       )
       let commit: LearningArtifactCommit
@@ -4041,8 +4021,11 @@ final class OperatorWorkspace {
       }
       visibilityDraftClearViewAttemptHistories = nil
       visibilityDraftAcceptedAttemptSequence = nil
-      applyArtifactInvalidations(commit.invalidatedRevisionIDs)
+      applyArtifactInvalidations(
+        tipOffsetCommit.invalidatedRevisionIDs.union(commit.invalidatedRevisionIDs)
+      )
       visibilityTargetObservation = observation
+      penTipOffsetRegistration = tipOffset
       visibilityRegistrationAccepted = true
       visibilityObservationAttemptHistories = histories
       acceptedVisibilityObservationAttemptID = attemptID
@@ -4085,13 +4068,13 @@ final class OperatorWorkspace {
     VisibilityRegistrationPayloadSnapshot(
       targetPoseRegistrationFrame: targetPoseRegistrationFrame,
       registeredTargetMachinePosition: registeredTargetMachinePosition,
-      targetContactPointEstimate: targetContactPointEstimate,
-      targetObservationRegion: targetObservationRegion,
-      targetROIInsets: targetROIInsets,
-      targetContactPointAndROIAccepted: targetContactPointAndROIAccepted,
+      targetCapAnchorEstimate: targetCapAnchorEstimate,
+      targetSearchCircle: targetSearchCircle,
+      targetCapAnchorAndSearchCircleAccepted: targetCapAnchorAndSearchCircleAccepted,
       preTargetClearViewBaseline: preTargetClearViewBaseline,
       visibilityTargetSceneDisposition: visibilityTargetSceneDisposition,
       visibilityTargetObservation: visibilityTargetObservation,
+      penTipOffsetRegistration: penTipOffsetRegistration,
       executedVisibilityTargetPlanRevision: executedVisibilityTargetPlanRevision,
       visibilityTargetExecutionAttemptEvidence: visibilityTargetExecutionAttemptEvidence,
       visibilityRegistrationAccepted: visibilityRegistrationAccepted,
@@ -4116,13 +4099,13 @@ final class OperatorWorkspace {
   ) {
     targetPoseRegistrationFrame = snapshot.targetPoseRegistrationFrame
     registeredTargetMachinePosition = snapshot.registeredTargetMachinePosition
-    targetContactPointEstimate = snapshot.targetContactPointEstimate
-    targetObservationRegion = snapshot.targetObservationRegion
-    targetROIInsets = snapshot.targetROIInsets
-    targetContactPointAndROIAccepted = snapshot.targetContactPointAndROIAccepted
+    targetCapAnchorEstimate = snapshot.targetCapAnchorEstimate
+    targetSearchCircle = snapshot.targetSearchCircle
+    targetCapAnchorAndSearchCircleAccepted = snapshot.targetCapAnchorAndSearchCircleAccepted
     preTargetClearViewBaseline = snapshot.preTargetClearViewBaseline
     visibilityTargetSceneDisposition = snapshot.visibilityTargetSceneDisposition
     visibilityTargetObservation = snapshot.visibilityTargetObservation
+    penTipOffsetRegistration = snapshot.penTipOffsetRegistration
     executedVisibilityTargetPlanRevision = snapshot.executedVisibilityTargetPlanRevision
     visibilityTargetExecutionAttemptEvidence = snapshot.visibilityTargetExecutionAttemptEvidence
     visibilityRegistrationAccepted = snapshot.visibilityRegistrationAccepted
@@ -4145,17 +4128,16 @@ final class OperatorWorkspace {
     currentCameraCalibrationFailure = nil
     targetPoseRegistrationFrame = nil
     registeredTargetMachinePosition = nil
-    targetContactPointEstimate = nil
+    targetCapAnchorEstimate = nil
     proposedMachineCameraRegistration = nil
-    proposedTargetObservationRegion = nil
-    proposedTargetROIInsets = nil
+    proposedTargetSearchCircle = nil
     targetGeometryProposalID = nil
-    targetObservationRegion = nil
-    targetROIInsets = nil
-    targetContactPointAndROIAccepted = false
+    targetSearchCircle = nil
+    targetCapAnchorAndSearchCircleAccepted = false
     preTargetClearViewBaseline = nil
     blankTargetBaselineCandidate = nil
     visibilityTargetObservation = nil
+    penTipOffsetRegistration = nil
     executedVisibilityTargetPlanRevision = nil
     visibilityTargetExecutionAttemptEvidence = nil
     visibilityRegistrationAccepted = false
@@ -6567,7 +6549,7 @@ final class OperatorWorkspace {
         let drawingFrame = inspection.measurement.drawingFrame
       else { return nil }
       guard !Task.isCancelled else { return nil }
-      let contact = try Point2<CameraPixelSpace>(
+      let capAnchor = try Point2<CameraPixelSpace>(
         x: Double(cap.boundingBox.x) + (Double(cap.boundingBox.width) / 2),
         y: Double(cap.boundingBox.y + cap.boundingBox.height)
       )
@@ -6580,7 +6562,7 @@ final class OperatorWorkspace {
         cameraConfigurationID: inspection.displayedFrame.frame.cameraConfigurationID,
         captureNanoseconds: inspection.displayedFrame.frame.captureNanoseconds,
         machinePosition: machinePosition,
-        toolContact: contact,
+        toolCapAnchor: capAnchor,
         toolConfidence: cap.confidence,
         drawingFrame: drawingFrame.geometry,
         drawingFrameConfidence: drawingFrame.confidence
@@ -6690,7 +6672,7 @@ final class OperatorWorkspace {
     case .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering):
       await beginPairedBoundarySide(selectedBoundaryDirection)
     case .humanGuidedDiscovery(.registerTargetPoseAndCameraGeometry):
-      if mode == .replacement, targetContactPointAndROIAccepted {
+      if mode == .replacement, targetCapAnchorAndSearchCircleAccepted {
         guard visibilityTargetSceneDisposition == .pristine else {
           activeExerciseAttemptMode = nil
           explorationError =
@@ -7194,7 +7176,7 @@ final class OperatorWorkspace {
     var graph = sourceGraph
     guard let targetROI = graph.currentRevision(for: .targetROIRegistration)?.id else {
       throw LearningPathOperationError.requiredState(
-        "Accepted Target ROI registration is required before accepting Clear."
+        "Accepted target search-circle registration is required before accepting Clear."
       )
     }
     let commit = try graph.commitReplacement(
@@ -7443,11 +7425,10 @@ final class OperatorWorkspace {
       case .targetPoseRegistration:
         targetPoseRegistrationFrame = nil
         registeredTargetMachinePosition = nil
-        targetContactPointEstimate = nil
+        targetCapAnchorEstimate = nil
       case .targetROIRegistration:
-        targetObservationRegion = nil
-        targetROIInsets = nil
-        targetContactPointAndROIAccepted = false
+        targetSearchCircle = nil
+        targetCapAnchorAndSearchCircleAccepted = false
       case .clearPose:
         clearViewPoseAccepted = false
       case .preTargetClearViewBaseline:
@@ -7455,9 +7436,16 @@ final class OperatorWorkspace {
         registeredTargetReturnSettlement = nil
       case .visibilityTargetExecution:
         visibilityTargetObservation = nil
+        penTipOffsetRegistration = nil
         visibilityRegistrationAccepted = false
-      case .visibilityTargetObservation, .visibilityRegistration:
+      case .visibilityTargetObservation:
         visibilityTargetObservation = nil
+        penTipOffsetRegistration = nil
+        visibilityRegistrationAccepted = false
+      case .penTipOffsetRegistration:
+        penTipOffsetRegistration = nil
+        visibilityRegistrationAccepted = false
+      case .visibilityRegistration:
         visibilityRegistrationAccepted = false
       case .machineCameraRegistration:
         machineCameraRegistration = nil
@@ -7629,7 +7617,7 @@ final class OperatorWorkspace {
     case .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering):
       centerArrivalPosition != nil
     case .humanGuidedDiscovery(.registerTargetPoseAndCameraGeometry):
-      targetContactPointAndROIAccepted
+      targetCapAnchorAndSearchCircleAccepted
     case .humanGuidedDiscovery(.discoverAndAcceptClearView): clearViewPoseAccepted
     case .humanGuidedDiscovery(.confirmBlankTargetBaseline):
       preTargetClearViewBaseline != nil
@@ -7686,17 +7674,17 @@ final class OperatorWorkspace {
     case .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering):
       "Observe both X sides and both Y sides in paired order, then move Pen Up to their estimated center."
     case .humanGuidedDiscovery(.registerTargetPoseAndCameraGeometry):
-      "Capture the exact target pose, build a current-camera fit and ROI proposal, inspect it at adjustable presentation zoom, then explicitly accept or reject it."
+      "Capture the exact target pose, build a current-camera cap fit and search-circle proposal, inspect it at adjustable presentation zoom, then explicitly accept or reject it."
     case .humanGuidedDiscovery(.discoverAndAcceptClearView):
       "Move Pen Up in bounded increments, label exact Clear/Partial/Blocked frames, then explicitly accept one agreed Clear pose."
     case .humanGuidedDiscovery(.confirmBlankTargetBaseline):
-      "Capture one exact frame at the accepted Clear pose and explicitly confirm that the target ROI is blank."
+      "Capture one exact frame at the accepted Clear pose and explicitly confirm that the circular target search region is blank."
     case .humanGuidedDiscovery(.returnToRegisteredTargetPose):
       "Return Pen Up to the registered target MPos and retain the exact Idle settlement."
     case .humanGuidedDiscovery(.drawVisibilityTarget):
       "Execute the immutable V2 double-trace visibility target once. Possible ink advances to observation; it is never redrawn automatically."
     case .humanGuidedDiscovery(.returnAndObserveExistingTarget):
-      "Return Pen Up to accepted Clear, then run one foreground two-frame observation of the existing target in the accepted ROI."
+      "Return Pen Up to accepted Clear, then run one foreground two-frame observation of the existing target in the accepted search circle."
     case .humanGuidedDiscovery(.acceptVisibilityRegistration):
       "Review the exact frames, geometry, uncertainty, and provenance, then explicitly accept the visibility registration."
     case .stage(.observedDrawingTrials):
@@ -7788,7 +7776,7 @@ final class OperatorWorkspace {
               role: .positive
             )
           ]
-        } else if proposedTargetObservationRegion == nil {
+        } else if proposedTargetSearchCircle == nil {
           let isAtTarget = currentPosition.map { current in
             registeredTargetMachinePosition.map { protocolPositionsMatch(current, $0) } ?? false
           }
@@ -7810,7 +7798,7 @@ final class OperatorWorkspace {
           } else {
             let compatibleCount =
               targetPoseRegistrationFrame.map {
-                compatibleRegistrationContactEvidence(for: $0).count
+                compatibleRegistrationCapAnchorEvidence(for: $0).count
               } ?? 0
             actions = [
               ExerciseActionDescriptor(
@@ -7835,7 +7823,7 @@ final class OperatorWorkspace {
           actions = [
             ExerciseActionDescriptor(
               kind: .acceptTargetGeometryProposal,
-              title: "Accept Target Pose, Camera Fit, and ROI",
+              title: "Accept Target Pose, Cap Fit, and Search Circle",
               role: .positive
             ),
             ExerciseActionDescriptor(
@@ -7897,7 +7885,7 @@ final class OperatorWorkspace {
           actions = [
             ExerciseActionDescriptor(
               kind: .confirmBlankTargetBaseline,
-              title: "Confirm ROI Is Blank",
+              title: "Confirm Search Circle Is Blank",
               role: .positive
             ),
             ExerciseActionDescriptor(
@@ -8289,7 +8277,7 @@ final class OperatorWorkspace {
     case .registerTargetPoseAndCameraGeometry:
       [
         .text(
-          "Capture one exact target frame, build a fit/ROI proposal, inspect the outlined ROI with presentation zoom, then explicitly accept or reject it."
+          "Capture one exact target frame, build a cap-fit/search-circle proposal, inspect the outlined circle with presentation zoom, then explicitly accept or reject it."
         )
       ]
     case .discoverAndAcceptClearView:
@@ -8299,7 +8287,7 @@ final class OperatorWorkspace {
         )
       ]
     case .confirmBlankTargetBaseline:
-      [.text("Capture at accepted Clear and answer whether the exact target ROI is blank.")]
+      [.text("Capture at accepted Clear and answer whether the exact circular target search region is blank.")]
     case .returnToRegisteredTargetPose:
       [.text("Return Pen Up to the accepted target MPos and wait for exact Idle settlement.")]
     case .drawVisibilityTarget:
@@ -8327,9 +8315,9 @@ final class OperatorWorkspace {
     case .pairedBoundaryDiscoveryAndCentering:
       [.text("Four accepted sides and one explicit arrival at the estimated machine center.")]
     case .registerTargetPoseAndCameraGeometry:
-      [.text("Current target-pose, machine-camera, and target-ROI revisions.")]
+      [.text("Current target-pose, machine-camera, and target-search revisions.")]
     case .discoverAndAcceptClearView:
-      [.text("One accepted Clear pose with exact frame, MPos, label, and ROI context.")]
+      [.text("One accepted Clear pose with exact frame, MPos, label, and search-circle context.")]
     case .confirmBlankTargetBaseline:
       [.text("One explicitly confirmed blank exact-frame baseline.")]
     case .returnToRegisteredTargetPose:
@@ -8519,8 +8507,7 @@ final class OperatorWorkspace {
       }
       return evidence
     case .registerTargetPoseAndCameraGeometry:
-      let region = proposedTargetObservationRegion ?? targetObservationRegion
-      let insets = proposedTargetROIInsets ?? targetROIInsets
+      let searchCircle = proposedTargetSearchCircle ?? targetSearchCircle
       let registration = proposedMachineCameraRegistration ?? machineCameraRegistration
       return [
         ExerciseEvidencePresentation(
@@ -8539,20 +8526,20 @@ final class OperatorWorkspace {
         ),
         ExerciseEvidencePresentation(
           label: targetGeometryProposalID == nil
-            ? "Accepted contact, fit, and ROI" : "Staged contact, fit, and ROI proposal",
+            ? "Accepted cap anchor, fit, and search circle"
+            : "Staged cap anchor, fit, and search-circle proposal",
           fragments: [
             .text(
-              targetContactPointEstimate.map {
+              targetCapAnchorEstimate.map {
                 String(
                   format:
-                    "bottom-center contact %.1f, %.1f · ROI %@ · padding %@ · fit residual %@ · %@",
+                    "cap anchor %.1f, %.1f · %@ · fit residual %@ · %@",
                   $0.point.x,
                   $0.point.y,
-                  region.map(String.init(describing:)) ?? "not available",
-                  insets?.presentation ?? "not set",
+                  searchCircle.map(String.init(describing:)) ?? "search circle not available",
                   registration.map { String(format: "%.3f px", $0.validationResidualPixels) }
                     ?? "not fitted",
-                  targetContactPointAndROIAccepted ? "accepted" : "not authoritative"
+                  targetCapAnchorAndSearchCircleAccepted ? "accepted" : "not authoritative"
                 )
               } ?? "not measured")
           ]
@@ -8561,10 +8548,10 @@ final class OperatorWorkspace {
     case .discoverAndAcceptClearView:
       return [
         ExerciseEvidencePresentation(
-          label: "Target ROI input",
+          label: "Target search-circle input",
           fragments: [
             .text(
-              targetObservationRegion.map {
+              targetSearchCircle.map {
                 "\($0) · revision \(learningArtifactGraph.currentRevision(for: .targetROIRegistration)?.id.rawValue.uuidString.lowercased() ?? "not current")"
               } ?? "not accepted")
           ]
@@ -8631,7 +8618,7 @@ final class OperatorWorkspace {
           label: "Accepted drawing inputs",
           fragments: [
             .text(
-              "baseline \(preTargetClearViewBaseline?.frame.id.rawValue ?? "not accepted") · ROI \(targetObservationRegion.map(String.init(describing:)) ?? "not accepted")"
+              "baseline \(preTargetClearViewBaseline?.frame.id.rawValue ?? "not accepted") · search \(targetSearchCircle.map(String.init(describing:)) ?? "not accepted")"
             )
           ]
         ),
@@ -8678,6 +8665,18 @@ final class OperatorWorkspace {
       return evidence
     case .acceptVisibilityRegistration:
       var evidence: [ExerciseEvidencePresentation] = []
+      let tipOffsetCandidate = penTipOffsetRegistration ?? visibilityTargetObservation.flatMap {
+        observation in
+        guard let capAnchor = targetCapAnchorEstimate,
+          let anchorFrame = targetPoseRegistrationFrame
+        else { return nil }
+        return try? PenTipOffsetRegistration(
+          capAnchor: capAnchor,
+          anchorFrame: anchorFrame,
+          observation: observation,
+          estimatorRevision: "cap-anchor-to-visibility-centroid-v1"
+        )
+      }
       if let observation = visibilityTargetObservation {
         evidence.append(
           ExerciseEvidencePresentation(
@@ -8707,6 +8706,28 @@ final class OperatorWorkspace {
       }
       evidence.append(
         ExerciseEvidencePresentation(
+          label: "Cap-to-tip registration",
+          fragments: [
+            .text(
+              tipOffsetCandidate.map {
+                String(
+                  format:
+                    "cap %.1f, %.1f · observed tip %.1f, %.1f · offset X %+.1f Y %+.1f px · anchor frame %@ · %@",
+                  $0.capAnchor.x,
+                  $0.capAnchor.y,
+                  $0.observedTip.x,
+                  $0.observedTip.y,
+                  $0.capToTipOffset.dx,
+                  $0.capToTipOffset.dy,
+                  $0.capAnchorFrame.frameID.rawValue,
+                  $0.estimatorRevision
+                )
+              } ?? "not available"
+            )
+          ]
+        ))
+      evidence.append(
+        ExerciseEvidencePresentation(
           label: "Visibility-registration authority",
           fragments: [
             .text(
@@ -8732,7 +8753,7 @@ final class OperatorWorkspace {
         outcome: .inProgress,
         detail: [
           .text(
-            "Vision is restricted to the exact \(operation.region.width)x\(operation.region.height) px target ROI. Plan \(operation.targetPlanRevision)."
+            "Vision is masked to the cap-anchored circle with radius \(Int(operation.searchCircle.radiusPixels.rounded())) px (bounded by \(operation.searchCircle.boundingROI.width)x\(operation.searchCircle.boundingROI.height) px). Plan \(operation.targetPlanRevision)."
           )
         ],
         recovery: [.text("Cancel Vision remains available; no other operation is admitted.")]
@@ -8781,7 +8802,7 @@ final class OperatorWorkspace {
         outcome: .inProgress,
         detail: [
           .text(
-            "The app owns three exact non-collinear contact samples and returns to the registered target pose. The later visibility target is still a separate machine-drawn action."
+            "The app owns three exact non-collinear cap-anchor samples and returns to the registered target pose. The later visibility target is still a separate machine-drawn action."
           )
         ],
         recovery: activeStopTarget == nil
@@ -8952,7 +8973,7 @@ final class OperatorWorkspace {
       visionBlocksMotion = true
       visionRole = .operationOwner
       visionDetail =
-        "Foreground target-ROI observation owns a still-scene evidence transaction. It blocks new motion until it settles or Cancel Vision is used."
+        "Foreground circular target observation owns a still-scene evidence transaction. It blocks new motion until it settles or Cancel Vision is used."
     } else if let currentCameraCalibrationPhase {
       visionState = currentCameraCalibrationPhase
       visionBlocksMotion = true
@@ -9082,7 +9103,7 @@ final class OperatorWorkspace {
     case .inkPossible:
       return [
         .text(
-          "Return to the accepted Clear pose and Observe Existing Target; never redraw this ROI.")
+          "Return to the accepted Clear pose and Observe Existing Target; never redraw this target area.")
       ]
     case .targetUnusable:
       return [.text("Register New Target Area and relocate, or record Paper Replaced.")]
@@ -9357,7 +9378,7 @@ final class OperatorWorkspace {
     let priorScene = visibilityTargetSceneDisposition
     let priorTargetPose = targetPoseRegistrationFrame
     let priorTargetMachinePosition = registeredTargetMachinePosition
-    let priorContact = targetContactPointEstimate
+    let priorContact = targetCapAnchorEstimate
     let priorBaseline = preTargetClearViewBaseline
     let priorObservation = visibilityTargetObservation
     var graph = learningArtifactGraph
@@ -9373,14 +9394,12 @@ final class OperatorWorkspace {
     registeredTargetMachinePosition =
       priorScene == .pristine
       ? nil : priorTargetMachinePosition
-    targetContactPointEstimate = priorScene == .pristine ? nil : priorContact
+    targetCapAnchorEstimate = priorScene == .pristine ? nil : priorContact
     proposedMachineCameraRegistration = nil
-    proposedTargetObservationRegion = nil
-    proposedTargetROIInsets = nil
+    proposedTargetSearchCircle = nil
     targetGeometryProposalID = nil
-    targetObservationRegion = nil
-    targetROIInsets = nil
-    targetContactPointAndROIAccepted = false
+    targetSearchCircle = nil
+    targetCapAnchorAndSearchCircleAccepted = false
     preTargetClearViewBaseline = priorScene == .pristine ? nil : priorBaseline
     blankTargetBaselineCandidate = nil
     visibilityTargetSceneDisposition = priorScene == .pristine ? .pristine : .targetUnusable
@@ -9452,14 +9471,12 @@ final class OperatorWorkspace {
       currentCameraCalibrationFailure = nil
       targetPoseRegistrationFrame = nil
       registeredTargetMachinePosition = nil
-      targetContactPointEstimate = nil
+      targetCapAnchorEstimate = nil
       proposedMachineCameraRegistration = nil
-      proposedTargetObservationRegion = nil
-      proposedTargetROIInsets = nil
+      proposedTargetSearchCircle = nil
       targetGeometryProposalID = nil
-      targetObservationRegion = nil
-      targetROIInsets = nil
-      targetContactPointAndROIAccepted = false
+      targetSearchCircle = nil
+      targetCapAnchorAndSearchCircleAccepted = false
       machineCameraRegistration = nil
       targetAreaRelocationRequired = false
       targetAreaRelocationCompleted = false
@@ -9486,6 +9503,7 @@ final class OperatorWorkspace {
     }
     if step.rawValue <= HumanGuidedDiscoveryStep.returnAndObserveExistingTarget.rawValue {
       visibilityTargetObservation = nil
+      penTipOffsetRegistration = nil
       visibilityObservationAttemptHistories = [:]
       acceptedVisibilityObservationAttemptID = nil
       acceptedClearReturnSettlement = nil
@@ -9573,18 +9591,17 @@ final class OperatorWorkspace {
     centerArrivalRetryRequired = false
     targetPoseRegistrationFrame = nil
     registeredTargetMachinePosition = nil
-    targetContactPointEstimate = nil
+    targetCapAnchorEstimate = nil
     proposedMachineCameraRegistration = nil
-    proposedTargetObservationRegion = nil
-    proposedTargetROIInsets = nil
+    proposedTargetSearchCircle = nil
     targetGeometryProposalID = nil
-    targetObservationRegion = nil
-    targetROIInsets = nil
-    targetContactPointAndROIAccepted = false
+    targetSearchCircle = nil
+    targetCapAnchorAndSearchCircleAccepted = false
     preTargetClearViewBaseline = nil
     blankTargetBaselineCandidate = nil
     visibilityTargetSceneDisposition = .pristine
     visibilityTargetObservation = nil
+    penTipOffsetRegistration = nil
     executedVisibilityTargetPlanRevision = nil
     visibilityTargetExecutionAttemptEvidence = nil
     visibilityObservationAttemptHistories = [:]
@@ -9646,13 +9663,13 @@ final class OperatorWorkspace {
       centerArrivalRetryRequired: centerArrivalRetryRequired,
       targetPoseRegistrationFrame: targetPoseRegistrationFrame,
       registeredTargetMachinePosition: registeredTargetMachinePosition,
-      targetContactPointEstimate: targetContactPointEstimate,
-      targetObservationRegion: targetObservationRegion,
-      targetROIInsets: targetROIInsets,
-      targetContactPointAndROIAccepted: targetContactPointAndROIAccepted,
+      targetCapAnchorEstimate: targetCapAnchorEstimate,
+      targetSearchCircle: targetSearchCircle,
+      targetCapAnchorAndSearchCircleAccepted: targetCapAnchorAndSearchCircleAccepted,
       preTargetClearViewBaseline: preTargetClearViewBaseline,
       visibilityTargetSceneDisposition: visibilityTargetSceneDisposition,
       visibilityTargetObservation: visibilityTargetObservation,
+      penTipOffsetRegistration: penTipOffsetRegistration,
       executedVisibilityTargetPlanRevision: executedVisibilityTargetPlanRevision,
       visibilityTargetExecutionAttemptEvidence: visibilityTargetExecutionAttemptEvidence,
       visibilityObservationAttemptHistories: visibilityObservationAttemptHistories,
@@ -9715,18 +9732,17 @@ final class OperatorWorkspace {
     centerArrivalRetryRequired = false
     targetPoseRegistrationFrame = nil
     registeredTargetMachinePosition = nil
-    targetContactPointEstimate = nil
+    targetCapAnchorEstimate = nil
     proposedMachineCameraRegistration = nil
-    proposedTargetObservationRegion = nil
-    proposedTargetROIInsets = nil
+    proposedTargetSearchCircle = nil
     targetGeometryProposalID = nil
-    targetObservationRegion = nil
-    targetROIInsets = nil
-    targetContactPointAndROIAccepted = false
+    targetSearchCircle = nil
+    targetCapAnchorAndSearchCircleAccepted = false
     preTargetClearViewBaseline = nil
     blankTargetBaselineCandidate = nil
     visibilityTargetSceneDisposition = .pristine
     visibilityTargetObservation = nil
+    penTipOffsetRegistration = nil
     executedVisibilityTargetPlanRevision = nil
     visibilityTargetExecutionAttemptEvidence = nil
     visibilityObservationAttemptHistories = [:]
@@ -9801,13 +9817,13 @@ final class OperatorWorkspace {
     centerArrivalRetryRequired = snapshot.centerArrivalRetryRequired
     targetPoseRegistrationFrame = snapshot.targetPoseRegistrationFrame
     registeredTargetMachinePosition = snapshot.registeredTargetMachinePosition
-    targetContactPointEstimate = snapshot.targetContactPointEstimate
-    targetObservationRegion = snapshot.targetObservationRegion
-    targetROIInsets = snapshot.targetROIInsets
-    targetContactPointAndROIAccepted = snapshot.targetContactPointAndROIAccepted
+    targetCapAnchorEstimate = snapshot.targetCapAnchorEstimate
+    targetSearchCircle = snapshot.targetSearchCircle
+    targetCapAnchorAndSearchCircleAccepted = snapshot.targetCapAnchorAndSearchCircleAccepted
     preTargetClearViewBaseline = snapshot.preTargetClearViewBaseline
     visibilityTargetSceneDisposition = snapshot.visibilityTargetSceneDisposition
     visibilityTargetObservation = snapshot.visibilityTargetObservation
+    penTipOffsetRegistration = snapshot.penTipOffsetRegistration
     executedVisibilityTargetPlanRevision = snapshot.executedVisibilityTargetPlanRevision
     visibilityTargetExecutionAttemptEvidence = snapshot.visibilityTargetExecutionAttemptEvidence
     visibilityObservationAttemptHistories = snapshot.visibilityObservationAttemptHistories
@@ -10599,10 +10615,13 @@ final class OperatorWorkspace {
       let clearPosition = armatureGuidanceState?.acceptedClearPose?.position,
       let lineStart = drawingTrialLineStart,
       let registration = machineCameraRegistration,
-      let region = targetObservationRegion
+      let tipOffset = penTipOffsetRegistration,
+      registration.source == tipOffset.source,
+      registration.cameraConfigurationID == tipOffset.cameraConfigurationID,
+      let targetObservation = visibilityTargetObservation
     else {
       throw LearningPathOperationError.requiredState(
-        "Target baseline, Clear pose, line plan, registration, and ROI are required."
+        "Target baseline, Clear pose, line plan, cap registration, and cap-to-tip offset are required."
       )
     }
     let current = try currentMachinePosition()
@@ -10647,20 +10666,30 @@ final class OperatorWorkspace {
       x: lineStart.point.x + lineDelta.dx,
       y: lineStart.point.y + lineDelta.dy
     )
-    let cameraStart = try registration.fit.cameraPoint(from: lineStart.point)
-    let cameraEnd = try registration.fit.cameraPoint(from: lineEnd)
+    let cameraStart = try tipOffset.tipPoint(
+      from: registration.fit.cameraPoint(from: lineStart.point)
+    )
+    let cameraEnd = try tipOffset.tipPoint(
+      from: registration.fit.cameraPoint(from: lineEnd)
+    )
     let projectedDelta = try cameraStart.vector(to: cameraEnd)
     let componentAndAlignmentMargin = 4
+    let observedTargetMinX = targetObservation.samples.map(\.bounds.minX).min()!
+    let observedTargetMinY = targetObservation.samples.map(\.bounds.minY).min()!
+    let observedTargetMaxX = targetObservation.samples.map(\.bounds.maxX).max()!
+    let observedTargetMaxY = targetObservation.samples.map(\.bounds.maxY).max()!
     let minX = min(
-      region.x, Int(floor(min(cameraStart.x, cameraEnd.x))) - componentAndAlignmentMargin)
+      Int(floor(observedTargetMinX)) - componentAndAlignmentMargin,
+      Int(floor(min(cameraStart.x, cameraEnd.x))) - componentAndAlignmentMargin)
     let minY = min(
-      region.y, Int(floor(min(cameraStart.y, cameraEnd.y))) - componentAndAlignmentMargin)
+      Int(floor(observedTargetMinY)) - componentAndAlignmentMargin,
+      Int(floor(min(cameraStart.y, cameraEnd.y))) - componentAndAlignmentMargin)
     let maxX = max(
-      region.x + region.width - 1,
+      Int(ceil(observedTargetMaxX)) + componentAndAlignmentMargin,
       Int(ceil(max(cameraStart.x, cameraEnd.x))) + componentAndAlignmentMargin
     )
     let maxY = max(
-      region.y + region.height - 1,
+      Int(ceil(observedTargetMaxY)) + componentAndAlignmentMargin,
       Int(ceil(max(cameraStart.y, cameraEnd.y))) + componentAndAlignmentMargin
     )
     let clippedX = max(0, min(post.frame.width - 1, minX))
@@ -10696,7 +10725,7 @@ final class OperatorWorkspace {
         maximumBackgroundMeanAbsoluteDifference:
           FixedCameraOpticalSettlingPolicy.maximumBackgroundMeanAbsoluteDifference,
         projectedActualStrokeDelta: projectedDelta,
-        algorithmRevision: "target-anchored-isolated-ink-v2"
+        algorithmRevision: "cap-tip-corrected-isolated-ink-v3"
       )
     )
     switch outcome {

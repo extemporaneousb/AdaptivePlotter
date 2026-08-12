@@ -182,8 +182,12 @@ requires fresh attributable controller MPos and compatible controller context;
 it does not require mathematically zero residual when the requested coordinate
 is not representable at the configured steps/mm.
 
-Machine-camera registration separately consumes compatible exact machine/contact
-samples. It never averages frames into new provenance.
+Machine-camera registration separately consumes compatible exact machine/cap-
+anchor samples. The visible cap bottom-centre is not paper-contact authority,
+and registration never averages frames into new provenance. A separately
+accepted, camera-configuration-specific cap-to-tip translation is derived from
+the cap anchor and the two-frame visibility-target centroid before intended ink
+geometry may use the registration.
 
 Stage 3.3 exposes one public capture-and-build action. It records the target
 MPos and exact frame, runs the bounded three-sample Pen Up calibration when
@@ -191,7 +195,9 @@ compatible samples are insufficient, returns to the recorded target under the
 shared pose policy, and stages a reviewable non-authoritative proposal. Proposal
 construction has no preceding generic Start or separate public capture step and
 never accepts geometry; explicit operator acceptance or rejection remains a
-separate action.
+separate action. The staged target search support is a 128 px-radius circle
+centred directly on the exact target-pose cap anchor. A fitted-registration
+residual cannot move that centre.
 
 The first fresh passive probe inside one Stage 3.3 calibration operation
 establishes that operation's controller-context baseline. Later sample probes

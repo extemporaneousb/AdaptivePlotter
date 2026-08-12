@@ -1,4 +1,5 @@
 import Foundation
+import PlotterModel
 import PlotterRuntime
 import Testing
 
@@ -98,17 +99,33 @@ struct WorkbenchPresentationTests {
     #expect(!idle.mustRemainVisible)
   }
 
-  @Test("foreground Vision exposes one capability-bound cancel and truthful ROI phase")
-  func visibilityObservationPresentation() {
+  @Test("foreground Vision exposes one capability-bound cancel and truthful circle phase")
+  func visibilityObservationPresentation() throws {
+    let frame = try StampedFrame(
+      sequence: 1,
+      captureNanoseconds: 1,
+      cameraConfigurationID: CameraConfigurationID(),
+      width: 100,
+      height: 100,
+      rowBytes: 100,
+      pixelFormat: .gray8,
+      bytes: OwnedFrameBytes(Array(repeating: 0, count: 10_000))
+    )
+    let searchCircle = try VisibilityTargetSearchCircle(
+      center: Point2(x: 28, y: 34),
+      radiusPixels: 18,
+      anchor: DisplayedFrame(source: .simulated, frame: frame),
+      algorithmRevision: "presentation-search-circle-v1"
+    )
     let operation = VisibilityObservationOperationPresentation(
       id: VisibilityObservationOperationID(),
       cancelCapabilityID: VisibilityObservationCancelCapabilityID(),
       phase: .analyzingSecondFrame,
-      region: PixelRect(x: 10, y: 20, width: 36, height: 28),
+      searchCircle: searchCircle,
       targetPlanRevision: VisibilityTargetPlanV2.revision
     )
     #expect(operation.busyDetail.contains("frame 2 of 2"))
-    #expect(operation.busyDetail.contains("36x28 px"))
+    #expect(operation.busyDetail.contains("R 18 px"))
     #expect(operation.busyDetail.contains(VisibilityTargetPlanV2.revision))
     #expect(
       ExerciseActionKind.cancelVisibilityObservation(operation.cancelCapabilityID)

@@ -690,12 +690,18 @@ struct SimulatedLearningRuntimeTests {
     let plain = try accepted(await runtime.captureSceneFrame())
     let learnedX = try SimulatedLearningMPos(xMM: -40, yMM: 0)
     let learnedCenter = try SimulatedLearningMPos(xMM: 0.5, yMM: -0.25)
+    let searchCircle = try VisibilityTargetSearchCircle(
+      center: Point2(x: 320, y: 240),
+      radiusPixels: 20,
+      anchor: plain.displayedFrame,
+      algorithmRevision: "simulated-annotation-search-circle-v1"
+    )
     let annotated = try accepted(
       await runtime.captureSceneFrame(
         annotationContext: .init(
           acceptedBoundaryPositions: [.negativeX: learnedX],
           learnedCenter: learnedCenter,
-          targetROI: try AxisAlignedBounds(minX: 300, minY: 220, maxX: 340, maxY: 260)
+          targetSearchCircle: searchCircle
         )))
 
     #expect(
@@ -712,7 +718,16 @@ struct SimulatedLearningRuntimeTests {
     #expect(plain.annotations.allSatisfy { $0.kind != .learnedCenter })
     #expect(annotated.annotations.contains { $0.kind == .learnedCenter })
     #expect(annotated.annotations.contains { $0.kind == .acceptedLearnedSide(.negativeX) })
-    #expect(annotated.annotations.contains { $0.kind == .targetROI })
+    #expect(annotated.annotations.contains { $0.kind == .targetSearchCircle })
+    let targetSearch = try #require(
+      annotated.annotations.first { $0.kind == .targetSearchCircle }
+    )
+    guard case .circle(let center, let radius) = targetSearch.geometry else {
+      Issue.record("Target search annotation must remain circular")
+      return
+    }
+    #expect(center == searchCircle.center)
+    #expect(radius == searchCircle.radiusPixels)
     #expect(annotated.annotations.contains { $0.kind == .truthEnvelope })
   }
 
@@ -896,7 +911,7 @@ private struct SimulatedRouteEvidence {
 private struct SimulatedBoundaryRouteSample {
   let aggregate: BoundarySideAggregate
   let evidence: BoundarySideAttemptEvidence
-  let contactPoint: Point2<CameraPixelSpace>
+  let capAnchorPoint: Point2<CameraPixelSpace>
   let frame: DisplayedFrame
 }
 
@@ -1012,7 +1027,7 @@ private func runVisibilityRoute(
           history: history
         ),
         evidence: evidence,
-        contactPoint: scene.contactPoint,
+        capAnchorPoint: scene.capAnchorPoint,
         frame: scene.displayedFrame
       ))
   }
@@ -1027,7 +1042,7 @@ private func runVisibilityRoute(
   let fitCorrespondences = boundaries.map {
     MachineCameraRegistrationCorrespondence(
       machine: $0.evidence.finalPosition.point,
-      camera: $0.contactPoint
+      camera: $0.capAnchorPoint
     )
   }
   let registrationFit = try MachineCameraRegistrationFit.fit(
@@ -1042,7 +1057,7 @@ private func runVisibilityRoute(
     correspondenceProvenance: boundaries.map {
       MachineCameraCorrespondenceProvenance(
         machinePoint: $0.evidence.finalPosition.point,
-        contactPoint: $0.contactPoint,
+        capAnchorPoint: $0.capAnchorPoint,
         source: $0.frame.source,
         controllerSessionID: $0.evidence.controllerSessionID,
         coordinateRevision: $0.evidence.coordinateRevision,
@@ -1051,15 +1066,15 @@ private func runVisibilityRoute(
         captureNanoseconds: $0.frame.frame.captureNanoseconds,
         cameraConfigurationID: $0.frame.frame.cameraConfigurationID,
         attemptID: $0.evidence.attemptID,
-        contactEstimatorRevision: "simulated-component-bottom-center-v1",
+        capAnchorEstimatorRevision: "simulated-cap-bottom-center-anchor-v1",
         algorithmRevision: "simulated-correspondence-v1",
-        contactConfidence: 1,
+        capAnchorConfidence: 1,
         artifactRevisionID: $0.aggregate.revisionID
       )
     },
     validationTargetFrameID: targetPose.displayedFrame.frame.id,
     validationMachinePoint: center.point,
-    validationContactPoint: targetPose.contactPoint,
+    validationCapAnchorPoint: targetPose.capAnchorPoint,
     maximumValidationResidualPixels: 0.01,
     estimatorRevision: "simulated-affine-registration-v1",
     uncertaintyPixels: 0
@@ -1081,12 +1096,12 @@ private func runVisibilityRoute(
   )
   let firstPost = try accepted(await runtime.captureSceneFrame())
   let secondPost = try accepted(await runtime.captureSceneFrame())
-  let targetCenter = targetPose.contactPoint
-  let roi = PixelRect(
-    x: Int(targetCenter.x) - 20,
-    y: Int(targetCenter.y) - 20,
-    width: 40,
-    height: 40
+  let targetCenter = targetPose.capAnchorPoint
+  let searchCircle = try VisibilityTargetSearchCircle(
+    center: targetCenter,
+    radiusPixels: 20,
+    anchor: targetPose.displayedFrame,
+    algorithmRevision: "simulated-cap-tip-search-circle-v1"
   )
   let targetOutcomeVision = await VisionWorker().observeVisibilityTarget(
     VisibilityTargetObservationRequest(
@@ -1103,7 +1118,7 @@ private func runVisibilityRoute(
           )
         )
       },
-      targetSearchROI: roi,
+      targetSearchCircle: searchCircle,
       thresholds: GreenPixelThresholds(minimumGreen: 140, minimumGreenExcess: 70),
       controllerSessionID: session,
       coordinateRevision: 1,
@@ -1168,7 +1183,12 @@ private func runVisibilityRoute(
             y: postLine.controllerPosition.yMM
           )
         ),
-        region: PixelRect(x: roi.x, y: roi.y, width: 70, height: roi.height),
+        region: PixelRect(
+          x: searchCircle.boundingROI.x,
+          y: searchCircle.boundingROI.y,
+          width: 70,
+          height: searchCircle.boundingROI.height
+        ),
         thresholds: GreenPixelThresholds(minimumGreen: 140, minimumGreenExcess: 70),
         lineStartPoint: cameraLineStart,
         controllerSessionID: session,

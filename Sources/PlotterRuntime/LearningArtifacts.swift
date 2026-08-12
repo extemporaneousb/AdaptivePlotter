@@ -479,7 +479,7 @@ public struct VisibilityTargetAttemptAggregate: Hashable, Sendable {
   public let controllerSessionID: UUID
   public let coordinateRevision: UInt64
   public let toolPaperRevision: UUID
-  public let region: PixelRect
+  public let searchCircle: VisibilityTargetSearchCircle
   public let targetPlanRevision: String
 
   public init(
@@ -522,7 +522,7 @@ public struct VisibilityTargetAttemptAggregate: Hashable, Sendable {
         observation.controllerSessionID == first.controllerSessionID,
         observation.coordinateRevision == first.coordinateRevision,
         observation.toolPaperRevision == first.toolPaperRevision,
-        observation.region == first.region,
+        observation.searchCircle == first.searchCircle,
         observation.targetPlanRevision == first.targetPlanRevision,
         observation.algorithmRevision == first.algorithmRevision
       else {
@@ -568,7 +568,7 @@ public struct VisibilityTargetAttemptAggregate: Hashable, Sendable {
     controllerSessionID = first.controllerSessionID
     coordinateRevision = first.coordinateRevision
     toolPaperRevision = first.toolPaperRevision
-    region = first.region
+    searchCircle = first.searchCircle
     targetPlanRevision = first.targetPlanRevision
   }
 }
@@ -658,6 +658,7 @@ public enum LearningArtifactKind: Codable, Hashable, Sendable {
   case preTargetClearViewBaseline
   case visibilityTargetExecution
   case visibilityTargetObservation
+  case penTipOffsetRegistration
   case visibilityRegistration
   case machineCameraRegistration
   case targetAnchoredTrialBaseline(AttemptGroupIdentity)

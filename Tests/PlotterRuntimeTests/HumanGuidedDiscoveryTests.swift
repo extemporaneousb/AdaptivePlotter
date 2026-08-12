@@ -232,13 +232,13 @@ struct HumanGuidedDiscoveryTests {
     let registration = try makeRegistration(fit: fit, provenance: provenance, context: context)
     #expect(registration.correspondenceFrameIDs == Set(provenance.map(\.frameID)))
     #expect(registration.correspondenceRevisionIDs == Set(provenance.map(\.artifactRevisionID)))
-    #expect(registration.contactEstimatorRevision == "component-bottom-center-v1")
+    #expect(registration.capAnchorEstimatorRevision == "cap-bottom-center-anchor-v1")
     #expect(provenance.allSatisfy { !$0.frameSHA256.isEmpty })
     #expect(provenance.map(\.captureNanoseconds) == [100, 101, 102, 103])
     #expect(Set(provenance.map(\.attemptID)).count == 4)
   }
 
-  @Test("optical registration rejects camera and contact-estimator mismatches")
+  @Test("optical registration rejects camera and cap-anchor-estimator mismatches")
   func opticalCompatibilityMismatch() throws {
     let context = RegistrationTestContext()
     let pairs = try registrationPairs()
@@ -260,20 +260,20 @@ struct HumanGuidedDiscoveryTests {
       pair: pairs[2],
       index: 2,
       context: context,
-      contactEstimatorRevision: "different-contact-estimator"
+      capAnchorEstimatorRevision: "different-cap-anchor-estimator"
     )
-    #expect(throws: MachineCameraRegistrationError.correspondenceContactEstimatorMismatch) {
+    #expect(throws: MachineCameraRegistrationError.correspondenceCapAnchorEstimatorMismatch) {
       _ = try makeRegistration(fit: fit, provenance: wrongEstimator, context: context)
     }
   }
 
-  @Test("tool contact is component bottom-center and not its centroid")
-  func contactPointDistinctFromCentroid() throws {
-    let estimate = try ToolContactPointEstimate(
+  @Test("cap anchor is component bottom-center and not the hidden tip or centroid")
+  func capAnchorPointDistinctFromCentroid() throws {
+    let estimate = try ToolCapAnchorEstimate(
       componentCentroid: Point2(x: 20, y: 10),
       componentBounds: AxisAlignedBounds(minX: 12, minY: 2, maxX: 24, maxY: 18),
       confidence: 0.9,
-      estimatorRevision: "component-bottom-center-v1",
+      estimatorRevision: "cap-bottom-center-anchor-v1",
       source: .simulated,
       frameID: FrameID(rawValue: "contact-frame"),
       cameraConfigurationID: CameraConfigurationID()
@@ -372,11 +372,11 @@ private func provenance(
   index: Int,
   context: RegistrationTestContext,
   camera: CameraConfigurationID? = nil,
-  contactEstimatorRevision: String = "component-bottom-center-v1"
+  capAnchorEstimatorRevision: String = "cap-bottom-center-anchor-v1"
 ) -> MachineCameraCorrespondenceProvenance {
   MachineCameraCorrespondenceProvenance(
     machinePoint: pair.machine,
-    contactPoint: pair.camera,
+    capAnchorPoint: pair.camera,
     source: .simulated,
     controllerSessionID: context.session,
     coordinateRevision: context.coordinateRevision,
@@ -385,9 +385,9 @@ private func provenance(
     captureNanoseconds: UInt64(100 + index),
     cameraConfigurationID: camera ?? context.camera,
     attemptID: ExerciseAttemptID(),
-    contactEstimatorRevision: contactEstimatorRevision,
+    capAnchorEstimatorRevision: capAnchorEstimatorRevision,
     algorithmRevision: "test-correspondence-v1",
-    contactConfidence: 0.9,
+    capAnchorConfidence: 0.9,
     artifactRevisionID: LearningArtifactRevisionID()
   )
 }
@@ -413,7 +413,7 @@ private func makeRegistration(
     correspondenceProvenance: provenance,
     validationTargetFrameID: FrameID(rawValue: "target-validation"),
     validationMachinePoint: Point2(x: 4, y: 3),
-    validationContactPoint: Point2(x: 4, y: 3),
+    validationCapAnchorPoint: Point2(x: 4, y: 3),
     maximumValidationResidualPixels: 0.25,
     estimatorRevision: "affine-fit-v1",
     uncertaintyPixels: 0.1

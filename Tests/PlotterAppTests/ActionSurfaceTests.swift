@@ -47,8 +47,8 @@ func aspectFitMappingMultipleSizes() throws {
   #expect(tall.imageRect == CGRect(x: 0, y: 150, width: 200, height: 100))
 }
 
-@Test("Target ROI focus magnifies exact camera coordinates without changing provenance")
-func targetROIFocusMappingAndIdentity() throws {
+@Test("Search-circle focus magnifies exact camera coordinates without changing provenance")
+func searchCircleFocusMappingAndIdentity() throws {
   let region = PixelRect(x: 300, y: 200, width: 40, height: 20)
   let transform = try #require(
     CameraPixelToViewTransform(
@@ -64,16 +64,18 @@ func targetROIFocusMappingAndIdentity() throws {
   #expect(transform.point(try Point2(x: 340, y: 220)) == CGPoint(x: 400, y: 300))
 
   let displayed = try testDisplayedFrame()
+  let searchCircle = try testSearchCircle(anchor: displayed)
   let context = ActionSurfaceViewportContext(
     source: displayed.source,
     cameraConfigurationID: displayed.frame.cameraConfigurationID,
     targetAreaIdentity: UUID(),
-    roiAuthorityToken: "roi-1",
+    searchAuthorityToken: "roi-1",
     region: PixelRect(x: 1, y: 1, width: 2, height: 2)
   )
   let matching = ActionSurfaceFocus(
     frameID: displayed.frame.id,
     cameraConfigurationID: displayed.frame.cameraConfigurationID,
+    searchCircle: searchCircle,
     region: PixelRect(x: 1, y: 1, width: 2, height: 2),
     label: "target",
     viewportContext: context
@@ -82,6 +84,7 @@ func targetROIFocusMappingAndIdentity() throws {
   let stale = ActionSurfaceFocus(
     frameID: FrameID(),
     cameraConfigurationID: displayed.frame.cameraConfigurationID,
+    searchCircle: searchCircle,
     region: matching.region,
     label: "stale",
     viewportContext: context
@@ -89,13 +92,13 @@ func targetROIFocusMappingAndIdentity() throws {
   #expect(ActionSurfacePresentation(displayedFrame: displayed, overlays: [], focus: stale).focus == nil)
 }
 
-@Test("Viewport defaults full-frame, interpolates, and reaches the exact ROI")
+@Test("Viewport defaults full-frame, interpolates, and reaches the search bounds")
 func viewportZoomEndpointsAndInterpolation() {
   let context = ActionSurfaceViewportContext(
     source: .simulated,
     cameraConfigurationID: CameraConfigurationID(),
     targetAreaIdentity: UUID(),
-    roiAuthorityToken: "roi-1",
+    searchAuthorityToken: "roi-1",
     region: PixelRect(x: 300, y: 200, width: 40, height: 20)
   )
   var viewport = ActionSurfaceViewportState()
@@ -108,26 +111,32 @@ func viewportZoomEndpointsAndInterpolation() {
     viewport.visibleRegion(frameWidth: 640, frameHeight: 480)
       == PixelRect(x: 150, y: 100, width: 340, height: 250)
   )
-  viewport.showExactROI()
+  viewport.showSearchBounds()
   #expect(viewport.visibleRegion(frameWidth: 640, frameHeight: 480) == context.region)
 }
 
-@Test("Viewport survives frame and phase churn and resets for every ROI authority change")
-func viewportStableContextPersistence() {
+@Test("Viewport survives frame and phase churn and resets for every search authority change")
+func viewportStableContextPersistence() throws {
   let region = PixelRect(x: 20, y: 30, width: 40, height: 50)
   let context = ActionSurfaceViewportContext(
     source: .simulated,
     cameraConfigurationID: CameraConfigurationID(),
     targetAreaIdentity: UUID(),
-    roiAuthorityToken: "roi-1",
+    searchAuthorityToken: "roi-1",
     region: region
   )
   var viewport = ActionSurfaceViewportState()
   viewport.synchronize(with: context)
   viewport.zoom = 0.72
+  let anchor = try testDisplayedFrame(
+    source: context.source,
+    configuration: context.cameraConfigurationID
+  )
+  let searchCircle = try testSearchCircle(anchor: anchor)
   let firstFocus = ActionSurfaceFocus(
     frameID: FrameID(),
     cameraConfigurationID: context.cameraConfigurationID,
+    searchCircle: searchCircle,
     region: region,
     label: "capture phase",
     viewportContext: context
@@ -135,6 +144,7 @@ func viewportStableContextPersistence() {
   let laterFocus = ActionSurfaceFocus(
     frameID: FrameID(),
     cameraConfigurationID: context.cameraConfigurationID,
+    searchCircle: searchCircle,
     region: region,
     label: "observation phase",
     viewportContext: context
@@ -150,35 +160,35 @@ func viewportStableContextPersistence() {
       source: .live(CameraDeviceID(rawValue: "camera-b")),
       cameraConfigurationID: context.cameraConfigurationID,
       targetAreaIdentity: context.targetAreaIdentity,
-      roiAuthorityToken: context.roiAuthorityToken,
+      searchAuthorityToken: context.searchAuthorityToken,
       region: region
     ),
     ActionSurfaceViewportContext(
       source: context.source,
       cameraConfigurationID: CameraConfigurationID(),
       targetAreaIdentity: context.targetAreaIdentity,
-      roiAuthorityToken: context.roiAuthorityToken,
+      searchAuthorityToken: context.searchAuthorityToken,
       region: region
     ),
     ActionSurfaceViewportContext(
       source: context.source,
       cameraConfigurationID: context.cameraConfigurationID,
       targetAreaIdentity: UUID(),
-      roiAuthorityToken: context.roiAuthorityToken,
+      searchAuthorityToken: context.searchAuthorityToken,
       region: region
     ),
     ActionSurfaceViewportContext(
       source: context.source,
       cameraConfigurationID: context.cameraConfigurationID,
       targetAreaIdentity: context.targetAreaIdentity,
-      roiAuthorityToken: "roi-2",
+      searchAuthorityToken: "roi-2",
       region: region
     ),
     ActionSurfaceViewportContext(
       source: context.source,
       cameraConfigurationID: context.cameraConfigurationID,
       targetAreaIdentity: context.targetAreaIdentity,
-      roiAuthorityToken: context.roiAuthorityToken,
+      searchAuthorityToken: context.searchAuthorityToken,
       region: PixelRect(x: 21, y: 30, width: 40, height: 50)
     ),
   ]
@@ -191,8 +201,8 @@ func viewportStableContextPersistence() {
   }
 }
 
-@Test("Viewport and ROI outline use true frame intersections")
-func viewportClipsROIAtEveryFrameEdge() {
+@Test("Viewport and search-circle outline use true frame intersections")
+func viewportClipsSearchBoundsAtEveryFrameEdge() {
   let cases: [(PixelRect, PixelRect?)] = [
     (
       PixelRect(x: -10, y: -5, width: 20, height: 20),
@@ -216,10 +226,10 @@ func viewportClipsROIAtEveryFrameEdge() {
       source: .simulated,
       cameraConfigurationID: CameraConfigurationID(),
       targetAreaIdentity: UUID(),
-      roiAuthorityToken: "roi-edge",
+      searchAuthorityToken: "roi-edge",
       region: region
     ))
-    viewport.showExactROI()
+    viewport.showSearchBounds()
     #expect(viewport.visibleRegion(frameWidth: 100, frameHeight: 100) == expected)
   }
 }
@@ -270,7 +280,7 @@ func simulatedAnnotationIdentityAndToggle() throws {
     viewportID: SimulatedCameraViewportID
   ) -> SimulatedLearningAnnotation {
     SimulatedLearningAnnotation(
-      kind: .currentContact,
+      kind: .currentCapAnchor,
       anchor: point,
       geometry: .point(point),
       visibleLabel: "MPOS",
@@ -464,6 +474,17 @@ private func testDisplayedFrame(
       pixelFormat: .bgra8,
       bytes: OwnedFrameBytes(Array(repeating: 255, count: 16))
     )
+  )
+}
+
+private func testSearchCircle(
+  anchor: DisplayedFrame
+) throws -> VisibilityTargetSearchCircle {
+  try VisibilityTargetSearchCircle(
+    center: Point2(x: 1, y: 1),
+    radiusPixels: 1,
+    anchor: anchor,
+    algorithmRevision: "action-surface-test-search-circle-v1"
   )
 }
 

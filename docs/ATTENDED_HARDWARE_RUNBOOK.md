@@ -147,11 +147,13 @@ Requested feed is not proof of achieved physical speed.
    fresh Idle/MPos within the shared 0.05 mm Euclidean policy. This action must
    not accept the result. Verify there was no preceding generic Start or second
    public Build action.
-2. Inspect the proposed target ROI and tool contact point. Confirm it refers to
-   the marker contact location (initially the green component bottom center),
-   not the cap centroid. Verify **Full Frame**, adjustable presentation zoom,
-   and **Exact ROI** do not change the outlined Vision ROI. Accept or reject the
-   target pose, camera fit, and ROI explicitly.
+2. Inspect the proposed magenta search circle and cap anchor. Confirm the anchor
+   is the green component bottom-centre in the cited exact frame and is not
+   labelled as the hidden paper-contact point. Verify the 128 px-radius circle
+   remains centred on that anchor while newer compatible frames arrive. Verify
+   **Full Frame**, adjustable presentation zoom, and **Search Bounds** do not
+   change the circular Vision support. Accept or reject the target pose, cap
+   fit, and circle explicitly.
 
 ## 3.4 Discover and Accept Clear View
 
@@ -163,8 +165,9 @@ Requested feed is not proof of achieved physical speed.
 
 ## 3.5 Confirm Blank Target Baseline
 
-1. Capture the blank-baseline candidate and confirm the accepted ROI is
-   blank. Record exact frame/configuration, MPos, paper revision, and ROI.
+1. Capture the blank-baseline candidate and confirm the accepted search circle
+   is blank. Record exact frame/configuration, MPos, paper revision, and
+   target-search revision.
 2. If it is not blank, press **Not Blank**. Verify no baseline revision is
    accepted.
 
@@ -184,17 +187,19 @@ Press **Draw Visibility Target Once**. Verify one compound owner performs
 ## 3.8 Return and Observe Existing Target
 
 1. Press **Return Pen Up to Accepted Clear Pose** and verify settlement.
-2. Press **Observe Existing Target**. Verify the exact target ROI is outlined,
-   presentation zoom remains where the operator leaves it while new frames
-   arrive, progress names both captures and both analyses, competing controls
-   are refused, repeated Observe cannot queue, and only **Cancel Vision** remains.
+2. Press **Observe Existing Target**. Verify the magenta cap-anchored circle is
+   outlined, presentation zoom remains where the operator leaves it while new
+   frames arrive, progress names both captures and both analyses, competing
+   controls are refused, repeated Observe cannot queue, and only **Cancel
+   Vision** remains.
    Then verify two strictly fresh compatible frames agree and list both IDs.
 3. Verify **Record Another Observation** captures again without drawing again.
 
 ## 3.9 Accept Visibility Registration
 
 Accept the visibility registration only after inspecting exact frames,
-geometry, uncertainty, ROI, plan revision, and consumed artifact revisions.
+geometry, uncertainty, search-circle anchor, cap-to-tip X/Y translation, plan
+revision, and consumed artifact revisions.
 The controller must still be Pen Up and Idle at the accepted Clear pose. If it
 has moved since observation, 3.8 must expose the direct Return action and reuse
 the existing observation after settlement rather than capturing or drawing
