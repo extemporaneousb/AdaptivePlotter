@@ -280,6 +280,13 @@ direct controller authority, causes hidden motion, or permits automatic redraw.
 Buttons are authoritative for choices, progression, Cancel, and Stop. Speech is
 output-only and advisory; failure leaves visible controls usable.
 
+All buttons share one semantic state grammar. Enabled affirmative transitions
+are green, enabled negative/Cancel/Stop transitions are red, enabled neutral
+actions are medium gray, and disabled actions are dark gray and noninteractive.
+The disabled appearance and interaction state consume the same Boolean fact.
+Passive status and protocol-required values are content, never disabled-button
+stand-ins.
+
 Physical work uses the signed bundle and single-instance launcher. The launcher
 may activate the exact existing bundle or launch it through LaunchServices. It
 must refuse wrong-path or competing raw processes without terminating them.

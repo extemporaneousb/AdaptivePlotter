@@ -24,7 +24,7 @@ struct LearningPathNavigator: View {
           Label("Return to Current", systemImage: "arrow.uturn.backward.circle.fill")
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .buttonStyle(.borderedProminent)
+        .operatorButton()
         .padding(.horizontal, 12)
         .padding(.bottom, 10)
       }
@@ -85,7 +85,7 @@ struct LearningPathNavigator: View {
         in: RoundedRectangle(cornerRadius: 7)
       )
     }
-    .buttonStyle(.plain)
+    .operatorButton()
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(
       "\(item.id.number) \(item.id.title), \(item.status.rawValue)"
@@ -171,8 +171,7 @@ struct LearningPathView: View {
       } label: {
         Label(utilities.actionTitle, systemImage: "sidebar.trailing")
       }
-      .buttonStyle(.bordered)
-      .disabled(!utilities.isActionEnabled)
+      .operatorButton(isEnabled: utilities.isActionEnabled)
       .help(
         utilities.unavailableReason
           ?? "\(utilities.actionTitle) for Camera and Overlay controls"
@@ -286,8 +285,7 @@ struct LearningPathView: View {
           } label: {
             Label("\(selectedPlan.title)…", systemImage: "arrow.uturn.backward.circle")
           }
-          .buttonStyle(.bordered)
-          .disabled(workspace.learningVacateUnavailableReason != nil)
+          .operatorButton(isEnabled: workspace.learningVacateUnavailableReason == nil)
           .help(
             workspace.learningVacateUnavailableReason
               ?? "Review the steps that will be reset from \(selectedPlan.anchor.number) onward"
@@ -300,8 +298,7 @@ struct LearningPathView: View {
           } label: {
             Label("\(resetAllPlan.title)…", systemImage: "arrow.counterclockwise")
           }
-          .buttonStyle(.bordered)
-          .disabled(workspace.learningVacateUnavailableReason != nil)
+          .operatorButton(isEnabled: workspace.learningVacateUnavailableReason == nil)
           .help(
             workspace.learningVacateUnavailableReason
               ?? "Review the steps that will be reset"
@@ -542,6 +539,7 @@ private struct LearningResetSheet: View {
       HStack {
         Spacer()
         Button("Cancel") { dismiss() }
+          .operatorButton(.negative)
           .keyboardShortcut(.cancelAction)
         Button(plan.title) {
           if workspace.performLearningVacate(plan) {
@@ -549,7 +547,7 @@ private struct LearningResetSheet: View {
             dismiss()
           }
         }
-        .buttonStyle(.borderedProminent)
+        .operatorButton(.affirmative)
       }
     }
     .padding(20)
@@ -679,33 +677,16 @@ private struct ExerciseActionStripView: View {
           minHeight: ExerciseActionLayoutPolicy.minimumButtonHeight
         )
     }
-    .disabled(!action.isEnabled)
     .help(action.unavailableReason ?? action.title)
 
-    switch action.role {
-    case .positive:
-      button
-        .buttonStyle(.borderedProminent)
-        .tint(.green)
-    case .destructive:
-      if action.kind.isImmediateStopOrVisionCancel {
-        button
-          .buttonStyle(.borderedProminent)
-          .tint(.red)
-          .keyboardShortcut(.cancelAction)
-      } else {
-        button
-          .buttonStyle(.borderedProminent)
-          .tint(.red)
-      }
-    case .standard:
-      if case .choice(let choice) = action.kind {
-        button
-          .buttonStyle(.borderedProminent)
-          .tint(choice == .yes ? .green : .orange)
-      } else {
-        button.buttonStyle(.bordered)
-      }
+    let styledButton = button.operatorButton(
+      action.buttonRole,
+      isEnabled: action.isEnabled
+    )
+    if action.kind.isImmediateStopOrVisionCancel {
+      styledButton.keyboardShortcut(.cancelAction)
+    } else {
+      styledButton
     }
   }
 }

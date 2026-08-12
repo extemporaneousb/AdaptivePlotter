@@ -73,6 +73,7 @@ struct AdaptivePlotterApp: App {
   var body: some Scene {
     Window("AdaptivePlotter", id: AdaptivePlotterScenePolicy.singletonWindowID) {
       OperatorWorkspaceView(workspace: applicationDelegate.workspace)
+        .buttonStyle(OperatorButtonStyle(role: .neutral))
         .frame(
           minWidth: LearningWorkbenchLayoutPolicy.minimumWindowWidth,
           minHeight: AdaptivePlotterScenePolicy.minimumWindowHeight
@@ -265,9 +266,8 @@ private struct WorkbenchPaneControls: View {
       } label: {
         Label(utilities.actionTitle, systemImage: "slider.horizontal.3")
       }
-      .buttonStyle(.bordered)
+      .operatorButton(isEnabled: utilities.isActionEnabled)
       .controlSize(.small)
-      .disabled(!utilities.isActionEnabled)
       .help(utilities.unavailableReason ?? utilities.actionTitle)
     }
     .padding(.horizontal, 10)
@@ -287,9 +287,10 @@ private struct WorkbenchPaneControls: View {
     } label: {
       Label(title, systemImage: systemImage)
     }
-    .buttonStyle(.bordered)
+    .operatorButton(
+      isEnabled: unavailableReason == nil || !visibility.isPresented(pane)
+    )
     .controlSize(.small)
-    .disabled(unavailableReason != nil && visibility.isPresented(pane))
     .help(unavailableReason ?? title)
   }
 }
@@ -308,7 +309,7 @@ private struct WorkbenchUtilities: View {
         Button(action: close) {
           Label("Hide Utilities", systemImage: "xmark")
         }
-        .buttonStyle(.bordered)
+        .operatorButton()
         .help("Hide Utilities")
       }
 
@@ -409,8 +410,9 @@ private struct CameraPanel: View {
             }
             .contentShape(Rectangle())
           }
-          .buttonStyle(.plain)
-          .disabled(workspace.foregroundVisionOperationUnavailableReason != nil)
+          .operatorButton(
+            isEnabled: workspace.foregroundVisionOperationUnavailableReason == nil
+          )
           .help(
             workspace.foregroundVisionOperationUnavailableReason
               ?? "Select \(device.name)"
@@ -455,8 +457,7 @@ private struct CameraPanel: View {
           Label(action.title, systemImage: action.systemImage)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .buttonStyle(.bordered)
-        .disabled(!action.isEnabled)
+        .operatorButton(isEnabled: action.isEnabled)
         .help(action.unavailableReason ?? action.title)
 
         if let reason = action.unavailableReason {
@@ -512,28 +513,29 @@ private struct MotionPanel: View {
           Label(stop.title, systemImage: "stop.fill")
             .frame(maxWidth: .infinity)
         }
-        .buttonStyle(.borderedProminent)
-        .tint(.red)
+        .operatorButton(.negative)
         .keyboardShortcut(.cancelAction)
         .help(stop.detail)
         .accessibilityHint(stop.detail)
       }
 
-      ControlGroup {
+      HStack(spacing: 6) {
         Button {
           Task { await workspace.requestPenActuation(.raise) }
         } label: {
           Label("Pen Up", systemImage: "arrow.up.to.line")
         }
-        .tint(.blue)
-        .disabled(workspace.penUnavailableReason(for: .raise) != nil)
+        .operatorButton(
+          isEnabled: workspace.penUnavailableReason(for: .raise) == nil
+        )
         Button {
           Task { await workspace.requestPenActuation(.lower) }
         } label: {
           Label("Pen Down", systemImage: "arrow.down.to.line")
         }
-        .tint(.red)
-        .disabled(workspace.penUnavailableReason(for: .lower) != nil)
+        .operatorButton(
+          isEnabled: workspace.penUnavailableReason(for: .lower) == nil
+        )
       }
 
       Text(workspace.penStateText)
@@ -583,8 +585,9 @@ private struct MotionPanel: View {
       Label(label, systemImage: systemImage)
         .frame(minWidth: 64, minHeight: 24)
     }
-    .buttonStyle(.borderedProminent)
-    .disabled(workspace.manualMotionPresentation.jogControlsUnavailableReason != nil)
+    .operatorButton(
+      isEnabled: workspace.manualMotionPresentation.jogControlsUnavailableReason == nil
+    )
     .help(jogAccessibilityLabel(direction))
     .accessibilityLabel(jogAccessibilityLabel(direction))
   }

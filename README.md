@@ -160,6 +160,13 @@ and compact status. Exercise Start, choices, Cancel, Stop, Restart, Redo, and
 Record Another Attempt remain with the selected exercise. Buttons are the
 authoritative input surface; speech is output-only advisory guidance.
 
+Button chrome has one application-wide grammar. Green is an enabled affirmative
+step or session transition; red is an enabled negative, Cancel, or Stop
+transition; medium gray is an enabled neutral action; and dark gray is disabled
+and noninteractive. Passive status and required values are rendered as content,
+not as disabled buttons. A button's disabled chrome and hit-testing derive from
+the same enabled-state input.
+
 Selecting an older Learning Path row remains review-only. Its Reset Learning
 section offers **Reset From This Step…**, which shows the exact later steps that
 will also be cleared and uses one ordinary Reset button—no phrase entry.

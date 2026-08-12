@@ -70,9 +70,9 @@ struct WorkbenchToolbar: ToolbarContent {
       let controllerSlot = WorkbenchControllerSlotPresentation(mode: workspace.frameMode)
       HStack(spacing: 8) {
         if !controllerSlot.isSerialSelectionEnabled {
-          Button(controllerSlot.title) {}
+          Label(controllerSlot.title, systemImage: "cpu")
             .frame(width: 220)
-            .disabled(true)
+            .foregroundStyle(.secondary)
             .help("SIMULATED uses the isolated learning simulator, not a serial controller")
         } else {
           Picker(
@@ -100,9 +100,10 @@ struct WorkbenchToolbar: ToolbarContent {
         Button(workspace.controllerConnectionActionTitle) {
           Task { await workspace.performControllerConnectionAction() }
         }
-        .buttonStyle(.borderedProminent)
-        .tint(workspace.controllerSessionEstablished ? .red : .accentColor)
-        .disabled(workspace.controllerConnectionActionUnavailableReason != nil)
+        .operatorButton(
+          workspace.controllerSessionEstablished ? .negative : .affirmative,
+          isEnabled: workspace.controllerConnectionActionUnavailableReason == nil
+        )
         .help(
           workspace.controllerConnectionActionUnavailableReason
             ?? "\(workspace.controllerConnectionActionTitle) the selected controller"
@@ -111,9 +112,10 @@ struct WorkbenchToolbar: ToolbarContent {
         Button("Enable Motion") {
           Task { await workspace.activateMotionGuard() }
         }
-        .buttonStyle(.borderedProminent)
-        .tint(.green)
-        .disabled(workspace.motionGuardActivationUnavailableReason != nil)
+        .operatorButton(
+          .affirmative,
+          isEnabled: workspace.motionGuardActivationUnavailableReason == nil
+        )
       }
     }
 

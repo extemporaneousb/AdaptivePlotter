@@ -568,6 +568,16 @@ struct ExerciseActionDescriptor: Identifiable, Hashable, Sendable {
 
   var id: ExerciseActionKind { kind }
   var isEnabled: Bool { unavailableReason == nil }
+  var buttonRole: OperatorButtonRole {
+    if case .choice(let choice) = kind {
+      return choice == .yes ? .affirmative : .negative
+    }
+    switch role {
+    case .positive: return .affirmative
+    case .destructive: return .negative
+    case .standard: return .neutral
+    }
+  }
 
   init(
     kind: ExerciseActionKind,

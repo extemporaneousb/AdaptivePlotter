@@ -271,7 +271,7 @@ struct ActionSurface: View {
             ) {
               simulatedAnnotationsAreVisible.toggle()
             }
-            .buttonStyle(.bordered)
+            .operatorButton()
             .controlSize(.small)
             .accessibilityValue(
               simulatedAnnotationsAreVisible ? "Visible" : "Hidden"
@@ -282,13 +282,12 @@ struct ActionSurface: View {
               Button("Full Frame") {
                 viewport.showFullFrame()
               }
-              .disabled(viewport.zoom == 0)
+              .operatorButton(isEnabled: viewport.zoom != 0)
               Button("Exact ROI") {
                 viewport.showExactROI()
               }
-              .disabled(viewport.zoom == 1)
+              .operatorButton(isEnabled: viewport.zoom != 1)
             }
-            .buttonStyle(.borderedProminent)
             .controlSize(.small)
             Slider(value: $viewport.zoom, in: 0...1) {
               Text("Presentation zoom")
