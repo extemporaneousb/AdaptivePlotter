@@ -287,7 +287,8 @@ extension OperatorWorkspaceTests {
 
   @Test("camera recovery preserves machine facts and stages ROI for explicit acceptance")
   func cameraRecoveryPreservesMachineAuthorityAndStagesROIProposal() async throws {
-    let harness = makeSimulatedHarness()
+    let telemetry = WorkflowTelemetryFixture()
+    let harness = makeSimulatedHarness(workflowTelemetry: telemetry)
     let workspace = harness.workspace
     try await completeSimulatedVisibilityProtocol(
       workspace,
@@ -393,13 +394,21 @@ extension OperatorWorkspaceTests {
     #expect(workspace.estimatedMachineCenter == center)
     #expect(workspace.learnedLocalCoordinateFrame == localFrame)
     #expect(await harness.machineActionLog.values.isEmpty)
+    let recordedTelemetry = await telemetry.events
+    let calibrationEvents = recordedTelemetry.filter {
+      $0.operation == .currentCameraCalibration
+    }
+    #expect(calibrationEvents.first?.phase == .intentAccepted)
+    #expect(calibrationEvents.last?.phase == .completed)
+    #expect(calibrationEvents.contains { $0.phase == .phaseChanged })
   }
 
   @Test(
     "automatic current-camera calibration refusal preserves machine authority and exposes retry"
   )
   func automaticCurrentCameraCalibrationRefusalPreservesMachineAuthority() async throws {
-    let harness = makeSimulatedHarness()
+    let telemetry = WorkflowTelemetryFixture()
+    let harness = makeSimulatedHarness(workflowTelemetry: telemetry)
     let workspace = harness.workspace
     try await completeSimulatedVisibilityProtocol(
       workspace,
@@ -438,6 +447,7 @@ extension OperatorWorkspaceTests {
     #expect(workspace.centerArrivalPosition == centerArrival)
     #expect(workspace.pairedBoundaryProgress.isComplete)
     #expect(workspace.explorationError?.contains("injectedRefusal") == true)
+    #expect(workspace.explorationError?.contains("controllerOutcome(") == false)
     #expect(workspace.explicitRegistrationContactEvidence.isEmpty)
 
     let runtimeSnapshot = await harness.runtime.snapshot()
@@ -453,9 +463,16 @@ extension OperatorWorkspaceTests {
       ]
     )
     #expect(recovery.activity?.outcome == .needsAttention)
-    #expect(recovery.activity?.recovery.accessibilityText.contains("Return") == true)
+    #expect(recovery.activity?.recovery.accessibilityText.contains("still at") == true)
+    #expect(recovery.activity?.recovery.accessibilityText.contains("Return") == false)
     #expect(recovery.activity?.recovery.accessibilityText.contains("retry") == true)
     #expect(await harness.machineActionLog.values.isEmpty)
+    let recordedTelemetry = await telemetry.events
+    let failedEvent = recordedTelemetry.last {
+      $0.operation == .currentCameraCalibration && $0.phase == .failed
+    }
+    #expect(failedEvent?.failureCode == "controller_outcome")
+    #expect(failedEvent?.recovery == .retryCalibration)
 
     try await performPublicAction(
       .captureTargetPoseAndBuildGeometryProposal,
@@ -465,6 +482,62 @@ extension OperatorWorkspaceTests {
     #expect(workspace.explorationError == nil)
     #expect(workspace.proposedMachineCameraRegistration != nil)
     #expect(workspace.proposedTargetObservationRegion != nil)
+  }
+
+  @Test("LIVE calibration ignores the stale pre-pen probe and establishes a local baseline")
+  func liveCalibrationUsesOperationScopedControllerBaseline() async throws {
+    let log = EventLog()
+    let telemetry = WorkflowTelemetryFixture()
+    let machine = try MachineFixture(
+      log: log,
+      relativeJogSettlementOffset: try Vector2(dx: 0, dy: 0)
+    )
+    let workspace = workspace(
+      machine: machine,
+      camera: try CameraFixture(),
+      workflowTelemetry: telemetry,
+      log: log
+    )
+    await workspace.establishMachineSession(machine.descriptor)
+    await workspace.requestPassiveProbe()
+    await workspace.startCamera()
+    #expect(
+      workspace.passiveProbeResult?.exchanges
+        .first(where: { $0.query == .parserState })?.lines
+        .contains(where: { $0.text.contains("M5") && $0.text.contains("S0") }) == true
+    )
+    try await completePenInteraction(workspace)
+    try await completeLiveBoundaries(workspace, machine: machine)
+    let boundaryOwner = LearningPathItemID.humanGuidedDiscovery(
+      .pairedBoundaryDiscoveryAndCentering
+    )
+    try await performPublicAction(.moveToEstimatedCenter, owner: boundaryOwner, workspace: workspace)
+
+    let registrationOwner = LearningPathItemID.humanGuidedDiscovery(
+      .registerTargetPoseAndCameraGeometry
+    )
+    try await performPublicAction(
+      .captureTargetPoseAndBuildGeometryProposal,
+      owner: registrationOwner,
+      workspace: workspace
+    )
+
+    #expect(workspace.explorationError?.contains("controller_context_changed") != true)
+    #expect(workspace.explorationError?.contains("controllerOutcome(") != true)
+    #expect(
+      workspace.passiveProbeResult?.exchanges
+        .first(where: { $0.query == .parserState })?.lines
+        .contains(where: { $0.text.contains("M3") && $0.text.contains("S40") }) == true
+    )
+    let recordedTelemetry = await telemetry.events
+    let events = recordedTelemetry.filter {
+      $0.operation == .currentCameraCalibration
+    }
+    #expect(events.contains { $0.phase == .controllerContextEstablished })
+    let comparisons = events.compactMap(\.controllerContext?.comparison)
+    #expect(!comparisons.isEmpty)
+    #expect(comparisons.allSatisfy { $0.isCompatible })
+    await workspace.shutdown()
   }
 
   @Test("Stop during automatic camera calibration preserves the active 3.3 attempt")

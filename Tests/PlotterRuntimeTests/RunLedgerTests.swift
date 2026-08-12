@@ -59,6 +59,41 @@ struct RunLedgerTests {
       _ = try await reopened.events(runID: runID)
     }
   }
+
+  @Test("typed workflow telemetry survives in the same ordered diagnostic ledger")
+  func workflowTelemetryRoundTrip() async throws {
+    let fixture = try LedgerFixture()
+    let runID = try await fixture.ledger.createRun(
+      buildID: "test-build",
+      createdAt: RuntimeTimestamp(monotonicNanoseconds: 1)
+    )
+    let expected = WorkflowTelemetryEvent(
+      operationID: UUID(),
+      operation: .manualJog,
+      phase: .intentAccepted,
+      detail: "An ordinary operator-authored manual jog was admitted.",
+      motionIntent: WorkflowMotionIntent(
+        deltaXMM: -100,
+        deltaYMM: 0,
+        feedMMPerMinute: 500
+      )
+    )
+    let payload = try JSONEncoder().encode(expected)
+
+    _ = try await fixture.ledger.appendEvent(
+      runID: runID,
+      timestamp: RuntimeTimestamp(monotonicNanoseconds: 2),
+      kind: "workflow.manualJog.intentAccepted",
+      schemaVersion: WorkflowTelemetryEvent.schemaVersion,
+      payload: payload
+    )
+
+    let events = try await fixture.ledger.events(runID: runID)
+    let event = try #require(events.count == 1 ? events[0] : nil)
+    #expect(event.kind == "workflow.manualJog.intentAccepted")
+    #expect(event.schemaVersion == WorkflowTelemetryEvent.schemaVersion)
+    #expect(try JSONDecoder().decode(WorkflowTelemetryEvent.self, from: event.payload) == expected)
+  }
 }
 
 private struct LedgerFixture {

@@ -924,8 +924,8 @@ public struct PassiveProbeFinishedRecord: Codable, Hashable, Sendable {
   public let exchanges: [PassiveProbeExchangeRecord]
   public let blockers: [MachineBlocker]
 
-  public init(probeID: UUID, result: PassiveProbeResult) {
-    self.probeID = probeID
+  public init(result: PassiveProbeResult) {
+    probeID = result.probeID
     link = result.link
     startedAt = result.startedAt
     completedAt = result.completedAt
@@ -935,6 +935,7 @@ public struct PassiveProbeFinishedRecord: Codable, Hashable, Sendable {
 }
 
 public struct PassiveProbeResult: Codable, Hashable, Sendable {
+  public let probeID: UUID
   public let link: MachineLinkDescriptor
   public let startedAt: RuntimeTimestamp
   public let completedAt: RuntimeTimestamp
@@ -942,12 +943,14 @@ public struct PassiveProbeResult: Codable, Hashable, Sendable {
   public let blockers: [MachineBlocker]
 
   public init(
+    probeID: UUID = UUID(),
     link: MachineLinkDescriptor,
     startedAt: RuntimeTimestamp,
     completedAt: RuntimeTimestamp,
     exchanges: [PassiveProbeExchange],
     blockers: [MachineBlocker]
   ) {
+    self.probeID = probeID
     self.link = link
     self.startedAt = startedAt
     self.completedAt = completedAt

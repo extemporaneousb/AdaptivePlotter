@@ -9,7 +9,8 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
     machineActions: MachineSessionComposition.actions,
     cameraActions: CameraComposition.actions,
     announcementActions: SpeechComposition.actions,
-    acceptedArtifactCheckpointActions: AcceptedArtifactCheckpointComposition.actions
+    acceptedArtifactCheckpointActions: AcceptedArtifactCheckpointComposition.actions,
+    workflowTelemetryActions: MachineSessionComposition.workflowTelemetryActions
   )
   private var terminationTask: Task<Void, Never>?
   private var terminationDeadlineTask: Task<Void, Never>?

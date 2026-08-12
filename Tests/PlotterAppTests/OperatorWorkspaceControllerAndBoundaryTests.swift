@@ -80,6 +80,40 @@ extension OperatorWorkspaceTests {
     await workspace.shutdown()
   }
 
+  @Test("manual jog telemetry preserves operator intent and cannot be mistaken for calibration")
+  func manualJogTelemetryNamesOperationAndDistance() async throws {
+    let log = EventLog()
+    let telemetry = WorkflowTelemetryFixture()
+    let machine = try MachineFixture(
+      log: log,
+      relativeJogSettlementOffset: try Vector2(dx: 0, dy: 0)
+    )
+    let workspace = workspace(
+      machine: machine,
+      workflowTelemetry: telemetry,
+      log: log
+    )
+    await workspace.establishMachineSession(machine.descriptor)
+    await workspace.requestPassiveProbe()
+
+    let request = RelativeJogRequest(
+      delta: try Vector2(dx: -100, dy: 0),
+      feedMMPerMinute: 500
+    )
+    let outcome = await workspace.requestRelativeJog(request)
+
+    guard case .acceptedThenCompleted = outcome else {
+      Issue.record("Expected the fixture's manual jog to complete.")
+      return
+    }
+    let events = await telemetry.events
+    #expect(events.map(\.operation) == [.manualJog, .manualJog])
+    #expect(events.map(\.phase) == [.intentAccepted, .completed])
+    #expect(events.allSatisfy { $0.motionIntent?.deltaXMM == -100 })
+    #expect(events.allSatisfy { $0.operation != .currentCameraCalibration })
+    await workspace.shutdown()
+  }
+
   @Test(
     "boundary Stop commits controller evidence without consulting Camera or Vision")
   func boundaryStopCompletesTransaction() async throws {

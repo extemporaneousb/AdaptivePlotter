@@ -415,11 +415,54 @@ enum DrawingTrialAssessment: String, CaseIterable, Identifiable, Hashable, Senda
   }
 }
 
-private enum LearningPathOperationError: Error, Sendable {
+private enum LearningPathOperationError: LocalizedError, Sendable {
   case freshFrameUnavailable
   case controllerOutcome(String)
+  case controllerContextChanged(ControllerCheckpointContextComparison)
   case inkRejected(String)
   case requiredState(String)
+
+  var errorDescription: String? {
+    switch self {
+    case .freshFrameUnavailable:
+      "A strictly newer exact camera frame was unavailable."
+    case .controllerOutcome(let detail), .inkRejected(let detail), .requiredState(let detail):
+      detail
+    case .controllerContextChanged(let comparison):
+      "Controller context changed during calibration: \(comparison.actionableDescription) The sample was discarded without motion retry."
+    }
+  }
+}
+
+private struct CurrentCameraCalibrationFailure: Hashable, Sendable {
+  let code: String
+  let detail: String
+  let recovery: WorkflowTelemetryRecovery
+
+  var recoveryDescription: String {
+    switch recovery {
+    case .none:
+      "No recovery action is required."
+    case .retryCalibration:
+      "The controller is still at the registered target pose. Resolve the named fact, then retry Bounded Calibration and Build Proposal."
+    case .returnToRegisteredTargetPose:
+      "The controller is not at the registered target pose. Use Return to Captured Target Pose before retrying calibration."
+    case .revalidateControllerContext:
+      "Do not continue calibration. Reconnect and revalidate the named controller context fields and accepted machine artifacts first."
+    case .resolveNamedFailure:
+      "Resolve the named controller, camera, or exact-frame failure before retrying this action."
+    }
+  }
+}
+
+private struct CalibrationMachineObservation: Sendable {
+  let position: MachinePosition
+  let contextBaseline: ControllerContextBaseline?
+}
+
+private struct CalibrationContactCapture: Sendable {
+  let evidence: MachineCameraCorrespondenceProvenance
+  let contextBaseline: ControllerContextBaseline?
 }
 
 struct LiveSceneInspection: Sendable {
@@ -639,6 +682,10 @@ final class OperatorWorkspace {
     let cancelForShutdown: @Sendable () async -> Void
   }
 
+  struct WorkflowTelemetryActions: Sendable {
+    let record: @Sendable (WorkflowTelemetryEvent) async -> Void
+  }
+
   struct AcceptedArtifactCheckpointActions: Sendable {
     let load: @Sendable () -> AcceptedArtifactCheckpointLoadResult
     let save: @Sendable (AcceptedMachineArtifactCheckpoint) throws -> Void
@@ -760,6 +807,7 @@ final class OperatorWorkspace {
   private(set) var machineCameraRegistration: MachineCameraRegistration?
   private(set) var explicitRegistrationContactEvidence: [MachineCameraCorrespondenceProvenance] = []
   private(set) var currentCameraCalibrationPhase: String?
+  private var currentCameraCalibrationFailure: CurrentCameraCalibrationFailure?
   private(set) var targetAreaIdentity = UUID()
   private(set) var targetAreaRelocationRequired = false
   private(set) var targetAreaRelocationCompleted = false
@@ -805,6 +853,7 @@ final class OperatorWorkspace {
   @ObservationIgnored private let announcementActions: AnnouncementActions?
   @ObservationIgnored private let acceptedArtifactCheckpointActions:
     AcceptedArtifactCheckpointActions?
+  @ObservationIgnored private let workflowTelemetryActions: WorkflowTelemetryActions?
   @ObservationIgnored private let simulatedLearningRuntime: SimulatedLearningRuntime
   @ObservationIgnored private var simulatedExecutionPacing: any SimulatedLearningExecutionPacing
   @ObservationIgnored private let serialDeviceDiscovery: @Sendable () -> [MachineLinkDescriptor]
@@ -869,6 +918,7 @@ final class OperatorWorkspace {
     cameraActions: CameraActions? = nil,
     announcementActions: AnnouncementActions? = nil,
     acceptedArtifactCheckpointActions: AcceptedArtifactCheckpointActions? = nil,
+    workflowTelemetryActions: WorkflowTelemetryActions? = nil,
     simulatedLearningRuntime: SimulatedLearningRuntime = SimulatedLearningRuntime(),
     simulatedExecutionPacing: any SimulatedLearningExecutionPacing =
       SimulatedLearningInteractivePacing(),
@@ -902,6 +952,7 @@ final class OperatorWorkspace {
     self.cameraActions = cameraActions
     self.announcementActions = announcementActions
     self.acceptedArtifactCheckpointActions = acceptedArtifactCheckpointActions
+    self.workflowTelemetryActions = workflowTelemetryActions
     self.simulatedLearningRuntime = simulatedLearningRuntime
     self.serialDevices = serialDevices
     self.serialDeviceDiscovery = serialDeviceDiscovery
@@ -2581,12 +2632,29 @@ final class OperatorWorkspace {
     let ownerID = LearningPathItemID.humanGuidedDiscovery(
       .registerTargetPoseAndCameraGeometry
     )
-    currentCameraCalibrationPhase = "Preparing bounded calibration"
+    let operationID = UUID()
+    let attemptID = activeExerciseAttemptID
+    currentCameraCalibrationFailure = nil
+    await recordWorkflowTelemetry(
+      WorkflowTelemetryEvent(
+        operationID: operationID,
+        operation: .currentCameraCalibration,
+        phase: .intentAccepted,
+        attemptID: attemptID,
+        detail: "Stage 3.3 bounded three-sample calibration accepted by the workflow coordinator."
+      )
+    )
+    await updateCurrentCameraCalibrationPhase(
+      "Preparing bounded calibration",
+      operationID: operationID,
+      attemptID: attemptID
+    )
     explorationError = nil
     defer { currentCameraCalibrationPhase = nil }
 
     do {
       var stagedSamples: [MachineCameraCorrespondenceProvenance] = []
+      var contextBaseline: ControllerContextBaseline?
       let current = try currentMachinePosition()
       guard protocolPositionsMatch(current, targetPosition) else {
         throw LearningPathOperationError.requiredState(
@@ -2600,14 +2668,27 @@ final class OperatorWorkspace {
         coordinateRevision: explorationCoordinateRevision
       )
 
-      currentCameraCalibrationPhase = "Capturing exact sample 1 of 3 at the target pose"
-      stagedSamples.append(try await captureCurrentCameraContactEvidence())
+      await updateCurrentCameraCalibrationPhase(
+        "Capturing exact sample 1 of 3 at the target pose",
+        operationID: operationID,
+        attemptID: attemptID
+      )
+      let firstCapture = try await captureCurrentCameraContactEvidence(
+        contextBaseline: contextBaseline,
+        operationID: operationID
+      )
+      stagedSamples.append(firstCapture.evidence)
+      contextBaseline = firstCapture.contextBaseline
       try requireCalibrationContinuation()
 
       for sampleIndex in 1..<plan.samplePositions.count {
         try requireCalibrationContinuation()
         let expected = plan.samplePositions[sampleIndex]
-        currentCameraCalibrationPhase = "Moving Pen Up to exact sample \(sampleIndex + 1) of 3"
+        await updateCurrentCameraCalibrationPhase(
+          "Moving Pen Up to exact sample \(sampleIndex + 1) of 3",
+          operationID: operationID,
+          attemptID: attemptID
+        )
         let final = try await performSupervisedPenUpTravel(
           delta: plan.motionDeltas[sampleIndex - 1],
           ownerID: ownerID,
@@ -2625,13 +2706,26 @@ final class OperatorWorkspace {
             "Calibration travel did not settle at exact sample \(sampleIndex + 1) of 3."
           )
         }
-        currentCameraCalibrationPhase = "Capturing exact sample \(sampleIndex + 1) of 3"
-        stagedSamples.append(try await captureCurrentCameraContactEvidence())
+        await updateCurrentCameraCalibrationPhase(
+          "Capturing exact sample \(sampleIndex + 1) of 3",
+          operationID: operationID,
+          attemptID: attemptID
+        )
+        let capture = try await captureCurrentCameraContactEvidence(
+          contextBaseline: contextBaseline,
+          operationID: operationID
+        )
+        stagedSamples.append(capture.evidence)
+        contextBaseline = capture.contextBaseline
         try requireCalibrationContinuation()
       }
 
       try requireCalibrationContinuation()
-      currentCameraCalibrationPhase = "Returning Pen Up to the registered target pose"
+      await updateCurrentCameraCalibrationPhase(
+        "Returning Pen Up to the registered target pose",
+        operationID: operationID,
+        attemptID: attemptID
+      )
       let returned = try await performSupervisedPenUpTravel(
         delta: plan.motionDeltas[2],
         ownerID: ownerID,
@@ -2650,7 +2744,11 @@ final class OperatorWorkspace {
         )
       }
       try requireCalibrationContinuation()
-      currentCameraCalibrationPhase = "Fitting a reviewable registration and ROI proposal"
+      await updateCurrentCameraCalibrationPhase(
+        "Fitting a reviewable registration and ROI proposal",
+        operationID: operationID,
+        attemptID: attemptID
+      )
       guard stageTargetGeometryProposal(correspondenceOverride: stagedSamples) else {
         throw LearningPathOperationError.requiredState(
           explorationError ?? "The current-camera registration fit was not accepted."
@@ -2663,6 +2761,16 @@ final class OperatorWorkspace {
           && $0.coordinateRevision == explorationCoordinateRevision
       }
       explicitRegistrationContactEvidence.append(contentsOf: stagedSamples)
+      currentCameraCalibrationFailure = nil
+      await recordWorkflowTelemetry(
+        WorkflowTelemetryEvent(
+          operationID: operationID,
+          operation: .currentCameraCalibration,
+          phase: .completed,
+          attemptID: attemptID,
+          detail: "Three exact samples were staged and a reviewable geometry proposal was built."
+        )
+      )
     } catch  where hasShutdown || Task.isCancelled {
       return
     } catch {
@@ -2671,14 +2779,30 @@ final class OperatorWorkspace {
       proposedTargetROIInsets = nil
       targetGeometryProposalID = nil
       targetContactPointAndROIAccepted = false
-      explorationError = "Current-camera calibration failed: \(actionableDescription(error))"
+      let failure = currentCameraCalibrationFailure(for: error, targetPosition: targetPosition)
+      currentCameraCalibrationFailure = failure
+      explorationError =
+        "Current-camera calibration failed [\(failure.code)]: \(failure.detail)"
+      await recordWorkflowTelemetry(
+        WorkflowTelemetryEvent(
+          operationID: operationID,
+          operation: .currentCameraCalibration,
+          phase: .failed,
+          attemptID: attemptID,
+          detail: failure.detail,
+          failureCode: failure.code,
+          recovery: failure.recovery
+        )
+      )
     }
   }
 
   /// Captures one exact current-camera machine/contact correspondence. Motion,
   /// sequencing, and target return remain owned by the automatic calibration.
-  private func captureCurrentCameraContactEvidence() async throws
-    -> MachineCameraCorrespondenceProvenance
+  private func captureCurrentCameraContactEvidence(
+    contextBaseline: ControllerContextBaseline?,
+    operationID: UUID
+  ) async throws -> CalibrationContactCapture
   {
     try requireCalibrationContinuation()
     guard let attemptID = activeExerciseAttemptID else {
@@ -2695,7 +2819,10 @@ final class OperatorWorkspace {
         "The accepted center-arrival coordinate artifact is unavailable."
       )
     }
-    let machinePositionBeforeCapture = try await freshCalibrationMachinePosition()
+    let beforeCapture = try await freshCalibrationMachineObservation(
+      contextBaseline: contextBaseline,
+      operationID: operationID
+    )
     try requireCalibrationContinuation()
     let boundary = displayedFrame?.frame.captureNanoseconds ?? 0
     let frame = try await captureProtocolFrame(newerThan: boundary)
@@ -2767,28 +2894,34 @@ final class OperatorWorkspace {
       frameID: evidenceFrame.frame.id,
       cameraConfigurationID: evidenceFrame.frame.cameraConfigurationID
     )
-    let machinePositionAfterCapture = try await freshCalibrationMachinePosition()
+    let afterCapture = try await freshCalibrationMachineObservation(
+      contextBaseline: beforeCapture.contextBaseline,
+      operationID: operationID
+    )
     try requireCalibrationContinuation()
-    guard protocolPositionsMatch(machinePositionBeforeCapture, machinePositionAfterCapture) else {
+    guard protocolPositionsMatch(beforeCapture.position, afterCapture.position) else {
       throw LearningPathOperationError.controllerOutcome(
         "Controller MPos changed while the camera sample was being captured; the sample was discarded."
       )
     }
-    return MachineCameraCorrespondenceProvenance(
-      machinePoint: machinePositionAfterCapture.point,
-      contactPoint: contact.point,
-      source: evidenceFrame.source,
-      controllerSessionID: controllerSessionID,
-      coordinateRevision: explorationCoordinateRevision,
-      frameID: evidenceFrame.frame.id,
-      frameSHA256: evidenceFrame.frame.contentSHA256,
-      captureNanoseconds: evidenceFrame.frame.captureNanoseconds,
-      cameraConfigurationID: evidenceFrame.frame.cameraConfigurationID,
-      attemptID: attemptID,
-      contactEstimatorRevision: contact.estimatorRevision,
-      algorithmRevision: "automatic-current-camera-contact-v2",
-      contactConfidence: contact.confidence,
-      artifactRevisionID: centerArrivalRevisionID
+    return CalibrationContactCapture(
+      evidence: MachineCameraCorrespondenceProvenance(
+        machinePoint: afterCapture.position.point,
+        contactPoint: contact.point,
+        source: evidenceFrame.source,
+        controllerSessionID: controllerSessionID,
+        coordinateRevision: explorationCoordinateRevision,
+        frameID: evidenceFrame.frame.id,
+        frameSHA256: evidenceFrame.frame.contentSHA256,
+        captureNanoseconds: evidenceFrame.frame.captureNanoseconds,
+        cameraConfigurationID: evidenceFrame.frame.cameraConfigurationID,
+        attemptID: attemptID,
+        contactEstimatorRevision: contact.estimatorRevision,
+        algorithmRevision: "automatic-current-camera-contact-v2",
+        contactConfidence: contact.confidence,
+        artifactRevisionID: centerArrivalRevisionID
+      ),
+      contextBaseline: afterCapture.contextBaseline
     )
   }
 
@@ -2800,7 +2933,10 @@ final class OperatorWorkspace {
     }
   }
 
-  private func freshCalibrationMachinePosition() async throws -> MachinePosition {
+  private func freshCalibrationMachineObservation(
+    contextBaseline: ControllerContextBaseline?,
+    operationID: UUID
+  ) async throws -> CalibrationMachineObservation {
     try requireCalibrationContinuation()
     if frameMode == .simulated {
       let snapshot = await simulatedLearningRuntime.snapshot()
@@ -2813,21 +2949,55 @@ final class OperatorWorkspace {
         )
       }
       simulatedLearningSnapshot = snapshot
-      return try MachinePosition(x: snapshot.mpos.xMM, y: snapshot.mpos.yMM)
-    }
-
-    guard let machineActions, let baselineProbe = passiveProbeResult else {
-      throw LearningPathOperationError.requiredState(
-        "A current passive controller probe is required for exact calibration evidence."
+      return CalibrationMachineObservation(
+        position: try MachinePosition(x: snapshot.mpos.xMM, y: snapshot.mpos.yMM),
+        contextBaseline: nil
       )
     }
-    let baselineContext = try ControllerCheckpointContext(probe: baselineProbe)
+
+    guard let machineActions else {
+      throw LearningPathOperationError.requiredState(
+        "A connected controller session is required for exact calibration evidence."
+      )
+    }
     let probe = try await machineActions.requestPassiveProbe()
     try requireCalibrationContinuation()
-    let refreshedContext = try ControllerCheckpointContext(probe: probe)
-    guard refreshedContext == baselineContext else {
-      throw LearningPathOperationError.controllerOutcome(
-        "Controller configuration or coordinate context changed during calibration; the sample was discarded. Disconnect and reconnect before revalidating accepted machine artifacts."
+    let refreshedBaseline = try ControllerContextBaseline(probe: probe)
+    if let contextBaseline {
+      let comparison = contextBaseline.context.comparison(with: refreshedBaseline.context)
+      await recordWorkflowTelemetry(
+        WorkflowTelemetryEvent(
+          operationID: operationID,
+          operation: .currentCameraCalibration,
+          phase: .controllerContextCompared,
+          attemptID: activeExerciseAttemptID,
+          detail: comparison.actionableDescription,
+          controllerContext: WorkflowControllerContextTelemetry(
+            baselineProbeID: contextBaseline.probeID,
+            refreshedProbeID: probe.probeID,
+            comparison: comparison
+          ),
+          failureCode: comparison.isCompatible ? nil : "controller_context_changed",
+          recovery: comparison.isCompatible ? .none : .revalidateControllerContext
+        )
+      )
+      guard comparison.isCompatible else {
+        throw LearningPathOperationError.controllerContextChanged(comparison)
+      }
+    } else {
+      await recordWorkflowTelemetry(
+        WorkflowTelemetryEvent(
+          operationID: operationID,
+          operation: .currentCameraCalibration,
+          phase: .controllerContextEstablished,
+          attemptID: activeExerciseAttemptID,
+          detail: "The first fresh passive probe established this calibration operation's controller-context baseline.",
+          controllerContext: WorkflowControllerContextTelemetry(
+            baselineProbeID: nil,
+            refreshedProbeID: probe.probeID,
+            comparison: nil
+          )
+        )
       )
     }
     let snapshot = await machineActions.snapshot()
@@ -2845,10 +3015,14 @@ final class OperatorWorkspace {
     }
     passiveProbeResult = probe
     machineSnapshot = snapshot
-    return position
+    return CalibrationMachineObservation(
+      position: position,
+      contextBaseline: refreshedBaseline
+    )
   }
 
   private func rejectTargetGeometryProposal() {
+    currentCameraCalibrationFailure = nil
     targetPoseRegistrationFrame = nil
     registeredTargetMachinePosition = nil
     targetContactPointEstimate = nil
@@ -3968,6 +4142,7 @@ final class OperatorWorkspace {
   }
 
   private func resetCurrentTargetAreaEvidence() {
+    currentCameraCalibrationFailure = nil
     targetPoseRegistrationFrame = nil
     registeredTargetMachinePosition = nil
     targetContactPointEstimate = nil
@@ -5335,15 +5510,41 @@ final class OperatorWorkspace {
 
     jogRequestInProgress = true
     machineError = nil
+    let fallbackOperationID = UUID()
+    let motionIntent = WorkflowMotionIntent(
+      deltaXMM: request.delta.dx,
+      deltaYMM: request.delta.dy,
+      feedMMPerMinute: request.feedMMPerMinute
+    )
     let admittedOperation: RelativeJogOperation
     switch await machineActions.beginRelativeJog(request) {
     case .admitted(let operation):
       admittedOperation = operation
     case .rejected(let outcome):
+      await recordWorkflowTelemetry(
+        WorkflowTelemetryEvent(
+          operationID: fallbackOperationID,
+          operation: .manualJog,
+          phase: .failed,
+          detail: "Manual jog admission was rejected: \(String(describing: outcome))",
+          motionIntent: motionIntent,
+          failureCode: "manual_jog_admission_rejected",
+          recovery: .resolveNamedFailure
+        )
+      )
       jogRequestInProgress = false
       machineSnapshot = await machineActions.snapshot()
       return outcome
     }
+    await recordWorkflowTelemetry(
+      WorkflowTelemetryEvent(
+        operationID: admittedOperation.id,
+        operation: .manualJog,
+        phase: .intentAccepted,
+        detail: "An ordinary operator-authored manual jog was admitted.",
+        motionIntent: motionIntent
+      )
+    )
     let stopTarget = ContextualStopTarget.manualJog(
       capabilityID: ContextualStopCapabilityID(),
       operationOwner: .liveOperation(admittedOperation.id)
@@ -5367,6 +5568,29 @@ final class OperatorWorkspace {
     let finalSnapshot = await machineActions.snapshot()
     guard canCommit(generation) else { return nil }
     machineSnapshot = finalSnapshot
+    let telemetryTerminal: (
+      phase: WorkflowTelemetryPhase, code: String?, recovery: WorkflowTelemetryRecovery
+    ) = switch outcome {
+    case .acceptedThenCompleted:
+      (.completed, nil, .none)
+    case .cancelled:
+      (.cancelled, nil, .none)
+    case .refused:
+      (.failed, "manual_jog_refused", .resolveNamedFailure)
+    case .ambiguous:
+      (.failed, "manual_jog_ambiguous", .resolveNamedFailure)
+    }
+    await recordWorkflowTelemetry(
+      WorkflowTelemetryEvent(
+        operationID: admittedOperation.id,
+        operation: .manualJog,
+        phase: telemetryTerminal.phase,
+        detail: "Manual jog settled as \(String(describing: outcome)).",
+        motionIntent: motionIntent,
+        failureCode: telemetryTerminal.code,
+        recovery: telemetryTerminal.recovery
+      )
+    )
     return outcome
   }
 
@@ -7595,8 +7819,10 @@ final class OperatorWorkspace {
                   ? "Build Geometry Proposal from Existing Samples"
                   : "Retry Bounded Calibration and Build Proposal",
                 role: .positive,
-                unavailableReason: isAtTarget == nil
-                  ? "Current Controller MPos is unavailable." : nil
+                unavailableReason: currentCameraCalibrationFailure?.recovery
+                  == .revalidateControllerContext
+                  ? currentCameraCalibrationFailure?.recoveryDescription
+                  : (isAtTarget == nil ? "Current Controller MPos is unavailable." : nil)
               ),
               ExerciseActionDescriptor(
                 kind: .rejectTargetGeometryProposal,
@@ -8830,7 +9056,7 @@ final class OperatorWorkspace {
   }
 
   private var visibilityActivityAction: String {
-    if explorationError?.hasPrefix("Current-camera calibration failed:") == true {
+    if currentCameraCalibrationFailure != nil {
       return "Build Target Geometry Proposal"
     }
     if targetAreaRelocationRequired && !targetAreaRelocationCompleted {
@@ -8846,12 +9072,8 @@ final class OperatorWorkspace {
   }
 
   private var visibilityActivityRecovery: [PresentationFragment] {
-    if explorationError?.hasPrefix("Current-camera calibration failed:") == true {
-      return [
-        .text(
-          "If the plotter moved, use Return to Registered Target Pose. Then retry the one automatic calibration action; do not draw a calibration triangle."
-        )
-      ]
+    if let currentCameraCalibrationFailure {
+      return [.text(currentCameraCalibrationFailure.recoveryDescription)]
     }
     if targetAreaRelocationRequired && !targetAreaRelocationCompleted {
       return [.text("Choose a signed axis direction and one 50 or 10 mm Pen-Up move.")]
@@ -9011,6 +9233,7 @@ final class OperatorWorkspace {
     jogCancelRequestInProgress = false
     motionGuardActivationInProgress = false
     lastMotionGuardActivationText = "not activated"
+    currentCameraCalibrationFailure = nil
     boundaryTeachingState = .idle
     boundaryTeachingResultText = "Choose one side to begin."
     await clearDiscoveryAuthority()
@@ -9226,6 +9449,7 @@ final class OperatorWorkspace {
   private func clearVisibilityLearningForRewind(from step: HumanGuidedDiscoveryStep) {
     let physicalTargetMayRemain = visibilityTargetSceneDisposition != .pristine
     if step.rawValue <= HumanGuidedDiscoveryStep.registerTargetPoseAndCameraGeometry.rawValue {
+      currentCameraCalibrationFailure = nil
       targetPoseRegistrationFrame = nil
       registeredTargetMachinePosition = nil
       targetContactPointEstimate = nil
@@ -10125,7 +10349,14 @@ final class OperatorWorkspace {
       let response = await simulatedLearningRuntime.beginManualJog(
         delta: try SimulatedLearningMotionVector(dxMM: delta.dx, dyMM: delta.dy)
       )
-      let operation = try response.result.get()
+      let operation: SimulatedLearningOperation
+      do {
+        operation = try response.result.get()
+      } catch {
+        throw LearningPathOperationError.controllerOutcome(
+          "Simulated supervised Pen-Up travel was refused: \(String(describing: error))."
+        )
+      }
       let target = ContextualStopTarget.exerciseMotion(
         capabilityID: ContextualStopCapabilityID(),
         operationOwner: .simulated(operation.id),
@@ -10186,7 +10417,9 @@ final class OperatorWorkspace {
     case .admitted(let admitted):
       operation = admitted
     case .rejected(let outcome):
-      throw LearningPathOperationError.controllerOutcome(String(describing: outcome))
+      throw LearningPathOperationError.controllerOutcome(
+        motionOutcomeDescription(outcome, action: action)
+      )
     }
     let target = ContextualStopTarget.exerciseMotion(
       capabilityID: ContextualStopCapabilityID(),
@@ -10228,9 +10461,9 @@ final class OperatorWorkspace {
         "\(action) was stopped or cancelled; no arrival artifact was accepted."
       )
     case .ambiguous(let ambiguity):
-      throw LearningPathOperationError.controllerOutcome(String(describing: ambiguity))
+      throw LearningPathOperationError.controllerOutcome(ambiguity.actionableDescription)
     case .refused(let refusal):
-      throw LearningPathOperationError.controllerOutcome(String(describing: refusal))
+      throw LearningPathOperationError.controllerOutcome(refusal.actionableDescription)
     }
   }
 
@@ -10531,6 +10764,94 @@ final class OperatorWorkspace {
       return description
     }
     return String(describing: error)
+  }
+
+  private func motionOutcomeDescription(_ outcome: MotionOutcome, action: String) -> String {
+    switch outcome {
+    case .refused(let refusal):
+      refusal.actionableDescription
+    case .ambiguous(let ambiguity):
+      ambiguity.actionableDescription
+    case .cancelled:
+      "\(action) was stopped or cancelled before an arrival artifact could be accepted."
+    case .acceptedThenCompleted:
+      "\(action) completed before its owner-bound admission handle was returned."
+    }
+  }
+
+  private func recordWorkflowTelemetry(_ event: WorkflowTelemetryEvent) async {
+    await workflowTelemetryActions?.record(event)
+  }
+
+  private func updateCurrentCameraCalibrationPhase(
+    _ phase: String,
+    operationID: UUID,
+    attemptID: ExerciseAttemptID?
+  ) async {
+    currentCameraCalibrationPhase = phase
+    await recordWorkflowTelemetry(
+      WorkflowTelemetryEvent(
+        operationID: operationID,
+        operation: .currentCameraCalibration,
+        phase: .phaseChanged,
+        attemptID: attemptID,
+        detail: phase
+      )
+    )
+  }
+
+  private func currentCameraCalibrationFailure(
+    for error: any Error,
+    targetPosition: MachinePosition
+  ) -> CurrentCameraCalibrationFailure {
+    let detail = actionableDescription(error)
+    if let operationError = error as? LearningPathOperationError {
+      switch operationError {
+      case .controllerContextChanged:
+        return CurrentCameraCalibrationFailure(
+          code: "controller_context_changed",
+          detail: detail,
+          recovery: .revalidateControllerContext
+        )
+      case .freshFrameUnavailable:
+        return CurrentCameraCalibrationFailure(
+          code: "fresh_frame_unavailable",
+          detail: detail,
+          recovery: calibrationPositionRecovery(targetPosition: targetPosition)
+        )
+      case .controllerOutcome:
+        return CurrentCameraCalibrationFailure(
+          code: "controller_outcome",
+          detail: detail,
+          recovery: calibrationPositionRecovery(targetPosition: targetPosition)
+        )
+      case .inkRejected:
+        return CurrentCameraCalibrationFailure(
+          code: "ink_rejected",
+          detail: detail,
+          recovery: .resolveNamedFailure
+        )
+      case .requiredState:
+        return CurrentCameraCalibrationFailure(
+          code: "required_state_missing",
+          detail: detail,
+          recovery: calibrationPositionRecovery(targetPosition: targetPosition)
+        )
+      }
+    }
+    return CurrentCameraCalibrationFailure(
+      code: "unexpected_failure",
+      detail: detail,
+      recovery: calibrationPositionRecovery(targetPosition: targetPosition)
+    )
+  }
+
+  private func calibrationPositionRecovery(
+    targetPosition: MachinePosition
+  ) -> WorkflowTelemetryRecovery {
+    guard let current = try? currentMachinePosition() else { return .resolveNamedFailure }
+    return protocolPositionsMatch(current, targetPosition)
+      ? .retryCalibration : .returnToRegisteredTargetPose
   }
 
 }

@@ -22,6 +22,7 @@ PlotterRuntime
   armature guidance and isolated-ink observation
   causal learning simulator and output-only announcements
   in-memory workflow evidence plus durable accepted-artifact checkpoints
+  semantic controller-context comparison and typed workflow telemetry
 
 PlotterApp
   OperatorWorkspace composition and projection
@@ -52,6 +53,11 @@ Its write surface is closed:
 
 UI and learning code cannot provide G-code, bytes, servo values, homing, unlock,
 reset, alarm clear, or firmware writes.
+
+Machine diagnostic writes enter one serialized ledger tail. Disconnect drains
+that tail before composition closes the ledger, so raw I/O, probe, pen, and
+motion facts cannot be silently reordered or dropped by independent
+fire-and-forget tasks.
 
 ### RunInterpreter
 
@@ -164,13 +170,29 @@ Up calibration if required, returns under the shared settlement policy, and
 stages a proposal. Proposal acceptance and rejection remain separate typed
 operator intents.
 
+Stage 3.3 carries an operation-local `ControllerContextBaseline` beginning with
+its first fresh passive probe. Each later exact capture returns the advanced
+baseline explicitly. Calibration cannot read the workspace's last-probe cache
+as hidden comparison authority. `ControllerCheckpointContext` performs the
+shared field-level semantic comparison used by both live calibration and
+durable-checkpoint revalidation.
+
 Views own no independent workflow state. Presentation helpers may format or
 reduce immutable values but cannot admit commands or promote evidence.
 
 ### RunLedger
 
-`RunLedger` stores ordered diagnostic transactions and facts. It does not decide
-eligibility, restore a workflow, or promote model state.
+`RunLedger` stores ordered diagnostic transactions and facts. Machine events
+retain raw protocol evidence. `WorkflowTelemetryEvent` adds the typed operation,
+phase, attempt, manual motion intent, probe IDs, context comparison, terminal
+failure code, and recovery. App composition appends these facts best-effort and
+emits an OSLog diagnostic if the durable sink is unavailable. Neither stream
+decides eligibility, restores a workflow, or promotes model state.
+
+Cross-operation mutable snapshots are presentation caches only. Any operation
+that needs a stable comparison baseline must acquire and carry an immutable
+operation-scoped value, advance it only after typed compatibility checks, and
+discard it when the owner settles.
 
 ## Workbench composition
 
@@ -308,6 +330,8 @@ cause refusal with PID/path; the launcher does not terminate them.
 Failures are typed and actionable. They name the missing direct fact, retained
 accepted artifact where applicable, and explicit recovery. No failure path
 silently changes authority, retries a write, or invents physical evidence.
+Presentation routes recovery from the typed failure, never from string prefixes
+or enum debug rendering.
 
 ## Validation boundary
 

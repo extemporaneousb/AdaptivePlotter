@@ -59,6 +59,12 @@ The current source implements:
 - one Stage 3.3 public action that captures the exact target pose, runs bounded
   camera calibration when required, and builds a reviewable proposal while
   preserving separate explicit accept/reject authority;
+- operation-scoped Stage 3.3 controller context with field-level semantic
+  comparison, exact passive-probe IDs, typed failure/recovery presentation, and
+  durable workflow telemetry alongside serialized raw machine-ledger facts;
+- ordinary manual jog telemetry that records signed X/Y distance and feed under
+  a `manualJog` operation rather than leaving later diagnosis to infer whether
+  the movement belonged to calibration;
 - required noninteractive presentation for a protocol-forced Boundary
   direction;
 
@@ -70,17 +76,15 @@ model-selected drawing.
 
 The current software baseline has passed:
 
-- make quick-test — 346 unit and component tests in a 9.280-second test run;
-- make journey-test — 18 retained causal journey tests in a 40.201-second test
+- make quick-test — 356 unit and component tests in an 11.954-second test run;
+- make journey-test — 18 retained causal journey tests in a 43.579-second test
   run;
-- make check — signed app construction and validation, launcher logic and
-  validation, negative bundle validation, all 364 tests, repository-contract
-  checks, and diff checks. The test run completed in 13.113 seconds;
-- make strict-check — the same signed-app and 364-test gate with complete Swift
-  concurrency checking and warnings as errors. The confirming test run completed
-  in 13.113 seconds;
-- the nine retained causal journey cases ran inside both full parallel check
-  suites; standalone sequential make journey-test was not rerun for this change;
+- make strict-check — signed app construction and validation, launcher logic
+  and validation, negative bundle validation, all 374 tests, repository-contract
+  checks, and diff checks under complete Swift concurrency checking with warnings
+  as errors. The confirming full test run completed in 17.380 seconds;
+- all retained causal journey cases ran inside the full parallel strict check,
+  and standalone sequential make journey-test was also rerun for this change;
 - Scripts/check_repository_contract.sh;
 - git diff --check.
 
@@ -131,6 +135,15 @@ Prior attended sessions recorded:
   0.010 mm threshold even though the configured X resolution is approximately
   0.0249 mm/step. The controller ended Idle and Pen Up, and the UI offered
   **Return to Captured Target Pose**. No observed-ink evidence was recorded.
+- an attended 2026-08-11 diagnostic session reached Stage 3.3 with four accepted
+  Boundary sides and center arrival still current. Automatic camera calibration
+  repeatedly rejected a stale whole-context comparison: the earlier cached
+  passive probe reported `M5/S0`, while fresh probes consistently reported the
+  app-commanded Pen Up state `M3/S40`; build information, settings, offsets,
+  controller state, and fresh MPos remained stable. The controller was Idle and
+  Pen Up. The operator separately identified the recorded X− 100 mm Pen-Up jog
+  as an intentional manual move to clear paper, not an automatic calibration
+  leg. No new ink was attempted after the calibration failure.
 
 These facts are bounded to their recorded sessions. The 2026-08-09 run is
 attended controller/app evidence for the pre-fix build only; it does not
@@ -155,6 +168,10 @@ The current integrated build still lacks attended verification of:
   comparison on live hardware;
 - the combined Stage 3.3 capture/calibrate/build action and separate proposal
   accept/reject presentation on live hardware;
+- live confirmation that application-owned parser changes advance the new
+  operation-scoped Stage 3.3 baseline, that true coordinate changes show the
+  field-level recovery, and that the correlated workflow events are present in
+  the durable session ledger;
 - durable accepted-Boundary restoration across a signed software relaunch;
 - post-fix attended timing and stopping behavior of camera-advised 20-to-50 mm
   coarse-to-fine Boundary renewal, including settled advisory cancellation and

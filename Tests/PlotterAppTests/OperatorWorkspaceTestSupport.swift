@@ -42,6 +42,7 @@ func sequenceIDForTest(_ direction: BoundaryDirection) -> DiscoverySequenceID {
 func makeSimulatedHarness(
   cameraActions: OperatorWorkspace.CameraActions? = nil,
   eventLog: EventLog? = nil,
+  workflowTelemetry: WorkflowTelemetryFixture? = nil,
   simulatedExecutionPacing: any SimulatedLearningExecutionPacing =
     SimulatedLearningImmediatePacing()
 ) -> SimulatedWorkspaceHarness {
@@ -59,6 +60,9 @@ func makeSimulatedHarness(
     workspace: OperatorWorkspace(
       machineActions: isolatedMachineActions(log: machineActionLog),
       cameraActions: cameraActions ?? CameraComposition.makeIsolatedActionsForTesting(),
+      workflowTelemetryActions: workflowTelemetry.map { fixture in
+        .init(record: { await fixture.record($0) })
+      },
       simulatedLearningRuntime: runtime,
       simulatedExecutionPacing: simulatedExecutionPacing,
       serialDevices: [],
@@ -414,6 +418,7 @@ func workspace(
   jogCancel: (@Sendable (JogCancelIntent) async -> JogCancelOutcome)? = nil,
   announcements: AnnouncementFixture? = nil,
   checkpointActions: OperatorWorkspace.AcceptedArtifactCheckpointActions? = nil,
+  workflowTelemetry: WorkflowTelemetryFixture? = nil,
   log _: EventLog
 ) -> OperatorWorkspace {
   let clock = TestClock()
@@ -464,6 +469,9 @@ func workspace(
       )
     },
     acceptedArtifactCheckpointActions: checkpointActions,
+    workflowTelemetryActions: workflowTelemetry.map { fixture in
+      .init(record: { await fixture.record($0) })
+    },
     serialDevices: [machine.descriptor],
     serialDeviceDiscovery: { [machine.descriptor] },
     loadSelectedSerialIdentifier: { nil },
@@ -732,6 +740,14 @@ actor AnnouncementFixture {
   func cancelForShutdown() {}
 }
 
+actor WorkflowTelemetryFixture {
+  private(set) var events: [WorkflowTelemetryEvent] = []
+
+  func record(_ event: WorkflowTelemetryEvent) {
+    events.append(event)
+  }
+}
+
 actor MachineFixture {
   nonisolated let descriptor = MachineLinkDescriptor(
     identifier: "fixture",
@@ -754,6 +770,7 @@ actor MachineFixture {
   private var boundaryContinuation: CheckedContinuation<BoundaryMotionOutcome, Never>?
   private var position: MachinePosition
   private var penState: PenState = .up
+  private var hasActuatedPen = false
   private var lastMotion: MotionOutcome?
   private var lastPen: PenOutcome?
   private var lastCancel: JogCancelOutcome?
@@ -809,9 +826,12 @@ actor MachineFixture {
   }
 
   func passiveProbeResult() -> PassiveProbeResult {
+    let parserState = hasActuatedPen
+      ? "[GC:G0 G54 G17 G21 G90 G94 M3 M9 T0 F0 S40]"
+      : "[GC:G0 G54 G17 G21 G90 G94 M5 M9 T0 F0 S0]"
     let reports: [(PassiveQuery, [String])] = [
       (.buildInfo, ["[VER:1.1h.20200101:workspace-fixture]"]),
-      (.parserState, ["[GC:G0 G54 G17 G21 G90 G94 M5 M9 T0 F0 S0]"]),
+      (.parserState, [parserState]),
       (
         .status,
         [String(format: "<Idle|MPos:%.3f,%.3f,0.000>", position.point.x, position.point.y)]
@@ -918,6 +938,7 @@ actor MachineFixture {
 
   func requestPen(_ command: PenCommand) async -> PenOutcome {
     await log.append("machine:pen-\(command.rawValue)")
+    hasActuatedPen = true
     penState = command.commandedState
     let outcome = PenOutcome.commandedAndSettled(command: command, commandedState: penState)
     lastPen = outcome

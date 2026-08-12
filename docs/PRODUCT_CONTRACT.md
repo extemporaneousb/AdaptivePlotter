@@ -70,7 +70,10 @@ generations cannot commit.
 `OperatorWorkspace` projects current facts and routes typed UI intent. It is the
 single observable app owner, not a replacement controller or camera authority.
 
-`RunLedger` records ordered diagnostic facts. It does not replay work, decide
+`RunLedger` records ordered diagnostic facts. Raw controller facts and typed
+workflow facts share the ledger but remain distinct. Workflow records identify
+operation, phase, attempt, motion intent, passive-probe correlation, typed
+failure, and recovery where applicable. They do not replay work, decide
 readiness, or promote learning artifacts.
 
 ## Learning Path semantics
@@ -190,14 +193,24 @@ construction has no preceding generic Start or separate public capture step and
 never accepts geometry; explicit operator acceptance or rejection remains a
 separate action.
 
+The first fresh passive probe inside one Stage 3.3 calibration operation
+establishes that operation's controller-context baseline. Later sample probes
+compare against and advance only that local baseline. A workspace-wide cached
+probe from an earlier interaction is never calibration authority. Comparison
+retains raw parser text but separates application-owned motion/feed/pen modal
+changes from coordinate identity. Device, build, units, distance mode, work
+coordinate, settings, and coordinate-offset changes remain incompatible.
+
 ## Durable accepted artifacts
 
 Current accepted LIVE machine-space Boundary evidence, aggregates, paired
 progress, derived center/local frame, optional center arrival, and their current
 dependency revisions may be checkpointed durably by atomic file replacement.
 The file is quarantined on launch until a fresh passive controller probe matches
-device/build, parser state, settings, coordinate offsets, and current MPos within
-0.05 mm.
+device/build, semantic coordinate parser state, settings, coordinate offsets,
+and current MPos within 0.05 mm. Known parser values changed by the app's own
+typed pen and motion commands remain retained provenance but do not manufacture
+a coordinate-context mismatch.
 
 Checkpoint reuse is a convenience, not a requirement to preserve Boundary
 coordinates across software schema changes. An incompatible checkpoint may be

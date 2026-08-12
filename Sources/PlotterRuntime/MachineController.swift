@@ -166,6 +166,7 @@ public actor MachineController {
   private var wireWriteInProgress = false
   private var priorityWireWriteWaiters: [CheckedContinuation<Void, Never>] = []
   private var regularWireWriteWaiters: [CheckedContinuation<Void, Never>] = []
+  private var ledgerWriteTail: Task<Void, Never>?
 
   public init(
     link: any MachineLink,
@@ -273,12 +274,16 @@ public actor MachineController {
     motionGuardState = .inactive
     controllerAxisFeedLimits = nil
     controllerMotionTiming = nil
+    await ledgerWriteTail?.value
+    ledgerWriteTail = nil
   }
 
   public func runPassiveProbe() async -> PassiveProbeResult {
     let started = timestamp()
+    let probeID = UUID()
     guard activeOperation == nil else {
       return PassiveProbeResult(
+        probeID: probeID,
         link: link.descriptor,
         startedAt: started,
         completedAt: timestamp(),
@@ -290,7 +295,6 @@ public actor MachineController {
     defer { activeOperation = nil }
     blockers = []
     var exchanges: [PassiveProbeExchange] = []
-    let probeID = UUID()
     recordProbeStartedBestEffort(probeID: probeID, started: started)
 
     do {
@@ -1814,19 +1818,15 @@ public actor MachineController {
   }
 
   private func recordRawIOBestEffort(_ io: RawMachineIO) {
-    guard let ledger, let runID, let payload = try? JSONEncoder().encode(io) else { return }
-    Task {
-      try? await ledger.appendEvent(
-        runID: runID,
-        timestamp: io.timestamp,
-        kind: "machine.raw_io",
-        payload: payload
-      )
-    }
+    guard let payload = try? JSONEncoder().encode(io) else { return }
+    enqueueLedgerEvent(
+      timestamp: io.timestamp,
+      kind: "machine.raw_io",
+      payload: payload
+    )
   }
 
   private func recordProbeStartedBestEffort(probeID: UUID, started: RuntimeTimestamp) {
-    guard let ledger, let runID else { return }
     let record = PassiveProbeStartedRecord(
       probeID: probeID,
       link: link.descriptor,
@@ -1834,15 +1834,11 @@ public actor MachineController {
       queries: PassiveQuery.allCases
     )
     guard let payload = try? JSONEncoder().encode(record) else { return }
-    Task {
-      try? await ledger.appendEvent(
-        runID: runID,
-        timestamp: started,
-        kind: "machine.passive_probe.started",
-        schemaVersion: 1,
-        payload: payload
-      )
-    }
+    enqueueLedgerEvent(
+      timestamp: started,
+      kind: "machine.passive_probe.started",
+      payload: payload
+    )
   }
 
   private func finishProbe(
@@ -1851,25 +1847,20 @@ public actor MachineController {
     exchanges: [PassiveProbeExchange]
   ) -> PassiveProbeResult {
     let result = PassiveProbeResult(
+      probeID: probeID,
       link: link.descriptor,
       startedAt: started,
       completedAt: timestamp(),
       exchanges: exchanges,
       blockers: blockers
     )
-    if let ledger, let runID {
-      let record = PassiveProbeFinishedRecord(probeID: probeID, result: result)
-      if let payload = try? JSONEncoder().encode(record) {
-        Task {
-          try? await ledger.appendEvent(
-            runID: runID,
-            timestamp: result.completedAt,
-            kind: "machine.passive_probe.finished",
-            schemaVersion: 1,
-            payload: payload
-          )
-        }
-      }
+    let record = PassiveProbeFinishedRecord(result: result)
+    if let payload = try? JSONEncoder().encode(record) {
+      enqueueLedgerEvent(
+        timestamp: result.completedAt,
+        kind: "machine.passive_probe.finished",
+        payload: payload
+      )
     }
     lastProbe = result
     controllerAxisFeedLimits = blockers.isEmpty
@@ -1882,52 +1873,57 @@ public actor MachineController {
   }
 
   private func recordMotionBestEffort(request: RelativeJogRequest, outcome: MotionOutcome) {
-    guard let ledger, let runID else { return }
     let record = MotionDiagnosticRecord(request: request, outcome: outcome, timestamp: timestamp())
     guard let payload = try? JSONEncoder().encode(record) else { return }
-    Task {
-      try? await ledger.appendEvent(
-        runID: runID,
-        timestamp: record.timestamp,
-        kind: "machine.relative_jog.result",
-        schemaVersion: 1,
-        payload: payload
-      )
-    }
+    enqueueLedgerEvent(
+      timestamp: record.timestamp,
+      kind: "machine.relative_jog.result",
+      payload: payload
+    )
   }
 
   private func recordDrawingStrokeBestEffort(
     request: DrawingStrokeRequest,
     outcome: DrawingStrokeOutcome
   ) {
-    guard let ledger, let runID else { return }
     let record = DrawingStrokeDiagnosticRecord(
       request: request,
       outcome: outcome,
       timestamp: timestamp()
     )
     guard let payload = try? JSONEncoder().encode(record) else { return }
-    Task {
-      try? await ledger.appendEvent(
-        runID: runID,
-        timestamp: record.timestamp,
-        kind: "machine.drawing_stroke.result",
-        schemaVersion: 1,
-        payload: payload
-      )
-    }
+    enqueueLedgerEvent(
+      timestamp: record.timestamp,
+      kind: "machine.drawing_stroke.result",
+      payload: payload
+    )
   }
 
   private func recordPenBestEffort(command: PenCommand, outcome: PenOutcome) {
-    guard let ledger, let runID else { return }
     let record = PenDiagnosticRecord(command: command, outcome: outcome, timestamp: timestamp())
     guard let payload = try? JSONEncoder().encode(record) else { return }
-    Task {
-      try? await ledger.appendEvent(
+    enqueueLedgerEvent(
+      timestamp: record.timestamp,
+      kind: "machine.pen_actuation.result",
+      payload: payload
+    )
+  }
+
+  private func enqueueLedgerEvent(
+    timestamp: RuntimeTimestamp,
+    kind: String,
+    schemaVersion: Int = 1,
+    payload: Data
+  ) {
+    guard let ledger, let runID else { return }
+    let precedingWrite = ledgerWriteTail
+    ledgerWriteTail = Task {
+      await precedingWrite?.value
+      _ = try? await ledger.appendEvent(
         runID: runID,
-        timestamp: record.timestamp,
-        kind: "machine.pen_actuation.result",
-        schemaVersion: 1,
+        timestamp: timestamp,
+        kind: kind,
+        schemaVersion: schemaVersion,
         payload: payload
       )
     }

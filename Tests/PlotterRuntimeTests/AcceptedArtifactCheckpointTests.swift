@@ -104,6 +104,54 @@ struct AcceptedArtifactCheckpointTests {
       return
     }
   }
+
+  @Test("application-owned pen parser changes do not invalidate coordinate context")
+  func penParserChangeIsCompatible() throws {
+    let position = try MachinePosition(x: 10, y: 0)
+    let baseline = try ControllerCheckpointContext(
+      probe: passiveProbe(
+        position: position,
+        parserState: ["[GC:G0 G54 G17 G21 G90 G94 M5 M9 T0 F0 S0]"]
+      )
+    )
+    let refreshed = try ControllerCheckpointContext(
+      probe: passiveProbe(
+        position: position,
+        parserState: ["[GC:G1 G54 G17 G21 G90 G94 M3 M9 T0 F500 S40]"]
+      )
+    )
+
+    let comparison = baseline.comparison(with: refreshed)
+
+    #expect(comparison.isCompatible)
+    #expect(comparison.differences.isEmpty)
+    #expect(comparison.ignoredApplicationParserChanges.count == 1)
+    #expect(comparison.actionableDescription.contains("application-owned parser modes"))
+  }
+
+  @Test("coordinate parser changes are rejected with a field-level difference")
+  func coordinateParserChangeIsIncompatible() throws {
+    let position = try MachinePosition(x: 10, y: 0)
+    let baselineProbe = passiveProbe(
+      position: position,
+      parserState: ["[GC:G0 G54 G17 G21 G90 G94 M5 M9 T0 F0 S0]"]
+    )
+    let refreshedProbe = passiveProbe(
+      position: position,
+      parserState: ["[GC:G0 G55 G17 G21 G90 G94 M3 M9 T0 F0 S40]"]
+    )
+    let baseline = try ControllerContextBaseline(probe: baselineProbe)
+    let refreshed = try ControllerContextBaseline(probe: refreshedProbe)
+
+    let comparison = baseline.context.comparison(with: refreshed.context)
+
+    #expect(!comparison.isCompatible)
+    #expect(comparison.differences.map(\.field) == [.parserCoordinateState])
+    #expect(comparison.actionableDescription.contains("G54"))
+    #expect(comparison.actionableDescription.contains("G55"))
+    #expect(baseline.probeID == baselineProbe.probeID)
+    #expect(refreshed.probeID == refreshedProbe.probeID)
+  }
 }
 
 private func loaded(
@@ -189,7 +237,8 @@ private func makeCheckpoint() throws -> AcceptedMachineArtifactCheckpoint {
 
 private func passiveProbe(
   position: MachinePosition,
-  configuration: [String] = ["$100=80.000", "$101=80.000", "$110=900.000"]
+  configuration: [String] = ["$100=80.000", "$101=80.000", "$110=900.000"],
+  parserState: [String] = ["[GC:G0 G54 G17 G21 G90 G94 M5 M9 T0 F0 S0]"]
 ) -> PassiveProbeResult {
   let link = MachineLinkDescriptor(
     identifier: "/dev/cu.checkpoint-fixture",
@@ -199,7 +248,7 @@ private func passiveProbe(
   )
   let reports: [(PassiveQuery, [String])] = [
     (.buildInfo, ["[VER:1.1h.20200101:checkpoint]"]),
-    (.parserState, ["[GC:G0 G54 G17 G21 G90 G94 M5 M9 T0 F0 S0]"]),
+    (.parserState, parserState),
     (
       .status,
       [String(format: "<Idle|MPos:%.3f,%.3f,0.000>", position.point.x, position.point.y)]

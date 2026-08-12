@@ -124,6 +124,11 @@ camera calibration when needed, returns under the same settlement policy, and
 stages the proposal. There is no preceding generic Start or separate public
 capture/build ceremony. The action never accepts geometry. The operator still
 explicitly accepts or rejects the target pose, camera fit, and ROI after review.
+The calibration's first fresh probe establishes an operation-local controller
+baseline. Later probes use a field-level semantic comparison, so app-owned Pen
+Up and motion modal changes remain visible without masquerading as coordinate
+changes; real device, coordinate-mode, setting, or offset changes still stop the
+operation with a named recovery.
 
 Accepted LIVE machine-space Boundary artifacts are durably checkpointed by
 atomic file replacement after each accepted commit. Relaunch loads the file as
@@ -132,6 +137,11 @@ must match the recorded controller context, and MPos must be within 0.05 mm,
 before accepted sides, center, local frame, or center arrival become current.
 The checkpoint contains no active workflow, Motion authorization, operation
 owner, live Stop capability, pending command, or replay instruction.
+
+The same session ledger retains serialized raw machine events and typed workflow
+events. Calibration phase/probe/context/failure/recovery facts and signed manual
+jog intent are therefore directly attributable during diagnosis; ledger facts
+never become replay or motion authority.
 
 Evidence claims remain separate:
 

@@ -139,6 +139,9 @@ At the accepted target pose:
 4. fit machine-camera registration from compatible exact machine/contact
    samples or run the one bounded three-sample Pen Up calibration owner and
    return to the captured target MPos under the shared pose policy;
+   the calibration's first fresh passive probe establishes an operation-local
+   controller-context baseline, and every later before/after-capture probe must
+   match and advance that baseline;
 5. stage the fit, projected target ROI, validation residual, and provenance as
    a non-authoritative proposal; the ROI retains a 12 px perimeter on left,
    right, and top, then extends its pre-expansion height by 50 percent at the
@@ -153,6 +156,14 @@ Calibration never accepts geometry. One explicit acceptance atomically makes
 the target-pose, machine-camera, and typed target-ROI revisions current. No one
 of those revisions becomes current if proposal construction or acceptance
 fails. Viewport zoom never mutates the target ROI used by Vision.
+
+An application-owned parser transition such as Pen Up `M5/S0` to `M3/S40` is
+recorded but does not invalidate coordinate identity. A device, build, units,
+distance-mode, work-coordinate, controller-setting, or coordinate-offset change
+discards the staged calibration sample, names the changed fields, disables
+calibration retry, and requires controller-context revalidation. Other failures
+derive recovery from current MPos: retry directly when still at the registered
+target, or expose Return to Captured Target Pose when it actually moved.
 
 ## 3.4 Discover and Accept Clear View
 

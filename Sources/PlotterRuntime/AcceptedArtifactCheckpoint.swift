@@ -8,6 +8,93 @@ public enum ControllerCheckpointContextError: Error, Equatable, Sendable {
   case emptyEvidence(PassiveQuery)
 }
 
+public enum ControllerCheckpointContextField: String, Codable, CaseIterable, Hashable, Sendable {
+  case revision
+  case link
+  case buildInfo
+  case parserCoordinateState
+  case configuration
+  case coordinateOffsets
+
+  public var displayName: String {
+    switch self {
+    case .revision: "context schema"
+    case .link: "selected controller"
+    case .buildInfo: "controller build information"
+    case .parserCoordinateState: "parser coordinate state"
+    case .configuration: "controller settings"
+    case .coordinateOffsets: "coordinate offsets"
+    }
+  }
+}
+
+public struct ControllerCheckpointContextDifference: Codable, Hashable, Sendable {
+  public let field: ControllerCheckpointContextField
+  public let baseline: [String]
+  public let refreshed: [String]
+
+  public init(
+    field: ControllerCheckpointContextField,
+    baseline: [String],
+    refreshed: [String]
+  ) {
+    self.field = field
+    self.baseline = baseline
+    self.refreshed = refreshed
+  }
+
+  public var actionableDescription: String {
+    "\(field.displayName) changed from \(Self.render(baseline)) to \(Self.render(refreshed))"
+  }
+
+  private static func render(_ values: [String]) -> String {
+    values.isEmpty ? "<none>" : values.joined(separator: " | ")
+  }
+}
+
+/// A field-level comparison of controller facts. Raw parser text is retained
+/// for provenance, but application-owned modal values are not allowed to make
+/// coordinate identity unstable after the app itself actuates the pen or runs
+/// a typed motion command.
+public struct ControllerCheckpointContextComparison: Codable, Hashable, Sendable {
+  public let differences: [ControllerCheckpointContextDifference]
+  public let ignoredApplicationParserChanges: [ControllerCheckpointContextDifference]
+
+  public init(
+    differences: [ControllerCheckpointContextDifference],
+    ignoredApplicationParserChanges: [ControllerCheckpointContextDifference]
+  ) {
+    self.differences = differences
+    self.ignoredApplicationParserChanges = ignoredApplicationParserChanges
+  }
+
+  public var isCompatible: Bool { differences.isEmpty }
+
+  public var actionableDescription: String {
+    guard !differences.isEmpty else {
+      if ignoredApplicationParserChanges.isEmpty {
+        return "Controller coordinate context is compatible."
+      }
+      return
+        "Controller coordinate context is compatible; only application-owned parser modes changed."
+    }
+    return differences.map(\.actionableDescription).joined(separator: "; ") + "."
+  }
+}
+
+/// An operation-scoped controller-context baseline. It is intentionally a
+/// value supplied by the caller instead of an implicit reference to the
+/// workspace's most recent probe.
+public struct ControllerContextBaseline: Codable, Hashable, Sendable {
+  public let probeID: UUID
+  public let context: ControllerCheckpointContext
+
+  public init(probe: PassiveProbeResult) throws {
+    probeID = probe.probeID
+    context = try ControllerCheckpointContext(probe: probe)
+  }
+}
+
 /// Passive controller facts that must remain numerically and textually stable
 /// before a parked accepted-artifact checkpoint can become current again.
 /// Status/MPos is compared separately because it changes during legitimate
@@ -33,6 +120,63 @@ public struct ControllerCheckpointContext: Codable, Hashable, Sendable {
     revision = Self.revision
   }
 
+  public func comparison(with refreshed: ControllerCheckpointContext)
+    -> ControllerCheckpointContextComparison
+  {
+    var differences: [ControllerCheckpointContextDifference] = []
+    Self.appendDifference(
+      .revision,
+      baseline: [revision],
+      refreshed: [refreshed.revision],
+      to: &differences
+    )
+    Self.appendDifference(
+      .link,
+      baseline: Self.linkEvidence(link),
+      refreshed: Self.linkEvidence(refreshed.link),
+      to: &differences
+    )
+    Self.appendDifference(
+      .buildInfo,
+      baseline: buildInfo,
+      refreshed: refreshed.buildInfo,
+      to: &differences
+    )
+
+    let baselineParser = Self.semanticParserState(parserState)
+    let refreshedParser = Self.semanticParserState(refreshed.parserState)
+    Self.appendDifference(
+      .parserCoordinateState,
+      baseline: baselineParser.coordinateContext,
+      refreshed: refreshedParser.coordinateContext,
+      to: &differences
+    )
+    Self.appendDifference(
+      .configuration,
+      baseline: configuration,
+      refreshed: refreshed.configuration,
+      to: &differences
+    )
+    Self.appendDifference(
+      .coordinateOffsets,
+      baseline: coordinateOffsets,
+      refreshed: refreshed.coordinateOffsets,
+      to: &differences
+    )
+
+    var ignored: [ControllerCheckpointContextDifference] = []
+    Self.appendDifference(
+      .parserCoordinateState,
+      baseline: baselineParser.applicationOwned,
+      refreshed: refreshedParser.applicationOwned,
+      to: &ignored
+    )
+    return ControllerCheckpointContextComparison(
+      differences: differences,
+      ignoredApplicationParserChanges: ignored
+    )
+  }
+
   private static func evidence(
     for query: PassiveQuery,
     in probe: PassiveProbeResult
@@ -48,6 +192,68 @@ public struct ControllerCheckpointContext: Codable, Hashable, Sendable {
     }.sorted()
     guard !evidence.isEmpty else { throw ControllerCheckpointContextError.emptyEvidence(query) }
     return evidence
+  }
+
+  private static func appendDifference(
+    _ field: ControllerCheckpointContextField,
+    baseline: [String],
+    refreshed: [String],
+    to differences: inout [ControllerCheckpointContextDifference]
+  ) {
+    guard baseline != refreshed else { return }
+    differences.append(
+      ControllerCheckpointContextDifference(
+        field: field,
+        baseline: baseline,
+        refreshed: refreshed
+      )
+    )
+  }
+
+  private static func linkEvidence(_ link: MachineLinkDescriptor) -> [String] {
+    [
+      "identifier=\(link.identifier)",
+      "displayName=\(link.displayName)",
+      "bsdPath=\(link.bsdPath ?? "<none>")",
+      "transport=\(link.transport.rawValue)",
+    ]
+  }
+
+  private static func semanticParserState(
+    _ evidence: [String]
+  ) -> (coordinateContext: [String], applicationOwned: [String]) {
+    var coordinateContext: [String] = []
+    var applicationOwned: [String] = []
+    for line in evidence {
+      let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard trimmed.hasPrefix("[GC:"), trimmed.hasSuffix("]") else {
+        coordinateContext.append(trimmed)
+        continue
+      }
+      let start = trimmed.index(trimmed.startIndex, offsetBy: 4)
+      let end = trimmed.index(before: trimmed.endIndex)
+      for token in trimmed[start..<end].split(whereSeparator: \.isWhitespace).map(String.init) {
+        if applicationOwnsParserToken(token) {
+          applicationOwned.append(token)
+        } else {
+          coordinateContext.append(token)
+        }
+      }
+    }
+    return (coordinateContext.sorted(), applicationOwned.sorted())
+  }
+
+  private static func applicationOwnsParserToken(_ token: String) -> Bool {
+    let value = token.uppercased()
+    if value.hasPrefix("S") || value.hasPrefix("F") { return true }
+    if ["M3", "M4", "M5"].contains(value) { return true }
+    // Typed app requests always provide their own motion mode. These modal
+    // tokens can legitimately change after an app-owned travel or stroke but
+    // do not change units, distance mode, work coordinates, or offsets.
+    if ["G0", "G00", "G1", "G01", "G2", "G02", "G3", "G03", "G80"].contains(value) {
+      return true
+    }
+    return value.hasPrefix("G38.")
   }
 }
 
@@ -131,10 +337,9 @@ public struct AcceptedMachineArtifactCheckpoint: Codable, Hashable, Sendable {
     with freshContext: ControllerCheckpointContext,
     currentPosition: MachinePosition
   ) -> AcceptedArtifactCheckpointCompatibility {
-    guard controllerContext == freshContext else {
-      return .incompatible(
-        "The selected device, build information, parser state, settings, or coordinate offsets changed."
-      )
+    let contextComparison = controllerContext.comparison(with: freshContext)
+    guard contextComparison.isCompatible else {
+      return .incompatible(contextComparison.actionableDescription)
     }
     let residual = ControllerPositionAcceptancePolicy.residualMM(
       currentPosition,
