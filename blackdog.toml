@@ -10,9 +10,7 @@ worktrees_dir = "../.worktrees"
 validation_commands = ["git diff --check"]
 doc_routing_defaults = [
   "AGENTS.md",
-  "README.md",
-  "docs/PRODUCT_CONTRACT.md",
-  "docs/SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md",
+  "docs/INDEX.md",
 ]
 
 [landing]
