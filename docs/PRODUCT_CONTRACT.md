@@ -195,9 +195,13 @@ compatible samples are insufficient, returns to the recorded target under the
 shared pose policy, and stages a reviewable non-authoritative proposal. Proposal
 construction has no preceding generic Start or separate public capture step and
 never accepts geometry; explicit operator acceptance or rejection remains a
-separate action. The staged target search support is a 128 px-radius circle
-centred directly on the exact target-pose cap anchor. A fitted-registration
-residual cannot move that centre.
+separate action. The staged target search support is a circle whose radius is
+half the camera frame's shorter dimension, centred directly on the exact target-
+pose cap anchor. A fitted-registration residual cannot move that centre.
+Target observation compares paired frames for color-independent luminance
+darkening, rejects line-like or diameter-incompatible new components, preserves
+same-sized compact candidates as ambiguity, and estimates camera wobble from
+bounded annular support outside the search circle.
 
 The first fresh passive probe inside one Stage 3.3 calibration operation
 establishes that operation's controller-context baseline. Later sample probes
@@ -299,12 +303,12 @@ direct controller authority, causes hidden motion, or permits automatic redraw.
 Buttons are authoritative for choices, progression, Cancel, and Stop. Speech is
 output-only and advisory; failure leaves visible controls usable.
 
-All buttons share one semantic state grammar. Enabled affirmative transitions
-are green, enabled negative/Cancel/Stop transitions are red, enabled neutral
-actions are medium gray, and disabled actions are dark gray and noninteractive.
-The disabled appearance and interaction state consume the same Boolean fact.
-Passive status and protocol-required values are content, never disabled-button
-stand-ins.
+Operator action controls share one semantic state grammar. Enabled affirmative
+transitions are green, enabled negative/Cancel/Stop transitions are red, enabled
+neutral actions are medium gray, and disabled actions are dark gray and
+noninteractive. The disabled appearance and interaction state consume the same
+Boolean fact. Learning Path navigation remains native review-only UI. Passive
+status and protocol-required values are content, never disabled-button stand-ins.
 
 Physical work uses the signed bundle and single-instance launcher. The launcher
 may activate the exact existing bundle or launch it through LaunchServices. It

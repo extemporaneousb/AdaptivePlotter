@@ -7,14 +7,14 @@ import Testing
 
 @Suite("Visibility target and isolated ink observation")
 struct IsolatedInkObservationTests {
-  @Test("circular cap-to-tip search admits an offset target only inside its radius")
+  @Test("circular search ignores static black ink and admits new black ink only inside its radius")
   func circularCapToTipSearchMasksItsBoundingBox() async throws {
     let camera = CameraConfigurationID()
     let simulator = PaperSceneSimulator(width: 100, height: 80)
     let background = [
       SimulatedPaperStroke(
-        start: PaperPixelPoint(x: 50, y: 5),
-        end: PaperPixelPoint(x: 55, y: 10)
+        start: PaperPixelPoint(x: 10, y: 6),
+        end: PaperPixelPoint(x: 12, y: 8)
       )
     ]
     let target = targetStrokes(center: PaperPixelPoint(x: 18, y: 29), radius: 4)
@@ -76,7 +76,7 @@ struct IsolatedInkObservationTests {
     ) })
   }
 
-  @Test("two same-pose target frames produce N=2 stable target evidence")
+  @Test("two same-pose black-target frames produce N=2 stable target evidence")
   func stableVisibilityTarget() async throws {
     let camera = CameraConfigurationID()
     let simulator = PaperSceneSimulator(width: 100, height: 80)
@@ -90,6 +90,10 @@ struct IsolatedInkObservationTests {
     let second = try simulator.render(
       strokes: target, sequence: 3, captureNanoseconds: 3,
       cameraConfigurationID: camera)
+    let targetPixelOffset = 15 * first.rowBytes + 22 * first.pixelFormat.bytesPerPixel
+    #expect(first.bytes[targetPixelOffset] == 0)
+    #expect(first.bytes[targetPixelOffset + 1] == 0)
+    #expect(first.bytes[targetPixelOffset + 2] == 0)
     let clearPose = try MachinePosition(x: 12, y: -5)
 
     let outcome = await VisionWorker().observeVisibilityTarget(
@@ -174,6 +178,147 @@ struct IsolatedInkObservationTests {
       try registration.tipPoint(from: Point2(x: 50, y: 40))
         == Point2(x: 28, y: 25)
     )
+  }
+
+  @Test("expected target diameter rejects a larger new black distractor in the search circle")
+  func targetDiameterFiltersBlackDistractor() async throws {
+    let camera = CameraConfigurationID()
+    let simulator = PaperSceneSimulator(width: 100, height: 80)
+    let target = targetStrokes(center: PaperPixelPoint(x: 18, y: 15), radius: 4)
+    let distractor = SimulatedPaperStroke(
+      start: PaperPixelPoint(x: 40, y: 10),
+      end: PaperPixelPoint(x: 60, y: 10)
+    )
+    let baseline = try simulator.render(
+      strokes: [], sequence: 1, captureNanoseconds: 1,
+      cameraConfigurationID: camera)
+    let first = try simulator.render(
+      strokes: target + [distractor], sequence: 2, captureNanoseconds: 2,
+      cameraConfigurationID: camera)
+    let second = try simulator.render(
+      strokes: target + [distractor], sequence: 3, captureNanoseconds: 3,
+      cameraConfigurationID: camera)
+    let pose = try MachinePosition(x: 0, y: 0)
+
+    let outcome = await VisionWorker().observeVisibilityTarget(
+      visibilityRequest(
+        baseline: sample(baseline, pose),
+        targets: [sample(first, pose), sample(second, pose)],
+        targetSearchCenterX: 40,
+        targetSearchCenterY: 30,
+        targetSearchRadius: 35
+      )
+    )
+
+    guard case .observed(let observation) = outcome else {
+      Issue.record("expected target-sized black component; got \(outcome)")
+      return
+    }
+    #expect(observation.centroid.distance(to: try Point2(x: 18, y: 15)) <= 0.5)
+  }
+
+  @Test("a target-diameter black line is not accepted as the compact visibility target")
+  func targetShapeRejectsSameDiameterLine() async throws {
+    let camera = CameraConfigurationID()
+    let simulator = PaperSceneSimulator(width: 100, height: 80)
+    let distractor = SimulatedPaperStroke(
+      start: PaperPixelPoint(x: 14, y: 15),
+      end: PaperPixelPoint(x: 22, y: 15)
+    )
+    let baseline = try simulator.render(
+      strokes: [], sequence: 1, captureNanoseconds: 1,
+      cameraConfigurationID: camera)
+    let first = try simulator.render(
+      strokes: [distractor], sequence: 2, captureNanoseconds: 2,
+      cameraConfigurationID: camera)
+    let second = try simulator.render(
+      strokes: [distractor], sequence: 3, captureNanoseconds: 3,
+      cameraConfigurationID: camera)
+    let pose = try MachinePosition(x: 0, y: 0)
+
+    let outcome = await VisionWorker().observeVisibilityTarget(
+      visibilityRequest(
+        baseline: sample(baseline, pose),
+        targets: [sample(first, pose), sample(second, pose)],
+        expectedDiameterPixels: 8...8,
+        minimumTargetPixels: 8
+      )
+    )
+
+    guard case .rejected(.targetShapeMismatch(_, let candidateCount)) = outcome else {
+      Issue.record("expected compact-target shape rejection; got \(outcome)")
+      return
+    }
+    #expect(candidateCount == 1)
+  }
+
+  @Test("two same-sized compact black candidates are ambiguous")
+  func sameSizedCompactTargetsAreAmbiguous() async throws {
+    let camera = CameraConfigurationID()
+    let simulator = PaperSceneSimulator(width: 100, height: 80)
+    let candidates =
+      targetStrokes(center: PaperPixelPoint(x: 18, y: 15), radius: 4)
+      + targetStrokes(center: PaperPixelPoint(x: 38, y: 15), radius: 4)
+    let baseline = try simulator.render(
+      strokes: [], sequence: 1, captureNanoseconds: 1,
+      cameraConfigurationID: camera)
+    let first = try simulator.render(
+      strokes: candidates, sequence: 2, captureNanoseconds: 2,
+      cameraConfigurationID: camera)
+    let second = try simulator.render(
+      strokes: candidates, sequence: 3, captureNanoseconds: 3,
+      cameraConfigurationID: camera)
+    let pose = try MachinePosition(x: 0, y: 0)
+
+    let outcome = await VisionWorker().observeVisibilityTarget(
+      visibilityRequest(
+        baseline: sample(baseline, pose),
+        targets: [sample(first, pose), sample(second, pose)],
+        targetSearchCenterX: 28,
+        targetSearchCenterY: 15,
+        targetSearchRadius: 20
+      )
+    )
+
+    guard case .rejected(.targetAmbiguous(_, let candidateCount)) = outcome else {
+      Issue.record("expected two compact candidates to remain ambiguous; got \(outcome)")
+      return
+    }
+    #expect(candidateCount == 2)
+  }
+
+  @Test("thick-outline and optically collapsed black targets remain observable")
+  func thickAndCollapsedTargetsRemainObservable() async throws {
+    let camera = CameraConfigurationID()
+    let simulator = PaperSceneSimulator(width: 100, height: 80)
+    let fixtures = [
+      thickTargetStrokes(center: PaperPixelPoint(x: 18, y: 15), radius: 4),
+      filledTargetStrokes(center: PaperPixelPoint(x: 18, y: 15), radius: 4, level: 40),
+    ]
+    let pose = try MachinePosition(x: 0, y: 0)
+
+    for (index, target) in fixtures.enumerated() {
+      let sequence = UInt64(index * 3 + 1)
+      let baseline = try simulator.render(
+        strokes: [], sequence: sequence, captureNanoseconds: sequence,
+        cameraConfigurationID: camera)
+      let first = try simulator.render(
+        strokes: target, sequence: sequence + 1, captureNanoseconds: sequence + 1,
+        cameraConfigurationID: camera)
+      let second = try simulator.render(
+        strokes: target, sequence: sequence + 2, captureNanoseconds: sequence + 2,
+        cameraConfigurationID: camera)
+      let outcome = await VisionWorker().observeVisibilityTarget(
+        visibilityRequest(
+          baseline: sample(baseline, pose),
+          targets: [sample(first, pose), sample(second, pose)]
+        )
+      )
+      guard case .observed = outcome else {
+        Issue.record("expected compact black fixture \(index) to be observed; got \(outcome)")
+        continue
+      }
+    }
   }
 
   @Test("same camera pixels at a different reported clear pose are rejected")
@@ -623,29 +768,43 @@ struct IsolatedInkObservationTests {
     #expect(frameID == first.id)
   }
 
-  @Test("full-HD BGRA target observation has frame-size-independent alignment cost")
+  @Test("full-HD BGRA observation finds black ink at the pictured cap-to-tip offset")
   func fullHDLocalAlignmentCost() async throws {
     let camera = CameraConfigurationID()
     let simulator = PaperSceneSimulator(width: 1_920, height: 1_080)
-    let target = targetStrokes(center: PaperPixelPoint(x: 960, y: 540), radius: 4)
+    let background = (0..<12).map { index in
+      SimulatedPaperStroke(
+        start: PaperPixelPoint(x: 970 + index * 11, y: 70),
+        end: PaperPixelPoint(x: 980 + index * 11, y: 210)
+      )
+    }
+    let target = targetStrokes(center: PaperPixelPoint(x: 1_000, y: 575), radius: 4)
     let baseline = try simulator.render(
-      strokes: [], sequence: 1, captureNanoseconds: 1,
+      strokes: background, sequence: 1, captureNanoseconds: 1,
       cameraConfigurationID: camera)
-    let first = try simulator.render(
-      strokes: target, sequence: 2, captureNanoseconds: 2,
-      cameraConfigurationID: camera)
-    let second = try simulator.render(
-      strokes: target, sequence: 3, captureNanoseconds: 3,
-      cameraConfigurationID: camera)
+    let first = try shiftFrame(
+      simulator.render(
+        strokes: background + target, sequence: 2, captureNanoseconds: 2,
+        cameraConfigurationID: camera),
+      dx: 1,
+      dy: 1
+    )
+    let second = try shiftFrame(
+      simulator.render(
+        strokes: background + target, sequence: 3, captureNanoseconds: 3,
+        cameraConfigurationID: camera),
+      dx: 1,
+      dy: 1
+    )
     let pose = try MachinePosition(x: 0, y: 0)
 
     let outcome = await VisionWorker().observeVisibilityTarget(
       visibilityRequest(
         baseline: sample(baseline, pose),
         targets: [sample(first, pose), sample(second, pose)],
-        targetSearchCenterX: 960,
-        targetSearchCenterY: 540,
-        targetSearchRadius: 14
+        targetSearchCenterX: 1_490,
+        targetSearchCenterY: 525,
+        targetSearchRadius: 540
       )
     )
 
@@ -656,9 +815,13 @@ struct IsolatedInkObservationTests {
     #expect(baseline.pixelFormat == .bgra8)
     #expect(
       observation.samples.allSatisfy {
-        $0.alignment.supportRegion == PixelRect(x: 914, y: 494, width: 93, height: 93)
-          && $0.alignment.exclusionRegion == PixelRect(x: 944, y: 524, width: 33, height: 33)
-          && $0.alignment.evaluatedPixelCount < 250_000
+        $0.alignment.supportRegion == PixelRect(x: 918, y: 0, width: 1_002, height: 1_080)
+          && $0.alignment.exclusionRegion == PixelRect(x: 948, y: 0, width: 972, height: 1_068)
+          && $0.alignment.shiftX == 1
+          && $0.alignment.shiftY == 1
+          && $0.alignment.estimatorRevision
+            == "bounded-integer-local-annular-background-mad-v4"
+          && $0.alignment.evaluatedPixelCount < 10_000_000
       })
   }
 
@@ -698,7 +861,7 @@ struct IsolatedInkObservationTests {
       ])
   }
 
-  @Test("trial-local target-present baseline isolates the new line")
+  @Test("trial-local black-target baseline isolates the new black line")
   func targetAnchoredLineObservation() async throws {
     let camera = CameraConfigurationID()
     let simulator = PaperSceneSimulator(width: 48, height: 32)
@@ -925,7 +1088,7 @@ struct IsolatedInkObservationTests {
   }
 }
 
-private let thresholds = GreenPixelThresholds(minimumGreen: 150, minimumGreenExcess: 80)
+private let thresholds = InkPixelThresholds(minimumLuminanceDecrease: 20)
 
 private func sample(
   _ frame: StampedFrame,
@@ -943,6 +1106,7 @@ private func visibilityRequest(
   targetSearchRadius: Double = 14,
   searchCircleAnchor: DisplayedFrame? = nil,
   expectedDiameterPixels: ClosedRange<Double> = 8...13,
+  minimumTargetPixels: Int = 20,
   alignmentSearchRadiusPixels: Int = 2,
   maximumAlignmentShiftPixels: Int = 1,
   toolPaperRevision: UUID = UUID(
@@ -965,7 +1129,7 @@ private func visibilityRequest(
     toolPaperRevision: toolPaperRevision,
     controllerPositionToleranceMM: ControllerPositionAcceptancePolicy.toleranceMM,
     expectedDiameterPixels: expectedDiameterPixels,
-    minimumTargetPixels: 20,
+    minimumTargetPixels: minimumTargetPixels,
     maximumCentroidSpreadPixels: 0.5,
     maximumAreaRatio: 1.1,
     maximumBackgroundMeanAbsoluteDifference: 0.1,
@@ -1137,6 +1301,37 @@ private func targetStrokes(center: PaperPixelPoint, radius: Int) -> [SimulatedPa
   }
   return (0..<8).map { index in
     SimulatedPaperStroke(start: vertices[index], end: vertices[(index + 1) % 8])
+  }
+}
+
+private func thickTargetStrokes(
+  center: PaperPixelPoint,
+  radius: Int
+) -> [SimulatedPaperStroke] {
+  (-1...1).flatMap { dy in
+    (-1...1).flatMap { dx in
+      targetStrokes(
+        center: PaperPixelPoint(x: center.x + dx, y: center.y + dy),
+        radius: radius
+      )
+    }
+  }
+}
+
+private func filledTargetStrokes(
+  center: PaperPixelPoint,
+  radius: Int,
+  level: UInt8
+) -> [SimulatedPaperStroke] {
+  (-radius...radius).map { dy in
+    let halfWidth = Int(sqrt(Double(radius * radius - dy * dy)).rounded(.down))
+    return SimulatedPaperStroke(
+      start: PaperPixelPoint(x: center.x - halfWidth, y: center.y + dy),
+      end: PaperPixelPoint(x: center.x + halfWidth, y: center.y + dy),
+      red: level,
+      green: level,
+      blue: level
+    )
   }
 }
 

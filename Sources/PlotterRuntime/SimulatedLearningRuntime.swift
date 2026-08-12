@@ -204,6 +204,31 @@ public struct SimulatedWorldToCameraTransform: Codable, Hashable, Sendable {
   }
 }
 
+/// Immutable simulator truth for the visible cap landmark relative to the
+/// hidden paper-contact point. Fractions scale with the camera frame's shorter
+/// side so the same physical scenario survives viewport-resolution changes.
+public struct SimulatedCapToTipOffsetTruth: Codable, Hashable, Sendable {
+  public let dxShortSideFraction: Double
+  public let dyShortSideFraction: Double
+
+  public init(
+    dxShortSideFraction: Double = -0.45,
+    dyShortSideFraction: Double = 0.04
+  ) {
+    precondition(dxShortSideFraction.isFinite && dyShortSideFraction.isFinite)
+    self.dxShortSideFraction = dxShortSideFraction
+    self.dyShortSideFraction = dyShortSideFraction
+  }
+
+  public func pixelOffset(frameWidth: Int, frameHeight: Int) -> Vector2<CameraPixelSpace> {
+    let shortSide = Double(min(frameWidth, frameHeight))
+    return try! Vector2(
+      dx: dxShortSideFraction * shortSide,
+      dy: dyShortSideFraction * shortSide
+    )
+  }
+}
+
 public enum SimulatedLearningAnnotationKind: Codable, Hashable, Sendable {
   case truthEnvelope
   case directionLabel(BoundaryDirection)
@@ -660,6 +685,7 @@ public actor SimulatedLearningRuntime {
   private var visibilityTargetProgressByOperationID:
     [SimulatedLearningOperationID: VisibilityTargetOperationProgress] = [:]
   private var worldToCameraTransform: SimulatedWorldToCameraTransform
+  private let capToTipOffsetTruth: SimulatedCapToTipOffsetTruth
   private var latestCausalSceneFrame: SimulatedLearningSceneFrame?
   private var outcomeWaiters:
     [SimulatedLearningOperationID: [CheckedContinuation<SimulatedLearningOperationOutcome, Never>]] =
@@ -672,7 +698,8 @@ public actor SimulatedLearningRuntime {
     frameHeight: Int = 480,
     paddingPixels: Double = 28,
     armatureMarginMM: Double = 8,
-    protocolMarginMM: Double = 2.5
+    protocolMarginMM: Double = 2.5,
+    capToTipOffsetTruth: SimulatedCapToTipOffsetTruth = SimulatedCapToTipOffsetTruth()
   ) {
     let transform = try! SimulatedWorldToCameraTransform(
       truth: boundaryTruth,
@@ -686,6 +713,7 @@ public actor SimulatedLearningRuntime {
     recentMotionTrail = [initialMPos]
     self.boundaryTruth = boundaryTruth
     worldToCameraTransform = transform
+    self.capToTipOffsetTruth = capToTipOffsetTruth
     cameraConfigurationID = CameraConfigurationID()
   }
 
@@ -703,6 +731,13 @@ public actor SimulatedLearningRuntime {
 
   public func cameraViewport() -> SimulatedWorldToCameraTransform {
     worldToCameraTransform
+  }
+
+  public func capToTipPixelOffsetTruth() -> Vector2<CameraPixelSpace> {
+    capToTipOffsetTruth.pixelOffset(
+      frameWidth: worldToCameraTransform.frameWidth,
+      frameHeight: worldToCameraTransform.frameHeight
+    )
   }
 
   public func latestPublishedCausalFrame() -> SimulatedLearningSceneFrame? {
@@ -1426,6 +1461,10 @@ public actor SimulatedLearningRuntime {
     let frameWidth = transform.frameWidth
     let frameHeight = transform.frameHeight
     do {
+      let capToTipOffset = capToTipOffsetTruth.pixelOffset(
+        frameWidth: frameWidth,
+        frameHeight: frameHeight
+      )
       let capAnchor = transform.cameraPoint(for: renderedPosition)
       let armatureTopLeft = transform.cameraPoint(for: try SimulatedLearningMPos(
         xMM: renderedPosition.xMM - 1.75,
@@ -1443,9 +1482,8 @@ public actor SimulatedLearningRuntime {
       )
       var strokes = inkSegments.map {
         SimulatedCameraStroke(
-          start: transform.cameraPoint(for: $0.start),
-          end: transform.cameraPoint(for: $0.end),
-          green: 190
+          start: try! transform.cameraPoint(for: $0.start).translated(by: capToTipOffset),
+          end: try! transform.cameraPoint(for: $0.end).translated(by: capToTipOffset)
         )
       }
       if removeFirstFault(matching: {
@@ -1454,8 +1492,7 @@ public actor SimulatedLearningRuntime {
       }) != nil, let last = strokes.last {
         strokes.append(SimulatedCameraStroke(
           start: try Point2(x: last.start.x + 3, y: last.start.y),
-          end: try Point2(x: last.end.x + 3, y: last.end.y),
-          green: 190
+          end: try Point2(x: last.end.x + 3, y: last.end.y)
         ))
       }
       // The simulated armature is visible in the same pixels as the paper. Its
@@ -1522,6 +1559,10 @@ public actor SimulatedLearningRuntime {
     context: SimulatedLearningAnnotationContext
   ) throws -> [SimulatedLearningAnnotation] {
     let transform = worldToCameraTransform
+    let capToTipOffset = capToTipOffsetTruth.pixelOffset(
+      frameWidth: transform.frameWidth,
+      frameHeight: transform.frameHeight
+    )
     let frameID = displayedFrame.frame.id
     let configurationID = displayedFrame.frame.cameraConfigurationID
     let viewportID = transform.viewportID
@@ -1653,8 +1694,8 @@ public actor SimulatedLearningRuntime {
     }
     for segment in inkSegments {
       let polyline = try Polyline<CameraPixelSpace>(points: [
-        transform.cameraPoint(for: segment.start),
-        transform.cameraPoint(for: segment.end),
+        transform.cameraPoint(for: segment.start).translated(by: capToTipOffset),
+        transform.cameraPoint(for: segment.end).translated(by: capToTipOffset),
       ])
       result.append(annotation(
         .ink,

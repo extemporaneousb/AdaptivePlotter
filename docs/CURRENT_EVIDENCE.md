@@ -38,9 +38,16 @@ The current source implements:
 - software-validated V2 double-trace target planning and exclusive,
   cancellable, circular target-local foreground Vision with exact-frame
   magnification;
-- a magenta 128 px-radius search circle centred directly on the exact target-
-  pose cap anchor, circular Vision masking, and accepted cap-to-tip translation
-  from the two-frame target centroid;
+- a magenta search circle centred directly on the exact target-pose cap anchor
+  with radius equal to half the frame's shorter dimension, circular Vision
+  masking, and accepted cap-to-tip translation from the two-frame target
+  centroid;
+- color-independent paired-frame ink darkening for both the target and Stage 4,
+  plus black simulated ink and a nonzero resolution-normalized simulated cap-to-
+  tip truth exercised end to end;
+- compact-target shape/ambiguity rejection, thick and optically collapsed black
+  target fixtures, and full-HD one-pixel wobble recovery from circle-aware local
+  background support;
 - independently reset camera-advised Boundary renewal tiers (50/20/10/5/2 mm)
   for every direction after an initial 20 mm probe, with recoverable baseline
   establishment, conservative fallback, and Stop-race suppression;
@@ -78,13 +85,13 @@ model-selected drawing.
 
 The current software baseline has passed:
 
-- make quick-test — 356 unit and component tests in an 11.954-second test run;
-- make journey-test — 18 retained causal journey tests in a 43.579-second test
+- make quick-test — 363 unit and component tests in an 11.763-second test run;
+- make journey-test — 18 retained causal journey tests in a 39.535-second test
   run;
-- make strict-check — signed app construction and validation, launcher logic
-  and validation, negative bundle validation, all 374 tests, repository-contract
+- make strict-check — signed app construction and validation, launcher logic and
+  validation, negative bundle validation, all 381 tests, repository-contract
   checks, and diff checks under complete Swift concurrency checking with warnings
-  as errors. The confirming full test run completed in 17.380 seconds;
+  as errors. The confirming full test run completed in 19.996 seconds;
 - all retained causal journey cases ran inside the full parallel strict check,
   and standalone sequential make journey-test was also rerun for this change;
 - Scripts/check_repository_contract.sh;

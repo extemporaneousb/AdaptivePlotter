@@ -238,10 +238,12 @@ func completeSimulatedVisibilityProtocol(
     workspace: workspace
   )
   #expect(workspace.activeExerciseAttemptID == clearAttemptID)
-  #expect(
+  let blockedAccept = try #require(
     workspace.selectedOperatorActionPresentation(for: clearOwner).actionStrip?.actions
-      .first(where: { $0.kind == .acceptClearPose })?.isEnabled == false
+      .first(where: { $0.kind == .acceptClearPose })
   )
+  #expect(!blockedAccept.isEnabled)
+  #expect(blockedAccept.buttonRole.chrome(isEnabled: blockedAccept.isEnabled) == .disabled)
   try await selectPublicDirection(
     .positiveX,
     purpose: .clearViewSearch,
@@ -259,10 +261,12 @@ func completeSimulatedVisibilityProtocol(
     workspace: workspace
   )
   #expect(workspace.activeExerciseAttemptID == clearAttemptID)
-  #expect(
+  let partialAccept = try #require(
     workspace.selectedOperatorActionPresentation(for: clearOwner).actionStrip?.actions
-      .first(where: { $0.kind == .acceptClearPose })?.isEnabled == false
+      .first(where: { $0.kind == .acceptClearPose })
   )
+  #expect(!partialAccept.isEnabled)
+  #expect(partialAccept.buttonRole.chrome(isEnabled: partialAccept.isEnabled) == .disabled)
   try await performPublicAction(
     .moveForClearView(ClearViewSearchMove(direction: .positiveX, distance: .tenMillimeters)),
     owner: clearOwner,
@@ -274,6 +278,12 @@ func completeSimulatedVisibilityProtocol(
     workspace: workspace
   )
   #expect(workspace.activeExerciseAttemptID == clearAttemptID)
+  let clearAccept = try #require(
+    workspace.selectedOperatorActionPresentation(for: clearOwner).actionStrip?.actions
+      .first(where: { $0.kind == .acceptClearPose })
+  )
+  #expect(clearAccept.isEnabled)
+  #expect(clearAccept.buttonRole.chrome(isEnabled: clearAccept.isEnabled) == .affirmative)
   try await performPublicAction(.acceptClearPose, owner: clearOwner, workspace: workspace)
 
   let baselineOwner = LearningPathItemID.humanGuidedDiscovery(.confirmBlankTargetBaseline)

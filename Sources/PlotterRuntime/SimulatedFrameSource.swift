@@ -4,16 +4,22 @@ import PlotterModel
 public struct SimulatedCameraStroke: Hashable, Sendable {
   public let start: Point2<CameraPixelSpace>
   public let end: Point2<CameraPixelSpace>
+  public let red: UInt8
   public let green: UInt8
+  public let blue: UInt8
 
   public init(
     start: Point2<CameraPixelSpace>,
     end: Point2<CameraPixelSpace>,
-    green: UInt8 = 180
+    red: UInt8 = 0,
+    green: UInt8 = 0,
+    blue: UInt8 = 0
   ) {
     self.start = start
     self.end = end
+    self.red = red
     self.green = green
+    self.blue = blue
   }
 }
 
@@ -350,9 +356,9 @@ public struct SimulatedFrameSource: Sendable {
     while true {
       if x >= 0, x < width, y >= 0, y < height {
         let offset = (y * width + x) * 4
-        pixels[offset] = 30
+        pixels[offset] = stroke.blue
         pixels[offset + 1] = stroke.green
-        pixels[offset + 2] = 20
+        pixels[offset + 2] = stroke.red
         pixels[offset + 3] = 255
       }
       if x == endX, y == endY { break }

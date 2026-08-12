@@ -122,13 +122,13 @@ At 3.3, one public **Capture Target Pose and Build Geometry Proposal** action
 captures the exact target pose and frame, runs the bounded three-sample Pen Up
 camera calibration when needed, returns under the same settlement policy, and
 stages the proposal. The proposal records the detected cap bottom-centre as an
-exact-frame cap anchor, never as the hidden pen tip, and fixes a 128 px-radius
-circular acquisition region directly to that anchor. There is no preceding
-generic Start or separate public capture/build ceremony. The action never
-accepts geometry. The operator still explicitly accepts or rejects the target
-pose, cap-based camera fit, and search circle after review. The two-frame target
-observation later learns the cap-to-tip translation; Stage 4 projections consume
-that accepted translation.
+exact-frame cap anchor, never as the hidden pen tip, and fixes a circular
+acquisition region with radius equal to half the frame's shorter dimension
+directly to that anchor. There is no preceding generic Start or separate public
+capture/build ceremony. The action never accepts geometry. The operator still
+explicitly accepts or rejects the target pose, cap-based camera fit, and search
+circle after review. The two-frame target observation later learns the cap-to-
+tip translation; Stage 4 projections consume that accepted translation.
 The calibration's first fresh probe establishes an operation-local controller
 baseline. Later probes use a field-level semantic comparison, so app-owned Pen
 Up and motion modal changes remain visible without masquerading as coordinate
@@ -175,12 +175,13 @@ and compact status. Exercise Start, choices, Cancel, Stop, Restart, Redo, and
 Record Another Attempt remain with the selected exercise. Buttons are the
 authoritative input surface; speech is output-only advisory guidance.
 
-Button chrome has one application-wide grammar. Green is an enabled affirmative
-step or session transition; red is an enabled negative, Cancel, or Stop
-transition; medium gray is an enabled neutral action; and dark gray is disabled
-and noninteractive. Passive status and required values are rendered as content,
-not as disabled buttons. A button's disabled chrome and hit-testing derive from
-the same enabled-state input.
+Operator action controls have one application-wide grammar. Green is an enabled
+affirmative step or session transition; red is an enabled negative, Cancel, or
+Stop transition; medium gray is an enabled neutral action; and dark gray is
+disabled and noninteractive. Passive status and required values are rendered
+as content, not as disabled buttons. Learning Path navigation retains its native
+review-only presentation. An action button's disabled chrome and hit-testing
+derive from the same enabled-state input.
 
 Selecting an older Learning Path row remains review-only. Its Reset Learning
 section offers **Reset From This Step…**, which shows the exact later steps that

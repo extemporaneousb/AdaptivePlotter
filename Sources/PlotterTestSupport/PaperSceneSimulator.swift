@@ -15,12 +15,22 @@ public struct PaperPixelPoint: Sendable, Equatable {
 public struct SimulatedPaperStroke: Sendable, Equatable {
   public let start: PaperPixelPoint
   public let end: PaperPixelPoint
+  public let red: UInt8
   public let green: UInt8
+  public let blue: UInt8
 
-  public init(start: PaperPixelPoint, end: PaperPixelPoint, green: UInt8 = 180) {
+  public init(
+    start: PaperPixelPoint,
+    end: PaperPixelPoint,
+    red: UInt8 = 0,
+    green: UInt8 = 0,
+    blue: UInt8 = 0
+  ) {
     self.start = start
     self.end = end
+    self.red = red
     self.green = green
+    self.blue = blue
   }
 }
 
@@ -69,7 +79,9 @@ public struct PaperSceneSimulator: Sendable {
       SimulatedCameraStroke(
         start: try Point2<CameraPixelSpace>(x: Double($0.start.x), y: Double($0.start.y)),
         end: try Point2<CameraPixelSpace>(x: Double($0.end.x), y: Double($0.end.y)),
-        green: $0.green
+        red: $0.red,
+        green: $0.green,
+        blue: $0.blue
       )
     }
     return try source.render(strokes: cameraStrokes, captureNanoseconds: captureNanoseconds).frame

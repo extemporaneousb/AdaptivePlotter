@@ -1097,9 +1097,10 @@ private func runVisibilityRoute(
   let firstPost = try accepted(await runtime.captureSceneFrame())
   let secondPost = try accepted(await runtime.captureSceneFrame())
   let targetCenter = targetPose.capAnchorPoint
+  let capToTipOffset = await runtime.capToTipPixelOffsetTruth()
   let searchCircle = try VisibilityTargetSearchCircle(
     center: targetCenter,
-    radiusPixels: 20,
+    radiusPixels: 120,
     anchor: targetPose.displayedFrame,
     algorithmRevision: "simulated-cap-tip-search-circle-v1"
   )
@@ -1119,7 +1120,7 @@ private func runVisibilityRoute(
         )
       },
       targetSearchCircle: searchCircle,
-      thresholds: GreenPixelThresholds(minimumGreen: 140, minimumGreenExcess: 70),
+      thresholds: InkPixelThresholds(minimumLuminanceDecrease: 20),
       controllerSessionID: session,
       coordinateRevision: 1,
       toolPaperRevision: UUID(),
@@ -1163,10 +1164,10 @@ private func runVisibilityRoute(
       dy: clearMPos.yMM - afterLine.yMM
     )
     let postLine = try accepted(await runtime.captureSceneFrame())
-    let cameraLineStart = try Point2<CameraPixelSpace>(
-      x: targetCenter.x + 5,
-      y: targetCenter.y
+    let capLineStart = try registration.fit.cameraPoint(
+      from: Point2<MachineSpace>(x: lineStartMPos.xMM, y: lineStartMPos.yMM)
     )
+    let cameraLineStart = try capLineStart.translated(by: capToTipOffset)
     let lineOutcome = await VisionWorker().observeIsolatedInk(
       IsolatedInkObservationRequest(
         targetPresentBaseline: SamePoseFrameSample(
@@ -1189,7 +1190,7 @@ private func runVisibilityRoute(
           width: 70,
           height: searchCircle.boundingROI.height
         ),
-        thresholds: GreenPixelThresholds(minimumGreen: 140, minimumGreenExcess: 70),
+        thresholds: InkPixelThresholds(minimumLuminanceDecrease: 20),
         lineStartPoint: cameraLineStart,
         controllerSessionID: session,
         coordinateRevision: 1,

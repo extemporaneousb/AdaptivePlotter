@@ -74,7 +74,6 @@ struct AdaptivePlotterApp: App {
   var body: some Scene {
     Window("AdaptivePlotter", id: AdaptivePlotterScenePolicy.singletonWindowID) {
       OperatorWorkspaceView(workspace: applicationDelegate.workspace)
-        .buttonStyle(OperatorButtonStyle(role: .neutral))
         .frame(
           minWidth: LearningWorkbenchLayoutPolicy.minimumWindowWidth,
           minHeight: AdaptivePlotterScenePolicy.minimumWindowHeight

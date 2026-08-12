@@ -35,10 +35,15 @@ enum FixedCameraOpticalSettlingPolicy {
 
 enum VisibilityTargetSearchCirclePolicy {
   /// Initial camera-pixel bound while the cap-to-tip translation is unknown.
-  /// This is deliberately much larger than the 4 mm mark but remains finite
-  /// for cancellable target-local Vision.
-  static let acquisitionRadiusPixels: Double = 128
-  static let algorithmRevision = "visibility-target-cap-tip-search-circle-v1"
+  /// Half the shorter frame dimension preserves the same finite acquisition
+  /// geometry at simulator and live-camera resolutions and covers the observed
+  /// C920 cap-to-tip displacement without falling back to the full frame.
+  static let acquisitionRadiusShortSideFraction: Double = 0.5
+  static let algorithmRevision = "visibility-target-cap-tip-search-circle-v2"
+
+  static func acquisitionRadius(frameWidth: Int, frameHeight: Int) -> Double {
+    Double(min(frameWidth, frameHeight)) * acquisitionRadiusShortSideFraction
+  }
 
   static func proposal(
     capAnchor: Point2<CameraPixelSpace>,
@@ -46,7 +51,10 @@ enum VisibilityTargetSearchCirclePolicy {
   ) -> VisibilityTargetSearchCircle? {
     try? VisibilityTargetSearchCircle(
       center: capAnchor,
-      radiusPixels: acquisitionRadiusPixels,
+      radiusPixels: acquisitionRadius(
+        frameWidth: anchorFrame.frame.width,
+        frameHeight: anchorFrame.frame.height
+      ),
       anchor: anchorFrame,
       algorithmRevision: algorithmRevision
     )
@@ -3709,7 +3717,7 @@ final class OperatorWorkspace {
             SamePoseFrameSample(displayedFrame: second, controllerPosition: context.clearPosition),
           ],
           targetSearchCircle: context.searchCircle,
-          thresholds: GreenPixelThresholds(minimumGreen: 75, minimumGreenExcess: 20),
+          thresholds: InkPixelThresholds(minimumLuminanceDecrease: 20),
           controllerSessionID: controllerSessionID,
           coordinateRevision: explorationCoordinateRevision,
           toolPaperRevision: explorationToolPaperRevision,
@@ -3725,7 +3733,7 @@ final class OperatorWorkspace {
             FixedCameraOpticalSettlingPolicy.alignmentSearchRadiusPixels,
           maximumAlignmentShiftPixels:
             FixedCameraOpticalSettlingPolicy.maximumAlignmentShiftPixels,
-          algorithmRevision: "visibility-target-two-frame-cap-tip-circle-v5",
+          algorithmRevision: "visibility-target-two-frame-cap-tip-circle-v7",
           targetPlanRevision: context.targetPlanRevision
         ),
         { [weak self] progress in
@@ -10712,7 +10720,7 @@ final class OperatorWorkspace {
           controllerPosition: clearPosition
         ),
         region: trialRegion,
-        thresholds: GreenPixelThresholds(minimumGreen: 75, minimumGreenExcess: 20),
+        thresholds: InkPixelThresholds(minimumLuminanceDecrease: 20),
         lineStartPoint: cameraStart,
         controllerSessionID: controllerSessionID,
         coordinateRevision: explorationCoordinateRevision,
@@ -10725,7 +10733,7 @@ final class OperatorWorkspace {
         maximumBackgroundMeanAbsoluteDifference:
           FixedCameraOpticalSettlingPolicy.maximumBackgroundMeanAbsoluteDifference,
         projectedActualStrokeDelta: projectedDelta,
-        algorithmRevision: "cap-tip-corrected-isolated-ink-v3"
+        algorithmRevision: "cap-tip-corrected-isolated-ink-v4"
       )
     )
     switch outcome {

@@ -6,7 +6,7 @@ import Testing
 @testable import PlotterRuntime
 
 extension OperatorWorkspaceTests {
-  @Test("Visibility-target search circle is fixed to the exact cap-anchor capture")
+  @Test("Visibility-target search circle is exact-frame anchored and resolution normalized")
   func visibilityTargetSearchCircleUsesExactCapAnchor() throws {
     let frame = try StampedFrame(
       id: FrameID(rawValue: "cap-anchor-frame"),
@@ -30,11 +30,42 @@ extension OperatorWorkspaceTests {
     )
 
     #expect(proposal.center == capAnchor)
-    #expect(proposal.radiusPixels == 128)
-    #expect(proposal.boundingROI == PixelRect(x: 192, y: 112, width: 257, height: 257))
+    #expect(proposal.radiusPixels == 240)
+    #expect(proposal.boundingROI == PixelRect(x: 80, y: 0, width: 481, height: 480))
     #expect(proposal.anchorFrame.frameID == frame.id)
     #expect(proposal.anchorFrame.frameSHA256 == frame.contentSHA256)
-    #expect(proposal.algorithmRevision == "visibility-target-cap-tip-search-circle-v1")
+    #expect(proposal.algorithmRevision == "visibility-target-cap-tip-search-circle-v2")
+    #expect(VisibilityTargetSearchCirclePolicy.acquisitionRadius(
+      frameWidth: 320,
+      frameHeight: 240
+    ) == 120)
+    #expect(VisibilityTargetSearchCirclePolicy.acquisitionRadius(
+      frameWidth: 1_920,
+      frameHeight: 1_080
+    ) == 540)
+  }
+
+  @Test("Live-frame search scale contains the observed cap-to-tip displacement")
+  func liveFrameSearchCircleContainsObservedOffset() throws {
+    let frame = try StampedFrame(
+      id: FrameID(rawValue: "live-scale-cap-anchor-frame"),
+      sequence: 8,
+      captureNanoseconds: 800,
+      cameraConfigurationID: CameraConfigurationID(),
+      width: 1_920,
+      height: 1_080,
+      rowBytes: 1_920,
+      pixelFormat: .gray8,
+      bytes: OwnedFrameBytes(Array(repeating: 0, count: 1_920 * 1_080))
+    )
+    let displayed = DisplayedFrame(source: .simulated, frame: frame)
+    let proposal = try #require(VisibilityTargetSearchCirclePolicy.proposal(
+      capAnchor: Point2(x: 1_490, y: 525),
+      anchorFrame: displayed
+    ))
+
+    #expect(proposal.contains(x: 1_000, y: 575))
+    #expect(!proposal.contains(x: 900, y: 575))
   }
 
   @Test(
@@ -57,7 +88,11 @@ extension OperatorWorkspaceTests {
     #expect(harness.workspace.visibilityRegistrationAccepted)
     #expect(harness.workspace.visibilityTargetObservation?.validSampleCount == 2)
     #expect(harness.workspace.visibilityTargetObservation?.includedFrameIDs.count == 2)
-    #expect(harness.workspace.penTipOffsetRegistration != nil)
+    let offsetRegistration = try #require(harness.workspace.penTipOffsetRegistration)
+    let simulatorTruth = await harness.runtime.capToTipPixelOffsetTruth()
+    #expect(abs(offsetRegistration.capToTipOffset.dx - simulatorTruth.dx) <= 1)
+    #expect(abs(offsetRegistration.capToTipOffset.dy - simulatorTruth.dy) <= 1)
+    #expect(offsetRegistration.capToTipOffset.magnitude > 100)
     #expect(
       harness.workspace.learningArtifactGraph.currentRevision(
         for: .penTipOffsetRegistration
@@ -86,6 +121,8 @@ extension OperatorWorkspaceTests {
 
     #expect(harness.workspace.currentLearningPathItemID == .stage(.adaptiveDrawing))
     #expect(harness.workspace.drawingTrialAssessment == .observedGeometryAccepted)
+    let residual = try #require(harness.workspace.lastInkObservation?.residual)
+    #expect(residual.maximumEndpointPixels <= 2)
     #expect(await harness.runtime.persistentInk().count == targetInkCount + 1)
     #expect(
       harness.workspace.explorationPostLineFrame?.frame.captureNanoseconds ?? 0

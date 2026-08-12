@@ -142,10 +142,11 @@ At the accepted target pose:
    the calibration's first fresh passive probe establishes an operation-local
    controller-context baseline, and every later before/after-capture probe must
    match and advance that baseline;
-5. stage the fit, validation residual, and a 128 px-radius circular search
-   region as a non-authoritative proposal. The circle centre is the cap anchor
-   from the exact target-pose frame, not a reprojected fit result; its exact
-   frame ID, SHA, source, and camera configuration remain provenance;
+5. stage the fit, validation residual, and a circular search region whose radius
+   is half the camera frame's shorter dimension as a non-authoritative proposal.
+   The circle centre is the cap anchor from the exact target-pose frame, not a
+   reprojected fit result; its exact frame ID, SHA, source, and camera
+   configuration remain provenance;
 6. inspect the complete exact frame, magenta circle, and adjustable
    presentation-only zoom; then explicitly accept or reject the proposal.
 
@@ -222,14 +223,17 @@ target detection plus two-frame agreement in the accepted circular search
 region.
 
 Observation is one foreground, single-flight Vision operation. It publishes
-ownership before capture, searches only pixels inside the bounded circle, and
-presents its bounding magnifier. Fixed-camera comparison searches at most 3 px
-and accepts at most 2 px of global translation for mount wobble; the separate
-controller pose tolerance remains 0.05 mm. Controller, motion, pen, camera,
-source, analysis, Restart, and learning mutations are
-refused until settlement. **Cancel Vision** is the sole mutating action and
-preserves possible ink and the active attempt. Only a matching operation
-generation and complete captured authority context may commit.
+ownership before capture, searches only paired-frame luminance darkening inside
+the bounded circle, requires a diameter-compatible compact component, and
+presents the circle's bounding magnifier. Fixed-camera comparison searches at
+most 3 px and accepts at most 2 px of global translation for mount wobble; its
+local alignment support is the bounded annulus outside the search circle, not
+the circle's rectangular bounding-box exterior. The separate controller pose
+tolerance remains 0.05 mm. Controller, motion, pen, camera, source, analysis,
+Restart, and learning mutations are refused until settlement. **Cancel Vision**
+is the sole mutating action and preserves possible ink and the active attempt.
+Only a matching operation generation and complete captured authority context
+may commit.
 Preview publication is held during computation without stopping the camera
 session; success, rejection, failure, and cancellation all release that hold.
 

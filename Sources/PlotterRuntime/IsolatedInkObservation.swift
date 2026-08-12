@@ -27,7 +27,7 @@ public struct IsolatedInkObservationRequest: Hashable, Sendable {
   public let targetPresentBaseline: SamePoseFrameSample
   public let postLine: SamePoseFrameSample
   public let region: PixelRect
-  public let thresholds: GreenPixelThresholds
+  public let thresholds: InkPixelThresholds
   public let lineStartPoint: Point2<CameraPixelSpace>
   public let controllerSessionID: UUID
   public let coordinateRevision: UInt64
@@ -45,7 +45,7 @@ public struct IsolatedInkObservationRequest: Hashable, Sendable {
     targetPresentBaseline: SamePoseFrameSample,
     postLine: SamePoseFrameSample,
     region: PixelRect,
-    thresholds: GreenPixelThresholds,
+    thresholds: InkPixelThresholds,
     lineStartPoint: Point2<CameraPixelSpace>,
     controllerSessionID: UUID,
     coordinateRevision: UInt64,
@@ -238,7 +238,7 @@ public struct VisibilityTargetObservationRequest: Hashable, Sendable {
   public let baseline: SamePoseFrameSample
   public let targetSamples: [SamePoseFrameSample]
   public let targetSearchCircle: VisibilityTargetSearchCircle
-  public let thresholds: GreenPixelThresholds
+  public let thresholds: InkPixelThresholds
   public let controllerSessionID: UUID
   public let coordinateRevision: UInt64
   public let toolPaperRevision: UUID
@@ -258,7 +258,7 @@ public struct VisibilityTargetObservationRequest: Hashable, Sendable {
     baseline: SamePoseFrameSample,
     targetSamples: [SamePoseFrameSample],
     targetSearchCircle: VisibilityTargetSearchCircle,
-    thresholds: GreenPixelThresholds,
+    thresholds: InkPixelThresholds,
     controllerSessionID: UUID,
     coordinateRevision: UInt64,
     toolPaperRevision: UUID,
@@ -343,6 +343,7 @@ public enum VisibilityTargetObservationRejection: Codable, Hashable, Sendable {
   case targetTooSmall(frameID: FrameID, actualPixels: Int, minimumPixels: Int)
   case targetAmbiguous(frameID: FrameID, candidateCount: Int)
   case expectedDiameterMismatch(frameID: FrameID, actualPixels: Double)
+  case targetShapeMismatch(frameID: FrameID, candidateCount: Int)
   case unstableCentroid(actualPixels: Double, maximumPixels: Double)
   case unstableAreaRatio(actual: Double, maximum: Double)
 }
@@ -545,7 +546,9 @@ extension VisionWorker {
         request.baseline.frame,
         target.frame,
         supportRegion: alignmentSupportROI,
-        excluding: alignmentExclusionROI,
+        excluding: request.targetSearchCircle,
+        exclusionMargin: request.alignmentSearchRadiusPixels,
+        exclusionBounds: alignmentExclusionROI,
         searchRadius: request.alignmentSearchRadiusPixels,
         minimumSupportPixels: 1_024
       ) {
@@ -581,7 +584,7 @@ extension VisionWorker {
           maximum: request.maximumBackgroundMeanAbsoluteDifference
         ))
       }
-      guard let pixels = Self.cancellableNewGreenPixels(
+      guard let pixels = Self.cancellableNewInkPixels(
         from: request.baseline.frame,
         to: target.frame,
         searchCircle: request.targetSearchCircle,
@@ -593,12 +596,34 @@ extension VisionWorker {
         return .rejected(.targetMissing(frameID: target.frame.id))
       }
       guard let components = Self.cancellableComponents(pixels) else { return .cancelled }
-      let eligible = components.filter { $0.count >= request.minimumTargetPixels }
-      guard !eligible.isEmpty else {
+      let areaEligible = components.filter { $0.count >= request.minimumTargetPixels }
+      guard !areaEligible.isEmpty else {
         return .rejected(.targetTooSmall(
           frameID: target.frame.id,
           actualPixels: components.map(\.count).max() ?? 0,
           minimumPixels: request.minimumTargetPixels
+        ))
+      }
+      let diameterEligible = areaEligible.filter {
+        request.expectedDiameterPixels.contains(Self.componentDiameter($0))
+      }
+      if diameterEligible.isEmpty {
+        if areaEligible.count == 1 {
+          return .rejected(.expectedDiameterMismatch(
+            frameID: target.frame.id,
+            actualPixels: Self.componentDiameter(areaEligible[0])
+          ))
+        }
+        return .rejected(.targetAmbiguous(
+          frameID: target.frame.id,
+          candidateCount: areaEligible.count
+        ))
+      }
+      let eligible = diameterEligible.filter(Self.resemblesVisibilityTarget)
+      guard !eligible.isEmpty else {
+        return .rejected(.targetShapeMismatch(
+          frameID: target.frame.id,
+          candidateCount: diameterEligible.count
         ))
       }
       guard eligible.count == 1 else {
@@ -612,13 +637,6 @@ extension VisionWorker {
       let maxX = component.map(\.x).max()!
       let minY = component.map(\.y).min()!
       let maxY = component.map(\.y).max()!
-      let diameter = Double(max(maxX - minX, maxY - minY))
-      guard request.expectedDiameterPixels.contains(diameter) else {
-        return .rejected(.expectedDiameterMismatch(
-          frameID: target.frame.id,
-          actualPixels: diameter
-        ))
-      }
       let bounds = try! AxisAlignedBounds<CameraPixelSpace>(
         minX: Double(minX) - 0.5,
         minY: Double(minY) - 0.5,
@@ -768,7 +786,7 @@ extension VisionWorker {
       ))
     }
 
-    let linePixels = Self.newGreenPixels(
+    let linePixels = Self.newInkPixels(
       from: request.targetPresentBaseline.frame,
       to: request.postLine.frame,
       region: request.region,
@@ -913,6 +931,28 @@ private extension VisionWorker {
     let pixelCount: Int
   }
 
+  static func componentDiameter(_ component: [InkPixel]) -> Double {
+    guard let minX = component.map(\.x).min(), let maxX = component.map(\.x).max(),
+      let minY = component.map(\.y).min(), let maxY = component.map(\.y).max()
+    else { return 0 }
+    return Double(max(maxX - minX, maxY - minY))
+  }
+
+  static func resemblesVisibilityTarget(_ component: [InkPixel]) -> Bool {
+    guard let minX = component.map(\.x).min(), let maxX = component.map(\.x).max(),
+      let minY = component.map(\.y).min(), let maxY = component.map(\.y).max()
+    else { return false }
+    let width = maxX - minX + 1
+    let height = maxY - minY + 1
+    let longSide = max(width, height)
+    let shortSide = min(width, height)
+    guard longSide > 0 else { return false }
+    // The commanded octagon is compact in both axes. This still admits a thick
+    // outline or an optically collapsed fill, while rejecting line-like new
+    // shadows/ink that happen to share its projected diameter.
+    return Double(shortSide) / Double(longSide) >= 0.6
+  }
+
   enum LocalIntegerAlignmentOutcome {
     case aligned(IntegerFrameAlignment)
     case insufficientSupport(actualPixels: Int)
@@ -938,11 +978,11 @@ private extension VisionWorker {
       && region.y + region.height <= frame.height
   }
 
-  static func newGreenPixels(
+  static func newInkPixels(
     from reference: StampedFrame,
     to observation: StampedFrame,
     region: PixelRect,
-    thresholds: GreenPixelThresholds,
+    thresholds: InkPixelThresholds,
     observationShiftX: Int = 0,
     observationShiftY: Int = 0
   ) -> Set<InkPixel> {
@@ -954,9 +994,15 @@ private extension VisionWorker {
         guard observedX >= 0, observedX < observation.width,
           observedY >= 0, observedY < observation.height
         else { continue }
-        if isGreen(observation, x: observedX, y: observedY, thresholds: thresholds)
-          && !isGreen(reference, x: x, y: y, thresholds: thresholds)
-        {
+        if isNewInk(
+          reference: reference,
+          referenceX: x,
+          referenceY: y,
+          observation: observation,
+          observationX: observedX,
+          observationY: observedY,
+          thresholds: thresholds
+        ) {
           result.insert(InkPixel(x: x, y: y))
         }
       }
@@ -964,11 +1010,11 @@ private extension VisionWorker {
     return result
   }
 
-  static func cancellableNewGreenPixels(
+  static func cancellableNewInkPixels(
     from reference: StampedFrame,
     to observation: StampedFrame,
     searchCircle: VisibilityTargetSearchCircle,
-    thresholds: GreenPixelThresholds,
+    thresholds: InkPixelThresholds,
     observationShiftX: Int = 0,
     observationShiftY: Int = 0
   ) -> Set<InkPixel>? {
@@ -983,9 +1029,15 @@ private extension VisionWorker {
         guard observedX >= 0, observedX < observation.width,
           observedY >= 0, observedY < observation.height
         else { continue }
-        if isGreen(observation, x: observedX, y: observedY, thresholds: thresholds)
-          && !isGreen(reference, x: x, y: y, thresholds: thresholds)
-        {
+        if isNewInk(
+          reference: reference,
+          referenceX: x,
+          referenceY: y,
+          observation: observation,
+          observationX: observedX,
+          observationY: observedY,
+          thresholds: thresholds
+        ) {
           result.insert(InkPixel(x: x, y: y))
         }
       }
@@ -997,7 +1049,9 @@ private extension VisionWorker {
     _ baseline: StampedFrame,
     _ observation: StampedFrame,
     supportRegion: PixelRect,
-    excluding exclusionRegion: PixelRect,
+    excluding exclusionCircle: VisibilityTargetSearchCircle,
+    exclusionMargin: Int,
+    exclusionBounds: PixelRect,
     searchRadius: Int,
     minimumSupportPixels: Int
   ) -> LocalIntegerAlignmentOutcome {
@@ -1011,7 +1065,8 @@ private extension VisionWorker {
           baseline,
           observation,
           supportRegion: supportRegion,
-          excluding: exclusionRegion,
+          excluding: exclusionCircle,
+          exclusionMargin: exclusionMargin,
           observationShiftX: shiftX,
           observationShiftY: shiftY
         ) else { return .cancelled }
@@ -1054,9 +1109,9 @@ private extension VisionWorker {
       shiftX: selected.shiftX,
       shiftY: selected.shiftY,
       backgroundMeanAbsoluteDifference: selected.residual,
-      estimatorRevision: "bounded-integer-local-background-mad-v2",
+      estimatorRevision: "bounded-integer-local-annular-background-mad-v4",
       supportRegion: supportRegion,
-      exclusionRegion: exclusionRegion,
+      exclusionRegion: exclusionBounds,
       evaluatedPixelCount: evaluatedPixelCount
     ))
   }
@@ -1065,33 +1120,49 @@ private extension VisionWorker {
     _ baseline: StampedFrame,
     _ observation: StampedFrame,
     supportRegion: PixelRect,
-    excluding exclusionRegion: PixelRect,
+    excluding exclusionCircle: VisibilityTargetSearchCircle,
+    exclusionMargin: Int,
     observationShiftX: Int,
     observationShiftY: Int
   ) -> BackgroundResidual? {
     var absoluteDifference = 0.0
     var pixelCount = 0
-    for y in supportRegion.y..<(supportRegion.y + supportRegion.height) {
+    let exclusionRadius = exclusionCircle.radiusPixels + Double(exclusionMargin)
+    let exclusionRadiusSquared = exclusionRadius * exclusionRadius
+    let supportArea = supportRegion.width * supportRegion.height
+    let sampleStride = max(
+      1,
+      Int(ceil(sqrt(Double(supportArea) / 65_536.0)))
+    )
+    for y in Swift.stride(
+      from: supportRegion.y,
+      to: supportRegion.y + supportRegion.height,
+      by: sampleStride
+    ) {
       if (y - supportRegion.y).isMultiple(of: 16), Task.isCancelled { return nil }
-      for x in supportRegion.x..<(supportRegion.x + supportRegion.width) {
-        let excluded = x >= exclusionRegion.x && x < exclusionRegion.x + exclusionRegion.width
-          && y >= exclusionRegion.y && y < exclusionRegion.y + exclusionRegion.height
-        guard !excluded else { continue }
-        let observedX = x + observationShiftX
-        let observedY = y + observationShiftY
-        guard observedX >= 0, observedX < observation.width,
-          observedY >= 0, observedY < observation.height
-        else { continue }
-        let baseOffset = y * baseline.rowBytes + x * baseline.pixelFormat.bytesPerPixel
-        let observedOffset = observedY * observation.rowBytes
-          + observedX * observation.pixelFormat.bytesPerPixel
-        for component in 0..<baseline.pixelFormat.bytesPerPixel {
-          absoluteDifference += abs(
-            Double(baseline.bytes[baseOffset + component])
-              - Double(observation.bytes[observedOffset + component])
-          )
-        }
-        pixelCount += 1
+      for x in Swift.stride(
+        from: supportRegion.x,
+        to: supportRegion.x + supportRegion.width,
+        by: sampleStride
+      ) {
+        let dx = Double(x) - exclusionCircle.center.x
+        let dy = Double(y) - exclusionCircle.center.y
+        guard dx * dx + dy * dy > exclusionRadiusSquared else { continue }
+          let observedX = x + observationShiftX
+          let observedY = y + observationShiftY
+          guard observedX >= 0, observedX < observation.width,
+            observedY >= 0, observedY < observation.height
+          else { continue }
+          let baseOffset = y * baseline.rowBytes + x * baseline.pixelFormat.bytesPerPixel
+          let observedOffset = observedY * observation.rowBytes
+            + observedX * observation.pixelFormat.bytesPerPixel
+          for component in 0..<baseline.pixelFormat.bytesPerPixel {
+            absoluteDifference += abs(
+              Double(baseline.bytes[baseOffset + component])
+                - Double(observation.bytes[observedOffset + component])
+            )
+          }
+          pixelCount += 1
       }
     }
     guard !Task.isCancelled else { return nil }
@@ -1196,32 +1267,43 @@ private extension VisionWorker {
     )
   }
 
-  static func isGreen(
-    _ frame: StampedFrame,
-    x: Int,
-    y: Int,
-    thresholds: GreenPixelThresholds
+  static func isNewInk(
+    reference: StampedFrame,
+    referenceX: Int,
+    referenceY: Int,
+    observation: StampedFrame,
+    observationX: Int,
+    observationY: Int,
+    thresholds: InkPixelThresholds
   ) -> Bool {
+    let referenceLuminance = luminance(reference, x: referenceX, y: referenceY)
+    let observationLuminance = luminance(
+      observation,
+      x: observationX,
+      y: observationY
+    )
+    return referenceLuminance - observationLuminance
+      >= Int(thresholds.minimumLuminanceDecrease)
+  }
+
+  static func luminance(_ frame: StampedFrame, x: Int, y: Int) -> Int {
     let offset = y * frame.rowBytes + x * frame.pixelFormat.bytesPerPixel
-    let red: UInt8
-    let green: UInt8
-    let blue: UInt8
+    let red: Int
+    let green: Int
+    let blue: Int
     switch frame.pixelFormat {
     case .gray8:
-      red = frame.bytes[offset]
-      green = frame.bytes[offset]
-      blue = frame.bytes[offset]
+      return Int(frame.bytes[offset])
     case .rgba8:
-      red = frame.bytes[offset]
-      green = frame.bytes[offset + 1]
-      blue = frame.bytes[offset + 2]
+      red = Int(frame.bytes[offset])
+      green = Int(frame.bytes[offset + 1])
+      blue = Int(frame.bytes[offset + 2])
     case .bgra8:
-      blue = frame.bytes[offset]
-      green = frame.bytes[offset + 1]
-      red = frame.bytes[offset + 2]
+      blue = Int(frame.bytes[offset])
+      green = Int(frame.bytes[offset + 1])
+      red = Int(frame.bytes[offset + 2])
     }
-    return green >= thresholds.minimumGreen
-      && Int(green) - Int(max(red, blue)) >= Int(thresholds.minimumGreenExcess)
+    return (54 * red + 183 * green + 19 * blue) / 256
   }
 
   static func components(_ pixels: Set<InkPixel>) -> [[InkPixel]] {

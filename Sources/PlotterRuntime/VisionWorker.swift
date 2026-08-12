@@ -26,6 +26,17 @@ public struct GreenPixelThresholds: Codable, Hashable, Sendable {
   }
 }
 
+public struct InkPixelThresholds: Codable, Hashable, Sendable {
+  public let minimumLuminanceDecrease: UInt8
+
+  /// Paired-frame ink observation is color-independent. This threshold is the
+  /// minimum reference-to-observation luminance decrease for one new ink pixel.
+  /// Values are experiment inputs, not accepted product thresholds.
+  public init(minimumLuminanceDecrease: UInt8) {
+    self.minimumLuminanceDecrease = minimumLuminanceDecrease
+  }
+}
+
 /// Image-space scene priors from the current fixed C920 view. These regions
 /// narrow distractors; they do not define machine coordinates or a mm scale.
 public struct PlotterSceneVisionPriors: Hashable, Sendable {
