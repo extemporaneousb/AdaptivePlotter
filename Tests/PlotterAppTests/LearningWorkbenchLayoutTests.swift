@@ -4,6 +4,19 @@ import Testing
 
 @Suite("Learning workbench layout policy")
 struct LearningWorkbenchLayoutTests {
+  @Test("all four panel toggles have consistent state-dependent titles")
+  func panelActionTitles() {
+    #expect(WorkbenchPanel.allCases.count == 4)
+    #expect(
+      WorkbenchPanel.allCases.map { $0.actionTitle(isPresented: false) }
+        == ["Show Learning Path", "Show Motion", "Show Exercise", "Show Utilities"]
+    )
+    #expect(
+      WorkbenchPanel.allCases.map { $0.actionTitle(isPresented: true) }
+        == ["Hide Learning Path", "Hide Motion", "Hide Exercise", "Hide Utilities"]
+    )
+  }
+
   @Test("exercise actions preserve readable button widths across pane sizes")
   func readableExerciseActionWidths() {
     #expect(ExerciseActionLayoutPolicy.minimumButtonWidth == 180)

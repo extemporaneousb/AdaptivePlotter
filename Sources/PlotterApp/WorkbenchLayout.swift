@@ -30,6 +30,35 @@ enum WorkbenchPane: Hashable, Sendable {
   case exerciseDetail
 }
 
+enum WorkbenchPanel: CaseIterable, Hashable, Sendable {
+  case learningPath
+  case motion
+  case exercise
+  case utilities
+
+  var title: String {
+    switch self {
+    case .learningPath: "Learning Path"
+    case .motion: "Motion"
+    case .exercise: "Exercise"
+    case .utilities: "Utilities"
+    }
+  }
+
+  var systemImage: String {
+    switch self {
+    case .learningPath: "sidebar.left"
+    case .motion: "rectangle.bottomthird.inset.filled"
+    case .exercise: "sidebar.right"
+    case .utilities: "sidebar.trailing"
+    }
+  }
+
+  func actionTitle(isPresented: Bool) -> String {
+    "\(isPresented ? "Hide" : "Show") \(title)"
+  }
+}
+
 /// Window-local presentation state. Hidden panes do not mutate Learning Path,
 /// camera, controller, or exercise authority, and the camera is never a
 /// hideable pane.
@@ -155,7 +184,7 @@ struct UtilitiesVisibilityPolicy: Equatable, Sendable {
       return UtilitiesPresentation(
         isPresented: true,
         action: .hide,
-        actionTitle: "Hide Utilities",
+        actionTitle: WorkbenchPanel.utilities.actionTitle(isPresented: true),
         unavailableReason: nil
       )
     }
@@ -168,7 +197,7 @@ struct UtilitiesVisibilityPolicy: Equatable, Sendable {
     return UtilitiesPresentation(
       isPresented: false,
       action: .show,
-      actionTitle: "Show Utilities",
+      actionTitle: WorkbenchPanel.utilities.actionTitle(isPresented: false),
       unavailableReason: unavailableReason
     )
   }

@@ -5,15 +5,20 @@ import SwiftUI
 struct LearningPathNavigator: View {
   @Bindable var workspace: OperatorWorkspace
   @Binding var selection: LearningPathSelectionState
+  let close: () -> Void
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      VStack(alignment: .leading, spacing: 5) {
-        Text("Learning Path")
-          .font(.title2.weight(.semibold))
-        Text("Select a row to review it. Selection never starts or advances an exercise.")
-          .font(.caption)
-          .foregroundStyle(.secondary)
+      HStack(alignment: .top, spacing: 8) {
+        VStack(alignment: .leading, spacing: 5) {
+          Text("Learning Path")
+            .font(.title2.weight(.semibold))
+          Text("Select a row to review it. Selection never starts or advances an exercise.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        Spacer(minLength: 8)
+        PanelCloseButton(panel: .learningPath, close: close)
       }
       .padding(14)
 
@@ -100,8 +105,8 @@ struct LearningPathNavigator: View {
 struct LearningPathView: View {
   @Bindable var workspace: OperatorWorkspace
   @Binding var selection: LearningPathSelectionState
-  let utilities: UtilitiesPresentation
-  let performUtilitiesAction: (UtilitiesVisibilityAction) -> Void
+  let close: () -> Void
+  let closeUnavailableReason: String?
   @State private var pendingResetPlan: LearningVacatePlan?
 
   var body: some View {
@@ -166,16 +171,10 @@ struct LearningPathView: View {
           .lineLimit(2)
       }
       Spacer()
-      Button {
-        performUtilitiesAction(utilities.action)
-      } label: {
-        Label(utilities.actionTitle, systemImage: "sidebar.trailing")
-      }
-      .buttonStyle(.bordered)
-      .disabled(!utilities.isActionEnabled)
-      .help(
-        utilities.unavailableReason
-          ?? "\(utilities.actionTitle) for Camera and Overlay controls"
+      PanelCloseButton(
+        panel: .exercise,
+        close: close,
+        unavailableReason: closeUnavailableReason
       )
     }
     .padding(12)

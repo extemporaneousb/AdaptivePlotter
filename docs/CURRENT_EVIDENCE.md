@@ -15,6 +15,8 @@ The current source implements:
 - one signed local Swift application and singleton operator window;
 - direct controller and camera ownership;
 - one-window Learning Path with presentation-only navigation;
+- four grouped state-dependent panel visibility toggles and matching in-panel
+  close controls for Learning Path, Motion, Exercise, and Utilities;
 - typed Connect, Enable Motion, Start, choices, Cancel, contextual Stop,
   Restart, Redo, and Record Another Attempt;
 - operator-selected Boundary directions, exact post-settlement evidence,
@@ -85,7 +87,7 @@ model-selected drawing.
 
 The current software baseline has passed:
 
-- make quick-test — 363 unit and component tests in an 11.763-second test run;
+- make quick-test — 364 unit and component tests in a 13.340-second test run;
 - make journey-test — 18 retained causal journey tests in a 39.535-second test
   run;
 - make strict-check — signed app construction and validation, launcher logic and

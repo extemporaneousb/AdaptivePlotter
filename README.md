@@ -170,6 +170,12 @@ always-mounted camera/action surface, selected exercise detail, a Motion region,
 and optional Utilities. Hiding a pane is presentation-only. A pane that owns the
 only active Stop cannot be hidden until its operation settles.
 
+The workbench groups the four state-dependent **Show/Hide Learning Path**,
+**Motion**, **Exercise**, and **Utilities** toggles in one strip. Every visible
+optional panel also has an `x` in its header with the same Hide action; the
+Motion and Exercise close controls preserve the same active-operation interlock
+as their strip toggles.
+
 The toolbar owns global controller selection, Connect/Disconnect, Enable Motion,
 and compact status. Exercise Start, choices, Cancel, Stop, Restart, Redo, and
 Record Another Attempt remain with the selected exercise. Buttons are the

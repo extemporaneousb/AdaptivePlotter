@@ -113,7 +113,11 @@ struct OperatorWorkspaceView: View {
       )
       HSplitView {
         if paneVisibility.navigatorIsPresented {
-          LearningPathNavigator(workspace: workspace, selection: $selection)
+          LearningPathNavigator(
+            workspace: workspace,
+            selection: $selection,
+            close: { paneVisibility.navigatorIsPresented = false }
+          )
             .frame(minWidth: 220, idealWidth: 280, maxWidth: 440)
         }
 
@@ -144,7 +148,11 @@ struct OperatorWorkspaceView: View {
 
             if paneVisibility.motionIsPresented {
               ScrollView {
-                MotionPanel(workspace: workspace)
+                MotionPanel(
+                  workspace: workspace,
+                  close: { paneVisibility.motionIsPresented = false },
+                  closeUnavailableReason: motionCollapseUnavailableReason
+                )
                   .padding(10)
               }
               .frame(minHeight: 220, idealHeight: 260, maxHeight: 360)
@@ -162,10 +170,8 @@ struct OperatorWorkspaceView: View {
           LearningPathView(
             workspace: workspace,
             selection: $selection,
-            utilities: utilities,
-            performUtilitiesAction: { action in
-              performUtilitiesAction(action, availableWindowWidth: proxy.size.width)
-            }
+            close: { paneVisibility.exerciseDetailIsPresented = false },
+            closeUnavailableReason: exerciseDetailCollapseUnavailableReason
           )
           .frame(minWidth: 300, idealWidth: 380, maxWidth: 520)
         }
@@ -245,26 +251,22 @@ private struct WorkbenchPaneControls: View {
     HStack(spacing: 8) {
       paneButton(
         .navigator,
-        title: visibility.navigatorIsPresented ? "Hide Learning Path" : "Show Learning Path",
-        systemImage: "sidebar.left"
+        panel: .learningPath
       )
       paneButton(
         .motion,
-        title: visibility.motionIsPresented ? "Hide Motion" : "Show Motion",
-        systemImage: "rectangle.bottomthird.inset.filled",
+        panel: .motion,
         unavailableReason: motionCollapseUnavailableReason
       )
       paneButton(
         .exerciseDetail,
-        title: visibility.exerciseDetailIsPresented ? "Hide Exercise" : "Show Exercise",
-        systemImage: "sidebar.right",
+        panel: .exercise,
         unavailableReason: exerciseDetailCollapseUnavailableReason
       )
-      Spacer(minLength: 8)
       Button {
         performUtilitiesAction(utilities.action)
       } label: {
-        Label(utilities.actionTitle, systemImage: "slider.horizontal.3")
+        Label(utilities.actionTitle, systemImage: WorkbenchPanel.utilities.systemImage)
       }
       .operatorButton(isEnabled: utilities.isActionEnabled)
       .controlSize(.small)
@@ -278,14 +280,14 @@ private struct WorkbenchPaneControls: View {
   @ViewBuilder
   private func paneButton(
     _ pane: WorkbenchPane,
-    title: String,
-    systemImage: String,
+    panel: WorkbenchPanel,
     unavailableReason: String? = nil
   ) -> some View {
+    let title = panel.actionTitle(isPresented: visibility.isPresented(pane))
     Button {
       togglePane(pane)
     } label: {
-      Label(title, systemImage: systemImage)
+      Label(title, systemImage: panel.systemImage)
     }
     .operatorButton(
       isEnabled: unavailableReason == nil || !visibility.isPresented(pane)
@@ -306,11 +308,7 @@ private struct WorkbenchUtilities: View {
         Text("Utilities")
           .font(.headline)
         Spacer()
-        Button(action: close) {
-          Label("Hide Utilities", systemImage: "xmark")
-        }
-        .operatorButton()
-        .help("Hide Utilities")
+        PanelCloseButton(panel: .utilities, close: close)
       }
 
       Picker("Utility", selection: $selectedUtility) {
@@ -480,10 +478,17 @@ private struct CameraPanel: View {
 
 private struct MotionPanel: View {
   @Bindable var workspace: OperatorWorkspace
+  let close: () -> Void
+  let closeUnavailableReason: String?
 
   var body: some View {
     let presentation = workspace.manualMotionPresentation
-    SectionPanel(title: "MANUAL RELATIVE MOTION") {
+    SectionPanel(
+      title: "MANUAL RELATIVE MOTION",
+      panel: .motion,
+      close: close,
+      closeUnavailableReason: closeUnavailableReason
+    ) {
       Text(
         "Manual steps remain finite typed requests. The controller's end-stops and alarms, one-operation serialization, pen-up travel, and ambiguous outcomes are checked directly."
       )
@@ -653,12 +658,41 @@ private struct OverlayPanel: View {
   }
 }
 
+struct PanelCloseButton: View {
+  let panel: WorkbenchPanel
+  let close: () -> Void
+  var unavailableReason: String? = nil
+
+  var body: some View {
+    let title = panel.actionTitle(isPresented: true)
+    Button(action: close) {
+      Image(systemName: "xmark")
+    }
+    .operatorButton(isEnabled: unavailableReason == nil)
+    .controlSize(.small)
+    .accessibilityLabel(title)
+    .help(unavailableReason ?? title)
+  }
+}
+
 private struct SectionPanel<Content: View>: View {
   let title: String
+  let panel: WorkbenchPanel?
+  let close: (() -> Void)?
+  let closeUnavailableReason: String?
   @ViewBuilder let content: Content
 
-  init(title: String, @ViewBuilder content: () -> Content) {
+  init(
+    title: String,
+    panel: WorkbenchPanel? = nil,
+    close: (() -> Void)? = nil,
+    closeUnavailableReason: String? = nil,
+    @ViewBuilder content: () -> Content
+  ) {
     self.title = title
+    self.panel = panel
+    self.close = close
+    self.closeUnavailableReason = closeUnavailableReason
     self.content = content()
   }
 
@@ -670,8 +704,19 @@ private struct SectionPanel<Content: View>: View {
       .frame(maxWidth: .infinity, alignment: .topLeading)
       .padding(.top, 2)
     } label: {
-      Text(title.capitalized)
-        .font(.headline)
+      HStack(spacing: 8) {
+        Text(title.capitalized)
+          .font(.headline)
+        if let panel, let close {
+          Spacer(minLength: 8)
+          PanelCloseButton(
+            panel: panel,
+            close: close,
+            unavailableReason: closeUnavailableReason
+          )
+        }
+      }
+      .frame(maxWidth: .infinity)
     }
   }
 }
