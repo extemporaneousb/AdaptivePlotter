@@ -13,10 +13,10 @@ enum SparseTipCalibrationCoordinatorError: Error, Equatable, Sendable {
 enum SparseTipCalibrationPhase: Hashable, Sendable {
   case idle
   case preparingMark(ToolContactCalibrationPosition)
-  case tapping(ToolContactCalibrationPosition)
+  case drawingMark(ToolContactCalibrationPosition)
   case revealing(
     mark: ToolContactCalibrationPosition,
-    reveal: ToolContactCalibrationPosition
+    reveal: MachinePosition
   )
   case awaitingFrozenClick(ToolContactCalibrationPosition, FrameID)
   case reviewingClick(ToolContactCalibrationPosition, FrameID)
@@ -30,12 +30,14 @@ enum SparseTipCalibrationPhase: Hashable, Sendable {
 
 struct BlacklistedToolContactLocation: Hashable, Sendable {
   let calibrationPosition: ToolContactCalibrationPosition
+  /// Center of the possible-ink circular mark, not an asserted point contact.
   let machinePosition: MachinePosition
+  let markRadiusMM: Double
   let paperContactPlane: PaperContactPlaneRevision
 }
 
 /// Pure workflow state. It owns ordering and no-redraw transitions; physical
-/// motion, generic Pen Down/Up, exact capture, and artifact commits stay with
+/// motion, finite circle drawing, exact capture, and artifact commits stay with
 /// `OperatorWorkspace` and the existing runtime owners.
 struct SparseTipCalibrationCoordinator: Hashable, Sendable {
   static let orderedPositions: [ToolContactCalibrationPosition] = [
@@ -86,18 +88,18 @@ struct SparseTipCalibrationCoordinator: Hashable, Sendable {
     return position
   }
 
-  mutating func beganTap(at position: ToolContactCalibrationPosition) throws {
+  mutating func beganMark(at position: ToolContactCalibrationPosition) throws {
     guard phase == .preparingMark(position), !blacklistedPositions.contains(position) else {
       throw SparseTipCalibrationCoordinatorError.invalidTransition
     }
-    phase = .tapping(position)
+    phase = .drawingMark(position)
   }
 
   mutating func beganReveal(
     from mark: ToolContactCalibrationPosition,
-    to reveal: ToolContactCalibrationPosition
+    to reveal: MachinePosition
   ) throws {
-    guard phase == .tapping(mark) else {
+    guard phase == .drawingMark(mark) else {
       throw SparseTipCalibrationCoordinatorError.invalidTransition
     }
     phase = .revealing(mark: mark, reveal: reveal)

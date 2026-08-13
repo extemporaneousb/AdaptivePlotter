@@ -78,6 +78,7 @@ func viewportZoomEndpointsAndInterpolation() {
     source: .simulated,
     cameraConfigurationID: CameraConfigurationID(),
     fittedRegion: PixelRect(x: 300, y: 200, width: 40, height: 20),
+    preferredInitialZoom: 0,
     presentationRevisionToken: "bounds-1"
   )
   var viewport = ActionSurfaceViewportState()
@@ -102,6 +103,7 @@ func viewportPresentationOnlyContext() {
     source: .simulated,
     cameraConfigurationID: CameraConfigurationID(),
     fittedRegion: PixelRect(x: 20, y: 30, width: 40, height: 50),
+    preferredInitialZoom: 0,
     presentationRevisionToken: "machine-fit-1"
   )
   var viewport = ActionSurfaceViewportState()
@@ -113,6 +115,7 @@ func viewportPresentationOnlyContext() {
     source: context.source,
     cameraConfigurationID: context.cameraConfigurationID,
     fittedRegion: context.fittedRegion,
+    preferredInitialZoom: 0,
     presentationRevisionToken: "machine-fit-2"
   ))
   #expect(viewport.zoom == 0)
@@ -143,11 +146,28 @@ func viewportClipsFittedBoundsAtEveryFrameEdge() {
       source: .simulated,
       cameraConfigurationID: CameraConfigurationID(),
       fittedRegion: region,
+      preferredInitialZoom: 0,
       presentationRevisionToken: "bounds-edge"
     ))
     viewport.showFittedBounds()
     #expect(viewport.visibleRegion(frameWidth: 100, frameHeight: 100) == expected)
   }
+}
+
+@Test("Sparse mark context opens at its stronger presentation-only focus")
+func sparseMarkPreferredZoom() {
+  let region = PixelRect(x: 210, y: 160, width: 213, height: 160)
+  var viewport = ActionSurfaceViewportState()
+  viewport.synchronize(with: ActionSurfaceViewportContext(
+    source: .simulated,
+    cameraConfigurationID: CameraConfigurationID(),
+    fittedRegion: region,
+    preferredInitialZoom: 1,
+    presentationRevisionToken: "sparse-mark-frame-12"
+  ))
+
+  #expect(viewport.zoom == 1)
+  #expect(viewport.visibleRegion(frameWidth: 640, frameHeight: 480) == region)
 }
 
 @Test("Tip presentation hides prediction until after selection")

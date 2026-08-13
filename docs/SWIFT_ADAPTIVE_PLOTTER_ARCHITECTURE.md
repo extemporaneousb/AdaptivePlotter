@@ -66,18 +66,20 @@ Stage 3.4 is split across three owners:
 - `SparseTipCalibrationCoordinator` owns the fixed position order, exact frozen-
   frame selection states, immutable accepted observation list, possible-ink
   terminal state, holdout review, rejection, and final acceptance state.
-- `OperatorWorkspace` owns supervised Pen-Up travel, stationary Pen Down/Up,
-  reveal travel, actual settled timestamps, exact frame/cap capture, UI action
-  routing, and atomic graph/checkpoint commits.
+- `OperatorWorkspace` owns supervised Pen-Up travel, the full fixed Pen Down
+  profile, 16 typed drawing chords capped at 100 mm/min for one centered 2
+  mm-radius circle, explicit Pen Up, far X-max/Y-zero-biased reveal travel, actual settled timestamps,
+  exact frame/cap capture, UI action routing, and atomic graph/checkpoint commits.
 - `TipCalibrationAuthority` owns validated evidence types, smallest-passing
   model selection, uncertainty, applicability decisions, rebase derivations,
   and durable checkpoint validation.
 
 Before a click, `ActionSurfacePointSelectionRequest` binds one frozen
 `ExactTipCalibrationFrame` and presentation-transform revision. `ActionSurface`
-maps a view click back to camera pixels. It hides model geometry before the
-click, then draws asserted point/uncertainty, prediction, and residual from
-`ActionSurfaceTipReviewGeometry`.
+maps a view click back to camera pixels and initializes a one-third-frame
+presentation-only focus around the pre-mark cap anchor. It hides model geometry
+before the click, then draws asserted point/uncertainty, prediction, and residual
+from `ActionSurfaceTipReviewGeometry`.
 
 The accepted graph shape is:
 
@@ -99,8 +101,8 @@ settled controller outcomes. Reveal settlement is timestamped after final MPos
 acceptance and before a newer exact frame is captured. The reveal cites the
 refreshed controller-context baseline returned with that capture.
 
-The no-redraw key is `BlacklistedToolContactLocation`: calibration role, exact
-machine position, and paper-contact-plane revision. `OperatorWorkspace` retains
+The no-redraw key is `BlacklistedToolContactLocation`: calibration role, circle
+center/radius, and paper-contact-plane revision. `OperatorWorkspace` retains
 that set across attempt cancel, restart, and Learning Path reset. The coordinator
 re-enters a terminal possible-ink state on the same paper. Explicit paper
 replacement rotates the plane identity and is the only workflow recovery.
@@ -121,7 +123,7 @@ Loading a tip checkpoint sets `quarantinedTipCalibrationCheckpoint` only. A
 same-paper restore constructs fresh `TipCalibrationRevalidationEvidence` from a
 settled controller/cap frame, rebuilds current graph revisions, and creates a
 new accepted tip revision. A paper change retains quarantine and requires one
-new accepted stationary contact observation. The revalidation evidence is
+new accepted circle-center observation. The revalidation evidence is
 durable and the new contact revision is a graph dependency. Reset clears the
 affected durable machine and/or tip checkpoint before clearing in-memory
 authority.
@@ -132,8 +134,11 @@ change; explicit operator-facing revision controls remain a roadmap item.
 
 ## Stage 4 ownership
 
-Stage 4 does not reuse a Stage 3 target, baseline, or reveal pose. It creates a
-5 mm local line inside the tip applicability rectangle and stores:
+Stage 4 does not reuse a Stage 3 target, baseline, or reveal pose.
+`ObservedDrawingTrialLinePlan` creates a 5 mm local line inside the tip
+applicability rectangle only when it clears every retained circular-mark
+geometry; a crowded domain blocks instead of weakening new-ink attribution. It
+stores:
 
 - the exact tip registration revision;
 - a trial-local pre-line exact frame and reveal MPos;
@@ -149,7 +154,7 @@ changes the current tip model.
 
 `SimulatedLearningRuntime` owns a nonphysical controller session, Motion flag,
 MPos, pen pose, Boundary motion, large nonzero cap-to-tip truth, paper revision,
-stationary black marks, line ink, and causal frames. Its frame clock can advance
+16-segment circular marks, line ink, and causal frames. Its frame clock can advance
 past an asserted settlement boundary so simulated exact-frame chronology stays
 causal.
 

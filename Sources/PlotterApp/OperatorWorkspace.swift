@@ -132,13 +132,19 @@ enum ContextualStopTarget: Hashable, Sendable {
   )
   case drawingTrial(
     capabilityID: ContextualStopCapabilityID, operationOwner: ContextualMotionOwnerID)
+  case sparseTipMark(
+    capabilityID: ContextualStopCapabilityID,
+    operationOwner: ContextualMotionOwnerID,
+    location: BlacklistedToolContactLocation
+  )
 
   var capabilityID: ContextualStopCapabilityID {
     switch self {
     case .pairedBoundary(let capabilityID, _, _, _, _),
       .manualJog(let capabilityID, _),
       .exerciseMotion(let capabilityID, _, _, _),
-      .drawingTrial(let capabilityID, _):
+      .drawingTrial(let capabilityID, _),
+      .sparseTipMark(let capabilityID, _, _):
       capabilityID
     }
   }
@@ -148,7 +154,8 @@ enum ContextualStopTarget: Hashable, Sendable {
     case .pairedBoundary(_, _, let owner, _, _),
       .manualJog(_, let owner),
       .exerciseMotion(_, let owner, _, _),
-      .drawingTrial(_, let owner):
+      .drawingTrial(_, let owner),
+      .sparseTipMark(_, let owner, _):
       owner
     }
   }
@@ -392,6 +399,7 @@ private struct PendingToolContactEvidence: Sendable {
   let intendedMarkPosition: MachinePosition
   let actualSettledPosition: MachinePosition
   let controllerContextEvidence: ControllerContextEvidenceReference
+  let markGeometry: ToolContactMarkGeometryEvidence
   let penDown: PenActuationEvidence
   let penUp: PenActuationEvidence
   let preMarkFrame: ExactTipCalibrationFrame
@@ -738,6 +746,7 @@ final class OperatorWorkspace {
   @ObservationIgnored private var exerciseMotionTask: Task<MotionOutcome, Never>?
   @ObservationIgnored private var currentCameraCalibrationTask: Task<Void, Never>?
   @ObservationIgnored private var drawingTrialTask: Task<DrawingStrokeOutcome, Never>?
+  @ObservationIgnored private var sparseTipMarkTask: Task<DrawingStrokeOutcome, Never>?
   @ObservationIgnored private var drawingTrialStrokeCompletedNaturally = false
   @ObservationIgnored private var simulatedOperationTask:
     Task<SimulatedLearningOperationOutcome?, Never>?
@@ -866,13 +875,17 @@ final class OperatorWorkspace {
   var actionSurfacePresentation: ActionSurfacePresentation {
     let visibleKinds = Set(visibleLayers.map(\.overlayKind))
     let surfaceFrame = frozenToolContactSelectionFrame ?? displayedFrame
-    let fittedRegion = surfaceFrame.flatMap(learnedBoundsPresentationRegion)
+    let sparseMarkRegion = surfaceFrame.flatMap(sparseTipMarkPresentationRegion)
+    let fittedRegion = sparseMarkRegion ?? surfaceFrame.flatMap(learnedBoundsPresentationRegion)
     let viewportContext = surfaceFrame.map {
       ActionSurfaceViewportContext(
         source: $0.source,
         cameraConfigurationID: $0.frame.cameraConfigurationID,
         fittedRegion: fittedRegion,
-        presentationRevisionToken: machineCameraRegistration.map {
+        preferredInitialZoom: sparseMarkRegion == nil ? 0 : 1,
+        presentationRevisionToken: toolContactPointSelectionRequest.map {
+          "sparse-tip-mark-focus-\($0.frame.frameID.rawValue)"
+        } ?? machineCameraRegistration.map {
           "machine-cap-\($0.correspondenceFrameIDs.map(\.rawValue).sorted().joined(separator: "-"))"
         } ?? "post-boundary-presentation"
       )
@@ -888,7 +901,7 @@ final class OperatorWorkspace {
           }
         )
       } else if toolContactPointSelectionRequest != nil {
-        .awaitingClick("Click the center of the new black mark")
+        .awaitingClick("Click the center of the new black circle")
       } else if tipCameraRegistration != nil {
         .calibrated(prediction: nil)
       } else {
@@ -925,6 +938,27 @@ final class OperatorWorkspace {
       ?? provisional
     return (try? transform?.applying(to: pendingToolContactEvidence.actualSettledPosition.point))
       ?? pendingToolContactEvidence.capMapPredictionAtMark
+  }
+
+  private func sparseTipMarkPresentationRegion(_ frame: DisplayedFrame) -> PixelRect? {
+    guard toolContactPointSelectionRequest != nil,
+      let center = pendingToolContactEvidence?.preMarkCapEstimate.point
+    else { return nil }
+    let width = max(96, frame.frame.width / 3)
+    let height = max(96, frame.frame.height / 3)
+    let x = min(
+      max(0, Int(center.x.rounded()) - width / 2),
+      max(0, frame.frame.width - width)
+    )
+    let y = min(
+      max(0, Int(center.y.rounded()) - height / 2),
+      max(0, frame.frame.height - height)
+    )
+    return cameraFrameIntersection(
+      PixelRect(x: x, y: y, width: width, height: height),
+      frameWidth: frame.frame.width,
+      frameHeight: frame.frame.height
+    )
   }
 
   private func learnedBoundsPresentationRegion(_ frame: DisplayedFrame) -> PixelRect? {
@@ -1612,6 +1646,8 @@ final class OperatorWorkspace {
         "Stop \(action) and wait for the original owner to settle. No training artifact is accepted."
       case .drawingTrial:
         "Stop the drawing trial; the controller owns its single Pen Up cancellation."
+      case .sparseTipMark:
+        "Stop the active calibration circle. Possible ink will blacklist this physical location; it will not be redrawn automatically."
       }
     return ContextualStopPresentation(
       capabilityID: activeStopTarget.capabilityID,
@@ -2840,7 +2876,7 @@ final class OperatorWorkspace {
       let center = cameraCalibrationReferencePosition
     else { return }
 
-    var tapCompleted = false
+    var markCompleted = false
     var activeLocation: BlacklistedToolContactLocation?
     do {
       let position = try sparseTipCalibrationCoordinator.prepareNextMark()
@@ -2853,9 +2889,14 @@ final class OperatorWorkspace {
       guard let sample = plan.samples.first(where: { $0.position == position }) else {
         throw LearningPathOperationError.requiredState("Sparse calibration position is unavailable.")
       }
+      let markPlan = try SparseTipCircularMarkPlan(
+        center: sample.machinePosition,
+        boundarySideAggregates: boundarySideAggregates
+      )
       let physicalLocation = BlacklistedToolContactLocation(
         calibrationPosition: position,
         machinePosition: sample.machinePosition,
+        markRadiusMM: SparseTipCircularMarkPlan.radiusMM,
         paperContactPlane: PaperContactPlaneRevision(rawValue: explorationToolPaperRevision)
       )
       activeLocation = physicalLocation
@@ -2901,35 +2942,49 @@ final class OperatorWorkspace {
           "The accepted cap map failed fresh pre-mark revalidation."
         )
       }
-      try sparseTipCalibrationCoordinator.beganTap(at: position)
-      let tap = try await performStationaryContactTap(
+      let markStartDelta = try Vector2<MachineSpace>(
+        dx: markPlan.startPosition.point.x - settled.point.x,
+        dy: markPlan.startPosition.point.y - settled.point.y
+      )
+      let markStartSettled = try await performSupervisedPenUpTravel(
+        delta: markStartDelta,
+        ownerID: ownerID,
+        action: "Sparse Tip Circle \(position.rawValue) Start"
+      )
+      guard recordProtocolPoseSettlement(
+        action: "Sparse Tip Circle \(position.rawValue) Start",
+        target: markPlan.startPosition,
+        actual: markStartSettled
+      ) else {
+        throw LearningPathOperationError.controllerOutcome(
+          "Sparse circle start did not settle within 0.05 mm."
+        )
+      }
+      try sparseTipCalibrationCoordinator.beganMark(at: position)
+      let mark = try await performCircularContactMark(
+        plan: markPlan,
         at: physicalLocation,
         after: exactPreFrame.captureNanoseconds
       )
-      tapCompleted = true
+      markCompleted = true
 
-      let index = SparseTipCalibrationCoordinator.orderedPositions.firstIndex(of: position)!
-      let revealPosition = index + 1 < SparseTipCalibrationCoordinator.orderedPositions.count
-        ? SparseTipCalibrationCoordinator.orderedPositions[index + 1]
-        : .center
-      let revealTarget = plan.samples.first(where: { $0.position == revealPosition })!
-        .machinePosition
-      try sparseTipCalibrationCoordinator.beganReveal(from: position, to: revealPosition)
+      let revealTarget = markPlan.revealPosition
+      try sparseTipCalibrationCoordinator.beganReveal(from: position, to: revealTarget)
       let revealSettled: MachinePosition
       if let revealDelta = try Self.supervisedTravelDelta(
-        from: settled,
+        from: mark.finalPosition,
         to: revealTarget
       ) {
         revealSettled = try await performSupervisedPenUpTravel(
           delta: revealDelta,
           ownerID: ownerID,
-          action: "Reveal Sparse Tip Mark \(position.rawValue)"
+          action: "Reveal Sparse Tip Circle \(position.rawValue)"
         )
       } else {
-        revealSettled = settled
+        revealSettled = mark.finalPosition
       }
       guard recordProtocolPoseSettlement(
-        action: "Reveal Sparse Tip Mark \(position.rawValue)",
+        action: "Reveal Sparse Tip Circle \(position.rawValue)",
         target: revealTarget,
         actual: revealSettled
       ) else {
@@ -2939,8 +2994,8 @@ final class OperatorWorkspace {
       }
       let revealSettledAt = RuntimeTimestamp(
         monotonicNanoseconds: frameMode == .simulated
-          ? tap.penUp.timestamp.monotonicNanoseconds + 1
-          : max(nowNanoseconds(), tap.penUp.timestamp.monotonicNanoseconds + 1)
+          ? mark.penUp.timestamp.monotonicNanoseconds + 1
+          : max(nowNanoseconds(), mark.penUp.timestamp.monotonicNanoseconds + 1)
       )
       let revealCapture = try await captureCurrentCameraCapAnchorEvidence(
         contextBaseline: preCapture.contextBaseline,
@@ -2972,8 +3027,9 @@ final class OperatorWorkspace {
         intendedMarkPosition: sample.machinePosition,
         actualSettledPosition: settled,
         controllerContextEvidence: controllerEvidence,
-        penDown: tap.penDown,
-        penUp: tap.penUp,
+        markGeometry: markPlan.geometry,
+        penDown: mark.penDown,
+        penUp: mark.penUp,
         preMarkFrame: exactPreFrame,
         preMarkCapEstimate: preCapture.capAnchor,
         revealEvidence: revealEvidence,
@@ -2989,13 +3045,13 @@ final class OperatorWorkspace {
       toolContactPointSelectionRequest = ActionSurfacePointSelectionRequest(
         frame: exactRevealFrame,
         presentationTransformRevision: PresentationTransformRevision(),
-        prompt: "Click the center of the new black mark"
+        prompt: "Click the center of the new black circle"
       )
       explorationError = nil
       _ = machineRegistrationRevision
     } catch {
       if let activeLocation {
-        if tapCompleted {
+        if blacklistedToolContactLocations.contains(activeLocation) || markCompleted {
           blacklistedToolContactLocations.insert(activeLocation)
           sparseTipCalibrationCoordinator.blacklistPossibleInk(
             at: activeLocation,
@@ -3020,10 +3076,15 @@ final class OperatorWorkspace {
     }
   }
 
-  private func performStationaryContactTap(
+  private func performCircularContactMark(
+    plan: SparseTipCircularMarkPlan,
     at location: BlacklistedToolContactLocation,
     after captureNanoseconds: UInt64
-  ) async throws -> (penDown: PenActuationEvidence, penUp: PenActuationEvidence) {
+  ) async throws -> (
+    penDown: PenActuationEvidence,
+    penUp: PenActuationEvidence,
+    finalPosition: MachinePosition
+  ) {
     let lower: PenOutcome
     if frameMode == .simulated {
       _ = try (await simulatedLearningRuntime.setPenPose(.down)).result.get()
@@ -3053,11 +3114,122 @@ final class OperatorWorkspace {
         : max(nowNanoseconds(), captureNanoseconds + 1)
     )
 
+    var finalPosition = plan.startPosition
+    do {
+      for (index, delta) in plan.pathDeltas.enumerated() {
+        let expected = plan.pathPositions[index + 1]
+        if frameMode == .simulated {
+          let response = await simulatedLearningRuntime.beginDrawing(
+            delta: try SimulatedLearningMotionVector(dxMM: delta.dx, dyMM: delta.dy)
+          )
+          let operation = try response.result.get()
+          let target = ContextualStopTarget.sparseTipMark(
+            capabilityID: ContextualStopCapabilityID(),
+            operationOwner: .simulated(operation.id),
+            location: location
+          )
+          let task = Task { [simulatedLearningRuntime, simulatedExecutionPacing] in
+            try? await simulatedLearningRuntime.executeNaturally(
+              operation.id,
+              pacing: simulatedExecutionPacing
+            ).result.get()
+          }
+          simulatedOperationTask = task
+          activeStopTarget = target
+          stopDispositionLatch = nil
+          let outcome = await task.value
+          simulatedOperationTask = nil
+          if activeStopTarget == target { activeStopTarget = nil }
+          if stopDispositionLatch?.capabilityID == target.capabilityID {
+            stopDispositionLatch = nil
+          }
+          guard let outcome, outcome.disposition == .naturallyCompleted else {
+            throw LearningPathOperationError.controllerOutcome(
+              "The 2 mm calibration circle stopped after contact; possible ink exists."
+            )
+          }
+          simulatedLearningSnapshot = await simulatedLearningRuntime.snapshot()
+          finalPosition = try MachinePosition(
+            x: outcome.finalMPos.xMM,
+            y: outcome.finalMPos.yMM
+          )
+        } else {
+          guard let machineActions else {
+            throw LearningPathOperationError.requiredState(
+              "Machine composition is unavailable."
+            )
+          }
+          let request = DrawingStrokeRequest(
+            delta: delta,
+            feedMMPerMinute: min(
+              plan.geometry.maximumFeedMMPerMinute,
+              machineSnapshot?.machine.controllerAxisFeedLimits?
+                .applicableFeedCeiling(for: delta)
+                ?? plan.geometry.maximumFeedMMPerMinute
+            )
+          )
+          let operation: DrawingStrokeOperation
+          switch await machineActions.beginDrawingStroke(request) {
+          case .admitted(let admitted):
+            operation = admitted
+          case .rejected(let outcome):
+            throw LearningPathOperationError.controllerOutcome(String(describing: outcome))
+          }
+          let target = ContextualStopTarget.sparseTipMark(
+            capabilityID: ContextualStopCapabilityID(),
+            operationOwner: .liveOperation(operation.id),
+            location: location
+          )
+          let task = Task { await operation.outcome() }
+          sparseTipMarkTask = task
+          activeStopTarget = target
+          stopDispositionLatch = nil
+          let outcome = await task.value
+          sparseTipMarkTask = nil
+          if activeStopTarget == target { activeStopTarget = nil }
+          if stopDispositionLatch?.capabilityID == target.capabilityID {
+            stopDispositionLatch = nil
+          }
+          machineSnapshot = await machineActions.snapshot()
+          switch outcome {
+          case .completed(let evidence):
+            finalPosition = evidence.finalPosition
+          case .cancelled(_, let penRaiseOutcome):
+            throw LearningPathOperationError.controllerOutcome(
+              "The calibration circle was stopped; Pen Up outcome: \(penRaiseOutcome)"
+            )
+          case .ambiguous(let ambiguity):
+            throw LearningPathOperationError.controllerOutcome(
+              ambiguity.actionableDescription
+            )
+          case .refused(let refusal):
+            throw LearningPathOperationError.controllerOutcome(String(describing: refusal))
+          }
+        }
+        guard recordProtocolPoseSettlement(
+          action: "Sparse Tip Circle chord \(index + 1)/\(plan.pathDeltas.count)",
+          target: expected,
+          actual: finalPosition
+        ) else {
+          throw LearningPathOperationError.controllerOutcome(
+            "A 2 mm calibration-circle chord did not settle within 0.05 mm."
+          )
+        }
+      }
+    } catch {
+      blacklistedToolContactLocations.insert(location)
+      sparseTipCalibrationCoordinator.blacklistPossibleInk(
+        at: location,
+        reason: actionableDescription(error)
+      )
+      await raisePenAfterKnownCircleFailureIfNeeded()
+      throw error
+    }
+
     let raise: PenOutcome
     if frameMode == .simulated {
       _ = try (await simulatedLearningRuntime.setPenPose(.up)).result.get()
       raise = .commandedAndSettled(command: .raise, commandedState: .up)
-      _ = try (await simulatedLearningRuntime.recordStationaryContactMark()).result.get()
       simulatedLearningSnapshot = await simulatedLearningRuntime.snapshot()
     } else {
       guard let machineActions else {
@@ -3081,8 +3253,26 @@ final class OperatorWorkspace {
     )
     return (
       PenActuationEvidence(outcome: lower, timestamp: downTime),
-      PenActuationEvidence(outcome: raise, timestamp: upTime)
+      PenActuationEvidence(outcome: raise, timestamp: upTime),
+      finalPosition
     )
+  }
+
+  private func raisePenAfterKnownCircleFailureIfNeeded() async {
+    if frameMode == .simulated {
+      let snapshot = await simulatedLearningRuntime.snapshot()
+      if snapshot.penPose == .down {
+        _ = await simulatedLearningRuntime.setPenPose(.up)
+      }
+      simulatedLearningSnapshot = await simulatedLearningRuntime.snapshot()
+      return
+    }
+    guard let machineActions,
+      machineSnapshot?.machine.stickyAmbiguity == nil,
+      machineSnapshot?.machine.penState == .down
+    else { return }
+    _ = await machineActions.requestPenActuation(.raise)
+    machineSnapshot = await machineActions.snapshot()
   }
 
   private func reClickSparseTipFrame() {
@@ -3126,6 +3316,7 @@ final class OperatorWorkspace {
           rawValue: explorationCoordinateRevision
         ),
         controllerContextEvidence: pending.controllerContextEvidence,
+        markGeometry: pending.markGeometry,
         penDown: pending.penDown,
         penUp: pending.penUp,
         toolAssembly: toolAssemblyRevision,
@@ -3144,7 +3335,11 @@ final class OperatorWorkspace {
         algorithmRevisions: [
           try AlgorithmRevisionEvidence(
             component: "sparse-tip-workspace",
-            revision: "stationary-tap-exact-click-v1"
+            revision: "circle-2mm-radius-16-chord-exact-center-click-v1"
+          ),
+          try AlgorithmRevisionEvidence(
+            component: "pen-actuation",
+            revision: PenActuationProfile.localPlotterRevision
           )
         ]
       )
@@ -3336,7 +3531,7 @@ final class OperatorWorkspace {
       ),
       acceptedRevisionID: registrationRevisionID,
       machineCameraRegistrationRevisionID: machineRegistrationRevision,
-      estimatorRevision: "smallest-passing-tip-model-v1",
+      estimatorRevision: SparseTipCircularMarkPlan.registrationEstimatorRevision,
       acceptedAt: RuntimeTimestamp(monotonicNanoseconds: nowNanoseconds())
     )
     _ = attemptID
@@ -4670,6 +4865,21 @@ final class OperatorWorkspace {
       } else {
         restartableExerciseItemID = .observedDrawingTrial(.drawIsolatedLine)
       }
+
+    case .sparseTipMark(_, _, let location):
+      let liveOwner = sparseTipMarkTask
+      let simulatedOwner = simulatedOperationTask
+      blacklistedToolContactLocations.insert(location)
+      sparseTipCalibrationCoordinator.blacklistPossibleInk(
+        at: location,
+        reason: "Operator stopped the 2 mm calibration circle after Pen Down."
+      )
+      await requestSingleJogCancel(for: target, intent: .operatorStop)
+      _ = await liveOwner?.value
+      _ = await simulatedOwner?.value
+      explorationError =
+        "Calibration circle stopped after contact. This paper location is blacklisted and will not be redrawn automatically."
+      restartableExerciseItemID = nil
     }
   }
 
@@ -6114,6 +6324,11 @@ final class OperatorWorkspace {
             Task<Void, Never> { _ = await task.value }
           }
         }
+      case .sparseTipMark:
+        owner =
+          frameMode == .simulated
+          ? simulatedOperationTask.map { task in Task<Void, Never> { _ = await task.value } }
+          : sparseTipMarkTask.map { task in Task<Void, Never> { _ = await task.value } }
       case .pairedBoundary, .manualJog:
         owner = nil
       }
@@ -6790,7 +7005,7 @@ final class OperatorWorkspace {
     case .humanGuidedDiscovery(.calibrateCameraAndVisibleCap):
       "Capture five exact cap samples at normalized 10/50/90 cross positions, validate two independent holdouts, then explicitly accept or reject the all-five camera fit."
     case .humanGuidedDiscovery(.calibratePenContactFromSparseMarks):
-      "Create five stationary marks, reveal each diagonally, select its exact frozen-frame center, and accept only the smallest model that passes both holdouts."
+      "Draw five centered 2 mm-radius circles with the full configured Pen Down, reveal each at safe X-max toward machine Y-zero, select its exact frozen-frame center, and accept only the smallest model that passes both holdouts."
     case .stage(.observedDrawingTrials):
       "Create one attributable line, observe actual ink, and compare geometry."
     case .observedDrawingTrial(let step): drawingTrialActionText(for: step)
@@ -6875,16 +7090,16 @@ final class OperatorWorkspace {
           actions = [
             ExerciseActionDescriptor(
               kind: .createNextSparseTipMark,
-              title: "Create Next Stationary Mark",
+              title: "Create Next 2 mm Circle",
               role: .positive
             )
           ]
-        case .preparingMark, .tapping, .revealing:
+        case .preparingMark, .drawingMark, .revealing:
           actions = [
             ExerciseActionDescriptor(
               kind: .createNextSparseTipMark,
               title: "Creating and Revealing Mark…",
-              unavailableReason: "The supervised stationary-tap operation is in progress."
+              unavailableReason: "The supervised 2 mm calibration-circle operation is in progress."
             )
           ]
         case .awaitingFrozenClick:
@@ -7242,7 +7457,7 @@ final class OperatorWorkspace {
     case .calibratePenContactFromSparseMarks:
       [
         .text(
-          "Create one stationary tap at each cross position, reveal it diagonally, click the center on the frozen exact frame, and review the smallest passing model."
+          "Draw one centered 2 mm-radius circle at each cross position, reveal it Pen Up at safe X-max toward machine Y-zero, click its center on the frozen exact frame, and review the smallest passing model."
         )
       ]
     }
@@ -7470,7 +7685,7 @@ final class OperatorWorkspace {
       let proposal = proposedTipCameraRegistration ?? tipCameraRegistration
       return [
         ExerciseEvidencePresentation(
-          label: "Sparse stationary marks",
+          label: "Sparse 2 mm-radius circles",
           fragments: [
             .text(
               "\(sparseTipCalibrationCoordinator.acceptedObservations.count)/5 accepted · \(sparseTipCalibrationCoordinator.blacklistedPositions.count) blacklisted · \(String(describing: sparseTipCalibrationCoordinator.phase))"
@@ -8499,6 +8714,11 @@ final class OperatorWorkspace {
         frameMode == .simulated
         ? simulatedOperationTask.map { task in Task { _ = await task.value } }
         : drawingTrialTask.map { task in Task { _ = await task.value } }
+    case .sparseTipMark:
+      owner =
+        frameMode == .simulated
+        ? simulatedOperationTask.map { task in Task { _ = await task.value } }
+        : sparseTipMarkTask.map { task in Task { _ = await task.value } }
     }
 
     if stopDispositionLatch == nil,
@@ -8734,23 +8954,28 @@ final class OperatorWorkspace {
         "A current accepted TipCameraRegistration revision is required."
       )
     }
-    let domain = registration.applicabilityRectangle
-    let center = try Point2<MachineSpace>(
-      x: (domain.minX + domain.maxX) / 2,
-      y: (domain.minY + domain.maxY) / 2
-    )
-    let inset = 5.0
-    let offset: Vector2<MachineSpace> =
-      switch direction {
-      case .negativeX: try Vector2(dx: inset, dy: 0)
-      case .positiveX: try Vector2(dx: -inset, dy: 0)
-      case .negativeY: try Vector2(dx: 0, dy: inset)
-      case .positiveY: try Vector2(dx: 0, dy: -inset)
+    let acceptedMarkGeometry = sparseTipCalibrationCoordinator.acceptedObservations.map {
+      $0.observation.markGeometry
+    }
+    let restoredMarkGeometry: [ToolContactMarkGeometryEvidence]
+    if acceptedMarkGeometry.isEmpty,
+      registration.estimatorRevision == SparseTipCircularMarkPlan.registrationEstimatorRevision
+    {
+      restoredMarkGeometry = try registration.observationEvidence.map {
+        try SparseTipCircularMarkPlan.restoredGeometry(
+          for: $0.calibrationPosition,
+          in: registration.applicabilityRectangle
+        )
       }
-    drawingTrialLineStart = try MachinePosition(
-      x: center.x + offset.dx,
-      y: center.y + offset.dy
+    } else {
+      restoredMarkGeometry = []
+    }
+    let plan = try ObservedDrawingTrialLinePlan(
+      direction: direction,
+      domain: registration.applicabilityRectangle,
+      existingMarks: acceptedMarkGeometry + restoredMarkGeometry
     )
+    drawingTrialLineStart = plan.startPosition
     drawingTrialTipRegistrationRevisionID = registration.acceptedRevisionID
     currentExplorationEpisode = ExplorationEpisode(
       sessionID: learningEvidenceSessionID,

@@ -498,6 +498,12 @@ private struct TipAuthorityFixture {
       controllerSessionID: UUID(),
       machineCoordinateFrame: coordinateFrame,
       controllerContextEvidence: controllerEvidence,
+      markGeometry: ToolContactMarkGeometryEvidence(
+        center: intended,
+        radiusMM: 2,
+        chordCount: 16,
+        maximumFeedMMPerMinute: 100
+      ),
       penDown: PenActuationEvidence(outcome: penDown, timestamp: timestamp(200 + timeOffset)),
       penUp: PenActuationEvidence(
         outcome: .commandedAndSettled(command: .raise, commandedState: .up),
@@ -529,7 +535,7 @@ private struct TipAuthorityFixture {
       disposition: disposition,
       consumedLearningArtifactRevisionIDs: [machineCameraRevision],
       algorithmRevisions: [
-        AlgorithmRevisionEvidence(component: "contact-observation", revision: "v1")
+        AlgorithmRevisionEvidence(component: "contact-observation", revision: "circle-v1")
       ]
     )
   }

@@ -6,23 +6,6 @@ import Testing
 
 @Suite("Simulated Learning Runtime")
 struct SimulatedLearningRuntimeTests {
-  @Test("generic Pen Down and Up can record one stationary black point mark")
-  func stationaryContactMark() async throws {
-    let runtime = try await enabledRuntime()
-    _ = try accepted(await runtime.setPenPose(.down))
-    _ = try accepted(await runtime.setPenPose(.up))
-    let marked = try accepted(await runtime.recordStationaryContactMark())
-
-    #expect(marked.penPose == .up)
-    #expect(marked.currentOperation == nil)
-    #expect(marked.persistentInkSegmentCount == 1)
-    let scene = try accepted(await runtime.captureSceneFrame())
-    #expect(scene.inkSegmentCount == 1)
-    #expect(scene.annotations.contains { annotation in
-      annotation.kind == .ink && annotation.visibleLabel.lowercased().contains("ink")
-    })
-  }
-
   @Test("connect and Enable Motion are separate simulator admissions")
   func connectAndEnableMotion() async throws {
     let runtime = SimulatedLearningRuntime()

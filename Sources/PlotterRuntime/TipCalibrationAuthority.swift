@@ -313,6 +313,46 @@ public struct PenActuationEvidence: Codable, Hashable, Sendable {
   }
 }
 
+public enum ToolContactMarkGeometryKind: String, Codable, Hashable, Sendable {
+  case circularOutline
+}
+
+/// Commanded geometry whose selected center is associated with one calibration
+/// machine position. This describes the intended finite mark; it is not a
+/// claim that physical ink was observed.
+public struct ToolContactMarkGeometryEvidence: Codable, Hashable, Sendable {
+  public let kind: ToolContactMarkGeometryKind
+  public let center: MachinePosition
+  public let radiusMM: Double
+  public let chordCount: Int
+  public let maximumChordDeviationMM: Double
+  public let maximumFeedMMPerMinute: Double
+
+  public init(
+    kind: ToolContactMarkGeometryKind = .circularOutline,
+    center: MachinePosition,
+    radiusMM: Double,
+    chordCount: Int,
+    maximumFeedMMPerMinute: Double
+  ) throws {
+    guard radiusMM.isFinite, radiusMM > 0, chordCount >= 8,
+      maximumFeedMMPerMinute.isFinite, maximumFeedMMPerMinute > 0
+    else {
+      throw TipCalibrationAuthorityError.invalidObservationSet
+    }
+    let maximumChordDeviationMM = radiusMM * (1 - cos(.pi / Double(chordCount)))
+    guard maximumChordDeviationMM.isFinite,
+      maximumChordDeviationMM <= ControllerPositionAcceptancePolicy.toleranceMM
+    else { throw TipCalibrationAuthorityError.invalidObservationSet }
+    self.kind = kind
+    self.center = center
+    self.radiusMM = radiusMM
+    self.chordCount = chordCount
+    self.maximumChordDeviationMM = maximumChordDeviationMM
+    self.maximumFeedMMPerMinute = maximumFeedMMPerMinute
+  }
+}
+
 /// Settled Pen-Up reveal evidence captured before the operator selects a mark.
 /// It proves both controller arrival and a fresh cap-map check at the reveal pose.
 public struct ToolContactRevealEvidence: Codable, Hashable, Sendable {
@@ -406,6 +446,7 @@ public struct ToolContactObservation: Codable, Hashable, Sendable {
   public let controllerSessionID: UUID
   public let machineCoordinateFrame: MachineCoordinateFrameRevision
   public let controllerContextEvidence: ControllerContextEvidenceReference
+  public let markGeometry: ToolContactMarkGeometryEvidence
   public let penDown: PenActuationEvidence
   public let penUp: PenActuationEvidence
   public let toolAssembly: ToolAssemblyRevision
@@ -433,6 +474,7 @@ public struct ToolContactObservation: Codable, Hashable, Sendable {
     controllerSessionID: UUID,
     machineCoordinateFrame: MachineCoordinateFrameRevision,
     controllerContextEvidence: ControllerContextEvidenceReference,
+    markGeometry: ToolContactMarkGeometryEvidence,
     penDown: PenActuationEvidence,
     penUp: PenActuationEvidence,
     toolAssembly: ToolAssemblyRevision,
@@ -455,6 +497,7 @@ public struct ToolContactObservation: Codable, Hashable, Sendable {
     )
     let capResidual = capMapPredictionAtMark.distance(to: preMarkCapEstimate.point)
     guard ControllerPositionAcceptancePolicy.accepts(residualMM: markPositionResidual),
+      markGeometry.center == intendedMarkPosition,
       maximumCapMapResidualPixels.isFinite, maximumCapMapResidualPixels >= 0,
       capResidual <= maximumCapMapResidualPixels,
       preMarkFrame.source == revealEvidence.frame.source,
@@ -491,6 +534,7 @@ public struct ToolContactObservation: Codable, Hashable, Sendable {
     self.controllerSessionID = controllerSessionID
     self.machineCoordinateFrame = machineCoordinateFrame
     self.controllerContextEvidence = controllerContextEvidence
+    self.markGeometry = markGeometry
     self.penDown = penDown
     self.penUp = penUp
     self.toolAssembly = toolAssembly

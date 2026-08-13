@@ -15,7 +15,7 @@ Do not begin unless one operator can see the mechanism and paper continuously
 and can reach the physical power cutoff. This is not an unattended test.
 
 Stop immediately after any unexpected motion, controller alarm, disconnect,
-unknown Pen state, ambiguous Pen Down/Up, uncertain stationary contact, camera
+unknown Pen state, ambiguous Pen Down/Up, uncertain circle motion/contact, camera
 identity change, paper shift, tool change, or loss of direct view. Do not resend,
 resume, retap, redraw, or choose ours/theirs-style recovery. Preserve the app's
 state and record the exact visible/controller outcome.
@@ -26,7 +26,7 @@ physical-ink claim.
 
 ## Preconditions
 
-1. Use a disposable sheet with room for five stationary marks and one isolated
+1. Use a disposable sheet with room for five 4 mm-diameter circular marks and one isolated
    5 mm line.
 2. Confirm the pen, holder, cap landmark, camera, mount, crop/orientation, paper,
    and controller are the intended unchanged assembly for this run.
@@ -76,29 +76,38 @@ the requested side or center.
 Do not accept after a camera/device/mount/crop/orientation/focus change. Restart
 the attended run with explicit invalidation and new evidence.
 
-## 3. Stage 3.4 — five sparse stationary contacts
+## 3. Stage 3.4 — five sparse 2 mm-radius circles
 
 For each of `C`, `X−`, `Y+`, `X+`, and `Y−`:
 
-1. Press **Create Next Stationary Mark** once.
+1. Press **Create Next 2 mm Circle** once.
 2. Watch Pen-Up travel to the intended MPos and confirm it settles.
 3. Confirm the pre-mark frame and cap-map check are current.
-4. Watch exactly one stationary Pen Down/Up tap with no XY drawing motion.
-5. Confirm Pen Up settles, then watch Pen-Up reveal travel settle at the next
-   pose (or `C` after the final mark).
-6. Confirm the displayed frame is frozen after reveal settlement.
-7. Before clicking, verify no predicted tip point or residual is shown.
-8. Click the observed center of the new physical black mark.
-9. After clicking, review the cyan asserted point and uncertainty, purple model
+4. Watch Pen-Up travel 2 mm to the circle start and confirm settlement.
+5. Confirm the app commands the fixed complete lower profile (`M3 S760` and
+   0.3 s settlement). Directly observe whether the mechanism actually reaches
+   the paper; the command outcome alone is not physical proof. Stop the run if
+   the pen does not fully lower. Do not increase the spindle value ad hoc.
+6. Watch one closed 4 mm-diameter circle complete as 16 short chords at no more
+   than 100 mm/min, then one explicit Pen Up. Any stop, hesitation, unexpected path, or ambiguous chord
+   ends the calibration and blacklists that circle location.
+7. Confirm Pen Up settles, then watch reveal travel go to the learned safe X+
+   limit and toward machine Y=0. Confirm the armature is materially clear of
+   the entire circle before accepting the frame.
+8. Confirm the displayed frame is frozen after reveal settlement and opens at
+   the stronger one-third-frame presentation focus.
+9. Before clicking, verify no predicted tip point or residual is shown.
+10. Click the observed center of the new physical black circle.
+11. After clicking, review the cyan asserted point and uncertainty, purple model
    prediction, and orange residual. Presentation zoom may help view the pixels;
    it must not change the selected camera coordinates.
-10. If the click is wrong, use **Re-click This Exact Frame**. Confirm that no
+12. If the click is wrong, use **Re-click This Exact Frame**. Confirm that no
     motion or ink action occurs.
-11. Use **Accept Mark Center** only when the click and provenance are correct.
+13. Use **Accept Mark Center** only when the click and provenance are correct.
 
-If contact or Pen state is ambiguous, stop. The exact machine position on this
-paper is blacklisted. Do not retry it, reset around it, or replace it with a
-moving mark. The only same-workflow recovery is an explicit paper replacement.
+If any chord, contact, or Pen state is ambiguous, stop. The circle center/radius
+on this paper is blacklisted. Do not retry it or reset around it. The only
+same-workflow recovery is an explicit paper replacement.
 
 After five accepted observations, review the model form, fit roles, two sealed
 holdouts, residuals, covariance/uncertainty, applicability, semantic identities,
@@ -112,10 +121,10 @@ restoration.
 
 - Same unchanged paper and assembly after app/capture restart: choose
   **Revalidate Saved Tip Calibration**. Confirm a fresh settled controller/cap
-  frame is captured, no contact tap occurs, and a new accepted tip revision is
+  frame is captured, no contact mark occurs, and a new accepted tip revision is
   derived from the quarantined checkpoint.
 - Explicit paper replacement: record the replacement, rebuild current machine-
-  camera authority if required, then create one new stationary center contact
+  camera authority if required, then create one new 2 mm-radius center circle
   and click it. Confirm exactly one new mark is used as contact-plane evidence
   and the restored tip revision consumes it.
 

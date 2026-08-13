@@ -129,45 +129,54 @@ coordinate change.
 
 ### Ordered physical sequence
 
-Use `C`, `X−`, `Y+`, `X+`, `Y−`, then return Pen Up to `C` to reveal the final
-mark.
+Use `C`, `X−`, `Y+`, `X+`, `Y−`. Every sample is the center of one 2 mm-radius
+circular mark.
 
 For each mark:
 
-1. Press **Create Next Stationary Mark**.
+1. Press **Create Next 2 mm Circle**.
 2. Move Pen Up to the intended position under the existing bounded, stoppable
    owner and consistent final approach.
 3. Require fresh Idle/final MPos within 0.05 mm.
 4. Capture an exact pre-mark frame and current cap anchor. Reject the operation
    if the accepted cap map misses that anchor by more than its declared policy.
 5. Retain the pre-mark frame as local evidence.
-6. Perform one stationary contact tap: Pen Down, normal actuator settlement,
-   then Pen Up. XY drawing displacement is zero and there is no dwell or moving
-   mark.
-7. Require an unambiguous Pen Up result. If Pen state or motion is ambiguous,
-   classify possible ink, blacklist the physical location, and stop. Never tap
-   it again automatically.
-8. Move Pen Up to the next listed position, or to `C` after `Y−`. Use diagonal
-   reveal travel when geometry permits.
-9. Require reveal-pose Idle/final MPos within 0.05 mm.
-10. Capture one strictly newer exact post-reveal frame and revalidate the cap
+6. Verify the full 2 mm-radius circle lies within the learned Boundary's 10 mm
+   safety inset, then move Pen Up to the circle's +X start point and settle.
+7. Command the complete fixed local lower operation: `M3 S760`, controller
+   acknowledgement, `G4 P0.3`, controller acknowledgement, and a settled Down
+   outcome. There is no independent pressure command or permitted overdrive.
+8. Draw one closed 16-chord circle under typed drawing ownership. Cap drawing
+   feed at 100 mm/min or the lower controller-reported axis ceiling. Each chord
+   is finite and stoppable; the 16-chord radial approximation error is about
+   0.038 mm, below the shared 0.05 mm position policy. Require settled final MPos
+   after every chord.
+9. Command Pen Up once and require an unambiguous settled Up outcome. If any
+   chord or Pen outcome after possible contact is stopped or ambiguous,
+   blacklist this circle center/radius on the current paper and stop. Never
+   redraw it automatically.
+10. Move Pen Up to the learned safe X+ limit and toward machine Y=0, clamping Y
+    to the Boundary's 10 mm safety inset when zero is outside that safe interval.
+11. Require reveal-pose Idle/final MPos within 0.05 mm.
+12. Capture one strictly newer exact post-reveal frame and revalidate the cap
     map at that pose.
-11. Freeze that frame. Suppress every predicted tip overlay and ask **Click the
-    center of the new black mark**.
-12. Convert the zoomed/letterboxed view click back to exact camera pixels. Bind
+13. Freeze that frame. Open a one-third-frame presentation-only focus around
+    the pre-mark cap anchor, suppress every predicted tip overlay, and ask
+    **Click the center of the new black circle**.
+14. Convert the zoomed/letterboxed view click back to exact camera pixels. Bind
     it to frame ID, SHA-256, source, capture session, semantic optical identity,
     dimensions, and presentation-transform revision.
-13. Show the asserted point, 1.5 px per-axis pointing uncertainty, current
+15. Show the asserted point, 1.5 px per-axis pointing uncertainty, current
     prediction if one exists, and residual.
-14. **Re-click This Exact Frame** clears only the point and reuses the same
+16. **Re-click This Exact Frame** clears only the point and reuses the same
     frame. It performs no motion and creates no ink.
-15. **Accept Mark Center** atomically commits one immutable
+17. **Accept Mark Center** atomically commits one immutable
     `ToolContactObservation` revision.
 
-The click is role `assertedCenter`. It is not automatic shape evidence. If a
-stationary tap cannot be resolved during attended validation, record that
-failure and stop; do not substitute a moving mark without a separate product
-decision.
+The click is role `assertedCenter`. The commanded circle geometry is retained,
+but the click is still a human assertion rather than automatic shape evidence.
+Controller completion does not prove physical contact or ink; attended
+observation owns those claims.
 
 ### Model selection and final acceptance
 
@@ -200,7 +209,7 @@ identities:
 3. Require a settled Pen-Up controller position and capture one fresh exact cap
    frame.
 4. Revalidate the current cap map and semantic identities.
-5. Perform no contact tap.
+5. Perform no contact mark.
 6. Rebuild the five immutable observation graph nodes under the current machine-
    camera revision and derive a new accepted tip revision with the fresh
    revalidation evidence.
@@ -209,8 +218,8 @@ After explicit paper replacement:
 
 1. Retain the old checkpoint in quarantine and rotate the paper-plane identity.
 2. Rebuild and accept current Stage 3.3 authority.
-3. Start Stage 3.4 and create one new stationary center contact using the full
-   settle/tap/reveal/frozen-click sequence above.
+3. Start Stage 3.4 and create one new 2 mm-radius center circle using the full
+   settle/draw/reveal/frozen-click sequence above.
 4. Require the new click to agree with the quarantined tip projection within the
    declared eight-pixel policy.
 5. Derive a new accepted tip revision that consumes the original five evidence
@@ -227,7 +236,10 @@ Every request/result cites that revision.
 ### 4.1 Choose Isolated Line Plan
 
 Choose a signed axis direction. The app selects a start inside the tip model's
-applicability rectangle and constructs one 5 mm local line. It projects start
+applicability rectangle and constructs one 5 mm local line that clears every
+persistent 2 mm-radius calibration circle by at least 0.25 mm. If the domain is
+too crowded, planning stops and requests a larger clean calibration area rather
+than crossing old ink. It projects start
 and end directly through the current tip registration.
 
 ### 4.2 Capture Local Pre-Line Baseline
@@ -297,7 +309,7 @@ raw observations remain history.
 
 SIMULATED traverses the same public actions and dependency graph. It owns a
 simulated session, Motion authorization, MPos, pen pose, renewable Boundary
-motion, stationary black marks, isolated line drawing, paper revision,
+motion, 2 mm-radius circular marks, isolated line drawing, paper revision,
 persistent ink, causal frames, and a real nonzero cap-to-tip truth.
 
 Annotations are exact identity-bound presentation only. They do not modify

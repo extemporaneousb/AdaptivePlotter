@@ -146,6 +146,7 @@ public enum PenCommand: String, Codable, Hashable, Sendable {
 /// Fixed local encoding recovered from the plotter's proven pen mechanism.
 /// The values are not operator-editable controller settings.
 public struct PenActuationProfile: Hashable, Sendable {
+  public static let localPlotterRevision = "local-plotter-m3-s760-settle-0.3-v1"
   public static let localPlotter = PenActuationProfile(
     raisedSpindleValue: 40,
     loweredSpindleValue: 760,

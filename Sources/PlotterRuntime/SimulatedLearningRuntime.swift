@@ -806,25 +806,6 @@ public actor SimulatedLearningRuntime {
     return .accepted(makeSnapshot())
   }
 
-  /// Simulator rendering support for one generic stationary contact tap. The
-  /// workspace calls this only after separate simulated Pen Down and Pen Up
-  /// settlements; it is not a compound runtime owner or physical evidence.
-  public func recordStationaryContactMark()
-    -> SimulatedLearningResponse<SimulatedLearningSnapshot>
-  {
-    guard session == .connected else { return .refused(.sessionDisconnected) }
-    guard motionAuthorization == .enabled else {
-      return .refused(.motionAuthorizationDisabled)
-    }
-    if let stickyAmbiguity { return .refused(.stickyAmbiguity(stickyAmbiguity)) }
-    guard currentOperation == nil else {
-      return .refused(.operationAlreadyActive(currentOperation!.id))
-    }
-    guard penPose == .up else { return .refused(.penMustBeUp) }
-    inkSegments.append(SimulatedLearningInkSegment(start: mpos, end: mpos))
-    return .accepted(makeSnapshot())
-  }
-
   public func beginManualJog(
     delta: SimulatedLearningMotionVector
   ) -> SimulatedLearningResponse<SimulatedLearningOperation> {

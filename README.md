@@ -84,11 +84,21 @@ Stage 3.4 uses the same ordered cross. At each position the app:
 
 1. settles Pen Up at the intended MPos;
 2. captures an exact pre-mark frame and revalidates the cap map;
-3. performs one stationary Pen Down/Up tap with zero XY drawing motion;
-4. moves Pen Up diagonally to the next reveal pose when geometry permits;
+3. moves Pen Up to the circle start, commands the complete configured lower
+   operation (`M3 S760`, then the configured 0.3 s settle), and accepts only a
+   settled Down outcome;
+4. draws one closed 16-chord circle of 2 mm radius at no more than 100 mm/min,
+   raises once, then moves Pen Up to the learned safe X+ limit and as close to
+   machine Y=0 as the 10 mm Boundary inset permits;
 5. settles, captures a newer exact frame, and revalidates the cap map;
-6. freezes that exact frame and asks the operator to click the new mark center;
+6. freezes that exact frame, opens a stronger presentation-only focus around
+   the pre-mark cap anchor, and asks the operator to click the circle center;
 7. allows re-clicking only on the same frame, with no motion or ink action.
+
+The protocol has no independent pressure control and does not overdrive the
+actuator beyond its fixed local profile. A complete commanded lower plus its
+settlement is controller evidence; only attended observation can prove that the
+physical pen reached the paper.
 
 The predicted tip point is hidden until the click is made. Before accepted
 authority exists, the UI says **Tip not calibrated**. After a click, the UI
@@ -101,14 +111,15 @@ coherent failure at both holdouts. Both holdouts must pass. The selected model
 is refit on all five observations and becomes current only after explicit
 **Accept Tip Calibration**.
 
-An uncertain tap, Pen Down/Up outcome, or motion outcome blacklists that
-physical location and stops the workflow. Possible ink never causes automatic
+An uncertain circle chord, Pen Down/Up outcome, or motion outcome blacklists
+that circle center/radius on the current paper and stops the workflow. Possible ink never causes automatic
 retry, redraw, resend, or continuation.
 
 ## Tip authority and persistence
 
 `ToolContactObservation` is immutable evidence. It binds intended and settled
-machine poses, controller context, Pen Down/Up outcomes, tool and paper
+machine poses, controller context, the 2 mm-radius/16-chord/100 mm/min-capped mark geometry, the
+fixed pen-actuation profile revision, Pen Down/Up outcomes, tool and paper
 identities, exact pre/post frames, cap-map checks, asserted camera point,
 pointing uncertainty, presentation-transform revision, disposition, and
 consumed algorithm/artifact revisions.
@@ -123,8 +134,8 @@ camera-independent tool vector.
 The machine-only checkpoint remains separate. `AcceptedTipCalibrationCheckpoint`
 loads quarantined and cannot restore authority without current semantic
 identity plus fresh controller/cap evidence. A paper-plane change requires
-one new accepted stationary-contact observation; an unchanged paper/capture
-restart requires a fresh cap frame and no new tap. Both routes derive a new
+one new accepted circle-center observation; an unchanged paper/capture
+restart requires a fresh cap frame and no new mark. Both routes derive a new
 accepted revision and retain their revalidation evidence. Known pixel
 transforms and known machine-coordinate
 rebases may derive rebased authority with propagated uncertainty; unknown
@@ -137,8 +148,10 @@ a content-addressed locator for archived bytes.
 ## Stage 4
 
 Observed Drawing Trials require accepted Boundary evidence and the exact current
-`TipCameraRegistration` revision. Stage 4 projects its local 5 mm line through
-that registration and owns its own:
+`TipCameraRegistration` revision. Stage 4 chooses a local 5 mm line that clears
+every retained 2 mm calibration circle; it blocks if the accepted domain is too
+crowded rather than letting old ink split the new observation. It projects that
+line through the registration and owns its own:
 
 - local pre-line baseline and Pen-Up reveal MPos;
 - line-start travel and one closed drawing owner;

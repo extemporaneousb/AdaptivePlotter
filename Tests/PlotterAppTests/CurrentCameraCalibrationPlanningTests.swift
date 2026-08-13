@@ -79,6 +79,125 @@ struct CurrentCameraCalibrationPlanningTests {
     #expect(plan.samplePositions[4] == MachinePosition(point: try Point2(x: 70, y: -66)))
   }
 
+  @Test("sparse mark is a centered 2 mm circle and reveals at safe X-max toward machine Y-zero")
+  func circularMarkAndFarReveal() throws {
+    let center = try MachinePosition(x: 70, y: 50)
+    let envelope = try boundaryEnvelope(
+      negativeX: -100,
+      positiveX: 200,
+      negativeY: -40,
+      positiveY: 180
+    )
+    let mark = try SparseTipCircularMarkPlan(
+      center: center,
+      boundarySideAggregates: envelope
+    )
+
+    #expect(mark.geometry.kind == .circularOutline)
+    #expect(mark.geometry.center == center)
+    #expect(mark.geometry.radiusMM == 2)
+    #expect(mark.geometry.chordCount == 16)
+    #expect(mark.geometry.maximumChordDeviationMM < 0.05)
+    #expect(mark.geometry.maximumFeedMMPerMinute == 100)
+    #expect(mark.pathDeltas.count == 16)
+    #expect(mark.revealPosition == (try MachinePosition(x: 190, y: 0)))
+    for position in mark.pathPositions {
+      #expect(abs(position.point.distance(to: center.point) - 2) < 1e-9)
+    }
+    let pathEnd = try mark.pathDeltas.reduce(mark.startPosition.point) { position, delta in
+      try Point2(x: position.x + delta.dx, y: position.y + delta.dy)
+    }
+    #expect(pathEnd.distance(to: mark.startPosition.point) < 1e-9)
+  }
+
+  @Test("sparse circle refuses any mark that would cross the safe Boundary inset")
+  func circularMarkRequiresSafeClearance() throws {
+    #expect(throws: CurrentCameraCalibrationPlanningError.circularMarkOutsideSafeEnvelope) {
+      try SparseTipCircularMarkPlan(
+        center: MachinePosition(x: 89, y: 0),
+        boundarySideAggregates: boundaryEnvelope(
+          negativeX: -100,
+          positiveX: 100,
+          negativeY: -80,
+          positiveY: 80
+        )
+      )
+    }
+  }
+
+  @Test("circle-era checkpoint geometry reconstructs the five fixed mark centers")
+  func restoredCircleGeometry() throws {
+    let domain = try AxisAlignedBounds<MachineSpace>(
+      minX: -30, minY: -30, maxX: 30, maxY: 30
+    )
+    let geometry = try ToolContactCalibrationPosition.allCases.map {
+      try SparseTipCircularMarkPlan.restoredGeometry(for: $0, in: domain)
+    }
+
+    #expect(geometry.map(\.center) == [
+      try MachinePosition(x: 0, y: 0),
+      try MachinePosition(x: -24, y: 0),
+      try MachinePosition(x: 0, y: 24),
+      try MachinePosition(x: 24, y: 0),
+      try MachinePosition(x: 0, y: -24),
+    ])
+    #expect(geometry.allSatisfy { $0.radiusMM == 2 })
+    #expect(geometry.allSatisfy { $0.chordCount == 16 })
+    #expect(geometry.allSatisfy { $0.maximumFeedMMPerMinute == 100 })
+  }
+
+  @Test("Stage 4 line plan clears all persistent calibration circles")
+  func stageFourLineClearsCalibrationMarks() throws {
+    let domain = try AxisAlignedBounds<MachineSpace>(
+      minX: -30, minY: -30, maxX: 30, maxY: 30
+    )
+    let marks = try [
+      MachinePosition(x: 0, y: 0),
+      MachinePosition(x: -24, y: 0),
+      MachinePosition(x: 0, y: 24),
+      MachinePosition(x: 24, y: 0),
+      MachinePosition(x: 0, y: -24),
+    ].map {
+      try ToolContactMarkGeometryEvidence(
+        center: $0, radiusMM: 2, chordCount: 16, maximumFeedMMPerMinute: 100
+      )
+    }
+    let line = try ObservedDrawingTrialLinePlan(
+      direction: .positiveX,
+      domain: domain,
+      existingMarks: marks
+    )
+
+    #expect(line.startPosition == (try MachinePosition(x: -2.5, y: 15)))
+    #expect(line.endPosition == (try MachinePosition(x: 2.5, y: 15)))
+    #expect(line.delta == (try Vector2(dx: 5, dy: 0)))
+  }
+
+  @Test("Stage 4 line plan blocks instead of crossing crowded calibration ink")
+  func stageFourLineBlocksCrowdedDomain() throws {
+    let domain = try AxisAlignedBounds<MachineSpace>(
+      minX: -5, minY: -5, maxX: 5, maxY: 5
+    )
+    let marks = try [
+      MachinePosition(x: 0, y: 0),
+      MachinePosition(x: -4, y: 0),
+      MachinePosition(x: 0, y: 4),
+      MachinePosition(x: 4, y: 0),
+      MachinePosition(x: 0, y: -4),
+    ].map {
+      try ToolContactMarkGeometryEvidence(
+        center: $0, radiusMM: 2, chordCount: 16, maximumFeedMMPerMinute: 100
+      )
+    }
+    #expect(throws: ObservedDrawingTrialPlanningError.noClearFiveMillimeterLine) {
+      try ObservedDrawingTrialLinePlan(
+        direction: .positiveX,
+        domain: domain,
+        existingMarks: marks
+      )
+    }
+  }
+
   @Test("plan refuses an incomplete accepted boundary envelope")
   func refusesIncompleteBoundaryEnvelope() throws {
     var incomplete = try boundaryEnvelope(

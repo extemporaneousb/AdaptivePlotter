@@ -146,6 +146,7 @@ struct ActionSurfaceViewportContext: Hashable, Sendable {
   let source: FrameSourceIdentity
   let cameraConfigurationID: CameraConfigurationID
   let fittedRegion: PixelRect?
+  let preferredInitialZoom: Double
   let presentationRevisionToken: String
 }
 
@@ -187,7 +188,7 @@ struct ActionSurfaceViewportState: Equatable, Sendable {
   mutating func synchronize(with context: ActionSurfaceViewportContext?) {
     guard self.context != context else { return }
     self.context = context
-    zoom = 0
+    zoom = min(1, max(0, context?.preferredInitialZoom ?? 0))
     presentationTransformRevision = PresentationTransformRevision()
   }
 
@@ -369,7 +370,12 @@ struct ActionSurface: View {
                 viewport.showFullFrame()
               }
               .operatorButton(isEnabled: viewport.zoom != 0)
-              Button(presentation.viewportContext?.fittedRegion == nil ? "Zoom In" : "Fit Learned Plotter Bounds") {
+              Button(
+                presentation.pointSelectionRequest != nil
+                  ? "Focus Mark Area"
+                  : presentation.viewportContext?.fittedRegion == nil
+                    ? "Zoom In" : "Fit Learned Plotter Bounds"
+              ) {
                 viewport.showFittedBounds()
               }
               .operatorButton(isEnabled: viewport.zoom != 1)

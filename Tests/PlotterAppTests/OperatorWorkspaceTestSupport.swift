@@ -1148,6 +1148,7 @@ actor CalibrationStopPacing: SimulatedLearningExecutionPacing {
   func resume() {
     let continuation = suspension
     suspension = nil
+    suspended = false
     continuation?.resume()
   }
 }

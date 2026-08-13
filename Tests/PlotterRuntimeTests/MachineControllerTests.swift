@@ -1473,6 +1473,7 @@ struct PenActuationTests {
   @Test("local pen profile is a closed exact wire surface")
   func exactWireBytes() {
     let profile = PenActuationProfile.localPlotter
+    #expect(PenActuationProfile.localPlotterRevision == "local-plotter-m3-s760-settle-0.3-v1")
     #expect(profile.raisedSpindleValue == 40)
     #expect(profile.loweredSpindleValue == 760)
     #expect(profile.settleSeconds == 0.3)

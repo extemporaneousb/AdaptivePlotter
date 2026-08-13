@@ -36,7 +36,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     #expect(requiredDelta.dy == 0)
   }
 
-  @Test("five stationary marks select, fit, and accept one tip registration")
+  @Test("five 2 mm circle centers select, fit, and accept one tip registration")
   func fullFiveMarkAcceptance() async throws {
     let checkpointBox = TipCheckpointBox()
     let harness = makeSimulatedHarness(
@@ -85,6 +85,9 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       )
       let surface = workspace.actionSurfacePresentation
       let request = try #require(surface.pointSelectionRequest)
+      #expect(surface.viewportContext?.preferredInitialZoom == 1)
+      #expect(surface.viewportContext?.fittedRegion?.width == max(96, request.frame.width / 3))
+      #expect(surface.viewportContext?.fittedRegion?.height == max(96, request.frame.height / 3))
       workspace.selectToolContactPoint(ActionSurfacePointSelection(
         frame: request.frame,
         point: click,
@@ -92,6 +95,20 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       ))
       try await performPublicAction(.acceptSparseTipMark, owner: tipOwner, workspace: workspace)
       #expect(workspace.sparseTipCalibrationCoordinator.acceptedObservations.count == index + 1)
+      let observation = try #require(
+        workspace.sparseTipCalibrationCoordinator.acceptedObservations.last?.observation
+      )
+      #expect(observation.markGeometry.radiusMM == 2)
+      #expect(observation.markGeometry.chordCount == 16)
+      #expect(observation.markGeometry.maximumFeedMMPerMinute == 100)
+      #expect(observation.penDown.outcome == .commandedAndSettled(
+        command: .lower,
+        commandedState: .down
+      ))
+      let reveal = observation.revealEvidence.actualSettledPosition.point
+      #expect(reveal.x == 30)
+      #expect(reveal.y == 0)
+      #expect((await harness.runtime.snapshot()).persistentInkSegmentCount == (index + 1) * 16)
     }
 
     let proposal = try #require(
@@ -140,7 +157,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     )
   }
 
-  @Test("re-click retains the exact frozen frame and emits no motion or ink")
+  @Test("re-click retains the exact frozen frame and emits no motion or additional ink")
   func frozenReClickNoRedraw() async throws {
     let harness = makeSimulatedHarness()
     try await completeSimulatedBoundariesAndCenter(
@@ -182,8 +199,63 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     #expect(after.currentOperation == nil)
   }
 
-  @Test("quarantined checkpoint revalidates after restart without another tap")
-  func checkpointRevalidationRestoresWithoutAnotherTap() async throws {
+  @Test("stopping a circle blacklists its center and never redraws it")
+  func stoppedCircleBlacklistsWithoutRedraw() async throws {
+    let harness = makeSimulatedHarness()
+    try await completeSimulatedBoundariesAndCenter(
+      harness.workspace,
+      runtime: harness.runtime,
+      boundaryOrder: [.negativeX, .positiveX, .negativeY, .positiveY]
+    )
+    let workspace = harness.workspace
+    let cameraOwner = LearningPathItemID.humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
+    try await performPublicAction(
+      .runCameraCalibrationAndBuildProposal,
+      owner: cameraOwner,
+      workspace: workspace
+    )
+    try await performPublicAction(
+      .acceptCameraCalibrationProposal,
+      owner: cameraOwner,
+      workspace: workspace
+    )
+    let owner = LearningPathItemID.humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
+    try await performPublicAction(.start, owner: owner, workspace: workspace)
+    let pacing = CalibrationStopPacing()
+    workspace.replaceSimulatedExecutionPacingForTesting(pacing)
+
+    let markTask = Task {
+      await workspace.performExerciseAction(.createNextSparseTipMark, for: owner)
+    }
+    await pacing.waitUntilSuspended()
+    await pacing.resume()
+    try await waitUntil {
+      workspace.contextualStopPresentation?.detail.contains("calibration circle") == true
+    }
+    let capability = try #require(workspace.contextualStopPresentation?.capabilityID)
+    let stopTask = Task { await workspace.stopCurrentOperation(capabilityID: capability) }
+    try await waitUntilAsync { (await harness.runtime.snapshot()).currentOperation == nil }
+    await pacing.resume()
+    await stopTask.value
+    await markTask.value
+
+    #expect(workspace.sparseTipCalibrationCoordinator.blacklistedPositions == [.center])
+    #expect(workspace.sparseTipCalibrationCoordinator.acceptedObservations.isEmpty)
+    #expect(workspace.actionSurfacePresentation.pointSelectionRequest == nil)
+    #expect(workspace.contextualStopPresentation == nil)
+    #expect((await harness.runtime.snapshot()).persistentInkSegmentCount == 0)
+    if case .possibleInkBlacklisted(let location, _) =
+      workspace.sparseTipCalibrationCoordinator.phase
+    {
+      #expect(location.machinePosition == (try MachinePosition(x: 0, y: 0)))
+      #expect(location.markRadiusMM == 2)
+    } else {
+      Issue.record("Stopped circle did not retain terminal possible-ink state")
+    }
+  }
+
+  @Test("quarantined checkpoint revalidates after restart without another mark")
+  func checkpointRevalidationRestoresWithoutAnotherMark() async throws {
     let checkpointBox = TipCheckpointBox()
     let checkpointActions = OperatorWorkspace.AcceptedTipCalibrationCheckpointActions(
       load: { checkpointBox.load() },
@@ -212,7 +284,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       runtime: initial.runtime
     )
     let saved = try #require(checkpointBox.checkpoint)
-    #expect((await initial.runtime.snapshot()).persistentInkSegmentCount == 5)
+    #expect((await initial.runtime.snapshot()).persistentInkSegmentCount == 80)
 
     let restarted = makeSimulatedHarness(
       tipCheckpointActions: checkpointActions,
@@ -261,6 +333,19 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       restarted.workspace.currentLearningPathItemID
         == LearningPathItemID.observedDrawingTrial(.chooseIsolatedLinePlan)
     )
+    #expect(
+      restored.estimatorRevision == SparseTipCircularMarkPlan.registrationEstimatorRevision
+    )
+    try await performPublicAction(
+      .chooseIsolatedLinePlan(.positiveX),
+      owner: .observedDrawingTrial(.chooseIsolatedLinePlan),
+      workspace: restarted.workspace
+    )
+    let domain = restored.applicabilityRectangle
+    #expect(restarted.workspace.drawingTrialLineStart == (try MachinePosition(
+      x: (domain.minX + domain.maxX) / 2 - 2.5,
+      y: (domain.minY + domain.maxY) / 2 + (domain.maxY - domain.minY) * 0.25
+    )))
 
     let replacementPaper = PaperContactPlaneRevision()
     let changedPaperIdentities = TipCalibrationSemanticIdentityState(
@@ -331,7 +416,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       changedPaper.workspace.tipCameraRegistration,
       "contact-plane restore error: \(changedPaper.workspace.explorationError ?? "none")"
     )
-    #expect((await changedPaper.runtime.snapshot()).persistentInkSegmentCount == 1)
+    #expect((await changedPaper.runtime.snapshot()).persistentInkSegmentCount == 16)
     #expect(contactPlaneRestored.applicability.paperContactPlane == replacementPaper)
     #expect(
       contactPlaneRestored.revalidationEvidence?.contactPlaneRevalidation != nil

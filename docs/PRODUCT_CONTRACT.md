@@ -126,9 +126,9 @@ settled controller evidence. Camera analysis may advise bounded renewal length
 but cannot identify or veto a side. Missing or stale camera advice cannot weaken
 direct controller authority.
 
-Any ambiguous motion, Pen Down, or Pen Up outcome after possible contact creates
-possible ink. The exact machine position plus paper-plane identity is
-blacklisted across cancel, restart, and reset, and the workflow stops for
+Any ambiguous circle-chord motion, Pen Down, or Pen Up outcome after possible
+contact creates possible ink. The circle center/radius plus paper-plane identity
+is blacklisted across cancel, restart, and reset, and the workflow stops for
 explicit recovery. No automatic retry, resend, retap, redraw, or continuation
 is permitted. A wrong click may be replaced only on its same frozen exact frame
 and causes no mechanical action.
@@ -162,19 +162,31 @@ It does not locate the paper-contact point.
 
 ## Stage 3.4 contact authority
 
-Stage 3.4 uses the same positions in order `C`, `X−`, `Y+`, `X+`, `Y−`, then
-returns Pen Up to `C` as the final reveal pose. Diagonal reveal travel is used
-when geometry permits; it is a visibility optimization, not another model
-sample.
+Stage 3.4 uses the same positions in order `C`, `X−`, `Y+`, `X+`, `Y−`. At each
+position it draws one closed 2 mm-radius circle centered on the model sample.
+The pen uses the complete fixed local lower profile (`M3 S760` plus 0.3 s
+settlement); the product exposes no separate pressure control and never
+overdrives that profile. The circle uses 16 finite typed drawing chords capped
+at 100 mm/min, keeping the chord approximation error below 0.05 mm, followed by
+one explicit Pen Up.
+This controller evidence does not prove physical pressure or observed ink.
+
+After every circle, reveal travel goes Pen Up to the learned X+ Boundary limit
+minus the 10 mm safety inset and toward machine Y=0, clamped to the safe Y
+interval. This far reveal pose is visibility-only and is not a model sample.
+After settlement and cap-map revalidation, the exact frame opens at a
+one-third-frame presentation focus around the pre-mark cap anchor. That zoom is
+view-only and does not expose the predicted tip before the click.
 
 Each accepted `ToolContactObservation` is immutable raw evidence for one
-stationary tap and asserted mark center. It retains:
+commanded circular mark and asserted circle center. It retains:
 
 - attempt and operation identities;
 - intended mark position and settled MPos;
 - machine geometry, controller session, coordinate-frame revision, and
   controller-context evidence;
-- Pen Down/Up outcomes and timestamps;
+- the 2 mm-radius/16-chord/100 mm/min-capped commanded geometry, fixed actuation-profile
+  revision, and Pen Down/Up outcomes/timestamps;
 - tool assembly, contact profile, and paper-plane revisions;
 - exact pre-mark frame and cap estimate;
 - exact post-reveal frame, settled reveal pose, and cap-map revalidation;
@@ -243,8 +255,8 @@ returns quarantined evidence. It cannot restore workflow state, a graph
 revision, Motion authorization, operation ownership, a Stop capability, a
 pending command, or a continuation. Fresh identity-compatible controller and
 cap evidence is required before authority may be restored; paper-plane changes
-also require one current accepted stationary-contact observation within policy.
-Same-paper restart restoration performs no contact tap. Both paths create a new
+also require one current accepted circle-center observation within policy.
+Same-paper restart restoration performs no contact mark. Both paths create a new
 accepted revision and retain their fresh revalidation evidence.
 
 ## Stage 4 dependency boundary
@@ -252,7 +264,11 @@ accepted revision and retain their fresh revalidation evidence.
 Observed Drawing Trials require accepted Boundary/coordinate evidence and one
 exact current `TipCameraRegistration` revision.
 
-Stage 4 projects its intended local path through that tip registration. It owns
+Stage 4 chooses a 5 mm path inside the applicability rectangle that clears all
+retained 2 mm-radius calibration circles by the declared ink-clearance margin.
+If no such path exists, it blocks and requires a larger clean calibration area;
+it never crosses old circle ink and weakens attribution. It projects its
+intended local path through the tip registration. It owns
 its own local pre-line baseline, Pen-Up reveal MPos, line-start travel, one
 drawing owner, return to the same reveal pose, strictly newer post-line frame,
 and generic black/new-ink observation. Its request and result cite the exact tip

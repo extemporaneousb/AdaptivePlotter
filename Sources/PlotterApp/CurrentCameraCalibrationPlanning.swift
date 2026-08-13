@@ -17,6 +17,7 @@ enum CurrentCameraCalibrationPlanningError: Error, Equatable, Sendable {
   case centerOutsideSafeEnvelope
   case insufficientXAxisSpan
   case insufficientYAxisSpan
+  case circularMarkOutsideSafeEnvelope
 }
 
 extension CurrentCameraCalibrationPlanningError: LocalizedError {
@@ -34,7 +35,199 @@ extension CurrentCameraCalibrationPlanningError: LocalizedError {
       "The accepted X boundaries do not leave a symmetric calibration rectangle with at least 10 mm usable X span."
     case .insufficientYAxisSpan:
       "The accepted Y boundaries do not leave a symmetric calibration rectangle with at least 10 mm usable Y span."
+    case .circularMarkOutsideSafeEnvelope:
+      "The 2 mm-radius calibration circle would cross the Boundary envelope's 10 mm safety inset. Increase the usable paper/machine clearance before drawing."
     }
+  }
+}
+
+/// One visible Stage 3.4 mark and its armature-clearing reveal pose. The circle
+/// is a 16-chord approximation whose maximum radial deviation is below the
+/// shared 0.05 mm controller-position acceptance policy. The reveal is biased
+/// to safe X-max and machine Y=0 without crossing the learned Boundary inset.
+struct SparseTipCircularMarkPlan: Hashable, Sendable {
+  static let radiusMM = 2.0
+  static let chordCount = 16
+  static let maximumFeedMMPerMinute = 100.0
+  static let registrationEstimatorRevision =
+    "smallest-passing-tip-model-circle-2mm-radius-16-chord-v2"
+
+  let geometry: ToolContactMarkGeometryEvidence
+  let pathPositions: [MachinePosition]
+  let pathDeltas: [Vector2<MachineSpace>]
+  let revealPosition: MachinePosition
+
+  var startPosition: MachinePosition { pathPositions[0] }
+
+  static func restoredGeometry(
+    for position: ToolContactCalibrationPosition,
+    in domain: AxisAlignedBounds<MachineSpace>
+  ) throws -> ToolContactMarkGeometryEvidence {
+    let normalized: (x: Double, y: Double) = switch position {
+    case .center: (0.5, 0.5)
+    case .negativeX: (0.1, 0.5)
+    case .positiveY: (0.5, 0.9)
+    case .positiveX: (0.9, 0.5)
+    case .negativeY: (0.5, 0.1)
+    }
+    let center = try MachinePosition(
+      x: domain.minX + (domain.maxX - domain.minX) * normalized.x,
+      y: domain.minY + (domain.maxY - domain.minY) * normalized.y
+    )
+    return try ToolContactMarkGeometryEvidence(
+      center: center,
+      radiusMM: Self.radiusMM,
+      chordCount: Self.chordCount,
+      maximumFeedMMPerMinute: Self.maximumFeedMMPerMinute
+    )
+  }
+
+  init(
+    center: MachinePosition,
+    boundarySideAggregates: [BoundaryDirection: BoundarySideAggregate]
+  ) throws {
+    guard BoundaryDirection.allCases.allSatisfy({ boundarySideAggregates[$0] != nil }) else {
+      throw CurrentCameraCalibrationPlanningError.incompleteBoundaryEnvelope
+    }
+    let safeMinX = boundarySideAggregates[.negativeX]!.estimateMM
+      + CurrentCameraCalibrationPlan.safetyMarginMM
+    let safeMaxX = boundarySideAggregates[.positiveX]!.estimateMM
+      - CurrentCameraCalibrationPlan.safetyMarginMM
+    let safeMinY = boundarySideAggregates[.negativeY]!.estimateMM
+      + CurrentCameraCalibrationPlan.safetyMarginMM
+    let safeMaxY = boundarySideAggregates[.positiveY]!.estimateMM
+      - CurrentCameraCalibrationPlan.safetyMarginMM
+    let point = center.point
+    guard point.x - Self.radiusMM >= safeMinX,
+      point.x + Self.radiusMM <= safeMaxX,
+      point.y - Self.radiusMM >= safeMinY,
+      point.y + Self.radiusMM <= safeMaxY
+    else { throw CurrentCameraCalibrationPlanningError.circularMarkOutsideSafeEnvelope }
+
+    let positions = try (0...Self.chordCount).map { index in
+      let angle = 2 * Double.pi * Double(index) / Double(Self.chordCount)
+      return try MachinePosition(
+        x: point.x + Self.radiusMM * cos(angle),
+        y: point.y + Self.radiusMM * sin(angle)
+      )
+    }
+    let deltas = try zip(positions, positions.dropFirst()).map { from, to in
+      try Vector2<MachineSpace>(
+        dx: to.point.x - from.point.x,
+        dy: to.point.y - from.point.y
+      )
+    }
+    let revealY = min(max(0, safeMinY), safeMaxY)
+    geometry = try ToolContactMarkGeometryEvidence(
+      center: center,
+      radiusMM: Self.radiusMM,
+      chordCount: Self.chordCount,
+      maximumFeedMMPerMinute: Self.maximumFeedMMPerMinute
+    )
+    pathPositions = positions
+    pathDeltas = deltas
+    revealPosition = try MachinePosition(x: safeMaxX, y: revealY)
+  }
+}
+
+enum ObservedDrawingTrialPlanningError: Error, Equatable, Sendable {
+  case noClearFiveMillimeterLine
+}
+
+extension ObservedDrawingTrialPlanningError: LocalizedError {
+  var errorDescription: String? {
+    "No 5 mm line inside the accepted tip-calibration rectangle clears all persistent 2 mm-radius calibration circles. Replace the paper and recalibrate with a larger usable rectangle before Stage 4."
+  }
+}
+
+/// Chooses a 5 mm axis-aligned Stage 4 stroke that cannot cross one of the
+/// persistent Stage 3.4 circles. Old ink remains valid baseline evidence, but
+/// a new stroke may not be split into multiple components by an old outline.
+struct ObservedDrawingTrialLinePlan: Hashable, Sendable {
+  static let lengthMM = 5.0
+  static let minimumInkClearanceMM = 0.25
+
+  let startPosition: MachinePosition
+  let endPosition: MachinePosition
+  let delta: Vector2<MachineSpace>
+
+  init(
+    direction: BoundaryDirection,
+    domain: AxisAlignedBounds<MachineSpace>,
+    existingMarks: [ToolContactMarkGeometryEvidence]
+  ) throws {
+    let centerX = (domain.minX + domain.maxX) / 2
+    let centerY = (domain.minY + domain.maxY) / 2
+    let halfLength = Self.lengthMM / 2
+    let spanX = domain.maxX - domain.minX
+    let spanY = domain.maxY - domain.minY
+    let perpendicularFractions = [0.25, -0.25, 0.375, -0.375]
+    let candidates: [(Point2<MachineSpace>, Point2<MachineSpace>)] = try
+      perpendicularFractions.map { fraction in
+        switch direction {
+        case .positiveX:
+          let y = centerY + spanY * fraction
+          return (
+            try Point2(x: centerX - halfLength, y: y),
+            try Point2(x: centerX + halfLength, y: y)
+          )
+        case .negativeX:
+          let y = centerY + spanY * fraction
+          return (
+            try Point2(x: centerX + halfLength, y: y),
+            try Point2(x: centerX - halfLength, y: y)
+          )
+        case .positiveY:
+          let x = centerX + spanX * fraction
+          return (
+            try Point2(x: x, y: centerY - halfLength),
+            try Point2(x: x, y: centerY + halfLength)
+          )
+        case .negativeY:
+          let x = centerX + spanX * fraction
+          return (
+            try Point2(x: x, y: centerY + halfLength),
+            try Point2(x: x, y: centerY - halfLength)
+          )
+        }
+      }
+    guard let selected = candidates.first(where: { start, end in
+      Self.contains(start, in: domain) && Self.contains(end, in: domain)
+        && existingMarks.allSatisfy { mark in
+          Self.distance(from: mark.center.point, toSegmentFrom: start, to: end)
+            > mark.radiusMM + Self.minimumInkClearanceMM
+        }
+    }) else { throw ObservedDrawingTrialPlanningError.noClearFiveMillimeterLine }
+    startPosition = MachinePosition(point: selected.0)
+    endPosition = MachinePosition(point: selected.1)
+    delta = try selected.0.vector(to: selected.1)
+  }
+
+  private static func contains(
+    _ point: Point2<MachineSpace>,
+    in bounds: AxisAlignedBounds<MachineSpace>
+  ) -> Bool {
+    point.x >= bounds.minX && point.x <= bounds.maxX
+      && point.y >= bounds.minY && point.y <= bounds.maxY
+  }
+
+  private static func distance(
+    from point: Point2<MachineSpace>,
+    toSegmentFrom start: Point2<MachineSpace>,
+    to end: Point2<MachineSpace>
+  ) -> Double {
+    let dx = end.x - start.x
+    let dy = end.y - start.y
+    let lengthSquared = dx * dx + dy * dy
+    guard lengthSquared > 0 else { return point.distance(to: start) }
+    let projection = ((point.x - start.x) * dx + (point.y - start.y) * dy)
+      / lengthSquared
+    let t = min(1, max(0, projection))
+    let closest = try! Point2<MachineSpace>(
+      x: start.x + t * dx,
+      y: start.y + t * dy
+    )
+    return point.distance(to: closest)
   }
 }
 

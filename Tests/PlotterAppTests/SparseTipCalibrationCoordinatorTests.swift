@@ -18,8 +18,8 @@ struct SparseTipCalibrationCoordinatorTests {
     let point = try Point2<CameraPixelSpace>(x: 320, y: 240)
 
     #expect(try coordinator.prepareNextMark() == .center)
-    try coordinator.beganTap(at: .center)
-    try coordinator.beganReveal(from: .center, to: .negativeX)
+    try coordinator.beganMark(at: .center)
+    try coordinator.beganReveal(from: .center, to: MachinePosition(x: 90, y: 0))
     try coordinator.awaitFrozenClick(for: .center, frame: frame)
     try coordinator.select(ActionSurfacePointSelection(
       frame: frame,
@@ -39,8 +39,8 @@ struct SparseTipCalibrationCoordinatorTests {
     let frozen = try exactFrame(id: "frozen", hash: "b")
     let stale = try exactFrame(id: "stale", hash: "c")
     _ = try coordinator.prepareNextMark()
-    try coordinator.beganTap(at: .center)
-    try coordinator.beganReveal(from: .center, to: .negativeX)
+    try coordinator.beganMark(at: .center)
+    try coordinator.beganReveal(from: .center, to: MachinePosition(x: 90, y: 0))
     try coordinator.awaitFrozenClick(for: .center, frame: frozen)
 
     #expect(throws: SparseTipCalibrationCoordinatorError.staleSelection) {
@@ -53,13 +53,14 @@ struct SparseTipCalibrationCoordinatorTests {
     #expect(coordinator.phase == .awaitingFrozenClick(.center, frozen.frameID))
   }
 
-  @Test("ambiguous tap blacklists one location and never authorizes redraw")
+  @Test("ambiguous circle blacklists one location and never authorizes redraw")
   func ambiguityBlacklistsWithoutRedraw() throws {
     var coordinator = SparseTipCalibrationCoordinator()
     #expect(try coordinator.prepareNextMark() == .center)
     let location = BlacklistedToolContactLocation(
       calibrationPosition: .center,
       machinePosition: try MachinePosition(x: 0, y: 0),
+      markRadiusMM: 2,
       paperContactPlane: PaperContactPlaneRevision(
         rawValue: UUID(uuidString: "00000000-0000-0000-0000-000000000903")!
       )

@@ -10,9 +10,9 @@ Current implementation and verification are recorded in
 
 Run the complete [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md) on a
 disposable sheet. Validate actual controller settlement, five cap captures,
-five stationary contacts, frozen-frame human clicks, post-click geometry,
-smallest-passing model review, and one Stage 4 observed line. Record failures
-without retapping or redrawing ambiguous locations.
+five 2 mm-radius circular marks, far X-max/Y-zero-biased reveals, frozen-frame
+human center clicks, post-click geometry, smallest-passing model review, and one
+Stage 4 observed line. Record failures without redrawing ambiguous locations.
 
 This is the highest-priority gap. Automated and simulated evidence cannot close
 it.

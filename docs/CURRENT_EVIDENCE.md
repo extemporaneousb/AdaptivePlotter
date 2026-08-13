@@ -13,22 +13,42 @@ The current source contains exactly two post-Boundary calibration exercises:
 
 - 3.3 five-cap machine-to-visible-cap registration with three fit samples and
   two sealed holdouts;
-- 3.4 five stationary contact observations with frozen exact-frame human
-  clicks, post-click uncertainty/prediction/residual review, two holdouts,
+- 3.4 five centered 2 mm-radius, 16-chord circular-mark observations capped at
+  100 mm/min and using the full fixed Pen Down profile, far safe X-max/Y-zero-biased Pen-Up reveal,
+  stronger presentation-only focus, frozen exact-frame human center clicks,
+  post-click uncertainty/prediction/residual review, two holdouts,
   smallest-passing model selection, and explicit tip acceptance.
 
 `TipCameraRegistration` maps machine coordinates directly to contact pixels.
-Stage 4 consumes its exact revision and owns its own local baseline, reveal MPos,
-drawing execution, newer post-line frame, and generic ink observation.
+Stage 4 consumes its exact revision, selects a 5 mm line that clears persistent
+calibration circles, and owns its own local baseline, reveal MPos, drawing
+execution, newer post-line frame, and generic ink observation.
 
 The separate tip checkpoint loads quarantined. Same-paper restart uses a fresh
-controller/cap frame and no new tap. Replacement-paper recovery requires one new
+controller/cap frame and no new mark. Replacement-paper recovery requires one new
 accepted contact observation. Possible ink is keyed by machine position plus
-paper identity and survives cancel/restart/reset on that paper.
+mark radius plus paper identity and survives cancel/restart/reset on that paper.
 
 The former multi-step target/region workflow, its runtime protocol, simulator
 fixtures, exclusive tests, actions, artifacts, and detector composition are
 deleted rather than retained as compatibility code.
+
+## Stage 3.4 circular-mark visibility correction
+
+Validated 2026-08-12 in Blackdog task `TASK-BAD20882`, targeting `main` from
+base `3a025e489c6f1115faaa2b107c7eb33a8db4ba09`.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| Focused Stage 3.4 and checkpoint tests | passed — 83 tests | 2 mm/16-chord/100 mm/min geometry, far reveal, full configured Down outcome, frozen-frame focus, Stop blacklist, checkpoint reconstruction, Stage 4 clearance, rebased numerical-zero travel, scoped overlay retention |
+| `make quick-test` | passed — 321 tests | fast unit/component partition |
+| `make journey-test` | passed — 10 tests | retained sparse-circle, checkpoint, Stage 4, Boundary, reset, and simulator journeys |
+| `make strict-check` | passed — 331 tests | complete concurrency, warnings-as-errors, signed bundle and launcher validation, full test suite, repository checks |
+| `git diff --check` | passed | whitespace/conflict markers |
+
+These are software and simulated-workflow results. No app launch, controller
+connection, physical motion, camera capture, Pen Down observation, or observed
+ink validation was performed for this correction.
 
 ## Phase 4 automated evidence
 
@@ -42,7 +62,7 @@ are executed in the Blackdog task worktree and are software evidence only.
 | --- | --- | --- |
 | Independent architecture/deletion review | passed with fixes | chronology, checkpoint restore, post-click drawing, blacklist/reset lifecycle, journey routing, stale symbols |
 | Focused sparse authority and ActionSurface tests | passed — 72 tests | model/evidence constructors, checkpoint, frozen click, review geometry, planning, simulator |
-| Checkpoint restart and paper-plane journey | passed within focused/journey gates | same-paper no-tap restore; changed-paper one-contact restore |
+| Checkpoint restart and paper-plane journey | passed within focused/journey gates | same-paper no-mark restore; changed-paper one-circle restore |
 | LIVE reset durable-tip test | passed | quarantined tip store is cleared by affected Reset All plan |
 | `git diff --check` | passed | whitespace/conflict markers |
 | `make quick-test` | passed — 312 tests | unit/component partition with retained journeys excluded |
@@ -64,7 +84,7 @@ worktree.
 ## Simulator evidence
 
 The causal simulator retains a large nonzero cap-to-tip truth, persistent black
-stationary marks, isolated line ink, paper identity, and exact causal frames. It
+16-segment circular marks, isolated line ink, paper identity, and exact causal frames. It
 traverses the same public actions and dependency graph without calling physical
 machine actions. It validates workflow structure and provenance plumbing only.
 
@@ -77,7 +97,7 @@ For this replacement run, all of the following were deliberately skipped:
 - physical camera capture and optical-identity validation;
 - physical controller connection, command acceptance, Idle/MPos settlement, or
   motion observation;
-- physical Pen Down/Up and stationary-contact behavior;
+- physical full Pen Down/Up, 2 mm-radius circle motion, and contact behavior;
 - a human operator clicking real observed marks;
 - physical paper/contact-plane checkpoint revalidation;
 - observed physical black marks or Stage 4 line ink.
