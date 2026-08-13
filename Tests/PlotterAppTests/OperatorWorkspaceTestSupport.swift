@@ -829,6 +829,8 @@ final class CameraFixture: @unchecked Sendable {
   let snapshot: CameraCaptureSnapshot
   private let configurationID: CameraConfigurationID
   private let rotatesConfiguration: Bool
+  private let providesInspectionOverlay: Bool
+  private let providesAutomaticAnalysisResult: Bool
   private let lock = NSLock()
   private var inspectionCount = 0
   private var automaticInspectionRequests: [VisionAnalysisCadence?] = []
@@ -839,8 +841,14 @@ final class CameraFixture: @unchecked Sendable {
     return inspectionCount
   }
 
-  init(rotatesConfiguration: Bool = false) throws {
+  init(
+    rotatesConfiguration: Bool = false,
+    providesInspectionOverlay: Bool = false,
+    providesAutomaticAnalysisResult: Bool = false
+  ) throws {
     self.rotatesConfiguration = rotatesConfiguration
+    self.providesInspectionOverlay = providesInspectionOverlay
+    self.providesAutomaticAnalysisResult = providesAutomaticAnalysisResult
     configurationID = CameraConfigurationID()
     device = CameraDevice(id: CameraDeviceID(rawValue: "camera"), name: "Fixture camera")
     let initial = DisplayedFrame(
@@ -881,6 +889,19 @@ final class CameraFixture: @unchecked Sendable {
       try Point2(x: 0, y: 100),
       try Point2(x: 0, y: 0),
     ])
+    let overlays = providesInspectionOverlay
+      ? [
+        CameraOverlayMeasurement(
+          frameID: fresh.frame.id,
+          cameraConfigurationID: inspectionConfigurationID,
+          geometry: .point(try Point2(x: 99, y: 52)),
+          provenance: CameraMeasurementProvenance(
+            kind: .penCap,
+            source: .measured,
+            algorithmRevision: "workspace-test-v1"
+          )
+        )
+      ] : []
     let measurement = PlotterSceneMeasurement(
       frameID: fresh.frame.id,
       frameSHA256: fresh.frame.contentSHA256,
@@ -900,7 +921,7 @@ final class CameraFixture: @unchecked Sendable {
         basis: "test exact frame"
       ),
       armature: nil,
-      overlays: [],
+      overlays: overlays,
       algorithmRevision: "workspace-test-v1",
       diagnosticSHA256: fresh.frame.contentSHA256
     )
@@ -925,16 +946,30 @@ final class CameraFixture: @unchecked Sendable {
     lock.lock()
     automaticInspectionRequests.append(cadence)
     lock.unlock()
+    let latestResult = providesAutomaticAnalysisResult
+      ? try? inspection(after: 100).asAnalysisResult
+      : nil
     return PlotterSceneAnalysisSnapshot(
       state: cadence.map(PlotterSceneAnalysisState.running) ?? .stopped,
-      submittedFrameCount: 0,
-      analyzedFrameCount: 0,
+      submittedFrameCount: latestResult == nil ? 0 : 1,
+      analyzedFrameCount: latestResult == nil ? 0 : 1,
       supersededFrameCount: 0,
       failedFrameCount: 0,
       activeFrameSequence: nil,
       pendingFrameSequence: nil,
-      latestResult: nil,
+      latestResult: latestResult,
       lastError: nil
+    )
+  }
+}
+
+private extension LiveSceneInspection {
+  var asAnalysisResult: PlotterSceneAnalysisResult {
+    PlotterSceneAnalysisResult(
+      displayedFrame: displayedFrame,
+      measurement: measurement,
+      analysisDurationNanoseconds: 1,
+      completedNanoseconds: displayedFrame.frame.captureNanoseconds + 1
     )
   }
 }

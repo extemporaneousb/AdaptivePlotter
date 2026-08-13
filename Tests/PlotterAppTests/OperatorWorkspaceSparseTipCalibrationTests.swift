@@ -8,6 +8,34 @@ import Testing
 @MainActor
 @Suite("Operator workspace sparse tip calibration")
 struct OperatorWorkspaceSparseTipCalibrationTests {
+  @Test("settled sparse pose does not emit a numerical-zero travel")
+  func settledPoseSkipsNumericalZeroTravel() throws {
+    let current = try MachinePosition(x: -38.475, y: -23.641)
+    let numericallyDifferentTarget = try MachinePosition(
+      x: -38.474999999999994,
+      y: -23.641
+    )
+    let residue = numericallyDifferentTarget.point.x - current.point.x
+
+    #expect(residue > 0)
+    #expect(residue < 1e-12)
+    #expect(
+      try OperatorWorkspace.supervisedTravelDelta(
+        from: current,
+        to: numericallyDifferentTarget
+      ) == nil
+    )
+
+    let outsideTolerance = try MachinePosition(x: current.point.x + 0.051, y: current.point.y)
+    let travelDelta = try OperatorWorkspace.supervisedTravelDelta(
+      from: current,
+      to: outsideTolerance
+    )
+    let requiredDelta = try #require(travelDelta)
+    #expect(abs(requiredDelta.dx - 0.051) < 1e-12)
+    #expect(requiredDelta.dy == 0)
+  }
+
   @Test("five stationary marks select, fit, and accept one tip registration")
   func fullFiveMarkAcceptance() async throws {
     let checkpointBox = TipCheckpointBox()

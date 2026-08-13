@@ -32,6 +32,47 @@ extension OperatorWorkspaceTests {
     await workspace.shutdown()
   }
 
+  @Test("scoped motion analysis holds its exact overlay until preview resumes")
+  func scopedMotionAnalysisHoldsExactOverlay() async throws {
+    let log = EventLog()
+    let machine = try MachineFixture(
+      log: log,
+      relativeJogSettlementOffset: try Vector2(dx: 0, dy: 0)
+    )
+    let camera = try CameraFixture(providesInspectionOverlay: true)
+    let workspace = workspace(machine: machine, camera: camera, log: log)
+    await workspace.establishMachineSession(machine.descriptor)
+    await workspace.requestPassiveProbe()
+    await workspace.startCamera()
+    try await completePenInteraction(workspace)
+    try await completeLiveBoundaries(workspace, machine: machine)
+    await workspace.inspectLatestScene()
+    let prior = workspace.actionSurfacePresentation
+    let priorFrame = try #require(prior.displayedFrame)
+    #expect(prior.overlays.count == 1)
+    #expect(workspace.analysisFrameHeld)
+
+    let owner = LearningPathItemID.humanGuidedDiscovery(
+      .pairedBoundaryDiscoveryAndCentering
+    )
+    try await performPublicAction(.moveToEstimatedCenter, owner: owner, workspace: workspace)
+
+    let held = workspace.actionSurfacePresentation
+    let frame = try #require(held.displayedFrame)
+    #expect(held.overlays.count == 1)
+    let overlay = try #require(held.overlays.first)
+    #expect(camera.recordedAutomaticInspectionRequests == [.twoFPS, nil])
+    #expect(!workspace.scopedVisionAnalysisActive)
+    #expect(workspace.analysisFrameHeld)
+    #expect(frame.frame.id == priorFrame.frame.id)
+    #expect(overlay.matches(frame))
+
+    await workspace.resumeLivePreview()
+    #expect(!workspace.analysisFrameHeld)
+    #expect(workspace.actionSurfacePresentation.overlays.isEmpty)
+    await workspace.shutdown()
+  }
+
   @Test("manual contextual Stop sends one cancel and creates no boundary evidence")
   func manualStopHasNoBoundaryEvidence() async throws {
     let log = EventLog()

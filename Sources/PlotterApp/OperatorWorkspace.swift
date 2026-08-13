@@ -406,6 +406,10 @@ struct LiveSceneInspection: Sendable {
   let measurement: PlotterSceneMeasurement
 }
 
+private struct ScopedVisionAnalysisLease: Sendable {
+  let priorHeldInspection: LiveSceneInspection?
+}
+
 struct ProtocolPoseSettlement: Hashable, Sendable {
   let action: String
   let target: MachinePosition
@@ -2861,19 +2865,18 @@ final class OperatorWorkspace {
         )
       }
       let current = try currentMachinePosition()
-      let delta = try Vector2<MachineSpace>(
-        dx: sample.machinePosition.point.x - current.point.x,
-        dy: sample.machinePosition.point.y - current.point.y
-      )
       let settled: MachinePosition
-      if delta.dx == 0, delta.dy == 0 {
-        settled = current
-      } else {
+      if let delta = try Self.supervisedTravelDelta(
+        from: current,
+        to: sample.machinePosition
+      ) {
         settled = try await performSupervisedPenUpTravel(
           delta: delta,
           ownerID: ownerID,
           action: "Sparse Tip Mark \(position.rawValue) Approach"
         )
+      } else {
+        settled = current
       }
       guard recordProtocolPoseSettlement(
         action: "Sparse Tip Mark \(position.rawValue) Approach",
@@ -2912,19 +2915,18 @@ final class OperatorWorkspace {
       let revealTarget = plan.samples.first(where: { $0.position == revealPosition })!
         .machinePosition
       try sparseTipCalibrationCoordinator.beganReveal(from: position, to: revealPosition)
-      let revealDelta = try Vector2<MachineSpace>(
-        dx: revealTarget.point.x - settled.point.x,
-        dy: revealTarget.point.y - settled.point.y
-      )
       let revealSettled: MachinePosition
-      if revealDelta.dx == 0, revealDelta.dy == 0 {
-        revealSettled = settled
-      } else {
+      if let revealDelta = try Self.supervisedTravelDelta(
+        from: settled,
+        to: revealTarget
+      ) {
         revealSettled = try await performSupervisedPenUpTravel(
           delta: revealDelta,
           ownerID: ownerID,
           action: "Reveal Sparse Tip Mark \(position.rawValue)"
         )
+      } else {
+        revealSettled = settled
       }
       guard recordProtocolPoseSettlement(
         action: "Reveal Sparse Tip Mark \(position.rawValue)",
@@ -5161,19 +5163,30 @@ final class OperatorWorkspace {
     if let latest = snapshot.latestFrame { displayedFrame = latest }
   }
 
-  private func beginScopedVisionAnalysis() async -> Bool {
+  private func beginScopedVisionAnalysis() async -> ScopedVisionAnalysisLease? {
     guard !hasShutdown, frameMode == .live,
       case .running = cameraSnapshot?.state,
       !scopedVisionAnalysisActive,
       let cameraActions
-    else { return false }
+    else { return nil }
+    let priorHeldInspection: LiveSceneInspection? =
+      if analysisFrameHeld,
+        let displayedFrame,
+        let measurement = lastSceneMeasurement,
+        measurement.frameID == displayedFrame.frame.id,
+        measurement.cameraConfigurationID == displayedFrame.frame.cameraConfigurationID
+      {
+        LiveSceneInspection(displayedFrame: displayedFrame, measurement: measurement)
+      } else {
+        nil
+      }
     let generation = lifetimeGeneration
     visionUpdateTask?.cancel()
     visionUpdateTask = nil
     let snapshot = await cameraActions.setAutomaticInspection(.twoFPS)
     guard canCommit(generation), frameMode == .live else {
       _ = await cameraActions.setAutomaticInspection(nil)
-      return false
+      return nil
     }
     scopedVisionAnalysisActive = true
     visionError = snapshot.lastError
@@ -5181,20 +5194,35 @@ final class OperatorWorkspace {
     visionAnalysisSnapshot = snapshot
     beginVisionUpdates(generation: generation)
     if let result = snapshot.latestResult { receiveVision(result) }
-    return true
+    return ScopedVisionAnalysisLease(priorHeldInspection: priorHeldInspection)
   }
 
-  private func endScopedVisionAnalysis(_ scopeWasStarted: Bool) async {
-    guard scopeWasStarted, let cameraActions else { return }
+  private func endScopedVisionAnalysis(_ lease: ScopedVisionAnalysisLease?) async {
+    guard let lease, let cameraActions else { return }
     visionUpdateTask?.cancel()
     visionUpdateTask = nil
     let generation = lifetimeGeneration
+    let lastAnalyzedResult = visionAnalysisSnapshot.latestResult
     let snapshot = await cameraActions.setAutomaticInspection(nil)
     guard canCommit(generation) else { return }
     scopedVisionAnalysisActive = false
     visionError = snapshot.lastError
-    analysisFrameHeld = false
     visionAnalysisSnapshot = snapshot
+    if let heldResult = snapshot.latestResult ?? lastAnalyzedResult {
+      analysisFrameHeld = true
+      displayedFrame = heldResult.displayedFrame
+      lastSceneMeasurement = heldResult.measurement
+      cameraOverlays = heldResult.measurement.overlays
+      return
+    }
+    if let prior = lease.priorHeldInspection {
+      analysisFrameHeld = true
+      displayedFrame = prior.displayedFrame
+      lastSceneMeasurement = prior.measurement
+      cameraOverlays = prior.measurement.overlays
+      return
+    }
+    analysisFrameHeld = false
     lastSceneMeasurement = nil
     cameraOverlays = []
     let latestCameraSnapshot = await cameraActions.snapshot()
@@ -8833,6 +8861,19 @@ final class OperatorWorkspace {
     ControllerPositionAcceptancePolicy.accepts(actual, target: target)
   }
 
+  static func supervisedTravelDelta(
+    from current: MachinePosition,
+    to target: MachinePosition
+  ) throws -> Vector2<MachineSpace>? {
+    guard !ControllerPositionAcceptancePolicy.accepts(current, target: target) else {
+      return nil
+    }
+    return try Vector2(
+      dx: target.point.x - current.point.x,
+      dy: target.point.y - current.point.y
+    )
+  }
+
   private func recordProtocolPoseSettlement(
     action: String,
     target: MachinePosition,
@@ -8861,17 +8902,17 @@ final class OperatorWorkspace {
     ownerID: LearningPathItemID,
     action: String
   ) async throws -> MachinePosition {
-    let visionScopeWasStarted = await beginScopedVisionAnalysis()
+    let visionLease = await beginScopedVisionAnalysis()
     do {
       let finalPosition = try await executeSupervisedPenUpTravel(
         delta: delta,
         ownerID: ownerID,
         action: action
       )
-      await endScopedVisionAnalysis(visionScopeWasStarted)
+      await endScopedVisionAnalysis(visionLease)
       return finalPosition
     } catch {
-      await endScopedVisionAnalysis(visionScopeWasStarted)
+      await endScopedVisionAnalysis(visionLease)
       throw error
     }
   }
