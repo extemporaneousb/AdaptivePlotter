@@ -120,6 +120,10 @@ Every controller action has one typed intent, one owner, and a bounded terminal
 contract. `ok` proves acceptance only. Completion requires fresh Idle and final
 MPos when the operation consumes position.
 
+Failure kind, attempt disposition, recovery, and possible-ink meaning are typed
+facts. Human-readable descriptions are projections only; wording changes cannot
+alter blacklist, no-redraw, Stop, or accepted-fallback behavior.
+
 All production requested-pose comparisons use fresh attributable controller
 evidence, compatible context, and at most 0.05 mm Euclidean residual. “Exact
 pose” names that quantization-aware policy; it does not mean zero mathematical

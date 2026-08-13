@@ -337,6 +337,52 @@ private struct ContextualStopDispositionLatch: Hashable, Sendable {
   let actor: String
 }
 
+private enum ContextualStopLifecycleState {
+  case available
+  case latched(ContextualStopDispositionLatch, cancellationRequestInProgress: Bool)
+
+  var latch: ContextualStopDispositionLatch? {
+    switch self {
+    case .available: nil
+    case .latched(let latch, _): latch
+    }
+  }
+
+  var cancellationRequestInProgress: Bool {
+    if case .latched(_, let inProgress) = self { return inProgress }
+    return false
+  }
+}
+
+private enum StoppableOperationOwner {
+  case boundary(Task<Void, Never>)
+  case motion(Task<MotionOutcome, Never>)
+  case drawing(Task<DrawingStrokeOutcome, Never>)
+  case simulated(Task<SimulatedLearningOperationOutcome?, Never>)
+
+  func settle() async {
+    switch self {
+    case .boundary(let task): await task.value
+    case .motion(let task): _ = await task.value
+    case .drawing(let task): _ = await task.value
+    case .simulated(let task): _ = await task.value
+    }
+  }
+
+  var drawingMayHaveInk: Bool {
+    switch self {
+    case .drawing, .simulated: true
+    case .boundary, .motion: false
+    }
+  }
+}
+
+private struct ActiveStoppableOperation {
+  let target: ContextualStopTarget
+  let owner: StoppableOperationOwner
+  var state: ContextualStopLifecycleState = .available
+}
+
 private struct BoundaryApproachAdvisory: Sendable {
   let observation: BoundaryApproachObservation?
   let advice: BoundaryApproachAdvice
@@ -364,7 +410,11 @@ enum DrawingTrialAssessment: String, CaseIterable, Identifiable, Hashable, Senda
 
 private enum LearningPathOperationError: LocalizedError, Sendable {
   case freshFrameUnavailable
-  case controllerOutcome(String)
+  case controllerRefused(String)
+  case controllerCancelled(String)
+  case controllerAmbiguous(String)
+  case controllerFailed(String)
+  case possibleInk(String)
   case controllerContextChanged(ControllerCheckpointContextComparison)
   case inkRejected(String)
   case requiredState(String)
@@ -373,7 +423,9 @@ private enum LearningPathOperationError: LocalizedError, Sendable {
     switch self {
     case .freshFrameUnavailable:
       "A strictly newer exact camera frame was unavailable."
-    case .controllerOutcome(let detail), .inkRejected(let detail), .requiredState(let detail):
+    case .controllerRefused(let detail), .controllerCancelled(let detail),
+      .controllerAmbiguous(let detail), .controllerFailed(let detail), .possibleInk(let detail),
+      .inkRejected(let detail), .requiredState(let detail):
       detail
     case .controllerContextChanged(let comparison):
       "Controller context changed during calibration: \(comparison.actionableDescription) The sample was discarded without motion retry."
@@ -381,8 +433,74 @@ private enum LearningPathOperationError: LocalizedError, Sendable {
   }
 }
 
+enum WorkflowFailureKind: String, Codable, Hashable, Sendable {
+  case refused
+  case unclear
+  case ambiguous
+  case cancelled
+  case failed
+  case possibleInk
+}
+
+struct WorkflowFailure: Error, Hashable, Sendable {
+  let kind: WorkflowFailureKind
+  let detail: String
+  let recovery: WorkflowTelemetryRecovery
+
+  static func failed(_ detail: String) -> Self {
+    Self(kind: .failed, detail: detail, recovery: .resolveNamedFailure)
+  }
+
+  static func refused(_ detail: String) -> Self {
+    Self(kind: .refused, detail: detail, recovery: .resolveNamedFailure)
+  }
+
+  static func ambiguous(_ detail: String) -> Self {
+    Self(kind: .ambiguous, detail: detail, recovery: .resolveNamedFailure)
+  }
+
+  var attemptDisposition: ExerciseAttemptDisposition {
+    switch kind {
+    case .refused: .refused(detail)
+    case .unclear: .unclear(detail)
+    case .ambiguous, .possibleInk: .ambiguous(detail)
+    case .cancelled: .cancelled
+    case .failed: .failed(detail)
+    }
+  }
+
+  var boundaryDisposition: BoundaryActivityDisposition {
+    switch kind {
+    case .refused: .refused(detail)
+    case .ambiguous, .possibleInk: .ambiguous(detail)
+    case .cancelled: .cancelled
+    case .unclear, .failed: .failed(detail)
+    }
+  }
+}
+
+enum CurrentCameraCalibrationPhase: Codable, Hashable, Sendable {
+  case preparing
+  case capturing(sample: Int, total: Int, role: String?)
+  case moving(sample: Int, total: Int)
+  case returningToReference
+  case fittingAndTestingHoldouts
+
+  var description: String {
+    switch self {
+    case .preparing: "Preparing bounded calibration"
+    case .capturing(let sample, let total, let role):
+      "Capturing exact sample \(sample) of \(total)\(role.map { " at \($0)" } ?? "")"
+    case .moving(let sample, let total): "Moving Pen Up to exact sample \(sample) of \(total)"
+    case .returningToReference: "Returning Pen Up to the recorded calibration reference pose"
+    case .fittingAndTestingHoldouts:
+      "Testing two independent cap holdouts and staging the all-five refit"
+    }
+  }
+}
+
 private struct CurrentCameraCalibrationFailure: Hashable, Sendable {
-  let code: String
+  let code: WorkflowTelemetryFailureCode
   let detail: String
   let recovery: WorkflowTelemetryRecovery
 
@@ -491,6 +609,17 @@ final class OperatorWorkspace {
     let completedEpisodes: [ExplorationEpisode]
   }
 
+  private enum DrawingStrokeExecutionState: Hashable, Sendable {
+    case notAdmitted
+    case completedNaturally
+    case possibleInk
+  }
+
+  private struct ActiveExplorationOperation: Hashable, Sendable {
+    let step: ObservedDrawingTrialStep
+    var strokeState: DrawingStrokeExecutionState
+  }
+
   /// One complete learning authority value. LIVE and SIMULATED use the same
   /// contract while retaining independent storage and independent lifetimes.
   private struct LearningSessionState {
@@ -521,7 +650,7 @@ final class OperatorWorkspace {
     var selectedToolContactPoint: Point2<CameraPixelSpace>?
     var blacklistedToolContactLocations: Set<BlacklistedToolContactLocation> = []
     var explicitRegistrationCapAnchorEvidence: [MachineCameraCorrespondenceProvenance] = []
-    var currentCameraCalibrationPhase: String?
+    var currentCameraCalibrationPhase: CurrentCameraCalibrationPhase?
     var currentCameraCalibrationFailure: CurrentCameraCalibrationFailure?
     var lastContextualStopAuditRecord: ContextualStopAuditRecord?
     var boundaryActivityRecords: [BoundaryActivityRecord] = []
@@ -678,7 +807,6 @@ final class OperatorWorkspace {
   private(set) var passiveProbeInProgress = false
   private(set) var jogRequestInProgress = false
   private(set) var penRequestInProgress = false
-  private(set) var jogCancelRequestInProgress = false
   private(set) var frameModeSwitchInProgress = false
   private(set) var motionGuardActivationInProgress = false
   private(set) var lastMotionGuardActivationText = "not activated"
@@ -841,7 +969,7 @@ final class OperatorWorkspace {
     get { activeLearningSession.explicitRegistrationCapAnchorEvidence }
     set { activeLearningSession.explicitRegistrationCapAnchorEvidence = newValue }
   }
-  private(set) var currentCameraCalibrationPhase: String? {
+  private(set) var currentCameraCalibrationPhase: CurrentCameraCalibrationPhase? {
     get { activeLearningSession.currentCameraCalibrationPhase }
     set { activeLearningSession.currentCameraCalibrationPhase = newValue }
   }
@@ -905,7 +1033,7 @@ final class OperatorWorkspace {
     get { activeLearningSession.explorationExportPath }
     set { activeLearningSession.explorationExportPath = newValue }
   }
-  private(set) var explorationOperationInProgress = false
+  private var activeExplorationOperation: ActiveExplorationOperation?
   private(set) var lastAnnouncementResultText = "No announcement has run."
   private(set) var lastTravelFeedSelection: TravelFeedSelection? {
     get { activeLearningSession.lastTravelFeedSelection }
@@ -1010,16 +1138,15 @@ final class OperatorWorkspace {
     [ExerciseAttemptID: Task<Void, Never>] = [:]
   @ObservationIgnored private var boundaryApproachAdvisories:
     [ExerciseAttemptID: BoundaryApproachAdvisory] = [:]
-  @ObservationIgnored private var manualJogTask: Task<MotionOutcome, Never>?
-  @ObservationIgnored private var exerciseMotionTask: Task<MotionOutcome, Never>?
   @ObservationIgnored private var currentCameraCalibrationTask: Task<Void, Never>?
-  @ObservationIgnored private var drawingTrialTask: Task<DrawingStrokeOutcome, Never>?
-  @ObservationIgnored private var sparseTipMarkTask: Task<DrawingStrokeOutcome, Never>?
-  @ObservationIgnored private var drawingTrialStrokeCompletedNaturally = false
-  @ObservationIgnored private var simulatedOperationTask:
-    Task<SimulatedLearningOperationOutcome?, Never>?
-  @ObservationIgnored private var activeStopTarget: ContextualStopTarget?
-  @ObservationIgnored private var stopDispositionLatch: ContextualStopDispositionLatch?
+  @ObservationIgnored private var activeStoppableOperation: ActiveStoppableOperation?
+  private var activeStopTarget: ContextualStopTarget? { activeStoppableOperation?.target }
+  private var stopDispositionLatch: ContextualStopDispositionLatch? {
+    activeStoppableOperation?.state.latch
+  }
+  private var jogCancelRequestInProgress: Bool {
+    activeStoppableOperation?.state.cancellationRequestInProgress == true
+  }
   @ObservationIgnored private var pendingBoundaryFinalPositions:
     [ExerciseAttemptID: MachinePosition] = [:]
   @ObservationIgnored private var pendingBoundaryOwnerIDs:
@@ -1275,7 +1402,7 @@ final class OperatorWorkspace {
 
   var currentCameraCalibrationBusyReason: String? {
     currentCameraCalibrationPhase.map {
-      "Automatic current-camera calibration is in progress (\($0)). Use Stop during an admitted move."
+      "Automatic current-camera calibration is in progress (\($0.description)). Use Stop during an admitted move."
     }
   }
 
@@ -1561,7 +1688,7 @@ final class OperatorWorkspace {
     }
     if passiveProbeInProgress || jogRequestInProgress || penRequestInProgress
       || jogCancelRequestInProgress || motionGuardActivationInProgress
-      || explorationOperationInProgress
+      || activeExplorationOperation != nil
     {
       return "Wait for the current operation."
     }
@@ -1582,7 +1709,7 @@ final class OperatorWorkspace {
     if activeDiscoverySequenceID != nil {
       return "Finish the active Human-Guided Discovery transaction first."
     }
-    if explorationOperationInProgress {
+    if activeExplorationOperation != nil {
       return "Wait for the current learning action before changing frame source."
     }
     if passiveProbeInProgress || jogRequestInProgress || penRequestInProgress
@@ -1687,7 +1814,7 @@ final class OperatorWorkspace {
     if activeExerciseAttemptID != nil {
       return "Cancel or finish the active exercise attempt before resetting learning."
     }
-    if activeStopTarget != nil || explorationOperationInProgress {
+    if activeStopTarget != nil || activeExplorationOperation != nil {
       return "Stop or cancel the active learning operation and wait for settlement first."
     }
     if passiveProbeInProgress || jogRequestInProgress || penRequestInProgress
@@ -2319,7 +2446,7 @@ final class OperatorWorkspace {
         )
         guard ControllerPositionAcceptancePolicy.accepts(final, target: destination) else {
           let residual = lastProtocolPoseSettlement?.residualMM ?? .infinity
-          throw LearningPathOperationError.controllerOutcome(
+          throw LearningPathOperationError.controllerFailed(
             String(
               format:
                 "Center travel settled %.3f mm from the target, outside the %.3f mm tolerance. "
@@ -2355,9 +2482,10 @@ final class OperatorWorkspace {
       persistAcceptedMachineArtifacts()
       finishActiveExerciseAttempt(disposition: .succeeded)
     } catch {
-      explorationError = actionableDescription(error)
+      let failure = workflowFailure(for: error)
+      explorationError = failure.detail
       if activeExerciseAttemptOwnerID == ownerID {
-        finishActiveExerciseAttempt(disposition: attemptDisposition(for: explorationError ?? ""))
+        finishActiveExerciseAttempt(disposition: failure.attemptDisposition)
       }
       centerArrivalRetryRequired = true
       restartableExerciseItemID = nil
@@ -2721,7 +2849,7 @@ final class OperatorWorkspace {
       )
     )
     await updateCurrentCameraCalibrationPhase(
-      "Preparing bounded calibration",
+      .preparing,
       operationID: operationID,
       attemptID: attemptID
     )
@@ -2745,7 +2873,7 @@ final class OperatorWorkspace {
       )
 
       await updateCurrentCameraCalibrationPhase(
-        "Capturing exact sample 1 of 5 at C (fit)",
+        .capturing(sample: 1, total: 5, role: "C (fit)"),
         operationID: operationID,
         attemptID: attemptID
       )
@@ -2761,7 +2889,7 @@ final class OperatorWorkspace {
         try requireCalibrationContinuation()
         let expected = plan.samplePositions[sampleIndex]
         await updateCurrentCameraCalibrationPhase(
-          "Moving Pen Up to exact sample \(sampleIndex + 1) of 5",
+          .moving(sample: sampleIndex + 1, total: 5),
           operationID: operationID,
           attemptID: attemptID
         )
@@ -2778,12 +2906,12 @@ final class OperatorWorkspace {
             actual: final
           )
         else {
-          throw LearningPathOperationError.controllerOutcome(
+          throw LearningPathOperationError.controllerFailed(
             "Calibration travel did not settle at exact sample \(sampleIndex + 1) of 5."
           )
         }
         await updateCurrentCameraCalibrationPhase(
-          "Capturing exact sample \(sampleIndex + 1) of 5",
+          .capturing(sample: sampleIndex + 1, total: 5, role: nil),
           operationID: operationID,
           attemptID: attemptID
         )
@@ -2798,7 +2926,7 @@ final class OperatorWorkspace {
 
       try requireCalibrationContinuation()
       await updateCurrentCameraCalibrationPhase(
-        "Returning Pen Up to the recorded calibration reference pose",
+        .returningToReference,
         operationID: operationID,
         attemptID: attemptID
       )
@@ -2815,13 +2943,13 @@ final class OperatorWorkspace {
           actual: returned
         )
       else {
-        throw LearningPathOperationError.controllerOutcome(
+        throw LearningPathOperationError.controllerFailed(
           "Calibration return did not settle at the recorded reference pose."
         )
       }
       try requireCalibrationContinuation()
       await updateCurrentCameraCalibrationPhase(
-        "Testing two independent cap holdouts and staging the all-five refit",
+        .fittingAndTestingHoldouts,
         operationID: operationID,
         attemptID: attemptID
       )
@@ -2861,7 +2989,7 @@ final class OperatorWorkspace {
       let failure = currentCameraCalibrationFailure(for: error, targetPosition: targetPosition)
       currentCameraCalibrationFailure = failure
       explorationError =
-        "Current-camera calibration failed [\(failure.code)]: \(failure.detail)"
+        "Current-camera calibration failed [\(failure.code.rawValue)]: \(failure.detail)"
       await recordWorkflowTelemetry(
         WorkflowTelemetryEvent(
           operationID: operationID,
@@ -2982,7 +3110,7 @@ final class OperatorWorkspace {
     )
     try requireCalibrationContinuation()
     guard protocolPositionsMatch(beforeCapture.position, afterCapture.position) else {
-      throw LearningPathOperationError.controllerOutcome(
+      throw LearningPathOperationError.controllerFailed(
         "Controller MPos changed while the camera sample was being captured; the sample was discarded."
       )
     }
@@ -3028,7 +3156,7 @@ final class OperatorWorkspace {
       guard snapshot.currentOperation == nil, snapshot.stickyAmbiguity == nil,
         snapshot.penPose == .up
       else {
-        throw LearningPathOperationError.controllerOutcome(
+        throw LearningPathOperationError.controllerFailed(
           "The simulated controller was not settled at an unambiguous Pen-Up position."
         )
       }
@@ -3061,7 +3189,7 @@ final class OperatorWorkspace {
             refreshedProbeID: probe.probeID,
             comparison: comparison
           ),
-          failureCode: comparison.isCompatible ? nil : "controller_context_changed",
+          failureCode: comparison.isCompatible ? nil : .controllerContextChanged,
           recovery: comparison.isCompatible ? .none : .revalidateControllerContext
         )
       )
@@ -3094,7 +3222,7 @@ final class OperatorWorkspace {
       snapshot.machine.penState == .up,
       let position = snapshot.machine.position
     else {
-      throw LearningPathOperationError.controllerOutcome(
+      throw LearningPathOperationError.controllerFailed(
         "Fresh controller status did not prove an unambiguous Idle Pen-Up MPos."
       )
     }
@@ -3206,7 +3334,7 @@ final class OperatorWorkspace {
           actual: settled
         )
       else {
-        throw LearningPathOperationError.controllerOutcome(
+        throw LearningPathOperationError.controllerFailed(
           "Sparse mark approach did not settle within 0.05 mm."
         )
       }
@@ -3240,7 +3368,7 @@ final class OperatorWorkspace {
           actual: markStartSettled
         )
       else {
-        throw LearningPathOperationError.controllerOutcome(
+        throw LearningPathOperationError.controllerFailed(
           "Sparse circle start did not settle within 0.05 mm."
         )
       }
@@ -3274,7 +3402,7 @@ final class OperatorWorkspace {
           actual: revealSettled
         )
       else {
-        throw LearningPathOperationError.controllerOutcome(
+        throw LearningPathOperationError.controllerFailed(
           "Sparse mark reveal did not settle within 0.05 mm."
         )
       }
@@ -3336,18 +3464,15 @@ final class OperatorWorkspace {
       explorationError = nil
       _ = machineRegistrationRevision
     } catch {
+      let failure = workflowFailure(for: error)
       if let activeLocation {
-        if blacklistedToolContactLocations.contains(activeLocation) || markCompleted {
+        if blacklistedToolContactLocations.contains(activeLocation) || markCompleted
+          || failure.kind == .ambiguous || failure.kind == .possibleInk
+        {
           blacklistedToolContactLocations.insert(activeLocation)
           sparseTipCalibrationCoordinator.blacklistPossibleInk(
             at: activeLocation,
-            reason: actionableDescription(error)
-          )
-        } else if actionableDescription(error).localizedCaseInsensitiveContains("ambiguous") {
-          blacklistedToolContactLocations.insert(activeLocation)
-          sparseTipCalibrationCoordinator.blacklistPossibleInk(
-            at: activeLocation,
-            reason: actionableDescription(error)
+            reason: failure.detail
           )
         } else {
           sparseTipCalibrationCoordinator.resetBeforeInkFailure()
@@ -3358,7 +3483,7 @@ final class OperatorWorkspace {
       toolContactPointSelectionRequest = nil
       selectedToolContactPoint = nil
       explorationError =
-        "Sparse tip calibration stopped without automatic retry: \(actionableDescription(error))"
+        "Sparse tip calibration stopped without automatic retry: \(failure.detail)"
     }
   }
 
@@ -3384,14 +3509,19 @@ final class OperatorWorkspace {
       machineSnapshot = await machineActions.snapshot()
     }
     guard case .commandedAndSettled(command: .lower, commandedState: .down) = lower else {
-      if case .ambiguous = lower {
+      switch lower {
+      case .ambiguous:
         blacklistedToolContactLocations.insert(location)
         sparseTipCalibrationCoordinator.blacklistPossibleInk(
           at: location,
           reason: String(describing: lower)
         )
+        throw LearningPathOperationError.possibleInk(String(describing: lower))
+      case .refused:
+        throw LearningPathOperationError.controllerRefused(String(describing: lower))
+      case .commandedAndSettled:
+        preconditionFailure("The successful Pen Down outcome was handled by the guard.")
       }
-      throw LearningPathOperationError.controllerOutcome(String(describing: lower))
     }
 
     let downTime = RuntimeTimestamp(
@@ -3420,17 +3550,11 @@ final class OperatorWorkspace {
               pacing: simulatedExecutionPacing
             ).result.get()
           }
-          simulatedOperationTask = task
-          activeStopTarget = target
-          stopDispositionLatch = nil
+          installStoppableOperation(target: target, owner: .simulated(task))
+          defer { clearStoppableOperation(matching: target) }
           let outcome = await task.value
-          simulatedOperationTask = nil
-          if activeStopTarget == target { activeStopTarget = nil }
-          if stopDispositionLatch?.capabilityID == target.capabilityID {
-            stopDispositionLatch = nil
-          }
           guard let outcome, outcome.disposition == .naturallyCompleted else {
-            throw LearningPathOperationError.controllerOutcome(
+            throw LearningPathOperationError.possibleInk(
               "The 2 mm calibration circle stopped after contact; possible ink exists."
             )
           }
@@ -3459,7 +3583,7 @@ final class OperatorWorkspace {
           case .admitted(let admitted):
             operation = admitted
           case .rejected(let outcome):
-            throw LearningPathOperationError.controllerOutcome(String(describing: outcome))
+            throw operationError(for: outcome, possibleInk: true)
           }
           let target = ContextualStopTarget.sparseTipMark(
             capabilityID: ContextualStopCapabilityID(),
@@ -3467,29 +3591,23 @@ final class OperatorWorkspace {
             location: location
           )
           let task = Task { await operation.outcome() }
-          sparseTipMarkTask = task
-          activeStopTarget = target
-          stopDispositionLatch = nil
+          installStoppableOperation(target: target, owner: .drawing(task))
+          defer { clearStoppableOperation(matching: target) }
           let outcome = await task.value
-          sparseTipMarkTask = nil
-          if activeStopTarget == target { activeStopTarget = nil }
-          if stopDispositionLatch?.capabilityID == target.capabilityID {
-            stopDispositionLatch = nil
-          }
           machineSnapshot = await machineActions.snapshot()
           switch outcome {
           case .completed(let evidence):
             finalPosition = evidence.finalPosition
           case .cancelled(_, let penRaiseOutcome):
-            throw LearningPathOperationError.controllerOutcome(
+            throw LearningPathOperationError.possibleInk(
               "The calibration circle was stopped; Pen Up outcome: \(penRaiseOutcome)"
             )
           case .ambiguous(let ambiguity):
-            throw LearningPathOperationError.controllerOutcome(
+            throw LearningPathOperationError.possibleInk(
               ambiguity.actionableDescription
             )
           case .refused(let refusal):
-            throw LearningPathOperationError.controllerOutcome(String(describing: refusal))
+            throw LearningPathOperationError.controllerRefused(String(describing: refusal))
           }
         }
         guard
@@ -3499,7 +3617,7 @@ final class OperatorWorkspace {
             actual: finalPosition
           )
         else {
-          throw LearningPathOperationError.controllerOutcome(
+          throw LearningPathOperationError.controllerFailed(
             "A 2 mm calibration-circle chord did not settle within 0.05 mm."
           )
         }
@@ -3532,7 +3650,7 @@ final class OperatorWorkspace {
         at: location,
         reason: String(describing: raise)
       )
-      throw LearningPathOperationError.controllerOutcome(String(describing: raise))
+      throw operationError(for: raise, possibleInk: true)
     }
     let upTime = RuntimeTimestamp(
       monotonicNanoseconds: frameMode == .simulated
@@ -4110,7 +4228,7 @@ final class OperatorWorkspace {
   }
 
   func performCurrentLearningPathAction() async {
-    guard tipCameraRegistration != nil, !explorationOperationInProgress else { return }
+    guard tipCameraRegistration != nil, activeExplorationOperation == nil else { return }
     let attemptedStep = observedDrawingTrialStep
     if activeExerciseAttemptOwnerID == nil {
       beginExerciseAttempt(
@@ -4119,12 +4237,12 @@ final class OperatorWorkspace {
       )
     }
     let payloadSnapshot = drawingTrialPayloadSnapshot()
-    if attemptedStep == .drawIsolatedLine {
-      drawingTrialStrokeCompletedNaturally = false
-    }
-    explorationOperationInProgress = true
+    activeExplorationOperation = ActiveExplorationOperation(
+      step: attemptedStep,
+      strokeState: .notAdmitted
+    )
     explorationError = nil
-    defer { explorationOperationInProgress = false }
+    defer { activeExplorationOperation = nil }
     do {
       switch observedDrawingTrialStep {
       case .chooseIsolatedLinePlan:
@@ -4147,10 +4265,11 @@ final class OperatorWorkspace {
       }
     } catch {
       if attemptedStep == .drawIsolatedLine,
-        drawingTrialStrokeEvidence != payloadSnapshot.strokeEvidence
+        (drawingTrialStrokeEvidence != payloadSnapshot.strokeEvidence
+          || activeExplorationOperation?.strokeState != .notAdmitted)
       {
         var commitFailure: String?
-        if drawingTrialStrokeCompletedNaturally {
+        if activeExplorationOperation?.strokeState == .completedNaturally {
           do {
             try commitDrawingArtifact(for: .drawIsolatedLine)
           } catch {
@@ -4172,8 +4291,7 @@ final class OperatorWorkspace {
       }
       restoreDrawingTrialPayload(payloadSnapshot)
       explorationError = "\(attemptedStep.title) failed: \(error)"
-      let disposition = attemptDisposition(for: String(describing: error))
-      finishActiveExerciseAttempt(disposition: disposition)
+      finishActiveExerciseAttempt(disposition: workflowFailure(for: error).attemptDisposition)
       restartableExerciseItemID = .observedDrawingTrial(attemptedStep)
     }
   }
@@ -4611,7 +4729,7 @@ final class OperatorWorkspace {
     guard currentCameraCalibrationBusyReason == nil else { return }
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
-    guard activeDiscoverySequenceID == nil, !explorationOperationInProgress else { return }
+    guard activeDiscoverySequenceID == nil, activeExplorationOperation == nil else { return }
     guard !passiveProbeInProgress && !jogRequestInProgress && !penRequestInProgress else { return }
     guard serialDevices.contains(where: { $0.identifier == descriptor.identifier }) else { return }
     if selectedSerialDevice?.identifier != descriptor.identifier, machineSnapshot != nil {
@@ -4804,13 +4922,20 @@ final class OperatorWorkspace {
             simulatorPenState = simulatorPenState(from: pose)
             controllerSummary = "Simulated pen \(pose.rawValue). \(response.evidenceNotice.label)"
           case .failure(let refusal):
-            await failDiscovery(sequenceID, reason: "Simulated pen action refused: \(refusal).")
+            await failDiscovery(
+              sequenceID, failure: .refused("Simulated pen action refused: \(refusal)."))
             return
           }
         } else {
           await requestPenActuation(command)
           guard case .commandedAndSettled = machineSnapshot?.lastPenOutcome else {
-            await failDiscovery(sequenceID, reason: lastPenOutcomeText)
+            let failure: WorkflowFailure =
+              if case .ambiguous = machineSnapshot?.lastPenOutcome {
+                .ambiguous(lastPenOutcomeText)
+              } else {
+                .refused(lastPenOutcomeText)
+              }
+            await failDiscovery(sequenceID, failure: failure)
             return
           }
           controllerSummary = lastPenOutcomeText
@@ -4839,8 +4964,9 @@ final class OperatorWorkspace {
     else {
       await failDiscovery(
         sequenceID,
-        reason:
+        failure: .failed(
           "The Boundary commit is missing its attempt-bound Stop/Idle/final-MPos controller settlement."
+        )
       )
       return
     }
@@ -4997,7 +5123,7 @@ final class OperatorWorkspace {
     } catch {
       await failDiscovery(
         sequenceID,
-        reason: "Atomic Boundary observation commit failed: \(error)"
+        failure: workflowFailure(for: error)
       )
     }
   }
@@ -5053,13 +5179,14 @@ final class OperatorWorkspace {
     }
   }
 
-  private func failDiscovery(_ sequenceID: DiscoverySequenceID, reason: String) async {
+  private func failDiscovery(_ sequenceID: DiscoverySequenceID, failure: WorkflowFailure) async {
+    let reason = failure.detail
     if var transaction = discoveryTransactions[sequenceID] {
       transaction.fail(reason)
       discoveryTransactions[sequenceID] = transaction
     }
     discoveryError = reason
-    let disposition = attemptDisposition(for: reason)
+    let disposition = failure.attemptDisposition
     let boundaryDirection = boundaryDirection(for: sequenceID)
     let boundaryAttemptID = activeExerciseAttemptID
     let acceptedFallback = boundaryDirection.flatMap { boundarySideAggregates[$0] }
@@ -5068,19 +5195,11 @@ final class OperatorWorkspace {
       && (activeExerciseAttemptMode == .replacement || activeExerciseAttemptMode == .additional)
     recordDiscoveryAttempt(sequenceID: sequenceID, disposition: disposition)
     if let direction = boundaryDirection, let attemptID = boundaryAttemptID {
-      let activityDisposition: BoundaryActivityDisposition =
-        if reason.localizedCaseInsensitiveContains("ambiguous")
-          || reason.localizedCaseInsensitiveContains("unknown after write")
-        {
-          .ambiguous(reason)
-        } else {
-          .failed(reason)
-        }
       appendBoundaryActivity(
         actor: .workspace,
         direction: direction,
         phase: .recovery,
-        disposition: activityDisposition,
+        disposition: failure.boundaryDisposition,
         attemptID: attemptID,
         operationOwnerID: pendingBoundaryOwnerIDs[attemptID].map {
           .liveBoundary($0)
@@ -5106,22 +5225,22 @@ final class OperatorWorkspace {
       restartableExerciseItemID = nil
     }
     boundaryTeachingState = .idle
-    activeStopTarget = nil
-    stopDispositionLatch = nil
+    activeStoppableOperation = nil
     boundaryTeachingResultText = "Discovery stopped: \(reason)"
   }
 
   func stopCurrentOperation(capabilityID: ContextualStopCapabilityID) async {
     guard !jogCancelRequestInProgress,
-      let target = activeStopTarget,
-      target.capabilityID == capabilityID,
+      let operation = activeStoppableOperation,
+      operation.target.capabilityID == capabilityID,
       latchContextualStopDisposition(
-        for: target,
+        for: operation.target,
         intent: .operatorStop,
         actor: "Operator",
         action: "Stop"
       )
     else { return }
+    let target = operation.target
     switch target {
     case .pairedBoundary(_, let transactionID, let operationOwner, let attemptID, let direction):
       let sequenceID = sequenceID(for: direction)
@@ -5131,7 +5250,8 @@ final class OperatorWorkspace {
       else {
         await failDiscovery(
           sequenceID,
-          reason: "The Stop capability no longer owns this Boundary Discovery transaction.")
+          failure: .failed(
+            "The Stop capability no longer owns this Boundary Discovery transaction."))
         return
       }
       let recorded = recordDiscovery(.operatorStopRequested(direction), for: sequenceID)
@@ -5149,40 +5269,34 @@ final class OperatorWorkspace {
       boundaryTeachingState = .cancelling(jogDirection(from: direction))
       boundaryTeachingResultText =
         "Stop requested. Waiting for the original motion owner to reach Idle."
-      let owner = boundaryMotionTask
       await requestSingleJogCancel(for: target, intent: .operatorStop)
-      await owner?.value
+      await operation.owner.settle()
       if !recorded {
         if case .failed = discoveryTransactions[sequenceID]?.state {
           return
         }
         await failDiscovery(
           sequenceID,
-          reason: "The typed operator Stop event could not be recorded."
+          failure: .failed("The typed operator Stop event could not be recorded.")
         )
       }
 
     case .manualJog:
-      let owner = manualJogTask
       await requestSingleJogCancel(for: target, intent: .operatorStop)
-      _ = await owner?.value
+      await operation.owner.settle()
 
     case .exerciseMotion(_, _, let ownerID, _):
-      let owner = exerciseMotionTask
       await requestSingleJogCancel(for: target, intent: .operatorStop)
-      _ = await owner?.value
+      await operation.owner.settle()
       if ownerID != .humanGuidedDiscovery(.calibrateCameraAndVisibleCap) {
         finishActiveExerciseAttempt(disposition: .cancelled)
         restartableExerciseItemID = ownerID
       }
 
     case .drawingTrial:
-      let liveOwner = drawingTrialTask
-      let simulatedOwner = simulatedOperationTask
-      let inkMayExist = liveOwner != nil || simulatedOwner != nil
+      let inkMayExist = operation.owner.drawingMayHaveInk
       await requestSingleJogCancel(for: target, intent: .operatorStop)
-      _ = await liveOwner?.value
-      _ = await simulatedOwner?.value
+      await operation.owner.settle()
       finishActiveExerciseAttempt(disposition: .cancelled)
       if inkMayExist {
         if observedDrawingTrialStep == .drawIsolatedLine {
@@ -5196,16 +5310,13 @@ final class OperatorWorkspace {
       }
 
     case .sparseTipMark(_, _, let location):
-      let liveOwner = sparseTipMarkTask
-      let simulatedOwner = simulatedOperationTask
       blacklistedToolContactLocations.insert(location)
       sparseTipCalibrationCoordinator.blacklistPossibleInk(
         at: location,
         reason: "Operator stopped the 2 mm calibration circle after Pen Down."
       )
       await requestSingleJogCancel(for: target, intent: .operatorStop)
-      _ = await liveOwner?.value
-      _ = await simulatedOwner?.value
+      await operation.owner.settle()
       explorationError =
         "Calibration circle stopped after contact. This paper location is blacklisted and will not be redrawn automatically."
       restartableExerciseItemID = nil
@@ -5217,13 +5328,8 @@ final class OperatorWorkspace {
     intent: JogCancelIntent
   ) async {
     if case .simulated(let operationID) = target.operationOwner {
-      guard !jogCancelRequestInProgress,
-        activeStopTarget?.capabilityID == target.capabilityID,
-        stopDispositionLatch?.capabilityID == target.capabilityID,
-        stopDispositionLatch?.intent == intent
-      else { return }
-      jogCancelRequestInProgress = true
-      defer { jogCancelRequestInProgress = false }
+      guard beginCancellationRequest(for: target, intent: intent) else { return }
+      defer { finishCancellationRequest(for: target) }
       let simulatedIntent: SimulatedLearningOperationIntent =
         switch intent {
         case .operatorStop: .stop
@@ -5261,13 +5367,8 @@ final class OperatorWorkspace {
     defer {
       if generation != nil { endHardwareIntent() }
     }
-    guard !jogCancelRequestInProgress,
-      activeStopTarget?.capabilityID == target.capabilityID,
-      stopDispositionLatch?.capabilityID == target.capabilityID,
-      stopDispositionLatch?.intent == intent
-    else { return }
-    jogCancelRequestInProgress = true
-    defer { jogCancelRequestInProgress = false }
+    guard beginCancellationRequest(for: target, intent: intent) else { return }
+    defer { finishCancellationRequest(for: target) }
     let outcome = await machineActions.requestJogCancel(intent)
     updateContextualStopAudit(for: target, outcome: String(describing: outcome))
     let snapshot = await machineActions.snapshot()
@@ -5283,14 +5384,17 @@ final class OperatorWorkspace {
     actor: String,
     action: String
   ) -> Bool {
-    guard activeStopTarget?.capabilityID == target.capabilityID,
-      stopDispositionLatch == nil
+    guard var operation = activeStoppableOperation,
+      operation.target.capabilityID == target.capabilityID,
+      case .available = operation.state
     else { return false }
-    stopDispositionLatch = ContextualStopDispositionLatch(
+    let latch = ContextualStopDispositionLatch(
       capabilityID: target.capabilityID,
       intent: intent,
       actor: actor
     )
+    operation.state = .latched(latch, cancellationRequestInProgress: false)
+    activeStoppableOperation = operation
     lastContextualStopAuditRecord = ContextualStopAuditRecord(
       capabilityID: target.capabilityID,
       actor: actor,
@@ -5299,6 +5403,42 @@ final class OperatorWorkspace {
       outcome: "requested; awaiting the original owner"
     )
     return true
+  }
+
+  private func installStoppableOperation(
+    target: ContextualStopTarget,
+    owner: StoppableOperationOwner
+  ) {
+    precondition(activeStoppableOperation == nil, "Only one contextual Stop owner may exist.")
+    activeStoppableOperation = ActiveStoppableOperation(target: target, owner: owner)
+  }
+
+  private func clearStoppableOperation(matching target: ContextualStopTarget) {
+    guard activeStoppableOperation?.target == target else { return }
+    activeStoppableOperation = nil
+  }
+
+  private func beginCancellationRequest(
+    for target: ContextualStopTarget,
+    intent: JogCancelIntent
+  ) -> Bool {
+    guard var operation = activeStoppableOperation,
+      operation.target.capabilityID == target.capabilityID,
+      case .latched(let latch, false) = operation.state,
+      latch.intent == intent
+    else { return false }
+    operation.state = .latched(latch, cancellationRequestInProgress: true)
+    activeStoppableOperation = operation
+    return true
+  }
+
+  private func finishCancellationRequest(for target: ContextualStopTarget) {
+    guard var operation = activeStoppableOperation,
+      operation.target.capabilityID == target.capabilityID,
+      case .latched(let latch, true) = operation.state
+    else { return }
+    operation.state = .latched(latch, cancellationRequestInProgress: false)
+    activeStoppableOperation = operation
   }
 
   private func updateContextualStopAudit(
@@ -5412,7 +5552,7 @@ final class OperatorWorkspace {
           phase: .failed,
           detail: "Manual jog admission was rejected: \(String(describing: outcome))",
           motionIntent: motionIntent,
-          failureCode: "manual_jog_admission_rejected",
+          failureCode: .manualJogAdmissionRejected,
           recovery: .resolveNamedFailure
         )
       )
@@ -5435,16 +5575,10 @@ final class OperatorWorkspace {
     )
     defer {
       jogRequestInProgress = false
-      manualJogTask = nil
-      if activeStopTarget == stopTarget {
-        activeStopTarget = nil
-        stopDispositionLatch = nil
-      }
+      clearStoppableOperation(matching: stopTarget)
     }
     let operation = Task { await admittedOperation.outcome() }
-    manualJogTask = operation
-    activeStopTarget = stopTarget
-    stopDispositionLatch = nil
+    installStoppableOperation(target: stopTarget, owner: .motion(operation))
     await Task.yield()
     let interimSnapshot = await machineActions.snapshot()
     if canCommit(generation) { machineSnapshot = interimSnapshot }
@@ -5454,7 +5588,8 @@ final class OperatorWorkspace {
     machineSnapshot = finalSnapshot
     let telemetryTerminal:
       (
-        phase: WorkflowTelemetryPhase, code: String?, recovery: WorkflowTelemetryRecovery
+        phase: WorkflowTelemetryPhase, code: WorkflowTelemetryFailureCode?,
+        recovery: WorkflowTelemetryRecovery
       ) =
         switch outcome {
         case .acceptedThenCompleted:
@@ -5462,9 +5597,9 @@ final class OperatorWorkspace {
         case .cancelled:
           (.cancelled, nil, .none)
         case .refused:
-          (.failed, "manual_jog_refused", .resolveNamedFailure)
+          (.failed, .manualJogRefused, .resolveNamedFailure)
         case .ambiguous:
-          (.failed, "manual_jog_ambiguous", .resolveNamedFailure)
+          (.failed, .manualJogAmbiguous, .resolveNamedFailure)
         }
     await recordWorkflowTelemetry(
       WorkflowTelemetryEvent(
@@ -5507,8 +5642,6 @@ final class OperatorWorkspace {
       operationOwner: .simulated(operation.id)
     )
     jogRequestInProgress = true
-    activeStopTarget = target
-    stopDispositionLatch = nil
     simulatedLearningSnapshot = await simulatedLearningRuntime.snapshot()
     simulatorLearningSummary =
       "Simulated manual jog active; use Stop Manual Jog. \(response.evidenceNotice.label)"
@@ -5523,15 +5656,13 @@ final class OperatorWorkspace {
       }
       return try? await simulatedLearningRuntime.waitForOutcome(of: operation.id).result.get()
     }
-    simulatedOperationTask = outcomeTask
+    installStoppableOperation(target: target, owner: .simulated(outcomeTask))
+    defer {
+      jogRequestInProgress = false
+      clearStoppableOperation(matching: target)
+    }
     _ = await outcomeTask.value
     simulatedLearningSnapshot = await simulatedLearningRuntime.snapshot()
-    simulatedOperationTask = nil
-    jogRequestInProgress = false
-    if activeStopTarget == target { activeStopTarget = nil }
-    if stopDispositionLatch?.capabilityID == target.capabilityID {
-      stopDispositionLatch = nil
-    }
   }
 
   func discoverCameras() async {
@@ -5574,7 +5705,7 @@ final class OperatorWorkspace {
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
     guard let cameraActions, activeDiscoverySequenceID == nil,
-      !explorationOperationInProgress
+      activeExplorationOperation == nil
     else {
       cameraError =
         "Finish the current discovery or learning action before changing camera configuration."
@@ -5646,7 +5777,7 @@ final class OperatorWorkspace {
     guard currentCameraCalibrationBusyReason == nil else { return }
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
-    guard activeDiscoverySequenceID == nil, !explorationOperationInProgress else {
+    guard activeDiscoverySequenceID == nil, activeExplorationOperation == nil else {
       cameraError = "Finish the current discovery or learning action before restarting the camera."
       return
     }
@@ -5979,7 +6110,7 @@ final class OperatorWorkspace {
         } else {
           await requestPenActuation(.raise)
         }
-        await failDiscovery(sequenceID, reason: question.negativeAcknowledgement)
+        await failDiscovery(sequenceID, failure: .refused(question.negativeAcknowledgement))
       }
       return
     }
@@ -6039,15 +6170,15 @@ final class OperatorWorkspace {
       admittedOperation = operation
     case .rejected(let outcome):
       if case .needsAttention(_, let terminal) = outcome {
-        await failDiscovery(sequenceID, reason: boundaryTerminalDescription(terminal))
+        await failDiscovery(sequenceID, failure: workflowFailure(for: terminal))
       } else {
-        await failDiscovery(sequenceID, reason: "Boundary owner admission was rejected.")
+        await failDiscovery(sequenceID, failure: .refused("Boundary owner admission was rejected."))
       }
       return
     }
     guard admittedOperation.ownerID == request.ownerID else {
       await failDiscovery(
-        sequenceID, reason: "Boundary owner admission returned a mismatched owner identity.")
+        sequenceID, failure: .failed("Boundary owner admission returned a mismatched owner identity."))
       return
     }
     let stopTarget = ContextualStopTarget.pairedBoundary(
@@ -6057,8 +6188,19 @@ final class OperatorWorkspace {
       attemptID: attemptID,
       direction: discoveryDirection
     )
-    activeStopTarget = stopTarget
-    stopDispositionLatch = nil
+    guard let boundaryMotionTask else {
+      await failDiscovery(
+        sequenceID,
+        failure: WorkflowFailure(
+          kind: .failed,
+          detail: "Boundary owner admission lost its coordinating task.",
+          recovery: .resolveNamedFailure
+        )
+      )
+      return
+    }
+    installStoppableOperation(target: stopTarget, owner: .boundary(boundaryMotionTask))
+    defer { clearStoppableOperation(matching: stopTarget) }
     pendingBoundaryOwnerIDs[attemptID] = request.ownerID
     pendingBoundaryStopCapabilities[attemptID] = stopTarget.capabilityID
     appendBoundaryActivity(
@@ -6103,7 +6245,7 @@ final class OperatorWorkspace {
       if boundaryAtomicCommitFailurePoints.contains(.settlement) {
         await failDiscovery(
           sequenceID,
-          reason: "Injected Boundary settlement failure after the owner returned."
+          failure: .failed("Injected Boundary settlement failure after the owner returned.")
         )
         return
       }
@@ -6144,8 +6286,9 @@ final class OperatorWorkspace {
       {
         await failDiscovery(
           sequenceID,
-          reason:
+          failure: .failed(
             "Boundary settlement owner/disposition did not match the first admitted operator action."
+          )
         )
         return
       }
@@ -6186,13 +6329,9 @@ final class OperatorWorkspace {
       }
 
     case .needsAttention(_, let terminal):
-      await failDiscovery(sequenceID, reason: boundaryTerminalDescription(terminal))
+      await failDiscovery(sequenceID, failure: workflowFailure(for: terminal))
     }
     boundaryTeachingState = .idle
-    if activeStopTarget == stopTarget { activeStopTarget = nil }
-    if stopDispositionLatch?.capabilityID == stopTarget.capabilityID {
-      stopDispositionLatch = nil
-    }
   }
 
   private func executeSimulatedBoundaryMotion(_ direction: JogDirection) async {
@@ -6215,7 +6354,7 @@ final class OperatorWorkspace {
     case .failure(let refusal):
       await failDiscovery(
         sequenceID,
-        reason: "Simulated Boundary owner admission was refused: \(refusal)."
+        failure: .refused("Simulated Boundary owner admission was refused: \(refusal).")
       )
       return
     }
@@ -6226,8 +6365,24 @@ final class OperatorWorkspace {
       attemptID: attemptID,
       direction: discoveryDirection
     )
-    activeStopTarget = stopTarget
-    stopDispositionLatch = nil
+    let outcomeTask = Task<SimulatedLearningOperationOutcome?, Never> {
+      [simulatedLearningRuntime, simulatedExecutionPacing] in
+      let execution = await simulatedLearningRuntime.executeBoundaryCooperatively(
+        operation.id,
+        pacing: simulatedExecutionPacing
+      )
+      if case .success(let outcome) = execution.result { return outcome }
+      return try? await simulatedLearningRuntime.waitForOutcome(of: operation.id).result.get()
+    }
+    guard let boundaryMotionTask else {
+      await failDiscovery(
+        sequenceID,
+        failure: .failed("Simulated Boundary owner lost its coordinating task.")
+      )
+      return
+    }
+    installStoppableOperation(target: stopTarget, owner: .boundary(boundaryMotionTask))
+    defer { clearStoppableOperation(matching: stopTarget) }
     pendingBoundaryOwnerIDs[attemptID] = BoundaryMotionOwnerID()
     pendingBoundaryStopCapabilities[attemptID] = stopTarget.capabilityID
     boundaryTeachingState = .ownerActive(direction)
@@ -6245,30 +6400,18 @@ final class OperatorWorkspace {
     else { return }
     await advanceDiscoverySequence(sequenceID)
 
-    let outcomeTask = Task<SimulatedLearningOperationOutcome?, Never> {
-      [simulatedLearningRuntime, simulatedExecutionPacing] in
-      let execution = await simulatedLearningRuntime.executeBoundaryCooperatively(
-        operation.id,
-        pacing: simulatedExecutionPacing
-      )
-      if case .success(let outcome) = execution.result {
-        return outcome
-      }
-      // Stop is intentionally usable immediately after admission. It can win
-      // before this cooperative executor task is scheduled, in which case the
-      // runtime has already stored the terminal outcome and rejects a second
-      // execution start. Await the original owner identity instead of turning
-      // that valid race into a failed Boundary attempt.
-      return try? await simulatedLearningRuntime.waitForOutcome(
-        of: operation.id
-      ).result.get()
-    }
-    simulatedOperationTask = outcomeTask
     guard let outcome = await outcomeTask.value else {
-      await failDiscovery(sequenceID, reason: "The simulated Boundary owner lost its outcome.")
+      await failDiscovery(
+        sequenceID,
+        failure: WorkflowFailure(
+          kind: .failed,
+          detail: "The simulated Boundary owner lost its outcome.",
+          recovery: .resolveNamedFailure
+        )
+      )
       return
     }
-    simulatedOperationTask = nil
+    simulatedLearningSnapshot = await simulatedLearningRuntime.snapshot()
     guard !hasShutdown else { return }
     switch outcome.disposition {
     case .stopped
@@ -6282,7 +6425,7 @@ final class OperatorWorkspace {
         if boundaryAtomicCommitFailurePoints.contains(.settlement) {
           await failDiscovery(
             sequenceID,
-            reason: "Injected simulated Boundary settlement failure."
+            failure: .failed("Injected simulated Boundary settlement failure.")
           )
           return
         }
@@ -6301,7 +6444,8 @@ final class OperatorWorkspace {
         else { return }
         await advanceDiscoverySequence(sequenceID)
       } catch {
-        await failDiscovery(sequenceID, reason: "Simulated final MPos was invalid: \(error).")
+        await failDiscovery(
+          sequenceID, failure: .failed("Simulated final MPos was invalid: \(error)."))
       }
 
     case .cancelled:
@@ -6321,18 +6465,23 @@ final class OperatorWorkspace {
       boundaryTeachingResultText =
         "Simulated Boundary attempt cancelled. \(outcome.evidenceNotice.label)"
 
+    case .failed where simulatedLearningSnapshot?.stickyAmbiguity != nil:
+      await failDiscovery(
+        sequenceID,
+        failure: .ambiguous(
+          "The simulated Boundary owner lost attributable segment completion."
+        )
+      )
+
     case .stopped, .naturallyCompleted, .failed, .shutdown:
       await failDiscovery(
         sequenceID,
-        reason:
+        failure: .failed(
           "Simulated Boundary settlement did not match the first admitted operator disposition."
+        )
       )
     }
     boundaryTeachingState = .idle
-    if activeStopTarget == stopTarget { activeStopTarget = nil }
-    if stopDispositionLatch?.capabilityID == stopTarget.capabilityID {
-      stopDispositionLatch = nil
-    }
   }
 
   private func makeBoundaryMotionRequest(_ direction: JogDirection) -> BoundaryMotionRequest? {
@@ -6559,32 +6708,9 @@ final class OperatorWorkspace {
           action: "Cancel Attempt"
         )
       else { return }
-      var owner: Task<Void, Never>?
-      switch target {
-      case .exerciseMotion:
-        owner = exerciseMotionTask.map { task in
-          Task<Void, Never> { _ = await task.value }
-        }
-      case .drawingTrial:
-        if frameMode == .simulated {
-          owner = simulatedOperationTask.map { task in
-            Task<Void, Never> { _ = await task.value }
-          }
-        } else {
-          owner = drawingTrialTask.map { task in
-            Task<Void, Never> { _ = await task.value }
-          }
-        }
-      case .sparseTipMark:
-        owner =
-          frameMode == .simulated
-          ? simulatedOperationTask.map { task in Task<Void, Never> { _ = await task.value } }
-          : sparseTipMarkTask.map { task in Task<Void, Never> { _ = await task.value } }
-      case .pairedBoundary, .manualJog:
-        owner = nil
-      }
+      let owner = activeStoppableOperation?.owner
       await requestSingleJogCancel(for: target, intent: .cancelAttempt)
-      await owner?.value
+      await owner?.settle()
     }
     if ownerID == .observedDrawingTrial(.compareIntendedAndObservedGeometry) {
       recordComparisonAttempt(assessment: nil, disposition: .cancelled)
@@ -7071,20 +7197,6 @@ final class OperatorWorkspace {
     if observedDrawingTrialStep.rawValue > step.rawValue {
       observedDrawingTrialStep = step
     }
-  }
-
-  private func attemptDisposition(for reason: String) -> ExerciseAttemptDisposition {
-    let lowered = reason.lowercased()
-    if lowered.contains("unclear") { return .unclear(reason) }
-    if lowered.contains("ambiguous") || lowered.contains("unknown post-write") {
-      return .ambiguous(reason)
-    }
-    if lowered.contains("refus") || lowered.contains("alarm") || lowered.contains("limit")
-      || lowered.contains("disconnect")
-    {
-      return .refused(reason)
-    }
-    return .failed(reason)
   }
 
   private func boundaryTerminalDescription(_ terminal: BoundaryMotionTerminal) -> String {
@@ -8011,7 +8123,7 @@ final class OperatorWorkspace {
       return OperationActivityPresentation(
         actor: activeStopTarget == nil ? "Camera and learning runtime" : "Plotter controller",
         action: "Build Camera Calibration Proposal",
-        phase: currentCameraCalibrationPhase,
+        phase: currentCameraCalibrationPhase.description,
         outcome: .inProgress,
         detail: [
           .text(
@@ -8182,7 +8294,7 @@ final class OperatorWorkspace {
     let visionBlocksMotion: Bool
     let visionRole: SubsystemAuthorityRole
     if let currentCameraCalibrationPhase {
-      visionState = currentCameraCalibrationPhase
+      visionState = currentCameraCalibrationPhase.description
       visionBlocksMotion = true
       visionRole = .operationOwner
       visionDetail =
@@ -8420,7 +8532,6 @@ final class OperatorWorkspace {
     passiveProbeInProgress = false
     jogRequestInProgress = false
     penRequestInProgress = false
-    jogCancelRequestInProgress = false
     motionGuardActivationInProgress = false
     lastMotionGuardActivationText = "not activated"
     currentCameraCalibrationFailure = nil
@@ -8788,9 +8899,8 @@ final class OperatorWorkspace {
   /// latched motion owner. This bypasses normal intent admission without
   /// exposing a second cancellation route to the UI.
   private func stopAndSettleActiveMotionForShutdown() async {
-    guard let target = activeStopTarget else { return }
-
-    let owner: Task<Void, Never>?
+    guard let operation = activeStoppableOperation else { return }
+    let target = operation.target
     switch target {
     case .pairedBoundary(_, let transactionID, _, _, let direction):
       let sequenceID = sequenceID(for: direction)
@@ -8803,21 +8913,8 @@ final class OperatorWorkspace {
         boundaryTeachingResultText =
           "Shutdown requested. Waiting for the original motion owner to reach Idle."
       }
-      owner = boundaryMotionTask
-    case .manualJog:
-      owner = manualJogTask.map { task in Task { _ = await task.value } }
-    case .exerciseMotion:
-      owner = exerciseMotionTask.map { task in Task { _ = await task.value } }
-    case .drawingTrial:
-      owner =
-        frameMode == .simulated
-        ? simulatedOperationTask.map { task in Task { _ = await task.value } }
-        : drawingTrialTask.map { task in Task { _ = await task.value } }
-    case .sparseTipMark:
-      owner =
-        frameMode == .simulated
-        ? simulatedOperationTask.map { task in Task { _ = await task.value } }
-        : sparseTipMarkTask.map { task in Task { _ = await task.value } }
+    case .manualJog, .exerciseMotion, .drawingTrial, .sparseTipMark:
+      break
     }
 
     if stopDispositionLatch == nil,
@@ -8830,9 +8927,8 @@ final class OperatorWorkspace {
     {
       await requestSingleJogCancel(for: target, intent: .shutdown)
     }
-    await owner?.value
-    if activeStopTarget == target { activeStopTarget = nil }
-    if stopDispositionLatch?.capabilityID == target.capabilityID { stopDispositionLatch = nil }
+    await operation.owner.settle()
+    clearStoppableOperation(matching: target)
     boundaryTeachingState = .idle
   }
 
@@ -9007,7 +9103,7 @@ final class OperatorWorkspace {
   private func drawingTrialActionUnavailableReason(
     for step: ObservedDrawingTrialStep
   ) -> String? {
-    if explorationOperationInProgress { return "The current learning action is still in progress." }
+    if activeExplorationOperation != nil { return "The current learning action is still in progress." }
     if frameMode == .simulated {
       if cameraActions == nil { return "The simulator camera composition is unavailable." }
       if !controllerSessionEstablished { return "Connect the learning simulator first." }
@@ -9127,7 +9223,7 @@ final class OperatorWorkspace {
           actual: final
         )
       else {
-        throw LearningPathOperationError.controllerOutcome(
+        throw LearningPathOperationError.controllerFailed(
           "Move to Line Start settled at an incompatible MPos."
         )
       }
@@ -9260,7 +9356,7 @@ final class OperatorWorkspace {
       do {
         operation = try response.result.get()
       } catch {
-        throw LearningPathOperationError.controllerOutcome(
+        throw LearningPathOperationError.controllerFailed(
           "Simulated supervised Pen-Up travel was refused: \(String(describing: error))."
         )
       }
@@ -9270,8 +9366,15 @@ final class OperatorWorkspace {
         ownerID: ownerID,
         action: action
       )
-      activeStopTarget = target
-      stopDispositionLatch = nil
+      let owner = Task<SimulatedLearningOperationOutcome?, Never> {
+        [simulatedLearningRuntime, simulatedExecutionPacing] in
+        try? await simulatedLearningRuntime.executeNaturally(
+          operation.id,
+          pacing: simulatedExecutionPacing
+        ).result.get()
+      }
+      installStoppableOperation(target: target, owner: .simulated(owner))
+      defer { clearStoppableOperation(matching: target) }
       if hasShutdown || Task.isCancelled {
         _ = latchContextualStopDisposition(
           for: target,
@@ -9280,32 +9383,15 @@ final class OperatorWorkspace {
           action: "Shutdown"
         )
         await requestSingleJogCancel(for: target, intent: .shutdown)
-        if activeStopTarget == target { activeStopTarget = nil }
-        if stopDispositionLatch?.capabilityID == target.capabilityID {
-          stopDispositionLatch = nil
-        }
         simulatedLearningSnapshot = await simulatedLearningRuntime.snapshot()
         throw LearningPathOperationError.requiredState(
           "Application shutdown cancelled supervised Pen-Up travel before execution."
         )
       }
-      let owner = Task { [simulatedLearningRuntime, simulatedExecutionPacing] in
-        try? await simulatedLearningRuntime.executeNaturally(
-          operation.id,
-          pacing: simulatedExecutionPacing
-        ).result.get()
-      }
-      exerciseMotionTask = Task {
-        _ = await owner.value
-        return .ambiguous(.transport("simulated exercise travel task adapter"))
-      }
       let outcome = await owner.value
-      exerciseMotionTask = nil
-      if activeStopTarget == target { activeStopTarget = nil }
-      if stopDispositionLatch?.capabilityID == target.capabilityID { stopDispositionLatch = nil }
       simulatedLearningSnapshot = await simulatedLearningRuntime.snapshot()
       guard let outcome, outcome.disposition == .naturallyCompleted else {
-        throw LearningPathOperationError.controllerOutcome(
+        throw LearningPathOperationError.controllerCancelled(
           "Simulated exercise travel did not complete naturally."
         )
       }
@@ -9324,9 +9410,7 @@ final class OperatorWorkspace {
     case .admitted(let admitted):
       operation = admitted
     case .rejected(let outcome):
-      throw LearningPathOperationError.controllerOutcome(
-        motionOutcomeDescription(outcome, action: action)
-      )
+      throw operationError(for: outcome, action: action)
     }
     let target = ContextualStopTarget.exerciseMotion(
       capabilityID: ContextualStopCapabilityID(),
@@ -9335,9 +9419,8 @@ final class OperatorWorkspace {
       action: action
     )
     let owner = Task { await operation.outcome() }
-    exerciseMotionTask = owner
-    activeStopTarget = target
-    stopDispositionLatch = nil
+    installStoppableOperation(target: target, owner: .motion(owner))
+    defer { clearStoppableOperation(matching: target) }
     if hasShutdown || Task.isCancelled {
       _ = latchContextualStopDisposition(
         for: target,
@@ -9347,30 +9430,24 @@ final class OperatorWorkspace {
       )
       await requestSingleJogCancel(for: target, intent: .shutdown)
       _ = await owner.value
-      exerciseMotionTask = nil
-      if activeStopTarget == target { activeStopTarget = nil }
-      if stopDispositionLatch?.capabilityID == target.capabilityID { stopDispositionLatch = nil }
       machineSnapshot = await machineActions.snapshot()
       throw LearningPathOperationError.requiredState(
         "Application shutdown cancelled supervised Pen-Up travel during admission."
       )
     }
     let outcome = await owner.value
-    exerciseMotionTask = nil
-    if activeStopTarget == target { activeStopTarget = nil }
-    if stopDispositionLatch?.capabilityID == target.capabilityID { stopDispositionLatch = nil }
     machineSnapshot = await machineActions.snapshot()
     switch outcome {
     case .acceptedThenCompleted(let finalPosition):
       return finalPosition
     case .cancelled:
-      throw LearningPathOperationError.controllerOutcome(
+      throw LearningPathOperationError.controllerCancelled(
         "\(action) was stopped or cancelled; no arrival artifact was accepted."
       )
     case .ambiguous(let ambiguity):
-      throw LearningPathOperationError.controllerOutcome(ambiguity.actionableDescription)
+      throw LearningPathOperationError.controllerAmbiguous(ambiguity.actionableDescription)
     case .refused(let refusal):
-      throw LearningPathOperationError.controllerOutcome(refusal.actionableDescription)
+      throw LearningPathOperationError.controllerRefused(refusal.actionableDescription)
     }
   }
 
@@ -9418,21 +9495,20 @@ final class OperatorWorkspace {
           pacing: simulatedExecutionPacing
         ).result.get()
       }
-      simulatedOperationTask = task
-      activeStopTarget = target
-      stopDispositionLatch = nil
+      activeExplorationOperation?.strokeState = .possibleInk
+      installStoppableOperation(target: target, owner: .simulated(task))
+      defer { clearStoppableOperation(matching: target) }
       guard let outcome = await task.value else {
-        throw LearningPathOperationError.controllerOutcome(
+        throw LearningPathOperationError.possibleInk(
           "The simulated isolated-line owner lost its outcome."
         )
       }
-      simulatedOperationTask = nil
-      if activeStopTarget == target { activeStopTarget = nil }
       guard outcome.disposition == .naturallyCompleted else {
-        throw LearningPathOperationError.controllerOutcome(
+        throw LearningPathOperationError.possibleInk(
           "Simulated drawing did not complete naturally."
         )
       }
+      activeExplorationOperation?.strokeState = .completedNaturally
       simulatedLearningSnapshot = await simulatedLearningRuntime.snapshot()
       applySimulatedSnapshotResponse(
         await simulatedLearningRuntime.setPenPose(.up),
@@ -9447,7 +9523,8 @@ final class OperatorWorkspace {
     let lower = await machineActions.requestPenActuation(.lower)
     machineSnapshot = await machineActions.snapshot()
     guard case .commandedAndSettled = lower else {
-      throw LearningPathOperationError.controllerOutcome(String(describing: lower))
+      activeExplorationOperation?.strokeState = .possibleInk
+      throw operationError(for: lower, possibleInk: true)
     }
 
     let request = DrawingStrokeRequest(
@@ -9460,43 +9537,40 @@ final class OperatorWorkspace {
     case .admitted(let operation):
       admittedOperation = operation
     case .rejected(let outcome):
-      throw LearningPathOperationError.controllerOutcome(String(describing: outcome))
+      throw operationError(for: outcome, possibleInk: true)
     }
     let target = ContextualStopTarget.drawingTrial(
       capabilityID: ContextualStopCapabilityID(),
       operationOwner: .liveOperation(admittedOperation.id)
     )
     let owner = Task { await admittedOperation.outcome() }
-    drawingTrialTask = owner
-    activeStopTarget = target
-    stopDispositionLatch = nil
+    activeExplorationOperation?.strokeState = .possibleInk
+    installStoppableOperation(target: target, owner: .drawing(owner))
+    defer { clearStoppableOperation(matching: target) }
     let outcome = await owner.value
-    drawingTrialTask = nil
-    if activeStopTarget == target { activeStopTarget = nil }
-    if stopDispositionLatch?.capabilityID == target.capabilityID { stopDispositionLatch = nil }
     machineSnapshot = await machineActions.snapshot()
     switch outcome {
     case .completed(let evidence):
       drawingTrialStrokeEvidence = evidence
-      drawingTrialStrokeCompletedNaturally = true
+      activeExplorationOperation?.strokeState = .completedNaturally
       recordStrokeEvidence(evidence, outcome: .completed, summary: "Idle with final MPos")
       _ = await announceAdvisory("Raising the pen after the isolated line.")
       let raise = await machineActions.requestPenActuation(.raise)
       machineSnapshot = await machineActions.snapshot()
       guard case .commandedAndSettled = raise else {
-        throw LearningPathOperationError.controllerOutcome(String(describing: raise))
+        throw operationError(for: raise, possibleInk: true)
       }
     case .cancelled(let evidence, let penRaiseOutcome):
       drawingTrialStrokeEvidence = evidence
-      drawingTrialStrokeCompletedNaturally = false
+      activeExplorationOperation?.strokeState = .possibleInk
       recordStrokeEvidence(evidence, outcome: .cancelled, summary: "Stop settled in place")
-      throw LearningPathOperationError.controllerOutcome(
+      throw LearningPathOperationError.possibleInk(
         "Drawing stopped; controller Pen Up outcome: \(penRaiseOutcome)"
       )
     case .ambiguous(let ambiguity):
-      throw LearningPathOperationError.controllerOutcome(ambiguity.actionableDescription)
+      throw LearningPathOperationError.possibleInk(ambiguity.actionableDescription)
     case .refused(let refusal):
-      throw LearningPathOperationError.controllerOutcome(String(describing: refusal))
+      throw LearningPathOperationError.controllerRefused(String(describing: refusal))
     }
   }
 
@@ -9533,7 +9607,7 @@ final class OperatorWorkspace {
           actual: final
         )
       else {
-        throw LearningPathOperationError.controllerOutcome(
+        throw LearningPathOperationError.controllerFailed(
           "Return to the local reveal pose settled at an incompatible MPos."
         )
       }
@@ -9668,16 +9742,84 @@ final class OperatorWorkspace {
     return String(describing: error)
   }
 
-  private func motionOutcomeDescription(_ outcome: MotionOutcome, action: String) -> String {
+  private func workflowFailure(for error: any Error) -> WorkflowFailure {
+    let detail = actionableDescription(error)
+    guard let operationError = error as? LearningPathOperationError else {
+      return WorkflowFailure(kind: .failed, detail: detail, recovery: .resolveNamedFailure)
+    }
+    switch operationError {
+    case .controllerRefused:
+      return WorkflowFailure(kind: .refused, detail: detail, recovery: .resolveNamedFailure)
+    case .controllerCancelled:
+      return WorkflowFailure(kind: .cancelled, detail: detail, recovery: .none)
+    case .controllerAmbiguous:
+      return WorkflowFailure(kind: .ambiguous, detail: detail, recovery: .resolveNamedFailure)
+    case .possibleInk:
+      return WorkflowFailure(kind: .possibleInk, detail: detail, recovery: .resolveNamedFailure)
+    case .inkRejected:
+      return WorkflowFailure(kind: .unclear, detail: detail, recovery: .resolveNamedFailure)
+    case .freshFrameUnavailable, .controllerFailed, .controllerContextChanged, .requiredState:
+      return WorkflowFailure(kind: .failed, detail: detail, recovery: .resolveNamedFailure)
+    }
+  }
+
+  private func workflowFailure(for terminal: BoundaryMotionTerminal) -> WorkflowFailure {
+    let detail = boundaryTerminalDescription(terminal)
+    switch terminal {
+    case .limitAsserted, .alarm, .refusal, .disconnected:
+      return WorkflowFailure(kind: .refused, detail: detail, recovery: .resolveNamedFailure)
+    case .fault:
+      return WorkflowFailure(kind: .ambiguous, detail: detail, recovery: .resolveNamedFailure)
+    }
+  }
+
+  private func operationError(
+    for outcome: MotionOutcome,
+    action: String
+  ) -> LearningPathOperationError {
     switch outcome {
-    case .refused(let refusal):
-      refusal.actionableDescription
-    case .ambiguous(let ambiguity):
-      ambiguity.actionableDescription
+    case .refused(let refusal): .controllerRefused(refusal.actionableDescription)
+    case .ambiguous(let ambiguity): .controllerAmbiguous(ambiguity.actionableDescription)
     case .cancelled:
-      "\(action) was stopped or cancelled before an arrival artifact could be accepted."
+      .controllerCancelled(
+        "\(action) was stopped or cancelled before an arrival artifact could be accepted.")
     case .acceptedThenCompleted:
-      "\(action) completed before its owner-bound admission handle was returned."
+      .controllerFailed(
+        "\(action) completed before its owner-bound admission handle was returned.")
+    }
+  }
+
+  private func operationError(
+    for outcome: DrawingStrokeOutcome,
+    possibleInk: Bool
+  ) -> LearningPathOperationError {
+    switch outcome {
+    case .refused(let refusal): .controllerRefused(String(describing: refusal))
+    case .ambiguous(let ambiguity):
+      possibleInk
+        ? .possibleInk(ambiguity.actionableDescription)
+        : .controllerAmbiguous(ambiguity.actionableDescription)
+    case .cancelled(_, let penRaiseOutcome):
+      possibleInk
+        ? .possibleInk("Drawing was cancelled; Pen Up outcome: \(penRaiseOutcome)")
+        : .controllerCancelled("Drawing was cancelled before contact authority existed.")
+    case .completed:
+      .controllerFailed("Drawing completed before its admitted owner handle was returned.")
+    }
+  }
+
+  private func operationError(
+    for outcome: PenOutcome,
+    possibleInk: Bool
+  ) -> LearningPathOperationError {
+    switch outcome {
+    case .refused(let refusal): .controllerRefused(String(describing: refusal))
+    case .ambiguous(let ambiguity):
+      possibleInk
+        ? .possibleInk(ambiguity.actionableDescription)
+        : .controllerAmbiguous(ambiguity.actionableDescription)
+    case .commandedAndSettled:
+      .controllerFailed("A settled Pen outcome reached a failure-only conversion path.")
     }
   }
 
@@ -9686,7 +9828,7 @@ final class OperatorWorkspace {
   }
 
   private func updateCurrentCameraCalibrationPhase(
-    _ phase: String,
+    _ phase: CurrentCameraCalibrationPhase,
     operationID: UUID,
     attemptID: ExerciseAttemptID?
   ) async {
@@ -9697,7 +9839,7 @@ final class OperatorWorkspace {
         operation: .currentCameraCalibration,
         phase: .phaseChanged,
         attemptID: attemptID,
-        detail: phase
+        detail: phase.description
       )
     )
   }
@@ -9711,38 +9853,39 @@ final class OperatorWorkspace {
       switch operationError {
       case .controllerContextChanged:
         return CurrentCameraCalibrationFailure(
-          code: "controller_context_changed",
+          code: .controllerContextChanged,
           detail: detail,
           recovery: .revalidateControllerContext
         )
       case .freshFrameUnavailable:
         return CurrentCameraCalibrationFailure(
-          code: "fresh_frame_unavailable",
+          code: .freshFrameUnavailable,
           detail: detail,
           recovery: calibrationPositionRecovery(targetPosition: targetPosition)
         )
-      case .controllerOutcome:
+      case .controllerRefused, .controllerCancelled, .controllerAmbiguous, .controllerFailed,
+        .possibleInk:
         return CurrentCameraCalibrationFailure(
-          code: "controller_outcome",
+          code: .controllerOutcome,
           detail: detail,
           recovery: calibrationPositionRecovery(targetPosition: targetPosition)
         )
       case .inkRejected:
         return CurrentCameraCalibrationFailure(
-          code: "ink_rejected",
+          code: .inkRejected,
           detail: detail,
           recovery: .resolveNamedFailure
         )
       case .requiredState:
         return CurrentCameraCalibrationFailure(
-          code: "required_state_missing",
+          code: .requiredStateMissing,
           detail: detail,
           recovery: calibrationPositionRecovery(targetPosition: targetPosition)
         )
       }
     }
     return CurrentCameraCalibrationFailure(
-      code: "unexpected_failure",
+      code: .unexpectedFailure,
       detail: detail,
       recovery: calibrationPositionRecovery(targetPosition: targetPosition)
     )

@@ -23,6 +23,18 @@ public enum WorkflowTelemetryRecovery: String, Codable, CaseIterable, Hashable, 
   case resolveNamedFailure
 }
 
+public enum WorkflowTelemetryFailureCode: String, Codable, CaseIterable, Hashable, Sendable {
+  case controllerContextChanged = "controller_context_changed"
+  case freshFrameUnavailable = "fresh_frame_unavailable"
+  case controllerOutcome = "controller_outcome"
+  case inkRejected = "ink_rejected"
+  case requiredStateMissing = "required_state_missing"
+  case unexpectedFailure = "unexpected_failure"
+  case manualJogAdmissionRejected = "manual_jog_admission_rejected"
+  case manualJogRefused = "manual_jog_refused"
+  case manualJogAmbiguous = "manual_jog_ambiguous"
+}
+
 public struct WorkflowMotionIntent: Codable, Hashable, Sendable {
   public let deltaXMM: Double
   public let deltaYMM: Double
@@ -65,7 +77,7 @@ public struct WorkflowTelemetryEvent: Codable, Hashable, Sendable {
   public let detail: String
   public let motionIntent: WorkflowMotionIntent?
   public let controllerContext: WorkflowControllerContextTelemetry?
-  public let failureCode: String?
+  public let failureCode: WorkflowTelemetryFailureCode?
   public let recovery: WorkflowTelemetryRecovery
 
   public init(
@@ -77,7 +89,7 @@ public struct WorkflowTelemetryEvent: Codable, Hashable, Sendable {
     detail: String,
     motionIntent: WorkflowMotionIntent? = nil,
     controllerContext: WorkflowControllerContextTelemetry? = nil,
-    failureCode: String? = nil,
+    failureCode: WorkflowTelemetryFailureCode? = nil,
     recovery: WorkflowTelemetryRecovery = .none
   ) {
     self.eventID = eventID

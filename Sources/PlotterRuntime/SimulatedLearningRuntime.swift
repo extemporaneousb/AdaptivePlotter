@@ -327,6 +327,9 @@ public enum SimulatedLearningFault: Codable, Hashable, Sendable {
   case absentInk
   case excessiveBackgroundResidual
   case shutdownDuringOperation
+  /// Test-only transport analogue: the admitted owner disappears without a
+  /// terminal result so callers must conservatively clean up capability state.
+  case outcomeUnavailableAfterNextExecution
 }
 
 public struct SimulatedLearningSceneFrame: Hashable, Sendable {
@@ -1013,6 +1016,14 @@ public actor SimulatedLearningRuntime {
         pacing: pacing
       ) {
         return terminal
+      }
+      if removeFirstFault(matching: {
+        if case .outcomeUnavailableAfterNextExecution = $0 { return true }
+        return false
+      }) != nil {
+        currentOperation = nil
+        completedBoundarySegmentCounts.removeValue(forKey: operation.id)
+        return .refused(.staleOperation(requested: operation.id, active: nil))
       }
       let completion = completeNaturally(operationID)
       if case .success = completion.result,

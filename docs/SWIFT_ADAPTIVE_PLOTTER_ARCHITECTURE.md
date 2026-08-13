@@ -179,7 +179,17 @@ sequence, quarantine status, paper identity, possible-ink blacklist, drawing
 trial state, and learning errors. The active frame source selects which value
 all learning projections and mutations address. Camera/controller owners,
 operation tasks, Stop capabilities, and other runtime lifetimes remain outside
-the session values.
+the session values. One `ActiveStoppableOperation` binds the exact owner task,
+contextual Stop target, latched disposition, and cancellation-request phase;
+those facts are not independently mutable. Drawing execution likewise carries
+typed not-admitted, possible-ink, and naturally-completed state so no-redraw
+recovery is independent of presentation wording.
+
+Workflow failures retain typed kind and recovery separately from actionable
+presentation text. Boundary disposition, attempt disposition, sparse-mark
+blacklisting, current-camera phases, and telemetry failure codes consume those
+typed identities through exhaustive switches; rendered text is never parsed to
+recover workflow meaning.
 
 Durable machine and tip checkpoint ports are capabilities of the LIVE session
 only. SIMULATED receives no active durable checkpoint capability, so its public
