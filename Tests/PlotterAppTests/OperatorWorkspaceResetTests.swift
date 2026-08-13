@@ -14,7 +14,7 @@ extension OperatorWorkspaceTests {
       save: { checkpointBox.save($0) },
       clear: { checkpointBox.clear() }
     )
-    let seeded = makeSimulatedHarness(tipCheckpointActions: actions)
+    let seeded = makeSimulatedHarness()
     try await completeSimulatedBoundariesAndCenter(
       seeded.workspace,
       runtime: seeded.runtime,
@@ -24,7 +24,17 @@ extension OperatorWorkspaceTests {
       seeded.workspace,
       runtime: seeded.runtime
     )
-    #expect(checkpointBox.checkpoint != nil)
+    let registration = try #require(seeded.workspace.tipCameraRegistration)
+    try checkpointBox.save(
+      AcceptedTipCalibrationCheckpoint(
+        registration: registration,
+        acceptanceEvent: TipCalibrationAcceptanceEvent(
+          acceptedRevisionID: registration.acceptedRevisionID,
+          timestamp: registration.acceptedAt,
+          actor: "test fixture"
+        )
+      )
+    )
 
     let liveRestart = makeSimulatedHarness(tipCheckpointActions: actions)
     #expect(liveRestart.workspace.frameMode == .live)

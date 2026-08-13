@@ -88,7 +88,7 @@ extension OperatorWorkspaceTests {
     )
   }
 
-  @Test("SIMULATED learning is discarded and the parked LIVE authority is restored")
+  @Test("source-indexed sessions preserve LIVE and replace SIMULATED independently")
   func simulatedLearningDoesNotReplaceLiveAuthority() async throws {
     let log = EventLog()
     let machine = try MachineFixture(log: log)
@@ -114,6 +114,7 @@ extension OperatorWorkspaceTests {
       workspace.learningArtifactGraph.currentRevision(for: .boundarySideAggregate(.positiveY))
         == nil
     )
+    workspace.selectedDiscoverySequenceID = .boundaryNegativeX
 
     await workspace.switchFrameMode(.live)
     #expect(
@@ -122,6 +123,14 @@ extension OperatorWorkspaceTests {
     #expect(
       workspace.learningArtifactGraph.currentRevision(for: .boundarySideAggregate(.positiveY))?.id
         == liveBoundaryRevisionID
+    )
+    await workspace.switchFrameMode(.simulated)
+    #expect(workspace.learningArtifactGraph.currentRevision(for: .penInteraction) == nil)
+    #expect(workspace.discoveryTransactions.isEmpty)
+    #expect(workspace.selectedDiscoverySequenceID == .penInteraction)
+    await workspace.switchFrameMode(.live)
+    #expect(
+      workspace.learningArtifactGraph.currentRevision(for: .penInteraction)?.id == livePenRevisionID
     )
     await workspace.shutdown()
   }

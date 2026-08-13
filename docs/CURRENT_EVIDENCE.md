@@ -9,6 +9,32 @@ procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
 ## Implemented software surface
 
+### Source-indexed learning sessions
+
+Validated 2026-08-12 in Blackdog task `TASK-3E783DB1`, targeting `main`
+from base `adcf90f9095ac40c395178366ee79f7fe1a7060c`.
+
+`OperatorWorkspace` now holds independent LIVE and SIMULATED
+`LearningSessionState` values governed by one structural contract. Source
+switching selects the active value instead of snapshotting and restoring a
+shared authority surface. Entering SIMULATED creates a fresh nonphysical
+session; returning to LIVE selects the unchanged LIVE value. Durable machine
+and tip checkpoint capabilities are LIVE-only, and the full simulated sparse
+calibration journey proves no additional durable loads and zero saves or clears.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| Focused workspace and sparse-tip suites | passed — 36 tests | source switching, independent resets, checkpoint isolation and revalidation, Boundary, Stage 4, possible ink |
+| `make quick-test` | passed — 322 tests | fast unit/component partition |
+| `make journey-test` | passed — 10 tests | retained sparse, checkpoint, Stage 4, Boundary, reset, and simulator journeys |
+| `make strict-check` | passed — 332 tests | complete concurrency, warnings-as-errors, signed bundle and launcher validation, full test suite, repository checks |
+| obsolete snapshot-symbol scan | passed — zero source/test matches | former snapshot type and parked/capture/restore/reset compatibility paths |
+| `git diff --check` | passed | whitespace/conflict markers |
+
+These are software and simulated-workflow results. No app launch, controller
+connection, physical motion, camera capture, Pen Down observation, or observed
+physical ink validation was performed.
+
 The current source contains exactly two post-Boundary calibration exercises:
 
 - 3.3 five-cap machine-to-visible-cap registration with three fit samples and

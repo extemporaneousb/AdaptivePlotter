@@ -43,6 +43,7 @@ func makeSimulatedHarness(
   cameraActions: OperatorWorkspace.CameraActions? = nil,
   eventLog: EventLog? = nil,
   workflowTelemetry: WorkflowTelemetryFixture? = nil,
+  checkpointActions: OperatorWorkspace.AcceptedArtifactCheckpointActions? = nil,
   tipCheckpointActions: OperatorWorkspace.AcceptedTipCalibrationCheckpointActions? = nil,
   tipCalibrationSemanticIdentities: TipCalibrationSemanticIdentityState = .ephemeral(),
   simulatedExecutionPacing: any SimulatedLearningExecutionPacing =
@@ -63,6 +64,7 @@ func makeSimulatedHarness(
     workspace: OperatorWorkspace(
       machineActions: isolatedMachineActions(log: machineActionLog),
       cameraActions: cameraActions ?? CameraComposition.makeIsolatedActionsForTesting(),
+      acceptedArtifactCheckpointActions: checkpointActions,
       acceptedTipCalibrationCheckpointActions: tipCheckpointActions,
       tipCalibrationSemanticIdentities: tipCalibrationSemanticIdentities,
       workflowTelemetryActions: workflowTelemetry.map { fixture in
@@ -526,6 +528,9 @@ final class TestClock: @unchecked Sendable {
 final class CheckpointBox: @unchecked Sendable {
   private let lock = NSLock()
   private var stored: AcceptedMachineArtifactCheckpoint?
+  private var loads = 0
+  private var saves = 0
+  private var clears = 0
 
   var checkpoint: AcceptedMachineArtifactCheckpoint? {
     lock.lock()
@@ -533,20 +538,29 @@ final class CheckpointBox: @unchecked Sendable {
     return stored
   }
 
+  var operationCounts: (loads: Int, saves: Int, clears: Int) {
+    lock.lock()
+    defer { lock.unlock() }
+    return (loads, saves, clears)
+  }
+
   func load() -> AcceptedArtifactCheckpointLoadResult {
     lock.lock()
     defer { lock.unlock() }
+    loads += 1
     return stored.map(AcceptedArtifactCheckpointLoadResult.loaded) ?? .absent
   }
 
   func save(_ checkpoint: AcceptedMachineArtifactCheckpoint) {
     lock.lock()
+    saves += 1
     stored = checkpoint
     lock.unlock()
   }
 
   func clear() {
     lock.lock()
+    clears += 1
     stored = nil
     lock.unlock()
   }
@@ -555,6 +569,13 @@ final class CheckpointBox: @unchecked Sendable {
 final class TipCheckpointBox: @unchecked Sendable {
   private let lock = NSLock()
   private var stored: AcceptedTipCalibrationCheckpoint?
+  private var loads = 0
+  private var saves = 0
+  private var clears = 0
+
+  init(checkpoint: AcceptedTipCalibrationCheckpoint? = nil) {
+    stored = checkpoint
+  }
 
   var checkpoint: AcceptedTipCalibrationCheckpoint? {
     lock.lock()
@@ -562,20 +583,29 @@ final class TipCheckpointBox: @unchecked Sendable {
     return stored
   }
 
+  var operationCounts: (loads: Int, saves: Int, clears: Int) {
+    lock.lock()
+    defer { lock.unlock() }
+    return (loads, saves, clears)
+  }
+
   func load() -> AcceptedTipCalibrationCheckpointLoadResult {
     lock.lock()
     defer { lock.unlock() }
+    loads += 1
     return stored.map(AcceptedTipCalibrationCheckpointLoadResult.quarantined) ?? .absent
   }
 
   func save(_ checkpoint: AcceptedTipCalibrationCheckpoint) {
     lock.lock()
+    saves += 1
     stored = checkpoint
     lock.unlock()
   }
 
   func clear() {
     lock.lock()
+    clears += 1
     stored = nil
     lock.unlock()
   }

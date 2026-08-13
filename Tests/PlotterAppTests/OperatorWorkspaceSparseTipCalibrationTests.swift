@@ -36,10 +36,16 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     #expect(requiredDelta.dy == 0)
   }
 
-  @Test("five 2 mm circle centers select, fit, and accept one tip registration")
+  @Test("five SIMULATED circle centers accept in memory without writing LIVE authority")
   func fullFiveMarkAcceptance() async throws {
+    let machineCheckpointBox = CheckpointBox()
     let checkpointBox = TipCheckpointBox()
     let harness = makeSimulatedHarness(
+      checkpointActions: .init(
+        load: { machineCheckpointBox.load() },
+        save: { machineCheckpointBox.save($0) },
+        clear: { machineCheckpointBox.clear() }
+      ),
       tipCheckpointActions: .init(
         load: { checkpointBox.load() },
         save: { checkpointBox.save($0) },
@@ -120,7 +126,14 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     try await performPublicAction(.acceptTipCalibration, owner: tipOwner, workspace: workspace)
     #expect(workspace.tipCameraRegistration?.acceptedRevisionID == proposal.acceptedRevisionID)
     #expect(workspace.sparseTipCalibrationCoordinator.phase == .accepted)
-    #expect(checkpointBox.checkpoint?.registration.acceptedRevisionID == proposal.acceptedRevisionID)
+    #expect(checkpointBox.checkpoint == nil)
+    #expect(checkpointBox.operationCounts.loads == 1)
+    #expect(checkpointBox.operationCounts.saves == 0)
+    #expect(checkpointBox.operationCounts.clears == 0)
+    #expect(machineCheckpointBox.checkpoint == nil)
+    #expect(machineCheckpointBox.operationCounts.loads == 1)
+    #expect(machineCheckpointBox.operationCounts.saves == 0)
+    #expect(machineCheckpointBox.operationCounts.clears == 0)
   }
 
   @Test("five-cap acceptance advances directly to sparse marks")
@@ -256,12 +269,6 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
 
   @Test("quarantined checkpoint revalidates after restart without another mark")
   func checkpointRevalidationRestoresWithoutAnotherMark() async throws {
-    let checkpointBox = TipCheckpointBox()
-    let checkpointActions = OperatorWorkspace.AcceptedTipCalibrationCheckpointActions(
-      load: { checkpointBox.load() },
-      save: { checkpointBox.save($0) },
-      clear: { checkpointBox.clear() }
-    )
     let identities = TipCalibrationSemanticIdentityState(
       machineGeometry: MachineGeometryIdentity(),
       toolAssembly: ToolAssemblyRevision(),
@@ -270,10 +277,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       cameraMountRevision: UUID(),
       cameraReframingRevision: UUID()
     )
-    let initial = makeSimulatedHarness(
-      tipCheckpointActions: checkpointActions,
-      tipCalibrationSemanticIdentities: identities
-    )
+    let initial = makeSimulatedHarness(tipCalibrationSemanticIdentities: identities)
     try await completeSimulatedBoundariesAndCenter(
       initial.workspace,
       runtime: initial.runtime,
@@ -283,18 +287,24 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       initial.workspace,
       runtime: initial.runtime
     )
-    let saved = try #require(checkpointBox.checkpoint)
+    let initialRegistration = try #require(initial.workspace.tipCameraRegistration)
+    let saved = try AcceptedTipCalibrationCheckpoint(
+      registration: initialRegistration,
+      acceptanceEvent: TipCalibrationAcceptanceEvent(
+        acceptedRevisionID: initialRegistration.acceptedRevisionID,
+        timestamp: initialRegistration.acceptedAt,
+        actor: "test fixture"
+      )
+    )
     #expect((await initial.runtime.snapshot()).persistentInkSegmentCount == 80)
 
-    let restarted = makeSimulatedHarness(
-      tipCheckpointActions: checkpointActions,
-      tipCalibrationSemanticIdentities: identities
-    )
+    let restarted = makeSimulatedHarness(tipCalibrationSemanticIdentities: identities)
     try await completeSimulatedBoundariesAndCenter(
       restarted.workspace,
       runtime: restarted.runtime,
       boundaryOrder: [.negativeX, .positiveX, .negativeY, .positiveY]
     )
+    restarted.workspace.replaceSimulatedTipCalibrationCheckpointForTesting(saved)
     let cameraOwner = LearningPathItemID.humanGuidedDiscovery(
       .calibrateCameraAndVisibleCap
     )
@@ -357,7 +367,6 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       cameraReframingRevision: identities.cameraReframingRevision
     )
     let changedPaper = makeSimulatedHarness(
-      tipCheckpointActions: checkpointActions,
       tipCalibrationSemanticIdentities: changedPaperIdentities
     )
     try await completeSimulatedBoundariesAndCenter(
@@ -365,6 +374,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       runtime: changedPaper.runtime,
       boundaryOrder: [.negativeX, .positiveX, .negativeY, .positiveY]
     )
+    changedPaper.workspace.replaceSimulatedTipCalibrationCheckpointForTesting(saved)
     try await performPublicAction(
       .runCameraCalibrationAndBuildProposal,
       owner: cameraOwner,

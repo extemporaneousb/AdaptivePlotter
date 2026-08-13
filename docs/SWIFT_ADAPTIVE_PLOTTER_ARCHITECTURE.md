@@ -172,6 +172,22 @@ never calls production machine actions. Every simulator surface is labeled
 `SIMULATED — NOT PHYSICAL EVIDENCE`. An annotation is presentation-only and
 cannot alter canonical pixels or hashes.
 
+`OperatorWorkspace` owns two independent `LearningSessionState` values,
+one LIVE and one SIMULATED, under one structural contract. Session state owns
+the graph, artifact payloads and proposals, attempt histories, accepted-attempt
+sequence, quarantine status, paper identity, possible-ink blacklist, drawing
+trial state, and learning errors. The active frame source selects which value
+all learning projections and mutations address. Camera/controller owners,
+operation tasks, Stop capabilities, and other runtime lifetimes remain outside
+the session values.
+
+Durable machine and tip checkpoint ports are capabilities of the LIVE session
+only. SIMULATED receives no active durable checkpoint capability, so its public
+actions cannot load, save, clear, replace, or otherwise mutate physical durable
+authority. Entering SIMULATED replaces only its previous nonphysical session;
+the LIVE session remains stored independently and is selected unchanged on
+return.
+
 ## Validation structure
 
 Swift Testing suites cover evidence constructors, holdout/model selection,

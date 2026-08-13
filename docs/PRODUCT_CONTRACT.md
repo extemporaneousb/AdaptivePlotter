@@ -312,11 +312,17 @@ Redo. It previews the exact suffix, rejects a stale summary, and never performs
 motion, changes pen state, or erases physical ink. LIVE and SIMULATED authority
 reset independently.
 
+LIVE and SIMULATED learning are independent `LearningSessionState` values
+governed by the same state contract and selected by the active source. A source
+switch never copies or parks one source inside the other. Entering SIMULATED
+creates a fresh nonphysical session; leaving it selects the unchanged LIVE
+session, and later re-entry starts another fresh SIMULATED session.
+
 SIMULATED uses the same public action seams and dependency graph with causal
-frames, persistent black ink, and a real nonzero cap-to-tip truth. It cannot
-invoke physical `MachineActions`, satisfy physical artifacts, or become observed
-physical ink evidence. Leaving SIMULATED restores parked LIVE authority without
-cross-source promotion.
+frames, persistent black ink, and a real nonzero cap-to-tip truth. It has no
+capability to load, save, or clear LIVE durable machine or tip checkpoints. It
+cannot invoke physical `MachineActions`, satisfy physical artifacts, or become
+observed physical ink evidence.
 
 ## Model-learning direction
 

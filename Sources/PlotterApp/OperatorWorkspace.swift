@@ -491,59 +491,104 @@ final class OperatorWorkspace {
     let completedEpisodes: [ExplorationEpisode]
   }
 
-  /// Live accepted learning authority is parked while the deterministic
-  /// simulator runs. Simulated artifacts can drive the same presentation but
-  /// are discarded when LIVE resumes and can never become physical evidence.
-  private struct LearningAuthoritySnapshot {
-    let boundaryTeachingState: BoundaryTeachingState
-    let boundaryTeachingResultText: String
-    let selectedDiscoverySequenceID: DiscoverySequenceID
-    let discoveryTransactions: [DiscoverySequenceID: DiscoveryTransaction]
-    let discoveryError: String?
-    let pairedBoundaryProgress: PairedBoundaryProgress
-    let boundaryAttemptEvidenceByAttemptID: [ExerciseAttemptID: BoundarySideAttemptEvidence]
-    let boundarySideAggregates: [BoundaryDirection: BoundarySideAggregate]
-    let estimatedMachineCenter: EstimatedMachineCenter?
-    let learnedLocalCoordinateFrame: LearnedLocalCoordinateFrame?
-    let centerArrivalPosition: MachinePosition?
-    let centerArrivalRetryRequired: Bool
-    let cameraCalibrationAnchorFrame: DisplayedFrame?
-    let cameraCalibrationReferencePosition: MachinePosition?
-    let cameraCalibrationReferenceCapAnchor: ToolCapAnchorEstimate?
-    let machineCameraRegistration: MachineCameraRegistration?
-    let tipCameraRegistration: TipCameraRegistration?
-    let explorationError: String?
-    let currentExplorationEpisode: ExplorationEpisode?
-    let completedExplorationEpisodes: [ExplorationEpisode]
-    let localPreLineBaseline: DisplayedFrame?
-    let drawingTrialRevealPosition: MachinePosition?
-    let drawingTrialTipRegistrationRevisionID: LearningArtifactRevisionID?
-    let drawingTrialObservationRegion: PixelRect?
-    let lastProtocolPoseSettlement: ProtocolPoseSettlement?
-    let explorationPostLineFrame: DisplayedFrame?
-    let drawingTrialLineStart: MachinePosition?
-    let drawingTrialStrokeEvidence: DrawingStrokeEvidence?
-    let lastInkObservation: IsolatedInkObservation?
-    let explorationInkStatus: String
-    let explorationExportPath: String?
-    let lastTravelFeedSelection: TravelFeedSelection?
-    let drawingTrialAssessment: DrawingTrialAssessment?
-    let learningArtifactGraph: LearningDependencyGraph
-    let penAttemptHistory: ExerciseAttemptHistory<PenState>
-    let boundaryAttemptHistories:
+  /// One complete learning authority value. LIVE and SIMULATED use the same
+  /// contract while retaining independent storage and independent lifetimes.
+  private struct LearningSessionState {
+    var boundaryTeachingState: BoundaryTeachingState = .idle
+    var boundaryTeachingResultText = "Choose one side to begin."
+    var selectedDiscoverySequenceID: DiscoverySequenceID = .penInteraction
+    var discoveryTransactions: [DiscoverySequenceID: DiscoveryTransaction] = [:]
+    var discoveryError: String?
+    var pairedBoundaryProgress = PairedBoundaryProgress()
+    var boundaryAttemptEvidenceByAttemptID: [ExerciseAttemptID: BoundarySideAttemptEvidence] = [:]
+    var boundarySideAggregates: [BoundaryDirection: BoundarySideAggregate] = [:]
+    var estimatedMachineCenter: EstimatedMachineCenter?
+    var learnedLocalCoordinateFrame: LearnedLocalCoordinateFrame?
+    var centerArrivalPosition: MachinePosition?
+    var centerArrivalRetryRequired = false
+    var cameraCalibrationAnchorFrame: DisplayedFrame?
+    var cameraCalibrationReferencePosition: MachinePosition?
+    var cameraCalibrationReferenceCapAnchor: ToolCapAnchorEstimate?
+    var proposedMachineCameraRegistration: MachineCameraRegistration?
+    var cameraCalibrationProposalID: UUID?
+    var machineCameraRegistration: MachineCameraRegistration?
+    var tipCameraRegistration: TipCameraRegistration?
+    var proposedTipCameraRegistration: TipCameraRegistration?
+    var sparseTipCalibrationCoordinator = SparseTipCalibrationCoordinator()
+    var frozenToolContactSelectionFrame: DisplayedFrame?
+    var pendingToolContactEvidence: PendingToolContactEvidence?
+    var toolContactPointSelectionRequest: ActionSurfacePointSelectionRequest?
+    var selectedToolContactPoint: Point2<CameraPixelSpace>?
+    var blacklistedToolContactLocations: Set<BlacklistedToolContactLocation> = []
+    var explicitRegistrationCapAnchorEvidence: [MachineCameraCorrespondenceProvenance] = []
+    var currentCameraCalibrationPhase: String?
+    var currentCameraCalibrationFailure: CurrentCameraCalibrationFailure?
+    var lastContextualStopAuditRecord: ContextualStopAuditRecord?
+    var boundaryActivityRecords: [BoundaryActivityRecord] = []
+    var localPreLineBaseline: DisplayedFrame?
+    var drawingTrialRevealPosition: MachinePosition?
+    var drawingTrialTipRegistrationRevisionID: LearningArtifactRevisionID?
+    var drawingTrialObservationRegion: PixelRect?
+    var lastProtocolPoseSettlement: ProtocolPoseSettlement?
+    var explorationError: String?
+    var currentExplorationEpisode: ExplorationEpisode?
+    var completedExplorationEpisodes: [ExplorationEpisode] = []
+    var explorationPostLineFrame: DisplayedFrame?
+    var drawingTrialLineStart: MachinePosition?
+    var drawingTrialStrokeEvidence: DrawingStrokeEvidence?
+    var lastInkObservation: IsolatedInkObservation?
+    var explorationInkStatus = "no isolated-line observation yet"
+    var explorationExportPath: String?
+    var lastTravelFeedSelection: TravelFeedSelection?
+    var drawingTrialAssessment: DrawingTrialAssessment?
+    var learningArtifactGraph = LearningDependencyGraph()
+    var penAttemptHistory: ExerciseAttemptHistory<PenState>
+    var boundaryAttemptHistories:
       [BoundaryDirection: [AttemptCompatibility: ExerciseAttemptHistory<
         BoundarySideAttemptEvidence
-      >]]
-    let comparisonAttemptHistories:
-      [AttemptCompatibility: ExerciseAttemptHistory<DrawingTrialAssessment>]
-    let restartableExerciseItemID: LearningPathItemID?
-    let observedDrawingTrialStep: ObservedDrawingTrialStep
-    let selectedBoundaryDirection: BoundaryDirection
-    let selectedLineDirection: BoundaryDirection
-    let acceptedAttemptSequence: UInt64
-    let currentDrawingTrialGroup: AttemptGroupIdentity
-    let explorationCoordinateRevision: UInt64
-    let explorationToolPaperRevision: UUID
+      >]] = [:]
+    var comparisonAttemptHistories:
+      [AttemptCompatibility: ExerciseAttemptHistory<DrawingTrialAssessment>] = [:]
+    var activeExerciseAttemptID: ExerciseAttemptID?
+    var activeExerciseAttemptOwnerID: LearningPathItemID?
+    var activeExerciseAttemptMode: ExerciseAttemptMode?
+    var restartableExerciseItemID: LearningPathItemID?
+    var acceptedArtifactCheckpointStatus: AcceptedArtifactCheckpointStatus = .unavailable
+    var parkedAcceptedMachineArtifactCheckpoint: AcceptedMachineArtifactCheckpoint?
+    var quarantinedTipCalibrationCheckpoint: AcceptedTipCalibrationCheckpoint?
+    var learningAuthorityError: String?
+    var observedDrawingTrialStep: ObservedDrawingTrialStep = .chooseIsolatedLinePlan
+    var selectedBoundaryDirection: BoundaryDirection = .positiveX
+    var selectedLineDirection: BoundaryDirection = .positiveX
+    var acceptedAttemptSequence: UInt64 = 0
+    var currentDrawingTrialGroup: AttemptGroupIdentity
+    var learningEvidenceSessionID = LearningEvidenceSessionID()
+    var controllerSessionID = UUID()
+    var explorationCoordinateRevision: UInt64 = 0
+    var explorationToolPaperRevision: UUID
+
+    init(source: OperatorFrameMode, paperContactPlaneRevision: UUID) {
+      let simulated = source == .simulated
+      penAttemptHistory = try! ExerciseAttemptHistory(
+        compatibility: AttemptCompatibility(
+          cameraConfigurationID: nil,
+          coordinateSpace: .currentState,
+          units: .state,
+          group: AttemptGroupIdentity(
+            rawValue: simulated ? "simulated-pen-interaction" : "pen-interaction"
+          ),
+          algorithmRevision: simulated
+            ? "simulated-typed-operator-pen-observation-v1"
+            : "typed-operator-pen-observation-v1"
+        )
+      )
+      currentDrawingTrialGroup = AttemptGroupIdentity(
+        rawValue: simulated
+          ? "simulated-\(UUID().uuidString.lowercased())"
+          : UUID().uuidString.lowercased()
+      )
+      explorationToolPaperRevision = paperContactPlaneRevision
+    }
   }
 
   private enum MotionPriors {
@@ -637,8 +682,14 @@ final class OperatorWorkspace {
   private(set) var frameModeSwitchInProgress = false
   private(set) var motionGuardActivationInProgress = false
   private(set) var lastMotionGuardActivationText = "not activated"
-  private(set) var lastContextualStopAuditRecord: ContextualStopAuditRecord?
-  private(set) var boundaryActivityRecords: [BoundaryActivityRecord] = []
+  private(set) var lastContextualStopAuditRecord: ContextualStopAuditRecord? {
+    get { activeLearningSession.lastContextualStopAuditRecord }
+    set { activeLearningSession.lastContextualStopAuditRecord = newValue }
+  }
+  private(set) var boundaryActivityRecords: [BoundaryActivityRecord] {
+    get { activeLearningSession.boundaryActivityRecords }
+    set { activeLearningSession.boundaryActivityRecords = newValue }
+  }
 
   private(set) var cameraSnapshot: CameraCaptureSnapshot?
   private(set) var displayedFrame: DisplayedFrame? {
@@ -664,81 +715,269 @@ final class OperatorWorkspace {
   private(set) var simulatedAnnotations: [SimulatedLearningAnnotation] = []
   private(set) var simulatedViewportID: SimulatedCameraViewportID?
   var simulatedAnnotationsAreVisible = true
-  private(set) var boundaryTeachingState: BoundaryTeachingState = .idle
-  private(set) var boundaryTeachingResultText = "Choose one side to begin."
-  var selectedDiscoverySequenceID: DiscoverySequenceID = .penInteraction
-  private(set) var discoveryTransactions: [DiscoverySequenceID: DiscoveryTransaction] = [:]
-  private(set) var discoveryError: String?
-  private(set) var pairedBoundaryProgress = PairedBoundaryProgress()
+  private var liveLearningSession: LearningSessionState
+  private var simulatedLearningSession: LearningSessionState
+  private var activeLearningSession: LearningSessionState {
+    get { frameMode == .live ? liveLearningSession : simulatedLearningSession }
+    set {
+      if frameMode == .live {
+        liveLearningSession = newValue
+      } else {
+        simulatedLearningSession = newValue
+      }
+    }
+  }
+  private(set) var boundaryTeachingState: BoundaryTeachingState {
+    get { activeLearningSession.boundaryTeachingState }
+    set { activeLearningSession.boundaryTeachingState = newValue }
+  }
+  private(set) var boundaryTeachingResultText: String {
+    get { activeLearningSession.boundaryTeachingResultText }
+    set { activeLearningSession.boundaryTeachingResultText = newValue }
+  }
+  var selectedDiscoverySequenceID: DiscoverySequenceID {
+    get { activeLearningSession.selectedDiscoverySequenceID }
+    set { activeLearningSession.selectedDiscoverySequenceID = newValue }
+  }
+  private(set) var discoveryTransactions: [DiscoverySequenceID: DiscoveryTransaction] {
+    get { activeLearningSession.discoveryTransactions }
+    set { activeLearningSession.discoveryTransactions = newValue }
+  }
+  private(set) var discoveryError: String? {
+    get { activeLearningSession.discoveryError }
+    set { activeLearningSession.discoveryError = newValue }
+  }
+  private(set) var pairedBoundaryProgress: PairedBoundaryProgress {
+    get { activeLearningSession.pairedBoundaryProgress }
+    set { activeLearningSession.pairedBoundaryProgress = newValue }
+  }
   private(set) var boundaryAttemptEvidenceByAttemptID:
-    [ExerciseAttemptID: BoundarySideAttemptEvidence] = [:]
-  private(set) var boundarySideAggregates: [BoundaryDirection: BoundarySideAggregate] = [:]
-  private(set) var estimatedMachineCenter: EstimatedMachineCenter?
-  private(set) var learnedLocalCoordinateFrame: LearnedLocalCoordinateFrame?
-  private(set) var centerArrivalPosition: MachinePosition?
-  private(set) var centerArrivalRetryRequired = false
-  private(set) var cameraCalibrationAnchorFrame: DisplayedFrame?
-  private(set) var cameraCalibrationReferencePosition: MachinePosition?
-  private(set) var cameraCalibrationReferenceCapAnchor: ToolCapAnchorEstimate?
-  private(set) var proposedMachineCameraRegistration: MachineCameraRegistration?
-  private(set) var cameraCalibrationProposalID: UUID?
-  private(set) var machineCameraRegistration: MachineCameraRegistration?
-  private(set) var tipCameraRegistration: TipCameraRegistration?
-  private(set) var proposedTipCameraRegistration: TipCameraRegistration?
-  private(set) var sparseTipCalibrationCoordinator = SparseTipCalibrationCoordinator()
-  private(set) var frozenToolContactSelectionFrame: DisplayedFrame?
-  private var pendingToolContactEvidence: PendingToolContactEvidence?
-  private(set) var toolContactPointSelectionRequest: ActionSurfacePointSelectionRequest?
-  private(set) var selectedToolContactPoint: Point2<CameraPixelSpace>?
+    [ExerciseAttemptID: BoundarySideAttemptEvidence] {
+    get { activeLearningSession.boundaryAttemptEvidenceByAttemptID }
+    set { activeLearningSession.boundaryAttemptEvidenceByAttemptID = newValue }
+  }
+  private(set) var boundarySideAggregates: [BoundaryDirection: BoundarySideAggregate] {
+    get { activeLearningSession.boundarySideAggregates }
+    set { activeLearningSession.boundarySideAggregates = newValue }
+  }
+  private(set) var estimatedMachineCenter: EstimatedMachineCenter? {
+    get { activeLearningSession.estimatedMachineCenter }
+    set { activeLearningSession.estimatedMachineCenter = newValue }
+  }
+  private(set) var learnedLocalCoordinateFrame: LearnedLocalCoordinateFrame? {
+    get { activeLearningSession.learnedLocalCoordinateFrame }
+    set { activeLearningSession.learnedLocalCoordinateFrame = newValue }
+  }
+  private(set) var centerArrivalPosition: MachinePosition? {
+    get { activeLearningSession.centerArrivalPosition }
+    set { activeLearningSession.centerArrivalPosition = newValue }
+  }
+  private(set) var centerArrivalRetryRequired: Bool {
+    get { activeLearningSession.centerArrivalRetryRequired }
+    set { activeLearningSession.centerArrivalRetryRequired = newValue }
+  }
+  private(set) var cameraCalibrationAnchorFrame: DisplayedFrame? {
+    get { activeLearningSession.cameraCalibrationAnchorFrame }
+    set { activeLearningSession.cameraCalibrationAnchorFrame = newValue }
+  }
+  private(set) var cameraCalibrationReferencePosition: MachinePosition? {
+    get { activeLearningSession.cameraCalibrationReferencePosition }
+    set { activeLearningSession.cameraCalibrationReferencePosition = newValue }
+  }
+  private(set) var cameraCalibrationReferenceCapAnchor: ToolCapAnchorEstimate? {
+    get { activeLearningSession.cameraCalibrationReferenceCapAnchor }
+    set { activeLearningSession.cameraCalibrationReferenceCapAnchor = newValue }
+  }
+  private(set) var proposedMachineCameraRegistration: MachineCameraRegistration? {
+    get { activeLearningSession.proposedMachineCameraRegistration }
+    set { activeLearningSession.proposedMachineCameraRegistration = newValue }
+  }
+  private(set) var cameraCalibrationProposalID: UUID? {
+    get { activeLearningSession.cameraCalibrationProposalID }
+    set { activeLearningSession.cameraCalibrationProposalID = newValue }
+  }
+  private(set) var machineCameraRegistration: MachineCameraRegistration? {
+    get { activeLearningSession.machineCameraRegistration }
+    set { activeLearningSession.machineCameraRegistration = newValue }
+  }
+  private(set) var tipCameraRegistration: TipCameraRegistration? {
+    get { activeLearningSession.tipCameraRegistration }
+    set { activeLearningSession.tipCameraRegistration = newValue }
+  }
+  private(set) var proposedTipCameraRegistration: TipCameraRegistration? {
+    get { activeLearningSession.proposedTipCameraRegistration }
+    set { activeLearningSession.proposedTipCameraRegistration = newValue }
+  }
+  private(set) var sparseTipCalibrationCoordinator: SparseTipCalibrationCoordinator {
+    get { activeLearningSession.sparseTipCalibrationCoordinator }
+    set { activeLearningSession.sparseTipCalibrationCoordinator = newValue }
+  }
+  private(set) var frozenToolContactSelectionFrame: DisplayedFrame? {
+    get { activeLearningSession.frozenToolContactSelectionFrame }
+    set { activeLearningSession.frozenToolContactSelectionFrame = newValue }
+  }
+  private var pendingToolContactEvidence: PendingToolContactEvidence? {
+    get { activeLearningSession.pendingToolContactEvidence }
+    set { activeLearningSession.pendingToolContactEvidence = newValue }
+  }
+  private(set) var toolContactPointSelectionRequest: ActionSurfacePointSelectionRequest? {
+    get { activeLearningSession.toolContactPointSelectionRequest }
+    set { activeLearningSession.toolContactPointSelectionRequest = newValue }
+  }
+  private(set) var selectedToolContactPoint: Point2<CameraPixelSpace>? {
+    get { activeLearningSession.selectedToolContactPoint }
+    set { activeLearningSession.selectedToolContactPoint = newValue }
+  }
   private let machineGeometryIdentity: MachineGeometryIdentity
   private let toolAssemblyRevision: ToolAssemblyRevision
   private let penContactProfileRevision: PenContactProfileRevision
   private let cameraMountRevision: UUID
   private let cameraReframingRevision: UUID
-  private(set) var blacklistedToolContactLocations: Set<BlacklistedToolContactLocation> = []
-  private(set) var explicitRegistrationCapAnchorEvidence: [MachineCameraCorrespondenceProvenance] =
-    []
-  private(set) var currentCameraCalibrationPhase: String?
-  private var currentCameraCalibrationFailure: CurrentCameraCalibrationFailure?
-  private(set) var localPreLineBaseline: DisplayedFrame?
-  private(set) var drawingTrialRevealPosition: MachinePosition?
-  private(set) var drawingTrialTipRegistrationRevisionID: LearningArtifactRevisionID?
-  private(set) var drawingTrialObservationRegion: PixelRect?
-  private(set) var lastProtocolPoseSettlement: ProtocolPoseSettlement?
-  private(set) var explorationError: String?
-  private(set) var currentExplorationEpisode: ExplorationEpisode?
-  private(set) var completedExplorationEpisodes: [ExplorationEpisode] = []
-  private(set) var explorationPostLineFrame: DisplayedFrame?
-  private(set) var drawingTrialLineStart: MachinePosition?
-  private(set) var drawingTrialStrokeEvidence: DrawingStrokeEvidence?
-  private(set) var lastInkObservation: IsolatedInkObservation?
-  private(set) var explorationInkStatus = "no isolated-line observation yet"
-  private(set) var explorationExportPath: String?
+  private(set) var blacklistedToolContactLocations: Set<BlacklistedToolContactLocation> {
+    get { activeLearningSession.blacklistedToolContactLocations }
+    set { activeLearningSession.blacklistedToolContactLocations = newValue }
+  }
+  private(set) var explicitRegistrationCapAnchorEvidence: [MachineCameraCorrespondenceProvenance] {
+    get { activeLearningSession.explicitRegistrationCapAnchorEvidence }
+    set { activeLearningSession.explicitRegistrationCapAnchorEvidence = newValue }
+  }
+  private(set) var currentCameraCalibrationPhase: String? {
+    get { activeLearningSession.currentCameraCalibrationPhase }
+    set { activeLearningSession.currentCameraCalibrationPhase = newValue }
+  }
+  private var currentCameraCalibrationFailure: CurrentCameraCalibrationFailure? {
+    get { activeLearningSession.currentCameraCalibrationFailure }
+    set { activeLearningSession.currentCameraCalibrationFailure = newValue }
+  }
+  private(set) var localPreLineBaseline: DisplayedFrame? {
+    get { activeLearningSession.localPreLineBaseline }
+    set { activeLearningSession.localPreLineBaseline = newValue }
+  }
+  private(set) var drawingTrialRevealPosition: MachinePosition? {
+    get { activeLearningSession.drawingTrialRevealPosition }
+    set { activeLearningSession.drawingTrialRevealPosition = newValue }
+  }
+  private(set) var drawingTrialTipRegistrationRevisionID: LearningArtifactRevisionID? {
+    get { activeLearningSession.drawingTrialTipRegistrationRevisionID }
+    set { activeLearningSession.drawingTrialTipRegistrationRevisionID = newValue }
+  }
+  private(set) var drawingTrialObservationRegion: PixelRect? {
+    get { activeLearningSession.drawingTrialObservationRegion }
+    set { activeLearningSession.drawingTrialObservationRegion = newValue }
+  }
+  private(set) var lastProtocolPoseSettlement: ProtocolPoseSettlement? {
+    get { activeLearningSession.lastProtocolPoseSettlement }
+    set { activeLearningSession.lastProtocolPoseSettlement = newValue }
+  }
+  private(set) var explorationError: String? {
+    get { activeLearningSession.explorationError }
+    set { activeLearningSession.explorationError = newValue }
+  }
+  private(set) var currentExplorationEpisode: ExplorationEpisode? {
+    get { activeLearningSession.currentExplorationEpisode }
+    set { activeLearningSession.currentExplorationEpisode = newValue }
+  }
+  private(set) var completedExplorationEpisodes: [ExplorationEpisode] {
+    get { activeLearningSession.completedExplorationEpisodes }
+    set { activeLearningSession.completedExplorationEpisodes = newValue }
+  }
+  private(set) var explorationPostLineFrame: DisplayedFrame? {
+    get { activeLearningSession.explorationPostLineFrame }
+    set { activeLearningSession.explorationPostLineFrame = newValue }
+  }
+  private(set) var drawingTrialLineStart: MachinePosition? {
+    get { activeLearningSession.drawingTrialLineStart }
+    set { activeLearningSession.drawingTrialLineStart = newValue }
+  }
+  private(set) var drawingTrialStrokeEvidence: DrawingStrokeEvidence? {
+    get { activeLearningSession.drawingTrialStrokeEvidence }
+    set { activeLearningSession.drawingTrialStrokeEvidence = newValue }
+  }
+  private(set) var lastInkObservation: IsolatedInkObservation? {
+    get { activeLearningSession.lastInkObservation }
+    set { activeLearningSession.lastInkObservation = newValue }
+  }
+  private(set) var explorationInkStatus: String {
+    get { activeLearningSession.explorationInkStatus }
+    set { activeLearningSession.explorationInkStatus = newValue }
+  }
+  private(set) var explorationExportPath: String? {
+    get { activeLearningSession.explorationExportPath }
+    set { activeLearningSession.explorationExportPath = newValue }
+  }
   private(set) var explorationOperationInProgress = false
   private(set) var lastAnnouncementResultText = "No announcement has run."
-  private(set) var lastTravelFeedSelection: TravelFeedSelection?
-  private(set) var drawingTrialAssessment: DrawingTrialAssessment?
-  private(set) var learningArtifactGraph = LearningDependencyGraph()
-  private(set) var penAttemptHistory: ExerciseAttemptHistory<PenState>
+  private(set) var lastTravelFeedSelection: TravelFeedSelection? {
+    get { activeLearningSession.lastTravelFeedSelection }
+    set { activeLearningSession.lastTravelFeedSelection = newValue }
+  }
+  private(set) var drawingTrialAssessment: DrawingTrialAssessment? {
+    get { activeLearningSession.drawingTrialAssessment }
+    set { activeLearningSession.drawingTrialAssessment = newValue }
+  }
+  private(set) var learningArtifactGraph: LearningDependencyGraph {
+    get { activeLearningSession.learningArtifactGraph }
+    set { activeLearningSession.learningArtifactGraph = newValue }
+  }
+  private(set) var penAttemptHistory: ExerciseAttemptHistory<PenState> {
+    get { activeLearningSession.penAttemptHistory }
+    set { activeLearningSession.penAttemptHistory = newValue }
+  }
   private(set) var boundaryAttemptHistories:
-    [BoundaryDirection: [AttemptCompatibility: ExerciseAttemptHistory<BoundarySideAttemptEvidence>]] =
-      [:]
+    [BoundaryDirection: [AttemptCompatibility: ExerciseAttemptHistory<BoundarySideAttemptEvidence>]]
+  {
+    get { activeLearningSession.boundaryAttemptHistories }
+    set { activeLearningSession.boundaryAttemptHistories = newValue }
+  }
   private(set) var comparisonAttemptHistories:
-    [AttemptCompatibility: ExerciseAttemptHistory<DrawingTrialAssessment>] = [:]
-  private(set) var activeExerciseAttemptID: ExerciseAttemptID?
-  private(set) var activeExerciseAttemptOwnerID: LearningPathItemID?
-  private(set) var restartableExerciseItemID: LearningPathItemID?
-  private(set) var acceptedArtifactCheckpointStatus: AcceptedArtifactCheckpointStatus = .unavailable
-  private(set) var quarantinedTipCalibrationCheckpoint: AcceptedTipCalibrationCheckpoint?
-  private(set) var learningAuthorityError: String?
+    [AttemptCompatibility: ExerciseAttemptHistory<DrawingTrialAssessment>]
+  {
+    get { activeLearningSession.comparisonAttemptHistories }
+    set { activeLearningSession.comparisonAttemptHistories = newValue }
+  }
+  private(set) var activeExerciseAttemptID: ExerciseAttemptID? {
+    get { activeLearningSession.activeExerciseAttemptID }
+    set { activeLearningSession.activeExerciseAttemptID = newValue }
+  }
+  private(set) var activeExerciseAttemptOwnerID: LearningPathItemID? {
+    get { activeLearningSession.activeExerciseAttemptOwnerID }
+    set { activeLearningSession.activeExerciseAttemptOwnerID = newValue }
+  }
+  private(set) var restartableExerciseItemID: LearningPathItemID? {
+    get { activeLearningSession.restartableExerciseItemID }
+    set { activeLearningSession.restartableExerciseItemID = newValue }
+  }
+  private(set) var acceptedArtifactCheckpointStatus: AcceptedArtifactCheckpointStatus {
+    get { activeLearningSession.acceptedArtifactCheckpointStatus }
+    set { activeLearningSession.acceptedArtifactCheckpointStatus = newValue }
+  }
+  private(set) var quarantinedTipCalibrationCheckpoint: AcceptedTipCalibrationCheckpoint? {
+    get { activeLearningSession.quarantinedTipCalibrationCheckpoint }
+    set { activeLearningSession.quarantinedTipCalibrationCheckpoint = newValue }
+  }
+  private(set) var learningAuthorityError: String? {
+    get { activeLearningSession.learningAuthorityError }
+    set { activeLearningSession.learningAuthorityError = newValue }
+  }
 
   @ObservationIgnored private let machineActions: MachineActions?
   @ObservationIgnored private let cameraActions: CameraActions?
   @ObservationIgnored private let announcementActions: AnnouncementActions?
-  @ObservationIgnored private let acceptedArtifactCheckpointActions:
+  /// These ports are capabilities of the LIVE learning session only. The
+  /// active accessors deliberately return nil for SIMULATED before any
+  /// workflow can load, save, or clear physical durable authority.
+  @ObservationIgnored private let liveAcceptedArtifactCheckpointActions:
     AcceptedArtifactCheckpointActions?
-  @ObservationIgnored private let acceptedTipCalibrationCheckpointActions:
+  @ObservationIgnored private let liveAcceptedTipCalibrationCheckpointActions:
     AcceptedTipCalibrationCheckpointActions?
+  private var activeAcceptedArtifactCheckpointActions: AcceptedArtifactCheckpointActions? {
+    frameMode == .live ? liveAcceptedArtifactCheckpointActions : nil
+  }
+  private var activeAcceptedTipCalibrationCheckpointActions:
+    AcceptedTipCalibrationCheckpointActions?
+  {
+    frameMode == .live ? liveAcceptedTipCalibrationCheckpointActions : nil
+  }
   @ObservationIgnored private let workflowTelemetryActions: WorkflowTelemetryActions?
   @ObservationIgnored private let simulatedLearningRuntime: SimulatedLearningRuntime
   @ObservationIgnored private var simulatedExecutionPacing: any SimulatedLearningExecutionPacing
@@ -749,10 +988,21 @@ final class OperatorWorkspace {
     Set<BoundaryAtomicCommitFailurePoint>
   @ObservationIgnored private var frameTask: Task<Void, Never>?
   @ObservationIgnored private var visionUpdateTask: Task<Void, Never>?
-  @ObservationIgnored private let learningEvidenceSessionID = LearningEvidenceSessionID()
-  @ObservationIgnored private var controllerSessionID = UUID()
-  @ObservationIgnored private var explorationCoordinateRevision: UInt64 = 0
-  @ObservationIgnored private var explorationToolPaperRevision: UUID
+  private var learningEvidenceSessionID: LearningEvidenceSessionID {
+    activeLearningSession.learningEvidenceSessionID
+  }
+  private var controllerSessionID: UUID {
+    get { activeLearningSession.controllerSessionID }
+    set { activeLearningSession.controllerSessionID = newValue }
+  }
+  private var explorationCoordinateRevision: UInt64 {
+    get { activeLearningSession.explorationCoordinateRevision }
+    set { activeLearningSession.explorationCoordinateRevision = newValue }
+  }
+  private var explorationToolPaperRevision: UUID {
+    get { activeLearningSession.explorationToolPaperRevision }
+    set { activeLearningSession.explorationToolPaperRevision = newValue }
+  }
   @ObservationIgnored private let persistPaperContactPlaneRevision:
     @Sendable (PaperContactPlaneRevision) -> Void
   @ObservationIgnored private var boundaryMotionTask: Task<Void, Never>?
@@ -781,15 +1031,23 @@ final class OperatorWorkspace {
   @ObservationIgnored private var lifetimeGeneration: UInt64 = 0
   @ObservationIgnored private var activeHardwareIntentCount = 0
   @ObservationIgnored private var intentDrainWaiters: [CheckedContinuation<Void, Never>] = []
-  @ObservationIgnored private var activeExerciseAttemptMode: ExerciseAttemptMode?
-  @ObservationIgnored private var parkedLiveLearningAuthority: LearningAuthoritySnapshot?
-  @ObservationIgnored private var acceptedAttemptSequence: UInt64 = 0
+  private var activeExerciseAttemptMode: ExerciseAttemptMode? {
+    get { activeLearningSession.activeExerciseAttemptMode }
+    set { activeLearningSession.activeExerciseAttemptMode = newValue }
+  }
+  private var acceptedAttemptSequence: UInt64 {
+    get { activeLearningSession.acceptedAttemptSequence }
+    set { activeLearningSession.acceptedAttemptSequence = newValue }
+  }
   @ObservationIgnored private var lastSimulatedProtocolCaptureNanoseconds: UInt64 = 0
-  @ObservationIgnored private var currentDrawingTrialGroup = AttemptGroupIdentity(
-    rawValue: UUID().uuidString.lowercased()
-  )
-  @ObservationIgnored private var parkedAcceptedMachineArtifactCheckpoint:
-    AcceptedMachineArtifactCheckpoint?
+  private var currentDrawingTrialGroup: AttemptGroupIdentity {
+    get { activeLearningSession.currentDrawingTrialGroup }
+    set { activeLearningSession.currentDrawingTrialGroup = newValue }
+  }
+  private var parkedAcceptedMachineArtifactCheckpoint: AcceptedMachineArtifactCheckpoint? {
+    get { activeLearningSession.parkedAcceptedMachineArtifactCheckpoint }
+    set { activeLearningSession.parkedAcceptedMachineArtifactCheckpoint = newValue }
+  }
 
   init(
     machineActions: MachineActions? = nil,
@@ -821,25 +1079,23 @@ final class OperatorWorkspace {
     },
     boundaryAtomicCommitFailurePoints: Set<BoundaryAtomicCommitFailurePoint> = []
   ) {
-    penAttemptHistory = try! ExerciseAttemptHistory(
-      compatibility: AttemptCompatibility(
-        cameraConfigurationID: nil,
-        coordinateSpace: .currentState,
-        units: .state,
-        group: AttemptGroupIdentity(rawValue: "pen-interaction"),
-        algorithmRevision: "typed-operator-pen-observation-v1"
-      )
+    liveLearningSession = LearningSessionState(
+      source: .live,
+      paperContactPlaneRevision: tipCalibrationSemanticIdentities.paperContactPlane.rawValue
+    )
+    simulatedLearningSession = LearningSessionState(
+      source: .simulated,
+      paperContactPlaneRevision: UUID()
     )
     self.simulatedExecutionPacing = simulatedExecutionPacing
     self.machineActions = machineActions
     self.cameraActions = cameraActions
     self.announcementActions = announcementActions
-    self.acceptedArtifactCheckpointActions = acceptedArtifactCheckpointActions
-    self.acceptedTipCalibrationCheckpointActions = acceptedTipCalibrationCheckpointActions
+    liveAcceptedArtifactCheckpointActions = acceptedArtifactCheckpointActions
+    liveAcceptedTipCalibrationCheckpointActions = acceptedTipCalibrationCheckpointActions
     machineGeometryIdentity = tipCalibrationSemanticIdentities.machineGeometry
     toolAssemblyRevision = tipCalibrationSemanticIdentities.toolAssembly
     penContactProfileRevision = tipCalibrationSemanticIdentities.penContactProfile
-    explorationToolPaperRevision = tipCalibrationSemanticIdentities.paperContactPlane.rawValue
     cameraMountRevision = tipCalibrationSemanticIdentities.cameraMountRevision
     cameraReframingRevision = tipCalibrationSemanticIdentities.cameraReframingRevision
     self.persistPaperContactPlaneRevision = persistPaperContactPlaneRevision
@@ -888,6 +1144,13 @@ final class OperatorWorkspace {
     _ pacing: any SimulatedLearningExecutionPacing
   ) {
     simulatedExecutionPacing = pacing
+  }
+
+  func replaceSimulatedTipCalibrationCheckpointForTesting(
+    _ checkpoint: AcceptedTipCalibrationCheckpoint?
+  ) {
+    guard frameMode == .simulated else { return }
+    quarantinedTipCalibrationCheckpoint = checkpoint
   }
 
   var actionSurfacePresentation: ActionSurfacePresentation {
@@ -1331,9 +1594,18 @@ final class OperatorWorkspace {
     return nil
   }
 
-  private(set) var observedDrawingTrialStep: ObservedDrawingTrialStep = .chooseIsolatedLinePlan
-  private(set) var selectedBoundaryDirection: BoundaryDirection = .positiveX
-  private(set) var selectedLineDirection: BoundaryDirection = .positiveX
+  private(set) var observedDrawingTrialStep: ObservedDrawingTrialStep {
+    get { activeLearningSession.observedDrawingTrialStep }
+    set { activeLearningSession.observedDrawingTrialStep = newValue }
+  }
+  private(set) var selectedBoundaryDirection: BoundaryDirection {
+    get { activeLearningSession.selectedBoundaryDirection }
+    set { activeLearningSession.selectedBoundaryDirection = newValue }
+  }
+  private(set) var selectedLineDirection: BoundaryDirection {
+    get { activeLearningSession.selectedLineDirection }
+    set { activeLearningSession.selectedLineDirection = newValue }
+  }
 
   var activeDiscoverySequenceID: DiscoverySequenceID? {
     discoveryTransactions.first { _, transaction in
@@ -1457,7 +1729,7 @@ final class OperatorWorkspace {
 
     if plan.removesDurableTipCheckpoint {
       do {
-        try acceptedTipCalibrationCheckpointActions?.clear()
+        try activeAcceptedTipCalibrationCheckpointActions?.clear()
       } catch {
         learningAuthorityError =
           "The durable accepted-tip checkpoint could not be cleared: \(error)"
@@ -1466,7 +1738,7 @@ final class OperatorWorkspace {
     }
     if plan.removesDurableMachineCheckpoint {
       do {
-        try acceptedArtifactCheckpointActions?.clear()
+        try activeAcceptedArtifactCheckpointActions?.clear()
       } catch {
         learningAuthorityError =
           "The durable accepted-machine checkpoint could not be cleared: \(error)"
@@ -1576,10 +1848,10 @@ final class OperatorWorkspace {
       expectedAcceptedAttemptSequence: acceptedAttemptSequence,
       removesDurableMachineCheckpoint:
         source == .live && anchorIndex <= boundaryIndex
-        && acceptedArtifactCheckpointActions != nil,
+        && activeAcceptedArtifactCheckpointActions != nil,
       removesDurableTipCheckpoint:
         source == .live && anchorIndex <= tipIndex
-        && acceptedTipCalibrationCheckpointActions != nil,
+        && activeAcceptedTipCalibrationCheckpointActions != nil,
       physicalInkMayRemain: drawingTrialStrokeEvidence != nil || lastInkObservation != nil
     )
   }
@@ -3504,7 +3776,7 @@ final class OperatorWorkspace {
       timestamp: acceptedAt,
       actor: "operator-contact-plane-revalidation"
     )
-    try acceptedTipCalibrationCheckpointActions?.save(
+    try activeAcceptedTipCalibrationCheckpointActions?.save(
       AcceptedTipCalibrationCheckpoint(
         registration: restored,
         acceptanceEvent: acceptance
@@ -3584,7 +3856,7 @@ final class OperatorWorkspace {
         registration: proposal,
         acceptanceEvent: acceptanceEvent
       )
-      try acceptedTipCalibrationCheckpointActions?.save(checkpoint)
+      try activeAcceptedTipCalibrationCheckpointActions?.save(checkpoint)
       learningArtifactGraph = graph
       applyArtifactInvalidations(commit.invalidatedRevisionIDs)
       tipCameraRegistration = proposal
@@ -3709,7 +3981,7 @@ final class OperatorWorkspace {
         registration: restoredRegistration,
         acceptanceEvent: acceptanceEvent
       )
-      try acceptedTipCalibrationCheckpointActions?.save(refreshedCheckpoint)
+      try activeAcceptedTipCalibrationCheckpointActions?.save(refreshedCheckpoint)
 
       learningArtifactGraph = graph
       tipCameraRegistration = restoredRegistration
@@ -3829,7 +4101,7 @@ final class OperatorWorkspace {
       }
     )
     if quarantinedTipCalibrationCheckpoint == nil,
-      let actions = acceptedTipCalibrationCheckpointActions,
+      let actions = activeAcceptedTipCalibrationCheckpointActions,
       case .quarantined(let checkpoint) = actions.load()
     {
       quarantinedTipCalibrationCheckpoint = checkpoint
@@ -5453,10 +5725,6 @@ final class OperatorWorkspace {
       let snapshot = await cameraActions.start()
       guard canCommit(generation) else { return }
       frameMode = .live
-      if let parkedLiveLearningAuthority {
-        restoreLearningAuthority(parkedLiveLearningAuthority)
-        self.parkedLiveLearningAuthority = nil
-      }
       cameraSnapshot = snapshot
       displayedFrame = cameraSnapshot?.latestFrame
       latestLiveCameraFrame = validatedLiveCameraFrame(in: snapshot)
@@ -5468,8 +5736,10 @@ final class OperatorWorkspace {
       guard canCommit(generation) else { return }
       cameraSnapshot = snapshot
       latestLiveCameraFrame = nil
-      parkedLiveLearningAuthority = captureLearningAuthority()
-      resetLearningAuthorityForSimulation()
+      simulatedLearningSession = LearningSessionState(
+        source: .simulated,
+        paperContactPlaneRevision: UUID()
+      )
       frameMode = .simulated
       do {
         let scene = try await captureSimulatedProtocolScene()
@@ -8173,7 +8443,7 @@ final class OperatorWorkspace {
 
   private func persistAcceptedMachineArtifacts() {
     guard frameMode == .live,
-      let acceptedArtifactCheckpointActions,
+      let acceptedArtifactCheckpointActions = activeAcceptedArtifactCheckpointActions,
       let passiveProbeResult,
       passiveProbeResult.blockers.isEmpty,
       let machinePosition = machineSnapshot?.machine.position,
@@ -8300,7 +8570,7 @@ final class OperatorWorkspace {
     pendingToolContactEvidence = nil
     toolContactPointSelectionRequest = nil
     selectedToolContactPoint = nil
-    if let actions = acceptedTipCalibrationCheckpointActions,
+    if let actions = activeAcceptedTipCalibrationCheckpointActions,
       case .quarantined(let checkpoint) = actions.load()
     {
       quarantinedTipCalibrationCheckpoint = checkpoint
@@ -8488,175 +8758,6 @@ final class OperatorWorkspace {
     currentDrawingTrialGroup = AttemptGroupIdentity(
       rawValue: UUID().uuidString.lowercased()
     )
-  }
-
-  private func captureLearningAuthority() -> LearningAuthoritySnapshot {
-    LearningAuthoritySnapshot(
-      boundaryTeachingState: boundaryTeachingState,
-      boundaryTeachingResultText: boundaryTeachingResultText,
-      selectedDiscoverySequenceID: selectedDiscoverySequenceID,
-      discoveryTransactions: discoveryTransactions,
-      discoveryError: discoveryError,
-      pairedBoundaryProgress: pairedBoundaryProgress,
-      boundaryAttemptEvidenceByAttemptID: boundaryAttemptEvidenceByAttemptID,
-      boundarySideAggregates: boundarySideAggregates,
-      estimatedMachineCenter: estimatedMachineCenter,
-      learnedLocalCoordinateFrame: learnedLocalCoordinateFrame,
-      centerArrivalPosition: centerArrivalPosition,
-      centerArrivalRetryRequired: centerArrivalRetryRequired,
-      cameraCalibrationAnchorFrame: cameraCalibrationAnchorFrame,
-      cameraCalibrationReferencePosition: cameraCalibrationReferencePosition,
-      cameraCalibrationReferenceCapAnchor: cameraCalibrationReferenceCapAnchor,
-      machineCameraRegistration: machineCameraRegistration,
-      tipCameraRegistration: tipCameraRegistration,
-      explorationError: explorationError,
-      currentExplorationEpisode: currentExplorationEpisode,
-      completedExplorationEpisodes: completedExplorationEpisodes,
-      localPreLineBaseline: localPreLineBaseline,
-      drawingTrialRevealPosition: drawingTrialRevealPosition,
-      drawingTrialTipRegistrationRevisionID: drawingTrialTipRegistrationRevisionID,
-      drawingTrialObservationRegion: drawingTrialObservationRegion,
-      lastProtocolPoseSettlement: lastProtocolPoseSettlement,
-      explorationPostLineFrame: explorationPostLineFrame,
-      drawingTrialLineStart: drawingTrialLineStart,
-      drawingTrialStrokeEvidence: drawingTrialStrokeEvidence,
-      lastInkObservation: lastInkObservation,
-      explorationInkStatus: explorationInkStatus,
-      explorationExportPath: explorationExportPath,
-      lastTravelFeedSelection: lastTravelFeedSelection,
-      drawingTrialAssessment: drawingTrialAssessment,
-      learningArtifactGraph: learningArtifactGraph,
-      penAttemptHistory: penAttemptHistory,
-      boundaryAttemptHistories: boundaryAttemptHistories,
-      comparisonAttemptHistories: comparisonAttemptHistories,
-      restartableExerciseItemID: restartableExerciseItemID,
-      observedDrawingTrialStep: observedDrawingTrialStep,
-      selectedBoundaryDirection: selectedBoundaryDirection,
-      selectedLineDirection: selectedLineDirection,
-      acceptedAttemptSequence: acceptedAttemptSequence,
-      currentDrawingTrialGroup: currentDrawingTrialGroup,
-      explorationCoordinateRevision: explorationCoordinateRevision,
-      explorationToolPaperRevision: explorationToolPaperRevision
-    )
-  }
-
-  private func resetLearningAuthorityForSimulation() {
-    boundaryTeachingState = .idle
-    boundaryTeachingResultText = "Choose one side to begin."
-    selectedDiscoverySequenceID = .penInteraction
-    discoveryTransactions = [:]
-    discoveryError = nil
-    pairedBoundaryProgress = PairedBoundaryProgress()
-    boundaryAttemptEvidenceByAttemptID = [:]
-    boundarySideAggregates = [:]
-    estimatedMachineCenter = nil
-    learnedLocalCoordinateFrame = nil
-    centerArrivalPosition = nil
-    centerArrivalRetryRequired = false
-    cameraCalibrationAnchorFrame = nil
-    cameraCalibrationReferencePosition = nil
-    cameraCalibrationReferenceCapAnchor = nil
-    proposedMachineCameraRegistration = nil
-    cameraCalibrationProposalID = nil
-    machineCameraRegistration = nil
-    tipCameraRegistration = nil
-    proposedTipCameraRegistration = nil
-    sparseTipCalibrationCoordinator = SparseTipCalibrationCoordinator()
-    frozenToolContactSelectionFrame = nil
-    pendingToolContactEvidence = nil
-    toolContactPointSelectionRequest = nil
-    selectedToolContactPoint = nil
-    explicitRegistrationCapAnchorEvidence = []
-    explorationError = nil
-    currentExplorationEpisode = nil
-    completedExplorationEpisodes = []
-    localPreLineBaseline = nil
-    drawingTrialRevealPosition = nil
-    drawingTrialTipRegistrationRevisionID = nil
-    drawingTrialObservationRegion = nil
-    lastProtocolPoseSettlement = nil
-    explorationPostLineFrame = nil
-    drawingTrialLineStart = nil
-    drawingTrialStrokeEvidence = nil
-    lastInkObservation = nil
-    explorationInkStatus = "no isolated-line observation yet"
-    explorationExportPath = nil
-    lastTravelFeedSelection = nil
-    drawingTrialAssessment = nil
-    learningArtifactGraph = LearningDependencyGraph()
-    penAttemptHistory = try! ExerciseAttemptHistory(
-      compatibility: AttemptCompatibility(
-        cameraConfigurationID: nil,
-        coordinateSpace: .currentState,
-        units: .state,
-        group: AttemptGroupIdentity(rawValue: "simulated-pen-interaction"),
-        algorithmRevision: "simulated-typed-operator-pen-observation-v1"
-      )
-    )
-    boundaryAttemptHistories = [:]
-    comparisonAttemptHistories = [:]
-    activeExerciseAttemptID = nil
-    activeExerciseAttemptOwnerID = nil
-    activeExerciseAttemptMode = nil
-    restartableExerciseItemID = nil
-    observedDrawingTrialStep = .chooseIsolatedLinePlan
-    selectedBoundaryDirection = .positiveX
-    selectedLineDirection = .positiveX
-    acceptedAttemptSequence = 0
-    currentDrawingTrialGroup = AttemptGroupIdentity(
-      rawValue: "simulated-\(UUID().uuidString.lowercased())"
-    )
-    explorationCoordinateRevision = 0
-    explorationToolPaperRevision = UUID()
-  }
-
-  private func restoreLearningAuthority(_ snapshot: LearningAuthoritySnapshot) {
-    boundaryTeachingState = snapshot.boundaryTeachingState
-    boundaryTeachingResultText = snapshot.boundaryTeachingResultText
-    selectedDiscoverySequenceID = snapshot.selectedDiscoverySequenceID
-    discoveryTransactions = snapshot.discoveryTransactions
-    discoveryError = snapshot.discoveryError
-    pairedBoundaryProgress = snapshot.pairedBoundaryProgress
-    boundaryAttemptEvidenceByAttemptID = snapshot.boundaryAttemptEvidenceByAttemptID
-    boundarySideAggregates = snapshot.boundarySideAggregates
-    estimatedMachineCenter = snapshot.estimatedMachineCenter
-    learnedLocalCoordinateFrame = snapshot.learnedLocalCoordinateFrame
-    centerArrivalPosition = snapshot.centerArrivalPosition
-    centerArrivalRetryRequired = snapshot.centerArrivalRetryRequired
-    cameraCalibrationAnchorFrame = snapshot.cameraCalibrationAnchorFrame
-    cameraCalibrationReferencePosition = snapshot.cameraCalibrationReferencePosition
-    cameraCalibrationReferenceCapAnchor = snapshot.cameraCalibrationReferenceCapAnchor
-    machineCameraRegistration = snapshot.machineCameraRegistration
-    tipCameraRegistration = snapshot.tipCameraRegistration
-    explorationError = snapshot.explorationError
-    currentExplorationEpisode = snapshot.currentExplorationEpisode
-    completedExplorationEpisodes = snapshot.completedExplorationEpisodes
-    localPreLineBaseline = snapshot.localPreLineBaseline
-    drawingTrialRevealPosition = snapshot.drawingTrialRevealPosition
-    drawingTrialTipRegistrationRevisionID = snapshot.drawingTrialTipRegistrationRevisionID
-    drawingTrialObservationRegion = snapshot.drawingTrialObservationRegion
-    lastProtocolPoseSettlement = snapshot.lastProtocolPoseSettlement
-    explorationPostLineFrame = snapshot.explorationPostLineFrame
-    drawingTrialLineStart = snapshot.drawingTrialLineStart
-    drawingTrialStrokeEvidence = snapshot.drawingTrialStrokeEvidence
-    lastInkObservation = snapshot.lastInkObservation
-    explorationInkStatus = snapshot.explorationInkStatus
-    explorationExportPath = snapshot.explorationExportPath
-    lastTravelFeedSelection = snapshot.lastTravelFeedSelection
-    drawingTrialAssessment = snapshot.drawingTrialAssessment
-    learningArtifactGraph = snapshot.learningArtifactGraph
-    penAttemptHistory = snapshot.penAttemptHistory
-    boundaryAttemptHistories = snapshot.boundaryAttemptHistories
-    comparisonAttemptHistories = snapshot.comparisonAttemptHistories
-    restartableExerciseItemID = snapshot.restartableExerciseItemID
-    observedDrawingTrialStep = snapshot.observedDrawingTrialStep
-    selectedBoundaryDirection = snapshot.selectedBoundaryDirection
-    selectedLineDirection = snapshot.selectedLineDirection
-    acceptedAttemptSequence = snapshot.acceptedAttemptSequence
-    currentDrawingTrialGroup = snapshot.currentDrawingTrialGroup
-    explorationCoordinateRevision = snapshot.explorationCoordinateRevision
-    explorationToolPaperRevision = snapshot.explorationToolPaperRevision
-    sparseTipCalibrationCoordinator = freshSparseTipCalibrationCoordinatorForCurrentPaper()
   }
 
   private func cancelAndSettleDiscoveryMotionBeforeErasure() async {
