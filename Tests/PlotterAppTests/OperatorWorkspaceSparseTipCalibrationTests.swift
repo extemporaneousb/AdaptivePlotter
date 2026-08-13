@@ -207,6 +207,8 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     let reClickRequest = try #require(workspace.actionSurfacePresentation.pointSelectionRequest)
 
     #expect(reClickRequest.frame.frameID == frameID)
+    #expect(workspace.frozenToolContactSelectionFrame?.frame.id == frameID)
+    #expect(workspace.selectedToolContactPoint == nil)
     #expect(after.mpos == before.mpos)
     #expect(after.persistentInkSegmentCount == before.persistentInkSegmentCount)
     #expect(after.currentOperation == nil)

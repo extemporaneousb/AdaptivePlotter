@@ -60,6 +60,16 @@ constructs immutable evidence, commits the dependency graph, and exposes
 presentation state. It cannot replace controller settlement or exact-frame
 provenance with UI state.
 
+LIVE and SIMULATED each own one `LearningSessionState` value under that shared
+contract. Within each value, compiler-enforced substates prevent invalid
+cross-field combinations: one exercise-attempt lifecycle owns attempt identity,
+item owner, and mode; one sparse-selection lifecycle owns pending evidence,
+the frozen frame, request, and selected point; and one Drawing Trial state owns
+the complete trial payload, history, rollback, and rewind transitions. Supervised
+Learning Path travel and settlement carry typed `LearningMotionAction` identity;
+display text is derived only at presentation boundaries. These cohesive values
+are the intended immutable input seams for a pure Learning Path projector.
+
 `RunLedger` and workflow telemetry record diagnostics only. They do not replay
 commands, restore owners, or promote artifacts.
 

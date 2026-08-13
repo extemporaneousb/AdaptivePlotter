@@ -40,6 +40,27 @@ These are software and simulator results. The app was not launched for this
 change. No controller connection, physical pen actuation, physical motion,
 manual square, camera observation, or observed ink validation was performed.
 
+### Cohesive Learning Path state and typed transitions
+
+Validated 2026-08-13 in Blackdog task `TASK-40195892`, targeting `main`
+from base `57406224cb5556cfa54df3332988c877148bff9c`.
+
+An independent cumulative re-audit after the source-session and workflow-
+lifecycle landings found four remaining synchronized-field clusters. The
+exercise attempt is now one idle/active lifecycle; sparse frozen-point
+selection is one idle/awaiting-click/selected lifecycle; Drawing Trial payload,
+history, rollback, and rewind are one cohesive value; and supervised motion
+plus settlement use exhaustive typed action identity. The unused raw camera-
+proposal UUID sentinel and the former manual Drawing Trial snapshot copy are
+deleted.
+
+Focused tests cover duplicate-start rejection, typed motion identity, sparse
+re-click frame/point consistency, source isolation, invalidation/reset, atomic
+fallback, ambiguous/lost terminal cleanup, checkpoint recovery, and no-redraw
+behavior. Full validation is recorded by the Blackdog landing result. No app
+launch, controller, camera, motion, pen, click, or physical ink validation was
+performed.
+
 ### Source-indexed learning sessions
 
 Validated 2026-08-12 in Blackdog task `TASK-3E783DB1`, targeting `main`

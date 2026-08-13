@@ -6,6 +6,42 @@ import Testing
 @Suite("Operator workspace typed lifecycle", .serialized)
 @MainActor
 struct OperatorWorkspaceLifecycleTests {
+  @Test("Learning motion identity is exhaustive and presentation-only wording is derived")
+  func typedLearningMotionActions() {
+    #expect(LearningMotionAction.moveToEstimatedCenter.title == "Move to Estimated Center")
+    #expect(
+      LearningMotionAction.cameraCalibrationSample(index: 2, total: 5).title
+        == "Current-Camera Calibration Sample 2 of 5"
+    )
+    #expect(
+      LearningMotionAction.sparseTipCircleChord(index: 16, total: 16).title
+        == "Sparse Tip Circle chord 16/16"
+    )
+    #expect(
+      LearningMotionAction.returnToLocalRevealPose.title == "Return to Local Reveal Pose"
+    )
+  }
+
+  @Test("a second start cannot replace the active typed attempt")
+  func duplicateStartRetainsActiveAttempt() async throws {
+    let harness = makeSimulatedHarness()
+    let workspace = harness.workspace
+    await workspace.switchFrameMode(.simulated)
+    await workspace.performControllerConnectionAction()
+    await workspace.activateMotionGuard()
+
+    await workspace.beginPenInteraction()
+    let firstID = try #require(workspace.activeExerciseAttemptID)
+    await workspace.beginPenInteraction()
+
+    #expect(workspace.activeExerciseAttemptID == firstID)
+    #expect(
+      workspace.activeExerciseAttemptOwnerID
+        == .humanGuidedDiscovery(.penInteraction)
+    )
+    await workspace.shutdown()
+  }
+
   @Test("typed disposition is independent of presentation wording")
   func typedDispositionIgnoresWording() {
     let misleadingFailure = WorkflowFailure(
