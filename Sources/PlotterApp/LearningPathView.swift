@@ -8,6 +8,7 @@ struct LearningPathNavigator: View {
   let close: () -> Void
 
   var body: some View {
+    let projection = workspace.learningPathProjection(selectedItemID: selection.selected)
     VStack(alignment: .leading, spacing: 0) {
       HStack(alignment: .top, spacing: 8) {
         VStack(alignment: .leading, spacing: 5) {
@@ -38,7 +39,7 @@ struct LearningPathNavigator: View {
 
       ScrollView {
         LazyVStack(alignment: .leading, spacing: 2) {
-          ForEach(workspace.learningPathItemPresentations) { item in
+          ForEach(projection.items) { item in
             navigatorRow(item)
           }
         }
@@ -111,13 +112,11 @@ struct LearningPathView: View {
 
   var body: some View {
     let actionWorkspace = workspace
-    let selectedPresentation = workspace.selectedOperatorActionPresentation(
-      for: selection.selected
-    )
-    let selectedResetPlan = workspace.learningVacatePlan(from: selection.selected)
-    let resetAllPlan = workspace.resetAllLearningPlan
+    let projection = workspace.learningPathProjection(selectedItemID: selection.selected)
+    let selectedPresentation = projection.selectedAction
+    let resetSurface = projection.resetSurface
     let pinnedActionStrip =
-      workspace.currentExerciseActionStripPresentation
+      projection.currentActionStrip
       ?? selectedPresentation.actionStrip
 
     VStack(spacing: 0) {
@@ -128,8 +127,10 @@ struct LearningPathView: View {
         VStack(alignment: .leading, spacing: 16) {
           selectedDetail(selectedPresentation)
           learningResetActions(
-            selectedPlan: selectedResetPlan,
-            resetAllPlan: resetAllPlan
+            selectedPlan: resetSurface.selectedPlan,
+            resetAllPlan: resetSurface.resetAllPlan,
+            unavailableReason: resetSurface.unavailableReason,
+            authorityError: resetSurface.authorityError
           )
         }
         .padding(14)
@@ -266,9 +267,11 @@ struct LearningPathView: View {
   @ViewBuilder
   private func learningResetActions(
     selectedPlan: LearningVacatePlan?,
-    resetAllPlan: LearningVacatePlan?
+    resetAllPlan: LearningVacatePlan?,
+    unavailableReason: String?,
+    authorityError: String?
   ) -> some View {
-    if selectedPlan != nil || resetAllPlan != nil || workspace.learningAuthorityError != nil {
+    if selectedPlan != nil || resetAllPlan != nil || authorityError != nil {
       VStack(alignment: .leading, spacing: 9) {
         Text("RESET LEARNING")
           .font(.caption2.monospaced().bold())
@@ -286,9 +289,9 @@ struct LearningPathView: View {
             Label("\(selectedPlan.title)…", systemImage: "arrow.uturn.backward.circle")
           }
           .buttonStyle(.bordered)
-          .disabled(workspace.learningVacateUnavailableReason != nil)
+          .disabled(unavailableReason != nil)
           .help(
-            workspace.learningVacateUnavailableReason
+            unavailableReason
               ?? "Review the steps that will be reset from \(selectedPlan.anchor.number) onward"
           )
         }
@@ -300,19 +303,19 @@ struct LearningPathView: View {
             Label("\(resetAllPlan.title)…", systemImage: "arrow.counterclockwise")
           }
           .buttonStyle(.bordered)
-          .disabled(workspace.learningVacateUnavailableReason != nil)
+          .disabled(unavailableReason != nil)
           .help(
-            workspace.learningVacateUnavailableReason
+            unavailableReason
               ?? "Review the steps that will be reset"
           )
         }
 
-        if let reason = workspace.learningVacateUnavailableReason {
+        if let reason = unavailableReason {
           Label(reason, systemImage: "lock.fill")
             .font(.caption)
             .foregroundStyle(.orange)
         }
-        if let error = workspace.learningAuthorityError {
+        if let error = authorityError {
           Label(error, systemImage: "exclamationmark.triangle.fill")
             .font(.caption)
             .foregroundStyle(.orange)

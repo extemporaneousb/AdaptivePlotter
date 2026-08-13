@@ -74,31 +74,6 @@ enum AcceptedArtifactCheckpointStatus: Equatable, Sendable {
   case restored(sideCount: Int, centerArrival: Bool, residualMM: Double)
   case incompatible(String)
   case rejected(String)
-
-  var text: String {
-    switch self {
-    case .unavailable:
-      "No durable accepted-artifact checkpoint is available."
-    case .cleared:
-      "The durable accepted-artifact checkpoint was explicitly cleared."
-    case .quarantined(let sideCount):
-      "A checkpoint containing \(sideCount) accepted Boundary side(s) is parked until a fresh passive controller probe matches."
-    case .saved(let sideCount, let centerArrival):
-      "Saved \(sideCount) accepted Boundary side(s)\(centerArrival ? " plus center arrival" : "") atomically."
-    case .restored(let sideCount, let centerArrival, let residualMM):
-      String(
-        format:
-          "Restored %d accepted Boundary side(s)%@ after controller-context revalidation (MPos residual %.3f mm).",
-        sideCount,
-        centerArrival ? " plus center arrival" : "",
-        residualMM
-      )
-    case .incompatible(let reason):
-      "The accepted-artifact checkpoint remains quarantined: \(reason) No workflow or command was replayed."
-    case .rejected(let reason):
-      "The accepted-artifact checkpoint was rejected: \(reason) No workflow or command was replayed."
-    }
-  }
 }
 
 enum JogDirection: String, CaseIterable, Identifiable, Sendable {
@@ -267,13 +242,6 @@ enum BoundaryActivityOperation: Hashable, Sendable {
     }
   }
 
-  var actionLabel: String {
-    switch self {
-    case .normal(let direction): "Record \(direction.displayName) boundary stop"
-    case .replacement(let direction, _): "Redo \(direction.displayName) Boundary"
-    case .additional(let direction, _): "Record Another \(direction.displayName) Attempt"
-    }
-  }
 }
 
 enum BoundaryActivityPhase: String, Hashable, Sendable {
@@ -294,38 +262,12 @@ enum BoundaryActivityDisposition: Hashable, Sendable {
   case cancelled
   case ambiguous(String)
 
-  var presentationOutcome: OperationActivityOutcome {
-    switch self {
-    case .inProgress: .inProgress
-    case .succeeded: .succeeded
-    case .cancelled: .cancelled
-    case .refused, .failed, .ambiguous: .needsAttention
-    }
-  }
-
-  var outcomeLabel: String {
-    switch self {
-    case .inProgress: "In progress"
-    case .succeeded: "Succeeded"
-    case .refused: "Refused"
-    case .failed: "Failed"
-    case .cancelled: "Cancelled"
-    case .ambiguous: "Ambiguous"
-    }
-  }
 }
 
 enum BoundaryActivityDetail: Hashable, Sendable {
   case message(String)
   case atomicCommitRejected(stage: String)
 
-  var text: String {
-    switch self {
-    case .message(let text): text
-    case .atomicCommitRejected(let stage):
-      "The staged Boundary commit was rejected at \(stage); no accepted model value changed."
-    }
-  }
 }
 
 enum BoundaryActivityRecovery: Hashable, Sendable {
@@ -334,17 +276,6 @@ enum BoundaryActivityRecovery: Hashable, Sendable {
   case resolveStickyAmbiguity(String)
   case none
 
-  var text: String {
-    switch self {
-    case .restartNormal(let direction):
-      "Restart the \(direction.displayName) Boundary attempt after resolving the named fact."
-    case .continueWithAcceptedFallback(let direction):
-      "Continue with the accepted boundaries, or explicitly retry \(direction.displayName)."
-    case .resolveStickyAmbiguity(let reason):
-      "Resolve sticky ambiguity before any new physical motion: \(reason)"
-    case .none: ""
-    }
-  }
 }
 
 /// Narrow, reporting-only Boundary activity. This is not replay, persistence,
@@ -542,19 +473,6 @@ private struct CurrentCameraCalibrationFailure: Hashable, Sendable {
   let code: WorkflowTelemetryFailureCode
   let detail: String
   let recovery: WorkflowTelemetryRecovery
-
-  var recoveryDescription: String {
-    switch recovery {
-    case .none:
-      "No recovery action is required."
-    case .retryCalibration:
-      "Resolve the named fact, then retry the bounded five-position calibration."
-    case .revalidateControllerContext:
-      "Do not continue calibration. Reconnect and revalidate the named controller context fields and accepted machine artifacts first."
-    case .resolveNamedFailure:
-      "Resolve the named controller, camera, or exact-frame failure before retrying this action."
-    }
-  }
 }
 
 private struct CalibrationMachineObservation: Sendable {
@@ -1897,45 +1815,21 @@ final class OperatorWorkspace {
   }
 
   var humanGuidedDiscoveryCurrentStep: HumanGuidedDiscoveryStep {
-    if !penInteractionCompleted { return .penInteraction }
-    if relevantBoundaryObservationCount < BoundaryDirection.allCases.count
-      || centerArrivalPosition == nil
-    {
-      return .pairedBoundaryDiscoveryAndCentering
+    switch currentLearningPathItemID {
+    case .humanGuidedDiscovery(let step): step
+    case .stage(.connect), .stage(.enableMotion), .stage(.humanGuidedDiscovery):
+      .penInteraction
+    case .stage(.observedDrawingTrials), .stage(.adaptiveDrawing), .observedDrawingTrial:
+      .calibratePenContactFromSparseMarks
     }
-    if machineCameraRegistration == nil { return .calibrateCameraAndVisibleCap }
-    return .calibratePenContactFromSparseMarks
   }
 
   var currentLearningPathItemID: LearningPathItemID {
-    if let activeExerciseAttemptOwnerID { return activeExerciseAttemptOwnerID }
-    if let restartableExerciseItemID { return restartableExerciseItemID }
-    if !controllerSessionEstablished { return .stage(.connect) }
-    if !motionAuthorizationEnabled { return .stage(.enableMotion) }
-    if !penInteractionCompleted { return .humanGuidedDiscovery(.penInteraction) }
-    if relevantBoundaryObservationCount < BoundaryDirection.allCases.count
-      || centerArrivalPosition == nil
-    {
-      return .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
-    }
-    if tipCameraRegistration == nil {
-      return .humanGuidedDiscovery(humanGuidedDiscoveryCurrentStep)
-    }
-    if drawingTrialAssessment == nil {
-      return .observedDrawingTrial(observedDrawingTrialStep)
-    }
-    return .stage(.adaptiveDrawing)
+    LearningPathProjector().currentItemID(learningPathProjectionSnapshot(includeReset: false))
   }
 
   var learningPathItemPresentations: [LearningPathItemPresentation] {
-    LearningPathItemID.navigationOrder.map { itemID in
-      LearningPathItemPresentation(
-        id: itemID,
-        status: learningPathStatus(for: itemID),
-        summary: learningPathSummary(for: itemID),
-        isRepeatable: itemIsRepeatable(itemID)
-      )
-    }
+    learningPathProjection(selectedItemID: currentLearningPathItemID).items
   }
 
   var resetAllLearningPlan: LearningVacatePlan? {
@@ -2196,34 +2090,7 @@ final class OperatorWorkspace {
   }
 
   var contextualStopPresentation: ContextualStopPresentation? {
-    guard let activeStopTarget, stopDispositionLatch == nil else { return nil }
-    if case .pairedBoundary(_, let transactionID, _, _, let direction) = activeStopTarget {
-      let sequenceID = sequenceID(for: direction)
-      guard discoveryTransactions[sequenceID]?.id == transactionID,
-        case .awaitContextualStop(direction) = discoveryTransactions[sequenceID]?.currentStep?
-          .action
-      else { return nil }
-    }
-    let detail =
-      switch activeStopTarget {
-      case .pairedBoundary(_, _, _, _, let direction):
-        "Stop \(direction.displayName) Boundary Discovery, wait for Idle, then commit its final controller position."
-      case .manualJog:
-        "Stop the active manual jog and wait for Idle."
-      case .manualDrawingStroke:
-        "Stop the active manual drawing stroke, wait for Idle, and retain the controller's one Pen Up outcome."
-      case .exerciseMotion(_, _, _, let action):
-        "Stop \(action.title) and wait for the original owner to settle. No training artifact is accepted."
-      case .drawingTrial:
-        "Stop the drawing trial; the controller owns its single Pen Up cancellation."
-      case .sparseTipMark:
-        "Stop the active calibration circle. Possible ink will blacklist this physical location; it will not be redrawn automatically."
-      }
-    return ContextualStopPresentation(
-      capabilityID: activeStopTarget.capabilityID,
-      title: "Stop",
-      detail: detail
-    )
+    learningPathProjection(selectedItemID: currentLearningPathItemID).contextualStop
   }
 
   var manualMotionPresentation: ManualMotionPresentation {
@@ -2249,6 +2116,13 @@ final class OperatorWorkspace {
       stopAction: stopAction,
       jogUnavailableReason: motionUnavailableReason
     )
+  }
+
+  private func isManualStopTarget(_ target: ContextualStopTarget) -> Bool {
+    switch target {
+    case .manualJog, .manualDrawingStroke: true
+    default: false
+    }
   }
 
   func stopManualMotion(capabilityID: ContextualStopCapabilityID) async {
@@ -2332,94 +2206,196 @@ final class OperatorWorkspace {
   }
 
   var currentExerciseActionStripPresentation: ExerciseActionStripPresentation? {
-    exerciseActionStrip(for: currentLearningPathItemID)
+    learningPathProjection(selectedItemID: currentLearningPathItemID).currentActionStrip
   }
 
   func selectedOperatorActionPresentation(
     for itemID: LearningPathItemID
   ) -> OperatorActionPresentation {
-    switch itemID {
-    case .stage(let stage):
-      return OperatorActionPresentation(
-        itemID: itemID,
-        stepNumber: stage.number,
-        title: stage.title,
-        status: learningPathStatus(for: itemID),
-        instructions: [.text(learningPathSummary(for: itemID))],
-        expectedObservation: stageExpectedObservation(stage),
-        evidence: stageEvidence(stage),
-        activity: operationActivityPresentation(for: itemID, transaction: nil),
-        subsystemStatuses: subsystemStatusPresentations(for: itemID, transaction: nil),
-        actionStrip: exerciseActionStrip(for: itemID)
-      )
+    learningPathProjection(selectedItemID: itemID).selectedAction
+  }
 
-    case .humanGuidedDiscovery(let discoveryStep):
-      let sequenceID = discoverySequenceID(for: discoveryStep)
-      let transaction = sequenceID.flatMap { discoveryTransactions[$0] }
-      let activeStep = transaction?.currentStep
-      let feedSelection: TravelFeedSelection? =
-        switch activeStep?.action {
-        case .startBoundaryJog(let direction):
-          travelFeedSelection(
-            for: boundaryFeedVector(direction)
-          )
-        default: nil
+  func learningPathProjection(
+    selectedItemID: LearningPathItemID
+  ) -> LearningPathProjection {
+    LearningPathProjector().project(
+      learningPathProjectionSnapshot(includeReset: true),
+      selectedItemID: selectedItemID
+    )
+  }
+
+  private func learningPathProjectionSnapshot(
+    includeReset: Bool
+  ) -> LearningPathProjectionSnapshot {
+    let currentPosition = try? currentMachinePosition()
+    let centerTravelFeed: TravelFeedSelection? = if let center = estimatedMachineCenter,
+      let currentPosition,
+      let delta = try? Vector2<MachineSpace>(
+        dx: center.point.x - currentPosition.point.x,
+        dy: center.point.y - currentPosition.point.y
+      )
+    {
+      travelFeedSelection(for: delta)
+    } else { nil }
+    let boundaryTravelFeeds = Dictionary(
+      uniqueKeysWithValues: BoundaryDirection.allCases.map {
+        ($0, travelFeedSelection(for: boundaryFeedVector($0)))
+      }
+    )
+    let completedDrawingSteps = Set(ObservedDrawingTrialStep.allCases.filter {
+      learningArtifactGraph.currentRevision(for: drawingArtifactKind(for: $0)) != nil
+    })
+    let stopOwner: LearningPathProjectionSnapshot.StopOwner? = {
+      guard let target = activeStopTarget else { return nil }
+      switch target {
+      case .pairedBoundary(let id, let transactionID, _, _, let direction):
+        let sequence = sequenceID(for: direction)
+        guard discoveryTransactions[sequence]?.id == transactionID,
+          case .awaitContextualStop(direction) = discoveryTransactions[sequence]?.currentStep?.action
+        else { return nil }
+        return .pairedBoundary(id, direction)
+      case .manualJog(let id, _): return .manualJog(id)
+      case .manualDrawingStroke(let id, _): return .manualDrawing(id)
+      case .exerciseMotion(let id, let owner, _, let action):
+        return .exercise(id, action, boundaryOwner: owner.isBoundaryOwner)
+      case .drawingTrial(let id, _): return .drawingTrial(id)
+      case .sparseTipMark(let id, _, _): return .sparseTipMark(id)
+      }
+    }()
+    let itemStartReasons = Dictionary(
+      uniqueKeysWithValues: LearningPathItemID.learningExerciseOrder.compactMap {
+        itemID -> (LearningPathItemID, String)? in
+        let reason: String?
+        switch itemID {
+        case .humanGuidedDiscovery(.penInteraction):
+          reason = discoveryStartUnavailableReason(for: .penInteraction)
+        case .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering):
+          reason = discoveryStartUnavailableReason(for: sequenceID(for: selectedBoundaryDirection))
+        case .humanGuidedDiscovery(.calibrateCameraAndVisibleCap),
+          .humanGuidedDiscovery(.calibratePenContactFromSparseMarks):
+          reason = frameMode == .simulated || cameraIsLive
+            ? nil : "A current LIVE camera frame is required."
+        case .observedDrawingTrial(let step):
+          reason = drawingTrialActionUnavailableReason(for: step)
+        case .stage:
+          reason = nil
         }
-      return OperatorActionPresentation(
-        itemID: itemID,
-        stepNumber: discoveryStep.stepNumber,
-        title: discoveryStep.title,
-        status: learningPathStatus(for: itemID),
-        participant: activeStep?.participant.displayName,
-        instructions: activeStep.map { discoveryInstructionFragments($0.action) }
-          ?? discoveryReviewInstructions(discoveryStep),
-        expectedObservation: activeStep.map {
-          discoveryExpectationFragments($0.expectedEvent)
-        } ?? discoveryReviewExpectation(discoveryStep),
-        question: activeStep.flatMap { discoveryQuestionPresentation($0.action) },
-        timeline: transaction.flatMap { transaction in
-          guard transaction.state == .active,
-            transaction.completedStepCount < transaction.definition.steps.count
-          else { return nil }
-          return ExerciseTimelinePresentation(
-            position: transaction.completedStepCount + 1,
-            total: transaction.definition.steps.count,
-            currentLabel: transaction.currentStep?.id ?? discoveryStep.title
-          )
-        },
-        evidence: discoveryEvidence(transaction) + protocolEvidence(for: discoveryStep),
-        activity: operationActivityPresentation(for: itemID, transaction: transaction),
-        subsystemStatuses: subsystemStatusPresentations(
-          for: itemID,
-          transaction: transaction
-        ),
-        actionStrip: exerciseActionStrip(for: itemID),
-        requestedFeedMMPerMinute: feedSelection?.requestedFeedMMPerMinute,
-        feedSource: feedSelection?.source
+        return reason.map { (itemID, $0) }
+      }
+    )
+    let resetFacts: LearningPathProjectionSnapshot.ResetFacts
+    if includeReset {
+      let plans = Dictionary(
+        uniqueKeysWithValues: LearningPathItemID.learningExerciseOrder.compactMap { itemID in
+          learningVacatePlan(from: itemID).map { (itemID, $0) }
+        }
       )
-
-    case .observedDrawingTrial(let trialStep):
-      return OperatorActionPresentation(
-        itemID: itemID,
-        stepNumber: trialStep.stepNumber,
-        title: trialStep.title,
-        status: learningPathStatus(for: itemID),
-        participant: drawingTrialParticipant(for: trialStep),
-        instructions: drawingTrialInstructionFragments(for: trialStep),
-        expectedObservation: drawingTrialExpectationFragments(for: trialStep),
-        timeline: ExerciseTimelinePresentation(
-          position: trialStep.rawValue,
-          total: ObservedDrawingTrialStep.allCases.count,
-          currentLabel: observedDrawingTrialStep.title
-        ),
-        evidence: drawingTrialEvidence(for: trialStep),
-        activity: operationActivityPresentation(for: itemID, transaction: nil),
-        subsystemStatuses: subsystemStatusPresentations(for: itemID, transaction: nil),
-        actionStrip: exerciseActionStrip(for: itemID),
-        requestedFeedMMPerMinute: lastTravelFeedSelection?.requestedFeedMMPerMinute,
-        feedSource: lastTravelFeedSelection?.source
+      resetFacts = .init(
+        plansByAnchor: plans,
+        resetAllPlan: resetAllLearningPlan,
+        unavailableReason: learningVacateUnavailableReason,
+        authorityError: learningAuthorityError
       )
+    } else {
+      resetFacts = .init()
     }
+    let savedCheckpointMatchesPaper = quarantinedTipCalibrationCheckpoint.map {
+      $0.registration.applicability.paperContactPlane.rawValue
+        == explorationToolPaperRevision
+    } ?? false
+    return LearningPathProjectionSnapshot(
+      source: frameMode,
+      learningEnabled: learningIsEnabled,
+      penInteractionCompleted: penInteractionCompleted,
+      selectedBoundaryDirection: selectedBoundaryDirection,
+      controller: .init(
+        sessionEstablished: controllerSessionEstablished,
+        motionAuthorized: motionAuthorizationEnabled,
+        connectionText: controllerConnectionText,
+        cameraStateText: cameraStateText,
+        motionGuardStateText: motionGuardStateText,
+        connectionActionTitle: controllerConnectionActionTitle,
+        workbenchStatusText: workbenchStatusText,
+        machineError: machineError,
+        directMotionUnavailableReason: directCarriageMotionUnavailableReason
+      ),
+      boundary: .init(
+        acceptedDirections: pairedBoundaryProgress.acceptedDirections,
+        allowedDirections: pairedBoundaryProgress.allowedDirections,
+        isComplete: pairedBoundaryProgress.isComplete,
+        aggregates: boundarySideAggregates,
+        attemptEvidence: boundaryAttemptEvidenceByAttemptID,
+        estimatedCenter: estimatedMachineCenter,
+        localFrame: learnedLocalCoordinateFrame,
+        centerArrival: centerArrivalPosition,
+        centerArrivalRetryRequired: centerArrivalRetryRequired,
+        currentPosition: currentPosition,
+        centerTravelFeed: centerTravelFeed,
+        boundaryTravelFeeds: boundaryTravelFeeds,
+        latestActivity: boundaryActivityRecords.last
+      ),
+      cameraCalibration: .init(
+        accepted: machineCameraRegistration,
+        proposed: proposedMachineCameraRegistration,
+        acceptedIsCurrent: machineCameraRegistration != nil
+          && learningArtifactGraph.currentRevision(for: .machineCameraRegistration) != nil,
+        hasProposal: proposedMachineCameraRegistration != nil,
+        phase: currentCameraCalibrationPhase,
+        failureRecovery: currentCameraCalibrationFailure?.recovery
+      ),
+      sparseCalibration: .init(
+        accepted: tipCameraRegistration,
+        proposed: proposedTipCameraRegistration,
+        acceptedIsCurrent:
+          tipCameraRegistration.map {
+            learningArtifactGraph.currentRevision(for: .tipCameraRegistration)?.id
+              == $0.acceptedRevisionID
+          } ?? false,
+        phase: sparseTipCalibrationCoordinator.phase,
+        acceptedObservationCount: sparseTipCalibrationCoordinator.acceptedObservations.count,
+        blacklistedPositionCount: sparseTipCalibrationCoordinator.blacklistedPositions.count,
+        savedCheckpointMatchesPaper: savedCheckpointMatchesPaper
+      ),
+      drawing: .init(
+        currentStep: observedDrawingTrialStep,
+        completedArtifactSteps: completedDrawingSteps,
+        selectedDirection: selectedLineDirection,
+        lineStart: drawingTrialLineStart,
+        localBaselineFrameID: localPreLineBaseline?.frame.id.rawValue,
+        strokeSettled: drawingTrialStrokeEvidence != nil,
+        inkStatus: explorationInkStatus,
+        assessment: drawingTrialAssessment,
+        lastTravelFeed: lastTravelFeedSelection
+      ),
+      operations: .init(
+        activeAttemptOwner: activeExerciseAttemptOwnerID,
+        restartableItem: restartableExerciseItemID,
+        stopOwner: stopOwner,
+        stopDispositionLatched: stopDispositionLatch != nil,
+        stickyAmbiguityReason: learningStickyAmbiguityReason,
+        explorationFailure: explorationError.map(WorkflowFailure.failed),
+        discoveryFailure: discoveryError.map(WorkflowFailure.failed),
+        lastStopAudit: lastContextualStopAuditRecord,
+        scopedVisionActive: scopedVisionAnalysisActive,
+        visionAnalysisActive: visionAnalysisSnapshot.activeFrameSequence != nil,
+        visionState: visionAnalysisSnapshot.state
+      ),
+      discovery: discoveryTransactions.mapValues { transaction in
+        LearningPathProjectionSnapshot.DiscoveryFacts(
+          id: transaction.id,
+          sequenceID: transaction.definition.id,
+          title: transaction.definition.title,
+          state: transaction.state,
+          currentStep: transaction.currentStep,
+          completedStepCount: transaction.completedStepCount,
+          totalStepCount: transaction.definition.steps.count,
+          evidenceSummaries: transaction.evidenceSummaries.map(\.summary)
+        )
+      },
+      startUnavailableReasons: itemStartReasons,
+      acceptedCheckpointStatus: acceptedArtifactCheckpointStatus,
+      reset: resetFacts
+    )
   }
 
   func selectBoundaryDirection(_ direction: BoundaryDirection) {
@@ -2441,7 +2417,8 @@ final class OperatorWorkspace {
     guard learningIsEnabled else { return }
     if case .selectDirection(let purpose, let direction) = kind {
       guard !hasShutdown,
-        let selection = exerciseActionStrip(for: ownerID)?.directionSelection,
+        let selection = selectedOperatorActionPresentation(for: ownerID).actionStrip?
+          .directionSelection,
         selection.purpose == purpose,
         selection.options.contains(direction)
       else { return }
@@ -2452,7 +2429,7 @@ final class OperatorWorkspace {
       return
     }
     guard !hasShutdown,
-      let strip = exerciseActionStrip(for: ownerID),
+      let strip = selectedOperatorActionPresentation(for: ownerID).actionStrip,
       strip.ownerID == ownerID,
       let action = strip.actions.first(where: { $0.kind == kind }),
       action.isEnabled
@@ -7619,1202 +7596,18 @@ final class OperatorWorkspace {
       : .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
   }
 
-  private func discoverySequenceID(
-    for step: HumanGuidedDiscoveryStep
-  ) -> DiscoverySequenceID? {
-    switch step {
-    case .penInteraction: .penInteraction
-    case .pairedBoundaryDiscoveryAndCentering: sequenceID(for: selectedBoundaryDirection)
-    case .calibrateCameraAndVisibleCap, .calibratePenContactFromSparseMarks:
-      nil
-    }
-  }
 
-  private func learningPathStatus(for itemID: LearningPathItemID) -> LearningPathStageStatus {
-    if itemID == .stage(.adaptiveDrawing) { return .future }
-    if itemIsComplete(itemID) { return .complete }
-    let representsCurrentStage: Bool =
-      if case .stage(let stage) = itemID {
-        currentLearningPathItemID.stage == stage
-      } else {
-        false
-      }
-    if itemID == currentLearningPathItemID || representsCurrentStage {
-      if itemID.stage == .humanGuidedDiscovery,
-        discoveryError != nil || explorationError != nil
-      {
-        return .needsAttention
-      }
-      if itemID.stage == .observedDrawingTrials, explorationError != nil {
-        return .needsAttention
-      }
-      if itemID == .stage(.connect), machineError != nil { return .needsAttention }
-      return .current
-    }
-    return .next
-  }
-
-  private func itemIsComplete(_ itemID: LearningPathItemID) -> Bool {
-    let discoveryComplete =
-      penInteractionCompleted
-      && centerArrivalPosition != nil
-      && machineCameraRegistration != nil
-      && tipCameraRegistration != nil
-    return switch itemID {
-    case .stage(.connect): controllerSessionEstablished
-    case .stage(.enableMotion): controllerSessionEstablished && motionAuthorizationEnabled
-    case .stage(.humanGuidedDiscovery): discoveryComplete
-    case .stage(.observedDrawingTrials): drawingTrialAssessment != nil
-    case .stage(.adaptiveDrawing): false
-    case .humanGuidedDiscovery(.penInteraction): penInteractionCompleted
-    case .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering):
-      centerArrivalPosition != nil
-    case .humanGuidedDiscovery(.calibrateCameraAndVisibleCap):
-      machineCameraRegistration != nil
-    case .humanGuidedDiscovery(.calibratePenContactFromSparseMarks):
-      tipCameraRegistration != nil
-    case .observedDrawingTrial(let step):
-      drawingTrialAssessment != nil
-        || (step.rawValue < observedDrawingTrialStep.rawValue
-          && drawingArtifactRevision(for: step) != nil)
-    }
-  }
-
-  private func itemIsRepeatable(_ itemID: LearningPathItemID) -> Bool {
-    switch itemID {
-    case .humanGuidedDiscovery(.penInteraction),
-      .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering),
-      .observedDrawingTrial(.compareIntendedAndObservedGeometry):
-      true
-    default:
-      false
-    }
-  }
-
-  private func learningPathSummary(for itemID: LearningPathItemID) -> String {
-    switch itemID {
-    case .stage(.connect):
-      controllerSessionEstablished
-        ? (frameMode == .simulated
-          ? "The nonphysical learning simulator session is connected."
-          : "The selected controller is responsive.")
-        : (frameMode == .simulated
-          ? "Connect the nonphysical learning simulator."
-          : "Select and connect one responsive controller.")
-    case .stage(.enableMotion):
-      motionAuthorizationEnabled
-        ? "Motion is enabled for typed operations."
-        : "Enable Motion for this controller session."
-    case .stage(.humanGuidedDiscovery):
-      "Observe Pen Interaction, four paired boundaries, center arrival, camera/cap calibration, and sparse-mark pen-contact calibration."
-    case .humanGuidedDiscovery(.penInteraction):
-      "Observe the physical pen UP, DOWN, then UP again."
-    case .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering):
-      "Observe both X sides and both Y sides in paired order, then move Pen Up to their estimated center."
-    case .humanGuidedDiscovery(.calibrateCameraAndVisibleCap):
-      "Capture five exact cap samples at normalized 10/50/90 cross positions, validate two independent holdouts, then explicitly accept or reject the all-five camera fit."
-    case .humanGuidedDiscovery(.calibratePenContactFromSparseMarks):
-      "Draw five centered 2 mm-radius circles with the full configured Pen Down, reveal each at safe X-max toward machine Y-zero, select its exact frozen-frame center, and accept only the smallest model that passes both holdouts."
-    case .stage(.observedDrawingTrials):
-      "Create one attributable line, observe actual ink, and compare geometry."
-    case .observedDrawingTrial(let step): drawingTrialActionText(for: step)
-    case .stage(.adaptiveDrawing):
-      "Adaptive Drawing remains Future until multi-stroke checkpoint learning is implemented."
-    }
-  }
-
-  private func exerciseActionStrip(
-    for itemID: LearningPathItemID
-  ) -> ExerciseActionStripPresentation? {
-    guard learningIsEnabled else { return nil }
-    if activeExerciseAttemptOwnerID == itemID {
-      var actions: [ExerciseActionDescriptor] = []
-      if let contextualStopPresentation,
-        let target = activeStopTarget,
-        !isManualStopTarget(target)
-      {
-        if stopDispositionLatch == nil {
-          actions.append(
-            ExerciseActionDescriptor(
-              kind: .stop(contextualStopPresentation.capabilityID),
-              title: target.operationOwner.isBoundaryOwner ? "Stop Boundary" : "Stop",
-              role: .destructive
-            )
-          )
-        }
-        return ExerciseActionStripPresentation(
-          ownerID: itemID,
-          actions: actions,
-          mustRemainVisible: true
-        )
-      }
-      if itemID.stage == .humanGuidedDiscovery,
-        let ambiguityReason = learningStickyAmbiguityReason
-      {
-        actions = [
-          ExerciseActionDescriptor(
-            kind: .start,
-            title: "Machine action unavailable",
-            unavailableReason: ambiguityReason
-          )
-        ]
-      } else if case .humanGuidedDiscovery(.calibrateCameraAndVisibleCap) = itemID {
-        if currentCameraCalibrationPhase != nil {
-          actions = [
-            ExerciseActionDescriptor(
-              kind: .runCameraCalibrationAndBuildProposal,
-              title: "Capturing Five Cap Samples…",
-              unavailableReason: "Current-camera calibration is in progress."
-            )
-          ]
-        } else if proposedMachineCameraRegistration == nil {
-          actions = [
-            ExerciseActionDescriptor(
-              kind: .runCameraCalibrationAndBuildProposal,
-              title: "Capture Five Cap Samples",
-              role: .positive
-            ),
-            ExerciseActionDescriptor(
-              kind: .rejectCameraCalibrationProposal,
-              title: "Discard Cap Samples",
-              role: .destructive
-            ),
-          ]
-        } else {
-          actions = [
-            ExerciseActionDescriptor(
-              kind: .acceptCameraCalibrationProposal,
-              title: "Accept Camera and Visible-Cap Fit",
-              role: .positive
-            ),
-            ExerciseActionDescriptor(
-              kind: .rejectCameraCalibrationProposal,
-              title: "Reject Camera Fit",
-              role: .destructive
-            ),
-          ]
-        }
-      } else if case .humanGuidedDiscovery(.calibratePenContactFromSparseMarks) = itemID {
-        switch sparseTipCalibrationCoordinator.phase {
-        case .idle:
-          actions = [
-            ExerciseActionDescriptor(
-              kind: .createNextSparseTipMark,
-              title: "Create Next 2 mm Circle",
-              role: .positive
-            )
-          ]
-        case .preparingMark, .drawingMark, .revealing:
-          actions = [
-            ExerciseActionDescriptor(
-              kind: .createNextSparseTipMark,
-              title: "Creating and Revealing Mark…",
-              unavailableReason: "The supervised 2 mm calibration-circle operation is in progress."
-            )
-          ]
-        case .awaitingFrozenClick:
-          actions = []
-        case .reviewingClick:
-          actions = [
-            ExerciseActionDescriptor(
-              kind: .reClickSparseTipFrame,
-              title: "Re-click This Exact Frame"
-            ),
-            ExerciseActionDescriptor(
-              kind: .acceptSparseTipMark,
-              title: "Accept Mark Center",
-              role: .positive
-            ),
-          ]
-        case .fittingCandidates:
-          actions = [
-            ExerciseActionDescriptor(
-              kind: .acceptTipCalibration,
-              title: "Fitting Smallest Passing Model…",
-              unavailableReason: "Candidate selection is in progress."
-            )
-          ]
-        case .reviewingFinalProposal:
-          actions = [
-            ExerciseActionDescriptor(
-              kind: .acceptTipCalibration,
-              title: "Accept Tip Calibration",
-              role: .positive
-            ),
-            ExerciseActionDescriptor(
-              kind: .rejectTipCalibration,
-              title: "Reject Tip Calibration",
-              role: .destructive
-            ),
-          ]
-        case .possibleInkBlacklisted(_, let reason), .holdoutFailed(let reason),
-          .rejected(let reason):
-          actions = [
-            ExerciseActionDescriptor(
-              kind: .rejectTipCalibration,
-              title: "No Automatic Redraw",
-              unavailableReason: reason
-            ),
-            ExerciseActionDescriptor(
-              kind: .paperReplaced,
-              title: "Record Paper Replacement",
-              role: .positive
-            ),
-          ]
-        case .accepted:
-          actions = []
-        }
-      } else if case .observedDrawingTrial(.compareIntendedAndObservedGeometry) = itemID {
-        actions.append(
-          contentsOf: DrawingTrialAssessment.allCases.map { assessment in
-            ExerciseActionDescriptor(
-              kind: .recordDrawingTrialAssessment(assessment),
-              title: assessment.title,
-              role: assessment == .observedGeometryAccepted ? .positive : .standard
-            )
-          })
-      } else if let sequenceID = activeDiscoverySequenceID,
-        let choices = discoveryTransactions[sequenceID]?.currentStep?.question?.choices
-      {
-        actions.append(
-          contentsOf: choices.map { choice in
-            ExerciseActionDescriptor(
-              kind: .choice(choice),
-              title: choice.exactPhrase,
-              role: choice == .yes ? .positive : .standard
-            )
-          })
-      }
-      if stopDispositionLatch == nil && currentCameraCalibrationPhase == nil {
-        actions.append(
-          ExerciseActionDescriptor(kind: .cancel, title: "Cancel Attempt", role: .destructive)
-        )
-      }
-      return ExerciseActionStripPresentation(
-        ownerID: itemID,
-        actions: actions,
-        mustRemainVisible: activeStopTarget != nil
-      )
-    }
-
-    if restartableExerciseItemID == itemID {
-      guard machineSnapshot?.machine.stickyAmbiguity == nil else { return nil }
-      return ExerciseActionStripPresentation(
-        ownerID: itemID,
-        actions: [
-          ExerciseActionDescriptor(
-            kind: .restart,
-            title: "Restart",
-            role: .positive
-          )
-        ]
-      )
-    }
-
-    if itemIsComplete(itemID), itemID.isExercise {
-      let actions: [ExerciseActionDescriptor]
-      if itemID == .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering) {
-        actions = pairedBoundaryProgress.acceptedDirections.flatMap { direction in
-          [
-            ExerciseActionDescriptor(
-              kind: .redoBoundary(direction),
-              title: "Redo \(direction.displayName) Boundary"
-            ),
-            ExerciseActionDescriptor(
-              kind: .recordAnotherBoundaryAttempt(direction),
-              title: "Record Another \(direction.displayName) Attempt"
-            ),
-          ]
-        }
-      } else {
-        var repeatActions = [
-          ExerciseActionDescriptor(kind: .redoThisStep, title: "Redo This Step")
-        ]
-        if itemIsRepeatable(itemID) {
-          repeatActions.append(
-            ExerciseActionDescriptor(
-              kind: .recordAnotherAttempt,
-              title: "Record Another Attempt"
-            )
-          )
-        }
-        actions = repeatActions
-      }
-      return ExerciseActionStripPresentation(
-        ownerID: itemID,
-        actions: actions
-      )
-    }
-
-    guard itemID == currentLearningPathItemID else { return nil }
-    let reason: String?
-    switch itemID {
-    case .humanGuidedDiscovery(.penInteraction):
-      reason = discoveryStartUnavailableReason(for: .penInteraction)
-    case .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering):
-      reason = discoveryStartUnavailableReason(for: sequenceID(for: selectedBoundaryDirection))
-    case .humanGuidedDiscovery(.calibrateCameraAndVisibleCap):
-      reason =
-        frameMode == .simulated || cameraIsLive
-        ? nil : "A current LIVE camera frame is required."
-    case .humanGuidedDiscovery(.calibratePenContactFromSparseMarks):
-      reason =
-        frameMode == .simulated || cameraIsLive
-        ? nil : "A current LIVE camera frame is required."
-    case .observedDrawingTrial(let step):
-      reason = drawingTrialActionUnavailableReason(for: step)
-    case .stage:
-      return nil
-    }
-    if itemID == .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering),
-      pairedBoundaryProgress.isComplete,
-      centerArrivalPosition == nil
-    {
-      if centerArrivalRetryRequired {
-        return ExerciseActionStripPresentation(
-          ownerID: itemID,
-          actions: [
-            ExerciseActionDescriptor(
-              kind: .moveToEstimatedCenter,
-              title: "Retry Center Arrival",
-              role: .positive,
-              unavailableReason: reason
-            )
-          ]
-        )
-      }
-      let centerMoveUnavailableReason =
-        estimatedMachineCenter == nil
-        ? (discoveryError ?? "Accepted boundaries do not currently derive a valid center.")
-        : reason
-      return ExerciseActionStripPresentation(
-        ownerID: itemID,
-        actions: [
-          ExerciseActionDescriptor(
-            kind: .moveToEstimatedCenter,
-            title: estimatedMachineCenter == nil
-              ? "Center Derivation Needs Attention" : "Move to Estimated Center",
-            role: .positive,
-            unavailableReason: centerMoveUnavailableReason
-          )
-        ]
-          + pairedBoundaryProgress.acceptedDirections.flatMap { direction in
-            [
-              ExerciseActionDescriptor(
-                kind: .redoBoundary(direction),
-                title: "Redo \(direction.displayName) Boundary"
-              ),
-              ExerciseActionDescriptor(
-                kind: .recordAnotherBoundaryAttempt(direction),
-                title: "Record Another \(direction.displayName) Attempt"
-              ),
-            ]
-          }
-      )
-    }
-    if case .observedDrawingTrial(let step) = itemID {
-      let kind: ExerciseActionKind =
-        switch step {
-        case .chooseIsolatedLinePlan: .chooseIsolatedLinePlan(selectedLineDirection)
-        case .captureLocalPreLineBaseline: .captureLocalPreLineBaseline
-        case .moveToLineStart: .moveToLineStart
-        case .drawIsolatedLine: .drawIsolatedLine
-        case .revealAndObserveNewInk: .revealAndObserveNewInk
-        case .compareIntendedAndObservedGeometry: .start
-        }
-      let direction =
-        step == .chooseIsolatedLinePlan
-        ? ExerciseDirectionSelectionPresentation(
-          purpose: .linePlan,
-          selected: selectedLineDirection
-        ) : nil
-      return ExerciseActionStripPresentation(
-        ownerID: itemID,
-        actions: [
-          ExerciseActionDescriptor(
-            kind: kind,
-            title: drawingTrialActionTitle(for: step),
-            role: .positive,
-            unavailableReason: reason
-          )
-        ],
-        directionSelection: direction
-      )
-    }
-    if itemID == .humanGuidedDiscovery(.calibrateCameraAndVisibleCap) {
-      return ExerciseActionStripPresentation(
-        ownerID: itemID,
-        actions: [
-          ExerciseActionDescriptor(
-            kind: .runCameraCalibrationAndBuildProposal,
-            title: "Capture Five Cap Samples",
-            role: .positive,
-            unavailableReason: reason
-          )
-        ]
-      )
-    }
-    if itemID == .humanGuidedDiscovery(.calibratePenContactFromSparseMarks),
-      let checkpoint = quarantinedTipCalibrationCheckpoint,
-      checkpoint.registration.applicability.paperContactPlane.rawValue
-        == explorationToolPaperRevision
-    {
-      return ExerciseActionStripPresentation(
-        ownerID: itemID,
-        actions: [
-          ExerciseActionDescriptor(
-            kind: .revalidateTipCalibrationCheckpoint,
-            title: "Revalidate Saved Tip Calibration",
-            role: .positive,
-            unavailableReason: reason
-          )
-        ]
-      )
-    }
-    if itemID == .humanGuidedDiscovery(.calibratePenContactFromSparseMarks) {
-      switch sparseTipCalibrationCoordinator.phase {
-      case .possibleInkBlacklisted, .holdoutFailed, .rejected:
-        return ExerciseActionStripPresentation(
-          ownerID: itemID,
-          actions: [
-            ExerciseActionDescriptor(
-              kind: .paperReplaced,
-              title: "Record Paper Replacement",
-              role: .positive,
-              unavailableReason: reason
-            )
-          ]
-        )
-      default:
-        break
-      }
-    }
-    let directionSelection =
-      itemID == .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
-      ? ExerciseDirectionSelectionPresentation(
-        purpose: .boundary,
-        options: pairedBoundaryProgress.allowedDirections,
-        selected: selectedBoundaryDirection
-      ) : nil
-    return ExerciseActionStripPresentation(
-      ownerID: itemID,
-      actions: [
-        ExerciseActionDescriptor(
-          kind: .start,
-          title: "Start",
-          role: .positive,
-          unavailableReason: reason
-        )
-      ],
-      directionSelection: directionSelection
-    )
-  }
-
-  private func isManualStopTarget(_ target: ContextualStopTarget) -> Bool {
-    switch target {
-    case .manualJog, .manualDrawingStroke: true
-    default: false
-    }
-  }
-
-  private func stageExpectedObservation(_ stage: LearningPathStage) -> [PresentationFragment] {
-    switch stage {
-    case .connect: [.text("A responsive selected controller session.")]
-    case .enableMotion: [.text("The current session reports Motion Enabled.")]
-    case .humanGuidedDiscovery: [.cue(.up), .text("boundary, cap-map, and tip-map evidence.")]
-    case .observedDrawingTrials: [.text("Observed ink and a typed geometry comparison.")]
-    case .adaptiveDrawing: [.text("Future multi-stroke observed adaptation.")]
-    }
-  }
-
-  private func stageEvidence(_ stage: LearningPathStage) -> [ExerciseEvidencePresentation] {
-    switch stage {
-    case .connect:
-      [
-        ExerciseEvidencePresentation(
-          label: "Controller", fragments: [.text(controllerConnectionText)]),
-        ExerciseEvidencePresentation(
-          label: "Accepted artifact checkpoint",
-          fragments: [.text(acceptedArtifactCheckpointStatus.text)]
-        ),
-      ]
-    case .enableMotion:
-      [ExerciseEvidencePresentation(label: "Motion", fragments: [.text(motionGuardStateText)])]
-    case .humanGuidedDiscovery:
-      [
-        ExerciseEvidencePresentation(
-          label: "Boundary samples", fragments: [.text("N=\(relevantBoundaryObservationCount)")])
-      ]
-    case .observedDrawingTrials:
-      [ExerciseEvidencePresentation(label: "Ink", fragments: [.text(explorationInkStatus)])]
-    case .adaptiveDrawing:
-      []
-    }
-  }
-
-  private func discoveryReviewInstructions(
-    _ step: HumanGuidedDiscoveryStep
-  ) -> [PresentationFragment] {
-    switch step {
-    case .penInteraction:
-      [.text("Confirm"), .cue(.up), .text("then"), .cue(.down), .text("then finish"), .cue(.up)]
-    case .pairedBoundaryDiscoveryAndCentering:
-      [.text("Choose a direction, observe the side, then press"), .cue(.stop)]
-    case .calibrateCameraAndVisibleCap:
-      [
-        .text(
-          "Capture five exact cap centers at C, X−, Y+, X+, and Y−; fit the first three, verify two holdouts, then explicitly accept or reject the all-five refit."
-        )
-      ]
-    case .calibratePenContactFromSparseMarks:
-      [
-        .text(
-          "Draw one centered 2 mm-radius circle at each cross position, reveal it Pen Up at safe X-max toward machine Y-zero, click its center on the frozen exact frame, and review the smallest passing model."
-        )
-      ]
-    }
-  }
-
-  private func discoveryReviewExpectation(
-    _ step: HumanGuidedDiscoveryStep
-  ) -> [PresentationFragment] {
-    switch step {
-    case .penInteraction: [.text("Latest accepted physical pose is"), .cue(.up)]
-    case .pairedBoundaryDiscoveryAndCentering:
-      [.text("Four accepted sides and one explicit arrival at the estimated machine center.")]
-    case .calibrateCameraAndVisibleCap:
-      [
-        .text(
-          "Three fit samples, two independent holdouts, and one current all-five machine-camera revision."
-        )
-      ]
-    case .calibratePenContactFromSparseMarks:
-      [
-        .text(
-          "Five immutable click observations and one explicitly accepted tip-camera registration.")
-      ]
-    }
-  }
-
-  private func discoveryInstructionFragments(
-    _ action: DiscoveryAction
-  ) -> [PresentationFragment] {
-    switch action {
-    case .startBoundaryJog(let direction):
-      [.text("Start motion toward"), .cue(.direction(direction))]
-    case .awaitContextualStop(let direction):
-      [.text("Observe"), .cue(.direction(direction)), .text("and press"), .cue(.stop)]
-    case .awaitPhysicalPenConfirmation(let state, _):
-      [.text("Confirm the pen is physically"), .cue(state == .up ? .up : .down)]
-    case .actuatePen(let command):
-      [.text("Command pen"), .cue(command.commandedState == .up ? .up : .down)]
-    default: [.text(discoveryActionText(action))]
-    }
-  }
-
-  private func discoveryExpectationFragments(
-    _ expectation: DiscoveryEventExpectation
-  ) -> [PresentationFragment] {
-    switch expectation {
-    case .operatorChoice:
-      [.cue(.yes), .text("or"), .cue(.no), .text("is recorded for this question.")]
-    case .operatorStopRequested: [.cue(.stop), .text("is latched before cancellation.")]
-    case .physicalPenConfirmed(let state, _):
-      [.text("The operator confirms"), .cue(state == .up ? .up : .down)]
-    default: [.text(discoveryExpectationText(expectation))]
-    }
-  }
-
-  private func discoveryQuestionPresentation(
-    _ action: DiscoveryAction
-  ) -> ExerciseQuestionPresentation? {
-    switch action {
-    case .awaitOperatorChoice(let question):
-      ExerciseQuestionPresentation(
-        prompt: [.text(question.prompt)],
-        choices: question.choices
-      )
-    case .awaitPhysicalPenConfirmation(let state, let question):
-      ExerciseQuestionPresentation(
-        prompt: [
-          .text(question.prompt),
-          .text("Required physical pose:"),
-          .cue(state == .up ? .up : .down),
-        ],
-        choices: question.choices
-      )
-    default:
-      nil
-    }
-  }
-
-  private func discoveryEvidence(
-    _ transaction: DiscoveryTransaction?
-  ) -> [ExerciseEvidencePresentation] {
-    transaction?.evidenceSummaries.enumerated().map { index, evidence in
-      ExerciseEvidencePresentation(
-        label: "Evidence \(index + 1)",
-        fragments: [.text(evidence.summary)]
-      )
-    } ?? []
-  }
-
-  private func protocolEvidence(
-    for step: HumanGuidedDiscoveryStep
-  ) -> [ExerciseEvidencePresentation] {
-    switch step {
-    case .penInteraction:
-      return []
-    case .pairedBoundaryDiscoveryAndCentering:
-      var evidence: [ExerciseEvidencePresentation] = []
-      if let localFrame = learnedLocalCoordinateFrame, let center = estimatedMachineCenter,
-        let localCenter = try? localFrame.localPoint(fromRaw: center.point)
-      {
-        evidence.append(
-          ExerciseEvidencePresentation(
-            label: "Learned local coordinate frame (mm)",
-            fragments: [
-              .text(
-                String(
-                  format:
-                    "origin at accepted X−/Y− · X 0 ... %.3f · Y 0 ... %.3f · center %.3f, %.4f",
-                  localFrame.xSpanMM,
-                  localFrame.ySpanMM,
-                  localCenter.x,
-                  localCenter.y
-                )
-              )
-            ]
-          )
-        )
-      } else {
-        evidence.append(
-          ExerciseEvidencePresentation(
-            label: "Controller coordinate frame",
-            fragments: [
-              .text(
-                "Raw Controller MPos is millimetre-valued relative to the controller's current origin; positive and negative signs are not paper-local coordinates. All four accepted side aggregates are required before a learned local frame exists."
-              )
-            ]
-          )
-        )
-      }
-      evidence.append(
-        contentsOf: BoundaryDirection.allCases.compactMap { direction in
-          guard let aggregate = boundarySideAggregates[direction],
-            let attemptID = aggregate.includedAttemptIDs.last,
-            let attemptEvidence = boundaryAttemptEvidenceByAttemptID[attemptID]
-          else { return nil }
-          return
-            ExerciseEvidencePresentation(
-              label: "Raw Controller MPos · \(direction.displayName)",
-              fragments: [
-                .text(
-                  String(
-                    format: "X %.3f Y %.3f · aggregate %.3f mm · N=%d · revision %@",
-                    attemptEvidence.finalPosition.point.x,
-                    attemptEvidence.finalPosition.point.y,
-                    aggregate.estimateMM,
-                    aggregate.validSampleCount,
-                    aggregate.revisionID.rawValue.uuidString.lowercased()
-                  ))
-              ]
-            )
-        })
-      if let center = estimatedMachineCenter {
-        evidence.append(
-          ExerciseEvidencePresentation(
-            label: learnedLocalCoordinateFrame == nil
-              ? "Estimated raw machine center" : "Raw Controller MPos center provenance",
-            fragments: [
-              .text(
-                String(
-                  format: "X %.3f Y %.3f · spans X %.3f mm Y %.3f mm · %@",
-                  center.point.x,
-                  center.point.y,
-                  center.xSpanMM,
-                  center.ySpanMM,
-                  center.estimatorRevision
-                ))
-            ]
-          ))
-        let current = try? currentMachinePosition()
-        evidence.append(
-          ExerciseEvidencePresentation(
-            label: "Center travel",
-            fragments: [
-              .text(
-                current.map { position in
-                  let delta = try? Vector2<MachineSpace>(
-                    dx: center.point.x - position.point.x,
-                    dy: center.point.y - position.point.y
-                  )
-                  let selection = delta.map { travelFeedSelection(for: $0) }
-                  return String(
-                    format: "current X %.3f Y %.3f · delta X %.3f Y %.3f · feed %@ · source %@",
-                    position.point.x,
-                    position.point.y,
-                    center.point.x - position.point.x,
-                    center.point.y - position.point.y,
-                    selection.map {
-                      String(format: "%.0f mm/min", $0.requestedFeedMMPerMinute)
-                    } ?? "not selected",
-                    selection.map {
-                      switch $0.source {
-                      case .controllerReportedCeiling: "Controller-reported ceiling"
-                      case .existingFallback: "Existing fallback"
-                      }
-                    } ?? "unavailable"
-                  )
-                } ?? "current MPos unavailable")
-            ]
-          ))
-      }
-      return evidence
-    case .calibrateCameraAndVisibleCap:
-      let registration = proposedMachineCameraRegistration ?? machineCameraRegistration
-      return [
-        ExerciseEvidencePresentation(
-          label: "Five-position cap calibration",
-          fragments: [
-            .text(
-              registration.map {
-                "\($0.fitCorrespondenceProvenance.count) fit samples · \($0.holdoutCorrespondenceProvenance.count) independent holdouts · \($0.correspondenceFrameIDs.count) exact frames"
-              } ?? "not captured")
-          ]
-        ),
-        ExerciseEvidencePresentation(
-          label: proposedMachineCameraRegistration == nil
-            ? "Accepted camera/cap fit" : "Staged camera/cap fit",
-          fragments: [
-            .text(
-              registration.map {
-                String(
-                  format: "holdouts %.3f / %.3f px · limit %.3f px · all-five uncertainty %.3f px",
-                  $0.holdoutResidualPixels[0],
-                  $0.holdoutResidualPixels[1],
-                  $0.maximumHoldoutResidualPixels,
-                  $0.uncertaintyPixels
-                )
-              } ?? "not fitted")
-          ]
-        ),
-      ]
-    case .calibratePenContactFromSparseMarks:
-      let proposal = proposedTipCameraRegistration ?? tipCameraRegistration
-      return [
-        ExerciseEvidencePresentation(
-          label: "Sparse 2 mm-radius circles",
-          fragments: [
-            .text(
-              "\(sparseTipCalibrationCoordinator.acceptedObservations.count)/5 accepted · \(sparseTipCalibrationCoordinator.blacklistedPositions.count) blacklisted · \(String(describing: sparseTipCalibrationCoordinator.phase))"
-            )
-          ]
-        ),
-        ExerciseEvidencePresentation(
-          label: "Smallest passing model",
-          fragments: [
-            .text(
-              proposal.map {
-                let holdouts =
-                  $0.modelForm == .constantCameraPixelCorrection
-                  ? $0.modelSelectionEvidence.constantHoldouts
-                  : $0.modelSelectionEvidence.affineHoldouts
-                return
-                  "\($0.modelForm.rawValue) · holdouts \(holdouts.map { String(format: "%.3f px", $0.residualPixels) }.joined(separator: ", ")) · uncertainty \(String(format: "%.3f px", $0.uncertainty.maximumResidualPixels))"
-              } ?? "Tip not calibrated")
-          ]
-        ),
-      ]
-    }
-  }
-
-  private func operationActivityPresentation(
-    for itemID: LearningPathItemID,
-    transaction: DiscoveryTransaction?
-  ) -> OperationActivityPresentation? {
-    if itemID == .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering),
-      centerArrivalRetryRequired,
-      let explorationError
-    {
-      return OperationActivityPresentation(
-        actor: "Controller",
-        action: LearningMotionAction.moveToEstimatedCenter.title,
-        outcome: .needsAttention,
-        detail: [.text(explorationError)],
-        acceptedResult: [.text("All four accepted Boundary aggregates remain current.")],
-        recovery: [.text("Use Retry Center Arrival; it requests only the remaining delta.")]
-      )
-    }
-    if itemID == .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering),
-      let activity = boundaryActivityRecords.last
-    {
-      let retained = activity.retainedRevisionIDs
-        .map { $0.rawValue.uuidString.lowercased() }
-        .sorted()
-        .joined(separator: ", ")
-      return OperationActivityPresentation(
-        actor: activity.actor.rawValue,
-        action: activity.operation.actionLabel,
-        phase: activity.phase.rawValue,
-        outcomeLabel: activity.disposition.outcomeLabel,
-        outcome: activity.disposition.presentationOutcome,
-        detail: [.text(activity.detail.text)],
-        acceptedResult: activity.acceptedFallbackRemainsCurrent
-          ? [.text("The previously accepted aggregate remains current at revision \(retained).")]
-          : [],
-        recovery: activity.recovery.text.isEmpty ? [] : [.text(activity.recovery.text)]
-      )
-    }
-    if itemID == .humanGuidedDiscovery(.calibrateCameraAndVisibleCap),
-      let currentCameraCalibrationPhase
-    {
-      return OperationActivityPresentation(
-        actor: activeStopTarget == nil ? "Camera and learning runtime" : "Plotter controller",
-        action: "Build Camera Calibration Proposal",
-        phase: currentCameraCalibrationPhase.description,
-        outcome: .inProgress,
-        detail: [
-          .text(
-            "The app owns three exact non-collinear fit samples, two independent holdouts, and the all-five accepted camera/cap fit."
-          )
-        ],
-        recovery: activeStopTarget == nil
-          ? [.text("No operator calibration move or hand-drawn triangle is required.")]
-          : [.text("Stop remains bound to the currently admitted Pen-Up move.")]
-      )
-    }
-    if itemID.stage == .humanGuidedDiscovery, let explorationError {
-      return OperationActivityPresentation(
-        actor: activeStopTarget == nil ? "Learning runtime" : "Plotter controller",
-        action: currentLearningPathItemID.title,
-        outcome: .needsAttention,
-        detail: [.text(explorationError)],
-        recovery: currentCameraCalibrationFailure.map {
-          [.text($0.recoveryDescription)]
-        } ?? [.text("Resolve the named controller, camera, or exact-frame fact, then retry.")]
-      )
-    }
-    if itemID.stage == .humanGuidedDiscovery, let discoveryError {
-      return OperationActivityPresentation(
-        actor: transaction?.currentStep?.participant.displayName ?? "Learning runtime",
-        action: transaction?.currentStep.map { discoveryActionText($0.action) }
-          ?? "Human-Guided Discovery",
-        outcome: .needsAttention,
-        detail: [.text(discoveryError)],
-        recovery: restartableExerciseItemID == itemID
-          ? [.text("Review the recorded outcome, then use Restart to create a new attempt.")]
-          : [.text("Resolve the named controller, camera, or observation fact before continuing.")]
-      )
-    }
-    if itemID.stage == .observedDrawingTrials, let explorationError {
-      let recovery: [PresentationFragment]
-      if drawingTrialStrokeEvidence != nil,
-        observedDrawingTrialStep == .revealAndObserveNewInk
-      {
-        recovery = [
-          .text(
-            "Ink may exist. Draw is unavailable; resolve Pen Up if needed, then return and observe the existing stroke."
-          )
-        ]
-      } else if restartableExerciseItemID == itemID {
-        recovery = [.text("Use Restart only after the failed attempt has settled.")]
-      } else {
-        recovery = [.text("Resolve the named subsystem fact before continuing.")]
-      }
-      return OperationActivityPresentation(
-        actor: drawingTrialParticipant(for: observedDrawingTrialStep),
-        action: drawingTrialActionText(for: observedDrawingTrialStep),
-        outcome: .needsAttention,
-        detail: [.text(explorationError)],
-        recovery: recovery
-      )
-    }
-    if itemID == .stage(.connect), let machineError {
-      return OperationActivityPresentation(
-        actor: "Controller session",
-        action: controllerConnectionActionTitle,
-        outcome: .needsAttention,
-        detail: [.text(machineError)],
-        recovery: [.text(workbenchStatusText)]
-      )
-    }
-    if let transaction {
-      switch transaction.state {
-      case .active, .cancelling:
-        if let step = transaction.currentStep {
-          return OperationActivityPresentation(
-            actor: step.participant.displayName,
-            action: discoveryActionText(step.action),
-            outcome: .inProgress,
-            detail: lastContextualStopAuditRecord.map {
-              [.text("\($0.actor) · \($0.action) · \($0.outcome)")]
-            } ?? [],
-            recovery: []
-          )
-        }
-      case .succeeded:
-        return OperationActivityPresentation(
-          actor: "Learning runtime",
-          action: transaction.definition.title,
-          outcome: .succeeded,
-          detail: transaction.evidenceSummaries.last.map { [.text($0.summary)] } ?? [],
-          recovery: []
-        )
-      case .cancelled:
-        return OperationActivityPresentation(
-          actor: lastContextualStopAuditRecord?.actor ?? "Operator",
-          action: lastContextualStopAuditRecord?.action ?? "Cancel Attempt",
-          outcome: .cancelled,
-          detail: lastContextualStopAuditRecord.map { [.text($0.outcome)] } ?? [],
-          recovery: [.text("Use Restart to create a new attempt.")]
-        )
-      case .failed:
-        break
-      case .notStarted:
-        break
-      }
-    }
-    if itemID == .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering),
-      let audit = lastContextualStopAuditRecord
-    {
-      return OperationActivityPresentation(
-        actor: audit.actor,
-        action: audit.action,
-        outcome: audit.disposition == .operatorStop ? .inProgress : .cancelled,
-        detail: [.text(audit.outcome)],
-        recovery: audit.disposition == .operatorStop
-          ? [
-            .text(
-              "The original owner must settle at Idle/final MPos before the controller-side commit continues."
-            )
-          ]
-          : [.text("Use Restart to create a new attempt.")]
-      )
-    }
-    return nil
-  }
-
-  private func subsystemStatusPresentations(
-    for itemID: LearningPathItemID,
-    transaction: DiscoveryTransaction?
-  ) -> [SubsystemStatusPresentation] {
-    let motionGateReason: String? = {
-      if !controllerSessionEstablished {
-        return frameMode == .simulated
-          ? "Connect the learning simulator first."
-          : "Select and connect one responsive controller."
-      }
-      if !motionAuthorizationEnabled { return "Enable Motion for this controller session." }
-      // Coordinator/operation ownership is reported in its own row instead of
-      // being mislabeled as a Controller safety refusal.
-      if currentCameraCalibrationPhase != nil || activeStopTarget != nil {
-        return nil
-      }
-      return directCarriageMotionUnavailableReason
-    }()
-    let controllerState: String
-    if !controllerSessionEstablished {
-      controllerState = "Disconnected"
-    } else if !motionAuthorizationEnabled {
-      controllerState = "Motion disabled"
-    } else if activeStopTarget != nil {
-      controllerState = "Operation active"
-    } else if currentCameraCalibrationPhase != nil {
-      controllerState = "Ready / coordinator held"
-    } else if motionGateReason != nil {
-      controllerState = "Admission blocked"
-    } else {
-      controllerState = "Idle / admissible"
-    }
-
-    let motionOwnerDetail: String
-    if let activeStopTarget {
-      motionOwnerDetail =
-        "An admitted operation owns motion under Stop capability \(activeStopTarget.capabilityID.rawValue.uuidString.lowercased())."
-    } else {
-      motionOwnerDetail = "No admitted operation currently owns controller motion."
-    }
-
-    let isBoundaryReview =
-      itemID == .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
-    let visionDetail: String
-    let visionState: String
-    let visionBlocksMotion: Bool
-    let visionRole: SubsystemAuthorityRole
-    if let currentCameraCalibrationPhase {
-      visionState = currentCameraCalibrationPhase.description
-      visionBlocksMotion = true
-      visionRole = .operationOwner
-      visionDetail =
-        "Current-camera calibration owns a multi-step optical-registration operation. New manual motion is blocked until it settles; any currently admitted move is also shown under Motion owner."
-    } else if scopedVisionAnalysisActive {
-      let analysisIsActive = visionAnalysisSnapshot.activeFrameSequence != nil
-      visionState =
-        analysisIsActive
-        ? "Motion-scoped analysis · preview held"
-        : "Motion-scoped analysis · live recovery"
-      visionBlocksMotion = false
-      visionRole = .advisoryEvidence
-      visionDetail =
-        analysisIsActive
-        ? "One immutable frame is being analyzed off the main actor. Preview publication is held until it settles; raw camera delivery continues."
-        : "The owned movement is still active between computations. When it settles, the selected overlay settings determine whether background analysis continues."
-    } else if case .running(let cadence) = visionAnalysisSnapshot.state {
-      visionState = "Overlay analysis · running"
-      visionBlocksMotion = false
-      visionRole = .advisoryEvidence
-      visionDetail =
-        "Selected scene overlays keep newest-only analysis running at up to \(cadence.rawValue) frames per second without changing preview appearance or automatic preview publication."
-    } else {
-      visionState = "Idle"
-      visionBlocksMotion = false
-      visionRole = .advisoryEvidence
-      visionDetail = "No foreground Vision operation is active."
-    }
-
-    let boundaryAuthoritySuffix =
-      isBoundaryReview
-      ? " Stage 3.2 boundary acceptance never calls Camera or Vision."
-      : ""
-    let commitIsActive: Bool = {
-      guard case .commitBoundaryObservation = transaction?.currentStep?.action else {
-        return false
-      }
-      return true
-    }()
-
-    return [
-      SubsystemStatusPresentation(
-        id: "controller",
-        subsystem: "Controller",
-        state: controllerState,
-        role: .motionGate,
-        blocksNewMotion: motionGateReason != nil,
-        detail: [
-          .text(
-            motionGateReason ?? "Controller facts currently admit a new direct carriage request.")
-        ]
-      ),
-      SubsystemStatusPresentation(
-        id: "motion-owner",
-        subsystem: "Motion owner",
-        state: activeStopTarget == nil ? "Unowned" : "Owned",
-        role: .operationOwner,
-        blocksNewMotion: activeStopTarget != nil,
-        detail: [.text(motionOwnerDetail)]
-      ),
-      SubsystemStatusPresentation(
-        id: "camera",
-        subsystem: "Camera",
-        state: cameraStateText,
-        role: .advisoryEvidence,
-        blocksNewMotion: false,
-        detail: [
-          .text(
-            "Camera state does not accept or reject a machine boundary.\(boundaryAuthoritySuffix)"
-          )
-        ]
-      ),
-      SubsystemStatusPresentation(
-        id: "vision",
-        subsystem: "Vision / processing",
-        state: visionState,
-        role: visionRole,
-        blocksNewMotion: visionBlocksMotion,
-        detail: [.text(visionDetail + boundaryAuthoritySuffix)]
-      ),
-      SubsystemStatusPresentation(
-        id: "learning-commit",
-        subsystem: "Learning commit",
-        state: commitIsActive ? "Committing controller settlement" : "Idle",
-        role: .evidenceCommit,
-        blocksNewMotion: false,
-        detail: [
-          .text(
-            isBoundaryReview
-              ? "Boundary commit consumes typed direction + operator Stop + controller Idle/final MPos only."
-              : "Learning commits record evidence after the owning operation settles."
-          )
-        ]
-      ),
-    ]
-  }
-
-  private func drawingTrialInstructionFragments(
+  private func drawingArtifactKind(
     for step: ObservedDrawingTrialStep
-  ) -> [PresentationFragment] {
-    [.text(drawingTrialActionText(for: step))]
-  }
-
-  private func drawingTrialExpectationFragments(
-    for step: ObservedDrawingTrialStep
-  ) -> [PresentationFragment] {
-    [.text(drawingTrialExpectationText(for: step))]
-  }
-
-  private func drawingTrialEvidence(
-    for step: ObservedDrawingTrialStep
-  ) -> [ExerciseEvidencePresentation] {
+  ) -> LearningArtifactKind {
     switch step {
-    case .chooseIsolatedLinePlan:
-      [
-        ExerciseEvidencePresentation(
-          label: "Line plan",
-          fragments: [
-            .text(
-              drawingTrialLineStart.map {
-                String(
-                  format: "%@ from X %.3f Y %.3f", selectedLineDirection.displayName, $0.point.x,
-                  $0.point.y)
-              } ?? "not chosen")
-          ])
-      ]
-    case .captureLocalPreLineBaseline:
-      [
-        ExerciseEvidencePresentation(
-          label: "Local pre-line baseline",
-          fragments: [.text(localPreLineBaseline?.frame.id.rawValue ?? "not captured")])
-      ]
-    case .moveToLineStart:
-      [
-        ExerciseEvidencePresentation(
-          label: "Line start",
-          fragments: [
-            .text(
-              drawingTrialLineStart.map { String(format: "X %.3f Y %.3f", $0.point.x, $0.point.y) }
-                ?? "not reached")
-          ])
-      ]
-    case .drawIsolatedLine:
-      [
-        ExerciseEvidencePresentation(
-          label: "Controller",
-          fragments: [.text(drawingTrialStrokeEvidence == nil ? "not settled" : "settled")])
-      ]
-    case .revealAndObserveNewInk:
-      [ExerciseEvidencePresentation(label: "Ink", fragments: [.text(explorationInkStatus)])]
-    case .compareIntendedAndObservedGeometry:
-      [
-        ExerciseEvidencePresentation(
-          label: "Comparison", fragments: [.text(drawingTrialAssessment?.title ?? "not recorded")])
-      ]
+    case .chooseIsolatedLinePlan: .linePlan(currentDrawingTrialGroup)
+    case .captureLocalPreLineBaseline: .localPreLineBaseline(currentDrawingTrialGroup)
+    case .moveToLineStart: .linePlan(currentDrawingTrialGroup)
+    case .drawIsolatedLine: .lineExecution(currentDrawingTrialGroup)
+    case .revealAndObserveNewInk: .postLineFrame(currentDrawingTrialGroup)
+    case .compareIntendedAndObservedGeometry: .comparison(currentDrawingTrialGroup)
     }
-  }
-
-  private func drawingArtifactRevision(
-    for step: ObservedDrawingTrialStep
-  ) -> LearningArtifactRevision? {
-    let kind: LearningArtifactKind =
-      switch step {
-      case .chooseIsolatedLinePlan: .linePlan(currentDrawingTrialGroup)
-      case .captureLocalPreLineBaseline: .localPreLineBaseline(currentDrawingTrialGroup)
-      case .moveToLineStart: .linePlan(currentDrawingTrialGroup)
-      case .drawIsolatedLine: .lineExecution(currentDrawingTrialGroup)
-      case .revealAndObserveNewInk: .postLineFrame(currentDrawingTrialGroup)
-      case .compareIntendedAndObservedGeometry: .comparison(currentDrawingTrialGroup)
-      }
-    return learningArtifactGraph.currentRevision(for: kind)
   }
 
   private func jogDirection(for sequenceID: DiscoverySequenceID) -> JogDirection? {
@@ -9291,91 +8084,6 @@ final class OperatorWorkspace {
     }
   }
 
-  private func discoveryActionText(_ action: DiscoveryAction) -> String {
-    switch action {
-    case .askQuestion(let question): question.prompt
-    case .awaitOperatorChoice(let question): "Choose \(question.choiceLabel) for this question."
-    case .announce(let message): "Announce: \(message)"
-    case .startBoundaryJog(let direction):
-      "Start the logical \(direction.displayName) Boundary Discovery owner."
-    case .awaitContextualStop: "Observe the boundary and use the contextual Stop."
-    case .cancelBoundaryJogAndAwaitIdle: "Send one jog cancel and await the original motion owner."
-    case .commitBoundaryObservation(let direction):
-      "Commit \(direction.displayName) from typed direction + Stop + controller Idle/final MPos. Camera and Vision are not consulted."
-    case .actuatePen(let command): "Command Pen \(command.commandedState.rawValue)."
-    case .awaitPhysicalPenConfirmation(let state, _):
-      "Confirm whether the pen is physically \(state.rawValue)."
-    }
-  }
-
-  private func discoveryExpectationText(_ expectation: DiscoveryEventExpectation) -> String {
-    switch expectation {
-    case .questionPresented: "The contextual question is visible."
-    case .operatorChoice: "One contextual YES or NO choice is recorded."
-    case .announcementCompleted: "Speech output completes or reaches its advisory bound."
-    case .boundaryJogStarted:
-      "The logical boundary owner is active while direct controller admission remains runtime-owned."
-    case .operatorStopRequested: "Stop is recorded before cancellation begins."
-    case .boundaryJogCancelled: "The original motion owner reaches Idle with final MPos."
-    case .boundaryObservationCommitted:
-      "Controller settlement evidence and the current side aggregate commit together."
-    case .penCommandSettled: "The typed pen command and dwell settle."
-    case .physicalPenConfirmed: "The operator confirms the visible physical pen pose."
-    }
-  }
-
-  private func drawingTrialParticipant(for step: ObservedDrawingTrialStep) -> String {
-    switch step {
-    case .chooseIsolatedLinePlan: "Operator"
-    case .captureLocalPreLineBaseline, .revealAndObserveNewInk:
-      "Camera and Vision"
-    case .moveToLineStart, .drawIsolatedLine: "Plotter controller"
-    case .compareIntendedAndObservedGeometry: "Operator"
-    }
-  }
-
-  private func drawingTrialActionTitle(for step: ObservedDrawingTrialStep) -> String {
-    switch step {
-    case .chooseIsolatedLinePlan: "Choose Isolated Line Plan"
-    case .captureLocalPreLineBaseline: "Capture Local Pre-Line Baseline"
-    case .moveToLineStart: "Move to Line Start"
-    case .drawIsolatedLine: "Draw Isolated Line"
-    case .revealAndObserveNewInk: "Reveal and Observe New Ink"
-    case .compareIntendedAndObservedGeometry: "Start"
-    }
-  }
-
-  private func drawingTrialActionText(for step: ObservedDrawingTrialStep) -> String {
-    switch step {
-    case .chooseIsolatedLinePlan:
-      "Choose a direction and project one local 5 mm path through the accepted tip model."
-    case .captureLocalPreLineBaseline:
-      "Capture one exact local baseline and record this Pen-Up reveal pose."
-    case .moveToLineStart:
-      "Move Pen Up to the recorded local line start."
-    case .drawIsolatedLine:
-      "Lower the pen, draw one 5 mm outward stroke, and raise."
-    case .revealAndObserveNewInk:
-      "Return Pen Up to the local reveal pose, settle, capture a newer frame, and extract new ink."
-    case .compareIntendedAndObservedGeometry:
-      "Record one typed comparison for this local trial; no redraw follows."
-    }
-  }
-
-  private func drawingTrialExpectationText(for step: ObservedDrawingTrialStep) -> String {
-    switch step {
-    case .chooseIsolatedLinePlan:
-      "One typed local line plan projected by an exact tip-model revision."
-    case .captureLocalPreLineBaseline:
-      "One exact pre-line frame and its Pen-Up reveal MPos."
-    case .moveToLineStart: "Arrival at the local line start while Pen Up."
-    case .drawIsolatedLine: "A closed controller stroke outcome; this is not yet ink proof."
-    case .revealAndObserveNewInk:
-      "Observed new line ink or a typed unclear/rejected observation, with no automatic redraw."
-    case .compareIntendedAndObservedGeometry:
-      "One typed operator assessment completes only this trial."
-    }
-  }
 
   private func drawingTrialActionUnavailableReason(
     for step: ObservedDrawingTrialStep

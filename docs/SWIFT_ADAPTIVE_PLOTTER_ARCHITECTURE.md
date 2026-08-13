@@ -22,6 +22,7 @@ PlotterRuntime
 
 PlotterApp
   OperatorWorkspace orchestration and artifact commits
+  immutable LearningPathProjectionSnapshot and pure LearningPathProjector
   SwiftUI Learning Path, ActionSurface, Motion and Video Settings composition
   production checkpoint stores and semantic identity composition
 
@@ -56,9 +57,23 @@ retain their own typed regions.
 
 `OperatorWorkspace` is the single `@Observable` application owner. It composes
 controller/camera actors through typed actions, owns Learning Path attempts,
-constructs immutable evidence, commits the dependency graph, and exposes
-presentation state. It cannot replace controller settlement or exact-frame
-provenance with UI state.
+constructs immutable evidence, commits the dependency graph, routes view
+intent, and copies current state into `LearningPathProjectionSnapshot`. It
+cannot replace controller settlement or exact-frame provenance with UI state.
+
+`LearningPathProjectionSnapshot` is values-only. It contains copied typed facts
+and precomputed policy/admission results, not controller or camera actors,
+persistence capabilities, task handles, mutating closures, or authority-
+changing methods. It also narrows mutable session values such as discovery
+transactions and Boundary progress to immutable presentation facts.
+
+`LearningPathProjector` is a pure value. Identical snapshots and review
+selection produce identical navigator rows, current item, status, summaries,
+action strips, exact Stop capability presentation, evidence, activity,
+subsystem status, timeline, and reset surfaces. It cannot mutate a session,
+admit motion, persist, perform I/O, or accept an artifact. SwiftUI consumes one
+aggregate projection per Learning Path render and sends selected typed actions
+back to `OperatorWorkspace`.
 
 LIVE and SIMULATED each own one `LearningSessionState` value under that shared
 contract. Within each value, compiler-enforced substates prevent invalid
@@ -67,8 +82,7 @@ item owner, and mode; one sparse-selection lifecycle owns pending evidence,
 the frozen frame, request, and selected point; and one Drawing Trial state owns
 the complete trial payload, history, rollback, and rewind transitions. Supervised
 Learning Path travel and settlement carry typed `LearningMotionAction` identity;
-display text is derived only at presentation boundaries. These cohesive values
-are the intended immutable input seams for a pure Learning Path projector.
+display text is derived only by the presentation boundary.
 
 `RunLedger` and workflow telemetry record diagnostics only. They do not replay
 commands, restore owners, or promote artifacts.

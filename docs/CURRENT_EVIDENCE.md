@@ -40,6 +40,33 @@ These are software and simulator results. The app was not launched for this
 change. No controller connection, physical pen actuation, physical motion,
 manual square, camera observation, or observed ink validation was performed.
 
+### Pure Learning Path projection
+
+Validated 2026-08-13 in Blackdog task `TASK-F6773B41`, targeting `main`
+from base `0a04af61581552f7613faf53b8968c5ef8f5c030`.
+
+One values-only `LearningPathProjectionSnapshot` now feeds the pure
+`LearningPathProjector`. The projector owns current-item and navigator status,
+review detail, action strips, exact Stop capability presentation, typed failure
+rendering, evidence, timeline/activity/subsystem rows, sparse-calibration and
+Drawing Trial presentation, and reset surfaces. `OperatorWorkspace` retains
+controller/camera/persistence ownership, operational policy and admission,
+artifact acceptance, reset execution and stale-plan guards, and typed intent
+routing. SwiftUI consumes one aggregate projection per Learning Path render.
+
+The extraction deleted the parallel workspace presentation path.
+`OperatorWorkspace.swift` fell from 10,197 to 8,905 lines and from 226 to 202
+function declarations by the repository's source inventory. Direct projector
+tests cover deterministic repeated projection, every row/state, LIVE/SIMULATED
+parity, Stop ownership, typed failures, reset/vacate presentation, sparse
+phases, Drawing Trial progression, and immutable review selection. Existing
+workspace integration tests continue to cover routed actions and authority.
+
+Validation results are recorded by the Blackdog landing result. These are
+software and deterministic simulator claims only. No application launch,
+controller, attended camera, physical motion, Pen Down, click, or observed-ink
+validation was performed.
+
 ### Cohesive Learning Path state and typed transitions
 
 Validated 2026-08-13 in Blackdog task `TASK-40195892`, targeting `main`

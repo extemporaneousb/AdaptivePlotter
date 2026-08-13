@@ -60,9 +60,12 @@ or configuration clears the lock.
 They do not decide controller eligibility, machine direction, operator click,
 or artifact acceptance.
 
-`OperatorWorkspace` is the single observable app owner. It projects current
-facts and routes typed intent without replacing controller, camera, or evidence
-authority.
+`OperatorWorkspace` is the single observable app owner and typed-intent router.
+It copies current facts into an immutable values-only snapshot;
+`LearningPathProjector` purely derives Learning Path rows, review detail,
+actions, activity, subsystem status, and reset presentation. Neither projection
+nor navigator selection can replace controller, camera, persistence, or
+evidence authority.
 
 `RunLedger` records ordered diagnostic facts. Raw controller events and typed
 workflow events remain distinct. Ledger facts cannot replay work, restore a
