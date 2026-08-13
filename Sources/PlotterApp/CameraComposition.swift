@@ -74,36 +74,6 @@ func boundedlyAwaitNewestCameraValue<Value: Sendable>(
   return nil
 }
 
-private actor AutomaticAnalysisPreviewGate {
-  private let live: CameraCapture
-  private var pauseToken: CameraPreviewPauseToken?
-  private var analysisActive = false
-  private var revision: UInt64 = 0
-
-  init(live: CameraCapture) {
-    self.live = live
-  }
-
-  func setAnalysisActive(_ active: Bool) async {
-    revision &+= 1
-    let requestedRevision = revision
-    analysisActive = active
-    if active {
-      guard pauseToken == nil else { return }
-      let issuedToken = await live.pausePreviewPublication()
-      guard analysisActive, revision == requestedRevision, pauseToken == nil else {
-        await live.resumePreviewPublication(issuedToken)
-        return
-      }
-      pauseToken = issuedToken
-      return
-    }
-    guard let pauseToken else { return }
-    self.pauseToken = nil
-    await live.resumePreviewPublication(pauseToken)
-  }
-}
-
 private actor CameraSourceSession {
   private struct VisionComputationLease: Sendable {
     let previewPauseToken: CameraPreviewPauseToken
@@ -113,7 +83,6 @@ private actor CameraSourceSession {
   private let live: CameraCapture
   private let vision: VisionWorker
   private let analysisPipeline: PlotterSceneAnalysisPipeline
-  private let automaticAnalysisPreviewGate: AutomaticAnalysisPreviewGate
   private let startupFrameRecorder = StartupFrameRecorder()
   private var startupFrameTask: Task<Void, Never>?
   private var automaticInspectionFrameTask: Task<Void, Never>?
@@ -123,16 +92,9 @@ private actor CameraSourceSession {
   init() {
     let live = CameraCapture()
     let vision = VisionWorker()
-    let previewGate = AutomaticAnalysisPreviewGate(live: live)
     self.live = live
     self.vision = vision
-    automaticAnalysisPreviewGate = previewGate
-    analysisPipeline = PlotterSceneAnalysisPipeline(
-      worker: vision,
-      activityHandler: { active in
-        await previewGate.setAnalysisActive(active)
-      }
-    )
+    analysisPipeline = PlotterSceneAnalysisPipeline(worker: vision)
   }
 
   func discover() async -> CameraCaptureSnapshot {

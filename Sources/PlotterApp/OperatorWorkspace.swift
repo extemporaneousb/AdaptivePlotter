@@ -1202,7 +1202,6 @@ final class OperatorWorkspace {
       analysisRegionIsLocked: surfaceFrame.map {
         videoAnalysisRegionLock?.matches($0) == true
       } ?? false,
-      analysisIsActive: visionAnalysisSnapshot.activeFrameSequence != nil,
       pointSelectionRequest: toolContactPointSelectionRequest,
       tipPresentation: tipPresentation
     )
@@ -8201,17 +8200,11 @@ final class OperatorWorkspace {
         ? "One immutable frame is being analyzed off the main actor. Preview publication is held until it settles; raw camera delivery continues."
         : "The owned movement is still active between computations. When it settles, the selected overlay settings determine whether background analysis continues."
     } else if case .running(let cadence) = visionAnalysisSnapshot.state {
-      let analysisIsActive = visionAnalysisSnapshot.activeFrameSequence != nil
-      visionState =
-        analysisIsActive
-        ? "Overlay analysis · preview held"
-        : "Overlay analysis · live recovery"
+      visionState = "Overlay analysis · running"
       visionBlocksMotion = false
       visionRole = .advisoryEvidence
       visionDetail =
-        analysisIsActive
-        ? "One immutable frame is being analyzed at up to \(cadence.rawValue) frames per second. Preview publication is held and visibly dimmed; raw camera delivery and overlay selections continue."
-        : "Selected scene overlays keep newest-only analysis running at up to \(cadence.rawValue) frames per second."
+        "Selected scene overlays keep newest-only analysis running at up to \(cadence.rawValue) frames per second without changing preview appearance or automatic preview publication."
     } else {
       visionState = "Idle"
       visionBlocksMotion = false

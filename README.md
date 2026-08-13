@@ -176,8 +176,8 @@ Video Settings combines camera selection, adjacent Refresh, scene-analysis
 frames per second, viewport zoom/drag/region lock, and a three-column overlay
 grid without tabs. Selecting any scene-derived overlay directly keeps bounded
 newest-only analysis running; there is no separate Analyze/Resume control.
-During a computation, raw camera capture continues while preview publication is
-held and the visible frame is dimmed. Locking the viewport admits only that
+Automatic overlay computation does not dim, badge, or pause preview
+publication. Locking the viewport admits only that
 camera-pixel subregion to generic scene-analysis scans without cropping or
 rewriting the exact stamped frame.
 

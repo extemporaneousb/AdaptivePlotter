@@ -281,7 +281,6 @@ struct ActionSurfacePresentation: Sendable {
   let simulatedAnnotationsAreVisible: Bool
   let viewportContext: ActionSurfaceViewportContext?
   let analysisRegionIsLocked: Bool
-  let analysisIsActive: Bool
   let pointSelectionRequest: ActionSurfacePointSelectionRequest?
   let tipPresentation: ActionSurfaceTipPresentation
 
@@ -295,7 +294,6 @@ struct ActionSurfacePresentation: Sendable {
     simulatedAnnotationsAreVisible: Bool = true,
     viewportContext: ActionSurfaceViewportContext? = nil,
     analysisRegionIsLocked: Bool = false,
-    analysisIsActive: Bool = false,
     pointSelectionRequest: ActionSurfacePointSelectionRequest? = nil,
     tipPresentation: ActionSurfaceTipPresentation = .notCalibrated
   ) {
@@ -325,7 +323,6 @@ struct ActionSurfacePresentation: Sendable {
       self.pointSelectionRequest = nil
     }
     self.analysisRegionIsLocked = analysisRegionIsLocked
-    self.analysisIsActive = analysisIsActive
     self.tipPresentation = tipPresentation
   }
 
@@ -390,7 +387,6 @@ struct ActionSurface: View {
         drawFrameAndOverlays(frameImage: frameImage, context: &context, transform: transform)
       }
       .background(Color.black)
-      .opacity(presentation.analysisIsActive ? 0.45 : 1)
       .overlay(alignment: .topLeading) {
         VStack(alignment: .leading, spacing: 6) {
           if let sourceBadgeLabel = presentation.sourceBadgeLabel {
@@ -423,14 +419,7 @@ struct ActionSurface: View {
           .padding(8)
       }
       .overlay {
-        if presentation.analysisIsActive {
-          Label("ANALYZING · PREVIEW PAUSED", systemImage: "viewfinder")
-            .font(.caption.monospaced().bold())
-            .foregroundStyle(.white)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .background(.black.opacity(0.75), in: Capsule())
-        } else if presentation.displayedFrame == nil {
+        if presentation.displayedFrame == nil {
           ContentUnavailableView(
             "No camera frame",
             systemImage: "camera.fill",

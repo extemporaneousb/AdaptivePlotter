@@ -59,6 +59,29 @@ The former multi-step target/region workflow, its runtime protocol, simulator
 fixtures, exclusive tests, actions, artifacts, and detector composition are
 deleted rather than retained as compatibility code.
 
+## Stable preview during automatic overlay analysis
+
+Validated 2026-08-12 in Blackdog task `TASK-D2BD0315`, targeting `main` from
+base `d191045ef20026626437a3d92943cd0d80e7c167`.
+
+Automatic overlay analysis no longer changes ActionSurface opacity, presents an
+analysis badge, or owns a preview-publication pause token. Its subsystem status
+is stable across individual analysis start/completion transitions. The separate
+exclusive preview lease remains for explicit exact-frame operations such as
+calibration and isolated-ink observation.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| Focused ActionSurface, workspace, and scene-pipeline tests | passed - 32 tests | canonical rendering, overlay lifecycle, region/cadence propagation, scoped Vision settlement, bounded pipeline behavior |
+| `make quick-test` | passed - 322 tests | fast unit/component partition |
+| `make strict-check` | passed - 332 tests | complete concurrency, warnings-as-errors, signed bundle and launcher validation, full test suite, repository checks |
+| obsolete-state scan | passed | no ActionSurface analysis-active state, analyzing badge, dimming rule, automatic preview gate, or oscillating overlay-analysis status remains |
+| `git diff --check` | passed | whitespace/conflict markers |
+
+These are software and simulated-workflow results. The app was not launched for
+this correction. No attended camera, controller, motion, pen, green-cap,
+armature, preview-fluidity, or observed-ink validation was performed.
+
 ## Video Settings and direct overlay analysis
 
 Validated 2026-08-12 in Blackdog task `TASK-AC50EDC1`, targeting `main` from
@@ -69,9 +92,9 @@ Video Settings owns camera selection plus adjacent Refresh, 2/5/10 frames-per-
 second scene cadence, zoom/drag camera-pixel region readout and lock, and one
 three-column grid of direct overlay toggles. Selected cap, measured-frame-side,
 drawing-frame, or armature layers keep newest-only scene analysis running.
-During each computation, preview publication is held and the visible frame is
-dimmed while raw capture continues. A locked region bounds every generic scene
-pixel scan without changing whole-frame identity or overlay coordinates.
+Automatic overlay computation does not dim, badge, or pause preview
+publication. A locked region bounds every generic scene pixel scan without
+changing whole-frame identity or overlay coordinates.
 
 | Validation | Result | Scope |
 | --- | --- | --- |
