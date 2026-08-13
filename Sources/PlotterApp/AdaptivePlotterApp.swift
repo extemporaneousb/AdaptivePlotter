@@ -106,15 +106,15 @@ private enum SpeechComposition {
 struct OperatorWorkspaceView: View {
   @Bindable var workspace: OperatorWorkspace
   @State private var selection = LearningPathSelectionState(current: .stage(.connect))
-  @State private var utilitiesArePresented = false
+  @State private var videoSettingsArePresented = false
   @State private var paneVisibility = WorkbenchPaneVisibility()
   @State private var actionSurfaceViewport = ActionSurfaceViewportState()
-  private let utilitiesPolicy = UtilitiesVisibilityPolicy()
+  private let videoSettingsPolicy = VideoSettingsVisibilityPolicy()
 
   var body: some View {
     GeometryReader { proxy in
-      let utilities = utilitiesPolicy.presentation(
-        isPresented: utilitiesArePresented,
+      let videoSettings = videoSettingsPolicy.presentation(
+        isPresented: videoSettingsArePresented,
         availableWindowWidth: proxy.size.width
       )
       HSplitView {
@@ -124,21 +124,21 @@ struct OperatorWorkspaceView: View {
             selection: $selection,
             close: { paneVisibility.navigatorIsPresented = false }
           )
-            .frame(minWidth: 220, idealWidth: 280, maxWidth: 440)
+          .frame(minWidth: 220, idealWidth: 280, maxWidth: 440)
         }
 
         VStack(spacing: 0) {
           WorkbenchPaneControls(
             visibility: paneVisibility,
-            utilities: utilities,
+            videoSettings: videoSettings,
             exerciseDetailCollapseUnavailableReason:
               exerciseDetailCollapseUnavailableReason,
             motionCollapseUnavailableReason: motionCollapseUnavailableReason,
             togglePane: { pane in
               paneVisibility = paneVisibility.toggling(pane)
             },
-            performUtilitiesAction: { action in
-              performUtilitiesAction(action, availableWindowWidth: proxy.size.width)
+            performVideoSettingsAction: { action in
+              performVideoSettingsAction(action, availableWindowWidth: proxy.size.width)
             }
           )
 
@@ -150,10 +150,10 @@ struct OperatorWorkspaceView: View {
                 workspace.selectToolContactPoint(selection)
               }
             )
-              .frame(
-                minWidth: LearningWorkbenchLayoutPolicy.minimumActionSurfaceWidth,
-                minHeight: LearningWorkbenchLayoutPolicy.minimumActionSurfaceHeight
-              )
+            .frame(
+              minWidth: LearningWorkbenchLayoutPolicy.minimumActionSurfaceWidth,
+              minHeight: LearningWorkbenchLayoutPolicy.minimumActionSurfaceHeight
+            )
 
             if paneVisibility.motionIsPresented {
               ScrollView {
@@ -162,7 +162,7 @@ struct OperatorWorkspaceView: View {
                   close: { paneVisibility.motionIsPresented = false },
                   closeUnavailableReason: motionCollapseUnavailableReason
                 )
-                  .padding(10)
+                .padding(10)
               }
               .frame(minHeight: 220, idealHeight: 260, maxHeight: 360)
               .background(Color(nsColor: .controlBackgroundColor))
@@ -186,21 +186,22 @@ struct OperatorWorkspaceView: View {
         }
       }
       .onChange(of: proxy.size.width) { _, width in
-        if utilitiesArePresented,
-          utilitiesPolicy.shouldCollapsePresentedUtilities(
+        if videoSettingsArePresented,
+          videoSettingsPolicy.shouldCollapsePresentedVideoSettings(
             availableContentWidth: width,
             panes: paneVisibility
           )
         {
-          utilitiesArePresented = false
+          videoSettingsArePresented = false
         }
       }
     }
     .background(Color.black)
-    .inspector(isPresented: $utilitiesArePresented) {
-      WorkbenchUtilities(
+    .inspector(isPresented: $videoSettingsArePresented) {
+      VideoSettingsPanel(
         workspace: workspace,
-        close: { utilitiesArePresented = false }
+        viewport: $actionSurfaceViewport,
+        close: { videoSettingsArePresented = false }
       )
       .inspectorColumnWidth(min: 280, ideal: 360, max: 440)
     }
@@ -228,33 +229,33 @@ struct OperatorWorkspaceView: View {
       ? nil : "Stop the active manual jog before hiding its Stop control."
   }
 
-  private func performUtilitiesAction(
-    _ action: UtilitiesVisibilityAction,
+  private func performVideoSettingsAction(
+    _ action: VideoSettingsVisibilityAction,
     availableWindowWidth: CGFloat
   ) {
-    let willPresent = utilitiesPolicy.transition(
-      isPresented: utilitiesArePresented,
+    let willPresent = videoSettingsPolicy.transition(
+      isPresented: videoSettingsArePresented,
       action: action,
       availableWindowWidth: availableWindowWidth
     )
-    if willPresent, !utilitiesArePresented {
-      paneVisibility = utilitiesPolicy.preparingPanesToShow(
+    if willPresent, !videoSettingsArePresented {
+      paneVisibility = videoSettingsPolicy.preparingPanesToShow(
         paneVisibility,
         availableWindowWidth: availableWindowWidth,
         canCollapseExerciseDetail: exerciseDetailCollapseUnavailableReason == nil
       )
     }
-    utilitiesArePresented = willPresent
+    videoSettingsArePresented = willPresent
   }
 }
 
 private struct WorkbenchPaneControls: View {
   let visibility: WorkbenchPaneVisibility
-  let utilities: UtilitiesPresentation
+  let videoSettings: VideoSettingsPresentation
   let exerciseDetailCollapseUnavailableReason: String?
   let motionCollapseUnavailableReason: String?
   let togglePane: (WorkbenchPane) -> Void
-  let performUtilitiesAction: (UtilitiesVisibilityAction) -> Void
+  let performVideoSettingsAction: (VideoSettingsVisibilityAction) -> Void
 
   var body: some View {
     HStack(spacing: 8) {
@@ -273,13 +274,16 @@ private struct WorkbenchPaneControls: View {
         unavailableReason: exerciseDetailCollapseUnavailableReason
       )
       Button {
-        performUtilitiesAction(utilities.action)
+        performVideoSettingsAction(videoSettings.action)
       } label: {
-        Label(utilities.actionTitle, systemImage: WorkbenchPanel.utilities.systemImage)
+        Label(
+          videoSettings.actionTitle,
+          systemImage: WorkbenchPanel.videoSettings.systemImage
+        )
       }
-      .operatorButton(isEnabled: utilities.isActionEnabled)
+      .operatorButton(isEnabled: videoSettings.isActionEnabled)
       .controlSize(.small)
-      .help(utilities.unavailableReason ?? utilities.actionTitle)
+      .help(videoSettings.unavailableReason ?? videoSettings.actionTitle)
     }
     .padding(.horizontal, 10)
     .padding(.vertical, 6)
@@ -306,181 +310,233 @@ private struct WorkbenchPaneControls: View {
   }
 }
 
-private struct WorkbenchUtilities: View {
+private struct VideoSettingsPanel: View {
   @Bindable var workspace: OperatorWorkspace
+  @Binding var viewport: ActionSurfaceViewportState
   let close: () -> Void
-  @State private var selectedUtility: WorkbenchUtility = .camera
 
   var body: some View {
     VStack(spacing: 10) {
       HStack {
-        Text("Utilities")
+        Text("Video Settings")
           .font(.headline)
         Spacer()
-        PanelCloseButton(panel: .utilities, close: close)
+        PanelCloseButton(panel: .videoSettings, close: close)
       }
-
-      Picker("Utility", selection: $selectedUtility) {
-        ForEach(WorkbenchUtility.allCases) { utility in
-          Label(utility.title, systemImage: utility.systemImage).tag(utility)
-        }
-      }
-      .pickerStyle(.segmented)
-      .disabled(workspace.frameModeSwitchUnavailableReason != nil)
-      .help(workspace.frameModeSwitchUnavailableReason ?? "Choose the frame source")
 
       ScrollView {
-        switch selectedUtility {
-        case .camera:
-          CameraPanel(workspace: workspace)
-        case .overlays:
-          OverlayPanel(workspace: workspace)
-        }
+        VideoSettingsContents(workspace: workspace, viewport: $viewport)
       }
     }
     .padding(10)
   }
 }
 
-private enum WorkbenchUtility: CaseIterable, Identifiable {
-  case camera
-  case overlays
-
-  var id: Self { self }
-
-  var title: String {
-    switch self {
-    case .camera: "Camera"
-    case .overlays: "Overlays"
-    }
-  }
-
-  var systemImage: String {
-    switch self {
-    case .camera: "camera"
-    case .overlays: "square.3.layers.3d"
-    }
-  }
+private enum VideoSourceChoice: Hashable {
+  case simulated
+  case live(CameraDeviceID)
 }
 
-private struct CameraPanel: View {
+private struct VideoSettingsContents: View {
   @Bindable var workspace: OperatorWorkspace
+  @Binding var viewport: ActionSurfaceViewportState
 
   var body: some View {
-    let utilityPresentation = workspace.cameraUtilityPresentation
-    SectionPanel(title: "CAMERA AND VISION") {
-      Picker(
-        "Frame source",
-        selection: Binding(
-          get: { workspace.frameMode },
-          set: { mode in Task { await workspace.switchFrameMode(mode) } }
-        )
-      ) {
-        ForEach(OperatorFrameMode.allCases) { mode in
-          Text(mode.rawValue).tag(mode)
-        }
-      }
-      .pickerStyle(.segmented)
-
-      cameraUtilityControls(utilityPresentation)
-
-      Text(
-        "LIVE preview does not analyze frames continuously. Scene analysis is finite: explicit Analyze Current Frame, a Learning Path motion window, or an owned Vision observation."
-      )
-      .font(.caption)
-      .foregroundStyle(.secondary)
-
-      if utilityPresentation.mode == .simulated {
-        Text(workspace.simulatorEvidenceLabel)
-          .font(.caption.monospaced().bold())
-          .foregroundStyle(.blue)
-        Text(workspace.simulatorLearningSummary)
-          .font(.caption)
-          .foregroundStyle(.secondary)
-        fact("Simulated pen", workspace.simulatorPenState.rawValue)
-      } else if workspace.cameraDevices.isEmpty {
-        Text("No discovered camera.")
-          .font(.caption)
-          .foregroundStyle(.secondary)
-      } else {
-        ForEach(workspace.cameraDevices) { device in
-          Button {
-            Task { await workspace.selectCamera(device.id) }
-          } label: {
-            HStack {
-              Image(
-                systemName: workspace.selectedCameraID == device.id
-                  ? "largecircle.fill.circle" : "circle"
-              )
-              Text(device.name)
-              Spacer()
+    VStack(alignment: .leading, spacing: 12) {
+      SectionPanel(title: "CAMERA") {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+          Text("Camera")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+          Picker("Camera", selection: sourceSelection) {
+            Text("Simulator").tag(Optional(VideoSourceChoice.simulated))
+            ForEach(workspace.cameraDevices) { device in
+              Text(device.name).tag(Optional(VideoSourceChoice.live(device.id)))
             }
-            .contentShape(Rectangle())
           }
-          .operatorButton(
-            isEnabled: workspace.currentCameraCalibrationBusyReason == nil
-          )
-          .help(
-            workspace.currentCameraCalibrationBusyReason
-              ?? "Select \(device.name)"
-          )
+          .labelsHidden()
+          .frame(maxWidth: .infinity)
+          .disabled(workspace.frameModeSwitchUnavailableReason != nil)
+          .help(workspace.frameModeSwitchUnavailableReason ?? "Choose the video source")
+
+          Button {
+            Task { await workspace.refreshVideoSources() }
+          } label: {
+            Label("Refresh", systemImage: "arrow.clockwise")
+          }
+          .operatorButton(isEnabled: workspace.currentCameraCalibrationBusyReason == nil)
+          .help(workspace.currentCameraCalibrationBusyReason ?? "Refresh camera choices")
         }
+
+        if workspace.frameMode == .simulated {
+          Text(workspace.simulatorEvidenceLabel)
+            .font(.caption.monospaced().bold())
+            .foregroundStyle(.blue)
+          Text(workspace.simulatorLearningSummary)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        } else if workspace.cameraDevices.isEmpty {
+          Text("No discovered camera.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+
       }
 
-      fact("State", workspace.cameraStateText)
-      fact("Vision", workspace.sceneMeasurementText)
-      fact("Capture path", workspace.captureThroughputText)
-      fact("Analysis path", workspace.visionThroughputText)
-      if let path = workspace.lastCameraSnapshotPath {
-        Text(path)
-          .font(.caption2.monospaced())
-          .foregroundStyle(.secondary)
-          .textSelection(.enabled)
-      }
-      if let error = workspace.cameraError {
-        Text(error)
-          .font(.caption.monospaced())
-          .foregroundStyle(.orange)
-          .textSelection(.enabled)
-      }
-      if let error = workspace.visionError {
-        Text(error)
-          .font(.caption.monospaced())
-          .foregroundStyle(.orange)
-          .textSelection(.enabled)
-      }
+      analysisViewportControls
+      overlayControls
 
+      SectionPanel(title: "STATUS") {
+        fact("State", workspace.cameraStateText)
+        fact("Vision", workspace.sceneMeasurementText)
+        fact("Capture path", workspace.captureThroughputText)
+        fact("Analysis path", workspace.visionThroughputText)
+        if let error = workspace.cameraError {
+          Text(error)
+            .font(.caption.monospaced())
+            .foregroundStyle(.orange)
+            .textSelection(.enabled)
+        }
+        if let error = workspace.visionError {
+          Text(error)
+            .font(.caption.monospaced())
+            .foregroundStyle(.orange)
+            .textSelection(.enabled)
+        }
+
+      }
     }
   }
 
-  private func cameraUtilityControls(
-    _ presentation: CameraUtilityPresentation
-  ) -> some View {
-    VStack(alignment: .leading, spacing: 6) {
-      ForEach(presentation.actions) { action in
-        Button {
-          Task { await workspace.performCameraUtilityAction(action.kind) }
-        } label: {
-          Label(action.title, systemImage: action.systemImage)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .operatorButton(isEnabled: action.isEnabled)
-        .help(action.unavailableReason ?? action.title)
+  private var analysisViewportControls: some View {
+    let displayedFrame = workspace.actionSurfacePresentation.displayedFrame
+    let region = displayedFrame.flatMap {
+      viewport.selectedRegion(frameWidth: $0.frame.width, frameHeight: $0.frame.height)
+    }
+    let regionIsLocked =
+      displayedFrame.map {
+        workspace.videoAnalysisRegionLock?.matches($0) == true
+      } ?? false
 
-        if let reason = action.unavailableReason {
-          Text("\(action.title): \(reason)")
-            .font(.caption2)
-            .foregroundStyle(.secondary)
+    return SectionPanel(title: "ANALYSIS VIEWPORT") {
+      Picker(
+        "Frames per second",
+        selection: Binding(
+          get: { workspace.visionAnalysisCadence },
+          set: { cadence in Task { await workspace.setVisionAnalysisCadence(cadence) } }
+        )
+      ) {
+        ForEach(VisionAnalysisCadence.allCases, id: \.self) { cadence in
+          Text("\(cadence.rawValue)").tag(cadence)
         }
       }
+      .disabled(workspace.frameMode != .live)
+
+      Slider(value: $viewport.zoom, in: 0...1) {
+        Text("Zoom")
+      } minimumValueLabel: {
+        Text("Full")
+      } maximumValueLabel: {
+        Text("Near")
+      }
+      .disabled(displayedFrame == nil || regionIsLocked)
+      .help("Zoom the displayed camera pixels, then drag the video to position the region.")
+
+      fact("Region", region.map(Self.regionText) ?? "No current frame")
+
+      Toggle(
+        "Lock analysis region",
+        isOn: Binding(
+          get: { regionIsLocked },
+          set: { shouldLock in
+            guard let displayedFrame else { return }
+            Task {
+              await workspace.setVideoAnalysisRegion(
+                shouldLock ? region : nil,
+                for: displayedFrame
+              )
+            }
+          }
+        )
+      )
+      .disabled(
+        displayedFrame == nil || region == nil
+          || workspace.currentCameraCalibrationBusyReason != nil
+      )
+
+      Text(
+        regionIsLocked
+          ? "Only this camera-pixel region is admitted to scene analysis. Unlock it before zooming or dragging."
+          : "Zoom, then drag the video to position the region. Locking copies that camera-pixel rectangle into the analysis policy; it does not crop or rewrite the exact frame."
+      )
+      .font(.caption2)
+      .foregroundStyle(.secondary)
     }
+  }
+
+  private var overlayControls: some View {
+    SectionPanel(title: "OVERLAYS") {
+      LazyVGrid(
+        columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3),
+        spacing: 6
+      ) {
+        ForEach(CanvasLayer.allCases) { layer in
+          Toggle(
+            layer.rawValue,
+            isOn: Binding(
+              get: { workspace.visibleLayers.contains(layer) },
+              set: { workspace.setLayer(layer, visible: $0) }
+            )
+          )
+          .toggleStyle(.button)
+          .controlSize(.small)
+          .frame(maxWidth: .infinity, minHeight: 34)
+          .help(workspace.overlaySummary(for: layer))
+        }
+      }
+
+      Text(
+        "Cap, measured frame sides, drawing frame, and armature selections directly run bounded scene analysis. No separate Analyze or Resume action is required."
+      )
+      .font(.caption2)
+      .foregroundStyle(.secondary)
+    }
+  }
+
+  private var sourceSelection: Binding<VideoSourceChoice?> {
+    Binding(
+      get: {
+        switch workspace.frameMode {
+        case .simulated: .simulated
+        case .live: workspace.selectedCameraID.map(VideoSourceChoice.live)
+        }
+      },
+      set: { selection in
+        guard let selection else { return }
+        Task {
+          switch selection {
+          case .simulated:
+            await workspace.switchFrameMode(.simulated)
+          case .live(let id):
+            await workspace.selectAndStartCamera(id)
+          }
+        }
+      }
+    )
+  }
+
+  private static func regionText(_ region: PixelRect) -> String {
+    "x \(region.x), y \(region.y), \(region.width) × \(region.height) px"
   }
 
   private func fact(_ label: String, _ value: String) -> some View {
     HStack(alignment: .firstTextBaseline) {
       Text(label).font(.caption2).foregroundStyle(.secondary)
       Spacer()
-      Text(value).font(.caption.monospaced()).multilineTextAlignment(.trailing)
+      Text(value)
+        .font(.caption.monospaced())
+        .multilineTextAlignment(.trailing)
+        .textSelection(.enabled)
     }
   }
 }
@@ -632,37 +688,6 @@ private struct MotionPanel: View {
         .font(.caption.monospaced())
         .multilineTextAlignment(.trailing)
         .textSelection(.enabled)
-    }
-  }
-}
-
-private struct OverlayPanel: View {
-  @Bindable var workspace: OperatorWorkspace
-
-  var body: some View {
-    SectionPanel(title: "SEMANTIC OVERLAYS") {
-      Text(
-        "Each overlay is tied to the exact displayed frame and labeled by evidence source. Inferred geometry is not presented as a camera measurement."
-      )
-      .font(.caption)
-      .foregroundStyle(.secondary)
-
-      ForEach(CanvasLayer.allCases) { layer in
-        VStack(alignment: .leading, spacing: 2) {
-          Toggle(
-            layer.rawValue,
-            isOn: Binding(
-              get: { workspace.visibleLayers.contains(layer) },
-              set: { workspace.setLayer(layer, visible: $0) }
-            )
-          )
-          .toggleStyle(.switch)
-          .controlSize(.small)
-          Text(workspace.overlaySummary(for: layer))
-            .font(.caption2.monospaced())
-            .foregroundStyle(.secondary)
-        }
-      }
     }
   }
 }

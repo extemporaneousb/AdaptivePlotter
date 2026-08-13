@@ -415,42 +415,6 @@ enum MotionRequestStatusPresentation: Hashable, Sendable {
   }
 }
 
-enum CameraUtilityActionKind: String, CaseIterable, Hashable, Identifiable, Sendable {
-  case refresh
-  case start
-  case stop
-  case restart
-  case analyzeOrResume
-  case saveSnapshot
-
-  var id: Self { self }
-}
-
-struct CameraUtilityActionPresentation: Identifiable, Hashable, Sendable {
-  let kind: CameraUtilityActionKind
-  let title: String
-  let systemImage: String
-  let unavailableReason: String?
-
-  var id: CameraUtilityActionKind { kind }
-  var isEnabled: Bool { unavailableReason == nil }
-}
-
-struct CameraUtilityPresentation: Hashable, Sendable {
-  let mode: OperatorFrameMode
-  let actions: [CameraUtilityActionPresentation]
-
-  init(
-    mode: OperatorFrameMode,
-    actions: [CameraUtilityActionPresentation]
-  ) {
-    precondition(Set(actions.map(\.id)).count == actions.count)
-    precondition(actions.map(\.kind) == CameraUtilityActionKind.allCases)
-    self.mode = mode
-    self.actions = actions
-  }
-}
-
 enum ExerciseActionKind: Hashable, Sendable {
   case start
   case choice(OperatorChoice)

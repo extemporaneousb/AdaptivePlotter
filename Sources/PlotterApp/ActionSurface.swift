@@ -29,9 +29,10 @@ struct CameraPixelToViewTransform: Equatable, Sendable {
     policy: ActionSurfaceScalePolicy = .aspectFit
   ) {
     guard frameWidth > 0, frameHeight > 0, viewWidth > 0, viewHeight > 0 else { return nil }
-    let requestedRect = focusRegion.map {
-      CGRect(x: $0.x, y: $0.y, width: $0.width, height: $0.height)
-    } ?? CGRect(x: 0, y: 0, width: frameWidth, height: frameHeight)
+    let requestedRect =
+      focusRegion.map {
+        CGRect(x: $0.x, y: $0.y, width: $0.width, height: $0.height)
+      } ?? CGRect(x: 0, y: 0, width: frameWidth, height: frameHeight)
     let frameRect = CGRect(x: 0, y: 0, width: frameWidth, height: frameHeight)
     let clippedRect = requestedRect.intersection(frameRect)
     guard !clippedRect.isNull, clippedRect.width > 0, clippedRect.height > 0 else { return nil }
@@ -179,6 +180,8 @@ func cameraFrameIntersection(
 struct ActionSurfaceViewportState: Equatable, Sendable {
   private(set) var context: ActionSurfaceViewportContext?
   private(set) var presentationTransformRevision = PresentationTransformRevision()
+  private(set) var panOffsetX: Int = 0
+  private(set) var panOffsetY: Int = 0
   var zoom: Double = 0 {
     didSet {
       if zoom != oldValue { presentationTransformRevision = PresentationTransformRevision() }
@@ -189,10 +192,17 @@ struct ActionSurfaceViewportState: Equatable, Sendable {
     guard self.context != context else { return }
     self.context = context
     zoom = min(1, max(0, context?.preferredInitialZoom ?? 0))
+    panOffsetX = 0
+    panOffsetY = 0
     presentationTransformRevision = PresentationTransformRevision()
   }
 
-  mutating func showFullFrame() { zoom = 0 }
+  mutating func showFullFrame() {
+    zoom = 0
+    panOffsetX = 0
+    panOffsetY = 0
+  }
+
   mutating func showFittedBounds() { zoom = 1 }
 
   func visibleRegion(frameWidth: Int, frameHeight: Int) -> PixelRect? {
@@ -200,28 +210,64 @@ struct ActionSurfaceViewportState: Equatable, Sendable {
     let t = min(1, max(0, zoom))
     if t == 0 { return nil }
     let frame = PixelRect(x: 0, y: 0, width: frameWidth, height: frameHeight)
-    let requested = context.fittedRegion ?? PixelRect(
-      x: frameWidth / 4,
-      y: frameHeight / 4,
-      width: max(1, frameWidth / 2),
-      height: max(1, frameHeight / 2)
-    )
-    guard let roi = cameraFrameIntersection(
-      requested,
-      frameWidth: frameWidth,
-      frameHeight: frameHeight
-    ) else { return nil }
-    if t == 1 { return roi }
+    let requested =
+      context.fittedRegion
+      ?? PixelRect(
+        x: frameWidth / 4,
+        y: frameHeight / 4,
+        width: max(1, frameWidth / 2),
+        height: max(1, frameHeight / 2)
+      )
+    guard
+      let roi = cameraFrameIntersection(
+        requested,
+        frameWidth: frameWidth,
+        frameHeight: frameHeight
+      )
+    else { return nil }
     let x = Int((Double(frame.x) + Double(roi.x - frame.x) * t).rounded())
     let y = Int((Double(frame.y) + Double(roi.y - frame.y) * t).rounded())
     let width = max(1, Int((Double(frame.width) + Double(roi.width - frame.width) * t).rounded()))
-    let height = max(1, Int((Double(frame.height) + Double(roi.height - frame.height) * t).rounded()))
-    return PixelRect(
-      x: min(max(0, x), frameWidth - 1),
-      y: min(max(0, y), frameHeight - 1),
-      width: min(width, frameWidth - min(max(0, x), frameWidth - 1)),
-      height: min(height, frameHeight - min(max(0, y), frameHeight - 1))
+    let height = max(
+      1, Int((Double(frame.height) + Double(roi.height - frame.height) * t).rounded()))
+    let clampedWidth = min(width, frameWidth)
+    let clampedHeight = min(height, frameHeight)
+    let clampedX = min(max(0, x + panOffsetX), frameWidth - clampedWidth)
+    let clampedY = min(max(0, y + panOffsetY), frameHeight - clampedHeight)
+    return PixelRect(x: clampedX, y: clampedY, width: clampedWidth, height: clampedHeight)
+  }
+
+  func selectedRegion(frameWidth: Int, frameHeight: Int) -> PixelRect? {
+    guard frameWidth > 0, frameHeight > 0 else { return nil }
+    return visibleRegion(frameWidth: frameWidth, frameHeight: frameHeight)
+      ?? PixelRect(x: 0, y: 0, width: frameWidth, height: frameHeight)
+  }
+
+  mutating func pan(
+    by translation: CGSize,
+    viewSize: CGSize,
+    frameWidth: Int,
+    frameHeight: Int
+  ) {
+    guard zoom > 0,
+      let region = visibleRegion(frameWidth: frameWidth, frameHeight: frameHeight),
+      viewSize.width > 0, viewSize.height > 0
+    else { return }
+    let scale = min(
+      Double(viewSize.width) / Double(region.width),
+      Double(viewSize.height) / Double(region.height)
     )
+    guard scale.isFinite, scale > 0 else { return }
+    let translatedX = region.x - Int((Double(translation.width) / scale).rounded())
+    let translatedY = region.y - Int((Double(translation.height) / scale).rounded())
+    let clampedX = min(max(0, translatedX), frameWidth - region.width)
+    let clampedY = min(max(0, translatedY), frameHeight - region.height)
+    let nextX = panOffsetX + clampedX - region.x
+    let nextY = panOffsetY + clampedY - region.y
+    guard nextX != panOffsetX || nextY != panOffsetY else { return }
+    panOffsetX = nextX
+    panOffsetY = nextY
+    presentationTransformRevision = PresentationTransformRevision()
   }
 }
 
@@ -234,7 +280,8 @@ struct ActionSurfacePresentation: Sendable {
   let simulatedViewportID: SimulatedCameraViewportID?
   let simulatedAnnotationsAreVisible: Bool
   let viewportContext: ActionSurfaceViewportContext?
-  let presentationZoomAvailable: Bool
+  let analysisRegionIsLocked: Bool
+  let analysisIsActive: Bool
   let pointSelectionRequest: ActionSurfacePointSelectionRequest?
   let tipPresentation: ActionSurfaceTipPresentation
 
@@ -247,7 +294,8 @@ struct ActionSurfacePresentation: Sendable {
     simulatedViewportID: SimulatedCameraViewportID? = nil,
     simulatedAnnotationsAreVisible: Bool = true,
     viewportContext: ActionSurfaceViewportContext? = nil,
-    presentationZoomAvailable: Bool = false,
+    analysisRegionIsLocked: Bool = false,
+    analysisIsActive: Bool = false,
     pointSelectionRequest: ActionSurfacePointSelectionRequest? = nil,
     tipPresentation: ActionSurfaceTipPresentation = .notCalibrated
   ) {
@@ -276,7 +324,8 @@ struct ActionSurfacePresentation: Sendable {
       self.viewportContext = nil
       self.pointSelectionRequest = nil
     }
-    self.presentationZoomAvailable = presentationZoomAvailable
+    self.analysisRegionIsLocked = analysisRegionIsLocked
+    self.analysisIsActive = analysisIsActive
     self.tipPresentation = tipPresentation
   }
 
@@ -290,7 +339,7 @@ struct ActionSurface: View {
   let presentation: ActionSurfacePresentation
   @Binding private var viewport: ActionSurfaceViewportState
   @StateObject private var imageCache = FramePresentationImageCache()
-  @State private var simulatedAnnotationsAreVisible = true
+  @State private var priorDragTranslation: CGSize = .zero
   private let selectPoint: (ActionSurfacePointSelection) -> Void
 
   init(
@@ -341,6 +390,7 @@ struct ActionSurface: View {
         drawFrameAndOverlays(frameImage: frameImage, context: &context, transform: transform)
       }
       .background(Color.black)
+      .opacity(presentation.analysisIsActive ? 0.45 : 1)
       .overlay(alignment: .topLeading) {
         VStack(alignment: .leading, spacing: 6) {
           if let sourceBadgeLabel = presentation.sourceBadgeLabel {
@@ -350,57 +400,6 @@ struct ActionSurface: View {
               .padding(.horizontal, 9)
               .padding(.vertical, 6)
               .background(Color.blue.opacity(0.88))
-          }
-          if !presentation.simulatedAnnotations.isEmpty {
-            Button(
-              simulatedAnnotationsAreVisible
-                ? "Hide Simulator Annotations" : "Show Simulator Annotations"
-            ) {
-              simulatedAnnotationsAreVisible.toggle()
-            }
-            .operatorButton()
-            .controlSize(.small)
-            .accessibilityValue(
-              simulatedAnnotationsAreVisible ? "Visible" : "Hidden"
-            )
-          }
-          if presentation.presentationZoomAvailable {
-            HStack(spacing: 6) {
-              Button("Full Frame") {
-                viewport.showFullFrame()
-              }
-              .operatorButton(isEnabled: viewport.zoom != 0)
-              Button(
-                presentation.pointSelectionRequest != nil
-                  ? "Focus Mark Area"
-                  : presentation.viewportContext?.fittedRegion == nil
-                    ? "Zoom In" : "Fit Learned Plotter Bounds"
-              ) {
-                viewport.showFittedBounds()
-              }
-              .operatorButton(isEnabled: viewport.zoom != 1)
-            }
-            .controlSize(.small)
-            Slider(value: $viewport.zoom, in: 0...1) {
-              Text("Presentation zoom")
-            } minimumValueLabel: {
-              Text("Full")
-            } maximumValueLabel: {
-              Text("Zoom")
-            }
-            .frame(width: 210)
-            .help(
-              "Change only the displayed viewport. Presentation zoom never mutates camera-pixel evidence or learning authority."
-            )
-            .accessibilityValue(Int((viewport.zoom * 100).rounded()).description + " percent")
-            Text(viewport.zoom == 0
-              ? "FULL FRAME · PRESENTATION ONLY"
-              : "PRESENTATION ZOOM \(Int((viewport.zoom * 100).rounded()))% · EVIDENCE UNCHANGED")
-            .font(.caption2.monospaced().bold())
-            .foregroundStyle(.white)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 4)
-            .background(.black.opacity(0.7))
           }
         }
         .padding(8)
@@ -424,7 +423,14 @@ struct ActionSurface: View {
           .padding(8)
       }
       .overlay {
-        if presentation.displayedFrame == nil {
+        if presentation.analysisIsActive {
+          Label("ANALYZING · PREVIEW PAUSED", systemImage: "viewfinder")
+            .font(.caption.monospaced().bold())
+            .foregroundStyle(.white)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(.black.opacity(0.75), in: Capsule())
+        } else if presentation.displayedFrame == nil {
           ContentUnavailableView(
             "No camera frame",
             systemImage: "camera.fill",
@@ -441,11 +447,31 @@ struct ActionSurface: View {
             submitPointSelection(at: value.location, viewSize: proxy.size)
           }
       )
+      .simultaneousGesture(
+        DragGesture(minimumDistance: 3, coordinateSpace: .local)
+          .onChanged { value in
+            guard !presentation.analysisRegionIsLocked,
+              let frame = presentation.displayedFrame?.frame
+            else { return }
+            let delta = CGSize(
+              width: value.translation.width - priorDragTranslation.width,
+              height: value.translation.height - priorDragTranslation.height
+            )
+            priorDragTranslation = value.translation
+            viewport.pan(
+              by: delta,
+              viewSize: proxy.size,
+              frameWidth: frame.width,
+              frameHeight: frame.height
+            )
+          }
+          .onEnded { _ in priorDragTranslation = .zero }
+      )
       .onChange(of: presentation.viewportContext, initial: true) { _, context in
         viewport.synchronize(with: context)
       }
       .accessibilityValue(
-        simulatedAnnotationsAreVisible
+        presentation.simulatedAnnotationsAreVisible
           ? presentation.simulatedAnnotations.map(\.accessibleValue).joined(separator: ", ")
           : "Simulator annotations hidden"
       )
@@ -468,11 +494,12 @@ struct ActionSurface: View {
       ),
       let point = transform.cameraPoint(location)
     else { return }
-    selectPoint(ActionSurfacePointSelection(
-      frame: request.frame,
-      point: point,
-      presentationTransformRevision: viewport.presentationTransformRevision
-    ))
+    selectPoint(
+      ActionSurfacePointSelection(
+        frame: request.frame,
+        point: point,
+        presentationTransformRevision: viewport.presentationTransformRevision
+      ))
   }
 
   private func drawFrameAndOverlays(
@@ -489,7 +516,7 @@ struct ActionSurface: View {
     if let review = presentation.tipPresentation.reviewGeometry {
       draw(review, in: &context, transform: transform)
     }
-    if simulatedAnnotationsAreVisible {
+    if presentation.simulatedAnnotationsAreVisible {
       for annotation in presentation.simulatedAnnotations {
         draw(annotation, in: &context, transform: transform)
       }
@@ -525,12 +552,13 @@ struct ActionSurface: View {
       let predicted = transform.point(prediction)
       let radius: CGFloat = 5
       context.fill(
-        Path(ellipseIn: CGRect(
-          x: predicted.x - radius,
-          y: predicted.y - radius,
-          width: radius * 2,
-          height: radius * 2
-        )),
+        Path(
+          ellipseIn: CGRect(
+            x: predicted.x - radius,
+            y: predicted.y - radius,
+            width: radius * 2,
+            height: radius * 2
+          )),
         with: .color(.purple)
       )
     }
@@ -556,12 +584,13 @@ struct ActionSurface: View {
       let center = transform.point(point)
       let radius = max(3, transform.scale * 1.5)
       context.stroke(
-        Path(ellipseIn: CGRect(
-          x: center.x - radius,
-          y: center.y - radius,
-          width: radius * 2,
-          height: radius * 2
-        )),
+        Path(
+          ellipseIn: CGRect(
+            x: center.x - radius,
+            y: center.y - radius,
+            width: radius * 2,
+            height: radius * 2
+          )),
         with: .color(style.color),
         style: stroke
       )
@@ -572,12 +601,13 @@ struct ActionSurface: View {
       let minimum = transform.point(min)
       let maximum = transform.point(max)
       context.stroke(
-        Path(CGRect(
-          x: minimum.x,
-          y: minimum.y,
-          width: maximum.x - minimum.x,
-          height: maximum.y - minimum.y
-        )),
+        Path(
+          CGRect(
+            x: minimum.x,
+            y: minimum.y,
+            width: maximum.x - minimum.x,
+            height: maximum.y - minimum.y
+          )),
         with: .color(style.color),
         style: stroke
       )

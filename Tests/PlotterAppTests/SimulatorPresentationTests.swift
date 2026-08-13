@@ -29,7 +29,7 @@ func simulatedCameraRefreshUsesLearningRuntime() async throws {
   let beforeSnapshot = await runtime.snapshot()
   let beforeInk = await runtime.persistentInk()
 
-  await workspace.performCameraUtilityAction(.refresh)
+  await workspace.refreshVideoSources()
 
   let afterFrame = try #require(workspace.displayedFrame?.frame)
   let afterSnapshot = await runtime.snapshot()

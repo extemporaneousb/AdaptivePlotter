@@ -167,10 +167,19 @@ an automatic redraw.
 ## Workbench and evidence
 
 One singleton window contains the Learning Path, always-mounted camera/action
-surface, selected exercise, Motion region, and optional Utilities. The four
+surface, selected exercise, Motion region, and optional Video Settings. The four
 state-dependent Show/Hide controls and matching panel close controls share one
 grammar. A panel that owns the only active Stop cannot be hidden until its
 operation settles.
+
+Video Settings combines camera selection, adjacent Refresh, scene-analysis
+frames per second, viewport zoom/drag/region lock, and a three-column overlay
+grid without tabs. Selecting any scene-derived overlay directly keeps bounded
+newest-only analysis running; there is no separate Analyze/Resume control.
+During a computation, raw camera capture continues while preview publication is
+held and the visible frame is dimmed. Locking the viewport admits only that
+camera-pixel subregion to generic scene-analysis scans without cropping or
+rewriting the exact stamped frame.
 
 The toolbar owns controller selection, Connect/Disconnect, Enable Motion, and
 compact status. Exercise Start, choices, Cancel, Stop, Restart, Redo, and Record

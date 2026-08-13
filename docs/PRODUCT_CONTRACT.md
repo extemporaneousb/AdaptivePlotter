@@ -49,6 +49,13 @@ publication holds. A hold does not stop raw capture or change semantic optical
 identity. It retains only the newest raw buffer and publishes at most one newest
 preview when the final matching hold settles.
 
+The operator may lock the current presentation viewport as a generic scene-
+analysis region. The lock constrains which camera pixels generic cap, frame-side,
+drawing-frame, and armature scans may consume. It does not crop or mutate the
+stamped frame, change exact-frame identity, or constrain specialized workflow
+measurements that already carry their own typed regions. Changing camera source
+or configuration clears the lock.
+
 `VisionWorker` and analysis pipelines produce measurements and diagnostics.
 They do not decide controller eligibility, machine direction, operator click,
 or artifact acceptance.
@@ -98,7 +105,9 @@ After current 3.2 and before Stage 4 there are exactly two exercises:
 
 Navigator selection is presentation-only. Presentation zoom, pan, and fitted
 learned bounds do not change exact pixels, frame provenance, artifact validity,
-or completion state.
+or completion state. Explicitly locking the current viewport copies its
+camera-pixel rectangle into the generic scene-analysis policy; the preceding
+presentation operations remain non-evidence.
 
 Before accepted tip authority exists, the UI states **Tip not calibrated**.
 During each mark selection, the predicted tip point is hidden until the operator

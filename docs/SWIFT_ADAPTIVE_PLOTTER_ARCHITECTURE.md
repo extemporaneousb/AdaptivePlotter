@@ -22,7 +22,7 @@ PlotterRuntime
 
 PlotterApp
   OperatorWorkspace orchestration and artifact commits
-  SwiftUI Learning Path, ActionSurface, Motion and Utilities composition
+  SwiftUI Learning Path, ActionSurface, Motion and Video Settings composition
   production checkpoint stores and semantic identity composition
 
 PlotterTestSupport
@@ -44,6 +44,15 @@ execution to the controller.
 sessions, exact stamped frames, and scoped preview publication holds. A hold
 does not stop raw capture. `VisionWorker` owns bounded inference and returns
 measurements; it never supplies motion or click authority.
+
+`OperatorWorkspace` maps the selected scene-derived overlay layers to one
+newest-only automatic-analysis request and one selected cadence. Video Settings
+may lock the current zoomed/panned camera-pixel rectangle as the generic scene
+analysis region. `CameraSourceSession` passes that region into
+`PlotterSceneAnalysisPipeline`; `VisionWorker` derives all generic cap/frame-side
+pixel scan priors within it while retaining whole-frame coordinates and exact
+frame identity for every result. Specialized exact-frame workflow measurements
+retain their own typed regions.
 
 `OperatorWorkspace` is the single `@Observable` application owner. It composes
 controller/camera actors through typed actions, owns Learning Path attempts,

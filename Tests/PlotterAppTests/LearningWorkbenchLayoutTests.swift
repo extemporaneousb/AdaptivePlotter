@@ -9,11 +9,11 @@ struct LearningWorkbenchLayoutTests {
     #expect(WorkbenchPanel.allCases.count == 4)
     #expect(
       WorkbenchPanel.allCases.map { $0.actionTitle(isPresented: false) }
-        == ["Show Learning Path", "Show Motion", "Show Exercise", "Show Utilities"]
+        == ["Show Learning Path", "Show Motion", "Show Exercise", "Show Video Settings"]
     )
     #expect(
       WorkbenchPanel.allCases.map { $0.actionTitle(isPresented: true) }
-        == ["Hide Learning Path", "Hide Motion", "Hide Exercise", "Hide Utilities"]
+        == ["Hide Learning Path", "Hide Motion", "Hide Exercise", "Hide Video Settings"]
     )
   }
 
@@ -42,26 +42,26 @@ struct LearningWorkbenchLayoutTests {
     #expect(detailHidden.toggling(.exerciseDetail).exerciseDetailIsPresented)
   }
 
-  @Test("Utilities is reachable at the supported window width by yielding a side pane")
-  func utilitiesMinimumWidth() {
-    let utilitiesPolicy = UtilitiesVisibilityPolicy()
-    let presentation = utilitiesPolicy.presentation(
+  @Test("Video Settings is reachable at the supported window width by yielding a side pane")
+  func videoSettingsMinimumWidth() {
+    let videoSettingsPolicy = VideoSettingsVisibilityPolicy()
+    let presentation = videoSettingsPolicy.presentation(
       isPresented: false,
       availableWindowWidth: LearningWorkbenchLayoutPolicy.minimumWindowWidth
     )
 
     #expect(presentation.action == .show)
-    #expect(presentation.actionTitle == "Show Utilities")
+    #expect(presentation.actionTitle == "Show Video Settings")
     #expect(presentation.isActionEnabled)
     #expect(
-      utilitiesPolicy.transition(
+      videoSettingsPolicy.transition(
         isPresented: false,
         action: .show,
         availableWindowWidth: LearningWorkbenchLayoutPolicy.minimumWindowWidth
       )
     )
 
-    let prepared = utilitiesPolicy.preparingPanesToShow(
+    let prepared = videoSettingsPolicy.preparingPanesToShow(
       WorkbenchPaneVisibility(),
       availableWindowWidth: LearningWorkbenchLayoutPolicy.minimumWindowWidth,
       canCollapseExerciseDetail: true
@@ -69,65 +69,65 @@ struct LearningWorkbenchLayoutTests {
     #expect(!prepared.navigatorIsPresented)
     #expect(prepared.exerciseDetailIsPresented)
     #expect(
-      utilitiesPolicy.minimumContentWidth(for: prepared)
-        + utilitiesPolicy.inspectorWidth + utilitiesPolicy.inspectorSeparation
+      videoSettingsPolicy.minimumContentWidth(for: prepared)
+        + videoSettingsPolicy.inspectorWidth + videoSettingsPolicy.inspectorSeparation
         <= LearningWorkbenchLayoutPolicy.minimumWindowWidth
     )
   }
 
-  @Test("Utilities Show and Hide are deterministic and idempotent")
-  func utilitiesTransitions() {
-    let utilitiesPolicy = UtilitiesVisibilityPolicy()
-    let wideWidth = utilitiesPolicy.minimumWidthToShow
+  @Test("Video Settings Show and Hide are deterministic and idempotent")
+  func videoSettingsTransitions() {
+    let videoSettingsPolicy = VideoSettingsVisibilityPolicy()
+    let wideWidth = videoSettingsPolicy.minimumWidthToShow
 
     #expect(
-      utilitiesPolicy.transition(
+      videoSettingsPolicy.transition(
         isPresented: false,
         action: .show,
         availableWindowWidth: wideWidth
       )
     )
     #expect(
-      utilitiesPolicy.transition(
+      videoSettingsPolicy.transition(
         isPresented: true,
         action: .show,
         availableWindowWidth: 0
       )
     )
     #expect(
-      !utilitiesPolicy.transition(
+      !videoSettingsPolicy.transition(
         isPresented: true,
         action: .hide,
         availableWindowWidth: 0
       )
     )
     #expect(
-      !utilitiesPolicy.transition(
+      !videoSettingsPolicy.transition(
         isPresented: false,
         action: .hide,
         availableWindowWidth: wideWidth
       )
     )
 
-    let shown = utilitiesPolicy.presentation(
+    let shown = videoSettingsPolicy.presentation(
       isPresented: true,
       availableWindowWidth: LearningWorkbenchLayoutPolicy.minimumWindowWidth
     )
     #expect(shown.action == .hide)
-    #expect(shown.actionTitle == "Hide Utilities")
+    #expect(shown.actionTitle == "Hide Video Settings")
     #expect(shown.isActionEnabled)
   }
 
-  @Test("presented Utilities collapses before the protected workbench is starved")
-  func utilitiesCollapse() {
-    let utilitiesPolicy = UtilitiesVisibilityPolicy()
+  @Test("presented Video Settings collapses before the protected workbench is starved")
+  func videoSettingsCollapse() {
+    let videoSettingsPolicy = VideoSettingsVisibilityPolicy()
     let panes = WorkbenchPaneVisibility(navigatorIsPresented: false)
-    let minimum = utilitiesPolicy.minimumContentWidth(for: panes)
-    let collapsesAtMinimum = utilitiesPolicy.shouldCollapsePresentedUtilities(
+    let minimum = videoSettingsPolicy.minimumContentWidth(for: panes)
+    let collapsesAtMinimum = videoSettingsPolicy.shouldCollapsePresentedVideoSettings(
       availableContentWidth: minimum,
       panes: panes
     )
-    let collapsesBelowMinimum = utilitiesPolicy.shouldCollapsePresentedUtilities(
+    let collapsesBelowMinimum = videoSettingsPolicy.shouldCollapsePresentedVideoSettings(
       availableContentWidth: minimum - 1,
       panes: panes
     )
@@ -136,10 +136,10 @@ struct LearningWorkbenchLayoutTests {
     #expect(collapsesBelowMinimum)
   }
 
-  @Test("Utilities does not hide an action-owning exercise pane")
-  func utilitiesPreservesActiveExerciseControls() {
-    let utilitiesPolicy = UtilitiesVisibilityPolicy()
-    let prepared = utilitiesPolicy.preparingPanesToShow(
+  @Test("Video Settings does not hide an action-owning exercise pane")
+  func videoSettingsPreservesActiveExerciseControls() {
+    let videoSettingsPolicy = VideoSettingsVisibilityPolicy()
+    let prepared = videoSettingsPolicy.preparingPanesToShow(
       WorkbenchPaneVisibility(),
       availableWindowWidth: 1_200,
       canCollapseExerciseDetail: false

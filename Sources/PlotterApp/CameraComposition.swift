@@ -17,45 +17,45 @@ enum CameraComposition {
 
   private static func makeActions(session: CameraSourceSession) -> OperatorWorkspace.CameraActions {
     OperatorWorkspace.CameraActions(
-    discover: {
-      await session.discover()
-    },
-    select: { id in
-      try await session.select(id)
-    },
-    start: {
-      await session.start()
-    },
-    stop: {
-      await session.stop()
-    },
-    restart: {
-      await session.restart()
-    },
-    snapshot: {
-      await session.snapshot()
-    },
-    frames: {
-      await session.frames()
-    },
-    inspectScene: { boundary in
-      try await session.inspectScene(newerThanNanoseconds: boundary)
-    },
-    captureFrame: { boundary in
-      try await session.captureFrame(newerThanNanoseconds: boundary)
-    },
-    captureSnapshot: {
-      try await session.captureSnapshot()
-    },
-    setAutomaticInspection: { cadence in
-      await session.setAutomaticInspection(cadence)
-    },
-    analysisUpdates: {
-      await session.analysisUpdates()
-    },
-    observeIsolatedInk: { request in
-      await session.observeIsolatedInk(request)
-    },
+      discover: {
+        await session.discover()
+      },
+      select: { id in
+        try await session.select(id)
+      },
+      start: {
+        await session.start()
+      },
+      stop: {
+        await session.stop()
+      },
+      restart: {
+        await session.restart()
+      },
+      snapshot: {
+        await session.snapshot()
+      },
+      frames: {
+        await session.frames()
+      },
+      inspectScene: { boundary in
+        try await session.inspectScene(newerThanNanoseconds: boundary)
+      },
+      captureFrame: { boundary in
+        try await session.captureFrame(newerThanNanoseconds: boundary)
+      },
+      setSceneAnalysisRegion: { region in
+        await session.setSceneAnalysisRegion(region)
+      },
+      setAutomaticInspection: { cadence in
+        await session.setAutomaticInspection(cadence)
+      },
+      analysisUpdates: {
+        await session.analysisUpdates()
+      },
+      observeIsolatedInk: { request in
+        await session.observeIsolatedInk(request)
+      },
     )
   }
 }
@@ -118,6 +118,7 @@ private actor CameraSourceSession {
   private var startupFrameTask: Task<Void, Never>?
   private var automaticInspectionFrameTask: Task<Void, Never>?
   private var automaticInspectionCadence: VisionAnalysisCadence?
+  private var sceneAnalysisRegion: PixelRect?
 
   init() {
     let live = CameraCapture()
@@ -141,6 +142,7 @@ private actor CameraSourceSession {
 
   func select(_ id: CameraDeviceID) async throws -> CameraCaptureSnapshot {
     await stopAutomaticInspection()
+    await setSceneAnalysisRegion(nil)
     try await live.select(id)
     return await live.snapshot()
   }
@@ -160,6 +162,7 @@ private actor CameraSourceSession {
 
   func restart() async -> CameraCaptureSnapshot {
     await stopAutomaticInspection()
+    await setSceneAnalysisRegion(nil)
     await live.restart()
     let snapshot = await live.snapshot()
     await beginStartupFrameRecordingIfNeeded(snapshot)
@@ -191,7 +194,10 @@ private actor CameraSourceSession {
         await endExclusiveVisionComputation(lease)
         return nil
       }
-      let measurement = try await vision.inspectPlotterScene(in: displayedFrame.frame)
+      let measurement = try await vision.inspectPlotterScene(
+        in: displayedFrame.frame,
+        analysisRegion: sceneAnalysisRegion
+      )
       await endExclusiveVisionComputation(lease)
       return LiveSceneInspection(displayedFrame: displayedFrame, measurement: measurement)
     } catch {
@@ -215,15 +221,9 @@ private actor CameraSourceSession {
     return outcome
   }
 
-  func captureSnapshot() async throws -> String {
-    let snapshot = await live.snapshot()
-    guard let displayedFrame = try await live.materializeLatestFrame(),
-      let selectedDeviceID = snapshot.selectedDeviceID,
-      let device = snapshot.devices.first(where: { $0.id == selectedDeviceID })
-    else {
-      throw CameraCaptureError.captureFailed("No current selected-camera frame is available.")
-    }
-    return try startupFrameRecorder.recordSnapshot(displayedFrame, device: device).path
+  func setSceneAnalysisRegion(_ region: PixelRect?) async {
+    sceneAnalysisRegion = region
+    await analysisPipeline.setAnalysisRegion(region)
   }
 
   func setAutomaticInspection(_ cadence: VisionAnalysisCadence?) async

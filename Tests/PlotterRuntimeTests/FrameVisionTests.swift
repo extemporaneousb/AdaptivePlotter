@@ -55,7 +55,8 @@ struct FrameVisionTests {
     #expect(first.matchingPixelCount == 11)
     #expect(first.boundingBox == PixelRect(x: 2, y: 5, width: 11, height: 1))
     #expect(first.centroid == (try Point2<CameraPixelSpace>(x: 7, y: 5)))
-    #expect(first.overlayMeasurement?.matches(DisplayedFrame(source: .simulated, frame: frame)) == true)
+    #expect(
+      first.overlayMeasurement?.matches(DisplayedFrame(source: .simulated, frame: frame)) == true)
   }
 
   @Test("vision honors padded BGRA row stride")
@@ -85,6 +86,29 @@ struct FrameVisionTests {
     )
     #expect(result.matchingPixelCount == 1)
     #expect(result.centroid == (try Point2<CameraPixelSpace>(x: 1, y: 0)))
+  }
+
+  @Test("locked scene region bounds every default plotter-scene pixel scan")
+  func lockedSceneRegionBoundsDefaultPriors() throws {
+    let region = PixelRect(x: 120, y: 80, width: 320, height: 240)
+    let priors = try PlotterSceneVisionPriors.c920StartupDefaults(
+      frameWidth: 640,
+      frameHeight: 480,
+      analysisRegion: region
+    )
+    #expect(priors.capSearchRegion == region)
+
+    for scan in [
+      priors.capSearchRegion,
+      priors.topFrameSideRegion,
+      priors.rightFrameSideRegion,
+    ] {
+      #expect(scan.x >= region.x)
+      #expect(scan.y >= region.y)
+      #expect(scan.x + scan.width <= region.x + region.width)
+      #expect(scan.y + scan.height <= region.y + region.height)
+    }
+    #expect(priors.algorithmRevision.contains("region-120-80-320-240"))
   }
 
   @Test("plotter scene finds cap and robust frame sides while rejecting light and ink distractors")
@@ -187,7 +211,10 @@ struct FrameVisionTests {
       pixelFormat: .bgra8,
       bytes: OwnedFrameBytes(pixels)
     )
-    #expect(result.overlays.allSatisfy { !$0.matches(DisplayedFrame(source: .simulated, frame: otherFrame)) })
+    #expect(
+      result.overlays.allSatisfy {
+        !$0.matches(DisplayedFrame(source: .simulated, frame: otherFrame))
+      })
   }
 
   @Test("overlay requires exact frame and camera configuration identity")

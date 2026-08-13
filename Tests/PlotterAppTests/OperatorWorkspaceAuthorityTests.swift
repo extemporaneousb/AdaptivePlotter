@@ -32,7 +32,7 @@ extension OperatorWorkspaceTests {
     try await performPublicAction(.moveToEstimatedCenter, owner: owner, workspace: workspace)
 
     let expectedCenter = try MachinePosition(x: 0, y: 0)
-    #expect(camera.recordedAutomaticInspectionRequests == [.twoFPS, nil])
+    #expect(camera.recordedAutomaticInspectionRequests == [.twoFPS, .twoFPS, .twoFPS])
     #expect(!workspace.scopedVisionAnalysisActive)
     #expect(workspace.centerArrivalPosition == expectedCenter)
     #expect(workspace.learningArtifactGraph.currentRevision(for: .centerArrival) != nil)

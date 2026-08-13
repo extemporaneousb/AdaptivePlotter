@@ -34,14 +34,14 @@ enum WorkbenchPanel: CaseIterable, Hashable, Sendable {
   case learningPath
   case motion
   case exercise
-  case utilities
+  case videoSettings
 
   var title: String {
     switch self {
     case .learningPath: "Learning Path"
     case .motion: "Motion"
     case .exercise: "Exercise"
-    case .utilities: "Utilities"
+    case .videoSettings: "Video Settings"
     }
   }
 
@@ -50,7 +50,7 @@ enum WorkbenchPanel: CaseIterable, Hashable, Sendable {
     case .learningPath: "sidebar.left"
     case .motion: "rectangle.bottomthird.inset.filled"
     case .exercise: "sidebar.right"
-    case .utilities: "sidebar.trailing"
+    case .videoSettings: "sidebar.trailing"
     }
   }
 
@@ -96,14 +96,14 @@ struct WorkbenchPaneVisibility: Equatable, Sendable {
   }
 }
 
-enum UtilitiesVisibilityAction: Hashable, Sendable {
+enum VideoSettingsVisibilityAction: Hashable, Sendable {
   case show
   case hide
 }
 
-struct UtilitiesPresentation: Equatable, Sendable {
+struct VideoSettingsPresentation: Equatable, Sendable {
   let isPresented: Bool
-  let action: UtilitiesVisibilityAction
+  let action: VideoSettingsVisibilityAction
   let actionTitle: String
   let unavailableReason: String?
 
@@ -115,7 +115,7 @@ struct UtilitiesPresentation: Equatable, Sendable {
 /// the width remaining after the native inspector. Checking Show admission
 /// against the protected workbench, inspector, and separator widths prevents
 /// an open-then-close flash.
-struct UtilitiesVisibilityPolicy: Equatable, Sendable {
+struct VideoSettingsVisibilityPolicy: Equatable, Sendable {
   let minimumCameraWidth: CGFloat
   let minimumNavigatorWidth: CGFloat
   let minimumDetailWidth: CGFloat
@@ -139,7 +139,7 @@ struct UtilitiesVisibilityPolicy: Equatable, Sendable {
     self.inspectorSeparation = Self.nonnegativeFinite(inspectorSeparation)
   }
 
-  /// Utilities can always be reached once the protected camera and inspector
+  /// Video Settings can always be reached once the protected camera and inspector
   /// fit. Side panes collapse before this lower bound is used.
   var minimumWidthToShow: CGFloat {
     minimumCameraWidth + inspectorWidth + inspectorSeparation
@@ -179,12 +179,12 @@ struct UtilitiesVisibilityPolicy: Equatable, Sendable {
   func presentation(
     isPresented: Bool,
     availableWindowWidth: CGFloat
-  ) -> UtilitiesPresentation {
+  ) -> VideoSettingsPresentation {
     if isPresented {
-      return UtilitiesPresentation(
+      return VideoSettingsPresentation(
         isPresented: true,
         action: .hide,
-        actionTitle: WorkbenchPanel.utilities.actionTitle(isPresented: true),
+        actionTitle: WorkbenchPanel.videoSettings.actionTitle(isPresented: true),
         unavailableReason: nil
       )
     }
@@ -193,18 +193,18 @@ struct UtilitiesVisibilityPolicy: Equatable, Sendable {
     let unavailableReason =
       width >= minimumWidthToShow
       ? nil
-      : "Widen the window to at least \(Int(minimumWidthToShow)) points so the protected camera and Utilities can coexist."
-    return UtilitiesPresentation(
+      : "Widen the window to at least \(Int(minimumWidthToShow)) points so the protected camera and Video Settings can coexist."
+    return VideoSettingsPresentation(
       isPresented: false,
       action: .show,
-      actionTitle: WorkbenchPanel.utilities.actionTitle(isPresented: false),
+      actionTitle: WorkbenchPanel.videoSettings.actionTitle(isPresented: false),
       unavailableReason: unavailableReason
     )
   }
 
   func transition(
     isPresented: Bool,
-    action: UtilitiesVisibilityAction,
+    action: VideoSettingsVisibilityAction,
     availableWindowWidth: CGFloat
   ) -> Bool {
     switch action {
@@ -220,9 +220,9 @@ struct UtilitiesVisibilityPolicy: Equatable, Sendable {
   }
 
   /// While the inspector is open, the geometry reader reports the remaining
-  /// workbench width. Close Utilities only if even the currently presented
+  /// workbench width. Close Video Settings only if even the currently presented
   /// side panes would violate the protected camera minimum.
-  func shouldCollapsePresentedUtilities(
+  func shouldCollapsePresentedVideoSettings(
     availableContentWidth: CGFloat,
     panes: WorkbenchPaneVisibility
   ) -> Bool {

@@ -33,6 +33,33 @@ The former multi-step target/region workflow, its runtime protocol, simulator
 fixtures, exclusive tests, actions, artifacts, and detector composition are
 deleted rather than retained as compatibility code.
 
+## Video Settings and direct overlay analysis
+
+Validated 2026-08-12 in Blackdog task `TASK-AC50EDC1`, targeting `main` from
+base `9a68ff7d4e90fcd3f07de4fcd2c8e9f8e3664720`.
+
+The former Utilities Camera/Overlays tabs and Analyze/Resume action are deleted.
+Video Settings owns camera selection plus adjacent Refresh, 2/5/10 frames-per-
+second scene cadence, zoom/drag camera-pixel region readout and lock, and one
+three-column grid of direct overlay toggles. Selected cap, measured-frame-side,
+drawing-frame, or armature layers keep newest-only scene analysis running.
+During each computation, preview publication is held and the visible frame is
+dimmed while raw capture continues. A locked region bounds every generic scene
+pixel scan without changing whole-frame identity or overlay coordinates.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| Focused ActionSurface, panel, workspace, pipeline, and frame/Vision tests | passed — 65 tests | drag/zoom clamp, region lock, overlay-owned analysis, cadence, preview activity, exact overlay identity, bounded scans |
+| `make quick-test` | passed — 322 tests | fast unit/component partition |
+| `make journey-test` | passed — 10 tests | retained sparse-circle, checkpoint, Stage 4, Boundary, reset, and simulator journeys |
+| `make strict-check` | passed — 332 tests | complete concurrency, warnings-as-errors, signed bundle and launcher validation, full test suite, repository checks |
+| obsolete-surface scan | passed | no Utilities labels, Camera/Overlays tab types, CameraUtility actions, Analyze Current Frame, or Resume Preview symbols remain |
+| `git diff --check` | passed | whitespace/conflict markers |
+
+These are software and simulated-workflow results. The app was not launched for
+this change. No attended camera, controller, motion, pen, green-cap detection,
+armature detection, preview behavior, or observed-ink validation was performed.
+
 ## Stage 3.4 circular-mark visibility correction
 
 Validated 2026-08-12 in Blackdog task `TASK-BAD20882`, targeting `main` from

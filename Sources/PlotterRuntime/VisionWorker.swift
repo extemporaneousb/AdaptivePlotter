@@ -108,23 +108,43 @@ public struct PlotterSceneVisionPriors: Hashable, Sendable {
     self.algorithmRevision = algorithmRevision
   }
 
-  public static func c920StartupDefaults(frameWidth: Int, frameHeight: Int) throws -> Self {
+  public static func c920StartupDefaults(
+    frameWidth: Int,
+    frameHeight: Int,
+    analysisRegion: PixelRect? = nil
+  ) throws -> Self {
     guard frameWidth > 0, frameHeight > 0 else { throw FrameError.invalidDimensions }
-    let area = frameWidth * frameHeight
+    let fullFrame = PixelRect(x: 0, y: 0, width: frameWidth, height: frameHeight)
+    let region = analysisRegion ?? fullFrame
+    guard region.x >= 0, region.y >= 0, region.width > 0, region.height > 0,
+      region.x + region.width <= frameWidth,
+      region.y + region.height <= frameHeight
+    else { throw FrameError.invalidRegion }
+    let area = region.width * region.height
+    let algorithmRevision =
+      analysisRegion.map {
+        "c920-startup-scene-v2:region-\($0.x)-\($0.y)-\($0.width)-\($0.height)"
+      } ?? "c920-startup-scene-v2:full-frame"
+    let capSearchRegion =
+      analysisRegion == nil
+      ? scaledRegion(x: 0.24, y: 0.14, width: 0.66, height: 0.54, within: region)
+      : region
+    let topFrameSideRegion =
+      analysisRegion == nil
+      ? scaledRegion(x: 0.34, y: 0.09, width: 0.54, height: 0.13, within: region)
+      : scaledRegion(x: 0, y: 0, width: 1, height: 0.25, within: region)
+    let rightFrameSideRegion =
+      analysisRegion == nil
+      ? scaledRegion(x: 0.84, y: 0.14, width: 0.10, height: 0.54, within: region)
+      : scaledRegion(x: 0.75, y: 0, width: 0.25, height: 1, within: region)
     return try Self(
-      capSearchRegion: scaledRegion(
-        x: 0.24, y: 0.14, width: 0.66, height: 0.54,
-        frameWidth: frameWidth, frameHeight: frameHeight),
-      topFrameSideRegion: scaledRegion(
-        x: 0.34, y: 0.09, width: 0.54, height: 0.13,
-        frameWidth: frameWidth, frameHeight: frameHeight),
-      rightFrameSideRegion: scaledRegion(
-        x: 0.84, y: 0.14, width: 0.10, height: 0.54,
-        frameWidth: frameWidth, frameHeight: frameHeight),
+      capSearchRegion: capSearchRegion,
+      topFrameSideRegion: topFrameSideRegion,
+      rightFrameSideRegion: rightFrameSideRegion,
       minimumCapPixels: max(24, area / 40_000),
       maximumCapPixels: max(48, area / 200),
-      lineResidualLimitPixels: max(2, Double(frameHeight) * 0.003),
-      algorithmRevision: "c920-startup-scene-v1"
+      lineResidualLimitPixels: max(2, Double(region.height) * 0.003),
+      algorithmRevision: algorithmRevision
     )
   }
 
@@ -133,13 +153,18 @@ public struct PlotterSceneVisionPriors: Hashable, Sendable {
     y: Double,
     width: Double,
     height: Double,
-    frameWidth: Int,
-    frameHeight: Int
+    within region: PixelRect
   ) -> PixelRect {
-    let originX = Int((Double(frameWidth) * x).rounded(.down))
-    let originY = Int((Double(frameHeight) * y).rounded(.down))
-    let maxX = min(frameWidth, Int((Double(frameWidth) * (x + width)).rounded(.up)))
-    let maxY = min(frameHeight, Int((Double(frameHeight) * (y + height)).rounded(.up)))
+    let originX = region.x + Int((Double(region.width) * x).rounded(.down))
+    let originY = region.y + Int((Double(region.height) * y).rounded(.down))
+    let maxX = min(
+      region.x + region.width,
+      region.x + Int((Double(region.width) * (x + width)).rounded(.up))
+    )
+    let maxY = min(
+      region.y + region.height,
+      region.y + Int((Double(region.height) * (y + height)).rounded(.up))
+    )
     return PixelRect(
       x: originX,
       y: originY,
@@ -296,12 +321,15 @@ public actor VisionWorker {
 
   public func inspectPlotterScene(
     in frame: StampedFrame,
-    priors suppliedPriors: PlotterSceneVisionPriors? = nil
+    priors suppliedPriors: PlotterSceneVisionPriors? = nil,
+    analysisRegion: PixelRect? = nil
   ) throws -> PlotterSceneMeasurement {
-    let priors = try suppliedPriors
+    let priors =
+      try suppliedPriors
       ?? PlotterSceneVisionPriors.c920StartupDefaults(
         frameWidth: frame.width,
-        frameHeight: frame.height
+        frameHeight: frame.height,
+        analysisRegion: analysisRegion
       )
     try validate(priors.capSearchRegion, in: frame)
     try validate(priors.topFrameSideRegion, in: frame)
@@ -314,7 +342,8 @@ public actor VisionWorker {
     ).filter { $0.pixelCount >= 2 }
     // The observed marker is a compact filled component. This broad shape
     // rejection prevents a long green ink stroke from becoming the cap.
-    let eligible = components
+    let eligible =
+      components
       .filter {
         let width = $0.maxX - $0.minX + 1
         let height = $0.maxY - $0.minY + 1
@@ -327,7 +356,8 @@ public actor VisionWorker {
       }
       .sorted { $0.pixelCount > $1.pixelCount }
     let cap = try eligible.first.map { component in
-      let secondLargest = eligible
+      let secondLargest =
+        eligible
         .dropFirst()
         .map(\.pixelCount)
         .max() ?? 0
@@ -851,9 +881,10 @@ public actor VisionWorker {
       return $0 + delta * delta
     }
     guard denominator > 0 else { return nil }
-    let slope = points.reduce(0) {
-      $0 + ($1.independent - meanIndependent) * ($1.dependent - meanDependent)
-    } / denominator
+    let slope =
+      points.reduce(0) {
+        $0 + ($1.independent - meanIndependent) * ($1.dependent - meanDependent)
+      } / denominator
     return (slope, meanDependent - slope * meanIndependent)
   }
 

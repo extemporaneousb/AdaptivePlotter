@@ -53,24 +53,6 @@ struct WorkbenchPresentationTests {
     )
   }
 
-  @Test("LIVE and SIMULATED camera utilities retain one semantic action order")
-  func cameraUtilityParity() {
-    let live = CameraUtilityPresentation(
-      mode: .live,
-      actions: actions(unavailableReason: nil)
-    )
-    let simulated = CameraUtilityPresentation(
-      mode: .simulated,
-      actions: actions(unavailableReason: "LIVE camera capture only.")
-    )
-
-    #expect(live.actions.map(\.kind) == CameraUtilityActionKind.allCases)
-    #expect(simulated.actions.map(\.kind) == CameraUtilityActionKind.allCases)
-    #expect(live.actions.map(\.kind) == simulated.actions.map(\.kind))
-    #expect(live.actions.allSatisfy { $0.isEnabled })
-    #expect(simulated.actions.allSatisfy { !$0.isEnabled })
-  }
-
   @Test("active runtime action strip can keep its sole controls visible")
   func activeExerciseControlsRemainVisible() {
     let active = ExerciseActionStripPresentation(
@@ -125,27 +107,4 @@ struct WorkbenchPresentationTests {
     #expect(evidence.fragments.accessibilityText.contains("frame-44 and frame-45"))
   }
 
-  private func actions(
-    unavailableReason: String?
-  ) -> [CameraUtilityActionPresentation] {
-    CameraUtilityActionKind.allCases.map { kind in
-      CameraUtilityActionPresentation(
-        kind: kind,
-        title: title(kind),
-        systemImage: "circle",
-        unavailableReason: unavailableReason
-      )
-    }
-  }
-
-  private func title(_ kind: CameraUtilityActionKind) -> String {
-    switch kind {
-    case .refresh: "Refresh"
-    case .start: "Start Camera"
-    case .stop: "Stop Camera"
-    case .restart: "Restart Camera"
-    case .analyzeOrResume: "Analyze Frame"
-    case .saveSnapshot: "Save Snapshot"
-    }
-  }
 }

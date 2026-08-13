@@ -51,10 +51,11 @@ func aspectFitMappingMultipleSizes() throws {
 func inverseMappingRoundTrip() throws {
   let region = PixelRect(x: 300, y: 200, width: 40, height: 20)
   for focus in [nil, region] {
-    let transform = try #require(CameraPixelToViewTransform(
-      frameWidth: 640, frameHeight: 480, viewWidth: 800, viewHeight: 600,
-      focusRegion: focus
-    ))
+    let transform = try #require(
+      CameraPixelToViewTransform(
+        frameWidth: 640, frameHeight: 480, viewWidth: 800, viewHeight: 600,
+        focusRegion: focus
+      ))
     let camera = try Point2<CameraPixelSpace>(x: focus == nil ? 321.25 : 321, y: 211.75)
     let roundTrip = try #require(transform.cameraPoint(transform.point(camera)))
     #expect(abs(roundTrip.x - camera.x) < 1e-9)
@@ -64,9 +65,10 @@ func inverseMappingRoundTrip() throws {
 
 @Test("Inverse mapping rejects clicks in aspect-fit letterboxes")
 func inverseMappingRejectsLetterbox() throws {
-  let transform = try #require(CameraPixelToViewTransform(
-    frameWidth: 100, frameHeight: 200, viewWidth: 400, viewHeight: 200
-  ))
+  let transform = try #require(
+    CameraPixelToViewTransform(
+      frameWidth: 100, frameHeight: 200, viewWidth: 400, viewHeight: 200
+    ))
   #expect(transform.cameraPoint(CGPoint(x: 149, y: 100)) == nil)
   #expect(transform.cameraPoint(CGPoint(x: 251, y: 100)) == nil)
   #expect(try #require(transform.cameraPoint(CGPoint(x: 200, y: 100))).x == 50)
@@ -111,14 +113,54 @@ func viewportPresentationOnlyContext() {
   viewport.zoom = 0.72
   viewport.synchronize(with: context)
   #expect(viewport.zoom == 0.72)
-  viewport.synchronize(with: ActionSurfaceViewportContext(
-    source: context.source,
-    cameraConfigurationID: context.cameraConfigurationID,
-    fittedRegion: context.fittedRegion,
-    preferredInitialZoom: 0,
-    presentationRevisionToken: "machine-fit-2"
-  ))
+  viewport.synchronize(
+    with: ActionSurfaceViewportContext(
+      source: context.source,
+      cameraConfigurationID: context.cameraConfigurationID,
+      fittedRegion: context.fittedRegion,
+      preferredInitialZoom: 0,
+      presentationRevisionToken: "machine-fit-2"
+    ))
   #expect(viewport.zoom == 0)
+}
+
+@Test("Viewport drag pans the zoomed camera region and clamps at frame edges")
+func viewportDragPanning() {
+  let context = ActionSurfaceViewportContext(
+    source: .simulated,
+    cameraConfigurationID: CameraConfigurationID(),
+    fittedRegion: nil,
+    preferredInitialZoom: 1,
+    presentationRevisionToken: "drag-region"
+  )
+  var viewport = ActionSurfaceViewportState()
+  viewport.synchronize(with: context)
+  #expect(
+    viewport.visibleRegion(frameWidth: 100, frameHeight: 100)
+      == PixelRect(x: 25, y: 25, width: 50, height: 50)
+  )
+
+  viewport.pan(
+    by: CGSize(width: -100, height: -100),
+    viewSize: CGSize(width: 100, height: 100),
+    frameWidth: 100,
+    frameHeight: 100
+  )
+  #expect(
+    viewport.visibleRegion(frameWidth: 100, frameHeight: 100)
+      == PixelRect(x: 50, y: 50, width: 50, height: 50)
+  )
+
+  viewport.pan(
+    by: CGSize(width: 1_000, height: 1_000),
+    viewSize: CGSize(width: 100, height: 100),
+    frameWidth: 100,
+    frameHeight: 100
+  )
+  #expect(
+    viewport.visibleRegion(frameWidth: 100, frameHeight: 100)
+      == PixelRect(x: 0, y: 0, width: 50, height: 50)
+  )
 }
 
 @Test("Fitted presentation bounds use true frame intersections")
@@ -142,13 +184,14 @@ func viewportClipsFittedBoundsAtEveryFrameEdge() {
   for (region, expected) in cases {
     #expect(cameraFrameIntersection(region, frameWidth: 100, frameHeight: 100) == expected)
     var viewport = ActionSurfaceViewportState()
-    viewport.synchronize(with: ActionSurfaceViewportContext(
-      source: .simulated,
-      cameraConfigurationID: CameraConfigurationID(),
-      fittedRegion: region,
-      preferredInitialZoom: 0,
-      presentationRevisionToken: "bounds-edge"
-    ))
+    viewport.synchronize(
+      with: ActionSurfaceViewportContext(
+        source: .simulated,
+        cameraConfigurationID: CameraConfigurationID(),
+        fittedRegion: region,
+        preferredInitialZoom: 0,
+        presentationRevisionToken: "bounds-edge"
+      ))
     viewport.showFittedBounds()
     #expect(viewport.visibleRegion(frameWidth: 100, frameHeight: 100) == expected)
   }
@@ -158,13 +201,14 @@ func viewportClipsFittedBoundsAtEveryFrameEdge() {
 func sparseMarkPreferredZoom() {
   let region = PixelRect(x: 210, y: 160, width: 213, height: 160)
   var viewport = ActionSurfaceViewportState()
-  viewport.synchronize(with: ActionSurfaceViewportContext(
-    source: .simulated,
-    cameraConfigurationID: CameraConfigurationID(),
-    fittedRegion: region,
-    preferredInitialZoom: 1,
-    presentationRevisionToken: "sparse-mark-frame-12"
-  ))
+  viewport.synchronize(
+    with: ActionSurfaceViewportContext(
+      source: .simulated,
+      cameraConfigurationID: CameraConfigurationID(),
+      fittedRegion: region,
+      preferredInitialZoom: 1,
+      presentationRevisionToken: "sparse-mark-frame-12"
+    ))
 
   #expect(viewport.zoom == 1)
   #expect(viewport.visibleRegion(frameWidth: 640, frameHeight: 480) == region)
@@ -174,7 +218,9 @@ func sparseMarkPreferredZoom() {
 func tipPredictionVisibilityPolicy() throws {
   #expect(ActionSurfaceTipPresentation.notCalibrated.statusText == "Tip not calibrated")
   if case .awaitingClick = ActionSurfaceTipPresentation.awaitingClick("Click mark center") {
-  } else { Issue.record("awaiting click state must not contain a prediction") }
+  } else {
+    Issue.record("awaiting click state must not contain a prediction")
+  }
   let prediction = try Point2<CameraPixelSpace>(x: 12, y: 14)
   let selection = try Point2<CameraPixelSpace>(x: 13, y: 14)
   let selected = ActionSurfaceTipPresentation.selected(
@@ -228,7 +274,8 @@ func exactSelectionRequestProvenance() throws {
     prompt: "Click center"
   )
   #expect(request.matches(displayed))
-  let stale = try testDisplayedFrame(source: .simulated, configuration: displayed.frame.cameraConfigurationID)
+  let stale = try testDisplayedFrame(
+    source: .simulated, configuration: displayed.frame.cameraConfigurationID)
   #expect(!request.matches(stale))
 }
 
@@ -398,12 +445,13 @@ func presentationImagePixelFormatsAndPaddedStride() throws {
   let grayPixels = try renderedRGBPixels(gray)
   #expect(bgraPixels == expectedColorPixels)
   #expect(rgbaPixels == expectedColorPixels)
-  #expect(grayPixels == [
-    RGBPixel(red: 0, green: 0, blue: 0),
-    RGBPixel(red: 127, green: 127, blue: 127),
-    RGBPixel(red: 200, green: 200, blue: 200),
-    RGBPixel(red: 255, green: 255, blue: 255),
-  ])
+  #expect(
+    grayPixels == [
+      RGBPixel(red: 0, green: 0, blue: 0),
+      RGBPixel(red: 127, green: 127, blue: 127),
+      RGBPixel(red: 200, green: 200, blue: 200),
+      RGBPixel(red: 255, green: 255, blue: 255),
+    ])
 }
 
 @MainActor

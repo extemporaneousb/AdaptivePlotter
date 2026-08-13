@@ -14,62 +14,52 @@ extension OperatorWorkspaceTests {
     #expect(ControllerPositionAcceptancePolicy.toleranceMM == 0.05)
   }
 
-  @Test("LIVE camera start and restart keep scene analysis idle")
-  func cameraStartKeepsSceneAnalysisIdle() async throws {
+  @Test("selected scene overlays directly own bounded LIVE analysis")
+  func selectedSceneOverlaysOwnAnalysis() async throws {
     let log = EventLog()
     let machine = try MachineFixture(log: log)
-    let camera = try CameraFixture()
+    let camera = try CameraFixture(
+      providesInspectionOverlay: true,
+      providesAutomaticAnalysisResult: true
+    )
     let workspace = workspace(machine: machine, camera: camera, log: log)
 
     await workspace.startCamera()
     #expect(!workspace.scopedVisionAnalysisActive)
     #expect(workspace.visibleLayers == Set(CanvasLayer.allCases))
-    #expect(camera.recordedAutomaticInspectionRequests.isEmpty)
+    #expect(camera.recordedAutomaticInspectionRequests == [.twoFPS])
+    #expect(workspace.actionSurfacePresentation.overlays.count == 1)
 
-    await workspace.restartCamera()
-    #expect(!workspace.scopedVisionAnalysisActive)
-    #expect(camera.recordedAutomaticInspectionRequests.isEmpty)
+    for layer in CanvasLayer.allCases where layer.requiresSceneAnalysis {
+      workspace.setLayer(layer, visible: false)
+    }
+    try await waitUntil { camera.recordedAutomaticInspectionRequests.last == .some(nil) }
+    #expect(workspace.visibleLayers.contains(.intendedPath))
+    #expect(workspace.actionSurfacePresentation.overlays.isEmpty)
     await workspace.shutdown()
   }
 
-  @Test("scoped motion analysis holds its exact overlay until preview resumes")
-  func scopedMotionAnalysisHoldsExactOverlay() async throws {
+  @Test("locked viewport and selected cadence configure scene analysis")
+  func lockedViewportConfiguresAnalysis() async throws {
     let log = EventLog()
-    let machine = try MachineFixture(
-      log: log,
-      relativeJogSettlementOffset: try Vector2(dx: 0, dy: 0)
-    )
-    let camera = try CameraFixture(providesInspectionOverlay: true)
+    let machine = try MachineFixture(log: log)
+    let camera = try CameraFixture()
     let workspace = workspace(machine: machine, camera: camera, log: log)
-    await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
     await workspace.startCamera()
-    try await completePenInteraction(workspace)
-    try await completeLiveBoundaries(workspace, machine: machine)
-    await workspace.inspectLatestScene()
-    let prior = workspace.actionSurfacePresentation
-    let priorFrame = try #require(prior.displayedFrame)
-    #expect(prior.overlays.count == 1)
-    #expect(workspace.analysisFrameHeld)
-
-    let owner = LearningPathItemID.humanGuidedDiscovery(
-      .pairedBoundaryDiscoveryAndCentering
+    let displayedFrame = try #require(workspace.actionSurfacePresentation.displayedFrame)
+    let region = PixelRect(
+      x: 0,
+      y: 0,
+      width: displayedFrame.frame.width,
+      height: displayedFrame.frame.height
     )
-    try await performPublicAction(.moveToEstimatedCenter, owner: owner, workspace: workspace)
 
-    let held = workspace.actionSurfacePresentation
-    let frame = try #require(held.displayedFrame)
-    #expect(held.overlays.count == 1)
-    let overlay = try #require(held.overlays.first)
-    #expect(camera.recordedAutomaticInspectionRequests == [.twoFPS, nil])
-    #expect(!workspace.scopedVisionAnalysisActive)
-    #expect(workspace.analysisFrameHeld)
-    #expect(frame.frame.id == priorFrame.frame.id)
-    #expect(overlay.matches(frame))
+    await workspace.setVideoAnalysisRegion(region, for: displayedFrame)
+    await workspace.setVisionAnalysisCadence(.fiveFPS)
 
-    await workspace.resumeLivePreview()
-    #expect(!workspace.analysisFrameHeld)
-    #expect(workspace.actionSurfacePresentation.overlays.isEmpty)
+    #expect(workspace.videoAnalysisRegionLock?.region == region)
+    #expect(camera.recordedSceneAnalysisRegionRequests.contains(region))
+    #expect(camera.recordedAutomaticInspectionRequests.last == .fiveFPS)
     await workspace.shutdown()
   }
 
@@ -179,6 +169,7 @@ extension OperatorWorkspaceTests {
     await workspace.startCamera()
     try await completePenInteraction(workspace)
     let inspectionsBeforeBoundary = camera.inspectionCallCount
+    let automaticBeforeBoundary = camera.recordedAutomaticInspectionRequests
 
     let owner = LearningPathItemID.humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
     #expect(workspace.currentLearningPathItemID == owner)
@@ -204,7 +195,7 @@ extension OperatorWorkspaceTests {
     #expect(workspace.boundarySideAggregates[.positiveX]?.validSampleCount == 1)
     #expect(workspace.boundaryAttemptEvidenceByAttemptID.count == 1)
     #expect(camera.inspectionCallCount == inspectionsBeforeBoundary)
-    #expect(camera.recordedAutomaticInspectionRequests.isEmpty)
+    #expect(camera.recordedAutomaticInspectionRequests == automaticBeforeBoundary)
     #expect(workspace.humanGuidedDiscoveryCurrentStep == .pairedBoundaryDiscoveryAndCentering)
     #expect(workspace.lastContextualStopAuditRecord?.actor == "Operator")
     #expect(workspace.lastContextualStopAuditRecord?.action == "Stop")
@@ -224,8 +215,8 @@ extension OperatorWorkspaceTests {
     await workspace.shutdown()
   }
 
-  @Test("Boundary Stop settles advisory Vision without starting background analysis")
-  func boundaryStopSettlesAdvisoryWithoutBackgroundAnalysis() async throws {
+  @Test("Boundary Stop settles advisory Vision without disturbing overlay analysis")
+  func boundaryStopSettlesAdvisoryWithoutDisturbingOverlayAnalysis() async throws {
     let log = EventLog()
     let machine = try MachineFixture(log: log)
     let camera = try CameraFixture()
@@ -249,13 +240,14 @@ extension OperatorWorkspaceTests {
     await workspace.requestPassiveProbe()
     await workspace.startCamera()
     try await completePenInteraction(workspace)
+    let automaticBeforeBoundary = camera.recordedAutomaticInspectionRequests
 
     let owner = LearningPathItemID.humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
     await workspace.performExerciseAction(.start, for: owner)
     try await waitUntil {
       workspace.contextualStopPresentation != nil
     }
-    #expect(camera.recordedAutomaticInspectionRequests.isEmpty)
+    #expect(camera.recordedAutomaticInspectionRequests == automaticBeforeBoundary)
     let pendingRequest = await motionGate.request
     let admittedRequest = try #require(pendingRequest)
     #expect(admittedRequest.segment.delta.magnitude == 20)
@@ -274,11 +266,11 @@ extension OperatorWorkspaceTests {
     }
     try await waitUntilAsync { await inspectionGate.isCancelled }
 
-    #expect(camera.recordedAutomaticInspectionRequests.isEmpty)
+    #expect(camera.recordedAutomaticInspectionRequests == automaticBeforeBoundary)
     await inspectionGate.release()
     await stopTask.value
 
-    #expect(camera.recordedAutomaticInspectionRequests.isEmpty)
+    #expect(camera.recordedAutomaticInspectionRequests == automaticBeforeBoundary)
     #expect(workspace.boundarySideAggregates[.positiveX]?.validSampleCount == 1)
     await workspace.shutdown()
   }

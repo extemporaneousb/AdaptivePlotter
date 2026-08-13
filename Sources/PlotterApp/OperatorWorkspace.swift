@@ -37,6 +37,26 @@ enum CanvasLayer: String, CaseIterable, Identifiable {
     case .armatureEstimate: .armatureEstimate
     }
   }
+
+  var requiresSceneAnalysis: Bool {
+    switch self {
+    case .penCap, .measuredFrameSides, .drawingFrameEstimate, .armatureEstimate:
+      true
+    case .intendedPath, .modelPrediction, .observedInk, .residuals:
+      false
+    }
+  }
+}
+
+struct VideoAnalysisRegionLock: Hashable, Sendable {
+  let source: FrameSourceIdentity
+  let cameraConfigurationID: CameraConfigurationID
+  let region: PixelRect
+
+  func matches(_ displayedFrame: DisplayedFrame) -> Bool {
+    source == displayedFrame.source
+      && cameraConfigurationID == displayedFrame.frame.cameraConfigurationID
+  }
 }
 
 enum OperatorFrameMode: String, CaseIterable, Identifiable, Sendable {
@@ -414,9 +434,7 @@ struct LiveSceneInspection: Sendable {
   let measurement: PlotterSceneMeasurement
 }
 
-private struct ScopedVisionAnalysisLease: Sendable {
-  let priorHeldInspection: LiveSceneInspection?
-}
+private struct ScopedVisionAnalysisLease: Sendable {}
 
 struct ProtocolPoseSettlement: Hashable, Sendable {
   let action: String
@@ -586,7 +604,7 @@ final class OperatorWorkspace {
     let frames: @Sendable () async -> AsyncStream<DisplayedFrame>
     let inspectScene: @Sendable (UInt64) async throws -> LiveSceneInspection?
     let captureFrame: @Sendable (UInt64) async throws -> DisplayedFrame?
-    let captureSnapshot: @Sendable () async throws -> String
+    let setSceneAnalysisRegion: @Sendable (PixelRect?) async -> Void
     let setAutomaticInspection:
       @Sendable (VisionAnalysisCadence?) async
         -> PlotterSceneAnalysisSnapshot
@@ -597,6 +615,8 @@ final class OperatorWorkspace {
   }
 
   var visibleLayers = Set(CanvasLayer.allCases)
+  private(set) var visionAnalysisCadence = VisionAnalysisCadence.twoFPS
+  private(set) var videoAnalysisRegionLock: VideoAnalysisRegionLock?
   var frameMode: OperatorFrameMode = .live
   // String-backed numeric inputs preserve partially typed values and keep X/Y
   // independent. Runtime value constructors and MachineController own validity.
@@ -634,12 +654,9 @@ final class OperatorWorkspace {
   private(set) var cameraOverlays: [CameraOverlayMeasurement] = []
   private(set) var cameraError: String?
   private(set) var visionError: String?
-  private(set) var sceneInspectionInProgress = false
-  private(set) var analysisFrameHeld = false
   private(set) var scopedVisionAnalysisActive = false
   private(set) var visionAnalysisSnapshot: PlotterSceneAnalysisSnapshot = .stopped
   private(set) var lastSceneMeasurement: PlotterSceneMeasurement?
-  private(set) var lastCameraSnapshotPath: String?
   private(set) var simulatorEvidenceLabel = SimulatedOverlaySceneContent.evidenceLabel
   private(set) var simulatorPenState: PenState = .unknown
   private(set) var simulatorLearningSummary = "Switch to SIMULATED to inspect model behavior."
@@ -679,7 +696,8 @@ final class OperatorWorkspace {
   private let cameraMountRevision: UUID
   private let cameraReframingRevision: UUID
   private(set) var blacklistedToolContactLocations: Set<BlacklistedToolContactLocation> = []
-  private(set) var explicitRegistrationCapAnchorEvidence: [MachineCameraCorrespondenceProvenance] = []
+  private(set) var explicitRegistrationCapAnchorEvidence: [MachineCameraCorrespondenceProvenance] =
+    []
   private(set) var currentCameraCalibrationPhase: String?
   private var currentCameraCalibrationFailure: CurrentCameraCalibrationFailure?
   private(set) var localPreLineBaseline: DisplayedFrame?
@@ -918,8 +936,10 @@ final class OperatorWorkspace {
       simulatedViewportID: simulatedViewportID,
       simulatedAnnotationsAreVisible: simulatedAnnotationsAreVisible,
       viewportContext: viewportContext,
-      presentationZoomAvailable: relevantBoundaryObservationCount == BoundaryDirection.allCases.count
-        && centerArrivalPosition != nil,
+      analysisRegionIsLocked: surfaceFrame.map {
+        videoAnalysisRegionLock?.matches($0) == true
+      } ?? false,
+      analysisIsActive: visionAnalysisSnapshot.activeFrameSequence != nil,
       pointSelectionRequest: toolContactPointSelectionRequest,
       tipPresentation: tipPresentation
     )
@@ -933,7 +953,8 @@ final class OperatorWorkspace {
         capCameraFromMachine: machineRegistration.fit.cameraFromMachine
       )
     }
-    let transform = proposedTipCameraRegistration?.cameraFromMachine
+    let transform =
+      proposedTipCameraRegistration?.cameraFromMachine
       ?? tipCameraRegistration?.cameraFromMachine
       ?? provisional
     return (try? transform?.applying(to: pendingToolContactEvidence.actualSettledPosition.point))
@@ -1104,7 +1125,7 @@ final class OperatorWorkspace {
     let cadence: String
     switch snapshot.state {
     case .stopped: cadence = "stopped"
-    case .running(let value): cadence = "target \(value.rawValue) Hz"
+    case .running(let value): cadence = "target \(value.rawValue) frames per second"
     }
     let duration =
       snapshot.latestResult.map {
@@ -1112,6 +1133,16 @@ final class OperatorWorkspace {
       } ?? "no timing"
     return
       "\(cadence) · analyzed \(snapshot.analyzedFrameCount) · superseded \(snapshot.supersededFrameCount) · \(duration)"
+  }
+
+  var videoAnalysisIsActive: Bool {
+    visionAnalysisSnapshot.activeFrameSequence != nil
+  }
+
+  var videoAnalysisRegionText: String {
+    guard let lock = videoAnalysisRegionLock else { return "Unlocked · current viewport" }
+    let region = lock.region
+    return "x \(region.x), y \(region.y), \(region.width) × \(region.height) px · locked"
   }
 
   func overlaySummary(for layer: CanvasLayer) -> String {
@@ -1708,81 +1739,52 @@ final class OperatorWorkspace {
     return .ready
   }
 
-  var cameraUtilityPresentation: CameraUtilityPresentation {
-    let simulated = frameMode == .simulated
-    let switchReason = frameModeSwitchUnavailableReason
-    let calibrationReason = currentCameraCalibrationBusyReason
-    let liveOnly = "This action requires a LIVE camera source."
-    let actions = CameraUtilityActionKind.allCases.map { kind in
-      let title: String
-      let systemImage: String
-      let unavailableReason: String?
-      switch kind {
-      case .refresh:
-        title = "Refresh Source"
-        systemImage = "arrow.clockwise"
-        unavailableReason = switchReason
-      case .start:
-        title = "Start Source"
-        systemImage = "play.fill"
-        unavailableReason = switchReason
-      case .stop:
-        title = "Stop Source"
-        systemImage = "stop.fill"
-        unavailableReason = switchReason
-      case .restart:
-        title = "Restart Source"
-        systemImage = "arrow.counterclockwise"
-        unavailableReason = switchReason
-      case .analyzeOrResume:
-        title = analysisFrameHeld ? "Resume Preview" : "Analyze Current Frame"
-        systemImage = analysisFrameHeld ? "play.rectangle" : "viewfinder"
-        unavailableReason =
-          calibrationReason
-          ?? (simulated ? liveOnly : !displayedFrameAvailable ? "No current frame." : nil)
-      case .saveSnapshot:
-        title = "Save Snapshot"
-        systemImage = "camera"
-        unavailableReason =
-          calibrationReason
-          ?? (simulated ? liveOnly : !displayedFrameAvailable ? "No current frame." : nil)
-      }
-      return CameraUtilityActionPresentation(
-        kind: kind,
-        title: title,
-        systemImage: systemImage,
-        unavailableReason: unavailableReason
-      )
+  func refreshVideoSources() async {
+    if frameMode == .simulated {
+      await refreshSimulatedContent()
+    } else {
+      await discoverCameras()
     }
-    return CameraUtilityPresentation(mode: frameMode, actions: actions)
   }
 
-  func performCameraUtilityAction(_ kind: CameraUtilityActionKind) async {
-    guard cameraUtilityPresentation.actions.first(where: { $0.kind == kind })?.isEnabled == true
-    else { return }
-    if frameMode == .simulated {
-      switch kind {
-      case .refresh, .start, .restart:
-        await refreshSimulatedContent()
-      case .stop:
-        displayedFrame = nil
-        cameraOverlays = []
-        simulatorLearningSummary =
-          "Simulated source stopped. \(SimulatedLearningEvidenceNotice.evidenceLabel)"
-      case .analyzeOrResume, .saveSnapshot:
-        return
-      }
+  func selectAndStartCamera(_ id: CameraDeviceID) async {
+    await selectCamera(id)
+    guard selectedCameraID == id, cameraError == nil else { return }
+    await startCamera()
+  }
+
+  func setVisionAnalysisCadence(_ cadence: VisionAnalysisCadence) async {
+    guard visionAnalysisCadence != cadence else { return }
+    visionAnalysisCadence = cadence
+    await reconcileAutomaticVisionAnalysis()
+  }
+
+  func setVideoAnalysisRegion(
+    _ region: PixelRect?,
+    for displayedFrame: DisplayedFrame
+  ) async {
+    guard
+      region == nil
+        || cameraFrameIntersection(
+          region!,
+          frameWidth: displayedFrame.frame.width,
+          frameHeight: displayedFrame.frame.height
+        ) == region
+    else {
+      cameraError = "The requested analysis region is outside the current camera frame."
       return
     }
-    switch kind {
-    case .refresh: await discoverCameras()
-    case .start: await startCamera()
-    case .stop: await stopCamera()
-    case .restart: await restartCamera()
-    case .analyzeOrResume:
-      if analysisFrameHeld { await resumeLivePreview() } else { await inspectLatestScene() }
-    case .saveSnapshot: await captureCameraSnapshot()
+    videoAnalysisRegionLock = region.map {
+      VideoAnalysisRegionLock(
+        source: displayedFrame.source,
+        cameraConfigurationID: displayedFrame.frame.cameraConfigurationID,
+        region: $0
+      )
     }
+    await cameraActions?.setSceneAnalysisRegion(
+      frameMode == .live ? videoAnalysisRegionLock?.region : nil
+    )
+    await reconcileAutomaticVisionAnalysis()
   }
 
   var currentExerciseActionStripPresentation: ExerciseActionStripPresentation? {
@@ -2259,7 +2261,8 @@ final class OperatorWorkspace {
       cameraCalibrationProposalID = nil
       explorationError = nil
     } catch {
-      explorationError = "Camera-calibration reference capture failed: \(actionableDescription(error))"
+      explorationError =
+        "Camera-calibration reference capture failed: \(actionableDescription(error))"
     }
   }
 
@@ -2342,7 +2345,8 @@ final class OperatorWorkspace {
         correspondences: correspondences,
         weights: exactSamples.map { max(0.01, $0.capAnchorConfidence * $0.capAnchorConfidence) }
       )
-      let applicabilityRectangle = try applicabilityRectangleOverride
+      let applicabilityRectangle =
+        try applicabilityRectangleOverride
         ?? AxisAlignedBounds<MachineSpace>(
           minX: exactSamples.map(\.machinePoint.x).min()!,
           minY: exactSamples.map(\.machinePoint.y).min()!,
@@ -2550,10 +2554,12 @@ final class OperatorWorkspace {
         operationID: operationID,
         attemptID: attemptID
       )
-      guard stageMachineCameraRegistrationProposal(
-        correspondenceOverride: stagedSamples,
-        applicabilityRectangleOverride: plan.applicabilityRectangle
-      ) else {
+      guard
+        stageMachineCameraRegistrationProposal(
+          correspondenceOverride: stagedSamples,
+          applicabilityRectangleOverride: plan.applicabilityRectangle
+        )
+      else {
         throw LearningPathOperationError.requiredState(
           explorationError ?? "The current-camera registration fit was not accepted."
         )
@@ -2572,7 +2578,8 @@ final class OperatorWorkspace {
           operation: .currentCameraCalibration,
           phase: .completed,
           attemptID: attemptID,
-          detail: "Five exact cap samples passed three-fit/two-holdout validation and staged one reviewable all-five proposal."
+          detail:
+            "Five exact cap samples passed three-fit/two-holdout validation and staged one reviewable all-five proposal."
         )
       )
     } catch  where hasShutdown || Task.isCancelled {
@@ -2604,8 +2611,7 @@ final class OperatorWorkspace {
     contextBaseline: ControllerContextBaseline?,
     operationID: UUID,
     newerThanNanoseconds: UInt64? = nil
-  ) async throws -> CalibrationCapAnchorCapture
-  {
+  ) async throws -> CalibrationCapAnchorCapture {
     try requireCalibrationContinuation()
     guard let attemptID = activeExerciseAttemptID else {
       throw LearningPathOperationError.requiredState(
@@ -2798,7 +2804,8 @@ final class OperatorWorkspace {
           operation: .currentCameraCalibration,
           phase: .controllerContextEstablished,
           attemptID: activeExerciseAttemptID,
-          detail: "The first fresh passive probe established this calibration operation's controller-context baseline.",
+          detail:
+            "The first fresh passive probe established this calibration operation's controller-context baseline.",
           controllerContext: WorkflowControllerContextTelemetry(
             baselineProbeID: nil,
             refreshedProbeID: probe.probeID,
@@ -2856,7 +2863,8 @@ final class OperatorWorkspace {
       selectedToolContactPoint = selection.point
       explorationError = nil
     } catch {
-      explorationError = "Sparse mark selection was rejected as stale: \(actionableDescription(error))"
+      explorationError =
+        "Sparse mark selection was rejected as stale: \(actionableDescription(error))"
     }
   }
 
@@ -2887,7 +2895,8 @@ final class OperatorWorkspace {
         coordinateRevision: explorationCoordinateRevision
       )
       guard let sample = plan.samples.first(where: { $0.position == position }) else {
-        throw LearningPathOperationError.requiredState("Sparse calibration position is unavailable.")
+        throw LearningPathOperationError.requiredState(
+          "Sparse calibration position is unavailable.")
       }
       let markPlan = try SparseTipCircularMarkPlan(
         center: sample.machinePosition,
@@ -2919,11 +2928,13 @@ final class OperatorWorkspace {
       } else {
         settled = current
       }
-      guard recordProtocolPoseSettlement(
-        action: "Sparse Tip Mark \(position.rawValue) Approach",
-        target: sample.machinePosition,
-        actual: settled
-      ) else {
+      guard
+        recordProtocolPoseSettlement(
+          action: "Sparse Tip Mark \(position.rawValue) Approach",
+          target: sample.machinePosition,
+          actual: settled
+        )
+      else {
         throw LearningPathOperationError.controllerOutcome(
           "Sparse mark approach did not settle within 0.05 mm."
         )
@@ -2951,11 +2962,13 @@ final class OperatorWorkspace {
         ownerID: ownerID,
         action: "Sparse Tip Circle \(position.rawValue) Start"
       )
-      guard recordProtocolPoseSettlement(
-        action: "Sparse Tip Circle \(position.rawValue) Start",
-        target: markPlan.startPosition,
-        actual: markStartSettled
-      ) else {
+      guard
+        recordProtocolPoseSettlement(
+          action: "Sparse Tip Circle \(position.rawValue) Start",
+          target: markPlan.startPosition,
+          actual: markStartSettled
+        )
+      else {
         throw LearningPathOperationError.controllerOutcome(
           "Sparse circle start did not settle within 0.05 mm."
         )
@@ -2983,11 +2996,13 @@ final class OperatorWorkspace {
       } else {
         revealSettled = mark.finalPosition
       }
-      guard recordProtocolPoseSettlement(
-        action: "Reveal Sparse Tip Circle \(position.rawValue)",
-        target: revealTarget,
-        actual: revealSettled
-      ) else {
+      guard
+        recordProtocolPoseSettlement(
+          action: "Reveal Sparse Tip Circle \(position.rawValue)",
+          target: revealTarget,
+          actual: revealSettled
+        )
+      else {
         throw LearningPathOperationError.controllerOutcome(
           "Sparse mark reveal did not settle within 0.05 mm."
         )
@@ -3206,11 +3221,13 @@ final class OperatorWorkspace {
             throw LearningPathOperationError.controllerOutcome(String(describing: refusal))
           }
         }
-        guard recordProtocolPoseSettlement(
-          action: "Sparse Tip Circle chord \(index + 1)/\(plan.pathDeltas.count)",
-          target: expected,
-          actual: finalPosition
-        ) else {
+        guard
+          recordProtocolPoseSettlement(
+            action: "Sparse Tip Circle chord \(index + 1)/\(plan.pathDeltas.count)",
+            target: expected,
+            actual: finalPosition
+          )
+        else {
           throw LearningPathOperationError.controllerOutcome(
             "A 2 mm calibration-circle chord did not settle within 0.05 mm."
           )
@@ -3298,11 +3315,12 @@ final class OperatorWorkspace {
         point: point,
         pointingUncertaintyPixels: Vector2(dx: 1.5, dy: 1.5),
         timestamp: RuntimeTimestamp(
-          monotonicNanoseconds: max(nowNanoseconds(), pending.revealEvidence.frame.captureNanoseconds + 1)
+          monotonicNanoseconds: max(
+            nowNanoseconds(), pending.revealEvidence.frame.captureNanoseconds + 1)
         ),
         presentationTransformRevision:
           sparseTipCalibrationCoordinator.selectedPresentationRevisionForCommit
-            ?? request.presentationTransformRevision
+          ?? request.presentationTransformRevision
       )
       let observation = try ToolContactObservation(
         attemptID: pending.attemptID,
@@ -3340,7 +3358,7 @@ final class OperatorWorkspace {
           try AlgorithmRevisionEvidence(
             component: "pen-actuation",
             revision: PenActuationProfile.localPlotterRevision
-          )
+          ),
         ]
       )
       let revision = LearningArtifactRevision(
@@ -3448,8 +3466,7 @@ final class OperatorWorkspace {
     guard let attemptID = activeExerciseAttemptID else {
       throw SparseTipCalibrationCoordinatorError.invalidTransition
     }
-    var rebuiltObservationRevisions:
-      [ToolContactObservationID: LearningArtifactRevisionID] = [:]
+    var rebuiltObservationRevisions: [ToolContactObservationID: LearningArtifactRevisionID] = [:]
     for prior in checkpoint.registration.observationEvidence {
       let revision = LearningArtifactRevision(
         kind: .toolContactObservation(prior.observationID),
@@ -3540,9 +3557,10 @@ final class OperatorWorkspace {
   private func acceptTipCalibration() {
     guard let proposal = proposedTipCameraRegistration,
       let attemptID = activeExerciseAttemptID,
-      activeExerciseAttemptOwnerID == .humanGuidedDiscovery(
-        .calibratePenContactFromSparseMarks
-      )
+      activeExerciseAttemptOwnerID
+        == .humanGuidedDiscovery(
+          .calibratePenContactFromSparseMarks
+        )
     else { return }
     do {
       let candidate = LearningArtifactRevision(
@@ -3576,7 +3594,8 @@ final class OperatorWorkspace {
       finishActiveExerciseAttempt(disposition: .succeeded)
       explorationError = nil
     } catch {
-      explorationError = "Tip-calibration acceptance failed atomically: \(actionableDescription(error))"
+      explorationError =
+        "Tip-calibration acceptance failed atomically: \(actionableDescription(error))"
     }
   }
 
@@ -3648,8 +3667,7 @@ final class OperatorWorkspace {
       }
 
       var graph = learningArtifactGraph
-      var rebuiltObservationRevisions:
-        [ToolContactObservationID: LearningArtifactRevisionID] = [:]
+      var rebuiltObservationRevisions: [ToolContactObservationID: LearningArtifactRevisionID] = [:]
       for observation in checkpoint.registration.observationEvidence {
         let revision = LearningArtifactRevision(
           kind: .toolContactObservation(observation.observationID),
@@ -4213,6 +4231,46 @@ final class OperatorWorkspace {
     } else {
       visibleLayers.remove(layer)
     }
+    Task { await reconcileAutomaticVisionAnalysis() }
+  }
+
+  private var sceneAnalysisIsRequested: Bool {
+    visibleLayers.contains(where: \.requiresSceneAnalysis)
+  }
+
+  private var automaticVisionAnalysisShouldRun: Bool {
+    guard frameMode == .live, sceneAnalysisIsRequested,
+      case .running = cameraSnapshot?.state
+    else { return false }
+    return true
+  }
+
+  private func reconcileAutomaticVisionAnalysis() async {
+    guard !hasShutdown, let cameraActions else { return }
+    if automaticVisionAnalysisShouldRun {
+      let generation = lifetimeGeneration
+      await cameraActions.setSceneAnalysisRegion(videoAnalysisRegionLock?.region)
+      let snapshot = await cameraActions.setAutomaticInspection(visionAnalysisCadence)
+      guard canCommit(generation), frameMode == .live else { return }
+      visionAnalysisSnapshot = snapshot
+      visionError = snapshot.lastError
+      beginVisionUpdates(generation: generation)
+      if let result = snapshot.latestResult { receiveVision(result) }
+      return
+    }
+
+    visionUpdateTask?.cancel()
+    visionUpdateTask = nil
+    let snapshot = await cameraActions.setAutomaticInspection(nil)
+    visionAnalysisSnapshot = snapshot
+    visionError = snapshot.lastError
+    let sceneKinds = Set(
+      CanvasLayer.allCases.filter(\.requiresSceneAnalysis).map(\.overlayKind)
+    )
+    cameraOverlays.removeAll { sceneKinds.contains($0.provenance.kind) }
+    let cameraSnapshot = await cameraActions.snapshot()
+    self.cameraSnapshot = cameraSnapshot
+    if let latest = cameraSnapshot.latestFrame { displayedFrame = latest }
   }
 
   func refreshSerialDevices() async {
@@ -5123,18 +5181,20 @@ final class OperatorWorkspace {
     let finalSnapshot = await machineActions.snapshot()
     guard canCommit(generation) else { return nil }
     machineSnapshot = finalSnapshot
-    let telemetryTerminal: (
-      phase: WorkflowTelemetryPhase, code: String?, recovery: WorkflowTelemetryRecovery
-    ) = switch outcome {
-    case .acceptedThenCompleted:
-      (.completed, nil, .none)
-    case .cancelled:
-      (.cancelled, nil, .none)
-    case .refused:
-      (.failed, "manual_jog_refused", .resolveNamedFailure)
-    case .ambiguous:
-      (.failed, "manual_jog_ambiguous", .resolveNamedFailure)
-    }
+    let telemetryTerminal:
+      (
+        phase: WorkflowTelemetryPhase, code: String?, recovery: WorkflowTelemetryRecovery
+      ) =
+        switch outcome {
+        case .acceptedThenCompleted:
+          (.completed, nil, .none)
+        case .cancelled:
+          (.cancelled, nil, .none)
+        case .refused:
+          (.failed, "manual_jog_refused", .resolveNamedFailure)
+        case .ambiguous:
+          (.failed, "manual_jog_ambiguous", .resolveNamedFailure)
+        }
     await recordWorkflowTelemetry(
       WorkflowTelemetryEvent(
         operationID: admittedOperation.id,
@@ -5250,6 +5310,7 @@ final class OperatorWorkspace {
       return
     }
     clearAutomaticVisionPresentation()
+    videoAnalysisRegionLock = nil
     invalidateCameraDependentLearningAuthority()
     cameraError = nil
     do {
@@ -5284,10 +5345,13 @@ final class OperatorWorkspace {
       let currentCameraConfigurationID = displayedFrame?.frame.cameraConfigurationID,
       currentCameraConfigurationID != priorCameraConfigurationID
     {
+      videoAnalysisRegionLock = nil
+      await cameraActions.setSceneAnalysisRegion(nil)
       invalidateCameraDependentLearningAuthority()
     }
     updateCameraError()
     beginFrameUpdates(generation: generation)
+    await reconcileAutomaticVisionAnalysis()
   }
 
   func stopCamera() async {
@@ -5318,6 +5382,7 @@ final class OperatorWorkspace {
     frameTask?.cancel()
     frameTask = nil
     clearAutomaticVisionPresentation()
+    videoAnalysisRegionLock = nil
     invalidateCameraDependentLearningAuthority()
     guard let cameraActions else { return }
     let snapshot = await cameraActions.restart()
@@ -5327,50 +5392,10 @@ final class OperatorWorkspace {
     displayedFrame = cameraSnapshot?.latestFrame
     latestLiveCameraFrame = validatedLiveCameraFrame(in: snapshot)
     cameraOverlays = []
-    analysisFrameHeld = false
     lastSceneMeasurement = nil
     updateCameraError()
     beginFrameUpdates(generation: generation)
-  }
-
-  func inspectLatestScene() async {
-
-    guard currentCameraCalibrationBusyReason == nil else { return }
-    guard let generation = beginHardwareIntent() else { return }
-    defer { endHardwareIntent() }
-    guard frameMode == .live, !scopedVisionAnalysisActive,
-      !sceneInspectionInProgress, let cameraActions
-    else { return }
-    sceneInspectionInProgress = true
-    cameraError = nil
-    defer { sceneInspectionInProgress = false }
-    do {
-      guard let inspection = try await cameraActions.inspectScene(0) else {
-        guard canCommit(generation) else { return }
-        cameraError = "No newer camera frame is available for analysis."
-        return
-      }
-      guard canCommit(generation) else { return }
-      analysisFrameHeld = true
-      displayedFrame = inspection.displayedFrame
-      lastSceneMeasurement = inspection.measurement
-      cameraOverlays = inspection.measurement.overlays
-    } catch {
-      guard canCommit(generation) else { return }
-      cameraError = actionableDescription(error)
-    }
-  }
-
-  func resumeLivePreview() async {
-
-    guard currentCameraCalibrationBusyReason == nil else { return }
-    guard frameMode == .live, let cameraActions else { return }
-    analysisFrameHeld = false
-    lastSceneMeasurement = nil
-    cameraOverlays = []
-    let snapshot = await cameraActions.snapshot()
-    cameraSnapshot = snapshot
-    if let latest = snapshot.latestFrame { displayedFrame = latest }
+    await reconcileAutomaticVisionAnalysis()
   }
 
   private func beginScopedVisionAnalysis() async -> ScopedVisionAnalysisLease? {
@@ -5379,82 +5404,29 @@ final class OperatorWorkspace {
       !scopedVisionAnalysisActive,
       let cameraActions
     else { return nil }
-    let priorHeldInspection: LiveSceneInspection? =
-      if analysisFrameHeld,
-        let displayedFrame,
-        let measurement = lastSceneMeasurement,
-        measurement.frameID == displayedFrame.frame.id,
-        measurement.cameraConfigurationID == displayedFrame.frame.cameraConfigurationID
-      {
-        LiveSceneInspection(displayedFrame: displayedFrame, measurement: measurement)
-      } else {
-        nil
-      }
     let generation = lifetimeGeneration
     visionUpdateTask?.cancel()
     visionUpdateTask = nil
-    let snapshot = await cameraActions.setAutomaticInspection(.twoFPS)
+    await cameraActions.setSceneAnalysisRegion(videoAnalysisRegionLock?.region)
+    let snapshot = await cameraActions.setAutomaticInspection(visionAnalysisCadence)
     guard canCommit(generation), frameMode == .live else {
       _ = await cameraActions.setAutomaticInspection(nil)
       return nil
     }
     scopedVisionAnalysisActive = true
     visionError = snapshot.lastError
-    analysisFrameHeld = false
     visionAnalysisSnapshot = snapshot
     beginVisionUpdates(generation: generation)
     if let result = snapshot.latestResult { receiveVision(result) }
-    return ScopedVisionAnalysisLease(priorHeldInspection: priorHeldInspection)
+    return ScopedVisionAnalysisLease()
   }
 
   private func endScopedVisionAnalysis(_ lease: ScopedVisionAnalysisLease?) async {
-    guard let lease, let cameraActions else { return }
+    guard lease != nil, cameraActions != nil else { return }
     visionUpdateTask?.cancel()
     visionUpdateTask = nil
-    let generation = lifetimeGeneration
-    let lastAnalyzedResult = visionAnalysisSnapshot.latestResult
-    let snapshot = await cameraActions.setAutomaticInspection(nil)
-    guard canCommit(generation) else { return }
     scopedVisionAnalysisActive = false
-    visionError = snapshot.lastError
-    visionAnalysisSnapshot = snapshot
-    if let heldResult = snapshot.latestResult ?? lastAnalyzedResult {
-      analysisFrameHeld = true
-      displayedFrame = heldResult.displayedFrame
-      lastSceneMeasurement = heldResult.measurement
-      cameraOverlays = heldResult.measurement.overlays
-      return
-    }
-    if let prior = lease.priorHeldInspection {
-      analysisFrameHeld = true
-      displayedFrame = prior.displayedFrame
-      lastSceneMeasurement = prior.measurement
-      cameraOverlays = prior.measurement.overlays
-      return
-    }
-    analysisFrameHeld = false
-    lastSceneMeasurement = nil
-    cameraOverlays = []
-    let latestCameraSnapshot = await cameraActions.snapshot()
-    guard canCommit(generation), frameMode == .live else { return }
-    cameraSnapshot = latestCameraSnapshot
-    if let latest = latestCameraSnapshot.latestFrame { displayedFrame = latest }
-  }
-
-  func captureCameraSnapshot() async {
-
-    guard let generation = beginHardwareIntent() else { return }
-    defer { endHardwareIntent() }
-    guard frameMode == .live, let cameraActions else { return }
-    cameraError = nil
-    do {
-      let path = try await cameraActions.captureSnapshot()
-      guard canCommit(generation) else { return }
-      lastCameraSnapshotPath = path
-    } catch {
-      guard canCommit(generation) else { return }
-      cameraError = actionableDescription(error)
-    }
+    await reconcileAutomaticVisionAnalysis()
   }
 
   func switchFrameMode(_ mode: OperatorFrameMode) async {
@@ -5472,6 +5444,8 @@ final class OperatorWorkspace {
     frameTask?.cancel()
     frameTask = nil
     clearAutomaticVisionPresentation()
+    videoAnalysisRegionLock = nil
+    await cameraActions.setSceneAnalysisRegion(nil)
     cameraOverlays = []
     cameraError = nil
     switch mode {
@@ -5488,6 +5462,7 @@ final class OperatorWorkspace {
       latestLiveCameraFrame = validatedLiveCameraFrame(in: snapshot)
       updateCameraError()
       beginFrameUpdates(generation: generation)
+      await reconcileAutomaticVisionAnalysis()
     case .simulated:
       let snapshot = await cameraActions.stop()
       guard canCommit(generation) else { return }
@@ -5593,19 +5568,27 @@ final class OperatorWorkspace {
     if let generation, !canCommit(generation) { return }
     guard case .live(let deviceID) = frame.source, deviceID == selectedCameraID else { return }
     latestLiveCameraFrame = frame
+    if let lock = videoAnalysisRegionLock, !lock.matches(frame) {
+      videoAnalysisRegionLock = nil
+      Task {
+        await cameraActions?.setSceneAnalysisRegion(nil)
+        await reconcileAutomaticVisionAnalysis()
+      }
+    }
 
-    guard !analysisFrameHeld, !scopedVisionAnalysisActive else { return }
+    guard case .stopped = visionAnalysisSnapshot.state else { return }
     displayedFrame = frame
   }
 
   private func beginVisionUpdates(generation: UInt64) {
-    guard canCommit(generation), let cameraActions, scopedVisionAnalysisActive else { return }
+    guard canCommit(generation), let cameraActions,
+      case .running = visionAnalysisSnapshot.state
+    else { return }
+    visionUpdateTask?.cancel()
     visionUpdateTask = Task { [weak self] in
       let stream = await cameraActions.analysisUpdates()
       for await snapshot in stream {
-        guard !Task.isCancelled, let self,
-          self.canCommit(generation), self.scopedVisionAnalysisActive
-        else { return }
+        guard !Task.isCancelled, let self, self.canCommit(generation) else { return }
         let activityChanged =
           self.visionAnalysisSnapshot.activeFrameSequence != snapshot.activeFrameSequence
         let priorResultFrameID =
@@ -5616,8 +5599,7 @@ final class OperatorWorkspace {
         self.visionError = snapshot.lastError
         if activityChanged || resultChanged {
           let cameraSnapshot = await cameraActions.snapshot()
-          guard !Task.isCancelled, self.canCommit(generation), self.scopedVisionAnalysisActive
-          else { return }
+          guard !Task.isCancelled, self.canCommit(generation) else { return }
           self.cameraSnapshot = cameraSnapshot
         }
         if resultChanged, let result = snapshot.latestResult { self.receiveVision(result) }
@@ -7149,7 +7131,7 @@ final class OperatorWorkspace {
               kind: .paperReplaced,
               title: "Record Paper Replacement",
               role: .positive
-            )
+            ),
           ]
         case .accepted:
           actions = []
@@ -7471,9 +7453,16 @@ final class OperatorWorkspace {
     case .pairedBoundaryDiscoveryAndCentering:
       [.text("Four accepted sides and one explicit arrival at the estimated machine center.")]
     case .calibrateCameraAndVisibleCap:
-      [.text("Three fit samples, two independent holdouts, and one current all-five machine-camera revision.")]
+      [
+        .text(
+          "Three fit samples, two independent holdouts, and one current all-five machine-camera revision."
+        )
+      ]
     case .calibratePenContactFromSparseMarks:
-      [.text("Five immutable click observations and one explicitly accepted tip-camera registration.")]
+      [
+        .text(
+          "Five immutable click observations and one explicitly accepted tip-camera registration.")
+      ]
     }
   }
 
@@ -7697,10 +7686,12 @@ final class OperatorWorkspace {
           fragments: [
             .text(
               proposal.map {
-                let holdouts = $0.modelForm == .constantCameraPixelCorrection
+                let holdouts =
+                  $0.modelForm == .constantCameraPixelCorrection
                   ? $0.modelSelectionEvidence.constantHoldouts
                   : $0.modelSelectionEvidence.affineHoldouts
-                return "\($0.modelForm.rawValue) · holdouts \(holdouts.map { String(format: "%.3f px", $0.residualPixels) }.joined(separator: ", ")) · uncertainty \(String(format: "%.3f px", $0.uncertainty.maximumResidualPixels))"
+                return
+                  "\($0.modelForm.rawValue) · holdouts \(holdouts.map { String(format: "%.3f px", $0.residualPixels) }.joined(separator: ", ")) · uncertainty \(String(format: "%.3f px", $0.uncertainty.maximumResidualPixels))"
               } ?? "Tip not calibrated")
           ]
         ),
@@ -7887,8 +7878,7 @@ final class OperatorWorkspace {
       if !motionAuthorizationEnabled { return "Enable Motion for this controller session." }
       // Coordinator/operation ownership is reported in its own row instead of
       // being mislabeled as a Controller safety refusal.
-      if currentCameraCalibrationPhase != nil || activeStopTarget != nil
-      {
+      if currentCameraCalibrationPhase != nil || activeStopTarget != nil {
         return nil
       }
       return directCarriageMotionUnavailableReason
@@ -7928,21 +7918,30 @@ final class OperatorWorkspace {
       visionRole = .operationOwner
       visionDetail =
         "Current-camera calibration owns a multi-step optical-registration operation. New manual motion is blocked until it settles; any currently admitted move is also shown under Motion owner."
-    } else if sceneInspectionInProgress {
-      visionState = "Inspecting one frame"
-      visionBlocksMotion = false
-      visionRole = .advisoryEvidence
-      visionDetail = "One camera frame is being processed for overlays and diagnostics."
     } else if scopedVisionAnalysisActive {
       let analysisIsActive = visionAnalysisSnapshot.activeFrameSequence != nil
-      visionState = analysisIsActive
+      visionState =
+        analysisIsActive
         ? "Motion-scoped analysis · preview held"
         : "Motion-scoped analysis · live recovery"
       visionBlocksMotion = false
       visionRole = .advisoryEvidence
-      visionDetail = analysisIsActive
+      visionDetail =
+        analysisIsActive
         ? "One immutable frame is being analyzed off the main actor. Preview publication is held until it settles; raw camera delivery continues."
-        : "The owned movement is still active between computations. Analysis stops when that owner settles."
+        : "The owned movement is still active between computations. When it settles, the selected overlay settings determine whether background analysis continues."
+    } else if case .running(let cadence) = visionAnalysisSnapshot.state {
+      let analysisIsActive = visionAnalysisSnapshot.activeFrameSequence != nil
+      visionState =
+        analysisIsActive
+        ? "Overlay analysis · preview held"
+        : "Overlay analysis · live recovery"
+      visionBlocksMotion = false
+      visionRole = .advisoryEvidence
+      visionDetail =
+        analysisIsActive
+        ? "One immutable frame is being analyzed at up to \(cadence.rawValue) frames per second. Preview publication is held and visibly dimmed; raw camera delivery and overlay selections continue."
+        : "Selected scene overlays keep newest-only analysis running at up to \(cadence.rawValue) frames per second."
     } else {
       visionState = "Idle"
       visionBlocksMotion = false
@@ -8125,7 +8124,14 @@ final class OperatorWorkspace {
   }
 
   private func receiveVision(_ result: PlotterSceneAnalysisResult) {
-    guard frameMode == .live, scopedVisionAnalysisActive else { return }
+    guard frameMode == .live, case .running = visionAnalysisSnapshot.state else { return }
+    if let lock = videoAnalysisRegionLock, !lock.matches(result.displayedFrame) {
+      videoAnalysisRegionLock = nil
+      Task {
+        await cameraActions?.setSceneAnalysisRegion(nil)
+        await reconcileAutomaticVisionAnalysis()
+      }
+    }
     displayedFrame = result.displayedFrame
     lastSceneMeasurement = result.measurement
     cameraOverlays = result.measurement.overlays
@@ -8389,8 +8395,7 @@ final class OperatorWorkspace {
         episode.frames.removeAll {
           $0.role == .localPreLineBaseline || $0.role == .postLine
         }
-      } else if step.rawValue <= ObservedDrawingTrialStep.revealAndObserveNewInk.rawValue
-      {
+      } else if step.rawValue <= ObservedDrawingTrialStep.revealAndObserveNewInk.rawValue {
         episode.frames.removeAll { $0.role == .postLine }
       }
       if step.rawValue <= ObservedDrawingTrialStep.drawIsolatedLine.rawValue {
@@ -8746,11 +8751,9 @@ final class OperatorWorkspace {
     await clearDiscoveryAuthority()
     cameraError = nil
     visionError = nil
-    analysisFrameHeld = false
     scopedVisionAnalysisActive = false
     visionAnalysisSnapshot = .stopped
     lastSceneMeasurement = nil
-    lastCameraSnapshotPath = nil
     simulatorPenState = .unknown
     simulatorLearningSummary = "Switch to SIMULATED to inspect model behavior."
   }
@@ -8894,7 +8897,8 @@ final class OperatorWorkspace {
 
   private func drawingTrialExpectationText(for step: ObservedDrawingTrialStep) -> String {
     switch step {
-    case .chooseIsolatedLinePlan: "One typed local line plan projected by an exact tip-model revision."
+    case .chooseIsolatedLinePlan:
+      "One typed local line plan projected by an exact tip-model revision."
     case .captureLocalPreLineBaseline:
       "One exact pre-line frame and its Pen-Up reveal MPos."
     case .moveToLineStart: "Arrival at the local line start while Pen Up."
@@ -9521,7 +9525,6 @@ final class OperatorWorkspace {
     scopedVisionAnalysisActive = false
     visionAnalysisSnapshot = .stopped
     visionError = nil
-    analysisFrameHeld = false
     lastSceneMeasurement = nil
     cameraOverlays = []
   }

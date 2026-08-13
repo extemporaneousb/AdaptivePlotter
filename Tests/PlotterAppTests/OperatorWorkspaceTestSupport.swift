@@ -255,11 +255,12 @@ func completeSimulatedSparseTipCalibration(
     let sample = try #require(plan.samples.first { $0.position == position })
     let capPoint = try registration.fit.cameraPoint(from: sample.machinePosition.point)
     let truthPoint = try capPoint.translated(by: truthOffset)
-    workspace.selectToolContactPoint(ActionSurfacePointSelection(
-      frame: request.frame,
-      point: truthPoint,
-      presentationTransformRevision: request.presentationTransformRevision
-    ))
+    workspace.selectToolContactPoint(
+      ActionSurfacePointSelection(
+        frame: request.frame,
+        point: truthPoint,
+        presentationTransformRevision: request.presentationTransformRevision
+      ))
     try await performPublicAction(.acceptSparseTipMark, owner: tipOwner, workspace: workspace)
   }
   try await performPublicAction(.acceptTipCalibration, owner: tipOwner, workspace: workspace)
@@ -351,8 +352,10 @@ func workspace(
   camera: CameraFixture? = nil,
   cameraActionsOverride: OperatorWorkspace.CameraActions? = nil,
   boundaryMotionBegin:
-    (@Sendable (BoundaryMotionRequest, BoundaryMotionRenewalPlanner?) async
-      -> BoundaryMotionAdmission)? = nil,
+    (
+      @Sendable (BoundaryMotionRequest, BoundaryMotionRenewalPlanner?) async
+        -> BoundaryMotionAdmission
+    )? = nil,
   jogCancel: (@Sendable (JogCancelIntent) async -> JogCancelOutcome)? = nil,
   announcements: AnnouncementFixture? = nil,
   checkpointActions: OperatorWorkspace.AcceptedArtifactCheckpointActions? = nil,
@@ -360,17 +363,19 @@ func workspace(
   log _: EventLog
 ) -> OperatorWorkspace {
   let clock = TestClock()
-  let beginBoundaryMotion = boundaryMotionBegin ?? { @Sendable request, _ in
-    BoundaryMotionAdmission.admitted(
-      BoundaryMotionOperation(
-        ownerID: request.ownerID,
-        task: Task { await machine.requestBoundaryMotion(request) }
+  let beginBoundaryMotion =
+    boundaryMotionBegin ?? { @Sendable request, _ in
+      BoundaryMotionAdmission.admitted(
+        BoundaryMotionOperation(
+          ownerID: request.ownerID,
+          task: Task { await machine.requestBoundaryMotion(request) }
+        )
       )
-    )
-  }
-  let requestJogCancel = jogCancel ?? { @Sendable intent in
-    await machine.cancel(intent: intent)
-  }
+    }
+  let requestJogCancel =
+    jogCancel ?? { @Sendable intent in
+      await machine.cancel(intent: intent)
+    }
   return OperatorWorkspace(
     machineActions: .init(
       select: { _ in await machine.snapshot() },
@@ -492,7 +497,7 @@ func cameraActions(_ fixture: CameraFixture) -> OperatorWorkspace.CameraActions 
     frames: { AsyncStream { $0.finish() } },
     inspectScene: { try fixture.inspection(after: $0) },
     captureFrame: { try fixture.inspection(after: $0).displayedFrame },
-    captureSnapshot: { "unused" },
+    setSceneAnalysisRegion: { fixture.setSceneAnalysisRegion($0) },
     setAutomaticInspection: { fixture.setAutomaticInspection($0) },
     analysisUpdates: { AsyncStream { $0.finish() } },
     observeIsolatedInk: { _ in fatalError("unused") }
@@ -679,7 +684,8 @@ actor MachineFixture {
   }
 
   func passiveProbeResult() -> PassiveProbeResult {
-    let parserState = hasActuatedPen
+    let parserState =
+      hasActuatedPen
       ? "[GC:G0 G54 G17 G21 G90 G94 M3 M9 T0 F0 S40]"
       : "[GC:G0 G54 G17 G21 G90 G94 M5 M9 T0 F0 S0]"
     let reports: [(PassiveQuery, [String])] = [
@@ -834,6 +840,7 @@ final class CameraFixture: @unchecked Sendable {
   private let lock = NSLock()
   private var inspectionCount = 0
   private var automaticInspectionRequests: [VisionAnalysisCadence?] = []
+  private var sceneAnalysisRegionRequests: [PixelRect?] = []
 
   var inspectionCallCount: Int {
     lock.lock()
@@ -889,7 +896,8 @@ final class CameraFixture: @unchecked Sendable {
       try Point2(x: 0, y: 100),
       try Point2(x: 0, y: 0),
     ])
-    let overlays = providesInspectionOverlay
+    let overlays =
+      providesInspectionOverlay
       ? [
         CameraOverlayMeasurement(
           frameID: fresh.frame.id,
@@ -940,13 +948,26 @@ final class CameraFixture: @unchecked Sendable {
     return automaticInspectionRequests
   }
 
+  var recordedSceneAnalysisRegionRequests: [PixelRect?] {
+    lock.lock()
+    defer { lock.unlock() }
+    return sceneAnalysisRegionRequests
+  }
+
+  func setSceneAnalysisRegion(_ region: PixelRect?) {
+    lock.lock()
+    sceneAnalysisRegionRequests.append(region)
+    lock.unlock()
+  }
+
   func setAutomaticInspection(
     _ cadence: VisionAnalysisCadence?
   ) -> PlotterSceneAnalysisSnapshot {
     lock.lock()
     automaticInspectionRequests.append(cadence)
     lock.unlock()
-    let latestResult = providesAutomaticAnalysisResult
+    let latestResult =
+      providesAutomaticAnalysisResult
       ? try? inspection(after: 100).asAnalysisResult
       : nil
     return PlotterSceneAnalysisSnapshot(
@@ -963,8 +984,8 @@ final class CameraFixture: @unchecked Sendable {
   }
 }
 
-private extension LiveSceneInspection {
-  var asAnalysisResult: PlotterSceneAnalysisResult {
+extension LiveSceneInspection {
+  fileprivate var asAnalysisResult: PlotterSceneAnalysisResult {
     PlotterSceneAnalysisResult(
       displayedFrame: displayedFrame,
       measurement: measurement,
@@ -1097,7 +1118,7 @@ func boundaryGatedCameraActions(
       try await gate.inspect(fixture.inspection(after: boundary))
     },
     captureFrame: base.captureFrame,
-    captureSnapshot: base.captureSnapshot,
+    setSceneAnalysisRegion: base.setSceneAnalysisRegion,
     setAutomaticInspection: base.setAutomaticInspection,
     analysisUpdates: base.analysisUpdates,
     observeIsolatedInk: base.observeIsolatedInk
