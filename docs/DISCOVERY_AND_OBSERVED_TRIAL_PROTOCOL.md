@@ -3,111 +3,65 @@
 Status: current operating protocol for Learning Path 3.2 through 4.6
 
 This document owns the exact actor, action, evidence, dependency, and recovery
-sequence. Product invariants remain in [Product Contract](PRODUCT_CONTRACT.md).
+sequence. Durable semantics remain in [Product Contract](PRODUCT_CONTRACT.md).
 
 ## Common actor contract
 
 Every interactive step exposes:
 
 - one current participant: App, Operator, Controller, Camera, Vision, or Pen;
-- one typed current action;
-- one expected observation;
+- one typed current action and expected observation;
 - one explicit button-owned transition;
 - one operation owner when controller or simulator state may change;
-- one contextual Stop capability while that owner is stoppable;
+- one contextual Stop while that owner is stoppable;
 - one typed attempt and disposition;
-- exact artifact dependencies for any accepted result.
+- exact artifact dependencies for every accepted result.
 
 Announcements are advisory output. Buttons own answers, Start, Cancel, Stop,
-Restart, Redo, and Record Another Attempt.
-Boundary announcements name the plotter and say positive or negative X/Y in
-words. Compact X−/X+/Y−/Y+ glyphs remain visual labels and are never sent to
-speech synthesis.
+Restart, Redo, re-click, and acceptance.
 
-Cancel abandons the current attempt. Stop settles an admitted stoppable owner.
-They may share one mechanical Jog Cancel primitive but never share a successful
+Cancel abandons a settled attempt. Stop settles an admitted stoppable owner.
+They may share a mechanical Jog Cancel primitive but never share a successful
 semantic disposition. Sticky ambiguity suppresses new physical motion.
 
-Every production comparison of a requested controller pose with settled MPos
-uses fresh attributable controller evidence, compatible context, and at most
-0.05 mm Euclidean residual. **Exact pose** names that quantization-aware policy;
-it does not require mathematically zero residual when configured steps/mm cannot
-represent the requested coordinate exactly.
+Every production comparison of requested pose and settled MPos uses fresh
+attributable controller evidence, compatible context, and the shared 0.05 mm
+Euclidean policy.
+
+Presentation zoom, pan, and fitted bounds are available after 3.2. They are
+view-only. Exact camera-pixel evidence and calibration authority do not change
+when the presentation transform changes.
 
 ## 3.2 Paired Boundary Discovery and Centering
 
-### Direction sequence
-
-1. The operator selects any first X or Y direction. Selection is inert. When
-   the protocol requires the opposite side, the UI presents that direction as
-   required noninteractive content rather than a disabled choice.
-2. Explicit **Start** admits one operator-stopped Boundary owner.
-3. The controller begins with one 20 mm probe segment under that same owner.
-   After each unambiguous Idle/MPos, a strictly newer advisory frame may project
-   remaining camera-space clearance and choose 50, 20, 10, 5, or 2 mm. The
-   planner retains 4 mm estimated clearance, consumes at most half the remaining
-   estimate, and never increases again after its first valid projection. Every
-   directional owner has an independent planner. If its initial camera seed is
-   unavailable, the first later compatible frame establishes that side's
-   baseline; one more 20 mm probe can then produce coarse advice instead of
-   leaving the rest of that side permanently on the fallback tier.
-   During the LIVE owner, these finite explicit renewal inspections are the only
-   scene-analysis producer; camera startup and stopped state admit none.
-4. **Stop** is visible immediately and remains bound to that owner.
+1. The operator selects any first X or Y direction. Selection is inert.
+2. **Start** admits one operator-stopped Boundary owner.
+3. The controller begins with one 20 mm segment. After each unambiguous
+   Idle/MPos, a strictly newer advisory frame may choose a 50, 20, 10, 5, or
+   2 mm renewal while retaining direction and controller-derived feed.
+4. **Stop Boundary** remains bound to the original owner.
 5. Operator Stop closes renewal and emits one Jog Cancel.
 6. The original owner settles through fresh Idle and final MPos.
-7. The workspace atomically commits typed direction, Stop owner/disposition,
-   controller session/revision, and final MPos as the side attempt and aggregate.
-8. The forced opposite side becomes next.
-9. After the pair, the operator selects either sign on the other axis and then
-    records its forced opposite.
-10. After four sides, explicit **Move to Estimated Center** admits one stoppable
-    Pen Up move.
-11. Arrival succeeds when the exact final controller MPos is within 0.05 mm
-    Euclidean residual of the derived target.
+7. Typed direction, Stop disposition, controller session/revision, and final
+   MPos commit atomically as the side attempt and aggregate.
+8. The forced opposite direction is shown as required noninteractive content.
+9. After the pair, the operator chooses either sign on the remaining axis and
+   records its forced opposite.
+10. After all four sides, **Move to Estimated Center** admits one stoppable
+    Pen-Up move.
+11. Arrival succeeds only when the final MPos is within 0.05 mm of the derived
+    center.
 
-The advisory frame used between segments is not accepted side evidence. A
-missing, stale, camera-incompatible, low-confidence, or geometrically unusable
-observation selects 20 mm or less and cannot alter direction, feed, Stop, or
-side acceptance.
-Stop or out-of-tolerance center settlement retains all four side aggregates and
-exposes **Retry Center Arrival** for only the remaining delta.
+The advisory frame cannot identify or veto a side. Missing, stale,
+camera-incompatible, low-confidence, or unusable advice selects a conservative
+renewal and cannot alter direction, feed authority, Stop, or side acceptance.
 
-There is no generic preparatory YES/NO question. A detected drawing-frame edge,
-quadrilateral, or nearest-edge association cannot identify or veto a side. The
-typed direction and settled controller position are authoritative. Optical
-contact evidence begins in 3.3 and is not part of a Boundary attempt.
+Natural completion of a finite segment is not side evidence. A healthy owner
+may renew; operator Stop, limit, alarm, disconnect, or ambiguity terminates it.
+Stopped or out-of-tolerance center travel preserves all four side aggregates
+and exposes **Retry Center Arrival** for the remaining delta only.
 
-Natural completion of one finite segment is not side evidence. An unambiguous
-segment may renew while the same owner remains active. A controller limit,
-alarm, disconnect, or ambiguity ends the attempt as Needs Attention rather than
-inventing success.
-
-### Side attempts and aggregates
-
-A successful machine-side attempt retains:
-
-- attempt and operation-owner identity;
-- typed direction and Stop disposition;
-- controller session and coordinate revision;
-- final settled MPos;
-
-The accepted aggregate for one direction retains its revision, numeric
-compatibility, estimate in millimetres, sample count, estimator, uncertainty,
-included attempt IDs, and excluded/superseded provenance.
-
-Numeric compatibility includes direction, controller session, coordinate
-revision, machine space, millimetre units, and estimator revision. Camera
-configuration is not a numeric compatibility key.
-
-Record Another Attempt adds one compatible success. Redo replaces the entire
-accepted side aggregate on success; the replacement starts at N=1. Failure,
-refusal, cancellation, or ambiguity preserves the previous aggregate, graph,
-center, local frame, arrival, and downstream accepted path.
-
-### Center and local coordinates
-
-The four current side aggregates derive:
+The four current aggregates derive:
 
 ```text
 center.x = (X− estimate + X+ estimate) / 2
@@ -116,245 +70,237 @@ local.x  = raw.x - X− estimate
 local.y  = raw.y - Y− estimate
 ```
 
-The UI shows learned local millimetres as primary only after all four sides
-exist and keeps raw Controller MPos as provenance. Local coordinates do not
-rewrite MPos, establish homing, configure a work offset, clamp requests, or
-admit motion.
+Learned local coordinates are presentation evidence. They do not rewrite MPos,
+configure a work offset, clamp commands, or authorize motion.
 
-Center retry is not Boundary retry. It retains the accepted sides, estimated
-center, learned local frame, exact failed settlement, and Needs Attention
-detail. The retry recomputes the remaining delta from current MPos. It does not
-repeat side discovery or manufacture a center-arrival artifact.
+## 3.3 Calibrate Camera and Visible Cap
 
-## 3.3 Register Target Pose and Camera Geometry
+### Rectangle and roles
 
-At the accepted target pose:
+1. Require current accepted X−, X+, Y−, and Y+ Boundary aggregates, a current
+   controller session/revision, Pen Up, and center arrival.
+2. Inset the Boundary envelope by 10 mm.
+3. Reduce it symmetrically around center when paper coverage or visibility of
+   the full safe envelope is not separately known.
+4. Require at least 10 mm usable span on both axes.
+5. Record the chosen applicability rectangle and derivation.
 
-1. press one explicit **Capture Target Pose and Build Geometry Proposal**
-   action;
-2. under that action, record current controller MPos and capture one exact
-   compatible frame;
-3. measure the visible cap bottom-centre as an exact-frame **cap anchor**; this
-   is neither the component centroid nor the hidden paper-contact point;
-4. fit machine-camera registration from compatible exact machine/cap-anchor
-   samples or run the one bounded three-sample Pen Up calibration owner and
-   return to the captured target MPos under the shared pose policy;
-   the calibration's first fresh passive probe establishes an operation-local
-   controller-context baseline, and every later before/after-capture probe must
-   match and advance that baseline;
-5. stage the fit, validation residual, and a circular search region whose radius
-   is half the camera frame's shorter dimension as a non-authoritative proposal.
-   The circle centre is the cap anchor from the exact target-pose frame, not a
-   reprojected fit result; its exact frame ID, SHA, source, and camera
-   configuration remain provenance;
-6. inspect the complete exact frame, magenta circle, and adjustable
-   presentation-only zoom; then explicitly accept or reject the proposal.
+The ordered positions and roles are:
 
-There is no preceding generic Start and no separate public Capture then Build
-sequence.
+| Order | Position | Normalized coordinate | Role |
+| --- | --- | --- | --- |
+| 1 | `C` | 50% X, 50% Y | fit |
+| 2 | `X−` | 10% X, 50% Y | fit |
+| 3 | `Y+` | 50% X, 90% Y | fit |
+| 4 | `X+` | 90% X, 50% Y | holdout |
+| 5 | `Y−` | 50% X, 10% Y | holdout |
 
-Calibration never accepts geometry. One explicit acceptance atomically makes
-the target-pose, machine-camera, and typed target-search revisions current. No one
-of those revisions becomes current if proposal construction or acceptance
-fails. Viewport zoom never mutates the circular search support used by Vision.
+### Capture, fit, and acceptance
 
-An application-owned parser transition such as Pen Up `M5/S0` to `M3/S40` is
-recorded but does not invalidate coordinate identity. A device, build, units,
-distance-mode, work-coordinate, controller-setting, or coordinate-offset change
-discards the staged calibration sample, names the changed fields, disables
-calibration retry, and requires controller-context revalidation. Other failures
-derive recovery from current MPos: retry directly when still at the registered
-target, or expose Return to Captured Target Pose when it actually moved.
+1. Press **Capture Five Cap Samples**.
+2. The first fresh passive probe establishes this operation's controller-context
+   baseline. Each later sample must compare compatible and advance that local
+   baseline.
+3. At every position, move Pen Up under the existing stoppable owner, require
+   fresh Idle/final MPos within 0.05 mm, capture one exact frame, and record the
+   visible cap bottom-center with estimator provenance.
+4. Use a consistent final approach. Travel between already selected positions
+   may be diagonal, but only the listed positions are model samples.
+5. Fit an affine machine-to-cap map from `C`, `X−`, and `Y+`.
+6. Predict the sealed `X+` and `Y−` holdouts. Both residuals must be at most the
+   declared eight-pixel policy in the bootstrap implementation.
+7. If both pass, refit all five with confidence-derived weights and stage one
+   proposal containing residuals, uncertainty, exact-frame provenance,
+   applicability, semantic optical identity, machine geometry, and coordinate
+   revision.
+8. **Accept Camera and Visible-Cap Fit** commits the current
+   `MachineCameraRegistration` atomically. **Reject Camera Fit** commits
+   nothing.
 
-## 3.4 Discover and Accept Clear View
+The cap landmark is not the hidden paper-contact point. Three non-collinear
+samples without the two holdouts cannot become authority.
 
-The operator chooses a typed Pen Up signed axis direction and either 50 or
-10 mm. Each action admits one bounded move. After settlement, the
-camera captures an exact frame and Vision reports Clear, Partial, or Blocked.
-The bounded move may own newest-only scene analysis while it is in flight and
-must stop it at controller settlement. The subsequent explicit inspection
-freezes preview publication on its exact input frame while raw camera delivery
-remains active, and resumes from the newest buffered frame only after Vision
-settles.
+A device, build, units, distance mode, work coordinate, controller setting, or
+coordinate-offset change stops the operation with typed recovery. App-owned
+Pen Up modal changes remain visible provenance but do not masquerade as a
+coordinate change.
 
-The operator's explicit human label owns the Clear-pose acceptance decision.
-The action strip shows both that recorded label and Vision's exact-frame report.
-A disagreement remains attributable evidence but cannot veto an explicit
-**Accept Clear Pose**.
+## 3.4 Calibrate Pen Contact from Sparse Marks
 
-Partial or Blocked keeps the search transaction current. The operator may move
-again, change direction/distance, record an attributable human observation, or
-cancel. The app does not infer a useful pose from elapsed travel alone.
+### Ordered physical sequence
 
-An accepted Clear pose records controller context, MPos, exact frame and camera
-configuration, search-circle context, armature evidence, source, and algorithm
-revision.
+Use `C`, `X−`, `Y+`, `X+`, `Y−`, then return Pen Up to `C` to reveal the final
+mark.
 
-## 3.5 Confirm Blank Target Baseline
+For each mark:
 
-At the accepted Clear MPos, capture a fresh exact candidate frame and explicitly
-choose **Confirm Search Circle Is Blank** or **Not Blank**. Capture alone creates
-no baseline authority. Acceptance records frame/configuration, MPos, paper
-revision, target-search revision, and Clear-pose revision.
+1. Press **Create Next Stationary Mark**.
+2. Move Pen Up to the intended position under the existing bounded, stoppable
+   owner and consistent final approach.
+3. Require fresh Idle/final MPos within 0.05 mm.
+4. Capture an exact pre-mark frame and current cap anchor. Reject the operation
+   if the accepted cap map misses that anchor by more than its declared policy.
+5. Retain the pre-mark frame as local evidence.
+6. Perform one stationary contact tap: Pen Down, normal actuator settlement,
+   then Pen Up. XY drawing displacement is zero and there is no dwell or moving
+   mark.
+7. Require an unambiguous Pen Up result. If Pen state or motion is ambiguous,
+   classify possible ink, blacklist the physical location, and stop. Never tap
+   it again automatically.
+8. Move Pen Up to the next listed position, or to `C` after `Y−`. Use diagonal
+   reveal travel when geometry permits.
+9. Require reveal-pose Idle/final MPos within 0.05 mm.
+10. Capture one strictly newer exact post-reveal frame and revalidate the cap
+    map at that pose.
+11. Freeze that frame. Suppress every predicted tip overlay and ask **Click the
+    center of the new black mark**.
+12. Convert the zoomed/letterboxed view click back to exact camera pixels. Bind
+    it to frame ID, SHA-256, source, capture session, semantic optical identity,
+    dimensions, and presentation-transform revision.
+13. Show the asserted point, 1.5 px per-axis pointing uncertainty, current
+    prediction if one exists, and residual.
+14. **Re-click This Exact Frame** clears only the point and reuses the same
+    frame. It performs no motion and creates no ink.
+15. **Accept Mark Center** atomically commits one immutable
+    `ToolContactObservation` revision.
 
-## 3.6 Return to Registered Target Pose
+The click is role `assertedCenter`. It is not automatic shape evidence. If a
+stationary tap cannot be resolved during attended validation, record that
+failure and stop; do not substitute a moving mark without a separate product
+decision.
 
-Move Pen Up under one stoppable owner to the registered target MPos. Completion
-requires Idle, final MPos accepted by the shared 0.05 mm pose policy, no sticky
-ambiguity, and a retained settlement.
+### Model selection and final acceptance
 
-## 3.7 Draw Visibility Target
+1. `C`, `X−`, and `Y+` are the fit set. `X+` and `Y−` are sealed holdouts.
+2. Fit a constant camera-pixel correction on the accepted cap map.
+3. If both holdouts pass, select that smallest model.
+4. If and only if both fail coherently, fit a direct affine machine-to-tip map
+   from the three fit samples and test it on both holdouts.
+5. A lone failing holdout blocks acceptance and does not justify affine
+   escalation.
+6. Both holdouts must pass the selected form.
+7. Refit the selected form on all five observations.
+8. Present model form, sealed holdout evidence, all-five residuals, uncertainty,
+   applicability rectangle, semantic identities, and consumed observation
+   revisions.
+9. **Accept Tip Calibration** atomically commits `TipCameraRegistration`, saves
+   the separate quarantined tip checkpoint, and advances to Stage 4.
+10. **Reject Tip Calibration** retains immutable observation history and causes
+    no motion or redraw.
 
-Execute `visibility-target-octagon-double-trace-v2`: draw one 4 mm diameter
-   octagon forward, then retrace the same perimeter in reverse under the same
-   owner and Pen Down interval.
+### Quarantined checkpoint recovery
 
-The target plan is immutable for the attempt and cites the target pose,
-machine-camera registration, target-ROI registration, camera context, blank
-baseline, paper revision, and drawing parameters. Possible ink advances to
-observation or explicit recovery. The target is never automatically redrawn
-after an uncertain result.
+Loading never restores authority automatically.
 
-## 3.8 Return and Observe Existing Target
+For an unchanged paper plane and matching semantic machine/tool/optical
+identities:
 
-Return Pen Up under one stoppable owner to accepted Clear and retain Idle/final
-MPos. Then capture two strictly newer exact frames and require compatible
-target detection plus two-frame agreement in the accepted circular search
-region.
+1. Rebuild and accept current Stage 3.3 machine-to-cap authority.
+2. Choose **Revalidate Saved Tip Calibration**.
+3. Require a settled Pen-Up controller position and capture one fresh exact cap
+   frame.
+4. Revalidate the current cap map and semantic identities.
+5. Perform no contact tap.
+6. Rebuild the five immutable observation graph nodes under the current machine-
+   camera revision and derive a new accepted tip revision with the fresh
+   revalidation evidence.
 
-Observation is one foreground, single-flight Vision operation. It publishes
-ownership before capture, searches only paired-frame luminance darkening inside
-the bounded circle, requires a diameter-compatible compact component, and
-presents the circle's bounding magnifier. Fixed-camera comparison searches at
-most 3 px and accepts at most 2 px of global translation for mount wobble; its
-local alignment support is the bounded annulus outside the search circle, not
-the circle's rectangular bounding-box exterior. The separate controller pose
-tolerance remains 0.05 mm. Controller, motion, pen, camera, source, analysis,
-Restart, and learning mutations are refused until settlement. **Cancel Vision**
-is the sole mutating action and preserves possible ink and the active attempt.
-Only a matching operation generation and complete captured authority context
-may commit.
-Preview publication is held during computation without stopping the camera
-session; success, rejection, failure, and cancellation all release that hold.
+After explicit paper replacement:
 
-**Record Another Observation** repeats only this two-frame observation against
-the existing target and baseline. It never executes 3.7 again.
+1. Retain the old checkpoint in quarantine and rotate the paper-plane identity.
+2. Rebuild and accept current Stage 3.3 authority.
+3. Start Stage 3.4 and create one new stationary center contact using the full
+   settle/tap/reveal/frozen-click sequence above.
+4. Require the new click to agree with the quarantined tip projection within the
+   declared eight-pixel policy.
+5. Derive a new accepted tip revision that consumes the original five evidence
+   identities plus the new contact-plane observation.
 
-## 3.9 Accept Visibility Registration
-
-Review the exact frames, centroid, area, uncertainty, immutable plan revision,
-search-circle anchor, derived cap-to-tip X/Y translation, retained execution-
-attempt disposition, and consumed revision provenance.
-The controller must remain Pen Up and Idle at the accepted Clear pose. Motion
-after observation routes back through the 3.8 Return action; exact settlement
-reuses the existing observation and does not capture or draw again. Explicit
-acceptance atomically creates the current cap-to-tip and visibility-registration
-revisions. Rejection
-retains the observation and physical target provenance and performs no redraw.
-
-If the physical scene is unusable, record the disposition:
-
-- `clear` — continue with compatible evidence;
-- `obstructed` — retain provenance and reacquire a Clear pose;
-- `targetUnusable` — retain the failed target evidence and require an explicit
-  new target attempt.
+Any mismatch or ambiguous contact leaves authority unavailable. It never falls
+back to automatic redraw or silent checkpoint promotion.
 
 ## 4. Observed Drawing Trial
 
+Stage 4 requires the exact current accepted `TipCameraRegistration` revision.
+Every request/result cites that revision.
+
 ### 4.1 Choose Isolated Line Plan
 
-Choose one accepted visibility-target perimeter point and a 5 mm outward line.
-The immutable plan cites the accepted visibility registration, current
-machine-camera registration, controller context, paper revision, pen profile,
-and explicit drawing feed.
+Choose a signed axis direction. The app selects a start inside the tip model's
+applicability rectangle and constructs one 5 mm local line. It projects start
+and end directly through the current tip registration.
 
-### 4.2 Capture Target-Anchored Baseline
+### 4.2 Capture Local Pre-Line Baseline
 
-At the accepted Clear pose, capture a fresh frame immediately before leaving.
-The target must be present and compatible with the plan. A blank pre-target
-baseline is not a substitute.
+With Pen Up and the controller Idle, capture one exact fresh frame and record
+the current MPos as this trial's local reveal pose. This baseline belongs only
+to the trial.
 
 ### 4.3 Move to Line Start
 
-Move Pen Up under one stoppable owner. Completion requires final Idle/MPos. Stop
-or ambiguity creates no drawing evidence.
+Move Pen Up under one stoppable owner to the recorded start. Completion requires
+fresh Idle/final MPos within 0.05 mm. Stop, refusal, or ambiguity creates no
+drawing evidence.
 
 ### 4.4 Draw Isolated Line
 
-Execute the immutable line under one drawing owner and explicit Pen Down feed.
-Stop retains the controller owner's Pen Up recovery behavior. Ambiguity causes
-no automatic follow-on or redraw.
+Confirm current MPos at the recorded start. Lower the pen, execute one typed
+5 mm stroke under one drawing owner, and raise. A stopped or ambiguous result
+never causes an automatic successor or redraw.
 
-### 4.5 Return and Observe New Ink
+### 4.5 Reveal and Observe New Ink
 
-Return to the accepted Clear pose, capture a fresh exact post-line frame, align
-it to the target-present baseline, isolate new ink, and preserve rejection
-evidence when measurement is unclear.
+1. Return Pen Up to the trial's recorded reveal MPos under one stoppable owner.
+2. Require fresh Idle/final MPos within 0.05 mm.
+3. Capture a post-line frame strictly newer than both the local baseline and
+   final drawing settlement.
+4. Project the intended line through the exact cited tip registration and form
+   bounded local observation support.
+5. Compare the same-pose baseline/post pair for black/new ink using bounded
+   fixed-camera alignment.
+6. Retain observed line geometry and residual, or a typed rejection. A rejection
+   requests no redraw.
 
-### 4.6 Compare Geometry
+### 4.6 Compare Intended and Observed Geometry
 
-Only a valid machine-camera registration may project intended machine geometry
-into the exact camera context. The comparison records intended, predicted, and
-observed geometry plus residual metrics and provenance. It does not promote a
-model automatically.
+Display intended, predicted, and observed geometry plus residuals only when the
+cited tip registration remains current. Record one typed operator assessment.
+An attributable line may be future candidate evidence; this action cannot
+promote a model.
 
 ## Dependency and recovery contract
 
 ```text
 four side aggregates -> center -> center arrival
--> target pose/contact/ROI -> clear pose
--> blank baseline -> target execution
--> two-frame target observation -> visibility registration
--> target-present line baseline -> line plan/execution
--> post-line frame -> ink observation -> comparison
+-> five-cap machine-camera registration
+-> five immutable contact observations -> accepted tip-camera registration
+-> local line plan + local baseline/reveal pose
+-> line execution + newer post-line frame
+-> ink observation -> residual -> typed comparison
 ```
 
-Redo invalidates only explicit transitive dependents after a successful
-replacement commit. Record Another Attempt recomputes the compatible aggregate
-and the same named dependents. Chronological successors without a dependency
-edge survive.
+Redo invalidates named transitive dependents only after a successful replacement
+commit. Failure preserves the current accepted value. Record Another Attempt
+adds only compatible successful evidence.
 
-Reset From This Step is deliberately different from Redo. It is an explicit
-operator-authored chronological reset, so it clears the selected exercise's
-current accepted result and every later Learning Path exercise even when two rows
-have no causal dependency edge. Selecting or reviewing a row alone never does
-this. The compact reset sheet lists the exact suffix and has one Reset button; it
-does not require phrase entry. Any accepted-state change makes the summary stale
-and requires the operator to review the updated steps.
+Reset From This Step is a separate operator-authored chronological rewind. It
+shows the exact suffix and rejects a stale summary. Reset All Learning anchors
+the same operation at Pen Interaction. Neither action moves, changes pen state,
+resends, redraws, or claims to erase ink.
 
-Reset All Learning is the same operation anchored at Pen Interaction. It preserves
-the selected responsive controller and current Enable Motion fact. LIVE Boundary
-rewinds clear the durable accepted-artifact checkpoint before in-memory state is
-changed. SIMULATED rewinds cannot touch parked LIVE authority. Neither operation
-starts, stops, resends, redraws, disconnects, or changes pen state, and neither
-erases ink already on paper.
-
-Camera reconfiguration invalidates optical registration, ROI, baseline, and
-image-derived descendants. It does not by itself invalidate compatible side
-aggregates, center, center arrival, or learned local coordinates.
-
-A failed normal attempt with no accepted result may expose Restart after
-settlement. A failed replacement or additional attempt with an accepted fallback
-restores the exact Redo/Record Another actions and keeps the accepted fallback
-current. It never replaces the runtime current step with a dead-end failure row.
+Semantic optical changes invalidate optical dependents but do not invalidate
+compatible machine-space Boundary aggregates. Presentation-only transform
+changes invalidate nothing. Paper-plane changes quarantine contact authority;
+raw observations remain history.
 
 ## Causal simulator contract
 
-SIMULATED traverses the same public actions and dependency graph. Its runtime
-owns simulated session, Motion authorization, MPos, pen pose, renewable
-Boundary motion, manual jog, target/line operations, paper revision, persistent
-ink, and causal frames.
+SIMULATED traverses the same public actions and dependency graph. It owns a
+simulated session, Motion authorization, MPos, pen pose, renewable Boundary
+motion, stationary black marks, isolated line drawing, paper revision,
+persistent ink, causal frames, and a real nonzero cap-to-tip truth.
 
-The world-to-camera transform is uniform, invertible, auto-fit, and stable for
-one simulated camera configuration. Exact annotations show truth envelope,
-learned sides, center, current contact, motion trail, owner/direction, ROI, and
-ink without modifying canonical pixels or hashes.
-
-Boundary Stop is available immediately. Stop, Cancel, ambiguity, and shutdown
-win before any later segment or frame mutation. Reaching simulator truth waits
-efficiently for explicit Stop; it does not naturally manufacture Boundary
-success. Simulated manual jog can complete naturally or be stopped without
-creating Boundary evidence.
-
-Every simulated surface says `SIMULATED — NOT PHYSICAL EVIDENCE`; no simulated
-route invokes physical machine actions.
+Annotations are exact identity-bound presentation only. They do not modify
+canonical pixels or hashes. Stop, ambiguity, cancellation, and shutdown win
+before later mutations. Every simulator surface states
+`SIMULATED — NOT PHYSICAL EVIDENCE`; no route invokes physical machine actions.

@@ -233,9 +233,14 @@ struct HumanGuidedDiscoveryTests {
     #expect(registration.correspondenceFrameIDs == Set(provenance.map(\.frameID)))
     #expect(registration.correspondenceRevisionIDs == Set(provenance.map(\.artifactRevisionID)))
     #expect(registration.capAnchorEstimatorRevision == "cap-bottom-center-anchor-v1")
+    #expect(registration.opticalConfiguration.source == .simulated)
+    #expect(registration.applicabilityDerivation == .boundaryEnvelopeInsetAndSymmetricallyReduced(
+      safetyMarginMM: 10,
+      maximumHalfSpanMM: 30
+    ))
     #expect(provenance.allSatisfy { !$0.frameSHA256.isEmpty })
-    #expect(provenance.map(\.captureNanoseconds) == [100, 101, 102, 103])
-    #expect(Set(provenance.map(\.attemptID)).count == 4)
+    #expect(provenance.map(\.captureNanoseconds) == [100, 101, 102, 103, 104])
+    #expect(Set(provenance.map(\.attemptID)).count == 5)
   }
 
   @Test("optical registration rejects camera and cap-anchor-estimator mismatches")
@@ -359,7 +364,7 @@ private func boundaryEvidence(
 }
 
 private func registrationPairs() throws -> [MachineCameraRegistrationCorrespondence] {
-  try [(0.0, 0.0), (10.0, 0.0), (0.0, 10.0), (10.0, 10.0)].map { x, y in
+  try [(5.0, 5.0), (0.0, 5.0), (5.0, 10.0), (10.0, 5.0), (5.0, 0.0)].map { x, y in
     MachineCameraRegistrationCorrespondence(
       machine: try Point2(x: x, y: y),
       camera: try Point2(x: x, y: y)
@@ -404,18 +409,40 @@ private func makeRegistration(
   provenance: [MachineCameraCorrespondenceProvenance],
   context: RegistrationTestContext
 ) throws -> MachineCameraRegistration {
-  try MachineCameraRegistration(
+  let candidateFit = try MachineCameraRegistrationFit.fit(
+    correspondences: Array(fit.correspondences.prefix(3))
+  )
+  return try MachineCameraRegistration(
+    candidateFit: candidateFit,
     fit: fit,
     source: .simulated,
+    opticalConfiguration: try CameraOpticalConfigurationIdentity(
+      source: .simulated,
+      sensorFormat: "registration-test",
+      width: 640,
+      height: 480,
+      pixelFormat: .bgra8,
+      orientation: .up,
+      mirrored: false,
+      digitalZoomFactor: 1,
+      lensIdentity: "simulated-lens",
+      focusConfiguration: "fixed-focus",
+      mountRevision: UUID(uuidString: "00000000-0000-0000-0000-000000000701")!,
+      reframingRevision: UUID(uuidString: "00000000-0000-0000-0000-000000000702")!
+    ),
+    machineGeometry: MachineGeometryIdentity(),
     controllerSessionID: context.session,
     coordinateRevision: context.coordinateRevision,
     cameraConfigurationID: context.camera,
-    correspondenceProvenance: provenance,
-    validationTargetFrameID: FrameID(rawValue: "target-validation"),
-    validationMachinePoint: Point2(x: 4, y: 3),
-    validationCapAnchorPoint: Point2(x: 4, y: 3),
-    maximumValidationResidualPixels: 0.25,
+    fitCorrespondenceProvenance: Array(provenance.prefix(3)),
+    holdoutCorrespondenceProvenance: Array(provenance.suffix(2)),
+    maximumHoldoutResidualPixels: 0.25,
     estimatorRevision: "affine-fit-v1",
-    uncertaintyPixels: 0.1
+    uncertaintyPixels: 0.1,
+    applicabilityRectangle: AxisAlignedBounds(minX: 0, minY: 0, maxX: 10, maxY: 10),
+    applicabilityDerivation: .boundaryEnvelopeInsetAndSymmetricallyReduced(
+      safetyMarginMM: 10,
+      maximumHalfSpanMM: 30
+    )
   )
 }

@@ -7,8 +7,8 @@ import Testing
 
 @Suite("Current-camera calibration planning")
 struct CurrentCameraCalibrationPlanningTests {
-  @Test("plan creates a bounded orthogonal triangle and returns to the target")
-  func safeOrthogonalTriangle() throws {
+  @Test("plan creates the exact five-position normalized cross and returns to center")
+  func fivePositionCross() throws {
     let target = try MachinePosition(x: 0, y: 0)
     let plan = try CurrentCameraCalibrationPlan(
       targetPosition: target,
@@ -26,15 +26,31 @@ struct CurrentCameraCalibrationPlanningTests {
     #expect(
       plan.samplePositions == [
         target,
-        try MachinePosition(x: 30, y: 0),
-        try MachinePosition(x: 30, y: 30),
+        try MachinePosition(x: -24, y: 0),
+        try MachinePosition(x: 0, y: 24),
+        try MachinePosition(x: 24, y: 0),
+        try MachinePosition(x: 0, y: -24),
       ])
+    #expect(plan.samples.map(\.position) == [.center, .negativeX, .positiveY, .positiveX, .negativeY])
+    #expect(plan.samples.map(\.role) == [.fit, .fit, .fit, .holdout, .holdout])
+    #expect(plan.samples.map { [$0.normalizedX, $0.normalizedY] } == [
+      [0.5, 0.5], [0.1, 0.5], [0.5, 0.9], [0.9, 0.5], [0.5, 0.1],
+    ])
     #expect(
       plan.motionDeltas == [
-        try Vector2(dx: 30, dy: 0),
-        try Vector2(dx: 0, dy: 30),
-        try Vector2(dx: -30, dy: -30),
+        try Vector2(dx: -24, dy: 0),
+        try Vector2(dx: 24, dy: 24),
+        try Vector2(dx: 24, dy: -24),
+        try Vector2(dx: -24, dy: -24),
+        try Vector2(dx: 0, dy: 24),
       ])
+    #expect(plan.applicabilityRectangle == (try AxisAlignedBounds(
+      minX: -30, minY: -30, maxX: 30, maxY: 30
+    )))
+    #expect(plan.rectangleDerivation == .boundaryEnvelopeInsetAndSymmetricallyReduced(
+      safetyMarginMM: 10,
+      maximumHalfSpanMM: 30
+    ))
 
     let returnedPosition = try plan.motionDeltas.reduce(target.point) { position, delta in
       try Point2(x: position.x + delta.dx, y: position.y + delta.dy)
@@ -42,8 +58,8 @@ struct CurrentCameraCalibrationPlanningTests {
     #expect(returnedPosition == target.point)
   }
 
-  @Test("plan selects the direction with more safe clearance on each axis")
-  func selectsDirectionWithMoreClearance() throws {
+  @Test("plan contracts symmetrically around an off-center target")
+  func symmetricContraction() throws {
     let plan = try CurrentCameraCalibrationPlan(
       targetPosition: MachinePosition(x: 70, y: -50),
       boundarySideAggregates: try boundaryEnvelope(
@@ -56,10 +72,11 @@ struct CurrentCameraCalibrationPlanningTests {
       coordinateRevision: calibrationCoordinateRevision
     )
 
-    #expect(plan.samplePositions[1] == MachinePosition(point: try Point2(x: 40, y: -50)))
-    #expect(plan.samplePositions[2] == MachinePosition(point: try Point2(x: 40, y: -20)))
-    #expect(plan.motionDeltas[0] == (try Vector2(dx: -30, dy: 0)))
-    #expect(plan.motionDeltas[1] == (try Vector2(dx: 0, dy: 30)))
+    #expect(plan.applicabilityRectangle == (try AxisAlignedBounds(minX: 50, minY: -70, maxX: 90, maxY: -30)))
+    #expect(plan.samplePositions[1] == MachinePosition(point: try Point2(x: 54, y: -50)))
+    #expect(plan.samplePositions[2] == MachinePosition(point: try Point2(x: 70, y: -34)))
+    #expect(plan.samplePositions[3] == MachinePosition(point: try Point2(x: 86, y: -50)))
+    #expect(plan.samplePositions[4] == MachinePosition(point: try Point2(x: 70, y: -66)))
   }
 
   @Test("plan refuses an incomplete accepted boundary envelope")
@@ -84,12 +101,12 @@ struct CurrentCameraCalibrationPlanningTests {
 
   @Test("plan refuses an axis without the minimum safe calibration excursion")
   func refusesInsufficientClearance() throws {
-    #expect(throws: CurrentCameraCalibrationPlanningError.insufficientXAxisClearance) {
+    #expect(throws: CurrentCameraCalibrationPlanningError.insufficientXAxisSpan) {
       try CurrentCameraCalibrationPlan(
         targetPosition: MachinePosition(x: 0, y: 0),
         boundarySideAggregates: try boundaryEnvelope(
-          negativeX: -15,
-          positiveX: 15,
+          negativeX: -14,
+          positiveX: 14,
           negativeY: -80,
           positiveY: 80
         ),
@@ -98,14 +115,14 @@ struct CurrentCameraCalibrationPlanningTests {
       )
     }
 
-    #expect(throws: CurrentCameraCalibrationPlanningError.insufficientYAxisClearance) {
+    #expect(throws: CurrentCameraCalibrationPlanningError.insufficientYAxisSpan) {
       try CurrentCameraCalibrationPlan(
         targetPosition: MachinePosition(x: 0, y: 0),
         boundarySideAggregates: try boundaryEnvelope(
           negativeX: -100,
           positiveX: 100,
-          negativeY: -15,
-          positiveY: 15
+          negativeY: -14,
+          positiveY: 14
         ),
         controllerSessionID: calibrationSessionID,
         coordinateRevision: calibrationCoordinateRevision
@@ -182,7 +199,7 @@ struct CurrentCameraCalibrationPlanningTests {
         .contains("X−, X+, Y−, and Y+") == true
     )
     #expect(
-      CurrentCameraCalibrationPlanningError.insufficientXAxisClearance.errorDescription?
+      CurrentCameraCalibrationPlanningError.insufficientXAxisSpan.errorDescription?
         .contains("10 mm") == true
     )
   }

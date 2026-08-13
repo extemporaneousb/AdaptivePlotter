@@ -65,35 +65,92 @@ struct CameraPixelToViewTransform: Equatable, Sendable {
       y: originY + cameraPoint.y * scale
     )
   }
-}
 
-struct ActionSurfaceFocus: Hashable, Sendable {
-  let frameID: FrameID
-  let cameraConfigurationID: CameraConfigurationID
-  let searchCircle: VisibilityTargetSearchCircle
-  let region: PixelRect
-  let label: String
-  let viewportContext: ActionSurfaceViewportContext
-
-  func matches(_ displayedFrame: DisplayedFrame) -> Bool {
-    frameID == displayedFrame.frame.id
-      && cameraConfigurationID == displayedFrame.frame.cameraConfigurationID
+  func cameraPoint(_ viewPoint: CGPoint) -> Point2<CameraPixelSpace>? {
+    let x = (viewPoint.x - originX) / scale
+    let y = (viewPoint.y - originY) / scale
+    guard visibleCameraRect.contains(CGPoint(x: x, y: y)),
+      x >= 0, x < frameWidth, y >= 0, y < frameHeight
+    else { return nil }
+    return try? Point2(x: x, y: y)
   }
 }
 
-/// Stable presentation identity for an authoritative or staged target-search circle.
-/// Exact frame identity deliberately does not participate: live frames and
-/// analysis phases may advance without overriding the operator's viewport.
+struct ActionSurfacePointSelectionRequest: Hashable, Sendable {
+  let frame: ExactTipCalibrationFrame
+  let presentationTransformRevision: PresentationTransformRevision
+  let prompt: String
+
+  func matches(_ displayedFrame: DisplayedFrame) -> Bool {
+    frame.frameID == displayedFrame.frame.id
+      && frame.frameSHA256 == displayedFrame.frame.contentSHA256
+      && frame.source == displayedFrame.source
+      && frame.cameraConfigurationID == displayedFrame.frame.cameraConfigurationID
+      && frame.width == displayedFrame.frame.width
+      && frame.height == displayedFrame.frame.height
+      && frame.pixelFormat == displayedFrame.frame.pixelFormat
+  }
+}
+
+struct ActionSurfacePointSelection: Hashable, Sendable {
+  let frame: ExactTipCalibrationFrame
+  let point: Point2<CameraPixelSpace>
+  let presentationTransformRevision: PresentationTransformRevision
+}
+
+enum ActionSurfaceTipPresentation: Hashable, Sendable {
+  case notCalibrated
+  case awaitingClick(String)
+  case selected(
+    click: Point2<CameraPixelSpace>,
+    pointingUncertaintyPixels: Vector2<CameraPixelSpace>,
+    prediction: Point2<CameraPixelSpace>?,
+    residualPixels: Double?
+  )
+  case calibrated(prediction: Point2<CameraPixelSpace>?)
+
+  var statusText: String {
+    switch self {
+    case .notCalibrated: "Tip not calibrated"
+    case .awaitingClick(let prompt): prompt
+    case .selected(_, _, _, let residual):
+      residual.map { String(format: "Selection residual %.3f px", $0) }
+        ?? "Mark center selected"
+    case .calibrated: "Tip calibration accepted"
+    }
+  }
+
+  var reviewGeometry: ActionSurfaceTipReviewGeometry? {
+    guard case .selected(let click, let uncertainty, let prediction, _) = self else {
+      return nil
+    }
+    return ActionSurfaceTipReviewGeometry(
+      click: click,
+      pointingUncertaintyPixels: uncertainty,
+      prediction: prediction,
+      residual: prediction.flatMap { try? Polyline(points: [$0, click]) }
+    )
+  }
+}
+
+struct ActionSurfaceTipReviewGeometry: Hashable, Sendable {
+  let click: Point2<CameraPixelSpace>
+  let pointingUncertaintyPixels: Vector2<CameraPixelSpace>
+  let prediction: Point2<CameraPixelSpace>?
+  let residual: Polyline<CameraPixelSpace>?
+}
+
+/// Stable presentation identity for optional fitted plotter bounds. Exact
+/// frame identity deliberately does not participate: zoom is presentation only.
 struct ActionSurfaceViewportContext: Hashable, Sendable {
   let source: FrameSourceIdentity
   let cameraConfigurationID: CameraConfigurationID
-  let targetAreaIdentity: UUID
-  let searchAuthorityToken: String
-  let region: PixelRect
+  let fittedRegion: PixelRect?
+  let presentationRevisionToken: String
 }
 
 /// The effective camera-pixel bounds used by viewport projection and clipping.
-/// Empty or wholly out-of-frame search bounds have no drawable intersection.
+/// Empty or wholly out-of-frame fitted bounds have no drawable intersection.
 func cameraFrameIntersection(
   _ region: PixelRect,
   frameWidth: Int,
@@ -116,33 +173,43 @@ func cameraFrameIntersection(
 }
 
 /// Window-local, presentation-only viewport state. `zoom == 0` is the complete
-/// camera frame and `zoom == 1` is the circle's bounding box. Intermediate
-/// values interpolate the viewport without mutating search evidence.
+/// camera frame and `zoom == 1` is the fitted learned plotter region.
+/// Intermediate values never mutate camera-pixel evidence.
 struct ActionSurfaceViewportState: Equatable, Sendable {
   private(set) var context: ActionSurfaceViewportContext?
-  var zoom: Double = 0
+  private(set) var presentationTransformRevision = PresentationTransformRevision()
+  var zoom: Double = 0 {
+    didSet {
+      if zoom != oldValue { presentationTransformRevision = PresentationTransformRevision() }
+    }
+  }
 
   mutating func synchronize(with context: ActionSurfaceViewportContext?) {
     guard self.context != context else { return }
     self.context = context
     zoom = 0
+    presentationTransformRevision = PresentationTransformRevision()
   }
 
   mutating func showFullFrame() { zoom = 0 }
-  mutating func showSearchBounds() { zoom = 1 }
+  mutating func showFittedBounds() { zoom = 1 }
 
   func visibleRegion(frameWidth: Int, frameHeight: Int) -> PixelRect? {
     guard let context, frameWidth > 0, frameHeight > 0 else { return nil }
     let t = min(1, max(0, zoom))
     if t == 0 { return nil }
     let frame = PixelRect(x: 0, y: 0, width: frameWidth, height: frameHeight)
-    guard
-      let roi = cameraFrameIntersection(
-        context.region,
-        frameWidth: frameWidth,
-        frameHeight: frameHeight
-      )
-    else { return nil }
+    let requested = context.fittedRegion ?? PixelRect(
+      x: frameWidth / 4,
+      y: frameHeight / 4,
+      width: max(1, frameWidth / 2),
+      height: max(1, frameHeight / 2)
+    )
+    guard let roi = cameraFrameIntersection(
+      requested,
+      frameWidth: frameWidth,
+      frameHeight: frameHeight
+    ) else { return nil }
     if t == 1 { return roi }
     let x = Int((Double(frame.x) + Double(roi.x - frame.x) * t).rounded())
     let y = Int((Double(frame.y) + Double(roi.y - frame.y) * t).rounded())
@@ -165,7 +232,10 @@ struct ActionSurfacePresentation: Sendable {
   let simulatedAnnotations: [SimulatedLearningAnnotation]
   let simulatedViewportID: SimulatedCameraViewportID?
   let simulatedAnnotationsAreVisible: Bool
-  let focus: ActionSurfaceFocus?
+  let viewportContext: ActionSurfaceViewportContext?
+  let presentationZoomAvailable: Bool
+  let pointSelectionRequest: ActionSurfacePointSelectionRequest?
+  let tipPresentation: ActionSurfaceTipPresentation
 
   var rendererIdentity: String { Self.rendererIdentity }
 
@@ -175,7 +245,10 @@ struct ActionSurfacePresentation: Sendable {
     simulatedAnnotations: [SimulatedLearningAnnotation] = [],
     simulatedViewportID: SimulatedCameraViewportID? = nil,
     simulatedAnnotationsAreVisible: Bool = true,
-    focus: ActionSurfaceFocus? = nil
+    viewportContext: ActionSurfaceViewportContext? = nil,
+    presentationZoomAvailable: Bool = false,
+    pointSelectionRequest: ActionSurfacePointSelectionRequest? = nil,
+    tipPresentation: ActionSurfaceTipPresentation = .notCalibrated
   ) {
     self.displayedFrame = displayedFrame
     self.simulatedViewportID = simulatedViewportID
@@ -189,12 +262,21 @@ struct ActionSurfacePresentation: Sendable {
       } else {
         self.simulatedAnnotations = []
       }
-      self.focus = focus.flatMap { $0.matches(displayedFrame) ? $0 : nil }
+      self.viewportContext = viewportContext.flatMap {
+        $0.source == displayedFrame.source
+          && $0.cameraConfigurationID == displayedFrame.frame.cameraConfigurationID ? $0 : nil
+      }
+      self.pointSelectionRequest = pointSelectionRequest.flatMap {
+        $0.matches(displayedFrame) ? $0 : nil
+      }
     } else {
       self.overlays = []
       self.simulatedAnnotations = []
-      self.focus = nil
+      self.viewportContext = nil
+      self.pointSelectionRequest = nil
     }
+    self.presentationZoomAvailable = presentationZoomAvailable
+    self.tipPresentation = tipPresentation
   }
 
   var sourceBadgeLabel: String? {
@@ -208,13 +290,16 @@ struct ActionSurface: View {
   @Binding private var viewport: ActionSurfaceViewportState
   @StateObject private var imageCache = FramePresentationImageCache()
   @State private var simulatedAnnotationsAreVisible = true
+  private let selectPoint: (ActionSurfacePointSelection) -> Void
 
   init(
     presentation: ActionSurfacePresentation,
-    viewport: Binding<ActionSurfaceViewportState> = .constant(ActionSurfaceViewportState())
+    viewport: Binding<ActionSurfaceViewportState> = .constant(ActionSurfaceViewportState()),
+    selectPoint: @escaping (ActionSurfacePointSelection) -> Void = { _ in }
   ) {
     self.presentation = presentation
     _viewport = viewport
+    self.selectPoint = selectPoint
   }
 
   var body: some View {
@@ -278,14 +363,14 @@ struct ActionSurface: View {
               simulatedAnnotationsAreVisible ? "Visible" : "Hidden"
             )
           }
-          if let focus = presentation.focus {
+          if presentation.presentationZoomAvailable {
             HStack(spacing: 6) {
               Button("Full Frame") {
                 viewport.showFullFrame()
               }
               .operatorButton(isEnabled: viewport.zoom != 0)
-              Button("Search Bounds") {
-                viewport.showSearchBounds()
+              Button(presentation.viewportContext?.fittedRegion == nil ? "Zoom In" : "Fit Learned Plotter Bounds") {
+                viewport.showFittedBounds()
               }
               .operatorButton(isEnabled: viewport.zoom != 1)
             }
@@ -295,20 +380,16 @@ struct ActionSurface: View {
             } minimumValueLabel: {
               Text("Full")
             } maximumValueLabel: {
-              Text("Search")
+              Text("Zoom")
             }
             .frame(width: 210)
             .help(
-              "Change only the displayed viewport. Vision continues to use the exact accepted circular search region."
+              "Change only the displayed viewport. Presentation zoom never mutates camera-pixel evidence or learning authority."
             )
             .accessibilityValue(Int((viewport.zoom * 100).rounded()).description + " percent")
-            Text(
-              viewport.zoom == 0
-                ? "FULL FRAME · CAP→TIP SEARCH CIRCLE R \(Int(focus.searchCircle.radiusPixels.rounded())) px"
-                : viewport.zoom == 1
-                  ? "SEARCH BOUNDS \(focus.region.width)x\(focus.region.height) · \(focus.label)"
-                  : "PRESENTATION ZOOM \(Int((viewport.zoom * 100).rounded()))% · SEARCH CIRCLE unchanged"
-            )
+            Text(viewport.zoom == 0
+              ? "FULL FRAME · PRESENTATION ONLY"
+              : "PRESENTATION ZOOM \(Int((viewport.zoom * 100).rounded()))% · EVIDENCE UNCHANGED")
             .font(.caption2.monospaced().bold())
             .foregroundStyle(.white)
             .padding(.horizontal, 7)
@@ -328,6 +409,14 @@ struct ActionSurface: View {
             .padding(8)
         }
       }
+      .overlay(alignment: .bottomLeading) {
+        Text(presentation.tipPresentation.statusText)
+          .font(.caption.monospaced().bold())
+          .foregroundStyle(.white)
+          .padding(7)
+          .background(.black.opacity(0.72))
+          .padding(8)
+      }
       .overlay {
         if presentation.displayedFrame == nil {
           ContentUnavailableView(
@@ -339,7 +428,14 @@ struct ActionSurface: View {
         }
       }
       .clipShape(RoundedRectangle(cornerRadius: 7))
-      .onChange(of: presentation.focus?.viewportContext, initial: true) { _, context in
+      .contentShape(Rectangle())
+      .gesture(
+        SpatialTapGesture(coordinateSpace: .local)
+          .onEnded { value in
+            submitPointSelection(at: value.location, viewSize: proxy.size)
+          }
+      )
+      .onChange(of: presentation.viewportContext, initial: true) { _, context in
         viewport.synchronize(with: context)
       }
       .accessibilityValue(
@@ -350,6 +446,29 @@ struct ActionSurface: View {
     }
   }
 
+  private func submitPointSelection(at location: CGPoint, viewSize: CGSize) {
+    guard let displayedFrame = presentation.displayedFrame,
+      let request = presentation.pointSelectionRequest,
+      request.matches(displayedFrame),
+      let transform = CameraPixelToViewTransform(
+        frameWidth: displayedFrame.frame.width,
+        frameHeight: displayedFrame.frame.height,
+        viewWidth: viewSize.width,
+        viewHeight: viewSize.height,
+        focusRegion: viewport.visibleRegion(
+          frameWidth: displayedFrame.frame.width,
+          frameHeight: displayedFrame.frame.height
+        )
+      ),
+      let point = transform.cameraPoint(location)
+    else { return }
+    selectPoint(ActionSurfacePointSelection(
+      frame: request.frame,
+      point: point,
+      presentationTransformRevision: viewport.presentationTransformRevision
+    ))
+  }
+
   private func drawFrameAndOverlays(
     frameImage: CGImage?,
     context: inout GraphicsContext,
@@ -358,34 +477,64 @@ struct ActionSurface: View {
     if let frameImage {
       context.draw(Image(decorative: frameImage, scale: 1), in: transform.imageRect)
     }
-    if let focus = presentation.focus,
-      let displayedFrame = presentation.displayedFrame,
-      cameraFrameIntersection(
-        focus.region,
-        frameWidth: displayedFrame.frame.width,
-        frameHeight: displayedFrame.frame.height
-      ) != nil
-    {
-      let center = transform.point(focus.searchCircle.center)
-      let radius = focus.searchCircle.radiusPixels * transform.scale
-      context.stroke(
-        Path(ellipseIn: CGRect(
-          x: center.x - radius,
-          y: center.y - radius,
-          width: radius * 2,
-          height: radius * 2
-        )),
-        with: .color(Color(red: 1, green: 0, blue: 1)),
-        style: StrokeStyle(lineWidth: 3, dash: [9, 5])
-      )
-    }
     for overlay in presentation.overlays {
       draw(overlay, in: &context, transform: transform)
+    }
+    if let review = presentation.tipPresentation.reviewGeometry {
+      draw(review, in: &context, transform: transform)
     }
     if simulatedAnnotationsAreVisible {
       for annotation in presentation.simulatedAnnotations {
         draw(annotation, in: &context, transform: transform)
       }
+    }
+  }
+
+  private func draw(
+    _ review: ActionSurfaceTipReviewGeometry,
+    in context: inout GraphicsContext,
+    transform: CameraPixelToViewTransform
+  ) {
+    let click = transform.point(review.click)
+    let uncertaintyRect = CGRect(
+      x: click.x - review.pointingUncertaintyPixels.dx * transform.scale,
+      y: click.y - review.pointingUncertaintyPixels.dy * transform.scale,
+      width: review.pointingUncertaintyPixels.dx * transform.scale * 2,
+      height: review.pointingUncertaintyPixels.dy * transform.scale * 2
+    )
+    context.stroke(
+      Path(ellipseIn: uncertaintyRect),
+      with: .color(.cyan),
+      style: SwiftUI.StrokeStyle(lineWidth: 1.5, dash: [3, 2])
+    )
+    let crossRadius: CGFloat = 5
+    var cross = Path()
+    cross.move(to: CGPoint(x: click.x - crossRadius, y: click.y))
+    cross.addLine(to: CGPoint(x: click.x + crossRadius, y: click.y))
+    cross.move(to: CGPoint(x: click.x, y: click.y - crossRadius))
+    cross.addLine(to: CGPoint(x: click.x, y: click.y + crossRadius))
+    context.stroke(cross, with: .color(.cyan), lineWidth: 2)
+
+    if let prediction = review.prediction {
+      let predicted = transform.point(prediction)
+      let radius: CGFloat = 5
+      context.fill(
+        Path(ellipseIn: CGRect(
+          x: predicted.x - radius,
+          y: predicted.y - radius,
+          width: radius * 2,
+          height: radius * 2
+        )),
+        with: .color(.purple)
+      )
+    }
+    if let residual = review.residual {
+      var path = Path()
+      path.move(to: transform.point(residual.start))
+      for point in residual.points.dropFirst() {
+        path.addLine(to: transform.point(point))
+      }
+      context.stroke(path, with: .color(.orange), lineWidth: 1.5)
     }
   }
 
@@ -426,19 +575,6 @@ struct ActionSurface: View {
         with: .color(style.color),
         style: stroke
       )
-    case .circle(let center, let radiusPixels):
-      let projectedCenter = transform.point(center)
-      let radius = radiusPixels * transform.scale
-      context.stroke(
-        Path(ellipseIn: CGRect(
-          x: projectedCenter.x - radius,
-          y: projectedCenter.y - radius,
-          width: radius * 2,
-          height: radius * 2
-        )),
-        with: .color(style.color),
-        style: stroke
-      )
     case .polyline(let polyline):
       var path = Path()
       path.move(to: transform.point(polyline.start))
@@ -470,8 +606,6 @@ struct ActionSurface: View {
       return (.white.opacity(0.75), 1.5, [3, 3])
     case .currentOperation:
       return (.red, 3, [])
-    case .targetSearchCircle:
-      return (Color(red: 1, green: 0, blue: 1), 3, [9, 5])
     case .ink:
       return (.blue, 2, [])
     }

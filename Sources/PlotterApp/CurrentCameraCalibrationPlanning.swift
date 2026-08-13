@@ -14,41 +14,60 @@ enum CurrentCameraCalibrationPlanningError: Error, Equatable, Sendable {
     expected: UInt64,
     actual: UInt64
   )
-  case targetOutsideSafeEnvelope
-  case insufficientXAxisClearance
-  case insufficientYAxisClearance
+  case centerOutsideSafeEnvelope
+  case insufficientXAxisSpan
+  case insufficientYAxisSpan
 }
 
 extension CurrentCameraCalibrationPlanningError: LocalizedError {
   var errorDescription: String? {
     switch self {
     case .incompleteBoundaryEnvelope:
-      "Automatic camera calibration requires current accepted boundaries for X−, X+, Y−, and Y+."
+      "Camera calibration requires current accepted boundaries for X−, X+, Y−, and Y+."
     case .controllerSessionMismatch(let direction, let expected, let actual):
       "The accepted \(direction.displayName) boundary belongs to controller session \(actual.uuidString.lowercased()), not the current session \(expected.uuidString.lowercased()). Revalidate the accepted machine checkpoint before admitting calibration motion."
     case .coordinateRevisionMismatch(let direction, let expected, let actual):
       "The accepted \(direction.displayName) boundary uses controller coordinate revision \(actual), not the current revision \(expected). Revalidate the accepted machine checkpoint before admitting calibration motion."
-    case .targetOutsideSafeEnvelope:
-      "The registered target pose is outside the accepted boundary envelope after the 10 mm safety margin. Register a target farther from the accepted boundaries."
-    case .insufficientXAxisClearance:
-      "The accepted X boundaries do not leave the required 10 mm safe X calibration excursion from this target pose. Register a target with more X clearance."
-    case .insufficientYAxisClearance:
-      "The accepted Y boundaries do not leave the required 10 mm safe Y calibration excursion from this target pose. Register a target with more Y clearance."
+    case .centerOutsideSafeEnvelope:
+      "The calibration center is outside the accepted Boundary envelope after the 10 mm safety inset."
+    case .insufficientXAxisSpan:
+      "The accepted X boundaries do not leave a symmetric calibration rectangle with at least 10 mm usable X span."
+    case .insufficientYAxisSpan:
+      "The accepted Y boundaries do not leave a symmetric calibration rectangle with at least 10 mm usable Y span."
     }
   }
 }
 
-/// A target-anchored, machine-space calibration triangle. The first sample is
-/// captured without motion; two orthogonal Pen-Up legs create the remaining
-/// non-collinear samples, and the final leg returns to the exact target pose.
+struct CurrentCameraCalibrationSample: Hashable, Sendable {
+  let position: ToolContactCalibrationPosition
+  let role: TipCalibrationSampleRole
+  let normalizedX: Double
+  let normalizedY: Double
+  let machinePosition: MachinePosition
+}
+
+/// Five unique positions inside a Boundary-derived rectangle. `C`, `X−`, and
+/// `Y+` fit the first affine model; `X+` and `Y−` are independent holdouts.
+/// The final delta returns Pen Up to `C`, ready for sparse contact calibration.
 struct CurrentCameraCalibrationPlan: Hashable, Sendable {
   static let safetyMarginMM = 10.0
-  static let minimumExcursionMM = 10.0
-  static let maximumExcursionMM = 30.0
+  static let minimumUsableSpanMM = 10.0
+  /// Boundary discovery proves the machine envelope, not paper coverage or
+  /// visibility. Until a separate source proves the full safe envelope, keep
+  /// this bootstrap rectangle local and symmetric around C.
+  static let maximumUnprovenHalfSpanMM = 30.0
 
-  let targetPosition: MachinePosition
-  let samplePositions: [MachinePosition]
+  let applicabilityRectangle: AxisAlignedBounds<MachineSpace>
+  let rectangleDerivation: MachineCameraRegistrationApplicabilityDerivation
+  let samples: [CurrentCameraCalibrationSample]
   let motionDeltas: [Vector2<MachineSpace>]
+
+  var targetPosition: MachinePosition { samples[0].machinePosition }
+  var samplePositions: [MachinePosition] { samples.map(\.machinePosition) }
+  var fitSamples: [CurrentCameraCalibrationSample] { samples.filter { $0.role == .fit } }
+  var holdoutSamples: [CurrentCameraCalibrationSample] {
+    samples.filter { $0.role == .holdout }
+  }
 
   init(
     targetPosition: MachinePosition,
@@ -77,55 +96,81 @@ struct CurrentCameraCalibrationPlan: Hashable, Sendable {
       }
     }
 
-    let negativeX = boundarySideAggregates[.negativeX]!.estimateMM
-    let positiveX = boundarySideAggregates[.positiveX]!.estimateMM
-    let negativeY = boundarySideAggregates[.negativeY]!.estimateMM
-    let positiveY = boundarySideAggregates[.positiveY]!.estimateMM
+    let safeMinX = boundarySideAggregates[.negativeX]!.estimateMM + Self.safetyMarginMM
+    let safeMaxX = boundarySideAggregates[.positiveX]!.estimateMM - Self.safetyMarginMM
+    let safeMinY = boundarySideAggregates[.negativeY]!.estimateMM + Self.safetyMarginMM
+    let safeMaxY = boundarySideAggregates[.positiveY]!.estimateMM - Self.safetyMarginMM
+    let center = targetPosition.point
+    guard center.x >= safeMinX, center.x <= safeMaxX,
+      center.y >= safeMinY, center.y <= safeMaxY
+    else { throw CurrentCameraCalibrationPlanningError.centerOutsideSafeEnvelope }
 
-    let safeNegativeX = negativeX + Self.safetyMarginMM
-    let safePositiveX = positiveX - Self.safetyMarginMM
-    let safeNegativeY = negativeY + Self.safetyMarginMM
-    let safePositiveY = positiveY - Self.safetyMarginMM
-    let target = targetPosition.point
-    guard target.x >= safeNegativeX, target.x <= safePositiveX,
-      target.y >= safeNegativeY, target.y <= safePositiveY
-    else {
-      throw CurrentCameraCalibrationPlanningError.targetOutsideSafeEnvelope
+    // The rectangle is deliberately symmetric around the selected center. A
+    // smaller paper/visibility-confirmed rectangle can use the same value type
+    // later without changing the 10/50/90 sample layout.
+    let halfSpanX = [
+      center.x - safeMinX,
+      safeMaxX - center.x,
+      Self.maximumUnprovenHalfSpanMM
+    ].min()!
+    let halfSpanY = [
+      center.y - safeMinY,
+      safeMaxY - center.y,
+      Self.maximumUnprovenHalfSpanMM
+    ].min()!
+    let spanX = 2 * halfSpanX
+    let spanY = 2 * halfSpanY
+    guard spanX >= Self.minimumUsableSpanMM else {
+      throw CurrentCameraCalibrationPlanningError.insufficientXAxisSpan
+    }
+    guard spanY >= Self.minimumUsableSpanMM else {
+      throw CurrentCameraCalibrationPlanningError.insufficientYAxisSpan
     }
 
-    let xOffset = Self.preferredOffset(
-      negativeClearance: target.x - safeNegativeX,
-      positiveClearance: safePositiveX - target.x
+    let rectangle = try AxisAlignedBounds<MachineSpace>(
+      minX: center.x - halfSpanX,
+      minY: center.y - halfSpanY,
+      maxX: center.x + halfSpanX,
+      maxY: center.y + halfSpanY
     )
-    guard abs(xOffset) >= Self.minimumExcursionMM else {
-      throw CurrentCameraCalibrationPlanningError.insufficientXAxisClearance
+    func point(_ x: Double, _ y: Double) throws -> MachinePosition {
+      try MachinePosition(
+        x: rectangle.minX + spanX * x,
+        y: rectangle.minY + spanY * y
+      )
     }
-    let yOffset = Self.preferredOffset(
-      negativeClearance: target.y - safeNegativeY,
-      positiveClearance: safePositiveY - target.y
-    )
-    guard abs(yOffset) >= Self.minimumExcursionMM else {
-      throw CurrentCameraCalibrationPlanningError.insufficientYAxisClearance
-    }
-
-    let second = try MachinePosition(x: target.x + xOffset, y: target.y)
-    let third = try MachinePosition(x: target.x + xOffset, y: target.y + yOffset)
-    self.targetPosition = targetPosition
-    samplePositions = [targetPosition, second, third]
-    motionDeltas = [
-      try Vector2(dx: xOffset, dy: 0),
-      try Vector2(dx: 0, dy: yOffset),
-      try Vector2(dx: -xOffset, dy: -yOffset),
+    let plannedSamples = [
+      CurrentCameraCalibrationSample(
+        position: .center, role: .fit, normalizedX: 0.5, normalizedY: 0.5,
+        machinePosition: try point(0.5, 0.5)
+      ),
+      CurrentCameraCalibrationSample(
+        position: .negativeX, role: .fit, normalizedX: 0.1, normalizedY: 0.5,
+        machinePosition: try point(0.1, 0.5)
+      ),
+      CurrentCameraCalibrationSample(
+        position: .positiveY, role: .fit, normalizedX: 0.5, normalizedY: 0.9,
+        machinePosition: try point(0.5, 0.9)
+      ),
+      CurrentCameraCalibrationSample(
+        position: .positiveX, role: .holdout, normalizedX: 0.9, normalizedY: 0.5,
+        machinePosition: try point(0.9, 0.5)
+      ),
+      CurrentCameraCalibrationSample(
+        position: .negativeY, role: .holdout, normalizedX: 0.5, normalizedY: 0.1,
+        machinePosition: try point(0.5, 0.1)
+      ),
     ]
-  }
-
-  private static func preferredOffset(
-    negativeClearance: Double,
-    positiveClearance: Double
-  ) -> Double {
-    if positiveClearance >= negativeClearance {
-      return min(maximumExcursionMM, positiveClearance)
+    let travelTargets = Array(plannedSamples.dropFirst().map(\.machinePosition)) + [targetPosition]
+    let plannedDeltas = try zip(plannedSamples.map(\.machinePosition), travelTargets).map { from, to in
+      try Vector2<MachineSpace>(dx: to.point.x - from.point.x, dy: to.point.y - from.point.y)
     }
-    return -min(maximumExcursionMM, negativeClearance)
+    applicabilityRectangle = rectangle
+    rectangleDerivation = .boundaryEnvelopeInsetAndSymmetricallyReduced(
+      safetyMarginMM: Self.safetyMarginMM,
+      maximumHalfSpanMM: Self.maximumUnprovenHalfSpanMM
+    )
+    samples = plannedSamples
+    motionDeltas = plannedDeltas
   }
 }

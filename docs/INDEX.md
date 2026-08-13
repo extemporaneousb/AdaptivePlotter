@@ -1,41 +1,35 @@
 # AdaptivePlotter Document Routing
 
-This is the startup routing catalog for repository work. Read `AGENTS.md` and
-this file first, then load only the documents relevant to the current request.
-Do not load every linked document by default.
+Read `AGENTS.md` and this catalog first, then load only the authority relevant
+to the task.
 
 ## Current authority
 
-- Operator journey, UI vocabulary, build, test, signing, or launch:
+- Journey vocabulary, build/test/launch commands, or repository orientation:
   [README](../README.md).
-- Product boundary, motion authority, safety, evidence classes, accepted
-  artifacts, simulator isolation, or learning direction:
+- Product semantics, safety, evidence classes, sparse calibration, checkpoint
+  applicability, simulator boundary, or Stage 4 dependency:
   [Product Contract](PRODUCT_CONTRACT.md).
-- Package topology, runtime ownership, dependency direction, controller/camera
-  seams, coordinates, registration, or architectural refactoring:
-  [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md).
-- Boundary Discovery, clear-view registration, visibility-target work,
-  observed drawing trials, Stop/Cancel semantics, or recovery sequence:
+- Exact Boundary, five-cap, five-contact, checkpoint recovery, Stage 4, Stop,
+  ambiguity, or reset sequence:
   [Discovery and Observed-Trial Protocol](DISCOVERY_AND_OBSERVED_TRIAL_PROTOCOL.md).
-- Current software, automated, environment, controller, camera, human, pen, or
-  observed-ink validation claims:
+- Package topology, runtime ownership, dependency direction, exact-frame data
+  flow, checkpoint composition, or refactoring:
+  [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md).
+- Verified software/simulator/physical claims or skipped validation:
   [Current Evidence](CURRENT_EVIDENCE.md).
-- Future scope, milestones, experiment selection, or adaptive-drawing planning:
-  [Roadmap](ROADMAP.md).
-- Attended controller, camera, motion, pen, or observed-ink verification:
-  [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md), together with
+- Attended camera/controller/motion/pen/click/ink procedure:
+  [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md) together with
   Current Evidence.
+- Unfinished scope, experiment selection, or adaptive model planning:
+  [Roadmap](ROADMAP.md).
 
 ## Selection rules
 
-- A focused implementation normally needs the directly owning document plus
-  the relevant source and tests, not the entire catalog.
-- Read Product Contract when a change could alter authority, safety, evidence,
-  or learning semantics.
-- Read Architecture when ownership or dependency direction may change.
-- Read the operating protocol for Learning Path or physical-action sequencing.
-- Read Current Evidence before reporting what is verified now.
-- Hardware documents authorize no motion by themselves; attended physical
-  actions still require explicit user authorization.
-- Git history and Blackdog replay artifacts retain historical decisions and
-  execution prompts. They are not current product authority.
+- Read Product Contract for any authority, safety, persistence, evidence, or
+  model-semantics change.
+- Read the operating protocol for Learning Path actions or recovery changes.
+- Read Architecture when an owner, package boundary, or dependency shape moves.
+- Read Current Evidence before making a status or validation claim.
+- A focused task normally needs the directly owning document, not every file in
+  this catalog.

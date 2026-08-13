@@ -74,11 +74,11 @@ struct WorkbenchPresentationTests {
   @Test("active runtime action strip can keep its sole controls visible")
   func activeExerciseControlsRemainVisible() {
     let active = ExerciseActionStripPresentation(
-      ownerID: .humanGuidedDiscovery(.discoverAndAcceptClearView),
+      ownerID: .humanGuidedDiscovery(.calibratePenContactFromSparseMarks),
       actions: [
         ExerciseActionDescriptor(
-          kind: .recordClearViewLabel(.blocked),
-          title: "Blocked"
+          kind: .acceptTipCalibration,
+          title: "Accept Tip Registration"
         ),
         ExerciseActionDescriptor(
           kind: .cancel,
@@ -99,57 +99,14 @@ struct WorkbenchPresentationTests {
     #expect(!idle.mustRemainVisible)
   }
 
-  @Test("foreground Vision exposes one capability-bound cancel and truthful circle phase")
-  func visibilityObservationPresentation() throws {
-    let frame = try StampedFrame(
-      sequence: 1,
-      captureNanoseconds: 1,
-      cameraConfigurationID: CameraConfigurationID(),
-      width: 100,
-      height: 100,
-      rowBytes: 100,
-      pixelFormat: .gray8,
-      bytes: OwnedFrameBytes(Array(repeating: 0, count: 10_000))
-    )
-    let searchCircle = try VisibilityTargetSearchCircle(
-      center: Point2(x: 28, y: 34),
-      radiusPixels: 18,
-      anchor: DisplayedFrame(source: .simulated, frame: frame),
-      algorithmRevision: "presentation-search-circle-v1"
-    )
-    let operation = VisibilityObservationOperationPresentation(
-      id: VisibilityObservationOperationID(),
-      cancelCapabilityID: VisibilityObservationCancelCapabilityID(),
-      phase: .analyzingSecondFrame,
-      searchCircle: searchCircle,
-      targetPlanRevision: VisibilityTargetPlanV2.revision
-    )
-    #expect(operation.busyDetail.contains("frame 2 of 2"))
-    #expect(operation.busyDetail.contains("R 18 px"))
-    #expect(operation.busyDetail.contains(VisibilityTargetPlanV2.revision))
-    #expect(
-      ExerciseActionKind.cancelVisibilityObservation(operation.cancelCapabilityID)
-        != .cancel
-    )
-    #expect(VisibilityObservationPhase.allCases == [
-      .preparing,
-      .acquiringFirstFrame,
-      .acquiringSecondFrame,
-      .analyzingFirstFrame,
-      .analyzingSecondFrame,
-      .cancelling,
-      .committing,
-    ])
-  }
-
   @Test("exact evidence remains structured alongside actor action outcome and recovery")
   func operationAndEvidenceProjection() {
     let activity = OperationActivityPresentation(
       actor: "Operator",
-      action: "Observe Existing Visibility Target",
+      action: "Reveal and Observe New Ink",
       outcome: .needsAttention,
       detail: [.text("Ink may exist after accepted Pen Down.")],
-      recovery: [.text("Return to the accepted Clear pose and observe; do not redraw.")]
+      recovery: [.text("Return to the local reveal pose and observe; do not redraw.")]
     )
     let evidence = ExerciseEvidencePresentation(
       label: "Exact frames",
@@ -161,7 +118,7 @@ struct WorkbenchPresentationTests {
     )
 
     #expect(activity.actor == "Operator")
-    #expect(activity.action == "Observe Existing Visibility Target")
+    #expect(activity.action == "Reveal and Observe New Ink")
     #expect(activity.outcome == .needsAttention)
     #expect(activity.recovery.accessibilityText.contains("do not redraw"))
     #expect(evidence.label == "Exact frames")

@@ -9,7 +9,6 @@ public struct InterpreterTransitionToken: Codable, Hashable, Sendable {
     self.generation = generation
   }
 }
-
 public enum RunInterpreterError: Error, Equatable, Sendable {
   case transitionAlreadyInFlight
   case staleTransition
@@ -78,41 +77,12 @@ public enum DrawingStrokeAdmission: Sendable {
   case rejected(DrawingStrokeOutcome)
 }
 
-/// Handle for the one admitted compound target operation. The logical owner is
-/// registered before this handle is returned, so the UI may safely publish its
-/// owner-bound Stop capability.
-public struct VisibilityTargetOperation: Sendable {
-  public let id: UUID
-  private let task: Task<VisibilityTargetOperationOutcome, Never>
-
-  public init(id: UUID, task: Task<VisibilityTargetOperationOutcome, Never>) {
-    self.id = id
-    self.task = task
-  }
-
-  public func outcome() async -> VisibilityTargetOperationOutcome {
-    await task.value
-  }
-}
-
-public enum VisibilityTargetAdmission: Sendable {
-  case admitted(VisibilityTargetOperation)
-  case rejected(VisibilityTargetOperationOutcome)
-}
-
-public enum VisibilityTargetIntentOutcome: Hashable, Sendable {
-  case accepted(intent: VisibilityTargetOperationIntent, jogCancelOutcome: JogCancelOutcome?)
-  case alreadyLatched(VisibilityTargetOperationIntent)
-  case staleOperation
-}
-
 public enum RunOperation: Hashable, Sendable {
   case idle
   case passiveProbe
   case relativeJog(RelativeJogRequest)
   case boundaryMotion(BoundaryMotionRequest)
   case drawingStroke(DrawingStrokeRequest)
-  case visibilityTarget(VisibilityTargetOperationRequest)
   case penActuation(PenCommand)
 }
 
@@ -122,7 +92,6 @@ public struct RunInterpreterSnapshot: Hashable, Sendable {
   public let lastMotionOutcome: MotionOutcome?
   public let lastBoundaryMotionOutcome: BoundaryMotionOutcome?
   public let lastDrawingStrokeOutcome: DrawingStrokeOutcome?
-  public let lastVisibilityTargetOutcome: VisibilityTargetOperationOutcome?
   public let lastPenOutcome: PenOutcome?
   public let lastProbe: PassiveProbeResult?
   public let jogCancellationInFlight: Bool
@@ -134,7 +103,6 @@ public struct RunInterpreterSnapshot: Hashable, Sendable {
     lastMotionOutcome: MotionOutcome?,
     lastBoundaryMotionOutcome: BoundaryMotionOutcome? = nil,
     lastDrawingStrokeOutcome: DrawingStrokeOutcome? = nil,
-    lastVisibilityTargetOutcome: VisibilityTargetOperationOutcome? = nil,
     lastPenOutcome: PenOutcome? = nil,
     lastProbe: PassiveProbeResult?,
     jogCancellationInFlight: Bool = false,
@@ -145,7 +113,6 @@ public struct RunInterpreterSnapshot: Hashable, Sendable {
     self.lastMotionOutcome = lastMotionOutcome
     self.lastBoundaryMotionOutcome = lastBoundaryMotionOutcome
     self.lastDrawingStrokeOutcome = lastDrawingStrokeOutcome
-    self.lastVisibilityTargetOutcome = lastVisibilityTargetOutcome
     self.lastPenOutcome = lastPenOutcome
     self.lastProbe = lastProbe
     self.jogCancellationInFlight = jogCancellationInFlight
@@ -166,21 +133,6 @@ public actor RunInterpreter {
     var lastSettledPosition: MachinePosition?
     var completionWaiters: [CheckedContinuation<Void, Never>] = []
   }
-
-
-  private struct ActiveVisibilityTarget {
-    let request: VisibilityTargetOperationRequest
-    var phase: VisibilityTargetOperationPhase = .approach
-    var scene: VisibilityTargetSceneDisposition = .pristine
-    var completedTraversalStepCount = 0
-    var lastCompletedTraversalStep: VisibilityTargetTraversalStep?
-    var intent: VisibilityTargetOperationIntent?
-    var intentPhase: VisibilityTargetOperationPhase?
-    var jogCancelTask: Task<JogCancelOutcome, Never>?
-    var jogCancelOutcome: JogCancelOutcome?
-    var completionWaiters: [CheckedContinuation<Void, Never>] = []
-  }
-
   private let machineController: MachineController
   private var generation: UInt64 = 0
   private var activeTransition: InterpreterTransitionToken?
@@ -189,10 +141,8 @@ public actor RunInterpreter {
   private var lastMotionOutcome: MotionOutcome?
   private var lastBoundaryMotionOutcome: BoundaryMotionOutcome?
   private var lastDrawingStrokeOutcome: DrawingStrokeOutcome?
-  private var lastVisibilityTargetOutcome: VisibilityTargetOperationOutcome?
   private var lastPenOutcome: PenOutcome?
   private var activeBoundaryMotion: ActiveBoundaryMotion?
-  private var activeVisibilityTarget: ActiveVisibilityTarget?
   private var jogCancelRequestInFlight = false
   private var lastJogCancelOutcome: JogCancelOutcome?
 
@@ -208,7 +158,6 @@ public actor RunInterpreter {
       lastMotionOutcome: lastMotionOutcome,
       lastBoundaryMotionOutcome: lastBoundaryMotionOutcome,
       lastDrawingStrokeOutcome: lastDrawingStrokeOutcome,
-      lastVisibilityTargetOutcome: lastVisibilityTargetOutcome,
       lastPenOutcome: lastPenOutcome,
       lastProbe: lastProbe,
       jogCancellationInFlight: jogCancelRequestInFlight || machine.jogCancellationInFlight,
@@ -463,371 +412,6 @@ public actor RunInterpreter {
     return outcome
   }
 
-  public func beginVisibilityTarget(
-    _ request: VisibilityTargetOperationRequest
-  ) -> VisibilityTargetAdmission {
-    guard currentOperation == .idle else {
-      let progress = Self.initialVisibilityTargetProgress(for: request)
-      let outcome = VisibilityTargetOperationOutcome.needsAttention(
-        phase: .approach,
-        scene: .pristine,
-        failure: .approach(.refused(.operationInFlight)),
-        progress: progress
-      )
-      lastVisibilityTargetOutcome = outcome
-      return .rejected(outcome)
-    }
-    generation &+= 1
-    currentOperation = .visibilityTarget(request)
-    activeVisibilityTarget = ActiveVisibilityTarget(request: request)
-    let task = Task { await self.runAdmittedVisibilityTarget(request) }
-    return .admitted(VisibilityTargetOperation(id: request.id, task: task))
-  }
-
-  public func requestVisibilityTarget(
-    _ request: VisibilityTargetOperationRequest
-  ) async -> VisibilityTargetOperationOutcome {
-    switch beginVisibilityTarget(request) {
-    case .admitted(let operation): await operation.outcome()
-    case .rejected(let outcome): outcome
-    }
-  }
-
-  /// First-intent latch for Stop, Cancel, and shutdown. Only an in-flight Pen-
-  /// Up approach or Pen-Down drawing segment has a compatible jog cancel. The
-  /// compound owner remains the sole owner while that subordinate cancel
-  /// settles.
-  public func requestVisibilityTargetIntent(
-    _ intent: VisibilityTargetOperationIntent,
-    operationID: UUID
-  ) async -> VisibilityTargetIntentOutcome {
-    guard var active = activeVisibilityTarget, active.request.id == operationID else {
-      return .staleOperation
-    }
-    if let latched = active.intent { return .alreadyLatched(latched) }
-    active.intent = intent
-    active.intentPhase = active.phase
-    activeVisibilityTarget = active
-
-    let shouldCancelJog: Bool = switch active.phase {
-    case .approach, .draw: true
-    case .lowerPen, .raisePen: false
-    }
-    let cancelOutcome: JogCancelOutcome?
-    if shouldCancelJog {
-      let cancelTask = Task { await machineController.requestJogCancel() }
-      if activeVisibilityTarget?.request.id == operationID {
-        activeVisibilityTarget?.jogCancelTask = cancelTask
-      }
-      cancelOutcome = await cancelTask.value
-    } else {
-      cancelOutcome = nil
-    }
-    if activeVisibilityTarget?.request.id == operationID {
-      activeVisibilityTarget?.jogCancelOutcome = cancelOutcome
-    }
-    return .accepted(intent: intent, jogCancelOutcome: cancelOutcome)
-  }
-
-  private func runAdmittedVisibilityTarget(
-    _ request: VisibilityTargetOperationRequest
-  ) async -> VisibilityTargetOperationOutcome {
-    defer {
-      if case .visibilityTarget(let current) = currentOperation, current.id == request.id {
-        currentOperation = .idle
-      }
-      if activeVisibilityTarget?.request.id == request.id {
-        let waiters = activeVisibilityTarget?.completionWaiters ?? []
-        activeVisibilityTarget = nil
-        for waiter in waiters { waiter.resume() }
-      }
-    }
-
-    guard request.approachFeedMMPerMinute.isFinite,
-      request.approachFeedMMPerMinute > 0,
-      request.drawingFeedMMPerMinute.isFinite,
-      request.drawingFeedMMPerMinute > 0
-    else {
-      return finishVisibilityTarget(
-        .needsAttention(
-          phase: .approach,
-          scene: .pristine,
-          failure: .approach(.refused(.nonPositiveFeed(request.approachFeedMMPerMinute))),
-          progress: visibilityTargetProgress(for: request)
-        )
-      )
-    }
-
-    setVisibilityTargetPhase(.approach, id: request.id)
-    let approachOutcome = await machineController.requestRelativeJog(
-      request.plan.approachRequest(feedMMPerMinute: request.approachFeedMMPerMinute)
-    )
-    lastMotionOutcome = approachOutcome
-    switch approachOutcome {
-    case .acceptedThenCompleted:
-      if let disposition = latchedVisibilityTargetDisposition(id: request.id) {
-        return await settleVisibilityTargetDisposition(disposition, requestID: request.id)
-      }
-    case .cancelled:
-      guard let disposition = latchedVisibilityTargetDisposition(id: request.id) else {
-        return finishVisibilityTarget(.needsAttention(
-          phase: .approach,
-          scene: .pristine,
-          failure: .stoppedWithoutSettlement,
-          progress: visibilityTargetProgress(for: request)
-        ))
-      }
-      return await settleVisibilityTargetDisposition(disposition, requestID: request.id)
-    case .refused, .ambiguous:
-      return finishVisibilityTarget(.needsAttention(
-        phase: .approach,
-        scene: .pristine,
-        failure: .approach(approachOutcome),
-        progress: visibilityTargetProgress(for: request)
-      ))
-    }
-
-    setVisibilityTargetPhase(.lowerPen, id: request.id)
-    let lowerOutcome = await machineController.requestPenActuation(.lower)
-    lastPenOutcome = lowerOutcome
-    switch lowerOutcome {
-    case .commandedAndSettled:
-      activeVisibilityTarget?.scene = .inkPossible
-      if let disposition = latchedVisibilityTargetDisposition(id: request.id) {
-        return await settleVisibilityTargetDisposition(disposition, requestID: request.id)
-      }
-    case .refused:
-      return finishVisibilityTarget(.needsAttention(
-        phase: .lowerPen,
-        scene: .pristine,
-        failure: .pen(lowerOutcome),
-        progress: visibilityTargetProgress(for: request)
-      ))
-    case .ambiguous:
-      activeVisibilityTarget?.scene = .inkPossible
-      return finishVisibilityTarget(.needsAttention(
-        phase: .lowerPen,
-        scene: .inkPossible,
-        failure: .pen(lowerOutcome),
-        progress: visibilityTargetProgress(for: request)
-      ))
-    }
-
-    var finalPosition: MachinePosition?
-    let traversalRequests = request.plan.traversalRequests(
-      feedMMPerMinute: request.drawingFeedMMPerMinute
-    )
-    for traversalRequest in traversalRequests {
-      if let disposition = latchedVisibilityTargetDisposition(id: request.id) {
-        return await settleVisibilityTargetDisposition(disposition, requestID: request.id)
-      }
-      let step = traversalRequest.step
-      setVisibilityTargetPhase(.draw(step), id: request.id)
-      let outcome = await machineController.requestDrawingStroke(traversalRequest.drawingRequest)
-      lastDrawingStrokeOutcome = outcome
-      switch outcome {
-      case .completed(let evidence):
-        finalPosition = evidence.finalPosition
-        recordVisibilityTargetTraversalCompletion(step, id: request.id)
-        if let disposition = latchedVisibilityTargetDisposition(id: request.id) {
-          return await settleVisibilityTargetDisposition(disposition, requestID: request.id)
-        }
-      case .cancelled(_, let penRaiseOutcome):
-        lastPenOutcome = penRaiseOutcome
-        guard let disposition = latchedVisibilityTargetDisposition(id: request.id),
-          case .commandedAndSettled = penRaiseOutcome
-        else {
-          return finishVisibilityTarget(.needsAttention(
-            phase: .draw(step),
-            scene: .inkPossible,
-            failure: .drawing(step: step, outcome: outcome),
-            progress: visibilityTargetProgress(for: request)
-          ))
-        }
-        return await settleVisibilityTargetDisposition(disposition, requestID: request.id)
-      case .refused:
-        if case .refused(.operationInFlight) = outcome,
-          let disposition = latchedVisibilityTargetDisposition(id: request.id)
-        {
-          return await settleVisibilityTargetDisposition(
-            disposition,
-            requestID: request.id
-          )
-        }
-        return await raiseAfterVisibilityTargetFailure(
-          phase: .draw(step),
-          failure: .drawing(step: step, outcome: outcome),
-          requestID: request.id
-        )
-      case .ambiguous:
-        return finishVisibilityTarget(.needsAttention(
-          phase: .draw(step),
-          scene: .inkPossible,
-          failure: .drawing(step: step, outcome: outcome),
-          progress: visibilityTargetProgress(for: request)
-        ))
-      }
-    }
-
-    setVisibilityTargetPhase(.raisePen, id: request.id)
-    let raiseOutcome = await machineController.requestPenActuation(.raise)
-    lastPenOutcome = raiseOutcome
-    guard case .commandedAndSettled = raiseOutcome else {
-      return finishVisibilityTarget(.needsAttention(
-        phase: .raisePen,
-        scene: .inkPossible,
-        failure: .pen(raiseOutcome),
-        progress: visibilityTargetProgress(for: request)
-      ))
-    }
-    if let disposition = latchedVisibilityTargetDisposition(id: request.id) {
-      return await settleVisibilityTargetDisposition(disposition, requestID: request.id)
-    }
-    guard let finalPosition else {
-      return finishVisibilityTarget(.needsAttention(
-        phase: .raisePen,
-        scene: .inkPossible,
-        failure: .stoppedWithoutSettlement,
-        progress: visibilityTargetProgress(for: request)
-      ))
-    }
-    return finishVisibilityTarget(.completed(
-      finalPosition: finalPosition,
-      scene: .inkPossible,
-      progress: visibilityTargetProgress(for: request)
-    ))
-  }
-
-  private func raiseAfterVisibilityTargetFailure(
-    phase: VisibilityTargetOperationPhase,
-    failure: VisibilityTargetOperationFailure,
-    requestID: UUID
-  ) async -> VisibilityTargetOperationOutcome {
-    setVisibilityTargetPhase(.raisePen, id: requestID)
-    let raiseOutcome = await machineController.requestPenActuation(.raise)
-    lastPenOutcome = raiseOutcome
-    if case .ambiguous = raiseOutcome {
-      return finishVisibilityTarget(.needsAttention(
-        phase: .raisePen,
-        scene: .inkPossible,
-        failure: .pen(raiseOutcome),
-        progress: visibilityTargetProgressForActiveRequest(requestID: requestID)
-      ))
-    }
-    return finishVisibilityTarget(.needsAttention(
-      phase: phase,
-      scene: .inkPossible,
-      failure: failure,
-      progress: visibilityTargetProgressForActiveRequest(requestID: requestID)
-    ))
-  }
-
-  private func settleVisibilityTargetDisposition(
-    _ intent: VisibilityTargetOperationIntent,
-    requestID: UUID
-  ) async -> VisibilityTargetOperationOutcome {
-    let scene = activeVisibilityTarget?.scene ?? .pristine
-    if scene == .inkPossible {
-      setVisibilityTargetPhase(.raisePen, id: requestID)
-      let snapshot = await machineController.snapshot()
-      if snapshot.penState == .down {
-        let raise = await machineController.requestPenActuation(.raise)
-        lastPenOutcome = raise
-        guard case .commandedAndSettled = raise else {
-          return finishVisibilityTarget(.needsAttention(
-            phase: .raisePen,
-            scene: scene,
-            failure: .pen(raise),
-            progress: visibilityTargetProgressForActiveRequest(requestID: requestID)
-          ))
-        }
-      }
-    }
-    if let cancelTask = activeVisibilityTarget?.jogCancelTask {
-      let outcome = await cancelTask.value
-      if activeVisibilityTarget?.request.id == requestID {
-        activeVisibilityTarget?.jogCancelOutcome = outcome
-      }
-    }
-    return finishVisibilityTarget(dispositionOutcome(intent, scene: scene))
-  }
-
-  private func setVisibilityTargetPhase(_ phase: VisibilityTargetOperationPhase, id: UUID) {
-    guard activeVisibilityTarget?.request.id == id else { return }
-    activeVisibilityTarget?.phase = phase
-  }
-
-  private func recordVisibilityTargetTraversalCompletion(
-    _ step: VisibilityTargetTraversalStep,
-    id: UUID
-  ) {
-    guard activeVisibilityTarget?.request.id == id else { return }
-    activeVisibilityTarget?.completedTraversalStepCount += 1
-    activeVisibilityTarget?.lastCompletedTraversalStep = step
-  }
-
-  private static func initialVisibilityTargetProgress(
-    for request: VisibilityTargetOperationRequest
-  ) -> VisibilityTargetOperationProgress {
-    VisibilityTargetOperationProgress(
-      planRevision: request.plan.algorithmRevision,
-      phase: .approach,
-      completedTraversalStepCount: 0,
-      lastCompletedTraversalStep: nil
-    )
-  }
-
-  private func visibilityTargetProgress(
-    for request: VisibilityTargetOperationRequest
-  ) -> VisibilityTargetOperationProgress {
-    guard let active = activeVisibilityTarget, active.request.id == request.id else {
-      return Self.initialVisibilityTargetProgress(for: request)
-    }
-    return VisibilityTargetOperationProgress(
-      planRevision: request.plan.algorithmRevision,
-      phase: active.phase,
-      dispositionRequestedDuringPhase: active.intentPhase,
-      completedTraversalStepCount: active.completedTraversalStepCount,
-      lastCompletedTraversalStep: active.lastCompletedTraversalStep
-    )
-  }
-
-  private func visibilityTargetProgressForActiveRequest(
-    requestID: UUID
-  ) -> VisibilityTargetOperationProgress {
-    precondition(activeVisibilityTarget?.request.id == requestID)
-    return visibilityTargetProgress(for: activeVisibilityTarget!.request)
-  }
-
-  private func latchedVisibilityTargetDisposition(
-    id: UUID
-  ) -> VisibilityTargetOperationIntent? {
-    guard activeVisibilityTarget?.request.id == id else { return nil }
-    return activeVisibilityTarget?.intent
-  }
-
-  private func dispositionOutcome(
-    _ intent: VisibilityTargetOperationIntent,
-    scene: VisibilityTargetSceneDisposition
-  ) -> VisibilityTargetOperationOutcome {
-    let cancel = activeVisibilityTarget?.jogCancelOutcome
-    let progress = visibilityTargetProgressForActiveRequest(
-      requestID: activeVisibilityTarget!.request.id
-    )
-    return switch intent {
-    case .stop: .stopped(scene: scene, jogCancelOutcome: cancel, progress: progress)
-    case .cancel: .cancelled(scene: scene, jogCancelOutcome: cancel, progress: progress)
-    case .shutdown: .shutdown(scene: scene, jogCancelOutcome: cancel, progress: progress)
-    }
-  }
-
-  private func finishVisibilityTarget(
-    _ outcome: VisibilityTargetOperationOutcome
-  ) -> VisibilityTargetOperationOutcome {
-    lastVisibilityTargetOutcome = outcome
-    return outcome
-  }
-
   /// Priority subordinate request for the active `$J` operation. It deliberately
   /// does not replace `currentOperation`; the original jog remains the only
   /// owner of controller replies and final Idle completion.
@@ -859,7 +443,7 @@ public actor RunInterpreter {
     switch currentOperation {
     case .relativeJog, .drawingStroke:
       break
-    case .boundaryMotion, .visibilityTarget:
+    case .boundaryMotion:
       return .refused(.noActiveJog)
     case .idle, .passiveProbe, .penActuation:
       let outcome = await machineController.requestJogCancel()
@@ -896,10 +480,6 @@ public actor RunInterpreter {
         _ = await requestJogCancel(.shutdown)
       }
       await waitForBoundaryCompletion(ownerID: boundary.request.ownerID)
-    }
-    if let target = activeVisibilityTarget {
-      _ = await requestVisibilityTargetIntent(.shutdown, operationID: target.request.id)
-      await waitForVisibilityTargetCompletion(operationID: target.request.id)
     }
     generation &+= 1
     activeTransition = nil
@@ -1015,13 +595,6 @@ public actor RunInterpreter {
     guard activeBoundaryMotion?.request.ownerID == ownerID else { return }
     await withCheckedContinuation { continuation in
       activeBoundaryMotion?.completionWaiters.append(continuation)
-    }
-  }
-
-  private func waitForVisibilityTargetCompletion(operationID: UUID) async {
-    guard activeVisibilityTarget?.request.id == operationID else { return }
-    await withCheckedContinuation { continuation in
-      activeVisibilityTarget?.completionWaiters.append(continuation)
     }
   }
 

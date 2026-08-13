@@ -1,91 +1,63 @@
 # AdaptivePlotter Roadmap
 
-Status: unfinished work only
+Status: unfinished work only; never completion evidence
 
-The current software already provides the local app shell, controller and
-camera ownership, one-window Learning Path, Human-Guided Discovery, visibility
-registration, one isolated-line observed trial, causal simulation, artifact
-dependencies, and conservative attempt replacement. See
-[Current Evidence](CURRENT_EVIDENCE.md) for verified status rather than treating
-this roadmap as completion evidence.
+Current implementation and verification are recorded in
+[Current Evidence](CURRENT_EVIDENCE.md). Product authority is
+[Product Contract](PRODUCT_CONTRACT.md).
 
-## 1. Repeatable geometric learning
+## 1. Attended sparse-calibration validation
 
-Goal: move from one isolated line comparison to enough repeated attributable
-observations to estimate a useful first correction model.
+Run the complete [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md) on a
+disposable sheet. Validate actual controller settlement, five cap captures,
+five stationary contacts, frozen-frame human clicks, post-click geometry,
+smallest-passing model review, and one Stage 4 observed line. Record failures
+without retapping or redrawing ambiguous locations.
 
-Required outcomes:
+This is the highest-priority gap. Automated and simulated evidence cannot close
+it.
 
-- repeat target-anchored lines at multiple directions and locations;
-- preserve exact intended, predicted, observed, frame, controller, pen, paper,
-  camera, and model provenance;
-- separate immediate state correction from slow model parameters;
-- reserve whole trials for held-out evaluation;
-- compare candidate, prior, and null improvements;
-- reject underidentified or context-incompatible fits;
-- expose uncertainty and applicability rather than one global confidence value;
-- require explicit acceptance before changing the current model.
+## 2. Operator-declared semantic revision controls
 
-Physical completion requires attended observed-ink trials. Simulator and tests
-can verify structure but cannot establish physical model quality.
+Add deliberate attended controls for tool/holder/contact-profile replacement,
+camera mount/reframing changes, and known machine-geometry revisions. Each
+control must rotate the correct semantic identity, show the affected checkpoint
+and graph suffix, preserve raw history, and require explicit invalidation or
+revalidation. It must never infer physical sameness from app restart alone.
 
-## 2. Stroke and shape preference
+## 3. Durable exact-frame archive
 
-Goal: establish observed behavior beyond a single straight isolated line.
+Current exact frames retain hashes and metadata but no content-addressed pixel
+locator. Add an opt-in bounded archive before claiming reprocessing across app
+sessions. Define retention, privacy, disk limits, corruption checks, and atomic
+association with the evidence graph.
 
-Candidate work:
+## 4. Repeated attributable drawing trials
 
-- repeated directions, lengths, and drawing feeds;
-- separated travel, drawing, corner, reversal, and pen-cycle effects;
-- line-width and pen-profile evidence;
-- closed-shape and multi-stroke observations;
-- whole-stroke holdouts and residual decomposition;
-- explicit ambiguity handling without automatic redraw.
+Collect multiple attended line observations across position and direction.
+Keep trial-local baseline/reveal provenance, exact tip revision, controller and
+paper identities, and held-out evaluation. Compare null, prior, and candidate
+models; expose uncertainty/applicability; require explicit acceptance for any
+refinement.
 
-Prefer the simplest interpretable model that improves held-out physical trials.
-Stage 3 now establishes the camera-configuration-specific cap-to-tip
-translation needed to locate ink from the visible cap anchor. Affine correction
-beyond that baseline, direction-dependent backlash, and a regularized low-
-resolution residual field remain progressively more complex options, not
-mandatory stages.
+## 5. Stroke and shape evaluation
 
-## 3. Active experiment selection
+After line evidence is reliable, add corners, polylines, repeated reversals, and
+speed-sensitive trials. Keep request geometry, executed controller evidence,
+and observed pixels distinct. Do not introduce automatic redraw after an
+ambiguous stroke.
 
-Goal: choose a bounded next observation only when it is expected to reduce a
-specific uncertainty safely.
+## 6. Drift and lifecycle studies
 
-Required before activation:
+Measure within-session and cross-session sensitivity to focus, mount, tool,
+paper, temperature, controller-coordinate, and capture restarts. Use those
+results to set revalidation frequency and residual thresholds; do not tune
+thresholds merely to pass simulator fixtures.
 
-- a current accepted model and comparable candidate family;
-- explicit uncertainty or identifiability target;
-- bounded typed action candidates;
-- direct mechanical eligibility checked independently of model preference;
-- operator-visible proposal and explicit Start;
-- no hidden motion and no automatic retry;
-- outcome recorded as evidence rather than immediate authority.
+## 7. Operational hardening
 
-The existing future-facing action, dataset, and model types may support this
-work. They do not make active experiment selection a current product feature.
-
-## 4. Adaptive Drawing
-
-Goal: execute useful multi-stroke programs while preserving checkpoint evidence
-and refusing ambiguous continuation.
-
-Required outcomes:
-
-- immutable logical drawing programs;
-- finite execution-plan revisions ending at checkpoints;
-- distinct commanded, controller-completed, and ink-verified frontiers;
-- ambiguity attached to affected blocks or strokes;
-- no redraw of controller-completed but ink-unverified work;
-- accepted-model identity and planning basis recorded per revision;
-- forward-model inversion with domain and forward checks;
-- model updates only at safe checkpoints, never during a Pen Down stroke;
-- explicit human recovery when physical outcome is uncertain.
-
-## Validation milestones
-
-Each increment reports automated, simulator, signed-launch, controller, camera,
-human, and observed-ink evidence separately. A feature remains software-only
-until its required attended physical evidence exists.
+- export a redacted evidence bundle with schema/version validation;
+- add explicit storage inspection and checkpoint deletion UI;
+- exercise upgrade/migration and corrupted-checkpoint refusal;
+- expand accessibility and keyboard operation for exact-frame clicking;
+- keep signed-bundle, singleton, camera, and serial ownership tests current.

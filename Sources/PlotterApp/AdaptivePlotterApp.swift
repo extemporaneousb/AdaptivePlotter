@@ -10,6 +10,12 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
     cameraActions: CameraComposition.actions,
     announcementActions: SpeechComposition.actions,
     acceptedArtifactCheckpointActions: AcceptedArtifactCheckpointComposition.actions,
+    acceptedTipCalibrationCheckpointActions:
+      AcceptedArtifactCheckpointComposition.tipCalibrationActions,
+    tipCalibrationSemanticIdentities: TipCalibrationSemanticIdentityComposition.state,
+    persistPaperContactPlaneRevision: {
+      TipCalibrationSemanticIdentityComposition.persistPaperContactPlane($0)
+    },
     workflowTelemetryActions: MachineSessionComposition.workflowTelemetryActions
   )
   private var terminationTask: Task<Void, Never>?
@@ -139,7 +145,10 @@ struct OperatorWorkspaceView: View {
           VSplitView {
             ActionSurface(
               presentation: workspace.actionSurfacePresentation,
-              viewport: $actionSurfaceViewport
+              viewport: $actionSurfaceViewport,
+              selectPoint: { selection in
+                workspace.selectToolContactPoint(selection)
+              }
             )
               .frame(
                 minWidth: LearningWorkbenchLayoutPolicy.minimumActionSurfaceWidth,
@@ -409,10 +418,10 @@ private struct CameraPanel: View {
             .contentShape(Rectangle())
           }
           .operatorButton(
-            isEnabled: workspace.foregroundVisionOperationUnavailableReason == nil
+            isEnabled: workspace.currentCameraCalibrationBusyReason == nil
           )
           .help(
-            workspace.foregroundVisionOperationUnavailableReason
+            workspace.currentCameraCalibrationBusyReason
               ?? "Select \(device.name)"
           )
         }
@@ -572,9 +581,9 @@ private struct MotionPanel: View {
       }
 
     }
-    .disabled(workspace.foregroundVisionOperationUnavailableReason != nil)
+    .disabled(workspace.currentCameraCalibrationBusyReason != nil)
     .help(
-      workspace.foregroundVisionOperationUnavailableReason
+      workspace.currentCameraCalibrationBusyReason
         ?? "Manual relative motion controls"
     )
   }

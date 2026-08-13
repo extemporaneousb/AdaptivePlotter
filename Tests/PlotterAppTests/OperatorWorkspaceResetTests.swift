@@ -6,6 +6,37 @@ import Testing
 @testable import PlotterRuntime
 
 extension OperatorWorkspaceTests {
+  @Test("Reset All LIVE Learning clears a quarantined durable tip checkpoint")
+  func resetAllLiveLearningClearsTipCheckpoint() async throws {
+    let checkpointBox = TipCheckpointBox()
+    let actions = OperatorWorkspace.AcceptedTipCalibrationCheckpointActions(
+      load: { checkpointBox.load() },
+      save: { checkpointBox.save($0) },
+      clear: { checkpointBox.clear() }
+    )
+    let seeded = makeSimulatedHarness(tipCheckpointActions: actions)
+    try await completeSimulatedBoundariesAndCenter(
+      seeded.workspace,
+      runtime: seeded.runtime,
+      boundaryOrder: [.negativeX, .positiveX, .negativeY, .positiveY]
+    )
+    try await completeSimulatedSparseTipCalibration(
+      seeded.workspace,
+      runtime: seeded.runtime
+    )
+    #expect(checkpointBox.checkpoint != nil)
+
+    let liveRestart = makeSimulatedHarness(tipCheckpointActions: actions)
+    #expect(liveRestart.workspace.frameMode == .live)
+    #expect(liveRestart.workspace.quarantinedTipCalibrationCheckpoint != nil)
+    let plan = try #require(liveRestart.workspace.resetAllLearningPlan)
+    #expect(plan.removesDurableTipCheckpoint)
+    #expect(!plan.removesDurableMachineCheckpoint)
+    #expect(liveRestart.workspace.performLearningVacate(plan))
+    #expect(checkpointBox.checkpoint == nil)
+    #expect(liveRestart.workspace.quarantinedTipCalibrationCheckpoint == nil)
+  }
+
   @Test("Reset All LIVE Learning clears durable authority but retains session facts")
   func resetAllLiveLearningClearsCheckpointAndRetainsSessionFacts() async throws {
     let log = EventLog()
@@ -65,11 +96,12 @@ extension OperatorWorkspaceTests {
   func resetBoundaryForwardRetainsEarlierLearning() async throws {
     let harness = makeSimulatedHarness()
     let workspace = harness.workspace
-    try await completeSimulatedVisibilityProtocol(
+    try await completeSimulatedBoundariesAndCenter(
       workspace,
       runtime: harness.runtime,
       boundaryOrder: [.positiveX, .negativeX, .positiveY, .negativeY]
     )
+    try await completeSimulatedSparseTipCalibration(workspace, runtime: harness.runtime)
     let penRevisionID = try #require(
       workspace.learningArtifactGraph.currentRevision(for: .penInteraction)?.id
     )
@@ -79,7 +111,7 @@ extension OperatorWorkspaceTests {
     let plan = try #require(workspace.learningVacatePlan(from: anchor))
     #expect(plan.source == .simulated)
     #expect(!plan.removesDurableCheckpoint)
-    #expect(plan.physicalInkMayRemain)
+    #expect(!plan.physicalInkMayRemain)
     #expect(plan.title == "Reset From This Step")
     #expect(workspace.performLearningVacate(plan))
 
@@ -89,8 +121,8 @@ extension OperatorWorkspaceTests {
     )
     #expect(workspace.boundarySideAggregates.isEmpty)
     #expect(workspace.estimatedMachineCenter == nil)
-    #expect(!workspace.visibilityRegistrationAccepted)
-    #expect(workspace.visibilityTargetSceneDisposition == .targetUnusable)
+    #expect(workspace.machineCameraRegistration == nil)
+    #expect(workspace.tipCameraRegistration == nil)
     #expect(workspace.drawingTrialAssessment == nil)
     #expect(workspace.currentLearningPathItemID == anchor)
     await workspace.shutdown()
@@ -100,11 +132,12 @@ extension OperatorWorkspaceTests {
   func resetComparisonOnlyPreservesObservedLine() async throws {
     let harness = makeSimulatedHarness()
     let workspace = harness.workspace
-    try await completeSimulatedVisibilityProtocol(
+    try await completeSimulatedBoundariesAndCenter(
       workspace,
       runtime: harness.runtime,
       boundaryOrder: [.positiveX, .negativeX, .positiveY, .negativeY]
     )
+    try await completeSimulatedSparseTipCalibration(workspace, runtime: harness.runtime)
     try await completeSimulatedStageFour(workspace)
     let linePlan = try #require(
       workspace.learningArtifactGraph.revisions.first { revision in
@@ -146,19 +179,20 @@ extension OperatorWorkspaceTests {
   func resetCompletedTransitionWithoutArtifact() async throws {
     let harness = makeSimulatedHarness()
     let workspace = harness.workspace
-    try await completeSimulatedVisibilityProtocol(
+    try await completeSimulatedBoundariesAndCenter(
       workspace,
       runtime: harness.runtime,
       boundaryOrder: [.positiveX, .negativeX, .positiveY, .negativeY]
     )
+    try await completeSimulatedSparseTipCalibration(workspace, runtime: harness.runtime)
     try await performPublicAction(
       .chooseIsolatedLinePlan(.positiveX),
       owner: .observedDrawingTrial(.chooseIsolatedLinePlan),
       workspace: workspace
     )
     try await performPublicAction(
-      .captureTargetAnchoredBaseline,
-      owner: .observedDrawingTrial(.captureTargetAnchoredBaseline),
+      .captureLocalPreLineBaseline,
+      owner: .observedDrawingTrial(.captureLocalPreLineBaseline),
       workspace: workspace
     )
     try await performPublicAction(
@@ -177,7 +211,7 @@ extension OperatorWorkspaceTests {
 
     #expect(workspace.currentLearningPathItemID == anchor)
     #expect(workspace.lastProtocolPoseSettlement == nil)
-    #expect(workspace.targetAnchoredTrialBaseline != nil)
+    #expect(workspace.localPreLineBaseline != nil)
     await workspace.shutdown()
   }
 }

@@ -60,15 +60,9 @@ public enum ExplorationActionKind: String, CaseIterable, Hashable, Sendable {
   case relativeJog
   case penUp
   case penDown
-  case armatureMove
-  case acceptClearPose
-  case captureTargetPoseRegistration
-  case capturePreTargetClearViewBaseline
-  case drawVisibilityTarget
-  case captureVisibilityTargetSample
-  case captureTargetAnchoredTrialBaseline
+  case captureCameraCalibrationReference
+  case captureLocalPreLineBaseline
   case drawingStroke
-  case returnToClearPose
   case capturePostLine
   case observeInk
 }
@@ -157,11 +151,7 @@ public enum ExplorationFrameRole: String, CaseIterable, Hashable, Sendable {
   case preAction
   case postAction
   case boundaryObservation
-  case armatureObservation
-  case targetPoseRegistration
-  case preTargetClearViewBaseline
-  case visibilityTargetSample
-  case targetAnchoredTrialBaseline
+  case localPreLineBaseline
   case postLine
 }
 
@@ -252,7 +242,8 @@ public struct ExplorationEpisode: Hashable, Sendable {
   public var controllerEvidence: ExplorationControllerEvidence?
   public var frames: [ExplorationFrameEvidence]
   public var lineStartPosition: MachinePosition?
-  public var targetContactPoint: Point2<CameraPixelSpace>?
+  public var observedLineStartPoint: Point2<CameraPixelSpace>?
+  public var observedLineObservation: IsolatedInkObservation?
   public var visionEstimate: ExplorationAssessment?
   public var humanAssessment: ExplorationAssessment?
   public var residual: ExplorationResidual?
@@ -280,7 +271,8 @@ public struct ExplorationEpisode: Hashable, Sendable {
     controllerEvidence = nil
     frames = []
     lineStartPosition = nil
-    targetContactPoint = nil
+    observedLineStartPoint = nil
+    observedLineObservation = nil
     visionEstimate = nil
     humanAssessment = nil
     residual = nil

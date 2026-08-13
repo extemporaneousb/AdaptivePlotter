@@ -47,59 +47,38 @@ func aspectFitMappingMultipleSizes() throws {
   #expect(tall.imageRect == CGRect(x: 0, y: 150, width: 200, height: 100))
 }
 
-@Test("Search-circle focus magnifies exact camera coordinates without changing provenance")
-func searchCircleFocusMappingAndIdentity() throws {
+@Test("Inverse mapping round-trips full-frame and zoomed camera pixels")
+func inverseMappingRoundTrip() throws {
   let region = PixelRect(x: 300, y: 200, width: 40, height: 20)
-  let transform = try #require(
-    CameraPixelToViewTransform(
-      frameWidth: 640,
-      frameHeight: 480,
-      viewWidth: 400,
-      viewHeight: 400,
-      focusRegion: region
-    )
-  )
-  #expect(transform.visibleCameraRect == CGRect(x: 300, y: 200, width: 40, height: 20))
-  #expect(transform.point(try Point2(x: 300, y: 200)) == CGPoint(x: 0, y: 100))
-  #expect(transform.point(try Point2(x: 340, y: 220)) == CGPoint(x: 400, y: 300))
-
-  let displayed = try testDisplayedFrame()
-  let searchCircle = try testSearchCircle(anchor: displayed)
-  let context = ActionSurfaceViewportContext(
-    source: displayed.source,
-    cameraConfigurationID: displayed.frame.cameraConfigurationID,
-    targetAreaIdentity: UUID(),
-    searchAuthorityToken: "roi-1",
-    region: PixelRect(x: 1, y: 1, width: 2, height: 2)
-  )
-  let matching = ActionSurfaceFocus(
-    frameID: displayed.frame.id,
-    cameraConfigurationID: displayed.frame.cameraConfigurationID,
-    searchCircle: searchCircle,
-    region: PixelRect(x: 1, y: 1, width: 2, height: 2),
-    label: "target",
-    viewportContext: context
-  )
-  #expect(ActionSurfacePresentation(displayedFrame: displayed, overlays: [], focus: matching).focus == matching)
-  let stale = ActionSurfaceFocus(
-    frameID: FrameID(),
-    cameraConfigurationID: displayed.frame.cameraConfigurationID,
-    searchCircle: searchCircle,
-    region: matching.region,
-    label: "stale",
-    viewportContext: context
-  )
-  #expect(ActionSurfacePresentation(displayedFrame: displayed, overlays: [], focus: stale).focus == nil)
+  for focus in [nil, region] {
+    let transform = try #require(CameraPixelToViewTransform(
+      frameWidth: 640, frameHeight: 480, viewWidth: 800, viewHeight: 600,
+      focusRegion: focus
+    ))
+    let camera = try Point2<CameraPixelSpace>(x: focus == nil ? 321.25 : 321, y: 211.75)
+    let roundTrip = try #require(transform.cameraPoint(transform.point(camera)))
+    #expect(abs(roundTrip.x - camera.x) < 1e-9)
+    #expect(abs(roundTrip.y - camera.y) < 1e-9)
+  }
 }
 
-@Test("Viewport defaults full-frame, interpolates, and reaches the search bounds")
+@Test("Inverse mapping rejects clicks in aspect-fit letterboxes")
+func inverseMappingRejectsLetterbox() throws {
+  let transform = try #require(CameraPixelToViewTransform(
+    frameWidth: 100, frameHeight: 200, viewWidth: 400, viewHeight: 200
+  ))
+  #expect(transform.cameraPoint(CGPoint(x: 149, y: 100)) == nil)
+  #expect(transform.cameraPoint(CGPoint(x: 251, y: 100)) == nil)
+  #expect(try #require(transform.cameraPoint(CGPoint(x: 200, y: 100))).x == 50)
+}
+
+@Test("Viewport defaults full-frame, interpolates, and reaches fitted learned bounds")
 func viewportZoomEndpointsAndInterpolation() {
   let context = ActionSurfaceViewportContext(
     source: .simulated,
     cameraConfigurationID: CameraConfigurationID(),
-    targetAreaIdentity: UUID(),
-    searchAuthorityToken: "roi-1",
-    region: PixelRect(x: 300, y: 200, width: 40, height: 20)
+    fittedRegion: PixelRect(x: 300, y: 200, width: 40, height: 20),
+    presentationRevisionToken: "bounds-1"
   )
   var viewport = ActionSurfaceViewportState()
   viewport.synchronize(with: context)
@@ -111,98 +90,36 @@ func viewportZoomEndpointsAndInterpolation() {
     viewport.visibleRegion(frameWidth: 640, frameHeight: 480)
       == PixelRect(x: 150, y: 100, width: 340, height: 250)
   )
-  viewport.showSearchBounds()
-  #expect(viewport.visibleRegion(frameWidth: 640, frameHeight: 480) == context.region)
+  let evidenceRevision = viewport.presentationTransformRevision
+  viewport.showFittedBounds()
+  #expect(viewport.visibleRegion(frameWidth: 640, frameHeight: 480) == context.fittedRegion)
+  #expect(viewport.presentationTransformRevision != evidenceRevision)
 }
 
-@Test("Viewport survives frame and phase churn and resets for every search authority change")
-func viewportStableContextPersistence() throws {
-  let region = PixelRect(x: 20, y: 30, width: 40, height: 50)
+@Test("Viewport zoom is presentation-only and resets for semantic context changes")
+func viewportPresentationOnlyContext() {
   let context = ActionSurfaceViewportContext(
     source: .simulated,
     cameraConfigurationID: CameraConfigurationID(),
-    targetAreaIdentity: UUID(),
-    searchAuthorityToken: "roi-1",
-    region: region
+    fittedRegion: PixelRect(x: 20, y: 30, width: 40, height: 50),
+    presentationRevisionToken: "machine-fit-1"
   )
   var viewport = ActionSurfaceViewportState()
   viewport.synchronize(with: context)
   viewport.zoom = 0.72
-  let anchor = try testDisplayedFrame(
-    source: context.source,
-    configuration: context.cameraConfigurationID
-  )
-  let searchCircle = try testSearchCircle(anchor: anchor)
-  let firstFocus = ActionSurfaceFocus(
-    frameID: FrameID(),
-    cameraConfigurationID: context.cameraConfigurationID,
-    searchCircle: searchCircle,
-    region: region,
-    label: "capture phase",
-    viewportContext: context
-  )
-  let laterFocus = ActionSurfaceFocus(
-    frameID: FrameID(),
-    cameraConfigurationID: context.cameraConfigurationID,
-    searchCircle: searchCircle,
-    region: region,
-    label: "observation phase",
-    viewportContext: context
-  )
-  #expect(firstFocus.frameID != laterFocus.frameID)
-  #expect(firstFocus.label != laterFocus.label)
-  #expect(firstFocus.viewportContext == laterFocus.viewportContext)
-  viewport.synchronize(with: laterFocus.viewportContext)
+  viewport.synchronize(with: context)
   #expect(viewport.zoom == 0.72)
-
-  let changedContexts = [
-    ActionSurfaceViewportContext(
-      source: .live(CameraDeviceID(rawValue: "camera-b")),
-      cameraConfigurationID: context.cameraConfigurationID,
-      targetAreaIdentity: context.targetAreaIdentity,
-      searchAuthorityToken: context.searchAuthorityToken,
-      region: region
-    ),
-    ActionSurfaceViewportContext(
-      source: context.source,
-      cameraConfigurationID: CameraConfigurationID(),
-      targetAreaIdentity: context.targetAreaIdentity,
-      searchAuthorityToken: context.searchAuthorityToken,
-      region: region
-    ),
-    ActionSurfaceViewportContext(
-      source: context.source,
-      cameraConfigurationID: context.cameraConfigurationID,
-      targetAreaIdentity: UUID(),
-      searchAuthorityToken: context.searchAuthorityToken,
-      region: region
-    ),
-    ActionSurfaceViewportContext(
-      source: context.source,
-      cameraConfigurationID: context.cameraConfigurationID,
-      targetAreaIdentity: context.targetAreaIdentity,
-      searchAuthorityToken: "roi-2",
-      region: region
-    ),
-    ActionSurfaceViewportContext(
-      source: context.source,
-      cameraConfigurationID: context.cameraConfigurationID,
-      targetAreaIdentity: context.targetAreaIdentity,
-      searchAuthorityToken: context.searchAuthorityToken,
-      region: PixelRect(x: 21, y: 30, width: 40, height: 50)
-    ),
-  ]
-  for changedContext in changedContexts {
-    var changedViewport = ActionSurfaceViewportState()
-    changedViewport.synchronize(with: context)
-    changedViewport.zoom = 0.72
-    changedViewport.synchronize(with: changedContext)
-    #expect(changedViewport.zoom == 0)
-  }
+  viewport.synchronize(with: ActionSurfaceViewportContext(
+    source: context.source,
+    cameraConfigurationID: context.cameraConfigurationID,
+    fittedRegion: context.fittedRegion,
+    presentationRevisionToken: "machine-fit-2"
+  ))
+  #expect(viewport.zoom == 0)
 }
 
-@Test("Viewport and search-circle outline use true frame intersections")
-func viewportClipsSearchBoundsAtEveryFrameEdge() {
+@Test("Fitted presentation bounds use true frame intersections")
+func viewportClipsFittedBoundsAtEveryFrameEdge() {
   let cases: [(PixelRect, PixelRect?)] = [
     (
       PixelRect(x: -10, y: -5, width: 20, height: 20),
@@ -225,13 +142,74 @@ func viewportClipsSearchBoundsAtEveryFrameEdge() {
     viewport.synchronize(with: ActionSurfaceViewportContext(
       source: .simulated,
       cameraConfigurationID: CameraConfigurationID(),
-      targetAreaIdentity: UUID(),
-      searchAuthorityToken: "roi-edge",
-      region: region
+      fittedRegion: region,
+      presentationRevisionToken: "bounds-edge"
     ))
-    viewport.showSearchBounds()
+    viewport.showFittedBounds()
     #expect(viewport.visibleRegion(frameWidth: 100, frameHeight: 100) == expected)
   }
+}
+
+@Test("Tip presentation hides prediction until after selection")
+func tipPredictionVisibilityPolicy() throws {
+  #expect(ActionSurfaceTipPresentation.notCalibrated.statusText == "Tip not calibrated")
+  if case .awaitingClick = ActionSurfaceTipPresentation.awaitingClick("Click mark center") {
+  } else { Issue.record("awaiting click state must not contain a prediction") }
+  let prediction = try Point2<CameraPixelSpace>(x: 12, y: 14)
+  let selection = try Point2<CameraPixelSpace>(x: 13, y: 14)
+  let selected = ActionSurfaceTipPresentation.selected(
+    click: selection,
+    pointingUncertaintyPixels: try Vector2(dx: 1.5, dy: 2),
+    prediction: prediction,
+    residualPixels: 1
+  )
+  #expect(selected.statusText == "Selection residual 1.000 px")
+  let geometry = try #require(selected.reviewGeometry)
+  #expect(geometry.click == selection)
+  let uncertainty = try Vector2<CameraPixelSpace>(dx: 1.5, dy: 2)
+  #expect(geometry.pointingUncertaintyPixels == uncertainty)
+  #expect(geometry.prediction == prediction)
+  #expect(geometry.residual?.start == prediction)
+  #expect(geometry.residual?.end == selection)
+}
+
+@Test("Exact selection request rejects a stale frame hash, source, or dimensions")
+func exactSelectionRequestProvenance() throws {
+  let displayed = try testDisplayedFrame(source: .simulated)
+  let optical = try CameraOpticalConfigurationIdentity(
+    source: displayed.source,
+    sensorFormat: "test",
+    width: displayed.frame.width,
+    height: displayed.frame.height,
+    pixelFormat: displayed.frame.pixelFormat,
+    orientation: .up,
+    mirrored: false,
+    digitalZoomFactor: 1,
+    lensIdentity: "fixed-lens",
+    focusConfiguration: "fixed-focus",
+    mountRevision: UUID(),
+    reframingRevision: UUID()
+  )
+  let exact = try ExactTipCalibrationFrame(
+    frameID: displayed.frame.id,
+    frameSHA256: displayed.frame.contentSHA256,
+    source: displayed.source,
+    captureSessionID: CameraCaptureSessionID(),
+    opticalConfiguration: optical,
+    cameraConfigurationID: displayed.frame.cameraConfigurationID,
+    captureNanoseconds: displayed.frame.captureNanoseconds,
+    width: displayed.frame.width,
+    height: displayed.frame.height,
+    pixelFormat: displayed.frame.pixelFormat
+  )
+  let request = ActionSurfacePointSelectionRequest(
+    frame: exact,
+    presentationTransformRevision: PresentationTransformRevision(),
+    prompt: "Click center"
+  )
+  #expect(request.matches(displayed))
+  let stale = try testDisplayedFrame(source: .simulated, configuration: displayed.frame.cameraConfigurationID)
+  #expect(!request.matches(stale))
 }
 
 @Test("Overlay is hidden when frame or camera configuration identity differs")
@@ -474,17 +452,6 @@ private func testDisplayedFrame(
       pixelFormat: .bgra8,
       bytes: OwnedFrameBytes(Array(repeating: 255, count: 16))
     )
-  )
-}
-
-private func testSearchCircle(
-  anchor: DisplayedFrame
-) throws -> VisibilityTargetSearchCircle {
-  try VisibilityTargetSearchCircle(
-    center: Point2(x: 1, y: 1),
-    radiusPixels: 1,
-    anchor: anchor,
-    algorithmRevision: "action-surface-test-search-circle-v1"
   )
 }
 

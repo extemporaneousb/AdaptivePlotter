@@ -456,123 +456,6 @@ public struct PointAttemptAggregate<Space>: Hashable, Sendable {
   }
 }
 
-public enum VisibilityTargetAttemptAggregateError: Error, Hashable, Sendable {
-  case noSuccessfulValues
-  case invalidObservation(ExerciseAttemptID)
-  case observationContextMismatch(ExerciseAttemptID)
-  case nonFiniteEstimate
-}
-
-/// An across-attempt aggregate for Record Another Attempt on one already drawn
-/// visibility target. Each included observation retains its own exact baseline,
-/// two target frame IDs, estimator, and within-attempt uncertainty; this type
-/// estimates only across compatible accepted attempts.
-public struct VisibilityTargetAttemptAggregate: Hashable, Sendable {
-  public let validAttemptCount: Int
-  public let estimator: AggregateEstimatorIdentity
-  public let centroidEstimate: Point2<CameraPixelSpace>
-  public let uncertainty: PointSampleUncertainty<CameraPixelSpace>
-  public let includedAttemptIDs: [ExerciseAttemptID]
-  public let includedObservations: [VisibilityTargetObservation]
-  public let source: FrameSourceIdentity
-  public let cameraConfigurationID: CameraConfigurationID
-  public let controllerSessionID: UUID
-  public let coordinateRevision: UInt64
-  public let toolPaperRevision: UUID
-  public let searchCircle: VisibilityTargetSearchCircle
-  public let targetPlanRevision: String
-
-  public init(
-    history: ExerciseAttemptHistory<VisibilityTargetObservation>,
-    estimator: AggregateEstimatorIdentity = AggregateEstimatorIdentity(
-      name: "component-arithmetic-mean",
-      revision: "visibility-target-attempt-v1"
-    )
-  ) throws {
-    let included = history.includedSuccessfulAttempts
-    guard !included.isEmpty else {
-      throw VisibilityTargetAttemptAggregateError.noSuccessfulValues
-    }
-    guard let firstAttempt = included.first, let first = firstAttempt.value else {
-      throw VisibilityTargetAttemptAggregateError.invalidObservation(
-        included.first?.id ?? ExerciseAttemptID()
-      )
-    }
-    guard first.validSampleCount == 2,
-      first.samples.count == 2,
-      first.includedFrameIDs.count == 2,
-      first.algorithmRevision == history.compatibility.algorithmRevision,
-      history.compatibility.cameraConfigurationID == first.baseline.cameraConfigurationID,
-      history.compatibility.coordinateSpace == .cameraPixels,
-      history.compatibility.units == .pixels
-    else {
-      throw VisibilityTargetAttemptAggregateError.invalidObservation(firstAttempt.id)
-    }
-
-    let observations = try included.map { attempt in
-      guard let observation = attempt.value,
-        observation.validSampleCount == 2,
-        observation.samples.count == 2,
-        observation.includedFrameIDs.count == 2
-      else {
-        throw VisibilityTargetAttemptAggregateError.invalidObservation(attempt.id)
-      }
-      guard observation.source == first.source,
-        observation.baseline.cameraConfigurationID == first.baseline.cameraConfigurationID,
-        observation.controllerSessionID == first.controllerSessionID,
-        observation.coordinateRevision == first.coordinateRevision,
-        observation.toolPaperRevision == first.toolPaperRevision,
-        observation.searchCircle == first.searchCircle,
-        observation.targetPlanRevision == first.targetPlanRevision,
-        observation.algorithmRevision == first.algorithmRevision
-      else {
-        throw VisibilityTargetAttemptAggregateError.observationContextMismatch(attempt.id)
-      }
-      return observation
-    }
-    let meanX = observations.reduce(0) { $0 + $1.centroid.x }
-      / Double(observations.count)
-    let meanY = observations.reduce(0) { $0 + $1.centroid.y }
-      / Double(observations.count)
-    guard meanX.isFinite, meanY.isFinite else {
-      throw VisibilityTargetAttemptAggregateError.nonFiniteEstimate
-    }
-    let estimate = try Point2<CameraPixelSpace>(x: meanX, y: meanY)
-    let aggregateUncertainty: PointSampleUncertainty<CameraPixelSpace>
-    if observations.count < 2 {
-      aggregateUncertainty = .unavailable(validSampleCount: observations.count)
-    } else {
-      let denominator = Double(observations.count - 1)
-      let dx = sqrt(observations.reduce(0) {
-        $0 + ($1.centroid.x - meanX) * ($1.centroid.x - meanX)
-      } / denominator)
-      let dy = sqrt(observations.reduce(0) {
-        $0 + ($1.centroid.y - meanY) * ($1.centroid.y - meanY)
-      } / denominator)
-      guard dx.isFinite, dy.isFinite else {
-        throw VisibilityTargetAttemptAggregateError.nonFiniteEstimate
-      }
-      aggregateUncertainty = .componentSampleStandardDeviation(
-        try Vector2(dx: dx, dy: dy)
-      )
-    }
-
-    validAttemptCount = observations.count
-    self.estimator = estimator
-    centroidEstimate = estimate
-    uncertainty = aggregateUncertainty
-    includedAttemptIDs = included.map(\.id)
-    includedObservations = observations
-    source = first.source
-    cameraConfigurationID = first.baseline.cameraConfigurationID
-    controllerSessionID = first.controllerSessionID
-    coordinateRevision = first.coordinateRevision
-    toolPaperRevision = first.toolPaperRevision
-    searchCircle = first.searchCircle
-    targetPlanRevision = first.targetPlanRevision
-  }
-}
-
 public enum CategoricalAggregateError: Error, Hashable, Sendable {
   case noSuccessfulValues
 }
@@ -652,16 +535,10 @@ public enum LearningArtifactKind: Codable, Hashable, Sendable {
   case boundarySideAggregate(BoundaryDirection)
   case estimatedMachineCenter
   case centerArrival
-  case targetPoseRegistration
-  case targetROIRegistration
-  case clearPose
-  case preTargetClearViewBaseline
-  case visibilityTargetExecution
-  case visibilityTargetObservation
-  case penTipOffsetRegistration
-  case visibilityRegistration
   case machineCameraRegistration
-  case targetAnchoredTrialBaseline(AttemptGroupIdentity)
+  case toolContactObservation(ToolContactObservationID)
+  case tipCameraRegistration
+  case localPreLineBaseline(AttemptGroupIdentity)
   case linePlan(AttemptGroupIdentity)
   case lineExecution(AttemptGroupIdentity)
   case postLineFrame(AttemptGroupIdentity)
@@ -707,6 +584,7 @@ public enum LearningDependencyGraphError: Error, Hashable, Sendable {
   case unsuccessfulReplacement(ExerciseAttemptDisposition)
   case invalidInitialState(LearningArtifactRevisionState)
   case dependencyUnavailable(LearningArtifactRevisionID)
+  case invalidDependencyShape(LearningArtifactKind)
   case explicitReplacementRevisionUnavailable(LearningArtifactRevisionID)
   case explicitReplacementKindMismatch(
     revisionID: LearningArtifactRevisionID,
@@ -834,6 +712,7 @@ public struct LearningDependencyGraph: Sendable {
         throw LearningDependencyGraphError.dependencyUnavailable(dependencyID)
       }
     }
+    try Self.validateSemanticDependencies(candidate, revisions: revisionsByID)
 
     var updatedRevisions = revisionsByID
     var updatedCurrent = currentRevisionIDByKind
@@ -914,6 +793,7 @@ public struct LearningDependencyGraph: Sendable {
         throw LearningDependencyGraphError.dependencyUnavailable(dependencyID)
       }
     }
+    try Self.validateSemanticDependencies(candidate, revisions: revisionsByID)
 
     var currentCandidate = candidate
     currentCandidate.state = .current
@@ -951,5 +831,61 @@ public struct LearningDependencyGraph: Sendable {
       }
     }
     return dependents
+  }
+
+  private static func validateSemanticDependencies(
+    _ candidate: LearningArtifactRevision,
+    revisions: [LearningArtifactRevisionID: LearningArtifactRevision]
+  ) throws {
+    let dependencyKinds = candidate.consumedRevisionIDs.compactMap { revisions[$0]?.kind }
+    switch candidate.kind {
+    case .toolContactObservation:
+      guard dependencyKinds.count == 1,
+        dependencyKinds[0] == .machineCameraRegistration
+      else { throw LearningDependencyGraphError.invalidDependencyShape(candidate.kind) }
+    case .tipCameraRegistration:
+      let machineCount = dependencyKinds.filter { $0 == .machineCameraRegistration }.count
+      let observationIDs: Set<ToolContactObservationID> = Set(dependencyKinds.compactMap { kind in
+        guard case .toolContactObservation(let id) = kind else { return nil }
+        return id
+      })
+      guard dependencyKinds.count == machineCount + observationIDs.count,
+        machineCount == 1,
+        observationIDs.count == 5 || observationIDs.count == 6
+      else {
+        throw LearningDependencyGraphError.invalidDependencyShape(candidate.kind)
+      }
+    case .linePlan, .localPreLineBaseline:
+      guard dependencyKinds == [.tipCameraRegistration] else {
+        throw LearningDependencyGraphError.invalidDependencyShape(candidate.kind)
+      }
+    case .lineExecution(let group):
+      guard dependencyKinds == [.linePlan(group)] else {
+        throw LearningDependencyGraphError.invalidDependencyShape(candidate.kind)
+      }
+    case .postLineFrame(let group):
+      guard Set(dependencyKinds) == [
+        .lineExecution(group), .localPreLineBaseline(group), .tipCameraRegistration,
+      ] else {
+        throw LearningDependencyGraphError.invalidDependencyShape(candidate.kind)
+      }
+    case .inkObservation(let group):
+      guard Set(dependencyKinds) == [
+        .localPreLineBaseline(group), .lineExecution(group), .postLineFrame(group),
+        .tipCameraRegistration,
+      ] else {
+        throw LearningDependencyGraphError.invalidDependencyShape(candidate.kind)
+      }
+    case .residual(let group):
+      guard dependencyKinds == [.inkObservation(group)] else {
+        throw LearningDependencyGraphError.invalidDependencyShape(candidate.kind)
+      }
+    case .comparison(let group):
+      guard Set(dependencyKinds) == [.inkObservation(group), .residual(group)] else {
+        throw LearningDependencyGraphError.invalidDependencyShape(candidate.kind)
+      }
+    default:
+      break
+    }
   }
 }

@@ -33,12 +33,6 @@ enum MachineSessionComposition {
     beginDrawingStroke: { request in
       await session.beginDrawingStroke(request)
     },
-    beginVisibilityTarget: { request in
-      await session.beginVisibilityTarget(request)
-    },
-    requestVisibilityTargetIntent: { intent, operationID in
-      await session.requestVisibilityTargetIntent(intent, operationID: operationID)
-    },
     requestPenActuation: { command in
       await session.requestPenActuation(command)
     },
@@ -155,35 +149,6 @@ private actor PersistentMachineSession {
       return .rejected(.refused(.noSerialDeviceSelected))
     }
     return await interpreter.beginDrawingStroke(request)
-  }
-
-  func beginVisibilityTarget(
-    _ request: VisibilityTargetOperationRequest
-  ) async -> VisibilityTargetAdmission {
-    guard let interpreter else {
-      return .rejected(
-        .needsAttention(
-          phase: .approach,
-          scene: .pristine,
-          failure: .approach(.refused(.noSerialDeviceSelected)),
-          progress: VisibilityTargetOperationProgress(
-            planRevision: request.plan.algorithmRevision,
-            phase: .approach,
-            completedTraversalStepCount: 0,
-            lastCompletedTraversalStep: nil
-          )
-        )
-      )
-    }
-    return await interpreter.beginVisibilityTarget(request)
-  }
-
-  func requestVisibilityTargetIntent(
-    _ intent: VisibilityTargetOperationIntent,
-    operationID: UUID
-  ) async -> VisibilityTargetIntentOutcome {
-    guard let interpreter else { return .staleOperation }
-    return await interpreter.requestVisibilityTargetIntent(intent, operationID: operationID)
   }
 
   func requestBoundaryMotion(_ request: BoundaryMotionRequest) async -> BoundaryMotionOutcome {

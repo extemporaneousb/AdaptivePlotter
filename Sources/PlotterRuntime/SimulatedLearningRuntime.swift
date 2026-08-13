@@ -212,7 +212,7 @@ public struct SimulatedCapToTipOffsetTruth: Codable, Hashable, Sendable {
   public let dyShortSideFraction: Double
 
   public init(
-    dxShortSideFraction: Double = -0.45,
+    dxShortSideFraction: Double = -0.045,
     dyShortSideFraction: Double = 0.04
   ) {
     precondition(dxShortSideFraction.isFinite && dyShortSideFraction.isFinite)
@@ -237,14 +237,12 @@ public enum SimulatedLearningAnnotationKind: Codable, Hashable, Sendable {
   case currentCapAnchor
   case recentMotionTrail
   case currentOperation
-  case targetSearchCircle
   case ink
 }
 
 public enum SimulatedLearningAnnotationGeometry: Codable, Hashable, Sendable {
   case point(Point2<CameraPixelSpace>)
   case bounds(AxisAlignedBounds<CameraPixelSpace>)
-  case circle(center: Point2<CameraPixelSpace>, radiusPixels: Double)
   case polyline(Polyline<CameraPixelSpace>)
 }
 
@@ -301,16 +299,13 @@ public struct SimulatedLearningAnnotation: Hashable, Sendable {
 public struct SimulatedLearningAnnotationContext: Hashable, Sendable {
   public let acceptedBoundaryPositions: [BoundaryDirection: SimulatedLearningMPos]
   public let learnedCenter: SimulatedLearningMPos?
-  public let targetSearchCircle: VisibilityTargetSearchCircle?
 
   public init(
     acceptedBoundaryPositions: [BoundaryDirection: SimulatedLearningMPos] = [:],
-    learnedCenter: SimulatedLearningMPos? = nil,
-    targetSearchCircle: VisibilityTargetSearchCircle? = nil
+    learnedCenter: SimulatedLearningMPos? = nil
   ) {
     self.acceptedBoundaryPositions = acceptedBoundaryPositions
     self.learnedCenter = learnedCenter
-    self.targetSearchCircle = targetSearchCircle
   }
 }
 
@@ -327,12 +322,9 @@ public struct SimulatedLearningInkSegment: Codable, Hashable, Sendable {
 public enum SimulatedLearningFault: Codable, Hashable, Sendable {
   case refuseNextOperation
   case ambiguityBeforeNextBoundarySegment
-  case ambiguityAtVisibilityTargetPhase(VisibilityTargetOperationPhase)
-  case partialVisibilityTarget(traversalStepCount: Int)
   case cameraConfigurationChangeBeforeNextFrame
   case poseMismatchBeforeNextFrame(dxMM: Double, dyMM: Double)
   case absentInk
-  case unstableTarget
   case excessiveBackgroundResidual
   case shutdownDuringOperation
 }
@@ -431,7 +423,6 @@ public enum SimulatedLearningOperationKind: Hashable, Sendable {
   case manualJog(SimulatedLearningMotionVector)
   case boundary(direction: BoundaryDirection, finiteSegmentLengthMM: Double)
   case drawing(SimulatedLearningMotionVector)
-  case visibilityTarget(VisibilityTargetPlanV2)
 }
 
 public struct SimulatedLearningOperation: Hashable, Sendable {
@@ -448,25 +439,11 @@ public struct SimulatedLearningOperation: Hashable, Sendable {
 
 public enum SimulatedLearningAmbiguityContext: Codable, Hashable, Sendable {
   case boundarySegment(BoundaryDirection)
-  case visibilityTarget(VisibilityTargetOperationPhase)
 }
 
 public struct SimulatedLearningStickyAmbiguity: Codable, Hashable, Sendable {
   public let operationID: SimulatedLearningOperationID
   public let context: SimulatedLearningAmbiguityContext
-
-  public var phase: VisibilityTargetOperationPhase? {
-    guard case .visibilityTarget(let phase) = context else { return nil }
-    return phase
-  }
-
-  public init(
-    operationID: SimulatedLearningOperationID,
-    phase: VisibilityTargetOperationPhase
-  ) {
-    self.operationID = operationID
-    context = .visibilityTarget(phase)
-  }
 
   public init(
     operationID: SimulatedLearningOperationID,
@@ -541,27 +518,18 @@ public struct SimulatedLearningOperationOutcome: Hashable, Sendable {
   public let disposition: SimulatedLearningOperationDisposition
   public let finalMPos: SimulatedLearningMPos
   public let completedBoundarySegmentCount: Int
-  public let visibilityTargetSceneDisposition: VisibilityTargetSceneDisposition?
-  public let visibilityTargetFailurePhase: VisibilityTargetOperationPhase?
-  public let visibilityTargetProgress: VisibilityTargetOperationProgress?
   public let evidenceNotice: SimulatedLearningEvidenceNotice
 
   fileprivate init(
     operation: SimulatedLearningOperation,
     disposition: SimulatedLearningOperationDisposition,
     finalMPos: SimulatedLearningMPos,
-    completedBoundarySegmentCount: Int,
-    visibilityTargetSceneDisposition: VisibilityTargetSceneDisposition? = nil,
-    visibilityTargetFailurePhase: VisibilityTargetOperationPhase? = nil,
-    visibilityTargetProgress: VisibilityTargetOperationProgress? = nil
+    completedBoundarySegmentCount: Int
   ) {
     self.operation = operation
     self.disposition = disposition
     self.finalMPos = finalMPos
     self.completedBoundarySegmentCount = completedBoundarySegmentCount
-    self.visibilityTargetSceneDisposition = visibilityTargetSceneDisposition
-    self.visibilityTargetFailurePhase = visibilityTargetFailurePhase
-    self.visibilityTargetProgress = visibilityTargetProgress
     evidenceNotice = .notPhysicalEvidence
   }
 }
@@ -676,14 +644,10 @@ public actor SimulatedLearningRuntime {
   private var frameSequence: UInt64 = 1
   private var frameTimestamp: UInt64 = 1
   private var inkSegments: [SimulatedLearningInkSegment] = []
-  private var toolPaperRevision = UUID()
+  private var toolPaperRevision: UUID
   private var recentMotionTrail: [SimulatedLearningMPos]
   private var injectedFaults: [SimulatedLearningFault] = []
   private var cooperativeExecutionOperationID: SimulatedLearningOperationID?
-  private var visibilityTargetSceneByOperationID:
-    [SimulatedLearningOperationID: VisibilityTargetSceneDisposition] = [:]
-  private var visibilityTargetProgressByOperationID:
-    [SimulatedLearningOperationID: VisibilityTargetOperationProgress] = [:]
   private var worldToCameraTransform: SimulatedWorldToCameraTransform
   private let capToTipOffsetTruth: SimulatedCapToTipOffsetTruth
   private var latestCausalSceneFrame: SimulatedLearningSceneFrame?
@@ -699,7 +663,8 @@ public actor SimulatedLearningRuntime {
     paddingPixels: Double = 28,
     armatureMarginMM: Double = 8,
     protocolMarginMM: Double = 2.5,
-    capToTipOffsetTruth: SimulatedCapToTipOffsetTruth = SimulatedCapToTipOffsetTruth()
+    capToTipOffsetTruth: SimulatedCapToTipOffsetTruth = SimulatedCapToTipOffsetTruth(),
+    toolPaperRevision: UUID = UUID()
   ) {
     let transform = try! SimulatedWorldToCameraTransform(
       truth: boundaryTruth,
@@ -714,6 +679,7 @@ public actor SimulatedLearningRuntime {
     self.boundaryTruth = boundaryTruth
     worldToCameraTransform = transform
     self.capToTipOffsetTruth = capToTipOffsetTruth
+    self.toolPaperRevision = toolPaperRevision
     cameraConfigurationID = CameraConfigurationID()
   }
 
@@ -840,6 +806,25 @@ public actor SimulatedLearningRuntime {
     return .accepted(makeSnapshot())
   }
 
+  /// Simulator rendering support for one generic stationary contact tap. The
+  /// workspace calls this only after separate simulated Pen Down and Pen Up
+  /// settlements; it is not a compound runtime owner or physical evidence.
+  public func recordStationaryContactMark()
+    -> SimulatedLearningResponse<SimulatedLearningSnapshot>
+  {
+    guard session == .connected else { return .refused(.sessionDisconnected) }
+    guard motionAuthorization == .enabled else {
+      return .refused(.motionAuthorizationDisabled)
+    }
+    if let stickyAmbiguity { return .refused(.stickyAmbiguity(stickyAmbiguity)) }
+    guard currentOperation == nil else {
+      return .refused(.operationAlreadyActive(currentOperation!.id))
+    }
+    guard penPose == .up else { return .refused(.penMustBeUp) }
+    inkSegments.append(SimulatedLearningInkSegment(start: mpos, end: mpos))
+    return .accepted(makeSnapshot())
+  }
+
   public func beginManualJog(
     delta: SimulatedLearningMotionVector
   ) -> SimulatedLearningResponse<SimulatedLearningOperation> {
@@ -868,12 +853,6 @@ public actor SimulatedLearningRuntime {
     beginOperation(kind: .drawing(delta), requiredPenPose: .down)
   }
 
-  public func beginVisibilityTarget(
-    plan: VisibilityTargetPlanV2 = VisibilityTargetPlanV2()
-  ) -> SimulatedLearningResponse<SimulatedLearningOperation> {
-    beginOperation(kind: .visibilityTarget(plan), requiredPenPose: .up)
-  }
-
   /// The first Stop or Cancel accepted for an operation is its only terminal
   /// disposition. Actor isolation is the intent latch.
   public func request(
@@ -896,23 +875,13 @@ public actor SimulatedLearningRuntime {
       case .cancel: .cancelled
       case .shutdown: .shutdown
       }
-    let scene: VisibilityTargetSceneDisposition?
     switch operation.kind {
-    case .visibilityTarget:
-      recordVisibilityTargetDispositionRequest(for: operation.id)
-      if penPose == .down { penPose = .up }
-      scene = visibilityTargetSceneByOperationID[operation.id] ?? .pristine
     case .drawing:
       if penPose == .down { penPose = .up }
-      scene = nil
     default:
-      scene = nil
+      break
     }
-    return .accepted(settle(
-      operation,
-      disposition: disposition,
-      visibilityTargetSceneDisposition: scene
-    ))
+    return .accepted(settle(operation, disposition: disposition))
   }
 
   public func stop(
@@ -1028,8 +997,6 @@ public actor SimulatedLearningRuntime {
         inkSegments.append(SimulatedLearningInkSegment(start: start, end: updatedMPos))
       }
       return .accepted(settle(operation, disposition: .naturallyCompleted))
-    case .visibilityTarget:
-      return .refused(.boundaryRequiresStopOrCancel)
     }
   }
 
@@ -1062,8 +1029,7 @@ public actor SimulatedLearningRuntime {
     case .manualJog, .drawing:
       if let terminal = await suspendAndRecheck(
         operation,
-        pacing: pacing,
-        visibilityTargetSceneDisposition: nil
+        pacing: pacing
       ) {
         return terminal
       }
@@ -1076,12 +1042,6 @@ public actor SimulatedLearningRuntime {
         latestCausalSceneFrame = frame
       }
       return completion
-    case .visibilityTarget(let plan):
-      return await executeVisibilityTargetNaturally(
-        operation,
-        plan: plan,
-        pacing: pacing
-      )
     }
   }
 
@@ -1119,8 +1079,7 @@ public actor SimulatedLearningRuntime {
       }
       if let terminal = await suspendAndRecheck(
         operation,
-        pacing: pacing,
-        visibilityTargetSceneDisposition: nil
+        pacing: pacing
       ) {
         return terminal
       }
@@ -1141,8 +1100,7 @@ public actor SimulatedLearningRuntime {
 
       if let terminal = await suspendAndRecheck(
         operation,
-        pacing: pacing,
-        visibilityTargetSceneDisposition: nil
+        pacing: pacing
       ) {
         return terminal
       }
@@ -1155,233 +1113,9 @@ public actor SimulatedLearningRuntime {
     }
   }
 
-  /// Executes the causal simulator equivalent of the compound target owner.
-  /// Ink segments are added one-by-one to persistent scene state; a configured
-  /// partial-target fault leaves exactly that prefix and reports `inkPossible`.
-  public func completeVisibilityTargetNaturally(
-    _ operationID: SimulatedLearningOperationID
-  ) -> SimulatedLearningResponse<SimulatedLearningOperationOutcome> {
-    guard let operation = currentOperation, operation.id == operationID else {
-      return .refused(.staleOperation(requested: operationID, active: currentOperation?.id))
-    }
-    guard case .visibilityTarget(let plan) = operation.kind else {
-      return .refused(.operationIsNotBoundary)
-    }
-    setVisibilityTargetPhase(.approach, for: operation.id)
-    if consumeInjectedShutdown() {
-      return .accepted(settle(
-        operation,
-        disposition: .shutdown,
-        visibilityTargetSceneDisposition: .pristine
-      ))
-    }
-    let ambiguousPhase: VisibilityTargetOperationPhase? = removeFirstFault(matching: {
-      if case .ambiguityAtVisibilityTargetPhase = $0 { return true }
-      return false
-    }).flatMap {
-      guard case .ambiguityAtVisibilityTargetPhase(let phase) = $0 else { return nil }
-      return phase
-    }
-    if ambiguousPhase == .approach {
-      stickyAmbiguity = SimulatedLearningStickyAmbiguity(
-        operationID: operation.id,
-        phase: .approach
-      )
-      penPose = .unknown
-      return .accepted(settle(
-        operation,
-        disposition: .failed,
-        visibilityTargetSceneDisposition: .pristine,
-        visibilityTargetFailurePhase: .approach
-      ))
-    }
-    guard let perimeterStart = mpos.applying(SimulatedLearningMotionVector(
-      uncheckedDXMM: plan.approachDelta.dx,
-      dyMM: plan.approachDelta.dy
-    )) else { return .refused(.resultingPositionNonFinite) }
-    updateMPos(perimeterStart)
-    setVisibilityTargetPhase(.lowerPen, for: operation.id)
-    if ambiguousPhase == .lowerPen {
-      stickyAmbiguity = SimulatedLearningStickyAmbiguity(
-        operationID: operation.id,
-        phase: .lowerPen
-      )
-      penPose = .unknown
-      return .accepted(settle(
-        operation,
-        disposition: .failed,
-        visibilityTargetSceneDisposition: .inkPossible,
-        visibilityTargetFailurePhase: .lowerPen
-      ))
-    }
-    penPose = .down
-
-    let partialCount: Int? = removeFirstFault(matching: {
-      if case .partialVisibilityTarget = $0 { return true }
-      return false
-    }).flatMap {
-      guard case .partialVisibilityTarget(let count) = $0 else { return nil }
-      return max(0, min(plan.drawingStepCount, count))
-    }
-    let omitInk = removeFirstFault(matching: {
-      if case .absentInk = $0 { return true }
-      return false
-    }) != nil
-    let traversalStepLimit = partialCount ?? plan.drawingStepCount
-    for step in plan.traversalSteps.prefix(traversalStepLimit) {
-      setVisibilityTargetPhase(.draw(step), for: operation.id)
-      if ambiguousPhase == .draw(step) {
-        stickyAmbiguity = SimulatedLearningStickyAmbiguity(
-          operationID: operation.id,
-          phase: .draw(step)
-        )
-        return .accepted(settle(
-          operation,
-          disposition: .failed,
-          visibilityTargetSceneDisposition: .inkPossible,
-          visibilityTargetFailurePhase: .draw(step)
-        ))
-      }
-      let start = mpos
-      guard let end = mpos.applying(SimulatedLearningMotionVector(
-        uncheckedDXMM: step.delta.dx,
-        dyMM: step.delta.dy
-      )) else { return .refused(.resultingPositionNonFinite) }
-      if !omitInk { inkSegments.append(SimulatedLearningInkSegment(start: start, end: end)) }
-      updateMPos(end)
-      recordVisibilityTargetTraversalCompletion(step, for: operation.id)
-    }
-    setVisibilityTargetPhase(.raisePen, for: operation.id)
-    if ambiguousPhase == .raisePen {
-      stickyAmbiguity = SimulatedLearningStickyAmbiguity(
-        operationID: operation.id,
-        phase: .raisePen
-      )
-      penPose = .unknown
-      return .accepted(settle(
-        operation,
-        disposition: .failed,
-        visibilityTargetSceneDisposition: .inkPossible,
-        visibilityTargetFailurePhase: .raisePen
-      ))
-    }
-    penPose = .up
-    let complete = traversalStepLimit == plan.drawingStepCount
-    return .accepted(settle(
-      operation,
-      disposition: complete ? .naturallyCompleted : .failed,
-      visibilityTargetSceneDisposition: .inkPossible
-    ))
-  }
-
-  private func executeVisibilityTargetNaturally(
-    _ operation: SimulatedLearningOperation,
-    plan: VisibilityTargetPlanV2,
-    pacing: any SimulatedLearningExecutionPacing
-  ) async -> SimulatedLearningResponse<SimulatedLearningOperationOutcome> {
-    let ambiguousPhase: VisibilityTargetOperationPhase? = removeFirstFault(matching: {
-      if case .ambiguityAtVisibilityTargetPhase = $0 { return true }
-      return false
-    }).flatMap {
-      guard case .ambiguityAtVisibilityTargetPhase(let phase) = $0 else { return nil }
-      return phase
-    }
-    let partialCount: Int? = removeFirstFault(matching: {
-      if case .partialVisibilityTarget = $0 { return true }
-      return false
-    }).flatMap {
-      guard case .partialVisibilityTarget(let count) = $0 else { return nil }
-      return max(0, min(plan.drawingStepCount, count))
-    }
-    let omitInk = removeFirstFault(matching: {
-      if case .absentInk = $0 { return true }
-      return false
-    }) != nil
-
-    setVisibilityTargetPhase(.approach, for: operation.id)
-    if let terminal = await suspendAndRecheck(
-      operation,
-      pacing: pacing,
-      visibilityTargetSceneDisposition: .pristine
-    ) {
-      return terminal
-    }
-    if ambiguousPhase == .approach {
-      return settleVisibilityTargetAmbiguity(operation, phase: .approach, scene: .pristine)
-    }
-    guard let perimeterStart = mpos.applying(SimulatedLearningMotionVector(
-      uncheckedDXMM: plan.approachDelta.dx,
-      dyMM: plan.approachDelta.dy
-    )) else { return .refused(.resultingPositionNonFinite) }
-    updateMPos(perimeterStart)
-
-    setVisibilityTargetPhase(.lowerPen, for: operation.id)
-    if let terminal = await suspendAndRecheck(
-      operation,
-      pacing: pacing,
-      visibilityTargetSceneDisposition: .pristine
-    ) {
-      return terminal
-    }
-    if ambiguousPhase == .lowerPen {
-      visibilityTargetSceneByOperationID[operation.id] = .inkPossible
-      return settleVisibilityTargetAmbiguity(operation, phase: .lowerPen, scene: .inkPossible)
-    }
-    penPose = .down
-    visibilityTargetSceneByOperationID[operation.id] = .inkPossible
-
-    let traversalStepLimit = partialCount ?? plan.drawingStepCount
-    for step in plan.traversalSteps.prefix(traversalStepLimit) {
-      setVisibilityTargetPhase(.draw(step), for: operation.id)
-      if let terminal = await suspendAndRecheck(
-        operation,
-        pacing: pacing,
-        visibilityTargetSceneDisposition: .inkPossible
-      ) {
-        return terminal
-      }
-      if ambiguousPhase == .draw(step) {
-        return settleVisibilityTargetAmbiguity(
-          operation,
-          phase: .draw(step),
-          scene: .inkPossible
-        )
-      }
-      let start = mpos
-      guard let end = mpos.applying(SimulatedLearningMotionVector(
-        uncheckedDXMM: step.delta.dx,
-        dyMM: step.delta.dy
-      )) else { return .refused(.resultingPositionNonFinite) }
-      if !omitInk {
-        inkSegments.append(SimulatedLearningInkSegment(start: start, end: end))
-      }
-      updateMPos(end)
-      recordVisibilityTargetTraversalCompletion(step, for: operation.id)
-    }
-
-    setVisibilityTargetPhase(.raisePen, for: operation.id)
-    if let terminal = await suspendAndRecheck(
-      operation,
-      pacing: pacing,
-      visibilityTargetSceneDisposition: .inkPossible
-    ) {
-      return terminal
-    }
-    if ambiguousPhase == .raisePen {
-      return settleVisibilityTargetAmbiguity(operation, phase: .raisePen, scene: .inkPossible)
-    }
-    penPose = .up
-    return .accepted(settle(
-      operation,
-      disposition: traversalStepLimit == plan.drawingStepCount ? .naturallyCompleted : .failed,
-      visibilityTargetSceneDisposition: .inkPossible
-    ))
-  }
-
   private func suspendAndRecheck(
     _ operation: SimulatedLearningOperation,
-    pacing: any SimulatedLearningExecutionPacing,
-    visibilityTargetSceneDisposition: VisibilityTargetSceneDisposition?
+    pacing: any SimulatedLearningExecutionPacing
   ) async -> SimulatedLearningResponse<SimulatedLearningOperationOutcome>? {
     await pacing.suspendBetweenSteps()
     if let outcome = outcomes[operation.id] {
@@ -1395,36 +1129,19 @@ public actor SimulatedLearningRuntime {
     if consumeInjectedShutdown() {
       return .accepted(settle(
         operation,
-        disposition: .shutdown,
-        visibilityTargetSceneDisposition: visibilityTargetSceneDisposition
+        disposition: .shutdown
       ))
     }
     return nil
   }
 
-  private func settleVisibilityTargetAmbiguity(
-    _ operation: SimulatedLearningOperation,
-    phase: VisibilityTargetOperationPhase,
-    scene: VisibilityTargetSceneDisposition
-  ) -> SimulatedLearningResponse<SimulatedLearningOperationOutcome> {
-    stickyAmbiguity = SimulatedLearningStickyAmbiguity(
-      operationID: operation.id,
-      phase: phase
-    )
-    if phase == .approach || phase == .lowerPen || phase == .raisePen {
-      penPose = .unknown
-    }
-    return .accepted(settle(
-      operation,
-      disposition: .failed,
-      visibilityTargetSceneDisposition: scene,
-      visibilityTargetFailurePhase: phase
-    ))
-  }
-
   public func captureSceneFrame(
-    annotationContext: SimulatedLearningAnnotationContext = SimulatedLearningAnnotationContext()
+    annotationContext: SimulatedLearningAnnotationContext = SimulatedLearningAnnotationContext(),
+    newerThanCaptureNanoseconds: UInt64 = 0
   ) -> SimulatedLearningResponse<SimulatedLearningSceneFrame> {
+    if frameTimestamp <= newerThanCaptureNanoseconds {
+      frameTimestamp = newerThanCaptureNanoseconds &+ 1
+    }
     if removeFirstFault(matching: {
       if case .cameraConfigurationChangeBeforeNextFrame = $0 { return true }
       return false
@@ -1485,15 +1202,6 @@ public actor SimulatedLearningRuntime {
           start: try! transform.cameraPoint(for: $0.start).translated(by: capToTipOffset),
           end: try! transform.cameraPoint(for: $0.end).translated(by: capToTipOffset)
         )
-      }
-      if removeFirstFault(matching: {
-        if case .unstableTarget = $0 { return true }
-        return false
-      }) != nil, let last = strokes.last {
-        strokes.append(SimulatedCameraStroke(
-          start: try Point2(x: last.start.x + 3, y: last.start.y),
-          end: try Point2(x: last.end.x + 3, y: last.end.y)
-        ))
       }
       // The simulated armature is visible in the same pixels as the paper. Its
       // bottom-center is the visible cap anchor used by registration; it is
@@ -1670,7 +1378,6 @@ public actor SimulatedLearningRuntime {
       case .boundary(let direction, _):
         "BOUNDARY \(direction.displayName) OWNER \(operation.id.sequence)"
       case .drawing: "DRAW OWNER \(operation.id.sequence)"
-      case .visibilityTarget: "TARGET OWNER \(operation.id.sequence)"
       }
       result.append(annotation(
         .currentOperation,
@@ -1680,27 +1387,19 @@ public actor SimulatedLearningRuntime {
         value: "Current simulated operation \(label)"
       ))
     }
-    if let searchCircle = context.targetSearchCircle {
-      result.append(annotation(
-        .targetSearchCircle,
-        anchor: searchCircle.center,
-        geometry: .circle(
-          center: searchCircle.center,
-          radiusPixels: searchCircle.radiusPixels
-        ),
-        label: "CAP→TIP SEARCH",
-        value: "Simulated circular cap-to-tip acquisition region"
-      ))
-    }
     for segment in inkSegments {
-      let polyline = try Polyline<CameraPixelSpace>(points: [
-        transform.cameraPoint(for: segment.start).translated(by: capToTipOffset),
-        transform.cameraPoint(for: segment.end).translated(by: capToTipOffset),
-      ])
+      let start = try transform.cameraPoint(for: segment.start).translated(by: capToTipOffset)
+      let end = try transform.cameraPoint(for: segment.end).translated(by: capToTipOffset)
+      let geometry: SimulatedLearningAnnotationGeometry
+      if start == end {
+        geometry = .point(start)
+      } else {
+        geometry = .polyline(try Polyline<CameraPixelSpace>(points: [start, end]))
+      }
       result.append(annotation(
         .ink,
-        anchor: polyline.start,
-        geometry: .polyline(polyline),
+        anchor: start,
+        geometry: geometry,
         label: "SIMULATED INK",
         value: "Simulated retained ink segment; not physical evidence"
       ))
@@ -1757,81 +1456,24 @@ public actor SimulatedLearningRuntime {
     nextOperationSequence += 1
     currentOperation = operation
     completedBoundarySegmentCounts[operation.id] = 0
-    if case .visibilityTarget(let plan) = kind {
-      visibilityTargetSceneByOperationID[operation.id] = .pristine
-      visibilityTargetProgressByOperationID[operation.id] = VisibilityTargetOperationProgress(
-        planRevision: plan.algorithmRevision,
-        phase: .approach,
-        completedTraversalStepCount: 0,
-        lastCompletedTraversalStep: nil
-      )
-    }
     return .accepted(operation)
-  }
-
-  private func setVisibilityTargetPhase(
-    _ phase: VisibilityTargetOperationPhase,
-    for operationID: SimulatedLearningOperationID
-  ) {
-    guard let progress = visibilityTargetProgressByOperationID[operationID] else { return }
-    visibilityTargetProgressByOperationID[operationID] = VisibilityTargetOperationProgress(
-      planRevision: progress.planRevision,
-      phase: phase,
-      dispositionRequestedDuringPhase: progress.dispositionRequestedDuringPhase,
-      completedTraversalStepCount: progress.completedTraversalStepCount,
-      lastCompletedTraversalStep: progress.lastCompletedTraversalStep
-    )
-  }
-
-  private func recordVisibilityTargetTraversalCompletion(
-    _ step: VisibilityTargetTraversalStep,
-    for operationID: SimulatedLearningOperationID
-  ) {
-    guard let progress = visibilityTargetProgressByOperationID[operationID] else { return }
-    visibilityTargetProgressByOperationID[operationID] = VisibilityTargetOperationProgress(
-      planRevision: progress.planRevision,
-      phase: progress.phase,
-      dispositionRequestedDuringPhase: progress.dispositionRequestedDuringPhase,
-      completedTraversalStepCount: progress.completedTraversalStepCount + 1,
-      lastCompletedTraversalStep: step
-    )
-  }
-
-  private func recordVisibilityTargetDispositionRequest(
-    for operationID: SimulatedLearningOperationID
-  ) {
-    guard let progress = visibilityTargetProgressByOperationID[operationID] else { return }
-    visibilityTargetProgressByOperationID[operationID] = VisibilityTargetOperationProgress(
-      planRevision: progress.planRevision,
-      phase: progress.phase,
-      dispositionRequestedDuringPhase: progress.phase,
-      completedTraversalStepCount: progress.completedTraversalStepCount,
-      lastCompletedTraversalStep: progress.lastCompletedTraversalStep
-    )
   }
 
   private func settle(
     _ operation: SimulatedLearningOperation,
-    disposition: SimulatedLearningOperationDisposition,
-    visibilityTargetSceneDisposition: VisibilityTargetSceneDisposition? = nil,
-    visibilityTargetFailurePhase: VisibilityTargetOperationPhase? = nil
+    disposition: SimulatedLearningOperationDisposition
   ) -> SimulatedLearningOperationOutcome {
     let outcome = SimulatedLearningOperationOutcome(
       operation: operation,
       disposition: disposition,
       finalMPos: mpos,
-      completedBoundarySegmentCount: completedBoundarySegmentCounts[operation.id, default: 0],
-      visibilityTargetSceneDisposition: visibilityTargetSceneDisposition,
-      visibilityTargetFailurePhase: visibilityTargetFailurePhase,
-      visibilityTargetProgress: visibilityTargetProgressByOperationID[operation.id]
+      completedBoundarySegmentCount: completedBoundarySegmentCounts[operation.id, default: 0]
     )
     outcomes[operation.id] = outcome
     currentOperation = nil
     if cooperativeExecutionOperationID == operation.id {
       cooperativeExecutionOperationID = nil
     }
-    visibilityTargetSceneByOperationID.removeValue(forKey: operation.id)
-    visibilityTargetProgressByOperationID.removeValue(forKey: operation.id)
     completedBoundarySegmentCounts.removeValue(forKey: operation.id)
     let waiters = outcomeWaiters.removeValue(forKey: operation.id) ?? []
     for waiter in waiters {

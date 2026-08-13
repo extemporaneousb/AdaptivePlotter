@@ -1,203 +1,178 @@
 # AdaptivePlotter
 
-AdaptivePlotter is a native macOS Swift application for one attached plotter.
-It closes a short controller-camera-draw-observe loop while keeping controller
-authority, captured pixels, vision inference, human observation, and observed
-ink distinct.
+AdaptivePlotter is a native macOS Swift application for one local plotter and
+one camera. It keeps controller settlement, exact camera pixels, Vision
+inference, operator assertions, and observed ink as separate evidence classes.
 
-The product is deliberately local:
+The application is deliberately local:
 
 - one signed application bundle and one foreground process;
 - one controller owner and one camera owner;
-- one camera-first operator window;
-- typed, bounded commands rather than arbitrary controller text;
-- exact frame and camera-configuration provenance;
-- no automatic resend, resume, or redraw after an uncertain physical outcome.
-- one revisioned 4 mm target traced forward and reverse, followed by
-  single-flight, cancellable, target-ROI-local foreground Vision.
+- one camera-first workbench;
+- typed, bounded controller requests rather than arbitrary controller text;
+- exact-frame and semantic optical provenance;
+- no automatic resend, resume, retap, or redraw after an uncertain physical
+  outcome.
 
 ## Operator journey
 
-The persistent **Learning Path** is an ergonomic organization, not a motion
-authority ladder:
+The persistent **Learning Path** is an ergonomic navigator, not a motion
+authorization ladder:
 
 1. **Connect**
 2. **Enable Motion**
 3. **Human-Guided Discovery**
    - **3.1 Pen Interaction**
    - **3.2 Paired Boundary Discovery and Centering**
-   - **3.3 Register Target Pose and Camera Geometry**
-   - **3.4 Discover and Accept Clear View**
-   - **3.5 Confirm Blank Target Baseline**
-   - **3.6 Return to Registered Target Pose**
-   - **3.7 Draw Visibility Target**
-   - **3.8 Return and Observe Existing Target**
-   - **3.9 Accept Visibility Registration**
+   - **3.3 Calibrate Camera and Visible Cap**
+   - **3.4 Calibrate Pen Contact from Sparse Marks**
 4. **Observed Drawing Trials**
-   - choose a target-anchored isolated line;
-   - capture its baseline;
-   - move and draw under one operation owner;
-   - return to the accepted clear pose;
-   - observe new ink and compare geometry.
+   - **4.1 Choose Isolated Line Plan**
+   - **4.2 Capture Local Pre-Line Baseline**
+   - **4.3 Move to Line Start**
+   - **4.4 Draw Isolated Line**
+   - **4.5 Reveal and Observe New Ink**
+   - **4.6 Compare Intended and Observed Geometry**
 5. **Adaptive Drawing** — Future
 
-Connect and Enable Motion are direct current-session prerequisites. Ordinary
-manual jogs do not depend on Learning Path completion. Selecting a row changes
-presentation only; it cannot change runtime current state, admit motion, or
-alter accepted evidence.
+Connect and Enable Motion expose direct current-session facts. Selecting a row
+changes presentation only; it cannot admit motion, change runtime current state,
+or promote evidence.
 
-The exact Boundary, visibility-target, clear-view, and drawing-trial sequence is
-defined once in
+Presentation zoom is available after 3.2. Zoom, pan, and **Fit Learned Plotter
+Bounds** change only the view transform. They never change camera-pixel evidence,
+frame identity, or calibration authority.
+
+The exact operating sequence is defined by
 [Discovery and Observed-Trial Protocol](docs/DISCOVERY_AND_OBSERVED_TRIAL_PROTOCOL.md).
 
 ## Mechanical authority
 
-`MachineController` owns serial state, direct safety checks, command
+`MachineController` owns serial state, direct admission checks, command
 serialization, settlement, and sticky ambiguity. `RunInterpreter` owns the one
-active logical operation. The UI issues typed intents but cannot weaken either
+active logical operation. The UI issues typed intent but cannot weaken either
 owner.
 
-Applicable motion requires the direct facts consumed by that request, including
-a selected responsive session, current Motion authorization, recognized
-controller state, compatible pins, known MPos where needed, correct pen state,
-one-operation ownership, and no sticky ambiguity.
+Applicable motion requires the direct facts consumed by the request: a selected
+responsive session, current Motion authorization, recognized controller state,
+compatible pins and context, current MPos when required, correct pen state,
+single-operation ownership, and no sticky ambiguity.
 
-The application does not home, unlock, clear alarms, reset the controller, write
-firmware settings, accept entered workspace bounds, or use learning stage or
-model confidence as manual-motion authority.
+The application does not home, unlock, clear alarms, reset the controller,
+write firmware settings, or treat entered bounds, a Learning Path stage, or
+model confidence as motion authority.
 
-Controller `ok` means acceptance, not completion. Motion completes only after
-fresh Idle and final MPos. Unknown post-write state is sticky and is never
-automatically resent.
+Controller `ok` proves acceptance only. Motion completes after fresh Idle and
+final MPos. Every production pose comparison uses attributable controller
+evidence and the shared 0.05 mm Euclidean settlement policy. Unknown post-write
+state is sticky and is never automatically resent.
 
-## Stop and evidence
+## Sparse tip calibration
 
-The active exercise owns one contextual **Stop**. Manual motion owns **Stop
-Manual Jog** in the Motion region. Repeated Stop cannot emit repeated semantic
-results or cancellation bytes. While physical movement owns an exercise, its
-capability-bound Stop is the only movement-ending action shown; Cancel becomes
-available only after movement settles.
+Stage 3.3 derives a bounded rectangle from the accepted Boundary envelope with
+a 10 mm safety inset. Until paper coverage and visibility are separately known,
+the bootstrap rectangle is reduced symmetrically around its center. It must
+retain at least 10 mm usable span on each axis.
 
-Foreground visibility observation publishes its owner before capture. While it
-is active, controller, motion, pen, camera, source, analysis, and learning
-mutations are refused; capability-bound **Cancel Vision** is the sole operation
-control. Read-only Learning Path review and the ROI/full-frame display toggle
-remain inert.
+Five Pen-Up cap samples use the normalized cross `C`, `X−`, `Y+`, `X+`, `Y−`.
+The first three fit an affine machine-to-visible-cap map; the last two are
+independent holdouts. Both holdouts must pass before a weighted all-five refit
+can be explicitly accepted as `MachineCameraRegistration`. The visible cap
+landmark is not the hidden paper-contact point.
 
-Boundary Stop records the typed operator intent, closes renewal, emits one GRBL
-Jog Cancel, awaits the original owner through final Idle/MPos, and atomically
-commits the selected side attempt and aggregate without Camera or Vision
-evidence. Typed operator direction—not a detected camera edge—identifies the
-side. Strictly newer frames may advise later renewal segments, but cannot
-identify or veto the machine-space Boundary result.
+Stage 3.4 uses the same ordered cross. At each position the app:
 
-LIVE camera start, restart, and source selection never start an unowned analysis
-loop. Boundary renewal uses only its finite explicit inspections. Supervised
-Pen-Up Learning Path travel may admit newest-only scene analysis at 2 Hz while
-the movement owner is active; it stops and discards pending work when that owner
-settles. A forced opposite direction is displayed as required, noninteractive
-content rather than as a disabled choice.
+1. settles Pen Up at the intended MPos;
+2. captures an exact pre-mark frame and revalidates the cap map;
+3. performs one stationary Pen Down/Up tap with zero XY drawing motion;
+4. moves Pen Up diagonally to the next reveal pose when geometry permits;
+5. settles, captures a newer exact frame, and revalidates the cap map;
+6. freezes that exact frame and asks the operator to click the new mark center;
+7. allows re-clicking only on the same frame, with no motion or ink action.
 
-Every expensive Vision computation owns one immutable frame. While it runs,
-`CameraCapture` keeps AVFoundation alive and retains the newest raw buffer, but
-pauses preview materialization/publication so frame hashing and SwiftUI updates
-cannot compete with analysis. Preview resumes from at most one newest buffered
-frame after settlement. Explicit inspection is finite and motion-scoped
-analysis reserves a 2 Hz post-completion recovery interval; neither can survive
-its owning operation.
+The predicted tip point is hidden until the click is made. Before accepted
+authority exists, the UI says **Tip not calibrated**. After a click, the UI
+shows the selected point and uncertainty, model prediction, and residual.
 
-After four sides, **Move to Estimated Center** accepts a controller-reported
-final MPos within 0.05 mm of the derived target. A stopped or out-of-tolerance
-move preserves all four accepted side aggregates and exposes **Retry Center
-Arrival**, which requests only the remaining delta; it never restarts Boundary
-Discovery.
+The first three accepted marks fit candidates; `X+` and `Y−` remain holdouts.
+The smallest passing model wins: a constant camera-pixel correction on the cap
+map is tried first, and a direct affine tip map is considered only after
+coherent failure at both holdouts. Both holdouts must pass. The selected model
+is refit on all five observations and becomes current only after explicit
+**Accept Tip Calibration**.
 
-Every production controller-pose comparison uses one quantization-aware
-settlement policy: fresh attributable controller MPos and Euclidean residual at
-most 0.05 mm. Here, **exact** means exact controller provenance under that
-policy; it does not mean mathematically zero residual from an unrepresentable
-stepper position.
+An uncertain tap, Pen Down/Up outcome, or motion outcome blacklists that
+physical location and stops the workflow. Possible ink never causes automatic
+retry, redraw, resend, or continuation.
 
-At 3.3, one public **Capture Target Pose and Build Geometry Proposal** action
-captures the exact target pose and frame, runs the bounded three-sample Pen Up
-camera calibration when needed, returns under the same settlement policy, and
-stages the proposal. The proposal records the detected cap bottom-centre as an
-exact-frame cap anchor, never as the hidden pen tip, and fixes a circular
-acquisition region with radius equal to half the frame's shorter dimension
-directly to that anchor. There is no preceding generic Start or separate public
-capture/build ceremony. The action never accepts geometry. The operator still
-explicitly accepts or rejects the target pose, cap-based camera fit, and search
-circle after review. The two-frame target observation later learns the cap-to-
-tip translation; Stage 4 projections consume that accepted translation.
-The calibration's first fresh probe establishes an operation-local controller
-baseline. Later probes use a field-level semantic comparison, so app-owned Pen
-Up and motion modal changes remain visible without masquerading as coordinate
-changes; real device, coordinate-mode, setting, or offset changes still stop the
-operation with a named recovery.
+## Tip authority and persistence
 
-Accepted LIVE machine-space Boundary artifacts are durably checkpointed by
-atomic file replacement after each accepted commit. Relaunch loads the file as
-quarantined evidence. Fresh passive `$I`, `$G`, `?`, `$$`, and `$#` evidence
-must match the recorded controller context, and MPos must be within 0.05 mm,
-before accepted sides, center, local frame, or center arrival become current.
-The checkpoint contains no active workflow, Motion authorization, operation
-owner, live Stop capability, pending command, or replay instruction.
+`ToolContactObservation` is immutable evidence. It binds intended and settled
+machine poses, controller context, Pen Down/Up outcomes, tool and paper
+identities, exact pre/post frames, cap-map checks, asserted camera point,
+pointing uncertainty, presentation-transform revision, disposition, and
+consumed algorithm/artifact revisions.
 
-The same session ledger retains serialized raw machine events and typed workflow
-events. Calibration phase/probe/context/failure/recovery facts and signed manual
-jog intent are therefore directly attributable during diagnosis; ledger facts
-never become replay or motion authority.
+`TipCameraRegistration` maps machine coordinates directly to paper-contact
+pixels. It retains the chosen model form, affine transform, uncertainty,
+applicability rectangle, sealed holdouts, all five observation identities,
+semantic optical/machine/tool/paper identities, and accepted revision. A
+diagnostic cap-to-tip pixel difference at one pose is not a durable
+camera-independent tool vector.
+
+The machine-only checkpoint remains separate. `AcceptedTipCalibrationCheckpoint`
+loads quarantined and cannot restore authority without current semantic
+identity plus fresh controller/cap evidence. A paper-plane change requires
+one new accepted stationary-contact observation; an unchanged paper/capture
+restart requires a fresh cap frame and no new tap. Both routes derive a new
+accepted revision and retain their revalidation evidence. Known pixel
+transforms and known machine-coordinate
+rebases may derive rebased authority with propagated uncertainty; unknown
+optical, geometry, coordinate, tool, contact-profile, or LIVE/SIMULATED changes
+invalidate or quarantine it as defined by the Product Contract.
+
+A frame hash and metadata prove provenance only. Durable reprocessing requires
+a content-addressed locator for archived bytes.
+
+## Stage 4
+
+Observed Drawing Trials require accepted Boundary evidence and the exact current
+`TipCameraRegistration` revision. Stage 4 projects its local 5 mm line through
+that registration and owns its own:
+
+- local pre-line baseline and Pen-Up reveal MPos;
+- line-start travel and one closed drawing owner;
+- Pen-Up return to the same reveal pose;
+- strictly newer post-line frame;
+- generic black/new-ink observation and residual.
+
+No Stage 3 scene artifact is reused as a Stage 4 baseline or observation pose.
+An attributable observed line may become future refinement evidence, but it
+cannot silently promote a model. Ambiguous motion or possible ink never causes
+an automatic redraw.
+
+## Workbench and evidence
+
+One singleton window contains the Learning Path, always-mounted camera/action
+surface, selected exercise, Motion region, and optional Utilities. The four
+state-dependent Show/Hide controls and matching panel close controls share one
+grammar. A panel that owns the only active Stop cannot be hidden until its
+operation settles.
+
+The toolbar owns controller selection, Connect/Disconnect, Enable Motion, and
+compact status. Exercise Start, choices, Cancel, Stop, Restart, Redo, and Record
+Another Attempt stay with the exercise. Buttons are authoritative input; speech
+is advisory output only.
 
 Evidence claims remain separate:
 
-- command acceptance proves controller acceptance only;
-- Idle and final MPos prove controller-side settlement;
-- a frame proves captured pixels with recorded provenance;
-- vision geometry is an inference from those pixels;
-- a button records a human observation;
-- only observed ink proves that a mark exists;
-- simulator output is software evidence and never physical evidence.
-
-Redo replaces a current accepted result only after the replacement commits.
-Failure preserves the old accepted result and its dependents. Record Another
-Attempt retains compatible samples and recomputes the typed aggregate. Exact
-frames and controller events remain individual provenance.
-
-## Workbench
-
-One singleton window contains a resizable Learning Path navigator, an
-always-mounted camera/action surface, selected exercise detail, a Motion region,
-and optional Utilities. Hiding a pane is presentation-only. A pane that owns the
-only active Stop cannot be hidden until its operation settles.
-
-The workbench groups the four state-dependent **Show/Hide Learning Path**,
-**Motion**, **Exercise**, and **Utilities** toggles in one strip. Every visible
-optional panel also has an `x` in its header with the same Hide action; the
-Motion and Exercise close controls preserve the same active-operation interlock
-as their strip toggles.
-
-The toolbar owns global controller selection, Connect/Disconnect, Enable Motion,
-and compact status. Exercise Start, choices, Cancel, Stop, Restart, Redo, and
-Record Another Attempt remain with the selected exercise. Buttons are the
-authoritative input surface; speech is output-only advisory guidance.
-
-Operator action controls have one application-wide grammar. Green is an enabled
-affirmative step or session transition; red is an enabled negative, Cancel, or
-Stop transition; medium gray is an enabled neutral action; and dark gray is
-disabled and noninteractive. Passive status and required values are rendered
-as content, not as disabled buttons. Learning Path navigation retains its native
-review-only presentation. An action button's disabled chrome and hit-testing
-derive from the same enabled-state input.
-
-Selecting an older Learning Path row remains review-only. Its Reset Learning
-section offers **Reset From This Step…**, which shows the exact later steps that
-will also be cleared and uses one ordinary Reset button—no phrase entry.
-**Reset All Learning…** uses the same compact summary and returns the current LIVE
-or SIMULATED learning source to Pen Interaction without disconnecting the
-controller or changing Enable Motion. A LIVE reset that reaches Boundary learning
-also removes the saved accepted-Boundary checkpoint. Neither action erases marks
-on the paper; contaminated target areas remain unusable until the operator chooses
-a new area or records paper replacement.
+- build/test output is automated software evidence;
+- simulator output is deterministic nonphysical evidence;
+- controller acceptance and Idle/MPos are controller evidence;
+- a frame is exact captured-pixel evidence;
+- Vision geometry is an inference;
+- a click is an explicit operator assertion;
+- only observed physical ink proves a physical mark.
 
 ## Build, test, and launch
 
@@ -223,37 +198,40 @@ make validate-app
 make run-app
 ```
 
-Use `make quick-test` during ordinary edits. It keeps the unit and component
-suite while excluding the retained end-to-end simulated Learning Path routes.
-Use `make journey-test` when changing those routes, and `make test` for the
-complete suite. `make check` and `make strict-check` always run the complete
-suite; the strict gate is intended once before landing, not after every edit.
+`make quick-test` runs unit and component tests while excluding retained
+end-to-end Learning Path routes. `make journey-test` runs those routes
+sequentially. `make test` runs the complete suite. `make check` adds signed app,
+launcher, repository-contract, and diff validation; `make strict-check` repeats
+that gate with complete Swift concurrency checking and warnings as errors.
 
 `make run-app` constructs the signed bundle and uses the single-instance
-launcher. Do not run the raw SwiftPM executable for camera, microphone, or
-serial work. The launcher activates the exact existing bundle when possible and
-refuses wrong-path or competing raw processes without terminating them.
+launcher. Do not run the raw SwiftPM executable for camera or controller work.
+The launcher activates the exact existing bundle when possible and refuses
+wrong-path or competing raw processes without terminating them.
+
+The current sparse calibration implementation has automated and simulated
+evidence only. No current physical camera/controller/pen/operator-click or
+observed-ink validation is implied. See [Current Evidence](docs/CURRENT_EVIDENCE.md).
 
 ## Authoritative documents
 
-- [Product Contract](docs/PRODUCT_CONTRACT.md) — product boundary, authority,
-  evidence, safety, and valid model-learning direction.
-- [Architecture](docs/SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md) — package and
-  runtime ownership boundaries.
+- [Product Contract](docs/PRODUCT_CONTRACT.md) — product semantics, authority,
+  safety, evidence, calibration applicability, and Stage 4 dependency boundary.
 - [Discovery and Observed-Trial Protocol](docs/DISCOVERY_AND_OBSERVED_TRIAL_PROTOCOL.md)
-  — exact current operator/runtime protocol.
+  — exact operating sequence and recovery.
+- [Architecture](docs/SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md) — package and
+  runtime ownership.
+- [Attended Hardware Runbook](docs/ATTENDED_HARDWARE_RUNBOOK.md) — explicitly
+  authorized, attended physical verification.
+- [Current Evidence](docs/CURRENT_EVIDENCE.md) — what is actually verified.
 - [Roadmap](docs/ROADMAP.md) — unfinished work only.
-- [Current Evidence](docs/CURRENT_EVIDENCE.md) — current automated, environment,
-  and attended physical evidence.
-- [Attended Hardware Runbook](docs/ATTENDED_HARDWARE_RUNBOOK.md) — supported
-  physical verification procedure.
 
-Git history and Blackdog replay artifacts retain implementation history and
-execution prompts. They are not duplicated as current product documentation.
+Git history and Blackdog replay artifacts preserve implementation history. They
+are not current product authority.
 
 ## Development contract
 
 Follow `AGENTS.md`, `.codex/skills/adaptiveplotter/SKILL.md`, and
-`blackdog.toml`. Normal implementation starts with repo-local Blackdog and lands
-through its recorded target branch. Keep automated, simulator, controller,
-camera, human, and observed-ink evidence explicitly classified.
+`blackdog.toml`. Normal implementation begins and lands through repo-local
+Blackdog in its recorded task worktree and target branch. Never upgrade
+automated or simulator results into attended physical evidence.

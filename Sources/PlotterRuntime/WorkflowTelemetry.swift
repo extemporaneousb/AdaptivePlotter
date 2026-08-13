@@ -19,7 +19,6 @@ public enum WorkflowTelemetryPhase: String, Codable, CaseIterable, Hashable, Sen
 public enum WorkflowTelemetryRecovery: String, Codable, CaseIterable, Hashable, Sendable {
   case none
   case retryCalibration
-  case returnToRegisteredTargetPose
   case revalidateControllerContext
   case resolveNamedFailure
 }

@@ -37,8 +37,23 @@ public struct MachineCameraRegistrationFit: Hashable, Codable, Sendable {
   public static func fit(
     correspondences: [MachineCameraRegistrationCorrespondence]
   ) throws -> Self {
+    try fit(
+      correspondences: correspondences,
+      weights: Array(repeating: 1, count: correspondences.count)
+    )
+  }
+
+  /// Weighted least squares. Weights are evidence precision, not presentation
+  /// confidence; every value must be finite and strictly positive.
+  public static func fit(
+    correspondences: [MachineCameraRegistrationCorrespondence],
+    weights: [Double]
+  ) throws -> Self {
     guard correspondences.count >= 3 else { throw RegistrationError.insufficientPoints }
-    let transform = try fitMachineCameraAffine(correspondences)
+    guard weights.count == correspondences.count,
+      weights.allSatisfy({ $0.isFinite && $0 > 0 })
+    else { throw RegistrationError.degenerateGeometry }
+    let transform = try fitMachineCameraAffine(correspondences, weights: weights)
     let errors = try correspondences.map {
       try transform.applying(to: $0.machine).distance(to: $0.camera)
     }
@@ -155,25 +170,32 @@ private func fitAffine(
 }
 
 private func fitMachineCameraAffine(
-  _ samples: [MachineCameraRegistrationCorrespondence]
+  _ samples: [MachineCameraRegistrationCorrespondence],
+  weights: [Double]
 ) throws -> AffineTransform2<MachineSpace, CameraPixelSpace> {
-  let count = Double(samples.count)
-  let centerX = samples.reduce(0) { $0 + $1.machine.x } / count
-  let centerY = samples.reduce(0) { $0 + $1.machine.y } / count
-  let averageSquaredRadius = samples.reduce(0) { partial, sample in
+  let totalWeight = weights.reduce(0, +)
+  let centerX = zip(samples, weights).reduce(0) { $0 + $1.0.machine.x * $1.1 } / totalWeight
+  let centerY = zip(samples, weights).reduce(0) { $0 + $1.0.machine.y * $1.1 } / totalWeight
+  let averageSquaredRadius = zip(samples, weights).reduce(0) { partial, item in
+    let sample = item.0
     let x = sample.machine.x - centerX
     let y = sample.machine.y - centerY
-    return partial + x * x + y * y
-  } / count
+    return partial + item.1 * (x * x + y * y)
+  } / totalWeight
   let scale = sqrt(averageSquaredRadius)
   guard scale.isFinite, scale > 1e-12 else { throw RegistrationError.degenerateGeometry }
 
-  let normalized = samples.map { sample in
-    ((sample.machine.x - centerX) / scale, (sample.machine.y - centerY) / scale, sample.camera)
+  let normalized = zip(samples, weights).map { sample, weight in
+    (
+      (sample.machine.x - centerX) / scale,
+      (sample.machine.y - centerY) / scale,
+      sample.camera,
+      weight
+    )
   }
-  let sxx = normalized.reduce(0) { $0 + $1.0 * $1.0 } / count
-  let syy = normalized.reduce(0) { $0 + $1.1 * $1.1 } / count
-  let sxy = normalized.reduce(0) { $0 + $1.0 * $1.1 } / count
+  let sxx = normalized.reduce(0) { $0 + $1.3 * $1.0 * $1.0 } / totalWeight
+  let syy = normalized.reduce(0) { $0 + $1.3 * $1.1 * $1.1 } / totalWeight
+  let sxy = normalized.reduce(0) { $0 + $1.3 * $1.0 * $1.1 } / totalWeight
   guard sxx * syy - sxy * sxy > 1e-10 else {
     throw RegistrationError.degenerateGeometry
   }
@@ -184,9 +206,9 @@ private func fitMachineCameraAffine(
   for sample in normalized {
     let row = [sample.0, sample.1, 1.0]
     for i in 0..<3 {
-      targetX[i] += row[i] * sample.2.x
-      targetY[i] += row[i] * sample.2.y
-      for j in 0..<3 { normal[i][j] += row[i] * row[j] }
+      targetX[i] += sample.3 * row[i] * sample.2.x
+      targetY[i] += sample.3 * row[i] * sample.2.y
+      for j in 0..<3 { normal[i][j] += sample.3 * row[i] * row[j] }
     }
   }
   let betaX = try solve3x3(normal, targetX)

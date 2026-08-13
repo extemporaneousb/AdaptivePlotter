@@ -35,19 +35,14 @@ struct LearningPathPresentationTests {
   func exactDiscoverySteps() {
     #expect(
       HumanGuidedDiscoveryStep.allCases.map(\.stepNumber)
-        == ["3.1", "3.2", "3.3", "3.4", "3.5", "3.6", "3.7", "3.8", "3.9"]
+        == ["3.1", "3.2", "3.3", "3.4"]
     )
     #expect(
       HumanGuidedDiscoveryStep.allCases.map(\.title) == [
         "Pen Interaction",
         "Paired Boundary Discovery and Centering",
-        "Register Target Pose and Camera Geometry",
-        "Discover and Accept Clear View",
-        "Confirm Blank Target Baseline",
-        "Return to Registered Target Pose",
-        "Draw Visibility Target",
-        "Return and Observe Existing Target",
-        "Accept Visibility Registration",
+        "Calibrate Camera and Visible Cap",
+        "Calibrate Pen Contact from Sparse Marks",
       ])
   }
 
@@ -60,10 +55,10 @@ struct LearningPathPresentationTests {
     #expect(
       ObservedDrawingTrialStep.allCases.map(\.title) == [
         "Choose Isolated Line Plan",
-        "Capture Target-Anchored Baseline",
+        "Capture Local Pre-Line Baseline",
         "Move to Line Start",
         "Draw Isolated Line",
-        "Return to Clear Pose and Observe New Ink",
+        "Reveal and Observe New Ink",
         "Compare Intended and Observed Geometry",
       ])
   }
@@ -77,19 +72,14 @@ struct LearningPathPresentationTests {
         "3 Human-Guided Discovery",
         "3.1 Pen Interaction",
         "3.2 Paired Boundary Discovery and Centering",
-        "3.3 Register Target Pose and Camera Geometry",
-        "3.4 Discover and Accept Clear View",
-        "3.5 Confirm Blank Target Baseline",
-        "3.6 Return to Registered Target Pose",
-        "3.7 Draw Visibility Target",
-        "3.8 Return and Observe Existing Target",
-        "3.9 Accept Visibility Registration",
+        "3.3 Calibrate Camera and Visible Cap",
+        "3.4 Calibrate Pen Contact from Sparse Marks",
         "4 Observed Drawing Trials",
         "4.1 Choose Isolated Line Plan",
-        "4.2 Capture Target-Anchored Baseline",
+        "4.2 Capture Local Pre-Line Baseline",
         "4.3 Move to Line Start",
         "4.4 Draw Isolated Line",
-        "4.5 Return to Clear Pose and Observe New Ink",
+        "4.5 Reveal and Observe New Ink",
         "4.6 Compare Intended and Observed Geometry",
         "5 Adaptive Drawing",
       ])
@@ -236,142 +226,6 @@ struct LearningPathPresentationTests {
     #expect(forced.options == [.negativeX])
     #expect(forced.selected == .negativeX)
     #expect(!forced.allowsSelection)
-  }
-
-  @Test("Clear-view search exposes only exact operator-selected 50 and 10 millimeter moves")
-  func exactClearViewSearchMoves() {
-    let direction = BoundaryDirection.positiveY
-    let moves = ClearViewSearchDistance.allCases.map {
-      ClearViewSearchMove(direction: direction, distance: $0)
-    }
-    let descriptors = moves.map {
-      ExerciseActionDescriptor(
-        kind: .moveForClearView($0),
-        title: "Move \($0.direction.displayName) \($0.distance.displayName)"
-      )
-    }
-
-    #expect(
-      moves.map(\.distance) == [
-        .fiftyMillimeters,
-        .tenMillimeters,
-      ])
-    #expect(
-      descriptors.map(\.title) == [
-        "Move Y+ 50 mm",
-        "Move Y+ 10 mm",
-      ])
-    #expect(descriptors.map(\.isEnabled) == [true, true])
-  }
-
-  @Test("target-geometry actions are typed and remain owned by their pinned 3.3 strip")
-  func typedVisibilityWorkflowActions() {
-    let owner = LearningPathItemID.humanGuidedDiscovery(
-      .registerTargetPoseAndCameraGeometry
-    )
-    let strip = ExerciseActionStripPresentation(
-      ownerID: owner,
-      actions: [
-        ExerciseActionDescriptor(
-          kind: .captureTargetPoseAndBuildGeometryProposal,
-          title: "Capture Target Pose and Build Geometry Proposal",
-          role: .positive
-        ),
-        ExerciseActionDescriptor(
-          kind: .rejectTargetGeometryProposal,
-          title: "Reject Cap Anchor and Search Circle"
-        ),
-        ExerciseActionDescriptor(
-          kind: .registerNewTargetArea,
-          title: "Register New Target Area"
-        ),
-        ExerciseActionDescriptor(
-          kind: .moveToNewTargetArea(
-            ClearViewSearchMove(direction: .negativeY, distance: .tenMillimeters)
-          ),
-          title: "Move New Target Area Y− 10 mm"
-        ),
-        ExerciseActionDescriptor(
-          kind: .paperReplaced,
-          title: "Paper Replaced",
-          role: .destructive
-        ),
-      ],
-      mustRemainVisible: true
-    )
-
-    #expect(strip.ownerID == owner)
-    #expect(strip.mustRemainVisible)
-    #expect(
-      strip.actions.map(\.kind) == [
-        .captureTargetPoseAndBuildGeometryProposal,
-        .rejectTargetGeometryProposal,
-        .registerNewTargetArea,
-        .moveToNewTargetArea(
-          ClearViewSearchMove(direction: .negativeY, distance: .tenMillimeters)
-        ),
-        .paperReplaced,
-      ])
-    #expect(
-      strip.actions.count { $0.kind == .captureTargetPoseAndBuildGeometryProposal } == 1
-    )
-  }
-
-  @Test("visibility recovery distinguishes observing ink from relocating or replacing paper")
-  func typedVisibilityRecovery() {
-    #expect(
-      ExerciseActionKind.observeExistingVisibilityTarget
-        != .registerNewTargetArea
-    )
-    #expect(ExerciseActionKind.registerNewTargetArea != .paperReplaced)
-    #expect(ExerciseActionKind.drawVisibilityTarget != .observeExistingVisibilityTarget)
-  }
-
-  @Test("new target-area recovery requires typed relocation before an explicit new registration")
-  func typedTargetAreaRelocation() {
-    let selection = ExerciseDirectionSelectionPresentation(
-      purpose: .targetAreaRelocation,
-      selected: .positiveX
-    )
-    let moves = ClearViewSearchDistance.allCases.map {
-      ExerciseActionKind.moveToNewTargetArea(
-        ClearViewSearchMove(direction: selection.selected, distance: $0)
-      )
-    }
-    let captureBeforeMove = ExerciseActionDescriptor(
-      kind: .captureTargetPoseAndBuildGeometryProposal,
-      title: "Capture Target Pose and Build Geometry Proposal",
-      role: .positive,
-      unavailableReason: "Move to a new target area first."
-    )
-    let captureAfterMove = ExerciseActionDescriptor(
-      kind: .captureTargetPoseAndBuildGeometryProposal,
-      title: "Capture Target Pose and Build Geometry Proposal",
-      role: .positive
-    )
-
-    #expect(selection.purpose.label == "New target-area direction")
-    #expect(moves.count == 2)
-    #expect(
-      moves.first
-        == .moveToNewTargetArea(
-          ClearViewSearchMove(direction: .positiveX, distance: .fiftyMillimeters)
-        )
-    )
-    #expect(
-      ExerciseActionKind.captureTargetPoseAndBuildGeometryProposal != .registerNewTargetArea
-    )
-    #expect(!captureBeforeMove.isEnabled)
-    #expect(captureBeforeMove.unavailableReason == "Move to a new target area first.")
-    #expect(captureAfterMove.isEnabled)
-    #expect(
-      ExerciseActionKind.moveToNewTargetArea(
-        ClearViewSearchMove(direction: .positiveX, distance: .fiftyMillimeters)
-      )
-        != .moveForClearView(
-          ClearViewSearchMove(direction: .positiveX, distance: .fiftyMillimeters)
-        )
-    )
   }
 
   @Test(

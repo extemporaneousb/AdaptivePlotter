@@ -32,14 +32,16 @@ enum LearningPathStageStatus: String, CaseIterable, Hashable, Sendable {
 
 enum HumanGuidedDiscoveryStep: Int, CaseIterable, Hashable, Identifiable, Sendable {
   case penInteraction = 1
-  case pairedBoundaryDiscoveryAndCentering
-  case registerTargetPoseAndCameraGeometry
-  case discoverAndAcceptClearView
-  case confirmBlankTargetBaseline
-  case returnToRegisteredTargetPose
-  case drawVisibilityTarget
-  case returnAndObserveExistingTarget
-  case acceptVisibilityRegistration
+  case pairedBoundaryDiscoveryAndCentering = 2
+  case calibrateCameraAndVisibleCap = 3
+  case calibratePenContactFromSparseMarks = 4
+
+  static let allCases: [Self] = [
+    .penInteraction,
+    .pairedBoundaryDiscoveryAndCentering,
+    .calibrateCameraAndVisibleCap,
+    .calibratePenContactFromSparseMarks,
+  ]
 
   var id: Self { self }
   var stepNumber: String { "3.\(rawValue)" }
@@ -48,23 +50,18 @@ enum HumanGuidedDiscoveryStep: Int, CaseIterable, Hashable, Identifiable, Sendab
     switch self {
     case .penInteraction: "Pen Interaction"
     case .pairedBoundaryDiscoveryAndCentering: "Paired Boundary Discovery and Centering"
-    case .registerTargetPoseAndCameraGeometry: "Register Target Pose and Camera Geometry"
-    case .discoverAndAcceptClearView: "Discover and Accept Clear View"
-    case .confirmBlankTargetBaseline: "Confirm Blank Target Baseline"
-    case .returnToRegisteredTargetPose: "Return to Registered Target Pose"
-    case .drawVisibilityTarget: "Draw Visibility Target"
-    case .returnAndObserveExistingTarget: "Return and Observe Existing Target"
-    case .acceptVisibilityRegistration: "Accept Visibility Registration"
+    case .calibrateCameraAndVisibleCap: "Calibrate Camera and Visible Cap"
+    case .calibratePenContactFromSparseMarks: "Calibrate Pen Contact from Sparse Marks"
     }
   }
 }
 
 enum ObservedDrawingTrialStep: Int, CaseIterable, Hashable, Identifiable, Sendable {
   case chooseIsolatedLinePlan = 1
-  case captureTargetAnchoredBaseline
+  case captureLocalPreLineBaseline
   case moveToLineStart
   case drawIsolatedLine
-  case returnToClearPoseAndObserveNewInk
+  case revealAndObserveNewInk
   case compareIntendedAndObservedGeometry
 
   var id: Self { self }
@@ -73,10 +70,10 @@ enum ObservedDrawingTrialStep: Int, CaseIterable, Hashable, Identifiable, Sendab
   var title: String {
     switch self {
     case .chooseIsolatedLinePlan: "Choose Isolated Line Plan"
-    case .captureTargetAnchoredBaseline: "Capture Target-Anchored Baseline"
+    case .captureLocalPreLineBaseline: "Capture Local Pre-Line Baseline"
     case .moveToLineStart: "Move to Line Start"
     case .drawIsolatedLine: "Draw Isolated Line"
-    case .returnToClearPoseAndObserveNewInk: "Return to Clear Pose and Observe New Ink"
+    case .revealAndObserveNewInk: "Reveal and Observe New Ink"
     case .compareIntendedAndObservedGeometry: "Compare Intended and Observed Geometry"
     }
   }
@@ -100,19 +97,14 @@ enum LearningPathItemID: Hashable, Identifiable, Sendable {
     .stage(.humanGuidedDiscovery),
     .humanGuidedDiscovery(.penInteraction),
     .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering),
-    .humanGuidedDiscovery(.registerTargetPoseAndCameraGeometry),
-    .humanGuidedDiscovery(.discoverAndAcceptClearView),
-    .humanGuidedDiscovery(.confirmBlankTargetBaseline),
-    .humanGuidedDiscovery(.returnToRegisteredTargetPose),
-    .humanGuidedDiscovery(.drawVisibilityTarget),
-    .humanGuidedDiscovery(.returnAndObserveExistingTarget),
-    .humanGuidedDiscovery(.acceptVisibilityRegistration),
+    .humanGuidedDiscovery(.calibrateCameraAndVisibleCap),
+    .humanGuidedDiscovery(.calibratePenContactFromSparseMarks),
     .stage(.observedDrawingTrials),
     .observedDrawingTrial(.chooseIsolatedLinePlan),
-    .observedDrawingTrial(.captureTargetAnchoredBaseline),
+    .observedDrawingTrial(.captureLocalPreLineBaseline),
     .observedDrawingTrial(.moveToLineStart),
     .observedDrawingTrial(.drawIsolatedLine),
-    .observedDrawingTrial(.returnToClearPoseAndObserveNewInk),
+    .observedDrawingTrial(.revealAndObserveNewInk),
     .observedDrawingTrial(.compareIntendedAndObservedGeometry),
     .stage(.adaptiveDrawing),
   ]
@@ -120,18 +112,13 @@ enum LearningPathItemID: Hashable, Identifiable, Sendable {
   static let learningExerciseOrder: [Self] = [
     .humanGuidedDiscovery(.penInteraction),
     .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering),
-    .humanGuidedDiscovery(.registerTargetPoseAndCameraGeometry),
-    .humanGuidedDiscovery(.discoverAndAcceptClearView),
-    .humanGuidedDiscovery(.confirmBlankTargetBaseline),
-    .humanGuidedDiscovery(.returnToRegisteredTargetPose),
-    .humanGuidedDiscovery(.drawVisibilityTarget),
-    .humanGuidedDiscovery(.returnAndObserveExistingTarget),
-    .humanGuidedDiscovery(.acceptVisibilityRegistration),
+    .humanGuidedDiscovery(.calibrateCameraAndVisibleCap),
+    .humanGuidedDiscovery(.calibratePenContactFromSparseMarks),
     .observedDrawingTrial(.chooseIsolatedLinePlan),
-    .observedDrawingTrial(.captureTargetAnchoredBaseline),
+    .observedDrawingTrial(.captureLocalPreLineBaseline),
     .observedDrawingTrial(.moveToLineStart),
     .observedDrawingTrial(.drawIsolatedLine),
-    .observedDrawingTrial(.returnToClearPoseAndObserveNewInk),
+    .observedDrawingTrial(.revealAndObserveNewInk),
     .observedDrawingTrial(.compareIntendedAndObservedGeometry),
   ]
 
@@ -208,8 +195,13 @@ struct LearningVacatePlan: Hashable, Identifiable, Sendable {
   let affectedItems: [LearningPathItemID]
   let expectedCurrentRevisionIDs: Set<LearningArtifactRevisionID>
   let expectedAcceptedAttemptSequence: UInt64
-  let removesDurableCheckpoint: Bool
+  let removesDurableMachineCheckpoint: Bool
+  let removesDurableTipCheckpoint: Bool
   let physicalInkMayRemain: Bool
+
+  var removesDurableCheckpoint: Bool {
+    removesDurableMachineCheckpoint || removesDurableTipCheckpoint
+  }
 
   var id: String {
     let scopeID =
@@ -377,46 +369,6 @@ struct ContextualStopCapabilityID: RawRepresentable, Hashable, Sendable {
   }
 }
 
-/// Capability-bound cancellation for one foreground visibility observation.
-/// It is intentionally distinct from controller Stop and whole-attempt Cancel.
-struct VisibilityObservationCancelCapabilityID: RawRepresentable, Hashable, Sendable {
-  let rawValue: UUID
-
-  init(rawValue: UUID = UUID()) {
-    self.rawValue = rawValue
-  }
-}
-
-struct VisibilityObservationOperationID: RawRepresentable, Hashable, Sendable {
-  let rawValue: UUID
-
-  init(rawValue: UUID = UUID()) {
-    self.rawValue = rawValue
-  }
-}
-
-enum VisibilityObservationPhase: String, CaseIterable, Hashable, Sendable {
-  case preparing = "Preparing exact cap-to-tip search circle"
-  case acquiringFirstFrame = "Acquiring target frame 1 of 2"
-  case acquiringSecondFrame = "Acquiring target frame 2 of 2"
-  case analyzingFirstFrame = "Analyzing target frame 1 of 2 in the exact circle"
-  case analyzingSecondFrame = "Analyzing target frame 2 of 2 in the exact circle"
-  case cancelling = "Cancelling Vision"
-  case committing = "Validating and committing exact-frame evidence"
-}
-
-struct VisibilityObservationOperationPresentation: Hashable, Sendable {
-  let id: VisibilityObservationOperationID
-  let cancelCapabilityID: VisibilityObservationCancelCapabilityID
-  let phase: VisibilityObservationPhase
-  let searchCircle: VisibilityTargetSearchCircle
-  let targetPlanRevision: String
-
-  var busyDetail: String {
-    "\(phase.rawValue) · circular cap→tip search R \(Int(searchCircle.radiusPixels.rounded())) px · plan \(targetPlanRevision)"
-  }
-}
-
 struct ContextualStopActionPresentation: Hashable, Sendable {
   let capabilityID: ContextualStopCapabilityID
   let title: String
@@ -503,7 +455,6 @@ enum ExerciseActionKind: Hashable, Sendable {
   case start
   case choice(OperatorChoice)
   case cancel
-  case cancelVisibilityObservation(VisibilityObservationCancelCapabilityID)
   case stop(ContextualStopCapabilityID)
   case restart
   case redoThisStep
@@ -512,29 +463,21 @@ enum ExerciseActionKind: Hashable, Sendable {
   case recordAnotherBoundaryAttempt(BoundaryDirection)
   case selectDirection(ExerciseDirectionSelectionPurpose, BoundaryDirection)
   case moveToEstimatedCenter
-  case captureTargetPoseAndBuildGeometryProposal
-  case acceptTargetGeometryProposal
-  case rejectTargetGeometryProposal
-  case moveForClearView(ClearViewSearchMove)
-  case recordClearViewLabel(ArmatureVisibilityLabel)
-  case acceptClearPose
-  case captureBlankTargetBaselineCandidate
-  case confirmBlankTargetBaseline
-  case rejectBlankTargetBaseline
-  case returnToRegisteredTargetPose
-  case drawVisibilityTarget
-  case returnToAcceptedClearPose
-  case observeExistingVisibilityTarget
-  case acceptVisibilityRegistration
-  case rejectVisibilityRegistration
-  case registerNewTargetArea
-  case moveToNewTargetArea(ClearViewSearchMove)
+  case runCameraCalibrationAndBuildProposal
+  case acceptCameraCalibrationProposal
+  case rejectCameraCalibrationProposal
+  case createNextSparseTipMark
+  case reClickSparseTipFrame
+  case acceptSparseTipMark
+  case revalidateTipCalibrationCheckpoint
+  case acceptTipCalibration
+  case rejectTipCalibration
   case paperReplaced
   case chooseIsolatedLinePlan(BoundaryDirection)
-  case captureTargetAnchoredBaseline
+  case captureLocalPreLineBaseline
   case moveToLineStart
   case drawIsolatedLine
-  case returnToClearPoseAndObserveNewInk
+  case revealAndObserveNewInk
   case recordDrawingTrialAssessment(DrawingTrialAssessment)
 }
 
@@ -594,8 +537,6 @@ struct ExerciseActionDescriptor: Identifiable, Hashable, Sendable {
 
 enum ExerciseDirectionSelectionPurpose: String, Hashable, Sendable {
   case boundary = "Boundary direction"
-  case clearViewSearch = "Clear-view direction"
-  case targetAreaRelocation = "New target-area direction"
   case linePlan = "Line direction"
 
   var label: String { rawValue }

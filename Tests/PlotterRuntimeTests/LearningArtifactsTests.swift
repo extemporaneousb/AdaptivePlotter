@@ -23,7 +23,7 @@ struct LearningArtifactsTests {
   @Test("unsuccessful replacement does not manufacture a current result")
   func unsuccessfulReplacement() throws {
     var graph = LearningDependencyGraph()
-    let accepted = revision(kind: .clearPose)
+    let accepted = revision(kind: .penInteraction)
     _ = try graph.commitReplacement(accepted)
 
     for disposition in [
@@ -32,14 +32,14 @@ struct LearningArtifactsTests {
       .ambiguous("write accepted but settlement unknown"),
     ] {
       let candidate = LearningArtifactRevision(
-        kind: .clearPose,
+        kind: .penInteraction,
         attemptID: ExerciseAttemptID(),
         disposition: disposition
       )
       #expect(throws: LearningDependencyGraphError.unsuccessfulReplacement(disposition)) {
         try graph.commitReplacement(candidate)
       }
-      #expect(graph.currentRevision(for: .clearPose)?.id == accepted.id)
+      #expect(graph.currentRevision(for: .penInteraction)?.id == accepted.id)
       #expect(graph.revision(id: accepted.id)?.state == .current)
     }
   }
@@ -58,104 +58,87 @@ struct LearningArtifactsTests {
     #expect(graph.currentRevision(for: .boundarySideAggregate(.positiveX))?.id == boundary.id)
   }
 
-  @Test("Clear pose replacement invalidates only drawing artifacts that consumed it")
-  func clearPoseReplacementInvalidatesConsumers() throws {
-    var graph = LearningDependencyGraph()
-    let clear = revision(kind: .clearPose)
-    let boundary = revision(kind: .boundarySideAggregate(.negativeY))
-    _ = try graph.commitReplacement(clear)
-    _ = try graph.commitReplacement(boundary)
-    let baseline = revision(kind: .preTargetClearViewBaseline, consumes: [clear.id])
-    _ = try graph.commitReplacement(baseline)
-    let target = revision(kind: .visibilityTargetExecution, consumes: [baseline.id])
-    _ = try graph.commitReplacement(target)
+  @Test("Stage 4 commits only the exact tip-rooted dependency shapes")
+  func stageFourDependencyShapes() throws {
+    let stage = try stageFourArtifactGraph(group: AttemptGroupIdentity(rawValue: "trial-a"))
 
-    let commit = try graph.commitReplacement(revision(kind: .clearPose))
-
-    #expect(commit.invalidatedRevisionIDs == [baseline.id, target.id])
-    #expect(graph.currentRevision(for: .boundarySideAggregate(.negativeY))?.id == boundary.id)
-  }
-
-  @Test("Stage 3 visibility chain is rooted in typed target-search authority")
-  func targetROIInvalidatesClearBaselineExecutionAndObservation() throws {
-    var graph = LearningDependencyGraph()
-    let targetPose = revision(kind: .targetPoseRegistration)
-    let machineRegistration = revision(
-      kind: .machineCameraRegistration,
-      consumes: [targetPose.id]
-    )
-    let targetROI = revision(
-      kind: .targetROIRegistration,
-      consumes: [targetPose.id, machineRegistration.id]
-    )
-    let clear = revision(kind: .clearPose, consumes: [targetROI.id])
-    let baseline = revision(
-      kind: .preTargetClearViewBaseline,
-      consumes: [clear.id, targetROI.id]
-    )
-    let execution = revision(
-      kind: .visibilityTargetExecution,
-      consumes: [baseline.id, targetPose.id, machineRegistration.id, targetROI.id]
-    )
-    let observation = revision(
-      kind: .visibilityTargetObservation,
-      consumes: [execution.id, baseline.id, targetROI.id]
-    )
-    let tipOffset = revision(
-      kind: .penTipOffsetRegistration,
-      consumes: [observation.id, targetPose.id]
-    )
-    let registration = revision(
-      kind: .visibilityRegistration,
-      consumes: [observation.id, machineRegistration.id, targetROI.id, tipOffset.id]
-    )
-    for artifact in [
-      targetPose, machineRegistration, targetROI, clear, baseline, execution, observation,
-      tipOffset, registration,
-    ] {
-      _ = try graph.commitReplacement(artifact)
-    }
-
-    let commit = try graph.commitReplacement(
-      revision(
-        kind: .targetROIRegistration,
-        consumes: [targetPose.id, machineRegistration.id]
-      )
-    )
-
-    #expect(commit.invalidatedRevisionIDs == [
-      clear.id, baseline.id, execution.id, observation.id, tipOffset.id, registration.id,
+    #expect(stage.linePlan.consumedRevisionIDs == [stage.tip.id])
+    #expect(stage.localBaseline.consumedRevisionIDs == [stage.tip.id])
+    #expect(stage.lineExecution.consumedRevisionIDs == [stage.linePlan.id])
+    #expect(stage.postLine.consumedRevisionIDs == [
+      stage.lineExecution.id, stage.localBaseline.id, stage.tip.id,
     ])
-    #expect(graph.currentRevision(for: .targetPoseRegistration)?.id == targetPose.id)
-    #expect(
-      graph.currentRevision(for: .machineCameraRegistration)?.id == machineRegistration.id
-    )
+    #expect(stage.ink.consumedRevisionIDs == [
+      stage.localBaseline.id, stage.lineExecution.id, stage.postLine.id, stage.tip.id,
+    ])
+    #expect(stage.residual.consumedRevisionIDs == [stage.ink.id])
+    #expect(stage.comparison.consumedRevisionIDs == [stage.ink.id, stage.residual.id])
+    for artifact in [
+      stage.tip, stage.linePlan, stage.localBaseline, stage.lineExecution,
+      stage.postLine, stage.ink, stage.residual, stage.comparison,
+    ] {
+      #expect(stage.graph.revision(id: artifact.id)?.state == .current)
+    }
   }
 
-  @Test("target-anchored trial baseline replacement invalidates only its consuming trial chain")
-  func targetAnchoredBaselineReplacementInvalidatesTrial() throws {
-    var graph = LearningDependencyGraph()
-    let groupA = AttemptGroupIdentity(rawValue: "trial-a")
-    let groupB = AttemptGroupIdentity(rawValue: "trial-b")
-    let baselineA = revision(kind: .targetAnchoredTrialBaseline(groupA))
-    let baselineB = revision(kind: .targetAnchoredTrialBaseline(groupB))
-    _ = try graph.commitReplacement(baselineA)
-    _ = try graph.commitReplacement(baselineB)
-    let line = revision(kind: .lineExecution(groupA), consumes: [baselineA.id])
-    let post = revision(kind: .postLineFrame(groupA), consumes: [line.id])
-    let ink = revision(kind: .inkObservation(groupA), consumes: [baselineA.id, post.id])
-    let residual = revision(kind: .residual(groupA), consumes: [ink.id])
-    let comparison = revision(kind: .comparison(groupA), consumes: [residual.id])
-    for artifact in [line, post, ink, residual, comparison] {
-      _ = try graph.commitReplacement(artifact)
-    }
+  @Test("Stage 4 rejects missing and cross-kind dependencies")
+  func stageFourRejectsInvalidDependencyShapes() throws {
+    var tipStage = try acceptedTipArtifactGraph()
+    let group = AttemptGroupIdentity(rawValue: "trial-invalid")
+    let baseline = revision(kind: .localPreLineBaseline(group), consumes: [tipStage.tip.id])
+    _ = try tipStage.graph.commitReplacement(baseline)
+    let plan = revision(kind: .linePlan(group), consumes: [tipStage.tip.id])
+    _ = try tipStage.graph.commitReplacement(plan)
+    let execution = revision(kind: .lineExecution(group), consumes: [plan.id])
+    _ = try tipStage.graph.commitReplacement(execution)
 
-    let commit = try graph.commitReplacement(
-      revision(kind: .targetAnchoredTrialBaseline(groupA))
+    for candidate in [
+      revision(kind: .linePlan(group)),
+      revision(kind: .localPreLineBaseline(group)),
+      revision(kind: .lineExecution(group), consumes: [baseline.id]),
+      revision(
+        kind: .postLineFrame(group),
+        consumes: [execution.id, baseline.id]
+      ),
+    ] {
+      #expect(throws: LearningDependencyGraphError.invalidDependencyShape(candidate.kind)) {
+        try tipStage.graph.commitReplacement(candidate)
+      }
+    }
+    let post = revision(
+      kind: .postLineFrame(group),
+      consumes: [execution.id, baseline.id, tipStage.tip.id]
+    )
+    _ = try tipStage.graph.commitReplacement(post)
+    let invalidInk = revision(
+      kind: .inkObservation(group),
+      consumes: [baseline.id, post.id, tipStage.tip.id]
+    )
+    #expect(throws: LearningDependencyGraphError.invalidDependencyShape(invalidInk.kind)) {
+      try tipStage.graph.commitReplacement(invalidInk)
+    }
+  }
+
+  @Test("replacing the exact tip revision invalidates every Stage 4 consumer")
+  func tipReplacementInvalidatesStageFourTransitively() throws {
+    var stage = try stageFourArtifactGraph(group: AttemptGroupIdentity(rawValue: "trial-tip"))
+    let boundary = revision(kind: .boundarySideAggregate(.negativeY))
+    _ = try stage.graph.commitReplacement(boundary)
+    let replacement = revision(
+      kind: .tipCameraRegistration,
+      consumes: Set([stage.machine.id] + stage.observations.map(\.id))
     )
 
-    #expect(commit.invalidatedRevisionIDs == [line.id, post.id, ink.id, residual.id, comparison.id])
-    #expect(graph.currentRevision(for: .targetAnchoredTrialBaseline(groupB))?.id == baselineB.id)
+    let commit = try stage.graph.commitReplacement(replacement)
+
+    #expect(commit.supersededRevisionID == stage.tip.id)
+    #expect(commit.invalidatedRevisionIDs == [
+      stage.linePlan.id, stage.localBaseline.id, stage.lineExecution.id,
+      stage.postLine.id, stage.ink.id, stage.residual.id, stage.comparison.id,
+    ])
+    #expect(stage.graph.currentRevision(for: .tipCameraRegistration)?.id == replacement.id)
+    #expect(stage.graph.revision(id: stage.tip.id)?.state == .superseded)
+    #expect(stage.graph.currentRevision(for: .boundarySideAggregate(.negativeY))?.id == boundary.id)
   }
 
   @Test("one current side aggregate replacement invalidates center and explicit consumers only")
@@ -187,180 +170,24 @@ struct LearningArtifactsTests {
     #expect(graph.currentRevision(for: .penInteraction)?.id == unrelated.id)
   }
 
-  @Test("Camera invalidation reports a current root separately when it has no consumers")
-  func cameraInvalidationRootOnly() throws {
-    var graph = LearningDependencyGraph()
-    let observation = revision(kind: .visibilityTargetObservation)
-    _ = try graph.commitReplacement(observation)
+  @Test("tip invalidation is idempotent and retains exact provenance")
+  func repeatedTipInvalidationIsIdempotent() throws {
+    var stage = try stageFourArtifactGraph(group: AttemptGroupIdentity(rawValue: "trial-camera"))
+    let revisionCount = stage.graph.revisions.count
 
-    let invalidation = graph.invalidateForCameraChange(
-      rootKinds: [.visibilityTargetObservation]
-    )
+    let first = stage.graph.invalidateForCameraChange(rootKinds: [.tipCameraRegistration])
+    let second = stage.graph.invalidateForCameraChange(rootKinds: [.tipCameraRegistration])
 
-    #expect(invalidation.rootInvalidatedRevisionIDs == [observation.id])
-    #expect(invalidation.transitiveInvalidatedRevisionIDs.isEmpty)
-    #expect(invalidation.allInvalidatedRevisionIDs == [observation.id])
-    #expect(graph.currentRevision(for: .visibilityTargetObservation) == nil)
-    #expect(graph.revision(id: observation.id)?.state == .invalidated)
-  }
-
-  @Test("Camera invalidation follows declared edges while boundary and center remain current")
-  func cameraInvalidationIsExplicitAndTransitive() throws {
-    var graph = LearningDependencyGraph()
-    let negativeX = revision(kind: .boundarySideAggregate(.negativeX))
-    let positiveX = revision(kind: .boundarySideAggregate(.positiveX))
-    let negativeY = revision(kind: .boundarySideAggregate(.negativeY))
-    let positiveY = revision(kind: .boundarySideAggregate(.positiveY))
-    for boundary in [negativeX, positiveX, negativeY, positiveY] {
-      _ = try graph.commitReplacement(boundary)
-    }
-    let center = revision(
-      kind: .estimatedMachineCenter,
-      consumes: [negativeX.id, positiveX.id, negativeY.id, positiveY.id]
-    )
-    _ = try graph.commitReplacement(center)
-    let targetPose = revision(kind: .targetPoseRegistration)
-    _ = try graph.commitReplacement(targetPose)
-    let baseline = revision(kind: .preTargetClearViewBaseline, consumes: [targetPose.id])
-    _ = try graph.commitReplacement(baseline)
-    let target = revision(kind: .visibilityTargetExecution, consumes: [baseline.id])
-    _ = try graph.commitReplacement(target)
-
-    let invalidation = graph.invalidateForCameraChange(rootKinds: [.targetPoseRegistration])
-
-    #expect(invalidation.rootInvalidatedRevisionIDs == [targetPose.id])
-    #expect(invalidation.transitiveInvalidatedRevisionIDs == [baseline.id, target.id])
-    #expect(graph.currentRevision(for: .estimatedMachineCenter)?.id == center.id)
-    for boundary in [negativeX, positiveX, negativeY, positiveY] {
-      #expect(graph.currentRevision(for: boundary.kind)?.id == boundary.id)
-    }
-  }
-
-  @Test("Repeated camera invalidation is idempotent and retains revision provenance")
-  func repeatedCameraInvalidationIsIdempotent() throws {
-    var graph = LearningDependencyGraph()
-    let root = revision(kind: .machineCameraRegistration)
-    _ = try graph.commitReplacement(root)
-    let consumer = revision(kind: .visibilityRegistration, consumes: [root.id])
-    _ = try graph.commitReplacement(consumer)
-    let revisionCount = graph.revisions.count
-
-    let first = graph.invalidateForCameraChange(rootKinds: [.machineCameraRegistration])
-    let second = graph.invalidateForCameraChange(rootKinds: [.machineCameraRegistration])
-
-    #expect(first.rootInvalidatedRevisionIDs == [root.id])
-    #expect(first.transitiveInvalidatedRevisionIDs == [consumer.id])
+    #expect(first.rootInvalidatedRevisionIDs == [stage.tip.id])
+    #expect(first.transitiveInvalidatedRevisionIDs == [
+      stage.linePlan.id, stage.localBaseline.id, stage.lineExecution.id,
+      stage.postLine.id, stage.ink.id, stage.residual.id, stage.comparison.id,
+    ])
     #expect(second.rootInvalidatedRevisionIDs.isEmpty)
     #expect(second.transitiveInvalidatedRevisionIDs.isEmpty)
-    #expect(graph.revisions.count == revisionCount)
-    #expect(graph.revision(id: root.id)?.attemptID == root.attemptID)
-    #expect(graph.revision(id: root.id)?.disposition == root.disposition)
-    #expect(graph.revision(id: consumer.id)?.consumedRevisionIDs == [root.id])
-  }
-
-  @Test("staged final replacement supersedes its exact invalidated accepted revision")
-  func stagedReplacementSupersedesExactInvalidatedRevision() throws {
-    var staged = try stagedRegistrationReplacementGraph()
-    let candidate = revision(
-      kind: .visibilityRegistration,
-      consumes: [staged.newTargetPose.id]
-    )
-
-    let commit = try staged.graph.commitReplacement(
-      candidate,
-      supersedingInvalidatedRevision: staged.oldRegistration.id
-    )
-
-    #expect(commit.currentRevision.id == candidate.id)
-    #expect(commit.supersededRevisionID == staged.oldRegistration.id)
-    #expect(commit.invalidatedRevisionIDs.isEmpty)
-    #expect(staged.graph.revision(id: staged.oldRegistration.id)?.state == .superseded)
-    #expect(staged.graph.revision(id: staged.oldRegistration.id)?.attemptID == staged.oldRegistration.attemptID)
-    #expect(staged.graph.currentRevision(for: .visibilityRegistration)?.id == candidate.id)
-    #expect(staged.graph.revision(id: staged.dependent.id)?.state == .invalidated)
-    #expect(
-      staged.graph.revision(id: staged.dependent.id)?.consumedRevisionIDs
-        == staged.dependent.consumedRevisionIDs
-    )
-  }
-
-  @Test("staged final replacement rejects wrong ID kind and state atomically")
-  func stagedReplacementIdentityValidationIsAtomic() throws {
-    var staged = try stagedRegistrationReplacementGraph()
-    let initialRevisions = Set(staged.graph.revisions)
-    let missingID = LearningArtifactRevisionID()
-    let candidate = revision(
-      kind: .visibilityRegistration,
-      consumes: [staged.newTargetPose.id]
-    )
-
-    #expect(
-      throws: LearningDependencyGraphError.explicitReplacementRevisionUnavailable(missingID)
-    ) {
-      try staged.graph.commitReplacement(
-        candidate,
-        supersedingInvalidatedRevision: missingID
-      )
-    }
-    #expect(Set(staged.graph.revisions) == initialRevisions)
-
-    let wrongKindCandidate = revision(
-      kind: .visibilityTargetObservation,
-      consumes: [staged.newTargetPose.id]
-    )
-    #expect(
-      throws: LearningDependencyGraphError.explicitReplacementKindMismatch(
-        revisionID: staged.oldRegistration.id,
-        expected: wrongKindCandidate.kind,
-        actual: staged.oldRegistration.kind
-      )
-    ) {
-      try staged.graph.commitReplacement(
-        wrongKindCandidate,
-        supersedingInvalidatedRevision: staged.oldRegistration.id
-      )
-    }
-    #expect(Set(staged.graph.revisions) == initialRevisions)
-
-    let currentKindCandidate = revision(kind: .targetPoseRegistration)
-    #expect(
-      throws: LearningDependencyGraphError.explicitReplacementStateMismatch(
-        revisionID: staged.newTargetPose.id,
-        actual: .current
-      )
-    ) {
-      try staged.graph.commitReplacement(
-        currentKindCandidate,
-        supersedingInvalidatedRevision: staged.newTargetPose.id
-      )
-    }
-    #expect(Set(staged.graph.revisions) == initialRevisions)
-  }
-
-  @Test("unsuccessful staged final replacement leaves the accepted draft state unchanged")
-  func unsuccessfulStagedReplacementIsAtomic() throws {
-    var staged = try stagedRegistrationReplacementGraph()
-    let failed = LearningArtifactRevision(
-      kind: .visibilityRegistration,
-      attemptID: ExerciseAttemptID(),
-      disposition: .failed("registration validation failed"),
-      consumedRevisionIDs: [staged.newTargetPose.id]
-    )
-    let initialRevisions = Set(staged.graph.revisions)
-
-    #expect(
-      throws: LearningDependencyGraphError.unsuccessfulReplacement(failed.disposition)
-    ) {
-      try staged.graph.commitReplacement(
-        failed,
-        supersedingInvalidatedRevision: staged.oldRegistration.id
-      )
-    }
-
-    #expect(Set(staged.graph.revisions) == initialRevisions)
-    #expect(staged.graph.revision(id: staged.oldRegistration.id)?.state == .invalidated)
-    #expect(staged.graph.revision(id: failed.id) == nil)
-    #expect(staged.graph.revision(id: staged.dependent.id)?.state == .invalidated)
+    #expect(stage.graph.revisions.count == revisionCount)
+    #expect(stage.graph.revision(id: stage.tip.id)?.attemptID == stage.tip.attemptID)
+    #expect(stage.graph.revision(id: stage.ink.id)?.consumedRevisionIDs.contains(stage.tip.id) == true)
   }
 
   @Test("numeric aggregates expose N estimator uncertainty and exact included attempts")
@@ -812,7 +639,7 @@ struct LearningArtifactsTests {
       cameraConfigurationID: CameraConfigurationID(),
       coordinateSpace: .categorical,
       units: .categorical,
-      group: AttemptGroupIdentity(rawValue: "clear-pose"),
+      group: AttemptGroupIdentity(rawValue: "categorical-labels"),
       algorithmRevision: "label-v2"
     )
     let attempts = [
@@ -882,6 +709,76 @@ struct LearningArtifactsTests {
   }
 }
 
+private func acceptedTipArtifactGraph() throws -> (
+  graph: LearningDependencyGraph,
+  machine: LearningArtifactRevision,
+  observations: [LearningArtifactRevision],
+  tip: LearningArtifactRevision
+) {
+  var graph = LearningDependencyGraph()
+  let machine = revision(kind: .machineCameraRegistration)
+  _ = try graph.commitReplacement(machine)
+  let observations = (0..<5).map { _ in
+    revision(
+      kind: .toolContactObservation(ToolContactObservationID()),
+      consumes: [machine.id]
+    )
+  }
+  for observation in observations {
+    _ = try graph.commitReplacement(observation)
+  }
+  let tip = revision(
+    kind: .tipCameraRegistration,
+    consumes: Set([machine.id] + observations.map(\.id))
+  )
+  _ = try graph.commitReplacement(tip)
+  return (graph, machine, observations, tip)
+}
+
+private func stageFourArtifactGraph(
+  group: AttemptGroupIdentity
+) throws -> (
+  graph: LearningDependencyGraph,
+  machine: LearningArtifactRevision,
+  observations: [LearningArtifactRevision],
+  tip: LearningArtifactRevision,
+  linePlan: LearningArtifactRevision,
+  localBaseline: LearningArtifactRevision,
+  lineExecution: LearningArtifactRevision,
+  postLine: LearningArtifactRevision,
+  ink: LearningArtifactRevision,
+  residual: LearningArtifactRevision,
+  comparison: LearningArtifactRevision
+) {
+  var tipStage = try acceptedTipArtifactGraph()
+  let linePlan = revision(kind: .linePlan(group), consumes: [tipStage.tip.id])
+  let localBaseline = revision(
+    kind: .localPreLineBaseline(group),
+    consumes: [tipStage.tip.id]
+  )
+  let lineExecution = revision(kind: .lineExecution(group), consumes: [linePlan.id])
+  let postLine = revision(
+    kind: .postLineFrame(group),
+    consumes: [lineExecution.id, localBaseline.id, tipStage.tip.id]
+  )
+  let ink = revision(
+    kind: .inkObservation(group),
+    consumes: [localBaseline.id, lineExecution.id, postLine.id, tipStage.tip.id]
+  )
+  let residual = revision(kind: .residual(group), consumes: [ink.id])
+  let comparison = revision(
+    kind: .comparison(group),
+    consumes: [ink.id, residual.id]
+  )
+  for artifact in [linePlan, localBaseline, lineExecution, postLine, ink, residual, comparison] {
+    _ = try tipStage.graph.commitReplacement(artifact)
+  }
+  return (
+    tipStage.graph, tipStage.machine, tipStage.observations, tipStage.tip,
+    linePlan, localBaseline, lineExecution, postLine, ink, residual, comparison
+  )
+}
+
 private func revision(
   kind: LearningArtifactKind,
   consumes: Set<LearningArtifactRevisionID> = []
@@ -892,33 +789,6 @@ private func revision(
     disposition: .succeeded,
     consumedRevisionIDs: consumes
   )
-}
-
-private func stagedRegistrationReplacementGraph() throws -> (
-  graph: LearningDependencyGraph,
-  newTargetPose: LearningArtifactRevision,
-  oldRegistration: LearningArtifactRevision,
-  dependent: LearningArtifactRevision
-) {
-  var graph = LearningDependencyGraph()
-  let oldTargetPose = revision(kind: .targetPoseRegistration)
-  _ = try graph.commitReplacement(oldTargetPose)
-  let oldRegistration = revision(
-    kind: .visibilityRegistration,
-    consumes: [oldTargetPose.id]
-  )
-  _ = try graph.commitReplacement(oldRegistration)
-  let dependent = revision(
-    kind: .targetAnchoredTrialBaseline(AttemptGroupIdentity(rawValue: "draft-trial")),
-    consumes: [oldRegistration.id]
-  )
-  _ = try graph.commitReplacement(dependent)
-  let newTargetPose = revision(kind: .targetPoseRegistration)
-  let rootCommit = try graph.commitReplacement(newTargetPose)
-  #expect(rootCommit.invalidatedRevisionIDs == [oldRegistration.id, dependent.id])
-  #expect(graph.revision(id: oldRegistration.id)?.state == .invalidated)
-  #expect(graph.revision(id: dependent.id)?.state == .invalidated)
-  return (graph, newTargetPose, oldRegistration, dependent)
 }
 
 private func numericCompatibility() -> AttemptCompatibility {

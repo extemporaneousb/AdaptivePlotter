@@ -34,18 +34,15 @@ public struct SimulatedPaperStroke: Sendable, Equatable {
   }
 }
 
-public struct SimulatedTargetAndLineFrames: Sendable, Equatable {
-  public let preTargetClearViewBaseline: StampedFrame
-  public let targetPresentBaseline: StampedFrame
+public struct SimulatedBaselineAndLineFrames: Sendable, Equatable {
+  public let localBaseline: StampedFrame
   public let postLine: StampedFrame
 
   public init(
-    preTargetClearViewBaseline: StampedFrame,
-    targetPresentBaseline: StampedFrame,
+    localBaseline: StampedFrame,
     postLine: StampedFrame
   ) {
-    self.preTargetClearViewBaseline = preTargetClearViewBaseline
-    self.targetPresentBaseline = targetPresentBaseline
+    self.localBaseline = localBaseline
     self.postLine = postLine
   }
 }
@@ -107,52 +104,32 @@ public struct PaperSceneSimulator: Sendable {
     )
   }
 
-  /// Produces the same-pose blank baseline, the accepted closed visibility
-  /// target, and the trial-local target-present frame with one added line.
-  public func renderVisibilityTargetAndLineSequence(
+  /// Produces a same-pose local baseline and a second frame containing one
+  /// additional line while retaining arbitrary preexisting ink.
+  public func renderLocalBaselineAndLineSequence(
     preexistingInk: [SimulatedPaperStroke],
-    targetCenter: PaperPixelPoint,
-    targetRadiusPixels: Int = 4,
     lineStart: PaperPixelPoint,
     lineEnd: PaperPixelPoint,
     baselineSequence: UInt64,
     baselineCaptureNanoseconds: UInt64,
     cameraConfigurationID: CameraConfigurationID
-  ) throws -> SimulatedTargetAndLineFrames {
-    precondition(targetRadiusPixels > 0)
-    let vertices = (0..<8).map { index in
-      let angle = Double(index) * .pi / 4
-      return PaperPixelPoint(
-        x: targetCenter.x + Int((Double(targetRadiusPixels) * cos(angle)).rounded()),
-        y: targetCenter.y + Int((Double(targetRadiusPixels) * sin(angle)).rounded())
-      )
-    }
-    let targetStrokes = (0..<8).map { index in
-      SimulatedPaperStroke(start: vertices[index], end: vertices[(index + 1) % 8])
-    }
+  ) throws -> SimulatedBaselineAndLineFrames {
     let baseline = try render(
       strokes: preexistingInk,
       sequence: baselineSequence,
       captureNanoseconds: baselineCaptureNanoseconds,
       cameraConfigurationID: cameraConfigurationID
     )
-    let targetPresent = try render(
-      strokes: preexistingInk + targetStrokes,
+    let post = try render(
+      strokes: preexistingInk + [
+        SimulatedPaperStroke(start: lineStart, end: lineEnd)
+      ],
       sequence: baselineSequence + 1,
       captureNanoseconds: baselineCaptureNanoseconds + 1,
       cameraConfigurationID: cameraConfigurationID
     )
-    let post = try render(
-      strokes: preexistingInk + targetStrokes + [
-        SimulatedPaperStroke(start: lineStart, end: lineEnd)
-      ],
-      sequence: baselineSequence + 2,
-      captureNanoseconds: baselineCaptureNanoseconds + 2,
-      cameraConfigurationID: cameraConfigurationID
-    )
-    return SimulatedTargetAndLineFrames(
-      preTargetClearViewBaseline: baseline,
-      targetPresentBaseline: targetPresent,
+    return SimulatedBaselineAndLineFrames(
+      localBaseline: baseline,
       postLine: post
     )
   }

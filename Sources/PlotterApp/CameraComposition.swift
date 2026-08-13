@@ -56,9 +56,6 @@ enum CameraComposition {
     observeIsolatedInk: { request in
       await session.observeIsolatedInk(request)
     },
-    observeVisibilityTarget: { request, progress in
-      await session.observeVisibilityTarget(request, progress: progress)
-    },
     )
   }
 }
@@ -121,7 +118,6 @@ private actor CameraSourceSession {
   private var startupFrameTask: Task<Void, Never>?
   private var automaticInspectionFrameTask: Task<Void, Never>?
   private var automaticInspectionCadence: VisionAnalysisCadence?
-  private var foregroundVisibilityObservationInProgress = false
 
   init() {
     let live = CameraCapture()
@@ -219,23 +215,6 @@ private actor CameraSourceSession {
     return outcome
   }
 
-  func observeVisibilityTarget(
-    _ request: VisibilityTargetObservationRequest,
-    progress: @escaping @Sendable (VisibilityTargetObservationProgress) -> Void
-  ) async
-    -> VisibilityTargetObservationOutcome
-  {
-    guard !foregroundVisibilityObservationInProgress else {
-      return .rejected(.observationAlreadyInProgress)
-    }
-    foregroundVisibilityObservationInProgress = true
-    let lease = await beginExclusiveVisionComputation()
-    let outcome = await vision.observeVisibilityTarget(request, progress: progress)
-    foregroundVisibilityObservationInProgress = false
-    await endExclusiveVisionComputation(lease)
-    return outcome
-  }
-
   func captureSnapshot() async throws -> String {
     let snapshot = await live.snapshot()
     guard let displayedFrame = try await live.materializeLatestFrame(),
@@ -256,9 +235,6 @@ private actor CameraSourceSession {
       return await analysisPipeline.snapshot()
     }
     automaticInspectionCadence = cadence
-    guard !foregroundVisibilityObservationInProgress else {
-      return await analysisPipeline.snapshot()
-    }
     await startAutomaticInspection(cadence)
     return await analysisPipeline.snapshot()
   }
@@ -327,8 +303,7 @@ private actor CameraSourceSession {
   private func endExclusiveVisionComputation(_ lease: VisionComputationLease) async {
     await live.resumePreviewPublication(lease.previewPauseToken)
     guard let cadence = lease.automaticCadenceToRestore,
-      automaticInspectionCadence == cadence,
-      !foregroundVisibilityObservationInProgress
+      automaticInspectionCadence == cadence
     else { return }
     await startAutomaticInspection(cadence)
   }

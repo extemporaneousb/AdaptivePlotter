@@ -115,8 +115,9 @@ public enum ToolCapAnchorEstimateError: Error, Equatable, Sendable {
 
 /// Stable visible landmark at the bottom-centre of the detected pen-cap
 /// component. This is not the hidden paper-contact point. Machine-camera
-/// registration follows this cap anchor; a separately observed cap-to-tip
-/// offset is required before projecting intended ink geometry.
+/// registration follows this cap anchor; a separately accepted direct
+/// machine-to-contact registration is required before projecting intended ink
+/// geometry.
 public struct ToolCapAnchorEstimate: Codable, Hashable, Sendable {
   public let point: Point2<CameraPixelSpace>
   public let componentCentroid: Point2<CameraPixelSpace>
@@ -604,9 +605,25 @@ public struct MachineCameraCorrespondenceProvenance: Codable, Hashable, Sendable
   }
 }
 
+public enum MachineCameraRegistrationApplicabilityDerivation: Codable, Hashable, Sendable {
+  case boundaryEnvelopeInsetAndSymmetricallyReduced(
+    safetyMarginMM: Double,
+    maximumHalfSpanMM: Double
+  )
+}
+
 public struct MachineCameraRegistration: Codable, Hashable, Sendable {
+  /// First-three fit, sealed before either holdout is evaluated.
+  public let candidateFit: MachineCameraRegistrationFit
+  public let fitCorrespondenceProvenance: [MachineCameraCorrespondenceProvenance]
+  public let holdoutCorrespondenceProvenance: [MachineCameraCorrespondenceProvenance]
+  public let holdoutResidualPixels: [Double]
+  public let maximumHoldoutResidualPixels: Double
+  /// Weighted all-five refit used after both independent holdouts pass.
   public let fit: MachineCameraRegistrationFit
   public let source: FrameSourceIdentity
+  public let opticalConfiguration: CameraOpticalConfigurationIdentity
+  public let machineGeometry: MachineGeometryIdentity
   public let controllerSessionID: UUID
   public let coordinateRevision: UInt64
   public let cameraConfigurationID: CameraConfigurationID
@@ -621,30 +638,41 @@ public struct MachineCameraRegistration: Codable, Hashable, Sendable {
   public let maximumValidationResidualPixels: Double
   public let estimatorRevision: String
   public let uncertaintyPixels: Double
+  public let applicabilityRectangle: AxisAlignedBounds<MachineSpace>
+  public let applicabilityDerivation: MachineCameraRegistrationApplicabilityDerivation
 
   public init(
+    candidateFit: MachineCameraRegistrationFit,
     fit: MachineCameraRegistrationFit,
     source: FrameSourceIdentity,
+    opticalConfiguration: CameraOpticalConfigurationIdentity,
+    machineGeometry: MachineGeometryIdentity,
     controllerSessionID: UUID,
     coordinateRevision: UInt64,
     cameraConfigurationID: CameraConfigurationID,
-    correspondenceProvenance: [MachineCameraCorrespondenceProvenance],
-    validationTargetFrameID: FrameID,
-    validationMachinePoint: Point2<MachineSpace>,
-    validationCapAnchorPoint: Point2<CameraPixelSpace>,
-    maximumValidationResidualPixels: Double,
+    fitCorrespondenceProvenance: [MachineCameraCorrespondenceProvenance],
+    holdoutCorrespondenceProvenance: [MachineCameraCorrespondenceProvenance],
+    maximumHoldoutResidualPixels: Double,
     estimatorRevision: String,
-    uncertaintyPixels: Double
+    uncertaintyPixels: Double,
+    applicabilityRectangle: AxisAlignedBounds<MachineSpace>,
+    applicabilityDerivation: MachineCameraRegistrationApplicabilityDerivation
   ) throws {
     precondition(!estimatorRevision.isEmpty)
     precondition(uncertaintyPixels.isFinite && uncertaintyPixels >= 0)
-    guard maximumValidationResidualPixels.isFinite, maximumValidationResidualPixels >= 0 else {
+    guard maximumHoldoutResidualPixels.isFinite, maximumHoldoutResidualPixels >= 0 else {
       throw MachineCameraRegistrationError.invalidValidationPolicy
     }
-    guard correspondenceProvenance.count >= 3 else {
+    guard fitCorrespondenceProvenance.count == 3,
+      holdoutCorrespondenceProvenance.count == 2
+    else {
       throw MachineCameraRegistrationError.insufficientCorrespondenceProvenance
     }
-    guard Set(correspondenceProvenance.map(\.source)) == [source] else {
+    let correspondenceProvenance = fitCorrespondenceProvenance
+      + holdoutCorrespondenceProvenance
+    guard opticalConfiguration.source == source,
+      Set(correspondenceProvenance.map(\.source)) == [source]
+    else {
       throw MachineCameraRegistrationError.correspondenceSourceMismatch
     }
     guard correspondenceProvenance.allSatisfy({
@@ -662,26 +690,43 @@ public struct MachineCameraRegistration: Codable, Hashable, Sendable {
     else {
       throw MachineCameraRegistrationError.correspondenceCapAnchorEstimatorMismatch
     }
-    let fitPairs = Set(fit.correspondences)
-    let provenancePairs = Set(correspondenceProvenance.map {
+    let candidatePairs = Set(candidateFit.correspondences)
+    let fitProvenancePairs = Set(fitCorrespondenceProvenance.map {
       MachineCameraRegistrationCorrespondence(
         machine: $0.machinePoint,
         camera: $0.capAnchorPoint
       )
     })
-    guard fitPairs == provenancePairs else {
+    let finalPairs = Set(fit.correspondences)
+    let allProvenancePairs = Set(correspondenceProvenance.map {
+      MachineCameraRegistrationCorrespondence(
+        machine: $0.machinePoint,
+        camera: $0.capAnchorPoint
+      )
+    })
+    guard candidatePairs == fitProvenancePairs, finalPairs == allProvenancePairs else {
       throw MachineCameraRegistrationError.correspondenceFitMismatch
     }
-    let predicted = try fit.cameraPoint(from: validationMachinePoint)
-    let validationResidual = predicted.distance(to: validationCapAnchorPoint)
-    guard validationResidual <= maximumValidationResidualPixels else {
+    let holdoutResiduals = try holdoutCorrespondenceProvenance.map {
+      try candidateFit.cameraPoint(from: $0.machinePoint).distance(to: $0.capAnchorPoint)
+    }
+    guard let maximumResidual = holdoutResiduals.max(),
+      maximumResidual <= maximumHoldoutResidualPixels
+    else {
       throw MachineCameraRegistrationError.validationResidualExceeded(
-        actualPixels: validationResidual,
-        maximumPixels: maximumValidationResidualPixels
+        actualPixels: holdoutResiduals.max() ?? .infinity,
+        maximumPixels: maximumHoldoutResidualPixels
       )
     }
+    self.candidateFit = candidateFit
+    self.fitCorrespondenceProvenance = fitCorrespondenceProvenance
+    self.holdoutCorrespondenceProvenance = holdoutCorrespondenceProvenance
+    holdoutResidualPixels = holdoutResiduals
+    self.maximumHoldoutResidualPixels = maximumHoldoutResidualPixels
     self.fit = fit
     self.source = source
+    self.opticalConfiguration = opticalConfiguration
+    self.machineGeometry = machineGeometry
     self.controllerSessionID = controllerSessionID
     self.coordinateRevision = coordinateRevision
     self.cameraConfigurationID = cameraConfigurationID
@@ -689,13 +734,15 @@ public struct MachineCameraRegistration: Codable, Hashable, Sendable {
     correspondenceFrameIDs = Set(correspondenceProvenance.map(\.frameID))
     correspondenceRevisionIDs = Set(correspondenceProvenance.map(\.artifactRevisionID))
     self.capAnchorEstimatorRevision = capAnchorEstimatorRevision
-    self.validationTargetFrameID = validationTargetFrameID
-    self.validationMachinePoint = validationMachinePoint
-    self.validationCapAnchorPoint = validationCapAnchorPoint
-    validationResidualPixels = validationResidual
-    self.maximumValidationResidualPixels = maximumValidationResidualPixels
+    validationTargetFrameID = holdoutCorrespondenceProvenance[0].frameID
+    validationMachinePoint = holdoutCorrespondenceProvenance[0].machinePoint
+    validationCapAnchorPoint = holdoutCorrespondenceProvenance[0].capAnchorPoint
+    validationResidualPixels = maximumResidual
+    maximumValidationResidualPixels = maximumHoldoutResidualPixels
     self.estimatorRevision = estimatorRevision
     self.uncertaintyPixels = uncertaintyPixels
+    self.applicabilityRectangle = applicabilityRectangle
+    self.applicabilityDerivation = applicabilityDerivation
   }
 }
 

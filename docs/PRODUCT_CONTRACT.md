@@ -2,23 +2,27 @@
 
 Status: current product authority
 
-This document owns durable product boundaries and invariants. It does not own
-the detailed operator sequence, package topology, validation ledger, or roadmap.
+This document owns durable product semantics, authority, safety, evidence, and
+artifact applicability. The operating sequence belongs to
+[Discovery and Observed-Trial Protocol](DISCOVERY_AND_OBSERVED_TRIAL_PROTOCOL.md),
+package ownership to [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md),
+and verified status to [Current Evidence](CURRENT_EVIDENCE.md).
 
 ## Product boundary
 
 AdaptivePlotter is one native, signed macOS application operating one local
-plotter with one camera. The application owns the short
-controller-camera-draw-observe loop directly.
+plotter with one camera. It owns the short controller-camera-draw-observe loop
+directly.
 
 In scope:
 
 - one persistent controller owner and one persistent camera owner;
 - typed controller requests and typed observations;
-- a camera-first operator workbench;
+- one camera-first operator workbench;
 - current-session discovery and observed drawing trials;
+- sparse operator-selected contact evidence and explicit model acceptance;
 - conservative model learning from attributable evidence;
-- simulator parity without physical authority.
+- causal simulator parity without physical authority.
 
 Out of scope:
 
@@ -26,111 +30,36 @@ Out of scope:
 - arbitrary G-code or natural-language-to-motion translation;
 - homing, unlock, alarm clear, controller reset, or firmware writes;
 - entered bounds treated as measured workspace authority;
-- automatic resend, resume, or redraw after ambiguity;
-- learning-stage completion as a general motion gate;
+- automatic resend, resume, retap, continuation, or redraw after ambiguity;
+- Learning Path completion or model confidence as a general motion gate;
 - simulator state as physical evidence.
 
-## Authority map
+## Runtime authority
 
-`MachineController` exclusively owns the selected controller connection,
-protocol parsing, direct admission checks, command serialization, settlement,
-and sticky ambiguity.
+`MachineController` exclusively owns the selected connection, GRBL parsing,
+direct admission checks, command serialization, settlement, and sticky
+ambiguity.
 
-`RunInterpreter` owns the single current logical operation and delegates its
+`RunInterpreter` owns the single current logical operation and delegates
 mechanical execution to `MachineController`.
 
 `CameraCapture` exclusively owns camera discovery, authorization, selection,
 capture lifetime, exact-frame materialization, and capability-scoped preview
-publication holds. A hold never stops raw capture or changes camera identity;
-it retains only the newest raw buffer and publishes at most one newest preview
-when every matching hold settles.
+publication holds. A hold does not stop raw capture or change semantic optical
+identity. It retains only the newest raw buffer and publishes at most one newest
+preview when the final matching hold settles.
 
-`VisionWorker` and the analysis pipeline produce measurements and diagnostics.
-They do not decide controller eligibility, machine direction, or model
-acceptance.
+`VisionWorker` and analysis pipelines produce measurements and diagnostics.
+They do not decide controller eligibility, machine direction, operator click,
+or artifact acceptance.
 
-For Clear-pose discovery, the operator's explicit human Clear label owns the
-acceptance decision. Vision's exact-frame overlap estimate remains separate
-evidence: the app displays and retains disagreement, but it cannot veto
-**Accept Clear Pose**.
-
-Expensive Vision runs against one immutable exact frame off the main actor.
-Camera start never admits analysis by itself. A supervised Pen-Up Learning Path
-movement may own newest-only analysis at 2 Hz, with its recovery interval
-measured from completion rather than start. Settlement cancels active work,
-discards pending frames, and returns Vision to stopped. Explicit inspection is
-finite and acquires its exact frame only after competing computation settles.
-
-Foreground visibility observation has one owner published before suspension.
-It searches only bounded target-local support, reports honest phases, refuses
-competing mutations, and exposes one capability-bound Cancel Vision action.
-Cancellation preserves target, baseline, ROI, and active attempt; stale
-generations cannot commit.
-
-`OperatorWorkspace` projects current facts and routes typed UI intent. It is the
-single observable app owner, not a replacement controller or camera authority.
-
-`RunLedger` records ordered diagnostic facts. Raw controller facts and typed
-workflow facts share the ledger but remain distinct. Workflow records identify
-operation, phase, attempt, motion intent, passive-probe correlation, typed
-failure, and recovery where applicable. They do not replay work, decide
-readiness, or promote learning artifacts.
-
-## Learning Path semantics
-
-The five visible stages are ergonomic navigation. Complete, Current, Next,
-Future, and Needs Attention are presentation states. They do not form an
-authorization ladder.
-
-Connect and Enable Motion expose direct current-session facts. Each later
-operation consumes only its declared mechanical and evidence dependencies.
-Manual Pen Up motion does not require completed discovery or a learned model.
-
-Navigator selection is presentation-only. Browsing a completed or future row
-cannot change runtime current state, accepted evidence, or command eligibility.
-When the protocol determines the next Boundary direction, the workbench shows
-it as required noninteractive content. A disabled choice control must not imply
-that the operator has another selection to make.
-
-## Motion and Stop invariants
-
-Every controller action has one typed intent, one owner, and a bounded terminal
-contract. `ok` is acceptance only. Completion requires fresh Idle and final
-MPos where the operation consumes position.
-
-The contextual Stop capability identifies one exact active owner. Boundary,
-manual jog, and drawing Stop may share the same mechanical Jog Cancel primitive,
-but their semantic outcomes remain distinct. Repeated or stale capabilities are
-inert.
-
-Boundary motion may renew finite controller segments only while the same owner
-remains active and the prior segment completed unambiguously. Segment completion
-is not boundary evidence. Operator Stop, a real limit/alarm/disconnect, or a
-typed fault ends the owner. Ambiguous motion never renews or resends.
-
-Boundary renewal length may use fresh exact-frame vision as advice only. The
-first wire request is 20 mm. Later requests are restricted to 50, 20, 10, 5,
-or 2 mm, retain the admitted direction and controller-derived feed, and become
-non-increasing after the first valid projection. Missing, stale, incompatible,
-or low-confidence observations fall back to 20 mm or less. Stop is rechecked
-on both sides of the asynchronous advisory wait.
-
-For a LIVE Boundary owner, only explicit renewal inspections use the
-camera/Vision pipeline; no startup or stopped-state background producer exists.
-This scheduling rule does not promote camera advice into Boundary acceptance
+`OperatorWorkspace` is the single observable app owner. It projects current
+facts and routes typed intent without replacing controller, camera, or evidence
 authority.
 
-The physical power cutoff remains the emergency boundary. The software Stop is
-not represented as a hardware emergency stop.
-
-While a physical movement owner is active, its capability-bound Stop is the
-only movement-ending exercise action presented. Cancel becomes available after
-movement settles. A stale or programmatic Cancel cannot end the active owner.
-
-The V2 visibility mark is one 4 mm regular octagon traced forward and then
-reverse over the same perimeter under one compound owner and Pen Down interval.
-The executed plan revision flows from controller progress into execution and
-observation evidence.
+`RunLedger` records ordered diagnostic facts. Raw controller events and typed
+workflow events remain distinct. Ledger facts cannot replay work, restore a
+capability, or promote an artifact.
 
 ## Evidence discipline
 
@@ -141,174 +70,251 @@ Evidence classes are reported separately:
 3. controller acceptance and settlement evidence;
 4. exact camera-frame evidence;
 5. vision-derived measurement;
-6. explicit human observation;
+6. explicit operator observation or point assertion;
 7. observed physical ink.
 
-No lower class is silently promoted to a higher claim. In particular, a
-controller transcript does not prove motion, a frame does not prove an inferred
-shape, and simulation does not prove camera, controller, pen, or ink behavior.
+No lower class is promoted to a higher claim. Controller `ok` is not settlement;
+Idle/MPos is not observed motion; a frame is not an inferred shape; a click is
+not proof that ink exists; simulation is not camera, controller, pen, or ink
+evidence.
 
-Every frame-derived fact cites exact `FrameID`, pixels, source, capture time,
-and `CameraConfigurationID`. Overlays are presentation and must match that
-identity. A camera change invalidates optical dependents, not current compatible
-machine-space boundary aggregates.
+Every frame-derived fact cites exact frame identity, SHA-256, source, capture
+time, capture-session identity, semantic optical identity, dimensions, pixel
+format, and the operational camera-configuration revision where applicable.
+A hash plus metadata is provenance, not a promise that frame bytes can be
+reprocessed. Reprocessing requires a content-addressed locator for archived
+bytes.
 
-## Discovery authority
+## Learning Path semantics
 
-Pen Interaction records explicit Up/Down observations and ends with human
-confirmation of Up.
+The visible stages and exercises are ergonomic navigation. Complete, Current,
+Next, Future, and Needs Attention are presentation states, not an authorization
+ladder.
 
-Boundary side identity comes from the operator's typed X−, X+, Y−, or Y+
-selection. A successful side attempt retains controller session/revision, final
-settled MPos, Stop owner, and Stop disposition. It does not capture or require a
-camera frame, cap/contact centroid, confidence, or Vision result. Camera edge
-classification and generic drawing-frame geometry are advisory approach-planning
-or diagnostic facts only and cannot identify or veto the selected machine side.
+After current 3.2 and before Stage 4 there are exactly two exercises:
 
-Compatible successful side attempts form one per-direction machine-space
-aggregate. The four current aggregates derive estimated center and learned local
-coordinates. Local coordinates are presentation evidence; they do not rewrite
-controller MPos, configure an offset, clamp motion, or admit commands.
+- **3.3 Calibrate Camera and Visible Cap**;
+- **3.4 Calibrate Pen Contact from Sparse Marks**.
 
-Center arrival accepts an exact controller-reported final MPos whose Euclidean
-residual from the derived target is at most 0.05 mm. A stopped or
-out-of-tolerance center move preserves all four accepted aggregates, center, and
-local frame. Recovery is **Retry Center Arrival**, which requests only the
-remaining delta; whole-Boundary Restart is not a valid recovery for this case.
+Navigator selection is presentation-only. Presentation zoom, pan, and fitted
+learned bounds do not change exact pixels, frame provenance, artifact validity,
+or completion state.
 
-All production comparisons between a requested controller pose and settled
-MPos share this quantization-aware 0.05 mm Euclidean policy. An exact pose
-requires fresh attributable controller MPos and compatible controller context;
-it does not require mathematically zero residual when the requested coordinate
-is not representable at the configured steps/mm.
+Before accepted tip authority exists, the UI states **Tip not calibrated**.
+During each mark selection, the predicted tip point is hidden until the operator
+clicks. After the click, the asserted point and uncertainty, predicted point,
+and residual are displayed.
 
-Machine-camera registration separately consumes compatible exact machine/cap-
-anchor samples. The visible cap bottom-centre is not paper-contact authority,
-and registration never averages frames into new provenance. A separately
-accepted, camera-configuration-specific cap-to-tip translation is derived from
-the cap anchor and the two-frame visibility-target centroid before intended ink
-geometry may use the registration.
+## Motion, Stop, and ambiguity
 
-Stage 3.3 exposes one public capture-and-build action. It records the target
-MPos and exact frame, runs the bounded three-sample Pen Up calibration when
-compatible samples are insufficient, returns to the recorded target under the
-shared pose policy, and stages a reviewable non-authoritative proposal. Proposal
-construction has no preceding generic Start or separate public capture step and
-never accepts geometry; explicit operator acceptance or rejection remains a
-separate action. The staged target search support is a circle whose radius is
-half the camera frame's shorter dimension, centred directly on the exact target-
-pose cap anchor. A fitted-registration residual cannot move that centre.
-Target observation compares paired frames for color-independent luminance
-darkening, rejects line-like or diameter-incompatible new components, preserves
-same-sized compact candidates as ambiguity, and estimates camera wobble from
-bounded annular support outside the search circle.
+Every controller action has one typed intent, one owner, and a bounded terminal
+contract. `ok` proves acceptance only. Completion requires fresh Idle and final
+MPos when the operation consumes position.
 
-The first fresh passive probe inside one Stage 3.3 calibration operation
-establishes that operation's controller-context baseline. Later sample probes
-compare against and advance only that local baseline. A workspace-wide cached
-probe from an earlier interaction is never calibration authority. Comparison
-retains raw parser text but separates application-owned motion/feed/pen modal
-changes from coordinate identity. Device, build, units, distance mode, work
-coordinate, settings, and coordinate-offset changes remain incompatible.
+All production requested-pose comparisons use fresh attributable controller
+evidence, compatible context, and at most 0.05 mm Euclidean residual. “Exact
+pose” names that quantization-aware policy; it does not mean zero mathematical
+residual at an unrepresentable stepper position.
 
-## Durable accepted artifacts
+The contextual Stop capability names one exact active owner. Repeated or stale
+capabilities are inert. While physical movement owns an exercise, its Stop is
+the only movement-ending exercise action. Cancel becomes available only after
+movement settles.
 
-Current accepted LIVE machine-space Boundary evidence, aggregates, paired
-progress, derived center/local frame, optional center arrival, and their current
-dependency revisions may be checkpointed durably by atomic file replacement.
-The file is quarantined on launch until a fresh passive controller probe matches
-device/build, semantic coordinate parser state, settings, coordinate offsets,
-and current MPos within 0.05 mm. Known parser values changed by the app's own
-typed pen and motion commands remain retained provenance but do not manufacture
-a coordinate-context mismatch.
+Boundary side identity is the operator's typed X−, X+, Y−, or Y+ direction plus
+settled controller evidence. Camera analysis may advise bounded renewal length
+but cannot identify or veto a side. Missing or stale camera advice cannot weaken
+direct controller authority.
 
-Checkpoint reuse is a convenience, not a requirement to preserve Boundary
-coordinates across software schema changes. An incompatible checkpoint may be
-discarded and the four fast Boundary stops repeated; no compatibility migration
-may reintroduce Camera or Vision as machine-boundary authority.
+Any ambiguous motion, Pen Down, or Pen Up outcome after possible contact creates
+possible ink. The exact machine position plus paper-plane identity is
+blacklisted across cancel, restart, and reset, and the workflow stops for
+explicit recovery. No automatic retry, resend, retap, redraw, or continuation
+is permitted. A wrong click may be replaced only on its same frozen exact frame
+and causes no mechanical action.
 
-The durable schema contains no active transaction, current question, Motion
-authorization, operation owner, live Stop capability, pending command,
-ambiguity recovery, resend, redraw, or workflow continuation. Historical owner
-and Stop identifiers inside immutable accepted evidence are provenance only and
-cannot be reinstalled as capabilities. A mismatch causes no machine action and
-leaves the file non-authoritative.
+## Stage 3.3 machine-to-cap authority
 
-## Attempts and dependencies
+Stage 3.3 derives a calibration rectangle inside the accepted Boundary envelope
+with the existing 10 mm safety margin. Boundary discovery proves machine space,
+not paper coverage or camera visibility. Without separate coverage evidence, the
+bootstrap rectangle is reduced symmetrically around `C`; it must preserve at
+least 10 mm usable span on each axis. The rectangle and derivation are evidence.
+
+The unique normalized positions are:
+
+- `C` — 50% X, 50% Y;
+- `X−` — 10% X, 50% Y;
+- `X+` — 90% X, 50% Y;
+- `Y−` — 50% X, 10% Y;
+- `Y+` — 50% X, 90% Y.
+
+Pen-Up cap anchors at `C`, `X−`, and `Y+` fit the initial affine map. `X+` and
+`Y−` are sealed independent holdouts. Both holdouts must pass the declared pixel
+residual policy before a weighted all-five refit can be staged. Explicit
+acceptance atomically creates the current `MachineCameraRegistration`.
+
+The artifact retains all five exact-frame correspondences, roles, holdout
+residuals, uncertainty, applicability rectangle and derivation, semantic optical
+identity, machine geometry identity, controller session, coordinate revision,
+and estimator revision. It maps machine position to the visible cap landmark.
+It does not locate the paper-contact point.
+
+## Stage 3.4 contact authority
+
+Stage 3.4 uses the same positions in order `C`, `X−`, `Y+`, `X+`, `Y−`, then
+returns Pen Up to `C` as the final reveal pose. Diagonal reveal travel is used
+when geometry permits; it is a visibility optimization, not another model
+sample.
+
+Each accepted `ToolContactObservation` is immutable raw evidence for one
+stationary tap and asserted mark center. It retains:
+
+- attempt and operation identities;
+- intended mark position and settled MPos;
+- machine geometry, controller session, coordinate-frame revision, and
+  controller-context evidence;
+- Pen Down/Up outcomes and timestamps;
+- tool assembly, contact profile, and paper-plane revisions;
+- exact pre-mark frame and cap estimate;
+- exact post-reveal frame, settled reveal pose, and cap-map revalidation;
+- clicked camera point with role `assertedCenter`, pointing uncertainty,
+  timestamp, and presentation-transform revision;
+- disposition and all consumed artifact/algorithm revisions;
+- content-addressed locators only when exact bytes were actually archived.
+
+The click is an assertion, not a seed for an automatic detector.
+
+The first three accepted observations fit candidates. `X+` and `Y−` remain
+holdouts. Model selection tries the smallest form first:
+
+1. constant camera-pixel correction on the accepted cap map;
+2. direct affine machine-to-tip map only when the constant candidate fails
+   coherently at both holdouts.
+
+One bad holdout does not justify a larger model. Both holdouts must pass the
+selected candidate. The chosen form is refit over all five observations and
+staged with residuals, uncertainty, applicability, and consumed evidence.
+Explicit **Accept Tip Calibration** atomically creates `TipCameraRegistration`.
+
+`TipCameraRegistration` maps machine coordinates directly to paper-contact
+pixels. It retains the affine transform, model form, covariance/uncertainty,
+applicability rectangle, sealed selection evidence, five observation hashes and
+revisions, semantic applicability identities, capture sessions, accepted
+revision, estimator, timestamp, and derivation.
+
+A cap-to-tip difference at one pose is diagnostic only. It is not a durable
+camera-independent tool vector because the cap landmark and paper lie in
+different planes.
+
+## Applicability and durable checkpoints
+
+Tip applicability separates:
+
+- ephemeral `CameraCaptureSessionID`;
+- semantic `CameraOpticalConfigurationIdentity`;
+- `MachineGeometryIdentity`;
+- `MachineCoordinateFrameRevision`;
+- `ToolAssemblyRevision`;
+- `PenContactProfileRevision`;
+- `PaperContactPlaneRevision`.
+
+Changes apply as follows:
+
+- presentation zoom/pan: retain authority;
+- proven crop/resample transform: derive a rebased projection and covariance;
+- capture restart with proven identical semantic optics: require explicit
+  revalidation;
+- unknown device, source, crop, mirror, orientation, capture zoom, mount,
+  lens/focus, or optical change: invalidate;
+- known machine-coordinate rebase: rebase intercept and domain;
+- unknown origin or machine geometry/steps/direction/kinematics change:
+  invalidate;
+- tool, holder, armature, cap landmark, nib, contact profile, or remount change:
+  invalidate;
+- paper/contact-plane change: quarantine until contact-plane revalidation;
+- LIVE/SIMULATED source change: invalidate cross-source optical authority;
+- raw observations: retain as immutable history under every change.
+
+`AcceptedMachineArtifactCheckpoint` remains machine-only.
+`AcceptedTipCalibrationCheckpoint` is separate and contains the accepted tip
+registration plus its acceptance event and complete consumed evidence. Loading
+returns quarantined evidence. It cannot restore workflow state, a graph
+revision, Motion authorization, operation ownership, a Stop capability, a
+pending command, or a continuation. Fresh identity-compatible controller and
+cap evidence is required before authority may be restored; paper-plane changes
+also require one current accepted stationary-contact observation within policy.
+Same-paper restart restoration performs no contact tap. Both paths create a new
+accepted revision and retain their fresh revalidation evidence.
+
+## Stage 4 dependency boundary
+
+Observed Drawing Trials require accepted Boundary/coordinate evidence and one
+exact current `TipCameraRegistration` revision.
+
+Stage 4 projects its intended local path through that tip registration. It owns
+its own local pre-line baseline, Pen-Up reveal MPos, line-start travel, one
+drawing owner, return to the same reveal pose, strictly newer post-line frame,
+and generic black/new-ink observation. Its request and result cite the exact tip
+revision.
+
+An attributable observed line may be retained as future candidate refinement
+evidence. It cannot silently change the accepted model. Possible ink or
+ambiguous motion never triggers automatic redraw or resend.
+
+## Attempts, dependencies, reset, and simulation
 
 Every repeatable exercise has an immutable attempt identity, typed disposition,
 accepted artifact slot, and explicit dependencies.
 
-Redo stages a replacement. Success atomically swaps the accepted artifact and
-invalidates only named transitive dependents. Failure, refusal, cancellation, or
-ambiguity preserves the previous accepted artifact and its current dependents.
+Redo stages a replacement. Only a successful atomic commit changes the accepted
+slot and invalidates named transitive dependents. Failure, refusal,
+cancellation, or ambiguity preserves the prior accepted artifact and its
+dependents. Record Another Attempt adds only compatible successful evidence.
 
-Record Another Attempt adds a compatible successful sample and recomputes the
-typed aggregate. Aggregates report sample count, estimator, compatibility, and
-uncertainty. Unsuccessful evidence remains attributable but cannot contribute a
-successful value.
+The dependency spine is:
 
-Review navigation is always presentation-only. **Reset From This Step** is the
-separate chronological reset: it shows the selected exercise and every later
-affected Learning Path exercise in a compact summary with one Reset button. It
-does not require phrase entry. The reset rejects a stale summary and is unavailable
-while an attempt, motion, foreground-Vision, camera, or controller operation is
-active. **Reset All Learning** is the same guarded operation anchored at Pen
-Interaction. It never changes Connect/Disconnect or Enable Motion.
+```text
+four Boundary aggregates -> estimated center -> center arrival
+-> five-cap MachineCameraRegistration
+-> five ToolContactObservation revisions -> TipCameraRegistration
+-> local line plan + local pre-line baseline
+-> line execution + post-line frame -> ink observation -> residual -> comparison
+```
 
-LIVE and SIMULATED learning reset independently. Resetting LIVE Pen or Boundary
-learning removes the durable accepted-machine-artifact checkpoint before changing
-in-memory authority; failure to remove it aborts the reset. Invalidated revision
-identity may remain provenance, but old attempt values do not remain active
-aggregate inputs. Software invalidation never claims to remove physical ink or
-undo motion. A drawn visibility target remains an unusable physical scene until
-the operator explicitly registers another area or records paper replacement.
+Reset From This Step is a deliberate chronological rewind, distinct from causal
+Redo. It previews the exact suffix, rejects a stale summary, and never performs
+motion, changes pen state, or erases physical ink. LIVE and SIMULATED authority
+reset independently.
 
-No compatibility alias, generic evidence bag, or second workflow store is
-permitted to outlive the typed contract it replaced.
-
-## Simulator isolation
-
-SIMULATED uses the same Learning Path and public action seams with a causal
-runtime, causal frames, exact annotations, and persistent simulated ink. It
-cannot invoke physical `MachineActions` or satisfy physical artifacts.
-
-Simulator truth, auto-fit viewport, annotations, learned sides, model state,
-and simulated ink are never controller bounds, camera registration, motion
-permission, or observed physical ink. Leaving SIMULATED restores parked LIVE
-authority unchanged.
+SIMULATED uses the same public action seams and dependency graph with causal
+frames, persistent black ink, and a real nonzero cap-to-tip truth. It cannot
+invoke physical `MachineActions`, satisfy physical artifacts, or become observed
+physical ink evidence. Leaving SIMULATED restores parked LIVE authority without
+cross-source promotion.
 
 ## Model-learning direction
 
-Future Adaptive Drawing is valid product scope. Typed drawing programs,
-transforms, residuals, model observations, candidate fitting, holdout evaluation,
-and online dataset accumulation may exist before the final UI when they remain
-coherent with this contract and have deterministic tests.
+Adaptive Drawing remains valid future scope. Candidate fitting, dataset splits,
+holdouts, residuals, and bounded experiment proposals may exist when they remain
+typed and attributable.
 
-The word **training** is reserved for an actual dataset partition or fitting
-operation. Human-Guided Discovery and Observed Drawing Trials collect evidence;
-their stage names do not claim model fitting.
-
-Model candidates remain diagnostic until explicitly accepted against reserved
-physical observations. Fast state and slow parameters remain distinct. Slow
-geometry changes require identifiability, candidate-versus-prior comparison,
+Model candidates are diagnostic until explicitly accepted against reserved
+physical observations. Fast state and slow parameters remain separate. Slow
+model changes require identifiability, candidate-versus-prior comparison,
 whole-stroke holdouts, applicability bounds, and improved held-out performance.
-No accepted model changes during a Pen Down stroke.
-
-Model selection may propose a future bounded experiment. It never bypasses
-direct controller authority, causes hidden motion, or permits automatic redraw.
+No model changes during a Pen Down stroke or chooses hidden motion.
 
 ## Input, output, and launch
 
 Buttons are authoritative for choices, progression, Cancel, and Stop. Speech is
-output-only and advisory; failure leaves visible controls usable.
+output-only advisory guidance; failure leaves buttons usable.
 
-Operator action controls share one semantic state grammar. Enabled affirmative
-transitions are green, enabled negative/Cancel/Stop transitions are red, enabled
-neutral actions are medium gray, and disabled actions are dark gray and
-noninteractive. The disabled appearance and interaction state consume the same
-Boolean fact. Learning Path navigation remains native review-only UI. Passive
-status and protocol-required values are content, never disabled-button stand-ins.
+Enabled affirmative transitions are green, enabled negative/Cancel/Stop
+transitions are red, enabled neutral actions are medium gray, and disabled
+actions are dark gray and noninteractive. Disabled appearance and hit testing
+consume the same Boolean fact. Passive status and required values are content,
+not disabled-button stand-ins.
 
 Physical work uses the signed bundle and single-instance launcher. The launcher
 may activate the exact existing bundle or launch it through LaunchServices. It

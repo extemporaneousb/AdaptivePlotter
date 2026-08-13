@@ -43,6 +43,8 @@ func makeSimulatedHarness(
   cameraActions: OperatorWorkspace.CameraActions? = nil,
   eventLog: EventLog? = nil,
   workflowTelemetry: WorkflowTelemetryFixture? = nil,
+  tipCheckpointActions: OperatorWorkspace.AcceptedTipCalibrationCheckpointActions? = nil,
+  tipCalibrationSemanticIdentities: TipCalibrationSemanticIdentityState = .ephemeral(),
   simulatedExecutionPacing: any SimulatedLearningExecutionPacing =
     SimulatedLearningImmediatePacing()
 ) -> SimulatedWorkspaceHarness {
@@ -54,12 +56,15 @@ func makeSimulatedHarness(
   let runtime = SimulatedLearningRuntime(
     frameWidth: 320,
     frameHeight: 240,
-    paddingPixels: 14
+    paddingPixels: 14,
+    toolPaperRevision: tipCalibrationSemanticIdentities.paperContactPlane.rawValue
   )
   return SimulatedWorkspaceHarness(
     workspace: OperatorWorkspace(
       machineActions: isolatedMachineActions(log: machineActionLog),
       cameraActions: cameraActions ?? CameraComposition.makeIsolatedActionsForTesting(),
+      acceptedTipCalibrationCheckpointActions: tipCheckpointActions,
+      tipCalibrationSemanticIdentities: tipCalibrationSemanticIdentities,
       workflowTelemetryActions: workflowTelemetry.map { fixture in
         .init(record: { await fixture.record($0) })
       },
@@ -135,16 +140,11 @@ func redoSimulatedBoundary(
 }
 
 @MainActor
-func completeSimulatedVisibilityProtocol(
+func completeSimulatedBoundariesAndCenter(
   _ workspace: OperatorWorkspace,
   runtime: SimulatedLearningRuntime,
   boundaryOrder: [BoundaryDirection],
-  throughVisibility: Bool = true,
-  moveToCenter: Bool = true,
-  observeVisibility: Bool = true,
-  drawVisibility: Bool = true,
-  returnToClear: Bool = true,
-  acceptVisibility: Bool = true
+  moveToCenter: Bool = true
 ) async throws {
   await workspace.switchFrameMode(.simulated)
   #expect(workspace.frameMode == .simulated)
@@ -213,140 +213,68 @@ func completeSimulatedVisibilityProtocol(
   #expect(boundaryReviewActions.contains(.redoBoundary(boundaryOrder[0])))
   if !moveToCenter { return }
   try await performPublicAction(.moveToEstimatedCenter, owner: boundaryOwner, workspace: workspace)
-  if !throughVisibility { return }
+}
 
+@MainActor
+func completeSimulatedSparseTipCalibration(
+  _ workspace: OperatorWorkspace,
+  runtime: SimulatedLearningRuntime
+) async throws {
   let registrationOwner = LearningPathItemID.humanGuidedDiscovery(
-    .registerTargetPoseAndCameraGeometry
+    .calibrateCameraAndVisibleCap
   )
   try await performPublicAction(
-    .captureTargetPoseAndBuildGeometryProposal,
+    .runCameraCalibrationAndBuildProposal,
     owner: registrationOwner,
     workspace: workspace
   )
   try await performPublicAction(
-    .acceptTargetGeometryProposal,
+    .acceptCameraCalibrationProposal,
     owner: registrationOwner,
     workspace: workspace
   )
-
-  let clearOwner = LearningPathItemID.humanGuidedDiscovery(.discoverAndAcceptClearView)
-  try await performPublicAction(.start, owner: clearOwner, workspace: workspace)
-  let clearAttemptID = try #require(workspace.activeExerciseAttemptID)
-  try await performPublicAction(
-    .recordClearViewLabel(.blocked),
-    owner: clearOwner,
-    workspace: workspace
+  let tipOwner = LearningPathItemID.humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
+  try await performPublicAction(.start, owner: tipOwner, workspace: workspace)
+  let truthOffset = await runtime.capToTipPixelOffsetTruth()
+  #expect(abs(truthOffset.dx) + abs(truthOffset.dy) > 0)
+  let registration = try #require(workspace.machineCameraRegistration)
+  let referencePosition = try #require(workspace.cameraCalibrationReferencePosition)
+  let representativeBoundary = try #require(workspace.boundarySideAggregates.values.first)
+  let plan = try CurrentCameraCalibrationPlan(
+    targetPosition: referencePosition,
+    boundarySideAggregates: workspace.boundarySideAggregates,
+    controllerSessionID: representativeBoundary.controllerSessionID,
+    coordinateRevision: representativeBoundary.coordinateRevision
   )
-  #expect(workspace.activeExerciseAttemptID == clearAttemptID)
-  let blockedAccept = try #require(
-    workspace.selectedOperatorActionPresentation(for: clearOwner).actionStrip?.actions
-      .first(where: { $0.kind == .acceptClearPose })
-  )
-  #expect(!blockedAccept.isEnabled)
-  #expect(blockedAccept.buttonRole.chrome(isEnabled: blockedAccept.isEnabled) == .disabled)
-  try await selectPublicDirection(
-    .positiveX,
-    purpose: .clearViewSearch,
-    owner: clearOwner,
-    workspace: workspace
-  )
-  try await performPublicAction(
-    .moveForClearView(ClearViewSearchMove(direction: .positiveX, distance: .fiftyMillimeters)),
-    owner: clearOwner,
-    workspace: workspace
-  )
-  try await performPublicAction(
-    .recordClearViewLabel(.partial),
-    owner: clearOwner,
-    workspace: workspace
-  )
-  #expect(workspace.activeExerciseAttemptID == clearAttemptID)
-  let partialAccept = try #require(
-    workspace.selectedOperatorActionPresentation(for: clearOwner).actionStrip?.actions
-      .first(where: { $0.kind == .acceptClearPose })
-  )
-  #expect(!partialAccept.isEnabled)
-  #expect(partialAccept.buttonRole.chrome(isEnabled: partialAccept.isEnabled) == .disabled)
-  try await performPublicAction(
-    .moveForClearView(ClearViewSearchMove(direction: .positiveX, distance: .tenMillimeters)),
-    owner: clearOwner,
-    workspace: workspace
-  )
-  try await performPublicAction(
-    .recordClearViewLabel(.clear),
-    owner: clearOwner,
-    workspace: workspace
-  )
-  #expect(workspace.activeExerciseAttemptID == clearAttemptID)
-  let clearAccept = try #require(
-    workspace.selectedOperatorActionPresentation(for: clearOwner).actionStrip?.actions
-      .first(where: { $0.kind == .acceptClearPose })
-  )
-  #expect(clearAccept.isEnabled)
-  #expect(clearAccept.buttonRole.chrome(isEnabled: clearAccept.isEnabled) == .affirmative)
-  try await performPublicAction(.acceptClearPose, owner: clearOwner, workspace: workspace)
-
-  let baselineOwner = LearningPathItemID.humanGuidedDiscovery(.confirmBlankTargetBaseline)
-  try await performPublicAction(.start, owner: baselineOwner, workspace: workspace)
-  try await performPublicAction(
-    .captureBlankTargetBaselineCandidate,
-    owner: baselineOwner,
-    workspace: workspace
-  )
-  try await performPublicAction(
-    .confirmBlankTargetBaseline,
-    owner: baselineOwner,
-    workspace: workspace
-  )
-
-  let targetReturnOwner = LearningPathItemID.humanGuidedDiscovery(.returnToRegisteredTargetPose)
-  try await performPublicAction(.start, owner: targetReturnOwner, workspace: workspace)
-  try await performPublicAction(
-    .returnToRegisteredTargetPose,
-    owner: targetReturnOwner,
-    workspace: workspace
-  )
-  if !drawVisibility { return }
-
-  let drawOwner = LearningPathItemID.humanGuidedDiscovery(.drawVisibilityTarget)
-  try await performPublicAction(.start, owner: drawOwner, workspace: workspace)
-  try await performPublicAction(.drawVisibilityTarget, owner: drawOwner, workspace: workspace)
-  if !returnToClear { return }
-
-  let observationOwner = LearningPathItemID.humanGuidedDiscovery(.returnAndObserveExistingTarget)
-  try await performPublicAction(.start, owner: observationOwner, workspace: workspace)
-  try await performPublicAction(
-    .returnToAcceptedClearPose,
-    owner: observationOwner,
-    workspace: workspace
-  )
-  if !observeVisibility { return }
-  try await performPublicAction(
-    .observeExistingVisibilityTarget,
-    owner: observationOwner,
-    workspace: workspace
-  )
-  if !acceptVisibility { return }
-
-  let acceptanceOwner = LearningPathItemID.humanGuidedDiscovery(.acceptVisibilityRegistration)
-  try await performPublicAction(.start, owner: acceptanceOwner, workspace: workspace)
-  try await performPublicAction(
-    .acceptVisibilityRegistration,
-    owner: acceptanceOwner,
-    workspace: workspace
-  )
+  for position in SparseTipCalibrationCoordinator.orderedPositions {
+    try await performPublicAction(.createNextSparseTipMark, owner: tipOwner, workspace: workspace)
+    let request = try #require(
+      workspace.actionSurfacePresentation.pointSelectionRequest,
+      "missing selection request for \(position): \(workspace.explorationError ?? "no error")"
+    )
+    let sample = try #require(plan.samples.first { $0.position == position })
+    let capPoint = try registration.fit.cameraPoint(from: sample.machinePosition.point)
+    let truthPoint = try capPoint.translated(by: truthOffset)
+    workspace.selectToolContactPoint(ActionSurfacePointSelection(
+      frame: request.frame,
+      point: truthPoint,
+      presentationTransformRevision: request.presentationTransformRevision
+    ))
+    try await performPublicAction(.acceptSparseTipMark, owner: tipOwner, workspace: workspace)
+  }
+  try await performPublicAction(.acceptTipCalibration, owner: tipOwner, workspace: workspace)
 }
 
 @MainActor
 func completeSimulatedStageFour(_ workspace: OperatorWorkspace) async throws {
   let actions: [(LearningPathItemID, ExerciseActionKind)] = [
     (.observedDrawingTrial(.chooseIsolatedLinePlan), .chooseIsolatedLinePlan(.positiveX)),
-    (.observedDrawingTrial(.captureTargetAnchoredBaseline), .captureTargetAnchoredBaseline),
+    (.observedDrawingTrial(.captureLocalPreLineBaseline), .captureLocalPreLineBaseline),
     (.observedDrawingTrial(.moveToLineStart), .moveToLineStart),
     (.observedDrawingTrial(.drawIsolatedLine), .drawIsolatedLine),
     (
-      .observedDrawingTrial(.returnToClearPoseAndObserveNewInk),
-      .returnToClearPoseAndObserveNewInk
+      .observedDrawingTrial(.revealAndObserveNewInk),
+      .revealAndObserveNewInk
     ),
   ]
   for (owner, kind) in actions {
@@ -463,8 +391,6 @@ func workspace(
       },
       requestDrawingStroke: { _ in fatalError("unused") },
       beginDrawingStroke: { _ in fatalError("unused") },
-      beginVisibilityTarget: { _ in fatalError("unused") },
-      requestVisibilityTargetIntent: { _, _ in fatalError("unused") },
       requestPenActuation: { await machine.requestPen($0) },
       requestBoundaryMotion: { await machine.requestBoundaryMotion($0) },
       beginBoundaryMotion: beginBoundaryMotion,
@@ -531,26 +457,6 @@ func isolatedMachineActions(log: EventLog) -> OperatorWorkspace.MachineActions {
       await log.append("beginDrawingStroke")
       return .rejected(.refused(.notConnected))
     },
-    beginVisibilityTarget: { request in
-      await log.append("beginVisibilityTarget")
-      return .rejected(
-        .needsAttention(
-          phase: .approach,
-          scene: .pristine,
-          failure: .approach(.refused(.notConnected)),
-          progress: VisibilityTargetOperationProgress(
-            planRevision: request.plan.algorithmRevision,
-            phase: .approach,
-            completedTraversalStepCount: 0,
-            lastCompletedTraversalStep: nil
-          )
-        )
-      )
-    },
-    requestVisibilityTargetIntent: { _, _ in
-      await log.append("requestVisibilityTargetIntent")
-      return .staleOperation
-    },
     requestPenActuation: { _ in
       await log.append("requestPenActuation")
       return .refused(.notConnected)
@@ -589,8 +495,7 @@ func cameraActions(_ fixture: CameraFixture) -> OperatorWorkspace.CameraActions 
     captureSnapshot: { "unused" },
     setAutomaticInspection: { fixture.setAutomaticInspection($0) },
     analysisUpdates: { AsyncStream { $0.finish() } },
-    observeIsolatedInk: { _ in fatalError("unused") },
-    observeVisibilityTarget: { _, _ in fatalError("unused") },
+    observeIsolatedInk: { _ in fatalError("unused") }
   )
 }
 
@@ -598,97 +503,6 @@ actor EventLog {
   private(set) var values: [String] = []
   func append(_ value: String) { values.append(value) }
   func clear() { values.removeAll(keepingCapacity: true) }
-}
-
-actor VisibilityObservationGate {
-  enum CancellationDisposition: Sendable {
-    case cancelled
-    case staleRejection
-  }
-
-  private let cancellationDisposition: CancellationDisposition
-  private let log: EventLog?
-  private var continuation: CheckedContinuation<VisibilityTargetObservationOutcome, Never>?
-  private var cancellationFrameID: FrameID?
-  private(set) var callCount = 0
-  private(set) var cancelRequestCount = 0
-
-  init(
-    cancellationDisposition: CancellationDisposition,
-    log: EventLog? = nil
-  ) {
-    self.cancellationDisposition = cancellationDisposition
-    self.log = log
-  }
-
-  func observe(
-    _ request: VisibilityTargetObservationRequest,
-    progress: @escaping @Sendable (VisibilityTargetObservationProgress) -> Void
-  ) async -> VisibilityTargetObservationOutcome {
-    callCount += 1
-    cancellationFrameID = request.targetSamples.first?.frame.id
-    progress(VisibilityTargetObservationProgress(sampleIndex: 1, sampleCount: 2))
-    let outcome = await withTaskCancellationHandler {
-      await withCheckedContinuation { continuation in
-        if Task.isCancelled {
-          continuation.resume(returning: cancellationOutcome())
-        } else {
-          self.continuation = continuation
-        }
-      }
-    } onCancel: {
-      Task { await self.requestCancellation() }
-    }
-    await log?.append("vision-returned")
-    return outcome
-  }
-
-  private func requestCancellation() async {
-    cancelRequestCount += 1
-    await log?.append("vision-cancel-requested")
-    continuation?.resume(returning: cancellationOutcome())
-    continuation = nil
-  }
-
-  private func cancellationOutcome() -> VisibilityTargetObservationOutcome {
-    switch cancellationDisposition {
-    case .cancelled:
-      return .cancelled
-    case .staleRejection:
-      return .rejected(
-        .targetMissing(
-          frameID: cancellationFrameID ?? FrameID(rawValue: "late-stale-frame")
-        ))
-    }
-  }
-}
-
-func gatedCameraActions(
-  gate: VisibilityObservationGate,
-  log: EventLog? = nil
-) -> OperatorWorkspace.CameraActions {
-  let base = CameraComposition.makeIsolatedActionsForTesting()
-  return OperatorWorkspace.CameraActions(
-    discover: base.discover,
-    select: base.select,
-    start: base.start,
-    stop: {
-      await log?.append("camera-stop")
-      return await base.stop()
-    },
-    restart: base.restart,
-    snapshot: base.snapshot,
-    frames: base.frames,
-    inspectScene: base.inspectScene,
-    captureFrame: base.captureFrame,
-    captureSnapshot: base.captureSnapshot,
-    setAutomaticInspection: base.setAutomaticInspection,
-    analysisUpdates: base.analysisUpdates,
-    observeIsolatedInk: base.observeIsolatedInk,
-    observeVisibilityTarget: { request, progress in
-      await gate.observe(request, progress: progress)
-    }
-  )
 }
 
 final class TestClock: @unchecked Sendable {
@@ -721,6 +535,35 @@ final class CheckpointBox: @unchecked Sendable {
   }
 
   func save(_ checkpoint: AcceptedMachineArtifactCheckpoint) {
+    lock.lock()
+    stored = checkpoint
+    lock.unlock()
+  }
+
+  func clear() {
+    lock.lock()
+    stored = nil
+    lock.unlock()
+  }
+}
+
+final class TipCheckpointBox: @unchecked Sendable {
+  private let lock = NSLock()
+  private var stored: AcceptedTipCalibrationCheckpoint?
+
+  var checkpoint: AcceptedTipCalibrationCheckpoint? {
+    lock.lock()
+    defer { lock.unlock() }
+    return stored
+  }
+
+  func load() -> AcceptedTipCalibrationCheckpointLoadResult {
+    lock.lock()
+    defer { lock.unlock() }
+    return stored.map(AcceptedTipCalibrationCheckpointLoadResult.quarantined) ?? .absent
+  }
+
+  func save(_ checkpoint: AcceptedTipCalibrationCheckpoint) {
     lock.lock()
     stored = checkpoint
     lock.unlock()
@@ -1222,8 +1065,7 @@ func boundaryGatedCameraActions(
     captureSnapshot: base.captureSnapshot,
     setAutomaticInspection: base.setAutomaticInspection,
     analysisUpdates: base.analysisUpdates,
-    observeIsolatedInk: base.observeIsolatedInk,
-    observeVisibilityTarget: base.observeVisibilityTarget
+    observeIsolatedInk: base.observeIsolatedInk
   )
 }
 
@@ -1244,37 +1086,6 @@ func frame(
     pixelFormat: .bgra8,
     bytes: OwnedFrameBytes([255, 255, 255, 255])
   )
-}
-
-actor LateVisibilityStopPacing: SimulatedLearningExecutionPacing {
-  private let lateStopSuspension = VisibilityTargetPlanV2().drawingStepCount + 3
-  private var suspensionCount = 0
-  private var suspension: CheckedContinuation<Void, Never>?
-  private var waiters: [CheckedContinuation<Void, Never>] = []
-
-  func suspendBetweenSteps() async {
-    suspensionCount += 1
-    guard suspensionCount == lateStopSuspension else { return }
-    await withCheckedContinuation { continuation in
-      suspension = continuation
-      let pending = waiters
-      waiters.removeAll()
-      for waiter in pending { waiter.resume() }
-    }
-  }
-
-  func waitUntilLateStopPoint() async {
-    if suspensionCount >= lateStopSuspension { return }
-    await withCheckedContinuation { continuation in
-      waiters.append(continuation)
-    }
-  }
-
-  func resume() {
-    let continuation = suspension
-    suspension = nil
-    continuation?.resume()
-  }
 }
 
 actor CalibrationStopPacing: SimulatedLearningExecutionPacing {

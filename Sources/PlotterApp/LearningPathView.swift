@@ -516,7 +516,7 @@ private struct LearningResetSheet: View {
 
       if plan.removesDurableCheckpoint {
         Label(
-          "The saved LIVE Boundary checkpoint will also be cleared.",
+          "The affected saved LIVE machine and/or tip checkpoint will also be cleared.",
           systemImage: "externaldrive.badge.xmark"
         )
         .font(.caption)
@@ -695,7 +695,7 @@ private struct ExerciseActionStripView: View {
 extension ExerciseActionKind {
   fileprivate var isImmediateStopOrVisionCancel: Bool {
     switch self {
-    case .stop, .cancelVisibilityObservation:
+    case .stop:
       true
     default:
       false
