@@ -9,6 +9,37 @@ procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
 ## Implemented software surface
 
+### Pen-Down manual motion and Learning Off
+
+Validated 2026-08-12 in Blackdog task `TASK-F782C7D6`, targeting `main`
+from base `57406224cb5556cfa54df3332988c877148bff9c`.
+
+The four manual direction controls now route a known commanded Pen Up state to
+ordinary relative travel and a known commanded Pen Down state to the existing
+bounded drawing-stroke owner. Consecutive clean Pen-Down moves retain Pen Down,
+so the operator can request all four sides of a square. The drawing path has its
+own typed telemetry and capability-bound Stop; a clean Stop waits for Idle and
+retains the drawing owner's one Pen Up outcome. Unknown pen state remains a
+pre-request refusal.
+
+The workbench also exposes explicit **Turn Learning Off** and **Turn Learning
+On** actions. Off hides the Learning Path and Exercise panes and refuses new
+Learning actions without clearing accepted learning, disconnecting, disabling
+Motion, stopping video, or gating direct manual control. An active Learning
+attempt must settle through its existing Cancel/Stop action first.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| Focused manual/Learning tests | passed — 5 tests | four-side Pen-Down square, drawing Stop/Pen Up, Learning Off authority preservation, active-attempt interlock, causal simulator drawing with zero machine actions |
+| `make quick-test` | passed — 329 tests | fast unit/component partition |
+| `make journey-test` | passed — 10 tests | retained sparse, checkpoint, Stage 4, Boundary, reset, and simulator journeys |
+| `make strict-check` | passed — 339 tests | complete concurrency, warnings-as-errors, signed bundle and launcher validation, full test suite, repository checks |
+| `git diff --check` | passed | whitespace/conflict markers |
+
+These are software and simulator results. The app was not launched for this
+change. No controller connection, physical pen actuation, physical motion,
+manual square, camera observation, or observed ink validation was performed.
+
 ### Source-indexed learning sessions
 
 Validated 2026-08-12 in Blackdog task `TASK-3E783DB1`, targeting `main`

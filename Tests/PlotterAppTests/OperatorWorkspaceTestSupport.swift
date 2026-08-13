@@ -396,8 +396,15 @@ func workspace(
           )
         )
       },
-      requestDrawingStroke: { _ in fatalError("unused") },
-      beginDrawingStroke: { _ in fatalError("unused") },
+      requestDrawingStroke: { await machine.requestDrawingStroke($0) },
+      beginDrawingStroke: { request in
+        .admitted(
+          DrawingStrokeOperation(
+            id: UUID(),
+            task: Task { await machine.requestDrawingStroke(request) }
+          )
+        )
+      },
       requestPenActuation: { await machine.requestPen($0) },
       requestBoundaryMotion: { await machine.requestBoundaryMotion($0) },
       beginBoundaryMotion: beginBoundaryMotion,
@@ -651,18 +658,23 @@ actor MachineFixture {
   private(set) var cancelCount = 0
   private(set) var cancelIntents: [JogCancelIntent] = []
   private(set) var requestedFeeds: [Double] = []
+  private(set) var requestedDrawingStrokes: [DrawingStrokeRequest] = []
   private var moving = false
   private var cancelPending = false
   private var pendingCancelIntent: JogCancelIntent?
   private var continuation: CheckedContinuation<MotionOutcome, Never>?
+  private var drawingContinuation: CheckedContinuation<DrawingStrokeOutcome, Never>?
   private var boundaryContinuation: CheckedContinuation<BoundaryMotionOutcome, Never>?
   private var position: MachinePosition
   private var penState: PenState = .up
   private var hasActuatedPen = false
   private var lastMotion: MotionOutcome?
+  private var lastDrawing: DrawingStrokeOutcome?
   private var lastPen: PenOutcome?
   private var lastCancel: JogCancelOutcome?
   private var activeRequest: RelativeJogRequest?
+  private var activeDrawingRequest: DrawingStrokeRequest?
+  private var drawingStartPosition: MachinePosition?
   private var activeBoundaryRequest: BoundaryMotionRequest?
   private var heldBoundaryCancelIntent: JogCancelIntent?
 
@@ -688,6 +700,7 @@ actor MachineFixture {
   func snapshot() -> RunInterpreterSnapshot {
     RunInterpreterSnapshot(
       currentOperation: activeBoundaryRequest.map(RunOperation.boundaryMotion)
+        ?? activeDrawingRequest.map(RunOperation.drawingStroke)
         ?? activeRequest.map(RunOperation.relativeJog) ?? .idle,
       machine: MachineSnapshot(
         connection: moving && (activeBoundaryRequest == nil || reportsBoundaryMoving)
@@ -702,11 +715,13 @@ actor MachineFixture {
         motionGuardState: .active,
         operationInFlight: moving,
         lastMotionOutcome: lastMotion,
+        lastDrawingStrokeOutcome: lastDrawing,
         lastPenOutcome: lastPen,
         lastJogCancelOutcome: lastCancel,
         controllerAxisFeedLimits: feedLimits
       ),
       lastMotionOutcome: lastMotion,
+      lastDrawingStrokeOutcome: lastDrawing,
       lastPenOutcome: lastPen,
       lastProbe: nil,
       lastJogCancelOutcome: lastCancel
@@ -791,6 +806,37 @@ actor MachineFixture {
     return outcome
   }
 
+  func requestDrawingStroke(_ request: DrawingStrokeRequest) async -> DrawingStrokeOutcome {
+    requestedFeeds.append(request.feedMMPerMinute)
+    requestedDrawingStrokes.append(request)
+    activeDrawingRequest = request
+    drawingStartPosition = position
+    moving = true
+    await log.append("machine:drawing-stroke")
+    if let relativeJogSettlementOffset {
+      let start = position
+      position = try! MachinePosition(
+        x: position.point.x + request.delta.dx + relativeJogSettlementOffset.dx,
+        y: position.point.y + request.delta.dy + relativeJogSettlementOffset.dy
+      )
+      moving = false
+      activeDrawingRequest = nil
+      drawingStartPosition = nil
+      let outcome = DrawingStrokeOutcome.completed(
+        evidence: drawingEvidence(request: request, start: start, final: position)
+      )
+      lastDrawing = outcome
+      return outcome
+    }
+    let outcome = await withCheckedContinuation { continuation in
+      drawingContinuation = continuation
+    }
+    lastDrawing = outcome
+    activeDrawingRequest = nil
+    drawingStartPosition = nil
+    return outcome
+  }
+
   func cancel(intent: JogCancelIntent) -> JogCancelOutcome {
     cancelCount += 1
     cancelIntents.append(intent)
@@ -803,6 +849,10 @@ actor MachineFixture {
         let outcome = settleBoundary(request: request, intent: intent)
         boundaryContinuation.resume(returning: outcome)
       }
+    } else if let drawingContinuation, let request = activeDrawingRequest {
+      self.drawingContinuation = nil
+      let outcome = settleDrawingCancelled(request)
+      drawingContinuation.resume(returning: outcome)
     } else if let continuation {
       self.continuation = nil
       let outcome = settleCancelled()
@@ -840,6 +890,37 @@ actor MachineFixture {
     lastMotion = outcome
     activeRequest = nil
     return outcome
+  }
+
+  private func settleDrawingCancelled(_ request: DrawingStrokeRequest) -> DrawingStrokeOutcome {
+    moving = false
+    let start = drawingStartPosition ?? position
+    let evidence = drawingEvidence(request: request, start: start, final: position)
+    penState = .up
+    let penOutcome = PenOutcome.commandedAndSettled(command: .raise, commandedState: .up)
+    lastPen = penOutcome
+    let outcome = DrawingStrokeOutcome.cancelled(
+      evidence: evidence,
+      penRaiseOutcome: penOutcome
+    )
+    lastDrawing = outcome
+    activeDrawingRequest = nil
+    drawingStartPosition = nil
+    return outcome
+  }
+
+  private func drawingEvidence(
+    request: DrawingStrokeRequest,
+    start: MachinePosition,
+    final: MachinePosition
+  ) -> DrawingStrokeEvidence {
+    DrawingStrokeEvidence(
+      request: request,
+      startPosition: start,
+      startSampleNanoseconds: 10,
+      finalPosition: final,
+      finalSampleNanoseconds: 20
+    )
   }
 
   private func settleBoundary(

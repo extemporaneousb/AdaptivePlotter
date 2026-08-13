@@ -3,6 +3,29 @@ import Testing
 
 @testable import PlotterApp
 
+@Test("SIMULATED manual controls create causal drawing segments while Pen Down")
+@MainActor
+func simulatedManualPenDownDrawing() async throws {
+  let harness = makeSimulatedHarness()
+  let workspace = harness.workspace
+  await workspace.switchFrameMode(.simulated)
+  await workspace.performControllerConnectionAction()
+  await workspace.activateMotionGuard()
+  await workspace.requestPenActuation(.lower)
+
+  #expect(workspace.motionUnavailableReason == nil)
+  #expect(workspace.manualMotionModeText == "drawing — commanded Pen Down")
+  await workspace.requestJog(.xPositive)
+
+  let snapshot = await harness.runtime.snapshot()
+  #expect(snapshot.mpos.xMM == 1)
+  #expect(snapshot.mpos.yMM == 0)
+  #expect(snapshot.penPose == .down)
+  #expect(snapshot.persistentInkSegmentCount == 1)
+  #expect(await harness.machineActionLog.values.isEmpty)
+  await workspace.shutdown()
+}
+
 @Test("SIMULATED camera Refresh preserves causal MPos and persistent ink")
 @MainActor
 func simulatedCameraRefreshUsesLearningRuntime() async throws {

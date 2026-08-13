@@ -3,6 +3,7 @@ import PlotterModel
 
 public enum WorkflowTelemetryOperation: String, Codable, CaseIterable, Hashable, Sendable {
   case manualJog
+  case manualDrawingStroke
   case currentCameraCalibration
 }
 
@@ -33,6 +34,9 @@ public enum WorkflowTelemetryFailureCode: String, Codable, CaseIterable, Hashabl
   case manualJogAdmissionRejected = "manual_jog_admission_rejected"
   case manualJogRefused = "manual_jog_refused"
   case manualJogAmbiguous = "manual_jog_ambiguous"
+  case manualDrawingAdmissionRejected = "manual_drawing_admission_rejected"
+  case manualDrawingRefused = "manual_drawing_refused"
+  case manualDrawingAmbiguous = "manual_drawing_ambiguous"
 }
 
 public struct WorkflowMotionIntent: Codable, Hashable, Sendable {

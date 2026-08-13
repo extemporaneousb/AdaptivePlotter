@@ -6,6 +6,119 @@ import Testing
 @testable import PlotterRuntime
 
 extension OperatorWorkspaceTests {
+  @Test("manual direction controls draw a closed square while Pen Down")
+  func manualPenDownSquare() async throws {
+    let log = EventLog()
+    let telemetry = WorkflowTelemetryFixture()
+    let machine = try MachineFixture(
+      log: log,
+      relativeJogSettlementOffset: try Vector2(dx: 0, dy: 0)
+    )
+    let workspace = workspace(machine: machine, workflowTelemetry: telemetry, log: log)
+    await workspace.establishMachineSession(machine.descriptor)
+    await workspace.requestPassiveProbe()
+    await workspace.requestPenActuation(.lower)
+
+    #expect(workspace.motionUnavailableReason == nil)
+    #expect(workspace.manualMotionModeText == "drawing — commanded Pen Down")
+
+    workspace.xStepText = "2"
+    workspace.yStepText = "2"
+    await workspace.requestJog(.xPositive)
+    await workspace.requestJog(.yPositive)
+    await workspace.requestJog(.xNegative)
+    await workspace.requestJog(.yNegative)
+
+    let strokes = await machine.requestedDrawingStrokes
+    #expect(strokes.count == 4)
+    #expect(strokes.map(\.delta.dx) == [2, 0, -2, 0])
+    #expect(strokes.map(\.delta.dy) == [0, 2, 0, -2])
+    #expect(workspace.machinePositionText == "X 0.000   Y 0.000")
+    #expect(workspace.penStateText.contains("commanded down"))
+    #expect(workspace.lastMotionOutcomeText == "drawing completed at X 0.000 Y 0.000")
+    let events = await telemetry.events
+    #expect(events.count == 8)
+    #expect(events.allSatisfy { $0.operation == .manualDrawingStroke })
+    #expect(events.filter { $0.phase == .completed }.count == 4)
+    await workspace.shutdown()
+  }
+
+  @Test("manual Pen Down Stop remains capability-bound and raises once after cancellation")
+  func manualPenDownStop() async throws {
+    let log = EventLog()
+    let machine = try MachineFixture(log: log)
+    let workspace = workspace(machine: machine, log: log)
+    await workspace.establishMachineSession(machine.descriptor)
+    await workspace.requestPassiveProbe()
+    await workspace.requestPenActuation(.lower)
+
+    let owner = Task { await workspace.requestJog(.xPositive) }
+    try await waitUntil {
+      workspace.manualMotionPresentation.stopAction?.title == "Stop Manual Drawing"
+    }
+    let capabilityID = try #require(
+      workspace.manualMotionPresentation.stopAction?.capabilityID
+    )
+    await workspace.stopManualMotion(capabilityID: capabilityID)
+    _ = await owner.value
+
+    #expect(await machine.cancelCount == 1)
+    #expect(await machine.cancelIntents == [.operatorStop])
+    #expect(workspace.penStateText.contains("commanded up"))
+    #expect(workspace.manualMotionPresentation.stopAction == nil)
+    await workspace.shutdown()
+  }
+
+  @Test("Learning can be turned off without changing machine authorization or learned evidence")
+  func learningOffPreservesDirectAuthority() async throws {
+    let log = EventLog()
+    let machine = try MachineFixture(
+      log: log,
+      relativeJogSettlementOffset: try Vector2(dx: 0, dy: 0)
+    )
+    let workspace = workspace(machine: machine, log: log)
+    await workspace.establishMachineSession(machine.descriptor)
+    await workspace.requestPassiveProbe()
+    let revisions = workspace.learningArtifactGraph.revisions
+
+    workspace.toggleLearningMode()
+
+    #expect(!workspace.learningIsEnabled)
+    #expect(workspace.learningModeActionTitle == "Turn Learning On")
+    #expect(workspace.controllerSessionEstablished)
+    #expect(workspace.motionAuthorizationEnabled)
+    #expect(workspace.motionUnavailableReason == nil)
+    #expect(workspace.learningArtifactGraph.revisions == revisions)
+    await workspace.performExerciseAction(
+      .start,
+      for: .humanGuidedDiscovery(.penInteraction)
+    )
+    #expect(workspace.activeExerciseAttemptOwnerID == nil)
+
+    await workspace.requestJog(.xPositive)
+    #expect(await machine.requestedDrawingStrokes.isEmpty)
+    #expect(workspace.machinePositionText == "X 1.000   Y 0.000")
+
+    workspace.toggleLearningMode()
+    #expect(workspace.learningIsEnabled)
+
+    await workspace.performExerciseAction(
+      .start,
+      for: .humanGuidedDiscovery(.penInteraction)
+    )
+    #expect(workspace.activeExerciseAttemptOwnerID != nil)
+    #expect(workspace.learningModeChangeUnavailableReason != nil)
+    workspace.toggleLearningMode()
+    #expect(workspace.learningIsEnabled)
+    await workspace.performExerciseAction(
+      .cancel,
+      for: .humanGuidedDiscovery(.penInteraction)
+    )
+    workspace.toggleLearningMode()
+    #expect(!workspace.learningIsEnabled)
+    await workspace.shutdown()
+  }
+
   @Test("production camera settling accepts bounded wobble without changing MPos authority")
   func fixedCameraSettlingPolicyIsOpticalOnly() {
     #expect(FixedCameraOpticalSettlingPolicy.alignmentSearchRadiusPixels == 3)
@@ -85,8 +198,8 @@ extension OperatorWorkspaceTests {
     } else {
       Issue.record("Expected a busy motion-request projection while the manual jog owns motion.")
     }
-    async let first: Void = workspace.stopManualJog(capabilityID: capabilityID)
-    async let repeated: Void = workspace.stopManualJog(capabilityID: capabilityID)
+    async let first: Void = workspace.stopManualMotion(capabilityID: capabilityID)
+    async let repeated: Void = workspace.stopManualMotion(capabilityID: capabilityID)
     _ = await (first, repeated)
     _ = await owner.value
 
@@ -102,10 +215,10 @@ extension OperatorWorkspaceTests {
       workspace.manualMotionPresentation.stopAction?.capabilityID
     )
     #expect(secondCapabilityID != capabilityID)
-    await workspace.stopManualJog(capabilityID: capabilityID)
+    await workspace.stopManualMotion(capabilityID: capabilityID)
     #expect(await machine.cancelCount == 1)
     #expect(workspace.manualMotionPresentation.stopAction?.capabilityID == secondCapabilityID)
-    await workspace.stopManualJog(capabilityID: secondCapabilityID)
+    await workspace.stopManualMotion(capabilityID: secondCapabilityID)
     _ = await secondOwner.value
     #expect(await machine.cancelCount == 2)
     await workspace.shutdown()

@@ -98,6 +98,13 @@ The visible stages and exercises are ergonomic navigation. Complete, Current,
 Next, Future, and Needs Attention are presentation states, not an authorization
 ladder.
 
+The operator may turn Learning off when no Learning attempt owns work. This
+hides Learning navigation and prevents new Learning actions without clearing
+accepted artifacts, disconnecting the controller, disabling Motion, stopping
+the camera, or blocking direct manual controls. An active Learning attempt must
+finish or use its existing Cancel/Stop contract before Learning can be turned
+off.
+
 After current 3.2 and before Stage 4 there are exactly two exercises:
 
 - **3.3 Calibrate Camera and Visible Cap**;
@@ -123,6 +130,14 @@ MPos when the operation consumes position.
 Failure kind, attempt disposition, recovery, and possible-ink meaning are typed
 facts. Human-readable descriptions are projections only; wording changes cannot
 alter blacklist, no-redraw, Stop, or accepted-fallback behavior.
+
+The manual direction controls select their typed intent from the current
+controller-commanded pen state. Pen Up uses an ordinary `RelativeJogRequest`;
+Pen Down uses a bounded `DrawingStrokeRequest` and remains Pen Down after clean
+completion so consecutive sides can form one manual shape. Unknown pen state
+refuses motion. A stopped manual drawing stroke retains the drawing owner's
+single typed Pen Up cancellation result. Learning state and camera availability
+do not participate in either manual-motion admission path.
 
 All production requested-pose comparisons use fresh attributable controller
 evidence, compatible context, and at most 0.05 mm Euclidean residual. “Exact

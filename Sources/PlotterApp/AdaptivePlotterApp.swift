@@ -118,7 +118,7 @@ struct OperatorWorkspaceView: View {
         availableWindowWidth: proxy.size.width
       )
       HSplitView {
-        if paneVisibility.navigatorIsPresented {
+        if workspace.learningIsEnabled && paneVisibility.navigatorIsPresented {
           LearningPathNavigator(
             workspace: workspace,
             selection: $selection,
@@ -134,6 +134,10 @@ struct OperatorWorkspaceView: View {
             exerciseDetailCollapseUnavailableReason:
               exerciseDetailCollapseUnavailableReason,
             motionCollapseUnavailableReason: motionCollapseUnavailableReason,
+            learningIsEnabled: workspace.learningIsEnabled,
+            learningActionTitle: workspace.learningModeActionTitle,
+            learningChangeUnavailableReason: workspace.learningModeChangeUnavailableReason,
+            toggleLearning: workspace.toggleLearningMode,
             togglePane: { pane in
               paneVisibility = paneVisibility.toggling(pane)
             },
@@ -175,7 +179,7 @@ struct OperatorWorkspaceView: View {
           maxHeight: .infinity
         )
 
-        if paneVisibility.exerciseDetailIsPresented {
+        if workspace.learningIsEnabled && paneVisibility.exerciseDetailIsPresented {
           LearningPathView(
             workspace: workspace,
             selection: $selection,
@@ -254,25 +258,45 @@ private struct WorkbenchPaneControls: View {
   let videoSettings: VideoSettingsPresentation
   let exerciseDetailCollapseUnavailableReason: String?
   let motionCollapseUnavailableReason: String?
+  let learningIsEnabled: Bool
+  let learningActionTitle: String
+  let learningChangeUnavailableReason: String?
+  let toggleLearning: () -> Void
   let togglePane: (WorkbenchPane) -> Void
   let performVideoSettingsAction: (VideoSettingsVisibilityAction) -> Void
 
   var body: some View {
     HStack(spacing: 8) {
-      paneButton(
-        .navigator,
-        panel: .learningPath
+      Button(action: toggleLearning) {
+        Label(
+          learningActionTitle,
+          systemImage: learningIsEnabled ? "graduationcap.fill" : "graduationcap"
+        )
+      }
+      .operatorButton(isEnabled: learningChangeUnavailableReason == nil)
+      .controlSize(.small)
+      .help(
+        learningChangeUnavailableReason
+          ?? "Learning is ergonomic workflow guidance; turning it off preserves learned evidence and leaves direct machine controls available."
       )
+      if learningIsEnabled {
+        paneButton(
+          .navigator,
+          panel: .learningPath
+        )
+      }
       paneButton(
         .motion,
         panel: .motion,
         unavailableReason: motionCollapseUnavailableReason
       )
-      paneButton(
-        .exerciseDetail,
-        panel: .exercise,
-        unavailableReason: exerciseDetailCollapseUnavailableReason
-      )
+      if learningIsEnabled {
+        paneButton(
+          .exerciseDetail,
+          panel: .exercise,
+          unavailableReason: exerciseDetailCollapseUnavailableReason
+        )
+      }
       Button {
         performVideoSettingsAction(videoSettings.action)
       } label: {
@@ -555,7 +579,7 @@ private struct MotionPanel: View {
       closeUnavailableReason: closeUnavailableReason
     ) {
       Text(
-        "Manual steps remain finite typed requests. The controller's end-stops and alarms, one-operation serialization, pen-up travel, and ambiguous outcomes are checked directly."
+        "Manual steps remain finite typed requests. Pen Up routes to carriage travel; Pen Down routes to a bounded drawing stroke. End-stops, alarms, one-operation serialization, commanded pen state, and ambiguous outcomes are checked directly."
       )
       .font(.caption2)
       .foregroundStyle(.secondary)
@@ -578,7 +602,7 @@ private struct MotionPanel: View {
 
       if let stop = presentation.stopAction {
         Button {
-          Task { await workspace.stopManualJog(capabilityID: stop.capabilityID) }
+          Task { await workspace.stopManualMotion(capabilityID: stop.capabilityID) }
         } label: {
           Label(stop.title, systemImage: "stop.fill")
             .frame(maxWidth: .infinity)
@@ -620,6 +644,8 @@ private struct MotionPanel: View {
       fact("Motor power", workspace.motorPowerText)
       fact("Motion", workspace.motionGuardIsActive ? "enabled" : "disabled")
       fact("Motion request", workspace.motionPermissionText)
+      fact("Manual mode", workspace.manualMotionModeText)
+      fact("Learning", workspace.learningIsEnabled ? "on" : "off — manual operation")
       fact("MPos", workspace.machinePositionText)
       fact("Operation", workspace.currentOperationText)
       fact("Last outcome", workspace.lastMotionOutcomeText)

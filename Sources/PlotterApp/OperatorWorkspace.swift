@@ -144,6 +144,10 @@ enum ContextualStopTarget: Hashable, Sendable {
     direction: BoundaryDirection
   )
   case manualJog(capabilityID: ContextualStopCapabilityID, operationOwner: ContextualMotionOwnerID)
+  case manualDrawingStroke(
+    capabilityID: ContextualStopCapabilityID,
+    operationOwner: ContextualMotionOwnerID
+  )
   case exerciseMotion(
     capabilityID: ContextualStopCapabilityID,
     operationOwner: ContextualMotionOwnerID,
@@ -162,6 +166,7 @@ enum ContextualStopTarget: Hashable, Sendable {
     switch self {
     case .pairedBoundary(let capabilityID, _, _, _, _),
       .manualJog(let capabilityID, _),
+      .manualDrawingStroke(let capabilityID, _),
       .exerciseMotion(let capabilityID, _, _, _),
       .drawingTrial(let capabilityID, _),
       .sparseTipMark(let capabilityID, _, _):
@@ -173,6 +178,7 @@ enum ContextualStopTarget: Hashable, Sendable {
     switch self {
     case .pairedBoundary(_, _, let owner, _, _),
       .manualJog(_, let owner),
+      .manualDrawingStroke(_, let owner),
       .exerciseMotion(_, let owner, _, _),
       .drawingTrial(_, let owner),
       .sparseTipMark(_, let owner, _):
@@ -797,6 +803,7 @@ final class OperatorWorkspace {
   var xStepText = MotionPriors.stepMM
   var yStepText = MotionPriors.stepMM
   var feedText = MotionPriors.feedMMPerMinute
+  private(set) var learningIsEnabled = true
 
   private(set) var serialDevices: [MachineLinkDescriptor] = []
   private(set) var selectedSerialDevice: MachineLinkDescriptor?
@@ -807,6 +814,7 @@ final class OperatorWorkspace {
   private(set) var passiveProbeInProgress = false
   private(set) var jogRequestInProgress = false
   private(set) var penRequestInProgress = false
+  private var lastManualMotionWasDrawing = false
   private(set) var frameModeSwitchInProgress = false
   private(set) var motionGuardActivationInProgress = false
   private(set) var lastMotionGuardActivationText = "not activated"
@@ -1549,7 +1557,7 @@ final class OperatorWorkspace {
       return switch operation.kind {
       case .manualJog: "simulated manual jog"
       case .boundary: "simulated Boundary Discovery motion"
-      case .drawing: "simulated isolated drawing stroke"
+      case .drawing: "simulated drawing stroke"
       }
     }
     guard let operation = machineSnapshot?.currentOperation else { return "none" }
@@ -2071,6 +2079,8 @@ final class OperatorWorkspace {
         "Stop \(direction.displayName) Boundary Discovery, wait for Idle, then commit its final controller position."
       case .manualJog:
         "Stop the active manual jog and wait for Idle."
+      case .manualDrawingStroke:
+        "Stop the active manual drawing stroke, wait for Idle, and retain the controller's one Pen Up outcome."
       case .exerciseMotion(_, _, _, let action):
         "Stop \(action) and wait for the original owner to settle. No training artifact is accepted."
       case .drawingTrial:
@@ -2087,14 +2097,19 @@ final class OperatorWorkspace {
 
   var manualMotionPresentation: ManualMotionPresentation {
     let stopAction: ContextualStopActionPresentation?
-    if let target = activeStopTarget,
-      case .manualJog = target,
-      stopDispositionLatch == nil
-    {
+    if let target = activeStopTarget, isManualStopTarget(target), stopDispositionLatch == nil {
+      let isDrawing: Bool
+      if case .manualDrawingStroke = target {
+        isDrawing = true
+      } else {
+        isDrawing = false
+      }
       stopAction = ContextualStopActionPresentation(
         capabilityID: target.capabilityID,
-        title: "Stop Manual Jog",
-        detail: "Stop only this manual jog and wait for its original owner to settle."
+        title: isDrawing ? "Stop Manual Drawing" : "Stop Manual Jog",
+        detail: isDrawing
+          ? "Stop only this manual drawing stroke; the controller waits for Idle and performs its one typed Pen Up attempt."
+          : "Stop only this manual jog and wait for its original owner to settle."
       )
     } else {
       stopAction = nil
@@ -2105,11 +2120,11 @@ final class OperatorWorkspace {
     )
   }
 
-  func stopManualJog(capabilityID: ContextualStopCapabilityID) async {
+  func stopManualMotion(capabilityID: ContextualStopCapabilityID) async {
 
     guard let target = activeStopTarget,
       target.capabilityID == capabilityID,
-      case .manualJog = target
+      isManualStopTarget(target)
     else { return }
     await stopCurrentOperation(capabilityID: capabilityID)
   }
@@ -2292,6 +2307,7 @@ final class OperatorWorkspace {
     _ kind: ExerciseActionKind,
     for ownerID: LearningPathItemID
   ) async {
+    guard learningIsEnabled else { return }
     if case .selectDirection(let purpose, let direction) = kind {
       guard !hasShutdown,
         let selection = exerciseActionStrip(for: ownerID)?.directionSelection,
@@ -4372,14 +4388,47 @@ final class OperatorWorkspace {
         ? "Simulator connected. Enable Motion before this action."
         : "Plotter connected. Enable Motion before this action."
     }
-    let penIsUp =
-      frameMode == .simulated
-      ? simulatedLearningSnapshot?.penPose == .up
-      : machineSnapshot?.machine.penState == .up
-    if !penIsUp {
-      return "Motion enabled. Raise the pen so the commanded state is Up before carriage travel."
+    return switch manualMotionPenState {
+    case .up:
+      "Motion enabled; manual controls will move with the commanded pen Up."
+    case .down:
+      "Motion enabled; manual controls will draw with the commanded pen Down."
+    case .unknown:
+      "Motion enabled. Command Pen Up or Pen Down before manual motion."
     }
-    return "Motion enabled; carriage motion is available."
+  }
+
+  var manualMotionModeText: String {
+    switch manualMotionPenState {
+    case .up: "travel — commanded Pen Up"
+    case .down: "drawing — commanded Pen Down"
+    case .unknown: "unavailable — pen state unknown"
+    }
+  }
+
+  var learningModeActionTitle: String {
+    learningIsEnabled ? "Turn Learning Off" : "Turn Learning On"
+  }
+
+  var learningModeChangeUnavailableReason: String? {
+    guard learningIsEnabled else { return nil }
+    if currentCameraCalibrationPhase != nil {
+      return "Stop or finish current-camera calibration before turning Learning off."
+    }
+    if activeExerciseAttemptOwnerID != nil || activeDiscoverySequenceID != nil
+      || activeExplorationOperation != nil
+    {
+      return "Cancel or finish the active Learning attempt before turning Learning off."
+    }
+    if let target = activeStopTarget, !isManualStopTarget(target) {
+      return "Stop or finish the active Learning motion before turning Learning off."
+    }
+    return nil
+  }
+
+  func toggleLearningMode() {
+    guard learningModeChangeUnavailableReason == nil else { return }
+    learningIsEnabled.toggle()
   }
 
   var machinePositionText: String {
@@ -4407,6 +4456,29 @@ final class OperatorWorkspace {
   var lastMotionOutcomeText: String {
     if frameMode == .simulated {
       return lastContextualStopAuditRecord?.outcome ?? "no simulated motion outcome"
+    }
+    if lastManualMotionWasDrawing,
+      let outcome = machineSnapshot?.lastDrawingStrokeOutcome
+    {
+      return switch outcome {
+      case .completed(let evidence):
+        String(
+          format: "drawing completed at X %.3f Y %.3f",
+          evidence.finalPosition.point.x,
+          evidence.finalPosition.point.y
+        )
+      case .cancelled(let evidence, let penRaiseOutcome):
+        String(
+          format: "drawing stopped at X %.3f Y %.3f; Pen Up: %@",
+          evidence.finalPosition.point.x,
+          evidence.finalPosition.point.y,
+          String(describing: penRaiseOutcome)
+        )
+      case .refused(let refusal):
+        "drawing refused: \(refusal.actionableDescription)"
+      case .ambiguous(let ambiguity):
+        "drawing ambiguous: \(ambiguity.actionableDescription)"
+      }
     }
     guard let outcome = machineSnapshot?.lastMotionOutcome else { return "none" }
     switch outcome {
@@ -4482,7 +4554,7 @@ final class OperatorWorkspace {
     if let reason = currentCameraCalibrationBusyReason { return reason }
     if frameMode == .simulated {
       if let reason = simulatedManualMotionUnavailableReason { return reason }
-    } else if let reason = directCarriageMotionUnavailableReason {
+    } else if let reason = directManualMotionUnavailableReason {
       return reason
     }
     guard let xStep = inputNumber(xStepText), let yStep = inputNumber(yStepText),
@@ -4501,10 +4573,34 @@ final class OperatorWorkspace {
     guard simulatedLearningSnapshot?.currentOperation == nil else {
       return "A simulated operation already owns motion."
     }
-    guard simulatedLearningSnapshot?.penPose == .up else {
-      return "Set the simulated pen Up before manual carriage motion."
+    guard let pose = simulatedLearningSnapshot?.penPose, pose != .unknown else {
+      return "Set the simulated pen Up or Down before manual motion."
     }
     return nil
+  }
+
+  private var manualMotionPenState: PenState {
+    if frameMode == .simulated {
+      guard let pose = simulatedLearningSnapshot?.penPose else { return .unknown }
+      return switch pose {
+      case .unknown: .unknown
+      case .up: .up
+      case .down: .down
+      }
+    }
+    return machineSnapshot?.machine.penState ?? .unknown
+  }
+
+  private var ordinaryRelativeJogUnavailableReason: String? {
+    if let reason = currentCameraCalibrationBusyReason { return reason }
+    if frameMode == .simulated {
+      if let reason = simulatedManualMotionUnavailableReason { return reason }
+      guard simulatedLearningSnapshot?.penPose == .up else {
+        return "Set the simulated pen Up before carriage travel."
+      }
+      return nil
+    }
+    return directCarriageMotionUnavailableReason
   }
 
   private var learningStickyAmbiguityReason: String? {
@@ -4519,7 +4615,26 @@ final class OperatorWorkspace {
     return nil
   }
 
+  private var directManualMotionUnavailableReason: String? {
+    if let reason = directMotionUnavailableReason { return reason }
+    if machineSnapshot?.machine.penState == .unknown {
+      return "Command Pen Up or Pen Down before manual motion; the current pen state is unknown."
+    }
+    return nil
+  }
+
   private var directCarriageMotionUnavailableReason: String? {
+    if let reason = directMotionUnavailableReason { return reason }
+    guard let machine = machineSnapshot?.machine else {
+      return MotionRefusal.notConnected.actionableDescription
+    }
+    if machine.penState != .up {
+      return MotionRefusal.penNotUp(machine.penState).actionableDescription
+    }
+    return nil
+  }
+
+  private var directMotionUnavailableReason: String? {
     if jogRequestInProgress { return "A relative jog is already in progress." }
     if frameModeSwitchInProgress { return "Wait for the frame source switch to finish." }
     if frameMode == .simulated {
@@ -4557,9 +4672,6 @@ final class OperatorWorkspace {
     }
     if machine.motionGuardState != .active {
       return MotionRefusal.motionGuardInactive.actionableDescription
-    }
-    if machine.penState != .up {
-      return MotionRefusal.penNotUp(machine.penState).actionableDescription
     }
     return nil
   }
@@ -5281,7 +5393,7 @@ final class OperatorWorkspace {
         )
       }
 
-    case .manualJog:
+    case .manualJog, .manualDrawingStroke:
       await requestSingleJogCancel(for: target, intent: .operatorStop)
       await operation.owner.settle()
 
@@ -5510,8 +5622,16 @@ final class OperatorWorkspace {
       case .yNegative: delta = try Vector2(dx: 0, dy: -yStep)
       case .yPositive: delta = try Vector2(dx: 0, dy: yStep)
       }
-      let request = RelativeJogRequest(delta: delta, feedMMPerMinute: feed)
-      await requestRelativeJog(request)
+      switch manualMotionPenState {
+      case .up:
+        let request = RelativeJogRequest(delta: delta, feedMMPerMinute: feed)
+        await requestRelativeJog(request)
+      case .down:
+        let request = DrawingStrokeRequest(delta: delta, feedMMPerMinute: feed)
+        await requestManualDrawingStroke(request)
+      case .unknown:
+        return
+      }
     } catch {
       machineError = actionableDescription(error)
     }
@@ -5528,7 +5648,9 @@ final class OperatorWorkspace {
     }
     guard let generation = beginHardwareIntent() else { return nil }
     defer { endHardwareIntent() }
-    guard motionUnavailableReason == nil, !jogRequestInProgress, let machineActions else {
+    guard ordinaryRelativeJogUnavailableReason == nil, !jogRequestInProgress,
+      let machineActions
+    else {
       return nil
     }
 
@@ -5545,6 +5667,7 @@ final class OperatorWorkspace {
     case .admitted(let operation):
       admittedOperation = operation
     case .rejected(let outcome):
+      lastManualMotionWasDrawing = false
       await recordWorkflowTelemetry(
         WorkflowTelemetryEvent(
           operationID: fallbackOperationID,
@@ -5586,6 +5709,7 @@ final class OperatorWorkspace {
     let finalSnapshot = await machineActions.snapshot()
     guard canCommit(generation) else { return nil }
     machineSnapshot = finalSnapshot
+    lastManualMotionWasDrawing = false
     let telemetryTerminal:
       (
         phase: WorkflowTelemetryPhase, code: WorkflowTelemetryFailureCode?,
@@ -5615,36 +5739,156 @@ final class OperatorWorkspace {
     return outcome
   }
 
+  @discardableResult
+  private func requestManualDrawingStroke(
+    _ request: DrawingStrokeRequest
+  ) async -> DrawingStrokeOutcome? {
+    if frameMode == .simulated {
+      await requestSimulatedManualMotion(
+        delta: request.delta,
+        draws: true
+      )
+      return nil
+    }
+    guard let generation = beginHardwareIntent() else { return nil }
+    defer { endHardwareIntent() }
+    guard motionUnavailableReason == nil, manualMotionPenState == .down,
+      !jogRequestInProgress, let machineActions
+    else { return nil }
+
+    jogRequestInProgress = true
+    machineError = nil
+    let fallbackOperationID = UUID()
+    let motionIntent = WorkflowMotionIntent(
+      deltaXMM: request.delta.dx,
+      deltaYMM: request.delta.dy,
+      feedMMPerMinute: request.feedMMPerMinute
+    )
+    let admittedOperation: DrawingStrokeOperation
+    switch await machineActions.beginDrawingStroke(request) {
+    case .admitted(let operation):
+      admittedOperation = operation
+    case .rejected(let outcome):
+      lastManualMotionWasDrawing = true
+      await recordWorkflowTelemetry(
+        WorkflowTelemetryEvent(
+          operationID: fallbackOperationID,
+          operation: .manualDrawingStroke,
+          phase: .failed,
+          detail: "Manual drawing admission was rejected: \(String(describing: outcome))",
+          motionIntent: motionIntent,
+          failureCode: .manualDrawingAdmissionRejected,
+          recovery: .resolveNamedFailure
+        )
+      )
+      jogRequestInProgress = false
+      machineSnapshot = await machineActions.snapshot()
+      return outcome
+    }
+    await recordWorkflowTelemetry(
+      WorkflowTelemetryEvent(
+        operationID: admittedOperation.id,
+        operation: .manualDrawingStroke,
+        phase: .intentAccepted,
+        detail: "An operator-authored Pen Down manual drawing stroke was admitted.",
+        motionIntent: motionIntent
+      )
+    )
+    let stopTarget = ContextualStopTarget.manualDrawingStroke(
+      capabilityID: ContextualStopCapabilityID(),
+      operationOwner: .liveOperation(admittedOperation.id)
+    )
+    defer {
+      jogRequestInProgress = false
+      clearStoppableOperation(matching: stopTarget)
+    }
+    let operation = Task { await admittedOperation.outcome() }
+    installStoppableOperation(target: stopTarget, owner: .drawing(operation))
+    await Task.yield()
+    let interimSnapshot = await machineActions.snapshot()
+    if canCommit(generation) { machineSnapshot = interimSnapshot }
+    let outcome = await operation.value
+    let finalSnapshot = await machineActions.snapshot()
+    guard canCommit(generation) else { return nil }
+    machineSnapshot = finalSnapshot
+    lastManualMotionWasDrawing = true
+    let terminal:
+      (
+        phase: WorkflowTelemetryPhase, code: WorkflowTelemetryFailureCode?,
+        recovery: WorkflowTelemetryRecovery
+      ) =
+        switch outcome {
+        case .completed:
+          (.completed, nil, .none)
+        case .cancelled:
+          (.cancelled, nil, .none)
+        case .refused:
+          (.failed, .manualDrawingRefused, .resolveNamedFailure)
+        case .ambiguous:
+          (.failed, .manualDrawingAmbiguous, .resolveNamedFailure)
+        }
+    await recordWorkflowTelemetry(
+      WorkflowTelemetryEvent(
+        operationID: admittedOperation.id,
+        operation: .manualDrawingStroke,
+        phase: terminal.phase,
+        detail: "Manual drawing stroke settled as \(String(describing: outcome)).",
+        motionIntent: motionIntent,
+        failureCode: terminal.code,
+        recovery: terminal.recovery
+      )
+    )
+    return outcome
+  }
+
   private func requestSimulatedRelativeJog(_ request: RelativeJogRequest) async {
+    guard ordinaryRelativeJogUnavailableReason == nil, !jogRequestInProgress else { return }
+    await requestSimulatedManualMotion(
+      delta: request.delta,
+      draws: false
+    )
+  }
+
+  private func requestSimulatedManualMotion(
+    delta: Vector2<MachineSpace>,
+    draws: Bool
+  ) async {
     guard motionUnavailableReason == nil, !jogRequestInProgress else { return }
     let vector: SimulatedLearningMotionVector
     do {
       vector = try SimulatedLearningMotionVector(
-        dxMM: request.delta.dx,
-        dyMM: request.delta.dy
+        dxMM: delta.dx,
+        dyMM: delta.dy
       )
     } catch {
-      simulatorLearningSummary = "Simulated manual jog is invalid: \(error)."
+      simulatorLearningSummary = "Simulated manual motion is invalid: \(error)."
       return
     }
-    let response = await simulatedLearningRuntime.beginManualJog(delta: vector)
+    let response = await (
+      draws
+        ? simulatedLearningRuntime.beginDrawing(delta: vector)
+        : simulatedLearningRuntime.beginManualJog(delta: vector)
+    )
     let operation: SimulatedLearningOperation
     switch response.result {
     case .success(let admitted):
       operation = admitted
     case .failure(let refusal):
       simulatorLearningSummary =
-        "Simulated manual jog refused: \(refusal). \(response.evidenceNotice.label)"
+        "Simulated manual motion refused: \(refusal). \(response.evidenceNotice.label)"
       return
     }
-    let target = ContextualStopTarget.manualJog(
-      capabilityID: ContextualStopCapabilityID(),
-      operationOwner: .simulated(operation.id)
-    )
+    let capabilityID = ContextualStopCapabilityID()
+    let owner = ContextualMotionOwnerID.simulated(operation.id)
+    let target =
+      draws
+      ? ContextualStopTarget.manualDrawingStroke(
+        capabilityID: capabilityID, operationOwner: owner)
+      : ContextualStopTarget.manualJog(capabilityID: capabilityID, operationOwner: owner)
     jogRequestInProgress = true
     simulatedLearningSnapshot = await simulatedLearningRuntime.snapshot()
     simulatorLearningSummary =
-      "Simulated manual jog active; use Stop Manual Jog. \(response.evidenceNotice.label)"
+      "Simulated manual \(draws ? "drawing" : "jog") active; use the bound Stop control. \(response.evidenceNotice.label)"
     let outcomeTask = Task<SimulatedLearningOperationOutcome?, Never> {
       [simulatedLearningRuntime, simulatedExecutionPacing] in
       let execution = await simulatedLearningRuntime.executeNaturally(
@@ -7380,6 +7624,7 @@ final class OperatorWorkspace {
   private func exerciseActionStrip(
     for itemID: LearningPathItemID
   ) -> ExerciseActionStripPresentation? {
+    guard learningIsEnabled else { return nil }
     if activeExerciseAttemptOwnerID == itemID {
       var actions: [ExerciseActionDescriptor] = []
       if let contextualStopPresentation,
@@ -7764,8 +8009,10 @@ final class OperatorWorkspace {
   }
 
   private func isManualStopTarget(_ target: ContextualStopTarget) -> Bool {
-    if case .manualJog = target { return true }
-    return false
+    switch target {
+    case .manualJog, .manualDrawingStroke: true
+    default: false
+    }
   }
 
   private func stageExpectedObservation(_ stage: LearningPathStage) -> [PresentationFragment] {
@@ -8913,7 +9160,7 @@ final class OperatorWorkspace {
         boundaryTeachingResultText =
           "Shutdown requested. Waiting for the original motion owner to reach Idle."
       }
-    case .manualJog, .exerciseMotion, .drawingTrial, .sparseTipMark:
+    case .manualJog, .manualDrawingStroke, .exerciseMotion, .drawingTrial, .sparseTipMark:
       break
     }
 
