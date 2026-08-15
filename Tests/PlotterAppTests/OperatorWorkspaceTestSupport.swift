@@ -406,7 +406,7 @@ func workspace(
           )
         )
       },
-      requestPenActuation: { await machine.requestPen($0) },
+      requestPenActuation: { await machine.requestPen($0, profile: $1) },
       requestBoundaryMotion: { await machine.requestBoundaryMotion($0) },
       beginBoundaryMotion: beginBoundaryMotion,
       requestJogCancel: requestJogCancel,
@@ -476,7 +476,7 @@ func isolatedMachineActions(log: EventLog) -> OperatorWorkspace.MachineActions {
       await log.append("beginDrawingStroke")
       return .rejected(.refused(.notConnected))
     },
-    requestPenActuation: { _ in
+    requestPenActuation: { _, _ in
       await log.append("requestPenActuation")
       return .refused(.notConnected)
     },
@@ -648,6 +648,30 @@ actor WorkflowTelemetryFixture {
   }
 }
 
+actor PenRequestGate {
+  private var shouldBlockFirstRequest = true
+  private var releasedEarly = false
+  private var continuation: CheckedContinuation<Void, Never>?
+
+  func waitIfFirstRequest() async {
+    guard shouldBlockFirstRequest else { return }
+    shouldBlockFirstRequest = false
+    if releasedEarly { return }
+    await withCheckedContinuation { continuation in
+      self.continuation = continuation
+    }
+  }
+
+  func releaseFirstRequest() {
+    guard let continuation else {
+      releasedEarly = true
+      return
+    }
+    self.continuation = nil
+    continuation.resume()
+  }
+}
+
 actor MachineFixture {
   nonisolated let descriptor = MachineLinkDescriptor(
     identifier: "fixture",
@@ -660,10 +684,13 @@ actor MachineFixture {
   let reportsBoundaryMoving: Bool
   let holdCancellationSettlement: Bool
   let relativeJogSettlementOffset: Vector2<MachineSpace>?
+  let penRequestGate: PenRequestGate?
   private(set) var cancelCount = 0
   private(set) var cancelIntents: [JogCancelIntent] = []
   private(set) var requestedFeeds: [Double] = []
   private(set) var requestedDrawingStrokes: [DrawingStrokeRequest] = []
+  private(set) var requestedPenCommands: [PenCommand] = []
+  private(set) var requestedPenProfiles: [PenActuationProfile] = []
   private var moving = false
   private var cancelPending = false
   private var pendingCancelIntent: JogCancelIntent?
@@ -677,6 +704,7 @@ actor MachineFixture {
   private var lastDrawing: DrawingStrokeOutcome?
   private var lastPen: PenOutcome?
   private var lastCancel: JogCancelOutcome?
+  private var queuedPenOutcomes: [PenOutcome] = []
   private var activeRequest: RelativeJogRequest?
   private var activeDrawingRequest: DrawingStrokeRequest?
   private var drawingStartPosition: MachinePosition?
@@ -688,18 +716,28 @@ actor MachineFixture {
     feedLimits: ControllerAxisFeedLimits? = nil,
     reportsBoundaryMoving: Bool = true,
     holdCancellationSettlement: Bool = false,
-    relativeJogSettlementOffset: Vector2<MachineSpace>? = nil
+    relativeJogSettlementOffset: Vector2<MachineSpace>? = nil,
+    penRequestGate: PenRequestGate? = nil
   ) throws {
     self.log = log
     self.feedLimits = feedLimits
     self.reportsBoundaryMoving = reportsBoundaryMoving
     self.holdCancellationSettlement = holdCancellationSettlement
     self.relativeJogSettlementOffset = relativeJogSettlementOffset
+    self.penRequestGate = penRequestGate
     position = try MachinePosition(x: 0, y: 0)
   }
 
   func setPosition(x: Double, y: Double) throws {
     position = try MachinePosition(x: x, y: y)
+  }
+
+  func setPenState(_ state: PenState) {
+    penState = state
+  }
+
+  func enqueuePenOutcome(_ outcome: PenOutcome) {
+    queuedPenOutcomes.append(outcome)
   }
 
   func snapshot() -> RunInterpreterSnapshot {
@@ -880,11 +918,21 @@ actor MachineFixture {
     boundaryContinuation.resume(returning: outcome)
   }
 
-  func requestPen(_ command: PenCommand) async -> PenOutcome {
+  func requestPen(
+    _ command: PenCommand,
+    profile: PenActuationProfile = .initialDefaults
+  ) async -> PenOutcome {
     await log.append("machine:pen-\(command.rawValue)")
+    requestedPenCommands.append(command)
+    requestedPenProfiles.append(profile)
+    await penRequestGate?.waitIfFirstRequest()
     hasActuatedPen = true
-    penState = command.commandedState
-    let outcome = PenOutcome.commandedAndSettled(command: command, commandedState: penState)
+    let outcome = queuedPenOutcomes.isEmpty
+      ? PenOutcome.commandedAndSettled(command: command, commandedState: command.commandedState)
+      : queuedPenOutcomes.removeFirst()
+    if case .commandedAndSettled(_, let commandedState) = outcome {
+      penState = commandedState
+    }
     lastPen = outcome
     return outcome
   }

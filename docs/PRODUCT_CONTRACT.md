@@ -158,6 +158,24 @@ During each mark selection, the predicted tip point is hidden until the operator
 clicks. After the click, the asserted point and uncertainty, predicted point,
 and residual are displayed.
 
+### 3.1 Pen Interaction
+
+Pen Interaction retains its existing exercise identity, attempt history, and
+Up → Down → Up sequence. The Up and Down steps each expose a servo-value slider,
+displaying the corresponding current setting. A fresh session is seeded at
+`S40` and `S760`; a repeated attempt starts from the values already current.
+Moving a slider commands its displayed value in the current step; **Next**
+remains available and accepts that value for the corresponding current setting.
+
+The accepted Up and Down values are mutable operating settings, not a promise
+of one constant actuator position across the run. Repeating Pen Interaction at
+a different machine position may accept different values. The existing attempt
+and actuation evidence retains each actual value and the available MPos,
+controller outcome, and timestamp so later learning can observe positional
+variation. Refusal, ambiguity, or unavailable evidence remains explicit and
+does not disable **Next**. No separate servo-
+calibration exercise, artifact, checkpoint, or authority type is introduced.
+
 ## Motion, Stop, and ambiguity
 
 Every controller action has one typed intent, one owner, and a bounded terminal
@@ -169,12 +187,20 @@ facts. Human-readable descriptions are projections only; wording changes cannot
 alter blacklist, no-redraw, Stop, or accepted-fallback behavior.
 
 The manual direction controls select their typed intent from the current
-controller-commanded pen state. Pen Up uses an ordinary `RelativeJogRequest`;
-Pen Down uses a bounded `DrawingStrokeRequest` and remains Pen Down after clean
-completion so consecutive sides can form one manual shape. Unknown pen state
-refuses motion. A stopped manual drawing stroke retains the drawing owner's
-single typed Pen Up cancellation result. Learning state and camera availability
-do not participate in either manual-motion admission path.
+controller-commanded pen state. Pen Down uses a bounded `DrawingStrokeRequest`
+and remains Pen Down after clean completion so consecutive sides can form one
+manual shape. Otherwise, including when commanded pen state is unknown, the
+operator's bounded request uses an ordinary `RelativeJogRequest`; its evidence
+retains that the pen pose was unknown and ink may have been produced. A stopped
+manual drawing stroke retains the drawing owner's single typed Pen Up
+cancellation result.
+
+After Motion is enabled, manual direction controls do not depend on camera,
+Vision, Learning state, Learning Path position, current-camera calibration, or
+a visually confirmed pen pose. Their X distance, Y distance, and feed inputs
+remain editable and initialize to 50 mm, 50 mm, and 500 mm/min. Existing direct
+controller ownership facts still apply; this paragraph adds no optical or
+workflow admission condition.
 
 All production requested-pose comparisons use fresh attributable controller
 evidence, compatible context, and at most 0.05 mm Euclidean residual. “Exact
@@ -229,11 +255,13 @@ It does not locate the paper-contact point.
 
 Stage 3.4 uses the same positions in order `C`, `X−`, `Y+`, `X+`, `Y−`. At each
 position it draws one closed 2 mm-radius circle centered on the model sample.
-The pen uses the complete fixed local lower profile (`M3 S760` plus 0.3 s
-settlement); the product exposes no separate pressure control and never
-overdrives that profile. The circle uses 16 finite typed drawing chords capped
-at 100 mm/min, keeping the chord approximation error below 0.05 mm, followed by
-one explicit Pen Up.
+The pen uses the current Down value accepted by Pen Interaction (`S760`
+initially) plus the configured settlement, and returns using the current Up
+value (`S40` initially). Those values may change when the existing Pen
+Interaction exercise is repeated; a mark retains the exact values it actually
+consumed. The circle uses 16 finite typed drawing chords capped at 100 mm/min,
+keeping the chord approximation error below 0.05 mm, followed by one explicit
+Pen Up.
 This controller evidence does not prove physical pressure or observed ink.
 
 After every circle, reveal travel goes Pen Up to the learned X+ Boundary limit
@@ -250,8 +278,8 @@ commanded circular mark and asserted circle center. It retains:
 - intended mark position and settled MPos;
 - machine geometry, controller session, coordinate-frame revision, and
   controller-context evidence;
-- the 2 mm-radius/16-chord/100 mm/min-capped commanded geometry, fixed actuation-profile
-  revision, and Pen Down/Up outcomes/timestamps;
+- the 2 mm-radius/16-chord/100 mm/min-capped commanded geometry, actual current
+  Down/Up actuation values, and Pen Down/Up outcomes/timestamps;
 - tool assembly, contact profile, and paper-plane revisions;
 - exact pre-mark frame and cap estimate;
 - exact post-reveal frame, settled reveal pose, and cap-map revalidation;

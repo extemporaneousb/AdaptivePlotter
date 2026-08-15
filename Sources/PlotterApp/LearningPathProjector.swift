@@ -326,6 +326,7 @@ struct LearningPathProjectionSnapshot: Sendable {
   let source: OperatorFrameMode
   let learningEnabled: Bool
   let penInteractionCompleted: Bool
+  let penActuationProfile: PenActuationProfile
   let selectedBoundaryDirection: BoundaryDirection
   let controller: ControllerFacts
   let boundary: BoundaryFacts
@@ -342,6 +343,7 @@ struct LearningPathProjectionSnapshot: Sendable {
     source: OperatorFrameMode = .live,
     learningEnabled: Bool = true,
     penInteractionCompleted: Bool = false,
+    penActuationProfile: PenActuationProfile = .initialDefaults,
     selectedBoundaryDirection: BoundaryDirection = .positiveX,
     controller: ControllerFacts = ControllerFacts(),
     boundary: BoundaryFacts = BoundaryFacts(),
@@ -357,6 +359,7 @@ struct LearningPathProjectionSnapshot: Sendable {
     self.source = source
     self.learningEnabled = learningEnabled
     self.penInteractionCompleted = penInteractionCompleted
+    self.penActuationProfile = penActuationProfile
     self.selectedBoundaryDirection = selectedBoundaryDirection
     self.controller = controller
     self.boundary = boundary
@@ -656,6 +659,7 @@ extension LearningPathProjector {
     let operations = snapshot.operations
     if operations.activeAttemptOwner == itemID {
       var actions: [ExerciseActionDescriptor] = []
+      var penSetpointAdjustment: PenSetpointAdjustmentPresentation?
       if let stop = contextualStop(snapshot),
         let owner = operations.stopOwner,
         !owner.isManual
@@ -732,12 +736,29 @@ extension LearningPathProjector {
       } else if let transaction = snapshot.discovery.values.first(where: {
         $0.state == .active || $0.state == .cancelling
       }), let choices = transaction.currentStep?.question?.choices {
-        actions = choices.map { choice in
-          ExerciseActionDescriptor(
-            kind: .choice(choice),
-            title: choice.exactPhrase,
-            role: choice == .yes ? .positive : .standard
+        if transaction.sequenceID == .penInteraction,
+          case .awaitPhysicalPenConfirmation(let state, _) = transaction.currentStep?.action
+        {
+          let command: PenCommand = state == .down ? .lower : .raise
+          penSetpointAdjustment = PenSetpointAdjustmentPresentation(
+            command: command,
+            value: snapshot.penActuationProfile.value(for: command)
           )
+          actions = [
+            ExerciseActionDescriptor(
+              kind: .choice(.yes),
+              title: "Next",
+              role: .positive
+            )
+          ]
+        } else {
+          actions = choices.map { choice in
+            ExerciseActionDescriptor(
+              kind: .choice(choice),
+              title: choice.exactPhrase,
+              role: choice == .yes ? .positive : .standard
+            )
+          }
         }
       }
       if !operations.stopDispositionLatched && snapshot.cameraCalibration.phase == nil {
@@ -748,6 +769,7 @@ extension LearningPathProjector {
       return ExerciseActionStripPresentation(
         ownerID: itemID,
         actions: actions,
+        penSetpointAdjustment: penSetpointAdjustment,
         mustRemainVisible: operations.stopOwner != nil
       )
     }
@@ -1178,7 +1200,9 @@ extension LearningPathProjector {
     if !controller.sessionEstablished { controllerState = "Disconnected" }
     else if !controller.motionAuthorized { controllerState = "Motion disabled" }
     else if operations.stopOwner != nil { controllerState = "Operation active" }
-    else if snapshot.cameraCalibration.phase != nil { controllerState = "Ready / coordinator held" }
+    else if snapshot.cameraCalibration.phase != nil {
+      controllerState = "Calibration active / manual controls independent"
+    }
     else if motionGateReason != nil { controllerState = "Admission blocked" }
     else { controllerState = "Idle / admissible" }
 
@@ -1189,9 +1213,9 @@ extension LearningPathProjector {
     if let phase = snapshot.cameraCalibration.phase {
       vision = (
         phase.description,
-        true,
+        false,
         .operationOwner,
-        "Current-camera calibration owns a multi-step optical-registration operation. New manual motion is blocked until it settles; any currently admitted move is also shown under Motion owner."
+        "Current-camera calibration owns the Learning operation, but it does not gate direct manual controls. Any admitted manual move remains separately shown under its Motion owner."
       )
     } else if operations.scopedVisionActive {
       vision = operations.visionAnalysisActive

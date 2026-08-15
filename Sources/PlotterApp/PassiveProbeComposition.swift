@@ -36,8 +36,8 @@ enum MachineSessionComposition {
     beginDrawingStroke: { request in
       await session.beginDrawingStroke(request)
     },
-    requestPenActuation: { command in
-      await session.requestPenActuation(command)
+    requestPenActuation: { command, profile in
+      await session.requestPenActuation(command, profile: profile)
     },
     requestBoundaryMotion: { request in
       await session.requestBoundaryMotion(request)
@@ -189,9 +189,12 @@ private actor PersistentMachineSession {
     return await interpreter.requestJogCancel(intent)
   }
 
-  func requestPenActuation(_ command: PenCommand) async -> PenOutcome {
+  func requestPenActuation(
+    _ command: PenCommand,
+    profile: PenActuationProfile
+  ) async -> PenOutcome {
     guard let interpreter else { return .refused(.noSerialDeviceSelected) }
-    return await interpreter.requestPenActuation(command)
+    return await interpreter.requestPenActuation(command, profile: profile)
   }
 
   func disconnect() async {

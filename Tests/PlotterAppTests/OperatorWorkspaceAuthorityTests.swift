@@ -195,7 +195,7 @@ extension OperatorWorkspaceTests {
 
     #expect(await machine.cancelCount == 1)
     #expect(await machine.cancelIntents == [.shutdown])
-    #expect(await machine.requestedFeeds.last == 100)
+    #expect(await machine.requestedFeeds.last == 500)
     #expect(workspace.discoveryTransactions.isEmpty)
     #expect(workspace.contextualStopPresentation == nil)
     #expect(workspace.isShutdown)
@@ -271,7 +271,7 @@ extension OperatorWorkspaceTests {
     await workspace.shutdown()
   }
 
-  @Test("Start becomes typed choices and Cancel settles to a fresh Restart route")
+  @Test("Pen Interaction Start exposes Next and Cancel, then Cancel settles to Restart")
   func exerciseActionTransitions() async throws {
     let log = EventLog()
     let machine = try MachineFixture(log: log)
@@ -286,7 +286,7 @@ extension OperatorWorkspaceTests {
     await workspace.performExerciseAction(.start, for: owner)
     let liveActions = workspace.currentExerciseActionStripPresentation?.actions.map(\.kind) ?? []
     #expect(liveActions.contains(.choice(.yes)))
-    #expect(liveActions.contains(.choice(.no)))
+    #expect(!liveActions.contains(.choice(.no)))
     #expect(liveActions.contains(.cancel))
     #expect(!liveActions.contains(.start))
 
@@ -514,8 +514,8 @@ extension OperatorWorkspaceTests {
     #expect(workspace.penAttemptHistory.attempts.last?.disposition == .cancelled)
     #expect(workspace.penAttemptHistory.records.first?.inclusionState == .included)
     #expect(workspace.penAttemptHistory.records.last?.inclusionState == .excludedUnsuccessful)
-    #expect(workspace.currentPenStateAggregate?.validSampleCount == 1)
-    #expect(workspace.currentPenStateAggregate?.includedAttemptIDs == [accepted.attemptID])
+    #expect(workspace.currentPenInteractionAggregate?.validSampleCount == 1)
+    #expect(workspace.currentPenInteractionAggregate?.includedAttemptIDs == [accepted.attemptID])
     await workspace.shutdown()
   }
 }

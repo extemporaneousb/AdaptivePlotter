@@ -695,11 +695,7 @@ private struct MotionPanel: View {
       }
 
     }
-    .disabled(workspace.currentCameraCalibrationBusyReason != nil)
-    .help(
-      workspace.currentCameraCalibrationBusyReason
-        ?? "Manual relative motion controls"
-    )
+    .help("Manual relative motion controls")
   }
 
   private func jogButton(

@@ -18,7 +18,7 @@ func simulatedManualPenDownDrawing() async throws {
   await workspace.requestJog(.xPositive)
 
   let snapshot = await harness.runtime.snapshot()
-  #expect(snapshot.mpos.xMM == 1)
+  #expect(snapshot.mpos.xMM == 50)
   #expect(snapshot.mpos.yMM == 0)
   #expect(snapshot.penPose == .down)
   #expect(snapshot.persistentInkSegmentCount == 1)

@@ -95,6 +95,22 @@ display text is derived only by the presentation boundary.
 `RunLedger` and workflow telemetry record diagnostics only. They do not replay
 commands, restore owners, or promote artifacts.
 
+## Pen Interaction and manual controls
+
+`OperatorWorkspace` keeps the current Up and Down servo values inside the
+existing Pen Interaction state. The exercise's Up and Down sliders issue typed
+value-bearing pen requests; **Next** retains the displayed value in the current
+setting and the existing attempt evidence. `MachineController` serializes the
+requested value and settlement under its existing pen-operation ownership.
+There is no parallel servo-calibration owner, checkpoint, or artifact graph.
+
+Manual X distance, Y distance, and feed fields initialize to 50 mm, 50 mm, and
+500 mm/min while remaining editable. Manual direction routing depends on direct
+controller facts and the current commanded pen state, not camera, Vision,
+Learning, current-camera calibration, or visually confirmed pose. Known Down
+uses drawing ownership; Up or unknown uses ordinary manual-jog ownership, with
+unknown pose preserved in the resulting evidence.
+
 ## Sparse calibration data flow
 
 Stage 3.3 builds `CurrentCameraCalibrationPlan` from current Boundary aggregates
@@ -107,8 +123,8 @@ Stage 3.4 is split across three owners:
 - `SparseTipCalibrationCoordinator` owns the fixed position order, exact frozen-
   frame selection states, immutable accepted observation list, possible-ink
   terminal state, holdout review, rejection, and final acceptance state.
-- `OperatorWorkspace` owns supervised Pen-Up travel, the full fixed Pen Down
-  profile, 16 typed drawing chords capped at 100 mm/min for one centered 2
+- `OperatorWorkspace` owns supervised Pen-Up travel, the current Pen Interaction
+  Up/Down values, 16 typed drawing chords capped at 100 mm/min for one centered 2
   mm-radius circle, explicit Pen Up, far X-max/Y-zero-biased reveal travel, actual settled timestamps,
   exact frame/cap capture, UI action routing, and atomic graph/checkpoint commits.
 - `TipCalibrationAuthority` owns validated evidence types, smallest-passing

@@ -22,7 +22,7 @@ extension OperatorWorkspaceTests {
         beginRelativeJog: { _ in .rejected(.refused(.notConnected)) },
         requestDrawingStroke: { _ in .refused(.notConnected) },
         beginDrawingStroke: { _ in .rejected(.refused(.notConnected)) },
-        requestPenActuation: { _ in .refused(.notConnected) },
+        requestPenActuation: { _, _ in .refused(.notConnected) },
         requestBoundaryMotion: { request in
           .needsAttention(ownerID: request.ownerID, terminal: .refusal(.notConnected))
         },
@@ -95,7 +95,7 @@ extension OperatorWorkspaceTests {
         beginRelativeJog: { _ in .rejected(.refused(.notConnected)) },
         requestDrawingStroke: { _ in .refused(.notConnected) },
         beginDrawingStroke: { _ in .rejected(.refused(.notConnected)) },
-        requestPenActuation: { _ in .refused(.notConnected) },
+        requestPenActuation: { _, _ in .refused(.notConnected) },
         requestBoundaryMotion: { request in
           .needsAttention(ownerID: request.ownerID, terminal: .refusal(.notConnected))
         },
@@ -126,6 +126,161 @@ extension OperatorWorkspaceTests {
     )
     await workspace.clearControllerAlarm()
     #expect(await fixture.actions == ["select", "probe:alarm"])
+    await workspace.shutdown()
+  }
+
+  @Test("manual motion fields start at 50 mm, 50 mm, and 500 mm/min")
+  func manualMotionDefaults() throws {
+    let log = EventLog()
+    let machine = try MachineFixture(log: log)
+    let workspace = workspace(machine: machine, log: log)
+
+    #expect(workspace.xStepText == "50")
+    #expect(workspace.yStepText == "50")
+    #expect(workspace.feedText == "500")
+  }
+
+  @Test("unknown pen still admits an operator-authored manual direction request")
+  func unknownPenAllowsManualMotion() async throws {
+    let log = EventLog()
+    let machine = try MachineFixture(
+      log: log,
+      relativeJogSettlementOffset: try Vector2(dx: 0, dy: 0)
+    )
+    await machine.setPenState(.unknown)
+    let workspace = workspace(machine: machine, log: log)
+    await workspace.establishMachineSession(machine.descriptor)
+    await workspace.requestPassiveProbe()
+
+    #expect(workspace.motionUnavailableReason == nil)
+    await workspace.requestJog(.xPositive)
+
+    #expect(workspace.machinePositionText == "X 50.000   Y 0.000")
+    #expect(await machine.requestedFeeds == [500])
+    #expect(await machine.requestedDrawingStrokes.isEmpty)
+    await workspace.shutdown()
+  }
+
+  @Test("Pen Interaction sliders update current values and retain them in its existing attempt")
+  func penInteractionRetainsMutableCurrentValues() async throws {
+    let log = EventLog()
+    let machine = try MachineFixture(log: log)
+    let workspace = workspace(machine: machine, log: log)
+    await workspace.establishMachineSession(machine.descriptor)
+    await workspace.requestPassiveProbe()
+    let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+
+    await workspace.beginPenInteraction()
+    try requireStep(workspace, "answer-initially-up")
+    var strip = try #require(workspace.selectedOperatorActionPresentation(for: owner).actionStrip)
+    #expect(strip.penSetpointAdjustment?.command == .raise)
+    #expect(strip.penSetpointAdjustment?.value == 40)
+    #expect(strip.actions.map(\.title) == ["Next", "Cancel Attempt"])
+
+    await workspace.performExerciseAction(.setPenSetpoint(.raise, 55), for: owner)
+    try await waitUntilAsync {
+      await machine.requestedPenProfiles.last?.raisedSpindleValue == 55
+    }
+    await workspace.answerCurrentQuestion(.yes)
+
+    try requireStep(workspace, "answer-currently-down")
+    strip = try #require(workspace.selectedOperatorActionPresentation(for: owner).actionStrip)
+    #expect(strip.penSetpointAdjustment?.command == .lower)
+    #expect(strip.penSetpointAdjustment?.value == 760)
+    #expect(strip.actions.map(\.title) == ["Next", "Cancel Attempt"])
+
+    await workspace.performExerciseAction(.setPenSetpoint(.lower, 805), for: owner)
+    try await waitUntilAsync {
+      await machine.requestedPenProfiles.last?.loweredSpindleValue == 805
+    }
+    await workspace.answerCurrentQuestion(.yes)
+
+    try requireStep(workspace, "answer-finally-up")
+    strip = try #require(workspace.selectedOperatorActionPresentation(for: owner).actionStrip)
+    #expect(strip.penSetpointAdjustment?.command == .raise)
+    #expect(strip.penSetpointAdjustment?.value == 55)
+    await workspace.answerCurrentQuestion(.yes)
+
+    let evidence = try #require(workspace.currentPenInteractionAggregate?.value)
+    #expect(evidence.actuationProfile.raisedSpindleValue == 55)
+    #expect(evidence.actuationProfile.loweredSpindleValue == 805)
+    #expect(evidence.confirmedUpPositions.count == 2)
+    #expect(evidence.confirmedUpSpindleValues == [55, 55])
+    #expect(evidence.confirmedUpControllerOutcomes.count == 2)
+    #expect(evidence.confirmedUpTimestamps.count == 2)
+    #expect(evidence.confirmedDownPositions.count == 1)
+    #expect(evidence.confirmedDownSpindleValues == [805])
+    #expect(evidence.confirmedDownControllerOutcomes.count == 1)
+    #expect(evidence.confirmedDownTimestamps.count == 1)
+    #expect(workspace.learningArtifactGraph.currentRevision(for: .penInteraction) != nil)
+    await workspace.shutdown()
+  }
+
+  @Test("Pen Interaction coalesces drag values, Next waits, and Cancel drops an unaccepted value")
+  func penInteractionLatestValueAndCancelSemantics() async throws {
+    let log = EventLog()
+    let gate = PenRequestGate()
+    let machine = try MachineFixture(log: log, penRequestGate: gate)
+    let workspace = workspace(machine: machine, log: log)
+    await workspace.establishMachineSession(machine.descriptor)
+    await workspace.requestPassiveProbe()
+    let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+
+    await workspace.beginPenInteraction()
+    await workspace.performExerciseAction(.setPenSetpoint(.raise, 55), for: owner)
+    try await waitUntilAsync { await machine.requestedPenProfiles.count == 1 }
+    await workspace.performExerciseAction(.setPenSetpoint(.raise, 56), for: owner)
+    await workspace.performExerciseAction(.setPenSetpoint(.raise, 57), for: owner)
+
+    let next = Task { await workspace.answerCurrentQuestion(.yes) }
+    await Task.yield()
+    try requireStep(workspace, "answer-initially-up")
+    await gate.releaseFirstRequest()
+    await next.value
+
+    try requireStep(workspace, "answer-currently-down")
+    let commands = await machine.requestedPenCommands
+    let profiles = await machine.requestedPenProfiles
+    let raisedValues = zip(commands, profiles).compactMap { command, profile in
+      command == .raise ? profile.raisedSpindleValue : nil
+    }
+    #expect(raisedValues == [55, 57])
+    #expect(workspace.currentPenActuationProfile.raisedSpindleValue == 57)
+
+    await workspace.performExerciseAction(.setPenSetpoint(.lower, 820), for: owner)
+    try await waitUntilAsync {
+      await machine.requestedPenProfiles.last?.loweredSpindleValue == 820
+    }
+    await workspace.performExerciseAction(.cancel, for: owner)
+    #expect(workspace.currentPenActuationProfile.loweredSpindleValue == 760)
+    #expect(workspace.activeExerciseAttemptOwnerID == nil)
+    await workspace.shutdown()
+  }
+
+  @Test("Next accepts the observed value and records a refused slider outcome")
+  func penInteractionNextHasNoControllerOutcomeGuard() async throws {
+    let log = EventLog()
+    let machine = try MachineFixture(log: log)
+    await machine.enqueuePenOutcome(.refused(.controllerRejected("fixture refusal")))
+    let workspace = workspace(machine: machine, log: log)
+    await workspace.establishMachineSession(machine.descriptor)
+    await workspace.requestPassiveProbe()
+    let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+
+    await workspace.beginPenInteraction()
+    await workspace.performExerciseAction(.setPenSetpoint(.raise, 65), for: owner)
+    try await waitUntilAsync { await machine.requestedPenProfiles.count == 1 }
+    await workspace.answerCurrentQuestion(.yes)
+    #expect(workspace.currentPenActuationProfile.raisedSpindleValue == 65)
+
+    await workspace.answerCurrentQuestion(.yes)
+    await workspace.answerCurrentQuestion(.yes)
+    let evidence = try #require(workspace.currentPenInteractionAggregate?.value)
+    #expect(
+      evidence.confirmedUpControllerOutcomes.first
+        == .refused(.controllerRejected("fixture refusal"))
+    )
+    #expect(evidence.confirmedUpSpindleValues.first == 65)
     await workspace.shutdown()
   }
 
@@ -220,7 +375,7 @@ extension OperatorWorkspaceTests {
 
     await workspace.requestJog(.xPositive)
     #expect(await machine.requestedDrawingStrokes.isEmpty)
-    #expect(workspace.machinePositionText == "X 1.000   Y 0.000")
+    #expect(workspace.machinePositionText == "X 50.000   Y 0.000")
 
     workspace.toggleLearningMode()
     #expect(workspace.learningIsEnabled)

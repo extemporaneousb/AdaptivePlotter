@@ -50,7 +50,12 @@ operator name or identifier.
 2. Verify current units, distance mode, coordinate system, settings digest,
    pins, Pen state, Idle state, and MPos are expected.
 3. Enable Motion only after those facts are acceptable.
-4. Complete Pen Interaction without bypassing an unknown pose.
+4. Complete the existing Pen Interaction Up → Down → Up exercise. Use the Up
+   and Down sliders to choose functional values at the current position; **Next**
+   accepts the displayed value even if the request was refused or ambiguous.
+   Record the values and whatever controller outcome, timestamp, and MPos are
+   available. A fresh session is seeded at `S40` and `S760`; repeated attempts
+   start with the current values and may legitimately differ by position.
 5. For X−, X+, Y−, and Y+, choose the direction explicitly, start Boundary
    Discovery, watch the motion, and use the operation's exact **Stop**.
 6. Confirm each accepted side cites the selected direction plus final Idle/MPos.
@@ -84,10 +89,11 @@ For each of `C`, `X−`, `Y+`, `X+`, and `Y−`:
 2. Watch Pen-Up travel to the intended MPos and confirm it settles.
 3. Confirm the pre-mark frame and cap-map check are current.
 4. Watch Pen-Up travel 2 mm to the circle start and confirm settlement.
-5. Confirm the app commands the fixed complete lower profile (`M3 S760` and
-   0.3 s settlement). Directly observe whether the mechanism actually reaches
-   the paper; the command outcome alone is not physical proof. Stop the run if
-   the pen does not fully lower. Do not increase the spindle value ad hoc.
+5. Confirm the app commands the current Down value from Pen Interaction and its
+   configured settlement. Record the actual value. Directly observe whether the
+   mechanism reaches the paper; the command outcome alone is not physical proof.
+   Stop the run if the pen does not fully lower, then repeat Pen Interaction at
+   that position rather than changing the value outside the exercise.
 6. Watch one closed 4 mm-diameter circle complete as 16 short chords at no more
    than 100 mm/min, then one explicit Pen Up. Any stop, hesitation, unexpected path, or ambiguous chord
    ends the calibration and blacklists that circle location.

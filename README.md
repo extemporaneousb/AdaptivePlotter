@@ -55,8 +55,10 @@ owner.
 
 Applicable motion requires the direct facts consumed by the request: a selected
 responsive session, current Motion authorization, recognized controller state,
-compatible pins and context, current MPos when required, correct pen state,
-single-operation ownership, and no sticky ambiguity.
+compatible pins and context, current MPos when required, single-operation
+ownership, and no sticky ambiguity. Manual direction controls do not additionally
+depend on camera, Vision, Learning state, current-camera calibration, or a
+visually confirmed pen pose.
 
 The application does not home, unlock, clear alarms, reset the controller,
 write firmware settings, or treat entered bounds, a Learning Path stage, or
@@ -84,9 +86,9 @@ Stage 3.4 uses the same ordered cross. At each position the app:
 
 1. settles Pen Up at the intended MPos;
 2. captures an exact pre-mark frame and revalidates the cap map;
-3. moves Pen Up to the circle start, commands the complete configured lower
-   operation (`M3 S760`, then the configured 0.3 s settle), and accepts only a
-   settled Down outcome;
+3. moves Pen Up to the circle start, commands the complete lower operation with
+   the current Down value from Pen Interaction (`S760` initially, then the
+   configured settle), and accepts only a settled Down outcome;
 4. draws one closed 16-chord circle of 2 mm radius at no more than 100 mm/min,
    raises once, then moves Pen Up to the learned safe X+ limit and as close to
    machine Y=0 as the 10 mm Boundary inset permits;
@@ -95,10 +97,20 @@ Stage 3.4 uses the same ordered cross. At each position the app:
    the pre-mark cap anchor, and asks the operator to click the circle center;
 7. allows re-clicking only on the same frame, with no motion or ink action.
 
-The protocol has no independent pressure control and does not overdrive the
-actuator beyond its fixed local profile. A complete commanded lower plus its
-settlement is controller evidence; only attended observation can prove that the
-physical pen reached the paper.
+Pen Interaction retains its existing Up → Down → Up exercise. Its Up and Down
+steps expose sliders displaying the current settings, seeded at `S40` and
+`S760` for a fresh session; **Next** accepts the currently displayed value.
+Those are mutable current settings, not one fixed
+calibration for an entire run. Repeating the existing exercise at another
+position may select different values, and the exercise evidence retains the
+actual value plus the controller outcome, timestamp, and current MPos when each
+is available for later learning. Refusal, ambiguity, or unavailable MPos stays
+explicit and never disables **Next**. It does not create a separate servo-
+calibration entity.
+
+A complete commanded actuation plus its settlement is controller evidence;
+only attended observation can prove that the physical pen cleared or reached
+the paper.
 
 The predicted tip point is hidden until the click is made. Before accepted
 authority exists, the UI says **Tip not calibrated**. After a click, the UI
@@ -119,7 +131,7 @@ retry, redraw, resend, or continuation.
 
 `ToolContactObservation` is immutable evidence. It binds intended and settled
 machine poses, controller context, the 2 mm-radius/16-chord/100 mm/min-capped mark geometry, the
-fixed pen-actuation profile revision, Pen Down/Up outcomes, tool and paper
+actual current Down/Up actuation values, Pen Down/Up outcomes, tool and paper
 identities, exact pre/post frames, cap-map checks, asserted camera point,
 pointing uncertainty, presentation-transform revision, disposition, and
 consumed algorithm/artifact revisions.
@@ -185,6 +197,11 @@ The toolbar owns controller selection, Connect/Disconnect, Enable Motion, and
 compact status. Exercise Start, choices, Cancel, Stop, Restart, Redo, and Record
 Another Attempt stay with the exercise. Buttons are authoritative input; speech
 is advisory output only.
+
+Manual X distance, Y distance, and feed remain editable text fields initialized
+to 50 mm, 50 mm, and 500 mm/min. After Motion is enabled, camera, Vision,
+Learning, current-camera calibration, and visually confirmed pen pose do not
+disable the direction controls.
 
 Evidence claims remain separate:
 

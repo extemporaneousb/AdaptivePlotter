@@ -184,6 +184,7 @@ public actor MachineController {
   private var position: MachinePosition?
   private var pins = ControllerPins(rawValue: "")
   private var penState: PenState = .unknown
+  private var penActuationProfile = PenActuationProfile.initialDefaults
   private var motionGuardState: MotionGuardState = .inactive
   private var stickyAmbiguity: MotionAmbiguity?
   private var controllerAxisFeedLimits: ControllerAxisFeedLimits?
@@ -575,7 +576,7 @@ public actor MachineController {
         outcome: .refused(wireResult.refusal ?? .nonFiniteDelta)
       )
     }
-    if let refusal = validateSessionAndRequest(wire) {
+    if let refusal = validateSessionAndRequest(wire, request: request) {
       let outcome = MotionOutcome.refused(refusal)
       lastMotionOutcome = outcome
       recordMotionBestEffort(request: request, outcome: outcome)
@@ -977,14 +978,22 @@ public actor MachineController {
 
   /// Sends one closed pen command followed by the fixed settle dwell. A successful
   /// result records the controller-commanded state, not a visually proven state.
-  public func requestPenActuation(_ command: PenCommand) async -> PenOutcome {
+  public func requestPenActuation(
+    _ command: PenCommand,
+    profile: PenActuationProfile
+  ) async -> PenOutcome {
     guard activeOperation == nil else {
-      return finishPen(command: command, outcome: .refused(.operationInFlight))
+      return finishPen(
+        command: command,
+        profile: profile,
+        outcome: .refused(.operationInFlight)
+      )
     }
     if let refusal = validatePenSession(command) {
-      return finishPen(command: command, outcome: .refused(refusal))
+      return finishPen(command: command, profile: profile, outcome: .refused(refusal))
     }
 
+    penActuationProfile = profile
     activeOperation = .penActuation
     defer {
       activeOperation = nil
@@ -997,6 +1006,7 @@ public actor MachineController {
       await closeAndInvalidateKnowledge()
       return finishPen(
         command: command,
+        profile: profile,
         outcome: .refused(
           .freshStatusUnavailable(
             "could not discard pending controller input: \(String(describing: error))"
@@ -1011,33 +1021,42 @@ public actor MachineController {
       apply(report)
       if let refusal = validateFreshPenStatus(command) {
         await closeAndInvalidateKnowledge()
-        return finishPen(command: command, outcome: .refused(refusal))
+        return finishPen(command: command, profile: profile, outcome: .refused(refusal))
       }
     case .ambiguous(let reason):
       await closeAndInvalidateKnowledge()
       return finishPen(
         command: command,
+        profile: profile,
         outcome: .refused(.freshStatusUnavailable(Self.admissionFailureDescription(reason)))
       )
     }
 
-    return await transmitPenActuation(command)
+    return await transmitPenActuation(command, profile: profile)
   }
 
   /// Performs the already-admitted closed pen command. Drawing-stroke
   /// cancellation uses this exact wire path after its final Idle/MPos sample,
   /// while the drawing stroke remains the single active operation.
-  private func transmitPenActuation(_ command: PenCommand) async -> PenOutcome {
+  private func transmitPenActuation(
+    _ command: PenCommand,
+    profile: PenActuationProfile? = nil
+  ) async -> PenOutcome {
     connection = .actuatingPen
-    let profile = PenActuationProfile.localPlotter
+    let profile = profile ?? penActuationProfile
     let actuationBytes = profile.actuationBytes(for: command)
     do {
       try await writePhysicalCommand(actuationBytes)
     } catch let error as MachineLinkError {
-      return finishPen(command: command, outcome: penOutcomeForWriteError(error))
+      return finishPen(
+        command: command,
+        profile: profile,
+        outcome: penOutcomeForWriteError(error)
+      )
     } catch {
       return finishPen(
         command: command,
+        profile: profile,
         outcome: ambiguousPen(.transport(String(describing: error)))
       )
     }
@@ -1047,19 +1066,28 @@ public actor MachineController {
       break
     case .rejected(let reason):
       connection = .connected
-      return finishPen(command: command, outcome: .refused(.controllerRejected(reason)))
+      return finishPen(
+        command: command,
+        profile: profile,
+        outcome: .refused(.controllerRejected(reason))
+      )
     case .ambiguous(let reason):
-      return finishPen(command: command, outcome: ambiguousPen(reason))
+      return finishPen(command: command, profile: profile, outcome: ambiguousPen(reason))
     }
 
     let settleBytes = profile.settleBytes
     do {
       try await writePhysicalCommand(settleBytes)
     } catch let error as MachineLinkError {
-      return finishPen(command: command, outcome: penOutcomeForWriteError(error))
+      return finishPen(
+        command: command,
+        profile: profile,
+        outcome: penOutcomeForWriteError(error)
+      )
     } catch {
       return finishPen(
         command: command,
+        profile: profile,
         outcome: ambiguousPen(.transport(String(describing: error)))
       )
     }
@@ -1070,6 +1098,7 @@ public actor MachineController {
       connection = .connected
       return finishPen(
         command: command,
+        profile: profile,
         outcome: .commandedAndSettled(
           command: command,
           commandedState: command.commandedState
@@ -1078,19 +1107,25 @@ public actor MachineController {
     case .rejected(let reason):
       return finishPen(
         command: command,
+        profile: profile,
         outcome: ambiguousPen(.settleCommandRejected(reason))
       )
     case .ambiguous(let reason):
-      return finishPen(command: command, outcome: ambiguousPen(reason))
+      return finishPen(command: command, profile: profile, outcome: ambiguousPen(reason))
     }
   }
 
-  public static func encodePenActuation(_ command: PenCommand) -> Data {
-    PenActuationProfile.localPlotter.actuationBytes(for: command)
+  public static func encodePenActuation(
+    _ command: PenCommand,
+    profile: PenActuationProfile
+  ) -> Data {
+    profile.actuationBytes(for: command)
   }
 
-  public static var encodePenSettle: Data {
-    PenActuationProfile.localPlotter.settleBytes
+  public static func encodePenSettle(
+    profile: PenActuationProfile
+  ) -> Data {
+    profile.settleBytes
   }
 
   public static func completionTimeoutNanoseconds(
@@ -1322,12 +1357,17 @@ public actor MachineController {
     }
   }
 
-  private func validateSessionAndRequest(_ wire: WireRelativeJog) -> MotionRefusal? {
+  private func validateSessionAndRequest(
+    _ wire: WireRelativeJog,
+    request: RelativeJogRequest
+  ) -> MotionRefusal? {
     guard selectionIsExplicit else { return .noSerialDeviceSelected }
     if let stickyAmbiguity { return .stickyAmbiguity(stickyAmbiguity) }
     guard connection == .connected else { return .notConnected }
     guard motionGuardState == .active else { return .motionGuardInactive }
-    guard penState == .up else { return .penNotUp(penState) }
+    guard penState == .up
+      || (penState == .unknown && request.permitsUnknownPenStateAsPossibleInk)
+    else { return .penNotUp(penState) }
     if let maximumFeed = controllerMaximumFeed(for: wire),
       wire.feedMMPerMinute > maximumFeed
     {
@@ -1843,9 +1883,17 @@ public actor MachineController {
     return outcome
   }
 
-  private func finishPen(command: PenCommand, outcome: PenOutcome) -> PenOutcome {
+  private func finishPen(
+    command: PenCommand,
+    profile: PenActuationProfile? = nil,
+    outcome: PenOutcome
+  ) -> PenOutcome {
     lastPenOutcome = outcome
-    recordPenBestEffort(command: command, outcome: outcome)
+    recordPenBestEffort(
+      command: command,
+      profile: profile ?? penActuationProfile,
+      outcome: outcome
+    )
     return outcome
   }
 
@@ -2131,8 +2179,17 @@ public actor MachineController {
     )
   }
 
-  private func recordPenBestEffort(command: PenCommand, outcome: PenOutcome) {
-    let record = PenDiagnosticRecord(command: command, outcome: outcome, timestamp: timestamp())
+  private func recordPenBestEffort(
+    command: PenCommand,
+    profile: PenActuationProfile,
+    outcome: PenOutcome
+  ) {
+    let record = PenDiagnosticRecord(
+      command: command,
+      profile: profile,
+      outcome: outcome,
+      timestamp: timestamp()
+    )
     guard let payload = try? JSONEncoder().encode(record) else { return }
     enqueueLedgerEvent(
       timestamp: record.timestamp,

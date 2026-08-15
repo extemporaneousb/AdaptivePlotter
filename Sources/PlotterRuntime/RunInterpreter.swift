@@ -470,7 +470,10 @@ public actor RunInterpreter {
     return outcome
   }
 
-  public func requestPenActuation(_ command: PenCommand) async -> PenOutcome {
+  public func requestPenActuation(
+    _ command: PenCommand,
+    profile: PenActuationProfile
+  ) async -> PenOutcome {
     guard currentOperation == .idle else {
       let outcome = PenOutcome.refused(.operationInFlight)
       lastPenOutcome = outcome
@@ -478,7 +481,7 @@ public actor RunInterpreter {
     }
     generation &+= 1
     currentOperation = .penActuation(command)
-    let outcome = await machineController.requestPenActuation(command)
+    let outcome = await machineController.requestPenActuation(command, profile: profile)
     lastPenOutcome = outcome
     currentOperation = .idle
     return outcome

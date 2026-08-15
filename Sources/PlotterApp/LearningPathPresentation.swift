@@ -418,6 +418,7 @@ enum MotionRequestStatusPresentation: Hashable, Sendable {
 enum ExerciseActionKind: Hashable, Sendable {
   case start
   case choice(OperatorChoice)
+  case setPenSetpoint(PenCommand, Int)
   case cancel
   case stop(ContextualStopCapabilityID)
   case restart
@@ -531,22 +532,47 @@ struct ExerciseDirectionSelectionPresentation: Hashable, Sendable {
   }
 }
 
+struct PenSetpointAdjustmentPresentation: Hashable, Sendable {
+  let command: PenCommand
+  let value: Int
+  let minimumValue: Int
+  let maximumValue: Int
+
+  var title: String { command == .raise ? "Pen Up servo" : "Pen Down servo" }
+
+  init(
+    command: PenCommand,
+    value: Int,
+    minimumValue: Int = 0,
+    maximumValue: Int = 1000
+  ) {
+    precondition(minimumValue <= value && value <= maximumValue)
+    self.command = command
+    self.value = value
+    self.minimumValue = minimumValue
+    self.maximumValue = maximumValue
+  }
+}
+
 struct ExerciseActionStripPresentation: Hashable, Sendable {
   let ownerID: LearningPathItemID
   let actions: [ExerciseActionDescriptor]
   let directionSelection: ExerciseDirectionSelectionPresentation?
+  let penSetpointAdjustment: PenSetpointAdjustmentPresentation?
   let mustRemainVisible: Bool
 
   init(
     ownerID: LearningPathItemID,
     actions: [ExerciseActionDescriptor],
     directionSelection: ExerciseDirectionSelectionPresentation? = nil,
+    penSetpointAdjustment: PenSetpointAdjustmentPresentation? = nil,
     mustRemainVisible: Bool = false
   ) {
     precondition(Set(actions.map(\.id)).count == actions.count)
     self.ownerID = ownerID
     self.actions = actions
     self.directionSelection = directionSelection
+    self.penSetpointAdjustment = penSetpointAdjustment
     self.mustRemainVisible = mustRemainVisible
   }
 }

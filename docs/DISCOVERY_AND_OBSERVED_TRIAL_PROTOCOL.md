@@ -1,6 +1,6 @@
 # Discovery and Observed-Trial Protocol
 
-Status: current operating protocol for Learning Path 3.2 through 4.6
+Status: current operating protocol for Learning Path 3.1 through 4.6
 
 This document owns the exact actor, action, evidence, dependency, and recovery
 sequence. Durable semantics remain in [Product Contract](PRODUCT_CONTRACT.md).
@@ -45,6 +45,28 @@ Euclidean policy.
 Presentation zoom, pan, and fitted bounds are available after 3.2. They are
 view-only. Exact camera-pixel evidence and calibration authority do not change
 when the presentation transform changes.
+
+## 3.1 Pen Interaction
+
+1. Start the existing Pen Interaction attempt.
+2. The Up step presents the current Up slider. It is seeded at `S40` in a fresh
+   session and otherwise starts from the already-current value. Moving it
+   commands the displayed value. **Next** remains available and accepts that
+   value together with the available controller outcome, timestamp, and current
+   MPos. Refusal, ambiguity, or unavailable evidence remains explicit and does
+   not disable **Next**.
+3. The Down step presents the current Down slider, seeded at `S760` in a fresh
+   session and otherwise starting from the already-current value, with the same
+   move-and-accept behavior.
+4. The final Up step commands the accepted current Up value and completes the
+   existing Up → Down → Up attempt.
+
+The accepted values become the current Up and Down settings consumed by later
+pen operations. They are not required to remain constant across the run.
+Repeating Pen Interaction at another position creates another existing attempt
+with its actual values and available position/actuation evidence so future
+learning can evaluate positional variation. It does not create a separate
+calibration exercise or artifact.
 
 ## 3.2 Paired Boundary Discovery and Centering
 
@@ -157,16 +179,18 @@ For each mark:
 5. Retain the pre-mark frame as local evidence.
 6. Verify the full 2 mm-radius circle lies within the learned Boundary's 10 mm
    safety inset, then move Pen Up to the circle's +X start point and settle.
-7. Command the complete fixed local lower operation: `M3 S760`, controller
-   acknowledgement, `G4 P0.3`, controller acknowledgement, and a settled Down
-   outcome. There is no independent pressure command or permitted overdrive.
+7. Command the complete lower operation with the current Down value accepted in
+   Pen Interaction (`S760` initially), controller acknowledgement, configured
+   settlement and acknowledgement, and a settled Down outcome. Record the
+   actual value consumed by this mark.
 8. Draw one closed 16-chord circle under typed drawing ownership. Cap drawing
    feed at 100 mm/min or the lower controller-reported axis ceiling. Each chord
    is finite and stoppable; the 16-chord radial approximation error is about
    0.038 mm, below the shared 0.05 mm position policy. Require settled final MPos
    after every chord.
-9. Command Pen Up once and require an unambiguous settled Up outcome. If any
-   chord or Pen outcome after possible contact is stopped or ambiguous,
+9. Command Pen Up once using the current Up value accepted in Pen Interaction
+   (`S40` initially) and require an unambiguous settled Up outcome. If any chord
+   or Pen outcome after possible contact is stopped or ambiguous,
    blacklist this circle center/radius on the current paper and stop. Never
    redraw it automatically.
 10. Move Pen Up to the learned safe X+ limit and toward machine Y=0, clamping Y

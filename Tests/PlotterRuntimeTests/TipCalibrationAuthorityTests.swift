@@ -8,13 +8,21 @@ struct TipCalibrationAuthorityTests {
   @Test("Tool contact evidence preserves exact asserted-center provenance")
   func toolContactObservationIsImmutableExactEvidence() throws {
     let fixture = try TipAuthorityFixture()
-    let observation = try fixture.observation(position: .center)
+    let profile = PenActuationProfile(
+      raisedSpindleValue: 55,
+      loweredSpindleValue: 805,
+      settleSeconds: 0.3
+    )
+    let observation = try fixture.observation(position: .center, penProfile: profile)
 
     #expect(observation.disposition == .accepted)
     #expect(observation.click.role == .assertedCenter)
     #expect(observation.preMarkFrame.archivedBytes == nil)
     #expect(observation.capMapResidualPixels == 2)
     #expect(observation.revealEvidence.capMapResidualPixels == 1)
+    #expect(observation.penDown.profile == profile)
+    #expect(observation.penDown.profile.value(for: .lower) == 805)
+    #expect(observation.penUp.profile.value(for: .raise) == 55)
     #expect(try observation.durableEvidenceSHA256().count == 64)
     #expect(!observation.disposition.blacklistsPhysicalLocation)
 
@@ -457,6 +465,7 @@ private struct TipAuthorityFixture {
     position: ToolContactCalibrationPosition,
     disposition: ToolContactObservationDisposition = .accepted,
     penDown: PenOutcome = .commandedAndSettled(command: .lower, commandedState: .down),
+    penProfile: PenActuationProfile = .initialDefaults,
     failingClick: Bool = false,
     markPositionResidualMM: Double = 0.01,
     revealPositionResidualMM: Double = 0.01,
@@ -504,9 +513,14 @@ private struct TipAuthorityFixture {
         chordCount: 16,
         maximumFeedMMPerMinute: 100
       ),
-      penDown: PenActuationEvidence(outcome: penDown, timestamp: timestamp(200 + timeOffset)),
+      penDown: PenActuationEvidence(
+        outcome: penDown,
+        profile: penProfile,
+        timestamp: timestamp(200 + timeOffset)
+      ),
       penUp: PenActuationEvidence(
         outcome: .commandedAndSettled(command: .raise, commandedState: .up),
+        profile: penProfile,
         timestamp: timestamp(300 + timeOffset)
       ),
       toolAssembly: toolAssembly,

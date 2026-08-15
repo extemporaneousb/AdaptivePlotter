@@ -45,10 +45,35 @@ public enum MachineLinkError: Error, Equatable, Sendable {
 public struct RelativeJogRequest: Codable, Hashable, Sendable {
   public let delta: Vector2<MachineSpace>
   public let feedMMPerMinute: Double
+  /// Manual operator motion may proceed when the controller-commanded pen
+  /// state is unknown. That move is conservatively treated as possible ink;
+  /// automated carriage travel leaves this false and still requires Pen Up.
+  public let permitsUnknownPenStateAsPossibleInk: Bool
 
-  public init(delta: Vector2<MachineSpace>, feedMMPerMinute: Double) {
+  public init(
+    delta: Vector2<MachineSpace>,
+    feedMMPerMinute: Double,
+    permitsUnknownPenStateAsPossibleInk: Bool = false
+  ) {
     self.delta = delta
     self.feedMMPerMinute = feedMMPerMinute
+    self.permitsUnknownPenStateAsPossibleInk = permitsUnknownPenStateAsPossibleInk
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case delta
+    case feedMMPerMinute
+    case permitsUnknownPenStateAsPossibleInk
+  }
+
+  public init(from decoder: any Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    delta = try container.decode(Vector2<MachineSpace>.self, forKey: .delta)
+    feedMMPerMinute = try container.decode(Double.self, forKey: .feedMMPerMinute)
+    permitsUnknownPenStateAsPossibleInk = try container.decodeIfPresent(
+      Bool.self,
+      forKey: .permitsUnknownPenStateAsPossibleInk
+    ) ?? false
   }
 }
 
@@ -260,11 +285,10 @@ public enum PenCommand: String, Codable, Hashable, Sendable {
   }
 }
 
-/// Fixed local encoding recovered from the plotter's proven pen mechanism.
-/// The values are not operator-editable controller settings.
-public struct PenActuationProfile: Hashable, Sendable {
-  public static let localPlotterRevision = "local-plotter-m3-s760-settle-0.3-v1"
-  public static let localPlotter = PenActuationProfile(
+/// Current-run pen actuation settings. The static value is only the initial
+/// seed; every physical request carries the session's current values.
+public struct PenActuationProfile: Codable, Hashable, Sendable {
+  public static let initialDefaults = PenActuationProfile(
     raisedSpindleValue: 40,
     loweredSpindleValue: 760,
     settleSeconds: 0.3
@@ -274,14 +298,47 @@ public struct PenActuationProfile: Hashable, Sendable {
   public let loweredSpindleValue: Int
   public let settleSeconds: Double
 
-  private init(
+  public init(
     raisedSpindleValue: Int,
     loweredSpindleValue: Int,
     settleSeconds: Double
   ) {
+    precondition((0...1000).contains(raisedSpindleValue))
+    precondition((0...1000).contains(loweredSpindleValue))
+    precondition(settleSeconds.isFinite && settleSeconds >= 0)
     self.raisedSpindleValue = raisedSpindleValue
     self.loweredSpindleValue = loweredSpindleValue
     self.settleSeconds = settleSeconds
+  }
+
+  public func replacingValue(for command: PenCommand, with value: Int) -> Self {
+    switch command {
+    case .raise:
+      Self(
+        raisedSpindleValue: value,
+        loweredSpindleValue: loweredSpindleValue,
+        settleSeconds: settleSeconds
+      )
+    case .lower:
+      Self(
+        raisedSpindleValue: raisedSpindleValue,
+        loweredSpindleValue: value,
+        settleSeconds: settleSeconds
+      )
+    }
+  }
+
+  public func value(for command: PenCommand) -> Int {
+    command == .raise ? raisedSpindleValue : loweredSpindleValue
+  }
+
+  public var revision: String {
+    let settle = String(
+      format: "%.3f",
+      locale: Locale(identifier: "en_US_POSIX"),
+      settleSeconds
+    )
+    return "m3-up-\(raisedSpindleValue)-down-\(loweredSpindleValue)-settle-\(settle)-v2"
   }
 
   public func actuationBytes(for command: PenCommand) -> Data {
@@ -686,11 +743,18 @@ public struct DrawingStrokeDiagnosticRecord: Codable, Hashable, Sendable {
 
 public struct PenDiagnosticRecord: Codable, Hashable, Sendable {
   public let command: PenCommand
+  public let profile: PenActuationProfile
   public let outcome: PenOutcome
   public let timestamp: RuntimeTimestamp
 
-  public init(command: PenCommand, outcome: PenOutcome, timestamp: RuntimeTimestamp) {
+  public init(
+    command: PenCommand,
+    profile: PenActuationProfile,
+    outcome: PenOutcome,
+    timestamp: RuntimeTimestamp
+  ) {
     self.command = command
+    self.profile = profile
     self.outcome = outcome
     self.timestamp = timestamp
   }

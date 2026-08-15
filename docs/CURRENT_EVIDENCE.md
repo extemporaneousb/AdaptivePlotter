@@ -185,7 +185,8 @@ The current source contains exactly two post-Boundary calibration exercises:
 - 3.3 five-cap machine-to-visible-cap registration with three fit samples and
   two sealed holdouts;
 - 3.4 five centered 2 mm-radius, 16-chord circular-mark observations capped at
-  100 mm/min and using the full fixed Pen Down profile, far safe X-max/Y-zero-biased Pen-Up reveal,
+  100 mm/min and using the current Up/Down values from the existing Pen
+  Interaction exercise, far safe X-max/Y-zero-biased Pen-Up reveal,
   stronger presentation-only focus, frozen exact-frame human center clicks,
   post-click uncertainty/prediction/residual review, two holdouts,
   smallest-passing model selection, and explicit tip acceptance.

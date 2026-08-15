@@ -377,7 +377,7 @@ struct MachineControllerTests {
     #expect(retried.blockers.isEmpty)
     #expect(await controller.activateMotionGuard() == .activated)
     #expect(
-      await controller.requestPenActuation(.raise)
+      await controller.requestPenActuation(.raise, profile: .initialDefaults)
         == .commandedAndSettled(command: .raise, commandedState: .up)
     )
     #expect(
@@ -745,7 +745,7 @@ struct RelativeJogTests {
     _ = await controller.runPassiveProbe()
     #expect(await controller.activateMotionGuard() == .activated)
     #expect(
-      await controller.requestPenActuation(.raise)
+      await controller.requestPenActuation(.raise, profile: .initialDefaults)
         == .commandedAndSettled(command: .raise, commandedState: .up)
     )
 
@@ -1035,7 +1035,7 @@ struct RelativeJogTests {
     }
   }
 
-  @Test("alarm, asserted limits, unknown pen, and inactive guard refuse before write")
+  @Test("alarm, asserted limits, and inactive guard refuse before write")
   func stateRefusals() async throws {
     let alarm = try await readyController(
       freshStatusExchange: statusExchange("<Alarm|MPos:0.000,0.000,0.000>")
@@ -1051,16 +1051,43 @@ struct RelativeJogTests {
       await limit.controller.requestRelativeJog(try jog(dx: 1, dy: 0, feed: 60))
         == .refused(.relevantLimitAsserted("X")))
 
-    let unknownPen = try await readyController(raisePen: false)
-    #expect(
-      await unknownPen.controller.requestRelativeJog(try jog(dx: 1, dy: 0, feed: 60))
-        == .refused(.penNotUp(.unknown)))
-
     let inactive = try await readyController(raisePen: false, activateGuard: false)
     #expect(
       await inactive.controller.requestRelativeJog(try jog(dx: 1, dy: 0, feed: 60))
         == .refused(.motionGuardInactive))
     #expect((await inactive.controller.snapshot()).motionGuardState == .inactive)
+  }
+
+  @Test("unknown pen does not prevent an operator-authored ordinary jog")
+  func unknownPenAllowsOrdinaryJog() async throws {
+    let unflagged = RelativeJogRequest(
+      delta: try Vector2(dx: 1, dy: 0),
+      feedMMPerMinute: 60
+    )
+    let request = RelativeJogRequest(
+      delta: try Vector2(dx: 1, dy: 0),
+      feedMMPerMinute: 60,
+      permitsUnknownPenStateAsPossibleInk: true
+    )
+    let ready = try await readyController(
+      motion: [
+        exchange(request, ["ok\r\n"]),
+        statusExchange("<Idle|MPos:1.000,0.000,0.000>"),
+      ],
+      raisePen: false
+    )
+
+    let writesBeforeUnflaggedRequest = ready.link.completedWriteCount
+    #expect(
+      await ready.controller.requestRelativeJog(unflagged)
+        == .refused(.penNotUp(.unknown))
+    )
+    #expect(ready.link.completedWriteCount == writesBeforeUnflaggedRequest)
+    #expect(
+      await ready.controller.requestRelativeJog(request)
+        == .acceptedThenCompleted(finalPosition: try MachinePosition(x: 1, y: 0))
+    )
+    #expect((await ready.controller.snapshot()).penState == .unknown)
   }
 
   @Test("ok is acceptance only; Jog is polled until Idle supplies final MPos")
@@ -1194,7 +1221,7 @@ struct RelativeJogTests {
     _ = await controller.runPassiveProbe()
     #expect(await controller.activateMotionGuard() == .activated)
     #expect(
-      await controller.requestPenActuation(.raise)
+      await controller.requestPenActuation(.raise, profile: .initialDefaults)
         == .commandedAndSettled(command: .raise, commandedState: .up)
     )
     #expect(
@@ -1246,7 +1273,7 @@ struct RelativeJogTests {
     _ = await controller.runPassiveProbe()
     #expect(await controller.activateMotionGuard() == .activated)
     #expect(
-      await controller.requestPenActuation(.raise)
+      await controller.requestPenActuation(.raise, profile: .initialDefaults)
         == .commandedAndSettled(command: .raise, commandedState: .up)
     )
 
@@ -1394,7 +1421,7 @@ struct RelativeJogTests {
     _ = await controller.runPassiveProbe()
     #expect(await controller.activateMotionGuard() == .activated)
     #expect(
-      await controller.requestPenActuation(.raise)
+      await controller.requestPenActuation(.raise, profile: .initialDefaults)
         == .commandedAndSettled(command: .raise, commandedState: .up)
     )
     #expect(
@@ -1454,11 +1481,22 @@ struct DrawingStrokeTests {
     #expect(snapshot.stickyAmbiguity == nil)
   }
 
-  @Test("Pen Up and unknown pen refuse drawing without weakening ordinary jog")
+  @Test("Pen Up and unknown pen refuse drawing without blocking ordinary jog")
   func penStateRefusals() async throws {
     let request = try stroke(dx: 1, dy: 0, feed: 60)
     let unknown = try await readyDrawingStrokeController(
       request: request,
+      motion: [
+        exchange(
+          RelativeJogRequest(
+            delta: request.delta,
+            feedMMPerMinute: request.feedMMPerMinute,
+            permitsUnknownPenStateAsPossibleInk: true
+          ),
+          ["ok\r\n"]
+        ),
+        statusExchange("<Idle|MPos:1.000,0.000,0.000>"),
+      ],
       commandedPen: nil
     )
     let unknownWrites = unknown.link.completedWriteCount
@@ -1467,6 +1505,15 @@ struct DrawingStrokeTests {
         == .refused(.penNotDown(.unknown))
     )
     #expect(unknown.link.completedWriteCount == unknownWrites)
+    #expect(
+      await unknown.controller.requestRelativeJog(
+        RelativeJogRequest(
+          delta: request.delta,
+          feedMMPerMinute: request.feedMMPerMinute,
+          permitsUnknownPenStateAsPossibleInk: true
+        )
+      ) == .acceptedThenCompleted(finalPosition: try MachinePosition(x: 1, y: 0))
+    )
 
     let up = try await readyDrawingStrokeController(
       request: request,
@@ -1647,16 +1694,24 @@ struct DrawingStrokeTests {
 
 @Suite("Typed pen actuation")
 struct PenActuationTests {
-  @Test("local pen profile is a closed exact wire surface")
+  @Test("initial and operator-selected pen values are closed exact wire surfaces")
   func exactWireBytes() {
-    let profile = PenActuationProfile.localPlotter
-    #expect(PenActuationProfile.localPlotterRevision == "local-plotter-m3-s760-settle-0.3-v1")
-    #expect(profile.raisedSpindleValue == 40)
-    #expect(profile.loweredSpindleValue == 760)
-    #expect(profile.settleSeconds == 0.3)
-    #expect(MachineController.encodePenActuation(.raise) == Data("M3 S40\n".utf8))
-    #expect(MachineController.encodePenActuation(.lower) == Data("M3 S760\n".utf8))
-    #expect(MachineController.encodePenSettle == Data("G4 P0.3\n".utf8))
+    let defaults = PenActuationProfile.initialDefaults
+    #expect(defaults.raisedSpindleValue == 40)
+    #expect(defaults.loweredSpindleValue == 760)
+    #expect(defaults.settleSeconds == 0.3)
+    #expect(MachineController.encodePenActuation(.raise, profile: .initialDefaults) == Data("M3 S40\n".utf8))
+    #expect(MachineController.encodePenActuation(.lower, profile: .initialDefaults) == Data("M3 S760\n".utf8))
+    #expect(MachineController.encodePenSettle(profile: .initialDefaults) == Data("G4 P0.3\n".utf8))
+
+    let tuned = PenActuationProfile(
+      raisedSpindleValue: 75,
+      loweredSpindleValue: 825,
+      settleSeconds: 0.3
+    )
+    #expect(MachineController.encodePenActuation(.raise, profile: tuned) == Data("M3 S75\n".utf8))
+    #expect(MachineController.encodePenActuation(.lower, profile: tuned) == Data("M3 S825\n".utf8))
+    #expect(MachineController.encodePenSettle(profile: tuned) == Data("G4 P0.3\n".utf8))
   }
 
   @Test("raising requires an active guard and fresh Idle but not a known position")
@@ -1666,7 +1721,7 @@ struct PenActuationTests {
       commands: successfulPenCommands(.raise)
     )
 
-    let outcome = await ready.controller.requestPenActuation(.raise)
+    let outcome = await ready.controller.requestPenActuation(.raise, profile: .initialDefaults)
 
     #expect(outcome == .commandedAndSettled(command: .raise, commandedState: .up))
     let snapshot = await ready.controller.snapshot()
@@ -1677,7 +1732,7 @@ struct PenActuationTests {
 
     let inactive = try await penReadyController(activateGuard: false)
     #expect(
-      await inactive.controller.requestPenActuation(.raise)
+      await inactive.controller.requestPenActuation(.raise, profile: .initialDefaults)
         == .refused(.motionGuardInactive)
     )
     #expect(inactive.link.completedWriteCount == PassiveQuery.allCases.count)
@@ -1686,13 +1741,13 @@ struct PenActuationTests {
   @Test("lowering requires fresh MPos and no asserted XY limit, but no operator bounds")
   func lowerSafetyBoundary() async throws {
     let accepted = try await penReadyController(commands: successfulPenCommands(.lower))
-    let acceptedOutcome = await accepted.controller.requestPenActuation(.lower)
+    let acceptedOutcome = await accepted.controller.requestPenActuation(.lower, profile: .initialDefaults)
     #expect(acceptedOutcome == .commandedAndSettled(command: .lower, commandedState: .down))
     #expect((await accepted.controller.snapshot()).penState == .down)
 
     let noPosition = try await penReadyController(status: "<Idle|WPos:0.000,0.000,0.000>")
     #expect(
-      await noPosition.controller.requestPenActuation(.lower)
+      await noPosition.controller.requestPenActuation(.lower, profile: .initialDefaults)
         == .refused(.machinePositionUnknown)
     )
     #expect((await noPosition.controller.snapshot()).connection == .disconnected)
@@ -1702,7 +1757,7 @@ struct PenActuationTests {
       commands: successfulPenCommands(.lower)
     )
     #expect(
-      await arbitraryPosition.controller.requestPenActuation(.lower)
+      await arbitraryPosition.controller.requestPenActuation(.lower, profile: .initialDefaults)
         == .commandedAndSettled(command: .lower, commandedState: .down)
     )
 
@@ -1710,7 +1765,7 @@ struct PenActuationTests {
       freshStatus: "<Idle|MPos:0.000,0.000,0.000|Pn:X>"
     )
     #expect(
-      await asserted.controller.requestPenActuation(.lower)
+      await asserted.controller.requestPenActuation(.lower, profile: .initialDefaults)
         == .refused(.relevantLimitAsserted("X"))
     )
   }
@@ -1723,7 +1778,7 @@ struct PenActuationTests {
     ]
     for (status, refusal) in cases {
       let ready = try await penReadyController(freshStatus: status)
-      #expect(await ready.controller.requestPenActuation(.raise) == .refused(refusal))
+      #expect(await ready.controller.requestPenActuation(.raise, profile: .initialDefaults) == .refused(refusal))
       #expect(ready.link.completedWriteCount == PassiveQuery.allCases.count + 1)
       let snapshot = await ready.controller.snapshot()
       #expect(snapshot.connection == .disconnected)
@@ -1733,7 +1788,7 @@ struct PenActuationTests {
 
   @Test("partial actuation write is sticky, unknown, and never resent")
   func partialWriteIsSticky() async throws {
-    let bytes = MachineController.encodePenActuation(.raise)
+    let bytes = MachineController.encodePenActuation(.raise, profile: .initialDefaults)
     let ready = try await penReadyController(commands: [
       SimulatedCommandExchange(
         expectedWrite: bytes,
@@ -1742,12 +1797,12 @@ struct PenActuationTests {
       )
     ])
 
-    let first = await ready.controller.requestPenActuation(.raise)
+    let first = await ready.controller.requestPenActuation(.raise, profile: .initialDefaults)
     let ambiguity = MotionAmbiguity.partialWrite(bytesWritten: 3, totalBytes: bytes.count)
     #expect(first == .ambiguous(ambiguity))
     let writes = ready.link.completedWriteCount
     #expect(
-      await ready.controller.requestPenActuation(.raise)
+      await ready.controller.requestPenActuation(.raise, profile: .initialDefaults)
         == .refused(.stickyAmbiguity(ambiguity))
     )
     #expect(ready.link.completedWriteCount == writes)
@@ -1761,13 +1816,13 @@ struct PenActuationTests {
     let ready = try await penReadyController(commands: [
       penExchange(.raise, chunks: ["ok\r\n"]),
       SimulatedCommandExchange(
-        expectedWrite: MachineController.encodePenSettle,
+        expectedWrite: MachineController.encodePenSettle(profile: .initialDefaults),
         reads: [ScheduledMachineRead(outcome: .bytes(Data("error:20\r\n".utf8)))]
       ),
     ])
 
     let ambiguity = MotionAmbiguity.settleCommandRejected("error:20")
-    #expect(await ready.controller.requestPenActuation(.raise) == .ambiguous(ambiguity))
+    #expect(await ready.controller.requestPenActuation(.raise, profile: .initialDefaults) == .ambiguous(ambiguity))
     let snapshot = await ready.controller.snapshot()
     #expect(snapshot.penState == .unknown)
     #expect(snapshot.stickyAmbiguity == ambiguity)
@@ -1782,7 +1837,7 @@ struct PenActuationTests {
     let ambiguity = MotionAmbiguity.malformedReply(
       "controller reset greeting arrived after pen actuation"
     )
-    #expect(await ready.controller.requestPenActuation(.raise) == .ambiguous(ambiguity))
+    #expect(await ready.controller.requestPenActuation(.raise, profile: .initialDefaults) == .ambiguous(ambiguity))
     let snapshot = await ready.controller.snapshot()
     #expect(snapshot.penState == .unknown)
     #expect(snapshot.stickyAmbiguity == ambiguity)
@@ -1798,11 +1853,11 @@ struct PenActuationTests {
     ])
 
     #expect(
-      await ready.controller.requestPenActuation(.raise)
+      await ready.controller.requestPenActuation(.raise, profile: .initialDefaults)
         == .refused(.controllerRejected("error:15"))
     )
     #expect(
-      await ready.controller.requestPenActuation(.raise)
+      await ready.controller.requestPenActuation(.raise, profile: .initialDefaults)
         == .commandedAndSettled(command: .raise, commandedState: .up)
     )
   }
@@ -1810,7 +1865,7 @@ struct PenActuationTests {
   @Test("disconnect clears commanded pen state")
   func disconnectClearsState() async throws {
     let ready = try await penReadyController(commands: successfulPenCommands(.raise))
-    _ = await ready.controller.requestPenActuation(.raise)
+    _ = await ready.controller.requestPenActuation(.raise, profile: .initialDefaults)
     #expect((await ready.controller.snapshot()).penState == .up)
 
     await ready.controller.disconnect()
@@ -1837,14 +1892,14 @@ private func stroke(dx: Double, dy: Double, feed: Double) throws -> DrawingStrok
 
 private func penExchange(_ command: PenCommand, chunks: [String]) -> SimulatedCommandExchange {
   SimulatedCommandExchange(
-    expectedWrite: MachineController.encodePenActuation(command),
+    expectedWrite: MachineController.encodePenActuation(command, profile: .initialDefaults),
     reads: chunks.map { ScheduledMachineRead(outcome: .bytes(Data($0.utf8))) }
   )
 }
 
 private func penSettleExchange(chunks: [String]) -> SimulatedCommandExchange {
   SimulatedCommandExchange(
-    expectedWrite: MachineController.encodePenSettle,
+    expectedWrite: MachineController.encodePenSettle(profile: .initialDefaults),
     reads: chunks.map { ScheduledMachineRead(outcome: .bytes(Data($0.utf8))) }
   )
 }
@@ -1934,7 +1989,7 @@ private func readyController(
   }
   if raisePen {
     #expect(
-      await controller.requestPenActuation(.raise)
+      await controller.requestPenActuation(.raise, profile: .initialDefaults)
         == .commandedAndSettled(command: .raise, commandedState: .up)
     )
   }
@@ -1982,7 +2037,7 @@ private func cancellableJogController(
   _ = await controller.runPassiveProbe()
   #expect(await controller.activateMotionGuard() == .activated)
   #expect(
-    await controller.requestPenActuation(.raise)
+    await controller.requestPenActuation(.raise, profile: .initialDefaults)
       == .commandedAndSettled(command: .raise, commandedState: .up)
   )
   return (controller, base, readGate, writesThroughCancel)
@@ -2030,7 +2085,7 @@ private func readyDrawingStrokeController(
   #expect(await controller.activateMotionGuard() == .activated)
   if let commandedPen {
     #expect(
-      await controller.requestPenActuation(commandedPen)
+      await controller.requestPenActuation(commandedPen, profile: .initialDefaults)
         == .commandedAndSettled(
           command: commandedPen,
           commandedState: commandedPen.commandedState
@@ -2086,7 +2141,7 @@ private func cancellableDrawingStrokeController(
   _ = await controller.runPassiveProbe()
   #expect(await controller.activateMotionGuard() == .activated)
   #expect(
-    await controller.requestPenActuation(.lower)
+    await controller.requestPenActuation(.lower, profile: .initialDefaults)
       == .commandedAndSettled(command: .lower, commandedState: .down)
   )
   return (controller, base, readGate, writesThroughCancel)

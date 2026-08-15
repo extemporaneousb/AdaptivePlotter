@@ -927,6 +927,50 @@ public struct DiscoveryQuestion: Hashable, Sendable {
   }
 }
 
+/// The accepted value of one existing Pen Interaction attempt. Repeating the
+/// same exercise at another board position preserves the exact current-run
+/// servo values and MPos observations for later analysis without introducing
+/// a separate calibration artifact.
+public struct PenInteractionAttemptEvidence: Hashable, Sendable {
+  public let actuationProfile: PenActuationProfile
+  public let confirmedUpPositions: [MachinePosition?]
+  public let confirmedUpSpindleValues: [Int]
+  public let confirmedUpControllerOutcomes: [PenOutcome?]
+  public let confirmedUpTimestamps: [RuntimeTimestamp]
+  public let confirmedDownPositions: [MachinePosition?]
+  public let confirmedDownSpindleValues: [Int]
+  public let confirmedDownControllerOutcomes: [PenOutcome?]
+  public let confirmedDownTimestamps: [RuntimeTimestamp]
+
+  public init(
+    actuationProfile: PenActuationProfile,
+    confirmedUpPositions: [MachinePosition?],
+    confirmedUpSpindleValues: [Int],
+    confirmedUpControllerOutcomes: [PenOutcome?],
+    confirmedUpTimestamps: [RuntimeTimestamp],
+    confirmedDownPositions: [MachinePosition?],
+    confirmedDownSpindleValues: [Int],
+    confirmedDownControllerOutcomes: [PenOutcome?],
+    confirmedDownTimestamps: [RuntimeTimestamp]
+  ) {
+    precondition(confirmedUpPositions.count == confirmedUpSpindleValues.count)
+    precondition(confirmedUpPositions.count == confirmedUpControllerOutcomes.count)
+    precondition(confirmedUpPositions.count == confirmedUpTimestamps.count)
+    precondition(confirmedDownPositions.count == confirmedDownSpindleValues.count)
+    precondition(confirmedDownPositions.count == confirmedDownControllerOutcomes.count)
+    precondition(confirmedDownPositions.count == confirmedDownTimestamps.count)
+    self.actuationProfile = actuationProfile
+    self.confirmedUpPositions = confirmedUpPositions
+    self.confirmedUpSpindleValues = confirmedUpSpindleValues
+    self.confirmedUpControllerOutcomes = confirmedUpControllerOutcomes
+    self.confirmedUpTimestamps = confirmedUpTimestamps
+    self.confirmedDownPositions = confirmedDownPositions
+    self.confirmedDownSpindleValues = confirmedDownSpindleValues
+    self.confirmedDownControllerOutcomes = confirmedDownControllerOutcomes
+    self.confirmedDownTimestamps = confirmedDownTimestamps
+  }
+}
+
 public enum DiscoveryAction: Hashable, Sendable {
   case askQuestion(DiscoveryQuestion)
   case awaitOperatorChoice(DiscoveryQuestion)

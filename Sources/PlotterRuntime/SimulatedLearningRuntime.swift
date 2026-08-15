@@ -810,9 +810,14 @@ public actor SimulatedLearningRuntime {
   }
 
   public func beginManualJog(
-    delta: SimulatedLearningMotionVector
+    delta: SimulatedLearningMotionVector,
+    permitsUnknownPenStateAsPossibleInk: Bool = false
   ) -> SimulatedLearningResponse<SimulatedLearningOperation> {
-    beginOperation(kind: .manualJog(delta), requiredPenPose: .up)
+    beginOperation(
+      kind: .manualJog(delta),
+      requiredPenPose: .up,
+      permitsUnknownPenStateAsPossibleInk: permitsUnknownPenStateAsPossibleInk
+    )
   }
 
   public func beginBoundary(
@@ -1420,7 +1425,8 @@ public actor SimulatedLearningRuntime {
 
   private func beginOperation(
     kind: SimulatedLearningOperationKind,
-    requiredPenPose: SimulatedLearningPenPose
+    requiredPenPose: SimulatedLearningPenPose,
+    permitsUnknownPenStateAsPossibleInk: Bool = false
   ) -> SimulatedLearningResponse<SimulatedLearningOperation> {
     guard session == .connected else {
       return .refused(.sessionDisconnected)
@@ -1432,7 +1438,9 @@ public actor SimulatedLearningRuntime {
       return .refused(.operationAlreadyActive(currentOperation!.id))
     }
     if let stickyAmbiguity { return .refused(.stickyAmbiguity(stickyAmbiguity)) }
-    guard penPose == requiredPenPose else {
+    guard penPose == requiredPenPose
+      || (penPose == .unknown && permitsUnknownPenStateAsPossibleInk)
+    else {
       return .refused(requiredPenPose == .up ? .penMustBeUp : .penMustBeDown)
     }
     if removeFirstFault(matching: {

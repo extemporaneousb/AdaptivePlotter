@@ -53,11 +53,11 @@ struct RunInterpreterTests {
     exchanges.append(contentsOf: [
       interpreterStatusExchange("<Idle|MPos:0.000,0.000,0.000>"),
       SimulatedCommandExchange(
-        expectedWrite: MachineController.encodePenActuation(.raise),
+        expectedWrite: MachineController.encodePenActuation(.raise, profile: .initialDefaults),
         reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
       ),
       SimulatedCommandExchange(
-        expectedWrite: MachineController.encodePenSettle,
+        expectedWrite: MachineController.encodePenSettle(profile: .initialDefaults),
         reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
       ),
     ])
@@ -91,7 +91,7 @@ struct RunInterpreterTests {
     _ = try await fixture.interpreter.requestPassiveProbe()
     #expect(await fixture.interpreter.activateMotionGuard() == .activated)
     #expect(
-      await fixture.interpreter.requestPenActuation(.raise)
+      await fixture.interpreter.requestPenActuation(.raise, profile: .initialDefaults)
         == .commandedAndSettled(command: .raise, commandedState: .up)
     )
 
@@ -122,11 +122,11 @@ struct RunInterpreterTests {
     exchanges.append(contentsOf: [
       interpreterStatusExchange("<Idle|MPos:0.000,0.000,0.000>"),
       SimulatedCommandExchange(
-        expectedWrite: MachineController.encodePenActuation(.lower),
+        expectedWrite: MachineController.encodePenActuation(.lower, profile: .initialDefaults),
         reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
       ),
       SimulatedCommandExchange(
-        expectedWrite: MachineController.encodePenSettle,
+        expectedWrite: MachineController.encodePenSettle(profile: .initialDefaults),
         reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
       ),
       interpreterStatusExchange("<Idle|MPos:0.000,0.000,0.000>"),
@@ -140,7 +140,7 @@ struct RunInterpreterTests {
     _ = try await fixture.interpreter.requestPassiveProbe()
     #expect(await fixture.interpreter.activateMotionGuard() == .activated)
     #expect(
-      await fixture.interpreter.requestPenActuation(.lower)
+      await fixture.interpreter.requestPenActuation(.lower, profile: .initialDefaults)
         == .commandedAndSettled(command: .lower, commandedState: .down)
     )
     #expect(
@@ -509,11 +509,11 @@ struct RunInterpreterTests {
     exchanges.append(contentsOf: [
       interpreterStatusExchange("<Idle|MPos:0.000,0.000,0.000>"),
       SimulatedCommandExchange(
-        expectedWrite: MachineController.encodePenActuation(.raise),
+        expectedWrite: MachineController.encodePenActuation(.raise, profile: .initialDefaults),
         reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
       ),
       SimulatedCommandExchange(
-        expectedWrite: MachineController.encodePenSettle,
+        expectedWrite: MachineController.encodePenSettle(profile: .initialDefaults),
         reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
       ),
     ])
@@ -521,7 +521,7 @@ struct RunInterpreterTests {
     _ = try await fixture.interpreter.requestPassiveProbe()
     #expect(await fixture.interpreter.activateMotionGuard() == .activated)
 
-    let outcome = await fixture.interpreter.requestPenActuation(.raise)
+    let outcome = await fixture.interpreter.requestPenActuation(.raise, profile: .initialDefaults)
     let snapshot = await fixture.interpreter.snapshot()
 
     #expect(outcome == .commandedAndSettled(command: .raise, commandedState: .up))
@@ -544,11 +544,11 @@ struct RunInterpreterTests {
     exchanges.append(contentsOf: [
       interpreterStatusExchange("<Idle|MPos:0.000,0.000,0.000>"),
       SimulatedCommandExchange(
-        expectedWrite: MachineController.encodePenActuation(.raise),
+        expectedWrite: MachineController.encodePenActuation(.raise, profile: .initialDefaults),
         reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
       ),
       SimulatedCommandExchange(
-        expectedWrite: MachineController.encodePenSettle,
+        expectedWrite: MachineController.encodePenSettle(profile: .initialDefaults),
         reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
       ),
     ])
@@ -556,7 +556,7 @@ struct RunInterpreterTests {
     let gate = MachineWriteGate()
     let link = BlockingMachineLink(
       base: scriptedLink,
-      blockedWrite: MachineController.encodePenActuation(.raise),
+      blockedWrite: MachineController.encodePenActuation(.raise, profile: .initialDefaults),
       gate: gate
     )
     let controller = MachineController(
@@ -575,7 +575,7 @@ struct RunInterpreterTests {
     let penStarted = TaskStartHandshake()
     let penTask = Task {
       await penStarted.markStarted()
-      return await interpreter.requestPenActuation(.raise)
+      return await interpreter.requestPenActuation(.raise, profile: .initialDefaults)
     }
     defer { penTask.cancel() }
 
@@ -693,11 +693,11 @@ private func readyInterpreterCancellationFixture() async throws -> (
   exchanges.append(contentsOf: [
     interpreterStatusExchange("<Idle|MPos:0.000,0.000,0.000>"),
     SimulatedCommandExchange(
-      expectedWrite: MachineController.encodePenActuation(.raise),
+      expectedWrite: MachineController.encodePenActuation(.raise, profile: .initialDefaults),
       reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
     ),
     SimulatedCommandExchange(
-      expectedWrite: MachineController.encodePenSettle,
+      expectedWrite: MachineController.encodePenSettle(profile: .initialDefaults),
       reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
     ),
     interpreterStatusExchange("<Idle|MPos:0.000,0.000,0.000>"),
@@ -733,7 +733,7 @@ private func readyInterpreterCancellationFixture() async throws -> (
   _ = try await interpreter.requestPassiveProbe()
   #expect(await interpreter.activateMotionGuard() == .activated)
   #expect(
-    await interpreter.requestPenActuation(.raise)
+    await interpreter.requestPenActuation(.raise, profile: .initialDefaults)
       == .commandedAndSettled(command: .raise, commandedState: .up)
   )
   return (interpreter, request, link, gate, writesThroughCancel)
@@ -759,11 +759,11 @@ private func readyInterpreterDrawingCancellationFixture() async throws -> (
   exchanges.append(contentsOf: [
     interpreterStatusExchange("<Idle|MPos:0.000,0.000,0.000>"),
     SimulatedCommandExchange(
-      expectedWrite: MachineController.encodePenActuation(.lower),
+      expectedWrite: MachineController.encodePenActuation(.lower, profile: .initialDefaults),
       reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
     ),
     SimulatedCommandExchange(
-      expectedWrite: MachineController.encodePenSettle,
+      expectedWrite: MachineController.encodePenSettle(profile: .initialDefaults),
       reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
     ),
     interpreterStatusExchange("<Idle|MPos:0.000,0.000,0.000>"),
@@ -781,11 +781,11 @@ private func readyInterpreterDrawingCancellationFixture() async throws -> (
   exchanges.append(contentsOf: [
     interpreterStatusExchange("<Idle|MPos:0.400,0.000,0.000>"),
     SimulatedCommandExchange(
-      expectedWrite: MachineController.encodePenActuation(.raise),
+      expectedWrite: MachineController.encodePenActuation(.raise, profile: .initialDefaults),
       reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
     ),
     SimulatedCommandExchange(
-      expectedWrite: MachineController.encodePenSettle,
+      expectedWrite: MachineController.encodePenSettle(profile: .initialDefaults),
       reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
     ),
   ])
@@ -809,7 +809,7 @@ private func readyInterpreterDrawingCancellationFixture() async throws -> (
   _ = try await interpreter.requestPassiveProbe()
   #expect(await interpreter.activateMotionGuard() == .activated)
   #expect(
-    await interpreter.requestPenActuation(.lower)
+    await interpreter.requestPenActuation(.lower, profile: .initialDefaults)
       == .commandedAndSettled(command: .lower, commandedState: .down)
   )
   return (interpreter, request, link, gate, writesThroughCancel)
@@ -839,11 +839,11 @@ private func readyBoundaryCancellationFixture(
   exchanges.append(contentsOf: [
     interpreterStatusExchange("<Idle|MPos:0.000,0.000,0.000>"),
     SimulatedCommandExchange(
-      expectedWrite: MachineController.encodePenActuation(.raise),
+      expectedWrite: MachineController.encodePenActuation(.raise, profile: .initialDefaults),
       reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
     ),
     SimulatedCommandExchange(
-      expectedWrite: MachineController.encodePenSettle,
+      expectedWrite: MachineController.encodePenSettle(profile: .initialDefaults),
       reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
     ),
   ])
@@ -907,7 +907,7 @@ private func readyBoundaryCancellationFixture(
   _ = try await interpreter.requestPassiveProbe()
   #expect(await interpreter.activateMotionGuard() == .activated)
   #expect(
-    await interpreter.requestPenActuation(.raise)
+    await interpreter.requestPenActuation(.raise, profile: .initialDefaults)
       == .commandedAndSettled(command: .raise, commandedState: .up)
   )
   return (
@@ -940,11 +940,11 @@ private func readyBoundaryAdmissionRaceFixture() async throws -> (
   exchanges.append(contentsOf: [
     interpreterStatusExchange("<Idle|MPos:0.000,0.000,0.000>"),
     SimulatedCommandExchange(
-      expectedWrite: MachineController.encodePenActuation(.raise),
+      expectedWrite: MachineController.encodePenActuation(.raise, profile: .initialDefaults),
       reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
     ),
     SimulatedCommandExchange(
-      expectedWrite: MachineController.encodePenSettle,
+      expectedWrite: MachineController.encodePenSettle(profile: .initialDefaults),
       reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
     ),
     interpreterStatusExchange("<Idle|MPos:0.000,0.000,0.000>"),
@@ -975,7 +975,7 @@ private func readyBoundaryAdmissionRaceFixture() async throws -> (
   _ = try await interpreter.requestPassiveProbe()
   #expect(await interpreter.activateMotionGuard() == .activated)
   #expect(
-    await interpreter.requestPenActuation(.raise)
+    await interpreter.requestPenActuation(.raise, profile: .initialDefaults)
       == .commandedAndSettled(command: .raise, commandedState: .up)
   )
   return (interpreter, request, link, gate, expectedWriteCount)
@@ -1010,11 +1010,11 @@ private func readyBoundaryTerminalFixture(
   exchanges.append(contentsOf: [
     interpreterStatusExchange("<Idle|MPos:0.000,0.000,0.000>"),
     SimulatedCommandExchange(
-      expectedWrite: MachineController.encodePenActuation(.raise),
+      expectedWrite: MachineController.encodePenActuation(.raise, profile: .initialDefaults),
       reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
     ),
     SimulatedCommandExchange(
-      expectedWrite: MachineController.encodePenSettle,
+      expectedWrite: MachineController.encodePenSettle(profile: .initialDefaults),
       reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]
     ),
     interpreterStatusExchange("<Idle|MPos:0.000,0.000,0.000>"),
@@ -1077,7 +1077,7 @@ private func readyBoundaryTerminalFixture(
   _ = try await interpreter.requestPassiveProbe()
   #expect(await interpreter.activateMotionGuard() == .activated)
   #expect(
-    await interpreter.requestPenActuation(.raise)
+    await interpreter.requestPenActuation(.raise, profile: .initialDefaults)
       == .commandedAndSettled(command: .raise, commandedState: .up)
   )
   return (interpreter, request, link, expectedWriteCount)

@@ -305,10 +305,16 @@ public struct ControllerContextEvidenceReference: Codable, Hashable, Sendable {
 
 public struct PenActuationEvidence: Codable, Hashable, Sendable {
   public let outcome: PenOutcome
+  public let profile: PenActuationProfile
   public let timestamp: RuntimeTimestamp
 
-  public init(outcome: PenOutcome, timestamp: RuntimeTimestamp) {
+  public init(
+    outcome: PenOutcome,
+    profile: PenActuationProfile,
+    timestamp: RuntimeTimestamp
+  ) {
     self.outcome = outcome
+    self.profile = profile
     self.timestamp = timestamp
   }
 }

@@ -91,6 +91,32 @@ struct LearningPathProjectorTests {
     #expect(projection.selectedAction.activity?.outcome == .needsAttention)
   }
 
+  @Test("current-camera calibration does not project a manual-motion gate")
+  func currentCameraCalibrationDoesNotGateManualMotion() {
+    let snapshot = LearningPathProjectionSnapshot(
+      source: .live,
+      controller: .init(
+        sessionEstablished: true,
+        motionAuthorized: true,
+        connectionText: "connected",
+        cameraStateText: "streaming",
+        motionGuardStateText: "active"
+      ),
+      cameraCalibration: .init(phase: .capturing(sample: 2, total: 5, role: "fit"))
+    )
+    let projection = projector.project(
+      snapshot,
+      selectedItemID: .humanGuidedDiscovery(.penInteraction)
+    )
+    let controller = projection.selectedAction.subsystemStatuses.first { $0.id == "controller" }
+    let vision = projection.selectedAction.subsystemStatuses.first { $0.id == "vision" }
+
+    #expect(controller?.state == "Calibration active / manual controls independent")
+    #expect(controller?.blocksNewMotion == false)
+    #expect(vision?.blocksNewMotion == false)
+    #expect(vision?.detail.accessibilityText.contains("does not gate direct manual controls") == true)
+  }
+
   @Test("reset and vacate inputs are projected but never executed")
   func resetSurface() {
     let anchor = LearningPathItemID.humanGuidedDiscovery(.penInteraction)

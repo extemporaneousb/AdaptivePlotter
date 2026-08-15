@@ -585,6 +585,41 @@ private struct ExerciseActionStripView: View {
         .foregroundStyle(.secondary)
       }
 
+      if let adjustment = presentation.penSetpointAdjustment {
+        VStack(alignment: .leading, spacing: 6) {
+          HStack {
+            Text(adjustment.title)
+              .font(.caption.weight(.semibold))
+            Spacer()
+            Text("S\(adjustment.value)")
+              .font(.body.monospaced().bold())
+          }
+          Slider(
+            value: Binding(
+              get: { Double(adjustment.value) },
+              set: { value in
+                Task {
+                  await perform(
+                    .setPenSetpoint(adjustment.command, Int(value.rounded())),
+                    presentation.ownerID
+                  )
+                }
+              }
+            ),
+            in: Double(adjustment.minimumValue)...Double(adjustment.maximumValue),
+            step: 1
+          )
+          .accessibilityLabel(adjustment.title)
+          .accessibilityValue("S\(adjustment.value)")
+          .accessibilityHint(
+            "Adjusts and sends the current Pen \(adjustment.command.commandedState.rawValue) servo value."
+          )
+          Text("Move the slider until the pen position is correct, then choose Next.")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        }
+      }
+
       if let directionSelection = presentation.directionSelection {
         Text(
           directionSelection.allowsSelection
