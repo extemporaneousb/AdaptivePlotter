@@ -23,11 +23,16 @@ Restart, Redo, re-click, and acceptance.
 Before Learning Path motion, **Connect** performs only the complete passive
 controller probe. A returned alarm or fault remains visible as typed current
 controller evidence while the failed link is closed. If an alarm is reported,
-the operator must inspect the physical cause before choosing **Clear Alarm**.
-That explicit action sends one alarm-lock override and immediately runs a fresh
-complete passive probe. It does not home, recover position, clear limit inputs,
-or enable Motion. No unlock is sent during Connect, no failed clear is retried,
-and **Enable Motion** remains a separate operator action after a clean probe.
+the Motion panel separately shows sampled X/Y/Z axis-limit inputs and whether manual
+alarm unlock is armed. An asserted X or Y physically blocks **Clear Alarm**;
+release the switch and press **Connect** to resample. A past alarm with no
+currently asserted axis-limit input is manually clearable. The explicit action checks
+realtime status again immediately before its one alarm-lock override and refuses
+without sending it if a limit is now asserted, status is unknown, or the
+controller is no longer in Alarm. It then runs a fresh complete passive probe.
+It does not home, recover position, clear limit inputs, or enable Motion. No
+unlock is sent during Connect, no failed clear is retried, and **Enable Motion**
+remains a separate operator action after a clean probe.
 
 Cancel abandons a settled attempt. Stop settles an admitted stoppable owner.
 They may share a mechanical Jog Cancel primitive but never share a successful

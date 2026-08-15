@@ -73,6 +73,37 @@ public struct MachineSnapshot: Codable, Hashable, Sendable {
   }
 }
 
+extension MachineSnapshot {
+  public var controllerAlarmClearReadiness: ControllerAlarmClearReadiness {
+    guard blockers.contains(where: {
+      if case .controllerAlarm = $0 { return true }
+      return false
+    }) else { return .unavailable }
+
+    if let lastAlarmClearOutcome {
+      switch lastAlarmClearOutcome {
+      case .refused(.axisLimitAsserted(let pins)):
+        return .blockedByAxisLimit(pins)
+      case .refused(.currentLimitStateUnknown(_)), .unconfirmed(_), .acknowledged:
+        return .limitStateUnknown
+      case .refused(.controllerNoLongerAlarmed(_)), .refused(.noCurrentAlarmEvidence):
+        return .unavailable
+      case .refused(.noSerialDeviceSelected), .refused(.operationInFlight),
+        .refused(.stickyAmbiguity(_)), .controllerRejected(_):
+        break
+      }
+    }
+
+    guard lastProbe?.link == link, let status = lastProbe?.latestStatusReport,
+      status.controllerState.isAlarm
+    else { return .limitStateUnknown }
+    if status.controllerPins.hasAxisLimitAsserted {
+      return .blockedByAxisLimit(status.controllerPins.rawValue)
+    }
+    return .armed
+  }
+}
+
 public enum SerialSelectionResult: Sendable, Equatable {
   case selected(MachineLinkDescriptor)
   case blocked(MachineBlocker)
@@ -300,6 +331,7 @@ public actor MachineController {
     activeOperation = .passiveProbe
     defer { activeOperation = nil }
     blockers = []
+    lastAlarmClearOutcome = nil
     var exchanges: [PassiveProbeExchange] = []
     recordProbeStartedBestEffort(probeID: probeID, started: started)
 
@@ -317,6 +349,15 @@ public actor MachineController {
       exchanges.append(exchange)
       if let blocker = exchange.blocker {
         blockers.append(blocker)
+        if query != .status, case .controllerAlarm = blocker {
+          let statusExchange = await executePassive(.status)
+          exchanges.append(statusExchange)
+          if let statusBlocker = statusExchange.blocker,
+            !Self.isControllerAlarm(statusBlocker)
+          {
+            blockers.append(statusBlocker)
+          }
+        }
         break
       }
     }
@@ -342,6 +383,38 @@ public actor MachineController {
     do {
       try await ensureConnected()
       try await link.discardPendingInput()
+    } catch let error as MachineLinkError {
+      let outcome = ControllerAlarmClearOutcome.unconfirmed(
+        controllerAlarmClearUncertainty(for: error)
+      )
+      await closeAndInvalidateKnowledge()
+      return finishControllerAlarmClear(outcome)
+    } catch {
+      let outcome = ControllerAlarmClearOutcome.unconfirmed(.transport(String(describing: error)))
+      await closeAndInvalidateKnowledge()
+      return finishControllerAlarmClear(outcome)
+    }
+
+    let admissionExchange = await executePassive(.status)
+    guard let admissionStatus = admissionExchange.latestStatusReport else {
+      let detail = admissionExchange.blocker.map { String(describing: $0) }
+        ?? "fresh status query returned no status report"
+      await closeAndInvalidateKnowledge()
+      return finishControllerAlarmClear(.refused(.currentLimitStateUnknown(detail)))
+    }
+    guard admissionStatus.controllerState.isAlarm else {
+      await closeAndInvalidateKnowledge()
+      return finishControllerAlarmClear(
+        .refused(.controllerNoLongerAlarmed(admissionStatus.controllerState))
+      )
+    }
+    guard !admissionStatus.controllerPins.hasAxisLimitAsserted else {
+      let pins = admissionStatus.controllerPins.rawValue
+      await closeAndInvalidateKnowledge()
+      return finishControllerAlarmClear(.refused(.axisLimitAsserted(pins)))
+    }
+
+    do {
       try await serializedWrite(Self.encodeControllerAlarmClear)
       recordRawIOBestEffort(
         RawMachineIO(
@@ -1187,7 +1260,18 @@ public actor MachineController {
         return false
       })
     else { return .noCurrentAlarmEvidence }
+    guard let status = lastProbe?.latestStatusReport, status.controllerState.isAlarm else {
+      return .currentLimitStateUnknown("latest alarm probe did not contain current Alarm status")
+    }
+    guard !status.controllerPins.hasAxisLimitAsserted else {
+      return .axisLimitAsserted(status.controllerPins.rawValue)
+    }
     return nil
+  }
+
+  private static func isControllerAlarm(_ blocker: MachineBlocker) -> Bool {
+    if case .controllerAlarm = blocker { return true }
+    return false
   }
 
   private func controllerAlarmClearUncertainty(

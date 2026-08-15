@@ -52,11 +52,17 @@ struct MachineControllerTests {
     #expect(finished.exchanges[0].parsedLines.contains(where: { $0.text.hasPrefix("[VER:") }))
   }
 
-  @Test("alarm is preserved and stops later passive queries")
+  @Test("alarm is preserved and samples physical limit inputs before closing")
   func alarmStopsProbe() async throws {
     let fixture = try await Fixture.make()
     let link = SimulatedGRBLLink(
-      exchanges: [ControllerTranscriptFixtures.exchange(.buildInfo, chunks: ["ALARM:2\r\n"])],
+      exchanges: [
+        ControllerTranscriptFixtures.exchange(.buildInfo, chunks: ["ALARM:2\r\n"]),
+        ControllerTranscriptFixtures.exchange(
+          .status,
+          chunks: ["<Alarm|MPos:0.000,0.000,0.000|Pn:X>\r\n"]
+        ),
+      ],
       clock: fixture.clock
     )
     let controller = MachineController(
@@ -67,11 +73,19 @@ struct MachineControllerTests {
       queryTimeoutNanoseconds: 100
     )
     let result = await controller.runPassiveProbe()
-    #expect(result.exchanges.count == 1)
+    #expect(result.exchanges.count == 2)
     #expect(result.exchanges[0].lines.first?.kind == .alarm(code: "2"))
     #expect(result.blockers == [.controllerAlarm("ALARM:2")])
-    #expect(link.completedWriteCount == 1)
-    #expect((await controller.snapshot()).lastAlarmClearOutcome == nil)
+    #expect(result.latestStatusReport?.controllerPins.rawValue == "X")
+    #expect(link.completedWriteCount == 2)
+    let snapshot = await controller.snapshot()
+    #expect(snapshot.lastAlarmClearOutcome == nil)
+    #expect(snapshot.controllerAlarmClearReadiness == .blockedByAxisLimit("X"))
+    #expect(
+      await controller.requestControllerAlarmClear()
+        == .refused(.axisLimitAsserted("X"))
+    )
+    #expect(link.completedWriteCount == 2)
   }
 
   @Test("Clear Alarm requires current typed alarm evidence and writes nothing otherwise")
@@ -91,8 +105,16 @@ struct MachineControllerTests {
   @Test("explicit alarm unlock acknowledgement still requires a fresh complete probe")
   func alarmClearAcknowledgementRequiresFreshProbe() async throws {
     let fixture = try await Fixture.make()
-    var exchanges = [
-      ControllerTranscriptFixtures.exchange(.buildInfo, chunks: ["ALARM:2\r\n"]),
+    var exchanges = Array(ControllerTranscriptFixtures.successfulPassiveProbe().prefix(2))
+    exchanges.append(contentsOf: [
+      ControllerTranscriptFixtures.exchange(
+        .status,
+        chunks: ["<Alarm|MPos:0.000,0.000,0.000>\r\n"]
+      ),
+      ControllerTranscriptFixtures.exchange(
+        .status,
+        chunks: ["<Alarm|MPos:0.000,0.000,0.000>\r\n"]
+      ),
       SimulatedCommandExchange(
         expectedWrite: MachineController.encodeControllerAlarmClear,
         reads: [
@@ -102,7 +124,7 @@ struct MachineControllerTests {
           )
         ]
       ),
-    ]
+    ])
     exchanges.append(contentsOf: ControllerTranscriptFixtures.successfulPassiveProbe())
     let link = SimulatedGRBLLink(exchanges: exchanges, clock: fixture.clock)
     let controller = MachineController(
@@ -114,7 +136,11 @@ struct MachineControllerTests {
     )
 
     let alarmed = await controller.runPassiveProbe()
-    #expect(alarmed.blockers == [.controllerAlarm("ALARM:2")])
+    #expect(
+      alarmed.blockers
+        == [.controllerAlarm("<Alarm|MPos:0.000,0.000,0.000>")]
+    )
+    #expect((await controller.snapshot()).controllerAlarmClearReadiness == .armed)
 
     #expect(await controller.requestControllerAlarmClear() == .acknowledged)
     let unlocked = await controller.snapshot()
@@ -122,7 +148,10 @@ struct MachineControllerTests {
     #expect(unlocked.controllerState == nil)
     #expect(unlocked.position == nil)
     #expect(unlocked.motionGuardState == .inactive)
-    #expect(unlocked.blockers == [.controllerAlarm("ALARM:2")])
+    #expect(
+      unlocked.blockers
+        == [.controllerAlarm("<Alarm|MPos:0.000,0.000,0.000>")]
+    )
     #expect(unlocked.lastAlarmClearOutcome == .acknowledged)
 
     let reprobed = await controller.runPassiveProbe()
@@ -132,7 +161,7 @@ struct MachineControllerTests {
     #expect(ready.controllerState == .idle)
     #expect(ready.position != nil)
     #expect(ready.motionGuardState == .inactive)
-    #expect(link.completedWriteCount == 7)
+    #expect(link.completedWriteCount == 10)
     let events = try await waitForLedgerEvent(
       "machine.alarm_clear.result",
       ledger: fixture.ledger,
@@ -149,7 +178,14 @@ struct MachineControllerTests {
     let fixture = try await Fixture.make()
     let link = SimulatedGRBLLink(
       exchanges: [
-        ControllerTranscriptFixtures.exchange(.buildInfo, chunks: ["ALARM:1\r\n"]),
+        ControllerTranscriptFixtures.exchange(
+          .buildInfo, chunks: ["[VER:1.1h:]\r\nok\r\n"]),
+        ControllerTranscriptFixtures.exchange(
+          .parserState, chunks: ["[GC:G0 G54 G17 G21 G90]\r\nok\r\n"]),
+        ControllerTranscriptFixtures.exchange(
+          .status, chunks: ["<Alarm|MPos:0.000,0.000,0.000>\r\n"]),
+        ControllerTranscriptFixtures.exchange(
+          .status, chunks: ["<Alarm|MPos:0.000,0.000,0.000>\r\n"]),
         SimulatedCommandExchange(
           expectedWrite: MachineController.encodeControllerAlarmClear,
           reads: [
@@ -171,9 +207,46 @@ struct MachineControllerTests {
     )
     let snapshot = await controller.snapshot()
     #expect(snapshot.connection == .disconnected)
-    #expect(snapshot.blockers == [.controllerAlarm("ALARM:1")])
+    #expect(
+      snapshot.blockers
+        == [.controllerAlarm("<Alarm|MPos:0.000,0.000,0.000>")]
+    )
     #expect(snapshot.motionGuardState == .inactive)
-    #expect(link.completedWriteCount == 2)
+    #expect(link.completedWriteCount == 5)
+  }
+
+  @Test("fresh asserted limit blocks alarm unlock without transmitting dollar X")
+  func assertedLimitBlocksAlarmClear() async throws {
+    let fixture = try await Fixture.make()
+    let link = SimulatedGRBLLink(
+      exchanges: [
+        ControllerTranscriptFixtures.exchange(
+          .buildInfo, chunks: ["[VER:1.1h:]\r\nok\r\n"]),
+        ControllerTranscriptFixtures.exchange(
+          .parserState, chunks: ["[GC:G0 G54 G17 G21 G90]\r\nok\r\n"]),
+        ControllerTranscriptFixtures.exchange(
+          .status, chunks: ["<Alarm|MPos:0.000,0.000,0.000>\r\n"]),
+        ControllerTranscriptFixtures.exchange(
+          .status, chunks: ["<Alarm|MPos:0.000,0.000,0.000|Pn:Z>\r\n"]),
+      ],
+      clock: fixture.clock
+    )
+    let controller = MachineController(
+      link: link,
+      clock: fixture.clock,
+      queryTimeoutNanoseconds: 100
+    )
+
+    _ = await controller.runPassiveProbe()
+    #expect((await controller.snapshot()).controllerAlarmClearReadiness == .armed)
+    #expect(
+      await controller.requestControllerAlarmClear()
+        == .refused(.axisLimitAsserted("Z"))
+    )
+    let snapshot = await controller.snapshot()
+    #expect(snapshot.controllerAlarmClearReadiness == .blockedByAxisLimit("Z"))
+    #expect(snapshot.motionGuardState == .inactive)
+    #expect(link.completedWriteCount == 4)
   }
 
   @Test("error reply is preserved and blocks")

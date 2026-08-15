@@ -80,16 +80,24 @@ commands. A failed probe retains its typed alarm, controller error, timeout,
 invalid-reply, or transport blocker for the workbench even though the serial
 link is closed.
 
-**Clear Alarm** is available only when the latest probe from the current
-selected controller contains typed alarm evidence. It sends one explicit `$X`
-alarm-lock override under `MachineController` serialization. It does not home,
+The Motion panel presents the sampled X/Y/Z axis-limit state separately from the
+latched controller alarm. **Clear Alarm** is armed only when the latest probe
+from the selected controller contains typed Alarm status and its `Pn` field has
+none of X, Y, or Z asserted. If an axis limit is asserted, the operator must physically
+release that switch and press **Connect** again to resample it. Unknown limit
+state is not armed. A historical alarm whose physical input is no longer
+asserted remains manually clearable; Connect never clears it automatically.
+
+The explicit action opens the selected link, discards pending input, and checks
+realtime status again immediately before transmission. It sends one `$X`
+alarm-lock override under `MachineController` serialization only if that fresh
+status still reports Alarm with no X/Y/Z axis limit asserted. A newly asserted
+limit, missing status, or non-Alarm state refuses before `$X`. It does not home,
 recover position, clear a physically asserted limit input, reset the controller,
 or enable Motion. Acknowledgement proves only that the controller accepted the
 unlock request. The same operator action then runs a fresh complete passive
 probe. An alarm, controller error, timeout, invalid reply, or transport failure
-keeps the session disconnected or blocked. A clean probe may establish a
-responsive session while an asserted limit remains a separate direct Motion
-admission blocker.
+keeps the session disconnected or blocked.
 
 Motion authorization is inactive throughout alarm recovery. After a clean
 fresh probe, the operator must separately press **Enable Motion**, and every

@@ -642,6 +642,8 @@ private struct MotionPanel: View {
       fact("Controller link", workspace.controllerConnectionText)
       fact("Controller", workspace.controllerStateText)
       fact("Controller alert", workspace.controllerAttentionText ?? "none reported")
+      fact("Limit inputs", workspace.controllerLimitInputsText)
+      fact("Alarm unlock", workspace.controllerAlarmUnlockReadinessText)
       if let alarm = workspace.controllerAlarmEvidenceText {
         VStack(alignment: .leading, spacing: 5) {
           Text("Reported alarm: \(alarm)")
@@ -649,7 +651,7 @@ private struct MotionPanel: View {
             .foregroundStyle(.orange)
             .textSelection(.enabled)
           Text(
-            "Clear Alarm removes only the controller's alarm lock. It does not home, recover position, clear asserted limit inputs, enable Motion, or prove that movement is safe."
+            "Clear Alarm is armed only when a sampled controller status reports Alarm with no X/Y/Z limit input asserted. The action checks those inputs again immediately before unlock. It does not home, recover position, enable Motion, or prove that movement is safe."
           )
           .font(.caption2)
           .foregroundStyle(.secondary)

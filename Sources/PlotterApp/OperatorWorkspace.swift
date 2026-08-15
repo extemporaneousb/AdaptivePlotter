@@ -1784,6 +1784,42 @@ final class OperatorWorkspace {
     }
   }
 
+  var controllerLimitInputsText: String {
+    guard frameMode == .live, let machine = machineSnapshot?.machine else {
+      return "unknown — no LIVE controller sample"
+    }
+    switch machine.controllerAlarmClearReadiness {
+    case .armed:
+      return "clear — sampled Pn has no X/Y/Z"
+    case .blockedByAxisLimit(let pins):
+      return "asserted — Pn:\(pins)"
+    case .limitStateUnknown:
+      return "unknown — Connect to resample"
+    case .unavailable:
+      guard let status = machine.lastProbe?.latestStatusReport else {
+        return "unknown — Connect to sample"
+      }
+      return status.controllerPins.hasAxisLimitAsserted
+        ? "asserted — Pn:\(status.controllerPins.rawValue)"
+        : "clear — sampled Pn has no X/Y/Z"
+    }
+  }
+
+  var controllerAlarmUnlockReadinessText: String {
+    guard frameMode == .live, let readiness = machineSnapshot?.machine.controllerAlarmClearReadiness
+    else { return "not armed — no LIVE controller" }
+    switch readiness {
+    case .armed:
+      return "armed — manual clear available"
+    case .blockedByAxisLimit(let pins):
+      return "blocked — Pn:\(pins) is physically asserted"
+    case .limitStateUnknown:
+      return "not armed — limit inputs unknown"
+    case .unavailable:
+      return "not armed — no current alarm"
+    }
+  }
+
   var controllerAlarmClearActionUnavailableReason: String? {
     if let reason = currentCameraCalibrationBusyReason { return reason }
     if frameMode == .simulated { return "SIMULATED owns no physical controller alarm." }
@@ -1803,7 +1839,23 @@ final class OperatorWorkspace {
     guard controllerAlarmEvidenceText != nil else {
       return ControllerAlarmClearRefusal.noCurrentAlarmEvidence.actionableDescription
     }
-    return nil
+    guard let readiness = machineSnapshot?.machine.controllerAlarmClearReadiness else {
+      return ControllerAlarmClearRefusal.currentLimitStateUnknown(
+        "no current controller snapshot"
+      ).actionableDescription
+    }
+    switch readiness {
+    case .armed:
+      return nil
+    case .blockedByAxisLimit(let pins):
+      return ControllerAlarmClearRefusal.axisLimitAsserted(pins).actionableDescription
+    case .limitStateUnknown:
+      return ControllerAlarmClearRefusal.currentLimitStateUnknown(
+        "the latest alarm probe did not establish axis-limit inputs"
+      ).actionableDescription
+    case .unavailable:
+      return ControllerAlarmClearRefusal.noCurrentAlarmEvidence.actionableDescription
+    }
   }
 
   var frameModeSwitchUnavailableReason: String? {

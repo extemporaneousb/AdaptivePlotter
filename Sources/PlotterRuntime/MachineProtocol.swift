@@ -116,6 +116,9 @@ public enum MotionGuardState: String, Codable, Hashable, Sendable {
 public enum ControllerAlarmClearRefusal: Codable, Hashable, Sendable {
   case noSerialDeviceSelected
   case noCurrentAlarmEvidence
+  case currentLimitStateUnknown(String)
+  case axisLimitAsserted(String)
+  case controllerNoLongerAlarmed(ControllerState)
   case operationInFlight
   case stickyAmbiguity(MotionAmbiguity)
 }
@@ -142,6 +145,16 @@ public enum ControllerAlarmClearOutcome: Codable, Hashable, Sendable {
   case unconfirmed(ControllerAlarmClearUncertainty)
 }
 
+/// Current operator-facing admission state for the explicit alarm unlock.
+/// `armed` is sampled controller evidence, not a claim that the machine is
+/// homed, positioned, or safe to move.
+public enum ControllerAlarmClearReadiness: Codable, Hashable, Sendable {
+  case unavailable
+  case limitStateUnknown
+  case blockedByAxisLimit(String)
+  case armed
+}
+
 public struct ControllerAlarmClearRecord: Codable, Hashable, Sendable {
   public let link: MachineLinkDescriptor
   public let outcome: ControllerAlarmClearOutcome
@@ -165,6 +178,12 @@ extension ControllerAlarmClearRefusal {
       return "Select one serial controller before clearing an alarm."
     case .noCurrentAlarmEvidence:
       return "Clear Alarm is available only after the current selected controller reports an alarm."
+    case .currentLimitStateUnknown(let detail):
+      return "Alarm unlock is not armed because the current axis-limit input state is unknown (\(detail)). Reconnect and probe again."
+    case .axisLimitAsserted(let pins):
+      return "Alarm unlock is blocked while a physical axis-limit input is asserted (Pn:\(pins)). Release the switch, then Connect again to resample it."
+    case .controllerNoLongerAlarmed(let state):
+      return "Alarm unlock was not sent because the fresh controller state is \(state.rawValue), not Alarm. Connect again to establish the complete current state."
     case .operationInFlight:
       return "Wait for the current controller operation before clearing an alarm."
     case .stickyAmbiguity(let ambiguity):
@@ -365,6 +384,10 @@ public struct ControllerPins: Codable, Hashable, Sendable {
 
   public var xLimitAsserted: Bool { rawValue.uppercased().contains("X") }
   public var yLimitAsserted: Bool { rawValue.uppercased().contains("Y") }
+  public var zLimitAsserted: Bool { rawValue.uppercased().contains("Z") }
+  public var hasAxisLimitAsserted: Bool {
+    xLimitAsserted || yLimitAsserted || zLimitAsserted
+  }
   public var hasRelevantLimitAsserted: Bool { xLimitAsserted || yLimitAsserted }
 }
 
@@ -733,6 +756,13 @@ public struct PassiveProbeExchange: Codable, Hashable, Sendable {
     self.completed = completed
     self.blocker = blocker
   }
+
+  public var latestStatusReport: ControllerStatusReport? {
+    lines.reversed().compactMap { line in
+      if case .status(let report) = line.kind { return report }
+      return nil
+    }.first
+  }
 }
 
 public enum MachineBlocker: Codable, Hashable, Sendable {
@@ -831,5 +861,9 @@ public struct PassiveProbeResult: Codable, Hashable, Sendable {
     self.completedAt = completedAt
     self.exchanges = exchanges
     self.blockers = blockers
+  }
+
+  public var latestStatusReport: ControllerStatusReport? {
+    exchanges.reversed().compactMap(\.latestStatusReport).first
   }
 }

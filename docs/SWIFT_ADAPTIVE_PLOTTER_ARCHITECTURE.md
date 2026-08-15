@@ -39,12 +39,15 @@ controller, camera, calibration, or learning graph.
 `MachineController` is the only selected serial owner. It parses GRBL, admits
 typed requests, serializes commands, proves settlement, and latches sticky
 ambiguity. It also owns the explicit typed alarm-clear operation: admission
-requires current alarm evidence from the selected link, `$X` acknowledgement is
-recorded separately from motion outcomes, and Motion authorization remains
-inactive. `RunInterpreter` serializes alarm clearing with every other logical
-operation. `OperatorWorkspace` follows an acknowledged clear with a fresh full
-passive probe before projecting a responsive session; Connect never clears an
-alarm implicitly.
+requires current typed Alarm status with no X/Y/Z `Pn` input asserted, then
+rechecks realtime status immediately before any `$X` write. A physical limit or
+unknown current input state refuses without unlock transmission. `$X`
+acknowledgement is recorded separately from motion outcomes, and Motion
+authorization remains inactive. `RunInterpreter` serializes alarm clearing with
+every other logical operation. `OperatorWorkspace` projects limit-input evidence
+and alarm-unlock readiness separately, then follows an acknowledged clear with a
+fresh full passive probe before projecting a responsive session; Connect never
+clears an alarm implicitly.
 
 `CameraCapture` owns device discovery, authorization, selection, capture
 sessions, exact stamped frames, and scoped preview publication holds. A hold

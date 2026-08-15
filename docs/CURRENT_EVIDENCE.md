@@ -9,6 +9,36 @@ procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
 ## Implemented software surface
 
+### Limit-aware manual alarm unlock
+
+Validated 2026-08-14 in Blackdog task `TASK-01E545BB`, targeting `main`
+from base `b609c4103099ede12775be0f1dd26545ada10576`.
+
+The Motion panel now projects the sampled X/Y/Z axis-limit inputs separately
+from the latched controller alarm and labels manual alarm unlock as armed,
+blocked, or not armed. A current Alarm report with no asserted axis-limit input
+arms **Clear Alarm**. An asserted `Pn:X`, `Pn:Y`, or `Pn:Z` disables it and tells
+the operator to release the physical switch and Connect again. Missing current
+limit evidence remains unarmed.
+
+`MachineController` also performs a second realtime status query immediately
+before `$X`. If any axis limit became asserted after Connect, current status is
+unavailable, or the controller is no longer in Alarm, it records a typed refusal
+without transmitting `$X`. A historical alarm with currently clear axis inputs
+remains an explicit operator-owned unlock; Connect remains passive and Motion
+authorization remains inactive.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| Focused controller and UI selection | passed — 64 tests | XYZ limit sampling, visible armed/blocked state, fresh pre-write race, no `$X` on asserted Z, acknowledged unlock, and fresh reprobe |
+| `make quick-test` | passed — 345 tests | fast unit/component partition |
+| `make strict-check` | passed — 355 tests | strict concurrency, warnings as errors, signed bundle, launcher validation, full test suite, and repository checks |
+| `git diff --check` | passed | whitespace and conflict markers |
+
+These are software and deterministic transcript results. No attended controller
+connection, physical switch assertion/release, alarm unlock, homing, motion,
+pen, camera, or ink validation was performed.
+
 ### Controller alarm visibility and explicit clearing
 
 Validated 2026-08-14 in Blackdog task `TASK-415B504F`, targeting `main`

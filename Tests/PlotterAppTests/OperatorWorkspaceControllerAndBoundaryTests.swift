@@ -46,6 +46,10 @@ extension OperatorWorkspaceTests {
     #expect(!workspace.motionAuthorizationEnabled)
     #expect(workspace.controllerAlarmEvidenceText == "ALARM:1")
     #expect(workspace.controllerAttentionText == "Controller alarm: ALARM:1")
+    #expect(workspace.controllerLimitInputsText == "clear — sampled Pn has no X/Y/Z")
+    #expect(
+      workspace.controllerAlarmUnlockReadinessText == "armed — manual clear available"
+    )
     #expect(workspace.controllerAlarmClearActionUnavailableReason == nil)
     let expectedRequestStatus = MotionRequestStatusPresentation.needsAttention(
       "Controller alarm: ALARM:1"
@@ -72,6 +76,56 @@ extension OperatorWorkspaceTests {
     #expect(!workspace.motionAuthorizationEnabled)
     #expect(workspace.motionGuardActivationUnavailableReason == nil)
     #expect(workspace.motionUnavailableReason == "Enable Motion before moving.")
+    await workspace.shutdown()
+  }
+
+  @Test("asserted physical limit is visible and disarms Clear Alarm")
+  func assertedLimitDisarmsAlarmClearUI() async throws {
+    let fixture = AlarmClearWorkspaceFixture(alarmPins: "X")
+    let descriptor = fixture.descriptor
+    let workspace = OperatorWorkspace(
+      machineActions: .init(
+        select: { _ in await fixture.select() },
+        snapshot: { await fixture.snapshot() },
+        requestPassiveProbe: { await fixture.requestPassiveProbe() },
+        requestControllerAlarmClear: { await fixture.requestAlarmClear() },
+        activateMotionGuard: { .refused(.notConnected) },
+        deactivateMotionGuard: {},
+        requestRelativeJog: { _ in .refused(.notConnected) },
+        beginRelativeJog: { _ in .rejected(.refused(.notConnected)) },
+        requestDrawingStroke: { _ in .refused(.notConnected) },
+        beginDrawingStroke: { _ in .rejected(.refused(.notConnected)) },
+        requestPenActuation: { _ in .refused(.notConnected) },
+        requestBoundaryMotion: { request in
+          .needsAttention(ownerID: request.ownerID, terminal: .refusal(.notConnected))
+        },
+        beginBoundaryMotion: { request, _ in
+          .rejected(
+            .needsAttention(ownerID: request.ownerID, terminal: .refusal(.notConnected))
+          )
+        },
+        requestJogCancel: { _ in .refused(.noActiveJog) },
+        disconnect: {}
+      ),
+      serialDevices: [descriptor],
+      serialDeviceDiscovery: { [descriptor] },
+      loadSelectedSerialIdentifier: { descriptor.identifier },
+      persistSelectedSerialIdentifier: { _ in }
+    )
+
+    await workspace.performControllerConnectionAction()
+
+    #expect(workspace.controllerLimitInputsText == "asserted — Pn:X")
+    #expect(
+      workspace.controllerAlarmUnlockReadinessText
+        == "blocked — Pn:X is physically asserted"
+    )
+    #expect(
+      workspace.controllerAlarmClearActionUnavailableReason
+        == ControllerAlarmClearRefusal.axisLimitAsserted("X").actionableDescription
+    )
+    await workspace.clearControllerAlarm()
+    #expect(await fixture.actions == ["select", "probe:alarm"])
     await workspace.shutdown()
   }
 
@@ -611,9 +665,14 @@ private actor AlarmClearWorkspaceFixture {
     transport: .simulated
   )
   private(set) var actions: [String] = []
+  private let alarmPins: String
   private var phase: Phase = .selected
   private var lastProbe: PassiveProbeResult?
   private var lastClearOutcome: ControllerAlarmClearOutcome?
+
+  init(alarmPins: String = "") {
+    self.alarmPins = alarmPins
+  }
 
   func select() -> RunInterpreterSnapshot {
     actions.append("select")
@@ -627,16 +686,21 @@ private actor AlarmClearWorkspaceFixture {
       actions.append("probe:alarm")
       phase = .alarmed
       let blocker = MachineBlocker.controllerAlarm("ALARM:1")
+      let pinField = alarmPins.isEmpty ? "" : "|Pn:\(alarmPins)"
       let result = PassiveProbeResult(
         link: descriptor,
         startedAt: RuntimeTimestamp(monotonicNanoseconds: 1),
         completedAt: RuntimeTimestamp(monotonicNanoseconds: 2),
         exchanges: [
           PassiveProbeExchange(
-            query: .buildInfo,
+            query: .status,
             commandID: UUID(),
             rawIO: [],
-            lines: [GRBLParser.parseLine(Data("ALARM:1".utf8))],
+            lines: [
+              GRBLParser.parseLine(
+                Data("<Alarm|MPos:0.000,0.000,0.000\(pinField)>".utf8)
+              )
+            ],
             completed: false,
             blocker: blocker
           )
