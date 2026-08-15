@@ -6,16 +6,15 @@ import Testing
 
 @Suite("Learning Path presentation")
 struct LearningPathPresentationTests {
-  @Test("operator journey has the exact five numbered stages")
-  func exactFiveStageJourney() {
-    #expect(LearningPathStage.allCases.map(\.number) == ["1", "2", "3", "4", "5"])
+  @Test("operator journey has the exact four implemented stages")
+  func exactImplementedStageJourney() {
+    #expect(LearningPathStage.allCases.map(\.number) == ["1", "2", "3", "4"])
     #expect(
       LearningPathStage.allCases.map(\.title) == [
         "Connect",
         "Enable Motion",
         "Human-Guided Discovery",
         "Observed Drawing Trials",
-        "Adaptive Drawing",
       ])
   }
 
@@ -26,7 +25,6 @@ struct LearningPathPresentationTests {
         "Complete",
         "Current",
         "Next",
-        "Future",
         "Needs Attention",
       ])
   }
@@ -81,7 +79,6 @@ struct LearningPathPresentationTests {
         "4.4 Draw Isolated Line",
         "4.5 Reveal and Observe New Ink",
         "4.6 Compare Intended and Observed Geometry",
-        "5 Adaptive Drawing",
       ])
   }
 
@@ -89,8 +86,8 @@ struct LearningPathPresentationTests {
   func inertSelection() {
     var selection = LearningPathSelectionState(current: .humanGuidedDiscovery(.penInteraction))
 
-    selection.select(.stage(.adaptiveDrawing))
-    #expect(selection.selected == .stage(.adaptiveDrawing))
+    selection.select(.stage(.observedDrawingTrials))
+    #expect(selection.selected == .stage(.observedDrawingTrials))
     #expect(selection.current == .humanGuidedDiscovery(.penInteraction))
     #expect(selection.isReviewingAnotherItem)
 

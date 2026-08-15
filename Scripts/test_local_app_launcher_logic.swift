@@ -13,6 +13,8 @@ private struct LocalAppLauncherLogicTests {
         testRunningApplicationDecisions(expected: expected)
         testRuntimeProof(expected: expected)
         testSuccessDescription(expected: expected)
+        testInvocationParsing()
+        testApplicationArguments()
         print("AdaptivePlotter local launcher logic tests passed")
     }
 
@@ -112,6 +114,58 @@ private struct LocalAppLauncherLogicTests {
         expect(description.contains("bundle=\(expected.bundlePath)"), "bundle reporting")
         expect(description.contains("executable=\(expected.executablePath)"), "executable reporting")
         expect(description.hasSuffix("activationPolicy=regular active=true"), "regular active proof reporting")
+    }
+
+    private static func testInvocationParsing() {
+        let path = "/tmp/AdaptivePlotter.app"
+        expect(
+            launcherInvocation(arguments: [path])
+                == LauncherInvocation(validateOnly: false, mode: .normal, bundlePath: path),
+            "normal invocation"
+        )
+        expect(
+            launcherInvocation(arguments: ["--simulated", path])
+                == LauncherInvocation(validateOnly: false, mode: .simulated, bundlePath: path),
+            "simulated invocation"
+        )
+        expect(
+            launcherInvocation(arguments: ["--validate-only", path])
+                == LauncherInvocation(validateOnly: true, mode: .normal, bundlePath: path),
+            "validate-only invocation"
+        )
+        expect(launcherInvocation(arguments: []) == nil, "missing path rejected")
+        expect(
+            launcherInvocation(arguments: ["--simulated"]) == nil,
+            "simulated option without path rejected"
+        )
+        expect(
+            launcherInvocation(arguments: ["--validate-only", "--simulated", path]) == nil,
+            "validate then simulated rejected"
+        )
+        expect(
+            launcherInvocation(arguments: ["--simulated", "--validate-only", path]) == nil,
+            "simulated then validate rejected"
+        )
+        expect(
+            launcherInvocation(arguments: ["--unknown", path]) == nil,
+            "unknown option rejected"
+        )
+    }
+
+    private static func testApplicationArguments() {
+        let normal = applicationArguments(for: .normal)
+        expect(
+            normal == [
+                "-ApplePersistenceIgnoreState", "YES",
+                "-NSQuitAlwaysKeepsWindows", "NO",
+            ],
+            "normal application arguments"
+        )
+        expect(
+            applicationArguments(for: .simulated)
+                == normal + ["-AdaptivePlotterStartSimulated", "YES"],
+            "simulated application arguments"
+        )
     }
 
     private static func application(

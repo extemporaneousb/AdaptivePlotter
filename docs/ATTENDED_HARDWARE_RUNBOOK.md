@@ -50,17 +50,25 @@ operator name or identifier.
 2. Verify current units, distance mode, coordinate system, settings digest,
    pins, Pen state, Idle state, and MPos are expected.
 3. Enable Motion only after those facts are acceptable.
-4. Complete the existing Pen Interaction Up → Down → Up exercise. Use the Up
-   and Down sliders to choose functional values at the current position; **Next**
-   accepts the displayed value even if the request was refused or ambiguous.
-   Record the values and whatever controller outcome, timestamp, and MPos are
-   available. A fresh session is seeded at `S40` and `S760`; repeated attempts
-   start with the current values and may legitimately differ by position.
-5. For X−, X+, Y−, and Y+, choose the direction explicitly, start Boundary
+4. Start Pen Interaction. Its first action is **Identify Pen Cap**. Confirm the
+   app freezes one current exact frame before any pen question or actuation, then
+   click a visibly colored area of the cap body, not the tip. Confirm the
+   accepted learned color visually corresponds to the cap and that the recorded
+   frame/source/configuration/click provenance and sample counts are current.
+   Reject stale-frame, gray/white/dark, or insufficiently chromatic samples;
+   do not work around refusal with a color picker.
+5. Complete the Up → Down → Up sequence. Use the Up and Down sliders to choose
+   functional values at the current position; **Next** accepts the displayed
+   value even if the request was refused or ambiguous. Record the values and
+   whatever controller outcome, timestamp, and MPos are available. A fresh
+   session is seeded at `S40` and `S760`; repeated attempts start with the
+   current values and may legitimately differ by position.
+6. For X−, X+, Y−, and Y+, choose the direction explicitly, start Boundary
    Discovery, watch the motion, and use the operation's exact **Stop**.
-6. Confirm each accepted side cites the selected direction plus final Idle/MPos.
-   Camera advice must not identify or veto the side.
-7. Move to the derived center and confirm the final MPos meets the displayed
+7. Confirm each accepted side cites the selected direction plus final Idle/MPos.
+   Boundary renewal uses fixed bounded controller segments and never consults
+   Camera or Vision advice.
+8. Move to the derived center and confirm the final MPos meets the displayed
    0.05 mm settlement policy.
 
 Any ambiguous or out-of-tolerance result ends this run. It is not evidence for
@@ -69,11 +77,17 @@ the requested side or center.
 ## 2. Stage 3.3 — camera and visible-cap calibration
 
 1. Confirm Pen Up and an unobstructed camera view of the complete five-position
-   cross.
+   cross. Confirm Stage 3.3 is using the accepted **Identify Pen Cap** appearance
+   from Pen Interaction and exposes no independent color-editing control.
 2. Start **Capture Five Cap Samples**.
 3. Observe Pen-Up travel through `C`, `X−`, `Y+`, `X+`, and `Y−`.
-4. At each pose, confirm the carriage settles before the exact frame is used and
-   that the cap landmark is the visible cap bottom-center, not the hidden tip.
+4. At each pose, confirm the carriage settles before inspection. Confirm the app
+   accepts exactly three strictly newer source/configuration-compatible LIVE
+   frames, each with one unambiguous cap candidate; refuses more than 2 px
+   maximum pairwise cap-centroid spread; and retains only the newest third exact
+   frame and measurement without averaging. The preliminary freshness frame is
+   not accepted evidence. The cap landmark is the visible cap bottom-center, not
+   the hidden tip.
 5. Review the three-fit/two-holdout proposal. Both holdouts must pass.
 6. Accept only if source, dimensions, optical setup, applicability rectangle,
    residuals, and correspondence roles are correct.
@@ -102,11 +116,12 @@ For each of `C`, `X−`, `Y+`, `X+`, and `Y−`:
    the entire circle before accepting the frame.
 8. Confirm the displayed frame is frozen after reveal settlement and opens at
    the stronger one-third-frame presentation focus.
-9. Before clicking, verify no predicted tip point or residual is shown.
+9. Before clicking, verify no expected tip point or residual is shown.
 10. Click the observed center of the new physical black circle.
-11. After clicking, review the cyan asserted point and uncertainty, purple model
-   prediction, and orange residual. Presentation zoom may help view the pixels;
-   it must not change the selected camera coordinates.
+11. After clicking, review the asserted point and uncertainty, the expected
+    point from the current tip-calibration candidate, and residual. Presentation
+    zoom may help view the pixels; it must not change the selected camera
+    coordinates.
 12. If the click is wrong, use **Re-click This Exact Frame**. Confirm that no
     motion or ink action occurs.
 13. Use **Accept Mark Center** only when the click and provenance are correct.
@@ -146,7 +161,7 @@ checkpoint and perform a new five-mark calibration.
 5. Draw once under the single drawing owner. Do not resend after ambiguity.
 6. Return Pen Up to the same trial-local reveal MPos and require settlement.
 7. Capture a strictly newer post-line frame.
-8. Review intended, predicted, and observed geometry only if the exact tip
+8. Review intended and observed geometry plus residuals only if the exact tip
    revision remains current.
 9. Record the operator assessment. It may retain candidate refinement evidence;
    it must not silently change the accepted model.

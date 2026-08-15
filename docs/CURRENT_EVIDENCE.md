@@ -1,6 +1,7 @@
 # AdaptivePlotter Current Evidence
 
-Status: current evidence ledger; updated for the sparse human-click replacement
+Status: current evidence ledger; software, simulator, controller, and attended
+physical claims are recorded separately
 
 This document records what was actually verified. Product meaning belongs to
 [Product Contract](PRODUCT_CONTRACT.md), package ownership to
@@ -106,18 +107,20 @@ These are software and simulator results. The app was not launched for this
 change. No controller connection, physical pen actuation, physical motion,
 manual square, camera observation, or observed ink validation was performed.
 
-### Learning recovery progression and selectable pen-cap color
+### Learning recovery progression and pen-cap color transport
 
 Validated 2026-08-15 in Blackdog task `TASK-51E90720`, targeting `main` from
 base `cce86f38150b2b83e9cb44e89148920c4a578a46`.
 
-`LearningPathProjector` now derives the current exercise from the active owner
-and unmet dependency chain; a settled restartable attempt remains a selectable
+`LearningPathProjector` derives the current exercise from the active owner and
+unmet dependency chain; a settled restartable attempt remains a selectable
 needs-attention row with its own **Restart** action and cannot replace the
-current exercise action strip. Video Settings exposes a native color well for
-the persisted `PenCapColor`. The selected RGB color reaches continuous bounded
-analysis and exclusive Stage 3.3 inspections, and color-specific estimator
-revisions prevent one five-sample proposal from mixing recognition settings.
+current exercise action strip. This historical change also established RGB
+color propagation through continuous bounded analysis and exclusive Stage 3.3
+inspections, with color-specific estimator revisions preventing one five-sample
+proposal from mixing recognition settings. Its editable Video Settings color
+well has since been removed. The current and only selection contract is the
+exact-frame **Identify Pen Cap** action recorded below.
 
 | Validation | Result | Scope |
 | --- | --- | --- |
@@ -209,7 +212,10 @@ physical ink validation was performed.
 The current source contains exactly two post-Boundary calibration exercises:
 
 - 3.3 five-cap machine-to-visible-cap registration with three fit samples and
-  two sealed holdouts;
+  two sealed holdouts. Each LIVE sample requires three strictly newer compatible
+  exact inspections, refuses any non-accepted or ambiguous cap and more than
+  2 px maximum pairwise cap-centroid spread, and retains the newest third exact
+  frame/measurement without averaging;
 - 3.4 five centered 2 mm-radius, 16-chord circular-mark observations capped at
   100 mm/min and using the current Up/Down values from the existing Pen
   Interaction exercise, far safe X-max/Y-zero-biased Pen-Up reveal,
@@ -254,32 +260,92 @@ These are software and simulated-workflow results. The app was not launched for
 this correction. No attended camera, controller, motion, pen, pen-cap,
 armature, preview-fluidity, or observed-ink validation was performed.
 
-## Video Settings and direct overlay analysis
+## Overlay ownership and implemented curriculum endpoint
 
-Validated 2026-08-12 in Blackdog task `TASK-AC50EDC1`, targeting `main` from
-base `9a68ff7d4e90fcd3f07de4fcd2c8e9f8e3664720`.
+The current implementation exposes exactly two persistent global controls:
+**Pen cap** and **Armature envelope**. The envelope is explicitly inferred from
+the cap and is not independently segmented. Operator/persistence-owned
+preference is separate from requested features, typed status, and exact-frame
+geometry. Scene, workflow, and simulation results have independent owners and
+compose only for the exact displayed source, camera configuration, and frame.
 
-The former Utilities Camera/Overlays tabs and Analyze/Resume action are deleted.
-Video Settings owns camera selection plus adjacent Refresh, 2/5/10 frames-per-
-second scene cadence, zoom/drag camera-pixel region readout and lock, and one
-three-column grid of direct overlay toggles. Selected cap, measured-frame-side,
-drawing-frame, or armature layers keep newest-only scene analysis running.
-Automatic overlay computation does not dim, badge, or pause preview
-publication. A locked region bounds every generic scene pixel scan without
-changing whole-frame identity or overlay coordinates.
+The first Pen Interaction action is **Identify Pen Cap**. Before any question
+or pen request, the operator clicks the colored cap body, not the tip, on one
+frozen exact frame. The implementation samples a clipped 9 x 9 neighborhood,
+rejects stale or unsupported evidence and gray, white, dark, or insufficiently
+chromatic pixels, and persists the accepted median RGB color with exact frame,
+source, camera configuration, click, sample-count, pixel-format, and algorithm
+provenance. It supports arbitrary visibly colored caps, including blue. There
+is no editable `ColorPicker`. Without an accepted LIVE appearance, the two
+overlay preferences remain unchanged while LIVE cap and inferred-armature
+statuses are Unavailable and no LIVE geometry is rendered.
+
+Generic ROI is independent from workflow ROI, full-frame lock is canonicalized
+to default analysis, and ROI does not change whole-frame cap-size eligibility.
+Frame-side/drawing-frame analysis and the optional Boundary Vision adviser are
+absent; fixed bounded Boundary renewal, Stop, Idle/MPos settlement, and fallback
+authority remain. Stage 4 intended geometry, observed ink, and residuals are
+contextual evidence with no global toggles.
+
+The visible Learning Path ends after the implemented 4.6 assessment. The former
+selectable future stage, speculative online model-learning dataset, policy/reward
+episode scaffolding, model-mismatch renderer, and model-prediction overlay kind
+are deleted. Adaptive requirements remain roadmap-only.
+
+The first integrated focused run passed before independent criticism. It is not
+the current completeness result: `critic_4` rejected that state because a
+persisted SIMULATED cap appearance could authorize LIVE analysis and because the
+pre-question click continuation did not have an explicit owned, guarded, and
+cancelable lifecycle. The critic's 101-test suite also failed. The ownership
+retask separated LIVE and SIMULATED appearance state and passed its production
+build, dedicated 11-test suite, and combined 53-test suite. The recovery retask
+then made the click continuation owned, guarded, and cancelable, corrected the
+stale tests, and passed the exact 108-test critic suite. The coordinator
+independently reran the combined 53-test and exact 108-test suites and the diff
+checks. Independent `critic_5` subsequently returned overall **ACCEPT** with no
+software FAIL: C1 through C14 PASS, and C15 UNPROVEN only for final
+landing/clean-state evidence and the explicitly unproven physical limitations
+below. No landed or clean-checkout state is claimed here.
 
 | Validation | Result | Scope |
 | --- | --- | --- |
-| Focused ActionSurface, panel, workspace, pipeline, and frame/Vision tests | passed — 65 tests | drag/zoom clamp, region lock, overlay-owned analysis, cadence, preview activity, exact overlay identity, bounded scans |
-| `make quick-test` | passed — 322 tests | fast unit/component partition |
-| `make journey-test` | passed — 10 tests | retained sparse-circle, checkpoint, Stage 4, Boundary, reset, and simulator journeys |
-| `make strict-check` | passed — 332 tests | complete concurrency, warnings-as-errors, signed bundle and launcher validation, full test suite, repository checks |
-| obsolete-surface scan | passed | no Utilities labels, Camera/Overlays tab types, CameraUtility actions, Analyze Current Frame, or Resume Preview symbols remain |
-| `git diff --check` | passed | whitespace/conflict markers |
+| Pre-critic integrated focused suites | passed — 95 tests | historical pre-critic result only; later rejected as completeness evidence by `critic_4` |
+| `critic_4` exact suite against pre-retask state | failed — 101-test run | exposed SIMULATED-to-LIVE appearance authorization and unowned click continuation defects |
+| Ownership retask production build | passed | LIVE and SIMULATED pen-cap appearance ownership separated |
+| Ownership retask dedicated suite | passed — 11 tests | source separation and LIVE authorization boundary |
+| Ownership retask combined suite | passed — 53 tests | corrected ownership integrated with cap, overlay, lifecycle, and simulator behavior |
+| Recovery retask exact critic suite | passed — 108 tests | click continuation ownership, guards, cancellation, and corrected stale tests |
+| Coordinator independent combined rerun | passed — 53 tests | independent rerun of the ownership-focused integration set |
+| Coordinator independent exact critic rerun | passed — 108 tests | independent rerun of the complete current critic set after recovery |
+| Independent `critic_5` | overall ACCEPT — C1–C14 PASS; C15 UNPROVEN | no software FAIL; final landing/clean state and physical limitations remain unproven |
+| Final combined focused suites | passed — 157 tests | overlay ownership/status, click-first appearance, source separation, guarded recovery, Vision/ROI, curriculum, layout, lifecycle, and simulator behavior |
+| `make quick-test` | passed — 374 tests | complete quick unit/component partition |
+| `make journey-test` | passed — 10 tests | retained current curriculum and recovery journeys |
+| `make strict-check` | passed — 384 tests | strict-concurrency warnings-as-errors build, signed launcher checks, full test suite, and repository gates |
+| Focused `OperatorWorkspaceControllerAndBoundaryTests` | passed — 21 tests | stable three-frame LIVE cap evidence retains the newest exact result; bounded wobble passes; centroid spread above 2 px refuses; MPos authority remains separate |
+| Focused overlay, curriculum, registration, Stage 3.3/3.4, Stage 4, reset, lifecycle, and simulator tests | passed — 132 tests | persistent preference, exact result ownership, all status cases, layout widths, one implemented curriculum endpoint, finite LIVE cap stability/refusal and newest-frame evidence, sparse calibration, no-redraw recovery, artifacts, ink observation, and causal simulation |
+| Deleted-symbol scans | passed — zero matches | removed future route, model-learning/mismatch types, prediction overlay kind, speculative episode fields, field-registration/drawing-transform types, MachineActions request closures, and prior frame/Boundary adviser types across source, tests, README, and current docs |
+| `git diff --cached --check` and deletion scans | passed | staged whitespace/conflict checks and removed-surface inventory |
+| Signed LIVE C920 visual inspection | passed — UI inspection only | camera live with blue cap visibly in frame at 1610 × 897 and actual minimum 1440 × 798; exactly two vertically stacked overlay controls; both preferences On; wrapped Not learned status; no ColorPicker; settings usable; Learning Path auto-hidden at minimum width |
 
-These are software and simulated-workflow results. The app was not launched for
-this change. No attended camera, controller, motion, pen, pen-cap detection,
-armature detection, preview behavior, or observed-ink validation was performed.
+These are software, deterministic simulator, signed-launcher, and attended
+camera/UI presentation results for unlanded changes. They do not establish a
+successful pen-cap identification or any controller, motion, pen, calibration,
+or ink outcome. Final landing and clean-checkout evidence are not claimed.
+
+During signed LIVE inspection the C920 camera was live and a blue cap was
+visibly present, but **Identify Pen Cap** was not clicked: reaching Pen
+Interaction requires the preceding controller/Motion curriculum, which was
+outside the authorization for this inspection. The controller stayed
+disconnected, Motion stayed disabled, and no operation was admitted. No
+Connect, Start, Enable Motion, manual-motion, pen, or calibration action was
+used. The reported physical pen position remains ambiguous and therefore
+possible ink; no motion or pen action occurred.
+
+Blue-cap detection reliability, click ergonomics, cap-inferred armature
+usefulness, preview fluidity, attended calibration, controller behavior, motion,
+pen behavior, and observed ink remain skipped and unproven. Seeing the cap in a
+live preview and verifying the UI layout does not establish any of those claims.
 
 ## Stage 3.4 circular-mark visibility correction
 

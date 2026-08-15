@@ -77,10 +77,28 @@ struct CameraPixelToViewTransform: Equatable, Sendable {
   }
 }
 
+enum ActionSurfacePointSelectionPurpose: Hashable, Sendable {
+  case penCapAppearance
+  case toolContact
+}
+
 struct ActionSurfacePointSelectionRequest: Hashable, Sendable {
   let frame: ExactTipCalibrationFrame
   let presentationTransformRevision: PresentationTransformRevision
   let prompt: String
+  let purpose: ActionSurfacePointSelectionPurpose
+
+  init(
+    frame: ExactTipCalibrationFrame,
+    presentationTransformRevision: PresentationTransformRevision,
+    prompt: String,
+    purpose: ActionSurfacePointSelectionPurpose = .toolContact
+  ) {
+    self.frame = frame
+    self.presentationTransformRevision = presentationTransformRevision
+    self.prompt = prompt
+    self.purpose = purpose
+  }
 
   func matches(_ displayedFrame: DisplayedFrame) -> Bool {
     frame.frameID == displayedFrame.frame.id
@@ -281,6 +299,7 @@ struct ActionSurfacePresentation: Sendable {
   let simulatedAnnotationsAreVisible: Bool
   let viewportContext: ActionSurfaceViewportContext?
   let analysisRegionIsLocked: Bool
+  let analyzedOverlayFrame: ExactFrameOverlayProvenance?
   let pointSelectionRequest: ActionSurfacePointSelectionRequest?
   let tipPresentation: ActionSurfaceTipPresentation
 
@@ -294,6 +313,7 @@ struct ActionSurfacePresentation: Sendable {
     simulatedAnnotationsAreVisible: Bool = true,
     viewportContext: ActionSurfaceViewportContext? = nil,
     analysisRegionIsLocked: Bool = false,
+    analyzedOverlayFrame: ExactFrameOverlayProvenance? = nil,
     pointSelectionRequest: ActionSurfacePointSelectionRequest? = nil,
     tipPresentation: ActionSurfaceTipPresentation = .notCalibrated
   ) {
@@ -316,11 +336,15 @@ struct ActionSurfacePresentation: Sendable {
       self.pointSelectionRequest = pointSelectionRequest.flatMap {
         $0.matches(displayedFrame) ? $0 : nil
       }
+      self.analyzedOverlayFrame = analyzedOverlayFrame.flatMap {
+        $0.matches(displayedFrame) ? $0 : nil
+      }
     } else {
       self.overlays = []
       self.simulatedAnnotations = []
       self.viewportContext = nil
       self.pointSelectionRequest = nil
+      self.analyzedOverlayFrame = nil
     }
     self.analysisRegionIsLocked = analysisRegionIsLocked
     self.tipPresentation = tipPresentation
@@ -402,12 +426,18 @@ struct ActionSurface: View {
       }
       .overlay(alignment: .topTrailing) {
         if let frame = presentation.displayedFrame?.frame {
-          Text("FRAME \(frame.sequence) · \(frame.width)×\(frame.height)")
-            .font(.caption2.monospaced())
-            .foregroundStyle(.white)
-            .padding(6)
-            .background(.black.opacity(0.65))
-            .padding(8)
+          VStack(alignment: .trailing, spacing: 3) {
+            Text("DISPLAYED FRAME \(frame.sequence) · \(frame.width)×\(frame.height)")
+            if let analyzed = presentation.analyzedOverlayFrame {
+              Text("OVERLAYS ANALYZED FROM THIS EXACT FRAME \(analyzed.frameSequence)")
+            }
+          }
+          .font(.caption2.monospaced())
+          .foregroundStyle(.white)
+          .multilineTextAlignment(.trailing)
+          .padding(6)
+          .background(.black.opacity(0.65))
+          .padding(8)
         }
       }
       .overlay(alignment: .bottomLeading) {
@@ -460,9 +490,14 @@ struct ActionSurface: View {
         viewport.synchronize(with: context)
       }
       .accessibilityValue(
-        presentation.simulatedAnnotationsAreVisible
-          ? presentation.simulatedAnnotations.map(\.accessibleValue).joined(separator: ", ")
-          : "Simulator annotations hidden"
+        [
+          presentation.analyzedOverlayFrame.map {
+            "Overlays analyzed from displayed exact frame \($0.frameSequence)"
+          },
+          presentation.simulatedAnnotationsAreVisible
+            ? presentation.simulatedAnnotations.map(\.accessibleValue).joined(separator: ", ")
+            : "Simulator annotations hidden",
+        ].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ". ")
       )
     }
   }
@@ -694,16 +729,10 @@ struct ActionSurface: View {
     switch kind {
     case .intendedPath:
       return (.cyan, 2, [])
-    case .modelPrediction:
-      return (.purple, 2, [8, 5])
     case .observedInk:
       return (.white, 3, [])
     case .residual:
       return (.orange, 1.5, [])
-    case .measuredFrameSide:
-      return (.blue, 2.5, [])
-    case .drawingFrameEstimate:
-      return (.cyan, 2, [10, 5])
     case .penCap:
       return (.yellow, 2, [])
     case .armatureEstimate:

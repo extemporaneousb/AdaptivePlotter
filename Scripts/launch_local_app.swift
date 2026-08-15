@@ -37,6 +37,56 @@ enum LaunchOutcome: String {
     case activatedExisting = "activated existing"
 }
 
+enum RequestedLaunchMode: Equatable {
+    case normal
+    case simulated
+}
+
+struct LauncherInvocation: Equatable {
+    let validateOnly: Bool
+    let mode: RequestedLaunchMode
+    let bundlePath: String
+}
+
+func launcherInvocation(arguments: [String]) -> LauncherInvocation? {
+    if arguments.count == 1 {
+        guard !arguments[0].hasPrefix("--") else { return nil }
+        return LauncherInvocation(
+            validateOnly: false,
+            mode: .normal,
+            bundlePath: arguments[0]
+        )
+    }
+    guard arguments.count == 2 else { return nil }
+    switch arguments[0] {
+    case "--validate-only":
+        return LauncherInvocation(
+            validateOnly: true,
+            mode: .normal,
+            bundlePath: arguments[1]
+        )
+    case "--simulated":
+        return LauncherInvocation(
+            validateOnly: false,
+            mode: .simulated,
+            bundlePath: arguments[1]
+        )
+    default:
+        return nil
+    }
+}
+
+func applicationArguments(for mode: RequestedLaunchMode) -> [String] {
+    var arguments = [
+        "-ApplePersistenceIgnoreState", "YES",
+        "-NSQuitAlwaysKeepsWindows", "NO",
+    ]
+    if mode == .simulated {
+        arguments.append(contentsOf: ["-AdaptivePlotterStartSimulated", "YES"])
+    }
+    return arguments
+}
+
 enum RuntimeProofIssue: Equatable {
     case bundleIdentifier(actual: String?)
     case bundlePath(actual: String?)
@@ -170,11 +220,20 @@ private enum LauncherError: LocalizedError {
     case applicationDidNotBecomeActive(pid: pid_t)
     case applicationTerminated(pid: pid_t)
     case postLaunchIdentityConflict(expectedPID: pid_t)
+    case simulatedModeRequiresNewInstance(pid: pid_t)
 
     var errorDescription: String? {
         switch self {
         case .usage:
-            return "usage: AdaptivePlotterLauncher [--validate-only] PATH_TO_ADAPTIVEPLOTTER_APP"
+            return """
+                usage:
+                  AdaptivePlotterLauncher PATH_TO_ADAPTIVEPLOTTER_APP
+                  AdaptivePlotterLauncher --simulated PATH_TO_ADAPTIVEPLOTTER_APP
+                  AdaptivePlotterLauncher --validate-only PATH_TO_ADAPTIVEPLOTTER_APP
+
+                --simulated launches the signed app directly into causal SIMULATED mode without camera discovery or startup.
+                --validate-only validates bundle identity and cannot be combined with --simulated.
+                """
         case .missingBundle(let url):
             return "AdaptivePlotter app bundle does not exist at \(url.path)"
         case .unexpectedBundleIdentifier(let actual):
@@ -222,6 +281,8 @@ private enum LauncherError: LocalizedError {
             return "AdaptivePlotter pid=\(pid) terminated before launch identity could be proved"
         case .postLaunchIdentityConflict(let expectedPID):
             return "AdaptivePlotter pid=\(expectedPID) launched, but the post-launch process snapshot did not contain exactly that bundled instance"
+        case .simulatedModeRequiresNewInstance(let pid):
+            return "refusing --simulated because AdaptivePlotter pid=\(pid) is already running; quit it first so the nonpersistent simulated startup argument can be applied"
         }
     }
 }
@@ -391,16 +452,16 @@ private enum LauncherCore {
         }
     }
 
-    static func open(bundleURL: URL) throws -> NSRunningApplication {
+    static func open(
+        bundleURL: URL,
+        arguments: [String]
+    ) throws -> NSRunningApplication {
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = true
         configuration.addsToRecentItems = false
         configuration.createsNewApplicationInstance = false
         configuration.allowsRunningApplicationSubstitution = false
-        configuration.arguments = [
-            "-ApplePersistenceIgnoreState", "YES",
-            "-NSQuitAlwaysKeepsWindows", "NO",
-        ]
+        configuration.arguments = arguments
 
         let completion = LaunchCompletion()
         NSWorkspace.shared.openApplication(
@@ -555,21 +616,12 @@ private struct AdaptivePlotterLauncher {
     static func main() {
         do {
             let arguments = Array(CommandLine.arguments.dropFirst())
-            let validateOnly: Bool
-            let path: String
-
-            if arguments.count == 1 {
-                validateOnly = false
-                path = arguments[0]
-            } else if arguments.count == 2, arguments[0] == "--validate-only" {
-                validateOnly = true
-                path = arguments[1]
-            } else {
+            guard let invocation = launcherInvocation(arguments: arguments) else {
                 throw LauncherError.usage
             }
 
-            let bundle = try LauncherCore.validatedBundle(path: path)
-            if validateOnly {
+            let bundle = try LauncherCore.validatedBundle(path: invocation.bundlePath)
+            if invocation.validateOnly {
                 print(bundle.url.path)
                 return
             }
@@ -580,10 +632,18 @@ private struct AdaptivePlotterLauncher {
             let application: NSRunningApplication
             let outcome: LaunchOutcome
             if let existing {
+                guard invocation.mode == .normal else {
+                    throw LauncherError.simulatedModeRequiresNewInstance(
+                        pid: existing.processIdentifier
+                    )
+                }
                 application = existing
                 outcome = .activatedExisting
             } else {
-                application = try LauncherCore.open(bundleURL: bundle.url)
+                application = try LauncherCore.open(
+                    bundleURL: bundle.url,
+                    arguments: applicationArguments(for: invocation.mode)
+                )
                 outcome = .launched
             }
 

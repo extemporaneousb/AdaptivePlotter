@@ -9,7 +9,6 @@ public enum VisionAnalysisCadence: Int, Codable, CaseIterable, Hashable, Sendabl
     1_000_000_000 / UInt64(rawValue)
   }
 }
-
 public typealias PlotterSceneAnalysisActivityHandler = @Sendable (Bool) async -> Void
 
 public enum PlotterSceneAnalysisState: Codable, Hashable, Sendable {
@@ -90,12 +89,14 @@ public struct PlotterSceneAnalysisSnapshot: Hashable, Sendable {
 public actor PlotterSceneAnalysisPipeline {
   typealias Analyzer = @Sendable (StampedFrame) async throws -> PlotterSceneMeasurement
   typealias RegionAnalyzer =
-    @Sendable (StampedFrame, PixelRect?, PenCapColor) async throws -> PlotterSceneMeasurement
+    @Sendable (StampedFrame, SceneFeatureSet, PixelRect?, PenCapColor) async throws
+      -> PlotterSceneMeasurement
 
   private let clock: any RuntimeClock
   private let analyzer: RegionAnalyzer
   private let activityHandler: PlotterSceneAnalysisActivityHandler
   private var state: PlotterSceneAnalysisState = .stopped
+  private var requestedFeatures: SceneFeatureSet = []
   private var analysisRegion: PixelRect?
   private var penCapColor: PenCapColor = .green
   private var pendingFrame: DisplayedFrame?
@@ -118,9 +119,10 @@ public actor PlotterSceneAnalysisPipeline {
   ) {
     self.clock = clock
     self.activityHandler = activityHandler
-    analyzer = { frame, region, penCapColor in
+    analyzer = { frame, features, region, penCapColor in
       try await worker.inspectPlotterScene(
         in: frame,
+        requestedFeatures: features,
         analysisRegion: region,
         penCapColor: penCapColor
       )
@@ -134,7 +136,7 @@ public actor PlotterSceneAnalysisPipeline {
   ) {
     self.clock = clock
     self.activityHandler = activityHandler
-    self.analyzer = { frame, _, _ in try await analyzer(frame) }
+    self.analyzer = { frame, _, _, _ in try await analyzer(frame) }
   }
 
   public func setAnalysisRegion(_ region: PixelRect?) async {
@@ -153,6 +155,7 @@ public actor PlotterSceneAnalysisPipeline {
     publishSnapshot()
   }
 
+
   public func setPenCapColor(_ color: PenCapColor) async {
     guard penCapColor != color else { return }
     let analysisWasActive = activeFrameSequence != nil
@@ -169,7 +172,20 @@ public actor PlotterSceneAnalysisPipeline {
     publishSnapshot()
   }
 
-  public func start(cadence: VisionAnalysisCadence) {
+  public func start(cadence: VisionAnalysisCadence, requestedFeatures: SceneFeatureSet) async {
+    if self.requestedFeatures != requestedFeatures {
+      let analysisWasActive = activeFrameSequence != nil
+      generation &+= 1
+      drainTask?.cancel()
+      drainTask = nil
+      pendingFrame = nil
+      activeFrameSequence = nil
+      latestResult = nil
+      lastError = nil
+      lastAnalysisCompletionNanoseconds = nil
+      self.requestedFeatures = requestedFeatures
+      if analysisWasActive { await activityHandler(false) }
+    }
     if case .stopped = state {
       generation &+= 1
       lastAnalysisCompletionNanoseconds = nil
@@ -256,7 +272,9 @@ public actor PlotterSceneAnalysisPipeline {
       publishSnapshot()
       let result: Result<PlotterSceneMeasurement, Error>
       do {
-        result = .success(try await analyzer(frame.frame, analysisRegion, penCapColor))
+        result = .success(
+          try await analyzer(frame.frame, requestedFeatures, analysisRegion, penCapColor)
+        )
       } catch {
         result = .failure(error)
       }

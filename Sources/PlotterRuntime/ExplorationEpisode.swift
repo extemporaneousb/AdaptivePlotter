@@ -31,84 +31,15 @@ public struct ExplorationEpisodeID: RawRepresentable, Hashable, Sendable, Custom
   public var description: String { rawValue }
 }
 
-public enum ExplorationLearningRung: String, CaseIterable, Hashable, Sendable {
-  case humanGuidedDiscovery
-  case observedDrawingTrial
-  case adaptiveDrawing
-}
-
 public enum ExplorationSource: String, Hashable, Sendable {
   case live
   case simulated
-}
-
-/// Assigned before an action. Every observation derived from one physical mark
-/// retains this episode-level membership.
-public enum ExplorationDataSplit: String, Hashable, Sendable {
-  case training
-  case reserved
 }
 
 public enum ExplorationEpisodeTermination: Hashable, Sendable {
   case completed
   case failed(String)
   case ambiguous(String)
-}
-
-public enum ExplorationActionKind: String, CaseIterable, Hashable, Sendable {
-  case boundarySearch
-  case relativeJog
-  case penUp
-  case penDown
-  case captureCameraCalibrationReference
-  case captureLocalPreLineBaseline
-  case drawingStroke
-  case capturePostLine
-  case observeInk
-}
-
-/// An attributable description of a closed typed runtime action. It is not a
-/// controller-text field and carries no execution authority.
-public struct ExplorationActionSummary: Hashable, Sendable {
-  public let kind: ExplorationActionKind
-  public let parameters: String
-
-  public init(kind: ExplorationActionKind, parameters: String) {
-    self.kind = kind
-    self.parameters = parameters
-  }
-}
-
-public struct ExplorationActionCandidate: Hashable, Sendable {
-  public let id: String
-  public let action: ExplorationActionSummary
-
-  public init(id: String, action: ExplorationActionSummary) {
-    self.id = id
-    self.action = action
-  }
-}
-
-public struct ExplorationPolicySelection: Hashable, Sendable {
-  public let modelVersion: String?
-  public let policyVersion: String?
-  public let selectedCandidateID: String?
-  public let selectionPropensity: Double?
-  public let snapshotSummary: String?
-
-  public init(
-    modelVersion: String? = nil,
-    policyVersion: String? = nil,
-    selectedCandidateID: String? = nil,
-    selectionPropensity: Double? = nil,
-    snapshotSummary: String? = nil
-  ) {
-    self.modelVersion = modelVersion
-    self.policyVersion = policyVersion
-    self.selectedCandidateID = selectedCandidateID
-    self.selectionPropensity = selectionPropensity
-    self.snapshotSummary = snapshotSummary
-  }
 }
 
 public enum ExplorationControllerOutcome: String, Hashable, Sendable {
@@ -212,33 +143,15 @@ public struct ExplorationResidual: Hashable, Sendable {
   }
 }
 
-public struct ExplorationReward: Hashable, Sendable {
-  public let value: Double?
-  public let summary: String
-  public let provenance: String
-
-  public init(value: Double? = nil, summary: String, provenance: String) {
-    self.value = value
-    self.summary = summary
-    self.provenance = provenance
-  }
-}
-
 /// One current-slice, in-memory learning record. It deliberately has no
 /// persistence or replay behavior; camera byte export remains camera-owned.
 public struct ExplorationEpisode: Hashable, Sendable {
   public let sessionID: LearningEvidenceSessionID
   public let id: ExplorationEpisodeID
-  public let rung: ExplorationLearningRung
   public let source: ExplorationSource
-  public let split: ExplorationDataSplit
   public let startedNanoseconds: UInt64
 
   public var termination: ExplorationEpisodeTermination?
-  public var candidateActions: [ExplorationActionCandidate]
-  public var policySelection: ExplorationPolicySelection?
-  public var proposedAction: ExplorationActionSummary?
-  public var executedAction: ExplorationActionSummary?
   public var controllerEvidence: ExplorationControllerEvidence?
   public var frames: [ExplorationFrameEvidence]
   public var lineStartPosition: MachinePosition?
@@ -247,27 +160,18 @@ public struct ExplorationEpisode: Hashable, Sendable {
   public var visionEstimate: ExplorationAssessment?
   public var humanAssessment: ExplorationAssessment?
   public var residual: ExplorationResidual?
-  public var reward: ExplorationReward?
 
   public init(
     sessionID: LearningEvidenceSessionID,
     id: ExplorationEpisodeID = ExplorationEpisodeID(),
-    rung: ExplorationLearningRung,
     source: ExplorationSource,
-    split: ExplorationDataSplit,
     startedNanoseconds: UInt64
   ) {
     self.sessionID = sessionID
     self.id = id
-    self.rung = rung
     self.source = source
-    self.split = split
     self.startedNanoseconds = startedNanoseconds
     termination = nil
-    candidateActions = []
-    policySelection = nil
-    proposedAction = nil
-    executedAction = nil
     controllerEvidence = nil
     frames = []
     lineStartPosition = nil
@@ -276,6 +180,5 @@ public struct ExplorationEpisode: Hashable, Sendable {
     visionEstimate = nil
     humanAssessment = nil
     residual = nil
-    reward = nil
   }
 }

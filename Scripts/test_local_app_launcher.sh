@@ -12,6 +12,22 @@ fi
 
 "$launcher" --validate-only "$bundle" >/dev/null
 
+set +e
+invalid_combination=$(
+    "$launcher" --validate-only --simulated "$bundle" 2>&1
+)
+invalid_combination_status=$?
+set -e
+if [ "$invalid_combination_status" -eq 0 ]; then
+    echo "launcher accepted --validate-only combined with --simulated" >&2
+    exit 1
+fi
+if ! printf '%s\n' "$invalid_combination" | grep -Fq -- "--simulated"; then
+    printf '%s\n' "$invalid_combination" >&2
+    echo "launcher usage did not explain --simulated" >&2
+    exit 1
+fi
+
 if "$launcher" --validate-only "$project_root/.build/Missing.app" >/dev/null 2>&1; then
     echo "launcher validation accepted a missing app bundle" >&2
     exit 1

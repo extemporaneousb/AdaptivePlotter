@@ -793,7 +793,7 @@ private func statusColor(_ status: LearningPathStageStatus) -> Color {
   switch status {
   case .complete: .green
   case .current: .accentColor
-  case .next, .future: .secondary
+  case .next: .secondary
   case .needsAttention: .orange
   }
 }
@@ -803,7 +803,6 @@ private func statusSystemImage(_ status: LearningPathStageStatus) -> String {
   case .complete: "checkmark.circle.fill"
   case .current: "arrow.right.circle.fill"
   case .next: "circle"
-  case .future: "clock"
   case .needsAttention: "exclamationmark.triangle.fill"
   }
 }

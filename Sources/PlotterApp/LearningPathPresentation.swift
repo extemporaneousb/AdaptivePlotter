@@ -6,7 +6,6 @@ enum LearningPathStage: Int, CaseIterable, Hashable, Identifiable, Sendable {
   case enableMotion
   case humanGuidedDiscovery
   case observedDrawingTrials
-  case adaptiveDrawing
 
   var id: Self { self }
   var number: String { String(rawValue) }
@@ -17,7 +16,6 @@ enum LearningPathStage: Int, CaseIterable, Hashable, Identifiable, Sendable {
     case .enableMotion: "Enable Motion"
     case .humanGuidedDiscovery: "Human-Guided Discovery"
     case .observedDrawingTrials: "Observed Drawing Trials"
-    case .adaptiveDrawing: "Adaptive Drawing"
     }
   }
 }
@@ -26,7 +24,6 @@ enum LearningPathStageStatus: String, CaseIterable, Hashable, Sendable {
   case complete = "Complete"
   case current = "Current"
   case next = "Next"
-  case future = "Future"
   case needsAttention = "Needs Attention"
 }
 
@@ -106,7 +103,6 @@ enum LearningPathItemID: Hashable, Identifiable, Sendable {
     .observedDrawingTrial(.drawIsolatedLine),
     .observedDrawingTrial(.revealAndObserveNewInk),
     .observedDrawingTrial(.compareIntendedAndObservedGeometry),
-    .stage(.adaptiveDrawing),
   ]
 
   static let learningExerciseOrder: [Self] = [
@@ -150,7 +146,7 @@ enum LearningPathItemID: Hashable, Identifiable, Sendable {
     switch self {
     case .humanGuidedDiscovery, .observedDrawingTrial: true
     case .stage(.connect), .stage(.enableMotion): true
-    case .stage(.humanGuidedDiscovery), .stage(.observedDrawingTrials), .stage(.adaptiveDrawing):
+    case .stage(.humanGuidedDiscovery), .stage(.observedDrawingTrials):
       false
     }
   }
@@ -163,7 +159,7 @@ enum LearningPathItemID: Hashable, Identifiable, Sendable {
       .observedDrawingTrial(.chooseIsolatedLinePlan)
     case .humanGuidedDiscovery, .observedDrawingTrial:
       self
-    case .stage(.connect), .stage(.enableMotion), .stage(.adaptiveDrawing):
+    case .stage(.connect), .stage(.enableMotion):
       nil
     }
   }

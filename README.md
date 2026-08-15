@@ -33,7 +33,9 @@ authorization ladder:
    - **4.4 Draw Isolated Line**
    - **4.5 Reveal and Observe New Ink**
    - **4.6 Compare Intended and Observed Geometry**
-5. **Adaptive Drawing** — Future
+
+The visible curriculum finishes at 4.6. Adaptive Drawing is roadmap scope and is
+not a selectable current stage.
 
 Connect and Enable Motion expose direct current-session facts. Selecting a row
 changes presentation only; it cannot admit motion, change runtime current state,
@@ -77,6 +79,12 @@ the bootstrap rectangle is reduced symmetrically around its center. It must
 retain at least 10 mm usable span on each axis.
 
 Five Pen-Up cap samples use the normalized cross `C`, `X−`, `Y+`, `X+`, `Y−`.
+Each LIVE sample requires exactly three strictly newer compatible exact
+inspection frames with one accepted unambiguous cap per frame and no more than
+2 px maximum pairwise cap-centroid spread. The newest third frame and its cap
+measurement become evidence; geometry is not averaged, and the preliminary
+freshness boundary is not evidence. SIMULATED geometry is separate nonphysical
+evidence and does not prove live stability.
 The first three fit an affine machine-to-visible-cap map; the last two are
 independent holdouts. Both holdouts must pass before a weighted all-five refit
 can be explicitly accepted as `MachineCameraRegistration`. The visible cap
@@ -112,9 +120,10 @@ A complete commanded actuation plus its settlement is controller evidence;
 only attended observation can prove that the physical pen cleared or reached
 the paper.
 
-The predicted tip point is hidden until the click is made. Before accepted
+The expected tip point is hidden until the click is made. Before accepted
 authority exists, the UI says **Tip not calibrated**. After a click, the UI
-shows the selected point and uncertainty, model prediction, and residual.
+shows the selected point and uncertainty, the expected point from the current
+tip-calibration candidate, and residual.
 
 The first three accepted marks fit candidates; `X+` and `Y−` remain holdouts.
 The smallest passing model wins: a constant camera-pixel correction on the cap
@@ -185,16 +194,37 @@ grammar. A panel that owns the only active Stop cannot be hidden until its
 operation settles.
 
 Video Settings combines camera selection, adjacent Refresh, scene-analysis
-frames per second, viewport zoom/drag/region lock, and a three-column overlay
-grid without tabs. A clickable color well beside the overlays selects the
-visible pen-cap color consumed by both continuous recognition and Stage 3.3;
-the selection persists across launches. Selecting any scene-derived overlay
-directly keeps bounded newest-only analysis running; there is no separate
-Analyze/Resume control.
+frames per second, viewport zoom/drag/region lock, and exactly two readable
+one-column global overlay cards: **Pen cap** and **Armature envelope**. Each card
+keeps persistent On/Off preference separate from typed status, reason, region,
+cadence, exact analyzed frame, and result age. The armature envelope is inferred
+from the detected cap and is not independently segmented. Selecting either
+overlay directly keeps bounded newest-only analysis running; there is no
+separate Analyze/Resume control.
 Automatic overlay computation does not dim, badge, or pause preview
 publication. Locking the viewport admits only that
 camera-pixel subregion to generic scene-analysis scans without cropping or
-rewriting the exact stamped frame.
+rewriting the exact stamped frame. A generic viewport region never constrains
+calibration or observed-trial measurements, and full-frame lock is canonicalized
+to default unlocked analysis.
+
+Pen-cap appearance is learned only by the first **Identify Pen Cap** action in
+Pen Interaction. The operator clicks the colored cap body, not the tip, on one
+frozen exact frame. A clipped 9 x 9 sample rejects gray, white, dark, or
+insufficiently chromatic pixels and persists the accepted median RGB color with
+the click, frame hash, source, camera configuration, dimensions, pixel format,
+sample counts, and algorithm revision. This supports arbitrary visibly colored
+caps, including blue; there is no editable color picker. Until a LIVE selection
+has been learned, Pen cap and Armature envelope remain selected according to the
+operator's persisted overlay preferences but report Unavailable and render no
+LIVE geometry.
+
+Overlay preferences are operator-owned persisted choices. Camera lifecycle,
+workflow activity, errors, stale frames, suspension, and load shedding change
+status or renderability, never the selection. Scene, workflow, and simulator
+results have separate owners and are composed only when their frame and camera
+configuration exactly match. Stage 4 intended geometry, observed ink, and
+residuals are required contextual evidence rather than global toggles.
 
 The toolbar owns controller selection, Connect/Disconnect, Enable Motion, and
 compact status. Exercise Start, choices, Cancel, Stop, Restart, Redo, and Record
@@ -240,6 +270,7 @@ make strict-check
 make app
 make validate-app
 make run-app
+make run-app-simulated
 ```
 
 `make quick-test` runs unit and component tests while excluding retained
@@ -252,6 +283,14 @@ that gate with complete Swift concurrency checking and warnings as errors.
 launcher. Do not run the raw SwiftPM executable for camera or controller work.
 The launcher activates the exact existing bundle when possible and refuses
 wrong-path or competing raw processes without terminating them.
+
+`make run-app-simulated` uses the same signed bundle, singleton launcher,
+identity validation, and activation proof, but passes a nonpersistent startup
+argument that enters causal **SIMULATED** mode without camera discovery,
+selection, or startup. It refuses an already-running app because that process's
+startup mode cannot be changed or proven. This is the reproducible nonphysical
+visual-inspection command; it does not provide camera, controller, motion, pen,
+calibration, operator-click, or observed-ink evidence.
 
 The current sparse calibration implementation has automated and simulated
 evidence only. No current physical camera/controller/pen/operator-click or

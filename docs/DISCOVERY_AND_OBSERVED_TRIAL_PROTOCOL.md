@@ -46,26 +46,43 @@ Presentation zoom, pan, and fitted bounds are available after 3.2. They are
 view-only. Exact camera-pixel evidence and calibration authority do not change
 when the presentation transform changes.
 
-Set the visible pen-cap recognition color in Video Settings before beginning
-Stage 3.3. The color well remains an operator preference, not observed evidence.
-It feeds continuous scene analysis and the exact-frame calibration inspector;
-it is unavailable while automatic current-camera calibration is active so one
-five-sample proposal cannot mix recognition settings.
+The only global scene-overlay preferences are **Pen cap** and **Armature
+envelope**. The envelope is inferred from the cap, not segmented. Generic
+viewport ROI affects only generic requested scene analysis; it never constrains
+the specialized regions used below. Intended geometry, observed ink, and
+residuals are mandatory contextual evidence in Stage 4 and are not toggles.
 
 ## 3.1 Pen Interaction
 
-1. Start the existing Pen Interaction attempt.
-2. The Up step presents the current Up slider. It is seeded at `S40` in a fresh
+1. Start the existing Pen Interaction attempt. Before any Pen Interaction
+   question or pen request, **Identify Pen Cap** freezes the current exact frame
+   and asks the operator to click the colored cap body, not the tip.
+2. Map the presentation click back to the frozen camera frame and inspect the
+   clipped 9 x 9 neighborhood. Reject a stale frame, unsupported pixel format,
+   too few chromatic pixels, or a gray, white, or dark median with a concrete
+   reason. An accepted sample persists its median RGB color, click point, exact
+   frame hash and identity, source, camera configuration, dimensions, pixel
+   format, usable/total sample counts, and algorithm revision. There is no
+   editable color picker. The learned appearance feeds generic scene analysis
+   and every Stage 3.3 exact-frame inspection, so arbitrary visibly colored caps
+   such as blue are supported.
+3. The Up step presents the current Up slider. It is seeded at `S40` in a fresh
    session and otherwise starts from the already-current value. Moving it
    commands the displayed value. **Next** remains available and accepts that
    value together with the available controller outcome, timestamp, and current
    MPos. Refusal, ambiguity, or unavailable evidence remains explicit and does
    not disable **Next**.
-3. The Down step presents the current Down slider, seeded at `S760` in a fresh
+4. The Down step presents the current Down slider, seeded at `S760` in a fresh
    session and otherwise starting from the already-current value, with the same
    move-and-accept behavior.
-4. The final Up step commands the accepted current Up value and completes the
+5. The final Up step commands the accepted current Up value and completes the
    existing Up → Down → Up attempt.
+
+If no LIVE appearance has been accepted, the persisted Pen cap and Armature
+envelope overlay choices do not change, but both layers report Unavailable and
+no LIVE geometry is rendered. An armature envelope is available only from an
+accepted cap result and remains explicitly inferred, not independently
+segmented.
 
 The accepted values become the current Up and Down settings consumed by later
 pen operations. They are not required to remain constant across the run.
@@ -82,9 +99,9 @@ by the dependency chain and does not hide Pen Interaction or the next **Start**.
 
 1. The operator selects any first X or Y direction. Selection is inert.
 2. **Start** admits one operator-stopped Boundary owner.
-3. The controller begins with one 20 mm segment. After each unambiguous
-   Idle/MPos, a strictly newer advisory frame may choose a 50, 20, 10, 5, or
-   2 mm renewal while retaining direction and controller-derived feed.
+3. The controller uses finite 20 mm segments under one logical owner. After each
+   unambiguous Idle/MPos it may renew another bounded segment while retaining
+   direction and controller-derived feed.
 4. **Stop Boundary** remains bound to the original owner.
 5. Operator Stop closes renewal and emits one Jog Cancel.
 6. The original owner settles through fresh Idle and final MPos.
@@ -98,9 +115,8 @@ by the dependency chain and does not hide Pen Interaction or the next **Start**.
 11. Arrival succeeds only when the final MPos is within 0.05 mm of the derived
     center.
 
-The advisory frame cannot identify or veto a side. Missing, stale,
-camera-incompatible, low-confidence, or unusable advice selects a conservative
-renewal and cannot alter direction, feed authority, Stop, or side acceptance.
+Boundary renewal has no Vision adviser. Controller authority, the fixed bounded
+fallback segment, operator Stop, and final Idle/MPos evidence remain unchanged.
 
 Natural completion of a finite segment is not side evidence. A healthy owner
 may renew; operator Stop, limit, alarm, disconnect, or ambiguity terminates it.
@@ -147,9 +163,17 @@ The ordered positions and roles are:
 2. The first fresh passive probe establishes this operation's controller-context
    baseline. Each later sample must compare compatible and advance that local
    baseline.
-3. At every position, move Pen Up under the existing stoppable owner, require
-   fresh Idle/final MPos within 0.05 mm, capture one exact frame, and record the
-   visible cap bottom-center with estimator provenance.
+3. At every LIVE position, move Pen Up under the existing stoppable owner and
+   require fresh Idle/final MPos within 0.05 mm. Establish a preliminary fresh-
+   frame boundary, then acquire exactly three strictly newer exact inspection
+   frames with one unchanged source and camera configuration. The preliminary
+   boundary frame is not accepted cap evidence. Every inspection frame must
+   yield one accepted unambiguous cap candidate; zero-threshold-pixel,
+   rejected-component, ambiguous, and failed results refuse the sample. Refuse
+   the sample when maximum pairwise cap-component centroid spread exceeds 2 px.
+   When all three are stable, retain only the newest third frame and its measured
+   centroid, bounds, confidence, bottom-center anchor, and estimator provenance
+   as authoritative evidence. Do not average geometry across the three frames.
 4. Use a consistent final approach. Travel between already selected positions
    may be diagonal, but only the listed positions are model samples.
 5. Fit an affine machine-to-cap map from `C`, `X−`, and `Y+`.
@@ -165,6 +189,10 @@ The ordered positions and roles are:
 
 The cap landmark is not the hidden paper-contact point. Three non-collinear
 samples without the two holdouts cannot become authority.
+
+SIMULATED uses separate causal generated geometry. It exercises the same sample
+roles and downstream fit contract but is nonphysical and does not prove live cap
+stability, camera behavior, or attended optical reliability.
 
 A device, build, units, distance mode, work coordinate, controller setting, or
 coordinate-offset change stops the operation with typed recovery. App-owned
@@ -209,13 +237,13 @@ For each mark:
 12. Capture one strictly newer exact post-reveal frame and revalidate the cap
     map at that pose.
 13. Freeze that frame. Open a one-third-frame presentation-only focus around
-    the pre-mark cap anchor, suppress every predicted tip overlay, and ask
+    the pre-mark cap anchor, hide the expected tip point, and ask
     **Click the center of the new black circle**.
 14. Convert the zoomed/letterboxed view click back to exact camera pixels. Bind
     it to frame ID, SHA-256, source, capture session, semantic optical identity,
     dimensions, and presentation-transform revision.
-15. Show the asserted point, 1.5 px per-axis pointing uncertainty, current
-    prediction if one exists, and residual.
+15. Show the asserted point, 1.5 px per-axis pointing uncertainty, the expected
+    point from the current tip-calibration candidate if one exists, and residual.
 16. **Re-click This Exact Frame** clears only the point and reuses the same
     frame. It performs no motion and creates no ink.
 17. **Accept Mark Center** atomically commits one immutable
@@ -323,10 +351,13 @@ never causes an automatic successor or redraw.
 
 ### 4.6 Compare Intended and Observed Geometry
 
-Display intended, predicted, and observed geometry plus residuals only when the
-cited tip registration remains current. Record one typed operator assessment.
+Display intended and observed geometry plus residuals only when the cited tip
+registration remains current. Record one typed operator assessment.
 An attributable line may be future candidate evidence; this action cannot
 promote a model.
+
+Completion remains on 4.6 with recovery operations available. There is no
+selectable Adaptive Drawing stage in the current application.
 
 ## Dependency and recovery contract
 

@@ -7,6 +7,27 @@ enum LearningWorkbenchLayoutPolicy {
   static let minimumActionSurfaceHeight: CGFloat = 480
 }
 
+enum OverlayCardLayoutPolicy {
+  static let minimumInspectorWidth: CGFloat = 280
+  static let idealInspectorWidth: CGFloat = 360
+  static let maximumInspectorWidth: CGFloat = 440
+  static let supportedInspectorWidths = [
+    minimumInspectorWidth,
+    idealInspectorWidth,
+    maximumInspectorWidth,
+  ]
+  static let minimumCardWidth: CGFloat = 248
+
+  static func columnCount(availableWidth: CGFloat) -> Int {
+    _ = availableWidth
+    return 1
+  }
+
+  static func contentWidth(availableWidth: CGFloat, horizontalPadding: CGFloat = 16) -> CGFloat {
+    max(0, availableWidth.isFinite ? availableWidth - horizontalPadding : 0)
+  }
+}
+
 /// Keeps workflow action titles readable in the pinned exercise pane. The
 /// grid gives up a column before compressing a button below this width; labels
 /// then grow vertically instead of being truncated.

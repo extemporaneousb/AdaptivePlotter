@@ -76,8 +76,10 @@ func makeSimulatedHarness(
       serialDeviceDiscovery: { [] },
       loadSelectedSerialIdentifier: { nil },
       persistSelectedSerialIdentifier: { _ in },
-      loadPenCapColor: { .green },
-      persistPenCapColor: { _ in },
+      loadPenCapAppearanceSelection: { testPenCapAppearanceSelection() },
+      persistPenCapAppearanceSelection: { _ in },
+      loadOverlayPreference: { Set(UserSceneOverlay.allCases) },
+      persistOverlayPreference: { _ in },
       nowNanoseconds: { clock.next() }
     ),
     runtime: runtime,
@@ -158,6 +160,7 @@ func completeSimulatedBoundariesAndCenter(
 
   let penOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
   try await performPublicAction(.start, owner: penOwner, workspace: workspace)
+  try await identifyPenCap(workspace)
   var physicalPoseQuestionCount = 0
   for _ in 0..<8 where !workspace.penInteractionCompleted {
     let presentation = workspace.selectedOperatorActionPresentation(for: penOwner)
@@ -323,7 +326,43 @@ func completePenInteraction(_ workspace: OperatorWorkspace) async throws {
     throw StepMismatch(expected: "available", actual: reason)
   }
   await workspace.beginPenInteraction()
+  try await identifyPenCap(workspace)
   try await finishPenInteraction(workspace)
+}
+
+@MainActor
+func identifyPenCap(_ workspace: OperatorWorkspace) async throws {
+  try submitPenCapClick(workspace)
+  await workspace.awaitPenCapAcceptedClickTransition()
+  try requireStep(workspace, "answer-initially-up")
+}
+
+@MainActor
+func submitPenCapClick(_ workspace: OperatorWorkspace) throws {
+  let request = try #require(workspace.actionSurfacePresentation.pointSelectionRequest)
+  let displayed = try #require(workspace.actionSurfacePresentation.displayedFrame)
+  #expect(request.purpose == .penCapAppearance)
+  let overlayPoint = workspace.actionSurfacePresentation.overlays.compactMap {
+    measurement -> Point2<CameraPixelSpace>? in
+    guard measurement.provenance.kind == .penCap, case .point(let point) = measurement.geometry
+    else { return nil }
+    return point
+  }.first
+  let fallbackPoint = try Point2<CameraPixelSpace>(
+    x: Double(displayed.frame.width - 1) / 2,
+    y: Double(displayed.frame.height - 1) / 2
+  )
+  let point = overlayPoint.flatMap {
+    $0.x >= 0 && $0.x < Double(displayed.frame.width)
+      && $0.y >= 0 && $0.y < Double(displayed.frame.height) ? $0 : nil
+  } ?? fallbackPoint
+  workspace.selectToolContactPoint(
+    ActionSurfacePointSelection(
+      frame: request.frame,
+      point: point,
+      presentationTransformRevision: request.presentationTransformRevision
+    )
+  )
 }
 
 @MainActor
@@ -364,6 +403,12 @@ func workspace(
   announcements: AnnouncementFixture? = nil,
   checkpointActions: OperatorWorkspace.AcceptedArtifactCheckpointActions? = nil,
   workflowTelemetry: WorkflowTelemetryFixture? = nil,
+  loadPenCapAppearanceSelection:
+    @escaping @Sendable () -> PenCapAppearanceSelection? = { testPenCapAppearanceSelection() },
+  persistPenCapAppearanceSelection:
+    @escaping @Sendable (PenCapAppearanceSelection?) -> Void = { _ in },
+  loadOverlayPreference: @escaping @Sendable () -> Set<UserSceneOverlay>? = { nil },
+  persistOverlayPreference: @escaping @Sendable (Set<UserSceneOverlay>) -> Void = { _ in },
   log _: EventLog
 ) -> OperatorWorkspace {
   let clock = TestClock()
@@ -389,8 +434,6 @@ func workspace(
       },
       requestControllerAlarmClear: { .refused(.noCurrentAlarmEvidence) },
       activateMotionGuard: { .activated },
-      deactivateMotionGuard: {},
-      requestRelativeJog: { await machine.requestRelativeJog($0) },
       beginRelativeJog: { request in
         .admitted(
           RelativeJogOperation(
@@ -399,7 +442,6 @@ func workspace(
           )
         )
       },
-      requestDrawingStroke: { await machine.requestDrawingStroke($0) },
       beginDrawingStroke: { request in
         .admitted(
           DrawingStrokeOperation(
@@ -409,7 +451,6 @@ func workspace(
         )
       },
       requestPenActuation: { await machine.requestPen($0, profile: $1) },
-      requestBoundaryMotion: { await machine.requestBoundaryMotion($0) },
       beginBoundaryMotion: beginBoundaryMotion,
       requestJogCancel: requestJogCancel,
       disconnect: {}
@@ -429,9 +470,32 @@ func workspace(
     serialDeviceDiscovery: { [machine.descriptor] },
     loadSelectedSerialIdentifier: { nil },
     persistSelectedSerialIdentifier: { _ in },
-    loadPenCapColor: { .green },
-    persistPenCapColor: { _ in },
+    loadPenCapAppearanceSelection: loadPenCapAppearanceSelection,
+    persistPenCapAppearanceSelection: persistPenCapAppearanceSelection,
+    loadOverlayPreference: loadOverlayPreference,
+    persistOverlayPreference: persistOverlayPreference,
     nowNanoseconds: { clock.next() }
+  )
+}
+
+func testPenCapAppearanceSelection(
+  color: PenCapColor = .green,
+  source: FrameSourceIdentity = .live(CameraDeviceID(rawValue: "test-camera")),
+  cameraConfigurationID: CameraConfigurationID = CameraConfigurationID()
+) -> PenCapAppearanceSelection {
+  PenCapAppearanceSelection(
+    color: color,
+    frameID: FrameID(rawValue: "test-pen-cap-selection"),
+    frameSHA256: String(repeating: "0", count: 64),
+    source: source,
+    cameraConfigurationID: cameraConfigurationID,
+    width: 1,
+    height: 1,
+    pixelFormat: .bgra8,
+    clickPoint: try! Point2(x: 0, y: 0),
+    usableSampleCount: 9,
+    totalSampleCount: 9,
+    algorithmRevision: PenCapAppearanceSampler.algorithmRevision
   )
 }
 
@@ -461,20 +525,9 @@ func isolatedMachineActions(log: EventLog) -> OperatorWorkspace.MachineActions {
       await log.append("activateMotionGuard")
       return .refused(.notConnected)
     },
-    deactivateMotionGuard: {
-      await log.append("deactivateMotionGuard")
-    },
-    requestRelativeJog: { _ in
-      await log.append("requestRelativeJog")
-      return .refused(.notConnected)
-    },
     beginRelativeJog: { _ in
       await log.append("beginRelativeJog")
       return .rejected(.refused(.notConnected))
-    },
-    requestDrawingStroke: { _ in
-      await log.append("requestDrawingStroke")
-      return .refused(.notConnected)
     },
     beginDrawingStroke: { _ in
       await log.append("beginDrawingStroke")
@@ -483,10 +536,6 @@ func isolatedMachineActions(log: EventLog) -> OperatorWorkspace.MachineActions {
     requestPenActuation: { _, _ in
       await log.append("requestPenActuation")
       return .refused(.notConnected)
-    },
-    requestBoundaryMotion: { request in
-      await log.append("requestBoundaryMotion")
-      return .needsAttention(ownerID: request.ownerID, terminal: .refusal(.notConnected))
     },
     beginBoundaryMotion: { request, _ in
       await log.append("beginBoundaryMotion")
@@ -506,18 +555,20 @@ func isolatedMachineActions(log: EventLog) -> OperatorWorkspace.MachineActions {
 
 func cameraActions(_ fixture: CameraFixture) -> OperatorWorkspace.CameraActions {
   .init(
-    discover: { fixture.snapshot },
-    select: { _ in fixture.snapshot },
-    start: { fixture.snapshot },
+    discover: { fixture.discoverResponse() },
+    select: { _ in fixture.selectResponse() },
+    start: { fixture.startResponse() },
     stop: { fixture.snapshot },
     restart: { fixture.snapshot },
     snapshot: { fixture.snapshot },
     frames: { AsyncStream { $0.finish() } },
-    inspectScene: { try fixture.inspection(after: $0) },
+    inspectWorkflowScene: { boundary, features, region in
+      try fixture.inspection(after: boundary, features: features, analysisRegion: region)
+    },
     captureFrame: { try fixture.inspection(after: $0).displayedFrame },
     setSceneAnalysisRegion: { fixture.setSceneAnalysisRegion($0) },
     setPenCapColor: { fixture.setPenCapColor($0) },
-    setAutomaticInspection: { fixture.setAutomaticInspection($0) },
+    setAutomaticInspection: { fixture.setAutomaticInspection($0, features: $1) },
     analysisUpdates: { AsyncStream { $0.finish() } },
     observeIsolatedInk: { _ in fatalError("unused") }
   )
@@ -1006,11 +1057,18 @@ final class CameraFixture: @unchecked Sendable {
   private let rotatesConfiguration: Bool
   private let providesInspectionOverlay: Bool
   private let providesAutomaticAnalysisResult: Bool
+  private let capCentroidXOffsets: [Double]
   private let lock = NSLock()
   private var inspectionCount = 0
   private var automaticInspectionRequests: [VisionAnalysisCadence?] = []
+  private var automaticFeatureRequests: [SceneFeatureSet] = []
+  private var workflowFeatureRequests: [SceneFeatureSet] = []
+  private var workflowAnalysisRegionRequests: [PixelRect?] = []
   private var sceneAnalysisRegionRequests: [PixelRect?] = []
   private var penCapColorRequests: [PenCapColor] = []
+  private var discoverCalls = 0
+  private var selectCalls = 0
+  private var startCalls = 0
 
   var inspectionCallCount: Int {
     lock.lock()
@@ -1018,14 +1076,43 @@ final class CameraFixture: @unchecked Sendable {
     return inspectionCount
   }
 
+  var startupActionCounts: (discover: Int, select: Int, start: Int) {
+    lock.lock()
+    defer { lock.unlock() }
+    return (discoverCalls, selectCalls, startCalls)
+  }
+
+  func discoverResponse() -> CameraCaptureSnapshot {
+    lock.lock()
+    discoverCalls += 1
+    lock.unlock()
+    return snapshot
+  }
+
+  func selectResponse() -> CameraCaptureSnapshot {
+    lock.lock()
+    selectCalls += 1
+    lock.unlock()
+    return snapshot
+  }
+
+  func startResponse() -> CameraCaptureSnapshot {
+    lock.lock()
+    startCalls += 1
+    lock.unlock()
+    return snapshot
+  }
+
   init(
     rotatesConfiguration: Bool = false,
     providesInspectionOverlay: Bool = false,
-    providesAutomaticAnalysisResult: Bool = false
+    providesAutomaticAnalysisResult: Bool = false,
+    capCentroidXOffsets: [Double] = []
   ) throws {
     self.rotatesConfiguration = rotatesConfiguration
     self.providesInspectionOverlay = providesInspectionOverlay
     self.providesAutomaticAnalysisResult = providesAutomaticAnalysisResult
+    self.capCentroidXOffsets = capCentroidXOffsets
     configurationID = CameraConfigurationID()
     device = CameraDevice(id: CameraDeviceID(rawValue: "camera"), name: "Fixture camera")
     let initial = DisplayedFrame(
@@ -1041,9 +1128,18 @@ final class CameraFixture: @unchecked Sendable {
     )
   }
 
-  func inspection(after captureBoundary: UInt64) throws -> LiveSceneInspection {
+  func inspection(
+    after captureBoundary: UInt64,
+    features: SceneFeatureSet = [.penCap],
+    analysisRegion: PixelRect? = nil
+  ) throws -> LiveSceneInspection {
     lock.lock()
     inspectionCount += 1
+    workflowFeatureRequests.append(features)
+    workflowAnalysisRegionRequests.append(analysisRegion)
+    let centroidOffset = capCentroidXOffsets.isEmpty
+      ? 0
+      : capCentroidXOffsets[(inspectionCount - 1) % capCentroidXOffsets.count]
     let inspectionConfigurationID =
       rotatesConfiguration
       ? CameraConfigurationID()
@@ -1059,20 +1155,13 @@ final class CameraFixture: @unchecked Sendable {
         configurationID: inspectionConfigurationID
       )
     )
-    let geometry = try Polyline<CameraPixelSpace>(points: [
-      try Point2(x: 0, y: 0),
-      try Point2(x: 100, y: 0),
-      try Point2(x: 100, y: 100),
-      try Point2(x: 0, y: 100),
-      try Point2(x: 0, y: 0),
-    ])
     let overlays =
       providesInspectionOverlay
       ? [
         CameraOverlayMeasurement(
           frameID: fresh.frame.id,
           cameraConfigurationID: inspectionConfigurationID,
-          geometry: .point(try Point2(x: 99, y: 52)),
+          geometry: .point(try Point2(x: 99 + centroidOffset, y: 52)),
           provenance: CameraMeasurementProvenance(
             kind: .penCap,
             source: .measured,
@@ -1080,28 +1169,33 @@ final class CameraFixture: @unchecked Sendable {
           )
         )
       ] : []
+    let cap = PenCapMeasurement(
+      pixelCount: 10,
+      boundingBox: PixelRect(x: 98, y: 48, width: 2, height: 4),
+      centroid: try Point2(x: 99 + centroidOffset, y: 50),
+      confidence: 0.9
+    )
+    let diagnostics = PenCapDiagnostics(
+      inspectedPixelCount: 100,
+      thresholdPixelCount: 10,
+      componentCount: 1,
+      candidates: []
+    )
     let measurement = PlotterSceneMeasurement(
       frameID: fresh.frame.id,
       frameSHA256: fresh.frame.contentSHA256,
       cameraConfigurationID: inspectionConfigurationID,
-      capComponentCount: 1,
-      cap: PenCapMeasurement(
-        pixelCount: 10,
-        boundingBox: PixelRect(x: 98, y: 48, width: 2, height: 4),
-        centroid: try Point2(x: 99, y: 50),
-        confidence: 0.9
-      ),
-      topFrameSide: nil,
-      rightFrameSide: nil,
-      drawingFrame: DrawingFrameEstimate(
-        geometry: geometry,
-        confidence: 0.9,
-        basis: "test exact frame"
-      ),
-      armature: nil,
+      penCap: .found(cap, diagnostics: diagnostics),
+      armatureEnvelope: .notRequested,
       overlays: overlays,
       algorithmRevision: "workspace-test-v1",
-      diagnosticSHA256: fresh.frame.contentSHA256
+      diagnosticSHA256: fresh.frame.contentSHA256,
+      computation: SceneVisionComputationDiagnostics(
+        requestedFeatures: [.penCap],
+        expandedFeatures: [.penCap],
+        executionCounts: [.penCap: 1],
+        inspectedPixelCounts: [.penCap: 100]
+      )
     )
     return LiveSceneInspection(displayedFrame: fresh, measurement: measurement)
   }
@@ -1116,6 +1210,24 @@ final class CameraFixture: @unchecked Sendable {
     lock.lock()
     defer { lock.unlock() }
     return automaticInspectionRequests
+  }
+
+  var recordedAutomaticFeatureRequests: [SceneFeatureSet] {
+    lock.lock()
+    defer { lock.unlock() }
+    return automaticFeatureRequests
+  }
+
+  var recordedWorkflowFeatureRequests: [SceneFeatureSet] {
+    lock.lock()
+    defer { lock.unlock() }
+    return workflowFeatureRequests
+  }
+
+  var recordedWorkflowAnalysisRegionRequests: [PixelRect?] {
+    lock.lock()
+    defer { lock.unlock() }
+    return workflowAnalysisRegionRequests
   }
 
   var recordedSceneAnalysisRegionRequests: [PixelRect?] {
@@ -1143,10 +1255,12 @@ final class CameraFixture: @unchecked Sendable {
   }
 
   func setAutomaticInspection(
-    _ cadence: VisionAnalysisCadence?
+    _ cadence: VisionAnalysisCadence?,
+    features: SceneFeatureSet
   ) -> PlotterSceneAnalysisSnapshot {
     lock.lock()
     automaticInspectionRequests.append(cadence)
+    automaticFeatureRequests.append(features)
     lock.unlock()
     let latestResult =
       providesAutomaticAnalysisResult
@@ -1250,80 +1364,25 @@ actor BoundaryRenewalMotionGate {
   }
 }
 
-actor BoundaryInspectionGate {
-  private var started = false
-  private var cancelled = false
-  private var released = false
-  private var continuation: CheckedContinuation<Void, Never>?
-
-  var isStarted: Bool { started }
-  var isCancelled: Bool { cancelled }
-
-  func inspect(_ inspection: LiveSceneInspection) async throws -> LiveSceneInspection {
-    started = true
-    await withTaskCancellationHandler {
-      if !released {
-        await withCheckedContinuation { continuation = $0 }
-      }
-    } onCancel: {
-      Task { await self.recordCancellation() }
-    }
-    try Task.checkCancellation()
-    return inspection
-  }
-
-  func release() {
-    released = true
-    continuation?.resume()
-    continuation = nil
-  }
-
-  private func recordCancellation() {
-    cancelled = true
-  }
-}
-
-func boundaryGatedCameraActions(
-  _ fixture: CameraFixture,
-  gate: BoundaryInspectionGate
-) -> OperatorWorkspace.CameraActions {
-  let base = cameraActions(fixture)
-  return OperatorWorkspace.CameraActions(
-    discover: base.discover,
-    select: base.select,
-    start: base.start,
-    stop: base.stop,
-    restart: base.restart,
-    snapshot: base.snapshot,
-    frames: base.frames,
-    inspectScene: { boundary in
-      try await gate.inspect(fixture.inspection(after: boundary))
-    },
-    captureFrame: base.captureFrame,
-    setSceneAnalysisRegion: base.setSceneAnalysisRegion,
-    setPenCapColor: base.setPenCapColor,
-    setAutomaticInspection: base.setAutomaticInspection,
-    analysisUpdates: base.analysisUpdates,
-    observeIsolatedInk: base.observeIsolatedInk
-  )
-}
-
 func frame(
   id: String,
   sequence: UInt64,
   capture: UInt64,
   configurationID: CameraConfigurationID
 ) throws -> StampedFrame {
-  try StampedFrame(
+  let width = 9
+  let height = 9
+  let pixel = [UInt8(105), 185, 45, 255]
+  return try StampedFrame(
     id: FrameID(rawValue: id),
     sequence: sequence,
     captureNanoseconds: capture,
     cameraConfigurationID: configurationID,
-    width: 1,
-    height: 1,
-    rowBytes: 4,
+    width: width,
+    height: height,
+    rowBytes: width * 4,
     pixelFormat: .bgra8,
-    bytes: OwnedFrameBytes([255, 255, 255, 255])
+    bytes: OwnedFrameBytes(Array(repeating: pixel, count: width * height).flatMap { $0 })
   )
 }
 

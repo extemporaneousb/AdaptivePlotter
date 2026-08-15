@@ -19,13 +19,11 @@ extension StrongID: Comparable {
 public enum ProgramIDTag: Sendable {}
 public enum StrokeIDTag: Sendable {}
 public enum RunIDTag: Sendable {}
-public enum FieldRegistrationIDTag: Sendable {}
 public enum CameraConfigurationIDTag: Sendable {}
 public enum PenProfileIDTag: Sendable {}
 
 public typealias ProgramID = StrongID<ProgramIDTag>
 public typealias StrokeID = StrongID<StrokeIDTag>
 public typealias RunID = StrongID<RunIDTag>
-public typealias FieldRegistrationID = StrongID<FieldRegistrationIDTag>
 public typealias CameraConfigurationID = StrongID<CameraConfigurationIDTag>
 public typealias PenProfileID = StrongID<PenProfileIDTag>

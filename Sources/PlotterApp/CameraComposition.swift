@@ -38,8 +38,12 @@ enum CameraComposition {
       frames: {
         await session.frames()
       },
-      inspectScene: { boundary in
-        try await session.inspectScene(newerThanNanoseconds: boundary)
+      inspectWorkflowScene: { boundary, features, region in
+        try await session.inspectWorkflowScene(
+          newerThanNanoseconds: boundary,
+          requestedFeatures: features,
+          analysisRegion: region
+        )
       },
       captureFrame: { boundary in
         try await session.captureFrame(newerThanNanoseconds: boundary)
@@ -50,8 +54,8 @@ enum CameraComposition {
       setPenCapColor: { color in
         await session.setPenCapColor(color)
       },
-      setAutomaticInspection: { cadence in
-        await session.setAutomaticInspection(cadence)
+      setAutomaticInspection: { cadence, features in
+        await session.setAutomaticInspection(cadence, requestedFeatures: features)
       },
       analysisUpdates: {
         await session.analysisUpdates()
@@ -62,7 +66,6 @@ enum CameraComposition {
     )
   }
 }
-
 func boundedlyAwaitNewestCameraValue<Value: Sendable>(
   maximumAttempts: Int = 40,
   pollIntervalNanoseconds: UInt64 = 25_000_000,
@@ -79,8 +82,8 @@ func boundedlyAwaitNewestCameraValue<Value: Sendable>(
 
 private actor CameraSourceSession {
   private struct VisionComputationLease: Sendable {
+    let id: UUID
     let previewPauseToken: CameraPreviewPauseToken
-    let automaticCadenceToRestore: VisionAnalysisCadence?
   }
 
   private let live: CameraCapture
@@ -90,6 +93,8 @@ private actor CameraSourceSession {
   private var startupFrameTask: Task<Void, Never>?
   private var automaticInspectionFrameTask: Task<Void, Never>?
   private var automaticInspectionCadence: VisionAnalysisCadence?
+  private var automaticInspectionFeatures: SceneFeatureSet = []
+  private var activeVisionComputationLeaseIDs: Set<UUID> = []
   private var sceneAnalysisRegion: PixelRect?
   private var penCapColor: PenCapColor = .green
 
@@ -143,7 +148,11 @@ private actor CameraSourceSession {
     await live.frames()
   }
 
-  func inspectScene(newerThanNanoseconds boundary: UInt64 = 0) async throws
+  func inspectWorkflowScene(
+    newerThanNanoseconds boundary: UInt64 = 0,
+    requestedFeatures: SceneFeatureSet,
+    analysisRegion: PixelRect?
+  ) async throws
     -> LiveSceneInspection?
   {
     let lease = await beginExclusiveVisionComputation()
@@ -162,7 +171,8 @@ private actor CameraSourceSession {
       }
       let measurement = try await vision.inspectPlotterScene(
         in: displayedFrame.frame,
-        analysisRegion: sceneAnalysisRegion,
+        requestedFeatures: requestedFeatures,
+        analysisRegion: analysisRegion,
         penCapColor: penCapColor
       )
       await endExclusiveVisionComputation(lease)
@@ -193,27 +203,40 @@ private actor CameraSourceSession {
     await analysisPipeline.setAnalysisRegion(region)
   }
 
+
   func setPenCapColor(_ color: PenCapColor) async {
     guard penCapColor != color else { return }
     penCapColor = color
     await analysisPipeline.setPenCapColor(color)
   }
 
-  func setAutomaticInspection(_ cadence: VisionAnalysisCadence?) async
+  func setAutomaticInspection(
+    _ cadence: VisionAnalysisCadence?,
+    requestedFeatures: SceneFeatureSet
+  ) async
     -> PlotterSceneAnalysisSnapshot
   {
     guard let cadence else {
       automaticInspectionCadence = nil
+      automaticInspectionFeatures = []
       await stopAutomaticInspection()
       return await analysisPipeline.snapshot()
     }
     automaticInspectionCadence = cadence
-    await startAutomaticInspection(cadence)
+    automaticInspectionFeatures = requestedFeatures
+    guard activeVisionComputationLeaseIDs.isEmpty else {
+      await pauseAutomaticInspection()
+      return await analysisPipeline.snapshot()
+    }
+    await startAutomaticInspection(cadence, requestedFeatures: requestedFeatures)
     return await analysisPipeline.snapshot()
   }
 
-  private func startAutomaticInspection(_ cadence: VisionAnalysisCadence) async {
-    await analysisPipeline.start(cadence: cadence)
+  private func startAutomaticInspection(
+    _ cadence: VisionAnalysisCadence,
+    requestedFeatures: SceneFeatureSet
+  ) async {
+    await analysisPipeline.start(cadence: cadence, requestedFeatures: requestedFeatures)
     if automaticInspectionFrameTask == nil {
       let stream = await live.frames()
       let pipeline = analysisPipeline
@@ -265,20 +288,23 @@ private actor CameraSourceSession {
 
   private func beginExclusiveVisionComputation() async -> VisionComputationLease {
     let previewPauseToken = await live.pausePreviewPublication()
-    let cadence = automaticInspectionCadence
-    if cadence != nil { await pauseAutomaticInspection() }
+    let id = UUID()
+    let isFirstLease = activeVisionComputationLeaseIDs.isEmpty
+    activeVisionComputationLeaseIDs.insert(id)
+    if isFirstLease, automaticInspectionCadence != nil { await pauseAutomaticInspection() }
     return VisionComputationLease(
-      previewPauseToken: previewPauseToken,
-      automaticCadenceToRestore: cadence
+      id: id,
+      previewPauseToken: previewPauseToken
     )
   }
 
   private func endExclusiveVisionComputation(_ lease: VisionComputationLease) async {
+    guard activeVisionComputationLeaseIDs.remove(lease.id) != nil else { return }
     await live.resumePreviewPublication(lease.previewPauseToken)
-    guard let cadence = lease.automaticCadenceToRestore,
-      automaticInspectionCadence == cadence
-    else { return }
-    await startAutomaticInspection(cadence)
+    guard activeVisionComputationLeaseIDs.isEmpty, let cadence = automaticInspectionCadence else {
+      return
+    }
+    await startAutomaticInspection(cadence, requestedFeatures: automaticInspectionFeatures)
   }
 
 }

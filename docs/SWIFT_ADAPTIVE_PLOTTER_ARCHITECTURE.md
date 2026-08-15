@@ -12,7 +12,7 @@ and verified status in [Current Evidence](CURRENT_EVIDENCE.md).
 
 ```text
 PlotterModel
-  coordinate-space types, geometry, drawing programs, transforms
+  coordinate-space types, geometry, drawing programs
 
 PlotterRuntime
   MachineController, RunInterpreter, CameraCapture, VisionWorker
@@ -54,14 +54,34 @@ sessions, exact stamped frames, and scoped preview publication holds. A hold
 does not stop raw capture. `VisionWorker` owns bounded inference and returns
 measurements; it never supplies motion or click authority.
 
-`OperatorWorkspace` maps the selected scene-derived overlay layers to one
-newest-only automatic-analysis request and one selected cadence. Video Settings
-may lock the current zoomed/panned camera-pixel rectangle as the generic scene
-analysis region. `CameraSourceSession` passes that region into
-`PlotterSceneAnalysisPipeline`; `VisionWorker` derives all generic cap/frame-side
-pixel scan priors within it while retaining whole-frame coordinates and exact
-frame identity for every result. Specialized exact-frame workflow measurements
-retain their own typed regions.
+`OverlayPreferenceState` contains only the persistent operator selections
+`penCap` and `armatureEnvelope`. `SceneFeatureSet` expands the armature dependency
+to pen-cap computation and requests no unrelated kernel. Typed
+`OverlayLayerStatus` values keep run state, reason, cadence, region, frame, and
+age out of preference. `OverlayResultChannels` owns independent scene, workflow,
+and simulation results. `OverlayPresentationComposer` is pure and renders only
+source/configuration/frame-exact geometry, so one producer cannot clear another.
+
+`OperatorWorkspace` maps the selected scene features to one newest-only
+automatic-analysis request and one selected cadence. Video Settings may lock the
+current zoomed/panned camera-pixel rectangle as the generic scene-analysis
+region. `CameraSourceSession` passes that region into
+`PlotterSceneAnalysisPipeline`; `VisionWorker` scans only requested pen-cap
+pixels and derives the armature envelope from an accepted cap. Full-frame lock
+is canonicalized to default analysis, and cap component size is evaluated against
+whole-frame policy. Specialized calibration and observed-trial exact-frame
+measurements retain independent typed regions.
+
+`PenCapAppearanceSelection` is the only persisted LIVE recognition input. The
+first Pen Interaction action freezes an exact frame and issues a
+`penCapAppearance` point-selection request. `PenCapAppearanceSampler` maps the
+operator's cap-body click to a clipped 9 x 9 RGBA/BGRA neighborhood, filters out
+gray, white, dark, and otherwise insufficiently chromatic pixels, then records
+the channel-wise median RGB color. The stored selection binds that color to the
+click point, frame ID and hash, source, camera configuration, dimensions, pixel
+format, sample counts, and sampler revision. `CameraSourceSession` applies the
+accepted color to both newest-only scene analysis and exclusive Stage 3.3
+inspection. There is no `ColorPicker` owner or mutable color preference seam.
 
 `OperatorWorkspace` is the single `@Observable` application owner. It composes
 controller/camera actors through typed actions, owns Learning Path attempts,
@@ -97,20 +117,25 @@ commands, restore owners, or promote artifacts.
 
 ## Pen Interaction and manual controls
 
-`OperatorWorkspace` keeps the current Up and Down servo values inside the
-existing Pen Interaction state. The exercise's Up and Down sliders issue typed
-value-bearing pen requests; **Next** retains the displayed value in the current
-setting and the existing attempt evidence. `MachineController` serializes the
-requested value and settlement under its existing pen-operation ownership.
-There is no parallel servo-calibration owner, checkpoint, or artifact graph.
+`OperatorWorkspace` starts Pen Interaction with **Identify Pen Cap**. Until the
+exact-frame cap-body click is accepted, no Pen Interaction question is opened
+and no pen request is issued. Rejection or stale provenance leaves the point
+selection pending. After acceptance, the exercise's Up and Down sliders issue
+typed value-bearing pen requests; **Next** retains the displayed value in the
+current setting and the existing attempt evidence. `MachineController`
+serializes the requested value and settlement under its existing pen-operation
+ownership. There is no parallel servo-calibration owner, checkpoint, or
+artifact graph.
 
 `LearningPathProjector` derives current progression from the active owner and
 the first unmet dependency. `restartableExerciseItemID` is recovery state for
-the owning review row; it does not redirect progression. `OperatorWorkspace`
-owns the persisted `PenCapColor`, while `CameraSourceSession` applies it to both
-the newest-only analysis pipeline and exclusive Stage 3.3 inspection. A color
-change resets stale scene results without changing exact-frame identity or
-promoting the selection into evidence.
+the owning review row; it does not redirect progression. The persisted
+`PenCapAppearanceSelection` is loaded by `OperatorWorkspace`; its color is then
+applied by `CameraSourceSession`. Before it exists, LIVE Pen cap and Armature
+envelope statuses are Unavailable while their operator-owned overlay
+preferences remain unchanged. An accepted replacement clears stale scene
+geometry and admits only newly analyzed frames without becoming calibration
+authority.
 
 Manual X distance, Y distance, and feed fields initialize to 50 mm, 50 mm, and
 500 mm/min while remaining editable. Manual direction routing depends on direct
@@ -125,6 +150,16 @@ Stage 3.3 builds `CurrentCameraCalibrationPlan` from current Boundary aggregates
 and center arrival. `MachineCameraRegistration` retains five machine/cap
 correspondences: `C`, `X−`, and `Y+` fit the initial affine map; `X+` and `Y−`
 are independent holdouts; acceptance follows the all-five refit.
+
+For each LIVE correspondence, `OperatorWorkspace.captureStableWorkflowCap`
+acquires exactly three strictly newer exact `inspectWorkflowScene` results after
+a preliminary frame boundary. `FixedCameraOpticalSettlingPolicy` requires one
+source/configuration, exact measurement/frame identity, an accepted unambiguous
+cap in every frame, and maximum pairwise component-centroid spread of at most 2 px.
+It returns the newest third inspection unchanged; no centroid, bounds, or
+confidence is averaged. The preliminary frame is freshness control, not accepted
+cap evidence. SIMULATED causal geometry is source-separated nonphysical evidence
+and cannot establish live optical stability.
 
 Stage 3.4 is split across three owners:
 
@@ -212,8 +247,9 @@ stores:
 - a strictly newer post-line exact frame;
 - bounded generic black/new-ink observation, residual, and assessment.
 
-Candidate refinement evidence is append-only. No Stage 4 result automatically
-changes the current tip model.
+The intended line, observed ink, and residual are contextual Stage 4 results,
+not global overlay preferences. The implemented curriculum ends at this
+assessment. No Stage 4 result automatically changes accepted calibration.
 
 ## Simulator boundary
 

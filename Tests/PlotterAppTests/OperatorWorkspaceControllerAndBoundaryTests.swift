@@ -17,15 +17,9 @@ extension OperatorWorkspaceTests {
         requestPassiveProbe: { await fixture.requestPassiveProbe() },
         requestControllerAlarmClear: { await fixture.requestAlarmClear() },
         activateMotionGuard: { .refused(.notConnected) },
-        deactivateMotionGuard: {},
-        requestRelativeJog: { _ in .refused(.notConnected) },
         beginRelativeJog: { _ in .rejected(.refused(.notConnected)) },
-        requestDrawingStroke: { _ in .refused(.notConnected) },
         beginDrawingStroke: { _ in .rejected(.refused(.notConnected)) },
         requestPenActuation: { _, _ in .refused(.notConnected) },
-        requestBoundaryMotion: { request in
-          .needsAttention(ownerID: request.ownerID, terminal: .refusal(.notConnected))
-        },
         beginBoundaryMotion: { request, _ in
           .rejected(
             .needsAttention(ownerID: request.ownerID, terminal: .refusal(.notConnected))
@@ -90,15 +84,9 @@ extension OperatorWorkspaceTests {
         requestPassiveProbe: { await fixture.requestPassiveProbe() },
         requestControllerAlarmClear: { await fixture.requestAlarmClear() },
         activateMotionGuard: { .refused(.notConnected) },
-        deactivateMotionGuard: {},
-        requestRelativeJog: { _ in .refused(.notConnected) },
         beginRelativeJog: { _ in .rejected(.refused(.notConnected)) },
-        requestDrawingStroke: { _ in .refused(.notConnected) },
         beginDrawingStroke: { _ in .rejected(.refused(.notConnected)) },
         requestPenActuation: { _, _ in .refused(.notConnected) },
-        requestBoundaryMotion: { request in
-          .needsAttention(ownerID: request.ownerID, terminal: .refusal(.notConnected))
-        },
         beginBoundaryMotion: { request, _ in
           .rejected(
             .needsAttention(ownerID: request.ownerID, terminal: .refusal(.notConnected))
@@ -165,12 +153,15 @@ extension OperatorWorkspaceTests {
   func penInteractionRetainsMutableCurrentValues() async throws {
     let log = EventLog()
     let machine = try MachineFixture(log: log)
-    let workspace = workspace(machine: machine, log: log)
+    let camera = try CameraFixture()
+    let workspace = workspace(machine: machine, camera: camera, log: log)
     await workspace.establishMachineSession(machine.descriptor)
     await workspace.requestPassiveProbe()
+    await workspace.startCamera()
     let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
 
     await workspace.beginPenInteraction()
+    try await identifyPenCap(workspace)
     try requireStep(workspace, "answer-initially-up")
     var strip = try #require(workspace.selectedOperatorActionPresentation(for: owner).actionStrip)
     #expect(strip.penSetpointAdjustment?.command == .raise)
@@ -221,12 +212,15 @@ extension OperatorWorkspaceTests {
     let log = EventLog()
     let gate = PenRequestGate()
     let machine = try MachineFixture(log: log, penRequestGate: gate)
-    let workspace = workspace(machine: machine, log: log)
+    let camera = try CameraFixture()
+    let workspace = workspace(machine: machine, camera: camera, log: log)
     await workspace.establishMachineSession(machine.descriptor)
     await workspace.requestPassiveProbe()
+    await workspace.startCamera()
     let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
 
     await workspace.beginPenInteraction()
+    try await identifyPenCap(workspace)
     await workspace.performExerciseAction(.setPenSetpoint(.raise, 55), for: owner)
     try await waitUntilAsync { await machine.requestedPenProfiles.count == 1 }
     await workspace.performExerciseAction(.setPenSetpoint(.raise, 56), for: owner)
@@ -262,12 +256,15 @@ extension OperatorWorkspaceTests {
     let log = EventLog()
     let machine = try MachineFixture(log: log)
     await machine.enqueuePenOutcome(.refused(.controllerRejected("fixture refusal")))
-    let workspace = workspace(machine: machine, log: log)
+    let camera = try CameraFixture()
+    let workspace = workspace(machine: machine, camera: camera, log: log)
     await workspace.establishMachineSession(machine.descriptor)
     await workspace.requestPassiveProbe()
+    await workspace.startCamera()
     let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
 
     await workspace.beginPenInteraction()
+    try await identifyPenCap(workspace)
     await workspace.performExerciseAction(.setPenSetpoint(.raise, 65), for: owner)
     try await waitUntilAsync { await machine.requestedPenProfiles.count == 1 }
     await workspace.answerCurrentQuestion(.yes)
@@ -354,7 +351,8 @@ extension OperatorWorkspaceTests {
       log: log,
       relativeJogSettlementOffset: try Vector2(dx: 0, dy: 0)
     )
-    let workspace = workspace(machine: machine, log: log)
+    let camera = try CameraFixture()
+    let workspace = workspace(machine: machine, camera: camera, log: log)
     await workspace.establishMachineSession(machine.descriptor)
     await workspace.requestPassiveProbe()
     let revisions = workspace.learningArtifactGraph.revisions
@@ -380,6 +378,8 @@ extension OperatorWorkspaceTests {
     workspace.toggleLearningMode()
     #expect(workspace.learningIsEnabled)
 
+    await workspace.startCamera()
+
     await workspace.performExerciseAction(
       .start,
       for: .humanGuidedDiscovery(.penInteraction)
@@ -401,8 +401,41 @@ extension OperatorWorkspaceTests {
   func fixedCameraSettlingPolicyIsOpticalOnly() {
     #expect(FixedCameraOpticalSettlingPolicy.alignmentSearchRadiusPixels == 3)
     #expect(FixedCameraOpticalSettlingPolicy.maximumAlignmentShiftPixels == 2)
+    #expect(FixedCameraOpticalSettlingPolicy.requiredCentroidFrameCount == 3)
     #expect(FixedCameraOpticalSettlingPolicy.maximumCentroidSpreadPixels == 2)
     #expect(ControllerPositionAcceptancePolicy.toleranceMM == 0.05)
+  }
+
+  @Test("cap settlement accepts bounded wobble and retains the newest exact frame")
+  func capSettlementAcceptsNewestStableExactFrame() async throws {
+    let log = EventLog()
+    let camera = try CameraFixture(capCentroidXOffsets: [0, 1, 2])
+    let workspace = workspace(machine: try MachineFixture(log: log), camera: camera, log: log)
+    await workspace.startCamera()
+
+    let accepted = try await workspace.captureStableWorkflowCap(newerThan: 50)
+    #expect(accepted.inspection.displayedFrame.frame.captureNanoseconds == 53)
+    #expect(accepted.inspection.displayedFrame.frame.id == FrameID(rawValue: "fresh-53"))
+    #expect(accepted.cap.centroid.x == 101)
+    #expect(camera.recordedWorkflowFeatureRequests == [[.penCap], [.penCap], [.penCap]])
+    #expect(camera.recordedWorkflowAnalysisRegionRequests.allSatisfy { $0 == nil })
+    await workspace.shutdown()
+  }
+
+  @Test("cap settlement refuses unstable multi-frame centroid evidence")
+  func capSettlementRefusesUnstableCentroids() async throws {
+    let log = EventLog()
+    let camera = try CameraFixture(capCentroidXOffsets: [0, 3, 1])
+    let workspace = workspace(machine: try MachineFixture(log: log), camera: camera, log: log)
+    await workspace.startCamera()
+
+    do {
+      _ = try await workspace.captureStableWorkflowCap(newerThan: 50)
+      Issue.record("unstable centroid evidence was accepted")
+    } catch {
+      #expect(error.localizedDescription.contains("3.00 px spread exceeds 2.00 px"))
+    }
+    await workspace.shutdown()
   }
 
   @Test("selected scene overlays directly own bounded LIVE analysis")
@@ -417,21 +450,23 @@ extension OperatorWorkspaceTests {
 
     await workspace.startCamera()
     #expect(!workspace.scopedVisionAnalysisActive)
-    #expect(workspace.visibleLayers == Set(CanvasLayer.allCases))
+    #expect(workspace.overlayPreferenceState.enabled == Set(UserSceneOverlay.allCases))
     #expect(camera.recordedAutomaticInspectionRequests == [.twoFPS])
+    #expect(camera.recordedAutomaticFeatureRequests == [[.penCap, .armatureEnvelope]])
     #expect(workspace.actionSurfacePresentation.overlays.count == 1)
 
-    for layer in CanvasLayer.allCases where layer.requiresSceneAnalysis {
-      workspace.setLayer(layer, visible: false)
+    for overlay in UserSceneOverlay.allCases {
+      workspace.setOverlay(overlay, enabled: false)
     }
     try await waitUntil { camera.recordedAutomaticInspectionRequests.last == .some(nil) }
-    #expect(workspace.visibleLayers.contains(.intendedPath))
+    #expect(workspace.overlayPreferenceState.enabled.isEmpty)
+    #expect(camera.recordedAutomaticFeatureRequests.last == [])
     #expect(workspace.actionSurfacePresentation.overlays.isEmpty)
     await workspace.shutdown()
   }
 
-  @Test("locked viewport and selected cadence configure scene analysis")
-  func lockedViewportConfiguresAnalysis() async throws {
+  @Test("full-frame viewport canonicalizes to unlocked default analysis")
+  func fullFrameViewportCanonicalizesToDefaultAnalysis() async throws {
     let log = EventLog()
     let machine = try MachineFixture(log: log)
     let camera = try CameraFixture()
@@ -448,24 +483,29 @@ extension OperatorWorkspaceTests {
     await workspace.setVideoAnalysisRegion(region, for: displayedFrame)
     await workspace.setVisionAnalysisCadence(.fiveFPS)
 
-    #expect(workspace.videoAnalysisRegionLock?.region == region)
-    #expect(camera.recordedSceneAnalysisRegionRequests.contains(region))
+    #expect(workspace.videoAnalysisRegionLock == nil)
+    #expect(camera.recordedSceneAnalysisRegionRequests.contains { $0 == nil })
     #expect(camera.recordedAutomaticInspectionRequests.last == .fiveFPS)
     await workspace.shutdown()
   }
 
-  @Test("selected pen-cap color is retained and sent to the camera Vision owner")
-  func selectedPenCapColorConfiguresVision() async throws {
+  @Test("persisted pen-cap appearance configures the camera Vision owner")
+  func persistedPenCapAppearanceConfiguresVision() async throws {
     let log = EventLog()
     let machine = try MachineFixture(log: log)
     let camera = try CameraFixture()
-    let workspace = workspace(machine: machine, camera: camera, log: log)
-    await workspace.startCamera()
     let magenta = PenCapColor(red: 190, green: 30, blue: 170)
+    let selection = testPenCapAppearanceSelection(color: magenta)
+    let workspace = workspace(
+      machine: machine,
+      camera: camera,
+      loadPenCapAppearanceSelection: { selection },
+      log: log
+    )
 
-    await workspace.setPenCapColor(magenta)
+    await workspace.startCamera()
 
-    #expect(workspace.penCapColor == magenta)
+    #expect(workspace.penCapAppearanceSelection == selection)
     #expect(camera.recordedPenCapColorRequests.last == magenta)
     await workspace.shutdown()
   }
@@ -619,66 +659,6 @@ extension OperatorWorkspaceTests {
     #expect(
       events.firstIndex(of: "announce:Moving the plotter toward the positive X boundary.")!
         < events.firstIndex(of: "machine:boundary")!)
-    await workspace.shutdown()
-  }
-
-  @Test("Boundary Stop settles advisory Vision without disturbing overlay analysis")
-  func boundaryStopSettlesAdvisoryWithoutDisturbingOverlayAnalysis() async throws {
-    let log = EventLog()
-    let machine = try MachineFixture(log: log)
-    let camera = try CameraFixture()
-    let inspectionGate = BoundaryInspectionGate()
-    let motionGate = BoundaryRenewalMotionGate()
-    let workspace = workspace(
-      machine: machine,
-      cameraActionsOverride: boundaryGatedCameraActions(camera, gate: inspectionGate),
-      boundaryMotionBegin: { request, renewalPlanner in
-        .admitted(
-          BoundaryMotionOperation(
-            ownerID: request.ownerID,
-            task: Task { await motionGate.run(request, renewalPlanner: renewalPlanner) }
-          )
-        )
-      },
-      jogCancel: { await motionGate.cancel($0) },
-      log: log
-    )
-    await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
-    await workspace.startCamera()
-    try await completePenInteraction(workspace)
-    let automaticBeforeBoundary = camera.recordedAutomaticInspectionRequests
-
-    let owner = LearningPathItemID.humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
-    await workspace.performExerciseAction(.start, for: owner)
-    try await waitUntil {
-      workspace.contextualStopPresentation != nil
-    }
-    #expect(camera.recordedAutomaticInspectionRequests == automaticBeforeBoundary)
-    let pendingRequest = await motionGate.request
-    let admittedRequest = try #require(pendingRequest)
-    #expect(admittedRequest.segment.delta.magnitude == 20)
-    #expect(admittedRequest.renewalBounds.fallbackMM == 20)
-    #expect(admittedRequest.renewalBounds.maximumMM == 50)
-
-    try await machine.setPosition(x: 20, y: 0)
-    await motionGate.releaseFirstSegment()
-    try await waitUntilAsync { await inspectionGate.isStarted }
-    let stopKind = try #require(
-      workspace.currentExerciseActionStripPresentation?.actions.first(where: {
-        if case .stop = $0.kind { true } else { false }
-      })?.kind)
-    let stopTask = Task { @MainActor in
-      await workspace.performExerciseAction(stopKind, for: owner)
-    }
-    try await waitUntilAsync { await inspectionGate.isCancelled }
-
-    #expect(camera.recordedAutomaticInspectionRequests == automaticBeforeBoundary)
-    await inspectionGate.release()
-    await stopTask.value
-
-    #expect(camera.recordedAutomaticInspectionRequests == automaticBeforeBoundary)
-    #expect(workspace.boundarySideAggregates[.positiveX]?.validSampleCount == 1)
     await workspace.shutdown()
   }
 

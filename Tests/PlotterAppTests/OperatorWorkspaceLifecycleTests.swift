@@ -119,6 +119,7 @@ struct OperatorWorkspaceLifecycleTests {
 
     let penOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
     try await performPublicAction(.start, owner: penOwner, workspace: workspace)
+    try await identifyPenCap(workspace)
     for _ in 0..<3 {
       try await performPublicAction(.choice(.yes), owner: penOwner, workspace: workspace)
     }

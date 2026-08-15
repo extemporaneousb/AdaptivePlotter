@@ -15,7 +15,10 @@ human center clicks, post-click geometry, smallest-passing model review, and one
 Stage 4 observed line. Record failures without redrawing ambiguous locations.
 
 This is the highest-priority gap. Automated and simulated evidence cannot close
-it.
+it. In particular, C920 reliability for click-learned arbitrary cap colors,
+cap-body click usability and sampling tolerance, the usefulness of the
+cap-inferred armature envelope, preview fluidity, and attended calibration remain
+unproven until this run is explicitly authorized and performed.
 
 ## 2. Operator-declared semantic revision controls
 
@@ -61,3 +64,12 @@ thresholds merely to pass simulator fixtures.
 - exercise upgrade/migration and corrupted-checkpoint refusal;
 - expand accessibility and keyboard operation for exact-frame clicking;
 - keep signed-bundle, singleton, camera, and serial ownership tests current.
+
+## 8. Adaptive Drawing
+
+Adaptive Drawing is an unapplied future requirement, not a selectable current
+Learning Path stage. Before adding it, define attributable repeated-trial data,
+reserved physical holdouts, candidate-versus-prior acceptance, applicability and
+uncertainty, and an explicit operator promotion boundary. Do not restore the
+deleted speculative online dataset, policy/reward scaffolding, model-mismatch
+overlay, or dormant navigation route as a compatibility surface.

@@ -21,26 +21,14 @@ enum MachineSessionComposition {
     activateMotionGuard: {
       await session.activateMotionGuard()
     },
-    deactivateMotionGuard: {
-      await session.deactivateMotionGuard()
-    },
-    requestRelativeJog: { request in
-      await session.requestRelativeJog(request)
-    },
     beginRelativeJog: { request in
       await session.beginRelativeJog(request)
-    },
-    requestDrawingStroke: { request in
-      await session.requestDrawingStroke(request)
     },
     beginDrawingStroke: { request in
       await session.beginDrawingStroke(request)
     },
     requestPenActuation: { command, profile in
       await session.requestPenActuation(command, profile: profile)
-    },
-    requestBoundaryMotion: { request in
-      await session.requestBoundaryMotion(request)
     },
     beginBoundaryMotion: { request, renewalPlanner in
       await session.beginBoundaryMotion(request, renewalPlanner: renewalPlanner)
@@ -131,15 +119,6 @@ private actor PersistentMachineSession {
     return await interpreter.activateMotionGuard()
   }
 
-  func deactivateMotionGuard() async {
-    await interpreter?.deactivateMotionGuard()
-  }
-
-  func requestRelativeJog(_ request: RelativeJogRequest) async -> MotionOutcome {
-    guard let interpreter else { return .refused(.noSerialDeviceSelected) }
-    return await interpreter.requestRelativeJog(request)
-  }
-
   func beginRelativeJog(_ request: RelativeJogRequest) async -> RelativeJogAdmission {
     guard let interpreter else {
       return .rejected(.refused(.noSerialDeviceSelected))
@@ -147,26 +126,11 @@ private actor PersistentMachineSession {
     return await interpreter.beginRelativeJog(request)
   }
 
-  func requestDrawingStroke(_ request: DrawingStrokeRequest) async -> DrawingStrokeOutcome {
-    guard let interpreter else { return .refused(.noSerialDeviceSelected) }
-    return await interpreter.requestDrawingStroke(request)
-  }
-
   func beginDrawingStroke(_ request: DrawingStrokeRequest) async -> DrawingStrokeAdmission {
     guard let interpreter else {
       return .rejected(.refused(.noSerialDeviceSelected))
     }
     return await interpreter.beginDrawingStroke(request)
-  }
-
-  func requestBoundaryMotion(_ request: BoundaryMotionRequest) async -> BoundaryMotionOutcome {
-    guard let interpreter else {
-      return .needsAttention(
-        ownerID: request.ownerID,
-        terminal: .refusal(.noSerialDeviceSelected)
-      )
-    }
-    return await interpreter.requestBoundaryMotion(request)
   }
 
   func beginBoundaryMotion(

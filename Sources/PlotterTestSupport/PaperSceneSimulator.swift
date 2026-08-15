@@ -84,26 +84,6 @@ public struct PaperSceneSimulator: Sendable {
     return try source.render(strokes: cameraStrokes, captureNanoseconds: captureNanoseconds).frame
   }
 
-  public func renderModelMismatch(
-    scene: SimulatedModelMismatchScene,
-    fieldToCamera: AffineTransform2<FieldSpace, CameraPixelSpace>,
-    sequence: UInt64,
-    captureNanoseconds: UInt64,
-    cameraConfigurationID: CameraConfigurationID
-  ) throws -> SimulatedOverlaySceneContent {
-    var source = try SimulatedFrameSource(
-      width: width,
-      height: height,
-      fieldToCamera: fieldToCamera,
-      cameraConfigurationID: cameraConfigurationID,
-      initialSequence: sequence
-    )
-    return try source.renderModelMismatch(
-      scene,
-      captureNanoseconds: captureNanoseconds
-    )
-  }
-
   /// Produces a same-pose local baseline and a second frame containing one
   /// additional line while retaining arbitrary preexisting ink.
   public func renderLocalBaselineAndLineSequence(

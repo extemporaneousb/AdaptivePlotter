@@ -14,6 +14,36 @@ public struct PixelRect: Codable, Hashable, Sendable {
     self.height = height
   }
 }
+public struct SceneFeatureSet: OptionSet, Codable, Hashable, Sendable {
+  public let rawValue: UInt8
+
+  public static let penCap = Self(rawValue: 1 << 0)
+  public static let armatureEnvelope = Self(rawValue: 1 << 1)
+
+  public init(rawValue: UInt8) {
+    self.rawValue = rawValue
+  }
+
+  public var expandingDependencies: Self {
+    contains(.armatureEnvelope) ? union(.penCap) : self
+  }
+}
+
+public enum SceneVisionKernel: String, Codable, CaseIterable, Hashable, Sendable {
+  case penCap
+  case armatureEnvelope
+}
+
+public struct SceneVisionComputationDiagnostics: Codable, Hashable, Sendable {
+  public let requestedFeatures: SceneFeatureSet
+  public let expandedFeatures: SceneFeatureSet
+  public let executionCounts: [SceneVisionKernel: Int]
+  public let inspectedPixelCounts: [SceneVisionKernel: Int]
+
+  public var totalInspectedPixelCount: Int {
+    inspectedPixelCounts.values.reduce(0, +)
+  }
+}
 
 public struct GreenPixelThresholds: Codable, Hashable, Sendable {
   public let minimumGreen: UInt8
@@ -72,16 +102,11 @@ public struct PenCapColor: Codable, Hashable, Sendable {
 /// narrow distractors; they do not define machine coordinates or a mm scale.
 public struct PlotterSceneVisionPriors: Hashable, Sendable {
   public let capSearchRegion: PixelRect
-  public let topFrameSideRegion: PixelRect
-  public let rightFrameSideRegion: PixelRect
   public let penCapColor: PenCapColor
   public let minimumCapPixels: Int
   public let maximumCapPixels: Int
-  public let minimumBlue: UInt8
-  public let minimumBlueOverRed: UInt8
-  public let minimumBlueOverGreen: UInt8
-  public let lineResidualLimitPixels: Double
-  public let minimumLineSupportFraction: Double
+  public let minimumAcceptedCapConfidence: Double
+  public let ambiguousCandidatePixelRatio: Double
   public let armatureHalfWidthFraction: Double
   public let armatureTopMarginFraction: Double
   public let armatureHeightFraction: Double
@@ -89,25 +114,21 @@ public struct PlotterSceneVisionPriors: Hashable, Sendable {
 
   public init(
     capSearchRegion: PixelRect,
-    topFrameSideRegion: PixelRect,
-    rightFrameSideRegion: PixelRect,
     penCapColor: PenCapColor = .green,
     minimumCapPixels: Int,
     maximumCapPixels: Int,
-    minimumBlue: UInt8 = 70,
-    minimumBlueOverRed: UInt8 = 40,
-    minimumBlueOverGreen: UInt8 = 18,
-    lineResidualLimitPixels: Double,
-    minimumLineSupportFraction: Double = 0.25,
+    minimumAcceptedCapConfidence: Double = 0.20,
+    ambiguousCandidatePixelRatio: Double = 0.85,
     armatureHalfWidthFraction: Double = 0.055,
     armatureTopMarginFraction: Double = 0.025,
     armatureHeightFraction: Double = 0.56,
     algorithmRevision: String = "plotter-scene-v1"
   ) throws {
     guard minimumCapPixels > 0, maximumCapPixels >= minimumCapPixels,
-      lineResidualLimitPixels.isFinite, lineResidualLimitPixels > 0,
-      minimumLineSupportFraction.isFinite,
-      minimumLineSupportFraction > 0, minimumLineSupportFraction <= 1,
+      minimumAcceptedCapConfidence.isFinite,
+      minimumAcceptedCapConfidence > 0, minimumAcceptedCapConfidence <= 1,
+      ambiguousCandidatePixelRatio.isFinite,
+      ambiguousCandidatePixelRatio > 0, ambiguousCandidatePixelRatio <= 1,
       armatureHalfWidthFraction.isFinite,
       armatureHalfWidthFraction > 0, armatureHalfWidthFraction < 0.5,
       armatureTopMarginFraction.isFinite,
@@ -117,16 +138,11 @@ public struct PlotterSceneVisionPriors: Hashable, Sendable {
       !algorithmRevision.isEmpty
     else { throw FrameError.invalidVisionPolicy }
     self.capSearchRegion = capSearchRegion
-    self.topFrameSideRegion = topFrameSideRegion
-    self.rightFrameSideRegion = rightFrameSideRegion
     self.penCapColor = penCapColor
     self.minimumCapPixels = minimumCapPixels
     self.maximumCapPixels = maximumCapPixels
-    self.minimumBlue = minimumBlue
-    self.minimumBlueOverRed = minimumBlueOverRed
-    self.minimumBlueOverGreen = minimumBlueOverGreen
-    self.lineResidualLimitPixels = lineResidualLimitPixels
-    self.minimumLineSupportFraction = minimumLineSupportFraction
+    self.minimumAcceptedCapConfidence = minimumAcceptedCapConfidence
+    self.ambiguousCandidatePixelRatio = ambiguousCandidatePixelRatio
     self.armatureHalfWidthFraction = armatureHalfWidthFraction
     self.armatureTopMarginFraction = armatureTopMarginFraction
     self.armatureHeightFraction = armatureHeightFraction
@@ -141,36 +157,26 @@ public struct PlotterSceneVisionPriors: Hashable, Sendable {
   ) throws -> Self {
     guard frameWidth > 0, frameHeight > 0 else { throw FrameError.invalidDimensions }
     let fullFrame = PixelRect(x: 0, y: 0, width: frameWidth, height: frameHeight)
-    let region = analysisRegion ?? fullFrame
+    let canonicalRegion = analysisRegion == fullFrame ? nil : analysisRegion
+    let region = canonicalRegion ?? fullFrame
     guard region.x >= 0, region.y >= 0, region.width > 0, region.height > 0,
       region.x + region.width <= frameWidth,
       region.y + region.height <= frameHeight
     else { throw FrameError.invalidRegion }
-    let area = region.width * region.height
+    let fullFrameArea = frameWidth * frameHeight
     let algorithmRevision =
-      analysisRegion.map {
+      canonicalRegion.map {
         "c920-startup-scene-v3:cap-\(penCapColor.hexRGB):region-\($0.x)-\($0.y)-\($0.width)-\($0.height)"
       } ?? "c920-startup-scene-v3:cap-\(penCapColor.hexRGB):full-frame"
     let capSearchRegion =
-      analysisRegion == nil
+      canonicalRegion == nil
       ? scaledRegion(x: 0.24, y: 0.14, width: 0.66, height: 0.54, within: region)
       : region
-    let topFrameSideRegion =
-      analysisRegion == nil
-      ? scaledRegion(x: 0.34, y: 0.09, width: 0.54, height: 0.13, within: region)
-      : scaledRegion(x: 0, y: 0, width: 1, height: 0.25, within: region)
-    let rightFrameSideRegion =
-      analysisRegion == nil
-      ? scaledRegion(x: 0.84, y: 0.14, width: 0.10, height: 0.54, within: region)
-      : scaledRegion(x: 0.75, y: 0, width: 0.25, height: 1, within: region)
     return try Self(
       capSearchRegion: capSearchRegion,
-      topFrameSideRegion: topFrameSideRegion,
-      rightFrameSideRegion: rightFrameSideRegion,
       penCapColor: penCapColor,
-      minimumCapPixels: max(24, area / 40_000),
-      maximumCapPixels: max(48, area / 200),
-      lineResidualLimitPixels: max(2, Double(region.height) * 0.003),
+      minimumCapPixels: max(24, fullFrameArea / 40_000),
+      maximumCapPixels: max(48, fullFrameArea / 200),
       algorithmRevision: algorithmRevision
     )
   }
@@ -208,12 +214,71 @@ public struct PenCapMeasurement: Hashable, Sendable {
   public let confidence: Double
 }
 
-public struct FrameSideMeasurement: Hashable, Sendable {
-  public let geometry: Polyline<CameraPixelSpace>
-  public let supportPointCount: Int
-  public let inlierCount: Int
-  public let rmsResidualPixels: Double
+public enum PenCapCandidateRejectionReason: Hashable, Sendable {
+  case belowMinimumPixels(actual: Int, minimum: Int)
+  case aboveMaximumPixels(actual: Int, maximum: Int)
+  case aspectRatioOutside(actual: Double, minimum: Double, maximum: Double)
+  case fillFractionBelow(actual: Double, minimum: Double)
+  case confidenceBelow(actual: Double, minimum: Double)
+
+  public var actionableDescription: String {
+    switch self {
+    case .belowMinimumPixels(let actual, let minimum):
+      "\(actual) pixels is below minimum \(minimum)"
+    case .aboveMaximumPixels(let actual, let maximum):
+      "\(actual) pixels exceeds maximum \(maximum)"
+    case .aspectRatioOutside(let actual, let minimum, let maximum):
+      String(format: "aspect %.2f is outside %.2f...%.2f", actual, minimum, maximum)
+    case .fillFractionBelow(let actual, let minimum):
+      String(format: "fill %.2f is below %.2f", actual, minimum)
+    case .confidenceBelow(let actual, let minimum):
+      String(format: "confidence %.2f is below %.2f", actual, minimum)
+    }
+  }
+}
+
+public struct PenCapCandidateDiagnostic: Hashable, Sendable {
+  public let pixelCount: Int
+  public let boundingBox: PixelRect
+  public let aspectRatio: Double
+  public let fillFraction: Double
   public let confidence: Double
+  public let rejectionReasons: [PenCapCandidateRejectionReason]
+}
+
+public struct PenCapDiagnostics: Hashable, Sendable {
+  public let inspectedPixelCount: Int
+  public let thresholdPixelCount: Int
+  public let componentCount: Int
+  public let candidates: [PenCapCandidateDiagnostic]
+}
+
+public enum PenCapDetectionResult: Hashable, Sendable {
+  case notRequested
+  case found(PenCapMeasurement, diagnostics: PenCapDiagnostics)
+  case notFound(PenCapDiagnostics)
+  case candidatesRejected(PenCapDiagnostics)
+  case ambiguous(candidatePixelCounts: [Int], diagnostics: PenCapDiagnostics)
+  case failed(String)
+
+  public var measurement: PenCapMeasurement? {
+    guard case .found(let measurement, _) = self else { return nil }
+    return measurement
+  }
+
+  public var diagnosticReason: String {
+    switch self {
+    case .notRequested: "not requested"
+    case .found: "found"
+    case .notFound: "no pixels passed the selected pen-cap color thresholds"
+    case .candidatesRejected(let diagnostics):
+      diagnostics.candidates.flatMap(\.rejectionReasons).first?.actionableDescription
+        ?? "all components were rejected"
+    case .ambiguous(let counts, _):
+      "candidate sizes \(counts.map(String.init).joined(separator: ", ")); refusing to choose"
+    case .failed(let reason): reason
+    }
+  }
 }
 
 /// A deliberately coarse cap-anchored envelope for the visible moving
@@ -224,22 +289,15 @@ public struct ArmatureEstimate: Hashable, Sendable {
   public let basis: String
 }
 
-/// A coarse four-sided image-space frame inferred from the measured top and
-/// right sides. The unobserved bottom and left sides are a parallelogram prior,
-/// not direct pixel measurements or a machine-to-camera registration.
-public struct DrawingFrameEstimate: Hashable, Sendable {
-  public let geometry: Polyline<CameraPixelSpace>
-  public let confidence: Double
-  public let basis: String
+public enum ArmatureEnvelopeResult: Hashable, Sendable {
+  case notRequested
+  case available(ArmatureEstimate)
+  case unavailableBecausePenCap(PenCapDetectionResult)
+  case failed(String)
 
-  public init(
-    geometry: Polyline<CameraPixelSpace>,
-    confidence: Double,
-    basis: String
-  ) {
-    self.geometry = geometry
-    self.confidence = confidence
-    self.basis = basis
+  public var estimate: ArmatureEstimate? {
+    guard case .available(let estimate) = self else { return nil }
+    return estimate
   }
 }
 
@@ -247,15 +305,12 @@ public struct PlotterSceneMeasurement: Hashable, Sendable {
   public let frameID: FrameID
   public let frameSHA256: String
   public let cameraConfigurationID: CameraConfigurationID
-  public let capComponentCount: Int
-  public let cap: PenCapMeasurement?
-  public let topFrameSide: FrameSideMeasurement?
-  public let rightFrameSide: FrameSideMeasurement?
-  public let drawingFrame: DrawingFrameEstimate?
-  public let armature: ArmatureEstimate?
+  public let penCap: PenCapDetectionResult
+  public let armatureEnvelope: ArmatureEnvelopeResult
   public let overlays: [CameraOverlayMeasurement]
   public let algorithmRevision: String
   public let diagnosticSHA256: String
+  public let computation: SceneVisionComputationDiagnostics
 }
 
 public enum MeasurementRequest: Codable, Hashable, Sendable {
@@ -334,24 +389,16 @@ public actor VisionWorker {
     let centroidY: Double
   }
 
-  private struct RegressionPoint {
-    let independent: Double
-    let dependent: Double
-  }
-
-  private enum FrameSideOrientation: Equatable {
-    case top
-    case right
-  }
-
   public init() {}
 
   public func inspectPlotterScene(
     in frame: StampedFrame,
+    requestedFeatures: SceneFeatureSet,
     priors suppliedPriors: PlotterSceneVisionPriors? = nil,
     analysisRegion: PixelRect? = nil,
     penCapColor: PenCapColor = .green
   ) throws -> PlotterSceneMeasurement {
+    let expandedFeatures = requestedFeatures.expandingDependencies
     let priors =
       try suppliedPriors
       ?? PlotterSceneVisionPriors.c920StartupDefaults(
@@ -361,73 +408,30 @@ public actor VisionWorker {
         penCapColor: penCapColor
       )
     try validate(priors.capSearchRegion, in: frame)
-    try validate(priors.topFrameSideRegion, in: frame)
-    try validate(priors.rightFrameSideRegion, in: frame)
 
-    let components = try capColorComponents(
-      frame: frame,
-      region: priors.capSearchRegion,
-      priors: priors
-    ).filter { $0.pixelCount >= 2 }
-    // The observed marker is a compact filled component. This broad shape
-    // rejection prevents a long same-colored ink stroke from becoming the cap.
-    let eligible =
-      components
-      .filter {
-        let width = $0.maxX - $0.minX + 1
-        let height = $0.maxY - $0.minY + 1
-        let aspect = Double(width) / Double(height)
-        let fill = Double($0.pixelCount) / Double(width * height)
-        return $0.pixelCount >= priors.minimumCapPixels
-          && $0.pixelCount <= priors.maximumCapPixels
-          && aspect >= 0.25 && aspect <= 4
-          && fill >= 0.20
-      }
-      .sorted { $0.pixelCount > $1.pixelCount }
-    let cap = try eligible.first.map { component in
-      let secondLargest =
-        eligible
-        .dropFirst()
-        .map(\.pixelCount)
-        .max() ?? 0
-      let sizeScore = min(
-        1,
-        Double(component.pixelCount) / Double(priors.minimumCapPixels * 4)
-      )
-      let separationScore = max(
-        0,
-        1 - Double(secondLargest) / Double(component.pixelCount)
-      )
-      return PenCapMeasurement(
-        pixelCount: component.pixelCount,
-        boundingBox: PixelRect(
-          x: component.minX,
-          y: component.minY,
-          width: component.maxX - component.minX + 1,
-          height: component.maxY - component.minY + 1
-        ),
-        centroid: try Point2<CameraPixelSpace>(
-          x: component.centroidX,
-          y: component.centroidY
-        ),
-        confidence: sizeScore * separationScore
-      )
+    var executionCounts: [SceneVisionKernel: Int] = [:]
+    var inspectedPixelCounts: [SceneVisionKernel: Int] = [:]
+    let penCap: PenCapDetectionResult
+    if expandedFeatures.contains(.penCap) {
+      executionCounts[.penCap] = 1
+      inspectedPixelCounts[.penCap] = priors.capSearchRegion.width * priors.capSearchRegion.height
+      penCap = try detectPenCap(frame: frame, priors: priors)
+    } else {
+      penCap = .notRequested
     }
-    let top = try frameSide(
-      frame: frame,
-      region: priors.topFrameSideRegion,
-      orientation: .top,
-      priors: priors
-    )
-    let right = try frameSide(
-      frame: frame,
-      region: priors.rightFrameSideRegion,
-      orientation: .right,
-      priors: priors
-    )
-    let drawingFrame = try drawingFrameEstimate(top: top, right: right, frame: frame)
-    let armature = try cap.map {
-      try armatureEstimate(cap: $0, frame: frame, priors: priors)
+    let armatureEnvelope: ArmatureEnvelopeResult
+    if expandedFeatures.contains(.armatureEnvelope) {
+      executionCounts[.armatureEnvelope] = 1
+      inspectedPixelCounts[.armatureEnvelope] = 0
+      if let cap = penCap.measurement {
+        armatureEnvelope = .available(
+          try armatureEstimate(cap: cap, frame: frame, priors: priors)
+        )
+      } else {
+        armatureEnvelope = .unavailableBecausePenCap(penCap)
+      }
+    } else {
+      armatureEnvelope = .notRequested
     }
 
     let capProvenance = CameraMeasurementProvenance(
@@ -435,23 +439,13 @@ public actor VisionWorker {
       source: .measured,
       algorithmRevision: priors.algorithmRevision
     )
-    let frameSideProvenance = CameraMeasurementProvenance(
-      kind: .measuredFrameSide,
-      source: .measured,
-      algorithmRevision: priors.algorithmRevision
-    )
-    let drawingFrameProvenance = CameraMeasurementProvenance(
-      kind: .drawingFrameEstimate,
-      source: .inferred,
-      algorithmRevision: "\(priors.algorithmRevision):two-side-closure-v1"
-    )
     let armatureProvenance = CameraMeasurementProvenance(
       kind: .armatureEstimate,
       source: .inferred,
       algorithmRevision: "\(priors.algorithmRevision):cap-anchored-armature-v1"
     )
     var overlays: [CameraOverlayMeasurement] = []
-    if let cap {
+    if requestedFeatures.contains(.penCap), let cap = penCap.measurement {
       let box = cap.boundingBox
       overlays.append(
         CameraOverlayMeasurement(
@@ -474,25 +468,9 @@ public actor VisionWorker {
           provenance: capProvenance
         ))
     }
-    for side in [top, right].compactMap({ $0 }) {
-      overlays.append(
-        CameraOverlayMeasurement(
-          frameID: frame.id,
-          cameraConfigurationID: frame.cameraConfigurationID,
-          geometry: .polyline(side.geometry),
-          provenance: frameSideProvenance
-        ))
-    }
-    if let drawingFrame {
-      overlays.append(
-        CameraOverlayMeasurement(
-          frameID: frame.id,
-          cameraConfigurationID: frame.cameraConfigurationID,
-          geometry: .polyline(drawingFrame.geometry),
-          provenance: drawingFrameProvenance
-        ))
-    }
-    if let armature {
+    if requestedFeatures.contains(.armatureEnvelope),
+      let armature = armatureEnvelope.estimate
+    {
       overlays.append(
         CameraOverlayMeasurement(
           frameID: frame.id,
@@ -501,31 +479,25 @@ public actor VisionWorker {
           provenance: armatureProvenance
         ))
     }
-    let capPixelCount = cap?.pixelCount ?? 0
-    let topInlierCount = top?.inlierCount ?? 0
-    let topResidual = top?.rmsResidualPixels ?? Double.infinity
-    let rightInlierCount = right?.inlierCount ?? 0
-    let rightResidual = right?.rmsResidualPixels ?? Double.infinity
-    let drawingFrameConfidence = drawingFrame?.confidence ?? 0
-    let armatureConfidence = armature?.confidence ?? 0
+    let computation = SceneVisionComputationDiagnostics(
+      requestedFeatures: requestedFeatures,
+      expandedFeatures: expandedFeatures,
+      executionCounts: executionCounts,
+      inspectedPixelCounts: inspectedPixelCounts
+    )
     let diagnostic =
-      "\(frame.contentSHA256)|\(priors.algorithmRevision)|\(components.count)|"
-      + "\(capPixelCount)|\(topInlierCount)|\(topResidual)|"
-      + "\(rightInlierCount)|\(rightResidual)|"
-      + "\(drawingFrameConfidence)|\(armatureConfidence)"
+      "\(frame.contentSHA256)|\(priors.algorithmRevision)|\(requestedFeatures.rawValue)|"
+      + "\(penCap)|\(armatureEnvelope)|\(computation)"
     return PlotterSceneMeasurement(
       frameID: frame.id,
       frameSHA256: frame.contentSHA256,
       cameraConfigurationID: frame.cameraConfigurationID,
-      capComponentCount: components.count,
-      cap: cap,
-      topFrameSide: top,
-      rightFrameSide: right,
-      drawingFrame: drawingFrame,
-      armature: armature,
+      penCap: penCap,
+      armatureEnvelope: armatureEnvelope,
       overlays: overlays,
       algorithmRevision: priors.algorithmRevision,
-      diagnosticSHA256: RunLedger.sha256Hex(Data(diagnostic.utf8))
+      diagnosticSHA256: RunLedger.sha256Hex(Data(diagnostic.utf8)),
+      computation: computation
     )
   }
 
@@ -623,6 +595,110 @@ public actor VisionWorker {
     else { throw FrameError.invalidRegion }
   }
 
+  private func detectPenCap(
+    frame: StampedFrame,
+    priors: PlotterSceneVisionPriors
+  ) throws -> PenCapDetectionResult {
+    let components = try capColorComponents(
+      frame: frame,
+      region: priors.capSearchRegion,
+      priors: priors
+    )
+    let thresholdPixelCount = components.reduce(0) { $0 + $1.pixelCount }
+    let inspectedPixelCount = priors.capSearchRegion.width * priors.capSearchRegion.height
+    let candidates = components.map { component -> PenCapCandidateDiagnostic in
+      let width = component.maxX - component.minX + 1
+      let height = component.maxY - component.minY + 1
+      let aspect = Double(width) / Double(height)
+      let fill = Double(component.pixelCount) / Double(width * height)
+      let sizeScore = min(1, Double(component.pixelCount) / Double(priors.minimumCapPixels * 4))
+      let fillScore = min(1, fill / 0.5)
+      let confidence = sizeScore * fillScore
+      var reasons: [PenCapCandidateRejectionReason] = []
+      if component.pixelCount < priors.minimumCapPixels {
+        reasons.append(
+          .belowMinimumPixels(actual: component.pixelCount, minimum: priors.minimumCapPixels)
+        )
+      }
+      if component.pixelCount > priors.maximumCapPixels {
+        reasons.append(
+          .aboveMaximumPixels(actual: component.pixelCount, maximum: priors.maximumCapPixels)
+        )
+      }
+      if aspect < 0.25 || aspect > 4 {
+        reasons.append(.aspectRatioOutside(actual: aspect, minimum: 0.25, maximum: 4))
+      }
+      if fill < 0.20 {
+        reasons.append(.fillFractionBelow(actual: fill, minimum: 0.20))
+      }
+      if confidence < priors.minimumAcceptedCapConfidence {
+        reasons.append(
+          .confidenceBelow(actual: confidence, minimum: priors.minimumAcceptedCapConfidence)
+        )
+      }
+      return PenCapCandidateDiagnostic(
+        pixelCount: component.pixelCount,
+        boundingBox: PixelRect(
+          x: component.minX,
+          y: component.minY,
+          width: width,
+          height: height
+        ),
+        aspectRatio: aspect,
+        fillFraction: fill,
+        confidence: confidence,
+        rejectionReasons: reasons
+      )
+    }.sorted(by: candidatePrecedes)
+    let diagnostics = PenCapDiagnostics(
+      inspectedPixelCount: inspectedPixelCount,
+      thresholdPixelCount: thresholdPixelCount,
+      componentCount: components.count,
+      candidates: candidates
+    )
+    guard thresholdPixelCount > 0 else { return .notFound(diagnostics) }
+    let eligible = candidates.filter(\.rejectionReasons.isEmpty)
+    guard let leading = eligible.first else { return .candidatesRejected(diagnostics) }
+    if eligible.count > 1 {
+      let second = eligible[1]
+      if Double(second.pixelCount) / Double(leading.pixelCount)
+        >= priors.ambiguousCandidatePixelRatio
+      {
+        return .ambiguous(
+          candidatePixelCounts: eligible.map(\.pixelCount),
+          diagnostics: diagnostics
+        )
+      }
+    }
+    let component = components.first {
+      $0.pixelCount == leading.pixelCount
+        && $0.minX == leading.boundingBox.x
+        && $0.minY == leading.boundingBox.y
+    }!
+    return .found(
+      PenCapMeasurement(
+        pixelCount: component.pixelCount,
+        boundingBox: leading.boundingBox,
+        centroid: try Point2(x: component.centroidX, y: component.centroidY),
+        confidence: leading.confidence
+      ),
+      diagnostics: diagnostics
+    )
+  }
+
+  private func candidatePrecedes(
+    _ lhs: PenCapCandidateDiagnostic,
+    _ rhs: PenCapCandidateDiagnostic
+  ) -> Bool {
+    if lhs.pixelCount != rhs.pixelCount { return lhs.pixelCount > rhs.pixelCount }
+    if lhs.boundingBox.y != rhs.boundingBox.y { return lhs.boundingBox.y < rhs.boundingBox.y }
+    if lhs.boundingBox.x != rhs.boundingBox.x { return lhs.boundingBox.x < rhs.boundingBox.x }
+    if lhs.boundingBox.height != rhs.boundingBox.height {
+      return lhs.boundingBox.height < rhs.boundingBox.height
+    }
+    return lhs.boundingBox.width < rhs.boundingBox.width
+  }
+
   private func armatureEstimate(
     cap: PenCapMeasurement,
     frame: StampedFrame,
@@ -644,43 +720,6 @@ public actor VisionWorker {
       ),
       confidence: min(1, cap.confidence * 0.55),
       basis: "cap-anchored C920 envelope; inferred, not segmented"
-    )
-  }
-
-  private func drawingFrameEstimate(
-    top: FrameSideMeasurement?,
-    right: FrameSideMeasurement?,
-    frame: StampedFrame
-  ) throws -> DrawingFrameEstimate? {
-    guard let top, let right else { return nil }
-    let topLeft = top.geometry.points.min { $0.x < $1.x }!
-    let measuredTopRight = top.geometry.points.max { $0.x < $1.x }!
-    let measuredRightTop = right.geometry.points.min { $0.y < $1.y }!
-    let bottomRight = right.geometry.points.max { $0.y < $1.y }!
-    let topRight = try Point2<CameraPixelSpace>(
-      x: (measuredTopRight.x + measuredRightTop.x) / 2,
-      y: (measuredTopRight.y + measuredRightTop.y) / 2
-    )
-    let bottomLeft = try Point2<CameraPixelSpace>(
-      x: min(
-        Double(frame.width - 1),
-        max(0, bottomRight.x - (topRight.x - topLeft.x))
-      ),
-      y: min(
-        Double(frame.height - 1),
-        max(0, bottomRight.y - (topRight.y - topLeft.y))
-      )
-    )
-    return DrawingFrameEstimate(
-      geometry: try Polyline(points: [
-        topLeft,
-        topRight,
-        bottomRight,
-        bottomLeft,
-        topLeft,
-      ]),
-      confidence: min(top.confidence, right.confidence) * 0.65,
-      basis: "measured top/right with inferred parallel bottom/left; image space only"
     )
   }
 
@@ -770,6 +809,7 @@ public actor VisionWorker {
     return components
   }
 
+
   private static func matchesPenCapColor(
     red: UInt8,
     green: UInt8,
@@ -813,155 +853,6 @@ public actor VisionWorker {
       rawHue = 60 * (((red - green) / delta) + 4)
     }
     return (rawHue < 0 ? rawHue + 360 : rawHue, saturation, maximum)
-  }
-
-  private func frameSide(
-    frame: StampedFrame,
-    region: PixelRect,
-    orientation: FrameSideOrientation,
-    priors: PlotterSceneVisionPriors
-  ) throws -> FrameSideMeasurement? {
-    let primaryCount = orientation == .top ? region.width : region.height
-    let points = try frame.bytes.withUnsafeBytes { bytes in
-      var points: [RegressionPoint] = []
-      for primary in 0..<primaryCount {
-        try Task.checkCancellation()
-        var secondaryMatches: [Int] = []
-        let secondaryCount = orientation == .top ? region.height : region.width
-        for secondary in 0..<secondaryCount {
-          let x = orientation == .top ? region.x + primary : region.x + secondary
-          let y = orientation == .top ? region.y + secondary : region.y + primary
-          let (red, green, blue) = Self.rgb(frame: frame, bytes: bytes, x: x, y: y)
-          guard blue >= priors.minimumBlue,
-            Int(blue) - Int(red) >= Int(priors.minimumBlueOverRed),
-            Int(blue) - Int(green) >= Int(priors.minimumBlueOverGreen)
-          else { continue }
-          secondaryMatches.append(secondary)
-        }
-        guard secondaryMatches.count >= 4 else { continue }
-        let fraction = orientation == .top ? 0.90 : 0.10
-        let index = Int((Double(secondaryMatches.count - 1) * fraction).rounded(.down))
-        if orientation == .top {
-          points.append(
-            RegressionPoint(
-              independent: Double(region.x + primary),
-              dependent: Double(region.y + secondaryMatches[index])
-            ))
-        } else {
-          points.append(
-            RegressionPoint(
-              independent: Double(region.y + primary),
-              dependent: Double(region.x + secondaryMatches[index])
-            ))
-        }
-      }
-      return points
-    }
-
-    let minimumSupport = max(
-      2,
-      Int((Double(primaryCount) * priors.minimumLineSupportFraction).rounded(.up))
-    )
-    guard points.count >= minimumSupport else { return nil }
-    let supportCount = points.count
-    guard let seed = robustLineSeed(points) else { return nil }
-    var slope = seed.slope
-    var intercept = seed.intercept
-    var inliers = points.filter {
-      abs($0.dependent - (slope * $0.independent + intercept))
-        <= priors.lineResidualLimitPixels
-    }
-    guard inliers.count >= minimumSupport else { return nil }
-    for _ in 0..<3 {
-      guard let fit = linearFit(inliers) else { return nil }
-      slope = fit.slope
-      intercept = fit.intercept
-      inliers = points.filter {
-        abs($0.dependent - (slope * $0.independent + intercept))
-          <= priors.lineResidualLimitPixels
-      }
-      guard inliers.count >= minimumSupport else { return nil }
-    }
-    guard let finalFit = linearFit(inliers) else { return nil }
-    slope = finalFit.slope
-    intercept = finalFit.intercept
-    let rms = sqrt(
-      inliers.reduce(0) {
-        let residual = $1.dependent - (slope * $1.independent + intercept)
-        return $0 + residual * residual
-      } / Double(inliers.count)
-    )
-    let coverage = Double(inliers.count) / Double(primaryCount)
-    let supportScore = min(1, coverage / priors.minimumLineSupportFraction)
-    let residualScore = max(0, 1 - rms / (priors.lineResidualLimitPixels * 2))
-    let geometry: Polyline<CameraPixelSpace>
-    switch orientation {
-    case .top:
-      let startX = Double(region.x)
-      let endX = Double(region.x + region.width - 1)
-      geometry = try Polyline(points: [
-        try Point2(x: startX, y: slope * startX + intercept),
-        try Point2(x: endX, y: slope * endX + intercept),
-      ])
-    case .right:
-      let startY = Double(region.y)
-      let endY = Double(region.y + region.height - 1)
-      geometry = try Polyline(points: [
-        try Point2(x: slope * startY + intercept, y: startY),
-        try Point2(x: slope * endY + intercept, y: endY),
-      ])
-    }
-    return FrameSideMeasurement(
-      geometry: geometry,
-      supportPointCount: supportCount,
-      inlierCount: inliers.count,
-      rmsResidualPixels: rms,
-      confidence: supportScore * residualScore
-    )
-  }
-
-  private func robustLineSeed(
-    _ points: [RegressionPoint]
-  ) -> (slope: Double, intercept: Double)? {
-    guard points.count >= 2 else { return nil }
-    let ordered = points.sorted { $0.independent < $1.independent }
-    let groupCount = max(1, ordered.count / 3)
-    let first = Array(ordered.prefix(groupCount))
-    let last = Array(ordered.suffix(groupCount))
-    let firstIndependent = median(first.map(\.independent))
-    let lastIndependent = median(last.map(\.independent))
-    guard lastIndependent > firstIndependent else { return nil }
-    let slope =
-      (median(last.map(\.dependent)) - median(first.map(\.dependent)))
-      / (lastIndependent - firstIndependent)
-    let intercept = median(ordered.map { $0.dependent - slope * $0.independent })
-    return (slope, intercept)
-  }
-
-  private func median(_ values: [Double]) -> Double {
-    let ordered = values.sorted()
-    let middle = ordered.count / 2
-    if ordered.count.isMultiple(of: 2) {
-      return (ordered[middle - 1] + ordered[middle]) / 2
-    }
-    return ordered[middle]
-  }
-
-  private func linearFit(_ points: [RegressionPoint]) -> (slope: Double, intercept: Double)? {
-    guard points.count >= 2 else { return nil }
-    let count = Double(points.count)
-    let meanIndependent = points.reduce(0) { $0 + $1.independent } / count
-    let meanDependent = points.reduce(0) { $0 + $1.dependent } / count
-    let denominator = points.reduce(0) {
-      let delta = $1.independent - meanIndependent
-      return $0 + delta * delta
-    }
-    guard denominator > 0 else { return nil }
-    let slope =
-      points.reduce(0) {
-        $0 + ($1.independent - meanIndependent) * ($1.dependent - meanDependent)
-      } / denominator
-    return (slope, meanDependent - slope * meanIndependent)
   }
 
   private static func rgb(

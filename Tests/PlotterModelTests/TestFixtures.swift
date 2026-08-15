@@ -7,7 +7,6 @@ func uuid(_ value: String) -> UUID { UUID(uuidString: value)! }
 enum IDs {
   static let program = ProgramID(uuid("00000000-0000-0000-0000-000000000001"))
   static let stroke = StrokeID(uuid("00000000-0000-0000-0000-000000000002"))
-  static let registration = FieldRegistrationID(uuid("00000000-0000-0000-0000-00000000000a"))
   static let pen = PenProfileID(uuid("00000000-0000-0000-0000-00000000000f"))
 }
 
@@ -21,15 +20,6 @@ func machinePoint(_ x: Double, _ y: Double) throws -> Point2<MachineSpace> {
 
 func cameraPoint(_ x: Double, _ y: Double) throws -> Point2<CameraPixelSpace> {
   try Point2(x: x, y: y)
-}
-
-func drawingTransform() throws -> DrawingTransform {
-  try DrawingTransform(
-    machineToField: AffineTransform2(
-      m11: 2, m12: 0.25, m21: -0.5, m22: 1.5, tx: 10, ty: 20
-    ),
-    machineDomain: AxisAlignedBounds(minX: 0, minY: 0, maxX: 100, maxY: 100)
-  )
 }
 
 func drawingProgram() throws -> DrawingProgram {

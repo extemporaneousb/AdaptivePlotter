@@ -3,6 +3,55 @@ import Testing
 
 @testable import PlotterApp
 
+@Test("SIMULATED overlay producer publishes exact typed causal status")
+@MainActor
+func simulatedOverlayStatusIsCausalAndExact() async throws {
+  let harness = makeSimulatedHarness()
+  let workspace = harness.workspace
+  await workspace.switchFrameMode(.simulated)
+
+  let frame = try #require(workspace.displayedFrame)
+  let cap = workspace.overlayCardPresentation(for: .penCap)
+  let armature = workspace.overlayCardPresentation(for: .armatureEnvelope)
+
+  #expect(cap.isOn)
+  #expect(cap.status.state == .available)
+  #expect(
+    cap.statusText
+      == OverlayStatusGrammar.simulatedPenCapAvailable(frame: frame.frame.sequence)
+  )
+  #expect(cap.status.provenance?.matches(frame) == true)
+  #expect(cap.accessibilityValue.contains(cap.statusText))
+  #expect(cap.helpText.contains(cap.statusText))
+  #expect(cap.statusText.contains("pixel count and confidence are not applicable"))
+  #expect(!cap.statusText.contains("Found —"))
+
+  #expect(armature.isOn)
+  #expect(armature.status.state == .available)
+  #expect(
+    armature.statusText
+      == OverlayStatusGrammar.simulatedArmatureAvailable(frame: frame.frame.sequence)
+  )
+  #expect(armature.status.provenance?.matches(frame) == true)
+  #expect(armature.accessibilityValue.contains(armature.statusText))
+  #expect(armature.helpText.contains(armature.statusText))
+  #expect(!armature.statusText.contains("independently detected"))
+
+  let surface = workspace.actionSurfacePresentation
+  #expect(surface.analyzedOverlayFrame?.matches(frame) == true)
+  #expect(surface.overlays.map(\.provenance.kind) == [.penCap, .armatureEstimate])
+
+  workspace.setOverlay(.penCap, enabled: false)
+  #expect(workspace.overlayCardPresentation(for: .penCap).status.state == .off)
+  #expect(workspace.overlayCardPresentation(for: .armatureEnvelope).status == armature.status)
+  #expect(workspace.actionSurfacePresentation.overlays.map(\.provenance.kind) == [.armatureEstimate])
+
+  workspace.setOverlay(.penCap, enabled: true)
+  #expect(workspace.overlayCardPresentation(for: .penCap).statusText == cap.statusText)
+  #expect(workspace.actionSurfacePresentation.analyzedOverlayFrame?.matches(frame) == true)
+  await workspace.shutdown()
+}
+
 @Test("SIMULATED manual controls create causal drawing segments while Pen Down")
 @MainActor
 func simulatedManualPenDownDrawing() async throws {

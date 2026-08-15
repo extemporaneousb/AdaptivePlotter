@@ -88,136 +88,155 @@ struct FrameVisionTests {
     #expect(result.centroid == (try Point2<CameraPixelSpace>(x: 1, y: 0)))
   }
 
-  @Test("locked scene region bounds every default plotter-scene pixel scan")
-  func lockedSceneRegionBoundsDefaultPriors() throws {
+  @Test("full-frame region canonicalizes to unlocked priors and crop preserves cap scale")
+  func sceneRegionPolicy() throws {
+    let fullFrame = PixelRect(x: 0, y: 0, width: 640, height: 480)
+    let unlocked = try PlotterSceneVisionPriors.c920StartupDefaults(
+      frameWidth: 640,
+      frameHeight: 480
+    )
+    let lockedFullFrame = try PlotterSceneVisionPriors.c920StartupDefaults(
+      frameWidth: 640,
+      frameHeight: 480,
+      analysisRegion: fullFrame
+    )
+    #expect(unlocked == lockedFullFrame)
+
     let region = PixelRect(x: 120, y: 80, width: 320, height: 240)
-    let priors = try PlotterSceneVisionPriors.c920StartupDefaults(
+    let cropped = try PlotterSceneVisionPriors.c920StartupDefaults(
       frameWidth: 640,
       frameHeight: 480,
       analysisRegion: region
     )
-    #expect(priors.capSearchRegion == region)
-
-    for scan in [
-      priors.capSearchRegion,
-      priors.topFrameSideRegion,
-      priors.rightFrameSideRegion,
-    ] {
-      #expect(scan.x >= region.x)
-      #expect(scan.y >= region.y)
-      #expect(scan.x + scan.width <= region.x + region.width)
-      #expect(scan.y + scan.height <= region.y + region.height)
-    }
-    #expect(priors.algorithmRevision.contains("region-120-80-320-240"))
+    #expect(cropped.capSearchRegion == region)
+    #expect(cropped.minimumCapPixels == unlocked.minimumCapPixels)
+    #expect(cropped.maximumCapPixels == unlocked.maximumCapPixels)
+    #expect(region.width * region.height < unlocked.capSearchRegion.width * unlocked.capSearchRegion.height)
   }
 
-  @Test("plotter scene finds cap and robust frame sides while rejecting light and ink distractors")
-  func plotterSceneFeatures() async throws {
-    let width = 120
-    let height = 80
-    var pixels = [UInt8](repeating: 190, count: width * height * 4)
-    for index in stride(from: 3, to: pixels.count, by: 4) { pixels[index] = 255 }
-
-    for x in 10..<90 where x % 13 != 0 {
-      let innerY = 12 + Int(Double(x - 10) * 0.04)
-      for y in (innerY - 4)...innerY {
-        setBGRA(&pixels, width: width, x: x, y: y, red: 10, green: 80, blue: 160)
-      }
-    }
-    for y in 15..<70 where y % 17 != 0 {
-      let innerX = 92 + Int(Double(y - 15) * 0.03)
-      for x in innerX...(innerX + 4) {
-        setBGRA(&pixels, width: width, x: x, y: y, red: 10, green: 80, blue: 160)
-      }
-    }
-    for y in 32..<42 {
-      for x in 45..<51 {
-        setBGRA(&pixels, width: width, x: x, y: y, red: 50, green: 180, blue: 120)
-      }
-    }
-    for y in 50..<52 {
-      for x in 80..<82 {
-        setBGRA(&pixels, width: width, x: x, y: y, red: 40, green: 190, blue: 100)
-      }
-    }
-    for y in 60..<62 {
-      for x in 5..<35 {
-        setBGRA(&pixels, width: width, x: x, y: y, red: 45, green: 185, blue: 105)
-      }
-    }
-
-    let frame = try StampedFrame(
-      sequence: 1,
-      captureNanoseconds: 10,
-      cameraConfigurationID: CameraConfigurationID(),
-      width: width,
-      height: height,
-      rowBytes: width * 4,
-      pixelFormat: .bgra8,
-      bytes: OwnedFrameBytes(pixels)
-    )
+  @Test("requested features execute only declared kernels and preserve cap determinism")
+  func requestedFeatureKernels() async throws {
+    let frame = try greenSceneFrame(rectangles: [(45, 32, 6, 10)])
     let priors = try PlotterSceneVisionPriors(
       capSearchRegion: PixelRect(x: 0, y: 20, width: 100, height: 50),
-      topFrameSideRegion: PixelRect(x: 10, y: 5, width: 80, height: 20),
-      rightFrameSideRegion: PixelRect(x: 85, y: 12, width: 20, height: 60),
       minimumCapPixels: 20,
       maximumCapPixels: 200,
-      lineResidualLimitPixels: 2,
-      minimumLineSupportFraction: 0.30,
       algorithmRevision: "synthetic-plotter-scene-v1"
     )
-    let result = try await VisionWorker().inspectPlotterScene(in: frame, priors: priors)
-    let cap = try #require(result.cap)
-    #expect(result.capComponentCount == 3)
+    let worker = VisionWorker()
+    let capOnly = try await worker.inspectPlotterScene(
+      in: frame, requestedFeatures: [.penCap], priors: priors)
+    let armatureOnly = try await worker.inspectPlotterScene(
+      in: frame, requestedFeatures: [.armatureEnvelope], priors: priors)
+    let combined = try await worker.inspectPlotterScene(
+      in: frame, requestedFeatures: [.penCap, .armatureEnvelope], priors: priors)
+
+    let cap = try #require(capOnly.penCap.measurement)
     #expect(cap.pixelCount == 60)
-    #expect(cap.boundingBox == PixelRect(x: 45, y: 32, width: 6, height: 10))
-    #expect(cap.centroid == (try Point2<CameraPixelSpace>(x: 47.5, y: 36.5)))
-    #expect(cap.confidence > 0.6)
-
-    let top = try #require(result.topFrameSide)
-    let right = try #require(result.rightFrameSide)
-    #expect(top.supportPointCount > 60)
-    #expect(top.rmsResidualPixels < 1)
-    #expect(top.confidence > 0.5)
-    #expect(right.supportPointCount > 40)
-    #expect(right.rmsResidualPixels < 1)
-    #expect(right.confidence > 0.5)
-    let armature = try #require(result.armature)
-    let drawingFrame = try #require(result.drawingFrame)
-    #expect(armature.confidence > 0.3)
+    #expect(capOnly.penCap == armatureOnly.penCap)
+    #expect(capOnly.penCap == combined.penCap)
+    #expect(capOnly.computation.executionCounts == [.penCap: 1])
+    #expect(armatureOnly.computation.executionCounts == [.penCap: 1, .armatureEnvelope: 1])
+    #expect(combined.computation.executionCounts == [.penCap: 1, .armatureEnvelope: 1])
+    #expect(capOnly.overlays.map(\.provenance.kind) == [.penCap, .penCap])
+    #expect(armatureOnly.overlays.map(\.provenance.kind) == [.armatureEstimate])
+    let armature = try #require(combined.armatureEnvelope.estimate)
     #expect(armature.basis.contains("inferred"))
-    #expect(drawingFrame.confidence > 0.3)
-    #expect(drawingFrame.basis.contains("inferred"))
-    #expect(result.overlays.count == 6)
-    #expect(result.overlays.filter { $0.provenance.kind == .penCap }.count == 2)
-    #expect(result.overlays.filter { $0.provenance.kind == .measuredFrameSide }.count == 2)
-    #expect(result.overlays.filter { $0.provenance.kind == .drawingFrameEstimate }.count == 1)
-    #expect(result.overlays.filter { $0.provenance.kind == .armatureEstimate }.count == 1)
-    #expect(
-      result.overlays
-        .filter { $0.provenance.kind == .armatureEstimate }
-        .allSatisfy { $0.provenance.source == .inferred }
-    )
-    let displayed = DisplayedFrame(source: .simulated, frame: frame)
-    #expect(result.overlays.allSatisfy { $0.matches(displayed) })
+    #expect(armature.basis.contains("not segmented"))
+    #expect(combined.overlays.last?.provenance.source == .inferred)
+  }
 
-    let otherFrame = try StampedFrame(
-      sequence: 2,
-      captureNanoseconds: 11,
-      cameraConfigurationID: frame.cameraConfigurationID,
-      width: width,
-      height: height,
-      rowBytes: width * 4,
-      pixelFormat: .bgra8,
-      bytes: OwnedFrameBytes(pixels)
+  @Test("cap diagnostics distinguish no pixels rejected components and ambiguous leaders")
+  func capDiagnostics() async throws {
+    let worker = VisionWorker()
+    let priors = try PlotterSceneVisionPriors(
+      capSearchRegion: PixelRect(x: 0, y: 0, width: 120, height: 80),
+      minimumCapPixels: 20,
+      maximumCapPixels: 200,
+      algorithmRevision: "cap-diagnostics-v1"
     )
+    let none = try await worker.inspectPlotterScene(
+      in: greenSceneFrame(rectangles: []), requestedFeatures: [.penCap], priors: priors)
+    guard case .notFound(let noneDiagnostics) = none.penCap else {
+      Issue.record("Expected no-threshold-pixel result")
+      return
+    }
+    #expect(noneDiagnostics.thresholdPixelCount == 0)
+
+    let rejected = try await worker.inspectPlotterScene(
+      in: greenSceneFrame(rectangles: [(20, 20, 2, 2)]),
+      requestedFeatures: [.penCap],
+      priors: priors
+    )
+    guard case .candidatesRejected(let rejectedDiagnostics) = rejected.penCap else {
+      Issue.record("Expected rejected candidate result")
+      return
+    }
+    #expect(rejectedDiagnostics.componentCount == 1)
     #expect(
-      result.overlays.allSatisfy {
-        !$0.matches(DisplayedFrame(source: .simulated, frame: otherFrame))
+      rejectedDiagnostics.candidates[0].rejectionReasons.contains {
+        if case .belowMinimumPixels = $0 { true } else { false }
+      })
+
+    let ambiguous = try await worker.inspectPlotterScene(
+      in: greenSceneFrame(rectangles: [(20, 20, 6, 5), (60, 20, 6, 5)]),
+      requestedFeatures: [.penCap],
+      priors: priors
+    )
+    guard case .ambiguous(let counts, _) = ambiguous.penCap else {
+      Issue.record("Expected equal leaders to be refused")
+      return
+    }
+    #expect(counts == [30, 30])
+
+    let nearEqual = try await worker.inspectPlotterScene(
+      in: greenSceneFrame(rectangles: [(20, 20, 6, 5), (60, 20, 9, 3)]),
+      requestedFeatures: [.penCap],
+      priors: priors
+    )
+    guard case .ambiguous(let nearEqualCounts, _) = nearEqual.penCap else {
+      Issue.record("Expected near-equal leaders to be refused")
+      return
+    }
+    #expect(nearEqualCounts == [30, 27])
+
+    let sparseConnectedPoints = (0..<10).flatMap { offset in
+      [(20 + offset, 20 + offset), (29 - offset, 20 + offset)]
+    }
+    let lowConfidence = try await worker.inspectPlotterScene(
+      in: greenSceneFrame(rectangles: [], greenPoints: sparseConnectedPoints),
+      requestedFeatures: [.penCap],
+      priors: priors
+    )
+    guard case .candidatesRejected(let lowConfidenceDiagnostics) = lowConfidence.penCap else {
+      Issue.record("Expected low-confidence candidate to be refused")
+      return
+    }
+    #expect(
+      lowConfidenceDiagnostics.candidates[0].rejectionReasons.contains {
+        if case .confidenceBelow = $0 { true } else { false }
       })
   }
 
-  @Test("operator-selected cap color changes the component admitted by Vision")
+  @Test("cropping reduces inspected pixels without changing object eligibility")
+  func croppedInspectionCost() async throws {
+    let frame = try greenSceneFrame(width: 200, height: 100, rectangles: [(60, 30, 6, 5)])
+    let worker = VisionWorker()
+    let unlocked = try await worker.inspectPlotterScene(
+      in: frame,
+      requestedFeatures: [.penCap]
+    )
+    let cropped = try await worker.inspectPlotterScene(
+      in: frame,
+      requestedFeatures: [.penCap],
+      analysisRegion: PixelRect(x: 50, y: 20, width: 40, height: 30)
+    )
+    #expect(unlocked.penCap.measurement?.pixelCount == 30)
+    #expect(cropped.penCap.measurement?.pixelCount == 30)
+    #expect(cropped.computation.totalInspectedPixelCount < unlocked.computation.totalInspectedPixelCount)
+  }
+
+  @Test("operator-selected cap color changes the component admitted by typed Vision")
   func selectedPenCapColorDrivesRecognition() async throws {
     let width = 80
     let height = 60
@@ -228,7 +247,7 @@ struct FrameVisionTests {
         setBGRA(&pixels, width: width, x: x, y: y, red: 45, green: 185, blue: 105)
       }
       for x in 50..<56 {
-        setBGRA(&pixels, width: width, x: x, y: y, red: 190, green: 30, blue: 170)
+        setBGRA(&pixels, width: width, x: x, y: y, red: 30, green: 80, blue: 190)
       }
     }
     let frame = try StampedFrame(
@@ -246,19 +265,21 @@ struct FrameVisionTests {
 
     let green = try await worker.inspectPlotterScene(
       in: frame,
+      requestedFeatures: [.penCap],
       analysisRegion: region,
       penCapColor: .green
     )
-    let magenta = try await worker.inspectPlotterScene(
+    let blue = try await worker.inspectPlotterScene(
       in: frame,
+      requestedFeatures: [.penCap],
       analysisRegion: region,
-      penCapColor: PenCapColor(red: 190, green: 30, blue: 170)
+      penCapColor: PenCapColor(red: 30, green: 80, blue: 190)
     )
 
-    #expect(green.cap?.boundingBox == PixelRect(x: 25, y: 20, width: 6, height: 6))
-    #expect(magenta.cap?.boundingBox == PixelRect(x: 50, y: 20, width: 6, height: 6))
+    #expect(green.penCap.measurement?.boundingBox == PixelRect(x: 25, y: 20, width: 6, height: 6))
+    #expect(blue.penCap.measurement?.boundingBox == PixelRect(x: 50, y: 20, width: 6, height: 6))
     #expect(green.algorithmRevision.contains("cap-2DB969"))
-    #expect(magenta.algorithmRevision.contains("cap-BE1EAA"))
+    #expect(blue.algorithmRevision.contains("cap-1E50BE"))
   }
 
   @Test("overlay requires exact frame and camera configuration identity")
@@ -283,6 +304,35 @@ struct FrameVisionTests {
       value: 1, sequence: 2, time: 2, camera: CameraConfigurationID())
     #expect(!measurement.matches(DisplayedFrame(source: .simulated, frame: otherConfiguration)))
   }
+}
+private func greenSceneFrame(
+  width: Int = 120,
+  height: Int = 80,
+  rectangles: [(x: Int, y: Int, width: Int, height: Int)],
+  greenPoints: [(x: Int, y: Int)] = []
+) throws -> StampedFrame {
+  var pixels = [UInt8](repeating: 190, count: width * height * 4)
+  for index in stride(from: 3, to: pixels.count, by: 4) { pixels[index] = 255 }
+  for rectangle in rectangles {
+    for y in rectangle.y..<(rectangle.y + rectangle.height) {
+      for x in rectangle.x..<(rectangle.x + rectangle.width) {
+        setBGRA(&pixels, width: width, x: x, y: y, red: 40, green: 190, blue: 100)
+      }
+    }
+  }
+  for point in greenPoints {
+    setBGRA(&pixels, width: width, x: point.x, y: point.y, red: 40, green: 190, blue: 100)
+  }
+  return try StampedFrame(
+    sequence: 1,
+    captureNanoseconds: 10,
+    cameraConfigurationID: CameraConfigurationID(),
+    width: width,
+    height: height,
+    rowBytes: width * 4,
+    pixelFormat: .bgra8,
+    bytes: OwnedFrameBytes(pixels)
+  )
 }
 
 private func setBGRA(

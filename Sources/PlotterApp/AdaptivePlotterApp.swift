@@ -94,6 +94,28 @@ enum AdaptivePlotterScenePolicy {
   static let minimumWindowHeight: CGFloat = 760
 }
 
+enum AdaptivePlotterStartupRoute: Equatable, Sendable {
+  case preferredCamera
+  case simulated
+}
+
+struct AdaptivePlotterLaunchPolicy: Equatable, Sendable {
+  static let simulatedArgument = "-AdaptivePlotterStartSimulated"
+  let startupRoute: AdaptivePlotterStartupRoute
+
+  init(arguments: [String]) {
+    startupRoute = arguments.indices.contains { index in
+      arguments[index] == Self.simulatedArgument
+        && arguments.indices.contains(index + 1)
+        && arguments[index + 1].caseInsensitiveCompare("YES") == .orderedSame
+    } ? .simulated : .preferredCamera
+  }
+
+  static var current: Self {
+    Self(arguments: CommandLine.arguments)
+  }
+}
+
 private enum SpeechComposition {
   private static let announcer = NativeSpeechAnnouncer()
 
@@ -207,7 +229,11 @@ struct OperatorWorkspaceView: View {
         viewport: $actionSurfaceViewport,
         close: { videoSettingsArePresented = false }
       )
-      .inspectorColumnWidth(min: 280, ideal: 360, max: 440)
+      .inspectorColumnWidth(
+        min: OverlayCardLayoutPolicy.minimumInspectorWidth,
+        ideal: OverlayCardLayoutPolicy.idealInspectorWidth,
+        max: OverlayCardLayoutPolicy.maximumInspectorWidth
+      )
     }
     .onChange(of: workspace.currentLearningPathItemID, initial: true) { _, itemID in
       selection.updateCurrent(itemID)
@@ -217,8 +243,7 @@ struct OperatorWorkspaceView: View {
     }
     .toolbarRole(.editor)
     .task {
-      await workspace.refreshSerialDevices()
-      await workspace.startPreferredCameraAtStartup()
+      await workspace.performApplicationStartup(AdaptivePlotterLaunchPolicy.current)
     }
   }
 
@@ -412,7 +437,6 @@ private struct VideoSettingsContents: View {
 
       SectionPanel(title: "STATUS") {
         fact("State", workspace.cameraStateText)
-        fact("Vision", workspace.sceneMeasurementText)
         fact("Capture path", workspace.captureThroughputText)
         fact("Analysis path", workspace.visionThroughputText)
         if let error = workspace.cameraError {
@@ -500,56 +524,116 @@ private struct VideoSettingsContents: View {
 
   private var overlayControls: some View {
     SectionPanel(title: "OVERLAYS") {
-      LazyVGrid(
-        columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3),
-        spacing: 6
-      ) {
-        ForEach(CanvasLayer.allCases) { layer in
-          Toggle(
-            layer.rawValue,
-            isOn: Binding(
-              get: { workspace.visibleLayers.contains(layer) },
-              set: { workspace.setLayer(layer, visible: $0) }
-            )
-          )
-          .toggleStyle(.button)
-          .controlSize(.small)
-          .frame(maxWidth: .infinity, minHeight: 34)
-          .help(workspace.overlaySummary(for: layer))
+      VStack(alignment: .leading, spacing: 10) {
+        ForEach(UserSceneOverlay.allCases) { overlay in
+          overlayCard(workspace.overlayCardPresentation(for: overlay))
         }
       }
 
-      HStack(spacing: 10) {
-        Text("Pen cap recognition color")
+      if let selection = workspace.penCapAppearanceSelection {
+        HStack(spacing: 8) {
+          Circle()
+            .fill(selection.color.swiftUIColor)
+            .frame(width: 14, height: 14)
+            .overlay(Circle().stroke(.primary.opacity(0.35), lineWidth: 1))
+          Text("Learned pen-cap color #\(selection.color.hexRGB)")
+            .font(.caption.monospaced())
+        }
+        Text(
+          "Frame \(selection.frameID.rawValue) · config \(selection.cameraConfigurationID.rawValue) · click \(String(format: "%.1f", selection.clickPoint.x)), \(String(format: "%.1f", selection.clickPoint.y)) px · \(selection.usableSampleCount)/\(selection.totalSampleCount) usable · \(selection.algorithmRevision)"
+        )
+        .font(.caption2)
+        .foregroundStyle(.secondary)
+        .lineLimit(nil)
+        .fixedSize(horizontal: false, vertical: true)
+        .textSelection(.enabled)
+      } else {
+        Text("Not learned — use Identify Pen Cap")
           .font(.caption.weight(.semibold))
-        Spacer()
-        Text("#\(workspace.penCapColor.hexRGB)")
-          .font(.caption.monospaced())
           .foregroundStyle(.secondary)
-        ColorPicker(
-          "Pen cap recognition color",
-          selection: Binding(
-            get: { workspace.penCapColor.swiftUIColor },
-            set: { color in
-              guard let selection = PenCapColor(swiftUIColor: color) else { return }
-              Task { await workspace.setPenCapColor(selection) }
-            }
-          ),
-          supportsOpacity: false
-        )
-        .labelsHidden()
-        .disabled(workspace.penCapColorChangeUnavailableReason != nil)
-        .help(
-          workspace.penCapColorChangeUnavailableReason
-            ?? "Choose the visible cap color consumed by scene analysis and camera calibration."
-        )
       }
 
       Text(
-        "The selected cap color is consumed by bounded scene analysis and camera calibration. It is a recognition input, not evidence that the cap was observed."
+        "Pen-cap and inferred armature-envelope selections directly run bounded scene analysis after Identify Pen Cap learns a color. No separate Analyze or Resume action is required."
       )
       .font(.caption2)
       .foregroundStyle(.secondary)
+    }
+  }
+
+  private func overlayCard(_ presentation: OverlayCardPresentation) -> some View {
+    VStack(alignment: .leading, spacing: 9) {
+      HStack(alignment: .center, spacing: 10) {
+        VStack(alignment: .leading, spacing: 2) {
+          Text(presentation.title)
+            .font(.callout.weight(.semibold))
+          Text("Persistent scene preference")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        }
+        Spacer(minLength: 8)
+        Text(presentation.selectionText)
+          .font(.caption.monospaced().bold())
+          .foregroundStyle(presentation.isOn ? Color.green : Color.red)
+        Toggle(
+          presentation.title,
+          isOn: Binding(
+            get: { workspace.overlayPreferenceState.enabled.contains(presentation.overlay) },
+            set: { workspace.setOverlay(presentation.overlay, enabled: $0) }
+          )
+        )
+        .labelsHidden()
+        .toggleStyle(.switch)
+        .accessibilityLabel("\(presentation.title) overlay preference")
+        .accessibilityValue(presentation.selectionText)
+        .accessibilityHint("Changes only the persistent scene-overlay preference.")
+      }
+
+      VStack(alignment: .leading, spacing: 4) {
+        Text("STATUS")
+          .font(.caption2.monospaced().bold())
+          .foregroundStyle(.secondary)
+        Text(presentation.statusText)
+          .font(.caption)
+          .foregroundStyle(overlayStatusColor(presentation.colorToken))
+          .lineLimit(nil)
+          .fixedSize(horizontal: false, vertical: true)
+          .textSelection(.enabled)
+      }
+
+      overlayFact("ROI", presentation.roiText)
+      overlayFact("Cadence", presentation.cadenceText)
+      overlayFact("Analyzed frame", presentation.frameText)
+      overlayFact("Result age", presentation.resultAgeText)
+    }
+    .padding(10)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+    .accessibilityElement(children: .contain)
+    .accessibilityLabel(presentation.accessibilityLabel)
+    .accessibilityValue(presentation.accessibilityValue)
+    .help(presentation.helpText)
+  }
+
+  private func overlayFact(_ label: String, _ value: String) -> some View {
+    VStack(alignment: .leading, spacing: 1) {
+      Text(label.uppercased())
+        .font(.caption2.monospaced().bold())
+        .foregroundStyle(.secondary)
+      Text(value)
+        .font(.caption2)
+        .lineLimit(nil)
+        .fixedSize(horizontal: false, vertical: true)
+        .textSelection(.enabled)
+    }
+  }
+
+  private func overlayStatusColor(_ token: OverlayStatusColorToken) -> Color {
+    switch token {
+    case .affirmativeGreen: .green
+    case .negativeRed: .red
+    case .neutralGray: Color(red: 0.46, green: 0.48, blue: 0.51)
+    case .unavailableDarkGray: Color(red: 0.20, green: 0.21, blue: 0.23)
     }
   }
 
@@ -600,17 +684,6 @@ private extension PenCapColor {
     )
   }
 
-  init?(swiftUIColor: Color) {
-    guard let color = NSColor(swiftUIColor).usingColorSpace(.sRGB) else { return nil }
-    func channel(_ value: CGFloat) -> UInt8 {
-      UInt8((min(1, max(0, value)) * 255).rounded())
-    }
-    self.init(
-      red: channel(color.redComponent),
-      green: channel(color.greenComponent),
-      blue: channel(color.blueComponent)
-    )
-  }
 }
 
 private struct MotionPanel: View {

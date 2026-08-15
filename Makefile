@@ -1,4 +1,4 @@
-.PHONY: help build app launcher run-app validate-app validate-launcher quick-test journey-test test check strict-check
+.PHONY: help build app launcher run-app run-app-simulated validate-app validate-launcher quick-test journey-test test check strict-check
 
 .DEFAULT_GOAL := help
 
@@ -15,6 +15,7 @@ help:
 		'  app                Build the signed local application bundle.' \
 		'  launcher           Build the single-instance application launcher.' \
 		'  run-app            Build and launch the supported local application.' \
+		'  run-app-simulated  Launch signed causal simulation without camera startup.' \
 		'  validate-app       Validate the application bundle and launcher.' \
 		'  validate-launcher  Test launcher identity and instance handling.' \
 		'  quick-test         Run unit and component tests, excluding retained journeys.' \
@@ -41,6 +42,9 @@ validate-app: app validate-launcher
 
 run-app: app launcher
 	@.build/AdaptivePlotterLauncher "$(CURDIR)/.build/AdaptivePlotter.app"
+
+run-app-simulated: app launcher
+	@.build/AdaptivePlotterLauncher --simulated "$(CURDIR)/.build/AdaptivePlotter.app"
 
 quick-test:
 	swift test --parallel --skip '$(JOURNEY_TEST_FILTER)' $(SWIFT_FLAGS)

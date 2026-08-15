@@ -11,13 +11,13 @@ struct LearningPathProjectorTests {
   @Test("same snapshot and review selection are deterministic")
   func deterministicProjection() {
     let snapshot = LearningPathProjectionSnapshot()
-    let first = projector.project(snapshot, selectedItemID: .stage(.adaptiveDrawing))
-    let second = projector.project(snapshot, selectedItemID: .stage(.adaptiveDrawing))
+    let first = projector.project(snapshot, selectedItemID: .stage(.observedDrawingTrials))
+    let second = projector.project(snapshot, selectedItemID: .stage(.observedDrawingTrials))
 
     #expect(first == second)
     #expect(first.currentItemID == .stage(.connect))
-    #expect(first.selectedAction.itemID == .stage(.adaptiveDrawing))
-    #expect(first.selectedAction.status == .future)
+    #expect(first.selectedAction.itemID == .stage(.observedDrawingTrials))
+    #expect(first.selectedAction.status == .next)
   }
 
   @Test("all navigator rows receive exact initial states")
@@ -28,10 +28,9 @@ struct LearningPathProjectorTests {
     )
 
     #expect(projection.items.map(\.id) == LearningPathItemID.navigationOrder)
-    #expect(projection.items.count == 15)
+    #expect(projection.items.count == 14)
     #expect(projection.items.first?.status == .current)
-    #expect(projection.items.dropFirst().dropLast().allSatisfy { $0.status == .next })
-    #expect(projection.items.last?.status == .future)
+    #expect(projection.items.dropFirst().allSatisfy { $0.status == .next })
   }
 
   @Test("LIVE and SIMULATED use the same progression and action grammar")
@@ -219,6 +218,28 @@ struct LearningPathProjectorTests {
     #expect(reviewProjection.currentItemID == currentProjection.currentItemID)
     #expect(reviewProjection.selectedAction.itemID == .observedDrawingTrial(.chooseIsolatedLinePlan))
     #expect(reviewProjection.selectedAction.status == .complete)
+  }
+
+  @Test("completed curriculum remains on the implemented observed-trial endpoint")
+  func completedCurriculumHasNoFutureRoute() {
+    let final = LearningPathItemID.observedDrawingTrial(.compareIntendedAndObservedGeometry)
+    let snapshot = postBoundarySnapshot(
+      sparse: .init(acceptedIsCurrent: true),
+      drawing: .init(
+        currentStep: .compareIntendedAndObservedGeometry,
+        assessment: .observedGeometryAccepted
+      )
+    )
+
+    let projection = projector.project(snapshot, selectedItemID: final)
+
+    #expect(projection.currentItemID == final)
+    #expect(projection.items.last?.id == final)
+    #expect(projection.items.last?.status == .complete)
+    #expect(
+      projection.currentActionStrip?.actions.map(\.kind)
+        == [.redoThisStep, .recordAnotherAttempt]
+    )
   }
 
   private func connectedSnapshot(

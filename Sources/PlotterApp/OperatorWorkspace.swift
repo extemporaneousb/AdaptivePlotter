@@ -9,42 +9,66 @@ enum FixedCameraOpticalSettlingPolicy {
   // translation; controller pose tolerance remains independently authoritative.
   static let alignmentSearchRadiusPixels = 3
   static let maximumAlignmentShiftPixels = 2
+  static let requiredCentroidFrameCount = 3
   static let maximumCentroidSpreadPixels: Double = 2
   static let maximumBackgroundMeanAbsoluteDifference: Double = 4
-}
 
-enum CanvasLayer: String, CaseIterable, Identifiable {
-  case intendedPath = "Intended path"
-  case modelPrediction = "Plotter estimate"
-  case observedInk = "Observed ink"
-  case residuals = "Residuals"
-  case penCap = "Pen cap"
-  case measuredFrameSides = "Measured frame sides"
-  case drawingFrameEstimate = "Drawing frame estimate"
-  case armatureEstimate = "Armature"
-
-  var id: Self { self }
-
-  var overlayKind: CameraOverlayKind {
-    switch self {
-    case .intendedPath: .intendedPath
-    case .modelPrediction: .modelPrediction
-    case .observedInk: .observedInk
-    case .residuals: .residual
-    case .penCap: .penCap
-    case .measuredFrameSides: .measuredFrameSide
-    case .drawingFrameEstimate: .drawingFrameEstimate
-    case .armatureEstimate: .armatureEstimate
+  static func newestStableCapSample(
+    _ samples: [StableWorkflowCapInspection]
+  ) throws -> StableWorkflowCapInspection {
+    guard samples.count == requiredCentroidFrameCount else {
+      throw LearningPathOperationError.requiredState(
+        "Pen-cap settlement requires exactly \(requiredCentroidFrameCount) exact frames."
+      )
     }
-  }
-
-  var requiresSceneAnalysis: Bool {
-    switch self {
-    case .penCap, .measuredFrameSides, .drawingFrameEstimate, .armatureEstimate:
-      true
-    case .intendedPath, .modelPrediction, .observedInk, .residuals:
-      false
+    for sample in samples {
+      guard
+        sample.inspection.measurement.frameID
+          == sample.inspection.displayedFrame.frame.id,
+        sample.inspection.measurement.cameraConfigurationID
+          == sample.inspection.displayedFrame.frame.cameraConfigurationID,
+        sample.inspection.measurement.frameSHA256
+          == sample.inspection.displayedFrame.frame.contentSHA256
+      else {
+        throw LearningPathOperationError.requiredState(
+          "Pen-cap settlement result did not belong to its exact displayed frame."
+        )
+      }
     }
+    for (previous, current) in zip(samples, samples.dropFirst()) {
+      guard
+        previous.inspection.displayedFrame.source == current.inspection.displayedFrame.source,
+        previous.inspection.displayedFrame.frame.cameraConfigurationID
+          == current.inspection.displayedFrame.frame.cameraConfigurationID
+      else {
+        throw LearningPathOperationError.requiredState(
+          "Camera source or configuration changed during cap settlement."
+        )
+      }
+      guard
+        current.inspection.displayedFrame.frame.captureNanoseconds
+          > previous.inspection.displayedFrame.frame.captureNanoseconds
+      else {
+        throw LearningPathOperationError.freshFrameUnavailable
+      }
+    }
+    let maximumSpread = samples.enumerated().flatMap { leftIndex, left in
+      samples.dropFirst(leftIndex + 1).map {
+        left.cap.centroid.distance(to: $0.cap.centroid)
+      }
+    }.max() ?? 0
+    guard maximumSpread <= maximumCentroidSpreadPixels else {
+      throw LearningPathOperationError.requiredState(
+        String(
+          format:
+            "Pen-cap centroid did not settle across %d exact frames: %.2f px spread exceeds %.2f px.",
+          samples.count,
+          maximumSpread,
+          maximumCentroidSpreadPixels
+        )
+      )
+    }
+    return samples[samples.index(before: samples.endIndex)]
   }
 }
 
@@ -59,7 +83,7 @@ struct VideoAnalysisRegionLock: Hashable, Sendable {
   }
 }
 
-enum OperatorFrameMode: String, CaseIterable, Identifiable, Sendable {
+enum OperatorFrameMode: String, CaseIterable, Hashable, Identifiable, Sendable {
   case live = "LIVE"
   case simulated = "SIMULATED"
 
@@ -353,11 +377,6 @@ private struct ActiveStoppableOperation {
   var state: ContextualStopLifecycleState = .available
 }
 
-private struct BoundaryApproachAdvisory: Sendable {
-  let observation: BoundaryApproachObservation?
-  let advice: BoundaryApproachAdvice
-}
-
 enum BoundaryAtomicCommitFailurePoint: String, CaseIterable, Hashable, Sendable {
   case settlement
   case aggregateConstruction
@@ -378,7 +397,7 @@ enum DrawingTrialAssessment: String, CaseIterable, Identifiable, Hashable, Senda
   }
 }
 
-private enum LearningPathOperationError: LocalizedError, Sendable {
+enum LearningPathOperationError: LocalizedError, Sendable {
   case freshFrameUnavailable
   case controllerRefused(String)
   case controllerCancelled(String)
@@ -509,6 +528,11 @@ struct LiveSceneInspection: Sendable {
   let measurement: PlotterSceneMeasurement
 }
 
+struct StableWorkflowCapInspection: Sendable {
+  let inspection: LiveSceneInspection
+  let cap: PenCapMeasurement
+}
+
 private struct ScopedVisionAnalysisLease: Sendable {}
 
 struct ProtocolPoseSettlement: Hashable, Sendable {
@@ -592,7 +616,6 @@ final class OperatorWorkspace {
     var strokeEvidence: DrawingStrokeEvidence?
     var inkObservation: IsolatedInkObservation?
     var inkStatus = "no isolated-line observation yet"
-    var exportPath: String?
     var lastTravelFeedSelection: TravelFeedSelection?
     var assessment: DrawingTrialAssessment?
     var currentEpisode: ExplorationEpisode?
@@ -629,14 +652,12 @@ final class OperatorWorkspace {
           episode.frames.removeAll { $0.role == .postLine }
         }
         if rewindStep.rawValue <= ObservedDrawingTrialStep.drawIsolatedLine.rawValue {
-          episode.executedAction = nil
           episode.controllerEvidence = nil
         }
         if rewindStep.rawValue <= ObservedDrawingTrialStep.revealAndObserveNewInk.rawValue {
           episode.observedLineObservation = nil
           episode.visionEstimate = nil
           episode.residual = nil
-          episode.reward = nil
         }
         currentEpisode = episode
       }
@@ -654,7 +675,6 @@ final class OperatorWorkspace {
       }
       assessment = nil
       comparisonAttemptHistories = [:]
-      exportPath = nil
       lastTravelFeedSelection = nil
       step = rewindStep
     }
@@ -664,6 +684,20 @@ final class OperatorWorkspace {
     let pendingEvidence: PendingToolContactEvidence
     let frame: DisplayedFrame
     let request: ActionSurfacePointSelectionRequest
+  }
+
+  private struct PenCapAppearanceSelectionContext {
+    let frame: DisplayedFrame
+    let request: ActionSurfacePointSelectionRequest
+  }
+
+  private struct PenCapAcceptedClickContinuationIdentity: Equatable, Sendable {
+    let id: UUID
+    let attemptID: ExerciseAttemptID
+    let attemptMode: ExerciseAttemptMode
+    let source: OperatorFrameMode
+    let selection: PenCapAppearanceSelection
+    let lifetimeGeneration: UInt64
   }
 
   private enum ToolContactSelectionState {
@@ -820,14 +854,10 @@ final class OperatorWorkspace {
     let requestPassiveProbe: @Sendable () async throws -> PassiveProbeResult
     let requestControllerAlarmClear: @Sendable () async -> ControllerAlarmClearOutcome
     let activateMotionGuard: @Sendable () async -> MotionGuardActivationOutcome
-    let deactivateMotionGuard: @Sendable () async -> Void
-    let requestRelativeJog: @Sendable (RelativeJogRequest) async -> MotionOutcome
     let beginRelativeJog: @Sendable (RelativeJogRequest) async -> RelativeJogAdmission
-    let requestDrawingStroke: @Sendable (DrawingStrokeRequest) async -> DrawingStrokeOutcome
     let beginDrawingStroke: @Sendable (DrawingStrokeRequest) async -> DrawingStrokeAdmission
     let requestPenActuation:
       @Sendable (PenCommand, PenActuationProfile) async -> PenOutcome
-    let requestBoundaryMotion: @Sendable (BoundaryMotionRequest) async -> BoundaryMotionOutcome
     let beginBoundaryMotion:
       @Sendable (BoundaryMotionRequest, BoundaryMotionRenewalPlanner?) async
         -> BoundaryMotionAdmission
@@ -864,12 +894,13 @@ final class OperatorWorkspace {
     let restart: @Sendable () async -> CameraCaptureSnapshot
     let snapshot: @Sendable () async -> CameraCaptureSnapshot
     let frames: @Sendable () async -> AsyncStream<DisplayedFrame>
-    let inspectScene: @Sendable (UInt64) async throws -> LiveSceneInspection?
+    let inspectWorkflowScene:
+      @Sendable (UInt64, SceneFeatureSet, PixelRect?) async throws -> LiveSceneInspection?
     let captureFrame: @Sendable (UInt64) async throws -> DisplayedFrame?
     let setSceneAnalysisRegion: @Sendable (PixelRect?) async -> Void
     let setPenCapColor: @Sendable (PenCapColor) async -> Void
     let setAutomaticInspection:
-      @Sendable (VisionAnalysisCadence?) async
+      @Sendable (VisionAnalysisCadence?, SceneFeatureSet) async
         -> PlotterSceneAnalysisSnapshot
     let analysisUpdates: @Sendable () async -> AsyncStream<PlotterSceneAnalysisSnapshot>
     let observeIsolatedInk:
@@ -877,8 +908,14 @@ final class OperatorWorkspace {
         -> IsolatedInkObservationOutcome
   }
 
-  var visibleLayers = Set(CanvasLayer.allCases)
-  private(set) var penCapColor: PenCapColor
+  private(set) var livePenCapAppearanceSelection: PenCapAppearanceSelection?
+  private(set) var simulatedPenCapAppearanceSelection: PenCapAppearanceSelection?
+  private(set) var persistedPenCapAppearanceLoadState: PersistedPenCapAppearanceLoadState
+  var penCapAppearanceSelection: PenCapAppearanceSelection? {
+    frameMode == .live ? livePenCapAppearanceSelection : simulatedPenCapAppearanceSelection
+  }
+  private var livePenCapColor: PenCapColor? { livePenCapAppearanceSelection?.color }
+  private(set) var overlayPreferenceState: OverlayPreferenceState
   private(set) var visionAnalysisCadence = VisionAnalysisCadence.twoFPS
   private(set) var videoAnalysisRegionLock: VideoAnalysisRegionLock?
   var frameMode: OperatorFrameMode = .live
@@ -926,13 +963,14 @@ final class OperatorWorkspace {
   }
   private(set) var displayedFrameAvailable = false
   @ObservationIgnored private(set) var latestLiveCameraFrame: DisplayedFrame?
-  private(set) var cameraOverlays: [CameraOverlayMeasurement] = []
+  private(set) var overlayResultChannels = OverlayResultChannels()
   private(set) var cameraError: String?
   private(set) var visionError: String?
   private(set) var scopedVisionAnalysisActive = false
+  private(set) var exclusiveWorkflowVisionRequestCount = 0
   private(set) var visionAnalysisSnapshot: PlotterSceneAnalysisSnapshot = .stopped
   private(set) var lastSceneMeasurement: PlotterSceneMeasurement?
-  private(set) var simulatorEvidenceLabel = SimulatedOverlaySceneContent.evidenceLabel
+  private(set) var simulatorEvidenceLabel = "SIMULATED — NOT PHYSICAL EVIDENCE"
   private(set) var simulatorPenState: PenState = .unknown
   private(set) var simulatorLearningSummary = "Switch to SIMULATED to inspect model behavior."
   private(set) var simulatedLearningSnapshot: SimulatedLearningSnapshot?
@@ -1035,11 +1073,18 @@ final class OperatorWorkspace {
   var frozenToolContactSelectionFrame: DisplayedFrame? {
     activeLearningSession.toolContactSelection.context?.frame
   }
+  private var penCapAppearanceSelectionContext: PenCapAppearanceSelectionContext?
+  var frozenPointSelectionFrame: DisplayedFrame? {
+    penCapAppearanceSelectionContext?.frame ?? frozenToolContactSelectionFrame
+  }
   private var pendingToolContactEvidence: PendingToolContactEvidence? {
     activeLearningSession.toolContactSelection.context?.pendingEvidence
   }
   var toolContactPointSelectionRequest: ActionSurfacePointSelectionRequest? {
     activeLearningSession.toolContactSelection.context?.request
+  }
+  var pointSelectionRequest: ActionSurfacePointSelectionRequest? {
+    penCapAppearanceSelectionContext?.request ?? toolContactPointSelectionRequest
   }
   var selectedToolContactPoint: Point2<CameraPixelSpace>? {
     activeLearningSession.toolContactSelection.point
@@ -1117,10 +1162,6 @@ final class OperatorWorkspace {
     get { activeLearningSession.drawingTrial.inkStatus }
     set { activeLearningSession.drawingTrial.inkStatus = newValue }
   }
-  private(set) var explorationExportPath: String? {
-    get { activeLearningSession.drawingTrial.exportPath }
-    set { activeLearningSession.drawingTrial.exportPath = newValue }
-  }
   private var activeExplorationOperation: ActiveExplorationOperation?
   private(set) var lastAnnouncementResultText = "No announcement has run."
   private(set) var lastTravelFeedSelection: TravelFeedSelection? {
@@ -1183,7 +1224,8 @@ final class OperatorWorkspace {
 
   @ObservationIgnored private let machineActions: MachineActions?
   @ObservationIgnored private let cameraActions: CameraActions?
-  @ObservationIgnored private let persistPenCapColor: @Sendable (PenCapColor) -> Void
+  @ObservationIgnored private let persistPenCapAppearanceSelection:
+    @Sendable (PenCapAppearanceSelection?) -> Void
   @ObservationIgnored private let announcementActions: AnnouncementActions?
   /// These ports are capabilities of the LIVE learning session only. The
   /// active accessors deliberately return nil for SIMULATED before any
@@ -1205,11 +1247,16 @@ final class OperatorWorkspace {
   @ObservationIgnored private var simulatedExecutionPacing: any SimulatedLearningExecutionPacing
   @ObservationIgnored private let serialDeviceDiscovery: @Sendable () -> [MachineLinkDescriptor]
   @ObservationIgnored private let persistSelectedSerialIdentifier: @Sendable (String) -> Void
+  @ObservationIgnored private let persistOverlayPreference:
+    @Sendable (Set<UserSceneOverlay>) -> Void
   @ObservationIgnored private let nowNanoseconds: @Sendable () -> UInt64
   @ObservationIgnored private var boundaryAtomicCommitFailurePoints:
     Set<BoundaryAtomicCommitFailurePoint>
   @ObservationIgnored private var frameTask: Task<Void, Never>?
   @ObservationIgnored private var visionUpdateTask: Task<Void, Never>?
+  @ObservationIgnored private var penCapAcceptedClickContinuationTask: Task<Void, Never>?
+  @ObservationIgnored private var penCapAcceptedClickContinuationIdentity:
+    PenCapAcceptedClickContinuationIdentity?
   private var learningEvidenceSessionID: LearningEvidenceSessionID {
     activeLearningSession.learningEvidenceSessionID
   }
@@ -1228,10 +1275,6 @@ final class OperatorWorkspace {
   @ObservationIgnored private let persistPaperContactPlaneRevision:
     @Sendable (PaperContactPlaneRevision) -> Void
   @ObservationIgnored private var boundaryMotionTask: Task<Void, Never>?
-  @ObservationIgnored private var boundaryApproachVisionTasks:
-    [ExerciseAttemptID: Task<Void, Never>] = [:]
-  @ObservationIgnored private var boundaryApproachAdvisories:
-    [ExerciseAttemptID: BoundaryApproachAdvisory] = [:]
   @ObservationIgnored private var currentCameraCalibrationTask: Task<Void, Never>?
   @ObservationIgnored private var activeStoppableOperation: ActiveStoppableOperation?
   private var activeStopTarget: ContextualStopTarget? { activeStoppableOperation?.target }
@@ -1294,18 +1337,39 @@ final class OperatorWorkspace {
       UserDefaults.standard.set(
         identifier, forKey: "AdaptivePlotter.selectedSerialDeviceIdentifier")
     },
-    loadPenCapColor: @escaping @Sendable () -> PenCapColor = {
-      UserDefaults.standard.string(forKey: "AdaptivePlotter.penCapColor")
-        .flatMap(PenCapColor.init(hexRGB:)) ?? .green
+    loadPenCapAppearanceSelection: @escaping @Sendable () -> PenCapAppearanceSelection? = {
+      guard let data = UserDefaults.standard.data(
+        forKey: "AdaptivePlotter.penCapAppearanceSelection")
+      else { return nil }
+      return try? JSONDecoder().decode(PenCapAppearanceSelection.self, from: data)
     },
-    persistPenCapColor: @escaping @Sendable (PenCapColor) -> Void = { color in
-      UserDefaults.standard.set(color.hexRGB, forKey: "AdaptivePlotter.penCapColor")
+    persistPenCapAppearanceSelection:
+      @escaping @Sendable (PenCapAppearanceSelection?) -> Void = { selection in
+        if let selection, let data = try? JSONEncoder().encode(selection) {
+          UserDefaults.standard.set(data, forKey: "AdaptivePlotter.penCapAppearanceSelection")
+        } else {
+          UserDefaults.standard.removeObject(forKey: "AdaptivePlotter.penCapAppearanceSelection")
+        }
+    },
+    loadOverlayPreference: @escaping @Sendable () -> Set<UserSceneOverlay>? = {
+      guard
+        let values = UserDefaults.standard.stringArray(
+          forKey: "AdaptivePlotter.userSceneOverlays")
+      else { return nil }
+      return Set(values.compactMap(UserSceneOverlay.init(rawValue:)))
+    },
+    persistOverlayPreference: @escaping @Sendable (Set<UserSceneOverlay>) -> Void = { values in
+      UserDefaults.standard.set(
+        values.map(\.rawValue).sorted(),
+        forKey: "AdaptivePlotter.userSceneOverlays"
+      )
     },
     nowNanoseconds: @escaping @Sendable () -> UInt64 = {
       UInt64(ProcessInfo.processInfo.systemUptime * 1_000_000_000)
     },
     boundaryAtomicCommitFailurePoints: Set<BoundaryAtomicCommitFailurePoint> = []
   ) {
+    overlayPreferenceState = .loaded(loadOverlayPreference())
     liveLearningSession = LearningSessionState(
       source: .live,
       paperContactPlaneRevision: tipCalibrationSemanticIdentities.paperContactPlane.rawValue
@@ -1317,8 +1381,20 @@ final class OperatorWorkspace {
     self.simulatedExecutionPacing = simulatedExecutionPacing
     self.machineActions = machineActions
     self.cameraActions = cameraActions
-    penCapColor = loadPenCapColor()
-    self.persistPenCapColor = persistPenCapColor
+    if let loadedSelection = loadPenCapAppearanceSelection() {
+      if let reason = loadedSelection.persistedLiveRejectionReason {
+        livePenCapAppearanceSelection = nil
+        persistedPenCapAppearanceLoadState = .refused(reason)
+      } else {
+        livePenCapAppearanceSelection = loadedSelection
+        persistedPenCapAppearanceLoadState = .accepted
+      }
+    } else {
+      livePenCapAppearanceSelection = nil
+      persistedPenCapAppearanceLoadState = .absent
+    }
+    simulatedPenCapAppearanceSelection = nil
+    self.persistPenCapAppearanceSelection = persistPenCapAppearanceSelection
     self.announcementActions = announcementActions
     liveAcceptedArtifactCheckpointActions = acceptedArtifactCheckpointActions
     liveAcceptedTipCalibrationCheckpointActions = acceptedTipCalibrationCheckpointActions
@@ -1333,6 +1409,7 @@ final class OperatorWorkspace {
     self.serialDevices = serialDevices
     self.serialDeviceDiscovery = serialDeviceDiscovery
     self.persistSelectedSerialIdentifier = persistSelectedSerialIdentifier
+    self.persistOverlayPreference = persistOverlayPreference
     rememberedSerialDeviceIdentifier = loadSelectedSerialIdentifier()
     self.nowNanoseconds = nowNanoseconds
     self.boundaryAtomicCommitFailurePoints = boundaryAtomicCommitFailurePoints
@@ -1383,8 +1460,15 @@ final class OperatorWorkspace {
   }
 
   var actionSurfacePresentation: ActionSurfacePresentation {
-    let visibleKinds = Set(visibleLayers.map(\.overlayKind))
-    let surfaceFrame = frozenToolContactSelectionFrame ?? displayedFrame
+    let surfaceFrame = frozenPointSelectionFrame ?? displayedFrame
+    let overlayComposition = OverlayPresentationComposer.compose(
+      preference: overlayPreferenceState,
+      channels: overlayResultChannels,
+      displayedFrame: surfaceFrame,
+      sceneState: visionAnalysisSnapshot,
+      sceneIsAvailable: sceneOverlayIsAvailable,
+      workflowVisionIsExclusive: exclusiveWorkflowVisionRequestCount > 0
+    )
     let sparseMarkRegion = surfaceFrame.flatMap(sparseTipMarkPresentationRegion)
     let fittedRegion = sparseMarkRegion ?? surfaceFrame.flatMap(learnedBoundsPresentationRegion)
     let viewportContext = surfaceFrame.map {
@@ -1393,8 +1477,8 @@ final class OperatorWorkspace {
         cameraConfigurationID: $0.frame.cameraConfigurationID,
         fittedRegion: fittedRegion,
         preferredInitialZoom: sparseMarkRegion == nil ? 0 : 1,
-        presentationRevisionToken: toolContactPointSelectionRequest.map {
-          "sparse-tip-mark-focus-\($0.frame.frameID.rawValue)"
+        presentationRevisionToken: pointSelectionRequest.map {
+          "point-selection-\($0.purpose)-\($0.frame.frameID.rawValue)"
         } ?? machineCameraRegistration.map {
           "machine-cap-\($0.correspondenceFrameIDs.map(\.rawValue).sorted().joined(separator: "-"))"
         } ?? "post-boundary-presentation"
@@ -1410,8 +1494,8 @@ final class OperatorWorkspace {
             $0.distance(to: selectedToolContactPoint)
           }
         )
-      } else if toolContactPointSelectionRequest != nil {
-        .awaitingClick("Click the center of the new black circle")
+      } else if let pointSelectionRequest {
+        .awaitingClick(pointSelectionRequest.prompt)
       } else if tipCameraRegistration != nil {
         .calibrated(prediction: nil)
       } else {
@@ -1419,11 +1503,7 @@ final class OperatorWorkspace {
       }
     return ActionSurfacePresentation(
       displayedFrame: surfaceFrame,
-      overlays: cameraOverlays.filter {
-        visibleKinds.contains($0.provenance.kind)
-          && !(toolContactPointSelectionRequest != nil && selectedToolContactPoint == nil
-            && ($0.provenance.kind == .modelPrediction || $0.provenance.kind == .residual))
-      },
+      overlays: overlayComposition.overlays,
       simulatedAnnotations: simulatedAnnotations,
       simulatedViewportID: simulatedViewportID,
       simulatedAnnotationsAreVisible: simulatedAnnotationsAreVisible,
@@ -1431,9 +1511,50 @@ final class OperatorWorkspace {
       analysisRegionIsLocked: surfaceFrame.map {
         videoAnalysisRegionLock?.matches($0) == true
       } ?? false,
-      pointSelectionRequest: toolContactPointSelectionRequest,
+      analyzedOverlayFrame: overlayComposition.analyzedFrame,
+      pointSelectionRequest: pointSelectionRequest,
       tipPresentation: tipPresentation
     )
+  }
+
+  func overlayStatus(for overlay: UserSceneOverlay) -> OverlayLayerStatus {
+    if frameMode == .live,
+      overlayPreferenceState.enabled.contains(overlay),
+      livePenCapAppearanceSelection == nil
+    {
+      return OverlayLayerStatus(
+        state: .unavailable,
+        message: persistedPenCapAppearanceLoadState.unavailableMessage,
+        provenance: nil
+      )
+    }
+    let surfaceFrame = frozenPointSelectionFrame ?? displayedFrame
+    return OverlayPresentationComposer.compose(
+      preference: overlayPreferenceState,
+      channels: overlayResultChannels,
+      displayedFrame: surfaceFrame,
+      sceneState: visionAnalysisSnapshot,
+      sceneIsAvailable: sceneOverlayIsAvailable,
+      workflowVisionIsExclusive: exclusiveWorkflowVisionRequestCount > 0
+    ).statuses[overlay]!
+  }
+
+  func overlayCardPresentation(for overlay: UserSceneOverlay) -> OverlayCardPresentation {
+    OverlayCardPresentation(
+      overlay: overlay,
+      isOn: overlayPreferenceState.enabled.contains(overlay),
+      status: overlayStatus(for: overlay),
+      roiText: videoAnalysisRegionText,
+      cadenceText: frameMode == .live
+        ? "\(visionAnalysisCadence.rawValue) frames per second"
+        : "Causal simulated frames",
+      nowNanoseconds: nowNanoseconds()
+    )
+  }
+
+  private var sceneOverlayIsAvailable: Bool {
+    guard frameMode == .live, case .running = cameraSnapshot?.state else { return false }
+    return true
   }
 
   private var currentTipPredictionForPendingMark: Point2<CameraPixelSpace>? {
@@ -1508,10 +1629,6 @@ final class OperatorWorkspace {
     }
   }
 
-  var penCapColorChangeUnavailableReason: String? {
-    currentCameraCalibrationBusyReason
-  }
-
   var cameraIsLive: Bool {
     guard frameMode == .live, case .running = cameraSnapshot?.state,
       let latestLiveCameraFrame, case .live(let deviceID) = latestLiveCameraFrame.source,
@@ -1583,31 +1700,6 @@ final class OperatorWorkspace {
     return String(format: "%.2f s", Double(now - frame.captureNanoseconds) / 1_000_000_000)
   }
 
-  var sceneMeasurementText: String {
-    guard let measurement = lastSceneMeasurement else { return "not measured" }
-    let cap =
-      measurement.cap.map {
-        String(format: "cap %.0f px · %.2f", Double($0.pixelCount), $0.confidence)
-      } ?? "cap not found"
-    let top =
-      measurement.topFrameSide.map {
-        String(format: "top %.1f px · %.2f", $0.rmsResidualPixels, $0.confidence)
-      } ?? "top not found"
-    let right =
-      measurement.rightFrameSide.map {
-        String(format: "right %.1f px · %.2f", $0.rmsResidualPixels, $0.confidence)
-      } ?? "right not found"
-    let frame =
-      measurement.drawingFrame.map {
-        String(format: "frame inferred · %.2f", $0.confidence)
-      } ?? "frame unavailable"
-    let armature =
-      measurement.armature.map {
-        String(format: "armature inferred · %.2f", $0.confidence)
-      } ?? "armature unavailable"
-    return "\(cap) · \(top) · \(right) · \(frame) · \(armature)"
-  }
-
   var captureThroughputText: String {
     let diagnostics = cameraSnapshot?.diagnostics ?? .zero
     let held = diagnostics.previewPublicationPaused ? " · preview held for Vision" : ""
@@ -1635,16 +1727,11 @@ final class OperatorWorkspace {
   }
 
   var videoAnalysisRegionText: String {
-    guard let lock = videoAnalysisRegionLock else { return "Unlocked · current viewport" }
+    guard let lock = videoAnalysisRegionLock else {
+      return "Full frame · unlocked/default analysis"
+    }
     let region = lock.region
     return "x \(region.x), y \(region.y), \(region.width) × \(region.height) px · locked"
-  }
-
-  func overlaySummary(for layer: CanvasLayer) -> String {
-    let matching = cameraOverlays.filter { $0.provenance.kind == layer.overlayKind }
-    guard !matching.isEmpty else { return "not present on current frame" }
-    let sources = Set(matching.map(\.provenance.source.rawValue)).sorted().joined(separator: ", ")
-    return "\(matching.count) · \(sources)"
   }
 
   var currentOperationText: String {
@@ -1963,7 +2050,7 @@ final class OperatorWorkspace {
     case .humanGuidedDiscovery(let step): step
     case .stage(.connect), .stage(.enableMotion), .stage(.humanGuidedDiscovery):
       .penInteraction
-    case .stage(.observedDrawingTrials), .stage(.adaptiveDrawing), .observedDrawingTrial:
+    case .stage(.observedDrawingTrials), .observedDrawingTrial:
       .calibratePenContactFromSparseMarks
     }
   }
@@ -2125,11 +2212,7 @@ final class OperatorWorkspace {
       else { continue }
       endIndex = max(endIndex, index)
     }
-    if currentLearningPathItemID == .stage(.adaptiveDrawing) {
-      endIndex = LearningPathItemID.learningExerciseOrder.index(
-        before:
-          LearningPathItemID.learningExerciseOrder.endIndex)
-    } else if let currentAnchor = currentLearningPathItemID.learningRewindAnchor,
+    if let currentAnchor = currentLearningPathItemID.learningRewindAnchor,
       let currentIndex = LearningPathItemID.learningExerciseOrder.firstIndex(of: currentAnchor)
     {
       endIndex = max(endIndex, currentIndex)
@@ -2183,9 +2266,6 @@ final class OperatorWorkspace {
   }
 
   private func hasVacatablePayload(atOrAfter anchorIndex: Int) -> Bool {
-    if currentLearningPathItemID == .stage(.adaptiveDrawing) {
-      return true
-    }
     if let currentAnchor = currentLearningPathItemID.learningRewindAnchor,
       let currentIndex = LearningPathItemID.learningExerciseOrder.firstIndex(of: currentAnchor),
       currentIndex > anchorIndex
@@ -2336,7 +2416,14 @@ final class OperatorWorkspace {
       cameraError = "The requested analysis region is outside the current camera frame."
       return
     }
-    videoAnalysisRegionLock = region.map {
+    let fullFrame = PixelRect(
+      x: 0,
+      y: 0,
+      width: displayedFrame.frame.width,
+      height: displayedFrame.frame.height
+    )
+    let canonicalRegion = region == fullFrame ? nil : region
+    videoAnalysisRegionLock = canonicalRegion.map {
       VideoAnalysisRegionLock(
         source: displayedFrame.source,
         cameraConfigurationID: displayedFrame.frame.cameraConfigurationID,
@@ -2670,11 +2757,30 @@ final class OperatorWorkspace {
 
   private func beginPenInteraction(mode: ExerciseAttemptMode) async {
     guard discoveryStartUnavailableReason(for: .penInteraction) == nil else { return }
+    cancelPenCapAcceptedClickContinuation()
     beginExerciseAttempt(
       ownerID: .humanGuidedDiscovery(.penInteraction),
       mode: mode
     )
-    await startDiscoverySequence(.penInteraction)
+    do {
+      let boundary = displayedFrame?.frame.captureNanoseconds ?? 0
+      let frame = try await captureProtocolFrame(newerThan: boundary)
+      let exact = try exactTipCalibrationFrame(frame)
+      penCapAppearanceSelectionContext = PenCapAppearanceSelectionContext(
+        frame: frame,
+        request: ActionSurfacePointSelectionRequest(
+          frame: exact,
+          presentationTransformRevision: PresentationTransformRevision(),
+          prompt: "Click the pen cap body—not the tip—on the current camera frame.",
+          purpose: .penCapAppearance
+        )
+      )
+      discoveryError = nil
+    } catch {
+      discoveryError = "Identify Pen Cap could not freeze an exact frame: \(actionableDescription(error))"
+      finishActiveExerciseAttempt(disposition: .failed(String(describing: error)))
+      restartableExerciseItemID = .humanGuidedDiscovery(.penInteraction)
+    }
   }
 
   func beginPairedBoundarySide(_ direction: BoundaryDirection) async {
@@ -2835,7 +2941,8 @@ final class OperatorWorkspace {
     displayedFrame = scene.displayedFrame
     simulatedAnnotations = scene.annotations
     simulatedViewportID = scene.viewportID
-    cameraOverlays = [
+    let provenance = ExactFrameOverlayProvenance(scene.displayedFrame)
+    let overlays = [
       CameraOverlayMeasurement(
         frameID: scene.displayedFrame.frame.id,
         cameraConfigurationID: scene.displayedFrame.frame.cameraConfigurationID,
@@ -2857,6 +2964,26 @@ final class OperatorWorkspace {
         )
       ),
     ]
+    let frameSequence = scene.displayedFrame.frame.sequence
+    let statuses: [UserSceneOverlay: OverlayLayerStatus] = [
+      .penCap: OverlayLayerStatus(
+        state: .available,
+        message: OverlayStatusGrammar.simulatedPenCapAvailable(frame: frameSequence),
+        provenance: provenance
+      ),
+      .armatureEnvelope: OverlayLayerStatus(
+        state: .available,
+        message: OverlayStatusGrammar.simulatedArmatureAvailable(frame: frameSequence),
+        provenance: provenance
+      ),
+    ]
+    overlayResultChannels.publishSimulation(
+      OverlayChannelResult(
+        displayedFrame: scene.displayedFrame,
+        overlays: overlays,
+        statuses: statuses
+      )
+    )
     simulatorPenState = simulatedLearningSnapshot?.penPose == .down ? .down : .up
     simulatorLearningSummary =
       "causal scene · MPos X \(scene.controllerPosition.xMM) Y \(scene.controllerPosition.yMM) · persistent ink segments \(scene.inkSegmentCount)"
@@ -2881,12 +3008,13 @@ final class OperatorWorkspace {
       var registrationFrame = frame
       if frameMode == .simulated {
         guard
-          let point = cameraOverlays.compactMap({ overlay -> Point2<CameraPixelSpace>? in
+          let point = overlayResultChannels.simulation?.overlays.compactMap({
+            overlay -> Point2<CameraPixelSpace>? in
             guard overlay.provenance.kind == .penCap, case .point(let point) = overlay.geometry
             else { return nil }
             return point
           }).first,
-          let armatureBounds = cameraOverlays.compactMap({
+          let armatureBounds = overlayResultChannels.simulation?.overlays.compactMap({
             overlay
               -> AxisAlignedBounds<CameraPixelSpace>? in
             guard overlay.provenance.kind == .armatureEstimate,
@@ -2913,14 +3041,11 @@ final class OperatorWorkspace {
         }
         confidence = 1
       } else {
-        guard let cameraActions,
-          let inspection = try await cameraActions.inspectScene(
-            frame.frame.captureNanoseconds - 1
-          ),
-          let cap = inspection.measurement.cap
-        else {
-          throw LearningPathOperationError.requiredState("A measured tool component is required.")
-        }
+        let stable = try await captureStableWorkflowCap(
+          newerThan: frame.frame.captureNanoseconds - 1
+        )
+        let inspection = stable.inspection
+        let cap = stable.cap
         centroid = cap.centroid
         bounds = try AxisAlignedBounds(
           minX: Double(cap.boundingBox.x),
@@ -2931,7 +3056,7 @@ final class OperatorWorkspace {
         confidence = cap.confidence
         displayedFrame = inspection.displayedFrame
         registrationFrame = inspection.displayedFrame
-        cameraOverlays = inspection.measurement.overlays
+        publishWorkflowInspection(inspection, owner: .cameraCalibration)
       }
       cameraCalibrationAnchorFrame = registrationFrame
       cameraCalibrationReferencePosition = targetMachinePosition
@@ -2973,7 +3098,7 @@ final class OperatorWorkspace {
   }
 
   private var penCapAnchorEstimatorRevision: String {
-    "selected-cap-\(penCapColor.hexRGB)-bottom-center-anchor-v3"
+    "selected-cap-\(penCapAppearanceSelection?.color.hexRGB ?? "UNLEARNED")-bottom-center-anchor-v3"
   }
 
   private func compatibleRegistrationCapAnchorEvidence(
@@ -3056,7 +3181,7 @@ final class OperatorWorkspace {
         holdoutCorrespondenceProvenance: holdoutSamples,
         maximumHoldoutResidualPixels: 8,
         estimatorRevision:
-          "five-cap-affine-three-fit-two-holdout-v2:cap-\(penCapColor.hexRGB)",
+          "five-cap-affine-three-fit-two-holdout-v2:cap-\(penCapAppearanceSelection?.color.hexRGB ?? "UNLEARNED")",
         uncertaintyPixels: max(finalFit.maximumErrorPixels, holdoutResiduals.max() ?? 0),
         applicabilityRectangle: applicabilityRectangle,
         applicabilityDerivation: .boundaryEnvelopeInsetAndSymmetricallyReduced(
@@ -3331,12 +3456,13 @@ final class OperatorWorkspace {
     var evidenceFrame = frame
     if frameMode == .simulated {
       guard
-        let point = cameraOverlays.compactMap({ overlay -> Point2<CameraPixelSpace>? in
+        let point = overlayResultChannels.simulation?.overlays.compactMap({
+          overlay -> Point2<CameraPixelSpace>? in
           guard overlay.provenance.kind == .penCap, case .point(let point) = overlay.geometry
           else { return nil }
           return point
         }).first,
-        let armatureBounds = cameraOverlays.compactMap({
+        let armatureBounds = overlayResultChannels.simulation?.overlays.compactMap({
           overlay -> AxisAlignedBounds<CameraPixelSpace>? in
           guard overlay.provenance.kind == .armatureEstimate,
             case .bounds(let bounds) = overlay.geometry
@@ -3362,14 +3488,11 @@ final class OperatorWorkspace {
       bounds = armatureBounds
       confidence = 1
     } else {
-      guard let cameraActions,
-        let inspection = try await cameraActions.inspectScene(
-          frame.frame.captureNanoseconds - 1
-        ),
-        let cap = inspection.measurement.cap
-      else {
-        throw LearningPathOperationError.requiredState("A measured tool component is required.")
-      }
+      let stable = try await captureStableWorkflowCap(
+        newerThan: frame.frame.captureNanoseconds
+      )
+      let inspection = stable.inspection
+      let cap = stable.cap
       try requireCalibrationContinuation()
       centroid = cap.centroid
       bounds = try AxisAlignedBounds(
@@ -3381,7 +3504,7 @@ final class OperatorWorkspace {
       confidence = cap.confidence
       evidenceFrame = inspection.displayedFrame
       displayedFrame = inspection.displayedFrame
-      cameraOverlays = inspection.measurement.overlays
+      publishWorkflowInspection(inspection, owner: .cameraCalibration)
     }
     let capAnchor = try ToolCapAnchorEstimate(
       componentCentroid: centroid,
@@ -3416,7 +3539,7 @@ final class OperatorWorkspace {
         attemptID: attemptID,
         capAnchorEstimatorRevision: capAnchor.estimatorRevision,
         algorithmRevision:
-          "automatic-current-camera-cap-anchor-v4:cap-\(penCapColor.hexRGB)",
+          "automatic-current-camera-cap-anchor-v4:cap-\(penCapAppearanceSelection?.color.hexRGB ?? "UNLEARNED")",
         capAnchorConfidence: capAnchor.confidence,
         artifactRevisionID: centerArrivalRevisionID
       ),
@@ -3535,6 +3658,46 @@ final class OperatorWorkspace {
   }
 
   func selectToolContactPoint(_ selection: ActionSurfacePointSelection) {
+    if let context = penCapAppearanceSelectionContext,
+      context.request.purpose == .penCapAppearance
+    {
+      do {
+        guard context.request.matches(context.frame), selection.frame == context.request.frame
+        else { throw PenCapAppearanceSamplingError.staleExactFrame }
+        guard
+          activeExerciseAttemptOwnerID == .humanGuidedDiscovery(.penInteraction),
+          let attemptID = activeExerciseAttemptID,
+          let attemptMode = activeExerciseAttemptMode
+        else { throw PenCapAppearanceSamplingError.staleExactFrame }
+        let learned = try PenCapAppearanceSampler.sample(
+          frame: context.frame,
+          selection: selection
+        )
+        let learnedFromLiveCamera: Bool
+        switch learned.source {
+        case .live:
+          livePenCapAppearanceSelection = learned
+          persistedPenCapAppearanceLoadState = .accepted
+          persistPenCapAppearanceSelection(learned)
+          learnedFromLiveCamera = true
+        case .simulated:
+          simulatedPenCapAppearanceSelection = learned
+          learnedFromLiveCamera = false
+        }
+        penCapAppearanceSelectionContext = nil
+        discoveryError = nil
+        startPenCapAcceptedClickContinuation(
+          attemptID: attemptID,
+          attemptMode: attemptMode,
+          source: learned.source == .simulated ? .simulated : .live,
+          selection: learned,
+          configuresLiveVision: learnedFromLiveCamera
+        )
+      } catch {
+        discoveryError = "Identify Pen Cap rejected the click: \(actionableDescription(error))"
+      }
+      return
+    }
     guard let request = toolContactPointSelectionRequest,
       let selectionFrame = frozenToolContactSelectionFrame,
       request.matches(selectionFrame),
@@ -3555,6 +3718,90 @@ final class OperatorWorkspace {
       explorationError =
         "Sparse mark selection was rejected as stale: \(actionableDescription(error))"
     }
+  }
+
+  private func startPenCapAcceptedClickContinuation(
+    attemptID: ExerciseAttemptID,
+    attemptMode: ExerciseAttemptMode,
+    source: OperatorFrameMode,
+    selection: PenCapAppearanceSelection,
+    configuresLiveVision: Bool
+  ) {
+    cancelPenCapAcceptedClickContinuation()
+    let identity = PenCapAcceptedClickContinuationIdentity(
+      id: UUID(),
+      attemptID: attemptID,
+      attemptMode: attemptMode,
+      source: source,
+      selection: selection,
+      lifetimeGeneration: lifetimeGeneration
+    )
+    penCapAcceptedClickContinuationIdentity = identity
+    penCapAcceptedClickContinuationTask = Task { @MainActor [weak self] in
+      guard let self else { return }
+      defer { finishPenCapAcceptedClickContinuation(identity) }
+
+      // Give recovery actions one actor turn to cancel the accepted-click
+      // transition before it can create the first discovery question.
+      await Task.yield()
+      guard penCapAcceptedClickContinuationIsCurrent(identity) else { return }
+
+      if configuresLiveVision {
+        await cameraActions?.setPenCapColor(selection.color)
+        guard penCapAcceptedClickContinuationIsCurrent(identity) else { return }
+        await reconcileAutomaticVisionAnalysis()
+        guard penCapAcceptedClickContinuationIsCurrent(identity) else { return }
+      }
+
+      await startDiscoverySequence(.penInteraction)
+      guard penCapAcceptedClickContinuationStillOwnsAttempt(identity) else { return }
+    }
+  }
+
+  private func penCapAcceptedClickContinuationIsCurrent(
+    _ identity: PenCapAcceptedClickContinuationIdentity
+  ) -> Bool {
+    guard penCapAcceptedClickContinuationStillOwnsAttempt(identity),
+      activeDiscoverySequenceID == nil
+    else { return false }
+    return true
+  }
+
+  private func penCapAcceptedClickContinuationStillOwnsAttempt(
+    _ identity: PenCapAcceptedClickContinuationIdentity
+  ) -> Bool {
+    guard !Task.isCancelled, canCommit(identity.lifetimeGeneration),
+      penCapAcceptedClickContinuationIdentity == identity,
+      activeExerciseAttemptID == identity.attemptID,
+      activeExerciseAttemptOwnerID == .humanGuidedDiscovery(.penInteraction),
+      activeExerciseAttemptMode == identity.attemptMode,
+      frameMode == identity.source,
+      penCapAppearanceSelection == identity.selection,
+      penCapAppearanceSelectionContext == nil
+    else { return false }
+    return true
+  }
+
+  private func finishPenCapAcceptedClickContinuation(
+    _ identity: PenCapAcceptedClickContinuationIdentity
+  ) {
+    guard penCapAcceptedClickContinuationIdentity == identity else { return }
+    penCapAcceptedClickContinuationTask = nil
+    penCapAcceptedClickContinuationIdentity = nil
+  }
+
+  @discardableResult
+  private func cancelPenCapAcceptedClickContinuation() -> Task<Void, Never>? {
+    let task = penCapAcceptedClickContinuationTask
+    task?.cancel()
+    penCapAcceptedClickContinuationTask = nil
+    penCapAcceptedClickContinuationIdentity = nil
+    return task
+  }
+
+  func awaitPenCapAcceptedClickTransition() async {
+    let task = penCapAcceptedClickContinuationTask
+    await task?.value
   }
 
   private func createNextSparseTipMark() async {
@@ -4634,6 +4881,12 @@ final class OperatorWorkspace {
       return
         "Finish \(DiscoverySequenceCatalog.definition(for: activeDiscoverySequenceID).title); use Stop while its logical owner is active."
     }
+    if sequenceID == .penInteraction {
+      guard displayedFrame != nil else {
+        return "A current exact camera or simulated frame is required to Identify Pen Cap."
+      }
+      return nil
+    }
     if frameMode == .simulated {
       if !controllerSessionEstablished { return "Connect the learning simulator first." }
       if !motionAuthorizationEnabled { return "Enable simulated Motion first." }
@@ -4708,6 +4961,9 @@ final class OperatorWorkspace {
 
   func toggleLearningMode() {
     guard learningModeChangeUnavailableReason == nil else { return }
+    if learningIsEnabled {
+      cancelPenCapAcceptedClickContinuation()
+    }
     learningIsEnabled.toggle()
   }
 
@@ -4999,36 +5255,23 @@ final class OperatorWorkspace {
     return nil
   }
 
-  func setLayer(_ layer: CanvasLayer, visible: Bool) {
+  func setOverlay(_ overlay: UserSceneOverlay, enabled: Bool) {
     guard !hasShutdown else { return }
-    if visible {
-      visibleLayers.insert(layer)
-    } else {
-      visibleLayers.remove(layer)
-    }
+    overlayPreferenceState.applyOperatorSelection(overlay, enabled: enabled)
+    persistOverlayPreference(overlayPreferenceState.enabled)
     Task { await reconcileAutomaticVisionAnalysis() }
   }
 
-  func setPenCapColor(_ color: PenCapColor) async {
-    guard !hasShutdown, penCapColorChangeUnavailableReason == nil,
-      penCapColor != color
-    else { return }
-    penCapColor = color
-    persistPenCapColor(color)
-    lastSceneMeasurement = nil
-    cameraOverlays.removeAll {
-      $0.provenance.kind == .penCap || $0.provenance.kind == .armatureEstimate
-    }
-    await cameraActions?.setPenCapColor(color)
-    await reconcileAutomaticVisionAnalysis()
+  private var sceneAnalysisIsRequested: Bool {
+    !overlayPreferenceState.enabled.isEmpty
   }
 
-  private var sceneAnalysisIsRequested: Bool {
-    visibleLayers.contains(where: \.requiresSceneAnalysis)
+  private var requestedSceneFeatures: SceneFeatureSet {
+    SceneFeatureSet(preference: overlayPreferenceState)
   }
 
   private var automaticVisionAnalysisShouldRun: Bool {
-    guard frameMode == .live, sceneAnalysisIsRequested,
+    guard frameMode == .live, livePenCapAppearanceSelection != nil, sceneAnalysisIsRequested,
       case .running = cameraSnapshot?.state
     else { return false }
     return true
@@ -5039,7 +5282,10 @@ final class OperatorWorkspace {
     if automaticVisionAnalysisShouldRun {
       let generation = lifetimeGeneration
       await cameraActions.setSceneAnalysisRegion(videoAnalysisRegionLock?.region)
-      let snapshot = await cameraActions.setAutomaticInspection(visionAnalysisCadence)
+      let snapshot = await cameraActions.setAutomaticInspection(
+        visionAnalysisCadence,
+        requestedSceneFeatures
+      )
       guard canCommit(generation), frameMode == .live else { return }
       visionAnalysisSnapshot = snapshot
       visionError = snapshot.lastError
@@ -5050,13 +5296,9 @@ final class OperatorWorkspace {
 
     visionUpdateTask?.cancel()
     visionUpdateTask = nil
-    let snapshot = await cameraActions.setAutomaticInspection(nil)
+    let snapshot = await cameraActions.setAutomaticInspection(nil, [])
     visionAnalysisSnapshot = snapshot
     visionError = snapshot.lastError
-    let sceneKinds = Set(
-      CanvasLayer.allCases.filter(\.requiresSceneAnalysis).map(\.overlayKind)
-    )
-    cameraOverlays.removeAll { sceneKinds.contains($0.provenance.kind) }
     let cameraSnapshot = await cameraActions.snapshot()
     self.cameraSnapshot = cameraSnapshot
     if let latest = cameraSnapshot.latestFrame { displayedFrame = latest }
@@ -5082,6 +5324,16 @@ final class OperatorWorkspace {
       selectedSerialDevice = discovered.first {
         $0.identifier == rememberedSerialDeviceIdentifier
       }
+    }
+  }
+
+  func performApplicationStartup(_ policy: AdaptivePlotterLaunchPolicy) async {
+    await refreshSerialDevices()
+    switch policy.startupRoute {
+    case .preferredCamera:
+      await startPreferredCameraAtStartup()
+    case .simulated:
+      await switchFrameMode(.simulated)
     }
   }
 
@@ -5342,6 +5594,16 @@ final class OperatorWorkspace {
 
   func startDiscoverySequence(_ sequenceID: DiscoverySequenceID) async {
     guard discoveryStartUnavailableReason(for: sequenceID) == nil else { return }
+    if sequenceID == .penInteraction {
+      guard penCapAppearanceSelection != nil,
+        penCapAppearanceSelectionContext == nil,
+        penInteractionSequenceUnavailableReason == nil
+      else {
+        discoveryError = penInteractionSequenceUnavailableReason
+          ?? "Identify Pen Cap must be accepted before Pen Interaction questions begin."
+        return
+      }
+    }
     if activeExerciseAttemptOwnerID == nil {
       beginExerciseAttempt(
         ownerID: learningPathItemID(for: sequenceID),
@@ -6381,7 +6643,6 @@ final class OperatorWorkspace {
       cameraSnapshot = snapshot
       displayedFrame = nil
       latestLiveCameraFrame = nil
-      cameraOverlays = []
     } catch {
       let snapshot = await cameraActions.snapshot()
       guard canCommit(generation) else { return }
@@ -6397,7 +6658,7 @@ final class OperatorWorkspace {
     defer { endHardwareIntent() }
     guard let cameraActions else { return }
     let priorCameraConfigurationID = displayedFrame?.frame.cameraConfigurationID
-    await cameraActions.setPenCapColor(penCapColor)
+    if let livePenCapColor { await cameraActions.setPenCapColor(livePenCapColor) }
     let snapshot = await cameraActions.start()
     guard canCommit(generation) else { return }
     frameMode = .live
@@ -6448,14 +6709,13 @@ final class OperatorWorkspace {
     videoAnalysisRegionLock = nil
     invalidateCameraDependentLearningAuthority()
     guard let cameraActions else { return }
-    await cameraActions.setPenCapColor(penCapColor)
+    if let livePenCapColor { await cameraActions.setPenCapColor(livePenCapColor) }
     let snapshot = await cameraActions.restart()
     guard canCommit(generation) else { return }
     frameMode = .live
     cameraSnapshot = snapshot
     displayedFrame = cameraSnapshot?.latestFrame
     latestLiveCameraFrame = validatedLiveCameraFrame(in: snapshot)
-    cameraOverlays = []
     lastSceneMeasurement = nil
     updateCameraError()
     beginFrameUpdates(generation: generation)
@@ -6465,6 +6725,7 @@ final class OperatorWorkspace {
   private func beginScopedVisionAnalysis() async -> ScopedVisionAnalysisLease? {
     guard !hasShutdown, frameMode == .live,
       case .running = cameraSnapshot?.state,
+      automaticVisionAnalysisShouldRun,
       !scopedVisionAnalysisActive,
       let cameraActions
     else { return nil }
@@ -6472,9 +6733,12 @@ final class OperatorWorkspace {
     visionUpdateTask?.cancel()
     visionUpdateTask = nil
     await cameraActions.setSceneAnalysisRegion(videoAnalysisRegionLock?.region)
-    let snapshot = await cameraActions.setAutomaticInspection(visionAnalysisCadence)
+    let snapshot = await cameraActions.setAutomaticInspection(
+      visionAnalysisCadence,
+      requestedSceneFeatures
+    )
     guard canCommit(generation), frameMode == .live else {
-      _ = await cameraActions.setAutomaticInspection(nil)
+      _ = await cameraActions.setAutomaticInspection(nil, [])
       return nil
     }
     scopedVisionAnalysisActive = true
@@ -6483,6 +6747,67 @@ final class OperatorWorkspace {
     beginVisionUpdates(generation: generation)
     if let result = snapshot.latestResult { receiveVision(result) }
     return ScopedVisionAnalysisLease()
+  }
+
+  private func inspectWorkflowScene(
+    newerThan boundary: UInt64,
+    requestedFeatures: SceneFeatureSet = [.penCap],
+    analysisRegion: PixelRect? = nil
+  ) async throws -> LiveSceneInspection? {
+    guard let cameraActions else { return nil }
+    if frameMode == .live, livePenCapAppearanceSelection == nil,
+      !requestedFeatures.intersection([.penCap, .armatureEnvelope]).isEmpty
+    {
+      throw LearningPathOperationError.requiredState(
+        "Not learned — use Identify Pen Cap before LIVE exact-workflow Vision."
+      )
+    }
+    exclusiveWorkflowVisionRequestCount += 1
+    defer { exclusiveWorkflowVisionRequestCount -= 1 }
+    return try await cameraActions.inspectWorkflowScene(
+      boundary,
+      requestedFeatures,
+      analysisRegion
+    )
+  }
+
+  func captureStableWorkflowCap(
+    newerThan initialBoundary: UInt64
+  ) async throws -> StableWorkflowCapInspection {
+    var boundary = initialBoundary
+    var samples: [StableWorkflowCapInspection] = []
+    for _ in 0..<FixedCameraOpticalSettlingPolicy.requiredCentroidFrameCount {
+      try Task.checkCancellation()
+      guard
+        let inspection = try await inspectWorkflowScene(
+          newerThan: boundary,
+          requestedFeatures: [.penCap],
+          analysisRegion: nil
+        ),
+        inspection.displayedFrame.frame.captureNanoseconds > boundary
+      else {
+        throw LearningPathOperationError.freshFrameUnavailable
+      }
+      guard case .found(let cap, _) = inspection.measurement.penCap else {
+        throw LearningPathOperationError.requiredState(
+          "Pen-cap measurement refused: \(inspection.measurement.penCap.diagnosticReason)."
+        )
+      }
+      samples.append(StableWorkflowCapInspection(inspection: inspection, cap: cap))
+      boundary = inspection.displayedFrame.frame.captureNanoseconds
+    }
+    return try FixedCameraOpticalSettlingPolicy.newestStableCapSample(samples)
+  }
+
+  private func observeWorkflowInk(
+    _ request: IsolatedInkObservationRequest
+  ) async -> IsolatedInkObservationOutcome {
+    guard let cameraActions else {
+      preconditionFailure("Native camera composition is unavailable.")
+    }
+    exclusiveWorkflowVisionRequestCount += 1
+    defer { exclusiveWorkflowVisionRequestCount -= 1 }
+    return await cameraActions.observeIsolatedInk(request)
   }
 
   private func endScopedVisionAnalysis(_ lease: ScopedVisionAnalysisLease?) async {
@@ -6502,6 +6827,7 @@ final class OperatorWorkspace {
       cameraError = reason
       return
     }
+    cancelPenCapAcceptedClickContinuation()
     guard let cameraActions else { return }
     frameModeSwitchInProgress = true
     defer { frameModeSwitchInProgress = false }
@@ -6510,10 +6836,10 @@ final class OperatorWorkspace {
     clearAutomaticVisionPresentation()
     videoAnalysisRegionLock = nil
     await cameraActions.setSceneAnalysisRegion(nil)
-    cameraOverlays = []
     cameraError = nil
     switch mode {
     case .live:
+      if let livePenCapColor { await cameraActions.setPenCapColor(livePenCapColor) }
       let snapshot = await cameraActions.start()
       guard canCommit(generation) else { return }
       frameMode = .live
@@ -6599,9 +6925,11 @@ final class OperatorWorkspace {
     guard !hasShutdown else { return }
     hasShutdown = true
     lifetimeGeneration &+= 1
+    let penCapContinuation = cancelPenCapAcceptedClickContinuation()
     stopObserving()
     let calibration = currentCameraCalibrationTask
     calibration?.cancel()
+    await penCapContinuation?.value
     await announcementActions?.cancelForShutdown()
     await stopAndSettleActiveMotionForShutdown()
     await calibration?.value
@@ -6717,10 +7045,15 @@ final class OperatorWorkspace {
   }
 
   private func acceptInkObservation(
-    _ observation: IsolatedInkObservation
+    _ observation: IsolatedInkObservation,
+    displayedFrame: DisplayedFrame
   ) {
     lastInkObservation = observation
-    cameraOverlays = observation.overlays
+    overlayResultChannels.publishWorkflow(
+      OverlayChannelResult(displayedFrame: displayedFrame, overlays: observation.overlays),
+      source: frameMode,
+      owner: .observedDrawingTrial
+    )
     explorationInkStatus =
       observation.residual == nil
       ? "new ink observed; absolute residual unavailable without a current-session projection"
@@ -6843,20 +7176,10 @@ final class OperatorWorkspace {
 
     let discoveryDirection = boundaryDirection(from: direction)
     machineSnapshot = await machineActions.snapshot()
-    // Admit the motion owner and publish Stop without awaiting Camera/Vision.
-    // Optional observations after a completed probe may increase only a later
-    // bounded segment; absence or latency stays on the controller fallback.
-    let approachPlanner = BoundaryApproachPlanner(seed: nil)
-    let renewalPlanner = BoundaryMotionRenewalPlanner { @MainActor [weak self] progress in
-      guard let self else { return nil }
-      return await self.planBoundaryRenewal(
-        after: progress,
-        planner: approachPlanner,
-        attemptID: attemptID
-      )
-    }
+    // The controller owner renews only the same finite 20 mm segment. Camera and
+    // Vision do not advise Boundary direction, distance, Stop, or acceptance.
     let admittedOperation: BoundaryMotionOperation
-    switch await machineActions.beginBoundaryMotion(request, renewalPlanner) {
+    switch await machineActions.beginBoundaryMotion(request, nil) {
     case .admitted(let operation):
       admittedOperation = operation
     case .rejected(let outcome):
@@ -6922,7 +7245,6 @@ final class OperatorWorkspace {
     await advanceDiscoverySequence(sequenceID)
 
     let outcome = await admittedOperation.outcome()
-    await cancelAndSettleBoundaryApproachVision(for: attemptID)
     machineSnapshot = await machineActions.snapshot()
     guard !hasShutdown else { return }
 
@@ -7211,126 +7533,6 @@ final class OperatorWorkspace {
     }
   }
 
-  private func captureBoundaryApproachObservation(
-    at machinePosition: MachinePosition?
-  ) async -> BoundaryApproachObservation? {
-    guard let cameraActions, let machinePosition else { return nil }
-    do {
-      guard let inspection = try await cameraActions.inspectScene(nowNanoseconds()),
-        let cap = inspection.measurement.cap,
-        let drawingFrame = inspection.measurement.drawingFrame
-      else { return nil }
-      guard !Task.isCancelled else { return nil }
-      let capAnchor = try Point2<CameraPixelSpace>(
-        x: Double(cap.boundingBox.x) + (Double(cap.boundingBox.width) / 2),
-        y: Double(cap.boundingBox.y + cap.boundingBox.height)
-      )
-      displayedFrame = inspection.displayedFrame
-      latestLiveCameraFrame = inspection.displayedFrame
-      cameraOverlays = inspection.measurement.overlays
-      return BoundaryApproachObservation(
-        source: inspection.displayedFrame.source,
-        frameID: inspection.displayedFrame.frame.id,
-        cameraConfigurationID: inspection.displayedFrame.frame.cameraConfigurationID,
-        captureNanoseconds: inspection.displayedFrame.frame.captureNanoseconds,
-        machinePosition: machinePosition,
-        toolCapAnchor: capAnchor,
-        toolConfidence: cap.confidence,
-        drawingFrame: drawingFrame.geometry,
-        drawingFrameConfidence: drawingFrame.confidence
-      )
-    } catch {
-      return nil
-    }
-  }
-
-  /// Ends the exact-frame advisory before the Boundary owner settles. A
-  /// cancelled Task is still running until Camera/Vision unwinds its exclusive
-  /// computation lease, so cancellation without settlement can leave obsolete
-  /// inspection work consuming CPU after its owner is done.
-  private func cancelAndSettleBoundaryApproachVision(
-    for attemptID: ExerciseAttemptID
-  ) async {
-    let task = boundaryApproachVisionTasks.removeValue(forKey: attemptID)
-    task?.cancel()
-    await task?.value
-    boundaryApproachAdvisories.removeValue(forKey: attemptID)
-  }
-
-  private func cancelAndSettleAllBoundaryApproachVision() async {
-    let tasks = Array(boundaryApproachVisionTasks.values)
-    boundaryApproachVisionTasks.removeAll()
-    for task in tasks { task.cancel() }
-    for task in tasks { await task.value }
-    boundaryApproachAdvisories.removeAll()
-  }
-
-  private func planBoundaryRenewal(
-    after progress: BoundaryMotionSegmentProgress,
-    planner: BoundaryApproachPlanner,
-    attemptID: ExerciseAttemptID
-  ) async -> Double? {
-    let advisory =
-      boundaryApproachAdvisories[attemptID]
-      ?? BoundaryApproachAdvisory(
-        observation: nil,
-        advice: BoundaryApproachAdvice(
-          nextSegmentLengthMM: MotionPriors.boundaryWireSegmentMM,
-          basis: .missingObservationFallback
-        )
-      )
-    if boundaryApproachVisionTasks[attemptID] == nil,
-      stopDispositionLatch == nil,
-      activeExerciseAttemptID == attemptID
-    {
-      boundaryApproachVisionTasks[attemptID] = Task { [weak self] in
-        guard let self else { return }
-        let observation = await self.captureBoundaryApproachObservation(
-          at: progress.finalPosition
-        )
-        let advice = await planner.advise(after: observation)
-        guard !Task.isCancelled,
-          self.activeExerciseAttemptID == attemptID,
-          self.stopDispositionLatch == nil
-        else {
-          self.boundaryApproachVisionTasks[attemptID] = nil
-          return
-        }
-        self.boundaryApproachAdvisories[attemptID] = BoundaryApproachAdvisory(
-          observation: observation,
-          advice: advice
-        )
-        self.boundaryApproachVisionTasks[attemptID] = nil
-      }
-    }
-    let observation = advisory.observation
-    let advice = advisory.advice
-    let projection =
-      advice.estimatedRemainingMM.map {
-        String(format: ", estimated %.1f mm remaining", $0)
-      } ?? ""
-    appendBoundaryActivity(
-      actor: .vision,
-      direction: progress.direction,
-      phase: .renewalPlanning,
-      disposition: .succeeded,
-      attemptID: attemptID,
-      operationOwnerID: .liveBoundary(progress.ownerID),
-      finalPosition: progress.finalPosition,
-      frameID: observation?.frameID,
-      cameraConfigurationID: observation?.cameraConfigurationID,
-      detail: .message(
-        "Segment \(progress.completedSegmentCount) completed at "
-          + "\(String(format: "%.1f", progress.completedSegment.delta.magnitude)) mm; "
-          + "next segment \(String(format: "%.1f", advice.nextSegmentLengthMM)) mm "
-          + "from the latest completed advisory (\(advice.basis.rawValue)\(projection)). "
-          + "Background analysis is paused while this owner is active; exact renewal "
-          + "inspection continues off the motion-owner critical path."
-      )
-    )
-    return advice.nextSegmentLengthMM
-  }
-
   private func startExercise(
     _ ownerID: LearningPathItemID,
     mode: ExerciseAttemptMode
@@ -7359,6 +7561,15 @@ final class OperatorWorkspace {
 
   private func cancelExerciseAttempt(_ ownerID: LearningPathItemID) async {
     guard activeExerciseAttemptOwnerID == ownerID else { return }
+    let isPreSequencePenInteraction =
+      ownerID == .humanGuidedDiscovery(.penInteraction)
+      && activeDiscoverySequenceID == nil
+      && (penCapAppearanceSelectionContext != nil
+        || penCapAcceptedClickContinuationTask != nil)
+    var penCapContinuation: Task<Void, Never>?
+    if ownerID == .humanGuidedDiscovery(.penInteraction) {
+      penCapContinuation = cancelPenCapAcceptedClickContinuation()
+    }
     let boundaryRepeatWithFallback =
       ownerID == .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
       && (activeExerciseAttemptMode == .replacement || activeExerciseAttemptMode == .additional)
@@ -7387,6 +7598,8 @@ final class OperatorWorkspace {
         await owner?.value
       }
       recordDiscoveryAttempt(sequenceID: sequenceID, disposition: .cancelled)
+    } else if isPreSequencePenInteraction {
+      recordDiscoveryAttempt(sequenceID: .penInteraction, disposition: .cancelled)
     } else if let target = activeStopTarget,
       !isManualStopTarget(target)
     {
@@ -7407,6 +7620,7 @@ final class OperatorWorkspace {
     }
     finishActiveExerciseAttempt(disposition: .cancelled)
     restartableExerciseItemID = boundaryRepeatWithFallback ? nil : ownerID
+    await penCapContinuation?.value
   }
 
   private func beginExerciseAttempt(
@@ -7418,19 +7632,32 @@ final class OperatorWorkspace {
 
   private func finishActiveExerciseAttempt(disposition: ExerciseAttemptDisposition) {
     if activeExerciseAttemptOwnerID == .humanGuidedDiscovery(.penInteraction) {
+      cancelPenCapAcceptedClickContinuation()
       activeLearningSession.penActuationDraft = nil
       pendingPenSetpointCommand = nil
+      penCapAppearanceSelectionContext = nil
     }
     if activeExerciseAttemptOwnerID == .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering),
       let attemptID = activeExerciseAttemptID
     {
-      boundaryApproachVisionTasks.removeValue(forKey: attemptID)?.cancel()
-      boundaryApproachAdvisories.removeValue(forKey: attemptID)
       pendingBoundaryFinalPositions.removeValue(forKey: attemptID)
       pendingBoundaryOwnerIDs.removeValue(forKey: attemptID)
       pendingBoundaryStopCapabilities.removeValue(forKey: attemptID)
     }
     activeLearningSession.exerciseAttempt.finish()
+  }
+
+  private var penInteractionSequenceUnavailableReason: String? {
+    if frameMode == .simulated {
+      if !controllerSessionEstablished { return "Connect the learning simulator first." }
+      if !motionAuthorizationEnabled { return "Enable simulated Motion first." }
+      if simulatedLearningSnapshot?.currentOperation != nil {
+        return "Stop or finish the current simulated operation first."
+      }
+      return nil
+    }
+    if !motionGuardIsActive { return "Connect the plotter and Enable Motion first." }
+    return penUnavailableReason(for: .lower)
   }
 
   private func recordAttempt<Value: Hashable & Sendable>(
@@ -8005,7 +8232,90 @@ final class OperatorWorkspace {
     }
     displayedFrame = result.displayedFrame
     lastSceneMeasurement = result.measurement
-    cameraOverlays = result.measurement.overlays
+    overlayResultChannels.publishScene(
+      overlayChannelResult(
+        displayedFrame: result.displayedFrame,
+        measurement: result.measurement
+      )
+    )
+  }
+
+  private func publishWorkflowInspection(
+    _ inspection: LiveSceneInspection,
+    owner: WorkflowOverlayOwner
+  ) {
+    overlayResultChannels.publishWorkflow(
+      overlayChannelResult(
+        displayedFrame: inspection.displayedFrame,
+        measurement: inspection.measurement
+      ),
+      source: frameMode,
+      owner: owner
+    )
+  }
+
+  private func overlayChannelResult(
+    displayedFrame: DisplayedFrame,
+    measurement: PlotterSceneMeasurement
+  ) -> OverlayChannelResult {
+    let provenance = ExactFrameOverlayProvenance(displayedFrame)
+    let capStateAndMessage: (OverlayRunState, String) =
+      switch measurement.penCap {
+      case .notRequested:
+        (.unavailable, "Pen-cap analysis was not requested.")
+      case .found(let cap, _):
+        (
+          .available,
+          OverlayStatusGrammar.found(
+            pixelCount: cap.pixelCount,
+            confidence: cap.confidence,
+            frame: displayedFrame.frame.sequence
+          )
+        )
+      case .notFound:
+        (.unavailable, OverlayStatusGrammar.notFound)
+      case .candidatesRejected(let diagnostics):
+        (
+          .unavailable,
+          OverlayStatusGrammar.candidateRejected(
+            count: diagnostics.componentCount,
+            reason: measurement.penCap.diagnosticReason
+          )
+        )
+      case .ambiguous(let counts, _):
+        (.ambiguous, OverlayStatusGrammar.ambiguous(candidateSizes: counts))
+      case .failed(let reason):
+        (.failed, "Failed — \(reason)")
+      }
+    let capStatus = OverlayLayerStatus(
+      state: capStateAndMessage.0,
+      message: capStateAndMessage.1,
+      provenance: provenance
+    )
+    let armatureStateAndMessage: (OverlayRunState, String) =
+      switch measurement.armatureEnvelope {
+      case .notRequested:
+        (.unavailable, "Armature-envelope analysis was not requested.")
+      case .available:
+        (.available, OverlayStatusGrammar.armatureAvailable)
+      case .unavailableBecausePenCap(let capResult):
+        (
+          .unavailable,
+          OverlayStatusGrammar.armatureUnavailable(reason: capResult.diagnosticReason)
+        )
+      case .failed(let reason):
+        (.failed, "Failed — \(reason)")
+      }
+    let armatureStatus = OverlayLayerStatus(
+      state: armatureStateAndMessage.0,
+      message: armatureStateAndMessage.1,
+      provenance: provenance
+    )
+    return OverlayChannelResult(
+      displayedFrame: displayedFrame,
+      overlays: measurement.overlays,
+      statuses: [.penCap: capStatus, .armatureEnvelope: armatureStatus]
+    )
   }
 
   private func updateCameraError() {
@@ -8174,13 +8484,14 @@ final class OperatorWorkspace {
     }
     clearDrawingLearningForRewind(from: .chooseIsolatedLinePlan)
     explorationError = nil
-    cameraOverlays = []
+    overlayResultChannels.clearWorkflow(source: frameMode)
     // Pen current state, accepted boundary controller MPos revisions, estimated
     // center, and accepted center arrival belong to the unchanged controller
     // session/coordinate authority and deliberately survive camera replacement.
   }
 
   private func clearPenLearningForRewind() {
+    cancelPenCapAcceptedClickContinuation()
     discoveryTransactions.removeValue(forKey: .penInteraction)
     penAttemptHistory = try! ExerciseAttemptHistory(
       compatibility: penAttemptHistory.compatibility
@@ -8229,7 +8540,8 @@ final class OperatorWorkspace {
       sparseTipCalibrationCoordinator = freshSparseTipCalibrationCoordinatorForCurrentPaper()
       activeLearningSession.toolContactSelection.clear()
     }
-    cameraOverlays = []
+    overlayResultChannels.clearWorkflow(source: frameMode, owner: .cameraCalibration)
+    overlayResultChannels.clearWorkflow(source: frameMode, owner: .sparseTipCalibration)
   }
 
   private func freshSparseTipCalibrationCoordinatorForCurrentPaper()
@@ -8247,14 +8559,15 @@ final class OperatorWorkspace {
       lastProtocolPoseSettlement = nil
     }
     if step.rawValue <= ObservedDrawingTrialStep.revealAndObserveNewInk.rawValue {
-      cameraOverlays = []
+      overlayResultChannels.clearWorkflow(source: frameMode, owner: .observedDrawingTrial)
     }
     activeLearningSession.drawingTrial.rewind(from: step, source: frameMode)
   }
 
   private func clearDiscoveryAuthority() async {
+    let penCapContinuation = cancelPenCapAcceptedClickContinuation()
+    await penCapContinuation?.value
     await cancelAndSettleDiscoveryMotionBeforeErasure()
-    await cancelAndSettleAllBoundaryApproachVision()
     selectedDiscoverySequenceID = .penInteraction
     discoveryTransactions = [:]
     discoveryError = nil
@@ -8362,7 +8675,6 @@ final class OperatorWorkspace {
     cameraSnapshot = nil
     displayedFrame = nil
     latestLiveCameraFrame = nil
-    cameraOverlays = []
     await clearDiscoveryAuthority()
     cameraError = nil
     visionError = nil
@@ -8513,9 +8825,7 @@ final class OperatorWorkspace {
     drawingTrialTipRegistrationRevisionID = registration.acceptedRevisionID
     currentExplorationEpisode = ExplorationEpisode(
       sessionID: learningEvidenceSessionID,
-      rung: .observedDrawingTrial,
       source: frameMode == .simulated ? .simulated : .live,
-      split: .training,
       startedNanoseconds: nowNanoseconds()
     )
     currentExplorationEpisode?.lineStartPosition = drawingTrialLineStart
@@ -8915,7 +9225,7 @@ final class OperatorWorkspace {
   }
 
   private func revealAndObserveTrialInk() async throws {
-    guard let cameraActions,
+    guard cameraActions != nil,
       let baseline = localPreLineBaseline,
       let revealPosition = drawingTrialRevealPosition,
       let lineStart = drawingTrialLineStart,
@@ -8988,7 +9298,7 @@ final class OperatorWorkspace {
       height: max(1, min(post.frame.height - clippedY, maxY - clippedY + 1))
     )
     drawingTrialObservationRegion = trialRegion
-    let outcome = await cameraActions.observeIsolatedInk(
+    let outcome = await observeWorkflowInk(
       IsolatedInkObservationRequest(
         localPreLineBaseline: SamePoseFrameSample(
           displayedFrame: baseline,
@@ -9018,11 +9328,11 @@ final class OperatorWorkspace {
     )
     switch outcome {
     case .observed(let observation):
-      acceptInkObservation(observation)
+      acceptInkObservation(observation, displayedFrame: post)
     case .rejected(let rejection):
       lastInkObservation = nil
       explorationInkStatus = "ink or geometry unclear: \(rejection.reason); no redraw requested"
-      cameraOverlays = []
+      overlayResultChannels.clearWorkflow(source: frameMode, owner: .observedDrawingTrial)
       throw LearningPathOperationError.inkRejected(String(describing: rejection.reason))
     }
   }
@@ -9034,7 +9344,6 @@ final class OperatorWorkspace {
     visionAnalysisSnapshot = .stopped
     visionError = nil
     lastSceneMeasurement = nil
-    cameraOverlays = []
   }
 
   private func beginHardwareIntent() -> UInt64? {

@@ -7,6 +7,35 @@ import Testing
 
 @Suite("Bounded plotter-scene analysis pipeline")
 struct PlotterSceneAnalysisPipelineTests {
+  @Test("pipeline propagates requested features and clears results when selection changes")
+  func featureSelectionPropagates() async throws {
+    let pipeline = PlotterSceneAnalysisPipeline(clock: DeterministicRuntimeClock())
+    await pipeline.start(cadence: .tenFPS, requestedFeatures: [.armatureEnvelope])
+    await pipeline.submit(try displayedFrame(sequence: 1))
+    try await waitUntil { await pipeline.snapshot().analyzedFrameCount == 1 }
+
+    let armatureResult = try #require(await pipeline.snapshot().latestResult)
+    #expect(armatureResult.measurement.computation.requestedFeatures == [.armatureEnvelope])
+    #expect(
+      armatureResult.measurement.computation.expandedFeatures
+        == [.penCap, .armatureEnvelope]
+    )
+    #expect(
+      armatureResult.measurement.computation.executionCounts
+        == [.penCap: 1, .armatureEnvelope: 1]
+    )
+
+    await pipeline.start(cadence: .tenFPS, requestedFeatures: [.penCap])
+    #expect(await pipeline.snapshot().latestResult == nil)
+    await pipeline.submit(try displayedFrame(sequence: 2))
+    try await waitUntil { await pipeline.snapshot().analyzedFrameCount == 2 }
+    let capResult = try #require(await pipeline.snapshot().latestResult)
+    #expect(capResult.measurement.computation.requestedFeatures == [.penCap])
+    #expect(capResult.measurement.computation.expandedFeatures == [.penCap])
+    #expect(capResult.measurement.computation.executionCounts == [.penCap: 1])
+    await pipeline.stop()
+  }
+
   @Test("one active analysis coalesces all queued work to the newest frame")
   func newestPendingFrameWins() async throws {
     let gate = AnalysisGate()
@@ -15,7 +44,7 @@ struct PlotterSceneAnalysisPipelineTests {
       await gate.block(frame.sequence)
       return sceneMeasurement(for: frame)
     }
-    await pipeline.start(cadence: .tenFPS)
+    await pipeline.start(cadence: .tenFPS, requestedFeatures: [.penCap])
 
     await pipeline.submit(try displayedFrame(sequence: 1))
     try await waitUntil { await gate.startedSequences == [1] }
@@ -49,7 +78,7 @@ struct PlotterSceneAnalysisPipelineTests {
       await starts.record(clock.nowNanoseconds())
       return sceneMeasurement(for: frame)
     }
-    await pipeline.start(cadence: .fiveFPS)
+    await pipeline.start(cadence: .fiveFPS, requestedFeatures: [.penCap])
     await pipeline.submit(try displayedFrame(sequence: 1))
     try await waitUntil { await pipeline.snapshot().analyzedFrameCount == 1 }
     await pipeline.submit(try displayedFrame(sequence: 2))
@@ -74,7 +103,7 @@ struct PlotterSceneAnalysisPipelineTests {
       clock.advance(nanoseconds: 900_000_000)
       return sceneMeasurement(for: frame)
     }
-    await pipeline.start(cadence: .twoFPS)
+    await pipeline.start(cadence: .twoFPS, requestedFeatures: [.penCap])
     await pipeline.submit(try displayedFrame(sequence: 1))
     try await waitUntil { await pipeline.snapshot().analyzedFrameCount == 1 }
     await pipeline.submit(try displayedFrame(sequence: 2))
@@ -97,7 +126,7 @@ struct PlotterSceneAnalysisPipelineTests {
       await gate.block(frame.sequence)
       return sceneMeasurement(for: frame)
     }
-    await pipeline.start(cadence: .twoFPS)
+    await pipeline.start(cadence: .twoFPS, requestedFeatures: [.penCap])
     await pipeline.submit(try displayedFrame(sequence: 7))
     try await waitUntil { await gate.startedSequences == [7] }
 
@@ -120,7 +149,7 @@ struct PlotterSceneAnalysisPipelineTests {
     ) { _ in
       throw PipelineTestError.syntheticFailure
     }
-    await pipeline.start(cadence: .twoFPS)
+    await pipeline.start(cadence: .twoFPS, requestedFeatures: [.penCap])
     await pipeline.submit(try displayedFrame(sequence: 9))
     try await waitUntil { await pipeline.snapshot().failedFrameCount == 1 }
     #expect(await activity.values == [true, false])
@@ -135,14 +164,14 @@ struct PlotterSceneAnalysisPipelineTests {
     ) { frame in
       sceneMeasurement(for: frame)
     }
-    await pipeline.start(cadence: .fiveFPS)
+    await pipeline.start(cadence: .fiveFPS, requestedFeatures: [.penCap])
     await pipeline.submit(try displayedFrame(sequence: 11))
     try await waitUntil { await pipeline.snapshot().analyzedFrameCount == 1 }
     #expect(await pipeline.snapshot().latestResult?.displayedFrame.frame.sequence == 11)
 
     await pipeline.stop()
     #expect(await pipeline.snapshot().latestResult == nil)
-    await pipeline.start(cadence: .fiveFPS)
+    await pipeline.start(cadence: .fiveFPS, requestedFeatures: [.penCap])
     let restarted = await pipeline.snapshot()
     #expect(restarted.latestResult == nil)
     #expect(restarted.activeFrameSequence == nil)
@@ -150,7 +179,6 @@ struct PlotterSceneAnalysisPipelineTests {
     await pipeline.stop()
   }
 }
-
 private actor AnalysisGate {
   private(set) var startedSequences: [UInt64] = []
   private var continuations: [CheckedContinuation<Void, Never>] = []
@@ -206,15 +234,17 @@ private func sceneMeasurement(for frame: StampedFrame) -> PlotterSceneMeasuremen
     frameID: frame.id,
     frameSHA256: frame.contentSHA256,
     cameraConfigurationID: frame.cameraConfigurationID,
-    capComponentCount: 0,
-    cap: nil,
-    topFrameSide: nil,
-    rightFrameSide: nil,
-    drawingFrame: nil,
-    armature: nil,
+    penCap: .notRequested,
+    armatureEnvelope: .notRequested,
     overlays: [],
     algorithmRevision: "pipeline-test-v1",
-    diagnosticSHA256: frame.contentSHA256
+    diagnosticSHA256: frame.contentSHA256,
+    computation: SceneVisionComputationDiagnostics(
+      requestedFeatures: [],
+      expandedFeatures: [],
+      executionCounts: [:],
+      inspectedPixelCounts: [:]
+    )
   )
 }
 

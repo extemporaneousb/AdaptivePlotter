@@ -437,7 +437,7 @@ struct LearningPathProjector: Sendable {
     if snapshot.drawing.assessment == nil {
       return .observedDrawingTrial(snapshot.drawing.currentStep)
     }
-    return .stage(.adaptiveDrawing)
+    return .observedDrawingTrial(.compareIntendedAndObservedGeometry)
   }
 
   private func status(
@@ -445,7 +445,6 @@ struct LearningPathProjector: Sendable {
     current: LearningPathItemID,
     snapshot: LearningPathProjectionSnapshot
   ) -> LearningPathStageStatus {
-    if itemID == .stage(.adaptiveDrawing) { return .future }
     if snapshot.operations.restartableItem == itemID { return .needsAttention }
     if isComplete(itemID, snapshot: snapshot) { return .complete }
     let representsCurrentStage: Bool = if case .stage(let stage) = itemID {
@@ -480,7 +479,6 @@ struct LearningPathProjector: Sendable {
       snapshot.controller.sessionEstablished && snapshot.controller.motionAuthorized
     case .stage(.humanGuidedDiscovery): discoveryComplete
     case .stage(.observedDrawingTrials): snapshot.drawing.assessment != nil
-    case .stage(.adaptiveDrawing): false
     case .humanGuidedDiscovery(.penInteraction): snapshot.penInteractionCompleted
     case .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering):
       snapshot.boundary.centerArrival != nil
@@ -524,7 +522,7 @@ struct LearningPathProjector: Sendable {
     case .stage(.humanGuidedDiscovery):
       "Observe Pen Interaction, four paired boundaries, center arrival, camera/cap calibration, and sparse-mark pen-contact calibration."
     case .humanGuidedDiscovery(.penInteraction):
-      "Observe the physical pen UP, DOWN, then UP again."
+      "Identify the pen-cap color on one exact frame, then observe the physical pen UP, DOWN, then UP again."
     case .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering):
       "Observe both X sides and both Y sides in paired order, then move Pen Up to their estimated center."
     case .humanGuidedDiscovery(.calibrateCameraAndVisibleCap):
@@ -534,8 +532,6 @@ struct LearningPathProjector: Sendable {
     case .stage(.observedDrawingTrials):
       "Create one attributable line, observe actual ink, and compare geometry."
     case .observedDrawingTrial(let step): drawingActionText(step)
-    case .stage(.adaptiveDrawing):
-      "Adaptive Drawing remains Future until multi-stroke checkpoint learning is implemented."
     }
   }
 }
@@ -918,7 +914,8 @@ extension LearningPathProjector {
       actions: [
         ExerciseActionDescriptor(
           kind: .start,
-          title: "Start",
+          title: itemID == .humanGuidedDiscovery(.penInteraction)
+            ? "Identify Pen Cap" : "Start",
           role: .positive,
           unavailableReason: reason
         )
@@ -1434,7 +1431,6 @@ extension LearningPathProjector {
     case .enableMotion: [.text("The current session reports Motion Enabled.")]
     case .humanGuidedDiscovery: [.cue(.up), .text("boundary, cap-map, and tip-map evidence.")]
     case .observedDrawingTrials: [.text("Observed ink and a typed geometry comparison.")]
-    case .adaptiveDrawing: [.text("Future multi-stroke observed adaptation.")]
     }
   }
 
@@ -1469,7 +1465,6 @@ extension LearningPathProjector {
         label: "Ink",
         fragments: [.text(snapshot.drawing.inkStatus)]
       )]
-    case .adaptiveDrawing: []
     }
   }
 
@@ -1478,7 +1473,7 @@ extension LearningPathProjector {
   ) -> [PresentationFragment] {
     switch step {
     case .penInteraction:
-      [.text("Confirm"), .cue(.up), .text("then"), .cue(.down), .text("then finish"), .cue(.up)]
+      [.text("Identify Pen Cap, confirm"), .cue(.up), .text("then"), .cue(.down), .text("then finish"), .cue(.up)]
     case .pairedBoundaryDiscoveryAndCentering:
       [.text("Choose a direction, observe the side, then press"), .cue(.stop)]
     case .calibrateCameraAndVisibleCap:

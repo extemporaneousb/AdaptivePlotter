@@ -32,7 +32,7 @@ extension OperatorWorkspaceTests {
     try await performPublicAction(.moveToEstimatedCenter, owner: owner, workspace: workspace)
 
     let expectedCenter = try MachinePosition(x: 0, y: 0)
-    #expect(camera.recordedAutomaticInspectionRequests == [.twoFPS, .twoFPS, .twoFPS])
+    #expect(camera.recordedAutomaticInspectionRequests == [.twoFPS, .twoFPS, .twoFPS, .twoFPS])
     #expect(!workspace.scopedVisionAnalysisActive)
     #expect(workspace.centerArrivalPosition == expectedCenter)
     #expect(workspace.learningArtifactGraph.currentRevision(for: .centerArrival) != nil)
@@ -265,9 +265,7 @@ extension OperatorWorkspaceTests {
         $0.id == .humanGuidedDiscovery(.penInteraction)
       }?.status == .current
     )
-    let adaptive = workspace.selectedOperatorActionPresentation(for: .stage(.adaptiveDrawing))
-    #expect(adaptive.status == .future)
-    #expect(adaptive.actionStrip == nil)
+    #expect(!LearningPathItemID.navigationOrder.contains { $0.number == "5" })
     await workspace.shutdown()
   }
 
@@ -284,6 +282,12 @@ extension OperatorWorkspaceTests {
 
     #expect(workspace.currentExerciseActionStripPresentation?.actions.map(\.kind) == [.start])
     await workspace.performExerciseAction(.start, for: owner)
+    #expect(
+      workspace.actionSurfacePresentation.pointSelectionRequest?.prompt
+        == "Click the pen cap body—not the tip—on the current camera frame."
+    )
+    #expect(workspace.currentExerciseActionStripPresentation?.actions.map(\.kind) == [.cancel])
+    try await identifyPenCap(workspace)
     let liveActions = workspace.currentExerciseActionStripPresentation?.actions.map(\.kind) ?? []
     #expect(liveActions.contains(.choice(.yes)))
     #expect(!liveActions.contains(.choice(.no)))
@@ -474,6 +478,7 @@ extension OperatorWorkspaceTests {
     )
     let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
     await workspace.performExerciseAction(.redoThisStep, for: owner)
+    try await identifyPenCap(workspace)
     try await finishPenInteraction(workspace)
 
     let newPen = try #require(
@@ -505,6 +510,7 @@ extension OperatorWorkspaceTests {
     let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
 
     await workspace.performExerciseAction(.redoThisStep, for: owner)
+    try submitPenCapClick(workspace)
     await workspace.performExerciseAction(.cancel, for: owner)
 
     #expect(

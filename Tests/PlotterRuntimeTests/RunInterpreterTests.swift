@@ -290,7 +290,7 @@ struct RunInterpreterTests {
     #expect(ready.link.completedWriteCount == ready.expectedWriteCount)
   }
 
-  @Test("Stop while camera renewal planning is suspended prevents another wire request")
+  @Test("Stop while async renewal planning is suspended prevents another wire request")
   func boundaryStopDuringRenewalPlanning() async throws {
     let ready = try await readyBoundaryCancellationFixture(naturalCompletionsBeforeBlock: 1)
     let plannerGate = InterpreterMachineReadGate()

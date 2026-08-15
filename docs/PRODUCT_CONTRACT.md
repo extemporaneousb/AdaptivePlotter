@@ -22,7 +22,7 @@ In scope:
 - one camera-first operator workbench;
 - current-session discovery and observed drawing trials;
 - sparse operator-selected contact evidence and explicit model acceptance;
-- conservative model learning from attributable evidence;
+- one attributable observed drawing trial;
 - causal simulator parity without physical authority.
 
 Out of scope:
@@ -33,6 +33,8 @@ Out of scope:
 - entered bounds treated as measured workspace authority;
 - automatic resend, resume, retap, continuation, or redraw after ambiguity;
 - Learning Path completion or model confidence as a general motion gate;
+- selectable Adaptive Drawing, online model learning, or model-mismatch UI in
+  the current curriculum;
 - simulator state as physical evidence.
 
 ## Runtime authority
@@ -51,11 +53,33 @@ identity. It retains only the newest raw buffer and publishes at most one newest
 preview when the final matching hold settles.
 
 The operator may lock the current presentation viewport as a generic scene-
-analysis region. The lock constrains which camera pixels generic cap, frame-side,
-drawing-frame, and armature scans may consume. It does not crop or mutate the
-stamped frame, change exact-frame identity, or constrain specialized workflow
-measurements that already carry their own typed regions. Changing camera source
-or configuration clears the lock.
+analysis region. The lock constrains which camera pixels requested pen-cap
+analysis may scan; an armature-envelope request expands its declared dependency
+to pen-cap analysis. Full-frame lock is canonicalized to unlocked/default
+analysis. The region does not crop or mutate the stamped frame, change exact-
+frame identity, alter whole-frame cap-size acceptance thresholds, or constrain
+specialized workflow measurements with their own typed regions. Changing camera
+source or configuration clears the lock.
+
+Exactly two persistent global scene-overlay choices exist: **Pen cap** and
+**Armature envelope**. The envelope is derived from the cap and must be labeled
+as inferred, not independently segmented. Preference, requested computation,
+typed run status, and exact-frame geometry are separate state. Only an operator
+action or persistence load may mutate preference. Scene, workflow, and simulator
+result channels have separate owners; one producer cannot erase another's
+result. Pure presentation composition renders geometry only when frame identity,
+camera configuration, and source all match.
+
+The visible run-state vocabulary is Off, Waiting, Analyzing, Found/Available,
+Not found/Unavailable, Candidate rejected, Ambiguous, Failed, Suspended, and
+Stale. Reasons must name zero threshold pixels, rejected component counts and
+leading rejection reason, ambiguous candidate sizes, source/frame mismatch, or
+the cap dependency that made the armature unavailable. Suspension says that
+exclusive calibration Vision owns the exact frame while the selection remains
+On. An available armature says it was inferred from the cap and not independently
+segmented. Before Pen Interaction has accepted a LIVE pen-cap appearance, the
+Pen cap and Armature envelope layers report Unavailable without changing their
+persisted operator selections or rendering LIVE geometry.
 
 `VisionWorker` and analysis pipelines produce measurements and diagnostics.
 They do not decide controller eligibility, machine direction, operator click,
@@ -132,8 +156,9 @@ bytes.
 ## Learning Path semantics
 
 The visible stages and exercises are ergonomic navigation. Complete, Current,
-Next, Future, and Needs Attention are presentation states, not an authorization
-ladder.
+Next, and Needs Attention are presentation states, not an authorization ladder.
+The implemented curriculum ends at **4.6 Compare Intended and Observed
+Geometry**. Adaptive Drawing is roadmap-only and has no selectable current row.
 
 The operator may turn Learning off when no Learning attempt owns work. This
 hides Learning navigation and prevents new Learning actions without clearing
@@ -158,22 +183,38 @@ During each mark selection, the predicted tip point is hidden until the operator
 clicks. After the click, the asserted point and uncertainty, predicted point,
 and residual are displayed.
 
-The operator-selected pen-cap color is a persisted recognition input. It feeds
-both bounded scene analysis and every Stage 3.3 exact-frame inspection. Changing
-the color clears stale cap/armature presentation and admits only newly analyzed
-frames; the selection itself is not an observation or calibration artifact.
-The color cannot change while automatic current-camera calibration is active,
-and one five-sample proposal accepts only cap-anchor evidence carrying the same
-color-specific estimator revision.
+Pen-cap appearance is learned only through the first **Identify Pen Cap** action
+of Pen Interaction; there is no editable color picker or parallel color-setting
+surface. Before any Pen Interaction question or pen request, the operator clicks
+the visibly colored cap body, not the tip, on one frozen exact frame. The app
+maps the click to exact camera pixels and takes a clipped 9 x 9 neighborhood.
+It rejects stale provenance, unsupported pixel format, insufficient chromatic
+pixels, and a gray, white, or dark representative color with a concrete reason.
+
+An accepted selection persists median RGB color together with the click point,
+frame ID and content hash, source, camera configuration, dimensions, pixel
+format, usable and total sample counts, and algorithm revision. It therefore
+supports arbitrary visibly colored caps, including blue, rather than assuming
+green. The learned color feeds both feature-selective generic scene analysis
+and every Stage 3.3 exact-frame inspection. One five-sample proposal accepts
+only cap-anchor evidence carrying the same appearance-specific estimator
+revision. The click is an operator assertion and recognition input; it does not
+by itself prove cap segmentation, calibration accuracy, physical pen state, or
+ink.
 
 ### 3.1 Pen Interaction
 
-Pen Interaction retains its existing exercise identity, attempt history, and
-Up → Down → Up sequence. The Up and Down steps each expose a servo-value slider,
-displaying the corresponding current setting. A fresh session is seeded at
-`S40` and `S760`; a repeated attempt starts from the values already current.
-Moving a slider commands its displayed value in the current step; **Next**
-remains available and accepts that value for the corresponding current setting.
+Pen Interaction retains its existing exercise identity and attempt history. Its
+first action is **Identify Pen Cap**, followed by the existing Up → Down → Up
+sequence. Identification must be accepted before the first question or any pen
+actuation request. A stale or rejected click keeps identification pending and
+performs no machine action.
+
+The Up and Down steps each expose a servo-value slider, displaying the
+corresponding current setting. A fresh session is seeded at `S40` and `S760`; a
+repeated attempt starts from the values already current. Moving a slider
+commands its displayed value in the current step; **Next** remains available
+and accepts that value for the corresponding current setting.
 
 The accepted Up and Down values are mutable operating settings, not a promise
 of one constant actuator position across the run. Repeating Pen Interaction at
@@ -226,9 +267,10 @@ the only movement-ending exercise action. Cancel becomes available only after
 movement settles.
 
 Boundary side identity is the operator's typed X−, X+, Y−, or Y+ direction plus
-settled controller evidence. Camera analysis may advise bounded renewal length
-but cannot identify or veto a side. Missing or stale camera advice cannot weaken
-direct controller authority.
+settled controller evidence. Boundary uses controller-owned fixed bounded 20 mm
+renewal segments with no Camera or Vision adviser. Operator Stop, fresh Idle,
+and final MPos remain the acceptance authority; camera availability cannot alter
+direction, renewal, Stop, or side acceptance.
 
 Any ambiguous circle-chord motion, Pen Down, or Pen Up outcome after possible
 contact creates possible ink. The circle center/radius plus paper-plane identity
@@ -257,6 +299,14 @@ Pen-Up cap anchors at `C`, `X−`, and `Y+` fit the initial affine map. `X+` and
 `Y−` are sealed independent holdouts. Both holdouts must pass the declared pixel
 residual policy before a weighted all-five refit can be staged. Explicit
 acceptance atomically creates the current `MachineCameraRegistration`.
+
+Each LIVE cap anchor requires exactly three strictly newer compatible exact
+inspection frames after a preliminary freshness boundary. Every frame must
+contain one accepted unambiguous cap candidate, and maximum pairwise cap-centroid
+spread must be at most 2 px. The newest third exact frame and its measured
+centroid, bounds, and confidence are retained without averaging; the preliminary
+frame is not accepted cap evidence. SIMULATED causal geometry remains separate
+nonphysical evidence and cannot prove live optical stability.
 
 The artifact retains all five exact-frame correspondences, roles, holdout
 residuals, uncertainty, applicability rectangle and derivation, semantic optical
@@ -380,8 +430,10 @@ drawing owner, return to the same reveal pose, strictly newer post-line frame,
 and generic black/new-ink observation. Its request and result cite the exact tip
 revision.
 
-An attributable observed line may be retained as future candidate refinement
-evidence. It cannot silently change the accepted model. Possible ink or
+Intended geometry, observed ink, and residuals are required contextual Stage 4
+evidence and have no global visibility toggles. An attributable observed line
+may be retained as future refinement evidence. It cannot silently change an
+accepted calibration. Possible ink or
 ambiguous motion never triggers automatic redraw or resend.
 
 ## Attempts, dependencies, reset, and simulation
@@ -421,11 +473,12 @@ capability to load, save, or clear LIVE durable machine or tip checkpoints. It
 cannot invoke physical `MachineActions`, satisfy physical artifacts, or become
 observed physical ink evidence.
 
-## Model-learning direction
+## Future adaptive direction
 
-Adaptive Drawing remains valid future scope. Candidate fitting, dataset splits,
-holdouts, residuals, and bounded experiment proposals may exist when they remain
-typed and attributable.
+Adaptive Drawing remains unapplied roadmap scope. Candidate fitting, dataset
+splits, holdouts, and bounded experiment proposals are not implemented or
+selectable in the current application. The former speculative online-learning
+and model-mismatch simulator code is intentionally absent.
 
 Model candidates are diagnostic until explicitly accepted against reserved
 physical observations. Fast state and slow parameters remain separate. Slow
