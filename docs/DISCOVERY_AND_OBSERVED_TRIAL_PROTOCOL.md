@@ -44,7 +44,10 @@ Euclidean policy.
 
 Presentation zoom, pan, and fitted bounds are available after 3.2. They are
 view-only. Exact camera-pixel evidence and calibration authority do not change
-when the presentation transform changes.
+when the presentation transform changes. Learning visibility and compatible
+presentation-context changes preserve the operator's zoom and pan; camera source
+or configuration changes reset them. A sparse-mark selection remains the one
+workflow that may request a stronger initial presentation focus.
 
 The only global scene-overlay preferences are **Pen cap** and **Armature
 envelope**. The envelope is inferred from the cap, not segmented. Generic
@@ -57,6 +60,10 @@ residuals are mandatory contextual evidence in Stage 4 and are not toggles.
 1. Start the existing Pen Interaction attempt. Before any Pen Interaction
    question or pen request, **Identify Pen Cap** freezes the current exact frame
    and asks the operator to click the colored cap body, not the tip.
+   When a valid LIVE cap appearance already exists, the frozen frame receives
+   its own exact requested scene-overlay analysis; geometry from an earlier
+   frame is never carried onto it. A first, unlearned appearance still requires
+   the click before LIVE overlay recognition can run.
 2. Map the presentation click back to the frozen camera frame and inspect the
    clipped 9 x 9 neighborhood. Reject a stale frame, unsupported pixel format,
    too few chromatic pixels, or a gray, white, or dark median with a concrete

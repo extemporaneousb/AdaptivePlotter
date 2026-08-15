@@ -122,6 +122,28 @@ struct PenCapAppearanceSelectionTests {
     await workspace.shutdown()
   }
 
+  @Test("re-entering Pen Interaction retains exact scene overlays on its frozen frame")
+  func learnedAppearanceProducesFrozenFrameOverlays() async throws {
+    let log = EventLog()
+    let machine = try MachineFixture(log: log)
+    let camera = try CameraFixture(providesInspectionOverlay: true)
+    let workspace = workspace(machine: machine, camera: camera, log: log)
+    await workspace.startCamera()
+    await workspace.establishMachineSession(machine.descriptor)
+    await workspace.requestPassiveProbe()
+
+    await workspace.beginPenInteraction()
+
+    let presentation = workspace.actionSurfacePresentation
+    let frozen = try #require(presentation.displayedFrame)
+    let request = try #require(presentation.pointSelectionRequest)
+    #expect(request.matches(frozen))
+    #expect(presentation.overlays.map(\.provenance.kind) == [.penCap])
+    #expect(presentation.overlays.allSatisfy { $0.matches(frozen) })
+    #expect(camera.inspectionCallCount >= 1)
+    await workspace.shutdown()
+  }
+
   @Test("stale click remains pending and performs no machine action")
   func staleClickRemainsPending() async throws {
     let log = EventLog()

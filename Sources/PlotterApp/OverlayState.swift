@@ -373,6 +373,24 @@ struct OverlayPresentationComposer {
         continue
       }
       if let active = sceneState.activeFrameSequence {
+        let exactCompletedScene = channels.scene.flatMap { scene in
+          scene.provenance.matches(displayedFrame) ? scene : nil
+        }
+        if let exactCompletedScene {
+          rendered.append(
+            contentsOf: exactCompletedScene.overlays.filter {
+              $0.provenance.kind == overlay.overlayKind
+            }
+          )
+          statuses[overlay] = exactCompletedScene.statuses[overlay]
+            ?? OverlayLayerStatus(
+              state: .failed,
+              message:
+                "Failed — measured Vision omitted typed \(overlay.title) status for exact frame \(exactCompletedScene.provenance.frameSequence).",
+              provenance: exactCompletedScene.provenance
+            )
+          continue
+        }
         statuses[overlay] = OverlayLayerStatus(
           state: .analyzing,
           message: OverlayStatusGrammar.analyzing(frame: active),

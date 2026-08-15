@@ -10,6 +10,38 @@ procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
 ## Implemented software surface
 
+### Stable exact-frame overlays and Learning viewport continuity
+
+Validated 2026-08-15 in Blackdog task `TASK-912F3060`, targeting `main`
+from base `6846f0b880622e24a78b3d5c5e85e30d9a934a44`.
+
+Automatic scene analysis now retains the last completed Pen cap and inferred
+Armature envelope geometry while the next frame is analyzing, but only while
+that completed result still matches the displayed exact frame. Its completed
+typed status also remains stable instead of oscillating through Analyzing. A
+stale frame or camera configuration still renders no scene geometry. Re-entering Identify Pen
+Cap with a valid LIVE appearance analyzes the newly frozen frame itself before
+presenting overlays; a first unlearned appearance still requires its exact-frame
+operator click before LIVE recognition can run.
+
+Action-surface zoom and pan now survive entering or leaving Learning and other
+compatible presentation-context revisions. Camera source/configuration changes
+still reset the viewport, and sparse-mark selection retains its explicit stronger
+initial focus.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| Focused overlay, viewport, and Identify Pen Cap tests | passed — 46 tests | analyze-cycle retention and stale refusal, Learning visibility, compatible zoom/pan continuity, source/configuration reset, sparse focus, and frozen-frame overlay identity |
+| `make quick-test` | passed — 377 tests | fast unit/component partition |
+| `make journey-test` | passed — 10 tests | sparse calibration, reset, Boundary, drawing, and Stop journeys |
+| `make strict-check` | passed — 387 tests | strict concurrency, warnings as errors, signed bundle, launcher validation, full test suite, and repository checks |
+| `git diff --check` | passed | whitespace and conflict markers |
+
+These results are software and deterministic fixture/simulator evidence. No
+attended camera, controller, motion, pen, operator-click, or observed-ink
+validation was performed, and the changed app was not launched against physical
+hardware.
+
 ### Limit-aware manual alarm unlock
 
 Validated 2026-08-14 in Blackdog task `TASK-01E545BB`, targeting `main`

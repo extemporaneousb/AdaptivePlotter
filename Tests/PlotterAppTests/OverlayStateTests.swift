@@ -178,6 +178,31 @@ struct OverlayStateTests {
     await workspace.shutdown()
   }
 
+  @Test("entering and leaving Learning preserves the current overlay presentation context")
+  func learningVisibilityDoesNotResetOverlays() async throws {
+    let log = EventLog()
+    let machine = try MachineFixture(log: log)
+    let camera = try CameraFixture(
+      providesInspectionOverlay: true,
+      providesAutomaticAnalysisResult: true
+    )
+    let workspace = workspace(machine: machine, camera: camera, log: log)
+    await workspace.startCamera()
+    let before = workspace.actionSurfacePresentation
+    #expect(before.overlays.map(\.provenance.kind) == [.penCap])
+
+    workspace.toggleLearningMode()
+    #expect(!workspace.learningIsEnabled)
+    workspace.toggleLearningMode()
+
+    let after = workspace.actionSurfacePresentation
+    #expect(workspace.learningIsEnabled)
+    #expect(after.viewportContext == before.viewportContext)
+    #expect(after.displayedFrame == before.displayedFrame)
+    #expect(after.overlays == before.overlays)
+    await workspace.shutdown()
+  }
+
   @Test("scene workflow and simulation producers cannot replace each other")
   func channelsDoNotOverwrite() throws {
     let configuration = CameraConfigurationID()
@@ -242,6 +267,70 @@ struct OverlayStateTests {
     #expect(composition.overlays.isEmpty)
     #expect(composition.statuses[.penCap]?.state == .stale)
     #expect(composition.statuses[.penCap]?.message == OverlayStatusGrammar.stale)
+  }
+
+  @Test("next-frame analysis retains completed geometry for the displayed exact frame")
+  func analyzingRetainsMatchingCompletedGeometry() throws {
+    let configuration = CameraConfigurationID()
+    let displayed = try displayedFrame(
+      id: "completed", source: .live(CameraDeviceID(rawValue: "camera")),
+      configuration: configuration, sequence: 40)
+    let stale = try displayedFrame(
+      id: "stale", source: displayed.source, configuration: configuration, sequence: 39)
+    var matchingChannels = OverlayResultChannels()
+    let completedStatus = OverlayLayerStatus(
+      state: .available,
+      message: OverlayStatusGrammar.found(pixelCount: 20, confidence: 0.9, frame: 40),
+      provenance: ExactFrameOverlayProvenance(displayed)
+    )
+    matchingChannels.publishScene(
+      OverlayChannelResult(
+        displayedFrame: displayed,
+        overlays: [try overlay(.penCap, frame: displayed)],
+        statuses: [.penCap: completedStatus]
+      )
+    )
+    let analyzing = PlotterSceneAnalysisSnapshot(
+      state: .running(.twoFPS),
+      submittedFrameCount: 2,
+      analyzedFrameCount: 1,
+      supersededFrameCount: 0,
+      failedFrameCount: 0,
+      activeFrameSequence: 41,
+      pendingFrameSequence: nil,
+      latestResult: nil,
+      lastError: nil
+    )
+
+    let matching = OverlayPresentationComposer.compose(
+      preference: .loaded([.penCap]),
+      channels: matchingChannels,
+      displayedFrame: displayed,
+      sceneState: analyzing,
+      sceneIsAvailable: true,
+      workflowVisionIsExclusive: false
+    )
+    #expect(matching.overlays.map(\.provenance.kind) == [.penCap])
+    #expect(matching.statuses[.penCap] == completedStatus)
+    #expect(matching.statuses[.penCap]?.provenance?.frameID == displayed.frame.id)
+
+    var staleChannels = OverlayResultChannels()
+    staleChannels.publishScene(
+      OverlayChannelResult(
+        displayedFrame: stale,
+        overlays: [try overlay(.penCap, frame: stale)]
+      )
+    )
+    let mismatched = OverlayPresentationComposer.compose(
+      preference: .loaded([.penCap]),
+      channels: staleChannels,
+      displayedFrame: displayed,
+      sceneState: analyzing,
+      sceneIsAvailable: true,
+      workflowVisionIsExclusive: false
+    )
+    #expect(mismatched.overlays.isEmpty)
+    #expect(mismatched.statuses[.penCap]?.state == .analyzing)
   }
 
   @Test("camera unavailability hides retained scene geometry and reports waiting")

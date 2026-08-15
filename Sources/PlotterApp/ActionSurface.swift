@@ -208,10 +208,19 @@ struct ActionSurfaceViewportState: Equatable, Sendable {
 
   mutating func synchronize(with context: ActionSurfaceViewportContext?) {
     guard self.context != context else { return }
+    let preservesOperatorView =
+      self.context.map { previous in
+        guard let context else { return false }
+        return previous.source == context.source
+          && previous.cameraConfigurationID == context.cameraConfigurationID
+          && context.preferredInitialZoom == 0
+      } ?? false
     self.context = context
-    zoom = min(1, max(0, context?.preferredInitialZoom ?? 0))
-    panOffsetX = 0
-    panOffsetY = 0
+    if !preservesOperatorView {
+      zoom = min(1, max(0, context?.preferredInitialZoom ?? 0))
+      panOffsetX = 0
+      panOffsetY = 0
+    }
     presentationTransformRevision = PresentationTransformRevision()
   }
 

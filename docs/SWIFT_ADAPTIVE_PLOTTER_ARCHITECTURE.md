@@ -61,6 +61,9 @@ to pen-cap computation and requests no unrelated kernel. Typed
 age out of preference. `OverlayResultChannels` owns independent scene, workflow,
 and simulation results. `OverlayPresentationComposer` is pure and renders only
 source/configuration/frame-exact geometry, so one producer cannot clear another.
+If the displayed frame still matches the completed scene result, the composer
+retains that geometry and its completed typed status while the next frame is
+analyzing, and swaps only after a new completed exact-frame result is installed.
 
 `OperatorWorkspace` maps the selected scene features to one newest-only
 automatic-analysis request and one selected cadence. Video Settings may lock the

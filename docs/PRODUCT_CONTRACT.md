@@ -68,7 +68,11 @@ typed run status, and exact-frame geometry are separate state. Only an operator
 action or persistence load may mutate preference. Scene, workflow, and simulator
 result channels have separate owners; one producer cannot erase another's
 result. Pure presentation composition renders geometry only when frame identity,
-camera configuration, and source all match.
+camera configuration, and source all match. While a newer frame is analyzing,
+the last completed geometry remains renderable only over its still-displayed
+exact source frame; result completion replaces the displayed-frame/geometry pair
+atomically. Analysis activity alone never removes matching completed geometry
+or replaces its completed typed status with a transient one.
 
 The visible run-state vocabulary is Off, Waiting, Analyzing, Found/Available,
 Not found/Unavailable, Candidate rejected, Ambiguous, Failed, Suspended, and
@@ -176,7 +180,10 @@ Navigator selection is presentation-only. Presentation zoom, pan, and fitted
 learned bounds do not change exact pixels, frame provenance, artifact validity,
 or completion state. Explicitly locking the current viewport copies its
 camera-pixel rectangle into the generic scene-analysis policy; the preceding
-presentation operations remain non-evidence.
+presentation operations remain non-evidence. Entering or leaving Learning and
+compatible presentation-context revisions preserve operator zoom and pan. A
+camera source/configuration change resets them, while a sparse-mark selection
+may explicitly request its stronger initial focus.
 
 Before accepted tip authority exists, the UI states **Tip not calibrated**.
 During each mark selection, the predicted tip point is hidden until the operator

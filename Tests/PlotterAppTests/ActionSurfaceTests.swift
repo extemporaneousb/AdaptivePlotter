@@ -99,7 +99,7 @@ func viewportZoomEndpointsAndInterpolation() {
   #expect(viewport.presentationTransformRevision != evidenceRevision)
 }
 
-@Test("Viewport zoom is presentation-only and resets for semantic context changes")
+@Test("Viewport preserves operator zoom across compatible semantic context changes")
 func viewportPresentationOnlyContext() {
   let context = ActionSurfaceViewportContext(
     source: .simulated,
@@ -111,6 +111,13 @@ func viewportPresentationOnlyContext() {
   var viewport = ActionSurfaceViewportState()
   viewport.synchronize(with: context)
   viewport.zoom = 0.72
+  viewport.pan(
+    by: CGSize(width: -20, height: -10),
+    viewSize: CGSize(width: 640, height: 480),
+    frameWidth: 640,
+    frameHeight: 480
+  )
+  let operatorRegion = viewport.visibleRegion(frameWidth: 640, frameHeight: 480)
   viewport.synchronize(with: context)
   #expect(viewport.zoom == 0.72)
   viewport.synchronize(
@@ -120,6 +127,28 @@ func viewportPresentationOnlyContext() {
       fittedRegion: context.fittedRegion,
       preferredInitialZoom: 0,
       presentationRevisionToken: "machine-fit-2"
+    ))
+  #expect(viewport.zoom == 0.72)
+  #expect(viewport.visibleRegion(frameWidth: 640, frameHeight: 480) == operatorRegion)
+
+  viewport.synchronize(
+    with: ActionSurfaceViewportContext(
+      source: context.source,
+      cameraConfigurationID: context.cameraConfigurationID,
+      fittedRegion: PixelRect(x: 25, y: 35, width: 40, height: 50),
+      preferredInitialZoom: 1,
+      presentationRevisionToken: "sparse-mark-focus"
+    ))
+  #expect(viewport.zoom == 1)
+
+  viewport.zoom = 0.44
+  viewport.synchronize(
+    with: ActionSurfaceViewportContext(
+      source: context.source,
+      cameraConfigurationID: CameraConfigurationID(),
+      fittedRegion: context.fittedRegion,
+      preferredInitialZoom: 0,
+      presentationRevisionToken: "different-camera"
     ))
   #expect(viewport.zoom == 0)
 }

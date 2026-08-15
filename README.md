@@ -202,7 +202,13 @@ from the detected cap and is not independently segmented. Selecting either
 overlay directly keeps bounded newest-only analysis running; there is no
 separate Analyze/Resume control.
 Automatic overlay computation does not dim, badge, or pause preview
-publication. Locking the viewport admits only that
+publication. A completed overlay remains visible over its matching displayed
+frame with its completed status while the next frame is analyzed, then the
+displayed-frame/overlay pair is replaced atomically. Entering or leaving
+Learning and other compatible presentation-context changes preserve operator
+zoom and pan; a source or camera-
+configuration change still resets them, and sparse-mark selection may request
+its documented stronger initial focus. Locking the viewport admits only that
 camera-pixel subregion to generic scene-analysis scans without cropping or
 rewriting the exact stamped frame. A generic viewport region never constrains
 calibration or observed-trial measurements, and full-frame lock is canonicalized

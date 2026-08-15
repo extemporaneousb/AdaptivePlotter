@@ -2764,7 +2764,36 @@ final class OperatorWorkspace {
     )
     do {
       let boundary = displayedFrame?.frame.captureNanoseconds ?? 0
-      let frame = try await captureProtocolFrame(newerThan: boundary)
+      var frame: DisplayedFrame?
+      if frameMode == .live, livePenCapAppearanceSelection != nil, sceneAnalysisIsRequested {
+        do {
+          if let inspection = try await inspectWorkflowScene(
+            newerThan: boundary,
+            requestedFeatures: requestedSceneFeatures,
+            analysisRegion: videoAnalysisRegionLock?.region
+          ) {
+            frame = inspection.displayedFrame
+            displayedFrame = inspection.displayedFrame
+            latestLiveCameraFrame = inspection.displayedFrame
+            lastSceneMeasurement = inspection.measurement
+            overlayResultChannels.publishScene(
+              overlayChannelResult(
+                displayedFrame: inspection.displayedFrame,
+                measurement: inspection.measurement
+              )
+            )
+          }
+        } catch {
+          visionError =
+            "Frozen-frame overlay analysis failed — \(actionableDescription(error))"
+        }
+      }
+      if frame == nil {
+        frame = try await captureProtocolFrame(newerThan: boundary)
+      }
+      guard let frame else {
+        throw LearningPathOperationError.freshFrameUnavailable
+      }
       let exact = try exactTipCalibrationFrame(frame)
       penCapAppearanceSelectionContext = PenCapAppearanceSelectionContext(
         frame: frame,
