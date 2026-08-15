@@ -15,6 +15,9 @@ enum MachineSessionComposition {
     requestPassiveProbe: {
       try await session.requestPassiveProbe()
     },
+    requestControllerAlarmClear: {
+      await session.requestControllerAlarmClear()
+    },
     activateMotionGuard: {
       await session.activateMotionGuard()
     },
@@ -116,6 +119,11 @@ private actor PersistentMachineSession {
   func requestPassiveProbe() async throws -> PassiveProbeResult {
     guard let interpreter else { throw MachineSessionCompositionError.noSelectedController }
     return try await interpreter.requestPassiveProbe()
+  }
+
+  func requestControllerAlarmClear() async -> ControllerAlarmClearOutcome {
+    guard let interpreter else { return .refused(.noSerialDeviceSelected) }
+    return await interpreter.requestControllerAlarmClear()
   }
 
   func activateMotionGuard() async -> MotionGuardActivationOutcome {

@@ -800,6 +800,7 @@ final class OperatorWorkspace {
     let select: @Sendable (MachineLinkDescriptor) async throws -> RunInterpreterSnapshot
     let snapshot: @Sendable () async -> RunInterpreterSnapshot?
     let requestPassiveProbe: @Sendable () async throws -> PassiveProbeResult
+    let requestControllerAlarmClear: @Sendable () async -> ControllerAlarmClearOutcome
     let activateMotionGuard: @Sendable () async -> MotionGuardActivationOutcome
     let deactivateMotionGuard: @Sendable () async -> Void
     let requestRelativeJog: @Sendable (RelativeJogRequest) async -> MotionOutcome
@@ -872,6 +873,7 @@ final class OperatorWorkspace {
   private(set) var passiveProbeResult: PassiveProbeResult?
   private(set) var machineSnapshot: RunInterpreterSnapshot?
   private(set) var machineError: String?
+  private(set) var controllerAlarmClearInProgress = false
   private(set) var controllerConnectionActionInProgress = false
   private(set) var passiveProbeInProgress = false
   private(set) var jogRequestInProgress = false
@@ -1615,6 +1617,7 @@ final class OperatorWorkspace {
     return switch operation {
     case .idle: "idle"
     case .passiveProbe: "controller inspection"
+    case .alarmClear: "clearing controller alarm"
     case .relativeJog: "relative jog"
     case .boundaryMotion: "Boundary Discovery motion"
     case .drawingStroke: "isolated drawing stroke"
@@ -1757,6 +1760,50 @@ final class OperatorWorkspace {
     }
     if controllerLinkIsOpen { return nil }
     return passiveProbeUnavailableReason
+  }
+
+  var controllerAlarmEvidenceText: String? {
+    guard frameMode == .live else { return nil }
+    return machineSnapshot?.machine.blockers.compactMap { blocker in
+      if case .controllerAlarm(let detail) = blocker { return detail }
+      return nil
+    }.first
+  }
+
+  var controllerAttentionText: String? {
+    if let machineError { return machineError }
+    if let blocker = machineSnapshot?.machine.blockers.first {
+      return machineBlockerLabel(blocker)
+    }
+    guard let outcome = machineSnapshot?.machine.lastAlarmClearOutcome else { return nil }
+    switch outcome {
+    case .acknowledged:
+      return nil
+    case .refused, .controllerRejected, .unconfirmed:
+      return outcome.actionableDescription
+    }
+  }
+
+  var controllerAlarmClearActionUnavailableReason: String? {
+    if let reason = currentCameraCalibrationBusyReason { return reason }
+    if frameMode == .simulated { return "SIMULATED owns no physical controller alarm." }
+    if controllerAlarmClearInProgress { return "Clear Alarm is already in progress." }
+    if controllerConnectionActionInProgress { return "Wait for the controller connection action." }
+    if passiveProbeInProgress || jogRequestInProgress || penRequestInProgress
+      || jogCancelRequestInProgress || motionGuardActivationInProgress
+      || machineSnapshot?.machine.operationInFlight == true
+      || machineSnapshot?.currentOperation != .idle
+      || activeExplorationOperation != nil || activeDiscoverySequenceID != nil
+    {
+      return "Wait for the current operation before clearing the controller alarm."
+    }
+    if let ambiguity = machineSnapshot?.machine.stickyAmbiguity {
+      return ControllerAlarmClearRefusal.stickyAmbiguity(ambiguity).actionableDescription
+    }
+    guard controllerAlarmEvidenceText != nil else {
+      return ControllerAlarmClearRefusal.noCurrentAlarmEvidence.actionableDescription
+    }
+    return nil
   }
 
   var frameModeSwitchUnavailableReason: String? {
@@ -2147,7 +2194,7 @@ final class OperatorWorkspace {
     if let ambiguity = machineSnapshot?.machine.stickyAmbiguity {
       return .needsAttention(ambiguity.actionableDescription)
     }
-    if let machineError { return .needsAttention(machineError) }
+    if let controllerAttentionText { return .needsAttention(controllerAttentionText) }
     if jogRequestInProgress || penRequestInProgress || jogCancelRequestInProgress
       || activeStopTarget != nil
     {
@@ -2316,7 +2363,7 @@ final class OperatorWorkspace {
         motionGuardStateText: motionGuardStateText,
         connectionActionTitle: controllerConnectionActionTitle,
         workbenchStatusText: workbenchStatusText,
-        machineError: machineError,
+        machineError: controllerAttentionText,
         directMotionUnavailableReason: directCarriageMotionUnavailableReason
       ),
       boundary: .init(
@@ -5039,6 +5086,47 @@ final class OperatorWorkspace {
     }
   }
 
+  /// Explicit operator-owned alarm unlock. `$X` acknowledgement is never
+  /// treated as connection or motion authority; this action always follows it
+  /// with a complete passive probe before publishing current controller facts.
+  func clearControllerAlarm() async {
+    guard controllerAlarmClearActionUnavailableReason == nil, let machineActions else { return }
+    guard let generation = beginHardwareIntent() else { return }
+    defer { endHardwareIntent() }
+    controllerAlarmClearInProgress = true
+    machineError = nil
+    defer { controllerAlarmClearInProgress = false }
+
+    let outcome = await machineActions.requestControllerAlarmClear()
+    var snapshot = await machineActions.snapshot()
+    guard canCommit(generation) else { return }
+    machineSnapshot = snapshot
+    guard outcome == .acknowledged else {
+      machineError = outcome.actionableDescription
+      return
+    }
+
+    passiveProbeInProgress = true
+    passiveProbeResult = nil
+    defer { passiveProbeInProgress = false }
+    do {
+      let probe = try await machineActions.requestPassiveProbe()
+      snapshot = await machineActions.snapshot()
+      guard canCommit(generation) else { return }
+      passiveProbeResult = probe
+      machineSnapshot = snapshot
+      revalidateParkedAcceptedArtifactCheckpoint(
+        with: probe,
+        currentPosition: snapshot?.machine.position
+      )
+    } catch {
+      snapshot = await machineActions.snapshot()
+      guard canCommit(generation) else { return }
+      machineError = actionableDescription(error)
+      machineSnapshot = snapshot
+    }
+  }
+
   func requestPenActuation(_ command: PenCommand) async {
     if frameMode == .simulated {
       guard penUnavailableReason(for: command) == nil else { return }
@@ -7671,6 +7759,7 @@ final class OperatorWorkspace {
     passiveProbeResult = nil
     machineSnapshot = nil
     machineError = nil
+    controllerAlarmClearInProgress = false
     passiveProbeInProgress = false
     jogRequestInProgress = false
     penRequestInProgress = false

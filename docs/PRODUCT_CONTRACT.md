@@ -18,6 +18,7 @@ In scope:
 
 - one persistent controller owner and one persistent camera owner;
 - typed controller requests and typed observations;
+- explicit operator-owned alarm inspection and alarm-lock clearing;
 - one camera-first operator workbench;
 - current-session discovery and observed drawing trials;
 - sparse operator-selected contact evidence and explicit model acceptance;
@@ -28,7 +29,7 @@ Out of scope:
 
 - a web server, Python bridge, remote backend, or second product process;
 - arbitrary G-code or natural-language-to-motion translation;
-- homing, unlock, alarm clear, controller reset, or firmware writes;
+- homing, controller reset, or firmware/configuration writes;
 - entered bounds treated as measured workspace authority;
 - automatic resend, resume, retap, continuation, or redraw after ambiguity;
 - Learning Path completion or model confidence as a general motion gate;
@@ -70,6 +71,31 @@ evidence authority.
 `RunLedger` records ordered diagnostic facts. Raw controller events and typed
 workflow events remain distinct. Ledger facts cannot replay work, restore a
 capability, or promote an artifact.
+
+### Controller alarm recovery
+
+**Connect** is passive: it opens the selected serial link and runs the complete
+controller probe. It never sends unlock, homing, reset, motion, pen, or firmware
+commands. A failed probe retains its typed alarm, controller error, timeout,
+invalid-reply, or transport blocker for the workbench even though the serial
+link is closed.
+
+**Clear Alarm** is available only when the latest probe from the current
+selected controller contains typed alarm evidence. It sends one explicit `$X`
+alarm-lock override under `MachineController` serialization. It does not home,
+recover position, clear a physically asserted limit input, reset the controller,
+or enable Motion. Acknowledgement proves only that the controller accepted the
+unlock request. The same operator action then runs a fresh complete passive
+probe. An alarm, controller error, timeout, invalid reply, or transport failure
+keeps the session disconnected or blocked. A clean probe may establish a
+responsive session while an asserted limit remains a separate direct Motion
+admission blocker.
+
+Motion authorization is inactive throughout alarm recovery. After a clean
+fresh probe, the operator must separately press **Enable Motion**, and every
+later machine-affecting request still requires fresh controller admission. An
+unconfirmed or rejected alarm-clear request is recorded and never retried
+automatically.
 
 ## Evidence discipline
 

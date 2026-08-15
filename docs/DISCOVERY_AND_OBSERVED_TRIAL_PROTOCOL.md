@@ -20,6 +20,15 @@ Every interactive step exposes:
 Announcements are advisory output. Buttons own answers, Start, Cancel, Stop,
 Restart, Redo, re-click, and acceptance.
 
+Before Learning Path motion, **Connect** performs only the complete passive
+controller probe. A returned alarm or fault remains visible as typed current
+controller evidence while the failed link is closed. If an alarm is reported,
+the operator must inspect the physical cause before choosing **Clear Alarm**.
+That explicit action sends one alarm-lock override and immediately runs a fresh
+complete passive probe. It does not home, recover position, clear limit inputs,
+or enable Motion. No unlock is sent during Connect, no failed clear is retried,
+and **Enable Motion** remains a separate operator action after a clean probe.
+
 Cancel abandons a settled attempt. Stop settles an admitted stoppable owner.
 They may share a mechanical Jog Cancel primitive but never share a successful
 semantic disposition. Sticky ambiguity suppresses new physical motion.

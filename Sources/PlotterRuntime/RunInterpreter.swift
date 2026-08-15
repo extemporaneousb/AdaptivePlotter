@@ -80,6 +80,7 @@ public enum DrawingStrokeAdmission: Sendable {
 public enum RunOperation: Hashable, Sendable {
   case idle
   case passiveProbe
+  case alarmClear
   case relativeJog(RelativeJogRequest)
   case boundaryMotion(BoundaryMotionRequest)
   case drawingStroke(DrawingStrokeRequest)
@@ -170,6 +171,17 @@ public actor RunInterpreter {
     let result = await machineController.runPassiveProbe()
     try completePassiveProbe(token: token, result: result)
     return result
+  }
+
+  public func requestControllerAlarmClear() async -> ControllerAlarmClearOutcome {
+    guard currentOperation == .idle, activeTransition == nil else {
+      return .refused(.operationInFlight)
+    }
+    generation &+= 1
+    currentOperation = .alarmClear
+    let outcome = await machineController.requestControllerAlarmClear()
+    if currentOperation == .alarmClear { currentOperation = .idle }
+    return outcome
   }
 
   public func activateMotionGuard() async -> MotionGuardActivationOutcome {
@@ -445,7 +457,7 @@ public actor RunInterpreter {
       break
     case .boundaryMotion:
       return .refused(.noActiveJog)
-    case .idle, .passiveProbe, .penActuation:
+    case .idle, .passiveProbe, .alarmClear, .penActuation:
       let outcome = await machineController.requestJogCancel()
       lastJogCancelOutcome = outcome
       return outcome

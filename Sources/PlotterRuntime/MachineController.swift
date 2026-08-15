@@ -27,6 +27,7 @@ public struct MachineSnapshot: Codable, Hashable, Sendable {
   public let lastMotionOutcome: MotionOutcome?
   public let lastDrawingStrokeOutcome: DrawingStrokeOutcome?
   public let lastPenOutcome: PenOutcome?
+  public let lastAlarmClearOutcome: ControllerAlarmClearOutcome?
   public let jogCancellationInFlight: Bool
   public let lastJogCancelOutcome: JogCancelOutcome?
   public let controllerAxisFeedLimits: ControllerAxisFeedLimits?
@@ -46,6 +47,7 @@ public struct MachineSnapshot: Codable, Hashable, Sendable {
     lastMotionOutcome: MotionOutcome? = nil,
     lastDrawingStrokeOutcome: DrawingStrokeOutcome? = nil,
     lastPenOutcome: PenOutcome? = nil,
+    lastAlarmClearOutcome: ControllerAlarmClearOutcome? = nil,
     jogCancellationInFlight: Bool = false,
     lastJogCancelOutcome: JogCancelOutcome? = nil,
     controllerAxisFeedLimits: ControllerAxisFeedLimits? = nil
@@ -64,6 +66,7 @@ public struct MachineSnapshot: Codable, Hashable, Sendable {
     self.lastMotionOutcome = lastMotionOutcome
     self.lastDrawingStrokeOutcome = lastDrawingStrokeOutcome
     self.lastPenOutcome = lastPenOutcome
+    self.lastAlarmClearOutcome = lastAlarmClearOutcome
     self.jogCancellationInFlight = jogCancellationInFlight
     self.lastJogCancelOutcome = lastJogCancelOutcome
     self.controllerAxisFeedLimits = controllerAxisFeedLimits
@@ -94,6 +97,7 @@ public actor MachineController {
 
   private enum ActiveOperation {
     case passiveProbe
+    case alarmClear
     case relativeJog
     case drawingStroke
     case penActuation
@@ -157,6 +161,7 @@ public actor MachineController {
   private var lastMotionOutcome: MotionOutcome?
   private var lastDrawingStrokeOutcome: DrawingStrokeOutcome?
   private var lastPenOutcome: PenOutcome?
+  private var lastAlarmClearOutcome: ControllerAlarmClearOutcome?
   private var activeJogCommandTransmitted = false
   private var preTransmissionJogCancellationRequested = false
   private var jogCancellationProgress: JogCancellationProgress?
@@ -237,6 +242,7 @@ public actor MachineController {
       lastMotionOutcome: lastMotionOutcome,
       lastDrawingStrokeOutcome: lastDrawingStrokeOutcome,
       lastPenOutcome: lastPenOutcome,
+      lastAlarmClearOutcome: lastAlarmClearOutcome,
       jogCancellationInFlight: jogCancellationProgress != nil,
       lastJogCancelOutcome: lastJogCancelOutcome,
       controllerAxisFeedLimits: controllerAxisFeedLimits
@@ -320,6 +326,64 @@ public actor MachineController {
       await closeAndInvalidateKnowledge()
     }
     return finishProbe(probeID: probeID, started: started, exchanges: exchanges)
+  }
+
+  /// Sends one explicit GRBL/grblHAL `$X` request only when the latest probe
+  /// for this selected controller reported an alarm. An acknowledgement does
+  /// not establish a responsive session; the caller must run a fresh probe.
+  public func requestControllerAlarmClear() async -> ControllerAlarmClearOutcome {
+    if let refusal = validateControllerAlarmClear() {
+      return finishControllerAlarmClear(.refused(refusal))
+    }
+    activeOperation = .alarmClear
+    motionGuardState = .inactive
+    defer { activeOperation = nil }
+
+    do {
+      try await ensureConnected()
+      try await link.discardPendingInput()
+      try await serializedWrite(Self.encodeControllerAlarmClear)
+      recordRawIOBestEffort(
+        RawMachineIO(
+          direction: .transmit,
+          bytes: Self.encodeControllerAlarmClear,
+          timestamp: timestamp()
+        )
+      )
+    } catch let error as MachineLinkError {
+      let outcome = ControllerAlarmClearOutcome.unconfirmed(
+        controllerAlarmClearUncertainty(for: error)
+      )
+      await closeAndInvalidateKnowledge()
+      return finishControllerAlarmClear(outcome)
+    } catch {
+      let outcome = ControllerAlarmClearOutcome.unconfirmed(.transport(String(describing: error)))
+      await closeAndInvalidateKnowledge()
+      return finishControllerAlarmClear(outcome)
+    }
+
+    let outcome: ControllerAlarmClearOutcome
+    switch await awaitCommandAcknowledgement(context: "Clear Alarm") {
+    case .accepted:
+      controllerState = nil
+      position = nil
+      pins = ControllerPins(rawValue: "")
+      penState = .unknown
+      motionGuardState = .inactive
+      controllerAxisFeedLimits = nil
+      controllerMotionTiming = nil
+      outcome = .acknowledged
+    case .rejected(let detail):
+      outcome = .controllerRejected(detail)
+      await closeAndInvalidateKnowledge()
+    case .ambiguous(.controllerAlarm(let detail)):
+      outcome = .controllerRejected(detail)
+      await closeAndInvalidateKnowledge()
+    case .ambiguous(let ambiguity):
+      outcome = .unconfirmed(controllerAlarmClearUncertainty(for: ambiguity))
+      await closeAndInvalidateKnowledge()
+    }
+    return finishControllerAlarmClear(outcome)
   }
 
   public func requestRelativeJog(_ request: RelativeJogRequest) async -> MotionOutcome {
@@ -1093,6 +1157,10 @@ public actor MachineController {
   /// byte (`!`) and not an emergency-stop claim.
   public static let encodeJogCancel = Data([0x85])
 
+  /// GRBL/grblHAL alarm-lock override. This is not homing, reset, motion,
+  /// position recovery, or motion authorization.
+  public static let encodeControllerAlarmClear = Data("$X\n".utf8)
+
   private func ensureConnected() async throws {
     if connection == .connected || connection == .probing || connection == .moving
       || connection == .actuatingPen
@@ -1106,6 +1174,67 @@ public actor MachineController {
     } catch {
       connection = .blocked
       throw error
+    }
+  }
+
+  private func validateControllerAlarmClear() -> ControllerAlarmClearRefusal? {
+    guard selectionIsExplicit else { return .noSerialDeviceSelected }
+    if let stickyAmbiguity { return .stickyAmbiguity(stickyAmbiguity) }
+    guard activeOperation == nil else { return .operationInFlight }
+    guard lastProbe?.link == link.descriptor,
+      blockers.contains(where: {
+        if case .controllerAlarm = $0 { return true }
+        return false
+      })
+    else { return .noCurrentAlarmEvidence }
+    return nil
+  }
+
+  private func controllerAlarmClearUncertainty(
+    for error: MachineLinkError
+  ) -> ControllerAlarmClearUncertainty {
+    switch error {
+    case .writeTimedOut(let written, let total):
+      return .writeTimedOut(written: written, total: total)
+    case .writeCancelled(let written, let total):
+      return .writeCancelled(written: written, total: total)
+    case .disconnected, .notOpen:
+      return .disconnected
+    case .timedOut:
+      return .acknowledgementTimedOut
+    case .readExceededMaximum(let expected, let actual):
+      return .malformedReply("read \(actual) bytes beyond the \(expected)-byte bound")
+    case .alreadyOpen, .unexpectedWrite, .invalidPath, .operatingSystem:
+      return .transport(String(describing: error))
+    }
+  }
+
+  private func controllerAlarmClearUncertainty(
+    for ambiguity: MotionAmbiguity
+  ) -> ControllerAlarmClearUncertainty {
+    switch ambiguity {
+    case .partialWrite(let written, let total):
+      return .partialWrite(written: written, total: total)
+    case .writeTimedOut(let written, let total):
+      return .writeTimedOut(written: written, total: total)
+    case .writeCancelled(let written, let total):
+      return .writeCancelled(written: written, total: total)
+    case .acceptanceTimedOut, .completionTimedOut:
+      return .acknowledgementTimedOut
+    case .disconnected:
+      return .disconnected
+    case .malformedReply(let detail):
+      return .malformedReply(detail)
+    case .controllerAlarm(let detail):
+      return .malformedReply("controller remained alarmed: \(detail)")
+    case .controllerHold:
+      return .malformedReply("controller entered Hold")
+    case .unexpectedControllerState(let state):
+      return .malformedReply("controller entered \(state.rawValue)")
+    case .settleCommandRejected(let detail):
+      return .malformedReply("controller rejected settlement: \(detail)")
+    case .transport(let detail):
+      return .transport(detail)
     }
   }
 
@@ -1633,6 +1762,25 @@ public actor MachineController {
   private func finishPen(command: PenCommand, outcome: PenOutcome) -> PenOutcome {
     lastPenOutcome = outcome
     recordPenBestEffort(command: command, outcome: outcome)
+    return outcome
+  }
+
+  private func finishControllerAlarmClear(
+    _ outcome: ControllerAlarmClearOutcome
+  ) -> ControllerAlarmClearOutcome {
+    lastAlarmClearOutcome = outcome
+    let record = ControllerAlarmClearRecord(
+      link: link.descriptor,
+      outcome: outcome,
+      timestamp: timestamp()
+    )
+    if let payload = try? JSONEncoder().encode(record) {
+      enqueueLedgerEvent(
+        timestamp: record.timestamp,
+        kind: "machine.alarm_clear.result",
+        payload: payload
+      )
+    }
     return outcome
   }
 

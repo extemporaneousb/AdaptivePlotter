@@ -641,6 +641,36 @@ private struct MotionPanel: View {
 
       fact("Controller link", workspace.controllerConnectionText)
       fact("Controller", workspace.controllerStateText)
+      fact("Controller alert", workspace.controllerAttentionText ?? "none reported")
+      if let alarm = workspace.controllerAlarmEvidenceText {
+        VStack(alignment: .leading, spacing: 5) {
+          Text("Reported alarm: \(alarm)")
+            .font(.caption.monospaced())
+            .foregroundStyle(.orange)
+            .textSelection(.enabled)
+          Text(
+            "Clear Alarm removes only the controller's alarm lock. It does not home, recover position, clear asserted limit inputs, enable Motion, or prove that movement is safe."
+          )
+          .font(.caption2)
+          .foregroundStyle(.secondary)
+          Button {
+            Task { await workspace.clearControllerAlarm() }
+          } label: {
+            Label(
+              workspace.controllerAlarmClearInProgress ? "Clearing Alarm…" : "Clear Alarm",
+              systemImage: "exclamationmark.triangle.fill"
+            )
+          }
+          .operatorButton(
+            .negative,
+            isEnabled: workspace.controllerAlarmClearActionUnavailableReason == nil
+          )
+          .help(
+            workspace.controllerAlarmClearActionUnavailableReason
+              ?? "Send one explicit alarm-unlock request, then run a fresh passive controller probe"
+          )
+        }
+      }
       fact("Motor power", workspace.motorPowerText)
       fact("Motion", workspace.motionGuardIsActive ? "enabled" : "disabled")
       fact("Motion request", workspace.motionPermissionText)

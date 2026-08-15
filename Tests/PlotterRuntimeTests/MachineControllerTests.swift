@@ -70,6 +70,110 @@ struct MachineControllerTests {
     #expect(result.exchanges.count == 1)
     #expect(result.exchanges[0].lines.first?.kind == .alarm(code: "2"))
     #expect(result.blockers == [.controllerAlarm("ALARM:2")])
+    #expect(link.completedWriteCount == 1)
+    #expect((await controller.snapshot()).lastAlarmClearOutcome == nil)
+  }
+
+  @Test("Clear Alarm requires current typed alarm evidence and writes nothing otherwise")
+  func alarmClearRequiresCurrentAlarmEvidence() async throws {
+    let fixture = try await Fixture.make()
+    let link = SimulatedGRBLLink(exchanges: [], clock: fixture.clock)
+    let controller = MachineController(link: link, clock: fixture.clock)
+
+    #expect(
+      await controller.requestControllerAlarmClear()
+        == .refused(.noCurrentAlarmEvidence)
+    )
+    #expect(link.completedWriteCount == 0)
+    #expect((await controller.snapshot()).motionGuardState == .inactive)
+  }
+
+  @Test("explicit alarm unlock acknowledgement still requires a fresh complete probe")
+  func alarmClearAcknowledgementRequiresFreshProbe() async throws {
+    let fixture = try await Fixture.make()
+    var exchanges = [
+      ControllerTranscriptFixtures.exchange(.buildInfo, chunks: ["ALARM:2\r\n"]),
+      SimulatedCommandExchange(
+        expectedWrite: MachineController.encodeControllerAlarmClear,
+        reads: [
+          ScheduledMachineRead(
+            delayNanoseconds: 0,
+            outcome: .bytes(Data("[MSG:Caution: Unlocked]\r\nok\r\n".utf8))
+          )
+        ]
+      ),
+    ]
+    exchanges.append(contentsOf: ControllerTranscriptFixtures.successfulPassiveProbe())
+    let link = SimulatedGRBLLink(exchanges: exchanges, clock: fixture.clock)
+    let controller = MachineController(
+      link: link,
+      ledger: fixture.ledger,
+      runID: fixture.runID,
+      clock: fixture.clock,
+      queryTimeoutNanoseconds: 100
+    )
+
+    let alarmed = await controller.runPassiveProbe()
+    #expect(alarmed.blockers == [.controllerAlarm("ALARM:2")])
+
+    #expect(await controller.requestControllerAlarmClear() == .acknowledged)
+    let unlocked = await controller.snapshot()
+    #expect(unlocked.connection == .connected)
+    #expect(unlocked.controllerState == nil)
+    #expect(unlocked.position == nil)
+    #expect(unlocked.motionGuardState == .inactive)
+    #expect(unlocked.blockers == [.controllerAlarm("ALARM:2")])
+    #expect(unlocked.lastAlarmClearOutcome == .acknowledged)
+
+    let reprobed = await controller.runPassiveProbe()
+    #expect(reprobed.blockers.isEmpty)
+    let ready = await controller.snapshot()
+    #expect(ready.connection == .connected)
+    #expect(ready.controllerState == .idle)
+    #expect(ready.position != nil)
+    #expect(ready.motionGuardState == .inactive)
+    #expect(link.completedWriteCount == 7)
+    let events = try await waitForLedgerEvent(
+      "machine.alarm_clear.result",
+      ledger: fixture.ledger,
+      runID: fixture.runID
+    )
+    let event = try #require(events.first(where: { $0.kind == "machine.alarm_clear.result" }))
+    let record = try JSONDecoder().decode(ControllerAlarmClearRecord.self, from: event.payload)
+    #expect(record.link == link.descriptor)
+    #expect(record.outcome == .acknowledged)
+  }
+
+  @Test("rejected alarm unlock preserves the alarm and closes the link")
+  func rejectedAlarmClearPreservesEvidence() async throws {
+    let fixture = try await Fixture.make()
+    let link = SimulatedGRBLLink(
+      exchanges: [
+        ControllerTranscriptFixtures.exchange(.buildInfo, chunks: ["ALARM:1\r\n"]),
+        SimulatedCommandExchange(
+          expectedWrite: MachineController.encodeControllerAlarmClear,
+          reads: [
+            ScheduledMachineRead(
+              delayNanoseconds: 0,
+              outcome: .bytes(Data("error:9\r\n".utf8))
+            )
+          ]
+        ),
+      ],
+      clock: fixture.clock
+    )
+    let controller = MachineController(link: link, clock: fixture.clock)
+
+    _ = await controller.runPassiveProbe()
+    #expect(
+      await controller.requestControllerAlarmClear()
+        == .controllerRejected("error:9")
+    )
+    let snapshot = await controller.snapshot()
+    #expect(snapshot.connection == .disconnected)
+    #expect(snapshot.blockers == [.controllerAlarm("ALARM:1")])
+    #expect(snapshot.motionGuardState == .inactive)
+    #expect(link.completedWriteCount == 2)
   }
 
   @Test("error reply is preserved and blocks")

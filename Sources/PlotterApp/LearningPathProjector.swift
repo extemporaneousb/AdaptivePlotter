@@ -1165,6 +1165,7 @@ extension LearningPathProjector {
     let operations = snapshot.operations
     let motionGateReason: String? = {
       if !controller.sessionEstablished {
+        if let machineError = controller.machineError { return machineError }
         return snapshot.source == .simulated
           ? "Connect the learning simulator first."
           : "Select and connect one responsive controller."

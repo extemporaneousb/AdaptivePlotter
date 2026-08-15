@@ -385,6 +385,7 @@ func workspace(
       requestPassiveProbe: {
         await machine.passiveProbeResult()
       },
+      requestControllerAlarmClear: { .refused(.noCurrentAlarmEvidence) },
       activateMotionGuard: { .activated },
       deactivateMotionGuard: {},
       requestRelativeJog: { await machine.requestRelativeJog($0) },
@@ -447,6 +448,10 @@ func isolatedMachineActions(log: EventLog) -> OperatorWorkspace.MachineActions {
     requestPassiveProbe: {
       await log.append("requestPassiveProbe")
       throw SimulatorIsolationViolation.machineAction("requestPassiveProbe")
+    },
+    requestControllerAlarmClear: {
+      await log.append("requestControllerAlarmClear")
+      return .refused(.noCurrentAlarmEvidence)
     },
     activateMotionGuard: {
       await log.append("activateMotionGuard")

@@ -9,6 +9,42 @@ procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
 ## Implemented software surface
 
+### Controller alarm visibility and explicit clearing
+
+Validated 2026-08-14 in Blackdog task `TASK-415B504F`, targeting `main`
+from base `34de05332cd5d4c0154c402c4609d881b20b9687`.
+
+A failed Connect probe now preserves and projects its exact typed controller
+alarm, controller error, timeout, invalid-reply, or transport blocker instead
+of collapsing the workbench to generic Disconnected status. The Motion panel
+shows the current controller alert. A reported alarm exposes one explicit
+**Clear Alarm** action with an in-context warning that unlock is not homing,
+position recovery, limit clearing, Motion authorization, or proof of safe
+movement.
+
+The runtime admits `$X` only from current alarm evidence for the selected
+controller, serializes it against every other controller operation, records raw
+I/O plus a typed alarm-clear outcome, and never sends it during Connect. An
+acknowledged unlock clears no evidence authority by itself: the same operator
+action runs a fresh complete passive probe, leaves Motion inactive, and requires
+the operator to press **Enable Motion** separately. Rejection or transport
+uncertainty closes the link, remains visible, and is never retried
+automatically.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| Focused controller and UI selection | passed — 62 tests | alarm retention, no implicit unlock, typed clear admission/refusal/acknowledgement/rejection, fresh reprobe, UI status, and Motion remaining disabled |
+| `make quick-test` | passed — 343 tests | fast unit/component partition including typed alarm-clear ledger evidence |
+| `make strict-check` | passed — 353 tests | complete concurrency, warnings-as-errors, signed bundle and launcher validation, full test suite, repository checks |
+| `git diff --check` | passed | whitespace/conflict markers |
+
+These are software and deterministic transcript results. The already-running
+app and physical controller were inspected read-only before implementation,
+but this change was not launched into that app. No alarm was cleared, and no
+attended controller connection, physical limit inspection, homing, reset,
+Motion enablement, physical movement, pen action, camera validation, or ink
+validation was performed.
+
 ### Pen-Down manual motion and Learning Off
 
 Validated 2026-08-12 in Blackdog task `TASK-F782C7D6`, targeting `main`

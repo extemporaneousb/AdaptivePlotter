@@ -6,6 +6,75 @@ import Testing
 @testable import PlotterRuntime
 
 extension OperatorWorkspaceTests {
+  @Test("failed Connect exposes the typed alarm and explicit Clear Alarm reprobes without enabling motion")
+  func alarmClearUIStateAndAuthority() async throws {
+    let fixture = AlarmClearWorkspaceFixture()
+    let descriptor = fixture.descriptor
+    let workspace = OperatorWorkspace(
+      machineActions: .init(
+        select: { _ in await fixture.select() },
+        snapshot: { await fixture.snapshot() },
+        requestPassiveProbe: { await fixture.requestPassiveProbe() },
+        requestControllerAlarmClear: { await fixture.requestAlarmClear() },
+        activateMotionGuard: { .refused(.notConnected) },
+        deactivateMotionGuard: {},
+        requestRelativeJog: { _ in .refused(.notConnected) },
+        beginRelativeJog: { _ in .rejected(.refused(.notConnected)) },
+        requestDrawingStroke: { _ in .refused(.notConnected) },
+        beginDrawingStroke: { _ in .rejected(.refused(.notConnected)) },
+        requestPenActuation: { _ in .refused(.notConnected) },
+        requestBoundaryMotion: { request in
+          .needsAttention(ownerID: request.ownerID, terminal: .refusal(.notConnected))
+        },
+        beginBoundaryMotion: { request, _ in
+          .rejected(
+            .needsAttention(ownerID: request.ownerID, terminal: .refusal(.notConnected))
+          )
+        },
+        requestJogCancel: { _ in .refused(.noActiveJog) },
+        disconnect: {}
+      ),
+      serialDevices: [descriptor],
+      serialDeviceDiscovery: { [descriptor] },
+      loadSelectedSerialIdentifier: { descriptor.identifier },
+      persistSelectedSerialIdentifier: { _ in }
+    )
+
+    await workspace.performControllerConnectionAction()
+
+    #expect(!workspace.controllerSessionEstablished)
+    #expect(!workspace.motionAuthorizationEnabled)
+    #expect(workspace.controllerAlarmEvidenceText == "ALARM:1")
+    #expect(workspace.controllerAttentionText == "Controller alarm: ALARM:1")
+    #expect(workspace.controllerAlarmClearActionUnavailableReason == nil)
+    let expectedRequestStatus = MotionRequestStatusPresentation.needsAttention(
+      "Controller alarm: ALARM:1"
+    )
+    #expect(workspace.motionRequestStatusPresentation == expectedRequestStatus)
+    let connectID = LearningPathItemID.stage(.connect)
+    let failedProjection = workspace.learningPathProjection(
+      selectedItemID: connectID
+    )
+    let connectStatus = failedProjection.items.first(where: { $0.id == connectID })?.status
+    #expect(connectStatus == LearningPathStageStatus.needsAttention)
+    let controllerStatus = try #require(
+      failedProjection.selectedAction.subsystemStatuses.first(where: { $0.id == "controller" })
+    )
+    #expect(controllerStatus.detail == [PresentationFragment.text("Controller alarm: ALARM:1")])
+    #expect(await fixture.actions == ["select", "probe:alarm"])
+
+    await workspace.clearControllerAlarm()
+
+    #expect(await fixture.actions == ["select", "probe:alarm", "clear-alarm", "probe:ready"])
+    #expect(workspace.controllerAlarmEvidenceText == nil)
+    #expect(workspace.controllerAttentionText == nil)
+    #expect(workspace.controllerSessionEstablished)
+    #expect(!workspace.motionAuthorizationEnabled)
+    #expect(workspace.motionGuardActivationUnavailableReason == nil)
+    #expect(workspace.motionUnavailableReason == "Enable Motion before moving.")
+    await workspace.shutdown()
+  }
+
   @Test("manual direction controls draw a closed square while Pen Down")
   func manualPenDownSquare() async throws {
     let log = EventLog()
@@ -525,4 +594,97 @@ extension OperatorWorkspaceTests {
     await stopWorkspace.shutdown()
   }
 
+}
+
+private actor AlarmClearWorkspaceFixture {
+  enum Phase {
+    case selected
+    case alarmed
+    case unlocked
+    case ready
+  }
+
+  nonisolated let descriptor = MachineLinkDescriptor(
+    identifier: "alarm-fixture",
+    displayName: "Alarm Fixture",
+    bsdPath: nil,
+    transport: .simulated
+  )
+  private(set) var actions: [String] = []
+  private var phase: Phase = .selected
+  private var lastProbe: PassiveProbeResult?
+  private var lastClearOutcome: ControllerAlarmClearOutcome?
+
+  func select() -> RunInterpreterSnapshot {
+    actions.append("select")
+    phase = .selected
+    return snapshot()
+  }
+
+  func requestPassiveProbe() -> PassiveProbeResult {
+    switch phase {
+    case .selected, .alarmed:
+      actions.append("probe:alarm")
+      phase = .alarmed
+      let blocker = MachineBlocker.controllerAlarm("ALARM:1")
+      let result = PassiveProbeResult(
+        link: descriptor,
+        startedAt: RuntimeTimestamp(monotonicNanoseconds: 1),
+        completedAt: RuntimeTimestamp(monotonicNanoseconds: 2),
+        exchanges: [
+          PassiveProbeExchange(
+            query: .buildInfo,
+            commandID: UUID(),
+            rawIO: [],
+            lines: [GRBLParser.parseLine(Data("ALARM:1".utf8))],
+            completed: false,
+            blocker: blocker
+          )
+        ],
+        blockers: [blocker]
+      )
+      lastProbe = result
+      return result
+    case .unlocked, .ready:
+      actions.append("probe:ready")
+      phase = .ready
+      let result = PassiveProbeResult(
+        link: descriptor,
+        startedAt: RuntimeTimestamp(monotonicNanoseconds: 3),
+        completedAt: RuntimeTimestamp(monotonicNanoseconds: 4),
+        exchanges: [],
+        blockers: []
+      )
+      lastProbe = result
+      return result
+    }
+  }
+
+  func requestAlarmClear() -> ControllerAlarmClearOutcome {
+    guard phase == .alarmed else { return .refused(.noCurrentAlarmEvidence) }
+    actions.append("clear-alarm")
+    phase = .unlocked
+    lastClearOutcome = .acknowledged
+    return .acknowledged
+  }
+
+  func snapshot() -> RunInterpreterSnapshot {
+    let isReady = phase == .ready
+    let hasAlarmEvidence = phase == .alarmed || phase == .unlocked
+    return RunInterpreterSnapshot(
+      currentOperation: .idle,
+      machine: MachineSnapshot(
+        connection: phase == .selected || phase == .alarmed ? .disconnected : .connected,
+        link: descriptor,
+        lastProbe: lastProbe,
+        blockers: hasAlarmEvidence ? [.controllerAlarm("ALARM:1")] : [],
+        controllerState: isReady ? .idle : nil,
+        position: isReady ? try! MachinePosition(x: 0, y: 0) : nil,
+        motionGuardState: .inactive,
+        lastAlarmClearOutcome: lastClearOutcome
+      ),
+      lastMotionOutcome: nil,
+      lastProbe: lastProbe
+    )
+  }
 }

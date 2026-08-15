@@ -111,6 +111,104 @@ public enum MotionGuardState: String, Codable, Hashable, Sendable {
   case active
 }
 
+/// Admission failures for the operator's explicit GRBL/grblHAL `$X` request.
+/// Alarm clearing is never inferred from Connect and never authorizes motion.
+public enum ControllerAlarmClearRefusal: Codable, Hashable, Sendable {
+  case noSerialDeviceSelected
+  case noCurrentAlarmEvidence
+  case operationInFlight
+  case stickyAmbiguity(MotionAmbiguity)
+}
+
+/// Transport uncertainty for a non-motion alarm-clear command. This remains
+/// separate from `MotionAmbiguity`: `$X` may change the controller lock state,
+/// but AdaptivePlotter did not command carriage or pen movement.
+public enum ControllerAlarmClearUncertainty: Codable, Hashable, Sendable {
+  case partialWrite(written: Int, total: Int)
+  case writeTimedOut(written: Int, total: Int)
+  case writeCancelled(written: Int, total: Int)
+  case acknowledgementTimedOut
+  case disconnected
+  case malformedReply(String)
+  case transport(String)
+}
+
+public enum ControllerAlarmClearOutcome: Codable, Hashable, Sendable {
+  case refused(ControllerAlarmClearRefusal)
+  /// `$X` received `ok`. A fresh passive probe is still required before the
+  /// controller session can be responsive or any motion can be authorized.
+  case acknowledged
+  case controllerRejected(String)
+  case unconfirmed(ControllerAlarmClearUncertainty)
+}
+
+public struct ControllerAlarmClearRecord: Codable, Hashable, Sendable {
+  public let link: MachineLinkDescriptor
+  public let outcome: ControllerAlarmClearOutcome
+  public let timestamp: RuntimeTimestamp
+
+  public init(
+    link: MachineLinkDescriptor,
+    outcome: ControllerAlarmClearOutcome,
+    timestamp: RuntimeTimestamp
+  ) {
+    self.link = link
+    self.outcome = outcome
+    self.timestamp = timestamp
+  }
+}
+
+extension ControllerAlarmClearRefusal {
+  public var actionableDescription: String {
+    switch self {
+    case .noSerialDeviceSelected:
+      return "Select one serial controller before clearing an alarm."
+    case .noCurrentAlarmEvidence:
+      return "Clear Alarm is available only after the current selected controller reports an alarm."
+    case .operationInFlight:
+      return "Wait for the current controller operation before clearing an alarm."
+    case .stickyAmbiguity(let ambiguity):
+      return "Alarm clearing is unavailable after ambiguous physical motion: \(ambiguity.actionableDescription)"
+    }
+  }
+}
+
+extension ControllerAlarmClearUncertainty {
+  public var actionableDescription: String {
+    switch self {
+    case .partialWrite(let written, let total):
+      return "Only \(written) of \(total) alarm-clear bytes were written; the controller lock state is unconfirmed."
+    case .writeTimedOut(let written, let total):
+      return "The alarm-clear write timed out after \(written) of \(total) bytes; the controller lock state is unconfirmed."
+    case .writeCancelled(let written, let total):
+      return "The alarm-clear write was cancelled after \(written) of \(total) bytes; the controller lock state is unconfirmed."
+    case .acknowledgementTimedOut:
+      return "No bounded acknowledgement followed the alarm-clear request; the controller lock state is unconfirmed."
+    case .disconnected:
+      return "The controller disconnected during alarm clearing; reconnect and inspect it before continuing."
+    case .malformedReply(let detail):
+      return "The alarm-clear reply was not trustworthy (\(detail)); reconnect and inspect the controller."
+    case .transport(let detail):
+      return "Alarm-clear transport failed (\(detail)); the controller lock state is unconfirmed."
+    }
+  }
+}
+
+extension ControllerAlarmClearOutcome {
+  public var actionableDescription: String {
+    switch self {
+    case .refused(let refusal):
+      return refusal.actionableDescription
+    case .acknowledged:
+      return "Alarm unlock was acknowledged; a fresh passive probe must establish the current controller state."
+    case .controllerRejected(let detail):
+      return "The controller rejected Clear Alarm (\(detail)); inspect the reported alarm and physical machine."
+    case .unconfirmed(let uncertainty):
+      return uncertainty.actionableDescription
+    }
+  }
+}
+
 public struct MachinePosition: Codable, Hashable, Sendable {
   public let point: Point2<MachineSpace>
 
