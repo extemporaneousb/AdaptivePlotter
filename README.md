@@ -186,8 +186,11 @@ operation settles.
 
 Video Settings combines camera selection, adjacent Refresh, scene-analysis
 frames per second, viewport zoom/drag/region lock, and a three-column overlay
-grid without tabs. Selecting any scene-derived overlay directly keeps bounded
-newest-only analysis running; there is no separate Analyze/Resume control.
+grid without tabs. A clickable color well beside the overlays selects the
+visible pen-cap color consumed by both continuous recognition and Stage 3.3;
+the selection persists across launches. Selecting any scene-derived overlay
+directly keeps bounded newest-only analysis running; there is no separate
+Analyze/Resume control.
 Automatic overlay computation does not dim, badge, or pause preview
 publication. Locking the viewport admits only that
 camera-pixel subregion to generic scene-analysis scans without cropping or
@@ -195,8 +198,10 @@ rewriting the exact stamped frame.
 
 The toolbar owns controller selection, Connect/Disconnect, Enable Motion, and
 compact status. Exercise Start, choices, Cancel, Stop, Restart, Redo, and Record
-Another Attempt stay with the exercise. Buttons are authoritative input; speech
-is advisory output only.
+Another Attempt stay with the exercise. A settled failed or cancelled attempt
+keeps Restart on its own review row but does not replace the next unmet exercise
+or its Start control. Buttons are authoritative input; speech is advisory output
+only.
 
 Manual X distance, Y distance, and feed remain editable text fields initialized
 to 50 mm, 50 mm, and 500 mm/min. After Motion is enabled, camera, Vision,

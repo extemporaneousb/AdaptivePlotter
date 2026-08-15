@@ -206,7 +206,7 @@ private func sceneMeasurement(for frame: StampedFrame) -> PlotterSceneMeasuremen
     frameID: frame.id,
     frameSHA256: frame.contentSHA256,
     cameraConfigurationID: frame.cameraConfigurationID,
-    greenComponentCount: 0,
+    capComponentCount: 0,
     cap: nil,
     topFrameSide: nil,
     rightFrameSide: nil,

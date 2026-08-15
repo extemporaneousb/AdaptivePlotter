@@ -106,6 +106,32 @@ These are software and simulator results. The app was not launched for this
 change. No controller connection, physical pen actuation, physical motion,
 manual square, camera observation, or observed ink validation was performed.
 
+### Learning recovery progression and selectable pen-cap color
+
+Validated 2026-08-15 in Blackdog task `TASK-51E90720`, targeting `main` from
+base `cce86f38150b2b83e9cb44e89148920c4a578a46`.
+
+`LearningPathProjector` now derives the current exercise from the active owner
+and unmet dependency chain; a settled restartable attempt remains a selectable
+needs-attention row with its own **Restart** action and cannot replace the
+current exercise action strip. Video Settings exposes a native color well for
+the persisted `PenCapColor`. The selected RGB color reaches continuous bounded
+analysis and exclusive Stage 3.3 inspections, and color-specific estimator
+revisions prevent one five-sample proposal from mixing recognition settings.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| Focused projector, Vision, and workspace tests | passed — 19 tests | recovery/current-action separation, green-to-magenta component selection, camera-owner propagation |
+| `make quick-test` | passed — 355 tests | fast unit/component partition |
+| `make journey-test` | passed — 10 tests | retained causal simulator journeys |
+| `make strict-check` | passed — 365 tests | strict concurrency, warnings-as-errors, signed app bundle and launcher, full tests, repository checks |
+| `git diff --check` | passed | whitespace/conflict markers |
+
+These are software and deterministic simulator claims. The application UI was
+not launched. No attended camera, controller, motion, pen, operator color
+selection, calibration click, or observed-ink validation was performed, so the
+results do not establish physical color tolerance or cap-recognition reliability.
+
 ### Pure Learning Path projection
 
 Validated 2026-08-13 in Blackdog task `TASK-F6773B41`, targeting `main`
@@ -225,7 +251,7 @@ calibration and isolated-ink observation.
 | `git diff --check` | passed | whitespace/conflict markers |
 
 These are software and simulated-workflow results. The app was not launched for
-this correction. No attended camera, controller, motion, pen, green-cap,
+this correction. No attended camera, controller, motion, pen, pen-cap,
 armature, preview-fluidity, or observed-ink validation was performed.
 
 ## Video Settings and direct overlay analysis
@@ -252,7 +278,7 @@ changing whole-frame identity or overlay coordinates.
 | `git diff --check` | passed | whitespace/conflict markers |
 
 These are software and simulated-workflow results. The app was not launched for
-this change. No attended camera, controller, motion, pen, green-cap detection,
+this change. No attended camera, controller, motion, pen, pen-cap detection,
 armature detection, preview behavior, or observed-ink validation was performed.
 
 ## Stage 3.4 circular-mark visibility correction

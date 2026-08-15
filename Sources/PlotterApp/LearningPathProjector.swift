@@ -422,7 +422,6 @@ struct LearningPathProjector: Sendable {
 
   func currentItemID(_ snapshot: LearningPathProjectionSnapshot) -> LearningPathItemID {
     if let owner = snapshot.operations.activeAttemptOwner { return owner }
-    if let restartable = snapshot.operations.restartableItem { return restartable }
     if !snapshot.controller.sessionEstablished { return .stage(.connect) }
     if !snapshot.controller.motionAuthorized { return .stage(.enableMotion) }
     if !snapshot.penInteractionCompleted { return .humanGuidedDiscovery(.penInteraction) }
@@ -447,6 +446,7 @@ struct LearningPathProjector: Sendable {
     snapshot: LearningPathProjectionSnapshot
   ) -> LearningPathStageStatus {
     if itemID == .stage(.adaptiveDrawing) { return .future }
+    if snapshot.operations.restartableItem == itemID { return .needsAttention }
     if isComplete(itemID, snapshot: snapshot) { return .complete }
     let representsCurrentStage: Bool = if case .stage(let stage) = itemID {
       current.stage == stage

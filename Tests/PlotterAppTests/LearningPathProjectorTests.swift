@@ -91,6 +91,32 @@ struct LearningPathProjectorTests {
     #expect(projection.selectedAction.activity?.outcome == .needsAttention)
   }
 
+  @Test("settled recovery does not replace the next unmet exercise")
+  func restartableAttemptDoesNotTrapProgression() {
+    let pen = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+    let boundary = LearningPathItemID.humanGuidedDiscovery(
+      .pairedBoundaryDiscoveryAndCentering
+    )
+    let snapshot = LearningPathProjectionSnapshot(
+      penInteractionCompleted: true,
+      controller: .init(
+        sessionEstablished: true,
+        motionAuthorized: true,
+        connectionText: "connected",
+        motionGuardStateText: "active"
+      ),
+      operations: .init(restartableItem: pen)
+    )
+
+    let projection = projector.project(snapshot, selectedItemID: pen)
+
+    #expect(projection.currentItemID == boundary)
+    #expect(projection.currentActionStrip?.ownerID == boundary)
+    #expect(projection.currentActionStrip?.actions.map(\.kind) == [.start])
+    #expect(projection.selectedAction.status == .needsAttention)
+    #expect(projection.selectedAction.actionStrip?.actions.map(\.kind) == [.restart])
+  }
+
   @Test("current-camera calibration does not project a manual-motion gate")
   func currentCameraCalibrationDoesNotGateManualMotion() {
     let snapshot = LearningPathProjectionSnapshot(

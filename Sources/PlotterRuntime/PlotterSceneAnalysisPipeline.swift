@@ -90,13 +90,14 @@ public struct PlotterSceneAnalysisSnapshot: Hashable, Sendable {
 public actor PlotterSceneAnalysisPipeline {
   typealias Analyzer = @Sendable (StampedFrame) async throws -> PlotterSceneMeasurement
   typealias RegionAnalyzer =
-    @Sendable (StampedFrame, PixelRect?) async throws -> PlotterSceneMeasurement
+    @Sendable (StampedFrame, PixelRect?, PenCapColor) async throws -> PlotterSceneMeasurement
 
   private let clock: any RuntimeClock
   private let analyzer: RegionAnalyzer
   private let activityHandler: PlotterSceneAnalysisActivityHandler
   private var state: PlotterSceneAnalysisState = .stopped
   private var analysisRegion: PixelRect?
+  private var penCapColor: PenCapColor = .green
   private var pendingFrame: DisplayedFrame?
   private var activeFrameSequence: UInt64?
   private var submittedFrameCount: UInt64 = 0
@@ -117,8 +118,12 @@ public actor PlotterSceneAnalysisPipeline {
   ) {
     self.clock = clock
     self.activityHandler = activityHandler
-    analyzer = { frame, region in
-      try await worker.inspectPlotterScene(in: frame, analysisRegion: region)
+    analyzer = { frame, region, penCapColor in
+      try await worker.inspectPlotterScene(
+        in: frame,
+        analysisRegion: region,
+        penCapColor: penCapColor
+      )
     }
   }
 
@@ -129,7 +134,7 @@ public actor PlotterSceneAnalysisPipeline {
   ) {
     self.clock = clock
     self.activityHandler = activityHandler
-    self.analyzer = { frame, _ in try await analyzer(frame) }
+    self.analyzer = { frame, _, _ in try await analyzer(frame) }
   }
 
   public func setAnalysisRegion(_ region: PixelRect?) async {
@@ -144,6 +149,22 @@ public actor PlotterSceneAnalysisPipeline {
     lastError = nil
     lastAnalysisCompletionNanoseconds = nil
     analysisRegion = region
+    if analysisWasActive { await activityHandler(false) }
+    publishSnapshot()
+  }
+
+  public func setPenCapColor(_ color: PenCapColor) async {
+    guard penCapColor != color else { return }
+    let analysisWasActive = activeFrameSequence != nil
+    generation &+= 1
+    drainTask?.cancel()
+    drainTask = nil
+    pendingFrame = nil
+    activeFrameSequence = nil
+    latestResult = nil
+    lastError = nil
+    lastAnalysisCompletionNanoseconds = nil
+    penCapColor = color
     if analysisWasActive { await activityHandler(false) }
     publishSnapshot()
   }
@@ -235,7 +256,7 @@ public actor PlotterSceneAnalysisPipeline {
       publishSnapshot()
       let result: Result<PlotterSceneMeasurement, Error>
       do {
-        result = .success(try await analyzer(frame.frame, analysisRegion))
+        result = .success(try await analyzer(frame.frame, analysisRegion, penCapColor))
       } catch {
         result = .failure(error)
       }

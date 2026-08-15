@@ -867,6 +867,7 @@ final class OperatorWorkspace {
     let inspectScene: @Sendable (UInt64) async throws -> LiveSceneInspection?
     let captureFrame: @Sendable (UInt64) async throws -> DisplayedFrame?
     let setSceneAnalysisRegion: @Sendable (PixelRect?) async -> Void
+    let setPenCapColor: @Sendable (PenCapColor) async -> Void
     let setAutomaticInspection:
       @Sendable (VisionAnalysisCadence?) async
         -> PlotterSceneAnalysisSnapshot
@@ -877,6 +878,7 @@ final class OperatorWorkspace {
   }
 
   var visibleLayers = Set(CanvasLayer.allCases)
+  private(set) var penCapColor: PenCapColor
   private(set) var visionAnalysisCadence = VisionAnalysisCadence.twoFPS
   private(set) var videoAnalysisRegionLock: VideoAnalysisRegionLock?
   var frameMode: OperatorFrameMode = .live
@@ -1181,6 +1183,7 @@ final class OperatorWorkspace {
 
   @ObservationIgnored private let machineActions: MachineActions?
   @ObservationIgnored private let cameraActions: CameraActions?
+  @ObservationIgnored private let persistPenCapColor: @Sendable (PenCapColor) -> Void
   @ObservationIgnored private let announcementActions: AnnouncementActions?
   /// These ports are capabilities of the LIVE learning session only. The
   /// active accessors deliberately return nil for SIMULATED before any
@@ -1291,6 +1294,13 @@ final class OperatorWorkspace {
       UserDefaults.standard.set(
         identifier, forKey: "AdaptivePlotter.selectedSerialDeviceIdentifier")
     },
+    loadPenCapColor: @escaping @Sendable () -> PenCapColor = {
+      UserDefaults.standard.string(forKey: "AdaptivePlotter.penCapColor")
+        .flatMap(PenCapColor.init(hexRGB:)) ?? .green
+    },
+    persistPenCapColor: @escaping @Sendable (PenCapColor) -> Void = { color in
+      UserDefaults.standard.set(color.hexRGB, forKey: "AdaptivePlotter.penCapColor")
+    },
     nowNanoseconds: @escaping @Sendable () -> UInt64 = {
       UInt64(ProcessInfo.processInfo.systemUptime * 1_000_000_000)
     },
@@ -1307,6 +1317,8 @@ final class OperatorWorkspace {
     self.simulatedExecutionPacing = simulatedExecutionPacing
     self.machineActions = machineActions
     self.cameraActions = cameraActions
+    penCapColor = loadPenCapColor()
+    self.persistPenCapColor = persistPenCapColor
     self.announcementActions = announcementActions
     liveAcceptedArtifactCheckpointActions = acceptedArtifactCheckpointActions
     liveAcceptedTipCalibrationCheckpointActions = acceptedTipCalibrationCheckpointActions
@@ -1494,6 +1506,10 @@ final class OperatorWorkspace {
     currentCameraCalibrationPhase.map {
       "Automatic current-camera calibration is in progress (\($0.description)). Use Stop during an admitted move."
     }
+  }
+
+  var penCapColorChangeUnavailableReason: String? {
+    currentCameraCalibrationBusyReason
   }
 
   var cameraIsLive: Bool {
@@ -2923,7 +2939,7 @@ final class OperatorWorkspace {
         componentCentroid: centroid,
         componentBounds: bounds,
         confidence: confidence,
-        estimatorRevision: "green-cap-bottom-center-anchor-v2",
+        estimatorRevision: penCapAnchorEstimatorRevision,
         source: registrationFrame.source,
         frameID: registrationFrame.frame.id,
         cameraConfigurationID: registrationFrame.frame.cameraConfigurationID
@@ -2956,6 +2972,10 @@ final class OperatorWorkspace {
     await buildCameraCalibrationProposal()
   }
 
+  private var penCapAnchorEstimatorRevision: String {
+    "selected-cap-\(penCapColor.hexRGB)-bottom-center-anchor-v3"
+  }
+
   private func compatibleRegistrationCapAnchorEvidence(
     for frame: DisplayedFrame
   ) -> [MachineCameraCorrespondenceProvenance] {
@@ -2964,7 +2984,7 @@ final class OperatorWorkspace {
         && $0.cameraConfigurationID == frame.frame.cameraConfigurationID
         && $0.controllerSessionID == controllerSessionID
         && $0.coordinateRevision == explorationCoordinateRevision
-        && $0.capAnchorEstimatorRevision == "green-cap-bottom-center-anchor-v2"
+        && $0.capAnchorEstimatorRevision == penCapAnchorEstimatorRevision
     }
   }
 
@@ -3035,7 +3055,8 @@ final class OperatorWorkspace {
         fitCorrespondenceProvenance: fitSamples,
         holdoutCorrespondenceProvenance: holdoutSamples,
         maximumHoldoutResidualPixels: 8,
-        estimatorRevision: "five-cap-affine-three-fit-two-holdout-v1",
+        estimatorRevision:
+          "five-cap-affine-three-fit-two-holdout-v2:cap-\(penCapColor.hexRGB)",
         uncertaintyPixels: max(finalFit.maximumErrorPixels, holdoutResiduals.max() ?? 0),
         applicabilityRectangle: applicabilityRectangle,
         applicabilityDerivation: .boundaryEnvelopeInsetAndSymmetricallyReduced(
@@ -3366,7 +3387,7 @@ final class OperatorWorkspace {
       componentCentroid: centroid,
       componentBounds: bounds,
       confidence: confidence,
-      estimatorRevision: "green-cap-bottom-center-anchor-v2",
+      estimatorRevision: penCapAnchorEstimatorRevision,
       source: evidenceFrame.source,
       frameID: evidenceFrame.frame.id,
       cameraConfigurationID: evidenceFrame.frame.cameraConfigurationID
@@ -3394,7 +3415,8 @@ final class OperatorWorkspace {
         cameraConfigurationID: evidenceFrame.frame.cameraConfigurationID,
         attemptID: attemptID,
         capAnchorEstimatorRevision: capAnchor.estimatorRevision,
-        algorithmRevision: "automatic-current-camera-cap-anchor-v3",
+        algorithmRevision:
+          "automatic-current-camera-cap-anchor-v4:cap-\(penCapColor.hexRGB)",
         capAnchorConfidence: capAnchor.confidence,
         artifactRevisionID: centerArrivalRevisionID
       ),
@@ -4987,6 +5009,20 @@ final class OperatorWorkspace {
     Task { await reconcileAutomaticVisionAnalysis() }
   }
 
+  func setPenCapColor(_ color: PenCapColor) async {
+    guard !hasShutdown, penCapColorChangeUnavailableReason == nil,
+      penCapColor != color
+    else { return }
+    penCapColor = color
+    persistPenCapColor(color)
+    lastSceneMeasurement = nil
+    cameraOverlays.removeAll {
+      $0.provenance.kind == .penCap || $0.provenance.kind == .armatureEstimate
+    }
+    await cameraActions?.setPenCapColor(color)
+    await reconcileAutomaticVisionAnalysis()
+  }
+
   private var sceneAnalysisIsRequested: Bool {
     visibleLayers.contains(where: \.requiresSceneAnalysis)
   }
@@ -6361,6 +6397,7 @@ final class OperatorWorkspace {
     defer { endHardwareIntent() }
     guard let cameraActions else { return }
     let priorCameraConfigurationID = displayedFrame?.frame.cameraConfigurationID
+    await cameraActions.setPenCapColor(penCapColor)
     let snapshot = await cameraActions.start()
     guard canCommit(generation) else { return }
     frameMode = .live
@@ -6411,6 +6448,7 @@ final class OperatorWorkspace {
     videoAnalysisRegionLock = nil
     invalidateCameraDependentLearningAuthority()
     guard let cameraActions else { return }
+    await cameraActions.setPenCapColor(penCapColor)
     let snapshot = await cameraActions.restart()
     guard canCommit(generation) else { return }
     frameMode = .live

@@ -76,6 +76,8 @@ func makeSimulatedHarness(
       serialDeviceDiscovery: { [] },
       loadSelectedSerialIdentifier: { nil },
       persistSelectedSerialIdentifier: { _ in },
+      loadPenCapColor: { .green },
+      persistPenCapColor: { _ in },
       nowNanoseconds: { clock.next() }
     ),
     runtime: runtime,
@@ -427,6 +429,8 @@ func workspace(
     serialDeviceDiscovery: { [machine.descriptor] },
     loadSelectedSerialIdentifier: { nil },
     persistSelectedSerialIdentifier: { _ in },
+    loadPenCapColor: { .green },
+    persistPenCapColor: { _ in },
     nowNanoseconds: { clock.next() }
   )
 }
@@ -512,6 +516,7 @@ func cameraActions(_ fixture: CameraFixture) -> OperatorWorkspace.CameraActions 
     inspectScene: { try fixture.inspection(after: $0) },
     captureFrame: { try fixture.inspection(after: $0).displayedFrame },
     setSceneAnalysisRegion: { fixture.setSceneAnalysisRegion($0) },
+    setPenCapColor: { fixture.setPenCapColor($0) },
     setAutomaticInspection: { fixture.setAutomaticInspection($0) },
     analysisUpdates: { AsyncStream { $0.finish() } },
     observeIsolatedInk: { _ in fatalError("unused") }
@@ -1005,6 +1010,7 @@ final class CameraFixture: @unchecked Sendable {
   private var inspectionCount = 0
   private var automaticInspectionRequests: [VisionAnalysisCadence?] = []
   private var sceneAnalysisRegionRequests: [PixelRect?] = []
+  private var penCapColorRequests: [PenCapColor] = []
 
   var inspectionCallCount: Int {
     lock.lock()
@@ -1078,8 +1084,8 @@ final class CameraFixture: @unchecked Sendable {
       frameID: fresh.frame.id,
       frameSHA256: fresh.frame.contentSHA256,
       cameraConfigurationID: inspectionConfigurationID,
-      greenComponentCount: 1,
-      cap: GreenCapMeasurement(
+      capComponentCount: 1,
+      cap: PenCapMeasurement(
         pixelCount: 10,
         boundingBox: PixelRect(x: 98, y: 48, width: 2, height: 4),
         centroid: try Point2(x: 99, y: 50),
@@ -1118,9 +1124,21 @@ final class CameraFixture: @unchecked Sendable {
     return sceneAnalysisRegionRequests
   }
 
+  var recordedPenCapColorRequests: [PenCapColor] {
+    lock.lock()
+    defer { lock.unlock() }
+    return penCapColorRequests
+  }
+
   func setSceneAnalysisRegion(_ region: PixelRect?) {
     lock.lock()
     sceneAnalysisRegionRequests.append(region)
+    lock.unlock()
+  }
+
+  func setPenCapColor(_ color: PenCapColor) {
+    lock.lock()
+    penCapColorRequests.append(color)
     lock.unlock()
   }
 
@@ -1283,6 +1301,7 @@ func boundaryGatedCameraActions(
     },
     captureFrame: base.captureFrame,
     setSceneAnalysisRegion: base.setSceneAnalysisRegion,
+    setPenCapColor: base.setPenCapColor,
     setAutomaticInspection: base.setAutomaticInspection,
     analysisUpdates: base.analysisUpdates,
     observeIsolatedInk: base.observeIsolatedInk

@@ -104,6 +104,14 @@ setting and the existing attempt evidence. `MachineController` serializes the
 requested value and settlement under its existing pen-operation ownership.
 There is no parallel servo-calibration owner, checkpoint, or artifact graph.
 
+`LearningPathProjector` derives current progression from the active owner and
+the first unmet dependency. `restartableExerciseItemID` is recovery state for
+the owning review row; it does not redirect progression. `OperatorWorkspace`
+owns the persisted `PenCapColor`, while `CameraSourceSession` applies it to both
+the newest-only analysis pipeline and exclusive Stage 3.3 inspection. A color
+change resets stale scene results without changing exact-frame identity or
+promoting the selection into evidence.
+
 Manual X distance, Y distance, and feed fields initialize to 50 mm, 50 mm, and
 500 mm/min while remaining editable. Manual direction routing depends on direct
 controller facts and the current commanded pen state, not camera, Vision,

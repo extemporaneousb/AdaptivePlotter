@@ -191,14 +191,14 @@ struct ModelLearningTests {
     let provenance = try ModelObservationProvenance(
       observationID: "physical-1",
       evidence: .physical(physical),
-      algorithmRevision: "green-cap-v2"
+      algorithmRevision: "pen-cap-feature-v3"
     )
     let observation = try DrawingModelTrainingObservation.physical(
       evidence: physical,
       registration: registration,
       split: .training,
       observationID: "physical-1",
-      algorithmRevision: "green-cap-v2"
+      algorithmRevision: "pen-cap-feature-v3"
     )
     #expect(observation.provenance.evidence == .physical(physical))
     #expect(observation.machinePoint == machinePoint)
@@ -222,7 +222,7 @@ struct ModelLearningTests {
         ),
         split: .training,
         observationID: "physical-wrong-registration",
-        algorithmRevision: "green-cap-v2"
+        algorithmRevision: "pen-cap-feature-v3"
       )
     }
   }

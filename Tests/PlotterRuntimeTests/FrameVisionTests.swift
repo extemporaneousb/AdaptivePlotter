@@ -168,7 +168,7 @@ struct FrameVisionTests {
     )
     let result = try await VisionWorker().inspectPlotterScene(in: frame, priors: priors)
     let cap = try #require(result.cap)
-    #expect(result.greenComponentCount == 3)
+    #expect(result.capComponentCount == 3)
     #expect(cap.pixelCount == 60)
     #expect(cap.boundingBox == PixelRect(x: 45, y: 32, width: 6, height: 10))
     #expect(cap.centroid == (try Point2<CameraPixelSpace>(x: 47.5, y: 36.5)))
@@ -215,6 +215,50 @@ struct FrameVisionTests {
       result.overlays.allSatisfy {
         !$0.matches(DisplayedFrame(source: .simulated, frame: otherFrame))
       })
+  }
+
+  @Test("operator-selected cap color changes the component admitted by Vision")
+  func selectedPenCapColorDrivesRecognition() async throws {
+    let width = 80
+    let height = 60
+    var pixels = [UInt8](repeating: 230, count: width * height * 4)
+    for index in stride(from: 3, to: pixels.count, by: 4) { pixels[index] = 255 }
+    for y in 20..<26 {
+      for x in 25..<31 {
+        setBGRA(&pixels, width: width, x: x, y: y, red: 45, green: 185, blue: 105)
+      }
+      for x in 50..<56 {
+        setBGRA(&pixels, width: width, x: x, y: y, red: 190, green: 30, blue: 170)
+      }
+    }
+    let frame = try StampedFrame(
+      sequence: 1,
+      captureNanoseconds: 10,
+      cameraConfigurationID: CameraConfigurationID(),
+      width: width,
+      height: height,
+      rowBytes: width * 4,
+      pixelFormat: .bgra8,
+      bytes: OwnedFrameBytes(pixels)
+    )
+    let region = PixelRect(x: 0, y: 0, width: width, height: height)
+    let worker = VisionWorker()
+
+    let green = try await worker.inspectPlotterScene(
+      in: frame,
+      analysisRegion: region,
+      penCapColor: .green
+    )
+    let magenta = try await worker.inspectPlotterScene(
+      in: frame,
+      analysisRegion: region,
+      penCapColor: PenCapColor(red: 190, green: 30, blue: 170)
+    )
+
+    #expect(green.cap?.boundingBox == PixelRect(x: 25, y: 20, width: 6, height: 6))
+    #expect(magenta.cap?.boundingBox == PixelRect(x: 50, y: 20, width: 6, height: 6))
+    #expect(green.algorithmRevision.contains("cap-2DB969"))
+    #expect(magenta.algorithmRevision.contains("cap-BE1EAA"))
   }
 
   @Test("overlay requires exact frame and camera configuration identity")

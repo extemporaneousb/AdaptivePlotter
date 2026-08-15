@@ -158,6 +158,14 @@ During each mark selection, the predicted tip point is hidden until the operator
 clicks. After the click, the asserted point and uncertainty, predicted point,
 and residual are displayed.
 
+The operator-selected pen-cap color is a persisted recognition input. It feeds
+both bounded scene analysis and every Stage 3.3 exact-frame inspection. Changing
+the color clears stale cap/armature presentation and admits only newly analyzed
+frames; the selection itself is not an observation or calibration artifact.
+The color cannot change while automatic current-camera calibration is active,
+and one five-sample proposal accepts only cap-anchor evidence carrying the same
+color-specific estimator revision.
+
 ### 3.1 Pen Interaction
 
 Pen Interaction retains its existing exercise identity, attempt history, and
@@ -175,6 +183,11 @@ controller outcome, and timestamp so later learning can observe positional
 variation. Refusal, ambiguity, or unavailable evidence remains explicit and
 does not disable **Next**. No separate servo-
 calibration exercise, artifact, checkpoint, or authority type is introduced.
+
+A settled recovery opportunity never owns Learning Path progression. The next
+unmet dependency owns the current action strip. The failed or cancelled
+exercise remains explicitly selectable with its own **Restart** action and
+needs-attention status.
 
 ## Motion, Stop, and ambiguity
 

@@ -47,6 +47,9 @@ enum CameraComposition {
       setSceneAnalysisRegion: { region in
         await session.setSceneAnalysisRegion(region)
       },
+      setPenCapColor: { color in
+        await session.setPenCapColor(color)
+      },
       setAutomaticInspection: { cadence in
         await session.setAutomaticInspection(cadence)
       },
@@ -88,6 +91,7 @@ private actor CameraSourceSession {
   private var automaticInspectionFrameTask: Task<Void, Never>?
   private var automaticInspectionCadence: VisionAnalysisCadence?
   private var sceneAnalysisRegion: PixelRect?
+  private var penCapColor: PenCapColor = .green
 
   init() {
     let live = CameraCapture()
@@ -158,7 +162,8 @@ private actor CameraSourceSession {
       }
       let measurement = try await vision.inspectPlotterScene(
         in: displayedFrame.frame,
-        analysisRegion: sceneAnalysisRegion
+        analysisRegion: sceneAnalysisRegion,
+        penCapColor: penCapColor
       )
       await endExclusiveVisionComputation(lease)
       return LiveSceneInspection(displayedFrame: displayedFrame, measurement: measurement)
@@ -186,6 +191,12 @@ private actor CameraSourceSession {
   func setSceneAnalysisRegion(_ region: PixelRect?) async {
     sceneAnalysisRegion = region
     await analysisPipeline.setAnalysisRegion(region)
+  }
+
+  func setPenCapColor(_ color: PenCapColor) async {
+    guard penCapColor != color else { return }
+    penCapColor = color
+    await analysisPipeline.setPenCapColor(color)
   }
 
   func setAutomaticInspection(_ cadence: VisionAnalysisCadence?) async

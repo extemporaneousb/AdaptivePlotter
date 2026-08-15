@@ -454,6 +454,22 @@ extension OperatorWorkspaceTests {
     await workspace.shutdown()
   }
 
+  @Test("selected pen-cap color is retained and sent to the camera Vision owner")
+  func selectedPenCapColorConfiguresVision() async throws {
+    let log = EventLog()
+    let machine = try MachineFixture(log: log)
+    let camera = try CameraFixture()
+    let workspace = workspace(machine: machine, camera: camera, log: log)
+    await workspace.startCamera()
+    let magenta = PenCapColor(red: 190, green: 30, blue: 170)
+
+    await workspace.setPenCapColor(magenta)
+
+    #expect(workspace.penCapColor == magenta)
+    #expect(camera.recordedPenCapColorRequests.last == magenta)
+    await workspace.shutdown()
+  }
+
   @Test("manual contextual Stop sends one cancel and creates no boundary evidence")
   func manualStopHasNoBoundaryEvidence() async throws {
     let log = EventLog()

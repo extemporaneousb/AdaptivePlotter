@@ -37,15 +37,44 @@ public struct InkPixelThresholds: Codable, Hashable, Sendable {
   }
 }
 
+/// Operator-selected visible pen-cap color used by scene analysis and camera
+/// calibration. The value is an input to recognition, not evidence that the
+/// selected color was observed in any frame.
+public struct PenCapColor: Codable, Hashable, Sendable {
+  public let red: UInt8
+  public let green: UInt8
+  public let blue: UInt8
+
+  public init(red: UInt8, green: UInt8, blue: UInt8) {
+    self.red = red
+    self.green = green
+    self.blue = blue
+  }
+
+  public init?(hexRGB: String) {
+    let value = hexRGB.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
+    guard value.count == 6, let packed = UInt32(value, radix: 16) else { return nil }
+    self.init(
+      red: UInt8((packed >> 16) & 0xFF),
+      green: UInt8((packed >> 8) & 0xFF),
+      blue: UInt8(packed & 0xFF)
+    )
+  }
+
+  public var hexRGB: String {
+    String(format: "%02X%02X%02X", red, green, blue)
+  }
+
+  public static let green = PenCapColor(red: 45, green: 185, blue: 105)
+}
+
 /// Image-space scene priors from the current fixed C920 view. These regions
 /// narrow distractors; they do not define machine coordinates or a mm scale.
 public struct PlotterSceneVisionPriors: Hashable, Sendable {
   public let capSearchRegion: PixelRect
   public let topFrameSideRegion: PixelRect
   public let rightFrameSideRegion: PixelRect
-  public let minimumGreen: UInt8
-  public let minimumGreenOverRed: UInt8
-  public let minimumGreenOverBlue: UInt8
+  public let penCapColor: PenCapColor
   public let minimumCapPixels: Int
   public let maximumCapPixels: Int
   public let minimumBlue: UInt8
@@ -62,9 +91,7 @@ public struct PlotterSceneVisionPriors: Hashable, Sendable {
     capSearchRegion: PixelRect,
     topFrameSideRegion: PixelRect,
     rightFrameSideRegion: PixelRect,
-    minimumGreen: UInt8 = 75,
-    minimumGreenOverRed: UInt8 = 28,
-    minimumGreenOverBlue: UInt8 = 12,
+    penCapColor: PenCapColor = .green,
     minimumCapPixels: Int,
     maximumCapPixels: Int,
     minimumBlue: UInt8 = 70,
@@ -92,9 +119,7 @@ public struct PlotterSceneVisionPriors: Hashable, Sendable {
     self.capSearchRegion = capSearchRegion
     self.topFrameSideRegion = topFrameSideRegion
     self.rightFrameSideRegion = rightFrameSideRegion
-    self.minimumGreen = minimumGreen
-    self.minimumGreenOverRed = minimumGreenOverRed
-    self.minimumGreenOverBlue = minimumGreenOverBlue
+    self.penCapColor = penCapColor
     self.minimumCapPixels = minimumCapPixels
     self.maximumCapPixels = maximumCapPixels
     self.minimumBlue = minimumBlue
@@ -111,7 +136,8 @@ public struct PlotterSceneVisionPriors: Hashable, Sendable {
   public static func c920StartupDefaults(
     frameWidth: Int,
     frameHeight: Int,
-    analysisRegion: PixelRect? = nil
+    analysisRegion: PixelRect? = nil,
+    penCapColor: PenCapColor = .green
   ) throws -> Self {
     guard frameWidth > 0, frameHeight > 0 else { throw FrameError.invalidDimensions }
     let fullFrame = PixelRect(x: 0, y: 0, width: frameWidth, height: frameHeight)
@@ -123,8 +149,8 @@ public struct PlotterSceneVisionPriors: Hashable, Sendable {
     let area = region.width * region.height
     let algorithmRevision =
       analysisRegion.map {
-        "c920-startup-scene-v2:region-\($0.x)-\($0.y)-\($0.width)-\($0.height)"
-      } ?? "c920-startup-scene-v2:full-frame"
+        "c920-startup-scene-v3:cap-\(penCapColor.hexRGB):region-\($0.x)-\($0.y)-\($0.width)-\($0.height)"
+      } ?? "c920-startup-scene-v3:cap-\(penCapColor.hexRGB):full-frame"
     let capSearchRegion =
       analysisRegion == nil
       ? scaledRegion(x: 0.24, y: 0.14, width: 0.66, height: 0.54, within: region)
@@ -141,6 +167,7 @@ public struct PlotterSceneVisionPriors: Hashable, Sendable {
       capSearchRegion: capSearchRegion,
       topFrameSideRegion: topFrameSideRegion,
       rightFrameSideRegion: rightFrameSideRegion,
+      penCapColor: penCapColor,
       minimumCapPixels: max(24, area / 40_000),
       maximumCapPixels: max(48, area / 200),
       lineResidualLimitPixels: max(2, Double(region.height) * 0.003),
@@ -174,7 +201,7 @@ public struct PlotterSceneVisionPriors: Hashable, Sendable {
   }
 }
 
-public struct GreenCapMeasurement: Hashable, Sendable {
+public struct PenCapMeasurement: Hashable, Sendable {
   public let pixelCount: Int
   public let boundingBox: PixelRect
   public let centroid: Point2<CameraPixelSpace>
@@ -220,8 +247,8 @@ public struct PlotterSceneMeasurement: Hashable, Sendable {
   public let frameID: FrameID
   public let frameSHA256: String
   public let cameraConfigurationID: CameraConfigurationID
-  public let greenComponentCount: Int
-  public let cap: GreenCapMeasurement?
+  public let capComponentCount: Int
+  public let cap: PenCapMeasurement?
   public let topFrameSide: FrameSideMeasurement?
   public let rightFrameSide: FrameSideMeasurement?
   public let drawingFrame: DrawingFrameEstimate?
@@ -322,26 +349,28 @@ public actor VisionWorker {
   public func inspectPlotterScene(
     in frame: StampedFrame,
     priors suppliedPriors: PlotterSceneVisionPriors? = nil,
-    analysisRegion: PixelRect? = nil
+    analysisRegion: PixelRect? = nil,
+    penCapColor: PenCapColor = .green
   ) throws -> PlotterSceneMeasurement {
     let priors =
       try suppliedPriors
       ?? PlotterSceneVisionPriors.c920StartupDefaults(
         frameWidth: frame.width,
         frameHeight: frame.height,
-        analysisRegion: analysisRegion
+        analysisRegion: analysisRegion,
+        penCapColor: penCapColor
       )
     try validate(priors.capSearchRegion, in: frame)
     try validate(priors.topFrameSideRegion, in: frame)
     try validate(priors.rightFrameSideRegion, in: frame)
 
-    let components = try greenComponents(
+    let components = try capColorComponents(
       frame: frame,
       region: priors.capSearchRegion,
       priors: priors
     ).filter { $0.pixelCount >= 2 }
     // The observed marker is a compact filled component. This broad shape
-    // rejection prevents a long green ink stroke from becoming the cap.
+    // rejection prevents a long same-colored ink stroke from becoming the cap.
     let eligible =
       components
       .filter {
@@ -369,7 +398,7 @@ public actor VisionWorker {
         0,
         1 - Double(secondLargest) / Double(component.pixelCount)
       )
-      return GreenCapMeasurement(
+      return PenCapMeasurement(
         pixelCount: component.pixelCount,
         boundingBox: PixelRect(
           x: component.minX,
@@ -488,7 +517,7 @@ public actor VisionWorker {
       frameID: frame.id,
       frameSHA256: frame.contentSHA256,
       cameraConfigurationID: frame.cameraConfigurationID,
-      greenComponentCount: components.count,
+      capComponentCount: components.count,
       cap: cap,
       topFrameSide: top,
       rightFrameSide: right,
@@ -595,7 +624,7 @@ public actor VisionWorker {
   }
 
   private func armatureEstimate(
-    cap: GreenCapMeasurement,
+    cap: PenCapMeasurement,
     frame: StampedFrame,
     priors: PlotterSceneVisionPriors
   ) throws -> ArmatureEstimate {
@@ -655,7 +684,7 @@ public actor VisionWorker {
     )
   }
 
-  private func greenComponents(
+  private func capColorComponents(
     frame: StampedFrame,
     region: PixelRect,
     priors: PlotterSceneVisionPriors
@@ -672,10 +701,12 @@ public actor VisionWorker {
             x: region.x + localX,
             y: region.y + localY
           )
-          matching[localY * region.width + localX] =
-            green >= priors.minimumGreen
-            && Int(green) - Int(red) >= Int(priors.minimumGreenOverRed)
-            && Int(green) - Int(blue) >= Int(priors.minimumGreenOverBlue)
+          matching[localY * region.width + localX] = Self.matchesPenCapColor(
+            red: red,
+            green: green,
+            blue: blue,
+            target: priors.penCapColor
+          )
         }
       }
       return matching
@@ -737,6 +768,51 @@ public actor VisionWorker {
         ))
     }
     return components
+  }
+
+  private static func matchesPenCapColor(
+    red: UInt8,
+    green: UInt8,
+    blue: UInt8,
+    target: PenCapColor
+  ) -> Bool {
+    let pixel = hsv(red: red, green: green, blue: blue)
+    let selected = hsv(red: target.red, green: target.green, blue: target.blue)
+
+    if selected.saturation < 0.15 {
+      return pixel.saturation <= 0.22
+        && abs(pixel.value - selected.value) <= 0.18
+    }
+
+    let directHueDistance = abs(pixel.hueDegrees - selected.hueDegrees)
+    let hueDistance = min(directHueDistance, 360 - directHueDistance)
+    return pixel.value >= 0.18
+      && pixel.saturation >= max(0.18, selected.saturation * 0.35)
+      && hueDistance <= 28
+  }
+
+  private static func hsv(
+    red: UInt8,
+    green: UInt8,
+    blue: UInt8
+  ) -> (hueDegrees: Double, saturation: Double, value: Double) {
+    let red = Double(red) / 255
+    let green = Double(green) / 255
+    let blue = Double(blue) / 255
+    let maximum = max(red, green, blue)
+    let minimum = min(red, green, blue)
+    let delta = maximum - minimum
+    let saturation = maximum == 0 ? 0 : delta / maximum
+    guard delta > 0 else { return (0, saturation, maximum) }
+    let rawHue: Double
+    if maximum == red {
+      rawHue = 60 * ((green - blue) / delta).truncatingRemainder(dividingBy: 6)
+    } else if maximum == green {
+      rawHue = 60 * (((blue - red) / delta) + 2)
+    } else {
+      rawHue = 60 * (((red - green) / delta) + 4)
+    }
+    return (rawHue < 0 ? rawHue + 360 : rawHue, saturation, maximum)
   }
 
   private func frameSide(

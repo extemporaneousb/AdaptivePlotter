@@ -519,8 +519,34 @@ private struct VideoSettingsContents: View {
         }
       }
 
+      HStack(spacing: 10) {
+        Text("Pen cap recognition color")
+          .font(.caption.weight(.semibold))
+        Spacer()
+        Text("#\(workspace.penCapColor.hexRGB)")
+          .font(.caption.monospaced())
+          .foregroundStyle(.secondary)
+        ColorPicker(
+          "Pen cap recognition color",
+          selection: Binding(
+            get: { workspace.penCapColor.swiftUIColor },
+            set: { color in
+              guard let selection = PenCapColor(swiftUIColor: color) else { return }
+              Task { await workspace.setPenCapColor(selection) }
+            }
+          ),
+          supportsOpacity: false
+        )
+        .labelsHidden()
+        .disabled(workspace.penCapColorChangeUnavailableReason != nil)
+        .help(
+          workspace.penCapColorChangeUnavailableReason
+            ?? "Choose the visible cap color consumed by scene analysis and camera calibration."
+        )
+      }
+
       Text(
-        "Cap, measured frame sides, drawing frame, and armature selections directly run bounded scene analysis. No separate Analyze or Resume action is required."
+        "The selected cap color is consumed by bounded scene analysis and camera calibration. It is a recognition input, not evidence that the cap was observed."
       )
       .font(.caption2)
       .foregroundStyle(.secondary)
@@ -562,6 +588,28 @@ private struct VideoSettingsContents: View {
         .multilineTextAlignment(.trailing)
         .textSelection(.enabled)
     }
+  }
+}
+
+private extension PenCapColor {
+  var swiftUIColor: Color {
+    Color(
+      red: Double(red) / 255,
+      green: Double(green) / 255,
+      blue: Double(blue) / 255
+    )
+  }
+
+  init?(swiftUIColor: Color) {
+    guard let color = NSColor(swiftUIColor).usingColorSpace(.sRGB) else { return nil }
+    func channel(_ value: CGFloat) -> UInt8 {
+      UInt8((min(1, max(0, value)) * 255).rounded())
+    }
+    self.init(
+      red: channel(color.redComponent),
+      green: channel(color.greenComponent),
+      blue: channel(color.blueComponent)
+    )
   }
 }
 

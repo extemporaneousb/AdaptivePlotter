@@ -46,6 +46,12 @@ Presentation zoom, pan, and fitted bounds are available after 3.2. They are
 view-only. Exact camera-pixel evidence and calibration authority do not change
 when the presentation transform changes.
 
+Set the visible pen-cap recognition color in Video Settings before beginning
+Stage 3.3. The color well remains an operator preference, not observed evidence.
+It feeds continuous scene analysis and the exact-frame calibration inspector;
+it is unavailable while automatic current-camera calibration is active so one
+five-sample proposal cannot mix recognition settings.
+
 ## 3.1 Pen Interaction
 
 1. Start the existing Pen Interaction attempt.
@@ -67,6 +73,10 @@ Repeating Pen Interaction at another position creates another existing attempt
 with its actual values and available position/actuation evidence so future
 learning can evaluate positional variation. It does not create a separate
 calibration exercise or artifact.
+
+If a settled attempt elsewhere exposes **Restart**, select that exercise to use
+its recovery. The recovery row does not replace the current exercise selected
+by the dependency chain and does not hide Pen Interaction or the next **Start**.
 
 ## 3.2 Paired Boundary Discovery and Centering
 
