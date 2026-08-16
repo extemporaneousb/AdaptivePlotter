@@ -469,7 +469,7 @@ struct SimulatedLearningRuntimeTests {
 
     let truth = try #require(scene.annotations.first { $0.kind == .truthEnvelope })
     guard case .bounds(let bounds) = truth.geometry else { return }
-    #expect(bounds.maxX - bounds.minX > 400)
+    #expect(bounds.maxX - bounds.minX > 300)
     #expect(bounds.maxY - bounds.minY > 300)
   }
 

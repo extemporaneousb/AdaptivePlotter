@@ -247,21 +247,17 @@ func completeSimulatedSparseTipCalibration(
   #expect(abs(truthOffset.dx) + abs(truthOffset.dy) > 0)
   let registration = try #require(workspace.machineCameraRegistration)
   let referencePosition = try #require(workspace.cameraCalibrationReferencePosition)
-  let representativeBoundary = try #require(workspace.boundarySideAggregates.values.first)
-  let plan = try CurrentCameraCalibrationPlan(
-    targetPosition: referencePosition,
-    boundarySideAggregates: workspace.boundarySideAggregates,
-    controllerSessionID: representativeBoundary.controllerSessionID,
-    coordinateRevision: representativeBoundary.coordinateRevision
+  let plan = try SparseTipBatchMarkPlan(
+    center: referencePosition,
+    boundarySideAggregates: workspace.boundarySideAggregates
   )
-  for position in SparseTipCalibrationCoordinator.orderedPositions {
-    try await performPublicAction(.createNextSparseTipMark, owner: tipOwner, workspace: workspace)
-    let request = try #require(
-      workspace.actionSurfacePresentation.pointSelectionRequest,
-      "missing selection request for \(position): \(workspace.explorationError ?? "no error")"
-    )
-    let sample = try #require(plan.samples.first { $0.position == position })
-    let capPoint = try registration.fit.cameraPoint(from: sample.machinePosition.point)
+  try await performPublicAction(.drawFiveSparseTipCircles, owner: tipOwner, workspace: workspace)
+  let request = try #require(
+    workspace.actionSurfacePresentation.pointSelectionRequest,
+    "missing five-click selection request: \(workspace.explorationError ?? "no error")"
+  )
+  for mark in plan.marks.reversed() {
+    let capPoint = try registration.fit.cameraPoint(from: mark.machinePosition.point)
     let truthPoint = try capPoint.translated(by: truthOffset)
     workspace.selectToolContactPoint(
       ActionSurfacePointSelection(
@@ -269,7 +265,6 @@ func completeSimulatedSparseTipCalibration(
         point: truthPoint,
         presentationTransformRevision: request.presentationTransformRevision
       ))
-    try await performPublicAction(.acceptSparseTipMark, owner: tipOwner, workspace: workspace)
   }
   try await performPublicAction(.acceptTipCalibration, owner: tipOwner, workspace: workspace)
 }

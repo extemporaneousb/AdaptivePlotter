@@ -174,19 +174,21 @@ struct LearningPathProjectorTests {
     let owner = LearningPathItemID.humanGuidedDiscovery(
       .calibratePenContactFromSparseMarks
     )
-    let phases: [(SparseTipCalibrationPhase, [String])] = [
-      (.idle, ["Create Next 2 mm Circle", "Cancel Attempt"]),
-      (.awaitingFrozenClick(.center, FrameID(rawValue: "frame-1")), ["Cancel Attempt"]),
-      (.reviewingClick(.center, FrameID(rawValue: "frame-1")),
-        ["Re-click This Exact Frame", "Accept Mark Center", "Cancel Attempt"]),
-      (.fittingCandidates, ["Fitting Smallest Passing Model…", "Cancel Attempt"]),
+    let phases: [(SparseTipCalibrationPhase, Int, [String])] = [
+      (.idle, 0, ["Draw Five 2 mm Circles", "Cancel Attempt"]),
+      (.drawingBatch, 0, ["Drawing Five 2 mm Circles…", "Cancel Attempt"]),
+      (.revealingBatch, 0, ["Revealing Five Circles…", "Cancel Attempt"]),
+      (.awaitingFrozenClicks(FrameID(rawValue: "frame-1")), 0, ["Cancel Attempt"]),
+      (.awaitingFrozenClicks(FrameID(rawValue: "frame-1")), 2,
+        ["Undo Last Click", "Clear Clicks on This Frame", "Cancel Attempt"]),
+      (.fittingModel, 5, ["Fitting Tip Calibration…", "Cancel Attempt"]),
       (.reviewingFinalProposal(.constantCameraPixelCorrection),
-        ["Accept Tip Calibration", "Reject Tip Calibration", "Cancel Attempt"]),
+        5, ["Accept Tip Calibration", "Cancel Attempt"]),
     ]
 
-    for (phase, titles) in phases {
+    for (phase, collectedClickCount, titles) in phases {
       let snapshot = postBoundarySnapshot(
-        sparse: .init(phase: phase),
+        sparse: .init(phase: phase, collectedClickCount: collectedClickCount),
         operations: .init(activeAttemptOwner: owner)
       )
       let strip = projector.project(snapshot, selectedItemID: owner).currentActionStrip

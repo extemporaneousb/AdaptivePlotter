@@ -4,28 +4,19 @@ import PlotterRuntime
 
 enum SparseTipCalibrationCoordinatorError: Error, Equatable, Sendable {
   case invalidTransition
-  case locationBlacklisted(ToolContactCalibrationPosition)
   case staleSelection
-  case selectionUnavailable
   case duplicateObservation
 }
 
 enum SparseTipCalibrationPhase: Hashable, Sendable {
   case idle
-  case preparingMark(ToolContactCalibrationPosition)
-  case drawingMark(ToolContactCalibrationPosition)
-  case revealing(
-    mark: ToolContactCalibrationPosition,
-    reveal: MachinePosition
-  )
-  case awaitingFrozenClick(ToolContactCalibrationPosition, FrameID)
-  case reviewingClick(ToolContactCalibrationPosition, FrameID)
-  case fittingCandidates
+  case drawingBatch
+  case revealingBatch
+  case awaitingFrozenClicks(FrameID)
+  case fittingModel
   case reviewingFinalProposal(TipCameraModelForm)
   case accepted
   case possibleInkBlacklisted(BlacklistedToolContactLocation, String)
-  case holdoutFailed(String)
-  case rejected(String)
 }
 
 struct BlacklistedToolContactLocation: Hashable, Sendable {
@@ -36,9 +27,9 @@ struct BlacklistedToolContactLocation: Hashable, Sendable {
   let paperContactPlane: PaperContactPlaneRevision
 }
 
-/// Pure workflow state. It owns ordering and no-redraw transitions; physical
-/// motion, finite circle drawing, exact capture, and artifact commits stay with
-/// `OperatorWorkspace` and the existing runtime owners.
+/// Pure Stage 3.4 workflow state. One batch owns all physical marks, one final
+/// frame owns all clicks, and model construction follows the atomic five-click
+/// association performed by the workspace.
 struct SparseTipCalibrationCoordinator: Hashable, Sendable {
   static let orderedPositions: [ToolContactCalibrationPosition] = [
     .center, .negativeX, .positiveY, .positiveX, .negativeY,
@@ -48,8 +39,7 @@ struct SparseTipCalibrationCoordinator: Hashable, Sendable {
   private(set) var acceptedObservations: [AcceptedToolContactObservation] = []
   private(set) var blacklistedLocations: Set<BlacklistedToolContactLocation>
   private(set) var pendingFrame: ExactTipCalibrationFrame?
-  private(set) var selectedPoint: Point2<CameraPixelSpace>?
-  private(set) var selectedPresentationRevision: PresentationTransformRevision?
+  private(set) var selections: [ActionSurfacePointSelection] = []
   private(set) var proposal: TipCalibrationModelSelection?
 
   init(blacklistedLocations: Set<BlacklistedToolContactLocation> = []) {
@@ -66,97 +56,79 @@ struct SparseTipCalibrationCoordinator: Hashable, Sendable {
     Set(blacklistedLocations.map(\.calibrationPosition))
   }
 
+  var collectedClickPoints: [Point2<CameraPixelSpace>] { selections.map(\.point) }
+  var collectedClickCount: Int { selections.count }
   var selectedPresentationRevisionForCommit: PresentationTransformRevision? {
-    selectedPresentationRevision
+    selections.first?.presentationTransformRevision
   }
 
-  var nextPosition: ToolContactCalibrationPosition? {
-    Self.orderedPositions.first { position in
-      !acceptedObservations.contains { $0.observation.calibrationPosition == position }
-        && !blacklistedPositions.contains(position)
-    }
-  }
-
-  mutating func prepareNextMark() throws -> ToolContactCalibrationPosition {
-    guard case .idle = phase, let position = nextPosition else {
+  mutating func beginBatch() throws {
+    guard phase == .idle, acceptedObservations.isEmpty else {
       throw SparseTipCalibrationCoordinatorError.invalidTransition
     }
-    guard !blacklistedPositions.contains(position) else {
-      throw SparseTipCalibrationCoordinatorError.locationBlacklisted(position)
-    }
-    phase = .preparingMark(position)
-    return position
+    phase = .drawingBatch
   }
 
-  mutating func beganMark(at position: ToolContactCalibrationPosition) throws {
-    guard phase == .preparingMark(position), !blacklistedPositions.contains(position) else {
+  mutating func beginReveal() throws {
+    guard phase == .drawingBatch else {
       throw SparseTipCalibrationCoordinatorError.invalidTransition
     }
-    phase = .drawingMark(position)
+    phase = .revealingBatch
   }
 
-  mutating func beganReveal(
-    from mark: ToolContactCalibrationPosition,
-    to reveal: MachinePosition
-  ) throws {
-    guard phase == .drawingMark(mark) else {
-      throw SparseTipCalibrationCoordinatorError.invalidTransition
-    }
-    phase = .revealing(mark: mark, reveal: reveal)
-  }
-
-  mutating func awaitFrozenClick(
-    for mark: ToolContactCalibrationPosition,
-    frame: ExactTipCalibrationFrame
-  ) throws {
-    guard case .revealing(let activeMark, _) = phase, activeMark == mark else {
+  mutating func awaitFrozenClicks(frame: ExactTipCalibrationFrame) throws {
+    guard phase == .revealingBatch else {
       throw SparseTipCalibrationCoordinatorError.invalidTransition
     }
     pendingFrame = frame
-    selectedPoint = nil
-    selectedPresentationRevision = nil
-    phase = .awaitingFrozenClick(mark, frame.frameID)
+    selections = []
+    phase = .awaitingFrozenClicks(frame.frameID)
   }
 
   mutating func select(_ selection: ActionSurfacePointSelection) throws {
-    guard case .awaitingFrozenClick(let position, let frameID) = phase,
+    guard case .awaitingFrozenClicks(let frameID) = phase,
       let pendingFrame,
       frameID == pendingFrame.frameID,
       selection.frame == pendingFrame,
-      selection.presentationTransformRevision == selectedPresentationRevision
-        || selectedPresentationRevision == nil
+      selections.count < Self.orderedPositions.count,
+      selections.first?.presentationTransformRevision == selection.presentationTransformRevision
+        || selections.isEmpty
     else { throw SparseTipCalibrationCoordinatorError.staleSelection }
-    selectedPoint = selection.point
-    selectedPresentationRevision = selection.presentationTransformRevision
-    phase = .reviewingClick(position, frameID)
+    selections.append(selection)
+    if selections.count == Self.orderedPositions.count {
+      phase = .fittingModel
+    }
   }
 
-  mutating func reClickSameFrame() throws {
-    guard case .reviewingClick(let position, let frameID) = phase,
-      pendingFrame?.frameID == frameID
+  mutating func undoLastClick() throws {
+    guard pendingFrame != nil, !selections.isEmpty,
+      phase == .fittingModel || isAwaitingFrozenClicks
     else { throw SparseTipCalibrationCoordinatorError.invalidTransition }
-    selectedPoint = nil
-    selectedPresentationRevision = nil
-    phase = .awaitingFrozenClick(position, frameID)
+    selections.removeLast()
+    phase = .awaitingFrozenClicks(pendingFrame!.frameID)
   }
 
-  mutating func acceptObservation(_ observation: AcceptedToolContactObservation) throws {
-    guard case .reviewingClick(let position, let frameID) = phase,
-      observation.observation.calibrationPosition == position,
-      observation.observation.postRevealSelectionFrame.frameID == frameID,
-      observation.observation.click.point == selectedPoint,
-      observation.observation.click.presentationTransformRevision
-        == selectedPresentationRevision,
-      !acceptedObservations.contains(where: {
-        $0.observation.calibrationPosition == position
-      })
+  mutating func clearClicks() throws {
+    guard pendingFrame != nil,
+      phase == .fittingModel || isAwaitingFrozenClicks
+    else { throw SparseTipCalibrationCoordinatorError.invalidTransition }
+    selections = []
+    phase = .awaitingFrozenClicks(pendingFrame!.frameID)
+  }
+
+  mutating func acceptAssociatedObservations(
+    _ observations: [AcceptedToolContactObservation]
+  ) throws {
+    guard phase == .fittingModel,
+      observations.count == Self.orderedPositions.count,
+      observations.map({ $0.observation.calibrationPosition }) == Self.orderedPositions,
+      let pendingFrame,
+      observations.allSatisfy({
+        $0.observation.postRevealSelectionFrame.frameID == pendingFrame.frameID
+      }),
+      clickPointsMatch(observations.map { $0.observation.click.point }, collectedClickPoints)
     else { throw SparseTipCalibrationCoordinatorError.duplicateObservation }
-    acceptedObservations.append(observation)
-    pendingFrame = nil
-    selectedPoint = nil
-    selectedPresentationRevision = nil
-    phase = acceptedObservations.count == Self.orderedPositions.count
-      ? .fittingCandidates : .idle
+    acceptedObservations = observations
   }
 
   mutating func blacklistPossibleInk(
@@ -165,38 +137,29 @@ struct SparseTipCalibrationCoordinator: Hashable, Sendable {
   ) {
     blacklistedLocations.insert(location)
     pendingFrame = nil
-    selectedPoint = nil
-    selectedPresentationRevision = nil
+    selections = []
     phase = .possibleInkBlacklisted(location, reason)
   }
 
   mutating func resetBeforeInkFailure() {
     pendingFrame = nil
-    selectedPoint = nil
-    selectedPresentationRevision = nil
+    selections = []
     phase = .idle
   }
 
   mutating func stageProposal(
-    capCameraFromMachine: AffineTransform2<MachineSpace, CameraPixelSpace>,
-    maximumHoldoutResidualPixels: Double
+    capCameraFromMachine: AffineTransform2<MachineSpace, CameraPixelSpace>
   ) throws -> TipCalibrationModelSelection {
-    guard case .fittingCandidates = phase else {
-      throw SparseTipCalibrationCoordinatorError.invalidTransition
-    }
-    do {
-      let selection = try TipCalibrationModelSelection.selectSmallestPassingModel(
-        acceptedObservations: acceptedObservations,
-        capCameraFromMachine: capCameraFromMachine,
-        maximumHoldoutResidualPixels: maximumHoldoutResidualPixels
-      )
-      proposal = selection
-      phase = .reviewingFinalProposal(selection.modelForm)
-      return selection
-    } catch {
-      phase = .holdoutFailed(String(describing: error))
-      throw error
-    }
+    guard phase == .fittingModel,
+      acceptedObservations.count == Self.orderedPositions.count
+    else { throw SparseTipCalibrationCoordinatorError.invalidTransition }
+    let selection = try TipCalibrationModelSelection.fitAffineFirst(
+      acceptedObservations: acceptedObservations,
+      capCameraFromMachine: capCameraFromMachine
+    )
+    proposal = selection
+    phase = .reviewingFinalProposal(selection.modelForm)
+    return selection
   }
 
   mutating func markAccepted() throws {
@@ -208,17 +171,25 @@ struct SparseTipCalibrationCoordinator: Hashable, Sendable {
 
   mutating func markCheckpointRevalidated() {
     pendingFrame = nil
-    selectedPoint = nil
-    selectedPresentationRevision = nil
+    selections = []
     proposal = nil
     phase = .accepted
   }
 
-  mutating func markRejected(reason: String) throws {
-    guard case .reviewingFinalProposal = phase, proposal != nil,
-      !reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    else { throw SparseTipCalibrationCoordinatorError.invalidTransition }
-    proposal = nil
-    phase = .rejected(reason)
+  private var isAwaitingFrozenClicks: Bool {
+    if case .awaitingFrozenClicks = phase { return true }
+    return false
+  }
+
+  private func clickPointsMatch(
+    _ lhs: [Point2<CameraPixelSpace>],
+    _ rhs: [Point2<CameraPixelSpace>]
+  ) -> Bool {
+    func sorted(_ points: [Point2<CameraPixelSpace>]) -> [Point2<CameraPixelSpace>] {
+      points.sorted { left, right in
+        left.x == right.x ? left.y < right.y : left.x < right.x
+      }
+    }
+    return sorted(lhs) == sorted(rhs)
   }
 }

@@ -50,7 +50,7 @@ struct SparseTipCircularMarkPlan: Hashable, Sendable {
   static let chordCount = 16
   static let maximumFeedMMPerMinute = 100.0
   static let registrationEstimatorRevision =
-    "smallest-passing-tip-model-circle-2mm-radius-16-chord-v2"
+    "affine-first-all-five-circle-2mm-radius-16-chord-v3"
 
   let geometry: ToolContactMarkGeometryEvidence
   let pathPositions: [MachinePosition]
@@ -63,16 +63,18 @@ struct SparseTipCircularMarkPlan: Hashable, Sendable {
     for position: ToolContactCalibrationPosition,
     in domain: AxisAlignedBounds<MachineSpace>
   ) throws -> ToolContactMarkGeometryEvidence {
-    let normalized: (x: Double, y: Double) = switch position {
-    case .center: (0.5, 0.5)
-    case .negativeX: (0.1, 0.5)
-    case .positiveY: (0.5, 0.9)
-    case .positiveX: (0.9, 0.5)
-    case .negativeY: (0.5, 0.1)
+    let offset: (x: Double, y: Double) = switch position {
+    case .center: (0, 0)
+    case .negativeX: (-SparseTipBatchMarkPlan.offsetMM, 0)
+    case .positiveY: (0, SparseTipBatchMarkPlan.offsetMM)
+    case .positiveX: (SparseTipBatchMarkPlan.offsetMM, 0)
+    case .negativeY: (0, -SparseTipBatchMarkPlan.offsetMM)
     }
+    let centerX = (domain.minX + domain.maxX) / 2
+    let centerY = (domain.minY + domain.maxY) / 2
     let center = try MachinePosition(
-      x: domain.minX + (domain.maxX - domain.minX) * normalized.x,
-      y: domain.minY + (domain.maxY - domain.minY) * normalized.y
+      x: centerX + offset.x,
+      y: centerY + offset.y
     )
     return try ToolContactMarkGeometryEvidence(
       center: center,
@@ -104,13 +106,14 @@ struct SparseTipCircularMarkPlan: Hashable, Sendable {
       point.y + Self.radiusMM <= safeMaxY
     else { throw CurrentCameraCalibrationPlanningError.circularMarkOutsideSafeEnvelope }
 
-    let positions = try (0...Self.chordCount).map { index in
+    var positions = try (0..<Self.chordCount).map { index in
       let angle = 2 * Double.pi * Double(index) / Double(Self.chordCount)
       return try MachinePosition(
         x: point.x + Self.radiusMM * cos(angle),
         y: point.y + Self.radiusMM * sin(angle)
       )
     }
+    positions.append(positions[0])
     let deltas = try zip(positions, positions.dropFirst()).map { from, to in
       try Vector2<MachineSpace>(
         dx: to.point.x - from.point.x,
@@ -127,6 +130,50 @@ struct SparseTipCircularMarkPlan: Hashable, Sendable {
     pathPositions = positions
     pathDeltas = deltas
     revealPosition = try MachinePosition(x: safeMaxX, y: revealY)
+  }
+}
+
+/// The complete Stage 3.4 physical mark layout. Unlike Stage 3.3's
+/// camera-calibration rectangle, these offsets are fixed machine distances:
+/// C, X-, Y+, X+, and Y- at 30 mm from C.
+struct SparseTipBatchMarkPlan: Hashable, Sendable {
+  static let offsetMM = 30.0
+
+  struct Mark: Hashable, Sendable {
+    let position: ToolContactCalibrationPosition
+    let machinePosition: MachinePosition
+    let circle: SparseTipCircularMarkPlan
+  }
+
+  let marks: [Mark]
+
+  var finalRevealPosition: MachinePosition { marks.last!.circle.revealPosition }
+
+  init(
+    center: MachinePosition,
+    boundarySideAggregates: [BoundaryDirection: BoundarySideAggregate]
+  ) throws {
+    let offsets: [(ToolContactCalibrationPosition, Double, Double)] = [
+      (.center, 0, 0),
+      (.negativeX, -Self.offsetMM, 0),
+      (.positiveY, 0, Self.offsetMM),
+      (.positiveX, Self.offsetMM, 0),
+      (.negativeY, 0, -Self.offsetMM),
+    ]
+    marks = try offsets.map { position, dx, dy in
+      let machinePosition = try MachinePosition(
+        x: center.point.x + dx,
+        y: center.point.y + dy
+      )
+      return Mark(
+        position: position,
+        machinePosition: machinePosition,
+        circle: try SparseTipCircularMarkPlan(
+          center: machinePosition,
+          boundarySideAggregates: boundarySideAggregates
+        )
+      )
+    }
   }
 }
 

@@ -7,29 +7,45 @@ import Testing
 
 @Suite("Sparse tip calibration coordinator")
 struct SparseTipCalibrationCoordinatorTests {
-  @Test("workflow uses the fixed five-position order and re-clicks one frozen frame")
-  func frozenFrameReClick() throws {
+  @Test("one batch collects five clicks on one frozen frame in arbitrary order")
+  func frozenFrameBatchClicks() throws {
     #expect(SparseTipCalibrationCoordinator.orderedPositions == [
       .center, .negativeX, .positiveY, .positiveX, .negativeY,
     ])
     var coordinator = SparseTipCalibrationCoordinator()
     let frame = try exactFrame(id: "frozen-center", hash: "a")
     let revision = PresentationTransformRevision()
-    let point = try Point2<CameraPixelSpace>(x: 320, y: 240)
+    let points = try [
+      Point2<CameraPixelSpace>(x: 500, y: 240),
+      Point2<CameraPixelSpace>(x: 320, y: 80),
+      Point2<CameraPixelSpace>(x: 140, y: 240),
+      Point2<CameraPixelSpace>(x: 320, y: 400),
+      Point2<CameraPixelSpace>(x: 320, y: 240),
+    ]
 
-    #expect(try coordinator.prepareNextMark() == .center)
-    try coordinator.beganMark(at: .center)
-    try coordinator.beganReveal(from: .center, to: MachinePosition(x: 90, y: 0))
-    try coordinator.awaitFrozenClick(for: .center, frame: frame)
-    try coordinator.select(ActionSurfacePointSelection(
-      frame: frame,
-      point: point,
-      presentationTransformRevision: revision
-    ))
-    #expect(coordinator.phase == .reviewingClick(.center, frame.frameID))
+    try coordinator.beginBatch()
+    #expect(coordinator.phase == .drawingBatch)
+    try coordinator.beginReveal()
+    #expect(coordinator.phase == .revealingBatch)
+    try coordinator.awaitFrozenClicks(frame: frame)
+    for point in points {
+      try coordinator.select(ActionSurfacePointSelection(
+        frame: frame,
+        point: point,
+        presentationTransformRevision: revision
+      ))
+    }
+    #expect(coordinator.phase == .fittingModel)
+    #expect(coordinator.collectedClickPoints == points)
+    #expect(coordinator.collectedClickCount == 5)
+    #expect(coordinator.pendingFrame == frame)
 
-    try coordinator.reClickSameFrame()
-    #expect(coordinator.phase == .awaitingFrozenClick(.center, frame.frameID))
+    try coordinator.undoLastClick()
+    #expect(coordinator.phase == .awaitingFrozenClicks(frame.frameID))
+    #expect(coordinator.collectedClickPoints == Array(points.dropLast()))
+    #expect(coordinator.pendingFrame == frame)
+    try coordinator.clearClicks()
+    #expect(coordinator.collectedClickPoints.isEmpty)
     #expect(coordinator.pendingFrame == frame)
   }
 
@@ -38,10 +54,9 @@ struct SparseTipCalibrationCoordinatorTests {
     var coordinator = SparseTipCalibrationCoordinator()
     let frozen = try exactFrame(id: "frozen", hash: "b")
     let stale = try exactFrame(id: "stale", hash: "c")
-    _ = try coordinator.prepareNextMark()
-    try coordinator.beganMark(at: .center)
-    try coordinator.beganReveal(from: .center, to: MachinePosition(x: 90, y: 0))
-    try coordinator.awaitFrozenClick(for: .center, frame: frozen)
+    try coordinator.beginBatch()
+    try coordinator.beginReveal()
+    try coordinator.awaitFrozenClicks(frame: frozen)
 
     #expect(throws: SparseTipCalibrationCoordinatorError.staleSelection) {
       try coordinator.select(ActionSurfacePointSelection(
@@ -50,13 +65,13 @@ struct SparseTipCalibrationCoordinatorTests {
         presentationTransformRevision: PresentationTransformRevision()
       ))
     }
-    #expect(coordinator.phase == .awaitingFrozenClick(.center, frozen.frameID))
+    #expect(coordinator.phase == .awaitingFrozenClicks(frozen.frameID))
   }
 
   @Test("ambiguous circle blacklists one location and never authorizes redraw")
   func ambiguityBlacklistsWithoutRedraw() throws {
     var coordinator = SparseTipCalibrationCoordinator()
-    #expect(try coordinator.prepareNextMark() == .center)
+    try coordinator.beginBatch()
     let location = BlacklistedToolContactLocation(
       calibrationPosition: .center,
       machinePosition: try MachinePosition(x: 0, y: 0),
@@ -67,9 +82,8 @@ struct SparseTipCalibrationCoordinatorTests {
     )
     coordinator.blacklistPossibleInk(at: location, reason: "Pen Up completion unknown")
     #expect(coordinator.blacklistedPositions == [.center])
-    #expect(coordinator.nextPosition == .negativeX)
     #expect(throws: SparseTipCalibrationCoordinatorError.invalidTransition) {
-      _ = try coordinator.prepareNextMark()
+      try coordinator.beginBatch()
     }
 
     var restored = SparseTipCalibrationCoordinator(
@@ -77,7 +91,7 @@ struct SparseTipCalibrationCoordinatorTests {
     )
     #expect(restored.blacklistedLocations == [location])
     #expect(throws: SparseTipCalibrationCoordinatorError.invalidTransition) {
-      _ = try restored.prepareNextMark()
+      try restored.beginBatch()
     }
   }
 }

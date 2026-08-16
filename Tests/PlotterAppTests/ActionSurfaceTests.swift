@@ -131,16 +131,6 @@ func viewportPresentationOnlyContext() {
   #expect(viewport.zoom == 0.72)
   #expect(viewport.visibleRegion(frameWidth: 640, frameHeight: 480) == operatorRegion)
 
-  viewport.synchronize(
-    with: ActionSurfaceViewportContext(
-      source: context.source,
-      cameraConfigurationID: context.cameraConfigurationID,
-      fittedRegion: PixelRect(x: 25, y: 35, width: 40, height: 50),
-      preferredInitialZoom: 1,
-      presentationRevisionToken: "sparse-mark-focus"
-    ))
-  #expect(viewport.zoom == 1)
-
   viewport.zoom = 0.44
   viewport.synchronize(
     with: ActionSurfaceViewportContext(
@@ -226,21 +216,46 @@ func viewportClipsFittedBoundsAtEveryFrameEdge() {
   }
 }
 
-@Test("Sparse mark context opens at its stronger presentation-only focus")
-func sparseMarkPreferredZoom() {
-  let region = PixelRect(x: 210, y: 160, width: 213, height: 160)
+@Test("Sparse batch context preserves operator zoom and pan without fitted focus")
+func sparseBatchPreservesViewport() {
+  let configuration = CameraConfigurationID()
+  let learnedBounds = PixelRect(x: 80, y: 60, width: 480, height: 360)
   var viewport = ActionSurfaceViewportState()
   viewport.synchronize(
     with: ActionSurfaceViewportContext(
       source: .simulated,
-      cameraConfigurationID: CameraConfigurationID(),
-      fittedRegion: region,
-      preferredInitialZoom: 1,
-      presentationRevisionToken: "sparse-mark-frame-12"
+      cameraConfigurationID: configuration,
+      fittedRegion: learnedBounds,
+      preferredInitialZoom: 0,
+      presentationRevisionToken: "machine-bounds"
     ))
+  viewport.zoom = 0.63
+  viewport.pan(
+    by: CGSize(width: -32, height: -18),
+    viewSize: CGSize(width: 640, height: 480),
+    frameWidth: 640,
+    frameHeight: 480
+  )
+  let priorRegion = viewport.visibleRegion(frameWidth: 640, frameHeight: 480)
+  for token in [
+    "sparse-batch-started",
+    "sparse-batch-frozen-frame",
+    "sparse-batch-clicks-changed",
+    "sparse-batch-fitting",
+    "sparse-batch-proposal",
+  ] {
+    viewport.synchronize(
+      with: ActionSurfaceViewportContext(
+        source: .simulated,
+        cameraConfigurationID: configuration,
+        fittedRegion: learnedBounds,
+        preferredInitialZoom: 0,
+        presentationRevisionToken: token
+      ))
+    #expect(viewport.zoom == 0.63)
+    #expect(viewport.visibleRegion(frameWidth: 640, frameHeight: 480) == priorRegion)
+  }
 
-  #expect(viewport.zoom == 1)
-  #expect(viewport.visibleRegion(frameWidth: 640, frameHeight: 480) == region)
 }
 
 @Test("Tip presentation hides prediction until after selection")
@@ -266,6 +281,71 @@ func tipPredictionVisibilityPolicy() throws {
   #expect(geometry.prediction == prediction)
   #expect(geometry.residual?.start == prediction)
   #expect(geometry.residual?.end == selection)
+
+  let clicks = [
+    try Point2<CameraPixelSpace>(x: 10, y: 20),
+    try Point2<CameraPixelSpace>(x: 30, y: 40),
+  ]
+  let collecting = ActionSurfaceTipPresentation.collectingClicks(
+    prompt: "Click all five circle centers on this unchanged frame.",
+    clicks: clicks
+  )
+  #expect(collecting.statusText == "2/5 centers selected · Click all five circle centers on this unchanged frame.")
+  #expect(collecting.clickMarkers == clicks)
+}
+
+@Test("Every click permutation associates to canonical machine positions")
+func sparseTipClickAssociationIsOrderIndependent() throws {
+  let fixture = try sparseAssociationFixture()
+  for clicks in testPermutations(of: fixture.clickedByPosition.map { $0.1 }) {
+    let associations = try associateSparseTipClicks(
+      using: fixture.fit,
+      knownMachinePositions: fixture.known,
+      clicks: clicks
+    )
+    #expect(associations.map(\.calibrationPosition) == ToolContactCalibrationPosition.allCases)
+    for association in associations {
+      #expect(
+        association.clickedCameraPoint
+          == fixture.clickedByPosition.first {
+            $0.0 == association.calibrationPosition
+          }?.1
+      )
+    }
+  }
+}
+
+@Test("Sparse click association has no distance or ambiguity rejection gate")
+func sparseTipClickAssociationNeverQualityGates() throws {
+  let fixture = try sparseAssociationFixture()
+  var distantClicks = fixture.clickedByPosition.map { $0.1 }
+  distantClicks[0] = try Point2(x: distantClicks[0].x + 4_000, y: distantClicks[0].y - 3_000)
+  let distant = try associateSparseTipClicks(
+    using: fixture.fit,
+    knownMachinePositions: fixture.known,
+    clicks: Array(distantClicks.reversed())
+  )
+  #expect(distant.count == 5)
+
+  let tiedClicks = try [
+    Point2<CameraPixelSpace>(x: 290, y: 190),
+    Point2<CameraPixelSpace>(x: 310, y: 190),
+    Point2<CameraPixelSpace>(x: 310, y: 210),
+    Point2<CameraPixelSpace>(x: 290, y: 210),
+    Point2<CameraPixelSpace>(x: 300, y: 200),
+  ]
+  let tiedForward = try associateSparseTipClicks(
+    using: fixture.fit,
+    knownMachinePositions: Array(fixture.known.reversed()),
+    clicks: tiedClicks
+  )
+  let tiedReverse = try associateSparseTipClicks(
+    using: fixture.fit,
+    knownMachinePositions: fixture.known,
+    clicks: Array(tiedClicks.reversed())
+  )
+  #expect(tiedForward.map(\.calibrationPosition) == ToolContactCalibrationPosition.allCases)
+  #expect(tiedForward == tiedReverse)
 }
 
 @Test("Exact selection request rejects a stale frame hash, source, or dimensions")
@@ -550,6 +630,56 @@ private func testDisplayedFrame(
       bytes: OwnedFrameBytes(Array(repeating: 255, count: 16))
     )
   )
+}
+
+private func sparseAssociationFixture() throws -> (
+  fit: MachineCameraRegistrationFit,
+  known: [SparseTipKnownMachinePosition],
+  clickedByPosition: [(ToolContactCalibrationPosition, Point2<CameraPixelSpace>)]
+) {
+  let machineByPosition: [ToolContactCalibrationPosition: MachinePosition] = [
+    .center: try MachinePosition(x: 0, y: 0),
+    .negativeX: try MachinePosition(x: -30, y: 0),
+    .positiveY: try MachinePosition(x: 0, y: 30),
+    .positiveX: try MachinePosition(x: 30, y: 0),
+    .negativeY: try MachinePosition(x: 0, y: -30),
+  ]
+  let known = ToolContactCalibrationPosition.allCases.map {
+    SparseTipKnownMachinePosition(
+      calibrationPosition: $0,
+      machinePosition: machineByPosition[$0]!
+    )
+  }
+  let correspondences = try known.map { knownPosition in
+    let machine = knownPosition.machinePosition.point
+    return MachineCameraRegistrationCorrespondence(
+      machine: machine,
+      camera: try Point2(
+        x: 300 + 2 * machine.x + 0.25 * machine.y,
+        y: 200 - 0.4 * machine.x + 1.5 * machine.y
+      )
+    )
+  }
+  let fit = try MachineCameraRegistrationFit.fit(correspondences: correspondences)
+  let clickedByPosition = try known.map { knownPosition in
+    (
+      knownPosition.calibrationPosition,
+      try Point2<CameraPixelSpace>(
+        x: fit.cameraPoint(from: knownPosition.machinePosition.point).x + 17,
+        y: fit.cameraPoint(from: knownPosition.machinePosition.point).y - 11
+      )
+    )
+  }
+  return (fit, known, clickedByPosition)
+}
+
+private func testPermutations<T>(of values: [T]) -> [[T]] {
+  guard !values.isEmpty else { return [[]] }
+  return values.indices.flatMap { index in
+    var remaining = values
+    let next = remaining.remove(at: index)
+    return testPermutations(of: remaining).map { [next] + $0 }
+  }
 }
 
 private struct RGBPixel: Equatable {

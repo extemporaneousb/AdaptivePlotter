@@ -74,36 +74,45 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     )
     try await performPublicAction(.start, owner: tipOwner, workspace: workspace)
 
-    // Deterministic in-frame affine clicks exercise workflow/model authority;
-    // simulator rendering truth is tested separately from human perception.
-    let clicks: [Point2<CameraPixelSpace>] = try [
-      Point2(x: 160, y: 120),
-      Point2(x: 20, y: 120),
-      Point2(x: 160, y: 220),
-      Point2(x: 300, y: 120),
-      Point2(x: 160, y: 20),
-    ]
-    for (index, click) in clicks.enumerated() {
-      try await performPublicAction(
-        .createNextSparseTipMark,
-        owner: tipOwner,
-        workspace: workspace
-      )
-      let surface = workspace.actionSurfacePresentation
-      let request = try #require(surface.pointSelectionRequest)
-      #expect(surface.viewportContext?.preferredInitialZoom == 1)
-      #expect(surface.viewportContext?.fittedRegion?.width == max(96, request.frame.width / 3))
-      #expect(surface.viewportContext?.fittedRegion?.height == max(96, request.frame.height / 3))
+    try await performPublicAction(
+      .drawFiveSparseTipCircles,
+      owner: tipOwner,
+      workspace: workspace
+    )
+    let surface = workspace.actionSurfacePresentation
+    let request = try #require(surface.pointSelectionRequest)
+    #expect(surface.viewportContext?.preferredInitialZoom == 0)
+    #expect((await harness.runtime.snapshot()).persistentInkSegmentCount == 80)
+    let registration = try #require(workspace.machineCameraRegistration)
+    let center = try #require(workspace.cameraCalibrationReferencePosition)
+    let truthOffset = await harness.runtime.capToTipPixelOffsetTruth()
+    let batch = try SparseTipBatchMarkPlan(
+      center: center,
+      boundarySideAggregates: workspace.boundarySideAggregates
+    )
+    let clicks = try batch.marks.map {
+      try registration.fit.cameraPoint(from: $0.machinePosition.point)
+        .translated(by: truthOffset)
+    }
+    for click in [clicks[3], clicks[1], clicks[4], clicks[0], clicks[2]] {
       workspace.selectToolContactPoint(ActionSurfacePointSelection(
         frame: request.frame,
         point: click,
         presentationTransformRevision: request.presentationTransformRevision
       ))
-      try await performPublicAction(.acceptSparseTipMark, owner: tipOwner, workspace: workspace)
-      #expect(workspace.sparseTipCalibrationCoordinator.acceptedObservations.count == index + 1)
-      let observation = try #require(
-        workspace.sparseTipCalibrationCoordinator.acceptedObservations.last?.observation
-      )
+    }
+    #expect(workspace.sparseTipCalibrationCoordinator.acceptedObservations.count == 5)
+    let observations = workspace.sparseTipCalibrationCoordinator.acceptedObservations.map(
+      \.observation
+    )
+    let revealFrameIDs = Set(observations.map { $0.revealEvidence.frame.frameID })
+    #expect(revealFrameIDs.count == 1)
+    #expect(Set(observations.map(\.revealEvidence)).count == 1)
+    #expect(Set(observations.map(\.attemptID)).count == 1)
+    #expect(Set(observations.map(\.operationID)).count == 5)
+    #expect(Set(observations.map { $0.preMarkFrame.frameID }).count == 5)
+    #expect(observations.map(\.intendedMarkPosition) == batch.marks.map(\.machinePosition))
+    for observation in observations {
       #expect(observation.markGeometry.radiusMM == 2)
       #expect(observation.markGeometry.chordCount == 16)
       #expect(observation.markGeometry.maximumFeedMMPerMinute == 100)
@@ -111,21 +120,36 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
         command: .lower,
         commandedState: .down
       ))
-      let reveal = observation.revealEvidence.actualSettledPosition.point
-      #expect(reveal.x == 30)
-      #expect(reveal.y == 0)
-      #expect((await harness.runtime.snapshot()).persistentInkSegmentCount == (index + 1) * 16)
+      #expect(observation.penUp.outcome == .commandedAndSettled(
+        command: .raise,
+        commandedState: .up
+      ))
     }
+    for (preceding, following) in zip(observations, observations.dropFirst()) {
+      #expect(
+        preceding.penUp.timestamp.monotonicNanoseconds
+          <= following.preMarkFrame.captureNanoseconds
+      )
+      #expect(
+        following.preMarkFrame.captureNanoseconds
+          <= following.penDown.timestamp.monotonicNanoseconds
+      )
+    }
+    #expect((await harness.runtime.snapshot()).persistentInkSegmentCount == 80)
 
     let proposal = try #require(
       workspace.proposedTipCameraRegistration,
       "proposal missing: \(workspace.explorationError ?? "no error")"
     )
-    #expect(proposal.modelSelectionEvidence.fitObservationIDs.count == 3)
-    #expect(proposal.modelSelectionEvidence.holdoutObservationIDs.count == 2)
+    #expect(proposal.modelForm == .directAffine)
+    #expect(proposal.modelSelectionEvidence.observationIDs.count == 5)
     try await performPublicAction(.acceptTipCalibration, owner: tipOwner, workspace: workspace)
     #expect(workspace.tipCameraRegistration?.acceptedRevisionID == proposal.acceptedRevisionID)
     #expect(workspace.sparseTipCalibrationCoordinator.phase == .accepted)
+    #expect(
+      workspace.currentLearningPathItemID
+        == .observedDrawingTrial(.chooseIsolatedLinePlan)
+    )
     #expect(checkpointBox.checkpoint == nil)
     #expect(checkpointBox.operationCounts.loads == 1)
     #expect(checkpointBox.operationCounts.saves == 0)
@@ -170,8 +194,8 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     )
   }
 
-  @Test("re-click retains the exact frozen frame and emits no motion or additional ink")
-  func frozenReClickNoRedraw() async throws {
+  @Test("same-frame click correction emits no motion, capture, or additional ink")
+  func frozenClickCorrectionNoRedraw() async throws {
     let harness = makeSimulatedHarness()
     try await completeSimulatedBoundariesAndCenter(
       harness.workspace,
@@ -193,7 +217,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
 
     let owner = LearningPathItemID.humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
     try await performPublicAction(.start, owner: owner, workspace: workspace)
-    try await performPublicAction(.createNextSparseTipMark, owner: owner, workspace: workspace)
+    try await performPublicAction(.drawFiveSparseTipCircles, owner: owner, workspace: workspace)
     let request = try #require(workspace.actionSurfacePresentation.pointSelectionRequest)
     let frameID = request.frame.frameID
     let before = await harness.runtime.snapshot()
@@ -202,13 +226,13 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       point: try Point2(x: 160, y: 120),
       presentationTransformRevision: request.presentationTransformRevision
     ))
-    try await performPublicAction(.reClickSparseTipFrame, owner: owner, workspace: workspace)
+    try await performPublicAction(.undoLastSparseTipClick, owner: owner, workspace: workspace)
     let after = await harness.runtime.snapshot()
-    let reClickRequest = try #require(workspace.actionSurfacePresentation.pointSelectionRequest)
+    let correctedRequest = try #require(workspace.actionSurfacePresentation.pointSelectionRequest)
 
-    #expect(reClickRequest.frame.frameID == frameID)
+    #expect(correctedRequest.frame.frameID == frameID)
     #expect(workspace.frozenToolContactSelectionFrame?.frame.id == frameID)
-    #expect(workspace.selectedToolContactPoint == nil)
+    #expect(workspace.selectedToolContactPoints.isEmpty)
     #expect(after.mpos == before.mpos)
     #expect(after.persistentInkSegmentCount == before.persistentInkSegmentCount)
     #expect(after.currentOperation == nil)
@@ -240,7 +264,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     workspace.replaceSimulatedExecutionPacingForTesting(pacing)
 
     let markTask = Task {
-      await workspace.performExerciseAction(.createNextSparseTipMark, for: owner)
+      await workspace.performExerciseAction(.drawFiveSparseTipCircles, for: owner)
     }
     await pacing.waitUntilSuspended()
     await pacing.resume()
@@ -359,84 +383,6 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       y: (domain.minY + domain.maxY) / 2 + (domain.maxY - domain.minY) * 0.25
     )))
 
-    let replacementPaper = PaperContactPlaneRevision()
-    let changedPaperIdentities = TipCalibrationSemanticIdentityState(
-      machineGeometry: identities.machineGeometry,
-      toolAssembly: identities.toolAssembly,
-      penContactProfile: identities.penContactProfile,
-      paperContactPlane: replacementPaper,
-      cameraMountRevision: identities.cameraMountRevision,
-      cameraReframingRevision: identities.cameraReframingRevision
-    )
-    let changedPaper = makeSimulatedHarness(
-      tipCalibrationSemanticIdentities: changedPaperIdentities
-    )
-    try await completeSimulatedBoundariesAndCenter(
-      changedPaper.workspace,
-      runtime: changedPaper.runtime,
-      boundaryOrder: [.negativeX, .positiveX, .negativeY, .positiveY]
-    )
-    changedPaper.workspace.replaceSimulatedTipCalibrationCheckpointForTesting(saved)
-    try await performPublicAction(
-      .runCameraCalibrationAndBuildProposal,
-      owner: cameraOwner,
-      workspace: changedPaper.workspace
-    )
-    try await performPublicAction(
-      .acceptCameraCalibrationProposal,
-      owner: cameraOwner,
-      workspace: changedPaper.workspace
-    )
-    try await performPublicAction(.start, owner: tipOwner, workspace: changedPaper.workspace)
-    try await performPublicAction(
-      .createNextSparseTipMark,
-      owner: tipOwner,
-      workspace: changedPaper.workspace
-    )
-    let request = try #require(changedPaper.workspace.actionSurfacePresentation.pointSelectionRequest)
-    let registration = try #require(changedPaper.workspace.machineCameraRegistration)
-    let center = try #require(changedPaper.workspace.cameraCalibrationReferencePosition)
-    let representativeBoundary = try #require(
-      changedPaper.workspace.boundarySideAggregates.values.first
-    )
-    let plan = try CurrentCameraCalibrationPlan(
-      targetPosition: center,
-      boundarySideAggregates: changedPaper.workspace.boundarySideAggregates,
-      controllerSessionID: representativeBoundary.controllerSessionID,
-      coordinateRevision: representativeBoundary.coordinateRevision
-    )
-    let sample = try #require(plan.samples.first { $0.position == .center })
-    let cap = try registration.fit.cameraPoint(from: sample.machinePosition.point)
-    let truth = try cap.translated(by: await changedPaper.runtime.capToTipPixelOffsetTruth())
-    changedPaper.workspace.selectToolContactPoint(ActionSurfacePointSelection(
-      frame: request.frame,
-      point: truth,
-      presentationTransformRevision: request.presentationTransformRevision
-    ))
-    let review = try #require(
-      changedPaper.workspace.actionSurfacePresentation.tipPresentation.reviewGeometry
-    )
-    #expect(review.click == truth)
-    #expect(review.prediction != nil)
-    #expect(review.residual != nil)
-    try await performPublicAction(
-      .acceptSparseTipMark,
-      owner: tipOwner,
-      workspace: changedPaper.workspace
-    )
-    let contactPlaneRestored = try #require(
-      changedPaper.workspace.tipCameraRegistration,
-      "contact-plane restore error: \(changedPaper.workspace.explorationError ?? "none")"
-    )
-    #expect((await changedPaper.runtime.snapshot()).persistentInkSegmentCount == 16)
-    #expect(contactPlaneRestored.applicability.paperContactPlane == replacementPaper)
-    #expect(
-      contactPlaneRestored.revalidationEvidence?.contactPlaneRevalidation != nil
-    )
-    #expect(
-      changedPaper.workspace.currentLearningPathItemID
-        == LearningPathItemID.observedDrawingTrial(.chooseIsolatedLinePlan)
-    )
   }
 
   @Test("Stage 4 consumes the exact accepted tip revision against nonzero simulator truth")

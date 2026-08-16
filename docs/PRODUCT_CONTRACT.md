@@ -182,13 +182,13 @@ or completion state. Explicitly locking the current viewport copies its
 camera-pixel rectangle into the generic scene-analysis policy; the preceding
 presentation operations remain non-evidence. Entering or leaving Learning and
 compatible presentation-context revisions preserve operator zoom and pan. A
-camera source/configuration change resets them, while a sparse-mark selection
-may explicitly request its stronger initial focus.
+camera source/configuration change resets them. Stage 3.4 never changes zoom,
+pan, fitted region, preferred zoom, or viewport focus automatically.
 
 Before accepted tip authority exists, the UI states **Tip not calibrated**.
-During each mark selection, the predicted tip point is hidden until the operator
-clicks. After the click, the asserted point and uncertainty, predicted point,
-and residual are displayed.
+Stage 3.4 displays all clicks on its one frozen exact frame and reports their
+count. Diagnostic residual and uncertainty presentation has no authority over
+model construction, proposal creation, or acceptance.
 
 Pen-cap appearance is learned only through the first **Identify Pen Cap** action
 of Pen Interaction; there is no editable color picker or parallel color-setting
@@ -323,23 +323,27 @@ It does not locate the paper-contact point.
 
 ## Stage 3.4 contact authority
 
-Stage 3.4 uses the same positions in order `C`, `X−`, `Y+`, `X+`, `Y−`. At each
-position it draws one closed 2 mm-radius circle centered on the model sample.
-The pen uses the current Down value accepted by Pen Interaction (`S760`
-initially) plus the configured settlement, and returns using the current Up
-value (`S40` initially). Those values may change when the existing Pen
-Interaction exercise is repeated; a mark retains the exact values it actually
-consumed. The circle uses 16 finite typed drawing chords capped at 100 mm/min,
-keeping the chord approximation error below 0.05 mm, followed by one explicit
-Pen Up.
-This controller evidence does not prove physical pressure or observed ink.
+One supervised **Draw Five 2 mm Circles** action owns one exercise attempt and
+one stoppable operation. It uses the canonical positions `C`, `X−`, `Y+`, `X+`,
+`Y−` at fixed Stage 3.4 offsets of 30 mm from `C`. Stage 3.3 retains its
+separate existing ±24 mm camera-calibration spacing and holdout authority.
 
-After every circle, reveal travel goes Pen Up to the learned X+ Boundary limit
-minus the 10 mm safety inset and toward machine Y=0, clamped to the safe Y
-interval. This far reveal pose is visibility-only and is not a model sample.
-After settlement and cap-map revalidation, the exact frame opens at a
-one-third-frame presentation focus around the pre-mark cap anchor. That zoom is
-view-only and does not expose the predicted tip before the click.
+At every Stage 3.4 position the operation travels and settles Pen Up, retains
+that circle's pre-mark exact frame, cap, controller, and settled-position
+evidence, moves Pen Up to the circle start, lowers and settles using the current
+Pen Interaction profile, and draws one closed 2 mm-radius circle as 16 finite
+typed chords capped at 100 mm/min. It then raises and settles Pen Up before any
+travel to the next circle. The five circles therefore contain exactly 80 circle
+chords and no connecting Pen-Down stroke. Each observation retains its own
+physical operation evidence. Command completion is not proof of physical
+pressure, contact, or observed ink.
+
+After the fifth circle only, the operation performs one safe X+/machine-Y-zero-
+biased Pen-Up reveal, requires existing Pen-Up, Idle, and settlement evidence,
+captures one newer exact frame, and revalidates current camera/cap applicability
+once. All five observations share that final frozen reveal frame. Stage 3.4
+does not install an individual-mark fitted region and never changes zoom, pan,
+preferred zoom, or viewport focus automatically.
 
 Each accepted `ToolContactObservation` is immutable raw evidence for one
 commanded circular mark and asserted circle center. It retains:
@@ -352,29 +356,41 @@ commanded circular mark and asserted circle center. It retains:
   Down/Up actuation values, and Pen Down/Up outcomes/timestamps;
 - tool assembly, contact profile, and paper-plane revisions;
 - exact pre-mark frame and cap estimate;
-- exact post-reveal frame, settled reveal pose, and cap-map revalidation;
+- the shared exact final-reveal frame, settled reveal pose, and cap-map
+  revalidation;
 - clicked camera point with role `assertedCenter`, pointing uncertainty,
   timestamp, and presentation-transform revision;
 - disposition and all consumed artifact/algorithm revisions;
 - content-addressed locators only when exact bytes were actually archived.
 
-The click is an assertion, not a seed for an automatic detector.
+The click is an assertion, not a seed for an automatic detector. Click order
+does not identify a calibration position. After click five, the app projects
+the five known machine positions through current `MachineCameraRegistration`,
+centers projected and clicked sets to remove their unknown common cap-to-tip
+translation, evaluates all 5! one-to-one assignments, and selects the minimum
+total squared pixel distance. Exact numerical ties resolve by canonical
+calibration-position order. No distance or ambiguity threshold may reject or
+block that association. **Undo Last Click** or **Clear Clicks on This Frame**
+changes only clicks on the same frame and performs no motion, ink, redraw,
+capture, zoom, or pan. The fifth click atomically creates the five accepted
+observations and stages model construction.
 
-The first three accepted observations fit candidates. `X+` and `Y−` remain
-holdouts. Model selection tries the smallest form first:
+Model construction first fits one direct affine machine-to-tip map from all
+five observations. Constant camera-pixel correction on the accepted cap map is
+used only when affine construction itself throws. Stage 3.4 has no holdouts,
+model-quality thresholds, residual thresholds, confidence thresholds, or
+numerical failure route. All-five residuals, RMS, covariance, and uncertainty
+are diagnostic evidence only; their magnitude cannot reject either model or
+block progression. Numerical fitting cannot request paper replacement or route
+to **No Automatic Redraw**. Explicit **Accept Tip Calibration** atomically
+creates `TipCameraRegistration` and makes Stage 4 current.
 
-1. constant camera-pixel correction on the accepted cap map;
-2. direct affine machine-to-tip map only when the constant candidate fails
-   coherently at both holdouts.
-
-One bad holdout does not justify a larger model. Both holdouts must pass the
-selected candidate. The chosen form is refit over all five observations and
-staged with residuals, uncertainty, applicability, and consumed evidence.
-Explicit **Accept Tip Calibration** atomically creates `TipCameraRegistration`.
+Paper replacement is recorded only when paper was actually replaced or through
+the existing possible-ink recovery. It is never a numerical model outcome.
 
 `TipCameraRegistration` maps machine coordinates directly to paper-contact
 pixels. It retains the affine transform, model form, covariance/uncertainty,
-applicability rectangle, sealed selection evidence, five observation hashes and
+diagnostic residuals, applicability rectangle, five observation hashes and
 revisions, semantic applicability identities, capture sessions, accepted
 revision, estimator, timestamp, and derivation.
 
@@ -407,7 +423,8 @@ Changes apply as follows:
   invalidate;
 - tool, holder, armature, cap landmark, nib, contact profile, or remount change:
   invalidate;
-- paper/contact-plane change: quarantine until contact-plane revalidation;
+- paper/contact-plane change: quarantine old authority and require a complete
+  new Stage 3.4 batch on the replacement paper;
 - LIVE/SIMULATED source change: invalidate cross-source optical authority;
 - raw observations: retain as immutable history under every change.
 
@@ -418,9 +435,9 @@ returns quarantined evidence. It cannot restore workflow state, a graph
 revision, Motion authorization, operation ownership, a Stop capability, a
 pending command, or a continuation. Fresh identity-compatible controller and
 cap evidence is required before authority may be restored; paper-plane changes
-also require one current accepted circle-center observation within policy.
-Same-paper restart restoration performs no contact mark. Both paths create a new
-accepted revision and retain their fresh revalidation evidence.
+do not restore the prior registration and instead require a complete new Stage
+3.4 batch. Same-paper restart restoration performs no contact mark. Every new
+accepted authority retains its fresh evidence and revision provenance.
 
 ## Stage 4 dependency boundary
 

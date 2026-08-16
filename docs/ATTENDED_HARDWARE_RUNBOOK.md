@@ -97,43 +97,46 @@ the attended run with explicit invalidation and new evidence.
 
 ## 3. Stage 3.4 — five sparse 2 mm-radius circles
 
-For each of `C`, `X−`, `Y+`, `X+`, and `Y−`:
+Confirm Stage 3.4 lists fixed offsets of 30 mm from `C`; Stage 3.3 remains on its
+separate existing ±24 mm camera-calibration plan.
 
-1. Press **Create Next 2 mm Circle** once.
-2. Watch Pen-Up travel to the intended MPos and confirm it settles.
-3. Confirm the pre-mark frame and cap-map check are current.
-4. Watch Pen-Up travel 2 mm to the circle start and confirm settlement.
-5. Confirm the app commands the current Down value from Pen Interaction and its
-   configured settlement. Record the actual value. Directly observe whether the
-   mechanism reaches the paper; the command outcome alone is not physical proof.
-   Stop the run if the pen does not fully lower, then repeat Pen Interaction at
-   that position rather than changing the value outside the exercise.
-6. Watch one closed 4 mm-diameter circle complete as 16 short chords at no more
-   than 100 mm/min, then one explicit Pen Up. Any stop, hesitation, unexpected path, or ambiguous chord
-   ends the calibration and blacklists that circle location.
-7. Confirm Pen Up settles, then watch reveal travel go to the learned safe X+
-   limit and toward machine Y=0. Confirm the armature is materially clear of
-   the entire circle before accepting the frame.
-8. Confirm the displayed frame is frozen after reveal settlement and opens at
-   the stronger one-third-frame presentation focus.
-9. Before clicking, verify no expected tip point or residual is shown.
-10. Click the observed center of the new physical black circle.
-11. After clicking, review the asserted point and uncertainty, the expected
-    point from the current tip-calibration candidate, and residual. Presentation
-    zoom may help view the pixels; it must not change the selected camera
-    coordinates.
-12. If the click is wrong, use **Re-click This Exact Frame**. Confirm that no
-    motion or ink action occurs.
-13. Use **Accept Mark Center** only when the click and provenance are correct.
+1. Press **Draw Five 2 mm Circles** once.
+2. For each of `C`, `X−`, `Y+`, `X+`, and `Y−`, watch Pen-Up travel settle at
+   the intended MPos, confirm the pre-mark frame/cap/controller evidence is
+   retained, and watch Pen-Up travel settle at the circle start.
+3. Confirm the app commands and settles the current Pen Interaction Down value.
+   Directly observe physical contact; the command outcome alone is not proof.
+4. Watch one closed 4 mm-diameter circle complete as 16 short chords at no more
+   than 100 mm/min. Confirm Pen Up settles before any travel toward the next
+   circle. Across the batch, confirm exactly five separated circles and no
+   connecting ink stroke.
+5. Confirm there is no reveal, frame selection, or click request between
+   circles. After the fifth circle only, watch one Pen-Up reveal go to the safe
+   X+ limit and toward machine Y=0, then confirm Idle/final-MPos settlement.
+6. Confirm the app captures one newer exact frame after reveal, revalidates
+   camera/cap applicability once, and freezes that unchanged frame for all five
+   clicks. Confirm batch start, drawing, reveal, clicks, fitting, and proposal
+   presentation never alter the operator's zoom, pan, fitted region, or focus.
+7. Click the five observed circle centers in a deliberately noncanonical order.
+   Confirm the UI shows all markers and click count. The app must associate them
+   globally and deterministically; it must not impose a click order, distance
+   threshold, or ambiguity blocker.
+8. If a click is wrong, use **Undo Last Click** or **Clear Clicks on This
+   Frame**. Confirm no motion, ink, redraw, new frame, zoom, or pan occurs.
+9. Review the all-five affine proposal and diagnostic residuals, RMS,
+   covariance, and uncertainty. Their magnitude must not block the proposal or
+   route to paper replacement. Constant correction is expected only if affine
+   construction itself fails.
+10. Explicitly accept the staged `TipCameraRegistration` and confirm Stage 4
+    becomes current.
 
 If any chord, contact, or Pen state is ambiguous, stop. The circle center/radius
 on this paper is blacklisted. Do not retry it or reset around it. The only
 same-workflow recovery is an explicit paper replacement.
 
-After five accepted observations, review the model form, fit roles, two sealed
-holdouts, residuals, covariance/uncertainty, applicability, semantic identities,
-and consumed revisions. **Accept Tip Calibration** only if they are coherent.
-Rejecting causes no motion or redraw and requires a new physical attempt.
+Stage 3.4 has no holdouts or numerical model-failure state. Paper replacement is
+available only after the operator actually replaces paper or as the existing
+possible-ink recovery; numerical fitting cannot offer it.
 
 ## 4. Checkpoint recovery branches
 
@@ -145,9 +148,8 @@ restoration.
   frame is captured, no contact mark occurs, and a new accepted tip revision is
   derived from the quarantined checkpoint.
 - Explicit paper replacement: record the replacement, rebuild current machine-
-  camera authority if required, then create one new 2 mm-radius center circle
-  and click it. Confirm exactly one new mark is used as contact-plane evidence
-  and the restored tip revision consumes it.
+  camera authority if required, then run and explicitly accept a complete new
+  five-circle Stage 3.4 batch on the replacement paper.
 
 If any semantic identity is uncertain, do not revalidate. Clear the durable tip
 checkpoint and perform a new five-mark calibration.

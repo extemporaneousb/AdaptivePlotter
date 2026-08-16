@@ -93,7 +93,7 @@ public enum TipCalibrationAuthorityError: Error, Equatable, Sendable {
   case invalidTemporalOrder
   case invalidUncertainty
   case invalidObservationSet
-  case invalidHoldoutEvidence
+  case invalidRegistrationEvidence
   case invalidApplicabilityContext
   case invalidCheckpoint
   case unsupportedCheckpointSchema(UInt16)
@@ -575,69 +575,19 @@ public enum TipCameraModelForm: String, Codable, Hashable, Sendable {
 
 public enum TipCalibrationModelSelectionError: Error, Equatable, Sendable {
   case invalidObservationSet
-  case constantFailureIsNotCoherent
-  case affineHoldoutFailure
 }
 
-public struct TipCalibrationCandidateHoldout: Codable, Hashable, Sendable {
-  public let calibrationPosition: ToolContactCalibrationPosition
-  public let observedPoint: Point2<CameraPixelSpace>
-  public let predictedPoint: Point2<CameraPixelSpace>
-  public let residualPixels: Double
-  public let maximumResidualPixels: Double
-
-  public var passes: Bool { residualPixels <= maximumResidualPixels }
-
-  fileprivate init(
-    observation: AcceptedToolContactObservation,
-    transform: AffineTransform2<MachineSpace, CameraPixelSpace>,
-    maximumResidualPixels: Double
-  ) throws {
-    calibrationPosition = observation.observation.calibrationPosition
-    observedPoint = observation.observation.click.point
-    predictedPoint = try transform.applying(to: observation.observation.actualSettledPosition.point)
-    residualPixels = observedPoint.distance(to: predictedPoint)
-    self.maximumResidualPixels = maximumResidualPixels
-  }
-}
-
-public enum TipCalibrationAffineEscalationDisposition: String, Codable, Hashable, Sendable {
-  case notRequired
-  case coherentTwoHoldoutFailure
-}
-
-/// Independent pre-refit evidence. Holdout predictions are sealed before the
-/// last two observations may participate in the final five-sample refit.
+/// Provenance for the five observations consumed by affine-first construction.
+/// Model form records whether affine construction succeeded or the constant
+/// correction construction fallback was required. Residuals are retained
+/// separately as diagnostics and never select or reject a model.
 public struct TipCalibrationModelSelectionEvidence: Codable, Hashable, Sendable {
-  public let fitObservationIDs: [ToolContactObservationID]
-  public let holdoutObservationIDs: [ToolContactObservationID]
-  public let constantCandidate: AffineTransform2<MachineSpace, CameraPixelSpace>
-  public let constantHoldouts: [TipCalibrationCandidateHoldout]
-  public let affineEscalation: TipCalibrationAffineEscalationDisposition
-  public let affineCandidate: AffineTransform2<MachineSpace, CameraPixelSpace>?
-  public let affineHoldouts: [TipCalibrationCandidateHoldout]
+  public let observationIDs: [ToolContactObservationID]
   public let selectedModelForm: TipCameraModelForm
 
   fileprivate func validate() throws {
-    guard fitObservationIDs.count == 3, Set(fitObservationIDs).count == 3,
-      holdoutObservationIDs.count == 2, Set(holdoutObservationIDs).count == 2,
-      Set(fitObservationIDs).isDisjoint(with: Set(holdoutObservationIDs)),
-      constantHoldouts.count == 2,
-      constantHoldouts.allSatisfy({
-        $0.calibrationPosition == .positiveX || $0.calibrationPosition == .negativeY
-      })
+    guard observationIDs.count == 5, Set(observationIDs).count == 5
     else { throw TipCalibrationModelSelectionError.invalidObservationSet }
-    switch selectedModelForm {
-    case .constantCameraPixelCorrection:
-      guard affineEscalation == .notRequired, affineCandidate == nil,
-        affineHoldouts.isEmpty, constantHoldouts.allSatisfy(\.passes)
-      else { throw TipCalibrationModelSelectionError.invalidObservationSet }
-    case .directAffine:
-      guard affineEscalation == .coherentTwoHoldoutFailure,
-        constantHoldouts.allSatisfy({ !$0.passes }), affineCandidate != nil,
-        affineHoldouts.count == 2, affineHoldouts.allSatisfy(\.passes)
-      else { throw TipCalibrationModelSelectionError.invalidObservationSet }
-    }
   }
 }
 
@@ -647,84 +597,28 @@ public struct TipCalibrationModelSelection: Hashable, Sendable {
   public let uncertainty: TipCalibrationUncertainty
   public let evidence: TipCalibrationModelSelectionEvidence
 
-  public static func selectSmallestPassingModel(
+  public static func fitAffineFirst(
     acceptedObservations: [AcceptedToolContactObservation],
-    capCameraFromMachine: AffineTransform2<MachineSpace, CameraPixelSpace>,
-    maximumHoldoutResidualPixels: Double
+    capCameraFromMachine: AffineTransform2<MachineSpace, CameraPixelSpace>
   ) throws -> Self {
     guard acceptedObservations.count == 5,
-      maximumHoldoutResidualPixels.isFinite, maximumHoldoutResidualPixels >= 0,
       Set(acceptedObservations.map { $0.observation.calibrationPosition })
-        == Set(ToolContactCalibrationPosition.allCases)
+        == Set(ToolContactCalibrationPosition.allCases),
+      Set(acceptedObservations.map { $0.observation.id }).count == 5,
+      Set(acceptedObservations.map(\.artifactRevisionID)).count == 5
     else { throw TipCalibrationModelSelectionError.invalidObservationSet }
-    let fit = acceptedObservations.filter {
-      TipRegistrationObservationEvidence.expectedRole(for: $0.observation.calibrationPosition)
-        == .fit
-    }
-    let holdouts = acceptedObservations.filter {
-      TipRegistrationObservationEvidence.expectedRole(for: $0.observation.calibrationPosition)
-        == .holdout
-    }
-    guard fit.count == 3, holdouts.count == 2 else {
-      throw TipCalibrationModelSelectionError.invalidObservationSet
-    }
-
-    let constantCandidate = try constantCorrectionTransform(
-      observations: fit,
-      capCameraFromMachine: capCameraFromMachine
-    )
-    let constantHoldouts = try holdouts.map {
-      try TipCalibrationCandidateHoldout(
-        observation: $0,
-        transform: constantCandidate,
-        maximumResidualPixels: maximumHoldoutResidualPixels
-      )
-    }
     let selectedForm: TipCameraModelForm
-    let affineCandidate: AffineTransform2<MachineSpace, CameraPixelSpace>?
-    let affineHoldouts: [TipCalibrationCandidateHoldout]
-    let escalation: TipCalibrationAffineEscalationDisposition
-    if constantHoldouts.allSatisfy(\.passes) {
-      selectedForm = .constantCameraPixelCorrection
-      affineCandidate = nil
-      affineHoldouts = []
-      escalation = .notRequired
-    } else {
-      // A lone bad holdout is not evidence for a larger model. Coherent
-      // escalation also requires the two residual vectors to agree with one
-      // affine trend rather than merely both exceeding a scalar threshold.
-      guard constantHoldouts.allSatisfy({ !$0.passes }),
-        coherentAffineFailure(constantHoldouts)
-      else {
-        throw TipCalibrationModelSelectionError.constantFailureIsNotCoherent
-      }
-      let candidate = try affineTransform(observations: fit)
-      let tested = try holdouts.map {
-        try TipCalibrationCandidateHoldout(
-          observation: $0,
-          transform: candidate,
-          maximumResidualPixels: maximumHoldoutResidualPixels
-        )
-      }
-      guard tested.allSatisfy(\.passes) else {
-        throw TipCalibrationModelSelectionError.affineHoldoutFailure
-      }
+    let final: AffineTransform2<MachineSpace, CameraPixelSpace>
+    do {
+      final = try affineTransform(observations: acceptedObservations)
       selectedForm = .directAffine
-      affineCandidate = candidate
-      affineHoldouts = tested
-      escalation = .coherentTwoHoldoutFailure
+    } catch {
+      final = try constantCorrectionTransform(
+        observations: acceptedObservations,
+        capCameraFromMachine: capCameraFromMachine
+      )
+      selectedForm = .constantCameraPixelCorrection
     }
-
-    let final =
-      switch selectedForm {
-      case .constantCameraPixelCorrection:
-        try constantCorrectionTransform(
-          observations: acceptedObservations,
-          capCameraFromMachine: capCameraFromMachine
-        )
-      case .directAffine:
-        try affineTransform(observations: acceptedObservations)
-      }
     let residuals = try acceptedObservations.map {
       try final.applying(to: $0.observation.actualSettledPosition.point)
         .distance(to: $0.observation.click.point)
@@ -734,13 +628,7 @@ public struct TipCalibrationModelSelection: Hashable, Sendable {
     var covariance = Array(repeating: 0.0, count: 36)
     for index in 0..<6 { covariance[index * 6 + index] = variance }
     let evidence = TipCalibrationModelSelectionEvidence(
-      fitObservationIDs: fit.map { $0.observation.id },
-      holdoutObservationIDs: holdouts.map { $0.observation.id },
-      constantCandidate: constantCandidate,
-      constantHoldouts: constantHoldouts,
-      affineEscalation: escalation,
-      affineCandidate: affineCandidate,
-      affineHoldouts: affineHoldouts,
+      observationIDs: acceptedObservations.map { $0.observation.id },
       selectedModelForm: selectedForm
     )
     try evidence.validate()
@@ -754,44 +642,6 @@ public struct TipCalibrationModelSelection: Hashable, Sendable {
       ),
       evidence: evidence
     )
-  }
-
-  /// A non-authoritative constant-correction candidate for post-click review
-  /// once the three fit observations exist. Holdouts never participate here.
-  public static func provisionalConstantCandidate(
-    acceptedObservations: [AcceptedToolContactObservation],
-    capCameraFromMachine: AffineTransform2<MachineSpace, CameraPixelSpace>
-  ) throws -> AffineTransform2<MachineSpace, CameraPixelSpace> {
-    let fit = acceptedObservations.filter {
-      TipRegistrationObservationEvidence.expectedRole(for: $0.observation.calibrationPosition)
-        == .fit
-    }
-    guard fit.count == 3,
-      Set(fit.map { $0.observation.calibrationPosition })
-        == Set([.center, .negativeX, .positiveY])
-    else { throw TipCalibrationModelSelectionError.invalidObservationSet }
-    return try constantCorrectionTransform(
-      observations: fit,
-      capCameraFromMachine: capCameraFromMachine
-    )
-  }
-
-  private static func coherentAffineFailure(
-    _ holdouts: [TipCalibrationCandidateHoldout]
-  ) -> Bool {
-    guard holdouts.count == 2 else { return false }
-    let first = holdouts[0]
-    let second = holdouts[1]
-    let firstX = first.observedPoint.x - first.predictedPoint.x
-    let firstY = first.observedPoint.y - first.predictedPoint.y
-    let secondX = second.observedPoint.x - second.predictedPoint.x
-    let secondY = second.observedPoint.y - second.predictedPoint.y
-    // Orthogonal X+ and Y- holdouts may expose different affine columns; the
-    // coherent requirement is finite, non-trivial residual evidence at both,
-    // not equal direction or magnitude.
-    return [firstX, firstY, secondX, secondY].allSatisfy(\.isFinite)
-      && hypot(firstX, firstY) > 0
-      && hypot(secondX, secondY) > 0
   }
 
   private static func constantCorrectionTransform(
@@ -839,6 +689,17 @@ public struct TipCalibrationModelSelection: Hashable, Sendable {
       weights: weights
     ).cameraFromMachine
   }
+
+  fileprivate static func supportsDirectAffineConstruction(
+    observations: [AcceptedToolContactObservation]
+  ) -> Bool {
+    do {
+      _ = try affineTransform(observations: observations)
+      return true
+    } catch {
+      return false
+    }
+  }
 }
 
 public enum TipCalibrationSampleRole: String, Codable, Hashable, Sendable {
@@ -867,60 +728,43 @@ public struct TipRegistrationObservationEvidence: Codable, Hashable, Sendable {
   public let observationArtifactRevisionID: LearningArtifactRevisionID
   public let observationSHA256: String
   public let calibrationPosition: ToolContactCalibrationPosition
-  public let role: TipCalibrationSampleRole
   public let observedPoint: Point2<CameraPixelSpace>
   public let predictedPoint: Point2<CameraPixelSpace>
   public let pointingUncertaintyPixels: Vector2<CameraPixelSpace>
   public let residualPixels: Double
-  public let maximumResidualPixels: Double
 
   fileprivate init(
     observationID: ToolContactObservationID,
     observationArtifactRevisionID: LearningArtifactRevisionID,
     observationSHA256: String,
     calibrationPosition: ToolContactCalibrationPosition,
-    role: TipCalibrationSampleRole,
     observedPoint: Point2<CameraPixelSpace>,
     predictedPoint: Point2<CameraPixelSpace>,
-    pointingUncertaintyPixels: Vector2<CameraPixelSpace>,
-    maximumResidualPixels: Double
+    pointingUncertaintyPixels: Vector2<CameraPixelSpace>
   ) throws {
     guard ContentAddressedFrameLocator.isSHA256(observationSHA256),
-      pointingUncertaintyPixels.dx > 0, pointingUncertaintyPixels.dy > 0,
-      maximumResidualPixels.isFinite, maximumResidualPixels >= 0
-    else { throw TipCalibrationAuthorityError.invalidHoldoutEvidence }
+      pointingUncertaintyPixels.dx > 0, pointingUncertaintyPixels.dy > 0
+    else { throw TipCalibrationAuthorityError.invalidRegistrationEvidence }
     self.observationID = observationID
     self.observationArtifactRevisionID = observationArtifactRevisionID
     self.observationSHA256 = observationSHA256.lowercased()
     self.calibrationPosition = calibrationPosition
-    self.role = role
     self.observedPoint = observedPoint
     self.predictedPoint = predictedPoint
     self.pointingUncertaintyPixels = pointingUncertaintyPixels
     residualPixels = observedPoint.distance(to: predictedPoint)
-    self.maximumResidualPixels = maximumResidualPixels
+    guard residualPixels.isFinite else {
+      throw TipCalibrationAuthorityError.invalidRegistrationEvidence
+    }
   }
-
-  public var passes: Bool { residualPixels <= maximumResidualPixels }
 
   fileprivate func validate() throws {
-    guard Self.expectedRole(for: calibrationPosition) == role,
-      ContentAddressedFrameLocator.isSHA256(observationSHA256),
+    guard ContentAddressedFrameLocator.isSHA256(observationSHA256),
       pointingUncertaintyPixels.dx > 0,
       pointingUncertaintyPixels.dy > 0,
-      maximumResidualPixels.isFinite,
-      maximumResidualPixels >= 0,
+      residualPixels.isFinite,
       abs(observedPoint.distance(to: predictedPoint) - residualPixels) <= 1e-9
-    else { throw TipCalibrationAuthorityError.invalidHoldoutEvidence }
-  }
-
-  fileprivate static func expectedRole(
-    for position: ToolContactCalibrationPosition
-  ) -> TipCalibrationSampleRole {
-    switch position {
-    case .center, .negativeX, .positiveY: .fit
-    case .positiveX, .negativeY: .holdout
-    }
+    else { throw TipCalibrationAuthorityError.invalidRegistrationEvidence }
   }
 }
 
@@ -1107,7 +951,6 @@ public struct TipCameraRegistration: Codable, Hashable, Sendable {
     uncertainty: TipCalibrationUncertainty,
     applicabilityRectangle: AxisAlignedBounds<MachineSpace>,
     acceptedObservations: [AcceptedToolContactObservation],
-    maximumObservationResidualPixels: Double,
     applicability: TipCalibrationApplicabilityContext,
     acceptedRevisionID: LearningArtifactRevisionID,
     machineCameraRegistrationRevisionID: LearningArtifactRevisionID,
@@ -1116,17 +959,17 @@ public struct TipCameraRegistration: Codable, Hashable, Sendable {
   ) throws {
     try modelSelectionEvidence.validate()
     guard modelSelectionEvidence.selectedModelForm == modelForm,
-      maximumObservationResidualPixels.isFinite,
-      maximumObservationResidualPixels >= 0,
       acceptedObservations.count == 5,
       Set(acceptedObservations.map { $0.observation.calibrationPosition })
         == Set(ToolContactCalibrationPosition.allCases),
       Set(acceptedObservations.map(\.artifactRevisionID)).count == 5,
+      TipCalibrationModelSelection.supportsDirectAffineConstruction(
+        observations: acceptedObservations
+      ) == (modelForm == .directAffine),
       acceptedObservations.allSatisfy({
         $0.observation.click.timestamp.wallTime <= acceptedAt.wallTime
-      }),
-      Self.fitPositionsAreNonCollinear(acceptedObservations)
-    else { throw TipCalibrationAuthorityError.invalidHoldoutEvidence }
+      })
+    else { throw TipCalibrationAuthorityError.invalidRegistrationEvidence }
     let evidence = try acceptedObservations.map { accepted in
       let observation = accepted.observation
       guard observation.machineGeometry == applicability.machineGeometry,
@@ -1146,13 +989,9 @@ public struct TipCameraRegistration: Codable, Hashable, Sendable {
         observationArtifactRevisionID: accepted.artifactRevisionID,
         observationSHA256: observation.durableEvidenceSHA256(),
         calibrationPosition: observation.calibrationPosition,
-        role: TipRegistrationObservationEvidence.expectedRole(
-          for: observation.calibrationPosition
-        ),
         observedPoint: observation.click.point,
         predictedPoint: cameraFromMachine.applying(to: observation.actualSettledPosition.point),
-        pointingUncertaintyPixels: observation.click.pointingUncertaintyPixels,
-        maximumResidualPixels: maximumObservationResidualPixels
+        pointingUncertaintyPixels: observation.click.pointingUncertaintyPixels
       )
     }
     try self.init(
@@ -1195,24 +1034,11 @@ public struct TipCameraRegistration: Codable, Hashable, Sendable {
     let observationIDs = Set(observationEvidence.map(\.observationID))
     let observationRevisionIDs = Set(observationEvidence.map(\.observationArtifactRevisionID))
     let positions = Set(observationEvidence.map(\.calibrationPosition))
-    let holdouts = observationEvidence.filter { $0.role == .holdout }
-    let residualSquareMean = observationEvidence.reduce(0) {
-      $0 + $1.residualPixels * $1.residualPixels
-    } / Double(max(1, observationEvidence.count))
-    let measuredRMSResidual = sqrt(residualSquareMean)
-    let measuredMaximumResidual = observationEvidence.map(\.residualPixels).max() ?? 0
     guard modelSelectionEvidence.selectedModelForm == modelForm,
-      Set(modelSelectionEvidence.fitObservationIDs + modelSelectionEvidence.holdoutObservationIDs)
-        == observationIDs,
+      Set(modelSelectionEvidence.observationIDs) == observationIDs,
       observationEvidence.count == 5, observationIDs.count == 5,
       observationRevisionIDs.count == 5,
       positions == Set(ToolContactCalibrationPosition.allCases),
-      observationEvidence.allSatisfy({
-        $0.role == TipRegistrationObservationEvidence.expectedRole(for: $0.calibrationPosition)
-      }),
-      holdouts.count == 2, holdouts.allSatisfy(\.passes),
-      uncertainty.rootMeanSquareResidualPixels + 1e-9 >= measuredRMSResidual,
-      uncertainty.maximumResidualPixels + 1e-9 >= measuredMaximumResidual,
       !captureSessionIDs.isEmpty,
       !estimatorRevision.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     else { throw TipCalibrationAuthorityError.invalidObservationSet }
@@ -1232,23 +1058,6 @@ public struct TipCameraRegistration: Codable, Hashable, Sendable {
     self.acceptedAt = acceptedAt
     self.derivation = derivation
     self.revalidationEvidence = revalidationEvidence
-  }
-
-  private static func fitPositionsAreNonCollinear(
-    _ acceptedObservations: [AcceptedToolContactObservation]
-  ) -> Bool {
-    let points = Dictionary(
-      uniqueKeysWithValues: acceptedObservations.map {
-        ($0.observation.calibrationPosition, $0.observation.actualSettledPosition.point)
-      }
-    )
-    guard let center = points[.center],
-      let negativeX = points[.negativeX],
-      let positiveY = points[.positiveY]
-    else { return false }
-    let signedDoubleArea = (negativeX.x - center.x) * (positiveY.y - center.y)
-      - (negativeX.y - center.y) * (positiveY.x - center.x)
-    return abs(signedDoubleArea) > 1e-9
   }
 
   fileprivate func validate() throws {
@@ -1286,14 +1095,8 @@ public struct TipCameraRegistration: Codable, Hashable, Sendable {
   }
 
   public var consumedArtifactRevisionIDs: Set<LearningArtifactRevisionID> {
-    var revisions = Set(observationEvidence.map(\.observationArtifactRevisionID))
+    Set(observationEvidence.map(\.observationArtifactRevisionID))
       .union([machineCameraRegistrationRevisionID])
-    if let contactRevision = revalidationEvidence?.contactPlaneRevalidation?
-      .acceptedObservation.artifactRevisionID
-    {
-      revisions.insert(contactRevision)
-    }
-    return revisions
   }
 
   public func tipPixel(at machinePoint: Point2<MachineSpace>) throws -> Point2<CameraPixelSpace> {
@@ -1332,7 +1135,6 @@ public struct TipCameraRegistration: Codable, Hashable, Sendable {
         observationArtifactRevisionID: evidence.observationArtifactRevisionID,
         observationSHA256: evidence.observationSHA256,
         calibrationPosition: evidence.calibrationPosition,
-        role: evidence.role,
         observedPoint: transform.applying(to: evidence.observedPoint),
         predictedPoint: transform.applying(to: evidence.predictedPoint),
         pointingUncertaintyPixels: Vector2(
@@ -1344,8 +1146,7 @@ public struct TipCameraRegistration: Codable, Hashable, Sendable {
             transform.m21 * evidence.pointingUncertaintyPixels.dx,
             transform.m22 * evidence.pointingUncertaintyPixels.dy
           )
-        ),
-        maximumResidualPixels: evidence.maximumResidualPixels * pixelScale
+        )
       )
     }
     let updatedContext = TipCalibrationApplicabilityContext(
@@ -1480,8 +1281,7 @@ extension TipCameraRegistration {
       current.machineCoordinateFrame == applicability.machineCoordinateFrame,
       current.toolAssembly == applicability.toolAssembly,
       current.penContactProfile == applicability.penContactProfile,
-      (current.paperContactPlane == applicability.paperContactPlane
-        || evidence.contactPlaneRevalidation != nil),
+      current.paperContactPlane == applicability.paperContactPlane,
       evidence.currentMachineCameraRegistrationRevisionID
         == machineCameraRegistrationRevisionID,
       evidence.timestamp.wallTime <= acceptedAt.wallTime,
@@ -1497,11 +1297,9 @@ extension TipCameraRegistration {
         observationArtifactRevisionID: artifactRevisionID,
         observationSHA256: item.observationSHA256,
         calibrationPosition: item.calibrationPosition,
-        role: item.role,
         observedPoint: item.observedPoint,
         predictedPoint: item.predictedPoint,
-        pointingUncertaintyPixels: item.pointingUncertaintyPixels,
-        maximumResidualPixels: item.maximumResidualPixels
+        pointingUncertaintyPixels: item.pointingUncertaintyPixels
       )
     }
     return try Self(
@@ -1582,22 +1380,6 @@ public struct TipCalibrationAcceptanceEvent: Codable, Hashable, Sendable {
   }
 }
 
-public struct TipContactPlaneRevalidationEvidence: Codable, Hashable, Sendable {
-  public let acceptedObservation: AcceptedToolContactObservation
-  public let maximumTipResidualPixels: Double
-
-  public init(
-    acceptedObservation: AcceptedToolContactObservation,
-    maximumTipResidualPixels: Double
-  ) throws {
-    guard maximumTipResidualPixels.isFinite, maximumTipResidualPixels >= 0 else {
-      throw TipCalibrationAuthorityError.invalidHoldoutEvidence
-    }
-    self.acceptedObservation = acceptedObservation
-    self.maximumTipResidualPixels = maximumTipResidualPixels
-  }
-}
-
 public struct TipCalibrationRevalidationEvidence: Codable, Hashable, Sendable {
   public let id: UUID
   public let currentApplicability: TipCalibrationApplicabilityContext
@@ -1608,7 +1390,6 @@ public struct TipCalibrationRevalidationEvidence: Codable, Hashable, Sendable {
   public let capMapPrediction: Point2<CameraPixelSpace>
   public let capMapResidualPixels: Double
   public let maximumCapMapResidualPixels: Double
-  public let contactPlaneRevalidation: TipContactPlaneRevalidationEvidence?
   public let timestamp: RuntimeTimestamp
   public let algorithmRevision: String
 
@@ -1623,7 +1404,6 @@ public struct TipCalibrationRevalidationEvidence: Codable, Hashable, Sendable {
     capEstimate: ToolCapAnchorEstimate,
     capMapPrediction: Point2<CameraPixelSpace>,
     maximumCapMapResidualPixels: Double,
-    contactPlaneRevalidation: TipContactPlaneRevalidationEvidence? = nil,
     timestamp: RuntimeTimestamp,
     algorithmRevision: String
   ) throws {
@@ -1648,7 +1428,6 @@ public struct TipCalibrationRevalidationEvidence: Codable, Hashable, Sendable {
     self.capMapPrediction = capMapPrediction
     capMapResidualPixels = capResidual
     self.maximumCapMapResidualPixels = maximumCapMapResidualPixels
-    self.contactPlaneRevalidation = contactPlaneRevalidation
     self.timestamp = timestamp
     self.algorithmRevision = algorithmRevision
   }
@@ -1664,7 +1443,6 @@ public struct TipCalibrationRevalidationEvidence: Codable, Hashable, Sendable {
       capEstimate: capEstimate,
       capMapPrediction: capMapPrediction,
       maximumCapMapResidualPixels: maximumCapMapResidualPixels,
-      contactPlaneRevalidation: contactPlaneRevalidation,
       timestamp: timestamp,
       algorithmRevision: algorithmRevision
     )
@@ -1737,17 +1515,10 @@ public struct AcceptedTipCalibrationCheckpoint: Codable, Hashable, Sendable {
     guard accepted.toolAssembly == current.toolAssembly,
       accepted.penContactProfile == current.penContactProfile
     else { return .invalidated("Tool assembly or contact profile changed.") }
-    if accepted.paperContactPlane != current.paperContactPlane {
-      guard let contactEvidence = evidence.contactPlaneRevalidation,
-        acceptsContactPlaneRevalidation(
-          contactEvidence,
-          current: current,
-          machineCameraRegistrationRevisionID:
-            evidence.currentMachineCameraRegistrationRevisionID
-        )
-      else {
-        return .quarantined("Paper/contact-plane identity changed; revalidate that plane first.")
-      }
+    guard accepted.paperContactPlane == current.paperContactPlane else {
+      return .quarantined(
+        "Paper/contact-plane identity changed; complete a fresh five-circle calibration."
+      )
     }
     return .restored(
       RevalidatedTipCameraAuthority(
@@ -1758,32 +1529,6 @@ public struct AcceptedTipCalibrationCheckpoint: Codable, Hashable, Sendable {
     )
   }
 
-  private func acceptsContactPlaneRevalidation(
-    _ evidence: TipContactPlaneRevalidationEvidence,
-    current: TipCalibrationApplicabilityContext,
-    machineCameraRegistrationRevisionID: LearningArtifactRevisionID
-  ) -> Bool {
-    let observation = evidence.acceptedObservation.observation
-    guard observation.disposition == .accepted,
-      observation.machineGeometry == current.machineGeometry,
-      observation.machineCoordinateFrame == current.machineCoordinateFrame,
-      observation.toolAssembly == current.toolAssembly,
-      observation.penContactProfile == current.penContactProfile,
-      observation.paperContactPlane == current.paperContactPlane,
-      observation.postRevealSelectionFrame.opticalConfiguration
-        == current.opticalConfiguration,
-      observation.consumedLearningArtifactRevisionIDs.contains(
-        machineCameraRegistrationRevisionID
-      ),
-      observation.click.timestamp.wallTime >= acceptanceEvent.timestamp.wallTime,
-      registration.applicabilityRectangle.contains(observation.actualSettledPosition.point),
-      let predicted = try? registration.cameraFromMachine.applying(
-        to: observation.actualSettledPosition.point
-      )
-    else { return false }
-    return observation.click.point.distance(to: predicted)
-      <= evidence.maximumTipResidualPixels
-  }
 }
 
 public enum AcceptedTipCalibrationCheckpointLoadResult: Sendable {

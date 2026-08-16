@@ -17,7 +17,7 @@ PlotterModel
 PlotterRuntime
   MachineController, RunInterpreter, CameraCapture, VisionWorker
   learning artifacts and dependency graph
-  sparse contact evidence, tip model selection, applicability, checkpoints
+  sparse contact evidence, affine-first tip construction, applicability, checkpoints
   causal nonphysical simulator and workflow telemetry
 
 PlotterApp
@@ -166,23 +166,34 @@ and cannot establish live optical stability.
 
 Stage 3.4 is split across three owners:
 
-- `SparseTipCalibrationCoordinator` owns the fixed position order, exact frozen-
-  frame selection states, immutable accepted observation list, possible-ink
-  terminal state, holdout review, rejection, and final acceptance state.
-- `OperatorWorkspace` owns supervised Pen-Up travel, the current Pen Interaction
-  Up/Down values, 16 typed drawing chords capped at 100 mm/min for one centered 2
-  mm-radius circle, explicit Pen Up, far X-max/Y-zero-biased reveal travel, actual settled timestamps,
-  exact frame/cap capture, UI action routing, and atomic graph/checkpoint commits.
-- `TipCalibrationAuthority` owns validated evidence types, smallest-passing
-  model selection, uncertainty, applicability decisions, rebase derivations,
-  and durable checkpoint validation.
+- `SparseTipCalibrationCoordinator` owns the compact batch state machine, one
+  attempt/operation identity, canonical `C`, `X−`, `Y+`, `X+`, `Y−` positions,
+  one shared final frozen frame, unordered click collection, immutable accepted
+  observations, possible-ink terminal state, proposal review, and acceptance.
+- `OperatorWorkspace` owns the ±30 mm Stage 3.4 batch plan, supervised Pen-Up
+  travel, current Pen Interaction Up/Down values, five closed 16-chord 2 mm-
+  radius circles capped at 100 mm/min, settled Pen Up before every inter-circle
+  travel, one final X-max/Y-zero-biased reveal, exact frame/cap capture, and
+  atomic graph/checkpoint commits. Stage 3.3 retains its existing ±24 mm plan.
+- `TipCalibrationAuthority` owns validated evidence types, all-five affine-first
+  construction, constant construction fallback, diagnostic residual/covariance/
+  uncertainty, applicability decisions, rebase derivations, and checkpoints.
 
-Before a click, `ActionSurfacePointSelectionRequest` binds one frozen
+`ActionSurfacePointSelectionRequest` binds the shared frozen
 `ExactTipCalibrationFrame` and presentation-transform revision. `ActionSurface`
-maps a view click back to camera pixels and initializes a one-third-frame
-presentation-only focus around the pre-mark cap anchor. It hides model geometry
-before the click, then draws asserted point/uncertainty, prediction, and residual
-from `ActionSurfaceTipReviewGeometry`.
+maps each view click back through the exact inverse presentation transform,
+renders click count and all markers, and supports same-frame undo/clear without
+motion, ink, capture, zoom, or pan. Stage 3.4 never installs a fitted region or
+changes viewport state.
+
+After click five, the app projects all known machine positions through current
+`MachineCameraRegistration`, centers projected and clicked sets to remove their
+common cap-to-tip translation, evaluates all 5! assignments, and selects the
+minimum total squared pixel distance with canonical-position exact-tie breaking.
+There is no distance or ambiguity gate. The five associated observations feed
+direct affine construction first; constant correction is constructed only when
+affine construction throws. Residuals, RMS, covariance, and uncertainty are
+diagnostic and never block progression.
 
 The accepted graph shape is:
 
@@ -208,7 +219,9 @@ The no-redraw key is `BlacklistedToolContactLocation`: calibration role, circle
 center/radius, and paper-contact-plane revision. `OperatorWorkspace` retains
 that set across attempt cancel, restart, and Learning Path reset. The coordinator
 re-enters a terminal possible-ink state on the same paper. Explicit paper
-replacement rotates the plane identity and is the only workflow recovery.
+replacement rotates the plane identity and is the only possible-ink workflow
+recovery. Numerical model construction cannot request paper replacement or a
+no-redraw recovery route.
 
 ## Tip checkpoint and semantic identity
 
@@ -295,10 +308,11 @@ return.
 
 ## Validation structure
 
-Swift Testing suites cover evidence constructors, holdout/model selection,
-checkpoint quarantine and revalidation, graph dependency shapes, frozen-frame
-re-click, physical-location blacklist persistence, ActionSurface projection,
-five-mark acceptance, checkpoint restart/paper recovery, and Stage 4 causal
+Swift Testing suites cover evidence constructors, affine-first construction and
+constant construction fallback, checkpoint quarantine and revalidation, graph
+dependency shapes, shared-frame unordered clicks, physical-location blacklist
+persistence, ActionSurface projection, five-mark batch acceptance, checkpoint
+restart/paper recovery, and Stage 4 causal
 ink. `make quick-test` excludes the explicitly retained journeys;
 `make journey-test` runs the current sparse/Stage 4 routes sequentially; and
 `make strict-check` applies complete concurrency checking and warnings as

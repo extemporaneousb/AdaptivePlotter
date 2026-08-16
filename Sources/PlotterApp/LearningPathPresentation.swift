@@ -427,12 +427,11 @@ enum ExerciseActionKind: Hashable, Sendable {
   case runCameraCalibrationAndBuildProposal
   case acceptCameraCalibrationProposal
   case rejectCameraCalibrationProposal
-  case createNextSparseTipMark
-  case reClickSparseTipFrame
-  case acceptSparseTipMark
+  case drawFiveSparseTipCircles
+  case undoLastSparseTipClick
+  case clearSparseTipClicks
   case revalidateTipCalibrationCheckpoint
   case acceptTipCalibration
-  case rejectTipCalibration
   case paperReplaced
   case chooseIsolatedLinePlan(BoundaryDirection)
   case captureLocalPreLineBaseline

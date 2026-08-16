@@ -110,6 +110,38 @@ struct CurrentCameraCalibrationPlanningTests {
     #expect(pathEnd.distance(to: mark.startPosition.point) < 1e-9)
   }
 
+  @Test("Stage 3.4 batch uses fixed 30 mm offsets and exactly 80 closed chords")
+  func sparseBatchGeometry() throws {
+    let envelope = try boundaryEnvelope(
+      negativeX: -100,
+      positiveX: 100,
+      negativeY: -100,
+      positiveY: 100
+    )
+    let batch = try SparseTipBatchMarkPlan(
+      center: MachinePosition(x: 0, y: 0),
+      boundarySideAggregates: envelope
+    )
+
+    #expect(batch.marks.map(\.position) == [
+      .center, .negativeX, .positiveY, .positiveX, .negativeY,
+    ])
+    #expect(batch.marks.map(\.machinePosition) == [
+      try MachinePosition(x: 0, y: 0),
+      try MachinePosition(x: -30, y: 0),
+      try MachinePosition(x: 0, y: 30),
+      try MachinePosition(x: 30, y: 0),
+      try MachinePosition(x: 0, y: -30),
+    ])
+    #expect(batch.marks.flatMap { $0.circle.pathDeltas }.count == 80)
+    for mark in batch.marks {
+      #expect(mark.circle.geometry.radiusMM == 2)
+      #expect(mark.circle.geometry.chordCount == 16)
+      #expect(mark.circle.geometry.maximumFeedMMPerMinute == 100)
+      #expect(mark.circle.pathPositions.first == mark.circle.pathPositions.last)
+    }
+  }
+
   @Test("sparse circle refuses any mark that would cross the safe Boundary inset")
   func circularMarkRequiresSafeClearance() throws {
     #expect(throws: CurrentCameraCalibrationPlanningError.circularMarkOutsideSafeEnvelope) {
@@ -136,10 +168,10 @@ struct CurrentCameraCalibrationPlanningTests {
 
     #expect(geometry.map(\.center) == [
       try MachinePosition(x: 0, y: 0),
-      try MachinePosition(x: -24, y: 0),
-      try MachinePosition(x: 0, y: 24),
-      try MachinePosition(x: 24, y: 0),
-      try MachinePosition(x: 0, y: -24),
+      try MachinePosition(x: -30, y: 0),
+      try MachinePosition(x: 0, y: 30),
+      try MachinePosition(x: 30, y: 0),
+      try MachinePosition(x: 0, y: -30),
     ])
     #expect(geometry.allSatisfy { $0.radiusMM == 2 })
     #expect(geometry.allSatisfy { $0.chordCount == 16 })
@@ -153,10 +185,10 @@ struct CurrentCameraCalibrationPlanningTests {
     )
     let marks = try [
       MachinePosition(x: 0, y: 0),
-      MachinePosition(x: -24, y: 0),
-      MachinePosition(x: 0, y: 24),
-      MachinePosition(x: 24, y: 0),
-      MachinePosition(x: 0, y: -24),
+      MachinePosition(x: -30, y: 0),
+      MachinePosition(x: 0, y: 30),
+      MachinePosition(x: 30, y: 0),
+      MachinePosition(x: 0, y: -30),
     ].map {
       try ToolContactMarkGeometryEvidence(
         center: $0, radiusMM: 2, chordCount: 16, maximumFeedMMPerMinute: 100

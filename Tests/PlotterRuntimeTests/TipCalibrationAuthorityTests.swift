@@ -51,34 +51,20 @@ struct TipCalibrationAuthorityTests {
     }
   }
 
-  @Test("Tip registration derives three fixed fit samples and two passing holdouts")
-  func registrationRequiresIndependentPassingHoldouts() throws {
+  @Test("Tip registration consumes all five observations without a residual gate")
+  func registrationConsumesAllFiveWithoutResidualGate() throws {
     let fixture = try TipAuthorityFixture()
-    let registration = try fixture.registration()
+    let registration = try fixture.registration(clickOffsetAtNegativeY: 100)
 
-    #expect(registration.observationEvidence.filter { $0.role == .fit }.count == 3)
-    #expect(registration.observationEvidence.filter { $0.role == .holdout }.count == 2)
-    #expect(
-      registration.observationEvidence.first { $0.calibrationPosition == .positiveX }?.role
-        == .holdout
-    )
-    #expect(
-      registration.observationEvidence.first { $0.calibrationPosition == .negativeY }?.role
-        == .holdout
-    )
-    #expect(
-      registration.observationEvidence.filter { $0.role == .holdout }
-        .allSatisfy { $0.passes }
-    )
+    #expect(registration.modelForm == .directAffine)
+    #expect(registration.modelSelectionEvidence.observationIDs.count == 5)
+    #expect(registration.observationEvidence.count == 5)
+    #expect(registration.uncertainty.maximumResidualPixels > 10)
     #expect(registration.consumedObservationIDs.count == 5)
-
-    #expect(throws: TipCalibrationModelSelectionError.constantFailureIsNotCoherent) {
-      try fixture.registration(failingFinalHoldout: true)
-    }
   }
 
-  @Test("model selection tries constant correction first and escalates only after two coherent failures")
-  func smallestPassingModelSelection() throws {
+  @Test("model construction fits affine first from all five observations")
+  func affineFirstModelSelection() throws {
     let fixture = try TipAuthorityFixture()
     let observations = try ToolContactCalibrationPosition.allCases.map { position in
       try AcceptedToolContactObservation(
@@ -89,27 +75,38 @@ struct TipCalibrationAuthorityTests {
     let exactCap = try AffineTransform2<MachineSpace, CameraPixelSpace>(
       m11: 2, m12: 0, m21: 0, m22: 3, tx: 10, ty: 20
     )
-    let constant = try TipCalibrationModelSelection.selectSmallestPassingModel(
+    let selection = try TipCalibrationModelSelection.fitAffineFirst(
       acceptedObservations: observations,
-      capCameraFromMachine: exactCap,
-      maximumHoldoutResidualPixels: 2
+      capCameraFromMachine: exactCap
     )
-    #expect(constant.modelForm == .constantCameraPixelCorrection)
-    #expect(constant.evidence.affineEscalation == .notRequired)
-    #expect(constant.evidence.affineCandidate == nil)
+    #expect(selection.modelForm == .directAffine)
+    #expect(selection.evidence.observationIDs == observations.map { $0.observation.id })
+    #expect(selection.uncertainty.maximumResidualPixels < 1e-9)
+  }
 
-    let biasedCap = try AffineTransform2<MachineSpace, CameraPixelSpace>(
-      m11: 1.5, m12: 0, m21: 0, m22: 2.5, tx: 10, ty: 20
+  @Test("constant correction is used only when all-five affine construction throws")
+  func constantConstructionFallback() throws {
+    let fixture = try TipAuthorityFixture()
+    let repeatedMachinePoint = try Point2<MachineSpace>(x: 50, y: 50)
+    let observations = try ToolContactCalibrationPosition.allCases.map { position in
+      try AcceptedToolContactObservation(
+        artifactRevisionID: LearningArtifactRevisionID(),
+        observation: fixture.observation(
+          position: position,
+          machinePointOverride: repeatedMachinePoint
+        )
+      )
+    }
+    let cap = try AffineTransform2<MachineSpace, CameraPixelSpace>(
+      m11: 2, m12: 0, m21: 0, m22: 3, tx: 10, ty: 20
     )
-    let affine = try TipCalibrationModelSelection.selectSmallestPassingModel(
+    let selection = try TipCalibrationModelSelection.fitAffineFirst(
       acceptedObservations: observations,
-      capCameraFromMachine: biasedCap,
-      maximumHoldoutResidualPixels: 0.1
+      capCameraFromMachine: cap
     )
-    #expect(affine.modelForm == .directAffine)
-    #expect(affine.evidence.constantHoldouts.allSatisfy { !$0.passes })
-    #expect(affine.evidence.affineEscalation == .coherentTwoHoldoutFailure)
-    #expect(affine.evidence.affineHoldouts.allSatisfy { $0.passes })
+    #expect(selection.modelForm == .constantCameraPixelCorrection)
+    #expect(selection.evidence.selectedModelForm == .constantCameraPixelCorrection)
+    #expect(selection.evidence.observationIDs.count == 5)
   }
 
   @Test("Affine covariance must be positive semidefinite")
@@ -288,30 +285,7 @@ struct TipCalibrationAuthorityTests {
       timestamp: 1_200
     )
     if case .quarantined = loaded.revalidate(with: paperEvidence) {} else {
-      Issue.record("paper mismatch without contact evidence must remain quarantined")
-    }
-
-    let planeObservation = try AcceptedToolContactObservation(
-      artifactRevisionID: LearningArtifactRevisionID(),
-      observation: fixture.observation(
-        position: .center,
-        paper: changedPaper.paperContactPlane,
-        timeOffset: 1_000
-      )
-    )
-    let planeEvidence = try fixture.revalidationEvidence(
-      context: changedPaper,
-      frameTime: 1_550,
-      timestamp: 1_600,
-      contactPlaneRevalidation: TipContactPlaneRevalidationEvidence(
-        acceptedObservation: planeObservation,
-        maximumTipResidualPixels: 2
-      )
-    )
-    if case .restored(let authority) = loaded.revalidate(with: planeEvidence) {
-      #expect(authority.effectiveApplicability.paperContactPlane == changedPaper.paperContactPlane)
-    } else {
-      Issue.record("fresh contact evidence must restore authority for a replacement paper plane")
+      Issue.record("paper replacement must require a fresh complete Stage 3.4 calibration")
     }
 
     let staleEvidence = try fixture.revalidationEvidence(
@@ -466,13 +440,14 @@ private struct TipAuthorityFixture {
     disposition: ToolContactObservationDisposition = .accepted,
     penDown: PenOutcome = .commandedAndSettled(command: .lower, commandedState: .down),
     penProfile: PenActuationProfile = .initialDefaults,
-    failingClick: Bool = false,
+    clickOffsetX: Double = 0.5,
+    machinePointOverride: Point2<MachineSpace>? = nil,
     markPositionResidualMM: Double = 0.01,
     revealPositionResidualMM: Double = 0.01,
     paper: PaperContactPlaneRevision? = nil,
     timeOffset: UInt64 = 0
   ) throws -> ToolContactObservation {
-    let machinePoint = try calibrationPoint(position)
+    let machinePoint = try machinePointOverride ?? calibrationPoint(position)
     let intended = MachinePosition(point: machinePoint)
     let actual = try MachinePosition(x: machinePoint.x + markPositionResidualMM, y: machinePoint.y)
     let revealActual = try MachinePosition(
@@ -494,7 +469,7 @@ private struct TipAuthorityFixture {
     )
     let predicted = try registrationTransform().applying(to: actual.point)
     let click = try Point2<CameraPixelSpace>(
-      x: predicted.x + (failingClick ? 5 : 0.5),
+      x: predicted.x + clickOffsetX,
       y: predicted.y
     )
     return try ToolContactObservation(
@@ -554,20 +529,19 @@ private struct TipAuthorityFixture {
     )
   }
 
-  func registration(failingFinalHoldout: Bool = false) throws -> TipCameraRegistration {
+  func registration(clickOffsetAtNegativeY: Double = 0.5) throws -> TipCameraRegistration {
     let observations = try ToolContactCalibrationPosition.allCases.map { position in
       try AcceptedToolContactObservation(
         artifactRevisionID: LearningArtifactRevisionID(),
         observation: observation(
           position: position,
-          failingClick: failingFinalHoldout && position == .negativeY
+          clickOffsetX: position == .negativeY ? clickOffsetAtNegativeY : 0.5
         )
       )
     }
-    let selection = try TipCalibrationModelSelection.selectSmallestPassingModel(
+    let selection = try TipCalibrationModelSelection.fitAffineFirst(
       acceptedObservations: observations,
-      capCameraFromMachine: registrationTransform(),
-      maximumHoldoutResidualPixels: 2
+      capCameraFromMachine: registrationTransform()
     )
     return try TipCameraRegistration(
       modelForm: selection.modelForm,
@@ -576,7 +550,6 @@ private struct TipAuthorityFixture {
       uncertainty: selection.uncertainty,
       applicabilityRectangle: AxisAlignedBounds(minX: 0, minY: 0, maxX: 100, maxY: 100),
       acceptedObservations: observations,
-      maximumObservationResidualPixels: 2,
       applicability: context(),
       acceptedRevisionID: LearningArtifactRevisionID(),
       machineCameraRegistrationRevisionID: machineCameraRevision,
@@ -590,8 +563,7 @@ private struct TipAuthorityFixture {
     frameTime: UInt64,
     timestamp evidenceTime: UInt64,
     capPredictionOffset: Double = 1,
-    maximumCapResidual: Double = 2,
-    contactPlaneRevalidation: TipContactPlaneRevalidationEvidence? = nil
+    maximumCapResidual: Double = 2
   ) throws -> TipCalibrationRevalidationEvidence {
     let frame = try ExactTipCalibrationFrame(
       frameID: FrameID(rawValue: "revalidation-\(frameTime)"),
@@ -618,7 +590,6 @@ private struct TipAuthorityFixture {
       capEstimate: cap,
       capMapPrediction: Point2(x: cap.point.x + capPredictionOffset, y: cap.point.y),
       maximumCapMapResidualPixels: maximumCapResidual,
-      contactPlaneRevalidation: contactPlaneRevalidation,
       timestamp: timestamp(evidenceTime),
       algorithmRevision: "tip-checkpoint-revalidation-v1"
     )

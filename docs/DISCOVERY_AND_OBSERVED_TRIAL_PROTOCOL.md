@@ -46,8 +46,8 @@ Presentation zoom, pan, and fitted bounds are available after 3.2. They are
 view-only. Exact camera-pixel evidence and calibration authority do not change
 when the presentation transform changes. Learning visibility and compatible
 presentation-context changes preserve the operator's zoom and pan; camera source
-or configuration changes reset them. A sparse-mark selection remains the one
-workflow that may request a stronger initial presentation focus.
+or configuration changes reset them. Stage 3.4 never changes zoom, pan, fitted
+region, preferred zoom, or viewport focus automatically.
 
 The only global scene-overlay preferences are **Pen cap** and **Armature
 envelope**. The envelope is inferred from the cap, not segmented. Generic
@@ -208,77 +208,64 @@ coordinate change.
 
 ## 3.4 Calibrate Pen Contact from Sparse Marks
 
-### Ordered physical sequence
+### One supervised physical batch
 
-Use `C`, `X−`, `Y+`, `X+`, `Y−`. Every sample is the center of one 2 mm-radius
-circular mark.
+Stage 3.4 uses `C`, `X−`, `Y+`, `X+`, `Y−` at fixed offsets of ±30 mm from
+`C`. Stage 3.3 retains its existing separate ±24 mm spacing and camera-holdout
+authority.
 
-For each mark:
+1. Press **Draw Five 2 mm Circles** once. One exercise attempt and one existing
+   stoppable operation own the complete batch and expose the contextual Stop.
+2. At each canonical position, travel Pen Up, require fresh Idle/final MPos
+   within 0.05 mm, capture and retain that circle's exact pre-mark frame and cap
+   anchor, and retain its controller and settled-position evidence.
+3. Verify the full circle lies inside the learned Boundary inset. Move Pen Up
+   to its +X start point and settle.
+4. Lower and settle with the current Pen Interaction Down profile. Draw one
+   closed 16-chord, 2 mm-radius circle at no more than 100 mm/min or the lower
+   controller-reported axis ceiling, requiring settled chord endpoints.
+5. Raise and settle Pen Up. Only then travel to the next circle. Repeat steps
+   2–5 without a reveal or click between circles. The batch contains exactly 80
+   circle chords and no connecting Pen-Down stroke.
+6. After the fifth circle, perform one Pen-Up reveal to the safe X+ limit and
+   toward machine Y=0, clamped to the Boundary inset. Require Pen Up, Idle, and
+   final-MPos settlement.
+7. Capture one strictly newer exact frame and revalidate current camera/cap
+   applicability once. Freeze that one frame unchanged for all five clicks.
+   Do not change viewport zoom, pan, fitted region, preferred zoom, or focus.
 
-1. Press **Create Next 2 mm Circle**.
-2. Move Pen Up to the intended position under the existing bounded, stoppable
-   owner and consistent final approach.
-3. Require fresh Idle/final MPos within 0.05 mm.
-4. Capture an exact pre-mark frame and current cap anchor. Reject the operation
-   if the accepted cap map misses that anchor by more than its declared policy.
-5. Retain the pre-mark frame as local evidence.
-6. Verify the full 2 mm-radius circle lies within the learned Boundary's 10 mm
-   safety inset, then move Pen Up to the circle's +X start point and settle.
-7. Command the complete lower operation with the current Down value accepted in
-   Pen Interaction (`S760` initially), controller acknowledgement, configured
-   settlement and acknowledgement, and a settled Down outcome. Record the
-   actual value consumed by this mark.
-8. Draw one closed 16-chord circle under typed drawing ownership. Cap drawing
-   feed at 100 mm/min or the lower controller-reported axis ceiling. Each chord
-   is finite and stoppable; the 16-chord radial approximation error is about
-   0.038 mm, below the shared 0.05 mm position policy. Require settled final MPos
-   after every chord.
-9. Command Pen Up once using the current Up value accepted in Pen Interaction
-   (`S40` initially) and require an unambiguous settled Up outcome. If any chord
-   or Pen outcome after possible contact is stopped or ambiguous,
-   blacklist this circle center/radius on the current paper and stop. Never
-   redraw it automatically.
-10. Move Pen Up to the learned safe X+ limit and toward machine Y=0, clamping Y
-    to the Boundary's 10 mm safety inset when zero is outside that safe interval.
-11. Require reveal-pose Idle/final MPos within 0.05 mm.
-12. Capture one strictly newer exact post-reveal frame and revalidate the cap
-    map at that pose.
-13. Freeze that frame. Open a one-third-frame presentation-only focus around
-    the pre-mark cap anchor, hide the expected tip point, and ask
-    **Click the center of the new black circle**.
-14. Convert the zoomed/letterboxed view click back to exact camera pixels. Bind
-    it to frame ID, SHA-256, source, capture session, semantic optical identity,
-    dimensions, and presentation-transform revision.
-15. Show the asserted point, 1.5 px per-axis pointing uncertainty, the expected
-    point from the current tip-calibration candidate if one exists, and residual.
-16. **Re-click This Exact Frame** clears only the point and reuses the same
-    frame. It performs no motion and creates no ink.
-17. **Accept Mark Center** atomically commits one immutable
-    `ToolContactObservation` revision.
+If a chord, motion outcome, or Pen state after possible contact is stopped or
+ambiguous, blacklist the affected circle location on the current paper and
+stop. Never retry, resend, redraw, or continue automatically. Each resulting
+`ToolContactObservation` retains its own physical operation evidence while all
+five share the final reveal frame. Controller completion does not prove
+physical contact or ink; attended observation owns those claims.
 
-The click is role `assertedCenter`. The commanded circle geometry is retained,
-but the click is still a human assertion rather than automatic shape evidence.
-Controller completion does not prove physical contact or ink; attended
-observation owns those claims.
+### Unordered clicks, model construction, and acceptance
 
-### Model selection and final acceptance
-
-1. `C`, `X−`, and `Y+` are the fit set. `X+` and `Y−` are sealed holdouts.
-2. Fit a constant camera-pixel correction on the accepted cap map.
-3. If both holdouts pass, select that smallest model.
-4. If and only if both fail coherently, fit a direct affine machine-to-tip map
-   from the three fit samples and test it on both holdouts.
-5. A lone failing holdout blocks acceptance and does not justify affine
-   escalation.
-6. Both holdouts must pass the selected form.
-7. Refit the selected form on all five observations.
-8. Present model form, sealed holdout evidence, all-five residuals, uncertainty,
-   applicability rectangle, semantic identities, and consumed observation
-   revisions.
-9. **Accept Tip Calibration** atomically commits `TipCameraRegistration`, saves
-   the separate quarantined tip checkpoint, and advances to Stage 4.
-10. **Reject Tip Calibration** retains immutable observation history and causes
-    no motion or redraw.
+1. Show all collected click markers and the count on the shared frozen frame.
+   Convert every presentation click through the exact inverse transform to
+   camera pixels and retain exact frame/provenance identity.
+2. Clicks may arrive in any order. After click five, project the five known
+   machine positions through current `MachineCameraRegistration`. Center both
+   projected and clicked point sets to remove their unknown common cap-to-tip
+   translation.
+3. Evaluate all 5! one-to-one assignments and choose the minimum total squared
+   pixel distance. Resolve an exact numerical tie in canonical calibration-
+   position order. Apply no distance or ambiguity threshold.
+4. **Undo Last Click** or **Clear Clicks on This Frame** changes same-frame
+   click evidence only. It performs no motion, ink, redraw, capture, zoom, or
+   pan.
+5. After click five, atomically create the five accepted observations. Fit one
+   direct affine machine-to-tip map from all five first. Construct constant
+   camera-pixel correction only if affine construction throws.
+6. Display model form, all-five residuals, RMS, covariance/uncertainty,
+   applicability, semantic identities, and consumed revisions as diagnostics.
+   Stage 3.4 has no holdouts and no numerical magnitude can block proposal
+   creation or progression. Numerical fitting never requests paper replacement
+   and never routes to **No Automatic Redraw**.
+7. **Accept Tip Calibration** atomically commits `TipCameraRegistration`, saves
+   the separate quarantined tip checkpoint, and makes Stage 4 current.
 
 ### Quarantined checkpoint recovery
 
@@ -301,12 +288,8 @@ After explicit paper replacement:
 
 1. Retain the old checkpoint in quarantine and rotate the paper-plane identity.
 2. Rebuild and accept current Stage 3.3 authority.
-3. Start Stage 3.4 and create one new 2 mm-radius center circle using the full
-   settle/draw/reveal/frozen-click sequence above.
-4. Require the new click to agree with the quarantined tip projection within the
-   declared eight-pixel policy.
-5. Derive a new accepted tip revision that consumes the original five evidence
-   identities plus the new contact-plane observation.
+3. Run the current complete Stage 3.4 five-circle batch on the replacement
+   paper and explicitly accept its new tip registration.
 
 Any mismatch or ambiguous contact leaves authority unavailable. It never falls
 back to automatic redraw or silent checkpoint promotion.

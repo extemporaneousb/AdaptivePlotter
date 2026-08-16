@@ -91,20 +91,23 @@ independent holdouts. Both holdouts must pass before a weighted all-five refit
 can be explicitly accepted as `MachineCameraRegistration`. The visible cap
 landmark is not the hidden paper-contact point.
 
-Stage 3.4 uses the same ordered cross. At each position the app:
+Stage 3.4 uses one supervised **Draw Five 2 mm Circles** action. Its fixed
+machine offsets from `C` are `X− = −30 mm`, `Y+ = +30 mm`, `X+ = +30 mm`, and
+`Y− = −30 mm`; Stage 3.3 retains its separate existing ±24 mm camera-calibration
+spacing. One exercise attempt and one stoppable operation draw the five circles
+in canonical order. For every circle the app travels and settles Pen Up at the
+intended position, retains its exact pre-mark frame/cap/controller evidence,
+moves Pen Up to the circle start, lowers and settles using the current Pen
+Interaction profile, draws one closed 16-chord circle of 2 mm radius at no more
+than 100 mm/min, then raises and settles Pen Up before any inter-circle travel.
+There are no connecting Pen-Down strokes.
 
-1. settles Pen Up at the intended MPos;
-2. captures an exact pre-mark frame and revalidates the cap map;
-3. moves Pen Up to the circle start, commands the complete lower operation with
-   the current Down value from Pen Interaction (`S760` initially, then the
-   configured settle), and accepts only a settled Down outcome;
-4. draws one closed 16-chord circle of 2 mm radius at no more than 100 mm/min,
-   raises once, then moves Pen Up to the learned safe X+ limit and as close to
-   machine Y=0 as the 10 mm Boundary inset permits;
-5. settles, captures a newer exact frame, and revalidates the cap map;
-6. freezes that exact frame, opens a stronger presentation-only focus around
-   the pre-mark cap anchor, and asks the operator to click the circle center;
-7. allows re-clicking only on the same frame, with no motion or ink action.
+Only after the fifth circle does the app perform one safe X+/machine-Y-zero-
+biased Pen-Up reveal, require Idle/final-MPos settlement, revalidate the current
+camera/cap applicability, and capture one newer exact frame. That exact frame
+is frozen unchanged for all five clicks. Stage 3.4 never installs a fitted
+region or changes zoom, pan, preferred zoom, or viewport focus automatically;
+manual presentation transforms remain operator controlled.
 
 Pen Interaction retains its existing Up → Down → Up exercise. Its Up and Down
 steps expose sliders displaying the current settings, seeded at `S40` and
@@ -121,21 +124,29 @@ A complete commanded actuation plus its settlement is controller evidence;
 only attended observation can prove that the physical pen cleared or reached
 the paper.
 
-The expected tip point is hidden until the click is made. Before accepted
-authority exists, the UI says **Tip not calibrated**. After a click, the UI
-shows the selected point and uncertainty, the expected point from the current
-tip-calibration candidate, and residual.
+The UI shows click count and all collected markers. Click order has no semantic
+meaning. After the fifth click, the app projects all five known machine
+positions through the current `MachineCameraRegistration`, centers projected
+and clicked point sets to remove their common cap-to-tip translation, evaluates
+all 5! one-to-one assignments, and selects the minimum total squared pixel
+distance with canonical calibration-position order as the exact-tie break.
+There is no click-distance or ambiguity threshold. **Undo Last Click** or
+**Clear Clicks on This Frame** changes only same-frame click evidence and causes
+no motion, ink, redraw, frame capture, zoom, or pan.
 
-The first three accepted marks fit candidates; `X+` and `Y−` remain holdouts.
-The smallest passing model wins: a constant camera-pixel correction on the cap
-map is tried first, and a direct affine tip map is considered only after
-coherent failure at both holdouts. Both holdouts must pass. The selected model
-is refit on all five observations and becomes current only after explicit
-**Accept Tip Calibration**.
+The app constructs a direct affine machine-to-tip map from all five accepted
+observations first. Constant camera-pixel correction on the accepted cap map is
+used only when affine construction itself throws. All-five residuals, RMS,
+covariance, and uncertainty remain diagnostics; their magnitude never rejects
+a model or blocks proposal creation. Stage 3.4 has no holdouts and numerical
+fitting cannot request paper replacement or route to a no-redraw recovery.
+Explicit **Accept Tip Calibration** makes Stage 4 current.
 
 An uncertain circle chord, Pen Down/Up outcome, or motion outcome blacklists
 that circle center/radius on the current paper and stops the workflow. Possible ink never causes automatic
-retry, redraw, resend, or continuation.
+retry, redraw, resend, or continuation. Paper replacement is recorded only for
+an actual replacement or as the existing possible-ink recovery, never because
+of numerical fitting.
 
 ## Tip authority and persistence
 
@@ -147,18 +158,18 @@ pointing uncertainty, presentation-transform revision, disposition, and
 consumed algorithm/artifact revisions.
 
 `TipCameraRegistration` maps machine coordinates directly to paper-contact
-pixels. It retains the chosen model form, affine transform, uncertainty,
-applicability rectangle, sealed holdouts, all five observation identities,
-semantic optical/machine/tool/paper identities, and accepted revision. A
-diagnostic cap-to-tip pixel difference at one pose is not a durable
-camera-independent tool vector.
+pixels. It retains the chosen model form, affine transform, diagnostic
+residuals/covariance/uncertainty, applicability rectangle, all five observation
+identities and revisions, semantic optical/machine/tool/paper identities, and
+accepted revision. A diagnostic cap-to-tip pixel difference at one pose is not
+a durable camera-independent tool vector.
 
 The machine-only checkpoint remains separate. `AcceptedTipCalibrationCheckpoint`
 loads quarantined and cannot restore authority without current semantic
-identity plus fresh controller/cap evidence. A paper-plane change requires
-one new accepted circle-center observation; an unchanged paper/capture
-restart requires a fresh cap frame and no new mark. Both routes derive a new
-accepted revision and retain their revalidation evidence. Known pixel
+identity plus fresh controller/cap evidence. An unchanged paper/capture restart
+requires a fresh cap frame and no new mark. An actual paper replacement rotates
+paper identity and requires a complete new Stage 3.4 batch plus explicit
+acceptance on that paper. Known pixel
 transforms and known machine-coordinate
 rebases may derive rebased authority with propagated uncertainty; unknown
 optical, geometry, coordinate, tool, contact-profile, or LIVE/SIMULATED changes
@@ -208,12 +219,12 @@ frame with its completed status while the next frame is analyzed, then the
 displayed-frame/overlay pair is replaced atomically. Entering or leaving
 Learning and other compatible presentation-context changes preserve operator
 zoom and pan; a source or camera-
-configuration change still resets them, and sparse-mark selection may request
-its documented stronger initial focus. Locking the viewport admits only that
-camera-pixel subregion to generic scene-analysis scans without cropping or
-rewriting the exact stamped frame. A generic viewport region never constrains
-calibration or observed-trial measurements, and full-frame lock is canonicalized
-to default unlocked analysis.
+configuration change still resets them. Stage 3.4 sparse-mark actions never
+change viewport zoom, pan, fitted region, preferred zoom, or focus. Locking the
+viewport admits only that camera-pixel subregion to generic scene-analysis scans
+without cropping or rewriting the exact stamped frame. A generic viewport
+region never constrains calibration or observed-trial measurements, and full-
+frame lock is canonicalized to default unlocked analysis.
 
 Pen-cap appearance is learned only by the first **Identify Pen Cap** action in
 Pen Interaction. The operator clicks the colored cap body, not the tip, on one

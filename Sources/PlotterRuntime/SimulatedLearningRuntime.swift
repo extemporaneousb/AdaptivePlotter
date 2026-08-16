@@ -42,10 +42,10 @@ public struct SimulatedLearningBoundaryTruth: Codable, Hashable, Sendable {
   public let positiveYMM: Double
 
   public init(
-    negativeXMM: Double = -40,
-    positiveXMM: Double = 40,
-    negativeYMM: Double = -30,
-    positiveYMM: Double = 30
+    negativeXMM: Double = -50,
+    positiveXMM: Double = 50,
+    negativeYMM: Double = -50,
+    positiveYMM: Double = 50
   ) {
     precondition(negativeXMM.isFinite && positiveXMM.isFinite)
     precondition(negativeYMM.isFinite && positiveYMM.isFinite)

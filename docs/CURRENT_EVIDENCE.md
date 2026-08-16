@@ -10,6 +10,40 @@ procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
 ## Implemented software surface
 
+### Stage 3.4 five-circle batch and affine-first authority
+
+Implemented 2026-08-16 in Blackdog task `TASK-0D8990BE`; final validation and
+landing evidence are recorded by the implementation coordinator after this
+documentation update.
+
+The implementation replaces per-circle progression with one supervised action
+that draws five separated 2 mm-radius circles at Stage 3.4 offsets of ±30 mm,
+settles Pen Up between circles, performs one final reveal, and freezes one exact
+frame for five arbitrary-order clicks. Centered projected/clicked point sets and
+an exhaustive deterministic 5! assignment associate clicks without a distance
+or ambiguity threshold. All five observations enter affine construction first;
+constant correction is only the construction fallback. Residuals, RMS,
+covariance, and uncertainty are diagnostic only. Stage 3.4 has no holdouts or
+numerical route to paper replacement, does not change viewport state, and makes
+Stage 4 current only after explicit tip-registration acceptance. Stage 3.3
+retains its separate ±24 mm camera calibration and holdout authority.
+
+Focused software validation passed: 11 TipCalibrationAuthority tests, 3 sparse
+coordinator tests, 12 calibration-planning tests, 7 sparse workspace tests, 18
+ActionSurface/viewport tests, and 11 Learning Path projector tests.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| Focused Stage 3.4 suites | passed — 62 tests | affine-first authority, batch planning and coordination, shared frozen frame, arbitrary-order association, viewport continuity, and Stage 4 progression |
+| `make quick-test` | passed — 377 tests | fast unit/component partition |
+| `make journey-test` | passed — 10 tests | sparse calibration, reset, Boundary, drawing, and Stop journeys |
+| `make strict-check` | passed — 387 tests | strict concurrency, warnings as errors, signed bundle, launcher validation, and full test suite |
+| `git diff --check` | passed | whitespace and conflict markers |
+
+Attended hardware, camera, motion, Pen Down/Up, operator-click, and observed-ink
+validation were skipped and remain unproven. Blackdog landing evidence is
+recorded separately by the implementation coordinator.
+
 ### Stable exact-frame overlays and Learning viewport continuity
 
 Validated 2026-08-15 in Blackdog task `TASK-912F3060`, targeting `main`
@@ -26,12 +60,12 @@ operator click before LIVE recognition can run.
 
 Action-surface zoom and pan now survive entering or leaving Learning and other
 compatible presentation-context revisions. Camera source/configuration changes
-still reset the viewport, and sparse-mark selection retains its explicit stronger
-initial focus.
+still reset the viewport. Its former sparse-mark automatic focus was historical
+behavior and is superseded by the Stage 3.4 batch above.
 
 | Validation | Result | Scope |
 | --- | --- | --- |
-| Focused overlay, viewport, and Identify Pen Cap tests | passed — 46 tests | analyze-cycle retention and stale refusal, Learning visibility, compatible zoom/pan continuity, source/configuration reset, sparse focus, and frozen-frame overlay identity |
+| Focused overlay, viewport, and Identify Pen Cap tests | passed — 46 tests | analyze-cycle retention and stale refusal, Learning visibility, compatible zoom/pan continuity, source/configuration reset, superseded sparse viewport behavior, and frozen-frame overlay identity |
 | `make quick-test` | passed — 377 tests | fast unit/component partition |
 | `make journey-test` | passed — 10 tests | sparse calibration, reset, Boundary, drawing, and Stop journeys |
 | `make strict-check` | passed — 387 tests | strict concurrency, warnings as errors, signed bundle, launcher validation, full test suite, and repository checks |
@@ -248,12 +282,13 @@ The current source contains exactly two post-Boundary calibration exercises:
   exact inspections, refuses any non-accepted or ambiguous cap and more than
   2 px maximum pairwise cap-centroid spread, and retains the newest third exact
   frame/measurement without averaging;
-- 3.4 five centered 2 mm-radius, 16-chord circular-mark observations capped at
-  100 mm/min and using the current Up/Down values from the existing Pen
-  Interaction exercise, far safe X-max/Y-zero-biased Pen-Up reveal,
-  stronger presentation-only focus, frozen exact-frame human center clicks,
-  post-click uncertainty/prediction/residual review, two holdouts,
-  smallest-passing model selection, and explicit tip acceptance.
+- 3.4 one supervised five-circle batch at fixed ±30 mm offsets, with five
+  centered 2 mm-radius/16-chord marks capped at 100 mm/min, independent
+  Down/Up evidence, settled Pen Up before every inter-circle travel, one final
+  X-max/Y-zero-biased reveal, one shared frozen exact frame, arbitrary-order
+  clicks with deterministic global assignment, all-five affine-first
+  construction, constant construction fallback, diagnostic-only residuals and
+  uncertainty, stable operator viewport state, and explicit tip acceptance.
 
 `TipCameraRegistration` maps machine coordinates directly to contact pixels.
 Stage 4 consumes its exact revision, selects a 5 mm line that clears persistent
@@ -261,9 +296,10 @@ calibration circles, and owns its own local baseline, reveal MPos, drawing
 execution, newer post-line frame, and generic ink observation.
 
 The separate tip checkpoint loads quarantined. Same-paper restart uses a fresh
-controller/cap frame and no new mark. Replacement-paper recovery requires one new
-accepted contact observation. Possible ink is keyed by machine position plus
-mark radius plus paper identity and survives cancel/restart/reset on that paper.
+controller/cap frame and no new mark. An actual paper replacement rotates paper
+identity and requires current calibration on that paper. Possible ink is keyed
+by machine position plus mark radius plus paper identity and survives cancel,
+restart, and reset on that paper; it never triggers automatic redraw.
 
 The former multi-step target/region workflow, its runtime protocol, simulator
 fixtures, exclusive tests, actions, artifacts, and detector composition are
@@ -345,7 +381,7 @@ base `3a025e489c6f1115faaa2b107c7eb33a8db4ba09`.
 
 | Validation | Result | Scope |
 | --- | --- | --- |
-| Focused Stage 3.4 and checkpoint tests | passed — 83 tests | 2 mm/16-chord/100 mm/min geometry, far reveal, full configured Down outcome, frozen-frame focus, Stop blacklist, checkpoint reconstruction, Stage 4 clearance, rebased numerical-zero travel, scoped overlay retention |
+| Focused Stage 3.4 and checkpoint tests | passed — 83 tests | 2 mm/16-chord/100 mm/min geometry, far reveal, full configured Down outcome, superseded frozen-frame viewport behavior, Stop blacklist, checkpoint reconstruction, Stage 4 clearance, rebased numerical-zero travel, scoped overlay retention |
 | `make quick-test` | passed — 321 tests | fast unit/component partition |
 | `make journey-test` | passed — 10 tests | retained sparse-circle, checkpoint, Stage 4, Boundary, reset, and simulator journeys |
 | `make strict-check` | passed — 331 tests | complete concurrency, warnings-as-errors, signed bundle and launcher validation, full test suite, repository checks |
@@ -367,7 +403,7 @@ are executed in the Blackdog task worktree and are software evidence only.
 | --- | --- | --- |
 | Independent architecture/deletion review | passed with fixes | chronology, checkpoint restore, post-click drawing, blacklist/reset lifecycle, journey routing, stale symbols |
 | Focused sparse authority and ActionSurface tests | passed — 72 tests | model/evidence constructors, checkpoint, frozen click, review geometry, planning, simulator |
-| Checkpoint restart and paper-plane journey | passed within focused/journey gates | same-paper no-mark restore; changed-paper one-circle restore |
+| Checkpoint restart and paper-plane journey | passed within focused/journey gates | same-paper no-mark restore; legacy changed-paper contact-plane route now superseded by full recalibration |
 | LIVE reset durable-tip test | passed | quarantined tip store is cleared by affected Reset All plan |
 | `git diff --check` | passed | whitespace/conflict markers |
 | `make quick-test` | passed — 312 tests | unit/component partition with retained journeys excluded |

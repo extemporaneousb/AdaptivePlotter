@@ -120,6 +120,10 @@ struct ActionSurfacePointSelection: Hashable, Sendable {
 enum ActionSurfaceTipPresentation: Hashable, Sendable {
   case notCalibrated
   case awaitingClick(String)
+  case collectingClicks(
+    prompt: String,
+    clicks: [Point2<CameraPixelSpace>]
+  )
   case selected(
     click: Point2<CameraPixelSpace>,
     pointingUncertaintyPixels: Vector2<CameraPixelSpace>,
@@ -132,6 +136,8 @@ enum ActionSurfaceTipPresentation: Hashable, Sendable {
     switch self {
     case .notCalibrated: "Tip not calibrated"
     case .awaitingClick(let prompt): prompt
+    case .collectingClicks(let prompt, let clicks):
+      "\(clicks.count)/5 centers selected · \(prompt)"
     case .selected(_, _, _, let residual):
       residual.map { String(format: "Selection residual %.3f px", $0) }
         ?? "Mark center selected"
@@ -150,6 +156,11 @@ enum ActionSurfaceTipPresentation: Hashable, Sendable {
       residual: prediction.flatMap { try? Polyline(points: [$0, click]) }
     )
   }
+
+  var clickMarkers: [Point2<CameraPixelSpace>] {
+    guard case .collectingClicks(_, let clicks) = self else { return [] }
+    return clicks
+  }
 }
 
 struct ActionSurfaceTipReviewGeometry: Hashable, Sendable {
@@ -157,6 +168,103 @@ struct ActionSurfaceTipReviewGeometry: Hashable, Sendable {
   let pointingUncertaintyPixels: Vector2<CameraPixelSpace>
   let prediction: Point2<CameraPixelSpace>?
   let residual: Polyline<CameraPixelSpace>?
+}
+
+struct SparseTipKnownMachinePosition: Hashable, Sendable {
+  let calibrationPosition: ToolContactCalibrationPosition
+  let machinePosition: MachinePosition
+}
+
+struct SparseTipClickAssociation: Hashable, Sendable {
+  let calibrationPosition: ToolContactCalibrationPosition
+  let machinePosition: MachinePosition
+  let projectedCameraPoint: Point2<CameraPixelSpace>
+  let clickedCameraPoint: Point2<CameraPixelSpace>
+}
+
+/// Associates the five clicks without treating click order as evidence. Both point
+/// sets are centered before evaluating every assignment so the unknown common
+/// cap-to-tip translation has no effect on the selected correspondence.
+func associateSparseTipClicks(
+  using registrationFit: MachineCameraRegistrationFit,
+  knownMachinePositions: [SparseTipKnownMachinePosition],
+  clicks: [Point2<CameraPixelSpace>]
+) throws -> [SparseTipClickAssociation] {
+  let canonicalPositions: [ToolContactCalibrationPosition] = [
+    .center, .negativeX, .positiveY, .positiveX, .negativeY,
+  ]
+  precondition(
+    knownMachinePositions.count == canonicalPositions.count
+      && clicks.count == canonicalPositions.count
+      && Set(knownMachinePositions.map(\.calibrationPosition)) == Set(canonicalPositions)
+  )
+
+  let knownByPosition = Dictionary(
+    uniqueKeysWithValues: knownMachinePositions.map { ($0.calibrationPosition, $0.machinePosition) }
+  )
+  let projected = try canonicalPositions.map { position in
+    let machinePosition = knownByPosition[position]!
+    return (
+      position,
+      machinePosition,
+      try registrationFit.cameraPoint(from: machinePosition.point)
+    )
+  }
+  let projectedCenter = try Point2<CameraPixelSpace>(
+    x: projected.map { $0.2.x }.reduce(0, +) / Double(projected.count),
+    y: projected.map { $0.2.y }.reduce(0, +) / Double(projected.count)
+  )
+  let clickedCenter = try Point2<CameraPixelSpace>(
+    x: clicks.map(\.x).reduce(0, +) / Double(clicks.count),
+    y: clicks.map(\.y).reduce(0, +) / Double(clicks.count)
+  )
+  let centeredProjected = projected.map {
+    (x: $0.2.x - projectedCenter.x, y: $0.2.y - projectedCenter.y)
+  }
+  // Coordinate ordering makes exact-score ties independent of operator click order.
+  // Permutation slots remain the canonical calibration-position order above.
+  let canonicalClicks = clicks.sorted {
+    $0.x == $1.x ? $0.y < $1.y : $0.x < $1.x
+  }
+  let centeredClicks = canonicalClicks.map {
+    (x: $0.x - clickedCenter.x, y: $0.y - clickedCenter.y)
+  }
+
+  var bestIndices: [Int] = []
+  var bestScore = Double.infinity
+  for indices in permutations(of: Array(canonicalClicks.indices)) {
+    let score = canonicalPositions.indices.reduce(0.0) { result, positionIndex in
+      let click = centeredClicks[indices[positionIndex]]
+      let projection = centeredProjected[positionIndex]
+      let dx = projection.x - click.x
+      let dy = projection.y - click.y
+      return result + dx * dx + dy * dy
+    }
+    // Enumeration is lexicographic in canonical calibration-position order;
+    // retaining the first equal score is the deterministic exact-tie rule.
+    if score < bestScore {
+      bestScore = score
+      bestIndices = indices
+    }
+  }
+
+  return canonicalPositions.indices.map { index in
+    SparseTipClickAssociation(
+      calibrationPosition: projected[index].0,
+      machinePosition: projected[index].1,
+      projectedCameraPoint: projected[index].2,
+      clickedCameraPoint: canonicalClicks[bestIndices[index]]
+    )
+  }
+}
+
+private func permutations(of values: [Int]) -> [[Int]] {
+  guard !values.isEmpty else { return [[]] }
+  return values.indices.flatMap { index in
+    var remaining = values
+    let next = remaining.remove(at: index)
+    return permutations(of: remaining).map { [next] + $0 }
+  }
 }
 
 /// Stable presentation identity for optional fitted plotter bounds. Exact
@@ -549,11 +657,41 @@ struct ActionSurface: View {
     if let review = presentation.tipPresentation.reviewGeometry {
       draw(review, in: &context, transform: transform)
     }
+    for (index, click) in presentation.tipPresentation.clickMarkers.enumerated() {
+      drawCollectedClick(click, ordinal: index + 1, in: &context, transform: transform)
+    }
     if presentation.simulatedAnnotationsAreVisible {
       for annotation in presentation.simulatedAnnotations {
         draw(annotation, in: &context, transform: transform)
       }
     }
+  }
+
+  private func drawCollectedClick(
+    _ click: Point2<CameraPixelSpace>,
+    ordinal: Int,
+    in context: inout GraphicsContext,
+    transform: CameraPixelToViewTransform
+  ) {
+    let center = transform.point(click)
+    let radius: CGFloat = 6
+    context.stroke(
+      Path(
+        ellipseIn: CGRect(
+          x: center.x - radius,
+          y: center.y - radius,
+          width: radius * 2,
+          height: radius * 2
+        )
+      ),
+      with: .color(.cyan),
+      lineWidth: 2
+    )
+    context.draw(
+      Text("\(ordinal)").font(.caption2.monospaced().bold()).foregroundStyle(.cyan),
+      at: CGPoint(x: center.x + 10, y: center.y - 10),
+      anchor: .center
+    )
   }
 
   private func draw(

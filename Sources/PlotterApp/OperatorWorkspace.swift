@@ -155,7 +155,7 @@ enum ContextualStopTarget: Hashable, Sendable {
   )
   case drawingTrial(
     capabilityID: ContextualStopCapabilityID, operationOwner: ContextualMotionOwnerID)
-  case sparseTipMark(
+  case sparseTipBatch(
     capabilityID: ContextualStopCapabilityID,
     operationOwner: ContextualMotionOwnerID,
     location: BlacklistedToolContactLocation
@@ -168,7 +168,7 @@ enum ContextualStopTarget: Hashable, Sendable {
       .manualDrawingStroke(let capabilityID, _),
       .exerciseMotion(let capabilityID, _, _, _),
       .drawingTrial(let capabilityID, _),
-      .sparseTipMark(let capabilityID, _, _):
+      .sparseTipBatch(let capabilityID, _, _):
       capabilityID
     }
   }
@@ -180,7 +180,7 @@ enum ContextualStopTarget: Hashable, Sendable {
       .manualDrawingStroke(_, let owner),
       .exerciseMotion(_, let owner, _, _),
       .drawingTrial(_, let owner),
-      .sparseTipMark(_, let owner, _):
+      .sparseTipBatch(_, let owner, _):
       owner
     }
   }
@@ -195,7 +195,7 @@ enum LearningMotionAction: Hashable, Sendable {
   case returnFromCameraCalibration
   case sparseTipApproach(ToolContactCalibrationPosition)
   case sparseTipCircleStart(ToolContactCalibrationPosition)
-  case sparseTipReveal(ToolContactCalibrationPosition)
+  case sparseTipBatchReveal
   case sparseTipCircleChord(index: Int, total: Int)
   case moveToLineStart
   case confirmIsolatedLineStart
@@ -209,7 +209,7 @@ enum LearningMotionAction: Hashable, Sendable {
     case .returnFromCameraCalibration: "Return from Current-Camera Calibration"
     case .sparseTipApproach(let position): "Sparse Tip Mark \(position.rawValue) Approach"
     case .sparseTipCircleStart(let position): "Sparse Tip Circle \(position.rawValue) Start"
-    case .sparseTipReveal(let position): "Reveal Sparse Tip Circle \(position.rawValue)"
+    case .sparseTipBatchReveal: "Reveal Five Sparse Tip Circles"
     case .sparseTipCircleChord(let index, let total):
       "Sparse Tip Circle chord \(index)/\(total)"
     case .moveToLineStart: "Move to Line Start"
@@ -523,6 +523,22 @@ private struct PendingToolContactEvidence: Sendable {
   let maximumCapMapResidualPixels: Double
 }
 
+private struct DrawnToolContactEvidence: Sendable {
+  let attemptID: ExerciseAttemptID
+  let operationID: ToolContactOperationID
+  let position: ToolContactCalibrationPosition
+  let intendedMarkPosition: MachinePosition
+  let actualSettledPosition: MachinePosition
+  let controllerContextEvidence: ControllerContextEvidenceReference
+  let markGeometry: ToolContactMarkGeometryEvidence
+  let penDown: PenActuationEvidence
+  let penUp: PenActuationEvidence
+  let preMarkFrame: ExactTipCalibrationFrame
+  let preMarkCapEstimate: ToolCapAnchorEstimate
+  let capMapPredictionAtMark: Point2<CameraPixelSpace>
+  let maximumCapMapResidualPixels: Double
+}
+
 struct LiveSceneInspection: Sendable {
   let displayedFrame: DisplayedFrame
   let measurement: PlotterSceneMeasurement
@@ -659,7 +675,7 @@ final class OperatorWorkspace {
   }
 
   private struct ToolContactSelectionContext {
-    let pendingEvidence: PendingToolContactEvidence
+    let pendingEvidence: [PendingToolContactEvidence]
     let frame: DisplayedFrame
     let request: ActionSurfacePointSelectionRequest
   }
@@ -680,35 +696,17 @@ final class OperatorWorkspace {
 
   private enum ToolContactSelectionState {
     case idle
-    case awaitingClick(ToolContactSelectionContext)
-    case selected(ToolContactSelectionContext, Point2<CameraPixelSpace>)
+    case collecting(ToolContactSelectionContext)
 
     var context: ToolContactSelectionContext? {
       switch self {
       case .idle: nil
-      case .awaitingClick(let context), .selected(let context, _): context
+      case .collecting(let context): context
       }
     }
 
-    var point: Point2<CameraPixelSpace>? {
-      guard case .selected(_, let point) = self else { return nil }
-      return point
-    }
-
     mutating func stage(_ context: ToolContactSelectionContext) {
-      self = .awaitingClick(context)
-    }
-
-    mutating func select(_ point: Point2<CameraPixelSpace>) -> Bool {
-      guard let context else { return false }
-      self = .selected(context, point)
-      return true
-    }
-
-    mutating func clearPoint() -> Bool {
-      guard case .selected(let context, _) = self else { return false }
-      self = .awaitingClick(context)
-      return true
+      self = .collecting(context)
     }
 
     mutating func clear() {
@@ -1054,8 +1052,9 @@ final class OperatorWorkspace {
   var frozenPointSelectionFrame: DisplayedFrame? {
     penCapAppearanceSelectionContext?.frame ?? frozenToolContactSelectionFrame
   }
-  private var pendingToolContactEvidence: PendingToolContactEvidence? {
+  private var pendingToolContactEvidence: [PendingToolContactEvidence] {
     activeLearningSession.toolContactSelection.context?.pendingEvidence
+      ?? []
   }
   var toolContactPointSelectionRequest: ActionSurfacePointSelectionRequest? {
     activeLearningSession.toolContactSelection.context?.request
@@ -1063,8 +1062,8 @@ final class OperatorWorkspace {
   var pointSelectionRequest: ActionSurfacePointSelectionRequest? {
     penCapAppearanceSelectionContext?.request ?? toolContactPointSelectionRequest
   }
-  var selectedToolContactPoint: Point2<CameraPixelSpace>? {
-    activeLearningSession.toolContactSelection.point
+  var selectedToolContactPoints: [Point2<CameraPixelSpace>] {
+    sparseTipCalibrationCoordinator.collectedClickPoints
   }
   private let machineGeometryIdentity: MachineGeometryIdentity
   private let toolAssemblyRevision: ToolAssemblyRevision
@@ -1435,30 +1434,23 @@ final class OperatorWorkspace {
       sceneIsAvailable: sceneOverlayIsAvailable,
       workflowVisionIsExclusive: exclusiveWorkflowVisionRequestCount > 0
     )
-    let sparseMarkRegion = surfaceFrame.flatMap(sparseTipMarkPresentationRegion)
-    let fittedRegion = sparseMarkRegion ?? surfaceFrame.flatMap(learnedBoundsPresentationRegion)
+    let fittedRegion = surfaceFrame.flatMap(learnedBoundsPresentationRegion)
     let viewportContext = surfaceFrame.map {
       ActionSurfaceViewportContext(
         source: $0.source,
         cameraConfigurationID: $0.frame.cameraConfigurationID,
         fittedRegion: fittedRegion,
-        preferredInitialZoom: sparseMarkRegion == nil ? 0 : 1,
-        presentationRevisionToken: pointSelectionRequest.map {
-          "point-selection-\($0.purpose)-\($0.frame.frameID.rawValue)"
-        } ?? machineCameraRegistration.map {
+        preferredInitialZoom: 0,
+        presentationRevisionToken: machineCameraRegistration.map {
           "machine-cap-\($0.correspondenceFrameIDs.map(\.rawValue).sorted().joined(separator: "-"))"
         } ?? "post-boundary-presentation"
       )
     }
     let tipPresentation: ActionSurfaceTipPresentation =
-      if selectedToolContactPoint != nil, let selectedToolContactPoint {
-        .selected(
-          click: selectedToolContactPoint,
-          pointingUncertaintyPixels: try! Vector2(dx: 1.5, dy: 1.5),
-          prediction: currentTipPredictionForPendingMark,
-          residualPixels: currentTipPredictionForPendingMark.map {
-            $0.distance(to: selectedToolContactPoint)
-          }
+      if let toolContactPointSelectionRequest {
+        .collectingClicks(
+          prompt: toolContactPointSelectionRequest.prompt,
+          clicks: sparseTipCalibrationCoordinator.collectedClickPoints
         )
       } else if let pointSelectionRequest {
         .awaitingClick(pointSelectionRequest.prompt)
@@ -1521,43 +1513,6 @@ final class OperatorWorkspace {
   private var sceneOverlayIsAvailable: Bool {
     guard frameMode == .live, case .running = cameraSnapshot?.state else { return false }
     return true
-  }
-
-  private var currentTipPredictionForPendingMark: Point2<CameraPixelSpace>? {
-    guard let pendingToolContactEvidence else { return nil }
-    let provisional = try? machineCameraRegistration.map { machineRegistration in
-      try TipCalibrationModelSelection.provisionalConstantCandidate(
-        acceptedObservations: sparseTipCalibrationCoordinator.acceptedObservations,
-        capCameraFromMachine: machineRegistration.fit.cameraFromMachine
-      )
-    }
-    let transform =
-      proposedTipCameraRegistration?.cameraFromMachine
-      ?? tipCameraRegistration?.cameraFromMachine
-      ?? provisional
-    return (try? transform?.applying(to: pendingToolContactEvidence.actualSettledPosition.point))
-      ?? pendingToolContactEvidence.capMapPredictionAtMark
-  }
-
-  private func sparseTipMarkPresentationRegion(_ frame: DisplayedFrame) -> PixelRect? {
-    guard toolContactPointSelectionRequest != nil,
-      let center = pendingToolContactEvidence?.preMarkCapEstimate.point
-    else { return nil }
-    let width = max(96, frame.frame.width / 3)
-    let height = max(96, frame.frame.height / 3)
-    let x = min(
-      max(0, Int(center.x.rounded()) - width / 2),
-      max(0, frame.frame.width - width)
-    )
-    let y = min(
-      max(0, Int(center.y.rounded()) - height / 2),
-      max(0, frame.frame.height - height)
-    )
-    return cameraFrameIntersection(
-      PixelRect(x: x, y: y, width: width, height: height),
-      frameWidth: frame.frame.width,
-      frameHeight: frame.frame.height
-    )
   }
 
   private func learnedBoundsPresentationRegion(_ frame: DisplayedFrame) -> PixelRect? {
@@ -2455,7 +2410,7 @@ final class OperatorWorkspace {
       case .exerciseMotion(let id, let owner, _, let action):
         return .exercise(id, action, boundaryOwner: owner.isBoundaryOwner)
       case .drawingTrial(let id, _): return .drawingTrial(id)
-      case .sparseTipMark(let id, _, _): return .sparseTipMark(id)
+      case .sparseTipBatch(let id, _, _): return .sparseTipMark(id)
       }
     }()
     let itemStartReasons = Dictionary(
@@ -2550,6 +2505,7 @@ final class OperatorWorkspace {
           } ?? false,
         phase: sparseTipCalibrationCoordinator.phase,
         acceptedObservationCount: sparseTipCalibrationCoordinator.acceptedObservations.count,
+        collectedClickCount: sparseTipCalibrationCoordinator.collectedClickCount,
         blacklistedPositionCount: sparseTipCalibrationCoordinator.blacklistedPositions.count,
         savedCheckpointMatchesPaper: savedCheckpointMatchesPaper
       ),
@@ -2685,18 +2641,16 @@ final class OperatorWorkspace {
       acceptCameraCalibrationProposal()
     case .rejectCameraCalibrationProposal:
       rejectCameraCalibrationProposal()
-    case .createNextSparseTipMark:
-      await createNextSparseTipMark()
-    case .reClickSparseTipFrame:
-      reClickSparseTipFrame()
-    case .acceptSparseTipMark:
-      acceptSparseTipMark()
+    case .drawFiveSparseTipCircles:
+      await drawFiveSparseTipCircles()
+    case .undoLastSparseTipClick:
+      undoLastSparseTipClick()
+    case .clearSparseTipClicks:
+      clearSparseTipClicks()
     case .revalidateTipCalibrationCheckpoint:
       await revalidateTipCalibrationCheckpoint()
     case .acceptTipCalibration:
       acceptTipCalibration()
-    case .rejectTipCalibration:
-      rejectTipCalibration()
     case .paperReplaced:
       await recordPaperReplaced()
     case .chooseIsolatedLinePlan(let direction):
@@ -3704,13 +3658,15 @@ final class OperatorWorkspace {
         throw SparseTipCalibrationCoordinatorError.staleSelection
       }
       try sparseTipCalibrationCoordinator.select(selection)
-      guard activeLearningSession.toolContactSelection.select(selection.point) else {
-        throw SparseTipCalibrationCoordinatorError.staleSelection
+      if sparseTipCalibrationCoordinator.collectedClickCount
+        == SparseTipCalibrationCoordinator.orderedPositions.count
+      {
+        try acceptSparseTipBatchClicks()
       }
       explorationError = nil
     } catch {
       explorationError =
-        "Sparse mark selection was rejected as stale: \(actionableDescription(error))"
+        "Stage 3.4 click collection/model construction failed without motion or redraw: \(actionableDescription(error))"
     }
   }
 
@@ -3798,7 +3754,7 @@ final class OperatorWorkspace {
     await task?.value
   }
 
-  private func createNextSparseTipMark() async {
+  private func drawFiveSparseTipCircles() async {
     let ownerID = LearningPathItemID.humanGuidedDiscovery(
       .calibratePenContactFromSparseMarks
     )
@@ -3814,121 +3770,139 @@ final class OperatorWorkspace {
       let center = cameraCalibrationReferencePosition
     else { return }
 
-    var markCompleted = false
+    var completedLocations: [BlacklistedToolContactLocation] = []
     var activeLocation: BlacklistedToolContactLocation?
     do {
-      let position = try sparseTipCalibrationCoordinator.prepareNextMark()
-      let plan = try CurrentCameraCalibrationPlan(
-        targetPosition: center,
-        boundarySideAggregates: boundarySideAggregates,
-        controllerSessionID: controllerSessionID,
-        coordinateRevision: explorationCoordinateRevision
-      )
-      guard let sample = plan.samples.first(where: { $0.position == position }) else {
-        throw LearningPathOperationError.requiredState(
-          "Sparse calibration position is unavailable.")
-      }
-      let markPlan = try SparseTipCircularMarkPlan(
-        center: sample.machinePosition,
+      let batchPlan = try SparseTipBatchMarkPlan(
+        center: center,
         boundarySideAggregates: boundarySideAggregates
       )
-      let physicalLocation = BlacklistedToolContactLocation(
-        calibrationPosition: position,
-        machinePosition: sample.machinePosition,
-        markRadiusMM: SparseTipCircularMarkPlan.radiusMM,
-        paperContactPlane: PaperContactPlaneRevision(rawValue: explorationToolPaperRevision)
-      )
-      activeLocation = physicalLocation
-      guard !blacklistedToolContactLocations.contains(physicalLocation) else {
+      let physicalLocations = batchPlan.marks.map { mark in
+        BlacklistedToolContactLocation(
+          calibrationPosition: mark.position,
+          machinePosition: mark.machinePosition,
+          markRadiusMM: SparseTipCircularMarkPlan.radiusMM,
+          paperContactPlane: PaperContactPlaneRevision(
+            rawValue: explorationToolPaperRevision
+          )
+        )
+      }
+      guard physicalLocations.allSatisfy({
+        !blacklistedToolContactLocations.contains($0)
+      }) else {
         throw LearningPathOperationError.requiredState(
-          "Possible ink already blacklists this exact machine position on the current paper. Record paper replacement before restarting calibration."
+          "Possible ink already blacklists one of the five Stage 3.4 circle locations on the current paper."
         )
       }
-      let current = try currentMachinePosition()
-      let settled: MachinePosition
-      if let delta = try Self.supervisedTravelDelta(
-        from: current,
-        to: sample.machinePosition
-      ) {
-        settled = try await performSupervisedPenUpTravel(
-          delta: delta,
-          ownerID: ownerID,
-          action: .sparseTipApproach(position)
-        )
-      } else {
-        settled = current
-      }
-      guard
-        recordProtocolPoseSettlement(
-          action: .sparseTipApproach(position),
-          target: sample.machinePosition,
-          actual: settled
-        )
-      else {
-        throw LearningPathOperationError.controllerFailed(
-          "Sparse mark approach did not settle within 0.05 mm."
-        )
-      }
-      let operationUUID = UUID()
-      let preCapture = try await captureCurrentCameraCapAnchorEvidence(
-        contextBaseline: nil,
-        operationID: operationUUID
-      )
-      let exactPreFrame = try exactTipCalibrationFrame(preCapture.displayedFrame)
-      let capPredictionAtMark = try machineRegistration.fit.cameraPoint(
-        from: settled.point
-      )
-      guard capPredictionAtMark.distance(to: preCapture.capAnchor.point) <= 8 else {
-        throw LearningPathOperationError.requiredState(
-          "The accepted cap map failed fresh pre-mark revalidation."
-        )
-      }
-      let markStartDelta = try Vector2<MachineSpace>(
-        dx: markPlan.startPosition.point.x - settled.point.x,
-        dy: markPlan.startPosition.point.y - settled.point.y
-      )
-      let markStartSettled = try await performSupervisedPenUpTravel(
-        delta: markStartDelta,
-        ownerID: ownerID,
-        action: .sparseTipCircleStart(position)
-      )
-      guard
-        recordProtocolPoseSettlement(
-          action: .sparseTipCircleStart(position),
-          target: markPlan.startPosition,
-          actual: markStartSettled
-        )
-      else {
-        throw LearningPathOperationError.controllerFailed(
-          "Sparse circle start did not settle within 0.05 mm."
-        )
-      }
-      try sparseTipCalibrationCoordinator.beganMark(at: position)
-      let mark = try await performCircularContactMark(
-        plan: markPlan,
-        at: physicalLocation,
-        after: exactPreFrame.captureNanoseconds
-      )
-      markCompleted = true
+      try sparseTipCalibrationCoordinator.beginBatch()
+      var drawnEvidence: [DrawnToolContactEvidence] = []
+      var finalCirclePosition = try currentMachinePosition()
+      var finalPenUpTimestamp = RuntimeTimestamp(monotonicNanoseconds: nowNanoseconds())
 
-      let revealTarget = markPlan.revealPosition
-      try sparseTipCalibrationCoordinator.beganReveal(from: position, to: revealTarget)
+      for (markIndex, plannedMark) in batchPlan.marks.enumerated() {
+        let position = plannedMark.position
+        let physicalLocation = physicalLocations[markIndex]
+        activeLocation = physicalLocation
+        let current = try currentMachinePosition()
+        let settled: MachinePosition
+        if let delta = try Self.supervisedTravelDelta(
+          from: current,
+          to: plannedMark.machinePosition
+        ) {
+          settled = try await performSupervisedPenUpTravel(
+            delta: delta,
+            ownerID: ownerID,
+            action: .sparseTipApproach(position)
+          )
+        } else {
+          settled = current
+        }
+        guard recordProtocolPoseSettlement(
+          action: .sparseTipApproach(position),
+          target: plannedMark.machinePosition,
+          actual: settled
+        ) else {
+          throw LearningPathOperationError.controllerFailed(
+            "Sparse mark approach did not settle within 0.05 mm."
+          )
+        }
+
+        let operationUUID = UUID()
+        let preCapture = try await captureCurrentCameraCapAnchorEvidence(
+          contextBaseline: nil,
+          operationID: operationUUID
+        )
+        let exactPreFrame = try exactTipCalibrationFrame(preCapture.displayedFrame)
+        let capPredictionAtMark = try machineRegistration.fit.cameraPoint(
+          from: settled.point
+        )
+        let controllerEvidence = try controllerContextEvidenceReference(
+          preCapture.contextBaseline,
+          operationID: operationUUID
+        )
+        let markStartDelta = try Vector2<MachineSpace>(
+          dx: plannedMark.circle.startPosition.point.x - settled.point.x,
+          dy: plannedMark.circle.startPosition.point.y - settled.point.y
+        )
+        let markStartSettled = try await performSupervisedPenUpTravel(
+          delta: markStartDelta,
+          ownerID: ownerID,
+          action: .sparseTipCircleStart(position)
+        )
+        guard recordProtocolPoseSettlement(
+          action: .sparseTipCircleStart(position),
+          target: plannedMark.circle.startPosition,
+          actual: markStartSettled
+        ) else {
+          throw LearningPathOperationError.controllerFailed(
+            "Sparse circle start did not settle within 0.05 mm."
+          )
+        }
+        let mark = try await performCircularContactMark(
+          plan: plannedMark.circle,
+          at: physicalLocation,
+          after: exactPreFrame.captureNanoseconds
+        )
+        completedLocations.append(physicalLocation)
+        finalCirclePosition = mark.finalPosition
+        finalPenUpTimestamp = mark.penUp.timestamp
+        drawnEvidence.append(
+          DrawnToolContactEvidence(
+            attemptID: attemptID,
+            operationID: ToolContactOperationID(rawValue: operationUUID),
+            position: position,
+            intendedMarkPosition: plannedMark.machinePosition,
+            actualSettledPosition: settled,
+            controllerContextEvidence: controllerEvidence,
+            markGeometry: plannedMark.circle.geometry,
+            penDown: mark.penDown,
+            penUp: mark.penUp,
+            preMarkFrame: exactPreFrame,
+            preMarkCapEstimate: preCapture.capAnchor,
+            capMapPredictionAtMark: capPredictionAtMark,
+            maximumCapMapResidualPixels: 8
+          )
+        )
+      }
+
+      try sparseTipCalibrationCoordinator.beginReveal()
+      let revealTarget = batchPlan.finalRevealPosition
       let revealSettled: MachinePosition
       if let revealDelta = try Self.supervisedTravelDelta(
-        from: mark.finalPosition,
+        from: finalCirclePosition,
         to: revealTarget
       ) {
         revealSettled = try await performSupervisedPenUpTravel(
           delta: revealDelta,
           ownerID: ownerID,
-          action: .sparseTipReveal(position)
+          action: .sparseTipBatchReveal
         )
       } else {
-        revealSettled = mark.finalPosition
+        revealSettled = finalCirclePosition
       }
       guard
         recordProtocolPoseSettlement(
-          action: .sparseTipReveal(position),
+          action: .sparseTipBatchReveal,
           target: revealTarget,
           actual: revealSettled
         )
@@ -3939,12 +3913,13 @@ final class OperatorWorkspace {
       }
       let revealSettledAt = RuntimeTimestamp(
         monotonicNanoseconds: frameMode == .simulated
-          ? mark.penUp.timestamp.monotonicNanoseconds + 1
-          : max(nowNanoseconds(), mark.penUp.timestamp.monotonicNanoseconds + 1)
+          ? finalPenUpTimestamp.monotonicNanoseconds + 1
+          : max(nowNanoseconds(), finalPenUpTimestamp.monotonicNanoseconds + 1)
       )
+      let revealOperationID = UUID()
       let revealCapture = try await captureCurrentCameraCapAnchorEvidence(
-        contextBaseline: preCapture.contextBaseline,
-        operationID: operationUUID,
+        contextBaseline: nil,
+        operationID: revealOperationID,
         newerThanNanoseconds: revealSettledAt.monotonicNanoseconds
       )
       let exactRevealFrame = try exactTipCalibrationFrame(revealCapture.displayedFrame)
@@ -3953,7 +3928,7 @@ final class OperatorWorkspace {
       )
       let controllerEvidence = try controllerContextEvidenceReference(
         revealCapture.contextBaseline,
-        operationID: operationUUID
+        operationID: revealOperationID
       )
       let revealEvidence = try ToolContactRevealEvidence(
         intendedPosition: revealTarget,
@@ -3965,30 +3940,29 @@ final class OperatorWorkspace {
         capMapPrediction: revealPrediction,
         maximumCapMapResidualPixels: 8
       )
-      let pendingEvidence = PendingToolContactEvidence(
-        attemptID: attemptID,
-        operationID: ToolContactOperationID(rawValue: operationUUID),
-        position: position,
-        intendedMarkPosition: sample.machinePosition,
-        actualSettledPosition: settled,
-        controllerContextEvidence: controllerEvidence,
-        markGeometry: markPlan.geometry,
-        penDown: mark.penDown,
-        penUp: mark.penUp,
-        preMarkFrame: exactPreFrame,
-        preMarkCapEstimate: preCapture.capAnchor,
-        revealEvidence: revealEvidence,
-        capMapPredictionAtMark: capPredictionAtMark,
-        maximumCapMapResidualPixels: 8
-      )
-      try sparseTipCalibrationCoordinator.awaitFrozenClick(
-        for: position,
-        frame: exactRevealFrame
-      )
+      let pendingEvidence = drawnEvidence.map { drawn in
+        PendingToolContactEvidence(
+          attemptID: drawn.attemptID,
+          operationID: drawn.operationID,
+          position: drawn.position,
+          intendedMarkPosition: drawn.intendedMarkPosition,
+          actualSettledPosition: drawn.actualSettledPosition,
+          controllerContextEvidence: drawn.controllerContextEvidence,
+          markGeometry: drawn.markGeometry,
+          penDown: drawn.penDown,
+          penUp: drawn.penUp,
+          preMarkFrame: drawn.preMarkFrame,
+          preMarkCapEstimate: drawn.preMarkCapEstimate,
+          revealEvidence: revealEvidence,
+          capMapPredictionAtMark: drawn.capMapPredictionAtMark,
+          maximumCapMapResidualPixels: drawn.maximumCapMapResidualPixels
+        )
+      }
+      try sparseTipCalibrationCoordinator.awaitFrozenClicks(frame: exactRevealFrame)
       let selectionRequest = ActionSurfacePointSelectionRequest(
         frame: exactRevealFrame,
         presentationTransformRevision: PresentationTransformRevision(),
-        prompt: "Click the center of the new black circle"
+        prompt: "Click the five circle centers in any order"
       )
       activeLearningSession.toolContactSelection.stage(
         ToolContactSelectionContext(
@@ -4001,18 +3975,24 @@ final class OperatorWorkspace {
       _ = machineRegistrationRevision
     } catch {
       let failure = workflowFailure(for: error)
-      if let activeLocation {
-        if blacklistedToolContactLocations.contains(activeLocation) || markCompleted
+      var locationsToBlacklist = completedLocations
+      if let activeLocation,
+        blacklistedToolContactLocations.contains(activeLocation)
           || failure.kind == .ambiguous || failure.kind == .possibleInk
-        {
-          blacklistedToolContactLocations.insert(activeLocation)
+      {
+        locationsToBlacklist.append(activeLocation)
+      }
+      if locationsToBlacklist.isEmpty {
+        sparseTipCalibrationCoordinator.resetBeforeInkFailure()
+      } else {
+        for location in Set(locationsToBlacklist) {
+          blacklistedToolContactLocations.insert(location)
           sparseTipCalibrationCoordinator.blacklistPossibleInk(
-            at: activeLocation,
+            at: location,
             reason: failure.detail
           )
-        } else {
-          sparseTipCalibrationCoordinator.resetBeforeInkFailure()
         }
+        restartableExerciseItemID = nil
       }
       activeLearningSession.toolContactSelection.clear()
       explorationError =
@@ -4072,7 +4052,7 @@ final class OperatorWorkspace {
             delta: try SimulatedLearningMotionVector(dxMM: delta.dx, dyMM: delta.dy)
           )
           let operation = try response.result.get()
-          let target = ContextualStopTarget.sparseTipMark(
+          let target = ContextualStopTarget.sparseTipBatch(
             capabilityID: ContextualStopCapabilityID(),
             operationOwner: .simulated(operation.id),
             location: location
@@ -4118,7 +4098,7 @@ final class OperatorWorkspace {
           case .rejected(let outcome):
             throw operationError(for: outcome, possibleInk: true)
           }
-          let target = ContextualStopTarget.sparseTipMark(
+          let target = ContextualStopTarget.sparseTipBatch(
             capabilityID: ContextualStopCapabilityID(),
             operationOwner: .liveOperation(operation.id),
             location: location
@@ -4222,37 +4202,70 @@ final class OperatorWorkspace {
     machineSnapshot = await machineActions.snapshot()
   }
 
-  private func reClickSparseTipFrame() {
+  private func undoLastSparseTipClick() {
     do {
-      try sparseTipCalibrationCoordinator.reClickSameFrame()
-      guard activeLearningSession.toolContactSelection.clearPoint() else {
-        throw SparseTipCalibrationCoordinatorError.staleSelection
-      }
+      try sparseTipCalibrationCoordinator.undoLastClick()
       explorationError = nil
     } catch {
       explorationError = actionableDescription(error)
     }
   }
 
-  private func acceptSparseTipMark() {
-    guard let pending = pendingToolContactEvidence,
-      let point = selectedToolContactPoint,
+  private func clearSparseTipClicks() {
+    do {
+      try sparseTipCalibrationCoordinator.clearClicks()
+      explorationError = nil
+    } catch {
+      explorationError = actionableDescription(error)
+    }
+  }
+
+  private func acceptSparseTipBatchClicks() throws {
+    guard pendingToolContactEvidence.count == SparseTipCalibrationCoordinator.orderedPositions.count,
+      sparseTipCalibrationCoordinator.collectedClickCount
+        == SparseTipCalibrationCoordinator.orderedPositions.count,
+      let request = toolContactPointSelectionRequest,
+      let machineRegistration = machineCameraRegistration,
       let machineRegistrationRevision = learningArtifactGraph.currentRevision(
         for: .machineCameraRegistration
       )?.id,
-      let request = toolContactPointSelectionRequest
-    else { return }
-    do {
+      let attemptID = activeExerciseAttemptID,
+      let optical = pendingToolContactEvidence.first?.revealEvidence.frame.opticalConfiguration
+    else { throw SparseTipCalibrationCoordinatorError.invalidTransition }
+
+    let associations = try associateSparseTipClicks(
+      using: machineRegistration.fit,
+      knownMachinePositions: pendingToolContactEvidence.map {
+        SparseTipKnownMachinePosition(
+          calibrationPosition: $0.position,
+          machinePosition: $0.intendedMarkPosition
+        )
+      },
+      clicks: sparseTipCalibrationCoordinator.collectedClickPoints
+    )
+    let pendingByPosition = Dictionary(
+      uniqueKeysWithValues: pendingToolContactEvidence.map { ($0.position, $0) }
+    )
+    let clickTimestamp = RuntimeTimestamp(
+      monotonicNanoseconds: max(
+        nowNanoseconds(),
+        (pendingToolContactEvidence.first?.revealEvidence.frame.captureNanoseconds ?? 0) + 1
+      )
+    )
+    let presentationRevision =
+      sparseTipCalibrationCoordinator.selectedPresentationRevisionForCommit
+      ?? request.presentationTransformRevision
+    var graph = learningArtifactGraph
+    var accepted: [AcceptedToolContactObservation] = []
+    for association in associations {
+      guard let pending = pendingByPosition[association.calibrationPosition] else {
+        throw SparseTipCalibrationCoordinatorError.invalidTransition
+      }
       let click = try ToolContactClickEvidence(
-        point: point,
+        point: association.clickedCameraPoint,
         pointingUncertaintyPixels: Vector2(dx: 1.5, dy: 1.5),
-        timestamp: RuntimeTimestamp(
-          monotonicNanoseconds: max(
-            nowNanoseconds(), pending.revealEvidence.frame.captureNanoseconds + 1)
-        ),
-        presentationTransformRevision:
-          sparseTipCalibrationCoordinator.selectedPresentationRevisionForCommit
-          ?? request.presentationTransformRevision
+        timestamp: clickTimestamp,
+        presentationTransformRevision: presentationRevision
       )
       let observation = try ToolContactObservation(
         attemptID: pending.attemptID,
@@ -4285,7 +4298,7 @@ final class OperatorWorkspace {
         algorithmRevisions: [
           try AlgorithmRevisionEvidence(
             component: "sparse-tip-workspace",
-            revision: "circle-2mm-radius-16-chord-exact-center-click-v1"
+            revision: "five-circle-batch-unordered-global-association-v2"
           ),
           try AlgorithmRevisionEvidence(
             component: "pen-actuation",
@@ -4299,167 +4312,28 @@ final class OperatorWorkspace {
         disposition: .succeeded,
         consumedRevisionIDs: [machineRegistrationRevision]
       )
-      let accepted = try AcceptedToolContactObservation(
-        artifactRevisionID: revision.id,
-        observation: observation
-      )
-      var coordinator = sparseTipCalibrationCoordinator
-      try coordinator.acceptObservation(accepted)
-      var graph = learningArtifactGraph
       _ = try graph.commitReplacement(revision)
-      if let checkpoint = quarantinedTipCalibrationCheckpoint,
-        checkpoint.registration.applicability.paperContactPlane.rawValue
-          != explorationToolPaperRevision
-      {
-        let restored = try revalidateTipCheckpointForChangedPaper(
-          checkpoint,
-          contactObservation: accepted,
-          machineRegistrationRevision: machineRegistrationRevision,
-          graph: &graph
+      accepted.append(
+        try AcceptedToolContactObservation(
+          artifactRevisionID: revision.id,
+          observation: observation
         )
-        coordinator.markCheckpointRevalidated()
-        sparseTipCalibrationCoordinator = coordinator
-        learningArtifactGraph = graph
-        tipCameraRegistration = restored
-        proposedTipCameraRegistration = nil
-        quarantinedTipCalibrationCheckpoint = nil
-        activeLearningSession.toolContactSelection.clear()
-        finishActiveExerciseAttempt(disposition: .succeeded)
-        explorationError = nil
-        return
-      }
-      sparseTipCalibrationCoordinator = coordinator
-      learningArtifactGraph = graph
-      activeLearningSession.toolContactSelection.clear()
-      if sparseTipCalibrationCoordinator.acceptedObservations.count
-        == SparseTipCalibrationCoordinator.orderedPositions.count
-      {
-        try stageTipCalibrationProposal(
-          machineRegistrationRevision: machineRegistrationRevision
-        )
-      }
-      explorationError = nil
-    } catch {
-      explorationError = "Accept Mark failed atomically: \(actionableDescription(error))"
-    }
-  }
-
-  private func revalidateTipCheckpointForChangedPaper(
-    _ checkpoint: AcceptedTipCalibrationCheckpoint,
-    contactObservation: AcceptedToolContactObservation,
-    machineRegistrationRevision: LearningArtifactRevisionID,
-    graph: inout LearningDependencyGraph
-  ) throws -> TipCameraRegistration {
-    let observation = contactObservation.observation
-    let reveal = observation.revealEvidence
-    let currentApplicability = TipCalibrationApplicabilityContext(
-      opticalConfiguration: reveal.frame.opticalConfiguration,
-      machineGeometry: machineGeometryIdentity,
-      machineCoordinateFrame: MachineCoordinateFrameRevision(
-        rawValue: explorationCoordinateRevision
-      ),
-      toolAssembly: toolAssemblyRevision,
-      penContactProfile: penContactProfileRevision,
-      paperContactPlane: PaperContactPlaneRevision(rawValue: explorationToolPaperRevision)
-    )
-    let revalidationTimestamp = RuntimeTimestamp(
-      monotonicNanoseconds: max(
-        nowNanoseconds(),
-        observation.click.timestamp.monotonicNanoseconds + 1
-      )
-    )
-    let evidence = try TipCalibrationRevalidationEvidence(
-      currentApplicability: currentApplicability,
-      currentMachineCameraRegistrationRevisionID: machineRegistrationRevision,
-      controllerContextEvidence: reveal.controllerContextEvidence,
-      frame: reveal.frame,
-      capEstimate: reveal.capEstimate,
-      capMapPrediction: reveal.capMapPrediction,
-      maximumCapMapResidualPixels: reveal.maximumCapMapResidualPixels,
-      contactPlaneRevalidation: TipContactPlaneRevalidationEvidence(
-        acceptedObservation: contactObservation,
-        maximumTipResidualPixels: 8
-      ),
-      timestamp: revalidationTimestamp,
-      algorithmRevision: "explicit-tip-contact-plane-revalidation-v1"
-    )
-    guard case .restored = checkpoint.revalidate(with: evidence) else {
-      throw LearningPathOperationError.requiredState(
-        "The saved tip calibration remains quarantined because the new contact observation did not revalidate the replacement paper plane."
       )
     }
 
-    guard let attemptID = activeExerciseAttemptID else {
-      throw SparseTipCalibrationCoordinatorError.invalidTransition
-    }
-    var rebuiltObservationRevisions: [ToolContactObservationID: LearningArtifactRevisionID] = [:]
-    for prior in checkpoint.registration.observationEvidence {
-      let revision = LearningArtifactRevision(
-        kind: .toolContactObservation(prior.observationID),
-        attemptID: attemptID,
-        disposition: .succeeded,
-        consumedRevisionIDs: [machineRegistrationRevision]
-      )
-      _ = try graph.commitReplacement(revision)
-      rebuiltObservationRevisions[prior.observationID] = revision.id
-    }
-    let acceptedRevisionID = LearningArtifactRevisionID()
-    let acceptedAt = RuntimeTimestamp(
-      monotonicNanoseconds: max(
-        nowNanoseconds(),
-        revalidationTimestamp.monotonicNanoseconds + 1
-      )
-    )
-    let restored = try checkpoint.registration.revalidatedFromCheckpoint(
-      evidence: evidence,
-      acceptedRevisionID: acceptedRevisionID,
-      machineCameraRegistrationRevisionID: machineRegistrationRevision,
-      observationArtifactRevisionIDs: rebuiltObservationRevisions,
-      acceptedAt: acceptedAt
-    )
-    let revision = LearningArtifactRevision(
-      id: acceptedRevisionID,
-      kind: .tipCameraRegistration,
-      attemptID: attemptID,
-      disposition: .succeeded,
-      consumedRevisionIDs: restored.consumedArtifactRevisionIDs
-    )
-    _ = try graph.commitReplacement(revision)
-    let acceptance = try TipCalibrationAcceptanceEvent(
-      acceptedRevisionID: acceptedRevisionID,
-      timestamp: acceptedAt,
-      actor: "operator-contact-plane-revalidation"
-    )
-    try activeAcceptedTipCalibrationCheckpointActions?.save(
-      AcceptedTipCalibrationCheckpoint(
-        registration: restored,
-        acceptanceEvent: acceptance
-      )
-    )
-    return restored
-  }
-
-  private func stageTipCalibrationProposal(
-    machineRegistrationRevision: LearningArtifactRevisionID
-  ) throws {
-    guard let machineRegistration = machineCameraRegistration,
-      let attemptID = activeExerciseAttemptID,
-      let optical = sparseTipCalibrationCoordinator.acceptedObservations.first?
-        .observation.postRevealSelectionFrame.opticalConfiguration
-    else { throw SparseTipCalibrationCoordinatorError.invalidTransition }
-    let selection = try sparseTipCalibrationCoordinator.stageProposal(
-      capCameraFromMachine: machineRegistration.fit.cameraFromMachine,
-      maximumHoldoutResidualPixels: 8
+    var coordinator = sparseTipCalibrationCoordinator
+    try coordinator.acceptAssociatedObservations(accepted)
+    let selection = try coordinator.stageProposal(
+      capCameraFromMachine: machineRegistration.fit.cameraFromMachine
     )
     let registrationRevisionID = LearningArtifactRevisionID()
-    proposedTipCameraRegistration = try TipCameraRegistration(
+    let proposal = try TipCameraRegistration(
       modelForm: selection.modelForm,
       cameraFromMachine: selection.finalCameraFromMachine,
       modelSelectionEvidence: selection.evidence,
       uncertainty: selection.uncertainty,
       applicabilityRectangle: machineRegistration.applicabilityRectangle,
-      acceptedObservations: sparseTipCalibrationCoordinator.acceptedObservations,
-      maximumObservationResidualPixels: 8,
+      acceptedObservations: accepted,
       applicability: TipCalibrationApplicabilityContext(
         opticalConfiguration: optical,
         machineGeometry: machineGeometryIdentity,
@@ -4478,6 +4352,10 @@ final class OperatorWorkspace {
       acceptedAt: RuntimeTimestamp(monotonicNanoseconds: nowNanoseconds())
     )
     _ = attemptID
+    learningArtifactGraph = graph
+    sparseTipCalibrationCoordinator = coordinator
+    proposedTipCameraRegistration = proposal
+    activeLearningSession.toolContactSelection.clear()
   }
 
   private func acceptTipCalibration() {
@@ -4647,20 +4525,6 @@ final class OperatorWorkspace {
       finishActiveExerciseAttempt(disposition: .failed(actionableDescription(error)))
       explorationError =
         "Saved tip calibration was not restored: \(actionableDescription(error))"
-    }
-  }
-
-  private func rejectTipCalibration() {
-    do {
-      try sparseTipCalibrationCoordinator.markRejected(
-        reason: "Operator rejected the staged tip model."
-      )
-      proposedTipCameraRegistration = nil
-      finishActiveExerciseAttempt(disposition: .cancelled)
-      explorationError =
-        "Operator rejected the staged tip model. Five raw mark observations remain immutable; no redraw occurred. Replace the paper before starting a new physical calibration."
-    } catch {
-      explorationError = actionableDescription(error)
     }
   }
 
@@ -6060,7 +5924,7 @@ final class OperatorWorkspace {
         restartableExerciseItemID = .observedDrawingTrial(.drawIsolatedLine)
       }
 
-    case .sparseTipMark(_, _, let location):
+    case .sparseTipBatch(_, _, let location):
       blacklistedToolContactLocations.insert(location)
       sparseTipCalibrationCoordinator.blacklistPossibleInk(
         at: location,
@@ -8574,7 +8438,7 @@ final class OperatorWorkspace {
         boundaryTeachingResultText =
           "Shutdown requested. Waiting for the original motion owner to reach Idle."
       }
-    case .manualJog, .manualDrawingStroke, .exerciseMotion, .drawingTrial, .sparseTipMark:
+    case .manualJog, .manualDrawingStroke, .exerciseMotion, .drawingTrial, .sparseTipBatch:
       break
     }
 

@@ -184,6 +184,7 @@ struct LearningPathProjectionSnapshot: Sendable {
     let acceptedIsCurrent: Bool
     let phase: SparseTipCalibrationPhase
     let acceptedObservationCount: Int
+    let collectedClickCount: Int
     let blacklistedPositionCount: Int
     let savedCheckpointMatchesPaper: Bool
 
@@ -193,6 +194,7 @@ struct LearningPathProjectionSnapshot: Sendable {
       acceptedIsCurrent: Bool? = nil,
       phase: SparseTipCalibrationPhase = .idle,
       acceptedObservationCount: Int = 0,
+      collectedClickCount: Int = 0,
       blacklistedPositionCount: Int = 0,
       savedCheckpointMatchesPaper: Bool = false
     ) {
@@ -201,6 +203,7 @@ struct LearningPathProjectionSnapshot: Sendable {
       self.acceptedIsCurrent = acceptedIsCurrent ?? (accepted != nil)
       self.phase = phase
       self.acceptedObservationCount = acceptedObservationCount
+      self.collectedClickCount = collectedClickCount
       self.blacklistedPositionCount = blacklistedPositionCount
       self.savedCheckpointMatchesPaper = savedCheckpointMatchesPaper
     }
@@ -528,7 +531,7 @@ struct LearningPathProjector: Sendable {
     case .humanGuidedDiscovery(.calibrateCameraAndVisibleCap):
       "Capture five exact cap samples at normalized 10/50/90 cross positions, validate two independent holdouts, then explicitly accept or reject the all-five camera fit."
     case .humanGuidedDiscovery(.calibratePenContactFromSparseMarks):
-      "Draw five centered 2 mm-radius circles with the full configured Pen Down, reveal each at safe X-max toward machine Y-zero, select its exact frozen-frame center, and accept only the smallest model that passes both holdouts."
+      "Draw five separated 2 mm-radius circles in one batch with Pen Up between them, perform one final Pen-Up reveal, click all five centers in any order on the shared frozen frame, then explicitly accept the affine-first proposal."
     case .stage(.observedDrawingTrials):
       "Create one attributable line, observe actual ink, and compare geometry."
     case .observedDrawingTrial(let step): drawingActionText(step)
@@ -720,7 +723,10 @@ extension LearningPathProjector {
           ]
         }
       } else if itemID == .humanGuidedDiscovery(.calibratePenContactFromSparseMarks) {
-        actions = activeSparseActions(snapshot.sparseCalibration.phase)
+        actions = activeSparseActions(
+          snapshot.sparseCalibration.phase,
+          collectedClickCount: snapshot.sparseCalibration.collectedClickCount
+        )
       } else if itemID == .observedDrawingTrial(.compareIntendedAndObservedGeometry) {
         actions = DrawingTrialAssessment.allCases.map { assessment in
           ExerciseActionDescriptor(
@@ -894,7 +900,7 @@ extension LearningPathProjector {
     }
     if itemID == .humanGuidedDiscovery(.calibratePenContactFromSparseMarks) {
       switch snapshot.sparseCalibration.phase {
-      case .possibleInkBlacklisted, .holdoutFailed, .rejected:
+      case .possibleInkBlacklisted:
         return ExerciseActionStripPresentation(
           ownerID: itemID,
           actions: [
@@ -930,58 +936,57 @@ extension LearningPathProjector {
   }
 
   private func activeSparseActions(
-    _ phase: SparseTipCalibrationPhase
+    _ phase: SparseTipCalibrationPhase,
+    collectedClickCount: Int
   ) -> [ExerciseActionDescriptor] {
     switch phase {
     case .idle:
       [ExerciseActionDescriptor(
-        kind: .createNextSparseTipMark,
-        title: "Create Next 2 mm Circle",
+        kind: .drawFiveSparseTipCircles,
+        title: "Draw Five 2 mm Circles",
         role: .positive
       )]
-    case .preparingMark, .drawingMark, .revealing:
+    case .drawingBatch:
       [ExerciseActionDescriptor(
-        kind: .createNextSparseTipMark,
-        title: "Creating and Revealing Mark…",
-        unavailableReason: "The supervised 2 mm calibration-circle operation is in progress."
+        kind: .drawFiveSparseTipCircles,
+        title: "Drawing Five 2 mm Circles…",
+        unavailableReason: "The supervised five-circle batch is in progress."
       )]
-    case .awaitingFrozenClick: []
-    case .reviewingClick:
-      [
-        ExerciseActionDescriptor(kind: .reClickSparseTipFrame, title: "Re-click This Exact Frame"),
-        ExerciseActionDescriptor(
-          kind: .acceptSparseTipMark,
-          title: "Accept Mark Center",
-          role: .positive
-        ),
-      ]
-    case .fittingCandidates:
+    case .revealingBatch:
+      [ExerciseActionDescriptor(
+        kind: .drawFiveSparseTipCircles,
+        title: "Revealing Five Circles…",
+        unavailableReason: "The one Pen-Up batch reveal is in progress."
+      )]
+    case .awaitingFrozenClicks:
+      if collectedClickCount == 0 {
+        []
+      } else {
+        [
+          ExerciseActionDescriptor(
+            kind: .undoLastSparseTipClick,
+            title: "Undo Last Click"
+          ),
+          ExerciseActionDescriptor(
+            kind: .clearSparseTipClicks,
+            title: "Clear Clicks on This Frame"
+          ),
+        ]
+      }
+    case .fittingModel:
       [ExerciseActionDescriptor(
         kind: .acceptTipCalibration,
-        title: "Fitting Smallest Passing Model…",
-        unavailableReason: "Candidate selection is in progress."
+        title: "Fitting Tip Calibration…",
+        unavailableReason: "The five observations are being created and fitted."
       )]
     case .reviewingFinalProposal:
+      [ExerciseActionDescriptor(
+        kind: .acceptTipCalibration,
+        title: "Accept Tip Calibration",
+        role: .positive
+      )]
+    case .possibleInkBlacklisted:
       [
-        ExerciseActionDescriptor(
-          kind: .acceptTipCalibration,
-          title: "Accept Tip Calibration",
-          role: .positive
-        ),
-        ExerciseActionDescriptor(
-          kind: .rejectTipCalibration,
-          title: "Reject Tip Calibration",
-          role: .destructive
-        ),
-      ]
-    case .possibleInkBlacklisted(_, let reason), .holdoutFailed(let reason),
-      .rejected(let reason):
-      [
-        ExerciseActionDescriptor(
-          kind: .rejectTipCalibration,
-          title: "No Automatic Redraw",
-          unavailableReason: reason
-        ),
         ExerciseActionDescriptor(
           kind: .paperReplaced,
           title: "Record Paper Replacement",
@@ -1479,7 +1484,7 @@ extension LearningPathProjector {
     case .calibrateCameraAndVisibleCap:
       [.text("Capture five exact cap centers at C, X−, Y+, X+, and Y−; fit the first three, verify two holdouts, then explicitly accept or reject the all-five refit.")]
     case .calibratePenContactFromSparseMarks:
-      [.text("Draw one centered 2 mm-radius circle at each cross position, reveal it Pen Up at safe X-max toward machine Y-zero, click its center on the frozen exact frame, and review the smallest passing model.")]
+      [.text("Draw five separated 2 mm-radius circles at C, X−, Y+, X+, and Y− with Pen Up between circles; perform one final Pen-Up reveal, click all five centers in any order on that unchanged frame, and review the affine-first proposal.")]
     }
   }
 
@@ -1649,12 +1654,12 @@ extension LearningPathProjector {
           )]
         ),
         ExerciseEvidencePresentation(
-          label: "Smallest passing model",
+          label: "Affine-first model diagnostics",
           fragments: [.text(proposal.map { proposal in
-            let holdouts = proposal.modelForm == .constantCameraPixelCorrection
-              ? proposal.modelSelectionEvidence.constantHoldouts
-              : proposal.modelSelectionEvidence.affineHoldouts
-            return "\(proposal.modelForm.rawValue) · holdouts \(holdouts.map { String(format: "%.3f px", $0.residualPixels) }.joined(separator: ", ")) · uncertainty \(String(format: "%.3f px", proposal.uncertainty.maximumResidualPixels))"
+            let residuals = proposal.observationEvidence.map {
+              String(format: "%.3f px", $0.residualPixels)
+            }.joined(separator: ", ")
+            return "\(proposal.modelForm.rawValue) · all-five residuals \(residuals) · RMS \(String(format: "%.3f px", proposal.uncertainty.rootMeanSquareResidualPixels)) · max \(String(format: "%.3f px", proposal.uncertainty.maximumResidualPixels))"
           } ?? "Tip not calibrated")]
         ),
       ]
