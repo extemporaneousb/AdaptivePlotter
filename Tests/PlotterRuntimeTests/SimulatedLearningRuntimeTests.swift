@@ -210,38 +210,28 @@ struct SimulatedLearningRuntimeTests {
     #expect(outcome.completedBoundarySegmentCount == 0)
   }
 
-  @Test("natural Boundary segment completion continues the same owner without success")
+  @Test("natural Boundary segment completion settles once without accepted evidence")
   func boundaryNeverNaturallySucceeds() async throws {
     let runtime = try await enabledRuntime()
     let boundary = try accepted(
       await runtime.beginBoundary(direction: .positiveX, finiteSegmentLengthMM: 10)
     )
 
-    let first = try accepted(
-      await runtime.recordBoundarySegmentCompletion(for: boundary.id)
-    )
-    let second = try accepted(
-      await runtime.recordBoundarySegmentCompletion(for: boundary.id)
-    )
-    #expect(first.operationID == boundary.id)
-    #expect(first.completedSegmentCount == 1)
-    #expect(second.operationID == boundary.id)
-    #expect(second.completedSegmentCount == 2)
-    #expect(second.mpos == (try SimulatedLearningMPos(xMM: 20, yMM: 0)))
-
-    #expect(
-      refusal(await runtime.completeNaturally(boundary.id))
-        == .boundaryRequiresStopOrCancel
-    )
-    #expect(await runtime.snapshot().currentOperation?.id == boundary.id)
-
     let waiter = Task {
       await runtime.waitForOutcome(of: boundary.id)
     }
-    let stopOutcome = try accepted(await runtime.stop(boundary.id))
-    #expect(stopOutcome.disposition == .stopped)
-    #expect(stopOutcome.completedBoundarySegmentCount == 2)
-    #expect(try accepted(await waiter.value) == stopOutcome)
+    let outcome = try accepted(
+      await runtime.executeBoundarySegment(
+        boundary.id,
+        pacing: SimulatedLearningImmediatePacing()
+      )
+    )
+    #expect(outcome.operation.id == boundary.id)
+    #expect(outcome.disposition == .naturallyCompleted)
+    #expect(outcome.completedBoundarySegmentCount == 1)
+    #expect(outcome.finalMPos == (try SimulatedLearningMPos(xMM: 10, yMM: 0)))
+    #expect(try accepted(await waiter.value) == outcome)
+    #expect(await runtime.snapshot().currentOperation == nil)
   }
 
   @Test("Paper Replaced clears persistent ink and rotates only paper compatibility")
@@ -420,8 +410,12 @@ struct SimulatedLearningRuntimeTests {
           direction: direction,
           finiteSegmentLengthMM: 1_000
         ))
-      _ = try accepted(await runtime.recordBoundarySegmentCompletion(for: operation.id))
-      _ = try accepted(await runtime.stop(operation.id))
+      _ = try accepted(
+        await runtime.executeBoundarySegment(
+          operation.id,
+          pacing: SimulatedLearningImmediatePacing()
+        )
+      )
       let scene = try accepted(await runtime.captureSceneFrame())
       #expect(scene.armatureBounds.minX >= scene.worldToCameraTransform.paddingPixels)
       #expect(scene.armatureBounds.minY >= scene.worldToCameraTransform.paddingPixels)
@@ -485,7 +479,7 @@ struct SimulatedLearningRuntimeTests {
     #expect(changed.viewportID != initial.viewportID)
   }
 
-  @Test("cooperative Boundary Stop wins before segment and between segment and frame")
+  @Test("Boundary Stop wins before segment and between segment and frame")
   func cooperativeBoundaryStopRaces() async throws {
     let beforeSegment = try await enabledRuntime()
     let first = try accepted(
@@ -495,7 +489,7 @@ struct SimulatedLearningRuntimeTests {
       ))
     let firstPacing = ControlledSimulatedExecutionPacing()
     let firstExecution = Task {
-      await beforeSegment.executeBoundaryCooperatively(first.id, pacing: firstPacing)
+      await beforeSegment.executeBoundarySegment(first.id, pacing: firstPacing)
     }
     await firstPacing.waitUntilSuspended(1)
     let firstStop = try accepted(await beforeSegment.stop(first.id))
@@ -512,7 +506,7 @@ struct SimulatedLearningRuntimeTests {
       ))
     let secondPacing = ControlledSimulatedExecutionPacing()
     let secondExecution = Task {
-      await between.executeBoundaryCooperatively(second.id, pacing: secondPacing)
+      await between.executeBoundarySegment(second.id, pacing: secondPacing)
     }
     await secondPacing.waitUntilSuspended(1)
     await secondPacing.resumeNext()
@@ -526,8 +520,8 @@ struct SimulatedLearningRuntimeTests {
     #expect(await between.latestPublishedCausalFrame() == nil)
   }
 
-  @Test("cooperative Boundary publishes causal segments then parks at truth for Stop")
-  func cooperativeBoundaryAtTruth() async throws {
+  @Test("Boundary natural horizon publishes one causal segment and settles")
+  func boundaryNaturalHorizon() async throws {
     let truth = SimulatedLearningBoundaryTruth(
       negativeXMM: -10, positiveXMM: 10,
       negativeYMM: -10, positiveYMM: 10
@@ -542,24 +536,21 @@ struct SimulatedLearningRuntimeTests {
       ))
     let pacing = ControlledSimulatedExecutionPacing()
     let execution = Task {
-      await runtime.executeBoundaryCooperatively(operation.id, pacing: pacing)
+      await runtime.executeBoundarySegment(operation.id, pacing: pacing)
     }
     await pacing.waitUntilSuspended(1)
     await pacing.resumeNext()
     await pacing.waitUntilSuspended(2)
     await pacing.resumeNext()
-    while await runtime.latestPublishedCausalFrame() == nil { await Task.yield() }
-    #expect(await runtime.snapshot().mpos == (try SimulatedLearningMPos(xMM: 10, yMM: 0)))
-    #expect(await runtime.snapshot().currentOperation?.id == operation.id)
-    #expect(await runtime.snapshot().frameSequence == 2)
-    let stopped = try accepted(await runtime.stop(operation.id))
-    #expect(try accepted(await execution.value) == stopped)
-    #expect(stopped.disposition == .stopped)
-    #expect(stopped.completedBoundarySegmentCount == 1)
+    let completed = try accepted(await execution.value)
+    #expect(completed.disposition == .naturallyCompleted)
+    #expect(completed.finalMPos == (try SimulatedLearningMPos(xMM: 10, yMM: 0)))
+    #expect(completed.completedBoundarySegmentCount == 1)
+    #expect(await runtime.snapshot().currentOperation == nil)
     #expect(await runtime.snapshot().frameSequence == 2)
   }
 
-  @Test("cooperative Boundary ambiguity is sticky and publishes no frame")
+  @Test("Boundary ambiguity is sticky and publishes no frame")
   func cooperativeBoundaryAmbiguity() async throws {
     let runtime = try await enabledRuntime()
     await runtime.injectFault(.ambiguityBeforeNextBoundarySegment)
@@ -569,7 +560,7 @@ struct SimulatedLearningRuntimeTests {
         finiteSegmentLengthMM: 5
       ))
     let outcome = try accepted(
-      await runtime.executeBoundaryCooperatively(
+      await runtime.executeBoundarySegment(
         operation.id,
         pacing: SimulatedLearningImmediatePacing()
       ))

@@ -4,7 +4,7 @@ import PlotterRuntime
 
 enum SparseTipCalibrationCoordinatorError: Error, Equatable, Sendable {
   case invalidTransition
-  case locationBlacklisted(ToolContactCalibrationPosition)
+  case locationReservedByExposure(ToolContactCalibrationPosition)
   case staleSelection
   case selectionUnavailable
   case duplicateObservation
@@ -23,17 +23,9 @@ enum SparseTipCalibrationPhase: Hashable, Sendable {
   case fittingCandidates
   case reviewingFinalProposal(TipCameraModelForm)
   case accepted
-  case possibleInkBlacklisted(BlacklistedToolContactLocation, String)
+  case possibleInkExposureRetained(LearningSurfaceExposure, String)
   case holdoutFailed(String)
   case rejected(String)
-}
-
-struct BlacklistedToolContactLocation: Hashable, Sendable {
-  let calibrationPosition: ToolContactCalibrationPosition
-  /// Center of the possible-ink circular mark, not an asserted point contact.
-  let machinePosition: MachinePosition
-  let markRadiusMM: Double
-  let paperContactPlane: PaperContactPlaneRevision
 }
 
 /// Pure workflow state. It owns ordering and no-redraw transitions; physical
@@ -46,50 +38,41 @@ struct SparseTipCalibrationCoordinator: Hashable, Sendable {
 
   private(set) var phase: SparseTipCalibrationPhase = .idle
   private(set) var acceptedObservations: [AcceptedToolContactObservation] = []
-  private(set) var blacklistedLocations: Set<BlacklistedToolContactLocation>
   private(set) var pendingFrame: ExactTipCalibrationFrame?
   private(set) var selectedPoint: Point2<CameraPixelSpace>?
   private(set) var selectedPresentationRevision: PresentationTransformRevision?
   private(set) var proposal: TipCalibrationModelSelection?
 
-  init(blacklistedLocations: Set<BlacklistedToolContactLocation> = []) {
-    self.blacklistedLocations = blacklistedLocations
-    if let location = blacklistedLocations.first {
-      phase = .possibleInkBlacklisted(
-        location,
-        "Possible ink already blacklists this exact machine position on the current paper."
-      )
-    }
-  }
-
-  var blacklistedPositions: Set<ToolContactCalibrationPosition> {
-    Set(blacklistedLocations.map(\.calibrationPosition))
-  }
-
   var selectedPresentationRevisionForCommit: PresentationTransformRevision? {
     selectedPresentationRevision
   }
 
-  var nextPosition: ToolContactCalibrationPosition? {
+  func nextPosition(
+    excluding reservedPositions: Set<ToolContactCalibrationPosition>
+  ) -> ToolContactCalibrationPosition? {
     Self.orderedPositions.first { position in
       !acceptedObservations.contains { $0.observation.calibrationPosition == position }
-        && !blacklistedPositions.contains(position)
+        && !reservedPositions.contains(position)
     }
   }
 
-  mutating func prepareNextMark() throws -> ToolContactCalibrationPosition {
-    guard case .idle = phase, let position = nextPosition else {
+  mutating func prepareNextMark(
+    excluding reservedPositions: Set<ToolContactCalibrationPosition>
+  ) throws -> ToolContactCalibrationPosition {
+    guard case .idle = phase,
+      let position = nextPosition(excluding: reservedPositions)
+    else {
       throw SparseTipCalibrationCoordinatorError.invalidTransition
     }
-    guard !blacklistedPositions.contains(position) else {
-      throw SparseTipCalibrationCoordinatorError.locationBlacklisted(position)
+    guard !reservedPositions.contains(position) else {
+      throw SparseTipCalibrationCoordinatorError.locationReservedByExposure(position)
     }
     phase = .preparingMark(position)
     return position
   }
 
   mutating func beganMark(at position: ToolContactCalibrationPosition) throws {
-    guard phase == .preparingMark(position), !blacklistedPositions.contains(position) else {
+    guard phase == .preparingMark(position) else {
       throw SparseTipCalibrationCoordinatorError.invalidTransition
     }
     phase = .drawingMark(position)
@@ -159,15 +142,14 @@ struct SparseTipCalibrationCoordinator: Hashable, Sendable {
       ? .fittingCandidates : .idle
   }
 
-  mutating func blacklistPossibleInk(
-    at location: BlacklistedToolContactLocation,
+  mutating func recordPossibleInk(
+    _ exposure: LearningSurfaceExposure,
     reason: String
   ) {
-    blacklistedLocations.insert(location)
     pendingFrame = nil
     selectedPoint = nil
     selectedPresentationRevision = nil
-    phase = .possibleInkBlacklisted(location, reason)
+    phase = .possibleInkExposureRetained(exposure, reason)
   }
 
   mutating func resetBeforeInkFailure() {

@@ -33,7 +33,7 @@ struct HumanGuidedDiscoveryTests {
         .boundaryJogCancelled(.positiveX, finalPosition: final, controllerSummary: "Idle")
       )
     }
-    try transaction.record(.operatorStopRequested(.positiveX))
+    try transaction.record(.stopAndAcceptRequested(.positiveX))
     try transaction.record(
       .boundaryJogCancelled(.positiveX, finalPosition: final, controllerSummary: "Idle")
     )
@@ -218,7 +218,8 @@ struct HumanGuidedDiscoveryTests {
     #expect(evidence.attemptID == attemptID)
     #expect(evidence.ownerID == ownerID)
     #expect(evidence.stopCapabilityID == stopCapabilityID)
-    #expect(evidence.stopIntent == .operatorStop)
+    #expect(evidence.stopIntent == .stopAndAccept)
+    #expect(evidence.terminationDisposition == .accepted)
     #expect(evidence.finalPosition.point.x == -351.473)
     #expect(evidence.disposition == .succeeded)
   }
@@ -357,7 +358,7 @@ private func boundaryEvidence(
     coordinateRevision: coordinateRevision,
     ownerID: ownerID,
     stopCapabilityID: stopCapabilityID,
-    stopIntent: .operatorStop,
+    stopIntent: .stopAndAccept,
     finalPosition: MachinePosition(x: x, y: y),
     disposition: .succeeded
   )

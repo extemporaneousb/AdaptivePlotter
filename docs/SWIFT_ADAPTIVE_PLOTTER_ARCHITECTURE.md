@@ -23,8 +23,9 @@ PlotterRuntime
 PlotterApp
   OperatorWorkspace orchestration and artifact commits
   immutable LearningPathProjectionSnapshot and pure LearningPathProjector
-  SwiftUI Learning Path, ActionSurface, Motion and Video Settings composition
-  production checkpoint stores and semantic identity composition
+  shared VideoPresentationPreferences and WorkbenchWindowState
+  SwiftUI combined LearningExercisePane, ActionSurface, Motion and inspectors
+  production authority-manifest/safety-history stores and semantic identity composition
 
 PlotterTestSupport
   deterministic machine links, clocks, transcripts, and paper scenes
@@ -99,19 +100,20 @@ changing methods. It also narrows mutable session values such as discovery
 transactions and Boundary progress to immutable presentation facts.
 
 `LearningPathProjector` is a pure value. Identical snapshots and review
-selection produce identical navigator rows, current item, status, summaries,
-action strips, exact Stop capability presentation, evidence, activity,
-subsystem status, timeline, and reset surfaces. It cannot mutate a session,
-admit motion, persist, perform I/O, or accept an artifact. SwiftUI consumes one
-aggregate projection per Learning Path render and sends selected typed actions
-back to `OperatorWorkspace`.
+selection produce identical tree rows and one compact exercise containing a
+numbered heading, actor-tagged script, optional question, typed actions, and
+invalidation preview. It cannot mutate a session, admit motion, persist,
+perform I/O, or accept an artifact. One `LearningExercisePane` consumes one
+fresh aggregate projection for both rail and detail and sends selected typed
+actions back to `OperatorWorkspace`. Diagnostics separately derives detailed
+activity, subsystem, evidence, provenance, and failure facts.
 
 LIVE and SIMULATED each own one `LearningSessionState` value under that shared
 contract. Within each value, compiler-enforced substates prevent invalid
 cross-field combinations: one exercise-attempt lifecycle owns attempt identity,
 item owner, and mode; one sparse-selection lifecycle owns pending evidence,
 the frozen frame, request, and selected point; and one Drawing Trial state owns
-the complete trial payload, history, rollback, and rewind transitions. Supervised
+subject-bound Stage 4 payloads and nonauthoritative history. Supervised
 Learning Path travel and settlement carry typed `LearningMotionAction` identity;
 display text is derived only by the presentation boundary.
 
@@ -179,8 +181,8 @@ Stage 3.4 is split across three owners:
 
 Before a click, `ActionSurfacePointSelectionRequest` binds one frozen
 `ExactTipCalibrationFrame` and presentation-transform revision. `ActionSurface`
-maps a view click back to camera pixels and initializes a one-third-frame
-presentation-only focus around the pre-mark cap anchor. It hides model geometry
+maps a view click back to camera pixels without mutating the operator-owned
+viewport. It hides model geometry
 before the click, then draws asserted point/uncertainty, prediction, and residual
 from `ActionSurfaceTipReviewGeometry`.
 
@@ -193,9 +195,9 @@ current MachineCameraRegistration
 ```
 
 A replacement-paper checkpoint restoration additionally consumes the one new
-contact-plane `ToolContactObservation`. Stage 4 line plans and local baselines
-consume the exact current tip revision; later line/post-frame/ink/residual nodes
-retain that dependency transitively.
+contact-plane `ToolContactObservation`. Stage 4 line plan and local context
+consume the exact current tip revision; line-start arrival, execution, atomic
+post-line observation, and comparison retain that dependency transitively.
 
 ## Chronology and possible ink
 
@@ -204,17 +206,31 @@ settled controller outcomes. Reveal settlement is timestamped after final MPos
 acceptance and before a newer exact frame is captured. The reveal cites the
 refreshed controller-context baseline returned with that capture.
 
-The no-redraw key is `BlacklistedToolContactLocation`: calibration role, circle
-center/radius, and paper-contact-plane revision. `OperatorWorkspace` retains
-that set across attempt cancel, restart, and Learning Path reset. The coordinator
-re-enters a terminal possible-ink state on the same paper. Explicit paper
-replacement rotates the plane identity and is the only workflow recovery.
+`LearningSurfaceExposureLedger` is the sole active-session no-redraw authority
+for both calibration circles and isolated lines. A LIVE entry is a conservative
+possible-physical-ink reservation atomically persisted before Pen Down and
+reloaded by paper identity after process restart; a rejected load or failed save
+blocks contact. SIMULATED uses the same typed ledger with explicitly nonphysical
+entries and never calls the production store. This safety history is separate
+from current accepted Learning authority, survives cancellation and graph
+invalidation, and cannot be erased or made eligible for redraw. Explicit paper
+replacement rotates applicability without deleting prior entries. If the LIVE
+store is corrupt, that same operator transaction archives the rejected bytes and
+atomically creates a fresh ledger generation for the replacement paper; the
+same-paper blocker is never cleared by treating corruption as empty.
 
-## Tip checkpoint and semantic identity
+## Learning-authority manifest and semantic identity
 
-Machine-only persistence remains in `AcceptedMachineArtifactCheckpoint`.
-`AcceptedTipCalibrationCheckpoint` stores the accepted direct machine-to-tip
-registration and acceptance event separately.
+`LearningAuthorityManifest` is the only durable accepted-authority store. Its
+single generation atomically carries optional `AcceptedMachineArtifactCheckpoint`
+and `AcceptedTipCalibrationCheckpoint` payloads in one checksummed envelope.
+Every accepted-authority save, and each causal invalidation that removes either
+durable payload, uses an exact generation/digest compare-and-commit and one
+atomic replacement. Nondurable graph-only invalidation does not depend on the
+manifest; there are no independent
+machine/tip clear ports or rollback sequence. `OperatorWorkspace` first builds
+and validates a pure graph/payload draft, commits the complete manifest, then
+performs one nonthrowing in-memory swap and post-commit presentation effects.
 
 Production semantic identities are composed from stable persisted revisions for
 machine geometry, tool assembly, pen-contact profile, paper plane, camera mount,
@@ -222,14 +238,15 @@ and camera reframing. Capture-session and camera-configuration IDs remain
 ephemeral operational provenance; they are not substituted for mount/reframing
 identity.
 
-Loading a tip checkpoint sets `quarantinedTipCalibrationCheckpoint` only. A
+Loading a tip payload sets `quarantinedTipCalibrationCheckpoint` only. A
 same-paper restore constructs fresh `TipCalibrationRevalidationEvidence` from a
-settled controller/cap frame, rebuilds current graph revisions, and creates a
-new accepted tip revision. A paper change retains quarantine and requires one
-new accepted circle-center observation. The revalidation evidence is
-durable and the new contact revision is a graph dependency. Reset clears the
-affected durable machine and/or tip checkpoint before clearing in-memory
-authority.
+settled controller/cap frame and creates one new accepted tip revision directly
+from the checkpoint summary; it does not counterfeit current raw-observation
+nodes. A paper change retains quarantine and requires one new accepted
+circle-center observation. The revalidation evidence is durable and the new
+contact revision is a graph dependency. An invalidation that removes durable
+authority commits the complete manifest generation before replacing in-memory
+authority; a nondurable invalidation has no manifest effect.
 
 Unknown semantic changes cannot be inferred from a UUID. The attended operator
 must refuse revalidation after an unrecorded physical remount or assembly
@@ -239,16 +256,18 @@ change; explicit operator-facing revision controls remain a roadmap item.
 
 Stage 4 does not reuse a Stage 3 target, baseline, or reveal pose.
 `ObservedDrawingTrialLinePlan` creates a 5 mm local line inside the tip
-applicability rectangle only when it clears every retained circular-mark
+applicability rectangle only when it clears every retained ink-exposure
 geometry; a crowded domain blocks instead of weakening new-ink attribution. It
-stores:
+starts a six-subject chain with one authoritative payload per visible leaf:
 
-- the exact tip registration revision;
-- a trial-local pre-line exact frame and reveal MPos;
-- line-start settlement and one drawing owner;
-- a Pen-Up return to the same reveal MPos;
-- a strictly newer post-line exact frame;
-- bounded generic black/new-ink observation, residual, and assessment.
+- immutable line plan consuming the exact tip registration;
+- atomic local baseline/reveal context consuming plan and tip;
+- line-start arrival consuming plan and local context, including zero travel;
+- LIVE/SIMULATED line-execution evidence consuming plan, context, and arrival;
+- atomic post-line observation consuming execution, context, and tip, and
+  containing reveal settlement, newer exact frame, bounded observed geometry,
+  and required residual;
+- typed comparison consuming that observation.
 
 The intended line, observed ink, and residual are contextual Stage 4 results,
 not global overlay preferences. The implemented curriculum ends at this
@@ -263,41 +282,42 @@ past an asserted settlement boundary so simulated exact-frame chronology stays
 causal.
 
 The simulator uses the same public workspace actions and artifact graph but
-never calls production machine actions. Every simulator surface is labeled
-`SIMULATED — NOT PHYSICAL EVIDENCE`. An annotation is presentation-only and
-cannot alter canonical pixels or hashes.
+never calls production machine actions. The primary Action Surface carries the
+concise `SIMULATED` badge; Diagnostics and simulator evidence records carry the
+full `SIMULATED — NOT PHYSICAL EVIDENCE` qualification. An annotation is
+presentation-only and cannot alter canonical pixels or hashes.
 
 `OperatorWorkspace` owns two independent `LearningSessionState` values,
 one LIVE and one SIMULATED, under one structural contract. Session state owns
-the graph, artifact payloads and proposals, attempt histories, accepted-attempt
-sequence, quarantine status, paper identity, possible-ink blacklist, drawing
-trial state, and learning errors. The active frame source selects which value
+the graph, subject payloads and proposals, attempt histories, accepted-attempt
+sequence, quarantine status, paper identity, one typed surface-exposure ledger,
+and learning errors. A current subject revision exists if and only if its exact
+authoritative payload is current. The active frame source selects which value
 all learning projections and mutations address. Camera/controller owners,
 operation tasks, Stop capabilities, and other runtime lifetimes remain outside
 the session values. One `ActiveStoppableOperation` binds the exact owner task,
-contextual Stop target, latched disposition, and cancellation-request phase;
+capability, high-level Boundary termination intent, first-winner latch, and cancellation-request phase;
 those facts are not independently mutable. Drawing execution likewise carries
 typed not-admitted, possible-ink, and naturally-completed state so no-redraw
 recovery is independent of presentation wording.
 
 Workflow failures retain typed kind and recovery separately from actionable
-presentation text. Boundary disposition, attempt disposition, sparse-mark
-blacklisting, current-camera phases, and telemetry failure codes consume those
+presentation text. Boundary disposition, attempt disposition, sparse
+surface-exposure recovery, current-camera phases, and telemetry failure codes consume those
 typed identities through exhaustive switches; rendered text is never parsed to
 recover workflow meaning.
 
-Durable machine and tip checkpoint ports are capabilities of the LIVE session
-only. SIMULATED receives no active durable checkpoint capability, so its public
-actions cannot load, save, clear, replace, or otherwise mutate physical durable
-authority. Entering SIMULATED replaces only its previous nonphysical session;
-the LIVE session remains stored independently and is selected unchanged on
-return.
+The durable Learning-authority manifest port is a capability of the LIVE session
+only. SIMULATED receives no such capability, so its public actions cannot load,
+save, clear, replace, or otherwise mutate physical durable authority. LIVE and
+SIMULATED session state remain source-isolated; returning to a retained
+simulator paper also retains its nonphysical surface-exposure ledger.
 
 ## Validation structure
 
 Swift Testing suites cover evidence constructors, holdout/model selection,
 checkpoint quarantine and revalidation, graph dependency shapes, frozen-frame
-re-click, physical-location blacklist persistence, ActionSurface projection,
+re-click, complete-geometry surface-exposure persistence, ActionSurface projection,
 five-mark acceptance, checkpoint restart/paper recovery, and Stage 4 causal
 ink. `make quick-test` excludes the explicitly retained journeys;
 `make journey-test` runs the current sparse/Stage 4 routes sequentially; and

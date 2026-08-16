@@ -4,10 +4,6 @@ import PlotterModel
 import PlotterRuntime
 import SwiftUI
 
-enum ActionSurfaceScalePolicy: String, Sendable {
-  case aspectFit
-}
-
 /// Presentation-only projection from top-left-origin camera pixels into the
 /// aspect-fitted image rectangle. Camera +Y remains view +Y.
 struct CameraPixelToViewTransform: Equatable, Sendable {
@@ -25,8 +21,7 @@ struct CameraPixelToViewTransform: Equatable, Sendable {
     frameHeight: Int,
     viewWidth: Double,
     viewHeight: Double,
-    focusRegion: PixelRect? = nil,
-    policy: ActionSurfaceScalePolicy = .aspectFit
+    focusRegion: PixelRect? = nil
   ) {
     guard frameWidth > 0, frameHeight > 0, viewWidth > 0, viewHeight > 0 else { return nil }
     let requestedRect =
@@ -39,10 +34,7 @@ struct CameraPixelToViewTransform: Equatable, Sendable {
     visibleCameraRect = clippedRect
     let horizontalScale = viewWidth / clippedRect.width
     let verticalScale = viewHeight / clippedRect.height
-    switch policy {
-    case .aspectFit:
-      scale = min(horizontalScale, verticalScale)
-    }
+    scale = min(horizontalScale, verticalScale)
     self.frameWidth = Double(frameWidth)
     self.frameHeight = Double(frameHeight)
     self.viewWidth = viewWidth
@@ -119,7 +111,7 @@ struct ActionSurfacePointSelection: Hashable, Sendable {
 
 enum ActionSurfaceTipPresentation: Hashable, Sendable {
   case notCalibrated
-  case awaitingClick(String)
+  case awaitingClick
   case selected(
     click: Point2<CameraPixelSpace>,
     pointingUncertaintyPixels: Vector2<CameraPixelSpace>,
@@ -131,7 +123,7 @@ enum ActionSurfaceTipPresentation: Hashable, Sendable {
   var statusText: String {
     switch self {
     case .notCalibrated: "Tip not calibrated"
-    case .awaitingClick(let prompt): prompt
+    case .awaitingClick: "Awaiting exact-frame click"
     case .selected(_, _, _, let residual):
       residual.map { String(format: "Selection residual %.3f px", $0) }
         ?? "Mark center selected"
@@ -165,8 +157,6 @@ struct ActionSurfaceViewportContext: Hashable, Sendable {
   let source: FrameSourceIdentity
   let cameraConfigurationID: CameraConfigurationID
   let fittedRegion: PixelRect?
-  let preferredInitialZoom: Double
-  let presentationRevisionToken: String
 }
 
 /// The effective camera-pixel bounds used by viewport projection and clipping.
@@ -192,127 +182,13 @@ func cameraFrameIntersection(
   )
 }
 
-/// Window-local, presentation-only viewport state. `zoom == 0` is the complete
-/// camera frame and `zoom == 1` is the fitted learned plotter region.
-/// Intermediate values never mutate camera-pixel evidence.
-struct ActionSurfaceViewportState: Equatable, Sendable {
-  private(set) var context: ActionSurfaceViewportContext?
-  private(set) var presentationTransformRevision = PresentationTransformRevision()
-  private(set) var panOffsetX: Int = 0
-  private(set) var panOffsetY: Int = 0
-  var zoom: Double = 0 {
-    didSet {
-      if zoom != oldValue { presentationTransformRevision = PresentationTransformRevision() }
-    }
-  }
-
-  mutating func synchronize(with context: ActionSurfaceViewportContext?) {
-    guard self.context != context else { return }
-    let preservesOperatorView =
-      self.context.map { previous in
-        guard let context else { return false }
-        return previous.source == context.source
-          && previous.cameraConfigurationID == context.cameraConfigurationID
-          && context.preferredInitialZoom == 0
-      } ?? false
-    self.context = context
-    if !preservesOperatorView {
-      zoom = min(1, max(0, context?.preferredInitialZoom ?? 0))
-      panOffsetX = 0
-      panOffsetY = 0
-    }
-    presentationTransformRevision = PresentationTransformRevision()
-  }
-
-  mutating func showFullFrame() {
-    zoom = 0
-    panOffsetX = 0
-    panOffsetY = 0
-  }
-
-  mutating func showFittedBounds() { zoom = 1 }
-
-  func visibleRegion(frameWidth: Int, frameHeight: Int) -> PixelRect? {
-    guard let context, frameWidth > 0, frameHeight > 0 else { return nil }
-    let t = min(1, max(0, zoom))
-    if t == 0 { return nil }
-    let frame = PixelRect(x: 0, y: 0, width: frameWidth, height: frameHeight)
-    let requested =
-      context.fittedRegion
-      ?? PixelRect(
-        x: frameWidth / 4,
-        y: frameHeight / 4,
-        width: max(1, frameWidth / 2),
-        height: max(1, frameHeight / 2)
-      )
-    guard
-      let roi = cameraFrameIntersection(
-        requested,
-        frameWidth: frameWidth,
-        frameHeight: frameHeight
-      )
-    else { return nil }
-    let x = Int((Double(frame.x) + Double(roi.x - frame.x) * t).rounded())
-    let y = Int((Double(frame.y) + Double(roi.y - frame.y) * t).rounded())
-    let width = max(1, Int((Double(frame.width) + Double(roi.width - frame.width) * t).rounded()))
-    let height = max(
-      1, Int((Double(frame.height) + Double(roi.height - frame.height) * t).rounded()))
-    let clampedWidth = min(width, frameWidth)
-    let clampedHeight = min(height, frameHeight)
-    let clampedX = min(max(0, x + panOffsetX), frameWidth - clampedWidth)
-    let clampedY = min(max(0, y + panOffsetY), frameHeight - clampedHeight)
-    return PixelRect(x: clampedX, y: clampedY, width: clampedWidth, height: clampedHeight)
-  }
-
-  func selectedRegion(frameWidth: Int, frameHeight: Int) -> PixelRect? {
-    guard frameWidth > 0, frameHeight > 0 else { return nil }
-    return visibleRegion(frameWidth: frameWidth, frameHeight: frameHeight)
-      ?? PixelRect(x: 0, y: 0, width: frameWidth, height: frameHeight)
-  }
-
-  mutating func pan(
-    by translation: CGSize,
-    viewSize: CGSize,
-    frameWidth: Int,
-    frameHeight: Int
-  ) {
-    guard zoom > 0,
-      let region = visibleRegion(frameWidth: frameWidth, frameHeight: frameHeight),
-      viewSize.width > 0, viewSize.height > 0
-    else { return }
-    let scale = min(
-      Double(viewSize.width) / Double(region.width),
-      Double(viewSize.height) / Double(region.height)
-    )
-    guard scale.isFinite, scale > 0 else { return }
-    let translatedX = region.x - Int((Double(translation.width) / scale).rounded())
-    let translatedY = region.y - Int((Double(translation.height) / scale).rounded())
-    let clampedX = min(max(0, translatedX), frameWidth - region.width)
-    let clampedY = min(max(0, translatedY), frameHeight - region.height)
-    let nextX = panOffsetX + clampedX - region.x
-    let nextY = panOffsetY + clampedY - region.y
-    guard nextX != panOffsetX || nextY != panOffsetY else { return }
-    panOffsetX = nextX
-    panOffsetY = nextY
-    presentationTransformRevision = PresentationTransformRevision()
-  }
-}
-
 struct ActionSurfacePresentation: Sendable {
-  static let rendererIdentity = "canonical-stamped-frame"
-
   let displayedFrame: DisplayedFrame?
   let overlays: [CameraOverlayMeasurement]
   let simulatedAnnotations: [SimulatedLearningAnnotation]
-  let simulatedViewportID: SimulatedCameraViewportID?
-  let simulatedAnnotationsAreVisible: Bool
   let viewportContext: ActionSurfaceViewportContext?
-  let analysisRegionIsLocked: Bool
-  let analyzedOverlayFrame: ExactFrameOverlayProvenance?
   let pointSelectionRequest: ActionSurfacePointSelectionRequest?
   let tipPresentation: ActionSurfaceTipPresentation
-
-  var rendererIdentity: String { Self.rendererIdentity }
 
   init(
     displayedFrame: DisplayedFrame?,
@@ -321,14 +197,10 @@ struct ActionSurfacePresentation: Sendable {
     simulatedViewportID: SimulatedCameraViewportID? = nil,
     simulatedAnnotationsAreVisible: Bool = true,
     viewportContext: ActionSurfaceViewportContext? = nil,
-    analysisRegionIsLocked: Bool = false,
-    analyzedOverlayFrame: ExactFrameOverlayProvenance? = nil,
     pointSelectionRequest: ActionSurfacePointSelectionRequest? = nil,
     tipPresentation: ActionSurfaceTipPresentation = .notCalibrated
   ) {
     self.displayedFrame = displayedFrame
-    self.simulatedViewportID = simulatedViewportID
-    self.simulatedAnnotationsAreVisible = simulatedAnnotationsAreVisible
     if let displayedFrame {
       self.overlays = overlays.filter { $0.matches(displayedFrame) }
       if simulatedAnnotationsAreVisible, let simulatedViewportID {
@@ -345,17 +217,12 @@ struct ActionSurfacePresentation: Sendable {
       self.pointSelectionRequest = pointSelectionRequest.flatMap {
         $0.matches(displayedFrame) ? $0 : nil
       }
-      self.analyzedOverlayFrame = analyzedOverlayFrame.flatMap {
-        $0.matches(displayedFrame) ? $0 : nil
-      }
     } else {
       self.overlays = []
       self.simulatedAnnotations = []
       self.viewportContext = nil
       self.pointSelectionRequest = nil
-      self.analyzedOverlayFrame = nil
     }
-    self.analysisRegionIsLocked = analysisRegionIsLocked
     self.tipPresentation = tipPresentation
   }
 
@@ -363,22 +230,33 @@ struct ActionSurfacePresentation: Sendable {
     guard case .simulated = displayedFrame?.source else { return nil }
     return "SIMULATED"
   }
+
+  var simulatedAnnotationAccessibilityValues: [String] {
+    var seen = Set<String>()
+    return simulatedAnnotations.compactMap { annotation in
+      let value = annotation.accessibleValue.trimmingCharacters(
+        in: .whitespacesAndNewlines
+      )
+      guard !value.isEmpty, seen.insert(value).inserted else { return nil }
+      return value
+    }
+  }
 }
 
 struct ActionSurface: View {
   let presentation: ActionSurfacePresentation
-  @Binding private var viewport: ActionSurfaceViewportState
+  let videoPreferences: VideoPresentationPreferences
   @StateObject private var imageCache = FramePresentationImageCache()
   @State private var priorDragTranslation: CGSize = .zero
   private let selectPoint: (ActionSurfacePointSelection) -> Void
 
   init(
     presentation: ActionSurfacePresentation,
-    viewport: Binding<ActionSurfaceViewportState> = .constant(ActionSurfaceViewportState()),
+    videoPreferences: VideoPresentationPreferences,
     selectPoint: @escaping (ActionSurfacePointSelection) -> Void = { _ in }
   ) {
     self.presentation = presentation
-    _viewport = viewport
+    self.videoPreferences = videoPreferences
     self.selectPoint = selectPoint
   }
 
@@ -389,7 +267,7 @@ struct ActionSurface: View {
     GeometryReader { proxy in
       Canvas { context, size in
         guard let displayedFrame = presentation.displayedFrame,
-          let visibleRegion = viewport.visibleRegion(
+          let visibleRegion = videoPreferences.visibleRect(
             frameWidth: displayedFrame.frame.width,
             frameHeight: displayedFrame.frame.height
           ),
@@ -434,28 +312,27 @@ struct ActionSurface: View {
         .padding(8)
       }
       .overlay(alignment: .topTrailing) {
-        if let frame = presentation.displayedFrame?.frame {
-          VStack(alignment: .trailing, spacing: 3) {
-            Text("DISPLAYED FRAME \(frame.sequence) · \(frame.width)×\(frame.height)")
-            if let analyzed = presentation.analyzedOverlayFrame {
-              Text("OVERLAYS ANALYZED FROM THIS EXACT FRAME \(analyzed.frameSequence)")
-            }
-          }
-          .font(.caption2.monospaced())
-          .foregroundStyle(.white)
-          .multilineTextAlignment(.trailing)
-          .padding(6)
-          .background(.black.opacity(0.65))
-          .padding(8)
+        if let displayedFrame = presentation.displayedFrame,
+          videoPreferences.isAnalysisLocked(to: displayedFrame)
+        {
+          Label("VIEW LOCKED", systemImage: "lock.fill")
+            .font(.caption.monospaced().bold())
+            .foregroundStyle(.white)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(.black.opacity(0.65))
+            .padding(8)
         }
       }
       .overlay(alignment: .bottomLeading) {
-        Text(presentation.tipPresentation.statusText)
-          .font(.caption.monospaced().bold())
-          .foregroundStyle(.white)
-          .padding(7)
-          .background(.black.opacity(0.72))
-          .padding(8)
+        if let prompt = presentation.pointSelectionRequest?.prompt {
+          Label(prompt, systemImage: "cursorarrow.click.2")
+            .font(.callout.weight(.semibold))
+            .foregroundStyle(.white)
+            .padding(8)
+            .background(.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 6))
+            .padding(8)
+        }
       }
       .overlay {
         if presentation.displayedFrame == nil {
@@ -478,7 +355,7 @@ struct ActionSurface: View {
       .simultaneousGesture(
         DragGesture(minimumDistance: 3, coordinateSpace: .local)
           .onChanged { value in
-            guard !presentation.analysisRegionIsLocked,
+            guard !videoPreferences.analysisIsLocked,
               let frame = presentation.displayedFrame?.frame
             else { return }
             let delta = CGSize(
@@ -486,7 +363,7 @@ struct ActionSurface: View {
               height: value.translation.height - priorDragTranslation.height
             )
             priorDragTranslation = value.translation
-            viewport.pan(
+            videoPreferences.pan(
               by: delta,
               viewSize: proxy.size,
               frameWidth: frame.width,
@@ -496,17 +373,17 @@ struct ActionSurface: View {
           .onEnded { _ in priorDragTranslation = .zero }
       )
       .onChange(of: presentation.viewportContext, initial: true) { _, context in
-        viewport.synchronize(with: context)
+        videoPreferences.synchronize(with: context)
       }
       .accessibilityValue(
-        [
-          presentation.analyzedOverlayFrame.map {
-            "Overlays analyzed from displayed exact frame \($0.frameSequence)"
-          },
-          presentation.simulatedAnnotationsAreVisible
-            ? presentation.simulatedAnnotations.map(\.accessibleValue).joined(separator: ", ")
-            : "Simulator annotations hidden",
-        ].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ". ")
+        (
+          [
+            presentation.sourceBadgeLabel,
+            presentation.pointSelectionRequest?.prompt,
+            videoPreferences.analysisIsLocked ? "View locked" : nil,
+          ].compactMap { $0 }.filter { !$0.isEmpty }
+            + presentation.simulatedAnnotationAccessibilityValues
+        ).joined(separator: ". ")
       )
     }
   }
@@ -520,7 +397,7 @@ struct ActionSurface: View {
         frameHeight: displayedFrame.frame.height,
         viewWidth: viewSize.width,
         viewHeight: viewSize.height,
-        focusRegion: viewport.visibleRegion(
+        focusRegion: videoPreferences.visibleRect(
           frameWidth: displayedFrame.frame.width,
           frameHeight: displayedFrame.frame.height
         )
@@ -531,7 +408,7 @@ struct ActionSurface: View {
       ActionSurfacePointSelection(
         frame: request.frame,
         point: point,
-        presentationTransformRevision: viewport.presentationTransformRevision
+        presentationTransformRevision: videoPreferences.presentationTransformRevision
       ))
   }
 
@@ -549,10 +426,8 @@ struct ActionSurface: View {
     if let review = presentation.tipPresentation.reviewGeometry {
       draw(review, in: &context, transform: transform)
     }
-    if presentation.simulatedAnnotationsAreVisible {
-      for annotation in presentation.simulatedAnnotations {
-        draw(annotation, in: &context, transform: transform)
-      }
+    for annotation in presentation.simulatedAnnotations {
+      draw(annotation, in: &context, transform: transform)
     }
   }
 
@@ -652,13 +527,6 @@ struct ActionSurface: View {
       }
       context.stroke(path, with: .color(style.color), style: stroke)
     }
-    context.draw(
-      Text(annotation.visibleLabel)
-        .font(.caption2.monospaced().bold())
-        .foregroundStyle(style.color),
-      at: transform.point(annotation.anchor),
-      anchor: .bottomLeading
-    )
   }
 
   private func annotationStyle(

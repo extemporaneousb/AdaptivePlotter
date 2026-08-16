@@ -8,17 +8,10 @@ import Testing
 @Suite("Overlay ownership and state")
 @MainActor
 struct OverlayStateTests {
-  @Test("exactly two global controls use one-column layout at every supported inspector width")
-  func exactGlobalControlsAndResponsiveLayout() {
+  @Test("exactly two global overlay controls remain")
+  func exactGlobalControls() {
     #expect(UserSceneOverlay.allCases == [.penCap, .armatureEnvelope])
     #expect(UserSceneOverlay.allCases.map(\.title) == ["Pen cap", "Armature envelope"])
-    for width in OverlayCardLayoutPolicy.supportedInspectorWidths {
-      #expect(OverlayCardLayoutPolicy.columnCount(availableWidth: width) == 1)
-      #expect(
-        OverlayCardLayoutPolicy.contentWidth(availableWidth: width)
-          >= OverlayCardLayoutPolicy.minimumCardWidth
-      )
-    }
   }
 
   @Test("every run state has deterministic text color and accessibility presentation")
@@ -505,8 +498,8 @@ struct OverlayStateTests {
     )
   }
 
-  @Test("ActionSurface identifies only an exact matching analyzed overlay frame")
-  func explicitAnalyzedFramePresentation() throws {
+  @Test("ActionSurface admits only overlays matching the exact displayed frame")
+  func exactOverlayPresentation() throws {
     let configuration = CameraConfigurationID()
     let analyzed = try displayedFrame(
       id: "analyzed", source: .live(CameraDeviceID(rawValue: "camera")),
@@ -516,19 +509,16 @@ struct OverlayStateTests {
 
     let exact = ActionSurfacePresentation(
       displayedFrame: analyzed,
-      overlays: [try overlay(.penCap, frame: analyzed)],
-      analyzedOverlayFrame: ExactFrameOverlayProvenance(analyzed)
+      overlays: [try overlay(.penCap, frame: analyzed)]
     )
-    #expect(exact.analyzedOverlayFrame?.frameID == analyzed.frame.id)
-    #expect(exact.analyzedOverlayFrame?.frameSequence == analyzed.frame.sequence)
+    #expect(exact.overlays.count == 1)
+    #expect(exact.overlays.first?.matches(analyzed) == true)
 
     let mismatched = ActionSurfacePresentation(
       displayedFrame: other,
-      overlays: [try overlay(.penCap, frame: analyzed)],
-      analyzedOverlayFrame: ExactFrameOverlayProvenance(analyzed)
+      overlays: [try overlay(.penCap, frame: analyzed)]
     )
     #expect(mismatched.overlays.isEmpty)
-    #expect(mismatched.analyzedOverlayFrame == nil)
   }
 }
 

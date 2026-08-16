@@ -3,19 +3,22 @@ import PlotterModel
 @testable import PlotterRuntime
 import Testing
 
-@Suite("Durable accepted-artifact checkpoints")
-struct AcceptedArtifactCheckpointTests {
-  @Test("atomic store round-trips accepted artifacts and restores only accepted graph state")
+@Suite("Learning authority manifest")
+struct LearningAuthorityManifestTests {
+  @Test("atomic manifest round-trips machine authority and restores only accepted graph state")
   func roundTrip() throws {
     let directory = FileManager.default.temporaryDirectory
       .appendingPathComponent(UUID().uuidString, isDirectory: true)
     defer { try? FileManager.default.removeItem(at: directory) }
     let url = directory.appendingPathComponent("checkpoint.json")
-    let store = AcceptedArtifactCheckpointStore(fileURL: url)
+    let store = LearningAuthorityManifestStore(fileURL: url)
     let checkpoint = try makeCheckpoint()
 
-    try store.save(checkpoint)
-    let restored = try loaded(store.load())
+    _ = try store.commit(
+      expectedRevision: .absent,
+      mutation: LearningAuthorityManifestMutation(machine: .replace(checkpoint))
+    )
+    let restored = try loadedManifest(store.load()).machine!
 
     #expect(restored == checkpoint)
     #expect(try restored.restoredLearningGraph().currentRevision(
@@ -30,24 +33,32 @@ struct AcceptedArtifactCheckpointTests {
     #expect(!encoded.contains("DiscoveryTransaction"))
   }
 
-  @Test("explicit clear removes the durable authority file idempotently")
+  @Test("one manifest CAS clears machine authority without deleting the committed generation")
   func clear() throws {
     let directory = FileManager.default.temporaryDirectory
       .appendingPathComponent(UUID().uuidString, isDirectory: true)
     defer { try? FileManager.default.removeItem(at: directory) }
     let url = directory.appendingPathComponent("checkpoint.json")
-    let store = AcceptedArtifactCheckpointStore(fileURL: url)
+    let store = LearningAuthorityManifestStore(fileURL: url)
 
-    try store.save(makeCheckpoint())
+    let saved = try store.commit(
+      expectedRevision: .absent,
+      mutation: LearningAuthorityManifestMutation(machine: .replace(try makeCheckpoint()))
+    )
     #expect(FileManager.default.fileExists(atPath: url.path))
-    try store.clear()
-    #expect(!FileManager.default.fileExists(atPath: url.path))
-    if case .absent = store.load() {
-      // Expected.
-    } else {
-      Issue.record("Expected an absent checkpoint after explicit clear.")
+    let cleared = try store.commit(
+      expectedRevision: saved.revision,
+      mutation: LearningAuthorityManifestMutation(machine: .replace(nil))
+    )
+    #expect(FileManager.default.fileExists(atPath: url.path))
+    #expect(cleared.manifest.machine == nil)
+    #expect(cleared.manifest.generation == saved.manifest.generation + 1)
+    #expect(throws: LearningAuthorityManifestError.self) {
+      try store.commit(
+        expectedRevision: saved.revision,
+        mutation: LearningAuthorityManifestMutation(machine: .replace(try makeCheckpoint()))
+      )
     }
-    try store.clear()
   }
 
   @Test("tampering is rejected before any artifact can be decoded")
@@ -56,8 +67,11 @@ struct AcceptedArtifactCheckpointTests {
       .appendingPathComponent(UUID().uuidString, isDirectory: true)
     defer { try? FileManager.default.removeItem(at: directory) }
     let url = directory.appendingPathComponent("checkpoint.json")
-    let store = AcceptedArtifactCheckpointStore(fileURL: url)
-    try store.save(makeCheckpoint())
+    let store = LearningAuthorityManifestStore(fileURL: url)
+    _ = try store.commit(
+      expectedRevision: .absent,
+      mutation: LearningAuthorityManifestMutation(machine: .replace(try makeCheckpoint()))
+    )
     var bytes = try Data(contentsOf: url)
     bytes[bytes.count / 2] ^= 0x01
     try bytes.write(to: url)
@@ -66,6 +80,44 @@ struct AcceptedArtifactCheckpointTests {
       Issue.record("Expected a corrupted checkpoint to be rejected.")
       return
     }
+  }
+
+  @Test("two manifest store instances serialize and reject a stale writer")
+  func twoInstanceCAS() throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let url = directory.appendingPathComponent("checkpoint.json")
+    let first = LearningAuthorityManifestStore(fileURL: url)
+    let second = LearningAuthorityManifestStore(fileURL: url)
+
+    guard case .loaded(let firstInitial) = first.load(),
+      case .loaded(let secondInitial) = second.load()
+    else {
+      Issue.record("Both instances should observe one absent manifest revision.")
+      return
+    }
+    #expect(firstInitial.revision == .absent)
+    #expect(secondInitial.revision == .absent)
+
+    let committed = try first.commit(
+      expectedRevision: firstInitial.revision,
+      mutation: LearningAuthorityManifestMutation(machine: .replace(try makeCheckpoint()))
+    )
+    #expect(throws: LearningAuthorityManifestError.self) {
+      try second.commit(
+        expectedRevision: secondInitial.revision,
+        mutation: LearningAuthorityManifestMutation(tip: .replace(nil))
+      )
+    }
+
+    guard case .loaded(let final) = second.load() else {
+      Issue.record("The first committed generation should remain readable.")
+      return
+    }
+    #expect(final.revision == committed.revision)
+    #expect(final.manifest.machine == committed.manifest.machine)
+    #expect(final.manifest.tip == nil)
   }
 
   @Test("controller settings and MPos must both revalidate")
@@ -154,14 +206,12 @@ struct AcceptedArtifactCheckpointTests {
   }
 }
 
-private func loaded(
-  _ result: AcceptedArtifactCheckpointLoadResult
-) throws -> AcceptedMachineArtifactCheckpoint {
+private func loadedManifest(
+  _ result: LearningAuthorityManifestLoadResult
+) throws -> LearningAuthorityManifest {
   switch result {
-  case .loaded(let checkpoint): checkpoint
-  case .absent:
-    throw CheckpointTestError.unexpectedLoad("absent")
-  case .rejected(let reason):
+  case .loaded(let snapshot): snapshot.manifest
+  case .rejected(let reason, _):
     throw CheckpointTestError.unexpectedLoad(reason)
   }
 }
@@ -182,7 +232,7 @@ private func makeCheckpoint() throws -> AcceptedMachineArtifactCheckpoint {
     coordinateRevision: coordinateRevision,
     ownerID: BoundaryMotionOwnerID(),
     stopCapabilityID: UUID(),
-    stopIntent: .operatorStop,
+    stopIntent: .stopAndAccept,
     finalPosition: MachinePosition(x: 10, y: 0),
     disposition: .succeeded
   )

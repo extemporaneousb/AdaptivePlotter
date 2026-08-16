@@ -17,7 +17,7 @@ struct SparseTipCalibrationCoordinatorTests {
     let revision = PresentationTransformRevision()
     let point = try Point2<CameraPixelSpace>(x: 320, y: 240)
 
-    #expect(try coordinator.prepareNextMark() == .center)
+    #expect(try coordinator.prepareNextMark(excluding: []) == .center)
     try coordinator.beganMark(at: .center)
     try coordinator.beganReveal(from: .center, to: MachinePosition(x: 90, y: 0))
     try coordinator.awaitFrozenClick(for: .center, frame: frame)
@@ -38,7 +38,7 @@ struct SparseTipCalibrationCoordinatorTests {
     var coordinator = SparseTipCalibrationCoordinator()
     let frozen = try exactFrame(id: "frozen", hash: "b")
     let stale = try exactFrame(id: "stale", hash: "c")
-    _ = try coordinator.prepareNextMark()
+    _ = try coordinator.prepareNextMark(excluding: [])
     try coordinator.beganMark(at: .center)
     try coordinator.beganReveal(from: .center, to: MachinePosition(x: 90, y: 0))
     try coordinator.awaitFrozenClick(for: .center, frame: frozen)
@@ -53,31 +53,29 @@ struct SparseTipCalibrationCoordinatorTests {
     #expect(coordinator.phase == .awaitingFrozenClick(.center, frozen.frameID))
   }
 
-  @Test("ambiguous circle blacklists one location and never authorizes redraw")
-  func ambiguityBlacklistsWithoutRedraw() throws {
+  @Test("durable possible-ink exposure terminates the coordinator and never authorizes redraw")
+  func ambiguityRetainsExposureWithoutRedraw() throws {
     var coordinator = SparseTipCalibrationCoordinator()
-    #expect(try coordinator.prepareNextMark() == .center)
-    let location = BlacklistedToolContactLocation(
-      calibrationPosition: .center,
-      machinePosition: try MachinePosition(x: 0, y: 0),
-      markRadiusMM: 2,
+    #expect(try coordinator.prepareNextMark(excluding: []) == .center)
+    let exposure = try LearningSurfaceExposure(
+      provenance: .livePossiblePhysicalInk,
       paperContactPlane: PaperContactPlaneRevision(
         rawValue: UUID(uuidString: "00000000-0000-0000-0000-000000000903")!
-      )
+      ),
+      owner: .sparseTipMark(.center),
+      geometry: .sparseCalibrationCircle(
+        center: MachinePosition(x: 0, y: 0),
+        radiusMM: 2
+      ),
+      reservedNanoseconds: 100
     )
-    coordinator.blacklistPossibleInk(at: location, reason: "Pen Up completion unknown")
-    #expect(coordinator.blacklistedPositions == [.center])
-    #expect(coordinator.nextPosition == .negativeX)
-    #expect(throws: SparseTipCalibrationCoordinatorError.invalidTransition) {
-      _ = try coordinator.prepareNextMark()
-    }
-
-    var restored = SparseTipCalibrationCoordinator(
-      blacklistedLocations: coordinator.blacklistedLocations
+    coordinator.recordPossibleInk(exposure, reason: "Pen Up completion unknown")
+    #expect(
+      coordinator.phase
+        == .possibleInkExposureRetained(exposure, "Pen Up completion unknown")
     )
-    #expect(restored.blacklistedLocations == [location])
     #expect(throws: SparseTipCalibrationCoordinatorError.invalidTransition) {
-      _ = try restored.prepareNextMark()
+      _ = try coordinator.prepareNextMark(excluding: [.center])
     }
   }
 }

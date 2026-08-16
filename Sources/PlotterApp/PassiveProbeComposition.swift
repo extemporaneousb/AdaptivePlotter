@@ -30,8 +30,8 @@ enum MachineSessionComposition {
     requestPenActuation: { command, profile in
       await session.requestPenActuation(command, profile: profile)
     },
-    beginBoundaryMotion: { request, renewalPlanner in
-      await session.beginBoundaryMotion(request, renewalPlanner: renewalPlanner)
+    beginBoundaryMotion: { request in
+      await session.beginBoundaryMotion(request)
     },
     requestJogCancel: { intent in
       await session.requestJogCancel(intent)
@@ -134,8 +134,7 @@ private actor PersistentMachineSession {
   }
 
   func beginBoundaryMotion(
-    _ request: BoundaryMotionRequest,
-    renewalPlanner: BoundaryMotionRenewalPlanner?
+    _ request: BoundaryMotionRequest
   ) async -> BoundaryMotionAdmission {
     guard let interpreter else {
       return .rejected(
@@ -145,7 +144,7 @@ private actor PersistentMachineSession {
         )
       )
     }
-    return await interpreter.beginBoundaryMotion(request, renewalPlanner: renewalPlanner)
+    return await interpreter.beginBoundaryMotion(request)
   }
 
   func requestJogCancel(_ intent: JogCancelIntent) async -> JogCancelOutcome {

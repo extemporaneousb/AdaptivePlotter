@@ -1,31 +1,35 @@
 import SwiftUI
 
 enum OperatorButtonRole: CaseIterable, Hashable, Sendable {
-  case affirmative
-  case negative
-  case neutral
+  case commit
+  case interrupt
+  case editValue
+  case utility
 
   func chrome(isEnabled: Bool) -> OperatorButtonChrome {
     guard isEnabled else { return .disabled }
     switch self {
-    case .affirmative: return .affirmative
-    case .negative: return .negative
-    case .neutral: return .neutralEnabled
+    case .commit: return .commit
+    case .interrupt: return .interrupt
+    case .editValue: return .editValue
+    case .utility: return .utility
     }
   }
 }
 
 enum OperatorButtonChrome: Hashable, Sendable {
-  case affirmative
-  case negative
-  case neutralEnabled
+  case commit
+  case interrupt
+  case editValue
+  case utility
   case disabled
 
   fileprivate var backgroundColor: Color {
     switch self {
-    case .affirmative: .green
-    case .negative: .red
-    case .neutralEnabled: Color(red: 0.46, green: 0.48, blue: 0.51)
+    case .commit: .green
+    case .interrupt: .red
+    case .editValue: .blue
+    case .utility: Color(red: 0.46, green: 0.48, blue: 0.51)
     case .disabled: Color(red: 0.20, green: 0.21, blue: 0.23)
     }
   }
@@ -54,7 +58,7 @@ struct OperatorButtonStyle: ButtonStyle {
   func makeBody(configuration: Configuration) -> some View {
     let chrome = role.chrome(isEnabled: isEnabled)
     configuration.label
-      .fontWeight(role == .neutral ? .medium : .semibold)
+      .fontWeight(role == .utility ? .medium : .semibold)
       .foregroundStyle(chrome.foregroundColor)
       .padding(.horizontal, horizontalPadding)
       .padding(.vertical, verticalPadding)
@@ -88,7 +92,7 @@ extension View {
   /// Applies the one operator-control color grammar and couples disabled chrome
   /// to actual SwiftUI interaction admission.
   func operatorButton(
-    _ role: OperatorButtonRole = .neutral,
+    _ role: OperatorButtonRole = .utility,
     isEnabled: Bool = true
   ) -> some View {
     buttonStyle(OperatorButtonStyle(role: role))

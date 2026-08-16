@@ -94,6 +94,17 @@ struct OperatorWorkspaceLifecycleTests {
       owner: .observedDrawingTrial(.moveToLineStart),
       workspace: workspace
     )
+    let oldPlan = try #require(
+      workspace.learningArtifactGraph.revisions.first { revision in
+        guard revision.state == .current else { return false }
+        if case .linePlan = revision.kind { return true }
+        return false
+      }
+    )
+    guard case .linePlan(let oldGroup) = oldPlan.kind else {
+      Issue.record("Expected a current group-scoped line plan.")
+      return
+    }
 
     await harness.runtime.injectFault(.outcomeUnavailableAfterNextExecution)
     try await performPublicAction(
@@ -106,6 +117,28 @@ struct OperatorWorkspaceLifecycleTests {
     #expect(workspace.observedDrawingTrialStep == .revealAndObserveNewInk)
     #expect(workspace.restartableExerciseItemID == nil)
     #expect(workspace.explorationError?.contains("will not be restarted") == true)
+    #expect(
+      workspace.learningArtifactGraph.currentRevision(for: .lineExecution(oldGroup)) == nil
+    )
+    let snapshotBeforeInvalidation = await harness.runtime.snapshot()
+    let inkBeforeInvalidation = await harness.runtime.persistentInk()
+    let exposureCount = workspace.learningSurfaceExposureLedger.entries.count
+    let drawOwner = LearningPathItemID.observedDrawingTrial(.drawIsolatedLine)
+    let plan = try #require(workspace.learningInvalidationPlan(for: drawOwner))
+    #expect(!plan.expectedCurrentRevisionIDs.isEmpty)
+    #expect(
+      plan.affectedItemIDs.contains(.observedDrawingTrial(.chooseIsolatedLinePlan))
+    )
+    #expect(workspace.performLearningInvalidation(plan))
+    #expect(
+      workspace.currentLearningPathItemID
+        == .observedDrawingTrial(.chooseIsolatedLinePlan)
+    )
+    #expect(workspace.learningArtifactGraph.currentRevision(for: .linePlan(oldGroup)) == nil)
+    #expect(!workspace.currentDrawingTrialGroupHasExposure)
+    #expect(workspace.learningSurfaceExposureLedger.entries.count == exposureCount)
+    #expect(await harness.runtime.snapshot() == snapshotBeforeInvalidation)
+    #expect(await harness.runtime.persistentInk() == inkBeforeInvalidation)
     await workspace.shutdown()
   }
 

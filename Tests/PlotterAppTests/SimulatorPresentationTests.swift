@@ -38,8 +38,11 @@ func simulatedOverlayStatusIsCausalAndExact() async throws {
   #expect(!armature.statusText.contains("independently detected"))
 
   let surface = workspace.actionSurfacePresentation
-  #expect(surface.analyzedOverlayFrame?.matches(frame) == true)
   #expect(surface.overlays.map(\.provenance.kind) == [.penCap, .armatureEstimate])
+  #expect(surface.overlays.allSatisfy {
+    $0.frameID == frame.frame.id
+      && $0.cameraConfigurationID == frame.frame.cameraConfigurationID
+  })
 
   workspace.setOverlay(.penCap, enabled: false)
   #expect(workspace.overlayCardPresentation(for: .penCap).status.state == .off)
@@ -48,7 +51,10 @@ func simulatedOverlayStatusIsCausalAndExact() async throws {
 
   workspace.setOverlay(.penCap, enabled: true)
   #expect(workspace.overlayCardPresentation(for: .penCap).statusText == cap.statusText)
-  #expect(workspace.actionSurfacePresentation.analyzedOverlayFrame?.matches(frame) == true)
+  #expect(workspace.actionSurfacePresentation.overlays.allSatisfy {
+    $0.frameID == frame.frame.id
+      && $0.cameraConfigurationID == frame.frame.cameraConfigurationID
+  })
   await workspace.shutdown()
 }
 

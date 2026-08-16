@@ -1,5 +1,4 @@
 import Foundation
-import PlotterModel
 import PlotterRuntime
 import Testing
 
@@ -26,7 +25,6 @@ struct WorkbenchPresentationTests {
     #expect(ManualMotionPresentation.feedLabel == "Feed (mm/min)")
     #expect(presentation.isStoppable)
     #expect(presentation.stopAction?.capabilityID == capability)
-    #expect(presentation.stopAction?.title == "Stop Manual Jog")
     #expect(presentation.jogControlsUnavailableReason != nil)
 
     let derivedDisable = ManualMotionPresentation(
@@ -45,66 +43,54 @@ struct WorkbenchPresentationTests {
     #expect(MotionRequestStatusPresentation.ready.detail == nil)
     #expect(MotionRequestStatusPresentation.busy("Settling.").label == "Busy")
     #expect(MotionRequestStatusPresentation.busy("Settling.").detail == "Settling.")
-    #expect(
-      MotionRequestStatusPresentation.needsAttention("Alarm.").label == "Needs Attention"
-    )
-    #expect(
-      MotionRequestStatusPresentation.needsAttention("Alarm.").detail == "Alarm."
-    )
+    #expect(MotionRequestStatusPresentation.needsAttention("Alarm.").label == "Needs Attention")
+    #expect(MotionRequestStatusPresentation.needsAttention("Alarm.").detail == "Alarm.")
   }
 
-  @Test("active runtime action strip can keep its sole controls visible")
-  func activeExerciseControlsRemainVisible() {
+  @Test("active Boundary controls remain visible with one shared capability")
+  func activeBoundaryControlsRemainVisible() {
+    let capability = ContextualStopCapabilityID(
+      rawValue: UUID(uuidString: "00000000-0000-0000-0000-000000000302")!
+    )
     let active = ExerciseActionStripPresentation(
-      ownerID: .humanGuidedDiscovery(.calibratePenContactFromSparseMarks),
+      ownerID: .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering),
       actions: [
         ExerciseActionDescriptor(
-          kind: .acceptTipCalibration,
-          title: "Accept Tip Registration"
+          kind: .stopAndAcceptBoundary(capability),
+          title: "Stop & Accept"
         ),
-        ExerciseActionDescriptor(
-          kind: .cancel,
-          title: "Cancel Attempt",
-          role: .destructive
-        ),
+        ExerciseActionDescriptor(kind: .stop(capability), title: "Stop"),
+        ExerciseActionDescriptor(kind: .cancel(capability), title: "Cancel"),
       ],
       mustRemainVisible: true
     )
     let idle = ExerciseActionStripPresentation(
       ownerID: .observedDrawingTrial(.chooseIsolatedLinePlan),
-      actions: [
-        ExerciseActionDescriptor(kind: .start, title: "Start", role: .positive)
-      ]
+      actions: [ExerciseActionDescriptor(kind: .start, title: "Start")]
     )
 
     #expect(active.mustRemainVisible)
+    #expect(active.actions.map(\.buttonRole) == [.commit, .interrupt, .interrupt])
     #expect(!idle.mustRemainVisible)
   }
 
-  @Test("exact evidence remains structured alongside actor action outcome and recovery")
-  func operationAndEvidenceProjection() {
-    let activity = OperationActivityPresentation(
-      actor: "Operator",
-      action: "Reveal and Observe New Ink",
-      outcome: .needsAttention,
-      detail: [.text("Ink may exist after accepted Pen Down.")],
-      recovery: [.text("Return to the local reveal pose and observe; do not redraw.")]
-    )
-    let evidence = ExerciseEvidencePresentation(
-      label: "Exact frames",
-      fragments: [
-        .text("baseline frame-40"),
-        .text("post frames frame-44 and frame-45"),
-        .text("camera configuration camera-A"),
-      ]
-    )
+  @Test("Exercise script admits only Plotter and You speakers")
+  func compactScriptSpeakers() {
+    let lines = [
+      ExerciseScriptLinePresentation(
+        speaker: .plotter,
+        fragments: [.text("Move to the selected boundary.")]
+      ),
+      ExerciseScriptLinePresentation(
+        speaker: .you,
+        fragments: [.text("Stop at the physical edge.")]
+      ),
+    ]
 
-    #expect(activity.actor == "Operator")
-    #expect(activity.action == "Reveal and Observe New Ink")
-    #expect(activity.outcome == .needsAttention)
-    #expect(activity.recovery.accessibilityText.contains("do not redraw"))
-    #expect(evidence.label == "Exact frames")
-    #expect(evidence.fragments.accessibilityText.contains("frame-44 and frame-45"))
+    #expect(lines.map(\.speaker) == [.plotter, .you])
+    #expect(lines.map { $0.fragments.accessibilityText } == [
+      "Move to the selected boundary.",
+      "Stop at the physical edge.",
+    ])
   }
-
 }

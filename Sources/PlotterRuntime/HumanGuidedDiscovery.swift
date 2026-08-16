@@ -25,15 +25,6 @@ public enum BoundaryDirection: String, Codable, CaseIterable, Hashable, Sendable
     }
   }
 
-  fileprivate var stableOrder: Int {
-    switch self {
-    case .negativeX: 0
-    case .positiveX: 1
-    case .negativeY: 2
-    case .positiveY: 3
-    }
-  }
-
   public var opposite: Self {
     switch self {
     case .negativeX: .positiveX
@@ -158,7 +149,7 @@ public struct ToolCapAnchorEstimate: Codable, Hashable, Sendable {
 }
 
 public enum BoundarySideEvidenceError: Error, Equatable, Sendable {
-  case successfulEvidenceRequiresOperatorStop
+  case successfulEvidenceRequiresStopAndAccept
 }
 
 /// Immutable machine-side evidence from one exact Boundary attempt. Controller
@@ -171,7 +162,8 @@ public struct BoundarySideAttemptEvidence: Codable, Hashable, Sendable {
   public let coordinateRevision: UInt64
   public let ownerID: BoundaryMotionOwnerID
   public let stopCapabilityID: UUID
-  public let stopIntent: JogCancelIntent
+  public let stopIntent: BoundaryTerminationIntent
+  public let terminationDisposition: BoundaryTerminationDisposition
   public let finalPosition: MachinePosition
   public let disposition: ExerciseAttemptDisposition
 
@@ -182,12 +174,12 @@ public struct BoundarySideAttemptEvidence: Codable, Hashable, Sendable {
     coordinateRevision: UInt64,
     ownerID: BoundaryMotionOwnerID,
     stopCapabilityID: UUID,
-    stopIntent: JogCancelIntent,
+    stopIntent: BoundaryTerminationIntent,
     finalPosition: MachinePosition,
     disposition: ExerciseAttemptDisposition
   ) throws {
-    if disposition == .succeeded, stopIntent != .operatorStop {
-      throw BoundarySideEvidenceError.successfulEvidenceRequiresOperatorStop
+    if disposition == .succeeded, stopIntent != .stopAndAccept {
+      throw BoundarySideEvidenceError.successfulEvidenceRequiresStopAndAccept
     }
     self.attemptID = attemptID
     self.direction = direction
@@ -196,6 +188,7 @@ public struct BoundarySideAttemptEvidence: Codable, Hashable, Sendable {
     self.ownerID = ownerID
     self.stopCapabilityID = stopCapabilityID
     self.stopIntent = stopIntent
+    terminationDisposition = stopIntent.disposition
     self.finalPosition = finalPosition
     self.disposition = disposition
   }
@@ -754,62 +747,22 @@ public struct BoundaryMotionOwnerID: Codable, Hashable, Sendable {
   }
 }
 
-/// Hard limits for finite controller-owned renewal segments. The current fixed
-/// fallback is 20 mm; these bounds do not create a Camera or Vision adviser.
-public struct BoundaryMotionSegmentBounds: Hashable, Sendable {
-  public let minimumMM: Double
-  public let fallbackMM: Double
-  public let maximumMM: Double
-
-  public init(minimumMM: Double, fallbackMM: Double, maximumMM: Double) {
-    precondition(minimumMM.isFinite && fallbackMM.isFinite && maximumMM.isFinite)
-    precondition(minimumMM > 0 && minimumMM <= fallbackMM && fallbackMM <= maximumMM)
-    self.minimumMM = minimumMM
-    self.fallbackMM = fallbackMM
-    self.maximumMM = maximumMM
-  }
-
-  public static func fixed(_ lengthMM: Double) -> Self {
-    Self(minimumMM: lengthMM, fallbackMM: lengthMM, maximumMM: lengthMM)
-  }
-
-  public func clamped(_ proposedMM: Double?) -> Double {
-    guard let proposedMM, proposedMM.isFinite else { return fallbackMM }
-    return min(maximumMM, max(minimumMM, proposedMM))
-  }
-}
-
-/// One logical operator-stopped boundary operation. `segment` is a finite GRBL
-/// wire request, not an application boundary or successful completion horizon.
+/// One finite controller-owned boundary jog. Natural completion is not boundary
+/// evidence; only an explicit Stop & Accept termination may produce evidence.
 public struct BoundaryMotionRequest: Hashable, Sendable {
   public let ownerID: BoundaryMotionOwnerID
   public let direction: BoundaryDirection
   public let segment: RelativeJogRequest
-  public let renewalBounds: BoundaryMotionSegmentBounds
 
   public init(
     ownerID: BoundaryMotionOwnerID = BoundaryMotionOwnerID(),
     direction: BoundaryDirection,
-    segment: RelativeJogRequest,
-    renewalBounds: BoundaryMotionSegmentBounds? = nil
+    segment: RelativeJogRequest
   ) {
     precondition(Self.matches(direction: direction, delta: segment.delta))
     self.ownerID = ownerID
     self.direction = direction
     self.segment = segment
-    self.renewalBounds = renewalBounds ?? .fixed(segment.delta.magnitude)
-  }
-
-  public func segment(lengthMM: Double) -> RelativeJogRequest {
-    let lengthMM = renewalBounds.clamped(lengthMM)
-    let delta: Vector2<MachineSpace>
-    switch direction {
-    case .negativeX: delta = try! Vector2(dx: -lengthMM, dy: 0)
-    case .positiveX: delta = try! Vector2(dx: lengthMM, dy: 0)
-    case .negativeY: delta = try! Vector2(dx: 0, dy: -lengthMM)
-    case .positiveY: delta = try! Vector2(dx: 0, dy: lengthMM)
-    }
-    return RelativeJogRequest(delta: delta, feedMMPerMinute: segment.feedMMPerMinute)
   }
 
   private static func matches(
@@ -825,29 +778,48 @@ public struct BoundaryMotionRequest: Hashable, Sendable {
   }
 }
 
-public enum JogCancelIntent: String, Codable, Hashable, Sendable {
-  case operatorStop
+public enum BoundaryTerminationIntent: String, Codable, Hashable, Sendable {
+  case stopAndAccept
+  case stop
   case cancelAttempt
+
+  public var disposition: BoundaryTerminationDisposition {
+    switch self {
+    case .stopAndAccept: .accepted
+    case .stop: .stopped
+    case .cancelAttempt: .cancelled
+    }
+  }
+}
+
+public enum BoundaryTerminationDisposition: String, Codable, Hashable, Sendable {
+  case accepted
+  case stopped
+  case cancelled
+}
+
+public enum JogCancelIntent: String, Codable, Hashable, Sendable {
+  case operatorInterruption
   case shutdown
 }
 
 public struct BoundaryMotionSettlement: Hashable, Sendable {
   public let ownerID: BoundaryMotionOwnerID
-  public let intent: JogCancelIntent
+  public let mechanicalCancelIntent: JogCancelIntent
   public let completedSegmentCount: Int
   public let finalPosition: MachinePosition
   public let jogCancelOutcome: JogCancelOutcome
 
   public init(
     ownerID: BoundaryMotionOwnerID,
-    intent: JogCancelIntent,
+    mechanicalCancelIntent: JogCancelIntent,
     completedSegmentCount: Int,
     finalPosition: MachinePosition,
     jogCancelOutcome: JogCancelOutcome
   ) {
     precondition(completedSegmentCount >= 0)
     self.ownerID = ownerID
-    self.intent = intent
+    self.mechanicalCancelIntent = mechanicalCancelIntent
     self.completedSegmentCount = completedSegmentCount
     self.finalPosition = finalPosition
     self.jogCancelOutcome = jogCancelOutcome
@@ -988,7 +960,7 @@ public enum DiscoveryEventExpectation: Hashable, Sendable {
   case operatorChoice(Set<OperatorChoice>)
   case announcementCompleted
   case boundaryJogStarted(BoundaryDirection)
-  case operatorStopRequested(BoundaryDirection)
+  case stopAndAcceptRequested(BoundaryDirection)
   case boundaryJogCancelled(BoundaryDirection)
   case boundaryObservationCommitted(BoundaryDirection)
   case penCommandSettled(PenCommand)
@@ -1004,7 +976,7 @@ public enum DiscoveryEventExpectation: Hashable, Sendable {
       true
     case (.boundaryJogStarted(let expected), .boundaryJogStarted(let actual, _)):
       expected == actual
-    case (.operatorStopRequested(let expected), .operatorStopRequested(let actual)):
+    case (.stopAndAcceptRequested(let expected), .stopAndAcceptRequested(let actual)):
       expected == actual
     case (.boundaryJogCancelled(let expected), .boundaryJogCancelled(let actual, _, _)):
       expected == actual
@@ -1121,7 +1093,7 @@ public enum DiscoverySequenceCatalog {
           id: "stop-boundary",
           participant: .operatorChoice,
           action: .awaitContextualStop(direction),
-          expectedEvent: .operatorStopRequested(direction)
+          expectedEvent: .stopAndAcceptRequested(direction)
         ),
         DiscoveryStep(
           id: "cancel-and-idle",
@@ -1260,7 +1232,7 @@ public enum DiscoveryEvent: Hashable, Sendable {
   case operatorChoiceAccepted(OperatorChoice)
   case announcementCompleted
   case boundaryJogStarted(BoundaryDirection, controllerSummary: String)
-  case operatorStopRequested(BoundaryDirection)
+  case stopAndAcceptRequested(BoundaryDirection)
   case boundaryJogCancelled(
     BoundaryDirection,
     finalPosition: MachinePosition,
@@ -1286,10 +1258,10 @@ public enum DiscoveryEvent: Hashable, Sendable {
         kind: .operatorChoice,
         summary: "Accepted contextual choice: \(response.exactPhrase)"
       )
-    case .operatorStopRequested(let direction):
+    case .stopAndAcceptRequested(let direction):
       DiscoveryEvidenceSummary(
         kind: .operatorChoice,
-        summary: "Operator requested Stop during \(direction.displayName) Boundary Discovery."
+        summary: "Operator requested Stop & Accept during \(direction.displayName) Boundary Discovery."
       )
     case .boundaryJogStarted(_, let summary),
       .boundaryJogCancelled(_, _, let summary),

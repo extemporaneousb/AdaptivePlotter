@@ -64,15 +64,28 @@ operator name or identifier.
    session is seeded at `S40` and `S760`; repeated attempts start with the
    current values and may legitimately differ by position.
 6. For X−, X+, Y−, and Y+, choose the direction explicitly, start Boundary
-   Discovery, watch the motion, and use the operation's exact **Stop**.
-7. Confirm each accepted side cites the selected direction plus final Idle/MPos.
-   Boundary renewal uses fixed bounded controller segments and never consults
-   Camera or Vision advice.
+   Discovery, watch the motion, and verify the same capability owns **Stop &
+   Accept**, **Stop**, and **Cancel**. Use **Stop & Accept** only at the observed
+   boundary; verify red **Stop** produces no accepted side and cleanly exposes
+   Restart, and red **Cancel** abandons the attempt. Escape must invoke Stop,
+   never acceptance.
+7. Confirm each accepted side cites the selected direction plus fresh final
+   Idle/MPos. Natural completion of the bounded request must end Needs Attention
+   with no side evidence and no automatic renewal. Camera or Vision advice must
+   not change this behavior.
 8. Move to the derived center and confirm the final MPos meets the displayed
    0.05 mm settlement policy.
 
 Any ambiguous or out-of-tolerance result ends this run. It is not evidence for
 the requested side or center.
+
+Do not enable a longer Boundary horizon from nominal travel settings alone.
+Before any future increase, validate X−, X+, Y−, and Y+ separately with fresh
+signed remaining-travel authority and a direct operator cutoff. Record the exact
+wire distance/feed, Stop admission before/during the request, the single Jog
+Cancel, Idle/final-MPos latency, measured overshoot, and behavior at a physical
+limit. Missed/late Stop, ambiguity, alarm, disconnect, shutdown, limit, or
+natural completion must never renew or resend.
 
 ## 2. Stage 3.3 — camera and visible-cap calibration
 
@@ -103,31 +116,37 @@ For each of `C`, `X−`, `Y+`, `X+`, and `Y−`:
 2. Watch Pen-Up travel to the intended MPos and confirm it settles.
 3. Confirm the pre-mark frame and cap-map check are current.
 4. Watch Pen-Up travel 2 mm to the circle start and confirm settlement.
-5. Confirm the app commands the current Down value from Pen Interaction and its
+5. Before Pen Down, confirm the entire circle and current paper identity are
+   durably reserved. If persistence is rejected or fails, confirm no Pen Down is
+   sent. Relaunch on the same paper and verify that geometry remains unavailable;
+   record a real paper replacement and verify only the new paper releases it.
+6. Confirm the app commands the current Down value from Pen Interaction and its
    configured settlement. Record the actual value. Directly observe whether the
    mechanism reaches the paper; the command outcome alone is not physical proof.
    Stop the run if the pen does not fully lower, then repeat Pen Interaction at
    that position rather than changing the value outside the exercise.
-6. Watch one closed 4 mm-diameter circle complete as 16 short chords at no more
+7. Watch one closed 4 mm-diameter circle complete as 16 short chords at no more
    than 100 mm/min, then one explicit Pen Up. Any stop, hesitation, unexpected path, or ambiguous chord
-   ends the calibration and blacklists that circle location.
-7. Confirm Pen Up settles, then watch reveal travel go to the learned safe X+
+   ends the calibration and keeps the complete circle geometry reserved as
+   possible physical ink on this paper.
+8. Confirm Pen Up settles, then watch reveal travel go to the learned safe X+
    limit and toward machine Y=0. Confirm the armature is materially clear of
    the entire circle before accepting the frame.
-8. Confirm the displayed frame is frozen after reveal settlement and opens at
-   the stronger one-third-frame presentation focus.
-9. Before clicking, verify no expected tip point or residual is shown.
-10. Click the observed center of the new physical black circle.
-11. After clicking, review the asserted point and uncertainty, the expected
+9. Confirm the displayed frame is frozen after reveal settlement without
+   changing the operator's zoom, pan, or locked analysis region.
+10. Before clicking, verify no expected tip point or residual is shown.
+11. Click the observed center of the new physical black circle.
+12. After clicking, review the asserted point and uncertainty, the expected
     point from the current tip-calibration candidate, and residual. Presentation
     zoom may help view the pixels; it must not change the selected camera
     coordinates.
-12. If the click is wrong, use **Re-click This Exact Frame**. Confirm that no
+13. If the click is wrong, use **Re-click This Exact Frame**. Confirm that no
     motion or ink action occurs.
-13. Use **Accept Mark Center** only when the click and provenance are correct.
+14. Use **Accept Mark Center** only when the click and provenance are correct.
 
-If any chord, contact, or Pen state is ambiguous, stop. The circle center/radius
-on this paper is blacklisted. Do not retry it or reset around it. The only
+If any chord, contact, or Pen state is ambiguous, stop. The complete circle
+geometry remains reserved as possible physical ink on this paper. Do not retry
+it or try to make it eligible through Learning invalidation. The only
 same-workflow recovery is an explicit paper replacement.
 
 After five accepted observations, review the model form, fit roles, two sealed
@@ -147,10 +166,13 @@ restoration.
 - Explicit paper replacement: record the replacement, rebuild current machine-
   camera authority if required, then create one new 2 mm-radius center circle
   and click it. Confirm exactly one new mark is used as contact-plane evidence
-  and the restored tip revision consumes it.
+  and the restored tip revision consumes it. If the prior exposure ledger was
+  rejected, confirm its raw bytes were archived, a fresh ledger was created for
+  the replacement paper, and same-paper contact was never admitted first.
 
-If any semantic identity is uncertain, do not revalidate. Clear the durable tip
-checkpoint and perform a new five-mark calibration.
+If any semantic identity is uncertain, do not revalidate. Explicitly invalidate
+the tip payload through the single Learning-authority manifest and perform a new
+five-mark calibration.
 
 ## 5. Stage 4 — isolated observed line
 
@@ -158,12 +180,16 @@ checkpoint and perform a new five-mark calibration.
 2. Choose one signed-axis 5 mm line plan.
 3. Capture the trial-local pre-line baseline and record its Pen-Up reveal MPos.
 4. Watch Pen-Up travel settle at line start.
-5. Draw once under the single drawing owner. Do not resend after ambiguity.
-6. Return Pen Up to the same trial-local reveal MPos and require settlement.
-7. Capture a strictly newer post-line frame.
-8. Review intended and observed geometry plus residuals only if the exact tip
+5. Before Pen Down, confirm the full line and current paper identity are durably
+   reserved. Verify a failed save sends no Pen Down, a same-paper relaunch keeps
+   the line unavailable, and an explicit paper replacement releases only the
+   prior paper's geometry.
+6. Draw once under the single drawing owner. Do not resend after ambiguity.
+7. Return Pen Up to the same trial-local reveal MPos and require settlement.
+8. Capture a strictly newer post-line frame.
+9. Review intended and observed geometry plus residuals only if the exact tip
    revision remains current.
-9. Record the operator assessment. It may retain candidate refinement evidence;
+10. Record the operator assessment. It may retain candidate refinement evidence;
    it must not silently change the accepted model.
 
 ## Evidence record

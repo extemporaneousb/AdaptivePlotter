@@ -74,124 +74,129 @@ func inverseMappingRejectsLetterbox() throws {
   #expect(try #require(transform.cameraPoint(CGPoint(x: 200, y: 100))).x == 50)
 }
 
-@Test("Viewport defaults full-frame, interpolates, and reaches fitted learned bounds")
+@MainActor
+@Test("Viewport defaults full-frame and uses fitted bounds only after operator action")
 func viewportZoomEndpointsAndInterpolation() {
   let context = ActionSurfaceViewportContext(
     source: .simulated,
     cameraConfigurationID: CameraConfigurationID(),
-    fittedRegion: PixelRect(x: 300, y: 200, width: 40, height: 20),
-    preferredInitialZoom: 0,
-    presentationRevisionToken: "bounds-1"
+    fittedRegion: PixelRect(x: 300, y: 200, width: 40, height: 20)
   )
-  var viewport = ActionSurfaceViewportState()
-  viewport.synchronize(with: context)
-  #expect(viewport.zoom == 0)
-  #expect(viewport.visibleRegion(frameWidth: 640, frameHeight: 480) == nil)
-
-  viewport.zoom = 0.5
+  let preferences = VideoPresentationPreferences()
+  preferences.synchronize(with: context)
+  #expect(preferences.zoom == 0)
   #expect(
-    viewport.visibleRegion(frameWidth: 640, frameHeight: 480)
+    preferences.visibleRect(frameWidth: 640, frameHeight: 480)
+      == PixelRect(x: 0, y: 0, width: 640, height: 480)
+  )
+
+  preferences.fitCurrentSuggestion()
+  preferences.setZoom(0.5)
+  #expect(
+    preferences.visibleRect(frameWidth: 640, frameHeight: 480)
       == PixelRect(x: 150, y: 100, width: 340, height: 250)
   )
-  let evidenceRevision = viewport.presentationTransformRevision
-  viewport.showFittedBounds()
-  #expect(viewport.visibleRegion(frameWidth: 640, frameHeight: 480) == context.fittedRegion)
-  #expect(viewport.presentationTransformRevision != evidenceRevision)
+  preferences.fitCurrentSuggestion()
+  #expect(preferences.visibleRect(frameWidth: 640, frameHeight: 480) == context.fittedRegion)
 }
 
-@Test("Viewport preserves operator zoom across compatible semantic context changes")
-func viewportPresentationOnlyContext() {
+@MainActor
+@Test("Learning context never changes an operator viewport or locked ROI")
+func viewportPresentationOnlyContext() throws {
   let context = ActionSurfaceViewportContext(
     source: .simulated,
     cameraConfigurationID: CameraConfigurationID(),
-    fittedRegion: PixelRect(x: 20, y: 30, width: 40, height: 50),
-    preferredInitialZoom: 0,
-    presentationRevisionToken: "machine-fit-1"
+    fittedRegion: PixelRect(x: 20, y: 30, width: 40, height: 50)
   )
-  var viewport = ActionSurfaceViewportState()
-  viewport.synchronize(with: context)
-  viewport.zoom = 0.72
-  viewport.pan(
+  let preferences = VideoPresentationPreferences()
+  preferences.synchronize(with: context)
+  preferences.fitCurrentSuggestion()
+  preferences.setZoom(0.72)
+  preferences.pan(
     by: CGSize(width: -20, height: -10),
     viewSize: CGSize(width: 640, height: 480),
     frameWidth: 640,
     frameHeight: 480
   )
-  let operatorRegion = viewport.visibleRegion(frameWidth: 640, frameHeight: 480)
-  viewport.synchronize(with: context)
-  #expect(viewport.zoom == 0.72)
-  viewport.synchronize(
+  let operatorRegion = preferences.visibleRect(frameWidth: 640, frameHeight: 480)
+  preferences.synchronize(
     with: ActionSurfaceViewportContext(
       source: context.source,
       cameraConfigurationID: context.cameraConfigurationID,
-      fittedRegion: context.fittedRegion,
-      preferredInitialZoom: 0,
-      presentationRevisionToken: "machine-fit-2"
+      fittedRegion: context.fittedRegion
     ))
-  #expect(viewport.zoom == 0.72)
-  #expect(viewport.visibleRegion(frameWidth: 640, frameHeight: 480) == operatorRegion)
+  #expect(preferences.zoom == 0.72)
+  #expect(preferences.visibleRect(frameWidth: 640, frameHeight: 480) == operatorRegion)
 
-  viewport.synchronize(
+  let displayedFrame = try testDisplayedFrame(
+    source: context.source,
+    configuration: context.cameraConfigurationID,
+    width: 640,
+    height: 480
+  )
+  #expect(preferences.lockVisibleRect(for: displayedFrame) == operatorRegion)
+  #expect(preferences.analysisROI == operatorRegion)
+
+  preferences.synchronize(
     with: ActionSurfaceViewportContext(
       source: context.source,
       cameraConfigurationID: context.cameraConfigurationID,
-      fittedRegion: PixelRect(x: 25, y: 35, width: 40, height: 50),
-      preferredInitialZoom: 1,
-      presentationRevisionToken: "sparse-mark-focus"
+      fittedRegion: PixelRect(x: 25, y: 35, width: 40, height: 50)
     ))
-  #expect(viewport.zoom == 1)
+  #expect(preferences.zoom == 0.72)
+  #expect(preferences.visibleRect(frameWidth: 640, frameHeight: 480) == operatorRegion)
+  #expect(preferences.analysisROI == operatorRegion)
 
-  viewport.zoom = 0.44
-  viewport.synchronize(
+  preferences.synchronize(
     with: ActionSurfaceViewportContext(
       source: context.source,
       cameraConfigurationID: CameraConfigurationID(),
-      fittedRegion: context.fittedRegion,
-      preferredInitialZoom: 0,
-      presentationRevisionToken: "different-camera"
+      fittedRegion: context.fittedRegion
     ))
-  #expect(viewport.zoom == 0)
+  #expect(preferences.zoom == 0)
+  #expect(preferences.analysisROI == nil)
 }
 
+@MainActor
 @Test("Viewport drag pans the zoomed camera region and clamps at frame edges")
 func viewportDragPanning() {
   let context = ActionSurfaceViewportContext(
     source: .simulated,
     cameraConfigurationID: CameraConfigurationID(),
-    fittedRegion: nil,
-    preferredInitialZoom: 1,
-    presentationRevisionToken: "drag-region"
+    fittedRegion: nil
   )
-  var viewport = ActionSurfaceViewportState()
-  viewport.synchronize(with: context)
+  let preferences = VideoPresentationPreferences()
+  preferences.synchronize(with: context)
+  preferences.setZoom(1)
   #expect(
-    viewport.visibleRegion(frameWidth: 100, frameHeight: 100)
+    preferences.visibleRect(frameWidth: 100, frameHeight: 100)
       == PixelRect(x: 25, y: 25, width: 50, height: 50)
   )
 
-  viewport.pan(
+  preferences.pan(
     by: CGSize(width: -100, height: -100),
     viewSize: CGSize(width: 100, height: 100),
     frameWidth: 100,
     frameHeight: 100
   )
   #expect(
-    viewport.visibleRegion(frameWidth: 100, frameHeight: 100)
+    preferences.visibleRect(frameWidth: 100, frameHeight: 100)
       == PixelRect(x: 50, y: 50, width: 50, height: 50)
   )
 
-  viewport.pan(
+  preferences.pan(
     by: CGSize(width: 1_000, height: 1_000),
     viewSize: CGSize(width: 100, height: 100),
     frameWidth: 100,
     frameHeight: 100
   )
   #expect(
-    viewport.visibleRegion(frameWidth: 100, frameHeight: 100)
+    preferences.visibleRect(frameWidth: 100, frameHeight: 100)
       == PixelRect(x: 0, y: 0, width: 50, height: 50)
   )
 }
 
+@MainActor
 @Test("Fitted presentation bounds use true frame intersections")
 func viewportClipsFittedBoundsAtEveryFrameEdge() {
   let cases: [(PixelRect, PixelRect?)] = [
@@ -212,41 +217,154 @@ func viewportClipsFittedBoundsAtEveryFrameEdge() {
 
   for (region, expected) in cases {
     #expect(cameraFrameIntersection(region, frameWidth: 100, frameHeight: 100) == expected)
-    var viewport = ActionSurfaceViewportState()
-    viewport.synchronize(
+    let preferences = VideoPresentationPreferences()
+    preferences.synchronize(
       with: ActionSurfaceViewportContext(
         source: .simulated,
         cameraConfigurationID: CameraConfigurationID(),
-        fittedRegion: region,
-        preferredInitialZoom: 0,
-        presentationRevisionToken: "bounds-edge"
+        fittedRegion: region
       ))
-    viewport.showFittedBounds()
-    #expect(viewport.visibleRegion(frameWidth: 100, frameHeight: 100) == expected)
+    preferences.fitCurrentSuggestion()
+    #expect(
+      preferences.visibleRect(frameWidth: 100, frameHeight: 100)
+        == (expected ?? PixelRect(x: 0, y: 0, width: 100, height: 100))
+    )
   }
 }
 
-@Test("Sparse mark context opens at its stronger presentation-only focus")
+@MainActor
+@Test("Sparse mark focus is a suggestion until explicitly accepted")
 func sparseMarkPreferredZoom() {
   let region = PixelRect(x: 210, y: 160, width: 213, height: 160)
-  var viewport = ActionSurfaceViewportState()
-  viewport.synchronize(
+  let preferences = VideoPresentationPreferences()
+  preferences.synchronize(
     with: ActionSurfaceViewportContext(
       source: .simulated,
       cameraConfigurationID: CameraConfigurationID(),
-      fittedRegion: region,
-      preferredInitialZoom: 1,
-      presentationRevisionToken: "sparse-mark-frame-12"
+      fittedRegion: region
     ))
 
-  #expect(viewport.zoom == 1)
-  #expect(viewport.visibleRegion(frameWidth: 640, frameHeight: 480) == region)
+  #expect(preferences.zoom == 0)
+  #expect(
+    preferences.visibleRect(frameWidth: 640, frameHeight: 480)
+      == PixelRect(x: 0, y: 0, width: 640, height: 480)
+  )
+  preferences.fitCurrentSuggestion()
+  #expect(preferences.visibleRect(frameWidth: 640, frameHeight: 480) == region)
+}
+
+@MainActor
+@Test("Zoom is display-only until lock and unlock preserves geometry")
+func viewportAnalysisROILockSemantics() throws {
+  let displayedFrame = try testDisplayedFrame(width: 100, height: 100)
+  let preferences = VideoPresentationPreferences()
+  preferences.synchronize(
+    with: ActionSurfaceViewportContext(
+      source: displayedFrame.source,
+      cameraConfigurationID: displayedFrame.frame.cameraConfigurationID,
+      fittedRegion: nil
+    ))
+  preferences.setZoom(1)
+
+  let visible = try #require(preferences.visibleRect(frameWidth: 100, frameHeight: 100))
+  #expect(visible == PixelRect(x: 25, y: 25, width: 50, height: 50))
+  #expect(preferences.analysisROI == nil)
+  #expect(preferences.lockVisibleRect(for: displayedFrame) == visible)
+  #expect(preferences.analysisROI == visible)
+  #expect(preferences.visibleRect(frameWidth: 100, frameHeight: 100) == visible)
+
+  preferences.unlockAnalysisROI()
+  #expect(preferences.analysisROI == nil)
+  #expect(preferences.visibleRect(frameWidth: 100, frameHeight: 100) == visible)
+}
+
+@MainActor
+@Test("Panned rendered viewport is the exact analysis lock rectangle")
+func pannedViewportLockUsesRenderedRectangle() throws {
+  let displayedFrame = try testDisplayedFrame(width: 100, height: 100)
+  let preferences = VideoPresentationPreferences()
+  preferences.synchronize(
+    with: ActionSurfaceViewportContext(
+      source: displayedFrame.source,
+      cameraConfigurationID: displayedFrame.frame.cameraConfigurationID,
+      fittedRegion: nil
+    ))
+  preferences.setZoom(0.7)
+  preferences.pan(
+    by: CGSize(width: 9, height: -6),
+    viewSize: CGSize(width: 100, height: 100),
+    frameWidth: 100,
+    frameHeight: 100
+  )
+  let renderedRegion = try #require(
+    preferences.visibleRect(frameWidth: 100, frameHeight: 100)
+  )
+
+  #expect(preferences.lockVisibleRect(for: displayedFrame) == renderedRegion)
+  #expect(preferences.analysisROI == renderedRegion)
+
+  preferences.unlockAnalysisROI()
+  #expect(preferences.analysisROI == nil)
+  #expect(preferences.visibleRect(frameWidth: 100, frameHeight: 100) == renderedRegion)
+}
+
+@MainActor
+@Test("Source or configuration reset clears geometry and lock but preserves video choices")
+func viewportSourceResetPreservesOperatorVideoChoices() throws {
+  let first = try testDisplayedFrame(width: 100, height: 100)
+  let reconfiguredID = CameraConfigurationID()
+  let preferences = VideoPresentationPreferences()
+  preferences.selectCadence(.tenFPS)
+  preferences.setOverlay(.armatureEnvelope, enabled: false)
+  #expect(preferences.overlayPreferenceState.lastMutationSource == .operatorAction)
+  preferences.synchronize(
+    with: ActionSurfaceViewportContext(
+      source: first.source,
+      cameraConfigurationID: first.frame.cameraConfigurationID,
+      fittedRegion: nil
+    ))
+  preferences.setZoom(1)
+  _ = preferences.lockVisibleRect(for: first)
+
+  preferences.synchronize(
+    with: ActionSurfaceViewportContext(
+      source: first.source,
+      cameraConfigurationID: reconfiguredID,
+      fittedRegion: PixelRect(x: 10, y: 10, width: 20, height: 20)
+    ))
+
+  #expect(preferences.zoom == 0)
+  #expect(preferences.analysisROI == nil)
+  #expect(preferences.cadence == .tenFPS)
+  #expect(preferences.enabledOverlays == [.penCap])
+  #expect(preferences.overlayPreferenceState.lastMutationSource == .operatorAction)
+
+  let reconfigured = try testDisplayedFrame(
+    source: first.source,
+    configuration: reconfiguredID,
+    width: 100,
+    height: 100
+  )
+  preferences.setZoom(1)
+  _ = preferences.lockVisibleRect(for: reconfigured)
+  preferences.synchronize(
+    with: ActionSurfaceViewportContext(
+      source: .simulated,
+      cameraConfigurationID: reconfiguredID,
+      fittedRegion: nil
+    ))
+
+  #expect(preferences.zoom == 0)
+  #expect(preferences.analysisROI == nil)
+  #expect(preferences.cadence == .tenFPS)
+  #expect(preferences.enabledOverlays == [.penCap])
+  #expect(preferences.overlayPreferenceState.lastMutationSource == .operatorAction)
 }
 
 @Test("Tip presentation hides prediction until after selection")
 func tipPredictionVisibilityPolicy() throws {
   #expect(ActionSurfaceTipPresentation.notCalibrated.statusText == "Tip not calibrated")
-  if case .awaitingClick = ActionSurfaceTipPresentation.awaitingClick("Click mark center") {
+  if case .awaitingClick = ActionSurfaceTipPresentation.awaitingClick {
   } else {
     Issue.record("awaiting click state must not contain a prediction")
   }
@@ -355,9 +473,7 @@ func simulatedAnnotationIdentityAndToggle() throws {
   ) -> SimulatedLearningAnnotation {
     SimulatedLearningAnnotation(
       kind: .currentCapAnchor,
-      anchor: point,
       geometry: .point(point),
-      visibleLabel: "MPOS",
       accessibleValue: "Simulated current position",
       frameID: frameID,
       cameraConfigurationID: configurationID,
@@ -392,7 +508,17 @@ func simulatedAnnotationIdentityAndToggle() throws {
     simulatedViewportID: viewport
   )
   #expect(visible.simulatedAnnotations == [matching])
-  #expect(visible.rendererIdentity == "canonical-stamped-frame")
+  let duplicatedAccessibility = ActionSurfacePresentation(
+    displayedFrame: displayed,
+    overlays: [],
+    simulatedAnnotations: [matching, matching],
+    simulatedViewportID: viewport
+  )
+  #expect(duplicatedAccessibility.simulatedAnnotations.count == 2)
+  #expect(
+    duplicatedAccessibility.simulatedAnnotationAccessibilityValues
+      == ["Simulated current position"]
+  )
 
   let hidden = ActionSurfacePresentation(
     displayedFrame: displayed,
@@ -405,16 +531,14 @@ func simulatedAnnotationIdentityAndToggle() throws {
   #expect(hidden.displayedFrame?.frame == visible.displayedFrame?.frame)
 }
 
-@Test("Live and simulated frames use the same canonical renderer")
-func liveAndSimulatorShareRenderer() throws {
+@Test("Only simulated presentation carries a source badge")
+func simulatedSourceBadge() throws {
   let live = try testDisplayedFrame(source: .live(CameraDeviceID(rawValue: "camera-a")))
   let simulated = try testDisplayedFrame(source: .simulated)
 
   let livePresentation = ActionSurfacePresentation(displayedFrame: live, overlays: [])
   let simulatedPresentation = ActionSurfacePresentation(displayedFrame: simulated, overlays: [])
 
-  #expect(ActionSurfacePresentation.rendererIdentity == "canonical-stamped-frame")
-  #expect(livePresentation.rendererIdentity == simulatedPresentation.rendererIdentity)
   #expect(livePresentation.sourceBadgeLabel == nil)
   #expect(simulatedPresentation.sourceBadgeLabel == "SIMULATED")
 }
@@ -535,7 +659,9 @@ func presentationImageCacheIsIdentityKeyedAndBounded() throws {
 
 private func testDisplayedFrame(
   source: FrameSourceIdentity = .live(CameraDeviceID(rawValue: "camera-a")),
-  configuration: CameraConfigurationID = CameraConfigurationID()
+  configuration: CameraConfigurationID = CameraConfigurationID(),
+  width: Int = 2,
+  height: Int = 2
 ) throws -> DisplayedFrame {
   DisplayedFrame(
     source: source,
@@ -543,11 +669,11 @@ private func testDisplayedFrame(
       sequence: 1,
       captureNanoseconds: 10,
       cameraConfigurationID: configuration,
-      width: 2,
-      height: 2,
-      rowBytes: 8,
+      width: width,
+      height: height,
+      rowBytes: width * 4,
       pixelFormat: .bgra8,
-      bytes: OwnedFrameBytes(Array(repeating: 255, count: 16))
+      bytes: OwnedFrameBytes(Array(repeating: 255, count: width * height * 4))
     )
   )
 }

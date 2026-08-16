@@ -8,9 +8,11 @@ struct LearningArtifactsTests {
   @Test("successful replacement is atomic and supersedes the old revision")
   func successfulReplacement() throws {
     var graph = LearningDependencyGraph()
-    let old = revision(kind: .penInteraction)
+    let appearance = revision(kind: .penCapAppearance)
+    _ = try graph.commitReplacement(appearance)
+    let old = revision(kind: .penInteraction, consumes: [appearance.id])
     let firstCommit = try graph.commitReplacement(old)
-    let replacement = revision(kind: .penInteraction)
+    let replacement = revision(kind: .penInteraction, consumes: [appearance.id])
     let commit = try graph.commitReplacement(replacement)
 
     #expect(firstCommit.currentRevision.state == .current)
@@ -23,7 +25,9 @@ struct LearningArtifactsTests {
   @Test("unsuccessful replacement does not manufacture a current result")
   func unsuccessfulReplacement() throws {
     var graph = LearningDependencyGraph()
-    let accepted = revision(kind: .penInteraction)
+    let appearance = revision(kind: .penCapAppearance)
+    _ = try graph.commitReplacement(appearance)
+    let accepted = revision(kind: .penInteraction, consumes: [appearance.id])
     _ = try graph.commitReplacement(accepted)
 
     for disposition in [
@@ -34,7 +38,8 @@ struct LearningArtifactsTests {
       let candidate = LearningArtifactRevision(
         kind: .penInteraction,
         attemptID: ExerciseAttemptID(),
-        disposition: disposition
+        disposition: disposition,
+        consumedRevisionIDs: [appearance.id]
       )
       #expect(throws: LearningDependencyGraphError.unsuccessfulReplacement(disposition)) {
         try graph.commitReplacement(candidate)
@@ -47,12 +52,16 @@ struct LearningArtifactsTests {
   @Test("Pen Interaction replacement retains independent boundary observations")
   func penReplacementRetainsIndependentBoundary() throws {
     var graph = LearningDependencyGraph()
-    let pen = revision(kind: .penInteraction)
+    let appearance = revision(kind: .penCapAppearance)
+    _ = try graph.commitReplacement(appearance)
+    let pen = revision(kind: .penInteraction, consumes: [appearance.id])
     let boundary = revision(kind: .boundarySideAggregate(.positiveX))
     _ = try graph.commitReplacement(pen)
     _ = try graph.commitReplacement(boundary)
 
-    let commit = try graph.commitReplacement(revision(kind: .penInteraction))
+    let commit = try graph.commitReplacement(
+      revision(kind: .penInteraction, consumes: [appearance.id])
+    )
 
     #expect(commit.invalidatedRevisionIDs.isEmpty)
     #expect(graph.currentRevision(for: .boundarySideAggregate(.positiveX))?.id == boundary.id)
@@ -63,19 +72,20 @@ struct LearningArtifactsTests {
     let stage = try stageFourArtifactGraph(group: AttemptGroupIdentity(rawValue: "trial-a"))
 
     #expect(stage.linePlan.consumedRevisionIDs == [stage.tip.id])
-    #expect(stage.localBaseline.consumedRevisionIDs == [stage.tip.id])
-    #expect(stage.lineExecution.consumedRevisionIDs == [stage.linePlan.id])
-    #expect(stage.postLine.consumedRevisionIDs == [
-      stage.lineExecution.id, stage.localBaseline.id, stage.tip.id,
+    #expect(stage.localContext.consumedRevisionIDs == [stage.linePlan.id, stage.tip.id])
+    #expect(stage.lineStartArrival.consumedRevisionIDs == [
+      stage.linePlan.id, stage.localContext.id,
     ])
-    #expect(stage.ink.consumedRevisionIDs == [
-      stage.localBaseline.id, stage.lineExecution.id, stage.postLine.id, stage.tip.id,
+    #expect(stage.lineExecution.consumedRevisionIDs == [
+      stage.linePlan.id, stage.localContext.id, stage.lineStartArrival.id,
     ])
-    #expect(stage.residual.consumedRevisionIDs == [stage.ink.id])
-    #expect(stage.comparison.consumedRevisionIDs == [stage.ink.id, stage.residual.id])
+    #expect(stage.postLineObservation.consumedRevisionIDs == [
+      stage.lineExecution.id, stage.localContext.id, stage.tip.id,
+    ])
+    #expect(stage.comparison.consumedRevisionIDs == [stage.postLineObservation.id])
     for artifact in [
-      stage.tip, stage.linePlan, stage.localBaseline, stage.lineExecution,
-      stage.postLine, stage.ink, stage.residual, stage.comparison,
+      stage.tip, stage.linePlan, stage.localContext, stage.lineStartArrival,
+      stage.lineExecution, stage.postLineObservation, stage.comparison,
     ] {
       #expect(stage.graph.revision(id: artifact.id)?.state == .current)
     }
@@ -85,45 +95,50 @@ struct LearningArtifactsTests {
   func stageFourRejectsInvalidDependencyShapes() throws {
     var tipStage = try acceptedTipArtifactGraph()
     let group = AttemptGroupIdentity(rawValue: "trial-invalid")
-    let baseline = revision(kind: .localPreLineBaseline(group), consumes: [tipStage.tip.id])
-    _ = try tipStage.graph.commitReplacement(baseline)
     let plan = revision(kind: .linePlan(group), consumes: [tipStage.tip.id])
     _ = try tipStage.graph.commitReplacement(plan)
-    let execution = revision(kind: .lineExecution(group), consumes: [plan.id])
+    let context = revision(
+      kind: .localPreLineContext(group),
+      consumes: [plan.id, tipStage.tip.id]
+    )
+    _ = try tipStage.graph.commitReplacement(context)
+    let arrival = revision(
+      kind: .lineStartArrival(group),
+      consumes: [plan.id, context.id]
+    )
+    _ = try tipStage.graph.commitReplacement(arrival)
+    let execution = revision(
+      kind: .lineExecution(group),
+      consumes: [plan.id, context.id, arrival.id]
+    )
     _ = try tipStage.graph.commitReplacement(execution)
 
     for candidate in [
       revision(kind: .linePlan(group)),
-      revision(kind: .localPreLineBaseline(group)),
-      revision(kind: .lineExecution(group), consumes: [baseline.id]),
+      revision(kind: .localPreLineContext(group), consumes: [tipStage.tip.id]),
+      revision(kind: .lineStartArrival(group), consumes: [plan.id]),
+      revision(kind: .lineExecution(group), consumes: [plan.id, arrival.id]),
       revision(
-        kind: .postLineFrame(group),
-        consumes: [execution.id, baseline.id]
+        kind: .postLineObservation(group),
+        consumes: [execution.id, context.id]
       ),
     ] {
       #expect(throws: LearningDependencyGraphError.invalidDependencyShape(candidate.kind)) {
         try tipStage.graph.commitReplacement(candidate)
       }
     }
-    let post = revision(
-      kind: .postLineFrame(group),
-      consumes: [execution.id, baseline.id, tipStage.tip.id]
+    let invalidComparison = revision(
+      kind: .comparison(group),
+      consumes: [execution.id]
     )
-    _ = try tipStage.graph.commitReplacement(post)
-    let invalidInk = revision(
-      kind: .inkObservation(group),
-      consumes: [baseline.id, post.id, tipStage.tip.id]
-    )
-    #expect(throws: LearningDependencyGraphError.invalidDependencyShape(invalidInk.kind)) {
-      try tipStage.graph.commitReplacement(invalidInk)
+    #expect(throws: LearningDependencyGraphError.invalidDependencyShape(invalidComparison.kind)) {
+      try tipStage.graph.commitReplacement(invalidComparison)
     }
   }
 
   @Test("replacing the exact tip revision invalidates every Stage 4 consumer")
   func tipReplacementInvalidatesStageFourTransitively() throws {
     var stage = try stageFourArtifactGraph(group: AttemptGroupIdentity(rawValue: "trial-tip"))
-    let boundary = revision(kind: .boundarySideAggregate(.negativeY))
-    _ = try stage.graph.commitReplacement(boundary)
     let replacement = revision(
       kind: .tipCameraRegistration,
       consumes: Set([stage.machine.id] + stage.observations.map(\.id))
@@ -133,12 +148,15 @@ struct LearningArtifactsTests {
 
     #expect(commit.supersededRevisionID == stage.tip.id)
     #expect(commit.invalidatedRevisionIDs == [
-      stage.linePlan.id, stage.localBaseline.id, stage.lineExecution.id,
-      stage.postLine.id, stage.ink.id, stage.residual.id, stage.comparison.id,
+      stage.linePlan.id, stage.localContext.id, stage.lineStartArrival.id,
+      stage.lineExecution.id, stage.postLineObservation.id, stage.comparison.id,
     ])
     #expect(stage.graph.currentRevision(for: .tipCameraRegistration)?.id == replacement.id)
     #expect(stage.graph.revision(id: stage.tip.id)?.state == .superseded)
-    #expect(stage.graph.currentRevision(for: .boundarySideAggregate(.negativeY))?.id == boundary.id)
+    #expect(stage.graph.currentRevision(for: .machineCameraRegistration)?.id == stage.machine.id)
+    #expect(stage.observations.allSatisfy {
+      stage.graph.currentRevision(for: $0.kind)?.id == $0.id
+    })
   }
 
   @Test("one current side aggregate replacement invalidates center and explicit consumers only")
@@ -155,7 +173,9 @@ struct LearningArtifactsTests {
     _ = try graph.commitReplacement(center)
     let arrival = revision(kind: .centerArrival, consumes: [center.id])
     _ = try graph.commitReplacement(arrival)
-    let unrelated = revision(kind: .penInteraction)
+    let appearance = revision(kind: .penCapAppearance)
+    _ = try graph.commitReplacement(appearance)
+    let unrelated = revision(kind: .penInteraction, consumes: [appearance.id])
     _ = try graph.commitReplacement(unrelated)
 
     let commit = try graph.commitReplacement(
@@ -180,14 +200,14 @@ struct LearningArtifactsTests {
 
     #expect(first.rootInvalidatedRevisionIDs == [stage.tip.id])
     #expect(first.transitiveInvalidatedRevisionIDs == [
-      stage.linePlan.id, stage.localBaseline.id, stage.lineExecution.id,
-      stage.postLine.id, stage.ink.id, stage.residual.id, stage.comparison.id,
+      stage.linePlan.id, stage.localContext.id, stage.lineStartArrival.id,
+      stage.lineExecution.id, stage.postLineObservation.id, stage.comparison.id,
     ])
     #expect(second.rootInvalidatedRevisionIDs.isEmpty)
     #expect(second.transitiveInvalidatedRevisionIDs.isEmpty)
     #expect(stage.graph.revisions.count == revisionCount)
     #expect(stage.graph.revision(id: stage.tip.id)?.attemptID == stage.tip.attemptID)
-    #expect(stage.graph.revision(id: stage.ink.id)?.consumedRevisionIDs.contains(stage.tip.id) == true)
+    #expect(stage.graph.revision(id: stage.postLineObservation.id)?.consumedRevisionIDs.contains(stage.tip.id) == true)
   }
 
   @Test("numeric aggregates expose N estimator uncertainty and exact included attempts")
@@ -716,7 +736,23 @@ private func acceptedTipArtifactGraph() throws -> (
   tip: LearningArtifactRevision
 ) {
   var graph = LearningDependencyGraph()
-  let machine = revision(kind: .machineCameraRegistration)
+  let appearance = revision(kind: .penCapAppearance)
+  _ = try graph.commitReplacement(appearance)
+  let sides = BoundaryDirection.allCases.map {
+    revision(kind: .boundarySideAggregate($0))
+  }
+  for side in sides { _ = try graph.commitReplacement(side) }
+  let center = revision(
+    kind: .estimatedMachineCenter,
+    consumes: Set(sides.map(\.id))
+  )
+  _ = try graph.commitReplacement(center)
+  let arrival = revision(kind: .centerArrival, consumes: [center.id])
+  _ = try graph.commitReplacement(arrival)
+  let machine = revision(
+    kind: .machineCameraRegistration,
+    consumes: [appearance.id, arrival.id]
+  )
   _ = try graph.commitReplacement(machine)
   let observations = (0..<5).map { _ in
     revision(
@@ -743,39 +779,42 @@ private func stageFourArtifactGraph(
   observations: [LearningArtifactRevision],
   tip: LearningArtifactRevision,
   linePlan: LearningArtifactRevision,
-  localBaseline: LearningArtifactRevision,
+  localContext: LearningArtifactRevision,
+  lineStartArrival: LearningArtifactRevision,
   lineExecution: LearningArtifactRevision,
-  postLine: LearningArtifactRevision,
-  ink: LearningArtifactRevision,
-  residual: LearningArtifactRevision,
+  postLineObservation: LearningArtifactRevision,
   comparison: LearningArtifactRevision
 ) {
   var tipStage = try acceptedTipArtifactGraph()
   let linePlan = revision(kind: .linePlan(group), consumes: [tipStage.tip.id])
-  let localBaseline = revision(
-    kind: .localPreLineBaseline(group),
-    consumes: [tipStage.tip.id]
+  let localContext = revision(
+    kind: .localPreLineContext(group),
+    consumes: [linePlan.id, tipStage.tip.id]
   )
-  let lineExecution = revision(kind: .lineExecution(group), consumes: [linePlan.id])
-  let postLine = revision(
-    kind: .postLineFrame(group),
-    consumes: [lineExecution.id, localBaseline.id, tipStage.tip.id]
+  let lineStartArrival = revision(
+    kind: .lineStartArrival(group),
+    consumes: [linePlan.id, localContext.id]
   )
-  let ink = revision(
-    kind: .inkObservation(group),
-    consumes: [localBaseline.id, lineExecution.id, postLine.id, tipStage.tip.id]
+  let lineExecution = revision(
+    kind: .lineExecution(group),
+    consumes: [linePlan.id, localContext.id, lineStartArrival.id]
   )
-  let residual = revision(kind: .residual(group), consumes: [ink.id])
+  let postLineObservation = revision(
+    kind: .postLineObservation(group),
+    consumes: [lineExecution.id, localContext.id, tipStage.tip.id]
+  )
   let comparison = revision(
     kind: .comparison(group),
-    consumes: [ink.id, residual.id]
+    consumes: [postLineObservation.id]
   )
-  for artifact in [linePlan, localBaseline, lineExecution, postLine, ink, residual, comparison] {
+  for artifact in [
+    linePlan, localContext, lineStartArrival, lineExecution, postLineObservation, comparison,
+  ] {
     _ = try tipStage.graph.commitReplacement(artifact)
   }
   return (
     tipStage.graph, tipStage.machine, tipStage.observations, tipStage.tip,
-    linePlan, localBaseline, lineExecution, postLine, ink, residual, comparison
+    linePlan, localContext, lineStartArrival, lineExecution, postLineObservation, comparison
   )
 }
 

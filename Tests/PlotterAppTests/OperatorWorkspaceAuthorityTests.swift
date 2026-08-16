@@ -32,7 +32,8 @@ extension OperatorWorkspaceTests {
     try await performPublicAction(.moveToEstimatedCenter, owner: owner, workspace: workspace)
 
     let expectedCenter = try MachinePosition(x: 0, y: 0)
-    #expect(camera.recordedAutomaticInspectionRequests == [.twoFPS, .twoFPS, .twoFPS, .twoFPS])
+    #expect(!camera.recordedAutomaticInspectionRequests.isEmpty)
+    #expect(camera.recordedAutomaticInspectionRequests.allSatisfy { $0 == .twoFPS })
     #expect(!workspace.scopedVisionAnalysisActive)
     #expect(workspace.centerArrivalPosition == expectedCenter)
     #expect(workspace.learningArtifactGraph.currentRevision(for: .centerArrival) != nil)
@@ -78,17 +79,10 @@ extension OperatorWorkspaceTests {
     let recovery = try #require(workspace.currentExerciseActionStripPresentation)
     #expect(recovery.actions.map(\.kind) == [.moveToEstimatedCenter])
     #expect(recovery.actions.map(\.title) == ["Retry Center Arrival"])
-    let activity = workspace.selectedOperatorActionPresentation(for: owner).activity
-    #expect(activity?.action == "Move to Estimated Center")
-    #expect(
-      activity?.detail.accessibilityText.contains("outside the 0.050 mm tolerance") == true
-    )
-    #expect(
-      activity?.acceptedResult.accessibilityText.contains("four accepted Boundary") == true
-    )
+    #expect(workspace.selectedOperatorActionPresentation(for: owner).item.status == .needsAttention)
   }
 
-  @Test("source-indexed sessions preserve LIVE and replace SIMULATED independently")
+  @Test("source-indexed sessions preserve LIVE and SIMULATED independently")
   func simulatedLearningDoesNotReplaceLiveAuthority() async throws {
     let log = EventLog()
     let machine = try MachineFixture(log: log)
@@ -127,7 +121,7 @@ extension OperatorWorkspaceTests {
     await workspace.switchFrameMode(.simulated)
     #expect(workspace.learningArtifactGraph.currentRevision(for: .penInteraction) == nil)
     #expect(workspace.discoveryTransactions.isEmpty)
-    #expect(workspace.selectedDiscoverySequenceID == .penInteraction)
+    #expect(workspace.selectedDiscoverySequenceID == .boundaryNegativeX)
     await workspace.switchFrameMode(.live)
     #expect(
       workspace.learningArtifactGraph.currentRevision(for: .penInteraction)?.id == livePenRevisionID
@@ -246,7 +240,7 @@ extension OperatorWorkspaceTests {
     let transactionCount = workspace.discoveryTransactions.count
     let revisionCount = workspace.learningArtifactGraph.revisions.count
     let requestedFeedCount = await machine.requestedFeeds.count
-    for itemID in LearningPathItemID.navigationOrder {
+    for itemID in LearningPathTree.curriculum.flattenedItems {
       _ = workspace.selectedOperatorActionPresentation(for: itemID)
     }
 
@@ -265,11 +259,11 @@ extension OperatorWorkspaceTests {
         $0.id == .humanGuidedDiscovery(.penInteraction)
       }?.status == .current
     )
-    #expect(!LearningPathItemID.navigationOrder.contains { $0.number == "5" })
+    #expect(!LearningPathTree.curriculum.flattenedItems.contains { $0.number == "5" })
     await workspace.shutdown()
   }
 
-  @Test("Pen Interaction Start exposes Next and Cancel, then Cancel settles to Restart")
+  @Test("Pen Interaction Start exposes one focused input and then Next")
   func exerciseActionTransitions() async throws {
     let log = EventLog()
     let machine = try MachineFixture(log: log)
@@ -286,23 +280,16 @@ extension OperatorWorkspaceTests {
       workspace.actionSurfacePresentation.pointSelectionRequest?.prompt
         == "Click the pen cap body—not the tip—on the current camera frame."
     )
-    #expect(workspace.currentExerciseActionStripPresentation?.actions.map(\.kind) == [.cancel])
+    #expect(workspace.currentExerciseActionStripPresentation?.actions.isEmpty == true)
     try await identifyPenCap(workspace)
     let liveActions = workspace.currentExerciseActionStripPresentation?.actions.map(\.kind) ?? []
-    #expect(liveActions.contains(.choice(.yes)))
-    #expect(!liveActions.contains(.choice(.no)))
-    #expect(liveActions.contains(.cancel))
-    #expect(!liveActions.contains(.start))
-
-    await workspace.performExerciseAction(.cancel, for: owner)
-    #expect(workspace.activeExerciseAttemptID == nil)
-    #expect(workspace.currentLearningPathItemID == owner)
-    #expect(workspace.currentExerciseActionStripPresentation?.actions.map(\.kind) == [.restart])
+    #expect(liveActions == [.choice(.yes)])
+    #expect(workspace.selectedOperatorActionPresentation(for: owner).question?.prompt.isEmpty == false)
     await workspace.shutdown()
   }
 
-  @Test("Boundary Cancel is unavailable until its movement owner settles")
-  func boundaryCancelUnavailableDuringMotion() async throws {
+  @Test("Boundary termination actions share the active capability")
+  func boundaryTerminationActionsAreCapabilityBound() async throws {
     let log = EventLog()
     let machine = try MachineFixture(log: log)
     let camera = try CameraFixture()
@@ -315,18 +302,19 @@ extension OperatorWorkspaceTests {
     let owner = LearningPathItemID.humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
     await workspace.beginPairedBoundarySide(.negativeX)
     try await waitUntil { workspace.contextualStopPresentation != nil }
-    #expect(
-      workspace.currentExerciseActionStripPresentation?.actions.contains(where: {
-        $0.kind == .cancel
-      }) == false
-    )
-    await workspace.performExerciseAction(.cancel, for: owner)
+    let capabilityID = try #require(workspace.contextualStopPresentation?.capabilityID)
+    let actions = try #require(workspace.currentExerciseActionStripPresentation).actions.map(\.kind)
+    #expect(actions == [
+      .stopAndAcceptBoundary(capabilityID),
+      .stop(capabilityID),
+      .cancel(capabilityID),
+    ])
+    await workspace.performExerciseAction(.cancel(capabilityID), for: owner)
 
-    #expect(await machine.cancelIntents.isEmpty)
+    #expect(await machine.cancelIntents == [.operatorInterruption])
     #expect(workspace.relevantBoundaryObservationCount == 0)
     #expect(workspace.boundarySideAggregates.isEmpty)
-    #expect(workspace.discoveryTransactions[.boundaryNegativeX]?.state == .active)
-    try await stopActiveOperation(workspace)
+    #expect(workspace.discoveryTransactions[.boundaryNegativeX]?.state == .cancelled)
     await workspace.shutdown()
   }
 
@@ -359,9 +347,12 @@ extension OperatorWorkspaceTests {
     #expect(machineActionsBeforeReview == machineActionsAfterReview)
 
     for _ in 0..<2 {
-      await workspace.performExerciseAction(.recordAnotherBoundaryAttempt(.positiveX), for: owner)
-      try await waitUntil { workspace.contextualStopPresentation != nil }
-      try await stopActiveOperation(workspace)
+      try await performSimulatedBoundaryStopAndAccept(workspace, owner: owner) {
+        await workspace.performExerciseAction(
+          .recordAnotherBoundaryAttempt(.positiveX),
+          for: owner
+        )
+      }
     }
 
     let histories = try #require(workspace.boundaryAttemptHistories[.positiveX])
@@ -376,9 +367,9 @@ extension OperatorWorkspaceTests {
     #expect(oldAttemptIDs.count == 3)
 
     await harness.runtime.injectFault(.cameraConfigurationChangeBeforeNextFrame)
-    await workspace.performExerciseAction(.redoBoundary(.positiveX), for: owner)
-    try await waitUntil { workspace.contextualStopPresentation != nil }
-    try await stopActiveOperation(workspace)
+    try await performSimulatedBoundaryStopAndAccept(workspace, owner: owner) {
+      await workspace.performExerciseAction(.redoBoundary(.positiveX), for: owner)
+    }
 
     let finalHistories = try #require(workspace.boundaryAttemptHistories[.positiveX])
     let finalHistory = try #require(finalHistories.values.first)
@@ -433,9 +424,9 @@ extension OperatorWorkspaceTests {
         )
       )
 
-      await workspace.performExerciseAction(.redoBoundary(.positiveX), for: owner)
-      try await waitUntil { workspace.contextualStopPresentation != nil }
-      try await stopActiveOperation(workspace)
+      try await performSimulatedBoundaryStopAndAccept(workspace, owner: owner) {
+        await workspace.performExerciseAction(.redoBoundary(.positiveX), for: owner)
+      }
 
       #expect(workspace.boundarySideAggregates == aggregates)
       #expect(workspace.pairedBoundaryProgress == progress)
@@ -451,7 +442,9 @@ extension OperatorWorkspaceTests {
       #expect(recoveryActions.first == .moveToEstimatedCenter)
       #expect(recoveryActions.contains(.redoBoundary(.positiveX)))
       #expect(!recoveryActions.contains(.restart))
-      #expect(!recoveryActions.contains(.cancel))
+      #expect(!recoveryActions.contains(where: {
+        if case .cancel = $0 { true } else { false }
+      }))
       #expect(await harness.machineActionLog.values.isEmpty)
     }
   }
@@ -494,8 +487,8 @@ extension OperatorWorkspaceTests {
     await workspace.shutdown()
   }
 
-  @Test("cancelled replacement leaves the accepted artifact current")
-  func cancelledReplacementKeepsAcceptedArtifact() async throws {
+  @Test("an in-progress replacement leaves the accepted artifact current")
+  func inProgressReplacementKeepsAcceptedArtifact() async throws {
     let log = EventLog()
     let machine = try MachineFixture(log: log)
     let camera = try CameraFixture()
@@ -511,15 +504,12 @@ extension OperatorWorkspaceTests {
 
     await workspace.performExerciseAction(.redoThisStep, for: owner)
     try submitPenCapClick(workspace)
-    await workspace.performExerciseAction(.cancel, for: owner)
 
     #expect(
       workspace.learningArtifactGraph.currentRevision(for: .penInteraction)?.id == accepted.id
     )
     #expect(workspace.learningArtifactGraph.revision(id: accepted.id)?.state == .current)
-    #expect(workspace.penAttemptHistory.attempts.last?.disposition == .cancelled)
     #expect(workspace.penAttemptHistory.records.first?.inclusionState == .included)
-    #expect(workspace.penAttemptHistory.records.last?.inclusionState == .excludedUnsuccessful)
     #expect(workspace.currentPenInteractionAggregate?.validSampleCount == 1)
     #expect(workspace.currentPenInteractionAggregate?.includedAttemptIDs == [accepted.attemptID])
     await workspace.shutdown()

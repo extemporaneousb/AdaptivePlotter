@@ -413,11 +413,6 @@ public enum ToolContactObservationDisposition: Codable, Hashable, Sendable {
   case excluded(String)
   case ambiguous(String)
 
-  public var blacklistsPhysicalLocation: Bool {
-    if case .ambiguous = self { return true }
-    return false
-  }
-
   fileprivate var reasonIsValid: Bool {
     switch self {
     case .accepted: true
@@ -1525,6 +1520,48 @@ extension TipCameraRegistration {
     )
   }
 
+  /// Restores a checkpoint as one current summary artifact. Historical
+  /// observation references remain immutable provenance inside the model; they
+  /// are not fabricated as current graph nodes without their accepted payloads.
+  public func revalidatedSummaryFromCheckpoint(
+    evidence: TipCalibrationRevalidationEvidence,
+    acceptedRevisionID: LearningArtifactRevisionID,
+    machineCameraRegistrationRevisionID: LearningArtifactRevisionID,
+    acceptedAt: RuntimeTimestamp
+  ) throws -> Self {
+    let current = evidence.currentApplicability
+    guard current.opticalConfiguration == applicability.opticalConfiguration,
+      current.machineGeometry == applicability.machineGeometry,
+      current.machineCoordinateFrame == applicability.machineCoordinateFrame,
+      current.toolAssembly == applicability.toolAssembly,
+      current.penContactProfile == applicability.penContactProfile,
+      (current.paperContactPlane == applicability.paperContactPlane
+        || evidence.contactPlaneRevalidation != nil),
+      evidence.currentMachineCameraRegistrationRevisionID
+        == machineCameraRegistrationRevisionID,
+      evidence.timestamp.wallTime <= acceptedAt.wallTime
+    else { throw TipCalibrationAuthorityError.invalidCheckpoint }
+    return try Self(
+      modelForm: modelForm,
+      cameraFromMachine: cameraFromMachine,
+      modelSelectionEvidence: modelSelectionEvidence,
+      uncertainty: uncertainty,
+      applicabilityRectangle: applicabilityRectangle,
+      validatedObservationEvidence: observationEvidence,
+      applicability: current,
+      acceptedRevisionID: acceptedRevisionID,
+      machineCameraRegistrationRevisionID: machineCameraRegistrationRevisionID,
+      captureSessionIDs: captureSessionIDs.union([evidence.captureSessionID]),
+      estimatorRevision: estimatorRevision,
+      acceptedAt: acceptedAt,
+      derivation: .checkpointRevalidated(
+        fromRevision: self.acceptedRevisionID,
+        evidenceID: evidence.id
+      ),
+      revalidationEvidence: evidence
+    )
+  }
+
   public func applicabilityDecision(
     for change: TipCalibrationApplicabilityChange
   ) throws -> TipCalibrationApplicabilityDecision {
@@ -1683,28 +1720,34 @@ public enum AcceptedTipCalibrationCheckpointRevalidation: Hashable, Sendable {
   case invalidated(String)
 }
 
-/// Durable tip authority is separate from the machine-only checkpoint. Loading
-/// this payload never restores a graph revision or operational authority.
+/// The tip field stored inside the single `LearningAuthorityManifest`. Loading
+/// this payload alone never restores a graph revision or operational authority.
 public struct AcceptedTipCalibrationCheckpoint: Codable, Hashable, Sendable {
-  public static let schemaVersion: UInt16 = 1
-  public static let algorithmRevision = "accepted-tip-calibration-v1"
+  public static let schemaVersion: UInt16 = 2
+  public static let algorithmRevision = "accepted-tip-calibration-surface-bound-v2"
 
   public let schemaVersion: UInt16
   public let algorithmRevision: String
   public let checkpointID: UUID
   public let registration: TipCameraRegistration
   public let acceptanceEvent: TipCalibrationAcceptanceEvent
+  /// Exact no-redraw reservations that underlie this accepted tip authority.
+  /// Loading may quarantine the registration only when every binding remains
+  /// present in the session's canonical surface-exposure ledger.
+  public let surfaceExposures: [LearningSurfaceExposure]
 
   public init(
     checkpointID: UUID = UUID(),
     registration: TipCameraRegistration,
-    acceptanceEvent: TipCalibrationAcceptanceEvent
+    acceptanceEvent: TipCalibrationAcceptanceEvent,
+    surfaceExposures: [LearningSurfaceExposure]
   ) throws {
     schemaVersion = Self.schemaVersion
     algorithmRevision = Self.algorithmRevision
     self.checkpointID = checkpointID
     self.registration = registration
     self.acceptanceEvent = acceptanceEvent
+    self.surfaceExposures = surfaceExposures
     try validate()
   }
 
@@ -1717,8 +1760,56 @@ public struct AcceptedTipCalibrationCheckpoint: Codable, Hashable, Sendable {
     }
     try registration.validate()
     guard acceptanceEvent.acceptedRevisionID == registration.acceptedRevisionID,
-      acceptanceEvent.timestamp.wallTime >= registration.acceptedAt.wallTime
+      acceptanceEvent.timestamp.wallTime >= registration.acceptedAt.wallTime,
+      !surfaceExposures.isEmpty,
+      Set(surfaceExposures.map(\.id)).count == surfaceExposures.count,
+      surfaceExposures.allSatisfy({ exposure in
+        guard case .sparseTipMark = exposure.owner,
+          case .sparseCalibrationCircle = exposure.geometry,
+          case .commandedAndSettled(command: .raise, commandedState: .up) =
+            exposure.penUpFinalization?.outcome
+        else { return false }
+        switch registration.applicability.opticalConfiguration.source {
+        case .live: return exposure.provenance == .livePossiblePhysicalInk
+        case .simulated: return exposure.provenance == .simulatedNonphysical
+        }
+      })
     else { throw TipCalibrationAuthorityError.invalidCheckpoint }
+
+    let currentPaper = registration.applicability.paperContactPlane
+    let currentPaperExposures = surfaceExposures.filter {
+      $0.paperContactPlane == currentPaper
+    }
+    if let contactObservation = registration.revalidationEvidence?
+      .contactPlaneRevalidation?.acceptedObservation.observation
+    {
+      guard currentPaperExposures.contains(where: { exposure in
+        guard exposure.owner == .sparseTipMark(contactObservation.calibrationPosition),
+          case .sparseCalibrationCircle(let center, let radiusMM) = exposure.geometry
+        else { return false }
+        return center == contactObservation.markGeometry.center
+          && radiusMM == contactObservation.markGeometry.radiusMM
+      }) else { throw TipCalibrationAuthorityError.invalidCheckpoint }
+    } else {
+      let positions: [ToolContactCalibrationPosition] = currentPaperExposures.compactMap {
+        exposure in
+        guard case .sparseTipMark(let position) = exposure.owner else { return nil }
+        return position
+      }
+      guard currentPaperExposures.count == ToolContactCalibrationPosition.allCases.count,
+        Set(positions) == Set(ToolContactCalibrationPosition.allCases)
+      else { throw TipCalibrationAuthorityError.invalidCheckpoint }
+    }
+  }
+
+  /// Exact restart cross-binding. Additional later exposures are allowed, but
+  /// none of the reservations supporting accepted tip authority may disappear
+  /// or change identity, paper, geometry, provenance, or finalization audit.
+  public func isSurfaceExposureBound(
+    to ledger: LearningSurfaceExposureLedger
+  ) -> Bool {
+    let current = Set(ledger.entries)
+    return surfaceExposures.allSatisfy(current.contains)
   }
 
   public func revalidate(
@@ -1783,72 +1874,5 @@ public struct AcceptedTipCalibrationCheckpoint: Codable, Hashable, Sendable {
     else { return false }
     return observation.click.point.distance(to: predicted)
       <= evidence.maximumTipResidualPixels
-  }
-}
-
-public enum AcceptedTipCalibrationCheckpointLoadResult: Sendable {
-  case absent
-  case quarantined(AcceptedTipCalibrationCheckpoint)
-  case rejected(String)
-}
-
-public struct AcceptedTipCalibrationCheckpointStore: Sendable {
-  private struct Envelope: Codable {
-    let schemaVersion: UInt16
-    let payload: Data
-    let payloadSHA256: String
-  }
-
-  public let fileURL: URL
-
-  public init(fileURL: URL) {
-    self.fileURL = fileURL
-  }
-
-  public func load() -> AcceptedTipCalibrationCheckpointLoadResult {
-    guard FileManager.default.fileExists(atPath: fileURL.path) else { return .absent }
-    do {
-      let envelope = try JSONDecoder().decode(Envelope.self, from: Data(contentsOf: fileURL))
-      guard envelope.schemaVersion == AcceptedTipCalibrationCheckpoint.schemaVersion else {
-        return .rejected("Unsupported tip-checkpoint envelope schema \(envelope.schemaVersion).")
-      }
-      guard Self.sha256(envelope.payload) == envelope.payloadSHA256 else {
-        return .rejected("Tip-checkpoint integrity verification failed.")
-      }
-      let checkpoint = try JSONDecoder().decode(
-        AcceptedTipCalibrationCheckpoint.self,
-        from: envelope.payload
-      )
-      try checkpoint.validate()
-      return .quarantined(checkpoint)
-    } catch {
-      return .rejected("Tip checkpoint could not be decoded: \(error)")
-    }
-  }
-
-  public func save(_ checkpoint: AcceptedTipCalibrationCheckpoint) throws {
-    try checkpoint.validate()
-    let encoder = JSONEncoder()
-    encoder.outputFormatting = [.sortedKeys]
-    let payload = try encoder.encode(checkpoint)
-    let envelope = Envelope(
-      schemaVersion: AcceptedTipCalibrationCheckpoint.schemaVersion,
-      payload: payload,
-      payloadSHA256: Self.sha256(payload)
-    )
-    try FileManager.default.createDirectory(
-      at: fileURL.deletingLastPathComponent(),
-      withIntermediateDirectories: true
-    )
-    try encoder.encode(envelope).write(to: fileURL, options: [.atomic])
-  }
-
-  public func clear() throws {
-    guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
-    try FileManager.default.removeItem(at: fileURL)
-  }
-
-  private static func sha256(_ data: Data) -> String {
-    SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
   }
 }

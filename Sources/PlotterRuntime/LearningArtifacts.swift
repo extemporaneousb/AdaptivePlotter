@@ -13,6 +13,7 @@ public enum ExerciseAttemptDisposition: Codable, Hashable, Sendable {
   case succeeded
   case refused(String)
   case unclear(String)
+  case stopped
   case cancelled
   case ambiguous(String)
   case failed(String)
@@ -531,6 +532,7 @@ public struct LearningArtifactRevisionID: Codable, Hashable, Sendable {
 }
 
 public enum LearningArtifactKind: Codable, Hashable, Sendable {
+  case penCapAppearance
   case penInteraction
   case boundarySideAggregate(BoundaryDirection)
   case estimatedMachineCenter
@@ -538,12 +540,11 @@ public enum LearningArtifactKind: Codable, Hashable, Sendable {
   case machineCameraRegistration
   case toolContactObservation(ToolContactObservationID)
   case tipCameraRegistration
-  case localPreLineBaseline(AttemptGroupIdentity)
   case linePlan(AttemptGroupIdentity)
+  case localPreLineContext(AttemptGroupIdentity)
+  case lineStartArrival(AttemptGroupIdentity)
   case lineExecution(AttemptGroupIdentity)
-  case postLineFrame(AttemptGroupIdentity)
-  case inkObservation(AttemptGroupIdentity)
-  case residual(AttemptGroupIdentity)
+  case postLineObservation(AttemptGroupIdentity)
   case comparison(AttemptGroupIdentity)
 }
 
@@ -629,6 +630,7 @@ public struct LearningArtifactInvalidation: Hashable, Sendable {
 public struct LearningDependencyGraph: Sendable {
   private var revisionsByID: [LearningArtifactRevisionID: LearningArtifactRevision] = [:]
   private var currentRevisionIDByKind: [LearningArtifactKind: LearningArtifactRevisionID] = [:]
+  public private(set) var revision: UInt64 = 0
 
   public init() {}
 
@@ -685,6 +687,7 @@ public struct LearningDependencyGraph: Sendable {
         currentRevisionIDByKind.removeValue(forKey: kind)
       }
     }
+    if !allInvalidatedRevisionIDs.isEmpty { revision &+= 1 }
 
     return LearningArtifactInvalidation(
       rootInvalidatedRevisionIDs: rootRevisionIDs,
@@ -741,6 +744,7 @@ public struct LearningDependencyGraph: Sendable {
     updatedCurrent[currentCandidate.kind] = currentCandidate.id
     revisionsByID = updatedRevisions
     currentRevisionIDByKind = updatedCurrent
+    revision &+= 1
     return LearningArtifactCommit(
       currentRevision: currentCandidate,
       supersededRevisionID: supersededID,
@@ -800,6 +804,7 @@ public struct LearningDependencyGraph: Sendable {
     revisionsByID[revisionID]?.state = .superseded
     revisionsByID[currentCandidate.id] = currentCandidate
     currentRevisionIDByKind[currentCandidate.kind] = currentCandidate.id
+    revision &+= 1
     return LearningArtifactCommit(
       currentRevision: currentCandidate,
       supersededRevisionID: revisionID,
@@ -839,6 +844,34 @@ public struct LearningDependencyGraph: Sendable {
   ) throws {
     let dependencyKinds = candidate.consumedRevisionIDs.compactMap { revisions[$0]?.kind }
     switch candidate.kind {
+    case .penCapAppearance, .boundarySideAggregate:
+      guard dependencyKinds.isEmpty else {
+        throw LearningDependencyGraphError.invalidDependencyShape(candidate.kind)
+      }
+    case .penInteraction:
+      guard dependencyKinds == [.penCapAppearance] else {
+        throw LearningDependencyGraphError.invalidDependencyShape(candidate.kind)
+      }
+    case .estimatedMachineCenter:
+      let directions = Set(dependencyKinds.compactMap { kind -> BoundaryDirection? in
+        guard case .boundarySideAggregate(let direction) = kind else { return nil }
+        return direction
+      })
+      guard dependencyKinds.count == directions.count,
+        directions == Set(BoundaryDirection.allCases)
+      else {
+        throw LearningDependencyGraphError.invalidDependencyShape(candidate.kind)
+      }
+    case .centerArrival:
+      guard dependencyKinds == [.estimatedMachineCenter] else {
+        throw LearningDependencyGraphError.invalidDependencyShape(candidate.kind)
+      }
+    case .machineCameraRegistration:
+      guard Set(dependencyKinds) == [.centerArrival, .penCapAppearance],
+        dependencyKinds.count == 2
+      else {
+        throw LearningDependencyGraphError.invalidDependencyShape(candidate.kind)
+      }
     case .toolContactObservation:
       guard dependencyKinds.count == 1,
         dependencyKinds[0] == .machineCameraRegistration
@@ -851,41 +884,43 @@ public struct LearningDependencyGraph: Sendable {
       })
       guard dependencyKinds.count == machineCount + observationIDs.count,
         machineCount == 1,
-        observationIDs.count == 5 || observationIDs.count == 6
+        observationIDs.isEmpty || observationIDs.count == 1
+          || observationIDs.count == 5 || observationIDs.count == 6
       else {
         throw LearningDependencyGraphError.invalidDependencyShape(candidate.kind)
       }
-    case .linePlan, .localPreLineBaseline:
+    case .linePlan:
       guard dependencyKinds == [.tipCameraRegistration] else {
         throw LearningDependencyGraphError.invalidDependencyShape(candidate.kind)
       }
+    case .localPreLineContext(let group):
+      guard Set(dependencyKinds) == [.linePlan(group), .tipCameraRegistration],
+        dependencyKinds.count == 2
+      else {
+        throw LearningDependencyGraphError.invalidDependencyShape(candidate.kind)
+      }
+    case .lineStartArrival(let group):
+      guard Set(dependencyKinds) == [.linePlan(group), .localPreLineContext(group)],
+        dependencyKinds.count == 2
+      else {
+        throw LearningDependencyGraphError.invalidDependencyShape(candidate.kind)
+      }
     case .lineExecution(let group):
-      guard dependencyKinds == [.linePlan(group)] else {
-        throw LearningDependencyGraphError.invalidDependencyShape(candidate.kind)
-      }
-    case .postLineFrame(let group):
       guard Set(dependencyKinds) == [
-        .lineExecution(group), .localPreLineBaseline(group), .tipCameraRegistration,
-      ] else {
+        .linePlan(group), .localPreLineContext(group), .lineStartArrival(group),
+      ], dependencyKinds.count == 3 else {
         throw LearningDependencyGraphError.invalidDependencyShape(candidate.kind)
       }
-    case .inkObservation(let group):
+    case .postLineObservation(let group):
       guard Set(dependencyKinds) == [
-        .localPreLineBaseline(group), .lineExecution(group), .postLineFrame(group),
-        .tipCameraRegistration,
-      ] else {
-        throw LearningDependencyGraphError.invalidDependencyShape(candidate.kind)
-      }
-    case .residual(let group):
-      guard dependencyKinds == [.inkObservation(group)] else {
+        .lineExecution(group), .localPreLineContext(group), .tipCameraRegistration,
+      ], dependencyKinds.count == 3 else {
         throw LearningDependencyGraphError.invalidDependencyShape(candidate.kind)
       }
     case .comparison(let group):
-      guard Set(dependencyKinds) == [.inkObservation(group), .residual(group)] else {
+      guard dependencyKinds == [.postLineObservation(group)] else {
         throw LearningDependencyGraphError.invalidDependencyShape(candidate.kind)
       }
-    default:
-      break
     }
   }
 }

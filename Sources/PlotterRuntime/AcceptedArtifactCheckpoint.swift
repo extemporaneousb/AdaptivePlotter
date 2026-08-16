@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 import PlotterModel
 
@@ -496,77 +495,5 @@ public struct AcceptedMachineArtifactCheckpoint: Codable, Hashable, Sendable {
         throw AcceptedArtifactCheckpointValidationError.invalidRevisionSet
       }
     }
-  }
-}
-
-public enum AcceptedArtifactCheckpointLoadResult: Sendable {
-  case absent
-  case loaded(AcceptedMachineArtifactCheckpoint)
-  case rejected(String)
-}
-
-public struct AcceptedArtifactCheckpointStore: Sendable {
-  private struct Envelope: Codable {
-    let schemaVersion: UInt16
-    let payload: Data
-    let payloadSHA256: String
-  }
-
-  public let fileURL: URL
-
-  public init(fileURL: URL) {
-    self.fileURL = fileURL
-  }
-
-  public func load() -> AcceptedArtifactCheckpointLoadResult {
-    guard FileManager.default.fileExists(atPath: fileURL.path) else { return .absent }
-    do {
-      let data = try Data(contentsOf: fileURL)
-      let envelope = try JSONDecoder().decode(Envelope.self, from: data)
-      guard envelope.schemaVersion == AcceptedMachineArtifactCheckpoint.schemaVersion else {
-        return .rejected("Unsupported checkpoint envelope schema \(envelope.schemaVersion).")
-      }
-      let digest = Self.sha256(envelope.payload)
-      guard digest == envelope.payloadSHA256 else {
-        return .rejected("Checkpoint integrity verification failed.")
-      }
-      let checkpoint = try JSONDecoder().decode(
-        AcceptedMachineArtifactCheckpoint.self,
-        from: envelope.payload
-      )
-      try checkpoint.validate()
-      return .loaded(checkpoint)
-    } catch {
-      return .rejected("Checkpoint could not be decoded: \(error)")
-    }
-  }
-
-  public func save(_ checkpoint: AcceptedMachineArtifactCheckpoint) throws {
-    try checkpoint.validate()
-    let encoder = JSONEncoder()
-    encoder.outputFormatting = [.sortedKeys]
-    let payload = try encoder.encode(checkpoint)
-    let envelope = Envelope(
-      schemaVersion: AcceptedMachineArtifactCheckpoint.schemaVersion,
-      payload: payload,
-      payloadSHA256: Self.sha256(payload)
-    )
-    let encoded = try encoder.encode(envelope)
-    try FileManager.default.createDirectory(
-      at: fileURL.deletingLastPathComponent(),
-      withIntermediateDirectories: true
-    )
-    try encoded.write(to: fileURL, options: [.atomic])
-  }
-
-  /// Removes the durable authority file. Absence is already the cleared state,
-  /// so repeated explicit resets are idempotent.
-  public func clear() throws {
-    guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
-    try FileManager.default.removeItem(at: fileURL)
-  }
-
-  private static func sha256(_ data: Data) -> String {
-    SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
   }
 }

@@ -162,10 +162,24 @@ struct CurrentCameraCalibrationPlanningTests {
         center: $0, radiusMM: 2, chordCount: 16, maximumFeedMMPerMinute: 100
       )
     }
+    let paper = PaperContactPlaneRevision()
+    var ledger = LearningSurfaceExposureLedger()
+    for (position, mark) in zip(ToolContactCalibrationPosition.allCases, marks) {
+      try ledger.reserve(
+        LearningSurfaceExposure(
+          provenance: .simulatedNonphysical,
+          paperContactPlane: paper,
+          owner: .sparseTipMark(position),
+          geometry: .sparseCalibrationCircle(center: mark.center, radiusMM: mark.radiusMM),
+          reservedNanoseconds: UInt64(ledger.entries.count + 1)
+        )
+      )
+    }
     let line = try ObservedDrawingTrialLinePlan(
       direction: .positiveX,
       domain: domain,
-      existingMarks: marks
+      surfaceExposureLedger: ledger,
+      paperContactPlane: paper
     )
 
     #expect(line.startPosition == (try MachinePosition(x: -2.5, y: 15)))
@@ -189,13 +203,64 @@ struct CurrentCameraCalibrationPlanningTests {
         center: $0, radiusMM: 2, chordCount: 16, maximumFeedMMPerMinute: 100
       )
     }
+    let paper = PaperContactPlaneRevision()
+    var ledger = LearningSurfaceExposureLedger()
+    for (position, mark) in zip(ToolContactCalibrationPosition.allCases, marks) {
+      try ledger.reserve(
+        LearningSurfaceExposure(
+          provenance: .simulatedNonphysical,
+          paperContactPlane: paper,
+          owner: .sparseTipMark(position),
+          geometry: .sparseCalibrationCircle(center: mark.center, radiusMM: mark.radiusMM),
+          reservedNanoseconds: UInt64(ledger.entries.count + 1)
+        )
+      )
+    }
     #expect(throws: ObservedDrawingTrialPlanningError.noClearFiveMillimeterLine) {
       try ObservedDrawingTrialLinePlan(
         direction: .positiveX,
         domain: domain,
-        existingMarks: marks
+        surfaceExposureLedger: ledger,
+        paperContactPlane: paper
       )
     }
+  }
+
+  @Test("Stage 4 line plan excludes every admitted prior stroke geometry")
+  func stageFourLineClearsAdmittedStrokeExposure() throws {
+    let domain = try AxisAlignedBounds<MachineSpace>(
+      minX: -30, minY: -30, maxX: 30, maxY: 30
+    )
+    let paper = PaperContactPlaneRevision()
+    let first = try ObservedDrawingTrialLinePlan(
+      direction: .positiveX,
+      domain: domain,
+      surfaceExposureLedger: LearningSurfaceExposureLedger(),
+      paperContactPlane: paper
+    )
+    var ledger = LearningSurfaceExposureLedger()
+    try ledger.reserve(
+      LearningSurfaceExposure(
+        provenance: .simulatedNonphysical,
+        paperContactPlane: paper,
+        owner: .drawingTrial(AttemptGroupIdentity(rawValue: "prior-line")),
+        geometry: .isolatedLine(
+          startPosition: first.startPosition,
+          endPosition: first.endPosition
+        ),
+        reservedNanoseconds: 1
+      )
+    )
+    let replacement = try ObservedDrawingTrialLinePlan(
+      direction: .positiveX,
+      domain: domain,
+      surfaceExposureLedger: ledger,
+      paperContactPlane: paper
+    )
+
+    #expect(first.startPosition == (try MachinePosition(x: -2.5, y: 15)))
+    #expect(replacement.startPosition == (try MachinePosition(x: -2.5, y: -15)))
+    #expect(replacement.endPosition == (try MachinePosition(x: 2.5, y: -15)))
   }
 
   @Test("plan refuses an incomplete accepted boundary envelope")
@@ -403,7 +468,7 @@ private func boundaryAggregate(
     coordinateRevision: coordinateRevision,
     ownerID: BoundaryMotionOwnerID(),
     stopCapabilityID: UUID(),
-    stopIntent: .operatorStop,
+    stopIntent: .stopAndAccept,
     finalPosition: position,
     disposition: .succeeded
   )
