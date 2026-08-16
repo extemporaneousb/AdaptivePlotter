@@ -37,7 +37,7 @@ let package = Package(
     ),
     .testTarget(
       name: "PlotterAppTests",
-      dependencies: ["PlotterApp", "PlotterRuntime"]
+      dependencies: ["PlotterApp", "PlotterRuntime", "PlotterTestSupport"]
     ),
   ],
   swiftLanguageModes: [.v5]

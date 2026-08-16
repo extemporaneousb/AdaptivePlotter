@@ -74,7 +74,7 @@ struct PenCapAppearanceSelectionTests {
     }
   }
 
-  @Test("Pen Interaction stages the cap click and accepts it only with the full sequence")
+  @Test("Pen Interaction cannot ask a question or actuate before an accepted cap click")
   func clickPrecedesSequenceAndMachineActions() async throws {
     let log = EventLog()
     let machine = try MachineFixture(log: log)
@@ -113,17 +113,12 @@ struct PenCapAppearanceSelectionTests {
     await workspace.awaitPenCapAcceptedClickTransition()
     try requireStep(workspace, "answer-initially-up")
 
-    #expect(persisted.value == nil)
-    #expect(workspace.penCapAppearanceSelection == nil)
-    let learned = try #require(camera.recordedPenCapColorRequests.last)
+    let learned = try #require(persisted.value)
+    #expect(learned.matches(frozenFrame))
+    #expect(workspace.penCapAppearanceSelection == learned)
+    #expect(camera.recordedPenCapColorRequests.last == learned.color)
     #expect(await machine.requestedPenCommands.isEmpty)
     #expect(await log.values.isEmpty)
-
-    try await finishPenInteraction(workspace)
-    let acceptedAppearance = try #require(persisted.value)
-    #expect(acceptedAppearance.matches(frozenFrame))
-    #expect(workspace.penCapAppearanceSelection == acceptedAppearance)
-    #expect(acceptedAppearance.color == learned)
     await workspace.shutdown()
   }
 
@@ -256,8 +251,6 @@ struct PenCapAppearanceSelectionTests {
     )
 
     await workspace.switchFrameMode(.simulated)
-    await workspace.performControllerConnectionAction()
-    await workspace.activateMotionGuard()
     await workspace.beginPenInteraction()
     let request = try #require(workspace.actionSurfacePresentation.pointSelectionRequest)
     let displayed = try #require(workspace.actionSurfacePresentation.displayedFrame)
@@ -279,8 +272,6 @@ struct PenCapAppearanceSelectionTests {
       )
     )
     await workspace.awaitPenCapAcceptedClickTransition()
-    #expect(workspace.simulatedPenCapAppearanceSelection == nil)
-    try await finishPenInteraction(workspace)
 
     let simulated = try #require(workspace.simulatedPenCapAppearanceSelection)
     #expect(simulated.source == .simulated)
@@ -347,6 +338,80 @@ struct PenCapAppearanceSelectionTests {
     await workspace.shutdown()
   }
 
+  @Test("accepted click then immediate Cancel cannot revive Pen Interaction")
+  func acceptedClickImmediateCancelDoesNotRevive() async throws {
+    let log = EventLog()
+    let machine = try MachineFixture(log: log)
+    let camera = try CameraFixture()
+    let workspace = workspace(
+      machine: machine,
+      camera: camera,
+      loadPenCapAppearanceSelection: { nil },
+      log: log
+    )
+    await workspace.establishMachineSession(machine.descriptor)
+    await workspace.requestPassiveProbe()
+    await workspace.startCamera()
+    await log.clear()
+    let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+
+    await workspace.performExerciseAction(.start, for: owner)
+    let cancelledAttemptID = try #require(workspace.activeExerciseAttemptID)
+    try submitPenCapClick(workspace)
+    let acceptedAppearance = try #require(workspace.penCapAppearanceSelection)
+    await workspace.performExerciseAction(.cancel, for: owner)
+
+    #expect(workspace.activeExerciseAttemptID == nil)
+    #expect(workspace.discoveryTransactions[.penInteraction] == nil)
+    #expect(workspace.selectedOperatorActionPresentation(for: owner).question == nil)
+    #expect(await machine.requestedPenCommands.isEmpty)
+    #expect(await log.values.isEmpty)
+    #expect(workspace.penCapAppearanceSelection == acceptedAppearance)
+    #expect(workspace.learningArtifactGraph.currentRevision(for: .penInteraction) == nil)
+    #expect(workspace.penAttemptHistory.attempts.count == 1)
+    #expect(workspace.penAttemptHistory.attempts.first?.id == cancelledAttemptID)
+    #expect(workspace.penAttemptHistory.attempts.first?.disposition == .cancelled)
+    #expect(workspace.restartableExerciseItemID == owner)
+    #expect(workspace.currentExerciseActionStripPresentation?.actions.map(\.kind) == [.restart])
+    await workspace.shutdown()
+  }
+
+  @Test("Restart, Learning Off, reset, and source switch cannot revive a cancelled click")
+  func recoveryTransitionsDoNotReviveCancelledClick() async throws {
+    let log = EventLog()
+    let machine = try MachineFixture(log: log)
+    let camera = try CameraFixture()
+    let workspace = workspace(machine: machine, camera: camera, log: log)
+    await workspace.establishMachineSession(machine.descriptor)
+    await workspace.requestPassiveProbe()
+    await workspace.startCamera()
+    let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+
+    await workspace.performExerciseAction(.start, for: owner)
+    let cancelledAttemptID = try #require(workspace.activeExerciseAttemptID)
+    try submitPenCapClick(workspace)
+    await workspace.performExerciseAction(.cancel, for: owner)
+    await workspace.performExerciseAction(.restart, for: owner)
+
+    let restartedAttemptID = try #require(workspace.activeExerciseAttemptID)
+    #expect(restartedAttemptID != cancelledAttemptID)
+    #expect(workspace.discoveryTransactions[.penInteraction] == nil)
+    #expect(workspace.actionSurfacePresentation.pointSelectionRequest?.purpose == .penCapAppearance)
+    await workspace.performExerciseAction(.cancel, for: owner)
+    workspace.toggleLearningMode()
+    #expect(!workspace.learningIsEnabled)
+
+    let plan = try #require(workspace.resetAllLearningPlan)
+    #expect(workspace.performLearningVacate(plan))
+    await workspace.switchFrameMode(.simulated)
+
+    #expect(workspace.frameMode == .simulated)
+    #expect(workspace.discoveryTransactions[.penInteraction] == nil)
+    #expect(workspace.selectedOperatorActionPresentation(for: owner).question == nil)
+    #expect(await machine.requestedPenCommands.isEmpty)
+    await workspace.shutdown()
+  }
+
   @Test("shutdown settles an accepted-click continuation without starting a sequence")
   func shutdownDoesNotReviveAcceptedClick() async throws {
     let log = EventLog()
@@ -366,98 +431,6 @@ struct PenCapAppearanceSelectionTests {
     #expect(workspace.selectedOperatorActionPresentation(for: owner).question == nil)
     #expect(await machine.requestedPenCommands.isEmpty)
   }
-
-  @Test("replacement manifest failure preserves the accepted cap graph and preference")
-  func replacementManifestFailurePreservesFallback() async throws {
-    let log = EventLog()
-    let machine = try MachineFixture(log: log)
-    let camera = try CameraFixture()
-    let manifest = LearningAuthorityManifestBox()
-    let persisted = PenCapSelectionBox()
-    let workspace = workspace(
-      machine: machine,
-      camera: camera,
-      manifestActions: manifest.actions,
-      persistPenCapAppearanceSelection: { persisted.value = $0 },
-      log: log
-    )
-    await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
-    await workspace.startCamera()
-    try await completePenInteraction(workspace)
-
-    let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
-    let acceptedSelection = try #require(workspace.penCapAppearanceSelection)
-    let acceptedGraph = Set(workspace.learningArtifactGraph.revisions)
-    let acceptedManifest = manifest.manifest
-    let acceptedAttemptID = try #require(workspace.currentPenInteractionAggregate?.latestAttemptID)
-    #expect(persisted.value == acceptedSelection)
-
-    manifest.injectCommitFailure()
-    await workspace.performExerciseAction(.redoThisStep, for: owner)
-    try await identifyPenCap(workspace)
-    #expect(workspace.penCapAppearanceSelection == acceptedSelection)
-    #expect(persisted.value == acceptedSelection)
-    try requireStep(workspace, "answer-initially-up")
-    await workspace.answerCurrentQuestion(.yes)
-    try requireStep(workspace, "answer-currently-down")
-    await workspace.answerCurrentQuestion(.yes)
-    try requireStep(workspace, "answer-finally-up")
-    await workspace.answerCurrentQuestion(.yes)
-
-    #expect(workspace.activeExerciseAttemptID == nil)
-    #expect(workspace.discoveryError?.contains("Accepted discovery artifact could not commit") == true)
-    #expect(Set(workspace.learningArtifactGraph.revisions) == acceptedGraph)
-    #expect(workspace.penCapAppearanceSelection == acceptedSelection)
-    #expect(persisted.value == acceptedSelection)
-    #expect(camera.recordedPenCapColorRequests.last == acceptedSelection.color)
-    #expect(manifest.manifest == acceptedManifest)
-    #expect(workspace.currentPenInteractionAggregate?.latestAttemptID == acceptedAttemptID)
-    #expect(workspace.restartableExerciseItemID == owner)
-    await workspace.shutdown()
-  }
-
-  @Test("rejected replacement restores the accepted cap without touching authority")
-  func rejectedReplacementPreservesFallback() async throws {
-    let log = EventLog()
-    let machine = try MachineFixture(log: log)
-    let camera = try CameraFixture()
-    let manifest = LearningAuthorityManifestBox()
-    let persisted = PenCapSelectionBox()
-    let workspace = workspace(
-      machine: machine,
-      camera: camera,
-      manifestActions: manifest.actions,
-      persistPenCapAppearanceSelection: { persisted.value = $0 },
-      log: log
-    )
-    await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
-    await workspace.startCamera()
-    try await completePenInteraction(workspace)
-
-    let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
-    let acceptedSelection = try #require(workspace.penCapAppearanceSelection)
-    let acceptedGraph = Set(workspace.learningArtifactGraph.revisions)
-    let acceptedManifest = manifest.manifest
-    let acceptedAttemptID = try #require(workspace.currentPenInteractionAggregate?.latestAttemptID)
-
-    await workspace.performExerciseAction(.redoThisStep, for: owner)
-    try await identifyPenCap(workspace)
-    await workspace.answerCurrentQuestion(.yes)
-    try requireStep(workspace, "answer-currently-down")
-    await workspace.answerCurrentQuestion(.no)
-
-    #expect(workspace.activeExerciseAttemptID == nil)
-    #expect(Set(workspace.learningArtifactGraph.revisions) == acceptedGraph)
-    #expect(workspace.penCapAppearanceSelection == acceptedSelection)
-    #expect(persisted.value == acceptedSelection)
-    #expect(camera.recordedPenCapColorRequests.last == acceptedSelection.color)
-    #expect(manifest.manifest == acceptedManifest)
-    #expect(workspace.currentPenInteractionAggregate?.latestAttemptID == acceptedAttemptID)
-    await workspace.shutdown()
-  }
-
 }
 
 private final class PenCapSelectionBox: @unchecked Sendable {

@@ -18,16 +18,58 @@ struct LearningPathPresentationTests {
       ])
   }
 
-  @Test("one tree owns order, parentage, depth, and descendants")
-  func curriculumTreeIsTheOnlyHierarchy() {
-    let tree = LearningPathTree.curriculum
+  @Test("stage statuses are exact presentation terms without a percentage")
+  func stageStatuses() {
     #expect(
-      tree.flattenedItems.map { "\($0.number) \($0.title)" } == [
+      LearningPathStageStatus.allCases.map(\.rawValue) == [
+        "Complete",
+        "Current",
+        "Next",
+        "Needs Attention",
+      ])
+  }
+
+  @Test("Human-Guided Discovery exposes the exact ordered substeps")
+  func exactDiscoverySteps() {
+    #expect(
+      HumanGuidedDiscoveryStep.allCases.map(\.stepNumber)
+        == ["3.1", "3.2", "3.3", "3.4"]
+    )
+    #expect(
+      HumanGuidedDiscoveryStep.allCases.map(\.title) == [
+        "Pen Interaction",
+        "Paired Boundary Discovery and Centering",
+        "Calibrate Camera and Visible Cap",
+        "Calibrate Pen Contact from Sparse Marks",
+      ])
+  }
+
+  @Test("Observed Drawing Trials exposes the exact six-step sequence")
+  func exactDrawingTrialSteps() {
+    #expect(
+      ObservedDrawingTrialStep.allCases.map(\.stepNumber) == [
+        "4.1", "4.2", "4.3", "4.4", "4.5", "4.6",
+      ])
+    #expect(
+      ObservedDrawingTrialStep.allCases.map(\.title) == [
+        "Choose Isolated Line Plan",
+        "Capture Local Pre-Line Baseline",
+        "Move to Line Start",
+        "Draw Isolated Line",
+        "Reveal and Observe New Ink",
+        "Compare Intended and Observed Geometry",
+      ])
+  }
+
+  @Test("flat navigator order preserves every stage and numbered exercise")
+  func exactNavigatorOrder() {
+    #expect(
+      LearningPathItemID.navigationOrder.map { "\($0.number) \($0.title)" } == [
         "1 Connect",
         "2 Enable Motion",
         "3 Human-Guided Discovery",
         "3.1 Pen Interaction",
-        "3.2 Set X, Y Boundaries",
+        "3.2 Paired Boundary Discovery and Centering",
         "3.3 Calibrate Camera and Visible Cap",
         "3.4 Calibrate Pen Contact from Sparse Marks",
         "4 Observed Drawing Trials",
@@ -38,22 +80,12 @@ struct LearningPathPresentationTests {
         "4.5 Reveal and Observe New Ink",
         "4.6 Compare Intended and Observed Geometry",
       ])
-    let branch = LearningPathItemID.stage(.humanGuidedDiscovery)
-    let leaf = LearningPathItemID.humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
-    #expect(tree.parent(of: leaf) == branch)
-    #expect(tree.depth(of: branch) == 0)
-    #expect(tree.depth(of: leaf) == 1)
-    #expect(tree.children(of: branch).count == 4)
-    #expect(tree.descendantLeaves(of: branch) == HumanGuidedDiscoveryStep.allCases.map {
-      .humanGuidedDiscovery($0)
-    })
-    #expect(tree.isActionableLeaf(leaf))
-    #expect(!tree.isActionableLeaf(branch))
   }
 
   @Test("selection and Return to Current mutate presentation state only")
   func inertSelection() {
     var selection = LearningPathSelectionState(current: .humanGuidedDiscovery(.penInteraction))
+
     selection.select(.stage(.observedDrawingTrials))
     #expect(selection.selected == .stage(.observedDrawingTrials))
     #expect(selection.current == .humanGuidedDiscovery(.penInteraction))
@@ -61,6 +93,7 @@ struct LearningPathPresentationTests {
 
     selection.returnToCurrent()
     #expect(selection.selected == .humanGuidedDiscovery(.penInteraction))
+    #expect(selection.current == .humanGuidedDiscovery(.penInteraction))
     #expect(!selection.isReviewingAnotherItem)
   }
 
@@ -69,6 +102,7 @@ struct LearningPathPresentationTests {
     var selection = LearningPathSelectionState(current: .stage(.connect))
     selection.updateCurrent(.stage(.enableMotion))
     #expect(selection.selected == .stage(.enableMotion))
+
     selection.select(.stage(.connect))
     selection.updateCurrent(.humanGuidedDiscovery(.penInteraction))
     #expect(selection.current == .humanGuidedDiscovery(.penInteraction))
@@ -83,111 +117,138 @@ struct LearningPathPresentationTests {
     #expect(PresentationCue.no.visibleText == "NO")
     #expect(PresentationCue.stop.visibleText == "STOP")
     #expect(PresentationCue.direction(.negativeX).visibleText == "X−")
-    #expect(PresentationCue.direction(.negativeX).accessibilityValue
-      == "Move in the negative X direction")
+    #expect(
+      PresentationCue.direction(.negativeX).accessibilityValue
+        == "Move in the negative X direction"
+    )
   }
 
-  @Test("compact exercise contains only item, script, question, actions, and invalidation")
-  func compactExerciseContract() {
-    let item = LearningPathItemPresentation(
-      id: .humanGuidedDiscovery(.penInteraction),
-      status: .current
+  @Test("action descriptors keep semantic role and exact unavailable reason")
+  func typedActionDescriptor() {
+    let stopCapability = ContextualStopCapabilityID(
+      rawValue: UUID(uuidString: "00000000-0000-0000-0000-000000000101")!
     )
-    let invalidation = LearningInvalidationPresentation(
-      selectedPlan: nil,
-      invalidateAllPlan: nil,
-      unavailableReason: nil
+    let start = ExerciseActionDescriptor(
+      kind: .start,
+      title: "Start",
+      role: .positive,
+      unavailableReason: "A responsive controller session is required."
     )
-    let presentation = OperatorActionPresentation(
-      item: item,
-      script: [
-        ExerciseScriptLinePresentation(
-          speaker: .plotter,
-          fragments: [.text("Move the pen down.")]
-        ),
-        ExerciseScriptLinePresentation(
-          speaker: .you,
-          fragments: [.text("Confirm the physical pose.")]
-        ),
-      ],
-      question: ExerciseQuestionPresentation(prompt: [.text("Is the pen down?")]),
-      actionStrip: ExerciseActionStripPresentation(
-        ownerID: item.id,
-        actions: [ExerciseActionDescriptor(kind: .choice(.yes), title: "YES")]
-      ),
-      invalidation: invalidation
+    let stop = ExerciseActionDescriptor(
+      kind: .stop(stopCapability),
+      title: "Stop",
+      role: .destructive
     )
 
-    #expect(presentation.heading == "3.1 - Pen Interaction")
-    #expect(presentation.script.map(\.speaker) == [.plotter, .you])
-    #expect(presentation.question?.prompt.accessibilityText == "Is the pen down?")
-    #expect(presentation.actionStrip?.actions.map(\.kind) == [.choice(.yes)])
+    #expect(!start.isEnabled)
+    #expect(start.unavailableReason == "A responsive controller session is required.")
+    #expect(start.role == .positive)
+    #expect(stop.isEnabled)
+    #expect(stop.role == .destructive)
   }
 
-  @Test("Boundary termination controls retain one capability and distinct shortcuts")
-  func boundaryTerminationIdentity() {
-    let capability = ContextualStopCapabilityID(
+  @Test("Stop carries the exact logical-owner capability")
+  func stopCapabilityIdentity() {
+    let first = ContextualStopCapabilityID(
       rawValue: UUID(uuidString: "00000000-0000-0000-0000-000000000201")!
     )
-    let kinds: [ExerciseActionKind] = [
-      .stopAndAcceptBoundary(capability),
-      .stop(capability),
-      .cancel(capability),
-    ]
-    #expect(Set(kinds).count == 3)
-    #expect(kinds.map(\.effect) == [.commit, .interrupt, .interrupt])
-    #expect(kinds.map(\.keyboardShortcut) == [nil, .escape, nil])
+    let successor = ContextualStopCapabilityID(
+      rawValue: UUID(uuidString: "00000000-0000-0000-0000-000000000202")!
+    )
+
+    #expect(ExerciseActionKind.stop(first) == .stop(first))
+    #expect(ExerciseActionKind.stop(first) != .stop(successor))
   }
 
-  @Test("leaf and branch invalidation plans are tree-shaped and versioned")
-  func invalidationPlanShape() {
-    let leaf = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
-    let branch = LearningPathItemID.stage(.humanGuidedDiscovery)
-    let leafPlan = makePlan(scope: .leaf(root: leaf), affected: [leaf])
-    let descendants = LearningPathTree.curriculum.descendantLeaves(of: branch)
-    let branchPlan = makePlan(scope: .subtree(root: branch), affected: descendants)
+  @Test("focused questions retain their actual structured prompt and typed choices")
+  func structuredQuestion() {
+    let question = ExerciseQuestionPresentation(
+      prompt: [.text("Is the pen physically"), .cue(.up), .text("?")],
+      choices: [.yes, .no]
+    )
 
-    #expect(leafPlan.contractVersion == .v1)
-    #expect(leafPlan.scope.root == leaf)
-    #expect(leafPlan.title == "Invalidate This Step")
-    #expect(leafPlan.message == "Delete collected data for 1 learning step.")
-    #expect(branchPlan.scope.root == branch)
-    #expect(branchPlan.affectedItemIDs == descendants)
-    #expect(branchPlan.title == "Invalidate This Branch")
-    #expect(branchPlan.message.contains("4 learning steps"))
+    #expect(question.prompt.accessibilityText == "Is the pen physically Pen up ?")
+    #expect(question.choices == [.yes, .no])
   }
 
-  @Test("direction choices edit values while repeat admission commits")
-  func valueInputControls() {
-    let selection = ExerciseActionDescriptor(
-      kind: .selectDirection(.boundary, .negativeX),
-      title: "X−"
+  @Test("operation activity retains actor outcome detail and recovery")
+  func operationActivity() {
+    let activity = OperationActivityPresentation(
+      actor: "Controller",
+      action: "Boundary Discovery X+",
+      outcome: .needsAttention,
+      detail: [.text("Controller reported Alarm.")],
+      recovery: [.text("Inspect the controller before restarting.")]
     )
-    let repeatAction = ExerciseActionDescriptor(
-      kind: .recordAnotherAttempt,
-      title: "Record Another Attempt"
-    )
-    #expect(selection.effect == .editValue)
-    #expect(repeatAction.effect == .commit)
-    #expect(selection.buttonRole == .editValue)
-    #expect(repeatAction.buttonRole == .commit)
+
+    #expect(activity.actor == "Controller")
+    #expect(activity.outcome.rawValue == "Needs Attention")
+    #expect(activity.detail.accessibilityText == "Controller reported Alarm.")
+    #expect(activity.recovery.accessibilityText == "Inspect the controller before restarting.")
   }
 
-  private func makePlan(
-    scope: LearningInvalidationScope,
-    affected: [LearningPathItemID]
-  ) -> LearningInvalidationPlan {
-    LearningInvalidationPlan(
-      scope: scope,
-      source: .live,
-      affectedItemIDs: affected,
-      expectedCurrentRevisionIDs: [],
-      expectedGraphRevision: 2,
-      expectedAcceptedAttemptSequence: 4,
-      expectedAuthorityManifestRevision: nil,
-      removesDurableMachineRegistration: false,
-      removesDurableTipRegistration: false,
-      physicalInkMayRemain: false
+  @Test("one action strip has one owner and distinct repeat actions")
+  func singleTypedActionStrip() {
+    let strip = ExerciseActionStripPresentation(
+      ownerID: .humanGuidedDiscovery(.penInteraction),
+      actions: [
+        ExerciseActionDescriptor(kind: .redoThisStep, title: "Redo This Step"),
+        ExerciseActionDescriptor(
+          kind: .recordAnotherAttempt,
+          title: "Record Another Attempt"
+        ),
+      ]
     )
+
+    #expect(strip.actions.map(\.kind) == [.redoThisStep, .recordAnotherAttempt])
+    #expect(strip.ownerID == .humanGuidedDiscovery(.penInteraction))
+  }
+
+  @Test("boundary direction presentation distinguishes available choices from a forced opposite")
+  func boundaryDirectionChoices() {
+    let available = ExerciseDirectionSelectionPresentation(
+      purpose: .boundary,
+      options: BoundaryDirection.allCases,
+      selected: .positiveX
+    )
+    let forced = ExerciseDirectionSelectionPresentation(
+      purpose: .boundary,
+      options: [.negativeX],
+      selected: .negativeX
+    )
+
+    #expect(available.purpose.label == "Boundary direction")
+    #expect(available.options == [.positiveX, .negativeX, .positiveY, .negativeY])
+    #expect(available.allowsSelection)
+    #expect(forced.options == [.negativeX])
+    #expect(forced.selected == .negativeX)
+    #expect(!forced.allowsSelection)
+  }
+
+  @Test(
+    "completed boundary repeat controls name one side and keep Redo distinct from another attempt")
+  func sideSpecificBoundaryRepeatControls() {
+    let strip = ExerciseActionStripPresentation(
+      ownerID: .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering),
+      actions: [
+        ExerciseActionDescriptor(
+          kind: .redoBoundary(.positiveX),
+          title: "Redo X+ Boundary"
+        ),
+        ExerciseActionDescriptor(
+          kind: .recordAnotherBoundaryAttempt(.positiveX),
+          title: "Record Another X+ Attempt"
+        ),
+      ]
+    )
+
+    #expect(
+      strip.actions.map(\.title) == [
+        "Redo X+ Boundary",
+        "Record Another X+ Attempt",
+      ])
+    #expect(strip.actions[0].kind != strip.actions[1].kind)
+    #expect(strip.actions[0].kind == .redoBoundary(.positiveX))
+    #expect(strip.actions[1].kind == .recordAnotherBoundaryAttempt(.positiveX))
   }
 }

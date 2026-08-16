@@ -252,7 +252,9 @@ public struct SimulatedLearningAnnotation: Hashable, Sendable {
   public static let algorithmRevision = "simulated-learning-annotation-v1"
 
   public let kind: SimulatedLearningAnnotationKind
+  public let anchor: Point2<CameraPixelSpace>
   public let geometry: SimulatedLearningAnnotationGeometry
+  public let visibleLabel: String
   public let accessibleValue: String
   public let algorithmRevision: String
   public let frameID: FrameID
@@ -262,7 +264,9 @@ public struct SimulatedLearningAnnotation: Hashable, Sendable {
 
   public init(
     kind: SimulatedLearningAnnotationKind,
+    anchor: Point2<CameraPixelSpace>,
     geometry: SimulatedLearningAnnotationGeometry,
+    visibleLabel: String,
     accessibleValue: String,
     algorithmRevision: String = Self.algorithmRevision,
     frameID: FrameID,
@@ -270,7 +274,9 @@ public struct SimulatedLearningAnnotation: Hashable, Sendable {
     viewportID: SimulatedCameraViewportID
   ) {
     self.kind = kind
+    self.anchor = anchor
     self.geometry = geometry
+    self.visibleLabel = visibleLabel
     self.accessibleValue = accessibleValue
     self.algorithmRevision = algorithmRevision
     self.frameID = frameID
@@ -318,7 +324,6 @@ public enum SimulatedLearningFault: Codable, Hashable, Sendable {
   case ambiguityBeforeNextBoundarySegment
   case cameraConfigurationChangeBeforeNextFrame
   case poseMismatchBeforeNextFrame(dxMM: Double, dyMM: Double)
-  case refuseNextSceneFrame
   case absentInk
   case excessiveBackgroundResidual
   case shutdownDuringOperation
@@ -532,6 +537,24 @@ public struct SimulatedLearningOperationOutcome: Hashable, Sendable {
   }
 }
 
+public struct SimulatedBoundarySegmentContinuation: Hashable, Sendable {
+  public let operationID: SimulatedLearningOperationID
+  public let completedSegmentCount: Int
+  public let mpos: SimulatedLearningMPos
+  public let evidenceNotice: SimulatedLearningEvidenceNotice
+
+  fileprivate init(
+    operationID: SimulatedLearningOperationID,
+    completedSegmentCount: Int,
+    mpos: SimulatedLearningMPos
+  ) {
+    self.operationID = operationID
+    self.completedSegmentCount = completedSegmentCount
+    self.mpos = mpos
+    evidenceNotice = .notPhysicalEvidence
+  }
+}
+
 public enum SimulatedLearningRefusal: Error, Hashable, Sendable {
   case sessionDisconnected
   case sessionAlreadyConnected
@@ -597,14 +620,6 @@ public struct SimulatedLearningInteractivePacing: SimulatedLearningExecutionPaci
   }
 }
 
-public struct SimulatedLearningImmediatePacing: SimulatedLearningExecutionPacing, Sendable {
-  public init() {}
-
-  public func suspendBetweenSteps() async {
-    await Task.yield()
-  }
-}
-
 /// Deterministic, nonphysical state machine for exercising the operator path.
 /// It owns no serial session, `MachineController`, `MachineActions`, camera, or
 /// evidence-producing type. Callers explicitly drive natural completions and
@@ -627,7 +642,7 @@ public actor SimulatedLearningRuntime {
   private var toolPaperRevision: UUID
   private var recentMotionTrail: [SimulatedLearningMPos]
   private var injectedFaults: [SimulatedLearningFault] = []
-  private var executionOperationID: SimulatedLearningOperationID?
+  private var cooperativeExecutionOperationID: SimulatedLearningOperationID?
   private var worldToCameraTransform: SimulatedWorldToCameraTransform
   private let capToTipOffsetTruth: SimulatedCapToTipOffsetTruth
   private var latestCausalSceneFrame: SimulatedLearningSceneFrame?
@@ -868,20 +883,33 @@ public actor SimulatedLearningRuntime {
     request(.shutdown, for: operationID)
   }
 
-  private func advanceBoundarySegment(
-    _ operation: SimulatedLearningOperation
-  ) -> SimulatedLearningRefusal? {
+  /// Models one unambiguous finite wire segment completing beneath the same
+  /// logical Boundary owner. It updates simulated MPos but never settles the
+  /// Boundary operation or manufactures Boundary success.
+  public func recordBoundarySegmentCompletion(
+    for operationID: SimulatedLearningOperationID
+  ) -> SimulatedLearningResponse<SimulatedBoundarySegmentContinuation> {
+    if let outcome = outcomes[operationID] {
+      return .refused(
+        .operationAlreadySettled(operationID, outcome.disposition)
+      )
+    }
+    guard let operation = currentOperation, operation.id == operationID else {
+      return .refused(
+        .staleOperation(requested: operationID, active: currentOperation?.id)
+      )
+    }
     guard case .boundary(let direction, let segmentLengthMM) = operation.kind else {
-      return .operationIsNotBoundary
+      return .refused(.operationIsNotBoundary)
     }
     if consumeInjectedShutdown() {
       _ = settle(operation, disposition: .shutdown)
-      return .sessionDisconnected
+      return .refused(.sessionDisconnected)
     }
     let proposedDelta = Self.boundaryDelta(direction, lengthMM: segmentLengthMM)
     guard let proposedMPos = mpos.applying(proposedDelta)
     else {
-      return .resultingPositionNonFinite
+      return .refused(.resultingPositionNonFinite)
     }
     let limit = boundaryTruth.limit(for: direction)
     let reachesTruth: Bool = switch direction {
@@ -899,9 +927,15 @@ public actor SimulatedLearningRuntime {
     } else {
       updateMPos(proposedMPos)
     }
-    let completedCount = completedBoundarySegmentCounts[operation.id, default: 0] + 1
-    completedBoundarySegmentCounts[operation.id] = completedCount
-    return nil
+    let completedCount = completedBoundarySegmentCounts[operationID, default: 0] + 1
+    completedBoundarySegmentCounts[operationID] = completedCount
+    return .accepted(
+      SimulatedBoundarySegmentContinuation(
+        operationID: operationID,
+        completedSegmentCount: completedCount,
+      mpos: mpos
+      )
+    )
   }
 
   /// Manual and drawing operations may complete naturally. Boundary is
@@ -960,13 +994,13 @@ public actor SimulatedLearningRuntime {
     guard let operation = currentOperation, operation.id == operationID else {
       return .refused(.staleOperation(requested: operationID, active: currentOperation?.id))
     }
-    guard executionOperationID == nil else {
-      return .refused(.operationAlreadyActive(executionOperationID!))
+    guard cooperativeExecutionOperationID == nil else {
+      return .refused(.operationAlreadyActive(cooperativeExecutionOperationID!))
     }
-    executionOperationID = operationID
+    cooperativeExecutionOperationID = operationID
     defer {
-      if executionOperationID == operationID {
-        executionOperationID = nil
+      if cooperativeExecutionOperationID == operationID {
+        cooperativeExecutionOperationID = nil
       }
     }
 
@@ -1000,10 +1034,12 @@ public actor SimulatedLearningRuntime {
     }
   }
 
-  /// Executes exactly one admitted finite Boundary segment. A natural horizon
-  /// completion settles without Boundary evidence; the workspace must surface
-  /// it as needs-attention and never resend it automatically.
-  public func executeBoundarySegment(
+  /// Cooperatively renews finite simulator segments beneath one logical
+  /// operator-stopped Boundary owner. Segment motion and causal-frame
+  /// publication have separate intent boundaries so Stop/Cancel/shutdown can
+  /// win without a later position or frame mutation. Reaching truth parks the
+  /// owner on its outcome continuation instead of spinning or succeeding.
+  public func executeBoundaryCooperatively(
     _ operationID: SimulatedLearningOperationID,
     pacing: any SimulatedLearningExecutionPacing = SimulatedLearningInteractivePacing()
   ) async -> SimulatedLearningResponse<SimulatedLearningOperationOutcome> {
@@ -1016,42 +1052,54 @@ public actor SimulatedLearningRuntime {
     guard case .boundary(let direction, _) = operation.kind else {
       return .refused(.operationIsNotBoundary)
     }
-    guard executionOperationID == nil else {
-      return .refused(.operationAlreadyActive(executionOperationID!))
+    guard cooperativeExecutionOperationID == nil else {
+      return .refused(.operationAlreadyActive(cooperativeExecutionOperationID!))
     }
-    executionOperationID = operationID
+    cooperativeExecutionOperationID = operationID
     defer {
-      if executionOperationID == operationID {
-        executionOperationID = nil
+      if cooperativeExecutionOperationID == operationID {
+        cooperativeExecutionOperationID = nil
       }
     }
 
-    if let terminal = await suspendAndRecheck(operation, pacing: pacing) {
-      return terminal
+    while true {
+      if atBoundaryTruth(direction) {
+        return await waitForOutcome(of: operationID)
+      }
+      if let terminal = await suspendAndRecheck(
+        operation,
+        pacing: pacing
+      ) {
+        return terminal
+      }
+      if removeFirstFault(matching: {
+        if case .ambiguityBeforeNextBoundarySegment = $0 { return true }
+        return false
+      }) != nil {
+        stickyAmbiguity = SimulatedLearningStickyAmbiguity(
+          operationID: operationID,
+          boundaryDirection: direction
+        )
+        return .accepted(settle(operation, disposition: .failed))
+      }
+      let continuation = recordBoundarySegmentCompletion(for: operationID)
+      if case .failure(let refusal) = continuation.result {
+        return .refused(refusal)
+      }
+
+      if let terminal = await suspendAndRecheck(
+        operation,
+        pacing: pacing
+      ) {
+        return terminal
+      }
+      switch renderSceneFrame(annotationContext: SimulatedLearningAnnotationContext()) {
+      case .success(let frame):
+        latestCausalSceneFrame = frame
+      case .failure(let refusal):
+        return .refused(refusal)
+      }
     }
-    if removeFirstFault(matching: {
-      if case .ambiguityBeforeNextBoundarySegment = $0 { return true }
-      return false
-    }) != nil {
-      stickyAmbiguity = SimulatedLearningStickyAmbiguity(
-        operationID: operationID,
-        boundaryDirection: direction
-      )
-      return .accepted(settle(operation, disposition: .failed))
-    }
-    if let refusal = advanceBoundarySegment(operation) {
-      return .refused(refusal)
-    }
-    if let terminal = await suspendAndRecheck(operation, pacing: pacing) {
-      return terminal
-    }
-    switch renderSceneFrame(annotationContext: SimulatedLearningAnnotationContext()) {
-    case .success(let frame):
-      latestCausalSceneFrame = frame
-    case .failure(let refusal):
-      return .refused(refusal)
-    }
-    return .accepted(settle(operation, disposition: .naturallyCompleted))
   }
 
   private func suspendAndRecheck(
@@ -1080,12 +1128,6 @@ public actor SimulatedLearningRuntime {
     annotationContext: SimulatedLearningAnnotationContext = SimulatedLearningAnnotationContext(),
     newerThanCaptureNanoseconds: UInt64 = 0
   ) -> SimulatedLearningResponse<SimulatedLearningSceneFrame> {
-    if removeFirstFault(matching: {
-      if case .refuseNextSceneFrame = $0 { return true }
-      return false
-    }) != nil {
-      return .refused(.frameRenderingFailed("injected scene-frame refusal"))
-    }
     if frameTimestamp <= newerThanCaptureNanoseconds {
       frameTimestamp = newerThanCaptureNanoseconds &+ 1
     }
@@ -1223,12 +1265,16 @@ public actor SimulatedLearningRuntime {
     let viewportID = transform.viewportID
     func annotation(
       _ kind: SimulatedLearningAnnotationKind,
+      anchor: Point2<CameraPixelSpace>,
       geometry: SimulatedLearningAnnotationGeometry,
+      label: String,
       value: String
     ) -> SimulatedLearningAnnotation {
       SimulatedLearningAnnotation(
         kind: kind,
+        anchor: anchor,
         geometry: geometry,
+        visibleLabel: label,
         accessibleValue: value,
         frameID: frameID,
         cameraConfigurationID: configurationID,
@@ -1249,7 +1295,9 @@ public actor SimulatedLearningRuntime {
     )
     var result = [annotation(
       .truthEnvelope,
+      anchor: truthMin,
       geometry: .bounds(truthBounds),
+      label: "SIMULATED TRUTH",
       value: "Simulator truth envelope; not learned or physical evidence"
     )]
 
@@ -1265,7 +1313,9 @@ public actor SimulatedLearningRuntime {
       let point = transform.cameraPoint(for: world)
       result.append(annotation(
         .directionLabel(direction),
+        anchor: point,
         geometry: .point(point),
+        label: direction.displayName,
         value: "Simulator truth direction \(direction.displayName)"
       ))
     }
@@ -1275,7 +1325,9 @@ public actor SimulatedLearningRuntime {
       let point = transform.cameraPoint(for: position)
       result.append(annotation(
         .acceptedLearnedSide(direction),
+        anchor: point,
         geometry: .point(point),
+        label: "LEARNED \(direction.displayName)",
         value: "Accepted simulated learned side \(direction.displayName)"
       ))
     }
@@ -1283,14 +1335,18 @@ public actor SimulatedLearningRuntime {
       let point = transform.cameraPoint(for: learnedCenter)
       result.append(annotation(
         .learnedCenter,
+        anchor: point,
         geometry: .point(point),
+        label: "LEARNED CENTER",
         value: "Accepted simulated learned center"
       ))
     }
 
     result.append(annotation(
       .currentCapAnchor,
+      anchor: capAnchor,
       geometry: .bounds(armature),
+      label: "MPOS",
       value: "Simulated MPos X \(renderedPosition.xMM), Y \(renderedPosition.yMM)"
     ))
     if recentMotionTrail.count > 1 {
@@ -1299,12 +1355,14 @@ public actor SimulatedLearningRuntime {
       )
       result.append(annotation(
         .recentMotionTrail,
+        anchor: trail.start,
         geometry: .polyline(trail),
+        label: "RECENT MOTION",
         value: "Bounded simulated motion trail with \(trail.points.count) positions"
       ))
     }
     if let operation = currentOperation {
-      let ownerDescription: String = switch operation.kind {
+      let label: String = switch operation.kind {
       case .manualJog: "MANUAL OWNER \(operation.id.sequence)"
       case .boundary(let direction, _):
         "BOUNDARY \(direction.displayName) OWNER \(operation.id.sequence)"
@@ -1312,8 +1370,10 @@ public actor SimulatedLearningRuntime {
       }
       result.append(annotation(
         .currentOperation,
+        anchor: capAnchor,
         geometry: .point(capAnchor),
-        value: "Current simulated operation \(ownerDescription)"
+        label: label,
+        value: "Current simulated operation \(label)"
       ))
     }
     for segment in inkSegments {
@@ -1327,7 +1387,9 @@ public actor SimulatedLearningRuntime {
       }
       result.append(annotation(
         .ink,
+        anchor: start,
         geometry: geometry,
+        label: "SIMULATED INK",
         value: "Simulated retained ink segment; not physical evidence"
       ))
     }
@@ -1401,8 +1463,8 @@ public actor SimulatedLearningRuntime {
     )
     outcomes[operation.id] = outcome
     currentOperation = nil
-    if executionOperationID == operation.id {
-      executionOperationID = nil
+    if cooperativeExecutionOperationID == operation.id {
+      cooperativeExecutionOperationID = nil
     }
     completedBoundarySegmentCounts.removeValue(forKey: operation.id)
     let waiters = outcomeWaiters.removeValue(forKey: operation.id) ?? []
@@ -1453,6 +1515,16 @@ public actor SimulatedLearningRuntime {
       if recentMotionTrail.count > 24 {
         recentMotionTrail.removeFirst(recentMotionTrail.count - 24)
       }
+    }
+  }
+
+  private func atBoundaryTruth(_ direction: BoundaryDirection) -> Bool {
+    let limit = boundaryTruth.limit(for: direction)
+    return switch direction {
+    case .negativeX: mpos.xMM <= limit
+    case .positiveX: mpos.xMM >= limit
+    case .negativeY: mpos.yMM <= limit
+    case .positiveY: mpos.yMM >= limit
     }
   }
 

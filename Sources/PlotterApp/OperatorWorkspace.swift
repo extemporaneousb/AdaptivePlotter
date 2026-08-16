@@ -3,12 +3,6 @@ import Observation
 import PlotterModel
 import PlotterRuntime
 
-enum LearningSurfaceExposureRecoveryDisposition: Hashable, Sendable {
-  case ready
-  case diagnosticsRequired
-  case paperReplacementRequired
-}
-
 enum FixedCameraOpticalSettlingPolicy {
   // The C920 mount can wobble by more than one integer pixel after carriage
   // travel. Keep the search finite and accept at most two pixels of global
@@ -96,6 +90,16 @@ enum OperatorFrameMode: String, CaseIterable, Hashable, Identifiable, Sendable {
   var id: Self { self }
 }
 
+enum AcceptedArtifactCheckpointStatus: Equatable, Sendable {
+  case unavailable
+  case cleared
+  case quarantined(sideCount: Int)
+  case saved(sideCount: Int, centerArrival: Bool)
+  case restored(sideCount: Int, centerArrival: Bool, residualMM: Double)
+  case incompatible(String)
+  case rejected(String)
+}
+
 enum JogDirection: String, CaseIterable, Identifiable, Sendable {
   case xNegative
   case xPositive
@@ -154,7 +158,7 @@ enum ContextualStopTarget: Hashable, Sendable {
   case sparseTipMark(
     capabilityID: ContextualStopCapabilityID,
     operationOwner: ContextualMotionOwnerID,
-    exposureID: LearningSurfaceExposureID
+    location: BlacklistedToolContactLocation
   )
 
   var capabilityID: ContextualStopCapabilityID {
@@ -236,8 +240,7 @@ struct ContextualStopAuditRecord: Hashable, Sendable {
   let capabilityID: ContextualStopCapabilityID
   let actor: String
   let action: String
-  let boundaryIntent: BoundaryTerminationIntent?
-  let mechanicalCancelIntent: JogCancelIntent
+  let disposition: JogCancelIntent
   let outcome: String
 }
 
@@ -268,6 +271,7 @@ enum BoundaryActivityOperation: Hashable, Sendable {
 enum BoundaryActivityPhase: String, Hashable, Sendable {
   case admission = "Admission"
   case moving = "Moving"
+  case renewalPlanning = "Renewal planning"
   case stopLatched = "Stop latched"
   case settling = "Controller settlement"
   case commit = "Atomic accepted commit"
@@ -277,7 +281,6 @@ enum BoundaryActivityPhase: String, Hashable, Sendable {
 enum BoundaryActivityDisposition: Hashable, Sendable {
   case inProgress
   case succeeded
-  case stopped
   case refused(String)
   case failed(String)
   case cancelled
@@ -324,10 +327,8 @@ struct BoundaryActivityRecord: Identifiable, Hashable, Sendable {
 
 private struct ContextualStopDispositionLatch: Hashable, Sendable {
   let capabilityID: ContextualStopCapabilityID
-  let boundaryIntent: BoundaryTerminationIntent?
-  let mechanicalCancelIntent: JogCancelIntent
+  let intent: JogCancelIntent
   let actor: String
-  let action: String
 }
 
 private enum ContextualStopLifecycleState {
@@ -604,52 +605,19 @@ final class OperatorWorkspace {
     }
   }
 
-  private struct EstimatedCenterAuthority {
-    let center: EstimatedMachineCenter
-    let localFrame: LearnedLocalCoordinateFrame
-  }
-
-  private struct LocalPreLineContextAuthority {
-    let baseline: DisplayedFrame
-    let revealPosition: MachinePosition
-    let tipRegistrationRevisionID: LearningArtifactRevisionID
-  }
-
-  private struct LineStartArrivalAuthority {
-    let target: MachinePosition
-    let settlement: ProtocolPoseSettlement
-    let requiredTravel: Bool
-  }
-
-  private enum LineExecutionAuthority: Hashable, Sendable {
-    case live(DrawingStrokeEvidence)
-    case simulated(SimulatedLearningOperationOutcome)
-
-    var finalSampleNanoseconds: UInt64? {
-      guard case .live(let evidence) = self else { return nil }
-      return evidence.finalSampleNanoseconds
-    }
-  }
-
-  private struct PostLineObservationAuthority {
-    let revealSettlement: ProtocolPoseSettlement
-    let frame: DisplayedFrame
-    let region: PixelRect
-    let observation: IsolatedInkObservation
-  }
-
   private struct DrawingTrialState {
     var step: ObservedDrawingTrialStep = .chooseIsolatedLinePlan
-    var linePlan: ObservedDrawingTrialLinePlan?
-    var localPreLineContext: LocalPreLineContextAuthority?
-    var lineStartArrival: LineStartArrivalAuthority?
-    var lineExecution: LineExecutionAuthority?
-    var postLineObservation: PostLineObservationAuthority?
+    var localPreLineBaseline: DisplayedFrame?
+    var revealPosition: MachinePosition?
+    var tipRegistrationRevisionID: LearningArtifactRevisionID?
+    var observationRegion: PixelRect?
+    var postLineFrame: DisplayedFrame?
+    var lineStart: MachinePosition?
+    var strokeEvidence: DrawingStrokeEvidence?
+    var inkObservation: IsolatedInkObservation?
     var inkStatus = "no isolated-line observation yet"
     var lastTravelFeedSelection: TravelFeedSelection?
     var assessment: DrawingTrialAssessment?
-    var currentEpisode: ExplorationEpisode?
-    var completedEpisodes: [ExplorationEpisode] = []
     var comparisonAttemptHistories:
       [AttemptCompatibility: ExerciseAttemptHistory<DrawingTrialAssessment>] = [:]
     var group: AttemptGroupIdentity
@@ -666,60 +634,27 @@ final class OperatorWorkspace {
       )
     }
 
-    mutating func invalidatePayload(
-      from invalidatedStep: ObservedDrawingTrialStep,
-      source: OperatorFrameMode
-    ) {
-      if invalidatedStep == .chooseIsolatedLinePlan {
-        currentEpisode = nil
-        linePlan = nil
+    mutating func rewind(from rewindStep: ObservedDrawingTrialStep, source: OperatorFrameMode) {
+      if rewindStep == .chooseIsolatedLinePlan {
+        lineStart = nil
         group = Self.newGroup(for: source)
-      } else if var episode = currentEpisode {
-        episode.termination = nil
-        episode.humanAssessment = nil
-        if invalidatedStep.rawValue
-          <= ObservedDrawingTrialStep.captureLocalPreLineBaseline.rawValue
-        {
-          episode.frames.removeAll {
-            $0.role == .localPreLineBaseline || $0.role == .postLine
-          }
-        } else if invalidatedStep.rawValue
-          <= ObservedDrawingTrialStep.revealAndObserveNewInk.rawValue
-        {
-          episode.frames.removeAll { $0.role == .postLine }
-        }
-        if invalidatedStep.rawValue <= ObservedDrawingTrialStep.drawIsolatedLine.rawValue {
-          episode.controllerEvidence = nil
-        }
-        if invalidatedStep.rawValue
-          <= ObservedDrawingTrialStep.revealAndObserveNewInk.rawValue
-        {
-          episode.observedLineObservation = nil
-          episode.visionEstimate = nil
-          episode.residual = nil
-        }
-        currentEpisode = episode
       }
 
-      if invalidatedStep.rawValue
-        <= ObservedDrawingTrialStep.captureLocalPreLineBaseline.rawValue
-      {
-        localPreLineContext = nil
+      if rewindStep.rawValue <= ObservedDrawingTrialStep.captureLocalPreLineBaseline.rawValue {
+        localPreLineBaseline = nil
       }
-      if invalidatedStep.rawValue <= ObservedDrawingTrialStep.moveToLineStart.rawValue {
-        lineStartArrival = nil
+      if rewindStep.rawValue <= ObservedDrawingTrialStep.drawIsolatedLine.rawValue {
+        strokeEvidence = nil
       }
-      if invalidatedStep.rawValue <= ObservedDrawingTrialStep.drawIsolatedLine.rawValue {
-        lineExecution = nil
-      }
-      if invalidatedStep.rawValue <= ObservedDrawingTrialStep.revealAndObserveNewInk.rawValue {
-        postLineObservation = nil
+      if rewindStep.rawValue <= ObservedDrawingTrialStep.revealAndObserveNewInk.rawValue {
+        postLineFrame = nil
+        inkObservation = nil
         inkStatus = "no isolated-line observation yet"
       }
       assessment = nil
       comparisonAttemptHistories = [:]
       lastTravelFeedSelection = nil
-      step = invalidatedStep
+      step = rewindStep
     }
   }
 
@@ -732,16 +667,6 @@ final class OperatorWorkspace {
   private struct PenCapAppearanceSelectionContext {
     let frame: DisplayedFrame
     let request: ActionSurfacePointSelectionRequest
-  }
-
-  /// Attempt-local cap evidence. A click may configure the running LIVE Vision
-  /// attempt, but it is not accepted Learning authority until the complete
-  /// Pen Interaction transaction commits.
-  private struct StagedPenCapAppearanceCandidate: Equatable, Sendable {
-    let attemptID: ExerciseAttemptID
-    let attemptMode: ExerciseAttemptMode
-    let source: OperatorFrameMode
-    let selection: PenCapAppearanceSelection
   }
 
   private struct PenCapAcceptedClickContinuationIdentity: Equatable, Sendable {
@@ -820,7 +745,8 @@ final class OperatorWorkspace {
     var pairedBoundaryProgress = PairedBoundaryProgress()
     var boundaryAttemptEvidenceByAttemptID: [ExerciseAttemptID: BoundarySideAttemptEvidence] = [:]
     var boundarySideAggregates: [BoundaryDirection: BoundarySideAggregate] = [:]
-    var estimatedCenterAuthority: EstimatedCenterAuthority?
+    var estimatedMachineCenter: EstimatedMachineCenter?
+    var learnedLocalCoordinateFrame: LearnedLocalCoordinateFrame?
     var centerArrivalPosition: MachinePosition?
     var centerArrivalRetryRequired = false
     var cameraCalibrationAnchorFrame: DisplayedFrame?
@@ -832,7 +758,7 @@ final class OperatorWorkspace {
     var proposedTipCameraRegistration: TipCameraRegistration?
     var sparseTipCalibrationCoordinator = SparseTipCalibrationCoordinator()
     var toolContactSelection: ToolContactSelectionState = .idle
-    var surfaceExposureLedger = LearningSurfaceExposureLedger()
+    var blacklistedToolContactLocations: Set<BlacklistedToolContactLocation> = []
     var explicitRegistrationCapAnchorEvidence: [MachineCameraCorrespondenceProvenance] = []
     var currentCameraCalibrationPhase: CurrentCameraCalibrationPhase?
     var currentCameraCalibrationFailure: CurrentCameraCalibrationFailure?
@@ -860,13 +786,13 @@ final class OperatorWorkspace {
       >]] = [:]
     var exerciseAttempt: ExerciseAttemptLifecycle = .idle
     var restartableExerciseItemID: LearningPathItemID?
+    var acceptedArtifactCheckpointStatus: AcceptedArtifactCheckpointStatus = .unavailable
     var parkedAcceptedMachineArtifactCheckpoint: AcceptedMachineArtifactCheckpoint?
     var quarantinedTipCalibrationCheckpoint: AcceptedTipCalibrationCheckpoint?
     var learningAuthorityError: String?
     var selectedBoundaryDirection: BoundaryDirection = .positiveX
     var selectedLineDirection: BoundaryDirection = .positiveX
     var acceptedAttemptSequence: UInt64 = 0
-    var learningEvidenceSessionID = LearningEvidenceSessionID()
     var controllerSessionID = UUID()
     var explorationCoordinateRevision: UInt64 = 0
     var explorationToolPaperRevision: UUID
@@ -894,8 +820,8 @@ final class OperatorWorkspace {
   private enum MotionPriors {
     static let stepMM = "50"
     static let feedMMPerMinute = "500"
-    /// Finite GRBL boundary horizon. Reaching it is a needs-attention result,
-    /// never Boundary evidence and never an automatic resend.
+    /// Finite GRBL wire segment used only for renewal under one logical owner.
+    /// Reaching this distance is never a Boundary Discovery result.
     static let boundaryWireSegmentMM = 20.0
   }
 
@@ -910,7 +836,8 @@ final class OperatorWorkspace {
     let requestPenActuation:
       @Sendable (PenCommand, PenActuationProfile) async -> PenOutcome
     let beginBoundaryMotion:
-      @Sendable (BoundaryMotionRequest) async -> BoundaryMotionAdmission
+      @Sendable (BoundaryMotionRequest, BoundaryMotionRenewalPlanner?) async
+        -> BoundaryMotionAdmission
     let requestJogCancel: @Sendable (JogCancelIntent) async -> JogCancelOutcome
     let disconnect: @Sendable () async -> Void
   }
@@ -924,28 +851,16 @@ final class OperatorWorkspace {
     let record: @Sendable (WorkflowTelemetryEvent) async -> Void
   }
 
-  struct LearningAuthorityManifestActions: Sendable {
-    let load: @Sendable () -> LearningAuthorityManifestLoadResult
-    let commit:
-      @Sendable (
-        LearningAuthorityStoreRevision,
-        LearningAuthorityManifestMutation
-      ) throws -> LearningAuthorityManifestSnapshot
+  struct AcceptedArtifactCheckpointActions: Sendable {
+    let load: @Sendable () -> AcceptedArtifactCheckpointLoadResult
+    let save: @Sendable (AcceptedMachineArtifactCheckpoint) throws -> Void
+    let clear: @Sendable () throws -> Void
   }
 
-  struct LiveLearningSurfaceExposureActions: Sendable {
-    let load: @Sendable () -> LiveLearningSurfaceExposureLoadResult
-    let save:
-      @Sendable (
-        LiveLearningSurfaceExposureStoreRevision,
-        LearningSurfaceExposureLedger,
-        PaperContactPlaneRevision
-      ) throws -> LiveLearningSurfaceExposureSnapshot
-    let recoverForPaperReplacement:
-      @Sendable (
-        LiveLearningSurfaceExposureStoreRevision,
-        PaperContactPlaneRevision
-      ) throws -> LiveLearningSurfaceExposureSnapshot
+  struct AcceptedTipCalibrationCheckpointActions: Sendable {
+    let load: @Sendable () -> AcceptedTipCalibrationCheckpointLoadResult
+    let save: @Sendable (AcceptedTipCalibrationCheckpoint) throws -> Void
+    let clear: @Sendable () throws -> Void
   }
 
   struct CameraActions: Sendable {
@@ -977,16 +892,9 @@ final class OperatorWorkspace {
     frameMode == .live ? livePenCapAppearanceSelection : simulatedPenCapAppearanceSelection
   }
   private var livePenCapColor: PenCapColor? { livePenCapAppearanceSelection?.color }
-  let videoPresentationPreferences: VideoPresentationPreferences
-  var overlayPreferenceState: OverlayPreferenceState {
-    videoPresentationPreferences.overlayPreferenceState
-  }
-  var visionAnalysisCadence: VisionAnalysisCadence {
-    videoPresentationPreferences.cadence
-  }
-  var videoAnalysisRegionLock: VideoAnalysisRegionLock? {
-    videoPresentationPreferences.lockedAnalysisRegion
-  }
+  private(set) var overlayPreferenceState: OverlayPreferenceState
+  private(set) var visionAnalysisCadence = VisionAnalysisCadence.twoFPS
+  private(set) var videoAnalysisRegionLock: VideoAnalysisRegionLock?
   var frameMode: OperatorFrameMode = .live
   // String-backed numeric inputs preserve partially typed values and keep X/Y
   // independent. Runtime value constructors and MachineController own validity.
@@ -1091,11 +999,13 @@ final class OperatorWorkspace {
     get { activeLearningSession.boundarySideAggregates }
     set { activeLearningSession.boundarySideAggregates = newValue }
   }
-  var estimatedMachineCenter: EstimatedMachineCenter? {
-    activeLearningSession.estimatedCenterAuthority?.center
+  private(set) var estimatedMachineCenter: EstimatedMachineCenter? {
+    get { activeLearningSession.estimatedMachineCenter }
+    set { activeLearningSession.estimatedMachineCenter = newValue }
   }
-  var learnedLocalCoordinateFrame: LearnedLocalCoordinateFrame? {
-    activeLearningSession.estimatedCenterAuthority?.localFrame
+  private(set) var learnedLocalCoordinateFrame: LearnedLocalCoordinateFrame? {
+    get { activeLearningSession.learnedLocalCoordinateFrame }
+    set { activeLearningSession.learnedLocalCoordinateFrame = newValue }
   }
   private(set) var centerArrivalPosition: MachinePosition? {
     get { activeLearningSession.centerArrivalPosition }
@@ -1161,9 +1071,9 @@ final class OperatorWorkspace {
   private let penContactProfileRevision: PenContactProfileRevision
   private let cameraMountRevision: UUID
   private let cameraReframingRevision: UUID
-  private var surfaceExposureLedger: LearningSurfaceExposureLedger {
-    get { activeLearningSession.surfaceExposureLedger }
-    set { activeLearningSession.surfaceExposureLedger = newValue }
+  private(set) var blacklistedToolContactLocations: Set<BlacklistedToolContactLocation> {
+    get { activeLearningSession.blacklistedToolContactLocations }
+    set { activeLearningSession.blacklistedToolContactLocations = newValue }
   }
   private(set) var explicitRegistrationCapAnchorEvidence: [MachineCameraCorrespondenceProvenance] {
     get { activeLearningSession.explicitRegistrationCapAnchorEvidence }
@@ -1177,8 +1087,21 @@ final class OperatorWorkspace {
     get { activeLearningSession.currentCameraCalibrationFailure }
     set { activeLearningSession.currentCameraCalibrationFailure = newValue }
   }
-  var localPreLineBaseline: DisplayedFrame? {
-    activeLearningSession.drawingTrial.localPreLineContext?.baseline
+  private(set) var localPreLineBaseline: DisplayedFrame? {
+    get { activeLearningSession.drawingTrial.localPreLineBaseline }
+    set { activeLearningSession.drawingTrial.localPreLineBaseline = newValue }
+  }
+  private(set) var drawingTrialRevealPosition: MachinePosition? {
+    get { activeLearningSession.drawingTrial.revealPosition }
+    set { activeLearningSession.drawingTrial.revealPosition = newValue }
+  }
+  private(set) var drawingTrialTipRegistrationRevisionID: LearningArtifactRevisionID? {
+    get { activeLearningSession.drawingTrial.tipRegistrationRevisionID }
+    set { activeLearningSession.drawingTrial.tipRegistrationRevisionID = newValue }
+  }
+  private(set) var drawingTrialObservationRegion: PixelRect? {
+    get { activeLearningSession.drawingTrial.observationRegion }
+    set { activeLearningSession.drawingTrial.observationRegion = newValue }
   }
   private(set) var lastProtocolPoseSettlement: ProtocolPoseSettlement? {
     get { activeLearningSession.lastProtocolPoseSettlement }
@@ -1188,31 +1111,21 @@ final class OperatorWorkspace {
     get { activeLearningSession.explorationError }
     set { activeLearningSession.explorationError = newValue }
   }
-  private(set) var currentExplorationEpisode: ExplorationEpisode? {
-    get { activeLearningSession.drawingTrial.currentEpisode }
-    set { activeLearningSession.drawingTrial.currentEpisode = newValue }
+  private(set) var explorationPostLineFrame: DisplayedFrame? {
+    get { activeLearningSession.drawingTrial.postLineFrame }
+    set { activeLearningSession.drawingTrial.postLineFrame = newValue }
   }
-  private(set) var completedExplorationEpisodes: [ExplorationEpisode] {
-    get { activeLearningSession.drawingTrial.completedEpisodes }
-    set { activeLearningSession.drawingTrial.completedEpisodes = newValue }
+  private(set) var drawingTrialLineStart: MachinePosition? {
+    get { activeLearningSession.drawingTrial.lineStart }
+    set { activeLearningSession.drawingTrial.lineStart = newValue }
   }
-  var explorationPostLineFrame: DisplayedFrame? {
-    activeLearningSession.drawingTrial.postLineObservation?.frame
+  private(set) var drawingTrialStrokeEvidence: DrawingStrokeEvidence? {
+    get { activeLearningSession.drawingTrial.strokeEvidence }
+    set { activeLearningSession.drawingTrial.strokeEvidence = newValue }
   }
-  var drawingTrialLineStart: MachinePosition? {
-    activeLearningSession.drawingTrial.linePlan?.startPosition
-  }
-  var currentDrawingTrialGroupHasExposure: Bool {
-    drawingTrialGroupHasExposure(currentDrawingTrialGroup, in: activeLearningSession)
-  }
-  private func drawingTrialGroupHasExposure(
-    _ group: AttemptGroupIdentity,
-    in session: LearningSessionState
-  ) -> Bool {
-    session.surfaceExposureLedger.entries.contains { exposure in
-      exposure.paperContactPlane.rawValue == session.explorationToolPaperRevision
-        && exposure.owner == .drawingTrial(group)
-    }
+  private(set) var lastInkObservation: IsolatedInkObservation? {
+    get { activeLearningSession.drawingTrial.inkObservation }
+    set { activeLearningSession.drawingTrial.inkObservation = newValue }
   }
   private(set) var explorationInkStatus: String {
     get { activeLearningSession.drawingTrial.inkStatus }
@@ -1265,6 +1178,10 @@ final class OperatorWorkspace {
     get { activeLearningSession.restartableExerciseItemID }
     set { activeLearningSession.restartableExerciseItemID = newValue }
   }
+  private(set) var acceptedArtifactCheckpointStatus: AcceptedArtifactCheckpointStatus {
+    get { activeLearningSession.acceptedArtifactCheckpointStatus }
+    set { activeLearningSession.acceptedArtifactCheckpointStatus = newValue }
+  }
   private(set) var quarantinedTipCalibrationCheckpoint: AcceptedTipCalibrationCheckpoint? {
     get { activeLearningSession.quarantinedTipCalibrationCheckpoint }
     set { activeLearningSession.quarantinedTipCalibrationCheckpoint = newValue }
@@ -1272,39 +1189,6 @@ final class OperatorWorkspace {
   private(set) var learningAuthorityError: String? {
     get { activeLearningSession.learningAuthorityError }
     set { activeLearningSession.learningAuthorityError = newValue }
-  }
-  var learningAuthorityManifestError: String? {
-    frameMode == .live ? liveLearningAuthorityManifestBlocker : nil
-  }
-  var learningSurfaceExposureError: String? {
-    frameMode == .live
-      ? (liveLearningSurfaceExposureBlocker ?? liveTipSurfaceExposureBindingBlocker)
-      : nil
-  }
-  var learningSurfaceExposureLedger: LearningSurfaceExposureLedger {
-    surfaceExposureLedger
-  }
-  var learningSurfaceExposureRecoveryDisposition:
-    LearningSurfaceExposureRecoveryDisposition
-  {
-    guard frameMode == .live else { return .ready }
-    if liveTipSurfaceExposureBindingBlocker != nil
-      || unmatchedCurrentPaperSparseExposure() != nil
-    {
-      return .paperReplacementRequired
-    }
-    return liveLearningSurfaceStoreRecoveryDisposition
-  }
-
-  private var liveSparseContactUnavailableReason: String? {
-    guard frameMode == .live else { return nil }
-    if let blocker = liveLearningAuthorityManifestBlocker {
-      return "LIVE contact is blocked by the Learning-authority manifest: \(blocker)"
-    }
-    guard learningSurfaceExposureRecoveryDisposition == .ready else {
-      return "LIVE contact is blocked by the surface-exposure ledger: \(learningSurfaceExposureError ?? "current-paper safety history requires recovery")"
-    }
-    return nil
   }
 
   @ObservationIgnored private let machineActions: MachineActions?
@@ -1315,24 +1199,17 @@ final class OperatorWorkspace {
   /// These ports are capabilities of the LIVE learning session only. The
   /// active accessors deliberately return nil for SIMULATED before any
   /// workflow can load, save, or clear physical durable authority.
-  @ObservationIgnored private let liveLearningAuthorityManifestActions:
-    LearningAuthorityManifestActions?
-  @ObservationIgnored private var liveLearningAuthorityManifestRevision:
-    LearningAuthorityStoreRevision = .absent
-  @ObservationIgnored private var liveLearningAuthorityManifest: LearningAuthorityManifest =
-    try! LearningAuthorityManifest(generation: 0, machine: nil, tip: nil)
-  private var liveLearningAuthorityManifestBlocker: String?
-  @ObservationIgnored private let liveLearningSurfaceExposureActions:
-    LiveLearningSurfaceExposureActions?
-  private var liveLearningSurfaceExposureBlocker: String? =
-    "LIVE surface-exposure persistence is unavailable."
-  private var liveLearningSurfaceStoreRecoveryDisposition:
-    LearningSurfaceExposureRecoveryDisposition = .diagnosticsRequired
-  private var liveTipSurfaceExposureBindingBlocker: String?
-  @ObservationIgnored private var liveLearningSurfaceExposureRevision:
-    LiveLearningSurfaceExposureStoreRevision = .absent
-  private var activeLearningAuthorityManifestActions: LearningAuthorityManifestActions? {
-    frameMode == .live ? liveLearningAuthorityManifestActions : nil
+  @ObservationIgnored private let liveAcceptedArtifactCheckpointActions:
+    AcceptedArtifactCheckpointActions?
+  @ObservationIgnored private let liveAcceptedTipCalibrationCheckpointActions:
+    AcceptedTipCalibrationCheckpointActions?
+  private var activeAcceptedArtifactCheckpointActions: AcceptedArtifactCheckpointActions? {
+    frameMode == .live ? liveAcceptedArtifactCheckpointActions : nil
+  }
+  private var activeAcceptedTipCalibrationCheckpointActions:
+    AcceptedTipCalibrationCheckpointActions?
+  {
+    frameMode == .live ? liveAcceptedTipCalibrationCheckpointActions : nil
   }
   @ObservationIgnored private let workflowTelemetryActions: WorkflowTelemetryActions?
   @ObservationIgnored private let simulatedLearningRuntime: SimulatedLearningRuntime
@@ -1349,11 +1226,6 @@ final class OperatorWorkspace {
   @ObservationIgnored private var penCapAcceptedClickContinuationTask: Task<Void, Never>?
   @ObservationIgnored private var penCapAcceptedClickContinuationIdentity:
     PenCapAcceptedClickContinuationIdentity?
-  @ObservationIgnored private var stagedPenCapAppearanceCandidate:
-    StagedPenCapAppearanceCandidate?
-  private var learningEvidenceSessionID: LearningEvidenceSessionID {
-    activeLearningSession.learningEvidenceSessionID
-  }
   private var controllerSessionID: UUID {
     get { activeLearningSession.controllerSessionID }
     set { activeLearningSession.controllerSessionID = newValue }
@@ -1384,8 +1256,6 @@ final class OperatorWorkspace {
     [ExerciseAttemptID: BoundaryMotionOwnerID] = [:]
   @ObservationIgnored private var pendingBoundaryStopCapabilities:
     [ExerciseAttemptID: ContextualStopCapabilityID] = [:]
-  @ObservationIgnored private var penUpFinalizerAttemptOutcomes:
-    [LearningSurfaceExposureID: PenOutcome] = [:]
   @ObservationIgnored private var rememberedSerialDeviceIdentifier: String?
   @ObservationIgnored private var hasShutdown = false
   @ObservationIgnored private var lifetimeGeneration: UInt64 = 0
@@ -1412,8 +1282,8 @@ final class OperatorWorkspace {
     machineActions: MachineActions? = nil,
     cameraActions: CameraActions? = nil,
     announcementActions: AnnouncementActions? = nil,
-    learningAuthorityManifestActions: LearningAuthorityManifestActions? = nil,
-    liveLearningSurfaceExposureActions: LiveLearningSurfaceExposureActions? = nil,
+    acceptedArtifactCheckpointActions: AcceptedArtifactCheckpointActions? = nil,
+    acceptedTipCalibrationCheckpointActions: AcceptedTipCalibrationCheckpointActions? = nil,
     tipCalibrationSemanticIdentities: TipCalibrationSemanticIdentityState = .ephemeral(),
     persistPaperContactPlaneRevision: @escaping @Sendable (PaperContactPlaneRevision) -> Void = {
       _ in
@@ -1465,10 +1335,7 @@ final class OperatorWorkspace {
     },
     boundaryAtomicCommitFailurePoints: Set<BoundaryAtomicCommitFailurePoint> = []
   ) {
-    videoPresentationPreferences = VideoPresentationPreferences(
-      cadence: .twoFPS,
-      enabledOverlays: loadOverlayPreference() ?? Set(UserSceneOverlay.allCases)
-    )
+    overlayPreferenceState = .loaded(loadOverlayPreference())
     liveLearningSession = LearningSessionState(
       source: .live,
       paperContactPlaneRevision: tipCalibrationSemanticIdentities.paperContactPlane.rawValue
@@ -1495,8 +1362,8 @@ final class OperatorWorkspace {
     simulatedPenCapAppearanceSelection = nil
     self.persistPenCapAppearanceSelection = persistPenCapAppearanceSelection
     self.announcementActions = announcementActions
-    liveLearningAuthorityManifestActions = learningAuthorityManifestActions
-    self.liveLearningSurfaceExposureActions = liveLearningSurfaceExposureActions
+    liveAcceptedArtifactCheckpointActions = acceptedArtifactCheckpointActions
+    liveAcceptedTipCalibrationCheckpointActions = acceptedTipCalibrationCheckpointActions
     machineGeometryIdentity = tipCalibrationSemanticIdentities.machineGeometry
     toolAssemblyRevision = tipCalibrationSemanticIdentities.toolAssembly
     penContactProfileRevision = tipCalibrationSemanticIdentities.penContactProfile
@@ -1517,60 +1384,26 @@ final class OperatorWorkspace {
         $0.identifier == rememberedSerialDeviceIdentifier
       }
     }
-    if let learningAuthorityManifestActions {
-      switch learningAuthorityManifestActions.load() {
-      case .loaded(let snapshot):
-        liveLearningAuthorityManifest = snapshot.manifest
-        liveLearningAuthorityManifestRevision = snapshot.revision
-        parkedAcceptedMachineArtifactCheckpoint = snapshot.manifest.machine
-        quarantinedTipCalibrationCheckpoint = snapshot.manifest.tip
-        liveLearningAuthorityManifestBlocker = nil
-      case .rejected(let reason, let revision):
-        liveLearningAuthorityManifestRevision = revision
-        liveLearningAuthorityManifestBlocker = reason
-      }
-    } else {
-      liveLearningAuthorityManifestBlocker =
-        "LIVE accepted Learning-authority persistence is unavailable."
-    }
-    if let liveLearningSurfaceExposureActions {
-      switch liveLearningSurfaceExposureActions.load() {
+    if let acceptedArtifactCheckpointActions {
+      switch acceptedArtifactCheckpointActions.load() {
       case .absent:
-        liveLearningSurfaceExposureRevision = .absent
-        liveLearningSurfaceExposureBlocker = nil
-        liveLearningSurfaceStoreRecoveryDisposition = .ready
-      case .loaded(let snapshot):
-        liveLearningSurfaceExposureRevision = snapshot.revision
-        let ledger = snapshot.checkpoint.ledger
-        liveLearningSession.surfaceExposureLedger = ledger
-        let paper = PaperContactPlaneRevision(
-          rawValue: liveLearningSession.explorationToolPaperRevision
+        acceptedArtifactCheckpointStatus = .unavailable
+      case .loaded(let checkpoint):
+        parkedAcceptedMachineArtifactCheckpoint = checkpoint
+        acceptedArtifactCheckpointStatus = .quarantined(
+          sideCount: checkpoint.boundarySideAggregates.count
         )
-        if let unmatched = unmatchedCurrentPaperSparseExposure(
-          ledger: ledger,
-          checkpoint: liveLearningAuthorityManifest.tip
-        ) {
-          liveLearningSession.sparseTipCalibrationCoordinator.recordPossibleInk(
-            unmatched,
-            reason:
-              "Durable possible-ink calibration exposure exists on this paper without a current accepted observation. Record paper replacement before calibration continues."
-          )
-        }
-        if snapshot.checkpoint.currentPaperContactPlane == paper {
-          liveLearningSurfaceExposureBlocker = nil
-          liveLearningSurfaceStoreRecoveryDisposition = .ready
-        } else {
-          liveLearningSurfaceExposureBlocker =
-            "Safety history is bound to a different current paper. Record Paper Replacement before LIVE contact."
-          liveLearningSurfaceStoreRecoveryDisposition = .paperReplacementRequired
-        }
-      case .rejected(let reason, let revision):
-        liveLearningSurfaceExposureRevision = revision
-        liveLearningSurfaceExposureBlocker = reason
-        liveLearningSurfaceStoreRecoveryDisposition = .paperReplacementRequired
+      case .rejected(let reason):
+        acceptedArtifactCheckpointStatus = .rejected(reason)
       }
     }
-    refreshLiveTipSurfaceExposureBindingBlocker()
+    if let acceptedTipCalibrationCheckpointActions,
+      case .quarantined(let checkpoint) = acceptedTipCalibrationCheckpointActions.load()
+    {
+      // Durable tip evidence is intentionally quarantined. It cannot restore
+      // graph or operational authority without an explicit current revalidation.
+      quarantinedTipCalibrationCheckpoint = checkpoint
+    }
   }
 
   func replaceBoundaryAtomicCommitFailurePointsForTesting(
@@ -1592,118 +1425,6 @@ final class OperatorWorkspace {
     quarantinedTipCalibrationCheckpoint = checkpoint
   }
 
-  @discardableResult
-  private func commitLearningAuthorityManifest(
-    expectedRevision: LearningAuthorityStoreRevision? = nil,
-    mutation: LearningAuthorityManifestMutation,
-    permitsCorruptReplacement: Bool = false
-  ) throws -> LearningAuthorityManifestSnapshot {
-    guard frameMode == .live, let actions = activeLearningAuthorityManifestActions else {
-      throw LearningPathOperationError.requiredState(
-        "LIVE accepted Learning-authority persistence is unavailable."
-      )
-    }
-    if let blocker = liveLearningAuthorityManifestBlocker,
-      !(permitsCorruptReplacement && {
-        if case .corrupt = liveLearningAuthorityManifestRevision { return true }
-        return false
-      }())
-    {
-      throw LearningPathOperationError.requiredState(blocker)
-    }
-    let revision = expectedRevision ?? liveLearningAuthorityManifestRevision
-    let snapshot = try actions.commit(revision, mutation)
-    liveLearningAuthorityManifest = snapshot.manifest
-    liveLearningAuthorityManifestRevision = snapshot.revision
-    liveLearningAuthorityManifestBlocker = nil
-    refreshLiveTipSurfaceExposureBindingBlocker()
-    return snapshot
-  }
-
-  private func refreshLiveTipSurfaceExposureBindingBlocker() {
-    guard let checkpoint = liveLearningAuthorityManifest.tip else {
-      liveTipSurfaceExposureBindingBlocker = nil
-      return
-    }
-    guard checkpoint.isSurfaceExposureBound(to: liveLearningSession.surfaceExposureLedger) else {
-      liveTipSurfaceExposureBindingBlocker =
-        "The quarantined tip checkpoint is not cross-bound to its complete durable sparse-mark safety history. Record Paper Replacement before any further contact or Stage 4 drawing."
-      return
-    }
-    liveTipSurfaceExposureBindingBlocker = nil
-  }
-
-  private func unmatchedCurrentPaperSparseExposure(
-    ledger: LearningSurfaceExposureLedger? = nil,
-    checkpoint: AcceptedTipCalibrationCheckpoint? = nil
-  ) -> LearningSurfaceExposure? {
-    let ledger = ledger ?? liveLearningSession.surfaceExposureLedger
-    let checkpoint = checkpoint ?? liveLearningAuthorityManifest.tip
-    let paper = PaperContactPlaneRevision(
-      rawValue: liveLearningSession.explorationToolPaperRevision
-    )
-    let trusted = checkpoint.map { Set($0.surfaceExposures) } ?? []
-    return ledger.exposures(on: paper).first { exposure in
-      guard case .sparseTipMark = exposure.owner else { return false }
-      return !trusted.contains(exposure)
-        && !currentSparseAttemptRepresents(exposure)
-    }
-  }
-
-  private func currentSparseAttemptRepresents(
-    _ exposure: LearningSurfaceExposure
-  ) -> Bool {
-    guard case .sparseTipMark(let position) = exposure.owner,
-      case .sparseCalibrationCircle(let center, let radiusMM) = exposure.geometry,
-      exposure.paperContactPlane.rawValue == explorationToolPaperRevision,
-      let finalization = exposure.penUpFinalization,
-      finalization.reason == .circleCompleted,
-      finalization.outcome
-        == .commandedAndSettled(command: .raise, commandedState: .up)
-    else { return false }
-
-    func matches(
-      position candidatePosition: ToolContactCalibrationPosition,
-      geometry: ToolContactMarkGeometryEvidence,
-      penUp: PenActuationEvidence,
-      paper: PaperContactPlaneRevision
-    ) -> Bool {
-      candidatePosition == position
-        && geometry.center == center
-        && geometry.radiusMM == radiusMM
-        && penUp.outcome == finalization.outcome
-        && paper.rawValue == explorationToolPaperRevision
-    }
-
-    if let pending = pendingToolContactEvidence,
-      matches(
-        position: pending.position,
-        geometry: pending.markGeometry,
-        penUp: pending.penUp,
-        paper: PaperContactPlaneRevision(rawValue: explorationToolPaperRevision)
-      )
-    {
-      return true
-    }
-    return sparseTipCalibrationCoordinator.acceptedObservations.contains {
-      matches(
-        position: $0.observation.calibrationPosition,
-        geometry: $0.observation.markGeometry,
-        penUp: $0.observation.penUp,
-        paper: $0.observation.paperContactPlane
-      )
-    }
-  }
-
-  private func persistTipCheckpointIfLive(
-    _ checkpoint: AcceptedTipCalibrationCheckpoint
-  ) throws {
-    guard frameMode == .live else { return }
-    _ = try commitLearningAuthorityManifest(
-      mutation: LearningAuthorityManifestMutation(tip: .replace(checkpoint))
-    )
-  }
-
   var actionSurfacePresentation: ActionSurfacePresentation {
     let surfaceFrame = frozenPointSelectionFrame ?? displayedFrame
     let overlayComposition = OverlayPresentationComposer.compose(
@@ -1720,7 +1441,13 @@ final class OperatorWorkspace {
       ActionSurfaceViewportContext(
         source: $0.source,
         cameraConfigurationID: $0.frame.cameraConfigurationID,
-        fittedRegion: fittedRegion
+        fittedRegion: fittedRegion,
+        preferredInitialZoom: sparseMarkRegion == nil ? 0 : 1,
+        presentationRevisionToken: pointSelectionRequest.map {
+          "point-selection-\($0.purpose)-\($0.frame.frameID.rawValue)"
+        } ?? machineCameraRegistration.map {
+          "machine-cap-\($0.correspondenceFrameIDs.map(\.rawValue).sorted().joined(separator: "-"))"
+        } ?? "post-boundary-presentation"
       )
     }
     let tipPresentation: ActionSurfaceTipPresentation =
@@ -1733,8 +1460,8 @@ final class OperatorWorkspace {
             $0.distance(to: selectedToolContactPoint)
           }
         )
-      } else if pointSelectionRequest != nil {
-        .awaitingClick
+      } else if let pointSelectionRequest {
+        .awaitingClick(pointSelectionRequest.prompt)
       } else if tipCameraRegistration != nil {
         .calibrated(prediction: nil)
       } else {
@@ -1747,6 +1474,10 @@ final class OperatorWorkspace {
       simulatedViewportID: simulatedViewportID,
       simulatedAnnotationsAreVisible: simulatedAnnotationsAreVisible,
       viewportContext: viewportContext,
+      analysisRegionIsLocked: surfaceFrame.map {
+        videoAnalysisRegionLock?.matches($0) == true
+      } ?? false,
+      analyzedOverlayFrame: overlayComposition.analyzedFrame,
       pointSelectionRequest: pointSelectionRequest,
       tipPresentation: tipPresentation
     )
@@ -2291,34 +2022,29 @@ final class OperatorWorkspace {
   }
 
   var currentLearningPathItemID: LearningPathItemID {
-    LearningPathProjector().currentItemID(
-      learningPathProjectionSnapshot(includeInvalidation: false)
-    )
+    LearningPathProjector().currentItemID(learningPathProjectionSnapshot(includeReset: false))
   }
 
   var learningPathItemPresentations: [LearningPathItemPresentation] {
     learningPathProjection(selectedItemID: currentLearningPathItemID).items
   }
 
-  var invalidateAllLearningPlan: LearningInvalidationPlan? {
-    makeLearningInvalidationPlan(scope: .all)
+  var resetAllLearningPlan: LearningVacatePlan? {
+    makeLearningVacatePlan(
+      scope: .all,
+      anchor: .humanGuidedDiscovery(.penInteraction)
+    )
   }
 
-  func learningInvalidationPlan(
-    for itemID: LearningPathItemID
-  ) -> LearningInvalidationPlan? {
-    let tree = LearningPathTree.curriculum
-    if tree.isActionableLeaf(itemID) {
-      return makeLearningInvalidationPlan(scope: .leaf(root: itemID))
-    }
-    guard !tree.children(of: itemID).isEmpty else { return nil }
-    return makeLearningInvalidationPlan(scope: .subtree(root: itemID))
+  func learningVacatePlan(from itemID: LearningPathItemID) -> LearningVacatePlan? {
+    guard let anchor = itemID.learningRewindAnchor else { return nil }
+    return makeLearningVacatePlan(scope: .from(anchor), anchor: anchor)
   }
 
-  var learningInvalidationUnavailableReason: String? {
+  var learningVacateUnavailableReason: String? {
     if hasShutdown { return "The workspace is shutting down." }
     if activeExerciseAttemptID != nil {
-      return "Stop, cancel, or finish the active exercise attempt before invalidating learning."
+      return "Cancel or finish the active exercise attempt before resetting learning."
     }
     if activeStopTarget != nil || activeExplorationOperation != nil {
       return "Stop or cancel the active learning operation and wait for settlement first."
@@ -2329,552 +2055,162 @@ final class OperatorWorkspace {
     {
       return "Wait for the current controller or camera operation to settle first."
     }
+    if let learningStickyAmbiguityReason {
+      return
+        "Resolve the sticky motion ambiguity before resetting learning: \(learningStickyAmbiguityReason)"
+    }
     return nil
-  }
-
-  private struct LearningInvalidationDraft {
-    var session: LearningSessionState
-    var pendingBoundaryFinalPositions: [ExerciseAttemptID: MachinePosition]
-    var pendingBoundaryOwnerIDs: [ExerciseAttemptID: BoundaryMotionOwnerID]
-    var pendingBoundaryStopCapabilities: [ExerciseAttemptID: ContextualStopCapabilityID]
-    var clearsPenCapSelection = false
-    var clearsDrawingWorkflowOverlay = false
-  }
-
-  private func learningAuthorityDraft(
-    graph: LearningDependencyGraph,
-    invalidatedRevisionIDs: Set<LearningArtifactRevisionID>,
-    forcesFreshLinePlan: Bool = false
-  ) -> LearningInvalidationDraft {
-    var draft = LearningInvalidationDraft(
-      session: activeLearningSession,
-      pendingBoundaryFinalPositions: pendingBoundaryFinalPositions,
-      pendingBoundaryOwnerIDs: pendingBoundaryOwnerIDs,
-      pendingBoundaryStopCapabilities: pendingBoundaryStopCapabilities
-    )
-    draft.session.learningArtifactGraph = graph
-
-    func setDrawingStepEarlier(_ step: ObservedDrawingTrialStep) {
-      if draft.session.drawingTrial.step.rawValue > step.rawValue {
-        draft.session.drawingTrial.step = step
-      }
-    }
-
-    for revisionID in invalidatedRevisionIDs {
-      guard let revision = graph.revision(id: revisionID) else { continue }
-      switch revision.kind {
-      case .penCapAppearance:
-        draft.clearsPenCapSelection = true
-      case .penInteraction:
-        draft.session.penAttemptHistory = try! ExerciseAttemptHistory(
-          compatibility: draft.session.penAttemptHistory.compatibility
-        )
-        draft.session.discoveryTransactions.removeValue(forKey: .penInteraction)
-      case .boundarySideAggregate(let direction):
-        if let aggregate = draft.session.boundarySideAggregates.removeValue(forKey: direction) {
-          for attemptID in aggregate.includedAttemptIDs {
-            draft.session.boundaryAttemptEvidenceByAttemptID.removeValue(forKey: attemptID)
-            draft.pendingBoundaryFinalPositions.removeValue(forKey: attemptID)
-            draft.pendingBoundaryOwnerIDs.removeValue(forKey: attemptID)
-            draft.pendingBoundaryStopCapabilities.removeValue(forKey: attemptID)
-          }
-        }
-        draft.session.boundaryAttemptHistories.removeValue(forKey: direction)
-        draft.session.discoveryTransactions.removeValue(forKey: sequenceID(for: direction))
-        var progress = PairedBoundaryProgress()
-        for remainingDirection in draft.session.pairedBoundaryProgress.acceptedDirections {
-          guard let aggregate = draft.session.boundarySideAggregates[remainingDirection] else {
-            continue
-          }
-          try? progress.accept(remainingDirection, revisionID: aggregate.revisionID)
-        }
-        draft.session.pairedBoundaryProgress = progress
-      case .estimatedMachineCenter:
-        draft.session.estimatedCenterAuthority = nil
-        draft.session.centerArrivalPosition = nil
-        draft.session.centerArrivalRetryRequired = false
-      case .centerArrival:
-        draft.session.centerArrivalPosition = nil
-        draft.session.centerArrivalRetryRequired = false
-      case .machineCameraRegistration:
-        draft.session.machineCameraRegistration = nil
-        draft.session.proposedMachineCameraRegistration = nil
-        draft.session.explicitRegistrationCapAnchorEvidence = []
-      case .toolContactObservation:
-        var coordinator = SparseTipCalibrationCoordinator()
-        let paper = PaperContactPlaneRevision(
-          rawValue: draft.session.explorationToolPaperRevision
-        )
-        if let unmatched = draft.session.surfaceExposureLedger.exposures(on: paper).first(
-          where: { exposure in
-            if case .sparseTipMark = exposure.owner { return true }
-            return false
-          })
-        {
-          coordinator.recordPossibleInk(
-            unmatched,
-            reason:
-              "Possible-ink calibration exposure remains on this paper. Record paper replacement before calibration continues."
-          )
-        }
-        draft.session.sparseTipCalibrationCoordinator = coordinator
-        draft.session.toolContactSelection.clear()
-      case .tipCameraRegistration:
-        draft.session.tipCameraRegistration = nil
-        draft.session.proposedTipCameraRegistration = nil
-        setDrawingStepEarlier(.chooseIsolatedLinePlan)
-      case .linePlan(let group):
-        if group == draft.session.drawingTrial.group {
-          draft.session.drawingTrial.linePlan = nil
-          draft.session.drawingTrial.currentEpisode = nil
-        }
-        setDrawingStepEarlier(.chooseIsolatedLinePlan)
-      case .localPreLineContext(let group):
-        if group == draft.session.drawingTrial.group {
-          draft.session.drawingTrial.localPreLineContext = nil
-        }
-        setDrawingStepEarlier(.captureLocalPreLineBaseline)
-      case .lineStartArrival(let group):
-        if group == draft.session.drawingTrial.group {
-          draft.session.drawingTrial.lineStartArrival = nil
-          draft.session.lastProtocolPoseSettlement = nil
-        }
-        setDrawingStepEarlier(.moveToLineStart)
-      case .lineExecution(let group):
-        if group == draft.session.drawingTrial.group {
-          draft.session.drawingTrial.lineExecution = nil
-        }
-        setDrawingStepEarlier(.drawIsolatedLine)
-      case .postLineObservation(let group):
-        if group == draft.session.drawingTrial.group {
-          draft.session.drawingTrial.postLineObservation = nil
-          draft.session.drawingTrial.assessment = nil
-          draft.clearsDrawingWorkflowOverlay = true
-        }
-        setDrawingStepEarlier(.revealAndObserveNewInk)
-      case .comparison(let group):
-        if group == draft.session.drawingTrial.group {
-          draft.session.drawingTrial.assessment = nil
-          draft.session.drawingTrial.comparisonAttemptHistories =
-            draft.session.drawingTrial.comparisonAttemptHistories.filter {
-              $0.key.group != group
-            }
-        }
-        setDrawingStepEarlier(.compareIntendedAndObservedGeometry)
-      }
-    }
-    if forcesFreshLinePlan {
-      draft.session.drawingTrial.invalidatePayload(
-        from: .chooseIsolatedLinePlan,
-        source: frameMode
-      )
-      draft.session.restartableExerciseItemID = nil
-    }
-    return draft
-  }
-
-  private func installLearningAuthorityDraft(_ draft: LearningInvalidationDraft) {
-    activeLearningSession = draft.session
-    pendingBoundaryFinalPositions = draft.pendingBoundaryFinalPositions
-    pendingBoundaryOwnerIDs = draft.pendingBoundaryOwnerIDs
-    pendingBoundaryStopCapabilities = draft.pendingBoundaryStopCapabilities
-    if draft.clearsPenCapSelection {
-      if frameMode == .live {
-        livePenCapAppearanceSelection = nil
-        persistedPenCapAppearanceLoadState = .absent
-        persistPenCapAppearanceSelection(nil)
-      } else {
-        simulatedPenCapAppearanceSelection = nil
-      }
-    }
-    if draft.clearsDrawingWorkflowOverlay {
-      overlayResultChannels.clearWorkflow(source: frameMode, owner: .observedDrawingTrial)
-    }
   }
 
   @discardableResult
-  func performLearningInvalidation(_ plan: LearningInvalidationPlan) -> Bool {
-    if let unavailableReason = learningInvalidationUnavailableReason {
+  func performLearningVacate(_ plan: LearningVacatePlan) -> Bool {
+    if let unavailableReason = learningVacateUnavailableReason {
       learningAuthorityError = unavailableReason
       return false
     }
-    let freshPlan = makeLearningInvalidationPlan(scope: plan.scope)
+    return performAvailableLearningVacate(plan)
+  }
+
+  private func performAvailableLearningVacate(_ plan: LearningVacatePlan) -> Bool {
+    let freshPlan: LearningVacatePlan? =
+      switch plan.scope {
+      case .from:
+        learningVacatePlan(from: plan.anchor)
+      case .all:
+        resetAllLearningPlan
+      }
     guard freshPlan == plan else {
       learningAuthorityError =
-        "Learning authority changed while the invalidation summary was open. Review it and try again."
-      return false
-    }
-    if let invariantError = learningAuthorityInvariantError() {
-      learningAuthorityError = "Learning authority is inconsistent: \(invariantError)"
+        "Learning changed while the reset summary was open. Review the updated steps and try again."
       return false
     }
 
-    let rootKinds = learningInvalidationRootKinds(for: plan.scope)
-    let forcesFreshLinePlan = invalidationForcesFreshLinePlan(plan.scope)
-    var preview = learningArtifactGraph
-    let previewInvalidation = preview.invalidateCurrentRevisions(rootKinds: rootKinds)
-    guard previewInvalidation.allInvalidatedRevisionIDs == plan.expectedCurrentRevisionIDs else {
-      learningAuthorityError =
-        "Learning authority changed while the invalidation roots were being resolved. Review it and try again."
-      return false
-    }
-
-    // Build one pure graph+payload draft before touching durable state. Drafting
-    // cannot persist preferences, clear overlays, or consume pending controller
-    // audit maps.
-    var graph = learningArtifactGraph
-    let invalidation = graph.invalidateCurrentRevisions(rootKinds: rootKinds)
-    var draft = learningAuthorityDraft(
-      graph: graph,
-      invalidatedRevisionIDs: invalidation.allInvalidatedRevisionIDs,
-      forcesFreshLinePlan: forcesFreshLinePlan
-    )
-    draft.session.exerciseAttempt.finish()
-    draft.session.restartableExerciseItemID = nil
-    draft.session.explorationError = nil
-    if plan.removesDurableMachineRegistration {
-      draft.session.parkedAcceptedMachineArtifactCheckpoint = nil
-    }
-    if plan.removesDurableTipRegistration {
-      draft.session.quarantinedTipCalibrationCheckpoint = nil
-    }
-    if let invariantError = learningAuthorityInvariantError(
-      session: draft.session,
-      penCapSelectionIsPresent:
-        !draft.clearsPenCapSelection && penCapAppearanceSelection != nil
-    ) {
-      learningAuthorityError = "Learning invalidation was refused: \(invariantError)"
-      return false
-    }
-
-    if plan.removesDurableMachineRegistration || plan.removesDurableTipRegistration {
-      guard frameMode == .live,
-        let expectedRevision = plan.expectedAuthorityManifestRevision
-      else {
-        learningAuthorityError =
-          "The durable Learning-authority manifest is unavailable for this invalidation."
-        return false
-      }
-      let mutation: LearningAuthorityManifestMutation
-      if case .corrupt = expectedRevision {
-        // A corrupt manifest has no trustworthy field boundary. Explicit
-        // in-scope cleanup replaces the whole accepted-authority generation.
-        mutation = LearningAuthorityManifestMutation(
-          machine: .replace(nil),
-          tip: .replace(nil)
-        )
-      } else {
-        mutation = LearningAuthorityManifestMutation(
-          machine: plan.removesDurableMachineRegistration ? .replace(nil) : .preserve,
-          tip: plan.removesDurableTipRegistration ? .replace(nil) : .preserve
-        )
-      }
+    if plan.removesDurableTipCheckpoint {
       do {
-        _ = try commitLearningAuthorityManifest(
-          expectedRevision: expectedRevision,
-          mutation: mutation,
-          permitsCorruptReplacement: true
-        )
+        try activeAcceptedTipCalibrationCheckpointActions?.clear()
       } catch {
         learningAuthorityError =
-          "Learning-authority manifest invalidation failed safely: \(error)"
+          "The durable accepted-tip checkpoint could not be cleared: \(error)"
+        return false
+      }
+    }
+    if plan.removesDurableMachineCheckpoint {
+      do {
+        try activeAcceptedArtifactCheckpointActions?.clear()
+      } catch {
+        learningAuthorityError =
+          "The durable accepted-machine checkpoint could not be cleared: \(error)"
         return false
       }
     }
 
-    installLearningAuthorityDraft(draft)
+    let rootKinds = Set(
+      learningArtifactGraph.revisions.compactMap { revision -> LearningArtifactKind? in
+        guard plan.expectedCurrentRevisionIDs.contains(revision.id), revision.state == .current
+        else { return nil }
+        return revision.kind
+      }
+    )
+    var graph = learningArtifactGraph
+    let invalidation = graph.invalidateCurrentRevisions(rootKinds: rootKinds)
+    learningArtifactGraph = graph
+    applyArtifactInvalidations(invalidation.allInvalidatedRevisionIDs)
+
+    switch plan.anchor {
+    case .humanGuidedDiscovery(.penInteraction):
+      clearPenLearningForRewind()
+      clearBoundaryLearningForRewind()
+      clearCalibrationLearningForRewind()
+      clearDrawingLearningForRewind(from: .chooseIsolatedLinePlan)
+    case .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering):
+      clearBoundaryLearningForRewind()
+      clearCalibrationLearningForRewind()
+      clearDrawingLearningForRewind(from: .chooseIsolatedLinePlan)
+    case .humanGuidedDiscovery(.calibrateCameraAndVisibleCap):
+      clearCalibrationLearningForRewind(from: .calibrateCameraAndVisibleCap)
+      clearDrawingLearningForRewind(from: .chooseIsolatedLinePlan)
+    case .humanGuidedDiscovery(.calibratePenContactFromSparseMarks):
+      clearCalibrationLearningForRewind(from: .calibratePenContactFromSparseMarks)
+      clearDrawingLearningForRewind(from: .chooseIsolatedLinePlan)
+    case .observedDrawingTrial(let step):
+      clearDrawingLearningForRewind(from: step)
+    case .stage:
+      learningAuthorityError = "The requested Learning Path row is not a rewind anchor."
+      return false
+    }
+
+    activeLearningSession.exerciseAttempt.finish()
+    restartableExerciseItemID = nil
+    explorationError = nil
     learningAuthorityError = nil
+
+    if plan.removesDurableMachineCheckpoint {
+      parkedAcceptedMachineArtifactCheckpoint = nil
+      acceptedArtifactCheckpointStatus = .cleared
+    }
+    if plan.removesDurableTipCheckpoint {
+      quarantinedTipCalibrationCheckpoint = nil
+    }
     return true
   }
 
-  private func makeLearningInvalidationPlan(
-    scope: LearningInvalidationScope
-  ) -> LearningInvalidationPlan? {
-    let tree = LearningPathTree.curriculum
-    let directLeaves = directLearningInvalidationLeaves(for: scope)
-    let forcesFreshLinePlan = invalidationForcesFreshLinePlan(scope)
-    let rootKinds = learningInvalidationRootKinds(for: scope)
-    var preview = learningArtifactGraph
-    let invalidation = preview.invalidateCurrentRevisions(rootKinds: rootKinds)
-    let invalidatedRevisionIDs = invalidation.allInvalidatedRevisionIDs
-
-    var affected = Set(directLeaves)
-    for revisionID in invalidatedRevisionIDs {
-      guard let kind = learningArtifactGraph.revision(id: revisionID)?.kind,
-        let itemID = learningPathItemID(for: kind)
-      else { continue }
-      affected.insert(itemID)
-    }
-    let rootKindsActuallyPresent = Set(invalidation.rootInvalidatedRevisionIDs.compactMap {
-      learningArtifactGraph.revision(id: $0)?.kind
-    })
-    let scopeIncludesMachine = directLeaves.contains(
-      .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
-    )
-    let manifestIsCorrupt: Bool = {
-      if case .corrupt = liveLearningAuthorityManifestRevision { return true }
-      return false
-    }()
-    let hasDurableMachine = liveLearningAuthorityManifest.machine != nil
-    let hasDurableTip = liveLearningAuthorityManifest.tip != nil
-    let removesMachine = rootKindsActuallyPresent.contains { kind in
-      switch kind {
-      case .boundarySideAggregate, .estimatedMachineCenter, .centerArrival: true
-      default: false
-      }
-    } || (frameMode == .live && scopeIncludesMachine && (hasDurableMachine || manifestIsCorrupt))
-    let scopeIncludesTipLineage = directLeaves.contains { itemID in
-      guard case .humanGuidedDiscovery = itemID else { return false }
-      return true
-    }
-    let removesTip = invalidatedRevisionIDs.contains { revisionID in
-      learningArtifactGraph.revision(id: revisionID)?.kind == .tipCameraRegistration
-    } || (frameMode == .live && scopeIncludesTipLineage && (hasDurableTip || manifestIsCorrupt))
-    let clearsCorruptManifest = frameMode == .live && manifestIsCorrupt
-      && (scopeIncludesMachine || scopeIncludesTipLineage)
-    let removesMachineManifestField = removesMachine || clearsCorruptManifest
-    let removesTipManifestField = removesTip || clearsCorruptManifest
-    if removesTip {
-      affected.insert(.humanGuidedDiscovery(.calibratePenContactFromSparseMarks))
-    }
-    if removesMachineManifestField {
-      affected.insert(.humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering))
-    }
-    if removesTipManifestField {
-      affected.insert(.humanGuidedDiscovery(.calibratePenContactFromSparseMarks))
-    }
-    let finalOrderedAffected = tree.flattenedItems.filter(affected.contains)
-    guard !invalidatedRevisionIDs.isEmpty || removesMachineManifestField
-      || removesTipManifestField || forcesFreshLinePlan
+  private func makeLearningVacatePlan(
+    scope: LearningVacateScope,
+    anchor: LearningPathItemID
+  ) -> LearningVacatePlan? {
+    guard let anchorIndex = LearningPathItemID.learningExerciseOrder.firstIndex(of: anchor)
     else { return nil }
-    return LearningInvalidationPlan(
+    let currentRevisions = learningArtifactGraph.revisions.filter { $0.state == .current }
+    let revisionIDs = Set(
+      currentRevisions.compactMap { revision -> LearningArtifactRevisionID? in
+        guard let item = learningPathItemID(for: revision.kind),
+          let index = LearningPathItemID.learningExerciseOrder.firstIndex(of: item),
+          index >= anchorIndex
+        else { return nil }
+        return revision.id
+      })
+    guard !revisionIDs.isEmpty || hasVacatablePayload(atOrAfter: anchorIndex) else { return nil }
+
+    var endIndex = anchorIndex
+    for revision in currentRevisions {
+      guard let item = learningPathItemID(for: revision.kind),
+        let index = LearningPathItemID.learningExerciseOrder.firstIndex(of: item)
+      else { continue }
+      endIndex = max(endIndex, index)
+    }
+    if let currentAnchor = currentLearningPathItemID.learningRewindAnchor,
+      let currentIndex = LearningPathItemID.learningExerciseOrder.firstIndex(of: currentAnchor)
+    {
+      endIndex = max(endIndex, currentIndex)
+    }
+
+    let source: LearningVacateSource = frameMode == .live ? .live : .simulated
+    let boundaryIndex = LearningPathItemID.learningExerciseOrder.firstIndex(
+      of: .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
+    )!
+    let tipIndex = LearningPathItemID.learningExerciseOrder.firstIndex(
+      of: .humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
+    )!
+    return LearningVacatePlan(
       scope: scope,
-      source: frameMode == .live ? .live : .simulated,
-      affectedItemIDs: finalOrderedAffected,
-      expectedCurrentRevisionIDs: invalidatedRevisionIDs,
-      expectedGraphRevision: learningArtifactGraph.revision,
+      source: source,
+      anchor: anchor,
+      affectedItems: Array(LearningPathItemID.learningExerciseOrder[anchorIndex...endIndex]),
+      expectedCurrentRevisionIDs: revisionIDs,
       expectedAcceptedAttemptSequence: acceptedAttemptSequence,
-      expectedAuthorityManifestRevision:
-        removesMachineManifestField || removesTipManifestField
-        ? liveLearningAuthorityManifestRevision : nil,
-      removesDurableMachineRegistration:
-        frameMode == .live && removesMachineManifestField
-          && liveLearningAuthorityManifestActions != nil,
-      removesDurableTipRegistration:
-        frameMode == .live && removesTipManifestField
-          && liveLearningAuthorityManifestActions != nil,
-      physicalInkMayRemain:
-        surfaceExposureLedger.exposures(
-          on: PaperContactPlaneRevision(rawValue: explorationToolPaperRevision)
-        ).contains { exposure in
-          guard exposure.provenance == .livePossiblePhysicalInk else { return false }
-          if scope == .all { return true }
-          switch exposure.owner {
-          case .sparseTipMark:
-            return finalOrderedAffected.contains(
-              .humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
-            )
-          case .drawingTrial(let group):
-            return (forcesFreshLinePlan && group == currentDrawingTrialGroup)
-              || invalidatedRevisionIDs.contains { revisionID in
-              guard let kind = learningArtifactGraph.revision(id: revisionID)?.kind else {
-                return false
-              }
-              switch kind {
-              case .linePlan(let artifactGroup), .localPreLineContext(let artifactGroup),
-                .lineStartArrival(let artifactGroup), .lineExecution(let artifactGroup),
-                .postLineObservation(let artifactGroup), .comparison(let artifactGroup):
-                return group == artifactGroup
-              default:
-                return false
-              }
-            }
-          }
-        }
+      removesDurableMachineCheckpoint:
+        source == .live && anchorIndex <= boundaryIndex
+        && activeAcceptedArtifactCheckpointActions != nil,
+      removesDurableTipCheckpoint:
+        source == .live && anchorIndex <= tipIndex
+        && activeAcceptedTipCalibrationCheckpointActions != nil,
+      physicalInkMayRemain: drawingTrialStrokeEvidence != nil || lastInkObservation != nil
     )
-  }
-
-  private func directLearningInvalidationLeaves(
-    for scope: LearningInvalidationScope
-  ) -> [LearningPathItemID] {
-    let tree = LearningPathTree.curriculum
-    return switch scope {
-    case .leaf(let root): [root]
-    case .subtree(let root): tree.descendantLeaves(of: root)
-    case .all: tree.flattenedItems.filter(tree.isActionableLeaf)
-    }
-  }
-
-  private func invalidationForcesFreshLinePlan(
-    _ scope: LearningInvalidationScope
-  ) -> Bool {
-    guard currentDrawingTrialGroupHasExposure else { return false }
-    return directLearningInvalidationLeaves(for: scope).contains { itemID in
-      guard case .observedDrawingTrial(let step) = itemID else { return false }
-      return switch step {
-      case .chooseIsolatedLinePlan, .captureLocalPreLineBaseline, .moveToLineStart,
-        .drawIsolatedLine:
-        true
-      case .revealAndObserveNewInk, .compareIntendedAndObservedGeometry:
-        false
-      }
-    }
-  }
-
-  private func learningInvalidationRootKinds(
-    for scope: LearningInvalidationScope
-  ) -> Set<LearningArtifactKind> {
-    var kinds = Set(
-      directLearningInvalidationLeaves(for: scope).flatMap(learningArtifactKindsOwned)
-    )
-    if invalidationForcesFreshLinePlan(scope) {
-      kinds.formUnion(drawingArtifactKinds(for: currentDrawingTrialGroup))
-    }
-    return kinds
-  }
-
-  private func learningArtifactKindsOwned(
-    by itemID: LearningPathItemID
-  ) -> [LearningArtifactKind] {
-    switch itemID {
-    case .stage(.connect), .stage(.enableMotion), .stage(.humanGuidedDiscovery),
-      .stage(.observedDrawingTrials):
-      []
-    case .humanGuidedDiscovery(.penInteraction):
-      [.penCapAppearance, .penInteraction]
-    case .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering):
-      BoundaryDirection.allCases.map(LearningArtifactKind.boundarySideAggregate)
-        + [.estimatedMachineCenter, .centerArrival]
-    case .humanGuidedDiscovery(.calibrateCameraAndVisibleCap):
-      [.machineCameraRegistration]
-    case .humanGuidedDiscovery(.calibratePenContactFromSparseMarks):
-      learningArtifactGraph.revisions.compactMap { revision -> LearningArtifactKind? in
-        guard revision.state == .current else { return nil }
-        switch revision.kind {
-        case .toolContactObservation, .tipCameraRegistration: return revision.kind
-        default: return nil
-        }
-      }
-    case .observedDrawingTrial(.chooseIsolatedLinePlan):
-      [.linePlan(currentDrawingTrialGroup)]
-    case .observedDrawingTrial(.captureLocalPreLineBaseline):
-      [.localPreLineContext(currentDrawingTrialGroup)]
-    case .observedDrawingTrial(.moveToLineStart):
-      [.lineStartArrival(currentDrawingTrialGroup)]
-    case .observedDrawingTrial(.drawIsolatedLine):
-      [.lineExecution(currentDrawingTrialGroup)]
-    case .observedDrawingTrial(.revealAndObserveNewInk):
-      [.postLineObservation(currentDrawingTrialGroup)]
-    case .observedDrawingTrial(.compareIntendedAndObservedGeometry):
-      [.comparison(currentDrawingTrialGroup)]
-    }
-  }
-
-  /// Exhaustive current-subject/current-payload invariant. Candidate proposals,
-  /// Preferences and histories are not authority; retained surface exposure is
-  /// separate safety authority and is never cleared by graph invalidation.
-  private func learningAuthorityInvariantError() -> String? {
-    learningAuthorityInvariantError(
-      session: activeLearningSession,
-      penCapSelectionIsPresent: penCapAppearanceSelection != nil
-    )
-  }
-
-  private func learningAuthorityInvariantError(
-    session: LearningSessionState,
-    penCapSelectionIsPresent: Bool
-  ) -> String? {
-    func hasCurrent(_ kind: LearningArtifactKind) -> Bool {
-      session.learningArtifactGraph.currentRevision(for: kind) != nil
-    }
-    for revision in session.learningArtifactGraph.revisions where revision.state == .current {
-      let hasPayload: Bool = switch revision.kind {
-      case .penCapAppearance:
-        penCapSelectionIsPresent
-      case .penInteraction:
-        !session.penAttemptHistory.includedSuccessfulAttempts.isEmpty
-      case .boundarySideAggregate(let direction):
-        session.boundarySideAggregates[direction]?.revisionID == revision.id
-      case .estimatedMachineCenter:
-        session.estimatedCenterAuthority != nil
-      case .centerArrival:
-        session.centerArrivalPosition != nil
-      case .machineCameraRegistration:
-        session.machineCameraRegistration != nil
-      case .toolContactObservation(let observationID):
-        session.sparseTipCalibrationCoordinator.acceptedObservations.contains {
-          $0.observation.id == observationID && $0.artifactRevisionID == revision.id
-        }
-      case .tipCameraRegistration:
-        session.tipCameraRegistration?.acceptedRevisionID == revision.id
-      case .linePlan(let group):
-        group == session.drawingTrial.group && session.drawingTrial.linePlan != nil
-      case .localPreLineContext(let group):
-        group == session.drawingTrial.group
-          && session.drawingTrial.localPreLineContext != nil
-      case .lineStartArrival(let group):
-        group == session.drawingTrial.group
-          && session.drawingTrial.lineStartArrival != nil
-      case .lineExecution(let group):
-        group == session.drawingTrial.group
-          && session.drawingTrial.lineExecution != nil
-      case .postLineObservation(let group):
-        group == session.drawingTrial.group
-          && session.drawingTrial.postLineObservation?.observation.residual != nil
-      case .comparison(let group):
-        group == session.drawingTrial.group && session.drawingTrial.assessment != nil
-      }
-      if !hasPayload { return "current revision \(revision.kind) has no exact payload" }
-    }
-
-    if !session.penAttemptHistory.includedSuccessfulAttempts.isEmpty, !hasCurrent(.penInteraction) {
-      return "accepted pen-interaction payload has no current revision"
-    }
-    for (direction, aggregate) in session.boundarySideAggregates
-    where session.learningArtifactGraph.currentRevision(for: .boundarySideAggregate(direction))?.id
-      != aggregate.revisionID
-    {
-      return "accepted boundary payload \(direction) has no matching current revision"
-    }
-    if session.estimatedCenterAuthority != nil,
-      !hasCurrent(.estimatedMachineCenter)
-    {
-      return "estimated-center payload has no current revision"
-    }
-    if session.centerArrivalPosition != nil, !hasCurrent(.centerArrival) {
-      return "center-arrival payload has no current revision"
-    }
-    if session.machineCameraRegistration != nil, !hasCurrent(.machineCameraRegistration) {
-      return "machine-camera payload has no current revision"
-    }
-    for accepted in session.sparseTipCalibrationCoordinator.acceptedObservations
-    where session.learningArtifactGraph.currentRevision(
-      for: .toolContactObservation(accepted.observation.id)
-    )?.id != accepted.artifactRevisionID
-    {
-      return "accepted tool-contact payload has no matching current revision"
-    }
-    if session.tipCameraRegistration != nil, !hasCurrent(.tipCameraRegistration) {
-      return "tip-camera payload has no current revision"
-    }
-    let group = session.drawingTrial.group
-    let drawingPairs: [(Bool, LearningArtifactKind)] = [
-      (session.drawingTrial.linePlan != nil, .linePlan(group)),
-      (session.drawingTrial.localPreLineContext != nil, .localPreLineContext(group)),
-      (session.drawingTrial.lineStartArrival != nil, .lineStartArrival(group)),
-      (session.drawingTrial.lineExecution != nil, .lineExecution(group)),
-      (session.drawingTrial.postLineObservation != nil, .postLineObservation(group)),
-      (session.drawingTrial.assessment != nil, .comparison(group)),
-    ]
-    if let missing = drawingPairs.first(where: { $0.0 && !hasCurrent($0.1) })?.1 {
-      return "authoritative drawing payload \(missing) has no current revision"
-    }
-    return nil
   }
 
   private func learningPathItemID(for kind: LearningArtifactKind) -> LearningPathItemID? {
     switch kind {
-    case .penCapAppearance, .penInteraction:
+    case .penInteraction:
       .humanGuidedDiscovery(.penInteraction)
     case .boundarySideAggregate, .estimatedMachineCenter, .centerArrival:
       .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
@@ -2884,17 +2220,62 @@ final class OperatorWorkspace {
       .humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
     case .linePlan:
       .observedDrawingTrial(.chooseIsolatedLinePlan)
-    case .localPreLineContext:
+    case .localPreLineBaseline:
       .observedDrawingTrial(.captureLocalPreLineBaseline)
-    case .lineStartArrival:
-      .observedDrawingTrial(.moveToLineStart)
     case .lineExecution:
       .observedDrawingTrial(.drawIsolatedLine)
-    case .postLineObservation:
+    case .postLineFrame, .inkObservation, .residual:
       .observedDrawingTrial(.revealAndObserveNewInk)
     case .comparison:
       .observedDrawingTrial(.compareIntendedAndObservedGeometry)
     }
+  }
+
+  private func hasVacatablePayload(atOrAfter anchorIndex: Int) -> Bool {
+    if let currentAnchor = currentLearningPathItemID.learningRewindAnchor,
+      let currentIndex = LearningPathItemID.learningExerciseOrder.firstIndex(of: currentAnchor),
+      currentIndex > anchorIndex
+    {
+      return true
+    }
+    func includes(_ item: LearningPathItemID) -> Bool {
+      guard let index = LearningPathItemID.learningExerciseOrder.firstIndex(of: item) else {
+        return false
+      }
+      return index >= anchorIndex
+    }
+    if includes(.humanGuidedDiscovery(.penInteraction)),
+      !penAttemptHistory.records.isEmpty || discoveryTransactions[.penInteraction] != nil
+    {
+      return true
+    }
+    if includes(.humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)),
+      !boundaryAttemptHistories.isEmpty || !boundarySideAggregates.isEmpty
+        || discoveryTransactions.keys.contains(where: { $0 != .penInteraction })
+        || centerArrivalPosition != nil
+    {
+      return true
+    }
+    if includes(.humanGuidedDiscovery(.calibrateCameraAndVisibleCap)),
+      cameraCalibrationAnchorFrame != nil || proposedMachineCameraRegistration != nil
+    {
+      return true
+    }
+    if includes(.humanGuidedDiscovery(.calibratePenContactFromSparseMarks)),
+      tipCameraRegistration != nil || proposedTipCameraRegistration != nil
+        || quarantinedTipCalibrationCheckpoint != nil
+        || !sparseTipCalibrationCoordinator.acceptedObservations.isEmpty
+    {
+      return true
+    }
+    if includes(.observedDrawingTrial(.chooseIsolatedLinePlan)),
+      drawingTrialLineStart != nil || localPreLineBaseline != nil || drawingTrialStrokeEvidence != nil
+        || explorationPostLineFrame != nil || drawingTrialAssessment != nil
+        || !comparisonAttemptHistories.isEmpty
+    {
+      return true
+    }
+    return false
   }
 
   var contextualStopPresentation: ContextualStopPresentation? {
@@ -2980,31 +2361,48 @@ final class OperatorWorkspace {
   }
 
   func setVisionAnalysisCadence(_ cadence: VisionAnalysisCadence) async {
-    videoPresentationPreferences.selectCadence(cadence)
+    guard visionAnalysisCadence != cadence else { return }
+    visionAnalysisCadence = cadence
     await reconcileAutomaticVisionAnalysis()
   }
 
-  func lockVideoAnalysisToCurrentView(
+  func setVideoAnalysisRegion(
+    _ region: PixelRect?,
     for displayedFrame: DisplayedFrame
   ) async {
-    guard let captured = videoPresentationPreferences.lockVisibleRect(for: displayedFrame) else {
-      cameraError = "The current full-frame or stale view cannot be locked for analysis."
+    guard
+      region == nil
+        || cameraFrameIntersection(
+          region!,
+          frameWidth: displayedFrame.frame.width,
+          frameHeight: displayedFrame.frame.height
+        ) == region
+    else {
+      cameraError = "The requested analysis region is outside the current camera frame."
       return
     }
-    await cameraActions?.setSceneAnalysisRegion(frameMode == .live ? captured : nil)
-    cameraError = nil
-    await reconcileAutomaticVisionAnalysis()
-  }
-
-  func unlockVideoAnalysisView(for displayedFrame: DisplayedFrame) async {
-    guard videoAnalysisRegionLock?.matches(displayedFrame) == true else { return }
-    videoPresentationPreferences.unlockAnalysisROI()
-    await cameraActions?.setSceneAnalysisRegion(nil)
+    let fullFrame = PixelRect(
+      x: 0,
+      y: 0,
+      width: displayedFrame.frame.width,
+      height: displayedFrame.frame.height
+    )
+    let canonicalRegion = region == fullFrame ? nil : region
+    videoAnalysisRegionLock = canonicalRegion.map {
+      VideoAnalysisRegionLock(
+        source: displayedFrame.source,
+        cameraConfigurationID: displayedFrame.frame.cameraConfigurationID,
+        region: $0
+      )
+    }
+    await cameraActions?.setSceneAnalysisRegion(
+      frameMode == .live ? videoAnalysisRegionLock?.region : nil
+    )
     await reconcileAutomaticVisionAnalysis()
   }
 
   var currentExerciseActionStripPresentation: ExerciseActionStripPresentation? {
-    learningPathProjection(selectedItemID: currentLearningPathItemID).selectedAction.actionStrip
+    learningPathProjection(selectedItemID: currentLearningPathItemID).currentActionStrip
   }
 
   func selectedOperatorActionPresentation(
@@ -3017,14 +2415,29 @@ final class OperatorWorkspace {
     selectedItemID: LearningPathItemID
   ) -> LearningPathProjection {
     LearningPathProjector().project(
-      learningPathProjectionSnapshot(includeInvalidation: true),
+      learningPathProjectionSnapshot(includeReset: true),
       selectedItemID: selectedItemID
     )
   }
 
   private func learningPathProjectionSnapshot(
-    includeInvalidation: Bool
+    includeReset: Bool
   ) -> LearningPathProjectionSnapshot {
+    let currentPosition = try? currentMachinePosition()
+    let centerTravelFeed: TravelFeedSelection? = if let center = estimatedMachineCenter,
+      let currentPosition,
+      let delta = try? Vector2<MachineSpace>(
+        dx: center.point.x - currentPosition.point.x,
+        dy: center.point.y - currentPosition.point.y
+      )
+    {
+      travelFeedSelection(for: delta)
+    } else { nil }
+    let boundaryTravelFeeds = Dictionary(
+      uniqueKeysWithValues: BoundaryDirection.allCases.map {
+        ($0, travelFeedSelection(for: boundaryFeedVector($0)))
+      }
+    )
     let completedDrawingSteps = Set(ObservedDrawingTrialStep.allCases.filter {
       learningArtifactGraph.currentRevision(for: drawingArtifactKind(for: $0)) != nil
     })
@@ -3046,7 +2459,7 @@ final class OperatorWorkspace {
       }
     }()
     let itemStartReasons = Dictionary(
-      uniqueKeysWithValues: LearningPathTree.curriculum.flattenedItems.compactMap {
+      uniqueKeysWithValues: LearningPathItemID.learningExerciseOrder.compactMap {
         itemID -> (LearningPathItemID, String)? in
         let reason: String?
         switch itemID {
@@ -3054,16 +2467,10 @@ final class OperatorWorkspace {
           reason = discoveryStartUnavailableReason(for: .penInteraction)
         case .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering):
           reason = discoveryStartUnavailableReason(for: sequenceID(for: selectedBoundaryDirection))
-        case .humanGuidedDiscovery(.calibrateCameraAndVisibleCap):
+        case .humanGuidedDiscovery(.calibrateCameraAndVisibleCap),
+          .humanGuidedDiscovery(.calibratePenContactFromSparseMarks):
           reason = frameMode == .simulated || cameraIsLive
             ? nil : "A current LIVE camera frame is required."
-        case .humanGuidedDiscovery(.calibratePenContactFromSparseMarks):
-          if let blocker = liveSparseContactUnavailableReason {
-            reason = blocker
-          } else {
-            reason = frameMode == .simulated || cameraIsLive
-              ? nil : "A current LIVE camera frame is required."
-          }
         case .observedDrawingTrial(let step):
           reason = drawingTrialActionUnavailableReason(for: step)
         case .stage:
@@ -3072,20 +2479,21 @@ final class OperatorWorkspace {
         return reason.map { (itemID, $0) }
       }
     )
-    let invalidationFacts: LearningPathProjectionSnapshot.InvalidationFacts
-    if includeInvalidation {
+    let resetFacts: LearningPathProjectionSnapshot.ResetFacts
+    if includeReset {
       let plans = Dictionary(
-        uniqueKeysWithValues: LearningPathTree.curriculum.flattenedItems.compactMap { itemID in
-          learningInvalidationPlan(for: itemID).map { (itemID, $0) }
+        uniqueKeysWithValues: LearningPathItemID.learningExerciseOrder.compactMap { itemID in
+          learningVacatePlan(from: itemID).map { (itemID, $0) }
         }
       )
-      invalidationFacts = .init(
-        plansByRoot: plans,
-        invalidateAllPlan: invalidateAllLearningPlan,
-        unavailableReason: learningInvalidationUnavailableReason
+      resetFacts = .init(
+        plansByAnchor: plans,
+        resetAllPlan: resetAllLearningPlan,
+        unavailableReason: learningVacateUnavailableReason,
+        authorityError: learningAuthorityError
       )
     } else {
-      invalidationFacts = .init()
+      resetFacts = .init()
     }
     let savedCheckpointMatchesPaper = quarantinedTipCalibrationCheckpoint.map {
       $0.registration.applicability.paperContactPlane.rawValue
@@ -3100,45 +2508,61 @@ final class OperatorWorkspace {
       controller: .init(
         sessionEstablished: controllerSessionEstablished,
         motionAuthorized: motionAuthorizationEnabled,
-        machineError: controllerAttentionText
+        connectionText: controllerConnectionText,
+        cameraStateText: cameraStateText,
+        motionGuardStateText: motionGuardStateText,
+        connectionActionTitle: controllerConnectionActionTitle,
+        workbenchStatusText: workbenchStatusText,
+        machineError: controllerAttentionText,
+        directMotionUnavailableReason: directCarriageMotionUnavailableReason
       ),
       boundary: .init(
         acceptedDirections: pairedBoundaryProgress.acceptedDirections,
         allowedDirections: pairedBoundaryProgress.allowedDirections,
         isComplete: pairedBoundaryProgress.isComplete,
+        aggregates: boundarySideAggregates,
+        attemptEvidence: boundaryAttemptEvidenceByAttemptID,
         estimatedCenter: estimatedMachineCenter,
+        localFrame: learnedLocalCoordinateFrame,
         centerArrival: centerArrivalPosition,
-        centerArrivalRetryRequired: centerArrivalRetryRequired
+        centerArrivalRetryRequired: centerArrivalRetryRequired,
+        currentPosition: currentPosition,
+        centerTravelFeed: centerTravelFeed,
+        boundaryTravelFeeds: boundaryTravelFeeds,
+        latestActivity: boundaryActivityRecords.last
       ),
       cameraCalibration: .init(
+        accepted: machineCameraRegistration,
+        proposed: proposedMachineCameraRegistration,
         acceptedIsCurrent: machineCameraRegistration != nil
           && learningArtifactGraph.currentRevision(for: .machineCameraRegistration) != nil,
         hasProposal: proposedMachineCameraRegistration != nil,
-        phase: currentCameraCalibrationPhase
+        phase: currentCameraCalibrationPhase,
+        failureRecovery: currentCameraCalibrationFailure?.recovery
       ),
       sparseCalibration: .init(
+        accepted: tipCameraRegistration,
+        proposed: proposedTipCameraRegistration,
         acceptedIsCurrent:
           tipCameraRegistration.map {
             learningArtifactGraph.currentRevision(for: .tipCameraRegistration)?.id
               == $0.acceptedRevisionID
           } ?? false,
         phase: sparseTipCalibrationCoordinator.phase,
-        savedCheckpointMatchesPaper: savedCheckpointMatchesPaper,
-        requiresPaperReplacement:
-          learningSurfaceExposureRecoveryDisposition == .paperReplacementRequired,
-        paperReplacementUnavailableReason:
-          frameMode == .live
-            && learningSurfaceExposureRecoveryDisposition == .diagnosticsRequired
-          ? (learningSurfaceExposureError
-            ?? "LIVE safety-history persistence is unavailable.")
-          : nil
+        acceptedObservationCount: sparseTipCalibrationCoordinator.acceptedObservations.count,
+        blacklistedPositionCount: sparseTipCalibrationCoordinator.blacklistedPositions.count,
+        savedCheckpointMatchesPaper: savedCheckpointMatchesPaper
       ),
       drawing: .init(
         currentStep: observedDrawingTrialStep,
         completedArtifactSteps: completedDrawingSteps,
         selectedDirection: selectedLineDirection,
+        lineStart: drawingTrialLineStart,
+        localBaselineFrameID: localPreLineBaseline?.frame.id.rawValue,
+        strokeSettled: drawingTrialStrokeEvidence != nil,
+        inkStatus: explorationInkStatus,
         assessment: drawingTrialAssessment,
-        currentGroupHasExposure: currentDrawingTrialGroupHasExposure
+        lastTravelFeed: lastTravelFeedSelection
       ),
       operations: .init(
         activeAttemptOwner: activeExerciseAttemptOwnerID,
@@ -3147,16 +2571,27 @@ final class OperatorWorkspace {
         stopDispositionLatched: stopDispositionLatch != nil,
         stickyAmbiguityReason: learningStickyAmbiguityReason,
         explorationFailure: explorationError.map(WorkflowFailure.failed),
-        discoveryFailure: discoveryError.map(WorkflowFailure.failed)
+        discoveryFailure: discoveryError.map(WorkflowFailure.failed),
+        lastStopAudit: lastContextualStopAuditRecord,
+        scopedVisionActive: scopedVisionAnalysisActive,
+        visionAnalysisActive: visionAnalysisSnapshot.activeFrameSequence != nil,
+        visionState: visionAnalysisSnapshot.state
       ),
       discovery: discoveryTransactions.mapValues { transaction in
         LearningPathProjectionSnapshot.DiscoveryFacts(
+          id: transaction.id,
+          sequenceID: transaction.definition.id,
+          title: transaction.definition.title,
           state: transaction.state,
-          currentStep: transaction.currentStep
+          currentStep: transaction.currentStep,
+          completedStepCount: transaction.completedStepCount,
+          totalStepCount: transaction.definition.steps.count,
+          evidenceSummaries: transaction.evidenceSummaries.map(\.summary)
         )
       },
       startUnavailableReasons: itemStartReasons,
-      invalidation: invalidationFacts
+      acceptedCheckpointStatus: acceptedArtifactCheckpointStatus,
+      reset: resetFacts
     )
   }
 
@@ -3215,15 +2650,11 @@ final class OperatorWorkspace {
       await answerCurrentQuestion(choice)
     case .setPenSetpoint:
       return
-    case .stopAndAcceptBoundary(let capabilityID):
-      guard ownerID == activeExerciseAttemptOwnerID else { return }
-      await terminateBoundary(.stopAndAccept, capabilityID: capabilityID)
+    case .cancel:
+      await cancelExerciseAttempt(ownerID)
     case .stop(let capabilityID):
       guard ownerID == activeExerciseAttemptOwnerID else { return }
       await stopCurrentOperation(capabilityID: capabilityID)
-    case .cancel(let capabilityID):
-      guard ownerID == activeExerciseAttemptOwnerID else { return }
-      await terminateBoundary(.cancelAttempt, capabilityID: capabilityID)
     case .restart:
       guard restartableExerciseItemID == ownerID else { return }
       restartableExerciseItemID = nil
@@ -3292,7 +2723,6 @@ final class OperatorWorkspace {
   private func beginPenInteraction(mode: ExerciseAttemptMode) async {
     guard discoveryStartUnavailableReason(for: .penInteraction) == nil else { return }
     cancelPenCapAcceptedClickContinuation()
-    stagedPenCapAppearanceCandidate = nil
     beginExerciseAttempt(
       ownerID: .humanGuidedDiscovery(.penInteraction),
       mode: mode
@@ -3325,7 +2755,6 @@ final class OperatorWorkspace {
       }
       if frame == nil {
         frame = try await captureProtocolFrame(newerThan: boundary)
-        visionError = nil
       }
       guard let frame else {
         throw LearningPathOperationError.freshFrameUnavailable
@@ -3433,35 +2862,13 @@ final class OperatorWorkspace {
           consumedRevisionIDs: [centerRevision]
         )
       )
-      var draft = learningAuthorityDraft(
-        graph: graph,
-        invalidatedRevisionIDs: commit.invalidatedRevisionIDs
-      )
-      draft.session.centerArrivalPosition = destination
-      draft.session.centerArrivalRetryRequired = false
-      draft.session.explorationError = nil
-      draft.session.exerciseAttempt.finish()
-      let checkpoint = frameMode == .live
-        ? try acceptedMachineCheckpoint(for: draft.session) : nil
-      if let checkpoint {
-        draft.session.parkedAcceptedMachineArtifactCheckpoint = checkpoint
-        draft.session.quarantinedTipCalibrationCheckpoint = nil
-      }
-      if let invariantError = learningAuthorityInvariantError(
-        session: draft.session,
-        penCapSelectionIsPresent: penCapAppearanceSelection != nil
-      ) {
-        throw LearningPathOperationError.requiredState(invariantError)
-      }
-      if let checkpoint {
-        _ = try commitLearningAuthorityManifest(
-          mutation: LearningAuthorityManifestMutation(
-            machine: .replace(checkpoint),
-            tip: .replace(nil)
-          )
-        )
-      }
-      installLearningAuthorityDraft(draft)
+      learningArtifactGraph = graph
+      applyArtifactInvalidations(commit.invalidatedRevisionIDs)
+      centerArrivalPosition = destination
+      centerArrivalRetryRequired = false
+      explorationError = nil
+      persistAcceptedMachineArtifacts()
+      finishActiveExerciseAttempt(disposition: .succeeded)
     } catch {
       let failure = workflowFailure(for: error)
       explorationError = failure.detail
@@ -3496,15 +2903,13 @@ final class OperatorWorkspace {
   }
 
   private func captureSimulatedProtocolScene(
-    newerThan captureNanoseconds: UInt64 = 0,
-    using session: LearningSessionState? = nil
+    newerThan captureNanoseconds: UInt64 = 0
   ) async throws -> SimulatedLearningSceneFrame {
-    let authority = session ?? activeLearningSession
     let acceptedPositions = Dictionary(
-      uniqueKeysWithValues: authority.boundarySideAggregates.compactMap {
+      uniqueKeysWithValues: boundarySideAggregates.compactMap {
         direction, aggregate -> (BoundaryDirection, SimulatedLearningMPos)? in
         guard let attemptID = aggregate.includedAttemptIDs.last,
-          let evidence = authority.boundaryAttemptEvidenceByAttemptID[attemptID],
+          let evidence = boundaryAttemptEvidenceByAttemptID[attemptID],
           let position = try? SimulatedLearningMPos(
             xMM: evidence.finalPosition.point.x,
             yMM: evidence.finalPosition.point.y
@@ -3512,8 +2917,8 @@ final class OperatorWorkspace {
         else { return nil }
         return (direction, position)
       })
-    let learnedCenter = authority.estimatedCenterAuthority.flatMap {
-      try? SimulatedLearningMPos(xMM: $0.center.point.x, yMM: $0.center.point.y)
+    let learnedCenter = estimatedMachineCenter.flatMap {
+      try? SimulatedLearningMPos(xMM: $0.point.x, yMM: $0.point.y)
     }
     let scene = try await simulatedLearningRuntime.captureSceneFrame(
       annotationContext: SimulatedLearningAnnotationContext(
@@ -3793,7 +3198,6 @@ final class OperatorWorkspace {
     guard let attemptID = activeExerciseAttemptID,
       activeExerciseAttemptOwnerID == .humanGuidedDiscovery(.calibrateCameraAndVisibleCap),
       let centerArrival = learningArtifactGraph.currentRevision(for: .centerArrival)?.id,
-      let penCapAppearance = learningArtifactGraph.currentRevision(for: .penCapAppearance)?.id,
       let registration = proposedMachineCameraRegistration
     else { return }
     do {
@@ -3802,40 +3206,18 @@ final class OperatorWorkspace {
         kind: .machineCameraRegistration,
         attemptID: attemptID,
         disposition: .succeeded,
-        consumedRevisionIDs: [centerArrival, penCapAppearance]
+        consumedRevisionIDs: Set(
+          registration.correspondenceProvenance.map(\.artifactRevisionID)
+            + [centerArrival]
+        )
       )
       let machineRegistration = try graph.commitReplacement(machineRegistrationCandidate)
-      var draft = learningAuthorityDraft(
-        graph: graph,
-        invalidatedRevisionIDs: machineRegistration.invalidatedRevisionIDs
-      )
-      draft.session.machineCameraRegistration = registration
-      draft.session.proposedMachineCameraRegistration = nil
-      draft.session.explicitRegistrationCapAnchorEvidence =
-        registration.fitCorrespondenceProvenance
-        + registration.holdoutCorrespondenceProvenance
-      draft.session.exerciseAttempt.finish()
-      draft.session.explorationError = nil
-      let invalidatesCurrentTip = machineRegistration.invalidatedRevisionIDs.contains {
-        graph.revision(id: $0)?.kind == .tipCameraRegistration
-      }
-      let clearsDurableTip = frameMode == .live
-        && (activeExerciseAttemptMode == .replacement || invalidatesCurrentTip)
-      if clearsDurableTip {
-        draft.session.quarantinedTipCalibrationCheckpoint = nil
-      }
-      if let invariantError = learningAuthorityInvariantError(
-        session: draft.session,
-        penCapSelectionIsPresent: penCapAppearanceSelection != nil
-      ) {
-        throw LearningPathOperationError.requiredState(invariantError)
-      }
-      if clearsDurableTip {
-        _ = try commitLearningAuthorityManifest(
-          mutation: LearningAuthorityManifestMutation(tip: .replace(nil))
-        )
-      }
-      installLearningAuthorityDraft(draft)
+      learningArtifactGraph = graph
+      applyArtifactInvalidations(machineRegistration.invalidatedRevisionIDs)
+      machineCameraRegistration = registration
+      proposedMachineCameraRegistration = nil
+      finishActiveExerciseAttempt(disposition: .succeeded)
+      explorationError = nil
     } catch {
       explorationError =
         "Camera-calibration acceptance failed atomically: \(actionableDescription(error))"
@@ -3855,7 +3237,7 @@ final class OperatorWorkspace {
 
   private func executeCurrentCameraCalibrationAndBuildProposal() async {
     guard currentCameraCalibrationPhase == nil, !hasShutdown, !Task.isCancelled,
-      cameraCalibrationAnchorFrame != nil,
+      let frame = cameraCalibrationAnchorFrame,
       let targetPosition = cameraCalibrationReferencePosition
     else { return }
 
@@ -3989,6 +3371,13 @@ final class OperatorWorkspace {
           explorationError ?? "The current-camera registration fit was not accepted."
         )
       }
+      explicitRegistrationCapAnchorEvidence.removeAll {
+        $0.source == frame.source
+          && $0.cameraConfigurationID == frame.frame.cameraConfigurationID
+          && $0.controllerSessionID == controllerSessionID
+          && $0.coordinateRevision == explorationCoordinateRevision
+      }
+      explicitRegistrationCapAnchorEvidence.append(contentsOf: stagedSamples)
       currentCameraCalibrationFailure = nil
       await recordWorkflowTelemetry(
         WorkflowTelemetryEvent(
@@ -4252,17 +3641,14 @@ final class OperatorWorkspace {
   }
 
   private func rejectCameraCalibrationProposal() {
-    let acceptedFallbackRemainsCurrent = machineCameraRegistration != nil
-      && learningArtifactGraph.currentRevision(for: .machineCameraRegistration) != nil
     currentCameraCalibrationFailure = nil
     cameraCalibrationAnchorFrame = nil
     cameraCalibrationReferencePosition = nil
     cameraCalibrationReferenceCapAnchor = nil
     proposedMachineCameraRegistration = nil
-    finishActiveExerciseAttempt(disposition: .cancelled)
-    explorationError = acceptedFallbackRemainsCurrent
-      ? "Operator rejected the replacement cap map. The prior accepted machine-camera registration remains current."
-      : "Operator rejected the staged five-sample cap map. No machine-camera revision became authoritative."
+    machineCameraRegistration = nil
+    explorationError =
+      "Operator rejected the staged five-sample cap map. No machine-camera revision became authoritative."
   }
 
   func selectToolContactPoint(_ selection: ActionSurfacePointSelection) {
@@ -4281,24 +3667,25 @@ final class OperatorWorkspace {
           frame: context.frame,
           selection: selection
         )
-        let source: OperatorFrameMode = learned.source == .simulated ? .simulated : .live
-        guard source == frameMode else {
-          throw PenCapAppearanceSamplingError.staleExactFrame
+        let learnedFromLiveCamera: Bool
+        switch learned.source {
+        case .live:
+          livePenCapAppearanceSelection = learned
+          persistedPenCapAppearanceLoadState = .accepted
+          persistPenCapAppearanceSelection(learned)
+          learnedFromLiveCamera = true
+        case .simulated:
+          simulatedPenCapAppearanceSelection = learned
+          learnedFromLiveCamera = false
         }
-        stagedPenCapAppearanceCandidate = StagedPenCapAppearanceCandidate(
-          attemptID: attemptID,
-          attemptMode: attemptMode,
-          source: source,
-          selection: learned
-        )
         penCapAppearanceSelectionContext = nil
         discoveryError = nil
         startPenCapAcceptedClickContinuation(
           attemptID: attemptID,
           attemptMode: attemptMode,
-          source: source,
+          source: learned.source == .simulated ? .simulated : .live,
           selection: learned,
-          configuresLiveVision: source == .live
+          configuresLiveVision: learnedFromLiveCamera
         )
       } catch {
         discoveryError = "Identify Pen Cap rejected the click: \(actionableDescription(error))"
@@ -4383,36 +3770,10 @@ final class OperatorWorkspace {
       activeExerciseAttemptOwnerID == .humanGuidedDiscovery(.penInteraction),
       activeExerciseAttemptMode == identity.attemptMode,
       frameMode == identity.source,
-      stagedPenCapAppearanceCandidate
-        == StagedPenCapAppearanceCandidate(
-          attemptID: identity.attemptID,
-          attemptMode: identity.attemptMode,
-          source: identity.source,
-          selection: identity.selection
-        ),
+      penCapAppearanceSelection == identity.selection,
       penCapAppearanceSelectionContext == nil
     else { return false }
     return true
-  }
-
-  private var penCapAppearanceCandidateForActiveAttempt: PenCapAppearanceSelection? {
-    guard let candidate = stagedPenCapAppearanceCandidate,
-      candidate.attemptID == activeExerciseAttemptID,
-      candidate.attemptMode == activeExerciseAttemptMode,
-      candidate.source == frameMode,
-      activeExerciseAttemptOwnerID == .humanGuidedDiscovery(.penInteraction)
-    else { return nil }
-    return candidate.selection
-  }
-
-  private func discardStagedPenCapAppearanceCandidate() async {
-    guard let candidate = stagedPenCapAppearanceCandidate else { return }
-    stagedPenCapAppearanceCandidate = nil
-    guard candidate.source == .live else { return }
-    if let accepted = livePenCapAppearanceSelection {
-      await cameraActions?.setPenCapColor(accepted.color)
-    }
-    await reconcileAutomaticVisionAnalysis()
   }
 
   private func finishPenCapAcceptedClickContinuation(
@@ -4438,10 +3799,6 @@ final class OperatorWorkspace {
   }
 
   private func createNextSparseTipMark() async {
-    if let blocker = liveSparseContactUnavailableReason {
-      explorationError = blocker
-      return
-    }
     let ownerID = LearningPathItemID.humanGuidedDiscovery(
       .calibratePenContactFromSparseMarks
     )
@@ -4457,11 +3814,10 @@ final class OperatorWorkspace {
       let center = cameraCalibrationReferencePosition
     else { return }
 
-    var activeExposure: LearningSurfaceExposure?
+    var markCompleted = false
+    var activeLocation: BlacklistedToolContactLocation?
     do {
-      let position = try sparseTipCalibrationCoordinator.prepareNextMark(
-        excluding: reservedSparseTipPositionsOnCurrentPaper
-      )
+      let position = try sparseTipCalibrationCoordinator.prepareNextMark()
       let plan = try CurrentCameraCalibrationPlan(
         targetPosition: center,
         boundarySideAggregates: boundarySideAggregates,
@@ -4476,6 +3832,18 @@ final class OperatorWorkspace {
         center: sample.machinePosition,
         boundarySideAggregates: boundarySideAggregates
       )
+      let physicalLocation = BlacklistedToolContactLocation(
+        calibrationPosition: position,
+        machinePosition: sample.machinePosition,
+        markRadiusMM: SparseTipCircularMarkPlan.radiusMM,
+        paperContactPlane: PaperContactPlaneRevision(rawValue: explorationToolPaperRevision)
+      )
+      activeLocation = physicalLocation
+      guard !blacklistedToolContactLocations.contains(physicalLocation) else {
+        throw LearningPathOperationError.requiredState(
+          "Possible ink already blacklists this exact machine position on the current paper. Record paper replacement before restarting calibration."
+        )
+      }
       let current = try currentMachinePosition()
       let settled: MachinePosition
       if let delta = try Self.supervisedTravelDelta(
@@ -4535,20 +3903,13 @@ final class OperatorWorkspace {
           "Sparse circle start did not settle within 0.05 mm."
         )
       }
-      let exposure = try reserveLearningSurfaceExposure(
-        owner: .sparseTipMark(position),
-        geometry: .sparseCalibrationCircle(
-          center: sample.machinePosition,
-          radiusMM: SparseTipCircularMarkPlan.radiusMM
-        )
-      )
-      activeExposure = exposure
       try sparseTipCalibrationCoordinator.beganMark(at: position)
       let mark = try await performCircularContactMark(
         plan: markPlan,
-        exposure: exposure,
+        at: physicalLocation,
         after: exactPreFrame.captureNanoseconds
       )
+      markCompleted = true
 
       let revealTarget = markPlan.revealPosition
       try sparseTipCalibrationCoordinator.beganReveal(from: position, to: revealTarget)
@@ -4640,13 +4001,18 @@ final class OperatorWorkspace {
       _ = machineRegistrationRevision
     } catch {
       let failure = workflowFailure(for: error)
-      if let activeExposure {
-        sparseTipCalibrationCoordinator.recordPossibleInk(
-          activeExposure,
-          reason: failure.detail
-        )
-      } else {
-        sparseTipCalibrationCoordinator.resetBeforeInkFailure()
+      if let activeLocation {
+        if blacklistedToolContactLocations.contains(activeLocation) || markCompleted
+          || failure.kind == .ambiguous || failure.kind == .possibleInk
+        {
+          blacklistedToolContactLocations.insert(activeLocation)
+          sparseTipCalibrationCoordinator.blacklistPossibleInk(
+            at: activeLocation,
+            reason: failure.detail
+          )
+        } else {
+          sparseTipCalibrationCoordinator.resetBeforeInkFailure()
+        }
       }
       activeLearningSession.toolContactSelection.clear()
       explorationError =
@@ -4656,7 +4022,7 @@ final class OperatorWorkspace {
 
   private func performCircularContactMark(
     plan: SparseTipCircularMarkPlan,
-    exposure: LearningSurfaceExposure,
+    at location: BlacklistedToolContactLocation,
     after captureNanoseconds: UInt64
   ) async throws -> (
     penDown: PenActuationEvidence,
@@ -4677,17 +4043,15 @@ final class OperatorWorkspace {
     }
     guard case .commandedAndSettled(command: .lower, commandedState: .down) = lower else {
       switch lower {
-      case .ambiguous(let ambiguity):
-        let recovery = await finalizePenUp(
-          for: exposure.id,
-          reason: .penLowerTerminal
+      case .ambiguous:
+        blacklistedToolContactLocations.insert(location)
+        sparseTipCalibrationCoordinator.blacklistPossibleInk(
+          at: location,
+          reason: String(describing: lower)
         )
-        throw LearningPathOperationError.possibleInk(
-          "Pen Down was ambiguous: \(ambiguity.actionableDescription) Pen-Up recovery: \(recovery.outcome). \(recovery.audit)"
-        )
-      case .refused(let refusal):
-        _ = await finalizePenUp(for: exposure.id, reason: .penLowerTerminal)
-        throw LearningPathOperationError.controllerRefused(refusal.actionableDescription)
+        throw LearningPathOperationError.possibleInk(String(describing: lower))
+      case .refused:
+        throw LearningPathOperationError.controllerRefused(String(describing: lower))
       case .commandedAndSettled:
         preconditionFailure("The successful Pen Down outcome was handled by the guard.")
       }
@@ -4700,7 +4064,6 @@ final class OperatorWorkspace {
     )
 
     var finalPosition = plan.startPosition
-    var penUpAlreadyAttempted = false
     do {
       for (index, delta) in plan.pathDeltas.enumerated() {
         let expected = plan.pathPositions[index + 1]
@@ -4712,7 +4075,7 @@ final class OperatorWorkspace {
           let target = ContextualStopTarget.sparseTipMark(
             capabilityID: ContextualStopCapabilityID(),
             operationOwner: .simulated(operation.id),
-            exposureID: exposure.id
+            location: location
           )
           let task = Task { [simulatedLearningRuntime, simulatedExecutionPacing] in
             try? await simulatedLearningRuntime.executeNaturally(
@@ -4753,19 +4116,12 @@ final class OperatorWorkspace {
           case .admitted(let admitted):
             operation = admitted
           case .rejected(let outcome):
-            let recovery = await finalizePenUp(
-              for: exposure.id,
-              reason: .drawingStrokeAdmissionRejected
-            )
-            penUpAlreadyAttempted = true
-            throw LearningPathOperationError.possibleInk(
-              "A calibration-circle stroke was not admitted after Pen Down: \(outcome). Pen-Up recovery: \(recovery.outcome). \(recovery.audit)"
-            )
+            throw operationError(for: outcome, possibleInk: true)
           }
           let target = ContextualStopTarget.sparseTipMark(
             capabilityID: ContextualStopCapabilityID(),
             operationOwner: .liveOperation(operation.id),
-            exposureID: exposure.id
+            location: location
           )
           let task = Task { await operation.outcome() }
           installStoppableOperation(target: target, owner: .drawing(task))
@@ -4776,12 +4132,6 @@ final class OperatorWorkspace {
           case .completed(let evidence):
             finalPosition = evidence.finalPosition
           case .cancelled(_, let penRaiseOutcome):
-            _ = await finalizePenUp(
-              for: exposure.id,
-              reason: .drawingStrokeCancelled,
-              suppliedOutcome: penRaiseOutcome
-            )
-            penUpAlreadyAttempted = true
             throw LearningPathOperationError.possibleInk(
               "The calibration circle was stopped; Pen Up outcome: \(penRaiseOutcome)"
             )
@@ -4806,26 +4156,33 @@ final class OperatorWorkspace {
         }
       }
     } catch {
-      if !penUpAlreadyAttempted {
-        _ = await finalizePenUp(
-          for: exposure.id,
-          reason: .circleDrawingFailed
-        )
-      }
+      blacklistedToolContactLocations.insert(location)
+      sparseTipCalibrationCoordinator.blacklistPossibleInk(
+        at: location,
+        reason: actionableDescription(error)
+      )
+      await raisePenAfterKnownCircleFailureIfNeeded()
       throw error
     }
 
-    let finalization = await finalizePenUp(
-      for: exposure.id,
-      reason: .circleCompleted
-    )
-    guard finalization.persistence.isDurable else {
-      throw LearningPathOperationError.requiredState(
-        "The circle completed, but its Pen-Up recovery audit is not durable: \(finalization.audit)"
-      )
+    let raise: PenOutcome
+    if frameMode == .simulated {
+      _ = try (await simulatedLearningRuntime.setPenPose(.up)).result.get()
+      raise = .commandedAndSettled(command: .raise, commandedState: .up)
+      simulatedLearningSnapshot = await simulatedLearningRuntime.snapshot()
+    } else {
+      guard let machineActions else {
+        throw LearningPathOperationError.requiredState("Machine composition is unavailable.")
+      }
+      raise = await machineActions.requestPenActuation(.raise, currentPenActuationProfile)
+      machineSnapshot = await machineActions.snapshot()
     }
-    let raise = finalization.outcome
     guard case .commandedAndSettled(command: .raise, commandedState: .up) = raise else {
+      blacklistedToolContactLocations.insert(location)
+      sparseTipCalibrationCoordinator.blacklistPossibleInk(
+        at: location,
+        reason: String(describing: raise)
+      )
       throw operationError(for: raise, possibleInk: true)
     }
     let upTime = RuntimeTimestamp(
@@ -4846,6 +4203,23 @@ final class OperatorWorkspace {
       ),
       finalPosition
     )
+  }
+
+  private func raisePenAfterKnownCircleFailureIfNeeded() async {
+    if frameMode == .simulated {
+      let snapshot = await simulatedLearningRuntime.snapshot()
+      if snapshot.penPose == .down {
+        _ = await simulatedLearningRuntime.setPenPose(.up)
+      }
+      simulatedLearningSnapshot = await simulatedLearningRuntime.snapshot()
+      return
+    }
+    guard let machineActions,
+      machineSnapshot?.machine.stickyAmbiguity == nil,
+      machineSnapshot?.machine.penState == .down
+    else { return }
+    _ = await machineActions.requestPenActuation(.raise, currentPenActuationProfile)
+    machineSnapshot = await machineActions.snapshot()
   }
 
   private func reClickSparseTipFrame() {
@@ -5018,6 +4392,17 @@ final class OperatorWorkspace {
     guard let attemptID = activeExerciseAttemptID else {
       throw SparseTipCalibrationCoordinatorError.invalidTransition
     }
+    var rebuiltObservationRevisions: [ToolContactObservationID: LearningArtifactRevisionID] = [:]
+    for prior in checkpoint.registration.observationEvidence {
+      let revision = LearningArtifactRevision(
+        kind: .toolContactObservation(prior.observationID),
+        attemptID: attemptID,
+        disposition: .succeeded,
+        consumedRevisionIDs: [machineRegistrationRevision]
+      )
+      _ = try graph.commitReplacement(revision)
+      rebuiltObservationRevisions[prior.observationID] = revision.id
+    }
     let acceptedRevisionID = LearningArtifactRevisionID()
     let acceptedAt = RuntimeTimestamp(
       monotonicNanoseconds: max(
@@ -5025,10 +4410,11 @@ final class OperatorWorkspace {
         revalidationTimestamp.monotonicNanoseconds + 1
       )
     )
-    let restored = try checkpoint.registration.revalidatedSummaryFromCheckpoint(
+    let restored = try checkpoint.registration.revalidatedFromCheckpoint(
       evidence: evidence,
       acceptedRevisionID: acceptedRevisionID,
       machineCameraRegistrationRevisionID: machineRegistrationRevision,
+      observationArtifactRevisionIDs: rebuiltObservationRevisions,
       acceptedAt: acceptedAt
     )
     let revision = LearningArtifactRevision(
@@ -5036,10 +4422,7 @@ final class OperatorWorkspace {
       kind: .tipCameraRegistration,
       attemptID: attemptID,
       disposition: .succeeded,
-      consumedRevisionIDs: [
-        machineRegistrationRevision,
-        contactObservation.artifactRevisionID,
-      ]
+      consumedRevisionIDs: restored.consumedArtifactRevisionIDs
     )
     _ = try graph.commitReplacement(revision)
     let acceptance = try TipCalibrationAcceptanceEvent(
@@ -5047,14 +4430,10 @@ final class OperatorWorkspace {
       timestamp: acceptedAt,
       actor: "operator-contact-plane-revalidation"
     )
-    try persistTipCheckpointIfLive(
+    try activeAcceptedTipCalibrationCheckpointActions?.save(
       AcceptedTipCalibrationCheckpoint(
         registration: restored,
-        acceptanceEvent: acceptance,
-        surfaceExposures: try surfaceExposuresForChangedPaperTipRevalidation(
-          checkpoint,
-          contactObservation: observation
-        )
+        acceptanceEvent: acceptance
       )
     )
     return restored
@@ -5129,12 +4508,9 @@ final class OperatorWorkspace {
       )
       let checkpoint = try AcceptedTipCalibrationCheckpoint(
         registration: proposal,
-        acceptanceEvent: acceptanceEvent,
-        surfaceExposures: try currentPaperSparseSurfaceExposures(
-          requiredPositions: Set(ToolContactCalibrationPosition.allCases)
-        )
+        acceptanceEvent: acceptanceEvent
       )
-      try persistTipCheckpointIfLive(checkpoint)
+      try activeAcceptedTipCalibrationCheckpointActions?.save(checkpoint)
       learningArtifactGraph = graph
       applyArtifactInvalidations(commit.invalidatedRevisionIDs)
       tipCameraRegistration = proposal
@@ -5150,10 +4526,6 @@ final class OperatorWorkspace {
   }
 
   private func revalidateTipCalibrationCheckpoint() async {
-    if let blocker = liveSparseContactUnavailableReason {
-      explorationError = blocker
-      return
-    }
     let ownerID = LearningPathItemID.humanGuidedDiscovery(
       .calibratePenContactFromSparseMarks
     )
@@ -5221,6 +4593,17 @@ final class OperatorWorkspace {
       }
 
       var graph = learningArtifactGraph
+      var rebuiltObservationRevisions: [ToolContactObservationID: LearningArtifactRevisionID] = [:]
+      for observation in checkpoint.registration.observationEvidence {
+        let revision = LearningArtifactRevision(
+          kind: .toolContactObservation(observation.observationID),
+          attemptID: attemptID,
+          disposition: .succeeded,
+          consumedRevisionIDs: [machineRegistrationRevision]
+        )
+        _ = try graph.commitReplacement(revision)
+        rebuiltObservationRevisions[observation.observationID] = revision.id
+      }
       let acceptedRevisionID = LearningArtifactRevisionID()
       let acceptedAt = RuntimeTimestamp(
         monotonicNanoseconds: max(
@@ -5228,10 +4611,11 @@ final class OperatorWorkspace {
           evidenceTimestamp.monotonicNanoseconds + 1
         )
       )
-      let restoredRegistration = try checkpoint.registration.revalidatedSummaryFromCheckpoint(
+      let restoredRegistration = try checkpoint.registration.revalidatedFromCheckpoint(
         evidence: evidence,
         acceptedRevisionID: acceptedRevisionID,
         machineCameraRegistrationRevisionID: machineRegistrationRevision,
+        observationArtifactRevisionIDs: rebuiltObservationRevisions,
         acceptedAt: acceptedAt
       )
       let tipRevision = LearningArtifactRevision(
@@ -5239,7 +4623,7 @@ final class OperatorWorkspace {
         kind: .tipCameraRegistration,
         attemptID: attemptID,
         disposition: .succeeded,
-        consumedRevisionIDs: [machineRegistrationRevision]
+        consumedRevisionIDs: restoredRegistration.consumedArtifactRevisionIDs
       )
       _ = try graph.commitReplacement(tipRevision)
       let acceptanceEvent = try TipCalibrationAcceptanceEvent(
@@ -5249,10 +4633,9 @@ final class OperatorWorkspace {
       )
       let refreshedCheckpoint = try AcceptedTipCalibrationCheckpoint(
         registration: restoredRegistration,
-        acceptanceEvent: acceptanceEvent,
-        surfaceExposures: checkpoint.surfaceExposures
+        acceptanceEvent: acceptanceEvent
       )
-      try persistTipCheckpointIfLive(refreshedCheckpoint)
+      try activeAcceptedTipCalibrationCheckpointActions?.save(refreshedCheckpoint)
 
       learningArtifactGraph = graph
       tipCameraRegistration = restoredRegistration
@@ -5279,69 +4662,6 @@ final class OperatorWorkspace {
     } catch {
       explorationError = actionableDescription(error)
     }
-  }
-
-  private func currentPaperSparseSurfaceExposures(
-    requiredPositions: Set<ToolContactCalibrationPosition>
-  ) throws -> [LearningSurfaceExposure] {
-    let paper = PaperContactPlaneRevision(rawValue: explorationToolPaperRevision)
-    let exposures = surfaceExposureLedger.exposures(on: paper).filter { exposure in
-      guard case .sparseTipMark(let position) = exposure.owner else { return false }
-      return requiredPositions.contains(position)
-    }
-    let positionValues: [ToolContactCalibrationPosition] = exposures.compactMap {
-      exposure in
-      guard case .sparseTipMark(let position) = exposure.owner else { return nil }
-      return position
-    }
-    let positions = Set(positionValues)
-    guard positions == requiredPositions,
-      exposures.count == requiredPositions.count,
-      exposures.allSatisfy({ exposure in
-        if case .commandedAndSettled(command: .raise, commandedState: .up) =
-          exposure.penUpFinalization?.outcome
-        {
-          return true
-        }
-        return false
-      })
-    else {
-      throw LearningPathOperationError.requiredState(
-        "Accepted tip authority requires one durably finalized surface reservation for every consumed sparse mark."
-      )
-    }
-    return exposures.sorted { lhs, rhs in
-      func index(_ exposure: LearningSurfaceExposure) -> Int {
-        guard case .sparseTipMark(let position) = exposure.owner else { return .max }
-        return SparseTipCalibrationCoordinator.orderedPositions.firstIndex(of: position) ?? .max
-      }
-      return index(lhs) < index(rhs)
-    }
-  }
-
-  private func surfaceExposuresForChangedPaperTipRevalidation(
-    _ checkpoint: AcceptedTipCalibrationCheckpoint,
-    contactObservation: ToolContactObservation
-  ) throws -> [LearningSurfaceExposure] {
-    let currentPaper = PaperContactPlaneRevision(rawValue: explorationToolPaperRevision)
-    guard let current = surfaceExposureLedger.exposures(on: currentPaper).first(where: {
-      exposure in
-      guard exposure.owner == .sparseTipMark(contactObservation.calibrationPosition),
-        case .sparseCalibrationCircle(let center, let radiusMM) = exposure.geometry,
-        case .commandedAndSettled(command: .raise, commandedState: .up) =
-          exposure.penUpFinalization?.outcome
-      else { return false }
-      return center == contactObservation.markGeometry.center
-        && radiusMM == contactObservation.markGeometry.radiusMM
-    }) else {
-      throw LearningPathOperationError.requiredState(
-        "The new-paper contact observation has no matching durably finalized surface reservation."
-      )
-    }
-    if checkpoint.surfaceExposures.contains(where: { $0.id == current.id }) {
-      return checkpoint.surfaceExposures
-    }
-    return checkpoint.surfaceExposures + [current]
   }
 
   private func exactTipCalibrationFrame(_ displayed: DisplayedFrame) throws
@@ -5398,7 +4718,6 @@ final class OperatorWorkspace {
 
   private func recordPaperReplaced() async {
     let replacementSnapshot: SimulatedLearningSnapshot?
-    let liveReplacementPaper: PaperContactPlaneRevision?
     if frameMode == .simulated {
       do {
         replacementSnapshot = try await simulatedLearningRuntime.recordPaperReplaced().result.get()
@@ -5406,97 +4725,8 @@ final class OperatorWorkspace {
         explorationError = "Paper replacement was refused: \(actionableDescription(error))"
         return
       }
-      liveReplacementPaper = nil
     } else {
-      let intentionalAcceptedSparseReplacement =
-        learningSurfaceExposureRecoveryDisposition == .ready
-        && tipCameraRegistration != nil
-        && !reservedSparseTipPositionsOnCurrentPaper.isEmpty
-      guard learningSurfaceExposureRecoveryDisposition == .paperReplacementRequired
-        || intentionalAcceptedSparseReplacement
-      else {
-        explorationError =
-          "Paper Replacement is not the recovery for the current safety-store failure. Resolve the Diagnostics blocker without changing paper authority."
-        return
-      }
       replacementSnapshot = nil
-      let replacement = PaperContactPlaneRevision()
-      guard let actions = liveLearningSurfaceExposureActions else {
-        explorationError =
-          "Paper replacement could not be recorded because LIVE safety-history persistence is unavailable."
-        return
-      }
-      var durableTipWasCleared = false
-      do {
-        if liveLearningAuthorityManifest.tip != nil {
-          _ = try commitLearningAuthorityManifest(
-            mutation: LearningAuthorityManifestMutation(tip: .replace(nil))
-          )
-          quarantinedTipCalibrationCheckpoint = nil
-          durableTipWasCleared = true
-        }
-        let persisted: LiveLearningSurfaceExposureSnapshot
-        switch actions.load() {
-        case .rejected(_, let revision):
-          guard revision == liveLearningSurfaceExposureRevision else {
-            throw LearningSurfaceExposureLedgerError.staleStoreRevision(
-              expected: liveLearningSurfaceExposureRevision,
-              actual: revision
-            )
-          }
-          persisted = try actions.recoverForPaperReplacement(revision, replacement)
-        case .absent:
-          guard liveLearningSurfaceExposureRevision == .absent else {
-            throw LearningSurfaceExposureLedgerError.staleStoreRevision(
-              expected: liveLearningSurfaceExposureRevision,
-              actual: .absent
-            )
-          }
-          persisted = try actions.save(.absent, surfaceExposureLedger, replacement)
-        case .loaded(let snapshot):
-          guard snapshot.revision == liveLearningSurfaceExposureRevision else {
-            throw LearningSurfaceExposureLedgerError.staleStoreRevision(
-              expected: liveLearningSurfaceExposureRevision,
-              actual: snapshot.revision
-            )
-          }
-          persisted = try actions.save(
-            liveLearningSurfaceExposureRevision,
-            surfaceExposureLedger,
-            replacement
-          )
-        }
-        surfaceExposureLedger = persisted.checkpoint.ledger
-        liveLearningSurfaceExposureRevision = persisted.revision
-        liveLearningSurfaceExposureBlocker = nil
-        liveLearningSurfaceStoreRecoveryDisposition = .ready
-        liveReplacementPaper = replacement
-      } catch {
-        if durableTipWasCleared {
-          var graph = learningArtifactGraph
-          let invalidation = graph.invalidateCurrentRevisions(
-            rootKinds: [.tipCameraRegistration]
-          )
-          learningArtifactGraph = graph
-          applyArtifactInvalidations(invalidation.allInvalidatedRevisionIDs)
-          tipCameraRegistration = nil
-          proposedTipCameraRegistration = nil
-          applyDrawingTrialAuthorityInvalidation(
-            from: .chooseIsolatedLinePlan
-          )
-        }
-        liveLearningSurfaceExposureBlocker = String(describing: error)
-        if let ledgerError = error as? LearningSurfaceExposureLedgerError,
-          case .staleStoreRevision = ledgerError
-        {
-          liveLearningSurfaceStoreRecoveryDisposition = .paperReplacementRequired
-        } else {
-          liveLearningSurfaceStoreRecoveryDisposition = .diagnosticsRequired
-        }
-        explorationError =
-          "Paper replacement did not change safety authority: \(actionableDescription(error))"
-        return
-      }
     }
 
     if let owner = activeExerciseAttemptOwnerID,
@@ -5505,15 +4735,7 @@ final class OperatorWorkspace {
       finishActiveExerciseAttempt(disposition: .cancelled)
     }
     var graph = learningArtifactGraph
-    let currentContactKinds = Set<LearningArtifactKind>(graph.revisions.compactMap { revision in
-      guard revision.state == .current,
-        case .toolContactObservation = revision.kind
-      else { return nil }
-      return revision.kind
-    })
-    let invalidation = graph.invalidateCurrentRevisions(
-      rootKinds: currentContactKinds.union(Set([LearningArtifactKind.tipCameraRegistration]))
-    )
+    let invalidation = graph.invalidateCurrentRevisions(rootKinds: [.tipCameraRegistration])
     learningArtifactGraph = graph
     applyArtifactInvalidations(invalidation.allInvalidatedRevisionIDs)
     tipCameraRegistration = nil
@@ -5521,18 +4743,24 @@ final class OperatorWorkspace {
     if let replacementSnapshot {
       simulatedLearningSnapshot = replacementSnapshot
       explorationToolPaperRevision = replacementSnapshot.toolPaperRevision
-    } else if let liveReplacementPaper {
-      explorationToolPaperRevision = liveReplacementPaper.rawValue
+    } else {
+      explorationToolPaperRevision = UUID()
       persistPaperContactPlaneRevision(
-        liveReplacementPaper
+        PaperContactPlaneRevision(rawValue: explorationToolPaperRevision)
       )
     }
-    refreshLiveTipSurfaceExposureBindingBlocker()
-    sparseTipCalibrationCoordinator = SparseTipCalibrationCoordinator()
-    if quarantinedTipCalibrationCheckpoint == nil, frameMode == .live {
-      quarantinedTipCalibrationCheckpoint = liveLearningAuthorityManifest.tip
+    sparseTipCalibrationCoordinator = SparseTipCalibrationCoordinator(
+      blacklistedLocations: blacklistedToolContactLocations.filter {
+        $0.paperContactPlane.rawValue == explorationToolPaperRevision
+      }
+    )
+    if quarantinedTipCalibrationCheckpoint == nil,
+      let actions = activeAcceptedTipCalibrationCheckpointActions,
+      case .quarantined(let checkpoint) = actions.load()
+    {
+      quarantinedTipCalibrationCheckpoint = checkpoint
     }
-    applyDrawingTrialAuthorityInvalidation(from: .chooseIsolatedLinePlan)
+    clearDrawingLearningForRewind(from: .chooseIsolatedLinePlan)
     explorationError = nil
   }
 
@@ -5574,7 +4802,7 @@ final class OperatorWorkspace {
       }
     } catch {
       if attemptedStep == .drawIsolatedLine,
-        (activeLearningSession.drawingTrial.lineExecution != payloadSnapshot.lineExecution
+        (drawingTrialStrokeEvidence != payloadSnapshot.strokeEvidence
           || activeExplorationOperation?.strokeState != .notAdmitted)
       {
         var commitFailure: String?
@@ -5588,12 +4816,10 @@ final class OperatorWorkspace {
         advanceDrawingTrialAfterSuccess(.drawIsolatedLine)
         let base =
           "The stroke owner produced evidence, so physical ink may exist. Drawing will not be restarted; continue with return/observation."
-        let settlement =
-          "\(base) Post-stroke settlement needs attention: \(error)"
         explorationError =
           commitFailure.map {
-            "\(settlement) The line-execution artifact also needs attention: \($0)"
-          } ?? settlement
+            "\(base) The line-execution artifact also needs attention: \($0)"
+          } ?? "\(base) Post-stroke settlement needs attention: \(error)"
         finishActiveExerciseAttempt(
           disposition: .failed("Ink may exist; automatic redraw is prohibited.")
         )
@@ -5618,19 +4844,8 @@ final class OperatorWorkspace {
     }
     let payloadSnapshot = drawingTrialPayloadSnapshot()
     do {
-      var episode = currentExplorationEpisode
-      episode?.humanAssessment = ExplorationAssessment(
-        summary: assessment.title,
-        provenance: "typed local operator comparison"
-      )
-      episode?.termination = .completed
       try commitComparisonAttemptAndArtifact(assessment)
       drawingTrialAssessment = assessment
-      currentExplorationEpisode = episode
-      if let episode {
-        completedExplorationEpisodes.removeAll { $0.id == episode.id }
-        completedExplorationEpisodes.append(episode)
-      }
       finishActiveExerciseAttempt(disposition: .succeeded)
     } catch {
       restoreDrawingTrialPayload(payloadSnapshot)
@@ -5674,6 +4889,28 @@ final class OperatorWorkspace {
       return directCarriageMotionUnavailableReason
     case .penInteraction:
       return penUnavailableReason(for: .lower)
+    }
+  }
+
+  var workbenchStatusText: String {
+    if let actionableError { return actionableError }
+    if !controllerSessionEstablished {
+      return frameMode == .simulated
+        ? "Press Connect to start the nonphysical learning simulator session."
+        : "Select the remembered controller and press Connect."
+    }
+    if !motionAuthorizationEnabled {
+      return frameMode == .simulated
+        ? "Simulator connected. Enable Motion before this action."
+        : "Plotter connected. Enable Motion before this action."
+    }
+    return switch manualMotionPenState {
+    case .up:
+      "Motion enabled; manual controls will move with the commanded pen Up."
+    case .down:
+      "Motion enabled; manual controls will draw with the commanded pen Down."
+    case .unknown:
+      "Motion enabled; manual controls may move with possible ink because pen state is unknown."
     }
   }
 
@@ -5802,18 +5039,25 @@ final class OperatorWorkspace {
     }
   }
 
-  var currentOperatorNoticeMessage: String? {
+  var actionableError: String? {
     if let cameraError { return cameraError }
     if let visionError { return visionError }
-    if let discoveryError { return discoveryError }
-    if let explorationError { return explorationError }
-    if let learningAuthorityError { return learningAuthorityError }
-    if let learningAuthorityManifestError { return learningAuthorityManifestError }
-    if let learningSurfaceExposureError { return learningSurfaceExposureError }
-    if let learningStickyAmbiguityReason { return learningStickyAmbiguityReason }
+    if frameMode == .simulated { return discoveryError ?? explorationError }
     if let machineError { return machineError }
     if let blocker = machineSnapshot?.machine.blockers.first {
       return machineBlockerLabel(blocker)
+    }
+    if case .refused(let refusal) = machineSnapshot?.lastMotionOutcome {
+      return refusal.actionableDescription
+    }
+    if case .ambiguous(let ambiguity) = machineSnapshot?.lastMotionOutcome {
+      return ambiguity.actionableDescription
+    }
+    if case .refused(let refusal) = machineSnapshot?.lastPenOutcome {
+      return refusal.actionableDescription
+    }
+    if case .ambiguous(let ambiguity) = machineSnapshot?.lastPenOutcome {
+      return ambiguity.actionableDescription
     }
     return nil
   }
@@ -5996,7 +5240,7 @@ final class OperatorWorkspace {
 
   func setOverlay(_ overlay: UserSceneOverlay, enabled: Bool) {
     guard !hasShutdown else { return }
-    videoPresentationPreferences.setOverlay(overlay, enabled: enabled)
+    overlayPreferenceState.applyOperatorSelection(overlay, enabled: enabled)
     persistOverlayPreference(overlayPreferenceState.enabled)
     Task { await reconcileAutomaticVisionAnalysis() }
   }
@@ -6038,7 +5282,6 @@ final class OperatorWorkspace {
     let snapshot = await cameraActions.setAutomaticInspection(nil, [])
     visionAnalysisSnapshot = snapshot
     visionError = snapshot.lastError
-    guard frameMode == .live else { return }
     let cameraSnapshot = await cameraActions.snapshot()
     self.cameraSnapshot = cameraSnapshot
     if let latest = cameraSnapshot.latestFrame { displayedFrame = latest }
@@ -6335,12 +5578,12 @@ final class OperatorWorkspace {
   func startDiscoverySequence(_ sequenceID: DiscoverySequenceID) async {
     guard discoveryStartUnavailableReason(for: sequenceID) == nil else { return }
     if sequenceID == .penInteraction {
-      guard penCapAppearanceCandidateForActiveAttempt != nil,
+      guard penCapAppearanceSelection != nil,
         penCapAppearanceSelectionContext == nil,
         penInteractionSequenceUnavailableReason == nil
       else {
         discoveryError = penInteractionSequenceUnavailableReason
-          ?? "Identify Pen Cap must be staged for this Pen Interaction attempt before questions begin."
+          ?? "Identify Pen Cap must be accepted before Pen Interaction questions begin."
         return
       }
     }
@@ -6386,7 +5629,7 @@ final class OperatorWorkspace {
     {
       switch step.action {
       case .askQuestion:
-        guard await recordDiscovery(.questionPresented, for: sequenceID) else { return }
+        guard recordDiscovery(.questionPresented, for: sequenceID) else { return }
 
       case .awaitOperatorChoice:
         return
@@ -6399,7 +5642,7 @@ final class OperatorWorkspace {
         guard activeDiscoverySequenceID == sequenceID,
           discoveryTransactions[sequenceID]?.currentStep?.id == step.id
         else { return }
-        guard await recordDiscovery(.announcementCompleted, for: sequenceID) else { return }
+        guard recordDiscovery(.announcementCompleted, for: sequenceID) else { return }
 
       case .startBoundaryJog(let direction):
         guard boundaryMotionTask == nil else { return }
@@ -6449,7 +5692,7 @@ final class OperatorWorkspace {
           controllerSummary = lastPenOutcomeText
         }
         guard
-          await recordDiscovery(
+          recordDiscovery(
             .penCommandSettled(command, controllerSummary: controllerSummary),
             for: sequenceID
           )
@@ -6468,9 +5711,7 @@ final class OperatorWorkspace {
     guard let attemptID = activeExerciseAttemptID,
       let finalPosition = pendingBoundaryFinalPositions[attemptID],
       let ownerID = pendingBoundaryOwnerIDs[attemptID],
-      let stopCapabilityID = pendingBoundaryStopCapabilities[attemptID],
-      stopDispositionLatch?.capabilityID == stopCapabilityID,
-      stopDispositionLatch?.boundaryIntent == .stopAndAccept
+      let stopCapabilityID = pendingBoundaryStopCapabilities[attemptID]
     else {
       await failDiscovery(
         sequenceID,
@@ -6493,7 +5734,7 @@ final class OperatorWorkspace {
         coordinateRevision: explorationCoordinateRevision,
         ownerID: ownerID,
         stopCapabilityID: stopCapabilityID.rawValue,
-        stopIntent: .stopAndAccept,
+        stopIntent: .operatorStop,
         finalPosition: finalPosition,
         disposition: .succeeded
       )
@@ -6567,83 +5808,30 @@ final class OperatorWorkspace {
         )
       }
 
-      var allInvalidatedRevisionIDs = invalidatedRevisionIDs
-      var stagedCenterAuthority: EstimatedCenterAuthority?
-      if stagedProgress.isComplete {
-        let aggregates = BoundaryDirection.allCases.compactMap { stagedAggregates[$0] }
-        let center = try EstimatedMachineCenter.derive(from: aggregates)
-        let localFrame = try LearnedLocalCoordinateFrame.derive(from: aggregates)
-        let centerRevision = LearningArtifactRevision(
-          kind: .estimatedMachineCenter,
-          attemptID: attemptID,
-          disposition: .succeeded,
-          consumedRevisionIDs: center.consumedRevisionIDs
-        )
-        let centerCommit: LearningArtifactCommit
-        if let priorCenter = learningArtifactGraph.currentRevision(for: .estimatedMachineCenter),
-          stagedGraph.revision(id: priorCenter.id)?.state == .invalidated
-        {
-          centerCommit = try stagedGraph.commitReplacement(
-            centerRevision,
-            supersedingInvalidatedRevision: priorCenter.id
-          )
-        } else {
-          centerCommit = try stagedGraph.commitReplacement(centerRevision)
-        }
-        allInvalidatedRevisionIDs.formUnion(centerCommit.invalidatedRevisionIDs)
-        stagedCenterAuthority = EstimatedCenterAuthority(center: center, localFrame: localFrame)
+      // One nonthrowing authority swap. All potentially failing construction,
+      // graph validation, center derivation, and local-frame derivation ran on
+      // staged copies above.
+      boundaryAttemptHistories = stagedHistories
+      boundaryAttemptEvidenceByAttemptID[attemptID] = evidence
+      boundarySideAggregates = stagedAggregates
+      pairedBoundaryProgress = stagedProgress
+      acceptedAttemptSequence = acceptedSequence
+      discoveryTransactions[sequenceID] = stagedTransaction
+      learningArtifactGraph = stagedGraph
+      applyArtifactInvalidations(invalidatedRevisionIDs)
+      if !stagedProgress.isComplete {
+        centerArrivalPosition = nil
+        centerArrivalRetryRequired = false
       }
-
-      var draft = learningAuthorityDraft(
-        graph: stagedGraph,
-        invalidatedRevisionIDs: allInvalidatedRevisionIDs
-      )
-      draft.session.boundaryAttemptHistories = stagedHistories
-      draft.session.boundaryAttemptEvidenceByAttemptID[attemptID] = evidence
-      draft.session.boundarySideAggregates = stagedAggregates
-      draft.session.pairedBoundaryProgress = stagedProgress
-      draft.session.acceptedAttemptSequence = acceptedSequence
-      draft.session.discoveryTransactions[sequenceID] = stagedTransaction
-      if let stagedCenterAuthority {
-        draft.session.estimatedCenterAuthority = stagedCenterAuthority
-      }
-      draft.session.centerArrivalPosition = nil
-      draft.session.centerArrivalRetryRequired = false
       if let forcedNext = stagedProgress.allowedDirections.onlyElement {
-        draft.session.selectedBoundaryDirection = forcedNext
-      } else if !stagedProgress.allowedDirections.contains(
-        draft.session.selectedBoundaryDirection
-      ), let first = stagedProgress.allowedDirections.first {
-        draft.session.selectedBoundaryDirection = first
+        selectedBoundaryDirection = forcedNext
+      } else if !stagedProgress.allowedDirections.contains(selectedBoundaryDirection),
+        let first = stagedProgress.allowedDirections.first
+      {
+        selectedBoundaryDirection = first
       }
-      draft.session.discoveryError = nil
-      draft.session.restartableExerciseItemID = nil
-      draft.session.exerciseAttempt.finish()
-      draft.pendingBoundaryFinalPositions.removeValue(forKey: attemptID)
-      draft.pendingBoundaryOwnerIDs.removeValue(forKey: attemptID)
-      draft.pendingBoundaryStopCapabilities.removeValue(forKey: attemptID)
-
-      let checkpoint = frameMode == .live
-        ? try acceptedMachineCheckpoint(for: draft.session) : nil
-      if let checkpoint {
-        draft.session.parkedAcceptedMachineArtifactCheckpoint = checkpoint
-        draft.session.quarantinedTipCalibrationCheckpoint = nil
-      }
-      if let invariantError = learningAuthorityInvariantError(
-        session: draft.session,
-        penCapSelectionIsPresent: penCapAppearanceSelection != nil
-      ) {
-        throw LearningPathOperationError.requiredState(invariantError)
-      }
-      if let checkpoint {
-        _ = try commitLearningAuthorityManifest(
-          mutation: LearningAuthorityManifestMutation(
-            machine: .replace(checkpoint),
-            tip: .replace(nil)
-          )
-        )
-      }
-      installLearningAuthorityDraft(draft)
+      discoveryError = nil
+      restartableExerciseItemID = nil
       appendBoundaryActivity(
         actor: .workspace,
         direction: direction,
@@ -6658,6 +5846,31 @@ final class OperatorWorkspace {
           "Typed direction + operator Stop + controller Idle/final MPos committed atomically as N=\(aggregate.validSampleCount). Camera and Vision were not consulted and could not veto the commit."
         )
       )
+      persistAcceptedMachineArtifacts()
+      finishActiveExerciseAttempt(disposition: .succeeded)
+      if stagedProgress.isComplete {
+        do {
+          try deriveCenterAndLocalFrame(afterBoundaryAttempt: attemptID)
+          persistAcceptedMachineArtifacts()
+        } catch {
+          discoveryError =
+            "All four machine boundaries are accepted, but center/local derivation needs attention: \(actionableDescription(error)) No Boundary motion will repeat automatically."
+          appendBoundaryActivity(
+            actor: .workspace,
+            direction: direction,
+            phase: .recovery,
+            disposition: .failed(actionableDescription(error)),
+            attemptID: attemptID,
+            operationOwnerID: .liveBoundary(ownerID),
+            stopCapabilityID: stopCapabilityID,
+            finalPosition: finalPosition,
+            retainedRevisionIDs: [aggregate.revisionID],
+            detail: .message(discoveryError!),
+            recovery: .continueWithAcceptedFallback(direction),
+            acceptedFallbackRemainsCurrent: true
+          )
+        }
+      }
     } catch {
       await failDiscovery(
         sequenceID,
@@ -6666,17 +5879,47 @@ final class OperatorWorkspace {
     }
   }
 
-  private func recordDiscovery(
-    _ event: DiscoveryEvent,
-    for sequenceID: DiscoverySequenceID
-  ) async -> Bool
+  private func deriveCenterAndLocalFrame(
+    afterBoundaryAttempt attemptID: ExerciseAttemptID
+  ) throws {
+    guard pairedBoundaryProgress.isComplete else { return }
+    let aggregates = BoundaryDirection.allCases.compactMap { boundarySideAggregates[$0] }
+    let center = try EstimatedMachineCenter.derive(from: aggregates)
+    let localFrame = try LearnedLocalCoordinateFrame.derive(from: aggregates)
+    let centerRevision = LearningArtifactRevision(
+      kind: .estimatedMachineCenter,
+      attemptID: attemptID,
+      disposition: .succeeded,
+      consumedRevisionIDs: center.consumedRevisionIDs
+    )
+    var stagedGraph = learningArtifactGraph
+    let centerCommit: LearningArtifactCommit
+    if let priorCenter = learningArtifactGraph.currentRevision(for: .estimatedMachineCenter),
+      stagedGraph.revision(id: priorCenter.id)?.state == .invalidated
+    {
+      centerCommit = try stagedGraph.commitReplacement(
+        centerRevision,
+        supersedingInvalidatedRevision: priorCenter.id
+      )
+    } else {
+      centerCommit = try stagedGraph.commitReplacement(centerRevision)
+    }
+    learningArtifactGraph = stagedGraph
+    applyArtifactInvalidations(centerCommit.invalidatedRevisionIDs)
+    estimatedMachineCenter = center
+    learnedLocalCoordinateFrame = localFrame
+    centerArrivalPosition = nil
+    centerArrivalRetryRequired = false
+  }
+
+  private func recordDiscovery(_ event: DiscoveryEvent, for sequenceID: DiscoverySequenceID) -> Bool
   {
     guard var transaction = discoveryTransactions[sequenceID] else { return false }
     do {
       try transaction.record(event)
       discoveryTransactions[sequenceID] = transaction
       if transaction.state == .succeeded {
-        return await commitSuccessfulDiscoveryAttempt(sequenceID)
+        commitSuccessfulDiscoveryAttempt(sequenceID)
       }
       return true
     } catch {
@@ -6689,9 +5932,6 @@ final class OperatorWorkspace {
 
   private func failDiscovery(_ sequenceID: DiscoverySequenceID, failure: WorkflowFailure) async {
     let reason = failure.detail
-    if sequenceID == .penInteraction {
-      await discardStagedPenCapAppearanceCandidate()
-    }
     if var transaction = discoveryTransactions[sequenceID] {
       transaction.fail(reason)
       discoveryTransactions[sequenceID] = transaction
@@ -6741,49 +5981,19 @@ final class OperatorWorkspace {
   }
 
   func stopCurrentOperation(capabilityID: ContextualStopCapabilityID) async {
-    if case .pairedBoundary = activeStoppableOperation?.target {
-      await terminateBoundary(.stop, capabilityID: capabilityID)
-    } else {
-      await terminateCurrentOperation(
-        boundaryIntent: nil,
-        action: "Stop",
-        capabilityID: capabilityID
-      )
-    }
-  }
-
-  private func terminateBoundary(
-    _ intent: BoundaryTerminationIntent,
-    capabilityID: ContextualStopCapabilityID
-  ) async {
-    guard case .pairedBoundary = activeStoppableOperation?.target else { return }
-    await terminateCurrentOperation(
-      boundaryIntent: intent,
-      action: boundaryTerminationAction(intent),
-      capabilityID: capabilityID
-    )
-  }
-
-  private func terminateCurrentOperation(
-    boundaryIntent: BoundaryTerminationIntent?,
-    action: String,
-    capabilityID: ContextualStopCapabilityID
-  ) async {
     guard !jogCancelRequestInProgress,
       let operation = activeStoppableOperation,
       operation.target.capabilityID == capabilityID,
       latchContextualStopDisposition(
         for: operation.target,
-        boundaryIntent: boundaryIntent,
-        mechanicalCancelIntent: .operatorInterruption,
+        intent: .operatorStop,
         actor: "Operator",
-        action: action
+        action: "Stop"
       )
     else { return }
     let target = operation.target
     switch target {
     case .pairedBoundary(_, let transactionID, let operationOwner, let attemptID, let direction):
-      guard let boundaryIntent else { return }
       let sequenceID = sequenceID(for: direction)
       guard discoveryTransactions[sequenceID]?.id == transactionID,
         case .awaitContextualStop(direction) = discoveryTransactions[sequenceID]?.currentStep?
@@ -6795,12 +6005,7 @@ final class OperatorWorkspace {
             "The Stop capability no longer owns this Boundary Discovery transaction."))
         return
       }
-      let recorded: Bool
-      if boundaryIntent == .stopAndAccept {
-        recorded = await recordDiscovery(.stopAndAcceptRequested(direction), for: sequenceID)
-      } else {
-        recorded = true
-      }
+      let recorded = recordDiscovery(.operatorStopRequested(direction), for: sequenceID)
       appendBoundaryActivity(
         actor: .operatorActor,
         direction: direction,
@@ -6810,12 +6015,12 @@ final class OperatorWorkspace {
         operationOwnerID: operationOwner,
         stopCapabilityID: capabilityID,
         detail: .message(
-          "Operator \(action) latched before controller cancellation.")
+          "Operator Stop latched before controller cancellation and any segment renewal.")
       )
       boundaryTeachingState = .cancelling(jogDirection(from: direction))
       boundaryTeachingResultText =
-        "\(action) requested. Waiting for the original motion owner to reach Idle."
-      await requestSingleJogCancel(for: target, mechanicalIntent: .operatorInterruption)
+        "Stop requested. Waiting for the original motion owner to reach Idle."
+      await requestSingleJogCancel(for: target, intent: .operatorStop)
       await operation.owner.settle()
       if !recorded {
         if case .failed = discoveryTransactions[sequenceID]?.state {
@@ -6823,16 +6028,16 @@ final class OperatorWorkspace {
         }
         await failDiscovery(
           sequenceID,
-          failure: .failed("The typed Stop & Accept event could not be recorded.")
+          failure: .failed("The typed operator Stop event could not be recorded.")
         )
       }
 
     case .manualJog, .manualDrawingStroke:
-      await requestSingleJogCancel(for: target, mechanicalIntent: .operatorInterruption)
+      await requestSingleJogCancel(for: target, intent: .operatorStop)
       await operation.owner.settle()
 
     case .exerciseMotion(_, _, let ownerID, _):
-      await requestSingleJogCancel(for: target, mechanicalIntent: .operatorInterruption)
+      await requestSingleJogCancel(for: target, intent: .operatorStop)
       await operation.owner.settle()
       if ownerID != .humanGuidedDiscovery(.calibrateCameraAndVisibleCap) {
         finishActiveExerciseAttempt(disposition: .cancelled)
@@ -6841,7 +6046,7 @@ final class OperatorWorkspace {
 
     case .drawingTrial:
       let inkMayExist = operation.owner.drawingMayHaveInk
-      await requestSingleJogCancel(for: target, mechanicalIntent: .operatorInterruption)
+      await requestSingleJogCancel(for: target, intent: .operatorStop)
       await operation.owner.settle()
       finishActiveExerciseAttempt(disposition: .cancelled)
       if inkMayExist {
@@ -6855,41 +6060,31 @@ final class OperatorWorkspace {
         restartableExerciseItemID = .observedDrawingTrial(.drawIsolatedLine)
       }
 
-    case .sparseTipMark(_, _, let exposureID):
-      if let exposure = surfaceExposure(id: exposureID) {
-        sparseTipCalibrationCoordinator.recordPossibleInk(
-          exposure,
-          reason: "Operator stopped the 2 mm calibration circle after Pen Down."
-        )
-      }
-      await requestSingleJogCancel(for: target, mechanicalIntent: .operatorInterruption)
+    case .sparseTipMark(_, _, let location):
+      blacklistedToolContactLocations.insert(location)
+      sparseTipCalibrationCoordinator.blacklistPossibleInk(
+        at: location,
+        reason: "Operator stopped the 2 mm calibration circle after Pen Down."
+      )
+      await requestSingleJogCancel(for: target, intent: .operatorStop)
       await operation.owner.settle()
       explorationError =
-        "Calibration circle stopped after contact. Its possible-ink exposure is retained and will not be redrawn automatically."
+        "Calibration circle stopped after contact. This paper location is blacklisted and will not be redrawn automatically."
       restartableExerciseItemID = nil
-    }
-  }
-
-  private func boundaryTerminationAction(_ intent: BoundaryTerminationIntent) -> String {
-    switch intent {
-    case .stopAndAccept: "Stop & Accept"
-    case .stop: "Stop"
-    case .cancelAttempt: "Cancel"
     }
   }
 
   private func requestSingleJogCancel(
     for target: ContextualStopTarget,
-    mechanicalIntent: JogCancelIntent
+    intent: JogCancelIntent
   ) async {
     if case .simulated(let operationID) = target.operationOwner {
-      guard beginCancellationRequest(for: target, mechanicalIntent: mechanicalIntent) else {
-        return
-      }
+      guard beginCancellationRequest(for: target, intent: intent) else { return }
       defer { finishCancellationRequest(for: target) }
       let simulatedIntent: SimulatedLearningOperationIntent =
-        switch mechanicalIntent {
-        case .operatorInterruption: .stop
+        switch intent {
+        case .operatorStop: .stop
+        case .cancelAttempt: .cancel
         case .shutdown: .shutdown
         }
       let response = await simulatedLearningRuntime.request(simulatedIntent, for: operationID)
@@ -6911,7 +6106,7 @@ final class OperatorWorkspace {
     }
     guard let machineActions else { return }
     let generation: UInt64?
-    if mechanicalIntent == .shutdown {
+    if intent == .shutdown {
       // Shutdown has already closed new hardware admission. This cancel is the
       // settlement of the exact owner admitted before that boundary, so it
       // must not attempt to reopen ordinary command admission.
@@ -6923,9 +6118,9 @@ final class OperatorWorkspace {
     defer {
       if generation != nil { endHardwareIntent() }
     }
-    guard beginCancellationRequest(for: target, mechanicalIntent: mechanicalIntent) else { return }
+    guard beginCancellationRequest(for: target, intent: intent) else { return }
     defer { finishCancellationRequest(for: target) }
-    let outcome = await machineActions.requestJogCancel(mechanicalIntent)
+    let outcome = await machineActions.requestJogCancel(intent)
     updateContextualStopAudit(for: target, outcome: String(describing: outcome))
     let snapshot = await machineActions.snapshot()
     if let generation {
@@ -6936,8 +6131,7 @@ final class OperatorWorkspace {
 
   private func latchContextualStopDisposition(
     for target: ContextualStopTarget,
-    boundaryIntent: BoundaryTerminationIntent?,
-    mechanicalCancelIntent: JogCancelIntent,
+    intent: JogCancelIntent,
     actor: String,
     action: String
   ) -> Bool {
@@ -6947,10 +6141,8 @@ final class OperatorWorkspace {
     else { return false }
     let latch = ContextualStopDispositionLatch(
       capabilityID: target.capabilityID,
-      boundaryIntent: boundaryIntent,
-      mechanicalCancelIntent: mechanicalCancelIntent,
-      actor: actor,
-      action: action
+      intent: intent,
+      actor: actor
     )
     operation.state = .latched(latch, cancellationRequestInProgress: false)
     activeStoppableOperation = operation
@@ -6958,8 +6150,7 @@ final class OperatorWorkspace {
       capabilityID: target.capabilityID,
       actor: actor,
       action: action,
-      boundaryIntent: boundaryIntent,
-      mechanicalCancelIntent: mechanicalCancelIntent,
+      disposition: intent,
       outcome: "requested; awaiting the original owner"
     )
     return true
@@ -6980,12 +6171,12 @@ final class OperatorWorkspace {
 
   private func beginCancellationRequest(
     for target: ContextualStopTarget,
-    mechanicalIntent: JogCancelIntent
+    intent: JogCancelIntent
   ) -> Bool {
     guard var operation = activeStoppableOperation,
       operation.target.capabilityID == target.capabilityID,
       case .latched(let latch, false) = operation.state,
-      latch.mechanicalCancelIntent == mechanicalIntent
+      latch.intent == intent
     else { return false }
     operation.state = .latched(latch, cancellationRequestInProgress: true)
     activeStoppableOperation = operation
@@ -7008,12 +6199,17 @@ final class OperatorWorkspace {
     guard let latch = stopDispositionLatch,
       latch.capabilityID == target.capabilityID
     else { return }
+    let action =
+      switch latch.intent {
+      case .operatorStop: "Stop"
+      case .cancelAttempt: "Cancel Attempt"
+      case .shutdown: "Shutdown"
+      }
     lastContextualStopAuditRecord = ContextualStopAuditRecord(
       capabilityID: target.capabilityID,
       actor: latch.actor,
-      action: latch.action,
-      boundaryIntent: latch.boundaryIntent,
-      mechanicalCancelIntent: latch.mechanicalCancelIntent,
+      action: action,
+      disposition: latch.intent,
       outcome: outcome
     )
   }
@@ -7420,24 +6616,16 @@ final class OperatorWorkspace {
         "Finish the current discovery or learning action before changing camera configuration."
       return
     }
-    let priorSelectedCameraID = selectedCameraID
+    clearAutomaticVisionPresentation()
+    videoAnalysisRegionLock = nil
+    invalidateCameraDependentLearningAuthority()
     cameraError = nil
     do {
       let snapshot = try await cameraActions.select(id)
       guard canCommit(generation) else { return }
-      let identityChanged = priorSelectedCameraID != nil && priorSelectedCameraID != id
-      frameTask?.cancel()
-      frameTask = nil
-      clearAutomaticVisionPresentation()
       cameraSnapshot = snapshot
       displayedFrame = nil
       latestLiveCameraFrame = nil
-      if identityChanged {
-        videoPresentationPreferences.unlockAnalysisROI()
-        await cameraActions.setSceneAnalysisRegion(nil)
-        invalidateCameraDependentLearningAuthority()
-      }
-      updateCameraError()
     } catch {
       let snapshot = await cameraActions.snapshot()
       guard canCommit(generation) else { return }
@@ -7464,7 +6652,7 @@ final class OperatorWorkspace {
       let currentCameraConfigurationID = displayedFrame?.frame.cameraConfigurationID,
       currentCameraConfigurationID != priorCameraConfigurationID
     {
-      videoPresentationPreferences.unlockAnalysisROI()
+      videoAnalysisRegionLock = nil
       await cameraActions.setSceneAnalysisRegion(nil)
       invalidateCameraDependentLearningAuthority()
     }
@@ -7498,32 +6686,19 @@ final class OperatorWorkspace {
       cameraError = "Finish the current discovery or learning action before restarting the camera."
       return
     }
-    guard let cameraActions else { return }
-    let priorIdentity = displayedFrame.map(VideoViewportIdentity.init)
-    if let livePenCapColor { await cameraActions.setPenCapColor(livePenCapColor) }
-    let snapshot = await cameraActions.restart()
-    guard canCommit(generation) else { return }
-    guard case .running = snapshot.state, snapshot.error == nil else {
-      cameraError = snapshot.error?.actionableDescription
-        ?? "Camera restart did not return a running camera session."
-      return
-    }
     frameTask?.cancel()
     frameTask = nil
     clearAutomaticVisionPresentation()
+    videoAnalysisRegionLock = nil
+    invalidateCameraDependentLearningAuthority()
+    guard let cameraActions else { return }
+    if let livePenCapColor { await cameraActions.setPenCapColor(livePenCapColor) }
+    let snapshot = await cameraActions.restart()
+    guard canCommit(generation) else { return }
     frameMode = .live
     cameraSnapshot = snapshot
     displayedFrame = cameraSnapshot?.latestFrame
     latestLiveCameraFrame = validatedLiveCameraFrame(in: snapshot)
-    let nextIdentity = displayedFrame.map(VideoViewportIdentity.init)
-    if let priorIdentity, let nextIdentity, priorIdentity != nextIdentity {
-      videoPresentationPreferences.unlockAnalysisROI()
-      await cameraActions.setSceneAnalysisRegion(nil)
-    }
-    // A successful restart always creates a new evidence session and requires
-    // camera-dependent Learning revalidation. View geometry resets only when
-    // the actual source/configuration identity changed.
-    invalidateCameraDependentLearningAuthority()
     lastSceneMeasurement = nil
     updateCameraError()
     beginFrameUpdates(generation: generation)
@@ -7635,61 +6810,49 @@ final class OperatorWorkspace {
       cameraError = reason
       return
     }
+    cancelPenCapAcceptedClickContinuation()
     guard let cameraActions else { return }
     frameModeSwitchInProgress = true
     defer { frameModeSwitchInProgress = false }
+    frameTask?.cancel()
+    frameTask = nil
+    clearAutomaticVisionPresentation()
+    videoAnalysisRegionLock = nil
+    await cameraActions.setSceneAnalysisRegion(nil)
+    cameraError = nil
     switch mode {
     case .live:
       if let livePenCapColor { await cameraActions.setPenCapColor(livePenCapColor) }
       let snapshot = await cameraActions.start()
       guard canCommit(generation) else { return }
-      guard case .running = snapshot.state, snapshot.error == nil else {
-        cameraError = snapshot.error?.actionableDescription
-          ?? "The LIVE camera did not enter a running state."
-        return
-      }
-      cancelPenCapAcceptedClickContinuation()
-      frameTask?.cancel()
-      frameTask = nil
-      clearAutomaticVisionPresentation()
       frameMode = .live
       cameraSnapshot = snapshot
       displayedFrame = cameraSnapshot?.latestFrame
       latestLiveCameraFrame = validatedLiveCameraFrame(in: snapshot)
-      videoPresentationPreferences.unlockAnalysisROI()
-      await cameraActions.setSceneAnalysisRegion(nil)
       updateCameraError()
       beginFrameUpdates(generation: generation)
       await reconcileAutomaticVisionAnalysis()
     case .simulated:
-      let scene: SimulatedLearningSceneFrame
-      do {
-        scene = try await captureSimulatedProtocolScene(using: simulatedLearningSession)
-      } catch {
-        guard canCommit(generation) else { return }
-        cameraError = actionableDescription(error)
-        return
-      }
       let snapshot = await cameraActions.stop()
       guard canCommit(generation) else { return }
-      guard case .stopped = snapshot.state, snapshot.error == nil else {
-        cameraError = snapshot.error?.actionableDescription
-          ?? "The LIVE camera did not stop for the simulated source transition."
-        return
-      }
-      cancelPenCapAcceptedClickContinuation()
-      frameTask?.cancel()
-      frameTask = nil
-      clearAutomaticVisionPresentation()
       cameraSnapshot = snapshot
       latestLiveCameraFrame = nil
+      simulatedLearningSession = LearningSessionState(
+        source: .simulated,
+        paperContactPlaneRevision: UUID()
+      )
       frameMode = .simulated
-      lastSimulatedProtocolCaptureNanoseconds = scene.displayedFrame.frame.captureNanoseconds
-      applySimulatedProtocolScene(scene)
-      explorationToolPaperRevision = scene.toolPaperRevision
-      videoPresentationPreferences.unlockAnalysisROI()
-      await cameraActions.setSceneAnalysisRegion(nil)
-      cameraError = nil
+      do {
+        let scene = try await captureSimulatedProtocolScene()
+        guard canCommit(generation) else { return }
+        lastSimulatedProtocolCaptureNanoseconds = scene.displayedFrame.frame.captureNanoseconds
+        applySimulatedProtocolScene(scene)
+        explorationToolPaperRevision = scene.toolPaperRevision
+      } catch {
+        guard canCommit(generation) else { return }
+        displayedFrame = nil
+        cameraError = actionableDescription(error)
+      }
     }
   }
 
@@ -7700,7 +6863,6 @@ final class OperatorWorkspace {
       let scene = try await captureSimulatedProtocolScene()
       lastSimulatedProtocolCaptureNanoseconds = scene.displayedFrame.frame.captureNanoseconds
       applySimulatedProtocolScene(scene)
-      cameraError = nil
       if let priorCameraConfigurationID,
         scene.displayedFrame.frame.cameraConfigurationID != priorCameraConfigurationID
       {
@@ -7780,7 +6942,7 @@ final class OperatorWorkspace {
     guard case .live(let deviceID) = frame.source, deviceID == selectedCameraID else { return }
     latestLiveCameraFrame = frame
     if let lock = videoAnalysisRegionLock, !lock.matches(frame) {
-      videoPresentationPreferences.unlockAnalysisROI()
+      videoAnalysisRegionLock = nil
       Task {
         await cameraActions?.setSceneAnalysisRegion(nil)
         await reconcileAutomaticVisionAnalysis()
@@ -7818,46 +6980,22 @@ final class OperatorWorkspace {
     }
   }
 
-  private func appendFrameEvidence(
-    _ role: ExplorationFrameRole,
-    frame: StampedFrame,
-    algorithmRevision: String = "camera-selected-frame-v1"
-  ) {
-    guard var episode = currentExplorationEpisode else { return }
-    episode.frames.removeAll { $0.role == role }
-    episode.frames.append(
-      ExplorationFrameEvidence(
-        role: role,
-        frameID: frame.id,
-        contentSHA256: frame.contentSHA256,
-        captureNanoseconds: frame.captureNanoseconds,
-        cameraConfigurationID: frame.cameraConfigurationID,
-        algorithmRevision: algorithmRevision
-      ))
-    currentExplorationEpisode = episode
-  }
-
-  private func recordStrokeEvidence(
-    _ evidence: DrawingStrokeEvidence,
-    outcome: ExplorationControllerOutcome,
-    summary: String
-  ) {
-    guard var episode = currentExplorationEpisode else { return }
-    episode.controllerEvidence = ExplorationControllerEvidence(
-      startPosition: evidence.startPosition,
-      finalPosition: evidence.finalPosition,
-      startSampleNanoseconds: evidence.startSampleNanoseconds,
-      settlementNanoseconds: evidence.finalSampleNanoseconds,
-      outcome: outcome,
-      summary: summary
+  private func defaultInkRegion(for frame: StampedFrame) -> PixelRect {
+    let width = max(1, min(180, frame.width / 3))
+    let height = max(1, min(120, frame.height / 3))
+    return PixelRect(
+      x: max(0, (frame.width - width) / 2),
+      y: max(0, (frame.height - height) / 2),
+      width: width,
+      height: height
     )
-    currentExplorationEpisode = episode
   }
 
   private func acceptInkObservation(
     _ observation: IsolatedInkObservation,
     displayedFrame: DisplayedFrame
   ) {
+    lastInkObservation = observation
     overlayResultChannels.publishWorkflow(
       OverlayChannelResult(displayedFrame: displayedFrame, overlays: observation.overlays),
       source: frameMode,
@@ -7867,30 +7005,6 @@ final class OperatorWorkspace {
       observation.residual == nil
       ? "new ink observed; absolute residual unavailable without a current-session projection"
       : "new ink observed with tip-model-projected residual"
-    if var episode = currentExplorationEpisode {
-      episode.observedLineStartPoint = observation.lineStartPoint
-      episode.observedLineObservation = observation
-      episode.visionEstimate = ExplorationAssessment(
-        summary: "\(observation.observedPixelCount) new line pixels",
-        provenance: "\(observation.algorithmRevision) exact same-pose two-frame subtraction"
-      )
-      if let residual = observation.residual {
-        episode.residual = ExplorationResidual(
-          rmsPixels: residual.rootMeanSquareEndpointPixels,
-          maximumPixels: residual.maximumEndpointPixels,
-          crossTrackPixels: residual.rootMeanSquareCrossTrackPixels,
-          summary: "camera-space tip-model-projected residual",
-          provenance: observation.algorithmRevision
-        )
-      } else {
-        episode.residual = ExplorationResidual(
-          summary:
-            "absolute camera-space residual unavailable; relative displacement/orientation only",
-          provenance: observation.algorithmRevision
-        )
-      }
-      currentExplorationEpisode = episode
-    }
   }
 
   private func answerDiscoverySequence(
@@ -7921,7 +7035,7 @@ final class OperatorWorkspace {
 
     switch step.action {
     case .awaitOperatorChoice:
-      guard await recordDiscovery(.operatorChoiceAccepted(choice), for: sequenceID) else { return }
+      guard recordDiscovery(.operatorChoiceAccepted(choice), for: sequenceID) else { return }
     case .awaitPhysicalPenConfirmation(let state, _):
       await awaitPendingPenSetpointActuation()
       let command: PenCommand = state == .down ? .lower : .raise
@@ -7944,7 +7058,7 @@ final class OperatorWorkspace {
         activeLearningSession.pendingPenUpTimestamps.append(timestamp)
       }
       guard
-        await recordDiscovery(
+        recordDiscovery(
           .physicalPenConfirmed(
             state,
             response: choice,
@@ -7960,6 +7074,8 @@ final class OperatorWorkspace {
           for: sequenceID
         )
       else { return }
+      currentPenActuationProfile = effectivePenActuationProfile
+      activeLearningSession.penActuationDraft = currentPenActuationProfile
     default:
       return
     }
@@ -7983,10 +7099,10 @@ final class OperatorWorkspace {
 
     let discoveryDirection = boundaryDirection(from: direction)
     machineSnapshot = await machineActions.snapshot()
-    // The controller owner runs one finite 20 mm segment with no automatic
-    // renewal. Camera and Vision do not advise direction, distance, Stop, or acceptance.
+    // The controller owner renews only the same finite 20 mm segment. Camera and
+    // Vision do not advise Boundary direction, distance, Stop, or acceptance.
     let admittedOperation: BoundaryMotionOperation
-    switch await machineActions.beginBoundaryMotion(request) {
+    switch await machineActions.beginBoundaryMotion(request, nil) {
     case .admitted(let operation):
       admittedOperation = operation
     case .rejected(let outcome):
@@ -8040,7 +7156,7 @@ final class OperatorWorkspace {
     boundaryTeachingResultText =
       "Boundary owner active toward \(direction.shortLabel). Stop is available during admission and motion."
     guard
-      await recordDiscovery(
+      recordDiscovery(
         .boundaryJogStarted(
           discoveryDirection,
           controllerSummary:
@@ -8058,9 +7174,9 @@ final class OperatorWorkspace {
     switch outcome {
     case .settled(let settlement)
     where settlement.ownerID == request.ownerID
-      && settlement.mechanicalCancelIntent == .operatorInterruption
+      && settlement.intent == .operatorStop
       && stopDispositionLatch?.capabilityID == stopTarget.capabilityID
-      && stopDispositionLatch?.boundaryIntent == .stopAndAccept:
+      && stopDispositionLatch?.intent == .operatorStop:
       let finalPosition = settlement.finalPosition
       if boundaryAtomicCommitFailurePoints.contains(.settlement) {
         await failDiscovery(
@@ -8088,7 +7204,7 @@ final class OperatorWorkspace {
         finalPosition.point.y
       )
       guard
-        await recordDiscovery(
+        recordDiscovery(
           .boundaryJogCancelled(
             boundaryDirection(from: direction),
             finalPosition: finalPosition,
@@ -8102,8 +7218,7 @@ final class OperatorWorkspace {
     case .settled(let settlement):
       if settlement.ownerID != request.ownerID
         || stopDispositionLatch?.capabilityID != stopTarget.capabilityID
-        || settlement.mechanicalCancelIntent != .operatorInterruption
-        || stopDispositionLatch?.mechanicalCancelIntent != settlement.mechanicalCancelIntent
+        || stopDispositionLatch?.intent != settlement.intent
       {
         await failDiscovery(
           sequenceID,
@@ -8113,53 +7228,41 @@ final class OperatorWorkspace {
         )
         return
       }
-      guard let boundaryIntent = stopDispositionLatch?.boundaryIntent else {
-        await failDiscovery(
-          sequenceID,
-          failure: .failed(
-            "Boundary settlement had no first-winner Boundary termination intent."
-          )
-        )
-        return
-      }
       if var transaction = discoveryTransactions[sequenceID] {
         transaction.cancel()
         discoveryTransactions[sequenceID] = transaction
       }
-      boundaryTeachingResultText = switch boundaryIntent {
-      case .stop:
-        "Boundary Discovery stopped at final MPos; no boundary evidence was accepted."
-      case .cancelAttempt:
-        "Boundary Discovery was cancelled; no boundary evidence was accepted."
-      case .stopAndAccept:
-        "Boundary Stop & Accept settlement was inconsistent; no boundary evidence was accepted."
-      }
+      boundaryTeachingResultText =
+        settlement.intent == .shutdown
+        ? "Boundary Discovery settled during shutdown; no boundary evidence was recorded."
+        : "Boundary Discovery was cancelled; no boundary evidence was recorded."
       let acceptedFallback = boundarySideAggregates[discoveryDirection]
-      let attemptDisposition: ExerciseAttemptDisposition =
-        boundaryIntent == .stop ? .stopped : .cancelled
-      recordDiscoveryAttempt(sequenceID: sequenceID, disposition: attemptDisposition)
+      let repeatAttempt =
+        activeExerciseAttemptMode == .replacement
+        || activeExerciseAttemptMode == .additional
+      recordDiscoveryAttempt(sequenceID: sequenceID, disposition: .cancelled)
       appendBoundaryActivity(
         actor: .operatorActor,
         direction: discoveryDirection,
         phase: .recovery,
-        disposition: boundaryIntent == .stop ? .stopped : .cancelled,
+        disposition: .cancelled,
         attemptID: attemptID,
         operationOwnerID: .liveBoundary(request.ownerID),
         stopCapabilityID: stopTarget.capabilityID,
         finalPosition: settlement.finalPosition,
         retainedRevisionIDs: acceptedFallback.map { [$0.revisionID] } ?? [],
-        detail: .message(
-          "The owner settled after \(boundaryTerminationAction(boundaryIntent)); no Boundary sample was accepted."
-        ),
+        detail: .message("The owner settled after Cancel; no Boundary sample was accepted."),
         recovery: acceptedFallback != nil
           ? .continueWithAcceptedFallback(discoveryDirection)
           : .restartNormal(discoveryDirection),
         acceptedFallbackRemainsCurrent: acceptedFallback != nil
       )
-      finishActiveExerciseAttempt(disposition: attemptDisposition)
-      restartableExerciseItemID = boundaryIntent == .stop
-        ? .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
-        : nil
+      finishActiveExerciseAttempt(disposition: .cancelled)
+      if settlement.intent == .cancelAttempt {
+        restartableExerciseItemID =
+          repeatAttempt && acceptedFallback != nil
+          ? nil : .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
+      }
 
     case .needsAttention(_, let terminal):
       await failDiscovery(sequenceID, failure: workflowFailure(for: terminal))
@@ -8200,7 +7303,7 @@ final class OperatorWorkspace {
     )
     let outcomeTask = Task<SimulatedLearningOperationOutcome?, Never> {
       [simulatedLearningRuntime, simulatedExecutionPacing] in
-      let execution = await simulatedLearningRuntime.executeBoundarySegment(
+      let execution = await simulatedLearningRuntime.executeBoundaryCooperatively(
         operation.id,
         pacing: simulatedExecutionPacing
       )
@@ -8222,7 +7325,7 @@ final class OperatorWorkspace {
     boundaryTeachingResultText =
       "Simulated Boundary owner active toward \(direction.shortLabel). \(response.evidenceNotice.label)"
     guard
-      await recordDiscovery(
+      recordDiscovery(
         .boundaryJogStarted(
           discoveryDirection,
           controllerSummary:
@@ -8247,85 +7350,56 @@ final class OperatorWorkspace {
     simulatedLearningSnapshot = await simulatedLearningRuntime.snapshot()
     guard !hasShutdown else { return }
     switch outcome.disposition {
-    case .stopped:
-      guard stopDispositionLatch?.capabilityID == stopTarget.capabilityID,
-        stopDispositionLatch?.mechanicalCancelIntent == .operatorInterruption,
-        let boundaryIntent = stopDispositionLatch?.boundaryIntent
-      else {
-        await failDiscovery(
-          sequenceID,
-          failure: .failed(
-            "Simulated Boundary settlement had no attributable first-winner termination intent."
-          )
+    case .stopped
+    where stopDispositionLatch?.capabilityID == stopTarget.capabilityID
+      && stopDispositionLatch?.intent == .operatorStop:
+      do {
+        let finalPosition = try MachinePosition(
+          x: outcome.finalMPos.xMM,
+          y: outcome.finalMPos.yMM
         )
-        return
-      }
-      switch boundaryIntent {
-      case .stopAndAccept:
-        do {
-          let finalPosition = try MachinePosition(
-            x: outcome.finalMPos.xMM,
-            y: outcome.finalMPos.yMM
-          )
-          if boundaryAtomicCommitFailurePoints.contains(.settlement) {
-            await failDiscovery(
-              sequenceID,
-              failure: .failed("Injected simulated Boundary settlement failure.")
-            )
-            return
-          }
-          pendingBoundaryFinalPositions[attemptID] = finalPosition
-          boundaryTeachingResultText =
-            "Simulated Stop & Accept settled at X \(outcome.finalMPos.xMM) Y \(outcome.finalMPos.yMM). \(outcome.evidenceNotice.label)"
-          guard
-            await recordDiscovery(
-              .boundaryJogCancelled(
-                discoveryDirection,
-                finalPosition: finalPosition,
-                controllerSummary: boundaryTeachingResultText
-              ),
-              for: sequenceID
-            )
-          else { return }
-          await advanceDiscoverySequence(sequenceID)
-        } catch {
+        if boundaryAtomicCommitFailurePoints.contains(.settlement) {
           await failDiscovery(
-            sequenceID, failure: .failed("Simulated final MPos was invalid: \(error)."))
+            sequenceID,
+            failure: .failed("Injected simulated Boundary settlement failure.")
+          )
+          return
         }
-
-      case .stop, .cancelAttempt:
-        if var transaction = discoveryTransactions[sequenceID] {
-          transaction.cancel()
-          discoveryTransactions[sequenceID] = transaction
-        }
-        let acceptedFallback = boundarySideAggregates[discoveryDirection]
-        let attemptDisposition: ExerciseAttemptDisposition =
-          boundaryIntent == .stop ? .stopped : .cancelled
-        recordDiscoveryAttempt(sequenceID: sequenceID, disposition: attemptDisposition)
-        appendBoundaryActivity(
-          actor: .operatorActor,
-          direction: discoveryDirection,
-          phase: .recovery,
-          disposition: boundaryIntent == .stop ? .stopped : .cancelled,
-          attemptID: attemptID,
-          operationOwnerID: .simulated(operation.id),
-          stopCapabilityID: stopTarget.capabilityID,
-          retainedRevisionIDs: acceptedFallback.map { [$0.revisionID] } ?? [],
-          detail: .message(
-            "Simulated Boundary \(boundaryIntent == .stop ? "stopped" : "cancelled"); no sample was accepted."
-          ),
-          recovery: acceptedFallback != nil
-            ? .continueWithAcceptedFallback(discoveryDirection)
-            : .restartNormal(discoveryDirection),
-          acceptedFallbackRemainsCurrent: acceptedFallback != nil
-        )
-        finishActiveExerciseAttempt(disposition: attemptDisposition)
-        restartableExerciseItemID = boundaryIntent == .stop
-          ? .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
-          : nil
+        pendingBoundaryFinalPositions[attemptID] = finalPosition
         boundaryTeachingResultText =
-          "Simulated Boundary \(boundaryIntent == .stop ? "stopped" : "cancelled"); no sample accepted. \(outcome.evidenceNotice.label)"
+          "Simulated Stop settled at X \(outcome.finalMPos.xMM) Y \(outcome.finalMPos.yMM). \(outcome.evidenceNotice.label)"
+        guard
+          recordDiscovery(
+            .boundaryJogCancelled(
+              discoveryDirection,
+              finalPosition: finalPosition,
+              controllerSummary: boundaryTeachingResultText
+            ),
+            for: sequenceID
+          )
+        else { return }
+        await advanceDiscoverySequence(sequenceID)
+      } catch {
+        await failDiscovery(
+          sequenceID, failure: .failed("Simulated final MPos was invalid: \(error)."))
       }
+
+    case .cancelled:
+      if var transaction = discoveryTransactions[sequenceID] {
+        transaction.cancel()
+        discoveryTransactions[sequenceID] = transaction
+      }
+      let acceptedFallback = boundarySideAggregates[discoveryDirection]
+      let repeatAttempt =
+        activeExerciseAttemptMode == .replacement
+        || activeExerciseAttemptMode == .additional
+      recordDiscoveryAttempt(sequenceID: sequenceID, disposition: .cancelled)
+      finishActiveExerciseAttempt(disposition: .cancelled)
+      restartableExerciseItemID =
+        repeatAttempt && acceptedFallback != nil
+        ? nil : .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
+      boundaryTeachingResultText =
+        "Simulated Boundary attempt cancelled. \(outcome.evidenceNotice.label)"
 
     case .failed where simulatedLearningSnapshot?.stickyAmbiguity != nil:
       await failDiscovery(
@@ -8335,7 +7409,7 @@ final class OperatorWorkspace {
         )
       )
 
-    case .cancelled, .naturallyCompleted, .failed, .shutdown:
+    case .stopped, .naturallyCompleted, .failed, .shutdown:
       await failDiscovery(
         sequenceID,
         failure: .failed(
@@ -8369,6 +7443,11 @@ final class OperatorWorkspace {
         segment: RelativeJogRequest(
           delta: delta,
           feedMMPerMinute: selection.requestedFeedMMPerMinute
+        ),
+        renewalBounds: BoundaryMotionSegmentBounds(
+          minimumMM: 2,
+          fallbackMM: MotionPriors.boundaryWireSegmentMM,
+          maximumMM: 50
         )
       )
     } catch {
@@ -8403,6 +7482,70 @@ final class OperatorWorkspace {
     }
   }
 
+  private func cancelExerciseAttempt(_ ownerID: LearningPathItemID) async {
+    guard activeExerciseAttemptOwnerID == ownerID else { return }
+    let isPreSequencePenInteraction =
+      ownerID == .humanGuidedDiscovery(.penInteraction)
+      && activeDiscoverySequenceID == nil
+      && (penCapAppearanceSelectionContext != nil
+        || penCapAcceptedClickContinuationTask != nil)
+    var penCapContinuation: Task<Void, Never>?
+    if ownerID == .humanGuidedDiscovery(.penInteraction) {
+      penCapContinuation = cancelPenCapAcceptedClickContinuation()
+    }
+    let boundaryRepeatWithFallback =
+      ownerID == .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
+      && (activeExerciseAttemptMode == .replacement || activeExerciseAttemptMode == .additional)
+      && boundarySideAggregates[selectedBoundaryDirection] != nil
+    if let sequenceID = activeDiscoverySequenceID,
+      var transaction = discoveryTransactions[sequenceID]
+    {
+      if let target = activeStopTarget,
+        !latchContextualStopDisposition(
+          for: target,
+          intent: .cancelAttempt,
+          actor: "Operator",
+          action: "Cancel Attempt"
+        )
+      {
+        return
+      }
+      transaction.cancel()
+      discoveryTransactions[sequenceID] = transaction
+      if let target = activeStopTarget {
+        boundaryTeachingState = .cancelling(
+          jogDirection(for: sequenceID) ?? jogDirection(from: selectedBoundaryDirection)
+        )
+        let owner = boundaryMotionTask
+        await requestSingleJogCancel(for: target, intent: .cancelAttempt)
+        await owner?.value
+      }
+      recordDiscoveryAttempt(sequenceID: sequenceID, disposition: .cancelled)
+    } else if isPreSequencePenInteraction {
+      recordDiscoveryAttempt(sequenceID: .penInteraction, disposition: .cancelled)
+    } else if let target = activeStopTarget,
+      !isManualStopTarget(target)
+    {
+      guard
+        latchContextualStopDisposition(
+          for: target,
+          intent: .cancelAttempt,
+          actor: "Operator",
+          action: "Cancel Attempt"
+        )
+      else { return }
+      let owner = activeStoppableOperation?.owner
+      await requestSingleJogCancel(for: target, intent: .cancelAttempt)
+      await owner?.settle()
+    }
+    if ownerID == .observedDrawingTrial(.compareIntendedAndObservedGeometry) {
+      recordComparisonAttempt(assessment: nil, disposition: .cancelled)
+    }
+    finishActiveExerciseAttempt(disposition: .cancelled)
+    restartableExerciseItemID = boundaryRepeatWithFallback ? nil : ownerID
+    await penCapContinuation?.value
+  }
+
   private func beginExerciseAttempt(
     ownerID: LearningPathItemID,
     mode: ExerciseAttemptMode
@@ -8413,7 +7556,6 @@ final class OperatorWorkspace {
   private func finishActiveExerciseAttempt(disposition: ExerciseAttemptDisposition) {
     if activeExerciseAttemptOwnerID == .humanGuidedDiscovery(.penInteraction) {
       cancelPenCapAcceptedClickContinuation()
-      stagedPenCapAppearanceCandidate = nil
       activeLearningSession.penActuationDraft = nil
       pendingPenSetpointCommand = nil
       penCapAppearanceSelectionContext = nil
@@ -8503,26 +7645,15 @@ final class OperatorWorkspace {
     histories[attempt.compatibility] = targetHistory
   }
 
-  private func commitSuccessfulDiscoveryAttempt(_ sequenceID: DiscoverySequenceID) async -> Bool {
-    guard let attemptID = activeExerciseAttemptID else { return false }
+  private func commitSuccessfulDiscoveryAttempt(_ sequenceID: DiscoverySequenceID) {
+    guard let attemptID = activeExerciseAttemptID else { return }
     do {
       switch sequenceID {
       case .penInteraction:
-        guard let candidate = stagedPenCapAppearanceCandidate,
-          candidate.attemptID == attemptID,
-          candidate.attemptMode == activeExerciseAttemptMode,
-          candidate.source == frameMode,
-          let completedTransaction = discoveryTransactions[.penInteraction],
-          completedTransaction.state == .succeeded
-        else {
-          throw LearningPathOperationError.requiredState(
-            "The Pen Interaction attempt lost its exact staged cap appearance."
-          )
-        }
-        let acceptedProfile = effectivePenActuationProfile
         let sequence = acceptedAttemptSequence &+ 1
         var history = penAttemptHistory
-        let replacedPenRevision = learningArtifactGraph.currentRevision(for: .penInteraction)
+        let replacingAttemptID = learningArtifactGraph.currentRevision(for: .penInteraction)?
+          .attemptID
         try recordAttempt(
           ExerciseAttempt(
             id: attemptID,
@@ -8530,7 +7661,7 @@ final class OperatorWorkspace {
             compatibility: history.compatibility,
             acceptedSequence: sequence,
             value: PenInteractionAttemptEvidence(
-              actuationProfile: acceptedProfile,
+              actuationProfile: currentPenActuationProfile,
               confirmedUpPositions: activeLearningSession.pendingPenUpPositions,
               confirmedUpSpindleValues: activeLearningSession.pendingPenUpSpindleValues,
               confirmedUpControllerOutcomes:
@@ -8544,97 +7675,31 @@ final class OperatorWorkspace {
             )
           ),
           in: &history,
-          replacingAttemptID: replacedPenRevision?.attemptID
+          replacingAttemptID: replacingAttemptID
         )
-
         var graph = learningArtifactGraph
-        let appearanceCommit = try graph.commitReplacement(
+        let commit = try graph.commitReplacement(
           LearningArtifactRevision(
-            kind: .penCapAppearance,
+            kind: .penInteraction,
             attemptID: attemptID,
             disposition: .succeeded
           )
         )
-        let penCandidate = LearningArtifactRevision(
-          kind: .penInteraction,
-          attemptID: attemptID,
-          disposition: .succeeded,
-          consumedRevisionIDs: [appearanceCommit.currentRevision.id]
-        )
-        let penCommit: LearningArtifactCommit
-        if let replacedPenRevision,
-          graph.revision(id: replacedPenRevision.id)?.state == .invalidated
-        {
-          penCommit = try graph.commitReplacement(
-            penCandidate,
-            supersedingInvalidatedRevision: replacedPenRevision.id
-          )
-        } else {
-          penCommit = try graph.commitReplacement(penCandidate)
-        }
-        let invalidatedRevisionIDs = appearanceCommit.invalidatedRevisionIDs
-          .union(penCommit.invalidatedRevisionIDs)
-        var draft = learningAuthorityDraft(
-          graph: graph,
-          invalidatedRevisionIDs: invalidatedRevisionIDs
-        )
-        draft.session.penAttemptHistory = history
-        draft.session.discoveryTransactions[.penInteraction] = completedTransaction
-        draft.session.penActuationProfile = acceptedProfile
-        draft.session.penActuationDraft = nil
-        draft.session.acceptedAttemptSequence = sequence
-        draft.session.discoveryError = nil
-        draft.session.restartableExerciseItemID = nil
-        draft.session.exerciseAttempt.finish()
-        let invalidatesTip = invalidatedRevisionIDs.contains { revisionID in
-          graph.revision(id: revisionID)?.kind == .tipCameraRegistration
-        }
-        let clearsDurableTip = frameMode == .live
-          && (activeExerciseAttemptMode == .replacement
-            || invalidatesTip
-            || liveLearningAuthorityManifest.tip != nil)
-        if clearsDurableTip {
-          draft.session.quarantinedTipCalibrationCheckpoint = nil
-        }
-        if let invariantError = learningAuthorityInvariantError(
-          session: draft.session,
-          penCapSelectionIsPresent: true
-        ) {
-          throw LearningPathOperationError.requiredState(invariantError)
-        }
-
-        // The durable authority compare-and-swap is the commit point. Until it
-        // succeeds, the accepted cap, graph, preference, and prior tip fallback
-        // all remain untouched.
-        if clearsDurableTip {
-          _ = try commitLearningAuthorityManifest(
-            mutation: LearningAuthorityManifestMutation(tip: .replace(nil))
-          )
-        }
-
-        switch candidate.source {
-        case .live:
-          livePenCapAppearanceSelection = candidate.selection
-          persistedPenCapAppearanceLoadState = .accepted
-          persistPenCapAppearanceSelection(candidate.selection)
-        case .simulated:
-          simulatedPenCapAppearanceSelection = candidate.selection
-        }
-        installLearningAuthorityDraft(draft)
-        stagedPenCapAppearanceCandidate = nil
-        if candidate.source == .live {
-          await reconcileAutomaticVisionAnalysis()
-        }
-        return true
+        penAttemptHistory = history
+        acceptedAttemptSequence = sequence
+        learningArtifactGraph = graph
+        applyArtifactInvalidations(commit.invalidatedRevisionIDs)
 
       case .boundaryNegativeX, .boundaryPositiveX, .boundaryNegativeY, .boundaryPositiveY:
         // Boundary sequences commit their complete staged authority directly in
         // `commitBoundaryObservation`; reaching this callback would split the
         // transaction from its accepted aggregate.
-        return true
+        return
       }
+      discoveryError = nil
+      restartableExerciseItemID = nil
+      finishActiveExerciseAttempt(disposition: .succeeded)
     } catch {
-      await discardStagedPenCapAppearanceCandidate()
       recordDiscoveryAttempt(
         sequenceID: sequenceID,
         disposition: .failed("Atomic accepted-artifact commit failed: \(error)")
@@ -8642,7 +7707,6 @@ final class OperatorWorkspace {
       discoveryError = "Accepted discovery artifact could not commit: \(error)"
       restartableExerciseItemID = learningPathItemID(for: sequenceID)
       finishActiveExerciseAttempt(disposition: .failed(String(describing: error)))
-      return false
     }
   }
 
@@ -8778,52 +7842,28 @@ final class OperatorWorkspace {
     let dependencies: Set<LearningArtifactRevisionID>
     switch step {
     case .chooseIsolatedLinePlan:
-      guard activeLearningSession.drawingTrial.linePlan != nil else {
-        throw LearningPathOperationError.requiredState("Line-plan payload is unavailable.")
-      }
       kind = .linePlan(group)
       dependencies = [try required(.tipCameraRegistration)]
     case .captureLocalPreLineBaseline:
-      guard activeLearningSession.drawingTrial.localPreLineContext != nil else {
-        throw LearningPathOperationError.requiredState("Local pre-line context is unavailable.")
-      }
-      kind = .localPreLineContext(group)
-      dependencies = [
-        try required(.linePlan(group)), try required(.tipCameraRegistration),
-      ]
+      kind = .localPreLineBaseline(group)
+      dependencies = [try required(.tipCameraRegistration)]
     case .moveToLineStart:
-      guard activeLearningSession.drawingTrial.lineStartArrival != nil else {
-        throw LearningPathOperationError.requiredState("Line-start arrival is unavailable.")
-      }
-      kind = .lineStartArrival(group)
-      dependencies = [
-        try required(.linePlan(group)), try required(.localPreLineContext(group)),
-      ]
+      return
     case .drawIsolatedLine:
-      guard activeLearningSession.drawingTrial.lineExecution != nil else {
-        throw LearningPathOperationError.requiredState("Line-execution payload is unavailable.")
-      }
       kind = .lineExecution(group)
-      dependencies = [
-        try required(.linePlan(group)), try required(.localPreLineContext(group)),
-        try required(.lineStartArrival(group)),
-      ]
+      dependencies = [try required(.linePlan(group))]
     case .revealAndObserveNewInk:
-      guard activeLearningSession.drawingTrial.postLineObservation?.observation.residual != nil
-      else {
-        throw LearningPathOperationError.requiredState(
-          "Post-line observation and residual payload are unavailable."
-        )
-      }
-      kind = .postLineObservation(group)
+      kind = .postLineFrame(group)
       dependencies = [
         try required(.lineExecution(group)),
-        try required(.localPreLineContext(group)),
+        try required(.localPreLineBaseline(group)),
         try required(.tipCameraRegistration),
       ]
     case .compareIntendedAndObservedGeometry:
       kind = .comparison(group)
-      dependencies = [try required(.postLineObservation(group))]
+      dependencies = [
+        try required(.inkObservation(group)), try required(.residual(group)),
+      ]
     }
     let primary = try graph.commitReplacement(
       LearningArtifactRevision(
@@ -8833,8 +7873,34 @@ final class OperatorWorkspace {
         consumedRevisionIDs: dependencies
       )
     )
+    var invalidated = primary.invalidatedRevisionIDs
+
+    if step == .revealAndObserveNewInk {
+      let baseline = try required(.localPreLineBaseline(group))
+      let line = try required(.lineExecution(group))
+      let post = try required(.postLineFrame(group))
+      let tip = try required(.tipCameraRegistration)
+      let ink = try graph.commitReplacement(
+        LearningArtifactRevision(
+          kind: .inkObservation(group),
+          attemptID: attemptID,
+          disposition: .succeeded,
+          consumedRevisionIDs: [baseline, line, post, tip]
+        )
+      )
+      let residual = try graph.commitReplacement(
+        LearningArtifactRevision(
+          kind: .residual(group),
+          attemptID: attemptID,
+          disposition: .succeeded,
+          consumedRevisionIDs: [ink.currentRevision.id]
+        )
+      )
+      invalidated.formUnion(ink.invalidatedRevisionIDs)
+      invalidated.formUnion(residual.invalidatedRevisionIDs)
+    }
     learningArtifactGraph = graph
-    applyArtifactInvalidations(primary.invalidatedRevisionIDs)
+    applyArtifactInvalidations(invalidated)
   }
 
   private func drawingTrialPayloadSnapshot() -> DrawingTrialState {
@@ -8888,20 +7954,18 @@ final class OperatorWorkspace {
     )
 
     var graph = learningArtifactGraph
-    guard let observation = graph.currentRevision(
-      for: .postLineObservation(currentDrawingTrialGroup)
-    )?.id,
-      activeLearningSession.drawingTrial.postLineObservation?.observation.residual != nil
+    guard let ink = graph.currentRevision(for: .inkObservation(currentDrawingTrialGroup))?.id,
+      let residual = graph.currentRevision(for: .residual(currentDrawingTrialGroup))?.id
     else {
       throw LearningPathOperationError.requiredState(
-        "The atomic post-line observation and residual are required.")
+        "Observed ink and residual artifacts are required.")
     }
     let commit = try graph.commitReplacement(
       LearningArtifactRevision(
         kind: comparisonKind,
         attemptID: attemptID,
         disposition: .succeeded,
-        consumedRevisionIDs: [observation]
+        consumedRevisionIDs: [ink, residual]
       )
     )
     comparisonAttemptHistories = histories
@@ -8914,38 +7978,11 @@ final class OperatorWorkspace {
     for revisionID in revisionIDs {
       guard let revision = learningArtifactGraph.revision(id: revisionID) else { continue }
       switch revision.kind {
-      case .penCapAppearance:
-        if frameMode == .live {
-          livePenCapAppearanceSelection = nil
-          persistedPenCapAppearanceLoadState = .absent
-          persistPenCapAppearanceSelection(nil)
-        } else {
-          simulatedPenCapAppearanceSelection = nil
-        }
-      case .penInteraction:
-        penAttemptHistory = try! ExerciseAttemptHistory(
-          compatibility: penAttemptHistory.compatibility
-        )
-        discoveryTransactions.removeValue(forKey: .penInteraction)
-      case .boundarySideAggregate(let direction):
-        if let aggregate = boundarySideAggregates.removeValue(forKey: direction) {
-          for attemptID in aggregate.includedAttemptIDs {
-            boundaryAttemptEvidenceByAttemptID.removeValue(forKey: attemptID)
-            pendingBoundaryFinalPositions.removeValue(forKey: attemptID)
-            pendingBoundaryOwnerIDs.removeValue(forKey: attemptID)
-            pendingBoundaryStopCapabilities.removeValue(forKey: attemptID)
-          }
-        }
-        boundaryAttemptHistories.removeValue(forKey: direction)
-        discoveryTransactions.removeValue(forKey: sequenceID(for: direction))
-        var progress = PairedBoundaryProgress()
-        for remainingDirection in pairedBoundaryProgress.acceptedDirections {
-          guard let aggregate = boundarySideAggregates[remainingDirection] else { continue }
-          try? progress.accept(remainingDirection, revisionID: aggregate.revisionID)
-        }
-        pairedBoundaryProgress = progress
+      case .penInteraction, .boundarySideAggregate:
+        break
       case .estimatedMachineCenter:
-        activeLearningSession.estimatedCenterAuthority = nil
+        estimatedMachineCenter = nil
+        learnedLocalCoordinateFrame = nil
         centerArrivalPosition = nil
         centerArrivalRetryRequired = false
       case .centerArrival:
@@ -8953,51 +7990,31 @@ final class OperatorWorkspace {
         centerArrivalRetryRequired = false
       case .machineCameraRegistration:
         machineCameraRegistration = nil
-        proposedMachineCameraRegistration = nil
-        explicitRegistrationCapAnchorEvidence = []
       case .toolContactObservation:
-        sparseTipCalibrationCoordinator = freshSparseTipCalibrationCoordinatorForCurrentPaper()
-        activeLearningSession.toolContactSelection.clear()
+        break
       case .tipCameraRegistration:
         tipCameraRegistration = nil
         proposedTipCameraRegistration = nil
+        drawingTrialTipRegistrationRevisionID = nil
         setObservedDrawingTrialStepEarlier(ifNeeded: .chooseIsolatedLinePlan)
-      case .localPreLineContext(let group):
-        if group == currentDrawingTrialGroup {
-          activeLearningSession.drawingTrial.localPreLineContext = nil
-        }
+      case .localPreLineBaseline:
+        localPreLineBaseline = nil
         setObservedDrawingTrialStepEarlier(ifNeeded: .captureLocalPreLineBaseline)
-      case .lineStartArrival(let group):
-        if group == currentDrawingTrialGroup {
-          activeLearningSession.drawingTrial.lineStartArrival = nil
-          lastProtocolPoseSettlement = nil
-        }
-        setObservedDrawingTrialStepEarlier(ifNeeded: .moveToLineStart)
-      case .linePlan(let group):
-        if group == currentDrawingTrialGroup {
-          activeLearningSession.drawingTrial.linePlan = nil
-          activeLearningSession.drawingTrial.currentEpisode = nil
-        }
+      case .linePlan:
+        drawingTrialLineStart = nil
         setObservedDrawingTrialStepEarlier(ifNeeded: .chooseIsolatedLinePlan)
-      case .lineExecution(let group):
-        if group == currentDrawingTrialGroup {
-          activeLearningSession.drawingTrial.lineExecution = nil
-        }
+      case .lineExecution:
+        drawingTrialStrokeEvidence = nil
         setObservedDrawingTrialStepEarlier(ifNeeded: .drawIsolatedLine)
-      case .postLineObservation(let group):
-        if group == currentDrawingTrialGroup {
-          activeLearningSession.drawingTrial.postLineObservation = nil
-          drawingTrialAssessment = nil
-          overlayResultChannels.clearWorkflow(source: frameMode, owner: .observedDrawingTrial)
-        }
+      case .postLineFrame:
+        explorationPostLineFrame = nil
         setObservedDrawingTrialStepEarlier(ifNeeded: .revealAndObserveNewInk)
-      case .comparison(let group):
-        if group == currentDrawingTrialGroup {
-          drawingTrialAssessment = nil
-          comparisonAttemptHistories = comparisonAttemptHistories.filter {
-            $0.key.group != group
-          }
-        }
+      case .inkObservation, .residual:
+        lastInkObservation = nil
+        drawingTrialAssessment = nil
+        setObservedDrawingTrialStepEarlier(ifNeeded: .revealAndObserveNewInk)
+      case .comparison:
+        drawingTrialAssessment = nil
         setObservedDrawingTrialStepEarlier(ifNeeded: .compareIntendedAndObservedGeometry)
       }
     }
@@ -9089,10 +8106,10 @@ final class OperatorWorkspace {
   ) -> LearningArtifactKind {
     switch step {
     case .chooseIsolatedLinePlan: .linePlan(currentDrawingTrialGroup)
-    case .captureLocalPreLineBaseline: .localPreLineContext(currentDrawingTrialGroup)
-    case .moveToLineStart: .lineStartArrival(currentDrawingTrialGroup)
+    case .captureLocalPreLineBaseline: .localPreLineBaseline(currentDrawingTrialGroup)
+    case .moveToLineStart: .linePlan(currentDrawingTrialGroup)
     case .drawIsolatedLine: .lineExecution(currentDrawingTrialGroup)
-    case .revealAndObserveNewInk: .postLineObservation(currentDrawingTrialGroup)
+    case .revealAndObserveNewInk: .postLineFrame(currentDrawingTrialGroup)
     case .compareIntendedAndObservedGeometry: .comparison(currentDrawingTrialGroup)
     }
   }
@@ -9130,7 +8147,7 @@ final class OperatorWorkspace {
   private func receiveVision(_ result: PlotterSceneAnalysisResult) {
     guard frameMode == .live, case .running = visionAnalysisSnapshot.state else { return }
     if let lock = videoAnalysisRegionLock, !lock.matches(result.displayedFrame) {
-      videoPresentationPreferences.unlockAnalysisROI()
+      videoAnalysisRegionLock = nil
       Task {
         await cameraActions?.setSceneAnalysisRegion(nil)
         await reconcileAutomaticVisionAnalysis()
@@ -9251,50 +8268,59 @@ final class OperatorWorkspace {
     boundaryTeachingState = .idle
     boundaryTeachingResultText = "Choose one side to begin."
     await clearDiscoveryAuthority()
-  }
-
-  private func acceptedMachineCheckpoint(
-    for session: LearningSessionState
-  ) throws -> AcceptedMachineArtifactCheckpoint {
-    guard let passiveProbeResult,
-      passiveProbeResult.blockers.isEmpty,
-      let machinePosition = machineSnapshot?.machine.position,
-      !session.boundarySideAggregates.isEmpty
-    else {
-      throw LearningPathOperationError.requiredState(
-        "Fresh controller context, MPos, and accepted Boundary data are required for the durable machine manifest."
+    if let parkedAcceptedMachineArtifactCheckpoint {
+      acceptedArtifactCheckpointStatus = .quarantined(
+        sideCount: parkedAcceptedMachineArtifactCheckpoint.boundarySideAggregates.count
       )
     }
-    let context = try ControllerCheckpointContext(probe: passiveProbeResult)
-    let aggregates = BoundaryDirection.allCases.compactMap {
-      session.boundarySideAggregates[$0]
-    }
-    let acceptedEvidence = aggregates.flatMap { aggregate in
-      aggregate.includedAttemptIDs.compactMap {
-        session.boundaryAttemptEvidenceByAttemptID[$0]
+  }
+
+  private func persistAcceptedMachineArtifacts() {
+    guard frameMode == .live,
+      let acceptedArtifactCheckpointActions = activeAcceptedArtifactCheckpointActions,
+      let passiveProbeResult,
+      passiveProbeResult.blockers.isEmpty,
+      let machinePosition = machineSnapshot?.machine.position,
+      !boundarySideAggregates.isEmpty
+    else { return }
+    do {
+      let context = try ControllerCheckpointContext(probe: passiveProbeResult)
+      let aggregates = BoundaryDirection.allCases.compactMap { boundarySideAggregates[$0] }
+      let acceptedEvidence = aggregates.flatMap { aggregate in
+        aggregate.includedAttemptIDs.compactMap { boundaryAttemptEvidenceByAttemptID[$0] }
       }
+      let allowedKinds: Set<LearningArtifactKind> = Set(
+        BoundaryDirection.allCases.map(LearningArtifactKind.boundarySideAggregate)
+          + [.estimatedMachineCenter, .centerArrival]
+      )
+      let revisions = learningArtifactGraph.revisions.filter {
+        $0.state == .current && allowedKinds.contains($0.kind)
+      }
+      let checkpoint = try AcceptedMachineArtifactCheckpoint(
+        controllerContext: context,
+        machinePositionAtSave: machinePosition,
+        controllerSessionID: controllerSessionID,
+        coordinateRevision: explorationCoordinateRevision,
+        acceptedAttemptSequence: acceptedAttemptSequence,
+        pairedBoundaryProgress: pairedBoundaryProgress,
+        acceptedBoundaryEvidence: acceptedEvidence,
+        boundarySideAggregates: aggregates,
+        estimatedMachineCenter: estimatedMachineCenter,
+        learnedLocalCoordinateFrame: learnedLocalCoordinateFrame,
+        centerArrivalPosition: centerArrivalPosition,
+        acceptedRevisions: revisions
+      )
+      try acceptedArtifactCheckpointActions.save(checkpoint)
+      parkedAcceptedMachineArtifactCheckpoint = checkpoint
+      acceptedArtifactCheckpointStatus = .saved(
+        sideCount: aggregates.count,
+        centerArrival: centerArrivalPosition != nil
+      )
+    } catch {
+      acceptedArtifactCheckpointStatus = .rejected(
+        "Saving accepted machine artifacts failed: \(error)"
+      )
     }
-    let allowedKinds: Set<LearningArtifactKind> = Set(
-      BoundaryDirection.allCases.map(LearningArtifactKind.boundarySideAggregate)
-        + [.estimatedMachineCenter, .centerArrival]
-    )
-    let revisions = session.learningArtifactGraph.revisions.filter {
-      $0.state == .current && allowedKinds.contains($0.kind)
-    }
-    return try AcceptedMachineArtifactCheckpoint(
-      controllerContext: context,
-      machinePositionAtSave: machinePosition,
-      controllerSessionID: session.controllerSessionID,
-      coordinateRevision: session.explorationCoordinateRevision,
-      acceptedAttemptSequence: session.acceptedAttemptSequence,
-      pairedBoundaryProgress: session.pairedBoundaryProgress,
-      acceptedBoundaryEvidence: acceptedEvidence,
-      boundarySideAggregates: aggregates,
-      estimatedMachineCenter: session.estimatedCenterAuthority?.center,
-      learnedLocalCoordinateFrame: session.estimatedCenterAuthority?.localFrame,
-      centerArrivalPosition: session.centerArrivalPosition,
-      acceptedRevisions: revisions
-    )
   }
 
   private func revalidateParkedAcceptedArtifactCheckpoint(
@@ -9310,9 +8336,8 @@ final class OperatorWorkspace {
       let context = try ControllerCheckpointContext(probe: probe)
       switch checkpoint.compatibility(with: context, currentPosition: currentPosition) {
       case .incompatible(let reason):
-        learningAuthorityError =
-          "Stored machine authority is incompatible with the current controller: \(reason)"
-      case .compatible:
+        acceptedArtifactCheckpointStatus = .incompatible(reason)
+      case .compatible(let residualMM):
         let histories = try checkpoint.restoredBoundaryHistories()
         let graph = try checkpoint.restoredLearningGraph()
         try checkpoint.validate()
@@ -9328,26 +8353,24 @@ final class OperatorWorkspace {
           }
         )
         pairedBoundaryProgress = checkpoint.pairedBoundaryProgress
-        if let center = checkpoint.estimatedMachineCenter,
-          let localFrame = checkpoint.learnedLocalCoordinateFrame
-        {
-          activeLearningSession.estimatedCenterAuthority = EstimatedCenterAuthority(
-            center: center,
-            localFrame: localFrame
-          )
-        } else {
-          activeLearningSession.estimatedCenterAuthority = nil
-        }
+        estimatedMachineCenter = checkpoint.estimatedMachineCenter
+        learnedLocalCoordinateFrame = checkpoint.learnedLocalCoordinateFrame
         centerArrivalPosition = checkpoint.centerArrivalPosition
         centerArrivalRetryRequired = false
         learningArtifactGraph = graph
         controllerSessionID = checkpoint.controllerSessionID
         explorationCoordinateRevision = checkpoint.coordinateRevision
         acceptedAttemptSequence = checkpoint.acceptedAttemptSequence
-        learningAuthorityError = nil
+        acceptedArtifactCheckpointStatus = .restored(
+          sideCount: checkpoint.boundarySideAggregates.count,
+          centerArrival: checkpoint.centerArrivalPosition != nil,
+          residualMM: residualMM
+        )
       }
     } catch {
-      learningAuthorityError = "Fresh controller revalidation failed: \(error)"
+      acceptedArtifactCheckpointStatus = .rejected(
+        "Fresh controller revalidation failed: \(error)"
+      )
     }
   }
 
@@ -9377,10 +8400,12 @@ final class OperatorWorkspace {
     proposedTipCameraRegistration = nil
     sparseTipCalibrationCoordinator = freshSparseTipCalibrationCoordinatorForCurrentPaper()
     activeLearningSession.toolContactSelection.clear()
-    if frameMode == .live {
-      quarantinedTipCalibrationCheckpoint = liveLearningAuthorityManifest.tip
+    if let actions = activeAcceptedTipCalibrationCheckpointActions,
+      case .quarantined(let checkpoint) = actions.load()
+    {
+      quarantinedTipCalibrationCheckpoint = checkpoint
     }
-    applyDrawingTrialAuthorityInvalidation(from: .chooseIsolatedLinePlan)
+    clearDrawingLearningForRewind(from: .chooseIsolatedLinePlan)
     explorationError = nil
     overlayResultChannels.clearWorkflow(source: frameMode)
     // Pen current state, accepted boundary controller MPos revisions, estimated
@@ -9388,41 +8413,78 @@ final class OperatorWorkspace {
     // session/coordinate authority and deliberately survive camera replacement.
   }
 
+  private func clearPenLearningForRewind() {
+    cancelPenCapAcceptedClickContinuation()
+    discoveryTransactions.removeValue(forKey: .penInteraction)
+    penAttemptHistory = try! ExerciseAttemptHistory(
+      compatibility: penAttemptHistory.compatibility
+    )
+    selectedDiscoverySequenceID = .penInteraction
+  }
+
+  private func clearBoundaryLearningForRewind() {
+    selectedDiscoverySequenceID = sequenceID(for: selectedBoundaryDirection)
+    discoveryTransactions = discoveryTransactions.filter { key, _ in
+      key == .penInteraction
+    }
+    discoveryError = nil
+    boundaryTeachingState = .idle
+    boundaryTeachingResultText = "Choose one side to begin."
+    pairedBoundaryProgress = PairedBoundaryProgress()
+    boundaryAttemptEvidenceByAttemptID = [:]
+    boundarySideAggregates = [:]
+    boundaryAttemptHistories = [:]
+    estimatedMachineCenter = nil
+    learnedLocalCoordinateFrame = nil
+    centerArrivalPosition = nil
+    centerArrivalRetryRequired = false
+    pendingBoundaryFinalPositions = [:]
+    pendingBoundaryOwnerIDs = [:]
+    pendingBoundaryStopCapabilities = [:]
+  }
+
+  private func clearCalibrationLearningForRewind() {
+    clearCalibrationLearningForRewind(from: .calibrateCameraAndVisibleCap)
+  }
+
+  private func clearCalibrationLearningForRewind(from step: HumanGuidedDiscoveryStep) {
+    if step.rawValue <= HumanGuidedDiscoveryStep.calibrateCameraAndVisibleCap.rawValue {
+      currentCameraCalibrationFailure = nil
+      cameraCalibrationAnchorFrame = nil
+      cameraCalibrationReferencePosition = nil
+      cameraCalibrationReferenceCapAnchor = nil
+      proposedMachineCameraRegistration = nil
+      machineCameraRegistration = nil
+      explicitRegistrationCapAnchorEvidence = []
+    }
+    if step.rawValue <= HumanGuidedDiscoveryStep.calibratePenContactFromSparseMarks.rawValue {
+      tipCameraRegistration = nil
+      proposedTipCameraRegistration = nil
+      sparseTipCalibrationCoordinator = freshSparseTipCalibrationCoordinatorForCurrentPaper()
+      activeLearningSession.toolContactSelection.clear()
+    }
+    overlayResultChannels.clearWorkflow(source: frameMode, owner: .cameraCalibration)
+    overlayResultChannels.clearWorkflow(source: frameMode, owner: .sparseTipCalibration)
+  }
+
   private func freshSparseTipCalibrationCoordinatorForCurrentPaper()
     -> SparseTipCalibrationCoordinator
   {
-    var coordinator = SparseTipCalibrationCoordinator()
-    let trustedCheckpoint = frameMode == .live
-      ? liveLearningAuthorityManifest.tip : quarantinedTipCalibrationCheckpoint
-    let trustedExposures = trustedCheckpoint.map { checkpoint in
-      checkpoint.isSurfaceExposureBound(to: surfaceExposureLedger)
-        ? Set(checkpoint.surfaceExposures) : []
-    } ?? []
-    if let unmatched = surfaceExposureLedger.exposures(
-      on: PaperContactPlaneRevision(rawValue: explorationToolPaperRevision)
-    ).first(where: { exposure in
-      guard case .sparseTipMark = exposure.owner else { return false }
-      return !trustedExposures.contains(exposure)
-    }) {
-      coordinator.recordPossibleInk(
-        unmatched,
-        reason:
-          "Possible-ink calibration exposure remains on this paper. Record paper replacement before calibration continues."
-      )
-    }
-    return coordinator
+    SparseTipCalibrationCoordinator(
+      blacklistedLocations: blacklistedToolContactLocations.filter {
+        $0.paperContactPlane.rawValue == explorationToolPaperRevision
+      }
+    )
   }
 
-  private func applyDrawingTrialAuthorityInvalidation(
-    from step: ObservedDrawingTrialStep
-  ) {
+  private func clearDrawingLearningForRewind(from step: ObservedDrawingTrialStep) {
     if step.rawValue <= ObservedDrawingTrialStep.moveToLineStart.rawValue {
       lastProtocolPoseSettlement = nil
     }
     if step.rawValue <= ObservedDrawingTrialStep.revealAndObserveNewInk.rawValue {
       overlayResultChannels.clearWorkflow(source: frameMode, owner: .observedDrawingTrial)
     }
-    activeLearningSession.drawingTrial.invalidatePayload(from: step, source: frameMode)
+    activeLearningSession.drawingTrial.rewind(from: step, source: frameMode)
   }
 
   private func clearDiscoveryAuthority() async {
@@ -9435,7 +8497,8 @@ final class OperatorWorkspace {
     pairedBoundaryProgress = PairedBoundaryProgress()
     boundaryAttemptEvidenceByAttemptID = [:]
     boundarySideAggregates = [:]
-    activeLearningSession.estimatedCenterAuthority = nil
+    estimatedMachineCenter = nil
+    learnedLocalCoordinateFrame = nil
     centerArrivalPosition = nil
     centerArrivalRetryRequired = false
     cameraCalibrationAnchorFrame = nil
@@ -9468,8 +8531,7 @@ final class OperatorWorkspace {
     if let target = activeStopTarget {
       let admitted = latchContextualStopDisposition(
         for: target,
-        boundaryIntent: .cancelAttempt,
-        mechanicalCancelIntent: .operatorInterruption,
+        intent: .cancelAttempt,
         actor: "Application",
         action: "Clear Discovery Authority"
       )
@@ -9481,7 +8543,7 @@ final class OperatorWorkspace {
         discoveryTransactions[sequenceID] = transaction
       }
       if admitted {
-        await requestSingleJogCancel(for: target, mechanicalIntent: .operatorInterruption)
+        await requestSingleJogCancel(for: target, intent: .cancelAttempt)
       }
     }
     let motionTask = boundaryMotionTask
@@ -9519,13 +8581,12 @@ final class OperatorWorkspace {
     if stopDispositionLatch == nil,
       latchContextualStopDisposition(
         for: target,
-        boundaryIntent: nil,
-        mechanicalCancelIntent: .shutdown,
+        intent: .shutdown,
         actor: "Application",
         action: "Shutdown"
       )
     {
-      await requestSingleJogCancel(for: target, mechanicalIntent: .shutdown)
+      await requestSingleJogCancel(for: target, intent: .shutdown)
     }
     await operation.owner.settle()
     clearStoppableOperation(matching: target)
@@ -9604,14 +8665,20 @@ final class OperatorWorkspace {
     }
   }
 
+  private func boundaryFeedVector(_ direction: BoundaryDirection) -> Vector2<MachineSpace> {
+    switch direction {
+    case .negativeX: try! Vector2(dx: -1, dy: 0)
+    case .positiveX: try! Vector2(dx: 1, dy: 0)
+    case .negativeY: try! Vector2(dx: 0, dy: -1)
+    case .positiveY: try! Vector2(dx: 0, dy: 1)
+    }
+  }
+
+
   private func drawingTrialActionUnavailableReason(
     for step: ObservedDrawingTrialStep
   ) -> String? {
     if activeExplorationOperation != nil { return "The current learning action is still in progress." }
-    if step == .drawIsolatedLine, currentDrawingTrialGroupHasExposure {
-      return
-        "This line group already has admitted stroke exposure and cannot be redrawn. Invalidate Choose an Isolated Line Plan and select a new clear line."
-    }
     if frameMode == .simulated {
       if cameraActions == nil { return "The simulator camera composition is unavailable." }
       if !controllerSessionEstablished { return "Connect the learning simulator first." }
@@ -9620,9 +8687,6 @@ final class OperatorWorkspace {
         return "Stop or finish the current simulated operation first."
       }
       return nil
-    }
-    if step == .drawIsolatedLine, let blocker = liveLearningSurfaceExposureBlocker {
-      return "LIVE drawing is blocked by the surface-exposure ledger: \(blocker)"
     }
     guard controllerIsConnected else { return "Connect the selected controller first." }
     guard motionGuardIsActive else { return "Enable Motion first." }
@@ -9659,220 +8723,36 @@ final class OperatorWorkspace {
         "A current accepted TipCameraRegistration revision is required."
       )
     }
-    guard !currentDrawingTrialGroupHasExposure else {
-      throw LearningPathOperationError.requiredState(
-        "Confirm invalidation of the exposed line group before choosing a fresh plan."
-      )
+    let acceptedMarkGeometry = sparseTipCalibrationCoordinator.acceptedObservations.map {
+      $0.observation.markGeometry
     }
-    let paper = PaperContactPlaneRevision(rawValue: explorationToolPaperRevision)
+    let restoredMarkGeometry: [ToolContactMarkGeometryEvidence]
+    if acceptedMarkGeometry.isEmpty,
+      registration.estimatorRevision == SparseTipCircularMarkPlan.registrationEstimatorRevision
+    {
+      restoredMarkGeometry = try registration.observationEvidence.map {
+        try SparseTipCircularMarkPlan.restoredGeometry(
+          for: $0.calibrationPosition,
+          in: registration.applicabilityRectangle
+        )
+      }
+    } else {
+      restoredMarkGeometry = []
+    }
     let plan = try ObservedDrawingTrialLinePlan(
       direction: direction,
       domain: registration.applicabilityRectangle,
-      surfaceExposureLedger: surfaceExposureLedger,
-      paperContactPlane: paper
+      existingMarks: acceptedMarkGeometry + restoredMarkGeometry
     )
-    activeLearningSession.drawingTrial.linePlan = plan
-    currentExplorationEpisode = ExplorationEpisode(
-      sessionID: learningEvidenceSessionID,
-      source: frameMode == .simulated ? .simulated : .live,
-      startedNanoseconds: nowNanoseconds()
-    )
-    currentExplorationEpisode?.lineStartPosition = drawingTrialLineStart
-  }
-
-  private func drawingArtifactKinds(
-    for group: AttemptGroupIdentity
-  ) -> [LearningArtifactKind] {
-    [
-      .linePlan(group),
-      .localPreLineContext(group),
-      .lineStartArrival(group),
-      .lineExecution(group),
-      .postLineObservation(group),
-      .comparison(group),
-    ]
-  }
-
-  private func reserveLearningSurfaceExposure(
-    owner: LearningSurfaceExposureOwner,
-    geometry: LearningSurfaceExposureGeometry
-  ) throws -> LearningSurfaceExposure {
-    if frameMode == .live,
-      learningSurfaceExposureRecoveryDisposition != .ready
-    {
-      let blocker = learningSurfaceExposureError
-        ?? "Current-paper surface exposure requires explicit Paper Replacement."
-      throw LearningPathOperationError.requiredState(
-        "LIVE drawing is blocked because its durable surface-exposure ledger is unavailable: \(blocker)"
-      )
-    }
-    let exposure = try LearningSurfaceExposure(
-      provenance: frameMode == .live
-        ? .livePossiblePhysicalInk : .simulatedNonphysical,
-      paperContactPlane: PaperContactPlaneRevision(rawValue: explorationToolPaperRevision),
-      owner: owner,
-      geometry: geometry,
-      reservedNanoseconds: nowNanoseconds()
-    )
-    var updated = surfaceExposureLedger
-    try updated.reserve(exposure)
-    if frameMode == .live {
-      guard let actions = liveLearningSurfaceExposureActions else {
-        throw LearningPathOperationError.requiredState(
-          "LIVE drawing is blocked because surface-exposure persistence is unavailable."
-        )
-      }
-      do {
-        let snapshot = try actions.save(
-          liveLearningSurfaceExposureRevision,
-          updated,
-          PaperContactPlaneRevision(rawValue: explorationToolPaperRevision)
-        )
-        liveLearningSurfaceExposureRevision = snapshot.revision
-      } catch {
-        liveLearningSurfaceExposureBlocker = String(describing: error)
-        liveLearningSurfaceStoreRecoveryDisposition = .diagnosticsRequired
-        throw LearningPathOperationError.requiredState(
-          "No Pen Down was sent because the surface-exposure reservation could not be persisted: \(error)"
-        )
-      }
-    }
-    surfaceExposureLedger = updated
-    if case .drawingTrial = owner {
-      activeExplorationOperation?.strokeState = .possibleInk
-    }
-    return exposure
-  }
-
-  private func recordPenUpFinalization(
-    for exposureID: LearningSurfaceExposureID,
-    reason: LearningSurfacePenUpFinalizationReason,
-    outcome: PenOutcome
-  ) throws {
-    var updated = surfaceExposureLedger
-    try updated.recordPenUpFinalization(
-      for: exposureID,
-      finalization: LearningSurfacePenUpFinalization(
-        reason: reason,
-        outcome: outcome,
-        attemptedNanoseconds: nowNanoseconds()
-      )
-    )
-    if frameMode == .live {
-      guard let actions = liveLearningSurfaceExposureActions else {
-        throw LearningPathOperationError.requiredState(
-          "The Pen-Up finalizer ran, but its durable audit port is unavailable."
-        )
-      }
-      do {
-        let snapshot = try actions.save(
-          liveLearningSurfaceExposureRevision,
-          updated,
-          PaperContactPlaneRevision(rawValue: explorationToolPaperRevision)
-        )
-        liveLearningSurfaceExposureRevision = snapshot.revision
-      } catch {
-        liveLearningSurfaceExposureBlocker = String(describing: error)
-        liveLearningSurfaceStoreRecoveryDisposition = .diagnosticsRequired
-        throw LearningPathOperationError.requiredState(
-          "The Pen-Up finalizer ran, but its outcome could not be persisted: \(error)"
-        )
-      }
-    }
-    surfaceExposureLedger = updated
-  }
-
-  private func surfaceExposure(
-    id: LearningSurfaceExposureID
-  ) -> LearningSurfaceExposure? {
-    surfaceExposureLedger.entries.first { $0.id == id }
-  }
-
-  private enum PenUpFinalizationPersistenceDisposition: Hashable, Sendable {
-    case durable
-    case alreadyDurable
-    case failed(String)
-
-    var isDurable: Bool {
-      switch self {
-      case .durable, .alreadyDurable: true
-      case .failed: false
-      }
-    }
-  }
-
-  private struct PenUpFinalizationResult: Hashable, Sendable {
-    let outcome: PenOutcome
-    let persistence: PenUpFinalizationPersistenceDisposition
-
-    var audit: String {
-      switch persistence {
-      case .durable: "Pen-Up finalization outcome was durably recorded."
-      case .alreadyDurable: "The existing Pen-Up finalization audit was retained."
-      case .failed(let reason): "Pen-Up finalization audit failed: \(reason)"
-      }
-    }
-  }
-
-  private func finalizePenUp(
-    for exposureID: LearningSurfaceExposureID,
-    reason: LearningSurfacePenUpFinalizationReason,
-    suppliedOutcome: PenOutcome? = nil
-  ) async -> PenUpFinalizationResult {
-    if let existing = surfaceExposure(id: exposureID)?.penUpFinalization {
-      return PenUpFinalizationResult(
-        outcome: existing.outcome,
-        persistence: .alreadyDurable
-      )
-    }
-    let outcome: PenOutcome
-    if let attempted = penUpFinalizerAttemptOutcomes[exposureID] {
-      outcome = attempted
-    } else if let suppliedOutcome {
-      outcome = suppliedOutcome
-    } else if frameMode == .simulated {
-      do {
-        _ = try (await simulatedLearningRuntime.setPenPose(.up)).result.get()
-        simulatedLearningSnapshot = await simulatedLearningRuntime.snapshot()
-        outcome = .commandedAndSettled(command: .raise, commandedState: .up)
-      } catch {
-        outcome = .ambiguous(.transport(String(describing: error)))
-      }
-    } else if let machineActions {
-      outcome = await machineActions.requestPenActuation(.raise, currentPenActuationProfile)
-      machineSnapshot = await machineActions.snapshot()
-    } else {
-      outcome = .refused(.notConnected)
-    }
-    penUpFinalizerAttemptOutcomes[exposureID] = outcome
-    do {
-      try recordPenUpFinalization(for: exposureID, reason: reason, outcome: outcome)
-      return PenUpFinalizationResult(outcome: outcome, persistence: .durable)
-    } catch {
-      return PenUpFinalizationResult(
-        outcome: outcome,
-        persistence: .failed(String(describing: error))
-      )
-    }
-  }
-
-  private var reservedSparseTipPositionsOnCurrentPaper:
-    Set<ToolContactCalibrationPosition>
-  {
-    Set(
-      surfaceExposureLedger.exposures(
-        on: PaperContactPlaneRevision(rawValue: explorationToolPaperRevision)
-      ).compactMap { exposure in
-        guard case .sparseTipMark(let position) = exposure.owner else { return nil }
-        return position
-      }
-    )
+    drawingTrialLineStart = plan.startPosition
+    drawingTrialTipRegistrationRevisionID = registration.acceptedRevisionID
   }
 
   private func captureLocalPreLineBaseline() async throws {
     guard let registration = tipCameraRegistration,
       let currentRevision = learningArtifactGraph.currentRevision(for: .tipCameraRegistration)?.id,
       currentRevision == registration.acceptedRevisionID,
+      drawingTrialTipRegistrationRevisionID == currentRevision,
       controllerIsPenUpAndIdle
     else {
       throw LearningPathOperationError.requiredState(
@@ -9883,54 +8763,37 @@ final class OperatorWorkspace {
     let frame = try await captureProtocolFrame(
       newerThan: displayedFrame?.frame.captureNanoseconds ?? 0
     )
-    activeLearningSession.drawingTrial.localPreLineContext = LocalPreLineContextAuthority(
-      baseline: frame,
-      revealPosition: revealPosition,
-      tipRegistrationRevisionID: currentRevision
-    )
-    appendFrameEvidence(.localPreLineBaseline, frame: frame.frame)
+    localPreLineBaseline = frame
+    drawingTrialRevealPosition = revealPosition
   }
 
   private func moveToRecordedLineStart() async throws {
-    guard let plan = activeLearningSession.drawingTrial.linePlan,
-      activeLearningSession.drawingTrial.localPreLineContext != nil
-    else {
+    guard let destination = drawingTrialLineStart else {
       throw LearningPathOperationError.requiredState("Typed line plan is unavailable.")
     }
-    let destination = plan.startPosition
     let current = try currentMachinePosition()
     let delta = try Vector2<MachineSpace>(
       dx: destination.point.x - current.point.x,
       dy: destination.point.y - current.point.y
     )
-    let requiredTravel = delta.dx != 0 || delta.dy != 0
-    let final: MachinePosition
-    if requiredTravel {
-      final = try await performSupervisedPenUpTravel(
+    if delta.dx != 0 || delta.dy != 0 {
+      let final = try await performSupervisedPenUpTravel(
         delta: delta,
         ownerID: .observedDrawingTrial(.moveToLineStart),
         action: .moveToLineStart
       )
-    } else {
-      final = current
+      guard
+        recordProtocolPoseSettlement(
+          action: .moveToLineStart,
+          target: destination,
+          actual: final
+        )
+      else {
+        throw LearningPathOperationError.controllerFailed(
+          "Move to Line Start settled at an incompatible MPos."
+        )
+      }
     }
-    guard
-      recordProtocolPoseSettlement(
-        action: .moveToLineStart,
-        target: destination,
-        actual: final
-      ), let settlement = lastProtocolPoseSettlement,
-      settlement.action == .moveToLineStart
-    else {
-      throw LearningPathOperationError.controllerFailed(
-        "Move to Line Start settled at an incompatible MPos."
-      )
-    }
-    activeLearningSession.drawingTrial.lineStartArrival = LineStartArrivalAuthority(
-      target: destination,
-      settlement: settlement,
-      requiredTravel: requiredTravel
-    )
   }
 
   private func currentMachinePosition() throws -> MachinePosition {
@@ -9957,6 +8820,23 @@ final class OperatorWorkspace {
       && snapshot.machine.penState == .up
       && !snapshot.machine.operationInFlight
       && snapshot.machine.stickyAmbiguity == nil
+  }
+
+  private func protocolSettlementIsCurrent(
+    _ settlement: ProtocolPoseSettlement?,
+    expectedTarget: MachinePosition?
+  ) -> Bool {
+    guard let settlement, let expectedTarget,
+      settlement.controllerSessionID == controllerSessionID,
+      settlement.coordinateRevision == explorationCoordinateRevision,
+      settlement.toolPaperRevision == explorationToolPaperRevision,
+      protocolPositionsMatch(settlement.target, expectedTarget),
+      protocolPositionsMatch(settlement.actual, expectedTarget),
+      controllerIsPenUpAndIdle,
+      let current = try? currentMachinePosition(),
+      protocolPositionsMatch(current, settlement.actual)
+    else { return false }
+    return true
   }
 
   private func protocolPositionsMatch(
@@ -10064,12 +8944,11 @@ final class OperatorWorkspace {
       if hasShutdown || Task.isCancelled {
         _ = latchContextualStopDisposition(
           for: target,
-          boundaryIntent: nil,
-          mechanicalCancelIntent: .shutdown,
+          intent: .shutdown,
           actor: "Application",
           action: "Shutdown"
         )
-        await requestSingleJogCancel(for: target, mechanicalIntent: .shutdown)
+        await requestSingleJogCancel(for: target, intent: .shutdown)
         simulatedLearningSnapshot = await simulatedLearningRuntime.snapshot()
         throw LearningPathOperationError.requiredState(
           "Application shutdown cancelled supervised Pen-Up travel before execution."
@@ -10111,12 +8990,11 @@ final class OperatorWorkspace {
     if hasShutdown || Task.isCancelled {
       _ = latchContextualStopDisposition(
         for: target,
-        boundaryIntent: nil,
-        mechanicalCancelIntent: .shutdown,
+        intent: .shutdown,
         actor: "Application",
         action: "Shutdown"
       )
-      await requestSingleJogCancel(for: target, mechanicalIntent: .shutdown)
+      await requestSingleJogCancel(for: target, intent: .shutdown)
       _ = await owner.value
       machineSnapshot = await machineActions.snapshot()
       throw LearningPathOperationError.requiredState(
@@ -10140,15 +9018,11 @@ final class OperatorWorkspace {
   }
 
   private func drawIsolatedTrialLine() async throws {
-    guard let plan = activeLearningSession.drawingTrial.linePlan,
-      activeLearningSession.drawingTrial.localPreLineContext != nil,
-      activeLearningSession.drawingTrial.lineStartArrival != nil
-    else {
+    guard let start = drawingTrialLineStart else {
       throw LearningPathOperationError.requiredState(
         "Move to the recorded tip-model-domain line start before drawing."
       )
     }
-    let start = plan.startPosition
     let current = try currentMachinePosition()
     guard
       recordProtocolPoseSettlement(
@@ -10161,14 +9035,13 @@ final class OperatorWorkspace {
         "Move to the recorded tip-model-domain line start before drawing."
       )
     }
-    let delta = plan.delta
-    let exposure = try reserveLearningSurfaceExposure(
-      owner: .drawingTrial(currentDrawingTrialGroup),
-      geometry: .isolatedLine(
-        startPosition: plan.startPosition,
-        endPosition: plan.endPosition
-      )
-    )
+    let delta: Vector2<MachineSpace> =
+      switch selectedLineDirection {
+      case .negativeX: try Vector2(dx: -5, dy: 0)
+      case .positiveX: try Vector2(dx: 5, dy: 0)
+      case .negativeY: try Vector2(dx: 0, dy: -5)
+      case .positiveY: try Vector2(dx: 0, dy: 5)
+      }
     if frameMode == .simulated {
       applySimulatedSnapshotResponse(
         await simulatedLearningRuntime.setPenPose(.down),
@@ -10177,16 +9050,7 @@ final class OperatorWorkspace {
       let response = await simulatedLearningRuntime.beginDrawing(
         delta: try SimulatedLearningMotionVector(dxMM: delta.dx, dyMM: delta.dy)
       )
-      let operation: SimulatedLearningOperation
-      do {
-        operation = try response.result.get()
-      } catch {
-        _ = await finalizePenUp(
-          for: exposure.id,
-          reason: .drawingStrokeAdmissionRejected
-        )
-        throw error
-      }
+      let operation = try response.result.get()
       let target = ContextualStopTarget.drawingTrial(
         capabilityID: ContextualStopCapabilityID(),
         operationOwner: .simulated(operation.id)
@@ -10201,40 +9065,21 @@ final class OperatorWorkspace {
       installStoppableOperation(target: target, owner: .simulated(task))
       defer { clearStoppableOperation(matching: target) }
       guard let outcome = await task.value else {
-        _ = await finalizePenUp(
-          for: exposure.id,
-          reason: .drawingStrokeAmbiguous
-        )
         throw LearningPathOperationError.possibleInk(
           "The simulated isolated-line owner lost its outcome."
         )
       }
       guard outcome.disposition == .naturallyCompleted else {
-        _ = await finalizePenUp(
-          for: exposure.id,
-          reason: .drawingStrokeCancelled
-        )
         throw LearningPathOperationError.possibleInk(
           "Simulated drawing did not complete naturally."
         )
       }
       activeExplorationOperation?.strokeState = .completedNaturally
       simulatedLearningSnapshot = await simulatedLearningRuntime.snapshot()
-      let finalization = await finalizePenUp(
-        for: exposure.id,
-        reason: .drawingStrokeCompleted
+      applySimulatedSnapshotResponse(
+        await simulatedLearningRuntime.setPenPose(.up),
+        action: "Raise simulated pen after isolated line"
       )
-      guard finalization.persistence.isDurable else {
-        throw LearningPathOperationError.requiredState(
-          "The simulated line completed, but its Pen-Up audit is not durable: \(finalization.audit)"
-        )
-      }
-      guard case .commandedAndSettled(command: .raise, commandedState: .up) =
-        finalization.outcome
-      else {
-        throw operationError(for: finalization.outcome, possibleInk: true)
-      }
-      activeLearningSession.drawingTrial.lineExecution = .simulated(outcome)
       return
     }
     guard let machineActions else {
@@ -10243,22 +9088,9 @@ final class OperatorWorkspace {
     _ = await announceAdvisory("Lowering the pen for the isolated line.")
     let lower = await machineActions.requestPenActuation(.lower, currentPenActuationProfile)
     machineSnapshot = await machineActions.snapshot()
-    guard case .commandedAndSettled(command: .lower, commandedState: .down) = lower else {
-      switch lower {
-      case .ambiguous(let ambiguity):
-        let recovery = await finalizePenUp(
-          for: exposure.id,
-          reason: .penLowerTerminal
-        )
-        throw LearningPathOperationError.possibleInk(
-          "Pen Down was ambiguous: \(ambiguity.actionableDescription) Pen-Up recovery: \(recovery.outcome). \(recovery.audit)"
-        )
-      case .refused(let refusal):
-        _ = await finalizePenUp(for: exposure.id, reason: .penLowerTerminal)
-        throw LearningPathOperationError.controllerRefused(refusal.actionableDescription)
-      case .commandedAndSettled:
-        preconditionFailure("The settled Pen Down outcome was handled by the guard.")
-      }
+    guard case .commandedAndSettled = lower else {
+      activeExplorationOperation?.strokeState = .possibleInk
+      throw operationError(for: lower, possibleInk: true)
     }
 
     let request = DrawingStrokeRequest(
@@ -10271,13 +9103,7 @@ final class OperatorWorkspace {
     case .admitted(let operation):
       admittedOperation = operation
     case .rejected(let outcome):
-      let recovery = await finalizePenUp(
-        for: exposure.id,
-        reason: .drawingStrokeAdmissionRejected
-      )
-      throw LearningPathOperationError.possibleInk(
-        "The isolated-line stroke was not admitted after Pen Down: \(outcome). Pen-Up recovery: \(recovery.outcome). \(recovery.audit)"
-      )
+      throw operationError(for: outcome, possibleInk: true)
     }
     let target = ContextualStopTarget.drawingTrial(
       capabilityID: ContextualStopCapabilityID(),
@@ -10291,75 +9117,49 @@ final class OperatorWorkspace {
     machineSnapshot = await machineActions.snapshot()
     switch outcome {
     case .completed(let evidence):
+      drawingTrialStrokeEvidence = evidence
       activeExplorationOperation?.strokeState = .completedNaturally
-      recordStrokeEvidence(evidence, outcome: .completed, summary: "Idle with final MPos")
       _ = await announceAdvisory("Raising the pen after the isolated line.")
-      let finalization = await finalizePenUp(
-        for: exposure.id,
-        reason: .drawingStrokeCompleted
-      )
-      guard finalization.persistence.isDurable else {
-        throw LearningPathOperationError.requiredState(
-          "The line completed, but its Pen-Up audit is not durable: \(finalization.audit)"
-        )
-      }
-      let raise = finalization.outcome
-      guard case .commandedAndSettled(command: .raise, commandedState: .up) = raise else {
+      let raise = await machineActions.requestPenActuation(.raise, currentPenActuationProfile)
+      machineSnapshot = await machineActions.snapshot()
+      guard case .commandedAndSettled = raise else {
         throw operationError(for: raise, possibleInk: true)
       }
-      activeLearningSession.drawingTrial.lineExecution = .live(evidence)
     case .cancelled(let evidence, let penRaiseOutcome):
-      _ = await finalizePenUp(
-        for: exposure.id,
-        reason: .drawingStrokeCancelled,
-        suppliedOutcome: penRaiseOutcome
-      )
+      drawingTrialStrokeEvidence = evidence
       activeExplorationOperation?.strokeState = .possibleInk
-      recordStrokeEvidence(evidence, outcome: .cancelled, summary: "Stop settled in place")
       throw LearningPathOperationError.possibleInk(
         "Drawing stopped; controller Pen Up outcome: \(penRaiseOutcome)"
       )
     case .ambiguous(let ambiguity):
-      _ = await finalizePenUp(
-        for: exposure.id,
-        reason: .drawingStrokeAmbiguous
-      )
       throw LearningPathOperationError.possibleInk(ambiguity.actionableDescription)
     case .refused(let refusal):
-      _ = await finalizePenUp(
-        for: exposure.id,
-        reason: .drawingStrokeRefused
-      )
       throw LearningPathOperationError.controllerRefused(String(describing: refusal))
     }
   }
 
   private func revealAndObserveTrialInk() async throws {
     guard cameraActions != nil,
-      let context = activeLearningSession.drawingTrial.localPreLineContext,
-      let plan = activeLearningSession.drawingTrial.linePlan,
-      let lineExecution = activeLearningSession.drawingTrial.lineExecution,
+      let baseline = localPreLineBaseline,
+      let revealPosition = drawingTrialRevealPosition,
+      let lineStart = drawingTrialLineStart,
       let registration = tipCameraRegistration,
-      registration.acceptedRevisionID == context.tipRegistrationRevisionID,
+      let registrationRevisionID = drawingTrialTipRegistrationRevisionID,
+      registration.acceptedRevisionID == registrationRevisionID,
       learningArtifactGraph.currentRevision(for: .tipCameraRegistration)?.id
-        == context.tipRegistrationRevisionID
+        == registrationRevisionID
     else {
       throw LearningPathOperationError.requiredState(
         "The local baseline, reveal pose, line plan, and exact current tip-model revision are required."
       )
     }
-    let baseline = context.baseline
-    let revealPosition = context.revealPosition
-    let lineStart = plan.startPosition
-    let registrationRevisionID = context.tipRegistrationRevisionID
     let current = try currentMachinePosition()
-    let finalRevealPosition: MachinePosition
     if !protocolPositionsMatch(current, revealPosition) {
       let delta = try Vector2<MachineSpace>(
         dx: revealPosition.point.x - current.point.x,
         dy: revealPosition.point.y - current.point.y
       )
-      finalRevealPosition = try await performSupervisedPenUpTravel(
+      let final = try await performSupervisedPenUpTravel(
         delta: delta,
         ownerID: .observedDrawingTrial(.revealAndObserveNewInk),
         action: .returnToLocalRevealPose
@@ -10368,41 +9168,32 @@ final class OperatorWorkspace {
         recordProtocolPoseSettlement(
           action: .returnToLocalRevealPose,
           target: revealPosition,
-          actual: finalRevealPosition
+          actual: final
         )
       else {
         throw LearningPathOperationError.controllerFailed(
           "Return to the local reveal pose settled at an incompatible MPos."
         )
       }
-    } else {
-      finalRevealPosition = current
-      guard recordProtocolPoseSettlement(
-        action: .returnToLocalRevealPose,
-        target: revealPosition,
-        actual: current
-      ) else {
-        throw LearningPathOperationError.controllerFailed(
-          "The local reveal pose did not satisfy the accepted position tolerance."
-        )
-      }
-    }
-    guard let revealSettlement = lastProtocolPoseSettlement,
-      revealSettlement.action == .returnToLocalRevealPose,
-      protocolPositionsMatch(finalRevealPosition, revealPosition)
-    else {
-      throw LearningPathOperationError.controllerFailed(
-        "Return-to-reveal settlement evidence is unavailable."
-      )
     }
     let boundary = max(
       baseline.frame.captureNanoseconds,
-      lineExecution.finalSampleNanoseconds ?? 0
+      drawingTrialStrokeEvidence?.finalSampleNanoseconds ?? 0
     )
     let post = try await captureProtocolFrame(newerThan: boundary)
+    explorationPostLineFrame = post
     displayedFrame = post
-    appendFrameEvidence(.postLine, frame: post.frame)
-    let lineEnd = plan.endPosition.point
+    let lineDelta: Vector2<MachineSpace> =
+      switch selectedLineDirection {
+      case .negativeX: try Vector2(dx: -5, dy: 0)
+      case .positiveX: try Vector2(dx: 5, dy: 0)
+      case .negativeY: try Vector2(dx: 0, dy: -5)
+      case .positiveY: try Vector2(dx: 0, dy: 5)
+      }
+    let lineEnd = try Point2<MachineSpace>(
+      x: lineStart.point.x + lineDelta.dx,
+      y: lineStart.point.y + lineDelta.dy
+    )
     let cameraStart = try registration.tipPixel(at: lineStart.point)
     let cameraEnd = try registration.tipPixel(at: lineEnd)
     let projectedDelta = try cameraStart.vector(to: cameraEnd)
@@ -10419,6 +9210,7 @@ final class OperatorWorkspace {
       width: max(1, min(post.frame.width - clippedX, maxX - clippedX + 1)),
       height: max(1, min(post.frame.height - clippedY, maxY - clippedY + 1))
     )
+    drawingTrialObservationRegion = trialRegion
     let outcome = await observeWorkflowInk(
       IsolatedInkObservationRequest(
         localPreLineBaseline: SamePoseFrameSample(
@@ -10449,19 +9241,9 @@ final class OperatorWorkspace {
     )
     switch outcome {
     case .observed(let observation):
-      guard observation.residual != nil else {
-        throw LearningPathOperationError.inkRejected(
-          "Post-line observation did not contain the required tip-projected residual."
-        )
-      }
-      activeLearningSession.drawingTrial.postLineObservation = PostLineObservationAuthority(
-        revealSettlement: revealSettlement,
-        frame: post,
-        region: trialRegion,
-        observation: observation
-      )
       acceptInkObservation(observation, displayedFrame: post)
     case .rejected(let rejection):
+      lastInkObservation = nil
       explorationInkStatus = "ink or geometry unclear: \(rejection.reason); no redraw requested"
       overlayResultChannels.clearWorkflow(source: frameMode, owner: .observedDrawingTrial)
       throw LearningPathOperationError.inkRejected(String(describing: rejection.reason))

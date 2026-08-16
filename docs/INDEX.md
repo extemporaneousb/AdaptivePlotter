@@ -11,10 +11,10 @@ to the task.
   applicability, simulator boundary, or Stage 4 dependency:
   [Product Contract](PRODUCT_CONTRACT.md).
 - Exact Boundary, five-cap, five-contact, checkpoint recovery, Stage 4, Stop,
-  ambiguity, or causal invalidation sequence:
+  ambiguity, or reset sequence:
   [Discovery and Observed-Trial Protocol](DISCOVERY_AND_OBSERVED_TRIAL_PROTOCOL.md).
 - Package topology, runtime ownership, dependency direction, exact-frame data
-  flow, authority-manifest/safety-history composition, or refactoring:
+  flow, checkpoint composition, or refactoring:
   [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md).
 - Verified software/simulator/physical claims or skipped validation:
   [Current Evidence](CURRENT_EVIDENCE.md).

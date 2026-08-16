@@ -52,16 +52,14 @@ publication holds. A hold does not stop raw capture or change semantic optical
 identity. It retains only the newest raw buffer and publishes at most one newest
 preview when the final matching hold settles.
 
-The rendered `visibleRect` and generic-analysis ROI are different facts.
-Unlocked zoom and pan affect rendering only; generic scene analysis remains
-full-frame. Lock atomically copies the current visible camera-pixel rectangle
-into the analysis policy, and the lock fact, displayed rectangle, and backend
-consume that same value. Unlock clears only the ROI and preserves view geometry.
-The region does not crop or mutate the stamped frame, change exact-frame
-identity, alter whole-frame cap-size acceptance thresholds, or constrain
-specialized workflow measurements with their own typed regions. A camera source
-or configuration replacement clears geometry and lock only; cadence and the two
-operator overlay choices persist.
+The operator may lock the current presentation viewport as a generic scene-
+analysis region. The lock constrains which camera pixels requested pen-cap
+analysis may scan; an armature-envelope request expands its declared dependency
+to pen-cap analysis. Full-frame lock is canonicalized to unlocked/default
+analysis. The region does not crop or mutate the stamped frame, change exact-
+frame identity, alter whole-frame cap-size acceptance thresholds, or constrain
+specialized workflow measurements with their own typed regions. Changing camera
+source or configuration clears the lock.
 
 Exactly two persistent global scene-overlay choices exist: **Pen cap** and
 **Armature envelope**. The envelope is derived from the cap and must be labeled
@@ -93,11 +91,10 @@ or artifact acceptance.
 
 `OperatorWorkspace` is the single observable app owner and typed-intent router.
 It copies current facts into an immutable values-only snapshot;
-`LearningPathProjector` purely derives the tree rows and one compact exercise:
-numbered title, actor-tagged script, optional question, typed actions, and
-invalidation preview. Activity, subsystem facts, provenance, metrics, and
-failures are projected once into Diagnostics. Neither projection nor navigation
-selection can replace controller, camera, persistence, or evidence authority.
+`LearningPathProjector` purely derives Learning Path rows, review detail,
+actions, activity, subsystem status, and reset presentation. Neither projection
+nor navigator selection can replace controller, camera, persistence, or
+evidence authority.
 
 `RunLedger` records ordered diagnostic facts. Raw controller events and typed
 workflow events remain distinct. Ledger facts cannot replay work, restore a
@@ -179,13 +176,14 @@ After current 3.2 and before Stage 4 there are exactly two exercises:
 - **3.3 Calibrate Camera and Visible Cap**;
 - **3.4 Calibrate Pen Contact from Sparse Marks**.
 
-Tree selection is presentation-only. Learning steps, fitted learned bounds,
-frozen frames, sparse-mark selection, and inspector changes never mutate the
-operator's zoom, pan, or locked ROI. A workflow may publish a focus suggestion,
-but only an explicit operator action may apply it. A camera source/configuration
-replacement resets geometry and lock. These presentation operations remain
-non-evidence and never change exact pixels, provenance, artifact validity, or
-completion state.
+Navigator selection is presentation-only. Presentation zoom, pan, and fitted
+learned bounds do not change exact pixels, frame provenance, artifact validity,
+or completion state. Explicitly locking the current viewport copies its
+camera-pixel rectangle into the generic scene-analysis policy; the preceding
+presentation operations remain non-evidence. Entering or leaving Learning and
+compatible presentation-context revisions preserve operator zoom and pan. A
+camera source/configuration change resets them, while a sparse-mark selection
+may explicitly request its stronger initial focus.
 
 Before accepted tip authority exists, the UI states **Tip not calibrated**.
 During each mark selection, the predicted tip point is hidden until the operator
@@ -247,7 +245,7 @@ MPos when the operation consumes position.
 
 Failure kind, attempt disposition, recovery, and possible-ink meaning are typed
 facts. Human-readable descriptions are projections only; wording changes cannot
-alter surface-exposure, no-redraw, Stop, or accepted-fallback behavior.
+alter blacklist, no-redraw, Stop, or accepted-fallback behavior.
 
 The manual direction controls select their typed intent from the current
 controller-commanded pen state. Pen Down uses a bounded `DrawingStrokeRequest`
@@ -270,36 +268,23 @@ evidence, compatible context, and at most 0.05 mm Euclidean residual. “Exact
 pose” names that quantization-aware policy; it does not mean zero mathematical
 residual at an unrepresentable stepper position.
 
-The contextual capability names one exact active owner. Repeated, stale, and
-losing actions are inert. Active Boundary exposes three actions carrying that
-same capability: green **Stop & Accept**, red **Stop**, and red **Cancel**. They
-share one mechanical Jog Cancel but not one semantic outcome. Stop & Accept may
-commit only after fresh attributable Idle/final MPos passes atomic validation.
-Stop records a distinct non-success result and operational final-MPos provenance
-but no learning artifact; clean settlement exposes Restart. Cancel abandons the
-attempt; clean settlement exposes a new Start. Ambiguity exposes neither and
-preserves any prior accepted fallback. Escape invokes red Stop, never acceptance.
+The contextual Stop capability names one exact active owner. Repeated or stale
+capabilities are inert. While physical movement owns an exercise, its Stop is
+the only movement-ending exercise action. Cancel becomes available only after
+movement settles.
 
 Boundary side identity is the operator's typed X−, X+, Y−, or Y+ direction plus
-settled controller evidence accepted by Stop & Accept. Boundary uses one bounded
-controller request with no Camera or Vision adviser. Natural request completion
-is Needs Attention with no side evidence and no automatic renewal. A longer
-horizon requires fresh attributable signed remaining-travel authority and
-attended stop-latency/overshoot validation; neither is inferred from controller
-feed ceilings or nominal travel settings.
+settled controller evidence. Boundary uses controller-owned fixed bounded 20 mm
+renewal segments with no Camera or Vision adviser. Operator Stop, fresh Idle,
+and final MPos remain the acceptance authority; camera availability cannot alter
+direction, renewal, Stop, or side acceptance.
 
-Before any LIVE Pen Down, the complete circle geometry and paper-plane identity
-must be conservatively reserved in the single surface-exposure ledger and saved
-through its checksummed atomic store. A save failure or rejected/corrupt load
-blocks contact; absence alone means an empty store. Any ambiguous circle-chord
-motion, Pen Down, Pen Up, rejected post-lower drawing admission, or process exit
-therefore leaves the reservation applicable across cancel, restart, invalidation,
-and relaunch. No automatic retry, resend, retap, redraw, or continuation is
-permitted. A wrong click may be replaced only on its same frozen exact frame and
-causes no mechanical action. SIMULATED entries share the ledger model but are
-explicitly nonphysical and never enter the LIVE store. Explicit paper replacement
-is the only corrupt-store recovery: archive the rejected bytes, atomically start
-a fresh ledger bound to the replacement paper, then clear the contact blocker.
+Any ambiguous circle-chord motion, Pen Down, or Pen Up outcome after possible
+contact creates possible ink. The circle center/radius plus paper-plane identity
+is blacklisted across cancel, restart, and reset, and the workflow stops for
+explicit recovery. No automatic retry, resend, retap, redraw, or continuation
+is permitted. A wrong click may be replaced only on its same frozen exact frame
+and causes no mechanical action.
 
 ## Stage 3.3 machine-to-cap authority
 
@@ -352,10 +337,9 @@ This controller evidence does not prove physical pressure or observed ink.
 After every circle, reveal travel goes Pen Up to the learned X+ Boundary limit
 minus the 10 mm safety inset and toward machine Y=0, clamped to the safe Y
 interval. This far reveal pose is visibility-only and is not a model sample.
-After settlement and cap-map revalidation, the exact frame freezes without
-changing the operator's viewport or locked ROI. The predicted tip remains hidden
-before the click; the operator may explicitly zoom or pan without changing exact
-camera-pixel evidence.
+After settlement and cap-map revalidation, the exact frame opens at a
+one-third-frame presentation focus around the pre-mark cap anchor. That zoom is
+view-only and does not expose the predicted tip before the click.
 
 Each accepted `ToolContactObservation` is immutable raw evidence for one
 commanded circular mark and asserted circle center. It retains:
@@ -427,15 +411,9 @@ Changes apply as follows:
 - LIVE/SIMULATED source change: invalidate cross-source optical authority;
 - raw observations: retain as immutable history under every change.
 
-`LearningAuthorityManifest` is the single checksummed durable authority store.
-One generation atomically contains optional `AcceptedMachineArtifactCheckpoint`
-and `AcceptedTipCalibrationCheckpoint` payloads. Every accepted-authority save,
-and each invalidation whose causal closure removes either durable payload, is an
-exact generation/digest compare-and-commit of the complete manifest. A
-nondurable graph-only invalidation does not load or mutate the manifest. A crash
-or stale durable preview therefore cannot expose mixed machine/tip generations. The tip
-payload contains the accepted registration, its acceptance event, and complete
-consumed evidence. Loading
+`AcceptedMachineArtifactCheckpoint` remains machine-only.
+`AcceptedTipCalibrationCheckpoint` is separate and contains the accepted tip
+registration plus its acceptance event and complete consumed evidence. Loading
 returns quarantined evidence. It cannot restore workflow state, a graph
 revision, Motion authorization, operation ownership, a Stop capability, a
 pending command, or a continuation. Fresh identity-compatible controller and
@@ -450,27 +428,22 @@ Observed Drawing Trials require accepted Boundary/coordinate evidence and one
 exact current `TipCameraRegistration` revision.
 
 Stage 4 chooses a 5 mm path inside the applicability rectangle that clears all
-retained calibration-circle and line exposure by the declared ink-clearance margin.
+retained 2 mm-radius calibration circles by the declared ink-clearance margin.
 If no such path exists, it blocks and requires a larger clean calibration area;
 it never crosses old circle ink and weakens attribution. It projects its
-intended local path through the tip registration. Its six leaves own exactly one
-current subject/payload each: immutable line plan; atomic baseline/reveal
-context; line-start arrival; line execution; atomic post-line observation
-(return settlement, newer exact frame, observed geometry, and required
-residual); and comparison. Each subject cites its exact causal predecessors and
-the applicable source/group identities.
+intended local path through the tip registration. It owns
+its own local pre-line baseline, Pen-Up reveal MPos, line-start travel, one
+drawing owner, return to the same reveal pose, strictly newer post-line frame,
+and generic black/new-ink observation. Its request and result cite the exact tip
+revision.
 
 Intended geometry, observed ink, and residuals are required contextual Stage 4
 evidence and have no global visibility toggles. An attributable observed line
 may be retained as future refinement evidence. It cannot silently change an
-accepted calibration. Before LIVE Pen Down, the full planned line is
-conservatively reserved and persisted in the same current-paper
-surface-exposure ledger as calibration circles. The reservation survives every
-later outcome, invalidation, and process restart. Only explicit paper replacement
-rotates applicability; it does not erase the ledger. Possible ink or ambiguous
-motion never triggers automatic redraw or resend.
+accepted calibration. Possible ink or
+ambiguous motion never triggers automatic redraw or resend.
 
-## Attempts, dependencies, invalidation, and simulation
+## Attempts, dependencies, reset, and simulation
 
 Every repeatable exercise has an immutable attempt identity, typed disposition,
 accepted artifact slot, and explicit dependencies.
@@ -480,39 +453,30 @@ slot and invalidates named transitive dependents. Failure, refusal,
 cancellation, or ambiguity preserves the prior accepted artifact and its
 dependents. Record Another Attempt adds only compatible successful evidence.
 
-The direct causal spine is:
+The dependency spine is:
 
 ```text
-pen-cap appearance -> Pen Interaction
-four Boundary aggregates -> estimated center/local frame -> center arrival
-pen-cap appearance + center arrival -> five-cap MachineCameraRegistration
+four Boundary aggregates -> estimated center -> center arrival
+-> five-cap MachineCameraRegistration
 -> five ToolContactObservation revisions -> TipCameraRegistration
--> line plan -> local baseline/reveal context -> line-start arrival
--> line execution -> atomic post-line observation -> comparison
+-> local line plan + local pre-line baseline
+-> line execution + post-line frame -> ink observation -> residual -> comparison
 ```
 
-Invalidation is causal, not chronological. A leaf roots only its current
-subject(s); a branch roots every descendant-owned current subject; the dependency
-graph removes true transitive consumers. The immutable preview binds source,
-subject/revision and payload versions, accepted sequence, and exact manifest
-revision only when the scope removes a durable payload, and rejects stale
-authority. Retained sparse exposure prevents same-paper 3.4 Redo. Any reserved
-Stage 4 line exposure makes 4.1–4.4 replacement abandon that group and return to
-a fresh 4.1 plan; no later leaf may become a false post-ink baseline.
-Invalidation never performs motion, changes pen
-state, cancels, resends, redraws, clears possible-ink or exposure history, or
-claims to erase physical ink. LIVE and SIMULATED authority invalidate
-independently. Redo remains the separate successful atomic-replacement seam.
+Reset From This Step is a deliberate chronological rewind, distinct from causal
+Redo. It previews the exact suffix, rejects a stale summary, and never performs
+motion, changes pen state, or erases physical ink. LIVE and SIMULATED authority
+reset independently.
 
 LIVE and SIMULATED learning are independent `LearningSessionState` values
 governed by the same state contract and selected by the active source. A source
-switch never copies one source into the other. Leaving either source retains its
-session; returning to an unchanged SIMULATED paper therefore retains both its
-generated ink and its matching nonphysical surface-exposure ledger.
+switch never copies or parks one source inside the other. Entering SIMULATED
+creates a fresh nonphysical session; leaving it selects the unchanged LIVE
+session, and later re-entry starts another fresh SIMULATED session.
 
 SIMULATED uses the same public action seams and dependency graph with causal
 frames, persistent black ink, and a real nonzero cap-to-tip truth. It has no
-capability to load or compare-and-commit the LIVE durable authority manifest. It
+capability to load, save, or clear LIVE durable machine or tip checkpoints. It
 cannot invoke physical `MachineActions`, satisfy physical artifacts, or become
 observed physical ink evidence.
 
@@ -534,12 +498,11 @@ No model changes during a Pen Down stroke or chooses hidden motion.
 Buttons are authoritative for choices, progression, Cancel, and Stop. Speech is
 output-only advisory guidance; failure leaves buttons usable.
 
-One exhaustive action-effect mapping owns button chrome: commit, accept, start,
-go, and Stop & Accept are green; Stop, Cancel, reject, discard, and invalidate
-are red; same-stage value/click/direction input is blue; view/navigation utility
-is medium gray. A disabled action keeps its semantic role but renders dark and
-is noninteractive. Passive status colors and required values are content, not
-button roles or disabled-button stand-ins.
+Enabled affirmative transitions are green, enabled negative/Cancel/Stop
+transitions are red, enabled neutral actions are medium gray, and disabled
+actions are dark gray and noninteractive. Disabled appearance and hit testing
+consume the same Boolean fact. Passive status and required values are content,
+not disabled-button stand-ins.
 
 Physical work uses the signed bundle and single-instance launcher. The launcher
 may activate the exact existing bundle or launch it through LaunchServices. It

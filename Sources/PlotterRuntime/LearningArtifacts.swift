@@ -13,7 +13,6 @@ public enum ExerciseAttemptDisposition: Codable, Hashable, Sendable {
   case succeeded
   case refused(String)
   case unclear(String)
-  case stopped
   case cancelled
   case ambiguous(String)
   case failed(String)
@@ -333,160 +332,9 @@ public struct AggregateEstimatorIdentity: Codable, Hashable, Sendable {
   }
 }
 
-public enum NumericAggregateError: Error, Hashable, Sendable {
-  case noSuccessfulValues
-  case nonFiniteValue(ExerciseAttemptID)
-}
-
 public enum NumericUncertainty: Codable, Hashable, Sendable {
   case unavailable(validSampleCount: Int)
   case sampleStandardDeviation(Double)
-}
-
-public struct NumericAttemptAggregate: Hashable, Sendable {
-  public let validSampleCount: Int
-  public let estimator: AggregateEstimatorIdentity
-  public let estimate: Double
-  public let uncertainty: NumericUncertainty
-  public let includedAttemptIDs: [ExerciseAttemptID]
-
-  public init(
-    history: ExerciseAttemptHistory<Double>,
-    estimator: AggregateEstimatorIdentity = AggregateEstimatorIdentity(
-      name: "arithmetic-mean",
-      revision: "1"
-    )
-  ) throws {
-    let included = history.includedSuccessfulAttempts
-    guard !included.isEmpty else { throw NumericAggregateError.noSuccessfulValues }
-    let values = try included.map { attempt in
-      guard let value = attempt.value, value.isFinite else {
-        throw NumericAggregateError.nonFiniteValue(attempt.id)
-      }
-      return value
-    }
-    let mean = values.reduce(0, +) / Double(values.count)
-    let uncertainty: NumericUncertainty
-    if values.count < 2 {
-      uncertainty = .unavailable(validSampleCount: values.count)
-    } else {
-      let squaredResiduals = values.reduce(0) { partial, value in
-        partial + (value - mean) * (value - mean)
-      }
-      uncertainty = .sampleStandardDeviation(
-        sqrt(squaredResiduals / Double(values.count - 1))
-      )
-    }
-    validSampleCount = values.count
-    self.estimator = estimator
-    estimate = mean
-    self.uncertainty = uncertainty
-    includedAttemptIDs = included.map(\.id)
-  }
-}
-
-public enum PointAttemptAggregateError: Error, Hashable, Sendable {
-  case noSuccessfulValues
-  case nonGeometricCoordinateSpace(AttemptCoordinateSpace)
-  case nonFiniteEstimate
-}
-
-public enum PointSampleUncertainty<Space>: Hashable, Sendable {
-  case unavailable(validSampleCount: Int)
-  case componentSampleStandardDeviation(Vector2<Space>)
-}
-
-/// A compatibility-bound component arithmetic mean for geometric point
-/// measurements. Point coordinates preserve their compile-time coordinate
-/// space and uncertainty is reported in the same typed space.
-public struct PointAttemptAggregate<Space>: Hashable, Sendable {
-  public let validSampleCount: Int
-  public let estimator: AggregateEstimatorIdentity
-  public let centroid: Point2<Space>
-  public let uncertainty: PointSampleUncertainty<Space>
-  public let includedAttemptIDs: [ExerciseAttemptID]
-
-  public init(
-    history: ExerciseAttemptHistory<Point2<Space>>,
-    estimator: AggregateEstimatorIdentity = AggregateEstimatorIdentity(
-      name: "component-arithmetic-mean",
-      revision: "1"
-    )
-  ) throws {
-    guard [.machine, .cameraPixels, .field].contains(
-      history.compatibility.coordinateSpace
-    ) else {
-      throw PointAttemptAggregateError.nonGeometricCoordinateSpace(
-        history.compatibility.coordinateSpace
-      )
-    }
-    let included = history.includedSuccessfulAttempts
-    guard !included.isEmpty else { throw PointAttemptAggregateError.noSuccessfulValues }
-    let values = included.compactMap(\.value)
-    let meanX = values.reduce(0) { $0 + $1.x } / Double(values.count)
-    let meanY = values.reduce(0) { $0 + $1.y } / Double(values.count)
-    guard meanX.isFinite, meanY.isFinite else {
-      throw PointAttemptAggregateError.nonFiniteEstimate
-    }
-    let centroid = try Point2<Space>(x: meanX, y: meanY)
-    let uncertainty: PointSampleUncertainty<Space>
-    if values.count < 2 {
-      uncertainty = .unavailable(validSampleCount: values.count)
-    } else {
-      let denominator = Double(values.count - 1)
-      let squaredX = values.reduce(0) { partial, value in
-        partial + (value.x - meanX) * (value.x - meanX)
-      }
-      let squaredY = values.reduce(0) { partial, value in
-        partial + (value.y - meanY) * (value.y - meanY)
-      }
-      let deviationX = sqrt(squaredX / denominator)
-      let deviationY = sqrt(squaredY / denominator)
-      guard deviationX.isFinite, deviationY.isFinite else {
-        throw PointAttemptAggregateError.nonFiniteEstimate
-      }
-      uncertainty = .componentSampleStandardDeviation(
-        try Vector2<Space>(dx: deviationX, dy: deviationY)
-      )
-    }
-    validSampleCount = values.count
-    self.estimator = estimator
-    self.centroid = centroid
-    self.uncertainty = uncertainty
-    includedAttemptIDs = included.map(\.id)
-  }
-}
-
-public enum CategoricalAggregateError: Error, Hashable, Sendable {
-  case noSuccessfulValues
-}
-
-public struct CategoricalAttemptAggregate<Category: Hashable & Sendable>: Sendable {
-  public let validSampleCount: Int
-  public let estimator: AggregateEstimatorIdentity
-  public let counts: [Category: Int]
-  public let proportions: [Category: Double]
-  public let includedAttemptIDs: [ExerciseAttemptID]
-
-  public init(
-    history: ExerciseAttemptHistory<Category>,
-    estimator: AggregateEstimatorIdentity = AggregateEstimatorIdentity(
-      name: "categorical-counts",
-      revision: "1"
-    )
-  ) throws {
-    let included = history.includedSuccessfulAttempts
-    guard !included.isEmpty else { throw CategoricalAggregateError.noSuccessfulValues }
-    var counts: [Category: Int] = [:]
-    for attempt in included {
-      if let value = attempt.value { counts[value, default: 0] += 1 }
-    }
-    validSampleCount = included.count
-    self.estimator = estimator
-    self.counts = counts
-    proportions = counts.mapValues { Double($0) / Double(included.count) }
-    includedAttemptIDs = included.map(\.id)
-  }
 }
 
 public enum LatestStateAggregateError: Error, Hashable, Sendable {
@@ -532,7 +380,6 @@ public struct LearningArtifactRevisionID: Codable, Hashable, Sendable {
 }
 
 public enum LearningArtifactKind: Codable, Hashable, Sendable {
-  case penCapAppearance
   case penInteraction
   case boundarySideAggregate(BoundaryDirection)
   case estimatedMachineCenter
@@ -540,11 +387,12 @@ public enum LearningArtifactKind: Codable, Hashable, Sendable {
   case machineCameraRegistration
   case toolContactObservation(ToolContactObservationID)
   case tipCameraRegistration
+  case localPreLineBaseline(AttemptGroupIdentity)
   case linePlan(AttemptGroupIdentity)
-  case localPreLineContext(AttemptGroupIdentity)
-  case lineStartArrival(AttemptGroupIdentity)
   case lineExecution(AttemptGroupIdentity)
-  case postLineObservation(AttemptGroupIdentity)
+  case postLineFrame(AttemptGroupIdentity)
+  case inkObservation(AttemptGroupIdentity)
+  case residual(AttemptGroupIdentity)
   case comparison(AttemptGroupIdentity)
 }
 
@@ -630,7 +478,6 @@ public struct LearningArtifactInvalidation: Hashable, Sendable {
 public struct LearningDependencyGraph: Sendable {
   private var revisionsByID: [LearningArtifactRevisionID: LearningArtifactRevision] = [:]
   private var currentRevisionIDByKind: [LearningArtifactKind: LearningArtifactRevisionID] = [:]
-  public private(set) var revision: UInt64 = 0
 
   public init() {}
 
@@ -687,7 +534,6 @@ public struct LearningDependencyGraph: Sendable {
         currentRevisionIDByKind.removeValue(forKey: kind)
       }
     }
-    if !allInvalidatedRevisionIDs.isEmpty { revision &+= 1 }
 
     return LearningArtifactInvalidation(
       rootInvalidatedRevisionIDs: rootRevisionIDs,
@@ -744,7 +590,6 @@ public struct LearningDependencyGraph: Sendable {
     updatedCurrent[currentCandidate.kind] = currentCandidate.id
     revisionsByID = updatedRevisions
     currentRevisionIDByKind = updatedCurrent
-    revision &+= 1
     return LearningArtifactCommit(
       currentRevision: currentCandidate,
       supersededRevisionID: supersededID,
@@ -804,7 +649,6 @@ public struct LearningDependencyGraph: Sendable {
     revisionsByID[revisionID]?.state = .superseded
     revisionsByID[currentCandidate.id] = currentCandidate
     currentRevisionIDByKind[currentCandidate.kind] = currentCandidate.id
-    revision &+= 1
     return LearningArtifactCommit(
       currentRevision: currentCandidate,
       supersededRevisionID: revisionID,
@@ -844,34 +688,6 @@ public struct LearningDependencyGraph: Sendable {
   ) throws {
     let dependencyKinds = candidate.consumedRevisionIDs.compactMap { revisions[$0]?.kind }
     switch candidate.kind {
-    case .penCapAppearance, .boundarySideAggregate:
-      guard dependencyKinds.isEmpty else {
-        throw LearningDependencyGraphError.invalidDependencyShape(candidate.kind)
-      }
-    case .penInteraction:
-      guard dependencyKinds == [.penCapAppearance] else {
-        throw LearningDependencyGraphError.invalidDependencyShape(candidate.kind)
-      }
-    case .estimatedMachineCenter:
-      let directions = Set(dependencyKinds.compactMap { kind -> BoundaryDirection? in
-        guard case .boundarySideAggregate(let direction) = kind else { return nil }
-        return direction
-      })
-      guard dependencyKinds.count == directions.count,
-        directions == Set(BoundaryDirection.allCases)
-      else {
-        throw LearningDependencyGraphError.invalidDependencyShape(candidate.kind)
-      }
-    case .centerArrival:
-      guard dependencyKinds == [.estimatedMachineCenter] else {
-        throw LearningDependencyGraphError.invalidDependencyShape(candidate.kind)
-      }
-    case .machineCameraRegistration:
-      guard Set(dependencyKinds) == [.centerArrival, .penCapAppearance],
-        dependencyKinds.count == 2
-      else {
-        throw LearningDependencyGraphError.invalidDependencyShape(candidate.kind)
-      }
     case .toolContactObservation:
       guard dependencyKinds.count == 1,
         dependencyKinds[0] == .machineCameraRegistration
@@ -884,43 +700,41 @@ public struct LearningDependencyGraph: Sendable {
       })
       guard dependencyKinds.count == machineCount + observationIDs.count,
         machineCount == 1,
-        observationIDs.isEmpty || observationIDs.count == 1
-          || observationIDs.count == 5 || observationIDs.count == 6
+        observationIDs.count == 5 || observationIDs.count == 6
       else {
         throw LearningDependencyGraphError.invalidDependencyShape(candidate.kind)
       }
-    case .linePlan:
+    case .linePlan, .localPreLineBaseline:
       guard dependencyKinds == [.tipCameraRegistration] else {
         throw LearningDependencyGraphError.invalidDependencyShape(candidate.kind)
       }
-    case .localPreLineContext(let group):
-      guard Set(dependencyKinds) == [.linePlan(group), .tipCameraRegistration],
-        dependencyKinds.count == 2
-      else {
-        throw LearningDependencyGraphError.invalidDependencyShape(candidate.kind)
-      }
-    case .lineStartArrival(let group):
-      guard Set(dependencyKinds) == [.linePlan(group), .localPreLineContext(group)],
-        dependencyKinds.count == 2
-      else {
-        throw LearningDependencyGraphError.invalidDependencyShape(candidate.kind)
-      }
     case .lineExecution(let group):
-      guard Set(dependencyKinds) == [
-        .linePlan(group), .localPreLineContext(group), .lineStartArrival(group),
-      ], dependencyKinds.count == 3 else {
+      guard dependencyKinds == [.linePlan(group)] else {
         throw LearningDependencyGraphError.invalidDependencyShape(candidate.kind)
       }
-    case .postLineObservation(let group):
+    case .postLineFrame(let group):
       guard Set(dependencyKinds) == [
-        .lineExecution(group), .localPreLineContext(group), .tipCameraRegistration,
-      ], dependencyKinds.count == 3 else {
+        .lineExecution(group), .localPreLineBaseline(group), .tipCameraRegistration,
+      ] else {
+        throw LearningDependencyGraphError.invalidDependencyShape(candidate.kind)
+      }
+    case .inkObservation(let group):
+      guard Set(dependencyKinds) == [
+        .localPreLineBaseline(group), .lineExecution(group), .postLineFrame(group),
+        .tipCameraRegistration,
+      ] else {
+        throw LearningDependencyGraphError.invalidDependencyShape(candidate.kind)
+      }
+    case .residual(let group):
+      guard dependencyKinds == [.inkObservation(group)] else {
         throw LearningDependencyGraphError.invalidDependencyShape(candidate.kind)
       }
     case .comparison(let group):
-      guard dependencyKinds == [.postLineObservation(group)] else {
+      guard Set(dependencyKinds) == [.inkObservation(group), .residual(group)] else {
         throw LearningDependencyGraphError.invalidDependencyShape(candidate.kind)
       }
+    default:
+      break
     }
   }
 }

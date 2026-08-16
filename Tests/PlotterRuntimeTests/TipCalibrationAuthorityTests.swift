@@ -24,12 +24,14 @@ struct TipCalibrationAuthorityTests {
     #expect(observation.penDown.profile.value(for: .lower) == 805)
     #expect(observation.penUp.profile.value(for: .raise) == 55)
     #expect(try observation.durableEvidenceSHA256().count == 64)
+    #expect(!observation.disposition.blacklistsPhysicalLocation)
+
     let ambiguous = try fixture.observation(
       position: .negativeX,
       disposition: .ambiguous("Pen Down completion is unknown."),
       penDown: .ambiguous(.transport("unknown post-write state"))
     )
-    #expect(ambiguous.disposition == .ambiguous("Pen Down completion is unknown."))
+    #expect(ambiguous.disposition.blacklistsPhysicalLocation)
   }
 
   @Test("Accepted contact evidence requires settled motion, cap checks, lower, and raise")
@@ -241,35 +243,20 @@ struct TipCalibrationAuthorityTests {
         acceptedRevisionID: registration.acceptedRevisionID,
         timestamp: fixture.timestamp(900),
         actor: "operator"
-      ),
-      surfaceExposures: try fixture.surfaceExposures()
+      )
     )
-    let completeLedger = try LearningSurfaceExposureLedger(
-      entries: checkpoint.surfaceExposures
-    )
-    let incompleteLedger = try LearningSurfaceExposureLedger(
-      entries: Array(checkpoint.surfaceExposures.dropLast())
-    )
-    #expect(checkpoint.isSurfaceExposureBound(to: completeLedger))
-    #expect(!checkpoint.isSurfaceExposureBound(to: incompleteLedger))
     let directory = FileManager.default.temporaryDirectory
       .appendingPathComponent("tip-checkpoint-\(UUID().uuidString)", isDirectory: true)
     let url = directory.appendingPathComponent("checkpoint.json")
-    let store = LearningAuthorityManifestStore(fileURL: url)
+    let store = AcceptedTipCalibrationCheckpointStore(fileURL: url)
     defer { try? FileManager.default.removeItem(at: directory) }
 
-    _ = try store.commit(
-      expectedRevision: .absent,
-      mutation: LearningAuthorityManifestMutation(tip: .replace(checkpoint))
-    )
+    try store.save(checkpoint)
     let loaded: AcceptedTipCalibrationCheckpoint
     switch store.load() {
-    case .loaded(let snapshot):
-      guard let value = snapshot.manifest.tip else {
-        throw TipFixtureError.unexpected("tip checkpoint absent from manifest")
-      }
-      loaded = value
-    case .rejected(let reason, _): throw TipFixtureError.unexpected(reason)
+    case .quarantined(let value): loaded = value
+    case .absent: throw TipFixtureError.unexpected("checkpoint absent")
+    case .rejected(let reason): throw TipFixtureError.unexpected(reason)
     }
 
     let evidence = try fixture.revalidationEvidence(
@@ -349,45 +336,12 @@ struct TipCalibrationAuthorityTests {
     let fixture = try TipAuthorityFixture()
     let registration = try fixture.registration()
     var graph = LearningDependencyGraph()
-    let penAppearance = try graph.commitReplacement(
-      LearningArtifactRevision(
-        kind: .penCapAppearance,
-        attemptID: ExerciseAttemptID(),
-        disposition: .succeeded
-      )
-    ).currentRevision
-    let boundaries = try BoundaryDirection.allCases.map { direction in
-      try graph.commitReplacement(
-        LearningArtifactRevision(
-          kind: .boundarySideAggregate(direction),
-          attemptID: ExerciseAttemptID(),
-          disposition: .succeeded
-        )
-      ).currentRevision
-    }
-    let center = try graph.commitReplacement(
-      LearningArtifactRevision(
-        kind: .estimatedMachineCenter,
-        attemptID: ExerciseAttemptID(),
-        disposition: .succeeded,
-        consumedRevisionIDs: Set(boundaries.map(\.id))
-      )
-    ).currentRevision
-    let arrival = try graph.commitReplacement(
-      LearningArtifactRevision(
-        kind: .centerArrival,
-        attemptID: ExerciseAttemptID(),
-        disposition: .succeeded,
-        consumedRevisionIDs: [center.id]
-      )
-    ).currentRevision
     let machine = try graph.commitReplacement(
       LearningArtifactRevision(
         id: registration.machineCameraRegistrationRevisionID,
         kind: .machineCameraRegistration,
         attemptID: ExerciseAttemptID(),
-        disposition: .succeeded,
-        consumedRevisionIDs: [arrival.id, penAppearance.id]
+        disposition: .succeeded
       )
     ).currentRevision
 
@@ -629,27 +583,6 @@ private struct TipAuthorityFixture {
       estimatorRevision: "tip-affine-fit-v1",
       acceptedAt: timestamp(800)
     )
-  }
-
-  func surfaceExposures() throws -> [LearningSurfaceExposure] {
-    try ToolContactCalibrationPosition.allCases.enumerated().map { index, position in
-      let observation = try observation(position: position)
-      return try LearningSurfaceExposure(
-        provenance: .livePossiblePhysicalInk,
-        paperContactPlane: paper,
-        owner: .sparseTipMark(position),
-        geometry: .sparseCalibrationCircle(
-          center: observation.markGeometry.center,
-          radiusMM: observation.markGeometry.radiusMM
-        ),
-        reservedNanoseconds: UInt64(index + 1),
-        penUpFinalization: LearningSurfacePenUpFinalization(
-          reason: .circleCompleted,
-          outcome: observation.penUp.outcome,
-          attemptedNanoseconds: UInt64(index + 10)
-        )
-      )
-    }
   }
 
   func revalidationEvidence(

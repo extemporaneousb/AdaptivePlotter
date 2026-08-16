@@ -136,14 +136,13 @@ enum ObservedDrawingTrialPlanningError: Error, Equatable, Sendable {
 
 extension ObservedDrawingTrialPlanningError: LocalizedError {
   var errorDescription: String? {
-    "No 5 mm line inside the accepted tip-calibration rectangle clears all persistent calibration ink and admitted Stage 4 stroke exposure. Replace the paper before Stage 4 continues."
+    "No 5 mm line inside the accepted tip-calibration rectangle clears all persistent 2 mm-radius calibration circles. Replace the paper and recalibrate with a larger usable rectangle before Stage 4."
   }
 }
 
 /// Chooses a 5 mm axis-aligned Stage 4 stroke that cannot cross one of the
-/// current paper's persistent Learning surface exposure. Old ink remains valid
-/// baseline evidence, but a new stroke may not be split into multiple
-/// components by an old outline.
+/// persistent Stage 3.4 circles. Old ink remains valid baseline evidence, but
+/// a new stroke may not be split into multiple components by an old outline.
 struct ObservedDrawingTrialLinePlan: Hashable, Sendable {
   static let lengthMM = 5.0
   static let minimumInkClearanceMM = 0.25
@@ -155,10 +154,8 @@ struct ObservedDrawingTrialLinePlan: Hashable, Sendable {
   init(
     direction: BoundaryDirection,
     domain: AxisAlignedBounds<MachineSpace>,
-    surfaceExposureLedger: LearningSurfaceExposureLedger,
-    paperContactPlane: PaperContactPlaneRevision
+    existingMarks: [ToolContactMarkGeometryEvidence]
   ) throws {
-    let currentPaperExposure = surfaceExposureLedger.exposures(on: paperContactPlane)
     let centerX = (domain.minX + domain.maxX) / 2
     let centerY = (domain.minY + domain.maxY) / 2
     let halfLength = Self.lengthMM / 2
@@ -196,19 +193,9 @@ struct ObservedDrawingTrialLinePlan: Hashable, Sendable {
       }
     guard let selected = candidates.first(where: { start, end in
       Self.contains(start, in: domain) && Self.contains(end, in: domain)
-        && currentPaperExposure.allSatisfy { exposure in
-          switch exposure.geometry {
-          case .sparseCalibrationCircle(let center, let radiusMM):
-            Self.distance(from: center.point, toSegmentFrom: start, to: end)
-              > radiusMM + Self.minimumInkClearanceMM
-          case .isolatedLine(let exposedStart, let exposedEnd):
-            Self.distance(
-              betweenSegmentFrom: start,
-              to: end,
-              andSegmentFrom: exposedStart.point,
-              to: exposedEnd.point
-            ) > Self.minimumInkClearanceMM
-          }
+        && existingMarks.allSatisfy { mark in
+          Self.distance(from: mark.center.point, toSegmentFrom: start, to: end)
+            > mark.radiusMM + Self.minimumInkClearanceMM
         }
     }) else { throw ObservedDrawingTrialPlanningError.noClearFiveMillimeterLine }
     startPosition = MachinePosition(point: selected.0)
@@ -241,42 +228,6 @@ struct ObservedDrawingTrialLinePlan: Hashable, Sendable {
       y: start.y + t * dy
     )
     return point.distance(to: closest)
-  }
-
-  private static func distance(
-    betweenSegmentFrom firstStart: Point2<MachineSpace>,
-    to firstEnd: Point2<MachineSpace>,
-    andSegmentFrom secondStart: Point2<MachineSpace>,
-    to secondEnd: Point2<MachineSpace>
-  ) -> Double {
-    if segmentsIntersect(firstStart, firstEnd, secondStart, secondEnd) { return 0 }
-    return [
-      distance(from: firstStart, toSegmentFrom: secondStart, to: secondEnd),
-      distance(from: firstEnd, toSegmentFrom: secondStart, to: secondEnd),
-      distance(from: secondStart, toSegmentFrom: firstStart, to: firstEnd),
-      distance(from: secondEnd, toSegmentFrom: firstStart, to: firstEnd)
-    ].min()!
-  }
-
-  private static func segmentsIntersect(
-    _ firstStart: Point2<MachineSpace>,
-    _ firstEnd: Point2<MachineSpace>,
-    _ secondStart: Point2<MachineSpace>,
-    _ secondEnd: Point2<MachineSpace>
-  ) -> Bool {
-    func orientation(
-      _ a: Point2<MachineSpace>,
-      _ b: Point2<MachineSpace>,
-      _ c: Point2<MachineSpace>
-    ) -> Double {
-      (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
-    }
-
-    let firstSecondStart = orientation(firstStart, firstEnd, secondStart)
-    let firstSecondEnd = orientation(firstStart, firstEnd, secondEnd)
-    let secondFirstStart = orientation(secondStart, secondEnd, firstStart)
-    let secondFirstEnd = orientation(secondStart, secondEnd, firstEnd)
-    return firstSecondStart * firstSecondEnd <= 0 && secondFirstStart * secondFirstEnd <= 0
   }
 }
 

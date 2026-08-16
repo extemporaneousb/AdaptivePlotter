@@ -16,26 +16,24 @@ struct LearningPathProjectorTests {
 
     #expect(first == second)
     #expect(first.currentItemID == .stage(.connect))
-    #expect(first.selectedAction.item.id == .stage(.observedDrawingTrials))
-    #expect(first.selectedAction.item.status == .next)
-    #expect(first.selectedAction.heading == "4 - Observed Drawing Trials")
+    #expect(first.selectedAction.itemID == .stage(.observedDrawingTrials))
+    #expect(first.selectedAction.status == .next)
   }
 
-  @Test("the projector consumes the canonical tree order")
+  @Test("all navigator rows receive exact initial states")
   func everyNavigatorRowIsProjected() {
     let projection = projector.project(
       LearningPathProjectionSnapshot(),
       selectedItemID: .stage(.connect)
     )
 
-    #expect(projection.items.map(\.id) == LearningPathTree.curriculum.flattenedItems)
+    #expect(projection.items.map(\.id) == LearningPathItemID.navigationOrder)
     #expect(projection.items.count == 14)
     #expect(projection.items.first?.status == .current)
     #expect(projection.items.dropFirst().allSatisfy { $0.status == .next })
-    #expect(projection.selectedAction.actionStrip == nil)
   }
 
-  @Test("LIVE and SIMULATED use the same progression and control grammar")
+  @Test("LIVE and SIMULATED use the same progression and action grammar")
   func liveSimulatedParity() {
     let live = projector.project(
       connectedSnapshot(source: .live),
@@ -49,47 +47,14 @@ struct LearningPathProjectorTests {
     #expect(live.currentItemID == simulated.currentItemID)
     #expect(live.items.map(\.status) == simulated.items.map(\.status))
     #expect(live.selectedAction.actionStrip == simulated.selectedAction.actionStrip)
-    #expect(live.selectedAction.script == simulated.selectedAction.script)
+    #expect(live.currentItemID == .humanGuidedDiscovery(.penInteraction))
   }
 
-  @Test("active Boundary projects Stop & Accept, Stop, and Cancel under one capability")
-  func boundaryTerminationControls() {
-    let owner = LearningPathItemID.humanGuidedDiscovery(
-      .pairedBoundaryDiscoveryAndCentering
-    )
-    let capability = ContextualStopCapabilityID(
-      rawValue: UUID(uuidString: "00000000-0000-0000-0000-000000000501")!
-    )
-    let snapshot = connectedSnapshot(
-      operations: .init(
-        activeAttemptOwner: owner,
-        stopOwner: .pairedBoundary(capability, .positiveX)
-      )
-    )
-    let projection = projector.project(snapshot, selectedItemID: owner)
-    let actions = projection.selectedAction.actionStrip?.actions
-
-    #expect(projection.contextualStop?.capabilityID == capability)
-    #expect(actions?.map(\.kind) == [
-      .stopAndAcceptBoundary(capability),
-      .stop(capability),
-      .cancel(capability),
-    ])
-    #expect(actions?.map(\.title) == ["Stop & Accept", "Stop", "Cancel"])
-    #expect(actions?.map(\.buttonRole) == [.commit, .interrupt, .interrupt])
-    #expect(actions?.map(\.keyboardShortcut) == [nil, .escape, nil])
-    #expect(projection.selectedAction.actionStrip?.mustRemainVisible == true)
-    #expect(
-      projection.selectedAction.question?.prompt.accessibilityText
-        == "How should this Boundary motion end?"
-    )
-  }
-
-  @Test("non-Boundary Stop remains capability-bound and red")
-  func nonBoundaryStopOwnership() {
+  @Test("Stop remains bound to its exact typed owner capability")
+  func stopOwnership() {
     let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
     let capability = ContextualStopCapabilityID(
-      rawValue: UUID(uuidString: "00000000-0000-0000-0000-000000000502")!
+      rawValue: UUID(uuidString: "00000000-0000-0000-0000-000000000501")!
     )
     let snapshot = connectedSnapshot(
       operations: .init(
@@ -97,80 +62,139 @@ struct LearningPathProjectorTests {
         stopOwner: .exercise(capability, .moveToEstimatedCenter, boundaryOwner: false)
       )
     )
-    let action = projector.project(snapshot, selectedItemID: owner)
-      .selectedAction.actionStrip?.actions.first
+    let projection = projector.project(snapshot, selectedItemID: owner)
 
-    #expect(action?.kind == .stop(capability))
-    #expect(action?.buttonRole == .interrupt)
-    #expect(action?.keyboardShortcut == .escape)
+    #expect(projection.contextualStop?.capabilityID == capability)
+    #expect(projection.currentActionStrip?.actions.map(\.kind) == [.stop(capability)])
+    #expect(projection.currentActionStrip?.mustRemainVisible == true)
   }
 
-  @Test("operational failure changes status but is not printed into the Exercise script")
-  func diagnosticsStayOutOfPrimaryExercise() {
+  @Test("typed failure kind renders without changing progression authority")
+  func typedFailureRendering() {
     let failure = WorkflowFailure(
       kind: .ambiguous,
       detail: "Controller settlement is ambiguous.",
       recovery: .resolveNamedFailure
     )
+    let snapshot = connectedSnapshot(
+      operations: .init(explorationFailure: failure)
+    )
     let projection = projector.project(
-      connectedSnapshot(operations: .init(explorationFailure: failure)),
+      snapshot,
       selectedItemID: .humanGuidedDiscovery(.penInteraction)
     )
-    let visibleScript = projection.selectedAction.script
-      .map { $0.fragments.accessibilityText }
-      .joined(separator: " ")
 
-    #expect(projection.selectedAction.item.status == .needsAttention)
-    #expect(!visibleScript.contains(failure.detail))
+    #expect(projection.currentItemID == .humanGuidedDiscovery(.penInteraction))
+    #expect(projection.selectedAction.status == .needsAttention)
+    #expect(projection.selectedAction.activity?.detail.accessibilityText == failure.detail)
+    #expect(projection.selectedAction.activity?.outcome == .needsAttention)
   }
 
-  @Test("selected leaf or branch invalidation is compactly projected, never executed")
-  func invalidationPresentation() {
-    let branch = LearningPathItemID.stage(.humanGuidedDiscovery)
-    let affected = LearningPathTree.curriculum.descendantLeaves(of: branch)
-    let plan = LearningInvalidationPlan(
-      scope: .subtree(root: branch),
-      source: .live,
-      affectedItemIDs: affected,
-      expectedCurrentRevisionIDs: [],
-      expectedGraphRevision: 7,
-      expectedAcceptedAttemptSequence: 9,
-      expectedAuthorityManifestRevision: .valid(
-        generation: 8,
-        payloadSHA256: String(repeating: "8", count: 64)
-      ),
-      removesDurableMachineRegistration: true,
-      removesDurableTipRegistration: true,
-      physicalInkMayRemain: true
+  @Test("settled recovery does not replace the next unmet exercise")
+  func restartableAttemptDoesNotTrapProgression() {
+    let pen = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+    let boundary = LearningPathItemID.humanGuidedDiscovery(
+      .pairedBoundaryDiscoveryAndCentering
     )
     let snapshot = LearningPathProjectionSnapshot(
-      invalidation: .init(
-        plansByRoot: [branch: plan],
+      penInteractionCompleted: true,
+      controller: .init(
+        sessionEstablished: true,
+        motionAuthorized: true,
+        connectionText: "connected",
+        motionGuardStateText: "active"
+      ),
+      operations: .init(restartableItem: pen)
+    )
+
+    let projection = projector.project(snapshot, selectedItemID: pen)
+
+    #expect(projection.currentItemID == boundary)
+    #expect(projection.currentActionStrip?.ownerID == boundary)
+    #expect(projection.currentActionStrip?.actions.map(\.kind) == [.start])
+    #expect(projection.selectedAction.status == .needsAttention)
+    #expect(projection.selectedAction.actionStrip?.actions.map(\.kind) == [.restart])
+  }
+
+  @Test("current-camera calibration does not project a manual-motion gate")
+  func currentCameraCalibrationDoesNotGateManualMotion() {
+    let snapshot = LearningPathProjectionSnapshot(
+      source: .live,
+      controller: .init(
+        sessionEstablished: true,
+        motionAuthorized: true,
+        connectionText: "connected",
+        cameraStateText: "streaming",
+        motionGuardStateText: "active"
+      ),
+      cameraCalibration: .init(phase: .capturing(sample: 2, total: 5, role: "fit"))
+    )
+    let projection = projector.project(
+      snapshot,
+      selectedItemID: .humanGuidedDiscovery(.penInteraction)
+    )
+    let controller = projection.selectedAction.subsystemStatuses.first { $0.id == "controller" }
+    let vision = projection.selectedAction.subsystemStatuses.first { $0.id == "vision" }
+
+    #expect(controller?.state == "Calibration active / manual controls independent")
+    #expect(controller?.blocksNewMotion == false)
+    #expect(vision?.blocksNewMotion == false)
+    #expect(vision?.detail.accessibilityText.contains("does not gate direct manual controls") == true)
+  }
+
+  @Test("reset and vacate inputs are projected but never executed")
+  func resetSurface() {
+    let anchor = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+    let plan = LearningVacatePlan(
+      scope: .from(anchor),
+      source: .live,
+      anchor: anchor,
+      affectedItems: [anchor],
+      expectedCurrentRevisionIDs: [],
+      expectedAcceptedAttemptSequence: 7,
+      removesDurableMachineCheckpoint: false,
+      removesDurableTipCheckpoint: false,
+      physicalInkMayRemain: false
+    )
+    let snapshot = LearningPathProjectionSnapshot(
+      reset: .init(
+        plansByAnchor: [anchor: plan],
         unavailableReason: "An operation is active."
       )
     )
-    let projection = projector.project(snapshot, selectedItemID: branch)
+    let projection = projector.project(snapshot, selectedItemID: anchor)
 
-    #expect(projection.selectedAction.invalidation.selectedPlan == plan)
-    #expect(projection.selectedAction.invalidation.unavailableReason == "An operation is active.")
-    #expect(projection.selectedAction.invalidation.selectedPlan?.scope == .subtree(root: branch))
+    #expect(projection.resetSurface.selectedPlan == plan)
+    #expect(projection.resetSurface.unavailableReason == "An operation is active.")
+    #expect(projection.currentItemID == .stage(.connect))
   }
 
-  @Test("review selection has no duplicate current action strip")
-  func reviewIsInert() {
-    let current = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
-    let reviewed = LearningPathItemID.stage(.observedDrawingTrials)
-    let projection = projector.project(
-      connectedSnapshot(),
-      selectedItemID: reviewed
+  @Test("sparse calibration phases select one coherent action path")
+  func sparseCalibrationPhases() throws {
+    let owner = LearningPathItemID.humanGuidedDiscovery(
+      .calibratePenContactFromSparseMarks
     )
+    let phases: [(SparseTipCalibrationPhase, [String])] = [
+      (.idle, ["Create Next 2 mm Circle", "Cancel Attempt"]),
+      (.awaitingFrozenClick(.center, FrameID(rawValue: "frame-1")), ["Cancel Attempt"]),
+      (.reviewingClick(.center, FrameID(rawValue: "frame-1")),
+        ["Re-click This Exact Frame", "Accept Mark Center", "Cancel Attempt"]),
+      (.fittingCandidates, ["Fitting Smallest Passing Model…", "Cancel Attempt"]),
+      (.reviewingFinalProposal(.constantCameraPixelCorrection),
+        ["Accept Tip Calibration", "Reject Tip Calibration", "Cancel Attempt"]),
+    ]
 
-    #expect(projection.currentItemID == current)
-    #expect(projection.selectedAction.item.id == reviewed)
-    #expect(projection.selectedAction.actionStrip == nil)
+    for (phase, titles) in phases {
+      let snapshot = postBoundarySnapshot(
+        sparse: .init(phase: phase),
+        operations: .init(activeAttemptOwner: owner)
+      )
+      let strip = projector.project(snapshot, selectedItemID: owner).currentActionStrip
+      #expect(strip?.actions.map(\.title) == titles)
+    }
   }
 
-  @Test("Drawing Trial current and review presentations remain snapshot-local")
+  @Test("Drawing Trial progression and review are snapshot-local")
   func drawingTrialProgression() throws {
     let current = ObservedDrawingTrialStep.drawIsolatedLine
     let snapshot = postBoundarySnapshot(
@@ -190,166 +214,32 @@ struct LearningPathProjectorTests {
     )
 
     #expect(currentProjection.currentItemID == .observedDrawingTrial(current))
-    #expect(currentProjection.selectedAction.actionStrip?.actions.map(\.kind) == [.drawIsolatedLine])
+    #expect(currentProjection.currentActionStrip?.actions.map(\.kind) == [.drawIsolatedLine])
     #expect(reviewProjection.currentItemID == currentProjection.currentItemID)
-    #expect(reviewProjection.selectedAction.item.status == .complete)
+    #expect(reviewProjection.selectedAction.itemID == .observedDrawingTrial(.chooseIsolatedLinePlan))
+    #expect(reviewProjection.selectedAction.status == .complete)
   }
 
-  @Test("accepted sparse calibration offers only explicit Paper Replacement")
-  func acceptedSparseRepeatRequiresPaperReplacement() {
-    let owner = LearningPathItemID.humanGuidedDiscovery(
-      .calibratePenContactFromSparseMarks
-    )
+  @Test("completed curriculum remains on the implemented observed-trial endpoint")
+  func completedCurriculumHasNoFutureRoute() {
+    let final = LearningPathItemID.observedDrawingTrial(.compareIntendedAndObservedGeometry)
     let snapshot = postBoundarySnapshot(
-      sparse: .init(acceptedIsCurrent: true, phase: .accepted)
+      sparse: .init(acceptedIsCurrent: true),
+      drawing: .init(
+        currentStep: .compareIntendedAndObservedGeometry,
+        assessment: .observedGeometryAccepted
+      )
     )
-    let projection = projector.project(snapshot, selectedItemID: owner)
 
+    let projection = projector.project(snapshot, selectedItemID: final)
+
+    #expect(projection.currentItemID == final)
+    #expect(projection.items.last?.id == final)
+    #expect(projection.items.last?.status == .complete)
     #expect(
-      projection.selectedAction.actionStrip?.actions.map(\.kind)
-        == [.paperReplaced]
+      projection.currentActionStrip?.actions.map(\.kind)
+        == [.redoThisStep, .recordAnotherAttempt]
     )
-
-    let unavailable = projector.project(
-      postBoundarySnapshot(
-        sparse: .init(
-          acceptedIsCurrent: true,
-          phase: .accepted,
-          paperReplacementUnavailableReason: "Safety history is unavailable."
-        )
-      ),
-      selectedItemID: owner
-    )
-    #expect(
-      unavailable.selectedAction.actionStrip?.actions.first?.isEnabled == false
-    )
-  }
-
-  @Test("completed Boundary and generic repeat controls preserve current admission blockers")
-  func completedRepeatAdmissionReasons() {
-    let boundaryOwner = LearningPathItemID.humanGuidedDiscovery(
-      .pairedBoundaryDiscoveryAndCentering
-    )
-    let penOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
-    let blocker = "Enable Motion before repeating this exercise."
-    let snapshot = postBoundarySnapshot(
-      startUnavailableReasons: [
-        boundaryOwner: blocker,
-        penOwner: blocker,
-      ]
-    )
-
-    let boundaryActions = projector.project(snapshot, selectedItemID: boundaryOwner)
-      .selectedAction.actionStrip?.actions ?? []
-    #expect(boundaryActions.count == BoundaryDirection.allCases.count * 2)
-    #expect(
-      boundaryActions.allSatisfy {
-        !$0.isEnabled && $0.unavailableReason == blocker
-      }
-    )
-    #expect(
-      boundaryActions.contains {
-        if case .redoBoundary = $0.kind { true } else { false }
-      }
-    )
-    #expect(
-      boundaryActions.contains {
-        if case .recordAnotherBoundaryAttempt = $0.kind { true } else { false }
-      }
-    )
-
-    let penActions = projector.project(snapshot, selectedItemID: penOwner)
-      .selectedAction.actionStrip?.actions ?? []
-    #expect(penActions.map(\.kind) == [.redoThisStep, .recordAnotherAttempt])
-    #expect(
-      penActions.allSatisfy {
-        !$0.isEnabled && $0.unavailableReason == blocker
-      }
-    )
-  }
-
-  @Test("current sparse calibration projects the typed manifest admission blocker")
-  func sparseStartAdmissionReason() {
-    let owner = LearningPathItemID.humanGuidedDiscovery(
-      .calibratePenContactFromSparseMarks
-    )
-    let blocker = "LIVE contact is blocked by the Learning-authority manifest."
-    let projection = projector.project(
-      postBoundarySnapshot(startUnavailableReasons: [owner: blocker]),
-      selectedItemID: owner
-    )
-    let start = projection.selectedAction.actionStrip?.actions.first
-
-    #expect(projection.currentItemID == owner)
-    #expect(start?.kind == .start)
-    #expect(start?.isEnabled == false)
-    #expect(start?.unavailableReason == blocker)
-  }
-
-  @Test("human decision actions include one explicit question")
-  func humanDecisionQuestions() {
-    let camera = projector.project(
-      postBoundarySnapshot(
-        camera: .init(hasProposal: true)
-      ),
-      selectedItemID: .humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
-    )
-    let tip = projector.project(
-      postBoundarySnapshot(
-        sparse: .init(phase: .reviewingFinalProposal(.constantCameraPixelCorrection))
-      ),
-      selectedItemID: .humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
-    )
-    let comparison = projector.project(
-      postBoundarySnapshot(
-        sparse: .init(acceptedIsCurrent: true),
-        drawing: .init(currentStep: .compareIntendedAndObservedGeometry)
-      ),
-      selectedItemID: .observedDrawingTrial(.compareIntendedAndObservedGeometry)
-    )
-    let completedComparison = projector.project(
-      postBoundarySnapshot(
-        sparse: .init(acceptedIsCurrent: true),
-        drawing: .init(
-          currentStep: .compareIntendedAndObservedGeometry,
-          assessment: .observedGeometryAccepted
-        )
-      ),
-      selectedItemID: .observedDrawingTrial(.compareIntendedAndObservedGeometry)
-    )
-
-    #expect(
-      camera.selectedAction.question?.prompt.accessibilityText
-        == "Should this camera and visible-cap fit become current?"
-    )
-    #expect(
-      tip.selectedAction.question?.prompt.accessibilityText
-        == "Should this tip calibration become current?"
-    )
-    #expect(
-      comparison.selectedAction.question?.prompt.accessibilityText
-        == "Does the observed ink geometry match the intended line?"
-    )
-    #expect(completedComparison.selectedAction.question == nil)
-  }
-
-  @Test("typed safety recovery makes Paper Replacement the sole action before checkpoint revalidation")
-  func paperReplacementPrecedesCheckpointRevalidation() {
-    let owner = LearningPathItemID.humanGuidedDiscovery(
-      .calibratePenContactFromSparseMarks
-    )
-    let projection = projector.project(
-      postBoundarySnapshot(
-        sparse: .init(
-          savedCheckpointMatchesPaper: true,
-          requiresPaperReplacement: true
-        )
-      ),
-      selectedItemID: owner
-    )
-
-    #expect(projection.selectedAction.actionStrip?.actions.map(\.kind) == [.paperReplaced])
-    #expect(projection.selectedAction.actionStrip?.actions.first?.isEnabled == true)
   }
 
   private func connectedSnapshot(
@@ -360,26 +250,26 @@ struct LearningPathProjectorTests {
       source: source,
       controller: .init(
         sessionEstablished: true,
-        motionAuthorized: true
+        motionAuthorized: true,
+        connectionText: source == .live ? "connected" : "simulator connected",
+        motionGuardStateText: "active"
       ),
       operations: operations
     )
   }
 
   private func postBoundarySnapshot(
-    camera: LearningPathProjectionSnapshot.CameraCalibrationFacts = .init(
-      acceptedIsCurrent: true
-    ),
     sparse: LearningPathProjectionSnapshot.SparseCalibrationFacts = .init(),
     drawing: LearningPathProjectionSnapshot.DrawingFacts = .init(),
-    operations: LearningPathProjectionSnapshot.OperationFacts = .init(),
-    startUnavailableReasons: [LearningPathItemID: String] = [:]
+    operations: LearningPathProjectionSnapshot.OperationFacts = .init()
   ) -> LearningPathProjectionSnapshot {
     LearningPathProjectionSnapshot(
       penInteractionCompleted: true,
       controller: .init(
         sessionEstablished: true,
-        motionAuthorized: true
+        motionAuthorized: true,
+        connectionText: "connected",
+        motionGuardStateText: "active"
       ),
       boundary: .init(
         acceptedDirections: BoundaryDirection.allCases,
@@ -387,11 +277,10 @@ struct LearningPathProjectorTests {
         isComplete: true,
         centerArrival: try! MachinePosition(x: 0, y: 0)
       ),
-      cameraCalibration: camera,
+      cameraCalibration: .init(acceptedIsCurrent: true),
       sparseCalibration: sparse,
       drawing: drawing,
-      operations: operations,
-      startUnavailableReasons: startUnavailableReasons
+      operations: operations
     )
   }
 }

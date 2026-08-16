@@ -2,262 +2,597 @@ import Foundation
 import PlotterRuntime
 import SwiftUI
 
-/// One Learning interface: the native tree rail and selected exercise consume
-/// the same fresh projection and cannot drift into parallel navigator/detail
-/// contracts.
-struct LearningExercisePane: View {
+struct LearningPathNavigator: View {
+  @Bindable var workspace: OperatorWorkspace
+  @Binding var selection: LearningPathSelectionState
+  let close: () -> Void
+
+  var body: some View {
+    let projection = workspace.learningPathProjection(selectedItemID: selection.selected)
+    VStack(alignment: .leading, spacing: 0) {
+      HStack(alignment: .top, spacing: 8) {
+        VStack(alignment: .leading, spacing: 5) {
+          Text("Learning Path")
+            .font(.title2.weight(.semibold))
+          Text("Select a row to review it. Selection never starts or advances an exercise.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        Spacer(minLength: 8)
+        PanelCloseButton(panel: .learningPath, close: close)
+      }
+      .padding(14)
+
+      if selection.isReviewingAnotherItem {
+        Button {
+          selection.returnToCurrent()
+        } label: {
+          Label("Return to Current", systemImage: "arrow.uturn.backward.circle.fill")
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(.borderedProminent)
+        .padding(.horizontal, 12)
+        .padding(.bottom, 10)
+      }
+
+      Divider()
+
+      ScrollView {
+        LazyVStack(alignment: .leading, spacing: 2) {
+          ForEach(projection.items) { item in
+            navigatorRow(item)
+          }
+        }
+        .padding(8)
+      }
+    }
+    .background(Color(nsColor: .controlBackgroundColor))
+  }
+
+  private func navigatorRow(_ item: LearningPathItemPresentation) -> some View {
+    Button {
+      selection.select(item.id)
+    } label: {
+      HStack(alignment: .top, spacing: 8) {
+        Image(systemName: statusSystemImage(item.status))
+          .foregroundStyle(statusColor(item.status))
+          .frame(width: 17)
+
+        VStack(alignment: .leading, spacing: 3) {
+          HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(item.id.number)
+              .font(.caption.monospaced().bold())
+              .foregroundStyle(.secondary)
+            Text(item.id.title)
+              .font(.callout.weight(item.id == selection.current ? .semibold : .regular))
+              .fixedSize(horizontal: false, vertical: true)
+          }
+
+          HStack(spacing: 5) {
+            Text(item.status.rawValue)
+              .font(.caption2.weight(.medium))
+              .foregroundStyle(statusColor(item.status))
+            if item.id == selection.current {
+              Text("Runtime current")
+                .font(.caption2.monospaced().bold())
+                .foregroundStyle(Color.accentColor)
+            }
+          }
+        }
+        Spacer(minLength: 0)
+      }
+      .padding(.leading, CGFloat(item.id.navigationDepth) * 18)
+      .padding(.horizontal, 8)
+      .padding(.vertical, 7)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .contentShape(Rectangle())
+      .background(
+        item.id == selection.selected ? Color.accentColor.opacity(0.16) : Color.clear,
+        in: RoundedRectangle(cornerRadius: 7)
+      )
+    }
+    .buttonStyle(.plain)
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(
+      "\(item.id.number) \(item.id.title), \(item.status.rawValue)"
+        + (item.id == selection.current ? ", runtime current" : "")
+    )
+    .accessibilityHint("Reviews this row without starting an action")
+  }
+}
+
+/// Selected exercise detail. The scrollable detail and the pinned action strip
+/// are deliberately separate so long evidence cannot push controls off-screen.
+struct LearningPathView: View {
   @Bindable var workspace: OperatorWorkspace
   @Binding var selection: LearningPathSelectionState
   let close: () -> Void
   let closeUnavailableReason: String?
-  @State private var pendingInvalidationPlan: LearningInvalidationPlan?
+  @State private var pendingResetPlan: LearningVacatePlan?
 
   var body: some View {
+    let actionWorkspace = workspace
     let projection = workspace.learningPathProjection(selectedItemID: selection.selected)
+    let selectedPresentation = projection.selectedAction
+    let resetSurface = projection.resetSurface
+    let pinnedActionStrip =
+      projection.currentActionStrip
+      ?? selectedPresentation.actionStrip
 
-    HSplitView {
-      LearningPathRail(
-        items: projection.items,
-        currentItemID: projection.currentItemID,
-        selection: $selection
-      )
-      .frame(
-        minWidth: LearningWorkbenchLayoutPolicy.learningPathRailWidth,
-        idealWidth: LearningWorkbenchLayoutPolicy.learningPathRailWidth,
-        maxWidth: LearningWorkbenchLayoutPolicy.learningPathRailWidth + 60
-      )
+    VStack(spacing: 0) {
+      detailHeader
+      Divider()
 
-      CompactExerciseDetail(
-        presentation: projection.selectedAction,
-        close: close,
-        closeUnavailableReason: closeUnavailableReason,
-        perform: { kind, ownerID in
-          await workspace.performExerciseAction(kind, for: ownerID)
-        },
-        requestInvalidation: { pendingInvalidationPlan = $0 }
-      )
-      .frame(maxWidth: .infinity, maxHeight: .infinity)
+      ScrollView {
+        VStack(alignment: .leading, spacing: 16) {
+          selectedDetail(selectedPresentation)
+          learningResetActions(
+            selectedPlan: resetSurface.selectedPlan,
+            resetAllPlan: resetSurface.resetAllPlan,
+            unavailableReason: resetSurface.unavailableReason,
+            authorityError: resetSurface.authorityError
+          )
+        }
+        .padding(14)
+      }
+
+      if let strip = pinnedActionStrip {
+        Divider()
+        ExerciseActionStripView(
+          presentation: strip,
+          reviewedItemID: selection.selected,
+          perform: { kind, ownerID in
+            await actionWorkspace.performExerciseAction(kind, for: ownerID)
+          }
+        )
+      }
     }
     .background(Color(nsColor: .windowBackgroundColor))
-    .sheet(item: $pendingInvalidationPlan) { plan in
-      LearningInvalidationSheet(
+    .sheet(item: $pendingResetPlan) { plan in
+      LearningResetSheet(
         workspace: workspace,
         plan: plan,
         completed: {
           selection.updateCurrent(workspace.currentLearningPathItemID)
           selection.returnToCurrent()
-          pendingInvalidationPlan = nil
+          pendingResetPlan = nil
         }
       )
     }
   }
-}
 
-private struct LearningPathRail: View {
-  let items: [LearningPathItemPresentation]
-  let currentItemID: LearningPathItemID
-  @Binding var selection: LearningPathSelectionState
-
-  var body: some View {
-    VStack(spacing: 0) {
-      HStack(spacing: 6) {
-        Text("Learning Path")
+  private var detailHeader: some View {
+    HStack(spacing: 8) {
+      VStack(alignment: .leading, spacing: 2) {
+        Text("SELECTED EXERCISE")
+          .font(.caption2.monospaced().bold())
+          .foregroundStyle(.secondary)
+        Text("\(selection.selected.number) \(selection.selected.title)")
           .font(.headline)
-        Spacer(minLength: 0)
-        if selection.selected != currentItemID {
-          Button {
-            selection.select(currentItemID)
-          } label: {
-            Image(systemName: "location.fill")
-          }
-          .buttonStyle(.borderless)
-          .accessibilityLabel("Return to Current Step")
-          .help("Return to Current Step")
-        }
-      }
-      .padding(.horizontal, 10)
-      .padding(.vertical, 9)
-
-      Divider()
-
-      List(selection: selectedItemBinding) {
-        ForEach(items) { item in
-          LearningPathRailRow(
-            item: item,
-            isCurrent: item.id == currentItemID,
-            depth: LearningPathTree.curriculum.depth(of: item.id) ?? 0
-          )
-          .tag(item.id)
-        }
-      }
-      .listStyle(.sidebar)
-      .accessibilityLabel("Learning Path")
-    }
-    .background(Color(nsColor: .controlBackgroundColor))
-  }
-
-  private var selectedItemBinding: Binding<LearningPathItemID?> {
-    Binding(
-      get: { selection.selected },
-      set: { itemID in
-        if let itemID { selection.select(itemID) }
-      }
-    )
-  }
-}
-
-private struct LearningPathRailRow: View {
-  let item: LearningPathItemPresentation
-  let isCurrent: Bool
-  let depth: Int
-
-  var body: some View {
-    HStack(spacing: 6) {
-      Image(systemName: statusSystemImage(item.status))
-        .foregroundStyle(statusColor(item.status))
-        .frame(width: 14)
-      VStack(alignment: .leading, spacing: 1) {
-        Text(item.id.number)
-          .font(.caption.monospaced().bold())
-        Text(item.id.title)
-          .font(.caption)
           .lineLimit(2)
       }
-      Spacer(minLength: 0)
-      if isCurrent {
-        Circle()
-          .fill(Color.accentColor)
-          .frame(width: 6, height: 6)
-          .accessibilityHidden(true)
-      }
+      Spacer()
+      PanelCloseButton(
+        panel: .exercise,
+        close: close,
+        unavailableReason: closeUnavailableReason
+      )
     }
-    .padding(.leading, CGFloat(depth) * 12)
-    .padding(.vertical, 3)
-    .accessibilityElement(children: .ignore)
-    .accessibilityLabel(
-      "\(item.id.number) \(item.id.title), \(item.status.rawValue)"
-        + (isCurrent ? ", current" : "")
-    )
-    .accessibilityHint("Reviews this step without starting it")
+    .padding(12)
   }
-}
 
-private struct CompactExerciseDetail: View {
-  let presentation: OperatorActionPresentation
-  let close: () -> Void
-  let closeUnavailableReason: String?
-  let perform: (ExerciseActionKind, LearningPathItemID) async -> Void
-  let requestInvalidation: (LearningInvalidationPlan) -> Void
+  private func selectedDetail(_ presentation: OperatorActionPresentation) -> some View {
+    VStack(alignment: .leading, spacing: 14) {
+      HStack(alignment: .firstTextBaseline) {
+        statusLabel(presentation.status)
+        Spacer()
+        Text(presentation.stepNumber)
+          .font(.caption.monospaced().bold())
+          .foregroundStyle(.secondary)
+      }
 
-  var body: some View {
-    VStack(spacing: 0) {
-      HStack(alignment: .firstTextBaseline, spacing: 8) {
-        Text(presentation.heading)
-          .font(.title2.weight(.semibold))
-          .fixedSize(horizontal: false, vertical: true)
-        Spacer(minLength: 8)
-        PanelCloseButton(
-          title: "Hide Learning",
-          close: close,
-          unavailableReason: closeUnavailableReason
+      Text(presentation.title)
+        .font(.title2.weight(.semibold))
+        .fixedSize(horizontal: false, vertical: true)
+
+      if let participant = presentation.participant {
+        labeledValue("Participant", participant)
+      }
+
+      if let timeline = presentation.timeline {
+        timelineCard(timeline)
+      }
+
+      if let question = presentation.question {
+        questionCard(question)
+      }
+
+      if !presentation.instructions.isEmpty {
+        fragmentCard(
+          label: "Instruction",
+          fragments: presentation.instructions,
+          color: Color(nsColor: .controlBackgroundColor)
         )
       }
-      .padding(12)
 
-      Divider()
+      if !presentation.expectedObservation.isEmpty {
+        fragmentCard(
+          label: "Expected observation",
+          fragments: presentation.expectedObservation,
+          color: Color.green.opacity(0.09)
+        )
+      }
 
-      ScrollView {
-        VStack(alignment: .leading, spacing: 16) {
-          script
+      if let requestedFeedMMPerMinute = presentation.requestedFeedMMPerMinute {
+        labeledValue(
+          "Requested feed",
+          String(format: "%.1f mm/min", requestedFeedMMPerMinute)
+        )
+      }
+      if let feedSource = presentation.feedSource {
+        labeledValue("Feed source", feedSourceLabel(feedSource))
+      }
 
-          if let question = presentation.question {
-            VStack(alignment: .leading, spacing: 5) {
-              Text("Question:")
-                .font(.headline)
-              fragmentText(question.prompt)
-                .font(.body)
-                .fixedSize(horizontal: false, vertical: true)
+      if let activity = presentation.activity {
+        operationActivityCard(activity)
+      }
+
+      if !presentation.subsystemStatuses.isEmpty {
+        subsystemAuthorityCard(presentation.subsystemStatuses)
+      }
+
+      if !presentation.evidence.isEmpty {
+        VStack(alignment: .leading, spacing: 8) {
+          Text("EVIDENCE")
+            .font(.caption2.monospaced().bold())
+            .foregroundStyle(.secondary)
+          ForEach(presentation.evidence) { evidence in
+            VStack(alignment: .leading, spacing: 4) {
+              Text(evidence.label)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+              fragmentText(evidence.fragments)
+                .font(.callout)
+                .textSelection(.enabled)
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel(question.prompt.accessibilityText)
+                .accessibilityLabel(evidence.fragments.accessibilityText)
             }
           }
-
-          if let actionStrip = presentation.actionStrip {
-            CompactExerciseActions(
-              presentation: actionStrip,
-              perform: perform
-            )
-          }
-
-          invalidationControls(presentation.invalidation)
-        }
-        .padding(14)
-      }
-    }
-  }
-
-  private var script: some View {
-    VStack(alignment: .leading, spacing: 7) {
-      Text("Script:")
-        .font(.headline)
-      ForEach(Array(presentation.script.enumerated()), id: \.offset) { _, line in
-        HStack(alignment: .firstTextBaseline, spacing: 7) {
-          Text("\(line.speaker.rawValue):")
-            .font(.callout.weight(.semibold))
-            .frame(width: 54, alignment: .trailing)
-          fragmentText(line.fragments)
-            .font(.body)
-            .fixedSize(horizontal: false, vertical: true)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(
-              "\(line.speaker.rawValue): \(line.fragments.accessibilityText)"
-            )
         }
       }
     }
+    .frame(maxWidth: .infinity, alignment: .topLeading)
   }
 
   @ViewBuilder
-  private func invalidationControls(_ invalidation: LearningInvalidationPresentation) -> some View {
-    if invalidation.selectedPlan != nil || invalidation.invalidateAllPlan != nil {
-      Divider()
-      HStack {
-        if let selectedPlan = invalidation.selectedPlan {
-          Button(selectedPlan.title) { requestInvalidation(selectedPlan) }
-            .operatorButton(
-              .interrupt,
-              isEnabled: invalidation.unavailableReason == nil
-            )
-            .help(invalidation.unavailableReason ?? selectedPlan.message)
-        }
-        if let allPlan = invalidation.invalidateAllPlan {
-          Menu {
-            Button(allPlan.title, role: .destructive) { requestInvalidation(allPlan) }
-              .disabled(invalidation.unavailableReason != nil)
+  private func learningResetActions(
+    selectedPlan: LearningVacatePlan?,
+    resetAllPlan: LearningVacatePlan?,
+    unavailableReason: String?,
+    authorityError: String?
+  ) -> some View {
+    if selectedPlan != nil || resetAllPlan != nil || authorityError != nil {
+      VStack(alignment: .leading, spacing: 9) {
+        Text("RESET LEARNING")
+          .font(.caption2.monospaced().bold())
+          .foregroundStyle(.secondary)
+        Text(
+          "Resetting clears saved Learning Path results from the selected step onward. It does not move the plotter or erase marks on the paper."
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
+
+        if let selectedPlan {
+          Button {
+            pendingResetPlan = selectedPlan
           } label: {
-            Image(systemName: "ellipsis.circle")
+            Label("\(selectedPlan.title)…", systemImage: "arrow.uturn.backward.circle")
           }
-          .menuStyle(.borderlessButton)
-          .accessibilityLabel("More Learning invalidation actions")
-          .help(invalidation.unavailableReason ?? allPlan.message)
+          .buttonStyle(.bordered)
+          .disabled(unavailableReason != nil)
+          .help(
+            unavailableReason
+              ?? "Review the steps that will be reset from \(selectedPlan.anchor.number) onward"
+          )
+        }
+
+        if let resetAllPlan {
+          Button {
+            pendingResetPlan = resetAllPlan
+          } label: {
+            Label("\(resetAllPlan.title)…", systemImage: "arrow.counterclockwise")
+          }
+          .buttonStyle(.bordered)
+          .disabled(unavailableReason != nil)
+          .help(
+            unavailableReason
+              ?? "Review the steps that will be reset"
+          )
+        }
+
+        if let reason = unavailableReason {
+          Label(reason, systemImage: "lock.fill")
+            .font(.caption)
+            .foregroundStyle(.orange)
+        }
+        if let error = authorityError {
+          Label(error, systemImage: "exclamationmark.triangle.fill")
+            .font(.caption)
+            .foregroundStyle(.orange)
+            .textSelection(.enabled)
         }
       }
+      .padding(11)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .background(Color.red.opacity(0.06), in: RoundedRectangle(cornerRadius: 9))
+    }
+  }
+
+  private func timelineCard(_ timeline: ExerciseTimelinePresentation) -> some View {
+    VStack(alignment: .leading, spacing: 6) {
+      HStack {
+        Text("CURRENT TIMELINE POSITION")
+          .font(.caption2.monospaced().bold())
+          .foregroundStyle(.secondary)
+        Spacer()
+        Text(timeline.positionText)
+          .font(.caption.monospaced().bold())
+          .foregroundStyle(Color.accentColor)
+      }
+      ProgressView(value: Double(timeline.position), total: Double(timeline.total))
+        .accessibilityLabel("Exercise timeline")
+        .accessibilityValue(timeline.positionText)
+      Text(timeline.currentLabel)
+        .font(.callout.weight(.semibold))
+    }
+    .padding(10)
+    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 9))
+  }
+
+  private func questionCard(_ question: ExerciseQuestionPresentation) -> some View {
+    VStack(alignment: .leading, spacing: 6) {
+      Text("FOCUSED QUESTION")
+        .font(.caption2.monospaced().bold())
+        .foregroundStyle(.secondary)
+      fragmentText(question.prompt)
+        .font(.body)
+        .fixedSize(horizontal: false, vertical: true)
+        .textSelection(.enabled)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(question.prompt.accessibilityText)
+        .accessibilityValue(question.choices.map(\.exactPhrase).joined(separator: " or "))
+    }
+    .padding(11)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 9))
+  }
+
+  private func operationActivityCard(
+    _ activity: OperationActivityPresentation
+  ) -> some View {
+    VStack(alignment: .leading, spacing: 8) {
+      HStack(alignment: .firstTextBaseline) {
+        Text("OPERATION ACTIVITY")
+          .font(.caption2.monospaced().bold())
+          .foregroundStyle(.secondary)
+        Spacer()
+        Label(activity.outcomeLabel, systemImage: activitySystemImage(activity.outcome))
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(activityColor(activity.outcome))
+      }
+      labeledValue("Actor", activity.actor)
+      labeledValue("Action", activity.action)
+      if let phase = activity.phase {
+        labeledValue("Phase", phase)
+      }
+      if !activity.detail.isEmpty {
+        activityFragments("Detail", activity.detail)
+      }
+      if !activity.acceptedResult.isEmpty {
+        activityFragments("Accepted result", activity.acceptedResult)
+      }
+      if !activity.recovery.isEmpty {
+        activityFragments("Recovery", activity.recovery)
+      }
+    }
+    .padding(11)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(
+      activityColor(activity.outcome).opacity(0.09),
+      in: RoundedRectangle(cornerRadius: 9)
+    )
+    .accessibilityElement(children: .contain)
+  }
+
+  private func activityFragments(
+    _ label: String,
+    _ fragments: [PresentationFragment]
+  ) -> some View {
+    VStack(alignment: .leading, spacing: 2) {
+      Text(label.uppercased())
+        .font(.caption2.monospaced().bold())
+        .foregroundStyle(.secondary)
+      fragmentText(fragments)
+        .font(.callout)
+        .textSelection(.enabled)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(fragments.accessibilityText)
+    }
+  }
+
+  private func subsystemAuthorityCard(
+    _ statuses: [SubsystemStatusPresentation]
+  ) -> some View {
+    VStack(alignment: .leading, spacing: 9) {
+      Text("SYSTEM AUTHORITY")
+        .font(.caption2.monospaced().bold())
+        .foregroundStyle(.secondary)
+      ForEach(statuses) { status in
+        VStack(alignment: .leading, spacing: 3) {
+          HStack(alignment: .firstTextBaseline, spacing: 7) {
+            Text(status.subsystem)
+              .font(.callout.weight(.semibold))
+            Text(status.state)
+              .font(.caption.monospaced())
+              .foregroundStyle(.secondary)
+            Spacer()
+            Text(status.blocksNewMotion ? "BLOCKING NEW MOTION" : "NOT BLOCKING")
+              .font(.caption2.monospaced().bold())
+              .foregroundStyle(status.blocksNewMotion ? Color.red : Color.green)
+          }
+          Text(status.role.rawValue.uppercased())
+            .font(.caption2.monospaced().bold())
+            .foregroundStyle(.secondary)
+          fragmentText(status.detail)
+            .font(.caption)
+            .textSelection(.enabled)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(status.detail.accessibilityText)
+        }
+        .padding(.vertical, 3)
+      }
+    }
+    .padding(11)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(Color.blue.opacity(0.06), in: RoundedRectangle(cornerRadius: 9))
+    .accessibilityElement(children: .contain)
+  }
+
+  private func fragmentCard(
+    label: String,
+    fragments: [PresentationFragment],
+    color: Color
+  ) -> some View {
+    VStack(alignment: .leading, spacing: 6) {
+      Text(label.uppercased())
+        .font(.caption2.monospaced().bold())
+        .foregroundStyle(.secondary)
+      fragmentText(fragments)
+        .font(.body)
+        .fixedSize(horizontal: false, vertical: true)
+        .textSelection(.enabled)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(fragments.accessibilityText)
+    }
+    .padding(11)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(color, in: RoundedRectangle(cornerRadius: 9))
+  }
+
+  private func labeledValue(_ label: String, _ value: String) -> some View {
+    VStack(alignment: .leading, spacing: 2) {
+      Text(label.uppercased())
+        .font(.caption2.monospaced().bold())
+        .foregroundStyle(.secondary)
+      Text(value)
+        .font(.callout)
+        .textSelection(.enabled)
     }
   }
 }
 
-private struct CompactExerciseActions: View {
+private struct LearningResetSheet: View {
+  @Bindable var workspace: OperatorWorkspace
+  let plan: LearningVacatePlan
+  let completed: () -> Void
+  @Environment(\.dismiss) private var dismiss
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 14) {
+      Text(plan.title)
+        .font(.title2.weight(.semibold))
+      Text(
+        "This will clear saved \(plan.source.rawValue) Learning Path results from \(plan.anchor.number) \(plan.anchor.title) onward."
+      )
+      .fixedSize(horizontal: false, vertical: true)
+
+      GroupBox("Steps to reset") {
+        VStack(alignment: .leading, spacing: 5) {
+          ForEach(plan.affectedItems) { item in
+            Text("\(item.number)  \(item.title)")
+              .font(.callout.monospaced())
+          }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, 4)
+      }
+
+      if plan.removesDurableCheckpoint {
+        Label(
+          "The affected saved LIVE machine and/or tip checkpoint will also be cleared.",
+          systemImage: "externaldrive.badge.xmark"
+        )
+        .font(.caption)
+        .foregroundStyle(.orange)
+      }
+      if plan.physicalInkMayRemain {
+        Label(
+          "Marks already on the paper will remain. Choose a clean area or replace the paper before drawing there again.",
+          systemImage: "exclamationmark.triangle.fill"
+        )
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.orange)
+      }
+
+      if let error = workspace.learningAuthorityError {
+        Label(error, systemImage: "exclamationmark.triangle.fill")
+          .font(.caption)
+          .foregroundStyle(.orange)
+          .textSelection(.enabled)
+      }
+
+      HStack {
+        Spacer()
+        Button("Cancel") { dismiss() }
+          .keyboardShortcut(.cancelAction)
+        Button(plan.title) {
+          if workspace.performLearningVacate(plan) {
+            completed()
+            dismiss()
+          }
+        }
+        .buttonStyle(.borderedProminent)
+      }
+    }
+    .padding(20)
+    .frame(minWidth: 460, idealWidth: 500, maxWidth: 560)
+  }
+}
+
+private struct ExerciseActionStripView: View {
   let presentation: ExerciseActionStripPresentation
+  let reviewedItemID: LearningPathItemID
   let perform: (ExerciseActionKind, LearningPathItemID) async -> Void
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 10) {
+    VStack(alignment: .leading, spacing: 9) {
+      HStack(alignment: .firstTextBaseline) {
+        Text("EXERCISE ACTIONS")
+          .font(.caption2.monospaced().bold())
+          .foregroundStyle(.secondary)
+        Spacer()
+        Text("\(presentation.ownerID.number) \(presentation.ownerID.title)")
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(.secondary)
+      }
+
+      if reviewedItemID != presentation.ownerID {
+        Label(
+          "Reviewing \(reviewedItemID.number); controls remain with the runtime action owner.",
+          systemImage: "eye"
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
+      }
+
       if let adjustment = presentation.penSetpointAdjustment {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: 6) {
           HStack {
             Text(adjustment.title)
+              .font(.caption.weight(.semibold))
             Spacer()
-            Text("S\(adjustment.value)").font(.body.monospaced().bold())
+            Text("S\(adjustment.value)")
+              .font(.body.monospaced().bold())
           }
           Slider(
             value: Binding(
@@ -274,36 +609,67 @@ private struct CompactExerciseActions: View {
             in: Double(adjustment.minimumValue)...Double(adjustment.maximumValue),
             step: 1
           )
-          .tint(.blue)
           .accessibilityLabel(adjustment.title)
           .accessibilityValue("S\(adjustment.value)")
+          .accessibilityHint(
+            "Adjusts and sends the current Pen \(adjustment.command.commandedState.rawValue) servo value."
+          )
+          Text("Move the slider until the pen position is correct, then choose Next.")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
         }
       }
 
-      if let direction = presentation.directionSelection {
-        if direction.allowsSelection {
+      if let directionSelection = presentation.directionSelection {
+        Text(
+          directionSelection.allowsSelection
+            ? "Available direction choices" : "Required next direction"
+        )
+        .font(.caption2.monospaced().bold())
+        .foregroundStyle(.secondary)
+
+        if directionSelection.allowsSelection {
           Picker(
-            direction.purpose.label,
+            directionSelection.purpose.label,
             selection: Binding(
-              get: { direction.selected },
-              set: { selected in
+              get: { directionSelection.selected },
+              set: { direction in
                 Task {
                   await perform(
-                    .selectDirection(direction.purpose, selected),
+                    .selectDirection(directionSelection.purpose, direction),
                     presentation.ownerID
                   )
                 }
               }
             )
           ) {
-            ForEach(direction.options, id: \.self) { option in
-              Text(option.displayName).tag(option)
+            ForEach(directionSelection.options, id: \.self) { direction in
+              Text(direction.displayName).tag(direction)
             }
           }
           .pickerStyle(.segmented)
-          .tint(.blue)
+          .accessibilityValue(
+            PresentationCue.direction(directionSelection.selected).accessibilityValue
+          )
+          .accessibilityHint("Selects a direction without starting motion.")
         } else {
-          LabeledContent(direction.purpose.label, value: direction.selected.displayName)
+          HStack(spacing: 12) {
+            Text(directionSelection.purpose.label)
+              .foregroundStyle(.primary)
+            Spacer(minLength: 12)
+            Text(directionSelection.selected.displayName)
+              .font(.body.monospaced().bold())
+              .foregroundStyle(.primary)
+              .padding(.horizontal, 12)
+              .padding(.vertical, 5)
+              .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+          }
+          .accessibilityElement(children: .ignore)
+          .accessibilityLabel(directionSelection.purpose.label)
+          .accessibilityValue(
+            PresentationCue.direction(directionSelection.selected).accessibilityValue
+          )
+          .accessibilityHint("This opposite boundary is required next.")
         }
       }
 
@@ -315,13 +681,24 @@ private struct CompactExerciseActions: View {
           )
         ],
         alignment: .leading,
-        spacing: 8
+        spacing: 7
       ) {
         ForEach(presentation.actions) { action in
           actionButton(action)
         }
       }
+
+      ForEach(presentation.actions.filter { $0.unavailableReason != nil }) { action in
+        if let reason = action.unavailableReason {
+          Label("\(action.title): \(reason)", systemImage: "exclamationmark.triangle.fill")
+            .font(.caption)
+            .foregroundStyle(.orange)
+            .textSelection(.enabled)
+        }
+      }
     }
+    .padding(12)
+    .background(.bar)
   }
 
   @ViewBuilder
@@ -331,91 +708,54 @@ private struct CompactExerciseActions: View {
     } label: {
       Text(action.title)
         .multilineTextAlignment(.center)
+        .lineLimit(nil)
         .fixedSize(horizontal: false, vertical: true)
+        .padding(.vertical, 2)
         .frame(
           maxWidth: .infinity,
           minHeight: ExerciseActionLayoutPolicy.minimumButtonHeight
         )
     }
-    .operatorButton(action.buttonRole, isEnabled: action.isEnabled)
     .help(action.unavailableReason ?? action.title)
 
-    switch action.keyboardShortcut {
-    case .escape:
-      button.keyboardShortcut(.cancelAction)
-    case nil:
-      button
+    let styledButton = button.operatorButton(
+      action.buttonRole,
+      isEnabled: action.isEnabled
+    )
+    if action.kind.isImmediateStopOrVisionCancel {
+      styledButton.keyboardShortcut(.cancelAction)
+    } else {
+      styledButton
     }
   }
 }
 
-private struct LearningInvalidationSheet: View {
-  @Bindable var workspace: OperatorWorkspace
-  let plan: LearningInvalidationPlan
-  let completed: () -> Void
-  @Environment(\.dismiss) private var dismiss
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 14) {
-      Text(plan.title)
-        .font(.title2.weight(.semibold))
-      Text(plan.message)
-        .fixedSize(horizontal: false, vertical: true)
-
-      GroupBox("Data to invalidate") {
-        VStack(alignment: .leading, spacing: 5) {
-          ForEach(plan.affectedItemIDs) { item in
-            Text("\(item.number)  \(item.title)")
-              .font(.callout.monospaced())
-          }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.top, 4)
-      }
-
-      if plan.removesDurableMachineRegistration || plan.removesDurableTipRegistration {
-        Label(
-          "The affected saved registration checkpoint will also be deleted.",
-          systemImage: "externaldrive.badge.xmark"
-        )
-        .font(.caption)
-        .foregroundStyle(.orange)
-      }
-
-      HStack {
-        Spacer()
-        Button("Cancel") { dismiss() }
-          .operatorButton(.interrupt)
-          .keyboardShortcut(.cancelAction)
-        Button(plan.title) {
-          if workspace.performLearningInvalidation(plan) {
-            completed()
-            dismiss()
-          }
-        }
-        .operatorButton(.interrupt)
-      }
+extension ExerciseActionKind {
+  fileprivate var isImmediateStopOrVisionCancel: Bool {
+    switch self {
+    case .stop:
+      true
+    default:
+      false
     }
-    .padding(20)
-    .frame(minWidth: 460, idealWidth: 500, maxWidth: 560)
   }
 }
 
-private func statusSystemImage(_ status: LearningPathStageStatus) -> String {
-  switch status {
-  case .complete: "checkmark.circle.fill"
-  case .current: "record.circle.fill"
-  case .next: "circle"
-  case .needsAttention: "exclamationmark.triangle.fill"
-  }
-}
-
-private func statusColor(_ status: LearningPathStageStatus) -> Color {
-  switch status {
-  case .complete: .green
-  case .current: .accentColor
-  case .next: .secondary
+private func activityColor(_ outcome: OperationActivityOutcome) -> Color {
+  switch outcome {
+  case .inProgress: .accentColor
+  case .succeeded: .green
+  case .cancelled: .secondary
   case .needsAttention: .orange
+  }
+}
+
+private func activitySystemImage(_ outcome: OperationActivityOutcome) -> String {
+  switch outcome {
+  case .inProgress: "arrow.triangle.2.circlepath"
+  case .succeeded: "checkmark.circle.fill"
+  case .cancelled: "xmark.circle"
+  case .needsAttention: "exclamationmark.triangle.fill"
   }
 }
 
@@ -439,6 +779,37 @@ private func cueColor(_ cue: PresentationCue) -> Color {
   switch cue {
   case .no, .stop, .down: .red
   case .yes, .up: .green
-  case .direction: .blue
+  case .direction: .accentColor
+  }
+}
+
+private func statusLabel(_ status: LearningPathStageStatus) -> some View {
+  Label(status.rawValue, systemImage: statusSystemImage(status))
+    .font(.caption.weight(.semibold))
+    .foregroundStyle(statusColor(status))
+}
+
+private func statusColor(_ status: LearningPathStageStatus) -> Color {
+  switch status {
+  case .complete: .green
+  case .current: .accentColor
+  case .next: .secondary
+  case .needsAttention: .orange
+  }
+}
+
+private func statusSystemImage(_ status: LearningPathStageStatus) -> String {
+  switch status {
+  case .complete: "checkmark.circle.fill"
+  case .current: "arrow.right.circle.fill"
+  case .next: "circle"
+  case .needsAttention: "exclamationmark.triangle.fill"
+  }
+}
+
+private func feedSourceLabel(_ source: FeedSelectionSource) -> String {
+  switch source {
+  case .controllerReportedCeiling: "Controller-reported ceiling"
+  case .existingFallback: "Existing fallback"
   }
 }

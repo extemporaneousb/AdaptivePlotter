@@ -1,96 +1,47 @@
-import Foundation
-import PlotterRuntime
 import Testing
-
 @testable import PlotterApp
 
 struct OperatorButtonGrammarTests {
-  @Test("enabled roles have one distinct semantic chrome")
+  @Test
   func enabledRolesHaveDistinctSemanticChrome() {
-    #expect(OperatorButtonRole.commit.chrome(isEnabled: true) == .commit)
-    #expect(OperatorButtonRole.interrupt.chrome(isEnabled: true) == .interrupt)
-    #expect(OperatorButtonRole.editValue.chrome(isEnabled: true) == .editValue)
-    #expect(OperatorButtonRole.utility.chrome(isEnabled: true) == .utility)
+    #expect(OperatorButtonRole.affirmative.chrome(isEnabled: true) == .affirmative)
+    #expect(OperatorButtonRole.negative.chrome(isEnabled: true) == .negative)
+    #expect(OperatorButtonRole.neutral.chrome(isEnabled: true) == .neutralEnabled)
   }
 
-  @Test("disabled state always owns dark noninteractive chrome")
-  func everyDisabledRoleUsesTheSameChrome() {
+  @Test
+  func everyDisabledRoleUsesTheSameDarkNoninteractiveChrome() {
     for role in OperatorButtonRole.allCases {
       #expect(role.chrome(isEnabled: false) == .disabled)
     }
   }
 
-  @Test("every exercise action derives its role from its typed effect")
-  func exhaustiveActionEffects() {
-    let capability = ContextualStopCapabilityID(
-      rawValue: UUID(uuidString: "00000000-0000-0000-0000-000000000101")!
-    )
-    let cases: [(ExerciseActionKind, ExerciseActionEffect)] = [
-      (.start, .commit),
-      (.choice(.yes), .commit),
-      (.choice(.no), .interrupt),
-      (.setPenSetpoint(.raise, 400), .editValue),
-      (.stopAndAcceptBoundary(capability), .commit),
-      (.stop(capability), .interrupt),
-      (.cancel(capability), .interrupt),
-      (.restart, .commit),
-      (.redoThisStep, .commit),
-      (.recordAnotherAttempt, .commit),
-      (.redoBoundary(.positiveX), .commit),
-      (.recordAnotherBoundaryAttempt(.positiveX), .commit),
-      (.selectDirection(.boundary, .positiveX), .editValue),
-      (.moveToEstimatedCenter, .commit),
-      (.runCameraCalibrationAndBuildProposal, .commit),
-      (.acceptCameraCalibrationProposal, .commit),
-      (.rejectCameraCalibrationProposal, .interrupt),
-      (.createNextSparseTipMark, .commit),
-      (.reClickSparseTipFrame, .editValue),
-      (.acceptSparseTipMark, .commit),
-      (.revalidateTipCalibrationCheckpoint, .commit),
-      (.acceptTipCalibration, .commit),
-      (.rejectTipCalibration, .interrupt),
-      (.paperReplaced, .interrupt),
-      (.chooseIsolatedLinePlan(.positiveX), .commit),
-      (.captureLocalPreLineBaseline, .commit),
-      (.moveToLineStart, .commit),
-      (.drawIsolatedLine, .commit),
-      (.revealAndObserveNewInk, .commit),
-      (.recordDrawingTrialAssessment(.observedGeometryAccepted), .commit),
-      (.recordDrawingTrialAssessment(.inkOrGeometryUnclear), .commit),
-    ]
+  @Test
+  func exerciseChoicesUseGreenYesAndRedNo() {
+    let yes = ExerciseActionDescriptor(kind: .choice(.yes), title: "YES")
+    let no = ExerciseActionDescriptor(kind: .choice(.no), title: "NO")
 
-    for (kind, effect) in cases {
-      let action = ExerciseActionDescriptor(kind: kind, title: "Action")
-      #expect(action.effect == effect)
-      #expect(action.buttonRole == effect.buttonRole)
-    }
+    #expect(yes.buttonRole == .affirmative)
+    #expect(no.buttonRole == .negative)
   }
 
-  @Test("Escape belongs only to Stop and no exercise action is implicit default")
-  func boundaryShortcutGrammar() {
-    let capability = ContextualStopCapabilityID(
-      rawValue: UUID(uuidString: "00000000-0000-0000-0000-000000000102")!
-    )
-    let accept = ExerciseActionDescriptor(
-      kind: .stopAndAcceptBoundary(capability),
-      title: "Stop & Accept"
-    )
-    let stop = ExerciseActionDescriptor(kind: .stop(capability), title: "Stop")
-    let cancel = ExerciseActionDescriptor(kind: .cancel(capability), title: "Cancel")
+  @Test
+  func exerciseActionRolesMapToTheSharedGrammar() {
+    let start = ExerciseActionDescriptor(kind: .start, title: "Start", role: .positive)
+    let stop = ExerciseActionDescriptor(kind: .cancel, title: "Cancel", role: .destructive)
+    let retry = ExerciseActionDescriptor(kind: .restart, title: "Restart")
 
-    #expect(accept.keyboardShortcut == nil)
-    #expect(stop.keyboardShortcut == .escape)
-    #expect(cancel.keyboardShortcut == nil)
-    #expect(!accept.isDefaultAction)
-    #expect(!stop.isDefaultAction)
-    #expect(!cancel.isDefaultAction)
+    #expect(start.buttonRole == .affirmative)
+    #expect(stop.buttonRole == .negative)
+    #expect(retry.buttonRole == .neutral)
   }
 
-  @Test("unavailable actions cannot retain enabled chrome")
-  func unavailableActionUsesDisabledChrome() {
+  @Test
+  func unavailableExerciseActionCannotRetainEnabledChrome() {
     let unavailable = ExerciseActionDescriptor(
       kind: .start,
       title: "Start",
+      role: .positive,
       unavailableReason: "Controller unavailable."
     )
 

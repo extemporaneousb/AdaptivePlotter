@@ -23,7 +23,7 @@ authorization ladder:
 2. **Enable Motion**
 3. **Human-Guided Discovery**
    - **3.1 Pen Interaction**
-   - **3.2 Set X, Y Boundaries**
+   - **3.2 Paired Boundary Discovery and Centering**
    - **3.3 Calibrate Camera and Visible Cap**
    - **3.4 Calibrate Pen Contact from Sparse Marks**
 4. **Observed Drawing Trials**
@@ -64,9 +64,8 @@ visually confirmed pen pose.
 
 The application does not home, reset the controller, write firmware settings,
 or treat entered bounds, a Learning Path stage, or model confidence as motion
-authority. A guarded manual **Clear Alarm** action may issue one `$X` only from
-fresh Alarm evidence with freshly clear X/Y/Z limit inputs; it neither homes nor
-enables Motion.
+authority. Connect never clears an alarm implicitly; only the explicit,
+limit-aware **Clear Alarm** action can send one guarded `$X` request.
 
 Controller `ok` proves acceptance only. Motion completes after fresh Idle and
 final MPos. Every production pose comparison uses attributable controller
@@ -103,8 +102,8 @@ Stage 3.4 uses the same ordered cross. At each position the app:
    raises once, then moves Pen Up to the learned safe X+ limit and as close to
    machine Y=0 as the 10 mm Boundary inset permits;
 5. settles, captures a newer exact frame, and revalidates the cap map;
-6. freezes that exact frame without changing the operator's zoom, pan, or
-   locked analysis region, and asks the operator to click the circle center;
+6. freezes that exact frame, opens a stronger presentation-only focus around
+   the pre-mark cap anchor, and asks the operator to click the circle center;
 7. allows re-clicking only on the same frame, with no motion or ink action.
 
 Pen Interaction retains its existing Up → Down → Up exercise. Its Up and Down
@@ -134,16 +133,9 @@ coherent failure at both holdouts. Both holdouts must pass. The selected model
 is refit on all five observations and becomes current only after explicit
 **Accept Tip Calibration**.
 
-Before any LIVE Pen Down, the complete circle geometry is conservatively
-reserved in the one current-paper surface-exposure ledger and atomically
-persisted. An uncertain circle chord, Pen Down/Up outcome, motion outcome, or
-process exit therefore leaves that circle unavailable on the same paper and
-stops the workflow. A rejected or corrupt ledger blocks contact; it is never
-treated as empty on the same paper. Explicit paper replacement archives the
-rejected bytes and atomically begins a fresh ledger for the replacement paper.
-Possible ink never causes automatic retry, redraw, resend, or continuation.
-SIMULATED learning uses the same typed ledger in memory with
-explicitly nonphysical entries and never writes the LIVE store.
+An uncertain circle chord, Pen Down/Up outcome, or motion outcome blacklists
+that circle center/radius on the current paper and stops the workflow. Possible ink never causes automatic
+retry, redraw, resend, or continuation.
 
 ## Tip authority and persistence
 
@@ -161,14 +153,9 @@ semantic optical/machine/tool/paper identities, and accepted revision. A
 diagnostic cap-to-tip pixel difference at one pose is not a durable
 camera-independent tool vector.
 
-`LearningAuthorityManifest` is the one checksummed durable authority file. One
-generation atomically carries the optional machine-only and accepted-tip
-checkpoint payloads. Each accepted-authority save, and each invalidation that
-actually removes either durable payload, uses an exact manifest revision CAS so
-machine/tip authority cannot land in mixed generations. Nondurable graph-only
-invalidation neither reads nor rewrites that manifest.
-The tip payload loads quarantined and cannot restore authority without current
-semantic identity plus fresh controller/cap evidence. A paper-plane change requires
+The machine-only checkpoint remains separate. `AcceptedTipCalibrationCheckpoint`
+loads quarantined and cannot restore authority without current semantic
+identity plus fresh controller/cap evidence. A paper-plane change requires
 one new accepted circle-center observation; an unchanged paper/capture
 restart requires a fresh cap frame and no new mark. Both routes derive a new
 accepted revision and retain their revalidation evidence. Known pixel
@@ -183,20 +170,16 @@ a content-addressed locator for archived bytes.
 ## Stage 4
 
 Observed Drawing Trials require accepted Boundary evidence and the exact current
-`TipCameraRegistration` revision. Stage 4 chooses an immutable local 5 mm line
-that clears every retained surface exposure; it blocks if the accepted domain is too
-crowded rather than letting old ink split the new observation. Each visible leaf
-owns one current subject and payload: line plan, local baseline/reveal context,
-line-start arrival, line execution, atomic post-line observation, and comparison.
-Those subjects cite their exact causal predecessors. Invalidating a leaf removes
-that subject and only its graph consumers. Once a line group has any reserved
-exposure, however, invalidating or repeating 4.1 through 4.4 abandons that group
-and returns to a fresh 4.1 plan; it never captures a false post-ink baseline or
-reuses exposed geometry. Before LIVE Pen Down, the complete
-line geometry is reserved and atomically persisted in the same surface-exposure
-ledger used for calibration circles. That history survives process restart and
-Learning invalidation and is never made eligible for redraw; explicit paper
-replacement changes applicability without deleting safety history.
+`TipCameraRegistration` revision. Stage 4 chooses a local 5 mm line that clears
+every retained 2 mm calibration circle; it blocks if the accepted domain is too
+crowded rather than letting old ink split the new observation. It projects that
+line through the registration and owns its own:
+
+- local pre-line baseline and Pen-Up reveal MPos;
+- line-start travel and one closed drawing owner;
+- Pen-Up return to the same reveal pose;
+- strictly newer post-line frame;
+- generic black/new-ink observation and residual.
 
 No Stage 3 scene artifact is reused as a Stage 4 baseline or observation pose.
 An attributable observed line may become future refinement evidence, but it
@@ -205,34 +188,32 @@ an automatic redraw.
 
 ## Workbench and evidence
 
-One singleton window contains the always-mounted camera/action surface, Motion,
-and one combined Learning interface. A narrow Learning Path rail is embedded on
-the leading edge of the Exercise pane; both consume one fresh projection. The
-exercise body contains only its numbered title, Plotter/You script, optional
-question, typed answer controls, and the contextual invalidation action. Native
-toolbar and View commands share one window-state owner for Learning, Motion, and
-the mutually exclusive Video/Diagnostics inspector. Window resizing never opens,
-closes, or substitutes a pane.
+One singleton window contains the Learning Path, always-mounted camera/action
+surface, selected exercise, Motion region, and optional Video Settings. The four
+state-dependent Show/Hide controls and matching panel close controls share one
+grammar. A panel that owns the only active Stop cannot be hidden until its
+operation settles.
 
-Video Settings contains camera selection, Refresh, scene-analysis cadence,
-viewport zoom/drag/region lock, and exactly two global overlay choices: **Pen
-cap** and **Armature envelope**. Detailed camera, Vision, controller, workflow,
-frame, ROI, cadence, provenance, and failure facts live in Diagnostics instead
-of being copied into primary panels. The armature envelope is inferred from the
-detected cap and is not independently segmented. Selecting either overlay keeps
-bounded newest-only analysis running; there is no separate Analyze/Resume
-control.
+Video Settings combines camera selection, adjacent Refresh, scene-analysis
+frames per second, viewport zoom/drag/region lock, and exactly two readable
+one-column global overlay cards: **Pen cap** and **Armature envelope**. Each card
+keeps persistent On/Off preference separate from typed status, reason, region,
+cadence, exact analyzed frame, and result age. The armature envelope is inferred
+from the detected cap and is not independently segmented. Selecting either
+overlay directly keeps bounded newest-only analysis running; there is no
+separate Analyze/Resume control.
 Automatic overlay computation does not dim, badge, or pause preview
 publication. A completed overlay remains visible over its matching displayed
 frame with its completed status while the next frame is analyzed, then the
 displayed-frame/overlay pair is replaced atomically. Entering or leaving
-Learning steps, fitted bounds, frozen frames, sparse-mark selection, and inspector
-changes never mutate operator zoom or pan. Unlocked zoom changes rendering only;
-generic analysis remains full-frame. Lock atomically captures the current visible
-camera-pixel rectangle as the generic analysis ROI, and Unlock clears that ROI
-without changing the view. Only a camera source/configuration replacement resets
-view geometry and lock; cadence and the two overlay choices persist. A generic
-analysis ROI never constrains calibration or observed-trial measurements.
+Learning and other compatible presentation-context changes preserve operator
+zoom and pan; a source or camera-
+configuration change still resets them, and sparse-mark selection may request
+its documented stronger initial focus. Locking the viewport admits only that
+camera-pixel subregion to generic scene-analysis scans without cropping or
+rewriting the exact stamped frame. A generic viewport region never constrains
+calibration or observed-trial measurements, and full-frame lock is canonicalized
+to default unlocked analysis.
 
 Pen-cap appearance is learned only by the first **Identify Pen Cap** action in
 Pen Interaction. The operator clicks the colored cap body, not the tip, on one
@@ -252,24 +233,12 @@ results have separate owners and are composed only when their frame and camera
 configuration exactly match. Stage 4 intended geometry, observed ink, and
 residuals are required contextual evidence rather than global toggles.
 
-The toolbar owns controller selection, Connect/Disconnect, Enable Motion, pane
-visibility, inspectors, and compact status. Exercise actions stay with the
-exercise. Commit/advance controls are green; Stop, Cancel, rejection, and
-invalidation are red; same-stage value-entry controls are blue; view utilities
-are gray; unavailable controls are dark and noninteractive. During active
-Boundary motion the exercise exposes three capability-bound choices: **Stop &
-Accept**, **Stop**, and **Cancel**. Only Stop & Accept may commit the settled side.
-Escape activates red Stop, never acceptance. Buttons are authoritative input;
-speech is advisory output only.
-
-The selected Learning leaf or branch may be invalidated explicitly. A leaf roots
-only its current subjects and the dependency graph removes true consumers. A
-branch roots its descendant subjects. Plans are source-, revision-, payload-, and
-sequence-bound; a scope that removes durable machine/tip authority also binds
-the exact manifest revision. Stale plans are inert. Retained sparse exposure
-requires paper replacement rather than same-paper Redo. An exposed Stage 4
-group routes any 4.1–4.4 replacement through a fresh 4.1 plan. Invalidation never moves the plotter,
-changes pen state, resends, redraws, or erases possible physical ink.
+The toolbar owns controller selection, Connect/Disconnect, Enable Motion, and
+compact status. Exercise Start, choices, Cancel, Stop, Restart, Redo, and Record
+Another Attempt stay with the exercise. A settled failed or cancelled attempt
+keeps Restart on its own review row but does not replace the next unmet exercise
+or its Start control. Buttons are authoritative input; speech is advisory output
+only.
 
 Manual X distance, Y distance, and feed remain editable text fields initialized
 to 50 mm, 50 mm, and 500 mm/min. After Motion is enabled, camera, Vision,

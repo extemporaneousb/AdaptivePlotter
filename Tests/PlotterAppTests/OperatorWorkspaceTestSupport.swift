@@ -1,5 +1,6 @@
 import Foundation
 import PlotterModel
+import PlotterTestSupport
 import Testing
 
 @testable import PlotterApp
@@ -8,15 +9,7 @@ import Testing
 @MainActor
 func stopActiveOperation(_ workspace: OperatorWorkspace) async throws {
   let capabilityID = try #require(workspace.contextualStopPresentation?.capabilityID)
-  if let owner = workspace.activeExerciseAttemptOwnerID,
-    workspace.currentExerciseActionStripPresentation?.actions.contains(where: {
-      $0.kind == .stopAndAcceptBoundary(capabilityID)
-    }) == true
-  {
-    await workspace.performExerciseAction(.stopAndAcceptBoundary(capabilityID), for: owner)
-  } else {
-    await workspace.stopCurrentOperation(capabilityID: capabilityID)
-  }
+  await workspace.stopCurrentOperation(capabilityID: capabilityID)
 }
 
 @MainActor
@@ -51,8 +44,8 @@ func makeSimulatedHarness(
   cameraActions: OperatorWorkspace.CameraActions? = nil,
   eventLog: EventLog? = nil,
   workflowTelemetry: WorkflowTelemetryFixture? = nil,
-  manifestActions: OperatorWorkspace.LearningAuthorityManifestActions? = nil,
-  surfaceExposureActions: OperatorWorkspace.LiveLearningSurfaceExposureActions? = nil,
+  checkpointActions: OperatorWorkspace.AcceptedArtifactCheckpointActions? = nil,
+  tipCheckpointActions: OperatorWorkspace.AcceptedTipCalibrationCheckpointActions? = nil,
   tipCalibrationSemanticIdentities: TipCalibrationSemanticIdentityState = .ephemeral(),
   simulatedExecutionPacing: any SimulatedLearningExecutionPacing =
     SimulatedLearningImmediatePacing()
@@ -72,8 +65,8 @@ func makeSimulatedHarness(
     workspace: OperatorWorkspace(
       machineActions: isolatedMachineActions(log: machineActionLog),
       cameraActions: cameraActions ?? CameraComposition.makeIsolatedActionsForTesting(),
-      learningAuthorityManifestActions: manifestActions,
-      liveLearningSurfaceExposureActions: surfaceExposureActions,
+      acceptedArtifactCheckpointActions: checkpointActions,
+      acceptedTipCalibrationCheckpointActions: tipCheckpointActions,
       tipCalibrationSemanticIdentities: tipCalibrationSemanticIdentities,
       workflowTelemetryActions: workflowTelemetry.map { fixture in
         .init(record: { await fixture.record($0) })
@@ -140,9 +133,17 @@ func redoSimulatedBoundary(
   let owner = LearningPathItemID.humanGuidedDiscovery(
     .pairedBoundaryDiscoveryAndCentering
   )
-  try await performSimulatedBoundaryStopAndAccept(workspace, owner: owner) {
-    try await performPublicAction(.redoBoundary(direction), owner: owner, workspace: workspace)
+  try await performPublicAction(.redoBoundary(direction), owner: owner, workspace: workspace)
+  try await waitUntil {
+    workspace.selectedOperatorActionPresentation(for: owner).actionStrip?.actions
+      .contains(where: { if case .stop = $0.kind { true } else { false } }) == true
   }
+  let stop = try #require(
+    workspace.selectedOperatorActionPresentation(for: owner).actionStrip?.actions
+      .first(where: { if case .stop = $0.kind { true } else { false } })?.kind
+  )
+  await workspace.performExerciseAction(stop, for: owner)
+  try await waitUntil { workspace.activeExerciseAttemptID == nil }
 }
 
 @MainActor
@@ -165,7 +166,8 @@ func completeSimulatedBoundariesAndCenter(
   for _ in 0..<8 where !workspace.penInteractionCompleted {
     let presentation = workspace.selectedOperatorActionPresentation(for: penOwner)
     #expect(presentation.question?.prompt.isEmpty == false)
-    #expect(presentation.actionStrip?.actions.map(\.kind) == [.choice(.yes)])
+    #expect(presentation.question?.choices == [.yes, .no])
+    #expect(presentation.actionStrip?.actions.contains(where: { $0.kind == .start }) == false)
     physicalPoseQuestionCount += 1
     try await performPublicAction(.choice(.yes), owner: penOwner, workspace: workspace)
   }
@@ -176,42 +178,35 @@ func completeSimulatedBoundariesAndCenter(
     .pairedBoundaryDiscoveryAndCentering
   )
   for direction in boundaryOrder {
-    let positionBeforeReset = await runtime.snapshot().mpos
-    if positionBeforeReset != .zero {
-      let returnOperation = try acceptedSimulated(
-        await runtime.beginManualJog(
-          delta: SimulatedLearningMotionVector(
-            dxMM: -positionBeforeReset.xMM,
-            dyMM: -positionBeforeReset.yMM
-          )
-        )
-      )
-      let returnOutcome = try acceptedSimulated(
-        await runtime.executeNaturally(
-          returnOperation.id,
-          pacing: SimulatedLearningImmediatePacing()
-        )
-      )
-      #expect(returnOutcome.finalMPos == .zero)
-    }
-    let positionBeforeSegment = await runtime.snapshot().mpos
     try await selectPublicDirection(
       direction,
       purpose: .boundary,
       owner: boundaryOwner,
       workspace: workspace
     )
-    try await performSimulatedBoundaryStopAndAccept(workspace, owner: boundaryOwner) {
-      try await performPublicAction(.start, owner: boundaryOwner, workspace: workspace)
+    try await performPublicAction(.start, owner: boundaryOwner, workspace: workspace)
+    try await waitUntil {
+      workspace.selectedOperatorActionPresentation(for: boundaryOwner).actionStrip?.actions
+        .contains(where: { if case .stop = $0.kind { true } else { false } }) == true
     }
-    let positionAfterSegment = await runtime.snapshot().mpos
-    let movedTowardBoundary = switch direction {
-      case .negativeX: positionAfterSegment.xMM < positionBeforeSegment.xMM
-      case .positiveX: positionAfterSegment.xMM > positionBeforeSegment.xMM
-      case .negativeY: positionAfterSegment.yMM < positionBeforeSegment.yMM
-      case .positiveY: positionAfterSegment.yMM > positionBeforeSegment.yMM
+    try await waitUntilAsync {
+      let snapshot = await runtime.snapshot()
+      let limit = snapshot.boundaryTruth.limit(for: direction)
+      return switch direction {
+      case .negativeX, .positiveX: snapshot.mpos.xMM == limit
+      case .negativeY, .positiveY: snapshot.mpos.yMM == limit
       }
-    #expect(movedTowardBoundary)
+    }
+    let stop = try #require(
+      workspace.selectedOperatorActionPresentation(for: boundaryOwner).actionStrip?.actions
+        .first(where: { if case .stop = $0.kind { true } else { false } })?.kind
+    )
+    await workspace.performExerciseAction(stop, for: boundaryOwner)
+    #expect(
+      workspace.activeExerciseAttemptID == nil,
+      "transaction=\(String(describing: workspace.discoveryTransactions[sequenceIDForTest(direction)]?.state)) error=\(workspace.discoveryError ?? "nil") count=\(workspace.relevantBoundaryObservationCount)"
+    )
+    try await waitUntil { workspace.activeExerciseAttemptID == nil }
   }
   #expect(
     workspace.pairedBoundaryProgress.isComplete,
@@ -274,56 +269,6 @@ func completeSimulatedSparseTipCalibration(
         point: truthPoint,
         presentationTransformRevision: request.presentationTransformRevision
       ))
-    try await performPublicAction(.acceptSparseTipMark, owner: tipOwner, workspace: workspace)
-  }
-  try await performPublicAction(.acceptTipCalibration, owner: tipOwner, workspace: workspace)
-}
-
-@MainActor
-func completeLiveSparseTipCalibration(
-  _ workspace: OperatorWorkspace
-) async throws {
-  let registrationOwner = LearningPathItemID.humanGuidedDiscovery(
-    .calibrateCameraAndVisibleCap
-  )
-  try await performPublicAction(
-    .runCameraCalibrationAndBuildProposal,
-    owner: registrationOwner,
-    workspace: workspace
-  )
-  try await performPublicAction(
-    .acceptCameraCalibrationProposal,
-    owner: registrationOwner,
-    workspace: workspace
-  )
-  let tipOwner = LearningPathItemID.humanGuidedDiscovery(
-    .calibratePenContactFromSparseMarks
-  )
-  try await performPublicAction(.start, owner: tipOwner, workspace: workspace)
-  let registration = try #require(workspace.machineCameraRegistration)
-  let referencePosition = try #require(workspace.cameraCalibrationReferencePosition)
-  let representativeBoundary = try #require(workspace.boundarySideAggregates.values.first)
-  let plan = try CurrentCameraCalibrationPlan(
-    targetPosition: referencePosition,
-    boundarySideAggregates: workspace.boundarySideAggregates,
-    controllerSessionID: representativeBoundary.controllerSessionID,
-    coordinateRevision: representativeBoundary.coordinateRevision
-  )
-  for position in SparseTipCalibrationCoordinator.orderedPositions {
-    try await performPublicAction(.createNextSparseTipMark, owner: tipOwner, workspace: workspace)
-    let request = try #require(
-      workspace.actionSurfacePresentation.pointSelectionRequest,
-      "missing LIVE selection request for \(position): \(workspace.explorationError ?? "no error")"
-    )
-    let sample = try #require(plan.samples.first { $0.position == position })
-    let tipPoint = try registration.fit.cameraPoint(from: sample.machinePosition.point)
-    workspace.selectToolContactPoint(
-      ActionSurfacePointSelection(
-        frame: request.frame,
-        point: tipPoint,
-        presentationTransformRevision: request.presentationTransformRevision
-      )
-    )
     try await performPublicAction(.acceptSparseTipMark, owner: tipOwner, workspace: workspace)
   }
   try await performPublicAction(.acceptTipCalibration, owner: tipOwner, workspace: workspace)
@@ -432,8 +377,7 @@ func finishPenInteraction(_ workspace: OperatorWorkspace) async throws {
   guard workspace.discoveryTransactions[.penInteraction]?.state == .succeeded else {
     throw StepMismatch(
       expected: "succeeded",
-      actual:
-        "\(String(describing: workspace.discoveryTransactions[.penInteraction]?.state)); \(workspace.discoveryError ?? "no discovery error")"
+      actual: String(describing: workspace.discoveryTransactions[.penInteraction]?.state)
     )
   }
 }
@@ -453,12 +397,12 @@ func workspace(
   cameraActionsOverride: OperatorWorkspace.CameraActions? = nil,
   boundaryMotionBegin:
     (
-      @Sendable (BoundaryMotionRequest) async -> BoundaryMotionAdmission
+      @Sendable (BoundaryMotionRequest, BoundaryMotionRenewalPlanner?) async
+        -> BoundaryMotionAdmission
     )? = nil,
   jogCancel: (@Sendable (JogCancelIntent) async -> JogCancelOutcome)? = nil,
   announcements: AnnouncementFixture? = nil,
-  manifestActions: OperatorWorkspace.LearningAuthorityManifestActions? = nil,
-  surfaceExposureActions: OperatorWorkspace.LiveLearningSurfaceExposureActions? = nil,
+  checkpointActions: OperatorWorkspace.AcceptedArtifactCheckpointActions? = nil,
   workflowTelemetry: WorkflowTelemetryFixture? = nil,
   loadPenCapAppearanceSelection:
     @escaping @Sendable () -> PenCapAppearanceSelection? = { testPenCapAppearanceSelection() },
@@ -470,11 +414,11 @@ func workspace(
 ) -> OperatorWorkspace {
   let clock = TestClock()
   let beginBoundaryMotion =
-    boundaryMotionBegin ?? { @Sendable request in
+    boundaryMotionBegin ?? { @Sendable request, _ in
       BoundaryMotionAdmission.admitted(
         BoundaryMotionOperation(
           ownerID: request.ownerID,
-          task: Task { await machine.runBoundaryMotion(request) }
+          task: Task { await machine.requestBoundaryMotion(request) }
         )
       )
     }
@@ -519,10 +463,7 @@ func workspace(
         cancelForShutdown: { await fixture.cancelForShutdown() }
       )
     },
-    learningAuthorityManifestActions: manifestActions
-      ?? LearningAuthorityManifestBox().actions,
-    liveLearningSurfaceExposureActions: surfaceExposureActions
-      ?? LearningSurfaceExposureBox().actions,
+    acceptedArtifactCheckpointActions: checkpointActions,
     workflowTelemetryActions: workflowTelemetry.map { fixture in
       .init(record: { await fixture.record($0) })
     },
@@ -597,7 +538,7 @@ func isolatedMachineActions(log: EventLog) -> OperatorWorkspace.MachineActions {
       await log.append("requestPenActuation")
       return .refused(.notConnected)
     },
-    beginBoundaryMotion: { request in
+    beginBoundaryMotion: { request, _ in
       await log.append("beginBoundaryMotion")
       return .rejected(
         .needsAttention(ownerID: request.ownerID, terminal: .refusal(.notConnected))
@@ -618,7 +559,7 @@ func cameraActions(_ fixture: CameraFixture) -> OperatorWorkspace.CameraActions 
     discover: { fixture.discoverResponse() },
     select: { _ in fixture.selectResponse() },
     start: { fixture.startResponse() },
-    stop: { fixture.stopResponse() },
+    stop: { fixture.snapshot },
     restart: { fixture.snapshot },
     snapshot: { fixture.snapshot },
     frames: { AsyncStream { $0.finish() } },
@@ -626,42 +567,6 @@ func cameraActions(_ fixture: CameraFixture) -> OperatorWorkspace.CameraActions 
       try fixture.inspection(after: boundary, features: features, analysisRegion: region)
     },
     captureFrame: { try fixture.inspection(after: $0).displayedFrame },
-    setSceneAnalysisRegion: { fixture.setSceneAnalysisRegion($0) },
-    setPenCapColor: { fixture.setPenCapColor($0) },
-    setAutomaticInspection: { fixture.setAutomaticInspection($0, features: $1) },
-    analysisUpdates: { AsyncStream { $0.finish() } },
-    observeIsolatedInk: { _ in fatalError("unused") }
-  )
-}
-
-func cameraActions(
-  _ fixture: CameraFixture,
-  machinePositionFrom machine: MachineFixture
-) -> OperatorWorkspace.CameraActions {
-  .init(
-    discover: { fixture.discoverResponse() },
-    select: { _ in fixture.selectResponse() },
-    start: { fixture.startResponse() },
-    stop: { fixture.stopResponse() },
-    restart: { fixture.snapshot },
-    snapshot: { fixture.snapshot },
-    frames: { AsyncStream { $0.finish() } },
-    inspectWorkflowScene: { boundary, features, region in
-      let position = await machine.snapshot().machine.position
-      return try fixture.inspection(
-        after: boundary,
-        features: features,
-        analysisRegion: region,
-        machinePosition: position
-      )
-    },
-    captureFrame: { boundary in
-      let position = await machine.snapshot().machine.position
-      return try fixture.inspection(
-        after: boundary,
-        machinePosition: position
-      ).displayedFrame
-    },
     setSceneAnalysisRegion: { fixture.setSceneAnalysisRegion($0) },
     setPenCapColor: { fixture.setPenCapColor($0) },
     setAutomaticInspection: { fixture.setAutomaticInspection($0, features: $1) },
@@ -689,290 +594,88 @@ final class TestClock: @unchecked Sendable {
   }
 }
 
-enum LearningAuthorityManifestBoxError: Error {
-  case injectedCommitFailure
-}
-
-enum LearningSurfaceExposureBoxError: Error {
-  case injectedSaveFailure
-  case rejectedLoad
-}
-
-final class LearningSurfaceExposureBox: @unchecked Sendable {
+final class CheckpointBox: @unchecked Sendable {
   private let lock = NSLock()
-  private var checkpoint: LiveLearningSurfaceExposureCheckpoint?
-  private var revision: LiveLearningSurfaceExposureStoreRevision
-  private var rejectedReason: String?
-  private var loadCount = 0
-  private var saveCount = 0
-  private var recoveryCount = 0
-  private var failNextSave = false
-  private var failOnSaveCount: Int?
-
-  init(
-    ledger: LearningSurfaceExposureLedger? = nil,
-    paper: PaperContactPlaneRevision? = nil,
-    rejectedReason: String? = nil
-  ) {
-    self.rejectedReason = rejectedReason
-    if let rejectedReason {
-      checkpoint = nil
-      revision = .corrupt(fileSHA256: RunLedger.sha256Hex(Data(rejectedReason.utf8)))
-    } else if let ledger, let paper {
-      let stored = try! LiveLearningSurfaceExposureCheckpoint(
-        generation: 1,
-        currentPaperContactPlane: paper,
-        ledger: ledger
-      )
-      checkpoint = stored
-      revision = .valid(
-        generation: stored.generation,
-        payloadSHA256: RunLedger.sha256Hex(try! JSONEncoder().encode(stored))
-      )
-    } else {
-      checkpoint = nil
-      revision = .absent
-    }
-  }
-
-  var ledger: LearningSurfaceExposureLedger? {
-    lock.lock()
-    defer { lock.unlock() }
-    return checkpoint?.ledger
-  }
-
-  var paper: PaperContactPlaneRevision? {
-    lock.lock()
-    defer { lock.unlock() }
-    return checkpoint?.currentPaperContactPlane
-  }
-
-  var operationCounts: (loads: Int, saves: Int, recoveries: Int) {
-    lock.lock()
-    defer { lock.unlock() }
-    return (loadCount, saveCount, recoveryCount)
-  }
-
-  var actions: OperatorWorkspace.LiveLearningSurfaceExposureActions {
-    OperatorWorkspace.LiveLearningSurfaceExposureActions(
-      load: { self.load() },
-      save: { try self.save(expected: $0, ledger: $1, paper: $2) },
-      recoverForPaperReplacement: { try self.recover(expected: $0, paper: $1) }
-    )
-  }
-
-  func injectSaveFailure() {
-    lock.lock()
-    failNextSave = true
-    lock.unlock()
-  }
-
-  func injectSaveFailure(afterSuccessfulSaves count: Int) {
-    precondition(count >= 0)
-    lock.lock()
-    failOnSaveCount = saveCount + count + 1
-    lock.unlock()
-  }
-
-  func replaceFromExternalWriter(
-    ledger: LearningSurfaceExposureLedger,
-    paper: PaperContactPlaneRevision
-  ) throws {
-    lock.lock()
-    defer { lock.unlock() }
-    let generation = (checkpoint?.generation ?? 0) + 1
-    let stored = try LiveLearningSurfaceExposureCheckpoint(
-      generation: generation,
-      currentPaperContactPlane: paper,
-      ledger: ledger
-    )
-    checkpoint = stored
-    revision = .valid(
-      generation: stored.generation,
-      payloadSHA256: RunLedger.sha256Hex(try JSONEncoder().encode(stored))
-    )
-  }
-
-  private func load() -> LiveLearningSurfaceExposureLoadResult {
-    lock.lock()
-    defer { lock.unlock() }
-    loadCount += 1
-    if let rejectedReason {
-      return .rejected(reason: rejectedReason, revision: revision)
-    }
-    guard let checkpoint else { return .absent }
-    return .loaded(
-      LiveLearningSurfaceExposureSnapshot(checkpoint: checkpoint, revision: revision)
-    )
-  }
-
-  private func save(
-    expected: LiveLearningSurfaceExposureStoreRevision,
-    ledger: LearningSurfaceExposureLedger,
-    paper: PaperContactPlaneRevision
-  ) throws -> LiveLearningSurfaceExposureSnapshot {
-    lock.lock()
-    defer { lock.unlock() }
-    saveCount += 1
-    if failNextSave || failOnSaveCount == saveCount {
-      failNextSave = false
-      failOnSaveCount = nil
-      throw LearningSurfaceExposureBoxError.injectedSaveFailure
-    }
-    guard rejectedReason == nil else { throw LearningSurfaceExposureBoxError.rejectedLoad }
-    guard expected == revision else {
-      throw LearningSurfaceExposureLedgerError.staleStoreRevision(
-        expected: expected,
-        actual: revision
-      )
-    }
-    let generation = (checkpoint?.generation ?? 0) + 1
-    let stored = try LiveLearningSurfaceExposureCheckpoint(
-      generation: generation,
-      currentPaperContactPlane: paper,
-      ledger: ledger
-    )
-    checkpoint = stored
-    revision = .valid(
-      generation: stored.generation,
-      payloadSHA256: RunLedger.sha256Hex(try JSONEncoder().encode(stored))
-    )
-    return LiveLearningSurfaceExposureSnapshot(checkpoint: stored, revision: revision)
-  }
-
-  private func recover(
-    expected: LiveLearningSurfaceExposureStoreRevision,
-    paper: PaperContactPlaneRevision
-  ) throws -> LiveLearningSurfaceExposureSnapshot {
-    lock.lock()
-    defer { lock.unlock() }
-    recoveryCount += 1
-    guard rejectedReason != nil, expected == revision else {
-      throw LearningSurfaceExposureBoxError.rejectedLoad
-    }
-    let stored = try LiveLearningSurfaceExposureCheckpoint(
-      generation: 1,
-      currentPaperContactPlane: paper,
-      ledger: LearningSurfaceExposureLedger()
-    )
-    checkpoint = stored
-    rejectedReason = nil
-    revision = .valid(
-      generation: stored.generation,
-      payloadSHA256: RunLedger.sha256Hex(try JSONEncoder().encode(stored))
-    )
-    return LiveLearningSurfaceExposureSnapshot(checkpoint: stored, revision: revision)
-  }
-}
-
-final class LearningAuthorityManifestBox: @unchecked Sendable {
-  private let lock = NSLock()
-  private var stored: LearningAuthorityManifest
-  private var revision: LearningAuthorityStoreRevision
+  private var stored: AcceptedMachineArtifactCheckpoint?
   private var loads = 0
-  private var commits = 0
-  private var failNextCommit = false
-
-  init(
-    machine: AcceptedMachineArtifactCheckpoint? = nil,
-    tip: AcceptedTipCalibrationCheckpoint? = nil
-  ) {
-    let generation: UInt64 = machine == nil && tip == nil ? 0 : 1
-    stored = try! LearningAuthorityManifest(
-      generation: generation,
-      machine: machine,
-      tip: tip
-    )
-    revision = generation == 0
-      ? .absent
-      : .valid(
-        generation: generation,
-        payloadSHA256: RunLedger.sha256Hex(try! JSONEncoder().encode(stored))
-      )
-  }
+  private var saves = 0
+  private var clears = 0
 
   var checkpoint: AcceptedMachineArtifactCheckpoint? {
-    lock.lock()
-    defer { lock.unlock() }
-    return stored.machine
-  }
-
-  var tipCheckpoint: AcceptedTipCalibrationCheckpoint? {
-    lock.lock()
-    defer { lock.unlock() }
-    return stored.tip
-  }
-
-  var manifest: LearningAuthorityManifest {
     lock.lock()
     defer { lock.unlock() }
     return stored
   }
 
-  var operationCounts: (loads: Int, commits: Int) {
+  var operationCounts: (loads: Int, saves: Int, clears: Int) {
     lock.lock()
     defer { lock.unlock() }
-    return (loads, commits)
+    return (loads, saves, clears)
   }
 
-  var actions: OperatorWorkspace.LearningAuthorityManifestActions {
-    OperatorWorkspace.LearningAuthorityManifestActions(
-      load: { self.load() },
-      commit: { try self.commit(expected: $0, mutation: $1) }
-    )
-  }
-
-  func load() -> LearningAuthorityManifestLoadResult {
+  func load() -> AcceptedArtifactCheckpointLoadResult {
     lock.lock()
     defer { lock.unlock() }
     loads += 1
-    return .loaded(
-      LearningAuthorityManifestSnapshot(manifest: stored, revision: revision)
-    )
+    return stored.map(AcceptedArtifactCheckpointLoadResult.loaded) ?? .absent
   }
 
-  func commit(
-    expected: LearningAuthorityStoreRevision,
-    mutation: LearningAuthorityManifestMutation
-  ) throws -> LearningAuthorityManifestSnapshot {
+  func save(_ checkpoint: AcceptedMachineArtifactCheckpoint) {
+    lock.lock()
+    saves += 1
+    stored = checkpoint
+    lock.unlock()
+  }
+
+  func clear() {
+    lock.lock()
+    clears += 1
+    stored = nil
+    lock.unlock()
+  }
+}
+
+final class TipCheckpointBox: @unchecked Sendable {
+  private let lock = NSLock()
+  private var stored: AcceptedTipCalibrationCheckpoint?
+  private var loads = 0
+  private var saves = 0
+  private var clears = 0
+
+  init(checkpoint: AcceptedTipCalibrationCheckpoint? = nil) {
+    stored = checkpoint
+  }
+
+  var checkpoint: AcceptedTipCalibrationCheckpoint? {
     lock.lock()
     defer { lock.unlock() }
-    commits += 1
-    if failNextCommit {
-      failNextCommit = false
-      throw LearningAuthorityManifestBoxError.injectedCommitFailure
-    }
-    guard expected == revision else {
-      throw LearningAuthorityManifestError.staleRevision(
-        expected: expected,
-        actual: revision
-      )
-    }
-    let machine: AcceptedMachineArtifactCheckpoint?
-    switch mutation.machine {
-    case .preserve: machine = stored.machine
-    case .replace(let replacement): machine = replacement
-    }
-    let tip: AcceptedTipCalibrationCheckpoint?
-    switch mutation.tip {
-    case .preserve: tip = stored.tip
-    case .replace(let replacement): tip = replacement
-    }
-    stored = try LearningAuthorityManifest(
-      generation: stored.generation + 1,
-      machine: machine,
-      tip: tip
-    )
-    revision = .valid(
-      generation: stored.generation,
-      payloadSHA256: RunLedger.sha256Hex(try JSONEncoder().encode(stored))
-    )
-    return LearningAuthorityManifestSnapshot(manifest: stored, revision: revision)
+    return stored
   }
 
-  func injectCommitFailure() {
+  var operationCounts: (loads: Int, saves: Int, clears: Int) {
     lock.lock()
-    failNextCommit = true
+    defer { lock.unlock() }
+    return (loads, saves, clears)
+  }
+
+  func load() -> AcceptedTipCalibrationCheckpointLoadResult {
+    lock.lock()
+    defer { lock.unlock() }
+    loads += 1
+    return stored.map(AcceptedTipCalibrationCheckpointLoadResult.quarantined) ?? .absent
+  }
+
+  func save(_ checkpoint: AcceptedTipCalibrationCheckpoint) {
+    lock.lock()
+    saves += 1
+    stored = checkpoint
+    lock.unlock()
+  }
+
+  func clear() {
+    lock.lock()
+    clears += 1
+    stored = nil
     lock.unlock()
   }
 }
@@ -1187,7 +890,7 @@ actor MachineFixture {
     return outcome
   }
 
-  func runBoundaryMotion(_ request: BoundaryMotionRequest) async -> BoundaryMotionOutcome {
+  func requestBoundaryMotion(_ request: BoundaryMotionRequest) async -> BoundaryMotionOutcome {
     requestedFeeds.append(request.segment.feedMMPerMinute)
     activeBoundaryRequest = request
     moving = true
@@ -1339,7 +1042,7 @@ actor MachineFixture {
     return .settled(
       BoundaryMotionSettlement(
         ownerID: request.ownerID,
-        mechanicalCancelIntent: intent,
+        intent: intent,
         completedSegmentCount: 0,
         finalPosition: position,
         jogCancelOutcome: .completed(finalPosition: position)
@@ -1356,8 +1059,6 @@ final class CameraFixture: @unchecked Sendable {
   private let providesInspectionOverlay: Bool
   private let providesAutomaticAnalysisResult: Bool
   private let capCentroidXOffsets: [Double]
-  private let frameWidth: Int
-  private let frameHeight: Int
   private let lock = NSLock()
   private var inspectionCount = 0
   private var automaticInspectionRequests: [VisionAnalysisCadence?] = []
@@ -1369,7 +1070,6 @@ final class CameraFixture: @unchecked Sendable {
   private var discoverCalls = 0
   private var selectCalls = 0
   private var startCalls = 0
-  private var nextStartSnapshot: CameraCaptureSnapshot?
 
   var inspectionCallCount: Int {
     lock.lock()
@@ -1399,58 +1099,26 @@ final class CameraFixture: @unchecked Sendable {
 
   func startResponse() -> CameraCaptureSnapshot {
     lock.lock()
-    defer { lock.unlock() }
     startCalls += 1
-    if let nextStartSnapshot {
-      self.nextStartSnapshot = nil
-      return nextStartSnapshot
-    }
-    return snapshot
-  }
-
-  func setNextStartResponse(_ snapshot: CameraCaptureSnapshot) {
-    lock.lock()
-    nextStartSnapshot = snapshot
     lock.unlock()
-  }
-
-  func stopResponse() -> CameraCaptureSnapshot {
-    CameraCaptureSnapshot(
-      devices: snapshot.devices,
-      selectedDeviceID: snapshot.selectedDeviceID,
-      state: .stopped,
-      latestFrame: nil,
-      error: nil,
-      diagnostics: snapshot.diagnostics
-    )
+    return snapshot
   }
 
   init(
     rotatesConfiguration: Bool = false,
     providesInspectionOverlay: Bool = false,
     providesAutomaticAnalysisResult: Bool = false,
-    capCentroidXOffsets: [Double] = [],
-    frameWidth: Int = 9,
-    frameHeight: Int = 9
+    capCentroidXOffsets: [Double] = []
   ) throws {
     self.rotatesConfiguration = rotatesConfiguration
     self.providesInspectionOverlay = providesInspectionOverlay
     self.providesAutomaticAnalysisResult = providesAutomaticAnalysisResult
     self.capCentroidXOffsets = capCentroidXOffsets
-    self.frameWidth = frameWidth
-    self.frameHeight = frameHeight
     configurationID = CameraConfigurationID()
     device = CameraDevice(id: CameraDeviceID(rawValue: "camera"), name: "Fixture camera")
     let initial = DisplayedFrame(
       source: .live(device.id),
-      frame: try frame(
-        id: "initial",
-        sequence: 1,
-        capture: 50,
-        configurationID: configurationID,
-        width: frameWidth,
-        height: frameHeight
-      )
+      frame: try frame(id: "initial", sequence: 1, capture: 50, configurationID: configurationID)
     )
     snapshot = CameraCaptureSnapshot(
       devices: [device],
@@ -1464,14 +1132,13 @@ final class CameraFixture: @unchecked Sendable {
   func inspection(
     after captureBoundary: UInt64,
     features: SceneFeatureSet = [.penCap],
-    analysisRegion: PixelRect? = nil,
-    machinePosition: MachinePosition? = nil
+    analysisRegion: PixelRect? = nil
   ) throws -> LiveSceneInspection {
     lock.lock()
     inspectionCount += 1
     workflowFeatureRequests.append(features)
     workflowAnalysisRegionRequests.append(analysisRegion)
-    let configuredCentroidOffset = capCentroidXOffsets.isEmpty
+    let centroidOffset = capCentroidXOffsets.isEmpty
       ? 0
       : capCentroidXOffsets[(inspectionCount - 1) % capCentroidXOffsets.count]
     let inspectionConfigurationID =
@@ -1480,20 +1147,13 @@ final class CameraFixture: @unchecked Sendable {
       : configurationID
     lock.unlock()
     let capture = captureBoundary &+ 1
-    // The LIVE calibration fixture models one stable affine camera: the cap
-    // measurement moves with current MPos. Callers that do not bind a machine
-    // retain the narrow per-inspection X-offset behavior used by cadence tests.
-    let centroidOffsetX = machinePosition?.point.x ?? configuredCentroidOffset
-    let centroidOffsetY = machinePosition?.point.y ?? 0
     let fresh = DisplayedFrame(
       source: .live(device.id),
       frame: try frame(
         id: "fresh-\(capture)",
         sequence: capture,
         capture: capture,
-        configurationID: inspectionConfigurationID,
-        width: frameWidth,
-        height: frameHeight
+        configurationID: inspectionConfigurationID
       )
     )
     let overlays =
@@ -1502,9 +1162,7 @@ final class CameraFixture: @unchecked Sendable {
         CameraOverlayMeasurement(
           frameID: fresh.frame.id,
           cameraConfigurationID: inspectionConfigurationID,
-          geometry: .point(
-            try Point2(x: 99 + centroidOffsetX, y: 52 + centroidOffsetY)
-          ),
+          geometry: .point(try Point2(x: 99 + centroidOffset, y: 52)),
           provenance: CameraMeasurementProvenance(
             kind: .penCap,
             source: .measured,
@@ -1514,13 +1172,8 @@ final class CameraFixture: @unchecked Sendable {
       ] : []
     let cap = PenCapMeasurement(
       pixelCount: 10,
-      boundingBox: PixelRect(
-        x: 98 + Int(centroidOffsetX.rounded()),
-        y: 48 + Int(centroidOffsetY.rounded()),
-        width: 2,
-        height: 4
-      ),
-      centroid: try Point2(x: 99 + centroidOffsetX, y: 50 + centroidOffsetY),
+      boundingBox: PixelRect(x: 98, y: 48, width: 2, height: 4),
+      centroid: try Point2(x: 99 + centroidOffset, y: 50),
       confidence: 0.9
     )
     let diagnostics = PenCapDiagnostics(
@@ -1639,14 +1292,87 @@ extension LiveSceneInspection {
   }
 }
 
+actor BoundaryRenewalMotionGate {
+  private var segmentReleased = false
+  private var segmentContinuation: CheckedContinuation<Void, Never>?
+  private var pendingCancelIntent: JogCancelIntent?
+  private var cancelContinuation: CheckedContinuation<JogCancelIntent, Never>?
+  private var finalPosition: MachinePosition?
+  private(set) var request: BoundaryMotionRequest?
+
+  func run(
+    _ request: BoundaryMotionRequest,
+    renewalPlanner: BoundaryMotionRenewalPlanner?
+  ) async -> BoundaryMotionOutcome {
+    self.request = request
+    await waitForFirstSegmentRelease()
+    let finalPosition = try! MachinePosition(
+      x: request.segment.delta.dx,
+      y: request.segment.delta.dy
+    )
+    self.finalPosition = finalPosition
+    if let renewalPlanner {
+      _ = await renewalPlanner.nextSegmentLength(
+        after: BoundaryMotionSegmentProgress(
+          ownerID: request.ownerID,
+          direction: request.direction,
+          completedSegmentCount: 1,
+          completedSegment: request.segment,
+          startPosition: try! MachinePosition(x: 0, y: 0),
+          finalPosition: finalPosition
+        )
+      )
+    }
+    let intent = await waitForCancelIntent()
+    return .settled(
+      BoundaryMotionSettlement(
+        ownerID: request.ownerID,
+        intent: intent,
+        completedSegmentCount: 1,
+        finalPosition: finalPosition,
+        jogCancelOutcome: .completed(finalPosition: finalPosition)
+      )
+    )
+  }
+
+  func releaseFirstSegment() {
+    segmentReleased = true
+    segmentContinuation?.resume()
+    segmentContinuation = nil
+  }
+
+  func cancel(_ intent: JogCancelIntent) -> JogCancelOutcome {
+    if let cancelContinuation {
+      self.cancelContinuation = nil
+      cancelContinuation.resume(returning: intent)
+    } else {
+      pendingCancelIntent = intent
+    }
+    return .completed(finalPosition: finalPosition ?? (try! MachinePosition(x: 0, y: 0)))
+  }
+
+  private func waitForFirstSegmentRelease() async {
+    guard !segmentReleased else { return }
+    await withCheckedContinuation { segmentContinuation = $0 }
+  }
+
+  private func waitForCancelIntent() async -> JogCancelIntent {
+    if let pendingCancelIntent {
+      self.pendingCancelIntent = nil
+      return pendingCancelIntent
+    }
+    return await withCheckedContinuation { cancelContinuation = $0 }
+  }
+}
+
 func frame(
   id: String,
   sequence: UInt64,
   capture: UInt64,
-  configurationID: CameraConfigurationID,
-  width: Int = 9,
-  height: Int = 9
+  configurationID: CameraConfigurationID
 ) throws -> StampedFrame {
+  let width = 9
+  let height = 9
   let pixel = [UInt8(105), 185, 45, 255]
   return try StampedFrame(
     id: FrameID(rawValue: id),
@@ -1688,81 +1414,6 @@ actor CalibrationStopPacing: SimulatedLearningExecutionPacing {
     suspension = nil
     suspended = false
     continuation?.resume()
-  }
-}
-
-private actor BoundaryStopWindowPacing: SimulatedLearningExecutionPacing {
-  private var suspensionCount = 0
-  private var stopWindowIsOpen = false
-  private var releaseWasRequested = false
-  private var stopWindowContinuation: CheckedContinuation<Void, Never>?
-  private var stopWindowWaiters: [CheckedContinuation<Void, Never>] = []
-
-  func suspendBetweenSteps() async {
-    suspensionCount += 1
-    guard suspensionCount == 2 else {
-      await Task.yield()
-      return
-    }
-
-    stopWindowIsOpen = true
-    let waiters = stopWindowWaiters
-    stopWindowWaiters.removeAll()
-    for waiter in waiters { waiter.resume() }
-    guard !releaseWasRequested else { return }
-    await withCheckedContinuation { continuation in
-      stopWindowContinuation = continuation
-    }
-  }
-
-  func waitUntilStopWindow() async {
-    if stopWindowIsOpen { return }
-    await withCheckedContinuation { continuation in
-      stopWindowWaiters.append(continuation)
-    }
-  }
-
-  func releaseStopWindow() {
-    releaseWasRequested = true
-    let continuation = stopWindowContinuation
-    stopWindowContinuation = nil
-    continuation?.resume()
-  }
-}
-
-@MainActor
-func performSimulatedBoundaryStopAndAccept(
-  _ workspace: OperatorWorkspace,
-  owner: LearningPathItemID,
-  start: @MainActor () async throws -> Void
-) async throws {
-  let pacing = BoundaryStopWindowPacing()
-  workspace.replaceSimulatedExecutionPacingForTesting(pacing)
-  do {
-    try await start()
-    await pacing.waitUntilStopWindow()
-    let stop = try #require(
-      workspace.selectedOperatorActionPresentation(for: owner).actionStrip?.actions
-        .first(where: {
-          if case .stopAndAcceptBoundary = $0.kind { true } else { false }
-        })?.kind
-    )
-    let stopTask = Task { @MainActor in
-      await workspace.performExerciseAction(stop, for: owner)
-    }
-    try await waitUntil { workspace.contextualStopPresentation == nil }
-    await pacing.releaseStopWindow()
-    await stopTask.value
-    try await waitUntil { workspace.activeExerciseAttemptID == nil }
-    workspace.replaceSimulatedExecutionPacingForTesting(
-      SimulatedLearningImmediatePacing()
-    )
-  } catch {
-    await pacing.releaseStopWindow()
-    workspace.replaceSimulatedExecutionPacingForTesting(
-      SimulatedLearningImmediatePacing()
-    )
-    throw error
   }
 }
 

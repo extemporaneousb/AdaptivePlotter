@@ -60,35 +60,12 @@ struct WorkbenchControllerSlotPresentation: Equatable, Sendable {
 
 /// Native macOS window-toolbar controls for the camera-first workbench.
 ///
-/// Controller/session truth and every global workbench visibility route live
-/// here. The View menu receives the exact same `WorkbenchWindowState` binding.
+/// Only controller/session controls and compact truthful status live here.
+/// Exercise Stop and utility-panel launchers belong to the workbench content.
 struct WorkbenchToolbar: ToolbarContent {
   @Bindable var workspace: OperatorWorkspace
-  @Binding var windowState: WorkbenchWindowState
-  let learningHideUnavailableReason: String?
-  let motionHideUnavailableReason: String?
 
   var body: some ToolbarContent {
-    ToolbarItem(placement: .navigation) {
-      Button {
-        let wasEnabled = workspace.learningIsEnabled
-        workspace.toggleLearningMode()
-        if workspace.learningIsEnabled != wasEnabled {
-          windowState.learningExerciseIsPresented = workspace.learningIsEnabled
-        }
-      } label: {
-        Label(
-          workspace.learningModeActionTitle,
-          systemImage: workspace.learningIsEnabled ? "graduationcap.fill" : "graduationcap"
-        )
-      }
-      .disabled(workspace.learningModeChangeUnavailableReason != nil)
-      .help(
-        workspace.learningModeChangeUnavailableReason
-          ?? "Learning changes guidance visibility, not direct motion authority."
-      )
-    }
-
     ToolbarItem(placement: .principal) {
       let controllerSlot = WorkbenchControllerSlotPresentation(mode: workspace.frameMode)
       HStack(spacing: 8) {
@@ -124,7 +101,7 @@ struct WorkbenchToolbar: ToolbarContent {
           Task { await workspace.performControllerConnectionAction() }
         }
         .operatorButton(
-          workspace.controllerSessionEstablished ? .interrupt : .commit,
+          workspace.controllerSessionEstablished ? .negative : .affirmative,
           isEnabled: workspace.controllerConnectionActionUnavailableReason == nil
         )
         .help(
@@ -136,17 +113,10 @@ struct WorkbenchToolbar: ToolbarContent {
           Task { await workspace.activateMotionGuard() }
         }
         .operatorButton(
-          .commit,
+          .affirmative,
           isEnabled: workspace.motionGuardActivationUnavailableReason == nil
         )
       }
-    }
-
-    ToolbarItemGroup(placement: .secondaryAction) {
-      surfaceButton(.learningExercise)
-      surfaceButton(.motion)
-      surfaceButton(.video)
-      surfaceButton(.diagnostics)
     }
 
     ToolbarItem(placement: .primaryAction) {
@@ -178,33 +148,6 @@ struct WorkbenchToolbar: ToolbarContent {
         )
         MotionRequestStatusView(presentation: workspace.motionRequestStatusPresentation)
       }
-    }
-  }
-
-  private func surfaceButton(_ surface: WorkbenchWindowSurface) -> some View {
-    let unavailableReason = surfaceUnavailableReason(surface)
-    let title = windowState.actionTitle(for: surface)
-    return Button {
-      guard unavailableReason == nil else { return }
-      windowState.toggle(surface)
-    } label: {
-      Label(title, systemImage: surface.systemImage)
-    }
-    .disabled(unavailableReason != nil)
-    .help(unavailableReason ?? title)
-  }
-
-  private func surfaceUnavailableReason(_ surface: WorkbenchWindowSurface) -> String? {
-    guard windowState.isPresented(surface) else {
-      if surface == .learningExercise, !workspace.learningIsEnabled {
-        return "Turn Learning on before showing the Learning pane."
-      }
-      return nil
-    }
-    return switch surface {
-    case .learningExercise: learningHideUnavailableReason
-    case .motion: motionHideUnavailableReason
-    case .video, .diagnostics: nil
     }
   }
 }

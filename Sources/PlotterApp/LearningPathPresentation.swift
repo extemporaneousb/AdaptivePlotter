@@ -46,7 +46,7 @@ enum HumanGuidedDiscoveryStep: Int, CaseIterable, Hashable, Identifiable, Sendab
   var title: String {
     switch self {
     case .penInteraction: "Pen Interaction"
-    case .pairedBoundaryDiscoveryAndCentering: "Set X, Y Boundaries"
+    case .pairedBoundaryDiscoveryAndCentering: "Paired Boundary Discovery and Centering"
     case .calibrateCameraAndVisibleCap: "Calibrate Camera and Visible Cap"
     case .calibratePenContactFromSparseMarks: "Calibrate Pen Contact from Sparse Marks"
     }
@@ -88,6 +88,36 @@ enum LearningPathItemID: Hashable, Identifiable, Sendable {
 
   var id: Self { self }
 
+  static let navigationOrder: [Self] = [
+    .stage(.connect),
+    .stage(.enableMotion),
+    .stage(.humanGuidedDiscovery),
+    .humanGuidedDiscovery(.penInteraction),
+    .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering),
+    .humanGuidedDiscovery(.calibrateCameraAndVisibleCap),
+    .humanGuidedDiscovery(.calibratePenContactFromSparseMarks),
+    .stage(.observedDrawingTrials),
+    .observedDrawingTrial(.chooseIsolatedLinePlan),
+    .observedDrawingTrial(.captureLocalPreLineBaseline),
+    .observedDrawingTrial(.moveToLineStart),
+    .observedDrawingTrial(.drawIsolatedLine),
+    .observedDrawingTrial(.revealAndObserveNewInk),
+    .observedDrawingTrial(.compareIntendedAndObservedGeometry),
+  ]
+
+  static let learningExerciseOrder: [Self] = [
+    .humanGuidedDiscovery(.penInteraction),
+    .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering),
+    .humanGuidedDiscovery(.calibrateCameraAndVisibleCap),
+    .humanGuidedDiscovery(.calibratePenContactFromSparseMarks),
+    .observedDrawingTrial(.chooseIsolatedLinePlan),
+    .observedDrawingTrial(.captureLocalPreLineBaseline),
+    .observedDrawingTrial(.moveToLineStart),
+    .observedDrawingTrial(.drawIsolatedLine),
+    .observedDrawingTrial(.revealAndObserveNewInk),
+    .observedDrawingTrial(.compareIntendedAndObservedGeometry),
+  ]
+
   var stage: LearningPathStage {
     switch self {
     case .stage(let stage): stage
@@ -115,233 +145,93 @@ enum LearningPathItemID: Hashable, Identifiable, Sendable {
   var isExercise: Bool {
     switch self {
     case .humanGuidedDiscovery, .observedDrawingTrial: true
-    case .stage: false
+    case .stage(.connect), .stage(.enableMotion): true
+    case .stage(.humanGuidedDiscovery), .stage(.observedDrawingTrials):
+      false
+    }
+  }
+
+  var learningRewindAnchor: Self? {
+    switch self {
+    case .stage(.humanGuidedDiscovery):
+      .humanGuidedDiscovery(.penInteraction)
+    case .stage(.observedDrawingTrials):
+      .observedDrawingTrial(.chooseIsolatedLinePlan)
+    case .humanGuidedDiscovery, .observedDrawingTrial:
+      self
+    case .stage(.connect), .stage(.enableMotion):
+      nil
+    }
+  }
+
+  var navigationDepth: Int {
+    switch self {
+    case .humanGuidedDiscovery, .observedDrawingTrial: 1
+    case .stage: 0
     }
   }
 }
 
-/// The sole hierarchy and ordering authority for the Learning Path.
-///
-/// Navigation, indentation, and subtree invalidation all consume this same
-/// value. No parallel chronological exercise list or rewind anchor exists.
-struct LearningPathTree: Hashable, Sendable {
-  struct Node: Hashable, Sendable {
-    let item: LearningPathItemID
-    let children: [Node]
-
-    init(_ item: LearningPathItemID, children: [Node] = []) {
-      self.item = item
-      self.children = children
-    }
-  }
-
-  static let curriculum = LearningPathTree(roots: [
-    Node(.stage(.connect)),
-    Node(.stage(.enableMotion)),
-    Node(.stage(.humanGuidedDiscovery), children: [
-      Node(.humanGuidedDiscovery(.penInteraction)),
-      Node(.humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)),
-      Node(.humanGuidedDiscovery(.calibrateCameraAndVisibleCap)),
-      Node(.humanGuidedDiscovery(.calibratePenContactFromSparseMarks)),
-    ]),
-    Node(.stage(.observedDrawingTrials), children: [
-      Node(.observedDrawingTrial(.chooseIsolatedLinePlan)),
-      Node(.observedDrawingTrial(.captureLocalPreLineBaseline)),
-      Node(.observedDrawingTrial(.moveToLineStart)),
-      Node(.observedDrawingTrial(.drawIsolatedLine)),
-      Node(.observedDrawingTrial(.revealAndObserveNewInk)),
-      Node(.observedDrawingTrial(.compareIntendedAndObservedGeometry)),
-    ]),
-  ])
-
-  let roots: [Node]
-  let flattenedItems: [LearningPathItemID]
-  private let parentByItem: [LearningPathItemID: LearningPathItemID]
-  private let childrenByItem: [LearningPathItemID: [LearningPathItemID]]
-  private let depthByItem: [LearningPathItemID: Int]
-
-  init(roots: [Node]) {
-    var flattenedItems: [LearningPathItemID] = []
-    var parentByItem: [LearningPathItemID: LearningPathItemID] = [:]
-    var childrenByItem: [LearningPathItemID: [LearningPathItemID]] = [:]
-    var depthByItem: [LearningPathItemID: Int] = [:]
-
-    func visit(_ node: Node, parent: LearningPathItemID?, depth: Int) {
-      precondition(depthByItem[node.item] == nil, "Learning Path items must be unique.")
-      flattenedItems.append(node.item)
-      depthByItem[node.item] = depth
-      childrenByItem[node.item] = node.children.map(\.item)
-      if let parent { parentByItem[node.item] = parent }
-      for child in node.children {
-        visit(child, parent: node.item, depth: depth + 1)
-      }
-    }
-
-    for root in roots { visit(root, parent: nil, depth: 0) }
-    precondition(Set(flattenedItems) == Set(LearningPathStage.allCases.map(LearningPathItemID.stage)
-      + HumanGuidedDiscoveryStep.allCases.map(LearningPathItemID.humanGuidedDiscovery)
-      + ObservedDrawingTrialStep.allCases.map(LearningPathItemID.observedDrawingTrial)))
-
-    self.roots = roots
-    self.flattenedItems = flattenedItems
-    self.parentByItem = parentByItem
-    self.childrenByItem = childrenByItem
-    self.depthByItem = depthByItem
-  }
-
-  func parent(of item: LearningPathItemID) -> LearningPathItemID? {
-    parentByItem[item]
-  }
-
-  func children(of item: LearningPathItemID) -> [LearningPathItemID] {
-    childrenByItem[item] ?? []
-  }
-
-  func depth(of item: LearningPathItemID) -> Int? {
-    depthByItem[item]
-  }
-
-  func descendants(
-    of item: LearningPathItemID,
-    includingRoot: Bool = false
-  ) -> [LearningPathItemID] {
-    guard depthByItem[item] != nil else { return [] }
-    var result: [LearningPathItemID] = includingRoot ? [item] : []
-    for child in children(of: item) {
-      result.append(child)
-      result.append(contentsOf: descendants(of: child))
-    }
-    return result
-  }
-
-  func descendantLeaves(
-    of item: LearningPathItemID,
-    includingRoot: Bool = false
-  ) -> [LearningPathItemID] {
-    descendants(of: item, includingRoot: includingRoot).filter(isActionableLeaf)
-  }
-
-  func isActionableLeaf(_ item: LearningPathItemID) -> Bool {
-    depthByItem[item] != nil && children(of: item).isEmpty && item.isExercise
-  }
-}
-
-enum LearningInvalidationSource: String, Hashable, Sendable {
+enum LearningVacateSource: String, Hashable, Sendable {
   case live = "LIVE"
   case simulated = "SIMULATED"
 }
 
-enum LearningInvalidationScope: Hashable, Sendable {
-  case leaf(root: LearningPathItemID)
-  case subtree(root: LearningPathItemID)
+enum LearningVacateScope: Hashable, Sendable {
+  case from(LearningPathItemID)
   case all
-
-  var root: LearningPathItemID? {
-    switch self {
-    case .leaf(let root), .subtree(let root): root
-    case .all: nil
-    }
-  }
 }
 
-enum LearningInvalidationPlanContractVersion: Int, Hashable, Sendable {
-  case v1 = 1
-}
-
-/// Immutable preview and stale-state guard for explicit learning invalidation.
+/// Immutable preview and stale-state guard for an explicit learning reset.
 /// The UI presents this plan before passing it back for mutation.
-struct LearningInvalidationPlan: Hashable, Identifiable, Sendable {
-  let contractVersion: LearningInvalidationPlanContractVersion
-  let scope: LearningInvalidationScope
-  let source: LearningInvalidationSource
-  let affectedItemIDs: [LearningPathItemID]
+struct LearningVacatePlan: Hashable, Identifiable, Sendable {
+  let scope: LearningVacateScope
+  let source: LearningVacateSource
+  let anchor: LearningPathItemID
+  let affectedItems: [LearningPathItemID]
   let expectedCurrentRevisionIDs: Set<LearningArtifactRevisionID>
-  let expectedGraphRevision: UInt64
   let expectedAcceptedAttemptSequence: UInt64
-  let expectedAuthorityManifestRevision: LearningAuthorityStoreRevision?
-  let removesDurableMachineRegistration: Bool
-  let removesDurableTipRegistration: Bool
+  let removesDurableMachineCheckpoint: Bool
+  let removesDurableTipCheckpoint: Bool
   let physicalInkMayRemain: Bool
 
-  init(
-    contractVersion: LearningInvalidationPlanContractVersion = .v1,
-    scope: LearningInvalidationScope,
-    source: LearningInvalidationSource,
-    affectedItemIDs: [LearningPathItemID],
-    expectedCurrentRevisionIDs: Set<LearningArtifactRevisionID>,
-    expectedGraphRevision: UInt64,
-    expectedAcceptedAttemptSequence: UInt64,
-    expectedAuthorityManifestRevision: LearningAuthorityStoreRevision?,
-    removesDurableMachineRegistration: Bool,
-    removesDurableTipRegistration: Bool,
-    physicalInkMayRemain: Bool
-  ) {
-    let tree = LearningPathTree.curriculum
-    let affectedSet = Set(affectedItemIDs)
-    precondition(!affectedItemIDs.isEmpty)
-    precondition(affectedSet.count == affectedItemIDs.count)
-    precondition(affectedItemIDs.allSatisfy(tree.isActionableLeaf))
-    precondition(
-      affectedItemIDs == tree.flattenedItems.filter(affectedSet.contains),
-      "Affected items must follow canonical tree order."
-    )
-    switch scope {
-    case .leaf(let root):
-      precondition(tree.isActionableLeaf(root))
-      precondition(affectedSet.contains(root))
-    case .subtree(let root):
-      precondition(!tree.children(of: root).isEmpty)
-      precondition(Set(tree.descendantLeaves(of: root)).isSubset(of: affectedSet))
-    case .all:
-      precondition(Set(tree.flattenedItems.filter(tree.isActionableLeaf)).isSubset(of: affectedSet))
-    }
-    self.contractVersion = contractVersion
-    self.scope = scope
-    self.source = source
-    self.affectedItemIDs = affectedItemIDs
-    self.expectedCurrentRevisionIDs = expectedCurrentRevisionIDs
-    self.expectedGraphRevision = expectedGraphRevision
-    self.expectedAcceptedAttemptSequence = expectedAcceptedAttemptSequence
-    self.expectedAuthorityManifestRevision = expectedAuthorityManifestRevision
-    self.removesDurableMachineRegistration = removesDurableMachineRegistration
-    self.removesDurableTipRegistration = removesDurableTipRegistration
-    self.physicalInkMayRemain = physicalInkMayRemain
+  var removesDurableCheckpoint: Bool {
+    removesDurableMachineCheckpoint || removesDurableTipCheckpoint
   }
 
   var id: String {
-    let scopeID: String = switch scope {
-    case .leaf(let root): "leaf-\(root.number)"
-    case .subtree(let root): "subtree-\(root.number)"
-    case .all: "all"
-    }
-    return "v\(contractVersion.rawValue)-\(source.rawValue)-\(scopeID)"
+    let scopeID =
+      switch scope {
+      case .from: "from-\(anchor.number)"
+      case .all: "all"
+      }
+    return "\(source.rawValue)-\(scopeID)"
   }
 
   var title: String {
     switch scope {
-    case .leaf: "Invalidate This Step"
-    case .subtree: "Invalidate This Branch"
-    case .all: "Invalidate All Learning"
+    case .from: "Reset From This Step"
+    case .all: "Reset All Learning"
     }
-  }
-
-  var message: String {
-    let count = affectedItemIDs.count
-    let suffix = physicalInkMayRemain ? " Physical ink remains on the paper." : ""
-    return "Delete collected data for \(count) learning \(count == 1 ? "step" : "steps").\(suffix)"
   }
 }
 
 struct LearningPathItemPresentation: Identifiable, Hashable, Sendable {
   let id: LearningPathItemID
   let status: LearningPathStageStatus
+  let summary: String
+  let isRepeatable: Bool
 
   init(
     id: LearningPathItemID,
-    status: LearningPathStageStatus
+    status: LearningPathStageStatus,
+    summary: String,
+    isRepeatable: Bool = false
   ) {
     self.id = id
     self.status = status
+    self.summary = summary
+    self.isRepeatable = isRepeatable
   }
 }
 
@@ -436,6 +326,34 @@ extension Collection where Element == PresentationFragment {
   }
 }
 
+struct ExerciseTimelinePresentation: Hashable, Sendable {
+  let position: Int
+  let total: Int
+  let currentLabel: String
+
+  init(position: Int, total: Int, currentLabel: String) {
+    precondition(total > 0)
+    precondition((1...total).contains(position))
+    self.position = position
+    self.total = total
+    self.currentLabel = currentLabel
+  }
+
+  var positionText: String { "Step \(position) of \(total)" }
+}
+
+struct ExerciseEvidencePresentation: Identifiable, Hashable, Sendable {
+  let label: String
+  let fragments: [PresentationFragment]
+
+  var id: String { label }
+
+  init(label: String, fragments: [PresentationFragment]) {
+    self.label = label
+    self.fragments = fragments
+  }
+}
+
 /// Unforgeable presentation authority for one currently stoppable logical owner.
 /// Views must return this exact value with Stop so a stale control cannot stop a
 /// successor operation that happens to occupy the same visual location.
@@ -497,9 +415,8 @@ enum ExerciseActionKind: Hashable, Sendable {
   case start
   case choice(OperatorChoice)
   case setPenSetpoint(PenCommand, Int)
-  case stopAndAcceptBoundary(ContextualStopCapabilityID)
+  case cancel
   case stop(ContextualStopCapabilityID)
-  case cancel(ContextualStopCapabilityID)
   case restart
   case redoThisStep
   case recordAnotherAttempt
@@ -525,92 +442,56 @@ enum ExerciseActionKind: Hashable, Sendable {
   case recordDrawingTrialAssessment(DrawingTrialAssessment)
 }
 
-enum ExerciseActionEffect: Hashable, Sendable {
-  case commit
-  case interrupt
-  case editValue
-  case utility
-
-  var buttonRole: OperatorButtonRole {
-    switch self {
-    case .commit: .commit
-    case .interrupt: .interrupt
-    case .editValue: .editValue
-    case .utility: .utility
-    }
-  }
+enum SubsystemAuthorityRole: String, Hashable, Sendable {
+  case motionGate = "Motion gate"
+  case operationOwner = "Operation owner"
+  case advisoryEvidence = "Advisory evidence"
+  case evidenceCommit = "Evidence commit"
 }
 
-enum ExerciseActionKeyboardShortcut: Hashable, Sendable {
-  case escape
+struct SubsystemStatusPresentation: Identifiable, Hashable, Sendable {
+  let id: String
+  let subsystem: String
+  let state: String
+  let role: SubsystemAuthorityRole
+  let blocksNewMotion: Bool
+  let detail: [PresentationFragment]
 }
 
-extension ExerciseActionKind {
-  /// The exhaustive semantic-to-visual mapping for every Exercise action.
-  /// Views never choose colors or progression meaning manually.
-  var effect: ExerciseActionEffect {
-    switch self {
-    case .start,
-      .choice(.yes),
-      .stopAndAcceptBoundary,
-      .restart,
-      .redoThisStep,
-      .recordAnotherAttempt,
-      .redoBoundary,
-      .recordAnotherBoundaryAttempt,
-      .moveToEstimatedCenter,
-      .runCameraCalibrationAndBuildProposal,
-      .acceptCameraCalibrationProposal,
-      .createNextSparseTipMark,
-      .acceptSparseTipMark,
-      .revalidateTipCalibrationCheckpoint,
-      .acceptTipCalibration,
-      .chooseIsolatedLinePlan,
-      .captureLocalPreLineBaseline,
-      .moveToLineStart,
-      .drawIsolatedLine,
-      .revealAndObserveNewInk,
-      .recordDrawingTrialAssessment:
-      .commit
-    case .choice(.no),
-      .stop,
-      .cancel,
-      .rejectCameraCalibrationProposal,
-      .rejectTipCalibration,
-      .paperReplaced:
-      .interrupt
-    case .setPenSetpoint,
-      .selectDirection,
-      .reClickSparseTipFrame:
-      .editValue
-    }
-  }
-
-  var keyboardShortcut: ExerciseActionKeyboardShortcut? {
-    if case .stop = self { return .escape }
-    return nil
-  }
+enum ExerciseActionRole: Hashable, Sendable {
+  case positive
+  case destructive
+  case standard
 }
 
 struct ExerciseActionDescriptor: Identifiable, Hashable, Sendable {
   let kind: ExerciseActionKind
   let title: String
+  let role: ExerciseActionRole
   let unavailableReason: String?
 
   var id: ExerciseActionKind { kind }
   var isEnabled: Bool { unavailableReason == nil }
-  var effect: ExerciseActionEffect { kind.effect }
-  var buttonRole: OperatorButtonRole { effect.buttonRole }
-  var keyboardShortcut: ExerciseActionKeyboardShortcut? { kind.keyboardShortcut }
-  var isDefaultAction: Bool { false }
+  var buttonRole: OperatorButtonRole {
+    if case .choice(let choice) = kind {
+      return choice == .yes ? .affirmative : .negative
+    }
+    switch role {
+    case .positive: return .affirmative
+    case .destructive: return .negative
+    case .standard: return .neutral
+    }
+  }
 
   init(
     kind: ExerciseActionKind,
     title: String,
+    role: ExerciseActionRole = .standard,
     unavailableReason: String? = nil
   ) {
     self.kind = kind
     self.title = title
+    self.role = role
     self.unavailableReason = unavailableReason
   }
 }
@@ -694,59 +575,101 @@ struct ExerciseActionStripPresentation: Hashable, Sendable {
 
 struct ExerciseQuestionPresentation: Hashable, Sendable {
   let prompt: [PresentationFragment]
+  let choices: [OperatorChoice]
 
-  init(prompt: [PresentationFragment]) {
+  init(prompt: [PresentationFragment], choices: [OperatorChoice]) {
     precondition(!prompt.isEmpty)
     self.prompt = prompt
+    self.choices = choices
   }
 }
 
-enum ExerciseScriptSpeaker: String, Hashable, Sendable {
-  case plotter = "Plotter"
-  case you = "You"
+enum OperationActivityOutcome: String, Hashable, Sendable {
+  case inProgress = "In Progress"
+  case succeeded = "Succeeded"
+  case cancelled = "Cancelled"
+  case needsAttention = "Needs Attention"
 }
 
-struct ExerciseScriptLinePresentation: Hashable, Sendable {
-  let speaker: ExerciseScriptSpeaker
-  let fragments: [PresentationFragment]
+struct OperationActivityPresentation: Hashable, Sendable {
+  let actor: String
+  let action: String
+  let phase: String?
+  let outcomeLabel: String
+  let outcome: OperationActivityOutcome
+  let detail: [PresentationFragment]
+  let acceptedResult: [PresentationFragment]
+  let recovery: [PresentationFragment]
 
   init(
-    speaker: ExerciseScriptSpeaker,
-    fragments: [PresentationFragment]
+    actor: String,
+    action: String,
+    phase: String? = nil,
+    outcomeLabel: String? = nil,
+    outcome: OperationActivityOutcome,
+    detail: [PresentationFragment] = [],
+    acceptedResult: [PresentationFragment] = [],
+    recovery: [PresentationFragment] = []
   ) {
-    precondition(!fragments.isEmpty)
-    self.speaker = speaker
-    self.fragments = fragments
+    self.actor = actor
+    self.action = action
+    self.phase = phase
+    self.outcomeLabel = outcomeLabel ?? outcome.rawValue
+    self.outcome = outcome
+    self.detail = detail
+    self.acceptedResult = acceptedResult
+    self.recovery = recovery
   }
-}
-
-struct LearningInvalidationPresentation: Hashable, Sendable {
-  let selectedPlan: LearningInvalidationPlan?
-  let invalidateAllPlan: LearningInvalidationPlan?
-  let unavailableReason: String?
 }
 
 struct OperatorActionPresentation: Hashable, Sendable {
-  let item: LearningPathItemPresentation
-  let script: [ExerciseScriptLinePresentation]
+  let itemID: LearningPathItemID
+  let stepNumber: String
+  let title: String
+  let status: LearningPathStageStatus
+  let participant: String?
+  let instructions: [PresentationFragment]
+  let expectedObservation: [PresentationFragment]
   let question: ExerciseQuestionPresentation?
+  let timeline: ExerciseTimelinePresentation?
+  let evidence: [ExerciseEvidencePresentation]
+  let activity: OperationActivityPresentation?
+  let subsystemStatuses: [SubsystemStatusPresentation]
   let actionStrip: ExerciseActionStripPresentation?
-  let invalidation: LearningInvalidationPresentation
-
-  var heading: String { "\(item.id.number) - \(item.id.title)" }
+  let requestedFeedMMPerMinute: Double?
+  let feedSource: FeedSelectionSource?
 
   init(
-    item: LearningPathItemPresentation,
-    script: [ExerciseScriptLinePresentation],
+    itemID: LearningPathItemID,
+    stepNumber: String,
+    title: String,
+    status: LearningPathStageStatus,
+    participant: String? = nil,
+    instructions: [PresentationFragment],
+    expectedObservation: [PresentationFragment] = [],
     question: ExerciseQuestionPresentation? = nil,
+    timeline: ExerciseTimelinePresentation? = nil,
+    evidence: [ExerciseEvidencePresentation] = [],
+    activity: OperationActivityPresentation? = nil,
+    subsystemStatuses: [SubsystemStatusPresentation] = [],
     actionStrip: ExerciseActionStripPresentation? = nil,
-    invalidation: LearningInvalidationPresentation
+    requestedFeedMMPerMinute: Double? = nil,
+    feedSource: FeedSelectionSource? = nil
   ) {
-    precondition(!script.isEmpty)
-    self.item = item
-    self.script = script
+    self.itemID = itemID
+    self.stepNumber = stepNumber
+    self.title = title
+    self.status = status
+    self.participant = participant
+    self.instructions = instructions
+    self.expectedObservation = expectedObservation
     self.question = question
+    self.timeline = timeline
+    self.evidence = evidence
+    self.activity = activity
+    self.subsystemStatuses = subsystemStatuses
     self.actionStrip = actionStrip
-    self.invalidation = invalidation
+    self.requestedFeedMMPerMinute = requestedFeedMMPerMinute
+    self.feedSource = feedSource
   }
 }
