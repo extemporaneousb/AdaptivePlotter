@@ -58,6 +58,16 @@ struct WorkbenchControllerSlotPresentation: Equatable, Sendable {
   }
 }
 
+struct WorkbenchMotionAuthorizationActionPresentation: Equatable, Sendable {
+  let title: String
+  let role: OperatorButtonRole
+
+  init(isAuthorized: Bool) {
+    title = isAuthorized ? "Disable Motion" : "Enable Motion"
+    role = isAuthorized ? .negative : .affirmative
+  }
+}
+
 /// Native macOS window-toolbar controls for the camera-first workbench.
 ///
 /// Only controller/session controls and compact truthful status live here.
@@ -68,6 +78,9 @@ struct WorkbenchToolbar: ToolbarContent {
   var body: some ToolbarContent {
     ToolbarItem(placement: .principal) {
       let controllerSlot = WorkbenchControllerSlotPresentation(mode: workspace.frameMode)
+      let motionAction = WorkbenchMotionAuthorizationActionPresentation(
+        isAuthorized: workspace.motionAuthorizationEnabled
+      )
       HStack(spacing: 8) {
         if !controllerSlot.isSerialSelectionEnabled {
           Label(controllerSlot.title, systemImage: "cpu")
@@ -109,12 +122,16 @@ struct WorkbenchToolbar: ToolbarContent {
             ?? "\(workspace.controllerConnectionActionTitle) the selected controller"
         )
 
-        Button("Enable Motion") {
-          Task { await workspace.activateMotionGuard() }
+        Button(motionAction.title) {
+          Task { await workspace.performMotionAuthorizationAction() }
         }
         .operatorButton(
-          .affirmative,
-          isEnabled: workspace.motionGuardActivationUnavailableReason == nil
+          motionAction.role,
+          isEnabled: workspace.motionAuthorizationActionUnavailableReason == nil
+        )
+        .help(
+          workspace.motionAuthorizationActionUnavailableReason
+            ?? "\(motionAction.title) for this controller session"
         )
       }
     }

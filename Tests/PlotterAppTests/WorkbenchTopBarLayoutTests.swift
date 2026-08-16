@@ -74,4 +74,15 @@ struct WorkbenchTopBarLayoutTests {
     #expect(simulated.title == "Learning Simulator")
     #expect(!simulated.isSerialSelectionEnabled)
   }
+
+  @Test("motion authorization action uses the connection control color grammar")
+  func motionAuthorizationActionTracksAuthorization() {
+    let enable = WorkbenchMotionAuthorizationActionPresentation(isAuthorized: false)
+    let disable = WorkbenchMotionAuthorizationActionPresentation(isAuthorized: true)
+
+    #expect(enable.title == "Enable Motion")
+    #expect(enable.role.chrome(isEnabled: true) == .affirmative)
+    #expect(disable.title == "Disable Motion")
+    #expect(disable.role.chrome(isEnabled: true) == .negative)
+  }
 }

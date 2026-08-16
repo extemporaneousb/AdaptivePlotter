@@ -430,6 +430,7 @@ func workspace(
       },
       requestControllerAlarmClear: { .refused(.noCurrentAlarmEvidence) },
       activateMotionGuard: { .activated },
+      deactivateMotionGuard: {},
       beginRelativeJog: { request in
         .admitted(
           RelativeJogOperation(
@@ -520,6 +521,9 @@ func isolatedMachineActions(log: EventLog) -> OperatorWorkspace.MachineActions {
     activateMotionGuard: {
       await log.append("activateMotionGuard")
       return .refused(.notConnected)
+    },
+    deactivateMotionGuard: {
+      await log.append("deactivateMotionGuard")
     },
     beginRelativeJog: { _ in
       await log.append("beginRelativeJog")

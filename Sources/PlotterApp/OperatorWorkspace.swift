@@ -829,6 +829,7 @@ final class OperatorWorkspace {
     let requestPassiveProbe: @Sendable () async throws -> PassiveProbeResult
     let requestControllerAlarmClear: @Sendable () async -> ControllerAlarmClearOutcome
     let activateMotionGuard: @Sendable () async -> MotionGuardActivationOutcome
+    let deactivateMotionGuard: @Sendable () async -> Void
     let beginRelativeJog: @Sendable (RelativeJogRequest) async -> RelativeJogAdmission
     let beginDrawingStroke: @Sendable (DrawingStrokeRequest) async -> DrawingStrokeAdmission
     let requestPenActuation:
@@ -916,7 +917,7 @@ final class OperatorWorkspace {
   private var lastManualMotionWasDrawing = false
   private var lastManualMotionMayHaveProducedInk = false
   private(set) var frameModeSwitchInProgress = false
-  private(set) var motionGuardActivationInProgress = false
+  private(set) var motionAuthorizationActionInProgress = false
   private(set) var lastMotionGuardActivationText = "not activated"
   private(set) var lastContextualStopAuditRecord: ContextualStopAuditRecord? {
     get { activeLearningSession.lastContextualStopAuditRecord }
@@ -1740,7 +1741,7 @@ final class OperatorWorkspace {
         "Finish \(DiscoverySequenceCatalog.definition(for: activeDiscoverySequenceID).title); use Stop while its logical owner is active."
     }
     if passiveProbeInProgress || jogRequestInProgress || penRequestInProgress
-      || motionGuardActivationInProgress
+      || motionAuthorizationActionInProgress
     {
       return "Wait for the current controller operation."
     }
@@ -1749,7 +1750,9 @@ final class OperatorWorkspace {
 
   var motionGuardActivationUnavailableReason: String? {
     if let reason = currentCameraCalibrationBusyReason { return reason }
-    if motionGuardActivationInProgress { return "Enable Motion is in progress." }
+    if motionAuthorizationActionInProgress {
+      return "A Motion authorization action is in progress."
+    }
     if motionAuthorizationEnabled { return "Motion is already enabled." }
     if !controllerSessionEstablished {
       return frameMode == .simulated
@@ -1785,6 +1788,13 @@ final class OperatorWorkspace {
     return nil
   }
 
+  var motionAuthorizationActionUnavailableReason: String? {
+    guard motionAuthorizationEnabled else {
+      return motionGuardActivationUnavailableReason
+    }
+    return controllerConnectionActionUnavailableReason
+  }
+
   var controllerConnectionActionTitle: String {
     if frameMode == .simulated {
       return controllerSessionEstablished ? "Disconnect" : "Connect"
@@ -1802,7 +1812,7 @@ final class OperatorWorkspace {
         "Finish \(DiscoverySequenceCatalog.definition(for: activeDiscoverySequenceID).title) first."
     }
     if passiveProbeInProgress || jogRequestInProgress || penRequestInProgress
-      || jogCancelRequestInProgress || motionGuardActivationInProgress
+      || jogCancelRequestInProgress || motionAuthorizationActionInProgress
       || activeExplorationOperation != nil
     {
       return "Wait for the current operation."
@@ -1879,7 +1889,7 @@ final class OperatorWorkspace {
     if controllerAlarmClearInProgress { return "Clear Alarm is already in progress." }
     if controllerConnectionActionInProgress { return "Wait for the controller connection action." }
     if passiveProbeInProgress || jogRequestInProgress || penRequestInProgress
-      || jogCancelRequestInProgress || motionGuardActivationInProgress
+      || jogCancelRequestInProgress || motionAuthorizationActionInProgress
       || machineSnapshot?.machine.operationInFlight == true
       || machineSnapshot?.currentOperation != .idle
       || activeExplorationOperation != nil || activeDiscoverySequenceID != nil
@@ -6081,8 +6091,8 @@ final class OperatorWorkspace {
   func activateMotionGuard() async {
     if frameMode == .simulated {
       guard motionGuardActivationUnavailableReason == nil else { return }
-      motionGuardActivationInProgress = true
-      defer { motionGuardActivationInProgress = false }
+      motionAuthorizationActionInProgress = true
+      defer { motionAuthorizationActionInProgress = false }
       applySimulatedSnapshotResponse(
         await simulatedLearningRuntime.enableMotion(),
         action: "Enable simulated motion"
@@ -6092,9 +6102,9 @@ final class OperatorWorkspace {
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
     guard motionGuardActivationUnavailableReason == nil, let machineActions else { return }
-    motionGuardActivationInProgress = true
+    motionAuthorizationActionInProgress = true
     machineError = nil
-    defer { motionGuardActivationInProgress = false }
+    defer { motionAuthorizationActionInProgress = false }
     let outcome = await machineActions.activateMotionGuard()
     let snapshot = await machineActions.snapshot()
     guard canCommit(generation) else { return }
@@ -6106,6 +6116,39 @@ final class OperatorWorkspace {
       lastMotionGuardActivationText = "refused: \(refusal.actionableDescription)"
       machineError = refusal.actionableDescription
     }
+  }
+
+  func performMotionAuthorizationAction() async {
+    guard motionAuthorizationActionUnavailableReason == nil else { return }
+    if motionAuthorizationEnabled {
+      await deactivateMotionGuard()
+    } else {
+      await activateMotionGuard()
+    }
+  }
+
+  private func deactivateMotionGuard() async {
+    if frameMode == .simulated {
+      guard motionAuthorizationActionUnavailableReason == nil else { return }
+      motionAuthorizationActionInProgress = true
+      defer { motionAuthorizationActionInProgress = false }
+      applySimulatedSnapshotResponse(
+        await simulatedLearningRuntime.disableMotion(),
+        action: "Disable simulated motion"
+      )
+      return
+    }
+    guard let generation = beginHardwareIntent() else { return }
+    defer { endHardwareIntent() }
+    guard motionAuthorizationActionUnavailableReason == nil, let machineActions else { return }
+    motionAuthorizationActionInProgress = true
+    machineError = nil
+    defer { motionAuthorizationActionInProgress = false }
+    await machineActions.deactivateMotionGuard()
+    let snapshot = await machineActions.snapshot()
+    guard canCommit(generation) else { return }
+    machineSnapshot = snapshot
+    lastMotionGuardActivationText = "not activated"
   }
 
   func requestJog(_ direction: JogDirection) async {
@@ -8126,7 +8169,7 @@ final class OperatorWorkspace {
     passiveProbeInProgress = false
     jogRequestInProgress = false
     penRequestInProgress = false
-    motionGuardActivationInProgress = false
+    motionAuthorizationActionInProgress = false
     lastMotionGuardActivationText = "not activated"
     currentCameraCalibrationFailure = nil
     boundaryTeachingState = .idle

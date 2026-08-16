@@ -6,6 +6,28 @@ import Testing
 @Suite("Operator workspace typed lifecycle", .serialized)
 @MainActor
 struct OperatorWorkspaceLifecycleTests {
+  @Test("top motion action enables and disables simulated authorization")
+  func motionAuthorizationActionToggles() async {
+    let harness = makeSimulatedHarness()
+    let workspace = harness.workspace
+    await workspace.switchFrameMode(.simulated)
+    await workspace.performControllerConnectionAction()
+
+    #expect(!workspace.motionAuthorizationEnabled)
+    #expect(workspace.motionAuthorizationActionUnavailableReason == nil)
+
+    await workspace.performMotionAuthorizationAction()
+
+    #expect(workspace.motionAuthorizationEnabled)
+    #expect(workspace.motionAuthorizationActionUnavailableReason == nil)
+
+    await workspace.performMotionAuthorizationAction()
+
+    #expect(!workspace.motionAuthorizationEnabled)
+    #expect(workspace.motionUnavailableReason == "Enable simulated Motion first.")
+    await workspace.shutdown()
+  }
+
   @Test("Learning motion identity is exhaustive and presentation-only wording is derived")
   func typedLearningMotionActions() {
     #expect(LearningMotionAction.moveToEstimatedCenter.title == "Move to Estimated Center")
