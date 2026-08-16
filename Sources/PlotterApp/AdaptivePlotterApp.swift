@@ -128,7 +128,7 @@ private enum SpeechComposition {
 struct OperatorWorkspaceView: View {
   @Bindable var workspace: OperatorWorkspace
   @State private var selection = LearningPathSelectionState(current: .stage(.connect))
-  @State private var videoSettingsArePresented = false
+  @State private var videoSettingsVisibility = VideoSettingsVisibilityState()
   @State private var paneVisibility = WorkbenchPaneVisibility()
   @State private var actionSurfaceViewport = ActionSurfaceViewportState()
   private let videoSettingsPolicy = VideoSettingsVisibilityPolicy()
@@ -136,7 +136,7 @@ struct OperatorWorkspaceView: View {
   var body: some View {
     GeometryReader { proxy in
       let videoSettings = videoSettingsPolicy.presentation(
-        isPresented: videoSettingsArePresented,
+        isPresented: videoSettingsVisibility.isPresented,
         availableWindowWidth: proxy.size.width
       )
       HSplitView {
@@ -212,22 +212,26 @@ struct OperatorWorkspaceView: View {
         }
       }
       .onChange(of: proxy.size.width) { _, width in
-        if videoSettingsArePresented,
-          videoSettingsPolicy.shouldCollapsePresentedVideoSettings(
-            availableContentWidth: width,
-            panes: paneVisibility
-          )
-        {
-          videoSettingsArePresented = false
-        }
+        videoSettingsVisibility.collapseIfNeeded(
+          availableContentWidth: width,
+          panes: paneVisibility,
+          policy: videoSettingsPolicy
+        )
       }
     }
     .background(Color.black)
-    .inspector(isPresented: $videoSettingsArePresented) {
+    .inspector(
+      isPresented: Binding(
+        get: { videoSettingsVisibility.isPresented },
+        set: { isPresented in
+          if !isPresented { videoSettingsVisibility.hide() }
+        }
+      )
+    ) {
       VideoSettingsPanel(
         workspace: workspace,
         viewport: $actionSurfaceViewport,
-        close: { videoSettingsArePresented = false }
+        close: { videoSettingsVisibility.hide() }
       )
       .inspectorColumnWidth(
         min: OverlayCardLayoutPolicy.minimumInspectorWidth,
@@ -262,19 +266,20 @@ struct OperatorWorkspaceView: View {
     _ action: VideoSettingsVisibilityAction,
     availableWindowWidth: CGFloat
   ) {
-    let willPresent = videoSettingsPolicy.transition(
-      isPresented: videoSettingsArePresented,
-      action: action,
+    guard videoSettingsVisibility.request(
+      action,
+      policy: videoSettingsPolicy,
       availableWindowWidth: availableWindowWidth
+    ) else { return }
+    paneVisibility = videoSettingsPolicy.preparingPanesToShow(
+      paneVisibility,
+      availableWindowWidth: availableWindowWidth,
+      canCollapseExerciseDetail: exerciseDetailCollapseUnavailableReason == nil
     )
-    if willPresent, !videoSettingsArePresented {
-      paneVisibility = videoSettingsPolicy.preparingPanesToShow(
-        paneVisibility,
-        availableWindowWidth: availableWindowWidth,
-        canCollapseExerciseDetail: exerciseDetailCollapseUnavailableReason == nil
-      )
+    Task { @MainActor in
+      await Task.yield()
+      videoSettingsVisibility.commitPendingShow()
     }
-    videoSettingsArePresented = willPresent
   }
 }
 

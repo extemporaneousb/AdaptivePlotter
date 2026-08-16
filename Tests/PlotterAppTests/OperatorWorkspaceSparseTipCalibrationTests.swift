@@ -267,11 +267,21 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       await workspace.performExerciseAction(.drawFiveSparseTipCircles, for: owner)
     }
     await pacing.waitUntilSuspended()
+    let travelCapability = try #require(workspace.contextualStopPresentation?.capabilityID)
+    #expect(workspace.currentExerciseActionStripPresentation?.mustRemainVisible == true)
+    #expect(
+      workspace.currentExerciseActionStripPresentation?.actions.map(\.kind)
+        == [.stop(travelCapability)]
+    )
     await pacing.resume()
-    try await waitUntil {
-      workspace.contextualStopPresentation?.detail.contains("calibration circle") == true
-    }
+    await pacing.waitUntilSuspended()
     let capability = try #require(workspace.contextualStopPresentation?.capabilityID)
+    #expect(capability == travelCapability)
+    #expect(
+      workspace.contextualStopPresentation?.detail.contains("five-circle calibration batch")
+        == true
+    )
+    #expect(workspace.currentExerciseActionStripPresentation?.mustRemainVisible == true)
     let stopTask = Task { await workspace.stopCurrentOperation(capabilityID: capability) }
     try await waitUntilAsync { (await harness.runtime.snapshot()).currentOperation == nil }
     await pacing.resume()

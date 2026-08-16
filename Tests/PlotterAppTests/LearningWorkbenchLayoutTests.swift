@@ -118,6 +118,35 @@ struct LearningWorkbenchLayoutTests {
     #expect(shown.isActionEnabled)
   }
 
+  @Test("Video Settings retains an accepted Show click until prepared panes commit")
+  func videoSettingsQueuesShowAcrossLayoutInvalidation() {
+    let policy = VideoSettingsVisibilityPolicy()
+    var state = VideoSettingsVisibilityState()
+
+    let accepted = state.request(
+      .show,
+      policy: policy,
+      availableWindowWidth: LearningWorkbenchLayoutPolicy.minimumWindowWidth
+    )
+    #expect(accepted)
+    #expect(state.showIsPending)
+    #expect(!state.isPresented)
+
+    state.collapseIfNeeded(
+      availableContentWidth: 0,
+      panes: WorkbenchPaneVisibility(),
+      policy: policy
+    )
+    #expect(state.showIsPending)
+
+    state.commitPendingShow()
+    #expect(state.isPresented)
+    #expect(!state.showIsPending)
+
+    state.hide()
+    #expect(!state.isPresented)
+  }
+
   @Test("presented Video Settings collapses before the protected workbench is starved")
   func videoSettingsCollapse() {
     let videoSettingsPolicy = VideoSettingsVisibilityPolicy()

@@ -122,6 +122,59 @@ enum VideoSettingsVisibilityAction: Hashable, Sendable {
   case hide
 }
 
+/// Window-local intent for the native Video Settings inspector. Showing is a
+/// two-phase transition: side panes commit first, then the inspector opens on
+/// the next main-actor turn. This prevents the inspector's own width reduction
+/// from racing the pane preparation and immediately closing an accepted click.
+struct VideoSettingsVisibilityState: Equatable, Sendable {
+  private(set) var isPresented = false
+  private(set) var showIsPending = false
+
+  mutating func request(
+    _ action: VideoSettingsVisibilityAction,
+    policy: VideoSettingsVisibilityPolicy,
+    availableWindowWidth: CGFloat
+  ) -> Bool {
+    switch action {
+    case .show:
+      guard policy.presentation(
+        isPresented: false,
+        availableWindowWidth: availableWindowWidth
+      ).isActionEnabled else { return false }
+      showIsPending = true
+      return true
+    case .hide:
+      hide()
+      return false
+    }
+  }
+
+  mutating func commitPendingShow() {
+    guard showIsPending else { return }
+    showIsPending = false
+    isPresented = true
+  }
+
+  mutating func hide() {
+    showIsPending = false
+    isPresented = false
+  }
+
+  mutating func collapseIfNeeded(
+    availableContentWidth: CGFloat,
+    panes: WorkbenchPaneVisibility,
+    policy: VideoSettingsVisibilityPolicy
+  ) {
+    guard isPresented,
+      policy.shouldCollapsePresentedVideoSettings(
+        availableContentWidth: availableContentWidth,
+        panes: panes
+      )
+    else { return }
+    hide()
+  }
+}
+
 struct VideoSettingsPresentation: Equatable, Sendable {
   let isPresented: Bool
   let action: VideoSettingsVisibilityAction

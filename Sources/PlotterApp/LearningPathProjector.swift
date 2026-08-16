@@ -249,13 +249,13 @@ struct LearningPathProjectionSnapshot: Sendable {
     case manualDrawing(ContextualStopCapabilityID)
     case exercise(ContextualStopCapabilityID, LearningMotionAction, boundaryOwner: Bool)
     case drawingTrial(ContextualStopCapabilityID)
-    case sparseTipMark(ContextualStopCapabilityID)
+    case sparseTipBatch(ContextualStopCapabilityID)
 
     var capabilityID: ContextualStopCapabilityID {
       switch self {
       case .pairedBoundary(let id, _), .exercise(let id, _, _): id
       case .manualJog(let id), .manualDrawing(let id), .drawingTrial(let id),
-        .sparseTipMark(let id): id
+        .sparseTipBatch(let id): id
       }
     }
 
@@ -639,8 +639,8 @@ extension LearningPathProjector {
       "Stop \(action.title) and wait for the original owner to settle. No training artifact is accepted."
     case .drawingTrial:
       "Stop the drawing trial; the controller owns its single Pen Up cancellation."
-    case .sparseTipMark:
-      "Stop the active calibration circle. Possible ink will blacklist this physical location; it will not be redrawn automatically."
+    case .sparseTipBatch:
+      "Stop the five-circle calibration batch. Any possible ink is blacklisted and will not be redrawn automatically."
     }
     return ContextualStopPresentation(
       capabilityID: owner.capabilityID,

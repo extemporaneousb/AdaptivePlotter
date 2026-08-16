@@ -157,6 +157,10 @@ enum ContextualStopTarget: Hashable, Sendable {
     capabilityID: ContextualStopCapabilityID, operationOwner: ContextualMotionOwnerID)
   case sparseTipBatch(
     capabilityID: ContextualStopCapabilityID,
+    attemptID: ExerciseAttemptID
+  )
+  case sparseTipBatchSegment(
+    capabilityID: ContextualStopCapabilityID,
     operationOwner: ContextualMotionOwnerID,
     location: BlacklistedToolContactLocation
   )
@@ -168,20 +172,23 @@ enum ContextualStopTarget: Hashable, Sendable {
       .manualDrawingStroke(let capabilityID, _),
       .exerciseMotion(let capabilityID, _, _, _),
       .drawingTrial(let capabilityID, _),
-      .sparseTipBatch(let capabilityID, _, _):
+      .sparseTipBatch(let capabilityID, _),
+      .sparseTipBatchSegment(let capabilityID, _, _):
       capabilityID
     }
   }
 
-  var operationOwner: ContextualMotionOwnerID {
+  var operationOwner: ContextualMotionOwnerID? {
     switch self {
     case .pairedBoundary(_, _, let owner, _, _),
       .manualJog(_, let owner),
       .manualDrawingStroke(_, let owner),
       .exerciseMotion(_, let owner, _, _),
       .drawingTrial(_, let owner),
-      .sparseTipBatch(_, let owner, _):
+      .sparseTipBatchSegment(_, let owner, _):
       owner
+    case .sparseTipBatch:
+      nil
     }
   }
 }
@@ -350,6 +357,7 @@ private enum ContextualStopLifecycleState {
 
 private enum StoppableOperationOwner {
   case boundary(Task<Void, Never>)
+  case batch(Task<Void, Never>)
   case motion(Task<MotionOutcome, Never>)
   case drawing(Task<DrawingStrokeOutcome, Never>)
   case simulated(Task<SimulatedLearningOperationOutcome?, Never>)
@@ -357,23 +365,36 @@ private enum StoppableOperationOwner {
   func settle() async {
     switch self {
     case .boundary(let task): await task.value
+    case .batch(let task): await task.value
     case .motion(let task): _ = await task.value
     case .drawing(let task): _ = await task.value
     case .simulated(let task): _ = await task.value
     }
   }
 
+  func cancelBatch() {
+    guard case .batch(let task) = self else { return }
+    task.cancel()
+  }
+
   var drawingMayHaveInk: Bool {
     switch self {
     case .drawing, .simulated: true
-    case .boundary, .motion: false
+    case .boundary, .batch, .motion: false
     }
   }
+}
+
+private struct StoppableOperationSegment {
+  let target: ContextualStopTarget
+  let owner: StoppableOperationOwner
 }
 
 private struct ActiveStoppableOperation {
   let target: ContextualStopTarget
   let owner: StoppableOperationOwner
+  var segment: StoppableOperationSegment? = nil
+  var possibleInkLocation: BlacklistedToolContactLocation? = nil
   var state: ContextualStopLifecycleState = .available
 }
 
@@ -2420,7 +2441,8 @@ final class OperatorWorkspace {
       case .exerciseMotion(let id, let owner, _, let action):
         return .exercise(id, action, boundaryOwner: owner.isBoundaryOwner)
       case .drawingTrial(let id, _): return .drawingTrial(id)
-      case .sparseTipBatch(let id, _, _): return .sparseTipMark(id)
+      case .sparseTipBatch(let id, _), .sparseTipBatchSegment(let id, _, _):
+        return .sparseTipBatch(id)
       }
     }()
     let itemStartReasons = Dictionary(
@@ -3772,7 +3794,25 @@ final class OperatorWorkspace {
       await startExercise(ownerID, mode: .normal)
     }
     guard activeExerciseAttemptOwnerID == ownerID,
-      let attemptID = activeExerciseAttemptID,
+      let attemptID = activeExerciseAttemptID
+    else { return }
+
+    let target = ContextualStopTarget.sparseTipBatch(
+      capabilityID: ContextualStopCapabilityID(),
+      attemptID: attemptID
+    )
+    let task = Task { await executeFiveSparseTipCircles(ownerID: ownerID, attemptID: attemptID) }
+    installStoppableOperation(target: target, owner: .batch(task))
+    defer { clearStoppableOperation(matching: target) }
+    await task.value
+  }
+
+  private func executeFiveSparseTipCircles(
+    ownerID: LearningPathItemID,
+    attemptID: ExerciseAttemptID
+  ) async {
+    guard activeExerciseAttemptOwnerID == ownerID,
+      activeExerciseAttemptID == attemptID,
       let machineRegistration = machineCameraRegistration,
       let machineRegistrationRevision = learningArtifactGraph.currentRevision(
         for: .machineCameraRegistration
@@ -3783,6 +3823,7 @@ final class OperatorWorkspace {
     var completedLocations: [BlacklistedToolContactLocation] = []
     var activeLocation: BlacklistedToolContactLocation?
     do {
+      try requireSparseTipBatchContinuation()
       let batchPlan = try SparseTipBatchMarkPlan(
         center: center,
         boundarySideAggregates: boundarySideAggregates
@@ -3810,6 +3851,7 @@ final class OperatorWorkspace {
       var finalPenUpTimestamp = RuntimeTimestamp(monotonicNanoseconds: nowNanoseconds())
 
       for (markIndex, plannedMark) in batchPlan.marks.enumerated() {
+        try requireSparseTipBatchContinuation()
         let position = plannedMark.position
         let physicalLocation = physicalLocations[markIndex]
         activeLocation = physicalLocation
@@ -3827,6 +3869,7 @@ final class OperatorWorkspace {
         } else {
           settled = current
         }
+        try requireSparseTipBatchContinuation()
         guard recordProtocolPoseSettlement(
           action: .sparseTipApproach(position),
           target: plannedMark.machinePosition,
@@ -3842,6 +3885,7 @@ final class OperatorWorkspace {
           contextBaseline: nil,
           operationID: operationUUID
         )
+        try requireSparseTipBatchContinuation()
         let exactPreFrame = try exactTipCalibrationFrame(preCapture.displayedFrame)
         let capPredictionAtMark = try machineRegistration.fit.cameraPoint(
           from: settled.point
@@ -3859,6 +3903,7 @@ final class OperatorWorkspace {
           ownerID: ownerID,
           action: .sparseTipCircleStart(position)
         )
+        try requireSparseTipBatchContinuation()
         guard recordProtocolPoseSettlement(
           action: .sparseTipCircleStart(position),
           target: plannedMark.circle.startPosition,
@@ -3873,6 +3918,7 @@ final class OperatorWorkspace {
           at: physicalLocation,
           after: exactPreFrame.captureNanoseconds
         )
+        try requireSparseTipBatchContinuation()
         completedLocations.append(physicalLocation)
         finalCirclePosition = mark.finalPosition
         finalPenUpTimestamp = mark.penUp.timestamp
@@ -3895,6 +3941,7 @@ final class OperatorWorkspace {
         )
       }
 
+      try requireSparseTipBatchContinuation()
       try sparseTipCalibrationCoordinator.beginReveal()
       let revealTarget = batchPlan.finalRevealPosition
       let revealSettled: MachinePosition
@@ -3910,6 +3957,7 @@ final class OperatorWorkspace {
       } else {
         revealSettled = finalCirclePosition
       }
+      try requireSparseTipBatchContinuation()
       guard
         recordProtocolPoseSettlement(
           action: .sparseTipBatchReveal,
@@ -3932,6 +3980,7 @@ final class OperatorWorkspace {
         operationID: revealOperationID,
         newerThanNanoseconds: revealSettledAt.monotonicNanoseconds
       )
+      try requireSparseTipBatchContinuation()
       let exactRevealFrame = try exactTipCalibrationFrame(revealCapture.displayedFrame)
       let revealPrediction = try machineRegistration.fit.cameraPoint(
         from: revealSettled.point
@@ -4046,6 +4095,8 @@ final class OperatorWorkspace {
         preconditionFailure("The successful Pen Down outcome was handled by the guard.")
       }
     }
+    setSparseTipBatchPossibleInkLocation(location)
+    try requireSparseTipBatchContinuation()
 
     let downTime = RuntimeTimestamp(
       monotonicNanoseconds: frameMode == .simulated
@@ -4056,14 +4107,15 @@ final class OperatorWorkspace {
     var finalPosition = plan.startPosition
     do {
       for (index, delta) in plan.pathDeltas.enumerated() {
+        try requireSparseTipBatchContinuation()
         let expected = plan.pathPositions[index + 1]
         if frameMode == .simulated {
           let response = await simulatedLearningRuntime.beginDrawing(
             delta: try SimulatedLearningMotionVector(dxMM: delta.dx, dyMM: delta.dy)
           )
           let operation = try response.result.get()
-          let target = ContextualStopTarget.sparseTipBatch(
-            capabilityID: ContextualStopCapabilityID(),
+          let target = ContextualStopTarget.sparseTipBatchSegment(
+            capabilityID: try sparseTipBatchCapabilityID(),
             operationOwner: .simulated(operation.id),
             location: location
           )
@@ -4075,7 +4127,9 @@ final class OperatorWorkspace {
           }
           installStoppableOperation(target: target, owner: .simulated(task))
           defer { clearStoppableOperation(matching: target) }
+          try await cancelSparseTipSegmentIfRequested(target: target, owner: .simulated(task))
           let outcome = await task.value
+          try requireSparseTipBatchContinuation()
           guard let outcome, outcome.disposition == .naturallyCompleted else {
             throw LearningPathOperationError.possibleInk(
               "The 2 mm calibration circle stopped after contact; possible ink exists."
@@ -4108,16 +4162,18 @@ final class OperatorWorkspace {
           case .rejected(let outcome):
             throw operationError(for: outcome, possibleInk: true)
           }
-          let target = ContextualStopTarget.sparseTipBatch(
-            capabilityID: ContextualStopCapabilityID(),
+          let target = ContextualStopTarget.sparseTipBatchSegment(
+            capabilityID: try sparseTipBatchCapabilityID(),
             operationOwner: .liveOperation(operation.id),
             location: location
           )
           let task = Task { await operation.outcome() }
           installStoppableOperation(target: target, owner: .drawing(task))
           defer { clearStoppableOperation(matching: target) }
+          try await cancelSparseTipSegmentIfRequested(target: target, owner: .drawing(task))
           let outcome = await task.value
           machineSnapshot = await machineActions.snapshot()
+          try requireSparseTipBatchContinuation()
           switch outcome {
           case .completed(let evidence):
             finalPosition = evidence.finalPosition
@@ -4175,6 +4231,8 @@ final class OperatorWorkspace {
       )
       throw operationError(for: raise, possibleInk: true)
     }
+    try requireSparseTipBatchContinuation()
+    clearSparseTipBatchPossibleInkLocation(matching: location)
     let upTime = RuntimeTimestamp(
       monotonicNanoseconds: frameMode == .simulated
         ? downTime.monotonicNanoseconds + 1
@@ -5934,7 +5992,31 @@ final class OperatorWorkspace {
         restartableExerciseItemID = .observedDrawingTrial(.drawIsolatedLine)
       }
 
-    case .sparseTipBatch(_, _, let location):
+    case .sparseTipBatch:
+      if let location = operation.possibleInkLocation {
+        blacklistedToolContactLocations.insert(location)
+        sparseTipCalibrationCoordinator.blacklistPossibleInk(
+          at: location,
+          reason: "Operator stopped the five-circle batch after Pen Down."
+        )
+      }
+      await cancelAndSettleStoppableOperation(operation, intent: .operatorStop)
+      if sparseTipCalibrationCoordinator.blacklistedPositions.isEmpty {
+        if activeExerciseAttemptOwnerID
+          == .humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
+        {
+          finishActiveExerciseAttempt(disposition: .cancelled)
+        }
+        restartableExerciseItemID = .humanGuidedDiscovery(
+          .calibratePenContactFromSparseMarks
+        )
+      } else {
+        explorationError =
+          "The five-circle calibration batch stopped after possible ink. Every affected paper location is blacklisted and will not be redrawn automatically."
+        restartableExerciseItemID = nil
+      }
+
+    case .sparseTipBatchSegment(_, _, let location):
       blacklistedToolContactLocations.insert(location)
       sparseTipCalibrationCoordinator.blacklistPossibleInk(
         at: location,
@@ -5942,8 +6024,6 @@ final class OperatorWorkspace {
       )
       await requestSingleJogCancel(for: target, intent: .operatorStop)
       await operation.owner.settle()
-      explorationError =
-        "Calibration circle stopped after contact. This paper location is blacklisted and will not be redrawn automatically."
       restartableExerciseItemID = nil
     }
   }
@@ -5952,7 +6032,8 @@ final class OperatorWorkspace {
     for target: ContextualStopTarget,
     intent: JogCancelIntent
   ) async {
-    if case .simulated(let operationID) = target.operationOwner {
+    guard let operationOwner = target.operationOwner else { return }
+    if case .simulated(let operationID) = operationOwner {
       guard beginCancellationRequest(for: target, intent: intent) else { return }
       defer { finishCancellationRequest(for: target) }
       let simulatedIntent: SimulatedLearningOperationIntent =
@@ -6034,13 +6115,114 @@ final class OperatorWorkspace {
     target: ContextualStopTarget,
     owner: StoppableOperationOwner
   ) {
+    if var operation = activeStoppableOperation,
+      case .sparseTipBatch = operation.target,
+      operation.target.capabilityID == target.capabilityID
+    {
+      precondition(operation.segment == nil, "Only one sparse-tip batch segment may be active.")
+      operation.segment = StoppableOperationSegment(target: target, owner: owner)
+      activeStoppableOperation = operation
+      return
+    }
     precondition(activeStoppableOperation == nil, "Only one contextual Stop owner may exist.")
     activeStoppableOperation = ActiveStoppableOperation(target: target, owner: owner)
   }
 
   private func clearStoppableOperation(matching target: ContextualStopTarget) {
-    guard activeStoppableOperation?.target == target else { return }
-    activeStoppableOperation = nil
+    guard var operation = activeStoppableOperation else { return }
+    if operation.target == target {
+      activeStoppableOperation = nil
+      return
+    }
+    guard operation.segment?.target == target else { return }
+    operation.segment = nil
+    activeStoppableOperation = operation
+  }
+
+  private func sparseTipBatchCapabilityID() throws -> ContextualStopCapabilityID {
+    guard let target = activeStopTarget,
+      case .sparseTipBatch(let capabilityID, _) = target
+    else {
+      throw LearningPathOperationError.requiredState(
+        "The five-circle calibration batch no longer owns its Stop capability."
+      )
+    }
+    return capabilityID
+  }
+
+  private func supervisedTravelStopCapabilityID(
+    ownerID: LearningPathItemID
+  ) throws -> ContextualStopCapabilityID {
+    if ownerID == .humanGuidedDiscovery(.calibratePenContactFromSparseMarks) {
+      return try sparseTipBatchCapabilityID()
+    }
+    return ContextualStopCapabilityID()
+  }
+
+  private func requireSparseTipBatchContinuation() throws {
+    guard !Task.isCancelled,
+      let operation = activeStoppableOperation,
+      case .sparseTipBatch = operation.target,
+      operation.state.latch == nil
+    else {
+      throw LearningPathOperationError.controllerCancelled(
+        "The five-circle calibration batch was stopped; no later segment was admitted."
+      )
+    }
+  }
+
+  private func cancelSparseTipSegmentIfRequested(
+    target: ContextualStopTarget,
+    owner: StoppableOperationOwner
+  ) async throws {
+    guard let operation = activeStoppableOperation,
+      case .sparseTipBatch = operation.target,
+      operation.segment?.target == target,
+      let latch = operation.state.latch
+    else { return }
+    await requestSingleJogCancel(for: target, intent: latch.intent)
+    await owner.settle()
+    throw LearningPathOperationError.controllerCancelled(
+      "The five-circle calibration batch was stopped during segment admission."
+    )
+  }
+
+  private func setSparseTipBatchPossibleInkLocation(
+    _ location: BlacklistedToolContactLocation
+  ) {
+    guard var operation = activeStoppableOperation,
+      case .sparseTipBatch = operation.target
+    else { return }
+    operation.possibleInkLocation = location
+    activeStoppableOperation = operation
+  }
+
+  private func clearSparseTipBatchPossibleInkLocation(
+    matching location: BlacklistedToolContactLocation
+  ) {
+    guard var operation = activeStoppableOperation,
+      case .sparseTipBatch = operation.target,
+      operation.possibleInkLocation == location
+    else { return }
+    operation.possibleInkLocation = nil
+    activeStoppableOperation = operation
+  }
+
+  private func cancelAndSettleStoppableOperation(
+    _ operation: ActiveStoppableOperation,
+    intent: JogCancelIntent
+  ) async {
+    if case .sparseTipBatch = operation.target {
+      operation.owner.cancelBatch()
+      if let segment = operation.segment {
+        await requestSingleJogCancel(for: segment.target, intent: intent)
+        await segment.owner.settle()
+      }
+      await operation.owner.settle()
+      return
+    }
+    await requestSingleJogCancel(for: operation.target, intent: intent)
+    await operation.owner.settle()
   }
 
   private func beginCancellationRequest(
@@ -7441,9 +7623,9 @@ final class OperatorWorkspace {
           action: "Cancel Attempt"
         )
       else { return }
-      let owner = activeStoppableOperation?.owner
-      await requestSingleJogCancel(for: target, intent: .cancelAttempt)
-      await owner?.settle()
+      if let operation = activeStoppableOperation {
+        await cancelAndSettleStoppableOperation(operation, intent: .cancelAttempt)
+      }
     }
     if ownerID == .observedDrawingTrial(.compareIntendedAndObservedGeometry) {
       recordComparisonAttempt(assessment: nil, disposition: .cancelled)
@@ -8481,8 +8663,19 @@ final class OperatorWorkspace {
         boundaryTeachingResultText =
           "Shutdown requested. Waiting for the original motion owner to reach Idle."
       }
-    case .manualJog, .manualDrawingStroke, .exerciseMotion, .drawingTrial, .sparseTipBatch:
+    case .manualJog, .manualDrawingStroke, .exerciseMotion, .drawingTrial, .sparseTipBatch,
+      .sparseTipBatchSegment:
       break
+    }
+
+    if case .sparseTipBatch = target,
+      let location = operation.possibleInkLocation
+    {
+      blacklistedToolContactLocations.insert(location)
+      sparseTipCalibrationCoordinator.blacklistPossibleInk(
+        at: location,
+        reason: "Shutdown stopped the five-circle batch after Pen Down."
+      )
     }
 
     if stopDispositionLatch == nil,
@@ -8493,9 +8686,10 @@ final class OperatorWorkspace {
         action: "Shutdown"
       )
     {
-      await requestSingleJogCancel(for: target, intent: .shutdown)
+      await cancelAndSettleStoppableOperation(operation, intent: .shutdown)
+    } else {
+      await operation.owner.settle()
     }
-    await operation.owner.settle()
     clearStoppableOperation(matching: target)
     boundaryTeachingState = .idle
   }
@@ -8833,8 +9027,9 @@ final class OperatorWorkspace {
           "Simulated supervised Pen-Up travel was refused: \(String(describing: error))."
         )
       }
+      let capabilityID = try supervisedTravelStopCapabilityID(ownerID: ownerID)
       let target = ContextualStopTarget.exerciseMotion(
-        capabilityID: ContextualStopCapabilityID(),
+        capabilityID: capabilityID,
         operationOwner: .simulated(operation.id),
         ownerID: ownerID,
         action: action
@@ -8848,6 +9043,7 @@ final class OperatorWorkspace {
       }
       installStoppableOperation(target: target, owner: .simulated(owner))
       defer { clearStoppableOperation(matching: target) }
+      try await cancelSparseTipSegmentIfRequested(target: target, owner: .simulated(owner))
       if hasShutdown || Task.isCancelled {
         _ = latchContextualStopDisposition(
           for: target,
@@ -8885,8 +9081,9 @@ final class OperatorWorkspace {
     case .rejected(let outcome):
       throw operationError(for: outcome, action: action.title)
     }
+    let capabilityID = try supervisedTravelStopCapabilityID(ownerID: ownerID)
     let target = ContextualStopTarget.exerciseMotion(
-      capabilityID: ContextualStopCapabilityID(),
+      capabilityID: capabilityID,
       operationOwner: .liveOperation(operation.id),
       ownerID: ownerID,
       action: action
@@ -8894,6 +9091,7 @@ final class OperatorWorkspace {
     let owner = Task { await operation.outcome() }
     installStoppableOperation(target: target, owner: .motion(owner))
     defer { clearStoppableOperation(matching: target) }
+    try await cancelSparseTipSegmentIfRequested(target: target, owner: .motion(owner))
     if hasShutdown || Task.isCancelled {
       _ = latchContextualStopDisposition(
         for: target,
