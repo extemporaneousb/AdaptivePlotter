@@ -12,9 +12,9 @@ procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
 ### Stage 3.4 five-circle batch and affine-first authority
 
-Implemented 2026-08-16 in Blackdog task `TASK-0D8990BE`; final validation and
-landing evidence are recorded by the implementation coordinator after this
-documentation update.
+Implemented and landed locally 2026-08-16 in Blackdog task `TASK-0D8990BE` as
+commit `b93e49fb3cf4fc39704f8b3da299b6affff537c3` on its recorded target branch,
+`main`.
 
 The implementation replaces per-circle progression with one supervised action
 that draws five separated 2 mm-radius circles at Stage 3.4 offsets of ±30 mm,
@@ -41,8 +41,7 @@ ActionSurface/viewport tests, and 11 Learning Path projector tests.
 | `git diff --check` | passed | whitespace and conflict markers |
 
 Attended hardware, camera, motion, Pen Down/Up, operator-click, and observed-ink
-validation were skipped and remain unproven. Blackdog landing evidence is
-recorded separately by the implementation coordinator.
+validation were skipped and remain unproven.
 
 ### Stable exact-frame overlays and Learning viewport continuity
 

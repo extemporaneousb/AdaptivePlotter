@@ -10,9 +10,11 @@ Current implementation and verification are recorded in
 
 Run the complete [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md) on a
 disposable sheet. Validate actual controller settlement, five cap captures,
-five 2 mm-radius circular marks, far X-max/Y-zero-biased reveals, frozen-frame
-human center clicks, post-click geometry, smallest-passing model review, and one
-Stage 4 observed line. Record failures without redrawing ambiguous locations.
+five 2 mm-radius circular marks with Pen Up between them, one final
+X+/machine-Y-zero-biased Pen-Up reveal, one shared frozen exact frame, five
+arbitrary-order human center clicks, deterministic global association, the
+all-five affine-first proposal, explicit acceptance, and one Stage 4 observed
+line. Record failures without redrawing ambiguous locations.
 
 This is the highest-priority gap. Automated and simulated evidence cannot close
 it. In particular, C920 reliability for click-learned arbitrary cap colors,
@@ -54,8 +56,9 @@ ambiguous stroke.
 
 Measure within-session and cross-session sensitivity to focus, mount, tool,
 paper, temperature, controller-coordinate, and capture restarts. Use those
-results to set revalidation frequency and residual thresholds; do not tune
-thresholds merely to pass simulator fixtures.
+results to characterize drift, revalidation cadence, and diagnostic residual
+distributions. They must not create Stage 3.4 residual, confidence, or
+model-quality gates.
 
 ## 7. Operational hardening
 
