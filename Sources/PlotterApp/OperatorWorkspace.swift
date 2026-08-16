@@ -3690,15 +3690,30 @@ final class OperatorWorkspace {
         throw SparseTipCalibrationCoordinatorError.staleSelection
       }
       try sparseTipCalibrationCoordinator.select(selection)
-      if sparseTipCalibrationCoordinator.collectedClickCount
-        == SparseTipCalibrationCoordinator.orderedPositions.count
-      {
-        try acceptSparseTipBatchClicks()
+    } catch {
+      if explorationError == nil {
+        explorationError =
+          "Stage 3.4 click selection failed without motion or redraw: \(actionableDescription(error))"
       }
+      return
+    }
+    guard sparseTipCalibrationCoordinator.collectedClickCount
+      == SparseTipCalibrationCoordinator.orderedPositions.count
+    else {
+      explorationError = nil
+      return
+    }
+    do {
+      try acceptSparseTipBatchClicks()
       explorationError = nil
     } catch {
-      explorationError =
-        "Stage 3.4 click collection/model construction failed without motion or redraw: \(actionableDescription(error))"
+      if sparseTipCalibrationCoordinator.recoverFromFittingFailure() {
+        explorationError =
+          "Stage 3.4 model construction failed without motion or redraw: \(actionableDescription(error)). Use Undo Last Click or Clear Clicks on This Frame to correct the same frozen frame."
+      } else {
+        explorationError =
+          "Stage 3.4 model construction failed without motion or redraw: \(actionableDescription(error)). The frozen-click state could not be restored; Cancel Attempt remains available and no redraw was sent."
+      }
     }
   }
 

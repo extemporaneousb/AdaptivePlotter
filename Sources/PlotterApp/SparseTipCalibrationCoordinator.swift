@@ -116,6 +116,21 @@ struct SparseTipCalibrationCoordinator: Hashable, Sendable {
     phase = .awaitingFrozenClicks(pendingFrame!.frameID)
   }
 
+  /// Model construction is atomic with respect to accepted observations. If it
+  /// fails, keep the exact frozen frame and all five clicks available for
+  /// same-frame correction instead of trapping the attempt in `fittingModel`.
+  @discardableResult
+  mutating func recoverFromFittingFailure() -> Bool {
+    guard phase == .fittingModel,
+      let pendingFrame,
+      selections.count == Self.orderedPositions.count,
+      acceptedObservations.isEmpty,
+      proposal == nil
+    else { return false }
+    phase = .awaitingFrozenClicks(pendingFrame.frameID)
+    return true
+  }
+
   mutating func acceptAssociatedObservations(
     _ observations: [AcceptedToolContactObservation]
   ) throws {

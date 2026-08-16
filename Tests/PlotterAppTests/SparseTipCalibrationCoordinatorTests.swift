@@ -40,6 +40,12 @@ struct SparseTipCalibrationCoordinatorTests {
     #expect(coordinator.collectedClickCount == 5)
     #expect(coordinator.pendingFrame == frame)
 
+    let recovered = coordinator.recoverFromFittingFailure()
+    #expect(recovered)
+    #expect(coordinator.phase == .awaitingFrozenClicks(frame.frameID))
+    #expect(coordinator.collectedClickPoints == points)
+    #expect(coordinator.pendingFrame == frame)
+
     try coordinator.undoLastClick()
     #expect(coordinator.phase == .awaitingFrozenClicks(frame.frameID))
     #expect(coordinator.collectedClickPoints == Array(points.dropLast()))

@@ -982,7 +982,13 @@ public struct TipCameraRegistration: Codable, Hashable, Sendable {
         observation.consumedLearningArtifactRevisionIDs.contains(
           machineCameraRegistrationRevisionID
         ),
-        applicabilityRectangle.contains(observation.actualSettledPosition.point)
+        applicabilityRectangle.contains(observation.intendedMarkPosition.point),
+        ControllerPositionAcceptancePolicy.accepts(
+          residualMM: ControllerPositionAcceptancePolicy.residualMM(
+            observation.actualSettledPosition,
+            from: observation.intendedMarkPosition
+          )
+        )
       else { throw TipCalibrationAuthorityError.invalidApplicabilityContext }
       return try TipRegistrationObservationEvidence(
         observationID: observation.id,

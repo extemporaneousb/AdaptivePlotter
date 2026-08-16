@@ -63,6 +63,48 @@ struct TipCalibrationAuthorityTests {
     #expect(registration.consumedObservationIDs.count == 5)
   }
 
+  @Test("Applicability accepts an in-domain target settled just outside the boundary")
+  func applicabilityUsesAcceptedTargetSettlement() throws {
+    let fixture = try TipAuthorityFixture()
+    let observations = try ToolContactCalibrationPosition.allCases.map { position in
+      try AcceptedToolContactObservation(
+        artifactRevisionID: LearningArtifactRevisionID(),
+        observation: fixture.observation(
+          position: position,
+          machinePointOverride: position == .positiveX ? Point2(x: 100, y: 50) : nil,
+          markPositionResidualMM: position == .positiveX ? 0.013 : 0.01
+        )
+      )
+    }
+    let selection = try TipCalibrationModelSelection.fitAffineFirst(
+      acceptedObservations: observations,
+      capCameraFromMachine: AffineTransform2(
+        m11: 2, m12: 0, m21: 0, m22: 3, tx: 10, ty: 20
+      )
+    )
+
+    let registration = try TipCameraRegistration(
+      modelForm: selection.modelForm,
+      cameraFromMachine: selection.finalCameraFromMachine,
+      modelSelectionEvidence: selection.evidence,
+      uncertainty: selection.uncertainty,
+      applicabilityRectangle: AxisAlignedBounds(minX: 0, minY: 0, maxX: 100, maxY: 100),
+      acceptedObservations: observations,
+      applicability: fixture.context(),
+      acceptedRevisionID: LearningArtifactRevisionID(),
+      machineCameraRegistrationRevisionID: fixture.machineCameraRevision,
+      estimatorRevision: "tip-affine-fit-boundary-settlement-v1",
+      acceptedAt: RuntimeTimestamp(
+        monotonicNanoseconds: 800,
+        wallTime: Date(timeIntervalSince1970: 0.8)
+      )
+    )
+
+    #expect(registration.observationEvidence.count == 5)
+    #expect(observations[3].observation.intendedMarkPosition.point.x == 100)
+    #expect(observations[3].observation.actualSettledPosition.point.x == 100.013)
+  }
+
   @Test("model construction fits affine first from all five observations")
   func affineFirstModelSelection() throws {
     let fixture = try TipAuthorityFixture()
