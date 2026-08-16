@@ -123,12 +123,13 @@ separate existing ±24 mm camera-calibration plan.
    threshold, or ambiguity blocker.
 8. If a click is wrong, use **Undo Last Click** or **Clear Clicks on This
    Frame**. Confirm no motion, ink, redraw, new frame, zoom, or pan occurs.
-9. Review the all-five affine proposal and diagnostic residuals, RMS,
-   covariance, and uncertainty. Their magnitude must not block the proposal or
-   route to paper replacement. Constant correction is expected only if affine
-   construction itself fails.
-10. Explicitly accept the staged `TipCameraRegistration` and confirm Stage 4
-    becomes current.
+9. On the fifth valid click, confirm the app constructs and atomically commits
+   the all-five affine `TipCameraRegistration` and makes Stage 4 current without
+   a separate approval. Review the diagnostic residuals, RMS, covariance, and
+   uncertainty. Their magnitude must not block the commit or route to paper
+   replacement. Constant correction is expected only if affine construction
+   itself fails. **Retry Calibration Commit** is valid only after an actual
+   atomic commit failure; it is not another acceptance gate.
 
 If any chord, contact, or Pen state is ambiguous, stop. The circle center/radius
 on this paper is blacklisted. Do not retry it or reset around it. The only
@@ -148,8 +149,8 @@ restoration.
   frame is captured, no contact mark occurs, and a new accepted tip revision is
   derived from the quarantined checkpoint.
 - Explicit paper replacement: record the replacement, rebuild current machine-
-  camera authority if required, then run and explicitly accept a complete new
-  five-circle Stage 3.4 batch on the replacement paper.
+  camera authority if required, then run a complete new five-circle Stage 3.4
+  batch on the replacement paper. Its fifth valid click commits the new map.
 
 If any semantic identity is uncertain, do not revalidate. Clear the durable tip
 checkpoint and perform a new five-mark calibration.
@@ -157,16 +158,32 @@ checkpoint and perform a new five-mark calibration.
 ## 5. Stage 4 — isolated observed line
 
 1. Record the exact current tip registration revision.
-2. Choose one signed-axis 5 mm line plan.
-3. Capture the trial-local pre-line baseline and record its Pen-Up reveal MPos.
-4. Watch Pen-Up travel settle at line start.
-5. Draw once under the single drawing owner. Do not resend after ambiguity.
-6. Return Pen Up to the same trial-local reveal MPos and require settlement.
-7. Capture a strictly newer post-line frame.
-8. Review intended and observed geometry plus residuals only if the exact tip
-   revision remains current.
-9. Record the operator assessment. It may retain candidate refinement evidence;
-   it must not silently change the accepted model.
+2. Press **Go** once. Confirm a cyan predicted 5 mm line appears on the current
+   video before motion and that its machine endpoints and exact tip revision are
+   visible. The runtime selects the first clear signed-axis plan; there is no
+   direction prompt or phase-by-phase approval.
+3. Observe the displayed activity move through plan, local baseline, Pen-Up
+   travel, draw, reveal/observe, and comparison. During motion, confirm the exact
+   **Stop** remains available. No additional **Go**, **Next**, or approval should
+   be required on the normal path.
+4. Watch Pen-Up travel settle at line start, then directly observe one physical
+   stroke under the single drawing owner. Do not resend after ambiguity.
+5. Confirm the plotter returns Pen Up to the trial-local reveal MPos, settles,
+   and captures a strictly newer post-line frame.
+6. While the same-pose baseline/post pair is analyzed, confirm the Learning UI
+   visibly reports **Trial ink analysis · active** with Vision as operation
+   owner. Apparent inactivity without that state is a failure.
+7. Confirm the normal result records automatically and renders predicted cyan,
+   observed white, and orange residual geometry on the exact post-line frame.
+   It may retain candidate refinement evidence; it must not silently change the
+   accepted model.
+8. Confirm the result says **One attributable validation complete** and does
+   not claim **Trained**. Coverage trials, reserved holdouts, candidate/prior
+   comparison, shape holdouts, and typed readiness remain unimplemented.
+
+If possible ink, rejected Vision evidence, or an uncertain controller outcome
+occurs, confirm the automatic chain stops. Any offered recovery may return Pen
+Up and observe the existing stroke, but it must not redraw it.
 
 ## Evidence record
 

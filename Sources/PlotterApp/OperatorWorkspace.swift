@@ -404,16 +404,12 @@ enum BoundaryAtomicCommitFailurePoint: String, CaseIterable, Hashable, Sendable 
   case artifactGraphCommit
 }
 
-enum DrawingTrialAssessment: String, CaseIterable, Identifiable, Hashable, Sendable {
-  case observedGeometryAccepted
-  case inkOrGeometryUnclear
-
-  var id: Self { self }
+enum DrawingTrialAssessment: String, Hashable, Sendable {
+  case predictionObserved
 
   var title: String {
     switch self {
-    case .observedGeometryAccepted: "Observed geometry accepted"
-    case .inkOrGeometryUnclear: "Ink or geometry unclear"
+    case .predictionObserved: "Observed line compared with predicted geometry"
     }
   }
 }
@@ -650,6 +646,7 @@ final class OperatorWorkspace {
     var observationRegion: PixelRect?
     var postLineFrame: DisplayedFrame?
     var lineStart: MachinePosition?
+    var lineEnd: MachinePosition?
     var strokeEvidence: DrawingStrokeEvidence?
     var inkObservation: IsolatedInkObservation?
     var inkStatus = "no isolated-line observation yet"
@@ -674,6 +671,7 @@ final class OperatorWorkspace {
     mutating func rewind(from rewindStep: ObservedDrawingTrialStep, source: OperatorFrameMode) {
       if rewindStep == .chooseIsolatedLinePlan {
         lineStart = nil
+        lineEnd = nil
         group = Self.newGroup(for: source)
       }
 
@@ -1140,6 +1138,10 @@ final class OperatorWorkspace {
     get { activeLearningSession.drawingTrial.lineStart }
     set { activeLearningSession.drawingTrial.lineStart = newValue }
   }
+  private(set) var drawingTrialLineEnd: MachinePosition? {
+    get { activeLearningSession.drawingTrial.lineEnd }
+    set { activeLearningSession.drawingTrial.lineEnd = newValue }
+  }
   private(set) var drawingTrialStrokeEvidence: DrawingStrokeEvidence? {
     get { activeLearningSession.drawingTrial.strokeEvidence }
     set { activeLearningSession.drawingTrial.strokeEvidence = newValue }
@@ -1483,7 +1485,8 @@ final class OperatorWorkspace {
       }
     return ActionSurfacePresentation(
       displayedFrame: surfaceFrame,
-      overlays: overlayComposition.overlays,
+      overlays: overlayComposition.overlays
+        + (surfaceFrame.map(drawingTrialPredictionOverlays) ?? []),
       simulatedAnnotations: simulatedAnnotations,
       simulatedViewportID: simulatedViewportID,
       simulatedAnnotationsAreVisible: simulatedAnnotationsAreVisible,
@@ -1495,6 +1498,39 @@ final class OperatorWorkspace {
       pointSelectionRequest: pointSelectionRequest,
       tipPresentation: tipPresentation
     )
+  }
+
+  private func drawingTrialPredictionOverlays(
+    on displayedFrame: DisplayedFrame
+  ) -> [CameraOverlayMeasurement] {
+    guard lastInkObservation == nil,
+      let registration = tipCameraRegistration,
+      displayedFrame.source == registration.applicability.opticalConfiguration.source,
+      displayedFrame.frame.width == registration.applicability.opticalConfiguration.width,
+      displayedFrame.frame.height == registration.applicability.opticalConfiguration.height,
+      displayedFrame.frame.pixelFormat
+        == registration.applicability.opticalConfiguration.pixelFormat,
+      let currentRevision = learningArtifactGraph.currentRevision(for: .tipCameraRegistration)?.id,
+      currentRevision == registration.acceptedRevisionID,
+      drawingTrialTipRegistrationRevisionID == currentRevision,
+      let lineStart = drawingTrialLineStart,
+      let lineEnd = drawingTrialLineEnd,
+      let cameraStart = try? registration.tipPixel(at: lineStart.point),
+      let cameraEnd = try? registration.tipPixel(at: lineEnd.point),
+      let predictedLine = try? Polyline(points: [cameraStart, cameraEnd])
+    else { return [] }
+    return [
+      CameraOverlayMeasurement(
+        frameID: displayedFrame.frame.id,
+        cameraConfigurationID: displayedFrame.frame.cameraConfigurationID,
+        geometry: .polyline(predictedLine),
+        provenance: CameraMeasurementProvenance(
+          kind: .intendedPath,
+          source: .planned,
+          algorithmRevision: "tip-registration-isolated-line-preview-v1"
+        )
+      )
+    ]
   }
 
   func overlayStatus(for overlay: UserSceneOverlay) -> OverlayLayerStatus {
@@ -2204,16 +2240,9 @@ final class OperatorWorkspace {
       .humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
     case .toolContactObservation, .tipCameraRegistration:
       .humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
-    case .linePlan:
+    case .linePlan, .localPreLineBaseline, .lineExecution, .postLineFrame,
+      .inkObservation, .residual, .comparison:
       .observedDrawingTrial(.chooseIsolatedLinePlan)
-    case .localPreLineBaseline:
-      .observedDrawingTrial(.captureLocalPreLineBaseline)
-    case .lineExecution:
-      .observedDrawingTrial(.drawIsolatedLine)
-    case .postLineFrame, .inkObservation, .residual:
-      .observedDrawingTrial(.revealAndObserveNewInk)
-    case .comparison:
-      .observedDrawingTrial(.compareIntendedAndObservedGeometry)
     }
   }
 
@@ -2424,9 +2453,6 @@ final class OperatorWorkspace {
         ($0, travelFeedSelection(for: boundaryFeedVector($0)))
       }
     )
-    let completedDrawingSteps = Set(ObservedDrawingTrialStep.allCases.filter {
-      learningArtifactGraph.currentRevision(for: drawingArtifactKind(for: $0)) != nil
-    })
     let stopOwner: LearningPathProjectionSnapshot.StopOwner? = {
       guard let target = activeStopTarget else { return nil }
       switch target {
@@ -2459,7 +2485,9 @@ final class OperatorWorkspace {
           reason = frameMode == .simulated || cameraIsLive
             ? nil : "A current LIVE camera frame is required."
         case .observedDrawingTrial(let step):
-          reason = drawingTrialActionUnavailableReason(for: step)
+          reason = drawingTrialActionUnavailableReason(
+            for: step == .chooseIsolatedLinePlan ? observedDrawingTrialStep : step
+          )
         case .stage:
           reason = nil
         }
@@ -2543,9 +2571,9 @@ final class OperatorWorkspace {
       ),
       drawing: .init(
         currentStep: observedDrawingTrialStep,
-        completedArtifactSteps: completedDrawingSteps,
         selectedDirection: selectedLineDirection,
         lineStart: drawingTrialLineStart,
+        lineEnd: drawingTrialLineEnd,
         localBaselineFrameID: localPreLineBaseline?.frame.id.rawValue,
         strokeSettled: drawingTrialStrokeEvidence != nil,
         inkStatus: explorationInkStatus,
@@ -2563,6 +2591,7 @@ final class OperatorWorkspace {
         lastStopAudit: lastContextualStopAuditRecord,
         scopedVisionActive: scopedVisionAnalysisActive,
         visionAnalysisActive: visionAnalysisSnapshot.activeFrameSequence != nil,
+        workflowVisionActive: exclusiveWorkflowVisionRequestCount > 0,
         visionState: visionAnalysisSnapshot.state
       ),
       discovery: discoveryTransactions.mapValues { transaction in
@@ -2609,7 +2638,6 @@ final class OperatorWorkspace {
       else { return }
       switch purpose {
       case .boundary: selectBoundaryDirection(direction)
-      case .linePlan: selectedLineDirection = direction
       }
       return
     }
@@ -2681,24 +2709,10 @@ final class OperatorWorkspace {
       clearSparseTipClicks()
     case .revalidateTipCalibrationCheckpoint:
       await revalidateTipCalibrationCheckpoint()
-    case .acceptTipCalibration:
-      acceptTipCalibration()
+    case .retryTipCalibrationCommit:
+      _ = commitTipCalibration(actor: "operator-retry")
     case .paperReplaced:
       await recordPaperReplaced()
-    case .chooseIsolatedLinePlan(let direction):
-      selectedLineDirection = direction
-      await performCurrentLearningPathAction()
-    case .captureLocalPreLineBaseline:
-      await performCurrentLearningPathAction()
-    case .moveToLineStart:
-      await performCurrentLearningPathAction()
-    case .drawIsolatedLine:
-      await performCurrentLearningPathAction()
-    case .revealAndObserveNewInk:
-      await performCurrentLearningPathAction()
-    case .recordDrawingTrialAssessment(let assessment):
-      guard ownerID == .observedDrawingTrial(.compareIntendedAndObservedGeometry) else { return }
-      await recordDrawingTrialAssessment(assessment)
     }
   }
 
@@ -3705,7 +3719,9 @@ final class OperatorWorkspace {
     }
     do {
       try acceptSparseTipBatchClicks()
-      explorationError = nil
+      if commitTipCalibration(actor: "plotter-training-runtime") {
+        explorationError = nil
+      }
     } catch {
       if sparseTipCalibrationCoordinator.recoverFromFittingFailure() {
         explorationError =
@@ -4441,14 +4457,15 @@ final class OperatorWorkspace {
     activeLearningSession.toolContactSelection.clear()
   }
 
-  private func acceptTipCalibration() {
+  @discardableResult
+  private func commitTipCalibration(actor: String) -> Bool {
     guard let proposal = proposedTipCameraRegistration,
       let attemptID = activeExerciseAttemptID,
       activeExerciseAttemptOwnerID
         == .humanGuidedDiscovery(
           .calibratePenContactFromSparseMarks
         )
-    else { return }
+    else { return false }
     do {
       let candidate = LearningArtifactRevision(
         id: proposal.acceptedRevisionID,
@@ -4465,7 +4482,7 @@ final class OperatorWorkspace {
       let acceptanceEvent = try TipCalibrationAcceptanceEvent(
         acceptedRevisionID: proposal.acceptedRevisionID,
         timestamp: acceptedTimestamp,
-        actor: "operator"
+        actor: actor
       )
       let checkpoint = try AcceptedTipCalibrationCheckpoint(
         registration: proposal,
@@ -4480,9 +4497,11 @@ final class OperatorWorkspace {
       quarantinedTipCalibrationCheckpoint = nil
       finishActiveExerciseAttempt(disposition: .succeeded)
       explorationError = nil
+      return true
     } catch {
       explorationError =
-        "Tip-calibration acceptance failed atomically: \(actionableDescription(error))"
+        "Tip-calibration commit failed atomically: \(actionableDescription(error))"
+      return false
     }
   }
 
@@ -4711,99 +4730,98 @@ final class OperatorWorkspace {
     explorationError = nil
   }
 
-  func performCurrentLearningPathAction() async {
+  func runObservedDrawingTrial() async {
     guard tipCameraRegistration != nil, activeExplorationOperation == nil else { return }
-    let attemptedStep = observedDrawingTrialStep
     if activeExerciseAttemptOwnerID == nil {
       beginExerciseAttempt(
-        ownerID: .observedDrawingTrial(attemptedStep),
+        ownerID: .observedDrawingTrial(.chooseIsolatedLinePlan),
         mode: activeExerciseAttemptMode ?? .normal
       )
     }
-    let payloadSnapshot = drawingTrialPayloadSnapshot()
-    activeExplorationOperation = ActiveExplorationOperation(
-      step: attemptedStep,
-      strokeState: .notAdmitted
-    )
     explorationError = nil
-    defer { activeExplorationOperation = nil }
-    do {
-      switch observedDrawingTrialStep {
-      case .chooseIsolatedLinePlan:
-        try recordIsolatedLinePlan(selectedLineDirection)
-      case .captureLocalPreLineBaseline:
-        try await captureLocalPreLineBaseline()
-      case .moveToLineStart:
-        try await moveToRecordedLineStart()
-      case .drawIsolatedLine:
-        try await drawIsolatedTrialLine()
-      case .revealAndObserveNewInk:
-        try await revealAndObserveTrialInk()
-      case .compareIntendedAndObservedGeometry:
-        break
-      }
-      if attemptedStep != .compareIntendedAndObservedGeometry {
+    restartableExerciseItemID = nil
+
+    while observedDrawingTrialStep != .compareIntendedAndObservedGeometry {
+      let attemptedStep = observedDrawingTrialStep
+      let payloadSnapshot = drawingTrialPayloadSnapshot()
+      activeExplorationOperation = ActiveExplorationOperation(
+        step: attemptedStep,
+        strokeState: .notAdmitted
+      )
+      do {
+        switch attemptedStep {
+        case .chooseIsolatedLinePlan:
+          try recordIsolatedLinePlan()
+        case .captureLocalPreLineBaseline:
+          try await captureLocalPreLineBaseline()
+        case .moveToLineStart:
+          try await moveToRecordedLineStart()
+        case .drawIsolatedLine:
+          try await drawIsolatedTrialLine()
+        case .revealAndObserveNewInk:
+          try await revealAndObserveTrialInk()
+        case .compareIntendedAndObservedGeometry:
+          break
+        }
         try commitDrawingArtifact(for: attemptedStep)
         advanceDrawingTrialAfterSuccess(attemptedStep)
-        finishActiveExerciseAttempt(disposition: .succeeded)
-      }
-    } catch {
-      if attemptedStep == .drawIsolatedLine,
-        (drawingTrialStrokeEvidence != payloadSnapshot.strokeEvidence
-          || activeExplorationOperation?.strokeState != .notAdmitted)
-      {
-        var commitFailure: String?
-        if activeExplorationOperation?.strokeState == .completedNaturally {
-          do {
-            try commitDrawingArtifact(for: .drawIsolatedLine)
-          } catch {
-            commitFailure = String(describing: error)
+      } catch {
+        let strokeState = activeExplorationOperation?.strokeState
+        activeExplorationOperation = nil
+        if attemptedStep == .drawIsolatedLine,
+          drawingTrialStrokeEvidence != payloadSnapshot.strokeEvidence
+            || strokeState != .notAdmitted
+        {
+          var commitFailure: String?
+          if strokeState == .completedNaturally {
+            do {
+              try commitDrawingArtifact(for: .drawIsolatedLine)
+            } catch {
+              commitFailure = String(describing: error)
+            }
           }
+          advanceDrawingTrialAfterSuccess(.drawIsolatedLine)
+          let base =
+            "The stroke owner produced evidence, so physical ink may exist. Drawing will not be restarted; Continue Observation will return Pen Up and inspect the existing stroke."
+          explorationError =
+            commitFailure.map {
+              "\(base) The line-execution artifact also needs attention: \($0)"
+            } ?? "\(base) Post-stroke settlement needs attention: \(error)"
+          finishActiveExerciseAttempt(
+            disposition: .failed("Ink may exist; automatic redraw is prohibited.")
+          )
+          restartableExerciseItemID = nil
+          return
         }
-        advanceDrawingTrialAfterSuccess(.drawIsolatedLine)
-        let base =
-          "The stroke owner produced evidence, so physical ink may exist. Drawing will not be restarted; continue with return/observation."
-        explorationError =
-          commitFailure.map {
-            "\(base) The line-execution artifact also needs attention: \($0)"
-          } ?? "\(base) Post-stroke settlement needs attention: \(error)"
-        finishActiveExerciseAttempt(
-          disposition: .failed("Ink may exist; automatic redraw is prohibited.")
-        )
-        restartableExerciseItemID = nil
+        if attemptedStep != .revealAndObserveNewInk {
+          restoreDrawingTrialPayload(payloadSnapshot)
+        }
+        explorationError = "\(attemptedStep.title) failed: \(error)"
+        finishActiveExerciseAttempt(disposition: workflowFailure(for: error).attemptDisposition)
+        restartableExerciseItemID = attemptedStep == .revealAndObserveNewInk
+          ? nil : .observedDrawingTrial(.chooseIsolatedLinePlan)
         return
       }
-      restoreDrawingTrialPayload(payloadSnapshot)
-      explorationError = "\(attemptedStep.title) failed: \(error)"
-      finishActiveExerciseAttempt(disposition: workflowFailure(for: error).attemptDisposition)
-      restartableExerciseItemID = .observedDrawingTrial(attemptedStep)
     }
-  }
 
-  func recordDrawingTrialAssessment(_ assessment: DrawingTrialAssessment) async {
-    guard observedDrawingTrialStep == .compareIntendedAndObservedGeometry
-    else { return }
-    if activeExerciseAttemptOwnerID == nil {
-      beginExerciseAttempt(
-        ownerID: .observedDrawingTrial(.compareIntendedAndObservedGeometry),
-        mode: activeExerciseAttemptMode ?? .normal
-      )
-    }
-    let payloadSnapshot = drawingTrialPayloadSnapshot()
+    activeExplorationOperation = ActiveExplorationOperation(
+      step: .compareIntendedAndObservedGeometry,
+      strokeState: .notAdmitted
+    )
     do {
-      try commitComparisonAttemptAndArtifact(assessment)
-      drawingTrialAssessment = assessment
+      try commitComparisonAttemptAndArtifact(.predictionObserved)
+      drawingTrialAssessment = .predictionObserved
       finishActiveExerciseAttempt(disposition: .succeeded)
     } catch {
-      restoreDrawingTrialPayload(payloadSnapshot)
-      explorationError = "Comparison failed: \(error)"
+      explorationError = "Automatic comparison failed: \(error)"
       recordComparisonAttempt(
         assessment: nil,
         disposition: .failed("Atomic accepted-artifact commit failed: \(error)")
       )
       finishActiveExerciseAttempt(disposition: .failed(String(describing: error)))
-      restartableExerciseItemID = .observedDrawingTrial(.compareIntendedAndObservedGeometry)
+      restartableExerciseItemID = .observedDrawingTrial(.chooseIsolatedLinePlan)
     }
+    activeExplorationOperation = nil
   }
 
   func discoveryStartUnavailableReason(for sequenceID: DiscoverySequenceID) -> String? {
@@ -6004,7 +6022,7 @@ final class OperatorWorkspace {
           "Drawing stopped after stroke admission; physical ink may exist. Draw is unavailable. Continue with return/observation."
         restartableExerciseItemID = nil
       } else {
-        restartableExerciseItemID = .observedDrawingTrial(.drawIsolatedLine)
+        restartableExerciseItemID = .observedDrawingTrial(.chooseIsolatedLinePlan)
       }
 
     case .sparseTipBatch:
@@ -7575,12 +7593,11 @@ final class OperatorWorkspace {
       beginExerciseAttempt(ownerID: ownerID, mode: mode)
     case .humanGuidedDiscovery(.calibratePenContactFromSparseMarks):
       beginExerciseAttempt(ownerID: ownerID, mode: mode)
-    case .observedDrawingTrial(let step):
-      observedDrawingTrialStep = step
+    case .observedDrawingTrial(.chooseIsolatedLinePlan):
       beginExerciseAttempt(ownerID: ownerID, mode: mode)
-      if step != .compareIntendedAndObservedGeometry {
-        await performCurrentLearningPathAction()
-      }
+      await runObservedDrawingTrial()
+    case .observedDrawingTrial:
+      break
     case .stage:
       break
     }
@@ -7642,7 +7659,9 @@ final class OperatorWorkspace {
         await cancelAndSettleStoppableOperation(operation, intent: .cancelAttempt)
       }
     }
-    if ownerID == .observedDrawingTrial(.compareIntendedAndObservedGeometry) {
+    if ownerID == .observedDrawingTrial(.chooseIsolatedLinePlan),
+      observedDrawingTrialStep == .compareIntendedAndObservedGeometry
+    {
       recordComparisonAttempt(assessment: nil, disposition: .cancelled)
     }
     finishActiveExerciseAttempt(disposition: .cancelled)
@@ -8106,6 +8125,7 @@ final class OperatorWorkspace {
         setObservedDrawingTrialStepEarlier(ifNeeded: .captureLocalPreLineBaseline)
       case .linePlan:
         drawingTrialLineStart = nil
+        drawingTrialLineEnd = nil
         setObservedDrawingTrialStepEarlier(ifNeeded: .chooseIsolatedLinePlan)
       case .lineExecution:
         drawingTrialStrokeEvidence = nil
@@ -8204,19 +8224,6 @@ final class OperatorWorkspace {
       : .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
   }
 
-
-  private func drawingArtifactKind(
-    for step: ObservedDrawingTrialStep
-  ) -> LearningArtifactKind {
-    switch step {
-    case .chooseIsolatedLinePlan: .linePlan(currentDrawingTrialGroup)
-    case .captureLocalPreLineBaseline: .localPreLineBaseline(currentDrawingTrialGroup)
-    case .moveToLineStart: .linePlan(currentDrawingTrialGroup)
-    case .drawIsolatedLine: .lineExecution(currentDrawingTrialGroup)
-    case .revealAndObserveNewInk: .postLineFrame(currentDrawingTrialGroup)
-    case .compareIntendedAndObservedGeometry: .comparison(currentDrawingTrialGroup)
-    }
-  }
 
   private func jogDirection(for sequenceID: DiscoverySequenceID) -> JogDirection? {
     switch sequenceID {
@@ -8812,13 +8819,13 @@ final class OperatorWorkspace {
       return "The current commanded pen state must be Up."
     }
     switch step {
-    case .captureLocalPreLineBaseline, .revealAndObserveNewInk:
+    case .chooseIsolatedLinePlan, .captureLocalPreLineBaseline, .revealAndObserveNewInk:
       if !cameraIsLive { return "A current LIVE camera frame is required." }
-    case .chooseIsolatedLinePlan, .moveToLineStart, .drawIsolatedLine,
-      .compareIntendedAndObservedGeometry:
+    case .moveToLineStart, .drawIsolatedLine, .compareIntendedAndObservedGeometry:
       break
     }
-    if step == .moveToLineStart || step == .drawIsolatedLine,
+    if step == .chooseIsolatedLinePlan || step == .moveToLineStart
+      || step == .drawIsolatedLine,
       machineSnapshot?.machine.position == nil
     {
       return "A current controller MPos is required."
@@ -8830,7 +8837,7 @@ final class OperatorWorkspace {
     observedDrawingTrialStep = step
   }
 
-  private func recordIsolatedLinePlan(_ direction: BoundaryDirection) throws {
+  private func recordIsolatedLinePlan() throws {
     guard let registration = tipCameraRegistration,
       learningArtifactGraph.currentRevision(for: .tipCameraRegistration)?.id
         == registration.acceptedRevisionID
@@ -8855,12 +8862,22 @@ final class OperatorWorkspace {
     } else {
       restoredMarkGeometry = []
     }
-    let plan = try ObservedDrawingTrialLinePlan(
-      direction: direction,
-      domain: registration.applicabilityRectangle,
-      existingMarks: acceptedMarkGeometry + restoredMarkGeometry
-    )
+    let existingMarks = acceptedMarkGeometry + restoredMarkGeometry
+    let preferredDirections: [BoundaryDirection] = [
+      .positiveX, .negativeX, .positiveY, .negativeY,
+    ]
+    guard let plan = preferredDirections.lazy.compactMap({ direction in
+      try? ObservedDrawingTrialLinePlan(
+        direction: direction,
+        domain: registration.applicabilityRectangle,
+        existingMarks: existingMarks
+      )
+    }).first else {
+      throw ObservedDrawingTrialPlanningError.noClearFiveMillimeterLine
+    }
+    selectedLineDirection = plan.direction
     drawingTrialLineStart = plan.startPosition
+    drawingTrialLineEnd = plan.endPosition
     drawingTrialTipRegistrationRevisionID = registration.acceptedRevisionID
   }
 
@@ -9155,13 +9172,12 @@ final class OperatorWorkspace {
         "Move to the recorded tip-model-domain line start before drawing."
       )
     }
-    let delta: Vector2<MachineSpace> =
-      switch selectedLineDirection {
-      case .negativeX: try Vector2(dx: -5, dy: 0)
-      case .positiveX: try Vector2(dx: 5, dy: 0)
-      case .negativeY: try Vector2(dx: 0, dy: -5)
-      case .positiveY: try Vector2(dx: 0, dy: 5)
-      }
+    guard let lineEnd = drawingTrialLineEnd else {
+      throw LearningPathOperationError.requiredState(
+        "The predicted isolated-line end is unavailable."
+      )
+    }
+    let delta = try start.point.vector(to: lineEnd.point)
     if frameMode == .simulated {
       applySimulatedSnapshotResponse(
         await simulatedLearningRuntime.setPenPose(.down),
@@ -9263,6 +9279,7 @@ final class OperatorWorkspace {
       let baseline = localPreLineBaseline,
       let revealPosition = drawingTrialRevealPosition,
       let lineStart = drawingTrialLineStart,
+      let lineEnd = drawingTrialLineEnd,
       let registration = tipCameraRegistration,
       let registrationRevisionID = drawingTrialTipRegistrationRevisionID,
       registration.acceptedRevisionID == registrationRevisionID,
@@ -9303,19 +9320,8 @@ final class OperatorWorkspace {
     let post = try await captureProtocolFrame(newerThan: boundary)
     explorationPostLineFrame = post
     displayedFrame = post
-    let lineDelta: Vector2<MachineSpace> =
-      switch selectedLineDirection {
-      case .negativeX: try Vector2(dx: -5, dy: 0)
-      case .positiveX: try Vector2(dx: 5, dy: 0)
-      case .negativeY: try Vector2(dx: 0, dy: -5)
-      case .positiveY: try Vector2(dx: 0, dy: 5)
-      }
-    let lineEnd = try Point2<MachineSpace>(
-      x: lineStart.point.x + lineDelta.dx,
-      y: lineStart.point.y + lineDelta.dy
-    )
     let cameraStart = try registration.tipPixel(at: lineStart.point)
-    let cameraEnd = try registration.tipPixel(at: lineEnd)
+    let cameraEnd = try registration.tipPixel(at: lineEnd.point)
     let projectedDelta = try cameraStart.vector(to: cameraEnd)
     let componentAndAlignmentMargin = 6
     let minX = Int(floor(min(cameraStart.x, cameraEnd.x))) - componentAndAlignmentMargin

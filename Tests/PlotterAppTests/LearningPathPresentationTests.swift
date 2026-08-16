@@ -44,15 +44,17 @@ struct LearningPathPresentationTests {
       ])
   }
 
-  @Test("Observed Drawing Trials exposes the exact six-step sequence")
-  func exactDrawingTrialSteps() {
+  @Test("Observed Drawing Trial retains six truthful internal phases")
+  func exactDrawingTrialPhases() {
     #expect(
-      ObservedDrawingTrialStep.allCases.map(\.stepNumber) == [
-        "4.1", "4.2", "4.3", "4.4", "4.5", "4.6",
-      ])
+      ObservedDrawingTrialStep.allCases.map(\.rawValue) == [1, 2, 3, 4, 5, 6]
+    )
+    #expect(
+      ObservedDrawingTrialStep.allCases.map(\.stepNumber) == Array(repeating: "4.1", count: 6)
+    )
     #expect(
       ObservedDrawingTrialStep.allCases.map(\.title) == [
-        "Choose Isolated Line Plan",
+        "Plan Predicted Isolated Line",
         "Capture Local Pre-Line Baseline",
         "Move to Line Start",
         "Draw Isolated Line",
@@ -61,7 +63,7 @@ struct LearningPathPresentationTests {
       ])
   }
 
-  @Test("flat navigator order preserves every stage and numbered exercise")
+  @Test("flat navigator exposes one Go-owned Stage 4 exercise")
   func exactNavigatorOrder() {
     #expect(
       LearningPathItemID.navigationOrder.map { "\($0.number) \($0.title)" } == [
@@ -73,12 +75,7 @@ struct LearningPathPresentationTests {
         "3.3 Calibrate Camera and Visible Cap",
         "3.4 Calibrate Pen Contact from Sparse Marks",
         "4 Observed Drawing Trials",
-        "4.1 Choose Isolated Line Plan",
-        "4.2 Capture Local Pre-Line Baseline",
-        "4.3 Move to Line Start",
-        "4.4 Draw Isolated Line",
-        "4.5 Reveal and Observe New Ink",
-        "4.6 Compare Intended and Observed Geometry",
+        "4.1 Run Predicted Isolated Line Trial",
       ])
   }
 

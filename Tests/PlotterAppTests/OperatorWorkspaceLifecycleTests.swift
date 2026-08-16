@@ -101,26 +101,12 @@ struct OperatorWorkspaceLifecycleTests {
     )
     try await completeSimulatedSparseTipCalibration(workspace, runtime: harness.runtime)
 
+    workspace.replaceSimulatedExecutionPacingForTesting(
+      DrawingOutcomeLossPacing(runtime: harness.runtime)
+    )
     try await performPublicAction(
-      .chooseIsolatedLinePlan(.positiveX),
+      .start,
       owner: .observedDrawingTrial(.chooseIsolatedLinePlan),
-      workspace: workspace
-    )
-    try await performPublicAction(
-      .captureLocalPreLineBaseline,
-      owner: .observedDrawingTrial(.captureLocalPreLineBaseline),
-      workspace: workspace
-    )
-    try await performPublicAction(
-      .moveToLineStart,
-      owner: .observedDrawingTrial(.moveToLineStart),
-      workspace: workspace
-    )
-
-    await harness.runtime.injectFault(.outcomeUnavailableAfterNextExecution)
-    try await performPublicAction(
-      .drawIsolatedLine,
-      owner: .observedDrawingTrial(.drawIsolatedLine),
       workspace: workspace
     )
 
@@ -128,6 +114,62 @@ struct OperatorWorkspaceLifecycleTests {
     #expect(workspace.observedDrawingTrialStep == .revealAndObserveNewInk)
     #expect(workspace.restartableExerciseItemID == nil)
     #expect(workspace.explorationError?.contains("will not be restarted") == true)
+    await workspace.shutdown()
+  }
+
+  @Test("one Go previews the predicted line before motion and completes automatically")
+  func oneGoPreviewsThenCompletesTrial() async throws {
+    let harness = makeSimulatedHarness()
+    let workspace = harness.workspace
+    try await completeSimulatedBoundariesAndCenter(
+      workspace,
+      runtime: harness.runtime,
+      boundaryOrder: [.negativeX, .positiveX, .negativeY, .positiveY]
+    )
+    try await completeSimulatedSparseTipCalibration(workspace, runtime: harness.runtime)
+    let positionBeforeGo = (await harness.runtime.snapshot()).mpos
+    let pacing = FirstOperationSuspensionPacing()
+    workspace.replaceSimulatedExecutionPacingForTesting(pacing)
+    let owner = LearningPathItemID.observedDrawingTrial(.chooseIsolatedLinePlan)
+
+    let trial = Task { await workspace.performExerciseAction(.start, for: owner) }
+    await pacing.waitUntilSuspended()
+
+    let surface = workspace.actionSurfacePresentation
+    let predicted = try #require(surface.overlays.first {
+      $0.provenance.kind == .intendedPath && $0.provenance.source == .planned
+    })
+    let displayedFrame = try #require(surface.displayedFrame)
+    let lineStart = try #require(workspace.drawingTrialLineStart)
+    let lineEnd = try #require(workspace.drawingTrialLineEnd)
+    let registration = try #require(workspace.tipCameraRegistration)
+    guard case .polyline(let predictedLine) = predicted.geometry else {
+      Issue.record("The model prediction must be a camera-pixel polyline.")
+      return
+    }
+    #expect(predicted.frameID == displayedFrame.frame.id)
+    #expect(predicted.cameraConfigurationID == displayedFrame.frame.cameraConfigurationID)
+    #expect(predictedLine.points == [
+      try registration.tipPixel(at: lineStart.point),
+      try registration.tipPixel(at: lineEnd.point),
+    ])
+    #expect((await harness.runtime.snapshot()).mpos == positionBeforeGo)
+    #expect(workspace.observedDrawingTrialStep == .moveToLineStart)
+    #expect(workspace.selectedOperatorActionPresentation(for: owner).activity?.outcome == .inProgress)
+    #expect(
+      workspace.selectedOperatorActionPresentation(for: owner).activity?.phase == "Phase 3 of 6"
+    )
+    #expect(workspace.currentExerciseActionStripPresentation?.actions.contains {
+      if case .stop = $0.kind { return true }
+      return false
+    } == true)
+
+    await pacing.resume()
+    await trial.value
+
+    #expect(workspace.drawingTrialAssessment == .predictionObserved)
+    #expect(workspace.activeExerciseAttemptID == nil)
+    #expect(workspace.currentExerciseActionStripPresentation == nil)
     await workspace.shutdown()
   }
 
@@ -160,5 +202,22 @@ struct OperatorWorkspaceLifecycleTests {
     #expect(detail == "The simulated Boundary owner lost attributable segment completion.")
     #expect(workspace.contextualStopPresentation == nil)
     await workspace.shutdown()
+  }
+}
+
+private actor DrawingOutcomeLossPacing: SimulatedLearningExecutionPacing {
+  let runtime: SimulatedLearningRuntime
+  var suspensionCount = 0
+
+  init(runtime: SimulatedLearningRuntime) {
+    self.runtime = runtime
+  }
+
+  func suspendBetweenSteps() async {
+    suspensionCount += 1
+    if suspensionCount == 2 {
+      await runtime.injectFault(.outcomeUnavailableAfterNextExecution)
+    }
+    await Task.yield()
   }
 }

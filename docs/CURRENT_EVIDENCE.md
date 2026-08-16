@@ -10,6 +10,37 @@ procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
 ## Implemented software surface
 
+### One-Go predicted isolated-line validation
+
+Implemented 2026-08-16 in Blackdog task `TASK-ED0800E2`, targeting `main`.
+
+The visible Stage 4 surface is now one 4.1 exercise. One **Go** chooses the first
+clear signed-axis 5 mm plan, renders its model-predicted cyan line on the current
+video before motion, then owns baseline capture, Pen-Up travel, the single
+stroke, same-pose reveal, strictly newer frame capture, isolated-ink Vision, and
+the normal typed comparison. Motion retains **Stop**. Foreground trial Vision is
+named as the active operation owner. Possible ink, rejected Vision evidence, or
+ambiguous controller outcomes stop without automatic redraw.
+
+The fifth valid Stage 3.4 click now atomically constructs and commits the
+`TipCameraRegistration`; only an actual commit failure exposes a retry. The UI
+distinguishes **Map ready** after Stage 3.4 and **One attributable validation
+complete** after Stage 4.1 from a future scoped **Trained/Ready** assessment.
+Repeated coverage, reserved holdouts, candidate/prior comparison, shape
+holdouts, and typed readiness remain roadmap work.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| Focused Stage 3.4/4.1 suites | passed — 49 tests | one-Go ownership, predicted preview before motion, foreground Vision status, automatic comparison, fifth-click commit, Stop/no-redraw recovery, and atomic reset |
+| `make quick-test` | passed — 384 tests | fast unit/component partition with retained journeys excluded |
+| `make journey-test` | passed — 10 tests | sparse calibration, checkpoint, exact tip revision, one-Go reset, Boundary, drawing, and Stop journeys |
+| `make strict-check` | passed — 394 tests | strict concurrency, warnings as errors, signed bundle, launcher validation, complete suite, repository contract, and diff check |
+| `git diff --check` | passed | whitespace and conflict markers |
+
+These results are software, deterministic fixture, simulator, build, and bundle
+evidence. Attended hardware, camera, physical motion, Pen Down/Up,
+operator-click, and observed-ink validation were not performed by this change.
+
 ### Stage 3.4 five-circle batch and affine-first authority
 
 Implemented and landed locally 2026-08-16 in Blackdog task `TASK-0D8990BE` as
@@ -287,7 +318,7 @@ The current source contains exactly two post-Boundary calibration exercises:
   X-max/Y-zero-biased reveal, one shared frozen exact frame, arbitrary-order
   clicks with deterministic global assignment, all-five affine-first
   construction, constant construction fallback, diagnostic-only residuals and
-  uncertainty, stable operator viewport state, and explicit tip acceptance.
+  uncertainty, stable operator viewport state, and atomic tip-map commit.
 
 `TipCameraRegistration` maps machine coordinates directly to contact pixels.
 Stage 4 consumes its exact revision, selects a 5 mm line that clears persistent
@@ -354,7 +385,7 @@ absent; fixed bounded Boundary renewal, Stop, Idle/MPos settlement, and fallback
 authority remain. Stage 4 intended geometry, observed ink, and residuals are
 contextual evidence with no global toggles.
 
-The visible Learning Path ends after the implemented 4.6 assessment. The former
+The visible Learning Path ends at the one-Go 4.1 observed-line validation. The former
 selectable future stage, speculative online model-learning dataset, policy/reward
 episode scaffolding, model-mismatch renderer, and model-prediction overlay kind
 are deleted. Adaptive requirements remain roadmap-only.

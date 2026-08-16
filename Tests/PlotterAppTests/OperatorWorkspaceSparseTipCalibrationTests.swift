@@ -137,14 +137,13 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     }
     #expect((await harness.runtime.snapshot()).persistentInkSegmentCount == 80)
 
-    let proposal = try #require(
-      workspace.proposedTipCameraRegistration,
-      "proposal missing: \(workspace.explorationError ?? "no error")"
+    let accepted = try #require(
+      workspace.tipCameraRegistration,
+      "accepted registration missing: \(workspace.explorationError ?? "no error")"
     )
-    #expect(proposal.modelForm == .directAffine)
-    #expect(proposal.modelSelectionEvidence.observationIDs.count == 5)
-    try await performPublicAction(.acceptTipCalibration, owner: tipOwner, workspace: workspace)
-    #expect(workspace.tipCameraRegistration?.acceptedRevisionID == proposal.acceptedRevisionID)
+    #expect(accepted.modelForm == .directAffine)
+    #expect(accepted.modelSelectionEvidence.observationIDs.count == 5)
+    #expect(workspace.proposedTipCameraRegistration == nil)
     #expect(workspace.sparseTipCalibrationCoordinator.phase == .accepted)
     #expect(
       workspace.currentLearningPathItemID
@@ -383,7 +382,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       restored.estimatorRevision == SparseTipCircularMarkPlan.registrationEstimatorRevision
     )
     try await performPublicAction(
-      .chooseIsolatedLinePlan(.positiveX),
+      .start,
       owner: .observedDrawingTrial(.chooseIsolatedLinePlan),
       workspace: restarted.workspace
     )

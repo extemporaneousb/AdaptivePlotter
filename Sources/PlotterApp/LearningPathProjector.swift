@@ -211,9 +211,9 @@ struct LearningPathProjectionSnapshot: Sendable {
 
   struct DrawingFacts: Sendable {
     let currentStep: ObservedDrawingTrialStep
-    let completedArtifactSteps: Set<ObservedDrawingTrialStep>
     let selectedDirection: BoundaryDirection
     let lineStart: MachinePosition?
+    let lineEnd: MachinePosition?
     let localBaselineFrameID: String?
     let strokeSettled: Bool
     let inkStatus: String
@@ -222,9 +222,9 @@ struct LearningPathProjectionSnapshot: Sendable {
 
     init(
       currentStep: ObservedDrawingTrialStep = .chooseIsolatedLinePlan,
-      completedArtifactSteps: Set<ObservedDrawingTrialStep> = [],
       selectedDirection: BoundaryDirection = .positiveX,
       lineStart: MachinePosition? = nil,
+      lineEnd: MachinePosition? = nil,
       localBaselineFrameID: String? = nil,
       strokeSettled: Bool = false,
       inkStatus: String = "no isolated-line observation yet",
@@ -232,9 +232,9 @@ struct LearningPathProjectionSnapshot: Sendable {
       lastTravelFeed: TravelFeedSelection? = nil
     ) {
       self.currentStep = currentStep
-      self.completedArtifactSteps = completedArtifactSteps
       self.selectedDirection = selectedDirection
       self.lineStart = lineStart
+      self.lineEnd = lineEnd
       self.localBaselineFrameID = localBaselineFrameID
       self.strokeSettled = strokeSettled
       self.inkStatus = inkStatus
@@ -278,6 +278,7 @@ struct LearningPathProjectionSnapshot: Sendable {
     let lastStopAudit: ContextualStopAuditRecord?
     let scopedVisionActive: Bool
     let visionAnalysisActive: Bool
+    let workflowVisionActive: Bool
     let visionState: PlotterSceneAnalysisState
 
     init(
@@ -291,6 +292,7 @@ struct LearningPathProjectionSnapshot: Sendable {
       lastStopAudit: ContextualStopAuditRecord? = nil,
       scopedVisionActive: Bool = false,
       visionAnalysisActive: Bool = false,
+      workflowVisionActive: Bool = false,
       visionState: PlotterSceneAnalysisState = .stopped
     ) {
       self.activeAttemptOwner = activeAttemptOwner
@@ -303,6 +305,7 @@ struct LearningPathProjectionSnapshot: Sendable {
       self.lastStopAudit = lastStopAudit
       self.scopedVisionActive = scopedVisionActive
       self.visionAnalysisActive = visionAnalysisActive
+      self.workflowVisionActive = workflowVisionActive
       self.visionState = visionState
     }
   }
@@ -437,10 +440,7 @@ struct LearningPathProjector: Sendable {
     if !snapshot.sparseCalibration.acceptedIsCurrent {
       return .humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
     }
-    if snapshot.drawing.assessment == nil {
-      return .observedDrawingTrial(snapshot.drawing.currentStep)
-    }
-    return .observedDrawingTrial(.compareIntendedAndObservedGeometry)
+    return .observedDrawingTrial(.chooseIsolatedLinePlan)
   }
 
   private func status(
@@ -490,17 +490,14 @@ struct LearningPathProjector: Sendable {
     case .humanGuidedDiscovery(.calibratePenContactFromSparseMarks):
       snapshot.sparseCalibration.acceptedIsCurrent
     case .observedDrawingTrial(let step):
-      snapshot.drawing.assessment != nil
-        || (step.rawValue < snapshot.drawing.currentStep.rawValue
-          && snapshot.drawing.completedArtifactSteps.contains(step))
+      step == .chooseIsolatedLinePlan && snapshot.drawing.assessment != nil
     }
   }
 
   private func isRepeatable(_ itemID: LearningPathItemID) -> Bool {
     switch itemID {
     case .humanGuidedDiscovery(.penInteraction),
-      .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering),
-      .observedDrawingTrial(.compareIntendedAndObservedGeometry): true
+      .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering): true
     default: false
     }
   }
@@ -531,9 +528,11 @@ struct LearningPathProjector: Sendable {
     case .humanGuidedDiscovery(.calibrateCameraAndVisibleCap):
       "Capture five exact cap samples at normalized 10/50/90 cross positions, validate two independent holdouts, then explicitly accept or reject the all-five camera fit."
     case .humanGuidedDiscovery(.calibratePenContactFromSparseMarks):
-      "Draw five separated 2 mm-radius circles in one batch with Pen Up between them, perform one final Pen-Up reveal, click all five centers in any order on the shared frozen frame, then explicitly accept the affine-first proposal."
+      "Draw five separated 2 mm-radius circles in one batch with Pen Up between them, perform one final Pen-Up reveal, then click all five centers in any order on the shared frozen frame; click five fits and commits the tip map."
     case .stage(.observedDrawingTrials):
-      "Create one attributable line, observe actual ink, and compare geometry."
+      "Use the accepted machine-to-paper-pixel map to preview, draw, observe, and compare one attributable line."
+    case .observedDrawingTrial(.chooseIsolatedLinePlan):
+      "Press Go once. The app plans and previews the predicted line, captures a local baseline, moves and draws, returns to reveal, runs Vision, and records the normal comparison automatically."
     case .observedDrawingTrial(let step): drawingActionText(step)
     }
   }
@@ -599,20 +598,27 @@ extension LearningPathProjector {
         feedSource: feed?.source
       )
     case .observedDrawingTrial(let step):
+      let isVisibleTrial = step == .chooseIsolatedLinePlan
       return OperatorActionPresentation(
         itemID: itemID,
         stepNumber: step.stepNumber,
-        title: step.title,
+        title: itemID.title,
         status: status(for: itemID, current: current, snapshot: snapshot),
-        participant: drawingParticipant(step),
-        instructions: [.text(drawingActionText(step))],
-        expectedObservation: [.text(drawingExpectationText(step))],
+        participant: isVisibleTrial ? "Plotter training runtime" : drawingParticipant(step),
+        instructions: [.text(isVisibleTrial
+          ? "Press Go once. Keep Stop available during motion; normal planning, preview, baseline, motion, drawing, Vision, and comparison continue without further approval."
+          : drawingActionText(step))],
+        expectedObservation: [.text(isVisibleTrial
+          ? "A predicted cyan line appears before motion, then observed white ink and orange residuals appear on the exact post-line frame."
+          : drawingExpectationText(step))],
         timeline: ExerciseTimelinePresentation(
-          position: step.rawValue,
+          position: snapshot.drawing.currentStep.rawValue,
           total: ObservedDrawingTrialStep.allCases.count,
           currentLabel: snapshot.drawing.currentStep.title
         ),
-        evidence: drawingEvidence(step, snapshot: snapshot),
+        evidence: isVisibleTrial
+          ? drawingTrialEvidence(snapshot: snapshot)
+          : drawingEvidence(step, snapshot: snapshot),
         activity: activity(for: itemID, transaction: nil, current: current, snapshot: snapshot),
         subsystemStatuses: subsystemStatuses(for: itemID, transaction: nil, snapshot: snapshot),
         actionStrip: actionStrip(for: itemID, current: current, snapshot: snapshot),
@@ -676,6 +682,19 @@ extension LearningPathProjector {
           mustRemainVisible: true
         )
       }
+      if itemID == .observedDrawingTrial(.chooseIsolatedLinePlan) {
+        return ExerciseActionStripPresentation(
+          ownerID: itemID,
+          actions: [
+            ExerciseActionDescriptor(
+              kind: .start,
+              title: "\(snapshot.drawing.currentStep.title)…",
+              unavailableReason: "The one-Go observed-line trial is in progress."
+            )
+          ],
+          mustRemainVisible: true
+        )
+      }
       if itemID.stage == .humanGuidedDiscovery,
         let ambiguity = operations.stickyAmbiguityReason
       {
@@ -727,14 +746,6 @@ extension LearningPathProjector {
           snapshot.sparseCalibration.phase,
           collectedClickCount: snapshot.sparseCalibration.collectedClickCount
         )
-      } else if itemID == .observedDrawingTrial(.compareIntendedAndObservedGeometry) {
-        actions = DrawingTrialAssessment.allCases.map { assessment in
-          ExerciseActionDescriptor(
-            kind: .recordDrawingTrialAssessment(assessment),
-            title: assessment.title,
-            role: assessment == .observedGeometryAccepted ? .positive : .standard
-          )
-        }
       } else if let transaction = snapshot.discovery.values.first(where: {
         $0.state == .active || $0.state == .cancelling
       }), let choices = transaction.currentStep?.question?.choices {
@@ -780,11 +791,17 @@ extension LearningPathProjector {
       guard operations.stickyAmbiguityReason == nil else { return nil }
       return ExerciseActionStripPresentation(
         ownerID: itemID,
-        actions: [ExerciseActionDescriptor(kind: .restart, title: "Restart", role: .positive)]
+        actions: [ExerciseActionDescriptor(
+          kind: .restart,
+          title: itemID == .observedDrawingTrial(.chooseIsolatedLinePlan)
+            ? "Retry Trial" : "Restart",
+          role: .positive
+        )]
       )
     }
 
     if isComplete(itemID, snapshot: snapshot), itemID.isExercise {
+      if itemID == .observedDrawingTrial(.chooseIsolatedLinePlan) { return nil }
       let actions: [ExerciseActionDescriptor]
       if itemID == .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering) {
         actions = snapshot.boundary.acceptedDirections.flatMap { direction in
@@ -844,30 +861,24 @@ extension LearningPathProjector {
         ] + boundaryRepeatActions(snapshot.boundary.acceptedDirections)
       )
     }
-    if case .observedDrawingTrial(let step) = itemID {
-      let kind: ExerciseActionKind = switch step {
-      case .chooseIsolatedLinePlan: .chooseIsolatedLinePlan(snapshot.drawing.selectedDirection)
-      case .captureLocalPreLineBaseline: .captureLocalPreLineBaseline
-      case .moveToLineStart: .moveToLineStart
-      case .drawIsolatedLine: .drawIsolatedLine
-      case .revealAndObserveNewInk: .revealAndObserveNewInk
-      case .compareIntendedAndObservedGeometry: .start
+    if itemID == .observedDrawingTrial(.chooseIsolatedLinePlan) {
+      let title = switch snapshot.drawing.currentStep {
+      case .chooseIsolatedLinePlan: "Go"
+      case .revealAndObserveNewInk: "Continue Observation"
+      case .compareIntendedAndObservedGeometry: "Finish Automatic Comparison"
+      case .captureLocalPreLineBaseline, .moveToLineStart, .drawIsolatedLine:
+        "Continue Trial"
       }
       return ExerciseActionStripPresentation(
         ownerID: itemID,
         actions: [
           ExerciseActionDescriptor(
-            kind: kind,
-            title: drawingActionTitle(step),
+            kind: .start,
+            title: title,
             role: .positive,
             unavailableReason: reason
           )
-        ],
-        directionSelection: step == .chooseIsolatedLinePlan
-          ? ExerciseDirectionSelectionPresentation(
-            purpose: .linePlan,
-            selected: snapshot.drawing.selectedDirection
-          ) : nil
+        ]
       )
     }
     if itemID == .humanGuidedDiscovery(.calibrateCameraAndVisibleCap) {
@@ -975,14 +986,14 @@ extension LearningPathProjector {
       }
     case .fittingModel:
       [ExerciseActionDescriptor(
-        kind: .acceptTipCalibration,
-        title: "Fitting Tip Calibration…",
-        unavailableReason: "The five observations are being created and fitted."
+        kind: .retryTipCalibrationCommit,
+        title: "Fitting and Committing Tip Calibration…",
+        unavailableReason: "The five observations are being created, fitted, and committed."
       )]
-    case .reviewingFinalProposal:
+    case .committingModel:
       [ExerciseActionDescriptor(
-        kind: .acceptTipCalibration,
-        title: "Accept Tip Calibration",
+        kind: .retryTipCalibrationCommit,
+        title: "Retry Calibration Commit",
         role: .positive
       )]
     case .possibleInkBlacklisted:
@@ -1075,6 +1086,22 @@ extension LearningPathProjector {
         recovery: operations.stopOwner == nil
           ? [.text("No operator calibration move or hand-drawn triangle is required.")]
           : [.text("Stop remains bound to the currently admitted Pen-Up move.")]
+      )
+    }
+    if itemID == .observedDrawingTrial(.chooseIsolatedLinePlan),
+      operations.activeAttemptOwner == itemID
+    {
+      let phase = snapshot.drawing.currentStep
+      return OperationActivityPresentation(
+        actor: drawingParticipant(phase),
+        action: drawingActionText(phase),
+        phase: "Phase \(phase.rawValue) of \(ObservedDrawingTrialStep.allCases.count)",
+        outcome: .inProgress,
+        detail: [.text(phase == .revealAndObserveNewInk && operations.workflowVisionActive
+          ? "Vision is comparing the trial-local exact baseline and strictly newer post-line frame now."
+          : "The one-Go trial owns progression; no additional approval is waiting.")],
+        recovery: operations.stopOwner == nil
+          ? [] : [.text("Stop remains bound to the currently admitted motion owner.")]
       )
     }
     if itemID.stage == .humanGuidedDiscovery,
@@ -1212,7 +1239,14 @@ extension LearningPathProjector {
     let suffix = isBoundaryReview
       ? " Stage 3.2 boundary acceptance never calls Camera or Vision." : ""
     let vision: (String, Bool, SubsystemAuthorityRole, String)
-    if let phase = snapshot.cameraCalibration.phase {
+    if operations.workflowVisionActive {
+      vision = (
+        "Trial ink analysis · active",
+        false,
+        .operationOwner,
+        "Vision is comparing the trial-local exact baseline with the strictly newer post-line frame. The preview remains visible and no redraw is requested."
+      )
+    } else if let phase = snapshot.cameraCalibration.phase {
       vision = (
         phase.description,
         false,
@@ -1346,28 +1380,17 @@ extension LearningPathProjector {
 
   private func drawingParticipant(_ step: ObservedDrawingTrialStep) -> String {
     switch step {
-    case .chooseIsolatedLinePlan: "Operator"
+    case .chooseIsolatedLinePlan: "Plotter training runtime"
     case .captureLocalPreLineBaseline, .revealAndObserveNewInk: "Camera and Vision"
     case .moveToLineStart, .drawIsolatedLine: "Plotter controller"
-    case .compareIntendedAndObservedGeometry: "Operator"
-    }
-  }
-
-  private func drawingActionTitle(_ step: ObservedDrawingTrialStep) -> String {
-    switch step {
-    case .chooseIsolatedLinePlan: "Choose Isolated Line Plan"
-    case .captureLocalPreLineBaseline: "Capture Local Pre-Line Baseline"
-    case .moveToLineStart: "Move to Line Start"
-    case .drawIsolatedLine: "Draw Isolated Line"
-    case .revealAndObserveNewInk: "Reveal and Observe New Ink"
-    case .compareIntendedAndObservedGeometry: "Start"
+    case .compareIntendedAndObservedGeometry: "Plotter training runtime"
     }
   }
 
   private func drawingActionText(_ step: ObservedDrawingTrialStep) -> String {
     switch step {
     case .chooseIsolatedLinePlan:
-      "Choose a direction and project one local 5 mm path through the accepted tip model."
+      "Choose one clear local 5 mm path in software and project it through the accepted tip model."
     case .captureLocalPreLineBaseline:
       "Capture one exact local baseline and record this Pen-Up reveal pose."
     case .moveToLineStart: "Move Pen Up to the recorded local line start."
@@ -1375,7 +1398,7 @@ extension LearningPathProjector {
     case .revealAndObserveNewInk:
       "Return Pen Up to the local reveal pose, settle, capture a newer frame, and extract new ink."
     case .compareIntendedAndObservedGeometry:
-      "Record one typed comparison for this local trial; no redraw follows."
+      "Record the normal typed comparison automatically; unclear evidence stops for review and never redraws."
     }
   }
 
@@ -1390,7 +1413,7 @@ extension LearningPathProjector {
     case .revealAndObserveNewInk:
       "Observed new line ink or a typed unclear/rejected observation, with no automatic redraw."
     case .compareIntendedAndObservedGeometry:
-      "One typed operator assessment completes only this trial."
+      "One software-owned comparison completes only this attributable trial."
     }
   }
 
@@ -1466,10 +1489,24 @@ extension LearningPathProjector {
         fragments: [.text("N=\(snapshot.boundary.aggregates.count)")]
       )]
     case .observedDrawingTrials:
-      [ExerciseEvidencePresentation(
-        label: "Ink",
-        fragments: [.text(snapshot.drawing.inkStatus)]
-      )]
+      [
+        ExerciseEvidencePresentation(
+          label: "Drawing map",
+          fragments: [.text(snapshot.sparseCalibration.acceptedIsCurrent
+            ? "Map ready — current machine-to-paper-pixel tip registration"
+            : "Map unavailable")]
+        ),
+        ExerciseEvidencePresentation(
+          label: "Observed-line validation",
+          fragments: [.text(snapshot.drawing.assessment == nil
+            ? snapshot.drawing.inkStatus
+            : "One attributable validation complete")]
+        ),
+        ExerciseEvidencePresentation(
+          label: "Adaptive readiness",
+          fragments: [.text("Not trained — coverage, reserved holdouts, candidate comparison, and shape readiness remain roadmap work")]
+        ),
+      ]
     }
   }
 
@@ -1484,7 +1521,7 @@ extension LearningPathProjector {
     case .calibrateCameraAndVisibleCap:
       [.text("Capture five exact cap centers at C, X−, Y+, X+, and Y−; fit the first three, verify two holdouts, then explicitly accept or reject the all-five refit.")]
     case .calibratePenContactFromSparseMarks:
-      [.text("Draw five separated 2 mm-radius circles at C, X−, Y+, X+, and Y− with Pen Up between circles; perform one final Pen-Up reveal, click all five centers in any order on that unchanged frame, and review the affine-first proposal.")]
+      [.text("Draw five separated 2 mm-radius circles at C, X−, Y+, X+, and Y− with Pen Up between circles; perform one final Pen-Up reveal, then click all five centers in any order on that unchanged frame. Click five fits and commits the tip map.")]
     }
   }
 
@@ -1498,7 +1535,7 @@ extension LearningPathProjector {
     case .calibrateCameraAndVisibleCap:
       [.text("Three fit samples, two independent holdouts, and one current all-five machine-camera revision.")]
     case .calibratePenContactFromSparseMarks:
-      [.text("Five immutable click observations and one explicitly accepted tip-camera registration.")]
+      [.text("Five immutable click observations and one atomically committed tip-camera registration.")]
     }
   }
 
@@ -1737,5 +1774,45 @@ extension LearningPathProjector {
         fragments: [.text(snapshot.drawing.assessment?.title ?? "not recorded")]
       )]
     }
+  }
+
+  private func drawingTrialEvidence(
+    snapshot: LearningPathProjectionSnapshot
+  ) -> [ExerciseEvidencePresentation] {
+    let plan: String
+    if let start = snapshot.drawing.lineStart, let end = snapshot.drawing.lineEnd {
+      plan = String(
+        format: "%@ · machine X %.3f Y %.3f → X %.3f Y %.3f · predicted on screen through the accepted tip map",
+        snapshot.drawing.selectedDirection.displayName,
+        start.point.x,
+        start.point.y,
+        end.point.x,
+        end.point.y
+      )
+    } else {
+      plan = "not planned"
+    }
+    return [
+      ExerciseEvidencePresentation(label: "Predicted line", fragments: [.text(plan)]),
+      ExerciseEvidencePresentation(
+        label: "Local baseline",
+        fragments: [.text(snapshot.drawing.localBaselineFrameID ?? "not captured")]
+      ),
+      ExerciseEvidencePresentation(
+        label: "Controller stroke",
+        fragments: [.text(snapshot.drawing.strokeSettled ? "settled" : "not settled")]
+      ),
+      ExerciseEvidencePresentation(label: "Vision", fragments: [.text(snapshot.drawing.inkStatus)]),
+      ExerciseEvidencePresentation(
+        label: "Comparison",
+        fragments: [.text(snapshot.drawing.assessment?.title ?? "pending automatic comparison")]
+      ),
+      ExerciseEvidencePresentation(
+        label: "Readiness claim",
+        fragments: [.text(snapshot.drawing.assessment == nil
+          ? "Map ready; observed-line validation pending"
+          : "One attributable validation complete; adaptive model is not yet trained")]
+      ),
+    ]
   }
 }

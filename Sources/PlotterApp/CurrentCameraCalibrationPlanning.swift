@@ -195,6 +195,7 @@ struct ObservedDrawingTrialLinePlan: Hashable, Sendable {
   static let lengthMM = 5.0
   static let minimumInkClearanceMM = 0.25
 
+  let direction: BoundaryDirection
   let startPosition: MachinePosition
   let endPosition: MachinePosition
   let delta: Vector2<MachineSpace>
@@ -246,6 +247,7 @@ struct ObservedDrawingTrialLinePlan: Hashable, Sendable {
             > mark.radiusMM + Self.minimumInkClearanceMM
         }
     }) else { throw ObservedDrawingTrialPlanningError.noClearFiveMillimeterLine }
+    self.direction = direction
     startPosition = MachinePosition(point: selected.0)
     endPosition = MachinePosition(point: selected.1)
     delta = try selected.0.vector(to: selected.1)

@@ -14,7 +14,7 @@ enum SparseTipCalibrationPhase: Hashable, Sendable {
   case revealingBatch
   case awaitingFrozenClicks(FrameID)
   case fittingModel
-  case reviewingFinalProposal(TipCameraModelForm)
+  case committingModel(TipCameraModelForm)
   case accepted
   case possibleInkBlacklisted(BlacklistedToolContactLocation, String)
 }
@@ -173,12 +173,12 @@ struct SparseTipCalibrationCoordinator: Hashable, Sendable {
       capCameraFromMachine: capCameraFromMachine
     )
     proposal = selection
-    phase = .reviewingFinalProposal(selection.modelForm)
+    phase = .committingModel(selection.modelForm)
     return selection
   }
 
   mutating func markAccepted() throws {
-    guard case .reviewingFinalProposal = phase, proposal != nil else {
+    guard case .committingModel = phase, proposal != nil else {
       throw SparseTipCalibrationCoordinatorError.invalidTransition
     }
     phase = .accepted

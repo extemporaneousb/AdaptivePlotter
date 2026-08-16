@@ -27,15 +27,13 @@ authorization ladder:
    - **3.3 Calibrate Camera and Visible Cap**
    - **3.4 Calibrate Pen Contact from Sparse Marks**
 4. **Observed Drawing Trials**
-   - **4.1 Choose Isolated Line Plan**
-   - **4.2 Capture Local Pre-Line Baseline**
-   - **4.3 Move to Line Start**
-   - **4.4 Draw Isolated Line**
-   - **4.5 Reveal and Observe New Ink**
-   - **4.6 Compare Intended and Observed Geometry**
+   - **4.1 Run Predicted Isolated Line Trial**
 
-The visible curriculum finishes at 4.6. Adaptive Drawing is roadmap scope and is
-not a selectable current stage.
+The visible curriculum finishes at 4.1. After the fifth valid Stage 3.4 click
+commits the drawing map, one **Go** previews the predicted line and owns the
+normal baseline, motion, drawing, reveal, Vision, and comparison phases. Those
+phases are visible activity, not six approval buttons. Adaptive Drawing is
+roadmap scope and is not a selectable current stage.
 
 Connect and Enable Motion expose direct current-session facts. Selecting a row
 changes presentation only; it cannot admit motion, change runtime current state,
@@ -140,7 +138,15 @@ used only when affine construction itself throws. All-five residuals, RMS,
 covariance, and uncertainty remain diagnostics; their magnitude never rejects
 a model or blocks proposal creation. Stage 3.4 has no holdouts and numerical
 fitting cannot request paper replacement or route to a no-redraw recovery.
-Explicit **Accept Tip Calibration** makes Stage 4 current.
+The fifth valid click atomically commits `TipCameraRegistration` and makes Stage
+4 current. A separate action appears only to retry a failed atomic commit.
+
+Stage 3.4 therefore means the machine-to-paper-pixel map is ready within its
+recorded applicability. Stage 4.1 validates that map once: the app draws the
+predicted cyan line before motion, then shows observed white ink and orange
+residuals after Vision. It does not claim a generally trained adaptive model;
+coverage trials, reserved holdouts, model comparison, shape evaluation, and a
+typed readiness assessment remain Roadmap work.
 
 An uncertain circle chord, Pen Down/Up outcome, or motion outcome blacklists
 that circle center/radius on the current paper and stops the workflow. Possible ink never causes automatic

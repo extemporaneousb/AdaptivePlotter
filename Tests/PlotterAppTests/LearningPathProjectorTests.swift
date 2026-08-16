@@ -28,7 +28,7 @@ struct LearningPathProjectorTests {
     )
 
     #expect(projection.items.map(\.id) == LearningPathItemID.navigationOrder)
-    #expect(projection.items.count == 14)
+    #expect(projection.items.count == 9)
     #expect(projection.items.first?.status == .current)
     #expect(projection.items.dropFirst().allSatisfy { $0.status == .next })
   }
@@ -181,9 +181,9 @@ struct LearningPathProjectorTests {
       (.awaitingFrozenClicks(FrameID(rawValue: "frame-1")), 0, ["Cancel Attempt"]),
       (.awaitingFrozenClicks(FrameID(rawValue: "frame-1")), 2,
         ["Undo Last Click", "Clear Clicks on This Frame", "Cancel Attempt"]),
-      (.fittingModel, 5, ["Fitting Tip Calibration…", "Cancel Attempt"]),
-      (.reviewingFinalProposal(.constantCameraPixelCorrection),
-        5, ["Accept Tip Calibration", "Cancel Attempt"]),
+      (.fittingModel, 5, ["Fitting and Committing Tip Calibration…", "Cancel Attempt"]),
+      (.committingModel(.constantCameraPixelCorrection),
+        5, ["Retry Calibration Commit", "Cancel Attempt"]),
     ]
 
     for (phase, collectedClickCount, titles) in phases {
@@ -196,40 +196,64 @@ struct LearningPathProjectorTests {
     }
   }
 
-  @Test("Drawing Trial progression and review are snapshot-local")
+  @Test("Drawing Trial phases remain under one visible Go-owned exercise")
   func drawingTrialProgression() throws {
     let current = ObservedDrawingTrialStep.drawIsolatedLine
+    let owner = LearningPathItemID.observedDrawingTrial(.chooseIsolatedLinePlan)
     let snapshot = postBoundarySnapshot(
       sparse: .init(acceptedIsCurrent: true),
       drawing: .init(
-        currentStep: current,
-        completedArtifactSteps: [.chooseIsolatedLinePlan, .captureLocalPreLineBaseline]
+        currentStep: current
       )
     )
     let currentProjection = projector.project(
       snapshot,
-      selectedItemID: .observedDrawingTrial(current)
-    )
-    let reviewProjection = projector.project(
-      snapshot,
-      selectedItemID: .observedDrawingTrial(.chooseIsolatedLinePlan)
+      selectedItemID: owner
     )
 
-    #expect(currentProjection.currentItemID == .observedDrawingTrial(current))
-    #expect(currentProjection.currentActionStrip?.actions.map(\.kind) == [.drawIsolatedLine])
-    #expect(reviewProjection.currentItemID == currentProjection.currentItemID)
-    #expect(reviewProjection.selectedAction.itemID == .observedDrawingTrial(.chooseIsolatedLinePlan))
-    #expect(reviewProjection.selectedAction.status == .complete)
+    #expect(currentProjection.currentItemID == owner)
+    #expect(currentProjection.currentActionStrip?.actions.map(\.kind) == [.start])
+    #expect(currentProjection.currentActionStrip?.actions.first?.title == "Continue Trial")
+    #expect(currentProjection.selectedAction.itemID == owner)
+    #expect(currentProjection.selectedAction.timeline?.position == current.rawValue)
+    #expect(currentProjection.selectedAction.status == .current)
   }
 
-  @Test("completed curriculum remains on the implemented observed-trial endpoint")
+  @Test("foreground trial Vision is visible as the operation owner")
+  func foregroundTrialVisionIsVisible() throws {
+    let owner = LearningPathItemID.observedDrawingTrial(.chooseIsolatedLinePlan)
+    let snapshot = postBoundarySnapshot(
+      sparse: .init(acceptedIsCurrent: true),
+      drawing: .init(currentStep: .revealAndObserveNewInk),
+      operations: .init(
+        activeAttemptOwner: owner,
+        workflowVisionActive: true
+      )
+    )
+
+    let projection = projector.project(snapshot, selectedItemID: owner)
+    let vision = try #require(
+      projection.selectedAction.subsystemStatuses.first { $0.id == "vision" }
+    )
+
+    #expect(vision.state == "Trial ink analysis · active")
+    #expect(vision.role == .operationOwner)
+    #expect(projection.selectedAction.activity?.phase == "Phase 5 of 6")
+    #expect(
+      projection.selectedAction.activity?.detail.accessibilityText.contains(
+        "Vision is comparing"
+      ) == true
+    )
+  }
+
+  @Test("completed curriculum remains on the one-Go observed-trial endpoint")
   func completedCurriculumHasNoFutureRoute() {
-    let final = LearningPathItemID.observedDrawingTrial(.compareIntendedAndObservedGeometry)
+    let final = LearningPathItemID.observedDrawingTrial(.chooseIsolatedLinePlan)
     let snapshot = postBoundarySnapshot(
       sparse: .init(acceptedIsCurrent: true),
       drawing: .init(
         currentStep: .compareIntendedAndObservedGeometry,
-        assessment: .observedGeometryAccepted
+        assessment: .predictionObserved
       )
     )
 
@@ -238,10 +262,7 @@ struct LearningPathProjectorTests {
     #expect(projection.currentItemID == final)
     #expect(projection.items.last?.id == final)
     #expect(projection.items.last?.status == .complete)
-    #expect(
-      projection.currentActionStrip?.actions.map(\.kind)
-        == [.redoThisStep, .recordAnotherAttempt]
-    )
+    #expect(projection.currentActionStrip == nil)
   }
 
   private func connectedSnapshot(

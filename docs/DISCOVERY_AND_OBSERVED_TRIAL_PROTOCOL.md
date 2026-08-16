@@ -1,6 +1,6 @@
 # Discovery and Observed-Trial Protocol
 
-Status: current operating protocol for Learning Path 3.1 through 4.6
+Status: current operating protocol for Learning Path 3.1 through visible 4.1
 
 This document owns the exact actor, action, evidence, dependency, and recovery
 sequence. Durable semantics remain in [Product Contract](PRODUCT_CONTRACT.md).
@@ -264,8 +264,10 @@ physical contact or ink; attended observation owns those claims.
    Stage 3.4 has no holdouts and no numerical magnitude can block proposal
    creation or progression. Numerical fitting never requests paper replacement
    and never routes to **No Automatic Redraw**.
-7. **Accept Tip Calibration** atomically commits `TipCameraRegistration`, saves
-   the separate quarantined tip checkpoint, and makes Stage 4 current.
+7. The fifth valid click atomically commits `TipCameraRegistration`, saves the
+   separate quarantined tip checkpoint, finishes Stage 3.4, and makes Stage 4
+   current. If this commit fails, expose **Retry Calibration Commit**; do not
+   ask the operator to approve a successful fit.
 
 ### Quarantined checkpoint recovery
 
@@ -289,65 +291,50 @@ After explicit paper replacement:
 1. Retain the old checkpoint in quarantine and rotate the paper-plane identity.
 2. Rebuild and accept current Stage 3.3 authority.
 3. Run the current complete Stage 3.4 five-circle batch on the replacement
-   paper and explicitly accept its new tip registration.
+   paper; the fifth valid click commits its new tip registration.
 
 Any mismatch or ambiguous contact leaves authority unavailable. It never falls
 back to automatic redraw or silent checkpoint promotion.
 
-## 4. Observed Drawing Trial
+## 4.1 Run Predicted Isolated Line Trial
 
-Stage 4 requires the exact current accepted `TipCameraRegistration` revision.
-Every request/result cites that revision.
+Stage 4.1 requires the exact current accepted `TipCameraRegistration` revision.
+Every request/result cites that revision. It is one visible exercise with one
+normal **Go** action; the following are truthful runtime phases, not selectable
+exercises or approval gates:
 
-### 4.1 Choose Isolated Line Plan
+1. **Plan and preview.** In deterministic X+, X−, Y+, Y− preference order, the
+   app chooses the first 5 mm local line inside the applicability rectangle that
+   clears every persistent 2 mm-radius calibration circle by at least 0.25 mm.
+   A crowded domain blocks. The app projects both endpoints through the current
+   tip registration and renders the predicted line in cyan on the current live
+   frame before any motion.
+2. **Capture local baseline.** With Pen Up and the controller Idle, capture one
+   exact fresh frame and record the current MPos as this trial's reveal pose.
+3. **Move to line start.** Move Pen Up under one stoppable owner. Completion
+   requires fresh Idle/final MPos within 0.05 mm.
+4. **Draw isolated line.** Confirm the start, lower the pen, execute one typed
+   5 mm stroke under one drawing owner, and raise.
+5. **Reveal and observe.** Return Pen Up to the recorded reveal MPos, require
+   fresh Idle/final MPos within 0.05 mm, capture a post-line frame strictly newer
+   than the baseline and drawing settlement, and run bounded same-pose
+   black/new-ink Vision. While this runs, the UI states that trial Vision owns
+   processing. Retain observed geometry and residual, or a typed rejection.
+6. **Compare.** On normal observed-ink success, record the typed intended versus
+   observed comparison automatically and display predicted cyan, observed white,
+   and residual orange geometry on the exact post-line frame.
 
-Choose a signed axis direction. The app selects a start inside the tip model's
-applicability rectangle and constructs one 5 mm local line that clears every
-persistent 2 mm-radius calibration circle by at least 0.25 mm. If the domain is
-too crowded, planning stops and requests a larger clean calibration area rather
-than crossing old ink. It projects start
-and end directly through the current tip registration.
+**Stop** remains available for admitted motion. Refusal or ambiguity before
+contact creates no drawing evidence and stops for recovery. Once stroke
+admission or possible ink exists, no path may redraw automatically; recovery
+continues only with Pen-Up return and observation of the existing mark. A Vision
+rejection or comparison-commit failure stops for review or retry without
+drawing again.
 
-### 4.2 Capture Local Pre-Line Baseline
-
-With Pen Up and the controller Idle, capture one exact fresh frame and record
-the current MPos as this trial's local reveal pose. This baseline belongs only
-to the trial.
-
-### 4.3 Move to Line Start
-
-Move Pen Up under one stoppable owner to the recorded start. Completion requires
-fresh Idle/final MPos within 0.05 mm. Stop, refusal, or ambiguity creates no
-drawing evidence.
-
-### 4.4 Draw Isolated Line
-
-Confirm current MPos at the recorded start. Lower the pen, execute one typed
-5 mm stroke under one drawing owner, and raise. A stopped or ambiguous result
-never causes an automatic successor or redraw.
-
-### 4.5 Reveal and Observe New Ink
-
-1. Return Pen Up to the trial's recorded reveal MPos under one stoppable owner.
-2. Require fresh Idle/final MPos within 0.05 mm.
-3. Capture a post-line frame strictly newer than both the local baseline and
-   final drawing settlement.
-4. Project the intended line through the exact cited tip registration and form
-   bounded local observation support.
-5. Compare the same-pose baseline/post pair for black/new ink using bounded
-   fixed-camera alignment.
-6. Retain observed line geometry and residual, or a typed rejection. A rejection
-   requests no redraw.
-
-### 4.6 Compare Intended and Observed Geometry
-
-Display intended and observed geometry plus residuals only when the cited tip
-registration remains current. Record one typed operator assessment.
-An attributable line may be future candidate evidence; this action cannot
-promote a model.
-
-Completion remains on 4.6 with recovery operations available. There is no
-selectable Adaptive Drawing stage in the current application.
+Completion remains on 4.1 with review/reset operations available. It proves one
+attributable validation of the current map, not a generally trained adaptive
+drawing model. There is no selectable Adaptive Drawing stage in the current
+application.
 
 ## Dependency and recovery contract
 

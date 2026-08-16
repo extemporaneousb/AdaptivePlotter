@@ -266,33 +266,16 @@ func completeSimulatedSparseTipCalibration(
         presentationTransformRevision: request.presentationTransformRevision
       ))
   }
-  try await performPublicAction(.acceptTipCalibration, owner: tipOwner, workspace: workspace)
 }
 
 @MainActor
 func completeSimulatedStageFour(_ workspace: OperatorWorkspace) async throws {
-  let actions: [(LearningPathItemID, ExerciseActionKind)] = [
-    (.observedDrawingTrial(.chooseIsolatedLinePlan), .chooseIsolatedLinePlan(.positiveX)),
-    (.observedDrawingTrial(.captureLocalPreLineBaseline), .captureLocalPreLineBaseline),
-    (.observedDrawingTrial(.moveToLineStart), .moveToLineStart),
-    (.observedDrawingTrial(.drawIsolatedLine), .drawIsolatedLine),
-    (
-      .observedDrawingTrial(.revealAndObserveNewInk),
-      .revealAndObserveNewInk
-    ),
-  ]
-  for (owner, kind) in actions {
-    try await performPublicAction(kind, owner: owner, workspace: workspace)
-  }
-  let comparison = LearningPathItemID.observedDrawingTrial(
-    .compareIntendedAndObservedGeometry
-  )
-  try await performPublicAction(.start, owner: comparison, workspace: workspace)
   try await performPublicAction(
-    .recordDrawingTrialAssessment(.observedGeometryAccepted),
-    owner: comparison,
+    .start,
+    owner: .observedDrawingTrial(.chooseIsolatedLinePlan),
     workspace: workspace
   )
+  #expect(workspace.drawingTrialAssessment == .predictionObserved)
 }
 
 @MainActor
@@ -1412,6 +1395,42 @@ actor CalibrationStopPacing: SimulatedLearningExecutionPacing {
     let continuation = suspension
     suspension = nil
     suspended = false
+    continuation?.resume()
+  }
+}
+
+actor FirstOperationSuspensionPacing: SimulatedLearningExecutionPacing {
+  private var hasSuspended = false
+  private var isSuspended = false
+  private var suspension: CheckedContinuation<Void, Never>?
+  private var waiters: [CheckedContinuation<Void, Never>] = []
+
+  func suspendBetweenSteps() async {
+    guard !hasSuspended else {
+      await Task.yield()
+      return
+    }
+    hasSuspended = true
+    await withCheckedContinuation { continuation in
+      suspension = continuation
+      isSuspended = true
+      let currentWaiters = waiters
+      waiters.removeAll()
+      for waiter in currentWaiters { waiter.resume() }
+    }
+  }
+
+  func waitUntilSuspended() async {
+    if isSuspended { return }
+    await withCheckedContinuation { continuation in
+      waiters.append(continuation)
+    }
+  }
+
+  func resume() {
+    let continuation = suspension
+    suspension = nil
+    isSuspended = false
     continuation?.resume()
   }
 }

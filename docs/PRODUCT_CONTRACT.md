@@ -21,7 +21,7 @@ In scope:
 - explicit operator-owned alarm inspection and alarm-lock clearing;
 - one camera-first operator workbench;
 - current-session discovery and observed drawing trials;
-- sparse operator-selected contact evidence and explicit model acceptance;
+- sparse operator-selected contact evidence and an atomic software-committed tip map;
 - one attributable observed drawing trial;
 - causal simulator parity without physical authority.
 
@@ -161,8 +161,10 @@ bytes.
 
 The visible stages and exercises are ergonomic navigation. Complete, Current,
 Next, and Needs Attention are presentation states, not an authorization ladder.
-The implemented curriculum ends at **4.6 Compare Intended and Observed
-Geometry**. Adaptive Drawing is roadmap-only and has no selectable current row.
+The implemented curriculum ends at the single visible **4.1 Run Predicted
+Isolated Line Trial** exercise. Its six phases are runtime activity, not six
+operator approvals or selectable Learning Path rows. Adaptive Drawing is
+roadmap-only and has no selectable current row.
 
 The operator may turn Learning off when no Learning attempt owns work. This
 hides Learning navigation and prevents new Learning actions without clearing
@@ -380,7 +382,9 @@ calibration-position order. No distance or ambiguity threshold may reject or
 block that association. **Undo Last Click** or **Clear Clicks on This Frame**
 changes only clicks on the same frame and performs no motion, ink, redraw,
 capture, zoom, or pan. The fifth click atomically creates the five accepted
-observations and stages model construction.
+observations, constructs the model, and commits the resulting tip registration.
+A failed atomic commit exposes a commit retry; normal success has no separate
+model-approval action.
 
 Model construction first fits one direct affine machine-to-tip map from all
 five observations. Constant camera-pixel correction on the accepted cap map is
@@ -389,8 +393,9 @@ model-quality thresholds, residual thresholds, confidence thresholds, or
 numerical failure route. All-five residuals, RMS, covariance, and uncertainty
 are diagnostic evidence only; their magnitude cannot reject either model or
 block progression. Numerical fitting cannot request paper replacement or route
-to **No Automatic Redraw**. Explicit **Accept Tip Calibration** atomically
-creates `TipCameraRegistration` and makes Stage 4 current.
+to **No Automatic Redraw**. The same fifth-click transition atomically creates
+`TipCameraRegistration` and makes Stage 4 current. The next operator-owned
+physical authorization is **Go** for the observed-line trial.
 
 Paper replacement is recorded only when paper was actually replaced or through
 the existing possible-ink recovery. It is never a numerical model outcome.
@@ -461,11 +466,26 @@ drawing owner, return to the same reveal pose, strictly newer post-line frame,
 and generic black/new-ink observation. Its request and result cite the exact tip
 revision.
 
+One **Go** starts all normal Stage 4 phases. The app chooses the first clear
+signed-axis plan deterministically, renders the model-predicted paper-contact
+line in cyan on the live current frame before motion, captures the baseline,
+moves and draws, returns to reveal, runs isolated-ink Vision, and records the
+normal typed comparison without further approval. Motion retains one
+capability-bound **Stop**. A refusal, ambiguity, possible-ink outcome, rejected
+Vision result, or failed atomic commit stops at a truthful recovery state and
+never authorizes redraw.
+
 Intended geometry, observed ink, and residuals are required contextual Stage 4
 evidence and have no global visibility toggles. An attributable observed line
 may be retained as future refinement evidence. It cannot silently change an
 accepted calibration. Possible ink or
 ambiguous motion never triggers automatic redraw or resend.
+
+Stage 3.4 means **map ready** within its recorded applicability and semantic
+identities. One successful Stage 4.1 trial means **one attributable validation
+complete**. Neither state means a generally trained adaptive drawing model;
+that claim requires the repeated coverage, reserved holdouts, candidate/prior
+comparison, shape evaluation, and typed readiness work defined in the Roadmap.
 
 ## Attempts, dependencies, reset, and simulation
 

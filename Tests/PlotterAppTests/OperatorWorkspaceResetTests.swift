@@ -138,8 +138,8 @@ extension OperatorWorkspaceTests {
     await workspace.shutdown()
   }
 
-  @Test("Reset comparison only preserves the observed line and performs no redraw")
-  func resetComparisonOnlyPreservesObservedLine() async throws {
+  @Test("Reset the one-Go observed trial atomically and perform no redraw")
+  func resetObservedTrialAtomically() async throws {
     let harness = makeSimulatedHarness()
     let workspace = harness.workspace
     try await completeSimulatedBoundariesAndCenter(
@@ -159,69 +159,21 @@ extension OperatorWorkspaceTests {
       Issue.record("Expected the current line-plan revision to carry its attempt group.")
       return
     }
-    let linePlanID = linePlan.id
-    let inkID = try #require(
-      workspace.learningArtifactGraph.currentRevision(for: .inkObservation(group))?.id
-    )
     let inkBefore = await harness.runtime.persistentInk()
-    let anchor = LearningPathItemID.observedDrawingTrial(
-      .compareIntendedAndObservedGeometry
-    )
+    let anchor = LearningPathItemID.observedDrawingTrial(.chooseIsolatedLinePlan)
     let plan = try #require(workspace.learningVacatePlan(from: anchor))
     #expect(plan.affectedItems == [anchor])
-    #expect(plan.expectedCurrentRevisionIDs.count == 1)
+    #expect(plan.expectedCurrentRevisionIDs.count == 7)
     #expect(workspace.performLearningVacate(plan))
 
     #expect(workspace.drawingTrialAssessment == nil)
+    #expect(workspace.drawingTrialLineStart == nil)
+    #expect(workspace.localPreLineBaseline == nil)
     #expect(workspace.learningArtifactGraph.currentRevision(for: .comparison(group)) == nil)
-    #expect(
-      workspace.learningArtifactGraph.currentRevision(for: .linePlan(group))?.id == linePlanID
-    )
-    #expect(
-      workspace.learningArtifactGraph.currentRevision(for: .inkObservation(group))?.id == inkID
-    )
+    #expect(workspace.learningArtifactGraph.currentRevision(for: .linePlan(group)) == nil)
+    #expect(workspace.learningArtifactGraph.currentRevision(for: .inkObservation(group)) == nil)
     #expect(workspace.currentLearningPathItemID == anchor)
     #expect(await harness.runtime.persistentInk() == inkBefore)
-    await workspace.shutdown()
-  }
-
-  @Test("Reset a completed transition row even when it owns no artifact revision")
-  func resetCompletedTransitionWithoutArtifact() async throws {
-    let harness = makeSimulatedHarness()
-    let workspace = harness.workspace
-    try await completeSimulatedBoundariesAndCenter(
-      workspace,
-      runtime: harness.runtime,
-      boundaryOrder: [.positiveX, .negativeX, .positiveY, .negativeY]
-    )
-    try await completeSimulatedSparseTipCalibration(workspace, runtime: harness.runtime)
-    try await performPublicAction(
-      .chooseIsolatedLinePlan(.positiveX),
-      owner: .observedDrawingTrial(.chooseIsolatedLinePlan),
-      workspace: workspace
-    )
-    try await performPublicAction(
-      .captureLocalPreLineBaseline,
-      owner: .observedDrawingTrial(.captureLocalPreLineBaseline),
-      workspace: workspace
-    )
-    try await performPublicAction(
-      .moveToLineStart,
-      owner: .observedDrawingTrial(.moveToLineStart),
-      workspace: workspace
-    )
-    #expect(workspace.lastProtocolPoseSettlement != nil)
-
-    let anchor = LearningPathItemID.observedDrawingTrial(.moveToLineStart)
-    let plan = try #require(workspace.learningVacatePlan(from: anchor))
-    #expect(plan.expectedCurrentRevisionIDs.isEmpty)
-    #expect(plan.affectedItems.first == anchor)
-    #expect(plan.affectedItems.last == .observedDrawingTrial(.drawIsolatedLine))
-    #expect(workspace.performLearningVacate(plan))
-
-    #expect(workspace.currentLearningPathItemID == anchor)
-    #expect(workspace.lastProtocolPoseSettlement == nil)
-    #expect(workspace.localPreLineBaseline != nil)
     await workspace.shutdown()
   }
 }

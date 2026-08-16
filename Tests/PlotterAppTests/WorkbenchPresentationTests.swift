@@ -59,8 +59,8 @@ struct WorkbenchPresentationTests {
       ownerID: .humanGuidedDiscovery(.calibratePenContactFromSparseMarks),
       actions: [
         ExerciseActionDescriptor(
-          kind: .acceptTipCalibration,
-          title: "Accept Tip Registration"
+          kind: .retryTipCalibrationCommit,
+          title: "Retry Calibration Commit"
         ),
         ExerciseActionDescriptor(
           kind: .cancel,

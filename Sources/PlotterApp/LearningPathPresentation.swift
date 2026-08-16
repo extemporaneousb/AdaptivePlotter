@@ -62,11 +62,13 @@ enum ObservedDrawingTrialStep: Int, CaseIterable, Hashable, Identifiable, Sendab
   case compareIntendedAndObservedGeometry
 
   var id: Self { self }
-  var stepNumber: String { "4.\(rawValue)" }
+  /// All cases are internal runtime phases of the single visible 4.1 exercise.
+  /// Later 4.x numbers are reserved for actual future curriculum items.
+  var stepNumber: String { "4.1" }
 
   var title: String {
     switch self {
-    case .chooseIsolatedLinePlan: "Choose Isolated Line Plan"
+    case .chooseIsolatedLinePlan: "Plan Predicted Isolated Line"
     case .captureLocalPreLineBaseline: "Capture Local Pre-Line Baseline"
     case .moveToLineStart: "Move to Line Start"
     case .drawIsolatedLine: "Draw Isolated Line"
@@ -98,11 +100,6 @@ enum LearningPathItemID: Hashable, Identifiable, Sendable {
     .humanGuidedDiscovery(.calibratePenContactFromSparseMarks),
     .stage(.observedDrawingTrials),
     .observedDrawingTrial(.chooseIsolatedLinePlan),
-    .observedDrawingTrial(.captureLocalPreLineBaseline),
-    .observedDrawingTrial(.moveToLineStart),
-    .observedDrawingTrial(.drawIsolatedLine),
-    .observedDrawingTrial(.revealAndObserveNewInk),
-    .observedDrawingTrial(.compareIntendedAndObservedGeometry),
   ]
 
   static let learningExerciseOrder: [Self] = [
@@ -111,11 +108,6 @@ enum LearningPathItemID: Hashable, Identifiable, Sendable {
     .humanGuidedDiscovery(.calibrateCameraAndVisibleCap),
     .humanGuidedDiscovery(.calibratePenContactFromSparseMarks),
     .observedDrawingTrial(.chooseIsolatedLinePlan),
-    .observedDrawingTrial(.captureLocalPreLineBaseline),
-    .observedDrawingTrial(.moveToLineStart),
-    .observedDrawingTrial(.drawIsolatedLine),
-    .observedDrawingTrial(.revealAndObserveNewInk),
-    .observedDrawingTrial(.compareIntendedAndObservedGeometry),
   ]
 
   var stage: LearningPathStage {
@@ -138,6 +130,8 @@ enum LearningPathItemID: Hashable, Identifiable, Sendable {
     switch self {
     case .stage(let stage): stage.title
     case .humanGuidedDiscovery(let step): step.title
+    case .observedDrawingTrial(.chooseIsolatedLinePlan):
+      "Run Predicted Isolated Line Trial"
     case .observedDrawingTrial(let step): step.title
     }
   }
@@ -431,14 +425,8 @@ enum ExerciseActionKind: Hashable, Sendable {
   case undoLastSparseTipClick
   case clearSparseTipClicks
   case revalidateTipCalibrationCheckpoint
-  case acceptTipCalibration
+  case retryTipCalibrationCommit
   case paperReplaced
-  case chooseIsolatedLinePlan(BoundaryDirection)
-  case captureLocalPreLineBaseline
-  case moveToLineStart
-  case drawIsolatedLine
-  case revealAndObserveNewInk
-  case recordDrawingTrialAssessment(DrawingTrialAssessment)
 }
 
 enum SubsystemAuthorityRole: String, Hashable, Sendable {
@@ -497,7 +485,6 @@ struct ExerciseActionDescriptor: Identifiable, Hashable, Sendable {
 
 enum ExerciseDirectionSelectionPurpose: String, Hashable, Sendable {
   case boundary = "Boundary direction"
-  case linePlan = "Line direction"
 
   var label: String { rawValue }
 }

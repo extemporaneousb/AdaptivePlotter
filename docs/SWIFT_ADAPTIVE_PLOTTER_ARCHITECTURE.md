@@ -253,8 +253,10 @@ change; explicit operator-facing revision controls remain a roadmap item.
 Stage 4 does not reuse a Stage 3 target, baseline, or reveal pose.
 `ObservedDrawingTrialLinePlan` creates a 5 mm local line inside the tip
 applicability rectangle only when it clears every retained circular-mark
-geometry; a crowded domain blocks instead of weakening new-ink attribution. It
-stores:
+geometry; a crowded domain blocks instead of weakening new-ink attribution.
+The visible 4.1 row owns one attempt from **Go** through normal comparison; its
+six typed phases update activity and subsystem presentation but do not create
+six UI action owners. It stores:
 
 - the exact tip registration revision;
 - a trial-local pre-line exact frame and reveal MPos;
@@ -263,9 +265,24 @@ stores:
 - a strictly newer post-line exact frame;
 - bounded generic black/new-ink observation, residual, and assessment.
 
+Before motion, `OperatorWorkspace` projects the stored machine start/end through
+the exact current `TipCameraRegistration`. `ActionSurfacePresentation` binds the
+planned polyline to each currently displayed frame/configuration, so the cyan
+prediction remains visible over live video without freezing preview or treating
+planned geometry as measured pixels. The post-line observer replaces that
+preview with exact-frame intended, measured-ink, and residual overlays.
+
+`exclusiveWorkflowVisionRequestCount` is projected separately from background
+scene-analysis state. While isolated-ink comparison is in flight, Learning
+reports **Trial ink analysis · active** and names Vision as the processing owner.
+Normal observed-ink success commits the typed comparison in the same exercise
+attempt. Only a failure, ambiguity, possible-ink recovery, rejected observation,
+or atomic-commit error ends the automatic chain early.
+
 The intended line, observed ink, and residual are contextual Stage 4 results,
-not global overlay preferences. The implemented curriculum ends at this
-assessment. No Stage 4 result automatically changes accepted calibration.
+not global overlay preferences. The implemented curriculum ends at this one
+attributable validation. No Stage 4 result automatically changes accepted
+calibration or establishes a generally trained adaptive model.
 
 ## Simulator boundary
 
