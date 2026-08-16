@@ -10,8 +10,8 @@ extension OperatorWorkspaceTests {
   func centerArrivalAcceptsQuantizedSettlement() async throws {
     let target = try MachinePosition(x: -51.975, y: -73.684)
     let reproduced = try MachinePosition(x: -51.963, y: -73.673)
-    #expect(ControllerPositionAcceptancePolicy.toleranceMM == 0.05)
-    #expect(ControllerPositionAcceptancePolicy.accepts(reproduced, target: target))
+    #expect(MachinePositionAcceptancePolicy.toleranceMM == 0.05)
+    #expect(MachinePositionAcceptancePolicy.accepts(reproduced, target: target))
 
     let log = EventLog()
     let machine = try MachineFixture(
@@ -47,7 +47,7 @@ extension OperatorWorkspaceTests {
   func centerArrivalRejectsOutsideToleranceWithoutBoundaryRestart() async throws {
     let target = try MachinePosition(x: 0, y: 0)
     let outside = try MachinePosition(x: 0.04, y: 0.04)
-    #expect(!ControllerPositionAcceptancePolicy.accepts(outside, target: target))
+    #expect(!MachinePositionAcceptancePolicy.accepts(outside, target: target))
 
     let log = EventLog()
     let machine = try MachineFixture(

@@ -341,16 +341,16 @@ public struct AcceptedMachineArtifactCheckpoint: Codable, Hashable, Sendable {
     guard contextComparison.isCompatible else {
       return .incompatible(contextComparison.actionableDescription)
     }
-    let residual = ControllerPositionAcceptancePolicy.residualMM(
+    let residual = MachinePositionAcceptancePolicy.residualMM(
       currentPosition,
       from: machinePositionAtSave
     )
-    guard ControllerPositionAcceptancePolicy.accepts(residualMM: residual) else {
+    guard MachinePositionAcceptancePolicy.accepts(residualMM: residual) else {
       return .incompatible(
         String(
           format: "Controller MPos differs by %.3f mm; checkpoint tolerance is %.3f mm.",
           residual,
-          ControllerPositionAcceptancePolicy.toleranceMM
+          MachinePositionAcceptancePolicy.toleranceMM
         )
       )
     }

@@ -2816,9 +2816,9 @@ final class OperatorWorkspace {
           action: .moveToEstimatedCenter,
           target: destination,
           actual: final,
-          toleranceMM: ControllerPositionAcceptancePolicy.toleranceMM
+          toleranceMM: MachinePositionAcceptancePolicy.toleranceMM
         )
-        guard ControllerPositionAcceptancePolicy.accepts(final, target: destination) else {
+        guard MachinePositionAcceptancePolicy.accepts(final, target: destination) else {
           let residual = lastProtocolPoseSettlement?.residualMM ?? .infinity
           throw LearningPathOperationError.controllerFailed(
             String(
@@ -2827,7 +2827,7 @@ final class OperatorWorkspace {
                 + "The four accepted boundaries remain current; Retry Center Arrival "
                 + "recomputes only the remaining delta.",
               residual,
-              ControllerPositionAcceptancePolicy.toleranceMM
+              MachinePositionAcceptancePolicy.toleranceMM
             )
           )
         }
@@ -8959,14 +8959,14 @@ final class OperatorWorkspace {
     _ actual: MachinePosition,
     _ target: MachinePosition
   ) -> Bool {
-    ControllerPositionAcceptancePolicy.accepts(actual, target: target)
+    MachinePositionAcceptancePolicy.accepts(actual, target: target)
   }
 
   static func supervisedTravelDelta(
     from current: MachinePosition,
     to target: MachinePosition
   ) throws -> Vector2<MachineSpace>? {
-    guard !ControllerPositionAcceptancePolicy.accepts(current, target: target) else {
+    guard !MachinePositionAcceptancePolicy.accepts(current, target: target) else {
       return nil
     }
     return try Vector2(
@@ -8979,7 +8979,7 @@ final class OperatorWorkspace {
     action: LearningMotionAction,
     target: MachinePosition,
     actual: MachinePosition,
-    toleranceMM: Double = ControllerPositionAcceptancePolicy.toleranceMM
+    toleranceMM: Double = MachinePositionAcceptancePolicy.toleranceMM
   ) -> Bool {
     let residual = actual.point.distance(to: target.point)
     lastProtocolPoseSettlement = ProtocolPoseSettlement(
@@ -9348,7 +9348,7 @@ final class OperatorWorkspace {
         controllerSessionID: controllerSessionID,
         coordinateRevision: explorationCoordinateRevision,
         toolPaperRevision: explorationToolPaperRevision,
-        controllerPositionToleranceMM: ControllerPositionAcceptancePolicy.toleranceMM,
+        controllerPositionToleranceMM: MachinePositionAcceptancePolicy.toleranceMM,
         alignmentSearchRadiusPixels:
           FixedCameraOpticalSettlingPolicy.alignmentSearchRadiusPixels,
         maximumAlignmentShiftPixels:

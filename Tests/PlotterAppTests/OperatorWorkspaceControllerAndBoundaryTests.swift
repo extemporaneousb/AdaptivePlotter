@@ -405,7 +405,7 @@ extension OperatorWorkspaceTests {
     #expect(FixedCameraOpticalSettlingPolicy.maximumAlignmentShiftPixels == 2)
     #expect(FixedCameraOpticalSettlingPolicy.requiredCentroidFrameCount == 3)
     #expect(FixedCameraOpticalSettlingPolicy.maximumCentroidSpreadPixels == 2)
-    #expect(ControllerPositionAcceptancePolicy.toleranceMM == 0.05)
+    #expect(MachinePositionAcceptancePolicy.toleranceMM == 0.05)
   }
 
   @Test("cap settlement accepts bounded wobble and retains the newest exact frame")

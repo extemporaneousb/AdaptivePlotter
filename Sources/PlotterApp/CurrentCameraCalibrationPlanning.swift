@@ -43,7 +43,7 @@ extension CurrentCameraCalibrationPlanningError: LocalizedError {
 
 /// One visible Stage 3.4 mark and its armature-clearing reveal pose. The circle
 /// is a 16-chord approximation whose maximum radial deviation is below the
-/// shared 0.05 mm controller-position acceptance policy. The reveal is biased
+/// shared 0.05 mm machine-position acceptance policy. The reveal is biased
 /// to safe X-max and machine Y=0 without crossing the learned Boundary inset.
 struct SparseTipCircularMarkPlan: Hashable, Sendable {
   static let radiusMM = 2.0
@@ -100,10 +100,11 @@ struct SparseTipCircularMarkPlan: Hashable, Sendable {
     let safeMaxY = boundarySideAggregates[.positiveY]!.estimateMM
       - CurrentCameraCalibrationPlan.safetyMarginMM
     let point = center.point
-    guard point.x - Self.radiusMM >= safeMinX,
-      point.x + Self.radiusMM <= safeMaxX,
-      point.y - Self.radiusMM >= safeMinY,
-      point.y + Self.radiusMM <= safeMaxY
+    let toleranceMM = MachinePositionAcceptancePolicy.toleranceMM
+    guard point.x - Self.radiusMM >= safeMinX - toleranceMM,
+      point.x + Self.radiusMM <= safeMaxX + toleranceMM,
+      point.y - Self.radiusMM >= safeMinY - toleranceMM,
+      point.y + Self.radiusMM <= safeMaxY + toleranceMM
     else { throw CurrentCameraCalibrationPlanningError.circularMarkOutsideSafeEnvelope }
 
     var positions = try (0..<Self.chordCount).map { index in
@@ -254,8 +255,7 @@ struct ObservedDrawingTrialLinePlan: Hashable, Sendable {
     _ point: Point2<MachineSpace>,
     in bounds: AxisAlignedBounds<MachineSpace>
   ) -> Bool {
-    point.x >= bounds.minX && point.x <= bounds.maxX
-      && point.y >= bounds.minY && point.y <= bounds.maxY
+    MachinePositionAcceptancePolicy.contains(point, in: bounds)
   }
 
   private static func distance(

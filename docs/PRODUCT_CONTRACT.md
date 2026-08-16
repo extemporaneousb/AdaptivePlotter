@@ -363,6 +363,13 @@ commanded circular mark and asserted circle center. It retains:
 - disposition and all consumed artifact/algorithm revisions;
 - content-addressed locators only when exact bytes were actually archived.
 
+Every Stage 3.4 comparison of continuous machine-space values uses the shared
+named nonzero position tolerance, including intended targets, commanded mark
+centers, controller-settled positions, applicability bounds, and tip-projection
+queries. Exact equality remains for discrete identity and immutable provenance;
+it is never an admission gate for a continuous physical or computed numeric
+value.
+
 The click is an assertion, not a seed for an automatic detector. Click order
 does not identify a calibration position. After click five, the app projects
 the five known machine positions through current `MachineCameraRegistration`,

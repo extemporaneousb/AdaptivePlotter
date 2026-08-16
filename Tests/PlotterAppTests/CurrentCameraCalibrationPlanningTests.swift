@@ -144,15 +144,20 @@ struct CurrentCameraCalibrationPlanningTests {
 
   @Test("sparse circle refuses any mark that would cross the safe Boundary inset")
   func circularMarkRequiresSafeClearance() throws {
+    let envelope = try boundaryEnvelope(
+      negativeX: -100,
+      positiveX: 100,
+      negativeY: -80,
+      positiveY: 80
+    )
+    _ = try SparseTipCircularMarkPlan(
+      center: MachinePosition(x: 88.013, y: 0),
+      boundarySideAggregates: envelope
+    )
     #expect(throws: CurrentCameraCalibrationPlanningError.circularMarkOutsideSafeEnvelope) {
       try SparseTipCircularMarkPlan(
-        center: MachinePosition(x: 89, y: 0),
-        boundarySideAggregates: boundaryEnvelope(
-          negativeX: -100,
-          positiveX: 100,
-          negativeY: -80,
-          positiveY: 80
-        )
+        center: MachinePosition(x: 88.051, y: 0),
+        boundarySideAggregates: envelope
       )
     }
   }

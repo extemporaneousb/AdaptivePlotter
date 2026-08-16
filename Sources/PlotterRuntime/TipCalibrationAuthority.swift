@@ -348,7 +348,7 @@ public struct ToolContactMarkGeometryEvidence: Codable, Hashable, Sendable {
     }
     let maximumChordDeviationMM = radiusMM * (1 - cos(.pi / Double(chordCount)))
     guard maximumChordDeviationMM.isFinite,
-      maximumChordDeviationMM <= ControllerPositionAcceptancePolicy.toleranceMM
+      maximumChordDeviationMM <= MachinePositionAcceptancePolicy.toleranceMM
     else { throw TipCalibrationAuthorityError.invalidObservationSet }
     self.kind = kind
     self.center = center
@@ -382,12 +382,12 @@ public struct ToolContactRevealEvidence: Codable, Hashable, Sendable {
     capMapPrediction: Point2<CameraPixelSpace>,
     maximumCapMapResidualPixels: Double
   ) throws {
-    let positionResidual = ControllerPositionAcceptancePolicy.residualMM(
+    let positionResidual = MachinePositionAcceptancePolicy.residualMM(
       actualSettledPosition,
       from: intendedPosition
     )
     let capResidual = capMapPrediction.distance(to: capEstimate.point)
-    guard ControllerPositionAcceptancePolicy.accepts(residualMM: positionResidual),
+    guard MachinePositionAcceptancePolicy.accepts(residualMM: positionResidual),
       maximumCapMapResidualPixels.isFinite, maximumCapMapResidualPixels >= 0,
       capResidual <= maximumCapMapResidualPixels,
       settledAt.monotonicNanoseconds <= frame.captureNanoseconds,
@@ -497,13 +497,16 @@ public struct ToolContactObservation: Codable, Hashable, Sendable {
     algorithmRevisions: Set<AlgorithmRevisionEvidence>
   ) throws {
     guard disposition.reasonIsValid else { throw TipCalibrationAuthorityError.invalidDisposition }
-    let markPositionResidual = ControllerPositionAcceptancePolicy.residualMM(
+    let markPositionResidual = MachinePositionAcceptancePolicy.residualMM(
       actualSettledPosition,
       from: intendedMarkPosition
     )
     let capResidual = capMapPredictionAtMark.distance(to: preMarkCapEstimate.point)
-    guard ControllerPositionAcceptancePolicy.accepts(residualMM: markPositionResidual),
-      markGeometry.center == intendedMarkPosition,
+    guard MachinePositionAcceptancePolicy.accepts(residualMM: markPositionResidual),
+      MachinePositionAcceptancePolicy.accepts(
+        markGeometry.center,
+        target: intendedMarkPosition
+      ),
       maximumCapMapResidualPixels.isFinite, maximumCapMapResidualPixels >= 0,
       capResidual <= maximumCapMapResidualPixels,
       preMarkFrame.source == revealEvidence.frame.source,
@@ -982,9 +985,24 @@ public struct TipCameraRegistration: Codable, Hashable, Sendable {
         observation.consumedLearningArtifactRevisionIDs.contains(
           machineCameraRegistrationRevisionID
         ),
-        applicabilityRectangle.contains(observation.intendedMarkPosition.point),
-        ControllerPositionAcceptancePolicy.accepts(
-          residualMM: ControllerPositionAcceptancePolicy.residualMM(
+        MachinePositionAcceptancePolicy.contains(
+          observation.intendedMarkPosition,
+          in: applicabilityRectangle
+        ),
+        MachinePositionAcceptancePolicy.contains(
+          observation.actualSettledPosition,
+          in: applicabilityRectangle
+        ),
+        MachinePositionAcceptancePolicy.contains(
+          observation.markGeometry.center,
+          in: applicabilityRectangle
+        ),
+        MachinePositionAcceptancePolicy.accepts(
+          observation.markGeometry.center,
+          target: observation.intendedMarkPosition
+        ),
+        MachinePositionAcceptancePolicy.accepts(
+          residualMM: MachinePositionAcceptancePolicy.residualMM(
             observation.actualSettledPosition,
             from: observation.intendedMarkPosition
           )
@@ -1106,7 +1124,8 @@ public struct TipCameraRegistration: Codable, Hashable, Sendable {
   }
 
   public func tipPixel(at machinePoint: Point2<MachineSpace>) throws -> Point2<CameraPixelSpace> {
-    guard applicabilityRectangle.contains(machinePoint) else { throw GeometryError.outsideDomain }
+    guard MachinePositionAcceptancePolicy.contains(machinePoint, in: applicabilityRectangle)
+    else { throw GeometryError.outsideDomain }
     return try cameraFromMachine.applying(to: machinePoint)
   }
 
