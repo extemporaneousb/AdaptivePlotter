@@ -754,8 +754,8 @@ public struct BoundaryMotionOwnerID: Codable, Hashable, Sendable {
   }
 }
 
-/// Hard limits for finite controller-owned renewal segments. The current fixed
-/// fallback is 20 mm; these bounds do not create a Camera or Vision adviser.
+/// Hard limits for finite controller-owned renewal segments. These bounds do
+/// not create a Camera or Vision adviser.
 public struct BoundaryMotionSegmentBounds: Hashable, Sendable {
   public let minimumMM: Double
   public let fallbackMM: Double

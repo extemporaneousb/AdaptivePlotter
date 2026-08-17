@@ -839,7 +839,8 @@ final class OperatorWorkspace {
     static let feedMMPerMinute = "500"
     /// Finite GRBL wire segment used only for renewal under one logical owner.
     /// Reaching this distance is never a Boundary Discovery result.
-    static let boundaryWireSegmentMM = 20.0
+    static let boundaryWireSegmentMM = 50.0
+    static let boundaryFeedMMPerMinute = 500.0
   }
 
   struct MachineActions: Sendable {
@@ -2450,7 +2451,7 @@ final class OperatorWorkspace {
     } else { nil }
     let boundaryTravelFeeds = Dictionary(
       uniqueKeysWithValues: BoundaryDirection.allCases.map {
-        ($0, travelFeedSelection(for: boundaryFeedVector($0)))
+        ($0, boundaryTravelFeedSelection())
       }
     )
     let stopOwner: LearningPathProjectionSnapshot.StopOwner? = {
@@ -7221,7 +7222,7 @@ final class OperatorWorkspace {
 
     let discoveryDirection = boundaryDirection(from: direction)
     machineSnapshot = await machineActions.snapshot()
-    // The controller owner renews only the same finite 20 mm segment. Camera and
+    // The controller owner renews only the same finite 50 mm segment. Camera and
     // Vision do not advise Boundary direction, distance, Stop, or acceptance.
     let admittedOperation: BoundaryMotionOperation
     switch await machineActions.beginBoundaryMotion(request, nil) {
@@ -7558,7 +7559,7 @@ final class OperatorWorkspace {
       case .yNegative: delta = try Vector2(dx: 0, dy: -MotionPriors.boundaryWireSegmentMM)
       case .yPositive: delta = try Vector2(dx: 0, dy: MotionPriors.boundaryWireSegmentMM)
       }
-      let selection = travelFeedSelection(for: delta)
+      let selection = boundaryTravelFeedSelection()
       lastTravelFeedSelection = selection
       return BoundaryMotionRequest(
         direction: boundaryDirection(from: direction),
@@ -7566,11 +7567,7 @@ final class OperatorWorkspace {
           delta: delta,
           feedMMPerMinute: selection.requestedFeedMMPerMinute
         ),
-        renewalBounds: BoundaryMotionSegmentBounds(
-          minimumMM: 2,
-          fallbackMM: MotionPriors.boundaryWireSegmentMM,
-          maximumMM: 50
-        )
+        renewalBounds: .fixed(MotionPriors.boundaryWireSegmentMM)
       )
     } catch {
       boundaryTeachingResultText = "Boundary motion request is invalid; no motion was sent."
@@ -8752,6 +8749,13 @@ final class OperatorWorkspace {
     return feed
   }
 
+  private func boundaryTravelFeedSelection() -> TravelFeedSelection {
+    TravelFeedSelection(
+      requestedFeedMMPerMinute: MotionPriors.boundaryFeedMMPerMinute,
+      source: .existingFallback
+    )
+  }
+
   private func travelFeedSelection(
     for delta: Vector2<MachineSpace>
   ) -> TravelFeedSelection {
@@ -8787,16 +8791,6 @@ final class OperatorWorkspace {
     case .penInteraction: nil
     }
   }
-
-  private func boundaryFeedVector(_ direction: BoundaryDirection) -> Vector2<MachineSpace> {
-    switch direction {
-    case .negativeX: try! Vector2(dx: -1, dy: 0)
-    case .positiveX: try! Vector2(dx: 1, dy: 0)
-    case .negativeY: try! Vector2(dx: 0, dy: -1)
-    case .positiveY: try! Vector2(dx: 0, dy: 1)
-    }
-  }
-
 
   private func drawingTrialActionUnavailableReason(
     for step: ObservedDrawingTrialStep

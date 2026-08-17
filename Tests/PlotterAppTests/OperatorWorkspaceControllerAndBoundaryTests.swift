@@ -638,7 +638,9 @@ extension OperatorWorkspaceTests {
 
     #expect(await machine.cancelCount == 1)
     #expect(await machine.cancelIntents == [.operatorStop])
-    #expect(await machine.requestedFeeds.last == 900)
+    #expect(await machine.requestedFeeds.last == 500)
+    #expect(await machine.requestedBoundaryRequests.last?.segment.delta.magnitude == 50)
+    #expect(await machine.requestedBoundaryRequests.last?.renewalBounds == .fixed(50))
     #expect(workspace.discoveryTransactions[.boundaryPositiveX]?.state == .succeeded)
     #expect(workspace.relevantBoundaryObservationCount == 1)
     #expect(workspace.boundarySideAggregates[.positiveX]?.validSampleCount == 1)
@@ -686,6 +688,13 @@ extension OperatorWorkspaceTests {
 
     #expect(workspace.pairedBoundaryProgress.isComplete)
     #expect(workspace.boundarySideAggregates.count == 4)
+    #expect(
+      await machine.requestedBoundaryRequests.map(\.segment.delta.magnitude) == [50, 50, 50, 50]
+    )
+    #expect(
+      await machine.requestedBoundaryRequests.map(\.segment.feedMMPerMinute)
+        == [500, 500, 500, 500]
+    )
     await workspace.shutdown()
   }
 

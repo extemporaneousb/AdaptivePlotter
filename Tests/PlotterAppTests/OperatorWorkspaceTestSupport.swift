@@ -728,6 +728,7 @@ actor MachineFixture {
   private(set) var cancelIntents: [JogCancelIntent] = []
   private(set) var requestedFeeds: [Double] = []
   private(set) var requestedDrawingStrokes: [DrawingStrokeRequest] = []
+  private(set) var requestedBoundaryRequests: [BoundaryMotionRequest] = []
   private(set) var requestedPenCommands: [PenCommand] = []
   private(set) var requestedPenProfiles: [PenActuationProfile] = []
   private var moving = false
@@ -874,6 +875,7 @@ actor MachineFixture {
 
   func requestBoundaryMotion(_ request: BoundaryMotionRequest) async -> BoundaryMotionOutcome {
     requestedFeeds.append(request.segment.feedMMPerMinute)
+    requestedBoundaryRequests.append(request)
     activeBoundaryRequest = request
     moving = true
     await log.append("machine:boundary")

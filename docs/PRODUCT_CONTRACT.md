@@ -276,10 +276,10 @@ the only movement-ending exercise action. Cancel becomes available only after
 movement settles.
 
 Boundary side identity is the operator's typed X−, X+, Y−, or Y+ direction plus
-settled controller evidence. Boundary uses controller-owned fixed bounded 20 mm
-renewal segments with no Camera or Vision adviser. Operator Stop, fresh Idle,
-and final MPos remain the acceptance authority; camera availability cannot alter
-direction, renewal, Stop, or side acceptance.
+settled controller evidence. Boundary uses controller-owned fixed 50 mm renewal
+segments at 500 mm/min with no Camera or Vision adviser. Operator Stop, fresh
+Idle, and final MPos remain the acceptance authority; camera availability cannot
+alter direction, renewal, Stop, or side acceptance.
 
 Any ambiguous circle-chord motion, Pen Down, or Pen Up outcome after possible
 contact creates possible ink. The circle center/radius plus paper-plane identity

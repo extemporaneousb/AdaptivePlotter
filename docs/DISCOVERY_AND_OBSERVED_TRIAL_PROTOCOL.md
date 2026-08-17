@@ -106,9 +106,9 @@ by the dependency chain and does not hide Pen Interaction or the next **Start**.
 
 1. The operator selects any first X or Y direction. Selection is inert.
 2. **Start** admits one operator-stopped Boundary owner.
-3. The controller uses finite 20 mm segments under one logical owner. After each
-   unambiguous Idle/MPos it may renew another bounded segment while retaining
-   direction and controller-derived feed.
+3. The controller uses finite 50 mm segments at 500 mm/min under one logical
+   owner. After each unambiguous Idle/MPos it may renew another fixed segment
+   while retaining direction and feed.
 4. **Stop Boundary** remains bound to the original owner.
 5. Operator Stop closes renewal and emits one Jog Cancel.
 6. The original owner settles through fresh Idle and final MPos.
