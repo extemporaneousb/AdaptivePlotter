@@ -169,6 +169,7 @@ struct OverlayChannelResult: Hashable, Sendable {
 
 enum WorkflowOverlayOwner: Int, CaseIterable, Hashable, Sendable {
   case cameraCalibration
+  case drawingStudio
   case observedDrawingTrial
   case sparseTipCalibration
 }
@@ -350,7 +351,8 @@ struct OverlayPresentationComposer {
             state: .stale, message: OverlayStatusGrammar.stale, provenance: simulation.provenance)
           continue
         }
-        statuses[overlay] = simulation.statuses[overlay]
+        statuses[overlay] =
+          simulation.statuses[overlay]
           ?? OverlayLayerStatus(
             state: .failed,
             message:
@@ -382,7 +384,8 @@ struct OverlayPresentationComposer {
               $0.provenance.kind == overlay.overlayKind
             }
           )
-          statuses[overlay] = exactCompletedScene.statuses[overlay]
+          statuses[overlay] =
+            exactCompletedScene.statuses[overlay]
             ?? OverlayLayerStatus(
               state: .failed,
               message:

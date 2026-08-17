@@ -148,9 +148,15 @@ restoration.
   **Revalidate Saved Tip Calibration**. Confirm a fresh settled controller/cap
   frame is captured, no contact mark occurs, and a new accepted tip revision is
   derived from the quarantined checkpoint.
-- Explicit paper replacement: record the replacement, rebuild current machine-
-  camera authority if required, then run a complete new five-circle Stage 3.4
-  batch on the replacement paper. Its fifth valid click commits the new map.
+- New sheet on the same unchanged support/stock/contact plane: choose **New
+  Sheet — Same Contact Plane**. Confirm the paper instance changes, tip authority
+  remains current, prior sheet coverage is cleared, and a new coverage assertion
+  is required before drawing. Do not use this branch after changing stock
+  thickness, support, fixture, or contact height.
+- Changed support, stock thickness, contact height, or contact plane: choose
+  **Contact Plane Changed**. Confirm tip authority is invalidated, rebuild
+  current machine-camera authority if required, then run a complete new
+  five-circle Stage 3.4 batch. Its fifth valid click commits the new map.
 
 If any semantic identity is uncertain, do not revalidate. Clear the durable tip
 checkpoint and perform a new five-mark calibration.
@@ -177,13 +183,49 @@ checkpoint and perform a new five-mark calibration.
    observed white, and orange residual geometry on the exact post-line frame.
    It may retain candidate refinement evidence; it must not silently change the
    accepted model.
-8. Confirm the result says **One attributable validation complete** and does
-   not claim **Trained**. Coverage trials, reserved holdouts, candidate/prior
-   comparison, shape holdouts, and typed readiness remain unimplemented.
+8. Confirm the exact post-line frame and cyan intended, white observed, and
+   orange residual overlays remain available through **Review Comparison**
+   after live preview resumes.
+9. Confirm the result says **Interactive learning complete · one validation**
+   and does not claim **Trained** or **Adaptive drawing ready**.
 
 If possible ink, rejected Vision evidence, or an uncertain controller outcome
 occurs, confirm the automatic chain stops. Any offered recovery may return Pen
 Up and observe the existing stroke, but it must not redraw it.
+
+## 6. Drawing Studio — first physical plan
+
+1. Open **Drawing Studio** and confirm the calibrated drawable outline and
+   predicted current tip point are correctly overlaid on live video.
+2. Replace the disposable sheet if necessary using **New Sheet — Same Contact
+   Plane**. Place it fully over the outline and press **Confirm Paper Coverage**.
+   Confirm the top paper status becomes current without changing the accepted
+   tip map.
+3. Select a square first. Place it near the drawable-region center, resize and
+   rotate it, and confirm the projected target follows the video click while
+   remaining entirely inside the outline. Move it partly outside and verify Run
+   is refused before moving the plotter.
+4. Return it inside, use **Ordinary drawing**, and record the displayed program
+   and execution-plan hashes. Confirm Pen Up, Idle, Motion, paper, and controller
+   eligibility are current before pressing **Run Drawing**.
+5. Observe one owner perform Pen-Up travel, Pen Down, all square segments, Pen
+   Up, and logical-stroke checkpoint completion. Confirm **Stop** remains bound
+   to that exact plan and no competing Run replaces it.
+6. On completion, confirm the carriage is at the same observation pose used for
+   the local baseline, a newer exact post frame is captured, and intended,
+   observed, and residual overlays are retained for review.
+7. Inspect the immutable run record: ordinary role, program/placement/plan and
+   calibration/paper provenance, request/execution frontiers, controller
+   disposition, and observation outcome. Restart the app and confirm the
+   attributable Stage 4 validation is restored only after tip-checkpoint
+   revalidation and that Drawing Studio evidence loads without replaying motion.
+8. Repeat with one tessellated curve and one multi-stroke catalog item only if
+   the square is clean. Stop on any uncertain mark; do not resend or redraw.
+
+This section validates direct placed drawing, not adaptive fitting. Training and
+holdout roles are data declarations only until the future active-selection,
+candidate-comparison, and readiness protocols are implemented and physically
+validated.
 
 ## Evidence record
 

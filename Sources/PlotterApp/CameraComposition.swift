@@ -63,6 +63,9 @@ enum CameraComposition {
       observeIsolatedInk: { request in
         await session.observeIsolatedInk(request)
       },
+      observePlannedDrawingInk: { request in
+        await session.observePlannedDrawingInk(request)
+      },
     )
   }
 }
@@ -198,11 +201,19 @@ private actor CameraSourceSession {
     return outcome
   }
 
+  func observePlannedDrawingInk(
+    _ request: PlannedDrawingObservationRequest
+  ) async -> PlannedDrawingObservationOutcome {
+    let lease = await beginExclusiveVisionComputation()
+    let outcome = await vision.observePlannedDrawingInk(request)
+    await endExclusiveVisionComputation(lease)
+    return outcome
+  }
+
   func setSceneAnalysisRegion(_ region: PixelRect?) async {
     sceneAnalysisRegion = region
     await analysisPipeline.setAnalysisRegion(region)
   }
-
 
   func setPenCapColor(_ color: PenCapColor) async {
     guard penCapColor != color else { return }

@@ -95,11 +95,12 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
         .translated(by: truthOffset)
     }
     for click in [clicks[3], clicks[1], clicks[4], clicks[0], clicks[2]] {
-      workspace.selectToolContactPoint(ActionSurfacePointSelection(
-        frame: request.frame,
-        point: click,
-        presentationTransformRevision: request.presentationTransformRevision
-      ))
+      workspace.selectToolContactPoint(
+        ActionSurfacePointSelection(
+          frame: request.frame,
+          point: click,
+          presentationTransformRevision: request.presentationTransformRevision
+        ))
     }
     #expect(workspace.sparseTipCalibrationCoordinator.acceptedObservations.count == 5)
     let observations = workspace.sparseTipCalibrationCoordinator.acceptedObservations.map(
@@ -116,14 +117,18 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       #expect(observation.markGeometry.radiusMM == 2)
       #expect(observation.markGeometry.chordCount == 16)
       #expect(observation.markGeometry.maximumFeedMMPerMinute == 100)
-      #expect(observation.penDown.outcome == .commandedAndSettled(
-        command: .lower,
-        commandedState: .down
-      ))
-      #expect(observation.penUp.outcome == .commandedAndSettled(
-        command: .raise,
-        commandedState: .up
-      ))
+      #expect(
+        observation.penDown.outcome
+          == .commandedAndSettled(
+            command: .lower,
+            commandedState: .down
+          ))
+      #expect(
+        observation.penUp.outcome
+          == .commandedAndSettled(
+            command: .raise,
+            commandedState: .up
+          ))
     }
     for (preceding, following) in zip(observations, observations.dropFirst()) {
       #expect(
@@ -182,11 +187,14 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     #expect(proposal.holdoutCorrespondenceProvenance.count == 2)
     #expect(proposal.fit.correspondences.count == 5)
     #expect(proposal.opticalConfiguration.source == .simulated)
-    #expect(proposal.applicabilityDerivation == .boundaryEnvelopeInsetAndSymmetricallyReduced(
-      safetyMarginMM: 10,
-      maximumHalfSpanMM: 30
-    ))
-    try await performPublicAction(.acceptCameraCalibrationProposal, owner: owner, workspace: workspace)
+    #expect(
+      proposal.applicabilityDerivation
+        == .boundaryEnvelopeInsetAndSymmetricallyReduced(
+          safetyMarginMM: 10,
+          maximumHalfSpanMM: 30
+        ))
+    try await performPublicAction(
+      .acceptCameraCalibrationProposal, owner: owner, workspace: workspace)
     #expect(
       workspace.currentLearningPathItemID
         == .humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
@@ -220,11 +228,12 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     let request = try #require(workspace.actionSurfacePresentation.pointSelectionRequest)
     let frameID = request.frame.frameID
     let before = await harness.runtime.snapshot()
-    workspace.selectToolContactPoint(ActionSurfacePointSelection(
-      frame: request.frame,
-      point: try Point2(x: 160, y: 120),
-      presentationTransformRevision: request.presentationTransformRevision
-    ))
+    workspace.selectToolContactPoint(
+      ActionSurfacePointSelection(
+        frame: request.frame,
+        point: try Point2(x: 160, y: 120),
+        presentationTransformRevision: request.presentationTransformRevision
+      ))
     try await performPublicAction(.undoLastSparseTipClick, owner: owner, workspace: workspace)
     let after = await harness.runtime.snapshot()
     let correctedRequest = try #require(workspace.actionSurfacePresentation.pointSelectionRequest)
@@ -308,6 +317,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       machineGeometry: MachineGeometryIdentity(),
       toolAssembly: ToolAssemblyRevision(),
       penContactProfile: PenContactProfileRevision(),
+      paperInstance: PaperInstanceRevision(),
       paperContactPlane: PaperContactPlaneRevision(),
       cameraMountRevision: UUID(),
       cameraReframingRevision: UUID()
@@ -370,10 +380,12 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     #expect((await restarted.runtime.snapshot()).persistentInkSegmentCount == 0)
     #expect(restored.acceptedRevisionID != saved.registration.acceptedRevisionID)
     let revalidationEvidenceID = try #require(restored.revalidationEvidence?.id)
-    #expect(restored.derivation == TipRegistrationDerivation.checkpointRevalidated(
-      fromRevision: saved.registration.acceptedRevisionID,
-      evidenceID: revalidationEvidenceID
-    ))
+    #expect(
+      restored.derivation
+        == TipRegistrationDerivation.checkpointRevalidated(
+          fromRevision: saved.registration.acceptedRevisionID,
+          evidenceID: revalidationEvidenceID
+        ))
     #expect(
       restarted.workspace.currentLearningPathItemID
         == LearningPathItemID.observedDrawingTrial(.chooseIsolatedLinePlan)
@@ -387,10 +399,12 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       workspace: restarted.workspace
     )
     let domain = restored.applicabilityRectangle
-    #expect(restarted.workspace.drawingTrialLineStart == (try MachinePosition(
-      x: (domain.minX + domain.maxX) / 2 - 2.5,
-      y: (domain.minY + domain.maxY) / 2 + (domain.maxY - domain.minY) * 0.25
-    )))
+    #expect(
+      restarted.workspace.drawingTrialLineStart
+        == (try MachinePosition(
+          x: (domain.minX + domain.maxX) / 2 - 2.5,
+          y: (domain.minY + domain.maxY) / 2 + (domain.maxY - domain.minY) * 0.25
+        )))
 
   }
 
@@ -418,10 +432,11 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     #expect(observation.localPreLineBaseline.frameID != observation.postLine.frameID)
     #expect(workspace.drawingTrialRevealPosition != nil)
     #expect(await harness.runtime.persistentInk().isEmpty == false)
-    #expect(workspace.learningArtifactGraph.revisions.contains {
-      guard $0.state == .current else { return false }
-      if case .comparison = $0.kind { return true }
-      return false
-    })
+    #expect(
+      workspace.learningArtifactGraph.revisions.contains {
+        guard $0.state == .current else { return false }
+        if case .comparison = $0.kind { return true }
+        return false
+      })
   }
 }

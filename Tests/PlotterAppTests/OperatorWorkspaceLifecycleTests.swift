@@ -136,9 +136,10 @@ struct OperatorWorkspaceLifecycleTests {
     await pacing.waitUntilSuspended()
 
     let surface = workspace.actionSurfacePresentation
-    let predicted = try #require(surface.overlays.first {
-      $0.provenance.kind == .intendedPath && $0.provenance.source == .planned
-    })
+    let predicted = try #require(
+      surface.overlays.first {
+        $0.provenance.kind == .intendedPath && $0.provenance.source == .planned
+      })
     let displayedFrame = try #require(surface.displayedFrame)
     let lineStart = try #require(workspace.drawingTrialLineStart)
     let lineEnd = try #require(workspace.drawingTrialLineEnd)
@@ -149,27 +150,86 @@ struct OperatorWorkspaceLifecycleTests {
     }
     #expect(predicted.frameID == displayedFrame.frame.id)
     #expect(predicted.cameraConfigurationID == displayedFrame.frame.cameraConfigurationID)
-    #expect(predictedLine.points == [
-      try registration.tipPixel(at: lineStart.point),
-      try registration.tipPixel(at: lineEnd.point),
-    ])
+    #expect(
+      predictedLine.points == [
+        try registration.tipPixel(at: lineStart.point),
+        try registration.tipPixel(at: lineEnd.point),
+      ])
     #expect((await harness.runtime.snapshot()).mpos == positionBeforeGo)
     #expect(workspace.observedDrawingTrialStep == .moveToLineStart)
-    #expect(workspace.selectedOperatorActionPresentation(for: owner).activity?.outcome == .inProgress)
+    #expect(
+      workspace.selectedOperatorActionPresentation(for: owner).activity?.outcome == .inProgress)
     #expect(
       workspace.selectedOperatorActionPresentation(for: owner).activity?.phase == "Phase 3 of 6"
     )
-    #expect(workspace.currentExerciseActionStripPresentation?.actions.contains {
-      if case .stop = $0.kind { return true }
-      return false
-    } == true)
+    #expect(
+      workspace.currentExerciseActionStripPresentation?.actions.contains {
+        if case .stop = $0.kind { return true }
+        return false
+      } == true)
 
     await pacing.resume()
     await trial.value
 
     #expect(workspace.drawingTrialAssessment == .predictionObserved)
+    #expect(workspace.completedDrawingComparisonReviewIsAvailable)
+    #expect(workspace.completedDrawingComparisonReviewIsPinned)
+    let completedSurface = workspace.actionSurfacePresentation
+    #expect(
+      completedSurface.displayedFrame?.frame.id == workspace.explorationPostLineFrame?.frame.id)
+    #expect(
+      Set(completedSurface.overlays.map(\.provenance.kind)).isSuperset(of: [
+        .intendedPath,
+        .observedInk,
+        .residual,
+      ]))
+
+    workspace.resumeLivePreviewAfterDrawingComparison()
+    #expect(!workspace.completedDrawingComparisonReviewIsPinned)
+    workspace.reviewCompletedDrawingComparison()
+    #expect(workspace.completedDrawingComparisonReviewIsPinned)
+    #expect(
+      workspace.workbenchCapabilityPresentation.learning == .interactiveLearningComplete
+    )
+
+    workspace.confirmCurrentPaperCoversDrawableRegion()
+    #expect(workspace.paperCoverageIsCurrent)
+    #expect(
+      workspace.workbenchCapabilityPresentation.paper
+        == .current(
+          detail: "This sheet was explicitly confirmed over the calibrated drawable region.")
+    )
+    workspace.openDrawingStudio()
+    #expect(!workspace.completedDrawingComparisonReviewIsPinned)
+    await workspace.performDrawingStudioAction(.selectCatalogItem(.elephant))
+    await workspace.performDrawingStudioAction(.centerInDrawableRegion)
+    let studio = workspace.drawingStudioPresentation
+    let studioFrame = try #require(workspace.actionSurfacePresentation.displayedFrame)
+    #expect(workspace.drawingStudioIsPresented)
+    #expect(studio.selectedCatalogItemID == .elephant)
+    #expect(studio.canvas.targetPreview?.provenance.matches(studioFrame) == true)
+    #expect(studio.canvas.targetPreview?.executionPlanContentHash != nil)
+    #expect(studio.canvas.targetPreview?.status == .ready)
+    if case .unavailable(let reason) = studio.runState {
+      #expect(reason.contains("SIMULATED previews placement"))
+    } else {
+      Issue.record("Simulation must preview an immutable plan without claiming physical execution.")
+    }
     #expect(workspace.activeExerciseAttemptID == nil)
     #expect(workspace.currentExerciseActionStripPresentation == nil)
+
+    let originalPaper = workspace.currentPaperRevisionContext
+    let acceptedTipRevision = workspace.tipCameraRegistration?.acceptedRevisionID
+    await workspace.recordNewPaperSheetOnCurrentPlane()
+    #expect(workspace.currentPaperRevisionContext.instance != originalPaper.instance)
+    #expect(workspace.currentPaperRevisionContext.contactPlane == originalPaper.contactPlane)
+    #expect(workspace.tipCameraRegistration?.acceptedRevisionID == acceptedTipRevision)
+    #expect(!workspace.paperCoverageIsCurrent)
+
+    await workspace.recordPaperContactPlaneChanged()
+    #expect(workspace.currentPaperRevisionContext.contactPlane != originalPaper.contactPlane)
+    #expect(workspace.tipCameraRegistration == nil)
+    #expect(workspace.activeExerciseAttemptID == nil)
     await workspace.shutdown()
   }
 

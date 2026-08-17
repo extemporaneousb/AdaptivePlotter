@@ -419,6 +419,8 @@ struct ActionSurfacePresentation: Sendable {
   let analyzedOverlayFrame: ExactFrameOverlayProvenance?
   let pointSelectionRequest: ActionSurfacePointSelectionRequest?
   let tipPresentation: ActionSurfaceTipPresentation
+  let completedComparisonReview: CompletedComparisonReviewPresentation
+  let drawingStudioCanvas: DrawingStudioCanvasPresentation?
 
   var rendererIdentity: String { Self.rendererIdentity }
 
@@ -432,7 +434,9 @@ struct ActionSurfacePresentation: Sendable {
     analysisRegionIsLocked: Bool = false,
     analyzedOverlayFrame: ExactFrameOverlayProvenance? = nil,
     pointSelectionRequest: ActionSurfacePointSelectionRequest? = nil,
-    tipPresentation: ActionSurfaceTipPresentation = .notCalibrated
+    tipPresentation: ActionSurfaceTipPresentation = .notCalibrated,
+    completedComparisonReview: CompletedComparisonReviewPresentation = .unavailable,
+    drawingStudioCanvas: DrawingStudioCanvasPresentation? = nil
   ) {
     self.displayedFrame = displayedFrame
     self.simulatedViewportID = simulatedViewportID
@@ -465,6 +469,8 @@ struct ActionSurfacePresentation: Sendable {
     }
     self.analysisRegionIsLocked = analysisRegionIsLocked
     self.tipPresentation = tipPresentation
+    self.completedComparisonReview = completedComparisonReview
+    self.drawingStudioCanvas = drawingStudioCanvas
   }
 
   var sourceBadgeLabel: String? {
@@ -479,15 +485,23 @@ struct ActionSurface: View {
   @StateObject private var imageCache = FramePresentationImageCache()
   @State private var priorDragTranslation: CGSize = .zero
   private let selectPoint: (ActionSurfacePointSelection) -> Void
+  private let performCompletedComparisonReviewAction: (CompletedComparisonReviewAction) -> Void
+  private let performDrawingStudioAction: (DrawingStudioAction) -> Void
 
   init(
     presentation: ActionSurfacePresentation,
     viewport: Binding<ActionSurfaceViewportState> = .constant(ActionSurfaceViewportState()),
-    selectPoint: @escaping (ActionSurfacePointSelection) -> Void = { _ in }
+    selectPoint: @escaping (ActionSurfacePointSelection) -> Void = { _ in },
+    performCompletedComparisonReviewAction: @escaping (CompletedComparisonReviewAction) -> Void = {
+      _ in
+    },
+    performDrawingStudioAction: @escaping (DrawingStudioAction) -> Void = { _ in }
   ) {
     self.presentation = presentation
     _viewport = viewport
     self.selectPoint = selectPoint
+    self.performCompletedComparisonReviewAction = performCompletedComparisonReviewAction
+    self.performDrawingStudioAction = performDrawingStudioAction
   }
 
   var body: some View {
@@ -565,6 +579,16 @@ struct ActionSurface: View {
           .background(.black.opacity(0.72))
           .padding(8)
       }
+      .overlay(alignment: .bottomTrailing) {
+        if !presentation.completedComparisonReview.controls.isEmpty {
+          CompletedComparisonReviewControls(
+            presentation: presentation.completedComparisonReview,
+            displayedFrame: presentation.displayedFrame,
+            perform: performCompletedComparisonReviewAction
+          )
+          .padding(8)
+        }
+      }
       .overlay {
         if presentation.displayedFrame == nil {
           ContentUnavailableView(
@@ -586,6 +610,11 @@ struct ActionSurface: View {
       .simultaneousGesture(
         DragGesture(minimumDistance: 3, coordinateSpace: .local)
           .onChanged { value in
+            if presentation.drawingStudioCanvas?.placement.placementIsEnabled == true {
+              priorDragTranslation = .zero
+              submitDrawingPlacement(at: value.location, viewSize: proxy.size)
+              return
+            }
             guard !presentation.analysisRegionIsLocked,
               let frame = presentation.displayedFrame?.frame
             else { return }
@@ -620,7 +649,8 @@ struct ActionSurface: View {
   }
 
   private func submitPointSelection(at location: CGPoint, viewSize: CGSize) {
-    guard let displayedFrame = presentation.displayedFrame,
+    guard presentation.drawingStudioCanvas?.placement.placementIsEnabled != true,
+      let displayedFrame = presentation.displayedFrame,
       let request = presentation.pointSelectionRequest,
       request.matches(displayedFrame),
       let transform = CameraPixelToViewTransform(
@@ -643,6 +673,24 @@ struct ActionSurface: View {
       ))
   }
 
+  private func submitDrawingPlacement(at location: CGPoint, viewSize: CGSize) {
+    guard presentation.drawingStudioCanvas?.placement.placementIsEnabled == true,
+      let displayedFrame = presentation.displayedFrame,
+      let transform = CameraPixelToViewTransform(
+        frameWidth: displayedFrame.frame.width,
+        frameHeight: displayedFrame.frame.height,
+        viewWidth: viewSize.width,
+        viewHeight: viewSize.height,
+        focusRegion: viewport.visibleRegion(
+          frameWidth: displayedFrame.frame.width,
+          frameHeight: displayedFrame.frame.height
+        )
+      ),
+      let point = transform.cameraPoint(location)
+    else { return }
+    performDrawingStudioAction(.placeAtCameraPoint(point))
+  }
+
   private func drawFrameAndOverlays(
     frameImage: CGImage?,
     context: inout GraphicsContext,
@@ -650,6 +698,11 @@ struct ActionSurface: View {
   ) {
     if let frameImage {
       context.draw(Image(decorative: frameImage, scale: 1), in: transform.imageRect)
+    }
+    if let displayedFrame = presentation.displayedFrame,
+      let targetPreview = presentation.drawingStudioCanvas?.targetPreview(for: displayedFrame)
+    {
+      draw(targetPreview, in: &context, transform: transform)
     }
     for overlay in presentation.overlays {
       draw(overlay, in: &context, transform: transform)
@@ -664,6 +717,46 @@ struct ActionSurface: View {
       for annotation in presentation.simulatedAnnotations {
         draw(annotation, in: &context, transform: transform)
       }
+    }
+  }
+
+  private func draw(
+    _ target: DrawingStudioTargetPreview,
+    in context: inout GraphicsContext,
+    transform: CameraPixelToViewTransform
+  ) {
+    let color: Color = target.status == .ready ? .cyan : .orange
+    for stroke in target.strokes {
+      var path = Path()
+      path.move(to: transform.point(stroke.start))
+      for point in stroke.points.dropFirst() {
+        path.addLine(to: transform.point(point))
+      }
+      context.stroke(path, with: .color(color), lineWidth: 2)
+    }
+    if let bounds = target.bounds,
+      let minimum = try? Point2<CameraPixelSpace>(x: bounds.minX, y: bounds.minY),
+      let maximum = try? Point2<CameraPixelSpace>(x: bounds.maxX, y: bounds.maxY)
+    {
+      let minimumView = transform.point(minimum)
+      let maximumView = transform.point(maximum)
+      context.stroke(
+        Path(CGRect(
+          x: minimumView.x,
+          y: minimumView.y,
+          width: maximumView.x - minimumView.x,
+          height: maximumView.y - minimumView.y
+        )),
+        with: .color(color),
+        style: SwiftUI.StrokeStyle(lineWidth: 1, dash: [5, 4])
+      )
+      context.draw(
+        Text("TARGET DRAWING · PLANNED")
+          .font(.caption2.monospaced().bold())
+          .foregroundStyle(color),
+        at: minimumView,
+        anchor: .bottomLeading
+      )
     }
   }
 
@@ -868,6 +961,31 @@ struct ActionSurface: View {
         style: SwiftUI.StrokeStyle(lineWidth: style.width, dash: style.dash)
       )
     }
+    if let label = ActionSurfaceOverlayPresentationGrammar.semanticLabel(
+      for: overlay.provenance.kind
+    ),
+      let anchor = overlayLabelAnchor(overlay.geometry)
+    {
+      let style = lineStyle(for: overlay.provenance.kind)
+      context.draw(
+        Text(label)
+          .font(.caption2.monospaced().bold())
+          .foregroundStyle(style.color),
+        at: transform.point(anchor),
+        anchor: .bottomLeading
+      )
+    }
+  }
+
+  private func overlayLabelAnchor(
+    _ geometry: CameraPixelGeometry
+  ) -> Point2<CameraPixelSpace>? {
+    switch geometry {
+    case .point(let point): point
+    case .bounds(let bounds):
+      try? Point2(x: bounds.minX, y: bounds.minY)
+    case .polyline(let polyline): polyline.start
+    }
   }
 
   private func lineStyle(
@@ -880,6 +998,12 @@ struct ActionSurface: View {
       return (.white, 3, [])
     case .residual:
       return (.orange, 1.5, [])
+    case .calibratedDrawableRegion:
+      return (.blue, 2.5, [9, 5])
+    case .paperCoverage:
+      return (.mint, 2, [4, 3])
+    case .predictedContactPoint:
+      return (.purple, 3, [])
     case .penCap:
       return (.yellow, 2, [])
     case .armatureEstimate:

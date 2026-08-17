@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Observation
 import PlotterModel
@@ -52,11 +53,12 @@ enum FixedCameraOpticalSettlingPolicy {
         throw LearningPathOperationError.freshFrameUnavailable
       }
     }
-    let maximumSpread = samples.enumerated().flatMap { leftIndex, left in
-      samples.dropFirst(leftIndex + 1).map {
-        left.cap.centroid.distance(to: $0.cap.centroid)
-      }
-    }.max() ?? 0
+    let maximumSpread =
+      samples.enumerated().flatMap { leftIndex, left in
+        samples.dropFirst(leftIndex + 1).map {
+          left.cap.centroid.distance(to: $0.cap.centroid)
+        }
+      }.max() ?? 0
     guard maximumSpread <= maximumCentroidSpreadPixels else {
       throw LearningPathOperationError.requiredState(
         String(
@@ -583,6 +585,7 @@ struct TipCalibrationSemanticIdentityState: Hashable, Sendable {
   let machineGeometry: MachineGeometryIdentity
   let toolAssembly: ToolAssemblyRevision
   let penContactProfile: PenContactProfileRevision
+  let paperInstance: PaperInstanceRevision
   let paperContactPlane: PaperContactPlaneRevision
   let cameraMountRevision: UUID
   let cameraReframingRevision: UUID
@@ -592,6 +595,7 @@ struct TipCalibrationSemanticIdentityState: Hashable, Sendable {
       machineGeometry: MachineGeometryIdentity(),
       toolAssembly: ToolAssemblyRevision(),
       penContactProfile: PenContactProfileRevision(),
+      paperInstance: PaperInstanceRevision(),
       paperContactPlane: PaperContactPlaneRevision(),
       cameraMountRevision: UUID(),
       cameraReframingRevision: UUID()
@@ -652,6 +656,7 @@ final class OperatorWorkspace {
     var inkStatus = "no isolated-line observation yet"
     var lastTravelFeedSelection: TravelFeedSelection?
     var assessment: DrawingTrialAssessment?
+    var comparisonReviewIsPinned = false
     var comparisonAttemptHistories:
       [AttemptCompatibility: ExerciseAttemptHistory<DrawingTrialAssessment>] = [:]
     var group: AttemptGroupIdentity
@@ -685,12 +690,35 @@ final class OperatorWorkspace {
         postLineFrame = nil
         inkObservation = nil
         inkStatus = "no isolated-line observation yet"
+        comparisonReviewIsPinned = false
       }
       assessment = nil
       comparisonAttemptHistories = [:]
       lastTravelFeedSelection = nil
       step = rewindStep
     }
+  }
+
+  private struct DrawingStudioState {
+    var selectedCatalogItemID: DrawingCatalogEntryID = .square
+    var uniformScale = 0.25
+    var rotationDegrees = 0.0
+    var machineCenter: Point2<MachineSpace>?
+    var placementID = UUID()
+    var evidenceRole: DrawingTrialEvidenceRole = .ordinaryDrawing
+    var program: DrawingProgram?
+    var plan: ExecutionPlanRevision?
+    var planningError: String?
+    var baselineFrame: DisplayedFrame?
+    var postFrame: DisplayedFrame?
+    var activeStopCapabilityID: ContextualStopCapabilityID?
+    var cancelRequested = false
+    var runInProgress = false
+    var terminalRequiresNewPlan = false
+    var redrawBlockedPlanHashes: Set<PlotterModel.Digest> = []
+    var runDetail: String?
+    var lastRunRecord: DrawingRunEvidenceRecord?
+    var reviewIsPinned = false
   }
 
   private struct ToolContactSelectionContext {
@@ -804,6 +832,9 @@ final class OperatorWorkspace {
     var exerciseAttempt: ExerciseAttemptLifecycle = .idle
     var restartableExerciseItemID: LearningPathItemID?
     var acceptedArtifactCheckpointStatus: AcceptedArtifactCheckpointStatus = .unavailable
+    var paperCoverageObservation: PaperCoverageObservation?
+    var drawingReadinessAssessment: DrawingReadinessAssessment?
+    var drawingStudio = DrawingStudioState()
     var parkedAcceptedMachineArtifactCheckpoint: AcceptedMachineArtifactCheckpoint?
     var quarantinedTipCalibrationCheckpoint: AcceptedTipCalibrationCheckpoint?
     var learningAuthorityError: String?
@@ -812,9 +843,14 @@ final class OperatorWorkspace {
     var acceptedAttemptSequence: UInt64 = 0
     var controllerSessionID = UUID()
     var explorationCoordinateRevision: UInt64 = 0
-    var explorationToolPaperRevision: UUID
+    var explorationPaperInstanceRevision: UUID
+    var explorationPaperContactPlaneRevision: UUID
 
-    init(source: OperatorFrameMode, paperContactPlaneRevision: UUID) {
+    init(
+      source: OperatorFrameMode,
+      paperInstanceRevision: UUID,
+      paperContactPlaneRevision: UUID
+    ) {
       let simulated = source == .simulated
       penAttemptHistory = try! ExerciseAttemptHistory(
         compatibility: AttemptCompatibility(
@@ -830,7 +866,8 @@ final class OperatorWorkspace {
         )
       )
       drawingTrial = DrawingTrialState(source: source)
-      explorationToolPaperRevision = paperContactPlaneRevision
+      explorationPaperInstanceRevision = paperInstanceRevision
+      explorationPaperContactPlaneRevision = paperContactPlaneRevision
     }
   }
 
@@ -852,13 +889,50 @@ final class OperatorWorkspace {
     let deactivateMotionGuard: @Sendable () async -> Void
     let beginRelativeJog: @Sendable (RelativeJogRequest) async -> RelativeJogAdmission
     let beginDrawingStroke: @Sendable (DrawingStrokeRequest) async -> DrawingStrokeAdmission
-    let requestPenActuation:
-      @Sendable (PenCommand, PenActuationProfile) async -> PenOutcome
+    let beginDrawingPlan: (@Sendable (DrawingPlanRequest) async -> DrawingPlanAdmission)?
+    let requestPenActuation: @Sendable (PenCommand, PenActuationProfile) async -> PenOutcome
     let beginBoundaryMotion:
       @Sendable (BoundaryMotionRequest, BoundaryMotionRenewalPlanner?) async
         -> BoundaryMotionAdmission
     let requestJogCancel: @Sendable (JogCancelIntent) async -> JogCancelOutcome
     let disconnect: @Sendable () async -> Void
+
+    init(
+      select: @escaping @Sendable (MachineLinkDescriptor) async throws -> RunInterpreterSnapshot,
+      snapshot: @escaping @Sendable () async -> RunInterpreterSnapshot?,
+      requestPassiveProbe: @escaping @Sendable () async throws -> PassiveProbeResult,
+      requestControllerAlarmClear: @escaping @Sendable () async -> ControllerAlarmClearOutcome,
+      activateMotionGuard: @escaping @Sendable () async -> MotionGuardActivationOutcome,
+      deactivateMotionGuard: @escaping @Sendable () async -> Void,
+      beginRelativeJog: @escaping @Sendable (RelativeJogRequest) async -> RelativeJogAdmission,
+      beginDrawingStroke: @escaping @Sendable (DrawingStrokeRequest) async
+        -> DrawingStrokeAdmission,
+      beginDrawingPlan: (
+        @Sendable (DrawingPlanRequest) async
+          -> DrawingPlanAdmission
+      )? = nil,
+      requestPenActuation: @escaping @Sendable (PenCommand, PenActuationProfile) async ->
+        PenOutcome,
+      beginBoundaryMotion: @escaping @Sendable (
+        BoundaryMotionRequest, BoundaryMotionRenewalPlanner?
+      ) async -> BoundaryMotionAdmission,
+      requestJogCancel: @escaping @Sendable (JogCancelIntent) async -> JogCancelOutcome,
+      disconnect: @escaping @Sendable () async -> Void
+    ) {
+      self.select = select
+      self.snapshot = snapshot
+      self.requestPassiveProbe = requestPassiveProbe
+      self.requestControllerAlarmClear = requestControllerAlarmClear
+      self.activateMotionGuard = activateMotionGuard
+      self.deactivateMotionGuard = deactivateMotionGuard
+      self.beginRelativeJog = beginRelativeJog
+      self.beginDrawingStroke = beginDrawingStroke
+      self.beginDrawingPlan = beginDrawingPlan
+      self.requestPenActuation = requestPenActuation
+      self.beginBoundaryMotion = beginBoundaryMotion
+      self.requestJogCancel = requestJogCancel
+      self.disconnect = disconnect
+    }
   }
 
   struct AnnouncementActions: Sendable {
@@ -882,6 +956,17 @@ final class OperatorWorkspace {
     let clear: @Sendable () throws -> Void
   }
 
+  struct DrawingEvidenceActions: Sendable {
+    let load: @Sendable () async -> DrawingRunEvidenceStoreLoadResult
+    let append: @Sendable (DrawingRunEvidenceRecord) async throws -> DrawingRunEvidenceArchive
+  }
+
+  struct PaperCoverageActions: Sendable {
+    let load: @Sendable () -> PaperCoverageObservation?
+    let save: @Sendable (PaperCoverageObservation) throws -> Void
+    let clear: @Sendable () -> Void
+  }
+
   struct CameraActions: Sendable {
     let discover: @Sendable () async -> CameraCaptureSnapshot
     let select: @Sendable (CameraDeviceID) async throws -> CameraCaptureSnapshot
@@ -902,6 +987,53 @@ final class OperatorWorkspace {
     let observeIsolatedInk:
       @Sendable (IsolatedInkObservationRequest) async
         -> IsolatedInkObservationOutcome
+    let observePlannedDrawingInk:
+      (
+        @Sendable (PlannedDrawingObservationRequest) async
+          -> PlannedDrawingObservationOutcome
+      )?
+
+    init(
+      discover: @escaping @Sendable () async -> CameraCaptureSnapshot,
+      select: @escaping @Sendable (CameraDeviceID) async throws -> CameraCaptureSnapshot,
+      start: @escaping @Sendable () async -> CameraCaptureSnapshot,
+      stop: @escaping @Sendable () async -> CameraCaptureSnapshot,
+      restart: @escaping @Sendable () async -> CameraCaptureSnapshot,
+      snapshot: @escaping @Sendable () async -> CameraCaptureSnapshot,
+      frames: @escaping @Sendable () async -> AsyncStream<DisplayedFrame>,
+      inspectWorkflowScene: @escaping @Sendable (
+        UInt64, SceneFeatureSet, PixelRect?
+      ) async throws -> LiveSceneInspection?,
+      captureFrame: @escaping @Sendable (UInt64) async throws -> DisplayedFrame?,
+      setSceneAnalysisRegion: @escaping @Sendable (PixelRect?) async -> Void,
+      setPenCapColor: @escaping @Sendable (PenCapColor) async -> Void,
+      setAutomaticInspection: @escaping @Sendable (
+        VisionAnalysisCadence?, SceneFeatureSet
+      ) async -> PlotterSceneAnalysisSnapshot,
+      analysisUpdates: @escaping @Sendable () async -> AsyncStream<PlotterSceneAnalysisSnapshot>,
+      observeIsolatedInk: @escaping @Sendable (IsolatedInkObservationRequest) async
+        -> IsolatedInkObservationOutcome,
+      observePlannedDrawingInk: (
+        @Sendable (PlannedDrawingObservationRequest) async
+          -> PlannedDrawingObservationOutcome
+      )? = nil
+    ) {
+      self.discover = discover
+      self.select = select
+      self.start = start
+      self.stop = stop
+      self.restart = restart
+      self.snapshot = snapshot
+      self.frames = frames
+      self.inspectWorkflowScene = inspectWorkflowScene
+      self.captureFrame = captureFrame
+      self.setSceneAnalysisRegion = setSceneAnalysisRegion
+      self.setPenCapColor = setPenCapColor
+      self.setAutomaticInspection = setAutomaticInspection
+      self.analysisUpdates = analysisUpdates
+      self.observeIsolatedInk = observeIsolatedInk
+      self.observePlannedDrawingInk = observePlannedDrawingInk
+    }
   }
 
   private(set) var livePenCapAppearanceSelection: PenCapAppearanceSelection?
@@ -921,6 +1053,7 @@ final class OperatorWorkspace {
   var yStepText = MotionPriors.stepMM
   var feedText = MotionPriors.feedMMPerMinute
   private(set) var learningIsEnabled = true
+  private(set) var drawingStudioIsPresented = false
 
   private(set) var serialDevices: [MachineLinkDescriptor] = []
   private(set) var selectedSerialDevice: MachineLinkDescriptor?
@@ -1010,7 +1143,8 @@ final class OperatorWorkspace {
     set { activeLearningSession.pairedBoundaryProgress = newValue }
   }
   private(set) var boundaryAttemptEvidenceByAttemptID:
-    [ExerciseAttemptID: BoundarySideAttemptEvidence] {
+    [ExerciseAttemptID: BoundarySideAttemptEvidence]
+  {
     get { activeLearningSession.boundaryAttemptEvidenceByAttemptID }
     set { activeLearningSession.boundaryAttemptEvidenceByAttemptID = newValue }
   }
@@ -1227,6 +1361,10 @@ final class OperatorWorkspace {
     AcceptedArtifactCheckpointActions?
   @ObservationIgnored private let liveAcceptedTipCalibrationCheckpointActions:
     AcceptedTipCalibrationCheckpointActions?
+  @ObservationIgnored private let liveDrawingEvidenceActions: DrawingEvidenceActions?
+  @ObservationIgnored private let livePaperCoverageActions: PaperCoverageActions?
+  private var drawingEvidenceArchive = DrawingRunEvidenceArchive()
+  private(set) var drawingEvidenceError: String?
   private var activeAcceptedArtifactCheckpointActions: AcceptedArtifactCheckpointActions? {
     frameMode == .live ? liveAcceptedArtifactCheckpointActions : nil
   }
@@ -1258,10 +1396,16 @@ final class OperatorWorkspace {
     get { activeLearningSession.explorationCoordinateRevision }
     set { activeLearningSession.explorationCoordinateRevision = newValue }
   }
-  private var explorationToolPaperRevision: UUID {
-    get { activeLearningSession.explorationToolPaperRevision }
-    set { activeLearningSession.explorationToolPaperRevision = newValue }
+  private var explorationPaperInstanceRevision: UUID {
+    get { activeLearningSession.explorationPaperInstanceRevision }
+    set { activeLearningSession.explorationPaperInstanceRevision = newValue }
   }
+  private var explorationPaperContactPlaneRevision: UUID {
+    get { activeLearningSession.explorationPaperContactPlaneRevision }
+    set { activeLearningSession.explorationPaperContactPlaneRevision = newValue }
+  }
+  @ObservationIgnored private let persistPaperInstanceRevision:
+    @Sendable (PaperInstanceRevision) -> Void
   @ObservationIgnored private let persistPaperContactPlaneRevision:
     @Sendable (PaperContactPlaneRevision) -> Void
   @ObservationIgnored private var boundaryMotionTask: Task<Void, Never>?
@@ -1308,7 +1452,10 @@ final class OperatorWorkspace {
     announcementActions: AnnouncementActions? = nil,
     acceptedArtifactCheckpointActions: AcceptedArtifactCheckpointActions? = nil,
     acceptedTipCalibrationCheckpointActions: AcceptedTipCalibrationCheckpointActions? = nil,
+    drawingEvidenceActions: DrawingEvidenceActions? = nil,
+    paperCoverageActions: PaperCoverageActions? = nil,
     tipCalibrationSemanticIdentities: TipCalibrationSemanticIdentityState = .ephemeral(),
+    persistPaperInstanceRevision: @escaping @Sendable (PaperInstanceRevision) -> Void = { _ in },
     persistPaperContactPlaneRevision: @escaping @Sendable (PaperContactPlaneRevision) -> Void = {
       _ in
     },
@@ -1328,8 +1475,9 @@ final class OperatorWorkspace {
         identifier, forKey: "AdaptivePlotter.selectedSerialDeviceIdentifier")
     },
     loadPenCapAppearanceSelection: @escaping @Sendable () -> PenCapAppearanceSelection? = {
-      guard let data = UserDefaults.standard.data(
-        forKey: "AdaptivePlotter.penCapAppearanceSelection")
+      guard
+        let data = UserDefaults.standard.data(
+          forKey: "AdaptivePlotter.penCapAppearanceSelection")
       else { return nil }
       return try? JSONDecoder().decode(PenCapAppearanceSelection.self, from: data)
     },
@@ -1340,7 +1488,7 @@ final class OperatorWorkspace {
         } else {
           UserDefaults.standard.removeObject(forKey: "AdaptivePlotter.penCapAppearanceSelection")
         }
-    },
+      },
     loadOverlayPreference: @escaping @Sendable () -> Set<UserSceneOverlay>? = {
       guard
         let values = UserDefaults.standard.stringArray(
@@ -1362,11 +1510,13 @@ final class OperatorWorkspace {
     overlayPreferenceState = .loaded(loadOverlayPreference())
     liveLearningSession = LearningSessionState(
       source: .live,
+      paperInstanceRevision: tipCalibrationSemanticIdentities.paperInstance.rawValue,
       paperContactPlaneRevision: tipCalibrationSemanticIdentities.paperContactPlane.rawValue
     )
     simulatedLearningSession = LearningSessionState(
       source: .simulated,
-      paperContactPlaneRevision: UUID()
+      paperInstanceRevision: tipCalibrationSemanticIdentities.paperInstance.rawValue,
+      paperContactPlaneRevision: tipCalibrationSemanticIdentities.paperContactPlane.rawValue
     )
     self.simulatedExecutionPacing = simulatedExecutionPacing
     self.machineActions = machineActions
@@ -1388,11 +1538,14 @@ final class OperatorWorkspace {
     self.announcementActions = announcementActions
     liveAcceptedArtifactCheckpointActions = acceptedArtifactCheckpointActions
     liveAcceptedTipCalibrationCheckpointActions = acceptedTipCalibrationCheckpointActions
+    liveDrawingEvidenceActions = drawingEvidenceActions
+    livePaperCoverageActions = paperCoverageActions
     machineGeometryIdentity = tipCalibrationSemanticIdentities.machineGeometry
     toolAssemblyRevision = tipCalibrationSemanticIdentities.toolAssembly
     penContactProfileRevision = tipCalibrationSemanticIdentities.penContactProfile
     cameraMountRevision = tipCalibrationSemanticIdentities.cameraMountRevision
     cameraReframingRevision = tipCalibrationSemanticIdentities.cameraReframingRevision
+    self.persistPaperInstanceRevision = persistPaperInstanceRevision
     self.persistPaperContactPlaneRevision = persistPaperContactPlaneRevision
     self.workflowTelemetryActions = workflowTelemetryActions
     self.simulatedLearningRuntime = simulatedLearningRuntime
@@ -1403,6 +1556,7 @@ final class OperatorWorkspace {
     rememberedSerialDeviceIdentifier = loadSelectedSerialIdentifier()
     self.nowNanoseconds = nowNanoseconds
     self.boundaryAtomicCommitFailurePoints = boundaryAtomicCommitFailurePoints
+    liveLearningSession.paperCoverageObservation = paperCoverageActions?.load()
     if let rememberedSerialDeviceIdentifier {
       selectedSerialDevice = serialDevices.first {
         $0.identifier == rememberedSerialDeviceIdentifier
@@ -1450,7 +1604,15 @@ final class OperatorWorkspace {
   }
 
   var actionSurfacePresentation: ActionSurfacePresentation {
-    let surfaceFrame = frozenPointSelectionFrame ?? displayedFrame
+    let surfaceFrame =
+      frozenPointSelectionFrame
+      ?? (activeLearningSession.drawingTrial.comparisonReviewIsPinned
+        ? explorationPostLineFrame
+        : nil)
+      ?? (activeLearningSession.drawingStudio.reviewIsPinned
+        ? activeLearningSession.drawingStudio.postFrame
+        : nil)
+      ?? displayedFrame
     let overlayComposition = OverlayPresentationComposer.compose(
       preference: overlayPreferenceState,
       channels: overlayResultChannels,
@@ -1487,6 +1649,7 @@ final class OperatorWorkspace {
     return ActionSurfacePresentation(
       displayedFrame: surfaceFrame,
       overlays: overlayComposition.overlays
+        + (surfaceFrame.map(learnedDrawingOverlays) ?? [])
         + (surfaceFrame.map(drawingTrialPredictionOverlays) ?? []),
       simulatedAnnotations: simulatedAnnotations,
       simulatedViewportID: simulatedViewportID,
@@ -1497,8 +1660,991 @@ final class OperatorWorkspace {
       } ?? false,
       analyzedOverlayFrame: overlayComposition.analyzedFrame,
       pointSelectionRequest: pointSelectionRequest,
-      tipPresentation: tipPresentation
+      tipPresentation: tipPresentation,
+      completedComparisonReview: completedComparisonReviewPresentation,
+      drawingStudioCanvas: drawingStudioIsPresented ? drawingStudioPresentation.canvas : nil
     )
+  }
+
+  var currentPaperRevisionContext: PaperRevisionContext {
+    PaperRevisionContext(
+      instance: PaperInstanceRevision(rawValue: explorationPaperInstanceRevision),
+      contactPlane: PaperContactPlaneRevision(
+        rawValue: explorationPaperContactPlaneRevision
+      )
+    )
+  }
+
+  private var currentPaperCoverageObservation: PaperCoverageObservation? {
+    get { activeLearningSession.paperCoverageObservation }
+    set { activeLearningSession.paperCoverageObservation = newValue }
+  }
+
+  var paperCoverageIsCurrent: Bool {
+    guard let coverage = currentPaperCoverageObservation,
+      coverage.paper == currentPaperRevisionContext,
+      let frame = displayedFrame,
+      coverage.source == frame.source,
+      coverage.frame.cameraConfigurationID == frame.frame.cameraConfigurationID
+    else { return false }
+    return true
+  }
+
+  var interactiveLearningIsComplete: Bool {
+    if drawingTrialAssessment == .predictionObserved { return true }
+    guard let registration = tipCameraRegistration else { return false }
+    return drawingEvidenceArchive.records.contains { record in
+      record.role == .evaluationHoldout
+        && record.evidenceDisposition == .attributable
+        && drawingValidationRevision(
+          record.tipCalibration.acceptedRevisionID,
+          matches: registration
+        )
+        && record.paper.contactPlane == currentPaperRevisionContext.contactPlane
+    }
+  }
+
+  private func drawingValidationRevision(
+    _ evidenceRevision: LearningArtifactRevisionID,
+    matches registration: TipCameraRegistration
+  ) -> Bool {
+    if evidenceRevision == registration.acceptedRevisionID { return true }
+    guard case .checkpointRevalidated(let durableSourceRevision, _) = registration.derivation
+    else { return false }
+    return evidenceRevision == durableSourceRevision
+  }
+
+  var workbenchCapabilityPresentation: WorkbenchCapabilityPresentation {
+    let learning: WorkbenchLearningCapabilityState
+    if activeLearningSession.drawingReadinessAssessment?.state == .ready {
+      learning = .adaptiveDrawingReady
+    } else if interactiveLearningIsComplete {
+      learning = .interactiveLearningComplete
+    } else if tipCameraRegistration != nil {
+      learning = .mapReady
+    } else if quarantinedTipCalibrationCheckpoint != nil {
+      learning = .savedMapNeedsRevalidation
+    } else {
+      learning = .learningNeeded
+    }
+    let paper: WorkbenchPaperSetupState =
+      paperCoverageIsCurrent
+      ? .current(detail: "This sheet was explicitly confirmed over the calibrated drawable region.")
+      : .setupRequired(
+        reason: "Place the current sheet over the outlined calibrated region and confirm coverage."
+      )
+    return WorkbenchCapabilityPresentation(learning: learning, paper: paper)
+  }
+
+  func openDrawingStudio() {
+    guard interactiveLearningIsComplete else { return }
+    activeLearningSession.drawingTrial.comparisonReviewIsPinned = false
+    activeLearningSession.drawingStudio.reviewIsPinned = false
+    drawingStudioIsPresented = true
+    rebuildDrawingStudioPlan()
+  }
+
+  func closeDrawingStudio() {
+    guard !activeLearningSession.drawingStudio.runInProgress else { return }
+    activeLearningSession.drawingStudio.reviewIsPinned = false
+    drawingStudioIsPresented = false
+  }
+
+  var drawingStudioPanelChangeUnavailableReason: String? {
+    activeLearningSession.drawingStudio.runInProgress
+      ? "Drawing Studio cannot be hidden until the current run and evidence capture settle."
+      : nil
+  }
+
+  var paperManagementUnavailableReason: String? {
+    activeLearningSession.drawingStudio.runInProgress
+      ? "Paper identity cannot change while a drawing run owns execution or evidence capture."
+      : nil
+  }
+
+  func performCompletedComparisonReviewAction(_ action: CompletedComparisonReviewAction) {
+    switch action {
+    case .reviewComparison:
+      reviewCompletedDrawingComparison()
+    case .resumeLivePreview:
+      resumeLivePreviewAfterDrawingComparison()
+    case .openDrawingStudio:
+      openDrawingStudio()
+    }
+  }
+
+  var drawingStudioPresentation: DrawingStudioPresentation {
+    let state = activeLearningSession.drawingStudio
+    let editingIsEnabled = drawingStudioIsPresented && !state.runInProgress
+    let placement = DrawingStudioPlacementPresentation(
+      centerCameraPixel: drawingStudioCenterCameraPixel,
+      uniformScale: state.uniformScale,
+      allowedScale: drawingStudioAllowedScale,
+      rotationDegrees: state.rotationDegrees,
+      placementIsEnabled: editingIsEnabled && !state.terminalRequiresNewPlan
+    )
+    let runState: DrawingStudioRunState
+    if let capabilityID = state.activeStopCapabilityID {
+      runState = .running(
+        capabilityID: capabilityID,
+        detail: state.runDetail ?? "The accepted execution plan owns the plotter."
+      )
+    } else if state.runInProgress {
+      runState = .processing(
+        detail: state.runDetail ?? "The motion owner settled; evidence processing is in progress."
+      )
+    } else if let record = state.lastRunRecord {
+      runState =
+        state.reviewIsPinned
+        ? .reviewing(
+          runID: record.runID.description,
+          detail: "Reviewing the exact post-run frame and retained observation."
+        )
+        : .reviewAvailable(
+          runID: record.runID.description,
+          detail: "The immutable run evidence is available for review."
+        )
+    } else if let reason = drawingStudioRunUnavailableReason {
+      runState = .unavailable(reason: reason)
+    } else {
+      runState = .ready(
+        detail: "The reviewed plan is inside the calibrated region on confirmed paper."
+      )
+    }
+    return DrawingStudioPresentation(
+      catalog: DrawingStudioCatalogItemPresentation.builtInCatalog,
+      selectedCatalogItemID: state.selectedCatalogItemID,
+      sourceParameters: [
+        DrawingStudioParameterPresentation(
+          id: DrawingStudioParameterID(rawValue: "evidence-role"),
+          title: "Evidence role",
+          detail:
+            "Choose before execution; a holdout cannot become training evidence after inspection.",
+          value: .choice(drawingEvidenceRoleLabel(state.evidenceRole)),
+          control: .choices([
+            "Ordinary drawing", "Training", "Reserved holdout", "Evaluation holdout",
+          ])
+        )
+      ],
+      canvas: DrawingStudioCanvasPresentation(
+        placement: placement,
+        targetPreview: drawingStudioTargetPreview
+      ),
+      editingIsEnabled: editingIsEnabled && !state.terminalRequiresNewPlan,
+      runState: runState
+    )
+  }
+
+  private var drawingStudioAllowedScale: ClosedRange<Double> {
+    guard let region = currentDrawableMachineRegion else { return 0.02...1 }
+    let entry = DrawingProgramCatalog.entry(
+      for: activeLearningSession.drawingStudio.selectedCatalogItemID
+    )
+    let maximum = max(
+      0.02,
+      min(
+        (region.effectiveBounds.maxX - region.effectiveBounds.minX) / entry.fieldExtent.width,
+        (region.effectiveBounds.maxY - region.effectiveBounds.minY) / entry.fieldExtent.height
+      ) * 0.9
+    )
+    return 0.02...maximum
+  }
+
+  private var drawingStudioCenterCameraPixel: Point2<CameraPixelSpace>? {
+    guard let center = activeLearningSession.drawingStudio.machineCenter,
+      let registration = tipCameraRegistration
+    else { return nil }
+    return try? registration.tipPixel(at: center)
+  }
+
+  private var drawingStudioTargetPreview: DrawingStudioTargetPreview? {
+    let state = activeLearningSession.drawingStudio
+    guard let frame = displayedFrame,
+      let program = state.program,
+      let registration = tipCameraRegistration
+    else { return nil }
+    let projected: [Polyline<CameraPixelSpace>]
+    let planHash: String?
+    let status: DrawingStudioTargetPreviewStatus
+    if let plan = state.plan {
+      do {
+        projected = try plan.strokes.map { stroke in
+          try Polyline(points: stroke.path.points.map { try registration.tipPixel(at: $0) })
+        }
+        planHash = plan.contentHash.description
+        status = .ready
+      } catch {
+        projected = []
+        planHash = nil
+        status = .unavailable(reason: "The current tip map cannot project this plan: \(error)")
+      }
+    } else {
+      projected = []
+      planHash = nil
+      status = .outsideDrawableRegion(
+        reason: state.planningError ?? "Place the target inside the calibrated region."
+      )
+    }
+    let points = projected.flatMap(\.points)
+    let bounds: AxisAlignedBounds<CameraPixelSpace>? =
+      if points.isEmpty {
+        nil
+      } else {
+        try? AxisAlignedBounds(
+          minX: points.map(\.x).min()!,
+          minY: points.map(\.y).min()!,
+          maxX: points.map(\.x).max()!,
+          maxY: points.map(\.y).max()!
+        )
+      }
+    return DrawingStudioTargetPreview(
+      provenance: ExactFrameOverlayProvenance(frame),
+      strokes: projected,
+      bounds: bounds,
+      programContentHash: program.contentHash.description,
+      executionPlanContentHash: planHash,
+      status: status
+    )
+  }
+
+  private var drawingStudioRunUnavailableReason: String? {
+    guard frameMode == .live else {
+      return "SIMULATED previews placement but cannot supply physical drawing evidence."
+    }
+    guard interactiveLearningIsComplete else {
+      return "Complete the attributable isolated-line validation first."
+    }
+    guard tipCameraRegistration != nil else { return "A current accepted tip map is required." }
+    guard paperCoverageIsCurrent else {
+      return "Confirm that the current paper covers the outlined calibrated region."
+    }
+    guard activeLearningSession.drawingStudio.plan != nil else {
+      return activeLearningSession.drawingStudio.planningError
+        ?? "Place the drawing fully inside the calibrated region."
+    }
+    guard !activeLearningSession.drawingStudio.terminalRequiresNewPlan else {
+      return "Review the terminal run, then start a new plan before drawing again."
+    }
+    if let hash = activeLearningSession.drawingStudio.plan?.contentHash,
+      activeLearningSession.drawingStudio.redrawBlockedPlanHashes.contains(hash)
+    {
+      return "Move, resize, or rotate the target away from a plan that may already contain ink."
+    }
+    guard controllerSessionEstablished else { return "Connect the plotter first." }
+    guard motionAuthorizationEnabled else { return "Enable Motion for this controller session." }
+    guard controllerIsPenUpAndIdle else {
+      return "A settled controller-confirmed Pen Up pose is required."
+    }
+    guard machineActions?.beginDrawingPlan != nil,
+      cameraActions?.observePlannedDrawingInk != nil
+    else {
+      return "The drawing-plan runtime and planned-ink observer are unavailable."
+    }
+    return nil
+  }
+
+  func performDrawingStudioAction(_ action: DrawingStudioAction) async {
+    switch action {
+    case .selectCatalogItem(let id):
+      guard drawingStudioDraftMutationIsAvailable else { return }
+      activeLearningSession.drawingStudio.selectedCatalogItemID = id
+      activeLearningSession.drawingStudio.placementID = UUID()
+      rebuildDrawingStudioPlan()
+    case .setParameter(let id, let value):
+      guard drawingStudioDraftMutationIsAvailable else { return }
+      guard id.rawValue == "evidence-role", case .choice(let label) = value else { return }
+      activeLearningSession.drawingStudio.evidenceRole = drawingEvidenceRole(for: label)
+    case .placeAtCameraPoint(let cameraPoint):
+      guard drawingStudioDraftMutationIsAvailable else { return }
+      guard let inverse = try? tipCameraRegistration?.cameraFromMachine.inverted(),
+        let machinePoint = try? inverse.applying(to: cameraPoint)
+      else { return }
+      activeLearningSession.drawingStudio.machineCenter = machinePoint
+      activeLearningSession.drawingStudio.placementID = UUID()
+      rebuildDrawingStudioPlan()
+    case .setUniformScale(let scale):
+      guard drawingStudioDraftMutationIsAvailable else { return }
+      activeLearningSession.drawingStudio.uniformScale = min(
+        max(scale, drawingStudioAllowedScale.lowerBound),
+        drawingStudioAllowedScale.upperBound
+      )
+      activeLearningSession.drawingStudio.placementID = UUID()
+      rebuildDrawingStudioPlan()
+    case .setRotationDegrees(let degrees):
+      guard drawingStudioDraftMutationIsAvailable else { return }
+      activeLearningSession.drawingStudio.rotationDegrees = degrees
+      activeLearningSession.drawingStudio.placementID = UUID()
+      rebuildDrawingStudioPlan()
+    case .centerInDrawableRegion:
+      guard drawingStudioDraftMutationIsAvailable else { return }
+      guard let region = currentDrawableMachineRegion,
+        let center = try? Point2<MachineSpace>(
+          x: (region.effectiveBounds.minX + region.effectiveBounds.maxX) / 2,
+          y: (region.effectiveBounds.minY + region.effectiveBounds.maxY) / 2
+        )
+      else { return }
+      activeLearningSession.drawingStudio.machineCenter = center
+      activeLearningSession.drawingStudio.placementID = UUID()
+      rebuildDrawingStudioPlan()
+    case .run:
+      await runDrawingStudioPlan()
+    case .stop(let capabilityID):
+      await stopDrawingStudioPlan(capabilityID: capabilityID)
+    case .reviewRun:
+      activeLearningSession.drawingStudio.reviewIsPinned = true
+    case .resumeLivePreview:
+      activeLearningSession.drawingStudio.reviewIsPinned = false
+    case .newRun:
+      beginNewDrawingStudioPlan()
+    }
+  }
+
+  private var drawingStudioDraftMutationIsAvailable: Bool {
+    let state = activeLearningSession.drawingStudio
+    return drawingStudioIsPresented && !state.runInProgress && !state.terminalRequiresNewPlan
+  }
+
+  private func beginNewDrawingStudioPlan() {
+    guard !activeLearningSession.drawingStudio.runInProgress else { return }
+    activeLearningSession.drawingStudio.lastRunRecord = nil
+    activeLearningSession.drawingStudio.baselineFrame = nil
+    activeLearningSession.drawingStudio.postFrame = nil
+    activeLearningSession.drawingStudio.reviewIsPinned = false
+    activeLearningSession.drawingStudio.terminalRequiresNewPlan = false
+    activeLearningSession.drawingStudio.runDetail = nil
+    activeLearningSession.drawingStudio.placementID = UUID()
+    overlayResultChannels.clearWorkflow(source: frameMode, owner: .drawingStudio)
+    rebuildDrawingStudioPlan()
+  }
+
+  private func rebuildDrawingStudioPlan() {
+    guard let registration = tipCameraRegistration,
+      let region = currentDrawableMachineRegion
+    else {
+      activeLearningSession.drawingStudio.program = nil
+      activeLearningSession.drawingStudio.plan = nil
+      activeLearningSession.drawingStudio.planningError = "A current accepted tip map is required."
+      return
+    }
+    do {
+      let entry = DrawingProgramCatalog.entry(
+        for: activeLearningSession.drawingStudio.selectedCatalogItemID
+      )
+      let center: Point2<MachineSpace>
+      if let existing = activeLearningSession.drawingStudio.machineCenter {
+        center = existing
+      } else {
+        center = try Point2<MachineSpace>(
+          x: (region.effectiveBounds.minX + region.effectiveBounds.maxX) / 2,
+          y: (region.effectiveBounds.minY + region.effectiveBounds.maxY) / 2
+        )
+      }
+      activeLearningSession.drawingStudio.machineCenter = center
+      let program = try DrawingProgramCatalog.program(
+        for: entry.id,
+        style: StrokeStyle(
+          nominalLineWidth: 0.4,
+          penProfileID: PenProfileID(toolAssemblyRevision.rawValue)
+        )
+      )
+      let placement = try DrawingPlacement(
+        fieldAnchor: Point2(
+          x: entry.fieldExtent.width / 2,
+          y: entry.fieldExtent.height / 2
+        ),
+        machineAnchor: center,
+        uniformScale: activeLearningSession.drawingStudio.uniformScale,
+        rotationRadians: activeLearningSession.drawingStudio.rotationDegrees * .pi / 180
+      )
+      let plan = try DrawingPlanner.plan(
+        program: program,
+        placement: placement,
+        drawableRegion: region,
+        provenance: try drawingPlanningProvenance(for: registration)
+      )
+      activeLearningSession.drawingStudio.program = program
+      activeLearningSession.drawingStudio.plan = plan
+      activeLearningSession.drawingStudio.planningError = nil
+    } catch {
+      activeLearningSession.drawingStudio.program =
+        activeLearningSession.drawingStudio.program
+        ?? (try? DrawingProgramCatalog.program(
+          for: activeLearningSession.drawingStudio.selectedCatalogItemID,
+          style: StrokeStyle(
+            nominalLineWidth: 0.4,
+            penProfileID: PenProfileID(toolAssemblyRevision.rawValue)
+          )
+        ))
+      activeLearningSession.drawingStudio.plan = nil
+      activeLearningSession.drawingStudio.planningError = "Plan refused: \(error)"
+    }
+  }
+
+  private func drawingPlanningProvenance(
+    for registration: TipCameraRegistration
+  ) throws -> DrawingPlanningProvenance {
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys]
+    let digest = try Digest(bytes: Array(SHA256.hash(data: encoder.encode(registration))))
+    return DrawingPlanningProvenance(
+      modelRevisionID: DrawingModelRevisionID(registration.acceptedRevisionID.rawValue),
+      modelContentHash: digest,
+      registrationRevisionID: DrawingRegistrationRevisionID(
+        registration.acceptedRevisionID.rawValue
+      ),
+      registrationContentHash: digest
+    )
+  }
+
+  private func drawingEvidenceRoleLabel(_ role: DrawingTrialEvidenceRole) -> String {
+    switch role {
+    case .ordinaryDrawing: "Ordinary drawing"
+    case .training: "Training"
+    case .reservedHoldout: "Reserved holdout"
+    case .evaluationHoldout: "Evaluation holdout"
+    }
+  }
+
+  private func drawingEvidenceRole(for label: String) -> DrawingTrialEvidenceRole {
+    switch label {
+    case "Training": .training
+    case "Reserved holdout": .reservedHoldout
+    case "Evaluation holdout": .evaluationHoldout
+    default: .ordinaryDrawing
+    }
+  }
+
+  private func runDrawingStudioPlan() async {
+    guard drawingStudioRunUnavailableReason == nil,
+      !activeLearningSession.drawingStudio.runInProgress,
+      frameMode == .live,
+      let machineActions,
+      let beginDrawingPlan = machineActions.beginDrawingPlan,
+      let observePlannedDrawingInk = cameraActions?.observePlannedDrawingInk,
+      let program = activeLearningSession.drawingStudio.program,
+      let plan = activeLearningSession.drawingStudio.plan,
+      let registration = tipCameraRegistration
+    else { return }
+
+    let capabilityID = ContextualStopCapabilityID()
+    let runID = RunID()
+    let requestID = UUID()
+    let placementID = activeLearningSession.drawingStudio.placementID
+    let role = activeLearningSession.drawingStudio.evidenceRole
+    let paper = currentPaperRevisionContext
+    var terminalOutcome: DrawingPlanOutcome?
+    var terminalRequestFrontier: DrawingRunRequestFrontier?
+    activeLearningSession.drawingStudio.runInProgress = true
+    activeLearningSession.drawingStudio.cancelRequested = false
+    activeLearningSession.drawingStudio.runDetail = "Positioning for an exact pre-drawing frame."
+    activeLearningSession.drawingStudio.lastRunRecord = nil
+    activeLearningSession.drawingStudio.reviewIsPinned = false
+    defer {
+      activeLearningSession.drawingStudio.activeStopCapabilityID = nil
+      activeLearningSession.drawingStudio.cancelRequested = false
+      activeLearningSession.drawingStudio.runInProgress = false
+    }
+
+    do {
+      guard let finalPoint = plan.strokes.last?.path.points.last else {
+        throw LearningPathOperationError.requiredState("The drawing plan has no final point.")
+      }
+      var observationPosition = try currentMachinePosition()
+      let preflightDelta = try observationPosition.point.vector(to: finalPoint)
+      if preflightDelta.dx != 0 || preflightDelta.dy != 0 {
+        let admission = await machineActions.beginRelativeJog(
+          RelativeJogRequest(delta: preflightDelta, feedMMPerMinute: 500)
+        )
+        switch admission {
+        case .admitted(let operation):
+          activeLearningSession.drawingStudio.activeStopCapabilityID = capabilityID
+          let outcome = await operation.outcome()
+          activeLearningSession.drawingStudio.activeStopCapabilityID = nil
+          switch outcome {
+          case .acceptedThenCompleted(let final):
+            observationPosition = final
+          case .cancelled:
+            activeLearningSession.drawingStudio.runDetail =
+              "Drawing cancelled before any plan segment was admitted."
+            return
+          case .refused(let reason):
+            activeLearningSession.drawingStudio.runDetail =
+              "Observation-position travel was refused: \(reason)"
+            return
+          case .ambiguous(let reason):
+            activeLearningSession.drawingStudio.runDetail =
+              "Observation-position travel is ambiguous: \(reason)"
+            return
+          }
+        case .rejected(let outcome):
+          activeLearningSession.drawingStudio.runDetail =
+            "Observation-position travel was rejected: \(outcome)"
+          return
+        }
+      }
+      guard !activeLearningSession.drawingStudio.cancelRequested else { return }
+      let baseline = try await captureProtocolFrame(
+        newerThan: displayedFrame?.frame.captureNanoseconds ?? 0
+      )
+      activeLearningSession.drawingStudio.baselineFrame = baseline
+      activeLearningSession.drawingStudio.runDetail =
+        "Executing \(plan.strokes.count) checkpointed stroke(s)."
+
+      let request = try DrawingPlanRequest(
+        operationID: DrawingPlanOperationID(rawValue: requestID),
+        plan: plan,
+        travelFeedMMPerMinute: 500,
+        drawingFeedMMPerMinute: 100,
+        penActuationProfile: currentPenActuationProfile
+      )
+      guard !activeLearningSession.drawingStudio.cancelRequested else { return }
+      let admission = await beginDrawingPlan(request)
+      let outcome: DrawingPlanOutcome
+      let requestFrontier: DrawingRunRequestFrontier
+      switch admission {
+      case .admitted(let operation):
+        requestFrontier = .admitted
+        activeLearningSession.drawingStudio.activeStopCapabilityID = capabilityID
+        outcome = await operation.outcome()
+        activeLearningSession.drawingStudio.activeStopCapabilityID = nil
+      case .rejected(let rejected):
+        requestFrontier = .validated
+        outcome = rejected
+      }
+      terminalOutcome = outcome
+      terminalRequestFrontier = requestFrontier
+      activeLearningSession.drawingStudio.terminalRequiresNewPlan = true
+      if outcome.progress.commandedStrokeCount > 0 {
+        activeLearningSession.drawingStudio.redrawBlockedPlanHashes.insert(plan.contentHash)
+      }
+      machineSnapshot = await machineActions.snapshot()
+
+      guard case .completed(_, let finalPosition) = outcome else {
+        let record = try makeDrawingStudioRunRecord(
+          runID: runID,
+          requestID: requestID,
+          role: role,
+          requestFrontier: requestFrontier,
+          outcome: outcome,
+          program: program,
+          plan: plan,
+          placementID: placementID,
+          registration: registration,
+          paper: paper,
+          observation: drawingObservationNotAttempted(for: outcome)
+        )
+        await retainDrawingStudioRunRecord(record)
+        activeLearningSession.drawingStudio.runDetail =
+          "Drawing stopped without redraw: \(String(describing: outcome))"
+        return
+      }
+      guard
+        currentPaperRevisionContext == paper,
+        MachinePositionAcceptancePolicy.accepts(
+          finalPosition,
+          target: MachinePosition(point: finalPoint)
+        )
+      else {
+        throw LearningPathOperationError.requiredState(
+          "Paper lineage changed or controller completion did not settle at the exact observation pose."
+        )
+      }
+
+      activeLearningSession.drawingStudio.runDetail = "Capturing and comparing new ink."
+      let post = try await captureProtocolFrame(
+        newerThan: baseline.frame.captureNanoseconds
+      )
+      activeLearningSession.drawingStudio.postFrame = post
+      let intended = try plan.strokes.map { stroke in
+        try Polyline(points: stroke.path.points.map { try registration.tipPixel(at: $0) })
+      }
+      let region = plannedDrawingObservationRegion(
+        intended,
+        frameWidth: post.frame.width,
+        frameHeight: post.frame.height
+      )
+      let frames = try DrawingObservationFramePair(
+        source: post.source,
+        baseline: ExactFrameProvenance(frame: baseline.frame),
+        post: ExactFrameProvenance(frame: post.frame)
+      )
+      let observed = await observePlannedDrawingInk(
+        PlannedDrawingObservationRequest(
+          frames: frames,
+          localPreDrawingBaseline: SamePoseFrameSample(
+            displayedFrame: baseline,
+            controllerPosition: observationPosition
+          ),
+          postDrawing: SamePoseFrameSample(
+            displayedFrame: post,
+            controllerPosition: finalPosition
+          ),
+          region: region,
+          intendedCameraPolylines: intended,
+          thresholds: InkPixelThresholds(minimumLuminanceDecrease: 20),
+          controllerPositionToleranceMM: MachinePositionAcceptancePolicy.toleranceMM,
+          alignmentSearchRadiusPixels: FixedCameraOpticalSettlingPolicy
+            .alignmentSearchRadiusPixels,
+          maximumAlignmentShiftPixels: FixedCameraOpticalSettlingPolicy
+            .maximumAlignmentShiftPixels,
+          maximumBackgroundMeanAbsoluteDifference: FixedCameraOpticalSettlingPolicy
+            .maximumBackgroundMeanAbsoluteDifference,
+          observerRevision: try AlgorithmRevisionEvidence(
+            component: "planned-drawing-observer",
+            revision: "bounded-nearest-polyline-v1"
+          ),
+          additionalAlgorithmRevisions: [
+            try AlgorithmRevisionEvidence(
+              component: "drawing-plan-runner",
+              revision: "checkpointed-multistroke-v1"
+            )
+          ]
+        )
+      )
+      let runObservation: DrawingRunObservationOutcome
+      let evidenceDisposition: DrawingTrialEvidenceDisposition
+      switch observed {
+      case .observed(let observation):
+        overlayResultChannels.publishWorkflow(
+          OverlayChannelResult(displayedFrame: post, overlays: observation.overlays),
+          source: frameMode,
+          owner: .drawingStudio
+        )
+        runObservation = .observed(observation.evidence)
+        evidenceDisposition = .attributable
+      case .rejected(let rejection):
+        runObservation = .rejected(rejection)
+        evidenceDisposition = .visionUnclear
+      }
+      let record = try makeDrawingStudioRunRecord(
+        runID: runID,
+        requestID: requestID,
+        role: role,
+        requestFrontier: requestFrontier,
+        outcome: outcome,
+        program: program,
+        plan: plan,
+        placementID: placementID,
+        registration: registration,
+        paper: paper,
+        observation: runObservation,
+        evidenceDispositionOverride: evidenceDisposition
+      )
+      await retainDrawingStudioRunRecord(record)
+      activeLearningSession.drawingStudio.reviewIsPinned = true
+      activeLearningSession.drawingStudio.runDetail =
+        evidenceDisposition == .attributable
+        ? "Controller execution and planned-ink comparison are attributable."
+        : "Controller execution completed; Vision evidence needs attention."
+    } catch {
+      let primaryError = "Drawing run failed: \(error)"
+      if let outcome = terminalOutcome,
+        let requestFrontier = terminalRequestFrontier,
+        activeLearningSession.drawingStudio.lastRunRecord == nil
+      {
+        do {
+          let record = try makeDrawingStudioRunRecord(
+            runID: runID,
+            requestID: requestID,
+            role: role,
+            requestFrontier: requestFrontier,
+            outcome: outcome,
+            program: program,
+            plan: plan,
+            placementID: placementID,
+            registration: registration,
+            paper: paper,
+            observation: drawingObservationNotAttempted(for: outcome)
+          )
+          await retainDrawingStudioRunRecord(record)
+        } catch {
+          drawingEvidenceError = "\(primaryError) Terminal evidence also failed: \(error)"
+        }
+      }
+      activeLearningSession.drawingStudio.runDetail = primaryError
+      if drawingEvidenceError == nil { drawingEvidenceError = primaryError }
+    }
+  }
+
+  private func stopDrawingStudioPlan(capabilityID: ContextualStopCapabilityID) async {
+    guard activeLearningSession.drawingStudio.activeStopCapabilityID == capabilityID else { return }
+    activeLearningSession.drawingStudio.cancelRequested = true
+    _ = await machineActions?.requestJogCancel(.operatorStop)
+  }
+
+  private func plannedDrawingObservationRegion(
+    _ intended: [Polyline<CameraPixelSpace>],
+    frameWidth: Int,
+    frameHeight: Int
+  ) -> PixelRect {
+    let points = intended.flatMap(\.points)
+    let margin = 8
+    let minX = max(0, Int(floor(points.map(\.x).min() ?? 0)) - margin)
+    let minY = max(0, Int(floor(points.map(\.y).min() ?? 0)) - margin)
+    let maxX = min(frameWidth - 1, Int(ceil(points.map(\.x).max() ?? 0)) + margin)
+    let maxY = min(frameHeight - 1, Int(ceil(points.map(\.y).max() ?? 0)) + margin)
+    return PixelRect(
+      x: minX,
+      y: minY,
+      width: max(1, maxX - minX + 1),
+      height: max(1, maxY - minY + 1)
+    )
+  }
+
+  private func drawingObservationNotAttempted(
+    for outcome: DrawingPlanOutcome
+  ) -> DrawingRunObservationOutcome {
+    switch outcome {
+    case .refused:
+      .notAttempted(.requestRefused)
+    case .cancelled:
+      .notAttempted(.executionCancelledBeforeObservation)
+    case .ambiguous, .possibleInk:
+      .notAttempted(.executionFailedBeforeObservation)
+    case .completed:
+      .notAttempted(.frameEvidenceUnavailable)
+    }
+  }
+
+  private func makeDrawingStudioRunRecord(
+    runID: RunID,
+    requestID: UUID,
+    role: DrawingTrialEvidenceRole,
+    requestFrontier: DrawingRunRequestFrontier,
+    outcome: DrawingPlanOutcome,
+    program: DrawingProgram,
+    plan: ExecutionPlanRevision,
+    placementID: UUID,
+    registration: TipCameraRegistration,
+    paper: PaperRevisionContext,
+    observation: DrawingRunObservationOutcome,
+    evidenceDispositionOverride: DrawingTrialEvidenceDisposition? = nil
+  ) throws -> DrawingRunEvidenceRecord {
+    let progress = outcome.progress
+    let executionDisposition: DrawingRunExecutionDisposition
+    let evidenceDisposition: DrawingTrialEvidenceDisposition
+    switch outcome {
+    case .completed:
+      executionDisposition = .completed
+      evidenceDisposition = evidenceDispositionOverride ?? .visionUnclear
+    case .refused(_, let reason):
+      executionDisposition = .refused(reason: String(describing: reason))
+      evidenceDisposition = .refused
+    case .cancelled:
+      executionDisposition = .cancelled(reason: "Operator Stop")
+      evidenceDisposition = .cancelled
+    case .ambiguous(_, let reason):
+      executionDisposition = .ambiguous(reason: String(describing: reason))
+      evidenceDisposition = .ambiguous
+    case .possibleInk(_, let reason, _):
+      executionDisposition = .ambiguous(reason: String(describing: reason))
+      evidenceDisposition = .possibleInk
+    }
+    let verifiedCount: Int =
+      evidenceDisposition == .attributable
+      ? progress.controllerCompletedStrokeCount : 0
+    let provenance = try drawingPlanningProvenance(for: registration)
+    return try DrawingRunEvidenceRecord(
+      runID: runID,
+      requestID: requestID,
+      role: role,
+      evidenceDisposition: evidenceDisposition,
+      requestFrontier: requestFrontier,
+      executionFrontiers: DrawingRunExecutionFrontiers(
+        plannedStrokeCount: UInt32(progress.plannedStrokeCount),
+        commandedStrokeCount: UInt32(progress.commandedStrokeCount),
+        controllerCompletedStrokeCount: UInt32(progress.controllerCompletedStrokeCount),
+        inkVerifiedStrokeCount: UInt32(verifiedCount)
+      ),
+      executionDisposition: executionDisposition,
+      program: DrawingProgramEvidenceReference(program: program),
+      placement: DrawingPlacementEvidenceReference(
+        placementID: placementID,
+        placement: plan.placement
+      ),
+      plan: DrawingExecutionPlanEvidenceReference(plan: plan),
+      planningProvenance: provenance,
+      tipCalibration: DrawingTipCalibrationEvidenceReference(
+        acceptedRevisionID: registration.acceptedRevisionID,
+        registrationEvidenceSHA256: provenance.registrationContentHash.description,
+        applicability: registration.applicability,
+        estimatorRevision: registration.estimatorRevision
+      ),
+      paper: paper,
+      observation: observation,
+      recordedAt: RuntimeTimestamp(monotonicNanoseconds: nowNanoseconds())
+    )
+  }
+
+  private func retainDrawingStudioRunRecord(_ record: DrawingRunEvidenceRecord) async {
+    activeLearningSession.drawingStudio.lastRunRecord = record
+    guard frameMode == .live, let actions = liveDrawingEvidenceActions else { return }
+    do {
+      drawingEvidenceArchive = try await actions.append(record)
+      drawingEvidenceError = nil
+    } catch {
+      drawingEvidenceError = "Drawing evidence could not be archived: \(error)"
+    }
+  }
+
+  func confirmCurrentPaperCoversDrawableRegion() {
+    guard !activeLearningSession.drawingStudio.runInProgress else {
+      drawingEvidenceError =
+        "Paper coverage cannot change while a drawing run owns execution or evidence capture."
+      return
+    }
+    guard let frame = displayedFrame,
+      let registration = tipCameraRegistration,
+      let region = currentDrawableMachineRegion
+    else {
+      drawingEvidenceError =
+        "A current tip map and displayed frame are required to confirm paper coverage."
+      return
+    }
+    let bounds = region.effectiveBounds
+    let machineCorners: [Point2<MachineSpace>] = [
+      try? Point2(x: bounds.minX, y: bounds.minY),
+      try? Point2(x: bounds.maxX, y: bounds.minY),
+      try? Point2(x: bounds.maxX, y: bounds.maxY),
+      try? Point2(x: bounds.minX, y: bounds.maxY),
+    ].compactMap { $0 }
+    do {
+      let polygon = try machineCorners.map { try registration.tipPixel(at: $0) }
+      let observation = try PaperCoverageObservation(
+        paper: currentPaperRevisionContext,
+        source: frame.source,
+        frame: ExactFrameProvenance(frame: frame.frame),
+        polygon: polygon,
+        method: .operatorAccepted,
+        observedAt: RuntimeTimestamp(
+          monotonicNanoseconds: max(nowNanoseconds(), frame.frame.captureNanoseconds)
+        ),
+        algorithmRevision: "operator-confirmed-calibrated-region-coverage-v1"
+      )
+      currentPaperCoverageObservation = observation
+      if frameMode == .live { try livePaperCoverageActions?.save(observation) }
+      drawingEvidenceError = nil
+    } catch {
+      drawingEvidenceError = "Paper coverage could not be recorded: \(error)"
+    }
+  }
+
+  var currentDrawableMachineRegion: DrawableMachineRegion? {
+    guard let registration = tipCameraRegistration else { return nil }
+    return try? DrawableMachineRegion(bounds: registration.applicabilityRectangle)
+  }
+
+  private func learnedDrawingOverlays(
+    on displayedFrame: DisplayedFrame
+  ) -> [CameraOverlayMeasurement] {
+    guard let registration = tipCameraRegistration,
+      displayedFrame.source == registration.applicability.opticalConfiguration.source,
+      displayedFrame.frame.width == registration.applicability.opticalConfiguration.width,
+      displayedFrame.frame.height == registration.applicability.opticalConfiguration.height,
+      displayedFrame.frame.pixelFormat
+        == registration.applicability.opticalConfiguration.pixelFormat,
+      let region = currentDrawableMachineRegion
+    else { return [] }
+
+    let bounds = region.effectiveBounds
+    let machineCorners: [Point2<MachineSpace>] = [
+      try? Point2(x: bounds.minX, y: bounds.minY),
+      try? Point2(x: bounds.maxX, y: bounds.minY),
+      try? Point2(x: bounds.maxX, y: bounds.maxY),
+      try? Point2(x: bounds.minX, y: bounds.maxY),
+      try? Point2(x: bounds.minX, y: bounds.minY),
+    ].compactMap { $0 }
+    var overlays: [CameraOverlayMeasurement] = []
+    if machineCorners.count == 5,
+      let polyline = try? Polyline(
+        points: machineCorners.map { try registration.tipPixel(at: $0) }
+      )
+    {
+      overlays.append(
+        CameraOverlayMeasurement(
+          frameID: displayedFrame.frame.id,
+          cameraConfigurationID: displayedFrame.frame.cameraConfigurationID,
+          geometry: .polyline(polyline),
+          provenance: CameraMeasurementProvenance(
+            kind: .calibratedDrawableRegion,
+            source: .inferred,
+            algorithmRevision: "accepted-tip-applicability-region-v1"
+          )
+        )
+      )
+    }
+    if let position = try? currentMachinePosition(),
+      let point = try? registration.tipPixel(at: position.point)
+    {
+      overlays.append(
+        CameraOverlayMeasurement(
+          frameID: displayedFrame.frame.id,
+          cameraConfigurationID: displayedFrame.frame.cameraConfigurationID,
+          geometry: .point(point),
+          provenance: CameraMeasurementProvenance(
+            kind: .predictedContactPoint,
+            source: .inferred,
+            algorithmRevision: "accepted-tip-current-position-v1"
+          )
+        )
+      )
+    }
+    if let coverage = currentPaperCoverageObservation,
+      coverage.frame.frameID == displayedFrame.frame.id,
+      coverage.frame.cameraConfigurationID == displayedFrame.frame.cameraConfigurationID,
+      let polygon = try? Polyline(points: coverage.polygon + [coverage.polygon[0]])
+    {
+      overlays.append(
+        CameraOverlayMeasurement(
+          frameID: displayedFrame.frame.id,
+          cameraConfigurationID: displayedFrame.frame.cameraConfigurationID,
+          geometry: .polyline(polygon),
+          provenance: CameraMeasurementProvenance(
+            kind: .paperCoverage,
+            source: coverage.method == .visionMeasured ? .measured : .diagnostic,
+            algorithmRevision: coverage.algorithmRevision
+          )
+        )
+      )
+    }
+    return overlays
+  }
+
+  var completedComparisonReviewPresentation: CompletedComparisonReviewPresentation {
+    guard !activeLearningSession.drawingStudio.runInProgress,
+      completedDrawingComparisonReviewIsAvailable,
+      let frame = explorationPostLineFrame
+    else {
+      return .unavailable
+    }
+    let provenance = ExactFrameOverlayProvenance(frame)
+    return CompletedComparisonReviewPresentation(
+      state: completedDrawingComparisonReviewIsPinned
+        ? .reviewingExactFrame(provenance)
+        : .available(provenance),
+      drawingStudioIsAvailable: drawingTrialAssessment == .predictionObserved
+    )
+  }
+
+  var completedDrawingComparisonReviewIsAvailable: Bool {
+    drawingTrialAssessment != nil && explorationPostLineFrame != nil && lastInkObservation != nil
+  }
+
+  var completedDrawingComparisonReviewIsPinned: Bool {
+    activeLearningSession.drawingTrial.comparisonReviewIsPinned
+  }
+
+  func reviewCompletedDrawingComparison() {
+    guard completedDrawingComparisonReviewIsAvailable,
+      !activeLearningSession.drawingStudio.runInProgress
+    else { return }
+    activeLearningSession.drawingStudio.reviewIsPinned = false
+    drawingStudioIsPresented = false
+    activeLearningSession.drawingTrial.comparisonReviewIsPinned = true
+  }
+
+  func resumeLivePreviewAfterDrawingComparison() {
+    activeLearningSession.drawingTrial.comparisonReviewIsPinned = false
   }
 
   private func drawingTrialPredictionOverlays(
@@ -1733,6 +2879,7 @@ final class OperatorWorkspace {
     case .relativeJog: "relative jog"
     case .boundaryMotion: "Boundary Discovery motion"
     case .drawingStroke: "isolated drawing stroke"
+    case .drawingPlan: "drawing execution plan"
     case .penActuation(let command): "pen \(command.rawValue)"
     }
   }
@@ -2285,7 +3432,8 @@ final class OperatorWorkspace {
       return true
     }
     if includes(.observedDrawingTrial(.chooseIsolatedLinePlan)),
-      drawingTrialLineStart != nil || localPreLineBaseline != nil || drawingTrialStrokeEvidence != nil
+      drawingTrialLineStart != nil || localPreLineBaseline != nil
+        || drawingTrialStrokeEvidence != nil
         || explorationPostLineFrame != nil || drawingTrialAssessment != nil
         || !comparisonAttemptHistories.isEmpty
     {
@@ -2440,15 +3588,16 @@ final class OperatorWorkspace {
     includeReset: Bool
   ) -> LearningPathProjectionSnapshot {
     let currentPosition = try? currentMachinePosition()
-    let centerTravelFeed: TravelFeedSelection? = if let center = estimatedMachineCenter,
-      let currentPosition,
-      let delta = try? Vector2<MachineSpace>(
-        dx: center.point.x - currentPosition.point.x,
-        dy: center.point.y - currentPosition.point.y
-      )
-    {
-      travelFeedSelection(for: delta)
-    } else { nil }
+    let centerTravelFeed: TravelFeedSelection? =
+      if let center = estimatedMachineCenter,
+        let currentPosition,
+        let delta = try? Vector2<MachineSpace>(
+          dx: center.point.x - currentPosition.point.x,
+          dy: center.point.y - currentPosition.point.y
+        )
+      {
+        travelFeedSelection(for: delta)
+      } else { nil }
     let boundaryTravelFeeds = Dictionary(
       uniqueKeysWithValues: BoundaryDirection.allCases.map {
         ($0, boundaryTravelFeedSelection())
@@ -2460,7 +3609,8 @@ final class OperatorWorkspace {
       case .pairedBoundary(let id, let transactionID, _, _, let direction):
         let sequence = sequenceID(for: direction)
         guard discoveryTransactions[sequence]?.id == transactionID,
-          case .awaitContextualStop(direction) = discoveryTransactions[sequence]?.currentStep?.action
+          case .awaitContextualStop(direction) = discoveryTransactions[sequence]?.currentStep?
+            .action
         else { return nil }
         return .pairedBoundary(id, direction)
       case .manualJog(let id, _): return .manualJog(id)
@@ -2483,7 +3633,8 @@ final class OperatorWorkspace {
           reason = discoveryStartUnavailableReason(for: sequenceID(for: selectedBoundaryDirection))
         case .humanGuidedDiscovery(.calibrateCameraAndVisibleCap),
           .humanGuidedDiscovery(.calibratePenContactFromSparseMarks):
-          reason = frameMode == .simulated || cameraIsLive
+          reason =
+            frameMode == .simulated || cameraIsLive
             ? nil : "A current LIVE camera frame is required."
         case .observedDrawingTrial(let step):
           reason = drawingTrialActionUnavailableReason(
@@ -2511,10 +3662,11 @@ final class OperatorWorkspace {
     } else {
       resetFacts = .init()
     }
-    let savedCheckpointMatchesPaper = quarantinedTipCalibrationCheckpoint.map {
-      $0.registration.applicability.paperContactPlane.rawValue
-        == explorationToolPaperRevision
-    } ?? false
+    let savedCheckpointMatchesPaper =
+      quarantinedTipCalibrationCheckpoint.map {
+        $0.registration.applicability.paperContactPlane.rawValue
+          == explorationPaperContactPlaneRevision
+      } ?? false
     return LearningPathProjectionSnapshot(
       source: frameMode,
       learningEnabled: learningIsEnabled,
@@ -2772,7 +3924,8 @@ final class OperatorWorkspace {
       )
       discoveryError = nil
     } catch {
-      discoveryError = "Identify Pen Cap could not freeze an exact frame: \(actionableDescription(error))"
+      discoveryError =
+        "Identify Pen Cap could not freeze an exact frame: \(actionableDescription(error))"
       finishActiveExerciseAttempt(disposition: .failed(String(describing: error)))
       restartableExerciseItemID = .humanGuidedDiscovery(.penInteraction)
     }
@@ -3712,8 +4865,9 @@ final class OperatorWorkspace {
       }
       return
     }
-    guard sparseTipCalibrationCoordinator.collectedClickCount
-      == SparseTipCalibrationCoordinator.orderedPositions.count
+    guard
+      sparseTipCalibrationCoordinator.collectedClickCount
+        == SparseTipCalibrationCoordinator.orderedPositions.count
     else {
       explorationError = nil
       return
@@ -3865,14 +5019,16 @@ final class OperatorWorkspace {
           calibrationPosition: mark.position,
           machinePosition: mark.machinePosition,
           markRadiusMM: SparseTipCircularMarkPlan.radiusMM,
-          paperContactPlane: PaperContactPlaneRevision(
-            rawValue: explorationToolPaperRevision
+          paperInstance: PaperInstanceRevision(
+            rawValue: explorationPaperInstanceRevision
           )
         )
       }
-      guard physicalLocations.allSatisfy({
-        !blacklistedToolContactLocations.contains($0)
-      }) else {
+      guard
+        physicalLocations.allSatisfy({
+          !blacklistedToolContactLocations.contains($0)
+        })
+      else {
         throw LearningPathOperationError.requiredState(
           "Possible ink already blacklists one of the five Stage 3.4 circle locations on the current paper."
         )
@@ -3902,11 +5058,13 @@ final class OperatorWorkspace {
           settled = current
         }
         try requireSparseTipBatchContinuation()
-        guard recordProtocolPoseSettlement(
-          action: .sparseTipApproach(position),
-          target: plannedMark.machinePosition,
-          actual: settled
-        ) else {
+        guard
+          recordProtocolPoseSettlement(
+            action: .sparseTipApproach(position),
+            target: plannedMark.machinePosition,
+            actual: settled
+          )
+        else {
           throw LearningPathOperationError.controllerFailed(
             "Sparse mark approach did not settle within 0.05 mm."
           )
@@ -3936,11 +5094,13 @@ final class OperatorWorkspace {
           action: .sparseTipCircleStart(position)
         )
         try requireSparseTipBatchContinuation()
-        guard recordProtocolPoseSettlement(
-          action: .sparseTipCircleStart(position),
-          target: plannedMark.circle.startPosition,
-          actual: markStartSettled
-        ) else {
+        guard
+          recordProtocolPoseSettlement(
+            action: .sparseTipCircleStart(position),
+            target: plannedMark.circle.startPosition,
+            actual: markStartSettled
+          )
+        else {
           throw LearningPathOperationError.controllerFailed(
             "Sparse circle start did not settle within 0.05 mm."
           )
@@ -4321,7 +5481,8 @@ final class OperatorWorkspace {
   }
 
   private func acceptSparseTipBatchClicks() throws {
-    guard pendingToolContactEvidence.count == SparseTipCalibrationCoordinator.orderedPositions.count,
+    guard
+      pendingToolContactEvidence.count == SparseTipCalibrationCoordinator.orderedPositions.count,
       sparseTipCalibrationCoordinator.collectedClickCount
         == SparseTipCalibrationCoordinator.orderedPositions.count,
       let request = toolContactPointSelectionRequest,
@@ -4385,7 +5546,7 @@ final class OperatorWorkspace {
         toolAssembly: toolAssemblyRevision,
         penContactProfile: penContactProfileRevision,
         paperContactPlane: PaperContactPlaneRevision(
-          rawValue: explorationToolPaperRevision
+          rawValue: explorationPaperContactPlaneRevision
         ),
         preMarkFrame: pending.preMarkFrame,
         preMarkCapEstimate: pending.preMarkCapEstimate,
@@ -4443,7 +5604,7 @@ final class OperatorWorkspace {
         toolAssembly: toolAssemblyRevision,
         penContactProfile: penContactProfileRevision,
         paperContactPlane: PaperContactPlaneRevision(
-          rawValue: explorationToolPaperRevision
+          rawValue: explorationPaperContactPlaneRevision
         )
       ),
       acceptedRevisionID: registrationRevisionID,
@@ -4493,6 +5654,7 @@ final class OperatorWorkspace {
       learningArtifactGraph = graph
       applyArtifactInvalidations(commit.invalidatedRevisionIDs)
       tipCameraRegistration = proposal
+      restoreInteractiveLearningCompletionFromEvidence()
       proposedTipCameraRegistration = nil
       sparseTipCalibrationCoordinator = coordinator
       quarantinedTipCalibrationCheckpoint = nil
@@ -4521,7 +5683,7 @@ final class OperatorWorkspace {
         for: .machineCameraRegistration
       )?.id,
       checkpoint.registration.applicability.paperContactPlane.rawValue
-        == explorationToolPaperRevision
+        == explorationPaperContactPlaneRevision
     else { return }
 
     let operationID = UUID()
@@ -4547,7 +5709,7 @@ final class OperatorWorkspace {
         toolAssembly: toolAssemblyRevision,
         penContactProfile: penContactProfileRevision,
         paperContactPlane: PaperContactPlaneRevision(
-          rawValue: explorationToolPaperRevision
+          rawValue: explorationPaperContactPlaneRevision
         )
       )
       let evidenceTimestamp = RuntimeTimestamp(
@@ -4620,6 +5782,7 @@ final class OperatorWorkspace {
 
       learningArtifactGraph = graph
       tipCameraRegistration = restoredRegistration
+      restoreInteractiveLearningCompletionFromEvidence()
       proposedTipCameraRegistration = nil
       quarantinedTipCalibrationCheckpoint = nil
       finishActiveExerciseAttempt(disposition: .succeeded)
@@ -4684,6 +5847,26 @@ final class OperatorWorkspace {
   }
 
   private func recordPaperReplaced() async {
+    await recordPaperReplacement(contactPlaneChanged: false)
+  }
+
+  func recordNewPaperSheetOnCurrentPlane() async {
+    await recordPaperReplacement(contactPlaneChanged: false)
+  }
+
+  /// Records a new sheet on a changed support/stock/contact plane. Ordinary
+  /// sheet replacement uses `recordPaperReplaced()` and deliberately retains
+  /// current tip calibration.
+  func recordPaperContactPlaneChanged() async {
+    await recordPaperReplacement(contactPlaneChanged: true)
+  }
+
+  private func recordPaperReplacement(contactPlaneChanged: Bool) async {
+    guard !activeLearningSession.drawingStudio.runInProgress else {
+      drawingEvidenceError =
+        "Paper identity cannot change until the current drawing run and evidence capture settle."
+      return
+    }
     let replacementSnapshot: SimulatedLearningSnapshot?
     if frameMode == .simulated {
       do {
@@ -4701,33 +5884,48 @@ final class OperatorWorkspace {
     {
       finishActiveExerciseAttempt(disposition: .cancelled)
     }
-    var graph = learningArtifactGraph
-    let invalidation = graph.invalidateCurrentRevisions(rootKinds: [.tipCameraRegistration])
-    learningArtifactGraph = graph
-    applyArtifactInvalidations(invalidation.allInvalidatedRevisionIDs)
-    tipCameraRegistration = nil
-    proposedTipCameraRegistration = nil
+    if contactPlaneChanged {
+      var graph = learningArtifactGraph
+      let invalidation = graph.invalidateCurrentRevisions(rootKinds: [.tipCameraRegistration])
+      learningArtifactGraph = graph
+      applyArtifactInvalidations(invalidation.allInvalidatedRevisionIDs)
+      tipCameraRegistration = nil
+      proposedTipCameraRegistration = nil
+      explorationPaperContactPlaneRevision = UUID()
+      if frameMode == .live {
+        persistPaperContactPlaneRevision(
+          PaperContactPlaneRevision(rawValue: explorationPaperContactPlaneRevision)
+        )
+      }
+    }
     if let replacementSnapshot {
       simulatedLearningSnapshot = replacementSnapshot
-      explorationToolPaperRevision = replacementSnapshot.toolPaperRevision
+      explorationPaperInstanceRevision = replacementSnapshot.toolPaperRevision
     } else {
-      explorationToolPaperRevision = UUID()
-      persistPaperContactPlaneRevision(
-        PaperContactPlaneRevision(rawValue: explorationToolPaperRevision)
+      explorationPaperInstanceRevision = UUID()
+      persistPaperInstanceRevision(
+        PaperInstanceRevision(rawValue: explorationPaperInstanceRevision)
       )
     }
-    sparseTipCalibrationCoordinator = SparseTipCalibrationCoordinator(
-      blacklistedLocations: blacklistedToolContactLocations.filter {
-        $0.paperContactPlane.rawValue == explorationToolPaperRevision
-      }
-    )
-    if quarantinedTipCalibrationCheckpoint == nil,
+    sparseTipCalibrationCoordinator = freshSparseTipCalibrationCoordinatorForCurrentPaper()
+    currentPaperCoverageObservation = nil
+    if frameMode == .live { livePaperCoverageActions?.clear() }
+    if contactPlaneChanged, quarantinedTipCalibrationCheckpoint == nil,
       let actions = activeAcceptedTipCalibrationCheckpointActions,
       case .quarantined(let checkpoint) = actions.load()
     {
       quarantinedTipCalibrationCheckpoint = checkpoint
     }
     clearDrawingLearningForRewind(from: .chooseIsolatedLinePlan)
+    activeLearningSession.drawingStudio.baselineFrame = nil
+    activeLearningSession.drawingStudio.postFrame = nil
+    activeLearningSession.drawingStudio.lastRunRecord = nil
+    activeLearningSession.drawingStudio.reviewIsPinned = false
+    activeLearningSession.drawingStudio.terminalRequiresNewPlan = false
+    activeLearningSession.drawingStudio.redrawBlockedPlanHashes = []
+    activeLearningSession.drawingStudio.runDetail = nil
+    overlayResultChannels.clearWorkflow(source: frameMode, owner: .drawingStudio)
+    if contactPlaneChanged { rebuildDrawingStudioPlan() }
     explorationError = nil
   }
 
@@ -4799,7 +5997,8 @@ final class OperatorWorkspace {
         }
         explorationError = "\(attemptedStep.title) failed: \(error)"
         finishActiveExerciseAttempt(disposition: workflowFailure(for: error).attemptDisposition)
-        restartableExerciseItemID = attemptedStep == .revealAndObserveNewInk
+        restartableExerciseItemID =
+          attemptedStep == .revealAndObserveNewInk
           ? nil : .observedDrawingTrial(.chooseIsolatedLinePlan)
         return
       }
@@ -4812,6 +6011,8 @@ final class OperatorWorkspace {
     do {
       try commitComparisonAttemptAndArtifact(.predictionObserved)
       drawingTrialAssessment = .predictionObserved
+      activeLearningSession.drawingTrial.comparisonReviewIsPinned = true
+      await persistCompletedIsolatedLineEvidence()
       finishActiveExerciseAttempt(disposition: .succeeded)
     } catch {
       explorationError = "Automatic comparison failed: \(error)"
@@ -5277,12 +6478,124 @@ final class OperatorWorkspace {
   }
 
   func performApplicationStartup(_ policy: AdaptivePlotterLaunchPolicy) async {
+    await loadDrawingEvidenceArchive()
     await refreshSerialDevices()
     switch policy.startupRoute {
     case .preferredCamera:
       await startPreferredCameraAtStartup()
     case .simulated:
       await switchFrameMode(.simulated)
+    }
+  }
+
+  private func loadDrawingEvidenceArchive() async {
+    guard let liveDrawingEvidenceActions else { return }
+    switch await liveDrawingEvidenceActions.load() {
+    case .absent:
+      drawingEvidenceArchive = DrawingRunEvidenceArchive()
+      activeLearningSession.drawingStudio.redrawBlockedPlanHashes = []
+      drawingEvidenceError = nil
+    case .loaded(let archive):
+      drawingEvidenceArchive = archive
+      drawingEvidenceError = nil
+      restoreDrawingRedrawBlocksFromEvidence()
+      restoreInteractiveLearningCompletionFromEvidence()
+    case .rejected(let rejection):
+      drawingEvidenceError = "Saved drawing evidence was rejected: \(rejection)"
+    }
+  }
+
+  private func restoreDrawingRedrawBlocksFromEvidence() {
+    let paper = currentPaperRevisionContext
+    activeLearningSession.drawingStudio.redrawBlockedPlanHashes = Set(
+      drawingEvidenceArchive.records.lazy
+        .filter {
+          $0.paper == paper && $0.executionFrontiers.commandedStrokeCount > 0
+        }
+        .map(\.plan.contentHash)
+    )
+  }
+
+  private func restoreInteractiveLearningCompletionFromEvidence() {
+    guard frameMode == .live, interactiveLearningIsComplete else { return }
+    drawingTrialAssessment = .predictionObserved
+  }
+
+  private func persistCompletedIsolatedLineEvidence() async {
+    guard frameMode == .live, let actions = liveDrawingEvidenceActions,
+      let attemptID = activeExerciseAttemptID,
+      let registration = tipCameraRegistration,
+      let lineStart = drawingTrialLineStart,
+      let lineEnd = drawingTrialLineEnd,
+      let observation = lastInkObservation,
+      let region = currentDrawableMachineRegion
+    else { return }
+    do {
+      let delta = try lineStart.point.vector(to: lineEnd.point)
+      let length = delta.magnitude
+      guard length > 0 else { return }
+      let program = try DrawingProgramCatalog.program(
+        for: .line,
+        style: StrokeStyle(
+          nominalLineWidth: 0.4,
+          penProfileID: PenProfileID(toolAssemblyRevision.rawValue)
+        )
+      )
+      let placement = try DrawingPlacement(
+        fieldAnchor: Point2<FieldSpace>(x: 5, y: 50),
+        machineAnchor: lineStart.point,
+        uniformScale: length / 90,
+        rotationRadians: atan2(delta.dy, delta.dx)
+      )
+      let provenance = try drawingPlanningProvenance(for: registration)
+      let plan = try DrawingPlanner.plan(
+        program: program,
+        placement: placement,
+        drawableRegion: region,
+        provenance: provenance
+      )
+      let runObservation = try DrawingRunObservationOutcome(
+        isolated: .observed(observation),
+        sourceForRejection: observation.source,
+        algorithmRevisionForRejection: observation.algorithmRevision
+      )
+      let registrationSHA = provenance.registrationContentHash.description
+      let record = try DrawingRunEvidenceRecord(
+        runID: RunID(attemptID.rawValue),
+        requestID: attemptID.rawValue,
+        role: .evaluationHoldout,
+        evidenceDisposition: .attributable,
+        requestFrontier: .admitted,
+        executionFrontiers: DrawingRunExecutionFrontiers(
+          plannedStrokeCount: 1,
+          commandedStrokeCount: 1,
+          controllerCompletedStrokeCount: 1,
+          inkVerifiedStrokeCount: 1
+        ),
+        executionDisposition: .completed,
+        program: DrawingProgramEvidenceReference(program: program),
+        placement: DrawingPlacementEvidenceReference(
+          placementID: attemptID.rawValue,
+          placement: placement
+        ),
+        plan: DrawingExecutionPlanEvidenceReference(plan: plan),
+        planningProvenance: provenance,
+        tipCalibration: DrawingTipCalibrationEvidenceReference(
+          acceptedRevisionID: registration.acceptedRevisionID,
+          registrationEvidenceSHA256: registrationSHA,
+          applicability: registration.applicability,
+          estimatorRevision: registration.estimatorRevision
+        ),
+        paper: currentPaperRevisionContext,
+        observation: runObservation,
+        recordedAt: RuntimeTimestamp(
+          monotonicNanoseconds: max(nowNanoseconds(), observation.postLine.captureNanoseconds)
+        )
+      )
+      drawingEvidenceArchive = try await actions.append(record)
+      drawingEvidenceError = nil
+    } catch {
+      drawingEvidenceError = "Completed comparison could not be archived: \(error)"
     }
   }
 
@@ -5548,7 +6861,8 @@ final class OperatorWorkspace {
         penCapAppearanceSelectionContext == nil,
         penInteractionSequenceUnavailableReason == nil
       else {
-        discoveryError = penInteractionSequenceUnavailableReason
+        discoveryError =
+          penInteractionSequenceUnavailableReason
           ?? "Identify Pen Cap must be accepted before Pen Interaction questions begin."
         return
       }
@@ -6415,7 +7729,8 @@ final class OperatorWorkspace {
     }
     guard let generation = beginHardwareIntent() else { return nil }
     defer { endHardwareIntent() }
-    let requestUnavailableReason = request.permitsUnknownPenStateAsPossibleInk
+    let requestUnavailableReason =
+      request.permitsUnknownPenStateAsPossibleInk
       ? directManualMotionUnavailableReason
       : ordinaryRelativeJogUnavailableReason
     guard requestUnavailableReason == nil, !jogRequestInProgress,
@@ -6618,7 +7933,8 @@ final class OperatorWorkspace {
   }
 
   private func requestSimulatedRelativeJog(_ request: RelativeJogRequest) async {
-    let requestUnavailableReason = request.permitsUnknownPenStateAsPossibleInk
+    let requestUnavailableReason =
+      request.permitsUnknownPenStateAsPossibleInk
       ? simulatedManualMotionUnavailableReason
       : ordinaryRelativeJogUnavailableReason
     guard requestUnavailableReason == nil, !jogRequestInProgress else { return }
@@ -6645,14 +7961,14 @@ final class OperatorWorkspace {
       simulatorLearningSummary = "Simulated manual motion is invalid: \(error)."
       return
     }
-    let response = await (
-      draws
-        ? simulatedLearningRuntime.beginDrawing(delta: vector)
-        : simulatedLearningRuntime.beginManualJog(
-          delta: vector,
-          permitsUnknownPenStateAsPossibleInk: permitsUnknownPenStateAsPossibleInk
-        )
-    )
+    let response =
+      await
+      (draws
+      ? simulatedLearningRuntime.beginDrawing(delta: vector)
+      : simulatedLearningRuntime.beginManualJog(
+        delta: vector,
+        permitsUnknownPenStateAsPossibleInk: permitsUnknownPenStateAsPossibleInk
+      ))
     let operation: SimulatedLearningOperation
     switch response.result {
     case .success(let admitted):
@@ -6962,7 +8278,8 @@ final class OperatorWorkspace {
       latestLiveCameraFrame = nil
       simulatedLearningSession = LearningSessionState(
         source: .simulated,
-        paperContactPlaneRevision: UUID()
+        paperInstanceRevision: UUID(),
+        paperContactPlaneRevision: simulatedLearningSession.explorationPaperContactPlaneRevision
       )
       frameMode = .simulated
       do {
@@ -6970,7 +8287,7 @@ final class OperatorWorkspace {
         guard canCommit(generation) else { return }
         lastSimulatedProtocolCaptureNanoseconds = scene.displayedFrame.frame.captureNanoseconds
         applySimulatedProtocolScene(scene)
-        explorationToolPaperRevision = scene.toolPaperRevision
+        explorationPaperInstanceRevision = scene.toolPaperRevision
       } catch {
         guard canCommit(generation) else { return }
         displayedFrame = nil
@@ -7167,7 +8484,8 @@ final class OperatorWorkspace {
         $0.profile.value(for: command) == setpoint ? $0 : nil
       }
       let position = try? currentMachinePosition()
-      let timestamp = execution?.timestamp
+      let timestamp =
+        execution?.timestamp
         ?? RuntimeTimestamp(monotonicNanoseconds: nowNanoseconds())
       if state == .down {
         activeLearningSession.pendingPenDownPositions.append(position)
@@ -7238,7 +8556,8 @@ final class OperatorWorkspace {
     }
     guard admittedOperation.ownerID == request.ownerID else {
       await failDiscovery(
-        sequenceID, failure: .failed("Boundary owner admission returned a mismatched owner identity."))
+        sequenceID,
+        failure: .failed("Boundary owner admission returned a mismatched owner identity."))
       return
     }
     let stopTarget = ContextualStopTarget.pairedBoundary(
@@ -8221,7 +9540,6 @@ final class OperatorWorkspace {
       : .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
   }
 
-
   private func jogDirection(for sequenceID: DiscoverySequenceID) -> JogDirection? {
     switch sequenceID {
     case .boundaryNegativeX: .xNegative
@@ -8580,7 +9898,7 @@ final class OperatorWorkspace {
   {
     SparseTipCalibrationCoordinator(
       blacklistedLocations: blacklistedToolContactLocations.filter {
-        $0.paperContactPlane.rawValue == explorationToolPaperRevision
+        $0.paperInstance.rawValue == explorationPaperInstanceRevision
       }
     )
   }
@@ -8795,7 +10113,9 @@ final class OperatorWorkspace {
   private func drawingTrialActionUnavailableReason(
     for step: ObservedDrawingTrialStep
   ) -> String? {
-    if activeExplorationOperation != nil { return "The current learning action is still in progress." }
+    if activeExplorationOperation != nil {
+      return "The current learning action is still in progress."
+    }
     if frameMode == .simulated {
       if cameraActions == nil { return "The simulator camera composition is unavailable." }
       if !controllerSessionEstablished { return "Connect the learning simulator first." }
@@ -8860,13 +10180,15 @@ final class OperatorWorkspace {
     let preferredDirections: [BoundaryDirection] = [
       .positiveX, .negativeX, .positiveY, .negativeY,
     ]
-    guard let plan = preferredDirections.lazy.compactMap({ direction in
-      try? ObservedDrawingTrialLinePlan(
-        direction: direction,
-        domain: registration.applicabilityRectangle,
-        existingMarks: existingMarks
-      )
-    }).first else {
+    guard
+      let plan = preferredDirections.lazy.compactMap({ direction in
+        try? ObservedDrawingTrialLinePlan(
+          direction: direction,
+          domain: registration.applicabilityRectangle,
+          existingMarks: existingMarks
+        )
+      }).first
+    else {
       throw ObservedDrawingTrialPlanningError.noClearFiveMillimeterLine
     }
     selectedLineDirection = plan.direction
@@ -8956,7 +10278,7 @@ final class OperatorWorkspace {
     guard let settlement, let expectedTarget,
       settlement.controllerSessionID == controllerSessionID,
       settlement.coordinateRevision == explorationCoordinateRevision,
-      settlement.toolPaperRevision == explorationToolPaperRevision,
+      settlement.toolPaperRevision == explorationPaperInstanceRevision,
       protocolPositionsMatch(settlement.target, expectedTarget),
       protocolPositionsMatch(settlement.actual, expectedTarget),
       controllerIsPenUpAndIdle,
@@ -9001,7 +10323,7 @@ final class OperatorWorkspace {
       toleranceMM: toleranceMM,
       controllerSessionID: controllerSessionID,
       coordinateRevision: explorationCoordinateRevision,
-      toolPaperRevision: explorationToolPaperRevision
+      toolPaperRevision: explorationPaperInstanceRevision
     )
     return residual <= toleranceMM
   }
@@ -9347,7 +10669,7 @@ final class OperatorWorkspace {
         tipRegistrationRevisionID: registrationRevisionID,
         controllerSessionID: controllerSessionID,
         coordinateRevision: explorationCoordinateRevision,
-        toolPaperRevision: explorationToolPaperRevision,
+        toolPaperRevision: explorationPaperInstanceRevision,
         controllerPositionToleranceMM: MachinePositionAcceptancePolicy.toleranceMM,
         alignmentSearchRadiusPixels:
           FixedCameraOpticalSettlingPolicy.alignmentSearchRadiusPixels,
@@ -9590,13 +10912,13 @@ extension Array {
 func machineBlockerLabel(_ blocker: MachineBlocker) -> String {
   switch blocker {
   case .noSerialDevice: "No serial device is selected."
-  case let .multipleSerialDevices(devices): "Select one of \(devices.count) serial devices."
-  case let .transport(reason): "Controller transport: \(reason)"
-  case let .timeout(query): "Controller timed out during \(query.rawValue)."
-  case let .invalidReply(query, reason): "Invalid \(query.rawValue) reply: \(reason)"
-  case let .responseLimitExceeded(query, maximumBytes, maximumChunks):
+  case .multipleSerialDevices(let devices): "Select one of \(devices.count) serial devices."
+  case .transport(let reason): "Controller transport: \(reason)"
+  case .timeout(let query): "Controller timed out during \(query.rawValue)."
+  case .invalidReply(let query, let reason): "Invalid \(query.rawValue) reply: \(reason)"
+  case .responseLimitExceeded(let query, let maximumBytes, let maximumChunks):
     "\(query.rawValue) exceeded \(maximumBytes) bytes or \(maximumChunks) chunks."
-  case let .controllerAlarm(code): "Controller alarm: \(code)"
-  case let .controllerError(code): "Controller error: \(code)"
+  case .controllerAlarm(let code): "Controller alarm: \(code)"
+  case .controllerError(let code): "Controller error: \(code)"
   }
 }

@@ -199,6 +199,9 @@ public enum CameraOverlayKind: String, Codable, CaseIterable, Hashable, Sendable
   case intendedPath
   case observedInk
   case residual
+  case calibratedDrawableRegion
+  case paperCoverage
+  case predictedContactPoint
   case penCap
   case armatureEstimate
   case diagnostic

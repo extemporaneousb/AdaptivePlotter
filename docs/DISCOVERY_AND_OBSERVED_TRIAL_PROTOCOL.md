@@ -286,12 +286,21 @@ identities:
    camera revision and derive a new accepted tip revision with the fresh
    revalidation evidence.
 
-After explicit paper replacement:
+After a new sheet on the explicitly unchanged contact plane:
 
-1. Retain the old checkpoint in quarantine and rotate the paper-plane identity.
+1. Rotate only `PaperInstanceRevision` and clear sheet-specific paper coverage,
+   possible-ink locations, and retained drawing review state.
+2. Retain current tip authority and the attributable line-validation lineage.
+3. Place the new sheet over the calibrated outline and explicitly confirm paper
+   coverage before drawing.
+
+After a changed support, stock thickness, contact height, or contact plane:
+
+1. Rotate `PaperInstanceRevision` and `PaperContactPlaneRevision` and invalidate
+   current tip authority.
 2. Rebuild and accept current Stage 3.3 authority.
-3. Run the current complete Stage 3.4 five-circle batch on the replacement
-   paper; the fifth valid click commits its new tip registration.
+3. Run the complete Stage 3.4 five-circle batch on the new plane; the fifth
+   valid click commits its new tip registration.
 
 Any mismatch or ambiguous contact leaves authority unavailable. It never falls
 back to automatic redraw or silent checkpoint promotion.
@@ -322,7 +331,9 @@ exercises or approval gates:
    processing. Retain observed geometry and residual, or a typed rejection.
 6. **Compare.** On normal observed-ink success, record the typed intended versus
    observed comparison automatically and display predicted cyan, observed white,
-   and residual orange geometry on the exact post-line frame.
+   and residual orange geometry on the exact post-line frame. Pin that frame and
+   comparison for explicit later review, and append an evaluation-holdout
+   drawing-run record.
 
 **Stop** remains available for admitted motion. Refusal or ambiguity before
 contact creates no drawing evidence and stops for recovery. Once stroke
@@ -333,8 +344,52 @@ drawing again.
 
 Completion remains on 4.1 with review/reset operations available. It proves one
 attributable validation of the current map, not a generally trained adaptive
-drawing model. There is no selectable Adaptive Drawing stage in the current
-application.
+drawing model. The toolbar reports **Interactive learning complete · one
+validation** and exposes Drawing Studio as a separate direct workbench, not a
+selectable Learning Path stage.
+
+## Drawing Studio — place, run, and observe
+
+1. Open **Drawing Studio** after the attributable Stage 4.1 result. Use
+   **Review Comparison** to return to the pinned exact post-line frame or
+   **Resume Live Preview** before placement.
+2. Confirm the calibrated drawable-region outline is visible. Place the current
+   physical sheet over it and choose **Confirm Paper Coverage**. The assertion
+   cites the current paper instance, contact plane, source, exact frame, and
+   camera configuration. It does not change calibration.
+3. Select a deterministic built-in program: line, polyline, rectangle, square,
+   triangle, regular polygon, circle, ellipse, star, pyramid, or elephant.
+   Curves use bounded deterministic tessellation.
+4. Click the video to place its center, then set uniform scale and rotation.
+   The workspace creates a new immutable placement and content-addressed plan on
+   each change. A stroke outside the calibrated region refuses planning; no
+   clipping or machine request occurs.
+5. Review the projected target on the exact current frame. Before Run, select
+   its fixed evidence role: ordinary drawing, training, reserved holdout, or
+   evaluation holdout. Do not change the role after seeing the outcome.
+6. Press **Run Drawing** only when LIVE controller admission, Motion, settled
+   Pen Up, current paper coverage, and the exact plan are all current. The app
+   first selects the plan's final point as the same-pose observation location
+   and captures the local pre-drawing baseline there.
+7. One `RunInterpreter` owner performs Pen-Up travel, lower, each finite segment,
+   raise, and the logical-stroke checkpoint sequence. **Stop** is capability-
+   bound to that owner. Competing plans are refused without replacing active
+   progress.
+8. On controller-completed execution, require final MPos at the observation
+   location, capture a strictly newer post frame, associate new ink against all
+   planned polylines, and retain intended, observed, and residual overlays on
+   that exact frame.
+9. Append the terminal record even when execution is refused, cancelled,
+   ambiguous, possible-ink, or Vision-unclear. Never resend or redraw after a
+   terminal result. Only attributable predeclared training records are eligible
+   for later fitting; reserved/evaluation holdouts remain sealed evaluation.
+
+**New Sheet — Same Contact Plane** retains the accepted map and validation but
+rotates sheet identity and requires a new coverage assertion. **Contact Plane
+Changed** invalidates the tip map and returns the dependency chain to contact
+calibration. Simulation may exercise catalog placement and exact plan preview;
+it cannot run the physical Drawing Studio operation or produce physical run
+evidence.
 
 ## Dependency and recovery contract
 
@@ -344,7 +399,9 @@ four side aggregates -> center -> center arrival
 -> five immutable contact observations -> accepted tip-camera registration
 -> local line plan + local baseline/reveal pose
 -> line execution + newer post-line frame
--> ink observation -> residual -> typed comparison
+-> ink observation -> residual -> typed comparison + durable validation record
+-> paper coverage + placed DrawingProgram -> immutable execution plan
+-> controller execution -> exact-frame planned-ink observation -> run record
 ```
 
 Redo invalidates named transitive dependents only after a successful replacement

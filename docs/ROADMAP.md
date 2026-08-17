@@ -14,7 +14,9 @@ five 2 mm-radius circular marks with Pen Up between them, one final
 X+/machine-Y-zero-biased Pen-Up reveal, one shared frozen exact frame, five
 arbitrary-order human center clicks, deterministic global association, the
 all-five affine-first commit on click five, one predicted-line preview before
-motion, and one complete one-Go Stage 4.1 observed line. Record failures without
+motion, one complete one-Go Stage 4.1 observed line, retained exact comparison
+review, new-sheet coverage confirmation, and one simple physical Drawing Studio
+plan with post-run planned-versus-observed review. Record failures without
 redrawing ambiguous locations.
 
 This is the highest-priority gap. Automated and simulated evidence cannot close
@@ -40,7 +42,9 @@ association with the evidence graph.
 
 ## 4.2 Coverage Line Trials
 
-Add a bounded training batch that selects clean lines across the accepted map's
+The typed run record, fixed evidence roles, multi-stroke execution owner,
+generic planned-ink observer, and append-only archive now exist. Add the active
+selection policy and bounded training batch that choose clean lines across the accepted map's
 position range and all four signed axis directions. One operator **Go** starts
 the batch; software owns normal trial-to-trial progression and **Stop** remains
 available throughout. Each line keeps its own baseline/reveal frames, exact tip
@@ -63,26 +67,29 @@ software failure or inconclusive evidence leaves the prior current.
 
 ## 4.4 Stroke and Shape Holdouts
 
-After line evidence is reliable, add corners, polylines, repeated reversals, and
-speed-sensitive trials. Keep request geometry, executed controller evidence,
-and observed pixels distinct. These are evaluation holdouts, not more fitting
-data after inspection. Do not introduce automatic redraw after an ambiguous
-stroke.
+The deterministic catalog and planner now provide lines, polylines, corners,
+polygons, tessellated curves, stars, a pyramid, and an elephant as immutable
+programs. After coverage-line evidence is reliable, define predeclared corner,
+reversal, curve, and speed-sensitive holdout batches and their metrics. Keep
+request geometry, executed controller evidence, and observed pixels distinct.
+These are evaluation holdouts, not more fitting data after inspection. Do not
+introduce automatic redraw after an ambiguous stroke.
 
 ## 4.5 Typed Drawing Readiness
 
-Introduce a scoped `DrawingReadinessAssessment` rather than a generic
-"trained" boolean. **Ready** must cite one current model revision, semantic
+The scoped `DrawingReadinessAssessment` schema and truthful toolbar states now
+exist, but no active-learning coordinator currently emits a ready assessment.
+**Ready** must cite one current model revision, semantic
 machine/tool/paper/camera identities, applicability bounds, the complete
 coverage set, untouched holdouts, candidate-versus-prior comparison, and shape
 holdouts. It may be emitted only when every predeclared requirement passes and
 no counted trial is refused, ambiguous, possible-ink, or Vision-unclear.
 
-Until 4.2–4.5 exist and pass attended physical evaluation, the truthful states
-are **Map ready** after Stage 3.4 and **One attributable validation complete**
-after Stage 4.1—not **Trained**. Adaptive Drawing may return only as a consumer
-of a current scoped Ready assessment; it must not infer readiness from a
-completed Learning Path row.
+Until 4.2–4.5 pass attended physical evaluation, the truthful states are **Map
+ready** after Stage 3.4 and **Interactive learning complete · one validation**
+after Stage 4.1—not **Trained**. Direct Drawing Studio execution may use that
+validated current map and records every outcome, but **Adaptive drawing ready**
+may appear only from a current scoped Ready assessment.
 
 ## 5. Drift and lifecycle studies
 
@@ -100,11 +107,16 @@ model-quality gates.
 - expand accessibility and keyboard operation for exact-frame clicking;
 - keep signed-bundle, singleton, camera, and serial ownership tests current.
 
-## 7. Adaptive Drawing
+## 7. Adaptive model promotion and face programs
 
-Adaptive Drawing is an unapplied future requirement, not a selectable current
-Learning Path stage. Before adding it, define attributable repeated-trial data,
-reserved physical holdouts, candidate-versus-prior promotion, applicability and
-uncertainty, and the typed 4.5 readiness boundary. Do not restore the
-deleted speculative online dataset, policy/reward scaffolding, model-mismatch
-overlay, or dormant navigation route as a compatibility surface.
+Direct placed-vector drawing is implemented outside the Learning Path. The next
+adaptive step is not another execution path: implement the 4.2 selector, 4.3
+candidate-versus-prior fitter, sealed physical holdouts, and readiness emission
+on the existing program/plan/evidence types. Do not restore the deleted
+speculative online dataset, policy/reward scaffolding, model-mismatch overlay,
+or dormant navigation route as a compatibility surface.
+
+The historical face renderer should return only as another deterministic
+`DrawingProgram` producer consumed by the existing placement, planning, preview,
+execution, observation, and evidence flow. It must not own calibration,
+controller commands, paper state, plan execution, or model promotion.

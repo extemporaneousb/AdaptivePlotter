@@ -9,9 +9,10 @@ import Testing
 struct SparseTipCalibrationCoordinatorTests {
   @Test("one batch collects five clicks on one frozen frame in arbitrary order")
   func frozenFrameBatchClicks() throws {
-    #expect(SparseTipCalibrationCoordinator.orderedPositions == [
-      .center, .negativeX, .positiveY, .positiveX, .negativeY,
-    ])
+    #expect(
+      SparseTipCalibrationCoordinator.orderedPositions == [
+        .center, .negativeX, .positiveY, .positiveX, .negativeY,
+      ])
     var coordinator = SparseTipCalibrationCoordinator()
     let frame = try exactFrame(id: "frozen-center", hash: "a")
     let revision = PresentationTransformRevision()
@@ -29,11 +30,12 @@ struct SparseTipCalibrationCoordinatorTests {
     #expect(coordinator.phase == .revealingBatch)
     try coordinator.awaitFrozenClicks(frame: frame)
     for point in points {
-      try coordinator.select(ActionSurfacePointSelection(
-        frame: frame,
-        point: point,
-        presentationTransformRevision: revision
-      ))
+      try coordinator.select(
+        ActionSurfacePointSelection(
+          frame: frame,
+          point: point,
+          presentationTransformRevision: revision
+        ))
     }
     #expect(coordinator.phase == .fittingModel)
     #expect(coordinator.collectedClickPoints == points)
@@ -65,11 +67,12 @@ struct SparseTipCalibrationCoordinatorTests {
     try coordinator.awaitFrozenClicks(frame: frozen)
 
     #expect(throws: SparseTipCalibrationCoordinatorError.staleSelection) {
-      try coordinator.select(ActionSurfacePointSelection(
-        frame: stale,
-        point: Point2(x: 1, y: 1),
-        presentationTransformRevision: PresentationTransformRevision()
-      ))
+      try coordinator.select(
+        ActionSurfacePointSelection(
+          frame: stale,
+          point: Point2(x: 1, y: 1),
+          presentationTransformRevision: PresentationTransformRevision()
+        ))
     }
     #expect(coordinator.phase == .awaitingFrozenClicks(frozen.frameID))
   }
@@ -82,7 +85,7 @@ struct SparseTipCalibrationCoordinatorTests {
       calibrationPosition: .center,
       machinePosition: try MachinePosition(x: 0, y: 0),
       markRadiusMM: 2,
-      paperContactPlane: PaperContactPlaneRevision(
+      paperInstance: PaperInstanceRevision(
         rawValue: UUID(uuidString: "00000000-0000-0000-0000-000000000903")!
       )
     )

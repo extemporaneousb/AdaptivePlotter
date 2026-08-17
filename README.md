@@ -32,8 +32,10 @@ authorization ladder:
 The visible curriculum finishes at 4.1. After the fifth valid Stage 3.4 click
 commits the drawing map, one **Go** previews the predicted line and owns the
 normal baseline, motion, drawing, reveal, Vision, and comparison phases. Those
-phases are visible activity, not six approval buttons. Adaptive Drawing is
-roadmap scope and is not a selectable current stage.
+phases are visible activity, not six approval buttons. The exact post-line
+comparison remains reviewable after the exercise finishes. That attributable
+validation unlocks the separate **Drawing Studio**; adaptive model fitting and
+adaptive readiness remain Roadmap scope and are not Learning Path stages.
 
 Connect and Enable Motion expose direct current-session facts. Selecting a row
 changes presentation only; it cannot admit motion, change runtime current state,
@@ -144,9 +146,11 @@ The fifth valid click atomically commits `TipCameraRegistration` and makes Stage
 Stage 3.4 therefore means the machine-to-paper-pixel map is ready within its
 recorded applicability. Stage 4.1 validates that map once: the app draws the
 predicted cyan line before motion, then shows observed white ink and orange
-residuals after Vision. It does not claim a generally trained adaptive model;
-coverage trials, reserved holdouts, model comparison, shape evaluation, and a
-typed readiness assessment remain Roadmap work.
+residuals after Vision and retains that exact-frame comparison for later review.
+It does not claim a generally trained adaptive model. It does permit direct
+placed-vector drawing with the current map; automated coverage selection,
+candidate model fitting, and an accepted typed readiness assessment remain
+Roadmap work.
 
 An uncertain circle chord, Pen Down/Up outcome, or motion outcome blacklists
 that circle center/radius on the current paper and stops the workflow. Possible ink never causes automatic
@@ -173,9 +177,12 @@ a durable camera-independent tool vector.
 The machine-only checkpoint remains separate. `AcceptedTipCalibrationCheckpoint`
 loads quarantined and cannot restore authority without current semantic
 identity plus fresh controller/cap evidence. An unchanged paper/capture restart
-requires a fresh cap frame and no new mark. An actual paper replacement rotates
-paper identity and requires a complete new Stage 3.4 batch plus explicit
-acceptance on that paper. Known pixel
+requires a fresh cap frame and no new mark. Paper identity is split into a
+replaceable `PaperInstanceRevision` and the support/stock/contact-height
+`PaperContactPlaneRevision`. A new sheet explicitly placed on the unchanged
+contact plane rotates only the instance, clears sheet coverage and ink-specific
+state, and retains the tip map. A changed contact plane rotates both and
+invalidates tip authority. Known pixel
 transforms and known machine-coordinate
 rebases may derive rebased authority with propagated uncertainty; unknown
 optical, geometry, coordinate, tool, contact-profile, or LIVE/SIMULATED changes
@@ -203,10 +210,43 @@ An attributable observed line may become future refinement evidence, but it
 cannot silently promote a model. Ambiguous motion or possible ink never causes
 an automatic redraw.
 
+## Drawing Studio
+
+After one attributable Stage 4.1 validation, the top capability indicator says
+**Interactive learning complete · one validation** and Drawing Studio becomes
+available independently of the Learning Path. The operator can select one of
+11 deterministic `DrawingProgram` producers—line, polyline, rectangle, square,
+triangle, regular polygon, circle, ellipse, star, pyramid, or elephant—then
+place its target on the video, resize it, rotate it, and inspect the projected
+plan. Curves are deterministically tessellated before execution.
+
+The accepted tip-map applicability projects a persistent calibrated drawable
+outline and the current predicted tip point. Paper is a separate operator fact:
+**Confirm Paper Coverage** binds the current sheet and exact frame to the
+outlined region before Run can become eligible. **New Sheet — Same Contact
+Plane** preserves learned geometry but requires a fresh coverage confirmation;
+**Contact Plane Changed** invalidates the tip map.
+
+`DrawingPlanner` refuses any transformed stroke outside the calibrated region
+and emits an immutable content-addressed execution-plan revision with one
+checkpoint per logical stroke. `RunInterpreter` owns Pen-Up travel, lowering,
+every finite drawing segment, raising, Stop, and checkpoint progress as one
+operation. A completed run returns to the preselected observation pose, captures
+a newer exact frame, compares arbitrary planned polylines with new ink, and
+retains intended, observed, and residual overlays for review. Refusal,
+cancellation, ambiguity, or possible ink is terminal and never redraws.
+
+Stage 4 validation and later run evidence are stored in a checksummed,
+append-only archive with fixed predeclared roles: ordinary drawing, training,
+reserved holdout, or evaluation holdout. These records may feed later model
+estimation, but they do not themselves promote a model. A typed readiness schema
+exists; no current workflow emits **Adaptive drawing ready** without all of its
+future declared coverage/model-comparison/holdout requirements.
+
 ## Workbench and evidence
 
 One singleton window contains the Learning Path, always-mounted camera/action
-surface, selected exercise, Motion region, and optional Video Settings. The four
+surface, selected exercise, Motion region, optional Drawing Studio, and optional Video Settings. The
 state-dependent Show/Hide controls and matching panel close controls share one
 grammar. A panel that owns the only active Stop cannot be hidden until its
 operation settles.

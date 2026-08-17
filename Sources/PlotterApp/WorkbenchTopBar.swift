@@ -74,6 +74,15 @@ struct WorkbenchMotionAuthorizationActionPresentation: Equatable, Sendable {
 /// Exercise Stop and utility-panel launchers belong to the workbench content.
 struct WorkbenchToolbar: ToolbarContent {
   @Bindable var workspace: OperatorWorkspace
+  let capabilityPresentation: WorkbenchCapabilityPresentation?
+
+  init(
+    workspace: OperatorWorkspace,
+    capabilityPresentation: WorkbenchCapabilityPresentation? = nil
+  ) {
+    self.workspace = workspace
+    self.capabilityPresentation = capabilityPresentation
+  }
 
   var body: some ToolbarContent {
     ToolbarItem(placement: .principal) {
@@ -164,6 +173,10 @@ struct WorkbenchToolbar: ToolbarContent {
           color: workspace.motionAuthorizationEnabled ? .green : .red
         )
         MotionRequestStatusView(presentation: workspace.motionRequestStatusPresentation)
+        if let capabilityPresentation {
+          Divider().frame(height: 20)
+          WorkbenchCapabilityIndicator(presentation: capabilityPresentation)
+        }
       }
     }
   }

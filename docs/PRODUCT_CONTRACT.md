@@ -23,6 +23,8 @@ In scope:
 - current-session discovery and observed drawing trials;
 - sparse operator-selected contact evidence and an atomic software-committed tip map;
 - one attributable observed drawing trial;
+- direct placement, preview, execution, and observation of bounded vector drawing programs;
+- append-only drawing-run evidence with predeclared ordinary/training/holdout roles;
 - causal simulator parity without physical authority.
 
 Out of scope:
@@ -33,8 +35,8 @@ Out of scope:
 - entered bounds treated as measured workspace authority;
 - automatic resend, resume, retap, continuation, or redraw after ambiguity;
 - Learning Path completion or model confidence as a general motion gate;
-- selectable Adaptive Drawing, online model learning, or model-mismatch UI in
-  the current curriculum;
+- automatic trial selection, online model promotion, or model-mismatch policy
+  in the current curriculum;
 - simulator state as physical evidence.
 
 ## Runtime authority
@@ -163,8 +165,10 @@ The visible stages and exercises are ergonomic navigation. Complete, Current,
 Next, and Needs Attention are presentation states, not an authorization ladder.
 The implemented curriculum ends at the single visible **4.1 Run Predicted
 Isolated Line Trial** exercise. Its six phases are runtime activity, not six
-operator approvals or selectable Learning Path rows. Adaptive Drawing is
-roadmap-only and has no selectable current row.
+operator approvals or selectable Learning Path rows. Its exact comparison
+remains reviewable after completion. Drawing Studio is a direct workbench
+capability unlocked by that attributable validation; it is not another
+Learning Path row and does not imply adaptive-model readiness.
 
 The operator may turn Learning off when no Learning attempt owns work. This
 hides Learning navigation and prevents new Learning actions without clearing
@@ -282,7 +286,7 @@ Idle, and final MPos remain the acceptance authority; camera availability cannot
 alter direction, renewal, Stop, or side acceptance.
 
 Any ambiguous circle-chord motion, Pen Down, or Pen Up outcome after possible
-contact creates possible ink. The circle center/radius plus paper-plane identity
+contact creates possible ink. The circle center/radius plus replaceable paper-instance identity
 is blacklisted across cancel, restart, and reset, and the workflow stops for
 explicit recovery. No automatic retry, resend, retap, redraw, or continuation
 is permitted. A wrong click may be replaced only on its same frozen exact frame
@@ -420,6 +424,7 @@ Tip applicability separates:
 - `MachineCoordinateFrameRevision`;
 - `ToolAssemblyRevision`;
 - `PenContactProfileRevision`;
+- replaceable, ink-specific `PaperInstanceRevision`;
 - `PaperContactPlaneRevision`.
 
 Changes apply as follows:
@@ -435,8 +440,10 @@ Changes apply as follows:
   invalidate;
 - tool, holder, armature, cap landmark, nib, contact profile, or remount change:
   invalidate;
-- paper/contact-plane change: quarantine old authority and require a complete
-  new Stage 3.4 batch on the replacement paper;
+- new sheet explicitly on the unchanged support/stock/contact plane: rotate the
+  paper instance, clear sheet coverage and ink-specific state, retain tip authority;
+- changed support, stock thickness, contact height, or contact plane: rotate the
+  plane identity and invalidate tip authority before a new Stage 3.4 batch;
 - LIVE/SIMULATED source change: invalidate cross-source optical authority;
 - raw observations: retain as immutable history under every change.
 
@@ -448,7 +455,8 @@ revision, Motion authorization, operation ownership, a Stop capability, a
 pending command, or a continuation. Fresh identity-compatible controller and
 cap evidence is required before authority may be restored; paper-plane changes
 do not restore the prior registration and instead require a complete new Stage
-3.4 batch. Same-paper restart restoration performs no contact mark. Every new
+3.4 batch. Same-plane sheet replacement does not invalidate that registration.
+Same-paper restart restoration performs no contact mark. Every new
 accepted authority retains its fresh evidence and revision provenance.
 
 ## Stage 4 dependency boundary
@@ -477,7 +485,8 @@ never authorizes redraw.
 
 Intended geometry, observed ink, and residuals are required contextual Stage 4
 evidence and have no global visibility toggles. An attributable observed line
-may be retained as future refinement evidence. It cannot silently change an
+is retained in the append-only drawing-run archive as an evaluation holdout and
+may be reviewed after the Learning Path finishes. It cannot silently change an
 accepted calibration. Possible ink or
 ambiguous motion never triggers automatic redraw or resend.
 
@@ -486,6 +495,42 @@ identities. One successful Stage 4.1 trial means **one attributable validation
 complete**. Neither state means a generally trained adaptive drawing model;
 that claim requires the repeated coverage, reserved holdouts, candidate/prior
 comparison, shape evaluation, and typed readiness work defined in the Roadmap.
+
+## Direct Drawing Studio boundary
+
+One attributable Stage 4.1 validation establishes **Interactive learning
+complete · one validation**. It permits direct bounded drawing with the accepted
+map; it does not establish **Adaptive drawing ready**. Paper readiness remains a
+separate operator assertion and is never inferred from the tip map.
+
+The built-in catalog is a set of deterministic `DrawingProgram` producers, not
+precomputed machine commands. Placement is one immutable field-to-machine
+transform. `DrawingPlanner` clips nothing: every planned stroke must fit inside
+the effective `DrawableMachineRegion`, or planning is refused. The resulting
+`ExecutionPlanRevision` is content-addressed and binds program, placement,
+region, calibration/model provenance, ordered strokes, and one checkpoint per
+logical stroke. The video preview projects that exact plan through the current
+tip registration on one matching frame.
+
+Run eligibility additionally requires LIVE mode, a connected authorized idle
+controller with Pen Up, current paper-coverage evidence, and the exact reviewed
+plan. `RunInterpreter` is the only execution owner for all Pen-Up travel, pen
+actuation, finite segments, Stop, and checkpoints. Controller completion is not
+ink verification. After clean completion, the camera observer compares a
+strictly newer same-pose frame against the local baseline and associates new ink
+with the planned polylines. Exact-frame intended, observed, and residual
+geometry remains reviewable. Refusal, cancellation, ambiguity, possible ink,
+Vision rejection, or evidence-store failure cannot authorize resend or redraw.
+
+Every immutable `DrawingRunEvidenceRecord` fixes its role before the outcome is
+known and cites request/execution frontiers, program/placement/plan hashes,
+tip-calibration and paper provenance, terminal execution disposition, and exact
+observation outcome. The checksummed archive is append-only. Records can be
+inputs to later training and evaluation; they cannot replay motion, restore a
+capability, promote calibration, or accept a model. `DrawingReadinessAssessment`
+is a typed schema only until all declared coverage, untouched holdout,
+candidate-versus-prior, and shape-holdout requirements have attributable
+evidence.
 
 ## Attempts, dependencies, reset, and simulation
 

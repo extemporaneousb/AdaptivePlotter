@@ -59,7 +59,7 @@ func makeSimulatedHarness(
     frameWidth: 320,
     frameHeight: 240,
     paddingPixels: 14,
-    toolPaperRevision: tipCalibrationSemanticIdentities.paperContactPlane.rawValue
+    toolPaperRevision: tipCalibrationSemanticIdentities.paperInstance.rawValue
   )
   return SimulatedWorkspaceHarness(
     workspace: OperatorWorkspace(
@@ -331,10 +331,11 @@ func submitPenCapClick(_ workspace: OperatorWorkspace) throws {
     x: Double(displayed.frame.width - 1) / 2,
     y: Double(displayed.frame.height - 1) / 2
   )
-  let point = overlayPoint.flatMap {
-    $0.x >= 0 && $0.x < Double(displayed.frame.width)
-      && $0.y >= 0 && $0.y < Double(displayed.frame.height) ? $0 : nil
-  } ?? fallbackPoint
+  let point =
+    overlayPoint.flatMap {
+      $0.x >= 0 && $0.x < Double(displayed.frame.width)
+        && $0.y >= 0 && $0.y < Double(displayed.frame.height) ? $0 : nil
+    } ?? fallbackPoint
   workspace.selectToolContactPoint(
     ActionSurfacePointSelection(
       frame: request.frame,
@@ -968,7 +969,8 @@ actor MachineFixture {
     requestedPenProfiles.append(profile)
     await penRequestGate?.waitIfFirstRequest()
     hasActuatedPen = true
-    let outcome = queuedPenOutcomes.isEmpty
+    let outcome =
+      queuedPenOutcomes.isEmpty
       ? PenOutcome.commandedAndSettled(command: command, commandedState: command.commandedState)
       : queuedPenOutcomes.removeFirst()
     if case .commandedAndSettled(_, let commandedState) = outcome {
@@ -1122,7 +1124,8 @@ final class CameraFixture: @unchecked Sendable {
     inspectionCount += 1
     workflowFeatureRequests.append(features)
     workflowAnalysisRegionRequests.append(analysisRegion)
-    let centroidOffset = capCentroidXOffsets.isEmpty
+    let centroidOffset =
+      capCentroidXOffsets.isEmpty
       ? 0
       : capCentroidXOffsets[(inspectionCount - 1) % capCentroidXOffsets.count]
     let inspectionConfigurationID =

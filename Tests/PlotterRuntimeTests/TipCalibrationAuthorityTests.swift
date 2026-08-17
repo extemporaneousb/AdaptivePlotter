@@ -246,12 +246,14 @@ struct TipCalibrationAuthorityTests {
         CameraCaptureSessionID(),
         provenOpticalConfiguration: fixture.optical
       )
-    ) {} else {
+    ) {
+    } else {
       Issue.record("capture restart with proven semantic optics must require revalidation")
     }
     if case .quarantine = try registration.applicabilityDecision(
       for: .paperContactPlaneChanged(PaperContactPlaneRevision())
-    ) {} else {
+    ) {
+    } else {
       Issue.record("paper replacement must quarantine contact calibration")
     }
     if case .invalidate = try registration.applicabilityDecision(for: .unknownOpticalChange) {
@@ -391,7 +393,8 @@ struct TipCalibrationAuthorityTests {
       frameTime: 1_100,
       timestamp: 1_200
     )
-    if case .quarantined = loaded.revalidate(with: paperEvidence) {} else {
+    if case .quarantined = loaded.revalidate(with: paperEvidence) {
+    } else {
       Issue.record("paper replacement must require a fresh complete Stage 3.4 calibration")
     }
 
@@ -400,16 +403,58 @@ struct TipCalibrationAuthorityTests {
       frameTime: 840,
       timestamp: 850
     )
-    if case .quarantined = loaded.revalidate(with: staleEvidence) {} else {
+    if case .quarantined = loaded.revalidate(with: staleEvidence) {
+    } else {
       Issue.record("evidence older than acceptance must remain quarantined")
     }
 
     var corrupted = try Data(contentsOf: url)
     corrupted[corrupted.startIndex] ^= 0x01
     try corrupted.write(to: url, options: [.atomic])
-    if case .rejected = store.load() {} else {
+    if case .rejected = store.load() {
+    } else {
       Issue.record("corrupted checkpoint bytes must never load as quarantined authority")
     }
+  }
+
+  @Test("Repeated checkpoint revalidation preserves the durable source revision")
+  func repeatedCheckpointRevalidationPreservesSourceRevision() throws {
+    let fixture = try TipAuthorityFixture()
+    let original = try fixture.registration()
+    let first = try original.revalidatedFromCheckpoint(
+      evidence: fixture.revalidationEvidence(
+        context: original.applicability,
+        frameTime: 900,
+        timestamp: 950
+      ),
+      acceptedRevisionID: LearningArtifactRevisionID(),
+      machineCameraRegistrationRevisionID: fixture.machineCameraRevision,
+      observationArtifactRevisionIDs: Dictionary(
+        uniqueKeysWithValues:
+          original.observationEvidence.map { ($0.observationID, LearningArtifactRevisionID()) }
+      ),
+      acceptedAt: fixture.timestamp(1_000)
+    )
+    let second = try first.revalidatedFromCheckpoint(
+      evidence: fixture.revalidationEvidence(
+        context: first.applicability,
+        frameTime: 1_100,
+        timestamp: 1_150
+      ),
+      acceptedRevisionID: LearningArtifactRevisionID(),
+      machineCameraRegistrationRevisionID: fixture.machineCameraRevision,
+      observationArtifactRevisionIDs: Dictionary(
+        uniqueKeysWithValues:
+          first.observationEvidence.map { ($0.observationID, LearningArtifactRevisionID()) }
+      ),
+      acceptedAt: fixture.timestamp(1_200)
+    )
+
+    guard case .checkpointRevalidated(let sourceRevision, _) = second.derivation else {
+      Issue.record("A repeatedly restored checkpoint must retain revalidation provenance.")
+      return
+    }
+    #expect(sourceRevision == original.acceptedRevisionID)
   }
 
   @Test("Artifact graph enforces exact tip-calibration dependency shapes")
@@ -443,15 +488,16 @@ struct TipCalibrationAuthorityTests {
 
     var observations: [LearningArtifactRevision] = []
     for evidence in registration.observationEvidence {
-      observations.append(try graph.commitReplacement(
-        LearningArtifactRevision(
-          id: evidence.observationArtifactRevisionID,
-          kind: .toolContactObservation(evidence.observationID),
-          attemptID: ExerciseAttemptID(),
-          disposition: .succeeded,
-          consumedRevisionIDs: [machine.id]
-        )
-      ).currentRevision)
+      observations.append(
+        try graph.commitReplacement(
+          LearningArtifactRevision(
+            id: evidence.observationArtifactRevisionID,
+            kind: .toolContactObservation(evidence.observationID),
+            attemptID: ExerciseAttemptID(),
+            disposition: .succeeded,
+            consumedRevisionIDs: [machine.id]
+          )
+        ).currentRevision)
     }
     #expect(
       throws: LearningDependencyGraphError.invalidDependencyShape(.tipCameraRegistration)

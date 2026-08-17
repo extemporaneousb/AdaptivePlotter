@@ -24,7 +24,9 @@ struct BlacklistedToolContactLocation: Hashable, Sendable {
   /// Center of the possible-ink circular mark, not an asserted point contact.
   let machinePosition: MachinePosition
   let markRadiusMM: Double
-  let paperContactPlane: PaperContactPlaneRevision
+  /// Possible ink belongs to one replaceable sheet, not to every sheet that
+  /// shares the same calibrated contact plane.
+  let paperInstance: PaperInstanceRevision
 }
 
 /// Pure Stage 3.4 workflow state. One batch owns all physical marks, one final

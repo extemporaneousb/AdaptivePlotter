@@ -379,7 +379,7 @@ extension VisionWorker {
   }
 }
 
-private extension VisionWorker {
+extension VisionWorker {
   struct InkPixel: Hashable {
     let x: Int
     let y: Int

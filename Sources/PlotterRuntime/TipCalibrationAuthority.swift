@@ -58,11 +58,124 @@ public struct PenContactProfileRevision: Codable, Hashable, Sendable {
   }
 }
 
+/// Identifies one replaceable physical sheet and its sheet-specific ink state.
+/// It is deliberately absent from `TipCalibrationApplicabilityContext`: a new
+/// sheet does not invalidate tip calibration when the contact plane is
+/// explicitly declared unchanged.
+public struct PaperInstanceRevision: Codable, Hashable, Sendable {
+  public let rawValue: UUID
+
+  public init(rawValue: UUID = UUID()) {
+    self.rawValue = rawValue
+  }
+}
+
 public struct PaperContactPlaneRevision: Codable, Hashable, Sendable {
   public let rawValue: UUID
 
   public init(rawValue: UUID = UUID()) {
     self.rawValue = rawValue
+  }
+}
+
+/// Keeps replaceable sheet identity separate from the geometric/contact-plane
+/// identity that participates in tip-calibration applicability.
+public struct PaperRevisionContext: Codable, Hashable, Sendable {
+  public let instance: PaperInstanceRevision
+  public let contactPlane: PaperContactPlaneRevision
+
+  public init(
+    instance: PaperInstanceRevision,
+    contactPlane: PaperContactPlaneRevision
+  ) {
+    self.instance = instance
+    self.contactPlane = contactPlane
+  }
+}
+
+public enum PaperContactPlaneReplacementDeclaration: Codable, Hashable, Sendable {
+  /// The caller has established that fixture, support, stock thickness, and
+  /// contact height remain represented by the same semantic plane revision.
+  case explicitlyUnchanged(PaperContactPlaneRevision)
+  /// One or more contact-plane semantics changed and the supplied revision is
+  /// the new identity. Existing tip authority must remain quarantined.
+  case changed(to: PaperContactPlaneRevision)
+}
+
+public enum PaperReplacementTransitionError: Error, Equatable, Sendable {
+  case paperInstanceDidNotChange
+  case unchangedDeclarationDoesNotMatchCurrentPlane
+  case changedDeclarationReusesCurrentPlane
+  case encodedCurrentContextMismatch
+}
+
+/// An immutable fact describing a physical sheet replacement. Retaining the
+/// plane is possible only through the explicit `.explicitlyUnchanged` case;
+/// there is no default that silently carries calibration authority forward.
+public struct PaperReplacementTransition: Codable, Hashable, Sendable {
+  public let previous: PaperRevisionContext
+  public let current: PaperRevisionContext
+  public let contactPlaneDeclaration: PaperContactPlaneReplacementDeclaration
+
+  public init(
+    previous: PaperRevisionContext,
+    newPaperInstance: PaperInstanceRevision,
+    contactPlaneDeclaration: PaperContactPlaneReplacementDeclaration
+  ) throws {
+    guard newPaperInstance != previous.instance else {
+      throw PaperReplacementTransitionError.paperInstanceDidNotChange
+    }
+    let currentPlane: PaperContactPlaneRevision
+    switch contactPlaneDeclaration {
+    case .explicitlyUnchanged(let declaredPlane):
+      guard declaredPlane == previous.contactPlane else {
+        throw PaperReplacementTransitionError.unchangedDeclarationDoesNotMatchCurrentPlane
+      }
+      currentPlane = declaredPlane
+    case .changed(let changedPlane):
+      guard changedPlane != previous.contactPlane else {
+        throw PaperReplacementTransitionError.changedDeclarationReusesCurrentPlane
+      }
+      currentPlane = changedPlane
+    }
+    self.previous = previous
+    current = PaperRevisionContext(instance: newPaperInstance, contactPlane: currentPlane)
+    self.contactPlaneDeclaration = contactPlaneDeclaration
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case previous, current, contactPlaneDeclaration
+  }
+
+  public init(from decoder: any Decoder) throws {
+    let values = try decoder.container(keyedBy: CodingKeys.self)
+    let previous = try values.decode(PaperRevisionContext.self, forKey: .previous)
+    let current = try values.decode(PaperRevisionContext.self, forKey: .current)
+    let declaration = try values.decode(
+      PaperContactPlaneReplacementDeclaration.self,
+      forKey: .contactPlaneDeclaration
+    )
+    let validated = try Self(
+      previous: previous,
+      newPaperInstance: current.instance,
+      contactPlaneDeclaration: declaration
+    )
+    guard validated.current == current else {
+      throw PaperReplacementTransitionError.encodedCurrentContextMismatch
+    }
+    self = validated
+  }
+
+  /// `nil` means the transition has explicitly retained the same contact
+  /// plane. A non-nil value must be routed through the existing calibration
+  /// applicability decision, which quarantines changed-plane authority.
+  public var tipCalibrationApplicabilityChange: TipCalibrationApplicabilityChange? {
+    switch contactPlaneDeclaration {
+    case .explicitlyUnchanged:
+      nil
+    case .changed(let revision):
+      .paperContactPlaneChanged(revision)
+    }
   }
 }
 
@@ -235,7 +348,8 @@ public struct ExactTipCalibrationFrame: Codable, Hashable, Sendable {
       width == opticalConfiguration.width,
       height == opticalConfiguration.height,
       pixelFormat == opticalConfiguration.pixelFormat,
-      archivedBytes?.contentSHA256 == nil || archivedBytes?.contentSHA256 == frameSHA256.lowercased()
+      archivedBytes?.contentSHA256 == nil
+        || archivedBytes?.contentSHA256 == frameSHA256.lowercased()
     else { throw TipCalibrationAuthorityError.invalidFrameReference }
     self.frameID = frameID
     self.frameSHA256 = frameSHA256.lowercased()
@@ -816,7 +930,8 @@ public struct TipCalibrationUncertainty: Codable, Hashable, Sendable {
         var value = 0.0
         for left in 0..<6 {
           for right in 0..<6 {
-            value += jacobian[row * 6 + left]
+            value +=
+              jacobian[row * 6 + left]
               * affineParameterCovariance[left * 6 + right]
               * jacobian[column * 6 + right]
           }
@@ -872,10 +987,11 @@ public struct KnownCameraPixelRebaseEvidence: Codable, Hashable, Sendable {
     evidenceSHA256: String,
     algorithmRevision: String
   ) throws {
-    guard Self.isSupportedPixelOnlyChange(
-      from: fromOpticalConfiguration,
-      to: toOpticalConfiguration
-    ),
+    guard
+      Self.isSupportedPixelOnlyChange(
+        from: fromOpticalConfiguration,
+        to: toOpticalConfiguration
+      ),
       ContentAddressedFrameLocator.isSHA256(evidenceSHA256),
       !algorithmRevision.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     else { throw TipCalibrationAuthorityError.sourceRebaseNotPermitted }
@@ -889,10 +1005,11 @@ public struct KnownCameraPixelRebaseEvidence: Codable, Hashable, Sendable {
   }
 
   fileprivate func validate() throws {
-    guard Self.isSupportedPixelOnlyChange(
-      from: fromOpticalConfiguration,
-      to: toOpticalConfiguration
-    ),
+    guard
+      Self.isSupportedPixelOnlyChange(
+        from: fromOpticalConfiguration,
+        to: toOpticalConfiguration
+      ),
       ContentAddressedFrameLocator.isSHA256(evidenceSHA256),
       !algorithmRevision.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     else { throw TipCalibrationAuthorityError.sourceRebaseNotPermitted }
@@ -1028,9 +1145,10 @@ public struct TipCameraRegistration: Codable, Hashable, Sendable {
       applicability: applicability,
       acceptedRevisionID: acceptedRevisionID,
       machineCameraRegistrationRevisionID: machineCameraRegistrationRevisionID,
-      captureSessionIDs: Set(acceptedObservations.map {
-        $0.observation.postRevealSelectionFrame.captureSessionID
-      }),
+      captureSessionIDs: Set(
+        acceptedObservations.map {
+          $0.observation.postRevealSelectionFrame.captureSessionID
+        }),
       estimatorRevision: estimatorRevision,
       acceptedAt: acceptedAt,
       derivation: .accepted,
@@ -1147,12 +1265,18 @@ public struct TipCameraRegistration: Codable, Hashable, Sendable {
       ty: transform.m21 * a.tx + transform.m22 * a.ty + transform.ty
     )
     var jacobian = Array(repeating: 0.0, count: 36)
-    jacobian[0] = transform.m11; jacobian[2] = transform.m12
-    jacobian[7] = transform.m11; jacobian[9] = transform.m12
-    jacobian[12] = transform.m21; jacobian[14] = transform.m22
-    jacobian[19] = transform.m21; jacobian[21] = transform.m22
-    jacobian[28] = transform.m11; jacobian[29] = transform.m12
-    jacobian[34] = transform.m21; jacobian[35] = transform.m22
+    jacobian[0] = transform.m11
+    jacobian[2] = transform.m12
+    jacobian[7] = transform.m11
+    jacobian[9] = transform.m12
+    jacobian[12] = transform.m21
+    jacobian[14] = transform.m22
+    jacobian[19] = transform.m21
+    jacobian[21] = transform.m22
+    jacobian[28] = transform.m11
+    jacobian[29] = transform.m12
+    jacobian[34] = transform.m21
+    jacobian[35] = transform.m22
     let pixelScale = Self.maximumLinearScale(of: transform)
     let rebasedEvidence = try observationEvidence.map { evidence in
       try TipRegistrationObservationEvidence(
@@ -1218,9 +1342,16 @@ public struct TipCameraRegistration: Codable, Hashable, Sendable {
       maxY: applicabilityRectangle.maxY + delta.dy
     )
     var jacobian = Array(repeating: 0.0, count: 36)
-    jacobian[0] = 1; jacobian[7] = 1; jacobian[14] = 1; jacobian[21] = 1
-    jacobian[24] = -delta.dx; jacobian[25] = -delta.dy; jacobian[28] = 1
-    jacobian[32] = -delta.dx; jacobian[33] = -delta.dy; jacobian[35] = 1
+    jacobian[0] = 1
+    jacobian[7] = 1
+    jacobian[14] = 1
+    jacobian[21] = 1
+    jacobian[24] = -delta.dx
+    jacobian[25] = -delta.dy
+    jacobian[28] = 1
+    jacobian[32] = -delta.dx
+    jacobian[33] = -delta.dy
+    jacobian[35] = 1
     let updatedContext = TipCalibrationApplicabilityContext(
       opticalConfiguration: applicability.opticalConfiguration,
       machineGeometry: applicability.machineGeometry,
@@ -1327,6 +1458,12 @@ extension TipCameraRegistration {
         pointingUncertaintyPixels: item.pointingUncertaintyPixels
       )
     }
+    let durableSourceRevision: LearningArtifactRevisionID =
+      switch derivation {
+      case .checkpointRevalidated(let fromRevision, _): fromRevision
+      case .accepted, .knownPixelTransform, .knownMachineCoordinateRebase:
+        self.acceptedRevisionID
+      }
     return try Self(
       modelForm: modelForm,
       cameraFromMachine: cameraFromMachine,
@@ -1341,7 +1478,7 @@ extension TipCameraRegistration {
       estimatorRevision: estimatorRevision,
       acceptedAt: acceptedAt,
       derivation: .checkpointRevalidated(
-        fromRevision: self.acceptedRevisionID,
+        fromRevision: durableSourceRevision,
         evidenceID: evidence.id
       ),
       revalidationEvidence: evidence

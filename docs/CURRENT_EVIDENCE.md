@@ -10,6 +10,65 @@ procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
 ## Implemented software surface
 
+### Retained comparison, paper lineage, and placed-vector Drawing Studio
+
+Implemented and validated 2026-08-17 in Blackdog task `TASK-FF3A5E6A`,
+targeting `main`.
+
+Stage 4 now finishes with a retained exact post-frame comparison of the cyan
+predicted line, measured ink, and residuals. The workbench reports **Map ready**,
+**Interactive learning complete**, or the separately scoped **Adaptive drawing
+ready** state without treating one isolated line as model-training completion.
+Entering Drawing Studio releases the retained Stage 4 frame and projects its
+target only onto the currently displayed exact frame.
+
+Paper identity is split into replaceable sheet instance and calibrated contact
+plane. Declaring a new sheet on the same contact plane preserves the accepted
+tip map, rotates ink-specific identity, and requires fresh explicit coverage.
+Declaring a changed contact plane invalidates the tip map. Paper coverage,
+drawable-region, and predicted-tip overlays retain exact frame/configuration
+provenance. Both paper identities, coverage evidence, accepted tip checkpoints,
+and drawing-run evidence survive restart through separate typed stores.
+
+Drawing Studio consumes the canonical Model `DrawingProgram` path. Its fixed
+catalog contains line, polyline, rectangle, square, triangle, regular polygon,
+circle, ellipse, star, pyramid, and elephant programs. Placement produces a
+content-addressed machine execution plan inside the learned drawable region;
+the Runtime owns ordered Pen-Up travel, Pen Down, logical strokes, Pen Up, and
+per-stroke checkpoints. The generic observer compares all planned polylines
+with new ink on an exact same-pose frame pair. The append-only run record pins
+program, placement, plan, model, registration, paper, request and execution
+frontiers, terminal disposition, observation, and evidence role.
+
+Audit corrections keep paper management and draft mutation unavailable while a
+run owns execution or evidence capture, expose Stop only while a motion owner
+exists, retain an execution-only record when post-run frame evidence is
+unavailable, and block an already-commanded plan from redraw. Those exact plan
+hashes are reconstructed from the durable archive after restart; a new sheet
+clears only the prior sheet's ink-specific block. **New Run** retains archived
+evidence and requires a distinct safe placement before a possibly inked plan
+can execute again.
+
+The deterministic catalog, trial roles, evidence archive, and typed readiness
+schema are foundations for later active learning. No coverage selector,
+candidate residual model, model promotion coordinator, or emitted adaptive-ready
+assessment is implemented by this task.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| Focused Model suites | passed — 19 tests | catalog determinism, curve tessellation, placement, planning, content identity, and typed readiness |
+| Focused Runtime/evidence suites | passed — 25 tests | paper semantics, coverage, multi-stroke ownership, exact execution frontiers, no resend, planned-ink observation, archive integrity, and frame-unavailable evidence |
+| Focused App/workspace suites | passed — 21 tests | retained comparison, exact-frame Studio projection, truthful capability/paper state, immutable editing states, processing without Stop, and new-run review controls |
+| `make quick-test` | passed — 432 tests | fast unit/component partition with retained journeys excluded |
+| `make journey-test` | passed — 10 tests | sparse calibration, checkpoint revalidation, exact tip revision, one-Go/reset, Boundary, drawing, and Stop journeys |
+| `make strict-check` | passed — 442 tests | strict concurrency, warnings as errors, signed bundle, launcher validation, full suite, repository contract, and diff check |
+| `git diff --check` | passed | whitespace and conflict markers |
+
+These results are software, deterministic fixture, simulator, build, signed
+bundle, and repository-contract evidence. No attended hardware, live camera,
+physical motion, physical Pen Down/Up, operator click, paper placement, or
+observed physical ink was exercised by this task.
+
 ### One-Go predicted isolated-line validation
 
 Implemented 2026-08-16 in Blackdog task `TASK-ED0800E2`, targeting `main`.

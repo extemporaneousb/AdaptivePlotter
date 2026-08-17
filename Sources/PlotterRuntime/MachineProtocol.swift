@@ -70,10 +70,11 @@ public struct RelativeJogRequest: Codable, Hashable, Sendable {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     delta = try container.decode(Vector2<MachineSpace>.self, forKey: .delta)
     feedMMPerMinute = try container.decode(Double.self, forKey: .feedMMPerMinute)
-    permitsUnknownPenStateAsPossibleInk = try container.decodeIfPresent(
-      Bool.self,
-      forKey: .permitsUnknownPenStateAsPossibleInk
-    ) ?? false
+    permitsUnknownPenStateAsPossibleInk =
+      try container.decodeIfPresent(
+        Bool.self,
+        forKey: .permitsUnknownPenStateAsPossibleInk
+      ) ?? false
   }
 }
 
@@ -125,6 +126,200 @@ public struct DrawingStrokeRequest: Codable, Hashable, Sendable {
   public init(delta: Vector2<MachineSpace>, feedMMPerMinute: Double) {
     self.delta = delta
     self.feedMMPerMinute = feedMMPerMinute
+  }
+}
+
+public struct DrawingPlanOperationID: Codable, Hashable, Sendable {
+  public let rawValue: UUID
+
+  public init(rawValue: UUID = UUID()) {
+    self.rawValue = rawValue
+  }
+}
+
+public enum DrawingPlanRequestError: Error, Equatable, Sendable {
+  case invalidTravelFeed
+  case invalidDrawingFeed
+  case invalidPenActuationProfile
+}
+
+/// One immutable plan execution request. Geometry and current planning
+/// provenance are owned by `ExecutionPlanRevision`; Runtime owns only the
+/// controller feeds, pen profile, and execution lifecycle.
+public struct DrawingPlanRequest: Codable, Hashable, Sendable {
+  public let operationID: DrawingPlanOperationID
+  public let plan: ExecutionPlanRevision
+  public let travelFeedMMPerMinute: Double
+  public let drawingFeedMMPerMinute: Double
+  public let penActuationProfile: PenActuationProfile
+
+  public init(
+    operationID: DrawingPlanOperationID = DrawingPlanOperationID(),
+    plan: ExecutionPlanRevision,
+    travelFeedMMPerMinute: Double,
+    drawingFeedMMPerMinute: Double,
+    penActuationProfile: PenActuationProfile
+  ) throws {
+    guard travelFeedMMPerMinute.isFinite, travelFeedMMPerMinute > 0 else {
+      throw DrawingPlanRequestError.invalidTravelFeed
+    }
+    guard drawingFeedMMPerMinute.isFinite, drawingFeedMMPerMinute > 0 else {
+      throw DrawingPlanRequestError.invalidDrawingFeed
+    }
+    guard (0...1000).contains(penActuationProfile.raisedSpindleValue),
+      (0...1000).contains(penActuationProfile.loweredSpindleValue),
+      penActuationProfile.settleSeconds.isFinite,
+      penActuationProfile.settleSeconds >= 0
+    else { throw DrawingPlanRequestError.invalidPenActuationProfile }
+    self.operationID = operationID
+    self.plan = plan
+    self.travelFeedMMPerMinute = travelFeedMMPerMinute
+    self.drawingFeedMMPerMinute = drawingFeedMMPerMinute
+    self.penActuationProfile = penActuationProfile
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case operationID, plan, travelFeedMMPerMinute, drawingFeedMMPerMinute
+    case penActuationProfile
+  }
+
+  public init(from decoder: any Decoder) throws {
+    let values = try decoder.container(keyedBy: CodingKeys.self)
+    try self.init(
+      operationID: values.decode(DrawingPlanOperationID.self, forKey: .operationID),
+      plan: values.decode(ExecutionPlanRevision.self, forKey: .plan),
+      travelFeedMMPerMinute: values.decode(Double.self, forKey: .travelFeedMMPerMinute),
+      drawingFeedMMPerMinute: values.decode(Double.self, forKey: .drawingFeedMMPerMinute),
+      penActuationProfile: values.decode(
+        PenActuationProfile.self,
+        forKey: .penActuationProfile
+      )
+    )
+  }
+}
+
+/// Latest controller-execution progress. Submitted segments are requests that
+/// entered `MachineController`. A commanded stroke has submitted its first
+/// nondegenerate segment. A controller-completed stroke has completed every
+/// segment, even when its subsequent Pen Up or checkpoint commit fails. Only a
+/// successful Pen Up commits the logical stroke and checkpoint IDs.
+public struct DrawingPlanProgressSnapshot: Codable, Hashable, Sendable {
+  public let operationID: DrawingPlanOperationID
+  public let planRevisionID: ExecutionPlanRevisionID
+  public let plannedStrokeCount: Int
+  public let plannedSegmentCount: Int
+  public let commandedStrokeCount: Int
+  public let controllerCompletedStrokeCount: Int
+  public let submittedSegmentCount: Int
+  public let controllerCompletedSegmentCount: Int
+  public let completedStrokeIDs: [StrokeID]
+  public let completedCheckpointIDs: [PlanCheckpointID]
+  public let activeStrokeID: StrokeID?
+  public let activeSegmentIndex: Int?
+
+  public init(
+    operationID: DrawingPlanOperationID,
+    planRevisionID: ExecutionPlanRevisionID,
+    plannedStrokeCount: Int,
+    plannedSegmentCount: Int,
+    commandedStrokeCount: Int,
+    controllerCompletedStrokeCount: Int,
+    submittedSegmentCount: Int,
+    controllerCompletedSegmentCount: Int,
+    completedStrokeIDs: [StrokeID],
+    completedCheckpointIDs: [PlanCheckpointID],
+    activeStrokeID: StrokeID?,
+    activeSegmentIndex: Int?
+  ) {
+    precondition(plannedStrokeCount > 0)
+    precondition(plannedSegmentCount > 0)
+    precondition(0...plannedStrokeCount ~= commandedStrokeCount)
+    precondition(0...commandedStrokeCount ~= controllerCompletedStrokeCount)
+    precondition(0...plannedSegmentCount ~= submittedSegmentCount)
+    precondition(0...submittedSegmentCount ~= controllerCompletedSegmentCount)
+    precondition(commandedStrokeCount <= submittedSegmentCount)
+    precondition(controllerCompletedStrokeCount <= controllerCompletedSegmentCount)
+    precondition(completedStrokeIDs.count == completedCheckpointIDs.count)
+    precondition(completedStrokeIDs.count <= controllerCompletedStrokeCount)
+    precondition(activeSegmentIndex == nil || activeSegmentIndex! >= 0)
+    self.operationID = operationID
+    self.planRevisionID = planRevisionID
+    self.plannedStrokeCount = plannedStrokeCount
+    self.plannedSegmentCount = plannedSegmentCount
+    self.commandedStrokeCount = commandedStrokeCount
+    self.controllerCompletedStrokeCount = controllerCompletedStrokeCount
+    self.submittedSegmentCount = submittedSegmentCount
+    self.controllerCompletedSegmentCount = controllerCompletedSegmentCount
+    self.completedStrokeIDs = completedStrokeIDs
+    self.completedCheckpointIDs = completedCheckpointIDs
+    self.activeStrokeID = activeStrokeID
+    self.activeSegmentIndex = activeSegmentIndex
+  }
+}
+
+public enum DrawingPlanRefusal: Codable, Hashable, Sendable {
+  case notConnected
+  case operationInFlight
+  case machinePositionUnavailable
+  case initialPenRaise(PenRefusal)
+  case travel(MotionRefusal)
+  case penLower(PenRefusal)
+}
+
+public enum DrawingPlanAmbiguity: Codable, Hashable, Sendable {
+  case travel(MotionAmbiguity)
+  case travelSettledOutsidePlannedPoint(
+    expected: Point2<MachineSpace>,
+    actual: MachinePosition
+  )
+  case pen(command: PenCommand, reason: MotionAmbiguity)
+  case stroke(MotionAmbiguity)
+}
+
+public enum DrawingPlanPossibleInk: Codable, Hashable, Sendable {
+  case strokeRefused(DrawingStrokeRefusal)
+  case penRaiseRefused(PenRefusal)
+  case controllerCompletedOutsidePlannedPoint(
+    expected: Point2<MachineSpace>,
+    actual: MachinePosition
+  )
+}
+
+/// Controller completion is deliberately distinct from visual ink
+/// verification. No terminal case authorizes redraw or model promotion.
+public enum DrawingPlanOutcome: Codable, Hashable, Sendable {
+  case completed(
+    progress: DrawingPlanProgressSnapshot,
+    finalPosition: MachinePosition
+  )
+  case refused(
+    progress: DrawingPlanProgressSnapshot,
+    reason: DrawingPlanRefusal
+  )
+  case cancelled(
+    progress: DrawingPlanProgressSnapshot,
+    intent: JogCancelIntent,
+    jogCancelOutcome: JogCancelOutcome,
+    finalPosition: MachinePosition?,
+    penRaiseOutcome: PenOutcome?
+  )
+  case ambiguous(
+    progress: DrawingPlanProgressSnapshot,
+    reason: DrawingPlanAmbiguity
+  )
+  case possibleInk(
+    progress: DrawingPlanProgressSnapshot,
+    reason: DrawingPlanPossibleInk,
+    penRaiseOutcome: PenOutcome?
+  )
+
+  public var progress: DrawingPlanProgressSnapshot {
+    switch self {
+    case .completed(let progress, _), .refused(let progress, _),
+      .ambiguous(let progress, _), .possibleInk(let progress, _, _),
+      .cancelled(let progress, _, _, _, _):
+      progress
+    }
   }
 }
 
@@ -204,15 +399,19 @@ extension ControllerAlarmClearRefusal {
     case .noCurrentAlarmEvidence:
       return "Clear Alarm is available only after the current selected controller reports an alarm."
     case .currentLimitStateUnknown(let detail):
-      return "Alarm unlock is not armed because the current axis-limit input state is unknown (\(detail)). Reconnect and probe again."
+      return
+        "Alarm unlock is not armed because the current axis-limit input state is unknown (\(detail)). Reconnect and probe again."
     case .axisLimitAsserted(let pins):
-      return "Alarm unlock is blocked while a physical axis-limit input is asserted (Pn:\(pins)). Release the switch, then Connect again to resample it."
+      return
+        "Alarm unlock is blocked while a physical axis-limit input is asserted (Pn:\(pins)). Release the switch, then Connect again to resample it."
     case .controllerNoLongerAlarmed(let state):
-      return "Alarm unlock was not sent because the fresh controller state is \(state.rawValue), not Alarm. Connect again to establish the complete current state."
+      return
+        "Alarm unlock was not sent because the fresh controller state is \(state.rawValue), not Alarm. Connect again to establish the complete current state."
     case .operationInFlight:
       return "Wait for the current controller operation before clearing an alarm."
     case .stickyAmbiguity(let ambiguity):
-      return "Alarm clearing is unavailable after ambiguous physical motion: \(ambiguity.actionableDescription)"
+      return
+        "Alarm clearing is unavailable after ambiguous physical motion: \(ambiguity.actionableDescription)"
     }
   }
 }
@@ -221,17 +420,23 @@ extension ControllerAlarmClearUncertainty {
   public var actionableDescription: String {
     switch self {
     case .partialWrite(let written, let total):
-      return "Only \(written) of \(total) alarm-clear bytes were written; the controller lock state is unconfirmed."
+      return
+        "Only \(written) of \(total) alarm-clear bytes were written; the controller lock state is unconfirmed."
     case .writeTimedOut(let written, let total):
-      return "The alarm-clear write timed out after \(written) of \(total) bytes; the controller lock state is unconfirmed."
+      return
+        "The alarm-clear write timed out after \(written) of \(total) bytes; the controller lock state is unconfirmed."
     case .writeCancelled(let written, let total):
-      return "The alarm-clear write was cancelled after \(written) of \(total) bytes; the controller lock state is unconfirmed."
+      return
+        "The alarm-clear write was cancelled after \(written) of \(total) bytes; the controller lock state is unconfirmed."
     case .acknowledgementTimedOut:
-      return "No bounded acknowledgement followed the alarm-clear request; the controller lock state is unconfirmed."
+      return
+        "No bounded acknowledgement followed the alarm-clear request; the controller lock state is unconfirmed."
     case .disconnected:
-      return "The controller disconnected during alarm clearing; reconnect and inspect it before continuing."
+      return
+        "The controller disconnected during alarm clearing; reconnect and inspect it before continuing."
     case .malformedReply(let detail):
-      return "The alarm-clear reply was not trustworthy (\(detail)); reconnect and inspect the controller."
+      return
+        "The alarm-clear reply was not trustworthy (\(detail)); reconnect and inspect the controller."
     case .transport(let detail):
       return "Alarm-clear transport failed (\(detail)); the controller lock state is unconfirmed."
     }
@@ -244,9 +449,11 @@ extension ControllerAlarmClearOutcome {
     case .refused(let refusal):
       return refusal.actionableDescription
     case .acknowledged:
-      return "Alarm unlock was acknowledged; a fresh passive probe must establish the current controller state."
+      return
+        "Alarm unlock was acknowledged; a fresh passive probe must establish the current controller state."
     case .controllerRejected(let detail):
-      return "The controller rejected Clear Alarm (\(detail)); inspect the reported alarm and physical machine."
+      return
+        "The controller rejected Clear Alarm (\(detail)); inspect the reported alarm and physical machine."
     case .unconfirmed(let uncertainty):
       return uncertainty.actionableDescription
     }
@@ -401,11 +608,14 @@ extension PenRefusal {
     case .operationInFlight:
       return "Wait for the current controller operation to finish."
     case .stickyAmbiguity(let ambiguity):
-      return "Pen control is disabled after an ambiguous physical command: \(ambiguity.actionableDescription)"
+      return
+        "Pen control is disabled after an ambiguous physical command: \(ambiguity.actionableDescription)"
     case .controllerRejected(let detail):
-      return "Controller rejected the pen command (\(detail)); inspect the controller state before retrying."
+      return
+        "Controller rejected the pen command (\(detail)); inspect the controller state before retrying."
     case .freshStatusUnavailable(let detail):
-      return "Fresh pre-command controller status was unavailable (\(detail)); reconnect and probe before retrying."
+      return
+        "Fresh pre-command controller status was unavailable (\(detail)); reconnect and probe before retrying."
     }
   }
 }
@@ -589,7 +799,8 @@ extension JogCancelRefusal {
     case .alreadyRequested:
       return "A Jog Cancel byte has already been requested for the current jog."
     case .stickyAmbiguity(let ambiguity):
-      return "Jog Cancel is unavailable after an ambiguous physical command: \(ambiguity.actionableDescription)"
+      return
+        "Jog Cancel is unavailable after an ambiguous physical command: \(ambiguity.actionableDescription)"
     }
   }
 }
@@ -630,7 +841,8 @@ extension MotionRefusal {
     case .controllerRejected(let detail):
       return "Controller rejected the jog (\(detail)); correct the request and retry."
     case .freshStatusUnavailable(let detail):
-      return "Fresh pre-move controller status was unavailable (\(detail)); reconnect and probe before retrying."
+      return
+        "Fresh pre-move controller status was unavailable (\(detail)); reconnect and probe before retrying."
     }
   }
 }
@@ -663,7 +875,8 @@ extension DrawingStrokeRefusal {
     case .controllerFeedCapabilityUnknown:
       return "Probe the controller until its X/Y feed capabilities are known before drawing."
     case .feedExceedsMaximum(let requested, let maximum):
-      return "Drawing feed \(requested) mm/min exceeds the controller-reported axis limit \(maximum)."
+      return
+        "Drawing feed \(requested) mm/min exceeds the controller-reported axis limit \(maximum)."
     case .penNotDown:
       return "Issue a successful Pen Down command before drawing."
     case .operationInFlight:
@@ -671,9 +884,11 @@ extension DrawingStrokeRefusal {
     case .stickyAmbiguity(let ambiguity):
       return "Drawing is disabled after an ambiguous command: \(ambiguity.actionableDescription)"
     case .controllerRejected(let detail):
-      return "Controller rejected the drawing stroke (\(detail)); inspect the controller state before retrying."
+      return
+        "Controller rejected the drawing stroke (\(detail)); inspect the controller state before retrying."
     case .freshStatusUnavailable(let detail):
-      return "Fresh pre-stroke controller status was unavailable (\(detail)); reconnect and probe before retrying."
+      return
+        "Fresh pre-stroke controller status was unavailable (\(detail)); reconnect and probe before retrying."
     }
   }
 }
@@ -690,7 +905,8 @@ extension MotionAmbiguity {
     case .acceptanceTimedOut:
       return "No bounded controller acknowledgement arrived; inspect and reconnect."
     case .completionTimedOut:
-      return "The accepted jog did not reach a known Idle state before its deadline; inspect and reconnect."
+      return
+        "The accepted jog did not reach a known Idle state before its deadline; inspect and reconnect."
     case .disconnected:
       return "The controller disconnected during a physical command; inspect and reconnect."
     case .malformedReply(let detail):
@@ -702,9 +918,11 @@ extension MotionAmbiguity {
     case .unexpectedControllerState(let state):
       return "The controller entered unexpected state \(state.rawValue); inspect and reconnect."
     case .settleCommandRejected(let detail):
-      return "The pen actuation was accepted but its settle command was rejected (\(detail)); inspect and reconnect."
+      return
+        "The pen actuation was accepted but its settle command was rejected (\(detail)); inspect and reconnect."
     case .transport(let detail):
-      return "The transport failed after a physical command may have started (\(detail)); inspect and reconnect."
+      return
+        "The transport failed after a physical command may have started (\(detail)); inspect and reconnect."
     }
   }
 }

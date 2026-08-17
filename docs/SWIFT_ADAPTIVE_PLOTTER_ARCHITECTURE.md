@@ -12,19 +12,22 @@ and verified status in [Current Evidence](CURRENT_EVIDENCE.md).
 
 ```text
 PlotterModel
-  coordinate-space types, geometry, drawing programs
+  coordinate-space types, geometry, deterministic drawing-program catalog
+  placements, drawable regions, content-addressed plans, readiness schema
 
 PlotterRuntime
   MachineController, RunInterpreter, CameraCapture, VisionWorker
   learning artifacts and dependency graph
   sparse contact evidence, affine-first tip construction, applicability, checkpoints
+  owner-bound multi-stroke execution, generic planned-ink observation
+  paper and append-only drawing-run evidence
   causal nonphysical simulator and workflow telemetry
 
 PlotterApp
   OperatorWorkspace orchestration and artifact commits
   immutable LearningPathProjectionSnapshot and pure LearningPathProjector
-  SwiftUI Learning Path, ActionSurface, Motion and Video Settings composition
-  production checkpoint stores and semantic identity composition
+  SwiftUI Learning Path, ActionSurface, Drawing Studio, Motion and Video Settings
+  production checkpoint/evidence stores and semantic identity composition
 
 PlotterTestSupport
   deterministic machine links, clocks, transcripts, and paper scenes
@@ -111,12 +114,25 @@ contract. Within each value, compiler-enforced substates prevent invalid
 cross-field combinations: one exercise-attempt lifecycle owns attempt identity,
 item owner, and mode; one sparse-selection lifecycle owns pending evidence,
 the frozen frame, request, and selected point; and one Drawing Trial state owns
-the complete trial payload, history, rollback, and rewind transitions. Supervised
+the complete trial payload, history, rollback, and rewind transitions. A
+separate Drawing Studio state owns catalog selection, placement, immutable plan,
+run presentation, and retained exact-frame review, but not controller or camera
+authority. Supervised
 Learning Path travel and settlement carry typed `LearningMotionAction` identity;
 display text is derived only by the presentation boundary.
 
 `RunLedger` and workflow telemetry record diagnostics only. They do not replay
 commands, restore owners, or promote artifacts.
+
+`DrawingProgramCatalog` produces deterministic field-space geometry. A
+`DrawingPlacement` is the only field-to-machine transform, and `DrawingPlanner`
+is the only producer of content-addressed `ExecutionPlanRevision` values.
+Planning refuses geometry outside `DrawableMachineRegion`; neither App nor
+Runtime clips it. `RunInterpreter` owns a whole plan as one `RunOperation`, with
+subordinate Pen-Up travel, pen actuation, finite drawing segments, Stop, and one
+checkpoint per logical stroke. `PlannedDrawingObservation` operates only after
+execution and returns exact-frame observed/residual evidence or a typed
+rejection; it has no motion, resend, or promotion capability.
 
 ## Pen Interaction and manual controls
 
@@ -203,10 +219,12 @@ current MachineCameraRegistration
   -> current TipCameraRegistration
 ```
 
-A replacement-paper checkpoint restoration additionally consumes the one new
-contact-plane `ToolContactObservation`. Stage 4 line plans and local baselines
-consume the exact current tip revision; later line/post-frame/ink/residual nodes
-retain that dependency transitively.
+A new paper instance on an explicitly unchanged contact plane consumes no new
+contact observation and retains tip authority. A changed contact plane
+invalidates the tip registration and requires the normal five-observation
+Stage 3.4 graph. Stage 4 line plans and local baselines consume the exact current
+tip revision; later line/post-frame/ink/residual nodes retain that dependency
+transitively.
 
 ## Chronology and possible ink
 
@@ -216,11 +234,12 @@ acceptance and before a newer exact frame is captured. The reveal cites the
 refreshed controller-context baseline returned with that capture.
 
 The no-redraw key is `BlacklistedToolContactLocation`: calibration role, circle
-center/radius, and paper-contact-plane revision. `OperatorWorkspace` retains
+center/radius, and replaceable paper-instance revision. `OperatorWorkspace` retains
 that set across attempt cancel, restart, and Learning Path reset. The coordinator
-re-enters a terminal possible-ink state on the same paper. Explicit paper
-replacement rotates the plane identity and is the only possible-ink workflow
-recovery. Numerical model construction cannot request paper replacement or a
+re-enters a terminal possible-ink state on the same sheet. Explicit sheet
+replacement rotates instance identity and clears that sheet-specific recovery;
+it rotates contact-plane identity only when support, stock, or contact height
+changed. Numerical model construction cannot request paper replacement or a
 no-redraw recovery route.
 
 ## Tip checkpoint and semantic identity
@@ -230,17 +249,18 @@ Machine-only persistence remains in `AcceptedMachineArtifactCheckpoint`.
 registration and acceptance event separately.
 
 Production semantic identities are composed from stable persisted revisions for
-machine geometry, tool assembly, pen-contact profile, paper plane, camera mount,
-and camera reframing. Capture-session and camera-configuration IDs remain
+machine geometry, tool assembly, pen-contact profile, paper instance, paper
+contact plane, camera mount, and camera reframing. Capture-session and camera-configuration IDs remain
 ephemeral operational provenance; they are not substituted for mount/reframing
 identity.
 
 Loading a tip checkpoint sets `quarantinedTipCalibrationCheckpoint` only. A
-same-paper restore constructs fresh `TipCalibrationRevalidationEvidence` from a
+same-plane restore constructs fresh `TipCalibrationRevalidationEvidence` from a
 settled controller/cap frame, rebuilds current graph revisions, and creates a
-new accepted tip revision. A paper change retains quarantine and requires one
-new accepted circle-center observation. The revalidation evidence is
-durable and the new contact revision is a graph dependency. Reset clears the
+new accepted tip revision while preserving the original validated revision
+lineage across repeated restarts. Replacing only the paper instance retains that
+authority; changing the contact plane invalidates it and requires the full
+five-mark calibration. The revalidation evidence is durable. Reset clears the
 affected durable machine and/or tip checkpoint before clearing in-memory
 authority.
 
@@ -281,13 +301,40 @@ or atomic-commit error ends the automatic chain early.
 
 The intended line, observed ink, and residual are contextual Stage 4 results,
 not global overlay preferences. The implemented curriculum ends at this one
-attributable validation. No Stage 4 result automatically changes accepted
+attributable validation. Its post frame and overlays remain explicitly
+reviewable, and its typed comparison is adapted into an evaluation-holdout
+`DrawingRunEvidenceRecord`. No Stage 4 result automatically changes accepted
 calibration or establishes a generally trained adaptive model.
+
+## Drawing Studio ownership
+
+`OperatorWorkspace` derives a continuously projected calibrated region and
+predicted current tip point from `TipCameraRegistration`. `PaperCoverageObservation`
+is a separate paper-instance assertion. Its polygon is shown only on its exact
+frame, while its current/not-current decision also requires current paper,
+source, and camera configuration. It never expands the calibrated region.
+
+Drawing Studio views consume immutable catalog, placement, target-preview,
+parameter, and run-state presentations. A video click is inverted through the
+current registration into a machine anchor; scale or rotation creates a new
+placement and replans. App composition passes the exact accepted plan to
+`PersistentMachineSession`, which delegates it to `RunInterpreter`; no view or
+workspace loop emits individual controller segments.
+
+For observation, the coordinator preselects the plan's final point, captures a
+local baseline there, executes the owner-bound plan, verifies the final MPos,
+captures a newer frame, and calls the generic observer under the camera's
+exclusive Vision lease. `OverlayResultChannels` retains Drawing Studio workflow
+results independently of scene overlays and Stage 4. `DrawingRunEvidenceStore`
+owns the checksummed append-only archive. Archive load/append can never restore
+runtime ownership or replay a plan. `DrawingReadinessAssessment` is a Model
+value consumed only as a presentation capability statement; construction does
+not bypass its complete typed requirements.
 
 ## Simulator boundary
 
 `SimulatedLearningRuntime` owns a nonphysical controller session, Motion flag,
-MPos, pen pose, Boundary motion, large nonzero cap-to-tip truth, paper revision,
+MPos, pen pose, Boundary motion, large nonzero cap-to-tip truth, paper instance,
 16-segment circular marks, line ink, and causal frames. Its frame clock can advance
 past an asserted settlement boundary so simulated exact-frame chronology stays
 causal.
@@ -329,8 +376,9 @@ Swift Testing suites cover evidence constructors, affine-first construction and
 constant construction fallback, checkpoint quarantine and revalidation, graph
 dependency shapes, shared-frame unordered clicks, physical-location blacklist
 persistence, ActionSurface projection, five-mark batch acceptance, checkpoint
-restart/paper recovery, and Stage 4 causal
-ink. `make quick-test` excludes the explicitly retained journeys;
+restart/paper recovery, and Stage 4 causal ink, plus drawing catalog/planning,
+plan execution, planned-ink observation, paper evidence, and append-only run
+evidence. `make quick-test` excludes the explicitly retained journeys;
 `make journey-test` runs the current sparse/Stage 4 routes sequentially; and
 `make strict-check` applies complete concurrency checking and warnings as
 errors in addition to bundle, launcher, full-test, contract, and diff gates.

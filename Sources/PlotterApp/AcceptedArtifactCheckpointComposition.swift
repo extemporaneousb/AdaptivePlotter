@@ -11,7 +11,8 @@ enum AcceptedArtifactCheckpointComposition {
         appropriateFor: nil,
         create: true
       )) ?? fileManager.temporaryDirectory
-    let url = base
+    let url =
+      base
       .appendingPathComponent("AdaptivePlotter", isDirectory: true)
       .appendingPathComponent("AcceptedArtifacts", isDirectory: true)
       .appendingPathComponent("accepted-machine-artifacts-v1.json")
@@ -32,7 +33,8 @@ enum AcceptedArtifactCheckpointComposition {
         appropriateFor: nil,
         create: true
       )) ?? fileManager.temporaryDirectory
-    let url = base
+    let url =
+      base
       .appendingPathComponent("AdaptivePlotter", isDirectory: true)
       .appendingPathComponent("AcceptedArtifacts", isDirectory: true)
       .appendingPathComponent("accepted-tip-calibration-v1.json")
@@ -50,6 +52,7 @@ enum TipCalibrationSemanticIdentityComposition {
     static let machineGeometry = "AdaptivePlotter.tip.machineGeometry.v1"
     static let toolAssembly = "AdaptivePlotter.tip.toolAssembly.v1"
     static let penContactProfile = "AdaptivePlotter.tip.penContactProfile.v1"
+    static let paperInstance = "AdaptivePlotter.paper.instance.v1"
     static let paperContactPlane = "AdaptivePlotter.tip.paperContactPlane.v1"
     static let cameraMount = "AdaptivePlotter.tip.cameraMount.v1"
     static let cameraReframing = "AdaptivePlotter.tip.cameraReframing.v1"
@@ -61,12 +64,20 @@ enum TipCalibrationSemanticIdentityComposition {
     penContactProfile: PenContactProfileRevision(
       rawValue: persistedUUID(for: Key.penContactProfile)
     ),
+    paperInstance: PaperInstanceRevision(rawValue: persistedUUID(for: Key.paperInstance)),
     paperContactPlane: PaperContactPlaneRevision(
       rawValue: persistedUUID(for: Key.paperContactPlane)
     ),
     cameraMountRevision: persistedUUID(for: Key.cameraMount),
     cameraReframingRevision: persistedUUID(for: Key.cameraReframing)
   )
+
+  static func persistPaperInstance(_ revision: PaperInstanceRevision) {
+    UserDefaults.standard.set(
+      revision.rawValue.uuidString.lowercased(),
+      forKey: Key.paperInstance
+    )
+  }
 
   static func persistPaperContactPlane(_ revision: PaperContactPlaneRevision) {
     UserDefaults.standard.set(

@@ -30,6 +30,9 @@ enum MachineSessionComposition {
     beginDrawingStroke: { request in
       await session.beginDrawingStroke(request)
     },
+    beginDrawingPlan: { request in
+      await session.beginDrawingPlan(request)
+    },
     requestPenActuation: { command, profile in
       await session.requestPenActuation(command, profile: profile)
     },
@@ -138,6 +141,29 @@ private actor PersistentMachineSession {
       return .rejected(.refused(.noSerialDeviceSelected))
     }
     return await interpreter.beginDrawingStroke(request)
+  }
+
+  func beginDrawingPlan(_ request: DrawingPlanRequest) async -> DrawingPlanAdmission {
+    guard let interpreter else {
+      let progress = DrawingPlanProgressSnapshot(
+        operationID: request.operationID,
+        planRevisionID: request.plan.revisionID,
+        plannedStrokeCount: request.plan.strokes.count,
+        plannedSegmentCount: request.plan.strokes.reduce(0) {
+          $0 + max(0, $1.path.points.count - 1)
+        },
+        commandedStrokeCount: 0,
+        controllerCompletedStrokeCount: 0,
+        submittedSegmentCount: 0,
+        controllerCompletedSegmentCount: 0,
+        completedStrokeIDs: [],
+        completedCheckpointIDs: [],
+        activeStrokeID: nil,
+        activeSegmentIndex: nil
+      )
+      return .rejected(.refused(progress: progress, reason: .notConnected))
+    }
+    return await interpreter.beginDrawingPlan(request)
   }
 
   func beginBoundaryMotion(

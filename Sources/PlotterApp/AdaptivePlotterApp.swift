@@ -12,7 +12,12 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
     acceptedArtifactCheckpointActions: AcceptedArtifactCheckpointComposition.actions,
     acceptedTipCalibrationCheckpointActions:
       AcceptedArtifactCheckpointComposition.tipCalibrationActions,
+    drawingEvidenceActions: DrawingRunEvidenceComposition.actions,
+    paperCoverageActions: PaperCoverageComposition.actions,
     tipCalibrationSemanticIdentities: TipCalibrationSemanticIdentityComposition.state,
+    persistPaperInstanceRevision: {
+      TipCalibrationSemanticIdentityComposition.persistPaperInstance($0)
+    },
     persistPaperContactPlaneRevision: {
       TipCalibrationSemanticIdentityComposition.persistPaperContactPlane($0)
     },
@@ -104,11 +109,12 @@ struct AdaptivePlotterLaunchPolicy: Equatable, Sendable {
   let startupRoute: AdaptivePlotterStartupRoute
 
   init(arguments: [String]) {
-    startupRoute = arguments.indices.contains { index in
-      arguments[index] == Self.simulatedArgument
-        && arguments.indices.contains(index + 1)
-        && arguments[index + 1].caseInsensitiveCompare("YES") == .orderedSame
-    } ? .simulated : .preferredCamera
+    startupRoute =
+      arguments.indices.contains { index in
+        arguments[index] == Self.simulatedArgument
+          && arguments.indices.contains(index + 1)
+          && arguments[index + 1].caseInsensitiveCompare("YES") == .orderedSame
+      } ? .simulated : .preferredCamera
   }
 
   static var current: Self {
@@ -159,7 +165,18 @@ struct OperatorWorkspaceView: View {
             learningIsEnabled: workspace.learningIsEnabled,
             learningActionTitle: workspace.learningModeActionTitle,
             learningChangeUnavailableReason: workspace.learningModeChangeUnavailableReason,
+            drawingStudioIsAvailable: workspace.interactiveLearningIsComplete,
+            drawingStudioIsPresented: workspace.drawingStudioIsPresented,
+            drawingStudioChangeUnavailableReason:
+              workspace.drawingStudioPanelChangeUnavailableReason,
             toggleLearning: workspace.toggleLearningMode,
+            toggleDrawingStudio: {
+              if workspace.drawingStudioIsPresented {
+                workspace.closeDrawingStudio()
+              } else {
+                workspace.openDrawingStudio()
+              }
+            },
             togglePane: { pane in
               paneVisibility = paneVisibility.toggling(pane)
             },
@@ -174,6 +191,12 @@ struct OperatorWorkspaceView: View {
               viewport: $actionSurfaceViewport,
               selectPoint: { selection in
                 workspace.selectToolContactPoint(selection)
+              },
+              performCompletedComparisonReviewAction: { action in
+                workspace.performCompletedComparisonReviewAction(action)
+              },
+              performDrawingStudioAction: { action in
+                Task { await workspace.performDrawingStudioAction(action) }
               }
             )
             .frame(
@@ -200,6 +223,68 @@ struct OperatorWorkspaceView: View {
           maxWidth: .infinity,
           maxHeight: .infinity
         )
+
+        if workspace.drawingStudioIsPresented {
+          VStack(spacing: 0) {
+            HStack {
+              Text("Drawing Studio").font(.headline)
+              Spacer()
+              Button {
+                workspace.closeDrawingStudio()
+              } label: {
+                Image(systemName: "xmark")
+              }
+              .buttonStyle(.plain)
+              .disabled(workspace.drawingStudioPanelChangeUnavailableReason != nil)
+              .help(
+                workspace.drawingStudioPanelChangeUnavailableReason
+                  ?? "Close Drawing Studio"
+              )
+            }
+            .padding(12)
+
+            Divider()
+            VStack(alignment: .leading, spacing: 8) {
+              Text(workspace.workbenchCapabilityPresentation.paper.title)
+                .font(.subheadline.bold())
+              Text(workspace.workbenchCapabilityPresentation.paper.detail)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+              HStack {
+                Button("Confirm Paper Coverage") {
+                  workspace.confirmCurrentPaperCoversDrawableRegion()
+                }
+                .operatorButton(.affirmative)
+                .disabled(workspace.paperManagementUnavailableReason != nil)
+                Menu("Paper Management") {
+                  Button("New Sheet — Same Contact Plane") {
+                    Task { await workspace.recordNewPaperSheetOnCurrentPlane() }
+                  }
+                  Button("Contact Plane Changed") {
+                    Task { await workspace.recordPaperContactPlaneChanged() }
+                  }
+                }
+                .disabled(workspace.paperManagementUnavailableReason != nil)
+              }
+              .help(
+                workspace.paperManagementUnavailableReason
+                  ?? "Confirm or deliberately change the current physical paper context."
+              )
+            }
+            .padding(12)
+            Divider()
+            ScrollView {
+              DrawingStudioView(
+                presentation: workspace.drawingStudioPresentation,
+                perform: { action in
+                  Task { await workspace.performDrawingStudioAction(action) }
+                }
+              )
+            }
+          }
+          .frame(minWidth: 340, idealWidth: 390, maxWidth: 500)
+          .background(Color(nsColor: .controlBackgroundColor))
+        }
 
         if workspace.learningIsEnabled && paneVisibility.exerciseDetailIsPresented {
           LearningPathView(
@@ -243,7 +328,10 @@ struct OperatorWorkspaceView: View {
       selection.updateCurrent(itemID)
     }
     .toolbar {
-      WorkbenchToolbar(workspace: workspace)
+      WorkbenchToolbar(
+        workspace: workspace,
+        capabilityPresentation: workspace.workbenchCapabilityPresentation
+      )
     }
     .toolbarRole(.editor)
     .task {
@@ -266,11 +354,13 @@ struct OperatorWorkspaceView: View {
     _ action: VideoSettingsVisibilityAction,
     availableWindowWidth: CGFloat
   ) {
-    guard videoSettingsVisibility.request(
-      action,
-      policy: videoSettingsPolicy,
-      availableWindowWidth: availableWindowWidth
-    ) else { return }
+    guard
+      videoSettingsVisibility.request(
+        action,
+        policy: videoSettingsPolicy,
+        availableWindowWidth: availableWindowWidth
+      )
+    else { return }
     paneVisibility = videoSettingsPolicy.preparingPanesToShow(
       paneVisibility,
       availableWindowWidth: availableWindowWidth,
@@ -291,7 +381,11 @@ private struct WorkbenchPaneControls: View {
   let learningIsEnabled: Bool
   let learningActionTitle: String
   let learningChangeUnavailableReason: String?
+  let drawingStudioIsAvailable: Bool
+  let drawingStudioIsPresented: Bool
+  let drawingStudioChangeUnavailableReason: String?
   let toggleLearning: () -> Void
+  let toggleDrawingStudio: () -> Void
   let togglePane: (WorkbenchPane) -> Void
   let performVideoSettingsAction: (VideoSettingsVisibilityAction) -> Void
 
@@ -309,6 +403,21 @@ private struct WorkbenchPaneControls: View {
         learningChangeUnavailableReason
           ?? "Learning is ergonomic workflow guidance; turning it off preserves learned evidence and leaves direct machine controls available."
       )
+      if drawingStudioIsAvailable {
+        Button(action: toggleDrawingStudio) {
+          Label(
+            drawingStudioIsPresented ? "Hide Drawing Studio" : "Drawing Studio",
+            systemImage: "scribble.variable"
+          )
+        }
+        .operatorButton(drawingStudioIsPresented ? .negative : .affirmative)
+        .controlSize(.small)
+        .disabled(drawingStudioChangeUnavailableReason != nil)
+        .help(
+          drawingStudioChangeUnavailableReason
+            ?? "Select, place, resize, preview, and execute a drawing program."
+        )
+      }
       if learningIsEnabled {
         paneButton(
           .navigator,
@@ -680,8 +789,8 @@ private struct VideoSettingsContents: View {
   }
 }
 
-private extension PenCapColor {
-  var swiftUIColor: Color {
+extension PenCapColor {
+  fileprivate var swiftUIColor: Color {
     Color(
       red: Double(red) / 255,
       green: Double(green) / 255,
