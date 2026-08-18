@@ -6,6 +6,7 @@ struct LearningPathNavigator: View {
   @Bindable var workspace: OperatorWorkspace
   @Binding var selection: LearningPathSelectionState
   let close: () -> Void
+  @State private var pendingResetPlan: LearningVacatePlan?
 
   var body: some View {
     let projection = workspace.learningPathProjection(selectedItemID: selection.selected)
@@ -19,6 +20,21 @@ struct LearningPathNavigator: View {
             .foregroundStyle(.secondary)
         }
         Spacer(minLength: 8)
+        Menu {
+          Button(role: .destructive) {
+            pendingResetPlan = projection.menu.resetAllPlan
+          } label: {
+            Label("Reset All Learning…", systemImage: "arrow.counterclockwise")
+          }
+          .disabled(projection.menu.resetAllPlan == nil)
+        } label: {
+          Image(systemName: "ellipsis.circle")
+            .font(.title3)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .accessibilityLabel("Learning Path Actions")
+        .help("Learning Path Actions")
         PanelCloseButton(panel: .learningPath, close: close)
       }
       .padding(14)
@@ -47,6 +63,17 @@ struct LearningPathNavigator: View {
       }
     }
     .background(Color(nsColor: .controlBackgroundColor))
+    .sheet(item: $pendingResetPlan) { plan in
+      LearningResetSheet(
+        workspace: workspace,
+        plan: plan,
+        completed: {
+          selection.updateCurrent(workspace.currentLearningPathItemID)
+          selection.returnToCurrent()
+          pendingResetPlan = nil
+        }
+      )
+    }
   }
 
   private func navigatorRow(_ item: LearningPathItemPresentation) -> some View {
@@ -128,7 +155,6 @@ struct LearningPathView: View {
           selectedDetail(selectedPresentation)
           learningResetActions(
             selectedPlan: resetSurface.selectedPlan,
-            resetAllPlan: resetSurface.resetAllPlan,
             unavailableReason: resetSurface.unavailableReason,
             authorityError: resetSurface.authorityError
           )
@@ -267,11 +293,10 @@ struct LearningPathView: View {
   @ViewBuilder
   private func learningResetActions(
     selectedPlan: LearningVacatePlan?,
-    resetAllPlan: LearningVacatePlan?,
     unavailableReason: String?,
     authorityError: String?
   ) -> some View {
-    if selectedPlan != nil || resetAllPlan != nil || authorityError != nil {
+    if selectedPlan != nil || authorityError != nil {
       VStack(alignment: .leading, spacing: 9) {
         Text("RESET LEARNING")
           .font(.caption2.monospaced().bold())
@@ -293,20 +318,6 @@ struct LearningPathView: View {
           .help(
             unavailableReason
               ?? "Review the steps that will be reset from \(selectedPlan.anchor.number) onward"
-          )
-        }
-
-        if let resetAllPlan {
-          Button {
-            pendingResetPlan = resetAllPlan
-          } label: {
-            Label("\(resetAllPlan.title)…", systemImage: "arrow.counterclockwise")
-          }
-          .buttonStyle(.bordered)
-          .disabled(unavailableReason != nil)
-          .help(
-            unavailableReason
-              ?? "Review the steps that will be reset"
           )
         }
 
@@ -496,15 +507,22 @@ private struct LearningResetSheet: View {
   let plan: LearningVacatePlan
   let completed: () -> Void
   @Environment(\.dismiss) private var dismiss
+  @State private var isPerforming = false
 
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
       Text(plan.title)
         .font(.title2.weight(.semibold))
-      Text(
-        "This will clear saved \(plan.source.rawValue) Learning Path results from \(plan.anchor.number) \(plan.anchor.title) onward."
-      )
+      Text(confirmationSummary)
       .fixedSize(horizontal: false, vertical: true)
+
+      if plan.scope == .all {
+        Text(
+          "Any active Learning Path attempt will be cancelled and settled first. Reset does not start motion or erase marks on the paper."
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
+      }
 
       GroupBox("Steps to reset") {
         VStack(alignment: .leading, spacing: 5) {
@@ -545,17 +563,36 @@ private struct LearningResetSheet: View {
         Spacer()
         Button("Cancel") { dismiss() }
           .keyboardShortcut(.cancelAction)
+          .disabled(isPerforming)
         Button(plan.title) {
-          if workspace.performLearningVacate(plan) {
-            completed()
-            dismiss()
+          isPerforming = true
+          Task { @MainActor in
+            let succeeded: Bool
+            if plan.scope == .all {
+              succeeded = await workspace.performResetAllLearning(plan)
+            } else {
+              succeeded = workspace.performLearningVacate(plan)
+            }
+            isPerforming = false
+            if succeeded {
+              completed()
+              dismiss()
+            }
           }
         }
         .buttonStyle(.borderedProminent)
+        .disabled(isPerforming)
       }
     }
     .padding(20)
     .frame(minWidth: 460, idealWidth: 500, maxWidth: 560)
+  }
+
+  private var confirmationSummary: String {
+    if plan.scope == .all {
+      return "This will completely clear the current \(plan.source.rawValue) Learning Path and its saved accepted checkpoint. The path will return to 3.1 Pen Interaction."
+    }
+    return "This will clear saved \(plan.source.rawValue) Learning Path results from \(plan.anchor.number) \(plan.anchor.title) onward."
   }
 }
 

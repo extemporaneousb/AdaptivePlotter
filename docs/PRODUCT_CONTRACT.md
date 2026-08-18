@@ -177,6 +177,13 @@ Loaded values are learning authority, not operational authority: Motion,
 current Pen pose, controller ownership, exact frames, and Stop capabilities are
 never restored from disk.
 
+A restored Learning pose that still requires visual revalidation gates only
+coordinate-dependent Learning and Drawing actions. It never gates the
+operator-authored manual jog or manual Pen controls. Those direct controls are
+admitted by the Motion toggle plus controller-native connection, alarm,
+readiness, safety, and command-serialization requirements; Learning progression
+is not an additional manual-motion authorization layer.
+
 The operator may turn Learning off when no Learning attempt owns work. This
 hides Learning navigation and prevents new Learning actions without clearing
 accepted artifacts, disconnecting the controller, disabling Motion, stopping
@@ -468,8 +475,10 @@ Loading restores accepted values only. It cannot restore Motion authorization,
 current Pen pose, workflow state, operation ownership, a Stop capability, a
 pending command, a camera frame, or a continuation. Fresh passive controller
 identity evidence restores the learned machine envelope, but reported MPos
-distance is diagnostic rather than physical-pose proof. Motion remains blocked
-until a fresh exact cap frame revalidates pose. Under unchanged machine geometry
+distance is diagnostic rather than physical-pose proof. Coordinate-dependent
+Learning and Drawing remain blocked until a fresh exact cap frame revalidates
+pose; manual jog and manual Pen controls remain independent under Motion
+authorization and controller-native admission. Under unchanged machine geometry
 and semantic camera-mount/optical identity, a displaced cap may establish one
 known coordinate translation; accepted boundaries, the machine/cap fit, and the
 tip fit are rebased into one new coordinate-frame revision. This does not
@@ -570,9 +579,14 @@ four Boundary aggregates -> estimated center -> center arrival
 ```
 
 Reset From This Step is a deliberate chronological rewind, distinct from causal
-Redo. It previews the exact suffix, rejects a stale summary, and never performs
-motion, changes pen state, or erases physical ink. LIVE and SIMULATED authority
-reset independently.
+Redo. It previews the exact suffix and rejects a stale summary. Reset All
+Learning is the stable destructive command in the Learning Path menu. It first
+cancels and settles any current Learning-owned operation through that operation's
+typed owner, then atomically clears the current source's complete Learning Path
+and saved accepted checkpoint and returns progression to 3.1 Pen Interaction.
+The reset does not admit new motion, change the pen merely to reset state, erase
+physical ink, disconnect the controller, revoke Motion authorization, or change
+the selected camera. LIVE and SIMULATED authority reset independently.
 
 LIVE and SIMULATED learning are independent `LearningSessionState` values
 governed by the same state contract and selected by the active source. A source

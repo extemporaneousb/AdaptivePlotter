@@ -1069,8 +1069,11 @@ final class OperatorWorkspace {
   private(set) var passiveProbeInProgress = false
   private(set) var jogRequestInProgress = false
   private(set) var penRequestInProgress = false
+  private(set) var learningResetInProgress = false
   @ObservationIgnored private var pendingPenSetpointCommand: PenCommand?
   @ObservationIgnored private var penSetpointActuationTask: Task<Void, Never>?
+  @ObservationIgnored private var activeLearningActionTask: Task<Void, Never>?
+  @ObservationIgnored private var activeLearningActionID: UUID?
   private var lastManualMotionWasDrawing = false
   private var lastManualMotionMayHaveProducedInk = false
   private(set) var frameModeSwitchInProgress = false
@@ -3235,6 +3238,7 @@ final class OperatorWorkspace {
 
   var learningVacateUnavailableReason: String? {
     if hasShutdown { return "The workspace is shutting down." }
+    if learningResetInProgress { return "Reset All Learning is already in progress." }
     if activeExerciseAttemptID != nil {
       return "Cancel or finish the active exercise attempt before resetting learning."
     }
@@ -3261,6 +3265,81 @@ final class OperatorWorkspace {
       return false
     }
     return performAvailableLearningVacate(plan)
+  }
+
+  /// Cancels and settles only Learning-owned work before clearing the selected
+  /// source's complete Learning authority. Independent manual controller work
+  /// is neither cancelled nor used as a reset gate.
+  @discardableResult
+  func performResetAllLearning(_ previewPlan: LearningVacatePlan) async -> Bool {
+    guard !hasShutdown else {
+      learningAuthorityError = "The workspace is shutting down."
+      return false
+    }
+    guard !learningResetInProgress else {
+      learningAuthorityError = "Reset All Learning is already in progress."
+      return false
+    }
+    guard previewPlan.scope == .all,
+      previewPlan.source == (frameMode == .live ? .live : .simulated)
+    else {
+      learningAuthorityError =
+        "Reset All Learning no longer matches the current Learning source. Review it and try again."
+      return false
+    }
+
+    learningResetInProgress = true
+    learningAuthorityError = nil
+    defer { learningResetInProgress = false }
+
+    guard await cancelAndSettleLearningForReset() else { return false }
+    guard let settledPlan = resetAllLearningPlan else {
+      learningAuthorityError = "The complete Learning reset plan could not be rebuilt."
+      return false
+    }
+    return performAvailableLearningVacate(settledPlan)
+  }
+
+  private func cancelAndSettleLearningForReset() async -> Bool {
+    let actionTask = activeLearningActionTask
+    let actionID = activeLearningActionID
+    actionTask?.cancel()
+
+    let calibrationTask = currentCameraCalibrationTask
+    calibrationTask?.cancel()
+
+    let penCapContinuation = cancelPenCapAcceptedClickContinuation()
+    if let ownerID = activeExerciseAttemptOwnerID {
+      await cancelExerciseAttempt(ownerID)
+    } else if let operation = activeStoppableOperation,
+      !isManualStopTarget(operation.target)
+    {
+      await cancelAndSettleStoppableOperation(operation, intent: .cancelAttempt)
+    }
+
+    await penCapContinuation?.value
+    await calibrationTask?.value
+    currentCameraCalibrationTask = nil
+    await actionTask?.value
+    if actionTask != nil, activeLearningActionID == actionID {
+      activeLearningActionID = nil
+      activeLearningActionTask = nil
+    }
+    await awaitPendingPenSetpointActuation()
+
+    let learningStopStillActive = activeStopTarget.map { !isManualStopTarget($0) } ?? false
+    guard activeExerciseAttemptID == nil,
+      activeDiscoverySequenceID == nil,
+      activeExplorationOperation == nil,
+      boundaryMotionTask == nil,
+      currentCameraCalibrationTask == nil,
+      !learningStopStillActive
+    else {
+      learningAuthorityError =
+        "The active Learning operation did not settle, so no Learning state was reset."
+      return false
+    }
+    return true
   }
 
   private func performAvailableLearningVacate(_ plan: LearningVacatePlan) -> Bool {
@@ -3296,6 +3375,9 @@ final class OperatorWorkspace {
       clearBoundaryLearningForRewind()
       clearCalibrationLearningForRewind()
       clearDrawingLearningForRewind(from: .chooseIsolatedLinePlan)
+      if plan.scope == .all {
+        controllerPoseApplicability = .currentSession
+      }
     case .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering):
       clearBoundaryLearningForRewind()
       clearCalibrationLearningForRewind()
@@ -3318,13 +3400,20 @@ final class OperatorWorkspace {
     explorationError = nil
     learningAuthorityError = nil
 
-    if plan.removesDurableMachineCheckpoint {
+    if plan.scope == .all {
       parkedAcceptedMachineArtifactCheckpoint = nil
       pendingMachineCameraCheckpoint = nil
       acceptedArtifactCheckpointStatus = .cleared
-    }
-    if plan.removesDurableTipCheckpoint {
       quarantinedTipCalibrationCheckpoint = nil
+    } else {
+      if plan.removesDurableMachineCheckpoint {
+        parkedAcceptedMachineArtifactCheckpoint = nil
+        pendingMachineCameraCheckpoint = nil
+        acceptedArtifactCheckpointStatus = .cleared
+      }
+      if plan.removesDurableTipCheckpoint {
+        quarantinedTipCalibrationCheckpoint = nil
+      }
     }
     return true
   }
@@ -3390,9 +3479,14 @@ final class OperatorWorkspace {
         else { return nil }
         return revision.id
       })
-    guard !revisionIDs.isEmpty || hasVacatablePayload(atOrAfter: anchorIndex) else { return nil }
+    guard scope == .all || !revisionIDs.isEmpty || hasVacatablePayload(atOrAfter: anchorIndex)
+    else { return nil }
 
-    var endIndex = anchorIndex
+    var endIndex =
+      scope == .all
+      ? LearningPathItemID.learningExerciseOrder.index(
+        before: LearningPathItemID.learningExerciseOrder.endIndex
+      ) : anchorIndex
     for revision in currentRevisions {
       guard let item = learningPathItemID(for: revision.kind),
         let index = LearningPathItemID.learningExerciseOrder.firstIndex(of: item)
@@ -3736,7 +3830,7 @@ final class OperatorWorkspace {
         connectionActionTitle: controllerConnectionActionTitle,
         workbenchStatusText: workbenchStatusText,
         machineError: controllerAttentionText,
-        directMotionUnavailableReason: directCarriageMotionUnavailableReason
+        directMotionUnavailableReason: learningCarriageMotionUnavailableReason
       ),
       boundary: .init(
         acceptedDirections: pairedBoundaryProgress.acceptedDirections,
@@ -3835,7 +3929,7 @@ final class OperatorWorkspace {
     _ kind: ExerciseActionKind,
     for ownerID: LearningPathItemID
   ) async {
-    guard learningIsEnabled else { return }
+    guard learningIsEnabled, !learningResetInProgress else { return }
     if case .selectDirection(let purpose, let direction) = kind {
       guard !hasShutdown,
         let selection = selectedOperatorActionPresentation(for: ownerID).actionStrip?
@@ -3866,6 +3960,42 @@ final class OperatorWorkspace {
     else { return }
 
     switch kind {
+    case .cancel:
+      await cancelExerciseAttempt(ownerID)
+      return
+    case .stop(let capabilityID):
+      guard ownerID == activeExerciseAttemptOwnerID else { return }
+      await stopCurrentOperation(capabilityID: capabilityID)
+      return
+    default:
+      break
+    }
+
+    guard activeLearningActionTask == nil else { return }
+    let actionID = UUID()
+    let task = Task { @MainActor [weak self] in
+      guard let self else { return }
+      await self.performAdmittedExerciseAction(kind, for: ownerID)
+    }
+    activeLearningActionID = actionID
+    activeLearningActionTask = task
+    await withTaskCancellationHandler {
+      await task.value
+    } onCancel: {
+      task.cancel()
+    }
+    if activeLearningActionID == actionID {
+      activeLearningActionID = nil
+      activeLearningActionTask = nil
+    }
+  }
+
+  private func performAdmittedExerciseAction(
+    _ kind: ExerciseActionKind,
+    for ownerID: LearningPathItemID
+  ) async {
+    guard !Task.isCancelled else { return }
+    switch kind {
     case .start:
       await startExercise(ownerID, mode: .normal)
     case .choice(let choice):
@@ -3873,11 +4003,8 @@ final class OperatorWorkspace {
       await answerCurrentQuestion(choice)
     case .setPenSetpoint:
       return
-    case .cancel:
-      await cancelExerciseAttempt(ownerID)
-    case .stop(let capabilityID):
-      guard ownerID == activeExerciseAttemptOwnerID else { return }
-      await stopCurrentOperation(capabilityID: capabilityID)
+    case .cancel, .stop:
+      return
     case .restart:
       guard restartableExerciseItemID == ownerID else { return }
       restartableExerciseItemID = nil
@@ -5034,6 +5161,10 @@ final class OperatorWorkspace {
     let ownerID = LearningPathItemID.humanGuidedDiscovery(
       .calibratePenContactFromSparseMarks
     )
+    if let reason = controllerPoseRevalidationUnavailableReason {
+      explorationError = reason
+      return
+    }
     if activeExerciseAttemptOwnerID == nil {
       await startExercise(ownerID, mode: .normal)
     }
@@ -6190,6 +6321,7 @@ final class OperatorWorkspace {
   }
 
   func discoveryStartUnavailableReason(for sequenceID: DiscoverySequenceID) -> String? {
+    if learningResetInProgress { return "Reset All Learning is in progress." }
     if let activeDiscoverySequenceID {
       return
         "Finish \(DiscoverySequenceCatalog.definition(for: activeDiscoverySequenceID).title); use Stop while its logical owner is active."
@@ -6198,6 +6330,7 @@ final class OperatorWorkspace {
       guard displayedFrame != nil else {
         return "A current exact camera or simulated frame is required to Identify Pen Cap."
       }
+      if let reason = controllerPoseRevalidationUnavailableReason { return reason }
       return nil
     }
     if frameMode == .simulated {
@@ -6216,7 +6349,7 @@ final class OperatorWorkspace {
     if !motionGuardIsActive { return "Connect the plotter and Enable Motion first." }
     switch sequenceID {
     case .boundaryNegativeX, .boundaryPositiveX, .boundaryNegativeY, .boundaryPositiveY:
-      return directCarriageMotionUnavailableReason
+      return learningCarriageMotionUnavailableReason
     case .penInteraction:
       return penUnavailableReason(for: .lower)
     }
@@ -6478,6 +6611,11 @@ final class OperatorWorkspace {
     return nil
   }
 
+  private var learningCarriageMotionUnavailableReason: String? {
+    if let reason = controllerPoseRevalidationUnavailableReason { return reason }
+    return directCarriageMotionUnavailableReason
+  }
+
   private var directMotionUnavailableReason: String? {
     if jogRequestInProgress { return "A relative jog is already in progress." }
     if frameModeSwitchInProgress { return "Wait for the frame source switch to finish." }
@@ -6485,7 +6623,6 @@ final class OperatorWorkspace {
       return "SIMULATED source cannot issue physical machine commands. Switch to LIVE first."
     }
     if machineActions == nil { return "Native machine composition is unavailable." }
-    if let reason = controllerPoseRevalidationUnavailableReason { return reason }
     if selectedSerialDevice == nil { return "Select and connect one serial device." }
     guard let snapshot = machineSnapshot else {
       return MotionRefusal.notConnected.actionableDescription
@@ -6525,7 +6662,7 @@ final class OperatorWorkspace {
     guard frameMode == .live else { return nil }
     if case .requiresVisualRevalidation = controllerPoseApplicability {
       return
-        "Saved learning is loaded, but physical carriage pose is unproven after restart. Revalidate the saved tip calibration from a fresh cap frame before motion."
+        "Saved learning is loaded, but physical carriage pose is unproven after restart. Revalidate the saved tip calibration from a fresh cap frame before coordinate-dependent Learning or Drawing."
     }
     return nil
   }
@@ -6569,7 +6706,6 @@ final class OperatorWorkspace {
       return PenRefusal.controllerNotIdle(controllerState).actionableDescription
     }
     guard command == .lower else { return nil }
-    if let reason = controllerPoseRevalidationUnavailableReason { return reason }
     if machine.pins.hasRelevantLimitAsserted {
       return PenRefusal.relevantLimitAsserted(machine.pins.rawValue).actionableDescription
     }
@@ -7042,9 +7178,15 @@ final class OperatorWorkspace {
         penCapAppearanceSelectionContext == nil,
         penInteractionSequenceUnavailableReason == nil
       else {
-        discoveryError =
+        let reason =
           penInteractionSequenceUnavailableReason
           ?? "Identify Pen Cap must be accepted before Pen Interaction questions begin."
+        discoveryError = reason
+        if activeExerciseAttemptOwnerID == .humanGuidedDiscovery(.penInteraction) {
+          recordDiscoveryAttempt(sequenceID: .penInteraction, disposition: .refused(reason))
+          finishActiveExerciseAttempt(disposition: .refused(reason))
+          restartableExerciseItemID = nil
+        }
         return
       }
     }
@@ -8529,6 +8671,8 @@ final class OperatorWorkspace {
     guard !hasShutdown else { return }
     hasShutdown = true
     lifetimeGeneration &+= 1
+    let learningAction = activeLearningActionTask
+    learningAction?.cancel()
     let penCapContinuation = cancelPenCapAcceptedClickContinuation()
     stopObserving()
     let calibration = currentCameraCalibrationTask
@@ -8538,6 +8682,9 @@ final class OperatorWorkspace {
     await stopAndSettleActiveMotionForShutdown()
     await calibration?.value
     currentCameraCalibrationTask = nil
+    await learningAction?.value
+    activeLearningActionID = nil
+    activeLearningActionTask = nil
     await waitForHardwareIntentsToDrain()
     _ = await cameraActions?.stop()
     await machineActions?.disconnect()
@@ -9045,10 +9192,10 @@ final class OperatorWorkspace {
 
   private func makeBoundaryMotionRequest(_ direction: JogDirection) -> BoundaryMotionRequest? {
     guard boundaryTeachingState == .awaitingOwnerAdmission(direction),
-      directCarriageMotionUnavailableReason == nil
+      learningCarriageMotionUnavailableReason == nil
     else {
       boundaryTeachingResultText =
-        "Boundary motion cannot start: \(directCarriageMotionUnavailableReason ?? "current direct controller facts are unavailable")."
+        "Boundary motion cannot start: \(learningCarriageMotionUnavailableReason ?? "current direct controller facts are unavailable")."
       return nil
     }
     do {
@@ -9115,10 +9262,13 @@ final class OperatorWorkspace {
       ownerID == .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
       && (activeExerciseAttemptMode == .replacement || activeExerciseAttemptMode == .additional)
       && boundarySideAggregates[selectedBoundaryDirection] != nil
+    let learningStopTarget = activeStopTarget.flatMap {
+      isManualStopTarget($0) ? nil : $0
+    }
     if let sequenceID = activeDiscoverySequenceID,
       var transaction = discoveryTransactions[sequenceID]
     {
-      if let target = activeStopTarget,
+      if let target = learningStopTarget,
         !latchContextualStopDisposition(
           for: target,
           intent: .cancelAttempt,
@@ -9130,7 +9280,7 @@ final class OperatorWorkspace {
       }
       transaction.cancel()
       discoveryTransactions[sequenceID] = transaction
-      if let target = activeStopTarget {
+      if let target = learningStopTarget {
         boundaryTeachingState = .cancelling(
           jogDirection(for: sequenceID) ?? jogDirection(from: selectedBoundaryDirection)
         )
@@ -9205,6 +9355,7 @@ final class OperatorWorkspace {
       return nil
     }
     if !motionGuardIsActive { return "Connect the plotter and Enable Motion first." }
+    if let reason = controllerPoseRevalidationUnavailableReason { return reason }
     return penUnavailableReason(for: .lower)
   }
 
@@ -10168,7 +10319,19 @@ final class OperatorWorkspace {
 
   private func clearPenLearningForRewind() {
     cancelPenCapAcceptedClickContinuation()
+    penCapAppearanceSelectionContext = nil
     discoveryTransactions.removeValue(forKey: .penInteraction)
+    currentPenActuationProfile = .initialDefaults
+    activeLearningSession.penActuationDraft = nil
+    activeLearningSession.lastPenExecutionByCommand = [:]
+    activeLearningSession.pendingPenUpPositions = []
+    activeLearningSession.pendingPenUpSpindleValues = []
+    activeLearningSession.pendingPenUpControllerOutcomes = []
+    activeLearningSession.pendingPenUpTimestamps = []
+    activeLearningSession.pendingPenDownPositions = []
+    activeLearningSession.pendingPenDownSpindleValues = []
+    activeLearningSession.pendingPenDownControllerOutcomes = []
+    activeLearningSession.pendingPenDownTimestamps = []
     penAttemptHistory = try! ExerciseAttemptHistory(
       compatibility: penAttemptHistory.compatibility
     )
@@ -10452,6 +10615,7 @@ final class OperatorWorkspace {
       }
       return nil
     }
+    if let reason = controllerPoseRevalidationUnavailableReason { return reason }
     guard controllerIsConnected else { return "Connect the selected controller first." }
     guard motionGuardIsActive else { return "Enable Motion first." }
     if step != .compareIntendedAndObservedGeometry,

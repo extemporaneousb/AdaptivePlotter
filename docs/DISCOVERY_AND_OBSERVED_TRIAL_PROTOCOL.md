@@ -284,7 +284,9 @@ identities:
 1. Connect and complete the passive controller-identity probe. The accepted
    Pen, Boundary, center, Stage 3.3, Stage 3.4, and Stage 4 prefix loads without
    replaying completed learning motion.
-2. Choose **Revalidate Saved Tip Calibration** before any new motion.
+2. Choose **Revalidate Saved Tip Calibration** before any coordinate-dependent
+   Learning or Drawing action. Manual jog and manual Pen commands remain
+   independent under Motion authorization and controller-native admission.
 3. Require a settled reported Pen-Up controller position and capture one fresh exact cap
    frame.
 4. Revalidate semantic identities and the current cap map. If the carriage
@@ -420,9 +422,21 @@ commit. Failure preserves the current accepted value. Record Another Attempt
 adds only compatible successful evidence.
 
 Reset From This Step is a separate operator-authored chronological rewind. It
-shows the exact suffix and rejects a stale summary. Reset All Learning anchors
-the same operation at Pen Interaction. Neither action moves, changes pen state,
-resends, redraws, or claims to erase ink.
+shows the exact suffix and rejects a stale summary. Reset All Learning is always
+available from the Learning Path menu. It cancels and settles a current
+Learning-owned operation through its typed owner, then clears all accepted
+Learning authority for the current source, including the durable accepted
+checkpoint, and returns progression to Pen Interaction. Reset itself admits no
+new motion, changes no pen state merely to reset, never resends or redraws, and
+does not claim to erase ink. It preserves the controller session, Motion
+authorization, and selected camera so direct manual controls remain independent.
+
+Restored Learning coordinates that require visual revalidation block only
+coordinate-dependent Learning and Drawing work. They do not block an
+operator-authored manual jog or manual Pen command. Direct manual controls use
+the Motion toggle and the controller's native connection, alarm, readiness,
+safety, and command-serialization checks; no Learning Path state is an extra
+manual-motion gate.
 
 Semantic optical changes invalidate optical dependents but do not invalidate
 compatible machine-space Boundary aggregates. Presentation-only transform

@@ -71,6 +71,10 @@ extension OperatorWorkspaceTests {
     #expect(!workspace.motionAuthorizationEnabled)
     #expect(workspace.motionGuardActivationUnavailableReason == nil)
     #expect(workspace.motionUnavailableReason == "Enable Motion before moving.")
+    #expect(
+      workspace.penUnavailableReason(for: .lower)
+        == "Enable Motion before actuating the pen."
+    )
     await workspace.shutdown()
   }
 
@@ -698,7 +702,9 @@ extension OperatorWorkspaceTests {
     await workspace.shutdown()
   }
 
-  @Test("relaunch restores accepted boundaries only after fresh controller revalidation")
+  @Test(
+    "restored Learning pose does not gate manual Pen actuation"
+  )
   func acceptedBoundariesSurviveSoftwareRelaunchWithoutReplayingMotion() async throws {
     let log = EventLog()
     let machine = try MachineFixture(log: log)
@@ -762,6 +768,18 @@ extension OperatorWorkspaceTests {
     } else {
       Issue.record("Expected accepted boundaries to restore after fresh revalidation.")
     }
+    let restoredRevisions = relaunched.learningArtifactGraph.revisions
+    #expect(relaunched.motionAuthorizationEnabled)
+    #expect(relaunched.motionUnavailableReason == nil)
+    #expect(relaunched.penUnavailableReason(for: .lower) == nil)
+
+    await relaunched.requestPenActuation(.lower)
+    #expect(await machine.requestedPenCommands.last == .lower)
+    #expect(relaunched.learningArtifactGraph.revisions == restoredRevisions)
+
+    await relaunched.requestPenActuation(.raise)
+    #expect(await machine.requestedPenCommands.last == .raise)
+    #expect(relaunched.learningArtifactGraph.revisions == restoredRevisions)
     #expect(
       relaunched.currentLearningPathItemID
         == .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)

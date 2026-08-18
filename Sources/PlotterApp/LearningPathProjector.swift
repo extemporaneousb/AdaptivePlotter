@@ -382,9 +382,12 @@ struct LearningPathProjectionSnapshot: Sendable {
 
 struct LearningResetSurfacePresentation: Hashable, Sendable {
   let selectedPlan: LearningVacatePlan?
-  let resetAllPlan: LearningVacatePlan?
   let unavailableReason: String?
   let authorityError: String?
+}
+
+struct LearningPathMenuPresentation: Hashable, Sendable {
+  let resetAllPlan: LearningVacatePlan?
 }
 
 struct LearningPathProjection: Hashable, Sendable {
@@ -394,6 +397,7 @@ struct LearningPathProjection: Hashable, Sendable {
   let currentActionStrip: ExerciseActionStripPresentation?
   let contextualStop: ContextualStopPresentation?
   let resetSurface: LearningResetSurfacePresentation
+  let menu: LearningPathMenuPresentation
 }
 
 /// Pure Learning Path presentation. It consumes one immutable snapshot and has
@@ -419,10 +423,10 @@ struct LearningPathProjector: Sendable {
       contextualStop: contextualStop(snapshot),
       resetSurface: LearningResetSurfacePresentation(
         selectedPlan: snapshot.reset.plansByAnchor[selectedItemID],
-        resetAllPlan: snapshot.reset.resetAllPlan,
         unavailableReason: snapshot.reset.unavailableReason,
         authorityError: snapshot.reset.authorityError
-      )
+      ),
+      menu: LearningPathMenuPresentation(resetAllPlan: snapshot.reset.resetAllPlan)
     )
   }
 

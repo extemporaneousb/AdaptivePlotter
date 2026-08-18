@@ -27,13 +27,15 @@ records the complete prefix.
 Restart loads learned values but never restores Motion authorization, current
 Pen pose, active ownership, Stop capabilities, camera frames, or pending
 commands. A fresh passive controller-identity probe restores parked machine and
-Stage 3.3 authority. Reported MPos displacement is diagnostic and leaves direct
-motion, Pen Down, and Drawing Studio blocked until one fresh exact cap frame
-revalidates pose. Under unchanged machine, camera-mount, optical, tool, and
-paper-plane identities, the fresh cap may establish a pure coordinate
-translation; accepted Boundary, machine-camera, and tip geometry then move
-together under a new coordinate revision. Rotation, scale, and uncertain
-identity are not inferred.
+Stage 3.3 authority. Reported MPos displacement is diagnostic and leaves
+coordinate-dependent Learning and Drawing Studio blocked until one fresh exact
+cap frame revalidates pose. It is not authority over direct manual controls:
+manual jog and manual Pen commands remain gated by Motion authorization and the
+controller's current connection, alarm, readiness, safety, and serialization
+facts. Under unchanged machine, camera-mount, optical, tool, and paper-plane
+identities, the fresh cap may establish a pure coordinate translation; accepted
+Boundary, machine-camera, and tip geometry then move together under a new
+coordinate revision. Rotation, scale, and uncertain identity are not inferred.
 
 The fifth Stage 3.4 click now produces a reviewable frozen-frame proposal.
 **Accept Tip Map** is the explicit durable commit. Reject, undo, and clear retain

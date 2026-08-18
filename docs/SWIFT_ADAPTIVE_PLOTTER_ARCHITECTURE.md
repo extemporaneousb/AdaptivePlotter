@@ -94,6 +94,11 @@ controller/camera actors through typed actions, owns Learning Path attempts,
 constructs immutable evidence, commits the dependency graph, routes view
 intent, and copies current state into `LearningPathProjectionSnapshot`. It
 cannot replace controller settlement or exact-frame provenance with UI state.
+Restored-pose revalidation is admission policy for coordinate-dependent
+Learning and Drawing actions only. Operator-authored manual jog and manual Pen
+actions bypass Learning admission and use the Motion toggle plus the
+controller's native connection, alarm, readiness, safety, and serialization
+checks.
 
 `LearningPathProjectionSnapshot` is values-only. It contains copied typed facts
 and precomputed policy/admission results, not controller or camera actors,
@@ -104,10 +109,13 @@ transactions and Boundary progress to immutable presentation facts.
 `LearningPathProjector` is a pure value. Identical snapshots and review
 selection produce identical navigator rows, current item, status, summaries,
 action strips, exact Stop capability presentation, evidence, activity,
-subsystem status, timeline, and reset surfaces. It cannot mutate a session,
+subsystem status, timeline, scoped reset surface, and stable Learning Path menu
+actions. It cannot mutate a session,
 admit motion, persist, perform I/O, or accept an artifact. SwiftUI consumes one
 aggregate projection per Learning Path render and sends selected typed actions
-back to `OperatorWorkspace`.
+back to `OperatorWorkspace`. The destructive Reset All Learning action is
+presented in the navigator menu; the exercise detail presents only the scoped
+Reset From This Step action.
 
 LIVE and SIMULATED each own one `LearningSessionState` value under that shared
 contract. Within each value, compiler-enforced substates prevent invalid
@@ -159,9 +167,10 @@ authority.
 Manual X distance, Y distance, and feed fields initialize to 50 mm, 50 mm, and
 500 mm/min while remaining editable. Manual direction routing normally depends
 on direct controller facts and the current commanded pen state, not Learning
-Path completion. A restored durable session is the exception: physical pose is
-unknown until fresh cap revalidation, so direct motion and Pen Down remain
-gated while accepted learning stays loaded. Known Down
+Path completion or restored-pose applicability. A restored durable session may
+leave coordinate-dependent Learning and Drawing gated until fresh cap
+revalidation, but it does not gate direct manual motion or manual Pen commands.
+Known Down
 uses drawing ownership; Up or unknown uses ordinary manual-jog ownership, with
 unknown pose preserved in the resulting evidence.
 
@@ -270,11 +279,12 @@ preserving the original validated revision lineage across repeated restarts.
 When the cap proves a pure coordinate translation under unchanged semantic
 camera/machine identity, Runtime rebases the machine checkpoint,
 `MachineCameraRegistration`, and `TipCameraRegistration` under one new
-coordinate revision before motion is released. Replacing only the paper instance retains that
-authority; changing the contact plane invalidates it and requires the full
-five-mark calibration. The revalidation evidence is durable. Reset clears the
-affected durable machine and/or tip checkpoint before clearing in-memory
-authority.
+coordinate revision before coordinate-dependent Learning and Drawing authority
+is released. Direct manual controls remain independent. Replacing only the
+paper instance retains that authority; changing the contact plane invalidates
+it and requires the full five-mark calibration. The revalidation evidence is
+durable. Reset clears the affected durable machine and/or tip checkpoint before
+clearing in-memory authority.
 
 Unknown semantic changes cannot be inferred from a UUID. The attended operator
 must refuse revalidation after an unrecorded physical remount or assembly

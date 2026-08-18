@@ -169,6 +169,31 @@ struct LearningPathProjectorTests {
     #expect(projection.currentItemID == .stage(.connect))
   }
 
+  @Test("Reset All is projected only in the stable Learning Path menu")
+  func resetAllMenuPlacement() {
+    let anchor = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+    let resetAll = LearningVacatePlan(
+      scope: .all,
+      source: .live,
+      anchor: anchor,
+      affectedItems: LearningPathItemID.learningExerciseOrder,
+      expectedCurrentRevisionIDs: [],
+      expectedAcceptedAttemptSequence: 0,
+      removesDurableMachineCheckpoint: true,
+      removesDurableTipCheckpoint: true,
+      physicalInkMayRemain: true
+    )
+    let snapshot = LearningPathProjectionSnapshot(
+      reset: .init(resetAllPlan: resetAll, unavailableReason: "An operation is active.")
+    )
+
+    let projection = projector.project(snapshot, selectedItemID: anchor)
+
+    #expect(projection.menu.resetAllPlan == resetAll)
+    #expect(projection.resetSurface.selectedPlan == nil)
+    #expect(projection.resetSurface.unavailableReason == "An operation is active.")
+  }
+
   @Test("sparse calibration phases select one coherent action path")
   func sparseCalibrationPhases() throws {
     let owner = LearningPathItemID.humanGuidedDiscovery(
