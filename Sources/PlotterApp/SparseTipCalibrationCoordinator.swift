@@ -14,6 +14,7 @@ enum SparseTipCalibrationPhase: Hashable, Sendable {
   case revealingBatch
   case awaitingFrozenClicks(FrameID)
   case fittingModel
+  case reviewingModel(TipCameraModelForm)
   case committingModel(TipCameraModelForm)
   case accepted
   case possibleInkBlacklisted(BlacklistedToolContactLocation, String)
@@ -104,16 +105,20 @@ struct SparseTipCalibrationCoordinator: Hashable, Sendable {
 
   mutating func undoLastClick() throws {
     guard pendingFrame != nil, !selections.isEmpty,
-      phase == .fittingModel || isAwaitingFrozenClicks
+      phase == .fittingModel || isReviewingModel || isAwaitingFrozenClicks
     else { throw SparseTipCalibrationCoordinatorError.invalidTransition }
+    acceptedObservations = []
+    proposal = nil
     selections.removeLast()
     phase = .awaitingFrozenClicks(pendingFrame!.frameID)
   }
 
   mutating func clearClicks() throws {
     guard pendingFrame != nil,
-      phase == .fittingModel || isAwaitingFrozenClicks
+      phase == .fittingModel || isReviewingModel || isAwaitingFrozenClicks
     else { throw SparseTipCalibrationCoordinatorError.invalidTransition }
+    acceptedObservations = []
+    proposal = nil
     selections = []
     phase = .awaitingFrozenClicks(pendingFrame!.frameID)
   }
@@ -175,8 +180,15 @@ struct SparseTipCalibrationCoordinator: Hashable, Sendable {
       capCameraFromMachine: capCameraFromMachine
     )
     proposal = selection
-    phase = .committingModel(selection.modelForm)
+    phase = .reviewingModel(selection.modelForm)
     return selection
+  }
+
+  mutating func beginCommit() throws {
+    guard case .reviewingModel(let modelForm) = phase, proposal != nil else {
+      throw SparseTipCalibrationCoordinatorError.invalidTransition
+    }
+    phase = .committingModel(modelForm)
   }
 
   mutating func markAccepted() throws {
@@ -195,6 +207,11 @@ struct SparseTipCalibrationCoordinator: Hashable, Sendable {
 
   private var isAwaitingFrozenClicks: Bool {
     if case .awaitingFrozenClicks = phase { return true }
+    return false
+  }
+
+  private var isReviewingModel: Bool {
+    if case .reviewingModel = phase { return true }
     return false
   }
 

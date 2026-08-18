@@ -68,7 +68,7 @@ struct AcceptedArtifactCheckpointTests {
     }
   }
 
-  @Test("controller settings and MPos must both revalidate")
+  @Test("controller identity gates restore while MPos delta remains diagnostic")
   func controllerCompatibility() throws {
     let checkpoint = try makeCheckpoint()
     let exactContext = try ControllerCheckpointContext(
@@ -96,13 +96,37 @@ struct AcceptedArtifactCheckpointTests {
       Issue.record("Expected changed controller settings to quarantine the checkpoint.")
       return
     }
-    guard case .incompatible = checkpoint.compatibility(
+    guard case .compatible(let movedResidual) = checkpoint.compatibility(
       with: exactContext,
       currentPosition: try MachinePosition(x: 10.06, y: 0)
     ) else {
-      Issue.record("Expected an out-of-tolerance MPos to quarantine the checkpoint.")
+      Issue.record("Expected learned geometry to survive a reported MPos change.")
       return
     }
+    #expect(abs(movedResidual - 0.06) < 0.000_001)
+  }
+
+  @Test("visual coordinate rebase translates accepted geometry without retraining")
+  func coordinateRebase() throws {
+    let checkpoint = try makeCheckpoint()
+    let delta = try Vector2<MachineSpace>(dx: 12.5, dy: -7.25)
+    let rebased = try checkpoint.rebasedForKnownMachineCoordinateChange(
+      to: checkpoint.coordinateRevision + 1,
+      delta: delta
+    )
+    let expectedSavePosition = try checkpoint.machinePositionAtSave.point.translated(by: delta)
+
+    #expect(rebased.coordinateRevision == checkpoint.coordinateRevision + 1)
+    #expect(
+      rebased.boundarySideAggregates[0].estimateMM
+        == checkpoint.boundarySideAggregates[0].estimateMM + delta.dx
+    )
+    #expect(rebased.machinePositionAtSave.point == expectedSavePosition)
+    #expect(
+      rebased.boundarySideAggregates[0].revisionID
+        == checkpoint.boundarySideAggregates[0].revisionID
+    )
+    try rebased.validate()
   }
 
   @Test("application-owned pen parser changes do not invalidate coordinate context")

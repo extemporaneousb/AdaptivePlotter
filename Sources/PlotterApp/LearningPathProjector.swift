@@ -987,9 +987,30 @@ extension LearningPathProjector {
     case .fittingModel:
       [ExerciseActionDescriptor(
         kind: .retryTipCalibrationCommit,
-        title: "Fitting and Committing Tip Calibration…",
-        unavailableReason: "The five observations are being created, fitted, and committed."
+        title: "Fitting Tip Calibration…",
+        unavailableReason: "The five observations are being created and fitted."
       )]
+    case .reviewingModel:
+      [
+        ExerciseActionDescriptor(
+          kind: .acceptTipCalibrationProposal,
+          title: "Accept Tip Map",
+          role: .positive
+        ),
+        ExerciseActionDescriptor(
+          kind: .undoLastSparseTipClick,
+          title: "Undo Last Click"
+        ),
+        ExerciseActionDescriptor(
+          kind: .clearSparseTipClicks,
+          title: "Clear Clicks on This Frame"
+        ),
+        ExerciseActionDescriptor(
+          kind: .rejectTipCalibrationProposal,
+          title: "Reject Tip Map",
+          role: .destructive
+        ),
+      ]
     case .committingModel:
       [ExerciseActionDescriptor(
         kind: .retryTipCalibrationCommit,
@@ -1437,12 +1458,12 @@ extension LearningPathProjector {
       "A checkpoint containing \(count) accepted Boundary side(s) is parked until a fresh passive controller probe matches."
     case .saved(let count, let center):
       "Saved \(count) accepted Boundary side(s)\(center ? " plus center arrival" : "") atomically."
-    case .restored(let count, let center, let residual):
+    case .restored(let count, let center, let reportedPositionDelta):
       String(
-        format: "Restored %d accepted Boundary side(s)%@ after controller-context revalidation (MPos residual %.3f mm).",
+        format: "Restored %d accepted Boundary side(s)%@ after controller-context revalidation. Reported MPos changed %.3f mm; physical pose still requires visual revalidation.",
         count,
         center ? " plus center arrival" : "",
-        residual
+        reportedPositionDelta
       )
     case .incompatible(let reason):
       "The accepted-artifact checkpoint remains quarantined: \(reason) No workflow or command was replayed."

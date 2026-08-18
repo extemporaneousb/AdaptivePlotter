@@ -197,7 +197,7 @@ struct OperatorWorkspaceLifecycleTests {
     #expect(
       workspace.workbenchCapabilityPresentation.paper
         == .current(
-          detail: "This sheet was explicitly confirmed over the calibrated drawable region.")
+          detail: "Operator assertion: this sheet covers the outline; paper edges were not measured.")
     )
     workspace.openDrawingStudio()
     #expect(!workspace.completedDrawingComparisonReviewIsPinned)

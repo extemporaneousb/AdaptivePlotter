@@ -243,6 +243,33 @@ struct HumanGuidedDiscoveryTests {
     #expect(Set(provenance.map(\.attemptID)).count == 5)
   }
 
+  @Test("known coordinate translation rebases camera registration without refitting evidence")
+  func registrationCoordinateRebase() throws {
+    let context = RegistrationTestContext()
+    let pairs = try registrationPairs()
+    let fit = try MachineCameraRegistrationFit.fit(correspondences: pairs)
+    let registration = try makeRegistration(
+      fit: fit,
+      provenance: makeRegistrationProvenance(pairs, context: context),
+      context: context
+    )
+    let delta = try Vector2<MachineSpace>(dx: 30, dy: -12)
+    let rebased = try registration.rebasedForKnownMachineCoordinateChange(
+      to: context.coordinateRevision + 1,
+      delta: delta
+    )
+    let formerPoint = try Point2<MachineSpace>(x: 5, y: 5)
+    let currentPoint = try formerPoint.translated(by: delta)
+
+    #expect(rebased.coordinateRevision == context.coordinateRevision + 1)
+    let rebasedCameraPoint = try rebased.fit.cameraPoint(from: currentPoint)
+    let formerCameraPoint = try registration.fit.cameraPoint(from: formerPoint)
+    #expect(rebasedCameraPoint.distance(to: formerCameraPoint) < 0.000_001)
+    #expect(rebased.applicabilityRectangle.minX == registration.applicabilityRectangle.minX + 30)
+    #expect(rebased.applicabilityRectangle.minY == registration.applicabilityRectangle.minY - 12)
+    #expect(rebased.fit.maximumErrorPixels < 0.000_001)
+  }
+
   @Test("optical registration rejects camera and cap-anchor-estimator mismatches")
   func opticalCompatibilityMismatch() throws {
     let context = RegistrationTestContext()

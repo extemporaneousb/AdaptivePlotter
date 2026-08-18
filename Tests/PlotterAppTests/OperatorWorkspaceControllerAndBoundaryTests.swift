@@ -702,8 +702,9 @@ extension OperatorWorkspaceTests {
   func acceptedBoundariesSurviveSoftwareRelaunchWithoutReplayingMotion() async throws {
     let log = EventLog()
     let machine = try MachineFixture(log: log)
-    let checkpointBox = CheckpointBox()
-    let checkpointActions = OperatorWorkspace.AcceptedArtifactCheckpointActions(
+    let identities = TipCalibrationSemanticIdentityState.ephemeral()
+    let checkpointBox = LearningPathCheckpointBox()
+    let checkpointActions = OperatorWorkspace.AcceptedLearningPathCheckpointActions(
       load: { checkpointBox.load() },
       save: { checkpointBox.save($0) },
       clear: { checkpointBox.clear() }
@@ -711,7 +712,8 @@ extension OperatorWorkspaceTests {
     let first = workspace(
       machine: machine,
       camera: try CameraFixture(),
-      checkpointActions: checkpointActions,
+      learningPathCheckpointActions: checkpointActions,
+      tipCalibrationSemanticIdentities: identities,
       log: log
     )
     await first.establishMachineSession(machine.descriptor)
@@ -724,7 +726,7 @@ extension OperatorWorkspaceTests {
     try await completePenInteraction(first)
     try await completeLiveBoundaries(first, machine: machine)
 
-    let saved = try #require(checkpointBox.checkpoint)
+    let saved = try #require(checkpointBox.checkpoint?.machineArtifacts)
     #expect(saved.boundarySideAggregates.count == 4)
     let cancelCountAtRelaunch = await machine.cancelCount
     let motionLogAtRelaunch = await log.values
@@ -732,7 +734,8 @@ extension OperatorWorkspaceTests {
     let relaunched = workspace(
       machine: machine,
       camera: try CameraFixture(),
-      checkpointActions: checkpointActions,
+      learningPathCheckpointActions: checkpointActions,
+      tipCalibrationSemanticIdentities: identities,
       log: log
     )
     #expect(relaunched.boundarySideAggregates.isEmpty)
@@ -760,13 +763,12 @@ extension OperatorWorkspaceTests {
       Issue.record("Expected accepted boundaries to restore after fresh revalidation.")
     }
     #expect(
-      relaunched.currentLearningPathItemID == .humanGuidedDiscovery(.penInteraction),
-      "A relaunch still requires fresh physical Pen-state confirmation."
-    )
-    try await completePenInteraction(relaunched)
-    #expect(
       relaunched.currentLearningPathItemID
         == .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
+    )
+    #expect(
+      relaunched.learningArtifactGraph.currentRevision(for: .penInteraction)
+        == first.learningArtifactGraph.currentRevision(for: .penInteraction)
     )
     #expect(
       relaunched.currentExerciseActionStripPresentation?.actions.first?.kind

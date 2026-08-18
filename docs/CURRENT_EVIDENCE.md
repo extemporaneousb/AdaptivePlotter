@@ -10,6 +10,62 @@ procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
 ## Implemented software surface
 
+### Durable Learning Path prefix and restart pose revalidation
+
+Implemented and validated 2026-08-17 in Blackdog task `TASK-69EC31D1`,
+targeting `main`.
+
+One integrity-checked atomic checkpoint now retains the accepted LIVE Learning
+Path prefix: Pen Interaction, Boundary and center artifacts, the Stage 3.3
+machine-to-cap registration, the accepted Stage 3.4 tip registration, and the
+Stage 4 evidence-record reference. Production migrates the former separate
+machine and tip checkpoint files when possible. Because those legacy files did
+not contain Pen Interaction, Stage 3.3, or Stage 4 payloads, they cannot
+manufacture the missing historical stages; future acceptance under this build
+records the complete prefix.
+
+Restart loads learned values but never restores Motion authorization, current
+Pen pose, active ownership, Stop capabilities, camera frames, or pending
+commands. A fresh passive controller-identity probe restores parked machine and
+Stage 3.3 authority. Reported MPos displacement is diagnostic and leaves direct
+motion, Pen Down, and Drawing Studio blocked until one fresh exact cap frame
+revalidates pose. Under unchanged machine, camera-mount, optical, tool, and
+paper-plane identities, the fresh cap may establish a pure coordinate
+translation; accepted Boundary, machine-camera, and tip geometry then move
+together under a new coordinate revision. Rotation, scale, and uncertain
+identity are not inferred.
+
+The fifth Stage 3.4 click now produces a reviewable frozen-frame proposal.
+**Accept Tip Map** is the explicit durable commit. Reject, undo, and clear retain
+the same frozen frame and perform no redraw or motion. **Reset From This Step**
+writes or clears the retained durable prefix before changing in-memory learning;
+a storage failure leaves the current learning state intact. Stage 4 completion
+is accepted only against the exact saved tip revision. Paper coverage wording
+now identifies **Assert Sheet Covers Outline** as an operator assertion rather
+than measured paper-edge evidence.
+
+A read-only direct serial probe was also performed while the application was
+closed on `/dev/cu.usbserial-A10OF67O` at 115200 baud. Only `?`, `$G`, `$#`, and
+`$I` were transmitted. The controller reported Idle, `MPos:277.560,-39.875,0`,
+zero G54 offsets, and grblHAL BlackBox X32 identity. No jog, Pen command, alarm
+clear, reset, or other motion-capable command was transmitted. This proves a
+responsive controller and reported state only; it does not prove physical pose
+after unpowered carriage movement.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| Restart/reset focused suites | passed — 8 tests | atomic store integrity, saved Boundary restore, no-mark tip revalidation, and reset-prefix atomicity |
+| `make quick-test` | passed — 437 tests | fast unit/component partition with retained journeys excluded |
+| `make journey-test` | passed — 10 tests | sparse calibration, checkpoint revalidation, exact tip revision, reset, Boundary, drawing, and Stop journeys |
+| `make strict-check` | passed — 447 tests | complete strict concurrency, warnings as errors, signed bundle, launcher checks, full tests, repository contract, and diff check |
+| `git diff --check` | passed | whitespace and conflict markers |
+
+These results are source, deterministic fixture, simulator, build, signed
+bundle, repository-contract, and read-only controller-query evidence. The new
+binary was not launched for an attended camera workflow. No physical motion,
+Pen Down/Up, operator click, paper placement, cap revalidation, or observed ink
+was exercised by this task.
+
 ### Retained comparison, paper lineage, and placed-vector Drawing Studio
 
 Implemented and validated 2026-08-17 in Blackdog task `TASK-FF3A5E6A`,

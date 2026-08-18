@@ -181,7 +181,12 @@ struct LearningPathProjectorTests {
       (.awaitingFrozenClicks(FrameID(rawValue: "frame-1")), 0, ["Cancel Attempt"]),
       (.awaitingFrozenClicks(FrameID(rawValue: "frame-1")), 2,
         ["Undo Last Click", "Clear Clicks on This Frame", "Cancel Attempt"]),
-      (.fittingModel, 5, ["Fitting and Committing Tip Calibration…", "Cancel Attempt"]),
+      (.fittingModel, 5, ["Fitting Tip Calibration…", "Cancel Attempt"]),
+      (.reviewingModel(.directAffine), 5,
+        [
+          "Accept Tip Map", "Undo Last Click", "Clear Clicks on This Frame", "Reject Tip Map",
+          "Cancel Attempt",
+        ]),
       (.committingModel(.constantCameraPixelCorrection),
         5, ["Retry Calibration Commit", "Cancel Attempt"]),
     ]

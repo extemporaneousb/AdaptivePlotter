@@ -170,6 +170,13 @@ remains reviewable after completion. Drawing Studio is a direct workbench
 capability unlocked by that attributable validation; it is not another
 Learning Path row and does not imply adaptive-model readiness.
 
+Every accepted LIVE exercise is also a durable prefix checkpoint. Restart does
+not reopen accepted Pen Interaction, Boundary, Stage 3.3, Stage 3.4, or the
+attributable Stage 4 result merely because process-local owners disappeared.
+Loaded values are learning authority, not operational authority: Motion,
+current Pen pose, controller ownership, exact frames, and Stop capabilities are
+never restored from disk.
+
 The operator may turn Learning off when no Learning attempt owns work. This
 hides Learning navigation and prevents new Learning actions without clearing
 accepted artifacts, disconnecting the controller, disabling Motion, stopping
@@ -386,9 +393,12 @@ calibration-position order. No distance or ambiguity threshold may reject or
 block that association. **Undo Last Click** or **Clear Clicks on This Frame**
 changes only clicks on the same frame and performs no motion, ink, redraw,
 capture, zoom, or pan. The fifth click atomically creates the five accepted
-observations, constructs the model, and commits the resulting tip registration.
-A failed atomic commit exposes a commit retry; normal success has no separate
-model-approval action.
+observations and constructs a reviewable tip-map proposal. The exact frozen
+frame, click markers, proposed map, model form, residuals, RMS, covariance, and
+uncertainty remain visible. **Accept Tip Map** commits the registration.
+**Reject Tip Map**, **Undo Last Click**, or **Clear Clicks on This Frame**
+returns to same-frame selection without motion, ink, redraw, or capture. A
+failed atomic acceptance exposes a commit retry.
 
 Model construction first fits one direct affine machine-to-tip map from all
 five observations. Constant camera-pixel correction on the accepted cap map is
@@ -397,7 +407,7 @@ model-quality thresholds, residual thresholds, confidence thresholds, or
 numerical failure route. All-five residuals, RMS, covariance, and uncertainty
 are diagnostic evidence only; their magnitude cannot reject either model or
 block progression. Numerical fitting cannot request paper replacement or route
-to **No Automatic Redraw**. The same fifth-click transition atomically creates
+to **No Automatic Redraw**. Only explicit acceptance creates
 `TipCameraRegistration` and makes Stage 4 current. The next operator-owned
 physical authorization is **Go** for the observed-line trial.
 
@@ -447,17 +457,24 @@ Changes apply as follows:
 - LIVE/SIMULATED source change: invalidate cross-source optical authority;
 - raw observations: retain as immutable history under every change.
 
-`AcceptedMachineArtifactCheckpoint` remains machine-only.
-`AcceptedTipCalibrationCheckpoint` is separate and contains the accepted tip
-registration plus its acceptance event and complete consumed evidence. Loading
-returns quarantined evidence. It cannot restore workflow state, a graph
-revision, Motion authorization, operation ownership, a Stop capability, a
-pending command, or a continuation. Fresh identity-compatible controller and
-cap evidence is required before authority may be restored; paper-plane changes
-do not restore the prior registration and instead require a complete new Stage
-3.4 batch. Same-plane sheet replacement does not invalidate that registration.
-Same-paper restart restoration performs no contact mark. Every new
-accepted authority retains its fresh evidence and revision provenance.
+`AcceptedLearningPathCheckpoint` is the one atomic durable accepted-prefix
+envelope. It contains optional accepted Pen Interaction, machine-only Boundary
+and center artifacts, Stage 3.3 machine/cap registration, the accepted Stage 3.4
+tip checkpoint, and a Stage 4 evidence-record reference. Production migrates
+the former machine-only and tip-only files into this envelope and deletes the
+legacy files after successful save.
+
+Loading restores accepted values only. It cannot restore Motion authorization,
+current Pen pose, workflow state, operation ownership, a Stop capability, a
+pending command, a camera frame, or a continuation. Fresh passive controller
+identity evidence restores the learned machine envelope, but reported MPos
+distance is diagnostic rather than physical-pose proof. Motion remains blocked
+until a fresh exact cap frame revalidates pose. Under unchanged machine geometry
+and semantic camera-mount/optical identity, a displaced cap may establish one
+known coordinate translation; accepted boundaries, the machine/cap fit, and the
+tip fit are rebased into one new coordinate-frame revision. This does not
+estimate rotation or scale. Unknown camera, geometry, or assembly change
+invalidates instead. Same-paper restoration performs no contact mark.
 
 ## Stage 4 dependency boundary
 

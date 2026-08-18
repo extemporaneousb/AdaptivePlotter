@@ -258,7 +258,9 @@ public struct ControllerCheckpointContext: Codable, Hashable, Sendable {
 }
 
 public enum AcceptedArtifactCheckpointCompatibility: Equatable, Sendable {
-  case compatible(residualMM: Double)
+  /// The learned machine envelope is compatible with the controller/configuration.
+  /// The reported position delta is diagnostic only; it is not physical-pose proof.
+  case compatible(reportedPositionDeltaMM: Double)
   case incompatible(String)
 }
 
@@ -345,16 +347,7 @@ public struct AcceptedMachineArtifactCheckpoint: Codable, Hashable, Sendable {
       currentPosition,
       from: machinePositionAtSave
     )
-    guard MachinePositionAcceptancePolicy.accepts(residualMM: residual) else {
-      return .incompatible(
-        String(
-          format: "Controller MPos differs by %.3f mm; checkpoint tolerance is %.3f mm.",
-          residual,
-          MachinePositionAcceptancePolicy.toleranceMM
-        )
-      )
-    }
-    return .compatible(residualMM: residual)
+    return .compatible(reportedPositionDeltaMM: residual)
   }
 
   public func restoredBoundaryHistories()
@@ -416,6 +409,55 @@ public struct AcceptedMachineArtifactCheckpoint: Codable, Hashable, Sendable {
       )
     }
     return graph
+  }
+
+  /// `delta` defines current controller coordinates as `m' = m + delta`.
+  /// This preserves accepted physical boundary evidence while assigning it to
+  /// a new, explicitly versioned coordinate frame after visual re-anchoring.
+  public func rebasedForKnownMachineCoordinateChange(
+    to revision: UInt64,
+    delta: Vector2<MachineSpace>
+  ) throws -> Self {
+    let rebasedEvidence = try acceptedBoundaryEvidence.map { evidence in
+      try BoundarySideAttemptEvidence(
+        attemptID: evidence.attemptID,
+        direction: evidence.direction,
+        controllerSessionID: evidence.controllerSessionID,
+        coordinateRevision: revision,
+        ownerID: evidence.ownerID,
+        stopCapabilityID: evidence.stopCapabilityID,
+        stopIntent: evidence.stopIntent,
+        finalPosition: MachinePosition(
+          point: try evidence.finalPosition.point.translated(by: delta)
+        ),
+        disposition: evidence.disposition
+      )
+    }
+    let aggregates = boundarySideAggregates.map {
+      $0.rebasedForKnownMachineCoordinateChange(to: revision, delta: delta)
+    }
+
+    return try Self(
+      checkpointID: UUID(),
+      controllerContext: controllerContext,
+      machinePositionAtSave: MachinePosition(
+        point: try machinePositionAtSave.point.translated(by: delta)
+      ),
+      controllerSessionID: controllerSessionID,
+      coordinateRevision: revision,
+      acceptedAttemptSequence: acceptedAttemptSequence,
+      pairedBoundaryProgress: pairedBoundaryProgress,
+      acceptedBoundaryEvidence: rebasedEvidence,
+      boundarySideAggregates: aggregates,
+      estimatedMachineCenter: estimatedMachineCenter == nil
+        ? nil : try EstimatedMachineCenter.derive(from: aggregates),
+      learnedLocalCoordinateFrame: learnedLocalCoordinateFrame == nil
+        ? nil : try LearnedLocalCoordinateFrame.derive(from: aggregates),
+      centerArrivalPosition: try centerArrivalPosition.map {
+        MachinePosition(point: try $0.point.translated(by: delta))
+      },
+      acceptedRevisions: acceptedRevisions
+    )
   }
 
   public func validate() throws {

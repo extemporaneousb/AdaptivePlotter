@@ -9,9 +9,7 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
     machineActions: MachineSessionComposition.actions,
     cameraActions: CameraComposition.actions,
     announcementActions: SpeechComposition.actions,
-    acceptedArtifactCheckpointActions: AcceptedArtifactCheckpointComposition.actions,
-    acceptedTipCalibrationCheckpointActions:
-      AcceptedArtifactCheckpointComposition.tipCalibrationActions,
+    acceptedLearningPathCheckpointActions: AcceptedArtifactCheckpointComposition.actions,
     drawingEvidenceActions: DrawingRunEvidenceComposition.actions,
     paperCoverageActions: PaperCoverageComposition.actions,
     tipCalibrationSemanticIdentities: TipCalibrationSemanticIdentityComposition.state,
@@ -251,7 +249,7 @@ struct OperatorWorkspaceView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
               HStack {
-                Button("Confirm Paper Coverage") {
+                Button("Assert Sheet Covers Outline") {
                   workspace.confirmCurrentPaperCoversDrawableRegion()
                 }
                 .operatorButton(.affirmative)

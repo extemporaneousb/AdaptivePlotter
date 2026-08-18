@@ -6,15 +6,57 @@ import Testing
 @testable import PlotterRuntime
 
 extension OperatorWorkspaceTests {
+  @Test("partial reset does not mutate memory when durable prefix replacement fails")
+  func partialResetPersistenceFailureIsAtomic() async throws {
+    let log = EventLog()
+    let machine = try MachineFixture(log: log)
+    let actions = OperatorWorkspace.AcceptedLearningPathCheckpointActions(
+      load: { .absent },
+      save: { _ in throw ResetPersistenceFixtureError.refused },
+      clear: {}
+    )
+    let workspace = workspace(
+      machine: machine,
+      camera: try CameraFixture(),
+      learningPathCheckpointActions: actions,
+      log: log
+    )
+    await workspace.establishMachineSession(machine.descriptor)
+    await workspace.requestPassiveProbe()
+    await workspace.startCamera()
+    try await completePenInteraction(workspace)
+    await workspace.beginPairedBoundarySide(.positiveX)
+    try await waitUntil { workspace.contextualStopPresentation != nil }
+    try await stopActiveOperation(workspace)
+    let boundaryRevision = try #require(
+      workspace.learningArtifactGraph.currentRevision(for: .boundarySideAggregate(.positiveX))
+    )
+    let plan = try #require(
+      workspace.learningVacatePlan(
+        from: .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
+      )
+    )
+
+    #expect(!workspace.performLearningVacate(plan))
+    #expect(
+      workspace.learningArtifactGraph.currentRevision(for: .boundarySideAggregate(.positiveX))
+        == boundaryRevision
+    )
+    #expect(workspace.boundarySideAggregates[.positiveX] != nil)
+    #expect(workspace.learningAuthorityError?.contains("no reset was applied") == true)
+    await workspace.shutdown()
+  }
+
   @Test("Reset All LIVE Learning clears a quarantined durable tip checkpoint")
   func resetAllLiveLearningClearsTipCheckpoint() async throws {
-    let checkpointBox = TipCheckpointBox()
-    let actions = OperatorWorkspace.AcceptedTipCalibrationCheckpointActions(
+    let identities = TipCalibrationSemanticIdentityState.ephemeral()
+    let checkpointBox = LearningPathCheckpointBox()
+    let actions = OperatorWorkspace.AcceptedLearningPathCheckpointActions(
       load: { checkpointBox.load() },
       save: { checkpointBox.save($0) },
       clear: { checkpointBox.clear() }
     )
-    let seeded = makeSimulatedHarness()
+    let seeded = makeSimulatedHarness(tipCalibrationSemanticIdentities: identities)
     try await completeSimulatedBoundariesAndCenter(
       seeded.workspace,
       runtime: seeded.runtime,
@@ -25,8 +67,7 @@ extension OperatorWorkspaceTests {
       runtime: seeded.runtime
     )
     let registration = try #require(seeded.workspace.tipCameraRegistration)
-    try checkpointBox.save(
-      AcceptedTipCalibrationCheckpoint(
+    let tipCheckpoint = try AcceptedTipCalibrationCheckpoint(
         registration: registration,
         acceptanceEvent: TipCalibrationAcceptanceEvent(
           acceptedRevisionID: registration.acceptedRevisionID,
@@ -34,9 +75,17 @@ extension OperatorWorkspaceTests {
           actor: "test fixture"
         )
       )
+    checkpointBox.save(
+      try AcceptedLearningPathCheckpoint(
+        semanticIdentity: identities.learningPathIdentity,
+        tipCalibration: tipCheckpoint
+      )
     )
 
-    let liveRestart = makeSimulatedHarness(tipCheckpointActions: actions)
+    let liveRestart = makeSimulatedHarness(
+      learningPathCheckpointActions: actions,
+      tipCalibrationSemanticIdentities: identities
+    )
     #expect(liveRestart.workspace.frameMode == .live)
     #expect(liveRestart.workspace.quarantinedTipCalibrationCheckpoint != nil)
     let plan = try #require(liveRestart.workspace.resetAllLearningPlan)
@@ -51,8 +100,8 @@ extension OperatorWorkspaceTests {
   func resetAllLiveLearningClearsCheckpointAndRetainsSessionFacts() async throws {
     let log = EventLog()
     let machine = try MachineFixture(log: log)
-    let checkpointBox = CheckpointBox()
-    let checkpointActions = OperatorWorkspace.AcceptedArtifactCheckpointActions(
+    let checkpointBox = LearningPathCheckpointBox()
+    let checkpointActions = OperatorWorkspace.AcceptedLearningPathCheckpointActions(
       load: { checkpointBox.load() },
       save: { checkpointBox.save($0) },
       clear: { checkpointBox.clear() }
@@ -60,7 +109,7 @@ extension OperatorWorkspaceTests {
     let workspace = workspace(
       machine: machine,
       camera: try CameraFixture(),
-      checkpointActions: checkpointActions,
+      learningPathCheckpointActions: checkpointActions,
       log: log
     )
     await workspace.establishMachineSession(machine.descriptor)
@@ -176,4 +225,8 @@ extension OperatorWorkspaceTests {
     #expect(await harness.runtime.persistentInk() == inkBefore)
     await workspace.shutdown()
   }
+}
+
+private enum ResetPersistenceFixtureError: Error {
+  case refused
 }

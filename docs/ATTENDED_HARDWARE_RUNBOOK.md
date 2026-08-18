@@ -123,13 +123,14 @@ separate existing ±24 mm camera-calibration plan.
    threshold, or ambiguity blocker.
 8. If a click is wrong, use **Undo Last Click** or **Clear Clicks on This
    Frame**. Confirm no motion, ink, redraw, new frame, zoom, or pan occurs.
-9. On the fifth valid click, confirm the app constructs and atomically commits
-   the all-five affine `TipCameraRegistration` and makes Stage 4 current without
-   a separate approval. Review the diagnostic residuals, RMS, covariance, and
-   uncertainty. Their magnitude must not block the commit or route to paper
-   replacement. Constant correction is expected only if affine construction
+9. On the fifth valid click, confirm the app constructs but does not yet accept
+   the all-five affine `TipCameraRegistration`. Review the frozen-frame markers,
+   diagnostic residuals, RMS, covariance, and uncertainty. Choose **Accept Tip
+   Map** and confirm Stage 4 becomes current. Also exercise **Reject Tip Map**
+   once and confirm the same frame remains available without motion, capture,
+   ink, or redraw. Constant correction is expected only if affine construction
    itself fails. **Retry Calibration Commit** is valid only after an actual
-   atomic commit failure; it is not another acceptance gate.
+   atomic acceptance failure.
 
 If any chord, contact, or Pen state is ambiguous, stop. The circle center/radius
 on this paper is blacklisted. Do not retry it or reset around it. The only
@@ -144,10 +145,15 @@ possible-ink recovery; numerical fitting cannot offer it.
 Test these only as separately recorded attended cases; neither is implicit
 restoration.
 
-- Same unchanged paper and assembly after app/capture restart: choose
+- Same unchanged paper and assembly after app/capture restart: confirm completed
+  Pen, Boundary, Stage 3.3, Stage 3.4, and Stage 4 values are loaded without
+  learning motion, while ordinary motion remains unavailable. Choose
   **Revalidate Saved Tip Calibration**. Confirm a fresh settled controller/cap
   frame is captured, no contact mark occurs, and a new accepted tip revision is
-  derived from the quarantined checkpoint.
+  derived from the quarantined checkpoint. If the carriage was moved while
+  powered off, confirm the displayed coordinate revision changes and the saved
+  boundary/camera/tip geometry translates together before motion becomes
+  available.
 - New sheet on the same unchanged support/stock/contact plane: choose **New
   Sheet — Same Contact Plane**. Confirm the paper instance changes, tip authority
   remains current, prior sheet coverage is cleared, and a new coverage assertion
@@ -156,7 +162,7 @@ restoration.
 - Changed support, stock thickness, contact height, or contact plane: choose
   **Contact Plane Changed**. Confirm tip authority is invalidated, rebuild
   current machine-camera authority if required, then run a complete new
-  five-circle Stage 3.4 batch. Its fifth valid click commits the new map.
+  five-circle Stage 3.4 batch, then review and accept the new map.
 
 If any semantic identity is uncertain, do not revalidate. Clear the durable tip
 checkpoint and perform a new five-mark calibration.
@@ -198,9 +204,9 @@ Up and observe the existing stroke, but it must not redraw it.
 1. Open **Drawing Studio** and confirm the calibrated drawable outline and
    predicted current tip point are correctly overlaid on live video.
 2. Replace the disposable sheet if necessary using **New Sheet — Same Contact
-   Plane**. Place it fully over the outline and press **Confirm Paper Coverage**.
-   Confirm the top paper status becomes current without changing the accepted
-   tip map.
+   Plane**. Place it fully over the outline and press **Assert Sheet Covers
+   Outline**. Confirm the top paper status names this as an operator assertion,
+   not measured paper edges, without changing the accepted tip map.
 3. Select a square first. Place it near the drawable-region center, resize and
    rotate it, and confirm the projected target follows the video click while
    remaining entirely inside the outline. Move it partly outside and verify Run

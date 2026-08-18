@@ -264,23 +264,33 @@ physical contact or ink; attended observation owns those claims.
    Stage 3.4 has no holdouts and no numerical magnitude can block proposal
    creation or progression. Numerical fitting never requests paper replacement
    and never routes to **No Automatic Redraw**.
-7. The fifth valid click atomically commits `TipCameraRegistration`, saves the
-   separate quarantined tip checkpoint, finishes Stage 3.4, and makes Stage 4
-   current. If this commit fails, expose **Retry Calibration Commit**; do not
-   ask the operator to approve a successful fit.
+7. The fifth valid click constructs a reviewable `TipCameraRegistration`
+   proposal. Inspect the exact-frame markers and diagnostic fit, then choose
+   **Accept Tip Map** to commit it, save the accepted Learning Path prefix,
+   finish Stage 3.4, and make Stage 4 current. **Reject Tip Map**, **Undo Last
+   Click**, and **Clear Clicks on This Frame** keep the same frozen frame and
+   perform no motion or redraw. If acceptance fails atomically, expose **Retry
+   Calibration Commit**.
 
 ### Quarantined checkpoint recovery
 
-Loading never restores authority automatically.
+Loading restores accepted learning values but never restores operational
+authority. Motion, current Pen pose, active owners, Stop capabilities, frames,
+and pending commands remain session-local.
 
 For an unchanged paper plane and matching semantic machine/tool/optical
 identities:
 
-1. Rebuild and accept current Stage 3.3 machine-to-cap authority.
-2. Choose **Revalidate Saved Tip Calibration**.
-3. Require a settled Pen-Up controller position and capture one fresh exact cap
+1. Connect and complete the passive controller-identity probe. The accepted
+   Pen, Boundary, center, Stage 3.3, Stage 3.4, and Stage 4 prefix loads without
+   replaying completed learning motion.
+2. Choose **Revalidate Saved Tip Calibration** before any new motion.
+3. Require a settled reported Pen-Up controller position and capture one fresh exact cap
    frame.
-4. Revalidate the current cap map and semantic identities.
+4. Revalidate semantic identities and the current cap map. If the carriage
+   moved while unpowered, derive the known pure coordinate translation from the
+   saved machine/cap fit and fresh cap point, then rebase accepted boundaries,
+   Stage 3.3, and Stage 3.4 together under a new coordinate revision.
 5. Perform no contact mark.
 6. Rebuild the five immutable observation graph nodes under the current machine-
    camera revision and derive a new accepted tip revision with the fresh
@@ -291,16 +301,17 @@ After a new sheet on the explicitly unchanged contact plane:
 1. Rotate only `PaperInstanceRevision` and clear sheet-specific paper coverage,
    possible-ink locations, and retained drawing review state.
 2. Retain current tip authority and the attributable line-validation lineage.
-3. Place the new sheet over the calibrated outline and explicitly confirm paper
-   coverage before drawing.
+3. Place the new sheet over the calibrated outline and explicitly assert that
+   it covers the outline before drawing. This is an operator assertion; paper
+   edges are not measured.
 
 After a changed support, stock thickness, contact height, or contact plane:
 
 1. Rotate `PaperInstanceRevision` and `PaperContactPlaneRevision` and invalidate
    current tip authority.
 2. Rebuild and accept current Stage 3.3 authority.
-3. Run the complete Stage 3.4 five-circle batch on the new plane; the fifth
-   valid click commits its new tip registration.
+3. Run the complete Stage 3.4 five-circle batch on the new plane; review and
+   explicitly accept its new tip registration.
 
 Any mismatch or ambiguous contact leaves authority unavailable. It never falls
 back to automatic redraw or silent checkpoint promotion.
@@ -354,7 +365,7 @@ selectable Learning Path stage.
    **Review Comparison** to return to the pinned exact post-line frame or
    **Resume Live Preview** before placement.
 2. Confirm the calibrated drawable-region outline is visible. Place the current
-   physical sheet over it and choose **Confirm Paper Coverage**. The assertion
+   physical sheet over it and choose **Assert Sheet Covers Outline**. The assertion
    cites the current paper instance, contact plane, source, exact frame, and
    camera configuration. It does not change calibration.
 3. Select a deterministic built-in program: line, polyline, rectangle, square,

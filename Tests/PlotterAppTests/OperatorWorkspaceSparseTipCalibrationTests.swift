@@ -38,15 +38,9 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
 
   @Test("five SIMULATED circle centers accept in memory without writing LIVE authority")
   func fullFiveMarkAcceptance() async throws {
-    let machineCheckpointBox = CheckpointBox()
-    let checkpointBox = TipCheckpointBox()
+    let checkpointBox = LearningPathCheckpointBox()
     let harness = makeSimulatedHarness(
-      checkpointActions: .init(
-        load: { machineCheckpointBox.load() },
-        save: { machineCheckpointBox.save($0) },
-        clear: { machineCheckpointBox.clear() }
-      ),
-      tipCheckpointActions: .init(
+      learningPathCheckpointActions: .init(
         load: { checkpointBox.load() },
         save: { checkpointBox.save($0) },
         clear: { checkpointBox.clear() }
@@ -142,6 +136,38 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     }
     #expect((await harness.runtime.snapshot()).persistentInkSegmentCount == 80)
 
+    #expect(workspace.tipCameraRegistration == nil)
+    #expect(workspace.proposedTipCameraRegistration != nil)
+    if case .reviewingModel(.directAffine) = workspace.sparseTipCalibrationCoordinator.phase {
+      // The fifth click stages a reviewable map; it is not accepted implicitly.
+    } else {
+      Issue.record("Expected the fitted tip map to wait for explicit review.")
+    }
+    try await performPublicAction(
+      .rejectTipCalibrationProposal,
+      owner: tipOwner,
+      workspace: workspace
+    )
+    #expect(workspace.tipCameraRegistration == nil)
+    #expect(workspace.proposedTipCameraRegistration == nil)
+    #expect(workspace.sparseTipCalibrationCoordinator.acceptedObservations.isEmpty)
+    #expect(workspace.sparseTipCalibrationCoordinator.phase == .awaitingFrozenClicks(request.frame.frameID))
+    #expect(workspace.actionSurfacePresentation.pointSelectionRequest?.frame == request.frame)
+    #expect((await harness.runtime.snapshot()).persistentInkSegmentCount == 80)
+    for click in [clicks[3], clicks[1], clicks[4], clicks[0], clicks[2]] {
+      workspace.selectToolContactPoint(
+        ActionSurfacePointSelection(
+          frame: request.frame,
+          point: click,
+          presentationTransformRevision: request.presentationTransformRevision
+        ))
+    }
+    try await performPublicAction(
+      .acceptTipCalibrationProposal,
+      owner: tipOwner,
+      workspace: workspace
+    )
+
     let accepted = try #require(
       workspace.tipCameraRegistration,
       "accepted registration missing: \(workspace.explorationError ?? "no error")"
@@ -158,10 +184,6 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     #expect(checkpointBox.operationCounts.loads == 1)
     #expect(checkpointBox.operationCounts.saves == 0)
     #expect(checkpointBox.operationCounts.clears == 0)
-    #expect(machineCheckpointBox.checkpoint == nil)
-    #expect(machineCheckpointBox.operationCounts.loads == 1)
-    #expect(machineCheckpointBox.operationCounts.saves == 0)
-    #expect(machineCheckpointBox.operationCounts.clears == 0)
   }
 
   @Test("five-cap acceptance advances directly to sparse marks")

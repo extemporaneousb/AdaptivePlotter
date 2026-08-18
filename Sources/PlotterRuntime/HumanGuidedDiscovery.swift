@@ -366,6 +366,57 @@ public struct BoundarySideAggregate: Codable, Hashable, Sendable {
     excludedAttempts = excluded
   }
 
+  private init(
+    direction: BoundaryDirection,
+    revisionID: LearningArtifactRevisionID,
+    controllerSessionID: UUID,
+    coordinateRevision: UInt64,
+    coordinateSpace: AttemptCoordinateSpace,
+    units: AttemptUnits,
+    estimateMM: Double,
+    validSampleCount: Int,
+    estimator: AggregateEstimatorIdentity,
+    uncertainty: NumericUncertainty,
+    includedAttemptIDs: [ExerciseAttemptID],
+    supersededAttempts: [BoundarySideAttemptProvenance],
+    excludedAttempts: [BoundarySideAttemptProvenance]
+  ) {
+    self.direction = direction
+    self.revisionID = revisionID
+    self.controllerSessionID = controllerSessionID
+    self.coordinateRevision = coordinateRevision
+    self.coordinateSpace = coordinateSpace
+    self.units = units
+    self.estimateMM = estimateMM
+    self.validSampleCount = validSampleCount
+    self.estimator = estimator
+    self.uncertainty = uncertainty
+    self.includedAttemptIDs = includedAttemptIDs
+    self.supersededAttempts = supersededAttempts
+    self.excludedAttempts = excludedAttempts
+  }
+
+  public func rebasedForKnownMachineCoordinateChange(
+    to revision: UInt64,
+    delta: Vector2<MachineSpace>
+  ) -> Self {
+    Self(
+      direction: direction,
+      revisionID: revisionID,
+      controllerSessionID: controllerSessionID,
+      coordinateRevision: revision,
+      coordinateSpace: coordinateSpace,
+      units: units,
+      estimateMM: estimateMM + (direction.isXAxis ? delta.dx : delta.dy),
+      validSampleCount: validSampleCount,
+      estimator: estimator,
+      uncertainty: uncertainty,
+      includedAttemptIDs: includedAttemptIDs,
+      supersededAttempts: supersededAttempts,
+      excludedAttempts: excludedAttempts
+    )
+  }
+
   public var numericCompatibility: BoundaryNumericCompatibility {
     BoundaryNumericCompatibility(
       direction: direction,
@@ -744,6 +795,84 @@ public struct MachineCameraRegistration: Codable, Hashable, Sendable {
     self.applicabilityRectangle = applicabilityRectangle
     self.applicabilityDerivation = applicabilityDerivation
   }
+
+  /// Rebases a learned registration after one fresh visible cap anchor proves
+  /// a pure translation between the former machine coordinates and the
+  /// controller's current reported coordinates. Camera, machine geometry, and
+  /// optical identities remain exact; this does not estimate rotation or scale.
+  public func rebasedForKnownMachineCoordinateChange(
+    to revision: UInt64,
+    delta: Vector2<MachineSpace>
+  ) throws -> Self {
+    func rebase(
+      _ provenance: MachineCameraCorrespondenceProvenance
+    ) throws -> MachineCameraCorrespondenceProvenance {
+      MachineCameraCorrespondenceProvenance(
+        machinePoint: try provenance.machinePoint.translated(by: delta),
+        capAnchorPoint: provenance.capAnchorPoint,
+        source: provenance.source,
+        controllerSessionID: provenance.controllerSessionID,
+        coordinateRevision: revision,
+        frameID: provenance.frameID,
+        frameSHA256: provenance.frameSHA256,
+        captureNanoseconds: provenance.captureNanoseconds,
+        cameraConfigurationID: provenance.cameraConfigurationID,
+        attemptID: provenance.attemptID,
+        capAnchorEstimatorRevision: provenance.capAnchorEstimatorRevision,
+        algorithmRevision: provenance.algorithmRevision,
+        capAnchorConfidence: provenance.capAnchorConfidence,
+        artifactRevisionID: provenance.artifactRevisionID
+      )
+    }
+
+    let fitProvenance = try fitCorrespondenceProvenance.map(rebase)
+    let holdoutProvenance = try holdoutCorrespondenceProvenance.map(rebase)
+    let allProvenance = fitProvenance + holdoutProvenance
+    let candidateFit = try MachineCameraRegistrationFit.fit(
+      correspondences: fitProvenance.map {
+        MachineCameraRegistrationCorrespondence(
+          machine: $0.machinePoint,
+          camera: $0.capAnchorPoint
+        )
+      },
+      weights: fitProvenance.map {
+        max(0.01, $0.capAnchorConfidence * $0.capAnchorConfidence)
+      }
+    )
+    let finalFit = try MachineCameraRegistrationFit.fit(
+      correspondences: allProvenance.map {
+        MachineCameraRegistrationCorrespondence(
+          machine: $0.machinePoint,
+          camera: $0.capAnchorPoint
+        )
+      },
+      weights: allProvenance.map {
+        max(0.01, $0.capAnchorConfidence * $0.capAnchorConfidence)
+      }
+    )
+    return try Self(
+      candidateFit: candidateFit,
+      fit: finalFit,
+      source: source,
+      opticalConfiguration: opticalConfiguration,
+      machineGeometry: machineGeometry,
+      controllerSessionID: controllerSessionID,
+      coordinateRevision: revision,
+      cameraConfigurationID: cameraConfigurationID,
+      fitCorrespondenceProvenance: fitProvenance,
+      holdoutCorrespondenceProvenance: holdoutProvenance,
+      maximumHoldoutResidualPixels: maximumHoldoutResidualPixels,
+      estimatorRevision: estimatorRevision,
+      uncertaintyPixels: uncertaintyPixels,
+      applicabilityRectangle: try AxisAlignedBounds(
+        minX: applicabilityRectangle.minX + delta.dx,
+        minY: applicabilityRectangle.minY + delta.dy,
+        maxX: applicabilityRectangle.maxX + delta.dx,
+        maxY: applicabilityRectangle.maxY + delta.dy
+      ),
+      applicabilityDerivation: applicabilityDerivation
+    )
+  }
 }
 
 public struct BoundaryMotionOwnerID: Codable, Hashable, Sendable {
@@ -931,7 +1060,7 @@ public struct DiscoveryQuestion: Hashable, Sendable {
 /// same exercise at another board position preserves the exact current-run
 /// servo values and MPos observations for later analysis without introducing
 /// a separate calibration artifact.
-public struct PenInteractionAttemptEvidence: Hashable, Sendable {
+public struct PenInteractionAttemptEvidence: Codable, Hashable, Sendable {
   public let actuationProfile: PenActuationProfile
   public let confirmedUpPositions: [MachinePosition?]
   public let confirmedUpSpindleValues: [Int]

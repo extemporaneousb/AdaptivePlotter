@@ -157,9 +157,11 @@ geometry and admits only newly analyzed frames without becoming calibration
 authority.
 
 Manual X distance, Y distance, and feed fields initialize to 50 mm, 50 mm, and
-500 mm/min while remaining editable. Manual direction routing depends on direct
-controller facts and the current commanded pen state, not camera, Vision,
-Learning, current-camera calibration, or visually confirmed pose. Known Down
+500 mm/min while remaining editable. Manual direction routing normally depends
+on direct controller facts and the current commanded pen state, not Learning
+Path completion. A restored durable session is the exception: physical pose is
+unknown until fresh cap revalidation, so direct motion and Pen Down remain
+gated while accepted learning stays loaded. Known Down
 uses drawing ownership; Up or unknown uses ordinary manual-jog ownership, with
 unknown pose preserved in the resulting evidence.
 
@@ -242,11 +244,14 @@ it rotates contact-plane identity only when support, stock, or contact height
 changed. Numerical model construction cannot request paper replacement or a
 no-redraw recovery route.
 
-## Tip checkpoint and semantic identity
+## Learning Path checkpoint and semantic identity
 
-Machine-only persistence remains in `AcceptedMachineArtifactCheckpoint`.
-`AcceptedTipCalibrationCheckpoint` stores the accepted direct machine-to-tip
-registration and acceptance event separately.
+`AcceptedLearningPathCheckpoint` is the single atomic production envelope for
+the accepted LIVE prefix. It composes the accepted Pen Interaction record,
+`AcceptedMachineArtifactCheckpoint`, Stage 3.3 registration/revision,
+`AcceptedTipCalibrationCheckpoint`, and the Stage 4 drawing-evidence reference.
+The inner types retain their domain validation and provenance; the envelope
+owns cross-stage semantic identity and atomic storage.
 
 Production semantic identities are composed from stable persisted revisions for
 machine geometry, tool assembly, pen-contact profile, paper instance, paper
@@ -254,11 +259,18 @@ contact plane, camera mount, and camera reframing. Capture-session and camera-co
 ephemeral operational provenance; they are not substituted for mount/reframing
 identity.
 
-Loading a tip checkpoint sets `quarantinedTipCalibrationCheckpoint` only. A
-same-plane restore constructs fresh `TipCalibrationRevalidationEvidence` from a
-settled controller/cap frame, rebuilds current graph revisions, and creates a
-new accepted tip revision while preserving the original validated revision
-lineage across repeated restarts. Replacing only the paper instance retains that
+Loading immediately restores accepted Pen evidence and parks later values until
+their prerequisite evidence is current. A matching passive controller probe
+restores Boundary/center and Stage 3.3 learned authority but sets
+`ControllerPoseApplicability.requiresVisualRevalidation`; it does not treat
+reported MPos as physical pose. A same-plane restore constructs fresh
+`TipCalibrationRevalidationEvidence` from a settled controller/cap frame,
+rebuilds current graph revisions, and creates a new accepted tip revision while
+preserving the original validated revision lineage across repeated restarts.
+When the cap proves a pure coordinate translation under unchanged semantic
+camera/machine identity, Runtime rebases the machine checkpoint,
+`MachineCameraRegistration`, and `TipCameraRegistration` under one new
+coordinate revision before motion is released. Replacing only the paper instance retains that
 authority; changing the contact plane invalidates it and requires the full
 five-mark calibration. The revalidation evidence is durable. Reset clears the
 affected durable machine and/or tip checkpoint before clearing in-memory
@@ -363,7 +375,7 @@ blacklisting, current-camera phases, and telemetry failure codes consume those
 typed identities through exhaustive switches; rendered text is never parsed to
 recover workflow meaning.
 
-Durable machine and tip checkpoint ports are capabilities of the LIVE session
+The durable Learning Path checkpoint port is a capability of the LIVE session
 only. SIMULATED receives no active durable checkpoint capability, so its public
 actions cannot load, save, clear, replace, or otherwise mutate physical durable
 authority. Entering SIMULATED replaces only its previous nonphysical session;

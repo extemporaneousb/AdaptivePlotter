@@ -425,6 +425,8 @@ enum ExerciseActionKind: Hashable, Sendable {
   case undoLastSparseTipClick
   case clearSparseTipClicks
   case revalidateTipCalibrationCheckpoint
+  case acceptTipCalibrationProposal
+  case rejectTipCalibrationProposal
   case retryTipCalibrationCommit
   case paperReplaced
 }

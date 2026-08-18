@@ -2,7 +2,7 @@ import Foundation
 import PlotterRuntime
 
 enum AcceptedArtifactCheckpointComposition {
-  static let actions: OperatorWorkspace.AcceptedArtifactCheckpointActions = {
+  static let actions: OperatorWorkspace.AcceptedLearningPathCheckpointActions = {
     let fileManager = FileManager.default
     let base =
       (try? fileManager.url(
@@ -11,38 +11,52 @@ enum AcceptedArtifactCheckpointComposition {
         appropriateFor: nil,
         create: true
       )) ?? fileManager.temporaryDirectory
-    let url =
+    let directory =
       base
       .appendingPathComponent("AdaptivePlotter", isDirectory: true)
       .appendingPathComponent("AcceptedArtifacts", isDirectory: true)
-      .appendingPathComponent("accepted-machine-artifacts-v1.json")
-    let store = AcceptedArtifactCheckpointStore(fileURL: url)
-    return OperatorWorkspace.AcceptedArtifactCheckpointActions(
-      load: { store.load() },
-      save: { try store.save($0) },
-      clear: { try store.clear() }
+    let store = AcceptedLearningPathCheckpointStore(
+      fileURL: directory.appendingPathComponent("accepted-learning-path-v1.json")
     )
-  }()
-
-  static let tipCalibrationActions: OperatorWorkspace.AcceptedTipCalibrationCheckpointActions = {
-    let fileManager = FileManager.default
-    let base =
-      (try? fileManager.url(
-        for: .applicationSupportDirectory,
-        in: .userDomainMask,
-        appropriateFor: nil,
-        create: true
-      )) ?? fileManager.temporaryDirectory
-    let url =
-      base
-      .appendingPathComponent("AdaptivePlotter", isDirectory: true)
-      .appendingPathComponent("AcceptedArtifacts", isDirectory: true)
-      .appendingPathComponent("accepted-tip-calibration-v1.json")
-    let store = AcceptedTipCalibrationCheckpointStore(fileURL: url)
-    return OperatorWorkspace.AcceptedTipCalibrationCheckpointActions(
-      load: { store.load() },
-      save: { try store.save($0) },
-      clear: { try store.clear() }
+    let legacyMachine = AcceptedArtifactCheckpointStore(
+      fileURL: directory.appendingPathComponent("accepted-machine-artifacts-v1.json")
+    )
+    let legacyTip = AcceptedTipCalibrationCheckpointStore(
+      fileURL: directory.appendingPathComponent("accepted-tip-calibration-v1.json")
+    )
+    return OperatorWorkspace.AcceptedLearningPathCheckpointActions(
+      load: {
+        let loaded = store.load()
+        guard case .absent = loaded else { return loaded }
+        let machine: AcceptedMachineArtifactCheckpoint? =
+          if case .loaded(let value) = legacyMachine.load() { value } else { nil }
+        let tip: AcceptedTipCalibrationCheckpoint? =
+          if case .quarantined(let value) = legacyTip.load() { value } else { nil }
+        guard machine != nil || tip != nil else { return .absent }
+        do {
+          let migrated = try AcceptedLearningPathCheckpoint(
+            semanticIdentity: TipCalibrationSemanticIdentityComposition.state.learningPathIdentity,
+            machineArtifacts: machine,
+            tipCalibration: tip
+          )
+          try store.save(migrated)
+          try legacyMachine.clear()
+          try legacyTip.clear()
+          return .loaded(migrated)
+        } catch {
+          return .rejected("Legacy Learning Path checkpoint migration failed: \(error)")
+        }
+      },
+      save: {
+        try store.save($0)
+        try legacyMachine.clear()
+        try legacyTip.clear()
+      },
+      clear: {
+        try store.clear()
+        try legacyMachine.clear()
+        try legacyTip.clear()
+      }
     )
   }()
 }
@@ -95,5 +109,19 @@ enum TipCalibrationSemanticIdentityComposition {
     let uuid = UUID()
     UserDefaults.standard.set(uuid.uuidString.lowercased(), forKey: key)
     return uuid
+  }
+}
+
+extension TipCalibrationSemanticIdentityState {
+  var learningPathIdentity: LearningPathSemanticIdentity {
+    LearningPathSemanticIdentity(
+      machineGeometry: machineGeometry,
+      toolAssembly: toolAssembly,
+      penContactProfile: penContactProfile,
+      paperInstance: paperInstance,
+      paperContactPlane: paperContactPlane,
+      cameraMountRevision: cameraMountRevision,
+      cameraReframingRevision: cameraReframingRevision
+    )
   }
 }
