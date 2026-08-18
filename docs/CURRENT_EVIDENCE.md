@@ -10,6 +10,37 @@ procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
 ## Implemented software surface
 
+### Stage 3.3 exact viewport and analysis-lock continuity
+
+Implemented and validated 2026-08-17 in Blackdog task `TASK-B1EB11D5`,
+targeting `main` from base `4b78432d619c31fb76947a7dd9aaa12799ab3d97`.
+
+Stage 3.3 acceptance previously preserved only the numeric zoom and pan values.
+Acceptance also changed the viewport fitted target from the pre-registration
+fallback to learned plotter bounds, so those same numbers produced a different
+effective camera-pixel rectangle. A locked analysis region remained the old
+rectangle, leaving the displayed view inconsistent with the still-active lock.
+
+`ActionSurfaceViewportState` now snapshots the exact effective visible
+camera-pixel rectangle before a compatible source/configuration context replaces
+its fitted target. Stage 3.3 acceptance and later compatible fitted-bound
+replacements retain that rectangle and leave `VideoAnalysisRegionLock`
+unchanged. An explicit Full, Fit, slider, or pan action remains authoritative;
+source or camera-configuration incompatibility still resets the viewport.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| Focused viewport suite | passed — 10 tests | real Stage 3.3 `nil`-to-learned fit transition, replacement fit, exact visible rectangle, locked analysis-region continuity, explicit controls, pan, clipping, and incompatible-camera reset |
+| `make quick-test` | passed — 448 tests | fast unit/component partition with retained journeys excluded |
+| `make journey-test` | passed — 10 tests | sparse calibration, checkpoint revalidation, exact tip revision, reset, Boundary, drawing, and Stop journeys |
+| `make strict-check` | passed — 458 tests | strict concurrency, warnings as errors, signed bundle, launcher checks, full tests, repository contract, and diff check |
+| `git diff --check` | passed | whitespace and conflict markers |
+
+These are source, deterministic fixture, simulator, build, signed-bundle, and
+repository-contract results. The new binary was not launched for an attended
+camera workflow. No physical camera, controller, motion, Pen, operator-click,
+or observed-ink validation was performed.
+
 ### Durable Learning Path prefix and restart pose revalidation
 
 Implemented and validated 2026-08-17 in Blackdog task `TASK-69EC31D1`,

@@ -1646,6 +1646,8 @@ final class OperatorWorkspace {
       ActionSurfaceViewportContext(
         source: $0.source,
         cameraConfigurationID: $0.frame.cameraConfigurationID,
+        frameWidth: $0.frame.width,
+        frameHeight: $0.frame.height,
         fittedRegion: fittedRegion,
         preferredInitialZoom: 0,
         presentationRevisionToken: machineCameraRegistration.map {

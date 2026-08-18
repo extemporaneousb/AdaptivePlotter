@@ -45,9 +45,14 @@ Euclidean policy.
 Presentation zoom, pan, and fitted bounds are available after 3.2. They are
 view-only. Exact camera-pixel evidence and calibration authority do not change
 when the presentation transform changes. Learning visibility and compatible
-presentation-context changes preserve the operator's zoom and pan; camera source
-or configuration changes reset them. Stage 3.4 never changes zoom, pan, fitted
-region, preferred zoom, or viewport focus automatically.
+presentation-context changes preserve the operator's exact effective visible
+camera-pixel rectangle; preserving only numeric zoom and pan is insufficient
+when fitted bounds change. Stage 3.3 proposal review preserves the viewport;
+acceptance may publish a new fitted target but does not auto-focus or rewrite a
+locked analysis region. Camera source or configuration changes reset the
+viewport. Explicit operator Full, Fit, zoom, and pan actions may replace it.
+Stage 3.4 never changes zoom, pan, fitted region, preferred zoom, or viewport
+focus automatically.
 
 The only global scene-overlay preferences are **Pen cap** and **Armature
 envelope**. The envelope is inferred from the cap, not segmented. Generic
@@ -192,7 +197,9 @@ The ordered positions and roles are:
    revision.
 8. **Accept Camera and Visible-Cap Fit** commits the current
    `MachineCameraRegistration` atomically. **Reject Camera Fit** commits
-   nothing.
+   nothing. Installing the registration and its fitted presentation bounds
+   preserves the exact visible camera-pixel rectangle and any compatible locked
+   analysis region.
 
 The cap landmark is not the hidden paper-contact point. Three non-collinear
 samples without the two holdouts cannot become authority.

@@ -79,6 +79,8 @@ func viewportZoomEndpointsAndInterpolation() {
   let context = ActionSurfaceViewportContext(
     source: .simulated,
     cameraConfigurationID: CameraConfigurationID(),
+    frameWidth: 640,
+    frameHeight: 480,
     fittedRegion: PixelRect(x: 300, y: 200, width: 40, height: 20),
     preferredInitialZoom: 0,
     presentationRevisionToken: "bounds-1"
@@ -104,6 +106,8 @@ func viewportPresentationOnlyContext() {
   let context = ActionSurfaceViewportContext(
     source: .simulated,
     cameraConfigurationID: CameraConfigurationID(),
+    frameWidth: 640,
+    frameHeight: 480,
     fittedRegion: PixelRect(x: 20, y: 30, width: 40, height: 50),
     preferredInitialZoom: 0,
     presentationRevisionToken: "machine-fit-1"
@@ -124,6 +128,8 @@ func viewportPresentationOnlyContext() {
     with: ActionSurfaceViewportContext(
       source: context.source,
       cameraConfigurationID: context.cameraConfigurationID,
+      frameWidth: context.frameWidth,
+      frameHeight: context.frameHeight,
       fittedRegion: context.fittedRegion,
       preferredInitialZoom: 0,
       presentationRevisionToken: "machine-fit-2"
@@ -136,6 +142,8 @@ func viewportPresentationOnlyContext() {
     with: ActionSurfaceViewportContext(
       source: context.source,
       cameraConfigurationID: CameraConfigurationID(),
+      frameWidth: context.frameWidth,
+      frameHeight: context.frameHeight,
       fittedRegion: context.fittedRegion,
       preferredInitialZoom: 0,
       presentationRevisionToken: "different-camera"
@@ -143,11 +151,222 @@ func viewportPresentationOnlyContext() {
   #expect(viewport.zoom == 0)
 }
 
+@Test("Stage 3.3 fitted bounds update preserves exact operator viewport")
+func stage33FittedBoundsUpdatePreservesExactOperatorViewport() throws {
+  let configuration = CameraConfigurationID()
+  var viewport = ActionSurfaceViewportState()
+  viewport.synchronize(
+    with: ActionSurfaceViewportContext(
+      source: .simulated,
+      cameraConfigurationID: configuration,
+      frameWidth: 640,
+      frameHeight: 480,
+      fittedRegion: nil,
+      preferredInitialZoom: 0,
+      presentationRevisionToken: "post-boundary-presentation"
+    ))
+  viewport.zoom = 0.68
+  viewport.pan(
+    by: CGSize(width: -52, height: -31),
+    viewSize: CGSize(width: 640, height: 480),
+    frameWidth: 640,
+    frameHeight: 480
+  )
+  let operatorRegion = try #require(
+    viewport.visibleRegion(frameWidth: 640, frameHeight: 480)
+  )
+
+  viewport.synchronize(
+    with: ActionSurfaceViewportContext(
+      source: .simulated,
+      cameraConfigurationID: configuration,
+      frameWidth: 640,
+      frameHeight: 480,
+      fittedRegion: PixelRect(x: 220, y: 140, width: 160, height: 120),
+      preferredInitialZoom: 0,
+      presentationRevisionToken: "stage-3.3-machine-bounds"
+    ))
+
+  #expect(viewport.zoom == 0.68)
+  #expect(viewport.visibleRegion(frameWidth: 640, frameHeight: 480) == operatorRegion)
+
+  viewport.synchronize(
+    with: ActionSurfaceViewportContext(
+      source: .simulated,
+      cameraConfigurationID: configuration,
+      frameWidth: 640,
+      frameHeight: 480,
+      fittedRegion: PixelRect(x: 180, y: 110, width: 220, height: 170),
+      preferredInitialZoom: 0,
+      presentationRevisionToken: "stage-3.3-replacement-bounds"
+    ))
+  #expect(viewport.visibleRegion(frameWidth: 640, frameHeight: 480) == operatorRegion)
+}
+
+@MainActor
+@Test("Stage 3.3 acceptance preserves the locked analysis region and visible viewport")
+func stage33AcceptancePreservesLockedViewport() async throws {
+  let harness = makeSimulatedHarness()
+  try await completeSimulatedBoundariesAndCenter(
+    harness.workspace,
+    runtime: harness.runtime,
+    boundaryOrder: [.negativeX, .positiveX, .negativeY, .positiveY]
+  )
+  let workspace = harness.workspace
+  let before = workspace.actionSurfacePresentation
+  let frame = try #require(before.displayedFrame)
+  let beforeContext = try #require(before.viewportContext)
+  #expect(beforeContext.fittedRegion == nil)
+  #expect(beforeContext.presentationRevisionToken == "post-boundary-presentation")
+
+  var viewport = ActionSurfaceViewportState()
+  viewport.synchronize(with: beforeContext)
+  viewport.zoom = 0.68
+  viewport.pan(
+    by: CGSize(width: -26, height: -18),
+    viewSize: CGSize(width: 320, height: 240),
+    frameWidth: frame.frame.width,
+    frameHeight: frame.frame.height
+  )
+  let lockedRegion = try #require(
+    viewport.selectedRegion(
+      frameWidth: frame.frame.width,
+      frameHeight: frame.frame.height
+    )
+  )
+  await workspace.setVideoAnalysisRegion(lockedRegion, for: frame)
+  #expect(workspace.videoAnalysisRegionLock?.region == lockedRegion)
+  #expect(workspace.actionSurfacePresentation.analysisRegionIsLocked)
+
+  let owner = LearningPathItemID.humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
+  try await performPublicAction(
+    .runCameraCalibrationAndBuildProposal,
+    owner: owner,
+    workspace: workspace
+  )
+  try await performPublicAction(
+    .acceptCameraCalibrationProposal,
+    owner: owner,
+    workspace: workspace
+  )
+
+  let after = workspace.actionSurfacePresentation
+  let afterContext = try #require(after.viewportContext)
+  #expect(afterContext.source == beforeContext.source)
+  #expect(afterContext.cameraConfigurationID == beforeContext.cameraConfigurationID)
+  #expect(afterContext.fittedRegion != nil)
+  #expect(workspace.videoAnalysisRegionLock?.region == lockedRegion)
+  #expect(after.analysisRegionIsLocked)
+
+  viewport.synchronize(with: afterContext)
+  #expect(viewport.zoom == 0.68)
+  #expect(
+    viewport.selectedRegion(
+      frameWidth: frame.frame.width,
+      frameHeight: frame.frame.height
+    ) == lockedRegion
+  )
+}
+
+@Test("Viewport resets only for an incompatible camera configuration")
+func viewportCameraConfigurationChangeResetsOperatorViewport() throws {
+  let configuration = CameraConfigurationID()
+  var viewport = ActionSurfaceViewportState()
+  viewport.synchronize(
+    with: ActionSurfaceViewportContext(
+      source: .simulated,
+      cameraConfigurationID: configuration,
+      frameWidth: 640,
+      frameHeight: 480,
+      fittedRegion: PixelRect(x: 80, y: 60, width: 480, height: 360),
+      preferredInitialZoom: 0,
+      presentationRevisionToken: "stage-3.2"
+    ))
+  viewport.zoom = 0.7
+  viewport.pan(
+    by: CGSize(width: -40, height: -20),
+    viewSize: CGSize(width: 640, height: 480),
+    frameWidth: 640,
+    frameHeight: 480
+  )
+  _ = try #require(viewport.visibleRegion(frameWidth: 640, frameHeight: 480))
+
+  viewport.synchronize(
+    with: ActionSurfaceViewportContext(
+      source: .simulated,
+      cameraConfigurationID: CameraConfigurationID(),
+      frameWidth: 640,
+      frameHeight: 480,
+      fittedRegion: PixelRect(x: 220, y: 140, width: 160, height: 120),
+      preferredInitialZoom: 0,
+      presentationRevisionToken: "replacement-camera"
+    ))
+
+  #expect(viewport.zoom == 0)
+  #expect(viewport.panOffsetX == 0)
+  #expect(viewport.panOffsetY == 0)
+  #expect(viewport.visibleRegion(frameWidth: 640, frameHeight: 480) == nil)
+}
+
+@Test("Explicit Full Fit and zoom actions replace a preserved operator viewport")
+func explicitViewportActionsReplacePreservedOperatorViewport() throws {
+  let configuration = CameraConfigurationID()
+  let learnedBounds = PixelRect(x: 220, y: 140, width: 160, height: 120)
+  var viewport = ActionSurfaceViewportState()
+  viewport.synchronize(
+    with: ActionSurfaceViewportContext(
+      source: .simulated,
+      cameraConfigurationID: configuration,
+      frameWidth: 640,
+      frameHeight: 480,
+      fittedRegion: nil,
+      preferredInitialZoom: 0,
+      presentationRevisionToken: "post-boundary-presentation"
+    ))
+  viewport.zoom = 0.68
+  viewport.pan(
+    by: CGSize(width: -52, height: -31),
+    viewSize: CGSize(width: 640, height: 480),
+    frameWidth: 640,
+    frameHeight: 480
+  )
+  let operatorRegion = try #require(
+    viewport.visibleRegion(frameWidth: 640, frameHeight: 480)
+  )
+  viewport.synchronize(
+    with: ActionSurfaceViewportContext(
+      source: .simulated,
+      cameraConfigurationID: configuration,
+      frameWidth: 640,
+      frameHeight: 480,
+      fittedRegion: learnedBounds,
+      preferredInitialZoom: 0,
+      presentationRevisionToken: "stage-3.3-machine-bounds"
+    ))
+  #expect(viewport.visibleRegion(frameWidth: 640, frameHeight: 480) == operatorRegion)
+
+  viewport.zoom = 0.5
+  #expect(
+    viewport.visibleRegion(frameWidth: 640, frameHeight: 480)
+      == PixelRect(x: 110, y: 70, width: 400, height: 300)
+  )
+
+  viewport.showFullFrame()
+  #expect(viewport.zoom == 0)
+  #expect(viewport.visibleRegion(frameWidth: 640, frameHeight: 480) == nil)
+
+  viewport.showFittedBounds()
+  #expect(viewport.zoom == 1)
+  #expect(viewport.visibleRegion(frameWidth: 640, frameHeight: 480) == learnedBounds)
+}
+
 @Test("Viewport drag pans the zoomed camera region and clamps at frame edges")
 func viewportDragPanning() {
   let context = ActionSurfaceViewportContext(
     source: .simulated,
     cameraConfigurationID: CameraConfigurationID(),
+    frameWidth: 100,
+    frameHeight: 100,
     fittedRegion: nil,
     preferredInitialZoom: 1,
     presentationRevisionToken: "drag-region"
@@ -207,6 +426,8 @@ func viewportClipsFittedBoundsAtEveryFrameEdge() {
       with: ActionSurfaceViewportContext(
         source: .simulated,
         cameraConfigurationID: CameraConfigurationID(),
+        frameWidth: 100,
+        frameHeight: 100,
         fittedRegion: region,
         preferredInitialZoom: 0,
         presentationRevisionToken: "bounds-edge"
@@ -225,6 +446,8 @@ func sparseBatchPreservesViewport() {
     with: ActionSurfaceViewportContext(
       source: .simulated,
       cameraConfigurationID: configuration,
+      frameWidth: 640,
+      frameHeight: 480,
       fittedRegion: learnedBounds,
       preferredInitialZoom: 0,
       presentationRevisionToken: "machine-bounds"
@@ -248,6 +471,8 @@ func sparseBatchPreservesViewport() {
       with: ActionSurfaceViewportContext(
         source: .simulated,
         cameraConfigurationID: configuration,
+        frameWidth: 640,
+        frameHeight: 480,
         fittedRegion: learnedBounds,
         preferredInitialZoom: 0,
         presentationRevisionToken: token

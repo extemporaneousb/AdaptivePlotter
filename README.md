@@ -263,14 +263,16 @@ Automatic overlay computation does not dim, badge, or pause preview
 publication. A completed overlay remains visible over its matching displayed
 frame with its completed status while the next frame is analyzed, then the
 displayed-frame/overlay pair is replaced atomically. Entering or leaving
-Learning and other compatible presentation-context changes preserve operator
-zoom and pan; a source or camera-
-configuration change still resets them. Stage 3.4 sparse-mark actions never
-change viewport zoom, pan, fitted region, preferred zoom, or focus. Locking the
-viewport admits only that camera-pixel subregion to generic scene-analysis scans
-without cropping or rewriting the exact stamped frame. A generic viewport
-region never constrains calibration or observed-trial measurements, and full-
-frame lock is canonicalized to default unlocked analysis.
+Learning and other compatible presentation-context changes preserve the exact
+effective visible camera-pixel rectangle, including when Stage 3.3 publishes
+learned fitted bounds; a source or camera-configuration change still resets it.
+Explicit Full, Fit, zoom, and pan actions remain authoritative. Stage 3.4
+sparse-mark actions never change viewport zoom, pan, fitted region, preferred
+zoom, or focus. Locking the viewport admits only that camera-pixel subregion to
+generic scene-analysis scans without cropping or rewriting the exact stamped
+frame, and Stage 3.3 does not rewrite that lock. A generic viewport region never
+constrains calibration or observed-trial measurements, and full-frame lock is
+canonicalized to default unlocked analysis.
 
 Pen-cap appearance is learned only by the first **Identify Pen Cap** action in
 Pen Interaction. The operator clicks the colored cap body, not the tip, on one

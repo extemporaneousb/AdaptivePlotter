@@ -272,6 +272,8 @@ private func permutations(of values: [Int]) -> [[Int]] {
 struct ActionSurfaceViewportContext: Hashable, Sendable {
   let source: FrameSourceIdentity
   let cameraConfigurationID: CameraConfigurationID
+  let frameWidth: Int
+  let frameHeight: Int
   let fittedRegion: PixelRect?
   let preferredInitialZoom: Double
   let presentationRevisionToken: String
@@ -308,23 +310,59 @@ struct ActionSurfaceViewportState: Equatable, Sendable {
   private(set) var presentationTransformRevision = PresentationTransformRevision()
   private(set) var panOffsetX: Int = 0
   private(set) var panOffsetY: Int = 0
+  /// Exact operator-owned focus retained when a compatible context replaces
+  /// the fitted target underneath the current numeric zoom and pan values.
+  private var retainedCompatibleVisibleRegion: PixelRect?
   var zoom: Double = 0 {
     didSet {
-      if zoom != oldValue { presentationTransformRevision = PresentationTransformRevision() }
+      if zoom != oldValue {
+        if retainedCompatibleVisibleRegion != nil {
+          panOffsetX = 0
+          panOffsetY = 0
+        }
+        retainedCompatibleVisibleRegion = nil
+        presentationTransformRevision = PresentationTransformRevision()
+      }
     }
   }
 
   mutating func synchronize(with context: ActionSurfaceViewportContext?) {
     guard self.context != context else { return }
+    let previousContext = self.context
+    let alreadyRetainingExactRegion = retainedCompatibleVisibleRegion != nil
     let preservesOperatorView =
-      self.context.map { previous in
+      previousContext.map { previous in
         guard let context else { return false }
         return previous.source == context.source
           && previous.cameraConfigurationID == context.cameraConfigurationID
           && context.preferredInitialZoom == 0
       } ?? false
+    let presentationTargetChanged = previousContext.map { previous in
+      guard let context else { return false }
+      return previous.frameWidth != context.frameWidth
+        || previous.frameHeight != context.frameHeight
+        || previous.fittedRegion != context.fittedRegion
+    } ?? false
+    let operatorVisibleRegion = preservesOperatorView
+      ? previousContext.flatMap {
+        visibleRegion(frameWidth: $0.frameWidth, frameHeight: $0.frameHeight)
+      } : nil
     self.context = context
-    if !preservesOperatorView {
+    if preservesOperatorView,
+      (alreadyRetainingExactRegion || presentationTargetChanged),
+      let context
+    {
+      retainedCompatibleVisibleRegion = operatorVisibleRegion.flatMap {
+        cameraFrameIntersection(
+          $0,
+          frameWidth: context.frameWidth,
+          frameHeight: context.frameHeight
+        )
+      }
+    } else if preservesOperatorView {
+      retainedCompatibleVisibleRegion = nil
+    } else {
+      retainedCompatibleVisibleRegion = nil
       zoom = min(1, max(0, context?.preferredInitialZoom ?? 0))
       panOffsetX = 0
       panOffsetY = 0
@@ -333,17 +371,31 @@ struct ActionSurfaceViewportState: Equatable, Sendable {
   }
 
   mutating func showFullFrame() {
+    retainedCompatibleVisibleRegion = nil
     zoom = 0
     panOffsetX = 0
     panOffsetY = 0
   }
 
-  mutating func showFittedBounds() { zoom = 1 }
+  mutating func showFittedBounds() {
+    retainedCompatibleVisibleRegion = nil
+    zoom = 1
+    panOffsetX = 0
+    panOffsetY = 0
+    presentationTransformRevision = PresentationTransformRevision()
+  }
 
   func visibleRegion(frameWidth: Int, frameHeight: Int) -> PixelRect? {
     guard let context, frameWidth > 0, frameHeight > 0 else { return nil }
     let t = min(1, max(0, zoom))
     if t == 0 { return nil }
+    if let retainedCompatibleVisibleRegion {
+      return cameraFrameIntersection(
+        retainedCompatibleVisibleRegion,
+        frameWidth: frameWidth,
+        frameHeight: frameHeight
+      )
+    }
     let frame = PixelRect(x: 0, y: 0, width: frameWidth, height: frameHeight)
     let requested =
       context.fittedRegion
@@ -397,6 +449,18 @@ struct ActionSurfaceViewportState: Equatable, Sendable {
     let translatedY = region.y - Int((Double(translation.height) / scale).rounded())
     let clampedX = min(max(0, translatedX), frameWidth - region.width)
     let clampedY = min(max(0, translatedY), frameHeight - region.height)
+    if retainedCompatibleVisibleRegion != nil {
+      let next = PixelRect(
+        x: clampedX,
+        y: clampedY,
+        width: region.width,
+        height: region.height
+      )
+      guard next != region else { return }
+      retainedCompatibleVisibleRegion = next
+      presentationTransformRevision = PresentationTransformRevision()
+      return
+    }
     let nextX = panOffsetX + clampedX - region.x
     let nextY = panOffsetY + clampedY - region.y
     guard nextX != panOffsetX || nextY != panOffsetY else { return }

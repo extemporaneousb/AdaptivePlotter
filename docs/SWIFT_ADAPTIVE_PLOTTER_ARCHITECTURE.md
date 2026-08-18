@@ -78,6 +78,14 @@ is canonicalized to default analysis, and cap component size is evaluated agains
 whole-frame policy. Specialized calibration and observed-trial exact-frame
 measurements retain independent typed regions.
 
+`ActionSurfaceViewportState` owns the current exact presentation pixel
+rectangle. `ActionSurfaceViewportContext.fittedRegion` is only a target for an
+explicit Fit or zoom action. Compatible context reconciliation snapshots and
+retains the effective rectangle even when Stage 3.3 replaces the fitted target.
+`VideoAnalysisRegionLock` is a separate policy copy owned by
+`OperatorWorkspace`; Stage 3.3 does not rewrite it. Source or camera-
+configuration incompatibility remains the viewport reset seam.
+
 `PenCapAppearanceSelection` is the only persisted LIVE recognition input. The
 first Pen Interaction action freezes an exact frame and issues a
 `penCapAppearance` point-selection request. `PenCapAppearanceSampler` maps the
@@ -179,7 +187,10 @@ unknown pose preserved in the resulting evidence.
 Stage 3.3 builds `CurrentCameraCalibrationPlan` from current Boundary aggregates
 and center arrival. `MachineCameraRegistration` retains five machine/cap
 correspondences: `C`, `X−`, and `Y+` fit the initial affine map; `X+` and `Y−`
-are independent holdouts; acceptance follows the all-five refit.
+are independent holdouts; acceptance follows the all-five refit. Publishing the
+accepted registration also publishes learned fitted presentation bounds, but
+that target change does not change the current exact viewport rectangle, camera
+evidence, or a compatible `VideoAnalysisRegionLock`.
 
 For each LIVE correspondence, `OperatorWorkspace.captureStableWorkflowCap`
 acquires exactly three strictly newer exact `inspectWorkflowScene` results after

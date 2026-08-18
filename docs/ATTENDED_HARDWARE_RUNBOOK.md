@@ -79,18 +79,23 @@ the requested side or center.
 1. Confirm Pen Up and an unobstructed camera view of the complete five-position
    cross. Confirm Stage 3.3 is using the accepted **Identify Pen Cap** appearance
    from Pen Interaction and exposes no independent color-editing control.
-2. Start **Capture Five Cap Samples**.
-3. Observe Pen-Up travel through `C`, `X−`, `Y+`, `X+`, and `Y−`.
-4. At each pose, confirm the carriage settles before inspection. Confirm the app
+2. Establish a non-full zoom and pan, lock the analysis region, and record the
+   exact displayed and locked camera-pixel rectangle.
+3. Start **Capture Five Cap Samples**.
+4. Observe Pen-Up travel through `C`, `X−`, `Y+`, `X+`, and `Y−`.
+5. At each pose, confirm the carriage settles before inspection. Confirm the app
    accepts exactly three strictly newer source/configuration-compatible LIVE
    frames, each with one unambiguous cap candidate; refuses more than 2 px
    maximum pairwise cap-centroid spread; and retains only the newest third exact
    frame and measurement without averaging. The preliminary freshness frame is
    not accepted evidence. The cap landmark is the visible cap bottom-center, not
    the hidden tip.
-5. Review the three-fit/two-holdout proposal. Both holdouts must pass.
-6. Accept only if source, dimensions, optical setup, applicability rectangle,
+6. Review the three-fit/two-holdout proposal. Both holdouts must pass.
+7. Accept only if source, dimensions, optical setup, applicability rectangle,
    residuals, and correspondence roles are correct.
+8. Confirm acceptance publishes learned fitted bounds without changing the
+   displayed camera-pixel rectangle, the locked analysis rectangle, or the lock
+   state.
 
 Do not accept after a camera/device/mount/crop/orientation/focus change. Restart
 the attended run with explicit invalidation and new evidence.

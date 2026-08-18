@@ -201,9 +201,14 @@ learned bounds do not change exact pixels, frame provenance, artifact validity,
 or completion state. Explicitly locking the current viewport copies its
 camera-pixel rectangle into the generic scene-analysis policy; the preceding
 presentation operations remain non-evidence. Entering or leaving Learning and
-compatible presentation-context revisions preserve operator zoom and pan. A
-camera source/configuration change resets them. Stage 3.4 never changes zoom,
-pan, fitted region, preferred zoom, or viewport focus automatically.
+compatible presentation-context revisions preserve the exact effective visible
+camera-pixel rectangle, not merely the numeric zoom and pan values. This
+continuity holds through Stage 3.3 proposal review; acceptance publishes learned
+fitted bounds as a presentation target but never auto-focuses the viewport or
+rewrites a locked analysis region. A camera source/configuration change resets
+the viewport. Explicit operator Full, Fit, zoom, and pan actions may replace it.
+Stage 3.4 never changes zoom, pan, fitted region, preferred zoom, or viewport
+focus automatically.
 
 Before accepted tip authority exists, the UI states **Tip not calibrated**.
 Stage 3.4 displays all clicks on its one frozen exact frame and reports their
