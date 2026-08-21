@@ -202,17 +202,23 @@ confidence is averaged. The preliminary frame is freshness control, not accepted
 cap evidence. SIMULATED causal geometry is source-separated nonphysical evidence
 and cannot establish live optical stability.
 
-Stage 3.4 is split across three owners:
+Stage 3.4 is split across four owners:
 
 - `SparseTipCalibrationCoordinator` owns the compact batch state machine, one
-  attempt/operation identity, canonical `C`, `X−`, `Y+`, `X+`, `Y−` positions,
+  attempt/operation identity, canonical `C`, `X−`, `Y+`, `X+`, `Y−` evidence
+  slots,
   one shared final frozen frame, unordered click collection, immutable accepted
   observations, possible-ink terminal state, proposal review, and acceptance.
-- `OperatorWorkspace` owns the ±30 mm Stage 3.4 batch plan, supervised Pen-Up
-  travel, current Pen Interaction Up/Down values, five closed 16-chord 2 mm-
-  radius circles capped at 100 mm/min, settled Pen Up before every inter-circle
-  travel, one final X-max/Y-zero-biased reveal, exact frame/cap capture, and
-  atomic graph/checkpoint commits. Stage 3.3 retains its existing ±24 mm plan.
+- `SparseTipBatchMarkPlan` derives the Stage 3.4 center and four maximum drawable
+  corner centers from the accepted Boundary envelope, insetting each edge only
+  by the 2 mm mark radius. Its outer-center rectangle is the proposed tip-map
+  applicability rectangle, and its final reveal pose is the rectangle center.
+- `OperatorWorkspace` composes that plan with supervised Pen-Up travel, current
+  Pen Interaction Up/Down values, five closed 16-chord 2 mm-radius circles capped
+  at 100 mm/min, settled Pen Up before every inter-circle travel, exact frame/cap
+  capture, and atomic graph/checkpoint commits. The existing calibrated drawable-
+  region overlay renders the bounding box; there is no physical connecting
+  Pen-Down stroke. Stage 3.3 retains its existing ±24 mm plan.
 - `TipCalibrationAuthority` owns validated evidence types, all-five affine-first
   construction, constant construction fallback, diagnostic residual/covariance/
   uncertainty, applicability decisions, rebase derivations, and checkpoints.
@@ -221,8 +227,8 @@ Stage 3.4 is split across three owners:
 `ExactTipCalibrationFrame` and presentation-transform revision. `ActionSurface`
 maps each view click back through the exact inverse presentation transform,
 renders click count and all markers, and supports same-frame undo/clear without
-motion, ink, capture, zoom, or pan. Stage 3.4 never installs a fitted region or
-changes viewport state.
+motion, ink, capture, zoom, or pan. Tip-map acceptance installs the outer-center
+applicability rectangle without changing viewport state.
 
 After click five, the app projects all known machine positions through current
 `MachineCameraRegistration`, centers projected and clicked sets to remove their

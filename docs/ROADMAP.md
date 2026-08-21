@@ -10,8 +10,9 @@ Current implementation and verification are recorded in
 
 Run the complete [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md) on a
 disposable sheet. Validate actual controller settlement, five cap captures,
-five 2 mm-radius circular marks with Pen Up between them, one final
-X+/machine-Y-zero-biased Pen-Up reveal, one shared frozen exact frame, five
+one center and four Boundary-corner 2 mm-radius circular marks with Pen Up
+between them, one final center Pen-Up reveal, the calibrated drawable-region
+bounding overlay, one shared frozen exact frame, five
 arbitrary-order human center clicks, deterministic global association, the
 all-five affine-first commit on click five, one predicted-line preview before
 motion, one complete one-Go Stage 4.1 observed line, retained exact comparison

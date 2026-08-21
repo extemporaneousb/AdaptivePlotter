@@ -91,23 +91,29 @@ independent holdouts. Both holdouts must pass before a weighted all-five refit
 can be explicitly accepted as `MachineCameraRegistration`. The visible cap
 landmark is not the hidden paper-contact point.
 
-Stage 3.4 uses one supervised **Draw Five 2 mm Circles** action. Its fixed
-machine offsets from `C` are `X− = −30 mm`, `Y+ = +30 mm`, `X+ = +30 mm`, and
-`Y− = −30 mm`; Stage 3.3 retains its separate existing ±24 mm camera-calibration
-spacing. One exercise attempt and one stoppable operation draw the five circles
-in canonical order. For every circle the app travels and settles Pen Up at the
+Stage 3.4 uses one supervised **Draw Five 2 mm Circles** action. One circle is
+at the accepted Boundary envelope's geometric center. The other four circle
+centers are the rectangle corners at `minX + 2 mm`, `minY + 2 mm`,
+`maxX − 2 mm`, and `maxY − 2 mm`, so every 2 mm-radius path stays inside the
+accepted envelope while framing essentially the complete drawable region.
+Stage 3.3 retains its separate existing ±24 mm camera-calibration spacing. One
+exercise attempt and one stoppable operation draw the five circles in canonical
+evidence-slot order. For every circle the app travels and settles Pen Up at the
 intended position, retains its exact pre-mark frame/cap/controller evidence,
 moves Pen Up to the circle start, lowers and settles using the current Pen
 Interaction profile, draws one closed 16-chord circle of 2 mm radius at no more
 than 100 mm/min, then raises and settles Pen Up before any inter-circle travel.
-There are no connecting Pen-Down strokes.
+There are exactly 80 circle chords and no connecting Pen-Down strokes; the
+accepted drawable-region overlay supplies the bounding box without adding slow
+or ambiguous perimeter ink.
 
-Only after the fifth circle does the app perform one safe X+/machine-Y-zero-
-biased Pen-Up reveal, require Idle/final-MPos settlement, revalidate the current
-camera/cap applicability, and capture one newer exact frame. That exact frame
-is frozen unchanged for all five clicks. Stage 3.4 never installs a fitted
-region or changes zoom, pan, preferred zoom, or viewport focus automatically;
-manual presentation transforms remain operator controlled.
+Only after the fifth circle does the app return Pen Up to the rectangle center,
+require Idle/final-MPos settlement, revalidate the current camera/cap
+applicability, and capture one newer exact frame. That exact frame is frozen
+unchanged for all five clicks. Accepting the resulting tip map makes the four
+outer circle centers its applicability rectangle and Drawing Studio drawable
+region. Stage 3.4 does not change zoom, pan, preferred zoom, or viewport focus
+automatically; manual presentation transforms remain operator controlled.
 
 Pen Interaction retains its existing Up → Down → Up exercise. Its Up and Down
 steps expose sliders displaying the current settings, seeded at `S40` and

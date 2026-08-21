@@ -40,6 +40,14 @@ struct OperatorWorkspaceLifecycleTests {
         == "Sparse Tip Circle chord 16/16"
     )
     #expect(
+      LearningMotionAction.sparseTipApproach(.negativeX).title
+        == "Sparse Tip Mark Minimum-X / Minimum-Y Corner Approach"
+    )
+    #expect(
+      LearningMotionAction.sparseTipCircleStart(.positiveX).title
+        == "Sparse Tip Circle Maximum-X / Maximum-Y Corner Start"
+    )
+    #expect(
       LearningMotionAction.returnToLocalRevealPose.title == "Return to Local Reveal Pose"
     )
   }

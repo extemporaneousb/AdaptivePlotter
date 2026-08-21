@@ -244,9 +244,7 @@ func completeSimulatedSparseTipCalibration(
   let truthOffset = await runtime.capToTipPixelOffsetTruth()
   #expect(abs(truthOffset.dx) + abs(truthOffset.dy) > 0)
   let registration = try #require(workspace.machineCameraRegistration)
-  let referencePosition = try #require(workspace.cameraCalibrationReferencePosition)
   let plan = try SparseTipBatchMarkPlan(
-    center: referencePosition,
     boundarySideAggregates: workspace.boundarySideAggregates
   )
   try await performPublicAction(.drawFiveSparseTipCircles, owner: tipOwner, workspace: workspace)

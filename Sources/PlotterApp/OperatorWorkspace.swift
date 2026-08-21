@@ -222,14 +222,28 @@ enum LearningMotionAction: Hashable, Sendable {
     case .cameraCalibrationSample(let index, let total):
       "Current-Camera Calibration Sample \(index) of \(total)"
     case .returnFromCameraCalibration: "Return from Current-Camera Calibration"
-    case .sparseTipApproach(let position): "Sparse Tip Mark \(position.rawValue) Approach"
-    case .sparseTipCircleStart(let position): "Sparse Tip Circle \(position.rawValue) Start"
+    case .sparseTipApproach(let position):
+      "Sparse Tip Mark \(position.sparseTipBatchLocationTitle) Approach"
+    case .sparseTipCircleStart(let position):
+      "Sparse Tip Circle \(position.sparseTipBatchLocationTitle) Start"
     case .sparseTipBatchReveal: "Reveal Five Sparse Tip Circles"
     case .sparseTipCircleChord(let index, let total):
       "Sparse Tip Circle chord \(index)/\(total)"
     case .moveToLineStart: "Move to Line Start"
     case .confirmIsolatedLineStart: "Confirm Isolated-Line Start"
     case .returnToLocalRevealPose: "Return to Local Reveal Pose"
+    }
+  }
+}
+
+private extension ToolContactCalibrationPosition {
+  var sparseTipBatchLocationTitle: String {
+    switch self {
+    case .center: "Center"
+    case .negativeX: "Minimum-X / Minimum-Y Corner"
+    case .positiveY: "Minimum-X / Maximum-Y Corner"
+    case .positiveX: "Maximum-X / Maximum-Y Corner"
+    case .negativeY: "Maximum-X / Minimum-Y Corner"
     }
   }
 }
@@ -545,7 +559,6 @@ private struct PendingToolContactEvidence: Sendable {
   let preMarkCapEstimate: ToolCapAnchorEstimate
   let revealEvidence: ToolContactRevealEvidence
   let capMapPredictionAtMark: Point2<CameraPixelSpace>
-  let maximumCapMapResidualPixels: Double
 }
 
 private struct DrawnToolContactEvidence: Sendable {
@@ -561,7 +574,6 @@ private struct DrawnToolContactEvidence: Sendable {
   let preMarkFrame: ExactTipCalibrationFrame
   let preMarkCapEstimate: ToolCapAnchorEstimate
   let capMapPredictionAtMark: Point2<CameraPixelSpace>
-  let maximumCapMapResidualPixels: Double
 }
 
 struct LiveSceneInspection: Sendable {
@@ -5193,8 +5205,7 @@ final class OperatorWorkspace {
       let machineRegistration = machineCameraRegistration,
       let machineRegistrationRevision = learningArtifactGraph.currentRevision(
         for: .machineCameraRegistration
-      )?.id,
-      let center = cameraCalibrationReferencePosition
+      )?.id
     else { return }
 
     var completedLocations: [BlacklistedToolContactLocation] = []
@@ -5202,7 +5213,6 @@ final class OperatorWorkspace {
     do {
       try requireSparseTipBatchContinuation()
       let batchPlan = try SparseTipBatchMarkPlan(
-        center: center,
         boundarySideAggregates: boundarySideAggregates
       )
       let physicalLocations = batchPlan.marks.map { mark in
@@ -5318,8 +5328,7 @@ final class OperatorWorkspace {
             penUp: mark.penUp,
             preMarkFrame: exactPreFrame,
             preMarkCapEstimate: preCapture.capAnchor,
-            capMapPredictionAtMark: capPredictionAtMark,
-            maximumCapMapResidualPixels: 8
+            capMapPredictionAtMark: capPredictionAtMark
           )
         )
       }
@@ -5396,8 +5405,7 @@ final class OperatorWorkspace {
           preMarkFrame: drawn.preMarkFrame,
           preMarkCapEstimate: drawn.preMarkCapEstimate,
           revealEvidence: revealEvidence,
-          capMapPredictionAtMark: drawn.capMapPredictionAtMark,
-          maximumCapMapResidualPixels: drawn.maximumCapMapResidualPixels
+          capMapPredictionAtMark: drawn.capMapPredictionAtMark
         )
       }
       try sparseTipCalibrationCoordinator.awaitFrozenClicks(frame: exactRevealFrame)
@@ -5769,13 +5777,12 @@ final class OperatorWorkspace {
         revealEvidence: pending.revealEvidence,
         click: click,
         capMapPredictionAtMark: pending.capMapPredictionAtMark,
-        maximumCapMapResidualPixels: pending.maximumCapMapResidualPixels,
         disposition: .accepted,
         consumedLearningArtifactRevisionIDs: [machineRegistrationRevision],
         algorithmRevisions: [
           try AlgorithmRevisionEvidence(
             component: "sparse-tip-workspace",
-            revision: "five-circle-batch-unordered-global-association-v2"
+            revision: "boundary-corner-five-circle-batch-unordered-global-association-v3"
           ),
           try AlgorithmRevisionEvidence(
             component: "pen-actuation",
@@ -5809,7 +5816,9 @@ final class OperatorWorkspace {
       cameraFromMachine: selection.finalCameraFromMachine,
       modelSelectionEvidence: selection.evidence,
       uncertainty: selection.uncertainty,
-      applicabilityRectangle: machineRegistration.applicabilityRectangle,
+      applicabilityRectangle: try SparseTipBatchMarkPlan.applicabilityRectangle(
+        for: accepted.map { $0.observation.markGeometry }
+      ),
       acceptedObservations: accepted,
       applicability: TipCalibrationApplicabilityContext(
         opticalConfiguration: optical,

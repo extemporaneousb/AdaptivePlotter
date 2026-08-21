@@ -78,12 +78,13 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     #expect(surface.viewportContext?.preferredInitialZoom == 0)
     #expect((await harness.runtime.snapshot()).persistentInkSegmentCount == 80)
     let registration = try #require(workspace.machineCameraRegistration)
-    let center = try #require(workspace.cameraCalibrationReferencePosition)
     let truthOffset = await harness.runtime.capToTipPixelOffsetTruth()
     let batch = try SparseTipBatchMarkPlan(
-      center: center,
       boundarySideAggregates: workspace.boundarySideAggregates
     )
+    let revealSnapshot = await harness.runtime.snapshot()
+    #expect(revealSnapshot.mpos.xMM == batch.finalRevealPosition.point.x)
+    #expect(revealSnapshot.mpos.yMM == batch.finalRevealPosition.point.y)
     let clicks = try batch.marks.map {
       try registration.fit.cameraPoint(from: $0.machinePosition.point)
         .translated(by: truthOffset)
@@ -137,7 +138,10 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     #expect((await harness.runtime.snapshot()).persistentInkSegmentCount == 80)
 
     #expect(workspace.tipCameraRegistration == nil)
-    #expect(workspace.proposedTipCameraRegistration != nil)
+    #expect(
+      workspace.proposedTipCameraRegistration?.applicabilityRectangle
+        == batch.applicabilityRectangle
+    )
     if case .reviewingModel(.directAffine) = workspace.sparseTipCalibrationCoordinator.phase {
       // The fifth click stages a reviewable map; it is not accepted implicitly.
     } else {
@@ -173,9 +177,41 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       "accepted registration missing: \(workspace.explorationError ?? "no error")"
     )
     #expect(accepted.modelForm == .directAffine)
+    #expect(accepted.applicabilityRectangle == batch.applicabilityRectangle)
     #expect(accepted.modelSelectionEvidence.observationIDs.count == 5)
     #expect(workspace.proposedTipCameraRegistration == nil)
     #expect(workspace.sparseTipCalibrationCoordinator.phase == .accepted)
+    let regionOverlay = try #require(
+      workspace.actionSurfacePresentation.overlays.first {
+        $0.provenance.kind == .calibratedDrawableRegion
+      }
+    )
+    guard case .polyline(let regionPolyline) = regionOverlay.geometry else {
+      Issue.record("Expected the accepted drawable-region overlay to be a bounding polyline.")
+      return
+    }
+    #expect(regionPolyline.points == [
+      try accepted.tipPixel(at: Point2(
+        x: batch.applicabilityRectangle.minX,
+        y: batch.applicabilityRectangle.minY
+      )),
+      try accepted.tipPixel(at: Point2(
+        x: batch.applicabilityRectangle.maxX,
+        y: batch.applicabilityRectangle.minY
+      )),
+      try accepted.tipPixel(at: Point2(
+        x: batch.applicabilityRectangle.maxX,
+        y: batch.applicabilityRectangle.maxY
+      )),
+      try accepted.tipPixel(at: Point2(
+        x: batch.applicabilityRectangle.minX,
+        y: batch.applicabilityRectangle.maxY
+      )),
+      try accepted.tipPixel(at: Point2(
+        x: batch.applicabilityRectangle.minX,
+        y: batch.applicabilityRectangle.minY
+      )),
+    ])
     #expect(
       workspace.currentLearningPathItemID
         == .observedDrawingTrial(.chooseIsolatedLinePlan)

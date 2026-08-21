@@ -102,22 +102,26 @@ the attended run with explicit invalidation and new evidence.
 
 ## 3. Stage 3.4 — five sparse 2 mm-radius circles
 
-Confirm Stage 3.4 lists fixed offsets of 30 mm from `C`; Stage 3.3 remains on its
-separate existing ±24 mm camera-calibration plan.
+Confirm Stage 3.4 plans one center circle and four corner circles whose centers
+are 2 mm inside the accepted X−/X+/Y−/Y+ Boundary envelope; Stage 3.3 remains on
+its separate existing ±24 mm camera-calibration plan.
 
 1. Press **Draw Five 2 mm Circles** once.
-2. For each of `C`, `X−`, `Y+`, `X+`, and `Y−`, watch Pen-Up travel settle at
-   the intended MPos, confirm the pre-mark frame/cap/controller evidence is
-   retained, and watch Pen-Up travel settle at the circle start.
+2. For the center and each of the four maximum drawable corners, watch Pen-Up
+   travel settle at the intended MPos, compare each outer center with the
+   accepted Boundary coordinate and 2 mm radius inset, confirm the pre-mark
+   frame/cap/controller evidence is retained, and watch Pen-Up travel settle at
+   the circle start.
 3. Confirm the app commands and settles the current Pen Interaction Down value.
    Directly observe physical contact; the command outcome alone is not proof.
 4. Watch one closed 4 mm-diameter circle complete as 16 short chords at no more
    than 100 mm/min. Confirm Pen Up settles before any travel toward the next
    circle. Across the batch, confirm exactly five separated circles and no
-   connecting ink stroke.
+   connecting ink stroke. Confirm the calibrated drawable-region overlay, not
+   physical perimeter ink, supplies the bounding box through the outer centers.
 5. Confirm there is no reveal, frame selection, or click request between
-   circles. After the fifth circle only, watch one Pen-Up reveal go to the safe
-   X+ limit and toward machine Y=0, then confirm Idle/final-MPos settlement.
+   circles. After the fifth circle only, watch one Pen-Up reveal return to the
+   outer rectangle's geometric center, then confirm Idle/final-MPos settlement.
 6. Confirm the app captures one newer exact frame after reveal, revalidates
    camera/cap applicability once, and freezes that unchanged frame for all five
    clicks. Confirm batch start, drawing, reveal, clicks, fitting, and proposal

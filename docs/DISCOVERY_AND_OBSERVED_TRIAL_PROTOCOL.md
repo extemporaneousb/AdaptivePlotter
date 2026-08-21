@@ -217,26 +217,30 @@ coordinate change.
 
 ### One supervised physical batch
 
-Stage 3.4 uses `C`, `X−`, `Y+`, `X+`, `Y−` at fixed offsets of ±30 mm from
-`C`. Stage 3.3 retains its existing separate ±24 mm spacing and camera-holdout
-authority.
+Stage 3.4 draws one circle at the accepted Boundary envelope's geometric center
+and four circles at the maximum drawable corners formed by `minX + 2 mm`,
+`minY + 2 mm`, `maxX − 2 mm`, and `maxY − 2 mm`. The complete radius remains
+inside the envelope, and the four outer centers become the accepted tip-map and
+Drawing Studio applicability rectangle. `C`, `X−`, `Y+`, `X+`, and `Y−` remain
+canonical evidence-slot identities. Stage 3.3 retains its existing separate
+±24 mm spacing and camera-holdout authority.
 
 1. Press **Draw Five 2 mm Circles** once. One exercise attempt and one existing
    stoppable operation own the complete batch and expose the contextual Stop.
 2. At each canonical position, travel Pen Up, require fresh Idle/final MPos
    within 0.05 mm, capture and retain that circle's exact pre-mark frame and cap
    anchor, and retain its controller and settled-position evidence.
-3. Verify the full circle lies inside the learned Boundary inset. Move Pen Up
+3. Verify the full circle lies inside the accepted Boundary envelope. Move Pen Up
    to its +X start point and settle.
 4. Lower and settle with the current Pen Interaction Down profile. Draw one
    closed 16-chord, 2 mm-radius circle at no more than 100 mm/min or the lower
    controller-reported axis ceiling, requiring settled chord endpoints.
 5. Raise and settle Pen Up. Only then travel to the next circle. Repeat steps
    2–5 without a reveal or click between circles. The batch contains exactly 80
-   circle chords and no connecting Pen-Down stroke.
-6. After the fifth circle, perform one Pen-Up reveal to the safe X+ limit and
-   toward machine Y=0, clamped to the Boundary inset. Require Pen Up, Idle, and
-   final-MPos settlement.
+   circle chords and no connecting Pen-Down stroke. The accepted calibrated-
+   region overlay supplies the bounding box through the four outer centers.
+6. After the fifth circle, return Pen Up to the outer rectangle's geometric
+   center. Require Pen Up, Idle, and final-MPos settlement.
 7. Capture one strictly newer exact frame and revalidate current camera/cap
    applicability once. Freeze that one frame unchanged for all five clicks.
    Do not change viewport zoom, pan, fitted region, preferred zoom, or focus.
@@ -256,7 +260,9 @@ physical contact or ink; attended observation owns those claims.
 2. Clicks may arrive in any order. After click five, project the five known
    machine positions through current `MachineCameraRegistration`. Center both
    projected and clicked point sets to remove their unknown common cap-to-tip
-   translation.
+   translation. Retain each earlier cap-map residual as diagnostic evidence;
+   do not gate a Boundary-corner observation on extrapolation from the smaller
+   Stage 3.3 bootstrap rectangle.
 3. Evaluate all 5! one-to-one assignments and choose the minimum total squared
    pixel distance. Resolve an exact numerical tie in canonical calibration-
    position order. Apply no distance or ambiguity threshold.

@@ -17,7 +17,7 @@ enum CurrentCameraCalibrationPlanningError: Error, Equatable, Sendable {
   case centerOutsideSafeEnvelope
   case insufficientXAxisSpan
   case insufficientYAxisSpan
-  case circularMarkOutsideSafeEnvelope
+  case circularMarkOutsideBoundaryEnvelope
 }
 
 extension CurrentCameraCalibrationPlanningError: LocalizedError {
@@ -35,27 +35,25 @@ extension CurrentCameraCalibrationPlanningError: LocalizedError {
       "The accepted X boundaries do not leave a symmetric calibration rectangle with at least 10 mm usable X span."
     case .insufficientYAxisSpan:
       "The accepted Y boundaries do not leave a symmetric calibration rectangle with at least 10 mm usable Y span."
-    case .circularMarkOutsideSafeEnvelope:
-      "The 2 mm-radius calibration circle would cross the Boundary envelope's 10 mm safety inset. Increase the usable paper/machine clearance before drawing."
+    case .circularMarkOutsideBoundaryEnvelope:
+      "The 2 mm-radius calibration circle would cross the accepted Boundary envelope. Increase the usable paper/machine clearance before drawing."
     }
   }
 }
 
-/// One visible Stage 3.4 mark and its armature-clearing reveal pose. The circle
-/// is a 16-chord approximation whose maximum radial deviation is below the
-/// shared 0.05 mm machine-position acceptance policy. The reveal is biased
-/// to safe X-max and machine Y=0 without crossing the learned Boundary inset.
+/// One visible Stage 3.4 mark. The circle is a 16-chord approximation whose
+/// maximum radial deviation is below the shared 0.05 mm machine-position
+/// acceptance policy.
 struct SparseTipCircularMarkPlan: Hashable, Sendable {
   static let radiusMM = 2.0
   static let chordCount = 16
   static let maximumFeedMMPerMinute = 100.0
   static let registrationEstimatorRevision =
-    "affine-first-all-five-circle-2mm-radius-16-chord-v3"
+    "affine-first-boundary-corner-five-circle-2mm-radius-16-chord-v4"
 
   let geometry: ToolContactMarkGeometryEvidence
   let pathPositions: [MachinePosition]
   let pathDeltas: [Vector2<MachineSpace>]
-  let revealPosition: MachinePosition
 
   var startPosition: MachinePosition { pathPositions[0] }
 
@@ -63,19 +61,21 @@ struct SparseTipCircularMarkPlan: Hashable, Sendable {
     for position: ToolContactCalibrationPosition,
     in domain: AxisAlignedBounds<MachineSpace>
   ) throws -> ToolContactMarkGeometryEvidence {
-    let offset: (x: Double, y: Double) = switch position {
-    case .center: (0, 0)
-    case .negativeX: (-SparseTipBatchMarkPlan.offsetMM, 0)
-    case .positiveY: (0, SparseTipBatchMarkPlan.offsetMM)
-    case .positiveX: (SparseTipBatchMarkPlan.offsetMM, 0)
-    case .negativeY: (0, -SparseTipBatchMarkPlan.offsetMM)
-    }
     let centerX = (domain.minX + domain.maxX) / 2
     let centerY = (domain.minY + domain.maxY) / 2
-    let center = try MachinePosition(
-      x: centerX + offset.x,
-      y: centerY + offset.y
-    )
+    let center: MachinePosition
+    switch position {
+    case .center:
+      center = try MachinePosition(x: centerX, y: centerY)
+    case .negativeX:
+      center = try MachinePosition(x: domain.minX, y: domain.minY)
+    case .positiveY:
+      center = try MachinePosition(x: domain.minX, y: domain.maxY)
+    case .positiveX:
+      center = try MachinePosition(x: domain.maxX, y: domain.maxY)
+    case .negativeY:
+      center = try MachinePosition(x: domain.maxX, y: domain.minY)
+    }
     return try ToolContactMarkGeometryEvidence(
       center: center,
       radiusMM: Self.radiusMM,
@@ -86,26 +86,15 @@ struct SparseTipCircularMarkPlan: Hashable, Sendable {
 
   init(
     center: MachinePosition,
-    boundarySideAggregates: [BoundaryDirection: BoundarySideAggregate]
+    boundaryEnvelope: AxisAlignedBounds<MachineSpace>
   ) throws {
-    guard BoundaryDirection.allCases.allSatisfy({ boundarySideAggregates[$0] != nil }) else {
-      throw CurrentCameraCalibrationPlanningError.incompleteBoundaryEnvelope
-    }
-    let safeMinX = boundarySideAggregates[.negativeX]!.estimateMM
-      + CurrentCameraCalibrationPlan.safetyMarginMM
-    let safeMaxX = boundarySideAggregates[.positiveX]!.estimateMM
-      - CurrentCameraCalibrationPlan.safetyMarginMM
-    let safeMinY = boundarySideAggregates[.negativeY]!.estimateMM
-      + CurrentCameraCalibrationPlan.safetyMarginMM
-    let safeMaxY = boundarySideAggregates[.positiveY]!.estimateMM
-      - CurrentCameraCalibrationPlan.safetyMarginMM
     let point = center.point
     let toleranceMM = MachinePositionAcceptancePolicy.toleranceMM
-    guard point.x - Self.radiusMM >= safeMinX - toleranceMM,
-      point.x + Self.radiusMM <= safeMaxX + toleranceMM,
-      point.y - Self.radiusMM >= safeMinY - toleranceMM,
-      point.y + Self.radiusMM <= safeMaxY + toleranceMM
-    else { throw CurrentCameraCalibrationPlanningError.circularMarkOutsideSafeEnvelope }
+    guard point.x - Self.radiusMM >= boundaryEnvelope.minX - toleranceMM,
+      point.x + Self.radiusMM <= boundaryEnvelope.maxX + toleranceMM,
+      point.y - Self.radiusMM >= boundaryEnvelope.minY - toleranceMM,
+      point.y + Self.radiusMM <= boundaryEnvelope.maxY + toleranceMM
+    else { throw CurrentCameraCalibrationPlanningError.circularMarkOutsideBoundaryEnvelope }
 
     var positions = try (0..<Self.chordCount).map { index in
       let angle = 2 * Double.pi * Double(index) / Double(Self.chordCount)
@@ -121,7 +110,6 @@ struct SparseTipCircularMarkPlan: Hashable, Sendable {
         dy: to.point.y - from.point.y
       )
     }
-    let revealY = min(max(0, safeMinY), safeMaxY)
     geometry = try ToolContactMarkGeometryEvidence(
       center: center,
       radiusMM: Self.radiusMM,
@@ -130,16 +118,13 @@ struct SparseTipCircularMarkPlan: Hashable, Sendable {
     )
     pathPositions = positions
     pathDeltas = deltas
-    revealPosition = try MachinePosition(x: safeMaxX, y: revealY)
   }
 }
 
-/// The complete Stage 3.4 physical mark layout. Unlike Stage 3.3's
-/// camera-calibration rectangle, these offsets are fixed machine distances:
-/// C, X-, Y+, X+, and Y- at 30 mm from C.
+/// The complete Stage 3.4 physical mark layout. The four outer circle centers
+/// are the maximum drawable corners inside the accepted Boundary envelope. The
+/// fifth circle and final Pen-Up reveal are at that rectangle's center.
 struct SparseTipBatchMarkPlan: Hashable, Sendable {
-  static let offsetMM = 30.0
-
   struct Mark: Hashable, Sendable {
     let position: ToolContactCalibrationPosition
     let machinePosition: MachinePosition
@@ -147,34 +132,65 @@ struct SparseTipBatchMarkPlan: Hashable, Sendable {
   }
 
   let marks: [Mark]
-
-  var finalRevealPosition: MachinePosition { marks.last!.circle.revealPosition }
+  let applicabilityRectangle: AxisAlignedBounds<MachineSpace>
+  let finalRevealPosition: MachinePosition
 
   init(
-    center: MachinePosition,
     boundarySideAggregates: [BoundaryDirection: BoundarySideAggregate]
   ) throws {
-    let offsets: [(ToolContactCalibrationPosition, Double, Double)] = [
-      (.center, 0, 0),
-      (.negativeX, -Self.offsetMM, 0),
-      (.positiveY, 0, Self.offsetMM),
-      (.positiveX, Self.offsetMM, 0),
-      (.negativeY, 0, -Self.offsetMM),
+    guard BoundaryDirection.allCases.allSatisfy({ boundarySideAggregates[$0] != nil }) else {
+      throw CurrentCameraCalibrationPlanningError.incompleteBoundaryEnvelope
+    }
+    let boundaryEnvelope = try AxisAlignedBounds<MachineSpace>(
+      minX: boundarySideAggregates[.negativeX]!.estimateMM,
+      minY: boundarySideAggregates[.negativeY]!.estimateMM,
+      maxX: boundarySideAggregates[.positiveX]!.estimateMM,
+      maxY: boundarySideAggregates[.positiveY]!.estimateMM
+    )
+    applicabilityRectangle = try AxisAlignedBounds<MachineSpace>(
+      minX: boundaryEnvelope.minX + SparseTipCircularMarkPlan.radiusMM,
+      minY: boundaryEnvelope.minY + SparseTipCircularMarkPlan.radiusMM,
+      maxX: boundaryEnvelope.maxX - SparseTipCircularMarkPlan.radiusMM,
+      maxY: boundaryEnvelope.maxY - SparseTipCircularMarkPlan.radiusMM
+    )
+    let center = try MachinePosition(
+      x: (applicabilityRectangle.minX + applicabilityRectangle.maxX) / 2,
+      y: (applicabilityRectangle.minY + applicabilityRectangle.maxY) / 2
+    )
+    let plannedPositions: [(ToolContactCalibrationPosition, MachinePosition)] = [
+      (.center, center),
+      (.negativeX, try MachinePosition(
+        x: applicabilityRectangle.minX, y: applicabilityRectangle.minY)),
+      (.positiveY, try MachinePosition(
+        x: applicabilityRectangle.minX, y: applicabilityRectangle.maxY)),
+      (.positiveX, try MachinePosition(
+        x: applicabilityRectangle.maxX, y: applicabilityRectangle.maxY)),
+      (.negativeY, try MachinePosition(
+        x: applicabilityRectangle.maxX, y: applicabilityRectangle.minY)),
     ]
-    marks = try offsets.map { position, dx, dy in
-      let machinePosition = try MachinePosition(
-        x: center.point.x + dx,
-        y: center.point.y + dy
-      )
+    marks = try plannedPositions.map { position, machinePosition in
       return Mark(
         position: position,
         machinePosition: machinePosition,
         circle: try SparseTipCircularMarkPlan(
           center: machinePosition,
-          boundarySideAggregates: boundarySideAggregates
+          boundaryEnvelope: boundaryEnvelope
         )
       )
     }
+    finalRevealPosition = center
+  }
+
+  static func applicabilityRectangle(
+    for markGeometry: [ToolContactMarkGeometryEvidence]
+  ) throws -> AxisAlignedBounds<MachineSpace> {
+    let centers = markGeometry.map(\.center.point)
+    return try AxisAlignedBounds(
+      minX: centers.map(\.x).min()!,
+      minY: centers.map(\.y).min()!,
+      maxX: centers.map(\.x).max()!,
+      maxY: centers.map(\.y).max()!
+    )
   }
 }
 

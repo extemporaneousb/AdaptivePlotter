@@ -349,9 +349,15 @@ It does not locate the paper-contact point.
 ## Stage 3.4 contact authority
 
 One supervised **Draw Five 2 mm Circles** action owns one exercise attempt and
-one stoppable operation. It uses the canonical positions `C`, `X−`, `Y+`, `X+`,
-`Y−` at fixed Stage 3.4 offsets of 30 mm from `C`. Stage 3.3 retains its
-separate existing ±24 mm camera-calibration spacing and holdout authority.
+one stoppable operation. One mark is at the accepted Boundary envelope's
+geometric center. The four outer mark centers are its maximum drawable corners:
+`minX + 2 mm`, `minY + 2 mm`, `maxX − 2 mm`, and `maxY − 2 mm`. The full 2 mm-
+radius paths therefore remain within the accepted Boundary envelope while the
+outer centers bound essentially the complete drawable region. The retained
+`C`, `X−`, `Y+`, `X+`, `Y−` values are canonical evidence-slot identities, not
+fixed axis-only physical offsets. Stage 3.3 retains its separate existing ±24 mm
+camera-calibration spacing and holdout authority. Operator-visible motion text
+names the actual minimum/maximum-axis corner rather than the retained slot value.
 
 At every Stage 3.4 position the operation travels and settles Pen Up, retains
 that circle's pre-mark exact frame, cap, controller, and settled-position
@@ -359,16 +365,23 @@ evidence, moves Pen Up to the circle start, lowers and settles using the current
 Pen Interaction profile, and draws one closed 2 mm-radius circle as 16 finite
 typed chords capped at 100 mm/min. It then raises and settles Pen Up before any
 travel to the next circle. The five circles therefore contain exactly 80 circle
-chords and no connecting Pen-Down stroke. Each observation retains its own
-physical operation evidence. Command completion is not proof of physical
-pressure, contact, or observed ink.
+chords and no connecting Pen-Down stroke. The accepted calibrated drawable-
+region overlay is the bounding box through the four outer circle centers; the
+plotter does not spend additional Pen-Down motion drawing a physical perimeter.
+Each observation retains its own physical operation evidence. Command completion
+is not proof of physical pressure, contact, or observed ink.
 
-After the fifth circle only, the operation performs one safe X+/machine-Y-zero-
-biased Pen-Up reveal, requires existing Pen-Up, Idle, and settlement evidence,
-captures one newer exact frame, and revalidates current camera/cap applicability
-once. All five observations share that final frozen reveal frame. Stage 3.4
-does not install an individual-mark fitted region and never changes zoom, pan,
-preferred zoom, or viewport focus automatically.
+After the fifth circle only, the operation returns Pen Up to the outer
+rectangle's geometric center, requires existing Pen-Up, Idle, and settlement
+evidence, captures one newer exact frame, and revalidates current camera/cap
+applicability once. All five observations share that final frozen reveal frame.
+Acceptance installs the rectangle through the four outer circle centers as the
+`TipCameraRegistration` applicability rectangle and Drawing Studio drawable
+region. Stage 3.4 never changes zoom, pan, preferred zoom, or viewport focus
+automatically. The boundary-corner estimator has a new revision: a previously
+accepted fixed-offset registration remains truthful only within its recorded
+smaller applicability rectangle and is never widened or reinterpreted as corner
+evidence without a fresh physical batch.
 
 Each accepted `ToolContactObservation` is immutable raw evidence for one
 commanded circular mark and asserted circle center. It retains:
@@ -402,7 +415,9 @@ centers projected and clicked sets to remove their unknown common cap-to-tip
 translation, evaluates all 5! one-to-one assignments, and selects the minimum
 total squared pixel distance. Exact numerical ties resolve by canonical
 calibration-position order. No distance or ambiguity threshold may reject or
-block that association. **Undo Last Click** or **Clear Clicks on This Frame**
+block that association. The earlier cap-map residual at each corner is retained
+as diagnostic evidence, not used as an admission gate outside the Stage 3.3
+bootstrap rectangle. **Undo Last Click** or **Clear Clicks on This Frame**
 changes only clicks on the same frame and performs no motion, ink, redraw,
 capture, zoom, or pan. The fifth click atomically creates the five accepted
 observations and constructs a reviewable tip-map proposal. The exact frozen

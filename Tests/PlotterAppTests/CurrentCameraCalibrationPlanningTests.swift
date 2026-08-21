@@ -79,18 +79,13 @@ struct CurrentCameraCalibrationPlanningTests {
     #expect(plan.samplePositions[4] == MachinePosition(point: try Point2(x: 70, y: -66)))
   }
 
-  @Test("sparse mark is a centered 2 mm circle and reveals at safe X-max toward machine Y-zero")
-  func circularMarkAndFarReveal() throws {
+  @Test("sparse mark is a centered 2 mm circle inside its accepted Boundary envelope")
+  func circularMarkGeometry() throws {
     let center = try MachinePosition(x: 70, y: 50)
-    let envelope = try boundaryEnvelope(
-      negativeX: -100,
-      positiveX: 200,
-      negativeY: -40,
-      positiveY: 180
-    )
     let mark = try SparseTipCircularMarkPlan(
       center: center,
-      boundarySideAggregates: envelope
+      boundaryEnvelope: try AxisAlignedBounds(
+        minX: -100, minY: -40, maxX: 200, maxY: 180)
     )
 
     #expect(mark.geometry.kind == .circularOutline)
@@ -100,7 +95,6 @@ struct CurrentCameraCalibrationPlanningTests {
     #expect(mark.geometry.maximumChordDeviationMM < 0.05)
     #expect(mark.geometry.maximumFeedMMPerMinute == 100)
     #expect(mark.pathDeltas.count == 16)
-    #expect(mark.revealPosition == (try MachinePosition(x: 190, y: 0)))
     for position in mark.pathPositions {
       #expect(abs(position.point.distance(to: center.point) - 2) < 1e-9)
     }
@@ -110,7 +104,7 @@ struct CurrentCameraCalibrationPlanningTests {
     #expect(pathEnd.distance(to: mark.startPosition.point) < 1e-9)
   }
 
-  @Test("Stage 3.4 batch uses fixed 30 mm offsets and exactly 80 closed chords")
+  @Test("Stage 3.4 uses the maximum drawable Boundary corners and exactly 80 closed chords")
   func sparseBatchGeometry() throws {
     let envelope = try boundaryEnvelope(
       negativeX: -100,
@@ -119,7 +113,6 @@ struct CurrentCameraCalibrationPlanningTests {
       positiveY: 100
     )
     let batch = try SparseTipBatchMarkPlan(
-      center: MachinePosition(x: 0, y: 0),
       boundarySideAggregates: envelope
     )
 
@@ -128,11 +121,19 @@ struct CurrentCameraCalibrationPlanningTests {
     ])
     #expect(batch.marks.map(\.machinePosition) == [
       try MachinePosition(x: 0, y: 0),
-      try MachinePosition(x: -30, y: 0),
-      try MachinePosition(x: 0, y: 30),
-      try MachinePosition(x: 30, y: 0),
-      try MachinePosition(x: 0, y: -30),
+      try MachinePosition(x: -98, y: -98),
+      try MachinePosition(x: -98, y: 98),
+      try MachinePosition(x: 98, y: 98),
+      try MachinePosition(x: 98, y: -98),
     ])
+    #expect(batch.applicabilityRectangle == (try AxisAlignedBounds(
+      minX: -98, minY: -98, maxX: 98, maxY: 98
+    )))
+    #expect(batch.finalRevealPosition == (try MachinePosition(x: 0, y: 0)))
+    #expect(
+      try SparseTipBatchMarkPlan.applicabilityRectangle(
+        for: batch.marks.map { $0.circle.geometry }) == batch.applicabilityRectangle
+    )
     #expect(batch.marks.flatMap { $0.circle.pathDeltas }.count == 80)
     for mark in batch.marks {
       #expect(mark.circle.geometry.radiusMM == 2)
@@ -142,27 +143,24 @@ struct CurrentCameraCalibrationPlanningTests {
     }
   }
 
-  @Test("sparse circle refuses any mark that would cross the safe Boundary inset")
+  @Test("sparse circle refuses any mark that would cross the accepted Boundary envelope")
   func circularMarkRequiresSafeClearance() throws {
-    let envelope = try boundaryEnvelope(
-      negativeX: -100,
-      positiveX: 100,
-      negativeY: -80,
-      positiveY: 80
+    let envelope = try AxisAlignedBounds<MachineSpace>(
+      minX: -100, minY: -80, maxX: 100, maxY: 80
     )
     _ = try SparseTipCircularMarkPlan(
-      center: MachinePosition(x: 88.013, y: 0),
-      boundarySideAggregates: envelope
+      center: MachinePosition(x: 98.013, y: 0),
+      boundaryEnvelope: envelope
     )
-    #expect(throws: CurrentCameraCalibrationPlanningError.circularMarkOutsideSafeEnvelope) {
+    #expect(throws: CurrentCameraCalibrationPlanningError.circularMarkOutsideBoundaryEnvelope) {
       try SparseTipCircularMarkPlan(
-        center: MachinePosition(x: 88.051, y: 0),
-        boundarySideAggregates: envelope
+        center: MachinePosition(x: 98.051, y: 0),
+        boundaryEnvelope: envelope
       )
     }
   }
 
-  @Test("circle-era checkpoint geometry reconstructs the five fixed mark centers")
+  @Test("boundary-corner checkpoint geometry reconstructs the center and four region corners")
   func restoredCircleGeometry() throws {
     let domain = try AxisAlignedBounds<MachineSpace>(
       minX: -30, minY: -30, maxX: 30, maxY: 30
@@ -173,10 +171,10 @@ struct CurrentCameraCalibrationPlanningTests {
 
     #expect(geometry.map(\.center) == [
       try MachinePosition(x: 0, y: 0),
-      try MachinePosition(x: -30, y: 0),
-      try MachinePosition(x: 0, y: 30),
-      try MachinePosition(x: 30, y: 0),
-      try MachinePosition(x: 0, y: -30),
+      try MachinePosition(x: -30, y: -30),
+      try MachinePosition(x: -30, y: 30),
+      try MachinePosition(x: 30, y: 30),
+      try MachinePosition(x: 30, y: -30),
     ])
     #expect(geometry.allSatisfy { $0.radiusMM == 2 })
     #expect(geometry.allSatisfy { $0.chordCount == 16 })
@@ -190,10 +188,10 @@ struct CurrentCameraCalibrationPlanningTests {
     )
     let marks = try [
       MachinePosition(x: 0, y: 0),
-      MachinePosition(x: -30, y: 0),
-      MachinePosition(x: 0, y: 30),
-      MachinePosition(x: 30, y: 0),
-      MachinePosition(x: 0, y: -30),
+      MachinePosition(x: -30, y: -30),
+      MachinePosition(x: -30, y: 30),
+      MachinePosition(x: 30, y: 30),
+      MachinePosition(x: 30, y: -30),
     ].map {
       try ToolContactMarkGeometryEvidence(
         center: $0, radiusMM: 2, chordCount: 16, maximumFeedMMPerMinute: 100

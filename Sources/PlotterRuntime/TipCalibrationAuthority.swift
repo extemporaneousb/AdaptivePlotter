@@ -578,7 +578,6 @@ public struct ToolContactObservation: Codable, Hashable, Sendable {
   public let click: ToolContactClickEvidence
   public let capMapPredictionAtMark: Point2<CameraPixelSpace>
   public let capMapResidualPixels: Double
-  public let maximumCapMapResidualPixels: Double
   public let disposition: ToolContactObservationDisposition
   public let consumedLearningArtifactRevisionIDs: Set<LearningArtifactRevisionID>
   public let algorithmRevisions: Set<AlgorithmRevisionEvidence>
@@ -605,7 +604,6 @@ public struct ToolContactObservation: Codable, Hashable, Sendable {
     revealEvidence: ToolContactRevealEvidence,
     click: ToolContactClickEvidence,
     capMapPredictionAtMark: Point2<CameraPixelSpace>,
-    maximumCapMapResidualPixels: Double,
     disposition: ToolContactObservationDisposition,
     consumedLearningArtifactRevisionIDs: Set<LearningArtifactRevisionID>,
     algorithmRevisions: Set<AlgorithmRevisionEvidence>
@@ -621,8 +619,6 @@ public struct ToolContactObservation: Codable, Hashable, Sendable {
         markGeometry.center,
         target: intendedMarkPosition
       ),
-      maximumCapMapResidualPixels.isFinite, maximumCapMapResidualPixels >= 0,
-      capResidual <= maximumCapMapResidualPixels,
       preMarkFrame.source == revealEvidence.frame.source,
       preMarkFrame.captureSessionID == revealEvidence.frame.captureSessionID,
       preMarkFrame.opticalConfiguration == revealEvidence.frame.opticalConfiguration,
@@ -669,7 +665,6 @@ public struct ToolContactObservation: Codable, Hashable, Sendable {
     self.click = click
     self.capMapPredictionAtMark = capMapPredictionAtMark
     capMapResidualPixels = capResidual
-    self.maximumCapMapResidualPixels = maximumCapMapResidualPixels
     self.disposition = disposition
     self.consumedLearningArtifactRevisionIDs = consumedLearningArtifactRevisionIDs
     self.algorithmRevisions = algorithmRevisions

@@ -10,6 +10,48 @@ procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
 ## Implemented software surface
 
+### Boundary-corner Stage 3.4 drawable region
+
+Implemented and validated 2026-08-20 in Blackdog task `TASK-6EE9676C`,
+targeting `main` from base `8661167bd78f93d85f3b868cd52433d9eb928b64`.
+
+The former Stage 3.4 batch drew one center circle and four cardinal circles at
+fixed ±30 mm offsets, returned to an X-max/Y-zero-biased reveal pose, and copied
+the smaller Stage 3.3 bootstrap rectangle into the accepted tip map. It therefore
+could not frame a substantially larger accepted Boundary envelope or expose that
+envelope as Drawing Studio's drawable region.
+
+`SparseTipBatchMarkPlan` now owns one center and four maximum drawable corner
+centers, with each edge inset exactly by the 2 mm circle radius so all 80 physical
+circle chords remain inside the accepted Boundary envelope. The operation keeps
+Pen Up between marks and returns Pen Up to the rectangle center for the one
+shared frozen reveal. The four outer centers become the accepted
+`TipCameraRegistration` applicability rectangle and Drawing Studio region; the
+existing calibrated-region overlay renders their bounding box without adding a
+slow physical perimeter stroke. Per-mark cap-map extrapolation residual is
+retained as diagnostic evidence instead of gating a corner outside the smaller
+Stage 3.3 bootstrap rectangle. The final center reveal retains the existing
+camera/cap revalidation. Motion telemetry names the actual minimum/maximum-axis
+corner rather than exposing the retained legacy evidence-slot raw value. The v4
+estimator prevents an older fixed-offset checkpoint from being reconstructed as
+corner evidence; an older accepted map remains bounded by its recorded smaller
+applicability until a fresh physical batch supplies new observations.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| Focused planning, tip-authority, and sparse-workspace suites | passed — 34 tests | Boundary-derived corner centers, circle containment, 80 chords, center reveal MPos, diagnostic cap residual, full-region applicability, bounding overlay, arbitrary click order, checkpoint reconstruction, and Stage 4 consumption |
+| `make quick-test` | passed — 449 tests | fast unit/component partition with retained journeys excluded |
+| `make journey-test` | passed — 10 tests | sparse calibration, checkpoint revalidation, exact tip revision, reset, Boundary, drawing, and Stop journeys |
+| `make strict-check` | passed — 459 tests | strict concurrency, warnings as errors, signed bundle, launcher checks, full test suite, and repository checks |
+| superseded fixed-offset/reveal/estimator scan | passed — zero current source, test, and authority-doc matches | old ±30 mm Stage 3.4 plan, X-max/Y-zero reveal, planner offset symbol, and v3 estimator/workspace revisions |
+| `git diff --check` | passed | whitespace and conflict markers |
+
+These are source, deterministic fixture, simulator, build, signed-bundle, and
+repository-contract results. The new binary was not launched for an attended
+camera workflow. No physical controller, motion, Pen Down/Up, camera capture,
+operator click, circle visibility, paper coverage, bounding-overlay visibility,
+or observed-ink validation was performed.
+
 ### Stage 3.3 exact viewport and analysis-lock continuity
 
 Implemented and validated 2026-08-17 in Blackdog task `TASK-B1EB11D5`,
@@ -460,13 +502,15 @@ The current source contains exactly two post-Boundary calibration exercises:
   exact inspections, refuses any non-accepted or ambiguous cap and more than
   2 px maximum pairwise cap-centroid spread, and retains the newest third exact
   frame/measurement without averaging;
-- 3.4 one supervised five-circle batch at fixed ±30 mm offsets, with five
-  centered 2 mm-radius/16-chord marks capped at 100 mm/min, independent
-  Down/Up evidence, settled Pen Up before every inter-circle travel, one final
-  X-max/Y-zero-biased reveal, one shared frozen exact frame, arbitrary-order
-  clicks with deterministic global assignment, all-five affine-first
-  construction, constant construction fallback, diagnostic-only residuals and
-  uncertainty, stable operator viewport state, and atomic tip-map commit.
+- 3.4 one supervised five-circle batch with one center mark and four outer mark
+  centers 2 mm inside the accepted Boundary extrema, five 2 mm-radius/16-chord
+  marks capped at 100 mm/min, independent Down/Up evidence, settled Pen Up before
+  every inter-circle travel, one final center reveal, one shared frozen exact
+  frame, arbitrary-order clicks with deterministic global assignment, an outer-
+  center applicability rectangle and calibrated-region bounding overlay,
+  all-five affine-first construction, constant construction fallback,
+  diagnostic-only residuals and uncertainty, stable operator viewport state,
+  and atomic tip-map commit.
 
 `TipCameraRegistration` maps machine coordinates directly to contact pixels.
 Stage 4 consumes its exact revision, selects a 5 mm line that clears persistent

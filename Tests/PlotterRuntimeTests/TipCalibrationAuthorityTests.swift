@@ -34,6 +34,17 @@ struct TipCalibrationAuthorityTests {
     #expect(ambiguous.disposition.blacklistsPhysicalLocation)
   }
 
+  @Test("Tool contact evidence retains cap-map extrapolation residual without gating acceptance")
+  func toolContactObservationCapResidualIsDiagnostic() throws {
+    let observation = try TipAuthorityFixture().observation(
+      position: .positiveX,
+      capPredictionOffsetAtMark: 100
+    )
+
+    #expect(observation.disposition == .accepted)
+    #expect(observation.capMapResidualPixels == 100)
+  }
+
   @Test("Accepted contact evidence requires settled motion, cap checks, lower, and raise")
   func acceptedObservationRequiresSettledEvidence() throws {
     let fixture = try TipAuthorityFixture()
@@ -598,6 +609,7 @@ private struct TipAuthorityFixture {
     markPositionResidualMM: Double = 0.01,
     markGeometryCenterResidualMM: Double = 0,
     revealPositionResidualMM: Double = 0.01,
+    capPredictionOffsetAtMark: Double = 2,
     paper: PaperContactPlaneRevision? = nil,
     timeOffset: UInt64 = 0
   ) throws -> ToolContactObservation {
@@ -677,8 +689,10 @@ private struct TipAuthorityFixture {
         timestamp: timestamp(500 + timeOffset),
         presentationTransformRevision: PresentationTransformRevision()
       ),
-      capMapPredictionAtMark: Point2(x: preCap.point.x + 2, y: preCap.point.y),
-      maximumCapMapResidualPixels: 2,
+      capMapPredictionAtMark: Point2(
+        x: preCap.point.x + capPredictionOffsetAtMark,
+        y: preCap.point.y
+      ),
       disposition: disposition,
       consumedLearningArtifactRevisionIDs: [machineCameraRevision],
       algorithmRevisions: [
