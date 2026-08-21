@@ -285,31 +285,35 @@ physical contact or ink; attended observation owns those claims.
    perform no motion or redraw. If acceptance fails atomically, expose **Retry
    Calibration Commit**.
 
-### Quarantined checkpoint recovery
+### Durable restart restoration and changed-setup recovery
 
 Loading restores accepted learning values but never restores operational
 authority. Motion, current Pen pose, active owners, Stop capabilities, frames,
 and pending commands remain session-local.
 
-For an unchanged paper plane and matching semantic machine/tool/optical
-identities:
+For an unchanged physical setup:
 
-1. Connect and complete the passive controller-identity probe. The accepted
-   Pen, Boundary, center, Stage 3.3, Stage 3.4, and Stage 4 prefix loads without
-   replaying completed learning motion.
-2. Choose **Revalidate Saved Tip Calibration** before any coordinate-dependent
-   Learning or Drawing action. Manual jog and manual Pen commands remain
-   independent under Motion authorization and controller-native admission.
-3. Require a settled reported Pen-Up controller position and capture one fresh exact cap
-   frame.
-4. Revalidate semantic identities and the current cap map. If the carriage
-   moved while unpowered, derive the known pure coordinate translation from the
-   saved machine/cap fit and fresh cap point, then rebase accepted boundaries,
-   Stage 3.3, and Stage 3.4 together under a new coordinate revision.
-5. Perform no contact mark.
-6. Rebuild the five immutable observation graph nodes under the current machine-
-   camera revision and derive a new accepted tip revision with the fresh
-   revalidation evidence.
+1. Start the replacement binary or restart the process/capture session. These
+   software lifetimes do not rotate a physical semantic identity.
+2. Start the same camera device. Its current source and semantic optical
+   configuration must match the saved registration.
+3. Connect and complete the read-only passive controller-context probe. A
+   matching probe restores Boundary, center, Stage 3.3, the five Stage 3.4
+   observation revisions, the exact accepted tip revision, and attributable
+   Stage 4 completion without replaying motion.
+4. Require no **Revalidate Saved Tip Calibration** action, cap capture, click,
+   mark, paper replacement, or Learning Path replay.
+5. An operator may keep Motion disabled and inspect the current projected
+   region/plan against the unchanged scene as a manual sanity check. That
+   inspection is optional and does not create a new calibration gate.
+
+If the controller coordinate frame was actually reset, the camera was moved or
+reframed, the tool/contact profile changed, or the contact plane changed, do
+not claim the unchanged-restart path. A detectable controller or optical
+mismatch keeps authority unavailable. Use the owning reset/recovery path; only
+a proven pure coordinate translation may rebase accepted machine/camera/tip
+geometry without new marks. Unknown physical change requires rebuilding the
+affected suffix.
 
 After a new sheet on the explicitly unchanged contact plane:
 

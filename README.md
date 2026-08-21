@@ -181,16 +181,19 @@ accepted revision. A diagnostic cap-to-tip pixel difference at one pose is not
 a durable camera-independent tool vector.
 
 The machine-only checkpoint remains separate. `AcceptedTipCalibrationCheckpoint`
-loads quarantined and cannot restore authority without current semantic
-identity plus fresh controller/cap evidence. An unchanged paper/capture restart
-requires a fresh cap frame and no new mark. Paper identity is split into a
+is composed back into current authority after a matching read-only controller-
+context probe and a current frame with the same camera device and semantic
+optics. An ordinary binary replacement, process restart, or capture-session
+restart preserves the exact accepted tip revision: it performs no fresh cap
+capture, click, mark, paper operation, or Learning Path replay. Paper identity is split into a
 replaceable `PaperInstanceRevision` and the support/stock/contact-height
 `PaperContactPlaneRevision`. A new sheet explicitly placed on the unchanged
 contact plane rotates only the instance, clears sheet coverage and ink-specific
 state, and retains the tip map. A changed contact plane rotates both and
 invalidates tip authority. Known pixel
-transforms and known machine-coordinate
-rebases may derive rebased authority with propagated uncertainty; unknown
+transforms and explicitly recovered machine-coordinate
+rebases may derive rebased authority with propagated uncertainty; a different
+camera device or semantic optical configuration and unknown
 optical, geometry, coordinate, tool, contact-profile, or LIVE/SIMULATED changes
 invalidate or quarantine it as defined by the Product Contract.
 

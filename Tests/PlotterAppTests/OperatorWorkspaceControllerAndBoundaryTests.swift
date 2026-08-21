@@ -764,10 +764,11 @@ extension OperatorWorkspaceTests {
     if case .restored(sideCount: 4, centerArrival: false, _) =
       relaunched.acceptedArtifactCheckpointStatus
     {
-      // Expected: accepted artifacts only, after matching context and MPos.
+      // Expected: accepted artifacts after the matching read-only context probe.
     } else {
-      Issue.record("Expected accepted boundaries to restore after fresh revalidation.")
+      Issue.record("Expected accepted boundaries to restore after the compatibility probe.")
     }
+    #expect(relaunched.controllerPoseApplicability == .currentSession)
     let restoredRevisions = relaunched.learningArtifactGraph.revisions
     #expect(relaunched.motionAuthorizationEnabled)
     #expect(relaunched.motionUnavailableReason == nil)

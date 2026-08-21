@@ -181,6 +181,28 @@ struct CurrentCameraCalibrationPlanningTests {
     #expect(geometry.allSatisfy { $0.maximumFeedMMPerMinute == 100 })
   }
 
+  @Test("accepted cardinal checkpoint geometry remains decodable after layout updates")
+  func restoredCardinalCircleGeometry() throws {
+    let domain = try AxisAlignedBounds<MachineSpace>(
+      minX: -30, minY: -30, maxX: 30, maxY: 30
+    )
+    let geometry = try ToolContactCalibrationPosition.allCases.map {
+      try SparseTipCircularMarkPlan.restoredGeometry(
+        for: $0,
+        in: domain,
+        estimatorRevision: SparseTipCircularMarkPlan.cardinalRegistrationEstimatorRevision
+      )
+    }
+
+    #expect(geometry.map(\.center) == [
+      try MachinePosition(x: 0, y: 0),
+      try MachinePosition(x: -30, y: 0),
+      try MachinePosition(x: 0, y: 30),
+      try MachinePosition(x: 30, y: 0),
+      try MachinePosition(x: 0, y: -30),
+    ])
+  }
+
   @Test("Stage 4 line plan clears all persistent calibration circles")
   func stageFourLineClearsCalibrationMarks() throws {
     let domain = try AxisAlignedBounds<MachineSpace>(

@@ -468,8 +468,8 @@ Changes apply as follows:
 
 - presentation zoom/pan: retain authority;
 - proven crop/resample transform: derive a rebased projection and covariance;
-- capture restart with proven identical semantic optics: require explicit
-  revalidation;
+- binary, process, or capture-session restart with the same camera device and
+  proven identical semantic optics: retain authority;
 - unknown device, source, crop, mirror, orientation, capture zoom, mount,
   lens/focus, or optical change: invalidate;
 - known machine-coordinate rebase: rebase intercept and domain;
@@ -494,16 +494,22 @@ legacy files after successful save.
 Loading restores accepted values only. It cannot restore Motion authorization,
 current Pen pose, workflow state, operation ownership, a Stop capability, a
 pending command, a camera frame, or a continuation. Fresh passive controller
-identity evidence restores the learned machine envelope, but reported MPos
-distance is diagnostic rather than physical-pose proof. Coordinate-dependent
-Learning and Drawing remain blocked until a fresh exact cap frame revalidates
-pose; manual jog and manual Pen controls remain independent under Motion
-authorization and controller-native admission. Under unchanged machine geometry
-and semantic camera-mount/optical identity, a displaced cap may establish one
-known coordinate translation; accepted boundaries, the machine/cap fit, and the
-tip fit are rebased into one new coordinate-frame revision. This does not
-estimate rotation or scale. Unknown camera, geometry, or assembly change
-invalidates instead. Same-paper restoration performs no contact mark.
+identity evidence restores the learned machine envelope. When that context,
+the persisted physical semantic identities, the camera device, and current
+semantic optics match, the app rebuilds the process-local dependency index with
+the exact stored revisions and immediately restores coordinate-dependent
+Learning and Drawing authority. Reported MPos distance remains diagnostic.
+Binary replacement, process restart, and capture-session restart perform no cap
+capture, click, mark, paper replacement, or Learning Path replay.
+
+An actual controller-coordinate reset, camera move/remount/reframe, tool or
+contact-profile change, or paper-contact-plane change is a physical semantic
+change, not a software restart. A detectable context or optical mismatch keeps
+authority unavailable or invalidates it. A known coordinate translation may be
+explicitly recovered and rebased; unknown rotation, scale, geometry, or
+assembly change invalidates. Unobservable physical changes require the operator
+to declare the relevant reset rather than relying on process lifetime as a
+proxy.
 
 ## Stage 4 dependency boundary
 

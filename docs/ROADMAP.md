@@ -32,7 +32,9 @@ Add deliberate attended controls for tool/holder/contact-profile replacement,
 camera mount/reframing changes, and known machine-geometry revisions. Each
 control must rotate the correct semantic identity, show the affected checkpoint
 and graph suffix, preserve raw history, and require explicit invalidation or
-revalidation. It must never infer physical sameness from app restart alone.
+revalidation. Binary/process/capture restart retains the persisted semantic
+identities; the controls must let the operator declare a real physical change
+without using application lifetime as its proxy.
 
 ## 3. Durable exact-frame archive
 

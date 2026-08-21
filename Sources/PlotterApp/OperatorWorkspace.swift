@@ -1633,6 +1633,138 @@ final class OperatorWorkspace {
   ) {
     guard frameMode == .simulated else { return }
     quarantinedTipCalibrationCheckpoint = checkpoint
+    restoreUnchangedTipCalibrationCheckpoint(against: displayedFrame)
+  }
+
+  func simulateUnchangedApplicationTipReloadForTesting(
+    _ checkpoint: AcceptedTipCalibrationCheckpoint
+  ) throws {
+    guard frameMode == .simulated else { return }
+    var retained = learningArtifactGraph.revisions.filter { revision in
+      guard revision.state == .current else { return false }
+      switch revision.kind {
+      case .penInteraction, .boundarySideAggregate, .estimatedMachineCenter,
+        .centerArrival, .machineCameraRegistration:
+        return true
+      default:
+        return false
+      }
+    }
+    var rebuilt = LearningDependencyGraph()
+    while !retained.isEmpty {
+      guard let index = retained.firstIndex(where: { revision in
+        revision.consumedRevisionIDs.allSatisfy {
+          rebuilt.revision(id: $0)?.state == .current
+        }
+      }) else {
+        throw LearningDependencyGraphError.invalidDependencyShape(.tipCameraRegistration)
+      }
+      let revision = retained.remove(at: index)
+      _ = try rebuilt.commitReplacement(
+        LearningArtifactRevision(
+          id: revision.id,
+          kind: revision.kind,
+          attemptID: revision.attemptID,
+          disposition: revision.disposition,
+          consumedRevisionIDs: revision.consumedRevisionIDs
+        )
+      )
+    }
+    learningArtifactGraph = rebuilt
+    tipCameraRegistration = nil
+    proposedTipCameraRegistration = nil
+    quarantinedTipCalibrationCheckpoint = checkpoint
+    restoreUnchangedTipCalibrationCheckpoint(against: displayedFrame)
+  }
+
+  /// Restores accepted durable authority after an application-session restart.
+  /// Process lifetime is not a physical applicability dimension: the stored
+  /// transform and revision stay current when the controller coordinate
+  /// context, semantic identities, and current camera optics still match.
+  private func restoreUnchangedTipCalibrationCheckpoint(
+    against frame: DisplayedFrame?
+  ) {
+    guard tipCameraRegistration == nil,
+      let checkpoint = quarantinedTipCalibrationCheckpoint,
+      let machineRegistration = machineCameraRegistration,
+      let machineRevision = learningArtifactGraph.currentRevision(
+        for: .machineCameraRegistration
+      )?.id,
+      let frame
+    else { return }
+
+    do {
+      try checkpoint.validate()
+      let registration = checkpoint.registration
+      let currentOptical = try exactTipCalibrationFrame(frame).opticalConfiguration
+      guard registration.applicability.opticalConfiguration == currentOptical else {
+        if frameMode == .live {
+          invalidateCameraDependentLearningAuthority()
+          explorationError =
+            "Saved camera-dependent learning was invalidated because the current camera source or semantic optical configuration changed."
+        }
+        return
+      }
+      guard registration.machineCameraRegistrationRevisionID == machineRevision,
+        machineRegistration.opticalConfiguration == currentOptical,
+        registration.applicability.machineGeometry == machineGeometryIdentity,
+        registration.applicability.machineCoordinateFrame.rawValue
+          == explorationCoordinateRevision,
+        registration.applicability.toolAssembly == toolAssemblyRevision,
+        registration.applicability.penContactProfile == penContactProfileRevision,
+        registration.applicability.paperContactPlane
+          == currentPaperRevisionContext.contactPlane
+      else { return }
+
+      var graph = learningArtifactGraph
+      for revision in try checkpoint.restoredGraphRevisions() {
+        _ = try graph.commitReplacement(revision)
+      }
+      learningArtifactGraph = graph
+      tipCameraRegistration = registration
+      proposedTipCameraRegistration = nil
+      quarantinedTipCalibrationCheckpoint = nil
+      controllerPoseApplicability = .currentSession
+      restoreInteractiveLearningCompletionFromEvidence()
+      explorationError = nil
+    } catch {
+      learningAuthorityError =
+        "Saved tip calibration could not be restored from durable authority: \(error)"
+    }
+  }
+
+  private func reconcileCameraDependentLearningAuthority(
+    with frame: DisplayedFrame?
+  ) {
+    guard let frame else { return }
+    do {
+      let currentOptical = try exactTipCalibrationFrame(frame).opticalConfiguration
+      let acceptedOptical =
+        tipCameraRegistration?.applicability.opticalConfiguration
+        ?? quarantinedTipCalibrationCheckpoint?.registration.applicability.opticalConfiguration
+        ?? machineCameraRegistration?.opticalConfiguration
+      if let acceptedOptical, acceptedOptical != currentOptical {
+        if frameMode == .live {
+          invalidateCameraDependentLearningAuthority()
+          explorationError =
+            "Camera-dependent learning was invalidated because the camera source or semantic optical configuration changed."
+        }
+        return
+      }
+      restoreUnchangedTipCalibrationCheckpoint(against: frame)
+    } catch {
+      learningAuthorityError = "Current camera identity could not be evaluated: \(error)"
+    }
+  }
+
+  private var durableAcceptedLiveCameraDeviceID: CameraDeviceID? {
+    let optical =
+      tipCameraRegistration?.applicability.opticalConfiguration
+      ?? quarantinedTipCalibrationCheckpoint?.registration.applicability.opticalConfiguration
+      ?? machineCameraRegistration?.opticalConfiguration
+      ?? pendingMachineCameraCheckpoint?.registration.opticalConfiguration
+    guard case .live(let deviceID) = optical?.source else { return nil }
+    return deviceID
   }
 
   var actionSurfacePresentation: ActionSurfacePresentation {
@@ -6673,7 +6805,7 @@ final class OperatorWorkspace {
     guard frameMode == .live else { return nil }
     if case .requiresVisualRevalidation = controllerPoseApplicability {
       return
-        "Saved learning is loaded, but physical carriage pose is unproven after restart. Revalidate the saved tip calibration from a fresh cap frame before coordinate-dependent Learning or Drawing."
+        "The controller coordinate frame was explicitly marked as changed. Revalidate the saved tip calibration from a fresh cap frame before coordinate-dependent Learning or Drawing."
     }
     return nil
   }
@@ -8391,7 +8523,17 @@ final class OperatorWorkspace {
     }
     clearAutomaticVisionPresentation()
     videoAnalysisRegionLock = nil
-    invalidateCameraDependentLearningAuthority()
+    let changesAcceptedDevice =
+      if let selectedCameraID {
+        selectedCameraID != id
+      } else if let durableAcceptedLiveCameraDeviceID {
+        durableAcceptedLiveCameraDeviceID != id
+      } else {
+        false
+      }
+    if changesAcceptedDevice {
+      invalidateCameraDependentLearningAuthority()
+    }
     cameraError = nil
     do {
       let snapshot = try await cameraActions.select(id)
@@ -8413,7 +8555,6 @@ final class OperatorWorkspace {
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
     guard let cameraActions else { return }
-    let priorCameraConfigurationID = displayedFrame?.frame.cameraConfigurationID
     if let livePenCapColor { await cameraActions.setPenCapColor(livePenCapColor) }
     let snapshot = await cameraActions.start()
     guard canCommit(generation) else { return }
@@ -8421,14 +8562,7 @@ final class OperatorWorkspace {
     cameraSnapshot = snapshot
     displayedFrame = cameraSnapshot?.latestFrame
     latestLiveCameraFrame = validatedLiveCameraFrame(in: snapshot)
-    if let priorCameraConfigurationID,
-      let currentCameraConfigurationID = displayedFrame?.frame.cameraConfigurationID,
-      currentCameraConfigurationID != priorCameraConfigurationID
-    {
-      videoAnalysisRegionLock = nil
-      await cameraActions.setSceneAnalysisRegion(nil)
-      invalidateCameraDependentLearningAuthority()
-    }
+    reconcileCameraDependentLearningAuthority(with: displayedFrame)
     updateCameraError()
     beginFrameUpdates(generation: generation)
     await reconcileAutomaticVisionAnalysis()
@@ -8463,7 +8597,6 @@ final class OperatorWorkspace {
     frameTask = nil
     clearAutomaticVisionPresentation()
     videoAnalysisRegionLock = nil
-    invalidateCameraDependentLearningAuthority()
     guard let cameraActions else { return }
     if let livePenCapColor { await cameraActions.setPenCapColor(livePenCapColor) }
     let snapshot = await cameraActions.restart()
@@ -8472,6 +8605,7 @@ final class OperatorWorkspace {
     cameraSnapshot = snapshot
     displayedFrame = cameraSnapshot?.latestFrame
     latestLiveCameraFrame = validatedLiveCameraFrame(in: snapshot)
+    reconcileCameraDependentLearningAuthority(with: displayedFrame)
     lastSceneMeasurement = nil
     updateCameraError()
     beginFrameUpdates(generation: generation)
@@ -8720,6 +8854,7 @@ final class OperatorWorkspace {
     if let generation, !canCommit(generation) { return }
     guard case .live(let deviceID) = frame.source, deviceID == selectedCameraID else { return }
     latestLiveCameraFrame = frame
+    reconcileCameraDependentLearningAuthority(with: frame)
     if let lock = videoAnalysisRegionLock, !lock.matches(frame) {
       videoAnalysisRegionLock = nil
       Task {
@@ -10275,14 +10410,13 @@ final class OperatorWorkspace {
         controllerSessionID = checkpoint.controllerSessionID
         explorationCoordinateRevision = checkpoint.coordinateRevision
         acceptedAttemptSequence = max(acceptedAttemptSequence, checkpoint.acceptedAttemptSequence)
-        controllerPoseApplicability = .requiresVisualRevalidation(
-          reportedPositionDeltaMM: reportedPositionDeltaMM
-        )
+        controllerPoseApplicability = .currentSession
         acceptedArtifactCheckpointStatus = .restored(
           sideCount: checkpoint.boundarySideAggregates.count,
           centerArrival: checkpoint.centerArrivalPosition != nil,
           reportedPositionDeltaMM: reportedPositionDeltaMM
         )
+        restoreUnchangedTipCalibrationCheckpoint(against: displayedFrame)
       }
     } catch {
       acceptedArtifactCheckpointStatus = .rejected(
@@ -10667,12 +10801,15 @@ final class OperatorWorkspace {
     }
     let restoredMarkGeometry: [ToolContactMarkGeometryEvidence]
     if acceptedMarkGeometry.isEmpty,
-      registration.estimatorRevision == SparseTipCircularMarkPlan.registrationEstimatorRevision
+      SparseTipCircularMarkPlan.supportsRestoredGeometry(
+        for: registration.estimatorRevision
+      )
     {
       restoredMarkGeometry = try registration.observationEvidence.map {
         try SparseTipCircularMarkPlan.restoredGeometry(
           for: $0.calibrationPosition,
-          in: registration.applicabilityRectangle
+          in: registration.applicabilityRectangle,
+          estimatorRevision: registration.estimatorRevision
         )
       }
     } else {

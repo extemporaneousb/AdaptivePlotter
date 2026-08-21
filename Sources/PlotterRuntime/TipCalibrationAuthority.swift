@@ -1408,7 +1408,6 @@ public enum TipCalibrationApplicabilityChange: Hashable, Sendable {
 
 public enum TipCalibrationApplicabilityDecision: Hashable, Sendable {
   case retain
-  case requireExplicitRevalidation(String)
   case quarantine(String)
   case invalidate(String)
   case rebased(TipCameraRegistration)
@@ -1490,9 +1489,7 @@ extension TipCameraRegistration {
       guard provenOpticalConfiguration == applicability.opticalConfiguration else {
         return .invalidate("Capture restarted with different semantic optical identity.")
       }
-      return .requireExplicitRevalidation(
-        "Capture restarted; semantic optics match but authority must be revalidated."
-      )
+      return .retain
     case .knownPixelTransform(let evidence):
       return .rebased(try applyingKnownPixelTransform(evidence))
     case .knownMachineCoordinateRebase(let revision, let delta):
@@ -1654,6 +1651,34 @@ public struct AcceptedTipCalibrationCheckpoint: Codable, Hashable, Sendable {
     guard acceptanceEvent.acceptedRevisionID == registration.acceptedRevisionID,
       acceptanceEvent.timestamp.wallTime >= registration.acceptedAt.wallTime
     else { throw TipCalibrationAuthorityError.invalidCheckpoint }
+  }
+
+  /// Rebuilds the process-local dependency index for an unchanged durable
+  /// acceptance. The accepted revision IDs and physical evidence remain
+  /// exactly the stored values; the acceptance event supplies one stable
+  /// grouping identity because the graph itself is intentionally not a
+  /// persisted workflow-state store.
+  public func restoredGraphRevisions() throws -> [LearningArtifactRevision] {
+    try validate()
+    let restorationAttemptID = ExerciseAttemptID(rawValue: acceptanceEvent.id)
+    let observations = registration.observationEvidence.map { evidence in
+      LearningArtifactRevision(
+        id: evidence.observationArtifactRevisionID,
+        kind: .toolContactObservation(evidence.observationID),
+        attemptID: restorationAttemptID,
+        disposition: .succeeded,
+        consumedRevisionIDs: [registration.machineCameraRegistrationRevisionID]
+      )
+    }
+    return observations + [
+      LearningArtifactRevision(
+        id: registration.acceptedRevisionID,
+        kind: .tipCameraRegistration,
+        attemptID: restorationAttemptID,
+        disposition: .succeeded,
+        consumedRevisionIDs: registration.consumedArtifactRevisionIDs
+      )
+    ]
   }
 
   public func revalidate(

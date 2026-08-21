@@ -286,26 +286,31 @@ ephemeral operational provenance; they are not substituted for mount/reframing
 identity.
 
 Loading immediately restores accepted Pen evidence and parks later values until
-their prerequisite evidence is current. A matching passive controller probe
-restores Boundary/center and Stage 3.3 learned authority but sets
-`ControllerPoseApplicability.requiresVisualRevalidation`; it does not treat
-reported MPos as physical pose. A same-plane restore constructs fresh
-`TipCalibrationRevalidationEvidence` from a settled controller/cap frame,
-rebuilds current graph revisions, and creates a new accepted tip revision while
-preserving the original validated revision lineage across repeated restarts.
-When the cap proves a pure coordinate translation under unchanged semantic
-camera/machine identity, Runtime rebases the machine checkpoint,
+their prerequisite evidence is current. A matching passive controller-context
+probe restores Boundary/center and Stage 3.3. Once a current frame proves the
+same camera device and semantic optics, `OperatorWorkspace` asks the accepted
+tip checkpoint to reconstruct the process-local five-observation and tip graph
+nodes with their exact stored revision IDs. It installs the unchanged
+`TipCameraRegistration` directly; application and capture-session lifetime do
+not create a new accepted revision or require cap evidence. Motion
+authorization, Pen state, frames, operation owners, and Stop capabilities
+remain session-local.
+
+Explicit changed-coordinate recovery may still construct fresh
+`TipCalibrationRevalidationEvidence` and rebase the machine checkpoint,
 `MachineCameraRegistration`, and `TipCameraRegistration` under one new
-coordinate revision before coordinate-dependent Learning and Drawing authority
-is released. Direct manual controls remain independent. Replacing only the
+coordinate revision when a pure translation is actually proven. Direct manual
+controls remain independent. Replacing only the
 paper instance retains that authority; changing the contact plane invalidates
 it and requires the full five-mark calibration. The revalidation evidence is
 durable. Reset clears the affected durable machine and/or tip checkpoint before
 clearing in-memory authority.
 
-Unknown semantic changes cannot be inferred from a UUID. The attended operator
-must refuse revalidation after an unrecorded physical remount or assembly
-change; explicit operator-facing revision controls remain a roadmap item.
+Process restart does not rotate persisted semantic identities. Unknown physical
+changes still cannot be inferred from a UUID: after an unrecorded camera bump,
+machine reset, remount, or assembly change, the operator must use the owning
+reset rather than accepting unchanged restoration. Explicit operator-facing
+revision controls remain a roadmap item.
 
 ## Stage 4 ownership
 

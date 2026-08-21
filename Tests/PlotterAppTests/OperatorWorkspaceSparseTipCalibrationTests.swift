@@ -369,7 +369,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     }
   }
 
-  @Test("quarantined checkpoint revalidates after restart without another mark")
+  @Test("explicit changed-coordinate recovery revalidates without another mark")
   func checkpointRevalidationRestoresWithoutAnotherMark() async throws {
     let identities = TipCalibrationSemanticIdentityState(
       machineGeometry: MachineGeometryIdentity(),
@@ -464,6 +464,40 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
           y: (domain.minY + domain.maxY) / 2 + (domain.maxY - domain.minY) * 0.25
         )))
 
+  }
+
+  @Test("unchanged application reload restores the exact tip revision without calibration work")
+  func softwareReloadRestoresAcceptedTipRevision() async throws {
+    let harness = makeSimulatedHarness()
+    try await completeSimulatedBoundariesAndCenter(
+      harness.workspace,
+      runtime: harness.runtime,
+      boundaryOrder: [.negativeX, .positiveX, .negativeY, .positiveY]
+    )
+    try await completeSimulatedSparseTipCalibration(
+      harness.workspace,
+      runtime: harness.runtime
+    )
+    let accepted = try #require(harness.workspace.tipCameraRegistration)
+    let checkpoint = try AcceptedTipCalibrationCheckpoint(
+      registration: accepted,
+      acceptanceEvent: TipCalibrationAcceptanceEvent(
+        acceptedRevisionID: accepted.acceptedRevisionID,
+        timestamp: accepted.acceptedAt,
+        actor: "test fixture"
+      )
+    )
+    let before = await harness.runtime.snapshot()
+
+    try harness.workspace.simulateUnchangedApplicationTipReloadForTesting(checkpoint)
+
+    #expect(harness.workspace.tipCameraRegistration == accepted)
+    #expect(
+      harness.workspace.learningArtifactGraph.currentRevision(for: .tipCameraRegistration)?.id
+        == accepted.acceptedRevisionID
+    )
+    #expect(harness.workspace.quarantinedTipCalibrationCheckpoint == nil)
+    #expect(await harness.runtime.snapshot() == before)
   }
 
   @Test("Stage 4 consumes the exact accepted tip revision against nonzero simulator truth")

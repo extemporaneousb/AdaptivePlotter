@@ -242,7 +242,7 @@ struct TipCalibrationAuthorityTests {
     }
   }
 
-  @Test("Applicability distinguishes retain, revalidate, quarantine, and invalidate")
+  @Test("Applicability distinguishes retention, quarantine, and invalidation")
   func applicabilityMatrix() throws {
     let fixture = try TipAuthorityFixture()
     let registration = try fixture.registration()
@@ -252,15 +252,14 @@ struct TipCalibrationAuthorityTests {
         for: .presentationTransformChanged(PresentationTransformRevision())
       ) == .retain
     )
-    if case .requireExplicitRevalidation = try registration.applicabilityDecision(
-      for: .captureSessionRestarted(
-        CameraCaptureSessionID(),
-        provenOpticalConfiguration: fixture.optical
-      )
-    ) {
-    } else {
-      Issue.record("capture restart with proven semantic optics must require revalidation")
-    }
+    #expect(
+      try registration.applicabilityDecision(
+        for: .captureSessionRestarted(
+          CameraCaptureSessionID(),
+          provenOpticalConfiguration: fixture.optical
+        )
+      ) == .retain
+    )
     if case .quarantine = try registration.applicabilityDecision(
       for: .paperContactPlaneChanged(PaperContactPlaneRevision())
     ) {
@@ -350,7 +349,7 @@ struct TipCalibrationAuthorityTests {
     }
   }
 
-  @Test("Tip checkpoint loads quarantined and needs fresh substantive revalidation")
+  @Test("Tip checkpoint supports unchanged graph restore and explicit changed-context revalidation")
   func checkpointQuarantineAndRevalidation() throws {
     let fixture = try TipAuthorityFixture()
     let registration = try fixture.registration()
@@ -375,6 +374,29 @@ struct TipCalibrationAuthorityTests {
     case .absent: throw TipFixtureError.unexpected("checkpoint absent")
     case .rejected(let reason): throw TipFixtureError.unexpected(reason)
     }
+
+    var restoredGraph = LearningDependencyGraph()
+    _ = try restoredGraph.commitReplacement(
+      LearningArtifactRevision(
+        id: fixture.machineCameraRevision,
+        kind: .machineCameraRegistration,
+        attemptID: ExerciseAttemptID(),
+        disposition: .succeeded
+      )
+    )
+    for revision in try loaded.restoredGraphRevisions() {
+      _ = try restoredGraph.commitReplacement(revision)
+    }
+    #expect(
+      restoredGraph.currentRevision(for: .tipCameraRegistration)?.id
+        == registration.acceptedRevisionID
+    )
+    #expect(
+      registration.observationEvidence.allSatisfy {
+        restoredGraph.currentRevision(for: .toolContactObservation($0.observationID))?.id
+          == $0.observationArtifactRevisionID
+      }
+    )
 
     let evidence = try fixture.revalidationEvidence(
       context: registration.applicability,

@@ -18,6 +18,7 @@ enum CurrentCameraCalibrationPlanningError: Error, Equatable, Sendable {
   case insufficientXAxisSpan
   case insufficientYAxisSpan
   case circularMarkOutsideBoundaryEnvelope
+  case unsupportedSparseTipEstimatorRevision(String)
 }
 
 extension CurrentCameraCalibrationPlanningError: LocalizedError {
@@ -37,6 +38,8 @@ extension CurrentCameraCalibrationPlanningError: LocalizedError {
       "The accepted Y boundaries do not leave a symmetric calibration rectangle with at least 10 mm usable Y span."
     case .circularMarkOutsideBoundaryEnvelope:
       "The 2 mm-radius calibration circle would cross the accepted Boundary envelope. Increase the usable paper/machine clearance before drawing."
+    case .unsupportedSparseTipEstimatorRevision(let revision):
+      "The saved sparse-tip estimator revision \(revision) has no retained mark-geometry decoder."
     }
   }
 }
@@ -50,6 +53,13 @@ struct SparseTipCircularMarkPlan: Hashable, Sendable {
   static let maximumFeedMMPerMinute = 100.0
   static let registrationEstimatorRevision =
     "affine-first-boundary-corner-five-circle-2mm-radius-16-chord-v4"
+  static let cardinalRegistrationEstimatorRevision =
+    "affine-first-all-five-circle-2mm-radius-16-chord-v3"
+
+  static func supportsRestoredGeometry(for estimatorRevision: String) -> Bool {
+    estimatorRevision == registrationEstimatorRevision
+      || estimatorRevision == cardinalRegistrationEstimatorRevision
+  }
 
   let geometry: ToolContactMarkGeometryEvidence
   let pathPositions: [MachinePosition]
@@ -59,22 +69,43 @@ struct SparseTipCircularMarkPlan: Hashable, Sendable {
 
   static func restoredGeometry(
     for position: ToolContactCalibrationPosition,
-    in domain: AxisAlignedBounds<MachineSpace>
+    in domain: AxisAlignedBounds<MachineSpace>,
+    estimatorRevision: String = registrationEstimatorRevision
   ) throws -> ToolContactMarkGeometryEvidence {
+    guard supportsRestoredGeometry(for: estimatorRevision) else {
+      throw CurrentCameraCalibrationPlanningError.unsupportedSparseTipEstimatorRevision(
+        estimatorRevision
+      )
+    }
     let centerX = (domain.minX + domain.maxX) / 2
     let centerY = (domain.minY + domain.maxY) / 2
     let center: MachinePosition
-    switch position {
-    case .center:
-      center = try MachinePosition(x: centerX, y: centerY)
-    case .negativeX:
-      center = try MachinePosition(x: domain.minX, y: domain.minY)
-    case .positiveY:
-      center = try MachinePosition(x: domain.minX, y: domain.maxY)
-    case .positiveX:
-      center = try MachinePosition(x: domain.maxX, y: domain.maxY)
-    case .negativeY:
-      center = try MachinePosition(x: domain.maxX, y: domain.minY)
+    if estimatorRevision == cardinalRegistrationEstimatorRevision {
+      switch position {
+      case .center:
+        center = try MachinePosition(x: centerX, y: centerY)
+      case .negativeX:
+        center = try MachinePosition(x: domain.minX, y: centerY)
+      case .positiveY:
+        center = try MachinePosition(x: centerX, y: domain.maxY)
+      case .positiveX:
+        center = try MachinePosition(x: domain.maxX, y: centerY)
+      case .negativeY:
+        center = try MachinePosition(x: centerX, y: domain.minY)
+      }
+    } else {
+      switch position {
+      case .center:
+        center = try MachinePosition(x: centerX, y: centerY)
+      case .negativeX:
+        center = try MachinePosition(x: domain.minX, y: domain.minY)
+      case .positiveY:
+        center = try MachinePosition(x: domain.minX, y: domain.maxY)
+      case .positiveX:
+        center = try MachinePosition(x: domain.maxX, y: domain.maxY)
+      case .negativeY:
+        center = try MachinePosition(x: domain.maxX, y: domain.minY)
+      }
     }
     return try ToolContactMarkGeometryEvidence(
       center: center,

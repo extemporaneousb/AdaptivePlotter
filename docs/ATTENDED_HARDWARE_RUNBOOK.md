@@ -154,15 +154,22 @@ possible-ink recovery; numerical fitting cannot offer it.
 Test these only as separately recorded attended cases; neither is implicit
 restoration.
 
-- Same unchanged paper and assembly after app/capture restart: confirm completed
-  Pen, Boundary, Stage 3.3, Stage 3.4, and Stage 4 values are loaded without
-  learning motion, while ordinary motion remains unavailable. Choose
-  **Revalidate Saved Tip Calibration**. Confirm a fresh settled controller/cap
-  frame is captured, no contact mark occurs, and a new accepted tip revision is
-  derived from the quarantined checkpoint. If the carriage was moved while
-  powered off, confirm the displayed coordinate revision changes and the saved
-  boundary/camera/tip geometry translates together before motion becomes
-  available.
+- Same unchanged paper and assembly after binary/app/capture restart: keep
+  Motion disabled, start the same camera, connect, and complete the read-only
+  passive controller-context probe. Confirm completed Pen, Boundary, Stage 3.3,
+  Stage 3.4, and attributable Stage 4 authority returns automatically with the
+  exact accepted tip revision. Confirm no **Revalidate Saved Tip Calibration**
+  action, cap capture, click, contact mark, paper operation, or Learning Path
+  replay occurs. Optionally inspect the projected region/plan against the
+  unchanged sheet; record that as an operator sanity check, not a new
+  calibration acceptance.
+- Actual controller reset, powered-off carriage uncertainty, camera
+  bump/remount/reframe, or tool/contact-profile change: do not perform the
+  unchanged-restart case. Use **Reset From This Step** at the owning physical
+  dependency (or the explicit semantic-revision control when implemented).
+  Confirm a detected controller/optical mismatch never restores Drawing
+  authority. Only an explicitly proven pure coordinate translation may use the
+  saved-tip revalidation/rebase path without new contact marks.
 - New sheet on the same unchanged support/stock/contact plane: choose **New
   Sheet — Same Contact Plane**. Confirm the paper instance changes, tip authority
   remains current, prior sheet coverage is cleared, and a new coverage assertion
@@ -232,8 +239,9 @@ Up and observe the existing stroke, but it must not redraw it.
 7. Inspect the immutable run record: ordinary role, program/placement/plan and
    calibration/paper provenance, request/execution frontiers, controller
    disposition, and observation outcome. Restart the app and confirm the
-   attributable Stage 4 validation is restored only after tip-checkpoint
-   revalidation and that Drawing Studio evidence loads without replaying motion.
+   attributable Stage 4 validation and Drawing Studio availability restore
+   after the matching camera plus controller-context probe, without
+   tip-checkpoint revalidation or replaying motion.
 8. Repeat with one tessellated curve and one multi-stroke catalog item only if
    the square is clean. Stop on any uncertain mark; do not resend or redraw.
 

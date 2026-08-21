@@ -10,6 +10,40 @@ procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
 ## Implemented software surface
 
+### Software restart preserves accepted Learning authority
+
+Implemented 2026-08-20 in Blackdog task `TASK-D88DD2B2`, targeting `main`.
+
+Binary replacement, application restart, and same-device capture-session
+restart are no longer physical invalidation events. After a current frame
+matches the saved camera device/semantic optics and the existing read-only
+controller-context probe matches, the process-local graph is rebuilt with the
+five stored observation revision IDs and the exact accepted tip revision.
+Boundary, Stage 3.3, Stage 3.4, attributable Stage 4, and Drawing Studio
+authority can therefore return without cap capture, click, mark, paper
+replacement, or Learning Path replay. Motion authorization, current Pen state,
+frames, operation owners, and Stop capabilities remain session-local.
+
+A different camera device or semantic optical configuration still invalidates
+camera-dependent authority; controller-context and persisted machine/tool/
+contact-plane semantic mismatches remain unavailable. An unobservable physical
+camera bump or controller reset is not claimed as detected and must be declared
+through the owning reset. Already accepted cardinal-layout registrations retain
+their exact smaller applicability rectangle and estimator provenance; the
+boundary-corner layout is not retroactively asserted as physical evidence.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| Focused restart, calibration-authority, controller, reset, and lifecycle suites | passed — 76 tests | exact revision reconstruction, same-optics retention, matching controller restoration, unchanged simulated state/motion/ink, explicit changed-coordinate recovery, and Reset All |
+| `make quick-test` | passed — 451 tests | fast unit/component partition with retained journeys excluded |
+| `make journey-test` | passed — 10 tests | sparse calibration, checkpoint restoration, exact tip revision, reset, Boundary, drawing, and Stop journeys |
+| `make strict-check` | passed — 461 tests | strict concurrency, warnings as errors, signed bundle, launcher checks, full test suite, and repository checks |
+| obsolete restart-revalidation policy scan | passed — zero current-policy source or test matches | removed unconditional restart quarantine and explicit capture-restart revalidation decision |
+| `git diff --check` | passed | whitespace and conflict markers |
+
+No attended camera, controller, motion, Pen, click, paper, or ink validation was
+performed by this task.
+
 ### Boundary-corner Stage 3.4 drawable region
 
 Implemented and validated 2026-08-20 in Blackdog task `TASK-6EE9676C`,
@@ -83,7 +117,10 @@ repository-contract results. The new binary was not launched for an attended
 camera workflow. No physical camera, controller, motion, Pen, operator-click,
 or observed-ink validation was performed.
 
-### Durable Learning Path prefix and restart pose revalidation
+### Historical: durable prefix with restart pose revalidation
+
+This records the 2026-08-17 implementation and is superseded by **Software
+restart preserves accepted Learning authority** above.
 
 Implemented and validated 2026-08-17 in Blackdog task `TASK-69EC31D1`,
 targeting `main`.

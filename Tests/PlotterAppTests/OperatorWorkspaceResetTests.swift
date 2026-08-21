@@ -372,7 +372,7 @@ extension OperatorWorkspaceTests {
   }
 
   @Test(
-    "restored Learning cannot strand Pen Interaction or gate manual motion and Reset All clears pose applicability"
+    "unchanged restart keeps restored Learning current and Reset All clears it"
   )
   func resetAllClearsRestoredPoseApplicabilityWithoutGatingManualMotion() async throws {
     let log = EventLog()
@@ -413,18 +413,10 @@ extension OperatorWorkspaceTests {
     await relaunched.establishMachineSession(machine.descriptor)
     await relaunched.requestPassiveProbe()
     await relaunched.startCamera()
-    if case .requiresVisualRevalidation = relaunched.controllerPoseApplicability {
-      // Expected: accepted controller-coordinate Learning is restored cautiously.
-    } else {
-      Issue.record("Expected restored Learning to require visual revalidation.")
-    }
-
-    let penStartReason = try #require(
-      relaunched.discoveryStartUnavailableReason(for: .penInteraction)
-    )
-    #expect(penStartReason.localizedCaseInsensitiveContains("revalidat"))
-    await relaunched.beginPenInteraction()
-    #expect(relaunched.activeExerciseAttemptID == nil)
+    #expect(relaunched.controllerPoseApplicability == .currentSession)
+    #expect(relaunched.currentLearningPathItemID == .humanGuidedDiscovery(
+      .pairedBoundaryDiscoveryAndCentering
+    ))
 
     #expect(relaunched.motionAuthorizationEnabled)
     #expect(relaunched.motionUnavailableReason == nil)
@@ -436,7 +428,7 @@ extension OperatorWorkspaceTests {
     )
     guard case .acceptedThenCompleted = manualJog else {
       Issue.record(
-        "Expected restored Learning revalidation to remain outside manual-motion admission."
+        "Expected restored Learning to remain outside manual-motion admission."
       )
       await first.shutdown()
       await relaunched.shutdown()
