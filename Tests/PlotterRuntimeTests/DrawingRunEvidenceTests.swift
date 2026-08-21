@@ -1,7 +1,8 @@
 import Foundation
 import PlotterModel
-@testable import PlotterRuntime
 import Testing
+
+@testable import PlotterRuntime
 
 @Suite("Durable drawing-run evidence")
 struct DrawingRunEvidenceTests {
@@ -20,12 +21,36 @@ struct DrawingRunEvidenceTests {
     #expect(restored.readinessReference.disposition == .attributable)
     #expect(restored.paper.instance == record.paper.instance)
     #expect(restored.paper.contactPlane == record.paper.contactPlane)
+    #expect(restored.plan.executionPlan?.strokes == record.plan.executionPlan?.strokes)
+    #expect(restored.plan.hasReconstructableGeometry)
     guard case .observed(let observed) = restored.observation else {
       Issue.record("fixture observation should remain observed")
       return
     }
     #expect(observed.frames.baseline.frameID != observed.frames.post.frameID)
     #expect(observed.residual?.correspondenceCount == 2)
+  }
+
+  @Test("legacy reference-only records remain readable without inventing geometry")
+  func legacyReferenceOnlyRecord() throws {
+    let record = try drawingEvidenceFixture(role: .ordinaryDrawing)
+    var object = try #require(
+      JSONSerialization.jsonObject(with: JSONEncoder().encode(record)) as? [String: Any]
+    )
+    object["schemaVersion"] = 1
+    var plan = try #require(object["plan"] as? [String: Any])
+    plan.removeValue(forKey: "executionPlan")
+    object["plan"] = plan
+
+    let restored = try JSONDecoder().decode(
+      DrawingRunEvidenceRecord.self,
+      from: JSONSerialization.data(withJSONObject: object)
+    )
+
+    #expect(restored.schemaVersion == 1)
+    #expect(restored.plan.executionPlan == nil)
+    #expect(!restored.plan.hasReconstructableGeometry)
+    #expect(restored.plan.revisionID == record.plan.revisionID)
   }
 
   @Test("training and holdout evidence require attributable comparison residuals")
@@ -255,14 +280,28 @@ private func drawingEvidenceFixture(
 }
 
 private func drawingEvidenceParts() throws -> DrawingEvidenceFixtureParts {
-  let programHash = try evidenceDigest(1)
-  let placementHash = try evidenceDigest(2)
-  let planHash = try evidenceDigest(3)
   let planning = DrawingPlanningProvenance(
     modelRevisionID: DrawingModelRevisionID(),
     modelContentHash: try evidenceDigest(4),
     registrationRevisionID: DrawingRegistrationRevisionID(),
     registrationContentHash: try evidenceDigest(5)
+  )
+  let drawingProgram = try DrawingProgramCatalog.program(
+    for: .line,
+    style: StrokeStyle(nominalLineWidth: 0.4, penProfileID: PenProfileID())
+  )
+  let drawingPlacement = try DrawingPlacement(
+    fieldAnchor: Point2<FieldSpace>(x: 0, y: 0),
+    machineAnchor: Point2<MachineSpace>(x: 0, y: 0),
+    uniformScale: 1
+  )
+  let executionPlan = try DrawingPlanner.plan(
+    program: drawingProgram,
+    placement: drawingPlacement,
+    drawableRegion: DrawableMachineRegion(
+      bounds: AxisAlignedBounds<MachineSpace>(minX: 0, minY: 0, maxX: 200, maxY: 200)
+    ),
+    provenance: planning
   )
   let optical = try CameraOpticalConfigurationIdentity(
     source: .simulated,
@@ -310,15 +349,12 @@ private func drawingEvidenceParts() throws -> DrawingEvidenceFixtureParts {
     Point2(x: 10.5, y: 5.25),
   ])
   return DrawingEvidenceFixtureParts(
-    program: DrawingProgramEvidenceReference(programID: ProgramID(), contentHash: programHash),
+    program: DrawingProgramEvidenceReference(program: drawingProgram),
     placement: DrawingPlacementEvidenceReference(
       placementID: UUID(),
-      contentHash: placementHash
+      contentHash: try canonicalDigest(of: drawingPlacement)
     ),
-    plan: try DrawingExecutionPlanEvidenceReference(
-      revisionID: ExecutionPlanRevisionID(planHash),
-      contentHash: planHash
-    ),
+    plan: try DrawingExecutionPlanEvidenceReference(plan: executionPlan),
     planning: planning,
     tip: try DrawingTipCalibrationEvidenceReference(
       acceptedRevisionID: LearningArtifactRevisionID(),
@@ -340,10 +376,12 @@ private func drawingEvidenceParts() throws -> DrawingEvidenceFixtureParts {
       maximumPixels: 0.6,
       rootMeanSquareCrossTrackPixels: 0.25
     ),
-    algorithms: [try AlgorithmRevisionEvidence(
-      component: "drawing-observation",
-      revision: "v1"
-    )]
+    algorithms: [
+      try AlgorithmRevisionEvidence(
+        component: "drawing-observation",
+        revision: "v1"
+      )
+    ]
   )
 }
 

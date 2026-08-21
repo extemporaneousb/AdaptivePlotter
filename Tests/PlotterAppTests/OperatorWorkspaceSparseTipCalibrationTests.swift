@@ -190,26 +190,30 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       Issue.record("Expected the accepted drawable-region overlay to be a bounding polyline.")
       return
     }
+    let pictureRectangle = try SparseTipBatchMarkPlan.pictureRectangle(
+      framedByMarkCenters: batch.applicabilityRectangle
+    )
+    #expect(workspace.currentDrawableMachineRegion?.effectiveBounds == pictureRectangle)
     #expect(regionPolyline.points == [
       try accepted.tipPixel(at: Point2(
-        x: batch.applicabilityRectangle.minX,
-        y: batch.applicabilityRectangle.minY
+        x: pictureRectangle.minX,
+        y: pictureRectangle.minY
       )),
       try accepted.tipPixel(at: Point2(
-        x: batch.applicabilityRectangle.maxX,
-        y: batch.applicabilityRectangle.minY
+        x: pictureRectangle.maxX,
+        y: pictureRectangle.minY
       )),
       try accepted.tipPixel(at: Point2(
-        x: batch.applicabilityRectangle.maxX,
-        y: batch.applicabilityRectangle.maxY
+        x: pictureRectangle.maxX,
+        y: pictureRectangle.maxY
       )),
       try accepted.tipPixel(at: Point2(
-        x: batch.applicabilityRectangle.minX,
-        y: batch.applicabilityRectangle.maxY
+        x: pictureRectangle.minX,
+        y: pictureRectangle.maxY
       )),
       try accepted.tipPixel(at: Point2(
-        x: batch.applicabilityRectangle.minX,
-        y: batch.applicabilityRectangle.minY
+        x: pictureRectangle.minX,
+        y: pictureRectangle.minY
       )),
     ])
     #expect(
@@ -496,7 +500,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       harness.workspace.learningArtifactGraph.currentRevision(for: .tipCameraRegistration)?.id
         == accepted.acceptedRevisionID
     )
-    #expect(harness.workspace.quarantinedTipCalibrationCheckpoint == nil)
+    #expect(harness.workspace.recoverableTipCalibrationCheckpoint == nil)
     #expect(await harness.runtime.snapshot() == before)
   }
 

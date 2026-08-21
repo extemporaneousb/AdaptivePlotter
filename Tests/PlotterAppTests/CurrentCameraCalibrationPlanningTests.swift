@@ -104,7 +104,7 @@ struct CurrentCameraCalibrationPlanningTests {
     #expect(pathEnd.distance(to: mark.startPosition.point) < 1e-9)
   }
 
-  @Test("Stage 3.4 uses the maximum drawable Boundary corners and exactly 80 closed chords")
+  @Test("Stage 3.4 frames the picture at the 7.5 percent Boundary inset with 80 closed chords")
   func sparseBatchGeometry() throws {
     let envelope = try boundaryEnvelope(
       negativeX: -100,
@@ -121,13 +121,16 @@ struct CurrentCameraCalibrationPlanningTests {
     ])
     #expect(batch.marks.map(\.machinePosition) == [
       try MachinePosition(x: 0, y: 0),
-      try MachinePosition(x: -98, y: -98),
-      try MachinePosition(x: -98, y: 98),
-      try MachinePosition(x: 98, y: 98),
-      try MachinePosition(x: 98, y: -98),
+      try MachinePosition(x: -85, y: -85),
+      try MachinePosition(x: -85, y: 85),
+      try MachinePosition(x: 85, y: 85),
+      try MachinePosition(x: 85, y: -85),
     ])
     #expect(batch.applicabilityRectangle == (try AxisAlignedBounds(
-      minX: -98, minY: -98, maxX: 98, maxY: 98
+      minX: -85, minY: -85, maxX: 85, maxY: 85
+    )))
+    #expect(batch.pictureRectangle == (try AxisAlignedBounds(
+      minX: -82.75, minY: -82.75, maxX: 82.75, maxY: 82.75
     )))
     #expect(batch.finalRevealPosition == (try MachinePosition(x: 0, y: 0)))
     #expect(
@@ -141,6 +144,40 @@ struct CurrentCameraCalibrationPlanningTests {
       #expect(mark.circle.geometry.maximumFeedMMPerMinute == 100)
       #expect(mark.circle.pathPositions.first == mark.circle.pathPositions.last)
     }
+  }
+
+  @Test("Stage 3.4 computes each Boundary-axis inset independently and enforces minimum clearance")
+  func sparseBatchAxisInsetsAndMinimumClearance() throws {
+    let wide = try SparseTipBatchMarkPlan(
+      boundarySideAggregates: boundaryEnvelope(
+        negativeX: 10,
+        positiveX: 210,
+        negativeY: -10,
+        positiveY: 90
+      )
+    )
+
+    #expect(wide.applicabilityRectangle == (try AxisAlignedBounds(
+      minX: 25, minY: -2.5, maxX: 195, maxY: 82.5
+    )))
+    #expect(wide.pictureRectangle == (try AxisAlignedBounds(
+      minX: 27.25, minY: -0.25, maxX: 192.75, maxY: 80.25
+    )))
+
+    let narrow = try SparseTipBatchMarkPlan(
+      boundarySideAggregates: boundaryEnvelope(
+        negativeX: 0,
+        positiveX: 20,
+        negativeY: 0,
+        positiveY: 20
+      )
+    )
+    #expect(narrow.applicabilityRectangle == (try AxisAlignedBounds(
+      minX: 2.25, minY: 2.25, maxX: 17.75, maxY: 17.75
+    )))
+    #expect(narrow.pictureRectangle == (try AxisAlignedBounds(
+      minX: 4.5, minY: 4.5, maxX: 15.5, maxY: 15.5
+    )))
   }
 
   @Test("sparse circle refuses any mark that would cross the accepted Boundary envelope")
@@ -200,6 +237,28 @@ struct CurrentCameraCalibrationPlanningTests {
       try MachinePosition(x: 0, y: 30),
       try MachinePosition(x: 30, y: 0),
       try MachinePosition(x: 0, y: -30),
+    ])
+  }
+
+  @Test("accepted v4 Boundary-corner checkpoint geometry remains decodable without v5 inset semantics")
+  func restoredBoundaryCornerV4CircleGeometry() throws {
+    let domain = try AxisAlignedBounds<MachineSpace>(
+      minX: -30, minY: -30, maxX: 30, maxY: 30
+    )
+    let geometry = try ToolContactCalibrationPosition.allCases.map {
+      try SparseTipCircularMarkPlan.restoredGeometry(
+        for: $0,
+        in: domain,
+        estimatorRevision: SparseTipCircularMarkPlan.boundaryCornerRegistrationEstimatorRevision
+      )
+    }
+
+    #expect(geometry.map(\.center) == [
+      try MachinePosition(x: 0, y: 0),
+      try MachinePosition(x: -30, y: -30),
+      try MachinePosition(x: -30, y: 30),
+      try MachinePosition(x: 30, y: 30),
+      try MachinePosition(x: 30, y: -30),
     ])
   }
 

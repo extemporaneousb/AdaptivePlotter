@@ -329,6 +329,22 @@ struct LearningPathProjectionSnapshot: Sendable {
     }
   }
 
+  struct SavedTrainingFacts: Sendable {
+    let checkpointID: UUID
+    let artifactSummary: String
+    let opticalComparison: String
+
+    init(
+      checkpointID: UUID,
+      artifactSummary: String,
+      opticalComparison: String
+    ) {
+      self.checkpointID = checkpointID
+      self.artifactSummary = artifactSummary
+      self.opticalComparison = opticalComparison
+    }
+  }
+
   let source: OperatorFrameMode
   let learningEnabled: Bool
   let penInteractionCompleted: Bool
@@ -343,6 +359,7 @@ struct LearningPathProjectionSnapshot: Sendable {
   let discovery: [DiscoverySequenceID: DiscoveryFacts]
   let startUnavailableReasons: [LearningPathItemID: String]
   let acceptedCheckpointStatus: AcceptedArtifactCheckpointStatus
+  let savedTrainingCandidate: SavedTrainingFacts?
   let reset: ResetFacts
 
   init(
@@ -360,6 +377,7 @@ struct LearningPathProjectionSnapshot: Sendable {
     discovery: [DiscoverySequenceID: DiscoveryFacts] = [:],
     startUnavailableReasons: [LearningPathItemID: String] = [:],
     acceptedCheckpointStatus: AcceptedArtifactCheckpointStatus = .unavailable,
+    savedTrainingCandidate: SavedTrainingFacts? = nil,
     reset: ResetFacts = ResetFacts()
   ) {
     self.source = source
@@ -376,6 +394,7 @@ struct LearningPathProjectionSnapshot: Sendable {
     self.discovery = discovery
     self.startUnavailableReasons = startUnavailableReasons
     self.acceptedCheckpointStatus = acceptedCheckpointStatus
+    self.savedTrainingCandidate = savedTrainingCandidate
     self.reset = reset
   }
 }
@@ -665,6 +684,25 @@ extension LearningPathProjector {
     snapshot: LearningPathProjectionSnapshot
   ) -> ExerciseActionStripPresentation? {
     guard snapshot.learningEnabled else { return nil }
+    if snapshot.savedTrainingCandidate != nil {
+      guard itemID == current else { return nil }
+      return ExerciseActionStripPresentation(
+        ownerID: itemID,
+        actions: [
+          ExerciseActionDescriptor(
+            kind: .useSavedTraining,
+            title: "Use Saved Training",
+            role: .positive
+          ),
+          ExerciseActionDescriptor(
+            kind: .startNewLearning,
+            title: "Start New Learning",
+            role: .standard
+          ),
+        ],
+        mustRemainVisible: true
+      )
+    }
     let operations = snapshot.operations
     if operations.activeAttemptOwner == itemID {
       var actions: [ExerciseActionDescriptor] = []
@@ -1458,6 +1496,12 @@ extension LearningPathProjector {
     switch status {
     case .unavailable: "No durable accepted-artifact checkpoint is available."
     case .cleared: "The durable accepted-artifact checkpoint was explicitly cleared."
+    case .awaitingOperatorDecision(let count, let hasTip):
+      "A saved training package with \(count) Boundary side(s)\(hasTip ? " and a tip registration" : "") is loaded for preview only. Choose Use Saved Training or Start New Learning."
+    case .appliedByOperator(let count, let hasTip):
+      "The operator applied the saved training package with \(count) Boundary side(s)\(hasTip ? " and its exact tip registration" : ""). No motion was issued."
+    case .retainedForLater(let count, let hasTip):
+      "The saved package with \(count) Boundary side(s)\(hasTip ? " and a tip registration" : "") is retained while new Learning starts."
     case .quarantined(let count):
       "A checkpoint containing \(count) accepted Boundary side(s) is parked until a fresh passive controller probe matches."
     case .saved(let count, let center):
@@ -1503,6 +1547,18 @@ extension LearningPathProjector {
           fragments: [.text(checkpointText(snapshot.acceptedCheckpointStatus))]
         ),
       ]
+        + (snapshot.savedTrainingCandidate.map { candidate in
+          [
+            ExerciseEvidencePresentation(
+              label: "Saved training package",
+              fragments: [.text(candidate.artifactSummary)]
+            ),
+            ExerciseEvidencePresentation(
+              label: "Optical sameness (advisory)",
+              fragments: [.text(candidate.opticalComparison)]
+            ),
+          ]
+        } ?? [])
     case .enableMotion:
       [ExerciseEvidencePresentation(
         label: "Motion",

@@ -6,6 +6,32 @@ import Testing
 
 @Suite("Owner-bound drawing plan runner")
 struct DrawingPlanRunInterpreterTests {
+  @Test("plan redundantly commands Pen Up before travel when Pen Up was already commanded")
+  func planNormalizesKnownPenUp() async throws {
+    let request = try drawingPlanRequest([[(0, 0), (1, 0)]])
+    let stroke = try strokeRequest(from: (0, 0), to: (1, 0), request: request)
+    var exchanges = drawingPlanProbeExchanges(position: (0, 0))
+    exchanges += penExchanges(.raise, at: (0, 0), profile: request.penActuationProfile)
+    exchanges += penExchanges(.raise, at: (0, 0), profile: request.penActuationProfile)
+    exchanges += penExchanges(.lower, at: (0, 0), profile: request.penActuationProfile)
+    exchanges += strokeExchanges(stroke, from: (0, 0), to: (1, 0))
+    exchanges += penExchanges(.raise, at: (1, 0), profile: request.penActuationProfile)
+    let fixture = try await DrawingPlanInterpreterFixture.make(exchanges: exchanges)
+
+    #expect(
+      await fixture.interpreter.requestPenActuation(
+        .raise,
+        profile: request.penActuationProfile
+      ) == .commandedAndSettled(command: .raise, commandedState: .up)
+    )
+
+    guard case .completed = await fixture.interpreter.requestDrawingPlan(request) else {
+      Issue.record("plan should execute after redundantly normalizing Pen Up")
+      return
+    }
+    #expect(fixture.link.completedWriteCount == exchanges.count)
+  }
+
   @Test("two strokes execute in plan order and commit checkpoints only after Pen Up")
   func twoStrokeOrderingAndCheckpoints() async throws {
     let request = try drawingPlanRequest([

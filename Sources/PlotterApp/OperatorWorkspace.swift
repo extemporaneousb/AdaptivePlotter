@@ -95,11 +95,53 @@ enum OperatorFrameMode: String, CaseIterable, Hashable, Identifiable, Sendable {
 enum AcceptedArtifactCheckpointStatus: Equatable, Sendable {
   case unavailable
   case cleared
+  case awaitingOperatorDecision(sideCount: Int, hasTipCalibration: Bool)
+  case appliedByOperator(sideCount: Int, hasTipCalibration: Bool)
+  case retainedForLater(sideCount: Int, hasTipCalibration: Bool)
   case quarantined(sideCount: Int)
   case saved(sideCount: Int, centerArrival: Bool)
   case restored(sideCount: Int, centerArrival: Bool, reportedPositionDeltaMM: Double)
   case incompatible(String)
   case rejected(String)
+}
+
+private enum SavedLearningPackageState: Sendable {
+  case absent
+  case awaitingOperatorDecision(
+    AcceptedLearningPathCheckpoint,
+    opticalComparison: String
+  )
+  case applied(AcceptedLearningPathCheckpoint, opticalComparison: String)
+  case retainedForLater(AcceptedLearningPathCheckpoint)
+  case rejected(String)
+
+  var checkpoint: AcceptedLearningPathCheckpoint? {
+    switch self {
+    case .awaitingOperatorDecision(let checkpoint, _),
+      .applied(let checkpoint, _),
+      .retainedForLater(let checkpoint):
+      checkpoint
+    case .absent, .rejected:
+      nil
+    }
+  }
+
+  var candidate: (checkpoint: AcceptedLearningPathCheckpoint, opticalComparison: String)? {
+    guard case .awaitingOperatorDecision(let checkpoint, let comparison) = self else {
+      return nil
+    }
+    return (checkpoint, comparison)
+  }
+
+  var appliedCheckpoint: AcceptedLearningPathCheckpoint? {
+    guard case .applied(let checkpoint, _) = self else { return nil }
+    return checkpoint
+  }
+}
+
+private struct SavedTrainingComparisonIdentity: Equatable, Sendable {
+  let checkpointID: UUID
+  let cameraConfigurationID: CameraConfigurationID
 }
 
 enum ControllerPoseApplicability: Equatable, Sendable {
@@ -853,11 +895,11 @@ final class OperatorWorkspace {
     var paperCoverageObservation: PaperCoverageObservation?
     var drawingReadinessAssessment: DrawingReadinessAssessment?
     var drawingStudio = DrawingStudioState()
-    var parkedAcceptedMachineArtifactCheckpoint: AcceptedMachineArtifactCheckpoint?
-    var acceptedLearningPathCheckpoint: AcceptedLearningPathCheckpoint?
-    var pendingMachineCameraCheckpoint: AcceptedMachineCameraCheckpoint?
-    var acceptedStageFourCheckpoint: AcceptedStageFourCheckpoint?
-    var quarantinedTipCalibrationCheckpoint: AcceptedTipCalibrationCheckpoint?
+    var activeMachineArtifactCheckpoint: AcceptedMachineArtifactCheckpoint?
+    var savedLearningPackageState: SavedLearningPackageState = .absent
+    var activeMachineCameraCheckpoint: AcceptedMachineCameraCheckpoint?
+    var activeStageFourCheckpoint: AcceptedStageFourCheckpoint?
+    var recoverableTipCalibrationCheckpoint: AcceptedTipCalibrationCheckpoint?
     var controllerPoseApplicability: ControllerPoseApplicability = .currentSession
     var learningAuthorityError: String?
     var selectedBoundaryDirection: BoundaryDirection = .positiveX
@@ -1359,21 +1401,24 @@ final class OperatorWorkspace {
     get { activeLearningSession.acceptedArtifactCheckpointStatus }
     set { activeLearningSession.acceptedArtifactCheckpointStatus = newValue }
   }
-  private(set) var quarantinedTipCalibrationCheckpoint: AcceptedTipCalibrationCheckpoint? {
-    get { activeLearningSession.quarantinedTipCalibrationCheckpoint }
-    set { activeLearningSession.quarantinedTipCalibrationCheckpoint = newValue }
+  private(set) var recoverableTipCalibrationCheckpoint: AcceptedTipCalibrationCheckpoint? {
+    get { activeLearningSession.recoverableTipCalibrationCheckpoint }
+    set { activeLearningSession.recoverableTipCalibrationCheckpoint = newValue }
+  }
+  private var savedLearningPackageState: SavedLearningPackageState {
+    get { activeLearningSession.savedLearningPackageState }
+    set { activeLearningSession.savedLearningPackageState = newValue }
   }
   private var acceptedLearningPathCheckpoint: AcceptedLearningPathCheckpoint? {
-    get { activeLearningSession.acceptedLearningPathCheckpoint }
-    set { activeLearningSession.acceptedLearningPathCheckpoint = newValue }
+    savedLearningPackageState.appliedCheckpoint
   }
-  private var pendingMachineCameraCheckpoint: AcceptedMachineCameraCheckpoint? {
-    get { activeLearningSession.pendingMachineCameraCheckpoint }
-    set { activeLearningSession.pendingMachineCameraCheckpoint = newValue }
+  private var activeMachineCameraCheckpoint: AcceptedMachineCameraCheckpoint? {
+    get { activeLearningSession.activeMachineCameraCheckpoint }
+    set { activeLearningSession.activeMachineCameraCheckpoint = newValue }
   }
-  private var acceptedStageFourCheckpoint: AcceptedStageFourCheckpoint? {
-    get { activeLearningSession.acceptedStageFourCheckpoint }
-    set { activeLearningSession.acceptedStageFourCheckpoint = newValue }
+  private var activeStageFourCheckpoint: AcceptedStageFourCheckpoint? {
+    get { activeLearningSession.activeStageFourCheckpoint }
+    set { activeLearningSession.activeStageFourCheckpoint = newValue }
   }
   private(set) var controllerPoseApplicability: ControllerPoseApplicability {
     get { activeLearningSession.controllerPoseApplicability }
@@ -1415,6 +1460,9 @@ final class OperatorWorkspace {
     Set<BoundaryAtomicCommitFailurePoint>
   @ObservationIgnored private var frameTask: Task<Void, Never>?
   @ObservationIgnored private var visionUpdateTask: Task<Void, Never>?
+  @ObservationIgnored private var savedTrainingComparisonTask: Task<Void, Never>?
+  @ObservationIgnored private var savedTrainingComparisonIdentity:
+    SavedTrainingComparisonIdentity?
   @ObservationIgnored private var penCapAcceptedClickContinuationTask: Task<Void, Never>?
   @ObservationIgnored private var penCapAcceptedClickContinuationIdentity:
     PenCapAcceptedClickContinuationIdentity?
@@ -1471,9 +1519,9 @@ final class OperatorWorkspace {
     get { activeLearningSession.drawingTrial.group }
     set { activeLearningSession.drawingTrial.group = newValue }
   }
-  private var parkedAcceptedMachineArtifactCheckpoint: AcceptedMachineArtifactCheckpoint? {
-    get { activeLearningSession.parkedAcceptedMachineArtifactCheckpoint }
-    set { activeLearningSession.parkedAcceptedMachineArtifactCheckpoint = newValue }
+  private var activeMachineArtifactCheckpoint: AcceptedMachineArtifactCheckpoint? {
+    get { activeLearningSession.activeMachineArtifactCheckpoint }
+    set { activeLearningSession.activeMachineArtifactCheckpoint = newValue }
   }
 
   init(
@@ -1550,20 +1598,32 @@ final class OperatorWorkspace {
     self.simulatedExecutionPacing = simulatedExecutionPacing
     self.machineActions = machineActions
     self.cameraActions = cameraActions
-    if let loadedSelection = loadPenCapAppearanceSelection() {
-      if let reason = loadedSelection.persistedLiveRejectionReason {
-        livePenCapAppearanceSelection = nil
-        persistedPenCapAppearanceLoadState = .refused(reason)
-      } else {
-        livePenCapAppearanceSelection = loadedSelection
-        persistedPenCapAppearanceLoadState = .accepted
-      }
+    let loadedLegacyPenCapAppearance = loadPenCapAppearanceSelection()
+    let legacyPenCapAppearance = loadedLegacyPenCapAppearance.flatMap {
+      $0.persistedLiveRejectionReason == nil ? $0 : nil
+    }
+    if acceptedLearningPathCheckpointActions == nil, let legacyPenCapAppearance {
+      // Isolated/test compositions without durable checkpoint capability may
+      // inject an ephemeral selection. Production always supplies the package
+      // port and never treats this as a second persistence authority.
+      livePenCapAppearanceSelection = legacyPenCapAppearance
+      persistedPenCapAppearanceLoadState = .accepted
+    } else if acceptedLearningPathCheckpointActions == nil,
+      let reason = loadedLegacyPenCapAppearance?.persistedLiveRejectionReason
+    {
+      livePenCapAppearanceSelection = nil
+      persistedPenCapAppearanceLoadState = .refused(reason)
     } else {
       livePenCapAppearanceSelection = nil
       persistedPenCapAppearanceLoadState = .absent
     }
     simulatedPenCapAppearanceSelection = nil
     self.persistPenCapAppearanceSelection = persistPenCapAppearanceSelection
+    // The former UserDefaults value is migration input only. The accepted
+    // Learning package is now the sole durable appearance owner.
+    if acceptedLearningPathCheckpointActions != nil {
+      persistPenCapAppearanceSelection(nil)
+    }
     self.announcementActions = announcementActions
     liveAcceptedLearningPathCheckpointActions = acceptedLearningPathCheckpointActions
     liveDrawingEvidenceActions = drawingEvidenceActions
@@ -1593,24 +1653,53 @@ final class OperatorWorkspace {
     if let acceptedLearningPathCheckpointActions {
       switch acceptedLearningPathCheckpointActions.load() {
       case .absent:
+        savedLearningPackageState = .absent
         acceptedArtifactCheckpointStatus = .unavailable
-      case .loaded(let checkpoint):
-        if checkpoint.semanticIdentity == tipCalibrationSemanticIdentities.learningPathIdentity {
-          acceptedLearningPathCheckpoint = checkpoint
-          parkedAcceptedMachineArtifactCheckpoint = checkpoint.machineArtifacts
-          pendingMachineCameraCheckpoint = checkpoint.machineCamera
-          quarantinedTipCalibrationCheckpoint = checkpoint.tipCalibration
-          acceptedStageFourCheckpoint = checkpoint.stageFour
-          acceptedArtifactCheckpointStatus = checkpoint.machineArtifacts.map {
-            .quarantined(sideCount: $0.boundarySideAggregates.count)
-          } ?? .unavailable
-          restoreAcceptedPenInteractionCheckpoint(checkpoint.penInteraction)
-        } else {
-          acceptedArtifactCheckpointStatus = .incompatible(
-            "Saved machine, tool, paper-plane, or camera-mount identity changed."
-          )
+      case .loaded(let loadedCheckpoint):
+        do {
+          let checkpoint: AcceptedLearningPathCheckpoint
+          if loadedCheckpoint.penCapAppearance == nil,
+            let legacyPenCapAppearance
+          {
+            checkpoint = try AcceptedLearningPathCheckpoint(
+              checkpointID: loadedCheckpoint.checkpointID,
+              semanticIdentity: loadedCheckpoint.semanticIdentity,
+              penInteraction: loadedCheckpoint.penInteraction,
+              machineArtifacts: loadedCheckpoint.machineArtifacts,
+              machineCamera: loadedCheckpoint.machineCamera,
+              tipCalibration: loadedCheckpoint.tipCalibration,
+              stageFour: loadedCheckpoint.stageFour,
+              penCapAppearance: legacyPenCapAppearance.acceptedCheckpoint(),
+              referenceFrame: loadedCheckpoint.referenceFrame
+            )
+            try acceptedLearningPathCheckpointActions.save(checkpoint)
+          } else {
+            checkpoint = loadedCheckpoint
+          }
+          if checkpoint.semanticIdentity == tipCalibrationSemanticIdentities.learningPathIdentity {
+            savedLearningPackageState = .awaitingOperatorDecision(
+              checkpoint,
+              opticalComparison: "Waiting for a compatible current camera frame. No saved value has been applied."
+            )
+            acceptedArtifactCheckpointStatus = .awaitingOperatorDecision(
+              sideCount: checkpoint.machineArtifacts?.boundarySideAggregates.count ?? 0,
+              hasTipCalibration: checkpoint.tipCalibration != nil
+            )
+          } else {
+            savedLearningPackageState = .rejected(
+              "Saved machine, tool, paper-plane, or camera-mount identity changed."
+            )
+            acceptedArtifactCheckpointStatus = .incompatible(
+              "Saved machine, tool, paper-plane, or camera-mount identity changed."
+            )
+          }
+        } catch {
+          let reason = "Learning package migration failed: \(error)"
+          savedLearningPackageState = .rejected(reason)
+          acceptedArtifactCheckpointStatus = .rejected(reason)
         }
       case .rejected(let reason):
+        savedLearningPackageState = .rejected(reason)
         acceptedArtifactCheckpointStatus = .rejected(reason)
       }
     }
@@ -1632,8 +1721,8 @@ final class OperatorWorkspace {
     _ checkpoint: AcceptedTipCalibrationCheckpoint?
   ) {
     guard frameMode == .simulated else { return }
-    quarantinedTipCalibrationCheckpoint = checkpoint
-    restoreUnchangedTipCalibrationCheckpoint(against: displayedFrame)
+    recoverableTipCalibrationCheckpoint = checkpoint
+    restoreTipCalibrationForSimulatedTest(against: displayedFrame)
   }
 
   func simulateUnchangedApplicationTipReloadForTesting(
@@ -1673,19 +1762,18 @@ final class OperatorWorkspace {
     learningArtifactGraph = rebuilt
     tipCameraRegistration = nil
     proposedTipCameraRegistration = nil
-    quarantinedTipCalibrationCheckpoint = checkpoint
-    restoreUnchangedTipCalibrationCheckpoint(against: displayedFrame)
+    recoverableTipCalibrationCheckpoint = checkpoint
+    restoreTipCalibrationForSimulatedTest(against: displayedFrame)
   }
 
-  /// Restores accepted durable authority after an application-session restart.
-  /// Process lifetime is not a physical applicability dimension: the stored
-  /// transform and revision stay current when the controller coordinate
-  /// context, semantic identities, and current camera optics still match.
-  private func restoreUnchangedTipCalibrationCheckpoint(
+  /// Test-only simulated shortcut. Production application restarts use the
+  /// explicit saved-package decision and never reach this helper.
+  private func restoreTipCalibrationForSimulatedTest(
     against frame: DisplayedFrame?
   ) {
-    guard tipCameraRegistration == nil,
-      let checkpoint = quarantinedTipCalibrationCheckpoint,
+    guard frameMode == .simulated,
+      tipCameraRegistration == nil,
+      let checkpoint = recoverableTipCalibrationCheckpoint,
       let machineRegistration = machineCameraRegistration,
       let machineRevision = learningArtifactGraph.currentRevision(
         for: .machineCameraRegistration
@@ -1723,7 +1811,7 @@ final class OperatorWorkspace {
       learningArtifactGraph = graph
       tipCameraRegistration = registration
       proposedTipCameraRegistration = nil
-      quarantinedTipCalibrationCheckpoint = nil
+      recoverableTipCalibrationCheckpoint = nil
       controllerPoseApplicability = .currentSession
       restoreInteractiveLearningCompletionFromEvidence()
       explorationError = nil
@@ -1737,32 +1825,75 @@ final class OperatorWorkspace {
     with frame: DisplayedFrame?
   ) {
     guard let frame else { return }
+    updateSavedTrainingOpticalComparison(with: frame)
+  }
+
+  private func updateSavedTrainingOpticalComparison(
+    with frame: DisplayedFrame
+  ) {
+    guard case .awaitingOperatorDecision(let checkpoint, _) = savedLearningPackageState
+    else { return }
+    let identity = SavedTrainingComparisonIdentity(
+      checkpointID: checkpoint.checkpointID,
+      cameraConfigurationID: frame.frame.cameraConfigurationID
+    )
+    guard savedTrainingComparisonIdentity != identity else { return }
+    savedTrainingComparisonIdentity = identity
+    savedTrainingComparisonTask?.cancel()
     do {
-      let currentOptical = try exactTipCalibrationFrame(frame).opticalConfiguration
-      let acceptedOptical =
-        tipCameraRegistration?.applicability.opticalConfiguration
-        ?? quarantinedTipCalibrationCheckpoint?.registration.applicability.opticalConfiguration
-        ?? machineCameraRegistration?.opticalConfiguration
-      if let acceptedOptical, acceptedOptical != currentOptical {
-        if frameMode == .live {
-          invalidateCameraDependentLearningAuthority()
-          explorationError =
-            "Camera-dependent learning was invalidated because the camera source or semantic optical configuration changed."
-        }
+      guard let reference = checkpoint.referenceFrame else {
+        savedLearningPackageState = .awaitingOperatorDecision(
+          checkpoint,
+          opticalComparison: "Unavailable: this legacy saved package has no bounded reference frame. Inspect the projected overlays and decide manually."
+        )
         return
       }
-      restoreUnchangedTipCalibrationCheckpoint(against: frame)
+      let optical = try exactTipCalibrationFrame(frame).opticalConfiguration
+      savedTrainingComparisonTask = Task { @MainActor [weak self] in
+        let comparison = await Task.detached {
+          reference.compare(with: frame, opticalConfiguration: optical)
+        }.value
+        guard !Task.isCancelled, let self,
+          self.savedTrainingComparisonIdentity == identity,
+          case .awaitingOperatorDecision(let currentCheckpoint, _) =
+            self.savedLearningPackageState,
+          currentCheckpoint.checkpointID == checkpoint.checkpointID
+        else { return }
+        let message: String
+        switch comparison {
+        case .compared(let alignment):
+          message = String(
+            format: "Current frame versus saved reference: shift x=%d px, y=%d px; background mean absolute difference %.3f across %d evaluated pixels. This is advisory, not a pass/fail gate.",
+            alignment.shiftX,
+            alignment.shiftY,
+            alignment.backgroundMeanAbsoluteDifference,
+            alignment.evaluatedPixelCount
+          )
+        case .unavailable(let reason):
+          message =
+            "Unavailable for this frame (\(reason.rawValue)). Inspect the compatible projected overlays and decide manually."
+        }
+        self.savedLearningPackageState = .awaitingOperatorDecision(
+          currentCheckpoint,
+          opticalComparison: message
+        )
+        self.savedTrainingComparisonTask = nil
+      }
     } catch {
-      learningAuthorityError = "Current camera identity could not be evaluated: \(error)"
+      savedLearningPackageState = .awaitingOperatorDecision(
+        checkpoint,
+        opticalComparison:
+          "Unavailable: current camera identity could not be evaluated (\(error)). Inspect overlays and decide manually."
+      )
     }
   }
 
   private var durableAcceptedLiveCameraDeviceID: CameraDeviceID? {
     let optical =
       tipCameraRegistration?.applicability.opticalConfiguration
-      ?? quarantinedTipCalibrationCheckpoint?.registration.applicability.opticalConfiguration
+      ?? recoverableTipCalibrationCheckpoint?.registration.applicability.opticalConfiguration
       ?? machineCameraRegistration?.opticalConfiguration
-      ?? pendingMachineCameraCheckpoint?.registration.opticalConfiguration
+      ?? activeMachineCameraCheckpoint?.registration.opticalConfiguration
     guard case .live(let deviceID) = optical?.source else { return nil }
     return deviceID
   }
@@ -1888,7 +2019,7 @@ final class OperatorWorkspace {
       learning = .interactiveLearningComplete
     } else if tipCameraRegistration != nil {
       learning = .mapReady
-    } else if quarantinedTipCalibrationCheckpoint != nil {
+    } else if recoverableTipCalibrationCheckpoint != nil {
       learning = .savedMapNeedsRevalidation
     } else {
       learning = .learningNeeded
@@ -2296,6 +2427,11 @@ final class OperatorWorkspace {
       let plan = activeLearningSession.drawingStudio.plan,
       let registration = tipCameraRegistration
     else { return }
+    guard await ensurePenUpForTravel() else {
+      activeLearningSession.drawingStudio.runDetail =
+        "Drawing was not admitted because Pen Up normalization did not settle."
+      return
+    }
 
     let capabilityID = ContextualStopCapabilityID()
     let runID = RunID()
@@ -2702,19 +2838,38 @@ final class OperatorWorkspace {
 
   var currentDrawableMachineRegion: DrawableMachineRegion? {
     guard let registration = tipCameraRegistration else { return nil }
-    return try? DrawableMachineRegion(bounds: registration.applicabilityRectangle)
+    return try? drawableMachineRegion(for: registration)
+  }
+
+  private func drawableMachineRegion(
+    for registration: TipCameraRegistration
+  ) throws -> DrawableMachineRegion {
+    let bounds =
+      if registration.estimatorRevision
+        == SparseTipCircularMarkPlan.registrationEstimatorRevision
+      {
+        try SparseTipBatchMarkPlan.pictureRectangle(
+          framedByMarkCenters: registration.applicabilityRectangle
+        )
+      } else {
+        // v3 cardinal and v4 Boundary-corner packages retain the exact domain
+        // they recorded. Only v5 defines the inner ordinary-picture region.
+        registration.applicabilityRectangle
+      }
+    return try DrawableMachineRegion(bounds: bounds)
   }
 
   private func learnedDrawingOverlays(
     on displayedFrame: DisplayedFrame
   ) -> [CameraOverlayMeasurement] {
-    guard let registration = tipCameraRegistration,
+    let savedCandidate = savedLearningPackageState.candidate?.checkpoint
+    guard let registration = tipCameraRegistration ?? savedCandidate?.tipCalibration?.registration,
       displayedFrame.source == registration.applicability.opticalConfiguration.source,
       displayedFrame.frame.width == registration.applicability.opticalConfiguration.width,
       displayedFrame.frame.height == registration.applicability.opticalConfiguration.height,
       displayedFrame.frame.pixelFormat
         == registration.applicability.opticalConfiguration.pixelFormat,
-      let region = currentDrawableMachineRegion
+      let region = try? drawableMachineRegion(for: registration)
     else { return [] }
 
     let bounds = region.effectiveBounds
@@ -2759,6 +2914,47 @@ final class OperatorWorkspace {
           )
         )
       )
+    }
+    if let savedCandidate,
+      let machineCamera = savedCandidate.machineCamera?.registration,
+      let position = try? currentMachinePosition(),
+      let capPoint = try? machineCamera.fit.cameraPoint(from: position.point)
+    {
+      overlays.append(
+        CameraOverlayMeasurement(
+          frameID: displayedFrame.frame.id,
+          cameraConfigurationID: displayedFrame.frame.cameraConfigurationID,
+          geometry: .point(capPoint),
+          provenance: CameraMeasurementProvenance(
+            kind: .penCap,
+            source: .diagnostic,
+            algorithmRevision: "saved-machine-cap-projection-v1"
+          )
+        )
+      )
+    }
+    if let savedCandidate {
+      for record in drawingEvidenceArchive.records
+      where record.paper.contactPlane == savedCandidate.semanticIdentity.paperContactPlane {
+        guard let plan = record.plan.executionPlan else { continue }
+        for stroke in plan.strokes {
+          guard let projected = try? Polyline(
+            points: stroke.path.points.map { try registration.tipPixel(at: $0) }
+          ) else { continue }
+          overlays.append(
+            CameraOverlayMeasurement(
+              frameID: displayedFrame.frame.id,
+              cameraConfigurationID: displayedFrame.frame.cameraConfigurationID,
+              geometry: .polyline(projected),
+              provenance: CameraMeasurementProvenance(
+                kind: .intendedPath,
+                source: .diagnostic,
+                algorithmRevision: "saved-drawing-plan-projection-v1"
+              )
+            )
+          )
+        }
+      }
     }
     if let coverage = currentPaperCoverageObservation,
       coverage.frame.frameID == displayedFrame.frame.id,
@@ -3547,18 +3743,18 @@ final class OperatorWorkspace {
     learningAuthorityError = nil
 
     if plan.scope == .all {
-      parkedAcceptedMachineArtifactCheckpoint = nil
-      pendingMachineCameraCheckpoint = nil
+      activeMachineArtifactCheckpoint = nil
+      activeMachineCameraCheckpoint = nil
       acceptedArtifactCheckpointStatus = .cleared
-      quarantinedTipCalibrationCheckpoint = nil
+      recoverableTipCalibrationCheckpoint = nil
     } else {
       if plan.removesDurableMachineCheckpoint {
-        parkedAcceptedMachineArtifactCheckpoint = nil
-        pendingMachineCameraCheckpoint = nil
+        activeMachineArtifactCheckpoint = nil
+        activeMachineCameraCheckpoint = nil
         acceptedArtifactCheckpointStatus = .cleared
       }
       if plan.removesDurableTipCheckpoint {
-        quarantinedTipCalibrationCheckpoint = nil
+        recoverableTipCalibrationCheckpoint = nil
       }
     }
     return true
@@ -3571,8 +3767,8 @@ final class OperatorWorkspace {
     do {
       if plan.anchor == .humanGuidedDiscovery(.penInteraction) {
         try actions.clear()
-        acceptedLearningPathCheckpoint = nil
-        acceptedStageFourCheckpoint = nil
+        savedLearningPackageState = .absent
+        activeStageFourCheckpoint = nil
         return true
       }
 
@@ -3591,17 +3787,20 @@ final class OperatorWorkspace {
         semanticIdentity: currentLearningPathSemanticIdentity,
         penInteraction: currentAcceptedPenInteractionCheckpoint(),
         machineArtifacts: anchorIndex > boundaryIndex
-          ? parkedAcceptedMachineArtifactCheckpoint : nil,
+          ? activeMachineArtifactCheckpoint : nil,
         machineCamera: anchorIndex > cameraIndex
-          ? currentAcceptedMachineCameraCheckpoint() ?? pendingMachineCameraCheckpoint : nil,
+          ? currentAcceptedMachineCameraCheckpoint() ?? activeMachineCameraCheckpoint : nil,
         tipCalibration: anchorIndex > tipIndex
           ? acceptedLearningPathCheckpoint?.tipCalibration
-            ?? quarantinedTipCalibrationCheckpoint : nil,
+            ?? recoverableTipCalibrationCheckpoint : nil,
         stageFour: nil
       )
       try actions.save(checkpoint)
-      acceptedLearningPathCheckpoint = checkpoint
-      acceptedStageFourCheckpoint = nil
+      savedLearningPackageState = .applied(
+        checkpoint,
+        opticalComparison: "Saved from the current accepted Learning prefix."
+      )
+      activeStageFourCheckpoint = nil
       return true
     } catch {
       learningAuthorityError =
@@ -3661,13 +3860,13 @@ final class OperatorWorkspace {
       expectedAcceptedAttemptSequence: acceptedAttemptSequence,
       removesDurableMachineCheckpoint:
         source == .live && anchorIndex <= boundaryIndex
-        && (parkedAcceptedMachineArtifactCheckpoint != nil
-          || acceptedLearningPathCheckpoint?.machineArtifacts != nil),
+        && (activeMachineArtifactCheckpoint != nil
+          || savedLearningPackageState.checkpoint?.machineArtifacts != nil),
       removesDurableTipCheckpoint:
         source == .live && anchorIndex <= tipIndex
-        && (quarantinedTipCalibrationCheckpoint != nil
+        && (recoverableTipCalibrationCheckpoint != nil
           || tipCameraRegistration != nil
-          || acceptedLearningPathCheckpoint?.tipCalibration != nil),
+          || savedLearningPackageState.checkpoint?.tipCalibration != nil),
       physicalInkMayRemain: drawingTrialStrokeEvidence != nil || lastInkObservation != nil
     )
   }
@@ -3720,7 +3919,7 @@ final class OperatorWorkspace {
     }
     if includes(.humanGuidedDiscovery(.calibratePenContactFromSparseMarks)),
       tipCameraRegistration != nil || proposedTipCameraRegistration != nil
-        || quarantinedTipCalibrationCheckpoint != nil
+        || recoverableTipCalibrationCheckpoint != nil
         || !sparseTipCalibrationCoordinator.acceptedObservations.isEmpty
     {
       return true
@@ -3957,10 +4156,17 @@ final class OperatorWorkspace {
       resetFacts = .init()
     }
     let savedCheckpointMatchesPaper =
-      quarantinedTipCalibrationCheckpoint.map {
+      recoverableTipCalibrationCheckpoint.map {
         $0.registration.applicability.paperContactPlane.rawValue
           == explorationPaperContactPlaneRevision
       } ?? false
+    let savedTrainingCandidate = savedLearningPackageState.candidate.map { candidate in
+      LearningPathProjectionSnapshot.SavedTrainingFacts(
+        checkpointID: candidate.checkpoint.checkpointID,
+        artifactSummary: savedTrainingArtifactSummary(candidate.checkpoint),
+        opticalComparison: candidate.opticalComparison
+      )
+    }
     return LearningPathProjectionSnapshot(
       source: frameMode,
       learningEnabled: learningIsEnabled,
@@ -4055,6 +4261,7 @@ final class OperatorWorkspace {
       },
       startUnavailableReasons: itemStartReasons,
       acceptedCheckpointStatus: acceptedArtifactCheckpointStatus,
+      savedTrainingCandidate: savedTrainingCandidate,
       reset: resetFacts
     )
   }
@@ -4142,6 +4349,10 @@ final class OperatorWorkspace {
   ) async {
     guard !Task.isCancelled else { return }
     switch kind {
+    case .useSavedTraining:
+      await useSavedTraining()
+    case .startNewLearning:
+      startNewLearning()
     case .start:
       await startExercise(ownerID, mode: .normal)
     case .choice(let choice):
@@ -4198,6 +4409,111 @@ final class OperatorWorkspace {
     case .paperReplaced:
       await recordPaperReplaced()
     }
+  }
+
+  private func useSavedTraining() async {
+    guard case .awaitingOperatorDecision(let checkpoint, let opticalComparison) =
+      savedLearningPackageState
+    else { return }
+    savedTrainingComparisonTask?.cancel()
+    savedTrainingComparisonTask = nil
+    do {
+      let restoredGraph = try checkpoint.restoredLearningGraph()
+      var restoredPenHistory = try ExerciseAttemptHistory<PenInteractionAttemptEvidence>(
+        compatibility: penAttemptHistory.compatibility
+      )
+      if let pen = checkpoint.penInteraction {
+        try restoredPenHistory.record(
+          ExerciseAttempt(
+            id: pen.revision.attemptID,
+            disposition: .succeeded,
+            compatibility: restoredPenHistory.compatibility,
+            acceptedSequence: pen.acceptedSequence,
+            value: pen.evidence
+          )
+        )
+      }
+      let machine = checkpoint.machineArtifacts
+      let restoredBoundaryHistories = try machine?.restoredBoundaryHistories() ?? [:]
+      let restoredBoundaryEvidence = Dictionary(
+        uniqueKeysWithValues: (machine?.acceptedBoundaryEvidence ?? []).map {
+          ($0.attemptID, $0)
+        }
+      )
+      let restoredBoundaryAggregates = Dictionary(
+        uniqueKeysWithValues: (machine?.boundarySideAggregates ?? []).map {
+          ($0.direction, $0)
+        }
+      )
+
+      // All fallible validation and dependency reconstruction has completed.
+      // The assignments below install one exact saved prefix without motion,
+      // command replay, ownership restoration, or Pen-pose restoration.
+      learningArtifactGraph = restoredGraph
+      penAttemptHistory = restoredPenHistory
+      currentPenActuationProfile =
+        checkpoint.penInteraction?.evidence.actuationProfile ?? .initialDefaults
+      boundaryAttemptHistories = restoredBoundaryHistories
+      boundaryAttemptEvidenceByAttemptID = restoredBoundaryEvidence
+      boundarySideAggregates = restoredBoundaryAggregates
+      pairedBoundaryProgress = machine?.pairedBoundaryProgress ?? PairedBoundaryProgress()
+      estimatedMachineCenter = machine?.estimatedMachineCenter
+      learnedLocalCoordinateFrame = machine?.learnedLocalCoordinateFrame
+      centerArrivalPosition = machine?.centerArrivalPosition
+      centerArrivalRetryRequired = false
+      activeMachineArtifactCheckpoint = machine
+      activeMachineCameraCheckpoint = checkpoint.machineCamera
+      machineCameraRegistration = checkpoint.machineCamera?.registration
+      tipCameraRegistration = checkpoint.tipCalibration?.registration
+      proposedMachineCameraRegistration = nil
+      proposedTipCameraRegistration = nil
+      recoverableTipCalibrationCheckpoint = nil
+      activeStageFourCheckpoint = checkpoint.stageFour
+      if let machine {
+        explorationCoordinateRevision = machine.coordinateRevision
+        acceptedAttemptSequence = max(
+          acceptedAttemptSequence,
+          machine.acceptedAttemptSequence
+        )
+      }
+      if let pen = checkpoint.penInteraction {
+        acceptedAttemptSequence = max(acceptedAttemptSequence, pen.acceptedSequence)
+      }
+      if let appearance = checkpoint.penCapAppearance {
+        let selection = PenCapAppearanceSelection(checkpoint: appearance)
+        livePenCapAppearanceSelection = selection
+        persistedPenCapAppearanceLoadState = .accepted
+        await cameraActions?.setPenCapColor(selection.color)
+      }
+      savedLearningPackageState = .applied(
+        checkpoint,
+        opticalComparison: opticalComparison
+      )
+      acceptedArtifactCheckpointStatus = .appliedByOperator(
+        sideCount: machine?.boundarySideAggregates.count ?? 0,
+        hasTipCalibration: checkpoint.tipCalibration != nil
+      )
+      restoreInteractiveLearningCompletionFromEvidence()
+      learningAuthorityError = nil
+      explorationError = nil
+    } catch {
+      learningAuthorityError =
+        "Saved training could not be applied atomically: \(actionableDescription(error))"
+    }
+  }
+
+  private func startNewLearning() {
+    guard case .awaitingOperatorDecision(let checkpoint, _) = savedLearningPackageState
+    else { return }
+    savedTrainingComparisonTask?.cancel()
+    savedTrainingComparisonTask = nil
+    savedLearningPackageState = .retainedForLater(checkpoint)
+    acceptedArtifactCheckpointStatus = .retainedForLater(
+      sideCount: checkpoint.machineArtifacts?.boundarySideAggregates.count ?? 0,
+      hasTipCalibration: checkpoint.tipCalibration != nil
+    )
+    learningAuthorityError = nil
+    explorationError = nil
   }
 
   func beginPenInteraction() async {
@@ -4701,7 +5017,7 @@ final class OperatorWorkspace {
       applyArtifactInvalidations(machineRegistration.invalidatedRevisionIDs)
       machineCameraRegistration = registration
       proposedMachineCameraRegistration = nil
-      pendingMachineCameraCheckpoint = currentAcceptedMachineCameraCheckpoint()
+      activeMachineCameraCheckpoint = currentAcceptedMachineCameraCheckpoint()
       persistAcceptedLearningPathCheckpoint(clearTip: true, clearStageFour: true)
       finishActiveExerciseAttempt(disposition: .succeeded)
       explorationError = nil
@@ -5159,7 +5475,6 @@ final class OperatorWorkspace {
         case .live:
           livePenCapAppearanceSelection = learned
           persistedPenCapAppearanceLoadState = .accepted
-          persistPenCapAppearanceSelection(learned)
           learnedFromLiveCamera = true
         case .simulated:
           simulatedPenCapAppearanceSelection = learned
@@ -5914,7 +6229,7 @@ final class OperatorWorkspace {
         algorithmRevisions: [
           try AlgorithmRevisionEvidence(
             component: "sparse-tip-workspace",
-            revision: "boundary-corner-five-circle-batch-unordered-global-association-v3"
+            revision: "boundary-inset-five-circle-batch-unordered-global-association-v5"
           ),
           try AlgorithmRevisionEvidence(
             component: "pen-actuation",
@@ -6014,7 +6329,7 @@ final class OperatorWorkspace {
       proposedTipCameraRegistration = nil
       sparseTipCalibrationCoordinator = coordinator
       activeLearningSession.toolContactSelection.clear()
-      quarantinedTipCalibrationCheckpoint = nil
+      recoverableTipCalibrationCheckpoint = nil
       persistAcceptedLearningPathCheckpoint(tipCalibration: checkpoint, clearStageFour: true)
       finishActiveExerciseAttempt(disposition: .succeeded)
       explorationError = nil
@@ -6035,7 +6350,7 @@ final class OperatorWorkspace {
     }
     guard activeExerciseAttemptOwnerID == ownerID,
       let attemptID = activeExerciseAttemptID,
-      var checkpoint = quarantinedTipCalibrationCheckpoint,
+      var checkpoint = recoverableTipCalibrationCheckpoint,
       var machineRegistration = machineCameraRegistration,
       let machineRegistrationRevision = learningArtifactGraph.currentRevision(
         for: .machineCameraRegistration
@@ -6061,7 +6376,7 @@ final class OperatorWorkspace {
       if case .requiresVisualRevalidation = controllerPoseApplicability,
         initialCapResidual > 8
       {
-        guard let acceptedMachineCheckpoint = parkedAcceptedMachineArtifactCheckpoint else {
+        guard let acceptedMachineCheckpoint = activeMachineArtifactCheckpoint else {
           throw LearningPathOperationError.requiredState(
             "The carriage moved relative to the saved cap map, but no accepted machine checkpoint is available to rebase."
           )
@@ -6081,7 +6396,7 @@ final class OperatorWorkspace {
           delta: delta
         )
         let machineCameraCheckpoint = try AcceptedMachineCameraCheckpoint(
-          revision: pendingMachineCameraCheckpoint?.revision
+          revision: activeMachineCameraCheckpoint?.revision
             ?? LearningArtifactRevision(
               id: machineRegistrationRevision,
               kind: .machineCameraRegistration,
@@ -6190,8 +6505,8 @@ final class OperatorWorkspace {
       )
       if let rebasedMachineCheckpoint, let rebasedMachineCameraCheckpoint {
         let histories = try rebasedMachineCheckpoint.restoredBoundaryHistories()
-        parkedAcceptedMachineArtifactCheckpoint = rebasedMachineCheckpoint
-        pendingMachineCameraCheckpoint = rebasedMachineCameraCheckpoint
+        activeMachineArtifactCheckpoint = rebasedMachineCheckpoint
+        activeMachineCameraCheckpoint = rebasedMachineCameraCheckpoint
         machineCameraRegistration = rebasedMachineCameraCheckpoint.registration
         boundaryAttemptHistories = histories
         boundaryAttemptEvidenceByAttemptID = Dictionary(
@@ -6218,7 +6533,7 @@ final class OperatorWorkspace {
       tipCameraRegistration = restoredRegistration
       restoreInteractiveLearningCompletionFromEvidence()
       proposedTipCameraRegistration = nil
-      quarantinedTipCalibrationCheckpoint = nil
+      recoverableTipCalibrationCheckpoint = nil
       controllerPoseApplicability = .visuallyRevalidated(
         frameID: exactFrame.frameID,
         residualPixels: evidence.capMapResidualPixels
@@ -7051,7 +7366,7 @@ final class OperatorWorkspace {
         tipCalibrationRevisionID: registration.acceptedRevisionID,
         paperContactPlane: currentPaperRevisionContext.contactPlane
       )
-      acceptedStageFourCheckpoint = stageFourCheckpoint
+      activeStageFourCheckpoint = stageFourCheckpoint
       persistAcceptedLearningPathCheckpoint(stageFour: stageFourCheckpoint)
       drawingEvidenceError = nil
     } catch {
@@ -7236,6 +7551,24 @@ final class OperatorWorkspace {
   @discardableResult
   func requestPenActuation(_ command: PenCommand) async -> PenOutcome? {
     await requestPenActuation(command, profile: currentPenActuationProfile)
+  }
+
+  /// Every travel owner normalizes Pen Up from the existing actuation-profile
+  /// authority. Command knowledge is deliberately ignored: a redundant raise
+  /// is cheap, idempotent, and safer than treating a prior process state as
+  /// physical proof.
+  private func ensurePenUpForTravel() async -> Bool {
+    let outcome = await requestPenActuation(
+      .raise,
+      profile: currentPenActuationProfile
+    )
+    guard let outcome,
+      case .commandedAndSettled(command: .raise, commandedState: .up) = outcome
+    else {
+      machineError = "Pen Up normalization did not settle; travel was not admitted."
+      return false
+    }
+    return true
   }
 
   @discardableResult
@@ -8189,6 +8522,11 @@ final class OperatorWorkspace {
   /// commands or bypass MachineController validation.
   @discardableResult
   func requestRelativeJog(_ request: RelativeJogRequest) async -> MotionOutcome? {
+    guard await ensurePenUpForTravel() else { return nil }
+    let request = RelativeJogRequest(
+      delta: request.delta,
+      feedMMPerMinute: request.feedMMPerMinute
+    )
     if frameMode == .simulated {
       await requestSimulatedRelativeJog(request)
       return nil
@@ -8814,7 +9152,10 @@ final class OperatorWorkspace {
 
   func shutdown() async {
     guard !hasShutdown else { return }
+    persistAcceptedLearningPathCheckpoint()
     hasShutdown = true
+    savedTrainingComparisonTask?.cancel()
+    savedTrainingComparisonTask = nil
     lifetimeGeneration &+= 1
     let learningAction = activeLearningActionTask
     learningAction?.cancel()
@@ -9009,6 +9350,13 @@ final class OperatorWorkspace {
       let attemptID = activeExerciseAttemptID
     else {
       boundaryTeachingState = .idle
+      return
+    }
+    guard await ensurePenUpForTravel() else {
+      await failDiscovery(
+        sequenceID,
+        failure: .failed("Boundary motion was not admitted because Pen Up did not settle.")
+      )
       return
     }
 
@@ -10178,9 +10526,9 @@ final class OperatorWorkspace {
     boundaryTeachingState = .idle
     boundaryTeachingResultText = "Choose one side to begin."
     await clearDiscoveryAuthority()
-    if let parkedAcceptedMachineArtifactCheckpoint {
+    if let activeMachineArtifactCheckpoint {
       acceptedArtifactCheckpointStatus = .quarantined(
-        sideCount: parkedAcceptedMachineArtifactCheckpoint.boundarySideAggregates.count
+        sideCount: activeMachineArtifactCheckpoint.boundarySideAggregates.count
       )
     }
   }
@@ -10220,7 +10568,7 @@ final class OperatorWorkspace {
         centerArrivalPosition: centerArrivalPosition,
         acceptedRevisions: revisions
       )
-      parkedAcceptedMachineArtifactCheckpoint = checkpoint
+      activeMachineArtifactCheckpoint = checkpoint
       persistAcceptedLearningPathCheckpoint()
       acceptedArtifactCheckpointStatus = .saved(
         sideCount: aggregates.count,
@@ -10284,6 +10632,24 @@ final class OperatorWorkspace {
     )
   }
 
+  private func savedTrainingArtifactSummary(
+    _ checkpoint: AcceptedLearningPathCheckpoint
+  ) -> String {
+    var artifacts: [String] = []
+    if checkpoint.penInteraction != nil { artifacts.append("Pen Interaction") }
+    if let machine = checkpoint.machineArtifacts {
+      artifacts.append("\(machine.boundarySideAggregates.count) Boundary sides and center")
+    }
+    if checkpoint.machineCamera != nil { artifacts.append("camera/cap registration") }
+    if checkpoint.tipCalibration != nil { artifacts.append("five-mark tip registration") }
+    if checkpoint.stageFour != nil { artifacts.append("observed drawing validation") }
+    if checkpoint.penCapAppearance != nil { artifacts.append("pen-cap appearance") }
+    let drawingCount = drawingEvidenceArchive.records.count
+    if drawingCount > 0 { artifacts.append("\(drawingCount) archived drawing plan(s)") }
+    let contents = artifacts.isEmpty ? "no accepted Learning artifacts" : artifacts.joined(separator: ", ")
+    return "Saved package \(checkpoint.checkpointID.uuidString.prefix(8)) contains \(contents). It is preview-only until you choose Use Saved Training."
+  }
+
   private func currentAcceptedMachineCameraCheckpoint()
     -> AcceptedMachineCameraCheckpoint?
   {
@@ -10317,30 +10683,69 @@ final class OperatorWorkspace {
     guard frameMode == .live, let actions = activeAcceptedLearningPathCheckpointActions else {
       return
     }
+    // Do not manufacture an empty startup candidate merely because an
+    // untrained application shut down cleanly. A package begins with an
+    // accepted dependency revision and grows from that canonical graph.
+    guard !learningArtifactGraph.revisions.isEmpty else { return }
     do {
       let retainedTip = clearTip
         ? nil
         : tipCalibration ?? acceptedLearningPathCheckpoint?.tipCalibration
-          ?? quarantinedTipCalibrationCheckpoint
+          ?? recoverableTipCalibrationCheckpoint
       let retainedStage = clearStageFour
         ? nil
         : stageFour ?? acceptedLearningPathCheckpoint?.stageFour
-          ?? acceptedStageFourCheckpoint
+          ?? activeStageFourCheckpoint
       let checkpoint = try AcceptedLearningPathCheckpoint(
         semanticIdentity: currentLearningPathSemanticIdentity,
         penInteraction: currentAcceptedPenInteractionCheckpoint(),
-        machineArtifacts: parkedAcceptedMachineArtifactCheckpoint,
-        machineCamera: currentAcceptedMachineCameraCheckpoint() ?? pendingMachineCameraCheckpoint,
+        machineArtifacts: activeMachineArtifactCheckpoint,
+        machineCamera: currentAcceptedMachineCameraCheckpoint() ?? activeMachineCameraCheckpoint,
         tipCalibration: retainedTip,
-        stageFour: retainedStage
+        stageFour: retainedStage,
+        penCapAppearance: try livePenCapAppearanceSelection?.acceptedCheckpoint()
+          ?? acceptedLearningPathCheckpoint?.penCapAppearance,
+        referenceFrame: currentAcceptedLearningReferenceFrame()
+          ?? acceptedLearningPathCheckpoint?.referenceFrame
       )
+      if case .retainedForLater(let retained) = savedLearningPackageState,
+        !replacementCheckpoint(checkpoint, hasReachedCompletenessOf: retained)
+      {
+        return
+      }
       try actions.save(checkpoint)
-      acceptedLearningPathCheckpoint = checkpoint
-      pendingMachineCameraCheckpoint = checkpoint.machineCamera
-      acceptedStageFourCheckpoint = checkpoint.stageFour
+      savedLearningPackageState = .applied(
+        checkpoint,
+        opticalComparison: "Saved from the current accepted Learning prefix."
+      )
+      activeMachineCameraCheckpoint = checkpoint.machineCamera
+      activeStageFourCheckpoint = checkpoint.stageFour
     } catch {
       learningAuthorityError = "Learning Path checkpoint could not be saved: \(error)"
     }
+  }
+
+  private func replacementCheckpoint(
+    _ replacement: AcceptedLearningPathCheckpoint,
+    hasReachedCompletenessOf retained: AcceptedLearningPathCheckpoint
+  ) -> Bool {
+    (retained.penInteraction == nil || replacement.penInteraction != nil)
+      && (retained.machineArtifacts == nil || replacement.machineArtifacts != nil)
+      && (retained.machineCamera == nil || replacement.machineCamera != nil)
+      && (retained.tipCalibration == nil || replacement.tipCalibration != nil)
+      && (retained.stageFour == nil || replacement.stageFour != nil)
+  }
+
+  private func currentAcceptedLearningReferenceFrame()
+    -> AcceptedLearningReferenceFrame?
+  {
+    guard frameMode == .live, let frame = displayedFrame,
+      let optical = try? exactTipCalibrationFrame(frame).opticalConfiguration
+    else { return nil }
+    return try? AcceptedLearningReferenceFrame(
+      opticalConfiguration: optical,
+      frame: frame.frame
+    )
   }
 
   private func revalidateParkedAcceptedArtifactCheckpoint(
@@ -10349,7 +10754,7 @@ final class OperatorWorkspace {
   ) {
     guard frameMode == .live,
       boundarySideAggregates.isEmpty,
-      let checkpoint = parkedAcceptedMachineArtifactCheckpoint,
+      let checkpoint = activeMachineArtifactCheckpoint,
       let currentPosition
     else { return }
     do {
@@ -10377,7 +10782,7 @@ final class OperatorWorkspace {
             )
           )
         }
-        if let machineCamera = pendingMachineCameraCheckpoint {
+        if let machineCamera = activeMachineCameraCheckpoint {
           let revision = machineCamera.revision
           _ = try graph.commitReplacement(
             LearningArtifactRevision(
@@ -10416,7 +10821,6 @@ final class OperatorWorkspace {
           centerArrival: checkpoint.centerArrivalPosition != nil,
           reportedPositionDeltaMM: reportedPositionDeltaMM
         )
-        restoreUnchangedTipCalibrationCheckpoint(against: displayedFrame)
       }
     } catch {
       acceptedArtifactCheckpointStatus = .rejected(
@@ -10447,12 +10851,12 @@ final class OperatorWorkspace {
     cameraCalibrationReferenceCapAnchor = nil
     proposedMachineCameraRegistration = nil
     machineCameraRegistration = nil
-    pendingMachineCameraCheckpoint = nil
+    activeMachineCameraCheckpoint = nil
     tipCameraRegistration = nil
     proposedTipCameraRegistration = nil
     sparseTipCalibrationCoordinator = freshSparseTipCalibrationCoordinatorForCurrentPaper()
     activeLearningSession.toolContactSelection.clear()
-    quarantinedTipCalibrationCheckpoint = nil
+    recoverableTipCalibrationCheckpoint = nil
     persistAcceptedLearningPathCheckpoint(clearTip: true, clearStageFour: true)
     clearDrawingLearningForRewind(from: .chooseIsolatedLinePlan)
     explorationError = nil
@@ -10998,6 +11402,11 @@ final class OperatorWorkspace {
     guard !hasShutdown, !Task.isCancelled else {
       throw LearningPathOperationError.requiredState(
         "Application shutdown closed admission for supervised Pen-Up travel."
+      )
+    }
+    guard await ensurePenUpForTravel() else {
+      throw LearningPathOperationError.requiredState(
+        "Supervised travel was not admitted because Pen Up did not settle."
       )
     }
     let selection = travelFeedSelection(for: delta)

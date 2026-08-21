@@ -745,11 +745,25 @@ extension OperatorWorkspaceTests {
       log: log
     )
     #expect(relaunched.boundarySideAggregates.isEmpty)
-    if case .quarantined(sideCount: 4) = relaunched.acceptedArtifactCheckpointStatus {
-      // Expected: disk data is not authority before fresh controller evidence.
+    #expect(relaunched.learningArtifactGraph.revisions.isEmpty)
+    #expect(relaunched.machineCameraRegistration == nil)
+    #expect(relaunched.tipCameraRegistration == nil)
+    #expect(relaunched.controllerPoseApplicability == .currentSession)
+    if case .awaitingOperatorDecision(sideCount: 4, hasTipCalibration: false) =
+      relaunched.acceptedArtifactCheckpointStatus
+    {
+      // Expected: loading is presentation only.
     } else {
-      Issue.record("Expected the loaded checkpoint to remain quarantined before probing.")
+      Issue.record("Expected the loaded checkpoint to await the operator decision.")
     }
+    let savedOwner = relaunched.currentLearningPathItemID
+    #expect(
+      relaunched.currentExerciseActionStripPresentation?.actions.map(\.kind)
+        == [.useSavedTraining, .startNewLearning]
+    )
+    await relaunched.performExerciseAction(.useSavedTraining, for: savedOwner)
+    #expect(relaunched.controllerPoseApplicability == .currentSession)
+    #expect(relaunched.boundarySideAggregates == first.boundarySideAggregates)
     await relaunched.establishMachineSession(machine.descriptor)
     await relaunched.requestPassiveProbe()
     await relaunched.startCamera()
@@ -761,12 +775,12 @@ extension OperatorWorkspaceTests {
     #expect(relaunched.contextualStopPresentation == nil)
     #expect(await machine.cancelCount == cancelCountAtRelaunch)
     #expect(await log.values == motionLogAtRelaunch)
-    if case .restored(sideCount: 4, centerArrival: false, _) =
+    if case .appliedByOperator(sideCount: 4, hasTipCalibration: false) =
       relaunched.acceptedArtifactCheckpointStatus
     {
-      // Expected: accepted artifacts after the matching read-only context probe.
+      // Expected: exact revisions were applied only by the explicit action.
     } else {
-      Issue.record("Expected accepted boundaries to restore after the compatibility probe.")
+      Issue.record("Expected accepted boundaries to apply after the operator decision.")
     }
     #expect(relaunched.controllerPoseApplicability == .currentSession)
     let restoredRevisions = relaunched.learningArtifactGraph.revisions

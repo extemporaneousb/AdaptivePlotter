@@ -103,13 +103,15 @@ the attended run with explicit invalidation and new evidence.
 ## 3. Stage 3.4 — five sparse 2 mm-radius circles
 
 Confirm Stage 3.4 plans one center circle and four corner circles whose centers
-are 2 mm inside the accepted X−/X+/Y−/Y+ Boundary envelope; Stage 3.3 remains on
-its separate existing ±24 mm camera-calibration plan.
+are inset 7.5% independently on each Boundary axis, but never less than the
+2.25 mm circle-radius plus ink-clearance minimum. The ordinary picture region
+is another 2.25 mm inside those four centers; Stage 3.3 remains on its separate
+existing ±24 mm camera-calibration plan.
 
 1. Press **Draw Five 2 mm Circles** once.
-2. For the center and each of the four maximum drawable corners, watch Pen-Up
+2. For the center and each of the four outer framing marks, watch Pen-Up
    travel settle at the intended MPos, compare each outer center with the
-   accepted Boundary coordinate and 2 mm radius inset, confirm the pre-mark
+   accepted Boundary coordinate and axis-specific inset, confirm the pre-mark
    frame/cap/controller evidence is retained, and watch Pen-Up travel settle at
    the circle start.
 3. Confirm the app commands and settles the current Pen Interaction Down value.
@@ -155,14 +157,15 @@ Test these only as separately recorded attended cases; neither is implicit
 restoration.
 
 - Same unchanged paper and assembly after binary/app/capture restart: keep
-  Motion disabled, start the same camera, connect, and complete the read-only
-  passive controller-context probe. Confirm completed Pen, Boundary, Stage 3.3,
-  Stage 3.4, and attributable Stage 4 authority returns automatically with the
-  exact accepted tip revision. Confirm no **Revalidate Saved Tip Calibration**
-  action, cap capture, click, contact mark, paper operation, or Learning Path
-  replay occurs. Optionally inspect the projected region/plan against the
-  unchanged sheet; record that as an operator sanity check, not a new
-  calibration acceptance.
+  Motion disabled and start the same camera. Before either decision, inspect
+  the saved drawing frame, inner picture region, cap/tip when supported, prior
+  drawing paths, and advisory optical comparison projected into the current
+  frame. Confirm neither preview nor **Start New Learning** changes the active
+  dependency graph, registration, controller pose, session ownership, or
+  hardware. Choose **Use Saved Training** only when the overlays are correct;
+  confirm it applies the exact saved revisions atomically without motion or
+  command replay. Repeat with **Start New Learning** and confirm the last
+  complete package remains available until a complete replacement is saved.
 - Actual controller reset, powered-off carriage uncertainty, camera
   bump/remount/reframe, or tool/contact-profile change: do not perform the
   unchanged-restart case. Use **Reset From This Step** at the owning physical
@@ -239,9 +242,9 @@ Up and observe the existing stroke, but it must not redraw it.
 7. Inspect the immutable run record: ordinary role, program/placement/plan and
    calibration/paper provenance, request/execution frontiers, controller
    disposition, and observation outcome. Restart the app and confirm the
-   attributable Stage 4 validation and Drawing Studio availability restore
-   after the matching camera plus controller-context probe, without
-   tip-checkpoint revalidation or replaying motion.
+   prior execution-plan path appears in the saved-training preview. After
+   choosing **Use Saved Training**, confirm attributable Stage 4 validation and
+   Drawing Studio availability return without motion replay.
 8. Repeat with one tessellated curve and one multi-stroke catalog item only if
    the square is clean. Stop on any uncertain mark; do not resend or redraw.
 

@@ -218,10 +218,11 @@ coordinate change.
 ### One supervised physical batch
 
 Stage 3.4 draws one circle at the accepted Boundary envelope's geometric center
-and four circles at the maximum drawable corners formed by `minX + 2 mm`,
-`minY + 2 mm`, `maxX − 2 mm`, and `maxY − 2 mm`. The complete radius remains
-inside the envelope, and the four outer centers become the accepted tip-map and
-Drawing Studio applicability rectangle. `C`, `X−`, `Y+`, `X+`, and `Y−` remain
+and four circles 7.5% inside each Boundary axis. Each per-axis inset is at least
+2.25 mm, so the complete 2 mm radius plus 0.25 mm ink clearance remains inside
+the envelope. The four outer centers bound the accepted tip-map applicability;
+the ordinary Drawing Studio picture rectangle is another 2.25 mm inside those
+centers, keeping all calibration-circle ink outside picture content. `C`, `X−`, `Y+`, `X+`, and `Y−` remain
 canonical evidence-slot identities. Stage 3.3 retains its existing separate
 ±24 mm spacing and camera-holdout authority.
 
@@ -238,7 +239,7 @@ canonical evidence-slot identities. Stage 3.3 retains its existing separate
 5. Raise and settle Pen Up. Only then travel to the next circle. Repeat steps
    2–5 without a reveal or click between circles. The batch contains exactly 80
    circle chords and no connecting Pen-Down stroke. The accepted calibrated-
-   region overlay supplies the bounding box through the four outer centers.
+   calibrated-region overlay supplies the inner ordinary-picture bounding box.
 6. After the fifth circle, return Pen Up to the outer rectangle's geometric
    center. Require Pen Up, Idle, and final-MPos settlement.
 7. Capture one strictly newer exact frame and revalidate current camera/cap
@@ -287,25 +288,27 @@ physical contact or ink; attended observation owns those claims.
 
 ### Durable restart restoration and changed-setup recovery
 
-Loading restores accepted learning values but never restores operational
-authority. Motion, current Pen pose, active owners, Stop capabilities, frames,
-and pending commands remain session-local.
+Loading is presentation-only and never restores Learning or operational
+authority. Motion, current Pen pose, active owners, Stop capabilities, current
+frames, and pending commands remain session-local.
 
 For an unchanged physical setup:
 
 1. Start the replacement binary or restart the process/capture session. These
    software lifetimes do not rotate a physical semantic identity.
-2. Start the same camera device. Its current source and semantic optical
-   configuration must match the saved registration.
-3. Connect and complete the read-only passive controller-context probe. A
-   matching probe restores Boundary, center, Stage 3.3, the five Stage 3.4
-   observation revisions, the exact accepted tip revision, and attributable
-   Stage 4 completion without replaying motion.
-4. Require no **Revalidate Saved Tip Calibration** action, cap capture, click,
-   mark, paper replacement, or Learning Path replay.
-5. An operator may keep Motion disabled and inspect the current projected
-   region/plan against the unchanged scene as a manual sanity check. That
-   inspection is optional and does not create a new calibration gate.
+2. Start the same camera device. Before applying anything, inspect the saved
+   drawing frame, predicted cap/tip where available, and reconstructable prior
+   drawing plans projected on the current frame.
+3. Read the advisory optical comparison. A compatible bounded reference reports
+   integer X/Y shift and background mean absolute difference; incompatible or
+   legacy packages report why the comparison is unavailable. No value gates the
+   operator choice.
+4. Choose exactly **Use Saved Training** or **Start New Learning**. Use applies
+   the exact saved dependency revisions atomically without motion or Pen-pose
+   restoration. Start New applies nothing and retains the last complete package.
+5. Connecting and probing remain ordinary controller-session work; they do not
+   implicitly apply saved Learning. Require no cap capture, click, mark, paper
+   replacement, or Learning Path replay for an operator-accepted unchanged setup.
 
 If the controller coordinate frame was actually reset, the camera was moved or
 reframed, the tool/contact profile changed, or the contact plane changed, do
@@ -397,11 +400,12 @@ selectable Learning Path stage.
 5. Review the projected target on the exact current frame. Before Run, select
    its fixed evidence role: ordinary drawing, training, reserved holdout, or
    evaluation holdout. Do not change the role after seeing the outcome.
-6. Press **Run Drawing** only when LIVE controller admission, Motion, settled
-   Pen Up, current paper coverage, and the exact plan are all current. The app
-   first selects the plan's final point as the same-pose observation location
-   and captures the local pre-drawing baseline there.
-7. One `RunInterpreter` owner performs Pen-Up travel, lower, each finite segment,
+6. Press **Run Drawing** only when LIVE controller admission, Motion, current
+   paper coverage, and the exact plan are all current. The app redundantly
+   commands and settles Pen Up before observation-position travel; prior Pen
+   command knowledge is not trusted. It then selects the plan's final point as
+   the same-pose observation location and captures the local pre-drawing baseline there.
+7. One `RunInterpreter` owner redundantly normalizes Pen Up again, performs plan travel, lower, each finite segment,
    raise, and the logical-stroke checkpoint sequence. **Stop** is capability-
    bound to that owner. Competing plans are refused without replacing active
    progress.

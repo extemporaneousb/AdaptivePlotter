@@ -487,18 +487,25 @@ Changes apply as follows:
 `AcceptedLearningPathCheckpoint` is the one atomic durable accepted-prefix
 envelope. It contains optional accepted Pen Interaction, machine-only Boundary
 and center artifacts, Stage 3.3 machine/cap registration, the accepted Stage 3.4
-tip checkpoint, and a Stage 4 evidence-record reference. Production migrates
+tip checkpoint, the accepted pen-cap appearance, one bounded reference frame,
+and a Stage 4 evidence-record reference. Production migrates
 the former machine-only and tip-only files into this envelope and deletes the
 legacy files after successful save.
 
-Loading restores accepted values only. It cannot restore Motion authorization,
+Loading creates one presentation-only saved-training candidate. It cannot restore Motion authorization,
 current Pen pose, workflow state, operation ownership, a Stop capability, a
-pending command, a camera frame, or a continuation. Fresh passive controller
-identity evidence restores the learned machine envelope. When that context,
-the persisted physical semantic identities, the camera device, and current
-semantic optics match, the app rebuilds the process-local dependency index with
-the exact stored revisions and immediately restores coordinate-dependent
-Learning and Drawing authority. Reported MPos distance remains diagnostic.
+pending command, a current camera frame, or a continuation. Before any choice,
+the app projects compatible saved frame/tip/cap/drawing geometry onto the
+current frame and reports bounded integer shift plus background mean absolute
+difference when a compatible saved reference exists. That report is advisory;
+it has no threshold and cannot accept or reject the package.
+
+The startup candidate exposes exactly **Use Saved Training** and **Start New
+Learning**. Use Saved Training atomically rebuilds the process-local dependency
+index with the exact stored revisions and installs the accepted values without
+motion, Pen-pose restoration, or command replay. Start New Learning applies no
+saved value and retains the last complete package until a newer dependency-
+complete package can replace it atomically. The operator owns this decision.
 Binary replacement, process restart, and capture-session restart perform no cap
 capture, click, mark, paper replacement, or Learning Path replay.
 
@@ -565,8 +572,9 @@ logical stroke. The video preview projects that exact plan through the current
 tip registration on one matching frame.
 
 Run eligibility additionally requires LIVE mode, a connected authorized idle
-controller with Pen Up, current paper-coverage evidence, and the exact reviewed
-plan. `RunInterpreter` is the only execution owner for all Pen-Up travel, pen
+controller, current paper-coverage evidence, and the exact reviewed plan.
+Every travel owner issues an idempotent Pen Up normalization; it does not trust
+process-local command knowledge. `RunInterpreter` is the only execution owner for all Pen-Up travel, pen
 actuation, finite segments, Stop, and checkpoints. Controller completion is not
 ink verification. After clean completion, the camera observer compares a
 strictly newer same-pose frame against the local baseline and associates new ink
@@ -575,7 +583,8 @@ geometry remains reviewable. Refusal, cancellation, ambiguity, possible ink,
 Vision rejection, or evidence-store failure cannot authorize resend or redraw.
 
 Every immutable `DrawingRunEvidenceRecord` fixes its role before the outcome is
-known and cites request/execution frontiers, program/placement/plan hashes,
+known and cites request/execution frontiers, program/placement/plan hashes plus
+the complete immutable execution-plan geometry for new records,
 tip-calibration and paper provenance, terminal execution disposition, and exact
 observation outcome. The checksummed archive is append-only. Records can be
 inputs to later training and evaluation; they cannot replay motion, restore a

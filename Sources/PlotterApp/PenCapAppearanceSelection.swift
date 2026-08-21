@@ -53,6 +53,42 @@ struct PenCapAppearanceSelection: Codable, Hashable, Sendable {
   }
 }
 
+extension PenCapAppearanceSelection {
+  init(checkpoint: AcceptedPenCapAppearance) {
+    self.init(
+      color: checkpoint.color,
+      frameID: checkpoint.frameID,
+      frameSHA256: checkpoint.frameSHA256,
+      source: checkpoint.source,
+      cameraConfigurationID: checkpoint.cameraConfigurationID,
+      width: checkpoint.width,
+      height: checkpoint.height,
+      pixelFormat: checkpoint.pixelFormat,
+      clickPoint: checkpoint.clickPoint,
+      usableSampleCount: checkpoint.usableSampleCount,
+      totalSampleCount: checkpoint.totalSampleCount,
+      algorithmRevision: checkpoint.algorithmRevision
+    )
+  }
+
+  func acceptedCheckpoint() throws -> AcceptedPenCapAppearance {
+    try AcceptedPenCapAppearance(
+      color: color,
+      frameID: frameID,
+      frameSHA256: frameSHA256,
+      source: source,
+      cameraConfigurationID: cameraConfigurationID,
+      width: width,
+      height: height,
+      pixelFormat: pixelFormat,
+      clickPoint: clickPoint,
+      usableSampleCount: usableSampleCount,
+      totalSampleCount: totalSampleCount,
+      algorithmRevision: algorithmRevision
+    )
+  }
+}
+
 enum PersistedPenCapAppearanceLoadState: Hashable, Sendable {
   case absent
   case accepted

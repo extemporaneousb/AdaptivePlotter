@@ -406,6 +406,8 @@ enum MotionRequestStatusPresentation: Hashable, Sendable {
 }
 
 enum ExerciseActionKind: Hashable, Sendable {
+  case useSavedTraining
+  case startNewLearning
   case start
   case choice(OperatorChoice)
   case setPenSetpoint(PenCommand, Int)

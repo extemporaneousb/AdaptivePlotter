@@ -565,23 +565,23 @@ public actor RunInterpreter {
       )
     }
 
-    let initialMachine = await machineController.snapshot()
-    if initialMachine.penState != .up {
-      let outcome = await executePlanPen(.raise, request: request)
-      switch outcome {
-      case .commandedAndSettled:
-        break
-      case .refused(let refusal):
-        return finishDrawingPlan(.refused(
-          progress: currentDrawingPlanProgress(request),
-          reason: .initialPenRaise(refusal)
-        ))
-      case .ambiguous(let ambiguity):
-        return finishDrawingPlan(.ambiguous(
-          progress: currentDrawingPlanProgress(request),
-          reason: .pen(command: .raise, reason: ambiguity)
-        ))
-      }
+    // Pen state is controller-command knowledge, not a prerequisite the
+    // operator must re-verify. Always issue the idempotent Pen Up command before
+    // plan travel, including when this process previously commanded Pen Up.
+    let initialPenUp = await executePlanPen(.raise, request: request)
+    switch initialPenUp {
+    case .commandedAndSettled:
+      break
+    case .refused(let refusal):
+      return finishDrawingPlan(.refused(
+        progress: currentDrawingPlanProgress(request),
+        reason: .initialPenRaise(refusal)
+      ))
+    case .ambiguous(let ambiguity):
+      return finishDrawingPlan(.ambiguous(
+        progress: currentDrawingPlanProgress(request),
+        reason: .pen(command: .raise, reason: ambiguity)
+      ))
     }
     lastKnownPosition = await machineController.snapshot().position
     if activeDrawingPlan?.cancelIntent != nil {

@@ -52,12 +52,15 @@ struct SparseTipCircularMarkPlan: Hashable, Sendable {
   static let chordCount = 16
   static let maximumFeedMMPerMinute = 100.0
   static let registrationEstimatorRevision =
+    "affine-first-boundary-inset-five-circle-2mm-radius-16-chord-v5"
+  static let boundaryCornerRegistrationEstimatorRevision =
     "affine-first-boundary-corner-five-circle-2mm-radius-16-chord-v4"
   static let cardinalRegistrationEstimatorRevision =
     "affine-first-all-five-circle-2mm-radius-16-chord-v3"
 
   static func supportsRestoredGeometry(for estimatorRevision: String) -> Bool {
     estimatorRevision == registrationEstimatorRevision
+      || estimatorRevision == boundaryCornerRegistrationEstimatorRevision
       || estimatorRevision == cardinalRegistrationEstimatorRevision
   }
 
@@ -153,9 +156,17 @@ struct SparseTipCircularMarkPlan: Hashable, Sendable {
 }
 
 /// The complete Stage 3.4 physical mark layout. The four outer circle centers
-/// are the maximum drawable corners inside the accepted Boundary envelope. The
-/// fifth circle and final Pen-Up reveal are at that rectangle's center.
+/// sit 7.5% inside each accepted Boundary axis (and always far enough inside
+/// for the complete circle plus ink clearance). The ordinary picture rectangle
+/// is a further circle-radius-plus-clearance inside those centers, keeping the
+/// persistent calibration ink outside later picture content. The fifth circle
+/// and final Pen-Up reveal are at the mark-center rectangle's center.
 struct SparseTipBatchMarkPlan: Hashable, Sendable {
+  static let boundaryInsetFraction = 0.075
+  static let minimumInkClearanceMM = 0.25
+  static let markToPictureClearanceMM =
+    SparseTipCircularMarkPlan.radiusMM + minimumInkClearanceMM
+
   struct Mark: Hashable, Sendable {
     let position: ToolContactCalibrationPosition
     let machinePosition: MachinePosition
@@ -163,7 +174,12 @@ struct SparseTipBatchMarkPlan: Hashable, Sendable {
   }
 
   let marks: [Mark]
+  /// The calibration authority domain: it must contain all five observed mark
+  /// centers because `TipCameraRegistration` validates that evidence against it.
   let applicabilityRectangle: AxisAlignedBounds<MachineSpace>
+  /// The ordinary drawing/picture domain framed by, but not touching, the four
+  /// persistent outer calibration circles.
+  let pictureRectangle: AxisAlignedBounds<MachineSpace>
   let finalRevealPosition: MachinePosition
 
   init(
@@ -178,11 +194,22 @@ struct SparseTipBatchMarkPlan: Hashable, Sendable {
       maxX: boundarySideAggregates[.positiveX]!.estimateMM,
       maxY: boundarySideAggregates[.positiveY]!.estimateMM
     )
+    let xInset = max(
+      (boundaryEnvelope.maxX - boundaryEnvelope.minX) * Self.boundaryInsetFraction,
+      Self.markToPictureClearanceMM
+    )
+    let yInset = max(
+      (boundaryEnvelope.maxY - boundaryEnvelope.minY) * Self.boundaryInsetFraction,
+      Self.markToPictureClearanceMM
+    )
     applicabilityRectangle = try AxisAlignedBounds<MachineSpace>(
-      minX: boundaryEnvelope.minX + SparseTipCircularMarkPlan.radiusMM,
-      minY: boundaryEnvelope.minY + SparseTipCircularMarkPlan.radiusMM,
-      maxX: boundaryEnvelope.maxX - SparseTipCircularMarkPlan.radiusMM,
-      maxY: boundaryEnvelope.maxY - SparseTipCircularMarkPlan.radiusMM
+      minX: boundaryEnvelope.minX + xInset,
+      minY: boundaryEnvelope.minY + yInset,
+      maxX: boundaryEnvelope.maxX - xInset,
+      maxY: boundaryEnvelope.maxY - yInset
+    )
+    pictureRectangle = try Self.pictureRectangle(
+      framedByMarkCenters: applicabilityRectangle
     )
     let center = try MachinePosition(
       x: (applicabilityRectangle.minX + applicabilityRectangle.maxX) / 2,
@@ -221,6 +248,17 @@ struct SparseTipBatchMarkPlan: Hashable, Sendable {
       minY: centers.map(\.y).min()!,
       maxX: centers.map(\.x).max()!,
       maxY: centers.map(\.y).max()!
+    )
+  }
+
+  static func pictureRectangle(
+    framedByMarkCenters markCenterRectangle: AxisAlignedBounds<MachineSpace>
+  ) throws -> AxisAlignedBounds<MachineSpace> {
+    try AxisAlignedBounds(
+      minX: markCenterRectangle.minX + markToPictureClearanceMM,
+      minY: markCenterRectangle.minY + markToPictureClearanceMM,
+      maxX: markCenterRectangle.maxX - markToPictureClearanceMM,
+      maxY: markCenterRectangle.maxY - markToPictureClearanceMM
     )
   }
 }

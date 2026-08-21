@@ -92,8 +92,6 @@ private actor CameraSourceSession {
   private let live: CameraCapture
   private let vision: VisionWorker
   private let analysisPipeline: PlotterSceneAnalysisPipeline
-  private let startupFrameRecorder = StartupFrameRecorder()
-  private var startupFrameTask: Task<Void, Never>?
   private var automaticInspectionFrameTask: Task<Void, Never>?
   private var automaticInspectionCadence: VisionAnalysisCadence?
   private var automaticInspectionFeatures: SceneFeatureSet = []
@@ -123,9 +121,7 @@ private actor CameraSourceSession {
 
   func start() async -> CameraCaptureSnapshot {
     await live.start()
-    let snapshot = await live.snapshot()
-    await beginStartupFrameRecordingIfNeeded(snapshot)
-    return snapshot
+    return await live.snapshot()
   }
 
   func stop() async -> CameraCaptureSnapshot {
@@ -138,9 +134,7 @@ private actor CameraSourceSession {
     await stopAutomaticInspection()
     await setSceneAnalysisRegion(nil)
     await live.restart()
-    let snapshot = await live.snapshot()
-    await beginStartupFrameRecordingIfNeeded(snapshot)
-    return snapshot
+    return await live.snapshot()
   }
 
   func snapshot() async -> CameraCaptureSnapshot {
@@ -262,28 +256,6 @@ private actor CameraSourceSession {
 
   func analysisUpdates() async -> AsyncStream<PlotterSceneAnalysisSnapshot> {
     await analysisPipeline.updates()
-  }
-
-  private func beginStartupFrameRecordingIfNeeded(_ snapshot: CameraCaptureSnapshot) async {
-    guard startupFrameTask == nil,
-      case .running = snapshot.state,
-      let selectedDeviceID = snapshot.selectedDeviceID,
-      let device = snapshot.devices.first(where: { $0.id == selectedDeviceID })
-    else { return }
-    let stream = await live.frames()
-    let recorder = startupFrameRecorder
-    startupFrameTask = Task {
-      do {
-        let directory = try await recorder.record(frames: stream, device: device)
-        print("Saved startup camera samples to \(directory.path)")
-      } catch is CancellationError {
-        return
-      } catch {
-        let message =
-          (error as? LocalizedError)?.errorDescription ?? String(describing: error)
-        FileHandle.standardError.write(Data("Startup camera samples failed: \(message)\n".utf8))
-      }
-    }
   }
 
   private func stopAutomaticInspection() async {

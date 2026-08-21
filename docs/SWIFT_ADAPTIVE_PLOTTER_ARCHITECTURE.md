@@ -138,7 +138,10 @@ Learning Path travel and settlement carry typed `LearningMotionAction` identity;
 display text is derived only by the presentation boundary.
 
 `RunLedger` and workflow telemetry record diagnostics only. They do not replay
-commands, restore owners, or promote artifacts.
+commands, restore owners, or promote artifacts. The existing persistent machine-
+session owner retains at most 10 complete SQLite session groups and 50 MiB;
+unknown files are not deleted. Camera startup does not record PNG samples.
+Only explicit operator snapshots/evidence may create camera sample files.
 
 `DrawingProgramCatalog` produces deterministic field-space geometry. A
 `DrawingPlacement` is the only field-to-machine transform, and `DrawingPlanner`
@@ -275,7 +278,8 @@ no-redraw recovery route.
 `AcceptedLearningPathCheckpoint` is the single atomic production envelope for
 the accepted LIVE prefix. It composes the accepted Pen Interaction record,
 `AcceptedMachineArtifactCheckpoint`, Stage 3.3 registration/revision,
-`AcceptedTipCalibrationCheckpoint`, and the Stage 4 drawing-evidence reference.
+`AcceptedTipCalibrationCheckpoint`, accepted pen-cap appearance, one bounded
+reference frame, and the Stage 4 drawing-evidence reference.
 The inner types retain their domain validation and provenance; the envelope
 owns cross-stage semantic identity and atomic storage.
 
@@ -285,16 +289,15 @@ contact plane, camera mount, and camera reframing. Capture-session and camera-co
 ephemeral operational provenance; they are not substituted for mount/reframing
 identity.
 
-Loading immediately restores accepted Pen evidence and parks later values until
-their prerequisite evidence is current. A matching passive controller-context
-probe restores Boundary/center and Stage 3.3. Once a current frame proves the
-same camera device and semantic optics, `OperatorWorkspace` asks the accepted
-tip checkpoint to reconstruct the process-local five-observation and tip graph
-nodes with their exact stored revision IDs. It installs the unchanged
-`TipCameraRegistration` directly; application and capture-session lifetime do
-not create a new accepted revision or require cap evidence. Motion
-authorization, Pen state, frames, operation owners, and Stop capabilities
-remain session-local.
+Loading produces one exhaustive saved-package candidate and mutates no
+`LearningDependencyGraph` or registration owner. `OperatorWorkspace` projects
+compatible saved geometry and uses the package's one bounded reference frame to
+produce an advisory integer-shift/background-MAD report. **Use Saved Training**
+calls the checkpoint-owned exact graph reconstruction once, stages all fallible
+decoding locally, then assigns the complete accepted prefix atomically. **Start
+New Learning** retains the package but applies no values. Neither action restores
+Motion authorization, Pen state, controller pose trust, frames, operation
+owners, or Stop capabilities, and neither issues motion.
 
 Explicit changed-coordinate recovery may still construct fresh
 `TipCalibrationRevalidationEvidence` and rebase the machine checkpoint,
@@ -370,7 +373,10 @@ local baseline there, executes the owner-bound plan, verifies the final MPos,
 captures a newer frame, and calls the generic observer under the camera's
 exclusive Vision lease. `OverlayResultChannels` retains Drawing Studio workflow
 results independently of scene overlays and Stage 4. `DrawingRunEvidenceStore`
-owns the checksummed append-only archive. Archive load/append can never restore
+owns the checksummed append-only archive. New records embed the complete
+immutable `ExecutionPlanRevision`, allowing prior planned paths to be
+reprojected without making the archive executable; legacy hash-only records
+remain readable but explicitly lack reconstructable geometry. Archive load/append can never restore
 runtime ownership or replay a plan. `DrawingReadinessAssessment` is a Model
 value consumed only as a presentation capability statement; construction does
 not bypass its complete typed requirements.

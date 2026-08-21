@@ -5,6 +5,7 @@ public enum DrawingRunEvidenceError: Error, Equatable, Sendable {
   case emptyValue(String)
   case invalidHash
   case planIdentityMismatch
+  case missingExecutionPlanGeometry
   case invalidFrontier
   case invalidFramePair
   case invalidResidual
@@ -47,6 +48,9 @@ public struct DrawingPlacementEvidenceReference: Codable, Hashable, Sendable {
 public struct DrawingExecutionPlanEvidenceReference: Codable, Hashable, Sendable {
   public let revisionID: ExecutionPlanRevisionID
   public let contentHash: Digest
+  /// Present for every newly recorded run. Nil identifies a decoded legacy
+  /// record whose former schema persisted only the hash reference.
+  public let executionPlan: ExecutionPlanRevision?
 
   public init(
     revisionID: ExecutionPlanRevisionID,
@@ -57,20 +61,40 @@ public struct DrawingExecutionPlanEvidenceReference: Codable, Hashable, Sendable
     }
     self.revisionID = revisionID
     self.contentHash = contentHash
+    executionPlan = nil
   }
 
   public init(plan: ExecutionPlanRevision) throws {
-    try self.init(revisionID: plan.revisionID, contentHash: plan.contentHash)
+    guard plan.revisionID.rawValue == plan.contentHash else {
+      throw DrawingRunEvidenceError.planIdentityMismatch
+    }
+    revisionID = plan.revisionID
+    contentHash = plan.contentHash
+    executionPlan = plan
   }
 
-  private enum CodingKeys: String, CodingKey { case revisionID, contentHash }
+  public var hasReconstructableGeometry: Bool { executionPlan != nil }
+
+  private enum CodingKeys: String, CodingKey { case revisionID, contentHash, executionPlan }
 
   public init(from decoder: any Decoder) throws {
     let values = try decoder.container(keyedBy: CodingKeys.self)
-    try self.init(
-      revisionID: values.decode(ExecutionPlanRevisionID.self, forKey: .revisionID),
-      contentHash: values.decode(Digest.self, forKey: .contentHash)
+    let revisionID = try values.decode(ExecutionPlanRevisionID.self, forKey: .revisionID)
+    let contentHash = try values.decode(Digest.self, forKey: .contentHash)
+    guard revisionID.rawValue == contentHash else {
+      throw DrawingRunEvidenceError.planIdentityMismatch
+    }
+    let executionPlan = try values.decodeIfPresent(
+      ExecutionPlanRevision.self,
+      forKey: .executionPlan
     )
+    guard
+      executionPlan == nil
+        || (executionPlan?.revisionID == revisionID && executionPlan?.contentHash == contentHash)
+    else { throw DrawingRunEvidenceError.planIdentityMismatch }
+    self.revisionID = revisionID
+    self.contentHash = contentHash
+    self.executionPlan = executionPlan
   }
 }
 
@@ -491,7 +515,8 @@ extension DrawingRunObservationOutcome {
 /// cannot itself promote a model, restore calibration, authorize execution, or
 /// replay motion.
 public struct DrawingRunEvidenceRecord: Codable, Hashable, Sendable {
-  public static let schemaVersion: UInt16 = 1
+  public static let schemaVersion: UInt16 = 2
+  private static let legacyReferenceOnlySchemaVersion: UInt16 = 1
 
   public let schemaVersion: UInt16
   public let recordID: DrawingEvidenceRecordID
@@ -529,6 +554,53 @@ public struct DrawingRunEvidenceRecord: Codable, Hashable, Sendable {
     observation: DrawingRunObservationOutcome,
     recordedAt: RuntimeTimestamp
   ) throws {
+    try self.init(
+      schemaVersion: Self.schemaVersion,
+      recordID: recordID,
+      runID: runID,
+      requestID: requestID,
+      role: role,
+      evidenceDisposition: evidenceDisposition,
+      requestFrontier: requestFrontier,
+      executionFrontiers: executionFrontiers,
+      executionDisposition: executionDisposition,
+      program: program,
+      placement: placement,
+      plan: plan,
+      planningProvenance: planningProvenance,
+      tipCalibration: tipCalibration,
+      paper: paper,
+      observation: observation,
+      recordedAt: recordedAt
+    )
+  }
+
+  private init(
+    schemaVersion: UInt16,
+    recordID: DrawingEvidenceRecordID,
+    runID: RunID,
+    requestID: UUID,
+    role: DrawingTrialEvidenceRole,
+    evidenceDisposition: DrawingTrialEvidenceDisposition,
+    requestFrontier: DrawingRunRequestFrontier,
+    executionFrontiers: DrawingRunExecutionFrontiers,
+    executionDisposition: DrawingRunExecutionDisposition,
+    program: DrawingProgramEvidenceReference,
+    placement: DrawingPlacementEvidenceReference,
+    plan: DrawingExecutionPlanEvidenceReference,
+    planningProvenance: DrawingPlanningProvenance,
+    tipCalibration: DrawingTipCalibrationEvidenceReference,
+    paper: PaperRevisionContext,
+    observation: DrawingRunObservationOutcome,
+    recordedAt: RuntimeTimestamp
+  ) throws {
+    guard
+      schemaVersion == Self.legacyReferenceOnlySchemaVersion
+        || schemaVersion == Self.schemaVersion
+    else { throw DrawingRunEvidenceError.unsupportedSchema(schemaVersion) }
+    if schemaVersion == Self.schemaVersion, !plan.hasReconstructableGeometry {
+      throw DrawingRunEvidenceError.missingExecutionPlanGeometry
+    }
     guard executionDisposition.reasonIsValid else {
       throw DrawingRunEvidenceError.emptyValue("execution disposition reason")
     }
@@ -553,7 +625,7 @@ public struct DrawingRunEvidenceRecord: Codable, Hashable, Sendable {
         throw DrawingRunEvidenceError.missingComparisonEvidence
       }
     }
-    schemaVersion = Self.schemaVersion
+    self.schemaVersion = schemaVersion
     self.recordID = recordID
     self.runID = runID
     self.requestID = requestID
@@ -589,10 +661,14 @@ public struct DrawingRunEvidenceRecord: Codable, Hashable, Sendable {
   public init(from decoder: any Decoder) throws {
     let values = try decoder.container(keyedBy: CodingKeys.self)
     let decodedSchema = try values.decode(UInt16.self, forKey: .schemaVersion)
-    guard decodedSchema == Self.schemaVersion else {
+    guard
+      decodedSchema == Self.legacyReferenceOnlySchemaVersion
+        || decodedSchema == Self.schemaVersion
+    else {
       throw DrawingRunEvidenceError.unsupportedSchema(decodedSchema)
     }
     try self.init(
+      schemaVersion: decodedSchema,
       recordID: values.decode(DrawingEvidenceRecordID.self, forKey: .recordID),
       runID: values.decode(RunID.self, forKey: .runID),
       requestID: values.decode(UUID.self, forKey: .requestID),

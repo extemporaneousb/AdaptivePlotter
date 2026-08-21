@@ -65,7 +65,6 @@ struct StartupFrameRecorder: Sendable {
   }
 
   enum RecordingError: LocalizedError {
-    case invalidSampleCount
     case noMatchingFrames
     case imageConversionFailed(sequence: UInt64)
     case imageDestinationFailed(URL)
@@ -73,12 +72,10 @@ struct StartupFrameRecorder: Sendable {
 
     var errorDescription: String? {
       switch self {
-      case .invalidSampleCount:
-        "Startup camera sample count must be greater than zero."
       case .noMatchingFrames:
-        "Camera stopped before any matching startup frames could be saved."
+        "The selected camera does not own this frame."
       case let .imageConversionFailed(sequence):
-        "Could not convert startup camera frame \(sequence) to an image."
+        "Could not convert camera frame \(sequence) to an image."
       case let .imageDestinationFailed(url):
         "Could not create the PNG destination at \(url.path)."
       case let .imageWriteFailed(url):
@@ -88,87 +85,11 @@ struct StartupFrameRecorder: Sendable {
   }
 
   let rootDirectory: URL
-  let sampleCount: Int
-  let minimumIntervalNanoseconds: UInt64
 
   init(
-    rootDirectory: URL = Self.defaultRootDirectory(),
-    sampleCount: Int = 3,
-    minimumIntervalNanoseconds: UInt64 = 750_000_000
+    rootDirectory: URL = Self.defaultRootDirectory()
   ) {
     self.rootDirectory = rootDirectory
-    self.sampleCount = sampleCount
-    self.minimumIntervalNanoseconds = minimumIntervalNanoseconds
-  }
-
-  func record(
-    frames: AsyncStream<DisplayedFrame>,
-    device: CameraDevice
-  ) async throws -> URL {
-    guard sampleCount > 0 else { throw RecordingError.invalidSampleCount }
-    let directory = rootDirectory.appendingPathComponent(
-      Self.runDirectoryName(prefix: "startup"),
-      isDirectory: true
-    )
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-
-    var samples: [Manifest.Sample] = []
-    var firstConfigurationID: CameraConfigurationID?
-    var lastCaptureNanoseconds: UInt64?
-
-    for await displayedFrame in frames {
-      try Task.checkCancellation()
-      guard case .live(let sourceDeviceID) = displayedFrame.source,
-        sourceDeviceID == device.id
-      else { continue }
-      let frame = displayedFrame.frame
-      if let firstConfigurationID {
-        guard frame.cameraConfigurationID == firstConfigurationID else { continue }
-      } else {
-        firstConfigurationID = frame.cameraConfigurationID
-      }
-      if let lastCaptureNanoseconds {
-        guard frame.captureNanoseconds >= lastCaptureNanoseconds,
-          frame.captureNanoseconds - lastCaptureNanoseconds >= minimumIntervalNanoseconds
-        else { continue }
-      }
-
-      let filename = String(format: "frame-%02d-seq-%llu.png", samples.count + 1, frame.sequence)
-      let fileURL = directory.appendingPathComponent(filename, isDirectory: false)
-      try Self.writePNG(frame, to: fileURL)
-      samples.append(
-        Manifest.Sample(
-          filename: filename,
-          sequence: frame.sequence,
-          captureNanoseconds: frame.captureNanoseconds,
-          frameID: frame.id.rawValue,
-          contentSHA256: frame.contentSHA256,
-          width: frame.width,
-          height: frame.height,
-          rowBytes: frame.rowBytes,
-          pixelFormat: frame.pixelFormat
-        ))
-      lastCaptureNanoseconds = frame.captureNanoseconds
-      if samples.count == sampleCount { break }
-    }
-
-    guard let configurationID = firstConfigurationID, !samples.isEmpty else {
-      throw RecordingError.noMatchingFrames
-    }
-    let manifest = Manifest(
-      purpose: "startup scene samples for offline vision analysis; not motion or drawing evidence",
-      cameraDeviceID: device.id.rawValue,
-      cameraName: device.name,
-      cameraConfigurationID: configurationID.rawValue.uuidString.lowercased(),
-      samples: samples
-    )
-    let encoder = JSONEncoder()
-    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-    try encoder.encode(manifest).write(
-      to: directory.appendingPathComponent("manifest.json"),
-      options: .atomic
-    )
-    return directory
   }
 
   func recordSnapshot(_ displayedFrame: DisplayedFrame, device: CameraDevice) throws -> URL {

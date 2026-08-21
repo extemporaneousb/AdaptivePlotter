@@ -438,8 +438,10 @@ extension VisionWorker {
     _ baseline: StampedFrame,
     _ observation: StampedFrame,
     excluding region: PixelRect,
-    searchRadius: Int
+    searchRadius: Int,
+    sampleStride: Int = 1
   ) -> IntegerFrameAlignment {
+    precondition(sampleStride > 0)
     var best: (shiftX: Int, shiftY: Int, residual: Double)?
     var evaluatedPixelCount = 0
     for shiftY in (-searchRadius)...searchRadius {
@@ -449,7 +451,8 @@ extension VisionWorker {
           observation,
           excluding: region,
           observationShiftX: shiftX,
-          observationShiftY: shiftY
+          observationShiftY: shiftY,
+          sampleStride: sampleStride
         )
         evaluatedPixelCount += residual.pixelCount
         let candidate = (
@@ -483,7 +486,9 @@ extension VisionWorker {
       shiftX: selected.shiftX,
       shiftY: selected.shiftY,
       backgroundMeanAbsoluteDifference: selected.residual,
-      estimatorRevision: "bounded-integer-background-mad-v1",
+      estimatorRevision: sampleStride == 1
+        ? "bounded-integer-background-mad-v1"
+        : "bounded-integer-background-mad-subsampled-v1",
       supportRegion: PixelRect(x: 0, y: 0, width: baseline.width, height: baseline.height),
       exclusionRegion: region,
       evaluatedPixelCount: evaluatedPixelCount
@@ -495,12 +500,14 @@ extension VisionWorker {
     _ observation: StampedFrame,
     excluding region: PixelRect,
     observationShiftX: Int,
-    observationShiftY: Int
+    observationShiftY: Int,
+    sampleStride: Int = 1
   ) -> BackgroundResidual {
+    precondition(sampleStride > 0)
     var absoluteDifference = 0.0
     var pixelCount = 0
-    for y in 0..<baseline.height {
-      for x in 0..<baseline.width {
+    for y in stride(from: 0, to: baseline.height, by: sampleStride) {
+      for x in stride(from: 0, to: baseline.width, by: sampleStride) {
         let inRegion = x >= region.x && x < region.x + region.width
           && y >= region.y && y < region.y + region.height
         guard !inRegion else { continue }

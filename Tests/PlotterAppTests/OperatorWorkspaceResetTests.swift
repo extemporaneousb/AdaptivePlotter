@@ -6,6 +6,53 @@ import Testing
 @testable import PlotterRuntime
 
 extension OperatorWorkspaceTests {
+  @Test("declining saved training preserves the package and all inactive authority")
+  func startNewLearningRetainsSavedPackageWithoutApplyingIt() async throws {
+    let identities = TipCalibrationSemanticIdentityState.ephemeral()
+    let checkpoint = try AcceptedLearningPathCheckpoint(
+      semanticIdentity: identities.learningPathIdentity
+    )
+    let box = LearningPathCheckpointBox(checkpoint: checkpoint)
+    let actions = OperatorWorkspace.AcceptedLearningPathCheckpointActions(
+      load: { box.load() },
+      save: { box.save($0) },
+      clear: { box.clear() }
+    )
+    let harness = makeSimulatedHarness(
+      learningPathCheckpointActions: actions,
+      tipCalibrationSemanticIdentities: identities
+    )
+    let workspace = harness.workspace
+    let originalPoseApplicability = workspace.controllerPoseApplicability
+
+    #expect(workspace.learningArtifactGraph.revisions.isEmpty)
+    #expect(workspace.machineCameraRegistration == nil)
+    #expect(workspace.tipCameraRegistration == nil)
+    #expect(
+      workspace.currentExerciseActionStripPresentation?.actions.map(\.kind)
+        == [.useSavedTraining, .startNewLearning]
+    )
+
+    let owner = workspace.currentLearningPathItemID
+    await workspace.performExerciseAction(.startNewLearning, for: owner)
+
+    #expect(workspace.learningArtifactGraph.revisions.isEmpty)
+    #expect(workspace.machineCameraRegistration == nil)
+    #expect(workspace.tipCameraRegistration == nil)
+    #expect(workspace.controllerPoseApplicability == originalPoseApplicability)
+    #expect(box.checkpoint?.checkpointID == checkpoint.checkpointID)
+    #expect(box.operationCounts.clears == 0)
+    if case .retainedForLater(sideCount: 0, hasTipCalibration: false) =
+      workspace.acceptedArtifactCheckpointStatus
+    {
+      // Expected: the package remains durable but is no longer an active candidate.
+    } else {
+      Issue.record("Expected the declined package to remain retained for later.")
+    }
+    await workspace.shutdown()
+    #expect(box.checkpoint?.checkpointID == checkpoint.checkpointID)
+  }
+
   @Test("Reset All remains available and succeeds when LIVE Learning is already fresh")
   func resetAllFreshLiveLearningIsStable() async throws {
     let log = EventLog()
@@ -265,7 +312,7 @@ extension OperatorWorkspaceTests {
     await workspace.shutdown()
   }
 
-  @Test("Reset All LIVE Learning clears a quarantined durable tip checkpoint")
+  @Test("Reset All LIVE Learning clears a preview-only durable tip package")
   func resetAllLiveLearningClearsTipCheckpoint() async throws {
     let identities = TipCalibrationSemanticIdentityState.ephemeral()
     let checkpointBox = LearningPathCheckpointBox()
@@ -305,14 +352,24 @@ extension OperatorWorkspaceTests {
       tipCalibrationSemanticIdentities: identities
     )
     #expect(liveRestart.workspace.frameMode == .live)
-    #expect(liveRestart.workspace.quarantinedTipCalibrationCheckpoint != nil)
+    #expect(liveRestart.workspace.recoverableTipCalibrationCheckpoint == nil)
+    #expect(liveRestart.workspace.tipCameraRegistration == nil)
+    #expect(liveRestart.workspace.learningArtifactGraph.revisions.isEmpty)
+    if case .awaitingOperatorDecision(sideCount: 0, hasTipCalibration: true) =
+      liveRestart.workspace.acceptedArtifactCheckpointStatus
+    {
+      // Expected: loading the package did not apply the tip map.
+    } else {
+      Issue.record("Expected the saved tip package to await operator choice.")
+    }
     let plan = try #require(liveRestart.workspace.resetAllLearningPlan)
     #expect(plan.removesDurableTipCheckpoint)
     #expect(!plan.removesDurableMachineCheckpoint)
     let didReset = await liveRestart.workspace.performResetAllLearning(plan)
     #expect(didReset)
     #expect(checkpointBox.checkpoint == nil)
-    #expect(liveRestart.workspace.quarantinedTipCalibrationCheckpoint == nil)
+    #expect(liveRestart.workspace.recoverableTipCalibrationCheckpoint == nil)
+    #expect(liveRestart.workspace.tipCameraRegistration == nil)
   }
 
   @Test("Reset All LIVE Learning clears durable authority but retains session facts")
@@ -410,6 +467,9 @@ extension OperatorWorkspaceTests {
       tipCalibrationSemanticIdentities: identities,
       log: log
     )
+    let savedOwner = relaunched.currentLearningPathItemID
+    #expect(relaunched.learningArtifactGraph.revisions.isEmpty)
+    await relaunched.performExerciseAction(.useSavedTraining, for: savedOwner)
     await relaunched.establishMachineSession(machine.descriptor)
     await relaunched.requestPassiveProbe()
     await relaunched.startCamera()

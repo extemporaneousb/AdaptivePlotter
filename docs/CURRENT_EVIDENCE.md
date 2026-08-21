@@ -10,41 +10,45 @@ procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
 ## Implemented software surface
 
-### Software restart preserves accepted Learning authority
+### Operator-decided saved Learning and Stage 3.4 v5 picture frame
 
-Implemented 2026-08-20 in Blackdog task `TASK-D88DD2B2`, targeting `main`.
+Implemented 2026-08-20 in Blackdog task `TASK-00CC519D`.
 
-Binary replacement, application restart, and same-device capture-session
-restart are no longer physical invalidation events. After a current frame
-matches the saved camera device/semantic optics and the existing read-only
-controller-context probe matches, the process-local graph is rebuilt with the
-five stored observation revision IDs and the exact accepted tip revision.
-Boundary, Stage 3.3, Stage 3.4, attributable Stage 4, and Drawing Studio
-authority can therefore return without cap capture, click, mark, paper
-replacement, or Learning Path replay. Motion authorization, current Pen state,
-frames, operation owners, and Stop capabilities remain session-local.
+`AcceptedLearningPathCheckpoint` is the single durable saved-training package,
+including exact dependency revisions, learned cap appearance, one bounded
+reference frame, and attributable drawing records whose v2 form embeds the full
+immutable execution-plan geometry. A restart loads that package for presentation
+only. It projects compatible saved frames, cap/tip facts, and prior drawing paths
+and computes a bounded advisory alignment/MAD report. Exactly two choices are
+shown: **Use Saved Training** atomically installs the exact saved dependency
+graph without motion or pose restoration; **Start New Learning** applies nothing
+and retains the last complete package until a complete replacement is saved.
 
-A different camera device or semantic optical configuration still invalidates
-camera-dependent authority; controller-context and persisted machine/tool/
-contact-plane semantic mismatches remain unavailable. An unobservable physical
-camera bump or controller reset is not claimed as detected and must be declared
-through the owning reset. Already accepted cardinal-layout registrations retain
-their exact smaller applicability rectangle and estimator provenance; the
-boundary-corner layout is not retroactively asserted as physical evidence.
+Stage 3.4 v5 places four outer mark centers at a 7.5% inset on each Boundary
+axis, subject to the 2.25 mm radius-plus-clearance minimum, plus one center mark.
+The ordinary picture region is another 2.25 mm inside those outer centers, so
+calibration ink remains outside ordinary picture content. Existing v3/v4
+registrations retain their recorded geometry. Automatic startup PNG capture is
+removed; explicit snapshots remain. Machine-session diagnostics retain at most
+10 complete session groups and 50 MiB. Motion paths redundantly ensure Pen Up
+through the central typed actuation path before travel.
 
 | Validation | Result | Scope |
 | --- | --- | --- |
-| Focused restart, calibration-authority, controller, reset, and lifecycle suites | passed — 76 tests | exact revision reconstruction, same-optics retention, matching controller restoration, unchanged simulated state/motion/ink, explicit changed-coordinate recovery, and Reset All |
-| `make quick-test` | passed — 451 tests | fast unit/component partition with retained journeys excluded |
-| `make journey-test` | passed — 10 tests | sparse calibration, checkpoint restoration, exact tip revision, reset, Boundary, drawing, and Stop journeys |
-| `make strict-check` | passed — 461 tests | strict concurrency, warnings as errors, signed bundle, launcher checks, full test suite, and repository checks |
-| obsolete restart-revalidation policy scan | passed — zero current-policy source or test matches | removed unconditional restart quarantine and explicit capture-restart revalidation decision |
+| Focused restart/controller/reset/persistence suites | passed — 49 tests, then 12 reset tests after the final persistence guard | preview/decline nonmutation, exact two actions, atomic explicit apply, cap migration, retained package, and no empty shutdown package |
+| `make quick-test` | passed — 460 tests | fast unit/component partition with retained journeys excluded |
+| `make journey-test` | passed — 10 tests | v5 inner picture region, sparse calibration, exact tip revision, reset, Boundary, drawing, and Stop journeys |
+| `make strict-check` | passed — 470 tests | strict concurrency, warnings as errors, signed bundle, launcher checks, full test suite, and repository checks |
+| superseded-symbol/policy scan | passed — zero matches | removed startup recorder path, old optional-cluster names, old automatic-restore helper, and stale v3 current-plan wording |
 | `git diff --check` | passed | whitespace and conflict markers |
 
 No attended camera, controller, motion, Pen, click, paper, or ink validation was
 performed by this task.
 
-### Boundary-corner Stage 3.4 drawable region
+### Historical: Boundary-corner Stage 3.4 drawable region
+
+This records the earlier v4 implementation and is superseded by the v5 picture
+frame and current validation above.
 
 Implemented and validated 2026-08-20 in Blackdog task `TASK-6EE9676C`,
 targeting `main` from base `8661167bd78f93d85f3b868cd52433d9eb928b64`.
@@ -540,22 +544,25 @@ The current source contains exactly two post-Boundary calibration exercises:
   2 px maximum pairwise cap-centroid spread, and retains the newest third exact
   frame/measurement without averaging;
 - 3.4 one supervised five-circle batch with one center mark and four outer mark
-  centers 2 mm inside the accepted Boundary extrema, five 2 mm-radius/16-chord
+  centers 7.5% inside each accepted Boundary axis (at least 2.25 mm), five 2 mm-radius/16-chord
   marks capped at 100 mm/min, independent Down/Up evidence, settled Pen Up before
   every inter-circle travel, one final center reveal, one shared frozen exact
   frame, arbitrary-order clicks with deterministic global assignment, an outer-
   center applicability rectangle and calibrated-region bounding overlay,
   all-five affine-first construction, constant construction fallback,
   diagnostic-only residuals and uncertainty, stable operator viewport state,
-  and atomic tip-map commit.
+  all-five affine-first construction, an ordinary picture rectangle another
+  2.25 mm inside the outer centers, and atomic tip-map commit.
 
 `TipCameraRegistration` maps machine coordinates directly to contact pixels.
 Stage 4 consumes its exact revision, selects a 5 mm line that clears persistent
 calibration circles, and owns its own local baseline, reveal MPos, drawing
 execution, newer post-line frame, and generic ink observation.
 
-The separate tip checkpoint loads quarantined. Same-paper restart uses a fresh
-controller/cap frame and no new mark. An actual paper replacement rotates paper
+The single Learning package loads as a presentation-only candidate. It projects
+compatible saved geometry and reports advisory optical shift/background MAD;
+only **Use Saved Training** applies its exact revisions. **Start New Learning**
+retains the last complete package. An actual paper replacement rotates paper
 identity and requires current calibration on that paper. Possible ink is keyed
 by machine position plus mark radius plus paper identity and survives cancel,
 restart, and reset on that paper; it never triggers automatic redraw.
@@ -716,5 +723,6 @@ physical assembly change. An attended operator must refuse checkpoint
 revalidation after any unrecorded remount or assembly change and perform a full
 reset/recalibration. Dedicated controls remain roadmap work.
 
-Frame hashes and metadata are provenance. Current tip evidence does not promise
-durable pixel reprocessing because no content-addressed frame archive is stored.
+Frame hashes and metadata remain provenance. The Learning package now stores
+exactly one bounded (16 MiB maximum) reference frame for advisory optical
+comparison; it is not a general frame archive and is never physical proof.

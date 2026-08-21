@@ -62,6 +62,104 @@ private enum MachineSessionCompositionError: LocalizedError {
   }
 }
 
+/// Bounds the best-effort controller journal in its existing storage owner.
+/// A session includes its SQLite database and any sidecar files sharing the
+/// same `session-*.sqlite` stem. Unknown files are never claimed or removed.
+struct MachineSessionRetentionPolicy: Sendable {
+  static let production = MachineSessionRetentionPolicy(
+    maximumSessionCount: 10,
+    maximumTotalBytes: 50 * 1_024 * 1_024
+  )
+
+  let maximumSessionCount: Int
+  let maximumTotalBytes: Int
+
+  init(maximumSessionCount: Int, maximumTotalBytes: Int) {
+    precondition(maximumSessionCount >= 0)
+    precondition(maximumTotalBytes >= 0)
+    self.maximumSessionCount = maximumSessionCount
+    self.maximumTotalBytes = maximumTotalBytes
+  }
+
+  func enforce(
+    in directory: URL,
+    fileManager: FileManager = .default
+  ) throws {
+    for url in try urlsToRemove(in: directory, fileManager: fileManager) {
+      try fileManager.removeItem(at: url)
+    }
+  }
+
+  func urlsToRemove(
+    in directory: URL,
+    fileManager: FileManager = .default
+  ) throws -> [URL] {
+    struct SessionGroup {
+      let stem: String
+      let urls: [URL]
+      let totalBytes: Int
+      let mostRecentModification: Date
+    }
+
+    let resourceKeys: Set<URLResourceKey> = [
+      .contentModificationDateKey,
+      .fileSizeKey,
+      .isRegularFileKey,
+    ]
+    let urls = try fileManager.contentsOfDirectory(
+      at: directory,
+      includingPropertiesForKeys: Array(resourceKeys),
+      options: [.skipsHiddenFiles]
+    )
+    let recognized = try urls.compactMap { url -> (String, URL, Int, Date)? in
+      let name = url.lastPathComponent
+      guard name.hasPrefix("session-"),
+        let sqliteRange = name.range(of: ".sqlite")
+      else { return nil }
+      let suffix = name[sqliteRange.upperBound...]
+      guard suffix.isEmpty || suffix == "-shm" || suffix == "-wal" || suffix == "-journal"
+      else { return nil }
+      let values = try url.resourceValues(forKeys: resourceKeys)
+      guard values.isRegularFile == true else { return nil }
+      let stem = String(name[..<sqliteRange.upperBound])
+      return (
+        stem,
+        url,
+        max(0, values.fileSize ?? 0),
+        values.contentModificationDate ?? .distantPast
+      )
+    }
+    let groups = Dictionary(grouping: recognized, by: \.0).map { stem, files in
+      SessionGroup(
+        stem: stem,
+        urls: files.map(\.1),
+        totalBytes: files.reduce(0) { $0 + $1.2 },
+        mostRecentModification: files.map(\.3).max() ?? .distantPast
+      )
+    }.sorted {
+      if $0.mostRecentModification != $1.mostRecentModification {
+        return $0.mostRecentModification > $1.mostRecentModification
+      }
+      return $0.stem > $1.stem
+    }
+
+    var retainedCount = 0
+    var retainedBytes = 0
+    var removals: [URL] = []
+    for group in groups {
+      let fitsCount = retainedCount < maximumSessionCount
+      let fitsBytes = group.totalBytes <= maximumTotalBytes - retainedBytes
+      if fitsCount && fitsBytes {
+        retainedCount += 1
+        retainedBytes += group.totalBytes
+      } else {
+        removals.append(contentsOf: group.urls)
+      }
+    }
+    return removals.sorted { $0.lastPathComponent < $1.lastPathComponent }
+  }
+}
+
 /// Owns one controller, interpreter, serial link, and best-effort journal for
 /// the explicitly selected device. Repeated probes and jogs reuse that session.
 private actor PersistentMachineSession {
@@ -243,18 +341,33 @@ private actor PersistentMachineSession {
     else {
       return (nil, nil)
     }
-    let ledgerURL =
+    let sessionDirectory =
       applicationSupport
       .appendingPathComponent("AdaptivePlotter", isDirectory: true)
       .appendingPathComponent("MachineSessions", isDirectory: true)
+    let ledgerURL =
+      sessionDirectory
       .appendingPathComponent("session-\(UUID().uuidString.lowercased())")
       .appendingPathExtension("sqlite")
     do {
       try fileManager.createDirectory(
-        at: ledgerURL.deletingLastPathComponent(),
+        at: sessionDirectory,
         withIntermediateDirectories: true
       )
       let ledger = try RunLedger(databaseURL: ledgerURL)
+      // Include the newly created database in the same retention decision.
+      // Enforcing before creation would leave maximumSessionCount + 1 groups
+      // immediately after every connection.
+      do {
+        try MachineSessionRetentionPolicy.production.enforce(
+          in: sessionDirectory,
+          fileManager: fileManager
+        )
+      } catch {
+        Self.logger.error(
+          "Machine-session retention failed: \(String(describing: error), privacy: .public)"
+        )
+      }
       let runID = try await ledger.createRun(
         buildID: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
           ?? "swiftpm-local",

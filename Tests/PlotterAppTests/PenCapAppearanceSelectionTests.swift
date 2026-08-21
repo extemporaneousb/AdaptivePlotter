@@ -113,9 +113,10 @@ struct PenCapAppearanceSelectionTests {
     await workspace.awaitPenCapAcceptedClickTransition()
     try requireStep(workspace, "answer-initially-up")
 
-    let learned = try #require(persisted.value)
+    let learned = try #require(workspace.penCapAppearanceSelection)
     #expect(learned.matches(frozenFrame))
     #expect(workspace.penCapAppearanceSelection == learned)
+    #expect(persisted.value == nil)
     #expect(camera.recordedPenCapColorRequests.last == learned.color)
     #expect(await machine.requestedPenCommands.isEmpty)
     #expect(await log.values.isEmpty)
