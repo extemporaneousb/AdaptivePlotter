@@ -80,10 +80,11 @@ The visible run-state vocabulary is Off, Waiting, Analyzing, Found/Available,
 Not found/Unavailable, Candidate rejected, Ambiguous, Failed, Suspended, and
 Stale. Reasons must name zero threshold pixels, rejected component counts and
 leading rejection reason, ambiguous candidate sizes, source/frame mismatch, or
-the cap dependency that made the armature unavailable. Suspension says that
-exclusive calibration Vision owns the exact frame while the selection remains
-On. An available armature says it was inferred from the cap and not independently
-segmented. Before Pen Interaction has accepted a LIVE pen-cap appearance, the
+the cap dependency that made the armature unavailable. Suspension names the
+typed exact-workflow Vision owner of the exact frame while the selection remains
+On; supervised travel alone is not a Vision owner or preview hold. An available
+armature says it was inferred from the cap and not independently segmented.
+Before Pen Interaction has accepted a LIVE pen-cap appearance, the
 Pen cap and Armature envelope layers report Unavailable without changing their
 persisted operator selections or rendering LIVE geometry.
 
@@ -379,17 +380,26 @@ offsets. Stage 3.3 retains its separate center plus four ±24 mm camera-
 calibration positions and holdout authority. Operator-visible motion text names
 the actual minimum/maximum-axis corner.
 
-At every Stage 3.4 position the operation travels and settles Pen Up, retains
-that circle's pre-mark exact frame, cap, controller, and settled-position
-evidence, moves Pen Up to the circle start, lowers and settles using the current
-Pen Interaction profile, and draws one closed 2 mm-radius circle as 16 finite
-typed chords capped at 100 mm/min. It then raises and settles Pen Up before any
-travel to the next circle. The four circles therefore contain exactly 64 circle
-chords and no connecting Pen-Down stroke during calibration. Stage 4.1 then
-draws the physical perimeter through the four centers as one closed plan with
-four right-angle turns.
+The Stage 3.4 batch first commands and settles one idempotent Pen Up, then retains
+that batch-scoped Pen-Up authorization for approach, circle-start, inter-circle,
+and reveal travel. At every mark it retains the circle's pre-mark exact frame,
+cap, controller, and settled-position evidence; lowers and settles using the
+current Pen Interaction profile; draws one closed 2 mm-radius circle as 16 finite
+typed chords capped at 100 mm/min; then raises and settles before any next travel.
+The four circles therefore contain exactly 64 typed chord outcomes, four Pen Down
+settlements, five Pen Up settlements including the initial normalization, and no
+connecting Pen-Down stroke during calibration. This batching removes duplicate
+raise commands before already-authorized Pen-Up travel; it does not relax Pen-Up,
+Idle/final-MPos, Stop, or possible-ink requirements. Stage 4.1 then draws the
+physical perimeter through the four centers as one closed plan with four
+right-angle turns.
 Each observation retains its own physical operation evidence. Command completion
 is not proof of physical pressure, contact, or observed ink.
+
+The batch performs four pre-mark controller-context probes and one final reveal
+probe, then publishes one final machine snapshot. Individual chord settlement
+does not trigger another workspace snapshot, Learning projection, or workflow-
+telemetry record; the controller outcome remains typed and authoritative.
 
 After the fourth circle only, the operation returns Pen Up to the corner
 rectangle's geometric center, requires existing Pen-Up, Idle, and settlement
@@ -463,7 +473,7 @@ the existing possible-ink recovery. It is never a numerical model outcome.
 
 `TipCameraRegistration` maps machine coordinates directly to paper-contact
 pixels. It retains the affine transform, model form, covariance/uncertainty,
-diagnostic residuals, applicability rectangle, five observation hashes and
+diagnostic residuals, applicability rectangle, four observation hashes and
 revisions, semantic applicability identities, capture sessions, accepted
 revision, estimator, timestamp, and derivation.
 

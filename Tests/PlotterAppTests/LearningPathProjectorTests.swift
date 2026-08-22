@@ -312,7 +312,7 @@ struct LearningPathProjectorTests {
       drawing: .init(currentStep: .revealAndObserveNewInk),
       operations: .init(
         activeAttemptOwner: owner,
-        workflowVisionActive: true
+        exactWorkflowVisionOwner: .observedDrawingTrial
       )
     )
 
@@ -329,6 +329,39 @@ struct LearningPathProjectorTests {
         "Vision is comparing"
       ) == true
     )
+  }
+
+  @Test("typed exact-workflow Vision owners never impersonate trial ink")
+  func typedExactWorkflowVisionOwnersAreTruthful() throws {
+    let owner = LearningPathItemID.observedDrawingTrial(.chooseFramePlan)
+    let expectedStates: [ExactWorkflowVisionOwner: String] = [
+      .penCapAppearance: "Pen-cap appearance Vision · active",
+      .cameraCalibration: "Camera calibration Vision · active",
+      .sparseTipCalibration: "Sparse-tip calibration Vision · active",
+      .observedDrawingTrial: "Trial ink analysis · active",
+      .drawingStudio: "Drawing Studio ink analysis · active",
+    ]
+
+    for exactOwner in ExactWorkflowVisionOwner.allCases {
+      let snapshot = postBoundarySnapshot(
+        sparse: .init(acceptedIsCurrent: true),
+        drawing: .init(currentStep: .revealAndObserveNewInk),
+        operations: .init(
+          activeAttemptOwner: owner,
+          exactWorkflowVisionOwner: exactOwner
+        )
+      )
+      let projection = projector.project(snapshot, selectedItemID: owner)
+      let vision = try #require(
+        projection.selectedAction.subsystemStatuses.first { $0.id == "vision" }
+      )
+
+      #expect(vision.state == expectedStates[exactOwner])
+      #expect(
+        vision.state.contains("Trial ink analysis")
+          == (exactOwner == .observedDrawingTrial)
+      )
+    }
   }
 
   @Test("completed curriculum remains on the one-Go observed-trial endpoint")

@@ -112,6 +112,9 @@ struct PenCapAppearanceSelectionTests {
     workspace.selectToolContactPoint(accepted)
     await workspace.awaitPenCapAcceptedClickTransition()
     try requireStep(workspace, "answer-initially-up")
+    try await waitForExecutorTurns {
+      camera.recordedPenCapColorRequests.last != nil
+    }
 
     let learned = try #require(workspace.penCapAppearanceSelection)
     #expect(learned.matches(frozenFrame))
@@ -189,6 +192,53 @@ struct PenCapAppearanceSelectionTests {
     #expect(readyStrip.actions.first { $0.kind == .choice(.yes) }?.unavailableReason == nil)
     #expect(readyStrip.penSetpointAdjustment?.isEnabled == true)
     try requireStep(workspace, "answer-initially-up")
+    await workspace.shutdown()
+  }
+
+  @Test("first Pen question does not wait for held or failing Vision reconfiguration")
+  func firstQuestionPrecedesVisionReconfiguration() async throws {
+    let log = EventLog()
+    let machine = try MachineFixture(log: log)
+    let camera = try CameraFixture(
+      automaticAnalysisError: "Injected automatic Vision reconfiguration failure."
+    )
+    let reconfigurationGate = CameraReconfigurationGate()
+    let workspace = workspace(
+      machine: machine,
+      cameraActionsOverride: cameraActions(
+        camera,
+        reconfigurationGate: reconfigurationGate
+      ),
+      loadPenCapAppearanceSelection: { nil },
+      log: log
+    )
+    await workspace.establishMachineSession(machine.descriptor)
+    await workspace.requestPassiveProbe()
+    await workspace.startCamera()
+    await workspace.beginPenInteraction()
+    await reconfigurationGate.arm()
+
+    try submitPenCapClick(workspace)
+    await workspace.awaitPenCapAcceptedClickTransition()
+
+    try requireStep(workspace, "answer-initially-up")
+    try await waitForExecutorTurnsAsync(
+      conditionDescription: "held Pen-cap Vision reconfiguration"
+    ) {
+      await reconfigurationGate.isWaiting
+    }
+    #expect(
+      workspace.selectedOperatorActionPresentation(
+        for: .humanGuidedDiscovery(.penInteraction)
+      ).question != nil
+    )
+
+    await reconfigurationGate.release()
+    try await waitForExecutorTurns {
+      workspace.visionError == "Injected automatic Vision reconfiguration failure."
+    }
+    try requireStep(workspace, "answer-initially-up")
+    #expect(await machine.requestedPenCommands.isEmpty)
     await workspace.shutdown()
   }
 

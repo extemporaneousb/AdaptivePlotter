@@ -107,6 +107,66 @@ struct HumanGuidedDiscoveryTests {
     #expect(transaction.currentStep?.action == .announce("Lowering the pen."))
   }
 
+  @Test("Pen settlement and its following question are one atomic transaction transition")
+  func penSettlementAndQuestionAreAtomic() throws {
+    let definition = DiscoverySequenceCatalog.definition(for: .penInteraction)
+    var transaction = DiscoveryTransaction(definition: definition)
+    try transaction.begin()
+    try transaction.record(.questionPresented)
+    try transaction.record(
+      .physicalPenConfirmed(
+        .up,
+        response: .yes,
+        operatorSummary: "Operator observed Pen Up."
+      )
+    )
+    try transaction.record(.announcementCompleted)
+
+    try transaction.recordPenCommandSettledAndPresentFollowingQuestion(
+      .lower,
+      controllerSummary: "lower acknowledged; commanded down"
+    )
+
+    #expect(transaction.currentStep?.id == "answer-currently-down")
+    #expect(transaction.completedStepCount == 5)
+    #expect(transaction.evidenceSummaries.last?.kind == .controller)
+  }
+
+  @Test("atomic Pen settlement rejects wrong command or step without mutation")
+  func atomicPenSettlementRejectsWithoutMutation() throws {
+    let definition = DiscoverySequenceCatalog.definition(for: .penInteraction)
+    var wrongStep = DiscoveryTransaction(definition: definition)
+    try wrongStep.begin()
+    let initial = wrongStep
+    #expect(throws: DiscoveryTransactionError.unexpectedEvent(stepID: "question-initially-up")) {
+      try wrongStep.recordPenCommandSettledAndPresentFollowingQuestion(
+        .lower,
+        controllerSummary: "unexpected"
+      )
+    }
+    #expect(wrongStep == initial)
+
+    var wrongCommand = DiscoveryTransaction(definition: definition)
+    try wrongCommand.begin()
+    try wrongCommand.record(.questionPresented)
+    try wrongCommand.record(
+      .physicalPenConfirmed(
+        .up,
+        response: .yes,
+        operatorSummary: "Operator observed Pen Up."
+      )
+    )
+    try wrongCommand.record(.announcementCompleted)
+    let atLowerCommand = wrongCommand
+    #expect(throws: DiscoveryTransactionError.unexpectedEvent(stepID: "command-down")) {
+      try wrongCommand.recordPenCommandSettledAndPresentFollowingQuestion(
+        .raise,
+        controllerSummary: "wrong command"
+      )
+    }
+    #expect(wrongCommand == atLowerCommand)
+  }
+
   @Test("every first side forces its opposite then permits either remaining-axis sign")
   func pairedBoundaryOrder() throws {
     for first in BoundaryDirection.allCases {

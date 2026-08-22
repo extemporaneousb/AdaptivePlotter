@@ -315,7 +315,7 @@ struct CameraCaptureTests {
     #expect(newest?.frame.bytes[0] == 3)
   }
 
-  @Test("preview materialization is bounded while exact latest-frame capture remains available")
+  @Test("return-only exact materialization stays off preview until one explicit publication")
   func boundedPreviewAndExactMaterialization() async throws {
     let device = CameraDevice(id: CameraDeviceID(rawValue: "camera"), name: "Camera")
     let driver = TestCameraDriver(devices: [device])
@@ -334,6 +334,7 @@ struct CameraCaptureTests {
     #expect(firstPreview.frame.sequence == 1)
     #expect(await capture.diagnostics().totalMaterializedFrameCount == 1)
     #expect(await capture.diagnostics().previewMaterializedFrameCount == 1)
+    #expect(await capture.diagnostics().ordinaryPreviewPublicationCount == 1)
 
     await driver.emit(sample(value: 2, time: 120))
     try await waitUntil { await capture.diagnostics().receivedFrameCount == 2 }
@@ -343,18 +344,96 @@ struct CameraCaptureTests {
     #expect(await capture.diagnostics().totalMaterializedFrameCount == 1)
 
     let exact = try #require(
-      try await capture.materializeLatestFrame(newerThanNanoseconds: 100)
+      try await capture.materializeLatestFrame(
+        newerThanNanoseconds: 100,
+        policy: .returnOnly
+      )
     )
     #expect(exact.frame.sequence == 3)
     #expect(exact.frame.captureNanoseconds == 150)
     #expect(exact.frame.bytes[0] == 3)
     #expect(await capture.diagnostics().totalMaterializedFrameCount == 2)
     #expect(await capture.diagnostics().exactMaterializedFrameCount == 1)
+    #expect(await capture.diagnostics().returnOnlyExactRequestCount == 1)
+    #expect(await capture.diagnostics().ordinaryPreviewPublicationCount == 1)
+    #expect(await capture.diagnostics().explicitExactPublicationCount == 0)
+    #expect(await capture.snapshot().latestFrame?.frame.id == firstPreview.frame.id)
 
-    let repeated = try #require(try await capture.materializeLatestFrame())
+    let repeated = try #require(
+      try await capture.materializeLatestFrame(policy: .returnOnly)
+    )
     #expect(repeated.frame.id == exact.frame.id)
     #expect(await capture.diagnostics().totalMaterializedFrameCount == 2)
-    #expect(try await capture.materializeLatestFrame(newerThanNanoseconds: 150) == nil)
+    #expect(await capture.diagnostics().returnOnlyExactRequestCount == 2)
+    #expect(
+      try await capture.materializeLatestFrame(
+        newerThanNanoseconds: 150,
+        policy: .returnOnly
+      ) == nil
+    )
+
+    #expect(try await capture.publishMaterializedExactFrame(exact) == .published)
+    #expect(try await capture.publishMaterializedExactFrame(exact) == .alreadyPublished)
+    let published = try #require(await capture.snapshot().latestFrame)
+    #expect(published == exact)
+    let diagnostics = await capture.diagnostics()
+    #expect(diagnostics.ordinaryPreviewPublicationCount == 1)
+    #expect(diagnostics.explicitExactPublicationCount == 1)
+    #expect(diagnostics.lastReturnOnlyExactFrameID == exact.frame.id)
+    #expect(diagnostics.lastExplicitlyPublishedExactFrameID == exact.frame.id)
+  }
+
+  @Test("exact publication rejects a value not retained by the active camera owner")
+  func exactPublicationRequiresCameraOwnedProvenance() async throws {
+    let device = CameraDevice(id: CameraDeviceID(rawValue: "camera"), name: "Camera")
+    let driver = TestCameraDriver(devices: [device])
+    let capture = CameraCapture(
+      driver: driver,
+      materializationPolicy: LiveFrameMaterializationPolicy(
+        minimumPreviewIntervalNanoseconds: 100
+      )
+    )
+    await capture.discoverDevices()
+    await capture.start()
+
+    await driver.emit(sample(value: 1, time: 100))
+    try await waitUntil { await capture.diagnostics().receivedFrameCount == 1 }
+    await driver.emit(sample(value: 2, time: 120))
+    try await waitUntil { await capture.diagnostics().receivedFrameCount == 2 }
+    let exact = try #require(
+      try await capture.materializeLatestFrame(
+        newerThanNanoseconds: 100,
+        policy: .returnOnly
+      )
+    )
+    let forgedFrame = try StampedFrame(
+      id: exact.frame.id,
+      sequence: exact.frame.sequence,
+      captureNanoseconds: exact.frame.captureNanoseconds,
+      cameraConfigurationID: exact.frame.cameraConfigurationID,
+      width: exact.frame.width,
+      height: exact.frame.height,
+      rowBytes: exact.frame.rowBytes,
+      pixelFormat: exact.frame.pixelFormat,
+      bytes: OwnedFrameBytes([9, 9, 9, 9])
+    )
+    let forged = DisplayedFrame(source: exact.source, frame: forgedFrame)
+
+    do {
+      _ = try await capture.publishMaterializedExactFrame(forged)
+      Issue.record("Expected CameraCapture to reject noncanonical exact bytes")
+    } catch let error as ExactFramePublicationError {
+      #expect(error == .notMaterializedByCurrentCapture)
+    }
+    #expect(await capture.diagnostics().explicitExactPublicationCount == 0)
+
+    await capture.restart()
+    do {
+      _ = try await capture.publishMaterializedExactFrame(exact)
+      Issue.record("Expected a prior-generation exact frame to be rejected")
+    } catch let error as ExactFramePublicationError {
+      #expect(error == .notMaterializedByCurrentCapture)
+    }
   }
 
   @Test("preview pause retains newest raw capture and publishes it once after all owners settle")
@@ -391,6 +470,9 @@ struct CameraCaptureTests {
 
     await capture.resumePreviewPublication(nestedPause)
     #expect(await capture.diagnostics().previewMaterializedFrameCount == 2)
+    let diagnostics = await capture.diagnostics()
+    #expect(diagnostics.previewPauseAcquisitionCount == 2)
+    #expect(diagnostics.previewPauseReleaseCount == 2)
   }
 
   @Test("only CameraCapture issues live evidence attestations")
@@ -405,14 +487,16 @@ struct CameraCaptureTests {
     try await waitUntil { await capture.diagnostics().receivedFrameCount == 1 }
     let attestation = try #require(
       try await capture.materializeLatestAttestedFrame(
-        newerThanNanoseconds: 99
+        newerThanNanoseconds: 99,
+        policy: .returnOnly
       )
     )
     #expect(attestation.cameraDeviceID == device.id)
     #expect(attestation.frame.captureNanoseconds == 100)
     #expect(
       try await capture.materializeLatestAttestedFrame(
-        newerThanNanoseconds: 100
+        newerThanNanoseconds: 100,
+        policy: .returnOnly
       ) == nil
     )
 

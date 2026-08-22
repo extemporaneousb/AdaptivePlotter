@@ -7,12 +7,126 @@ import Testing
 
 @Suite("Bounded plotter-scene analysis pipeline")
 struct PlotterSceneAnalysisPipelineTests {
+  @Test("one hundred frame-only updates do not publish semantic state")
+  func diagnosticsOnlyTrafficDoesNotPublishSemantics() async throws {
+    let gate = AnalysisGate()
+    let pipeline = PlotterSceneAnalysisPipeline(clock: DeterministicRuntimeClock()) { frame in
+      await gate.block(frame.sequence)
+      return sceneMeasurement(for: frame)
+    }
+    let recorder = SemanticSnapshotRecorder()
+    let updates = await pipeline.updates()
+    let updateTask = Task {
+      for await update in updates { await recorder.record(update) }
+    }
+    defer { updateTask.cancel() }
+    try await waitUntil { await recorder.count == 1 }
+
+    await pipeline.start(cadence: .fiveFPS, requestedFeatures: [.penCap])
+    try await waitUntil { await recorder.count == 2 }
+    await pipeline.submit(try displayedFrame(sequence: 1))
+    try await waitUntil { await gate.startedSequences == [1] }
+    for sequence in 2...101 {
+      await pipeline.submit(try displayedFrame(sequence: UInt64(sequence)))
+    }
+    try await waitUntil {
+      let diagnostics = await pipeline.diagnostics()
+      return diagnostics.submittedFrameCount == 101
+        && diagnostics.activeFrameSequence == 1
+        && diagnostics.pendingFrameSequence == 101
+    }
+
+    let diagnostics = await pipeline.diagnostics()
+    #expect(diagnostics.supersededFrameCount == 99)
+    #expect(diagnostics.semanticPublicationCount == 1)
+    #expect(diagnostics.semanticSubscriptionStartCount == 1)
+    #expect(await recorder.count == 2)
+
+    await pipeline.stop()
+    await gate.releaseNext()
+  }
+
+  @Test("identical configuration and lifecycle reconciliation is a complete no-op")
+  func identicalReconciliationIsNoOp() async {
+    let pipeline = PlotterSceneAnalysisPipeline(clock: DeterministicRuntimeClock()) { frame in
+      sceneMeasurement(for: frame)
+    }
+    await pipeline.start(cadence: .fiveFPS, requestedFeatures: [.penCap])
+    let running = await pipeline.diagnostics()
+    await pipeline.start(cadence: .fiveFPS, requestedFeatures: [.penCap])
+    await pipeline.setAnalysisRegion(nil)
+    await pipeline.setPenCapColor(.green)
+    #expect(await pipeline.diagnostics() == running)
+
+    await pipeline.stop()
+    let stopped = await pipeline.diagnostics()
+    await pipeline.stop()
+    #expect(await pipeline.diagnostics() == stopped)
+  }
+
+  @Test("real configuration result error and clearance transitions publish once")
+  func semanticTransitionsPublishExactlyOnce() async throws {
+    let pipeline = PlotterSceneAnalysisPipeline(clock: DeterministicRuntimeClock()) { frame in
+      if frame.sequence == 2 || frame.sequence == 3 {
+        throw PipelineTestError.syntheticFailure
+      }
+      return sceneMeasurement(for: frame)
+    }
+    let recorder = SemanticSnapshotRecorder()
+    let updates = await pipeline.updates()
+    let updateTask = Task {
+      for await update in updates { await recorder.record(update) }
+    }
+    defer { updateTask.cancel() }
+    try await waitUntil { await recorder.count == 1 }
+
+    await pipeline.start(cadence: .tenFPS, requestedFeatures: [.penCap])
+    #expect(await pipeline.diagnostics().semanticPublicationCount == 1)
+    try await waitUntil { await recorder.count == 2 }
+    let region = PixelRect(x: 0, y: 0, width: 1, height: 1)
+    await pipeline.setAnalysisRegion(region)
+    await pipeline.setAnalysisRegion(region)
+    #expect(await pipeline.diagnostics().semanticPublicationCount == 2)
+    try await waitUntil { await recorder.count == 3 }
+
+    await pipeline.submit(try displayedFrame(sequence: 1))
+    try await waitUntil { await pipeline.diagnostics().analyzedFrameCount == 1 }
+    #expect(await pipeline.diagnostics().semanticPublicationCount == 3)
+    try await waitUntil { await recorder.count == 4 }
+
+    await pipeline.submit(try displayedFrame(sequence: 2))
+    try await waitUntil { await pipeline.diagnostics().failedFrameCount == 1 }
+    #expect(await pipeline.diagnostics().semanticPublicationCount == 4)
+    #expect(await pipeline.snapshot().lastError != nil)
+    try await waitUntil { await recorder.count == 5 }
+
+    await pipeline.submit(try displayedFrame(sequence: 3))
+    try await waitUntil { await pipeline.diagnostics().failedFrameCount == 2 }
+    #expect(await pipeline.diagnostics().semanticPublicationCount == 4)
+    #expect(await recorder.count == 5)
+
+    await pipeline.submit(try displayedFrame(sequence: 4))
+    try await waitUntil { await pipeline.diagnostics().analyzedFrameCount == 2 }
+    #expect(await pipeline.diagnostics().semanticPublicationCount == 5)
+    #expect(await pipeline.snapshot().lastError == nil)
+    try await waitUntil { await recorder.count == 6 }
+
+    await pipeline.start(cadence: .fiveFPS, requestedFeatures: [.penCap])
+    #expect(await pipeline.diagnostics().semanticPublicationCount == 6)
+    try await waitUntil { await recorder.count == 7 }
+    await pipeline.stop()
+    await pipeline.stop()
+    #expect(await pipeline.diagnostics().semanticPublicationCount == 7)
+    try await waitUntil { await recorder.count == 8 }
+    #expect(await recorder.revisions == (0...7).map(UInt64.init))
+  }
+
   @Test("pipeline propagates requested features and clears results when selection changes")
   func featureSelectionPropagates() async throws {
     let pipeline = PlotterSceneAnalysisPipeline(clock: DeterministicRuntimeClock())
     await pipeline.start(cadence: .tenFPS, requestedFeatures: [.armatureEnvelope])
     await pipeline.submit(try displayedFrame(sequence: 1))
-    try await waitUntil { await pipeline.snapshot().analyzedFrameCount == 1 }
+    try await waitUntil { await pipeline.diagnostics().analyzedFrameCount == 1 }
 
     let armatureResult = try #require(await pipeline.snapshot().latestResult)
     #expect(armatureResult.measurement.computation.requestedFeatures == [.armatureEnvelope])
@@ -28,7 +142,7 @@ struct PlotterSceneAnalysisPipelineTests {
     await pipeline.start(cadence: .tenFPS, requestedFeatures: [.penCap])
     #expect(await pipeline.snapshot().latestResult == nil)
     await pipeline.submit(try displayedFrame(sequence: 2))
-    try await waitUntil { await pipeline.snapshot().analyzedFrameCount == 2 }
+    try await waitUntil { await pipeline.diagnostics().analyzedFrameCount == 2 }
     let capResult = try #require(await pipeline.snapshot().latestResult)
     #expect(capResult.measurement.computation.requestedFeatures == [.penCap])
     #expect(capResult.measurement.computation.expandedFeatures == [.penCap])
@@ -52,20 +166,20 @@ struct PlotterSceneAnalysisPipelineTests {
     await pipeline.submit(try displayedFrame(sequence: 3))
     await pipeline.submit(try displayedFrame(sequence: 4))
 
-    var snapshot = await pipeline.snapshot()
-    #expect(snapshot.activeFrameSequence == 1)
-    #expect(snapshot.pendingFrameSequence == 4)
-    #expect(snapshot.supersededFrameCount == 2)
+    var diagnostics = await pipeline.diagnostics()
+    #expect(diagnostics.activeFrameSequence == 1)
+    #expect(diagnostics.pendingFrameSequence == 4)
+    #expect(diagnostics.supersededFrameCount == 2)
 
     await gate.releaseNext()
     try await waitUntil { await gate.startedSequences == [1, 4] }
     await gate.releaseNext()
-    try await waitUntil { await pipeline.snapshot().analyzedFrameCount == 2 }
+    try await waitUntil { await pipeline.diagnostics().analyzedFrameCount == 2 }
 
-    snapshot = await pipeline.snapshot()
-    #expect(snapshot.submittedFrameCount == 4)
-    #expect(snapshot.analyzedFrameCount == 2)
-    #expect(snapshot.latestResult?.displayedFrame.frame.sequence == 4)
+    diagnostics = await pipeline.diagnostics()
+    #expect(diagnostics.submittedFrameCount == 4)
+    #expect(diagnostics.analyzedFrameCount == 2)
+    #expect(diagnostics.latestResult?.frameSequence == 4)
     #expect(await gate.startedSequences == [1, 4])
     await pipeline.stop()
   }
@@ -80,9 +194,9 @@ struct PlotterSceneAnalysisPipelineTests {
     }
     await pipeline.start(cadence: .fiveFPS, requestedFeatures: [.penCap])
     await pipeline.submit(try displayedFrame(sequence: 1))
-    try await waitUntil { await pipeline.snapshot().analyzedFrameCount == 1 }
+    try await waitUntil { await pipeline.diagnostics().analyzedFrameCount == 1 }
     await pipeline.submit(try displayedFrame(sequence: 2))
-    try await waitUntil { await pipeline.snapshot().analyzedFrameCount == 2 }
+    try await waitUntil { await pipeline.diagnostics().analyzedFrameCount == 2 }
 
     let values = await starts.values
     #expect(values.count == 2)
@@ -105,9 +219,9 @@ struct PlotterSceneAnalysisPipelineTests {
     }
     await pipeline.start(cadence: .twoFPS, requestedFeatures: [.penCap])
     await pipeline.submit(try displayedFrame(sequence: 1))
-    try await waitUntil { await pipeline.snapshot().analyzedFrameCount == 1 }
+    try await waitUntil { await pipeline.diagnostics().analyzedFrameCount == 1 }
     await pipeline.submit(try displayedFrame(sequence: 2))
-    try await waitUntil { await pipeline.snapshot().analyzedFrameCount == 2 }
+    try await waitUntil { await pipeline.diagnostics().analyzedFrameCount == 2 }
 
     let values = await starts.values
     #expect(values == [10, 1_400_000_010])
@@ -135,7 +249,7 @@ struct PlotterSceneAnalysisPipelineTests {
     await Task.yield()
     let snapshot = await pipeline.snapshot()
     #expect(snapshot.state == .stopped)
-    #expect(snapshot.analyzedFrameCount == 0)
+    #expect(await pipeline.diagnostics().analyzedFrameCount == 0)
     #expect(snapshot.latestResult == nil)
     #expect(await activity.values == [true, false])
   }
@@ -151,9 +265,9 @@ struct PlotterSceneAnalysisPipelineTests {
     }
     await pipeline.start(cadence: .twoFPS, requestedFeatures: [.penCap])
     await pipeline.submit(try displayedFrame(sequence: 9))
-    try await waitUntil { await pipeline.snapshot().failedFrameCount == 1 }
+    try await waitUntil { await pipeline.diagnostics().failedFrameCount == 1 }
     #expect(await activity.values == [true, false])
-    #expect(await pipeline.snapshot().activeFrameSequence == nil)
+    #expect(await pipeline.diagnostics().activeFrameSequence == nil)
     await pipeline.stop()
   }
 
@@ -166,7 +280,7 @@ struct PlotterSceneAnalysisPipelineTests {
     }
     await pipeline.start(cadence: .fiveFPS, requestedFeatures: [.penCap])
     await pipeline.submit(try displayedFrame(sequence: 11))
-    try await waitUntil { await pipeline.snapshot().analyzedFrameCount == 1 }
+    try await waitUntil { await pipeline.diagnostics().analyzedFrameCount == 1 }
     #expect(await pipeline.snapshot().latestResult?.displayedFrame.frame.sequence == 11)
 
     await pipeline.stop()
@@ -174,8 +288,8 @@ struct PlotterSceneAnalysisPipelineTests {
     await pipeline.start(cadence: .fiveFPS, requestedFeatures: [.penCap])
     let restarted = await pipeline.snapshot()
     #expect(restarted.latestResult == nil)
-    #expect(restarted.activeFrameSequence == nil)
-    #expect(restarted.pendingFrameSequence == nil)
+    #expect(await pipeline.diagnostics().activeFrameSequence == nil)
+    #expect(await pipeline.diagnostics().pendingFrameSequence == nil)
     await pipeline.stop()
   }
 }
@@ -209,6 +323,16 @@ private actor ActivityRecorder {
 
   func record(_ value: Bool) {
     values.append(value)
+  }
+}
+
+private actor SemanticSnapshotRecorder {
+  private(set) var revisions: [UInt64] = []
+
+  var count: Int { revisions.count }
+
+  func record(_ snapshot: PlotterSceneAnalysisSnapshot) {
+    revisions.append(snapshot.revision)
   }
 }
 

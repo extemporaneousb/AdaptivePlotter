@@ -470,10 +470,15 @@ extension OperatorWorkspaceTests {
     let savedOwner = relaunched.currentLearningPathItemID
     #expect(relaunched.learningArtifactGraph.revisions.isEmpty)
     await relaunched.performExerciseAction(.useSavedTraining, for: savedOwner)
+    #expect(relaunched.selectedBoundaryDirection == .negativeX)
     await relaunched.establishMachineSession(machine.descriptor)
     await relaunched.requestPassiveProbe()
     await relaunched.startCamera()
     #expect(relaunched.controllerPoseApplicability == .currentSession)
+    #expect(
+      relaunched.currentExerciseActionStripPresentation?.directionSelection?.selected
+        == .negativeX
+    )
     #expect(relaunched.currentLearningPathItemID == .humanGuidedDiscovery(
       .pairedBoundaryDiscoveryAndCentering
     ))

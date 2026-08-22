@@ -60,29 +60,75 @@ public struct CameraCaptureDiagnostics: Codable, Hashable, Sendable {
     receivedFrameCount: 0,
     previewMaterializedFrameCount: 0,
     exactMaterializedFrameCount: 0,
+    returnOnlyExactRequestCount: 0,
+    ordinaryPreviewPublicationCount: 0,
+    explicitExactPublicationCount: 0,
+    previewPauseAcquisitionCount: 0,
+    previewPauseReleaseCount: 0,
+    lastReturnOnlyExactFrameID: nil,
+    lastExplicitlyPublishedExactFrameID: nil,
     previewPublicationPaused: false
   )
 
   public let receivedFrameCount: UInt64
   public let previewMaterializedFrameCount: UInt64
   public let exactMaterializedFrameCount: UInt64
+  public let returnOnlyExactRequestCount: UInt64
+  public let ordinaryPreviewPublicationCount: UInt64
+  public let explicitExactPublicationCount: UInt64
+  public let previewPauseAcquisitionCount: UInt64
+  public let previewPauseReleaseCount: UInt64
+  public let lastReturnOnlyExactFrameID: FrameID?
+  public let lastExplicitlyPublishedExactFrameID: FrameID?
   public let previewPublicationPaused: Bool
 
   public init(
     receivedFrameCount: UInt64,
     previewMaterializedFrameCount: UInt64,
     exactMaterializedFrameCount: UInt64,
+    returnOnlyExactRequestCount: UInt64 = 0,
+    ordinaryPreviewPublicationCount: UInt64 = 0,
+    explicitExactPublicationCount: UInt64 = 0,
+    previewPauseAcquisitionCount: UInt64 = 0,
+    previewPauseReleaseCount: UInt64 = 0,
+    lastReturnOnlyExactFrameID: FrameID? = nil,
+    lastExplicitlyPublishedExactFrameID: FrameID? = nil,
     previewPublicationPaused: Bool = false
   ) {
     self.receivedFrameCount = receivedFrameCount
     self.previewMaterializedFrameCount = previewMaterializedFrameCount
     self.exactMaterializedFrameCount = exactMaterializedFrameCount
+    self.returnOnlyExactRequestCount = returnOnlyExactRequestCount
+    self.ordinaryPreviewPublicationCount = ordinaryPreviewPublicationCount
+    self.explicitExactPublicationCount = explicitExactPublicationCount
+    self.previewPauseAcquisitionCount = previewPauseAcquisitionCount
+    self.previewPauseReleaseCount = previewPauseReleaseCount
+    self.lastReturnOnlyExactFrameID = lastReturnOnlyExactFrameID
+    self.lastExplicitlyPublishedExactFrameID = lastExplicitlyPublishedExactFrameID
     self.previewPublicationPaused = previewPublicationPaused
   }
 
   public var totalMaterializedFrameCount: UInt64 {
     previewMaterializedFrameCount + exactMaterializedFrameCount
   }
+}
+
+/// Controls whether exact immutable pixels remain private to their requesting
+/// workflow or are also installed on the ordinary preview stream. Evidence
+/// capture uses `returnOnly`; publishing a validated selection is a separate,
+/// explicit camera-owner operation.
+public enum ExactFrameMaterializationPolicy: Codable, Hashable, Sendable {
+  case returnOnly
+  case publishToPreview
+}
+
+public enum ExactFramePublicationDisposition: Codable, Hashable, Sendable {
+  case published
+  case alreadyPublished
+}
+
+public enum ExactFramePublicationError: Error, Codable, Hashable, Sendable {
+  case notMaterializedByCurrentCapture
 }
 
 /// A current-camera-session capability that freezes preview publication without
@@ -336,10 +382,20 @@ public actor CameraCapture {
   private var nextSequence: UInt64 = 1
   private var lastTimestamp: UInt64 = 0
   private var latestCapture: BufferedCapture?
+  /// At most one exact immutable copy is retained for validation/publication.
+  /// This is provenance storage, not a second preview or analysis stream.
+  private var latestExactFrame: DisplayedFrame?
   private var lastMaterializedCaptureNanoseconds: UInt64?
   private var receivedFrameCount: UInt64 = 0
   private var previewMaterializedFrameCount: UInt64 = 0
   private var exactMaterializedFrameCount: UInt64 = 0
+  private var returnOnlyExactRequestCount: UInt64 = 0
+  private var ordinaryPreviewPublicationCount: UInt64 = 0
+  private var explicitExactPublicationCount: UInt64 = 0
+  private var previewPauseAcquisitionCount: UInt64 = 0
+  private var previewPauseReleaseCount: UInt64 = 0
+  private var lastReturnOnlyExactFrameID: FrameID?
+  private var lastExplicitlyPublishedExactFrameID: FrameID?
   private var previewPauseIDs: Set<UUID> = []
   private var frameContinuations: [UUID: AsyncStream<DisplayedFrame>.Continuation] = [:]
 
@@ -530,37 +586,68 @@ public actor CameraCapture {
   }
 
   /// Materializes the newest delivered camera pixels as one immutable, hashed
-  /// frame. A freshness boundary returns nil rather than substituting an older
-  /// preview frame.
+  /// frame under an explicit publication policy. A freshness boundary returns
+  /// nil rather than substituting an older preview frame.
   public func materializeLatestFrame(
-    newerThanNanoseconds: UInt64 = 0
+    newerThanNanoseconds: UInt64 = 0,
+    policy: ExactFrameMaterializationPolicy
   ) throws -> DisplayedFrame? {
     guard let latestCapture,
       latestCapture.captureNanoseconds > newerThanNanoseconds
     else { return nil }
-    if latestFrame?.frame.id == latestCapture.id {
-      return latestFrame
-    }
+    let displayed: DisplayedFrame
     do {
-      let displayed = try materialize(latestCapture, reason: .exactRequest)
-      publish(displayed)
-      return displayed
+      if let latestExactFrame, latestExactFrame.frame.id == latestCapture.id {
+        displayed = latestExactFrame
+      } else if let latestFrame, latestFrame.frame.id == latestCapture.id {
+        displayed = latestFrame
+        latestExactFrame = latestFrame
+      } else {
+        displayed = try materialize(latestCapture, reason: .exactRequest)
+        latestExactFrame = displayed
+      }
     } catch {
       throw CameraCaptureError.captureFailed(
         "Could not materialize the latest camera frame: \(error)"
       )
     }
+    switch policy {
+    case .returnOnly:
+      returnOnlyExactRequestCount &+= 1
+      lastReturnOnlyExactFrameID = displayed.frame.id
+    case .publishToPreview:
+      _ = try publishMaterializedExactFrame(displayed)
+    }
+    return displayed
+  }
+
+  /// Publishes one exact frame only when it is byte-for-byte the newest exact
+  /// immutable value materialized by this active CameraCapture generation.
+  /// Repeated publication of the same frame is an idempotent no-op.
+  public func publishMaterializedExactFrame(
+    _ displayed: DisplayedFrame
+  ) throws -> ExactFramePublicationDisposition {
+    guard let latestExactFrame, latestExactFrame == displayed else {
+      throw ExactFramePublicationError.notMaterializedByCurrentCapture
+    }
+    if latestFrame == displayed {
+      return .alreadyPublished
+    }
+    publish(displayed, reason: .explicitExact)
+    return .published
   }
 
   /// Materializes the newest physical camera frame and seals its source in a
   /// non-replayable capability. Presentation `DisplayedFrame` values cannot
   /// be converted into this attestation by callers.
   public func materializeLatestAttestedFrame(
-    newerThanNanoseconds: UInt64 = 0
+    newerThanNanoseconds: UInt64 = 0,
+    policy: ExactFrameMaterializationPolicy
   ) throws -> LiveCameraFrameAttestation? {
     guard
       let displayed = try materializeLatestFrame(
-        newerThanNanoseconds: newerThanNanoseconds
+        newerThanNanoseconds: newerThanNanoseconds,
+        policy: policy
       )
     else { return nil }
     guard case .live(let cameraDeviceID) = displayed.source,
@@ -582,6 +669,13 @@ public actor CameraCapture {
       receivedFrameCount: receivedFrameCount,
       previewMaterializedFrameCount: previewMaterializedFrameCount,
       exactMaterializedFrameCount: exactMaterializedFrameCount,
+      returnOnlyExactRequestCount: returnOnlyExactRequestCount,
+      ordinaryPreviewPublicationCount: ordinaryPreviewPublicationCount,
+      explicitExactPublicationCount: explicitExactPublicationCount,
+      previewPauseAcquisitionCount: previewPauseAcquisitionCount,
+      previewPauseReleaseCount: previewPauseReleaseCount,
+      lastReturnOnlyExactFrameID: lastReturnOnlyExactFrameID,
+      lastExplicitlyPublishedExactFrameID: lastExplicitlyPublishedExactFrameID,
       previewPublicationPaused: !previewPauseIDs.isEmpty
     )
   }
@@ -589,6 +683,7 @@ public actor CameraCapture {
   public func pausePreviewPublication() -> CameraPreviewPauseToken {
     let id = UUID()
     previewPauseIDs.insert(id)
+    previewPauseAcquisitionCount &+= 1
     return CameraPreviewPauseToken(id: id, lifecycleGeneration: lifecycleGeneration)
   }
 
@@ -596,14 +691,16 @@ public actor CameraCapture {
   /// preview. Stale or repeated releases cannot resume a newer camera session.
   public func resumePreviewPublication(_ token: CameraPreviewPauseToken) async {
     guard token.lifecycleGeneration == lifecycleGeneration,
-      previewPauseIDs.remove(token.id) != nil,
-      previewPauseIDs.isEmpty,
+      previewPauseIDs.remove(token.id) != nil
+    else { return }
+    previewPauseReleaseCount &+= 1
+    guard previewPauseIDs.isEmpty,
       state == .running,
       let latestCapture,
       latestFrame?.frame.id != latestCapture.id
     else { return }
     do {
-      publish(try materialize(latestCapture, reason: .preview))
+      publish(try previewFrame(for: latestCapture), reason: .ordinaryPreview)
     } catch {
       await stopDriverAndFail(
         .captureFailed("Could not resume camera preview publication: \(error)"))
@@ -666,7 +763,7 @@ public actor CameraCapture {
       guard previewPauseIDs.isEmpty else { return }
       guard shouldMaterializePreview(captureNanoseconds: timestamp) else { return }
       do {
-        publish(try materialize(buffered, reason: .preview))
+        publish(try previewFrame(for: buffered), reason: .ordinaryPreview)
       } catch {
         await stopDriverAndFail(
           .captureFailed("Could not materialize a camera preview frame: \(error)"))
@@ -692,7 +789,10 @@ public actor CameraCapture {
     lifecycleGeneration = generation
     cameraConfigurationID = nil
     latestCapture = nil
+    latestExactFrame = nil
     lastMaterializedCaptureNanoseconds = nil
+    lastReturnOnlyExactFrameID = nil
+    lastExplicitlyPublishedExactFrameID = nil
     previewPauseIDs = []
     finishEventChannel()
     return generation
@@ -708,6 +808,18 @@ public actor CameraCapture {
   private enum MaterializationReason {
     case preview
     case exactRequest
+  }
+
+  private enum PublicationReason {
+    case ordinaryPreview
+    case explicitExact
+  }
+
+  private func previewFrame(for buffered: BufferedCapture) throws -> DisplayedFrame {
+    if let latestExactFrame, latestExactFrame.frame.id == buffered.id {
+      return latestExactFrame
+    }
+    return try materialize(buffered, reason: .preview)
   }
 
   private func materialize(
@@ -734,7 +846,14 @@ public actor CameraCapture {
     return DisplayedFrame(source: .live(buffered.sourceDeviceID), frame: stamped)
   }
 
-  private func publish(_ displayed: DisplayedFrame) {
+  private func publish(_ displayed: DisplayedFrame, reason: PublicationReason) {
+    switch reason {
+    case .ordinaryPreview:
+      ordinaryPreviewPublicationCount &+= 1
+    case .explicitExact:
+      explicitExactPublicationCount &+= 1
+      lastExplicitlyPublishedExactFrameID = displayed.frame.id
+    }
     latestFrame = displayed
     lastMaterializedCaptureNanoseconds = displayed.frame.captureNanoseconds
     for continuation in frameContinuations.values { continuation.yield(displayed) }

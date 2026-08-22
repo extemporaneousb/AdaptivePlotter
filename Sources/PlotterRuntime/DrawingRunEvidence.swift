@@ -360,6 +360,7 @@ public struct DrawingObservedInkEvidence: Codable, Hashable, Sendable {
 public enum DrawingObservationRejectionReason: Codable, Hashable, Sendable {
   case invalidFrameIdentity
   case observationPoseMismatch
+  case computationCancelled
   case excessiveAlignment
   case excessiveBackgroundResidual
   case inkMissing

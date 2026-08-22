@@ -1,3 +1,5 @@
+import Foundation
+import SwiftUI
 import Testing
 
 @testable import PlotterApp
@@ -42,34 +44,36 @@ struct LearningWorkbenchLayoutTests {
     #expect(detailHidden.toggling(.exerciseDetail).exerciseDetailIsPresented)
   }
 
-  @Test("Video Settings is reachable at the supported window width by yielding a side pane")
+  @Test("Video Settings is reachable at the supported width by collapsing the navigator")
   func videoSettingsMinimumWidth() {
     let videoSettingsPolicy = VideoSettingsVisibilityPolicy()
+    let layout = WorkbenchLayoutState()
     let presentation = videoSettingsPolicy.presentation(
-      isPresented: false,
-      availableWindowWidth: LearningWorkbenchLayoutPolicy.minimumWindowWidth
+      layout: layout,
+      availableWindowWidth: LearningWorkbenchLayoutPolicy.minimumWindowWidth,
+      exerciseDetailMustRemainVisible: false
     )
 
     #expect(presentation.action == .show)
     #expect(presentation.actionTitle == "Show Video Settings")
     #expect(presentation.isActionEnabled)
-    #expect(
-      videoSettingsPolicy.transition(
-        isPresented: false,
+    guard
+      let transitioned = videoSettingsPolicy.transition(
+        from: layout,
         action: .show,
-        availableWindowWidth: LearningWorkbenchLayoutPolicy.minimumWindowWidth
+        availableWindowWidth: LearningWorkbenchLayoutPolicy.minimumWindowWidth,
+        exerciseDetailMustRemainVisible: false
       )
-    )
+    else {
+      Issue.record("Supported window width refused Video Settings")
+      return
+    }
 
-    let prepared = videoSettingsPolicy.preparingPanesToShow(
-      WorkbenchPaneVisibility(),
-      availableWindowWidth: LearningWorkbenchLayoutPolicy.minimumWindowWidth,
-      canCollapseExerciseDetail: true
-    )
-    #expect(!prepared.navigatorIsPresented)
-    #expect(prepared.exerciseDetailIsPresented)
+    #expect(transitioned.videoSettingsIsPresented)
+    #expect(!transitioned.panes.navigatorIsPresented)
+    #expect(transitioned.panes.exerciseDetailIsPresented)
     #expect(
-      videoSettingsPolicy.minimumContentWidth(for: prepared)
+      videoSettingsPolicy.minimumContentWidth(for: transitioned.panes)
         + videoSettingsPolicy.inspectorWidth + videoSettingsPolicy.inspectorSeparation
         <= LearningWorkbenchLayoutPolicy.minimumWindowWidth
     )
@@ -79,72 +83,125 @@ struct LearningWorkbenchLayoutTests {
   func videoSettingsTransitions() {
     let videoSettingsPolicy = VideoSettingsVisibilityPolicy()
     let wideWidth = videoSettingsPolicy.minimumWidthToShow
+    let hidden = WorkbenchLayoutState()
 
+    guard
+      let shown = videoSettingsPolicy.transition(
+        from: hidden,
+        action: .show,
+        availableWindowWidth: wideWidth,
+        exerciseDetailMustRemainVisible: false
+      )
+    else {
+      Issue.record("Minimum supported width refused Video Settings")
+      return
+    }
+    #expect(shown.videoSettingsIsPresented)
     #expect(
       videoSettingsPolicy.transition(
-        isPresented: false,
+        from: shown,
         action: .show,
-        availableWindowWidth: wideWidth
-      )
+        availableWindowWidth: 0,
+        exerciseDetailMustRemainVisible: false
+      ) == shown
     )
     #expect(
       videoSettingsPolicy.transition(
-        isPresented: true,
-        action: .show,
-        availableWindowWidth: 0
-      )
+        from: shown,
+        action: .hide,
+        availableWindowWidth: 0,
+        exerciseDetailMustRemainVisible: false
+      ) == shown.hidingVideoSettings()
     )
     #expect(
-      !videoSettingsPolicy.transition(
-        isPresented: true,
+      videoSettingsPolicy.transition(
+        from: hidden,
         action: .hide,
-        availableWindowWidth: 0
-      )
-    )
-    #expect(
-      !videoSettingsPolicy.transition(
-        isPresented: false,
-        action: .hide,
-        availableWindowWidth: wideWidth
-      )
+        availableWindowWidth: wideWidth,
+        exerciseDetailMustRemainVisible: false
+      ) == hidden
     )
 
-    let shown = videoSettingsPolicy.presentation(
-      isPresented: true,
-      availableWindowWidth: LearningWorkbenchLayoutPolicy.minimumWindowWidth
+    let shownPresentation = videoSettingsPolicy.presentation(
+      layout: shown,
+      availableWindowWidth: LearningWorkbenchLayoutPolicy.minimumWindowWidth,
+      exerciseDetailMustRemainVisible: false
     )
-    #expect(shown.action == .hide)
-    #expect(shown.actionTitle == "Hide Video Settings")
-    #expect(shown.isActionEnabled)
+    #expect(shownPresentation.action == .hide)
+    #expect(shownPresentation.actionTitle == "Hide Video Settings")
+    #expect(shownPresentation.isActionEnabled)
   }
 
-  @Test("Video Settings retains an accepted Show click until prepared panes commit")
-  func videoSettingsQueuesShowAcrossLayoutInvalidation() {
+  @Test("Video Settings diagnostics pull occurs only on hidden-to-presented transition")
+  func videoSettingsDiagnosticsPullDisposition() throws {
     let policy = VideoSettingsVisibilityPolicy()
-    var state = VideoSettingsVisibilityState()
-
-    let accepted = state.request(
-      .show,
-      policy: policy,
-      availableWindowWidth: LearningWorkbenchLayoutPolicy.minimumWindowWidth
+    let hidden = WorkbenchLayoutState()
+    let width = policy.minimumWidthToShow
+    let shown = try #require(
+      videoSettingsOperatorActionDisposition(
+        from: hidden,
+        action: .show,
+        availableWindowWidth: width,
+        exerciseDetailMustRemainVisible: false,
+        policy: policy
+      )
     )
-    #expect(accepted)
-    #expect(state.showIsPending)
-    #expect(!state.isPresented)
-
-    state.collapseIfNeeded(
-      availableContentWidth: 0,
-      panes: WorkbenchPaneVisibility(),
-      policy: policy
+    let repeatedShow = try #require(
+      videoSettingsOperatorActionDisposition(
+        from: shown.layout,
+        action: .show,
+        availableWindowWidth: width,
+        exerciseDetailMustRemainVisible: false,
+        policy: policy
+      )
     )
-    #expect(state.showIsPending)
+    let hiddenAgain = try #require(
+      videoSettingsOperatorActionDisposition(
+        from: shown.layout,
+        action: .hide,
+        availableWindowWidth: width,
+        exerciseDetailMustRemainVisible: false,
+        policy: policy
+      )
+    )
 
-    state.commitPendingShow()
-    #expect(state.isPresented)
-    #expect(!state.showIsPending)
+    #expect(shown.layout.videoSettingsIsPresented)
+    #expect(shown.shouldRefreshDiagnostics)
+    #expect(repeatedShow.layout == shown.layout)
+    #expect(!repeatedShow.shouldRefreshDiagnostics)
+    #expect(!hiddenAgain.layout.videoSettingsIsPresented)
+    #expect(!hiddenAgain.shouldRefreshDiagnostics)
+  }
 
-    state.hide()
-    #expect(!state.isPresented)
+  @Test("Video Settings Show is atomic while exact active Stop capability remains stable")
+  func videoSettingsShowDoesNotAwaitMotionSettlement() {
+    let policy = VideoSettingsVisibilityPolicy()
+    let capability = ContextualStopCapabilityID(
+      rawValue: UUID(uuidString: "00000000-0000-0000-0000-000000000401")!
+    )
+    let heldMotionStop = ContextualStopPresentation(
+      capabilityID: capability,
+      title: "Stop Calibration Batch",
+      detail: "Stop the active supervised move and wait for settlement."
+    )
+    let protection = ExercisePaneProtectionPresentation(mustRemainVisible: true)
+    let initial = WorkbenchLayoutState()
+
+    guard
+      let shown = policy.transition(
+        from: initial,
+        action: .show,
+        availableWindowWidth: LearningWorkbenchLayoutPolicy.minimumWindowWidth,
+        exerciseDetailMustRemainVisible: protection.mustRemainVisible
+      )
+    else {
+      Issue.record("A fitting protected Exercise layout refused Video Settings")
+      return
+    }
+
+    #expect(shown.videoSettingsIsPresented)
+    #expect(shown.panes.exerciseDetailIsPresented)
+    #expect(heldMotionStop.capabilityID == capability)
   }
 
   @Test("presented Video Settings collapses before the protected workbench is starved")
@@ -152,29 +209,101 @@ struct LearningWorkbenchLayoutTests {
     let videoSettingsPolicy = VideoSettingsVisibilityPolicy()
     let panes = WorkbenchPaneVisibility(navigatorIsPresented: false)
     let minimum = videoSettingsPolicy.minimumContentWidth(for: panes)
-    let collapsesAtMinimum = videoSettingsPolicy.shouldCollapsePresentedVideoSettings(
+    let shown = WorkbenchLayoutState(panes: panes, videoSettingsIsPresented: true)
+    let retainedAtMinimum = shown.collapsingVideoSettingsIfNeeded(
       availableContentWidth: minimum,
-      panes: panes
+      policy: videoSettingsPolicy
     )
-    let collapsesBelowMinimum = videoSettingsPolicy.shouldCollapsePresentedVideoSettings(
+    let collapsedBelowMinimum = shown.collapsingVideoSettingsIfNeeded(
       availableContentWidth: minimum - 1,
-      panes: panes
+      policy: videoSettingsPolicy
     )
 
-    #expect(!collapsesAtMinimum)
-    #expect(collapsesBelowMinimum)
+    #expect(retainedAtMinimum.videoSettingsIsPresented)
+    #expect(!collapsedBelowMinimum.videoSettingsIsPresented)
+    #expect(collapsedBelowMinimum.panes == panes)
   }
 
-  @Test("Video Settings does not hide an action-owning exercise pane")
-  func videoSettingsPreservesActiveExerciseControls() {
+  @Test("protected narrow layout refuses Video Settings before acceptance")
+  func videoSettingsRefusesProtectedNarrowLayout() {
     let videoSettingsPolicy = VideoSettingsVisibilityPolicy()
-    let prepared = videoSettingsPolicy.preparingPanesToShow(
-      WorkbenchPaneVisibility(),
+    let layout = WorkbenchLayoutState()
+    let presentation = videoSettingsPolicy.presentation(
+      layout: layout,
       availableWindowWidth: 1_200,
-      canCollapseExerciseDetail: false
+      exerciseDetailMustRemainVisible: true
     )
 
-    #expect(!prepared.navigatorIsPresented)
-    #expect(prepared.exerciseDetailIsPresented)
+    #expect(
+      presentation.unavailableReason
+        == .activeExerciseRequiresWindowWidth(1_316)
+    )
+    #expect(
+      presentation.unavailableReasonText?.contains("active Exercise controls including Stop")
+        == true
+    )
+    #expect(!presentation.isActionEnabled)
+    #expect(
+      videoSettingsPolicy.transition(
+        from: layout,
+        action: .show,
+        availableWindowWidth: 1_200,
+        exerciseDetailMustRemainVisible: true
+      ) == nil
+    )
+    #expect(layout == WorkbenchLayoutState())
+  }
+
+  @Test("unprotected Video Settings admission collapses navigator before Exercise")
+  func videoSettingsUnprotectedCollapseOrder() {
+    let policy = VideoSettingsVisibilityPolicy()
+    let initial = WorkbenchLayoutState()
+    let navigatorOnly = policy.transition(
+      from: initial,
+      action: .show,
+      availableWindowWidth: 1_440,
+      exerciseDetailMustRemainVisible: false
+    )
+    let bothSidePanes = policy.transition(
+      from: initial,
+      action: .show,
+      availableWindowWidth: 1_200,
+      exerciseDetailMustRemainVisible: false
+    )
+
+    #expect(navigatorOnly?.panes.navigatorIsPresented == false)
+    #expect(navigatorOnly?.panes.exerciseDetailIsPresented == true)
+    #expect(bothSidePanes?.panes.navigatorIsPresented == false)
+    #expect(bothSidePanes?.panes.exerciseDetailIsPresented == false)
+    #expect(navigatorOnly?.videoSettingsIsPresented == true)
+    #expect(bothSidePanes?.videoSettingsIsPresented == true)
+  }
+
+  @Test("navigator and detail receive the same single root Learning projection")
+  @MainActor
+  func learningProjectionHasOneRootConsumerValue() {
+    let workspace = makeSimulatedHarness().workspace
+    let itemID = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+    let binding = Binding.constant(LearningPathSelectionState(current: itemID))
+    workspace.resetComputationDiagnosticsForTesting()
+    let projection = workspace.learningPathProjection(selectedItemID: itemID)
+
+    let navigator = LearningPathNavigator(
+      workspace: workspace,
+      selection: binding,
+      projection: projection,
+      close: {}
+    )
+    let detail = LearningPathView(
+      workspace: workspace,
+      selection: binding,
+      projection: projection,
+      close: {},
+      closeUnavailableReason: nil
+    )
+
+    #expect(navigator.projection == detail.projection)
+    #expect(navigator.projection == projection)
+    #expect(workspace.computationDiagnosticsForTesting.learningProjectionBuildCount == 1)
   }
 }

@@ -49,7 +49,7 @@ enum MachineSessionComposition {
 
   static let workflowTelemetryActions = OperatorWorkspace.WorkflowTelemetryActions(
     record: { event in
-      await session.recordWorkflowTelemetry(event)
+      _ = await session.recordWorkflowTelemetry(event)
     }
   )
 }
@@ -162,7 +162,7 @@ struct MachineSessionRetentionPolicy: Sendable {
 
 /// Owns one controller, interpreter, serial link, and best-effort journal for
 /// the explicitly selected device. Repeated probes and jogs reuse that session.
-private actor PersistentMachineSession {
+actor PersistentMachineSession {
   private static let logger = Logger(
     subsystem: "com.adaptiveplotter.app",
     category: "workflow-telemetry"
@@ -171,21 +171,29 @@ private actor PersistentMachineSession {
   private var selectedDescriptor: MachineLinkDescriptor?
   private var interpreter: RunInterpreter?
   private var ledger: RunLedger?
-  private var ledgerRunID: LedgerRunID?
-  private var clock: (any RuntimeClock)?
+
+  init(
+    selectedDescriptor: MachineLinkDescriptor? = nil,
+    interpreter: RunInterpreter? = nil,
+    ledger: RunLedger? = nil
+  ) {
+    self.selectedDescriptor = selectedDescriptor
+    self.interpreter = interpreter
+    self.ledger = ledger
+  }
 
   func select(_ descriptor: MachineLinkDescriptor) async throws -> RunInterpreterSnapshot {
     if selectedDescriptor == descriptor, let interpreter {
       return await interpreter.snapshot()
     }
 
-    await interpreter?.disconnect()
-    await ledger?.close()
+    let retiringInterpreter = interpreter
+    let retiringLedger = ledger
     selectedDescriptor = nil
     interpreter = nil
     ledger = nil
-    ledgerRunID = nil
-    clock = nil
+    await retiringInterpreter?.disconnect()
+    await retiringLedger?.close()
 
     let clock = SystemRuntimeClock()
     let diagnostic = await makeBestEffortLedger(clock: clock)
@@ -199,8 +207,6 @@ private actor PersistentMachineSession {
     selectedDescriptor = descriptor
     interpreter = newInterpreter
     ledger = diagnostic.ledger
-    ledgerRunID = diagnostic.runID
-    self.clock = clock
     return await newInterpreter.snapshot()
   }
 
@@ -293,38 +299,24 @@ private actor PersistentMachineSession {
   }
 
   func disconnect() async {
-    await interpreter?.disconnect()
-    await ledger?.close()
+    let retiringInterpreter = interpreter
+    let retiringLedger = ledger
     selectedDescriptor = nil
     interpreter = nil
     ledger = nil
-    ledgerRunID = nil
-    clock = nil
+    await retiringInterpreter?.disconnect()
+    await retiringLedger?.close()
   }
 
-  func recordWorkflowTelemetry(_ event: WorkflowTelemetryEvent) async {
-    guard let ledger, let runID = ledgerRunID, let clock else {
+  @discardableResult
+  func recordWorkflowTelemetry(_ event: WorkflowTelemetryEvent) async -> Bool {
+    guard let interpreter else {
       Self.logger.notice(
         "Workflow telemetry unavailable for \(event.operation.rawValue, privacy: .public) \(event.phase.rawValue, privacy: .public)"
       )
-      return
+      return false
     }
-    do {
-      let encoder = JSONEncoder()
-      encoder.outputFormatting = [.sortedKeys]
-      let payload = try encoder.encode(event)
-      _ = try await ledger.appendEvent(
-        runID: runID,
-        timestamp: RuntimeTimestamp(monotonicNanoseconds: clock.nowNanoseconds()),
-        kind: "workflow.\(event.operation.rawValue).\(event.phase.rawValue)",
-        schemaVersion: WorkflowTelemetryEvent.schemaVersion,
-        payload: payload
-      )
-    } catch {
-      Self.logger.error(
-        "Workflow telemetry write failed for \(event.operation.rawValue, privacy: .public) \(event.phase.rawValue, privacy: .public): \(String(describing: error), privacy: .public)"
-      )
-    }
+    return await interpreter.enqueueWorkflowTelemetry(event)
   }
 
   private func makeBestEffortLedger(

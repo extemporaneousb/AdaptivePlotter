@@ -39,7 +39,9 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
   @Test("four SIMULATED corner-circle centers accept in memory without writing LIVE authority")
   func fullFourCornerMarkAcceptance() async throws {
     let checkpointBox = LearningPathCheckpointBox()
+    let telemetry = WorkflowTelemetryFixture()
     let harness = makeSimulatedHarness(
+      workflowTelemetry: telemetry,
       learningPathCheckpointActions: .init(
         load: { checkpointBox.load() },
         save: { checkpointBox.save($0) },
@@ -66,11 +68,56 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     let tipOwner = LearningPathItemID.humanGuidedDiscovery(
       .calibratePenContactFromSparseMarks
     )
+    let telemetryCountBeforeSparseBatch = await telemetry.events.count
 
     try await performPublicAction(
       .drawFourCornerTipCircles,
       owner: tipOwner,
       workspace: workspace
+    )
+    let sparseBatchEvents = Array(
+      (await telemetry.events).dropFirst(telemetryCountBeforeSparseBatch)
+    )
+    #expect(sparseBatchEvents.count == 7)
+    #expect(sparseBatchEvents.allSatisfy { $0.operation == .sparseTipCalibration })
+    #expect(sparseBatchEvents.allSatisfy { $0.operation != .currentCameraCalibration })
+    #expect(Set(sparseBatchEvents.map(\.operationID)).count == 1)
+    #expect(
+      sparseBatchEvents.map(\.phase)
+        == [
+          .batchAdmitted,
+          .circleCompleted, .circleCompleted, .circleCompleted, .circleCompleted,
+          .revealCompleted,
+          .completed,
+        ]
+    )
+    #expect(
+      sparseBatchEvents.compactMap(\.sparseTipProgress).map(\.stage)
+        == [
+          .batchAdmitted,
+          .circleCompleted, .circleCompleted, .circleCompleted, .circleCompleted,
+          .revealCompleted,
+          .terminal,
+        ]
+    )
+    #expect(
+      sparseBatchEvents.compactMap(\.sparseTipProgress).map(\.completedCircleCount)
+        == [0, 1, 2, 3, 4, 4, 4]
+    )
+    #expect(
+      sparseBatchEvents.compactMap(\.sparseTipProgress).map(\.totalCircleCount)
+        == [4, 4, 4, 4, 4, 4, 4]
+    )
+    #expect(
+      sparseBatchEvents.compactMap(\.sparseTipProgress).compactMap(\.chordCount)
+        == [16, 16, 16, 16]
+    )
+    #expect(
+      sparseBatchEvents.compactMap(\.sparseTipProgress).compactMap(\.circlePosition)
+        == SparseTipCalibrationCoordinator.orderedPositions
+    )
+    #expect(
+      sparseBatchEvents.last?.sparseTipProgress?.terminalDisposition == .completed
     )
     let surface = workspace.actionSurfacePresentation
     let request = try #require(surface.pointSelectionRequest)
@@ -306,7 +353,8 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
 
   @Test("stopping a corner circle after Pen Down blacklists its location and never redraws it")
   func stoppedCircleBlacklistsWithoutRedraw() async throws {
-    let harness = makeSimulatedHarness()
+    let telemetry = WorkflowTelemetryFixture()
+    let harness = makeSimulatedHarness(workflowTelemetry: telemetry)
     try await completeSimulatedBoundariesAndCenter(
       harness.workspace,
       runtime: harness.runtime,
@@ -327,6 +375,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     let owner = LearningPathItemID.humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
     let pacing = CalibrationStopPacing()
     workspace.replaceSimulatedExecutionPacingForTesting(pacing)
+    let telemetryCountBeforeSparseBatch = await telemetry.events.count
 
     let markTask = Task {
       await workspace.performExerciseAction(.drawFourCornerTipCircles, for: owner)
@@ -355,6 +404,16 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     await pacing.resume()
     await stopTask.value
     await markTask.value
+
+    let sparseBatchEvents = Array(
+      (await telemetry.events).dropFirst(telemetryCountBeforeSparseBatch)
+    )
+    #expect(sparseBatchEvents.allSatisfy { $0.operation == .sparseTipCalibration })
+    #expect(sparseBatchEvents.first?.sparseTipProgress?.stage == .batchAdmitted)
+    let terminalEvents = sparseBatchEvents.filter { $0.sparseTipProgress?.stage == .terminal }
+    #expect(terminalEvents.count == 1)
+    #expect(terminalEvents[0].phase == .failed)
+    #expect(terminalEvents[0].sparseTipProgress?.terminalDisposition == .possibleInk)
 
     #expect(workspace.sparseTipCalibrationCoordinator.blacklistedPositions == [.negativeX])
     #expect(workspace.sparseTipCalibrationCoordinator.acceptedObservations.isEmpty)

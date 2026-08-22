@@ -291,13 +291,13 @@ struct OverlayStateTests {
       )
     )
     let analyzing = PlotterSceneAnalysisSnapshot(
-      state: .running(.twoFPS),
-      submittedFrameCount: 2,
-      analyzedFrameCount: 1,
-      supersededFrameCount: 0,
-      failedFrameCount: 0,
-      activeFrameSequence: 41,
-      pendingFrameSequence: nil,
+      revision: 1,
+      phase: PlotterSceneAnalysisPhase(
+        state: .running(.twoFPS),
+        requestedFeatures: [.penCap],
+        analysisRegion: nil,
+        penCapColor: .green
+      ),
       latestResult: nil,
       lastError: nil
     )

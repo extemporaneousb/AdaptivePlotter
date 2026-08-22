@@ -243,7 +243,11 @@ and camera-holdout authority.
 
 1. Press **Draw Four Corner Circles** once. One exercise attempt and one existing
    stoppable operation own the complete batch and expose the contextual Stop.
-2. At each canonical position, travel Pen Up, require fresh Idle/final MPos
+2. Command and settle Pen Up once before the first travel. Retain that
+   batch-scoped Pen-Up authorization through approach, circle-start,
+   inter-circle, and reveal travel; do not issue another raise solely to begin
+   travel while the authorization remains current. At each canonical position,
+   require fresh Idle/final MPos
    within 0.05 mm, capture and retain that circle's exact pre-mark frame and cap
    anchor, and retain its controller and settled-position evidence.
 3. Verify the full circle lies inside the accepted Boundary envelope. Move Pen Up
@@ -253,18 +257,22 @@ and camera-holdout authority.
    controller-reported axis ceiling, requiring settled chord endpoints.
 5. Raise and settle Pen Up. Only then travel to the next circle. Repeat steps
    2–5 without a reveal or click between circles. The batch contains exactly 64
-   circle chords and no connecting Pen-Down stroke.
+   typed circle-chord outcomes, four Pen Down settlements, five Pen Up
+   settlements including the initial normalization, and no connecting Pen-Down
+   stroke. It performs four pre-mark controller-context probes, not one per
+   chord.
 6. After the fourth circle, return Pen Up to the rectangle's geometric
    center. Require Pen Up, Idle, and final-MPos settlement.
 7. Capture one strictly newer exact frame and revalidate current camera/cap
-   applicability once. Freeze that one frame unchanged for all four clicks.
+   applicability once using the fifth controller-context probe. Publish one
+   final machine snapshot. Freeze that one frame unchanged for all four clicks.
    Do not change viewport zoom, pan, fitted region, preferred zoom, or focus.
 
 If a chord, motion outcome, or Pen state after possible contact is stopped or
 ambiguous, blacklist the affected circle location on the current paper and
 stop. Never retry, resend, redraw, or continue automatically. Each resulting
 `ToolContactObservation` retains its own physical operation evidence while all
-five share the final reveal frame. Controller completion does not prove
+four share the final reveal frame. Controller completion does not prove
 physical contact or ink; attended observation owns those claims.
 
 ### Unordered clicks, model construction, and acceptance

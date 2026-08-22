@@ -945,6 +945,13 @@ public actor RunInterpreter {
     return outcome
   }
 
+  /// Forwards a non-authoritative workflow fact to the controller's ordered
+  /// diagnostic ledger tail. The hop completes after enqueue, not persistence.
+  @discardableResult
+  public func enqueueWorkflowTelemetry(_ event: WorkflowTelemetryEvent) async -> Bool {
+    await machineController.enqueueWorkflowTelemetry(event)
+  }
+
   public func disconnect() async {
     if let boundary = activeBoundaryMotion {
       if let cancelTask = boundary.cancelTask {

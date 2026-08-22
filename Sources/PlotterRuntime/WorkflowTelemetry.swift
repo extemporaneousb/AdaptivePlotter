@@ -5,16 +5,67 @@ public enum WorkflowTelemetryOperation: String, Codable, CaseIterable, Hashable,
   case manualJog
   case manualDrawingStroke
   case currentCameraCalibration
+  case sparseTipCalibration
 }
 
 public enum WorkflowTelemetryPhase: String, Codable, CaseIterable, Hashable, Sendable {
   case intentAccepted
+  case batchAdmitted
+  case circleCompleted
+  case revealCompleted
   case phaseChanged
   case controllerContextEstablished
   case controllerContextCompared
   case completed
   case cancelled
   case failed
+}
+
+public enum SparseTipWorkflowProgressStage: String, Codable, CaseIterable, Hashable, Sendable {
+  case batchAdmitted
+  case circleCompleted
+  case revealCompleted
+  case terminal
+}
+
+public enum SparseTipWorkflowTerminalDisposition: String, Codable, CaseIterable, Hashable,
+  Sendable
+{
+  case completed
+  case cancelled
+  case refused
+  case unclear
+  case ambiguous
+  case failed
+  case possibleInk
+}
+
+/// One semantic Stage 3.4 batch fact. A circle-complete record represents all
+/// of that circle's chords; individual chord motion never emits workflow
+/// telemetry.
+public struct SparseTipWorkflowProgress: Codable, Hashable, Sendable {
+  public let stage: SparseTipWorkflowProgressStage
+  public let completedCircleCount: Int
+  public let totalCircleCount: Int
+  public let circlePosition: ToolContactCalibrationPosition?
+  public let chordCount: Int?
+  public let terminalDisposition: SparseTipWorkflowTerminalDisposition?
+
+  public init(
+    stage: SparseTipWorkflowProgressStage,
+    completedCircleCount: Int,
+    totalCircleCount: Int,
+    circlePosition: ToolContactCalibrationPosition? = nil,
+    chordCount: Int? = nil,
+    terminalDisposition: SparseTipWorkflowTerminalDisposition? = nil
+  ) {
+    self.stage = stage
+    self.completedCircleCount = completedCircleCount
+    self.totalCircleCount = totalCircleCount
+    self.circlePosition = circlePosition
+    self.chordCount = chordCount
+    self.terminalDisposition = terminalDisposition
+  }
 }
 
 public enum WorkflowTelemetryRecovery: String, Codable, CaseIterable, Hashable, Sendable {
@@ -71,7 +122,7 @@ public struct WorkflowControllerContextTelemetry: Codable, Hashable, Sendable {
 /// events. These records are diagnostic facts only; replay and admission must
 /// never consume them.
 public struct WorkflowTelemetryEvent: Codable, Hashable, Sendable {
-  public static let schemaVersion = 1
+  public static let schemaVersion = 2
 
   public let eventID: UUID
   public let operationID: UUID
@@ -83,6 +134,7 @@ public struct WorkflowTelemetryEvent: Codable, Hashable, Sendable {
   public let controllerContext: WorkflowControllerContextTelemetry?
   public let failureCode: WorkflowTelemetryFailureCode?
   public let recovery: WorkflowTelemetryRecovery
+  public let sparseTipProgress: SparseTipWorkflowProgress?
 
   public init(
     eventID: UUID = UUID(),
@@ -94,7 +146,8 @@ public struct WorkflowTelemetryEvent: Codable, Hashable, Sendable {
     motionIntent: WorkflowMotionIntent? = nil,
     controllerContext: WorkflowControllerContextTelemetry? = nil,
     failureCode: WorkflowTelemetryFailureCode? = nil,
-    recovery: WorkflowTelemetryRecovery = .none
+    recovery: WorkflowTelemetryRecovery = .none,
+    sparseTipProgress: SparseTipWorkflowProgress? = nil
   ) {
     self.eventID = eventID
     self.operationID = operationID
@@ -106,5 +159,6 @@ public struct WorkflowTelemetryEvent: Codable, Hashable, Sendable {
     self.controllerContext = controllerContext
     self.failureCode = failureCode
     self.recovery = recovery
+    self.sparseTipProgress = sparseTipProgress
   }
 }

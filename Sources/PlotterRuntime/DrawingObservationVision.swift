@@ -66,28 +66,115 @@ extension VisionWorker {
     let pixelCount: Int
   }
 
+  struct CancellableNewInkPixelEvaluation {
+    /// Raster order is deterministic and lets association avoid sorting a large
+    /// set after extraction.
+    let pixels: [InkPixel]
+    let evaluatedPixelCount: Int
+    let cancellationCheckpointCount: Int
+    let maximumEvaluationCountBetweenCancellationChecks: Int
+  }
+
+  struct PlannedIntegerFrameAlignmentEvaluation {
+    let alignment: IntegerFrameAlignment
+    let coarseCandidateCount: Int
+    let verifiedCandidateCount: Int
+    let cancellationCheckpointCount: Int
+    let maximumEvaluationCountBetweenCancellationChecks: Int
+  }
+
+  enum PlannedIntegerFrameAlignmentError: Error {
+    case supportUnavailable
+  }
+
+  struct AlignmentCandidate {
+    let shiftX: Int
+    let shiftY: Int
+    let residual: Double
+  }
+
+  struct CancellableBackgroundResidualEvaluation {
+    let residual: BackgroundResidual
+    let cancellationBudget: CancellationCheckpointBudget
+  }
+
+  struct CancellationCheckpointBudget {
+    var count = 0
+    var evaluationCountSinceLastCheckpoint = 0
+    var maximumEvaluationCountBetweenCheckpoints = 0
+
+    mutating func recordEvaluations(_ count: Int) {
+      evaluationCountSinceLastCheckpoint += count
+    }
+
+    mutating func recordCheckpoint() {
+      maximumEvaluationCountBetweenCheckpoints = max(
+        maximumEvaluationCountBetweenCheckpoints,
+        evaluationCountSinceLastCheckpoint
+      )
+      evaluationCountSinceLastCheckpoint = 0
+      count += 1
+    }
+  }
+
+  static let plannedDrawingAlignmentEstimatorRevision =
+    "bounded-subsampled-finalist-background-mad-v2"
+  static let plannedDrawingCancellationEvaluationChunkSize = 64
+
   static func contains(_ region: PixelRect, in frame: StampedFrame) -> Bool {
     region.x >= 0 && region.y >= 0 && region.width > 0 && region.height > 0
       && region.x + region.width <= frame.width
       && region.y + region.height <= frame.height
   }
 
-  static func newInkPixels(
+  static func cancellableNewInkPixelEvaluation(
     from reference: StampedFrame,
     to observation: StampedFrame,
     region: PixelRect,
     thresholds: InkPixelThresholds,
     observationShiftX: Int = 0,
-    observationShiftY: Int = 0
-  ) -> Set<InkPixel> {
-    var result: Set<InkPixel> = []
+    observationShiftY: Int = 0,
+    baseComputation: PlannedDrawingObservationComputationDiagnostics,
+    checkpointHandler: PlannedDrawingObservationCheckpointHandler?
+  ) async throws -> CancellableNewInkPixelEvaluation {
+    var result: [InkPixel] = []
+    var evaluatedPixelCount = 0
+    var budget = CancellationCheckpointBudget()
+
     for y in region.y..<(region.y + region.height) {
-      for x in region.x..<(region.x + region.width) {
+      budget.recordCheckpoint()
+      try await plannedDrawingCancellationCheckpoint(
+        .inkExtractionChunk,
+        computation: baseComputation.addingCancellationBudget(
+          checkpointCount: budget.count,
+          maximumEvaluationCountBetweenChecks:
+            budget.maximumEvaluationCountBetweenCheckpoints
+        ),
+        handler: checkpointHandler
+      )
+      for (columnOffset, x) in (region.x..<(region.x + region.width)).enumerated() {
+        if columnOffset > 0,
+          columnOffset.isMultiple(of: plannedDrawingCancellationEvaluationChunkSize)
+        {
+          budget.recordCheckpoint()
+          try await plannedDrawingCancellationCheckpoint(
+            .inkExtractionChunk,
+            computation: baseComputation.addingInkComputation(
+              evaluatedPixelCount: evaluatedPixelCount,
+              checkpointCount: budget.count,
+              maximumEvaluationCountBetweenChecks:
+                budget.maximumEvaluationCountBetweenCheckpoints
+            ),
+            handler: checkpointHandler
+          )
+        }
+        budget.recordEvaluations(1)
         let observedX = x + observationShiftX
         let observedY = y + observationShiftY
         guard observedX >= 0, observedX < observation.width,
           observedY >= 0, observedY < observation.height
         else { continue }
+        evaluatedPixelCount += 1
         if isNewInk(
           reference: reference,
           referenceX: x,
@@ -97,11 +184,265 @@ extension VisionWorker {
           observationY: observedY,
           thresholds: thresholds
         ) {
-          result.insert(InkPixel(x: x, y: y))
+          result.append(InkPixel(x: x, y: y))
         }
       }
     }
-    return result
+    budget.recordCheckpoint()
+    try await plannedDrawingCancellationCheckpoint(
+      .inkExtractionChunk,
+      computation: baseComputation.addingInkComputation(
+        evaluatedPixelCount: evaluatedPixelCount,
+        checkpointCount: budget.count,
+        maximumEvaluationCountBetweenChecks:
+          budget.maximumEvaluationCountBetweenCheckpoints
+      ),
+      handler: checkpointHandler
+    )
+    return CancellableNewInkPixelEvaluation(
+      pixels: result,
+      evaluatedPixelCount: evaluatedPixelCount,
+      cancellationCheckpointCount: budget.count,
+      maximumEvaluationCountBetweenCancellationChecks:
+        budget.maximumEvaluationCountBetweenCheckpoints
+    )
+  }
+
+  /// Scores the complete bounded shift envelope on a deterministic lattice,
+  /// then uses full-resolution scores for the small finalist set only. Coarse
+  /// scores never become acceptance evidence.
+  static func boundedSubsampledIntegerAlignment(
+    _ baseline: StampedFrame,
+    _ observation: StampedFrame,
+    excluding region: PixelRect,
+    searchRadius: Int,
+    baseComputation: PlannedDrawingObservationComputationDiagnostics,
+    checkpointHandler: PlannedDrawingObservationCheckpointHandler?
+  ) async throws -> PlannedIntegerFrameAlignmentEvaluation {
+    let coarseSampleStride = 2
+    let maximumVerifiedCandidateCount = 3
+    var evaluatedPixelCount = 0
+    var coarseCandidates: [AlignmentCandidate] = []
+    var budget = CancellationCheckpointBudget()
+    let candidateCount = (searchRadius * 2 + 1) * (searchRadius * 2 + 1)
+    coarseCandidates.reserveCapacity(candidateCount)
+
+    for shiftY in (-searchRadius)...searchRadius {
+      for shiftX in (-searchRadius)...searchRadius {
+        budget.recordCheckpoint()
+        try await plannedDrawingCancellationCheckpoint(
+          .alignmentCandidate,
+          computation: baseComputation.addingAlignmentComputation(
+            evaluatedPixelCount: evaluatedPixelCount,
+            coarseCandidateCount: coarseCandidates.count,
+            verifiedCandidateCount: 0,
+            checkpointCount: budget.count,
+            maximumEvaluationCountBetweenChecks:
+              budget.maximumEvaluationCountBetweenCheckpoints
+          ),
+          handler: checkpointHandler
+        )
+        let evaluation = try await cancellableBackgroundMeanAbsoluteDifference(
+          baseline,
+          observation,
+          excluding: region,
+          observationShiftX: shiftX,
+          observationShiftY: shiftY,
+          sampleStride: coarseSampleStride,
+          evaluatedPixelBase: evaluatedPixelCount,
+          coarseCandidateCount: coarseCandidates.count,
+          verifiedCandidateCount: 0,
+          baseComputation: baseComputation,
+          cancellationBudget: budget,
+          checkpointHandler: checkpointHandler
+        )
+        budget = evaluation.cancellationBudget
+        evaluatedPixelCount += evaluation.residual.pixelCount
+        coarseCandidates.append(
+          AlignmentCandidate(
+            shiftX: shiftX,
+            shiftY: shiftY,
+            residual: evaluation.residual.meanAbsoluteDifference
+          ))
+      }
+    }
+    budget.recordCheckpoint()
+    try await plannedDrawingCancellationCheckpoint(
+      .alignmentCandidate,
+      computation: baseComputation.addingAlignmentComputation(
+        evaluatedPixelCount: evaluatedPixelCount,
+        coarseCandidateCount: coarseCandidates.count,
+        verifiedCandidateCount: 0,
+        checkpointCount: budget.count,
+        maximumEvaluationCountBetweenChecks:
+          budget.maximumEvaluationCountBetweenCheckpoints
+      ),
+      handler: checkpointHandler
+    )
+
+    guard evaluatedPixelCount > 0 else {
+      throw PlannedIntegerFrameAlignmentError.supportUnavailable
+    }
+    let rankedCoarse = coarseCandidates.sorted(by: alignmentCandidateIsBetter)
+    let finalists = Array(rankedCoarse.prefix(maximumVerifiedCandidateCount))
+    var verifiedCandidates: [AlignmentCandidate] = []
+    verifiedCandidates.reserveCapacity(finalists.count)
+
+    for finalist in finalists {
+      budget.recordCheckpoint()
+      try await plannedDrawingCancellationCheckpoint(
+        .alignmentCandidate,
+        computation: baseComputation.addingAlignmentComputation(
+          evaluatedPixelCount: evaluatedPixelCount,
+          coarseCandidateCount: coarseCandidates.count,
+          verifiedCandidateCount: verifiedCandidates.count,
+          checkpointCount: budget.count,
+          maximumEvaluationCountBetweenChecks:
+            budget.maximumEvaluationCountBetweenCheckpoints
+        ),
+        handler: checkpointHandler
+      )
+      let evaluation = try await cancellableBackgroundMeanAbsoluteDifference(
+        baseline,
+        observation,
+        excluding: region,
+        observationShiftX: finalist.shiftX,
+        observationShiftY: finalist.shiftY,
+        sampleStride: 1,
+        evaluatedPixelBase: evaluatedPixelCount,
+        coarseCandidateCount: coarseCandidates.count,
+        verifiedCandidateCount: verifiedCandidates.count,
+        baseComputation: baseComputation,
+        cancellationBudget: budget,
+        checkpointHandler: checkpointHandler
+      )
+      budget = evaluation.cancellationBudget
+      evaluatedPixelCount += evaluation.residual.pixelCount
+      verifiedCandidates.append(
+        AlignmentCandidate(
+          shiftX: finalist.shiftX,
+          shiftY: finalist.shiftY,
+          residual: evaluation.residual.meanAbsoluteDifference
+        ))
+    }
+    budget.recordCheckpoint()
+    try await plannedDrawingCancellationCheckpoint(
+      .alignmentCandidate,
+      computation: baseComputation.addingAlignmentComputation(
+        evaluatedPixelCount: evaluatedPixelCount,
+        coarseCandidateCount: coarseCandidates.count,
+        verifiedCandidateCount: verifiedCandidates.count,
+        checkpointCount: budget.count,
+        maximumEvaluationCountBetweenChecks:
+          budget.maximumEvaluationCountBetweenCheckpoints
+      ),
+      handler: checkpointHandler
+    )
+
+    let selected =
+      verifiedCandidates.sorted(by: alignmentCandidateIsBetter).first
+      ?? AlignmentCandidate(shiftX: 0, shiftY: 0, residual: 0)
+    return PlannedIntegerFrameAlignmentEvaluation(
+      alignment: IntegerFrameAlignment(
+        shiftX: selected.shiftX,
+        shiftY: selected.shiftY,
+        backgroundMeanAbsoluteDifference: selected.residual,
+        estimatorRevision: plannedDrawingAlignmentEstimatorRevision,
+        supportRegion: PixelRect(x: 0, y: 0, width: baseline.width, height: baseline.height),
+        exclusionRegion: region,
+        evaluatedPixelCount: evaluatedPixelCount
+      ),
+      coarseCandidateCount: coarseCandidates.count,
+      verifiedCandidateCount: verifiedCandidates.count,
+      cancellationCheckpointCount: budget.count,
+      maximumEvaluationCountBetweenCancellationChecks:
+        budget.maximumEvaluationCountBetweenCheckpoints
+    )
+  }
+
+  static func cancellableBackgroundMeanAbsoluteDifference(
+    _ baseline: StampedFrame,
+    _ observation: StampedFrame,
+    excluding region: PixelRect,
+    observationShiftX: Int,
+    observationShiftY: Int,
+    sampleStride: Int,
+    evaluatedPixelBase: Int,
+    coarseCandidateCount: Int,
+    verifiedCandidateCount: Int,
+    baseComputation: PlannedDrawingObservationComputationDiagnostics,
+    cancellationBudget initialBudget: CancellationCheckpointBudget,
+    checkpointHandler: PlannedDrawingObservationCheckpointHandler?
+  ) async throws -> CancellableBackgroundResidualEvaluation {
+    precondition(sampleStride > 0)
+    var absoluteDifference = 0.0
+    var pixelCount = 0
+    var budget = initialBudget
+    for y in stride(from: 0, to: baseline.height, by: sampleStride) {
+      budget.recordCheckpoint()
+      try await plannedDrawingCancellationCheckpoint(
+        .alignmentRow,
+        computation: baseComputation.addingAlignmentComputation(
+          evaluatedPixelCount: evaluatedPixelBase + pixelCount,
+          coarseCandidateCount: coarseCandidateCount,
+          verifiedCandidateCount: verifiedCandidateCount,
+          checkpointCount: budget.count,
+          maximumEvaluationCountBetweenChecks:
+            budget.maximumEvaluationCountBetweenCheckpoints
+        ),
+        handler: checkpointHandler
+      )
+      for x in stride(from: 0, to: baseline.width, by: sampleStride) {
+        let inRegion =
+          x >= region.x && x < region.x + region.width
+          && y >= region.y && y < region.y + region.height
+        guard !inRegion else { continue }
+        let observedX = x + observationShiftX
+        let observedY = y + observationShiftY
+        guard observedX >= 0, observedX < observation.width,
+          observedY >= 0, observedY < observation.height
+        else { continue }
+        budget.recordEvaluations(1)
+        let baseOffset = y * baseline.rowBytes + x * baseline.pixelFormat.bytesPerPixel
+        let observedOffset =
+          observedY * observation.rowBytes
+          + observedX * observation.pixelFormat.bytesPerPixel
+        for component in 0..<baseline.pixelFormat.bytesPerPixel {
+          absoluteDifference += abs(
+            Double(baseline.bytes[baseOffset + component])
+              - Double(observation.bytes[observedOffset + component])
+          )
+        }
+        pixelCount += 1
+      }
+    }
+    let byteCount = pixelCount * baseline.pixelFormat.bytesPerPixel
+    return CancellableBackgroundResidualEvaluation(
+      residual: BackgroundResidual(
+        meanAbsoluteDifference: byteCount == 0 ? 0 : absoluteDifference / Double(byteCount),
+        pixelCount: pixelCount
+      ),
+      cancellationBudget: budget
+    )
+  }
+
+  static func alignmentCandidateIsBetter(
+    _ candidate: AlignmentCandidate,
+    _ current: AlignmentCandidate
+  ) -> Bool {
+    (
+      candidate.residual,
+      max(abs(candidate.shiftX), abs(candidate.shiftY)),
+      abs(candidate.shiftX) + abs(candidate.shiftY),
+      candidate.shiftY,
+      candidate.shiftX
+    ) < (
+      current.residual,
+      max(abs(current.shiftX), abs(current.shiftY)),
+      abs(current.shiftX) + abs(current.shiftY),
+      current.shiftY,
+      current.shiftX
+    )
   }
 
   static func bestIntegerAlignment(
@@ -178,7 +519,8 @@ extension VisionWorker {
     var pixelCount = 0
     for y in stride(from: 0, to: baseline.height, by: sampleStride) {
       for x in stride(from: 0, to: baseline.width, by: sampleStride) {
-        let inRegion = x >= region.x && x < region.x + region.width
+        let inRegion =
+          x >= region.x && x < region.x + region.width
           && y >= region.y && y < region.y + region.height
         guard !inRegion else { continue }
         let observedX = x + observationShiftX
@@ -187,7 +529,8 @@ extension VisionWorker {
           observedY >= 0, observedY < observation.height
         else { continue }
         let baseOffset = y * baseline.rowBytes + x * baseline.pixelFormat.bytesPerPixel
-        let observedOffset = observedY * observation.rowBytes
+        let observedOffset =
+          observedY * observation.rowBytes
           + observedX * observation.pixelFormat.bytesPerPixel
         for component in 0..<baseline.pixelFormat.bytesPerPixel {
           absoluteDifference += abs(

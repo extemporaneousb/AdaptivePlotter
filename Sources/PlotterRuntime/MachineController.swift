@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import PlotterModel
 
 public enum MachineConnectionState: String, Codable, Hashable, Sendable {
@@ -124,6 +125,11 @@ public enum SerialSelectionResult: Sendable, Equatable {
 }
 
 public actor MachineController {
+  private static let workflowTelemetryLogger = Logger(
+    subsystem: "com.adaptiveplotter.runtime",
+    category: "workflow-telemetry"
+  )
+
   public static let maximumCompletionTimeoutNanoseconds: UInt64 = 120_000_000_000
 
   private enum ActiveOperation {
@@ -204,6 +210,7 @@ public actor MachineController {
   private var priorityWireWriteWaiters: [CheckedContinuation<Void, Never>] = []
   private var regularWireWriteWaiters: [CheckedContinuation<Void, Never>] = []
   private var ledgerWriteTail: Task<Void, Never>?
+  private var acceptsWorkflowTelemetry = true
 
   public init(
     link: any MachineLink,
@@ -298,6 +305,11 @@ public actor MachineController {
   }
 
   public func disconnect() async {
+    // This is the workflow-telemetry admission cutoff. Capture the one
+    // existing ordered tail before the first suspension so actor reentrancy
+    // cannot append work that this disconnect fails to drain.
+    acceptsWorkflowTelemetry = false
+    let terminalLedgerWrite = ledgerWriteTail
     if activeOperation == .relativeJog || activeOperation == .drawingStroke
       || activeOperation == .penActuation
     {
@@ -312,8 +324,46 @@ public actor MachineController {
     motionGuardState = .inactive
     controllerAxisFeedLimits = nil
     controllerMotionTiming = nil
-    await ledgerWriteTail?.value
+    await terminalLedgerWrite?.value
     ledgerWriteTail = nil
+  }
+
+  /// Accepts a diagnostic workflow fact into the controller's existing
+  /// ordered ledger tail. This returns after enqueue; SQLite completion is
+  /// drained by `disconnect()` and never participates in workflow authority.
+  @discardableResult
+  public func enqueueWorkflowTelemetry(_ event: WorkflowTelemetryEvent) -> Bool {
+    guard acceptsWorkflowTelemetry else {
+      Self.workflowTelemetryLogger.notice(
+        "Workflow telemetry rejected after disconnect cutoff for \(event.operation.rawValue, privacy: .public) \(event.phase.rawValue, privacy: .public)"
+      )
+      return false
+    }
+    guard ledger != nil, runID != nil else {
+      Self.workflowTelemetryLogger.notice(
+        "Workflow telemetry storage unavailable for \(event.operation.rawValue, privacy: .public) \(event.phase.rawValue, privacy: .public)"
+      )
+      return false
+    }
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys]
+    let payload: Data
+    do {
+      payload = try encoder.encode(event)
+    } catch {
+      Self.workflowTelemetryLogger.error(
+        "Workflow telemetry encoding failed for \(event.operation.rawValue, privacy: .public) \(event.phase.rawValue, privacy: .public): \(String(describing: error), privacy: .public)"
+      )
+      return false
+    }
+    enqueueLedgerEvent(
+      timestamp: timestamp(),
+      kind: "workflow.\(event.operation.rawValue).\(event.phase.rawValue)",
+      schemaVersion: WorkflowTelemetryEvent.schemaVersion,
+      payload: payload,
+      reportFailure: "\(event.operation.rawValue) \(event.phase.rawValue)"
+    )
+    return true
   }
 
   public func runPassiveProbe() async -> PassiveProbeResult {
@@ -2202,19 +2252,28 @@ public actor MachineController {
     timestamp: RuntimeTimestamp,
     kind: String,
     schemaVersion: Int = 1,
-    payload: Data
+    payload: Data,
+    reportFailure: String? = nil
   ) {
     guard let ledger, let runID else { return }
     let precedingWrite = ledgerWriteTail
     ledgerWriteTail = Task {
       await precedingWrite?.value
-      _ = try? await ledger.appendEvent(
-        runID: runID,
-        timestamp: timestamp,
-        kind: kind,
-        schemaVersion: schemaVersion,
-        payload: payload
-      )
+      do {
+        _ = try await ledger.appendEvent(
+          runID: runID,
+          timestamp: timestamp,
+          kind: kind,
+          schemaVersion: schemaVersion,
+          payload: payload
+        )
+      } catch {
+        if let reportFailure {
+          Self.workflowTelemetryLogger.error(
+            "Workflow telemetry write failed for \(reportFailure, privacy: .public): \(String(describing: error), privacy: .public)"
+          )
+        }
+      }
     }
   }
 }

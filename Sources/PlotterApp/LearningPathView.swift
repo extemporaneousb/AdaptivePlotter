@@ -5,11 +5,11 @@ import SwiftUI
 struct LearningPathNavigator: View {
   @Bindable var workspace: OperatorWorkspace
   @Binding var selection: LearningPathSelectionState
+  let projection: LearningPathProjection
   let close: () -> Void
   @State private var pendingResetPlan: LearningVacatePlan?
 
   var body: some View {
-    let projection = workspace.learningPathProjection(selectedItemID: selection.selected)
     VStack(alignment: .leading, spacing: 0) {
       HStack(alignment: .top, spacing: 8) {
         VStack(alignment: .leading, spacing: 5) {
@@ -133,13 +133,13 @@ struct LearningPathNavigator: View {
 struct LearningPathView: View {
   @Bindable var workspace: OperatorWorkspace
   @Binding var selection: LearningPathSelectionState
+  let projection: LearningPathProjection
   let close: () -> Void
   let closeUnavailableReason: String?
   @State private var pendingResetPlan: LearningVacatePlan?
 
   var body: some View {
     let actionWorkspace = workspace
-    let projection = workspace.learningPathProjection(selectedItemID: selection.selected)
     let selectedPresentation = projection.selectedAction
     let resetSurface = projection.resetSurface
     let pinnedActionStrip =

@@ -69,13 +69,15 @@ struct RunLedgerTests {
     )
     let expected = WorkflowTelemetryEvent(
       operationID: UUID(),
-      operation: .manualJog,
-      phase: .intentAccepted,
-      detail: "An ordinary operator-authored manual jog was admitted.",
-      motionIntent: WorkflowMotionIntent(
-        deltaXMM: -100,
-        deltaYMM: 0,
-        feedMMPerMinute: 500
+      operation: .sparseTipCalibration,
+      phase: .circleCompleted,
+      detail: "Completed sparse-tip circle 1 of 4.",
+      sparseTipProgress: SparseTipWorkflowProgress(
+        stage: .circleCompleted,
+        completedCircleCount: 1,
+        totalCircleCount: 4,
+        circlePosition: .negativeX,
+        chordCount: 16
       )
     )
     let payload = try JSONEncoder().encode(expected)
@@ -83,14 +85,14 @@ struct RunLedgerTests {
     _ = try await fixture.ledger.appendEvent(
       runID: runID,
       timestamp: RuntimeTimestamp(monotonicNanoseconds: 2),
-      kind: "workflow.manualJog.intentAccepted",
+      kind: "workflow.sparseTipCalibration.circleCompleted",
       schemaVersion: WorkflowTelemetryEvent.schemaVersion,
       payload: payload
     )
 
     let events = try await fixture.ledger.events(runID: runID)
     let event = try #require(events.count == 1 ? events[0] : nil)
-    #expect(event.kind == "workflow.manualJog.intentAccepted")
+    #expect(event.kind == "workflow.sparseTipCalibration.circleCompleted")
     #expect(event.schemaVersion == WorkflowTelemetryEvent.schemaVersion)
     #expect(try JSONDecoder().decode(WorkflowTelemetryEvent.self, from: event.payload) == expected)
   }

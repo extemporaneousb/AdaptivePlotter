@@ -54,8 +54,21 @@ clears an alarm implicitly.
 
 `CameraCapture` owns device discovery, authorization, selection, capture
 sessions, exact stamped frames, and scoped preview publication holds. A hold
-does not stop raw capture. `VisionWorker` owns bounded inference and returns
-measurements; it never supplies motion or click authority.
+does not stop raw capture. Exact workflow capture materializes the newest raw
+frame with `.returnOnly`; that private value does not enter preview or automatic
+analysis until its owning workflow explicitly publishes the validated selection.
+Publication is active-generation checked and idempotent. `VisionWorker` owns
+bounded inference and returns measurements; it never supplies motion or click
+authority.
+
+`CameraSourceSession` owns automatic-analysis configuration and exclusive Vision
+leases. Reapplying identical cadence/features, analysis region, or cap color is
+a no-op; it does not restart the pipeline or its frame subscription. Semantic
+pipeline revisions are pushed to `OperatorWorkspace`. Video Settings counters
+and lifecycle statistics are pull-only diagnostics and do not invalidate the
+Learning presentation. One caller-supplied exact workflow batch owns one lease
+from preview hold through automatic-analysis restoration, including failure or
+cancellation settlement.
 
 `OverlayPreferenceState` contains only the persistent operator selections
 `penCap` and `armatureEnvelope`. `SceneFeatureSet` expands the armature dependency
@@ -97,11 +110,21 @@ format, sample counts, and sampler revision. `CameraSourceSession` applies the
 accepted color to both newest-only scene analysis and exclusive Stage 3.3
 inspection. There is no `ColorPicker` owner or mutable color preference seam.
 
+`ExactWorkflowVisionOwner` is the typed app-level identity for the one active
+exact inspection: pen-cap appearance, camera calibration, sparse-tip
+calibration, observed Drawing Trial, or Drawing Studio. It is projected
+separately from automatic overlay analysis. Supervised Pen-Up travel does not
+acquire an exact Vision lease and therefore never claims that Vision owns
+processing or that preview is held merely because motion is active.
+
 `OperatorWorkspace` is the single `@Observable` application owner. It composes
 controller/camera actors through typed actions, owns Learning Path attempts,
 constructs immutable evidence, commits the dependency graph, routes view
-intent, and copies current state into `LearningPathProjectionSnapshot`. It
-cannot replace controller settlement or exact-frame provenance with UI state.
+intent, and reads current state into `LearningPathProjectionSnapshot`. Its
+LIVE/SIMULATED session accessor uses read/modify accessors, and related session
+writes are batched into one semantic publication instead of copying and
+reassigning the complete `LearningSessionState` for each field. It cannot
+replace controller settlement or exact-frame provenance with UI state.
 Restored-pose revalidation is admission policy for coordinate-dependent
 Learning and Drawing actions only. Operator-authored manual jog and manual Pen
 actions bypass Learning admission and use the Motion toggle plus the
@@ -125,9 +148,23 @@ disables the exercise's existing typed action with a precise remedy rather than
 creating a Learning Path row or generic forward action. It cannot mutate a session,
 admit motion, persist, perform I/O, or accept an artifact. SwiftUI consumes one
 aggregate projection per Learning Path render and sends selected typed actions
-back to `OperatorWorkspace`. The destructive Reset All Learning action is
+back to `OperatorWorkspace`. `OperatorWorkspace` builds one revision-keyed
+Learning presentation base containing the snapshot, reset plans, current item,
+current projection, and Exercise-pane protection. It also retains one
+revision-and-selection-keyed review projection. Only a semantic Learning input
+change advances that revision and invalidates those caches; exact-frame pixels,
+unchanged Vision requests, and pull-only diagnostics do not. Action Surface
+presentation has a separate revision so video/overlay changes do not force a
+Learning snapshot/reset-plan rebuild. The destructive Reset All Learning action is
 presented in the navigator menu; the exercise detail presents only the scoped
 Reset From This Step action.
+
+`WorkbenchLayoutState` owns window-local pane visibility and Video Settings
+presentation as one value. A permitted Show computes protected-pane collapse
+and commits the complete next layout in one synchronous main-actor assignment;
+there is no pending Show or `Task.yield()` phase. The same cached action-strip
+projection supplies Exercise-pane protection, so a pane containing the active
+Stop remains visible without performing another Learning projection.
 
 LIVE and SIMULATED each own one `LearningSessionState` value under that shared
 contract. Within each value, compiler-enforced substates prevent invalid
@@ -146,6 +183,15 @@ commands, restore owners, or promote artifacts. The existing persistent machine-
 session owner retains at most 10 complete SQLite session groups and 50 MiB;
 unknown files are not deleted. Camera startup does not record PNG samples.
 Only explicit operator snapshots/evidence may create camera sample files.
+
+Stage 3.4 workflow telemetry schema v2 records one ordered semantic sequence:
+batch admission, one completion event for each whole 16-chord circle, reveal,
+and terminal disposition. Individual chords emit no workflow telemetry.
+`RunInterpreter` forwards these non-authoritative facts to
+`MachineController`'s existing ordered ledger-write tail. Enqueue is non-blocking
+with respect to workflow progression; disconnect drains the tail, and encoding
+or storage failure is reported diagnostically rather than becoming admission or
+evidence authority.
 
 `DrawingProgramCatalog` produces deterministic field-space geometry. A
 `DrawingPlacement` is the only field-to-machine transform, and `DrawingPlanner`
@@ -172,6 +218,13 @@ attempt evidence. `MachineController`
 serializes the requested value and settlement under its existing pen-operation
 ownership. There is no parallel servo-calibration owner, checkpoint, or
 artifact graph.
+
+On an automatic Pen Down or Pen Up, `DiscoveryTransaction` applies the settled
+controller outcome and presents the immediately following question as one
+validated transaction transition. `OperatorWorkspace` publishes the resulting
+transaction and command evidence in one session mutation and one semantic
+revision, so the next action strip is not delayed behind an intermediate
+post-settlement projection.
 
 `LearningPathProjector` derives current progression from the active owner and
 the first unmet dependency. `restartableExerciseItemID` is recovery state for
@@ -210,8 +263,12 @@ source/configuration, exact measurement/frame identity, an accepted unambiguous
 cap in every frame, and maximum pairwise component-centroid spread of at most 2 px.
 It returns the newest third inspection unchanged; no centroid, bounds, or
 confidence is averaged. The preliminary frame is freshness control, not accepted
-cap evidence. SIMULATED causal geometry is source-separated nonphysical evidence
-and cannot establish live optical stability.
+cap evidence. All three strictly newer samples are materialized `.returnOnly`
+inside one exclusive `CameraSourceSession` lease. Only the selected newest stable
+sample is explicitly published, once; failure or cancellation publishes none,
+settles that same lease, and restores the requested automatic-analysis stream.
+SIMULATED causal geometry is source-separated nonphysical evidence and cannot
+establish live optical stability.
 
 Stage 3.4 is split across four owners:
 
@@ -223,12 +280,17 @@ Stage 3.4 is split across four owners:
   the accepted Boundary envelope, insetting each edge only by the 2 mm mark
   radius and drawing no center mark. Its corner-center rectangle is the proposed tip-map
   applicability rectangle, and its final reveal pose is the rectangle center.
-- `OperatorWorkspace` composes that plan with supervised Pen-Up travel, current
-  Pen Interaction Up/Down values, four closed 16-chord 2 mm-radius circles capped
-  at 100 mm/min, settled Pen Up before every inter-circle travel, exact frame/cap
-  capture, and atomic graph/checkpoint commits. The existing calibrated drawable-
-  region overlay renders the bounding box; Stage 4.1 later draws the physical
-  connecting frame. Stage 3.3 retains its center plus four ±24 mm positions.
+- `OperatorWorkspace` composes that plan as one typed batch. It performs one
+  initial Pen-Up normalization, preserves that batch-scoped Pen-Up authorization
+  across approach/start/reveal travel, and consumes four Pen Down plus four
+  post-circle Pen Up settlements. The complete batch therefore has five Pen Up
+  settlements, 64 typed chord outcomes, four pre-mark controller-context probes,
+  one reveal probe, and one final machine snapshot. Per-chord progress remains
+  controller typed for Stop and possible-ink handling but does not rebuild a
+  Learning projection or fetch another workspace machine snapshot. The existing
+  calibrated drawable-region overlay renders the bounding box; Stage 4.1 later
+  draws the physical connecting frame. Stage 3.3 retains its center plus four
+  ±24 mm positions.
 - `TipCalibrationAuthority` owns validated evidence types, four-corner affine-first
   construction, constant construction fallback, diagnostic residual/covariance/
   uncertainty, applicability decisions, rebase derivations, and checkpoints.
@@ -244,7 +306,7 @@ After click four, the app projects all four corner machine positions through
 current `MachineCameraRegistration`, centers projected and clicked sets to
 remove their common cap-to-tip translation, evaluates all 4! assignments, and selects the
 minimum total squared pixel distance with canonical-position exact-tie breaking.
-There is no distance or ambiguity gate. The five associated observations feed
+There is no distance or ambiguity gate. The four associated observations feed
 direct affine construction first; constant correction is constructed only when
 affine construction throws. Residuals, RMS, covariance, and uncertainty are
 diagnostic and never block progression.
@@ -345,12 +407,25 @@ prediction remains visible over live video without freezing preview or treating
 planned geometry as measured pixels. The post-frame observer replaces that
 preview with exact-frame intended, measured-ink, and residual overlays.
 
-`exclusiveWorkflowVisionRequestCount` is projected separately from background
-scene-analysis state. While planned-drawing comparison is in flight, Learning
-reports **Trial ink analysis · active** and names Vision as the processing owner.
+The typed `ExactWorkflowVisionOwner.observedDrawingTrial` is projected separately
+from background scene-analysis state. While planned-drawing comparison is in
+flight, Learning reports **Trial ink analysis · active** and names Vision as the
+processing owner.
 Normal observed-ink success commits the typed comparison in the same exercise
 attempt. Only a failure, ambiguity, possible-ink recovery, rejected observation,
 or atomic-commit error ends the automatic chain early.
+
+Planned observation uses alignment revision
+`bounded-subsampled-finalist-background-mad-v2`: it scores the complete bounded
+integer-shift envelope on a deterministic two-pixel lattice, then evaluates at
+most three finalists at full resolution. Coarse scores never become acceptance
+evidence. Alignment, new-ink extraction, and path association expose bounded
+cancellation checkpoints; cancellation returns typed `computationCancelled`,
+publishes no partial observation, and settles the one exclusive Vision lease.
+Successful evidence records exact work counters and algorithm revisions as
+diagnostics. Intended overlays retain planned provenance, observed ink retains
+measured provenance, and residuals retain diagnostic provenance on the exact
+post-frame.
 
 The intended frame, observed ink, and residual are contextual Stage 4 results,
 not global overlay preferences. The implemented curriculum ends at this one

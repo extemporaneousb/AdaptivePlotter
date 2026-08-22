@@ -29,11 +29,12 @@ extension OperatorWorkspaceTests {
     let owner = LearningPathItemID.humanGuidedDiscovery(
       .pairedBoundaryDiscoveryAndCentering
     )
+    let automaticRequestsBeforeCenterTravel = camera.recordedAutomaticInspectionRequests
     try await performPublicAction(.moveToEstimatedCenter, owner: owner, workspace: workspace)
 
     let expectedCenter = try MachinePosition(x: 0, y: 0)
-    #expect(camera.recordedAutomaticInspectionRequests == [.twoFPS, .twoFPS, .twoFPS, .twoFPS])
-    #expect(!workspace.scopedVisionAnalysisActive)
+    #expect(camera.recordedAutomaticInspectionRequests == automaticRequestsBeforeCenterTravel)
+    #expect(workspace.exactWorkflowVisionOwner == nil)
     #expect(workspace.centerArrivalPosition == expectedCenter)
     #expect(workspace.learningArtifactGraph.currentRevision(for: .centerArrival) != nil)
     #expect(!workspace.centerArrivalRetryRequired)

@@ -2,6 +2,14 @@ import Foundation
 import PlotterModel
 import PlotterRuntime
 
+enum ExactWorkflowVisionOwner: String, CaseIterable, Hashable, Sendable {
+  case penCapAppearance
+  case cameraCalibration
+  case sparseTipCalibration
+  case observedDrawingTrial
+  case drawingStudio
+}
+
 extension BoundaryActivityOperation {
   fileprivate var actionLabel: String {
     switch self {
@@ -258,9 +266,7 @@ struct LearningPathProjectionSnapshot: Sendable {
     let explorationFailure: WorkflowFailure?
     let discoveryFailure: WorkflowFailure?
     let lastStopAudit: ContextualStopAuditRecord?
-    let scopedVisionActive: Bool
-    let visionAnalysisActive: Bool
-    let workflowVisionActive: Bool
+    let exactWorkflowVisionOwner: ExactWorkflowVisionOwner?
     let visionState: PlotterSceneAnalysisState
 
     init(
@@ -272,9 +278,7 @@ struct LearningPathProjectionSnapshot: Sendable {
       explorationFailure: WorkflowFailure? = nil,
       discoveryFailure: WorkflowFailure? = nil,
       lastStopAudit: ContextualStopAuditRecord? = nil,
-      scopedVisionActive: Bool = false,
-      visionAnalysisActive: Bool = false,
-      workflowVisionActive: Bool = false,
+      exactWorkflowVisionOwner: ExactWorkflowVisionOwner? = nil,
       visionState: PlotterSceneAnalysisState = .stopped
     ) {
       self.activeAttemptOwner = activeAttemptOwner
@@ -285,9 +289,7 @@ struct LearningPathProjectionSnapshot: Sendable {
       self.explorationFailure = explorationFailure
       self.discoveryFailure = discoveryFailure
       self.lastStopAudit = lastStopAudit
-      self.scopedVisionActive = scopedVisionActive
-      self.visionAnalysisActive = visionAnalysisActive
-      self.workflowVisionActive = workflowVisionActive
+      self.exactWorkflowVisionOwner = exactWorkflowVisionOwner
       self.visionState = visionState
     }
   }
@@ -1134,7 +1136,8 @@ extension LearningPathProjector {
         action: drawingActionText(phase),
         phase: "Phase \(phase.rawValue) of \(ObservedDrawingTrialStep.allCases.count)",
         outcome: .inProgress,
-        detail: [.text(phase == .revealAndObserveNewInk && operations.workflowVisionActive
+        detail: [.text(phase == .revealAndObserveNewInk
+          && operations.exactWorkflowVisionOwner == .observedDrawingTrial
           ? "Vision is comparing the trial-local exact baseline and strictly newer post-frame image now."
           : "The one-Go trial owns progression; no additional approval is waiting.")],
         recovery: operations.stopOwner == nil
@@ -1267,13 +1270,8 @@ extension LearningPathProjector {
     let suffix = isBoundaryReview
       ? " Stage 3.2 boundary acceptance never calls Camera or Vision." : ""
     let vision: (String, Bool, SubsystemAuthorityRole, String)
-    if operations.workflowVisionActive {
-      vision = (
-        "Trial ink analysis · active",
-        false,
-        .operationOwner,
-        "Vision is comparing the trial-local exact baseline with the strictly newer post-frame image. The preview remains visible and no redraw is requested."
-      )
+    if let owner = operations.exactWorkflowVisionOwner {
+      vision = exactWorkflowVisionStatus(owner)
     } else if let phase = snapshot.cameraCalibration.phase {
       vision = (
         phase.description,
@@ -1281,12 +1279,6 @@ extension LearningPathProjector {
         .operationOwner,
         "Current-camera calibration owns the Learning operation, but it does not gate direct manual controls. Any admitted manual move remains separately shown under its Motion owner."
       )
-    } else if operations.scopedVisionActive {
-      vision = operations.visionAnalysisActive
-        ? ("Motion-scoped analysis · preview held", false, .advisoryEvidence,
-          "One immutable frame is being analyzed off the main actor. Preview publication is held until it settles; raw camera delivery continues.")
-        : ("Motion-scoped analysis · live recovery", false, .advisoryEvidence,
-          "The owned movement is still active between computations. When it settles, the selected overlay settings determine whether background analysis continues.")
     } else if case .running(let cadence) = operations.visionState {
       vision = (
         "Overlay analysis · running",
@@ -1347,6 +1339,48 @@ extension LearningPathProjector {
           : "Learning commits record evidence after the owning operation settles.")]
       ),
     ]
+  }
+
+  private func exactWorkflowVisionStatus(
+    _ owner: ExactWorkflowVisionOwner
+  ) -> (String, Bool, SubsystemAuthorityRole, String) {
+    switch owner {
+    case .penCapAppearance:
+      (
+        "Pen-cap appearance Vision · active",
+        false,
+        .operationOwner,
+        "Vision is inspecting the exact frozen frame used to identify the visible cap appearance."
+      )
+    case .cameraCalibration:
+      (
+        "Camera calibration Vision · active",
+        false,
+        .operationOwner,
+        "Vision is inspecting exact current-camera cap frames for the active calibration sample."
+      )
+    case .sparseTipCalibration:
+      (
+        "Sparse-tip calibration Vision · active",
+        false,
+        .operationOwner,
+        "Vision is inspecting exact sparse-tip calibration evidence without accepting a click or redrawing ink."
+      )
+    case .observedDrawingTrial:
+      (
+        "Trial ink analysis · active",
+        false,
+        .operationOwner,
+        "Vision is comparing the trial-local exact baseline with the strictly newer post-frame image. The preview remains visible and no redraw is requested."
+      )
+    case .drawingStudio:
+      (
+        "Drawing Studio ink analysis · active",
+        false,
+        .operationOwner,
+        "Vision is comparing Drawing Studio's exact baseline and post-frame for the completed plan."
+      )
+    }
   }
 }
 

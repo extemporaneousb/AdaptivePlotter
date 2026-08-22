@@ -10,6 +10,56 @@ procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
 ## Implemented software surface
 
+### Bounded exercise-path computation and responsive operator presentation
+
+Implemented 2026-08-22 in Blackdog task `TASK-9D85A716`.
+
+Learning presentation now has one immutable base projection keyed by its
+semantic revision and one selection cache. The root workbench shares that
+projection and its cached action surface with child views; diagnostic-only
+updates do not rebuild either, and the 64 Stage 3.4 drawing chords do not each
+trigger a Learning projection. Video Settings uses one atomic, window-local
+layout transition instead of a pending show task, so deterministic held-motion
+tests expose the panel without waiting for motion settlement while retaining
+the stable Stop control. A protected narrow layout still refuses the panel
+truthfully instead of queuing it.
+
+The Vision pipeline now publishes semantic phase/result/error changes while
+diagnostic counters are pull-only, and identical lifecycle requests are no-ops.
+Exact workflow capture separates return-only materialization from explicit
+preview publication. Stable cap capture inspects three strictly newer frames,
+validates the set once, and publishes the selected newest frame under one
+exclusive lease rather than three pause/release/resume cycles.
+
+Automatic Pen transitions batch the settled actuation, evidence, and next
+question into one semantic update. The four-corner Stage 3.4 fixture executes
+64 chord outcomes without per-chord snapshots or passive probes: the complete
+batch records 5 Pen Up actuations, 4 Pen Down actuations, 5 passive probes, and
+1 full snapshot, ending Idle and Pen Up without redraw. Workflow telemetry is
+enqueued on one ordered nonblocking tail; teardown closes admission before
+awaiting the accepted prefix, so later events are rejected rather than racing
+the drain.
+
+Planned-observation alignment evaluates all 49 offsets at stride 2, performs
+full-resolution verification only for the best three supported candidates, and
+checks cancellation through alignment, extraction, and association. The
+instrumented deterministic fixture reduced pixel evaluations from 226,580 to
+70,102 (69.06%). That number and finalist equivalence are fixture evidence, not
+a claim of global mathematical equivalence for arbitrary images.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `make quick-test` | passed — 499 tests | fast unit/component partition with retained journeys excluded |
+| `make journey-test` | passed — 10 tests | retained end-to-end software journeys |
+| `make strict-check` | passed — 509 tests | Swift 6 concurrency, warnings as errors, formatting, full tests, and repository gates |
+| obsolete-symbol scan | passed — zero matches | queued Video Settings state, fake motion-scoped Vision lease, obsolete sparse-tip chord action, and superseded projection helpers |
+| `git diff --check` | passed | whitespace and conflict markers |
+
+These are source, deterministic fixture, simulator, build, and repository-gate
+results. No attended camera, controller, motion, Pen, operator click, paper, or
+observed-ink validation was performed by this task. The application was not
+used to establish physical runtime behavior.
+
 ### Exercise-only Learning Path and external runtime blockers
 
 Implemented 2026-08-21 in Blackdog task `TASK-8D0B646D`.

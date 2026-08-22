@@ -129,38 +129,78 @@ private enum SpeechComposition {
   )
 }
 
+struct VideoSettingsOperatorActionDisposition: Equatable {
+  let layout: WorkbenchLayoutState
+  let shouldRefreshDiagnostics: Bool
+}
+
+func videoSettingsOperatorActionDisposition(
+  from layout: WorkbenchLayoutState,
+  action: VideoSettingsVisibilityAction,
+  availableWindowWidth: CGFloat,
+  exerciseDetailMustRemainVisible: Bool,
+  policy: VideoSettingsVisibilityPolicy
+) -> VideoSettingsOperatorActionDisposition? {
+  guard
+    let nextLayout = policy.transition(
+      from: layout,
+      action: action,
+      availableWindowWidth: availableWindowWidth,
+      exerciseDetailMustRemainVisible: exerciseDetailMustRemainVisible
+    )
+  else { return nil }
+  return VideoSettingsOperatorActionDisposition(
+    layout: nextLayout,
+    shouldRefreshDiagnostics:
+      !layout.videoSettingsIsPresented && nextLayout.videoSettingsIsPresented
+  )
+}
+
 struct OperatorWorkspaceView: View {
   @Bindable var workspace: OperatorWorkspace
   @State private var selection = LearningPathSelectionState(
     current: .humanGuidedDiscovery(.penInteraction)
   )
-  @State private var videoSettingsVisibility = VideoSettingsVisibilityState()
-  @State private var paneVisibility = WorkbenchPaneVisibility()
+  @State private var layout = WorkbenchLayoutState()
   @State private var actionSurfaceViewport = ActionSurfaceViewportState()
   private let videoSettingsPolicy = VideoSettingsVisibilityPolicy()
 
   var body: some View {
+    let actionSurfacePresentation = workspace.actionSurfacePresentation
+    let exercisePaneProtection = workspace.exercisePaneProtectionPresentation
+    let learningProjection =
+      workspace.learningIsEnabled
+        && (layout.panes.navigatorIsPresented || layout.panes.exerciseDetailIsPresented)
+      ? workspace.learningPathProjection(selectedItemID: selection.selected)
+      : nil
+
     GeometryReader { proxy in
+      let exerciseCollapseReason =
+        exerciseDetailCollapseUnavailableReason(exercisePaneProtection)
       let videoSettings = videoSettingsPolicy.presentation(
-        isPresented: videoSettingsVisibility.isPresented,
-        availableWindowWidth: proxy.size.width
+        layout: layout,
+        availableWindowWidth: proxy.size.width,
+        exerciseDetailMustRemainVisible: exercisePaneProtection.mustRemainVisible
       )
       HSplitView {
-        if workspace.learningIsEnabled && paneVisibility.navigatorIsPresented {
+        if workspace.learningIsEnabled, layout.panes.navigatorIsPresented,
+          let learningProjection
+        {
           LearningPathNavigator(
             workspace: workspace,
             selection: $selection,
-            close: { paneVisibility.navigatorIsPresented = false }
+            projection: learningProjection,
+            close: { layout = layout.toggling(.navigator) }
           )
           .frame(minWidth: 220, idealWidth: 280, maxWidth: 440)
         }
 
         VStack(spacing: 0) {
           WorkbenchPaneControls(
-            visibility: paneVisibility,
+            visibility: layout.panes,
             videoSettings: videoSettings,
             exerciseDetailCollapseUnavailableReason:
-              exerciseDetailCollapseUnavailableReason,
+              exerciseCollapseReason,
             motionCollapseUnavailableReason: motionCollapseUnavailableReason,
             learningIsEnabled: workspace.learningIsEnabled,
             learningActionTitle: workspace.learningModeActionTitle,
@@ -178,16 +218,20 @@ struct OperatorWorkspaceView: View {
               }
             },
             togglePane: { pane in
-              paneVisibility = paneVisibility.toggling(pane)
+              layout = layout.toggling(pane)
             },
             performVideoSettingsAction: { action in
-              performVideoSettingsAction(action, availableWindowWidth: proxy.size.width)
+              performVideoSettingsAction(
+                action,
+                availableWindowWidth: proxy.size.width,
+                exercisePaneProtection: exercisePaneProtection
+              )
             }
           )
 
           VSplitView {
             ActionSurface(
-              presentation: workspace.actionSurfacePresentation,
+              presentation: actionSurfacePresentation,
               viewport: $actionSurfaceViewport,
               selectPoint: { selection in
                 workspace.selectToolContactPoint(selection)
@@ -204,11 +248,11 @@ struct OperatorWorkspaceView: View {
               minHeight: LearningWorkbenchLayoutPolicy.minimumActionSurfaceHeight
             )
 
-            if paneVisibility.motionIsPresented {
+            if layout.panes.motionIsPresented {
               ScrollView {
                 MotionPanel(
                   workspace: workspace,
-                  close: { paneVisibility.motionIsPresented = false },
+                  close: { layout = layout.toggling(.motion) },
                   closeUnavailableReason: motionCollapseUnavailableReason
                 )
                 .padding(10)
@@ -286,20 +330,22 @@ struct OperatorWorkspaceView: View {
           .background(Color(nsColor: .controlBackgroundColor))
         }
 
-        if workspace.learningIsEnabled && paneVisibility.exerciseDetailIsPresented {
+        if workspace.learningIsEnabled, layout.panes.exerciseDetailIsPresented,
+          let learningProjection
+        {
           LearningPathView(
             workspace: workspace,
             selection: $selection,
-            close: { paneVisibility.exerciseDetailIsPresented = false },
-            closeUnavailableReason: exerciseDetailCollapseUnavailableReason
+            projection: learningProjection,
+            close: { layout = layout.toggling(.exerciseDetail) },
+            closeUnavailableReason: exerciseCollapseReason
           )
           .frame(minWidth: 300, idealWidth: 380, maxWidth: 520)
         }
       }
       .onChange(of: proxy.size.width) { _, width in
-        videoSettingsVisibility.collapseIfNeeded(
+        layout = layout.collapsingVideoSettingsIfNeeded(
           availableContentWidth: width,
-          panes: paneVisibility,
           policy: videoSettingsPolicy
         )
       }
@@ -307,16 +353,17 @@ struct OperatorWorkspaceView: View {
     .background(Color.black)
     .inspector(
       isPresented: Binding(
-        get: { videoSettingsVisibility.isPresented },
+        get: { layout.videoSettingsIsPresented },
         set: { isPresented in
-          if !isPresented { videoSettingsVisibility.hide() }
+          if !isPresented { layout = layout.hidingVideoSettings() }
         }
       )
     ) {
       VideoSettingsPanel(
         workspace: workspace,
+        actionSurfacePresentation: actionSurfacePresentation,
         viewport: $actionSurfaceViewport,
-        close: { videoSettingsVisibility.hide() }
+        close: { layout = layout.hidingVideoSettings() }
       )
       .inspectorColumnWidth(
         min: OverlayCardLayoutPolicy.minimumInspectorWidth,
@@ -339,9 +386,10 @@ struct OperatorWorkspaceView: View {
     }
   }
 
-  private var exerciseDetailCollapseUnavailableReason: String? {
-    guard workspace.currentExerciseActionStripPresentation?.mustRemainVisible == true
-    else { return nil }
+  private func exerciseDetailCollapseUnavailableReason(
+    _ presentation: ExercisePaneProtectionPresentation
+  ) -> String? {
+    guard presentation.mustRemainVisible else { return nil }
     return "Finish or cancel the active exercise attempt before hiding its controls."
   }
 
@@ -352,24 +400,21 @@ struct OperatorWorkspaceView: View {
 
   private func performVideoSettingsAction(
     _ action: VideoSettingsVisibilityAction,
-    availableWindowWidth: CGFloat
+    availableWindowWidth: CGFloat,
+    exercisePaneProtection: ExercisePaneProtectionPresentation
   ) {
     guard
-      videoSettingsVisibility.request(
-        action,
-        policy: videoSettingsPolicy,
-        availableWindowWidth: availableWindowWidth
+      let disposition = videoSettingsOperatorActionDisposition(
+        from: layout,
+        action: action,
+        availableWindowWidth: availableWindowWidth,
+        exerciseDetailMustRemainVisible: exercisePaneProtection.mustRemainVisible,
+        policy: videoSettingsPolicy
       )
     else { return }
-    paneVisibility = videoSettingsPolicy.preparingPanesToShow(
-      paneVisibility,
-      availableWindowWidth: availableWindowWidth,
-      canCollapseExerciseDetail: exerciseDetailCollapseUnavailableReason == nil
-    )
-    Task { @MainActor in
-      await Task.yield()
-      videoSettingsVisibility.commitPendingShow()
-    }
+    layout = disposition.layout
+    guard disposition.shouldRefreshDiagnostics else { return }
+    Task { await workspace.refreshVideoDiagnostics() }
   }
 }
 
@@ -446,7 +491,7 @@ private struct WorkbenchPaneControls: View {
       }
       .operatorButton(isEnabled: videoSettings.isActionEnabled)
       .controlSize(.small)
-      .help(videoSettings.unavailableReason ?? videoSettings.actionTitle)
+      .help(videoSettings.unavailableReasonText ?? videoSettings.actionTitle)
     }
     .padding(.horizontal, 10)
     .padding(.vertical, 6)
@@ -475,6 +520,7 @@ private struct WorkbenchPaneControls: View {
 
 private struct VideoSettingsPanel: View {
   @Bindable var workspace: OperatorWorkspace
+  let actionSurfacePresentation: ActionSurfacePresentation
   @Binding var viewport: ActionSurfaceViewportState
   let close: () -> Void
 
@@ -488,7 +534,11 @@ private struct VideoSettingsPanel: View {
       }
 
       ScrollView {
-        VideoSettingsContents(workspace: workspace, viewport: $viewport)
+        VideoSettingsContents(
+          workspace: workspace,
+          actionSurfacePresentation: actionSurfacePresentation,
+          viewport: $viewport
+        )
       }
     }
     .padding(10)
@@ -502,6 +552,7 @@ private enum VideoSourceChoice: Hashable {
 
 private struct VideoSettingsContents: View {
   @Bindable var workspace: OperatorWorkspace
+  let actionSurfacePresentation: ActionSurfacePresentation
   @Binding var viewport: ActionSurfaceViewportState
 
   var body: some View {
@@ -571,7 +622,7 @@ private struct VideoSettingsContents: View {
   }
 
   private var analysisViewportControls: some View {
-    let displayedFrame = workspace.actionSurfacePresentation.displayedFrame
+    let displayedFrame = actionSurfacePresentation.displayedFrame
     let region = displayedFrame.flatMap {
       viewport.selectedRegion(frameWidth: $0.frame.width, frameHeight: $0.frame.height)
     }

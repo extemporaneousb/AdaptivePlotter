@@ -112,6 +112,7 @@ struct OverlayLayerStatus: Hashable, Sendable {
 
 enum OverlayStatusGrammar {
   static let waiting = "Waiting — no current exact camera frame."
+  static let analyzingNewest = "Analyzing — newest-only scene analysis is running."
   static func analyzing(frame: UInt64) -> String {
     "Analyzing — latest requested frame \(frame) …"
   }
@@ -374,41 +375,36 @@ struct OverlayPresentationComposer {
           state: .failed, message: "Failed — \(error)", provenance: channels.scene?.provenance)
         continue
       }
-      if let active = sceneState.activeFrameSequence {
-        let exactCompletedScene = channels.scene.flatMap { scene in
-          scene.provenance.matches(displayedFrame) ? scene : nil
-        }
-        if let exactCompletedScene {
-          rendered.append(
-            contentsOf: exactCompletedScene.overlays.filter {
-              $0.provenance.kind == overlay.overlayKind
-            }
-          )
-          statuses[overlay] =
-            exactCompletedScene.statuses[overlay]
-            ?? OverlayLayerStatus(
-              state: .failed,
-              message:
-                "Failed — measured Vision omitted typed \(overlay.title) status for exact frame \(exactCompletedScene.provenance.frameSequence).",
-              provenance: exactCompletedScene.provenance
-            )
-          continue
-        }
-        statuses[overlay] = OverlayLayerStatus(
-          state: .analyzing,
-          message: OverlayStatusGrammar.analyzing(frame: active),
-          provenance: channels.scene?.provenance
-        )
-        continue
-      }
       guard let scene = channels.scene else {
-        statuses[overlay] = OverlayLayerStatus(
-          state: .waiting, message: OverlayStatusGrammar.waiting, provenance: nil)
+        if case .running = sceneState.phase.state {
+          statuses[overlay] = OverlayLayerStatus(
+            state: .analyzing,
+            message: OverlayStatusGrammar.analyzingNewest,
+            provenance: nil
+          )
+        } else {
+          statuses[overlay] = OverlayLayerStatus(
+            state: .waiting,
+            message: OverlayStatusGrammar.waiting,
+            provenance: nil
+          )
+        }
         continue
       }
       guard scene.provenance.matches(displayedFrame) else {
-        statuses[overlay] = OverlayLayerStatus(
-          state: .stale, message: OverlayStatusGrammar.stale, provenance: scene.provenance)
+        if case .running = sceneState.phase.state {
+          statuses[overlay] = OverlayLayerStatus(
+            state: .analyzing,
+            message: OverlayStatusGrammar.analyzingNewest,
+            provenance: scene.provenance
+          )
+        } else {
+          statuses[overlay] = OverlayLayerStatus(
+            state: .stale,
+            message: OverlayStatusGrammar.stale,
+            provenance: scene.provenance
+          )
+        }
         continue
       }
       let matching = scene.overlays.filter { $0.provenance.kind == overlay.overlayKind }

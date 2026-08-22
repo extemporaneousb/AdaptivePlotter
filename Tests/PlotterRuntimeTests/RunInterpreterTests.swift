@@ -1,9 +1,10 @@
+import CSQLite
 import Darwin
 import Foundation
 import PlotterModel
-@testable import PlotterRuntime
 import PlotterTestSupport
 import Testing
+@testable import PlotterRuntime
 
 @Suite("Run interpreter shell")
 struct RunInterpreterTests {
@@ -639,6 +640,153 @@ struct RunInterpreterTests {
     )
     #expect(finished.exchanges.isEmpty)
     #expect(finished.blockers == result.blockers)
+  }
+
+  @Test("workflow telemetry enqueue preserves authority and disconnect drains ordered writes")
+  func workflowTelemetryIsOrderedNonBlockingAndDrained() async throws {
+    let closeGate = InterpreterMachineCloseGate()
+    let fixture = try await InterpreterFixture.make(
+      exchanges: ControllerTranscriptFixtures.successfulPassiveProbe(),
+      closeGate: closeGate
+    )
+    _ = try await fixture.interpreter.requestPassiveProbe()
+    _ = try await waitForInterpreterLedgerEvent(
+      "machine.passive_probe.finished",
+      ledger: fixture.ledger,
+      runID: fixture.runID
+    )
+    #expect((await fixture.interpreter.snapshot()).machine.connection == .connected)
+
+    var openedWriterLock: OpaquePointer?
+    #expect(sqlite3_open(fixture.databaseURL.path, &openedWriterLock) == SQLITE_OK)
+    let writerLock = try #require(openedWriterLock)
+    defer {
+      _ = sqlite3_exec(writerLock, "ROLLBACK", nil, nil, nil)
+      sqlite3_close(writerLock)
+    }
+    #expect(sqlite3_exec(writerLock, "BEGIN IMMEDIATE", nil, nil, nil) == SQLITE_OK)
+
+    let operationID = UUID()
+    let admitted = WorkflowTelemetryEvent(
+      operationID: operationID,
+      operation: .sparseTipCalibration,
+      phase: .batchAdmitted,
+      detail: "admitted",
+      sparseTipProgress: SparseTipWorkflowProgress(
+        stage: .batchAdmitted,
+        completedCircleCount: 0,
+        totalCircleCount: 4
+      )
+    )
+    let circle = WorkflowTelemetryEvent(
+      operationID: operationID,
+      operation: .sparseTipCalibration,
+      phase: .circleCompleted,
+      detail: "circle one complete",
+      sparseTipProgress: SparseTipWorkflowProgress(
+        stage: .circleCompleted,
+        completedCircleCount: 1,
+        totalCircleCount: 4,
+        circlePosition: .negativeX,
+        chordCount: 16
+      )
+    )
+    let postCutoff = WorkflowTelemetryEvent(
+      operationID: operationID,
+      operation: .sparseTipCalibration,
+      phase: .failed,
+      detail: "must be rejected after disconnect cutoff",
+      sparseTipProgress: SparseTipWorkflowProgress(
+        stage: .terminal,
+        completedCircleCount: 1,
+        totalCircleCount: 4,
+        terminalDisposition: .failed
+      )
+    )
+
+    #expect(await fixture.interpreter.enqueueWorkflowTelemetry(admitted))
+    #expect(await fixture.interpreter.enqueueWorkflowTelemetry(circle))
+    let snapshotWhilePersistenceIsGated = await fixture.interpreter.snapshot()
+    #expect(snapshotWhilePersistenceIsGated.currentOperation == .idle)
+
+    var preparedCountStatement: OpaquePointer?
+    #expect(
+      sqlite3_prepare_v2(
+        writerLock,
+        "SELECT COUNT(*) FROM event WHERE kind LIKE 'workflow.%'",
+        -1,
+        &preparedCountStatement,
+        nil
+      )
+        == SQLITE_OK
+    )
+    let countStatement = try #require(preparedCountStatement)
+    #expect(sqlite3_step(countStatement) == SQLITE_ROW)
+    #expect(sqlite3_column_int64(countStatement, 0) == 0)
+    sqlite3_finalize(countStatement)
+
+    let disconnectTask = Task { await fixture.interpreter.disconnect() }
+    await closeGate.waitUntilBlockedClose()
+    #expect(!(await fixture.interpreter.enqueueWorkflowTelemetry(postCutoff)))
+
+    await closeGate.release()
+    for _ in 0..<100 {
+      if (await fixture.interpreter.snapshot()).machine.connection == .disconnected { break }
+      await Task.yield()
+    }
+    let drainingSnapshot = await fixture.interpreter.snapshot()
+    #expect(drainingSnapshot.currentOperation == .idle)
+    #expect(drainingSnapshot.machine.connection == .disconnected)
+    #expect(!(await fixture.interpreter.enqueueWorkflowTelemetry(postCutoff)))
+
+    #expect(sqlite3_exec(writerLock, "COMMIT", nil, nil, nil) == SQLITE_OK)
+    await disconnectTask.value
+    await fixture.ledger.close()
+    #expect(!(await fixture.interpreter.enqueueWorkflowTelemetry(postCutoff)))
+
+    let reader = try RunLedger.openReadOnly(databaseURL: fixture.databaseURL)
+    let events = try await reader.events(runID: fixture.runID)
+    await reader.close()
+    let workflowEvents = events.filter { $0.kind.hasPrefix("workflow.") }
+    #expect(
+      workflowEvents.map(\.kind) == [
+        "workflow.sparseTipCalibration.batchAdmitted",
+        "workflow.sparseTipCalibration.circleCompleted",
+      ]
+    )
+    #expect(
+      try workflowEvents.map {
+        try JSONDecoder().decode(WorkflowTelemetryEvent.self, from: $0.payload)
+      }
+        == [admitted, circle]
+    )
+    let settled = await fixture.interpreter.snapshot()
+    #expect(settled.currentOperation == .idle)
+    #expect(settled.machine.connection == .disconnected)
+  }
+
+  @Test("workflow telemetry write failure is best effort")
+  func workflowTelemetryFailureDoesNotChangeAuthority() async throws {
+    let fixture = try await InterpreterFixture.make()
+    await fixture.ledger.close()
+    await fixture.interpreter.enqueueWorkflowTelemetry(
+      WorkflowTelemetryEvent(
+        operationID: UUID(),
+        operation: .sparseTipCalibration,
+        phase: .failed,
+        detail: "diagnostic-only failure",
+        sparseTipProgress: SparseTipWorkflowProgress(
+          stage: .terminal,
+          completedCircleCount: 0,
+          totalCircleCount: 4,
+          terminalDisposition: .failed
+        )
+      )
+    )
+
+    #expect((await fixture.interpreter.snapshot()).currentOperation == .idle)
+    await fixture.interpreter.disconnect()
+    #expect((await fixture.interpreter.snapshot()).currentOperation == .idle)
   }
 }
 private func interpreterStatusExchange(
@@ -1291,6 +1439,60 @@ private actor TaskStartHandshake {
   }
 }
 
+private actor InterpreterMachineCloseGate {
+  private var closeWasReached = false
+  private var releaseWasRequested = false
+  private var reachedWaiters: [CheckedContinuation<Void, Never>] = []
+  private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+
+  func block() async {
+    closeWasReached = true
+    let pendingReachedWaiters = reachedWaiters
+    reachedWaiters.removeAll(keepingCapacity: false)
+    for waiter in pendingReachedWaiters { waiter.resume() }
+    guard !releaseWasRequested else { return }
+    await withCheckedContinuation { releaseWaiters.append($0) }
+  }
+
+  func waitUntilBlockedClose() async {
+    guard !closeWasReached else { return }
+    await withCheckedContinuation { reachedWaiters.append($0) }
+  }
+
+  func release() {
+    releaseWasRequested = true
+    let pendingReleaseWaiters = releaseWaiters
+    releaseWaiters.removeAll(keepingCapacity: false)
+    for waiter in pendingReleaseWaiters { waiter.resume() }
+  }
+}
+
+private final class InterpreterCloseBlockingLink: MachineLink, @unchecked Sendable {
+  let descriptor: MachineLinkDescriptor
+  private let base: any MachineLink
+  private let gate: InterpreterMachineCloseGate
+
+  init(base: any MachineLink, gate: InterpreterMachineCloseGate) {
+    self.base = base
+    self.gate = gate
+    descriptor = base.descriptor
+  }
+
+  func open() async throws { try await base.open() }
+
+  func close() async {
+    await gate.block()
+    await base.close()
+  }
+
+  func discardPendingInput() async throws { try await base.discardPendingInput() }
+  func write(_ bytes: Data) async throws { try await base.write(bytes) }
+
+  func read(maximumBytes: Int, timeoutNanoseconds: UInt64) async throws -> Data {
+    try await base.read(maximumBytes: maximumBytes, timeoutNanoseconds: timeoutNanoseconds)
+  }
+}
+
 private func waitForInterpreterLedgerEvent(
   _ kind: String,
   ledger: RunLedger,
@@ -1305,6 +1507,7 @@ private func waitForInterpreterLedgerEvent(
 }
 
 private struct InterpreterFixture {
+  let databaseURL: URL
   let ledger: RunLedger
   let runID: LedgerRunID
   let link: SimulatedGRBLLink
@@ -1312,12 +1515,14 @@ private struct InterpreterFixture {
 
   static func make(
     exchanges: [SimulatedCommandExchange] = [],
-    clock: DeterministicRuntimeClock = DeterministicRuntimeClock()
+    clock: DeterministicRuntimeClock = DeterministicRuntimeClock(),
+    closeGate: InterpreterMachineCloseGate? = nil
   ) async throws -> InterpreterFixture {
     let directory = FileManager.default.temporaryDirectory
       .appendingPathComponent("adaptiveplotter-interpreter-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    let ledger = try RunLedger(databaseURL: directory.appendingPathComponent("run.sqlite"))
+    let databaseURL = directory.appendingPathComponent("run.sqlite")
+    let ledger = try RunLedger(databaseURL: databaseURL)
     let runID = LedgerRunID()
     _ = try await ledger.createRun(
       id: runID,
@@ -1325,8 +1530,14 @@ private struct InterpreterFixture {
       createdAt: RuntimeTimestamp(monotonicNanoseconds: 1)
     )
     let link = SimulatedGRBLLink(exchanges: exchanges, clock: clock)
+    let controllerLink: any MachineLink
+    if let closeGate {
+      controllerLink = InterpreterCloseBlockingLink(base: link, gate: closeGate)
+    } else {
+      controllerLink = link
+    }
     let controller = MachineController(
-      link: link,
+      link: controllerLink,
       ledger: ledger,
       runID: runID,
       clock: clock,
@@ -1334,6 +1545,7 @@ private struct InterpreterFixture {
     )
     let interpreter = RunInterpreter(machineController: controller)
     return InterpreterFixture(
+      databaseURL: databaseURL,
       ledger: ledger,
       runID: runID,
       link: link,

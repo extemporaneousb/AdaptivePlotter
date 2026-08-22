@@ -1512,6 +1512,40 @@ public struct DiscoveryTransaction: Hashable, Sendable, Identifiable {
     }
   }
 
+  /// Applies the controller settlement and the immediately following question
+  /// presentation as one transaction transition. The receiver is unchanged if
+  /// either the current command step or its following question does not match.
+  public mutating func recordPenCommandSettledAndPresentFollowingQuestion(
+    _ command: PenCommand,
+    controllerSummary: String
+  ) throws {
+    guard state == .active else { throw DiscoveryTransactionError.notActive }
+    guard let step = currentStep else { throw DiscoveryTransactionError.noCurrentStep }
+    guard case .actuatePen(let expectedCommand) = step.action,
+      expectedCommand == command
+    else {
+      throw DiscoveryTransactionError.unexpectedEvent(stepID: step.id)
+    }
+
+    let followingIndex = completedStepCount + 1
+    guard followingIndex < definition.steps.count else {
+      throw DiscoveryTransactionError.unexpectedEvent(stepID: step.id)
+    }
+    let followingStep = definition.steps[followingIndex]
+    guard case .askQuestion = followingStep.action,
+      followingStep.expectedEvent.accepts(.questionPresented)
+    else {
+      throw DiscoveryTransactionError.unexpectedEvent(stepID: followingStep.id)
+    }
+
+    var candidate = self
+    try candidate.record(
+      .penCommandSettled(command, controllerSummary: controllerSummary)
+    )
+    try candidate.record(.questionPresented)
+    self = candidate
+  }
+
   public mutating func fail(_ actionableReason: String) {
     guard state == .active else { return }
     state = .failed(actionableReason)

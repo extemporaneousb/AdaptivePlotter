@@ -36,10 +36,6 @@ struct OperatorWorkspaceLifecycleTests {
         == "Current-Camera Calibration Sample 2 of 5"
     )
     #expect(
-      LearningMotionAction.sparseTipCircleChord(index: 16, total: 16).title
-        == "Sparse Tip Circle chord 16/16"
-    )
-    #expect(
       LearningMotionAction.sparseTipApproach(.negativeX).title
         == "Sparse Tip Mark Minimum-X / Minimum-Y Corner Approach"
     )

@@ -1,4 +1,5 @@
 import Foundation
+import PlotterModel
 
 public enum VisionAnalysisCadence: Int, Codable, CaseIterable, Hashable, Sendable {
   case twoFPS = 2
@@ -14,6 +15,34 @@ public typealias PlotterSceneAnalysisActivityHandler = @Sendable (Bool) async ->
 public enum PlotterSceneAnalysisState: Codable, Hashable, Sendable {
   case stopped
   case running(VisionAnalysisCadence)
+}
+
+/// Small, value-comparable state for semantic subscribers. Per-frame sequence,
+/// throughput, and pending-work facts intentionally live only in diagnostics.
+public struct PlotterSceneAnalysisPhase: Codable, Hashable, Sendable {
+  public let state: PlotterSceneAnalysisState
+  public let requestedFeatures: SceneFeatureSet
+  public let analysisRegion: PixelRect?
+  public let penCapColor: PenCapColor
+
+  public init(
+    state: PlotterSceneAnalysisState,
+    requestedFeatures: SceneFeatureSet,
+    analysisRegion: PixelRect?,
+    penCapColor: PenCapColor
+  ) {
+    self.state = state
+    self.requestedFeatures = requestedFeatures
+    self.analysisRegion = analysisRegion
+    self.penCapColor = penCapColor
+  }
+
+  public static let stopped = PlotterSceneAnalysisPhase(
+    state: .stopped,
+    requestedFeatures: [],
+    analysisRegion: nil,
+    penCapColor: .green
+  )
 }
 
 public struct PlotterSceneAnalysisResult: Hashable, Sendable {
@@ -36,28 +65,89 @@ public struct PlotterSceneAnalysisResult: Hashable, Sendable {
 }
 
 public struct PlotterSceneAnalysisSnapshot: Hashable, Sendable {
-  public let state: PlotterSceneAnalysisState
+  public let revision: UInt64
+  public let phase: PlotterSceneAnalysisPhase
+  public let latestResult: PlotterSceneAnalysisResult?
+  public let lastError: String?
+
+  public init(
+    revision: UInt64,
+    phase: PlotterSceneAnalysisPhase,
+    latestResult: PlotterSceneAnalysisResult?,
+    lastError: String?
+  ) {
+    self.revision = revision
+    self.phase = phase
+    self.latestResult = latestResult
+    self.lastError = lastError
+  }
+
+  public var state: PlotterSceneAnalysisState { phase.state }
+
+  public static let stopped = PlotterSceneAnalysisSnapshot(
+    revision: 0,
+    phase: .stopped,
+    latestResult: nil,
+    lastError: nil
+  )
+}
+
+public struct PlotterSceneAnalysisResultDiagnostics: Codable, Hashable, Sendable {
+  public let frameID: FrameID
+  public let frameSequence: UInt64
+  public let cameraConfigurationID: CameraConfigurationID
+  public let analysisDurationNanoseconds: UInt64
+  public let completedNanoseconds: UInt64
+  public let computation: SceneVisionComputationDiagnostics
+
+  public init(
+    frameID: FrameID,
+    frameSequence: UInt64,
+    cameraConfigurationID: CameraConfigurationID,
+    analysisDurationNanoseconds: UInt64,
+    completedNanoseconds: UInt64,
+    computation: SceneVisionComputationDiagnostics
+  ) {
+    self.frameID = frameID
+    self.frameSequence = frameSequence
+    self.cameraConfigurationID = cameraConfigurationID
+    self.analysisDurationNanoseconds = analysisDurationNanoseconds
+    self.completedNanoseconds = completedNanoseconds
+    self.computation = computation
+  }
+}
+
+/// Pull-only operational facts. Reading this value does not subscribe the UI
+/// or create another camera/Vision publication path.
+public struct PlotterSceneAnalysisDiagnostics: Codable, Hashable, Sendable {
+  public let phase: PlotterSceneAnalysisPhase
   public let submittedFrameCount: UInt64
   public let analyzedFrameCount: UInt64
   public let supersededFrameCount: UInt64
   public let failedFrameCount: UInt64
   public let activeFrameSequence: UInt64?
   public let pendingFrameSequence: UInt64?
-  public let latestResult: PlotterSceneAnalysisResult?
+  public let latestResult: PlotterSceneAnalysisResultDiagnostics?
   public let lastError: String?
+  public let configurationRevision: UInt64
+  public let semanticPublicationCount: UInt64
+  public let semanticSubscriptionStartCount: UInt64
 
   public init(
-    state: PlotterSceneAnalysisState,
+    phase: PlotterSceneAnalysisPhase,
     submittedFrameCount: UInt64,
     analyzedFrameCount: UInt64,
     supersededFrameCount: UInt64,
     failedFrameCount: UInt64,
     activeFrameSequence: UInt64?,
     pendingFrameSequence: UInt64?,
-    latestResult: PlotterSceneAnalysisResult?,
-    lastError: String?
+    latestResult: PlotterSceneAnalysisResultDiagnostics?,
+    lastError: String?,
+    configurationRevision: UInt64,
+    semanticPublicationCount: UInt64,
+    semanticSubscriptionStartCount: UInt64
   ) {
-    self.state = state
+    self.phase = phase
     self.submittedFrameCount = submittedFrameCount
     self.analyzedFrameCount = analyzedFrameCount
     self.supersededFrameCount = supersededFrameCount
@@ -66,19 +156,10 @@ public struct PlotterSceneAnalysisSnapshot: Hashable, Sendable {
     self.pendingFrameSequence = pendingFrameSequence
     self.latestResult = latestResult
     self.lastError = lastError
+    self.configurationRevision = configurationRevision
+    self.semanticPublicationCount = semanticPublicationCount
+    self.semanticSubscriptionStartCount = semanticSubscriptionStartCount
   }
-
-  public static let stopped = PlotterSceneAnalysisSnapshot(
-    state: .stopped,
-    submittedFrameCount: 0,
-    analyzedFrameCount: 0,
-    supersededFrameCount: 0,
-    failedFrameCount: 0,
-    activeFrameSequence: nil,
-    pendingFrameSequence: nil,
-    latestResult: nil,
-    lastError: nil
-  )
 }
 
 /// Bounded newest-only scene analysis. At most one frame is being analyzed and
@@ -90,7 +171,7 @@ public actor PlotterSceneAnalysisPipeline {
   typealias Analyzer = @Sendable (StampedFrame) async throws -> PlotterSceneMeasurement
   typealias RegionAnalyzer =
     @Sendable (StampedFrame, SceneFeatureSet, PixelRect?, PenCapColor) async throws
-      -> PlotterSceneMeasurement
+    -> PlotterSceneMeasurement
 
   private let clock: any RuntimeClock
   private let analyzer: RegionAnalyzer
@@ -110,6 +191,9 @@ public actor PlotterSceneAnalysisPipeline {
   private var lastAnalysisCompletionNanoseconds: UInt64?
   private var drainTask: Task<Void, Never>?
   private var generation: UInt64 = 0
+  private var configurationRevision: UInt64 = 0
+  private var semanticPublicationCount: UInt64 = 0
+  private var semanticSubscriptionStartCount: UInt64 = 0
   private var continuations: [UUID: AsyncStream<PlotterSceneAnalysisSnapshot>.Continuation] = [:]
 
   public init(
@@ -141,74 +225,52 @@ public actor PlotterSceneAnalysisPipeline {
 
   public func setAnalysisRegion(_ region: PixelRect?) async {
     guard analysisRegion != region else { return }
-    let analysisWasActive = activeFrameSequence != nil
-    generation &+= 1
-    drainTask?.cancel()
-    drainTask = nil
-    pendingFrame = nil
-    activeFrameSequence = nil
-    latestResult = nil
-    lastError = nil
-    lastAnalysisCompletionNanoseconds = nil
+    let analysisWasActive = cancelCurrentAnalysis()
     analysisRegion = region
+    configurationRevision &+= 1
     if analysisWasActive { await activityHandler(false) }
-    publishSnapshot()
+    publishSemanticSnapshot()
   }
-
 
   public func setPenCapColor(_ color: PenCapColor) async {
     guard penCapColor != color else { return }
-    let analysisWasActive = activeFrameSequence != nil
-    generation &+= 1
-    drainTask?.cancel()
-    drainTask = nil
-    pendingFrame = nil
-    activeFrameSequence = nil
-    latestResult = nil
-    lastError = nil
-    lastAnalysisCompletionNanoseconds = nil
+    let analysisWasActive = cancelCurrentAnalysis()
     penCapColor = color
+    configurationRevision &+= 1
     if analysisWasActive { await activityHandler(false) }
-    publishSnapshot()
+    publishSemanticSnapshot()
   }
 
   public func start(cadence: VisionAnalysisCadence, requestedFeatures: SceneFeatureSet) async {
-    if self.requestedFeatures != requestedFeatures {
-      let analysisWasActive = activeFrameSequence != nil
-      generation &+= 1
-      drainTask?.cancel()
-      drainTask = nil
-      pendingFrame = nil
-      activeFrameSequence = nil
-      latestResult = nil
-      lastError = nil
-      lastAnalysisCompletionNanoseconds = nil
-      self.requestedFeatures = requestedFeatures
-      if analysisWasActive { await activityHandler(false) }
+    guard state != .running(cadence) || self.requestedFeatures != requestedFeatures else {
+      return
     }
-    if case .stopped = state {
+    let featuresChanged = self.requestedFeatures != requestedFeatures
+    let wasStopped = state == .stopped
+    var analysisWasActive = false
+    if featuresChanged {
+      analysisWasActive = cancelCurrentAnalysis()
+      self.requestedFeatures = requestedFeatures
+    } else if wasStopped {
       generation &+= 1
       lastAnalysisCompletionNanoseconds = nil
     }
     state = .running(cadence)
     lastError = nil
-    publishSnapshot()
+    configurationRevision &+= 1
+    if analysisWasActive { await activityHandler(false) }
+    publishSemanticSnapshot()
     scheduleDrainIfNeeded()
   }
 
   public func stop() async {
-    let analysisWasActive = activeFrameSequence != nil
-    generation &+= 1
-    drainTask?.cancel()
-    drainTask = nil
-    pendingFrame = nil
-    activeFrameSequence = nil
-    latestResult = nil
-    lastError = nil
-    lastAnalysisCompletionNanoseconds = nil
+    guard state != .stopped else { return }
+    let analysisWasActive = cancelCurrentAnalysis()
     state = .stopped
+    requestedFeatures = []
+    configurationRevision &+= 1
     if analysisWasActive { await activityHandler(false) }
-    publishSnapshot()
+    publishSemanticSnapshot()
   }
 
   public func submit(_ displayedFrame: DisplayedFrame) {
@@ -216,19 +278,48 @@ public actor PlotterSceneAnalysisPipeline {
     submittedFrameCount &+= 1
     if pendingFrame != nil { supersededFrameCount &+= 1 }
     pendingFrame = displayedFrame
-    publishSnapshot()
     scheduleDrainIfNeeded()
   }
 
   public func snapshot() -> PlotterSceneAnalysisSnapshot {
-    makeSnapshot()
+    makeSemanticSnapshot()
   }
 
+  public func diagnostics() -> PlotterSceneAnalysisDiagnostics {
+    PlotterSceneAnalysisDiagnostics(
+      phase: makePhase(),
+      submittedFrameCount: submittedFrameCount,
+      analyzedFrameCount: analyzedFrameCount,
+      supersededFrameCount: supersededFrameCount,
+      failedFrameCount: failedFrameCount,
+      activeFrameSequence: activeFrameSequence,
+      pendingFrameSequence: pendingFrame?.frame.sequence,
+      latestResult: latestResult.map {
+        PlotterSceneAnalysisResultDiagnostics(
+          frameID: $0.displayedFrame.frame.id,
+          frameSequence: $0.displayedFrame.frame.sequence,
+          cameraConfigurationID: $0.displayedFrame.frame.cameraConfigurationID,
+          analysisDurationNanoseconds: $0.analysisDurationNanoseconds,
+          completedNanoseconds: $0.completedNanoseconds,
+          computation: $0.measurement.computation
+        )
+      },
+      lastError: lastError,
+      configurationRevision: configurationRevision,
+      semanticPublicationCount: semanticPublicationCount,
+      semanticSubscriptionStartCount: semanticSubscriptionStartCount
+    )
+  }
+
+  /// The only push channel. It emits the current semantic snapshot once when a
+  /// subscriber attaches, then only configuration/state, completed-result, or
+  /// error-state changes. Frame traffic and throughput remain pull-only.
   public func updates() -> AsyncStream<PlotterSceneAnalysisSnapshot> {
     let identifier = UUID()
     return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+      semanticSubscriptionStartCount &+= 1
       continuations[identifier] = continuation
-      continuation.yield(makeSnapshot())
+      continuation.yield(makeSemanticSnapshot())
       continuation.onTermination = { [weak self] _ in
         guard let self else { return }
         Task { await self.removeContinuation(identifier) }
@@ -269,7 +360,6 @@ public actor PlotterSceneAnalysisPipeline {
       let started = clock.nowNanoseconds()
       await activityHandler(true)
       guard !Task.isCancelled, taskGeneration == generation else { break }
-      publishSnapshot()
       let result: Result<PlotterSceneMeasurement, Error>
       do {
         result = .success(
@@ -283,6 +373,7 @@ public actor PlotterSceneAnalysisPipeline {
       lastAnalysisCompletionNanoseconds = completed
       await activityHandler(false)
       guard !Task.isCancelled, taskGeneration == generation else { break }
+      var shouldPublishSemanticChange = false
       switch result {
       case .success(let measurement):
         analyzedFrameCount &+= 1
@@ -294,12 +385,15 @@ public actor PlotterSceneAnalysisPipeline {
           analysisDurationNanoseconds: completed >= started ? completed - started : 0,
           completedNanoseconds: completed
         )
+        shouldPublishSemanticChange = true
       case .failure(let error):
         failedFrameCount &+= 1
         activeFrameSequence = nil
-        lastError = String(describing: error)
+        let message = String(describing: error)
+        shouldPublishSemanticChange = lastError != message
+        lastError = message
       }
-      publishSnapshot()
+      if shouldPublishSemanticChange { publishSemanticSnapshot() }
       if pendingFrame == nil { break }
     }
     guard taskGeneration == generation else { return }
@@ -307,23 +401,42 @@ public actor PlotterSceneAnalysisPipeline {
     if pendingFrame != nil { scheduleDrainIfNeeded() }
   }
 
-  private func makeSnapshot() -> PlotterSceneAnalysisSnapshot {
-    PlotterSceneAnalysisSnapshot(
+  private func makePhase() -> PlotterSceneAnalysisPhase {
+    PlotterSceneAnalysisPhase(
       state: state,
-      submittedFrameCount: submittedFrameCount,
-      analyzedFrameCount: analyzedFrameCount,
-      supersededFrameCount: supersededFrameCount,
-      failedFrameCount: failedFrameCount,
-      activeFrameSequence: activeFrameSequence,
-      pendingFrameSequence: pendingFrame?.frame.sequence,
+      requestedFeatures: requestedFeatures,
+      analysisRegion: analysisRegion,
+      penCapColor: penCapColor
+    )
+  }
+
+  private func makeSemanticSnapshot() -> PlotterSceneAnalysisSnapshot {
+    PlotterSceneAnalysisSnapshot(
+      revision: semanticPublicationCount,
+      phase: makePhase(),
       latestResult: latestResult,
       lastError: lastError
     )
   }
 
-  private func publishSnapshot() {
-    let snapshot = makeSnapshot()
+  private func publishSemanticSnapshot() {
+    semanticPublicationCount &+= 1
+    let snapshot = makeSemanticSnapshot()
     for continuation in continuations.values { continuation.yield(snapshot) }
+  }
+
+  @discardableResult
+  private func cancelCurrentAnalysis() -> Bool {
+    let analysisWasActive = activeFrameSequence != nil
+    generation &+= 1
+    drainTask?.cancel()
+    drainTask = nil
+    pendingFrame = nil
+    activeFrameSequence = nil
+    latestResult = nil
+    lastError = nil
+    lastAnalysisCompletionNanoseconds = nil
+    return analysisWasActive
   }
 
   private func removeContinuation(_ identifier: UUID) {

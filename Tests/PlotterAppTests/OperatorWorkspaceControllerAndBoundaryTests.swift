@@ -448,6 +448,38 @@ extension OperatorWorkspaceTests {
     await workspace.shutdown()
   }
 
+  @Test("cap settlement refuses a camera configuration change across exact frames")
+  func capSettlementRefusesConfigurationChange() async throws {
+    let log = EventLog()
+    let camera = try CameraFixture(rotatesConfiguration: true)
+    let workspace = workspace(machine: try MachineFixture(log: log), camera: camera, log: log)
+    await workspace.startCamera()
+
+    do {
+      _ = try await workspace.captureStableWorkflowCap(newerThan: 50)
+      Issue.record("cross-configuration cap evidence was accepted")
+    } catch {
+      #expect(error.localizedDescription.contains("configuration changed"))
+    }
+    await workspace.shutdown()
+  }
+
+  @Test("cap settlement refuses measurement provenance from another exact frame")
+  func capSettlementRefusesMismatchedExactFrameProvenance() async throws {
+    let log = EventLog()
+    let camera = try CameraFixture(corruptsMeasurementFrameHash: true)
+    let workspace = workspace(machine: try MachineFixture(log: log), camera: camera, log: log)
+    await workspace.startCamera()
+
+    do {
+      _ = try await workspace.captureStableWorkflowCap(newerThan: 50)
+      Issue.record("mismatched exact-frame cap evidence was accepted")
+    } catch {
+      #expect(error.localizedDescription.contains("exact displayed frame"))
+    }
+    await workspace.shutdown()
+  }
+
   @Test("selected scene overlays directly own bounded LIVE analysis")
   func selectedSceneOverlaysOwnAnalysis() async throws {
     let log = EventLog()
@@ -459,7 +491,7 @@ extension OperatorWorkspaceTests {
     let workspace = workspace(machine: machine, camera: camera, log: log)
 
     await workspace.startCamera()
-    #expect(!workspace.scopedVisionAnalysisActive)
+    #expect(workspace.exactWorkflowVisionOwner == nil)
     #expect(workspace.overlayPreferenceState.enabled == Set(UserSceneOverlay.allCases))
     #expect(camera.recordedAutomaticInspectionRequests == [.twoFPS])
     #expect(camera.recordedAutomaticFeatureRequests == [[.penCap, .armatureEnvelope]])

@@ -122,56 +122,57 @@ enum VideoSettingsVisibilityAction: Hashable, Sendable {
   case hide
 }
 
-/// Window-local intent for the native Video Settings inspector. Showing is a
-/// two-phase transition: side panes commit first, then the inspector opens on
-/// the next main-actor turn. This prevents the inspector's own width reduction
-/// from racing the pane preparation and immediately closing an accepted click.
-struct VideoSettingsVisibilityState: Equatable, Sendable {
-  private(set) var isPresented = false
-  private(set) var showIsPending = false
+/// One atomic, window-local value for pane and inspector presentation. A Show
+/// transition prepares side panes and presents Video Settings in the same
+/// assignment, so it cannot wait behind unrelated main-actor work.
+struct WorkbenchLayoutState: Equatable, Sendable {
+  private(set) var panes: WorkbenchPaneVisibility
+  private(set) var videoSettingsIsPresented: Bool
 
-  mutating func request(
-    _ action: VideoSettingsVisibilityAction,
-    policy: VideoSettingsVisibilityPolicy,
-    availableWindowWidth: CGFloat
-  ) -> Bool {
-    switch action {
-    case .show:
-      guard policy.presentation(
-        isPresented: false,
-        availableWindowWidth: availableWindowWidth
-      ).isActionEnabled else { return false }
-      showIsPending = true
-      return true
-    case .hide:
-      hide()
-      return false
-    }
-  }
-
-  mutating func commitPendingShow() {
-    guard showIsPending else { return }
-    showIsPending = false
-    isPresented = true
-  }
-
-  mutating func hide() {
-    showIsPending = false
-    isPresented = false
-  }
-
-  mutating func collapseIfNeeded(
-    availableContentWidth: CGFloat,
-    panes: WorkbenchPaneVisibility,
-    policy: VideoSettingsVisibilityPolicy
+  init(
+    panes: WorkbenchPaneVisibility = WorkbenchPaneVisibility(),
+    videoSettingsIsPresented: Bool = false
   ) {
-    guard isPresented,
+    self.panes = panes
+    self.videoSettingsIsPresented = videoSettingsIsPresented
+  }
+
+  func toggling(_ pane: WorkbenchPane) -> Self {
+    Self(
+      panes: panes.toggling(pane),
+      videoSettingsIsPresented: videoSettingsIsPresented
+    )
+  }
+
+  func hidingVideoSettings() -> Self {
+    Self(panes: panes, videoSettingsIsPresented: false)
+  }
+
+  func collapsingVideoSettingsIfNeeded(
+    availableContentWidth: CGFloat,
+    policy: VideoSettingsVisibilityPolicy
+  ) -> Self {
+    guard videoSettingsIsPresented,
       policy.shouldCollapsePresentedVideoSettings(
         availableContentWidth: availableContentWidth,
         panes: panes
       )
-    else { return }
-    hide()
+    else { return self }
+    return hidingVideoSettings()
+  }
+}
+
+enum VideoSettingsUnavailableReason: Hashable, Sendable {
+  case protectedCameraRequiresWindowWidth(Int)
+  case activeExerciseRequiresWindowWidth(Int)
+
+  var message: String {
+    switch self {
+    case .protectedCameraRequiresWindowWidth(let width):
+      "Widen the window to at least \(width) points so the protected camera and Video Settings can coexist."
+    case .activeExerciseRequiresWindowWidth(let width):
+      "Widen the window to at least \(width) points so the protected camera, Video Settings, and active Exercise controls including Stop can coexist."
+    }
   }
 }
 
@@ -179,9 +180,10 @@ struct VideoSettingsPresentation: Equatable, Sendable {
   let isPresented: Bool
   let action: VideoSettingsVisibilityAction
   let actionTitle: String
-  let unavailableReason: String?
+  let unavailableReason: VideoSettingsUnavailableReason?
 
   var isActionEnabled: Bool { unavailableReason == nil }
+  var unavailableReasonText: String? { unavailableReason?.message }
 }
 
 /// Pure inspector admission policy. The caller supplies the workbench content
@@ -230,31 +232,38 @@ struct VideoSettingsVisibilityPolicy: Equatable, Sendable {
       + CGFloat(presentedSideCount) * splitSeparation
   }
 
-  /// Hides the navigator first, then the exercise detail only if necessary.
-  /// Callers may forbid detail collapse while it owns active exercise actions.
+  /// Hides the navigator first, then the Exercise detail only if it is not the
+  /// active operation's protected control surface. A protected Exercise pane
+  /// is restored before admission if it was previously hidden.
   func preparingPanesToShow(
     _ panes: WorkbenchPaneVisibility,
     availableWindowWidth: CGFloat,
-    canCollapseExerciseDetail: Bool
-  ) -> WorkbenchPaneVisibility {
+    exerciseDetailMustRemainVisible: Bool
+  ) -> WorkbenchPaneVisibility? {
     let width = Self.nonnegativeFinite(availableWindowWidth)
     func fits(_ candidate: WorkbenchPaneVisibility) -> Bool {
       width >= minimumContentWidth(for: candidate) + inspectorWidth + inspectorSeparation
     }
-    guard !fits(panes) else { return panes }
 
     var candidate = panes
+    if exerciseDetailMustRemainVisible {
+      candidate.exerciseDetailIsPresented = true
+    }
+    guard !fits(candidate) else { return candidate }
+
     candidate.navigatorIsPresented = false
-    guard !fits(candidate), canCollapseExerciseDetail else { return candidate }
+    guard !fits(candidate) else { return candidate }
+    guard !exerciseDetailMustRemainVisible else { return nil }
     candidate.exerciseDetailIsPresented = false
-    return candidate
+    return fits(candidate) ? candidate : nil
   }
 
   func presentation(
-    isPresented: Bool,
-    availableWindowWidth: CGFloat
+    layout: WorkbenchLayoutState,
+    availableWindowWidth: CGFloat,
+    exerciseDetailMustRemainVisible: Bool
   ) -> VideoSettingsPresentation {
-    if isPresented {
+    if layout.videoSettingsIsPresented {
       return VideoSettingsPresentation(
         isPresented: true,
         action: .hide,
@@ -264,10 +273,25 @@ struct VideoSettingsVisibilityPolicy: Equatable, Sendable {
     }
 
     let width = Self.nonnegativeFinite(availableWindowWidth)
-    let unavailableReason =
-      width >= minimumWidthToShow
-      ? nil
-      : "Widen the window to at least \(Int(minimumWidthToShow)) points so the protected camera and Video Settings can coexist."
+    let unavailableReason: VideoSettingsUnavailableReason?
+    if width < minimumWidthToShow {
+      unavailableReason = .protectedCameraRequiresWindowWidth(Int(minimumWidthToShow))
+    } else if preparingPanesToShow(
+      layout.panes,
+      availableWindowWidth: width,
+      exerciseDetailMustRemainVisible: exerciseDetailMustRemainVisible
+    ) == nil {
+      let protectedPanes = WorkbenchPaneVisibility(
+        navigatorIsPresented: false,
+        motionIsPresented: layout.panes.motionIsPresented,
+        exerciseDetailIsPresented: true
+      )
+      unavailableReason = .activeExerciseRequiresWindowWidth(
+        Int(minimumContentWidth(for: protectedPanes) + inspectorWidth + inspectorSeparation)
+      )
+    } else {
+      unavailableReason = nil
+    }
     return VideoSettingsPresentation(
       isPresented: false,
       action: .show,
@@ -276,20 +300,30 @@ struct VideoSettingsVisibilityPolicy: Equatable, Sendable {
     )
   }
 
+  /// Returns the complete next layout for one synchronous state assignment.
+  /// A refused Show has no state to commit.
   func transition(
-    isPresented: Bool,
+    from layout: WorkbenchLayoutState,
     action: VideoSettingsVisibilityAction,
-    availableWindowWidth: CGFloat
-  ) -> Bool {
+    availableWindowWidth: CGFloat,
+    exerciseDetailMustRemainVisible: Bool
+  ) -> WorkbenchLayoutState? {
     switch action {
     case .hide:
-      return false
+      return layout.hidingVideoSettings()
     case .show:
-      guard !isPresented else { return true }
-      return presentation(
-        isPresented: false,
-        availableWindowWidth: availableWindowWidth
-      ).isActionEnabled
+      guard !layout.videoSettingsIsPresented else { return layout }
+      guard
+        let panes = preparingPanesToShow(
+          layout.panes,
+          availableWindowWidth: availableWindowWidth,
+          exerciseDetailMustRemainVisible: exerciseDetailMustRemainVisible
+        )
+      else { return nil }
+      return WorkbenchLayoutState(
+        panes: panes,
+        videoSettingsIsPresented: true
+      )
     }
   }
 

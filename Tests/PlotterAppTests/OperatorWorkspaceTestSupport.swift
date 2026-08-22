@@ -437,7 +437,7 @@ func workspace(
       requestJogCancel: requestJogCancel,
       disconnect: {}
     ),
-    cameraActions: cameraActionsOverride ?? camera.map(cameraActions),
+    cameraActions: cameraActionsOverride ?? camera.map { cameraActions($0) },
     announcementActions: announcements.map { fixture in
       .init(
         announce: { await fixture.announce($0) },
@@ -539,7 +539,14 @@ func isolatedMachineActions(log: EventLog) -> OperatorWorkspace.MachineActions {
   )
 }
 
-func cameraActions(_ fixture: CameraFixture) -> OperatorWorkspace.CameraActions {
+func cameraActions(
+  _ fixture: CameraFixture,
+  analysisUpdates: @escaping @Sendable () async -> AsyncStream<PlotterSceneAnalysisSnapshot> = {
+    AsyncStream { $0.finish() }
+  },
+  inspectionGate: CameraInspectionGate? = nil,
+  reconfigurationGate: CameraReconfigurationGate? = nil
+) -> OperatorWorkspace.CameraActions {
   .init(
     discover: { fixture.discoverResponse() },
     select: { _ in fixture.selectResponse() },
@@ -549,14 +556,94 @@ func cameraActions(_ fixture: CameraFixture) -> OperatorWorkspace.CameraActions 
     snapshot: { fixture.snapshot },
     frames: { AsyncStream { $0.finish() } },
     inspectWorkflowScene: { boundary, features, region in
-      try fixture.inspection(after: boundary, features: features, analysisRegion: region)
+      await inspectionGate?.waitIfArmed()
+      return try fixture.inspection(
+        after: boundary,
+        features: features,
+        analysisRegion: region
+      )
     },
     captureFrame: { try fixture.inspection(after: $0).displayedFrame },
+    captureStableWorkflowCap: StableWorkflowCapCaptureRunner { request in
+      var boundary = request.newerThanNanoseconds
+      var samples: [StableWorkflowCapInspection] = []
+      for _ in 0..<FixedCameraOpticalSettlingPolicy.requiredCentroidFrameCount {
+        try Task.checkCancellation()
+        await inspectionGate?.waitIfArmed()
+        let inspection = try fixture.inspection(
+          after: boundary,
+          features: [.penCap],
+          analysisRegion: nil
+        )
+        guard case .found(let cap, _) = inspection.measurement.penCap else {
+          throw LearningPathOperationError.requiredState(
+            "Pen-cap measurement refused: \(inspection.measurement.penCap.diagnosticReason)."
+          )
+        }
+        samples.append(StableWorkflowCapInspection(inspection: inspection, cap: cap))
+        boundary = inspection.displayedFrame.frame.captureNanoseconds
+      }
+      return try FixedCameraOpticalSettlingPolicy.newestStableCapSample(samples)
+    },
     setSceneAnalysisRegion: { fixture.setSceneAnalysisRegion($0) },
-    setPenCapColor: { fixture.setPenCapColor($0) },
+    setPenCapColor: {
+      await reconfigurationGate?.waitIfArmed()
+      fixture.setPenCapColor($0)
+    },
     setAutomaticInspection: { fixture.setAutomaticInspection($0, features: $1) },
-    analysisUpdates: { AsyncStream { $0.finish() } }
+    analysisUpdates: analysisUpdates,
+    visionDiagnostics: { fixture.visionDiagnosticsResponse() }
   )
+}
+
+actor CameraInspectionGate {
+  private var isArmed = false
+  private var continuation: CheckedContinuation<Void, Never>?
+
+  var isWaiting: Bool { continuation != nil }
+
+  func arm() {
+    precondition(!isArmed && continuation == nil)
+    isArmed = true
+  }
+
+  func waitIfArmed() async {
+    guard isArmed else { return }
+    isArmed = false
+    await withCheckedContinuation { continuation in
+      self.continuation = continuation
+    }
+  }
+
+  func release() {
+    continuation?.resume()
+    continuation = nil
+  }
+}
+
+actor CameraReconfigurationGate {
+  private var isArmed = false
+  private var continuation: CheckedContinuation<Void, Never>?
+
+  var isWaiting: Bool { continuation != nil }
+
+  func arm() {
+    precondition(!isArmed && continuation == nil)
+    isArmed = true
+  }
+
+  func waitIfArmed() async {
+    guard isArmed else { return }
+    isArmed = false
+    await withCheckedContinuation { continuation in
+      self.continuation = continuation
+    }
+  }
+
+  func release() {
+    continuation?.resume()
+    continuation = nil
+  }
 }
 
 actor EventLog {
@@ -685,6 +772,7 @@ actor MachineFixture {
   let holdCancellationSettlement: Bool
   let relativeJogSettlementOffset: Vector2<MachineSpace>?
   let penRequestGate: PenRequestGate?
+  let positionObserver: (@Sendable (MachinePosition) -> Void)?
   private(set) var cancelCount = 0
   private(set) var cancelIntents: [JogCancelIntent] = []
   private(set) var requestedFeeds: [Double] = []
@@ -692,6 +780,8 @@ actor MachineFixture {
   private(set) var requestedBoundaryRequests: [BoundaryMotionRequest] = []
   private(set) var requestedPenCommands: [PenCommand] = []
   private(set) var requestedPenProfiles: [PenActuationProfile] = []
+  private(set) var snapshotCallCount = 0
+  private(set) var passiveProbeCallCount = 0
   private var moving = false
   private var cancelPending = false
   private var pendingCancelIntent: JogCancelIntent?
@@ -720,7 +810,8 @@ actor MachineFixture {
     holdCancellationSettlement: Bool = false,
     relativeJogSettlementOffset: Vector2<MachineSpace>? = nil,
     penRequestGate: PenRequestGate? = nil,
-    motionGuardInitiallyActive: Bool = true
+    motionGuardInitiallyActive: Bool = true,
+    positionObserver: (@Sendable (MachinePosition) -> Void)? = nil
   ) throws {
     self.log = log
     self.feedLimits = feedLimits
@@ -729,7 +820,9 @@ actor MachineFixture {
     self.relativeJogSettlementOffset = relativeJogSettlementOffset
     self.penRequestGate = penRequestGate
     motionGuardActive = motionGuardInitiallyActive
+    self.positionObserver = positionObserver
     position = try MachinePosition(x: 0, y: 0)
+    positionObserver?(position)
   }
 
   func activateMotionGuard() -> MotionGuardActivationOutcome {
@@ -743,6 +836,7 @@ actor MachineFixture {
 
   func setPosition(x: Double, y: Double) throws {
     position = try MachinePosition(x: x, y: y)
+    positionObserver?(position)
   }
 
   func setPenState(_ state: PenState) {
@@ -754,7 +848,8 @@ actor MachineFixture {
   }
 
   func snapshot() -> RunInterpreterSnapshot {
-    RunInterpreterSnapshot(
+    snapshotCallCount += 1
+    return RunInterpreterSnapshot(
       currentOperation: activeBoundaryRequest.map(RunOperation.boundaryMotion)
         ?? activeDrawingRequest.map(RunOperation.drawingStroke)
         ?? activeRequest.map(RunOperation.relativeJog) ?? .idle,
@@ -785,6 +880,7 @@ actor MachineFixture {
   }
 
   func passiveProbeResult() -> PassiveProbeResult {
+    passiveProbeCallCount += 1
     let parserState =
       hasActuatedPen
       ? "[GC:G0 G54 G17 G21 G90 G94 M3 M9 T0 F0 S40]"
@@ -832,6 +928,7 @@ actor MachineFixture {
         x: position.point.x + request.delta.dx + relativeJogSettlementOffset.dx,
         y: position.point.y + request.delta.dy + relativeJogSettlementOffset.dy
       )
+      positionObserver?(position)
       moving = false
       activeRequest = nil
       let outcome = MotionOutcome.acceptedThenCompleted(finalPosition: position)
@@ -844,6 +941,28 @@ actor MachineFixture {
     lastMotion = outcome
     activeRequest = nil
     return outcome
+  }
+
+  var relativeJogIsAwaitingSettlement: Bool {
+    continuation != nil
+  }
+
+  var boundaryMotionIsAwaitingSettlement: Bool {
+    boundaryContinuation != nil
+  }
+
+  func settleRelativeJogNaturally() {
+    guard let continuation, let request = activeRequest else { return }
+    self.continuation = nil
+    position = try! MachinePosition(
+      x: position.point.x + request.delta.dx,
+      y: position.point.y + request.delta.dy
+    )
+    positionObserver?(position)
+    moving = false
+    let outcome = MotionOutcome.acceptedThenCompleted(finalPosition: position)
+    lastMotion = outcome
+    continuation.resume(returning: outcome)
   }
 
   func requestBoundaryMotion(_ request: BoundaryMotionRequest) async -> BoundaryMotionOutcome {
@@ -876,6 +995,7 @@ actor MachineFixture {
         x: position.point.x + request.delta.dx + relativeJogSettlementOffset.dx,
         y: position.point.y + request.delta.dy + relativeJogSettlementOffset.dy
       )
+      positionObserver?(position)
       moving = false
       activeDrawingRequest = nil
       drawingStartPosition = nil
@@ -1009,13 +1129,88 @@ actor MachineFixture {
   }
 }
 
+final class CameraAnalysisTrafficFixture: @unchecked Sendable {
+  private let lock = NSLock()
+  private var continuations:
+    [UUID: AsyncStream<PlotterSceneAnalysisSnapshot>.Continuation] = [:]
+  private var subscriptions = 0
+  private var isFinished = false
+
+  var subscriptionCount: Int {
+    lock.lock()
+    defer { lock.unlock() }
+    return subscriptions
+  }
+
+  func updates() -> AsyncStream<PlotterSceneAnalysisSnapshot> {
+    let id = UUID()
+    return AsyncStream(bufferingPolicy: .bufferingNewest(32)) { [weak self] continuation in
+      guard let self else {
+        continuation.finish()
+        return
+      }
+      continuation.onTermination = { [weak self] _ in
+        self?.removeContinuation(id: id)
+      }
+      lock.lock()
+      if isFinished {
+        lock.unlock()
+        continuation.finish()
+        return
+      }
+      subscriptions += 1
+      continuations[id] = continuation
+      lock.unlock()
+    }
+  }
+
+  func inject(revision: UInt64) {
+    let snapshot = PlotterSceneAnalysisSnapshot(
+      revision: revision,
+      phase: PlotterSceneAnalysisPhase(
+        state: .running(.twoFPS),
+        requestedFeatures: [.penCap, .armatureEnvelope],
+        analysisRegion: nil,
+        penCapColor: .green
+      ),
+      latestResult: nil,
+      lastError: nil
+    )
+    lock.lock()
+    let activeContinuations = Array(continuations.values)
+    lock.unlock()
+    for continuation in activeContinuations {
+      continuation.yield(snapshot)
+    }
+  }
+
+  func finish() {
+    lock.lock()
+    isFinished = true
+    let activeContinuations = Array(continuations.values)
+    continuations.removeAll()
+    lock.unlock()
+    for continuation in activeContinuations {
+      continuation.finish()
+    }
+  }
+
+  private func removeContinuation(id: UUID) {
+    lock.lock()
+    continuations[id] = nil
+    lock.unlock()
+  }
+}
+
 final class CameraFixture: @unchecked Sendable {
   let device: CameraDevice
   let snapshot: CameraCaptureSnapshot
   private let configurationID: CameraConfigurationID
   private let rotatesConfiguration: Bool
+  private let corruptsMeasurementFrameHash: Bool
   private let providesInspectionOverlay: Bool
   private let providesAutomaticAnalysisResult: Bool
+  private let automaticAnalysisError: String?
   private let capCentroidXOffsets: [Double]
   private let lock = NSLock()
   private var inspectionCount = 0
@@ -1028,6 +1223,8 @@ final class CameraFixture: @unchecked Sendable {
   private var discoverCalls = 0
   private var selectCalls = 0
   private var startCalls = 0
+  private var visionDiagnosticsCalls = 0
+  private var trackedMachinePosition: MachinePosition?
 
   var inspectionCallCount: Int {
     lock.lock()
@@ -1039,6 +1236,12 @@ final class CameraFixture: @unchecked Sendable {
     lock.lock()
     defer { lock.unlock() }
     return (discoverCalls, selectCalls, startCalls)
+  }
+
+  var visionDiagnosticsCallCount: Int {
+    lock.lock()
+    defer { lock.unlock() }
+    return visionDiagnosticsCalls
   }
 
   func discoverResponse() -> CameraCaptureSnapshot {
@@ -1062,15 +1265,59 @@ final class CameraFixture: @unchecked Sendable {
     return snapshot
   }
 
+  func visionDiagnosticsResponse() -> CameraSourceSessionVisionDiagnostics {
+    lock.lock()
+    visionDiagnosticsCalls += 1
+    lock.unlock()
+    return CameraSourceSessionVisionDiagnostics(
+      automaticInspectionConfigurationRevision: 0,
+      automaticPipelineStartCallCount: 0,
+      automaticFrameSubscriptionStartCount: 0,
+      automaticPauseCallCount: 0,
+      automaticFrameSubscriptionCancellationCount: 0,
+      exclusiveLeaseBeginCount: 0,
+      exclusiveLeaseEndCount: 0,
+      automaticResumeAfterExclusiveCount: 0,
+      activeExclusiveLeaseCount: 0,
+      requestedCadence: nil,
+      requestedFeatures: [],
+      capture: .zero,
+      pipeline: PlotterSceneAnalysisDiagnostics(
+        phase: .stopped,
+        submittedFrameCount: 0,
+        analyzedFrameCount: 0,
+        supersededFrameCount: 0,
+        failedFrameCount: 0,
+        activeFrameSequence: nil,
+        pendingFrameSequence: nil,
+        latestResult: nil,
+        lastError: nil,
+        configurationRevision: 0,
+        semanticPublicationCount: 0,
+        semanticSubscriptionStartCount: 0
+      )
+    )
+  }
+
+  func trackMachinePosition(_ position: MachinePosition) {
+    lock.lock()
+    trackedMachinePosition = position
+    lock.unlock()
+  }
+
   init(
     rotatesConfiguration: Bool = false,
+    corruptsMeasurementFrameHash: Bool = false,
     providesInspectionOverlay: Bool = false,
     providesAutomaticAnalysisResult: Bool = false,
+    automaticAnalysisError: String? = nil,
     capCentroidXOffsets: [Double] = []
   ) throws {
     self.rotatesConfiguration = rotatesConfiguration
+    self.corruptsMeasurementFrameHash = corruptsMeasurementFrameHash
     self.providesInspectionOverlay = providesInspectionOverlay
     self.providesAutomaticAnalysisResult = providesAutomaticAnalysisResult
+    self.automaticAnalysisError = automaticAnalysisError
     self.capCentroidXOffsets = capCentroidXOffsets
     configurationID = CameraConfigurationID()
     device = CameraDevice(id: CameraDeviceID(rawValue: "camera"), name: "Fixture camera")
@@ -1096,10 +1343,16 @@ final class CameraFixture: @unchecked Sendable {
     inspectionCount += 1
     workflowFeatureRequests.append(features)
     workflowAnalysisRegionRequests.append(analysisRegion)
-    let centroidOffset =
-      capCentroidXOffsets.isEmpty
+    let trackedPosition = trackedMachinePosition
+    let centroidXOffset = capCentroidXOffsets.isEmpty
       ? 0
       : capCentroidXOffsets[(inspectionCount - 1) % capCentroidXOffsets.count]
+    let anchorX = trackedPosition.map { 4 + $0.point.x / 24 } ?? (99 + centroidXOffset)
+    let anchorY = trackedPosition.map { 4 + $0.point.y / 24 } ?? 52
+    let boundsX = trackedPosition == nil
+      ? Int((98 + centroidXOffset).rounded())
+      : Int(anchorX.rounded()) - 1
+    let boundsY = trackedPosition == nil ? 48 : Int(anchorY.rounded()) - 2
     let inspectionConfigurationID =
       rotatesConfiguration
       ? CameraConfigurationID()
@@ -1121,7 +1374,7 @@ final class CameraFixture: @unchecked Sendable {
         CameraOverlayMeasurement(
           frameID: fresh.frame.id,
           cameraConfigurationID: inspectionConfigurationID,
-          geometry: .point(try Point2(x: 99 + centroidOffset, y: 52)),
+          geometry: .point(try Point2(x: anchorX, y: anchorY)),
           provenance: CameraMeasurementProvenance(
             kind: .penCap,
             source: .measured,
@@ -1131,8 +1384,16 @@ final class CameraFixture: @unchecked Sendable {
       ] : []
     let cap = PenCapMeasurement(
       pixelCount: 10,
-      boundingBox: PixelRect(x: 98, y: 48, width: 2, height: 4),
-      centroid: try Point2(x: 99 + centroidOffset, y: 50),
+      boundingBox: PixelRect(
+        x: boundsX,
+        y: boundsY,
+        width: 2,
+        height: trackedPosition == nil ? 4 : 2
+      ),
+      centroid: try Point2(
+        x: trackedPosition == nil ? 99 + centroidXOffset : anchorX,
+        y: trackedPosition == nil ? 50 : anchorY - 1
+      ),
       confidence: 0.9
     )
     let diagnostics = PenCapDiagnostics(
@@ -1143,7 +1404,9 @@ final class CameraFixture: @unchecked Sendable {
     )
     let measurement = PlotterSceneMeasurement(
       frameID: fresh.frame.id,
-      frameSHA256: fresh.frame.contentSHA256,
+      frameSHA256: corruptsMeasurementFrameHash
+        ? String(repeating: "f", count: 64)
+        : fresh.frame.contentSHA256,
       cameraConfigurationID: inspectionConfigurationID,
       penCap: .found(cap, diagnostics: diagnostics),
       armatureEnvelope: .notRequested,
@@ -1221,21 +1484,24 @@ final class CameraFixture: @unchecked Sendable {
     lock.lock()
     automaticInspectionRequests.append(cadence)
     automaticFeatureRequests.append(features)
+    let revision = UInt64(automaticInspectionRequests.count)
+    let analysisRegion = sceneAnalysisRegionRequests.last ?? nil
+    let penCapColor = penCapColorRequests.last ?? .green
     lock.unlock()
     let latestResult =
       providesAutomaticAnalysisResult
       ? try? inspection(after: 100).asAnalysisResult
       : nil
     return PlotterSceneAnalysisSnapshot(
-      state: cadence.map(PlotterSceneAnalysisState.running) ?? .stopped,
-      submittedFrameCount: latestResult == nil ? 0 : 1,
-      analyzedFrameCount: latestResult == nil ? 0 : 1,
-      supersededFrameCount: 0,
-      failedFrameCount: 0,
-      activeFrameSequence: nil,
-      pendingFrameSequence: nil,
+      revision: revision,
+      phase: PlotterSceneAnalysisPhase(
+        state: cadence.map(PlotterSceneAnalysisState.running) ?? .stopped,
+        requestedFeatures: features,
+        analysisRegion: analysisRegion,
+        penCapColor: penCapColor
+      ),
       latestResult: latestResult,
-      lastError: nil
+      lastError: automaticAnalysisError
     )
   }
 }
@@ -1436,7 +1702,43 @@ func waitUntilAsync(
   throw TestTimeout()
 }
 
-struct TestTimeout: Error {}
+@MainActor
+func waitForExecutorTurns(
+  attempts: Int = 4_000,
+  conditionDescription: String = "executor-turn condition",
+  condition: () -> Bool
+) async throws {
+  for _ in 0..<attempts {
+    if condition() { return }
+    await Task.yield()
+  }
+  throw TestTimeout(conditionDescription: conditionDescription)
+}
+
+@MainActor
+func waitForExecutorTurnsAsync(
+  attempts: Int = 4_000,
+  conditionDescription: String = "async executor-turn condition",
+  condition: () async -> Bool
+) async throws {
+  for _ in 0..<attempts {
+    if await condition() { return }
+    await Task.yield()
+  }
+  throw TestTimeout(conditionDescription: conditionDescription)
+}
+
+struct TestTimeout: Error, CustomStringConvertible {
+  let conditionDescription: String
+
+  init(conditionDescription: String = "test condition") {
+    self.conditionDescription = conditionDescription
+  }
+
+  var description: String {
+    "Timed out waiting for \(conditionDescription)."
+  }
+}
 struct StepMismatch: Error {
   let expected: String
   let actual: String

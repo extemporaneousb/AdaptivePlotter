@@ -79,19 +79,161 @@ public struct PlannedDrawingObservation: Codable, Hashable, Sendable {
   public let alignment: IntegerFrameAlignment
   public let overlays: [CameraOverlayMeasurement]
   public let observedPixelCount: Int
+  public let computation: PlannedDrawingObservationComputationDiagnostics?
 
   public init(
     evidence: DrawingObservedInkEvidence,
     alignment: IntegerFrameAlignment,
     overlays: [CameraOverlayMeasurement],
-    observedPixelCount: Int
+    observedPixelCount: Int,
+    computation: PlannedDrawingObservationComputationDiagnostics? = nil
   ) {
     self.evidence = evidence
     self.alignment = alignment
     self.overlays = overlays
     self.observedPixelCount = observedPixelCount
+    self.computation = computation
   }
 }
+
+/// Exact work counters for one successful run of the current planned-drawing
+/// observer. They describe computation only and confer no evidence authority.
+public struct PlannedDrawingObservationComputationDiagnostics: Codable, Hashable, Sendable {
+  public let alignmentEvaluatedPixelCount: Int
+  public let alignmentCoarseCandidateCount: Int
+  public let alignmentVerifiedCandidateCount: Int
+  public let inkEvaluatedPixelCount: Int
+  public let associationEvaluationCount: Int
+  public let cancellationCheckpointCount: Int
+  public let maximumEvaluationCountBetweenCancellationChecks: Int
+
+  public init(
+    alignmentEvaluatedPixelCount: Int,
+    alignmentCoarseCandidateCount: Int = 0,
+    alignmentVerifiedCandidateCount: Int = 0,
+    inkEvaluatedPixelCount: Int,
+    associationEvaluationCount: Int,
+    cancellationCheckpointCount: Int = 0,
+    maximumEvaluationCountBetweenCancellationChecks: Int = 0
+  ) {
+    self.alignmentEvaluatedPixelCount = alignmentEvaluatedPixelCount
+    self.alignmentCoarseCandidateCount = alignmentCoarseCandidateCount
+    self.alignmentVerifiedCandidateCount = alignmentVerifiedCandidateCount
+    self.inkEvaluatedPixelCount = inkEvaluatedPixelCount
+    self.associationEvaluationCount = associationEvaluationCount
+    self.cancellationCheckpointCount = cancellationCheckpointCount
+    self.maximumEvaluationCountBetweenCancellationChecks =
+      maximumEvaluationCountBetweenCancellationChecks
+  }
+
+  static let zero = PlannedDrawingObservationComputationDiagnostics(
+    alignmentEvaluatedPixelCount: 0,
+    alignmentCoarseCandidateCount: 0,
+    alignmentVerifiedCandidateCount: 0,
+    inkEvaluatedPixelCount: 0,
+    associationEvaluationCount: 0,
+    cancellationCheckpointCount: 0,
+    maximumEvaluationCountBetweenCancellationChecks: 0
+  )
+
+  func addingAlignmentComputation(
+    evaluatedPixelCount: Int,
+    coarseCandidateCount: Int,
+    verifiedCandidateCount: Int,
+    checkpointCount: Int,
+    maximumEvaluationCountBetweenChecks: Int
+  ) -> Self {
+    Self(
+      alignmentEvaluatedPixelCount: alignmentEvaluatedPixelCount + evaluatedPixelCount,
+      alignmentCoarseCandidateCount: alignmentCoarseCandidateCount + coarseCandidateCount,
+      alignmentVerifiedCandidateCount: alignmentVerifiedCandidateCount + verifiedCandidateCount,
+      inkEvaluatedPixelCount: inkEvaluatedPixelCount,
+      associationEvaluationCount: associationEvaluationCount,
+      cancellationCheckpointCount: cancellationCheckpointCount + checkpointCount,
+      maximumEvaluationCountBetweenCancellationChecks: max(
+        maximumEvaluationCountBetweenCancellationChecks,
+        maximumEvaluationCountBetweenChecks
+      )
+    )
+  }
+
+  func addingInkComputation(
+    evaluatedPixelCount: Int,
+    checkpointCount: Int,
+    maximumEvaluationCountBetweenChecks: Int
+  ) -> Self {
+    Self(
+      alignmentEvaluatedPixelCount: alignmentEvaluatedPixelCount,
+      alignmentCoarseCandidateCount: alignmentCoarseCandidateCount,
+      alignmentVerifiedCandidateCount: alignmentVerifiedCandidateCount,
+      inkEvaluatedPixelCount: inkEvaluatedPixelCount + evaluatedPixelCount,
+      associationEvaluationCount: associationEvaluationCount,
+      cancellationCheckpointCount: cancellationCheckpointCount + checkpointCount,
+      maximumEvaluationCountBetweenCancellationChecks: max(
+        maximumEvaluationCountBetweenCancellationChecks,
+        maximumEvaluationCountBetweenChecks
+      )
+    )
+  }
+
+  func addingAssociationComputation(
+    evaluationCount: Int,
+    checkpointCount: Int,
+    maximumEvaluationCountBetweenChecks: Int
+  ) -> Self {
+    Self(
+      alignmentEvaluatedPixelCount: alignmentEvaluatedPixelCount,
+      alignmentCoarseCandidateCount: alignmentCoarseCandidateCount,
+      alignmentVerifiedCandidateCount: alignmentVerifiedCandidateCount,
+      inkEvaluatedPixelCount: inkEvaluatedPixelCount,
+      associationEvaluationCount: associationEvaluationCount + evaluationCount,
+      cancellationCheckpointCount: cancellationCheckpointCount + checkpointCount,
+      maximumEvaluationCountBetweenCancellationChecks: max(
+        maximumEvaluationCountBetweenCancellationChecks,
+        maximumEvaluationCountBetweenChecks
+      )
+    )
+  }
+
+  func addingCancellationBudget(
+    checkpointCount: Int,
+    maximumEvaluationCountBetweenChecks: Int
+  ) -> Self {
+    Self(
+      alignmentEvaluatedPixelCount: alignmentEvaluatedPixelCount,
+      alignmentCoarseCandidateCount: alignmentCoarseCandidateCount,
+      alignmentVerifiedCandidateCount: alignmentVerifiedCandidateCount,
+      inkEvaluatedPixelCount: inkEvaluatedPixelCount,
+      associationEvaluationCount: associationEvaluationCount,
+      cancellationCheckpointCount: cancellationCheckpointCount + checkpointCount,
+      maximumEvaluationCountBetweenCancellationChecks: max(
+        maximumEvaluationCountBetweenCancellationChecks,
+        maximumEvaluationCountBetweenChecks
+      )
+    )
+  }
+}
+
+enum PlannedDrawingObservationCheckpointStage: Hashable, Sendable {
+  case beforeAlignment
+  case alignmentCandidate
+  case alignmentRow
+  case alignmentCompleted
+  case inkExtractionChunk
+  case inkScanCompleted
+  case associationChunk
+  case associationCompleted
+  case observationCompleted
+}
+
+struct PlannedDrawingObservationCheckpoint: Hashable, Sendable {
+  let stage: PlannedDrawingObservationCheckpointStage
+  let computation: PlannedDrawingObservationComputationDiagnostics
+  let taskWasCancelled: Bool
+}
+
+typealias PlannedDrawingObservationCheckpointHandler =
+  @Sendable (PlannedDrawingObservationCheckpoint) async -> Void
 
 public enum PlannedDrawingObservationOutcome: Codable, Hashable, Sendable {
   case observed(PlannedDrawingObservation)
@@ -99,10 +241,34 @@ public enum PlannedDrawingObservationOutcome: Codable, Hashable, Sendable {
 }
 
 extension VisionWorker {
+  static func plannedDrawingCancellationCheckpoint(
+    _ stage: PlannedDrawingObservationCheckpointStage,
+    computation: PlannedDrawingObservationComputationDiagnostics,
+    handler: PlannedDrawingObservationCheckpointHandler?
+  ) async throws {
+    if let handler {
+      await handler(
+        PlannedDrawingObservationCheckpoint(
+          stage: stage,
+          computation: computation,
+          taskWasCancelled: Task.isCancelled
+        ))
+    }
+    try Task.checkCancellation()
+  }
+
   public func observePlannedDrawingInk(
     _ request: PlannedDrawingObservationRequest
-  ) -> PlannedDrawingObservationOutcome {
+  ) async -> PlannedDrawingObservationOutcome {
+    await observePlannedDrawingInk(request, checkpointHandler: nil)
+  }
+
+  func observePlannedDrawingInk(
+    _ request: PlannedDrawingObservationRequest,
+    checkpointHandler: PlannedDrawingObservationCheckpointHandler?
+  ) async -> PlannedDrawingObservationOutcome {
     let requestedAlgorithms = request.additionalAlgorithmRevisions.union([request.observerRevision])
+    var computation = PlannedDrawingObservationComputationDiagnostics.zero
     func reject(
       _ reason: DrawingObservationRejectionReason,
       algorithms: Set<AlgorithmRevisionEvidence> = []
@@ -152,17 +318,60 @@ extension VisionWorker {
       return reject(.observationPoseMismatch)
     }
 
-    let alignment = Self.bestIntegerAlignment(
-      request.localPreDrawingBaseline.frame,
-      request.postDrawing.frame,
-      excluding: request.region,
-      searchRadius: request.alignmentSearchRadiusPixels
-    )
     let alignmentRevision = try! AlgorithmRevisionEvidence(
       component: "integer-frame-alignment",
-      revision: alignment.estimatorRevision
+      revision: Self.plannedDrawingAlignmentEstimatorRevision
     )
     let algorithms = requestedAlgorithms.union([alignmentRevision])
+    do {
+      try await Self.plannedDrawingCancellationCheckpoint(
+        .beforeAlignment,
+        computation: computation,
+        handler: checkpointHandler
+      )
+    } catch {
+      return reject(.computationCancelled, algorithms: algorithms)
+    }
+    let alignmentEvaluation: PlannedIntegerFrameAlignmentEvaluation
+    do {
+      alignmentEvaluation = try await Self.boundedSubsampledIntegerAlignment(
+        request.localPreDrawingBaseline.frame,
+        request.postDrawing.frame,
+        excluding: request.region,
+        searchRadius: request.alignmentSearchRadiusPixels,
+        baseComputation: .zero,
+        checkpointHandler: checkpointHandler
+      )
+    } catch PlannedIntegerFrameAlignmentError.supportUnavailable {
+      return reject(
+        .algorithmFailure(code: "alignment-support-unavailable"),
+        algorithms: algorithms
+      )
+    } catch is CancellationError {
+      return reject(.computationCancelled, algorithms: algorithms)
+    } catch {
+      return reject(.algorithmFailure(code: "alignment-failed"), algorithms: algorithms)
+    }
+    let alignment = alignmentEvaluation.alignment
+    computation = PlannedDrawingObservationComputationDiagnostics(
+      alignmentEvaluatedPixelCount: alignment.evaluatedPixelCount,
+      alignmentCoarseCandidateCount: alignmentEvaluation.coarseCandidateCount,
+      alignmentVerifiedCandidateCount: alignmentEvaluation.verifiedCandidateCount,
+      inkEvaluatedPixelCount: 0,
+      associationEvaluationCount: 0,
+      cancellationCheckpointCount: alignmentEvaluation.cancellationCheckpointCount,
+      maximumEvaluationCountBetweenCancellationChecks:
+        alignmentEvaluation.maximumEvaluationCountBetweenCancellationChecks
+    )
+    do {
+      try await Self.plannedDrawingCancellationCheckpoint(
+        .alignmentCompleted,
+        computation: computation,
+        handler: checkpointHandler
+      )
+    } catch {
+      return reject(.computationCancelled, algorithms: algorithms)
+    }
     guard
       max(abs(alignment.shiftX), abs(alignment.shiftY))
         <= request.maximumAlignmentShiftPixels
@@ -172,14 +381,39 @@ extension VisionWorker {
         <= request.maximumBackgroundMeanAbsoluteDifference
     else { return reject(.excessiveBackgroundResidual, algorithms: algorithms) }
 
-    let newInk = Self.newInkPixels(
-      from: request.localPreDrawingBaseline.frame,
-      to: request.postDrawing.frame,
-      region: request.region,
-      thresholds: request.thresholds,
-      observationShiftX: alignment.shiftX,
-      observationShiftY: alignment.shiftY
+    let newInkEvaluation: CancellableNewInkPixelEvaluation
+    do {
+      newInkEvaluation = try await Self.cancellableNewInkPixelEvaluation(
+        from: request.localPreDrawingBaseline.frame,
+        to: request.postDrawing.frame,
+        region: request.region,
+        thresholds: request.thresholds,
+        observationShiftX: alignment.shiftX,
+        observationShiftY: alignment.shiftY,
+        baseComputation: computation,
+        checkpointHandler: checkpointHandler
+      )
+    } catch is CancellationError {
+      return reject(.computationCancelled, algorithms: algorithms)
+    } catch {
+      return reject(.algorithmFailure(code: "ink-extraction-failed"), algorithms: algorithms)
+    }
+    let newInk = newInkEvaluation.pixels
+    computation = computation.addingInkComputation(
+      evaluatedPixelCount: newInkEvaluation.evaluatedPixelCount,
+      checkpointCount: newInkEvaluation.cancellationCheckpointCount,
+      maximumEvaluationCountBetweenChecks:
+        newInkEvaluation.maximumEvaluationCountBetweenCancellationChecks
     )
+    do {
+      try await Self.plannedDrawingCancellationCheckpoint(
+        .inkScanCompleted,
+        computation: computation,
+        handler: checkpointHandler
+      )
+    } catch {
+      return reject(.computationCancelled, algorithms: algorithms)
+    }
     guard !newInk.isEmpty else { return reject(.inkMissing, algorithms: algorithms) }
     guard newInk.count <= request.maximumInkPixels else {
       return reject(.algorithmFailure(code: "ink-pixel-budget-exceeded"), algorithms: algorithms)
@@ -196,14 +430,39 @@ extension VisionWorker {
       )
     }
 
-    let association = Self.associate(
-      newInk,
-      with: request.intendedCameraPolylines,
-      observationShiftX: alignment.shiftX,
-      observationShiftY: alignment.shiftY,
-      maximumDistance: request.maximumAssociationDistancePixels,
-      ambiguityTolerance: request.associationAmbiguityTolerancePixels
+    let associationEvaluation: CancellablePlannedInkAssociationEvaluation
+    do {
+      associationEvaluation = try await Self.cancellableAssociation(
+        newInk,
+        with: request.intendedCameraPolylines,
+        observationShiftX: alignment.shiftX,
+        observationShiftY: alignment.shiftY,
+        maximumDistance: request.maximumAssociationDistancePixels,
+        ambiguityTolerance: request.associationAmbiguityTolerancePixels,
+        baseComputation: computation,
+        checkpointHandler: checkpointHandler
+      )
+    } catch is CancellationError {
+      return reject(.computationCancelled, algorithms: algorithms)
+    } catch {
+      return reject(.algorithmFailure(code: "association-failed"), algorithms: algorithms)
+    }
+    let association = associationEvaluation.association
+    computation = computation.addingAssociationComputation(
+      evaluationCount: associationEvaluation.evaluationCount,
+      checkpointCount: associationEvaluation.cancellationCheckpointCount,
+      maximumEvaluationCountBetweenChecks:
+        associationEvaluation.maximumEvaluationCountBetweenCancellationChecks
     )
+    do {
+      try await Self.plannedDrawingCancellationCheckpoint(
+        .associationCompleted,
+        computation: computation,
+        handler: checkpointHandler
+      )
+    } catch {
+      return reject(.computationCancelled, algorithms: algorithms)
+    }
     if association.ambiguousPixelCount > 0 {
       return reject(
         .inkAmbiguous(candidateCount: association.ambiguousPixelCount),
@@ -227,6 +486,9 @@ extension VisionWorker {
         maximumSamplesPerPolyline: request.maximumCentrelineSampleCountPerPolyline
       )
     else { return reject(.correspondenceUnavailable, algorithms: algorithms) }
+    guard !Task.isCancelled else {
+      return reject(.computationCancelled, algorithms: algorithms)
+    }
     guard let residual = Self.residualEvidence(sampled.correspondences) else {
       return reject(.algorithmFailure(code: "residual-construction-failed"), algorithms: algorithms)
     }
@@ -249,12 +511,22 @@ extension VisionWorker {
       correspondences: sampled.correspondences,
       algorithmRevision: overlayRevision
     )
+    do {
+      try await Self.plannedDrawingCancellationCheckpoint(
+        .observationCompleted,
+        computation: computation,
+        handler: checkpointHandler
+      )
+    } catch {
+      return reject(.computationCancelled, algorithms: algorithms)
+    }
     return .observed(
       PlannedDrawingObservation(
         evidence: evidence,
         alignment: alignment,
         overlays: overlays,
-        observedPixelCount: newInk.count
+        observedPixelCount: newInk.count,
+        computation: computation
       ))
   }
 }
@@ -264,6 +536,13 @@ extension VisionWorker {
     let byPolyline: [[PlannedAssociatedInkPixel]]
     let unassociatedPixelCount: Int
     let ambiguousPixelCount: Int
+  }
+
+  struct CancellablePlannedInkAssociationEvaluation {
+    let association: PlannedInkAssociation
+    let evaluationCount: Int
+    let cancellationCheckpointCount: Int
+    let maximumEvaluationCountBetweenCancellationChecks: Int
   }
 
   struct PlannedAssociatedInkPixel {
@@ -327,28 +606,86 @@ extension VisionWorker {
       && ExactFrameProvenance(frame: post.frame) == request.frames.post
   }
 
-  static func associate(
-    _ inkPixels: Set<InkPixel>,
+  static func cancellableAssociation(
+    _ orderedInk: [InkPixel],
     with intended: [Polyline<CameraPixelSpace>],
     observationShiftX: Int,
     observationShiftY: Int,
     maximumDistance: Double,
-    ambiguityTolerance: Double
-  ) -> PlannedInkAssociation {
+    ambiguityTolerance: Double,
+    baseComputation: PlannedDrawingObservationComputationDiagnostics,
+    checkpointHandler: PlannedDrawingObservationCheckpointHandler?
+  ) async throws -> CancellablePlannedInkAssociationEvaluation {
     var grouped = Array(repeating: [PlannedAssociatedInkPixel](), count: intended.count)
     var unassociated = 0
     var ambiguous = 0
-    let orderedInk = inkPixels.sorted { lhs, rhs in
-      lhs.y == rhs.y ? lhs.x < rhs.x : lhs.y < rhs.y
-    }
+    var evaluationCount = 0
+    var budget = CancellationCheckpointBudget()
+
     for pixel in orderedInk {
       let point = try! Point2<CameraPixelSpace>(
         x: Double(pixel.x + observationShiftX),
         y: Double(pixel.y + observationShiftY)
       )
-      let ranked = intended.enumerated().map { index, path in
-        (index: index, projection: nearestProjection(of: point, onto: path))
-      }.sorted { lhs, rhs in
+      var ranked: [(index: Int, projection: PlannedPathProjection)] = []
+      ranked.reserveCapacity(intended.count)
+      for (pathIndex, path) in intended.enumerated() {
+        var best: PlannedPathProjection?
+        var precedingLength = 0.0
+        for segmentIndex in 0..<(path.points.count - 1) {
+          if evaluationCount.isMultiple(of: plannedDrawingCancellationEvaluationChunkSize) {
+            budget.recordCheckpoint()
+            try await plannedDrawingCancellationCheckpoint(
+              .associationChunk,
+              computation: baseComputation.addingAssociationComputation(
+                evaluationCount: evaluationCount,
+                checkpointCount: budget.count,
+                maximumEvaluationCountBetweenChecks:
+                  budget.maximumEvaluationCountBetweenCheckpoints
+              ),
+              handler: checkpointHandler
+            )
+          }
+          budget.recordEvaluations(1)
+          evaluationCount += 1
+          let start = path.points[segmentIndex]
+          let end = path.points[segmentIndex + 1]
+          let dx = end.x - start.x
+          let dy = end.y - start.y
+          let squaredLength = dx * dx + dy * dy
+          guard squaredLength > 0 else { continue }
+          let rawT =
+            ((point.x - start.x) * dx + (point.y - start.y) * dy)
+            / squaredLength
+          let t = min(1, max(0, rawT))
+          let projected = try! Point2<CameraPixelSpace>(
+            x: start.x + t * dx,
+            y: start.y + t * dy
+          )
+          let segmentLength = sqrt(squaredLength)
+          let candidate = PlannedPathProjection(
+            distance: point.distance(to: projected),
+            alongDistance: precedingLength + t * segmentLength
+          )
+          if let current = best {
+            if candidate.distance < current.distance
+              || (candidate.distance == current.distance
+                && candidate.alongDistance < current.alongDistance)
+            {
+              best = candidate
+            }
+          } else {
+            best = candidate
+          }
+          precedingLength += segmentLength
+        }
+        ranked.append(
+          (
+            index: pathIndex,
+            projection: best ?? PlannedPathProjection(distance: .infinity, alongDistance: 0)
+          ))
+      }
+      ranked.sort { lhs, rhs in
         if lhs.projection.distance != rhs.projection.distance {
           return lhs.projection.distance < rhs.projection.distance
         }
@@ -373,10 +710,27 @@ extension VisionWorker {
           alongDistance: nearest.projection.alongDistance
         ))
     }
-    return PlannedInkAssociation(
-      byPolyline: grouped,
-      unassociatedPixelCount: unassociated,
-      ambiguousPixelCount: ambiguous
+    budget.recordCheckpoint()
+    try await plannedDrawingCancellationCheckpoint(
+      .associationChunk,
+      computation: baseComputation.addingAssociationComputation(
+        evaluationCount: evaluationCount,
+        checkpointCount: budget.count,
+        maximumEvaluationCountBetweenChecks:
+          budget.maximumEvaluationCountBetweenCheckpoints
+      ),
+      handler: checkpointHandler
+    )
+    return CancellablePlannedInkAssociationEvaluation(
+      association: PlannedInkAssociation(
+        byPolyline: grouped,
+        unassociatedPixelCount: unassociated,
+        ambiguousPixelCount: ambiguous
+      ),
+      evaluationCount: evaluationCount,
+      cancellationCheckpointCount: budget.count,
+      maximumEvaluationCountBetweenCancellationChecks:
+        budget.maximumEvaluationCountBetweenCheckpoints
     )
   }
 
