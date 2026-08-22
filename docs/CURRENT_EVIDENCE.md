@@ -10,6 +10,37 @@ procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
 ## Implemented software surface
 
+### Exercise-only Learning Path and external runtime blockers
+
+Implemented 2026-08-21 in Blackdog task `TASK-8D0B646D`.
+
+The Learning Path navigator now contains only curriculum stages 3 and 4 and
+their exercises. **Connect** and **Enable Motion** remain workbench-toolbar
+controls. Projected Motion authorization is false unless the controller session
+is established, and motion-dependent exercise actions remain in place with an
+exact connection or Motion blocker instead of becoming separate path steps.
+
+**Identify Pen Cap** remains exact-frame-only. After the accepted cap click, the
+first Pen question and slider remain visible; when needed they are disabled by
+the external controller/Motion blocker. Controller selection, **Connect**, and
+**Enable Motion** remain available without losing the click or restarting Pen
+Interaction. Stage 3.3 begins directly with **Capture Five Cap Samples**. Stage
+3.4 begins directly with **Draw Four Corner Circles** and no longer projects a
+generic no-op **Start**. The complete button and destination inventory is
+[Learning Path Button Transitions](LEARNING_PATH_BUTTON_TRANSITIONS.md).
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| Focused projector, Pen-cap, controller-dependency, sparse-calibration, reset, and lifecycle regressions | passed | exercise-only navigation, `motion => connected`, cap-before-controller setup, disabled `Next`/slider, preserved slider coalescing, exact Boundary blockers, and direct Stage 3.4 entry |
+| `make quick-test` | passed — 460 tests | unit/component partition with retained journeys excluded |
+| `make journey-test` | passed — 10 tests | sparse calibration, checkpoint revalidation, exact tip revision, reset, Boundary, drawing, and Stop journeys |
+| `make strict-check` | passed — 470 tests | strict concurrency, warnings as errors, signed bundle, launcher checks, full test suite, repository contract, and diff check |
+| removed-stage and obsolete-button scan | passed — zero matches | Learning Path Connect/Enable Motion enum cases and rows, plus Stage 3.4 test callers of the deleted generic Start |
+| `git diff --check` | passed | whitespace and conflict markers |
+
+No attended camera, controller, motion, Pen, click, paper, or ink validation was
+performed by this task.
+
 ### Four extreme-corner marks and closed picture-frame trial
 
 Implemented 2026-08-21 in Blackdog task `TASK-A8E60A2E`.

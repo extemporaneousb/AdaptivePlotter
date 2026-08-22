@@ -65,32 +65,20 @@ struct LearningPathProjectionSnapshot: Sendable {
   struct ControllerFacts: Sendable {
     let sessionEstablished: Bool
     let motionAuthorized: Bool
-    let connectionText: String
     let cameraStateText: String
-    let motionGuardStateText: String
-    let connectionActionTitle: String
-    let workbenchStatusText: String
     let machineError: String?
     let directMotionUnavailableReason: String?
 
     init(
       sessionEstablished: Bool = false,
       motionAuthorized: Bool = false,
-      connectionText: String = "not connected",
       cameraStateText: String = "not started",
-      motionGuardStateText: String = "inactive",
-      connectionActionTitle: String = "Connect",
-      workbenchStatusText: String = "Not connected",
       machineError: String? = nil,
       directMotionUnavailableReason: String? = nil
     ) {
       self.sessionEstablished = sessionEstablished
-      self.motionAuthorized = motionAuthorized
-      self.connectionText = connectionText
+      self.motionAuthorized = sessionEstablished && motionAuthorized
       self.cameraStateText = cameraStateText
-      self.motionGuardStateText = motionGuardStateText
-      self.connectionActionTitle = connectionActionTitle
-      self.workbenchStatusText = workbenchStatusText
       self.machineError = machineError
       self.directMotionUnavailableReason = directMotionUnavailableReason
     }
@@ -445,8 +433,6 @@ struct LearningPathProjector: Sendable {
 
   func currentItemID(_ snapshot: LearningPathProjectionSnapshot) -> LearningPathItemID {
     if let owner = snapshot.operations.activeAttemptOwner { return owner }
-    if !snapshot.controller.sessionEstablished { return .stage(.connect) }
-    if !snapshot.controller.motionAuthorized { return .stage(.enableMotion) }
     if !snapshot.penInteractionCompleted { return .humanGuidedDiscovery(.penInteraction) }
     if !snapshot.boundary.isComplete || snapshot.boundary.centerArrival == nil {
       return .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
@@ -477,9 +463,6 @@ struct LearningPathProjector: Sendable {
       if itemID.stage == .observedDrawingTrials,
         snapshot.operations.explorationFailure != nil
       { return .needsAttention }
-      if itemID == .stage(.connect), snapshot.controller.machineError != nil {
-        return .needsAttention
-      }
       return .current
     }
     return .next
@@ -494,9 +477,6 @@ struct LearningPathProjector: Sendable {
       && snapshot.cameraCalibration.acceptedIsCurrent
       && snapshot.sparseCalibration.acceptedIsCurrent
     return switch itemID {
-    case .stage(.connect): snapshot.controller.sessionEstablished
-    case .stage(.enableMotion):
-      snapshot.controller.sessionEstablished && snapshot.controller.motionAuthorized
     case .stage(.humanGuidedDiscovery): discoveryComplete
     case .stage(.observedDrawingTrials): snapshot.drawing.assessment != nil
     case .humanGuidedDiscovery(.penInteraction): snapshot.penInteractionCompleted
@@ -524,18 +504,6 @@ struct LearningPathProjector: Sendable {
     snapshot: LearningPathProjectionSnapshot
   ) -> String {
     switch itemID {
-    case .stage(.connect):
-      snapshot.controller.sessionEstablished
-        ? (snapshot.source == .simulated
-          ? "The nonphysical learning simulator session is connected."
-          : "The selected controller is responsive.")
-        : (snapshot.source == .simulated
-          ? "Connect the nonphysical learning simulator."
-          : "Select and connect one responsive controller.")
-    case .stage(.enableMotion):
-      snapshot.controller.motionAuthorized
-        ? "Motion is enabled for typed operations."
-        : "Enable Motion for this controller session."
     case .stage(.humanGuidedDiscovery):
       "Observe Pen Interaction, four paired boundaries, center arrival, camera/cap calibration, and sparse-mark pen-contact calibration."
     case .humanGuidedDiscovery(.penInteraction):
@@ -791,13 +759,15 @@ extension LearningPathProjector {
           let command: PenCommand = state == .down ? .lower : .raise
           penSetpointAdjustment = PenSetpointAdjustmentPresentation(
             command: command,
-            value: snapshot.penActuationProfile.value(for: command)
+            value: snapshot.penActuationProfile.value(for: command),
+            unavailableReason: snapshot.startUnavailableReasons[itemID]
           )
           actions = [
             ExerciseActionDescriptor(
               kind: .choice(.yes),
               title: "Next",
-              role: .positive
+              role: .positive,
+              unavailableReason: snapshot.startUnavailableReasons[itemID]
             )
           ]
         } else {
@@ -954,13 +924,23 @@ extension LearningPathProjector {
             ExerciseActionDescriptor(
               kind: .paperReplaced,
               title: "Record Paper Replacement",
-              role: .positive,
-              unavailableReason: reason
+              role: .positive
             )
           ]
         )
       default: break
       }
+      return ExerciseActionStripPresentation(
+        ownerID: itemID,
+        actions: [
+          ExerciseActionDescriptor(
+            kind: .drawFourCornerTipCircles,
+            title: "Draw Four Corner Circles",
+            role: .positive,
+            unavailableReason: reason
+          )
+        ]
+      )
     }
     return ExerciseActionStripPresentation(
       ownerID: itemID,
@@ -1206,15 +1186,6 @@ extension LearningPathProjector {
         outcome: .needsAttention,
         detail: [.text(failure.detail)],
         recovery: recovery
-      )
-    }
-    if itemID == .stage(.connect), let error = snapshot.controller.machineError {
-      return OperationActivityPresentation(
-        actor: "Controller session",
-        action: snapshot.controller.connectionActionTitle,
-        outcome: .needsAttention,
-        detail: [.text(error)],
-        recovery: [.text(snapshot.controller.workbenchStatusText)]
       )
     }
     if let transaction {
@@ -1518,8 +1489,6 @@ extension LearningPathProjector {
 extension LearningPathProjector {
   private func stageExpectedObservation(_ stage: LearningPathStage) -> [PresentationFragment] {
     switch stage {
-    case .connect: [.text("A responsive selected controller session.")]
-    case .enableMotion: [.text("The current session reports Motion Enabled.")]
     case .humanGuidedDiscovery: [.cue(.up), .text("boundary, cap-map, and tip-map evidence.")]
     case .observedDrawingTrials: [.text("Observed ink and a typed geometry comparison.")]
     }
@@ -1530,34 +1499,6 @@ extension LearningPathProjector {
     snapshot: LearningPathProjectionSnapshot
   ) -> [ExerciseEvidencePresentation] {
     switch stage {
-    case .connect:
-      [
-        ExerciseEvidencePresentation(
-          label: "Controller",
-          fragments: [.text(snapshot.controller.connectionText)]
-        ),
-        ExerciseEvidencePresentation(
-          label: "Accepted artifact checkpoint",
-          fragments: [.text(checkpointText(snapshot.acceptedCheckpointStatus))]
-        ),
-      ]
-        + (snapshot.savedTrainingCandidate.map { candidate in
-          [
-            ExerciseEvidencePresentation(
-              label: "Saved training package",
-              fragments: [.text(candidate.artifactSummary)]
-            ),
-            ExerciseEvidencePresentation(
-              label: "Optical sameness (advisory)",
-              fragments: [.text(candidate.opticalComparison)]
-            ),
-          ]
-        } ?? [])
-    case .enableMotion:
-      [ExerciseEvidencePresentation(
-        label: "Motion",
-        fragments: [.text(snapshot.controller.motionGuardStateText)]
-      )]
     case .humanGuidedDiscovery:
       [ExerciseEvidencePresentation(
         label: "Boundary samples",
@@ -1674,7 +1615,24 @@ extension LearningPathProjector {
     snapshot: LearningPathProjectionSnapshot
   ) -> [ExerciseEvidencePresentation] {
     switch step {
-    case .penInteraction: return []
+    case .penInteraction:
+      return [
+        ExerciseEvidencePresentation(
+          label: "Accepted artifact checkpoint",
+          fragments: [.text(checkpointText(snapshot.acceptedCheckpointStatus))]
+        )
+      ] + (snapshot.savedTrainingCandidate.map { candidate in
+        [
+          ExerciseEvidencePresentation(
+            label: "Saved training package",
+            fragments: [.text(candidate.artifactSummary)]
+          ),
+          ExerciseEvidencePresentation(
+            label: "Optical sameness (advisory)",
+            fragments: [.text(candidate.opticalComparison)]
+          ),
+        ]
+      } ?? [])
     case .pairedBoundaryDiscoveryAndCentering:
       var evidence: [ExerciseEvidencePresentation] = []
       if let localFrame = snapshot.boundary.localFrame,

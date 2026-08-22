@@ -2,18 +2,14 @@ import Foundation
 import PlotterRuntime
 
 enum LearningPathStage: Int, CaseIterable, Hashable, Identifiable, Sendable {
-  case connect = 1
-  case enableMotion
-  case humanGuidedDiscovery
-  case observedDrawingTrials
+  case humanGuidedDiscovery = 3
+  case observedDrawingTrials = 4
 
   var id: Self { self }
   var number: String { String(rawValue) }
 
   var title: String {
     switch self {
-    case .connect: "Connect"
-    case .enableMotion: "Enable Motion"
     case .humanGuidedDiscovery: "Human-Guided Discovery"
     case .observedDrawingTrials: "Observed Drawing Trials"
     }
@@ -91,8 +87,6 @@ enum LearningPathItemID: Hashable, Identifiable, Sendable {
   var id: Self { self }
 
   static let navigationOrder: [Self] = [
-    .stage(.connect),
-    .stage(.enableMotion),
     .stage(.humanGuidedDiscovery),
     .humanGuidedDiscovery(.penInteraction),
     .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering),
@@ -139,9 +133,7 @@ enum LearningPathItemID: Hashable, Identifiable, Sendable {
   var isExercise: Bool {
     switch self {
     case .humanGuidedDiscovery, .observedDrawingTrial: true
-    case .stage(.connect), .stage(.enableMotion): true
-    case .stage(.humanGuidedDiscovery), .stage(.observedDrawingTrials):
-      false
+    case .stage: false
     }
   }
 
@@ -153,8 +145,6 @@ enum LearningPathItemID: Hashable, Identifiable, Sendable {
       .observedDrawingTrial(.chooseFramePlan)
     case .humanGuidedDiscovery, .observedDrawingTrial:
       self
-    case .stage(.connect), .stage(.enableMotion):
-      nil
     }
   }
 
@@ -523,20 +513,24 @@ struct PenSetpointAdjustmentPresentation: Hashable, Sendable {
   let value: Int
   let minimumValue: Int
   let maximumValue: Int
+  let unavailableReason: String?
 
   var title: String { command == .raise ? "Pen Up servo" : "Pen Down servo" }
+  var isEnabled: Bool { unavailableReason == nil }
 
   init(
     command: PenCommand,
     value: Int,
     minimumValue: Int = 0,
-    maximumValue: Int = 1000
+    maximumValue: Int = 1000,
+    unavailableReason: String? = nil
   ) {
     precondition(minimumValue <= value && value <= maximumValue)
     self.command = command
     self.value = value
     self.minimumValue = minimumValue
     self.maximumValue = maximumValue
+    self.unavailableReason = unavailableReason
   }
 }
 

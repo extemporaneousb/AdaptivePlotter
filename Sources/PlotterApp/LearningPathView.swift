@@ -646,6 +646,8 @@ private struct ExerciseActionStripView: View {
             in: Double(adjustment.minimumValue)...Double(adjustment.maximumValue),
             step: 1
           )
+          .disabled(!adjustment.isEnabled)
+          .help(adjustment.unavailableReason ?? adjustment.title)
           .accessibilityLabel(adjustment.title)
           .accessibilityValue("S\(adjustment.value)")
           .accessibilityHint(

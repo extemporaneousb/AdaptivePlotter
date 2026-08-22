@@ -6,13 +6,11 @@ import Testing
 
 @Suite("Learning Path presentation")
 struct LearningPathPresentationTests {
-  @Test("operator journey has the exact four implemented stages")
+  @Test("Learning Path has only the two implemented curriculum stages")
   func exactImplementedStageJourney() {
-    #expect(LearningPathStage.allCases.map(\.number) == ["1", "2", "3", "4"])
+    #expect(LearningPathStage.allCases.map(\.number) == ["3", "4"])
     #expect(
       LearningPathStage.allCases.map(\.title) == [
-        "Connect",
-        "Enable Motion",
         "Human-Guided Discovery",
         "Observed Drawing Trials",
       ])
@@ -67,8 +65,6 @@ struct LearningPathPresentationTests {
   func exactNavigatorOrder() {
     #expect(
       LearningPathItemID.navigationOrder.map { "\($0.number) \($0.title)" } == [
-        "1 Connect",
-        "2 Enable Motion",
         "3 Human-Guided Discovery",
         "3.1 Pen Interaction",
         "3.2 Paired Boundary Discovery and Centering",
@@ -96,14 +92,18 @@ struct LearningPathPresentationTests {
 
   @Test("runtime progression follows only when the operator is not reviewing")
   func selectionFollowsCurrentWithoutOverridingReview() {
-    var selection = LearningPathSelectionState(current: .stage(.connect))
-    selection.updateCurrent(.stage(.enableMotion))
-    #expect(selection.selected == .stage(.enableMotion))
+    var selection = LearningPathSelectionState(
+      current: .humanGuidedDiscovery(.penInteraction)
+    )
+    selection.updateCurrent(.humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering))
+    #expect(
+      selection.selected == .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
+    )
 
-    selection.select(.stage(.connect))
-    selection.updateCurrent(.humanGuidedDiscovery(.penInteraction))
-    #expect(selection.current == .humanGuidedDiscovery(.penInteraction))
-    #expect(selection.selected == .stage(.connect))
+    selection.select(.stage(.humanGuidedDiscovery))
+    selection.updateCurrent(.humanGuidedDiscovery(.calibrateCameraAndVisibleCap))
+    #expect(selection.current == .humanGuidedDiscovery(.calibrateCameraAndVisibleCap))
+    #expect(selection.selected == .stage(.humanGuidedDiscovery))
   }
 
   @Test("critical cues carry explicit visible and accessible values")

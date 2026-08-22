@@ -123,6 +123,75 @@ struct PenCapAppearanceSelectionTests {
     await workspace.shutdown()
   }
 
+  @Test("cap identification survives external controller and Motion setup")
+  func capIdentificationPrecedesControllerSetup() async throws {
+    let log = EventLog()
+    let machine = try MachineFixture(log: log, motionGuardInitiallyActive: false)
+    let camera = try CameraFixture()
+    let workspace = workspace(
+      machine: machine,
+      camera: camera,
+      loadPenCapAppearanceSelection: { nil },
+      log: log
+    )
+    let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+    let connectionBlocker =
+      "Blocked by controller connection. Use Connect for the selected plotter in the workbench toolbar; Enable Motion depends on a connected session."
+    let motionBlocker =
+      "Blocked by Motion authorization. Use Enable Motion in the workbench toolbar for this connected session."
+
+    await workspace.startCamera()
+
+    let identifyAction = try #require(
+      workspace.currentExerciseActionStripPresentation?.actions.first
+    )
+    #expect(identifyAction.title == "Identify Pen Cap")
+    #expect(identifyAction.unavailableReason == nil)
+
+    await workspace.performExerciseAction(.start, for: owner)
+    try submitPenCapClick(workspace)
+    await workspace.awaitPenCapAcceptedClickTransition()
+    try requireStep(workspace, "answer-initially-up")
+
+    let disconnectedStrip = try #require(workspace.currentExerciseActionStripPresentation)
+    let disconnectedNext = try #require(
+      disconnectedStrip.actions.first { $0.kind == .choice(.yes) }
+    )
+    let disconnectedAdjustment = try #require(disconnectedStrip.penSetpointAdjustment)
+    #expect(disconnectedNext.title == "Next")
+    #expect(disconnectedNext.unavailableReason == connectionBlocker)
+    #expect(disconnectedAdjustment.unavailableReason == connectionBlocker)
+    #expect(disconnectedAdjustment.isEnabled == false)
+    #expect(workspace.controllerSelectionUnavailableReason == nil)
+    #expect(workspace.controllerConnectionActionUnavailableReason == "Select one serial device first.")
+
+    await workspace.performExerciseAction(
+      .setPenSetpoint(disconnectedAdjustment.command, disconnectedAdjustment.value + 1),
+      for: owner
+    )
+    #expect(await machine.requestedPenCommands.isEmpty)
+
+    await workspace.selectSerialDevice(machine.descriptor)
+    #expect(workspace.controllerConnectionActionUnavailableReason == nil)
+    await workspace.performControllerConnectionAction()
+
+    let connectedStrip = try #require(workspace.currentExerciseActionStripPresentation)
+    #expect(
+      connectedStrip.actions.first { $0.kind == .choice(.yes) }?.unavailableReason
+        == motionBlocker
+    )
+    #expect(connectedStrip.penSetpointAdjustment?.unavailableReason == motionBlocker)
+    try requireStep(workspace, "answer-initially-up")
+
+    await workspace.activateMotionGuard()
+
+    let readyStrip = try #require(workspace.currentExerciseActionStripPresentation)
+    #expect(readyStrip.actions.first { $0.kind == .choice(.yes) }?.unavailableReason == nil)
+    #expect(readyStrip.penSetpointAdjustment?.isEnabled == true)
+    try requireStep(workspace, "answer-initially-up")
+    await workspace.shutdown()
+  }
+
   @Test("re-entering Pen Interaction retains exact scene overlays on its frozen frame")
   func learnedAppearanceProducesFrozenFrameOverlays() async throws {
     let log = EventLog()

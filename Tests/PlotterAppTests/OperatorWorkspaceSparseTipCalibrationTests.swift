@@ -66,7 +66,6 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     let tipOwner = LearningPathItemID.humanGuidedDiscovery(
       .calibratePenContactFromSparseMarks
     )
-    try await performPublicAction(.start, owner: tipOwner, workspace: workspace)
 
     try await performPublicAction(
       .drawFourCornerTipCircles,
@@ -283,7 +282,6 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     )
 
     let owner = LearningPathItemID.humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
-    try await performPublicAction(.start, owner: owner, workspace: workspace)
     try await performPublicAction(.drawFourCornerTipCircles, owner: owner, workspace: workspace)
     let request = try #require(workspace.actionSurfacePresentation.pointSelectionRequest)
     let frameID = request.frame.frameID
@@ -327,7 +325,6 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       workspace: workspace
     )
     let owner = LearningPathItemID.humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
-    try await performPublicAction(.start, owner: owner, workspace: workspace)
     let pacing = CalibrationStopPacing()
     workspace.replaceSimulatedExecutionPacingForTesting(pacing)
 

@@ -50,12 +50,16 @@ extension OperatorWorkspaceTests {
       "Controller alarm: ALARM:1"
     )
     #expect(workspace.motionRequestStatusPresentation == expectedRequestStatus)
-    let connectID = LearningPathItemID.stage(.connect)
+    let penInteractionID = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
     let failedProjection = workspace.learningPathProjection(
-      selectedItemID: connectID
+      selectedItemID: penInteractionID
     )
-    let connectStatus = failedProjection.items.first(where: { $0.id == connectID })?.status
-    #expect(connectStatus == LearningPathStageStatus.needsAttention)
+    #expect(failedProjection.currentItemID == penInteractionID)
+    #expect(failedProjection.items.map(\.id) == LearningPathItemID.navigationOrder)
+    #expect(
+      failedProjection.items.filter { !$0.id.isExercise }.map(\.id)
+        == [.stage(.humanGuidedDiscovery), .stage(.observedDrawingTrials)]
+    )
     let controllerStatus = try #require(
       failedProjection.selectedAction.subsystemStatuses.first(where: { $0.id == "controller" })
     )

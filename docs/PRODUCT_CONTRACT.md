@@ -163,6 +163,15 @@ bytes.
 
 The visible stages and exercises are ergonomic navigation. Complete, Current,
 Next, and Needs Attention are presentation states, not an authorization ladder.
+The navigator contains only curriculum stages 3 and 4 and their exercises.
+**Connect** and **Enable Motion** remain workbench-toolbar controls; they are
+never Learning Path rows or transitions. Motion authorization implies a current
+connected controller session. When an exercise action lacks connection, Motion,
+camera, pose, or another runtime dependency, that same action remains visible
+and disabled with the exact external remedy. Satisfying the dependency enables
+the action in place and never inserts a generic initiation, forward, or
+acceptance gate.
+
 The implemented curriculum ends at the single visible **4.1 Run Predicted
 Isolated Line Trial** exercise. Its six phases are runtime activity, not six
 operator approvals or selectable Learning Path rows. Its exact comparison
@@ -242,19 +251,30 @@ sequence. Identification must be accepted before the first question or any pen
 actuation request. A stale or rejected click keeps identification pending and
 performs no machine action.
 
+**Identify Pen Cap** requires a current exact frame but does not require a
+controller session or Motion authorization. A valid cap-body click opens the
+first Up question and remains accepted. If controller connection or Motion is
+then missing, **Next** and the current servo slider stay visible but disabled
+with the exact workbench-toolbar remedy; controller selection, **Connect**, and
+**Enable Motion** remain available outside the Learning Path. Establishing those
+dependencies enables the existing question without asking for another cap
+click or inserting a continuation step.
+
 The Up and Down steps each expose a servo-value slider, displaying the
 corresponding current setting. A fresh session is seeded at `S40` and `S760`; a
 repeated attempt starts from the values already current. Moving a slider
-commands its displayed value in the current step; **Next** remains available
-and accepts that value for the corresponding current setting.
+commands its displayed value in the current step; **Next** accepts that value
+for the corresponding current setting once current operational dependencies
+admit the request.
 
 The accepted Up and Down values are mutable operating settings, not a promise
 of one constant actuator position across the run. Repeating Pen Interaction at
 a different machine position may accept different values. The existing attempt
 and actuation evidence retains each actual value and the available MPos,
 controller outcome, and timestamp so later learning can observe positional
-variation. Refusal, ambiguity, or unavailable evidence remains explicit and
-does not disable **Next**. No separate servo-
+variation. Refusal, ambiguity, unavailable evidence, and any current admission
+blocker remain explicit; none creates a separate forward or acceptance step.
+No separate servo-
 calibration exercise, artifact, checkpoint, or authority type is introduced.
 
 A settled recovery opportunity never owns Learning Path progression. The next

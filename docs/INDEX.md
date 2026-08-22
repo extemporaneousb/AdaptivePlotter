@@ -13,6 +13,8 @@ to the task.
 - Exact Boundary, five-cap, five-contact, checkpoint recovery, Stage 4, Stop,
   ambiguity, or reset sequence:
   [Discovery and Observed-Trial Protocol](DISCOVERY_AND_OBSERVED_TRIAL_PROTOCOL.md).
+- Learning Path button inventory, click destinations, or external dependency
+  blockers: [Learning Path Button Transitions](LEARNING_PATH_BUTTON_TRANSITIONS.md).
 - Package topology, runtime ownership, dependency direction, exact-frame data
   flow, checkpoint composition, or refactoring:
   [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md).

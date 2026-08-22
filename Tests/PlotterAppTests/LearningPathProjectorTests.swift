@@ -15,7 +15,7 @@ struct LearningPathProjectorTests {
     let second = projector.project(snapshot, selectedItemID: .stage(.observedDrawingTrials))
 
     #expect(first == second)
-    #expect(first.currentItemID == .stage(.connect))
+    #expect(first.currentItemID == .humanGuidedDiscovery(.penInteraction))
     #expect(first.selectedAction.itemID == .stage(.observedDrawingTrials))
     #expect(first.selectedAction.status == .next)
   }
@@ -24,13 +24,70 @@ struct LearningPathProjectorTests {
   func everyNavigatorRowIsProjected() {
     let projection = projector.project(
       LearningPathProjectionSnapshot(),
-      selectedItemID: .stage(.connect)
+      selectedItemID: .humanGuidedDiscovery(.penInteraction)
     )
 
     #expect(projection.items.map(\.id) == LearningPathItemID.navigationOrder)
-    #expect(projection.items.count == 9)
+    #expect(projection.items.count == 7)
     #expect(projection.items.first?.status == .current)
-    #expect(projection.items.dropFirst().allSatisfy { $0.status == .next })
+    #expect(projection.items[1].status == .current)
+    #expect(projection.items.dropFirst(2).allSatisfy { $0.status == .next })
+  }
+
+  @Test("Motion authorization cannot exist without a controller session")
+  func motionAuthorizationDependsOnConnection() {
+    let controller = LearningPathProjectionSnapshot.ControllerFacts(
+      sessionEstablished: false,
+      motionAuthorized: true
+    )
+
+    #expect(controller.sessionEstablished == false)
+    #expect(controller.motionAuthorized == false)
+  }
+
+  @Test("normal exercise entry buttons have no redundant initiation gate")
+  func normalExerciseEntryButtons() throws {
+    let pen = projector.project(
+      LearningPathProjectionSnapshot(),
+      selectedItemID: .humanGuidedDiscovery(.penInteraction)
+    )
+    let boundarySnapshot = LearningPathProjectionSnapshot(
+      penInteractionCompleted: true,
+      controller: .init(sessionEstablished: true, motionAuthorized: true)
+    )
+    let boundary = projector.project(
+      boundarySnapshot,
+      selectedItemID: .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
+    )
+    let cameraCalibrationSnapshot = postBoundarySnapshot(camera: .init())
+    let cameraCalibration = projector.project(
+      cameraCalibrationSnapshot,
+      selectedItemID: .humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
+    )
+    let sparseCalibrationSnapshot = postBoundarySnapshot(
+      camera: .init(acceptedIsCurrent: true),
+      sparse: .init(acceptedIsCurrent: false)
+    )
+    let sparseCalibration = projector.project(
+      sparseCalibrationSnapshot,
+      selectedItemID: .humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
+    )
+    let drawing = projector.project(
+      postBoundarySnapshot(sparse: .init(acceptedIsCurrent: true)),
+      selectedItemID: .observedDrawingTrial(.chooseFramePlan)
+    )
+
+    #expect(try #require(pen.currentActionStrip).actions.map(\.title) == ["Identify Pen Cap"])
+    #expect(try #require(boundary.currentActionStrip).actions.map(\.title) == ["Start"])
+    #expect(
+      try #require(cameraCalibration.currentActionStrip).actions.map(\.title)
+        == ["Capture Five Cap Samples"]
+    )
+    #expect(
+      try #require(sparseCalibration.currentActionStrip).actions.map(\.title)
+        == ["Draw Four Corner Circles"]
+    )
+    #expect(try #require(drawing.currentActionStrip).actions.map(\.title) == ["Go"])
   }
 
   @Test("LIVE and SIMULATED use the same progression and action grammar")
@@ -101,8 +158,7 @@ struct LearningPathProjectorTests {
       controller: .init(
         sessionEstablished: true,
         motionAuthorized: true,
-        connectionText: "connected",
-        motionGuardStateText: "active"
+        cameraStateText: "streaming"
       ),
       operations: .init(restartableItem: pen)
     )
@@ -123,9 +179,8 @@ struct LearningPathProjectorTests {
       controller: .init(
         sessionEstablished: true,
         motionAuthorized: true,
-        connectionText: "connected",
         cameraStateText: "streaming",
-        motionGuardStateText: "active"
+        directMotionUnavailableReason: nil
       ),
       cameraCalibration: .init(phase: .capturing(sample: 2, total: 5, role: "fit"))
     )
@@ -166,7 +221,7 @@ struct LearningPathProjectorTests {
 
     #expect(projection.resetSurface.selectedPlan == plan)
     #expect(projection.resetSurface.unavailableReason == "An operation is active.")
-    #expect(projection.currentItemID == .stage(.connect))
+    #expect(projection.currentItemID == .humanGuidedDiscovery(.penInteraction))
   }
 
   @Test("Reset All is projected only in the stable Learning Path menu")
@@ -304,14 +359,16 @@ struct LearningPathProjectorTests {
       controller: .init(
         sessionEstablished: true,
         motionAuthorized: true,
-        connectionText: source == .live ? "connected" : "simulator connected",
-        motionGuardStateText: "active"
+        cameraStateText: source == .live ? "streaming" : "causal simulated frame"
       ),
       operations: operations
     )
   }
 
   private func postBoundarySnapshot(
+    camera: LearningPathProjectionSnapshot.CameraCalibrationFacts = .init(
+      acceptedIsCurrent: true
+    ),
     sparse: LearningPathProjectionSnapshot.SparseCalibrationFacts = .init(),
     drawing: LearningPathProjectionSnapshot.DrawingFacts = .init(),
     operations: LearningPathProjectionSnapshot.OperationFacts = .init()
@@ -320,9 +377,7 @@ struct LearningPathProjectorTests {
       penInteractionCompleted: true,
       controller: .init(
         sessionEstablished: true,
-        motionAuthorized: true,
-        connectionText: "connected",
-        motionGuardStateText: "active"
+        motionAuthorized: true
       ),
       boundary: .init(
         acceptedDirections: BoundaryDirection.allCases,
@@ -330,7 +385,7 @@ struct LearningPathProjectorTests {
         isComplete: true,
         centerArrival: try! MachinePosition(x: 0, y: 0)
       ),
-      cameraCalibration: .init(acceptedIsCurrent: true),
+      cameraCalibration: camera,
       sparseCalibration: sparse,
       drawing: drawing,
       operations: operations

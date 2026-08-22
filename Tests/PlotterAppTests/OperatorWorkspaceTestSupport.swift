@@ -240,7 +240,6 @@ func completeSimulatedSparseTipCalibration(
     workspace: workspace
   )
   let tipOwner = LearningPathItemID.humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
-  try await performPublicAction(.start, owner: tipOwner, workspace: workspace)
   let truthOffset = await runtime.capToTipPixelOffsetTruth()
   #expect(abs(truthOffset.dx) + abs(truthOffset.dy) > 0)
   let registration = try #require(workspace.machineCameraRegistration)
@@ -415,8 +414,8 @@ func workspace(
         await machine.passiveProbeResult()
       },
       requestControllerAlarmClear: { .refused(.noCurrentAlarmEvidence) },
-      activateMotionGuard: { .activated },
-      deactivateMotionGuard: {},
+      activateMotionGuard: { await machine.activateMotionGuard() },
+      deactivateMotionGuard: { await machine.deactivateMotionGuard() },
       beginRelativeJog: { request in
         .admitted(
           RelativeJogOperation(
@@ -701,6 +700,7 @@ actor MachineFixture {
   private var boundaryContinuation: CheckedContinuation<BoundaryMotionOutcome, Never>?
   private var position: MachinePosition
   private var penState: PenState = .up
+  private var motionGuardActive: Bool
   private var hasActuatedPen = false
   private var lastMotion: MotionOutcome?
   private var lastDrawing: DrawingStrokeOutcome?
@@ -719,7 +719,8 @@ actor MachineFixture {
     reportsBoundaryMoving: Bool = true,
     holdCancellationSettlement: Bool = false,
     relativeJogSettlementOffset: Vector2<MachineSpace>? = nil,
-    penRequestGate: PenRequestGate? = nil
+    penRequestGate: PenRequestGate? = nil,
+    motionGuardInitiallyActive: Bool = true
   ) throws {
     self.log = log
     self.feedLimits = feedLimits
@@ -727,7 +728,17 @@ actor MachineFixture {
     self.holdCancellationSettlement = holdCancellationSettlement
     self.relativeJogSettlementOffset = relativeJogSettlementOffset
     self.penRequestGate = penRequestGate
+    motionGuardActive = motionGuardInitiallyActive
     position = try MachinePosition(x: 0, y: 0)
+  }
+
+  func activateMotionGuard() -> MotionGuardActivationOutcome {
+    motionGuardActive = true
+    return .activated
+  }
+
+  func deactivateMotionGuard() {
+    motionGuardActive = false
   }
 
   func setPosition(x: Double, y: Double) throws {
@@ -757,7 +768,7 @@ actor MachineFixture {
           ? .jog : .idle,
         position: position,
         penState: penState,
-        motionGuardState: .active,
+        motionGuardState: motionGuardActive ? .active : .inactive,
         operationInFlight: moving,
         lastMotionOutcome: lastMotion,
         lastDrawingStrokeOutcome: lastDrawing,

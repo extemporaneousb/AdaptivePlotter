@@ -20,6 +20,14 @@ Every interactive step exposes:
 Announcements are advisory output. Buttons own answers, Start, Cancel, Stop,
 Restart, Redo, re-click, and acceptance.
 
+**Connect** and **Enable Motion** are workbench-toolbar controls, not Learning
+Path rows or exercise transitions. Motion Enabled implies a current connected
+session. A motion-dependent Learning action stays at its exercise and names the
+missing toolbar dependency; satisfying it enables the existing action rather
+than generating another **Start**, **Continue**, or acceptance button. The
+complete Learning Path button graph is
+[Learning Path Button Transitions](LEARNING_PATH_BUTTON_TRANSITIONS.md).
+
 Before Learning Path motion, **Connect** performs only the complete passive
 controller probe. A returned alarm or fault remains visible as typed current
 controller evidence while the failed link is closed. If an alarm is reported,
@@ -78,16 +86,24 @@ residuals are mandatory contextual evidence in Stage 4 and are not toggles.
    editable color picker. The learned appearance feeds generic scene analysis
    and every Stage 3.3 exact-frame inspection, so arbitrary visibly colored caps
    such as blue are supported.
-3. The Up step presents the current Up slider. It is seeded at `S40` in a fresh
+3. Cap identification requires only the current exact frame. The accepted click
+   immediately opens the first Up question even when the controller is not yet
+   connected or Motion is not enabled. In that blocked state the Up slider and
+   **Next** stay visible but disabled with the exact workbench remedy. Selecting
+   a device, **Connect**, and **Enable Motion** remain available in the toolbar;
+   completing them enables the existing question without another cap click or
+   a Learning Path continuation step.
+4. The Up step presents the current Up slider. It is seeded at `S40` in a fresh
    session and otherwise starts from the already-current value. Moving it
-   commands the displayed value. **Next** remains available and accepts that
-   value together with the available controller outcome, timestamp, and current
-   MPos. Refusal, ambiguity, or unavailable evidence remains explicit and does
-   not disable **Next**.
-4. The Down step presents the current Down slider, seeded at `S760` in a fresh
+   commands the displayed value. Once operational dependencies admit the
+   request, **Next** accepts that value together with the available controller
+   outcome, timestamp, and current MPos. Refusal, ambiguity, unavailable
+   evidence, and admission blockers remain explicit without introducing a
+   separate forward gate.
+5. The Down step presents the current Down slider, seeded at `S760` in a fresh
    session and otherwise starting from the already-current value, with the same
    move-and-accept behavior.
-5. The final Up step commands the accepted current Up value and completes the
+6. The final Up step commands the accepted current Up value and completes the
    existing Up → Down → Up attempt.
 
 If no LIVE appearance has been accepted, the persisted Pen cap and Armature

@@ -3300,10 +3300,19 @@ final class OperatorWorkspace {
     motionGuardIsActive ? "active" : "inactive"
   }
 
+  private var activePenInteractionNeedsControllerSetup: Bool {
+    guard !controllerSessionEstablished,
+      activeDiscoverySequenceID == .penInteraction,
+      let step = discoveryTransactions[.penInteraction]?.currentStep
+    else { return false }
+    if case .awaitPhysicalPenConfirmation = step.action { return true }
+    return false
+  }
+
   var controllerSelectionUnavailableReason: String? {
     if let reason = currentCameraCalibrationBusyReason { return reason }
     if serialDevices.isEmpty { return "No serial controllers are available." }
-    if let activeDiscoverySequenceID {
+    if let activeDiscoverySequenceID, !activePenInteractionNeedsControllerSetup {
       return
         "Finish \(DiscoverySequenceCatalog.definition(for: activeDiscoverySequenceID).title); use Stop while its logical owner is active."
     }
@@ -3374,7 +3383,7 @@ final class OperatorWorkspace {
     if controllerConnectionActionInProgress {
       return "The controller connection action is already in progress."
     }
-    if let activeDiscoverySequenceID {
+    if let activeDiscoverySequenceID, !activePenInteractionNeedsControllerSetup {
       return
         "Finish \(DiscoverySequenceCatalog.definition(for: activeDiscoverySequenceID).title) first."
     }
@@ -3541,8 +3550,7 @@ final class OperatorWorkspace {
   var humanGuidedDiscoveryCurrentStep: HumanGuidedDiscoveryStep {
     switch currentLearningPathItemID {
     case .humanGuidedDiscovery(let step): step
-    case .stage(.connect), .stage(.enableMotion), .stage(.humanGuidedDiscovery):
-      .penInteraction
+    case .stage(.humanGuidedDiscovery): .penInteraction
     case .stage(.observedDrawingTrials), .observedDrawingTrial:
       .calibratePenContactFromSparseMarks
     }
@@ -4113,14 +4121,14 @@ final class OperatorWorkspace {
         let reason: String?
         switch itemID {
         case .humanGuidedDiscovery(.penInteraction):
-          reason = discoveryStartUnavailableReason(for: .penInteraction)
+          reason = activeDiscoverySequenceID == .penInteraction
+            ? penInteractionSequenceUnavailableReason
+            : discoveryStartUnavailableReason(for: .penInteraction)
         case .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering):
           reason = discoveryStartUnavailableReason(for: sequenceID(for: selectedBoundaryDirection))
         case .humanGuidedDiscovery(.calibrateCameraAndVisibleCap),
           .humanGuidedDiscovery(.calibratePenContactFromSparseMarks):
-          reason =
-            frameMode == .simulated || cameraIsLive
-            ? nil : "A current LIVE camera frame is required."
+          reason = learningExerciseMotionUnavailableReason(requiresCamera: true)
         case .observedDrawingTrial(let step):
           reason = drawingTrialActionUnavailableReason(
             for: step == .chooseFramePlan ? observedDrawingTrialStep : step
@@ -4168,11 +4176,7 @@ final class OperatorWorkspace {
       controller: .init(
         sessionEstablished: controllerSessionEstablished,
         motionAuthorized: motionAuthorizationEnabled,
-        connectionText: controllerConnectionText,
         cameraStateText: cameraStateText,
-        motionGuardStateText: motionGuardStateText,
-        connectionActionTitle: controllerConnectionActionTitle,
-        workbenchStatusText: workbenchStatusText,
         machineError: controllerAttentionText,
         directMotionUnavailableReason: learningCarriageMotionUnavailableReason
       ),
@@ -4294,6 +4298,7 @@ final class OperatorWorkspace {
       guard !hasShutdown,
         let adjustment = selectedOperatorActionPresentation(for: ownerID).actionStrip?
           .penSetpointAdjustment,
+        adjustment.isEnabled,
         adjustment.command == command,
         (adjustment.minimumValue...adjustment.maximumValue).contains(value)
       else { return }
@@ -6773,6 +6778,39 @@ final class OperatorWorkspace {
     activeExplorationOperation = nil
   }
 
+  private var learningConnectionAndMotionUnavailableReason: String? {
+    if !controllerSessionEstablished {
+      let target = frameMode == .simulated ? "learning simulator" : "selected plotter"
+      let detail = controllerAttentionText.map { " Current controller state: \($0)" } ?? ""
+      return
+        "Blocked by controller connection. Use Connect for the \(target) in the workbench toolbar; Enable Motion depends on a connected session.\(detail)"
+    }
+    if !motionAuthorizationEnabled {
+      return
+        "Blocked by Motion authorization. Use Enable Motion in the workbench toolbar for this connected session."
+    }
+    return nil
+  }
+
+  private func learningExerciseMotionUnavailableReason(
+    requiresCamera: Bool
+  ) -> String? {
+    if let reason = learningConnectionAndMotionUnavailableReason { return reason }
+    if frameMode == .simulated {
+      if simulatedLearningSnapshot?.currentOperation != nil {
+        return "Stop or finish the current simulated operation first."
+      }
+      if requiresCamera, cameraActions == nil {
+        return "The simulator camera composition is unavailable."
+      }
+      return nil
+    }
+    if let reason = controllerPoseRevalidationUnavailableReason { return reason }
+    if let reason = directCarriageMotionUnavailableReason { return reason }
+    if requiresCamera, !cameraIsLive { return "A current LIVE camera frame is required." }
+    return nil
+  }
+
   func discoveryStartUnavailableReason(for sequenceID: DiscoverySequenceID) -> String? {
     if learningResetInProgress { return "Reset All Learning is in progress." }
     if let activeDiscoverySequenceID {
@@ -6783,12 +6821,10 @@ final class OperatorWorkspace {
       guard displayedFrame != nil else {
         return "A current exact camera or simulated frame is required to Identify Pen Cap."
       }
-      if let reason = controllerPoseRevalidationUnavailableReason { return reason }
       return nil
     }
+    if let reason = learningConnectionAndMotionUnavailableReason { return reason }
     if frameMode == .simulated {
-      if !controllerSessionEstablished { return "Connect the learning simulator first." }
-      if !motionAuthorizationEnabled { return "Enable simulated Motion first." }
       if simulatedLearningSnapshot?.currentOperation != nil {
         return "Stop or finish the current simulated operation first."
       }
@@ -6799,7 +6835,6 @@ final class OperatorWorkspace {
         return nil
       }
     }
-    if !motionGuardIsActive { return "Connect the plotter and Enable Motion first." }
     switch sequenceID {
     case .boundaryNegativeX, .boundaryPositiveX, .boundaryNegativeY, .boundaryPositiveY:
       return learningCarriageMotionUnavailableReason
@@ -7388,7 +7423,9 @@ final class OperatorWorkspace {
     guard currentCameraCalibrationBusyReason == nil else { return }
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
-    guard activeDiscoverySequenceID == nil, activeExplorationOperation == nil else { return }
+    guard activeDiscoverySequenceID == nil || activePenInteractionNeedsControllerSetup,
+      activeExplorationOperation == nil
+    else { return }
     guard !passiveProbeInProgress && !jogRequestInProgress && !penRequestInProgress else { return }
     guard serialDevices.contains(where: { $0.identifier == descriptor.identifier }) else { return }
     if selectedSerialDevice?.identifier != descriptor.identifier, machineSnapshot != nil {
@@ -7621,12 +7658,10 @@ final class OperatorWorkspace {
     guard discoveryStartUnavailableReason(for: sequenceID) == nil else { return }
     if sequenceID == .penInteraction {
       guard penCapAppearanceSelection != nil,
-        penCapAppearanceSelectionContext == nil,
-        penInteractionSequenceUnavailableReason == nil
+        penCapAppearanceSelectionContext == nil
       else {
         let reason =
-          penInteractionSequenceUnavailableReason
-          ?? "Identify Pen Cap must be accepted before Pen Interaction questions begin."
+          "Identify Pen Cap must be accepted before Pen Interaction questions begin."
         discoveryError = reason
         if activeExerciseAttemptOwnerID == .humanGuidedDiscovery(.penInteraction) {
           recordDiscoveryAttempt(sequenceID: .penInteraction, disposition: .refused(reason))
@@ -9216,6 +9251,13 @@ final class OperatorWorkspace {
       question.choices.contains(choice)
     else { return }
 
+    if case .awaitPhysicalPenConfirmation = step.action,
+      let reason = penInteractionSequenceUnavailableReason
+    {
+      discoveryError = reason
+      return
+    }
+
     guard question.advancingChoices.contains(choice) else {
       boundaryTeachingResultText = question.negativeAcknowledgement
       _ = await announceAdvisory(question.negativeAcknowledgement)
@@ -9783,17 +9825,7 @@ final class OperatorWorkspace {
   }
 
   private var penInteractionSequenceUnavailableReason: String? {
-    if frameMode == .simulated {
-      if !controllerSessionEstablished { return "Connect the learning simulator first." }
-      if !motionAuthorizationEnabled { return "Enable simulated Motion first." }
-      if simulatedLearningSnapshot?.currentOperation != nil {
-        return "Stop or finish the current simulated operation first."
-      }
-      return nil
-    }
-    if !motionGuardIsActive { return "Connect the plotter and Enable Motion first." }
-    if let reason = controllerPoseRevalidationUnavailableReason { return reason }
-    return penUnavailableReason(for: .lower)
+    learningConnectionAndMotionUnavailableReason
   }
 
   private func recordAttempt<Value: Hashable & Sendable>(
@@ -11098,18 +11130,15 @@ final class OperatorWorkspace {
     if activeExplorationOperation != nil {
       return "The current learning action is still in progress."
     }
+    if let reason = learningConnectionAndMotionUnavailableReason { return reason }
     if frameMode == .simulated {
       if cameraActions == nil { return "The simulator camera composition is unavailable." }
-      if !controllerSessionEstablished { return "Connect the learning simulator first." }
-      if !motionAuthorizationEnabled { return "Enable simulated Motion first." }
       if simulatedLearningSnapshot?.currentOperation != nil {
         return "Stop or finish the current simulated operation first."
       }
       return nil
     }
     if let reason = controllerPoseRevalidationUnavailableReason { return reason }
-    guard controllerIsConnected else { return "Connect the selected controller first." }
-    guard motionGuardIsActive else { return "Enable Motion first." }
     if step != .compareIntendedAndObservedGeometry,
       machineSnapshot?.machine.penState != .up
     {

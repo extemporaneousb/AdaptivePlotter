@@ -118,7 +118,11 @@ transactions and Boundary progress to immutable presentation facts.
 selection produce identical navigator rows, current item, status, summaries,
 action strips, exact Stop capability presentation, evidence, activity,
 subsystem status, timeline, scoped reset surface, and stable Learning Path menu
-actions. It cannot mutate a session,
+actions. Its navigator projects only curriculum stages and exercises. Controller
+connection and Motion authorization remain copied workbench facts; Motion is
+normalized false unless a connected session exists. A missing runtime dependency
+disables the exercise's existing typed action with a precise remedy rather than
+creating a Learning Path row or generic forward action. It cannot mutate a session,
 admit motion, persist, perform I/O, or accept an artifact. SwiftUI consumes one
 aggregate projection per Learning Path render and sends selected typed actions
 back to `OperatorWorkspace`. The destructive Reset All Learning action is
@@ -158,9 +162,13 @@ rejection; it has no motion, resend, or promotion capability.
 `OperatorWorkspace` starts Pen Interaction with **Identify Pen Cap**. Until the
 exact-frame cap-body click is accepted, no Pen Interaction question is opened
 and no pen request is issued. Rejection or stale provenance leaves the point
-selection pending. After acceptance, the exercise's Up and Down sliders issue
-typed value-bearing pen requests; **Next** retains the displayed value in the
-current setting and the existing attempt evidence. `MachineController`
+selection pending. Cap identification itself does not require a controller
+session or Motion. After acceptance, the first question remains active; its
+**Next** action and servo slider are dependency-blocked until connection and
+Motion exist, while the external controller toolbar remains operable. The
+exercise's Up and Down sliders then issue typed value-bearing pen requests;
+**Next** retains the displayed value in the current setting and the existing
+attempt evidence. `MachineController`
 serializes the requested value and settlement under its existing pen-operation
 ownership. There is no parallel servo-calibration owner, checkpoint, or
 artifact graph.

@@ -179,6 +179,35 @@ extension OperatorWorkspaceTests {
     await workspace.shutdown()
   }
 
+  @Test("Boundary names connection and Motion as external dependencies")
+  func boundaryExternalDependencyBlockers() async throws {
+    let log = EventLog()
+    let machine = try MachineFixture(log: log, motionGuardInitiallyActive: false)
+    let workspace = workspace(machine: machine, log: log)
+    let connectionBlocker =
+      "Blocked by controller connection. Use Connect for the selected plotter in the workbench toolbar; Enable Motion depends on a connected session."
+    let motionBlocker =
+      "Blocked by Motion authorization. Use Enable Motion in the workbench toolbar for this connected session."
+
+    #expect(
+      workspace.discoveryStartUnavailableReason(for: .boundaryPositiveX)
+        == connectionBlocker
+    )
+
+    await workspace.selectSerialDevice(machine.descriptor)
+    await workspace.performControllerConnectionAction()
+
+    #expect(
+      workspace.discoveryStartUnavailableReason(for: .boundaryPositiveX)
+        == motionBlocker
+    )
+
+    await workspace.activateMotionGuard()
+
+    #expect(workspace.discoveryStartUnavailableReason(for: .boundaryPositiveX) == nil)
+    await workspace.shutdown()
+  }
+
   @Test("shutdown stops an active boundary before draining and erasing its authority")
   func authorityClearingStopsBeforeErasure() async throws {
     let log = EventLog()

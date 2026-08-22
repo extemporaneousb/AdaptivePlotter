@@ -131,7 +131,9 @@ private enum SpeechComposition {
 
 struct OperatorWorkspaceView: View {
   @Bindable var workspace: OperatorWorkspace
-  @State private var selection = LearningPathSelectionState(current: .stage(.connect))
+  @State private var selection = LearningPathSelectionState(
+    current: .humanGuidedDiscovery(.penInteraction)
+  )
   @State private var videoSettingsVisibility = VideoSettingsVisibilityState()
   @State private var paneVisibility = WorkbenchPaneVisibility()
   @State private var actionSurfaceViewport = ActionSurfaceViewportState()
