@@ -34,19 +34,6 @@ public struct SimulatedPaperStroke: Sendable, Equatable {
   }
 }
 
-public struct SimulatedBaselineAndLineFrames: Sendable, Equatable {
-  public let localBaseline: StampedFrame
-  public let postLine: StampedFrame
-
-  public init(
-    localBaseline: StampedFrame,
-    postLine: StampedFrame
-  ) {
-    self.localBaseline = localBaseline
-    self.postLine = postLine
-  }
-}
-
 /// An independent paper renderer. Controller replies never enter this API, so
 /// controller completion cannot manufacture synthetic ink success.
 public struct PaperSceneSimulator: Sendable {
@@ -82,35 +69,5 @@ public struct PaperSceneSimulator: Sendable {
       )
     }
     return try source.render(strokes: cameraStrokes, captureNanoseconds: captureNanoseconds).frame
-  }
-
-  /// Produces a same-pose local baseline and a second frame containing one
-  /// additional line while retaining arbitrary preexisting ink.
-  public func renderLocalBaselineAndLineSequence(
-    preexistingInk: [SimulatedPaperStroke],
-    lineStart: PaperPixelPoint,
-    lineEnd: PaperPixelPoint,
-    baselineSequence: UInt64,
-    baselineCaptureNanoseconds: UInt64,
-    cameraConfigurationID: CameraConfigurationID
-  ) throws -> SimulatedBaselineAndLineFrames {
-    let baseline = try render(
-      strokes: preexistingInk,
-      sequence: baselineSequence,
-      captureNanoseconds: baselineCaptureNanoseconds,
-      cameraConfigurationID: cameraConfigurationID
-    )
-    let post = try render(
-      strokes: preexistingInk + [
-        SimulatedPaperStroke(start: lineStart, end: lineEnd)
-      ],
-      sequence: baselineSequence + 1,
-      captureNanoseconds: baselineCaptureNanoseconds + 1,
-      cameraConfigurationID: cameraConfigurationID
-    )
-    return SimulatedBaselineAndLineFrames(
-      localBaseline: baseline,
-      postLine: post
-    )
   }
 }

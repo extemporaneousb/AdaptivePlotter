@@ -200,20 +200,20 @@ struct LearningPathProjectorTests {
       .calibratePenContactFromSparseMarks
     )
     let phases: [(SparseTipCalibrationPhase, Int, [String])] = [
-      (.idle, 0, ["Draw Five 2 mm Circles", "Cancel Attempt"]),
-      (.drawingBatch, 0, ["Drawing Five 2 mm Circles…", "Cancel Attempt"]),
-      (.revealingBatch, 0, ["Revealing Five Circles…", "Cancel Attempt"]),
+      (.idle, 0, ["Draw Four Corner Circles", "Cancel Attempt"]),
+      (.drawingBatch, 0, ["Drawing Four Corner Circles…", "Cancel Attempt"]),
+      (.revealingBatch, 0, ["Revealing Four Corner Circles…", "Cancel Attempt"]),
       (.awaitingFrozenClicks(FrameID(rawValue: "frame-1")), 0, ["Cancel Attempt"]),
       (.awaitingFrozenClicks(FrameID(rawValue: "frame-1")), 2,
         ["Undo Last Click", "Clear Clicks on This Frame", "Cancel Attempt"]),
-      (.fittingModel, 5, ["Fitting Tip Calibration…", "Cancel Attempt"]),
-      (.reviewingModel(.directAffine), 5,
+      (.fittingModel, 4, ["Fitting Tip Calibration…", "Cancel Attempt"]),
+      (.reviewingModel(.directAffine), 4,
         [
           "Accept Tip Map", "Undo Last Click", "Clear Clicks on This Frame", "Reject Tip Map",
           "Cancel Attempt",
         ]),
       (.committingModel(.constantCameraPixelCorrection),
-        5, ["Retry Calibration Commit", "Cancel Attempt"]),
+        4, ["Retry Calibration Commit", "Cancel Attempt"]),
     ]
 
     for (phase, collectedClickCount, titles) in phases {
@@ -228,8 +228,8 @@ struct LearningPathProjectorTests {
 
   @Test("Drawing Trial phases remain under one visible Go-owned exercise")
   func drawingTrialProgression() throws {
-    let current = ObservedDrawingTrialStep.drawIsolatedLine
-    let owner = LearningPathItemID.observedDrawingTrial(.chooseIsolatedLinePlan)
+    let current = ObservedDrawingTrialStep.drawPictureFrame
+    let owner = LearningPathItemID.observedDrawingTrial(.chooseFramePlan)
     let snapshot = postBoundarySnapshot(
       sparse: .init(acceptedIsCurrent: true),
       drawing: .init(
@@ -251,7 +251,7 @@ struct LearningPathProjectorTests {
 
   @Test("foreground trial Vision is visible as the operation owner")
   func foregroundTrialVisionIsVisible() throws {
-    let owner = LearningPathItemID.observedDrawingTrial(.chooseIsolatedLinePlan)
+    let owner = LearningPathItemID.observedDrawingTrial(.chooseFramePlan)
     let snapshot = postBoundarySnapshot(
       sparse: .init(acceptedIsCurrent: true),
       drawing: .init(currentStep: .revealAndObserveNewInk),
@@ -278,7 +278,7 @@ struct LearningPathProjectorTests {
 
   @Test("completed curriculum remains on the one-Go observed-trial endpoint")
   func completedCurriculumHasNoFutureRoute() {
-    let final = LearningPathItemID.observedDrawingTrial(.chooseIsolatedLinePlan)
+    let final = LearningPathItemID.observedDrawingTrial(.chooseFramePlan)
     let snapshot = postBoundarySnapshot(
       sparse: .init(acceptedIsCurrent: true),
       drawing: .init(

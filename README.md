@@ -27,12 +27,12 @@ authorization ladder:
    - **3.3 Calibrate Camera and Visible Cap**
    - **3.4 Calibrate Pen Contact from Sparse Marks**
 4. **Observed Drawing Trials**
-   - **4.1 Run Predicted Isolated Line Trial**
+   - **4.1 Run Predicted Picture Frame Trial**
 
-The visible curriculum finishes at 4.1. After the fifth valid Stage 3.4 click
-commits the drawing map, one **Go** previews the predicted line and owns the
+The visible curriculum finishes at 4.1. After the fourth valid Stage 3.4 click
+commits the drawing map, one **Go** previews the predicted frame and owns the
 normal baseline, motion, drawing, reveal, Vision, and comparison phases. Those
-phases are visible activity, not six approval buttons. The exact post-line
+phases are visible activity, not six approval buttons. The exact post-frame
 comparison remains reviewable after the exercise finishes. That attributable
 validation unlocks the separate **Drawing Studio**; adaptive model fitting and
 adaptive readiness remain Roadmap scope and are not Learning Path stages.
@@ -91,27 +91,27 @@ independent holdouts. Both holdouts must pass before a weighted all-five refit
 can be explicitly accepted as `MachineCameraRegistration`. The visible cap
 landmark is not the hidden paper-contact point.
 
-Stage 3.4 uses one supervised **Draw Five 2 mm Circles** action. One circle is
-at the accepted Boundary envelope's geometric center. The other four circle
-centers are the rectangle corners at `minX + 2 mm`, `minY + 2 mm`,
+Stage 3.4 uses one supervised **Draw Four Corner Circles** action. There is no
+center circle. The four 2 mm-radius circle centers are the rectangle corners at
+`minX + 2 mm`, `minY + 2 mm`,
 `maxX − 2 mm`, and `maxY − 2 mm`, so every 2 mm-radius path stays inside the
 accepted envelope while framing essentially the complete drawable region.
 Stage 3.3 retains its separate existing ±24 mm camera-calibration spacing. One
-exercise attempt and one stoppable operation draw the five circles in canonical
+exercise attempt and one stoppable operation draw the four circles in canonical
 evidence-slot order. For every circle the app travels and settles Pen Up at the
 intended position, retains its exact pre-mark frame/cap/controller evidence,
 moves Pen Up to the circle start, lowers and settles using the current Pen
 Interaction profile, draws one closed 16-chord circle of 2 mm radius at no more
 than 100 mm/min, then raises and settles Pen Up before any inter-circle travel.
-There are exactly 80 circle chords and no connecting Pen-Down strokes; the
-accepted drawable-region overlay supplies the bounding box without adding slow
-or ambiguous perimeter ink.
+There are exactly 64 circle chords and no connecting Pen-Down strokes during
+calibration. The following Stage 4.1 trial draws the physical frame through the
+four accepted circle centers as one closed drawing plan.
 
-Only after the fifth circle does the app return Pen Up to the rectangle center,
+Only after the fourth circle does the app return Pen Up to the rectangle center,
 require Idle/final-MPos settlement, revalidate the current camera/cap
 applicability, and capture one newer exact frame. That exact frame is frozen
-unchanged for all five clicks. Accepting the resulting tip map makes the four
-outer circle centers its applicability rectangle and Drawing Studio drawable
+unchanged for all four clicks. Accepting the resulting tip map makes the four
+circle centers its applicability rectangle and Drawing Studio drawable
 region. Stage 3.4 does not change zoom, pan, preferred zoom, or viewport focus
 automatically; manual presentation transforms remain operator controlled.
 
@@ -131,27 +131,27 @@ only attended observation can prove that the physical pen cleared or reached
 the paper.
 
 The UI shows click count and all collected markers. Click order has no semantic
-meaning. After the fifth click, the app projects all five known machine
+meaning. After the fourth click, the app projects all four known corner machine
 positions through the current `MachineCameraRegistration`, centers projected
 and clicked point sets to remove their common cap-to-tip translation, evaluates
-all 5! one-to-one assignments, and selects the minimum total squared pixel
+all 4! one-to-one assignments, and selects the minimum total squared pixel
 distance with canonical calibration-position order as the exact-tie break.
 There is no click-distance or ambiguity threshold. **Undo Last Click** or
 **Clear Clicks on This Frame** changes only same-frame click evidence and causes
 no motion, ink, redraw, frame capture, zoom, or pan.
 
-The app constructs a direct affine machine-to-tip map from all five accepted
+The app constructs a direct affine machine-to-tip map from all four accepted
 observations first. Constant camera-pixel correction on the accepted cap map is
-used only when affine construction itself throws. All-five residuals, RMS,
+used only when affine construction itself throws. All-corner residuals, RMS,
 covariance, and uncertainty remain diagnostics; their magnitude never rejects
 a model or blocks proposal creation. Stage 3.4 has no holdouts and numerical
 fitting cannot request paper replacement or route to a no-redraw recovery.
-The fifth valid click atomically commits `TipCameraRegistration` and makes Stage
+The fourth valid click atomically commits `TipCameraRegistration` and makes Stage
 4 current. A separate action appears only to retry a failed atomic commit.
 
 Stage 3.4 therefore means the machine-to-paper-pixel map is ready within its
 recorded applicability. Stage 4.1 validates that map once: the app draws the
-predicted cyan line before motion, then shows observed white ink and orange
+predicted cyan frame before motion, then shows observed white ink and orange
 residuals after Vision and retains that exact-frame comparison for later review.
 It does not claim a generally trained adaptive model. It does permit direct
 placed-vector drawing with the current map; automated coverage selection,
@@ -175,7 +175,7 @@ consumed algorithm/artifact revisions.
 
 `TipCameraRegistration` maps machine coordinates directly to paper-contact
 pixels. It retains the chosen model form, affine transform, diagnostic
-residuals/covariance/uncertainty, applicability rectangle, all five observation
+residuals/covariance/uncertainty, applicability rectangle, all four observation
 identities and revisions, semantic optical/machine/tool/paper identities, and
 accepted revision. A diagnostic cap-to-tip pixel difference at one pose is not
 a durable camera-independent tool vector.
@@ -203,19 +203,18 @@ a content-addressed locator for archived bytes.
 ## Stage 4
 
 Observed Drawing Trials require accepted Boundary evidence and the exact current
-`TipCameraRegistration` revision. Stage 4 chooses a local 5 mm line that clears
-every retained 2 mm calibration circle; it blocks if the accepted domain is too
-crowded rather than letting old ink split the new observation. It projects that
-line through the registration and owns its own:
+`TipCameraRegistration` revision. Stage 4 constructs one closed picture-frame
+polyline through the four accepted circle centers, projects that exact drawing
+plan through the registration, and owns its own:
 
-- local pre-line baseline and Pen-Up reveal MPos;
-- line-start travel and one closed drawing owner;
+- local pre-frame baseline and Pen-Up reveal MPos;
+- frame-start travel and one drawing-plan owner for four orthogonal edges;
 - Pen-Up return to the same reveal pose;
-- strictly newer post-line frame;
+- strictly newer post-frame;
 - generic black/new-ink observation and residual.
 
 No Stage 3 scene artifact is reused as a Stage 4 baseline or observation pose.
-An attributable observed line may become future refinement evidence, but it
+An attributable observed frame may become future refinement evidence, but it
 cannot silently promote a model. Ambiguous motion or possible ink never causes
 an automatic redraw.
 

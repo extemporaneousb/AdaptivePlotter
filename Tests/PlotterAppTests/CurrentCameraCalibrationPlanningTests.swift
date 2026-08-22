@@ -104,7 +104,7 @@ struct CurrentCameraCalibrationPlanningTests {
     #expect(pathEnd.distance(to: mark.startPosition.point) < 1e-9)
   }
 
-  @Test("Stage 3.4 frames the picture at the 7.5 percent Boundary inset with 80 closed chords")
+  @Test("Stage 3.4 places four circles at the maximum drawable Boundary corners")
   func sparseBatchGeometry() throws {
     let envelope = try boundaryEnvelope(
       negativeX: -100,
@@ -117,27 +117,23 @@ struct CurrentCameraCalibrationPlanningTests {
     )
 
     #expect(batch.marks.map(\.position) == [
-      .center, .negativeX, .positiveY, .positiveX, .negativeY,
+      .negativeX, .positiveY, .positiveX, .negativeY,
     ])
     #expect(batch.marks.map(\.machinePosition) == [
-      try MachinePosition(x: 0, y: 0),
-      try MachinePosition(x: -85, y: -85),
-      try MachinePosition(x: -85, y: 85),
-      try MachinePosition(x: 85, y: 85),
-      try MachinePosition(x: 85, y: -85),
+      try MachinePosition(x: -98, y: -98),
+      try MachinePosition(x: -98, y: 98),
+      try MachinePosition(x: 98, y: 98),
+      try MachinePosition(x: 98, y: -98),
     ])
     #expect(batch.applicabilityRectangle == (try AxisAlignedBounds(
-      minX: -85, minY: -85, maxX: 85, maxY: 85
-    )))
-    #expect(batch.pictureRectangle == (try AxisAlignedBounds(
-      minX: -82.75, minY: -82.75, maxX: 82.75, maxY: 82.75
+      minX: -98, minY: -98, maxX: 98, maxY: 98
     )))
     #expect(batch.finalRevealPosition == (try MachinePosition(x: 0, y: 0)))
     #expect(
       try SparseTipBatchMarkPlan.applicabilityRectangle(
         for: batch.marks.map { $0.circle.geometry }) == batch.applicabilityRectangle
     )
-    #expect(batch.marks.flatMap { $0.circle.pathDeltas }.count == 80)
+    #expect(batch.marks.flatMap { $0.circle.pathDeltas }.count == 64)
     for mark in batch.marks {
       #expect(mark.circle.geometry.radiusMM == 2)
       #expect(mark.circle.geometry.chordCount == 16)
@@ -146,8 +142,8 @@ struct CurrentCameraCalibrationPlanningTests {
     }
   }
 
-  @Test("Stage 3.4 computes each Boundary-axis inset independently and enforces minimum clearance")
-  func sparseBatchAxisInsetsAndMinimumClearance() throws {
+  @Test("Stage 3.4 uses only the circle radius as the Boundary inset")
+  func sparseBatchUsesRadiusInset() throws {
     let wide = try SparseTipBatchMarkPlan(
       boundarySideAggregates: boundaryEnvelope(
         negativeX: 10,
@@ -158,10 +154,7 @@ struct CurrentCameraCalibrationPlanningTests {
     )
 
     #expect(wide.applicabilityRectangle == (try AxisAlignedBounds(
-      minX: 25, minY: -2.5, maxX: 195, maxY: 82.5
-    )))
-    #expect(wide.pictureRectangle == (try AxisAlignedBounds(
-      minX: 27.25, minY: -0.25, maxX: 192.75, maxY: 80.25
+      minX: 12, minY: -8, maxX: 208, maxY: 88
     )))
 
     let narrow = try SparseTipBatchMarkPlan(
@@ -173,10 +166,7 @@ struct CurrentCameraCalibrationPlanningTests {
       )
     )
     #expect(narrow.applicabilityRectangle == (try AxisAlignedBounds(
-      minX: 2.25, minY: 2.25, maxX: 17.75, maxY: 17.75
-    )))
-    #expect(narrow.pictureRectangle == (try AxisAlignedBounds(
-      minX: 4.5, minY: 4.5, maxX: 15.5, maxY: 15.5
+      minX: 2, minY: 2, maxX: 18, maxY: 18
     )))
   }
 
@@ -197,17 +187,16 @@ struct CurrentCameraCalibrationPlanningTests {
     }
   }
 
-  @Test("boundary-corner checkpoint geometry reconstructs the center and four region corners")
+  @Test("current checkpoint geometry reconstructs only the four region corners")
   func restoredCircleGeometry() throws {
     let domain = try AxisAlignedBounds<MachineSpace>(
       minX: -30, minY: -30, maxX: 30, maxY: 30
     )
-    let geometry = try ToolContactCalibrationPosition.allCases.map {
+    let geometry = try ToolContactCalibrationPosition.sparseTipCornerPositions.map {
       try SparseTipCircularMarkPlan.restoredGeometry(for: $0, in: domain)
     }
 
     #expect(geometry.map(\.center) == [
-      try MachinePosition(x: 0, y: 0),
       try MachinePosition(x: -30, y: -30),
       try MachinePosition(x: -30, y: 30),
       try MachinePosition(x: 30, y: 30),
@@ -262,56 +251,25 @@ struct CurrentCameraCalibrationPlanningTests {
     ])
   }
 
-  @Test("Stage 4 line plan clears all persistent calibration circles")
-  func stageFourLineClearsCalibrationMarks() throws {
+  @Test("Stage 4 frame plan closes the four corners with orthogonal segments")
+  func stageFourFramePlan() throws {
     let domain = try AxisAlignedBounds<MachineSpace>(
       minX: -30, minY: -30, maxX: 30, maxY: 30
     )
-    let marks = try [
-      MachinePosition(x: 0, y: 0),
-      MachinePosition(x: -30, y: -30),
-      MachinePosition(x: -30, y: 30),
-      MachinePosition(x: 30, y: 30),
-      MachinePosition(x: 30, y: -30),
-    ].map {
-      try ToolContactMarkGeometryEvidence(
-        center: $0, radiusMM: 2, chordCount: 16, maximumFeedMMPerMinute: 100
-      )
-    }
-    let line = try ObservedDrawingTrialLinePlan(
-      direction: .positiveX,
-      domain: domain,
-      existingMarks: marks
-    )
-
-    #expect(line.startPosition == (try MachinePosition(x: -2.5, y: 15)))
-    #expect(line.endPosition == (try MachinePosition(x: 2.5, y: 15)))
-    #expect(line.delta == (try Vector2(dx: 5, dy: 0)))
-  }
-
-  @Test("Stage 4 line plan blocks instead of crossing crowded calibration ink")
-  func stageFourLineBlocksCrowdedDomain() throws {
-    let domain = try AxisAlignedBounds<MachineSpace>(
-      minX: -5, minY: -5, maxX: 5, maxY: 5
-    )
-    let marks = try [
-      MachinePosition(x: 0, y: 0),
-      MachinePosition(x: -4, y: 0),
-      MachinePosition(x: 0, y: 4),
-      MachinePosition(x: 4, y: 0),
-      MachinePosition(x: 0, y: -4),
-    ].map {
-      try ToolContactMarkGeometryEvidence(
-        center: $0, radiusMM: 2, chordCount: 16, maximumFeedMMPerMinute: 100
-      )
-    }
-    #expect(throws: ObservedDrawingTrialPlanningError.noClearFiveMillimeterLine) {
-      try ObservedDrawingTrialLinePlan(
-        direction: .positiveX,
-        domain: domain,
-        existingMarks: marks
-      )
-    }
+    let frame = try ObservedDrawingTrialFramePlan(domain: domain)
+    #expect(frame.pathPositions == [
+      try MachinePosition(x: -30, y: -30),
+      try MachinePosition(x: -30, y: 30),
+      try MachinePosition(x: 30, y: 30),
+      try MachinePosition(x: 30, y: -30),
+      try MachinePosition(x: -30, y: -30),
+    ])
+    #expect(frame.pathDeltas == [
+      try Vector2(dx: 0, dy: 60),
+      try Vector2(dx: 60, dy: 0),
+      try Vector2(dx: 0, dy: -60),
+      try Vector2(dx: -60, dy: 0),
+    ])
   }
 
   @Test("plan refuses an incomplete accepted boundary envelope")

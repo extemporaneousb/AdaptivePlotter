@@ -387,6 +387,8 @@ public enum LearningArtifactKind: Codable, Hashable, Sendable {
   case machineCameraRegistration
   case toolContactObservation(ToolContactObservationID)
   case tipCameraRegistration
+  // Durable case labels are retained for checkpoint decoding. Current Stage 4
+  // geometry is the closed picture frame, not the removed isolated-line flow.
   case localPreLineBaseline(AttemptGroupIdentity)
   case linePlan(AttemptGroupIdentity)
   case lineExecution(AttemptGroupIdentity)
@@ -700,7 +702,8 @@ public struct LearningDependencyGraph: Sendable {
       })
       guard dependencyKinds.count == machineCount + observationIDs.count,
         machineCount == 1,
-        observationIDs.count == 5 || observationIDs.count == 6
+        observationIDs.count == 4 || observationIDs.count == 5
+          || observationIDs.count == 6
       else {
         throw LearningDependencyGraphError.invalidDependencyShape(candidate.kind)
       }

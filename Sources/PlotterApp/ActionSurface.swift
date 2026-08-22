@@ -137,7 +137,7 @@ enum ActionSurfaceTipPresentation: Hashable, Sendable {
     case .notCalibrated: "Tip not calibrated"
     case .awaitingClick(let prompt): prompt
     case .collectingClicks(let prompt, let clicks):
-      "\(clicks.count)/5 centers selected · \(prompt)"
+      "\(clicks.count)/\(ToolContactCalibrationPosition.sparseTipCornerPositions.count) centers selected · \(prompt)"
     case .selected(_, _, _, let residual):
       residual.map { String(format: "Selection residual %.3f px", $0) }
         ?? "Mark center selected"
@@ -182,7 +182,7 @@ struct SparseTipClickAssociation: Hashable, Sendable {
   let clickedCameraPoint: Point2<CameraPixelSpace>
 }
 
-/// Associates the five clicks without treating click order as evidence. Both point
+/// Associates the four corner clicks without treating click order as evidence. Both point
 /// sets are centered before evaluating every assignment so the unknown common
 /// cap-to-tip translation has no effect on the selected correspondence.
 func associateSparseTipClicks(
@@ -190,9 +190,7 @@ func associateSparseTipClicks(
   knownMachinePositions: [SparseTipKnownMachinePosition],
   clicks: [Point2<CameraPixelSpace>]
 ) throws -> [SparseTipClickAssociation] {
-  let canonicalPositions: [ToolContactCalibrationPosition] = [
-    .center, .negativeX, .positiveY, .positiveX, .negativeY,
-  ]
+  let canonicalPositions = ToolContactCalibrationPosition.sparseTipCornerPositions
   precondition(
     knownMachinePositions.count == canonicalPositions.count
       && clicks.count == canonicalPositions.count

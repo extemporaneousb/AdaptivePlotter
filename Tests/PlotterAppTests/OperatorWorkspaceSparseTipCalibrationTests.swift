@@ -36,8 +36,8 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     #expect(requiredDelta.dy == 0)
   }
 
-  @Test("five SIMULATED circle centers accept in memory without writing LIVE authority")
-  func fullFiveMarkAcceptance() async throws {
+  @Test("four SIMULATED corner-circle centers accept in memory without writing LIVE authority")
+  func fullFourCornerMarkAcceptance() async throws {
     let checkpointBox = LearningPathCheckpointBox()
     let harness = makeSimulatedHarness(
       learningPathCheckpointActions: .init(
@@ -69,14 +69,14 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     try await performPublicAction(.start, owner: tipOwner, workspace: workspace)
 
     try await performPublicAction(
-      .drawFiveSparseTipCircles,
+      .drawFourCornerTipCircles,
       owner: tipOwner,
       workspace: workspace
     )
     let surface = workspace.actionSurfacePresentation
     let request = try #require(surface.pointSelectionRequest)
     #expect(surface.viewportContext?.preferredInitialZoom == 0)
-    #expect((await harness.runtime.snapshot()).persistentInkSegmentCount == 80)
+    #expect((await harness.runtime.snapshot()).persistentInkSegmentCount == 64)
     let registration = try #require(workspace.machineCameraRegistration)
     let truthOffset = await harness.runtime.capToTipPixelOffsetTruth()
     let batch = try SparseTipBatchMarkPlan(
@@ -89,7 +89,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       try registration.fit.cameraPoint(from: $0.machinePosition.point)
         .translated(by: truthOffset)
     }
-    for click in [clicks[3], clicks[1], clicks[4], clicks[0], clicks[2]] {
+    for click in [clicks[3], clicks[1], clicks[0], clicks[2]] {
       workspace.selectToolContactPoint(
         ActionSurfacePointSelection(
           frame: request.frame,
@@ -97,7 +97,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
           presentationTransformRevision: request.presentationTransformRevision
         ))
     }
-    #expect(workspace.sparseTipCalibrationCoordinator.acceptedObservations.count == 5)
+    #expect(workspace.sparseTipCalibrationCoordinator.acceptedObservations.count == 4)
     let observations = workspace.sparseTipCalibrationCoordinator.acceptedObservations.map(
       \.observation
     )
@@ -105,8 +105,8 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     #expect(revealFrameIDs.count == 1)
     #expect(Set(observations.map(\.revealEvidence)).count == 1)
     #expect(Set(observations.map(\.attemptID)).count == 1)
-    #expect(Set(observations.map(\.operationID)).count == 5)
-    #expect(Set(observations.map { $0.preMarkFrame.frameID }).count == 5)
+    #expect(Set(observations.map(\.operationID)).count == 4)
+    #expect(Set(observations.map { $0.preMarkFrame.frameID }).count == 4)
     #expect(observations.map(\.intendedMarkPosition) == batch.marks.map(\.machinePosition))
     for observation in observations {
       #expect(observation.markGeometry.radiusMM == 2)
@@ -135,7 +135,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
           <= following.penDown.timestamp.monotonicNanoseconds
       )
     }
-    #expect((await harness.runtime.snapshot()).persistentInkSegmentCount == 80)
+    #expect((await harness.runtime.snapshot()).persistentInkSegmentCount == 64)
 
     #expect(workspace.tipCameraRegistration == nil)
     #expect(
@@ -143,7 +143,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
         == batch.applicabilityRectangle
     )
     if case .reviewingModel(.directAffine) = workspace.sparseTipCalibrationCoordinator.phase {
-      // The fifth click stages a reviewable map; it is not accepted implicitly.
+      // The fourth click stages a reviewable map; it is not accepted implicitly.
     } else {
       Issue.record("Expected the fitted tip map to wait for explicit review.")
     }
@@ -157,8 +157,8 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     #expect(workspace.sparseTipCalibrationCoordinator.acceptedObservations.isEmpty)
     #expect(workspace.sparseTipCalibrationCoordinator.phase == .awaitingFrozenClicks(request.frame.frameID))
     #expect(workspace.actionSurfacePresentation.pointSelectionRequest?.frame == request.frame)
-    #expect((await harness.runtime.snapshot()).persistentInkSegmentCount == 80)
-    for click in [clicks[3], clicks[1], clicks[4], clicks[0], clicks[2]] {
+    #expect((await harness.runtime.snapshot()).persistentInkSegmentCount == 64)
+    for click in [clicks[3], clicks[1], clicks[0], clicks[2]] {
       workspace.selectToolContactPoint(
         ActionSurfacePointSelection(
           frame: request.frame,
@@ -178,7 +178,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     )
     #expect(accepted.modelForm == .directAffine)
     #expect(accepted.applicabilityRectangle == batch.applicabilityRectangle)
-    #expect(accepted.modelSelectionEvidence.observationIDs.count == 5)
+    #expect(accepted.modelSelectionEvidence.observationIDs.count == 4)
     #expect(workspace.proposedTipCameraRegistration == nil)
     #expect(workspace.sparseTipCalibrationCoordinator.phase == .accepted)
     let regionOverlay = try #require(
@@ -190,9 +190,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       Issue.record("Expected the accepted drawable-region overlay to be a bounding polyline.")
       return
     }
-    let pictureRectangle = try SparseTipBatchMarkPlan.pictureRectangle(
-      framedByMarkCenters: batch.applicabilityRectangle
-    )
+    let pictureRectangle = batch.applicabilityRectangle
     #expect(workspace.currentDrawableMachineRegion?.effectiveBounds == pictureRectangle)
     #expect(regionPolyline.points == [
       try accepted.tipPixel(at: Point2(
@@ -218,7 +216,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     ])
     #expect(
       workspace.currentLearningPathItemID
-        == .observedDrawingTrial(.chooseIsolatedLinePlan)
+        == .observedDrawingTrial(.chooseFramePlan)
     )
     #expect(checkpointBox.checkpoint == nil)
     #expect(checkpointBox.operationCounts.loads == 1)
@@ -286,7 +284,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
 
     let owner = LearningPathItemID.humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
     try await performPublicAction(.start, owner: owner, workspace: workspace)
-    try await performPublicAction(.drawFiveSparseTipCircles, owner: owner, workspace: workspace)
+    try await performPublicAction(.drawFourCornerTipCircles, owner: owner, workspace: workspace)
     let request = try #require(workspace.actionSurfacePresentation.pointSelectionRequest)
     let frameID = request.frame.frameID
     let before = await harness.runtime.snapshot()
@@ -308,7 +306,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     #expect(after.currentOperation == nil)
   }
 
-  @Test("stopping a circle blacklists its center and never redraws it")
+  @Test("stopping a corner circle after Pen Down blacklists its location and never redraws it")
   func stoppedCircleBlacklistsWithoutRedraw() async throws {
     let harness = makeSimulatedHarness()
     try await completeSimulatedBoundariesAndCenter(
@@ -334,7 +332,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     workspace.replaceSimulatedExecutionPacingForTesting(pacing)
 
     let markTask = Task {
-      await workspace.performExerciseAction(.drawFiveSparseTipCircles, for: owner)
+      await workspace.performExerciseAction(.drawFourCornerTipCircles, for: owner)
     }
     await pacing.waitUntilSuspended()
     let travelCapability = try #require(workspace.contextualStopPresentation?.capabilityID)
@@ -348,17 +346,20 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     let capability = try #require(workspace.contextualStopPresentation?.capabilityID)
     #expect(capability == travelCapability)
     #expect(
-      workspace.contextualStopPresentation?.detail.contains("five-circle calibration batch")
+      workspace.contextualStopPresentation?.detail.contains("four-corner calibration batch")
         == true
     )
     #expect(workspace.currentExerciseActionStripPresentation?.mustRemainVisible == true)
+    await pacing.resume()
+    await pacing.waitUntilSuspended()
+    #expect(workspace.contextualStopPresentation?.capabilityID == capability)
     let stopTask = Task { await workspace.stopCurrentOperation(capabilityID: capability) }
     try await waitUntilAsync { (await harness.runtime.snapshot()).currentOperation == nil }
     await pacing.resume()
     await stopTask.value
     await markTask.value
 
-    #expect(workspace.sparseTipCalibrationCoordinator.blacklistedPositions == [.center])
+    #expect(workspace.sparseTipCalibrationCoordinator.blacklistedPositions == [.negativeX])
     #expect(workspace.sparseTipCalibrationCoordinator.acceptedObservations.isEmpty)
     #expect(workspace.actionSurfacePresentation.pointSelectionRequest == nil)
     #expect(workspace.contextualStopPresentation == nil)
@@ -366,7 +367,10 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     if case .possibleInkBlacklisted(let location, _) =
       workspace.sparseTipCalibrationCoordinator.phase
     {
-      #expect(location.machinePosition == (try MachinePosition(x: 0, y: 0)))
+      let batch = try SparseTipBatchMarkPlan(
+        boundarySideAggregates: workspace.boundarySideAggregates
+      )
+      #expect(location.machinePosition == batch.marks[0].machinePosition)
       #expect(location.markRadiusMM == 2)
     } else {
       Issue.record("Stopped circle did not retain terminal possible-ink state")
@@ -403,7 +407,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
         actor: "test fixture"
       )
     )
-    #expect((await initial.runtime.snapshot()).persistentInkSegmentCount == 80)
+    #expect((await initial.runtime.snapshot()).persistentInkSegmentCount == 64)
 
     let restarted = makeSimulatedHarness(tipCalibrationSemanticIdentities: identities)
     try await completeSimulatedBoundariesAndCenter(
@@ -450,23 +454,20 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
         ))
     #expect(
       restarted.workspace.currentLearningPathItemID
-        == LearningPathItemID.observedDrawingTrial(.chooseIsolatedLinePlan)
+        == LearningPathItemID.observedDrawingTrial(.chooseFramePlan)
     )
     #expect(
       restored.estimatorRevision == SparseTipCircularMarkPlan.registrationEstimatorRevision
     )
     try await performPublicAction(
       .start,
-      owner: .observedDrawingTrial(.chooseIsolatedLinePlan),
+      owner: .observedDrawingTrial(.chooseFramePlan),
       workspace: restarted.workspace
     )
     let domain = restored.applicabilityRectangle
     #expect(
-      restarted.workspace.drawingTrialLineStart
-        == (try MachinePosition(
-          x: (domain.minX + domain.maxX) / 2 - 2.5,
-          y: (domain.minY + domain.maxY) / 2 + (domain.maxY - domain.minY) * 0.25
-        )))
+      restarted.workspace.drawingTrialFramePlan?.strokes.first?.path.points.first
+        == (try Point2(x: domain.minX, y: domain.minY)))
 
   }
 
@@ -523,9 +524,10 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     #expect(workspace.tipCameraRegistration?.acceptedRevisionID == tipRevision)
     try await completeSimulatedStageFour(workspace)
 
-    let observation = try #require(workspace.lastInkObservation)
-    #expect(observation.tipRegistrationRevisionID == tipRevision)
-    #expect(observation.localPreLineBaseline.frameID != observation.postLine.frameID)
+    let observation = try #require(workspace.lastFrameObservation)
+    #expect(workspace.drawingTrialFramePlan?.provenance.registrationRevisionID.rawValue
+      == tipRevision.rawValue)
+    #expect(observation.evidence.frames.baseline.frameID != observation.evidence.frames.post.frameID)
     #expect(workspace.drawingTrialRevealPosition != nil)
     #expect(await harness.runtime.persistentInk().isEmpty == false)
     #expect(

@@ -7,11 +7,11 @@ import Testing
 
 @Suite("Sparse tip calibration coordinator")
 struct SparseTipCalibrationCoordinatorTests {
-  @Test("one batch collects five clicks on one frozen frame in arbitrary order")
+  @Test("one batch collects four corner clicks on one frozen frame in arbitrary order")
   func frozenFrameBatchClicks() throws {
     #expect(
       SparseTipCalibrationCoordinator.orderedPositions == [
-        .center, .negativeX, .positiveY, .positiveX, .negativeY,
+        .negativeX, .positiveY, .positiveX, .negativeY,
       ])
     var coordinator = SparseTipCalibrationCoordinator()
     let frame = try exactFrame(id: "frozen-center", hash: "a")
@@ -21,7 +21,6 @@ struct SparseTipCalibrationCoordinatorTests {
       Point2<CameraPixelSpace>(x: 320, y: 80),
       Point2<CameraPixelSpace>(x: 140, y: 240),
       Point2<CameraPixelSpace>(x: 320, y: 400),
-      Point2<CameraPixelSpace>(x: 320, y: 240),
     ]
 
     try coordinator.beginBatch()
@@ -39,7 +38,7 @@ struct SparseTipCalibrationCoordinatorTests {
     }
     #expect(coordinator.phase == .fittingModel)
     #expect(coordinator.collectedClickPoints == points)
-    #expect(coordinator.collectedClickCount == 5)
+    #expect(coordinator.collectedClickCount == 4)
     #expect(coordinator.pendingFrame == frame)
 
     let recovered = coordinator.recoverFromFittingFailure()
@@ -82,15 +81,15 @@ struct SparseTipCalibrationCoordinatorTests {
     var coordinator = SparseTipCalibrationCoordinator()
     try coordinator.beginBatch()
     let location = BlacklistedToolContactLocation(
-      calibrationPosition: .center,
-      machinePosition: try MachinePosition(x: 0, y: 0),
+      calibrationPosition: .negativeX,
+      machinePosition: try MachinePosition(x: -30, y: -30),
       markRadiusMM: 2,
       paperInstance: PaperInstanceRevision(
         rawValue: UUID(uuidString: "00000000-0000-0000-0000-000000000903")!
       )
     )
     coordinator.blacklistPossibleInk(at: location, reason: "Pen Up completion unknown")
-    #expect(coordinator.blacklistedPositions == [.center])
+    #expect(coordinator.blacklistedPositions == [.negativeX])
     #expect(throws: SparseTipCalibrationCoordinatorError.invalidTransition) {
       try coordinator.beginBatch()
     }

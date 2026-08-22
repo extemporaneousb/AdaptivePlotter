@@ -10,7 +10,39 @@ procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
 ## Implemented software surface
 
-### Operator-decided saved Learning and Stage 3.4 v5 picture frame
+### Four extreme-corner marks and closed picture-frame trial
+
+Implemented 2026-08-21 in Blackdog task `TASK-A8E60A2E`.
+
+Stage 3.4 now draws four 2 mm-radius calibration circles only. There is no
+center circle. Each corner center is inset by exactly the 2 mm circle radius,
+so its footprint reaches both selected Boundary extremes without commanding
+motion outside the accepted envelope. The batch contains 64 circle chords,
+returns Pen Up to the rectangle center only for the reveal, freezes one exact
+frame, and accepts four clicks using deterministic 4! association. Fresh
+authority uses a new four-corner estimator revision; previously persisted five-
+point revisions remain decodable within their recorded applicability.
+
+Stage 4.1 no longer constructs or observes an isolated 5 mm line. One **Go**
+previews and executes a closed `DrawingProgram` through the four accepted
+circle centers using the canonical drawing-plan runner: four orthogonal edges,
+four right-angle turns, and a return to the start. It observes that immutable
+plan with the generic planned-drawing observer. The isolated-line observer,
+evidence adapter, test fixture, and dedicated tests were deleted.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| Focused geometry, authority, presentation, workspace, and planned-observation suites | passed — 115 tests in two non-overlapping runs | four-corner placement, 64 chords, 4! association, four-observation authority, exact revision, frame planning, generic observation, Stop, and no-redraw |
+| `make quick-test` | passed — 456 tests | fast unit/component partition with retained journeys excluded |
+| `make journey-test` | passed — 10 tests | full four-corner acceptance, coordinate revalidation, closed-frame observation, reset, Boundary, and Stop journeys |
+| `make strict-check` | passed — 466 tests | strict concurrency, warnings as errors, signed bundle, launcher checks, full suite, repository contract, and diff check |
+| superseded-path/current-wording scan | passed — zero matches | isolated observer/plan APIs, five-mark action, fifth-click flow, 7.5% current inset, 5! current association, and 80-chord current batch |
+| `git diff --check` | passed | whitespace and conflict markers |
+
+No attended camera, controller, motion, Pen, click, paper, or ink validation was
+performed by this task.
+
+### Historical: operator-decided saved Learning and Stage 3.4 v5 picture frame
 
 Implemented 2026-08-20 in Blackdog task `TASK-00CC519D`.
 
@@ -151,7 +183,7 @@ identities, the fresh cap may establish a pure coordinate translation; accepted
 Boundary, machine-camera, and tip geometry then move together under a new
 coordinate revision. Rotation, scale, and uncertain identity are not inferred.
 
-The fifth Stage 3.4 click now produces a reviewable frozen-frame proposal.
+The Stage 3.4 click set now produces a reviewable frozen-frame proposal.
 **Accept Tip Map** is the explicit durable commit. Reject, undo, and clear retain
 the same frozen frame and perform no redraw or motion. **Reset From This Step**
 writes or clears the retained durable prefix before changing in-memory learning;
@@ -543,21 +575,19 @@ The current source contains exactly two post-Boundary calibration exercises:
   exact inspections, refuses any non-accepted or ambiguous cap and more than
   2 px maximum pairwise cap-centroid spread, and retains the newest third exact
   frame/measurement without averaging;
-- 3.4 one supervised five-circle batch with one center mark and four outer mark
-  centers 7.5% inside each accepted Boundary axis (at least 2.25 mm), five 2 mm-radius/16-chord
-  marks capped at 100 mm/min, independent Down/Up evidence, settled Pen Up before
-  every inter-circle travel, one final center reveal, one shared frozen exact
-  frame, arbitrary-order clicks with deterministic global assignment, an outer-
-  center applicability rectangle and calibrated-region bounding overlay,
-  all-five affine-first construction, constant construction fallback,
-  diagnostic-only residuals and uncertainty, stable operator viewport state,
-  all-five affine-first construction, an ordinary picture rectangle another
-  2.25 mm inside the outer centers, and atomic tip-map commit.
+- 3.4 one supervised four-circle batch with no center mark, four 2 mm-radius/
+  16-chord marks at the maximum drawable Boundary corners, independent Down/Up
+  evidence, settled Pen Up before every inter-circle travel, one final center
+  reveal, one shared frozen exact frame, arbitrary-order clicks with
+  deterministic 4! assignment, a corner-center applicability rectangle,
+  affine-first construction, constant construction fallback, diagnostic-only
+  residuals and uncertainty, stable operator viewport state, and atomic tip-map
+  commit.
 
 `TipCameraRegistration` maps machine coordinates directly to contact pixels.
-Stage 4 consumes its exact revision, selects a 5 mm line that clears persistent
-calibration circles, and owns its own local baseline, reveal MPos, drawing
-execution, newer post-line frame, and generic ink observation.
+Stage 4 consumes its exact revision and owns one closed picture-frame plan
+through the four circle centers, its local baseline and reveal MPos, canonical
+drawing-plan execution, newer post-frame, and planned ink observation.
 
 The single Learning package loads as a presentation-only candidate. It projects
 compatible saved geometry and reports advisory optical shift/background MAD;
@@ -691,7 +721,7 @@ worktree.
 ## Simulator evidence
 
 The causal simulator retains a large nonzero cap-to-tip truth, persistent black
-16-segment circular marks, isolated line ink, paper identity, and exact causal frames. It
+16-segment circular marks, closed frame ink, paper identity, and exact causal frames. It
 traverses the same public actions and dependency graph without calling physical
 machine actions. It validates workflow structure and provenance plumbing only.
 

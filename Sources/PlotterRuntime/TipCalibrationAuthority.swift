@@ -371,6 +371,16 @@ public enum ToolContactCalibrationPosition: String, Codable, CaseIterable, Hasha
   case positiveY
   case positiveX
   case negativeY
+
+  /// Canonical clockwise Stage 3.4 order. `center` remains a Stage 3.3 camera-
+  /// calibration identity but is not a physical sparse-tip mark.
+  public static let sparseTipCornerPositions: [Self] = [
+    .negativeX, .positiveY, .positiveX, .negativeY,
+  ]
+
+  fileprivate static func isSupportedTipObservationSet(_ positions: Set<Self>) -> Bool {
+    positions == Set(sparseTipCornerPositions) || positions == Set(allCases)
+  }
 }
 
 public enum ToolContactPointRole: String, Codable, Hashable, Sendable {
@@ -689,7 +699,7 @@ public enum TipCalibrationModelSelectionError: Error, Equatable, Sendable {
   case invalidObservationSet
 }
 
-/// Provenance for the five observations consumed by affine-first construction.
+/// Provenance for the observations consumed by affine-first construction.
 /// Model form records whether affine construction succeeded or the constant
 /// correction construction fallback was required. Residuals are retained
 /// separately as diagnostics and never select or reject a model.
@@ -698,7 +708,8 @@ public struct TipCalibrationModelSelectionEvidence: Codable, Hashable, Sendable 
   public let selectedModelForm: TipCameraModelForm
 
   fileprivate func validate() throws {
-    guard observationIDs.count == 5, Set(observationIDs).count == 5
+    guard (observationIDs.count == 4 || observationIDs.count == 5),
+      Set(observationIDs).count == observationIDs.count
     else { throw TipCalibrationModelSelectionError.invalidObservationSet }
   }
 }
@@ -713,11 +724,11 @@ public struct TipCalibrationModelSelection: Hashable, Sendable {
     acceptedObservations: [AcceptedToolContactObservation],
     capCameraFromMachine: AffineTransform2<MachineSpace, CameraPixelSpace>
   ) throws -> Self {
-    guard acceptedObservations.count == 5,
-      Set(acceptedObservations.map { $0.observation.calibrationPosition })
-        == Set(ToolContactCalibrationPosition.allCases),
-      Set(acceptedObservations.map { $0.observation.id }).count == 5,
-      Set(acceptedObservations.map(\.artifactRevisionID)).count == 5
+    let positions = Set(acceptedObservations.map { $0.observation.calibrationPosition })
+    guard ToolContactCalibrationPosition.isSupportedTipObservationSet(positions),
+      acceptedObservations.count == positions.count,
+      Set(acceptedObservations.map { $0.observation.id }).count == acceptedObservations.count,
+      Set(acceptedObservations.map(\.artifactRevisionID)).count == acceptedObservations.count
     else { throw TipCalibrationModelSelectionError.invalidObservationSet }
     let selectedForm: TipCameraModelForm
     let final: AffineTransform2<MachineSpace, CameraPixelSpace>
@@ -1073,11 +1084,11 @@ public struct TipCameraRegistration: Codable, Hashable, Sendable {
     acceptedAt: RuntimeTimestamp
   ) throws {
     try modelSelectionEvidence.validate()
+    let positions = Set(acceptedObservations.map { $0.observation.calibrationPosition })
     guard modelSelectionEvidence.selectedModelForm == modelForm,
-      acceptedObservations.count == 5,
-      Set(acceptedObservations.map { $0.observation.calibrationPosition })
-        == Set(ToolContactCalibrationPosition.allCases),
-      Set(acceptedObservations.map(\.artifactRevisionID)).count == 5,
+      ToolContactCalibrationPosition.isSupportedTipObservationSet(positions),
+      acceptedObservations.count == positions.count,
+      Set(acceptedObservations.map(\.artifactRevisionID)).count == acceptedObservations.count,
       TipCalibrationModelSelection.supportsDirectAffineConstruction(
         observations: acceptedObservations
       ) == (modelForm == .directAffine),
@@ -1173,9 +1184,10 @@ public struct TipCameraRegistration: Codable, Hashable, Sendable {
     let positions = Set(observationEvidence.map(\.calibrationPosition))
     guard modelSelectionEvidence.selectedModelForm == modelForm,
       Set(modelSelectionEvidence.observationIDs) == observationIDs,
-      observationEvidence.count == 5, observationIDs.count == 5,
-      observationRevisionIDs.count == 5,
-      positions == Set(ToolContactCalibrationPosition.allCases),
+      ToolContactCalibrationPosition.isSupportedTipObservationSet(positions),
+      observationEvidence.count == positions.count,
+      observationIDs.count == positions.count,
+      observationRevisionIDs.count == positions.count,
       !captureSessionIDs.isEmpty,
       !estimatorRevision.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     else { throw TipCalibrationAuthorityError.invalidObservationSet }
@@ -1699,7 +1711,7 @@ public struct AcceptedTipCalibrationCheckpoint: Codable, Hashable, Sendable {
     else { return .invalidated("Tool assembly or contact profile changed.") }
     guard accepted.paperContactPlane == current.paperContactPlane else {
       return .quarantined(
-        "Paper/contact-plane identity changed; complete a fresh five-circle calibration."
+        "Paper/contact-plane identity changed; complete a fresh four-corner calibration."
       )
     }
     return .restored(

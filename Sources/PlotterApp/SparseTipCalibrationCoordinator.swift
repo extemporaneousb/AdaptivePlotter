@@ -31,12 +31,10 @@ struct BlacklistedToolContactLocation: Hashable, Sendable {
 }
 
 /// Pure Stage 3.4 workflow state. One batch owns all physical marks, one final
-/// frame owns all clicks, and model construction follows the atomic five-click
+/// frame owns all clicks, and model construction follows the atomic four-click
 /// association performed by the workspace.
 struct SparseTipCalibrationCoordinator: Hashable, Sendable {
-  static let orderedPositions: [ToolContactCalibrationPosition] = [
-    .center, .negativeX, .positiveY, .positiveX, .negativeY,
-  ]
+  static let orderedPositions = ToolContactCalibrationPosition.sparseTipCornerPositions
 
   private(set) var phase: SparseTipCalibrationPhase = .idle
   private(set) var acceptedObservations: [AcceptedToolContactObservation] = []
@@ -124,7 +122,7 @@ struct SparseTipCalibrationCoordinator: Hashable, Sendable {
   }
 
   /// Model construction is atomic with respect to accepted observations. If it
-  /// fails, keep the exact frozen frame and all five clicks available for
+  /// fails, keep the exact frozen frame and all four clicks available for
   /// same-frame correction instead of trapping the attempt in `fittingModel`.
   @discardableResult
   mutating func recoverFromFittingFailure() -> Bool {

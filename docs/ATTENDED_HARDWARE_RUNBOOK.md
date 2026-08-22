@@ -26,8 +26,8 @@ physical-ink claim.
 
 ## Preconditions
 
-1. Use a disposable sheet with room for five 4 mm-diameter circular marks and one isolated
-   5 mm line.
+1. Use a disposable sheet with room for four 4 mm-diameter corner marks and the
+   closed frame connecting their centers.
 2. Confirm the pen, holder, cap landmark, camera, mount, crop/orientation, paper,
    and controller are the intended unchanged assembly for this run.
 3. Confirm the mechanism is clear and the physical cutoff is reachable.
@@ -100,42 +100,40 @@ the requested side or center.
 Do not accept after a camera/device/mount/crop/orientation/focus change. Restart
 the attended run with explicit invalidation and new evidence.
 
-## 3. Stage 3.4 — five sparse 2 mm-radius circles
+## 3. Stage 3.4 — four extreme-corner 2 mm-radius circles
 
-Confirm Stage 3.4 plans one center circle and four corner circles whose centers
-are inset 7.5% independently on each Boundary axis, but never less than the
-2.25 mm circle-radius plus ink-clearance minimum. The ordinary picture region
-is another 2.25 mm inside those four centers; Stage 3.3 remains on its separate
-existing ±24 mm camera-calibration plan.
+Confirm Stage 3.4 plans no center circle. Its four corner-circle centers are
+exactly 2 mm inside the accepted Boundary on both adjacent axes, so each 2 mm-
+radius footprint reaches the selected extremes without leaving them. Stage 3.3
+remains on its separate center plus four ±24 mm camera-calibration positions.
 
-1. Press **Draw Five 2 mm Circles** once.
-2. For the center and each of the four outer framing marks, watch Pen-Up
-   travel settle at the intended MPos, compare each outer center with the
-   accepted Boundary coordinate and axis-specific inset, confirm the pre-mark
+1. Press **Draw Four Corner Circles** once.
+2. For each of the four framing marks, watch Pen-Up travel settle at the
+   intended MPos, compare each center with the accepted Boundary coordinate and
+   exact radius inset, confirm the pre-mark
    frame/cap/controller evidence is retained, and watch Pen-Up travel settle at
    the circle start.
 3. Confirm the app commands and settles the current Pen Interaction Down value.
    Directly observe physical contact; the command outcome alone is not proof.
 4. Watch one closed 4 mm-diameter circle complete as 16 short chords at no more
    than 100 mm/min. Confirm Pen Up settles before any travel toward the next
-   circle. Across the batch, confirm exactly five separated circles and no
-   connecting ink stroke. Confirm the calibrated drawable-region overlay, not
-   physical perimeter ink, supplies the bounding box through the outer centers.
+   circle. Across the batch, confirm exactly four separated circles, no center
+   circle, and no connecting ink stroke during calibration.
 5. Confirm there is no reveal, frame selection, or click request between
-   circles. After the fifth circle only, watch one Pen-Up reveal return to the
+   circles. After the fourth circle only, watch one Pen-Up reveal return to the
    outer rectangle's geometric center, then confirm Idle/final-MPos settlement.
 6. Confirm the app captures one newer exact frame after reveal, revalidates
-   camera/cap applicability once, and freezes that unchanged frame for all five
+   camera/cap applicability once, and freezes that unchanged frame for all four
    clicks. Confirm batch start, drawing, reveal, clicks, fitting, and proposal
    presentation never alter the operator's zoom, pan, fitted region, or focus.
-7. Click the five observed circle centers in a deliberately noncanonical order.
+7. Click the four observed circle centers in a deliberately noncanonical order.
    Confirm the UI shows all markers and click count. The app must associate them
    globally and deterministically; it must not impose a click order, distance
    threshold, or ambiguity blocker.
 8. If a click is wrong, use **Undo Last Click** or **Clear Clicks on This
    Frame**. Confirm no motion, ink, redraw, new frame, zoom, or pan occurs.
-9. On the fifth valid click, confirm the app constructs but does not yet accept
-   the all-five affine `TipCameraRegistration`. Review the frozen-frame markers,
+9. On the fourth valid click, confirm the app constructs but does not yet accept
+   the all-corner affine `TipCameraRegistration`. Review the frozen-frame markers,
    diagnostic residuals, RMS, covariance, and uncertainty. Choose **Accept Tip
    Map** and confirm Stage 4 becomes current. Also exercise **Reject Tip Map**
    once and confirm the same frame remains available without motion, capture,
@@ -181,34 +179,35 @@ restoration.
 - Changed support, stock thickness, contact height, or contact plane: choose
   **Contact Plane Changed**. Confirm tip authority is invalidated, rebuild
   current machine-camera authority if required, then run a complete new
-  five-circle Stage 3.4 batch, then review and accept the new map.
+  four-circle Stage 3.4 batch, then review and accept the new map.
 
 If any semantic identity is uncertain, do not revalidate. Clear the durable tip
-checkpoint and perform a new five-mark calibration.
+checkpoint and perform a new four-mark calibration.
 
-## 5. Stage 4 — isolated observed line
+## 5. Stage 4 — observed picture frame
 
 1. Record the exact current tip registration revision.
-2. Press **Go** once. Confirm a cyan predicted 5 mm line appears on the current
-   video before motion and that its machine endpoints and exact tip revision are
-   visible. The runtime selects the first clear signed-axis plan; there is no
-   direction prompt or phase-by-phase approval.
+2. Press **Go** once. Confirm a cyan predicted closed frame through the four
+   accepted circle centers appears on the current video before motion and that
+   its machine path and exact tip revision are visible. There is no direction
+   prompt or phase-by-phase approval.
 3. Observe the displayed activity move through plan, local baseline, Pen-Up
    travel, draw, reveal/observe, and comparison. During motion, confirm the exact
    **Stop** remains available. No additional **Go**, **Next**, or approval should
    be required on the normal path.
-4. Watch Pen-Up travel settle at line start, then directly observe one physical
-   stroke under the single drawing owner. Do not resend after ambiguity.
+4. Watch Pen-Up travel settle at the lower-left frame start, then directly
+   observe four orthogonal edges and four right-angle turns under the single
+   drawing-plan owner. Do not resend after ambiguity.
 5. Confirm the plotter returns Pen Up to the trial-local reveal MPos, settles,
-   and captures a strictly newer post-line frame.
+   and captures a strictly newer post-frame.
 6. While the same-pose baseline/post pair is analyzed, confirm the Learning UI
    visibly reports **Trial ink analysis · active** with Vision as operation
    owner. Apparent inactivity without that state is a failure.
 7. Confirm the normal result records automatically and renders predicted cyan,
-   observed white, and orange residual geometry on the exact post-line frame.
+   observed white, and orange residual geometry on the exact post-frame.
    It may retain candidate refinement evidence; it must not silently change the
    accepted model.
-8. Confirm the exact post-line frame and cyan intended, white observed, and
+8. Confirm the exact post-frame and cyan intended, white observed, and
    orange residual overlays remain available through **Review Comparison**
    after live preview resumes.
 9. Confirm the result says **Interactive learning complete · one validation**

@@ -114,7 +114,7 @@ struct OperatorWorkspaceLifecycleTests {
     )
     try await performPublicAction(
       .start,
-      owner: .observedDrawingTrial(.chooseIsolatedLinePlan),
+      owner: .observedDrawingTrial(.chooseFramePlan),
       workspace: workspace
     )
 
@@ -125,7 +125,7 @@ struct OperatorWorkspaceLifecycleTests {
     await workspace.shutdown()
   }
 
-  @Test("one Go previews the predicted line before motion and completes automatically")
+  @Test("one Go previews the predicted frame before motion and completes automatically")
   func oneGoPreviewsThenCompletesTrial() async throws {
     let harness = makeSimulatedHarness()
     let workspace = harness.workspace
@@ -138,7 +138,7 @@ struct OperatorWorkspaceLifecycleTests {
     let positionBeforeGo = (await harness.runtime.snapshot()).mpos
     let pacing = FirstOperationSuspensionPacing()
     workspace.replaceSimulatedExecutionPacingForTesting(pacing)
-    let owner = LearningPathItemID.observedDrawingTrial(.chooseIsolatedLinePlan)
+    let owner = LearningPathItemID.observedDrawingTrial(.chooseFramePlan)
 
     let trial = Task { await workspace.performExerciseAction(.start, for: owner) }
     await pacing.waitUntilSuspended()
@@ -149,22 +149,18 @@ struct OperatorWorkspaceLifecycleTests {
         $0.provenance.kind == .intendedPath && $0.provenance.source == .planned
       })
     let displayedFrame = try #require(surface.displayedFrame)
-    let lineStart = try #require(workspace.drawingTrialLineStart)
-    let lineEnd = try #require(workspace.drawingTrialLineEnd)
+    let framePath = try #require(workspace.drawingTrialFramePlan?.strokes.first?.path)
     let registration = try #require(workspace.tipCameraRegistration)
-    guard case .polyline(let predictedLine) = predicted.geometry else {
+    guard case .polyline(let predictedFrame) = predicted.geometry else {
       Issue.record("The model prediction must be a camera-pixel polyline.")
       return
     }
     #expect(predicted.frameID == displayedFrame.frame.id)
     #expect(predicted.cameraConfigurationID == displayedFrame.frame.cameraConfigurationID)
-    #expect(
-      predictedLine.points == [
-        try registration.tipPixel(at: lineStart.point),
-        try registration.tipPixel(at: lineEnd.point),
-      ])
+    let projectedFrame = try framePath.points.map { try registration.tipPixel(at: $0) }
+    #expect(predictedFrame.points == projectedFrame)
     #expect((await harness.runtime.snapshot()).mpos == positionBeforeGo)
-    #expect(workspace.observedDrawingTrialStep == .moveToLineStart)
+    #expect(workspace.observedDrawingTrialStep == .moveToFrameStart)
     #expect(
       workspace.selectedOperatorActionPresentation(for: owner).activity?.outcome == .inProgress)
     #expect(
@@ -184,7 +180,7 @@ struct OperatorWorkspaceLifecycleTests {
     #expect(workspace.completedDrawingComparisonReviewIsPinned)
     let completedSurface = workspace.actionSurfacePresentation
     #expect(
-      completedSurface.displayedFrame?.frame.id == workspace.explorationPostLineFrame?.frame.id)
+      completedSurface.displayedFrame?.frame.id == workspace.explorationPostFrame?.frame.id)
     #expect(
       Set(completedSurface.overlays.map(\.provenance.kind)).isSuperset(of: [
         .intendedPath,

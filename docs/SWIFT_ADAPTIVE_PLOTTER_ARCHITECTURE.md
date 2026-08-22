@@ -208,21 +208,20 @@ and cannot establish live optical stability.
 Stage 3.4 is split across four owners:
 
 - `SparseTipCalibrationCoordinator` owns the compact batch state machine, one
-  attempt/operation identity, canonical `C`, `X−`, `Y+`, `X+`, `Y−` evidence
-  slots,
+  attempt/operation identity, four canonical corner evidence slots,
   one shared final frozen frame, unordered click collection, immutable accepted
   observations, possible-ink terminal state, proposal review, and acceptance.
-- `SparseTipBatchMarkPlan` derives the Stage 3.4 center and four maximum drawable
-  corner centers from the accepted Boundary envelope, insetting each edge only
-  by the 2 mm mark radius. Its outer-center rectangle is the proposed tip-map
+- `SparseTipBatchMarkPlan` derives the four maximum drawable corner centers from
+  the accepted Boundary envelope, insetting each edge only by the 2 mm mark
+  radius and drawing no center mark. Its corner-center rectangle is the proposed tip-map
   applicability rectangle, and its final reveal pose is the rectangle center.
 - `OperatorWorkspace` composes that plan with supervised Pen-Up travel, current
-  Pen Interaction Up/Down values, five closed 16-chord 2 mm-radius circles capped
+  Pen Interaction Up/Down values, four closed 16-chord 2 mm-radius circles capped
   at 100 mm/min, settled Pen Up before every inter-circle travel, exact frame/cap
   capture, and atomic graph/checkpoint commits. The existing calibrated drawable-
-  region overlay renders the bounding box; there is no physical connecting
-  Pen-Down stroke. Stage 3.3 retains its existing ±24 mm plan.
-- `TipCalibrationAuthority` owns validated evidence types, all-five affine-first
+  region overlay renders the bounding box; Stage 4.1 later draws the physical
+  connecting frame. Stage 3.3 retains its center plus four ±24 mm positions.
+- `TipCalibrationAuthority` owns validated evidence types, four-corner affine-first
   construction, constant construction fallback, diagnostic residual/covariance/
   uncertainty, applicability decisions, rebase derivations, and checkpoints.
 
@@ -233,9 +232,9 @@ renders click count and all markers, and supports same-frame undo/clear without
 motion, ink, capture, zoom, or pan. Tip-map acceptance installs the outer-center
 applicability rectangle without changing viewport state.
 
-After click five, the app projects all known machine positions through current
-`MachineCameraRegistration`, centers projected and clicked sets to remove their
-common cap-to-tip translation, evaluates all 5! assignments, and selects the
+After click four, the app projects all four corner machine positions through
+current `MachineCameraRegistration`, centers projected and clicked sets to
+remove their common cap-to-tip translation, evaluates all 4! assignments, and selects the
 minimum total squared pixel distance with canonical-position exact-tie breaking.
 There is no distance or ambiguity gate. The five associated observations feed
 direct affine construction first; constant correction is constructed only when
@@ -246,15 +245,15 @@ The accepted graph shape is:
 
 ```text
 current MachineCameraRegistration
-  -> five ToolContactObservation revisions
+  -> four corner ToolContactObservation revisions
   -> current TipCameraRegistration
 ```
 
 A new paper instance on an explicitly unchanged contact plane consumes no new
 contact observation and retains tip authority. A changed contact plane
-invalidates the tip registration and requires the normal five-observation
-Stage 3.4 graph. Stage 4 line plans and local baselines consume the exact current
-tip revision; later line/post-frame/ink/residual nodes retain that dependency
+invalidates the tip registration and requires the normal four-observation
+Stage 3.4 graph. Stage 4 frame plans and local baselines consume the exact current
+tip revision; later frame/post-frame/ink/residual nodes retain that dependency
 transitively.
 
 ## Chronology and possible ink
@@ -305,7 +304,7 @@ Explicit changed-coordinate recovery may still construct fresh
 coordinate revision when a pure translation is actually proven. Direct manual
 controls remain independent. Replacing only the
 paper instance retains that authority; changing the contact plane invalidates
-it and requires the full five-mark calibration. The revalidation evidence is
+it and requires the full four-mark calibration. The revalidation evidence is
 durable. Reset clears the affected durable machine and/or tip checkpoint before
 clearing in-memory authority.
 
@@ -318,35 +317,34 @@ revision controls remain a roadmap item.
 ## Stage 4 ownership
 
 Stage 4 does not reuse a Stage 3 target, baseline, or reveal pose.
-`ObservedDrawingTrialLinePlan` creates a 5 mm local line inside the tip
-applicability rectangle only when it clears every retained circular-mark
-geometry; a crowded domain blocks instead of weakening new-ink attribution.
+`ObservedDrawingTrialFramePlan` creates one closed polyline through the four
+accepted circle centers, with four orthogonal edges and right-angle turns.
 The visible 4.1 row owns one attempt from **Go** through normal comparison; its
 six typed phases update activity and subsystem presentation but do not create
 six UI action owners. It stores:
 
 - the exact tip registration revision;
-- a trial-local pre-line exact frame and reveal MPos;
-- line-start settlement and one drawing owner;
+- a trial-local pre-frame exact frame and reveal MPos;
+- frame-start settlement and one canonical drawing-plan owner;
 - a Pen-Up return to the same reveal MPos;
-- a strictly newer post-line exact frame;
+- a strictly newer post-frame exact frame;
 - bounded generic black/new-ink observation, residual, and assessment.
 
-Before motion, `OperatorWorkspace` projects the stored machine start/end through
+Before motion, `OperatorWorkspace` projects the stored closed machine path through
 the exact current `TipCameraRegistration`. `ActionSurfacePresentation` binds the
 planned polyline to each currently displayed frame/configuration, so the cyan
 prediction remains visible over live video without freezing preview or treating
-planned geometry as measured pixels. The post-line observer replaces that
+planned geometry as measured pixels. The post-frame observer replaces that
 preview with exact-frame intended, measured-ink, and residual overlays.
 
 `exclusiveWorkflowVisionRequestCount` is projected separately from background
-scene-analysis state. While isolated-ink comparison is in flight, Learning
+scene-analysis state. While planned-drawing comparison is in flight, Learning
 reports **Trial ink analysis · active** and names Vision as the processing owner.
 Normal observed-ink success commits the typed comparison in the same exercise
 attempt. Only a failure, ambiguity, possible-ink recovery, rejected observation,
 or atomic-commit error ends the automatic chain early.
 
-The intended line, observed ink, and residual are contextual Stage 4 results,
+The intended frame, observed ink, and residual are contextual Stage 4 results,
 not global overlay preferences. The implemented curriculum ends at this one
 attributable validation. Its post frame and overlays remain explicitly
 reviewable, and its typed comparison is adapted into an evaluation-holdout
@@ -425,7 +423,7 @@ return.
 Swift Testing suites cover evidence constructors, affine-first construction and
 constant construction fallback, checkpoint quarantine and revalidation, graph
 dependency shapes, shared-frame unordered clicks, physical-location blacklist
-persistence, ActionSurface projection, five-mark batch acceptance, checkpoint
+persistence, ActionSurface projection, four-mark batch acceptance, checkpoint
 restart/paper recovery, and Stage 4 causal ink, plus drawing catalog/planning,
 plan execution, planned-ink observation, paper evidence, and append-only run
 evidence. `make quick-test` excludes the explicitly retained journeys;

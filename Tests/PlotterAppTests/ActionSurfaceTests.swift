@@ -512,10 +512,10 @@ func tipPredictionVisibilityPolicy() throws {
     try Point2<CameraPixelSpace>(x: 30, y: 40),
   ]
   let collecting = ActionSurfaceTipPresentation.collectingClicks(
-    prompt: "Click all five circle centers on this unchanged frame.",
+    prompt: "Click all four corner-circle centers on this unchanged frame.",
     clicks: clicks
   )
-  #expect(collecting.statusText == "2/5 centers selected · Click all five circle centers on this unchanged frame.")
+  #expect(collecting.statusText == "2/4 centers selected · Click all four corner-circle centers on this unchanged frame.")
   #expect(collecting.clickMarkers == clicks)
 }
 
@@ -528,7 +528,8 @@ func sparseTipClickAssociationIsOrderIndependent() throws {
       knownMachinePositions: fixture.known,
       clicks: clicks
     )
-    #expect(associations.map(\.calibrationPosition) == ToolContactCalibrationPosition.allCases)
+    #expect(associations.map(\.calibrationPosition)
+      == ToolContactCalibrationPosition.sparseTipCornerPositions)
     for association in associations {
       #expect(
         association.clickedCameraPoint
@@ -550,14 +551,13 @@ func sparseTipClickAssociationNeverQualityGates() throws {
     knownMachinePositions: fixture.known,
     clicks: Array(distantClicks.reversed())
   )
-  #expect(distant.count == 5)
+  #expect(distant.count == 4)
 
   let tiedClicks = try [
     Point2<CameraPixelSpace>(x: 290, y: 190),
     Point2<CameraPixelSpace>(x: 310, y: 190),
     Point2<CameraPixelSpace>(x: 310, y: 210),
     Point2<CameraPixelSpace>(x: 290, y: 210),
-    Point2<CameraPixelSpace>(x: 300, y: 200),
   ]
   let tiedForward = try associateSparseTipClicks(
     using: fixture.fit,
@@ -569,7 +569,8 @@ func sparseTipClickAssociationNeverQualityGates() throws {
     knownMachinePositions: fixture.known,
     clicks: Array(tiedClicks.reversed())
   )
-  #expect(tiedForward.map(\.calibrationPosition) == ToolContactCalibrationPosition.allCases)
+  #expect(tiedForward.map(\.calibrationPosition)
+    == ToolContactCalibrationPosition.sparseTipCornerPositions)
   #expect(tiedForward == tiedReverse)
 }
 
@@ -863,13 +864,12 @@ private func sparseAssociationFixture() throws -> (
   clickedByPosition: [(ToolContactCalibrationPosition, Point2<CameraPixelSpace>)]
 ) {
   let machineByPosition: [ToolContactCalibrationPosition: MachinePosition] = [
-    .center: try MachinePosition(x: 0, y: 0),
-    .negativeX: try MachinePosition(x: -30, y: 0),
-    .positiveY: try MachinePosition(x: 0, y: 30),
-    .positiveX: try MachinePosition(x: 30, y: 0),
-    .negativeY: try MachinePosition(x: 0, y: -30),
+    .negativeX: try MachinePosition(x: -30, y: -30),
+    .positiveY: try MachinePosition(x: -30, y: 30),
+    .positiveX: try MachinePosition(x: 30, y: 30),
+    .negativeY: try MachinePosition(x: 30, y: -30),
   ]
-  let known = ToolContactCalibrationPosition.allCases.map {
+  let known = ToolContactCalibrationPosition.sparseTipCornerPositions.map {
     SparseTipKnownMachinePosition(
       calibrationPosition: $0,
       machinePosition: machineByPosition[$0]!

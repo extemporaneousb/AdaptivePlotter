@@ -87,6 +87,41 @@ struct TipCalibrationAuthorityTests {
     #expect(registration.consumedObservationIDs.count == 5)
   }
 
+  @Test("Current tip registration accepts exactly the four sparse corner observations")
+  func registrationConsumesCurrentFourCorners() throws {
+    let fixture = try TipAuthorityFixture()
+    let observations = try ToolContactCalibrationPosition.sparseTipCornerPositions.map {
+      position in
+      try AcceptedToolContactObservation(
+        artifactRevisionID: LearningArtifactRevisionID(),
+        observation: fixture.observation(position: position)
+      )
+    }
+    let selection = try TipCalibrationModelSelection.fitAffineFirst(
+      acceptedObservations: observations,
+      capCameraFromMachine: AffineTransform2(
+        m11: 2, m12: 0, m21: 0, m22: 3, tx: 10, ty: 20
+      )
+    )
+    let registration = try TipCameraRegistration(
+      modelForm: selection.modelForm,
+      cameraFromMachine: selection.finalCameraFromMachine,
+      modelSelectionEvidence: selection.evidence,
+      uncertainty: selection.uncertainty,
+      applicabilityRectangle: AxisAlignedBounds(minX: 0, minY: 0, maxX: 100, maxY: 100),
+      acceptedObservations: observations,
+      applicability: fixture.context(),
+      acceptedRevisionID: LearningArtifactRevisionID(),
+      machineCameraRegistrationRevisionID: fixture.machineCameraRevision,
+      estimatorRevision: "tip-affine-four-corner-v1",
+      acceptedAt: fixture.timestamp(800)
+    )
+
+    #expect(registration.modelSelectionEvidence.observationIDs.count == 4)
+    #expect(registration.observationEvidence.count == 4)
+    #expect(registration.consumedObservationIDs.count == 4)
+  }
+
   @Test("Applicability uses nonzero tolerance for target, geometry, and settlement")
   func applicabilityUsesMachinePositionTolerance() throws {
     let fixture = try TipAuthorityFixture()
@@ -540,7 +575,7 @@ struct TipCalibrationAuthorityTests {
           kind: .tipCameraRegistration,
           attemptID: ExerciseAttemptID(),
           disposition: .succeeded,
-          consumedRevisionIDs: Set(observations.prefix(4).map(\.id)).union([machine.id])
+          consumedRevisionIDs: Set(observations.prefix(3).map(\.id)).union([machine.id])
         )
       )
     }

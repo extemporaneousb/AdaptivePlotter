@@ -247,7 +247,7 @@ func completeSimulatedSparseTipCalibration(
   let plan = try SparseTipBatchMarkPlan(
     boundarySideAggregates: workspace.boundarySideAggregates
   )
-  try await performPublicAction(.drawFiveSparseTipCircles, owner: tipOwner, workspace: workspace)
+  try await performPublicAction(.drawFourCornerTipCircles, owner: tipOwner, workspace: workspace)
   let request = try #require(
     workspace.actionSurfacePresentation.pointSelectionRequest,
     "missing five-click selection request: \(workspace.explorationError ?? "no error")"
@@ -273,7 +273,7 @@ func completeSimulatedSparseTipCalibration(
 func completeSimulatedStageFour(_ workspace: OperatorWorkspace) async throws {
   try await performPublicAction(
     .start,
-    owner: .observedDrawingTrial(.chooseIsolatedLinePlan),
+    owner: .observedDrawingTrial(.chooseFramePlan),
     workspace: workspace
   )
   #expect(workspace.drawingTrialAssessment == .predictionObserved)
@@ -556,8 +556,7 @@ func cameraActions(_ fixture: CameraFixture) -> OperatorWorkspace.CameraActions 
     setSceneAnalysisRegion: { fixture.setSceneAnalysisRegion($0) },
     setPenCapColor: { fixture.setPenCapColor($0) },
     setAutomaticInspection: { fixture.setAutomaticInspection($0, features: $1) },
-    analysisUpdates: { AsyncStream { $0.finish() } },
-    observeIsolatedInk: { _ in fatalError("unused") }
+    analysisUpdates: { AsyncStream { $0.finish() } }
   )
 }
 

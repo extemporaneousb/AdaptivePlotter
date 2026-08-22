@@ -217,16 +217,15 @@ coordinate change.
 
 ### One supervised physical batch
 
-Stage 3.4 draws one circle at the accepted Boundary envelope's geometric center
-and four circles 7.5% inside each Boundary axis. Each per-axis inset is at least
-2.25 mm, so the complete 2 mm radius plus 0.25 mm ink clearance remains inside
-the envelope. The four outer centers bound the accepted tip-map applicability;
-the ordinary Drawing Studio picture rectangle is another 2.25 mm inside those
-centers, keeping all calibration-circle ink outside picture content. `C`, `X−`, `Y+`, `X+`, and `Y−` remain
-canonical evidence-slot identities. Stage 3.3 retains its existing separate
-±24 mm spacing and camera-holdout authority.
+Stage 3.4 draws no center mark. It places four 2 mm-radius circles at the maximum
+drawable corners of the accepted Boundary envelope. Each center is exactly one
+circle radius inside the relevant two Boundary edges, so the circle footprint
+touches the selected extremes without commanding motion outside them. Those
+four centers bound the accepted tip-map applicability and subsequent picture-
+frame trial. Stage 3.3 retains its separate center plus four ±24 mm positions
+and camera-holdout authority.
 
-1. Press **Draw Five 2 mm Circles** once. One exercise attempt and one existing
+1. Press **Draw Four Corner Circles** once. One exercise attempt and one existing
    stoppable operation own the complete batch and expose the contextual Stop.
 2. At each canonical position, travel Pen Up, require fresh Idle/final MPos
    within 0.05 mm, capture and retain that circle's exact pre-mark frame and cap
@@ -237,13 +236,12 @@ canonical evidence-slot identities. Stage 3.3 retains its existing separate
    closed 16-chord, 2 mm-radius circle at no more than 100 mm/min or the lower
    controller-reported axis ceiling, requiring settled chord endpoints.
 5. Raise and settle Pen Up. Only then travel to the next circle. Repeat steps
-   2–5 without a reveal or click between circles. The batch contains exactly 80
-   circle chords and no connecting Pen-Down stroke. The accepted calibrated-
-   calibrated-region overlay supplies the inner ordinary-picture bounding box.
-6. After the fifth circle, return Pen Up to the outer rectangle's geometric
+   2–5 without a reveal or click between circles. The batch contains exactly 64
+   circle chords and no connecting Pen-Down stroke.
+6. After the fourth circle, return Pen Up to the rectangle's geometric
    center. Require Pen Up, Idle, and final-MPos settlement.
 7. Capture one strictly newer exact frame and revalidate current camera/cap
-   applicability once. Freeze that one frame unchanged for all five clicks.
+   applicability once. Freeze that one frame unchanged for all four clicks.
    Do not change viewport zoom, pan, fitted region, preferred zoom, or focus.
 
 If a chord, motion outcome, or Pen state after possible contact is stopped or
@@ -258,27 +256,27 @@ physical contact or ink; attended observation owns those claims.
 1. Show all collected click markers and the count on the shared frozen frame.
    Convert every presentation click through the exact inverse transform to
    camera pixels and retain exact frame/provenance identity.
-2. Clicks may arrive in any order. After click five, project the five known
-   machine positions through current `MachineCameraRegistration`. Center both
+2. Clicks may arrive in any order. After click four, project the four known
+   corner machine positions through current `MachineCameraRegistration`. Center both
    projected and clicked point sets to remove their unknown common cap-to-tip
    translation. Retain each earlier cap-map residual as diagnostic evidence;
    do not gate a Boundary-corner observation on extrapolation from the smaller
    Stage 3.3 bootstrap rectangle.
-3. Evaluate all 5! one-to-one assignments and choose the minimum total squared
+3. Evaluate all 4! one-to-one assignments and choose the minimum total squared
    pixel distance. Resolve an exact numerical tie in canonical calibration-
    position order. Apply no distance or ambiguity threshold.
 4. **Undo Last Click** or **Clear Clicks on This Frame** changes same-frame
    click evidence only. It performs no motion, ink, redraw, capture, zoom, or
    pan.
-5. After click five, atomically create the five accepted observations. Fit one
-   direct affine machine-to-tip map from all five first. Construct constant
+5. After click four, atomically create the four accepted observations. Fit one
+   direct affine machine-to-tip map from all four first. Construct constant
    camera-pixel correction only if affine construction throws.
-6. Display model form, all-five residuals, RMS, covariance/uncertainty,
+6. Display model form, all-corner residuals, RMS, covariance/uncertainty,
    applicability, semantic identities, and consumed revisions as diagnostics.
    Stage 3.4 has no holdouts and no numerical magnitude can block proposal
    creation or progression. Numerical fitting never requests paper replacement
    and never routes to **No Automatic Redraw**.
-7. The fifth valid click constructs a reviewable `TipCameraRegistration`
+7. The fourth valid click constructs a reviewable `TipCameraRegistration`
    proposal. Inspect the exact-frame markers and diagnostic fit, then choose
    **Accept Tip Map** to commit it, save the accepted Learning Path prefix,
    finish Stage 3.4, and make Stage 4 current. **Reject Tip Map**, **Undo Last
@@ -322,7 +320,7 @@ After a new sheet on the explicitly unchanged contact plane:
 
 1. Rotate only `PaperInstanceRevision` and clear sheet-specific paper coverage,
    possible-ink locations, and retained drawing review state.
-2. Retain current tip authority and the attributable line-validation lineage.
+2. Retain current tip authority and the attributable frame-validation lineage.
 3. Place the new sheet over the calibrated outline and explicitly assert that
    it covers the outline before drawing. This is an operator assertion; paper
    edges are not measured.
@@ -332,39 +330,38 @@ After a changed support, stock thickness, contact height, or contact plane:
 1. Rotate `PaperInstanceRevision` and `PaperContactPlaneRevision` and invalidate
    current tip authority.
 2. Rebuild and accept current Stage 3.3 authority.
-3. Run the complete Stage 3.4 five-circle batch on the new plane; review and
+3. Run the complete Stage 3.4 four-circle batch on the new plane; review and
    explicitly accept its new tip registration.
 
 Any mismatch or ambiguous contact leaves authority unavailable. It never falls
 back to automatic redraw or silent checkpoint promotion.
 
-## 4.1 Run Predicted Isolated Line Trial
+## 4.1 Run Predicted Picture Frame Trial
 
 Stage 4.1 requires the exact current accepted `TipCameraRegistration` revision.
 Every request/result cites that revision. It is one visible exercise with one
 normal **Go** action; the following are truthful runtime phases, not selectable
 exercises or approval gates:
 
-1. **Plan and preview.** In deterministic X+, X−, Y+, Y− preference order, the
-   app chooses the first 5 mm local line inside the applicability rectangle that
-   clears every persistent 2 mm-radius calibration circle by at least 0.25 mm.
-   A crowded domain blocks. The app projects both endpoints through the current
-   tip registration and renders the predicted line in cyan on the current live
-   frame before any motion.
+1. **Plan and preview.** The app constructs one closed picture-frame polyline
+   through the four accepted circle centers in minimum/minimum,
+   minimum/maximum, maximum/maximum, maximum/minimum order, then returns to the
+   start. It projects the immutable plan through the current tip registration
+   and renders the predicted frame in cyan before any motion.
 2. **Capture local baseline.** With Pen Up and the controller Idle, capture one
    exact fresh frame and record the current MPos as this trial's reveal pose.
-3. **Move to line start.** Move Pen Up under one stoppable owner. Completion
+3. **Move to frame start.** Move Pen Up under one stoppable owner. Completion
    requires fresh Idle/final MPos within 0.05 mm.
-4. **Draw isolated line.** Confirm the start, lower the pen, execute one typed
-   5 mm stroke under one drawing owner, and raise.
+4. **Draw picture frame.** Confirm the start, lower the pen once, execute all
+   four orthogonal edges under the canonical drawing-plan owner, and raise.
 5. **Reveal and observe.** Return Pen Up to the recorded reveal MPos, require
-   fresh Idle/final MPos within 0.05 mm, capture a post-line frame strictly newer
+   fresh Idle/final MPos within 0.05 mm, capture a post-frame strictly newer
    than the baseline and drawing settlement, and run bounded same-pose
    black/new-ink Vision. While this runs, the UI states that trial Vision owns
    processing. Retain observed geometry and residual, or a typed rejection.
 6. **Compare.** On normal observed-ink success, record the typed intended versus
    observed comparison automatically and display predicted cyan, observed white,
-   and residual orange geometry on the exact post-line frame. Pin that frame and
+   and residual orange geometry on the exact post-frame. Pin that frame and
    comparison for explicit later review, and append an evaluation-holdout
    drawing-run record.
 
@@ -384,7 +381,7 @@ selectable Learning Path stage.
 ## Drawing Studio — place, run, and observe
 
 1. Open **Drawing Studio** after the attributable Stage 4.1 result. Use
-   **Review Comparison** to return to the pinned exact post-line frame or
+   **Review Comparison** to return to the pinned exact post-frame or
    **Resume Live Preview** before placement.
 2. Confirm the calibrated drawable-region outline is visible. Place the current
    physical sheet over it and choose **Assert Sheet Covers Outline**. The assertion
@@ -430,10 +427,10 @@ evidence.
 ```text
 four side aggregates -> center -> center arrival
 -> five-cap machine-camera registration
--> five immutable contact observations -> accepted tip-camera registration
--> local line plan + local baseline/reveal pose
--> line execution + newer post-line frame
--> ink observation -> residual -> typed comparison + durable validation record
+-> four immutable contact observations -> accepted tip-camera registration
+-> closed picture-frame plan + local baseline/reveal pose
+-> frame execution + newer post-frame
+-> planned ink observation -> residual -> typed comparison + durable validation record
 -> paper coverage + placed DrawingProgram -> immutable execution plan
 -> controller execution -> exact-frame planned-ink observation -> run record
 ```
@@ -468,7 +465,7 @@ raw observations remain history.
 
 SIMULATED traverses the same public actions and dependency graph. It owns a
 simulated session, Motion authorization, MPos, pen pose, renewable Boundary
-motion, 2 mm-radius circular marks, isolated line drawing, paper revision,
+motion, 2 mm-radius circular marks, closed picture-frame drawing, paper revision,
 persistent ink, causal frames, and a real nonzero cap-to-tip truth.
 
 Annotations are exact identity-bound presentation only. They do not modify

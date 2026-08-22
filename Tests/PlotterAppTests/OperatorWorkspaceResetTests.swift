@@ -559,26 +559,26 @@ extension OperatorWorkspaceTests {
     )
     try await completeSimulatedSparseTipCalibration(workspace, runtime: harness.runtime)
     try await completeSimulatedStageFour(workspace)
-    let linePlan = try #require(
+    let framePlan = try #require(
       workspace.learningArtifactGraph.revisions.first { revision in
         guard revision.state == .current else { return false }
         if case .linePlan = revision.kind { return true }
         return false
       })
-    guard case .linePlan(let group) = linePlan.kind else {
-      Issue.record("Expected the current line-plan revision to carry its attempt group.")
+    guard case .linePlan(let group) = framePlan.kind else {
+      Issue.record("Expected the current frame-plan revision to carry its attempt group.")
       return
     }
     let inkBefore = await harness.runtime.persistentInk()
-    let anchor = LearningPathItemID.observedDrawingTrial(.chooseIsolatedLinePlan)
+    let anchor = LearningPathItemID.observedDrawingTrial(.chooseFramePlan)
     let plan = try #require(workspace.learningVacatePlan(from: anchor))
     #expect(plan.affectedItems == [anchor])
     #expect(plan.expectedCurrentRevisionIDs.count == 7)
     #expect(workspace.performLearningVacate(plan))
 
     #expect(workspace.drawingTrialAssessment == nil)
-    #expect(workspace.drawingTrialLineStart == nil)
-    #expect(workspace.localPreLineBaseline == nil)
+    #expect(workspace.drawingTrialFramePlan == nil)
+    #expect(workspace.localPreFrameBaseline == nil)
     #expect(workspace.learningArtifactGraph.currentRevision(for: .comparison(group)) == nil)
     #expect(workspace.learningArtifactGraph.currentRevision(for: .linePlan(group)) == nil)
     #expect(workspace.learningArtifactGraph.currentRevision(for: .inkObservation(group)) == nil)

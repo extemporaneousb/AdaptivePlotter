@@ -54,10 +54,10 @@ struct LearningPathPresentationTests {
     )
     #expect(
       ObservedDrawingTrialStep.allCases.map(\.title) == [
-        "Plan Predicted Isolated Line",
-        "Capture Local Pre-Line Baseline",
-        "Move to Line Start",
-        "Draw Isolated Line",
+        "Plan Predicted Picture Frame",
+        "Capture Pre-Frame Baseline",
+        "Move to Frame Start",
+        "Draw Picture Frame",
         "Reveal and Observe New Ink",
         "Compare Intended and Observed Geometry",
       ])
@@ -75,7 +75,7 @@ struct LearningPathPresentationTests {
         "3.3 Calibrate Camera and Visible Cap",
         "3.4 Calibrate Pen Contact from Sparse Marks",
         "4 Observed Drawing Trials",
-        "4.1 Run Predicted Isolated Line Trial",
+        "4.1 Run Predicted Picture Frame Trial",
       ])
   }
 

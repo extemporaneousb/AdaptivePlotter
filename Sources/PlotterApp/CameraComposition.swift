@@ -60,9 +60,6 @@ enum CameraComposition {
       analysisUpdates: {
         await session.analysisUpdates()
       },
-      observeIsolatedInk: { request in
-        await session.observeIsolatedInk(request)
-      },
       observePlannedDrawingInk: { request in
         await session.observePlannedDrawingInk(request)
       },
@@ -184,15 +181,6 @@ private actor CameraSourceSession {
     try await boundedlyAwaitNewestCameraValue {
       try await self.live.materializeLatestFrame(newerThanNanoseconds: boundary)
     }
-  }
-
-  func observeIsolatedInk(_ request: IsolatedInkObservationRequest) async
-    -> IsolatedInkObservationOutcome
-  {
-    let lease = await beginExclusiveVisionComputation()
-    let outcome = await vision.observeIsolatedInk(request)
-    await endExclusiveVisionComputation(lease)
-    return outcome
   }
 
   func observePlannedDrawingInk(

@@ -52,6 +52,8 @@ struct SparseTipCircularMarkPlan: Hashable, Sendable {
   static let chordCount = 16
   static let maximumFeedMMPerMinute = 100.0
   static let registrationEstimatorRevision =
+    "affine-first-boundary-extreme-four-circle-2mm-radius-16-chord-v6"
+  static let insetFiveCircleRegistrationEstimatorRevision =
     "affine-first-boundary-inset-five-circle-2mm-radius-16-chord-v5"
   static let boundaryCornerRegistrationEstimatorRevision =
     "affine-first-boundary-corner-five-circle-2mm-radius-16-chord-v4"
@@ -60,6 +62,7 @@ struct SparseTipCircularMarkPlan: Hashable, Sendable {
 
   static func supportsRestoredGeometry(for estimatorRevision: String) -> Bool {
     estimatorRevision == registrationEstimatorRevision
+      || estimatorRevision == insetFiveCircleRegistrationEstimatorRevision
       || estimatorRevision == boundaryCornerRegistrationEstimatorRevision
       || estimatorRevision == cardinalRegistrationEstimatorRevision
   }
@@ -155,18 +158,12 @@ struct SparseTipCircularMarkPlan: Hashable, Sendable {
   }
 }
 
-/// The complete Stage 3.4 physical mark layout. The four outer circle centers
-/// sit 7.5% inside each accepted Boundary axis (and always far enough inside
-/// for the complete circle plus ink clearance). The ordinary picture rectangle
-/// is a further circle-radius-plus-clearance inside those centers, keeping the
-/// persistent calibration ink outside later picture content. The fifth circle
-/// and final Pen-Up reveal are at the mark-center rectangle's center.
+/// The complete Stage 3.4 physical mark layout. The four circle centers are the
+/// maximum drawable corners of the operator-accepted Boundary envelope. Each
+/// center is inset by exactly the 2 mm circle radius so the commanded outline
+/// remains inside the accepted machine boundary. No center mark is drawn. The
+/// final reveal remains a Pen-Up move to the rectangle center.
 struct SparseTipBatchMarkPlan: Hashable, Sendable {
-  static let boundaryInsetFraction = 0.075
-  static let minimumInkClearanceMM = 0.25
-  static let markToPictureClearanceMM =
-    SparseTipCircularMarkPlan.radiusMM + minimumInkClearanceMM
-
   struct Mark: Hashable, Sendable {
     let position: ToolContactCalibrationPosition
     let machinePosition: MachinePosition
@@ -174,12 +171,9 @@ struct SparseTipBatchMarkPlan: Hashable, Sendable {
   }
 
   let marks: [Mark]
-  /// The calibration authority domain: it must contain all five observed mark
-  /// centers because `TipCameraRegistration` validates that evidence against it.
+  /// The calibration authority and physical picture-frame domain through the
+  /// four observed mark centers.
   let applicabilityRectangle: AxisAlignedBounds<MachineSpace>
-  /// The ordinary drawing/picture domain framed by, but not touching, the four
-  /// persistent outer calibration circles.
-  let pictureRectangle: AxisAlignedBounds<MachineSpace>
   let finalRevealPosition: MachinePosition
 
   init(
@@ -194,29 +188,18 @@ struct SparseTipBatchMarkPlan: Hashable, Sendable {
       maxX: boundarySideAggregates[.positiveX]!.estimateMM,
       maxY: boundarySideAggregates[.positiveY]!.estimateMM
     )
-    let xInset = max(
-      (boundaryEnvelope.maxX - boundaryEnvelope.minX) * Self.boundaryInsetFraction,
-      Self.markToPictureClearanceMM
-    )
-    let yInset = max(
-      (boundaryEnvelope.maxY - boundaryEnvelope.minY) * Self.boundaryInsetFraction,
-      Self.markToPictureClearanceMM
-    )
+    let inset = SparseTipCircularMarkPlan.radiusMM
     applicabilityRectangle = try AxisAlignedBounds<MachineSpace>(
-      minX: boundaryEnvelope.minX + xInset,
-      minY: boundaryEnvelope.minY + yInset,
-      maxX: boundaryEnvelope.maxX - xInset,
-      maxY: boundaryEnvelope.maxY - yInset
-    )
-    pictureRectangle = try Self.pictureRectangle(
-      framedByMarkCenters: applicabilityRectangle
+      minX: boundaryEnvelope.minX + inset,
+      minY: boundaryEnvelope.minY + inset,
+      maxX: boundaryEnvelope.maxX - inset,
+      maxY: boundaryEnvelope.maxY - inset
     )
     let center = try MachinePosition(
       x: (applicabilityRectangle.minX + applicabilityRectangle.maxX) / 2,
       y: (applicabilityRectangle.minY + applicabilityRectangle.maxY) / 2
     )
     let plannedPositions: [(ToolContactCalibrationPosition, MachinePosition)] = [
-      (.center, center),
       (.negativeX, try MachinePosition(
         x: applicabilityRectangle.minX, y: applicabilityRectangle.minY)),
       (.positiveY, try MachinePosition(
@@ -251,117 +234,41 @@ struct SparseTipBatchMarkPlan: Hashable, Sendable {
     )
   }
 
-  static func pictureRectangle(
+  /// Restores the smaller ordinary-picture region recorded by the superseded
+  /// v5 estimator without applying that inset to new v6 calibration.
+  static func legacyInsetFiveCirclePictureRectangle(
     framedByMarkCenters markCenterRectangle: AxisAlignedBounds<MachineSpace>
   ) throws -> AxisAlignedBounds<MachineSpace> {
-    try AxisAlignedBounds(
-      minX: markCenterRectangle.minX + markToPictureClearanceMM,
-      minY: markCenterRectangle.minY + markToPictureClearanceMM,
-      maxX: markCenterRectangle.maxX - markToPictureClearanceMM,
-      maxY: markCenterRectangle.maxY - markToPictureClearanceMM
+    let clearance = SparseTipCircularMarkPlan.radiusMM + 0.25
+    return try AxisAlignedBounds<MachineSpace>(
+      minX: markCenterRectangle.minX + clearance,
+      minY: markCenterRectangle.minY + clearance,
+      maxX: markCenterRectangle.maxX - clearance,
+      maxY: markCenterRectangle.maxY - clearance
     )
   }
 }
 
-enum ObservedDrawingTrialPlanningError: Error, Equatable, Sendable {
-  case noClearFiveMillimeterLine
-}
+/// One closed Stage 4 perimeter through the four Stage 3.4 calibration centers.
+/// Consecutive points differ on exactly one axis, giving four right-angle
+/// corners and returning to the starting point without a diagonal segment.
+struct ObservedDrawingTrialFramePlan: Hashable, Sendable {
+  let pathPositions: [MachinePosition]
+  let pathDeltas: [Vector2<MachineSpace>]
 
-extension ObservedDrawingTrialPlanningError: LocalizedError {
-  var errorDescription: String? {
-    "No 5 mm line inside the accepted tip-calibration rectangle clears all persistent 2 mm-radius calibration circles. Replace the paper and recalibrate with a larger usable rectangle before Stage 4."
-  }
-}
+  var startPosition: MachinePosition { pathPositions[0] }
 
-/// Chooses a 5 mm axis-aligned Stage 4 stroke that cannot cross one of the
-/// persistent Stage 3.4 circles. Old ink remains valid baseline evidence, but
-/// a new stroke may not be split into multiple components by an old outline.
-struct ObservedDrawingTrialLinePlan: Hashable, Sendable {
-  static let lengthMM = 5.0
-  static let minimumInkClearanceMM = 0.25
-
-  let direction: BoundaryDirection
-  let startPosition: MachinePosition
-  let endPosition: MachinePosition
-  let delta: Vector2<MachineSpace>
-
-  init(
-    direction: BoundaryDirection,
-    domain: AxisAlignedBounds<MachineSpace>,
-    existingMarks: [ToolContactMarkGeometryEvidence]
-  ) throws {
-    let centerX = (domain.minX + domain.maxX) / 2
-    let centerY = (domain.minY + domain.maxY) / 2
-    let halfLength = Self.lengthMM / 2
-    let spanX = domain.maxX - domain.minX
-    let spanY = domain.maxY - domain.minY
-    let perpendicularFractions = [0.25, -0.25, 0.375, -0.375]
-    let candidates: [(Point2<MachineSpace>, Point2<MachineSpace>)] = try
-      perpendicularFractions.map { fraction in
-        switch direction {
-        case .positiveX:
-          let y = centerY + spanY * fraction
-          return (
-            try Point2(x: centerX - halfLength, y: y),
-            try Point2(x: centerX + halfLength, y: y)
-          )
-        case .negativeX:
-          let y = centerY + spanY * fraction
-          return (
-            try Point2(x: centerX + halfLength, y: y),
-            try Point2(x: centerX - halfLength, y: y)
-          )
-        case .positiveY:
-          let x = centerX + spanX * fraction
-          return (
-            try Point2(x: x, y: centerY - halfLength),
-            try Point2(x: x, y: centerY + halfLength)
-          )
-        case .negativeY:
-          let x = centerX + spanX * fraction
-          return (
-            try Point2(x: x, y: centerY + halfLength),
-            try Point2(x: x, y: centerY - halfLength)
-          )
-        }
-      }
-    guard let selected = candidates.first(where: { start, end in
-      Self.contains(start, in: domain) && Self.contains(end, in: domain)
-        && existingMarks.allSatisfy { mark in
-          Self.distance(from: mark.center.point, toSegmentFrom: start, to: end)
-            > mark.radiusMM + Self.minimumInkClearanceMM
-        }
-    }) else { throw ObservedDrawingTrialPlanningError.noClearFiveMillimeterLine }
-    self.direction = direction
-    startPosition = MachinePosition(point: selected.0)
-    endPosition = MachinePosition(point: selected.1)
-    delta = try selected.0.vector(to: selected.1)
-  }
-
-  private static func contains(
-    _ point: Point2<MachineSpace>,
-    in bounds: AxisAlignedBounds<MachineSpace>
-  ) -> Bool {
-    MachinePositionAcceptancePolicy.contains(point, in: bounds)
-  }
-
-  private static func distance(
-    from point: Point2<MachineSpace>,
-    toSegmentFrom start: Point2<MachineSpace>,
-    to end: Point2<MachineSpace>
-  ) -> Double {
-    let dx = end.x - start.x
-    let dy = end.y - start.y
-    let lengthSquared = dx * dx + dy * dy
-    guard lengthSquared > 0 else { return point.distance(to: start) }
-    let projection = ((point.x - start.x) * dx + (point.y - start.y) * dy)
-      / lengthSquared
-    let t = min(1, max(0, projection))
-    let closest = try! Point2<MachineSpace>(
-      x: start.x + t * dx,
-      y: start.y + t * dy
-    )
-    return point.distance(to: closest)
+  init(domain: AxisAlignedBounds<MachineSpace>) throws {
+    pathPositions = [
+      try MachinePosition(x: domain.minX, y: domain.minY),
+      try MachinePosition(x: domain.minX, y: domain.maxY),
+      try MachinePosition(x: domain.maxX, y: domain.maxY),
+      try MachinePosition(x: domain.maxX, y: domain.minY),
+      try MachinePosition(x: domain.minX, y: domain.minY),
+    ]
+    pathDeltas = try zip(pathPositions, pathPositions.dropFirst()).map { from, to in
+      try from.point.vector(to: to.point)
+    }
   }
 }
 

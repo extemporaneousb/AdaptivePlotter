@@ -62,19 +62,19 @@ struct LearningArtifactsTests {
   func stageFourDependencyShapes() throws {
     let stage = try stageFourArtifactGraph(group: AttemptGroupIdentity(rawValue: "trial-a"))
 
-    #expect(stage.linePlan.consumedRevisionIDs == [stage.tip.id])
+    #expect(stage.framePlan.consumedRevisionIDs == [stage.tip.id])
     #expect(stage.localBaseline.consumedRevisionIDs == [stage.tip.id])
-    #expect(stage.lineExecution.consumedRevisionIDs == [stage.linePlan.id])
+    #expect(stage.frameExecution.consumedRevisionIDs == [stage.framePlan.id])
     #expect(stage.postLine.consumedRevisionIDs == [
-      stage.lineExecution.id, stage.localBaseline.id, stage.tip.id,
+      stage.frameExecution.id, stage.localBaseline.id, stage.tip.id,
     ])
     #expect(stage.ink.consumedRevisionIDs == [
-      stage.localBaseline.id, stage.lineExecution.id, stage.postLine.id, stage.tip.id,
+      stage.localBaseline.id, stage.frameExecution.id, stage.postLine.id, stage.tip.id,
     ])
     #expect(stage.residual.consumedRevisionIDs == [stage.ink.id])
     #expect(stage.comparison.consumedRevisionIDs == [stage.ink.id, stage.residual.id])
     for artifact in [
-      stage.tip, stage.linePlan, stage.localBaseline, stage.lineExecution,
+      stage.tip, stage.framePlan, stage.localBaseline, stage.frameExecution,
       stage.postLine, stage.ink, stage.residual, stage.comparison,
     ] {
       #expect(stage.graph.revision(id: artifact.id)?.state == .current)
@@ -133,7 +133,7 @@ struct LearningArtifactsTests {
 
     #expect(commit.supersededRevisionID == stage.tip.id)
     #expect(commit.invalidatedRevisionIDs == [
-      stage.linePlan.id, stage.localBaseline.id, stage.lineExecution.id,
+      stage.framePlan.id, stage.localBaseline.id, stage.frameExecution.id,
       stage.postLine.id, stage.ink.id, stage.residual.id, stage.comparison.id,
     ])
     #expect(stage.graph.currentRevision(for: .tipCameraRegistration)?.id == replacement.id)
@@ -180,7 +180,7 @@ struct LearningArtifactsTests {
 
     #expect(first.rootInvalidatedRevisionIDs == [stage.tip.id])
     #expect(first.transitiveInvalidatedRevisionIDs == [
-      stage.linePlan.id, stage.localBaseline.id, stage.lineExecution.id,
+      stage.framePlan.id, stage.localBaseline.id, stage.frameExecution.id,
       stage.postLine.id, stage.ink.id, stage.residual.id, stage.comparison.id,
     ])
     #expect(second.rootInvalidatedRevisionIDs.isEmpty)
@@ -544,40 +544,40 @@ private func stageFourArtifactGraph(
   machine: LearningArtifactRevision,
   observations: [LearningArtifactRevision],
   tip: LearningArtifactRevision,
-  linePlan: LearningArtifactRevision,
+  framePlan: LearningArtifactRevision,
   localBaseline: LearningArtifactRevision,
-  lineExecution: LearningArtifactRevision,
+  frameExecution: LearningArtifactRevision,
   postLine: LearningArtifactRevision,
   ink: LearningArtifactRevision,
   residual: LearningArtifactRevision,
   comparison: LearningArtifactRevision
 ) {
   var tipStage = try acceptedTipArtifactGraph()
-  let linePlan = revision(kind: .linePlan(group), consumes: [tipStage.tip.id])
+  let framePlan = revision(kind: .linePlan(group), consumes: [tipStage.tip.id])
   let localBaseline = revision(
     kind: .localPreLineBaseline(group),
     consumes: [tipStage.tip.id]
   )
-  let lineExecution = revision(kind: .lineExecution(group), consumes: [linePlan.id])
+  let frameExecution = revision(kind: .lineExecution(group), consumes: [framePlan.id])
   let postLine = revision(
     kind: .postLineFrame(group),
-    consumes: [lineExecution.id, localBaseline.id, tipStage.tip.id]
+    consumes: [frameExecution.id, localBaseline.id, tipStage.tip.id]
   )
   let ink = revision(
     kind: .inkObservation(group),
-    consumes: [localBaseline.id, lineExecution.id, postLine.id, tipStage.tip.id]
+    consumes: [localBaseline.id, frameExecution.id, postLine.id, tipStage.tip.id]
   )
   let residual = revision(kind: .residual(group), consumes: [ink.id])
   let comparison = revision(
     kind: .comparison(group),
     consumes: [ink.id, residual.id]
   )
-  for artifact in [linePlan, localBaseline, lineExecution, postLine, ink, residual, comparison] {
+  for artifact in [framePlan, localBaseline, frameExecution, postLine, ink, residual, comparison] {
     _ = try tipStage.graph.commitReplacement(artifact)
   }
   return (
     tipStage.graph, tipStage.machine, tipStage.observations, tipStage.tip,
-    linePlan, localBaseline, lineExecution, postLine, ink, residual, comparison
+    framePlan, localBaseline, frameExecution, postLine, ink, residual, comparison
   )
 }
 
