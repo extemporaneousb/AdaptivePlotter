@@ -1,6 +1,6 @@
-# Discovery and Observed-Trial Protocol
+# Learning Path Operating Protocol
 
-Status: current operating protocol for Learning Path 3.1 through visible 4.1
+Status: current operating protocol for Learning Path 1.1 through visible 2.1
 
 This document owns the exact actor, action, evidence, dependency, and recovery
 sequence. Durable semantics remain in [Product Contract](PRODUCT_CONTRACT.md).
@@ -42,7 +42,7 @@ It does not home, recover position, clear limit inputs, or enable Motion. No
 unlock is sent during Connect, no failed clear is retried, and **Enable Motion**
 remains a separate operator action after a clean probe.
 
-Cancel abandons a settled attempt. Stop settles an admitted stoppable owner.
+Cancel abandons a settled attempt. Stop settles the active stoppable operation.
 They may share a mechanical Jog Cancel primitive but never share a successful
 semantic disposition. Sticky ambiguity suppresses new physical motion.
 
@@ -50,27 +50,27 @@ Every production comparison of requested pose and settled MPos uses fresh
 attributable controller evidence, compatible context, and the shared 0.05 mm
 Euclidean policy.
 
-Presentation zoom, pan, and fitted bounds are available after 3.2. They are
+Presentation zoom, pan, and fitted bounds are available after Exercise 1.2. They are
 view-only. Exact camera-pixel evidence and calibration authority do not change
 when the presentation transform changes. Learning visibility and compatible
 presentation-context changes preserve the operator's exact effective visible
 camera-pixel rectangle; preserving only numeric zoom and pan is insufficient
-when fitted bounds change. Stage 3.3 proposal review preserves the viewport;
+when fitted bounds change. Exercise 1.3 proposal review preserves the viewport;
 acceptance may publish a new fitted target but does not auto-focus or rewrite a
 locked analysis region. Camera source or configuration changes reset the
 viewport. Explicit operator Full, Fit, zoom, and pan actions may replace it.
-Stage 3.4 never changes zoom, pan, fitted region, preferred zoom, or viewport
+Exercise 1.4 never changes zoom, pan, fitted region, preferred zoom, or viewport
 focus automatically.
 
 The only global scene-overlay preferences are **Pen cap** and **Armature
 envelope**. The envelope is inferred from the cap, not segmented. Generic
 viewport ROI affects only generic requested scene analysis; it never constrains
 the specialized regions used below. Intended geometry, observed ink, and
-residuals are mandatory contextual evidence in Stage 4 and are not toggles.
+residuals are mandatory contextual evidence in Stage 2 and are not toggles.
 
-## 3.1 Pen Interaction
+## 1.1 Identify and Calibrate the Pen
 
-1. Start the existing Pen Interaction attempt. Before any Pen Interaction
+1. Start Exercise 1.1. Before any pen-position
    question or pen request, **Identify Pen Cap** freezes the current exact frame
    and asks the operator to click the colored cap body, not the tip.
    When a valid LIVE cap appearance already exists, the frozen frame receives
@@ -84,19 +84,19 @@ residuals are mandatory contextual evidence in Stage 4 and are not toggles.
    frame hash and identity, source, camera configuration, dimensions, pixel
    format, usable/total sample counts, and algorithm revision. There is no
    editable color picker. The learned appearance feeds generic scene analysis
-   and every Stage 3.3 exact-frame inspection, so arbitrary visibly colored caps
+   and every Exercise 1.3 exact-frame inspection, so arbitrary visibly colored caps
    such as blue are supported.
 3. Cap identification requires only the current exact frame. The accepted click
    immediately opens the first Up question even when the controller is not yet
    connected or Motion is not enabled. In that blocked state the Up slider and
-   **Next** stay visible but disabled with the exact workbench remedy. Selecting
+   **Confirm Pen Up** stays visible but disabled with the exact workbench remedy. Selecting
    a device, **Connect**, and **Enable Motion** remain available in the toolbar;
    completing them enables the existing question without another cap click or
    a Learning Path continuation step.
 4. The Up step presents the current Up slider. It is seeded at `S40` in a fresh
    session and otherwise starts from the already-current value. Moving it
    commands the displayed value. Once operational dependencies admit the
-   request, **Next** accepts that value together with the available controller
+   request, **Confirm Pen Up** accepts that value together with the available controller
    outcome, timestamp, and current MPos. Refusal, ambiguity, unavailable
    evidence, and admission blockers remain explicit without introducing a
    separate forward gate.
@@ -114,23 +114,23 @@ segmented.
 
 The accepted values become the current Up and Down settings consumed by later
 pen operations. They are not required to remain constant across the run.
-Repeating Pen Interaction at another position creates another existing attempt
+Repeating Exercise 1.1 at another position creates another attempt
 with its actual values and available position/actuation evidence so future
 learning can evaluate positional variation. It does not create a separate
 calibration exercise or artifact.
 
 If a settled attempt elsewhere exposes **Restart**, select that exercise to use
 its recovery. The recovery row does not replace the current exercise selected
-by the dependency chain and does not hide Pen Interaction or the next **Start**.
+by the dependency chain and does not hide Exercise 1.1 or the next physical action.
 
-## 3.2 Paired Boundary Discovery and Centering
+## 1.2 Measure and Center the Drawing Boundary
 
 1. The operator selects any first X or Y direction. Selection is inert.
-2. **Start** admits one operator-stopped Boundary owner.
+2. **Move Toward X−/X+/Y−/Y+** starts one operator-stopped Drawing Boundary search.
 3. The controller uses finite 50 mm segments at 500 mm/min under one logical
    owner. After each unambiguous Idle/MPos it may renew another fixed segment
    while retaining direction and feed.
-4. **Stop Boundary** remains bound to the original owner.
+4. **Stop Boundary Search** remains bound to that motion.
 5. Operator Stop closes renewal and emits one Jog Cancel.
 6. The original owner settles through fresh Idle and final MPos.
 7. Typed direction, Stop disposition, controller session/revision, and final
@@ -163,7 +163,7 @@ local.y  = raw.y - Y− estimate
 Learned local coordinates are presentation evidence. They do not rewrite MPos,
 configure a work offset, clamp commands, or authorize motion.
 
-## 3.3 Calibrate Camera and Visible Cap
+## 1.3 Calibrate Camera from Pen Cap Positions
 
 ### Rectangle and roles
 
@@ -187,7 +187,7 @@ The ordered positions and roles are:
 
 ### Capture, fit, and acceptance
 
-1. Press **Capture Five Cap Samples**.
+1. Press **Run Five-Position Camera Calibration**.
 2. The first fresh passive probe establishes this operation's controller-context
    baseline. Each later sample must compare compatible and advance that local
    baseline.
@@ -211,8 +211,8 @@ The ordered positions and roles are:
    proposal containing residuals, uncertainty, exact-frame provenance,
    applicability, semantic optical identity, machine geometry, and coordinate
    revision.
-8. **Accept Camera and Visible-Cap Fit** commits the current
-   `MachineCameraRegistration` atomically. **Reject Camera Fit** commits
+8. **Accept Camera Calibration** commits the current
+   `MachineCameraRegistration` atomically. **Reject Camera Calibration** commits
    nothing. Installing the registration and its fitted presentation bounds
    preserves the exact visible camera-pixel rectangle and any compatible locked
    analysis region.
@@ -229,18 +229,18 @@ coordinate-offset change stops the operation with typed recovery. App-owned
 Pen Up modal changes remain visible provenance but do not masquerade as a
 coordinate change.
 
-## 3.4 Calibrate Pen Contact from Sparse Marks
+## 1.4 Calibrate Pen Tip from Corner Marks
 
 ### One supervised physical batch
 
-Stage 3.4 draws no center mark. It places four 2 mm-radius circles with every
+Exercise 1.4 draws no center mark. It places four 2 mm-radius circles with every
 center exactly 10 mm inside its two adjacent accepted Boundary edges. Every
 circle footprint therefore remains 8 mm clear of those edges. Those
 four centers bound the accepted tip-map applicability and subsequent picture-
-frame trial. Stage 3.3 retains its separate center plus four ±24 mm positions
+frame validation. Exercise 1.3 retains its separate center plus four ±24 mm positions
 and camera-holdout authority.
 
-1. Press **Draw Four Corner Circles** once. One exercise attempt and one existing
+1. Press **Draw Four Calibration Circles** once. One exercise attempt and one existing
    stoppable operation own the complete batch and expose the contextual Stop.
 2. Command and settle Pen Up once before the first travel. Retain that
    batch-scoped Pen-Up authorization through approach, circle-start,
@@ -251,7 +251,7 @@ and camera-holdout authority.
    anchor, and retain its controller and settled-position evidence.
 3. Verify the full circle lies inside the accepted Boundary envelope. Move Pen Up
    to its +X start point and settle.
-4. Lower and settle with the current Pen Interaction Down profile. Draw one
+4. Lower and settle with the current Exercise 1.1 Pen Down profile. Draw one
    closed 16-chord, 2 mm-radius circle at no more than 100 mm/min or the lower
    controller-reported axis ceiling, requiring settled chord endpoints.
 5. Raise and settle Pen Up. Only then travel to the next circle. Repeat steps
@@ -284,7 +284,7 @@ physical contact or ink; attended observation owns those claims.
    projected and clicked point sets to remove their unknown common cap-to-tip
    translation. Retain each earlier cap-map residual as diagnostic evidence;
    do not gate a Boundary-corner observation on extrapolation from the smaller
-   Stage 3.3 bootstrap rectangle.
+   Exercise 1.3 bootstrap rectangle.
 3. Evaluate all 4! one-to-one assignments and choose the minimum total squared
    pixel distance. Resolve an exact numerical tie in canonical calibration-
    position order. Apply no distance or ambiguity threshold.
@@ -292,19 +292,19 @@ physical contact or ink; attended observation owns those claims.
    click evidence only. It performs no motion, ink, redraw, capture, zoom, or
    pan.
 5. After click four, atomically create the four accepted observations. Fit one
-   direct affine machine-to-tip map from all four first. Construct constant
+   direct affine pen-tip calibration from all four first. Construct constant
    camera-pixel correction only if affine construction throws.
 6. Display model form, all-corner residuals, RMS, covariance/uncertainty,
    applicability, semantic identities, and consumed revisions as diagnostics.
-   Stage 3.4 has no holdouts and no numerical magnitude can block proposal
+   Exercise 1.4 has no holdouts and no numerical magnitude can block proposal
    creation or progression. Numerical fitting never requests paper replacement
    and never routes to **No Automatic Redraw**.
 7. The fourth valid click constructs a reviewable `TipCameraRegistration`
    proposal. On the same frozen frame, inspect the exact markers, the separately
-   labeled projected 3.2 Boundary, the cyan proposed rectangle through the four
+   labeled projected Drawing Boundary, the cyan proposed rectangle through the four
    selected centers, and the diagnostic fit, then choose
-   **Accept Tip Map** to commit it, save the accepted Learning Path prefix,
-   finish Stage 3.4, and make Stage 4 current. **Reject Tip Map**, **Undo Last
+   **Accept Pen-Tip Calibration** to commit it, save the accepted Learning Path prefix,
+   finish Exercise 1.4, and make Stage 2 current. **Reject Pen-Tip Calibration**, **Undo Last
    Click**, and **Clear Clicks on This Frame** keep the same frozen frame and
    perform no motion or redraw. If acceptance fails atomically, expose **Retry
    Calibration Commit**.
@@ -326,7 +326,7 @@ For an unchanged physical setup:
    integer X/Y shift and background mean absolute difference; incompatible or
    legacy packages report why the comparison is unavailable. No value gates the
    operator choice.
-4. Choose exactly **Use Saved Training** or **Start New Learning**. Use applies
+4. Choose exactly **Use Saved Learning** or **Start New Learning**. Use applies
    the exact saved dependency revisions atomically without motion or Pen-pose
    restoration. Start New applies nothing and retains the last complete package.
 5. Connecting and probing remain ordinary controller-session work; they do not
@@ -354,36 +354,36 @@ After a changed support, stock thickness, contact height, or contact plane:
 
 1. Rotate `PaperInstanceRevision` and `PaperContactPlaneRevision` and invalidate
    current tip authority.
-2. Rebuild and accept current Stage 3.3 authority.
-3. Run the complete Stage 3.4 four-circle batch on the new plane; review and
+2. Rebuild and accept current Exercise 1.3 authority.
+3. Run the complete Exercise 1.4 four-circle calibration on the new plane; review and
    explicitly accept its new tip registration.
 
 Any mismatch or ambiguous contact leaves authority unavailable. It never falls
 back to automatic redraw or silent checkpoint promotion.
 
-## 4.1 Run Predicted Picture Frame Trial
+## 2.1 Draw and Validate the Frame
 
-Stage 4.1 requires the exact current accepted `TipCameraRegistration` revision.
+Exercise 2.1 requires the exact current accepted `TipCameraRegistration` revision.
 Every request/result cites that revision. It is one visible exercise with one
-normal **Go** action; the following are truthful runtime phases, not selectable
+normal **Draw and Validate Frame** action; the following are truthful runtime phases, not selectable
 exercises or approval gates:
 
-1. **Plan and preview.** The app constructs one closed picture-frame polyline
+1. **Plan and preview.** The app constructs one closed drawing-frame polyline
    through the four accepted circle centers in minimum/minimum,
    minimum/maximum, maximum/maximum, maximum/minimum order, then returns to the
-   start. It retains the projected accepted 3.2 Boundary as separate context,
+   start. It retains the projected accepted Drawing Boundary as separate context,
    projects the immutable inset plan through the current tip registration, and
    renders the predicted frame in cyan before any motion.
 2. **Capture local baseline.** With Pen Up and the controller Idle, capture one
-   exact fresh frame and record the current MPos as this trial's reveal pose.
+   exact fresh frame and record the current MPos as this validation's reveal pose.
 3. **Move to frame start.** Move Pen Up under one stoppable owner. Completion
    requires fresh Idle/final MPos within 0.05 mm.
-4. **Draw picture frame.** Confirm the start, lower the pen once, execute all
+4. **Draw frame.** Confirm the start, lower the pen once, execute all
    four orthogonal edges under the canonical drawing-plan owner, and raise.
 5. **Reveal and observe.** Return Pen Up to the recorded reveal MPos, require
    fresh Idle/final MPos within 0.05 mm, capture a post-frame strictly newer
    than the baseline and drawing settlement, and run bounded same-pose
-   black/new-ink Vision. While this runs, the UI states that trial Vision owns
+   black/new-ink Vision. While this runs, the UI states that drawing-validation Vision owns
    processing. Retain observed geometry and residual, or a typed rejection.
 6. **Compare.** On normal observed-ink success, record the typed intended versus
    observed comparison automatically and display predicted cyan, observed white,
@@ -391,14 +391,14 @@ exercises or approval gates:
    comparison for explicit later review, and append an evaluation-holdout
    drawing-run record.
 
-**Stop** remains available for admitted motion. Refusal or ambiguity before
+**Stop** remains available for active motion. Refusal or ambiguity before
 contact creates no drawing evidence and stops for recovery. Once stroke
 admission or possible ink exists, no path may redraw automatically; recovery
 continues only with Pen-Up return and observation of the existing mark. A Vision
 rejection or comparison-commit failure stops for review or retry without
 drawing again.
 
-Completion remains on 4.1 with review/reset operations available. It proves one
+Completion remains on Exercise 2.1 with review/reset operations available. It proves one
 attributable validation of the current map, not a generally trained adaptive
 drawing model. The toolbar reports **Interactive learning complete · one
 validation** and exposes Drawing Studio as a separate direct workbench, not a
@@ -406,7 +406,7 @@ selectable Learning Path stage.
 
 ## Drawing Studio — place, run, and observe
 
-1. Open **Drawing Studio** after the attributable Stage 4.1 result. Use
+1. Open **Drawing Studio** after the attributable Exercise 2.1 result. Use
    **Review Comparison** to return to the pinned exact post-frame or
    **Resume Live Preview** before placement.
 2. Confirm the calibrated drawable-region outline is visible. Place the current
@@ -443,7 +443,7 @@ selectable Learning Path stage.
 
 **New Sheet — Same Contact Plane** retains the accepted map and validation but
 rotates sheet identity and requires a new coverage assertion. **Contact Plane
-Changed** invalidates the tip map and returns the dependency chain to contact
+Changed** invalidates the pen-tip calibration and returns the dependency chain to contact
 calibration. Simulation may exercise catalog placement and exact plan preview;
 it cannot run the physical Drawing Studio operation or produce physical run
 evidence.
@@ -454,7 +454,7 @@ evidence.
 four side aggregates -> center -> center arrival
 -> five-cap machine-camera registration
 -> four immutable contact observations -> accepted tip-camera registration
--> closed picture-frame plan + local baseline/reveal pose
+-> closed drawing-frame plan + local baseline/reveal pose
 -> frame execution + newer post-frame
 -> planned ink observation -> residual -> typed comparison + durable validation record
 -> paper coverage + placed DrawingProgram -> immutable execution plan
@@ -470,7 +470,7 @@ shows the exact suffix and rejects a stale summary. Reset All Learning is always
 available from the Learning Path menu. It cancels and settles a current
 Learning-owned operation through its typed owner, then clears all accepted
 Learning authority for the current source, including the durable accepted
-checkpoint, and returns progression to Pen Interaction. Reset itself admits no
+checkpoint, and returns progression to Exercise 1.1. Reset itself admits no
 new motion, changes no pen state merely to reset, never resends or redraws, and
 does not claim to erase ink. It preserves the controller session, Motion
 authorization, and selected camera so direct manual controls remain independent.
@@ -491,7 +491,7 @@ raw observations remain history.
 
 SIMULATED traverses the same public actions and dependency graph. It owns a
 simulated session, Motion authorization, MPos, pen pose, renewable Boundary
-motion, 2 mm-radius circular marks, closed picture-frame drawing, paper revision,
+motion, 2 mm-radius circular marks, closed drawing-frame drawing, paper revision,
 persistent ink, causal frames, and a real nonzero cap-to-tip truth.
 
 Annotations are exact identity-bound presentation only. They do not modify

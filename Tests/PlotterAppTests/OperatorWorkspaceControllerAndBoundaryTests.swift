@@ -159,7 +159,7 @@ extension OperatorWorkspaceTests {
     await workspace.shutdown()
   }
 
-  @Test("Pen Interaction sliders update current values and retain them in its existing attempt")
+  @Test("pen calibration sliders update current values and retain them in the attempt")
   func penInteractionRetainsMutableCurrentValues() async throws {
     let log = EventLog()
     let machine = try MachineFixture(log: log)
@@ -176,7 +176,7 @@ extension OperatorWorkspaceTests {
     var strip = try #require(workspace.selectedOperatorActionPresentation(for: owner).actionStrip)
     #expect(strip.penSetpointAdjustment?.command == .raise)
     #expect(strip.penSetpointAdjustment?.value == 40)
-    #expect(strip.actions.map(\.title) == ["Next", "Cancel Attempt"])
+    #expect(strip.actions.map(\.title) == ["Confirm Pen Up", "Cancel Attempt"])
 
     await workspace.performExerciseAction(.setPenSetpoint(.raise, 55), for: owner)
     try await waitUntilAsync {
@@ -188,7 +188,7 @@ extension OperatorWorkspaceTests {
     strip = try #require(workspace.selectedOperatorActionPresentation(for: owner).actionStrip)
     #expect(strip.penSetpointAdjustment?.command == .lower)
     #expect(strip.penSetpointAdjustment?.value == 760)
-    #expect(strip.actions.map(\.title) == ["Next", "Cancel Attempt"])
+    #expect(strip.actions.map(\.title) == ["Confirm Pen Down", "Cancel Attempt"])
 
     await workspace.performExerciseAction(.setPenSetpoint(.lower, 805), for: owner)
     try await waitUntilAsync {
@@ -217,7 +217,7 @@ extension OperatorWorkspaceTests {
     await workspace.shutdown()
   }
 
-  @Test("Pen Interaction coalesces drag values, Next waits, and Cancel drops an unaccepted value")
+  @Test("pen calibration coalesces drag values, confirmation waits, and Cancel drops an unaccepted value")
   func penInteractionLatestValueAndCancelSemantics() async throws {
     let log = EventLog()
     let gate = PenRequestGate()
@@ -261,7 +261,7 @@ extension OperatorWorkspaceTests {
     await workspace.shutdown()
   }
 
-  @Test("Next accepts the observed value and records a refused slider outcome")
+  @Test("pen-position confirmation records a refused slider outcome")
   func penInteractionNextHasNoControllerOutcomeGuard() async throws {
     let log = EventLog()
     let machine = try MachineFixture(log: log)
@@ -697,11 +697,11 @@ extension OperatorWorkspaceTests {
     #expect(authority.first(where: { $0.id == "vision" })?.blocksNewMotion == false)
     #expect(
       authority.first(where: { $0.id == "vision" })?.detail.accessibilityText
-        .contains("boundary acceptance never calls Camera or Vision") == true
+        .contains("Drawing Boundary measurements do not use Camera or Vision") == true
     )
     let events = await log.values
     #expect(
-      events.firstIndex(of: "announce:Moving the plotter toward the positive X boundary.")!
+      events.firstIndex(of: "announce:Moving the plotter toward the positive X drawing boundary.")!
         < events.firstIndex(of: "machine:boundary")!)
     await workspace.shutdown()
   }

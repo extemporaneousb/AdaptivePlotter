@@ -117,11 +117,11 @@ struct OperatorWorkspaceLifecycleTests {
     #expect(workspace.contextualStopPresentation == nil)
     #expect(workspace.observedDrawingTrialStep == .revealAndObserveNewInk)
     #expect(workspace.restartableExerciseItemID == nil)
-    #expect(workspace.explorationError?.contains("will not be restarted") == true)
+    #expect(workspace.explorationError?.contains("will not restart") == true)
     await workspace.shutdown()
   }
 
-  @Test("one Go previews the predicted frame before motion and completes automatically")
+  @Test("Draw and Validate Frame previews the planned frame before motion and completes automatically")
   func oneGoPreviewsThenCompletesTrial() async throws {
     let harness = makeSimulatedHarness()
     let workspace = harness.workspace
@@ -259,7 +259,7 @@ struct OperatorWorkspaceLifecycleTests {
       Issue.record("Expected typed ambiguous Boundary disposition")
       return
     }
-    #expect(detail == "The simulated Boundary owner lost attributable segment completion.")
+    #expect(detail == "The simulated Drawing Boundary motion lost attributable segment completion.")
     #expect(workspace.contextualStopPresentation == nil)
     await workspace.shutdown()
   }

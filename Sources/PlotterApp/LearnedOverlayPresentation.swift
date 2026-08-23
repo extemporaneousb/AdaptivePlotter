@@ -16,7 +16,7 @@ enum ActionSurfaceOverlayStyleToken: Hashable, Sendable {
 enum ActionSurfaceOverlayPresentationGrammar {
   static func semanticLabel(for kind: CameraOverlayKind) -> String? {
     switch kind {
-    case .acceptedBoundary: "ACCEPTED 3.2 BOUNDARY"
+    case .acceptedBoundary: LearningPathTerminology.Evidence.acceptedDrawingBoundaryOverlay
     case .calibratedDrawableRegion: "FOUR-POINT FRAME · 10 MM INSET"
     case .paperCoverage: "CURRENT PAPER COVERAGE"
     case .predictedContactPoint: "PREDICTED CONTACT POINT · NOT OBSERVED"

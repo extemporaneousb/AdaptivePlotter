@@ -8,9 +8,9 @@ to the task.
 - Journey vocabulary, build/test/launch commands, or repository orientation:
   [README](../README.md).
 - Product semantics, safety, evidence classes, sparse calibration, checkpoint
-  applicability, simulator boundary, or Stage 4 dependency:
+  applicability, simulator boundary, or Stage 2 dependency:
   [Product Contract](PRODUCT_CONTRACT.md).
-- Exact Boundary, five-cap, five-contact, checkpoint recovery, Stage 4, Stop,
+- Exact Drawing Boundary, five-cap, four-contact, checkpoint recovery, Stage 2, Stop,
   ambiguity, or reset sequence:
   [Discovery and Observed-Trial Protocol](DISCOVERY_AND_OBSERVED_TRIAL_PROTOCOL.md).
 - Learning Path button inventory, click destinations, or external dependency

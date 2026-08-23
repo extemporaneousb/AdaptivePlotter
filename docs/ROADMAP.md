@@ -13,10 +13,10 @@ disposable sheet. Validate actual controller settlement, five cap captures,
 four 10 mm-inset Boundary-corner 2 mm-radius circular marks with no center
 mark and Pen Up
 between them, one final center Pen-Up reveal, the separately labeled accepted
-3.2 Boundary and inset-frame overlays, one shared frozen exact frame, four
+Exercise 1.2 Drawing Boundary and inset-frame overlays, one shared frozen exact frame, four
 arbitrary-order human center clicks, deterministic global association, the
 all-corner affine-first commit on click four, one predicted-frame preview before
-motion, one complete one-Go Stage 4.1 observed picture frame, retained exact comparison
+motion, one complete Exercise 2.1 drawing-frame validation, retained exact comparison
 review, new-sheet coverage confirmation, and one simple physical Drawing Studio
 plan with post-run planned-versus-observed review. Record failures without
 redrawing ambiguous locations.
@@ -49,7 +49,7 @@ association with the evidence graph.
 The typed run record, fixed evidence roles, multi-stroke execution owner,
 generic planned-ink observer, and append-only archive now exist. Add the active
 selection policy and bounded training batch that choose clean lines across the accepted map's
-position range and all four signed axis directions. One operator **Go** starts
+position range and all four signed axis directions. One operator action starts
 the batch; software owns normal trial-to-trial progression and **Stop** remains
 available throughout. Each line keeps its own baseline/reveal frames, exact tip
 revision, controller and paper identities, request, execution, ink, and
@@ -90,8 +90,8 @@ holdouts. It may be emitted only when every predeclared requirement passes and
 no counted trial is refused, ambiguous, possible-ink, or Vision-unclear.
 
 Until 4.2–4.5 pass attended physical evaluation, the truthful states are **Map
-ready** after Stage 3.4 and **Interactive learning complete · one validation**
-after Stage 4.1—not **Trained**. Direct Drawing Studio execution may use that
+ready** after Exercise 1.4 and **Drawing validation complete**
+after Exercise 2.1—not **Trained**. Direct Drawing Studio execution may use that
 validated current map and records every outcome, but **Adaptive drawing ready**
 may appear only from a current scoped Ready assessment.
 
@@ -100,7 +100,7 @@ may appear only from a current scoped Ready assessment.
 Measure within-session and cross-session sensitivity to focus, mount, tool,
 paper, temperature, controller-coordinate, and capture restarts. Use those
 results to characterize drift, revalidation cadence, and diagnostic residual
-distributions. They must not create Stage 3.4 residual, confidence, or
+distributions. They must not create Exercise 1.4 residual, confidence, or
 model-quality gates.
 
 ## 6. Operational hardening

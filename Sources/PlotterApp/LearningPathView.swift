@@ -122,7 +122,7 @@ struct LearningPathNavigator: View {
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(
       "\(item.id.number) \(item.id.title), \(item.status.rawValue)"
-        + (item.id == selection.current ? ", runtime current" : "")
+        + (item.id == selection.current ? ", current exercise" : "")
     )
     .accessibilityHint("Reviews this row without starting an action")
   }
@@ -435,7 +435,7 @@ struct LearningPathView: View {
     _ statuses: [SubsystemStatusPresentation]
   ) -> some View {
     VStack(alignment: .leading, spacing: 9) {
-      Text("SYSTEM AUTHORITY")
+      Text("SYSTEM STATUS")
         .font(.caption2.monospaced().bold())
         .foregroundStyle(.secondary)
       ForEach(statuses) { status in
@@ -590,7 +590,7 @@ private struct LearningResetSheet: View {
 
   private var confirmationSummary: String {
     if plan.scope == .all {
-      return "This will completely clear the current \(plan.source.rawValue) Learning Path and its saved accepted checkpoint. The path will return to 3.1 Pen Interaction."
+      return "This will completely clear the current \(plan.source.rawValue) Learning Path and its saved accepted checkpoint. The path will return to 1.1 Identify and Calibrate the Pen."
     }
     return "This will clear saved \(plan.source.rawValue) Learning Path results from \(plan.anchor.number) \(plan.anchor.title) onward."
   }
@@ -615,7 +615,7 @@ private struct ExerciseActionStripView: View {
 
       if reviewedItemID != presentation.ownerID {
         Label(
-          "Reviewing \(reviewedItemID.number); controls remain with the runtime action owner.",
+          "Reviewing \(reviewedItemID.number); controls remain with the current exercise.",
           systemImage: "eye"
         )
         .font(.caption)
@@ -653,7 +653,7 @@ private struct ExerciseActionStripView: View {
           .accessibilityHint(
             "Adjusts and sends the current Pen \(adjustment.command.commandedState.rawValue) servo value."
           )
-          Text("Move the slider until the pen position is correct, then choose Next.")
+          Text("Move the slider until the physical pen position is correct, then confirm that position.")
             .font(.caption2)
             .foregroundStyle(.secondary)
         }

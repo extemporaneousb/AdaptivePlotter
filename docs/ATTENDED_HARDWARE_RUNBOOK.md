@@ -50,7 +50,7 @@ operator name or identifier.
 2. Verify current units, distance mode, coordinate system, settings digest,
    pins, Pen state, Idle state, and MPos are expected.
 3. Enable Motion only after those facts are acceptable.
-4. Start Pen Interaction. Its first action is **Identify Pen Cap**. Confirm the
+4. Start Exercise 1.1. Its first action is **Identify Pen Cap**. Confirm the
    app freezes one current exact frame before any pen question or actuation, then
    click a visibly colored area of the cap body, not the tip. Confirm the
    accepted learned color visually corresponds to the cap and that the recorded
@@ -58,7 +58,8 @@ operator name or identifier.
    Reject stale-frame, gray/white/dark, or insufficiently chromatic samples;
    do not work around refusal with a color picker.
 5. Complete the Up → Down → Up sequence. Use the Up and Down sliders to choose
-   functional values at the current position; **Next** accepts the displayed
+   functional values at the current position; **Confirm Pen Up** or **Confirm
+   Pen Down** accepts the displayed
    value even if the request was refused or ambiguous. Record the values and
    whatever controller outcome, timestamp, and MPos are available. A fresh
    session is seeded at `S40` and `S760`; repeated attempts start with the
@@ -74,14 +75,14 @@ operator name or identifier.
 Any ambiguous or out-of-tolerance result ends this run. It is not evidence for
 the requested side or center.
 
-## 2. Stage 3.3 — camera and visible-cap calibration
+## 2. Exercise 1.3 — camera calibration from Pen Cap positions
 
 1. Confirm Pen Up and an unobstructed camera view of the complete five-position
-   cross. Confirm Stage 3.3 is using the accepted **Identify Pen Cap** appearance
-   from Pen Interaction and exposes no independent color-editing control.
+   cross. Confirm Exercise 1.3 is using the accepted **Identify Pen Cap** appearance
+   from Exercise 1.1 and exposes no independent color-editing control.
 2. Establish a non-full zoom and pan, lock the analysis region, and record the
    exact displayed and locked camera-pixel rectangle.
-3. Start **Capture Five Cap Samples**.
+3. Press **Run Five-Position Camera Calibration**.
 4. Observe Pen-Up travel through `C`, `X−`, `Y+`, `X+`, and `Y−`.
 5. At each pose, confirm the carriage settles before inspection. Confirm the app
    accepts exactly three strictly newer source/configuration-compatible LIVE
@@ -100,20 +101,20 @@ the requested side or center.
 Do not accept after a camera/device/mount/crop/orientation/focus change. Restart
 the attended run with explicit invalidation and new evidence.
 
-## 3. Stage 3.4 — four 10 mm-inset 2 mm-radius circles
+## 3. Exercise 1.4 — four 10 mm-inset 2 mm-radius circles
 
-Confirm Stage 3.4 plans no center circle. Its four corner-circle centers are
+Confirm Exercise 1.4 plans no center circle. Its four corner-circle centers are
 exactly 10 mm inside the accepted Boundary on both adjacent axes, so each 2 mm-
-radius footprint remains 8 mm clear of those edges. Stage 3.3
+radius footprint remains 8 mm clear of those edges. Exercise 1.3
 remains on its separate center plus four ±24 mm camera-calibration positions.
 
-1. Press **Draw Four Corner Circles** once.
+1. Press **Draw Four Calibration Circles** once.
 2. For each of the four framing marks, watch Pen-Up travel settle at the
    intended MPos, compare each center with the accepted Boundary coordinate and
    exact 10 mm inset, confirm the pre-mark
    frame/cap/controller evidence is retained, and watch Pen-Up travel settle at
    the circle start.
-3. Confirm the app commands and settles the current Pen Interaction Down value.
+3. Confirm the app commands and settles the current Exercise 1.1 Pen Down value.
    Directly observe physical contact; the command outcome alone is not proof.
 4. Watch one closed 4 mm-diameter circle complete as 16 short chords at no more
    than 100 mm/min. Confirm Pen Up settles before any travel toward the next
@@ -134,20 +135,20 @@ remains on its separate center plus four ±24 mm camera-calibration positions.
    Frame**. Confirm no motion, ink, redraw, new frame, zoom, or pan occurs.
 9. On the fourth valid click, confirm the app constructs but does not yet accept
    the all-corner affine `TipCameraRegistration`. Review the frozen-frame markers,
-   the separately labeled accepted 3.2 Boundary, the cyan inset rectangle through
+   the separately labeled accepted Drawing Boundary, the cyan inset rectangle through
    the four selected centers, diagnostic residuals, RMS, covariance, and
-   uncertainty. Choose **Accept Tip
-   Map** and confirm Stage 4 becomes current. Also exercise **Reject Tip Map**
+   uncertainty. Choose **Accept Pen-Tip Calibration** and confirm Stage 2
+   becomes current. Also exercise **Reject Pen-Tip Calibration**
    once and confirm the same frame remains available without motion, capture,
    ink, or redraw. Constant correction is expected only if affine construction
-   itself fails. **Retry Calibration Commit** is valid only after an actual
+   itself fails. **Retry Pen-Tip Calibration Save** is valid only after an actual
    atomic acceptance failure.
 
 If any chord, contact, or Pen state is ambiguous, stop. The circle center/radius
 on this paper is blacklisted. Do not retry it or reset around it. The only
 same-workflow recovery is an explicit paper replacement.
 
-Stage 3.4 has no holdouts or numerical model-failure state. Paper replacement is
+Exercise 1.4 has no holdouts or numerical model-failure state. Paper replacement is
 available only after the operator actually replaces paper or as the existing
 possible-ink recovery; numerical fitting cannot offer it.
 
@@ -162,7 +163,7 @@ restoration.
   drawing paths, and advisory optical comparison projected into the current
   frame. Confirm neither preview nor **Start New Learning** changes the active
   dependency graph, registration, controller pose, session ownership, or
-  hardware. Choose **Use Saved Training** only when the overlays are correct;
+  hardware. Choose **Use Saved Learning** only when the overlays are correct;
   confirm it applies the exact saved revisions atomically without motion or
   command replay. Repeat with **Start New Learning** and confirm the last
   complete package remains available until a complete replacement is saved.
@@ -181,22 +182,22 @@ restoration.
 - Changed support, stock thickness, contact height, or contact plane: choose
   **Contact Plane Changed**. Confirm tip authority is invalidated, rebuild
   current machine-camera authority if required, then run a complete new
-  four-circle Stage 3.4 batch, then review and accept the new map.
+  four-circle Exercise 1.4 calibration, then review and accept the new calibration.
 
 If any semantic identity is uncertain, do not revalidate. Clear the durable tip
 checkpoint and perform a new four-mark calibration.
 
-## 5. Stage 4 — observed picture frame
+## 5. Exercise 2.1 — draw and validate the frame
 
 1. Record the exact current tip registration revision.
-2. Press **Go** once. Confirm a cyan predicted closed frame through the four
-   accepted circle centers appears inside the separately labeled accepted 3.2
+2. Press **Draw and Validate Frame** once. Confirm a cyan planned closed frame through the four
+   accepted circle centers appears inside the separately labeled accepted Drawing
    Boundary on the current video before motion and that its machine path and
    exact tip revision are visible. There is no direction
    prompt or phase-by-phase approval.
 3. Observe the displayed activity move through plan, local baseline, Pen-Up
    travel, draw, reveal/observe, and comparison. During motion, confirm the exact
-   **Stop** remains available. No additional **Go**, **Next**, or approval should
+   **Stop** remains available. No additional continuation or approval should
    be required on the normal path.
 4. Watch Pen-Up travel settle at the lower-left frame start, then directly
    observe four orthogonal edges and four right-angle turns under the single
@@ -227,7 +228,7 @@ Up and observe the existing stroke, but it must not redraw it.
 2. Replace the disposable sheet if necessary using **New Sheet — Same Contact
    Plane**. Place it fully over the outline and press **Assert Sheet Covers
    Outline**. Confirm the top paper status names this as an operator assertion,
-   not measured paper edges, without changing the accepted tip map.
+   not measured paper edges, without changing the accepted pen-tip calibration.
 3. Select a square first. Place it near the drawable-region center, resize and
    rotate it, and confirm the projected target follows the video click while
    remaining entirely inside the outline. Move it partly outside and verify Run
@@ -245,7 +246,7 @@ Up and observe the existing stroke, but it must not redraw it.
    calibration/paper provenance, request/execution frontiers, controller
    disposition, and observation outcome. Restart the app and confirm the
    prior execution-plan path appears in the saved-training preview. After
-   choosing **Use Saved Training**, confirm attributable Stage 4 validation and
+   choosing **Use Saved Learning**, confirm attributable Stage 2 validation and
    Drawing Studio availability return without motion replay.
 8. Repeat with one tessellated curve and one multi-stroke catalog item only if
    the square is clean. Stop on any uncertain mark; do not resend or redraw.

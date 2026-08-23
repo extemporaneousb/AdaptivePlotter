@@ -104,7 +104,7 @@ struct CurrentCameraCalibrationPlanningTests {
     #expect(pathEnd.distance(to: mark.startPosition.point) < 1e-9)
   }
 
-  @Test("Stage 3.4 places four circle centers 10 mm inside the accepted Boundary")
+  @Test("Exercise 1.4 places four circle centers 10 mm inside the accepted Drawing Boundary")
   func sparseBatchGeometry() throws {
     let envelope = try boundaryEnvelope(
       negativeX: -100,
@@ -151,7 +151,7 @@ struct CurrentCameraCalibrationPlanningTests {
     }
   }
 
-  @Test("Stage 3.4 uses a 10 mm center inset and refuses collapsed frame axes")
+  @Test("Exercise 1.4 uses a 10 mm center inset and refuses collapsed frame axes")
   func sparseBatchUsesTenMillimeterInset() throws {
     let wide = try SparseTipBatchMarkPlan(
       boundarySideAggregates: boundaryEnvelope(
@@ -303,7 +303,7 @@ struct CurrentCameraCalibrationPlanningTests {
     ])
   }
 
-  @Test("Stage 4 frame plan closes the four corners with orthogonal segments")
+  @Test("Exercise 2.1 frame plan closes the four corners with orthogonal segments")
   func stageFourFramePlan() throws {
     let domain = try AxisAlignedBounds<MachineSpace>(
       minX: -30, minY: -30, maxX: 30, maxY: 30

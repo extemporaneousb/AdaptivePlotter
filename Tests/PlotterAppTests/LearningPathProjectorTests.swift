@@ -78,16 +78,16 @@ struct LearningPathProjectorTests {
     )
 
     #expect(try #require(pen.currentActionStrip).actions.map(\.title) == ["Identify Pen Cap"])
-    #expect(try #require(boundary.currentActionStrip).actions.map(\.title) == ["Start"])
+    #expect(try #require(boundary.currentActionStrip).actions.map(\.title) == ["Move Toward X+"])
     #expect(
       try #require(cameraCalibration.currentActionStrip).actions.map(\.title)
-        == ["Capture Five Cap Samples"]
+        == ["Run Five-Position Camera Calibration"]
     )
     #expect(
       try #require(sparseCalibration.currentActionStrip).actions.map(\.title)
-        == ["Draw Four Corner Circles"]
+        == ["Draw Four Calibration Circles"]
     )
-    #expect(try #require(drawing.currentActionStrip).actions.map(\.title) == ["Go"])
+    #expect(try #require(drawing.currentActionStrip).actions.map(\.title) == ["Draw and Validate Frame"])
   }
 
   @Test("LIVE and SIMULATED use the same progression and action grammar")
@@ -194,7 +194,7 @@ struct LearningPathProjectorTests {
     #expect(controller?.state == "Calibration active / manual controls independent")
     #expect(controller?.blocksNewMotion == false)
     #expect(vision?.blocksNewMotion == false)
-    #expect(vision?.detail.accessibilityText.contains("does not gate direct manual controls") == true)
+    #expect(vision?.detail.accessibilityText.contains("Direct manual controls remain independent") == true)
   }
 
   @Test("reset and vacate inputs are projected but never executed")
@@ -255,20 +255,21 @@ struct LearningPathProjectorTests {
       .calibratePenContactFromSparseMarks
     )
     let phases: [(SparseTipCalibrationPhase, Int, [String])] = [
-      (.idle, 0, ["Draw Four Corner Circles", "Cancel Attempt"]),
-      (.drawingBatch, 0, ["Drawing Four Corner Circles…", "Cancel Attempt"]),
-      (.revealingBatch, 0, ["Revealing Four Corner Circles…", "Cancel Attempt"]),
+      (.idle, 0, ["Draw Four Calibration Circles", "Cancel Attempt"]),
+      (.drawingBatch, 0, ["Drawing Four Calibration Circles…", "Cancel Attempt"]),
+      (.revealingBatch, 0, ["Capturing Calibration Reveal…", "Cancel Attempt"]),
       (.awaitingFrozenClicks(FrameID(rawValue: "frame-1")), 0, ["Cancel Attempt"]),
       (.awaitingFrozenClicks(FrameID(rawValue: "frame-1")), 2,
         ["Undo Last Click", "Clear Clicks on This Frame", "Cancel Attempt"]),
       (.fittingModel, 4, ["Fitting Tip Calibration…", "Cancel Attempt"]),
       (.reviewingModel(.directAffine), 4,
         [
-          "Accept Tip Map", "Undo Last Click", "Clear Clicks on This Frame", "Reject Tip Map",
+          "Accept Pen-Tip Calibration", "Undo Last Click", "Clear Clicks on This Frame",
+          "Reject Pen-Tip Calibration",
           "Cancel Attempt",
         ]),
       (.committingModel(.constantCameraPixelCorrection),
-        4, ["Retry Calibration Commit", "Cancel Attempt"]),
+        4, ["Retry Pen-Tip Calibration Save", "Cancel Attempt"]),
     ]
 
     for (phase, collectedClickCount, titles) in phases {
@@ -281,7 +282,40 @@ struct LearningPathProjectorTests {
     }
   }
 
-  @Test("Drawing Trial phases remain under one visible Go-owned exercise")
+  @Test("projected calibration and validation copy matches the four-corner frame workflow")
+  func currentWorkflowCopy() throws {
+    let tipOwner = LearningPathItemID.humanGuidedDiscovery(
+      .calibratePenContactFromSparseMarks
+    )
+    let tipProjection = projector.project(
+      postBoundarySnapshot(
+        sparse: .init(
+          phase: .awaitingFrozenClicks(FrameID(rawValue: "frame-1")),
+          acceptedObservationCount: 4,
+          collectedClickCount: 4
+        )
+      ),
+      selectedItemID: tipOwner
+    )
+    let tipEvidence = tipProjection.selectedAction.evidence
+      .flatMap(\.fragments)
+      .accessibilityText
+    #expect(tipEvidence.contains("4/4 accepted"))
+    #expect(!tipEvidence.contains("/5 accepted"))
+
+    let drawingOwner = LearningPathItemID.observedDrawingTrial(.chooseFramePlan)
+    let drawingProjection = projector.project(
+      postBoundarySnapshot(sparse: .init(acceptedIsCurrent: true)),
+      selectedItemID: drawingOwner
+    )
+    let drawingInstructions = drawingProjection.selectedAction.instructions.accessibilityText
+    #expect(drawingInstructions.contains("Draw and Validate Frame"))
+    #expect(drawingInstructions.contains("four-edge frame"))
+    #expect(!drawingInstructions.contains("5 mm"))
+    #expect(!drawingInstructions.contains("isolated line"))
+  }
+
+  @Test("drawing phases remain under one visible validation exercise")
   func drawingTrialProgression() throws {
     let current = ObservedDrawingTrialStep.drawPictureFrame
     let owner = LearningPathItemID.observedDrawingTrial(.chooseFramePlan)
@@ -298,7 +332,7 @@ struct LearningPathProjectorTests {
 
     #expect(currentProjection.currentItemID == owner)
     #expect(currentProjection.currentActionStrip?.actions.map(\.kind) == [.start])
-    #expect(currentProjection.currentActionStrip?.actions.first?.title == "Continue Trial")
+    #expect(currentProjection.currentActionStrip?.actions.first?.title == "Resume Frame Validation")
     #expect(currentProjection.selectedAction.itemID == owner)
     #expect(currentProjection.selectedAction.timeline?.position == current.rawValue)
     #expect(currentProjection.selectedAction.status == .current)
@@ -364,7 +398,7 @@ struct LearningPathProjectorTests {
     }
   }
 
-  @Test("completed curriculum remains on the one-Go observed-trial endpoint")
+  @Test("completed curriculum remains on the drawing-frame validation endpoint")
   func completedCurriculumHasNoFutureRoute() {
     let final = LearningPathItemID.observedDrawingTrial(.chooseFramePlan)
     let snapshot = postBoundarySnapshot(

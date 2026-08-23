@@ -8,6 +8,16 @@ enum ExactWorkflowVisionOwner: String, CaseIterable, Hashable, Sendable {
   case sparseTipCalibration
   case observedDrawingTrial
   case drawingStudio
+
+  var operatorLabel: String {
+    switch self {
+    case .penCapAppearance: "pen-cap identification"
+    case .cameraCalibration: "camera calibration"
+    case .sparseTipCalibration: "pen-tip calibration"
+    case .observedDrawingTrial: "drawing-frame validation"
+    case .drawingStudio: "Drawing Studio validation"
+    }
+  }
 }
 
 extension BoundaryActivityOperation {
@@ -219,7 +229,7 @@ struct LearningPathProjectionSnapshot: Sendable {
       framePath: [MachinePosition] = [],
       localBaselineFrameID: String? = nil,
       frameSettled: Bool = false,
-      inkStatus: String = "no picture-frame observation yet",
+      inkStatus: String = "no drawing-frame observation yet",
       assessment: DrawingTrialAssessment? = nil,
       lastTravelFeed: TravelFeedSelection? = nil
     ) {
@@ -507,19 +517,19 @@ struct LearningPathProjector: Sendable {
   ) -> String {
     switch itemID {
     case .stage(.humanGuidedDiscovery):
-      "Observe Pen Interaction, four paired boundaries, center arrival, camera/cap calibration, and sparse-mark pen-contact calibration."
+      "Identify and calibrate the pen, measure all four drawing-boundary sides, move to the estimated center, calibrate the camera from five pen-cap positions, and calibrate the pen tip from four corner marks."
     case .humanGuidedDiscovery(.penInteraction):
-      "Identify the pen-cap color on one exact frame, then observe the physical pen UP, DOWN, then UP again."
+      "Identify the pen cap on one frozen frame, then set and confirm the physical Pen Up, Pen Down, and final Pen Up positions."
     case .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering):
-      "Observe both X sides and both Y sides in paired order, then move Pen Up to their estimated center."
+      "Measure the X−, X+, Y−, and Y+ drawing-boundary sides with operator Stop, then move Pen Up to their estimated center."
     case .humanGuidedDiscovery(.calibrateCameraAndVisibleCap):
-      "Capture five exact cap samples at normalized 10/50/90 cross positions, validate two independent holdouts, then explicitly accept or reject the all-five camera fit."
+      "Run five Pen-Up cap measurements at the center and four axis positions. Three measurements fit the camera calibration and two independently check it before review."
     case .humanGuidedDiscovery(.calibratePenContactFromSparseMarks):
-      "Draw four 2 mm-radius circles with each center 10 mm inside its adjacent accepted Boundary edges, keeping every circle outline 8 mm clear; perform one final Pen-Up reveal, then click the four centers in any order on the shared frozen frame. Click four fits the tip map and overlays both the accepted 3.2 Boundary and the inset four-point frame for review."
+      "Draw four 2 mm-radius calibration circles whose centers are 10 mm inside the accepted Drawing Boundary. After one final Pen-Up reveal, click the four circle centers on the unchanged frame and review the proposed pen-tip calibration."
     case .stage(.observedDrawingTrials):
-      "Use the accepted machine-to-paper-pixel map to preview, draw, observe, and compare the closed picture frame through those four corners."
+      "Use the accepted pen-tip calibration to preview, draw, observe, and compare one closed frame through the four calibration-circle centers."
     case .observedDrawingTrial(.chooseFramePlan):
-      "Press Go once. The app plans and previews the predicted four-edge frame, captures a local baseline, moves and draws the right-angle perimeter, returns to reveal, runs Vision, and records the comparison automatically."
+      "Press Draw and Validate Frame once. The app previews the four-edge frame, captures a baseline, draws the perimeter, returns Pen Up for a new image, and compares the observed ink with the plan."
     case .observedDrawingTrial(let step): drawingActionText(step)
     }
   }
@@ -591,9 +601,9 @@ extension LearningPathProjector {
         stepNumber: step.stepNumber,
         title: itemID.title,
         status: status(for: itemID, current: current, snapshot: snapshot),
-        participant: isVisibleTrial ? "Plotter training runtime" : drawingParticipant(step),
+        participant: isVisibleTrial ? "Application" : drawingParticipant(step),
         instructions: [.text(isVisibleTrial
-          ? "Press Go once. Keep Stop available during motion; normal planning, preview, baseline, motion, drawing, Vision, and comparison continue without further approval."
+          ? "Press Draw and Validate Frame once for one closed four-edge frame. Keep Stop available during motion; planning, preview, baseline capture, drawing, reveal, Vision analysis, and comparison then continue without another approval."
           : drawingActionText(step))],
         expectedObservation: [.text(isVisibleTrial
           ? "A predicted cyan rectangular frame appears before motion, then observed white ink and orange residuals appear on the exact post-frame image."
@@ -623,17 +633,17 @@ extension LearningPathProjector {
     else { return nil }
     let detail: String = switch owner {
     case .pairedBoundary(_, let direction):
-      "Stop \(direction.displayName) Boundary Discovery, wait for Idle, then commit its final controller position."
+      "Stop the \(direction.displayName) Drawing Boundary search. The app will wait for controller Idle and record the final position."
     case .manualJog:
       "Stop the active manual jog and wait for Idle."
     case .manualDrawing:
       "Stop the active manual drawing stroke, wait for Idle, and retain the controller's one Pen Up outcome."
     case .exercise(_, let action, _):
-      "Stop \(action.title) and wait for the original owner to settle. No training artifact is accepted."
+      "Stop \(action.title) and wait for the active operation to settle. No Learning Path result will be accepted."
     case .drawingTrial:
-      "Stop the picture-frame trial; the drawing-plan owner cancels once and owns the Pen Up settlement."
+      "Stop drawing-frame validation. The active drawing operation will cancel once and settle Pen Up."
     case .sparseTipBatch:
-      "Stop the four-corner calibration batch. Any possible ink is blacklisted and will not be redrawn automatically."
+      "Stop the four-circle calibration. Any location where ink may exist will be excluded from automatic redraw."
     }
     return ContextualStopPresentation(
       capabilityID: owner.capabilityID,
@@ -655,12 +665,12 @@ extension LearningPathProjector {
         actions: [
           ExerciseActionDescriptor(
             kind: .useSavedTraining,
-            title: "Use Saved Training",
+            title: LearningPathTerminology.Action.useSavedLearning,
             role: .positive
           ),
           ExerciseActionDescriptor(
             kind: .startNewLearning,
-            title: "Start New Learning",
+            title: LearningPathTerminology.Action.startNewLearning,
             role: .standard
           ),
         ],
@@ -694,8 +704,8 @@ extension LearningPathProjector {
           actions: [
             ExerciseActionDescriptor(
               kind: .start,
-              title: "\(snapshot.drawing.currentStep.title)…",
-              unavailableReason: "The one-Go picture-frame trial is in progress."
+              title: "\(LearningPathTerminology.Action.drawAndValidateFrame)…",
+              unavailableReason: "Drawing-frame validation is in progress."
             )
           ],
           mustRemainVisible: true
@@ -716,20 +726,20 @@ extension LearningPathProjector {
           actions = [
             ExerciseActionDescriptor(
               kind: .runCameraCalibrationAndBuildProposal,
-              title: "Capturing Five Cap Samples…",
-              unavailableReason: "Current-camera calibration is in progress."
+              title: "Running Five-Position Camera Calibration…",
+              unavailableReason: "Camera calibration is in progress."
             )
           ]
         } else if !snapshot.cameraCalibration.hasProposal {
           actions = [
             ExerciseActionDescriptor(
               kind: .runCameraCalibrationAndBuildProposal,
-              title: "Capture Five Cap Samples",
+              title: LearningPathTerminology.Action.runCameraCalibration,
               role: .positive
             ),
             ExerciseActionDescriptor(
               kind: .rejectCameraCalibrationProposal,
-              title: "Discard Cap Samples",
+              title: LearningPathTerminology.Action.discardCameraSamples,
               role: .destructive
             ),
           ]
@@ -737,12 +747,12 @@ extension LearningPathProjector {
           actions = [
             ExerciseActionDescriptor(
               kind: .acceptCameraCalibrationProposal,
-              title: "Accept Camera and Visible-Cap Fit",
+              title: LearningPathTerminology.Action.acceptCameraCalibration,
               role: .positive
             ),
             ExerciseActionDescriptor(
               kind: .rejectCameraCalibrationProposal,
-              title: "Reject Camera Fit",
+              title: LearningPathTerminology.Action.rejectCameraCalibration,
               role: .destructive
             ),
           ]
@@ -767,7 +777,9 @@ extension LearningPathProjector {
           actions = [
             ExerciseActionDescriptor(
               kind: .choice(.yes),
-              title: "Next",
+              title: state == .up
+                ? LearningPathTerminology.Action.confirmPenUp
+                : LearningPathTerminology.Action.confirmPenDown,
               role: .positive,
               unavailableReason: snapshot.startUnavailableReasons[itemID]
             )
@@ -802,7 +814,7 @@ extension LearningPathProjector {
         actions: [ExerciseActionDescriptor(
           kind: .restart,
           title: itemID == .observedDrawingTrial(.chooseFramePlan)
-            ? "Retry Trial" : "Restart",
+            ? "Retry Frame Validation" : "Restart Attempt",
           role: .positive
         )]
       )
@@ -871,11 +883,11 @@ extension LearningPathProjector {
     }
     if itemID == .observedDrawingTrial(.chooseFramePlan) {
       let title = switch snapshot.drawing.currentStep {
-      case .chooseFramePlan: "Go"
-      case .revealAndObserveNewInk: "Continue Observation"
-      case .compareIntendedAndObservedGeometry: "Finish Automatic Comparison"
+      case .chooseFramePlan: LearningPathTerminology.Action.drawAndValidateFrame
+      case .revealAndObserveNewInk: "Resume Frame Observation"
+      case .compareIntendedAndObservedGeometry: "Complete Frame Comparison"
       case .captureLocalPreFrameBaseline, .moveToFrameStart, .drawPictureFrame:
-        "Continue Trial"
+        "Resume Frame Validation"
       }
       return ExerciseActionStripPresentation(
         ownerID: itemID,
@@ -895,7 +907,7 @@ extension LearningPathProjector {
         actions: [
           ExerciseActionDescriptor(
             kind: .runCameraCalibrationAndBuildProposal,
-            title: "Capture Five Cap Samples",
+            title: LearningPathTerminology.Action.runCameraCalibration,
             role: .positive,
             unavailableReason: reason
           )
@@ -910,7 +922,7 @@ extension LearningPathProjector {
         actions: [
           ExerciseActionDescriptor(
             kind: .revalidateTipCalibrationCheckpoint,
-            title: "Revalidate Saved Tip Calibration",
+            title: "Revalidate Saved Pen-Tip Calibration",
             role: .positive,
             unavailableReason: reason
           )
@@ -937,7 +949,7 @@ extension LearningPathProjector {
         actions: [
           ExerciseActionDescriptor(
             kind: .drawFourCornerTipCircles,
-            title: "Draw Four Corner Circles",
+            title: LearningPathTerminology.Action.drawCalibrationCircles,
             role: .positive,
             unavailableReason: reason
           )
@@ -950,7 +962,8 @@ extension LearningPathProjector {
         ExerciseActionDescriptor(
           kind: .start,
           title: itemID == .humanGuidedDiscovery(.penInteraction)
-            ? "Identify Pen Cap" : "Start",
+            ? LearningPathTerminology.Action.identifyPenCap
+            : "Move Toward \(snapshot.selectedBoundaryDirection.displayName)",
           role: .positive,
           unavailableReason: reason
         )
@@ -972,20 +985,20 @@ extension LearningPathProjector {
     case .idle:
       [ExerciseActionDescriptor(
         kind: .drawFourCornerTipCircles,
-        title: "Draw Four Corner Circles",
+        title: LearningPathTerminology.Action.drawCalibrationCircles,
         role: .positive
       )]
     case .drawingBatch:
       [ExerciseActionDescriptor(
         kind: .drawFourCornerTipCircles,
-        title: "Drawing Four Corner Circles…",
-        unavailableReason: "The supervised four-corner batch is in progress."
+        title: "Drawing Four Calibration Circles…",
+        unavailableReason: "The four-circle calibration is in progress."
       )]
     case .revealingBatch:
       [ExerciseActionDescriptor(
         kind: .drawFourCornerTipCircles,
-        title: "Revealing Four Corner Circles…",
-        unavailableReason: "The one Pen-Up batch reveal is in progress."
+        title: "Capturing Calibration Reveal…",
+        unavailableReason: "The final Pen-Up calibration reveal is in progress."
       )]
     case .awaitingFrozenClicks:
       if collectedClickCount == 0 {
@@ -1012,7 +1025,7 @@ extension LearningPathProjector {
       [
         ExerciseActionDescriptor(
           kind: .acceptTipCalibrationProposal,
-          title: "Accept Tip Map",
+          title: LearningPathTerminology.Action.acceptPenTipCalibration,
           role: .positive
         ),
         ExerciseActionDescriptor(
@@ -1025,14 +1038,14 @@ extension LearningPathProjector {
         ),
         ExerciseActionDescriptor(
           kind: .rejectTipCalibrationProposal,
-          title: "Reject Tip Map",
+          title: LearningPathTerminology.Action.rejectPenTipCalibration,
           role: .destructive
         ),
       ]
     case .committingModel:
       [ExerciseActionDescriptor(
         kind: .retryTipCalibrationCommit,
-        title: "Retry Calibration Commit",
+        title: "Retry Pen-Tip Calibration Save",
         role: .positive
       )]
     case .possibleInkBlacklisted:
@@ -1050,7 +1063,7 @@ extension LearningPathProjector {
   private func stopActionTitle(
     _ owner: LearningPathProjectionSnapshot.StopOwner
   ) -> String {
-    if case .pairedBoundary = owner { return "Stop Boundary" }
+    if case .pairedBoundary = owner { return "Stop Boundary Search" }
     return "Stop"
   }
 
@@ -1117,14 +1130,14 @@ extension LearningPathProjector {
       let phase = snapshot.cameraCalibration.phase
     {
       return OperationActivityPresentation(
-        actor: operations.stopOwner == nil ? "Camera and learning runtime" : "Plotter controller",
-        action: "Build Camera Calibration Proposal",
+        actor: operations.stopOwner == nil ? "Camera and application" : "Plotter controller",
+        action: "Build Camera Calibration",
         phase: phase.description,
         outcome: .inProgress,
-        detail: [.text("The app owns three exact non-collinear fit samples, two independent holdouts, and the all-five accepted camera/cap fit.")],
+        detail: [.text("The app is collecting three exact fit measurements and two independent check measurements for one five-position camera calibration.")],
         recovery: operations.stopOwner == nil
           ? [.text("No operator calibration move or hand-drawn triangle is required.")]
-          : [.text("Stop remains bound to the currently admitted Pen-Up move.")]
+          : [.text("Stop remains available for the active Pen-Up move.")]
       )
     }
     if itemID == .observedDrawingTrial(.chooseFramePlan),
@@ -1138,17 +1151,17 @@ extension LearningPathProjector {
         outcome: .inProgress,
         detail: [.text(phase == .revealAndObserveNewInk
           && operations.exactWorkflowVisionOwner == .observedDrawingTrial
-          ? "Vision is comparing the trial-local exact baseline and strictly newer post-frame image now."
-          : "The one-Go trial owns progression; no additional approval is waiting.")],
+          ? "Vision is comparing the validation baseline with the strictly newer post-drawing image now."
+          : "Drawing-frame validation is progressing automatically; no additional approval is waiting.")],
         recovery: operations.stopOwner == nil
-          ? [] : [.text("Stop remains bound to the currently admitted motion owner.")]
+          ? [] : [.text("Stop remains available for the active motion.")]
       )
     }
     if itemID.stage == .humanGuidedDiscovery,
       let failure = operations.explorationFailure
     {
       return OperationActivityPresentation(
-        actor: operations.stopOwner == nil ? "Learning runtime" : "Plotter controller",
+        actor: operations.stopOwner == nil ? "Application" : "Plotter controller",
         action: current.title,
         outcome: .needsAttention,
         detail: [.text(failure.detail)],
@@ -1160,9 +1173,9 @@ extension LearningPathProjector {
       let failure = operations.discoveryFailure
     {
       return OperationActivityPresentation(
-        actor: transaction?.currentStep?.participant.displayName ?? "Learning runtime",
+        actor: transaction?.currentStep?.participant.displayName ?? "Application",
         action: transaction?.currentStep.map { discoveryActionText($0.action) }
-          ?? "Human-Guided Discovery",
+          ?? LearningPathTerminology.Stage.plotterCalibration,
         outcome: .needsAttention,
         detail: [.text(failure.detail)],
         recovery: operations.restartableItem == itemID
@@ -1206,7 +1219,7 @@ extension LearningPathProjector {
         }
       case .succeeded:
         return OperationActivityPresentation(
-          actor: "Learning runtime",
+          actor: "Application",
           action: transaction.title,
           outcome: .succeeded,
           detail: transaction.evidenceSummaries.last.map { [.text($0)] } ?? []
@@ -1231,7 +1244,7 @@ extension LearningPathProjector {
         outcome: audit.disposition == .operatorStop ? .inProgress : .cancelled,
         detail: [.text(audit.outcome)],
         recovery: audit.disposition == .operatorStop
-          ? [.text("The original owner must settle at Idle/final MPos before the controller-side commit continues.")]
+          ? [.text("The active motion must settle at Idle with final MPos before the Drawing Boundary result can be recorded.")]
           : [.text("Use Restart to create a new attempt.")]
       )
     }
@@ -1263,12 +1276,12 @@ extension LearningPathProjector {
     else if snapshot.cameraCalibration.phase != nil {
       controllerState = "Calibration active / manual controls independent"
     }
-    else if motionGateReason != nil { controllerState = "Admission blocked" }
-    else { controllerState = "Idle / admissible" }
+    else if motionGateReason != nil { controllerState = "Blocked" }
+    else { controllerState = "Idle / ready" }
 
     let isBoundaryReview = itemID == .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
     let suffix = isBoundaryReview
-      ? " Stage 3.2 boundary acceptance never calls Camera or Vision." : ""
+      ? " Drawing Boundary measurements do not use Camera or Vision." : ""
     let vision: (String, Bool, SubsystemAuthorityRole, String)
     if let owner = operations.exactWorkflowVisionOwner {
       vision = exactWorkflowVisionStatus(owner)
@@ -1277,7 +1290,7 @@ extension LearningPathProjector {
         phase.description,
         false,
         .operationOwner,
-        "Current-camera calibration owns the Learning operation, but it does not gate direct manual controls. Any admitted manual move remains separately shown under its Motion owner."
+        "Camera calibration is using the Learning Path operation slot. Direct manual controls remain independent, and any active manual move is shown separately."
       )
     } else if case .running(let cadence) = operations.visionState {
       vision = (
@@ -1292,9 +1305,9 @@ extension LearningPathProjector {
     let commitActive: Bool = if case .commitBoundaryObservation = transaction?.currentStep?.action {
       true
     } else { false }
-    let motionDetail = operations.stopOwner.map {
-      "An admitted operation owns motion under Stop capability \($0.capabilityID.rawValue.uuidString.lowercased())."
-    } ?? "No admitted operation currently owns controller motion."
+    let motionDetail = operations.stopOwner.map { _ in
+      "One active operation controls motion and exposes its matching Stop action."
+    } ?? "No Learning Path operation is using controller motion."
     return [
       SubsystemStatusPresentation(
         id: "controller",
@@ -1302,12 +1315,12 @@ extension LearningPathProjector {
         state: controllerState,
         role: .motionGate,
         blocksNewMotion: motionGateReason != nil,
-        detail: [.text(motionGateReason ?? "Controller facts currently admit a new direct carriage request.")]
+        detail: [.text(motionGateReason ?? "The controller is ready for a new direct carriage request.")]
       ),
       SubsystemStatusPresentation(
         id: "motion-owner",
-        subsystem: "Motion owner",
-        state: operations.stopOwner == nil ? "Unowned" : "Owned",
+        subsystem: "Active motion",
+        state: operations.stopOwner == nil ? "None" : "In progress",
         role: .operationOwner,
         blocksNewMotion: operations.stopOwner != nil,
         detail: [.text(motionDetail)]
@@ -1330,13 +1343,13 @@ extension LearningPathProjector {
       ),
       SubsystemStatusPresentation(
         id: "learning-commit",
-        subsystem: "Learning commit",
-        state: commitActive ? "Committing controller settlement" : "Idle",
+        subsystem: "Learning Path result",
+        state: commitActive ? "Recording boundary result" : "Idle",
         role: .evidenceCommit,
         blocksNewMotion: false,
         detail: [.text(isBoundaryReview
-          ? "Boundary commit consumes typed direction + operator Stop + controller Idle/final MPos only."
-          : "Learning commits record evidence after the owning operation settles.")]
+          ? "The Drawing Boundary result uses the selected direction, operator Stop, controller Idle, and final MPos only."
+          : "A Learning Path result is recorded only after its active operation settles.")]
       ),
     ]
   }
@@ -1371,7 +1384,7 @@ extension LearningPathProjector {
         "Trial ink analysis · active",
         false,
         .operationOwner,
-        "Vision is comparing the trial-local exact baseline with the strictly newer post-frame image. The preview remains visible and no redraw is requested."
+        "Vision is comparing the validation baseline with the strictly newer post-drawing image. The preview remains visible and no redraw is requested."
       )
     case .drawingStudio:
       (
@@ -1412,12 +1425,12 @@ extension LearningPathProjector {
     case .awaitOperatorChoice(let question): "Choose \(question.choiceLabel) for this question."
     case .announce(let message): "Announce: \(message)"
     case .startBoundaryJog(let direction):
-      "Start the logical \(direction.displayName) Boundary Discovery owner."
+      "Move toward the \(direction.displayName) Drawing Boundary."
     case .awaitContextualStop: "Observe the boundary and use the contextual Stop."
     case .cancelBoundaryJogAndAwaitIdle:
-      "Send one jog cancel and await the original motion owner."
+      "Send one jog cancel and wait for controller Idle."
     case .commitBoundaryObservation(let direction):
-      "Commit \(direction.displayName) from typed direction + Stop + controller Idle/final MPos. Camera and Vision are not consulted."
+      "Record the \(direction.displayName) Drawing Boundary from the selected direction, operator Stop, controller Idle, and final MPos. Camera and Vision are not used."
     case .actuatePen(let command): "Command Pen \(command.commandedState.rawValue)."
     case .awaitPhysicalPenConfirmation(let state, _):
       "Confirm whether the pen is physically \(state.rawValue)."
@@ -1430,52 +1443,52 @@ extension LearningPathProjector {
     case .operatorChoice: "One contextual YES or NO choice is recorded."
     case .announcementCompleted: "Speech output completes or reaches its advisory bound."
     case .boundaryJogStarted:
-      "The logical boundary owner is active while direct controller admission remains runtime-owned."
+      "The controller is moving toward the selected Drawing Boundary and Stop is available."
     case .operatorStopRequested: "Stop is recorded before cancellation begins."
-    case .boundaryJogCancelled: "The original motion owner reaches Idle with final MPos."
+    case .boundaryJogCancelled: "The active motion reaches Idle with final MPos."
     case .boundaryObservationCommitted:
       "Controller settlement evidence and the current side aggregate commit together."
-    case .penCommandSettled: "The typed pen command and dwell settle."
+    case .penCommandSettled: "The requested pen command and dwell settle."
     case .physicalPenConfirmed: "The operator confirms the visible physical pen pose."
     }
   }
 
   private func drawingParticipant(_ step: ObservedDrawingTrialStep) -> String {
     switch step {
-    case .chooseFramePlan: "Plotter training runtime"
+    case .chooseFramePlan: "Application"
     case .captureLocalPreFrameBaseline, .revealAndObserveNewInk: "Camera and Vision"
     case .moveToFrameStart, .drawPictureFrame: "Plotter controller"
-    case .compareIntendedAndObservedGeometry: "Plotter training runtime"
+    case .compareIntendedAndObservedGeometry: "Application"
     }
   }
 
   private func drawingActionText(_ step: ObservedDrawingTrialStep) -> String {
     switch step {
     case .chooseFramePlan:
-      "Choose one clear local 5 mm path in software and project it through the accepted tip model."
+      "Build the closed frame through the four accepted calibration-circle centers and project it through the accepted pen-tip calibration."
     case .captureLocalPreFrameBaseline:
       "Capture one exact local baseline and record this Pen-Up reveal pose."
     case .moveToFrameStart: "Move Pen Up to the recorded lower-left frame corner."
-    case .drawPictureFrame: "Execute the closed four-edge right-angle frame under one drawing-plan owner."
+    case .drawPictureFrame: "Draw the closed four-edge frame as one stoppable controller operation."
     case .revealAndObserveNewInk:
       "Return Pen Up to the local reveal pose, settle, capture a newer frame, and extract new ink."
     case .compareIntendedAndObservedGeometry:
-      "Record the normal typed comparison automatically; unclear evidence stops for review and never redraws."
+      "Record the plan-to-ink comparison automatically; unclear evidence stops for review and never redraws."
     }
   }
 
   private func drawingExpectationText(_ step: ObservedDrawingTrialStep) -> String {
     switch step {
     case .chooseFramePlan:
-      "One typed closed frame plan through the four accepted 10 mm-inset marks, projected by an exact tip-model revision."
+      "One closed frame plan through the four accepted 10 mm-inset marks, projected by the exact accepted pen-tip calibration."
     case .captureLocalPreFrameBaseline:
       "One exact pre-frame image and its Pen-Up reveal MPos."
     case .moveToFrameStart: "Arrival at the lower-left frame corner while Pen Up."
     case .drawPictureFrame: "A closed controller drawing-plan outcome for all four edges; this is not yet ink proof."
     case .revealAndObserveNewInk:
-      "Observed new picture-frame ink or a typed unclear/rejected observation, with no automatic redraw."
+      "Observed new drawing-frame ink or an explicit unclear/rejected observation, with no automatic redraw."
     case .compareIntendedAndObservedGeometry:
-      "One software-owned comparison completes only this attributable trial."
+      "One application-recorded comparison completes only this attributable validation."
     }
   }
 
@@ -1493,29 +1506,29 @@ extension LearningPathProjector {
 
   private func checkpointText(_ status: AcceptedArtifactCheckpointStatus) -> String {
     switch status {
-    case .unavailable: "No durable accepted-artifact checkpoint is available."
-    case .cleared: "The durable accepted-artifact checkpoint was explicitly cleared."
+    case .unavailable: "No Saved Learning is available."
+    case .cleared: "Saved Learning was cleared."
     case .awaitingOperatorDecision(let count, let hasTip):
-      "A saved training package with \(count) Boundary side(s)\(hasTip ? " and a tip registration" : "") is loaded for preview only. Choose Use Saved Training or Start New Learning."
+      "Saved Learning with \(count) Drawing Boundary side(s)\(hasTip ? " and a pen-tip calibration" : "") is loaded for preview only. Choose Use Saved Learning or Start New Learning."
     case .appliedByOperator(let count, let hasTip):
-      "The operator applied the saved training package with \(count) Boundary side(s)\(hasTip ? " and its exact tip registration" : ""). No motion was issued."
+      "The operator applied Saved Learning with \(count) Drawing Boundary side(s)\(hasTip ? " and its exact pen-tip calibration" : ""). No motion was issued."
     case .retainedForLater(let count, let hasTip):
-      "The saved package with \(count) Boundary side(s)\(hasTip ? " and a tip registration" : "") is retained while new Learning starts."
+      "Saved Learning with \(count) Drawing Boundary side(s)\(hasTip ? " and a pen-tip calibration" : "") is retained while new Learning starts."
     case .quarantined(let count):
-      "A checkpoint containing \(count) accepted Boundary side(s) is parked until a fresh passive controller probe matches."
+      "Saved Learning containing \(count) accepted Drawing Boundary side(s) is unavailable until the current controller setup matches."
     case .saved(let count, let center):
-      "Saved \(count) accepted Boundary side(s)\(center ? " plus center arrival" : "") atomically."
+      "Saved Learning now contains \(count) accepted Drawing Boundary side(s)\(center ? " plus center arrival" : "")."
     case .restored(let count, let center, let reportedPositionDelta):
       String(
-        format: "Restored %d accepted Boundary side(s)%@ after controller-context revalidation. Reported MPos changed %.3f mm; physical pose still requires visual revalidation.",
+        format: "Restored Saved Learning with %d accepted Drawing Boundary side(s)%@ after checking the controller setup. Reported machine position changed %.3f mm; the physical pose still requires visual confirmation.",
         count,
         center ? " plus center arrival" : "",
         reportedPositionDelta
       )
     case .incompatible(let reason):
-      "The accepted-artifact checkpoint remains quarantined: \(reason) No workflow or command was replayed."
+      "Saved Learning is unavailable: \(reason) No machine action was performed."
     case .rejected(let reason):
-      "The accepted-artifact checkpoint was rejected: \(reason) No workflow or command was replayed."
+      "Saved Learning was rejected: \(reason) No machine action was performed."
     }
   }
 }
@@ -1523,8 +1536,9 @@ extension LearningPathProjector {
 extension LearningPathProjector {
   private func stageExpectedObservation(_ stage: LearningPathStage) -> [PresentationFragment] {
     switch stage {
-    case .humanGuidedDiscovery: [.cue(.up), .text("boundary, cap-map, and tip-map evidence.")]
-    case .observedDrawingTrials: [.text("Observed ink and a typed geometry comparison.")]
+    case .humanGuidedDiscovery:
+      [.cue(.up), .text("Drawing Boundary, camera-calibration, and pen-tip-calibration evidence.")]
+    case .observedDrawingTrials: [.text("Observed ink and a plan-to-ink geometry comparison.")]
     }
   }
 
@@ -1541,13 +1555,13 @@ extension LearningPathProjector {
     case .observedDrawingTrials:
       [
         ExerciseEvidencePresentation(
-          label: "Drawing map",
+          label: "Pen-tip calibration",
           fragments: [.text(snapshot.sparseCalibration.acceptedIsCurrent
-            ? "Map ready — current machine-to-paper-pixel tip registration"
-            : "Map unavailable")]
+            ? "Ready — current accepted pen-tip calibration"
+            : "Unavailable — pen-tip calibration required")]
         ),
         ExerciseEvidencePresentation(
-          label: "Observed-frame validation",
+          label: "Drawing-frame validation",
           fragments: [.text(snapshot.drawing.assessment == nil
             ? snapshot.drawing.inkStatus
             : "One attributable validation complete")]
@@ -1565,13 +1579,13 @@ extension LearningPathProjector {
   ) -> [PresentationFragment] {
     switch step {
     case .penInteraction:
-      [.text("Identify Pen Cap, confirm"), .cue(.up), .text("then"), .cue(.down), .text("then finish"), .cue(.up)]
+      [.text("Identify Pen Cap, set and confirm"), .cue(.up), .text("then"), .cue(.down), .text("then confirm final"), .cue(.up)]
     case .pairedBoundaryDiscoveryAndCentering:
       [.text("Choose a direction, observe the side, then press"), .cue(.stop)]
     case .calibrateCameraAndVisibleCap:
-      [.text("Capture five exact cap centers at C, X−, Y+, X+, and Y−; fit the first three, verify two holdouts, then explicitly accept or reject the all-five refit.")]
+      [.text("Run five exact cap measurements at C, X−, Y+, X+, and Y−; fit the first three, check the final two independently, then accept or reject the camera calibration.")]
     case .calibratePenContactFromSparseMarks:
-      [.text("Draw four 2 mm-radius circles with their centers 10 mm inside the accepted Boundary edges and Pen Up between circles; perform one final Pen-Up reveal, then click all four centers in any order on that unchanged frame. Click four fits the tip map and overlays the accepted 3.2 Boundary plus the inset frame.")]
+      [.text("Draw four 2 mm-radius calibration circles with their centers 10 mm inside the accepted Drawing Boundary and Pen Up between circles. After the final Pen-Up reveal, click all four centers on the unchanged frame and review the proposed pen-tip calibration.")]
     }
   }
 
@@ -1583,9 +1597,9 @@ extension LearningPathProjector {
     case .pairedBoundaryDiscoveryAndCentering:
       [.text("Four accepted sides and one explicit arrival at the estimated machine center.")]
     case .calibrateCameraAndVisibleCap:
-      [.text("Three fit samples, two independent holdouts, and one current all-five machine-camera revision.")]
+      [.text("Three fit measurements, two independent check measurements, and one current accepted camera calibration.")]
     case .calibratePenContactFromSparseMarks:
-      [.text("Four immutable corner-click observations and one atomically committed tip-camera registration.")]
+      [.text("Four immutable corner clicks and one accepted pen-tip calibration.")]
     }
   }
 
@@ -1652,13 +1666,13 @@ extension LearningPathProjector {
     case .penInteraction:
       return [
         ExerciseEvidencePresentation(
-          label: "Accepted artifact checkpoint",
+          label: "Saved Learning status",
           fragments: [.text(checkpointText(snapshot.acceptedCheckpointStatus))]
         )
       ] + (snapshot.savedTrainingCandidate.map { candidate in
         [
           ExerciseEvidencePresentation(
-            label: "Saved training package",
+            label: "Saved Learning",
             fragments: [.text(candidate.artifactSummary)]
           ),
           ExerciseEvidencePresentation(
@@ -1736,10 +1750,10 @@ extension LearningPathProjector {
         ),
         ExerciseEvidencePresentation(
           label: snapshot.cameraCalibration.proposed == nil
-            ? "Accepted camera/cap fit" : "Staged camera/cap fit",
+            ? "Accepted camera calibration" : "Proposed camera calibration",
           fragments: [.text(registration.map {
             String(
-              format: "holdouts %.3f / %.3f px · limit %.3f px · all-five uncertainty %.3f px",
+              format: "check residuals %.3f / %.3f px · limit %.3f px · five-position uncertainty %.3f px",
               $0.holdoutResidualPixels[0],
               $0.holdoutResidualPixels[1],
               $0.maximumHoldoutResidualPixels,
@@ -1752,19 +1766,19 @@ extension LearningPathProjector {
       let proposal = snapshot.sparseCalibration.proposed ?? snapshot.sparseCalibration.accepted
       return [
         ExerciseEvidencePresentation(
-          label: "Sparse 2 mm-radius circles",
+          label: "2 mm-radius calibration circles",
           fragments: [.text(
-            "\(snapshot.sparseCalibration.acceptedObservationCount)/5 accepted · \(snapshot.sparseCalibration.blacklistedPositionCount) blacklisted · \(String(describing: snapshot.sparseCalibration.phase))"
+            "\(snapshot.sparseCalibration.acceptedObservationCount)/4 accepted · \(snapshot.sparseCalibration.blacklistedPositionCount) excluded · \(String(describing: snapshot.sparseCalibration.phase))"
           )]
         ),
         ExerciseEvidencePresentation(
-          label: "Affine-first model diagnostics",
+          label: "Pen-tip calibration diagnostics",
           fragments: [.text(proposal.map { proposal in
             let residuals = proposal.observationEvidence.map {
               String(format: "%.3f px", $0.residualPixels)
             }.joined(separator: ", ")
-            return "\(proposal.modelForm.rawValue) · all-five residuals \(residuals) · RMS \(String(format: "%.3f px", proposal.uncertainty.rootMeanSquareResidualPixels)) · max \(String(format: "%.3f px", proposal.uncertainty.maximumResidualPixels))"
-          } ?? "Tip not calibrated")]
+            return "\(proposal.modelForm.rawValue) · four-corner residuals \(residuals) · RMS \(String(format: "%.3f px", proposal.uncertainty.rootMeanSquareResidualPixels)) · max \(String(format: "%.3f px", proposal.uncertainty.maximumResidualPixels))"
+          } ?? "Pen tip not calibrated")]
         ),
       ]
     }
@@ -1856,10 +1870,10 @@ extension LearningPathProjector {
         fragments: [.text(snapshot.drawing.assessment?.title ?? "pending automatic comparison")]
       ),
       ExerciseEvidencePresentation(
-        label: "Readiness claim",
+        label: "Validation scope",
         fragments: [.text(snapshot.drawing.assessment == nil
-          ? "Map ready; observed-frame validation pending"
-          : "One attributable validation complete; adaptive model is not yet trained")]
+          ? "Pen-tip calibration ready; drawing-frame validation pending"
+          : "One attributable drawing-frame validation is complete; adaptive readiness is not established")]
       ),
     ]
   }
@@ -1868,7 +1882,7 @@ extension LearningPathProjector {
     guard path.count == 5 else { return "not planned" }
     let points = path.map(\.point)
     return String(
-      format: "closed right-angle perimeter · X %.3f…%.3f · Y %.3f…%.3f · predicted on screen through the accepted tip map",
+      format: "closed right-angle perimeter · X %.3f…%.3f · Y %.3f…%.3f · projected through the accepted pen-tip calibration",
       points.map(\.x).min()!,
       points.map(\.x).max()!,
       points.map(\.y).min()!,

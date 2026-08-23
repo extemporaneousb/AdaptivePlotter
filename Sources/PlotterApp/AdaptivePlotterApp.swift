@@ -679,7 +679,7 @@ private struct VideoSettingsContents: View {
 
       Text(
         regionIsLocked
-          ? "Only this camera-pixel region is admitted to scene analysis. Unlock it before zooming or dragging."
+          ? "Only this camera-pixel region is included in scene analysis. Unlock it before zooming or dragging."
           : "Zoom, then drag the video to position the region. Locking copies that camera-pixel rectangle into the analysis policy; it does not crop or rewrite the exact frame."
       )
       .font(.caption2)
@@ -865,7 +865,7 @@ private struct MotionPanel: View {
       closeUnavailableReason: closeUnavailableReason
     ) {
       Text(
-        "Manual steps remain finite typed requests. Pen Up routes to carriage travel; Pen Down routes to a bounded drawing stroke. End-stops, alarms, one-operation serialization, commanded pen state, and ambiguous outcomes are checked directly."
+        "Manual steps remain finite, bounded requests. Pen Up routes to carriage travel; Pen Down routes to a bounded drawing stroke. End-stops, alarms, one-operation serialization, commanded pen state, and ambiguous outcomes are checked directly."
       )
       .font(.caption2)
       .foregroundStyle(.secondary)

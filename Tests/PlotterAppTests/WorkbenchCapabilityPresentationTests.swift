@@ -8,10 +8,10 @@ struct WorkbenchCapabilityPresentationTests {
   func capabilityVocabulary() {
     #expect(
       WorkbenchLearningCapabilityState.allCases.map(\.title) == [
-        "Learning needed",
-        "Saved map needs revalidation",
-        "Map ready",
-        "Interactive learning complete · one validation",
+        "Pen-tip calibration required",
+        "Saved calibration needs revalidation",
+        "Pen-tip calibration ready",
+        "Drawing validation complete",
         "Adaptive drawing ready",
       ]
     )
@@ -21,7 +21,7 @@ struct WorkbenchCapabilityPresentationTests {
     )
     #expect(
       WorkbenchLearningCapabilityState.savedMapNeedsRevalidation.detail
-        .contains("quarantined")
+        .contains("cannot be used")
     )
   }
 

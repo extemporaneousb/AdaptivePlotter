@@ -4,7 +4,7 @@ import Testing
 
 @testable import PlotterRuntime
 
-@Suite("Human-Guided Discovery")
+@Suite("Plotter Calibration discovery sequences")
 struct HumanGuidedDiscoveryTests {
   @Test("operator choices are only contextual YES and NO")
   func contextualChoices() {
@@ -71,19 +71,19 @@ struct HumanGuidedDiscoveryTests {
     let pen = DiscoverySequenceCatalog.definition(for: .penInteraction)
     #expect(
       pen.questions.map(\.prompt) == [
-        "Is the pen currently up?",
-        "Is the pen currently down?",
-        "Is the pen up?",
+        "Adjust the Pen Up value until the pen is physically up, then confirm.",
+        "Adjust the Pen Down value until the pen is physically down, then confirm.",
+        "Confirm that the pen returned to the calibrated Up position.",
       ])
   }
 
   @Test("Boundary announcements speak every signed axis without symbol pronunciation")
   func boundaryAnnouncementsUseSignedWords() {
     let expected: [(DiscoverySequenceID, String)] = [
-      (.boundaryNegativeX, "Moving the plotter toward the negative X boundary."),
-      (.boundaryPositiveX, "Moving the plotter toward the positive X boundary."),
-      (.boundaryNegativeY, "Moving the plotter toward the negative Y boundary."),
-      (.boundaryPositiveY, "Moving the plotter toward the positive Y boundary."),
+      (.boundaryNegativeX, "Moving the plotter toward the negative X drawing boundary."),
+      (.boundaryPositiveX, "Moving the plotter toward the positive X drawing boundary."),
+      (.boundaryNegativeY, "Moving the plotter toward the negative Y drawing boundary."),
+      (.boundaryPositiveY, "Moving the plotter toward the positive Y drawing boundary."),
     ]
 
     for (sequenceID, announcement) in expected {

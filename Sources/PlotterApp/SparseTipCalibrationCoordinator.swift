@@ -30,7 +30,7 @@ struct BlacklistedToolContactLocation: Hashable, Sendable {
   let paperInstance: PaperInstanceRevision
 }
 
-/// Pure Stage 3.4 workflow state. One batch owns all physical marks, one final
+/// Pure Exercise 1.4 workflow state. One batch owns all physical marks, one final
 /// frame owns all clicks, and model construction follows the atomic four-click
 /// association performed by the workspace.
 struct SparseTipCalibrationCoordinator: Hashable, Sendable {
@@ -48,7 +48,7 @@ struct SparseTipCalibrationCoordinator: Hashable, Sendable {
     if let location = blacklistedLocations.first {
       phase = .possibleInkBlacklisted(
         location,
-        "Possible ink already blacklists this exact machine position on the current paper."
+        "Possible ink already excludes this exact machine position on the current paper."
       )
     }
   }

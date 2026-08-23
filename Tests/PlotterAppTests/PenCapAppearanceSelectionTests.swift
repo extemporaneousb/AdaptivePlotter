@@ -74,7 +74,7 @@ struct PenCapAppearanceSelectionTests {
     }
   }
 
-  @Test("Pen Interaction cannot ask a question or actuate before an accepted cap click")
+  @Test("Exercise 1.1 cannot ask a question or actuate before an accepted cap click")
   func clickPrecedesSequenceAndMachineActions() async throws {
     let log = EventLog()
     let machine = try MachineFixture(log: log)
@@ -161,7 +161,7 @@ struct PenCapAppearanceSelectionTests {
       disconnectedStrip.actions.first { $0.kind == .choice(.yes) }
     )
     let disconnectedAdjustment = try #require(disconnectedStrip.penSetpointAdjustment)
-    #expect(disconnectedNext.title == "Next")
+    #expect(disconnectedNext.title == "Confirm Pen Up")
     #expect(disconnectedNext.unavailableReason == connectionBlocker)
     #expect(disconnectedAdjustment.unavailableReason == connectionBlocker)
     #expect(disconnectedAdjustment.isEnabled == false)
@@ -242,7 +242,7 @@ struct PenCapAppearanceSelectionTests {
     await workspace.shutdown()
   }
 
-  @Test("re-entering Pen Interaction retains exact scene overlays on its frozen frame")
+  @Test("re-entering Exercise 1.1 retains exact scene overlays on its frozen frame")
   func learnedAppearanceProducesFrozenFrameOverlays() async throws {
     let log = EventLog()
     let machine = try MachineFixture(log: log)
@@ -458,7 +458,7 @@ struct PenCapAppearanceSelectionTests {
     await workspace.shutdown()
   }
 
-  @Test("accepted click then immediate Cancel cannot revive Pen Interaction")
+  @Test("accepted click then immediate Cancel cannot revive Exercise 1.1")
   func acceptedClickImmediateCancelDoesNotRevive() async throws {
     let log = EventLog()
     let machine = try MachineFixture(log: log)

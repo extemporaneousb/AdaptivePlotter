@@ -357,7 +357,7 @@ struct OverlayPresentationComposer {
           ?? OverlayLayerStatus(
             state: .failed,
             message:
-              "Failed — causal simulation omitted typed \(overlay.title) status for exact frame \(simulation.provenance.frameSequence).",
+              "Failed — causal simulation did not produce \(overlay.title) status for exact frame \(simulation.provenance.frameSequence).",
             provenance: simulation.provenance
           )
         continue
@@ -415,7 +415,7 @@ struct OverlayPresentationComposer {
         statuses[overlay] = OverlayLayerStatus(
           state: .failed,
           message:
-            "Failed — measured Vision omitted typed \(overlay.title) status for exact frame \(scene.provenance.frameSequence).",
+            "Failed — measured Vision did not produce \(overlay.title) status for exact frame \(scene.provenance.frameSequence).",
           provenance: scene.provenance
         )
       }

@@ -19,18 +19,18 @@ The application is deliberately local:
 The persistent **Learning Path** is an ergonomic navigator, not a motion
 authorization ladder:
 
-1. **Connect**
-2. **Enable Motion**
-3. **Human-Guided Discovery**
-   - **3.1 Pen Interaction**
-   - **3.2 Paired Boundary Discovery and Centering**
-   - **3.3 Calibrate Camera and Visible Cap**
-   - **3.4 Calibrate Pen Contact from Sparse Marks**
-4. **Observed Drawing Trials**
-   - **4.1 Run Predicted Picture Frame Trial**
+1. **Plotter Calibration**
+   - **1.1 Identify and Calibrate the Pen**
+   - **1.2 Measure and Center the Drawing Boundary**
+   - **1.3 Calibrate Camera from Pen Cap Positions**
+   - **1.4 Calibrate Pen Tip from Corner Marks**
+2. **Drawing Validation**
+   - **2.1 Draw and Validate the Frame**
 
-The visible curriculum finishes at 4.1. After the fourth valid Stage 3.4 click
-commits the drawing map, one **Go** previews the predicted frame and owns the
+**Connect** and **Enable Motion** are external workbench controls, not numbered
+curriculum steps. The visible curriculum finishes at 2.1. After the fourth valid
+Exercise 1.4 click commits the pen-tip calibration, one **Draw and Validate
+Frame** click previews the planned frame and owns the
 normal baseline, motion, drawing, reveal, Vision, and comparison phases. Those
 phases are visible activity, not six approval buttons. The exact post-frame
 comparison remains reviewable after the exercise finishes. That attributable
@@ -41,7 +41,7 @@ Connect and Enable Motion expose direct current-session facts. Selecting a row
 changes presentation only; it cannot admit motion, change runtime current state,
 or promote evidence.
 
-Presentation zoom is available after 3.2. Zoom, pan, and **Fit Learned Plotter
+Presentation zoom is available after Exercise 1.2. Zoom, pan, and **Fit Learned Plotter
 Bounds** change only the view transform. They never change camera-pixel evidence,
 frame identity, or calibration authority.
 
@@ -74,7 +74,7 @@ state is sticky and is never automatically resent.
 
 ## Sparse tip calibration
 
-Stage 3.3 derives a bounded rectangle from the accepted Boundary envelope with
+Exercise 1.3 derives a bounded rectangle from the accepted Drawing Boundary with
 a 10 mm safety inset. Until paper coverage and visibility are separately known,
 the bootstrap rectangle is reduced symmetrically around its center. It must
 retain at least 10 mm usable span on each axis.
@@ -86,19 +86,19 @@ inspection frames with one accepted unambiguous cap per frame and no more than
 measurement become evidence; geometry is not averaged, and the preliminary
 freshness boundary is not evidence. SIMULATED geometry is separate nonphysical
 evidence and does not prove live stability.
-The first three fit an affine machine-to-visible-cap map; the last two are
+The first three fit an affine machine-to-cap calibration; the last two are
 independent holdouts. Both holdouts must pass before a weighted all-five refit
 can be explicitly accepted as `MachineCameraRegistration`. The visible cap
 landmark is not the hidden paper-contact point.
 
-Stage 3.4 uses one supervised **Draw Four Corner Circles** action. There is no
+Exercise 1.4 uses one supervised **Draw Four Calibration Circles** action. There is no
 center circle. The four 2 mm-radius circle centers are the rectangle corners at
 `minX + 10 mm`, `minY + 10 mm`,
 `maxX − 10 mm`, and `maxY − 10 mm`. Every circle outline therefore remains 8 mm
 clear of its adjacent accepted Boundary edges. The camera view distinguishes the
-orange dashed accepted 3.2 Boundary from the inner four-point frame; after the
+orange dashed accepted Drawing Boundary from the inner four-point frame; after the
 fourth click it also previews that proposed frame in cyan before map acceptance.
-Stage 3.3 retains its separate existing ±24 mm camera-calibration spacing. One
+Exercise 1.3 retains its separate existing ±24 mm camera-calibration spacing. One
 exercise attempt and one stoppable operation draw the four circles in canonical
 evidence-slot order. For every circle the app travels and settles Pen Up at the
 intended position, retains its exact pre-mark frame/cap/controller evidence,
@@ -106,26 +106,27 @@ moves Pen Up to the circle start, lowers and settles using the current Pen
 Interaction profile, draws one closed 16-chord circle of 2 mm radius at no more
 than 100 mm/min, then raises and settles Pen Up before any inter-circle travel.
 There are exactly 64 circle chords and no connecting Pen-Down strokes during
-calibration. The following Stage 4.1 trial draws the physical frame through the
+calibration. Exercise 2.1 draws the physical frame through the
 four accepted circle centers as one closed drawing plan.
 
 Only after the fourth circle does the app return Pen Up to the rectangle center,
 require Idle/final-MPos settlement, revalidate the current camera/cap
 applicability, and capture one newer exact frame. That exact frame is frozen
-unchanged for all four clicks. Accepting the resulting tip map makes the four
+unchanged for all four clicks. Accepting the resulting pen-tip calibration makes the four
 circle centers its applicability rectangle and Drawing Studio drawable
-region. Stage 3.4 does not change zoom, pan, preferred zoom, or viewport focus
+region. Exercise 1.4 does not change zoom, pan, preferred zoom, or viewport focus
 automatically; manual presentation transforms remain operator controlled.
 
-Pen Interaction retains its existing Up → Down → Up exercise. Its Up and Down
+Exercise 1.1 retains its Up → Down → Up sequence. Its Up and Down
 steps expose sliders displaying the current settings, seeded at `S40` and
-`S760` for a fresh session; **Next** accepts the currently displayed value.
+`S760` for a fresh session; **Confirm Pen Up** or **Confirm Pen Down** accepts the
+currently displayed value for that physical position.
 Those are mutable current settings, not one fixed
 calibration for an entire run. Repeating the existing exercise at another
 position may select different values, and the exercise evidence retains the
 actual value plus the controller outcome, timestamp, and current MPos when each
 is available for later learning. Refusal, ambiguity, or unavailable MPos stays
-explicit and never disables **Next**. It does not create a separate servo-
+explicit and keeps the matching confirmation action visible. It does not create a separate servo-
 calibration entity.
 
 A complete commanded actuation plus its settlement is controller evidence;
@@ -142,17 +143,17 @@ There is no click-distance or ambiguity threshold. **Undo Last Click** or
 **Clear Clicks on This Frame** changes only same-frame click evidence and causes
 no motion, ink, redraw, frame capture, zoom, or pan.
 
-The app constructs a direct affine machine-to-tip map from all four accepted
+The app constructs a direct affine pen-tip calibration from all four accepted
 observations first. Constant camera-pixel correction on the accepted cap map is
 used only when affine construction itself throws. All-corner residuals, RMS,
 covariance, and uncertainty remain diagnostics; their magnitude never rejects
-a model or blocks proposal creation. Stage 3.4 has no holdouts and numerical
+a model or blocks proposal creation. Exercise 1.4 has no holdouts and numerical
 fitting cannot request paper replacement or route to a no-redraw recovery.
 The fourth valid click atomically commits `TipCameraRegistration` and makes Stage
 4 current. A separate action appears only to retry a failed atomic commit.
 
-Stage 3.4 therefore means the machine-to-paper-pixel map is ready within its
-recorded applicability. Stage 4.1 validates that map once: the app draws the
+Exercise 1.4 therefore means the pen-tip calibration is ready within its
+recorded applicability. Exercise 2.1 validates that calibration once: the app draws the
 predicted cyan frame before motion, then shows observed white ink and orange
 residuals after Vision and retains that exact-frame comparison for later review.
 It does not claim a generally trained adaptive model. It does permit direct
@@ -191,7 +192,7 @@ capture, click, mark, paper operation, or Learning Path replay. Paper identity i
 replaceable `PaperInstanceRevision` and the support/stock/contact-height
 `PaperContactPlaneRevision`. A new sheet explicitly placed on the unchanged
 contact plane rotates only the instance, clears sheet coverage and ink-specific
-state, and retains the tip map. A changed contact plane rotates both and
+state, and retains the pen-tip calibration. A changed contact plane rotates both and
 invalidates tip authority. Known pixel
 transforms and explicitly recovered machine-coordinate
 rebases may derive rebased authority with propagated uncertainty; a different
@@ -202,10 +203,10 @@ invalidate or quarantine it as defined by the Product Contract.
 A frame hash and metadata prove provenance only. Durable reprocessing requires
 a content-addressed locator for archived bytes.
 
-## Stage 4
+## Drawing validation
 
-Observed Drawing Trials require accepted Boundary evidence and the exact current
-`TipCameraRegistration` revision. Stage 4 constructs one closed picture-frame
+Drawing Validation requires accepted Drawing Boundary evidence and the exact current
+`TipCameraRegistration` revision. Exercise 2.1 constructs one closed drawing-frame
 polyline through the four accepted circle centers, projects that exact drawing
 plan through the registration, and owns its own:
 
@@ -215,14 +216,14 @@ plan through the registration, and owns its own:
 - strictly newer post-frame;
 - generic black/new-ink observation and residual.
 
-No Stage 3 scene artifact is reused as a Stage 4 baseline or observation pose.
+No Stage 1 scene artifact is reused as the Stage 2 baseline or observation pose.
 An attributable observed frame may become future refinement evidence, but it
 cannot silently promote a model. Ambiguous motion or possible ink never causes
 an automatic redraw.
 
 ## Drawing Studio
 
-After one attributable Stage 4.1 validation, the top capability indicator says
+After one attributable Exercise 2.1 validation, the top capability indicator says
 **Interactive learning complete · one validation** and Drawing Studio becomes
 available independently of the Learning Path. The operator can select one of
 11 deterministic `DrawingProgram` producers—line, polyline, rectangle, square,
@@ -235,7 +236,7 @@ outline and the current predicted tip point. Paper is a separate operator fact:
 **Confirm Paper Coverage** binds the current sheet and exact frame to the
 outlined region before Run can become eligible. **New Sheet — Same Contact
 Plane** preserves learned geometry but requires a fresh coverage confirmation;
-**Contact Plane Changed** invalidates the tip map.
+**Contact Plane Changed** invalidates the pen-tip calibration.
 
 `DrawingPlanner` refuses any transformed stroke outside the calibrated region
 and emits an immutable content-addressed execution-plan revision with one
@@ -246,7 +247,7 @@ a newer exact frame, compares arbitrary planned polylines with new ink, and
 retains intended, observed, and residual overlays for review. Refusal,
 cancellation, ambiguity, or possible ink is terminal and never redraws.
 
-Stage 4 validation and later run evidence are stored in a checksummed,
+Drawing-frame validation and later run evidence are stored in a checksummed,
 append-only archive with fixed predeclared roles: ordinary drawing, training,
 reserved holdout, or evaluation holdout. These records may feed later model
 estimation, but they do not themselves promote a model. A typed readiness schema
@@ -274,18 +275,18 @@ publication. A completed overlay remains visible over its matching displayed
 frame with its completed status while the next frame is analyzed, then the
 displayed-frame/overlay pair is replaced atomically. Entering or leaving
 Learning and other compatible presentation-context changes preserve the exact
-effective visible camera-pixel rectangle, including when Stage 3.3 publishes
+effective visible camera-pixel rectangle, including when Exercise 1.3 publishes
 learned fitted bounds; a source or camera-configuration change still resets it.
-Explicit Full, Fit, zoom, and pan actions remain authoritative. Stage 3.4
+Explicit Full, Fit, zoom, and pan actions remain authoritative. Exercise 1.4
 sparse-mark actions never change viewport zoom, pan, fitted region, preferred
 zoom, or focus. Locking the viewport admits only that camera-pixel subregion to
 generic scene-analysis scans without cropping or rewriting the exact stamped
-frame, and Stage 3.3 does not rewrite that lock. A generic viewport region never
+frame, and Exercise 1.3 does not rewrite that lock. A generic viewport region never
 constrains calibration or observed-trial measurements, and full-frame lock is
 canonicalized to default unlocked analysis.
 
 Pen-cap appearance is learned only by the first **Identify Pen Cap** action in
-Pen Interaction. The operator clicks the colored cap body, not the tip, on one
+Exercise 1.1. The operator clicks the colored cap body, not the tip, on one
 frozen exact frame. A clipped 9 x 9 sample rejects gray, white, dark, or
 insufficiently chromatic pixels and persists the accepted median RGB color with
 the click, frame hash, source, camera configuration, dimensions, pixel format,
@@ -299,7 +300,7 @@ Overlay preferences are operator-owned persisted choices. Camera lifecycle,
 workflow activity, errors, stale frames, suspension, and load shedding change
 status or renderability, never the selection. Scene, workflow, and simulator
 results have separate owners and are composed only when their frame and camera
-configuration exactly match. Stage 4 intended geometry, observed ink, and
+configuration exactly match. Stage 2 intended geometry, observed ink, and
 residuals are required contextual evidence rather than global toggles.
 
 The toolbar owns controller selection, Connect/Disconnect, Enable Motion, and
@@ -375,7 +376,7 @@ observed-ink validation is implied. See [Current Evidence](docs/CURRENT_EVIDENCE
 ## Authoritative documents
 
 - [Product Contract](docs/PRODUCT_CONTRACT.md) — product semantics, authority,
-  safety, evidence, calibration applicability, and Stage 4 dependency boundary.
+  safety, evidence, calibration applicability, and Stage 2 dependency boundary.
 - [Discovery and Observed-Trial Protocol](docs/DISCOVERY_AND_OBSERVED_TRIAL_PROTOCOL.md)
   — exact operating sequence and recovery.
 - [Architecture](docs/SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md) — package and

@@ -2,16 +2,16 @@ import Foundation
 import PlotterRuntime
 
 enum LearningPathStage: Int, CaseIterable, Hashable, Identifiable, Sendable {
-  case humanGuidedDiscovery = 3
-  case observedDrawingTrials = 4
+  case humanGuidedDiscovery = 1
+  case observedDrawingTrials = 2
 
   var id: Self { self }
   var number: String { String(rawValue) }
 
   var title: String {
     switch self {
-    case .humanGuidedDiscovery: "Human-Guided Discovery"
-    case .observedDrawingTrials: "Observed Drawing Trials"
+    case .humanGuidedDiscovery: LearningPathTerminology.Stage.plotterCalibration
+    case .observedDrawingTrials: LearningPathTerminology.Stage.drawingValidation
     }
   }
 }
@@ -37,14 +37,17 @@ enum HumanGuidedDiscoveryStep: Int, CaseIterable, Hashable, Identifiable, Sendab
   ]
 
   var id: Self { self }
-  var stepNumber: String { "3.\(rawValue)" }
+  var stepNumber: String { "1.\(rawValue)" }
 
   var title: String {
     switch self {
-    case .penInteraction: "Pen Interaction"
-    case .pairedBoundaryDiscoveryAndCentering: "Paired Boundary Discovery and Centering"
-    case .calibrateCameraAndVisibleCap: "Calibrate Camera and Visible Cap"
-    case .calibratePenContactFromSparseMarks: "Calibrate Pen Contact from Sparse Marks"
+    case .penInteraction: LearningPathTerminology.Exercise.identifyAndCalibratePen
+    case .pairedBoundaryDiscoveryAndCentering:
+      LearningPathTerminology.Exercise.measureAndCenterDrawingBoundary
+    case .calibrateCameraAndVisibleCap:
+      LearningPathTerminology.Exercise.calibrateCameraFromPenCap
+    case .calibratePenContactFromSparseMarks:
+      LearningPathTerminology.Exercise.calibratePenTipFromCornerMarks
     }
   }
 }
@@ -58,18 +61,18 @@ enum ObservedDrawingTrialStep: Int, CaseIterable, Hashable, Identifiable, Sendab
   case compareIntendedAndObservedGeometry
 
   var id: Self { self }
-  /// All cases are internal runtime phases of the single visible 4.1 exercise.
-  /// Later 4.x numbers are reserved for actual future curriculum items.
-  var stepNumber: String { "4.1" }
+  /// All cases are internal runtime phases of the single visible 2.1 exercise.
+  /// Later 2.x numbers are reserved for actual future curriculum items.
+  var stepNumber: String { "2.1" }
 
   var title: String {
     switch self {
-    case .chooseFramePlan: "Plan Predicted Picture Frame"
-    case .captureLocalPreFrameBaseline: "Capture Pre-Frame Baseline"
-    case .moveToFrameStart: "Move to Frame Start"
-    case .drawPictureFrame: "Draw Picture Frame"
-    case .revealAndObserveNewInk: "Reveal and Observe New Ink"
-    case .compareIntendedAndObservedGeometry: "Compare Intended and Observed Geometry"
+    case .chooseFramePlan: "Plan Drawing Frame"
+    case .captureLocalPreFrameBaseline: "Capture Baseline Frame"
+    case .moveToFrameStart: "Move to Drawing Start"
+    case .drawPictureFrame: "Draw Frame"
+    case .revealAndObserveNewInk: "Reveal Drawing"
+    case .compareIntendedAndObservedGeometry: "Compare Plan with Observed Ink"
     }
   }
 }
@@ -125,7 +128,7 @@ enum LearningPathItemID: Hashable, Identifiable, Sendable {
     case .stage(let stage): stage.title
     case .humanGuidedDiscovery(let step): step.title
     case .observedDrawingTrial(.chooseFramePlan):
-      "Run Predicted Picture Frame Trial"
+      LearningPathTerminology.Exercise.drawAndValidateFrame
     case .observedDrawingTrial(let step): step.title
     }
   }
@@ -424,10 +427,10 @@ enum ExerciseActionKind: Hashable, Sendable {
 }
 
 enum SubsystemAuthorityRole: String, Hashable, Sendable {
-  case motionGate = "Motion gate"
-  case operationOwner = "Operation owner"
-  case advisoryEvidence = "Advisory evidence"
-  case evidenceCommit = "Evidence commit"
+  case motionGate = "Motion prerequisite"
+  case operationOwner = "Active operation"
+  case advisoryEvidence = "Reference evidence"
+  case evidenceCommit = "Accepted result"
 }
 
 struct SubsystemStatusPresentation: Identifiable, Hashable, Sendable {

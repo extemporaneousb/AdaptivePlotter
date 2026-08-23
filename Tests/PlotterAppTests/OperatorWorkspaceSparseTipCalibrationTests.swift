@@ -199,7 +199,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     guard case .polyline(let proposedBoundary) = proposedBoundaryOverlay.geometry,
       case .polyline(let proposedFrame) = proposedFrameOverlay.geometry
     else {
-      Issue.record("Expected the accepted 3.2 Boundary and proposed inset frame polylines.")
+      Issue.record("Expected the accepted Drawing Boundary and proposed inset frame polylines.")
       return
     }
     let boundaryFrame = try ObservedDrawingTrialFramePlan(domain: batch.boundaryEnvelope)
@@ -266,7 +266,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       }
     )
     guard case .polyline(let acceptedBoundaryPolyline) = acceptedBoundaryOverlay.geometry else {
-      Issue.record("Expected the accepted 3.2 Boundary overlay to be a bounding polyline.")
+      Issue.record("Expected the accepted Drawing Boundary overlay to be a bounding polyline.")
       return
     }
     let pictureRectangle = batch.applicabilityRectangle
@@ -411,7 +411,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     let capability = try #require(workspace.contextualStopPresentation?.capabilityID)
     #expect(capability == travelCapability)
     #expect(
-      workspace.contextualStopPresentation?.detail.contains("four-corner calibration batch")
+      workspace.contextualStopPresentation?.detail.contains("four-circle calibration")
         == true
     )
     #expect(workspace.currentExerciseActionStripPresentation?.mustRemainVisible == true)
@@ -580,7 +580,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     #expect(await harness.runtime.snapshot() == before)
   }
 
-  @Test("Stage 4 consumes the exact accepted tip revision against nonzero simulator truth")
+  @Test("Stage 2 consumes the exact accepted tip revision against nonzero simulator truth")
   func stageFourConsumesExactTipRevision() async throws {
     let harness = makeSimulatedHarness()
     let workspace = harness.workspace

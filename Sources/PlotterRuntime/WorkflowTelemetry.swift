@@ -40,7 +40,7 @@ public enum SparseTipWorkflowTerminalDisposition: String, Codable, CaseIterable,
   case possibleInk
 }
 
-/// One semantic Stage 3.4 batch fact. A circle-complete record represents all
+/// One semantic Exercise 1.4 batch fact. A circle-complete record represents all
 /// of that circle's chords; individual chord motion never emits workflow
 /// telemetry.
 public struct SparseTipWorkflowProgress: Codable, Hashable, Sendable {

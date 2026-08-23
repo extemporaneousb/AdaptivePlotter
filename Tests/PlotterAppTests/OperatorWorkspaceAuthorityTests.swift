@@ -232,7 +232,7 @@ extension OperatorWorkspaceTests {
   }
 
   @Test(
-    "announcement failure is advisory and Pen Interaction preserves output-before-actuation order")
+    "announcement failure is advisory and Exercise 1.1 preserves output-before-actuation order")
   func announcementFailureDoesNotGatePenInteraction() async throws {
     let log = EventLog()
     let machine = try MachineFixture(log: log)
@@ -299,7 +299,7 @@ extension OperatorWorkspaceTests {
     await workspace.shutdown()
   }
 
-  @Test("Pen Interaction Start exposes Next and Cancel, then Cancel settles to Restart")
+  @Test("pen setup exposes a physical-position confirmation and Cancel, then settles to Restart")
   func exerciseActionTransitions() async throws {
     let log = EventLog()
     let machine = try MachineFixture(log: log)
@@ -486,7 +486,7 @@ extension OperatorWorkspaceTests {
     }
   }
 
-  @Test("Redo Pen Interaction replaces only its revision and retains independent boundary evidence")
+  @Test("Redo Exercise 1.1 replaces only its revision and retains independent boundary evidence")
   func redoPenRetainsBoundary() async throws {
     let log = EventLog()
     let machine = try MachineFixture(log: log)

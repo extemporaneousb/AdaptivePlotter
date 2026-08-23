@@ -94,20 +94,20 @@ measurements retain independent typed regions.
 `ActionSurfaceViewportState` owns the current exact presentation pixel
 rectangle. `ActionSurfaceViewportContext.fittedRegion` is only a target for an
 explicit Fit or zoom action. Compatible context reconciliation snapshots and
-retains the effective rectangle even when Stage 3.3 replaces the fitted target.
+retains the effective rectangle even when Exercise 1.3 replaces the fitted target.
 `VideoAnalysisRegionLock` is a separate policy copy owned by
-`OperatorWorkspace`; Stage 3.3 does not rewrite it. Source or camera-
+`OperatorWorkspace`; Exercise 1.3 does not rewrite it. Source or camera-
 configuration incompatibility remains the viewport reset seam.
 
 `PenCapAppearanceSelection` is the only persisted LIVE recognition input. The
-first Pen Interaction action freezes an exact frame and issues a
+first Exercise 1.1 action freezes an exact frame and issues a
 `penCapAppearance` point-selection request. `PenCapAppearanceSampler` maps the
 operator's cap-body click to a clipped 9 x 9 RGBA/BGRA neighborhood, filters out
 gray, white, dark, and otherwise insufficiently chromatic pixels, then records
 the channel-wise median RGB color. The stored selection binds that color to the
 click point, frame ID and hash, source, camera configuration, dimensions, pixel
 format, sample counts, and sampler revision. `CameraSourceSession` applies the
-accepted color to both newest-only scene analysis and exclusive Stage 3.3
+accepted color to both newest-only scene analysis and exclusive Exercise 1.3
 inspection. There is no `ColorPicker` owner or mutable color preference seam.
 
 `ExactWorkflowVisionOwner` is the typed app-level identity for the one active
@@ -184,7 +184,7 @@ session owner retains at most 10 complete SQLite session groups and 50 MiB;
 unknown files are not deleted. Camera startup does not record PNG samples.
 Only explicit operator snapshots/evidence may create camera sample files.
 
-Stage 3.4 workflow telemetry schema v2 records one ordered semantic sequence:
+Exercise 1.4 workflow telemetry schema v2 records one ordered semantic sequence:
 batch admission, one completion event for each whole 16-chord circle, reveal,
 and terminal disposition. Individual chords emit no workflow telemetry.
 `RunInterpreter` forwards these non-authoritative facts to
@@ -203,17 +203,17 @@ checkpoint per logical stroke. `PlannedDrawingObservation` operates only after
 execution and returns exact-frame observed/residual evidence or a typed
 rejection; it has no motion, resend, or promotion capability.
 
-## Pen Interaction and manual controls
+## Exercise 1.1 and manual controls
 
-`OperatorWorkspace` starts Pen Interaction with **Identify Pen Cap**. Until the
-exact-frame cap-body click is accepted, no Pen Interaction question is opened
+`OperatorWorkspace` starts Exercise 1.1 with **Identify Pen Cap**. Until the
+exact-frame cap-body click is accepted, no pen-position question is opened
 and no pen request is issued. Rejection or stale provenance leaves the point
 selection pending. Cap identification itself does not require a controller
 session or Motion. After acceptance, the first question remains active; its
-**Next** action and servo slider are dependency-blocked until connection and
+**Confirm Pen Up** action and servo slider are dependency-blocked until connection and
 Motion exist, while the external controller toolbar remains operable. The
 exercise's Up and Down sliders then issue typed value-bearing pen requests;
-**Next** retains the displayed value in the current setting and the existing
+**Confirm Pen Up** or **Confirm Pen Down** retains the displayed value in the current setting and the existing
 attempt evidence. `MachineController`
 serializes the requested value and settlement under its existing pen-operation
 ownership. There is no parallel servo-calibration owner, checkpoint, or
@@ -248,7 +248,7 @@ unknown pose preserved in the resulting evidence.
 
 ## Sparse calibration data flow
 
-Stage 3.3 builds `CurrentCameraCalibrationPlan` from current Boundary aggregates
+Exercise 1.3 builds `CurrentCameraCalibrationPlan` from current Drawing Boundary aggregates
 and center arrival. `MachineCameraRegistration` retains five machine/cap
 correspondences: `C`, `X−`, and `Y+` fit the initial affine map; `X+` and `Y−`
 are independent holdouts; acceptance follows the all-five refit. Publishing the
@@ -270,13 +270,14 @@ settles that same lease, and restores the requested automatic-analysis stream.
 SIMULATED causal geometry is source-separated nonphysical evidence and cannot
 establish live optical stability.
 
-Stage 3.4 is split across four owners:
+Exercise 1.4 is split across four owners:
 
 - `SparseTipCalibrationCoordinator` owns the compact batch state machine, one
   attempt/operation identity, four canonical corner evidence slots,
   one shared final frozen frame, unordered click collection, immutable accepted
   observations, possible-ink terminal state, proposal review, and acceptance.
-- `SparseTipBatchMarkPlan` derives the four mark centers from the accepted 3.2
+- `SparseTipBatchMarkPlan` derives the four mark centers from the accepted
+  Drawing Boundary
   Boundary envelope with one canonical 10 mm inset, drawing no center mark. Its
   2 mm-radius outlines therefore retain 8 mm of adjacent-edge clearance. Its
   corner-center rectangle is the proposed tip-map
@@ -289,9 +290,9 @@ Stage 3.4 is split across four owners:
   one reveal probe, and one final machine snapshot. Per-chord progress remains
   controller typed for Stop and possible-ink handling but does not rebuild a
   Learning projection or fetch another workspace machine snapshot. The existing
-  camera presentation renders the accepted 3.2 Boundary separately from the
-  inset proposed/accepted frame; Stage 4.1 later draws that physical connecting
-  frame. Stage 3.3 retains its center plus four
+  camera presentation renders the accepted Drawing Boundary separately from the
+  inset proposed/accepted frame; Exercise 2.1 later draws that physical connecting
+  frame. Exercise 1.3 retains its center plus four
   ±24 mm positions.
 - `TipCalibrationAuthority` owns validated evidence types, four-corner affine-first
   construction, constant construction fallback, diagnostic residual/covariance/
@@ -324,7 +325,7 @@ current MachineCameraRegistration
 A new paper instance on an explicitly unchanged contact plane consumes no new
 contact observation and retains tip authority. A changed contact plane
 invalidates the tip registration and requires the normal four-observation
-Stage 3.4 graph. Stage 4 frame plans and local baselines consume the exact current
+Exercise 1.4 graph. Stage 2 frame plans and local baselines consume the exact current
 tip revision; later frame/post-frame/ink/residual nodes retain that dependency
 transitively.
 
@@ -347,10 +348,10 @@ no-redraw recovery route.
 ## Learning Path checkpoint and semantic identity
 
 `AcceptedLearningPathCheckpoint` is the single atomic production envelope for
-the accepted LIVE prefix. It composes the accepted Pen Interaction record,
-`AcceptedMachineArtifactCheckpoint`, Stage 3.3 registration/revision,
+the accepted LIVE prefix. It composes the accepted Exercise 1.1 record,
+`AcceptedMachineArtifactCheckpoint`, Exercise 1.3 registration/revision,
 `AcceptedTipCalibrationCheckpoint`, accepted pen-cap appearance, one bounded
-reference frame, and the Stage 4 drawing-evidence reference.
+reference frame, and the Exercise 2.1 drawing-evidence reference.
 The inner types retain their domain validation and provenance; the envelope
 owns cross-stage semantic identity and atomic storage.
 
@@ -363,7 +364,7 @@ identity.
 Loading produces one exhaustive saved-package candidate and mutates no
 `LearningDependencyGraph` or registration owner. `OperatorWorkspace` projects
 compatible saved geometry and uses the package's one bounded reference frame to
-produce an advisory integer-shift/background-MAD report. **Use Saved Training**
+produce an advisory integer-shift/background-MAD report. **Use Saved Learning**
 calls the checkpoint-owned exact graph reconstruction once, stages all fallible
 decoding locally, then assigns the complete accepted prefix atomically. **Start
 New Learning** retains the package but applies no values. Neither action restores
@@ -386,12 +387,12 @@ machine reset, remount, or assembly change, the operator must use the owning
 reset rather than accepting unchanged restoration. Explicit operator-facing
 revision controls remain a roadmap item.
 
-## Stage 4 ownership
+## Stage 2 ownership
 
-Stage 4 does not reuse a Stage 3 target, baseline, or reveal pose.
+Stage 2 does not reuse a Stage 1 target, baseline, or reveal pose.
 `ObservedDrawingTrialFramePlan` creates one closed polyline through the four
 accepted circle centers, with four orthogonal edges and right-angle turns.
-The visible 4.1 row owns one attempt from **Go** through normal comparison; its
+The visible 2.1 row owns one attempt from **Draw and Validate Frame** through normal comparison; its
 six typed phases update activity and subsystem presentation but do not create
 six UI action owners. It stores:
 
@@ -429,11 +430,11 @@ diagnostics. Intended overlays retain planned provenance, observed ink retains
 measured provenance, and residuals retain diagnostic provenance on the exact
 post-frame.
 
-The intended frame, observed ink, and residual are contextual Stage 4 results,
+The intended frame, observed ink, and residual are contextual Stage 2 results,
 not global overlay preferences. The implemented curriculum ends at this one
 attributable validation. Its post frame and overlays remain explicitly
 reviewable, and its typed comparison is adapted into an evaluation-holdout
-`DrawingRunEvidenceRecord`. No Stage 4 result automatically changes accepted
+`DrawingRunEvidenceRecord`. No Stage 2 result automatically changes accepted
 calibration or establishes a generally trained adaptive model.
 
 ## Drawing Studio ownership
@@ -455,7 +456,7 @@ For observation, the coordinator preselects the plan's final point, captures a
 local baseline there, executes the owner-bound plan, verifies the final MPos,
 captures a newer frame, and calls the generic observer under the camera's
 exclusive Vision lease. `OverlayResultChannels` retains Drawing Studio workflow
-results independently of scene overlays and Stage 4. `DrawingRunEvidenceStore`
+results independently of scene overlays and Stage 2. `DrawingRunEvidenceStore`
 owns the checksummed append-only archive. New records embed the complete
 immutable `ExecutionPlanRevision`, allowing prior planned paths to be
 reprojected without making the archive executable; legacy hash-only records
@@ -509,10 +510,10 @@ Swift Testing suites cover evidence constructors, affine-first construction and
 constant construction fallback, checkpoint quarantine and revalidation, graph
 dependency shapes, shared-frame unordered clicks, physical-location blacklist
 persistence, ActionSurface projection, four-mark batch acceptance, checkpoint
-restart/paper recovery, and Stage 4 causal ink, plus drawing catalog/planning,
+restart/paper recovery, and Stage 2 causal ink, plus drawing catalog/planning,
 plan execution, planned-ink observation, paper evidence, and append-only run
 evidence. `make quick-test` excludes the explicitly retained journeys;
-`make journey-test` runs the current sparse/Stage 4 routes sequentially; and
+`make journey-test` runs the current sparse/Stage 2 routes sequentially; and
 `make strict-check` applies complete concurrency checking and warnings as
 errors in addition to bundle, launcher, full-test, contract, and diff gates.
 

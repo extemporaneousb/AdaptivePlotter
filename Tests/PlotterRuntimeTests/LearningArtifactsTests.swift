@@ -44,7 +44,7 @@ struct LearningArtifactsTests {
     }
   }
 
-  @Test("Pen Interaction replacement retains independent boundary observations")
+  @Test("Exercise 1.1 replacement retains independent Drawing Boundary observations")
   func penReplacementRetainsIndependentBoundary() throws {
     var graph = LearningDependencyGraph()
     let pen = revision(kind: .penInteraction)
@@ -58,7 +58,7 @@ struct LearningArtifactsTests {
     #expect(graph.currentRevision(for: .boundarySideAggregate(.positiveX))?.id == boundary.id)
   }
 
-  @Test("Stage 4 commits only the exact tip-rooted dependency shapes")
+  @Test("Stage 2 commits only the exact tip-rooted dependency shapes")
   func stageFourDependencyShapes() throws {
     let stage = try stageFourArtifactGraph(group: AttemptGroupIdentity(rawValue: "trial-a"))
 
@@ -81,7 +81,7 @@ struct LearningArtifactsTests {
     }
   }
 
-  @Test("Stage 4 rejects missing and cross-kind dependencies")
+  @Test("Stage 2 rejects missing and cross-kind dependencies")
   func stageFourRejectsInvalidDependencyShapes() throws {
     var tipStage = try acceptedTipArtifactGraph()
     let group = AttemptGroupIdentity(rawValue: "trial-invalid")
@@ -119,7 +119,7 @@ struct LearningArtifactsTests {
     }
   }
 
-  @Test("replacing the exact tip revision invalidates every Stage 4 consumer")
+  @Test("replacing the exact tip revision invalidates every Stage 2 consumer")
   func tipReplacementInvalidatesStageFourTransitively() throws {
     var stage = try stageFourArtifactGraph(group: AttemptGroupIdentity(rawValue: "trial-tip"))
     let boundary = revision(kind: .boundarySideAggregate(.negativeY))

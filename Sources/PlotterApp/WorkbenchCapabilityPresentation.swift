@@ -13,11 +13,11 @@ enum WorkbenchLearningCapabilityState: CaseIterable, Hashable, Sendable {
 
   var title: String {
     switch self {
-    case .learningNeeded: "Learning needed"
-    case .savedMapNeedsRevalidation: "Saved map needs revalidation"
-    case .mapReady: "Map ready"
+    case .learningNeeded: "Pen-tip calibration required"
+    case .savedMapNeedsRevalidation: "Saved calibration needs revalidation"
+    case .mapReady: "Pen-tip calibration ready"
     case .interactiveLearningComplete:
-      "Interactive learning complete · one validation"
+      "Drawing validation complete"
     case .adaptiveDrawingReady: "Adaptive drawing ready"
     }
   }
@@ -25,15 +25,15 @@ enum WorkbenchLearningCapabilityState: CaseIterable, Hashable, Sendable {
   var detail: String {
     switch self {
     case .learningNeeded:
-      "No current accepted machine-to-tip map is available."
+      "No current accepted pen-tip calibration is available."
     case .savedMapNeedsRevalidation:
-      "A saved map is quarantined until its current applicability is explicitly revalidated."
+      "The saved pen-tip calibration cannot be used until its current applicability is explicitly revalidated."
     case .mapReady:
-      "The current accepted tip map is available; an observed-line validation is still pending."
+      "The current accepted pen-tip calibration is available; drawing-frame validation is still pending."
     case .interactiveLearningComplete:
-      "The current map has one attributable observed-line validation; adaptive readiness is not established."
+      "The current pen-tip calibration has one attributable drawing-frame validation; adaptive readiness is not established."
     case .adaptiveDrawingReady:
-      "The current typed drawing-readiness assessment is accepted for its declared scope."
+      "The current drawing-readiness assessment is accepted for its declared scope."
     }
   }
 

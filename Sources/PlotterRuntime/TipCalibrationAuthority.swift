@@ -372,7 +372,7 @@ public enum ToolContactCalibrationPosition: String, Codable, CaseIterable, Hasha
   case positiveX
   case negativeY
 
-  /// Canonical clockwise Stage 3.4 order. `center` remains a Stage 3.3 camera-
+  /// Canonical clockwise Exercise 1.4 order. `center` remains an Exercise 1.3 camera-
   /// calibration identity but is not a physical sparse-tip mark.
   public static let sparseTipCornerPositions: [Self] = [
     .negativeX, .positiveY, .positiveX, .negativeY,

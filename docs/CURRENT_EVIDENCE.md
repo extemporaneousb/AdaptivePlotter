@@ -10,6 +10,47 @@ procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
 ## Implemented software surface
 
+### Stage 1/2 Learning Path numbering and operator terminology
+
+Implemented 2026-08-23 in Blackdog task `TASK-ED2EEC92`.
+
+The visible curriculum now starts at **1 Plotter Calibration**, with Exercises
+1.1 through 1.4, and ends at **2 Drawing Validation**, with Exercise 2.1. Connect
+and Enable Motion remain external workbench controls rather than curriculum
+steps. When an exercise requires either state, its action remains visible and
+names the exact external remedy; Motion authorization still depends on a
+connected controller session.
+
+Learning Path stage, exercise, action, and evidence terms now come from one
+shared end-user vocabulary. Generic **Start**, **Next**, and **Go** labels were
+removed from Learning Path actions in favor of the effect of each click. Status
+and failure copy no longer exposes implementation terms such as admission,
+owner, typed state, workflow coordinator, accepted-artifact checkpoint, or tip
+model. Saved state is consistently **Saved Learning**, the accepted work area is
+the **Drawing Boundary**, and the final physical check is **drawing-frame
+validation**.
+
+The copy audit also corrected behavioral drift: pen-tip calibration reports
+four accepted corner observations rather than five; Exercise 2.1 describes one
+closed frame through the four calibration-circle centers rather than an
+isolated 5 mm line; and frame evidence is described as drawing-frame validation.
+The exact button-to-state diagram is recorded in
+[Learning Path Button Transitions](LEARNING_PATH_BUTTON_TRANSITIONS.md).
+Persisted schema and internal enum/algorithm identifiers were not renamed.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| Focused Learning Path, overlay, capability, discovery, Boundary, and pen-cap suites | passed — 95 tests | numbering, canonical vocabulary, exact action labels, four-corner evidence, frame workflow, blocked dependencies, and redundant-gate exclusion |
+| `make quick-test` | passed — 502 tests | fast unit/component partition |
+| `make journey-test` | passed — 10 tests | retained end-to-end software journeys |
+| `make strict-check` | passed — 512 tests | strict concurrency, warnings as errors, signed bundle, launcher checks, full suite, repository contract, and diff check |
+| obsolete-numbering and action-label scans | passed — zero current-source/current-doc matches | Stage 3/4 labels, Exercise 3.x/4.1 labels, generic Start/Next/Go buttons, retired tip-map actions, and isolated-line copy |
+
+These are source, deterministic, simulator, build, signing, and repository-gate
+results. No attended camera, controller, physical motion, Pen, paper, operator
+click, or observed-ink validation was performed by this task. The app was not
+launched for physical verification.
+
 ### Ten-millimeter Boundary inset and final picture-frame context
 
 Implemented 2026-08-22 in Blackdog task `TASK-83E5E3C9`.

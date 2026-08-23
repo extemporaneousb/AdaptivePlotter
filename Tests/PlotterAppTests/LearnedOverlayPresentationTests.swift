@@ -15,7 +15,7 @@ struct LearnedOverlayPresentationTests {
     #expect(
       ActionSurfaceOverlayPresentationGrammar.semanticLabel(
         for: .acceptedBoundary
-      ) == "ACCEPTED 3.2 BOUNDARY"
+      ) == "ACCEPTED DRAWING BOUNDARY"
     )
     #expect(
       ActionSurfaceOverlayPresentationGrammar.semanticLabel(

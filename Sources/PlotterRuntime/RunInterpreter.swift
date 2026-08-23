@@ -452,7 +452,7 @@ public actor RunInterpreter {
       case .cancelled:
         return finishBoundaryNeedsAttention(
           request: request,
-          terminal: .fault(.transport("boundary segment cancelled without a typed intent"))
+          terminal: .fault(.transport("boundary segment cancelled without a recorded intent"))
         )
       case .refused(let refusal):
         return finishBoundaryNeedsAttention(
@@ -1015,7 +1015,7 @@ public actor RunInterpreter {
     else {
       return finishBoundaryNeedsAttention(
         request: request,
-        terminal: .fault(.transport("boundary owner lost its typed disposition"))
+        terminal: .fault(.transport("boundary operation lost its recorded result"))
       )
     }
     let cancelOutcome: JogCancelOutcome

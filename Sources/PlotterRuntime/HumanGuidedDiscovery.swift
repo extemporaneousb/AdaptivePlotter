@@ -1204,7 +1204,7 @@ public struct DiscoverySequenceDefinition: Hashable, Sendable, Identifiable {
 }
 
 public enum DiscoverySequenceCatalog {
-  public static let title = "Human-Guided Discovery"
+  public static let title = LearningPathTerminology.Stage.plotterCalibration
 
   public static let all: [DiscoverySequenceDefinition] = DiscoverySequenceID.allCases.map {
     definition(for: $0)
@@ -1231,13 +1231,13 @@ public enum DiscoverySequenceCatalog {
   ) -> DiscoverySequenceDefinition {
     return DiscoverySequenceDefinition(
       id: id,
-      title: "\(direction.displayName) Boundary Discovery",
-      summary: "Move toward \(direction.displayName), Stop at the observed boundary, and commit the final controller position.",
+      title: "\(direction.displayName) Drawing Boundary Search",
+      summary: "Move toward \(direction.displayName), stop at the observed drawing boundary, and record the final controller position.",
       steps: [
         DiscoveryStep(
           id: "announce-jog",
           participant: .application,
-          action: .announce("Moving the plotter toward the \(direction.spokenName) boundary."),
+          action: .announce("Moving the plotter toward the \(direction.spokenName) drawing boundary."),
           expectedEvent: .announcementCompleted
         ),
         DiscoveryStep(
@@ -1270,22 +1270,22 @@ public enum DiscoverySequenceCatalog {
 
   private static func penInteraction(id: DiscoverySequenceID) -> DiscoverySequenceDefinition {
     let initiallyUp = DiscoveryQuestion(
-      prompt: "Is the pen currently up?",
+      prompt: "Adjust the Pen Up value until the pen is physically up, then confirm.",
       negativeAcknowledgement:
         "The sequence needs an observed up position before it can continue. I will wait."
     )
     let currentlyDown = DiscoveryQuestion(
-      prompt: "Is the pen currently down?",
+      prompt: "Adjust the Pen Down value until the pen is physically down, then confirm.",
       negativeAcknowledgement:
         "The down position was not confirmed. I will command Pen Up and end this cycle."
     )
     let finallyUp = DiscoveryQuestion(
-      prompt: "Is the pen up?",
+      prompt: "Confirm that the pen returned to the calibrated Up position.",
       negativeAcknowledgement: "The final up position was not confirmed. I will wait."
     )
     return DiscoverySequenceDefinition(
       id: id,
-      title: "Pen Interaction",
+      title: LearningPathTerminology.Exercise.identifyAndCalibratePen,
       summary:
         "Confirm up, lower after the explicit spoken cue, observe down, retract, and confirm up.",
       steps: [
@@ -1418,7 +1418,7 @@ public enum DiscoveryEvent: Hashable, Sendable {
     case .operatorStopRequested(let direction):
       DiscoveryEvidenceSummary(
         kind: .operatorChoice,
-        summary: "Operator requested Stop during \(direction.displayName) Boundary Discovery."
+        summary: "Operator requested Stop during the \(direction.displayName) Drawing Boundary search."
       )
     case .boundaryJogStarted(_, let summary),
       .boundaryJogCancelled(_, _, let summary),
@@ -1428,7 +1428,7 @@ public enum DiscoveryEvent: Hashable, Sendable {
       DiscoveryEvidenceSummary(
         kind: .controller,
         summary:
-          "Committed \(evidence.direction.displayName) Boundary aggregate revision \(aggregate.revisionID.rawValue) from N=\(aggregate.validSampleCount) Stop/Idle/final-MPos sample(s). Vision was not consulted."
+          "Recorded \(evidence.direction.displayName) Drawing Boundary aggregate revision \(aggregate.revisionID.rawValue) from N=\(aggregate.validSampleCount) Stop/Idle/final-MPos sample(s). Vision was not used."
       )
     case .physicalPenConfirmed(let state, _, let summary):
       DiscoveryEvidenceSummary(

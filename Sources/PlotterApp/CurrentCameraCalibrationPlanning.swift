@@ -29,9 +29,9 @@ extension CurrentCameraCalibrationPlanningError: LocalizedError {
     case .incompleteBoundaryEnvelope:
       "Camera calibration requires current accepted boundaries for X−, X+, Y−, and Y+."
     case .controllerSessionMismatch(let direction, let expected, let actual):
-      "The accepted \(direction.displayName) boundary belongs to controller session \(actual.uuidString.lowercased()), not the current session \(expected.uuidString.lowercased()). Revalidate the accepted machine checkpoint before admitting calibration motion."
+      "The accepted \(direction.displayName) Drawing Boundary belongs to controller session \(actual.uuidString.lowercased()), not the current session \(expected.uuidString.lowercased()). Revalidate the accepted machine checkpoint before starting calibration motion."
     case .coordinateRevisionMismatch(let direction, let expected, let actual):
-      "The accepted \(direction.displayName) boundary uses controller coordinate revision \(actual), not the current revision \(expected). Revalidate the accepted machine checkpoint before admitting calibration motion."
+      "The accepted \(direction.displayName) Drawing Boundary uses controller coordinate revision \(actual), not the current revision \(expected). Revalidate the accepted machine checkpoint before starting calibration motion."
     case .centerOutsideSafeEnvelope:
       "The calibration center is outside the accepted Boundary envelope after the 10 mm safety inset."
     case .insufficientXAxisSpan:
@@ -50,7 +50,7 @@ extension CurrentCameraCalibrationPlanningError: LocalizedError {
   }
 }
 
-/// One visible Stage 3.4 mark. The circle is a 16-chord approximation whose
+/// One visible Exercise 1.4 mark. The circle is a 16-chord approximation whose
 /// maximum radial deviation is below the shared 0.05 mm machine-position
 /// acceptance policy.
 struct SparseTipCircularMarkPlan: Hashable, Sendable {
@@ -167,7 +167,7 @@ struct SparseTipCircularMarkPlan: Hashable, Sendable {
   }
 }
 
-/// The complete Stage 3.4 physical mark layout. The four circle centers are
+/// The complete Exercise 1.4 physical mark layout. The four circle centers are
 /// inset 10 mm from the operator-accepted Boundary envelope, leaving 8 mm
 /// between each 2 mm-radius outline and its adjacent accepted edges. No center
 /// mark is drawn. The final reveal remains a Pen-Up move to the rectangle center.
@@ -181,7 +181,7 @@ struct SparseTipBatchMarkPlan: Hashable, Sendable {
   }
 
   let marks: [Mark]
-  /// The exact accepted Stage 3.2 machine-space Boundary from which this batch
+  /// The exact accepted Exercise 1.2 machine-space Boundary from which this batch
   /// is derived. It remains distinct from the inset calibration/frame domain.
   let boundaryEnvelope: AxisAlignedBounds<MachineSpace>
   /// The calibration authority and physical picture-frame domain through the
@@ -277,7 +277,7 @@ struct SparseTipBatchMarkPlan: Hashable, Sendable {
   }
 }
 
-/// One closed Stage 4 perimeter through the four Stage 3.4 calibration centers.
+/// One closed Stage 2 perimeter through the four Exercise 1.4 calibration centers.
 /// Consecutive points differ on exactly one axis, giving four right-angle
 /// corners and returning to the starting point without a diagonal segment.
 struct ObservedDrawingTrialFramePlan: Hashable, Sendable {

@@ -151,7 +151,7 @@ func viewportPresentationOnlyContext() {
   #expect(viewport.zoom == 0)
 }
 
-@Test("Stage 3.3 fitted bounds update preserves exact operator viewport")
+@Test("Exercise 1.3 fitted bounds update preserves exact operator viewport")
 func stage33FittedBoundsUpdatePreservesExactOperatorViewport() throws {
   let configuration = CameraConfigurationID()
   var viewport = ActionSurfaceViewportState()
@@ -204,7 +204,7 @@ func stage33FittedBoundsUpdatePreservesExactOperatorViewport() throws {
 }
 
 @MainActor
-@Test("Stage 3.3 acceptance preserves the locked analysis region and visible viewport")
+@Test("Exercise 1.3 acceptance preserves the locked analysis region and visible viewport")
 func stage33AcceptancePreservesLockedViewport() async throws {
   let harness = makeSimulatedHarness()
   try await completeSimulatedBoundariesAndCenter(

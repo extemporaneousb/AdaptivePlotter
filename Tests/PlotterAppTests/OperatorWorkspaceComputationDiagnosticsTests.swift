@@ -99,7 +99,7 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
     await workspace.shutdown()
   }
 
-  @Test("Stage 3.4 batch consumes typed outcomes without per-segment recomputation")
+  @Test("Exercise 1.4 batch consumes typed outcomes without per-segment recomputation")
   func stageThreeFourBatchConsumesTypedOutcomes() async throws {
     let log = EventLog()
     let camera = try CameraFixture()

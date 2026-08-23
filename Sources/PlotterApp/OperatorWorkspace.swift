@@ -575,7 +575,7 @@ enum CurrentCameraCalibrationPhase: Codable, Hashable, Sendable {
     case .moving(let sample, let total): "Moving Pen Up to exact sample \(sample) of \(total)"
     case .returningToReference: "Returning Pen Up to the recorded calibration reference pose"
     case .fittingAndTestingHoldouts:
-      "Testing two independent cap holdouts and staging the all-five refit"
+      "Checking two independent cap positions and building the five-position camera calibration"
     }
   }
 }
@@ -900,7 +900,7 @@ final class OperatorWorkspace {
     var framePlan: ExecutionPlanRevision?
     var drawingOutcome: DrawingPlanOutcome?
     var inkObservation: PlannedDrawingObservation?
-    var inkStatus = "no picture-frame observation yet"
+    var inkStatus = "no drawing-frame observation yet"
     var lastTravelFeedSelection: TravelFeedSelection?
     var assessment: DrawingTrialAssessment?
     var comparisonReviewIsPinned = false
@@ -936,7 +936,7 @@ final class OperatorWorkspace {
       if rewindStep.rawValue <= ObservedDrawingTrialStep.revealAndObserveNewInk.rawValue {
         postFrame = nil
         inkObservation = nil
-        inkStatus = "no picture-frame observation yet"
+        inkStatus = "no drawing-frame observation yet"
         comparisonReviewIsPinned = false
       }
       assessment = nil
@@ -2674,7 +2674,7 @@ final class OperatorWorkspace {
       )
     } else if state.runInProgress {
       runState = .processing(
-        detail: state.runDetail ?? "The motion owner settled; evidence processing is in progress."
+        detail: state.runDetail ?? "Motion settled; evidence processing is in progress."
       )
     } else if let record = state.lastRunRecord {
       runState =
@@ -2759,7 +2759,7 @@ final class OperatorWorkspace {
       } catch {
         projected = []
         planHash = nil
-        status = .unavailable(reason: "The current tip map cannot project this plan: \(error)")
+        status = .unavailable(reason: "The current pen-tip calibration cannot project this plan: \(error)")
       }
     } else {
       projected = []
@@ -2795,9 +2795,11 @@ final class OperatorWorkspace {
       return "SIMULATED previews placement but cannot supply physical drawing evidence."
     }
     guard interactiveLearningIsComplete else {
-      return "Complete the attributable picture-frame validation first."
+      return "Complete drawing-frame validation first."
     }
-    guard tipCameraRegistration != nil else { return "A current accepted tip map is required." }
+    guard tipCameraRegistration != nil else {
+      return "A current accepted pen-tip calibration is required."
+    }
     if let reason = controllerPoseRevalidationUnavailableReason { return reason }
     guard paperCoverageIsCurrent else {
       return
@@ -2823,7 +2825,7 @@ final class OperatorWorkspace {
     guard machineActions?.beginDrawingPlan != nil,
       cameraActions?.observePlannedDrawingInk != nil
     else {
-      return "The drawing-plan runtime and planned-ink observer are unavailable."
+      return "Drawing execution and planned-ink observation are unavailable."
     }
     return nil
   }
@@ -2908,7 +2910,8 @@ final class OperatorWorkspace {
     else {
       activeLearningSession.drawingStudio.program = nil
       activeLearningSession.drawingStudio.plan = nil
-      activeLearningSession.drawingStudio.planningError = "A current accepted tip map is required."
+      activeLearningSession.drawingStudio.planningError =
+        "A current accepted pen-tip calibration is required."
       return
     }
     do {
@@ -3012,7 +3015,7 @@ final class OperatorWorkspace {
     else { return }
     guard await ensurePenUpForTravel() else {
       activeLearningSession.drawingStudio.runDetail =
-        "Drawing was not admitted because Pen Up normalization did not settle."
+        "Drawing did not start because Pen Up normalization did not settle."
       return
     }
 
@@ -3055,7 +3058,7 @@ final class OperatorWorkspace {
             observationPosition = final
           case .cancelled:
             activeLearningSession.drawingStudio.runDetail =
-              "Drawing cancelled before any plan segment was admitted."
+              "Drawing was cancelled before any plan segment started."
             return
           case .refused(let reason):
             activeLearningSession.drawingStudio.runDetail =
@@ -3390,7 +3393,7 @@ final class OperatorWorkspace {
       let region = currentDrawableMachineRegion
     else {
       drawingEvidenceError =
-        "A current tip map and displayed frame are required to record the operator's paper-coverage assertion."
+        "A current pen-tip calibration and displayed frame are required to record the operator's paper-coverage assertion."
       return
     }
     let bounds = region.effectiveBounds
@@ -3750,7 +3753,7 @@ final class OperatorWorkspace {
 
   var currentCameraCalibrationBusyReason: String? {
     currentCameraCalibrationPhase.map {
-      "Automatic current-camera calibration is in progress (\($0.description)). Use Stop during an admitted move."
+      "Automatic camera calibration is in progress (\($0.description)). Use Stop during active motion."
     }
   }
 
@@ -3828,7 +3831,7 @@ final class OperatorWorkspace {
   var captureThroughputText: String {
     let diagnostics = videoVisionDiagnostics?.capture ?? cameraSnapshot?.diagnostics ?? .zero
     let held = diagnostics.previewPublicationPaused
-      ? " · preview publication paused by exact-workflow Vision"
+      ? " · preview publication paused by calibration image analysis"
       : ""
     return
       "received \(diagnostics.receivedFrameCount) · preview \(diagnostics.previewMaterializedFrameCount) · exact \(diagnostics.exactMaterializedFrameCount)\(held)"
@@ -3955,7 +3958,7 @@ final class OperatorWorkspace {
     if serialDevices.isEmpty { return "No serial controllers are available." }
     if let activeDiscoverySequenceID, !activePenInteractionNeedsControllerSetup {
       return
-        "Finish \(DiscoverySequenceCatalog.definition(for: activeDiscoverySequenceID).title); use Stop while its logical owner is active."
+        "Finish \(DiscoverySequenceCatalog.definition(for: activeDiscoverySequenceID).title); use Stop while its motion is active."
     }
     if passiveProbeInProgress || jogRequestInProgress || penRequestInProgress
       || motionAuthorizationActionInProgress
@@ -4145,7 +4148,7 @@ final class OperatorWorkspace {
       return "Finish or Cancel the active Learning Path attempt before changing frame source."
     }
     if activeDiscoverySequenceID != nil {
-      return "Finish the active Human-Guided Discovery transaction first."
+      return "Finish the active Plotter Calibration attempt first."
     }
     if activeExplorationOperation != nil {
       return "Wait for the current learning action before changing frame source."
@@ -4604,8 +4607,8 @@ final class OperatorWorkspace {
         capabilityID: target.capabilityID,
         title: isDrawing ? "Stop Manual Drawing" : "Stop Manual Jog",
         detail: isDrawing
-          ? "Stop only this manual drawing stroke; the controller waits for Idle and performs its one typed Pen Up attempt."
-          : "Stop only this manual jog and wait for its original owner to settle."
+          ? "Stop only this manual drawing stroke; the controller waits for Idle and performs one Pen Up attempt."
+          : "Stop only this manual jog and wait for it to settle."
       )
     } else {
       stopAction = nil
@@ -5252,7 +5255,7 @@ final class OperatorWorkspace {
       restoreInteractiveLearningCompletionFromEvidence()
     } catch {
       learningAuthorityError =
-        "Saved training could not be applied atomically: \(actionableDescription(error))"
+        "Saved Learning could not be applied: \(actionableDescription(error))"
     }
   }
 
@@ -5355,7 +5358,7 @@ final class OperatorWorkspace {
     let jogDirection = jogDirection(from: direction)
     boundaryTeachingState = .awaitingOwnerAdmission(jogDirection)
     boundaryTeachingResultText =
-      "\(jogDirection.shortLabel) selected. Start accepted; admitting one logical Boundary Discovery owner."
+      "Moving toward the \(jogDirection.shortLabel) Drawing Boundary. Press Stop Boundary Search at the paper edge."
     beginExerciseAttempt(
       ownerID: .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering),
       mode: mode
@@ -5627,7 +5630,7 @@ final class OperatorWorkspace {
     }
   }
 
-  /// Runs Stage 3.3 as one operator action. Recovery after an interrupted
+  /// Runs Exercise 1.3 as one operator action. Recovery after an interrupted
   /// calibration retains the exact center reference and resumes at proposal
   /// construction instead of demanding a duplicate capture.
   private func runCameraCalibrationAndBuildProposal() async {
@@ -5811,7 +5814,7 @@ final class OperatorWorkspace {
         operation: .currentCameraCalibration,
         phase: .intentAccepted,
         attemptID: attemptID,
-        detail: "Stage 3.3 five-position cap calibration accepted by the workflow coordinator."
+        detail: "Five-position camera calibration started."
       )
     )
     await updateCurrentCameraCalibrationPhase(
@@ -5944,7 +5947,7 @@ final class OperatorWorkspace {
           phase: .completed,
           attemptID: attemptID,
           detail:
-            "Five exact cap samples passed three-fit/two-holdout validation and staged one reviewable all-five proposal."
+            "Five exact cap measurements passed the three-fit/two-check policy and produced one reviewable camera calibration."
         )
       )
     } catch  where hasShutdown || Task.isCancelled {
@@ -6102,7 +6105,7 @@ final class OperatorWorkspace {
     )
   }
 
-  /// Stage 3.4 already has typed travel settlement. Capture therefore needs one
+  /// Exercise 1.4 already has typed travel settlement. Capture therefore needs one
   /// post-frame passive probe, not the current-camera helper's before/after pair.
   /// The probe both supplies the exact evidence MPos and proves that controller
   /// context remained compatible with the preceding sparse capture.
@@ -6449,7 +6452,7 @@ final class OperatorWorkspace {
     } catch {
       if explorationError == nil {
         explorationError =
-          "Stage 3.4 click selection failed without motion or redraw: \(actionableDescription(error))"
+          "Corner-mark selection failed without motion or redraw: \(actionableDescription(error))"
       }
       return
     }
@@ -6466,10 +6469,10 @@ final class OperatorWorkspace {
     } catch {
       if sparseTipCalibrationCoordinator.recoverFromFittingFailure() {
         explorationError =
-          "Stage 3.4 model construction failed without motion or redraw: \(actionableDescription(error)). Use Undo Last Click or Clear Clicks on This Frame to correct the same frozen frame."
+          "Pen-tip calibration construction failed without motion or redraw: \(actionableDescription(error)). Use Undo Last Click or Clear Clicks on This Frame to correct the same frozen frame."
       } else {
         explorationError =
-          "Stage 3.4 model construction failed without motion or redraw: \(actionableDescription(error)). The frozen-click state could not be restored; Cancel Attempt remains available and no redraw was sent."
+          "Pen-tip calibration construction failed without motion or redraw: \(actionableDescription(error)). The frozen-click state could not be restored; Cancel Attempt remains available and no redraw was sent."
       }
     }
   }
@@ -6676,7 +6679,7 @@ final class OperatorWorkspace {
         })
       else {
         throw LearningPathOperationError.requiredState(
-          "Possible ink already blacklists one of the four Stage 3.4 corner-circle locations on the current paper."
+          "Possible ink already excludes one of the four calibration-circle locations on the current paper."
         )
       }
       try sparseTipCalibrationCoordinator.beginBatch()
@@ -6687,7 +6690,7 @@ final class OperatorWorkspace {
           operation: .sparseTipCalibration,
           phase: .batchAdmitted,
           attemptID: attemptID,
-          detail: "Stage 3.4 admitted one supervised sparse-tip circle batch.",
+          detail: "Four-circle pen-tip calibration started.",
           sparseTipProgress: SparseTipWorkflowProgress(
             stage: .batchAdmitted,
             completedCircleCount: 0,
@@ -6944,7 +6947,7 @@ final class OperatorWorkspace {
           operation: .sparseTipCalibration,
           phase: .completed,
           attemptID: attemptID,
-          detail: "Stage 3.4 circle batch completed and awaits frozen-frame operator clicks.",
+          detail: "Four calibration circles are complete; click their centers on the frozen frame.",
           sparseTipProgress: SparseTipWorkflowProgress(
             stage: .terminal,
             completedCircleCount: drawnEvidence.count,
@@ -7253,7 +7256,7 @@ final class OperatorWorkspace {
     clearSparseTipClicks()
     if explorationError == nil {
       explorationError =
-        "The staged tip map was rejected. No tip-camera revision became authoritative; reselect the four corner points on the same frozen frame."
+        "The proposed pen-tip calibration was rejected. No calibration was accepted; reselect the four corner points on the same frozen frame."
     }
   }
 
@@ -7577,7 +7580,7 @@ final class OperatorWorkspace {
       )
       guard case .restored = checkpoint.revalidate(with: evidence) else {
         throw LearningPathOperationError.requiredState(
-          "The saved tip calibration remains quarantined because current semantic identity or fresh cap evidence did not match."
+          "The saved pen-tip calibration is unavailable because it does not match the current machine, camera, tool, paper, or new pen-cap evidence."
         )
       }
 
@@ -7854,7 +7857,7 @@ final class OperatorWorkspace {
           }
           advanceDrawingTrialAfterSuccess(.drawPictureFrame)
           let base =
-            "The picture-frame owner produced execution evidence, so physical ink may exist. Drawing will not be restarted; Continue Observation will return Pen Up and inspect the existing frame."
+            "Drawing-frame execution produced controller evidence, so physical ink may exist. Drawing will not restart; Resume Frame Observation will return Pen Up and inspect the existing frame."
           explorationError =
             commitFailure.map {
               "\(base) The frame-execution artifact also needs attention: \($0)"
@@ -7891,7 +7894,7 @@ final class OperatorWorkspace {
       explorationError = "Automatic comparison failed: \(error)"
       recordComparisonAttempt(
         assessment: nil,
-        disposition: .failed("Atomic accepted-artifact commit failed: \(error)")
+        disposition: .failed("Saving the accepted Learning result failed: \(error)")
       )
       finishActiveExerciseAttempt(disposition: .failed(String(describing: error)))
       restartableExerciseItemID = .observedDrawingTrial(.chooseFramePlan)
@@ -7936,7 +7939,7 @@ final class OperatorWorkspace {
     if learningResetInProgress { return "Reset All Learning is in progress." }
     if let activeDiscoverySequenceID {
       return
-        "Finish \(DiscoverySequenceCatalog.definition(for: activeDiscoverySequenceID).title); use Stop while its logical owner is active."
+        "Finish \(DiscoverySequenceCatalog.definition(for: activeDiscoverySequenceID).title); use Stop while its motion is active."
     }
     if sequenceID == .penInteraction {
       guard displayedFrame != nil else {
@@ -8693,7 +8696,7 @@ final class OperatorWorkspace {
     guard let outcome,
       case .commandedAndSettled(command: .raise, commandedState: .up) = outcome
     else {
-      machineError = "Pen Up normalization did not settle; travel was not admitted."
+      machineError = "Pen Up normalization did not settle; travel did not start."
       return false
     }
     return true
@@ -8902,7 +8905,7 @@ final class OperatorWorkspace {
         penCapAppearanceSelectionContext == nil
       else {
         let reason =
-          "Identify Pen Cap must be accepted before Pen Interaction questions begin."
+          "Identify Pen Cap must be completed before pen-position calibration begins."
         discoveryError = reason
         if activeExerciseAttemptOwnerID == .humanGuidedDiscovery(.penInteraction) {
           recordDiscoveryAttempt(sequenceID: .penInteraction, disposition: .refused(reason))
@@ -8941,7 +8944,7 @@ final class OperatorWorkspace {
       discoveryTransactions[sequenceID] = transaction
       await advanceDiscoverySequence(sequenceID)
     } catch {
-      discoveryError = "Human-Guided Discovery could not start: \(error)"
+      discoveryError = "Plotter Calibration could not start: \(error)"
       recordDiscoveryAttempt(
         sequenceID: sequenceID,
         disposition: .failed(String(describing: error))
@@ -9120,7 +9123,7 @@ final class OperatorWorkspace {
       )
       guard stagedTransaction.state == .succeeded else {
         throw LearningPathOperationError.requiredState(
-          "The typed Boundary transaction did not finish after its atomic commit event."
+          "The Drawing Boundary attempt did not finish after its result was recorded."
         )
       }
 
@@ -9241,7 +9244,7 @@ final class OperatorWorkspace {
     } catch {
       transaction.fail("Unexpected discovery event: \(error)")
       discoveryTransactions[sequenceID] = transaction
-      discoveryError = "Unexpected Human-Guided Discovery event: \(error)"
+      discoveryError = "Unexpected Plotter Calibration event: \(error)"
       return false
     }
   }
@@ -9335,7 +9338,7 @@ final class OperatorWorkspace {
       )
       boundaryTeachingState = .cancelling(jogDirection(from: direction))
       boundaryTeachingResultText =
-        "Stop requested. Waiting for the original motion owner to reach Idle."
+        "Stop requested. Waiting for active motion to reach Idle."
       await requestSingleJogCancel(for: target, intent: .operatorStop)
       await operation.owner.settle()
       if !recorded {
@@ -9344,7 +9347,7 @@ final class OperatorWorkspace {
         }
         await failDiscovery(
           sequenceID,
-          failure: .failed("The typed operator Stop event could not be recorded.")
+          failure: .failed("The operator Stop event could not be recorded.")
         )
       }
 
@@ -9396,7 +9399,7 @@ final class OperatorWorkspace {
         )
       } else {
         explorationError =
-          "The four-corner calibration batch stopped after possible ink. Every affected paper location is blacklisted and will not be redrawn automatically."
+          "The four-circle calibration stopped after possible ink. Every affected paper location is excluded from automatic redraw."
         restartableExerciseItemID = nil
       }
 
@@ -9493,7 +9496,7 @@ final class OperatorWorkspace {
       actor: actor,
       action: action,
       disposition: intent,
-      outcome: "requested; awaiting the original owner"
+      outcome: "requested; waiting for active motion"
     )
     return true
   }
@@ -9553,7 +9556,7 @@ final class OperatorWorkspace {
       operation.state.latch == nil
     else {
       throw LearningPathOperationError.controllerCancelled(
-        "The four-corner calibration batch was stopped; no later segment was admitted."
+        "The four-circle calibration was stopped; no later segment started."
       )
     }
   }
@@ -9884,8 +9887,8 @@ final class OperatorWorkspace {
         operation: .manualJog,
         phase: .intentAccepted,
         detail: request.permitsUnknownPenStateAsPossibleInk
-          ? "An operator-authored manual jog with unknown pen state was admitted as possible ink."
-          : "An ordinary operator-authored manual jog was admitted.",
+          ? "An operator-authored manual jog started with unknown pen state and was recorded as possible ink."
+          : "An operator-authored manual jog started.",
         motionIntent: motionIntent
       )
     )
@@ -9989,7 +9992,7 @@ final class OperatorWorkspace {
         operationID: admittedOperation.id,
         operation: .manualDrawingStroke,
         phase: .intentAccepted,
-        detail: "An operator-authored Pen Down manual drawing stroke was admitted.",
+        detail: "An operator-authored Pen Down manual drawing stroke started.",
         motionIntent: motionIntent
       )
     )
@@ -10280,7 +10283,7 @@ final class OperatorWorkspace {
       !requestedFeatures.intersection([.penCap, .armatureEnvelope]).isEmpty
     {
       throw LearningPathOperationError.requiredState(
-        "Not learned — use Identify Pen Cap before LIVE exact-workflow Vision."
+        "Use Identify Pen Cap before requesting LIVE pen-cap analysis."
       )
     }
     return try await cameraActions.inspectWorkflowScene(
@@ -10309,7 +10312,7 @@ final class OperatorWorkspace {
     defer { endExactWorkflowVision(owner) }
     if frameMode == .live, livePenCapAppearanceSelection == nil {
       throw LearningPathOperationError.requiredState(
-        "Not learned — use Identify Pen Cap before LIVE exact-workflow Vision."
+        "Use Identify Pen Cap before requesting LIVE pen-cap analysis."
       )
     }
     guard let cameraActions else {
@@ -10323,7 +10326,7 @@ final class OperatorWorkspace {
   private func beginExactWorkflowVision(_ owner: ExactWorkflowVisionOwner) throws {
     if let activeOwner = exactWorkflowVisionOwner {
       throw LearningPathOperationError.requiredState(
-        "Exact-workflow Vision is already owned by \(activeOwner.rawValue)."
+        "Camera analysis is busy with \(activeOwner.operatorLabel)."
       )
     }
     exactWorkflowVisionOwner = owner
@@ -10596,12 +10599,13 @@ final class OperatorWorkspace {
         ?? RuntimeTimestamp(monotonicNanoseconds: nowNanoseconds())
       let operatorSummary = position.map {
         String(
-          format: "Operator chose Next at S%d and MPos X %.3f Y %.3f.",
+          format: "Operator confirmed Pen %@ at S%d and MPos X %.3f Y %.3f.",
+          state.rawValue,
           setpoint,
           $0.point.x,
           $0.point.y
         )
-      } ?? "Operator chose Next at S\(setpoint); current MPos was unavailable."
+      } ?? "Operator confirmed Pen \(state.rawValue) at S\(setpoint); current MPos was unavailable."
       do {
         let succeeded = try mutateActiveLearningSession(
           invalidatesActionSurface: false
@@ -10628,7 +10632,7 @@ final class OperatorWorkspace {
           failed.fail("Unexpected discovery event: \(error)")
           discoveryTransactions[sequenceID] = failed
         }
-        discoveryError = "Unexpected Human-Guided Discovery event: \(error)"
+        discoveryError = "Unexpected Plotter Calibration event: \(error)"
         return
       }
     default:
@@ -10654,7 +10658,7 @@ final class OperatorWorkspace {
     guard await ensurePenUpForTravel() else {
       await failDiscovery(
         sequenceID,
-        failure: .failed("Boundary motion was not admitted because Pen Up did not settle.")
+        failure: .failed("Drawing Boundary motion did not start because Pen Up did not settle.")
       )
       return
     }
@@ -10671,14 +10675,14 @@ final class OperatorWorkspace {
       if case .needsAttention(_, let terminal) = outcome {
         await failDiscovery(sequenceID, failure: workflowFailure(for: terminal))
       } else {
-        await failDiscovery(sequenceID, failure: .refused("Boundary owner admission was rejected."))
+        await failDiscovery(sequenceID, failure: .refused("Drawing Boundary motion could not start."))
       }
       return
     }
     guard admittedOperation.ownerID == request.ownerID else {
       await failDiscovery(
         sequenceID,
-        failure: .failed("Boundary owner admission returned a mismatched owner identity."))
+        failure: .failed("Drawing Boundary motion returned mismatched operation identity."))
       return
     }
     let stopTarget = ContextualStopTarget.pairedBoundary(
@@ -10693,7 +10697,7 @@ final class OperatorWorkspace {
         sequenceID,
         failure: WorkflowFailure(
           kind: .failed,
-          detail: "Boundary owner admission lost its coordinating task.",
+          detail: "Drawing Boundary motion lost its coordinating task.",
           recovery: .resolveNamedFailure
         )
       )
@@ -10716,18 +10720,18 @@ final class OperatorWorkspace {
       operationOwnerID: .liveBoundary(request.ownerID),
       stopCapabilityID: stopTarget.capabilityID,
       detail: .message(
-        "The logical Boundary owner was admitted under current direct controller facts.")
+        "Drawing Boundary motion started under the current controller state.")
     )
     machineSnapshot = await machineActions.snapshot()
     boundaryTeachingState = .ownerActive(direction)
     boundaryTeachingResultText =
-      "Boundary owner active toward \(direction.shortLabel). Stop is available during admission and motion."
+      "Moving toward the \(direction.shortLabel) Drawing Boundary. Stop Boundary Search is available."
     guard
       recordDiscovery(
         .boundaryJogStarted(
           discoveryDirection,
           controllerSummary:
-            "Logical Boundary Discovery owner started; direct controller admission remains runtime-owned."
+            "Drawing Boundary motion started; the controller remains responsible for command safety and settlement."
         ),
         for: sequenceID
       )
@@ -10748,7 +10752,7 @@ final class OperatorWorkspace {
       if boundaryAtomicCommitFailurePoints.contains(.settlement) {
         await failDiscovery(
           sequenceID,
-          failure: .failed("Injected Boundary settlement failure after the owner returned.")
+          failure: .failed("Injected Drawing Boundary settlement failure after motion returned.")
         )
         return
       }
@@ -10790,7 +10794,7 @@ final class OperatorWorkspace {
         await failDiscovery(
           sequenceID,
           failure: .failed(
-            "Boundary settlement owner/disposition did not match the first admitted operator action."
+            "Drawing Boundary settlement did not match the operator's original action."
           )
         )
         return
@@ -10818,7 +10822,7 @@ final class OperatorWorkspace {
         stopCapabilityID: stopTarget.capabilityID,
         finalPosition: settlement.finalPosition,
         retainedRevisionIDs: acceptedFallback.map { [$0.revisionID] } ?? [],
-        detail: .message("The owner settled after Cancel; no Boundary sample was accepted."),
+        detail: .message("Motion settled after Cancel; no Drawing Boundary sample was accepted."),
         recovery: acceptedFallback != nil
           ? .continueWithAcceptedFallback(discoveryDirection)
           : .restartNormal(discoveryDirection),
@@ -10857,7 +10861,7 @@ final class OperatorWorkspace {
     case .failure(let refusal):
       await failDiscovery(
         sequenceID,
-        failure: .refused("Simulated Boundary owner admission was refused: \(refusal).")
+        failure: .refused("Simulated Drawing Boundary motion could not start: \(refusal).")
       )
       return
     }
@@ -10880,7 +10884,7 @@ final class OperatorWorkspace {
     guard let boundaryMotionTask else {
       await failDiscovery(
         sequenceID,
-        failure: .failed("Simulated Boundary owner lost its coordinating task.")
+        failure: .failed("Simulated Drawing Boundary motion lost its coordinating task.")
       )
       return
     }
@@ -10890,13 +10894,13 @@ final class OperatorWorkspace {
     pendingBoundaryStopCapabilities[attemptID] = stopTarget.capabilityID
     boundaryTeachingState = .ownerActive(direction)
     boundaryTeachingResultText =
-      "Simulated Boundary owner active toward \(direction.shortLabel). \(response.evidenceNotice.label)"
+      "Simulated motion is moving toward the \(direction.shortLabel) Drawing Boundary. \(response.evidenceNotice.label)"
     guard
       recordDiscovery(
         .boundaryJogStarted(
           discoveryDirection,
           controllerSummary:
-            "Simulated logical Boundary owner \(operation.id.sequence) started. \(response.evidenceNotice.label)"
+            "Simulated Drawing Boundary motion \(operation.id.sequence) started. \(response.evidenceNotice.label)"
         ),
         for: sequenceID
       )
@@ -10908,7 +10912,7 @@ final class OperatorWorkspace {
         sequenceID,
         failure: WorkflowFailure(
           kind: .failed,
-          detail: "The simulated Boundary owner lost its outcome.",
+          detail: "The simulated Drawing Boundary motion lost its outcome.",
           recovery: .resolveNamedFailure
         )
       )
@@ -10972,7 +10976,7 @@ final class OperatorWorkspace {
       await failDiscovery(
         sequenceID,
         failure: .ambiguous(
-          "The simulated Boundary owner lost attributable segment completion."
+          "The simulated Drawing Boundary motion lost attributable segment completion."
         )
       )
 
@@ -10980,7 +10984,7 @@ final class OperatorWorkspace {
       await failDiscovery(
         sequenceID,
         failure: .failed(
-          "Simulated Boundary settlement did not match the first admitted operator disposition."
+          "Simulated Drawing Boundary settlement did not match the operator's original action."
         )
       )
     }
@@ -11266,9 +11270,9 @@ final class OperatorWorkspace {
     } catch {
       recordDiscoveryAttempt(
         sequenceID: sequenceID,
-        disposition: .failed("Atomic accepted-artifact commit failed: \(error)")
+        disposition: .failed("Saving the accepted Learning result failed: \(error)")
       )
-      discoveryError = "Accepted discovery artifact could not commit: \(error)"
+      discoveryError = "The accepted Learning result could not be saved: \(error)"
       restartableExerciseItemID = learningPathItemID(for: sequenceID)
       finishActiveExerciseAttempt(disposition: .failed(String(describing: error)))
     }
@@ -11392,7 +11396,7 @@ final class OperatorWorkspace {
 
   private func commitDrawingArtifact(for step: ObservedDrawingTrialStep) throws {
     guard let attemptID = activeExerciseAttemptID else {
-      throw LearningPathOperationError.requiredState("No active typed exercise attempt.")
+      throw LearningPathOperationError.requiredState("No active Learning Path attempt.")
     }
     let group = currentDrawingTrialGroup
     var graph = learningArtifactGraph
@@ -11492,7 +11496,7 @@ final class OperatorWorkspace {
     _ assessment: DrawingTrialAssessment
   ) throws {
     guard let attemptID = activeExerciseAttemptID else {
-      throw LearningPathOperationError.requiredState("No active typed exercise attempt.")
+      throw LearningPathOperationError.requiredState("No active Learning Path attempt.")
     }
     let compatibility = AttemptCompatibility(
       cameraConfigurationID: explorationPostFrame?.frame.cameraConfigurationID,
@@ -11905,7 +11909,7 @@ final class OperatorWorkspace {
       acceptedAttemptSequence = max(acceptedAttemptSequence, checkpoint.acceptedSequence)
       learningArtifactGraph = graph
     } catch {
-      learningAuthorityError = "Saved Pen Interaction could not be restored: \(error)"
+      learningAuthorityError = "Saved pen calibration could not be restored: \(error)"
     }
   }
 
@@ -11929,18 +11933,18 @@ final class OperatorWorkspace {
     _ checkpoint: AcceptedLearningPathCheckpoint
   ) -> String {
     var artifacts: [String] = []
-    if checkpoint.penInteraction != nil { artifacts.append("Pen Interaction") }
+    if checkpoint.penInteraction != nil { artifacts.append("pen calibration") }
     if let machine = checkpoint.machineArtifacts {
-      artifacts.append("\(machine.boundarySideAggregates.count) Boundary sides and center")
+      artifacts.append("\(machine.boundarySideAggregates.count) Drawing Boundary sides and center")
     }
     if checkpoint.machineCamera != nil { artifacts.append("camera/cap registration") }
-    if checkpoint.tipCalibration != nil { artifacts.append("four-corner tip registration") }
-    if checkpoint.stageFour != nil { artifacts.append("observed drawing validation") }
+    if checkpoint.tipCalibration != nil { artifacts.append("four-corner pen-tip calibration") }
+    if checkpoint.stageFour != nil { artifacts.append("drawing-frame validation") }
     if checkpoint.penCapAppearance != nil { artifacts.append("pen-cap appearance") }
     let drawingCount = drawingEvidenceArchive.records.count
     if drawingCount > 0 { artifacts.append("\(drawingCount) archived drawing plan(s)") }
     let contents = artifacts.isEmpty ? "no accepted Learning artifacts" : artifacts.joined(separator: ", ")
-    return "Saved package \(checkpoint.checkpointID.uuidString.prefix(8)) contains \(contents). It is preview-only until you choose Use Saved Training."
+    return "Saved Learning \(checkpoint.checkpointID.uuidString.prefix(8)) contains \(contents). It is preview-only until you choose Use Saved Learning."
   }
 
   private func currentAcceptedMachineCameraCheckpoint()
@@ -12334,7 +12338,7 @@ final class OperatorWorkspace {
         discoveryTransactions[sequenceID] = transaction
         boundaryTeachingState = .cancelling(jogDirection(from: direction))
         boundaryTeachingResultText =
-          "Shutdown requested. Waiting for the original motion owner to reach Idle."
+          "Shutdown requested. Waiting for active motion to reach Idle."
       }
     case .manualJog, .manualDrawingStroke, .exerciseMotion, .drawingTrial, .sparseTipBatch,
       .sparseTipBatchSegment:
@@ -12547,7 +12551,7 @@ final class OperatorWorkspace {
       plan.strokes[0].path.points == frame.pathPositions.map(\.point)
     else {
       throw LearningPathOperationError.requiredState(
-        "The picture-frame planner changed the accepted four-corner path."
+        "The drawing-frame planner changed the accepted four-corner path."
       )
     }
     drawingTrialProgram = program
@@ -12563,7 +12567,7 @@ final class OperatorWorkspace {
       controllerIsPenUpAndIdle
     else {
       throw LearningPathOperationError.requiredState(
-        "A current accepted tip-model revision and settled Pen-Up pose are required."
+        "A current accepted pen-tip calibration and settled Pen-Up position are required."
       )
     }
     let revealPosition = try currentMachinePosition()
@@ -12578,7 +12582,7 @@ final class OperatorWorkspace {
     guard let destination = drawingTrialFramePlan?.strokes.first?.path.points.first.map(
       MachinePosition.init(point:)
     ) else {
-      throw LearningPathOperationError.requiredState("Typed picture-frame plan is unavailable.")
+      throw LearningPathOperationError.requiredState("The drawing-frame plan is unavailable.")
     }
     let current = try currentMachinePosition()
     let delta = try Vector2<MachineSpace>(
@@ -12725,7 +12729,7 @@ final class OperatorWorkspace {
       }
     } else if !(await ensurePenUpForTravel()) {
       throw LearningPathOperationError.requiredState(
-        "Supervised travel was not admitted because Pen Up did not settle."
+        "Supervised travel did not start because Pen Up did not settle."
       )
     }
     let selection = travelFeedSelection(for: delta)
@@ -12849,7 +12853,7 @@ final class OperatorWorkspace {
     guard let plan = drawingTrialFramePlan,
       let startPoint = plan.strokes.first?.path.points.first
     else {
-      throw LearningPathOperationError.requiredState("The picture-frame plan is unavailable.")
+      throw LearningPathOperationError.requiredState("The drawing-frame plan is unavailable.")
     }
     let start = MachinePosition(point: startPoint)
     let current = try currentMachinePosition()
@@ -12861,13 +12865,13 @@ final class OperatorWorkspace {
       )
     else {
       throw LearningPathOperationError.requiredState(
-        "Move to the recorded picture-frame start before drawing."
+        "Move to the recorded drawing-frame start before drawing."
       )
     }
     if frameMode == .simulated {
       applySimulatedSnapshotResponse(
         await simulatedLearningRuntime.setPenPose(.down),
-        action: "Lower simulated pen for picture frame"
+        action: "Lower simulated pen for drawing frame"
       )
       activeExplorationOperation?.strokeState = .possibleInk
       do {
@@ -12893,7 +12897,7 @@ final class OperatorWorkspace {
           clearStoppableOperation(matching: target)
           guard let outcome, outcome.disposition == .naturallyCompleted else {
             throw LearningPathOperationError.possibleInk(
-              "The simulated picture-frame owner lost a naturally completed segment."
+              "The simulated drawing-frame operation lost a naturally completed segment."
             )
           }
           simulatedLearningSnapshot = await simulatedLearningRuntime.snapshot()
@@ -12901,20 +12905,20 @@ final class OperatorWorkspace {
       } catch {
         applySimulatedSnapshotResponse(
           await simulatedLearningRuntime.setPenPose(.up),
-          action: "Raise simulated pen after incomplete picture frame"
+          action: "Raise simulated pen after incomplete drawing frame"
         )
         throw error
       }
       activeExplorationOperation?.strokeState = .completedNaturally
       applySimulatedSnapshotResponse(
         await simulatedLearningRuntime.setPenPose(.up),
-        action: "Raise simulated pen after picture frame"
+        action: "Raise simulated pen after drawing frame"
       )
       return
     }
     guard let machineActions, let beginDrawingPlan = machineActions.beginDrawingPlan else {
       throw LearningPathOperationError.requiredState(
-        "The canonical drawing-plan runtime is unavailable."
+        "Drawing execution is unavailable."
       )
     }
     let operationID = DrawingPlanOperationID()
@@ -12925,7 +12929,7 @@ final class OperatorWorkspace {
       drawingFeedMMPerMinute: 100,
       penActuationProfile: currentPenActuationProfile
     )
-    _ = await announceAdvisory("Drawing the four-edge picture frame.")
+    _ = await announceAdvisory("Drawing the four-edge drawing frame.")
     let operation: DrawingPlanOperation
     switch await beginDrawingPlan(request) {
     case .admitted(let admitted):
@@ -12933,7 +12937,7 @@ final class OperatorWorkspace {
     case .rejected(let outcome):
       drawingTrialDrawingOutcome = outcome
       throw LearningPathOperationError.controllerRefused(
-        "Picture-frame plan was refused before execution: \(outcome)"
+        "Drawing-frame plan was refused before execution: \(outcome)"
       )
     }
     let target = ContextualStopTarget.drawingTrial(
@@ -12955,13 +12959,13 @@ final class OperatorWorkspace {
       throw LearningPathOperationError.controllerRefused(String(describing: reason))
     case .cancelled(_, _, _, _, let penRaiseOutcome):
       throw LearningPathOperationError.possibleInk(
-        "Picture-frame drawing stopped; controller Pen Up outcome: \(String(describing: penRaiseOutcome))"
+        "Drawing-frame operation stopped; controller Pen Up outcome: \(String(describing: penRaiseOutcome))"
       )
     case .ambiguous(_, let reason):
       throw LearningPathOperationError.possibleInk(String(describing: reason))
     case .possibleInk(_, let reason, let penRaiseOutcome):
       throw LearningPathOperationError.possibleInk(
-        "Picture-frame execution may contain ink: \(reason); Pen Up: \(String(describing: penRaiseOutcome))"
+        "Drawing-frame operation may contain ink: \(reason); Pen Up: \(String(describing: penRaiseOutcome))"
       )
     }
   }
@@ -12978,7 +12982,7 @@ final class OperatorWorkspace {
         == registrationRevisionID
     else {
       throw LearningPathOperationError.requiredState(
-        "The local baseline, reveal pose, picture-frame plan, and exact current tip-model revision are required."
+        "The local baseline, reveal position, drawing-frame plan, and current accepted pen-tip calibration are required."
       )
     }
     let current = try currentMachinePosition()
@@ -13064,7 +13068,7 @@ final class OperatorWorkspace {
         source: frameMode,
         owner: .observedDrawingTrial
       )
-      explorationInkStatus = "new picture-frame ink observed with planned-path residual"
+      explorationInkStatus = "new drawing-frame ink observed with planned-path residual"
     case .rejected(let rejection):
       lastFrameObservation = nil
       explorationInkStatus = "ink or geometry unclear: \(rejection.reason); no redraw requested"
@@ -13170,7 +13174,7 @@ final class OperatorWorkspace {
         "\(action) was stopped or cancelled before an arrival artifact could be accepted.")
     case .acceptedThenCompleted:
       .controllerFailed(
-        "\(action) completed before its owner-bound admission handle was returned.")
+        "\(action) completed before its active-operation handle was returned.")
     }
   }
 
@@ -13189,7 +13193,7 @@ final class OperatorWorkspace {
         ? .possibleInk("Drawing was cancelled; Pen Up outcome: \(penRaiseOutcome)")
         : .controllerCancelled("Drawing was cancelled before contact authority existed.")
     case .completed:
-      .controllerFailed("Drawing completed before its admitted owner handle was returned.")
+      .controllerFailed("Drawing completed before its active-operation handle was returned.")
     }
   }
 

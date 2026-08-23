@@ -90,7 +90,7 @@ extension OperatorWorkspaceTests {
   }
 
   @Test(
-    "Reset All cancels a pending Pen Interaction and preserves controller Camera and Motion"
+    "Reset All cancels a pending Exercise 1.1 attempt and preserves controller Camera and Motion"
   )
   func resetAllCancelsPendingPenInteractionAndPreservesSessionFacts() async throws {
     let log = EventLog()
@@ -553,7 +553,7 @@ extension OperatorWorkspaceTests {
     await workspace.shutdown()
   }
 
-  @Test("Reset the one-Go observed trial atomically and perform no redraw")
+  @Test("Reset drawing-frame validation atomically and perform no redraw")
   func resetObservedTrialAtomically() async throws {
     let harness = makeSimulatedHarness()
     let workspace = harness.workspace

@@ -8,11 +8,11 @@ import Testing
 struct LearningPathPresentationTests {
   @Test("Learning Path has only the two implemented curriculum stages")
   func exactImplementedStageJourney() {
-    #expect(LearningPathStage.allCases.map(\.number) == ["3", "4"])
+    #expect(LearningPathStage.allCases.map(\.number) == ["1", "2"])
     #expect(
       LearningPathStage.allCases.map(\.title) == [
-        "Human-Guided Discovery",
-        "Observed Drawing Trials",
+        "Plotter Calibration",
+        "Drawing Validation",
       ])
   }
 
@@ -27,52 +27,84 @@ struct LearningPathPresentationTests {
       ])
   }
 
-  @Test("Human-Guided Discovery exposes the exact ordered substeps")
+  @Test("Plotter Calibration exposes the exact ordered exercises")
   func exactDiscoverySteps() {
     #expect(
       HumanGuidedDiscoveryStep.allCases.map(\.stepNumber)
-        == ["3.1", "3.2", "3.3", "3.4"]
+        == ["1.1", "1.2", "1.3", "1.4"]
     )
     #expect(
       HumanGuidedDiscoveryStep.allCases.map(\.title) == [
-        "Pen Interaction",
-        "Paired Boundary Discovery and Centering",
-        "Calibrate Camera and Visible Cap",
-        "Calibrate Pen Contact from Sparse Marks",
+        "Identify and Calibrate the Pen",
+        "Measure and Center the Drawing Boundary",
+        "Calibrate Camera from Pen Cap Positions",
+        "Calibrate Pen Tip from Corner Marks",
       ])
   }
 
-  @Test("Observed Drawing Trial retains six truthful internal phases")
+  @Test("Drawing Validation retains six truthful internal phases")
   func exactDrawingTrialPhases() {
     #expect(
       ObservedDrawingTrialStep.allCases.map(\.rawValue) == [1, 2, 3, 4, 5, 6]
     )
     #expect(
-      ObservedDrawingTrialStep.allCases.map(\.stepNumber) == Array(repeating: "4.1", count: 6)
+      ObservedDrawingTrialStep.allCases.map(\.stepNumber) == Array(repeating: "2.1", count: 6)
     )
     #expect(
       ObservedDrawingTrialStep.allCases.map(\.title) == [
-        "Plan Predicted Picture Frame",
-        "Capture Pre-Frame Baseline",
-        "Move to Frame Start",
-        "Draw Picture Frame",
-        "Reveal and Observe New Ink",
-        "Compare Intended and Observed Geometry",
+        "Plan Drawing Frame",
+        "Capture Baseline Frame",
+        "Move to Drawing Start",
+        "Draw Frame",
+        "Reveal Drawing",
+        "Compare Plan with Observed Ink",
       ])
   }
 
-  @Test("flat navigator exposes one Go-owned Stage 4 exercise")
+  @Test("flat navigator starts at Stage 1 and exposes one Stage 2 exercise")
   func exactNavigatorOrder() {
     #expect(
       LearningPathItemID.navigationOrder.map { "\($0.number) \($0.title)" } == [
-        "3 Human-Guided Discovery",
-        "3.1 Pen Interaction",
-        "3.2 Paired Boundary Discovery and Centering",
-        "3.3 Calibrate Camera and Visible Cap",
-        "3.4 Calibrate Pen Contact from Sparse Marks",
-        "4 Observed Drawing Trials",
-        "4.1 Run Predicted Picture Frame Trial",
+        "1 Plotter Calibration",
+        "1.1 Identify and Calibrate the Pen",
+        "1.2 Measure and Center the Drawing Boundary",
+        "1.3 Calibrate Camera from Pen Cap Positions",
+        "1.4 Calibrate Pen Tip from Corner Marks",
+        "2 Drawing Validation",
+        "2.1 Draw and Validate the Frame",
       ])
+  }
+
+  @Test("shared Learning Path vocabulary excludes obsolete numbering and implementation jargon")
+  func strictLearningPathVocabulary() {
+    let visibleTerms = LearningPathStage.allCases.map(\.title)
+      + HumanGuidedDiscoveryStep.allCases.map(\.title)
+      + [LearningPathItemID.observedDrawingTrial(.chooseFramePlan).title]
+      + [
+        LearningPathTerminology.Action.identifyPenCap,
+        LearningPathTerminology.Action.confirmPenUp,
+        LearningPathTerminology.Action.confirmPenDown,
+        LearningPathTerminology.Action.runCameraCalibration,
+        LearningPathTerminology.Action.acceptCameraCalibration,
+        LearningPathTerminology.Action.drawCalibrationCircles,
+        LearningPathTerminology.Action.acceptPenTipCalibration,
+        LearningPathTerminology.Action.drawAndValidateFrame,
+      ]
+    let forbidden = [
+      "3.1", "3.2", "3.3", "3.4", "4.1", "Human-Guided", "Observed Drawing Trial",
+      "admitted", "logical owner", "workflow coordinator", "tip map", "Go", "Next",
+    ]
+
+    for term in visibleTerms {
+      for word in forbidden {
+        #expect(!term.localizedCaseInsensitiveContains(word))
+      }
+    }
+    #expect(DiscoverySequenceCatalog.title == LearningPathTerminology.Stage.plotterCalibration)
+    #expect(
+      DiscoverySequenceCatalog.definition(for: .penInteraction).title
+        == LearningPathTerminology.Exercise.identifyAndCalibratePen
+    )
   }
 
   @Test("selection and Return to Current mutate presentation state only")

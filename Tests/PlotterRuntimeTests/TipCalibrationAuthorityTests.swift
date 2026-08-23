@@ -463,7 +463,7 @@ struct TipCalibrationAuthorityTests {
     )
     if case .quarantined = loaded.revalidate(with: paperEvidence) {
     } else {
-      Issue.record("paper replacement must require a fresh complete Stage 3.4 calibration")
+      Issue.record("paper replacement must require a fresh complete Exercise 1.4 calibration")
     }
 
     let staleEvidence = try fixture.revalidationEvidence(
