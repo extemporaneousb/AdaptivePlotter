@@ -1060,6 +1060,8 @@ struct ActionSurface: View {
       return (.white, 3, [])
     case .residual:
       return (.orange, 1.5, [])
+    case .acceptedBoundary:
+      return (.orange, 2.5, [12, 6])
     case .calibratedDrawableRegion:
       return (.blue, 2.5, [9, 5])
     case .paperCoverage:

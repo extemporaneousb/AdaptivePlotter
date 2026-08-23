@@ -3437,7 +3437,7 @@ final class OperatorWorkspace {
           framedByMarkCenters: registration.applicabilityRectangle
         )
       } else {
-        // v3/v4 packages and the current v6 four-corner package retain their
+        // v3/v4/v6 packages and the current v7 four-corner package retain their
         // recorded applicability domain. Only v5 recorded an inner region.
         registration.applicabilityRectangle
       }
@@ -3448,7 +3448,32 @@ final class OperatorWorkspace {
     on displayedFrame: DisplayedFrame
   ) -> [CameraOverlayMeasurement] {
     let savedCandidate = savedLearningPackageState.candidate?.checkpoint
-    guard let registration = tipCameraRegistration ?? savedCandidate?.tipCalibration?.registration,
+    let context: (
+      registration: TipCameraRegistration,
+      boundarySideAggregates: [BoundaryDirection: BoundarySideAggregate],
+      isProposed: Bool
+    )?
+    if let proposedTipCameraRegistration {
+      context = (proposedTipCameraRegistration, boundarySideAggregates, true)
+    } else if let tipCameraRegistration {
+      context = (tipCameraRegistration, boundarySideAggregates, false)
+    } else if let savedCandidate,
+      let registration = savedCandidate.tipCalibration?.registration
+    {
+      context = (
+        registration,
+        Dictionary(
+          uniqueKeysWithValues: (savedCandidate.machineArtifacts?.boundarySideAggregates ?? [])
+            .map { ($0.direction, $0) }
+        ),
+        false
+      )
+    } else {
+      context = nil
+    }
+    guard let context else { return [] }
+    let registration = context.registration
+    guard
       displayedFrame.source == registration.applicability.opticalConfiguration.source,
       displayedFrame.frame.width == registration.applicability.opticalConfiguration.width,
       displayedFrame.frame.height == registration.applicability.opticalConfiguration.height,
@@ -3458,33 +3483,55 @@ final class OperatorWorkspace {
     else { return [] }
 
     let bounds = region.effectiveBounds
-    let machineCorners: [Point2<MachineSpace>] = [
-      try? Point2(x: bounds.minX, y: bounds.minY),
-      try? Point2(x: bounds.maxX, y: bounds.minY),
-      try? Point2(x: bounds.maxX, y: bounds.maxY),
-      try? Point2(x: bounds.minX, y: bounds.maxY),
-      try? Point2(x: bounds.minX, y: bounds.minY),
-    ].compactMap { $0 }
     var overlays: [CameraOverlayMeasurement] = []
-    if machineCorners.count == 5,
-      let polyline = try? Polyline(
-        points: machineCorners.map { try registration.tipPixel(at: $0) }
+    if context.boundarySideAggregates.values.allSatisfy({
+      $0.coordinateRevision == registration.applicability.machineCoordinateFrame.rawValue
+    }),
+      let boundary = try? SparseTipBatchMarkPlan.boundaryEnvelope(
+        for: context.boundarySideAggregates
+      ),
+      let boundaryFrame = try? ObservedDrawingTrialFramePlan(domain: boundary),
+      let projectedBoundary = try? Polyline(
+        points: boundaryFrame.pathPositions.map {
+          try registration.cameraFromMachine.applying(to: $0.point)
+        }
       )
     {
       overlays.append(
         CameraOverlayMeasurement(
           frameID: displayedFrame.frame.id,
           cameraConfigurationID: displayedFrame.frame.cameraConfigurationID,
-          geometry: .polyline(polyline),
+          geometry: .polyline(projectedBoundary),
           provenance: CameraMeasurementProvenance(
-            kind: .calibratedDrawableRegion,
+            kind: .acceptedBoundary,
             source: .inferred,
-            algorithmRevision: "accepted-tip-applicability-region-v1"
+            algorithmRevision: "accepted-stage32-boundary-tip-extrapolation-v1"
           )
         )
       )
     }
-    if let position = try? currentMachinePosition(),
+    if let frame = try? ObservedDrawingTrialFramePlan(domain: bounds),
+      let projectedFrame = try? Polyline(
+        points: frame.pathPositions.map { try registration.tipPixel(at: $0.point) }
+      )
+    {
+      overlays.append(
+        CameraOverlayMeasurement(
+          frameID: displayedFrame.frame.id,
+          cameraConfigurationID: displayedFrame.frame.cameraConfigurationID,
+          geometry: .polyline(projectedFrame),
+          provenance: CameraMeasurementProvenance(
+            kind: context.isProposed ? .intendedPath : .calibratedDrawableRegion,
+            source: context.isProposed ? .planned : .inferred,
+            algorithmRevision: context.isProposed
+              ? "proposed-tip-four-point-frame-preview-v1"
+              : "accepted-tip-four-point-frame-region-v2"
+          )
+        )
+      )
+    }
+    if !context.isProposed,
+      let position = try? currentMachinePosition(),
       let point = try? registration.tipPixel(at: position.point)
     {
       overlays.append(
@@ -7303,7 +7350,7 @@ final class OperatorWorkspace {
         algorithmRevisions: [
           try AlgorithmRevisionEvidence(
             component: "sparse-tip-workspace",
-            revision: "boundary-extreme-four-circle-batch-unordered-global-association-v6"
+            revision: "boundary-10mm-inset-four-circle-batch-unordered-global-association-v7"
           ),
           try AlgorithmRevisionEvidence(
             component: "pen-actuation",

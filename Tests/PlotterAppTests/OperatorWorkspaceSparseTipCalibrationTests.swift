@@ -184,10 +184,34 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     #expect((await harness.runtime.snapshot()).persistentInkSegmentCount == 64)
 
     #expect(workspace.tipCameraRegistration == nil)
-    #expect(
-      workspace.proposedTipCameraRegistration?.applicabilityRectangle
-        == batch.applicabilityRectangle
+    let proposed = try #require(workspace.proposedTipCameraRegistration)
+    #expect(proposed.applicabilityRectangle == batch.applicabilityRectangle)
+    let proposalOverlays = workspace.actionSurfacePresentation.overlays
+    let proposedBoundaryOverlay = try #require(
+      proposalOverlays.first { $0.provenance.kind == .acceptedBoundary }
     )
+    let proposedFrameOverlay = try #require(
+      proposalOverlays.first {
+        $0.provenance.kind == .intendedPath
+          && $0.provenance.algorithmRevision == "proposed-tip-four-point-frame-preview-v1"
+      }
+    )
+    guard case .polyline(let proposedBoundary) = proposedBoundaryOverlay.geometry,
+      case .polyline(let proposedFrame) = proposedFrameOverlay.geometry
+    else {
+      Issue.record("Expected the accepted 3.2 Boundary and proposed inset frame polylines.")
+      return
+    }
+    let boundaryFrame = try ObservedDrawingTrialFramePlan(domain: batch.boundaryEnvelope)
+    let insetFrame = try ObservedDrawingTrialFramePlan(domain: batch.applicabilityRectangle)
+    let proposedBoundaryPoints = try boundaryFrame.pathPositions.map {
+      try proposed.cameraFromMachine.applying(to: $0.point)
+    }
+    let proposedFramePoints = try insetFrame.pathPositions.map {
+      try proposed.tipPixel(at: $0.point)
+    }
+    #expect(proposedBoundary.points == proposedBoundaryPoints)
+    #expect(proposedFrame.points == proposedFramePoints)
     if case .reviewingModel(.directAffine) = workspace.sparseTipCalibrationCoordinator.phase {
       // The fourth click stages a reviewable map; it is not accepted implicitly.
     } else {
@@ -233,33 +257,28 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       }
     )
     guard case .polyline(let regionPolyline) = regionOverlay.geometry else {
-      Issue.record("Expected the accepted drawable-region overlay to be a bounding polyline.")
+      Issue.record("Expected the accepted four-point frame overlay to be a bounding polyline.")
+      return
+    }
+    let acceptedBoundaryOverlay = try #require(
+      workspace.actionSurfacePresentation.overlays.first {
+        $0.provenance.kind == .acceptedBoundary
+      }
+    )
+    guard case .polyline(let acceptedBoundaryPolyline) = acceptedBoundaryOverlay.geometry else {
+      Issue.record("Expected the accepted 3.2 Boundary overlay to be a bounding polyline.")
       return
     }
     let pictureRectangle = batch.applicabilityRectangle
     #expect(workspace.currentDrawableMachineRegion?.effectiveBounds == pictureRectangle)
-    #expect(regionPolyline.points == [
-      try accepted.tipPixel(at: Point2(
-        x: pictureRectangle.minX,
-        y: pictureRectangle.minY
-      )),
-      try accepted.tipPixel(at: Point2(
-        x: pictureRectangle.maxX,
-        y: pictureRectangle.minY
-      )),
-      try accepted.tipPixel(at: Point2(
-        x: pictureRectangle.maxX,
-        y: pictureRectangle.maxY
-      )),
-      try accepted.tipPixel(at: Point2(
-        x: pictureRectangle.minX,
-        y: pictureRectangle.maxY
-      )),
-      try accepted.tipPixel(at: Point2(
-        x: pictureRectangle.minX,
-        y: pictureRectangle.minY
-      )),
-    ])
+    let acceptedFramePoints = try insetFrame.pathPositions.map {
+      try accepted.tipPixel(at: $0.point)
+    }
+    #expect(regionPolyline.points == acceptedFramePoints)
+    let acceptedBoundaryPoints = try boundaryFrame.pathPositions.map {
+      try accepted.cameraFromMachine.applying(to: $0.point)
+    }
+    #expect(acceptedBoundaryPolyline.points == acceptedBoundaryPoints)
     #expect(
       workspace.currentLearningPathItemID
         == .observedDrawingTrial(.chooseFramePlan)
@@ -574,6 +593,16 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     #expect(abs(truthOffset.dx) + abs(truthOffset.dy) > 0)
     try await completeSimulatedSparseTipCalibration(workspace, runtime: harness.runtime)
 
+    let accepted = try #require(workspace.tipCameraRegistration)
+    let acceptedBoundary = try SparseTipBatchMarkPlan.boundaryEnvelope(
+      for: workspace.boundarySideAggregates
+    )
+    #expect(accepted.applicabilityRectangle == (try AxisAlignedBounds(
+      minX: acceptedBoundary.minX + 10,
+      minY: acceptedBoundary.minY + 10,
+      maxX: acceptedBoundary.maxX - 10,
+      maxY: acceptedBoundary.maxY - 10
+    )))
     let tipRevision = try #require(
       workspace.learningArtifactGraph.currentRevision(for: .tipCameraRegistration)?.id
     )
@@ -583,6 +612,13 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     let observation = try #require(workspace.lastFrameObservation)
     #expect(workspace.drawingTrialFramePlan?.provenance.registrationRevisionID.rawValue
       == tipRevision.rawValue)
+    let expectedFrame = try ObservedDrawingTrialFramePlan(
+      domain: accepted.applicabilityRectangle
+    )
+    #expect(
+      workspace.drawingTrialFramePlan?.strokes.first?.path.points
+        == expectedFrame.pathPositions.map(\.point)
+    )
     #expect(observation.evidence.frames.baseline.frameID != observation.evidence.frames.post.frameID)
     #expect(workspace.drawingTrialRevealPosition != nil)
     #expect(await harness.runtime.persistentInk().isEmpty == false)

@@ -276,9 +276,10 @@ Stage 3.4 is split across four owners:
   attempt/operation identity, four canonical corner evidence slots,
   one shared final frozen frame, unordered click collection, immutable accepted
   observations, possible-ink terminal state, proposal review, and acceptance.
-- `SparseTipBatchMarkPlan` derives the four maximum drawable corner centers from
-  the accepted Boundary envelope, insetting each edge only by the 2 mm mark
-  radius and drawing no center mark. Its corner-center rectangle is the proposed tip-map
+- `SparseTipBatchMarkPlan` derives the four mark centers from the accepted 3.2
+  Boundary envelope with one canonical 10 mm inset, drawing no center mark. Its
+  2 mm-radius outlines therefore retain 8 mm of adjacent-edge clearance. Its
+  corner-center rectangle is the proposed tip-map
   applicability rectangle, and its final reveal pose is the rectangle center.
 - `OperatorWorkspace` composes that plan as one typed batch. It performs one
   initial Pen-Up normalization, preserves that batch-scoped Pen-Up authorization
@@ -288,8 +289,9 @@ Stage 3.4 is split across four owners:
   one reveal probe, and one final machine snapshot. Per-chord progress remains
   controller typed for Stop and possible-ink handling but does not rebuild a
   Learning projection or fetch another workspace machine snapshot. The existing
-  calibrated drawable-region overlay renders the bounding box; Stage 4.1 later
-  draws the physical connecting frame. Stage 3.3 retains its center plus four
+  camera presentation renders the accepted 3.2 Boundary separately from the
+  inset proposed/accepted frame; Stage 4.1 later draws that physical connecting
+  frame. Stage 3.3 retains its center plus four
   ±24 mm positions.
 - `TipCalibrationAuthority` owns validated evidence types, four-corner affine-first
   construction, constant construction fallback, diagnostic residual/covariance/

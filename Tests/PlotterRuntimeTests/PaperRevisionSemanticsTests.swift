@@ -79,6 +79,7 @@ struct PaperRevisionSemanticsTests {
   @Test("new overlay identities are semantic and Codable")
   func semanticOverlayKinds() throws {
     let kinds: [CameraOverlayKind] = [
+      .acceptedBoundary,
       .calibratedDrawableRegion,
       .paperCoverage,
       .predictedContactPoint,

@@ -17,6 +17,8 @@ enum CurrentCameraCalibrationPlanningError: Error, Equatable, Sendable {
   case centerOutsideSafeEnvelope
   case insufficientXAxisSpan
   case insufficientYAxisSpan
+  case insufficientSparseTipXAxisSpan
+  case insufficientSparseTipYAxisSpan
   case circularMarkOutsideBoundaryEnvelope
   case unsupportedSparseTipEstimatorRevision(String)
 }
@@ -36,6 +38,10 @@ extension CurrentCameraCalibrationPlanningError: LocalizedError {
       "The accepted X boundaries do not leave a symmetric calibration rectangle with at least 10 mm usable X span."
     case .insufficientYAxisSpan:
       "The accepted Y boundaries do not leave a symmetric calibration rectangle with at least 10 mm usable Y span."
+    case .insufficientSparseTipXAxisSpan:
+      "The accepted X boundaries must span more than 20 mm to leave four distinct calibration-circle centers after the 10 mm safety inset."
+    case .insufficientSparseTipYAxisSpan:
+      "The accepted Y boundaries must span more than 20 mm to leave four distinct calibration-circle centers after the 10 mm safety inset."
     case .circularMarkOutsideBoundaryEnvelope:
       "The 2 mm-radius calibration circle would cross the accepted Boundary envelope. Increase the usable paper/machine clearance before drawing."
     case .unsupportedSparseTipEstimatorRevision(let revision):
@@ -52,6 +58,8 @@ struct SparseTipCircularMarkPlan: Hashable, Sendable {
   static let chordCount = 16
   static let maximumFeedMMPerMinute = 100.0
   static let registrationEstimatorRevision =
+    "affine-first-boundary-10mm-inset-four-circle-2mm-radius-16-chord-v7"
+  static let boundaryExtremeFourCircleRegistrationEstimatorRevision =
     "affine-first-boundary-extreme-four-circle-2mm-radius-16-chord-v6"
   static let insetFiveCircleRegistrationEstimatorRevision =
     "affine-first-boundary-inset-five-circle-2mm-radius-16-chord-v5"
@@ -62,6 +70,7 @@ struct SparseTipCircularMarkPlan: Hashable, Sendable {
 
   static func supportsRestoredGeometry(for estimatorRevision: String) -> Bool {
     estimatorRevision == registrationEstimatorRevision
+      || estimatorRevision == boundaryExtremeFourCircleRegistrationEstimatorRevision
       || estimatorRevision == insetFiveCircleRegistrationEstimatorRevision
       || estimatorRevision == boundaryCornerRegistrationEstimatorRevision
       || estimatorRevision == cardinalRegistrationEstimatorRevision
@@ -158,12 +167,13 @@ struct SparseTipCircularMarkPlan: Hashable, Sendable {
   }
 }
 
-/// The complete Stage 3.4 physical mark layout. The four circle centers are the
-/// maximum drawable corners of the operator-accepted Boundary envelope. Each
-/// center is inset by exactly the 2 mm circle radius so the commanded outline
-/// remains inside the accepted machine boundary. No center mark is drawn. The
-/// final reveal remains a Pen-Up move to the rectangle center.
+/// The complete Stage 3.4 physical mark layout. The four circle centers are
+/// inset 10 mm from the operator-accepted Boundary envelope, leaving 8 mm
+/// between each 2 mm-radius outline and its adjacent accepted edges. No center
+/// mark is drawn. The final reveal remains a Pen-Up move to the rectangle center.
 struct SparseTipBatchMarkPlan: Hashable, Sendable {
+  static let boundaryInsetMM = 10.0
+
   struct Mark: Hashable, Sendable {
     let position: ToolContactCalibrationPosition
     let machinePosition: MachinePosition
@@ -171,6 +181,9 @@ struct SparseTipBatchMarkPlan: Hashable, Sendable {
   }
 
   let marks: [Mark]
+  /// The exact accepted Stage 3.2 machine-space Boundary from which this batch
+  /// is derived. It remains distinct from the inset calibration/frame domain.
+  let boundaryEnvelope: AxisAlignedBounds<MachineSpace>
   /// The calibration authority and physical picture-frame domain through the
   /// four observed mark centers.
   let applicabilityRectangle: AxisAlignedBounds<MachineSpace>
@@ -179,21 +192,22 @@ struct SparseTipBatchMarkPlan: Hashable, Sendable {
   init(
     boundarySideAggregates: [BoundaryDirection: BoundarySideAggregate]
   ) throws {
-    guard BoundaryDirection.allCases.allSatisfy({ boundarySideAggregates[$0] != nil }) else {
-      throw CurrentCameraCalibrationPlanningError.incompleteBoundaryEnvelope
-    }
-    let boundaryEnvelope = try AxisAlignedBounds<MachineSpace>(
-      minX: boundarySideAggregates[.negativeX]!.estimateMM,
-      minY: boundarySideAggregates[.negativeY]!.estimateMM,
-      maxX: boundarySideAggregates[.positiveX]!.estimateMM,
-      maxY: boundarySideAggregates[.positiveY]!.estimateMM
+    let acceptedBoundary = try Self.boundaryEnvelope(
+      for: boundarySideAggregates
     )
-    let inset = SparseTipCircularMarkPlan.radiusMM
+    boundaryEnvelope = acceptedBoundary
+    let inset = Self.boundaryInsetMM
+    guard acceptedBoundary.maxX - acceptedBoundary.minX > 2 * inset else {
+      throw CurrentCameraCalibrationPlanningError.insufficientSparseTipXAxisSpan
+    }
+    guard acceptedBoundary.maxY - acceptedBoundary.minY > 2 * inset else {
+      throw CurrentCameraCalibrationPlanningError.insufficientSparseTipYAxisSpan
+    }
     applicabilityRectangle = try AxisAlignedBounds<MachineSpace>(
-      minX: boundaryEnvelope.minX + inset,
-      minY: boundaryEnvelope.minY + inset,
-      maxX: boundaryEnvelope.maxX - inset,
-      maxY: boundaryEnvelope.maxY - inset
+      minX: acceptedBoundary.minX + inset,
+      minY: acceptedBoundary.minY + inset,
+      maxX: acceptedBoundary.maxX - inset,
+      maxY: acceptedBoundary.maxY - inset
     )
     let center = try MachinePosition(
       x: (applicabilityRectangle.minX + applicabilityRectangle.maxX) / 2,
@@ -215,11 +229,25 @@ struct SparseTipBatchMarkPlan: Hashable, Sendable {
         machinePosition: machinePosition,
         circle: try SparseTipCircularMarkPlan(
           center: machinePosition,
-          boundaryEnvelope: boundaryEnvelope
+          boundaryEnvelope: acceptedBoundary
         )
       )
     }
     finalRevealPosition = center
+  }
+
+  static func boundaryEnvelope(
+    for boundarySideAggregates: [BoundaryDirection: BoundarySideAggregate]
+  ) throws -> AxisAlignedBounds<MachineSpace> {
+    guard BoundaryDirection.allCases.allSatisfy({ boundarySideAggregates[$0] != nil }) else {
+      throw CurrentCameraCalibrationPlanningError.incompleteBoundaryEnvelope
+    }
+    return try AxisAlignedBounds<MachineSpace>(
+      minX: boundarySideAggregates[.negativeX]!.estimateMM,
+      minY: boundarySideAggregates[.negativeY]!.estimateMM,
+      maxX: boundarySideAggregates[.positiveX]!.estimateMM,
+      maxY: boundarySideAggregates[.positiveY]!.estimateMM
+    )
   }
 
   static func applicabilityRectangle(
@@ -235,7 +263,7 @@ struct SparseTipBatchMarkPlan: Hashable, Sendable {
   }
 
   /// Restores the smaller ordinary-picture region recorded by the superseded
-  /// v5 estimator without applying that inset to new v6 calibration.
+  /// v5 estimator without applying that inset to later four-corner calibration.
   static func legacyInsetFiveCirclePictureRectangle(
     framedByMarkCenters markCenterRectangle: AxisAlignedBounds<MachineSpace>
   ) throws -> AxisAlignedBounds<MachineSpace> {

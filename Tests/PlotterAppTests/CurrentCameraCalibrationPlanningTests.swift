@@ -104,7 +104,7 @@ struct CurrentCameraCalibrationPlanningTests {
     #expect(pathEnd.distance(to: mark.startPosition.point) < 1e-9)
   }
 
-  @Test("Stage 3.4 places four circles at the maximum drawable Boundary corners")
+  @Test("Stage 3.4 places four circle centers 10 mm inside the accepted Boundary")
   func sparseBatchGeometry() throws {
     let envelope = try boundaryEnvelope(
       negativeX: -100,
@@ -120,13 +120,16 @@ struct CurrentCameraCalibrationPlanningTests {
       .negativeX, .positiveY, .positiveX, .negativeY,
     ])
     #expect(batch.marks.map(\.machinePosition) == [
-      try MachinePosition(x: -98, y: -98),
-      try MachinePosition(x: -98, y: 98),
-      try MachinePosition(x: 98, y: 98),
-      try MachinePosition(x: 98, y: -98),
+      try MachinePosition(x: -90, y: -90),
+      try MachinePosition(x: -90, y: 90),
+      try MachinePosition(x: 90, y: 90),
+      try MachinePosition(x: 90, y: -90),
     ])
+    #expect(batch.boundaryEnvelope == (try AxisAlignedBounds(
+      minX: -100, minY: -100, maxX: 100, maxY: 100
+    )))
     #expect(batch.applicabilityRectangle == (try AxisAlignedBounds(
-      minX: -98, minY: -98, maxX: 98, maxY: 98
+      minX: -90, minY: -90, maxX: 90, maxY: 90
     )))
     #expect(batch.finalRevealPosition == (try MachinePosition(x: 0, y: 0)))
     #expect(
@@ -139,11 +142,17 @@ struct CurrentCameraCalibrationPlanningTests {
       #expect(mark.circle.geometry.chordCount == 16)
       #expect(mark.circle.geometry.maximumFeedMMPerMinute == 100)
       #expect(mark.circle.pathPositions.first == mark.circle.pathPositions.last)
+      #expect(mark.circle.pathPositions.allSatisfy {
+        $0.point.x >= batch.boundaryEnvelope.minX + 8
+          && $0.point.x <= batch.boundaryEnvelope.maxX - 8
+          && $0.point.y >= batch.boundaryEnvelope.minY + 8
+          && $0.point.y <= batch.boundaryEnvelope.maxY - 8
+      })
     }
   }
 
-  @Test("Stage 3.4 uses only the circle radius as the Boundary inset")
-  func sparseBatchUsesRadiusInset() throws {
+  @Test("Stage 3.4 uses a 10 mm center inset and refuses collapsed frame axes")
+  func sparseBatchUsesTenMillimeterInset() throws {
     let wide = try SparseTipBatchMarkPlan(
       boundarySideAggregates: boundaryEnvelope(
         negativeX: 10,
@@ -154,20 +163,41 @@ struct CurrentCameraCalibrationPlanningTests {
     )
 
     #expect(wide.applicabilityRectangle == (try AxisAlignedBounds(
-      minX: 12, minY: -8, maxX: 208, maxY: 88
+      minX: 20, minY: 0, maxX: 200, maxY: 80
     )))
 
-    let narrow = try SparseTipBatchMarkPlan(
+    #expect(throws: CurrentCameraCalibrationPlanningError.insufficientSparseTipXAxisSpan) {
+      try SparseTipBatchMarkPlan(
+        boundarySideAggregates: boundaryEnvelope(
+          negativeX: 0,
+          positiveX: 20,
+          negativeY: 0,
+          positiveY: 40
+        )
+      )
+    }
+    #expect(throws: CurrentCameraCalibrationPlanningError.insufficientSparseTipYAxisSpan) {
+      try SparseTipBatchMarkPlan(
+        boundarySideAggregates: boundaryEnvelope(
+          negativeX: 0,
+          positiveX: 40,
+          negativeY: 0,
+          positiveY: 20
+        )
+      )
+    }
+    let smallestAccepted = try SparseTipBatchMarkPlan(
       boundarySideAggregates: boundaryEnvelope(
         negativeX: 0,
-        positiveX: 20,
+        positiveX: 20.1,
         negativeY: 0,
-        positiveY: 20
+        positiveY: 20.1
       )
     )
-    #expect(narrow.applicabilityRectangle == (try AxisAlignedBounds(
-      minX: 2, minY: 2, maxX: 18, maxY: 18
-    )))
+    #expect(smallestAccepted.applicabilityRectangle.minX == 10)
+    #expect(smallestAccepted.applicabilityRectangle.minY == 10)
+    #expect(abs(smallestAccepted.applicabilityRectangle.maxX - 10.1) < 1e-12)
+    #expect(abs(smallestAccepted.applicabilityRectangle.maxY - 10.1) < 1e-12)
   }
 
   @Test("sparse circle refuses any mark that would cross the accepted Boundary envelope")
@@ -205,6 +235,28 @@ struct CurrentCameraCalibrationPlanningTests {
     #expect(geometry.allSatisfy { $0.radiusMM == 2 })
     #expect(geometry.allSatisfy { $0.chordCount == 16 })
     #expect(geometry.allSatisfy { $0.maximumFeedMMPerMinute == 100 })
+  }
+
+  @Test("accepted v6 extreme-corner checkpoint geometry remains decodable at its recorded domain")
+  func restoredBoundaryExtremeV6CircleGeometry() throws {
+    let domain = try AxisAlignedBounds<MachineSpace>(
+      minX: -98, minY: -78, maxX: 98, maxY: 78
+    )
+    let geometry = try ToolContactCalibrationPosition.sparseTipCornerPositions.map {
+      try SparseTipCircularMarkPlan.restoredGeometry(
+        for: $0,
+        in: domain,
+        estimatorRevision:
+          SparseTipCircularMarkPlan.boundaryExtremeFourCircleRegistrationEstimatorRevision
+      )
+    }
+
+    #expect(geometry.map(\.center) == [
+      try MachinePosition(x: -98, y: -78),
+      try MachinePosition(x: -98, y: 78),
+      try MachinePosition(x: 98, y: 78),
+      try MachinePosition(x: 98, y: -78),
+    ])
   }
 
   @Test("accepted cardinal checkpoint geometry remains decodable after layout updates")

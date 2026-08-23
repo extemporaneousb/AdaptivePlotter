@@ -233,10 +233,9 @@ coordinate change.
 
 ### One supervised physical batch
 
-Stage 3.4 draws no center mark. It places four 2 mm-radius circles at the maximum
-drawable corners of the accepted Boundary envelope. Each center is exactly one
-circle radius inside the relevant two Boundary edges, so the circle footprint
-touches the selected extremes without commanding motion outside them. Those
+Stage 3.4 draws no center mark. It places four 2 mm-radius circles with every
+center exactly 10 mm inside its two adjacent accepted Boundary edges. Every
+circle footprint therefore remains 8 mm clear of those edges. Those
 four centers bound the accepted tip-map applicability and subsequent picture-
 frame trial. Stage 3.3 retains its separate center plus four ±24 mm positions
 and camera-holdout authority.
@@ -301,7 +300,9 @@ physical contact or ink; attended observation owns those claims.
    creation or progression. Numerical fitting never requests paper replacement
    and never routes to **No Automatic Redraw**.
 7. The fourth valid click constructs a reviewable `TipCameraRegistration`
-   proposal. Inspect the exact-frame markers and diagnostic fit, then choose
+   proposal. On the same frozen frame, inspect the exact markers, the separately
+   labeled projected 3.2 Boundary, the cyan proposed rectangle through the four
+   selected centers, and the diagnostic fit, then choose
    **Accept Tip Map** to commit it, save the accepted Learning Path prefix,
    finish Stage 3.4, and make Stage 4 current. **Reject Tip Map**, **Undo Last
    Click**, and **Clear Clicks on This Frame** keep the same frozen frame and
@@ -370,8 +371,9 @@ exercises or approval gates:
 1. **Plan and preview.** The app constructs one closed picture-frame polyline
    through the four accepted circle centers in minimum/minimum,
    minimum/maximum, maximum/maximum, maximum/minimum order, then returns to the
-   start. It projects the immutable plan through the current tip registration
-   and renders the predicted frame in cyan before any motion.
+   start. It retains the projected accepted 3.2 Boundary as separate context,
+   projects the immutable inset plan through the current tip registration, and
+   renders the predicted frame in cyan before any motion.
 2. **Capture local baseline.** With Pen Up and the controller Idle, capture one
    exact fresh frame and record the current MPos as this trial's reveal pose.
 3. **Move to frame start.** Move Pen Up under one stoppable owner. Completion

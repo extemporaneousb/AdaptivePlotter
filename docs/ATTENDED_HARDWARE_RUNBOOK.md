@@ -100,17 +100,17 @@ the requested side or center.
 Do not accept after a camera/device/mount/crop/orientation/focus change. Restart
 the attended run with explicit invalidation and new evidence.
 
-## 3. Stage 3.4 — four extreme-corner 2 mm-radius circles
+## 3. Stage 3.4 — four 10 mm-inset 2 mm-radius circles
 
 Confirm Stage 3.4 plans no center circle. Its four corner-circle centers are
-exactly 2 mm inside the accepted Boundary on both adjacent axes, so each 2 mm-
-radius footprint reaches the selected extremes without leaving them. Stage 3.3
+exactly 10 mm inside the accepted Boundary on both adjacent axes, so each 2 mm-
+radius footprint remains 8 mm clear of those edges. Stage 3.3
 remains on its separate center plus four ±24 mm camera-calibration positions.
 
 1. Press **Draw Four Corner Circles** once.
 2. For each of the four framing marks, watch Pen-Up travel settle at the
    intended MPos, compare each center with the accepted Boundary coordinate and
-   exact radius inset, confirm the pre-mark
+   exact 10 mm inset, confirm the pre-mark
    frame/cap/controller evidence is retained, and watch Pen-Up travel settle at
    the circle start.
 3. Confirm the app commands and settles the current Pen Interaction Down value.
@@ -134,7 +134,9 @@ remains on its separate center plus four ±24 mm camera-calibration positions.
    Frame**. Confirm no motion, ink, redraw, new frame, zoom, or pan occurs.
 9. On the fourth valid click, confirm the app constructs but does not yet accept
    the all-corner affine `TipCameraRegistration`. Review the frozen-frame markers,
-   diagnostic residuals, RMS, covariance, and uncertainty. Choose **Accept Tip
+   the separately labeled accepted 3.2 Boundary, the cyan inset rectangle through
+   the four selected centers, diagnostic residuals, RMS, covariance, and
+   uncertainty. Choose **Accept Tip
    Map** and confirm Stage 4 becomes current. Also exercise **Reject Tip Map**
    once and confirm the same frame remains available without motion, capture,
    ink, or redraw. Constant correction is expected only if affine construction
@@ -188,8 +190,9 @@ checkpoint and perform a new four-mark calibration.
 
 1. Record the exact current tip registration revision.
 2. Press **Go** once. Confirm a cyan predicted closed frame through the four
-   accepted circle centers appears on the current video before motion and that
-   its machine path and exact tip revision are visible. There is no direction
+   accepted circle centers appears inside the separately labeled accepted 3.2
+   Boundary on the current video before motion and that its machine path and
+   exact tip revision are visible. There is no direction
    prompt or phase-by-phase approval.
 3. Observe the displayed activity move through plan, local baseline, Pen-Up
    travel, draw, reveal/observe, and comparison. During motion, confirm the exact

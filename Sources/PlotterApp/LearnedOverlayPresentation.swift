@@ -4,6 +4,7 @@ enum ActionSurfaceOverlayStyleToken: Hashable, Sendable {
   case intendedCyan
   case observedWhite
   case residualOrange
+  case acceptedBoundaryOrangeDashed
   case drawableRegionBlueDashed
   case paperCoverageMintDashed
   case predictedContactPurple
@@ -15,7 +16,8 @@ enum ActionSurfaceOverlayStyleToken: Hashable, Sendable {
 enum ActionSurfaceOverlayPresentationGrammar {
   static func semanticLabel(for kind: CameraOverlayKind) -> String? {
     switch kind {
-    case .calibratedDrawableRegion: "CALIBRATED DRAWABLE REGION"
+    case .acceptedBoundary: "ACCEPTED 3.2 BOUNDARY"
+    case .calibratedDrawableRegion: "FOUR-POINT FRAME · 10 MM INSET"
     case .paperCoverage: "CURRENT PAPER COVERAGE"
     case .predictedContactPoint: "PREDICTED CONTACT POINT · NOT OBSERVED"
     case .intendedPath, .observedInk, .residual, .penCap, .armatureEstimate, .diagnostic:
@@ -28,6 +30,7 @@ enum ActionSurfaceOverlayPresentationGrammar {
     case .intendedPath: .intendedCyan
     case .observedInk: .observedWhite
     case .residual: .residualOrange
+    case .acceptedBoundary: .acceptedBoundaryOrangeDashed
     case .calibratedDrawableRegion: .drawableRegionBlueDashed
     case .paperCoverage: .paperCoverageMintDashed
     case .predictedContactPoint: .predictedContactPurple

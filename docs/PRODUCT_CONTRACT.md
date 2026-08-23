@@ -371,10 +371,10 @@ It does not locate the paper-contact point.
 
 One supervised **Draw Four Corner Circles** action owns one exercise attempt
 and one stoppable operation. It draws no center mark. The four 2 mm-radius mark
-centers are the accepted Boundary envelope's maximum drawable corners:
-`minX + 2 mm`, `minY + 2 mm`, `maxX − 2 mm`, and `maxY − 2 mm`. The full 2 mm-
-radius paths therefore remain within the accepted Boundary envelope while the
-centers bound essentially the complete drawable region. The retained corner
+centers are inset 10 mm from their adjacent accepted Boundary edges:
+`minX + 10 mm`, `minY + 10 mm`, `maxX − 10 mm`, and `maxY − 10 mm`. The full
+2 mm-radius paths therefore retain 8 mm of clearance to those edges. The
+retained corner
 values are canonical evidence-slot identities, not fixed axis-only physical
 offsets. Stage 3.3 retains its separate center plus four ±24 mm camera-
 calibration positions and holdout authority. Operator-visible motion text names
@@ -408,10 +408,13 @@ applicability once. All four observations share that final frozen reveal frame.
 Acceptance installs the rectangle through the four circle centers as the
 `TipCameraRegistration` applicability rectangle and Drawing Studio drawable
 region. Stage 3.4 never changes zoom, pan, preferred zoom, or viewport focus
-automatically. The boundary-corner estimator has a new revision: a previously
-accepted fixed-offset registration remains truthful only within its recorded
-smaller applicability rectangle and is never widened or reinterpreted as corner
-evidence without a fresh physical batch.
+automatically. During proposal review, the camera view separately labels the
+accepted 3.2 Boundary projection and renders the proposed inset four-point frame
+in cyan. The Boundary projection is an inferred 10 mm extrapolation from the
+proposed contact map, not measured boundary ink. The 10 mm-inset estimator has a
+new revision: previously accepted fixed-offset, v6 edge-touching, and five-mark
+registrations remain truthful only within their recorded applicability rectangles
+and are never widened or reinterpreted without a fresh physical batch.
 
 Each accepted `ToolContactObservation` is immutable raw evidence for one
 commanded circular mark and asserted circle center. It retains:

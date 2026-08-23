@@ -10,6 +10,40 @@ procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
 ## Implemented software surface
 
+### Ten-millimeter Boundary inset and final picture-frame context
+
+Implemented 2026-08-22 in Blackdog task `TASK-83E5E3C9`.
+
+The current Stage 3.4 estimator places each of the four 2 mm-radius calibration-
+circle centers exactly 10 mm inside its two adjacent accepted 3.2 Boundary edges.
+The commanded circle outlines therefore retain 8 mm of edge clearance. The
+resulting four-center rectangle remains the exact `TipCameraRegistration`
+applicability and Drawing Studio region; Stage 4.1 constructs its one closed
+four-edge `DrawingPlan` from that same recorded rectangle and remains the final
+required Learning Path exercise.
+
+The camera view now renders two distinct geometries. An orange dashed **ACCEPTED
+3.2 BOUNDARY** comes from the accepted Boundary aggregates and is projected as
+an explicitly inferred 10 mm extrapolation of the proposed or accepted contact
+map. The inner four-point rectangle comes from the registration applicability:
+it is cyan planned geometry during Stage 3.4 proposal review and a labeled 10 mm-
+inset calibrated frame after acceptance. Stage 4.1 overlays and physically draws
+that same inner frame after the operator presses its existing one-Go motion
+authorization. The v6 edge-touching estimator remains decodable only within its
+recorded domain; new evidence uses v7.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| Focused planning, overlay, persistence, projector, and sparse-workspace suites | passed — 45 tests | 10 mm centers, 8 mm outline clearance, collapsed-axis refusal, v6 restore decoding, semantic overlay style, proposed/accepted dual rectangles, exact-revision Stage 4 frame execution, and one-Go endpoint |
+| `make quick-test` | passed — 500 tests | fast unit/component partition with retained journeys excluded |
+| `make journey-test` | passed — 10 tests | full four-circle acceptance, checkpoint revalidation, exact tip revision, closed-frame drawing, reset, Boundary, and simulator journeys |
+| `make strict-check` | passed — 510 tests | strict concurrency, warnings as errors, signed bundle, launcher checks, full suite, repository contract, and diff check |
+
+These are source, deterministic, simulator, build, signing, and repository-gate
+results. No attended camera, controller, physical motion, Pen, paper, operator
+click, or observed-ink validation was performed by this task. The app was not
+launched for physical verification.
+
 ### Bounded exercise-path computation and responsive operator presentation
 
 Implemented 2026-08-22 in Blackdog task `TASK-9D85A716`.
@@ -91,7 +125,7 @@ generic no-op **Start**. The complete button and destination inventory is
 No attended camera, controller, motion, Pen, click, paper, or ink validation was
 performed by this task.
 
-### Four extreme-corner marks and closed picture-frame trial
+### Historical: four extreme-corner marks and closed picture-frame trial
 
 Implemented 2026-08-21 in Blackdog task `TASK-A8E60A2E`.
 
@@ -657,10 +691,10 @@ The current source contains exactly two post-Boundary calibration exercises:
   2 px maximum pairwise cap-centroid spread, and retains the newest third exact
   frame/measurement without averaging;
 - 3.4 one supervised four-circle batch with no center mark, four 2 mm-radius/
-  16-chord marks at the maximum drawable Boundary corners, independent Down/Up
+  16-chord marks whose centers are 10 mm inside the accepted Boundary, independent Down/Up
   evidence, settled Pen Up before every inter-circle travel, one final center
   reveal, one shared frozen exact frame, arbitrary-order clicks with
-  deterministic 4! assignment, a corner-center applicability rectangle,
+  deterministic 4! assignment, a 10 mm-inset corner-center applicability rectangle,
   affine-first construction, constant construction fallback, diagnostic-only
   residuals and uncertainty, stable operator viewport state, and atomic tip-map
   commit.
@@ -669,6 +703,9 @@ The current source contains exactly two post-Boundary calibration exercises:
 Stage 4 consumes its exact revision and owns one closed picture-frame plan
 through the four circle centers, its local baseline and reveal MPos, canonical
 drawing-plan execution, newer post-frame, and planned ink observation.
+The camera view separately projects the accepted 3.2 Boundary and the inset
+four-point frame; during proposal review the latter is a cyan planned overlay,
+and after acceptance it is the exact Stage 4.1 drawing domain.
 
 The single Learning package loads as a presentation-only candidate. It projects
 compatible saved geometry and reports advisory optical shift/background MAD;

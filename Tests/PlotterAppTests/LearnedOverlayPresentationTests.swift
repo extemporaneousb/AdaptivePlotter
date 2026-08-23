@@ -10,7 +10,12 @@ struct LearnedOverlayPresentationTests {
     #expect(
       ActionSurfaceOverlayPresentationGrammar.semanticLabel(
         for: .calibratedDrawableRegion
-      ) == "CALIBRATED DRAWABLE REGION"
+      ) == "FOUR-POINT FRAME · 10 MM INSET"
+    )
+    #expect(
+      ActionSurfaceOverlayPresentationGrammar.semanticLabel(
+        for: .acceptedBoundary
+      ) == "ACCEPTED 3.2 BOUNDARY"
     )
     #expect(
       ActionSurfaceOverlayPresentationGrammar.semanticLabel(
@@ -27,11 +32,12 @@ struct LearnedOverlayPresentationTests {
   func distinctStyles() {
     let tokens = Set([
       ActionSurfaceOverlayPresentationGrammar.styleToken(for: .calibratedDrawableRegion),
+      ActionSurfaceOverlayPresentationGrammar.styleToken(for: .acceptedBoundary),
       ActionSurfaceOverlayPresentationGrammar.styleToken(for: .paperCoverage),
       ActionSurfaceOverlayPresentationGrammar.styleToken(for: .predictedContactPoint),
     ])
 
-    #expect(tokens.count == 3)
+    #expect(tokens.count == 4)
     #expect(
       ActionSurfaceOverlayPresentationGrammar.styleToken(for: .predictedContactPoint)
         != ActionSurfaceOverlayPresentationGrammar.styleToken(for: .observedInk)

@@ -515,7 +515,7 @@ struct LearningPathProjector: Sendable {
     case .humanGuidedDiscovery(.calibrateCameraAndVisibleCap):
       "Capture five exact cap samples at normalized 10/50/90 cross positions, validate two independent holdouts, then explicitly accept or reject the all-five camera fit."
     case .humanGuidedDiscovery(.calibratePenContactFromSparseMarks):
-      "Draw four 2 mm-radius circles at the maximum drawable Boundary corners with Pen Up between them, perform one final Pen-Up reveal, then click the four centers in any order on the shared frozen frame; click four fits the tip map."
+      "Draw four 2 mm-radius circles with each center 10 mm inside its adjacent accepted Boundary edges, keeping every circle outline 8 mm clear; perform one final Pen-Up reveal, then click the four centers in any order on the shared frozen frame. Click four fits the tip map and overlays both the accepted 3.2 Boundary and the inset four-point frame for review."
     case .stage(.observedDrawingTrials):
       "Use the accepted machine-to-paper-pixel map to preview, draw, observe, and compare the closed picture frame through those four corners."
     case .observedDrawingTrial(.chooseFramePlan):
@@ -1467,7 +1467,7 @@ extension LearningPathProjector {
   private func drawingExpectationText(_ step: ObservedDrawingTrialStep) -> String {
     switch step {
     case .chooseFramePlan:
-      "One typed closed frame plan through the four accepted Boundary-corner marks, projected by an exact tip-model revision."
+      "One typed closed frame plan through the four accepted 10 mm-inset marks, projected by an exact tip-model revision."
     case .captureLocalPreFrameBaseline:
       "One exact pre-frame image and its Pen-Up reveal MPos."
     case .moveToFrameStart: "Arrival at the lower-left frame corner while Pen Up."
@@ -1571,7 +1571,7 @@ extension LearningPathProjector {
     case .calibrateCameraAndVisibleCap:
       [.text("Capture five exact cap centers at C, X−, Y+, X+, and Y−; fit the first three, verify two holdouts, then explicitly accept or reject the all-five refit.")]
     case .calibratePenContactFromSparseMarks:
-      [.text("Draw four 2 mm-radius circles at the accepted Boundary's maximum drawable corners with Pen Up between circles; perform one final Pen-Up reveal, then click all four centers in any order on that unchanged frame. Click four fits the tip map.")]
+      [.text("Draw four 2 mm-radius circles with their centers 10 mm inside the accepted Boundary edges and Pen Up between circles; perform one final Pen-Up reveal, then click all four centers in any order on that unchanged frame. Click four fits the tip map and overlays the accepted 3.2 Boundary plus the inset frame.")]
     }
   }
 

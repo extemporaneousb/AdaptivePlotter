@@ -93,9 +93,11 @@ landmark is not the hidden paper-contact point.
 
 Stage 3.4 uses one supervised **Draw Four Corner Circles** action. There is no
 center circle. The four 2 mm-radius circle centers are the rectangle corners at
-`minX + 2 mm`, `minY + 2 mm`,
-`maxX − 2 mm`, and `maxY − 2 mm`, so every 2 mm-radius path stays inside the
-accepted envelope while framing essentially the complete drawable region.
+`minX + 10 mm`, `minY + 10 mm`,
+`maxX − 10 mm`, and `maxY − 10 mm`. Every circle outline therefore remains 8 mm
+clear of its adjacent accepted Boundary edges. The camera view distinguishes the
+orange dashed accepted 3.2 Boundary from the inner four-point frame; after the
+fourth click it also previews that proposed frame in cyan before map acceptance.
 Stage 3.3 retains its separate existing ±24 mm camera-calibration spacing. One
 exercise attempt and one stoppable operation draw the four circles in canonical
 evidence-slot order. For every circle the app travels and settles Pen Up at the

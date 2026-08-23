@@ -106,7 +106,7 @@ flowchart TD
     sdone -->|Redo This Step — replacement| s0
   end
 
-  subgraph trial["4.1 Run Predicted Isolated Line Trial"]
+  subgraph trial["4.1 Run Predicted Picture Frame Trial"]
     t0["Ready<br/>Go"]
     t1["One automatic six-phase trial<br/>current phase… — disabled<br/>Stop replaces it while stoppable"]
     tdone["4.1 complete<br/>exact comparison remains reviewable"]
