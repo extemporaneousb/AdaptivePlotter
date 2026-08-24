@@ -114,8 +114,10 @@ remain authoritative unless one named execution-plan package explicitly moves a
 responsibility without creating a parallel owner. The complete target and work
 ledger are owned only by
 [Episode Architecture Execution Plan](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md).
+Target type definitions and relationships are owned only by
+[Episode Architecture Vocabulary](EPISODE_ARCHITECTURE_VOCABULARY.md).
 
-For every migrated effect-bearing or domain-authority-changing action:
+For every migrated effect-bearing or domain-authority-changing `PlotterIntent`:
 
 - one typed semantic ingress evaluates current state and versioned facts;
 - copied presentation availability is never authorization;
@@ -125,13 +127,13 @@ For every migrated effect-bearing or domain-authority-changing action:
 - the superseded action, state, guard, task, effect, and fixture path is removed
   in the same landing.
 
-Observability is required product behavior. Every refused action names its typed
+Observability is required product behavior. Every refused intent names its typed
 failed requirement, authoritative owner, compared revisions, and exact remedy.
-Every active effect exposes its episode/action/effect identity, lane, owner,
+Every active effect exposes its episode/intent/effect identity, lane, owner,
 phase, start and last attributable progress times, current wait, cancellation
 state, and terminal disposition. Progress must be an attributable event rather
 than a fabricated heartbeat. Every reachable nonterminal state provides an
-admissible action, an explicitly owned wait/progress state, an exact remedy, or
+admissible intent, an explicitly owned wait/progress state, an exact remedy, or
 owner-bound Stop/cancel.
 
 Runtime and UI projection revisions must be independently visible so a stale or
@@ -477,7 +479,9 @@ Acceptance installs the rectangle through the four circle centers as the
 `TipCameraRegistration` applicability rectangle. The accepted Drawing Boundary,
 not that inset rectangle, is the Drawing Studio drawable region. Preview and paper-
 coverage projection between the Border and Boundary use the registration's inferred
-affine projection and do not enlarge the recorded calibration applicability. Exercise
+affine projection and do not enlarge the recorded calibration applicability.
+That extrapolation is diagnostic presentation only: it cannot by itself support
+attributable camera/ink evidence. Exercise
 1.4 never changes zoom, pan, preferred zoom, or viewport focus
 automatically. During proposal review, the camera view separately labels the
 accepted Drawing Boundary projection and renders the proposed Drawing Border
@@ -633,7 +637,9 @@ maximum/minimum, and back to minimum/minimum. It therefore has four orthogonal
 edges and right-angle turns. For the current calibration, those centers define
 the Drawing Border exactly 10 mm inside every accepted Drawing Boundary edge.
 The planner admits that border against the accepted Drawing Boundary using the
-shared 0.5 mm continuous-coordinate tolerance. The Drawing Border is target
+planning-containment policy: no commanded ink geometry may lie outside the
+Boundary, except for a separately versioned numerical epsilon that cannot equal
+or reuse machine-position settlement tolerance. The Drawing Border is target
 geometry; it is never reused as its own spatial admission region. The plan is
 projected through the tip registration. It owns its own local pre-frame baseline,
 Pen-Up reveal MPos, Drawing-Border-start travel, one canonical drawing-plan owner, return to the same reveal
@@ -676,7 +682,11 @@ the effective `DrawableMachineRegion`, or planning is refused. The resulting
 `ExecutionPlanRevision` is content-addressed and binds program, placement,
 region, calibration/model provenance, ordered strokes, and one checkpoint per
 logical stroke. The video preview projects that exact plan through the current
-tip registration on one matching frame.
+tip registration on one matching frame. The plan records whether every projected
+point is inside that registration's applicability. A plan may use extrapolation
+for diagnostic preview, but its camera/ink result is non-attributable unless all
+evidence points are applicable or a newly validated registration revision
+explicitly expands the applicable region.
 
 Run eligibility additionally requires LIVE mode, a connected authorized idle
 controller, current paper-coverage evidence, and the exact reviewed plan.

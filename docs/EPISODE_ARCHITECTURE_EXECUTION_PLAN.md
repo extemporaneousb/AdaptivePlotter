@@ -26,53 +26,28 @@ the kernel has survived the three representative Plotter slices, the pilot
 gate, and a complete Learning Path migration. A separate SDK remains a later
 packaging decision requiring a genuinely distinct second client.
 
-## Vocabulary
+## Vocabulary authority
 
-- **Goal specification** defines desired outcome constraints, assessment, and
-  termination. It is not an action and does not imply reachability.
-- **Episode definition** is the immutable bounded-attempt specification: goal,
-  initial context, permitted semantic-action grammar, budgets, and assessment.
-- **Episode manifest** pins the definition plus domain, reducer, evaluator,
-  model, drawing, calibration, environment, and build revisions.
-- **Episode state** is the decision-relevant value reconstructed by reducing
-  the ordered event history. It is not the trace.
-- **Plotter intent** is one operator-, policy-, or system-originated semantic
-  request. It says what is requested, not how hardware performs it.
-- **Action availability** is a copied pure admitted/refused projection with
-  typed requirement results. It is never a capability.
-- **Action receipt** is the recorded result of actual submission.
-- **Plotter effect** is a typed external request emitted only by the reducer.
-- **Effect result** is the typed completion, refusal, cancellation, ambiguity,
-  timeout, evidence-unavailable result, or failure returned by an environment.
-- **Observation** is a source-, time-, configuration-, and revision-bound
-  reading. It is not automatically evidence.
-- **Evidence** is an observation or measurement accepted for a declared
-  episode, plan, paper, model, or assessment question after provenance and
-  applicability validation.
-- **Assessment** compares accepted outcome/evidence with the goal criteria.
-- **Episode journal** is the ordered semantic event authority for one episode.
-- **Episode trace** is an immutable export of journal events and referenced
-  transcripts, frames, evidence, and assessment. It is not mutable state.
-
-Do not introduce `EpisodePlan` as a synonym for `EpisodeDefinition`. A separate
-episode plan is justified only when it represents a computed, revisable
-strategy. `DrawingProgram` remains what is to be drawn;
-`ExecutionPlanRevision` remains the embodiment- and calibration-bound drawing
-plan. Generic episode code contains no strokes or GRBL primitives.
+[Episode Architecture Vocabulary](EPISODE_ARCHITECTURE_VOCABULARY.md) is the
+sole definition source for target names and relationships. This plan uses those
+exact names and does not restate or alias them. Exact current-code identifiers
+are allowed only when describing as-built owners or their named deletion.
 
 ## Target packages
 
 ```text
 EpisodeCore
-  definitions, manifests, typed decisions, reducer and journal schemas
+  EpisodeGoal, EpisodeDefinition<Intent>, EpisodeManifest<DomainManifest>,
+  IntentDecision,
+  EpisodeEvent, reducer and EpisodeJournal schemas
   Foundation only; no Plotter, device, persistence, or UI imports
 
 EpisodeRuntime -> EpisodeCore
-  serialized store, journal/replay, internal effect permission
+  serialized store, journal/replay, internal EffectPermit
   effect lanes, operation registry, cancellation and lifetime settlement
 
 PlotterEpisodeModel -> EpisodeCore + PlotterModel
-  Plotter intent/state/event/effect/result vocabulary
+  Plotter bindings for definition/manifest plus intent/state/event/effect/result
   scoped semantic rules, reducer, evidence/assessment values, projections
 
 PlotterEpisodeRuntime
@@ -93,10 +68,18 @@ bridges must name their deletion package and may not become stable APIs.
 
 ## Central semantic ingress
 
-Every effect-bearing or domain-authority-changing operator or policy action
-enters through one `PlotterIntentGateway.submit` boundary. Local pane, window,
-and viewport-only state remains in small UI reducers unless it changes evidence
-or domain authority.
+Exactly one ingress exists for each semantic intent throughout migration.
+Migrated `PlotterIntent` cases enter only through
+`PlotterIntentGateway.submit`. Unmigrated intent cases retain only the current
+owner declared by `EA-01`; no intent may be submitted through both. `EA-11C`
+makes the gateway the globally exclusive effect-bearing/domain-mutation ingress;
+`GATE-02` only verifies that landed fact. Local pane, window, and viewport-only state remains in small UI
+reducers unless it changes evidence or domain authority.
+
+`PlotterIntentGateway` is a thin submission façade. It owns no feature rules,
+reducer state, evidence acceptance, operation lanes, tasks, device ports, or
+persistence. Its only responsibilities are request identity, current-fact
+acquisition, reevaluation, and delegation to the store/runtime contracts below.
 
 `PlotterIntent` is an exhaustive root sum with scoped cases such as session,
 observation, point selection, manual motion, drawing, Learning, and evidence.
@@ -107,25 +90,37 @@ call ports, issue execution permission, construct effects, or accept evidence.
 The normal submission order is:
 
 1. reserve request identity before suspension;
-2. acquire versioned capability facts;
+2. acquire versioned `CapabilityFact` values;
 3. recheck state and manifest revisions;
-4. evaluate the scoped semantic rules;
+4. produce the scoped `IntentDecision`;
 5. append a typed accepted or refused event;
-6. reduce the committed event into state and typed effects;
-7. register effect identity, lane, and internal one-shot permission;
+6. reduce the committed `EpisodeEvent` into state and typed effects;
+7. register effect identity and lane, then mint its internal one-shot
+   `EffectPermit`;
 8. record effect start before external invocation;
 9. execute outside `MainActor` through the existing environment owner;
-10. return a typed result as an event and reduce it.
+10. validate the `EffectResult` identity and revisions, commit the corresponding
+    `EpisodeEvent`, and reduce it.
 
-The UI uses the same pure evaluator to display availability, but submission
+Reduction of any committed `EpisodeEvent` may emit zero or more typed successor
+effects. Each successor records the triggering event as causation and repeats
+steps 7–10. A multi-effect workflow therefore advances through committed result
+events; it never uses a callback mutation or manufactures another intent.
+
+The UI uses the same pure evaluator to display `IntentAvailability`, but submission
 always reevaluates current state. Presentation values can never be supplied as
 authorization.
 
 ## Operation ownership and safety priority
 
-One `PlotterOperationRegistry` owns application-level effect identity, lanes,
-Stop capability, cancellation request, original task/handle, and terminal
-disposition. It supports at least one exclusive machine lane, one exclusive
+For each migrated effect, one `PlotterOperationRegistry` exclusively owns
+application-level effect identity, lanes, `StopCapability`, cancellation
+request, original task/handle, and terminal disposition. Every unmigrated effect
+retains exactly one current operation owner declared by `EA-01`; a logical
+operation can never be registered in both. `EA-11C` makes the registry the
+globally exclusive application effect/Stop/cancellation owner; `GATE-02` only
+verifies that landed fact.
+It supports at least one exclusive machine lane, one exclusive
 exact-workflow capture/Vision lane, bounded background analysis, and serialized
 durable append where required. `RunInterpreter` remains the logical machine
 operation owner below it.
@@ -165,18 +160,18 @@ I/O.
 
 Observability is product behavior, not optional debug instrumentation.
 
-1. Every refused semantic action exposes a typed requirement ID, authoritative
+1. Every refused `PlotterIntent` exposes a typed requirement ID, authoritative
    owner, compared source/state revisions, concise operator remedy, and the
-   action request identity. No effect-bearing control silently ignores a click.
-2. Every active effect exposes episode/action/effect identity, lane, environment,
+   intent request identity. No effect-bearing control silently ignores a click.
+2. Every active effect exposes episode/intent/effect identity, lane, environment,
    owning subsystem, phase, start time, last attributable progress time, the
    result currently awaited, declared deadline when one exists, cancellation
    availability and phase, and eventual terminal disposition.
-3. Progress is evidence of an attributable event, not a fabricated heartbeat.
+3. Progress is evidence of an attributable `EpisodeEvent`, not a fabricated heartbeat.
    The UI distinguishes `waiting`, `progressing`, `cancelling`, `settling`,
    `suspectedStall`, and terminal state without claiming a deadlock merely from
    elapsed time.
-4. Every reachable nonterminal state has at least one admissible action, an
+4. Every reachable nonterminal state has at least one admissible intent, an
    explicitly owned wait/progress state, an exact refusal with remedy, or an
    owner-bound Stop/cancel. A silent actionless state fails tests.
 5. Runtime state revision and UI projection revision/timestamps are visible and
@@ -204,11 +199,11 @@ remain the fallback when the UI itself cannot render.
 The episode manifest pins definition, schemas, evaluator/reducer/build revisions,
 seed, and referenced drawing, calibration, paper, camera, controller, and model
 artifacts. Each event records sequence, actor/origin, causation/correlation,
-action/effect IDs, pre/post revisions, typed payload, artifact references, and a
+intent/effect IDs, pre/post revisions, typed payload, artifact references, and a
 canonical post-state digest.
 
 Replay begins from the manifest, folds the production reducer, verifies hashes
-and revisions, recomputes projection/availability, and executes no effect. Every
+and revisions, recomputes projection/`IntentAvailability`, and executes no effect. Every
 truncated prefix is tested. A trace ending after physical effect start but before
 settlement becomes possible physical effect and is never automatically resumed.
 
@@ -233,7 +228,7 @@ Vision measurement. Simulation can never satisfy LIVE physical evidence.
 Every migrated slice must remove or explicitly prove a remaining unmigrated
 consumer for each of the following:
 
-- old root action case and dispatcher branch;
+- old root intent/action case and dispatcher branch;
 - old `...UnavailableReason` and handler guard for migrated semantics;
 - old mutable workflow/workspace field;
 - old task, generation, latch, and Stop/cancel owner;
@@ -248,63 +243,202 @@ observe and report, but may issue no effect or authoritative durable write.
 ## Structural enforcement
 
 - migrated UI targets cannot import effect runtime or see raw effect ports;
-- the gateway is the only public effect-bearing/domain mutation entry;
+- each migrated intent has the gateway as its only public effect-bearing/domain
+  mutation entry; `EA-11C` establishes global exclusivity and `GATE-02` verifies it;
 - root intent switches are exhaustive without `default`;
 - requirement IDs are typed and map to one declared owner;
 - evaluators cannot emit effects or issue runtime permission;
 - the reducer is the sole effect producer;
-- the registry is the sole application effect/Stop/cancellation owner;
-- results require matching episode/action/effect/environment revisions;
+- the registry is the sole application effect/Stop/cancellation owner for each
+  migrated effect; `EA-11C` establishes global exclusivity and `GATE-02` verifies it;
+- results require matching episode/intent/effect/environment revisions;
 - UI availability cannot be resubmitted as authority;
 - episode layers add no `Any`, arbitrary effect closures, reflected/string action
   registries, or `@unchecked Sendable` escape hatches;
 - each cutover adds deleted-symbol, forbidden-import, and direct-port-call checks.
+
+## Known prerequisite corrections
+
+Current commit `bab0900` deliberately made accepted Drawing Boundary geometry
+available to Drawing Studio, but two implementation assumptions must not enter
+the episode runtime:
+
+1. `OperatorWorkspace.inferredDrawingStudioPixel` may extrapolate the current
+   affine mapping outside `TipCameraRegistration.applicabilityRectangle` for
+   diagnostic presentation. That projection is not attributable evidence. An
+   evidence-producing path must refuse it, classify it as typed non-attributable
+   diagnostic output, or consume a newly validated evidence-authority revision
+   whose applicability actually covers the point.
+2. `ContinuousMachineCoordinateTolerance` currently makes one 0.5 mm value
+   answer both Euclidean controller-settlement and axis-expanded drawing-region
+   containment questions. Those are different owners, metrics, and policy
+   revisions. Drawing containment normally admits no geometry outside the
+   accepted Boundary except a separately justified numerical epsilon; pose
+   settlement remains a quantization-aware Euclidean policy.
+
+`FIX-00` owns the settlement/containment policy split. `FIX-01` then owns
+outside-applicability evidence attribution. Both must complete before the
+attended baseline. They preserve the current Boundary/Border distinction and
+durable overlay decoding without preserving either incorrect semantic.
+
+Camera-frame names that actually identify exact frames remain valid. Durable
+`calibratedDrawableRegion`, `localPreLineBaseline`, `linePlan`, `lineExecution`,
+and `postLineFrame` wire values may remain only inside versioned decode adapters
+with proved callers. Active emission and active owners move to canonical
+episode/Border vocabulary in `EA-10E`; parallel alias types are forbidden.
 
 ## Work ledger
 
 Blackdog owns active task state. This table records only not-started work,
 explicit blockers, and landed completion. Never mark a row active here.
 
-| ID | Status | Dependencies | Atomic outcome |
-| --- | --- | --- | --- |
-| DOC-00 | complete | none | Canonical docs, observability contract, work ledger, and continuation skill landed in `TASK-C86132F1` |
-| BASE-00 | pending | DOC-00 | Rebuild exact current `main`, complete attended known-good Learning Path, record evidence, and push an annotated baseline tag |
-| EA-01 | pending | BASE-00 | Inventory every action/guard/owner/port/mode branch and assign retain/adapt/delete plus one authority layer |
-| EA-02 | pending | EA-01 | Compile-only generic kernel spike; fall back to concrete Plotter types if clean Swift typing fails |
-| EA-03 | pending | EA-02 | Atomic store, durable journal/replay, effect lanes, single operation registry, and Stop/shutdown priority contract |
-| EA-04 | pending | EA-03 | Exact-frame human point-selection slice with stale refusal, observation/evidence, projection, and old-path deletion |
-| EA-05 | pending | EA-03 | Lossless controller/camera recording, exact/perturbed replay, content-addressed artifacts, and incident export foundation |
-| EA-06 | pending | EA-04, EA-05 | Manual motion and exact owner-bound Stop through LIVE/SIMULATED adapters; delete old manual authority |
-| EA-07 | pending | EA-06 | Causal environment adapter with shared semantic vocabulary and distinct evidence classes |
-| EA-08 | pending | EA-05, EA-07 | Drawing Studio draft and run as reducer-visible plan/capture/execute/observe/evidence/assess stages |
-| EA-09 | pending | EA-04, EA-06, EA-08 | Bounded reachability, UI compiler boundary, actionability invariants, runtime/UI revision diagnostics |
-| GATE-01 | pending | EA-09 | Pilot continuation decision using deletion, replay, typing, owner, observability, and physical-boundary evidence |
-| EA-10 | pending | GATE-01 | Migrate Pen Interaction, Boundary, camera/tip calibration, Drawing Trial, redo/replacement, artifacts, and reset by family |
-| EA-11 | pending | EA-10 | Remove remaining workspace effect closures/owners, finish UI composition, validate complete journey, and decide SDK packaging |
+Execution classes are `repository`, `software`, `attended-physical`,
+`remote-git`, and `gate`. A direct interactive request naming the package is
+required for every mutation. `attended-physical` and `remote-git` require their
+own explicit authorization; generic execution authorization is insufficient.
+
+| ID | Status | Dependencies | Class | Atomic package outcome | Required gates |
+| --- | --- | --- | --- | --- | --- |
+| DOC-00 | complete | none | repository | Initial canonical docs, observability contract, ledger, and skill landed in `TASK-C86132F1` at `d33d4ff` | `ARCHIVED` |
+| DOC-01 | complete | DOC-00 | repository | Canonical vocabulary, incremental cutover, completion hierarchy, execution modes, atomic ledger, evidence-history repair, and contract check delivered by `TASK-F2387A9A` | `DOC`, `DIFF`, `CRITIC` |
+| EA-01 | pending | DOC-01 | repository | Add an exhaustive current intent/guard/owner/port/mode/fixture inventory to this plan; assign each item one retain/adapt/delete disposition, one current owner, one cutover package, exact deleted-symbol/direct-port scans, and exact focused test command. No application source changes. | `DOC`, `DIFF`, `INVENTORY` |
+| FIX-00 | pending | EA-01 | software | Correction: separate Euclidean controller-pose settlement from drawing-region containment, give each one typed owner/metric/revision, and delete the shared 0.5 mm policy assumption and its tests. Preserve strict accepted-Boundary drawing containment apart from an explicitly justified numerical epsilon. | `DOC`, `DIFF`, `QUICK`, `STRICT`, `FIX-CONTAINMENT` |
+| FIX-01 | pending | FIX-00 | software | Correction: prevent projection outside `TipCameraRegistration.applicabilityRectangle` from becoming attributable evidence unless a newly validated evidence-authority revision expands applicability. Delete the evidence bypass assumption and its tests while retaining typed diagnostic-only projection. | `DOC`, `DIFF`, `QUICK`, `STRICT`, `FIX-APPLICABILITY` |
+| BASE-01 | pending | FIX-01 | attended-physical | Record the exact clean-main `TESTED-BASELINE-COMMIT`, build/sign that commit, and complete the attended known-good Learning Path with the mechanism continuously observed. Land evidence and limitations containing exactly one machine-readable `TESTED-BASELINE-COMMIT: <40-lowercase-hex>` line; the landing may change only this ledger and Current Evidence and must not tag or push. | `DOC`, `DIFF`, `STRICT`, `PHYSICAL-BASE` |
+| BASE-02 | pending | BASE-01 | remote-git | After separate authorization for this exact branch-ref push, prove the Current Evidence `TESTED-BASELINE-COMMIT` remains source-identical through the BASE-01 evidence-only landing, publish exactly that tested commit to `refs/heads/main` without force, and verify the remote ref. It creates no tag. | `PUBLISH-MAIN` |
+| BASE-03 | pending | BASE-02 | remote-git | After separate authorization for this exact tag push, prove the published `TESTED-BASELINE-COMMIT` is the `origin/main` tip, then idempotently create or recover the active-task-bound annotated tag `adaptiveplotter-episode-baseline-v1` on that commit and push only that tag without force. It never creates a previously absent canonical local tag, deletes or moves a canonical local/remote tag, force-updates, or updates a branch; temporary validation refs are always removed. | `TAG` |
+| EA-02A | pending | EA-01, BASE-03 | software | Foundation: add one compile-only domain-generic `EpisodeCore` contract module containing the canonical value types and pure evaluator/reducer protocols; add no Plotter, device, persistence, UI, effect port, or app caller. | `DOC`, `DIFF`, `QUICK`, `CORE` |
+| EA-02B | pending | EA-02A | software | Foundation: add one compile-only `PlotterEpisodeModel` contract module that binds concrete Plotter intents, state, events, effects, results, observations, evidence, and assessments to `EpisodeCore`; add no runtime, device port, persistence, UI, or app caller. | `DOC`, `DIFF`, `QUICK`, `PLOTTER-MODEL` |
+| EA-03A | pending | EA-02B | software | Foundation: add one unbound `EpisodeStore` service that atomically validates and appends `EpisodeEvent` values to a durable `EpisodeJournal`, owns its one versioned journal-persistence adapter, and reconstructs `EpisodeState`; add no effect lane, operation owner, or app caller. | `DOC`, `DIFF`, `QUICK`, `STRICT`, `STORE` |
+| EA-03B | pending | EA-03A | software | Foundation: add one unbound `PlotterOperationRegistry` runtime service owning one-shot effect permits, typed lanes, original handles, exact `StopCapability`, cancellation, terminal disposition, and Stop/shutdown priority semantics; add no journal store, device adapter, or app caller. | `DOC`, `DIFF`, `QUICK`, `STRICT`, `RUNTIME` |
+| EA-05A | pending | EA-03A | software | Foundation: add one unbound lossless `EpisodeRecordingStore` service with typed controller-transcript and camera-lifecycle/frame channels plus content-addressed frame references; add no current-device hook, effect port, or app caller. | `DOC`, `DIFF`, `QUICK`, `STRICT`, `RECORDING` |
+| EA-05B | pending | EA-03A, EA-05A | software | Foundation: add one unbound deterministic replay service that reconstructs every recorded journal prefix and supports declared controller-traffic perturbations without executing an effect; add no app caller. | `DOC`, `DIFF`, `QUICK`, `STRICT`, `REPLAY` |
+| EA-05C | pending | EA-05B | software | Foundation: add one unbound headless bounded incident-package assembler/exporter that references manifests, journals, recordings, frames, observations, evidence, outcomes, assessments, and runtime/UI revisions; it owns no artifact store, UI, device port, or app caller. | `DOC`, `DIFF`, `QUICK`, `STRICT`, `INCIDENT` |
+| EA-04 | pending | EA-03B, EA-05B | software | Cutover: transfer exact-frame human point-selection authority, including stale refusal, observation/evidence acceptance, projection, EA-05A camera recording, and the continuation-cancellation semantics used by Learning Off; delete old selection state, continuations, closures, guards, and fixtures. | `DOC`, `DIFF`, `QUICK`, `STRICT`, `POINT`, `DELETE` |
+| EA-06 | pending | EA-04, EA-05C | software | Cutover: transfer manual jog, direct manual pen-actuation, exact owner-bound Stop, and EA-05A controller recording authority through LIVE/SIMULATED adapters; delete old manual ingress, guards, task/cancel owner, mode branches, and direct ports. | `DOC`, `DIFF`, `QUICK`, `JOURNEY`, `STRICT`, `MOTION`, `DELETE` |
+| EA-07 | pending | EA-06 | software | Cutover: transfer causal-simulator environment authority to the adapter with shared intent/effect/result grammar and distinct controller, plant/pen, paper/ink, camera, Vision, and evidence truth; delete obsolete effect-capable simulator workflow branches. | `DOC`, `DIFF`, `QUICK`, `JOURNEY`, `STRICT`, `SIM`, `DELETE` |
+| EA-08A | pending | EA-05C, EA-07 | software | Cutover: transfer Drawing Studio draft authority for catalog selection, open/new-plan/rebuild semantics, placement, parameter changes, `DrawingProgram`, planning, preview, and paper-coverage assertion; delete old draft/planning ingress and mutable draft state. | `DOC`, `DIFF`, `QUICK`, `STRICT`, `DRAW-DRAFT`, `DELETE` |
+| EA-08B | pending | EA-08A | software | Cutover: transfer Drawing Studio run authority for capture, execute, observe, evidence, outcome, assessment, close/review-pin semantics, ambiguity, and no-redraw terminal handling; delete old run/evidence closures, tasks, direct ports, and high-level fixtures. | `DOC`, `DIFF`, `QUICK`, `JOURNEY`, `STRICT`, `DRAW-RUN`, `DELETE` |
+| EA-09 | pending | EA-04, EA-06, EA-08B | software | Cutover: transfer episode UI presentation authority to bounded reachability, an immutable compiler boundary, intent-actionability invariants, runtime/UI revision diagnostics, and UI request/progress/result presentation for the EA-05C incident service. Keep pane/window/viewport and unsubmitted draft-text changes in UI-local reducers; route Learning on/off continuation cancellation to EA-04 and Drawing Studio domain-changing open/close actions to EA-08A/EA-08B. Delete migrated SwiftUI workspace reads and direct semantic dispatch. Add no recorder, package assembler, artifact store, or export backend. | `DOC`, `DIFF`, `QUICK`, `JOURNEY`, `STRICT`, `UI`, `DELETE` |
+| GATE-01 | pending | EA-09 | gate | Decide pilot continuation from deletion, replay, typing, owner, observability, simulation, and physical-boundary evidence. It moves no authority. | `DOC`, `DIFF`, `PILOT` |
+| EA-10A | pending | GATE-01 | software | Cutover: transfer Pen Interaction intent/evidence authority and delete its old workspace state, guards, tasks, and fixtures. | `DOC`, `DIFF`, `QUICK`, `STRICT`, `PEN`, `DELETE` |
+| EA-10B | pending | EA-10A | software | Cutover: transfer Boundary acquisition/renewal intent/evidence authority and delete its old workspace state, guards, tasks, and fixtures while retaining controller-only movement authority. | `DOC`, `DIFF`, `QUICK`, `JOURNEY`, `STRICT`, `BOUNDARY`, `DELETE` |
+| EA-10C | pending | EA-10B | software | Cutover: transfer camera-from-cap calibration intent/evidence authority and delete its old workspace state, capture/Vision tasks, guards, and fixtures. | `DOC`, `DIFF`, `QUICK`, `STRICT`, `CAMERA-CAL`, `DELETE` |
+| EA-10D | pending | EA-10C | software | Cutover: transfer pen-tip calibration intent/evidence authority and delete its old workspace state, capture/Vision tasks, guards, and fixtures. | `DOC`, `DIFF`, `QUICK`, `JOURNEY`, `STRICT`, `TIP-CAL`, `DELETE` |
+| EA-10E | pending | EA-10D | software | Cutover: transfer Drawing Border validation authority and delete `DrawingTrialState`, `ObservedDrawingTrialStep`, `.drawingTrial`, `.observedDrawingTrial`, their old owners, and active old-label emission; retain old labels only inside versioned decode adapters with callers proved. | `DOC`, `DIFF`, `QUICK`, `JOURNEY`, `STRICT`, `BORDER-VALIDATION`, `DELETE` |
+| EA-10F | pending | EA-10E | software | Cutover: transfer Saved Learning/artifact lifecycle authority, including checkpoint, redo, paper replacement, possible ink, and reset; delete old workspace ownership and compatibility fixtures. | `DOC`, `DIFF`, `QUICK`, `JOURNEY`, `STRICT`, `ARTIFACT-RESET`, `DELETE` |
+| EA-10G | pending | EA-10F | software | Cutover: transfer advisory-speech effect authority to a typed registry lane with identity-bound queueing, bounded completion/failure/timeout/cancellation results, preserved advisory-only failure semantics, ordering before dependent physical commands, and shutdown cancellation. Retain `NativeSpeechAnnouncer`/AVFoundation synthesis ownership; delete `AnnouncementActions`, `OperatorWorkspace.announceAdvisory`, direct announcement calls, duplicate queue/task ownership, and high-level announcement fixtures. | `DOC`, `DIFF`, `QUICK`, `STRICT`, `SPEECH`, `DELETE` |
+| EA-11A | pending | EA-10G | software | Cutover: transfer controller-session readiness authority for serial selection, connect/disconnect, passive probe, explicit alarm clear, session-scoped Motion authorization, and complete EA-05A controller-session recording through typed intents, rules, events, and effects. Retain `MachineController` and `RunInterpreter` transport/safety ownership; delete the workspace/UI handlers, duplicated unavailable-reason guards, in-progress/task/generation state, direct `MachineActions` calls, LIVE/SIMULATED session branches, serial-preference closure, and old fixtures. | `DOC`, `DIFF`, `QUICK`, `JOURNEY`, `STRICT`, `SESSION`, `DELETE` |
+| EA-11B | pending | EA-10G | software | Cutover: transfer observation-environment configuration authority for camera discovery/selection/lifecycle, LIVE/SIMULATED source selection, automatic-analysis cadence, exact-frame region policy, overlay-feature preferences, bounded diagnostic requests, complete EA-05A camera recording, and ambient frame/Vision task-result routing. Retain `CameraCapture` device/frame ownership, camera-session analysis/lease ownership, Vision measurement authority, and evidence-applicability authority; delete direct SwiftUI/workspace handlers and reads, duplicated config/guard state, mode branches, frame/Vision tasks, direct `CameraActions` calls, persistence closures, and old fixtures. | `DOC`, `DIFF`, `QUICK`, `JOURNEY`, `STRICT`, `OBSERVATION-CONFIG`, `DELETE` |
+| EA-11C | pending | EA-11A, EA-11B | software | Cutover: transfer only final application composition and policy-originated startup/shutdown authority to immutable projections and one typed intent sink, making `PlotterIntentGateway` and `PlotterOperationRegistry` globally exclusive. Delete the `OperatorWorkspace` effect closures plus `ActiveStoppableOperation`, `LearningSessionState`, `liveLearningSession`, `simulatedLearningSession`, `activeLearningSession`, `hasShutdown`, `lifetimeGeneration`, `activeHardwareIntentCount`, `intentDrainWaiters`, `beginHardwareIntent`, `endHardwareIntent`, `canCommit`, `waitForHardwareIntentsToDrain`, and every migrated direct UI read named by EA-01. It may not absorb an unnamed feature migration; any unassigned inventory item fails the package. | `DOC`, `DIFF`, `QUICK`, `JOURNEY`, `STRICT`, `COMPOSITION`, `DELETE` |
+| VAL-01 | pending | EA-11C | attended-physical | On the exact migrated signed build, execute the complete attended runbook including Drawing Studio, exercise visible refusal/progress/Stop and incident export, and land controller/camera/operator/ink evidence and limitations without changing architecture. | `DOC`, `DIFF`, `STRICT`, `PHYSICAL-FINAL` |
+| GATE-02 | pending | VAL-01 | gate | Prove globally exclusive `PlotterIntentGateway`, complete operator journey, replay/simulation/incident evidence, same-landing deletion, final attended evidence, and packaging decision. It moves no authority. | `DOC`, `DIFF`, `FINAL-GATE` |
+
+`repository`, `attended-physical`, `remote-git`, and `gate` rows move no product
+authority. Every `software` outcome begins `Foundation:`, `Correction:`, or
+`Cutover:` with the exact meaning defined by the vocabulary authority.
+
+`EA-01` is the only package allowed to add current-source characterization
+commands, source-symbol inventories, and package-specific
+deleted-symbol/direct-port scan data. The target focused-suite names and gate
+commands below are fixed; `EA-01` cannot rename or replace them, and an
+implementation package creates its named suite with its corresponding code.
+`EA-01` may not add, remove, combine, split, or reorder packages. If its
+inventory proves that any row contains more than one authority transfer or
+rollback boundary, or that any semantic intent lacks a package, `EA-01` fails.
+A separate repository-contract correction must revise this plan and its exact
+checker and earn a fresh `CRITIC` verdict before `EA-01` is retried. A
+lower-reasoning executor may implement a fully specified package but may not
+choose scope, dependencies, owners, deletion disposition, lifecycle design, or
+completion status.
+
+### Validation gate catalog
+
+Angle-bracket values are compiled from the named row and landed Current
+Evidence; they are not executor choices. Test filters name suites that the
+owning implementation package must add. A filter that selects zero tests fails
+the gate. All commands run from the task workspace on the recorded target.
+
+| Gate | Exact command or evidence procedure | Created or owned by |
+| --- | --- | --- |
+| `ARCHIVED` | `git merge-base --is-ancestor d33d4ff HEAD` and the `TASK-C86132F1` Current Evidence entry identifies `d33d4ff` | DOC-00 |
+| `DOC` | `make docs-check` | repository |
+| `DIFF` | `git diff --check` | repository |
+| `CRITIC` | A fresh-context read-only critic inspects the actual candidate tree, runs `make docs-check` and `git diff --check`, gives PASS on all ten readiness dimensions in the execution prompt, and ends exactly `UNANIMOUS PASS — no material disagreement`; Current Evidence records that verdict while the full transient report is not checked in | DOC-01 |
+| `QUICK` | `make quick-test` | repository |
+| `JOURNEY` | `make journey-test` | repository |
+| `STRICT` | `make strict-check` | repository |
+| `INVENTORY` | `sh Scripts/check_episode_inventory.sh` proves every semantic intent, guard, owner, direct device/evidence port, environment branch, task/cancel owner, persistence path, UI consumer, and high-level fixture has one stable inventory ID, one current owner, one disposition, and one cutover package | EA-01 |
+| `FIX-CONTAINMENT` | `swift test --filter CoordinateAcceptancePolicyTests` | FIX-00 |
+| `FIX-APPLICABILITY` | `swift test --filter TipApplicabilityEvidencePolicyTests` | FIX-01 |
+| `CORE` | `swift test --filter EpisodeCoreTests` | EA-02A |
+| `PLOTTER-MODEL` | `swift test --filter PlotterEpisodeModelContractTests` | EA-02B |
+| `STORE` | `swift test --filter EpisodeStoreTests` | EA-03A |
+| `RUNTIME` | `swift test --filter EpisodeRuntimeTests` | EA-03B |
+| `RECORDING` | `swift test --filter PlotterRecordingStoreTests` | EA-05A |
+| `REPLAY` | `swift test --filter PlotterRecordingReplayTests` | EA-05B |
+| `INCIDENT` | `swift test --filter PlotterIncidentPackageTests` | EA-05C |
+| `POINT` | `swift test --filter PlotterPointSelectionEpisodeTests` | EA-04 |
+| `MOTION` | `swift test --filter PlotterManualMotionEpisodeTests` | EA-06 |
+| `SIM` | `swift test --filter PlotterCausalEpisodeEnvironmentTests` | EA-07 |
+| `DRAW-DRAFT` | `swift test --filter PlotterDrawingDraftEpisodeTests` | EA-08A |
+| `DRAW-RUN` | `swift test --filter PlotterDrawingRunEpisodeTests` | EA-08B |
+| `UI` | `swift test --filter PlotterEpisodeUIActionabilityTests` | EA-09 |
+| `PILOT` | `sh Scripts/check_episode_pilot_gate.sh` proves the exact Pilot continuation gate predicates below against landed rows and Current Evidence | EA-09 |
+| `PEN` | `swift test --filter PlotterPenInteractionEpisodeTests` | EA-10A |
+| `BOUNDARY` | `swift test --filter PlotterBoundaryEpisodeTests` | EA-10B |
+| `CAMERA-CAL` | `swift test --filter PlotterCameraCalibrationEpisodeTests` | EA-10C |
+| `TIP-CAL` | `swift test --filter PlotterTipCalibrationEpisodeTests` | EA-10D |
+| `BORDER-VALIDATION` | `swift test --filter PlotterBorderValidationEpisodeTests` | EA-10E |
+| `ARTIFACT-RESET` | `swift test --filter PlotterArtifactResetEpisodeTests` | EA-10F |
+| `SPEECH` | `swift test --filter PlotterSpeechEffectEpisodeTests` | EA-10G |
+| `SESSION` | `swift test --filter PlotterControllerSessionEpisodeTests` | EA-11A |
+| `OBSERVATION-CONFIG` | `swift test --filter PlotterObservationConfigurationEpisodeTests` | EA-11B |
+| `COMPOSITION` | `swift test --filter PlotterEpisodeCompositionTests` | EA-11C |
+| `DELETE` | `sh Scripts/check_episode_cutover.sh <PACKAGE-ID>` executes the exact zero-match deleted-symbol, forbidden-import, direct-port, duplicate-ingress, task-owner, fixture, and environment-branch scans recorded by EA-01 for that package; any unassigned remaining consumer fails | EA-01 |
+| `PHYSICAL-BASE` | On the exact signed clean-main commit, one continuously attending operator executes Attended Hardware Runbook sections 1 through 5 and completes its Evidence record; the landed record must contain exactly one `TESTED-BASELINE-COMMIT: <40-lowercase-hex>` line and separately identify controller, camera, operator, and observed-ink claims, ambiguities, and skipped steps | BASE-01 |
+| `PUBLISH-MAIN` | Blackdog `task show --json` for the current `<TASK-ID>` must report target branch `main`. Substitute `<TESTED-BASELINE-COMMIT>` from BASE-01 Current Evidence, then run `git fetch --no-tags origin main`, `git merge-base --is-ancestor origin/main "<TESTED-BASELINE-COMMIT>"`, `git merge-base --is-ancestor "<TESTED-BASELINE-COMMIT>" HEAD`, `test -z "$(git diff --name-only "<TESTED-BASELINE-COMMIT>"..HEAD -- . ':(exclude)docs/CURRENT_EVIDENCE.md' ':(exclude)docs/EPISODE_ARCHITECTURE_EXECUTION_PLAN.md')"`, `git push origin "<TESTED-BASELINE-COMMIT>:refs/heads/main"`, and verify `git ls-remote --heads origin refs/heads/main` returns exactly `<TESTED-BASELINE-COMMIT>` | BASE-02 |
+| `TAG` | After separate exact tag-push authorization, run only `sh Scripts/publish_episode_baseline_tag.sh "<TASK-ID>" "<TESTED-BASELINE-COMMIT>"`. The checked-in procedure verifies the active in-progress repo-skill Blackdog task ID, `main` target, task worktree, verified prompt lineage, first-line `AdaptivePlotter episode WorkPackage: BASE-03` marker, second-line tested-commit binding, the sole BASE-01 `TESTED-BASELINE-COMMIT` Current Evidence line, and `origin/main`. It validates every new or remote-only annotated object through a temporary ref, re-observes the remote tag and `origin/main` before success, leaves a remote-only tag remote-only, removes the temporary ref on every exit, resumes only an exact verified local-only tag, and blocks wrong task/package/target/commit, lightweight, malformed, differently targeted, differently tasked, disagreeing, or raced tags without creating a previously absent canonical local ref, deleting/replacing a canonical tag, moving a tag, updating a branch, or forcing | BASE-03 |
+| `PHYSICAL-FINAL` | On the exact signed landed EA-11C commit, one continuously attending operator executes Attended Hardware Runbook sections 1 through 6 and completes its Evidence record; the record must additionally capture one visible typed refusal/remedy, active owner/progress/Stop, runtime/UI revisions, one bounded incident export, controller transcript completeness, camera artifact presence or declared absence, and observed-ink/ambiguity outcomes | VAL-01 |
+| `FINAL-GATE` | `sh Scripts/check_episode_final_gate.sh` proves every ledger row through VAL-01 complete, all final-matrix software/replay/simulation/UI evidence linked from Current Evidence, one globally exclusive gateway and registry by structural scan, zero superseded paths, and a passed PHYSICAL-FINAL record for the exact EA-11C commit | EA-11C |
 
 ## Package completion contract
 
-Every package records in its Blackdog prompt and landing:
+Completion has three noninterchangeable levels:
 
-1. exact scope and dependencies;
-2. current owners and preserved behavior;
-3. intended authority transfer;
-4. observability requirements affected;
-5. same-landing deletion ledger;
-6. focused, replay, simulation, UI, repository, and physical validation classes;
-7. Current Evidence update with passed, failed, or skipped claims;
-8. this ledger's landed status update.
+1. A Blackdog operation is complete when its structured result says so. This
+   proves only that the lifecycle operation completed.
+2. A `WorkPackage` is complete only when one bounded authority/deletion outcome
+   is landed on Blackdog's recorded canonical `main` target, every gate named in
+   its ledger row passed, every same-landing deletion is proved, matching Current
+   Evidence is landed, its structured Work package gate evidence row records
+   every required gate as `passed`, and the ledger row is landed as `complete`.
+3. The migration is complete only when every executable row is complete and
+   both pilot and final gates have passed. Until then, every handoff says
+   “package `<ID>` complete; migration remains incomplete.”
 
-Validation runs serially when SwiftPM shares `.build`. Software, replay, and
-simulation never prove attended controller, camera, motion, pen, paper,
-operator-click, or observed-ink behavior.
+`failed` and `skipped` are truthful evidence outcomes but cannot satisfy a
+required gate. Missing required evidence also prevents completion. A blocked
+package may land only a canonical blocker/evidence update after all partial
+authority-transfer code, bridges, tests, and ledger `complete` claims are
+removed; the row remains `blocked`. Blackdog's task close/land state never
+overrides these conditions.
+
+Every executable package prompt copies verbatim its row, exact expanded gate
+commands, current owners and behavior, authority transfer, observability impact,
+same-landing deletion set, and done condition. Validation runs serially when
+SwiftPM shares `.build`. Software, replay, and simulation never prove attended
+controller, camera, motion, pen, paper, operator click, or observed ink.
 
 ## Pilot continuation gate
 
-Continue past `GATE-01` only when:
+`Scripts/check_episode_pilot_gate.sh`, created and tested in `EA-09`, evaluates
+the following closed set of predicates against landed ledger rows, inventory
+scans, and linked Current Evidence. `GATE-01` may mark only its own row complete
+after that command, `DOC`, and `DIFF` pass:
 
-- generic code required no forbidden type-erasure or concurrency escape hatch,
-  or the documented concrete Plotter fallback cleanly satisfies the contracts;
+- domain-generic `EpisodeCore` required no forbidden type-erasure or concurrency
+  escape hatch, and Plotter-specific values remain in `PlotterEpisodeModel`;
 - replay reconstructs canonical state, projection, and availability without
   executing effects;
 - captured device traffic reaches production controller/camera owners;
@@ -318,15 +452,41 @@ Continue past `GATE-01` only when:
 - `OperatorWorkspace` lost policy/state instead of accumulating adapters;
 - physical safety owners and evidence-class boundaries remain intact.
 
-If clean genericity fails, use concrete Plotter types. If same-slice deletion,
-device-owner preservation, deterministic replay, or truthful observability
-fails, stop rather than maintain dual authority.
+If genericity, same-slice deletion, device-owner preservation, deterministic
+replay, or truthful observability fails, the gate fails and the migration stops
+rather than maintaining dual authority.
+
+## Final continuation gate
+
+`Scripts/check_episode_final_gate.sh`, created and tested in `EA-11C`, evaluates
+the following closed set of predicates. `GATE-02` runs only after `VAL-01` has
+landed the exact attended record for the EA-11C commit. It may mark only its own
+row complete after `FINAL-GATE`, `DOC`, and `DIFF` pass:
+
+- every ledger row through `VAL-01` is `complete`, with passed required gates
+  and matching Current Evidence;
+- the `EA-11C` landing made `PlotterIntentGateway` the only application semantic
+  mutation ingress and `PlotterOperationRegistry` the only application
+  effect/Stop/cancellation owner;
+- all same-landing deletion inventories are empty and no compatibility bridge,
+  old workspace owner, alternate environment branch, or high-level fixture
+  remains without a proved non-episode consumer;
+- the final matrix links passed evaluator, reachability, replay, perturbation,
+  simulation, UI-actionability, refusal, stalled-prefix, incident-export, and
+  operator-journey evidence;
+- `PHYSICAL-FINAL` links the exact signed EA-11C commit to attended controller,
+  camera, operator, UI observability, incident-export, and ink/ambiguity records;
+- the packaging decision is explicit: retain the internal packages unless a
+  separately authorized second-client proposal proves an SDK boundary.
+
+Any failed or missing predicate leaves `GATE-02` pending or blocked. The gate
+moves no authority and cannot repair implementation while assessing it.
 
 ## Final validation matrix
 
 | Concern | Required evidence |
 | --- | --- |
-| state and action correctness | pure reducer cases plus bounded reachability |
+| state and intent correctness | pure evaluator/reducer cases plus bounded reachability |
 | refusal and lock observability | typed owner/revision/remedy, effect progress, UI/runtime revision, stalled-prefix tests |
 | episodic memory | durable manifest/event replay, every prefix, corruption and schema tests |
 | controller communication | exact and perturbed link replay through production owners |

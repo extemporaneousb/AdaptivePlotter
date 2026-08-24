@@ -114,8 +114,13 @@ require Idle/final-MPos settlement, revalidate the current camera/cap
 applicability, and capture one newer exact frame. That exact frame is frozen
 unchanged for all four clicks. Accepting the resulting pen-tip calibration makes the four
 circle centers its applicability rectangle. The accepted Drawing Boundary is the
-Drawing Studio drawable region; preview and coverage outside the inset applicability
-rectangle use the registration's inferred affine projection. Exercise 1.4 does not
+Drawing Studio drawable region. The target evidence contract permits the
+registration's inferred affine projection outside its inset applicability
+rectangle only for diagnostic presentation; that extrapolation cannot support
+attributable camera/ink evidence without newly validated applicability. Current
+source at DOC-01 violates that contract by reusing the extrapolated projection
+in run geometry that can later be classified attributable. This known defect is
+assigned to `FIX-01` before the physical baseline. Exercise 1.4 does not
 change zoom, pan, preferred zoom, or viewport focus
 automatically; manual presentation transforms remain operator controlled.
 
@@ -226,7 +231,7 @@ an automatic redraw.
 ## Drawing Studio
 
 After one attributable Exercise 2.1 validation, the top capability indicator says
-**Interactive learning complete · one validation** and Drawing Studio becomes
+**Drawing validation complete** and Drawing Studio becomes
 available independently of the Learning Path. The operator can select one of
 11 deterministic `DrawingProgram` producers—line, polyline, rectangle, square,
 triangle, regular polygon, circle, ellipse, star, pyramid, or elephant—then
@@ -248,6 +253,11 @@ operation. A completed run returns to the preselected observation pose, captures
 a newer exact frame, compares arbitrary planned polylines with new ink, and
 retains intended, observed, and residual overlays for review. Refusal,
 cancellation, ambiguity, or possible ink is terminal and never redraws.
+
+Current `bab0900` source still applies the 0.5 mm pose-settlement value as an
+axis-wise outward planning tolerance. The episode ledger's `FIX-00` package
+must remove that cross-owner policy before the attended migration baseline; it
+is not part of the product contract above.
 
 Drawing Border validation and later run evidence are stored in a checksummed,
 append-only archive with fixed predeclared roles: ordinary drawing, training,
@@ -387,6 +397,8 @@ observed-ink validation is implied. See [Current Evidence](docs/CURRENT_EVIDENCE
   exact current control-to-state interaction map.
 - [Architecture](docs/SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md) — package and
   runtime ownership as currently implemented.
+- [Episode Architecture Vocabulary](docs/EPISODE_ARCHITECTURE_VOCABULARY.md) —
+  sole target type-name and relationship definitions.
 - [Episode Architecture Execution Plan](docs/EPISODE_ARCHITECTURE_EXECUTION_PLAN.md)
   — sole target architecture, migration ledger, observability contract, and
   deletion/continuation gates.

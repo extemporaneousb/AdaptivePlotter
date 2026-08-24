@@ -8,9 +8,76 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
-## Canonical episode migration documentation
+## Work package gate evidence
 
-Documented 2026-08-23 in Blackdog task `TASK-C86132F1`.
+This table is machine-checked against every `complete` row in the canonical
+execution-plan ledger. Gate names must match that package's required gates
+exactly, and every recorded result must be `passed`. Detailed scope and
+limitations remain in the named evidence section.
+
+| Package | Blackdog task | Gate results | Evidence section |
+| --- | --- | --- | --- |
+| DOC-00 | `TASK-C86132F1` | `ARCHIVED=passed` | Historical: initial canonical episode migration documentation |
+| DOC-01 | `TASK-F2387A9A` | `DOC=passed`, `DIFF=passed`, `CRITIC=passed` | Episode migration execution readiness |
+
+## Episode migration execution readiness
+
+Prepared 2026-08-24 in Blackdog task `TASK-F2387A9A`.
+
+The repository now has one target vocabulary authority and one target execution
+plan. The plan defines incremental single ingress per `PlotterIntent`, a thin
+`PlotterIntentGateway`, one `PlotterOperationRegistry`, exact completion levels,
+fully named atomic authority packages, named validation/deletion gates, and
+separate execution classes for repository/software, attended physical, and
+remote Git work. The
+old broad `BASE-00`, `EA-10`, and `EA-11` rows are gone. Source-read-only
+repository package `EA-01` changes the canonical inventory and its check data
+but no application source; it no longer depends on physical work. Application
+migration still depends on the corrective and explicitly attended/tagged
+baseline packages. Controller-session readiness, observation-environment
+configuration, and final application composition are separate `EA-11A`,
+`EA-11B`, and `EA-11C` cutovers; no generic remainder package can absorb an
+unidentified authority transfer. Generic core contracts, Plotter bindings,
+event storage, operation runtime, environment recording, deterministic replay,
+and incident assembly are separate one-module-or-service Foundation packages.
+Advisory speech has its own `EA-10G` cutover rather than remaining as an
+undispositioned workspace effect.
+
+The AdaptivePlotter skill now separates read-only audit, named-package prompt
+compilation, and named-package execution. It cannot infer a package, select
+physical work, change branches, start a task during audit/compile, or treat a
+failed/skipped gate as completion. A deterministic documentation contract
+closes the tracked document inventory, verifies every canonical target name,
+rejects competing synonyms and implicit continuation, and checks current versus
+historical terminology. Blackdog's configured landing validations now include
+that contract and the non-journey software partition rather than whitespace
+alone.
+
+The abandoned `TASK-BEB9AF9B` patch and its untracked guard/journey/map drafts
+were not landed or copied; its task worktree and branch were removed through
+Blackdog. The current `bab0900` evidence-applicability bypass and shared
+settlement/containment tolerance are recorded as as-built defects assigned to
+`FIX-01` and `FIX-00`, respectively, before physical baseline. Earlier Current
+Evidence entries again state only the terms and behavior true at their own
+landing, with later supersession explicit.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `DOC` | passed — `make docs-check` | closed document inventory, canonical vocabulary, explicit execution modes, forbidden synonyms, historical wording, repository capability contract, and disposable-repository BASE-03 publication fixture |
+| `make quick-test` | passed — 505 tests | nonphysical unit/component partition on the unchanged application source |
+| `DIFF` | passed — `git diff --check` | documentation, skill, script, Makefile, and Blackdog configuration patch |
+| `CRITIC` | passed — 10/10; `UNANIMOUS PASS — no material disagreement` | fresh-context, read-only review of the actual candidate tree against the fixed readiness rubric |
+
+No application source or simulator behavior was changed. `make quick-test`
+software-tested the unchanged app/model/runtime and deterministic simulator
+paths; it did not validate an attended controller, camera, motion, pen, paper,
+operator click, physical ink, or accepted evidence artifact. The BASE-03 fixture
+used only disposable local repositories; it did not read or mutate a production
+tag, branch, or remote ref.
+
+## Historical: initial canonical episode migration documentation
+
+Documented 2026-08-23 in Blackdog task `TASK-C86132F1`, landed at `d33d4ff`.
 
 The repository now has one
 [Episode Architecture Execution Plan](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md).
@@ -31,9 +98,11 @@ because it is evidence chronology. Neither is an alternate target architecture.
 No competing episode architecture, execution-plan comparison, or coordinator
 prompt was present in the tracked repository. The three temporary research and
 planning drafts used to reach the canonical result were removed after their
-accepted decisions were integrated. The repo-local AdaptivePlotter skill now
-routes `continue episode migration` through one focused continuation protocol
-and the canonical work ledger.
+accepted decisions were integrated. At that landing, the repo-local
+AdaptivePlotter skill routed `continue episode migration` through one focused
+continuation protocol and the canonical work ledger. `TASK-F2387A9A` later
+replaced that unscoped continuation with separate read-only audit,
+named-package compile, and named-package execute modes.
 
 This task changes documentation and the repo-local skill only. It implements no
 episode runtime, changes no application behavior, and supplies no physical
@@ -41,6 +110,7 @@ validation.
 
 | Validation | Result | Scope |
 | --- | --- | --- |
+| `ARCHIVED` | passed — `git merge-base --is-ancestor d33d4ff HEAD` | canonical DOC-00 landing remains in current history |
 | local Markdown-link check | passed — 13 files | `README.md`, `AGENTS.md`, all `docs/**/*.md`, and the AdaptivePlotter skill and focused references |
 | vestigial review/alternate-plan scan | passed — zero matches | superseded-review terminology, deleted temporary draft names, and competing-architecture wording across current documentation and the repo-local skill |
 | skill contract validation | passed — manual equivalent | frontmatter format, allowed keys, name and description constraints, unfinished placeholders, and the focused-reference target |
@@ -48,7 +118,11 @@ validation.
 | `git diff --check` | passed | documentation and repo-local skill changes |
 | application tests and attended physical validation | skipped | no application source, simulator, controller, camera, motion, Pen, paper, click, or ink behavior changed |
 
-## Implemented software surface
+## Historical software evidence by landing
+
+Every task section below records what its stated landing implemented and
+verified. Later sections above may supersede its terminology or behavior; these
+entries do not retroactively change.
 
 ### Boundary admission, relative Drawing Border geometry, and coordinate tolerance
 
@@ -91,7 +165,16 @@ results. No attended camera, controller, physical motion, Pen, paper, operator
 click, or observed-ink validation was performed by this task. The app was not
 launched for physical verification.
 
-### Stage 1/2 Learning Path numbering and operator terminology
+An independent 2026-08-23 follow-up audit found that this landing also created
+two incorrect cross-owner assumptions: outside-applicability affine projection
+can feed attributable run evidence, and the same 0.5 mm value answers both
+Euclidean pose settlement and axis-expanded planning containment. The canonical
+episode plan assigns the containment/settlement split to `FIX-00` and the
+evidence-applicability correction to `FIX-01` before the attended baseline.
+The passed software tests above prove the landed behavior; they do not make
+those two semantics acceptable evidence or target architecture.
+
+### Historical landing snapshot: Stage 1/2 Learning Path numbering and operator terminology
 
 Implemented 2026-08-23 in Blackdog task `TASK-ED2EEC92`.
 
@@ -107,18 +190,21 @@ shared end-user vocabulary. Generic **Start**, **Next**, and **Go** labels were
 removed from Learning Path actions in favor of the effect of each click. Status
 and failure copy no longer exposes implementation terms such as admission,
 owner, typed state, workflow coordinator, accepted-artifact checkpoint, or tip
-model. Saved state is consistently **Saved Learning**, the accepted outer extent
-is the **Drawing Boundary**, the inset target is the **Drawing Border**, and the
-final physical check is **Drawing Border validation**.
+model. Saved state is consistently **Saved Learning**, the accepted work area is
+the **Drawing Boundary**, and the final physical check is **drawing-frame
+validation**.
 
 The copy audit also corrected behavioral drift: pen-tip calibration reports
 four accepted corner observations rather than five; Exercise 2.1 describes one
-closed Drawing Border through the four calibration-circle centers rather than an
-isolated 5 mm line; and frame evidence is described as Drawing Border validation.
+closed frame through the four calibration-circle centers rather than an
+isolated 5 mm line; and frame evidence is described as drawing-frame validation.
 The exact button-to-state diagram is recorded in
 [Learning Path Button Transitions](LEARNING_PATH_BUTTON_TRANSITIONS.md).
-Persisted artifact-kind identities remain stable while current presentation and
-plan/observer identifiers use Drawing Border terminology.
+Persisted schema and internal enum/algorithm identifiers were not renamed.
+
+This is the terminology verified by `TASK-ED2EEC92`. Later
+`TASK-12704A6B` introduced **Drawing Border** as the visible name for the inset
+target without changing this earlier landing's evidence claim.
 
 | Validation | Result | Scope |
 | --- | --- | --- |
@@ -133,33 +219,38 @@ results. No attended camera, controller, physical motion, Pen, paper, operator
 click, or observed-ink validation was performed by this task. The app was not
 launched for physical verification.
 
-### Ten-millimeter Boundary inset and final Drawing Border context
+### Historical as landed: Ten-millimeter Boundary inset and final picture-frame context
 
 Implemented 2026-08-22 in Blackdog task `TASK-83E5E3C9`.
 
-The current Exercise 1.4 estimator places each of the four 2 mm-radius calibration-
-circle centers exactly 10 mm inside its two adjacent accepted Drawing Boundary edges.
+The then-current Stage 3.4 estimator placed each of the four 2 mm-radius
+calibration-circle centers exactly 10 mm inside its two adjacent accepted 3.2
+Boundary edges.
 The commanded circle outlines therefore retain 8 mm of edge clearance. The
 resulting four-center rectangle remains the exact `TipCameraRegistration`
-applicability and Drawing Border target. The accepted Drawing Boundary is the
-Drawing Studio planning region; Exercise 2.1 constructs its one closed four-edge
-Drawing Border from the 10 mm inset and remains the final required Learning Path exercise.
+applicability and, at that landing, the Drawing Studio region; Stage 4.1
+constructed its one closed four-edge `DrawingPlan` from that same recorded
+rectangle and remained the final required Learning Path exercise.
 
-The camera view now renders two distinct geometries. An orange dashed **ACCEPTED
-DRAWING BOUNDARY** comes from the accepted Boundary aggregates and is projected as
+The camera view at that landing rendered two distinct geometries. An orange
+dashed **ACCEPTED 3.2 BOUNDARY** came from the accepted Boundary aggregates and was projected as
 an explicitly inferred 10 mm extrapolation of the proposed or accepted contact
-map. The inner Drawing Border comes from the registration applicability:
-it is cyan planned geometry during Exercise 1.4 proposal review and a labeled 10 mm-
-inset Drawing Border after acceptance. Exercise 2.1 overlays and physically draws
-that same Drawing Border after the operator presses its existing one-Go motion
+map. The inner four-point rectangle came from the registration applicability:
+it was cyan planned geometry during Stage 3.4 proposal review and a labeled
+10 mm-inset calibrated frame after acceptance. Stage 4.1 overlaid and physically
+drew that same inner frame after the operator pressed its existing one-Go motion
 authorization. The v6 edge-touching estimator remains decodable only within its
 recorded domain; new evidence uses v7.
 
+This section records only `TASK-83E5E3C9`. The later numbering task renamed the
+visible stages, and `TASK-12704A6B` later made the accepted Drawing Boundary the
+Drawing Studio planning region and named the inset target **Drawing Border**.
+
 | Validation | Result | Scope |
 | --- | --- | --- |
-| Focused planning, overlay, persistence, projector, and sparse-workspace suites | passed — 45 tests | 10 mm centers, 8 mm outline clearance, collapsed-axis refusal, v6 restore decoding, semantic overlay style, proposed/accepted Boundary and Border, exact-revision Exercise 2.1 Border execution, and one-click endpoint |
+| Focused planning, overlay, persistence, projector, and sparse-workspace suites | passed — 45 tests | 10 mm centers, 8 mm outline clearance, collapsed-axis refusal, v6 restore decoding, semantic overlay style, proposed/accepted dual rectangles, exact-revision Stage 4 frame execution, and one-Go endpoint |
 | `make quick-test` | passed — 500 tests | fast unit/component partition with retained journeys excluded |
-| `make journey-test` | passed — 10 tests | full four-circle acceptance, checkpoint revalidation, exact tip revision, closed-Border drawing, reset, Boundary, and simulator journeys |
+| `make journey-test` | passed — 10 tests | full four-circle acceptance, checkpoint revalidation, exact tip revision, closed-frame drawing, reset, Boundary, and simulator journeys |
 | `make strict-check` | passed — 510 tests | strict concurrency, warnings as errors, signed bundle, launcher checks, full suite, repository contract, and diff check |
 
 These are source, deterministic, simulator, build, signing, and repository-gate
@@ -716,8 +807,8 @@ current exercise action strip. This historical change also established RGB
 color propagation through continuous bounded analysis and exclusive Stage 3.3
 inspections, with color-specific estimator revisions preventing one five-sample
 proposal from mixing recognition settings. Its editable Video Settings color
-well has since been removed. The current and only selection contract is the
-exact-frame **Identify Pen Cap** action recorded below.
+well was later removed. The later exact-frame selection contract is the
+**Identify Pen Cap** action recorded below.
 
 | Validation | Result | Scope |
 | --- | --- | --- |
@@ -731,6 +822,13 @@ These are software and deterministic simulator claims. The application UI was
 not launched. No attended camera, controller, motion, pen, operator color
 selection, calibration click, or observed-ink validation was performed, so the
 results do not establish physical color tolerance or cap-recognition reliability.
+
+### Earlier historical implementation snapshots
+
+Every section below this boundary describes the repository at its stated
+commit/date. Present-tense wording is local to that historical landing and is
+not current product or architecture authority. Later entries above supersede
+stage numbering, workflow shape, terminology, and implementation owners.
 
 ### Pure Learning Path projection
 
@@ -806,7 +904,8 @@ These are software and simulated-workflow results. No app launch, controller
 connection, physical motion, camera capture, Pen Down observation, or observed
 physical ink validation was performed.
 
-The current source contains exactly two post-Boundary calibration exercises:
+The source at that landing contained exactly two post-Boundary calibration
+exercises:
 
 - 3.3 five-cap machine-to-visible-cap registration with three fit samples and
   two sealed holdouts. Each LIVE sample requires three strictly newer compatible
@@ -842,7 +941,7 @@ The former multi-step target/region workflow, its runtime protocol, simulator
 fixtures, exclusive tests, actions, artifacts, and detector composition are
 deleted rather than retained as compatibility code.
 
-## Stable preview during automatic overlay analysis
+### Stable preview during automatic overlay analysis
 
 Validated 2026-08-12 in Blackdog task `TASK-D2BD0315`, targeting `main` from
 base `d191045ef20026626437a3d92943cd0d80e7c167`.
@@ -865,9 +964,9 @@ These are software and simulated-workflow results. The app was not launched for
 this correction. No attended camera, controller, motion, pen, pen-cap,
 armature, preview-fluidity, or observed-ink validation was performed.
 
-## Overlay ownership and implemented curriculum endpoint
+### Overlay ownership and implemented curriculum endpoint
 
-The current implementation exposes exactly two persistent global controls:
+The implementation at that landing exposed exactly two persistent global controls:
 **Pen cap** and **Armature envelope**. The envelope is explicitly inferred from
 the cap and is not independently segmented. Operator/persistence-owned
 preference is separate from requested features, typed status, and exact-frame
@@ -892,7 +991,8 @@ absent; fixed bounded Boundary renewal, Stop, Idle/MPos settlement, and fallback
 authority remain. Stage 4 intended geometry, observed ink, and residuals are
 contextual evidence with no global toggles.
 
-The visible Learning Path ends at the one-Go 4.1 observed-line validation. The former
+The visible Learning Path at that landing ended at the one-Go 4.1 observed-line
+validation. The former
 selectable future stage, speculative online model-learning dataset, policy/reward
 episode scaffolding, model-mismatch renderer, and model-prediction overlay kind
 are deleted. Adaptive requirements remain roadmap-only.
@@ -911,7 +1011,7 @@ usefulness, preview fluidity, attended calibration, controller behavior, motion,
 pen behavior, and observed ink remain skipped and unproven. Seeing the cap in a
 live preview and verifying the UI layout does not establish any of those claims.
 
-## Stage 3.4 circular-mark visibility correction
+### Stage 3.4 circular-mark visibility correction
 
 Validated 2026-08-12 in Blackdog task `TASK-BAD20882`, targeting `main` from
 base `3a025e489c6f1115faaa2b107c7eb33a8db4ba09`.
@@ -928,7 +1028,7 @@ These are software and simulated-workflow results. No app launch, controller
 connection, physical motion, camera capture, Pen Down observation, or observed
 ink validation was performed for this correction.
 
-## Phase 4 automated evidence
+### Phase 4 automated evidence
 
 Validated 2026-08-12 in Blackdog task `TASK-2AF7445C`, targeting `main` from
 base `02f8431ad5af762f0a293912435fa7f6834181b9`.

@@ -1,0 +1,724 @@
+#!/usr/bin/env python3
+"""Validate the canonical episode vocabulary and executable work ledger."""
+
+from __future__ import annotations
+
+import hashlib
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parent.parent
+PLAN_PATH = ROOT / "docs" / "EPISODE_ARCHITECTURE_EXECUTION_PLAN.md"
+VOCAB_PATH = ROOT / "docs" / "EPISODE_ARCHITECTURE_VOCABULARY.md"
+PROTOCOL_PATH = ROOT / ".codex" / "skills" / "adaptiveplotter" / "references" / "episode-migration.md"
+SKILL_PATH = ROOT / ".codex" / "skills" / "adaptiveplotter" / "SKILL.md"
+EVIDENCE_PATH = ROOT / "docs" / "CURRENT_EVIDENCE.md"
+TAG_PUBLISHER_PATH = ROOT / "Scripts" / "publish_episode_baseline_tag.sh"
+TAG_TEST_PATH = ROOT / "Scripts" / "test_publish_episode_baseline_tag.sh"
+EXPECTED_LEDGER_SHA256 = "fa0cfffd817db6d0f5ee40547a000a05677337f0328011c2dd0bf9732757b912"
+
+
+EXPECTED_GATES = {
+    "ARCHIVED": (
+        "`git merge-base --is-ancestor d33d4ff HEAD` and the `TASK-C86132F1` Current Evidence entry identifies `d33d4ff`",
+        "DOC-00",
+    ),
+    "DOC": ("`make docs-check`", "repository"),
+    "DIFF": ("`git diff --check`", "repository"),
+    "CRITIC": (
+        "A fresh-context read-only critic inspects the actual candidate tree, runs `make docs-check` and `git diff --check`, gives PASS on all ten readiness dimensions in the execution prompt, and ends exactly `UNANIMOUS PASS — no material disagreement`; Current Evidence records that verdict while the full transient report is not checked in",
+        "DOC-01",
+    ),
+    "QUICK": ("`make quick-test`", "repository"),
+    "JOURNEY": ("`make journey-test`", "repository"),
+    "STRICT": ("`make strict-check`", "repository"),
+    "INVENTORY": (
+        "`sh Scripts/check_episode_inventory.sh` proves every semantic intent, guard, owner, direct device/evidence port, environment branch, task/cancel owner, persistence path, UI consumer, and high-level fixture has one stable inventory ID, one current owner, one disposition, and one cutover package",
+        "EA-01",
+    ),
+    "FIX-CONTAINMENT": ("`swift test --filter CoordinateAcceptancePolicyTests`", "FIX-00"),
+    "FIX-APPLICABILITY": ("`swift test --filter TipApplicabilityEvidencePolicyTests`", "FIX-01"),
+    "CORE": ("`swift test --filter EpisodeCoreTests`", "EA-02A"),
+    "PLOTTER-MODEL": (
+        "`swift test --filter PlotterEpisodeModelContractTests`",
+        "EA-02B",
+    ),
+    "STORE": ("`swift test --filter EpisodeStoreTests`", "EA-03A"),
+    "RUNTIME": ("`swift test --filter EpisodeRuntimeTests`", "EA-03B"),
+    "RECORDING": ("`swift test --filter PlotterRecordingStoreTests`", "EA-05A"),
+    "REPLAY": ("`swift test --filter PlotterRecordingReplayTests`", "EA-05B"),
+    "INCIDENT": ("`swift test --filter PlotterIncidentPackageTests`", "EA-05C"),
+    "POINT": ("`swift test --filter PlotterPointSelectionEpisodeTests`", "EA-04"),
+    "MOTION": ("`swift test --filter PlotterManualMotionEpisodeTests`", "EA-06"),
+    "SIM": ("`swift test --filter PlotterCausalEpisodeEnvironmentTests`", "EA-07"),
+    "DRAW-DRAFT": ("`swift test --filter PlotterDrawingDraftEpisodeTests`", "EA-08A"),
+    "DRAW-RUN": ("`swift test --filter PlotterDrawingRunEpisodeTests`", "EA-08B"),
+    "UI": ("`swift test --filter PlotterEpisodeUIActionabilityTests`", "EA-09"),
+    "PILOT": (
+        "`sh Scripts/check_episode_pilot_gate.sh` proves the exact Pilot continuation gate predicates below against landed rows and Current Evidence",
+        "EA-09",
+    ),
+    "PEN": ("`swift test --filter PlotterPenInteractionEpisodeTests`", "EA-10A"),
+    "BOUNDARY": ("`swift test --filter PlotterBoundaryEpisodeTests`", "EA-10B"),
+    "CAMERA-CAL": ("`swift test --filter PlotterCameraCalibrationEpisodeTests`", "EA-10C"),
+    "TIP-CAL": ("`swift test --filter PlotterTipCalibrationEpisodeTests`", "EA-10D"),
+    "BORDER-VALIDATION": ("`swift test --filter PlotterBorderValidationEpisodeTests`", "EA-10E"),
+    "ARTIFACT-RESET": ("`swift test --filter PlotterArtifactResetEpisodeTests`", "EA-10F"),
+    "SPEECH": ("`swift test --filter PlotterSpeechEffectEpisodeTests`", "EA-10G"),
+    "SESSION": ("`swift test --filter PlotterControllerSessionEpisodeTests`", "EA-11A"),
+    "OBSERVATION-CONFIG": (
+        "`swift test --filter PlotterObservationConfigurationEpisodeTests`",
+        "EA-11B",
+    ),
+    "COMPOSITION": ("`swift test --filter PlotterEpisodeCompositionTests`", "EA-11C"),
+    "DELETE": (
+        "`sh Scripts/check_episode_cutover.sh <PACKAGE-ID>` executes the exact zero-match deleted-symbol, forbidden-import, direct-port, duplicate-ingress, task-owner, fixture, and environment-branch scans recorded by EA-01 for that package; any unassigned remaining consumer fails",
+        "EA-01",
+    ),
+    "PHYSICAL-BASE": (
+        "On the exact signed clean-main commit, one continuously attending operator executes Attended Hardware Runbook sections 1 through 5 and completes its Evidence record; the landed record must contain exactly one `TESTED-BASELINE-COMMIT: <40-lowercase-hex>` line and separately identify controller, camera, operator, and observed-ink claims, ambiguities, and skipped steps",
+        "BASE-01",
+    ),
+    "PUBLISH-MAIN": (
+        """Blackdog `task show --json` for the current `<TASK-ID>` must report target branch `main`. Substitute `<TESTED-BASELINE-COMMIT>` from BASE-01 Current Evidence, then run `git fetch --no-tags origin main`, `git merge-base --is-ancestor origin/main "<TESTED-BASELINE-COMMIT>"`, `git merge-base --is-ancestor "<TESTED-BASELINE-COMMIT>" HEAD`, `test -z "$(git diff --name-only "<TESTED-BASELINE-COMMIT>"..HEAD -- . ':(exclude)docs/CURRENT_EVIDENCE.md' ':(exclude)docs/EPISODE_ARCHITECTURE_EXECUTION_PLAN.md')"`, `git push origin "<TESTED-BASELINE-COMMIT>:refs/heads/main"`, and verify `git ls-remote --heads origin refs/heads/main` returns exactly `<TESTED-BASELINE-COMMIT>`""",
+        "BASE-02",
+    ),
+    "TAG": (
+        'After separate exact tag-push authorization, run only `sh Scripts/publish_episode_baseline_tag.sh "<TASK-ID>" "<TESTED-BASELINE-COMMIT>"`. The checked-in procedure verifies the active in-progress repo-skill Blackdog task ID, `main` target, task worktree, verified prompt lineage, first-line `AdaptivePlotter episode WorkPackage: BASE-03` marker, second-line tested-commit binding, the sole BASE-01 `TESTED-BASELINE-COMMIT` Current Evidence line, and `origin/main`. It validates every new or remote-only annotated object through a temporary ref, re-observes the remote tag and `origin/main` before success, leaves a remote-only tag remote-only, removes the temporary ref on every exit, resumes only an exact verified local-only tag, and blocks wrong task/package/target/commit, lightweight, malformed, differently targeted, differently tasked, disagreeing, or raced tags without creating a previously absent canonical local ref, deleting/replacing a canonical tag, moving a tag, updating a branch, or forcing',
+        "BASE-03",
+    ),
+    "PHYSICAL-FINAL": (
+        "On the exact signed landed EA-11C commit, one continuously attending operator executes Attended Hardware Runbook sections 1 through 6 and completes its Evidence record; the record must additionally capture one visible typed refusal/remedy, active owner/progress/Stop, runtime/UI revisions, one bounded incident export, controller transcript completeness, camera artifact presence or declared absence, and observed-ink/ambiguity outcomes",
+        "VAL-01",
+    ),
+    "FINAL-GATE": (
+        "`sh Scripts/check_episode_final_gate.sh` proves every ledger row through VAL-01 complete, all final-matrix software/replay/simulation/UI evidence linked from Current Evidence, one globally exclusive gateway and registry by structural scan, zero superseded paths, and a passed PHYSICAL-FINAL record for the exact EA-11C commit",
+        "EA-11C",
+    ),
+}
+
+
+# This inspectable map explains the dependency/class/gate grammar. The full
+# ledger fingerprint separately pins status and every atomic-outcome sentence.
+EXPECTED_PACKAGE_SHAPES = {
+    "DOC-00": ([], "repository", ["ARCHIVED"]),
+    "DOC-01": (["DOC-00"], "repository", ["DOC", "DIFF", "CRITIC"]),
+    "EA-01": (["DOC-01"], "repository", ["DOC", "DIFF", "INVENTORY"]),
+    "FIX-00": (["EA-01"], "software", ["DOC", "DIFF", "QUICK", "STRICT", "FIX-CONTAINMENT"]),
+    "FIX-01": (["FIX-00"], "software", ["DOC", "DIFF", "QUICK", "STRICT", "FIX-APPLICABILITY"]),
+    "BASE-01": (["FIX-01"], "attended-physical", ["DOC", "DIFF", "STRICT", "PHYSICAL-BASE"]),
+    "BASE-02": (["BASE-01"], "remote-git", ["PUBLISH-MAIN"]),
+    "BASE-03": (["BASE-02"], "remote-git", ["TAG"]),
+    "EA-02A": (["EA-01", "BASE-03"], "software", ["DOC", "DIFF", "QUICK", "CORE"]),
+    "EA-02B": (["EA-02A"], "software", ["DOC", "DIFF", "QUICK", "PLOTTER-MODEL"]),
+    "EA-03A": (["EA-02B"], "software", ["DOC", "DIFF", "QUICK", "STRICT", "STORE"]),
+    "EA-03B": (["EA-03A"], "software", ["DOC", "DIFF", "QUICK", "STRICT", "RUNTIME"]),
+    "EA-05A": (["EA-03A"], "software", ["DOC", "DIFF", "QUICK", "STRICT", "RECORDING"]),
+    "EA-05B": (["EA-03A", "EA-05A"], "software", ["DOC", "DIFF", "QUICK", "STRICT", "REPLAY"]),
+    "EA-05C": (["EA-05B"], "software", ["DOC", "DIFF", "QUICK", "STRICT", "INCIDENT"]),
+    "EA-04": (["EA-03B", "EA-05B"], "software", ["DOC", "DIFF", "QUICK", "STRICT", "POINT", "DELETE"]),
+    "EA-06": (["EA-04", "EA-05C"], "software", ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "MOTION", "DELETE"]),
+    "EA-07": (["EA-06"], "software", ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "SIM", "DELETE"]),
+    "EA-08A": (["EA-05C", "EA-07"], "software", ["DOC", "DIFF", "QUICK", "STRICT", "DRAW-DRAFT", "DELETE"]),
+    "EA-08B": (["EA-08A"], "software", ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "DRAW-RUN", "DELETE"]),
+    "EA-09": (["EA-04", "EA-06", "EA-08B"], "software", ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "UI", "DELETE"]),
+    "GATE-01": (["EA-09"], "gate", ["DOC", "DIFF", "PILOT"]),
+    "EA-10A": (["GATE-01"], "software", ["DOC", "DIFF", "QUICK", "STRICT", "PEN", "DELETE"]),
+    "EA-10B": (["EA-10A"], "software", ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "BOUNDARY", "DELETE"]),
+    "EA-10C": (["EA-10B"], "software", ["DOC", "DIFF", "QUICK", "STRICT", "CAMERA-CAL", "DELETE"]),
+    "EA-10D": (["EA-10C"], "software", ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "TIP-CAL", "DELETE"]),
+    "EA-10E": (["EA-10D"], "software", ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "BORDER-VALIDATION", "DELETE"]),
+    "EA-10F": (["EA-10E"], "software", ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "ARTIFACT-RESET", "DELETE"]),
+    "EA-10G": (["EA-10F"], "software", ["DOC", "DIFF", "QUICK", "STRICT", "SPEECH", "DELETE"]),
+    "EA-11A": (["EA-10G"], "software", ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "SESSION", "DELETE"]),
+    "EA-11B": (["EA-10G"], "software", ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "OBSERVATION-CONFIG", "DELETE"]),
+    "EA-11C": (["EA-11A", "EA-11B"], "software", ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "COMPOSITION", "DELETE"]),
+    "VAL-01": (["EA-11C"], "attended-physical", ["DOC", "DIFF", "STRICT", "PHYSICAL-FINAL"]),
+    "GATE-02": (["VAL-01"], "gate", ["DOC", "DIFF", "FINAL-GATE"]),
+}
+
+
+EXPECTED_SOFTWARE_OUTCOME_KIND = {
+    "FIX-00": "Correction",
+    "FIX-01": "Correction",
+    "EA-02A": "Foundation",
+    "EA-02B": "Foundation",
+    "EA-03A": "Foundation",
+    "EA-03B": "Foundation",
+    "EA-04": "Cutover",
+    "EA-05A": "Foundation",
+    "EA-05B": "Foundation",
+    "EA-05C": "Foundation",
+    "EA-06": "Cutover",
+    "EA-07": "Cutover",
+    "EA-08A": "Cutover",
+    "EA-08B": "Cutover",
+    "EA-09": "Cutover",
+    "EA-10A": "Cutover",
+    "EA-10B": "Cutover",
+    "EA-10C": "Cutover",
+    "EA-10D": "Cutover",
+    "EA-10E": "Cutover",
+    "EA-10F": "Cutover",
+    "EA-10G": "Cutover",
+    "EA-11A": "Cutover",
+    "EA-11B": "Cutover",
+    "EA-11C": "Cutover",
+}
+
+
+EXPECTED_COMPLETE_PACKAGES = {"DOC-00", "DOC-01"}
+
+
+def fail(message: str) -> None:
+    raise ValueError(message)
+
+
+def cells(line: str) -> list[str]:
+    return [cell.strip() for cell in line.strip().strip("|").split("|")]
+
+
+def markdown_table(text: str, header: list[str]) -> list[list[str]]:
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        if cells(line) != header:
+            continue
+        rows: list[list[str]] = []
+        for candidate in lines[index + 2 :]:
+            if not candidate.startswith("|"):
+                break
+            row = cells(candidate)
+            if len(row) != len(header):
+                fail(f"malformed table row after {' / '.join(header)}: {candidate}")
+            rows.append(row)
+        return rows
+    fail(f"missing table: {' / '.join(header)}")
+
+
+def validate_vocabulary(text: str) -> None:
+    required = [
+        "EpisodeGoal",
+        "EpisodeDefinition",
+        "EpisodeManifest",
+        "EpisodeState",
+        "PlotterIntent",
+        "IntentDecision",
+        "IntentAvailability",
+        "IntentReceipt",
+        "EpisodeEvent",
+        "PlotterEffect",
+        "EffectPermit",
+        "EffectResult",
+        "CapabilityFact",
+        "StopCapability",
+        "Observation",
+        "Measurement",
+        "Evidence",
+        "EpisodeOutcome",
+        "Assessment",
+        "EpisodeJournal",
+        "EpisodeTrace",
+        "WorkPackage",
+        "BlackdogTask",
+        "PlotterIntentGateway",
+        "PlotterOperationRegistry",
+    ]
+    definition_pattern = re.compile(r"^- `([^`]+)` [A-Za-z]", re.MULTILINE)
+    definitions = definition_pattern.findall(text)
+    for term in required:
+        count = definitions.count(term)
+        if count != 1:
+            fail(f"{term} must have exactly one canonical definition bullet; found {count}")
+    forbidden = {
+        "ActionDecision",
+        "ActionAvailability",
+        "ActionReceipt",
+        "SemanticActionAuthority",
+        "SemanticActionGateway",
+    }
+    defined_forbidden = sorted(forbidden.intersection(definitions))
+    if defined_forbidden:
+        fail(f"forbidden synonym definitions remain: {', '.join(defined_forbidden)}")
+    combined = re.sub(r"\s+", " ", text + "\n" + PLAN_PATH.read_text(encoding="utf-8"))
+    for required_phrase in (
+        "EpisodeDefinition<Intent>",
+        "EpisodeManifest<DomainManifest>",
+        "Foundation only; no Plotter, device, persistence, or UI imports",
+        "Current `RunLedger` is retained as low-level device diagnostic history",
+        "Current `ActiveStoppableOperation` remains the sole owner for unmigrated operations",
+        "then its declaration and final consumers are deleted in `EA-11C`",
+        "Current `LearningSessionState` is decomposed by the feature cutovers",
+        "`EA-11C` deletes its declaration and any residue",
+        "Current `SpeechAnnouncing`, `NativeSpeechAnnouncer`, and its identity-bound queue",
+        "speech failure never becomes physical permission",
+        "`EA-11C` makes the gateway the globally exclusive public mutation ingress",
+    ):
+        if required_phrase not in combined:
+            fail(f"missing generic-core invariant: {required_phrase}")
+
+
+def parse_gate_tokens(cell: str, package_id: str) -> list[str]:
+    if not re.fullmatch(r"`[A-Z][A-Z0-9-]*`(?:, `[A-Z][A-Z0-9-]*`)*", cell):
+        fail(f"{package_id} required gates are not an exact token list: {cell}")
+    return re.findall(r"`([A-Z][A-Z0-9-]*)`", cell)
+
+
+def validate_plan(text: str) -> dict[str, dict[str, object]]:
+    normalized = re.sub(r"\s+", " ", text)
+    ledger_lines: list[str] = []
+    collecting_ledger = False
+    for line in text.splitlines():
+        if line.startswith("| ID | Status | Dependencies |"):
+            collecting_ledger = True
+        if collecting_ledger and line.startswith("|"):
+            ledger_lines.append(line.rstrip())
+        elif collecting_ledger:
+            break
+    ledger_material = ("\n".join(ledger_lines) + "\n").encode("utf-8")
+    actual_ledger_sha256 = hashlib.sha256(ledger_material).hexdigest()
+    if actual_ledger_sha256 != EXPECTED_LEDGER_SHA256:
+        fail(
+            "complete ledger content drifted; update the canonical plan and "
+            "EXPECTED_LEDGER_SHA256 in the same reviewed package"
+        )
+    ledger_rows = markdown_table(
+        text,
+        ["ID", "Status", "Dependencies", "Class", "Atomic package outcome", "Required gates"],
+    )
+    if not ledger_rows:
+        fail("work ledger is empty")
+
+    rows: dict[str, dict[str, object]] = {}
+    allowed_status = {"complete", "pending", "blocked"}
+    allowed_classes = {"repository", "software", "attended-physical", "remote-git", "gate"}
+    for package_id, status, dependency_cell, execution_class, outcome, gate_cell in ledger_rows:
+        if package_id in rows:
+            fail(f"duplicate ledger package ID: {package_id}")
+        if not re.fullmatch(r"(?:DOC|FIX|BASE|EA|VAL|GATE)-[0-9]{2}[A-Z]?", package_id):
+            fail(f"invalid ledger package ID: {package_id}")
+        if status not in allowed_status:
+            fail(f"{package_id} has invalid status {status}")
+        if execution_class not in allowed_classes:
+            fail(f"{package_id} has invalid execution class {execution_class}")
+        if not outcome:
+            fail(f"{package_id} has no atomic outcome")
+        dependencies = [] if dependency_cell == "none" else [item.strip() for item in dependency_cell.split(",")]
+        if len(dependencies) != len(set(dependencies)):
+            fail(f"{package_id} repeats a dependency")
+        rows[package_id] = {
+            "status": status,
+            "dependencies": dependencies,
+            "class": execution_class,
+            "gates": parse_gate_tokens(gate_cell, package_id),
+            "outcome": outcome,
+        }
+
+    actual_ids = set(rows)
+    expected_ids = set(EXPECTED_PACKAGE_SHAPES)
+    if actual_ids != expected_ids:
+        missing = sorted(expected_ids.difference(actual_ids))
+        extra = sorted(actual_ids.difference(expected_ids))
+        fail(f"ledger package mismatch; missing={missing}, extra={extra}")
+    forbidden_broad_ids = {"BASE-00", "EA-10", "EA-11"}
+    present_broad_ids = sorted(forbidden_broad_ids.intersection(rows))
+    if present_broad_ids:
+        fail(f"superseded broad package IDs remain: {', '.join(present_broad_ids)}")
+
+    actual_complete_packages = {
+        package_id for package_id, row in rows.items() if row["status"] == "complete"
+    }
+    if actual_complete_packages != EXPECTED_COMPLETE_PACKAGES:
+        fail(
+            "complete package statuses drifted; expected "
+            f"{sorted(EXPECTED_COMPLETE_PACKAGES)}, found {sorted(actual_complete_packages)}"
+        )
+
+    for package_id, row in rows.items():
+        for dependency in row["dependencies"]:
+            if dependency not in rows:
+                fail(f"{package_id} has undefined dependency {dependency}")
+            if row["status"] == "complete" and rows[dependency]["status"] != "complete":
+                fail(f"complete {package_id} depends on non-complete {dependency}")
+
+    for package_id, (dependencies, execution_class, gates) in EXPECTED_PACKAGE_SHAPES.items():
+        actual_shape = (
+            rows[package_id]["dependencies"],
+            rows[package_id]["class"],
+            rows[package_id]["gates"],
+        )
+        expected_shape = (dependencies, execution_class, gates)
+        if actual_shape != expected_shape:
+            fail(f"{package_id} dependencies/class/gates drifted; expected {expected_shape}, found {actual_shape}")
+
+    actual_software_ids = {package_id for package_id, row in rows.items() if row["class"] == "software"}
+    if actual_software_ids != set(EXPECTED_SOFTWARE_OUTCOME_KIND):
+        fail("software package classification does not cover the exact software ledger set")
+    for package_id, kind in EXPECTED_SOFTWARE_OUTCOME_KIND.items():
+        if not rows[package_id]["outcome"].startswith(f"{kind}:"):
+            fail(f"{package_id} must declare a {kind} software outcome")
+        if kind == "Foundation" and not rows[package_id]["outcome"].startswith("Foundation: add one "):
+            fail(f"{package_id} Foundation must add exactly one isolated contract or service")
+        if kind == "Cutover" and "DELETE" not in rows[package_id]["gates"]:
+            fail(f"{package_id} is a Cutover without the required DELETE gate")
+
+    outcome_requirements = {
+        "EA-02A": (
+            "one compile-only domain-generic `EpisodeCore` contract module",
+            "add no Plotter, device, persistence, UI, effect port, or app caller",
+        ),
+        "EA-02B": (
+            "one compile-only `PlotterEpisodeModel` contract module",
+            "add no runtime, device port, persistence, UI, or app caller",
+        ),
+        "FIX-00": (
+            "separate Euclidean controller-pose settlement from drawing-region containment",
+            "delete the shared 0.5 mm policy assumption",
+        ),
+        "FIX-01": (
+            "prevent projection outside `TipCameraRegistration.applicabilityRectangle` from becoming attributable evidence",
+            "retaining typed diagnostic-only projection",
+        ),
+        "BASE-01": (
+            "Record the exact clean-main `TESTED-BASELINE-COMMIT`",
+            "exactly one machine-readable `TESTED-BASELINE-COMMIT: <40-lowercase-hex>` line",
+            "landing may change only this ledger and Current Evidence",
+        ),
+        "BASE-02": (
+            "separate authorization for this exact branch-ref push",
+            "publish exactly that tested commit to `refs/heads/main` without force",
+        ),
+        "BASE-03": (
+            "separate authorization for this exact tag push",
+            "idempotently create or recover the active-task-bound annotated tag `adaptiveplotter-episode-baseline-v1`",
+            "never creates a previously absent canonical local tag",
+            "deletes or moves a canonical local/remote tag",
+            "temporary validation refs are always removed",
+        ),
+        "EA-03A": (
+            "one unbound `EpisodeStore` service",
+            "owns its one versioned journal-persistence adapter",
+            "add no effect lane, operation owner, or app caller",
+        ),
+        "EA-03B": (
+            "one unbound `PlotterOperationRegistry` runtime service",
+            "add no journal store, device adapter, or app caller",
+        ),
+        "EA-05A": (
+            "one unbound lossless `EpisodeRecordingStore` service",
+            "add no current-device hook, effect port, or app caller",
+        ),
+        "EA-05B": (
+            "one unbound deterministic replay service",
+            "add no app caller",
+        ),
+        "EA-05C": (
+            "one unbound headless bounded incident-package assembler/exporter",
+            "owns no artifact store, UI, device port, or app caller",
+        ),
+        "EA-09": (
+            "UI request/progress/result presentation for the EA-05C incident service",
+            "Add no recorder, package assembler, artifact store, or export backend.",
+        ),
+        "EA-10G": (
+            "advisory-speech effect authority",
+            "Retain `NativeSpeechAnnouncer`/AVFoundation synthesis ownership",
+            "delete `AnnouncementActions`",
+            "shutdown cancellation",
+        ),
+        "EA-11A": (
+            "controller-session readiness authority",
+            "Retain `MachineController` and `RunInterpreter` transport/safety ownership",
+            "direct `MachineActions` calls",
+        ),
+        "EA-11B": (
+            "observation-environment configuration authority",
+            "Retain `CameraCapture` device/frame ownership",
+            "direct `CameraActions` calls",
+        ),
+        "EA-11C": (
+            "transfer only final application composition",
+            "making `PlotterIntentGateway` and `PlotterOperationRegistry` globally exclusive",
+            "Delete the `OperatorWorkspace` effect closures",
+            "`ActiveStoppableOperation`",
+            "`LearningSessionState`",
+            "may not absorb an unnamed feature migration",
+            "any unassigned inventory item fails the package",
+        ),
+    }
+    for package_id, phrases in outcome_requirements.items():
+        for phrase in phrases:
+            if phrase not in rows[package_id]["outcome"]:
+                fail(f"{package_id} atomic outcome is missing: {phrase}")
+
+    visiting: set[str] = set()
+    visited: set[str] = set()
+
+    def visit(package_id: str) -> None:
+        if package_id in visiting:
+            fail(f"ledger dependency cycle reaches {package_id}")
+        if package_id in visited:
+            return
+        visiting.add(package_id)
+        for dependency in rows[package_id]["dependencies"]:
+            visit(dependency)
+        visiting.remove(package_id)
+        visited.add(package_id)
+
+    for package_id in rows:
+        visit(package_id)
+
+    gate_rows = markdown_table(text, ["Gate", "Exact command or evidence procedure", "Created or owned by"])
+    gates: dict[str, tuple[str, str]] = {}
+    for gate_cell, procedure, owner in gate_rows:
+        match = re.fullmatch(r"`([A-Z][A-Z0-9-]*)`", gate_cell)
+        if not match:
+            fail(f"invalid gate catalog identity: {gate_cell}")
+        gate = match.group(1)
+        if gate in gates:
+            fail(f"duplicate gate catalog identity: {gate}")
+        if not procedure or not owner:
+            fail(f"gate {gate} lacks an exact procedure or owner")
+        if re.search(r"\b(?:TBD|undefined|all .* below|to be decided)\b", procedure, re.IGNORECASE):
+            fail(f"gate {gate} contains a deferred procedure: {procedure}")
+        gates[gate] = (procedure, owner)
+
+    actual_gate_names = set(gates)
+    expected_gate_names = set(EXPECTED_GATES)
+    if actual_gate_names != expected_gate_names:
+        missing = sorted(expected_gate_names.difference(actual_gate_names))
+        extra = sorted(actual_gate_names.difference(expected_gate_names))
+        fail(f"gate catalog mismatch; missing={missing}, extra={extra}")
+    for gate, expected in EXPECTED_GATES.items():
+        if gates[gate] != expected:
+            fail(f"gate {gate} procedure/owner drifted; expected {expected}, found {gates[gate]}")
+
+    for package_id, row in rows.items():
+        for gate in row["gates"]:
+            if gate not in gates:
+                fail(f"{package_id} references undefined gate {gate}")
+
+    for required_gate in ("PILOT", "PHYSICAL-BASE", "PHYSICAL-FINAL", "FINAL-GATE", "DELETE"):
+        if required_gate not in gates:
+            fail(f"gate catalog is missing {required_gate}")
+
+    for required_phrase in (
+        "`failed` and `skipped` are truthful evidence outcomes but cannot satisfy a required gate",
+        "package `<ID>` complete; migration remains incomplete",
+        "The gate moves no authority and cannot repair implementation while assessing it.",
+        "Every `software` outcome begins `Foundation:`, `Correction:`, or `Cutover:`",
+        "`EA-01` may not add, remove, combine, split, or reorder packages.",
+        "`EA-11C` makes the gateway the globally exclusive effect-bearing/domain-mutation ingress",
+        "`GATE-02` only verifies that landed fact",
+    ):
+        if required_phrase not in normalized:
+            fail(f"completion or gate contract is missing: {required_phrase}")
+    return rows
+
+
+def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
+    evidence_rows = markdown_table(
+        text,
+        ["Package", "Blackdog task", "Gate results", "Evidence section"],
+    )
+    evidence_by_package: dict[str, list[str]] = {}
+    for package_id, task, result_cell, section in evidence_rows:
+        if package_id in evidence_by_package:
+            fail(f"duplicate Work package gate evidence row: {package_id}")
+        if package_id not in rows:
+            fail(f"gate evidence references unknown package {package_id}")
+        if rows[package_id]["status"] != "complete":
+            fail(f"non-complete package {package_id} has a completion evidence row")
+        if not re.fullmatch(r"`TASK-[A-F0-9]+`", task):
+            fail(f"{package_id} has invalid Blackdog task evidence {task}")
+        if not re.fullmatch(
+            r"`[A-Z][A-Z0-9-]*=passed`(?:, `[A-Z][A-Z0-9-]*=passed`)*",
+            result_cell,
+        ):
+            fail(f"{package_id} gate results are not exact passed tokens: {result_cell}")
+        actual_gates = re.findall(r"`([A-Z][A-Z0-9-]*)=passed`", result_cell)
+        expected_gates = rows[package_id]["gates"]
+        if actual_gates != expected_gates:
+            fail(f"{package_id} evidence gates must be {expected_gates}; found {actual_gates}")
+        section_match = re.search(
+            rf"^## {re.escape(section)}$(.*?)(?=^## |\Z)",
+            text,
+            re.MULTILINE | re.DOTALL,
+        )
+        if section_match is None:
+            fail(f"{package_id} evidence section does not exist: {section}")
+        validation_rows = markdown_table(
+            section_match.group(1),
+            ["Validation", "Result", "Scope"],
+        )
+        detailed_gates: dict[str, str] = {}
+        for validation, result, _scope in validation_rows:
+            gate_match = re.fullmatch(r"`([A-Z][A-Z0-9-]*)`", validation)
+            if gate_match is None:
+                continue
+            gate = gate_match.group(1)
+            if gate in detailed_gates:
+                fail(f"{package_id} repeats detailed gate evidence for {gate}")
+            if not result.startswith("passed"):
+                fail(f"{package_id} detailed gate {gate} is not passed: {result}")
+            detailed_gates[gate] = result
+        if list(detailed_gates) != expected_gates:
+            fail(
+                f"{package_id} detailed evidence gates must be {expected_gates}; "
+                f"found {list(detailed_gates)}"
+            )
+        if "CRITIC" in detailed_gates and "UNANIMOUS PASS — no material disagreement" not in detailed_gates["CRITIC"]:
+            fail(f"{package_id} CRITIC detail lacks the exact unanimous verdict")
+        if "ARCHIVED" in detailed_gates and "d33d4ff" not in detailed_gates["ARCHIVED"]:
+            fail(f"{package_id} ARCHIVED detail lacks d33d4ff")
+        evidence_by_package[package_id] = actual_gates
+
+    complete_packages = {package_id for package_id, row in rows.items() if row["status"] == "complete"}
+    evidenced_packages = set(evidence_by_package)
+    if complete_packages != evidenced_packages:
+        missing = sorted(complete_packages.difference(evidenced_packages))
+        extra = sorted(evidenced_packages.difference(complete_packages))
+        fail(f"complete-package evidence mismatch; missing={missing}, extra={extra}")
+
+    historical_section = re.search(
+        r"^## Historical: initial canonical episode migration documentation$(.*?)(?=^## |\Z)",
+        text,
+        re.MULTILINE | re.DOTALL,
+    )
+    if historical_section is None or "d33d4ff" not in historical_section.group(1):
+        fail("DOC-00 ARCHIVED evidence section must identify d33d4ff")
+
+
+def validate_live_repository_gates(rows: dict[str, dict[str, object]]) -> None:
+    complete_gates = {
+        gate
+        for package_id, row in rows.items()
+        if row["status"] == "complete"
+        for gate in row["gates"]
+    }
+    if "ARCHIVED" in complete_gates:
+        result = subprocess.run(
+            ["git", "merge-base", "--is-ancestor", "d33d4ff", "HEAD"],
+            cwd=ROOT,
+            check=False,
+        )
+        if result.returncode != 0:
+            fail("live ARCHIVED gate failed for d33d4ff")
+    if "DIFF" in complete_gates:
+        result = subprocess.run(
+            ["git", "diff", "--check"],
+            cwd=ROOT,
+            check=False,
+        )
+        if result.returncode != 0:
+            fail("live DIFF gate failed")
+
+
+def validate_protocol(text: str, skill: str) -> None:
+    normalized = re.sub(r"\s+", " ", text)
+    required = (
+        "There is no unscoped continuation mode and no automatic package selection.",
+        "If any unrelated unfinished task exists",
+        "named-package execution is not authority to advance, cancel, land, or clean unrelated work",
+        "failed`, `skipped`, or missing required evidence cannot satisfy a gate",
+        "Tag creation and branch publication are separate packages and permissions",
+        "AdaptivePlotter episode WorkPackage: <ID>",
+        "AdaptivePlotter tested baseline commit: <TESTED-BASELINE-COMMIT>",
+        "TESTED-BASELINE-COMMIT: <commit>",
+    )
+    for phrase in required:
+        if phrase not in normalized:
+            fail(f"execution protocol is missing: {phrase}")
+    if re.search(r"\b(?:scheduled|scheduler|automation)\b", text, re.IGNORECASE):
+        fail("execution protocol contains rejected task-orchestration design")
+    skill_normalized = re.sub(r"\s+", " ", skill)
+    for phrase in (
+        "use only for work outside the episode architecture and migration",
+        "stop this generic path and require exactly one explicit episode command below",
+        "The generic path can never authorize an attended-physical or remote-Git episode package",
+        "Episode audit and compile modes stop before `task begin` and therefore never validate, land, or clean a task",
+        "For mutation modes only, validate as required by `AGENTS.md`",
+    ):
+        if phrase not in skill_normalized:
+            fail(f"generic skill bypass protection is missing: {phrase}")
+
+
+def validate_tag_publication_contract(publisher: str, tests: str) -> None:
+    for phrase in (
+        '"$blackdog" task show --project-root "$project_root" --json',
+        'show.get("task_id") != sys.argv[2]',
+        'show.get("target_branch") != "main"',
+        'show.get("active_attempt") is not True',
+        'show.get("execution_prompt_mode") != "skill"',
+        'Path(show.get("worktree_path", "")).resolve()',
+        'lineage.get("status") != "verified"',
+        'AdaptivePlotter episode WorkPackage: BASE-03',
+        'prompt_lines[0] != marker',
+        'AdaptivePlotter tested baseline commit: {sys.argv[4]}',
+        'TESTED-BASELINE-COMMIT: ([0-9a-f]{40})',
+        'evidence_commits != [sys.argv[4]]',
+        'git fetch --no-tags origin "$tag_ref:$validation_ref"',
+        'git push origin "$publish_ref:$tag_ref"',
+        'remote tag changed during validation',
+        'trap cleanup EXIT',
+    ):
+        if phrase not in publisher:
+            fail(f"BASE-03 publisher contract is missing: {phrase}")
+    if publisher.count("verify_remote_main") < 3:
+        fail("BASE-03 publisher does not verify origin/main both before and after tag handling")
+    for forbidden in (
+        "git tag -a",
+        'git update-ref "$tag_ref"',
+        'git update-ref -d "$tag_ref"',
+        'git push origin "$tag_ref:$tag_ref"',
+        "git push --force",
+        "git push -f",
+    ):
+        if forbidden in publisher:
+            fail(f"BASE-03 publisher contains a forbidden canonical mutation: {forbidden}")
+    for phrase in (
+        "a different task adopted the existing tag",
+        "an embedded BASE-03 marker bypassed a different package",
+        "a prompt bound to a different tested commit published the tag",
+        "a commit absent from BASE-01 Current Evidence published the tag",
+        "a non-main Blackdog target published the tag",
+        "a tag-of-tag was accepted as a direct commit tag",
+        "an annotated tag without a tagger header was accepted",
+        "an annotated tag with the wrong internal name was accepted",
+        "a conflicting remote race was accepted",
+        "a remote-present validation race was accepted",
+        "an origin/main validation race was accepted",
+        "assert_no_local_ref",
+        "production publisher mutated the raced remote tag",
+        "tag publication mutated origin/main",
+    ):
+        if phrase not in tests:
+            fail(f"BASE-03 publication test is missing: {phrase}")
+
+
+def main() -> int:
+    try:
+        plan = PLAN_PATH.read_text(encoding="utf-8")
+        vocabulary = VOCAB_PATH.read_text(encoding="utf-8")
+        protocol = PROTOCOL_PATH.read_text(encoding="utf-8")
+        skill = SKILL_PATH.read_text(encoding="utf-8")
+        evidence = EVIDENCE_PATH.read_text(encoding="utf-8")
+        tag_publisher = TAG_PUBLISHER_PATH.read_text(encoding="utf-8")
+        tag_tests = TAG_TEST_PATH.read_text(encoding="utf-8")
+        validate_vocabulary(vocabulary)
+        rows = validate_plan(plan)
+        validate_evidence(evidence, rows)
+        validate_live_repository_gates(rows)
+        validate_protocol(protocol, skill)
+        validate_tag_publication_contract(tag_publisher, tag_tests)
+    except (OSError, ValueError) as error:
+        print(f"episode architecture contract: {error}", file=sys.stderr)
+        return 1
+    print("episode architecture contract passed")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -7,7 +7,7 @@ control_dir = "@git-common/blackdog"
 worktrees_dir = "../.worktrees"
 
 [taxonomy]
-validation_commands = ["git diff --check"]
+validation_commands = ["make docs-check", "make quick-test", "git diff --check"]
 doc_routing_defaults = [
   "AGENTS.md",
   "docs/INDEX.md",

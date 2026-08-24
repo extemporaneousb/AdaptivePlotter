@@ -11,8 +11,12 @@ this roadmap does not restate or reorder them.
 
 ## 0. Episode architecture migration
 
-Complete the execution plan's `DOC-00`, known-good `BASE-00`, pilot packages,
-pilot gate, Learning Path migration, and composition cleanup in ledger order.
+Execute the plan's named packages in ledger order, beginning with the `EA-01`
+authority inventory, `FIX-00`/`FIX-01` policy corrections, and separately authorized
+`BASE-01`/`BASE-02`/`BASE-03` physical, branch-publication, and tag gates before
+application-code migration.
+Continue through the pilot, Learning Path family cutovers, composition cleanup,
+and final gate.
 Every package must preserve existing device/evidence authorities, satisfy the
 observability contract, delete its superseded authority in the same landing,
 and update Current Evidence. Do not create a parallel application, architecture

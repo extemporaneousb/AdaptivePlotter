@@ -1,4 +1,4 @@
-.PHONY: help build app launcher run-app run-app-simulated validate-app validate-launcher quick-test journey-test test check strict-check
+.PHONY: help build app launcher run-app run-app-simulated validate-app validate-launcher docs-check quick-test journey-test test check strict-check
 
 .DEFAULT_GOAL := help
 
@@ -18,6 +18,7 @@ help:
 		'  run-app-simulated  Launch signed causal simulation without camera startup.' \
 		'  validate-app       Validate the application bundle and launcher.' \
 		'  validate-launcher  Test launcher identity and instance handling.' \
+		'  docs-check         Validate canonical documents, vocabulary, and execution protocol.' \
 		'  quick-test         Run unit and component tests, excluding retained journeys.' \
 		'  journey-test       Run retained causal journeys sequentially.' \
 		'  test               Run the complete Swift test suite in parallel.' \
@@ -40,6 +41,11 @@ validate-app: app validate-launcher
 	@sh Scripts/validate_local_app_bundle.sh .build/AdaptivePlotter.app
 	@sh Scripts/test_local_app_bundle_validation.sh .build/AdaptivePlotter.app
 
+docs-check:
+	@sh Scripts/check_episode_documentation.sh
+	@./.VE/bin/python Scripts/check_episode_contract.py
+	@sh Scripts/check_repository_contract.sh
+
 run-app: app launcher
 	@.build/AdaptivePlotterLauncher "$(CURDIR)/.build/AdaptivePlotter.app"
 
@@ -55,8 +61,7 @@ journey-test:
 test:
 	swift test --parallel $(SWIFT_FLAGS)
 
-check: validate-app test
-	@sh Scripts/check_repository_contract.sh
+check: validate-app test docs-check
 	@git diff --check
 
 strict-check:

@@ -1,6 +1,6 @@
 # Attended Hardware Runbook
 
-Status: attended physical procedure; never an automation recipe
+Status: attended physical procedure
 
 This runbook owns the human procedure for validating the sparse tip workflow on
 one real plotter, camera, pen, and paper. Product meaning is defined by
@@ -210,11 +210,11 @@ checkpoint and perform a new four-mark calibration.
 7. Confirm the normal result records automatically and renders predicted cyan,
    observed white, and orange residual geometry on the exact post-frame.
    It may retain candidate refinement evidence; it must not silently change the
-   accepted model.
+   accepted pen-tip calibration or its exact `TipCameraRegistration` revision.
 8. Confirm the exact post-frame and cyan intended, white observed, and
    orange residual overlays remain available through **Review Comparison**
    after live preview resumes.
-9. Confirm the result says **Interactive learning complete · one validation**
+9. Confirm the result says **Drawing validation complete**
    and does not claim **Trained** or **Adaptive drawing ready**.
 
 If possible ink, rejected Vision evidence, or an uncertain controller outcome

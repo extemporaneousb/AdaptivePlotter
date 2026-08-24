@@ -74,6 +74,14 @@ Learning presentation. One caller-supplied exact workflow batch owns one lease
 from preview hold through automatic-analysis restoration, including failure or
 cancellation settlement.
 
+`NativeSpeechAnnouncer` owns AVFoundation speech synthesis, identity-bound
+queueing, bounded timeout/completion, and shutdown cancellation. It is
+output-only: `OperatorWorkspace.announcementActions` currently invokes it for
+advisory Learning cues, records the typed result, and proceeds through the
+button/controller authority even when speech fails. The target plan dispositions
+that application-level effect path in `EA-10G` while retaining native synthesis
+below the episode runtime.
+
 `OverlayPreferenceState` contains only the persistent operator selections
 `penCap` and `armatureEnvelope`. `SceneFeatureSet` expands the armature dependency
 to pen-cap computation and requests no unrelated kernel. Typed
@@ -200,9 +208,12 @@ evidence authority.
 `DrawingProgramCatalog` produces deterministic field-space geometry. A
 `DrawingPlacement` is the only field-to-machine transform, and `DrawingPlanner`
 is the only producer of content-addressed `ExecutionPlanRevision` values.
-`DrawableMachineRegion` applies the shared minimum continuous-coordinate tolerance;
-planning refuses geometry outside that tolerance-aware region and neither App
-nor Runtime clips it. `RunInterpreter` owns a whole plan as one `RunOperation`, with
+`DrawableMachineRegion` currently applies the same 0.5 mm value used by
+Euclidean machine-position settlement as an axis-wise outward expansion.
+Planning refuses geometry outside that expanded region and neither App nor
+Runtime clips it. These two guard questions have different owners and metrics;
+`FIX-00` must split their typed policies before the episode baseline.
+`RunInterpreter` owns a whole plan as one `RunOperation`, with
 subordinate Pen-Up travel, pen actuation, finite drawing segments, Stop, and one
 checkpoint per logical stroke. `PlannedDrawingObservation` operates only after
 execution and returns exact-frame observed/residual evidence or a typed
@@ -282,8 +293,8 @@ Exercise 1.4 is split across four owners:
   one shared final frozen frame, unordered click collection, immutable accepted
   observations, possible-ink terminal state, proposal review, and acceptance.
 - `SparseTipBatchMarkPlan` derives the four mark centers from the accepted
-  Drawing Boundary
-  Boundary envelope with one canonical 10 mm inset, drawing no center mark. Its
+  Drawing Boundary envelope with one canonical 10 mm inset, drawing no center
+  mark. Its
   2 mm-radius outlines therefore retain 8 mm of adjacent-edge clearance. Its
   corner-center rectangle is the proposed tip-map
   applicability rectangle, and its final reveal pose is the rectangle center.
@@ -398,8 +409,9 @@ Stage 2 does not reuse a Stage 1 target, baseline, or reveal pose.
 `DrawingBorderPlan` creates one closed polyline through the four accepted
 10 mm-inset circle centers, with four orthogonal edges and right-angle turns.
 `OperatorWorkspace` supplies the accepted Drawing Boundary—not that inset
-Drawing Border—as the plan's `DrawableMachineRegion`, with the canonical 0.5 mm
-continuous-coordinate tolerance.
+Drawing Border—as the plan's `DrawableMachineRegion`. The current region expands
+each Boundary axis by 0.5 mm; that is the known containment-policy defect
+assigned to `FIX-00`, not a target admissibility rule.
 The visible 2.1 row owns one attempt from **Draw and Validate Drawing Border** through normal comparison; its
 six typed phases update activity and subsystem presentation but do not create
 six UI action owners. It stores:
@@ -451,7 +463,12 @@ calibration or establishes a generally trained adaptive model.
 and projects it with the current registration's inferred affine transform, including
 the area between the inset applicability rectangle and Boundary, alongside the
 predicted current tip point. This does not enlarge the recorded tip-calibration
-applicability. `PaperCoverageObservation`
+applicability. Current composition can nevertheless reuse the extrapolated
+projection when constructing intended run geometry and later classify a Vision
+success as attributable. That is a known cross-owner defect, not an evidence
+contract: `FIX-01` must make outside-applicability projection diagnostic-only or
+consume a newly validated registration applicability revision before the
+episode baseline. `PaperCoverageObservation`
 is a separate paper-instance assertion. Its polygon is shown only on its exact
 frame, while its current/not-current decision also requires current paper,
 source, and camera configuration. It never expands the accepted Drawing Boundary.

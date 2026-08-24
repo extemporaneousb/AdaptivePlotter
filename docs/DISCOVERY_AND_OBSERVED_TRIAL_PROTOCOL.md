@@ -375,9 +375,11 @@ exercises or approval gates:
    projects the immutable inset plan through the current tip registration, and
    renders the predicted Drawing Border in cyan before any motion. The Drawing
    Border remains exactly 10 mm inside the accepted Drawing Boundary. Planning
-   uses the accepted Drawing Boundary as its spatial envelope and the shared
-   0.5 mm continuous-coordinate tolerance; the Drawing Border is not an
-   admission boundary.
+   uses the accepted Drawing Boundary as its spatial envelope; the Drawing
+   Border is not an admission boundary. Current source still expands that
+   envelope axis-wise by the unrelated 0.5 mm settlement value. That known
+   defect is assigned to `FIX-00`; no run admitted only by the expansion proves
+   Boundary-contained planning.
 2. **Capture local baseline.** With Pen Up and the controller Idle, capture one
    exact fresh frame and record the current MPos as this validation's reveal pose.
 3. **Move to Drawing Border start.** Move Pen Up under one stoppable owner. Completion
@@ -404,8 +406,8 @@ drawing again.
 
 Completion remains on Exercise 2.1 with review/reset operations available. It proves one
 attributable validation of the current map, not a generally trained adaptive
-drawing model. The toolbar reports **Interactive learning complete · one
-validation** and exposes Drawing Studio as a separate direct workbench, not a
+drawing model. The toolbar reports **Drawing validation complete** and exposes
+Drawing Studio as a separate direct workbench, not a
 selectable Learning Path stage.
 
 ## Drawing Studio — place, run, and observe
@@ -439,7 +441,14 @@ selectable Learning Path stage.
 8. On controller-completed execution, require final MPos at the observation
    location, capture a strictly newer post frame, associate new ink against all
    planned polylines, and retain intended, observed, and residual overlays on
-   that exact frame.
+   that exact frame. The target contract makes projection outside the current
+   tip-registration applicability diagnostic-only and the camera/ink result
+   non-attributable unless a newer validated applicability revision covers it.
+   Current source at DOC-01 violates that contract: it can reuse extrapolated
+   projection for run geometry and classify a later Vision success attributable.
+   Until `FIX-01` lands, any run using outside-applicability projection is known
+   invalid as attributable evidence and is excluded from later fitting even if
+   the current application labels it attributable.
 9. Append the terminal record even when execution is refused, cancelled,
    ambiguous, possible-ink, or Vision-unclear. Never resend or redraw after a
    terminal result. Only attributable predeclared training records are eligible
