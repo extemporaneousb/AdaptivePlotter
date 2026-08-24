@@ -287,6 +287,225 @@ and `postLineFrame` wire values may remain only inside versioned decode adapters
 with proved callers. Active emission and active owners move to canonical
 episode/Border vocabulary in `EA-10E`; parallel alias types are forbidden.
 
+## EA-01 current-source inventory
+
+This is the exhaustive DOC-01 source characterization. Each stable ID names one
+bounded current seam or family whose members share one current owner, one
+disposition, one cutover package, and one fixed focused command. `retain` means
+the lower-level owner survives without duplication; `adapt` means that owner
+survives but its caller or adapter moves; `delete` means the named current seam
+must be absent in the cutover landing. A row never authorizes work outside its
+named package.
+
+The `INVENTORY` gate extracts every case from the four current action enums,
+every named `OperatorWorkspace` unavailable-reason guard, every injected action
+port, every declared `Task` owner in the named application/runtime owners, and
+every direct SwiftUI `workspace`/`actionWorkspace` consumer. It requires exact
+set equality with the seams below, so a new or omitted member fails rather than
+falling into a generic remainder.
+
+| Inventory ID | Category | Current source seams | Current owner and behavior | Disposition | Cutover | Focused command |
+| --- | --- | --- | --- | --- | --- | --- |
+| INT-001 | semantic-intent | `OperatorWorkspace.performApplicationStartup`<br>`OperatorWorkspace.shutdown` | application delegate plus `OperatorWorkspace`; policy startup and bounded shutdown | delete | `EA-11C` | `swift test --filter PlotterEpisodeCompositionTests` |
+| INT-002 | semantic-intent | `OperatorWorkspace.selectSerialDevice`<br>`OperatorWorkspace.performControllerConnectionAction`<br>`OperatorWorkspace.connectSelectedController`<br>`OperatorWorkspace.disconnectMachineSession` | `OperatorWorkspace`; controller selection and session connect/disconnect requests | delete | `EA-11A` | `swift test --filter PlotterControllerSessionEpisodeTests` |
+| INT-003 | semantic-intent | `OperatorWorkspace.requestPassiveProbe`<br>`OperatorWorkspace.clearControllerAlarm`<br>`OperatorWorkspace.performMotionAuthorizationAction` | `OperatorWorkspace`; passive probe, explicit alarm clear, and session Motion request | delete | `EA-11A` | `swift test --filter PlotterControllerSessionEpisodeTests` |
+| INT-004 | semantic-intent | `OperatorWorkspace.requestJog`<br>`OperatorWorkspace.stopManualMotion` | `OperatorWorkspace`; manual jog/drawing-stroke request and exact Stop | delete | `EA-06` | `swift test --filter PlotterManualMotionEpisodeTests` |
+| INT-005 | semantic-intent | `OperatorWorkspace.requestPenActuation` | `OperatorWorkspace`; direct manual pen actuation | delete | `EA-06` | `swift test --filter PlotterManualMotionEpisodeTests` |
+| INT-006 | semantic-intent | `OperatorWorkspace.selectToolContactPoint` | `OperatorWorkspace`; exact-frame cap/tip point selection and evidence routing | delete | `EA-04` | `swift test --filter PlotterPointSelectionEpisodeTests` |
+| INT-007 | semantic-intent | `OperatorWorkspace.toggleLearningMode` | `OperatorWorkspace`; Learning on/off admission and active point-continuation cancellation | delete | `EA-04` | `swift test --filter PlotterPointSelectionEpisodeTests` |
+| INT-008 | semantic-intent | `DrawingStudioAction.selectCatalogItem`<br>`DrawingStudioAction.setParameter`<br>`DrawingStudioAction.placeAtCameraPoint`<br>`DrawingStudioAction.setUniformScale`<br>`DrawingStudioAction.setRotationDegrees`<br>`DrawingStudioAction.centerInDrawableRegion`<br>`CompletedComparisonReviewAction.openDrawingStudio` | `OperatorWorkspace.performDrawingStudioAction`; draft, placement, parameter, planning, and open/new-plan semantics | delete | `EA-08A` | `swift test --filter PlotterDrawingDraftEpisodeTests` |
+| INT-009 | semantic-intent | `DrawingStudioAction.run`<br>`DrawingStudioAction.stop`<br>`DrawingStudioAction.reviewRun`<br>`DrawingStudioAction.resumeLivePreview`<br>`DrawingStudioAction.newRun`<br>`CompletedComparisonReviewAction.reviewComparison`<br>`CompletedComparisonReviewAction.resumeLivePreview` | `OperatorWorkspace`; Drawing Studio execute/Stop/observe/review/no-redraw lifecycle | delete | `EA-08B` | `swift test --filter PlotterDrawingRunEpisodeTests` |
+| INT-010 | semantic-intent | `ExerciseActionKind.setPenSetpoint`<br>`OperatorWorkspace.beginPenInteraction` | `OperatorWorkspace`; Pen Interaction attempt and value-bearing Up/Down semantics | delete | `EA-10A` | `swift test --filter PlotterPenInteractionEpisodeTests` |
+| INT-011 | semantic-intent | `ExerciseActionKind.redoBoundary`<br>`ExerciseActionKind.recordAnotherBoundaryAttempt`<br>`ExerciseActionKind.selectDirection`<br>`ExerciseActionKind.moveToEstimatedCenter`<br>`OperatorWorkspace.beginPairedBoundarySide` | `OperatorWorkspace`; Drawing Boundary acquisition, renewal, aggregation, and center arrival | delete | `EA-10B` | `swift test --filter PlotterBoundaryEpisodeTests` |
+| INT-012 | semantic-intent | `ExerciseActionKind.runCameraCalibrationAndBuildProposal`<br>`ExerciseActionKind.acceptCameraCalibrationProposal`<br>`ExerciseActionKind.rejectCameraCalibrationProposal` | `OperatorWorkspace`; camera-from-cap five-position execution/proposal/acceptance | delete | `EA-10C` | `swift test --filter PlotterCameraCalibrationEpisodeTests` |
+| INT-013 | semantic-intent | `ExerciseActionKind.drawFourCornerTipCircles`<br>`ExerciseActionKind.undoLastSparseTipClick`<br>`ExerciseActionKind.clearSparseTipClicks`<br>`ExerciseActionKind.revalidateTipCalibrationCheckpoint`<br>`ExerciseActionKind.acceptTipCalibrationProposal`<br>`ExerciseActionKind.rejectTipCalibrationProposal`<br>`ExerciseActionKind.retryTipCalibrationCommit` | `OperatorWorkspace` plus `SparseTipCalibrationCoordinator`; pen-tip physical batch, same-frame clicks, proposal, and commit | delete | `EA-10D` | `swift test --filter PlotterTipCalibrationEpisodeTests` |
+| INT-014 | semantic-intent | `OperatorWorkspace.runObservedDrawingTrial` | `OperatorWorkspace`; Drawing Border plan/capture/execute/observe/compare chain | delete | `EA-10E` | `swift test --filter PlotterBorderValidationEpisodeTests` |
+| INT-015 | semantic-intent | `ExerciseActionKind.useSavedTraining`<br>`ExerciseActionKind.startNewLearning`<br>`ExerciseActionKind.restart`<br>`ExerciseActionKind.redoThisStep`<br>`ExerciseActionKind.recordAnotherAttempt`<br>`ExerciseActionKind.paperReplaced`<br>`OperatorWorkspace.performResetAllLearning` | `OperatorWorkspace`; Saved Learning choice, replacement attempts, paper lifecycle, and reset | delete | `EA-10F` | `swift test --filter PlotterArtifactResetEpisodeTests` |
+| INT-016 | semantic-intent | `OperatorWorkspace.announceAdvisory` | `OperatorWorkspace`; application-level advisory speech request/result | delete | `EA-10G` | `swift test --filter PlotterSpeechEffectEpisodeTests` |
+| INT-017 | semantic-intent | `OperatorWorkspace.switchFrameMode`<br>`OperatorWorkspace.selectAndStartCamera`<br>`OperatorWorkspace.setVisionAnalysisCadence`<br>`OperatorWorkspace.setVideoAnalysisRegion`<br>`OperatorWorkspace.setOverlay` | `OperatorWorkspace`; observation source, camera selection, cadence, region, and overlay configuration | delete | `EA-11B` | `swift test --filter PlotterObservationConfigurationEpisodeTests` |
+| INT-018 | semantic-intent | `ExerciseActionKind.start`<br>`ExerciseActionKind.choice`<br>`ExerciseActionKind.cancel`<br>`ExerciseActionKind.stop`<br>`OperatorWorkspace.performExerciseAction` | `OperatorWorkspace`; generic Learning action dispatcher and task owner after all feature cases move | delete | `EA-11C` | `swift test --filter PlotterEpisodeCompositionTests` |
+| INT-019 | semantic-intent | `VideoSettingsVisibilityAction.show`<br>`VideoSettingsVisibilityAction.hide` | `WorkbenchLayoutState`; window-local Video Settings visibility only | retain | `EA-09` | `swift test --filter PlotterEpisodeUIActionabilityTests` |
+| GRD-001 | guard | `ContinuousMachineCoordinateTolerance.minimumMM` | shared model/runtime constant currently answers settlement and containment | delete | `FIX-00` | `swift test --filter CoordinateAcceptancePolicyTests` |
+| GRD-002 | guard | `OperatorWorkspace.inferredDrawingStudioPixel` | `OperatorWorkspace`; currently permits diagnostic extrapolation to feed attribution | delete | `FIX-01` | `swift test --filter TipApplicabilityEvidencePolicyTests` |
+| GRD-003 | guard | `OperatorWorkspace.learningModeChangeUnavailableReason` | `OperatorWorkspace`; prevents Learning Off while current work/continuation owns settlement | delete | `EA-04` | `swift test --filter PlotterPointSelectionEpisodeTests` |
+| GRD-004 | guard | `OperatorWorkspace.directCarriageMotionUnavailableReason`<br>`OperatorWorkspace.directManualMotionUnavailableReason`<br>`OperatorWorkspace.directMotionUnavailableReason`<br>`OperatorWorkspace.motionUnavailableReason`<br>`OperatorWorkspace.ordinaryRelativeJogUnavailableReason`<br>`OperatorWorkspace.penUnavailableReason` | `OperatorWorkspace`; duplicated manual semantic admission around controller facts | delete | `EA-06` | `swift test --filter PlotterManualMotionEpisodeTests` |
+| GRD-005 | guard | `OperatorWorkspace.simulatedManualMotionUnavailableReason` | `OperatorWorkspace`; separate SIMULATED manual branch admission | delete | `EA-07` | `swift test --filter PlotterCausalEpisodeEnvironmentTests` |
+| GRD-006 | guard | `OperatorWorkspace.drawingStudioPanelChangeUnavailableReason` | `OperatorWorkspace`; draft/panel mutation admission | delete | `EA-08A` | `swift test --filter PlotterDrawingDraftEpisodeTests` |
+| GRD-007 | guard | `OperatorWorkspace.drawingStudioRunUnavailableReason`<br>`OperatorWorkspace.paperManagementUnavailableReason` | `OperatorWorkspace`; run/no-redraw/paper-change admission | delete | `EA-08B` | `swift test --filter PlotterDrawingRunEpisodeTests` |
+| GRD-008 | guard | `OperatorWorkspace.penInteractionSequenceUnavailableReason` | `OperatorWorkspace`; Pen Interaction prerequisite guard | delete | `EA-10A` | `swift test --filter PlotterPenInteractionEpisodeTests` |
+| GRD-009 | guard | `OperatorWorkspace.drawingTrialActionUnavailableReason` | `OperatorWorkspace`; Drawing Border step/action admission | delete | `EA-10E` | `swift test --filter PlotterBorderValidationEpisodeTests` |
+| GRD-010 | guard | `OperatorWorkspace.learningVacateUnavailableReason` | `OperatorWorkspace`; reset/rewind/current-owner guard | delete | `EA-10F` | `swift test --filter PlotterArtifactResetEpisodeTests` |
+| GRD-011 | guard | `OperatorWorkspace.controllerAlarmClearActionUnavailableReason`<br>`OperatorWorkspace.controllerConnectionActionUnavailableReason`<br>`OperatorWorkspace.controllerPoseRevalidationUnavailableReason`<br>`OperatorWorkspace.controllerSelectionUnavailableReason`<br>`OperatorWorkspace.motionAuthorizationActionUnavailableReason`<br>`OperatorWorkspace.motionGuardActivationUnavailableReason`<br>`OperatorWorkspace.passiveProbeUnavailableReason` | `OperatorWorkspace`; duplicated controller-session readiness guards | delete | `EA-11A` | `swift test --filter PlotterControllerSessionEpisodeTests` |
+| GRD-012 | guard | `OperatorWorkspace.frameModeSwitchUnavailableReason` | `OperatorWorkspace`; observation source/configuration change guard | delete | `EA-11B` | `swift test --filter PlotterObservationConfigurationEpisodeTests` |
+| GRD-013 | guard | `OperatorWorkspace.discoveryStartUnavailableReason`<br>`OperatorWorkspace.learningCarriageMotionUnavailableReason`<br>`OperatorWorkspace.learningConnectionAndMotionUnavailableReason`<br>`OperatorWorkspace.learningExerciseMotionUnavailableReason` | `OperatorWorkspace`; generic residual Learning guards after feature cutovers | delete | `EA-11C` | `swift test --filter PlotterEpisodeCompositionTests` |
+| OWN-001 | authority-owner | `OperatorWorkspace` | single observable composition owner, semantic router, workflow state, and artifact commits | delete | `EA-11C` | `swift test --filter PlotterEpisodeCompositionTests` |
+| OWN-002 | authority-owner | `MachineController` | selected serial transport, parsing, fresh safety, serialization, settlement, ambiguity | retain | `EA-11A` | `swift test --filter PlotterControllerSessionEpisodeTests` |
+| OWN-003 | authority-owner | `RunInterpreter` | logical machine operation, plan execution, checkpoints, lower-level cancel settlement | retain | `EA-11A` | `swift test --filter PlotterControllerSessionEpisodeTests` |
+| OWN-004 | authority-owner | `PersistentMachineSession` | application composition of controller, interpreter, and bounded ledger | adapt | `EA-11A` | `swift test --filter PlotterControllerSessionEpisodeTests` |
+| OWN-005 | authority-owner | `CameraCapture` | camera discovery, selection, lifecycle, exact frames, preview holds | retain | `EA-11B` | `swift test --filter PlotterObservationConfigurationEpisodeTests` |
+| OWN-006 | authority-owner | `CameraSourceSession` | automatic-analysis configuration and exact-workflow Vision leases | retain | `EA-11B` | `swift test --filter PlotterObservationConfigurationEpisodeTests` |
+| OWN-007 | authority-owner | `VisionWorker` | typed measurement and diagnostic computation | retain | `EA-11B` | `swift test --filter PlotterObservationConfigurationEpisodeTests` |
+| OWN-008 | authority-owner | `PlotterSceneAnalysisPipeline` | newest-only ambient analysis state and progress | adapt | `EA-11B` | `swift test --filter PlotterObservationConfigurationEpisodeTests` |
+| OWN-009 | authority-owner | `LearningPathProjector`<br>`LearningPathProjectionSnapshot` | pure current Learning presentation over copied workspace facts | delete | `EA-09` | `swift test --filter PlotterEpisodeUIActionabilityTests` |
+| OWN-010 | authority-owner | `WorkbenchLayoutState`<br>`ActionSurfaceViewportState` | window/pane/viewport-local presentation state | retain | `EA-09` | `swift test --filter PlotterEpisodeUIActionabilityTests` |
+| OWN-011 | authority-owner | `LearningSessionState` | current LIVE/SIMULATED workflow/artifact state aggregate | delete | `EA-11C` | `swift test --filter PlotterEpisodeCompositionTests` |
+| OWN-012 | authority-owner | `SparseTipCalibrationCoordinator` | current sparse physical-batch and proposal state machine | delete | `EA-10D` | `swift test --filter PlotterTipCalibrationEpisodeTests` |
+| OWN-013 | authority-owner | `DrawingPlanner` | deterministic geometry admission and content-addressed execution plans | retain | `EA-08A` | `swift test --filter PlotterDrawingDraftEpisodeTests` |
+| OWN-014 | authority-owner | `TipCalibrationAuthority`<br>`TipCameraRegistration` | evidence validation, construction, applicability, and checkpoint semantics | retain | `EA-10D` | `swift test --filter PlotterTipCalibrationEpisodeTests` |
+| OWN-015 | authority-owner | `DrawingRunEvidenceArchive` | checksummed append-only drawing-run evidence value and append rules | retain | `EA-08B` | `swift test --filter PlotterDrawingRunEpisodeTests` |
+| OWN-016 | authority-owner | `SimulatedLearningRuntime` | nonphysical controller/plant/pen/paper/camera causal truth | adapt | `EA-07` | `swift test --filter PlotterCausalEpisodeEnvironmentTests` |
+| OWN-017 | authority-owner | `NativeSpeechAnnouncer` | AVFoundation synthesis, identity queue, timeout, shutdown cancellation | retain | `EA-10G` | `swift test --filter PlotterSpeechEffectEpisodeTests` |
+| OWN-018 | authority-owner | `RunLedger` | low-level ordered SQLite device/workflow diagnostics | adapt | `EA-05A` | `swift test --filter PlotterRecordingStoreTests` |
+| OWN-019 | authority-owner | `StartupFrameRecorder` | unbound file recorder with test-only consumers | delete | `EA-05A` | `swift test --filter PlotterRecordingStoreTests` |
+| OWN-020 | authority-owner | `OverlayResultChannels`<br>`OverlayPresentationComposer` | source-separated results and pure exact-frame overlay composition | adapt | `EA-11B` | `swift test --filter PlotterObservationConfigurationEpisodeTests` |
+| OWN-021 | authority-owner | `PaperCoverageValidationContext` | exact-frame/paper/source coverage evidence decision | retain | `EA-08A` | `swift test --filter PlotterDrawingDraftEpisodeTests` |
+| OWN-022 | authority-owner | `AcceptedLearningPathCheckpoint` | atomic durable accepted Learning prefix value and validation | adapt | `EA-10F` | `swift test --filter PlotterArtifactResetEpisodeTests` |
+| PRT-001 | direct-port | `MachineActions.select`<br>`MachineActions.snapshot`<br>`MachineActions.requestPassiveProbe`<br>`MachineActions.requestControllerAlarmClear`<br>`MachineActions.activateMotionGuard`<br>`MachineActions.deactivateMotionGuard`<br>`MachineActions.beginRelativeJog`<br>`MachineActions.beginDrawingStroke`<br>`MachineActions.beginDrawingPlan`<br>`MachineActions.requestPenActuation`<br>`MachineActions.beginBoundaryMotion`<br>`MachineActions.requestJogCancel`<br>`MachineActions.disconnect` | `OperatorWorkspace.MachineActions`; arbitrary closure façade over `PersistentMachineSession` | delete | `EA-11A` | `swift test --filter PlotterControllerSessionEpisodeTests` |
+| PRT-002 | direct-port | `CameraActions.discover`<br>`CameraActions.select`<br>`CameraActions.start`<br>`CameraActions.stop`<br>`CameraActions.restart`<br>`CameraActions.snapshot`<br>`CameraActions.frames`<br>`CameraActions.inspectWorkflowScene`<br>`CameraActions.captureFrame`<br>`CameraActions.captureStableWorkflowCap`<br>`CameraActions.setSceneAnalysisRegion`<br>`CameraActions.setPenCapColor`<br>`CameraActions.setAutomaticInspection`<br>`CameraActions.analysisUpdates`<br>`CameraActions.visionDiagnostics`<br>`CameraActions.observePlannedDrawingInk` | `OperatorWorkspace.CameraActions`; arbitrary closure façade over camera/session/Vision owners | delete | `EA-11B` | `swift test --filter PlotterObservationConfigurationEpisodeTests` |
+| PRT-003 | direct-port | `AnnouncementActions.announce`<br>`AnnouncementActions.cancelForShutdown` | `OperatorWorkspace.AnnouncementActions`; application speech effect seam | delete | `EA-10G` | `swift test --filter PlotterSpeechEffectEpisodeTests` |
+| PRT-004 | direct-port | `WorkflowTelemetryActions.record` | `OperatorWorkspace.WorkflowTelemetryActions`; diagnostic append seam | adapt | `EA-05A` | `swift test --filter PlotterRecordingStoreTests` |
+| PRT-005 | direct-port | `AcceptedLearningPathCheckpointActions.load`<br>`AcceptedLearningPathCheckpointActions.save`<br>`AcceptedLearningPathCheckpointActions.clear` | `OperatorWorkspace.AcceptedLearningPathCheckpointActions`; LIVE-only durable checkpoint seam | delete | `EA-10F` | `swift test --filter PlotterArtifactResetEpisodeTests` |
+| PRT-006 | direct-port | `DrawingEvidenceActions.load`<br>`DrawingEvidenceActions.append` | `OperatorWorkspace.DrawingEvidenceActions`; drawing-run archive seam | delete | `EA-08B` | `swift test --filter PlotterDrawingRunEpisodeTests` |
+| PRT-007 | direct-port | `PaperCoverageActions.load`<br>`PaperCoverageActions.save`<br>`PaperCoverageActions.clear` | `OperatorWorkspace.PaperCoverageActions`; paper coverage persistence seam | delete | `EA-08A` | `swift test --filter PlotterDrawingDraftEpisodeTests` |
+| MOD-001 | environment-branch | `OperatorWorkspace.frameMode`<br>`OperatorWorkspace.requestSimulatedRelativeJog`<br>`OperatorWorkspace.executeSimulatedBoundaryMotion` | `OperatorWorkspace`; direct LIVE/SIMULATED effect branches | delete | `EA-07` | `swift test --filter PlotterCausalEpisodeEnvironmentTests` |
+| MOD-002 | environment-branch | `OperatorWorkspace.liveLearningSession`<br>`OperatorWorkspace.simulatedLearningSession`<br>`OperatorWorkspace.activeLearningSession` | `OperatorWorkspace`; parallel current workflow state selected by source | delete | `EA-11C` | `swift test --filter PlotterEpisodeCompositionTests` |
+| MOD-003 | environment-branch | `SimulatedLearningRuntime.beginManualJog`<br>`SimulatedLearningRuntime.beginBoundary`<br>`SimulatedLearningRuntime.beginDrawing` | `SimulatedLearningRuntime`; effect-capable nonphysical environment API | adapt | `EA-07` | `swift test --filter PlotterCausalEpisodeEnvironmentTests` |
+| TSK-001 | task-cancel-owner | `OperatorWorkspace.penSetpointActuationTask` | `OperatorWorkspace`; current Pen setpoint task | delete | `EA-10A` | `swift test --filter PlotterPenInteractionEpisodeTests` |
+| TSK-002 | task-cancel-owner | `OperatorWorkspace.activeLearningActionTask`<br>`OperatorWorkspace.activeStoppableOperation`<br>`OperatorWorkspace.activeHardwareIntentCount`<br>`OperatorWorkspace.intentDrainWaiters` | `OperatorWorkspace`; generic action task, Stop owner, and shutdown drain | delete | `EA-11C` | `swift test --filter PlotterEpisodeCompositionTests` |
+| TSK-003 | task-cancel-owner | `OperatorWorkspace.penCapAcceptedClickContinuationTask`<br>`OperatorWorkspace.penCapVisionReconfigurationTask` | `OperatorWorkspace`; exact point-selection continuation/reconfiguration tasks | delete | `EA-04` | `swift test --filter PlotterPointSelectionEpisodeTests` |
+| TSK-004 | task-cancel-owner | `OperatorWorkspace.boundaryMotionTask` | `OperatorWorkspace`; Boundary workflow task | delete | `EA-10B` | `swift test --filter PlotterBoundaryEpisodeTests` |
+| TSK-005 | task-cancel-owner | `OperatorWorkspace.currentCameraCalibrationTask` | `OperatorWorkspace`; camera-calibration workflow task | delete | `EA-10C` | `swift test --filter PlotterCameraCalibrationEpisodeTests` |
+| TSK-006 | task-cancel-owner | `OperatorWorkspace.savedTrainingComparisonTask` | `OperatorWorkspace`; Saved Learning comparison task | delete | `EA-10F` | `swift test --filter PlotterArtifactResetEpisodeTests` |
+| TSK-007 | task-cancel-owner | `OperatorWorkspace.frameTask`<br>`OperatorWorkspace.visionUpdateTask`<br>`CameraSourceSession.automaticInspectionFrameTask` | workspace/session ambient frame and Vision subscriptions | delete | `EA-11B` | `swift test --filter PlotterObservationConfigurationEpisodeTests` |
+| TSK-008 | task-cancel-owner | `AdaptivePlotterApplicationDelegate.terminationTask`<br>`AdaptivePlotterApplicationDelegate.terminationDeadlineTask` | application delegate; shutdown task/deadline | adapt | `EA-11C` | `swift test --filter PlotterEpisodeCompositionTests` |
+| TSK-009 | task-cancel-owner | `CameraCapture.eventConsumer` | `CameraCapture`; driver-event owner under camera lifecycle | retain | `EA-11B` | `swift test --filter PlotterObservationConfigurationEpisodeTests` |
+| TSK-010 | task-cancel-owner | `PlotterSceneAnalysisPipeline.drainTask` | scene pipeline; newest-only analysis task owner | retain | `EA-11B` | `swift test --filter PlotterObservationConfigurationEpisodeTests` |
+| TSK-011 | task-cancel-owner | `MachineController.ledgerWriteTail` | `MachineController`; ordered nonblocking ledger append tail | adapt | `EA-05A` | `swift test --filter PlotterRecordingStoreTests` |
+| TSK-012 | task-cancel-owner | `NativeSpeechAnnouncer.timeoutTask` | `NativeSpeechAnnouncer`; lower-level synthesis timeout | retain | `EA-10G` | `swift test --filter PlotterSpeechEffectEpisodeTests` |
+| TSK-013 | task-cancel-owner | `RunInterpreter.cancelTask` | `RunInterpreter`; lower-level jog/plan cancellation settlement | retain | `EA-11A` | `swift test --filter PlotterControllerSessionEpisodeTests` |
+| PER-001 | persistence-path | `AdaptivePlotter.selectedSerialDeviceIdentifier` | `OperatorWorkspace` default closures; selected serial preference | delete | `EA-11A` | `swift test --filter PlotterControllerSessionEpisodeTests` |
+| PER-002 | persistence-path | `AdaptivePlotter.penCapAppearanceSelection`<br>`AdaptivePlotter.userSceneOverlays` | `OperatorWorkspace` default closures; recognition input and overlay preference | delete | `EA-11B` | `swift test --filter PlotterObservationConfigurationEpisodeTests` |
+| PER-003 | persistence-path | `AcceptedArtifactCheckpointComposition`<br>`AcceptedLearningPathCheckpointStore` | checkpoint composition; canonical atomic prefix plus migration | adapt | `EA-10F` | `swift test --filter PlotterArtifactResetEpisodeTests` |
+| PER-004 | persistence-path | `AcceptedArtifactCheckpointStore`<br>`AcceptedTipCalibrationCheckpointStore` | versioned legacy decode adapters with proved migration callers | delete | `EA-10F` | `swift test --filter PlotterArtifactResetEpisodeTests` |
+| PER-005 | persistence-path | `DrawingRunEvidenceComposition`<br>`DrawingRunEvidenceStore` | append-only drawing-run evidence persistence | adapt | `EA-08B` | `swift test --filter PlotterDrawingRunEpisodeTests` |
+| PER-006 | persistence-path | `PaperCoverageComposition`<br>`PaperCoverageObservation` | paper coverage persistence and validation | adapt | `EA-08A` | `swift test --filter PlotterDrawingDraftEpisodeTests` |
+| PER-007 | persistence-path | `RunLedger.sqlite`<br>`MachineSessionRetentionPolicy` | bounded SQLite session diagnostics | adapt | `EA-05A` | `swift test --filter PlotterRecordingStoreTests` |
+| PER-008 | persistence-path | `StartupFrameRecorder.Manifest` | unbound test-only frame/manifest file writer | delete | `EA-05A` | `swift test --filter PlotterRecordingStoreTests` |
+| PER-009 | persistence-path | `AdaptivePlotter.paperInstanceRevision`<br>`AdaptivePlotter.paperContactPlaneRevision` | application-composed durable paper semantic identities | adapt | `EA-10F` | `swift test --filter PlotterArtifactResetEpisodeTests` |
+| UI-001 | ui-consumer | `UI.serialDevices`<br>`UI.selectedSerialDevice`<br>`UI.selectSerialDevice`<br>`UI.controllerSelectionUnavailableReason`<br>`UI.controllerConnectionActionTitle`<br>`UI.performControllerConnectionAction`<br>`UI.controllerConnectionActionUnavailableReason`<br>`UI.controllerSessionEstablished`<br>`UI.performMotionAuthorizationAction`<br>`UI.motionAuthorizationActionUnavailableReason`<br>`UI.motionAuthorizationEnabled`<br>`UI.motionRequestStatusPresentation`<br>`UI.controllerConnectionText`<br>`UI.controllerStateText`<br>`UI.controllerAttentionText`<br>`UI.controllerLimitInputsText`<br>`UI.controllerAlarmUnlockReadinessText`<br>`UI.controllerAlarmEvidenceText`<br>`UI.clearControllerAlarm`<br>`UI.controllerAlarmClearInProgress`<br>`UI.controllerAlarmClearActionUnavailableReason`<br>`UI.motorPowerText`<br>`UI.motionGuardIsActive`<br>`UI.motionPermissionText`<br>`UI.currentOperationText`<br>`UI.machinePositionText`<br>`UI.lastMotionOutcomeText`<br>`UI.lastPenOutcomeText` | SwiftUI controller toolbar/Motion diagnostics; direct workspace reads and handlers | delete | `EA-11A` | `swift test --filter PlotterControllerSessionEpisodeTests` |
+| UI-002 | ui-consumer | `UI.frameMode`<br>`UI.cameraIsLive`<br>`UI.cameraDevices`<br>`UI.refreshVideoSources`<br>`UI.refreshVideoDiagnostics`<br>`UI.currentCameraCalibrationBusyReason`<br>`UI.cameraStateText`<br>`UI.captureThroughputText`<br>`UI.visionThroughputText`<br>`UI.cameraError`<br>`UI.visionError`<br>`UI.videoAnalysisRegionLock`<br>`UI.setVisionAnalysisCadence`<br>`UI.visionAnalysisCadence`<br>`UI.setVideoAnalysisRegion`<br>`UI.overlayCardPresentation`<br>`UI.penCapAppearanceSelection`<br>`UI.overlayPreferenceState`<br>`UI.setOverlay`<br>`UI.selectedCameraID`<br>`UI.switchFrameMode`<br>`UI.selectAndStartCamera`<br>`UI.frameModeSwitchUnavailableReason`<br>`UI.simulatorEvidenceLabel`<br>`UI.simulatorLearningSummary` | SwiftUI Video Settings/source/overlay direct workspace consumers | delete | `EA-11B` | `swift test --filter PlotterObservationConfigurationEpisodeTests` |
+| UI-003 | ui-consumer | `UI.manualMotionPresentation`<br>`UI.xStepText`<br>`UI.yStepText`<br>`UI.feedText`<br>`UI.stopManualMotion`<br>`UI.requestPenActuation`<br>`UI.penUnavailableReason`<br>`UI.penStateText`<br>`UI.manualMotionModeText`<br>`UI.requestJog` | SwiftUI manual jog/Pen direct workspace consumers | delete | `EA-06` | `swift test --filter PlotterManualMotionEpisodeTests` |
+| UI-004 | ui-consumer | `UI.selectToolContactPoint`<br>`UI.toggleLearningMode`<br>`UI.learningModeActionTitle`<br>`UI.learningModeChangeUnavailableReason` | Action Surface point and Learning on/off direct workspace handlers | delete | `EA-04` | `swift test --filter PlotterPointSelectionEpisodeTests` |
+| UI-005 | ui-consumer | `UI.interactiveLearningIsComplete`<br>`UI.drawingStudioIsPresented`<br>`UI.drawingStudioPanelChangeUnavailableReason`<br>`UI.openDrawingStudio`<br>`UI.closeDrawingStudio`<br>`UI.confirmCurrentPaperCoversDrawableRegion` | Drawing Studio open/draft/paper-coverage direct workspace consumers | delete | `EA-08A` | `swift test --filter PlotterDrawingDraftEpisodeTests` |
+| UI-006 | ui-consumer | `UI.performCompletedComparisonReviewAction`<br>`UI.performDrawingStudioAction`<br>`UI.paperManagementUnavailableReason` | Drawing Studio run/review direct workspace handlers | delete | `EA-08B` | `swift test --filter PlotterDrawingRunEpisodeTests` |
+| UI-007 | ui-consumer | `UI.recordNewPaperSheetOnCurrentPlane`<br>`UI.recordPaperContactPlaneChanged`<br>`UI.performLearningVacate`<br>`UI.performResetAllLearning`<br>`UI.learningAuthorityError` | Saved Learning/reset/paper lifecycle direct workspace consumers | delete | `EA-10F` | `swift test --filter PlotterArtifactResetEpisodeTests` |
+| UI-008 | ui-consumer | `UI.actionSurfacePresentation`<br>`UI.currentLearningPathItemID`<br>`UI.exercisePaneProtectionPresentation`<br>`UI.learningIsEnabled`<br>`UI.learningPathProjection`<br>`UI.drawingStudioPresentation`<br>`UI.workbenchCapabilityPresentation`<br>`UI.performExerciseAction` | aggregate Learning/Action Surface/Drawing presentation and semantic dispatch | delete | `EA-09` | `swift test --filter PlotterEpisodeUIActionabilityTests` |
+| UI-009 | ui-consumer | `UI.performApplicationStartup`<br>`UI.shutdown` | application lifecycle direct workspace consumer | delete | `EA-11C` | `swift test --filter PlotterEpisodeCompositionTests` |
+| FIX-001 | high-level-fixture | `SimulatedWorkspaceHarness`<br>`makeSimulatedHarness`<br>`performPublicAction` | high-level workspace closure fixture bypassing target intent/event seams | delete | `EA-07` | `swift test --filter PlotterCausalEpisodeEnvironmentTests` |
+| FIX-002 | high-level-fixture | `MachineFixture`<br>`isolatedMachineActions` | app-level machine closure fixture | delete | `EA-11A` | `swift test --filter PlotterControllerSessionEpisodeTests` |
+| FIX-003 | high-level-fixture | `CameraFixture`<br>`cameraActions` | app-level camera closure fixture | delete | `EA-11B` | `swift test --filter PlotterObservationConfigurationEpisodeTests` |
+| FIX-004 | high-level-fixture | `completePenInteraction`<br>`identifyPenCap` | high-level Pen Interaction journey helper | delete | `EA-10A` | `swift test --filter PlotterPenInteractionEpisodeTests` |
+| FIX-005 | high-level-fixture | `completeLiveBoundaries`<br>`completeSimulatedBoundariesAndCenter` | high-level Boundary workflow helper | delete | `EA-10B` | `swift test --filter PlotterBoundaryEpisodeTests` |
+| FIX-006 | high-level-fixture | `completeSimulatedSparseTipCalibration` | high-level pen-tip workflow helper | delete | `EA-10D` | `swift test --filter PlotterTipCalibrationEpisodeTests` |
+| FIX-007 | high-level-fixture | `completeSimulatedStageFour` | high-level Drawing Border workflow helper | delete | `EA-10E` | `swift test --filter PlotterBorderValidationEpisodeTests` |
+| FIX-008 | high-level-fixture | `drawingPresentationTestFrame` | current direct presentation construction helper | delete | `EA-09` | `swift test --filter PlotterEpisodeUIActionabilityTests` |
+| FIX-009 | high-level-fixture | `manualCameraSnapshotPreservesExactFrame` | test-only consumer of unbound startup frame recorder | delete | `EA-05A` | `swift test --filter PlotterRecordingStoreTests` |
+| FIX-010 | high-level-fixture | `SimulatedGRBLLink`<br>`ControllerTranscriptFixtures`<br>`DeterministicRuntimeClock` | low-level deterministic controller transcript/replay fixtures | retain | `EA-05B` | `swift test --filter PlotterRecordingReplayTests` |
+| FIX-011 | high-level-fixture | `PaperSceneSimulator`<br>`BlockingMachineLink` | causal paper and bounded controller-fault fixtures | retain | `EA-07` | `swift test --filter PlotterCausalEpisodeEnvironmentTests` |
+| FIX-012 | high-level-fixture | `AnnouncementFixture` | app-level advisory closure fixture | delete | `EA-10G` | `swift test --filter PlotterSpeechEffectEpisodeTests` |
+| FIX-013 | high-level-fixture | `CameraInspectionGate`<br>`CameraReconfigurationGate`<br>`CameraAnalysisTrafficFixture` | high-level camera task/lease fixtures | delete | `EA-11B` | `swift test --filter PlotterObservationConfigurationEpisodeTests` |
+| FIX-014 | high-level-fixture | `WorkflowTelemetryFixture` | app-level diagnostic closure fixture | adapt | `EA-05A` | `swift test --filter PlotterRecordingStoreTests` |
+
+### Exact cutover zero-match scans
+
+`Scripts/check_episode_cutover.sh <PACKAGE-ID>` reads this closed table. Paths
+are repository-relative comma-separated globs and every literal is matched
+without regex interpretation. Each named cutover must pass all of its rows;
+unknown/non-cutover IDs are rejected. Retained lower-level owners are
+deliberately absent from deletion scans.
+
+| Package | Scan class | Paths | Zero-match literal |
+| --- | --- | --- | --- |
+| `EA-04` | deleted-symbol | `Sources/PlotterApp/*.swift` | `ActionSurfacePointSelectionRequest` |
+| `EA-04` | duplicate-ingress | `Sources/PlotterApp/*.swift` | `selectToolContactPoint` |
+| `EA-04` | task-owner | `Sources/PlotterApp/*.swift` | `penCapAcceptedClickContinuationTask` |
+| `EA-04` | task-owner | `Sources/PlotterApp/*.swift` | `penCapVisionReconfigurationTask` |
+| `EA-04` | fixture | `Tests/PlotterAppTests/*.swift` | `submitPenCapClick` |
+| `EA-06` | duplicate-ingress | `Sources/PlotterApp/*.swift` | `stopManualMotion` |
+| `EA-06` | duplicate-ingress | `Sources/PlotterApp/*.swift` | `requestRelativeJog` |
+| `EA-06` | direct-port | `Sources/PlotterApp/*.swift` | `machineActions.beginRelativeJog` |
+| `EA-06` | direct-port | `Sources/PlotterApp/*.swift` | `machineActions.requestPenActuation` |
+| `EA-06` | fixture | `Tests/PlotterAppTests/*.swift` | `isolatedMachineActions` |
+| `EA-07` | environment-branch | `Sources/PlotterApp/*.swift` | `requestSimulatedRelativeJog` |
+| `EA-07` | environment-branch | `Sources/PlotterApp/*.swift` | `executeSimulatedBoundaryMotion` |
+| `EA-07` | environment-branch | `Sources/PlotterApp/*.swift` | `simulatedLearningRuntime.requestManualMotion` |
+| `EA-07` | fixture | `Tests/PlotterAppTests/*.swift` | `SimulatedWorkspaceHarness` |
+| `EA-08A` | deleted-symbol | `Sources/PlotterApp/*.swift` | `drawingStudioDraftMutationIsAvailable` |
+| `EA-08A` | duplicate-ingress | `Sources/PlotterApp/*.swift` | `rebuildDrawingStudioPlan` |
+| `EA-08A` | direct-port | `Sources/PlotterApp/*.swift` | `DrawingPlanner.plan` |
+| `EA-08A` | fixture | `Tests/PlotterAppTests/*.swift` | `drawingPresentationTestFrame` |
+| `EA-08B` | duplicate-ingress | `Sources/PlotterApp/*.swift` | `runDrawingStudioPlan` |
+| `EA-08B` | duplicate-ingress | `Sources/PlotterApp/*.swift` | `performCompletedComparisonReviewAction` |
+| `EA-08B` | direct-port | `Sources/PlotterApp/*.swift` | `machineActions.beginDrawingPlan` |
+| `EA-08B` | direct-port | `Sources/PlotterApp/*.swift` | `cameraActions.observePlannedDrawingInk` |
+| `EA-08B` | fixture | `Tests/PlotterAppTests/*.swift` | `makeDrawingStudioRunRecord` |
+| `EA-09` | deleted-symbol | `Sources/PlotterApp/*.swift` | `LearningPathProjectionSnapshot` |
+| `EA-09` | deleted-symbol | `Sources/PlotterApp/*.swift` | `LearningPathProjector` |
+| `EA-09` | forbidden-import | `Sources/PlotterUI/*.swift` | `import PlotterRuntime` |
+| `EA-09` | duplicate-ingress | `Sources/PlotterApp/LearningPathView.swift` | `actionWorkspace.performExerciseAction` |
+| `EA-09` | task-owner | `Sources/PlotterApp/LearningPathView.swift` | `Task { await perform` |
+| `EA-09` | fixture | `Tests/PlotterAppTests/*.swift` | `drawingPresentationTestFrame` |
+| `EA-10A` | deleted-symbol | `Sources/PlotterApp/*.swift` | `penAttemptHistory` |
+| `EA-10A` | duplicate-ingress | `Sources/PlotterApp/*.swift` | `beginPenInteraction` |
+| `EA-10A` | task-owner | `Sources/PlotterApp/*.swift` | `penSetpointActuationTask` |
+| `EA-10A` | fixture | `Tests/PlotterAppTests/*.swift` | `completePenInteraction` |
+| `EA-10B` | deleted-symbol | `Sources/PlotterApp/*.swift` | `boundarySideAggregates` |
+| `EA-10B` | duplicate-ingress | `Sources/PlotterApp/*.swift` | `beginPairedBoundarySide` |
+| `EA-10B` | direct-port | `Sources/PlotterApp/*.swift` | `machineActions.beginBoundaryMotion` |
+| `EA-10B` | task-owner | `Sources/PlotterApp/*.swift` | `boundaryMotionTask` |
+| `EA-10B` | fixture | `Tests/PlotterAppTests/*.swift` | `completeLiveBoundaries` |
+| `EA-10C` | deleted-symbol | `Sources/PlotterApp/*.swift` | `currentCameraCalibrationPhase` |
+| `EA-10C` | duplicate-ingress | `Sources/PlotterApp/*.swift` | `runCameraCalibrationAndBuildProposal` |
+| `EA-10C` | task-owner | `Sources/PlotterApp/*.swift` | `currentCameraCalibrationTask` |
+| `EA-10C` | fixture | `Tests/PlotterAppTests/*.swift` | `stageMachineCameraRegistrationProposal` |
+| `EA-10D` | deleted-symbol | `Sources/PlotterApp/*.swift` | `SparseTipCalibrationCoordinator` |
+| `EA-10D` | duplicate-ingress | `Sources/PlotterApp/*.swift` | `drawFourCornerTipCircles` |
+| `EA-10D` | duplicate-ingress | `Sources/PlotterApp/*.swift` | `undoLastSparseTipClick` |
+| `EA-10D` | fixture | `Tests/PlotterAppTests/*.swift` | `completeSimulatedSparseTipCalibration` |
+| `EA-10E` | deleted-symbol | `Sources/PlotterApp/*.swift` | `DrawingTrialState` |
+| `EA-10E` | deleted-symbol | `Sources/PlotterApp/*.swift` | `ObservedDrawingTrialStep` |
+| `EA-10E` | duplicate-ingress | `Sources/PlotterApp/*.swift` | `runObservedDrawingTrial` |
+| `EA-10E` | task-owner | `Sources/PlotterApp/*.swift` | `activeExplorationOperation` |
+| `EA-10E` | fixture | `Tests/PlotterAppTests/*.swift` | `completeSimulatedStageFour` |
+| `EA-10F` | deleted-symbol | `Sources/PlotterApp/*.swift` | `SavedLearningPackageState` |
+| `EA-10F` | duplicate-ingress | `Sources/PlotterApp/*.swift` | `useSavedTraining` |
+| `EA-10F` | duplicate-ingress | `Sources/PlotterApp/*.swift` | `performResetAllLearning` |
+| `EA-10F` | task-owner | `Sources/PlotterApp/*.swift` | `savedTrainingComparisonTask` |
+| `EA-10F` | fixture | `Tests/PlotterAppTests/*.swift` | `LearningPathCheckpointBox` |
+| `EA-10G` | deleted-symbol | `Sources/PlotterApp/*.swift` | `AnnouncementActions` |
+| `EA-10G` | duplicate-ingress | `Sources/PlotterApp/*.swift` | `announceAdvisory` |
+| `EA-10G` | direct-port | `Sources/PlotterApp/*.swift` | `announcementActions?.announce` |
+| `EA-10G` | fixture | `Tests/PlotterAppTests/*.swift` | `AnnouncementFixture` |
+| `EA-11A` | deleted-symbol | `Sources/PlotterApp/*.swift` | `struct MachineActions` |
+| `EA-11A` | duplicate-ingress | `Sources/PlotterApp/*.swift` | `performControllerConnectionAction` |
+| `EA-11A` | direct-port | `Sources/PlotterApp/*.swift` | `machineActions.` |
+| `EA-11A` | task-owner | `Sources/PlotterApp/*.swift` | `pendingBoundaryStopCapabilities` |
+| `EA-11A` | fixture | `Tests/PlotterAppTests/*.swift` | `MachineFixture` |
+| `EA-11B` | deleted-symbol | `Sources/PlotterApp/*.swift` | `struct CameraActions` |
+| `EA-11B` | duplicate-ingress | `Sources/PlotterApp/*.swift` | `setVisionAnalysisCadence` |
+| `EA-11B` | direct-port | `Sources/PlotterApp/*.swift` | `cameraActions.` |
+| `EA-11B` | task-owner | `Sources/PlotterApp/*.swift` | `visionUpdateTask` |
+| `EA-11B` | fixture | `Tests/PlotterAppTests/*.swift` | `CameraFixture` |
+| `EA-11C` | deleted-symbol | `Sources/PlotterApp/*.swift` | `final class OperatorWorkspace` |
+| `EA-11C` | deleted-symbol | `Sources/PlotterApp/*.swift` | `ActiveStoppableOperation` |
+| `EA-11C` | deleted-symbol | `Sources/PlotterApp/*.swift` | `LearningSessionState` |
+| `EA-11C` | duplicate-ingress | `Sources/PlotterApp/*.swift` | `performExerciseAction` |
+| `EA-11C` | direct-port | `Sources/PlotterApp/*.swift` | `@Sendable (` |
+| `EA-11C` | task-owner | `Sources/PlotterApp/*.swift` | `activeLearningActionTask` |
+| `EA-11C` | fixture | `Tests/PlotterAppTests/*.swift` | `func workspace(` |
+| `EA-11C` | forbidden-import | `Sources/PlotterUI/*.swift` | `import PlotterRuntime` |
+| `EA-11C` | environment-branch | `Sources/PlotterApp/*.swift` | `activeLearningSession` |
+
 ## Work ledger
 
 Blackdog owns active task state. This table records only not-started work,
@@ -301,7 +520,7 @@ own explicit authorization; generic execution authorization is insufficient.
 | --- | --- | --- | --- | --- | --- |
 | DOC-00 | complete | none | repository | Initial canonical docs, observability contract, ledger, and skill landed in `TASK-C86132F1` at `d33d4ff` | `ARCHIVED` |
 | DOC-01 | complete | DOC-00 | repository | Canonical vocabulary, incremental cutover, completion hierarchy, execution modes, atomic ledger, evidence-history repair, and contract check delivered by `TASK-F2387A9A` | `DOC`, `DIFF`, `CRITIC` |
-| EA-01 | pending | DOC-01 | repository | Add an exhaustive current intent/guard/owner/port/mode/fixture inventory to this plan; assign each item one retain/adapt/delete disposition, one current owner, one cutover package, exact deleted-symbol/direct-port scans, and exact focused test command. No application source changes. | `DOC`, `DIFF`, `INVENTORY` |
+| EA-01 | complete | DOC-01 | repository | Exhaustive current intent/guard/owner/port/mode/fixture inventory, retain/adapt/delete dispositions, current owners, cutover packages, exact deleted-symbol/direct-port scans, and exact focused test commands delivered by `TASK-513DC8A7`; no application source changed. | `DOC`, `DIFF`, `INVENTORY` |
 | FIX-00 | pending | EA-01 | software | Correction: separate Euclidean controller-pose settlement from drawing-region containment, give each one typed owner/metric/revision, and delete the shared 0.5 mm policy assumption and its tests. Preserve strict accepted-Boundary drawing containment apart from an explicitly justified numerical epsilon. | `DOC`, `DIFF`, `QUICK`, `STRICT`, `FIX-CONTAINMENT` |
 | FIX-01 | pending | FIX-00 | software | Correction: prevent projection outside `TipCameraRegistration.applicabilityRectangle` from becoming attributable evidence unless a newly validated evidence-authority revision expands applicability. Delete the evidence bypass assumption and its tests while retaining typed diagnostic-only projection. | `DOC`, `DIFF`, `QUICK`, `STRICT`, `FIX-APPLICABILITY` |
 | BASE-01 | pending | FIX-01 | attended-physical | Record the exact clean-main `TESTED-BASELINE-COMMIT`, build/sign that commit, and complete the attended known-good Learning Path with the mechanism continuously observed. Land evidence and limitations containing exactly one machine-readable `TESTED-BASELINE-COMMIT: <40-lowercase-hex>` line; the landing may change only this ledger and Current Evidence and must not tag or push. | `DOC`, `DIFF`, `STRICT`, `PHYSICAL-BASE` |

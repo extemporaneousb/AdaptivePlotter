@@ -18,7 +18,7 @@ SKILL_PATH = ROOT / ".codex" / "skills" / "adaptiveplotter" / "SKILL.md"
 EVIDENCE_PATH = ROOT / "docs" / "CURRENT_EVIDENCE.md"
 TAG_PUBLISHER_PATH = ROOT / "Scripts" / "publish_episode_baseline_tag.sh"
 TAG_TEST_PATH = ROOT / "Scripts" / "test_publish_episode_baseline_tag.sh"
-EXPECTED_LEDGER_SHA256 = "fa0cfffd817db6d0f5ee40547a000a05677337f0328011c2dd0bf9732757b912"
+EXPECTED_LEDGER_SHA256 = "538b9985845c4171f3704dd63e2f33710f66cf90c318edad87b89596b1f76929"
 
 
 EXPECTED_GATES = {
@@ -170,7 +170,7 @@ EXPECTED_SOFTWARE_OUTCOME_KIND = {
 }
 
 
-EXPECTED_COMPLETE_PACKAGES = {"DOC-00", "DOC-01"}
+EXPECTED_COMPLETE_PACKAGES = {"DOC-00", "DOC-01", "EA-01"}
 
 
 def fail(message: str) -> None:

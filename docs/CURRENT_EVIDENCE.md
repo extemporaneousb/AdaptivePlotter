@@ -19,6 +19,39 @@ limitations remain in the named evidence section.
 | --- | --- | --- | --- |
 | DOC-00 | `TASK-C86132F1` | `ARCHIVED=passed` | Historical: initial canonical episode migration documentation |
 | DOC-01 | `TASK-F2387A9A` | `DOC=passed`, `DIFF=passed`, `CRITIC=passed` | Episode migration execution readiness |
+| EA-01 | `TASK-513DC8A7` | `DOC=passed`, `DIFF=passed`, `INVENTORY=passed` | Episode current-source inventory |
+
+## Episode current-source inventory
+
+Prepared 2026-08-24 in Blackdog task `TASK-513DC8A7`.
+
+The canonical execution plan now assigns 109 stable current-source entries
+across semantic intent, guard, authority owner, direct port, environment branch,
+task/cancel owner, persistence path, UI consumer, and high-level fixture
+categories. Every entry records one current owner and behavior, one
+retain/adapt/delete disposition, one cutover package, and that package's fixed
+focused command. Seventy-nine exact zero-match scans cover all 16 cutover
+packages and distinguish deleted symbols, forbidden imports, direct ports,
+duplicate ingress, task owners, fixtures, and environment branches.
+
+The inventory check requires exact set equality for every case in the four
+current action enums, every named `OperatorWorkspace` unavailable-reason guard,
+every injected action port, every declared application/runtime `Task` owner in
+the named source owners, and every direct SwiftUI
+`workspace`/`actionWorkspace` consumer. It also proves every recorded source
+seam is present and every cutover has a closed scan set. The package added only
+the canonical inventory, deterministic repository checks, completion evidence,
+and ledger/contract updates. No application or test Swift source changed.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `DOC` | passed — `make docs-check` | canonical document, vocabulary, ledger, completion-evidence, and package-contract checks |
+| `DIFF` | passed — `git diff --check` | documentation and deterministic repository-check scripts |
+| `INVENTORY` | passed — `sh Scripts/check_episode_inventory.sh` | 109 stable assignments and 79 exact cutover scans, including mechanical closed-family coverage |
+
+No Swift suite or attended physical procedure is a required EA-01 gate. The
+package did not execute or validate controller, camera, motion, Pen, paper,
+operator-click, physical-ink, or application-runtime behavior.
 
 ## Episode migration execution readiness
 
