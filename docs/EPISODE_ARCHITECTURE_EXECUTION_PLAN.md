@@ -259,9 +259,9 @@ observe and report, but may issue no effect or authoritative durable write.
 
 ## Known prerequisite corrections
 
-Current commit `bab0900` deliberately made accepted Drawing Boundary geometry
-available to Drawing Studio, but two implementation assumptions must not enter
-the episode runtime:
+Commit `bab0900` deliberately made accepted Drawing Boundary geometry available
+to Drawing Studio, but introduced two implementation assumptions that must not
+enter the episode runtime:
 
 1. `OperatorWorkspace.inferredDrawingStudioPixel` may extrapolate the current
    affine mapping outside `TipCameraRegistration.applicabilityRectangle` for
@@ -269,17 +269,17 @@ the episode runtime:
    evidence-producing path must refuse it, classify it as typed non-attributable
    diagnostic output, or consume a newly validated evidence-authority revision
    whose applicability actually covers the point.
-2. `ContinuousMachineCoordinateTolerance` currently makes one 0.5 mm value
-   answer both Euclidean controller-settlement and axis-expanded drawing-region
-   containment questions. Those are different owners, metrics, and policy
-   revisions. Drawing containment normally admits no geometry outside the
-   accepted Boundary except a separately justified numerical epsilon; pose
-   settlement remains a quantization-aware Euclidean policy.
+2. `ContinuousMachineCoordinateTolerance` made one 0.5 mm value answer both
+   Euclidean controller-settlement and axis-expanded drawing-region containment
+   questions. `FIX-00` deleted that shared owner and replaced it with separately
+   typed metrics and revisions: 0.5 mm Euclidean controller settlement and a
+   1e-9 mm axis-containment epsilon for accepted-Boundary drawing geometry.
 
-`FIX-00` owns the settlement/containment policy split. `FIX-01` then owns
-outside-applicability evidence attribution. Both must complete before the
-attended baseline. They preserve the current Boundary/Border distinction and
-durable overlay decoding without preserving either incorrect semantic.
+`FIX-00` completed the settlement/containment policy split in `TASK-1B5992CF`.
+`FIX-01` still owns outside-applicability evidence attribution and must complete
+before the attended baseline. Both preserve the current Boundary/Border
+distinction and durable overlay decoding without preserving either incorrect
+semantic.
 
 Camera-frame names that actually identify exact frames remain valid. Durable
 `calibratedDrawableRegion`, `localPreLineBaseline`, `linePlan`, `lineExecution`,
@@ -521,7 +521,7 @@ own explicit authorization; generic execution authorization is insufficient.
 | DOC-00 | complete | none | repository | Initial canonical docs, observability contract, ledger, and skill landed in `TASK-C86132F1` at `d33d4ff` | `ARCHIVED` |
 | DOC-01 | complete | DOC-00 | repository | Canonical vocabulary, incremental cutover, completion hierarchy, execution modes, atomic ledger, evidence-history repair, and contract check delivered by `TASK-F2387A9A` | `DOC`, `DIFF`, `CRITIC` |
 | EA-01 | complete | DOC-01 | repository | Exhaustive current intent/guard/owner/port/mode/fixture inventory, retain/adapt/delete dispositions, current owners, cutover packages, exact deleted-symbol/direct-port scans, and exact focused test commands delivered by `TASK-513DC8A7`; no application source changed. | `DOC`, `DIFF`, `INVENTORY` |
-| FIX-00 | pending | EA-01 | software | Correction: separate Euclidean controller-pose settlement from drawing-region containment, give each one typed owner/metric/revision, and delete the shared 0.5 mm policy assumption and its tests. Preserve strict accepted-Boundary drawing containment apart from an explicitly justified numerical epsilon. | `DOC`, `DIFF`, `QUICK`, `STRICT`, `FIX-CONTAINMENT` |
+| FIX-00 | complete | EA-01 | software | Correction: separate Euclidean controller-pose settlement from drawing-region containment, give each one typed owner/metric/revision, and delete the shared 0.5 mm policy assumption and its tests. Preserve strict accepted-Boundary drawing containment apart from an explicitly justified numerical epsilon. Delivered by `TASK-1B5992CF`. | `DOC`, `DIFF`, `QUICK`, `STRICT`, `FIX-CONTAINMENT` |
 | FIX-01 | pending | FIX-00 | software | Correction: prevent projection outside `TipCameraRegistration.applicabilityRectangle` from becoming attributable evidence unless a newly validated evidence-authority revision expands applicability. Delete the evidence bypass assumption and its tests while retaining typed diagnostic-only projection. | `DOC`, `DIFF`, `QUICK`, `STRICT`, `FIX-APPLICABILITY` |
 | BASE-01 | pending | FIX-01 | attended-physical | Record the exact clean-main `TESTED-BASELINE-COMMIT`, build/sign that commit, and complete the attended known-good Learning Path with the mechanism continuously observed. Land evidence and limitations containing exactly one machine-readable `TESTED-BASELINE-COMMIT: <40-lowercase-hex>` line; the landing may change only this ledger and Current Evidence and must not tag or push. | `DOC`, `DIFF`, `STRICT`, `PHYSICAL-BASE` |
 | BASE-02 | pending | BASE-01 | remote-git | After separate authorization for this exact branch-ref push, prove the Current Evidence `TESTED-BASELINE-COMMIT` remains source-identical through the BASE-01 evidence-only landing, publish exactly that tested commit to `refs/heads/main` without force, and verify the remote ref. It creates no tag. | `PUBLISH-MAIN` |

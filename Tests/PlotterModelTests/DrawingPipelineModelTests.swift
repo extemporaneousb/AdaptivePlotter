@@ -167,8 +167,8 @@ struct DrawingExecutionPlanTests {
     }
   }
 
-  @Test("planner uses the region's nonzero coordinate tolerance at its boundary")
-  func usesCoordinateTolerance() throws {
+  @Test("planner uses only the region's numerical epsilon at its boundary")
+  func usesPlanningContainmentEpsilon() throws {
     let style = try StrokeStyle(nominalLineWidth: 0.4, penProfileID: IDs.pen)
     let program = try DrawingProgram(
       id: ProgramID(),
@@ -187,12 +187,13 @@ struct DrawingExecutionPlanTests {
     let region = try DrawableMachineRegion(
       bounds: AxisAlignedBounds(minX: 0, minY: 0, maxX: 10, maxY: 10)
     )
+    let epsilon = DrawingRegionContainmentPolicy.numericalEpsilonMM
 
     _ = try DrawingPlanner.plan(
       program: program,
       placement: DrawingPlacement(
         fieldAnchor: fieldPoint(0, 0),
-        machineAnchor: machinePoint(-0.5, 5),
+        machineAnchor: machinePoint(-epsilon, 5),
         uniformScale: 1
       ),
       drawableRegion: region,
@@ -204,7 +205,7 @@ struct DrawingExecutionPlanTests {
         program: program,
         placement: DrawingPlacement(
           fieldAnchor: fieldPoint(0, 0),
-          machineAnchor: machinePoint(-0.501, 5),
+          machineAnchor: machinePoint(-(epsilon + 1e-6), 5),
           uniformScale: 1
         ),
         drawableRegion: region,

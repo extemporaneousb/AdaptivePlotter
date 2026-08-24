@@ -613,12 +613,16 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     #expect(executionPlan.provenance.registrationRevisionID.rawValue == tipRevision.rawValue)
     #expect(executionPlan.drawableRegion.bounds == acceptedBoundary)
     #expect(MachinePositionAcceptancePolicy.toleranceMM == 0.5)
+    #expect(
+      DrawingRegionContainmentPolicy.numericalEpsilonMM
+        < MachinePositionAcceptancePolicy.toleranceMM
+    )
     #expect(executionPlan.drawableRegion.contains(try Point2(
-      x: acceptedBoundary.minX - 0.5,
+      x: acceptedBoundary.minX - DrawingRegionContainmentPolicy.numericalEpsilonMM,
       y: acceptedBoundary.minY
     )))
     #expect(!executionPlan.drawableRegion.contains(try Point2(
-      x: acceptedBoundary.minX - 0.501,
+      x: acceptedBoundary.minX - (DrawingRegionContainmentPolicy.numericalEpsilonMM * 2),
       y: acceptedBoundary.minY
     )))
     let expectedBorder = try DrawingBorderPlan(

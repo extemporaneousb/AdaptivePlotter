@@ -205,13 +205,14 @@ struct CurrentCameraCalibrationPlanningTests {
     let envelope = try AxisAlignedBounds<MachineSpace>(
       minX: -100, minY: -80, maxX: 100, maxY: 80
     )
+    let epsilon = DrawingRegionContainmentPolicy.numericalEpsilonMM
     _ = try SparseTipCircularMarkPlan(
-      center: MachinePosition(x: 98.5, y: 0),
+      center: MachinePosition(x: 98 + epsilon, y: 0),
       boundaryEnvelope: envelope
     )
     #expect(throws: CurrentCameraCalibrationPlanningError.circularMarkOutsideBoundaryEnvelope) {
       try SparseTipCircularMarkPlan(
-        center: MachinePosition(x: 98.501, y: 0),
+        center: MachinePosition(x: 98 + epsilon + 1e-6, y: 0),
         boundaryEnvelope: envelope
       )
     }

@@ -20,6 +20,44 @@ limitations remain in the named evidence section.
 | DOC-00 | `TASK-C86132F1` | `ARCHIVED=passed` | Historical: initial canonical episode migration documentation |
 | DOC-01 | `TASK-F2387A9A` | `DOC=passed`, `DIFF=passed`, `CRITIC=passed` | Episode migration execution readiness |
 | EA-01 | `TASK-513DC8A7` | `DOC=passed`, `DIFF=passed`, `INVENTORY=passed` | Episode current-source inventory |
+| FIX-00 | `TASK-1B5992CF` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed`, `FIX-CONTAINMENT=passed` | Coordinate settlement and containment split |
+
+## Coordinate settlement and containment split
+
+Implemented 2026-08-24 in Blackdog task `TASK-1B5992CF`.
+
+Controller-pose settlement and drawing-region containment now have different
+typed owners, metrics, revisions, and values. PlotterRuntime's
+`MachinePositionAcceptancePolicy` retains the quantization-aware Euclidean
+residual policy under `controllerQuantizedEuclideanV1`: 0.5 mm is accepted and
+0.501 mm is refused. PlotterModel's `DrawingRegionContainmentPolicy` owns
+axis-aligned accepted-Boundary containment under
+`acceptedBoundaryNumericalEpsilonV1`. Its 1e-9 mm epsilon admits floating-point
+residue but refuses commanded geometry a meaningful distance outside the
+Boundary.
+
+`DrawableMachineRegion`, `DrawingPlanner`, and sparse circle-footprint
+admission consume the drawing policy. Tip-registration construction now checks
+the intended calibration target against its exact applicability rectangle and
+checks reported/commanded position residuals separately; tip projection no
+longer obtains a 0.5 mm domain expansion through the controller-settlement
+policy. `ContinuousMachineCoordinateTolerance`, the old bounds API, and tests
+asserting a shared bounds tolerance were deleted with zero remaining source or
+test matches. Existing plan encoding/schema, Boundary versus Drawing Border
+meaning, controller ownership, and durable overlay decoding were preserved.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `DOC` | passed — `make docs-check` | canonical documents, ledger/evidence agreement, vocabulary, and repository contract |
+| `DIFF` | passed — `git diff --check` | source, tests, documentation, and contract update |
+| `QUICK` | passed — `make quick-test` | nonphysical unit/component partition |
+| `STRICT` | passed — `make strict-check` | strict concurrency, warnings as errors, signed bundle, launcher, full software suite, documentation contract, and diff integrity |
+| `FIX-CONTAINMENT` | passed — `swift test --filter CoordinateAcceptancePolicyTests` | three focused cases covering typed separation, 0.5/0.501 mm Euclidean settlement, exact/epsilon Boundary admission, and outside-Boundary refusal |
+
+Affected planning, calibration, and settlement suites also passed 43 focused
+tests. These are source, build, signing, deterministic software, and simulator
+results only. No attended controller, camera, motion, Pen, paper, operator
+click, or observed-ink validation was performed.
 
 ## Episode current-source inventory
 

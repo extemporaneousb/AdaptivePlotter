@@ -1,13 +1,22 @@
 import PlotterModel
 
-/// The single comparison policy for continuous machine-space positions.
+/// Controller-position settlement for requested and reported machine poses.
 ///
 /// GRBL reports positions quantized by the configured steps-per-millimetre values,
-/// and computed planning geometry can accumulate floating-point residue. No physical
-/// or computed machine position is therefore admitted through exact equality or
-/// zero-tolerance containment. Discrete identities and provenance remain exact.
+/// so a physically settled requested pose cannot require exact floating-point
+/// equality. Drawing-region containment is owned separately by PlotterModel.
 public enum MachinePositionAcceptancePolicy {
-  public static let toleranceMM = ContinuousMachineCoordinateTolerance.minimumMM
+  public enum Metric: String, Codable, Hashable, Sendable {
+    case euclideanResidualMillimetres
+  }
+
+  public enum Revision: String, Codable, Hashable, Sendable {
+    case controllerQuantizedEuclideanV1
+  }
+
+  public static let metric = Metric.euclideanResidualMillimetres
+  public static let revision = Revision.controllerQuantizedEuclideanV1
+  public static let toleranceMM = 0.5
 
   public static func residualMM(
     _ actual: MachinePosition,
@@ -25,19 +34,5 @@ public enum MachinePositionAcceptancePolicy {
 
   public static func accepts(residualMM: Double) -> Bool {
     residualMM.isFinite && residualMM >= 0 && residualMM <= toleranceMM
-  }
-
-  public static func contains(
-    _ position: MachinePosition,
-    in bounds: AxisAlignedBounds<MachineSpace>
-  ) -> Bool {
-    contains(position.point, in: bounds)
-  }
-
-  public static func contains(
-    _ point: Point2<MachineSpace>,
-    in bounds: AxisAlignedBounds<MachineSpace>
-  ) -> Bool {
-    bounds.contains(point, tolerance: toleranceMM)
   }
 }

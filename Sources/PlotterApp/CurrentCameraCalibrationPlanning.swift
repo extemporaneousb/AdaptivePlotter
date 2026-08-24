@@ -135,11 +135,11 @@ struct SparseTipCircularMarkPlan: Hashable, Sendable {
     boundaryEnvelope: AxisAlignedBounds<MachineSpace>
   ) throws {
     let point = center.point
-    let toleranceMM = MachinePositionAcceptancePolicy.toleranceMM
-    guard point.x - Self.radiusMM >= boundaryEnvelope.minX - toleranceMM,
-      point.x + Self.radiusMM <= boundaryEnvelope.maxX + toleranceMM,
-      point.y - Self.radiusMM >= boundaryEnvelope.minY - toleranceMM,
-      point.y + Self.radiusMM <= boundaryEnvelope.maxY + toleranceMM
+    guard DrawingRegionContainmentPolicy.containsCircle(
+      center: point,
+      radiusMM: Self.radiusMM,
+      in: boundaryEnvelope
+    )
     else { throw CurrentCameraCalibrationPlanningError.circularMarkOutsideBoundaryEnvelope }
 
     var positions = try (0..<Self.chordCount).map { index in

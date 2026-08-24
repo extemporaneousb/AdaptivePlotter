@@ -122,15 +122,14 @@ struct TipCalibrationAuthorityTests {
     #expect(registration.consumedObservationIDs.count == 4)
   }
 
-  @Test("Applicability uses nonzero tolerance for target, geometry, and settlement")
-  func applicabilityUsesMachinePositionTolerance() throws {
+  @Test("Applicability keeps its target domain distinct from position settlement")
+  func applicabilitySeparatesTargetDomainFromSettlement() throws {
     let fixture = try TipAuthorityFixture()
     let observations = try ToolContactCalibrationPosition.allCases.map { position in
       try AcceptedToolContactObservation(
         artifactRevisionID: LearningArtifactRevisionID(),
         observation: fixture.observation(
           position: position,
-          machinePointOverride: position == .positiveX ? Point2(x: 100.013, y: 50) : nil,
           markPositionResidualMM: position == .positiveX ? 0.013 : 0.01,
           markGeometryCenterResidualMM: position == .positiveX ? 0.013 : 0
         )
@@ -153,7 +152,7 @@ struct TipCalibrationAuthorityTests {
       applicability: fixture.context(),
       acceptedRevisionID: LearningArtifactRevisionID(),
       machineCameraRegistrationRevisionID: fixture.machineCameraRevision,
-      estimatorRevision: "tip-affine-fit-boundary-settlement-v1",
+      estimatorRevision: "tip-affine-exact-domain-settlement-v1",
       acceptedAt: RuntimeTimestamp(
         monotonicNanoseconds: 800,
         wallTime: Date(timeIntervalSince1970: 0.8)
@@ -161,26 +160,39 @@ struct TipCalibrationAuthorityTests {
     )
 
     #expect(registration.observationEvidence.count == 5)
-    #expect(
-      abs(observations[3].observation.intendedMarkPosition.point.x - 100.013) < 1e-9
+    let positiveX = try #require(
+      observations.first { $0.observation.calibrationPosition == .positiveX }
     )
     #expect(
-      abs(observations[3].observation.actualSettledPosition.point.x - 100.026) < 1e-9
+      registration.applicabilityRectangle.contains(
+        positiveX.observation.intendedMarkPosition.point
+      )
     )
     #expect(
-      abs(observations[3].observation.markGeometry.center.point.x - 100.026) < 1e-9
+      abs(
+        MachinePositionAcceptancePolicy.residualMM(
+          positiveX.observation.actualSettledPosition,
+          from: positiveX.observation.intendedMarkPosition
+        ) - 0.013
+      ) < 1e-9
+    )
+    #expect(
+      MachinePositionAcceptancePolicy.accepts(
+        positiveX.observation.markGeometry.center,
+        target: positiveX.observation.intendedMarkPosition
+      )
     )
   }
 
-  @Test("Applicability rejects machine positions beyond the shared tolerance")
-  func applicabilityRejectsPositionOutsideTolerance() throws {
+  @Test("Applicability rejects a target outside its exact domain")
+  func applicabilityRejectsTargetOutsideDomain() throws {
     let fixture = try TipAuthorityFixture()
     let observations = try ToolContactCalibrationPosition.allCases.map { position in
       try AcceptedToolContactObservation(
         artifactRevisionID: LearningArtifactRevisionID(),
         observation: fixture.observation(
           position: position,
-          machinePointOverride: position == .positiveX ? Point2(x: 100.501, y: 50) : nil
+          machinePointOverride: position == .positiveX ? Point2(x: 100.013, y: 50) : nil
         )
       )
     }
@@ -207,7 +219,7 @@ struct TipCalibrationAuthorityTests {
         applicability: fixture.context(),
         acceptedRevisionID: LearningArtifactRevisionID(),
         machineCameraRegistrationRevisionID: fixture.machineCameraRevision,
-        estimatorRevision: "tip-affine-fit-outside-tolerance-v1",
+        estimatorRevision: "tip-affine-target-outside-domain-v1",
         acceptedAt: RuntimeTimestamp(
           monotonicNanoseconds: 800,
           wallTime: Date(timeIntervalSince1970: 0.8)

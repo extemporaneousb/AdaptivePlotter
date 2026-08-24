@@ -208,11 +208,13 @@ evidence authority.
 `DrawingProgramCatalog` produces deterministic field-space geometry. A
 `DrawingPlacement` is the only field-to-machine transform, and `DrawingPlanner`
 is the only producer of content-addressed `ExecutionPlanRevision` values.
-`DrawableMachineRegion` currently applies the same 0.5 mm value used by
-Euclidean machine-position settlement as an axis-wise outward expansion.
-Planning refuses geometry outside that expanded region and neither App nor
-Runtime clips it. These two guard questions have different owners and metrics;
-`FIX-00` must split their typed policies before the episode baseline.
+`DrawingRegionContainmentPolicy` owns axis-aligned closed-Boundary containment
+under revision `acceptedBoundaryNumericalEpsilonV1`; its 1e-9 mm epsilon absorbs
+floating-point residue without admitting physically meaningful geometry beyond
+the accepted Boundary. `MachinePositionAcceptancePolicy` separately owns
+revision `controllerQuantizedEuclideanV1`, the Euclidean residual metric, and
+the 0.5 mm requested-pose settlement tolerance. Planning refuses geometry
+outside its own epsilon and neither App nor Runtime clips it.
 `RunInterpreter` owns a whole plan as one `RunOperation`, with
 subordinate Pen-Up travel, pen actuation, finite drawing segments, Stop, and one
 checkpoint per logical stroke. `PlannedDrawingObservation` operates only after
@@ -409,9 +411,9 @@ Stage 2 does not reuse a Stage 1 target, baseline, or reveal pose.
 `DrawingBorderPlan` creates one closed polyline through the four accepted
 10 mm-inset circle centers, with four orthogonal edges and right-angle turns.
 `OperatorWorkspace` supplies the accepted Drawing Boundary—not that inset
-Drawing Border—as the plan's `DrawableMachineRegion`. The current region expands
-each Boundary axis by 0.5 mm; that is the known containment-policy defect
-assigned to `FIX-00`, not a target admissibility rule.
+Drawing Border—as the plan's `DrawableMachineRegion`. The region admits exact
+Boundary geometry and only its separately versioned 1e-9 mm numerical epsilon;
+it never imports or equals controller-position settlement tolerance.
 The visible 2.1 row owns one attempt from **Draw and Validate Drawing Border** through normal comparison; its
 six typed phases update activity and subsystem presentation but do not create
 six UI action owners. It stores:
