@@ -8,6 +8,46 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Canonical episode migration documentation
+
+Documented 2026-08-23 in Blackdog task `TASK-C86132F1`.
+
+The repository now has one
+[Episode Architecture Execution Plan](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md).
+It owns the accepted target packages, centralized semantic ingress, operation
+registry, event/replay and simulation boundaries, non-negotiable observability,
+same-landing deletion rules, work-package dependencies, pilot gate, and landed
+status ledger. Product Contract owns the corresponding durable authority and
+observability requirements; Swift Architecture remains explicitly as-built;
+Roadmap points to the plan rather than restating it.
+
+[Document Routing](INDEX.md) now inventories every current document and states
+whether it owns product meaning, as-built architecture, target migration,
+current interaction, evidence, physical procedure, roadmap scope, or repository
+workflow. The Learning Path Mermaid remains because it is the exact current
+button transition contract. Clearly labeled historical Current Evidence remains
+because it is evidence chronology. Neither is an alternate target architecture.
+
+No competing episode architecture, execution-plan comparison, or coordinator
+prompt was present in the tracked repository. The three temporary research and
+planning drafts used to reach the canonical result were removed after their
+accepted decisions were integrated. The repo-local AdaptivePlotter skill now
+routes `continue episode migration` through one focused continuation protocol
+and the canonical work ledger.
+
+This task changes documentation and the repo-local skill only. It implements no
+episode runtime, changes no application behavior, and supplies no physical
+validation.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| local Markdown-link check | passed — 13 files | `README.md`, `AGENTS.md`, all `docs/**/*.md`, and the AdaptivePlotter skill and focused references |
+| vestigial review/alternate-plan scan | passed — zero matches | superseded-review terminology, deleted temporary draft names, and competing-architecture wording across current documentation and the repo-local skill |
+| skill contract validation | passed — manual equivalent | frontmatter format, allowed keys, name and description constraints, unfinished placeholders, and the focused-reference target |
+| upstream `quick_validate.py` | skipped — its Python environment lacks PyYAML | no package or tool environment was mutated for this documentation task |
+| `git diff --check` | passed | documentation and repo-local skill changes |
+| application tests and attended physical validation | skipped | no application source, simulator, controller, camera, motion, Pen, paper, click, or ink behavior changed |
+
 ## Implemented software surface
 
 ### Stage 1/2 Learning Path numbering and operator terminology

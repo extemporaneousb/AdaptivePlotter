@@ -375,12 +375,19 @@ observed-ink validation is implied. See [Current Evidence](docs/CURRENT_EVIDENCE
 
 ## Authoritative documents
 
+- [Document Routing](docs/INDEX.md) — exhaustive document inventory, authority,
+  and task-specific selection rules.
 - [Product Contract](docs/PRODUCT_CONTRACT.md) — product semantics, authority,
   safety, evidence, calibration applicability, and Stage 2 dependency boundary.
 - [Discovery and Observed-Trial Protocol](docs/DISCOVERY_AND_OBSERVED_TRIAL_PROTOCOL.md)
   — exact operating sequence and recovery.
+- [Learning Path Button Transitions](docs/LEARNING_PATH_BUTTON_TRANSITIONS.md) —
+  exact current control-to-state interaction map.
 - [Architecture](docs/SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md) — package and
-  runtime ownership.
+  runtime ownership as currently implemented.
+- [Episode Architecture Execution Plan](docs/EPISODE_ARCHITECTURE_EXECUTION_PLAN.md)
+  — sole target architecture, migration ledger, observability contract, and
+  deletion/continuation gates.
 - [Attended Hardware Runbook](docs/ATTENDED_HARDWARE_RUNBOOK.md) — explicitly
   authorized, attended physical verification.
 - [Current Evidence](docs/CURRENT_EVIDENCE.md) — what is actually verified.

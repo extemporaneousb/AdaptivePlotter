@@ -1,12 +1,16 @@
 # AdaptivePlotter Swift Architecture
 
-Status: current package and ownership architecture
+Status: current as-built package and ownership architecture
 
 This document owns package boundaries, runtime owners, data flow, and dependency
 direction. Product invariants live in [Product Contract](PRODUCT_CONTRACT.md),
 the exact operator sequence in
 [Discovery and Observed-Trial Protocol](DISCOVERY_AND_OBSERVED_TRIAL_PROTOCOL.md),
-and verified status in [Current Evidence](CURRENT_EVIDENCE.md).
+the sole target migration in
+[Episode Architecture Execution Plan](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md),
+and verified status in [Current Evidence](CURRENT_EVIDENCE.md). Planned episode
+packages and ownership transfers do not become part of this as-built document
+until their work package lands and its superseded path is removed.
 
 ## Package topology
 

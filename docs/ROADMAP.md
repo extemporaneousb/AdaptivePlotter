@@ -4,7 +4,24 @@ Status: unfinished work only; never completion evidence
 
 Current implementation and verification are recorded in
 [Current Evidence](CURRENT_EVIDENCE.md). Product authority is
-[Product Contract](PRODUCT_CONTRACT.md).
+[Product Contract](PRODUCT_CONTRACT.md). The architecture migration and its
+dependencies are owned exclusively by
+[Episode Architecture Execution Plan](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md);
+this roadmap does not restate or reorder them.
+
+## 0. Episode architecture migration
+
+Complete the execution plan's `DOC-00`, known-good `BASE-00`, pilot packages,
+pilot gate, Learning Path migration, and composition cleanup in ledger order.
+Every package must preserve existing device/evidence authorities, satisfy the
+observability contract, delete its superseded authority in the same landing,
+and update Current Evidence. Do not create a parallel application, architecture
+plan, compatibility workflow, or effect-capable shadow path.
+
+The product experiments below may supply requirements to a package, but they do
+not bypass its dependencies or introduce another episode runtime. Adaptive
+selection, candidate fitting, and promotion remain later product capabilities
+on the canonical program/plan/evidence/episode path.
 
 ## 1. Attended sparse-calibration validation
 

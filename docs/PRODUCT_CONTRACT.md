@@ -6,6 +6,8 @@ This document owns durable product semantics, authority, safety, evidence, and
 artifact applicability. The operating sequence belongs to
 [Discovery and Observed-Trial Protocol](DISCOVERY_AND_OBSERVED_TRIAL_PROTOCOL.md),
 package ownership to [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md),
+the target episode migration to
+[Episode Architecture Execution Plan](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md),
 and verified status to [Current Evidence](CURRENT_EVIDENCE.md).
 
 ## Product boundary
@@ -102,6 +104,43 @@ evidence authority.
 `RunLedger` records ordered diagnostic facts. Raw controller events and typed
 workflow events remain distinct. Ledger facts cannot replay work, restore a
 capability, or promote an artifact.
+
+### Episode migration and observability requirements
+
+The episode migration is a replacement of application workflow authority, not
+a second product or hardware stack. The current `MachineController`,
+`RunInterpreter`, `CameraCapture`, Vision, planning, and evidence authorities
+remain authoritative unless one named execution-plan package explicitly moves a
+responsibility without creating a parallel owner. The complete target and work
+ledger are owned only by
+[Episode Architecture Execution Plan](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md).
+
+For every migrated effect-bearing or domain-authority-changing action:
+
+- one typed semantic ingress evaluates current state and versioned facts;
+- copied presentation availability is never authorization;
+- the reducer is the sole producer of typed external effects;
+- the runtime owns exact effect identity, lane, cancellation, and terminal
+  disposition, while existing device owners repeat fresh physical safety;
+- the superseded action, state, guard, task, effect, and fixture path is removed
+  in the same landing.
+
+Observability is required product behavior. Every refused action names its typed
+failed requirement, authoritative owner, compared revisions, and exact remedy.
+Every active effect exposes its episode/action/effect identity, lane, owner,
+phase, start and last attributable progress times, current wait, cancellation
+state, and terminal disposition. Progress must be an attributable event rather
+than a fabricated heartbeat. Every reachable nonterminal state provides an
+admissible action, an explicitly owned wait/progress state, an exact remedy, or
+owner-bound Stop/cancel.
+
+Runtime and UI projection revisions must be independently visible so a stale or
+starved UI can be distinguished from a controller, camera, Vision, persistence,
+or workflow wait. The episode journal, controller transcript, camera lifecycle,
+and structured diagnostics remain inspectable outside `MainActor`, and the
+operator can export one bounded incident package. Recording failure is visible
+but cannot authorize work, manufacture evidence, alter physical safety, or delay
+Stop/shutdown.
 
 ### Controller alarm recovery
 
