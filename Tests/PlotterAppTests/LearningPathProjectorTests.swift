@@ -74,7 +74,7 @@ struct LearningPathProjectorTests {
     )
     let drawing = projector.project(
       postBoundarySnapshot(sparse: .init(acceptedIsCurrent: true)),
-      selectedItemID: .observedDrawingTrial(.chooseFramePlan)
+      selectedItemID: .observedDrawingTrial(.chooseDrawingBorderPlan)
     )
 
     #expect(try #require(pen.currentActionStrip).actions.map(\.title) == ["Identify Pen Cap"])
@@ -87,7 +87,7 @@ struct LearningPathProjectorTests {
       try #require(sparseCalibration.currentActionStrip).actions.map(\.title)
         == ["Draw Four Calibration Circles"]
     )
-    #expect(try #require(drawing.currentActionStrip).actions.map(\.title) == ["Draw and Validate Frame"])
+    #expect(try #require(drawing.currentActionStrip).actions.map(\.title) == ["Draw and Validate Drawing Border"])
   }
 
   @Test("LIVE and SIMULATED use the same progression and action grammar")
@@ -303,22 +303,22 @@ struct LearningPathProjectorTests {
     #expect(tipEvidence.contains("4/4 accepted"))
     #expect(!tipEvidence.contains("/5 accepted"))
 
-    let drawingOwner = LearningPathItemID.observedDrawingTrial(.chooseFramePlan)
+    let drawingOwner = LearningPathItemID.observedDrawingTrial(.chooseDrawingBorderPlan)
     let drawingProjection = projector.project(
       postBoundarySnapshot(sparse: .init(acceptedIsCurrent: true)),
       selectedItemID: drawingOwner
     )
     let drawingInstructions = drawingProjection.selectedAction.instructions.accessibilityText
-    #expect(drawingInstructions.contains("Draw and Validate Frame"))
-    #expect(drawingInstructions.contains("four-edge frame"))
+    #expect(drawingInstructions.contains("Draw and Validate Drawing Border"))
+    #expect(drawingInstructions.contains("Drawing Border"))
     #expect(!drawingInstructions.contains("5 mm"))
     #expect(!drawingInstructions.contains("isolated line"))
   }
 
   @Test("drawing phases remain under one visible validation exercise")
   func drawingTrialProgression() throws {
-    let current = ObservedDrawingTrialStep.drawPictureFrame
-    let owner = LearningPathItemID.observedDrawingTrial(.chooseFramePlan)
+    let current = ObservedDrawingTrialStep.drawDrawingBorder
+    let owner = LearningPathItemID.observedDrawingTrial(.chooseDrawingBorderPlan)
     let snapshot = postBoundarySnapshot(
       sparse: .init(acceptedIsCurrent: true),
       drawing: .init(
@@ -332,7 +332,7 @@ struct LearningPathProjectorTests {
 
     #expect(currentProjection.currentItemID == owner)
     #expect(currentProjection.currentActionStrip?.actions.map(\.kind) == [.start])
-    #expect(currentProjection.currentActionStrip?.actions.first?.title == "Resume Frame Validation")
+    #expect(currentProjection.currentActionStrip?.actions.first?.title == "Resume Drawing Border Validation")
     #expect(currentProjection.selectedAction.itemID == owner)
     #expect(currentProjection.selectedAction.timeline?.position == current.rawValue)
     #expect(currentProjection.selectedAction.status == .current)
@@ -340,7 +340,7 @@ struct LearningPathProjectorTests {
 
   @Test("foreground trial Vision is visible as the operation owner")
   func foregroundTrialVisionIsVisible() throws {
-    let owner = LearningPathItemID.observedDrawingTrial(.chooseFramePlan)
+    let owner = LearningPathItemID.observedDrawingTrial(.chooseDrawingBorderPlan)
     let snapshot = postBoundarySnapshot(
       sparse: .init(acceptedIsCurrent: true),
       drawing: .init(currentStep: .revealAndObserveNewInk),
@@ -367,7 +367,7 @@ struct LearningPathProjectorTests {
 
   @Test("typed exact-workflow Vision owners never impersonate trial ink")
   func typedExactWorkflowVisionOwnersAreTruthful() throws {
-    let owner = LearningPathItemID.observedDrawingTrial(.chooseFramePlan)
+    let owner = LearningPathItemID.observedDrawingTrial(.chooseDrawingBorderPlan)
     let expectedStates: [ExactWorkflowVisionOwner: String] = [
       .penCapAppearance: "Pen-cap appearance Vision · active",
       .cameraCalibration: "Camera calibration Vision · active",
@@ -398,9 +398,9 @@ struct LearningPathProjectorTests {
     }
   }
 
-  @Test("completed curriculum remains on the drawing-frame validation endpoint")
+  @Test("completed curriculum remains on the Drawing Border validation endpoint")
   func completedCurriculumHasNoFutureRoute() {
-    let final = LearningPathItemID.observedDrawingTrial(.chooseFramePlan)
+    let final = LearningPathItemID.observedDrawingTrial(.chooseDrawingBorderPlan)
     let snapshot = postBoundarySnapshot(
       sparse: .init(acceptedIsCurrent: true),
       drawing: .init(

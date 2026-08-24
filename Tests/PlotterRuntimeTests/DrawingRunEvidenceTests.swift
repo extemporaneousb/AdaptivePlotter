@@ -10,9 +10,17 @@ struct DrawingRunEvidenceTests {
   func recordRoundTrip() throws {
     let record = try drawingEvidenceFixture(role: .reservedHoldout)
 
+    let encoded = try JSONEncoder().encode(record)
+    let object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+    let planReference = try #require(object["plan"] as? [String: Any])
+    let embeddedPlan = try #require(planReference["executionPlan"] as? [String: Any])
+    let drawableRegion = try #require(embeddedPlan["drawableRegion"] as? [String: Any])
+    #expect(embeddedPlan["schemaVersion"] as? Int == 1)
+    #expect(drawableRegion["coordinateToleranceMM"] == nil)
+
     let restored = try JSONDecoder().decode(
       DrawingRunEvidenceRecord.self,
-      from: JSONEncoder().encode(record)
+      from: encoded
     )
 
     #expect(restored == record)

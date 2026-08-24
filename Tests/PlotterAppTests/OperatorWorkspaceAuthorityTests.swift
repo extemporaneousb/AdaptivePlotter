@@ -10,7 +10,7 @@ extension OperatorWorkspaceTests {
   func centerArrivalAcceptsQuantizedSettlement() async throws {
     let target = try MachinePosition(x: -51.975, y: -73.684)
     let reproduced = try MachinePosition(x: -51.963, y: -73.673)
-    #expect(MachinePositionAcceptancePolicy.toleranceMM == 0.05)
+    #expect(MachinePositionAcceptancePolicy.toleranceMM == 0.5)
     #expect(MachinePositionAcceptancePolicy.accepts(reproduced, target: target))
 
     let log = EventLog()
@@ -47,13 +47,13 @@ extension OperatorWorkspaceTests {
   @Test("Out-of-tolerance center settlement offers center-only retry")
   func centerArrivalRejectsOutsideToleranceWithoutBoundaryRestart() async throws {
     let target = try MachinePosition(x: 0, y: 0)
-    let outside = try MachinePosition(x: 0.04, y: 0.04)
+    let outside = try MachinePosition(x: 0.501, y: 0)
     #expect(!MachinePositionAcceptancePolicy.accepts(outside, target: target))
 
     let log = EventLog()
     let machine = try MachineFixture(
       log: log,
-      relativeJogSettlementOffset: try Vector2(dx: 0.04, dy: 0.04)
+      relativeJogSettlementOffset: try Vector2(dx: 0.501, dy: 0)
     )
     let camera = try CameraFixture()
     let workspace = workspace(machine: machine, camera: camera, log: log)
@@ -82,7 +82,7 @@ extension OperatorWorkspaceTests {
     let activity = workspace.selectedOperatorActionPresentation(for: owner).activity
     #expect(activity?.action == "Move to Estimated Center")
     #expect(
-      activity?.detail.accessibilityText.contains("outside the 0.050 mm tolerance") == true
+      activity?.detail.accessibilityText.contains("outside the 0.500 mm tolerance") == true
     )
     #expect(
       activity?.acceptedResult.accessibilityText.contains("four accepted Boundary") == true

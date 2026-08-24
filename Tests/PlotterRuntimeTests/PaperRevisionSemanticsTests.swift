@@ -80,7 +80,7 @@ struct PaperRevisionSemanticsTests {
   func semanticOverlayKinds() throws {
     let kinds: [CameraOverlayKind] = [
       .acceptedBoundary,
-      .calibratedDrawableRegion,
+      .drawingBorder,
       .paperCoverage,
       .predictedContactPoint,
       .intendedPath,
@@ -90,5 +90,12 @@ struct PaperRevisionSemanticsTests {
       from: JSONEncoder().encode(kinds)
     )
     #expect(decoded == kinds)
+  }
+
+  @Test("Drawing Border retains the calibrated-region overlay wire value")
+  func drawingBorderOverlayWireCompatibility() throws {
+    let legacy = Data("\"calibratedDrawableRegion\"".utf8)
+    #expect(try JSONDecoder().decode(CameraOverlayKind.self, from: legacy) == .drawingBorder)
+    #expect(try JSONEncoder().encode(CameraOverlayKind.drawingBorder) == legacy)
   }
 }

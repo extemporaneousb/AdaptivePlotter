@@ -50,6 +50,47 @@ validation.
 
 ## Implemented software surface
 
+### Boundary admission, relative Drawing Border geometry, and coordinate tolerance
+
+Implemented 2026-08-23 in Blackdog task `TASK-12704A6B`.
+
+Continuous machine-coordinate comparison now has one PlotterModel-owned minimum
+tolerance of 0.5 mm, consumed by runtime position settlement and drawing-plan
+containment. The change preserves `ExecutionPlanRevision` and
+`DrawingReadinessAssessment` schema 1 plus the existing canonical region encoding,
+so persisted drawing evidence does not acquire a parallel tolerance field or a
+different plan hash. A point exactly 0.5 mm beyond a numeric edge is accepted;
+0.501 mm is outside.
+
+The accepted **Drawing Boundary** is the spatial admission region for Exercise 2.1
+and Drawing Studio. The **Drawing Border** remains target geometry exactly 10 mm
+inside the current v7 Boundary and is never reused as the admission region. One
+`drawingBorderBounds` derivation owns the inset, and `DrawingBorderPlan` derives
+both its machine vertices and relative field-space program from that same rectangle.
+The removed exact point-array comparison can no longer reject equivalent continuous
+geometry.
+
+Drawing Studio preview, paper-coverage projection, post-run intended geometry, and
+saved-plan overlays use one named inferred affine projection for Boundary-admitted
+points between the Border and Boundary. This does not enlarge the recorded inset
+tip-calibration applicability. A regression places a small Drawing Studio plan in
+that band and requires a ready preview. Existing overlay archives retain the durable
+`calibratedDrawableRegion` wire value while current presentation uses **Drawing
+Border** terminology.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| Focused coordinate, planning, persistence, overlay, sparse-workspace, and lifecycle suites | passed — 45 tests | 0.500/0.501 mm behavior, schema-1 embedded plans, overlay wire compatibility, one-source relative Border geometry, Boundary admission, and between-Border-and-Boundary preview |
+| `make quick-test` | passed — 505 tests | fast unit/component partition |
+| `make journey-test` | passed — 10 tests | retained end-to-end software journeys |
+| `make strict-check` | passed — 515 tests | strict concurrency, warnings as errors, signed bundle, launcher checks, full suite, repository contract, and diff check |
+| scoped critic review | passed — no remaining requested-scope issues | correctness, completeness, code quality, residual Border/Boundary consistency, and persistence compatibility |
+
+These are source, deterministic, simulator, build, signing, and repository-gate
+results. No attended camera, controller, physical motion, Pen, paper, operator
+click, or observed-ink validation was performed by this task. The app was not
+launched for physical verification.
+
 ### Stage 1/2 Learning Path numbering and operator terminology
 
 Implemented 2026-08-23 in Blackdog task `TASK-ED2EEC92`.
@@ -66,17 +107,18 @@ shared end-user vocabulary. Generic **Start**, **Next**, and **Go** labels were
 removed from Learning Path actions in favor of the effect of each click. Status
 and failure copy no longer exposes implementation terms such as admission,
 owner, typed state, workflow coordinator, accepted-artifact checkpoint, or tip
-model. Saved state is consistently **Saved Learning**, the accepted work area is
-the **Drawing Boundary**, and the final physical check is **drawing-frame
-validation**.
+model. Saved state is consistently **Saved Learning**, the accepted outer extent
+is the **Drawing Boundary**, the inset target is the **Drawing Border**, and the
+final physical check is **Drawing Border validation**.
 
 The copy audit also corrected behavioral drift: pen-tip calibration reports
 four accepted corner observations rather than five; Exercise 2.1 describes one
-closed frame through the four calibration-circle centers rather than an
-isolated 5 mm line; and frame evidence is described as drawing-frame validation.
+closed Drawing Border through the four calibration-circle centers rather than an
+isolated 5 mm line; and frame evidence is described as Drawing Border validation.
 The exact button-to-state diagram is recorded in
 [Learning Path Button Transitions](LEARNING_PATH_BUTTON_TRANSITIONS.md).
-Persisted schema and internal enum/algorithm identifiers were not renamed.
+Persisted artifact-kind identities remain stable while current presentation and
+plan/observer identifiers use Drawing Border terminology.
 
 | Validation | Result | Scope |
 | --- | --- | --- |
@@ -91,33 +133,33 @@ results. No attended camera, controller, physical motion, Pen, paper, operator
 click, or observed-ink validation was performed by this task. The app was not
 launched for physical verification.
 
-### Ten-millimeter Boundary inset and final picture-frame context
+### Ten-millimeter Boundary inset and final Drawing Border context
 
 Implemented 2026-08-22 in Blackdog task `TASK-83E5E3C9`.
 
-The current Stage 3.4 estimator places each of the four 2 mm-radius calibration-
-circle centers exactly 10 mm inside its two adjacent accepted 3.2 Boundary edges.
+The current Exercise 1.4 estimator places each of the four 2 mm-radius calibration-
+circle centers exactly 10 mm inside its two adjacent accepted Drawing Boundary edges.
 The commanded circle outlines therefore retain 8 mm of edge clearance. The
 resulting four-center rectangle remains the exact `TipCameraRegistration`
-applicability and Drawing Studio region; Stage 4.1 constructs its one closed
-four-edge `DrawingPlan` from that same recorded rectangle and remains the final
-required Learning Path exercise.
+applicability and Drawing Border target. The accepted Drawing Boundary is the
+Drawing Studio planning region; Exercise 2.1 constructs its one closed four-edge
+Drawing Border from the 10 mm inset and remains the final required Learning Path exercise.
 
 The camera view now renders two distinct geometries. An orange dashed **ACCEPTED
-3.2 BOUNDARY** comes from the accepted Boundary aggregates and is projected as
+DRAWING BOUNDARY** comes from the accepted Boundary aggregates and is projected as
 an explicitly inferred 10 mm extrapolation of the proposed or accepted contact
-map. The inner four-point rectangle comes from the registration applicability:
-it is cyan planned geometry during Stage 3.4 proposal review and a labeled 10 mm-
-inset calibrated frame after acceptance. Stage 4.1 overlays and physically draws
-that same inner frame after the operator presses its existing one-Go motion
+map. The inner Drawing Border comes from the registration applicability:
+it is cyan planned geometry during Exercise 1.4 proposal review and a labeled 10 mm-
+inset Drawing Border after acceptance. Exercise 2.1 overlays and physically draws
+that same Drawing Border after the operator presses its existing one-Go motion
 authorization. The v6 edge-touching estimator remains decodable only within its
 recorded domain; new evidence uses v7.
 
 | Validation | Result | Scope |
 | --- | --- | --- |
-| Focused planning, overlay, persistence, projector, and sparse-workspace suites | passed — 45 tests | 10 mm centers, 8 mm outline clearance, collapsed-axis refusal, v6 restore decoding, semantic overlay style, proposed/accepted dual rectangles, exact-revision Stage 4 frame execution, and one-Go endpoint |
+| Focused planning, overlay, persistence, projector, and sparse-workspace suites | passed — 45 tests | 10 mm centers, 8 mm outline clearance, collapsed-axis refusal, v6 restore decoding, semantic overlay style, proposed/accepted Boundary and Border, exact-revision Exercise 2.1 Border execution, and one-click endpoint |
 | `make quick-test` | passed — 500 tests | fast unit/component partition with retained journeys excluded |
-| `make journey-test` | passed — 10 tests | full four-circle acceptance, checkpoint revalidation, exact tip revision, closed-frame drawing, reset, Boundary, and simulator journeys |
+| `make journey-test` | passed — 10 tests | full four-circle acceptance, checkpoint revalidation, exact tip revision, closed-Border drawing, reset, Boundary, and simulator journeys |
 | `make strict-check` | passed — 510 tests | strict concurrency, warnings as errors, signed bundle, launcher checks, full suite, repository contract, and diff check |
 
 These are source, deterministic, simulator, build, signing, and repository-gate
@@ -781,11 +823,11 @@ The current source contains exactly two post-Boundary calibration exercises:
   commit.
 
 `TipCameraRegistration` maps machine coordinates directly to contact pixels.
-Stage 4 consumes its exact revision and owns one closed picture-frame plan
+Stage 4 consumes its exact revision and owns one closed Drawing Border plan
 through the four circle centers, its local baseline and reveal MPos, canonical
 drawing-plan execution, newer post-frame, and planned ink observation.
 The camera view separately projects the accepted 3.2 Boundary and the inset
-four-point frame; during proposal review the latter is a cyan planned overlay,
+Drawing Border; during proposal review the latter is a cyan planned overlay,
 and after acceptance it is the exact Stage 4.1 drawing domain.
 
 The single Learning package loads as a presentation-only candidate. It projects

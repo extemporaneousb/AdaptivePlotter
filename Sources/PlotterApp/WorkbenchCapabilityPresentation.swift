@@ -29,9 +29,9 @@ enum WorkbenchLearningCapabilityState: CaseIterable, Hashable, Sendable {
     case .savedMapNeedsRevalidation:
       "The saved pen-tip calibration cannot be used until its current applicability is explicitly revalidated."
     case .mapReady:
-      "The current accepted pen-tip calibration is available; drawing-frame validation is still pending."
+      "The current accepted pen-tip calibration is available; Drawing Border validation is still pending."
     case .interactiveLearningComplete:
-      "The current pen-tip calibration has one attributable drawing-frame validation; adaptive readiness is not established."
+      "The current pen-tip calibration has one attributable Drawing Border validation; adaptive readiness is not established."
     case .adaptiveDrawingReady:
       "The current drawing-readiness assessment is accepted for its declared scope."
     }

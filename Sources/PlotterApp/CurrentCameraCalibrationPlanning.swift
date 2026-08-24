@@ -51,7 +51,7 @@ extension CurrentCameraCalibrationPlanningError: LocalizedError {
 }
 
 /// One visible Exercise 1.4 mark. The circle is a 16-chord approximation whose
-/// maximum radial deviation is below the shared 0.05 mm machine-position
+/// maximum radial deviation is below the shared 0.5 mm machine-position
 /// acceptance policy.
 struct SparseTipCircularMarkPlan: Hashable, Sendable {
   static let radiusMM = 2.0
@@ -182,10 +182,10 @@ struct SparseTipBatchMarkPlan: Hashable, Sendable {
 
   let marks: [Mark]
   /// The exact accepted Exercise 1.2 machine-space Boundary from which this batch
-  /// is derived. It remains distinct from the inset calibration/frame domain.
+  /// is derived. It remains distinct from the inset calibration/Border domain.
   let boundaryEnvelope: AxisAlignedBounds<MachineSpace>
-  /// The calibration authority and physical picture-frame domain through the
-  /// four observed mark centers.
+  /// The calibration applicability and 10 mm-inset Drawing Border bounds
+  /// through the four observed mark centers.
   let applicabilityRectangle: AxisAlignedBounds<MachineSpace>
   let finalRevealPosition: MachinePosition
 
@@ -196,19 +196,7 @@ struct SparseTipBatchMarkPlan: Hashable, Sendable {
       for: boundarySideAggregates
     )
     boundaryEnvelope = acceptedBoundary
-    let inset = Self.boundaryInsetMM
-    guard acceptedBoundary.maxX - acceptedBoundary.minX > 2 * inset else {
-      throw CurrentCameraCalibrationPlanningError.insufficientSparseTipXAxisSpan
-    }
-    guard acceptedBoundary.maxY - acceptedBoundary.minY > 2 * inset else {
-      throw CurrentCameraCalibrationPlanningError.insufficientSparseTipYAxisSpan
-    }
-    applicabilityRectangle = try AxisAlignedBounds<MachineSpace>(
-      minX: acceptedBoundary.minX + inset,
-      minY: acceptedBoundary.minY + inset,
-      maxX: acceptedBoundary.maxX - inset,
-      maxY: acceptedBoundary.maxY - inset
-    )
+    applicabilityRectangle = try Self.drawingBorderBounds(for: acceptedBoundary)
     let center = try MachinePosition(
       x: (applicabilityRectangle.minX + applicabilityRectangle.maxX) / 2,
       y: (applicabilityRectangle.minY + applicabilityRectangle.maxY) / 2
@@ -250,6 +238,26 @@ struct SparseTipBatchMarkPlan: Hashable, Sendable {
     )
   }
 
+  /// Derives the current Drawing Border directly from the accepted Boundary.
+  /// This is the one owner of the 10 mm inset used by Exercise 1.4 and 2.1.
+  static func drawingBorderBounds(
+    for acceptedBoundary: AxisAlignedBounds<MachineSpace>
+  ) throws -> AxisAlignedBounds<MachineSpace> {
+    let inset = Self.boundaryInsetMM
+    guard acceptedBoundary.maxX - acceptedBoundary.minX > 2 * inset else {
+      throw CurrentCameraCalibrationPlanningError.insufficientSparseTipXAxisSpan
+    }
+    guard acceptedBoundary.maxY - acceptedBoundary.minY > 2 * inset else {
+      throw CurrentCameraCalibrationPlanningError.insufficientSparseTipYAxisSpan
+    }
+    return try AxisAlignedBounds<MachineSpace>(
+      minX: acceptedBoundary.minX + inset,
+      minY: acceptedBoundary.minY + inset,
+      maxX: acceptedBoundary.maxX - inset,
+      maxY: acceptedBoundary.maxY - inset
+    )
+  }
+
   static func applicabilityRectangle(
     for markGeometry: [ToolContactMarkGeometryEvidence]
   ) throws -> AxisAlignedBounds<MachineSpace> {
@@ -277,27 +285,48 @@ struct SparseTipBatchMarkPlan: Hashable, Sendable {
   }
 }
 
-/// One closed Stage 2 perimeter through the four Exercise 1.4 calibration centers.
+/// The closed Stage 2 Drawing Border through the four Exercise 1.4 calibration centers.
 /// Consecutive points differ on exactly one axis, giving four right-angle
 /// corners and returning to the starting point without a diagonal segment.
-struct ObservedDrawingTrialFramePlan: Hashable, Sendable {
+struct DrawingBorderPlan: Hashable, Sendable {
   let pathPositions: [MachinePosition]
   let pathDeltas: [Vector2<MachineSpace>]
+  let fieldPath: Polyline<FieldSpace>
+  let fieldExtent: Size2<FieldSpace>
 
   var startPosition: MachinePosition { pathPositions[0] }
 
-  init(domain: AxisAlignedBounds<MachineSpace>) throws {
-    pathPositions = [
-      try MachinePosition(x: domain.minX, y: domain.minY),
-      try MachinePosition(x: domain.minX, y: domain.maxY),
-      try MachinePosition(x: domain.maxX, y: domain.maxY),
-      try MachinePosition(x: domain.maxX, y: domain.minY),
-      try MachinePosition(x: domain.minX, y: domain.minY),
-    ]
+  init(bounds: AxisAlignedBounds<MachineSpace>) throws {
+    pathPositions = try closedMachineRectanglePositions(bounds: bounds)
     pathDeltas = try zip(pathPositions, pathPositions.dropFirst()).map { from, to in
       try from.point.vector(to: to.point)
     }
+    let origin = pathPositions[0].point
+    fieldPath = try Polyline(
+      points: pathPositions.map { position in
+        try Point2<FieldSpace>(
+          x: position.point.x - origin.x,
+          y: position.point.y - origin.y
+        )
+      }
+    )
+    fieldExtent = try Size2(
+      width: bounds.maxX - bounds.minX,
+      height: bounds.maxY - bounds.minY
+    )
   }
+}
+
+func closedMachineRectanglePositions(
+  bounds: AxisAlignedBounds<MachineSpace>
+) throws -> [MachinePosition] {
+  [
+    try MachinePosition(x: bounds.minX, y: bounds.minY),
+    try MachinePosition(x: bounds.minX, y: bounds.maxY),
+    try MachinePosition(x: bounds.maxX, y: bounds.maxY),
+    try MachinePosition(x: bounds.maxX, y: bounds.minY),
+    try MachinePosition(x: bounds.minX, y: bounds.minY),
+  ]
 }
 
 struct CurrentCameraCalibrationSample: Hashable, Sendable {

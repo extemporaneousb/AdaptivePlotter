@@ -151,7 +151,7 @@ struct CurrentCameraCalibrationPlanningTests {
     }
   }
 
-  @Test("Exercise 1.4 uses a 10 mm center inset and refuses collapsed frame axes")
+  @Test("Exercise 1.4 uses a 10 mm center inset and refuses collapsed Border axes")
   func sparseBatchUsesTenMillimeterInset() throws {
     let wide = try SparseTipBatchMarkPlan(
       boundarySideAggregates: boundaryEnvelope(
@@ -206,12 +206,12 @@ struct CurrentCameraCalibrationPlanningTests {
       minX: -100, minY: -80, maxX: 100, maxY: 80
     )
     _ = try SparseTipCircularMarkPlan(
-      center: MachinePosition(x: 98.013, y: 0),
+      center: MachinePosition(x: 98.5, y: 0),
       boundaryEnvelope: envelope
     )
     #expect(throws: CurrentCameraCalibrationPlanningError.circularMarkOutsideBoundaryEnvelope) {
       try SparseTipCircularMarkPlan(
-        center: MachinePosition(x: 98.051, y: 0),
+        center: MachinePosition(x: 98.501, y: 0),
         boundaryEnvelope: envelope
       )
     }
@@ -303,25 +303,33 @@ struct CurrentCameraCalibrationPlanningTests {
     ])
   }
 
-  @Test("Exercise 2.1 frame plan closes the four corners with orthogonal segments")
-  func stageFourFramePlan() throws {
+  @Test("Exercise 2.1 Drawing Border closes the four corners with orthogonal segments")
+  func drawingBorderPlan() throws {
     let domain = try AxisAlignedBounds<MachineSpace>(
       minX: -30, minY: -30, maxX: 30, maxY: 30
     )
-    let frame = try ObservedDrawingTrialFramePlan(domain: domain)
-    #expect(frame.pathPositions == [
+    let border = try DrawingBorderPlan(bounds: domain)
+    #expect(border.pathPositions == [
       try MachinePosition(x: -30, y: -30),
       try MachinePosition(x: -30, y: 30),
       try MachinePosition(x: 30, y: 30),
       try MachinePosition(x: 30, y: -30),
       try MachinePosition(x: -30, y: -30),
     ])
-    #expect(frame.pathDeltas == [
+    #expect(border.pathDeltas == [
       try Vector2(dx: 0, dy: 60),
       try Vector2(dx: 60, dy: 0),
       try Vector2(dx: 0, dy: -60),
       try Vector2(dx: -60, dy: 0),
     ])
+    #expect(border.fieldPath.points == [
+      try Point2<FieldSpace>(x: 0, y: 0),
+      try Point2<FieldSpace>(x: 0, y: 60),
+      try Point2<FieldSpace>(x: 60, y: 60),
+      try Point2<FieldSpace>(x: 60, y: 0),
+      try Point2<FieldSpace>(x: 0, y: 0),
+    ])
+    #expect(border.fieldExtent == (try Size2<FieldSpace>(width: 60, height: 60)))
   }
 
   @Test("plan refuses an incomplete accepted boundary envelope")

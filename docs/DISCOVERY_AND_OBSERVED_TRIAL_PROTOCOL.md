@@ -47,7 +47,7 @@ They may share a mechanical Jog Cancel primitive but never share a successful
 semantic disposition. Sticky ambiguity suppresses new physical motion.
 
 Every production comparison of requested pose and settled MPos uses fresh
-attributable controller evidence, compatible context, and the shared 0.05 mm
+attributable controller evidence, compatible context, and the shared 0.5 mm
 Euclidean policy.
 
 Presentation zoom, pan, and fitted bounds are available after Exercise 1.2. They are
@@ -140,7 +140,7 @@ by the dependency chain and does not hide Exercise 1.1 or the next physical acti
    records its forced opposite.
 10. After all four sides, **Move to Estimated Center** admits one stoppable
     Pen-Up move.
-11. Arrival succeeds only when the final MPos is within 0.05 mm of the derived
+11. Arrival succeeds only when the final MPos is within 0.5 mm of the derived
     center.
 
 Boundary renewal has no Vision adviser. Controller authority, the fixed bounded
@@ -192,7 +192,7 @@ The ordered positions and roles are:
    baseline. Each later sample must compare compatible and advance that local
    baseline.
 3. At every LIVE position, move Pen Up under the existing stoppable owner and
-   require fresh Idle/final MPos within 0.05 mm. Establish a preliminary fresh-
+   require fresh Idle/final MPos within 0.5 mm. Establish a preliminary fresh-
    frame boundary, then acquire exactly three strictly newer exact inspection
    frames with one unchanged source and camera configuration. The preliminary
    boundary frame is not accepted cap evidence. Every inspection frame must
@@ -236,8 +236,8 @@ coordinate change.
 Exercise 1.4 draws no center mark. It places four 2 mm-radius circles with every
 center exactly 10 mm inside its two adjacent accepted Boundary edges. Every
 circle footprint therefore remains 8 mm clear of those edges. Those
-four centers bound the accepted tip-map applicability and subsequent picture-
-frame validation. Exercise 1.3 retains its separate center plus four ±24 mm positions
+four centers bound the accepted tip-map applicability and subsequent Drawing
+Border validation. Exercise 1.3 retains its separate center plus four ±24 mm positions
 and camera-holdout authority.
 
 1. Press **Draw Four Calibration Circles** once. One exercise attempt and one existing
@@ -247,7 +247,7 @@ and camera-holdout authority.
    inter-circle, and reveal travel; do not issue another raise solely to begin
    travel while the authorization remains current. At each canonical position,
    require fresh Idle/final MPos
-   within 0.05 mm, capture and retain that circle's exact pre-mark frame and cap
+   within 0.5 mm, capture and retain that circle's exact pre-mark frame and cap
    anchor, and retain its controller and settled-position evidence.
 3. Verify the full circle lies inside the accepted Boundary envelope. Move Pen Up
    to its +X start point and settle.
@@ -320,7 +320,7 @@ For an unchanged physical setup:
 1. Start the replacement binary or restart the process/capture session. These
    software lifetimes do not rotate a physical semantic identity.
 2. Start the same camera device. Before applying anything, inspect the saved
-   drawing frame, predicted cap/tip where available, and reconstructable prior
+   Drawing Border, predicted cap/tip where available, and reconstructable prior
    drawing plans projected on the current frame.
 3. Read the advisory optical comparison. A compatible bounded reference reports
    integer X/Y shift and background mean absolute difference; incompatible or
@@ -345,7 +345,7 @@ After a new sheet on the explicitly unchanged contact plane:
 
 1. Rotate only `PaperInstanceRevision` and clear sheet-specific paper coverage,
    possible-ink locations, and retained drawing review state.
-2. Retain current tip authority and the attributable frame-validation lineage.
+2. Retain current tip authority and the attributable Drawing Border validation lineage.
 3. Place the new sheet over the calibrated outline and explicitly assert that
    it covers the outline before drawing. This is an operator assertion; paper
    edges are not measured.
@@ -361,27 +361,31 @@ After a changed support, stock thickness, contact height, or contact plane:
 Any mismatch or ambiguous contact leaves authority unavailable. It never falls
 back to automatic redraw or silent checkpoint promotion.
 
-## 2.1 Draw and Validate the Frame
+## 2.1 Draw and Validate the Drawing Border
 
 Exercise 2.1 requires the exact current accepted `TipCameraRegistration` revision.
 Every request/result cites that revision. It is one visible exercise with one
-normal **Draw and Validate Frame** action; the following are truthful runtime phases, not selectable
+normal **Draw and Validate Drawing Border** action; the following are truthful runtime phases, not selectable
 exercises or approval gates:
 
-1. **Plan and preview.** The app constructs one closed drawing-frame polyline
+1. **Plan and preview.** The app constructs the closed Drawing Border
    through the four accepted circle centers in minimum/minimum,
    minimum/maximum, maximum/maximum, maximum/minimum order, then returns to the
    start. It retains the projected accepted Drawing Boundary as separate context,
    projects the immutable inset plan through the current tip registration, and
-   renders the predicted frame in cyan before any motion.
+   renders the predicted Drawing Border in cyan before any motion. The Drawing
+   Border remains exactly 10 mm inside the accepted Drawing Boundary. Planning
+   uses the accepted Drawing Boundary as its spatial envelope and the shared
+   0.5 mm continuous-coordinate tolerance; the Drawing Border is not an
+   admission boundary.
 2. **Capture local baseline.** With Pen Up and the controller Idle, capture one
    exact fresh frame and record the current MPos as this validation's reveal pose.
-3. **Move to frame start.** Move Pen Up under one stoppable owner. Completion
-   requires fresh Idle/final MPos within 0.05 mm.
-4. **Draw frame.** Confirm the start, lower the pen once, execute all
+3. **Move to Drawing Border start.** Move Pen Up under one stoppable owner. Completion
+   requires fresh Idle/final MPos within 0.5 mm.
+4. **Draw Drawing Border.** Confirm the start, lower the pen once, execute all
    four orthogonal edges under the canonical drawing-plan owner, and raise.
 5. **Reveal and observe.** Return Pen Up to the recorded reveal MPos, require
-   fresh Idle/final MPos within 0.05 mm, capture a post-frame strictly newer
+   fresh Idle/final MPos within 0.5 mm, capture a post-frame strictly newer
    than the baseline and drawing settlement, and run bounded same-pose
    black/new-ink Vision. While this runs, the UI states that drawing-validation Vision owns
    processing. Retain observed geometry and residual, or a typed rejection.
@@ -409,7 +413,7 @@ selectable Learning Path stage.
 1. Open **Drawing Studio** after the attributable Exercise 2.1 result. Use
    **Review Comparison** to return to the pinned exact post-frame or
    **Resume Live Preview** before placement.
-2. Confirm the calibrated drawable-region outline is visible. Place the current
+2. Confirm the accepted Drawing Boundary outline is visible. Place the current
    physical sheet over it and choose **Assert Sheet Covers Outline**. The assertion
    cites the current paper instance, contact plane, source, exact frame, and
    camera configuration. It does not change calibration.
@@ -418,7 +422,7 @@ selectable Learning Path stage.
    Curves use bounded deterministic tessellation.
 4. Click the video to place its center, then set uniform scale and rotation.
    The workspace creates a new immutable placement and content-addressed plan on
-   each change. A stroke outside the calibrated region refuses planning; no
+   each change. A stroke outside the accepted Drawing Boundary refuses planning; no
    clipping or machine request occurs.
 5. Review the projected target on the exact current frame. Before Run, select
    its fixed evidence role: ordinary drawing, training, reserved holdout, or
@@ -454,8 +458,8 @@ evidence.
 four side aggregates -> center -> center arrival
 -> five-cap machine-camera registration
 -> four immutable contact observations -> accepted tip-camera registration
--> closed drawing-frame plan + local baseline/reveal pose
--> frame execution + newer post-frame
+-> closed Drawing Border plan + local baseline/reveal pose
+-> Drawing Border execution + newer post-frame
 -> planned ink observation -> residual -> typed comparison + durable validation record
 -> paper coverage + placed DrawingProgram -> immutable execution plan
 -> controller execution -> exact-frame planned-ink observation -> run record
@@ -491,7 +495,7 @@ raw observations remain history.
 
 SIMULATED traverses the same public actions and dependency graph. It owns a
 simulated session, Motion authorization, MPos, pen pose, renewable Boundary
-motion, 2 mm-radius circular marks, closed drawing-frame drawing, paper revision,
+motion, 2 mm-radius circular marks, closed Drawing Border drawing, paper revision,
 persistent ink, causal frames, and a real nonzero cap-to-tip truth.
 
 Annotations are exact identity-bound presentation only. They do not modify

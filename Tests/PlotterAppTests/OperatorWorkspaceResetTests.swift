@@ -553,7 +553,7 @@ extension OperatorWorkspaceTests {
     await workspace.shutdown()
   }
 
-  @Test("Reset drawing-frame validation atomically and perform no redraw")
+  @Test("Reset Drawing Border validation atomically and perform no redraw")
   func resetObservedTrialAtomically() async throws {
     let harness = makeSimulatedHarness()
     let workspace = harness.workspace
@@ -575,14 +575,14 @@ extension OperatorWorkspaceTests {
       return
     }
     let inkBefore = await harness.runtime.persistentInk()
-    let anchor = LearningPathItemID.observedDrawingTrial(.chooseFramePlan)
+    let anchor = LearningPathItemID.observedDrawingTrial(.chooseDrawingBorderPlan)
     let plan = try #require(workspace.learningVacatePlan(from: anchor))
     #expect(plan.affectedItems == [anchor])
     #expect(plan.expectedCurrentRevisionIDs.count == 7)
     #expect(workspace.performLearningVacate(plan))
 
     #expect(workspace.drawingTrialAssessment == nil)
-    #expect(workspace.drawingTrialFramePlan == nil)
+    #expect(workspace.drawingBorderPlan == nil)
     #expect(workspace.localPreFrameBaseline == nil)
     #expect(workspace.learningArtifactGraph.currentRevision(for: .comparison(group)) == nil)
     #expect(workspace.learningArtifactGraph.currentRevision(for: .linePlan(group)) == nil)

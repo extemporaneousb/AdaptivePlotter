@@ -14,7 +14,7 @@ enum ExactWorkflowVisionOwner: String, CaseIterable, Hashable, Sendable {
     case .penCapAppearance: "pen-cap identification"
     case .cameraCalibration: "camera calibration"
     case .sparseTipCalibration: "pen-tip calibration"
-    case .observedDrawingTrial: "drawing-frame validation"
+    case .observedDrawingTrial: "Drawing Border validation"
     case .drawingStudio: "Drawing Studio validation"
     }
   }
@@ -217,26 +217,26 @@ struct LearningPathProjectionSnapshot: Sendable {
 
   struct DrawingFacts: Sendable {
     let currentStep: ObservedDrawingTrialStep
-    let framePath: [MachinePosition]
+    let drawingBorderPath: [MachinePosition]
     let localBaselineFrameID: String?
-    let frameSettled: Bool
+    let drawingBorderSettled: Bool
     let inkStatus: String
     let assessment: DrawingTrialAssessment?
     let lastTravelFeed: TravelFeedSelection?
 
     init(
-      currentStep: ObservedDrawingTrialStep = .chooseFramePlan,
-      framePath: [MachinePosition] = [],
+      currentStep: ObservedDrawingTrialStep = .chooseDrawingBorderPlan,
+      drawingBorderPath: [MachinePosition] = [],
       localBaselineFrameID: String? = nil,
-      frameSettled: Bool = false,
-      inkStatus: String = "no drawing-frame observation yet",
+      drawingBorderSettled: Bool = false,
+      inkStatus: String = "no Drawing Border observation yet",
       assessment: DrawingTrialAssessment? = nil,
       lastTravelFeed: TravelFeedSelection? = nil
     ) {
       self.currentStep = currentStep
-      self.framePath = framePath
+      self.drawingBorderPath = drawingBorderPath
       self.localBaselineFrameID = localBaselineFrameID
-      self.frameSettled = frameSettled
+      self.drawingBorderSettled = drawingBorderSettled
       self.inkStatus = inkStatus
       self.assessment = assessment
       self.lastTravelFeed = lastTravelFeed
@@ -455,7 +455,7 @@ struct LearningPathProjector: Sendable {
     if !snapshot.sparseCalibration.acceptedIsCurrent {
       return .humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
     }
-    return .observedDrawingTrial(.chooseFramePlan)
+    return .observedDrawingTrial(.chooseDrawingBorderPlan)
   }
 
   private func status(
@@ -499,7 +499,7 @@ struct LearningPathProjector: Sendable {
     case .humanGuidedDiscovery(.calibratePenContactFromSparseMarks):
       snapshot.sparseCalibration.acceptedIsCurrent
     case .observedDrawingTrial(let step):
-      step == .chooseFramePlan && snapshot.drawing.assessment != nil
+      step == .chooseDrawingBorderPlan && snapshot.drawing.assessment != nil
     }
   }
 
@@ -527,9 +527,9 @@ struct LearningPathProjector: Sendable {
     case .humanGuidedDiscovery(.calibratePenContactFromSparseMarks):
       "Draw four 2 mm-radius calibration circles whose centers are 10 mm inside the accepted Drawing Boundary. After one final Pen-Up reveal, click the four circle centers on the unchanged frame and review the proposed pen-tip calibration."
     case .stage(.observedDrawingTrials):
-      "Use the accepted pen-tip calibration to preview, draw, observe, and compare one closed frame through the four calibration-circle centers."
-    case .observedDrawingTrial(.chooseFramePlan):
-      "Press Draw and Validate Frame once. The app previews the four-edge frame, captures a baseline, draws the perimeter, returns Pen Up for a new image, and compares the observed ink with the plan."
+      "Use the accepted pen-tip calibration to preview, draw, observe, and compare the Drawing Border through the four calibration-circle centers."
+    case .observedDrawingTrial(.chooseDrawingBorderPlan):
+      "Press Draw and Validate Drawing Border once. The app previews the Drawing Border, captures a baseline, draws the perimeter, returns Pen Up for a new image, and compares the observed ink with the plan."
     case .observedDrawingTrial(let step): drawingActionText(step)
     }
   }
@@ -595,7 +595,7 @@ extension LearningPathProjector {
         feedSource: feed?.source
       )
     case .observedDrawingTrial(let step):
-      let isVisibleTrial = step == .chooseFramePlan
+      let isVisibleTrial = step == .chooseDrawingBorderPlan
       return OperatorActionPresentation(
         itemID: itemID,
         stepNumber: step.stepNumber,
@@ -603,10 +603,10 @@ extension LearningPathProjector {
         status: status(for: itemID, current: current, snapshot: snapshot),
         participant: isVisibleTrial ? "Application" : drawingParticipant(step),
         instructions: [.text(isVisibleTrial
-          ? "Press Draw and Validate Frame once for one closed four-edge frame. Keep Stop available during motion; planning, preview, baseline capture, drawing, reveal, Vision analysis, and comparison then continue without another approval."
+          ? "Press Draw and Validate Drawing Border once for one closed Drawing Border. Keep Stop available during motion; planning, preview, baseline capture, drawing, reveal, Vision analysis, and comparison then continue without another approval."
           : drawingActionText(step))],
         expectedObservation: [.text(isVisibleTrial
-          ? "A predicted cyan rectangular frame appears before motion, then observed white ink and orange residuals appear on the exact post-frame image."
+          ? "The predicted cyan Drawing Border appears before motion, then observed white ink and orange residuals appear on the exact post-frame image."
           : drawingExpectationText(step))],
         timeline: ExerciseTimelinePresentation(
           position: snapshot.drawing.currentStep.rawValue,
@@ -641,7 +641,7 @@ extension LearningPathProjector {
     case .exercise(_, let action, _):
       "Stop \(action.title) and wait for the active operation to settle. No Learning Path result will be accepted."
     case .drawingTrial:
-      "Stop drawing-frame validation. The active drawing operation will cancel once and settle Pen Up."
+      "Stop Drawing Border validation. The active drawing operation will cancel once and settle Pen Up."
     case .sparseTipBatch:
       "Stop the four-circle calibration. Any location where ink may exist will be excluded from automatic redraw."
     }
@@ -698,14 +698,14 @@ extension LearningPathProjector {
           mustRemainVisible: true
         )
       }
-      if itemID == .observedDrawingTrial(.chooseFramePlan) {
+      if itemID == .observedDrawingTrial(.chooseDrawingBorderPlan) {
         return ExerciseActionStripPresentation(
           ownerID: itemID,
           actions: [
             ExerciseActionDescriptor(
               kind: .start,
-              title: "\(LearningPathTerminology.Action.drawAndValidateFrame)…",
-              unavailableReason: "Drawing-frame validation is in progress."
+              title: "\(LearningPathTerminology.Action.drawAndValidateDrawingBorder)…",
+              unavailableReason: "Drawing Border validation is in progress."
             )
           ],
           mustRemainVisible: true
@@ -813,15 +813,15 @@ extension LearningPathProjector {
         ownerID: itemID,
         actions: [ExerciseActionDescriptor(
           kind: .restart,
-          title: itemID == .observedDrawingTrial(.chooseFramePlan)
-            ? "Retry Frame Validation" : "Restart Attempt",
+          title: itemID == .observedDrawingTrial(.chooseDrawingBorderPlan)
+            ? "Retry Drawing Border Validation" : "Restart Attempt",
           role: .positive
         )]
       )
     }
 
     if isComplete(itemID, snapshot: snapshot), itemID.isExercise {
-      if itemID == .observedDrawingTrial(.chooseFramePlan) { return nil }
+      if itemID == .observedDrawingTrial(.chooseDrawingBorderPlan) { return nil }
       let actions: [ExerciseActionDescriptor]
       if itemID == .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering) {
         actions = snapshot.boundary.acceptedDirections.flatMap { direction in
@@ -881,13 +881,13 @@ extension LearningPathProjector {
         ] + boundaryRepeatActions(snapshot.boundary.acceptedDirections)
       )
     }
-    if itemID == .observedDrawingTrial(.chooseFramePlan) {
+    if itemID == .observedDrawingTrial(.chooseDrawingBorderPlan) {
       let title = switch snapshot.drawing.currentStep {
-      case .chooseFramePlan: LearningPathTerminology.Action.drawAndValidateFrame
-      case .revealAndObserveNewInk: "Resume Frame Observation"
-      case .compareIntendedAndObservedGeometry: "Complete Frame Comparison"
-      case .captureLocalPreFrameBaseline, .moveToFrameStart, .drawPictureFrame:
-        "Resume Frame Validation"
+      case .chooseDrawingBorderPlan: LearningPathTerminology.Action.drawAndValidateDrawingBorder
+      case .revealAndObserveNewInk: "Resume Drawing Border Observation"
+      case .compareIntendedAndObservedGeometry: "Complete Drawing Border Comparison"
+      case .captureLocalPreFrameBaseline, .moveToDrawingBorderStart, .drawDrawingBorder:
+        "Resume Drawing Border Validation"
       }
       return ExerciseActionStripPresentation(
         ownerID: itemID,
@@ -1140,7 +1140,7 @@ extension LearningPathProjector {
           : [.text("Stop remains available for the active Pen-Up move.")]
       )
     }
-    if itemID == .observedDrawingTrial(.chooseFramePlan),
+    if itemID == .observedDrawingTrial(.chooseDrawingBorderPlan),
       operations.activeAttemptOwner == itemID
     {
       let phase = snapshot.drawing.currentStep
@@ -1152,7 +1152,7 @@ extension LearningPathProjector {
         detail: [.text(phase == .revealAndObserveNewInk
           && operations.exactWorkflowVisionOwner == .observedDrawingTrial
           ? "Vision is comparing the validation baseline with the strictly newer post-drawing image now."
-          : "Drawing-frame validation is progressing automatically; no additional approval is waiting.")],
+          : "Drawing Border validation is progressing automatically; no additional approval is waiting.")],
         recovery: operations.stopOwner == nil
           ? [] : [.text("Stop remains available for the active motion.")]
       )
@@ -1187,7 +1187,7 @@ extension LearningPathProjector {
       let failure = operations.explorationFailure
     {
       let recovery: [PresentationFragment]
-      if snapshot.drawing.frameSettled,
+      if snapshot.drawing.drawingBorderSettled,
         snapshot.drawing.currentStep == .revealAndObserveNewInk
       {
         recovery = [.text("Ink may exist. Draw is unavailable; resolve Pen Up if needed, then return and observe the existing frame.")]
@@ -1455,21 +1455,21 @@ extension LearningPathProjector {
 
   private func drawingParticipant(_ step: ObservedDrawingTrialStep) -> String {
     switch step {
-    case .chooseFramePlan: "Application"
+    case .chooseDrawingBorderPlan: "Application"
     case .captureLocalPreFrameBaseline, .revealAndObserveNewInk: "Camera and Vision"
-    case .moveToFrameStart, .drawPictureFrame: "Plotter controller"
+    case .moveToDrawingBorderStart, .drawDrawingBorder: "Plotter controller"
     case .compareIntendedAndObservedGeometry: "Application"
     }
   }
 
   private func drawingActionText(_ step: ObservedDrawingTrialStep) -> String {
     switch step {
-    case .chooseFramePlan:
-      "Build the closed frame through the four accepted calibration-circle centers and project it through the accepted pen-tip calibration."
+    case .chooseDrawingBorderPlan:
+      "Build the closed Drawing Border through the four accepted calibration-circle centers and project it through the accepted pen-tip calibration."
     case .captureLocalPreFrameBaseline:
       "Capture one exact local baseline and record this Pen-Up reveal pose."
-    case .moveToFrameStart: "Move Pen Up to the recorded lower-left frame corner."
-    case .drawPictureFrame: "Draw the closed four-edge frame as one stoppable controller operation."
+    case .moveToDrawingBorderStart: "Move Pen Up to the recorded lower-left Drawing Border corner."
+    case .drawDrawingBorder: "Draw the closed Drawing Border as one stoppable controller operation."
     case .revealAndObserveNewInk:
       "Return Pen Up to the local reveal pose, settle, capture a newer frame, and extract new ink."
     case .compareIntendedAndObservedGeometry:
@@ -1479,14 +1479,14 @@ extension LearningPathProjector {
 
   private func drawingExpectationText(_ step: ObservedDrawingTrialStep) -> String {
     switch step {
-    case .chooseFramePlan:
-      "One closed frame plan through the four accepted 10 mm-inset marks, projected by the exact accepted pen-tip calibration."
+    case .chooseDrawingBorderPlan:
+      "One closed Drawing Border through the four accepted 10 mm-inset marks, projected by the exact accepted pen-tip calibration."
     case .captureLocalPreFrameBaseline:
       "One exact pre-frame image and its Pen-Up reveal MPos."
-    case .moveToFrameStart: "Arrival at the lower-left frame corner while Pen Up."
-    case .drawPictureFrame: "A closed controller drawing-plan outcome for all four edges; this is not yet ink proof."
+    case .moveToDrawingBorderStart: "Arrival at the lower-left Drawing Border corner while Pen Up."
+    case .drawDrawingBorder: "A closed controller drawing-plan outcome for all four edges; this is not yet ink proof."
     case .revealAndObserveNewInk:
-      "Observed new drawing-frame ink or an explicit unclear/rejected observation, with no automatic redraw."
+      "Observed new Drawing Border ink or an explicit unclear/rejected observation, with no automatic redraw."
     case .compareIntendedAndObservedGeometry:
       "One application-recorded comparison completes only this attributable validation."
     }
@@ -1561,7 +1561,7 @@ extension LearningPathProjector {
             : "Unavailable — pen-tip calibration required")]
         ),
         ExerciseEvidencePresentation(
-          label: "Drawing-frame validation",
+          label: "Drawing Border validation",
           fragments: [.text(snapshot.drawing.assessment == nil
             ? snapshot.drawing.inkStatus
             : "One attributable validation complete")]
@@ -1815,27 +1815,27 @@ extension LearningPathProjector {
     snapshot: LearningPathProjectionSnapshot
   ) -> [ExerciseEvidencePresentation] {
     switch step {
-    case .chooseFramePlan:
+    case .chooseDrawingBorderPlan:
       [ExerciseEvidencePresentation(
-        label: "Frame plan",
-        fragments: [.text(pictureFramePlanDescription(snapshot.drawing.framePath))]
+        label: "Drawing Border plan",
+        fragments: [.text(drawingBorderPlanDescription(snapshot.drawing.drawingBorderPath))]
       )]
     case .captureLocalPreFrameBaseline:
       [ExerciseEvidencePresentation(
         label: "Local pre-frame baseline",
         fragments: [.text(snapshot.drawing.localBaselineFrameID ?? "not captured")]
       )]
-    case .moveToFrameStart:
+    case .moveToDrawingBorderStart:
       [ExerciseEvidencePresentation(
-        label: "Frame start",
-        fragments: [.text(snapshot.drawing.framePath.first.map {
+        label: "Drawing Border start",
+        fragments: [.text(snapshot.drawing.drawingBorderPath.first.map {
           String(format: "X %.3f Y %.3f", $0.point.x, $0.point.y)
         } ?? "not reached")]
       )]
-    case .drawPictureFrame:
+    case .drawDrawingBorder:
       [ExerciseEvidencePresentation(
         label: "Controller",
-        fragments: [.text(snapshot.drawing.frameSettled ? "settled" : "not settled")]
+        fragments: [.text(snapshot.drawing.drawingBorderSettled ? "settled" : "not settled")]
       )]
     case .revealAndObserveNewInk:
       [ExerciseEvidencePresentation(
@@ -1853,16 +1853,16 @@ extension LearningPathProjector {
   private func drawingTrialEvidence(
     snapshot: LearningPathProjectionSnapshot
   ) -> [ExerciseEvidencePresentation] {
-    let plan = pictureFramePlanDescription(snapshot.drawing.framePath)
+    let plan = drawingBorderPlanDescription(snapshot.drawing.drawingBorderPath)
     return [
-      ExerciseEvidencePresentation(label: "Predicted frame", fragments: [.text(plan)]),
+      ExerciseEvidencePresentation(label: "Predicted Drawing Border", fragments: [.text(plan)]),
       ExerciseEvidencePresentation(
         label: "Local baseline",
         fragments: [.text(snapshot.drawing.localBaselineFrameID ?? "not captured")]
       ),
       ExerciseEvidencePresentation(
-        label: "Controller frame",
-        fragments: [.text(snapshot.drawing.frameSettled ? "settled" : "not settled")]
+        label: "Controller Drawing Border",
+        fragments: [.text(snapshot.drawing.drawingBorderSettled ? "settled" : "not settled")]
       ),
       ExerciseEvidencePresentation(label: "Vision", fragments: [.text(snapshot.drawing.inkStatus)]),
       ExerciseEvidencePresentation(
@@ -1872,13 +1872,13 @@ extension LearningPathProjector {
       ExerciseEvidencePresentation(
         label: "Validation scope",
         fragments: [.text(snapshot.drawing.assessment == nil
-          ? "Pen-tip calibration ready; drawing-frame validation pending"
-          : "One attributable drawing-frame validation is complete; adaptive readiness is not established")]
+          ? "Pen-tip calibration ready; Drawing Border validation pending"
+          : "One attributable Drawing Border validation is complete; adaptive readiness is not established")]
       ),
     ]
   }
 
-  private func pictureFramePlanDescription(_ path: [MachinePosition]) -> String {
+  private func drawingBorderPlanDescription(_ path: [MachinePosition]) -> String {
     guard path.count == 5 else { return "not planned" }
     let points = path.map(\.point)
     return String(

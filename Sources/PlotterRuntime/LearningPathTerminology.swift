@@ -18,7 +18,7 @@ public enum LearningPathTerminology {
       "Calibrate Camera from Pen Cap Positions"
     public static let calibratePenTipFromCornerMarks =
       "Calibrate Pen Tip from Corner Marks"
-    public static let drawAndValidateFrame = "Draw and Validate the Frame"
+    public static let drawAndValidateDrawingBorder = "Draw and Validate the Drawing Border"
   }
 
   public enum Action {
@@ -32,14 +32,15 @@ public enum LearningPathTerminology {
     public static let drawCalibrationCircles = "Draw Four Calibration Circles"
     public static let acceptPenTipCalibration = "Accept Pen-Tip Calibration"
     public static let rejectPenTipCalibration = "Reject Pen-Tip Calibration"
-    public static let drawAndValidateFrame = "Draw and Validate Frame"
+    public static let drawAndValidateDrawingBorder = "Draw and Validate Drawing Border"
     public static let useSavedLearning = "Use Saved Learning"
     public static let startNewLearning = "Start New Learning"
   }
 
   public enum Evidence {
     public static let acceptedDrawingBoundaryOverlay = "ACCEPTED DRAWING BOUNDARY"
-    public static let drawingFrameValidation = "drawing-frame validation"
+    public static let drawingBorderOverlay = "DRAWING BORDER · 10 MM INSET"
+    public static let drawingBorderValidation = "Drawing Border validation"
     public static let penTipCalibration = "pen-tip calibration"
   }
 }

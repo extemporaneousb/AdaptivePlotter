@@ -272,7 +272,7 @@ func completeSimulatedSparseTipCalibration(
 func completeSimulatedStageFour(_ workspace: OperatorWorkspace) async throws {
   try await performPublicAction(
     .start,
-    owner: .observedDrawingTrial(.chooseFramePlan),
+    owner: .observedDrawingTrial(.chooseDrawingBorderPlan),
     workspace: workspace
   )
   #expect(workspace.drawingTrialAssessment == .predictionObserved)

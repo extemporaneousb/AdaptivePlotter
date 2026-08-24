@@ -65,13 +65,13 @@ struct TipCalibrationAuthorityTests {
       )
     }
     #expect(throws: TipCalibrationAuthorityError.frameEvidenceMismatch) {
-      try fixture.observation(position: .center, markPositionResidualMM: 0.051)
+      try fixture.observation(position: .center, markPositionResidualMM: 0.501)
     }
     #expect(throws: TipCalibrationAuthorityError.frameEvidenceMismatch) {
-      try fixture.observation(position: .center, revealPositionResidualMM: 0.051)
+      try fixture.observation(position: .center, revealPositionResidualMM: 0.501)
     }
     #expect(throws: TipCalibrationAuthorityError.frameEvidenceMismatch) {
-      try fixture.observation(position: .center, markGeometryCenterResidualMM: 0.051)
+      try fixture.observation(position: .center, markGeometryCenterResidualMM: 0.501)
     }
   }
 
@@ -180,7 +180,7 @@ struct TipCalibrationAuthorityTests {
         artifactRevisionID: LearningArtifactRevisionID(),
         observation: fixture.observation(
           position: position,
-          machinePointOverride: position == .positiveX ? Point2(x: 100.051, y: 50) : nil
+          machinePointOverride: position == .positiveX ? Point2(x: 100.501, y: 50) : nil
         )
       )
     }

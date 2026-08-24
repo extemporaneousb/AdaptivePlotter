@@ -27,7 +27,7 @@ physical-ink claim.
 ## Preconditions
 
 1. Use a disposable sheet with room for four 4 mm-diameter corner marks and the
-   closed frame connecting their centers.
+   closed Drawing Border connecting their centers.
 2. Confirm the pen, holder, cap landmark, camera, mount, crop/orientation, paper,
    and controller are the intended unchanged assembly for this run.
 3. Confirm the mechanism is clear and the physical cutoff is reachable.
@@ -70,7 +70,7 @@ operator name or identifier.
    Boundary renewal uses fixed bounded controller segments and never consults
    Camera or Vision advice.
 8. Move to the derived center and confirm the final MPos meets the displayed
-   0.05 mm settlement policy.
+   0.5 mm settlement policy.
 
 Any ambiguous or out-of-tolerance result ends this run. It is not evidence for
 the requested side or center.
@@ -135,7 +135,7 @@ remains on its separate center plus four ±24 mm camera-calibration positions.
    Frame**. Confirm no motion, ink, redraw, new frame, zoom, or pan occurs.
 9. On the fourth valid click, confirm the app constructs but does not yet accept
    the all-corner affine `TipCameraRegistration`. Review the frozen-frame markers,
-   the separately labeled accepted Drawing Boundary, the cyan inset rectangle through
+   the separately labeled accepted Drawing Boundary, the cyan inset Drawing Border through
    the four selected centers, diagnostic residuals, RMS, covariance, and
    uncertainty. Choose **Accept Pen-Tip Calibration** and confirm Stage 2
    becomes current. Also exercise **Reject Pen-Tip Calibration**
@@ -159,7 +159,7 @@ restoration.
 
 - Same unchanged paper and assembly after binary/app/capture restart: keep
   Motion disabled and start the same camera. Before either decision, inspect
-  the saved drawing frame, inner picture region, cap/tip when supported, prior
+  the saved Drawing Border, inner applicability region, cap/tip when supported, prior
   drawing paths, and advisory optical comparison projected into the current
   frame. Confirm neither preview nor **Start New Learning** changes the active
   dependency graph, registration, controller pose, session ownership, or
@@ -187,10 +187,10 @@ restoration.
 If any semantic identity is uncertain, do not revalidate. Clear the durable tip
 checkpoint and perform a new four-mark calibration.
 
-## 5. Exercise 2.1 — draw and validate the frame
+## 5. Exercise 2.1 — draw and validate the Drawing Border
 
 1. Record the exact current tip registration revision.
-2. Press **Draw and Validate Frame** once. Confirm a cyan planned closed frame through the four
+2. Press **Draw and Validate Drawing Border** once. Confirm a cyan planned Drawing Border through the four
    accepted circle centers appears inside the separately labeled accepted Drawing
    Boundary on the current video before motion and that its machine path and
    exact tip revision are visible. There is no direction
@@ -199,7 +199,7 @@ checkpoint and perform a new four-mark calibration.
    travel, draw, reveal/observe, and comparison. During motion, confirm the exact
    **Stop** remains available. No additional continuation or approval should
    be required on the normal path.
-4. Watch Pen-Up travel settle at the lower-left frame start, then directly
+4. Watch Pen-Up travel settle at the lower-left Drawing Border start, then directly
    observe four orthogonal edges and four right-angle turns under the single
    drawing-plan owner. Do not resend after ambiguity.
 5. Confirm the plotter returns Pen Up to the trial-local reveal MPos, settles,
@@ -223,7 +223,7 @@ Up and observe the existing stroke, but it must not redraw it.
 
 ## 6. Drawing Studio — first physical plan
 
-1. Open **Drawing Studio** and confirm the calibrated drawable outline and
+1. Open **Drawing Studio** and confirm the accepted Drawing Boundary outline and
    predicted current tip point are correctly overlaid on live video.
 2. Replace the disposable sheet if necessary using **New Sheet — Same Contact
    Plane**. Place it fully over the outline and press **Assert Sheet Covers

@@ -220,9 +220,10 @@ errors, overlays, speech, capability status, and documentation:
 | Concept | Required visible term |
 | --- | --- |
 | accepted four-side machine extent | **Drawing Boundary** |
+| closed target 10 mm inside the Drawing Boundary | **Drawing Border** |
 | five-position machine/cap result | **camera calibration** |
 | four-corner machine/contact-pixel result | **pen-tip calibration** |
-| closed four-edge plan and ink comparison | **drawing-frame validation** |
+| Drawing Border plan and ink comparison | **Drawing Border validation** |
 | persisted accepted Learning Path prefix | **Saved Learning** |
 | controller and Motion conditions outside the curriculum | **workbench prerequisites** |
 
@@ -240,7 +241,7 @@ reserved for attributable camera evidence and is never inferred from controller
 settlement.
 
 The implemented curriculum ends at the single visible **2.1 Draw and Validate
-the Frame** exercise. Its six phases are runtime activity, not six
+the Drawing Border** exercise. Its six phases are runtime activity, not six
 operator approvals or selectable Learning Path rows. Its exact comparison
 remains reviewable after completion. Drawing Studio is a direct workbench
 capability unlocked by that attributable validation; it is not another
@@ -377,7 +378,7 @@ controller ownership facts still apply; this paragraph adds no optical or
 workflow admission condition.
 
 All production requested-pose comparisons use fresh attributable controller
-evidence, compatible context, and at most 0.05 mm Euclidean residual. “Exact
+evidence, compatible context, and at most 0.5 mm Euclidean residual. “Exact
 pose” names that quantization-aware policy; it does not mean zero mathematical
 residual at an unrepresentable stepper position.
 
@@ -473,10 +474,13 @@ rectangle's geometric center, requires existing Pen-Up, Idle, and settlement
 evidence, captures one newer exact frame, and revalidates current camera/cap
 applicability once. All four observations share that final frozen reveal frame.
 Acceptance installs the rectangle through the four circle centers as the
-`TipCameraRegistration` applicability rectangle and Drawing Studio drawable
-region. Exercise 1.4 never changes zoom, pan, preferred zoom, or viewport focus
+`TipCameraRegistration` applicability rectangle. The accepted Drawing Boundary,
+not that inset rectangle, is the Drawing Studio drawable region. Preview and paper-
+coverage projection between the Border and Boundary use the registration's inferred
+affine projection and do not enlarge the recorded calibration applicability. Exercise
+1.4 never changes zoom, pan, preferred zoom, or viewport focus
 automatically. During proposal review, the camera view separately labels the
-accepted Drawing Boundary projection and renders the proposed inset four-point frame
+accepted Drawing Boundary projection and renders the proposed Drawing Border
 in cyan. The Boundary projection is an inferred 10 mm extrapolation from the
 proposed contact map, not measured boundary ink. The 10 mm-inset estimator has a
 new revision: previously accepted fixed-offset, v6 edge-touching, and five-mark
@@ -536,7 +540,7 @@ are diagnostic evidence only; their magnitude cannot reject either model or
 block progression. Numerical fitting cannot request paper replacement or route
 to **No Automatic Redraw**. Only explicit acceptance creates
 `TipCameraRegistration` and makes Stage 2 current. The next operator-owned
-physical authorization is **Draw and Validate Frame**.
+physical authorization is **Draw and Validate Drawing Border**.
 
 Paper replacement is recorded only when paper was actually replaced or through
 the existing possible-ink recovery. It is never a numerical model outcome.
@@ -626,14 +630,18 @@ exact current `TipCameraRegistration` revision.
 Exercise 2.1 constructs one immutable closed polyline through the four accepted
 circle centers: minimum/minimum, minimum/maximum, maximum/maximum,
 maximum/minimum, and back to minimum/minimum. It therefore has four orthogonal
-edges and right-angle turns. It projects that exact plan through the tip
-registration. It owns its own local pre-frame baseline, Pen-Up reveal MPos,
-frame-start travel, one canonical drawing-plan owner, return to the same reveal
+edges and right-angle turns. For the current calibration, those centers define
+the Drawing Border exactly 10 mm inside every accepted Drawing Boundary edge.
+The planner admits that border against the accepted Drawing Boundary using the
+shared 0.5 mm continuous-coordinate tolerance. The Drawing Border is target
+geometry; it is never reused as its own spatial admission region. The plan is
+projected through the tip registration. It owns its own local pre-frame baseline,
+Pen-Up reveal MPos, Drawing-Border-start travel, one canonical drawing-plan owner, return to the same reveal
 pose, strictly newer post-frame, and generic planned-drawing ink observation.
 Its request and result cite the exact tip revision.
 
-One **Draw and Validate Frame** click starts all normal Exercise 2.1 phases. The app chooses the closed frame
-plan deterministically, renders the model-predicted paper-contact frame in cyan
+One **Draw and Validate Drawing Border** click starts all normal Exercise 2.1 phases. The app chooses the closed Drawing Border
+deterministically, renders the model-predicted paper-contact border in cyan
 on the live current frame before motion, captures the baseline, moves and draws
 all four edges, returns to reveal, runs planned-drawing Vision, and records the
 normal comparison without further approval. Motion retains one
@@ -708,8 +716,8 @@ The dependency spine is:
 four Boundary aggregates -> estimated center -> center arrival
 -> five-cap MachineCameraRegistration
 -> four ToolContactObservation revisions -> TipCameraRegistration
--> closed drawing-frame plan + local pre-frame baseline
--> frame execution + post-frame -> planned ink observation -> residual -> comparison
+-> closed Drawing Border plan + local pre-frame baseline
+-> Drawing Border execution + post-frame -> planned ink observation -> residual -> comparison
 ```
 
 Reset From This Step is a deliberate chronological rewind, distinct from causal

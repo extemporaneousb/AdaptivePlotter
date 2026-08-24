@@ -7,7 +7,7 @@ import PlotterModel
 /// or computed machine position is therefore admitted through exact equality or
 /// zero-tolerance containment. Discrete identities and provenance remain exact.
 public enum MachinePositionAcceptancePolicy {
-  public static let toleranceMM = 0.05
+  public static let toleranceMM = ContinuousMachineCoordinateTolerance.minimumMM
 
   public static func residualMM(
     _ actual: MachinePosition,

@@ -71,7 +71,7 @@ struct WorkbenchPresentationTests {
       mustRemainVisible: true
     )
     let idle = ExerciseActionStripPresentation(
-      ownerID: .observedDrawingTrial(.chooseFramePlan),
+      ownerID: .observedDrawingTrial(.chooseDrawingBorderPlan),
       actions: [
         ExerciseActionDescriptor(kind: .start, title: "Start", role: .positive)
       ]

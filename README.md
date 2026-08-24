@@ -25,12 +25,12 @@ authorization ladder:
    - **1.3 Calibrate Camera from Pen Cap Positions**
    - **1.4 Calibrate Pen Tip from Corner Marks**
 2. **Drawing Validation**
-   - **2.1 Draw and Validate the Frame**
+   - **2.1 Draw and Validate the Drawing Border**
 
 **Connect** and **Enable Motion** are external workbench controls, not numbered
 curriculum steps. The visible curriculum finishes at 2.1. After the fourth valid
 Exercise 1.4 click commits the pen-tip calibration, one **Draw and Validate
-Frame** click previews the planned frame and owns the
+Drawing Border** click previews the planned Drawing Border and owns the
 normal baseline, motion, drawing, reveal, Vision, and comparison phases. Those
 phases are visible activity, not six approval buttons. The exact post-frame
 comparison remains reviewable after the exercise finishes. That attributable
@@ -69,7 +69,7 @@ limit-aware **Clear Alarm** action can send one guarded `$X` request.
 
 Controller `ok` proves acceptance only. Motion completes after fresh Idle and
 final MPos. Every production pose comparison uses attributable controller
-evidence and the shared 0.05 mm Euclidean settlement policy. Unknown post-write
+evidence and the shared 0.5 mm Euclidean settlement policy. Unknown post-write
 state is sticky and is never automatically resent.
 
 ## Sparse tip calibration
@@ -96,8 +96,8 @@ center circle. The four 2 mm-radius circle centers are the rectangle corners at
 `minX + 10 mm`, `minY + 10 mm`,
 `maxX − 10 mm`, and `maxY − 10 mm`. Every circle outline therefore remains 8 mm
 clear of its adjacent accepted Boundary edges. The camera view distinguishes the
-orange dashed accepted Drawing Boundary from the inner four-point frame; after the
-fourth click it also previews that proposed frame in cyan before map acceptance.
+orange dashed accepted Drawing Boundary from the inner Drawing Border; after the
+fourth click it also previews that proposed Drawing Border in cyan before map acceptance.
 Exercise 1.3 retains its separate existing ±24 mm camera-calibration spacing. One
 exercise attempt and one stoppable operation draw the four circles in canonical
 evidence-slot order. For every circle the app travels and settles Pen Up at the
@@ -106,15 +106,17 @@ moves Pen Up to the circle start, lowers and settles using the current Pen
 Interaction profile, draws one closed 16-chord circle of 2 mm radius at no more
 than 100 mm/min, then raises and settles Pen Up before any inter-circle travel.
 There are exactly 64 circle chords and no connecting Pen-Down strokes during
-calibration. Exercise 2.1 draws the physical frame through the
+calibration. Exercise 2.1 draws the physical Drawing Border through the
 four accepted circle centers as one closed drawing plan.
 
 Only after the fourth circle does the app return Pen Up to the rectangle center,
 require Idle/final-MPos settlement, revalidate the current camera/cap
 applicability, and capture one newer exact frame. That exact frame is frozen
 unchanged for all four clicks. Accepting the resulting pen-tip calibration makes the four
-circle centers its applicability rectangle and Drawing Studio drawable
-region. Exercise 1.4 does not change zoom, pan, preferred zoom, or viewport focus
+circle centers its applicability rectangle. The accepted Drawing Boundary is the
+Drawing Studio drawable region; preview and coverage outside the inset applicability
+rectangle use the registration's inferred affine projection. Exercise 1.4 does not
+change zoom, pan, preferred zoom, or viewport focus
 automatically; manual presentation transforms remain operator controlled.
 
 Exercise 1.1 retains its Up → Down → Up sequence. Its Up and Down
@@ -149,12 +151,12 @@ used only when affine construction itself throws. All-corner residuals, RMS,
 covariance, and uncertainty remain diagnostics; their magnitude never rejects
 a model or blocks proposal creation. Exercise 1.4 has no holdouts and numerical
 fitting cannot request paper replacement or route to a no-redraw recovery.
-The fourth valid click atomically commits `TipCameraRegistration` and makes Stage
-4 current. A separate action appears only to retry a failed atomic commit.
+The fourth valid click atomically commits `TipCameraRegistration` and makes
+Exercise 2.1 current. A separate action appears only to retry a failed atomic commit.
 
 Exercise 1.4 therefore means the pen-tip calibration is ready within its
-recorded applicability. Exercise 2.1 validates that calibration once: the app draws the
-predicted cyan frame before motion, then shows observed white ink and orange
+recorded applicability. Exercise 2.1 validates that calibration once: the app previews the
+predicted cyan Drawing Border before motion, then shows observed white ink and orange
 residuals after Vision and retains that exact-frame comparison for later review.
 It does not claim a generally trained adaptive model. It does permit direct
 placed-vector drawing with the current map; automated coverage selection,
@@ -206,12 +208,12 @@ a content-addressed locator for archived bytes.
 ## Drawing validation
 
 Drawing Validation requires accepted Drawing Boundary evidence and the exact current
-`TipCameraRegistration` revision. Exercise 2.1 constructs one closed drawing-frame
+`TipCameraRegistration` revision. Exercise 2.1 constructs one closed Drawing Border
 polyline through the four accepted circle centers, projects that exact drawing
 plan through the registration, and owns its own:
 
 - local pre-frame baseline and Pen-Up reveal MPos;
-- frame-start travel and one drawing-plan owner for four orthogonal edges;
+- Drawing-Border-start travel and one drawing-plan owner for four orthogonal edges;
 - Pen-Up return to the same reveal pose;
 - strictly newer post-frame;
 - generic black/new-ink observation and residual.
@@ -231,14 +233,14 @@ triangle, regular polygon, circle, ellipse, star, pyramid, or elephant—then
 place its target on the video, resize it, rotate it, and inspect the projected
 plan. Curves are deterministically tessellated before execution.
 
-The accepted tip-map applicability projects a persistent calibrated drawable
-outline and the current predicted tip point. Paper is a separate operator fact:
+The accepted Drawing Boundary projects as the persistent drawable outline with
+the current predicted tip point. Paper is a separate operator fact:
 **Confirm Paper Coverage** binds the current sheet and exact frame to the
 outlined region before Run can become eligible. **New Sheet — Same Contact
 Plane** preserves learned geometry but requires a fresh coverage confirmation;
 **Contact Plane Changed** invalidates the pen-tip calibration.
 
-`DrawingPlanner` refuses any transformed stroke outside the calibrated region
+`DrawingPlanner` refuses any transformed stroke outside the accepted Drawing Boundary
 and emits an immutable content-addressed execution-plan revision with one
 checkpoint per logical stroke. `RunInterpreter` owns Pen-Up travel, lowering,
 every finite drawing segment, raising, Stop, and checkpoint progress as one
@@ -247,7 +249,7 @@ a newer exact frame, compares arbitrary planned polylines with new ink, and
 retains intended, observed, and residual overlays for review. Refusal,
 cancellation, ambiguity, or possible ink is terminal and never redraws.
 
-Drawing-frame validation and later run evidence are stored in a checksummed,
+Drawing Border validation and later run evidence are stored in a checksummed,
 append-only archive with fixed predeclared roles: ordinary drawing, training,
 reserved holdout, or evaluation holdout. These records may feed later model
 estimation, but they do not themselves promote a model. A typed readiness schema

@@ -9,8 +9,8 @@ struct LearnedOverlayPresentationTests {
   func learnedLabels() {
     #expect(
       ActionSurfaceOverlayPresentationGrammar.semanticLabel(
-        for: .calibratedDrawableRegion
-      ) == "FOUR-POINT FRAME · 10 MM INSET"
+        for: .drawingBorder
+      ) == "DRAWING BORDER · 10 MM INSET"
     )
     #expect(
       ActionSurfaceOverlayPresentationGrammar.semanticLabel(
@@ -31,7 +31,7 @@ struct LearnedOverlayPresentationTests {
   @Test("drawable paper and predicted-contact overlays remain visually distinct")
   func distinctStyles() {
     let tokens = Set([
-      ActionSurfaceOverlayPresentationGrammar.styleToken(for: .calibratedDrawableRegion),
+      ActionSurfaceOverlayPresentationGrammar.styleToken(for: .drawingBorder),
       ActionSurfaceOverlayPresentationGrammar.styleToken(for: .acceptedBoundary),
       ActionSurfaceOverlayPresentationGrammar.styleToken(for: .paperCoverage),
       ActionSurfaceOverlayPresentationGrammar.styleToken(for: .predictedContactPoint),

@@ -200,8 +200,9 @@ evidence authority.
 `DrawingProgramCatalog` produces deterministic field-space geometry. A
 `DrawingPlacement` is the only field-to-machine transform, and `DrawingPlanner`
 is the only producer of content-addressed `ExecutionPlanRevision` values.
-Planning refuses geometry outside `DrawableMachineRegion`; neither App nor
-Runtime clips it. `RunInterpreter` owns a whole plan as one `RunOperation`, with
+`DrawableMachineRegion` applies the shared minimum continuous-coordinate tolerance;
+planning refuses geometry outside that tolerance-aware region and neither App
+nor Runtime clips it. `RunInterpreter` owns a whole plan as one `RunOperation`, with
 subordinate Pen-Up travel, pen actuation, finite drawing segments, Stop, and one
 checkpoint per logical stroke. `PlannedDrawingObservation` operates only after
 execution and returns exact-frame observed/residual evidence or a typed
@@ -295,8 +296,8 @@ Exercise 1.4 is split across four owners:
   controller typed for Stop and possible-ink handling but does not rebuild a
   Learning projection or fetch another workspace machine snapshot. The existing
   camera presentation renders the accepted Drawing Boundary separately from the
-  inset proposed/accepted frame; Exercise 2.1 later draws that physical connecting
-  frame. Exercise 1.3 retains its center plus four
+  inset proposed/accepted Drawing Border; Exercise 2.1 later draws that physical
+  connecting Border. Exercise 1.3 retains its center plus four
   ±24 mm positions.
 - `TipCalibrationAuthority` owns validated evidence types, four-corner affine-first
   construction, constant construction fallback, diagnostic residual/covariance/
@@ -329,7 +330,7 @@ current MachineCameraRegistration
 A new paper instance on an explicitly unchanged contact plane consumes no new
 contact observation and retains tip authority. A changed contact plane
 invalidates the tip registration and requires the normal four-observation
-Exercise 1.4 graph. Stage 2 frame plans and local baselines consume the exact current
+Exercise 1.4 graph. Stage 2 Drawing Border plans and local baselines consume the exact current
 tip revision; later frame/post-frame/ink/residual nodes retain that dependency
 transitively.
 
@@ -394,15 +395,18 @@ revision controls remain a roadmap item.
 ## Stage 2 ownership
 
 Stage 2 does not reuse a Stage 1 target, baseline, or reveal pose.
-`ObservedDrawingTrialFramePlan` creates one closed polyline through the four
-accepted circle centers, with four orthogonal edges and right-angle turns.
-The visible 2.1 row owns one attempt from **Draw and Validate Frame** through normal comparison; its
+`DrawingBorderPlan` creates one closed polyline through the four accepted
+10 mm-inset circle centers, with four orthogonal edges and right-angle turns.
+`OperatorWorkspace` supplies the accepted Drawing Boundary—not that inset
+Drawing Border—as the plan's `DrawableMachineRegion`, with the canonical 0.5 mm
+continuous-coordinate tolerance.
+The visible 2.1 row owns one attempt from **Draw and Validate Drawing Border** through normal comparison; its
 six typed phases update activity and subsystem presentation but do not create
 six UI action owners. It stores:
 
 - the exact tip registration revision;
 - a trial-local pre-frame exact frame and reveal MPos;
-- frame-start settlement and one canonical drawing-plan owner;
+- Drawing-Border-start settlement and one canonical drawing-plan owner;
 - a Pen-Up return to the same reveal MPos;
 - a strictly newer post-frame exact frame;
 - bounded generic black/new-ink observation, residual, and assessment.
@@ -434,7 +438,7 @@ diagnostics. Intended overlays retain planned provenance, observed ink retains
 measured provenance, and residuals retain diagnostic provenance on the exact
 post-frame.
 
-The intended frame, observed ink, and residual are contextual Stage 2 results,
+The intended Drawing Border, observed ink, and residual are contextual Stage 2 results,
 not global overlay preferences. The implemented curriculum ends at this one
 attributable validation. Its post frame and overlays remain explicitly
 reviewable, and its typed comparison is adapted into an evaluation-holdout
@@ -443,11 +447,14 @@ calibration or establishes a generally trained adaptive model.
 
 ## Drawing Studio ownership
 
-`OperatorWorkspace` derives a continuously projected calibrated region and
-predicted current tip point from `TipCameraRegistration`. `PaperCoverageObservation`
+`OperatorWorkspace` derives the drawable region from the accepted Drawing Boundary
+and projects it with the current registration's inferred affine transform, including
+the area between the inset applicability rectangle and Boundary, alongside the
+predicted current tip point. This does not enlarge the recorded tip-calibration
+applicability. `PaperCoverageObservation`
 is a separate paper-instance assertion. Its polygon is shown only on its exact
 frame, while its current/not-current decision also requires current paper,
-source, and camera configuration. It never expands the calibrated region.
+source, and camera configuration. It never expands the accepted Drawing Boundary.
 
 Drawing Studio views consume immutable catalog, placement, target-preview,
 parameter, and run-state presentations. A video click is inverted through the

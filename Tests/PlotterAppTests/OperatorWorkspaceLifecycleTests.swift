@@ -1,4 +1,5 @@
 import Testing
+import PlotterModel
 
 @testable import PlotterApp
 @testable import PlotterRuntime
@@ -110,7 +111,7 @@ struct OperatorWorkspaceLifecycleTests {
     )
     try await performPublicAction(
       .start,
-      owner: .observedDrawingTrial(.chooseFramePlan),
+      owner: .observedDrawingTrial(.chooseDrawingBorderPlan),
       workspace: workspace
     )
 
@@ -121,7 +122,7 @@ struct OperatorWorkspaceLifecycleTests {
     await workspace.shutdown()
   }
 
-  @Test("Draw and Validate Frame previews the planned frame before motion and completes automatically")
+  @Test("Draw and Validate Drawing Border previews the planned Border before motion and completes automatically")
   func oneGoPreviewsThenCompletesTrial() async throws {
     let harness = makeSimulatedHarness()
     let workspace = harness.workspace
@@ -134,7 +135,7 @@ struct OperatorWorkspaceLifecycleTests {
     let positionBeforeGo = (await harness.runtime.snapshot()).mpos
     let pacing = FirstOperationSuspensionPacing()
     workspace.replaceSimulatedExecutionPacingForTesting(pacing)
-    let owner = LearningPathItemID.observedDrawingTrial(.chooseFramePlan)
+    let owner = LearningPathItemID.observedDrawingTrial(.chooseDrawingBorderPlan)
 
     let trial = Task { await workspace.performExerciseAction(.start, for: owner) }
     await pacing.waitUntilSuspended()
@@ -145,18 +146,18 @@ struct OperatorWorkspaceLifecycleTests {
         $0.provenance.kind == .intendedPath && $0.provenance.source == .planned
       })
     let displayedFrame = try #require(surface.displayedFrame)
-    let framePath = try #require(workspace.drawingTrialFramePlan?.strokes.first?.path)
+    let drawingBorderPath = try #require(workspace.drawingBorderPlan?.strokes.first?.path)
     let registration = try #require(workspace.tipCameraRegistration)
-    guard case .polyline(let predictedFrame) = predicted.geometry else {
+    guard case .polyline(let predictedBorder) = predicted.geometry else {
       Issue.record("The model prediction must be a camera-pixel polyline.")
       return
     }
     #expect(predicted.frameID == displayedFrame.frame.id)
     #expect(predicted.cameraConfigurationID == displayedFrame.frame.cameraConfigurationID)
-    let projectedFrame = try framePath.points.map { try registration.tipPixel(at: $0) }
-    #expect(predictedFrame.points == projectedFrame)
+    let projectedBorder = try drawingBorderPath.points.map { try registration.tipPixel(at: $0) }
+    #expect(predictedBorder.points == projectedBorder)
     #expect((await harness.runtime.snapshot()).mpos == positionBeforeGo)
-    #expect(workspace.observedDrawingTrialStep == .moveToFrameStart)
+    #expect(workspace.observedDrawingTrialStep == .moveToDrawingBorderStart)
     #expect(
       workspace.selectedOperatorActionPresentation(for: owner).activity?.outcome == .inProgress)
     #expect(
@@ -201,6 +202,26 @@ struct OperatorWorkspaceLifecycleTests {
     )
     workspace.openDrawingStudio()
     #expect(!workspace.completedDrawingComparisonReviewIsPinned)
+    let drawingBoundary = try #require(workspace.currentDrawableMachineRegion?.effectiveBounds)
+    let betweenBorderAndBoundary = try Point2<MachineSpace>(
+      x: drawingBoundary.minX + 5,
+      y: (drawingBoundary.minY + drawingBoundary.maxY) / 2
+    )
+    #expect(betweenBorderAndBoundary.x < registration.applicabilityRectangle.minX)
+    let extrapolatedCameraPoint = try registration.cameraFromMachine.applying(
+      to: betweenBorderAndBoundary
+    )
+    await workspace.performDrawingStudioAction(.selectCatalogItem(.square))
+    await workspace.performDrawingStudioAction(.setUniformScale(0.02))
+    await workspace.performDrawingStudioAction(.placeAtCameraPoint(extrapolatedCameraPoint))
+    let boundaryBandStudio = workspace.drawingStudioPresentation
+    let projectedCenter = try #require(
+      boundaryBandStudio.canvas.placement.centerCameraPixel
+    )
+    #expect(projectedCenter.distance(to: extrapolatedCameraPoint) < 1e-9)
+    #expect(boundaryBandStudio.canvas.targetPreview?.status == .ready)
+    #expect(boundaryBandStudio.canvas.targetPreview?.executionPlanContentHash != nil)
+
     await workspace.performDrawingStudioAction(.selectCatalogItem(.elephant))
     await workspace.performDrawingStudioAction(.centerInDrawableRegion)
     let studio = workspace.drawingStudioPresentation

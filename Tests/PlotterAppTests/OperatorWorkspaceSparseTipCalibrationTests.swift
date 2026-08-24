@@ -26,13 +26,13 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       ) == nil
     )
 
-    let outsideTolerance = try MachinePosition(x: current.point.x + 0.051, y: current.point.y)
+    let outsideTolerance = try MachinePosition(x: current.point.x + 0.501, y: current.point.y)
     let travelDelta = try OperatorWorkspace.supervisedTravelDelta(
       from: current,
       to: outsideTolerance
     )
     let requiredDelta = try #require(travelDelta)
-    #expect(abs(requiredDelta.dx - 0.051) < 1e-12)
+    #expect(abs(requiredDelta.dx - 0.501) < 1e-12)
     #expect(requiredDelta.dy == 0)
   }
 
@@ -193,21 +193,21 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     let proposedFrameOverlay = try #require(
       proposalOverlays.first {
         $0.provenance.kind == .intendedPath
-          && $0.provenance.algorithmRevision == "proposed-tip-four-point-frame-preview-v1"
+          && $0.provenance.algorithmRevision == "proposed-tip-drawing-border-preview-v2"
       }
     )
     guard case .polyline(let proposedBoundary) = proposedBoundaryOverlay.geometry,
       case .polyline(let proposedFrame) = proposedFrameOverlay.geometry
     else {
-      Issue.record("Expected the accepted Drawing Boundary and proposed inset frame polylines.")
+      Issue.record("Expected the accepted Drawing Boundary and proposed Drawing Border polylines.")
       return
     }
-    let boundaryFrame = try ObservedDrawingTrialFramePlan(domain: batch.boundaryEnvelope)
-    let insetFrame = try ObservedDrawingTrialFramePlan(domain: batch.applicabilityRectangle)
-    let proposedBoundaryPoints = try boundaryFrame.pathPositions.map {
+    let boundaryOutline = try DrawingBorderPlan(bounds: batch.boundaryEnvelope)
+    let proposedBorder = try DrawingBorderPlan(bounds: batch.applicabilityRectangle)
+    let proposedBoundaryPoints = try boundaryOutline.pathPositions.map {
       try proposed.cameraFromMachine.applying(to: $0.point)
     }
-    let proposedFramePoints = try insetFrame.pathPositions.map {
+    let proposedFramePoints = try proposedBorder.pathPositions.map {
       try proposed.tipPixel(at: $0.point)
     }
     #expect(proposedBoundary.points == proposedBoundaryPoints)
@@ -253,11 +253,11 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     #expect(workspace.sparseTipCalibrationCoordinator.phase == .accepted)
     let regionOverlay = try #require(
       workspace.actionSurfacePresentation.overlays.first {
-        $0.provenance.kind == .calibratedDrawableRegion
+        $0.provenance.kind == .drawingBorder
       }
     )
     guard case .polyline(let regionPolyline) = regionOverlay.geometry else {
-      Issue.record("Expected the accepted four-point frame overlay to be a bounding polyline.")
+      Issue.record("Expected the accepted Drawing Border overlay to be a bounding polyline.")
       return
     }
     let acceptedBoundaryOverlay = try #require(
@@ -269,19 +269,18 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       Issue.record("Expected the accepted Drawing Boundary overlay to be a bounding polyline.")
       return
     }
-    let pictureRectangle = batch.applicabilityRectangle
-    #expect(workspace.currentDrawableMachineRegion?.effectiveBounds == pictureRectangle)
-    let acceptedFramePoints = try insetFrame.pathPositions.map {
+    #expect(workspace.currentDrawableMachineRegion?.effectiveBounds == batch.boundaryEnvelope)
+    let acceptedFramePoints = try proposedBorder.pathPositions.map {
       try accepted.tipPixel(at: $0.point)
     }
     #expect(regionPolyline.points == acceptedFramePoints)
-    let acceptedBoundaryPoints = try boundaryFrame.pathPositions.map {
+    let acceptedBoundaryPoints = try boundaryOutline.pathPositions.map {
       try accepted.cameraFromMachine.applying(to: $0.point)
     }
     #expect(acceptedBoundaryPolyline.points == acceptedBoundaryPoints)
     #expect(
       workspace.currentLearningPathItemID
-        == .observedDrawingTrial(.chooseFramePlan)
+        == .observedDrawingTrial(.chooseDrawingBorderPlan)
     )
     #expect(checkpointBox.checkpoint == nil)
     #expect(checkpointBox.operationCounts.loads == 1)
@@ -529,19 +528,19 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
         ))
     #expect(
       restarted.workspace.currentLearningPathItemID
-        == LearningPathItemID.observedDrawingTrial(.chooseFramePlan)
+        == LearningPathItemID.observedDrawingTrial(.chooseDrawingBorderPlan)
     )
     #expect(
       restored.estimatorRevision == SparseTipCircularMarkPlan.registrationEstimatorRevision
     )
     try await performPublicAction(
       .start,
-      owner: .observedDrawingTrial(.chooseFramePlan),
+      owner: .observedDrawingTrial(.chooseDrawingBorderPlan),
       workspace: restarted.workspace
     )
     let domain = restored.applicabilityRectangle
     #expect(
-      restarted.workspace.drawingTrialFramePlan?.strokes.first?.path.points.first
+      restarted.workspace.drawingBorderPlan?.strokes.first?.path.points.first
         == (try Point2(x: domain.minX, y: domain.minY)))
 
   }
@@ -610,15 +609,30 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     try await completeSimulatedStageFour(workspace)
 
     let observation = try #require(workspace.lastFrameObservation)
-    #expect(workspace.drawingTrialFramePlan?.provenance.registrationRevisionID.rawValue
-      == tipRevision.rawValue)
-    let expectedFrame = try ObservedDrawingTrialFramePlan(
-      domain: accepted.applicabilityRectangle
+    let executionPlan = try #require(workspace.drawingBorderPlan)
+    #expect(executionPlan.provenance.registrationRevisionID.rawValue == tipRevision.rawValue)
+    #expect(executionPlan.drawableRegion.bounds == acceptedBoundary)
+    #expect(MachinePositionAcceptancePolicy.toleranceMM == 0.5)
+    #expect(executionPlan.drawableRegion.contains(try Point2(
+      x: acceptedBoundary.minX - 0.5,
+      y: acceptedBoundary.minY
+    )))
+    #expect(!executionPlan.drawableRegion.contains(try Point2(
+      x: acceptedBoundary.minX - 0.501,
+      y: acceptedBoundary.minY
+    )))
+    let expectedBorder = try DrawingBorderPlan(
+      bounds: SparseTipBatchMarkPlan.drawingBorderBounds(for: acceptedBoundary)
     )
-    #expect(
-      workspace.drawingTrialFramePlan?.strokes.first?.path.points
-        == expectedFrame.pathPositions.map(\.point)
-    )
+    let plannedBorderPoints = try #require(executionPlan.strokes.first?.path.points)
+    #expect(plannedBorderPoints.count == expectedBorder.pathPositions.count)
+    #expect(zip(plannedBorderPoints, expectedBorder.pathPositions).allSatisfy {
+      plannedPoint, expectedPosition in
+      MachinePositionAcceptancePolicy.accepts(
+        MachinePosition(point: plannedPoint),
+        target: expectedPosition
+      )
+    })
     #expect(observation.evidence.frames.baseline.frameID != observation.evidence.frames.post.frameID)
     #expect(workspace.drawingTrialRevealPosition != nil)
     #expect(await harness.runtime.persistentInk().isEmpty == false)

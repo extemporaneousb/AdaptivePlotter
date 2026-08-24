@@ -166,6 +166,52 @@ struct DrawingExecutionPlanTests {
       )
     }
   }
+
+  @Test("planner uses the region's nonzero coordinate tolerance at its boundary")
+  func usesCoordinateTolerance() throws {
+    let style = try StrokeStyle(nominalLineWidth: 0.4, penProfileID: IDs.pen)
+    let program = try DrawingProgram(
+      id: ProgramID(),
+      fieldExtent: Size2(width: 1, height: 1),
+      strokes: [
+        LogicalStroke(
+          id: StrokeID(),
+          path: Polyline(points: [fieldPoint(0, 0), fieldPoint(1, 0)]),
+          style: style,
+          semanticRole: .drawing,
+          ordering: 0
+        )
+      ],
+      source: DrawingSourceProvenance(kind: "test", sourceIdentifier: "tolerance")
+    )
+    let region = try DrawableMachineRegion(
+      bounds: AxisAlignedBounds(minX: 0, minY: 0, maxX: 10, maxY: 10)
+    )
+
+    _ = try DrawingPlanner.plan(
+      program: program,
+      placement: DrawingPlacement(
+        fieldAnchor: fieldPoint(0, 0),
+        machineAnchor: machinePoint(-0.5, 5),
+        uniformScale: 1
+      ),
+      drawableRegion: region,
+      provenance: planningProvenance()
+    )
+
+    #expect(throws: DrawingPlanningError.self) {
+      _ = try DrawingPlanner.plan(
+        program: program,
+        placement: DrawingPlacement(
+          fieldAnchor: fieldPoint(0, 0),
+          machineAnchor: machinePoint(-0.501, 5),
+          uniformScale: 1
+        ),
+        drawableRegion: region,
+        provenance: planningProvenance()
+      )
+    }
+  }
 }
 
 @Suite("Typed drawing readiness")

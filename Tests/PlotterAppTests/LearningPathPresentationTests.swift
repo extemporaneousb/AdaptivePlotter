@@ -52,10 +52,10 @@ struct LearningPathPresentationTests {
     )
     #expect(
       ObservedDrawingTrialStep.allCases.map(\.title) == [
-        "Plan Drawing Frame",
+        "Plan Drawing Border",
         "Capture Baseline Frame",
-        "Move to Drawing Start",
-        "Draw Frame",
+        "Move to Drawing Border Start",
+        "Draw Drawing Border",
         "Reveal Drawing",
         "Compare Plan with Observed Ink",
       ])
@@ -71,7 +71,7 @@ struct LearningPathPresentationTests {
         "1.3 Calibrate Camera from Pen Cap Positions",
         "1.4 Calibrate Pen Tip from Corner Marks",
         "2 Drawing Validation",
-        "2.1 Draw and Validate the Frame",
+        "2.1 Draw and Validate the Drawing Border",
       ])
   }
 
@@ -79,7 +79,7 @@ struct LearningPathPresentationTests {
   func strictLearningPathVocabulary() {
     let visibleTerms = LearningPathStage.allCases.map(\.title)
       + HumanGuidedDiscoveryStep.allCases.map(\.title)
-      + [LearningPathItemID.observedDrawingTrial(.chooseFramePlan).title]
+      + [LearningPathItemID.observedDrawingTrial(.chooseDrawingBorderPlan).title]
       + [
         LearningPathTerminology.Action.identifyPenCap,
         LearningPathTerminology.Action.confirmPenUp,
@@ -88,7 +88,7 @@ struct LearningPathPresentationTests {
         LearningPathTerminology.Action.acceptCameraCalibration,
         LearningPathTerminology.Action.drawCalibrationCircles,
         LearningPathTerminology.Action.acceptPenTipCalibration,
-        LearningPathTerminology.Action.drawAndValidateFrame,
+        LearningPathTerminology.Action.drawAndValidateDrawingBorder,
       ]
     let forbidden = [
       "3.1", "3.2", "3.3", "3.4", "4.1", "Human-Guided", "Observed Drawing Trial",

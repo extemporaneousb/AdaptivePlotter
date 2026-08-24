@@ -30,10 +30,10 @@ disposable sheet. Validate actual controller settlement, five cap captures,
 four 10 mm-inset Boundary-corner 2 mm-radius circular marks with no center
 mark and Pen Up
 between them, one final center Pen-Up reveal, the separately labeled accepted
-Exercise 1.2 Drawing Boundary and inset-frame overlays, one shared frozen exact frame, four
+Exercise 1.2 Drawing Boundary and inset Drawing Border overlays, one shared frozen exact frame, four
 arbitrary-order human center clicks, deterministic global association, the
-all-corner affine-first commit on click four, one predicted-frame preview before
-motion, one complete Exercise 2.1 drawing-frame validation, retained exact comparison
+all-corner affine-first commit on click four, one predicted Drawing Border preview before
+motion, one complete Exercise 2.1 Drawing Border validation, retained exact comparison
 review, new-sheet coverage confirmation, and one simple physical Drawing Studio
 plan with post-run planned-versus-observed review. Record failures without
 redrawing ambiguous locations.

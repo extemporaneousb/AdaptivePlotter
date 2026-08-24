@@ -53,10 +53,10 @@ enum HumanGuidedDiscoveryStep: Int, CaseIterable, Hashable, Identifiable, Sendab
 }
 
 enum ObservedDrawingTrialStep: Int, CaseIterable, Hashable, Identifiable, Sendable {
-  case chooseFramePlan = 1
+  case chooseDrawingBorderPlan = 1
   case captureLocalPreFrameBaseline
-  case moveToFrameStart
-  case drawPictureFrame
+  case moveToDrawingBorderStart
+  case drawDrawingBorder
   case revealAndObserveNewInk
   case compareIntendedAndObservedGeometry
 
@@ -67,10 +67,10 @@ enum ObservedDrawingTrialStep: Int, CaseIterable, Hashable, Identifiable, Sendab
 
   var title: String {
     switch self {
-    case .chooseFramePlan: "Plan Drawing Frame"
+    case .chooseDrawingBorderPlan: "Plan Drawing Border"
     case .captureLocalPreFrameBaseline: "Capture Baseline Frame"
-    case .moveToFrameStart: "Move to Drawing Start"
-    case .drawPictureFrame: "Draw Frame"
+    case .moveToDrawingBorderStart: "Move to Drawing Border Start"
+    case .drawDrawingBorder: "Draw Drawing Border"
     case .revealAndObserveNewInk: "Reveal Drawing"
     case .compareIntendedAndObservedGeometry: "Compare Plan with Observed Ink"
     }
@@ -96,7 +96,7 @@ enum LearningPathItemID: Hashable, Identifiable, Sendable {
     .humanGuidedDiscovery(.calibrateCameraAndVisibleCap),
     .humanGuidedDiscovery(.calibratePenContactFromSparseMarks),
     .stage(.observedDrawingTrials),
-    .observedDrawingTrial(.chooseFramePlan),
+    .observedDrawingTrial(.chooseDrawingBorderPlan),
   ]
 
   static let learningExerciseOrder: [Self] = [
@@ -104,7 +104,7 @@ enum LearningPathItemID: Hashable, Identifiable, Sendable {
     .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering),
     .humanGuidedDiscovery(.calibrateCameraAndVisibleCap),
     .humanGuidedDiscovery(.calibratePenContactFromSparseMarks),
-    .observedDrawingTrial(.chooseFramePlan),
+    .observedDrawingTrial(.chooseDrawingBorderPlan),
   ]
 
   var stage: LearningPathStage {
@@ -127,8 +127,8 @@ enum LearningPathItemID: Hashable, Identifiable, Sendable {
     switch self {
     case .stage(let stage): stage.title
     case .humanGuidedDiscovery(let step): step.title
-    case .observedDrawingTrial(.chooseFramePlan):
-      LearningPathTerminology.Exercise.drawAndValidateFrame
+    case .observedDrawingTrial(.chooseDrawingBorderPlan):
+      LearningPathTerminology.Exercise.drawAndValidateDrawingBorder
     case .observedDrawingTrial(let step): step.title
     }
   }
@@ -145,7 +145,7 @@ enum LearningPathItemID: Hashable, Identifiable, Sendable {
     case .stage(.humanGuidedDiscovery):
       .humanGuidedDiscovery(.penInteraction)
     case .stage(.observedDrawingTrials):
-      .observedDrawingTrial(.chooseFramePlan)
+      .observedDrawingTrial(.chooseDrawingBorderPlan)
     case .humanGuidedDiscovery, .observedDrawingTrial:
       self
     }

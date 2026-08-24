@@ -114,7 +114,7 @@ struct PlannedDrawingObservationTests {
       baseline: fixture.baseline,
       post: fixture.post,
       intended: fixture.intended,
-      postPosition: try MachinePosition(x: 0.2, y: 0)
+      postPosition: try MachinePosition(x: 0.501, y: 0)
     )
     let outcome = await VisionWorker().observePlannedDrawingInk(request)
     #expect(rejectionReason(outcome) == .observationPoseMismatch)

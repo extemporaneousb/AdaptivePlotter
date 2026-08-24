@@ -4,6 +4,13 @@ import Testing
 
 @Suite("Machine position acceptance")
 struct MachinePositionAcceptancePolicyTests {
+  @Test("uses the accepted half-millimetre coordinate tolerance")
+  func usesHalfMillimetreTolerance() {
+    #expect(MachinePositionAcceptancePolicy.toleranceMM == 0.5)
+    #expect(MachinePositionAcceptancePolicy.accepts(residualMM: 0.5))
+    #expect(!MachinePositionAcceptancePolicy.accepts(residualMM: 0.501))
+  }
+
   @Test("accepts a reproduced controller-quantized residual")
   func acceptsQuantizedResidual() throws {
     let target = try MachinePosition(x: -36.620, y: -72.210)

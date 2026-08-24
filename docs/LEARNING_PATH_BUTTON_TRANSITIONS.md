@@ -106,16 +106,16 @@ flowchart TD
     sdone -->|Redo This Step — replace accepted result| s0
   end
 
-  subgraph validation["2.1 Draw and Validate the Frame"]
-    t0["Ready<br/>Draw and Validate Frame"]
-    t1["Automatic six-phase validation<br/>Draw and Validate Frame… — disabled<br/>Stop replaces it during stoppable motion"]
+  subgraph validation["2.1 Draw and Validate the Drawing Border"]
+    t0["Ready<br/>Draw and Validate Drawing Border"]
+    t1["Automatic six-phase validation<br/>Draw and Validate Drawing Border… — disabled<br/>Stop replaces it during stoppable motion"]
     tdone["2.1 complete<br/>exact comparison remains reviewable"]
-    trecovery["Interrupted / possible-ink recovery<br/>Resume Frame Observation or Retry Frame Validation<br/>never automatic redraw"]
-    t0 -->|Draw and Validate Frame| t1
+    trecovery["Interrupted / possible-ink recovery<br/>Resume Drawing Border Observation or Retry Drawing Border Validation<br/>never automatic redraw"]
+    t0 -->|Draw and Validate Drawing Border| t1
     t1 -->|settled drawing, observation, and comparison| tdone
     t1 -->|Stop, ambiguity, or possible ink| trecovery
-    trecovery -->|Resume Frame Observation when no redraw is needed| tdone
-    trecovery -->|Retry Frame Validation only when a new drawing is safe| t0
+    trecovery -->|Resume Drawing Border Observation when no redraw is needed| tdone
+    trecovery -->|Retry Drawing Border Validation only when a new drawing is safe| t0
   end
 
   frame -.->|enables Identify Pen Cap| p0

@@ -388,7 +388,7 @@ public enum LearningArtifactKind: Codable, Hashable, Sendable {
   case toolContactObservation(ToolContactObservationID)
   case tipCameraRegistration
   // Durable case labels are retained for checkpoint decoding. Current Stage 2
-  // geometry is the closed picture frame, not the removed isolated-line flow.
+  // geometry is the closed Drawing Border, not the removed isolated-line flow.
   case localPreLineBaseline(AttemptGroupIdentity)
   case linePlan(AttemptGroupIdentity)
   case lineExecution(AttemptGroupIdentity)

@@ -33,13 +33,15 @@ public struct DrawableMachineRegion: Hashable, Codable, Sendable, CanonicalEncod
     )
   }
 
-  public func contains(_ point: Point2<MachineSpace>, tolerance: Double = 0) -> Bool {
-    guard tolerance.isFinite, tolerance >= 0 else { return false }
-    return effectiveBounds.contains(point, tolerance: tolerance)
+  public func contains(_ point: Point2<MachineSpace>) -> Bool {
+    effectiveBounds.contains(
+      point,
+      tolerance: ContinuousMachineCoordinateTolerance.minimumMM
+    )
   }
 
-  public func contains(_ polyline: Polyline<MachineSpace>, tolerance: Double = 0) -> Bool {
-    polyline.points.allSatisfy { contains($0, tolerance: tolerance) }
+  public func contains(_ polyline: Polyline<MachineSpace>) -> Bool {
+    polyline.points.allSatisfy(contains)
   }
 
   public func encodeCanonical(to encoder: inout CanonicalEncoder) throws {

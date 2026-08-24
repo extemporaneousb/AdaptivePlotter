@@ -253,8 +253,8 @@ enum LearningMotionAction: Hashable, Sendable {
   case sparseTipApproach(ToolContactCalibrationPosition)
   case sparseTipCircleStart(ToolContactCalibrationPosition)
   case sparseTipBatchReveal
-  case moveToFrameStart
-  case confirmPictureFrameStart
+  case moveToDrawingBorderStart
+  case confirmDrawingBorderStart
   case returnToLocalRevealPose
 
   var title: String {
@@ -268,8 +268,8 @@ enum LearningMotionAction: Hashable, Sendable {
     case .sparseTipCircleStart(let position):
       "Sparse Tip Circle \(position.sparseTipBatchLocationTitle) Start"
     case .sparseTipBatchReveal: "Reveal Four Corner Tip Circles"
-    case .moveToFrameStart: "Move to Frame Start"
-    case .confirmPictureFrameStart: "Confirm Picture-Frame Start"
+    case .moveToDrawingBorderStart: "Move to Drawing Border Start"
+    case .confirmDrawingBorderStart: "Confirm Drawing Border Start"
     case .returnToLocalRevealPose: "Return to Local Reveal Pose"
     }
   }
@@ -890,17 +890,17 @@ final class OperatorWorkspace {
   }
 
   private struct DrawingTrialState {
-    var step: ObservedDrawingTrialStep = .chooseFramePlan
+    var step: ObservedDrawingTrialStep = .chooseDrawingBorderPlan
     var localPreFrameBaseline: DisplayedFrame?
     var revealPosition: MachinePosition?
     var tipRegistrationRevisionID: LearningArtifactRevisionID?
     var observationRegion: PixelRect?
     var postFrame: DisplayedFrame?
     var program: DrawingProgram?
-    var framePlan: ExecutionPlanRevision?
+    var drawingBorderPlan: ExecutionPlanRevision?
     var drawingOutcome: DrawingPlanOutcome?
     var inkObservation: PlannedDrawingObservation?
-    var inkStatus = "no drawing-frame observation yet"
+    var inkStatus = "no Drawing Border observation yet"
     var lastTravelFeedSelection: TravelFeedSelection?
     var assessment: DrawingTrialAssessment?
     var comparisonReviewIsPinned = false
@@ -921,22 +921,22 @@ final class OperatorWorkspace {
     }
 
     mutating func rewind(from rewindStep: ObservedDrawingTrialStep, source: OperatorFrameMode) {
-      if rewindStep == .chooseFramePlan {
+      if rewindStep == .chooseDrawingBorderPlan {
         program = nil
-        framePlan = nil
+        drawingBorderPlan = nil
         group = Self.newGroup(for: source)
       }
 
       if rewindStep.rawValue <= ObservedDrawingTrialStep.captureLocalPreFrameBaseline.rawValue {
         localPreFrameBaseline = nil
       }
-      if rewindStep.rawValue <= ObservedDrawingTrialStep.drawPictureFrame.rawValue {
+      if rewindStep.rawValue <= ObservedDrawingTrialStep.drawDrawingBorder.rawValue {
         drawingOutcome = nil
       }
       if rewindStep.rawValue <= ObservedDrawingTrialStep.revealAndObserveNewInk.rawValue {
         postFrame = nil
         inkObservation = nil
-        inkStatus = "no drawing-frame observation yet"
+        inkStatus = "no Drawing Border observation yet"
         comparisonReviewIsPinned = false
       }
       assessment = nil
@@ -1864,9 +1864,9 @@ final class OperatorWorkspace {
     get { activeLearningSession.drawingTrial.program }
     set { activeLearningSession.drawingTrial.program = newValue }
   }
-  private(set) var drawingTrialFramePlan: ExecutionPlanRevision? {
-    get { activeLearningSession.drawingTrial.framePlan }
-    set { activeLearningSession.drawingTrial.framePlan = newValue }
+  private(set) var drawingBorderPlan: ExecutionPlanRevision? {
+    get { activeLearningSession.drawingTrial.drawingBorderPlan }
+    set { activeLearningSession.drawingTrial.drawingBorderPlan = newValue }
   }
   private(set) var drawingTrialDrawingOutcome: DrawingPlanOutcome? {
     get { activeLearningSession.drawingTrial.drawingOutcome }
@@ -2614,7 +2614,7 @@ final class OperatorWorkspace {
       )
       : .setupRequired(
         reason:
-          "Place the current sheet over the outlined calibrated region and assert that it covers the outline."
+          "Place the current sheet over the outlined Drawing Boundary and assert that it covers the outline."
       )
     return WorkbenchCapabilityPresentation(learning: learning, paper: paper)
   }
@@ -2691,7 +2691,7 @@ final class OperatorWorkspace {
       runState = .unavailable(reason: reason)
     } else {
       runState = .ready(
-        detail: "The reviewed plan is inside the calibrated region on confirmed paper."
+        detail: "The reviewed plan is inside the accepted Drawing Boundary on confirmed paper."
       )
     }
     return DrawingStudioPresentation(
@@ -2737,7 +2737,7 @@ final class OperatorWorkspace {
     guard let center = activeLearningSession.drawingStudio.machineCenter,
       let registration = tipCameraRegistration
     else { return nil }
-    return try? registration.tipPixel(at: center)
+    return try? inferredDrawingStudioPixel(at: center, using: registration)
   }
 
   private var drawingStudioTargetPreview: DrawingStudioTargetPreview? {
@@ -2752,7 +2752,9 @@ final class OperatorWorkspace {
     if let plan = state.plan {
       do {
         projected = try plan.strokes.map { stroke in
-          try Polyline(points: stroke.path.points.map { try registration.tipPixel(at: $0) })
+          try Polyline(points: stroke.path.points.map {
+            try inferredDrawingStudioPixel(at: $0, using: registration)
+          })
         }
         planHash = plan.contentHash.description
         status = .ready
@@ -2765,7 +2767,7 @@ final class OperatorWorkspace {
       projected = []
       planHash = nil
       status = .outsideDrawableRegion(
-        reason: state.planningError ?? "Place the target inside the calibrated region."
+        reason: state.planningError ?? "Place the target inside the accepted Drawing Boundary."
       )
     }
     let points = projected.flatMap(\.points)
@@ -2795,7 +2797,7 @@ final class OperatorWorkspace {
       return "SIMULATED previews placement but cannot supply physical drawing evidence."
     }
     guard interactiveLearningIsComplete else {
-      return "Complete drawing-frame validation first."
+      return "Complete Drawing Border validation first."
     }
     guard tipCameraRegistration != nil else {
       return "A current accepted pen-tip calibration is required."
@@ -2803,11 +2805,11 @@ final class OperatorWorkspace {
     if let reason = controllerPoseRevalidationUnavailableReason { return reason }
     guard paperCoverageIsCurrent else {
       return
-        "Assert that the current paper covers the outlined calibrated region; paper edges are not measured automatically."
+        "Assert that the current paper covers the outlined Drawing Boundary; paper edges are not measured automatically."
     }
     guard activeLearningSession.drawingStudio.plan != nil else {
       return activeLearningSession.drawingStudio.planningError
-        ?? "Place the drawing fully inside the calibrated region."
+        ?? "Place the drawing fully inside the accepted Drawing Boundary."
     }
     guard !activeLearningSession.drawingStudio.terminalRequiresNewPlan else {
       return "Review the terminal run, then start a new plan before drawing again."
@@ -3043,8 +3045,11 @@ final class OperatorWorkspace {
         throw LearningPathOperationError.requiredState("The drawing plan has no final point.")
       }
       var observationPosition = try currentMachinePosition()
-      let preflightDelta = try observationPosition.point.vector(to: finalPoint)
-      if preflightDelta.dx != 0 || preflightDelta.dy != 0 {
+      let observationTarget = MachinePosition(point: finalPoint)
+      if let preflightDelta = try Self.supervisedTravelDelta(
+        from: observationPosition,
+        to: observationTarget
+      ) {
         let admission = await machineActions.beginRelativeJog(
           RelativeJogRequest(delta: preflightDelta, feedMMPerMinute: 500)
         )
@@ -3149,7 +3154,9 @@ final class OperatorWorkspace {
       )
       activeLearningSession.drawingStudio.postFrame = post
       let intended = try plan.strokes.map { stroke in
-        try Polyline(points: stroke.path.points.map { try registration.tipPixel(at: $0) })
+        try Polyline(points: stroke.path.points.map {
+          try inferredDrawingStudioPixel(at: $0, using: registration)
+        })
       }
       let region = plannedDrawingObservationRegion(
         intended,
@@ -3404,7 +3411,9 @@ final class OperatorWorkspace {
       try? Point2(x: bounds.minX, y: bounds.maxY),
     ].compactMap { $0 }
     do {
-      let polygon = try machineCorners.map { try registration.tipPixel(at: $0) }
+      let polygon = try machineCorners.map {
+        try inferredDrawingStudioPixel(at: $0, using: registration)
+      }
       let observation = try PaperCoverageObservation(
         paper: currentPaperRevisionContext,
         source: frame.source,
@@ -3414,7 +3423,7 @@ final class OperatorWorkspace {
         observedAt: RuntimeTimestamp(
           monotonicNanoseconds: max(nowNanoseconds(), frame.frame.captureNanoseconds)
         ),
-        algorithmRevision: "operator-confirmed-calibrated-region-coverage-v1"
+        algorithmRevision: "operator-confirmed-drawing-boundary-coverage-v2"
       )
       currentPaperCoverageObservation = observation
       if frameMode == .live { try livePaperCoverageActions?.save(observation) }
@@ -3425,26 +3434,44 @@ final class OperatorWorkspace {
   }
 
   var currentDrawableMachineRegion: DrawableMachineRegion? {
-    guard let registration = tipCameraRegistration else { return nil }
-    return try? drawableMachineRegion(for: registration)
+    guard tipCameraRegistration != nil else { return nil }
+    return try? drawableMachineRegion()
   }
 
-  private func drawableMachineRegion(
-    for registration: TipCameraRegistration
-  ) throws -> DrawableMachineRegion {
-    let bounds =
-      if registration.estimatorRevision
-        == SparseTipCircularMarkPlan.insetFiveCircleRegistrationEstimatorRevision
-      {
-        try SparseTipBatchMarkPlan.legacyInsetFiveCirclePictureRectangle(
-          framedByMarkCenters: registration.applicabilityRectangle
-        )
-      } else {
-        // v3/v4/v6 packages and the current v7 four-corner package retain their
-        // recorded applicability domain. Only v5 recorded an inner region.
-        registration.applicabilityRectangle
+  private func drawableMachineRegion() throws -> DrawableMachineRegion {
+    try DrawableMachineRegion(
+      bounds: SparseTipBatchMarkPlan.boundaryEnvelope(for: boundarySideAggregates)
+    )
+  }
+
+  /// Drawing Studio admits against the accepted Boundary. Projection in the
+  /// band outside the inset calibration applicability is therefore explicitly
+  /// an affine inference, not a claim that the recorded applicability expanded.
+  private func inferredDrawingStudioPixel(
+    at machinePoint: Point2<MachineSpace>,
+    using registration: TipCameraRegistration
+  ) throws -> Point2<CameraPixelSpace> {
+    try registration.cameraFromMachine.applying(to: machinePoint)
+  }
+
+  private func drawingBorderBounds(
+    for registration: TipCameraRegistration,
+    acceptedBoundary: AxisAlignedBounds<MachineSpace>?
+  ) throws -> AxisAlignedBounds<MachineSpace> {
+    if registration.estimatorRevision == SparseTipCircularMarkPlan.registrationEstimatorRevision {
+      guard let acceptedBoundary else {
+        throw CurrentCameraCalibrationPlanningError.incompleteBoundaryEnvelope
       }
-    return try DrawableMachineRegion(bounds: bounds)
+      return try SparseTipBatchMarkPlan.drawingBorderBounds(for: acceptedBoundary)
+    }
+    if registration.estimatorRevision
+      == SparseTipCircularMarkPlan.insetFiveCircleRegistrationEstimatorRevision
+    {
+      return try SparseTipBatchMarkPlan.legacyInsetFiveCirclePictureRectangle(
+        framedByMarkCenters: registration.applicabilityRectangle
+      )
+    }
+    return registration.applicabilityRectangle
   }
 
   private func learnedDrawingOverlays(
@@ -3481,21 +3508,26 @@ final class OperatorWorkspace {
       displayedFrame.frame.width == registration.applicability.opticalConfiguration.width,
       displayedFrame.frame.height == registration.applicability.opticalConfiguration.height,
       displayedFrame.frame.pixelFormat
-        == registration.applicability.opticalConfiguration.pixelFormat,
-      let region = try? drawableMachineRegion(for: registration)
+        == registration.applicability.opticalConfiguration.pixelFormat
     else { return [] }
 
-    let bounds = region.effectiveBounds
+    let boundary: AxisAlignedBounds<MachineSpace>? =
+      if context.boundarySideAggregates.values.allSatisfy({
+        $0.coordinateRevision == registration.applicability.machineCoordinateFrame.rawValue
+      }) {
+        try? SparseTipBatchMarkPlan.boundaryEnvelope(for: context.boundarySideAggregates)
+      } else {
+        nil
+      }
+    guard let bounds = try? drawingBorderBounds(
+      for: registration,
+      acceptedBoundary: boundary
+    ) else { return [] }
     var overlays: [CameraOverlayMeasurement] = []
-    if context.boundarySideAggregates.values.allSatisfy({
-      $0.coordinateRevision == registration.applicability.machineCoordinateFrame.rawValue
-    }),
-      let boundary = try? SparseTipBatchMarkPlan.boundaryEnvelope(
-        for: context.boundarySideAggregates
-      ),
-      let boundaryFrame = try? ObservedDrawingTrialFramePlan(domain: boundary),
-      let projectedBoundary = try? Polyline(
-        points: boundaryFrame.pathPositions.map {
+    if let boundary,
+      let boundaryOutline = try? closedMachineRectanglePositions(bounds: boundary),
+      let projectedBoundary = try? Polyline<CameraPixelSpace>(
+        points: boundaryOutline.map {
           try registration.cameraFromMachine.applying(to: $0.point)
         }
       )
@@ -3508,27 +3540,27 @@ final class OperatorWorkspace {
           provenance: CameraMeasurementProvenance(
             kind: .acceptedBoundary,
             source: .inferred,
-            algorithmRevision: "accepted-stage32-boundary-tip-extrapolation-v1"
+            algorithmRevision: "accepted-drawing-boundary-tip-extrapolation-v2"
           )
         )
       )
     }
-    if let frame = try? ObservedDrawingTrialFramePlan(domain: bounds),
-      let projectedFrame = try? Polyline(
-        points: frame.pathPositions.map { try registration.tipPixel(at: $0.point) }
+    if let drawingBorder = try? DrawingBorderPlan(bounds: bounds),
+      let projectedBorder = try? Polyline<CameraPixelSpace>(
+        points: drawingBorder.pathPositions.map { try registration.tipPixel(at: $0.point) }
       )
     {
       overlays.append(
         CameraOverlayMeasurement(
           frameID: displayedFrame.frame.id,
           cameraConfigurationID: displayedFrame.frame.cameraConfigurationID,
-          geometry: .polyline(projectedFrame),
+          geometry: .polyline(projectedBorder),
           provenance: CameraMeasurementProvenance(
-            kind: context.isProposed ? .intendedPath : .calibratedDrawableRegion,
+            kind: context.isProposed ? .intendedPath : .drawingBorder,
             source: context.isProposed ? .planned : .inferred,
             algorithmRevision: context.isProposed
-              ? "proposed-tip-four-point-frame-preview-v1"
-              : "accepted-tip-four-point-frame-region-v2"
+              ? "proposed-tip-drawing-border-preview-v2"
+              : "accepted-tip-drawing-border-region-v3"
           )
         )
       )
@@ -3574,7 +3606,9 @@ final class OperatorWorkspace {
         guard let plan = record.plan.executionPlan else { continue }
         for stroke in plan.strokes {
           guard let projected = try? Polyline(
-            points: stroke.path.points.map { try registration.tipPixel(at: $0) }
+            points: stroke.path.points.map {
+              try inferredDrawingStudioPixel(at: $0, using: registration)
+            }
           ) else { continue }
           overlays.append(
             CameraOverlayMeasurement(
@@ -3662,9 +3696,9 @@ final class OperatorWorkspace {
       let currentRevision = learningArtifactGraph.currentRevision(for: .tipCameraRegistration)?.id,
       currentRevision == registration.acceptedRevisionID,
       drawingTrialTipRegistrationRevisionID == currentRevision,
-      let plan = drawingTrialFramePlan,
+      let plan = drawingBorderPlan,
       let path = plan.strokes.first?.path,
-      let predictedFrame = try? Polyline(
+      let predictedBorder = try? Polyline(
         points: path.points.map { try registration.tipPixel(at: $0) }
       )
     else { return [] }
@@ -3672,11 +3706,11 @@ final class OperatorWorkspace {
       CameraOverlayMeasurement(
         frameID: displayedFrame.frame.id,
         cameraConfigurationID: displayedFrame.frame.cameraConfigurationID,
-        geometry: .polyline(predictedFrame),
+        geometry: .polyline(predictedBorder),
         provenance: CameraMeasurementProvenance(
           kind: .intendedPath,
           source: .planned,
-          algorithmRevision: "tip-registration-picture-frame-preview-v1"
+          algorithmRevision: "tip-registration-drawing-border-preview-v1"
         )
       )
     ]
@@ -4355,20 +4389,20 @@ final class OperatorWorkspace {
       clearPenLearningForRewind()
       clearBoundaryLearningForRewind()
       clearCalibrationLearningForRewind()
-      clearDrawingLearningForRewind(from: .chooseFramePlan)
+      clearDrawingLearningForRewind(from: .chooseDrawingBorderPlan)
       if plan.scope == .all {
         controllerPoseApplicability = .currentSession
       }
     case .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering):
       clearBoundaryLearningForRewind()
       clearCalibrationLearningForRewind()
-      clearDrawingLearningForRewind(from: .chooseFramePlan)
+      clearDrawingLearningForRewind(from: .chooseDrawingBorderPlan)
     case .humanGuidedDiscovery(.calibrateCameraAndVisibleCap):
       clearCalibrationLearningForRewind(from: .calibrateCameraAndVisibleCap)
-      clearDrawingLearningForRewind(from: .chooseFramePlan)
+      clearDrawingLearningForRewind(from: .chooseDrawingBorderPlan)
     case .humanGuidedDiscovery(.calibratePenContactFromSparseMarks):
       clearCalibrationLearningForRewind(from: .calibratePenContactFromSparseMarks)
-      clearDrawingLearningForRewind(from: .chooseFramePlan)
+      clearDrawingLearningForRewind(from: .chooseDrawingBorderPlan)
     case .observedDrawingTrial(let step):
       clearDrawingLearningForRewind(from: step)
     case .stage:
@@ -4499,8 +4533,8 @@ final class OperatorWorkspace {
         || !sparseTipCalibrationCoordinator.acceptedObservations.isEmpty
     )
     recordPayload(
-      .observedDrawingTrial(.chooseFramePlan),
-      when: drawingTrialFramePlan != nil || localPreFrameBaseline != nil
+      .observedDrawingTrial(.chooseDrawingBorderPlan),
+      when: drawingBorderPlan != nil || localPreFrameBaseline != nil
         || drawingTrialDrawingOutcome != nil || explorationPostFrame != nil
         || drawingTrialAssessment != nil || !comparisonAttemptHistories.isEmpty
     )
@@ -4586,7 +4620,7 @@ final class OperatorWorkspace {
       .humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
     case .linePlan, .localPreLineBaseline, .lineExecution, .postLineFrame,
       .inkObservation, .residual, .comparison:
-      .observedDrawingTrial(.chooseFramePlan)
+      .observedDrawingTrial(.chooseDrawingBorderPlan)
     }
   }
 
@@ -4898,7 +4932,7 @@ final class OperatorWorkspace {
           reason = learningExerciseMotionUnavailableReason(requiresCamera: true)
         case .observedDrawingTrial(let step):
           reason = drawingTrialActionUnavailableReason(
-            for: step == .chooseFramePlan ? observedDrawingTrialStep : step
+            for: step == .chooseDrawingBorderPlan ? observedDrawingTrialStep : step
           )
         case .stage:
           reason = nil
@@ -4971,11 +5005,11 @@ final class OperatorWorkspace {
       ),
       drawing: .init(
         currentStep: observedDrawingTrialStep,
-        framePath: drawingTrialFramePlan?.strokes.first?.path.points.map(
+        drawingBorderPath: drawingBorderPlan?.strokes.first?.path.points.map(
           MachinePosition.init(point:)
         ) ?? [],
         localBaselineFrameID: localPreFrameBaseline?.frame.id.rawValue,
-        frameSettled: drawingTrialDrawingOutcome.map {
+        drawingBorderSettled: drawingTrialDrawingOutcome.map {
           if case .completed = $0 { return true }
           return false
         } ?? false,
@@ -5375,11 +5409,7 @@ final class OperatorWorkspace {
     do {
       let current = try currentMachinePosition()
       let destination = try MachinePosition(x: center.point.x, y: center.point.y)
-      let delta = try Vector2<MachineSpace>(
-        dx: destination.point.x - current.point.x,
-        dy: destination.point.y - current.point.y
-      )
-      if delta.dx != 0 || delta.dy != 0 {
+      if let delta = try Self.supervisedTravelDelta(from: current, to: destination) {
         let final = try await performSupervisedPenUpTravel(
           delta: delta,
           ownerID: ownerID,
@@ -6729,7 +6759,10 @@ final class OperatorWorkspace {
           target: plannedMark.machinePosition
         ) else {
           throw LearningPathOperationError.controllerFailed(
-            "Sparse mark approach did not settle within 0.05 mm."
+            String(
+              format: "Sparse mark approach did not settle within %.3f mm.",
+              MachinePositionAcceptancePolicy.toleranceMM
+            )
           )
         }
         batchPosition = settled
@@ -6765,7 +6798,10 @@ final class OperatorWorkspace {
           target: plannedMark.circle.startPosition
         ) else {
           throw LearningPathOperationError.controllerFailed(
-            "Sparse circle start did not settle within 0.05 mm."
+            String(
+              format: "Sparse circle start did not settle within %.3f mm.",
+              MachinePositionAcceptancePolicy.toleranceMM
+            )
           )
         }
         batchPosition = markStartSettled
@@ -6832,7 +6868,10 @@ final class OperatorWorkspace {
       try requireSparseTipBatchContinuation()
       guard MachinePositionAcceptancePolicy.accepts(revealSettled, target: revealTarget) else {
         throw LearningPathOperationError.controllerFailed(
-          "Sparse mark reveal did not settle within 0.05 mm."
+          String(
+            format: "Sparse mark reveal did not settle within %.3f mm.",
+            MachinePositionAcceptancePolicy.toleranceMM
+          )
         )
       }
       let revealSettledAt = RuntimeTimestamp(
@@ -7157,7 +7196,10 @@ final class OperatorWorkspace {
             machineSnapshot = await machineActions.snapshot()
           }
           throw LearningPathOperationError.controllerFailed(
-            "A 2 mm calibration-circle chord did not settle within 0.05 mm."
+            String(
+              format: "A 2 mm calibration-circle chord did not settle within %.3f mm.",
+              MachinePositionAcceptancePolicy.toleranceMM
+            )
           )
         }
       }
@@ -7788,7 +7830,7 @@ final class OperatorWorkspace {
     sparseTipCalibrationCoordinator = freshSparseTipCalibrationCoordinatorForCurrentPaper()
     currentPaperCoverageObservation = nil
     if frameMode == .live { livePaperCoverageActions?.clear() }
-    clearDrawingLearningForRewind(from: .chooseFramePlan)
+    clearDrawingLearningForRewind(from: .chooseDrawingBorderPlan)
     activeLearningSession.drawingStudio.baselineFrame = nil
     activeLearningSession.drawingStudio.postFrame = nil
     activeLearningSession.drawingStudio.lastRunRecord = nil
@@ -7809,7 +7851,7 @@ final class OperatorWorkspace {
     guard tipCameraRegistration != nil, activeExplorationOperation == nil else { return }
     if activeExerciseAttemptOwnerID == nil {
       beginExerciseAttempt(
-        ownerID: .observedDrawingTrial(.chooseFramePlan),
+        ownerID: .observedDrawingTrial(.chooseDrawingBorderPlan),
         mode: activeExerciseAttemptMode ?? .normal
       )
     }
@@ -7825,14 +7867,14 @@ final class OperatorWorkspace {
       )
       do {
         switch attemptedStep {
-        case .chooseFramePlan:
-          try recordPictureFramePlan()
+        case .chooseDrawingBorderPlan:
+          try recordDrawingBorderPlan()
         case .captureLocalPreFrameBaseline:
           try await captureLocalPreFrameBaseline()
-        case .moveToFrameStart:
-          try await moveToRecordedFrameStart()
-        case .drawPictureFrame:
-          try await drawPictureFrameTrial()
+        case .moveToDrawingBorderStart:
+          try await moveToRecordedDrawingBorderStart()
+        case .drawDrawingBorder:
+          try await drawDrawingBorderTrial()
         case .revealAndObserveNewInk:
           try await revealAndObserveTrialInk()
         case .compareIntendedAndObservedGeometry:
@@ -7843,21 +7885,21 @@ final class OperatorWorkspace {
       } catch {
         let strokeState = activeExplorationOperation?.strokeState
         activeExplorationOperation = nil
-        if attemptedStep == .drawPictureFrame,
+        if attemptedStep == .drawDrawingBorder,
           drawingTrialDrawingOutcome != payloadSnapshot.drawingOutcome
             || strokeState != .notAdmitted
         {
           var commitFailure: String?
           if strokeState == .completedNaturally {
             do {
-              try commitDrawingArtifact(for: .drawPictureFrame)
+              try commitDrawingArtifact(for: .drawDrawingBorder)
             } catch {
               commitFailure = String(describing: error)
             }
           }
-          advanceDrawingTrialAfterSuccess(.drawPictureFrame)
+          advanceDrawingTrialAfterSuccess(.drawDrawingBorder)
           let base =
-            "Drawing-frame execution produced controller evidence, so physical ink may exist. Drawing will not restart; Resume Frame Observation will return Pen Up and inspect the existing frame."
+            "Drawing Border execution produced controller evidence, so physical ink may exist. Drawing will not restart; Resume Drawing Border Observation will return Pen Up and inspect the existing camera frame."
           explorationError =
             commitFailure.map {
               "\(base) The frame-execution artifact also needs attention: \($0)"
@@ -7875,7 +7917,7 @@ final class OperatorWorkspace {
         finishActiveExerciseAttempt(disposition: workflowFailure(for: error).attemptDisposition)
         restartableExerciseItemID =
           attemptedStep == .revealAndObserveNewInk
-          ? nil : .observedDrawingTrial(.chooseFramePlan)
+          ? nil : .observedDrawingTrial(.chooseDrawingBorderPlan)
         return
       }
     }
@@ -7897,7 +7939,7 @@ final class OperatorWorkspace {
         disposition: .failed("Saving the accepted Learning result failed: \(error)")
       )
       finishActiveExerciseAttempt(disposition: .failed(String(describing: error)))
-      restartableExerciseItemID = .observedDrawingTrial(.chooseFramePlan)
+      restartableExerciseItemID = .observedDrawingTrial(.chooseDrawingBorderPlan)
     }
     activeExplorationOperation = nil
   }
@@ -8448,7 +8490,7 @@ final class OperatorWorkspace {
       let attemptID = activeExerciseAttemptID,
       let registration = tipCameraRegistration,
       let program = drawingTrialProgram,
-      let plan = drawingTrialFramePlan,
+      let plan = drawingBorderPlan,
       let observation = lastFrameObservation,
       case .completed(let progress, _) = drawingTrialDrawingOutcome
     else { return }
@@ -9369,14 +9411,14 @@ final class OperatorWorkspace {
       await operation.owner.settle()
       finishActiveExerciseAttempt(disposition: .cancelled)
       if inkMayExist {
-        if observedDrawingTrialStep == .drawPictureFrame {
-          advanceDrawingTrialAfterSuccess(.drawPictureFrame)
+        if observedDrawingTrialStep == .drawDrawingBorder {
+          advanceDrawingTrialAfterSuccess(.drawDrawingBorder)
         }
         explorationError =
           "Drawing stopped after stroke admission; physical ink may exist. Draw is unavailable. Continue with return/observation."
         restartableExerciseItemID = nil
       } else {
-        restartableExerciseItemID = .observedDrawingTrial(.chooseFramePlan)
+        restartableExerciseItemID = .observedDrawingTrial(.chooseDrawingBorderPlan)
       }
 
     case .sparseTipBatch:
@@ -11038,7 +11080,7 @@ final class OperatorWorkspace {
       beginExerciseAttempt(ownerID: ownerID, mode: mode)
     case .humanGuidedDiscovery(.calibratePenContactFromSparseMarks):
       beginExerciseAttempt(ownerID: ownerID, mode: mode)
-    case .observedDrawingTrial(.chooseFramePlan):
+    case .observedDrawingTrial(.chooseDrawingBorderPlan):
       beginExerciseAttempt(ownerID: ownerID, mode: mode)
       await runObservedDrawingTrial()
     case .observedDrawingTrial:
@@ -11107,7 +11149,7 @@ final class OperatorWorkspace {
         await cancelAndSettleStoppableOperation(operation, intent: .cancelAttempt)
       }
     }
-    if ownerID == .observedDrawingTrial(.chooseFramePlan),
+    if ownerID == .observedDrawingTrial(.chooseDrawingBorderPlan),
       observedDrawingTrialStep == .compareIntendedAndObservedGeometry
     {
       recordComparisonAttempt(assessment: nil, disposition: .cancelled)
@@ -11409,15 +11451,15 @@ final class OperatorWorkspace {
     let kind: LearningArtifactKind
     let dependencies: Set<LearningArtifactRevisionID>
     switch step {
-    case .chooseFramePlan:
+    case .chooseDrawingBorderPlan:
       kind = .linePlan(group)
       dependencies = [try required(.tipCameraRegistration)]
     case .captureLocalPreFrameBaseline:
       kind = .localPreLineBaseline(group)
       dependencies = [try required(.tipCameraRegistration)]
-    case .moveToFrameStart:
+    case .moveToDrawingBorderStart:
       return
-    case .drawPictureFrame:
+    case .drawDrawingBorder:
       kind = .lineExecution(group)
       dependencies = [try required(.linePlan(group))]
     case .revealAndObserveNewInk:
@@ -11481,10 +11523,10 @@ final class OperatorWorkspace {
 
   private func advanceDrawingTrialAfterSuccess(_ step: ObservedDrawingTrialStep) {
     switch step {
-    case .chooseFramePlan: advanceDrawingTrial(to: .captureLocalPreFrameBaseline)
-    case .captureLocalPreFrameBaseline: advanceDrawingTrial(to: .moveToFrameStart)
-    case .moveToFrameStart: advanceDrawingTrial(to: .drawPictureFrame)
-    case .drawPictureFrame: advanceDrawingTrial(to: .revealAndObserveNewInk)
+    case .chooseDrawingBorderPlan: advanceDrawingTrial(to: .captureLocalPreFrameBaseline)
+    case .captureLocalPreFrameBaseline: advanceDrawingTrial(to: .moveToDrawingBorderStart)
+    case .moveToDrawingBorderStart: advanceDrawingTrial(to: .drawDrawingBorder)
+    case .drawDrawingBorder: advanceDrawingTrial(to: .revealAndObserveNewInk)
     case .revealAndObserveNewInk:
       advanceDrawingTrial(to: .compareIntendedAndObservedGeometry)
     case .compareIntendedAndObservedGeometry:
@@ -11564,17 +11606,17 @@ final class OperatorWorkspace {
         tipCameraRegistration = nil
         proposedTipCameraRegistration = nil
         drawingTrialTipRegistrationRevisionID = nil
-        setObservedDrawingTrialStepEarlier(ifNeeded: .chooseFramePlan)
+        setObservedDrawingTrialStepEarlier(ifNeeded: .chooseDrawingBorderPlan)
       case .localPreLineBaseline:
         localPreFrameBaseline = nil
         setObservedDrawingTrialStepEarlier(ifNeeded: .captureLocalPreFrameBaseline)
       case .linePlan:
         drawingTrialProgram = nil
-        drawingTrialFramePlan = nil
-        setObservedDrawingTrialStepEarlier(ifNeeded: .chooseFramePlan)
+        drawingBorderPlan = nil
+        setObservedDrawingTrialStepEarlier(ifNeeded: .chooseDrawingBorderPlan)
       case .lineExecution:
         drawingTrialDrawingOutcome = nil
-        setObservedDrawingTrialStepEarlier(ifNeeded: .drawPictureFrame)
+        setObservedDrawingTrialStepEarlier(ifNeeded: .drawDrawingBorder)
       case .postLineFrame:
         explorationPostFrame = nil
         setObservedDrawingTrialStepEarlier(ifNeeded: .revealAndObserveNewInk)
@@ -11939,7 +11981,7 @@ final class OperatorWorkspace {
     }
     if checkpoint.machineCamera != nil { artifacts.append("camera/cap registration") }
     if checkpoint.tipCalibration != nil { artifacts.append("four-corner pen-tip calibration") }
-    if checkpoint.stageFour != nil { artifacts.append("drawing-frame validation") }
+    if checkpoint.stageFour != nil { artifacts.append("Drawing Border validation") }
     if checkpoint.penCapAppearance != nil { artifacts.append("pen-cap appearance") }
     let drawingCount = drawingEvidenceArchive.records.count
     if drawingCount > 0 { artifacts.append("\(drawingCount) archived drawing plan(s)") }
@@ -12157,7 +12199,7 @@ final class OperatorWorkspace {
     activeLearningSession.toolContactSelection.clear()
     recoverableTipCalibrationCheckpoint = nil
     persistAcceptedLearningPathCheckpoint(clearTip: true, clearStageFour: true)
-    clearDrawingLearningForRewind(from: .chooseFramePlan)
+    clearDrawingLearningForRewind(from: .chooseDrawingBorderPlan)
     explorationError = nil
     overlayResultChannels.clearWorkflow(source: frameMode)
     // Pen current state, accepted boundary controller MPos revisions, estimated
@@ -12244,7 +12286,7 @@ final class OperatorWorkspace {
   }
 
   private func clearDrawingLearningForRewind(from step: ObservedDrawingTrialStep) {
-    if step.rawValue <= ObservedDrawingTrialStep.moveToFrameStart.rawValue {
+    if step.rawValue <= ObservedDrawingTrialStep.moveToDrawingBorderStart.rawValue {
       lastProtocolPoseSettlement = nil
     }
     if step.rawValue <= ObservedDrawingTrialStep.revealAndObserveNewInk.rawValue {
@@ -12471,13 +12513,13 @@ final class OperatorWorkspace {
       return "The current commanded pen state must be Up."
     }
     switch step {
-    case .chooseFramePlan, .captureLocalPreFrameBaseline, .revealAndObserveNewInk:
+    case .chooseDrawingBorderPlan, .captureLocalPreFrameBaseline, .revealAndObserveNewInk:
       if !cameraIsLive { return "A current LIVE camera frame is required." }
-    case .moveToFrameStart, .drawPictureFrame, .compareIntendedAndObservedGeometry:
+    case .moveToDrawingBorderStart, .drawDrawingBorder, .compareIntendedAndObservedGeometry:
       break
     }
-    if step == .chooseFramePlan || step == .moveToFrameStart
-      || step == .drawPictureFrame,
+    if step == .chooseDrawingBorderPlan || step == .moveToDrawingBorderStart
+      || step == .drawDrawingBorder,
       machineSnapshot?.machine.position == nil
     {
       return "A current controller MPos is required."
@@ -12489,7 +12531,7 @@ final class OperatorWorkspace {
     observedDrawingTrialStep = step
   }
 
-  private func recordPictureFramePlan() throws {
+  private func recordDrawingBorderPlan() throws {
     guard let registration = tipCameraRegistration,
       learningArtifactGraph.currentRevision(for: .tipCameraRegistration)?.id
         == registration.acceptedRevisionID
@@ -12498,64 +12540,53 @@ final class OperatorWorkspace {
         "A current accepted TipCameraRegistration revision is required."
       )
     }
-    let frame = try ObservedDrawingTrialFramePlan(
-      domain: registration.applicabilityRectangle
+    let acceptedBoundary = try SparseTipBatchMarkPlan.boundaryEnvelope(
+      for: boundarySideAggregates
     )
-    let width = registration.applicabilityRectangle.maxX
-      - registration.applicabilityRectangle.minX
-    let height = registration.applicabilityRectangle.maxY
-      - registration.applicabilityRectangle.minY
+    let drawingBorderBounds = try drawingBorderBounds(
+      for: registration,
+      acceptedBoundary: acceptedBoundary
+    )
+    let drawingBorder = try DrawingBorderPlan(bounds: drawingBorderBounds)
     let style = try StrokeStyle(
       nominalLineWidth: 0.4,
       penProfileID: PenProfileID(toolAssemblyRevision.rawValue)
     )
-    let fieldPath = try Polyline<FieldSpace>(points: [
-      try Point2(x: 0, y: 0),
-      try Point2(x: 0, y: height),
-      try Point2(x: width, y: height),
-      try Point2(x: width, y: 0),
-      try Point2(x: 0, y: 0),
-    ])
     let program = try DrawingProgram(
       id: ProgramID(),
-      fieldExtent: Size2(width: width, height: height),
+      fieldExtent: drawingBorder.fieldExtent,
       strokes: [
         LogicalStroke(
           id: StrokeID(),
-          path: fieldPath,
+          path: drawingBorder.fieldPath,
           style: style,
           semanticRole: .trainingProbe,
           ordering: 0
         )
       ],
       source: DrawingSourceProvenance(
-        kind: "learning-path-frame",
-        sourceIdentifier: "accepted-boundary-four-corner-frame-v1"
+        kind: "learning-path-drawing-border",
+        sourceIdentifier:
+          registration.estimatorRevision
+            == SparseTipCircularMarkPlan.registrationEstimatorRevision
+          ? "accepted-boundary-10mm-inset-drawing-border-v2"
+          : "retained-registration-drawing-border-v1"
       )
     )
     let placement = try DrawingPlacement(
       fieldAnchor: try Point2(x: 0, y: 0),
-      machineAnchor: frame.startPosition.point,
+      machineAnchor: drawingBorder.startPosition.point,
       uniformScale: 1,
       rotationRadians: 0
     )
     let plan = try DrawingPlanner.plan(
       program: program,
       placement: placement,
-      drawableRegion: try DrawableMachineRegion(
-        bounds: registration.applicabilityRectangle
-      ),
+      drawableRegion: try DrawableMachineRegion(bounds: acceptedBoundary),
       provenance: try drawingPlanningProvenance(for: registration)
     )
-    guard plan.strokes.count == 1,
-      plan.strokes[0].path.points == frame.pathPositions.map(\.point)
-    else {
-      throw LearningPathOperationError.requiredState(
-        "The drawing-frame planner changed the accepted four-corner path."
-      )
-    }
     drawingTrialProgram = program
-    drawingTrialFramePlan = plan
+    drawingBorderPlan = plan
     drawingTrialTipRegistrationRevisionID = registration.acceptedRevisionID
   }
 
@@ -12578,32 +12609,28 @@ final class OperatorWorkspace {
     drawingTrialRevealPosition = revealPosition
   }
 
-  private func moveToRecordedFrameStart() async throws {
-    guard let destination = drawingTrialFramePlan?.strokes.first?.path.points.first.map(
+  private func moveToRecordedDrawingBorderStart() async throws {
+    guard let destination = drawingBorderPlan?.strokes.first?.path.points.first.map(
       MachinePosition.init(point:)
     ) else {
-      throw LearningPathOperationError.requiredState("The drawing-frame plan is unavailable.")
+      throw LearningPathOperationError.requiredState("The Drawing Border plan is unavailable.")
     }
     let current = try currentMachinePosition()
-    let delta = try Vector2<MachineSpace>(
-      dx: destination.point.x - current.point.x,
-      dy: destination.point.y - current.point.y
-    )
-    if delta.dx != 0 || delta.dy != 0 {
+    if let delta = try Self.supervisedTravelDelta(from: current, to: destination) {
       let final = try await performSupervisedPenUpTravel(
         delta: delta,
-        ownerID: .observedDrawingTrial(.moveToFrameStart),
-        action: .moveToFrameStart
+        ownerID: .observedDrawingTrial(.moveToDrawingBorderStart),
+        action: .moveToDrawingBorderStart
       )
       guard
         recordProtocolPoseSettlement(
-          action: .moveToFrameStart,
+          action: .moveToDrawingBorderStart,
           target: destination,
           actual: final
         )
       else {
         throw LearningPathOperationError.controllerFailed(
-          "Move to Frame Start settled at an incompatible MPos."
+          "Move to Drawing Border Start settled at an incompatible MPos."
         )
       }
     }
@@ -12849,29 +12876,29 @@ final class OperatorWorkspace {
     }
   }
 
-  private func drawPictureFrameTrial() async throws {
-    guard let plan = drawingTrialFramePlan,
+  private func drawDrawingBorderTrial() async throws {
+    guard let plan = drawingBorderPlan,
       let startPoint = plan.strokes.first?.path.points.first
     else {
-      throw LearningPathOperationError.requiredState("The drawing-frame plan is unavailable.")
+      throw LearningPathOperationError.requiredState("The Drawing Border plan is unavailable.")
     }
     let start = MachinePosition(point: startPoint)
     let current = try currentMachinePosition()
     guard
       recordProtocolPoseSettlement(
-        action: .confirmPictureFrameStart,
+        action: .confirmDrawingBorderStart,
         target: start,
         actual: current
       )
     else {
       throw LearningPathOperationError.requiredState(
-        "Move to the recorded drawing-frame start before drawing."
+        "Move to the recorded Drawing Border start before drawing."
       )
     }
     if frameMode == .simulated {
       applySimulatedSnapshotResponse(
         await simulatedLearningRuntime.setPenPose(.down),
-        action: "Lower simulated pen for drawing frame"
+        action: "Lower simulated pen for Drawing Border"
       )
       activeExplorationOperation?.strokeState = .possibleInk
       do {
@@ -12897,7 +12924,7 @@ final class OperatorWorkspace {
           clearStoppableOperation(matching: target)
           guard let outcome, outcome.disposition == .naturallyCompleted else {
             throw LearningPathOperationError.possibleInk(
-              "The simulated drawing-frame operation lost a naturally completed segment."
+              "The simulated Drawing Border operation lost a naturally completed segment."
             )
           }
           simulatedLearningSnapshot = await simulatedLearningRuntime.snapshot()
@@ -12905,14 +12932,14 @@ final class OperatorWorkspace {
       } catch {
         applySimulatedSnapshotResponse(
           await simulatedLearningRuntime.setPenPose(.up),
-          action: "Raise simulated pen after incomplete drawing frame"
+          action: "Raise simulated pen after incomplete Drawing Border"
         )
         throw error
       }
       activeExplorationOperation?.strokeState = .completedNaturally
       applySimulatedSnapshotResponse(
         await simulatedLearningRuntime.setPenPose(.up),
-        action: "Raise simulated pen after drawing frame"
+        action: "Raise simulated pen after Drawing Border"
       )
       return
     }
@@ -12929,7 +12956,7 @@ final class OperatorWorkspace {
       drawingFeedMMPerMinute: 100,
       penActuationProfile: currentPenActuationProfile
     )
-    _ = await announceAdvisory("Drawing the four-edge drawing frame.")
+    _ = await announceAdvisory("Drawing the four-edge Drawing Border.")
     let operation: DrawingPlanOperation
     switch await beginDrawingPlan(request) {
     case .admitted(let admitted):
@@ -12937,7 +12964,7 @@ final class OperatorWorkspace {
     case .rejected(let outcome):
       drawingTrialDrawingOutcome = outcome
       throw LearningPathOperationError.controllerRefused(
-        "Drawing-frame plan was refused before execution: \(outcome)"
+        "Drawing Border plan was refused before execution: \(outcome)"
       )
     }
     let target = ContextualStopTarget.drawingTrial(
@@ -12959,13 +12986,13 @@ final class OperatorWorkspace {
       throw LearningPathOperationError.controllerRefused(String(describing: reason))
     case .cancelled(_, _, _, _, let penRaiseOutcome):
       throw LearningPathOperationError.possibleInk(
-        "Drawing-frame operation stopped; controller Pen Up outcome: \(String(describing: penRaiseOutcome))"
+        "Drawing Border operation stopped; controller Pen Up outcome: \(String(describing: penRaiseOutcome))"
       )
     case .ambiguous(_, let reason):
       throw LearningPathOperationError.possibleInk(String(describing: reason))
     case .possibleInk(_, let reason, let penRaiseOutcome):
       throw LearningPathOperationError.possibleInk(
-        "Drawing-frame operation may contain ink: \(reason); Pen Up: \(String(describing: penRaiseOutcome))"
+        "Drawing Border operation may contain ink: \(reason); Pen Up: \(String(describing: penRaiseOutcome))"
       )
     }
   }
@@ -12974,7 +13001,7 @@ final class OperatorWorkspace {
     guard let drawingObserver = cameraActions?.observePlannedDrawingInk,
       let baseline = localPreFrameBaseline,
       let revealPosition = drawingTrialRevealPosition,
-      let plan = drawingTrialFramePlan,
+      let plan = drawingBorderPlan,
       let registration = tipCameraRegistration,
       let registrationRevisionID = drawingTrialTipRegistrationRevisionID,
       registration.acceptedRevisionID == registrationRevisionID,
@@ -12982,7 +13009,7 @@ final class OperatorWorkspace {
         == registrationRevisionID
     else {
       throw LearningPathOperationError.requiredState(
-        "The local baseline, reveal position, drawing-frame plan, and current accepted pen-tip calibration are required."
+        "The local baseline, reveal position, Drawing Border plan, and current accepted pen-tip calibration are required."
       )
     }
     let current = try currentMachinePosition()
@@ -13048,13 +13075,13 @@ final class OperatorWorkspace {
         maximumBackgroundMeanAbsoluteDifference:
           FixedCameraOpticalSettlingPolicy.maximumBackgroundMeanAbsoluteDifference,
         observerRevision: try AlgorithmRevisionEvidence(
-          component: "planned-picture-frame-observer",
+          component: "planned-drawing-border-observer",
           revision: "bounded-nearest-closed-polyline-v1"
         ),
         additionalAlgorithmRevisions: [
           try AlgorithmRevisionEvidence(
-            component: "picture-frame-plan-runner",
-            revision: "accepted-boundary-four-edge-v1"
+            component: "drawing-border-plan-runner",
+            revision: "accepted-boundary-10mm-inset-border-v1"
           )
         ]
       ),
@@ -13068,7 +13095,7 @@ final class OperatorWorkspace {
         source: frameMode,
         owner: .observedDrawingTrial
       )
-      explorationInkStatus = "new drawing-frame ink observed with planned-path residual"
+      explorationInkStatus = "new Drawing Border ink observed with planned-path residual"
     case .rejected(let rejection):
       lastFrameObservation = nil
       explorationInkStatus = "ink or geometry unclear: \(rejection.reason); no redraw requested"
