@@ -103,6 +103,21 @@ struct DrawingStudioPresentationTests {
     #expect(!available.controls.map(\.action).contains(.run))
   }
 
+  @Test("completed record without a post frame cannot offer review")
+  func completedWithoutPostFrame() throws {
+    let completed = try studioPresentation(
+      runState: .terminal(
+        runID: "run-8",
+        detail: "The run record is retained without an exact post-run frame."
+      ),
+      editingIsEnabled: false
+    )
+
+    #expect(completed.runState.title == "Drawing run ended")
+    #expect(completed.controls.map(\.action) == [.newRun])
+    #expect(!completed.controls.map(\.action).contains(.reviewRun))
+  }
+
   @Test("disabled editing also disables video placement and editing controls")
   func editingBoundary() throws {
     let presentation = try studioPresentation(

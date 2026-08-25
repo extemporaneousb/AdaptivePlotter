@@ -2677,18 +2677,17 @@ final class OperatorWorkspace {
         detail: state.runDetail ?? "Motion settled; evidence processing is in progress."
       )
     } else if let record = state.lastRunRecord {
-      runState =
-        state.reviewIsPinned
-        ? .reviewing(
-          runID: record.runID.description,
-          detail: "Reviewing the exact post-run frame and retained observation."
-        )
-        : .reviewAvailable(
-          runID: record.runID.description,
-          detail: "The immutable run evidence is available for review."
-        )
+      runState = Self.retainedDrawingStudioRunState(
+        runID: record.runID.description,
+        observation: record.observation,
+        postFrameAvailable: state.postFrame != nil,
+        reviewIsPinned: state.reviewIsPinned,
+        runDetail: state.runDetail
+      )
     } else if let reason = drawingStudioRunUnavailableReason {
       runState = .unavailable(reason: reason)
+    } else if let limitation = drawingStudioEvidenceProjection?.diagnosticLimitation {
+      runState = .ready(detail: tipApplicabilityDiagnosticDetail(limitation))
     } else {
       runState = .ready(
         detail: "The reviewed plan is inside the accepted Drawing Boundary on confirmed paper."
@@ -2733,11 +2732,39 @@ final class OperatorWorkspace {
     return 0.02...maximum
   }
 
+  private var drawingStudioEvidenceProjection: TipApplicabilityEvidenceProjection? {
+    guard let plan = activeLearningSession.drawingStudio.plan,
+      let registration = tipCameraRegistration
+    else { return nil }
+    return try? TipApplicabilityEvidencePolicy.project(
+      paths: plan.strokes.map(\.path),
+      using: registration
+    )
+  }
+
+  private func tipApplicabilityDiagnosticDetail(
+    _ limitation: TipApplicabilityEvidenceLimitation
+  ) -> String {
+    let bounds = limitation.recordedApplicabilityRectangle
+    let point = limitation.firstOutsideMachinePoint
+    return String(
+      format:
+        "Runnable inside the accepted Drawing Boundary, but point X %.3f Y %.3f is outside tip-registration %@ applicability X %.3f…%.3f Y %.3f…%.3f. Preview remains diagnostic; this run cannot produce attributable camera/ink evidence.",
+      point.x,
+      point.y,
+      limitation.registrationRevisionID.rawValue.uuidString,
+      bounds.minX,
+      bounds.maxX,
+      bounds.minY,
+      bounds.maxY
+    )
+  }
+
   private var drawingStudioCenterCameraPixel: Point2<CameraPixelSpace>? {
     guard let center = activeLearningSession.drawingStudio.machineCenter,
       let registration = tipCameraRegistration
     else { return nil }
-    return try? inferredDrawingStudioPixel(at: center, using: registration)
+    return try? registration.diagnosticProjection(at: center).cameraPoint
   }
 
   private var drawingStudioTargetPreview: DrawingStudioTargetPreview? {
@@ -2751,13 +2778,21 @@ final class OperatorWorkspace {
     let status: DrawingStudioTargetPreviewStatus
     if let plan = state.plan {
       do {
+        let evidenceProjection = try TipApplicabilityEvidencePolicy.project(
+          paths: plan.strokes.map(\.path),
+          using: registration
+        )
         projected = try plan.strokes.map { stroke in
           try Polyline(points: stroke.path.points.map {
-            try inferredDrawingStudioPixel(at: $0, using: registration)
+            try registration.diagnosticProjection(at: $0).cameraPoint
           })
         }
         planHash = plan.contentHash.description
-        status = .ready
+        if let limitation = evidenceProjection.diagnosticLimitation {
+          status = .diagnosticOnly(reason: tipApplicabilityDiagnosticDetail(limitation))
+        } else {
+          status = .ready
+        }
       } catch {
         projected = []
         planHash = nil
@@ -2880,6 +2915,7 @@ final class OperatorWorkspace {
     case .stop(let capabilityID):
       await stopDrawingStudioPlan(capabilityID: capabilityID)
     case .reviewRun:
+      guard activeLearningSession.drawingStudio.postFrame != nil else { return }
       activeLearningSession.drawingStudio.reviewIsPinned = true
     case .resumeLivePreview:
       activeLearningSession.drawingStudio.reviewIsPinned = false
@@ -3015,6 +3051,17 @@ final class OperatorWorkspace {
       let plan = activeLearningSession.drawingStudio.plan,
       let registration = tipCameraRegistration
     else { return }
+    let evidenceProjection: TipApplicabilityEvidenceProjection
+    do {
+      evidenceProjection = try TipApplicabilityEvidencePolicy.project(
+        paths: plan.strokes.map(\.path),
+        using: registration
+      )
+    } catch {
+      activeLearningSession.drawingStudio.runDetail =
+        "Drawing did not start because tip evidence projection failed: \(error)"
+      return
+    }
     guard await ensurePenUpForTravel() else {
       activeLearningSession.drawingStudio.runDetail =
         "Drawing did not start because Pen Up normalization did not settle."
@@ -3153,70 +3200,61 @@ final class OperatorWorkspace {
         newerThan: baseline.frame.captureNanoseconds
       )
       activeLearningSession.drawingStudio.postFrame = post
-      let intended = try plan.strokes.map { stroke in
-        try Polyline(points: stroke.path.points.map {
-          try inferredDrawingStudioPixel(at: $0, using: registration)
-        })
+      let classifiedObservation = try await Self.classifyDrawingStudioObservation(
+        projection: evidenceProjection
+      ) { intended in
+        let region = plannedDrawingObservationRegion(
+          intended,
+          frameWidth: post.frame.width,
+          frameHeight: post.frame.height
+        )
+        let frames = try DrawingObservationFramePair(
+          source: post.source,
+          baseline: ExactFrameProvenance(frame: baseline.frame),
+          post: ExactFrameProvenance(frame: post.frame)
+        )
+        return try await observePlannedDrawingInk(
+          owner: .drawingStudio,
+          request: PlannedDrawingObservationRequest(
+            frames: frames,
+            localPreDrawingBaseline: SamePoseFrameSample(
+              displayedFrame: baseline,
+              controllerPosition: observationPosition
+            ),
+            postDrawing: SamePoseFrameSample(
+              displayedFrame: post,
+              controllerPosition: finalPosition
+            ),
+            region: region,
+            intendedCameraPolylines: intended,
+            thresholds: InkPixelThresholds(minimumLuminanceDecrease: 20),
+            controllerPositionToleranceMM: MachinePositionAcceptancePolicy.toleranceMM,
+            alignmentSearchRadiusPixels: FixedCameraOpticalSettlingPolicy
+              .alignmentSearchRadiusPixels,
+            maximumAlignmentShiftPixels: FixedCameraOpticalSettlingPolicy
+              .maximumAlignmentShiftPixels,
+            maximumBackgroundMeanAbsoluteDifference: FixedCameraOpticalSettlingPolicy
+              .maximumBackgroundMeanAbsoluteDifference,
+            observerRevision: try AlgorithmRevisionEvidence(
+              component: "planned-drawing-observer",
+              revision: "bounded-nearest-polyline-v1"
+            ),
+            additionalAlgorithmRevisions: [
+              try AlgorithmRevisionEvidence(
+                component: "drawing-plan-runner",
+                revision: "checkpointed-multistroke-v1"
+              )
+            ]
+          ),
+          using: drawingObserver
+        )
       }
-      let region = plannedDrawingObservationRegion(
-        intended,
-        frameWidth: post.frame.width,
-        frameHeight: post.frame.height
-      )
-      let frames = try DrawingObservationFramePair(
-        source: post.source,
-        baseline: ExactFrameProvenance(frame: baseline.frame),
-        post: ExactFrameProvenance(frame: post.frame)
-      )
-      let observed = try await observePlannedDrawingInk(
-        owner: .drawingStudio,
-        request: PlannedDrawingObservationRequest(
-          frames: frames,
-          localPreDrawingBaseline: SamePoseFrameSample(
-            displayedFrame: baseline,
-            controllerPosition: observationPosition
-          ),
-          postDrawing: SamePoseFrameSample(
-            displayedFrame: post,
-            controllerPosition: finalPosition
-          ),
-          region: region,
-          intendedCameraPolylines: intended,
-          thresholds: InkPixelThresholds(minimumLuminanceDecrease: 20),
-          controllerPositionToleranceMM: MachinePositionAcceptancePolicy.toleranceMM,
-          alignmentSearchRadiusPixels: FixedCameraOpticalSettlingPolicy
-            .alignmentSearchRadiusPixels,
-          maximumAlignmentShiftPixels: FixedCameraOpticalSettlingPolicy
-            .maximumAlignmentShiftPixels,
-          maximumBackgroundMeanAbsoluteDifference: FixedCameraOpticalSettlingPolicy
-            .maximumBackgroundMeanAbsoluteDifference,
-          observerRevision: try AlgorithmRevisionEvidence(
-            component: "planned-drawing-observer",
-            revision: "bounded-nearest-polyline-v1"
-          ),
-          additionalAlgorithmRevisions: [
-            try AlgorithmRevisionEvidence(
-              component: "drawing-plan-runner",
-              revision: "checkpointed-multistroke-v1"
-            )
-          ]
-        ),
-        using: drawingObserver
-      )
-      let runObservation: DrawingRunObservationOutcome
-      let evidenceDisposition: DrawingTrialEvidenceDisposition
-      switch observed {
-      case .observed(let observation):
+      if let observation = classifiedObservation.presentationObservation {
         overlayResultChannels.publishWorkflow(
           OverlayChannelResult(displayedFrame: post, overlays: observation.overlays),
           source: frameMode,
           owner: .drawingStudio
         )
-        runObservation = .observed(observation.evidence)
-        evidenceDisposition = .attributable
-      case .rejected(let rejection):
-        runObservation = .rejected(rejection)
-        evidenceDisposition = .visionUnclear
       }
       let record = try makeDrawingStudioRunRecord(
         runID: runID,
@@ -3229,22 +3267,36 @@ final class OperatorWorkspace {
         placementID: placementID,
         registration: registration,
         paper: paper,
-        observation: runObservation,
-        evidenceDispositionOverride: evidenceDisposition
+        observation: classifiedObservation.runObservation,
+        evidenceDispositionOverride: classifiedObservation.evidenceDisposition
       )
       await retainDrawingStudioRunRecord(record)
       activeLearningSession.drawingStudio.reviewIsPinned = true
-      activeLearningSession.drawingStudio.runDetail =
-        evidenceDisposition == .attributable
-        ? "Controller execution and planned-ink comparison are attributable."
-        : "Controller execution completed; Vision evidence needs attention."
+      if let limitation = evidenceProjection.diagnosticLimitation {
+        activeLearningSession.drawingStudio.runDetail =
+          "Controller execution completed without camera/ink attribution. "
+          + tipApplicabilityDiagnosticDetail(limitation)
+      } else {
+        activeLearningSession.drawingStudio.runDetail =
+          classifiedObservation.evidenceDisposition == .attributable
+          ? "Controller execution and planned-ink comparison are attributable."
+          : "Controller execution completed; Vision evidence needs attention."
+      }
     } catch {
       let primaryError = "Drawing run failed: \(error)"
+      var completedOutsideApplicability = false
+      if case .completed? = terminalOutcome {
+        completedOutsideApplicability = evidenceProjection.diagnosticLimitation != nil
+      }
       if let outcome = terminalOutcome,
         let requestFrontier = terminalRequestFrontier,
         activeLearningSession.drawingStudio.lastRunRecord == nil
       {
         do {
+          let fallbackObservation: DrawingRunObservationOutcome =
+            completedOutsideApplicability
+            ? .notAttempted(.projectionOutsideTipApplicability)
+            : drawingObservationNotAttempted(for: outcome)
           let record = try makeDrawingStudioRunRecord(
             runID: runID,
             requestID: requestID,
@@ -3256,14 +3308,26 @@ final class OperatorWorkspace {
             placementID: placementID,
             registration: registration,
             paper: paper,
-            observation: drawingObservationNotAttempted(for: outcome)
+            observation: fallbackObservation,
+            evidenceDispositionOverride: completedOutsideApplicability
+              ? .nonAttributable : nil
           )
           await retainDrawingStudioRunRecord(record)
+          if completedOutsideApplicability,
+            let limitation = evidenceProjection.diagnosticLimitation
+          {
+            activeLearningSession.drawingStudio.runDetail =
+              "Controller execution completed without camera/ink attribution. "
+              + tipApplicabilityDiagnosticDetail(limitation)
+              + " Post-execution evidence work failed: \(error)"
+          }
         } catch {
           drawingEvidenceError = "\(primaryError) Terminal evidence also failed: \(error)"
         }
       }
-      activeLearningSession.drawingStudio.runDetail = primaryError
+      if !completedOutsideApplicability {
+        activeLearningSession.drawingStudio.runDetail = primaryError
+      }
       if drawingEvidenceError == nil { drawingEvidenceError = primaryError }
     }
   }
@@ -3291,6 +3355,73 @@ final class OperatorWorkspace {
       width: max(1, maxX - minX + 1),
       height: max(1, maxY - minY + 1)
     )
+  }
+
+  struct DrawingStudioObservationClassification: Sendable {
+    let presentationObservation: PlannedDrawingObservation?
+    let runObservation: DrawingRunObservationOutcome
+    let evidenceDisposition: DrawingTrialEvidenceDisposition
+  }
+
+  static func retainedDrawingStudioRunState(
+    runID: String,
+    observation: DrawingRunObservationOutcome,
+    postFrameAvailable: Bool,
+    reviewIsPinned: Bool,
+    runDetail: String?
+  ) -> DrawingStudioRunState {
+    guard postFrameAvailable else {
+      return .terminal(
+        runID: runID,
+        detail: runDetail
+          ?? "The immutable run record is retained, but no exact post-run frame is available."
+      )
+    }
+    let detail = runDetail ?? {
+      switch observation {
+      case .observed:
+        return "The exact post-run frame and retained camera/ink observation are available."
+      case .rejected:
+        return "The exact post-run frame is available; the Vision result was rejected."
+      case .notAttempted(.projectionOutsideTipApplicability):
+        return "The exact post-run frame is available; no camera/ink observation was attempted because the plan was outside tip applicability."
+      case .notAttempted:
+        return "The exact post-run frame is available; no camera/ink observation was attempted."
+      }
+    }()
+    return reviewIsPinned
+      ? .reviewing(runID: runID, detail: detail)
+      : .reviewAvailable(runID: runID, detail: detail)
+  }
+
+  /// Production attribution seam. The projection token owns whether the
+  /// observer can run; this mapper owns the resulting durable disposition.
+  static func classifyDrawingStudioObservation(
+    projection: TipApplicabilityEvidenceProjection,
+    observe: ([Polyline<CameraPixelSpace>]) async throws -> PlannedDrawingObservationOutcome
+  ) async rethrows -> DrawingStudioObservationClassification {
+    guard let intended = projection.attributableCameraPolylines else {
+      return DrawingStudioObservationClassification(
+        presentationObservation: nil,
+        runObservation: .notAttempted(.projectionOutsideTipApplicability),
+        evidenceDisposition: .nonAttributable
+      )
+    }
+    let observed = try await observe(intended)
+    switch observed {
+    case .observed(let observation):
+      return DrawingStudioObservationClassification(
+        presentationObservation: observation,
+        runObservation: .observed(observation.evidence),
+        evidenceDisposition: .attributable
+      )
+    case .rejected(let rejection):
+      return DrawingStudioObservationClassification(
+        presentationObservation: nil,
+        runObservation: .rejected(rejection),
+        evidenceDisposition: .visionUnclear
+      )
+    }
   }
 
   private func drawingObservationNotAttempted(
@@ -3411,8 +3542,11 @@ final class OperatorWorkspace {
       try? Point2(x: bounds.minX, y: bounds.maxY),
     ].compactMap { $0 }
     do {
+      // The operator accepts the displayed Boundary polygon as a paper-
+      // coverage proposition. This diagnostic projection is not tip/ink
+      // evidence and does not widen the registration applicability.
       let polygon = try machineCorners.map {
-        try inferredDrawingStudioPixel(at: $0, using: registration)
+        try registration.diagnosticProjection(at: $0).cameraPoint
       }
       let observation = try PaperCoverageObservation(
         paper: currentPaperRevisionContext,
@@ -3423,7 +3557,8 @@ final class OperatorWorkspace {
         observedAt: RuntimeTimestamp(
           monotonicNanoseconds: max(nowNanoseconds(), frame.frame.captureNanoseconds)
         ),
-        algorithmRevision: "operator-confirmed-drawing-boundary-coverage-v2"
+        algorithmRevision:
+          "operator-attested-drawing-boundary-diagnostic-projection-v3"
       )
       currentPaperCoverageObservation = observation
       if frameMode == .live { try livePaperCoverageActions?.save(observation) }
@@ -3442,16 +3577,6 @@ final class OperatorWorkspace {
     try DrawableMachineRegion(
       bounds: SparseTipBatchMarkPlan.boundaryEnvelope(for: boundarySideAggregates)
     )
-  }
-
-  /// Drawing Studio admits against the accepted Boundary. Projection in the
-  /// band outside the inset calibration applicability is therefore explicitly
-  /// an affine inference, not a claim that the recorded applicability expanded.
-  private func inferredDrawingStudioPixel(
-    at machinePoint: Point2<MachineSpace>,
-    using registration: TipCameraRegistration
-  ) throws -> Point2<CameraPixelSpace> {
-    try registration.cameraFromMachine.applying(to: machinePoint)
   }
 
   private func drawingBorderBounds(
@@ -3528,7 +3653,7 @@ final class OperatorWorkspace {
       let boundaryOutline = try? closedMachineRectanglePositions(bounds: boundary),
       let projectedBoundary = try? Polyline<CameraPixelSpace>(
         points: boundaryOutline.map {
-          try registration.cameraFromMachine.applying(to: $0.point)
+          try registration.diagnosticProjection(at: $0.point).cameraPoint
         }
       )
     {
@@ -3607,7 +3732,7 @@ final class OperatorWorkspace {
         for stroke in plan.strokes {
           guard let projected = try? Polyline(
             points: stroke.path.points.map {
-              try inferredDrawingStudioPixel(at: $0, using: registration)
+              try registration.diagnosticProjection(at: $0).cameraPoint
             }
           ) else { continue }
           overlays.append(

@@ -462,17 +462,22 @@ calibration or establishes a generally trained adaptive model.
 ## Drawing Studio ownership
 
 `OperatorWorkspace` derives the drawable region from the accepted Drawing Boundary
-and projects it with the current registration's inferred affine transform, including
-the area between the inset applicability rectangle and Boundary, alongside the
-predicted current tip point. This does not enlarge the recorded tip-calibration
-applicability. Current composition can nevertheless reuse the extrapolated
-projection when constructing intended run geometry and later classify a Vision
-success as attributable. That is a known cross-owner defect, not an evidence
-contract: `FIX-01` must make outside-applicability projection diagnostic-only or
-consume a newly validated registration applicability revision before the
-episode baseline. `PaperCoverageObservation`
-is a separate paper-instance assertion. Its polygon is shown only on its exact
-frame, while its current/not-current decision also requires current paper,
+and projects it through a typed diagnostic affine value, including the area
+between the inset applicability rectangle and Boundary, alongside the predicted
+current tip point. This does not enlarge recorded tip-calibration applicability.
+`TipApplicabilityEvidencePolicy` is the sole constructor of observer-bound
+intended geometry: it uses `TipCameraRegistration.tipPixel(at:)` for every plan
+point and returns an unforgeable all-or-nothing projection token. One outside
+point keeps the Boundary-valid plan executable but prevents Vision invocation
+and records a completed, non-attributable run with zero verified strokes. Only
+a separately accepted registration revision whose recorded rectangle contains
+the same plan can make it camera/ink evidence eligible.
+
+`PaperCoverageObservation` is a separate paper-instance assertion. For an
+operator-accepted observation, the operator supplies paper-coverage authority;
+the displayed diagnostic Boundary polygon supplies no tip-map or camera/ink
+evidence authority. Its polygon is shown only on its exact frame, while its
+current/not-current decision also requires current paper,
 source, and camera configuration. It never expands the accepted Drawing Boundary.
 
 Drawing Studio views consume immutable catalog, placement, target-preview,

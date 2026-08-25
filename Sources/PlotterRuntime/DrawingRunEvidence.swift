@@ -419,6 +419,7 @@ public enum DrawingObservationNotAttemptedReason: String, Codable, Hashable, Sen
   case executionCancelledBeforeObservation
   case executionFailedBeforeObservation
   case frameEvidenceUnavailable
+  case projectionOutsideTipApplicability
 }
 
 public enum DrawingRunObservationOutcome: Codable, Hashable, Sendable {
@@ -431,8 +432,9 @@ public enum DrawingRunObservationOutcome: Codable, Hashable, Sendable {
 /// cannot itself promote a model, restore calibration, authorize execution, or
 /// replay motion.
 public struct DrawingRunEvidenceRecord: Codable, Hashable, Sendable {
-  public static let schemaVersion: UInt16 = 2
+  public static let schemaVersion: UInt16 = 3
   private static let legacyReferenceOnlySchemaVersion: UInt16 = 1
+  private static let reconstructablePlanSchemaVersion: UInt16 = 2
 
   public let schemaVersion: UInt16
   public let recordID: DrawingEvidenceRecordID
@@ -512,10 +514,19 @@ public struct DrawingRunEvidenceRecord: Codable, Hashable, Sendable {
   ) throws {
     guard
       schemaVersion == Self.legacyReferenceOnlySchemaVersion
+        || schemaVersion == Self.reconstructablePlanSchemaVersion
         || schemaVersion == Self.schemaVersion
     else { throw DrawingRunEvidenceError.unsupportedSchema(schemaVersion) }
-    if schemaVersion == Self.schemaVersion, !plan.hasReconstructableGeometry {
+    if schemaVersion != Self.legacyReferenceOnlySchemaVersion,
+      !plan.hasReconstructableGeometry
+    {
       throw DrawingRunEvidenceError.missingExecutionPlanGeometry
+    }
+    if schemaVersion != Self.schemaVersion,
+      evidenceDisposition == .nonAttributable
+        || observation == .notAttempted(.projectionOutsideTipApplicability)
+    {
+      throw DrawingRunEvidenceError.unsupportedSchema(schemaVersion)
     }
     guard executionDisposition.reasonIsValid else {
       throw DrawingRunEvidenceError.emptyValue("execution disposition reason")
@@ -579,6 +590,7 @@ public struct DrawingRunEvidenceRecord: Codable, Hashable, Sendable {
     let decodedSchema = try values.decode(UInt16.self, forKey: .schemaVersion)
     guard
       decodedSchema == Self.legacyReferenceOnlySchemaVersion
+        || decodedSchema == Self.reconstructablePlanSchemaVersion
         || decodedSchema == Self.schemaVersion
     else {
       throw DrawingRunEvidenceError.unsupportedSchema(decodedSchema)
@@ -657,6 +669,10 @@ public struct DrawingRunEvidenceRecord: Codable, Hashable, Sendable {
       case .observed, .notAttempted:
         throw DrawingRunEvidenceError.incompatibleDisposition
       }
+    case .nonAttributable:
+      guard case .completed = executionDisposition,
+        case .notAttempted(.projectionOutsideTipApplicability) = observation
+      else { throw DrawingRunEvidenceError.incompatibleDisposition }
     case .cancelled:
       guard case .cancelled = executionDisposition else {
         throw DrawingRunEvidenceError.incompatibleDisposition

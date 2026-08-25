@@ -109,19 +109,22 @@ struct DrawingStudioPlacementPresentation: Hashable, Sendable {
 enum DrawingStudioTargetPreviewStatus: Hashable, Sendable {
   case unavailable(reason: String)
   case outsideDrawableRegion(reason: String)
+  case diagnosticOnly(reason: String)
   case ready
 
   var label: String {
     switch self {
     case .unavailable: "Target unavailable"
     case .outsideDrawableRegion: "Outside drawable region"
+    case .diagnosticOnly: "Target preview only"
     case .ready: "Target preview ready"
     }
   }
 
   var detail: String? {
     switch self {
-    case .unavailable(let reason), .outsideDrawableRegion(let reason): reason
+    case .unavailable(let reason), .outsideDrawableRegion(let reason),
+      .diagnosticOnly(let reason): reason
     case .ready: nil
     }
   }
@@ -160,6 +163,7 @@ enum DrawingStudioRunState: Hashable, Sendable {
   case ready(detail: String)
   case running(capabilityID: ContextualStopCapabilityID, detail: String)
   case processing(detail: String)
+  case terminal(runID: String, detail: String)
   case reviewAvailable(runID: String, detail: String)
   case reviewing(runID: String, detail: String)
 
@@ -169,6 +173,7 @@ enum DrawingStudioRunState: Hashable, Sendable {
     case .ready: "Ready to run"
     case .running: "Drawing in progress"
     case .processing: "Processing drawing evidence"
+    case .terminal: "Drawing run ended"
     case .reviewAvailable: "Run review available"
     case .reviewing: "Reviewing drawing run"
     }
@@ -178,7 +183,8 @@ enum DrawingStudioRunState: Hashable, Sendable {
     switch self {
     case .unavailable(let reason), .ready(let reason), .running(_, let reason),
       .processing(let reason),
-      .reviewAvailable(_, let reason), .reviewing(_, let reason):
+      .terminal(_, let reason), .reviewAvailable(_, let reason),
+      .reviewing(_, let reason):
       reason
     }
   }
@@ -293,6 +299,15 @@ struct DrawingStudioPresentation: Hashable, Sendable {
       ]
     case .processing:
       return []
+    case .terminal:
+      return [
+        DrawingStudioControl(
+          action: .newRun,
+          title: "New Drawing",
+          systemImage: "plus",
+          role: .affirmative
+        )
+      ]
     case .reviewAvailable:
       return [
         DrawingStudioControl(

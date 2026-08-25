@@ -241,12 +241,46 @@ struct DrawingReadinessTests {
     )
 
     #expect(assessment.state == .ready)
+    #expect(assessment.schemaVersion == 2)
     #expect(assessment.requirements.map(\.requirement) == DrawingReadinessRequirement.allCases)
     #expect(
       try JSONDecoder().decode(
         DrawingReadinessAssessment.self,
         from: JSONEncoder().encode(assessment)
       ) == assessment)
+  }
+
+  @Test("schema-one readiness assessments remain readable")
+  func legacyReadinessSchemaRemainsReadable() throws {
+    let evidence = DrawingReadinessRequirement.allCases.enumerated().map { index, _ in
+      DrawingEvidenceReference(
+        recordID: evidenceID(index),
+        role: .reservedHoldout,
+        disposition: .attributable
+      )
+    }
+    let requirements = try DrawingReadinessRequirement.allCases.enumerated().map { index, item in
+      try DrawingReadinessRequirementResult(
+        requirement: item,
+        disposition: .passed,
+        evidenceRecordIDs: [evidenceID(index)]
+      )
+    }
+    let legacy = try DrawingReadinessAssessment(
+      schemaVersion: 1,
+      provenance: planningProvenance(),
+      applicability: readinessRegion(),
+      requirements: requirements,
+      evidence: evidence
+    )
+
+    let restored = try JSONDecoder().decode(
+      DrawingReadinessAssessment.self,
+      from: JSONEncoder().encode(legacy)
+    )
+
+    #expect(restored == legacy)
+    #expect(restored.schemaVersion == 1)
   }
 
   @Test("possible ink cannot produce a ready assessment")

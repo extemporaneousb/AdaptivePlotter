@@ -22,6 +22,7 @@ public enum DrawingTrialEvidenceDisposition: UInt8, Codable, Sendable, CaseItera
   case possibleInk = 3
   case visionUnclear = 4
   case cancelled = 5
+  case nonAttributable = 6
 }
 
 extension DrawingTrialEvidenceDisposition: CanonicalEncodable {
@@ -150,7 +151,8 @@ public enum DrawingReadinessError: Error, Equatable, Sendable {
 }
 
 public struct DrawingReadinessAssessment: Hashable, Codable, Sendable, CanonicalEncodable {
-  public static let schemaVersion: UInt16 = 1
+  public static let schemaVersion: UInt16 = 2
+  private static let legacySchemaVersion: UInt16 = 1
 
   public let schemaVersion: UInt16
   public let state: DrawingReadinessState
@@ -166,6 +168,32 @@ public struct DrawingReadinessAssessment: Hashable, Codable, Sendable, Canonical
     requirements: [DrawingReadinessRequirementResult],
     evidence: [DrawingEvidenceReference]
   ) throws {
+    try self.init(
+      schemaVersion: Self.schemaVersion,
+      provenance: provenance,
+      applicability: applicability,
+      requirements: requirements,
+      evidence: evidence
+    )
+  }
+
+  init(
+    schemaVersion: UInt16,
+    provenance: DrawingPlanningProvenance,
+    applicability: DrawableMachineRegion,
+    requirements: [DrawingReadinessRequirementResult],
+    evidence: [DrawingEvidenceReference]
+  ) throws {
+    guard schemaVersion == Self.legacySchemaVersion || schemaVersion == Self.schemaVersion else {
+      throw PlotterModelError.invalidValue("unsupported DrawingReadinessAssessment schema")
+    }
+    if schemaVersion == Self.legacySchemaVersion,
+      evidence.contains(where: { $0.disposition == .nonAttributable })
+    {
+      throw PlotterModelError.invalidValue(
+        "non-attributable evidence requires DrawingReadinessAssessment schema 2"
+      )
+    }
     guard Set(requirements.map(\.requirement)).count == requirements.count else {
       throw DrawingReadinessError.duplicateRequirement
     }
@@ -194,7 +222,7 @@ public struct DrawingReadinessAssessment: Hashable, Codable, Sendable, Canonical
       }
     let derivedState: DrawingReadinessState = isReady ? .ready : .notReady
     let basis = DrawingReadinessAssessmentHashBasis(
-      schemaVersion: Self.schemaVersion,
+      schemaVersion: schemaVersion,
       state: derivedState,
       provenance: provenance,
       applicability: applicability,
@@ -202,7 +230,7 @@ public struct DrawingReadinessAssessment: Hashable, Codable, Sendable, Canonical
       evidence: orderedEvidence
     )
 
-    schemaVersion = Self.schemaVersion
+    self.schemaVersion = schemaVersion
     state = derivedState
     self.provenance = provenance
     self.applicability = applicability
@@ -230,12 +258,16 @@ public struct DrawingReadinessAssessment: Hashable, Codable, Sendable, Canonical
   public init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     let encodedSchemaVersion = try container.decode(UInt16.self, forKey: .schemaVersion)
-    guard encodedSchemaVersion == Self.schemaVersion else {
+    guard
+      encodedSchemaVersion == Self.legacySchemaVersion
+        || encodedSchemaVersion == Self.schemaVersion
+    else {
       throw PlotterModelError.invalidValue("unsupported DrawingReadinessAssessment schema")
     }
     let decodedState = try container.decode(DrawingReadinessState.self, forKey: .state)
     let decodedHash = try container.decode(Digest.self, forKey: .contentHash)
     let decoded = try Self(
+      schemaVersion: encodedSchemaVersion,
       provenance: container.decode(DrawingPlanningProvenance.self, forKey: .provenance),
       applicability: container.decode(DrawableMachineRegion.self, forKey: .applicability),
       requirements: container.decode(

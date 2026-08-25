@@ -21,6 +21,48 @@ limitations remain in the named evidence section.
 | DOC-01 | `TASK-F2387A9A` | `DOC=passed`, `DIFF=passed`, `CRITIC=passed` | Episode migration execution readiness |
 | EA-01 | `TASK-513DC8A7` | `DOC=passed`, `DIFF=passed`, `INVENTORY=passed` | Episode current-source inventory |
 | FIX-00 | `TASK-1B5992CF` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed`, `FIX-CONTAINMENT=passed` | Coordinate settlement and containment split |
+| FIX-01 | `TASK-05D1DCBD` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed`, `FIX-APPLICABILITY=passed` | Tip applicability evidence authority |
+
+## Tip applicability evidence authority
+
+Implemented 2026-08-24 in Blackdog task `TASK-05D1DCBD`.
+
+Drawing Studio still admits plans against the accepted Drawing Boundary, and a
+typed diagnostic affine projection keeps Boundary-band placement, preview,
+accepted-Boundary overlays, saved-plan overlays, and the operator-attested paper
+polygon visible. `TipApplicabilityEvidencePolicy` now owns the separate
+camera/ink evidence projection. Its unforgeable result requires every plan point
+to pass the recorded `TipCameraRegistration.tipPixel(at:)` domain and gates the
+only Drawing Studio observer call.
+
+If any point is outside the recorded applicability rectangle, controller
+execution remains eligible but Vision is not invoked. The terminal record uses
+the typed `projectionOutsideTipApplicability` reason and `nonAttributable`
+disposition, verifies zero strokes, survives post-execution fallback errors, and
+cannot be mistaken for a reviewable observation or post frame. A distinct newly
+accepted registration revision can make the same geometry attributable only
+when its own recorded applicability contains the complete plan. The former
+`inferredDrawingStudioPixel` bypass was deleted with zero source or test matches.
+
+Durable drawing-run evidence advanced from schema 2 to 3 and drawing-readiness
+assessment from schema 1 to 2 for the new typed disposition. Readers retain
+explicit legacy decode for drawing-run schemas 1 and 2 and readiness schema 1;
+new non-attributable values are refused when mislabeled as an older schema.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `DOC` | passed — `make docs-check` | canonical documents, ledger/evidence agreement, vocabulary, and repository contract |
+| `DIFF` | passed — `git diff --check` | source, tests, documentation, and contract update |
+| `QUICK` | passed — `make quick-test` | nonphysical unit/component partition |
+| `STRICT` | passed — `make strict-check` | strict concurrency, warnings as errors, signed bundle, launcher, full software suite, documentation contract, and diff integrity |
+| `FIX-APPLICABILITY` | passed — `swift test --filter TipApplicabilityEvidencePolicyTests` | five focused cases covering diagnostic projection, all-or-nothing observer gating, distinct expanded revision, durable typed non-attribution, schema truth, and truthful review availability |
+
+Focused drawing-readiness and drawing-run schema suites passed 11 tests; the
+Drawing Studio presentation suite passed 8 tests; and the retained Boundary-band
+preview lifecycle regression passed. These are source, build, signing,
+deterministic software, and simulator results only. No attended controller,
+camera, motion, Pen, paper, operator click, or observed-ink validation was
+performed.
 
 ## Coordinate settlement and containment split
 

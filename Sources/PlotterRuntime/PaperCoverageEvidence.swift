@@ -11,6 +11,9 @@ public struct PaperCoverageObservationID: Codable, Hashable, Sendable {
 
 public enum PaperCoverageObservationMethod: String, Codable, Hashable, Sendable {
   case visionMeasured
+  /// The operator, not the polygon's projection source, supplies the paper-
+  /// coverage authority. The displayed polygon may be a diagnostic affine
+  /// projection and never becomes tip-map or camera/ink evidence.
   case operatorAccepted
 }
 
@@ -21,9 +24,12 @@ public enum PaperCoverageObservationError: Error, Equatable, Sendable {
   case emptyAlgorithmRevision
 }
 
-/// Exact-frame evidence that a particular replaceable sheet covers a camera
-/// polygon. This is paper evidence only: it does not replace or widen machine
-/// Boundary authority, tip-map applicability, or their safety margins.
+/// An exact-frame assertion that a particular replaceable sheet covers the
+/// displayed camera polygon. With `operatorAccepted`, the polygon is the
+/// proposition the operator accepts; its diagnostic projection supplies no
+/// tip-map or camera/ink evidence authority. This is paper evidence only: it
+/// does not replace or widen machine Boundary authority, tip-map applicability,
+/// or their safety margins.
 public struct PaperCoverageObservation: Codable, Hashable, Sendable {
   public let id: PaperCoverageObservationID
   public let paper: PaperRevisionContext

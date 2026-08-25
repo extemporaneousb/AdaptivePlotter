@@ -481,7 +481,10 @@ not that inset rectangle, is the Drawing Studio drawable region. Preview and pap
 coverage projection between the Border and Boundary use the registration's inferred
 affine projection and do not enlarge the recorded calibration applicability.
 That extrapolation is diagnostic presentation only: it cannot by itself support
-attributable camera/ink evidence. Exercise
+attributable camera/ink evidence. When an operator accepts a paper-coverage
+polygon, the operator assertion supplies paper-coverage authority; the projected
+polygon remains diagnostic and supplies no tip-map or camera/ink evidence.
+Exercise
 1.4 never changes zoom, pan, preferred zoom, or viewport focus
 automatically. During proposal review, the camera view separately labels the
 accepted Drawing Boundary projection and renders the proposed Drawing Border

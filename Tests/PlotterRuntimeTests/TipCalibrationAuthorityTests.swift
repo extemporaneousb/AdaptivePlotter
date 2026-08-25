@@ -622,7 +622,7 @@ private enum TipFixtureError: Error {
   case unexpected(String)
 }
 
-private struct TipAuthorityFixture {
+struct TipAuthorityFixture {
   let source = FrameSourceIdentity.live(CameraDeviceID(rawValue: "camera-a"))
   let captureSession = CameraCaptureSessionID()
   let optical: CameraOpticalConfigurationIdentity
@@ -855,7 +855,7 @@ private struct TipAuthorityFixture {
     }
   }
 
-  private func registrationTransform() throws
+  func registrationTransform() throws
     -> AffineTransform2<MachineSpace, CameraPixelSpace>
   {
     try AffineTransform2(m11: 2, m12: 0, m21: 0, m22: 3, tx: 10, ty: 20)

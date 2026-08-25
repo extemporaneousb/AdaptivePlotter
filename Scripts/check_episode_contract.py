@@ -18,7 +18,8 @@ SKILL_PATH = ROOT / ".codex" / "skills" / "adaptiveplotter" / "SKILL.md"
 EVIDENCE_PATH = ROOT / "docs" / "CURRENT_EVIDENCE.md"
 TAG_PUBLISHER_PATH = ROOT / "Scripts" / "publish_episode_baseline_tag.sh"
 TAG_TEST_PATH = ROOT / "Scripts" / "test_publish_episode_baseline_tag.sh"
-EXPECTED_LEDGER_SHA256 = "9eb561d4f167aa1277e44df8e5676f015551437d49208b056fa8d0b695b6a1f6"
+# Updated in the same package whenever a canonical ledger row changes.
+EXPECTED_LEDGER_SHA256 = "55776dfe92c8ed33bfa2ba0b9e6c9de5165fc63e54e8f9442b707a2098ca2708"
 
 
 EXPECTED_GATES = {
@@ -170,7 +171,7 @@ EXPECTED_SOFTWARE_OUTCOME_KIND = {
 }
 
 
-EXPECTED_COMPLETE_PACKAGES = {"DOC-00", "DOC-01", "EA-01", "FIX-00"}
+EXPECTED_COMPLETE_PACKAGES = {"DOC-00", "DOC-01", "EA-01", "FIX-00", "FIX-01"}
 
 
 def fail(message: str) -> None:
@@ -280,9 +281,10 @@ def validate_plan(text: str) -> dict[str, dict[str, object]]:
     ledger_material = ("\n".join(ledger_lines) + "\n").encode("utf-8")
     actual_ledger_sha256 = hashlib.sha256(ledger_material).hexdigest()
     if actual_ledger_sha256 != EXPECTED_LEDGER_SHA256:
-        fail(
+      fail(
             "complete ledger content drifted; update the canonical plan and "
-            "EXPECTED_LEDGER_SHA256 in the same reviewed package"
+            "EXPECTED_LEDGER_SHA256 in the same reviewed package "
+            f"(expected {EXPECTED_LEDGER_SHA256}, actual {actual_ledger_sha256})"
         )
     ledger_rows = markdown_table(
         text,

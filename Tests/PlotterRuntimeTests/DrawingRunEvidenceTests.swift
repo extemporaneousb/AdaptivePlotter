@@ -24,6 +24,7 @@ struct DrawingRunEvidenceTests {
     )
 
     #expect(restored == record)
+    #expect(restored.schemaVersion == 3)
     #expect(restored.role == .reservedHoldout)
     #expect(restored.readinessReference.recordID == record.recordID)
     #expect(restored.readinessReference.disposition == .attributable)
@@ -37,6 +38,25 @@ struct DrawingRunEvidenceTests {
     }
     #expect(observed.frames.baseline.frameID != observed.frames.post.frameID)
     #expect(observed.residual?.correspondenceCount == 2)
+  }
+
+  @Test("schema-two records with reconstructable plans remain readable")
+  func reconstructablePlanSchemaTwoRecord() throws {
+    let record = try drawingEvidenceFixture(role: .ordinaryDrawing)
+    var object = try #require(
+      JSONSerialization.jsonObject(with: JSONEncoder().encode(record)) as? [String: Any]
+    )
+    object["schemaVersion"] = 2
+
+    let restored = try JSONDecoder().decode(
+      DrawingRunEvidenceRecord.self,
+      from: JSONSerialization.data(withJSONObject: object)
+    )
+
+    #expect(restored.schemaVersion == 2)
+    #expect(restored.recordID == record.recordID)
+    #expect(restored.plan == record.plan)
+    #expect(restored.evidenceDisposition == .attributable)
   }
 
   @Test("legacy reference-only records remain readable without inventing geometry")
@@ -238,7 +258,7 @@ struct DrawingRunEvidenceTests {
   }
 }
 
-private struct DrawingEvidenceFixtureParts {
+struct DrawingEvidenceFixtureParts {
   let program: DrawingProgramEvidenceReference
   let placement: DrawingPlacementEvidenceReference
   let plan: DrawingExecutionPlanEvidenceReference
@@ -287,7 +307,7 @@ private func drawingEvidenceFixture(
   )
 }
 
-private func drawingEvidenceParts() throws -> DrawingEvidenceFixtureParts {
+func drawingEvidenceParts() throws -> DrawingEvidenceFixtureParts {
   let planning = DrawingPlanningProvenance(
     modelRevisionID: DrawingModelRevisionID(),
     modelContentHash: try evidenceDigest(4),

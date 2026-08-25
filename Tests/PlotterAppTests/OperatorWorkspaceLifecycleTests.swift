@@ -219,7 +219,13 @@ struct OperatorWorkspaceLifecycleTests {
       boundaryBandStudio.canvas.placement.centerCameraPixel
     )
     #expect(projectedCenter.distance(to: extrapolatedCameraPoint) < 1e-9)
-    #expect(boundaryBandStudio.canvas.targetPreview?.status == .ready)
+    guard case .diagnosticOnly(let applicabilityDetail) =
+      boundaryBandStudio.canvas.targetPreview?.status
+    else {
+      Issue.record("Boundary-band placement must remain previewable but diagnostic-only.")
+      return
+    }
+    #expect(applicabilityDetail.contains("cannot produce attributable camera/ink evidence"))
     #expect(boundaryBandStudio.canvas.targetPreview?.executionPlanContentHash != nil)
 
     await workspace.performDrawingStudioAction(.selectCatalogItem(.elephant))
