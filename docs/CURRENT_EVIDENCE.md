@@ -23,6 +23,91 @@ limitations remain in the named evidence section.
 | FIX-00 | `TASK-1B5992CF` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed`, `FIX-CONTAINMENT=passed` | Coordinate settlement and containment split |
 | FIX-01 | `TASK-05D1DCBD` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed`, `FIX-APPLICABILITY=passed` | Tip applicability evidence authority |
 
+## Attended baseline blocked by reveal-pose occlusion
+
+Attempted 2026-08-24 in Blackdog task `TASK-EC17BA6C` against clean `main`
+commit `96cf4f1a35155853650163b51683971046519580`. This attempt did not
+satisfy `PHYSICAL-BASE`, does not complete `BASE-01`, and records no tested-
+baseline marker. No branch or tag was pushed.
+
+The signed application used for the attended run was
+`/Users/bullard/Projects/AdaptivePlotter/.build/AdaptivePlotter.app`, identifier
+`com.bullard.AdaptivePlotter`, signing authority
+`AdaptivePlotter Local Development`, with executable SHA-256
+`dec7fad2ccf8962eeff4c2a7996ca4ef86fa1c6a540e1a5c6e72bd33ab412a2a`.
+Its executable inode was the inode retained by running process `74788`; the
+process started after the bundle build from the unchanged candidate. The task-
+workspace `make app` and `make validate-app` preconditions also passed. The host
+was macOS 15.7.9 build 24G830 with Apple Swift 6.1.2.
+
+The attended operator was the interactive `bullard` user. The app selected
+controller `/dev/cu.usbserial-A10OF67O`; the visible toolbar reported Plotter
+Connected and Motion Enabled. The LIVE camera supplied exact 1920 x 1080 frames.
+The run retained camera-mount revision
+`d04a6b17-4a97-49f0-adc5-fa634f67a903`, camera-reframing revision
+`0b1c15bd-2569-44f6-9495-41fb6838de7f`, machine-geometry revision
+`ed5336c4-c0e2-4bc2-95a5-361139c8661c`, tool-assembly revision
+`bd027bcb-96e6-4d23-8778-ce8c4348c64f`, pen-contact-profile revision
+`0fd727d3-0145-4c79-91af-f97b9d6f48c0`, paper-instance revision
+`0a299e7f-9e10-4855-aa8d-d280576175fd`, and paper-contact-plane revision
+`a4e7ebd9-1aa0-4d5e-928f-de71d5f44e11`. The camera model/device label, exact
+controller settings digest, servo values, and complete controller transcript
+were not transcribed into this evidence record.
+
+Runbook section dispositions:
+
+- Section 1 — `passed` by the attending operator with the app showing Exercises
+  1.1 and 1.2 Complete. The later evidence capture confirmed the intended
+  controller remained connected, Motion remained enabled, and the accepted
+  Drawing Boundary was visible. The exact initial passive-probe fields, Pen
+  values, directional Stop chronology, and center MPos were not independently
+  copied into this record.
+- Section 2 — `passed` by the attending operator with Exercise 1.3 displayed
+  Complete and the accepted live camera projection visible. The five exact
+  correspondence frames, rectangles, holdout residuals, and proposal review
+  values were not independently copied into this record.
+- Section 3 — `passed` by the attending operator with Exercise 1.4 displayed
+  Complete and `Tip calibration accepted` visible. The four-click order,
+  reject-then-accept check, individual circle-contact observations, and
+  64-chord chronology were not independently copied into this record, so this
+  attempt does not upgrade those details beyond the app's accepted result and
+  the operator's attendance.
+- Section 4 — `skipped`. The unchanged-restart Saved Learning choice, changed-
+  dependency reset, new-sheet/same-plane branch, and changed-contact-plane
+  branch were not executed as separately recorded attended cases.
+- Section 5 — `failed`. The controller-owned operation visibly progressed
+  through phase 4 of 6 with its exact Stop available, then settled to Idle with
+  no active motion. The attending operator directly observed one closed,
+  correctly drawn rectangular Border with one faint segment. This establishes
+  an observed physical-ink claim with that limitation, not an attributable
+  camera/Vision comparison.
+
+During section 5 the app entered `Trial ink analysis - active` on a strictly
+newer exact post frame, then stopped with
+`inkRejected("correspondenceUnavailable")`, `Ink may exist`, and no redraw
+requested. It did not produce the required observed-white/residual-orange
+comparison or `Drawing validation complete`. An initial observation recovery
+captured a frame while the operator's hand and marker occluded the paper and was
+also rejected. A later clean recovery still returned the carriage to the stored
+local reveal pose. The attending operator established that the armature at that
+pose physically occludes one Drawing Border edge. Moving the armature aside and
+choosing **Resume Drawing Border Observation** returned it to the same occluding
+center pose before capture. Repeated observation therefore could not make the
+complete Border visible, and no safe observation-only recovery could satisfy
+the comparison. No redraw was requested or performed.
+
+The evidence classes remain separate: the app and controller report a settled
+closed-plan operation; the operator directly reports a correct physical Border
+with one faint segment; exact camera frames show the fixed reveal-pose
+occlusion; Vision reports correspondence unavailable and accepts no ink
+geometry. `PHYSICAL-BASE` is `failed`, while `DOC`, `DIFF`, and `STRICT` are
+`passed` on this evidence-only candidate: `make docs-check`, `git diff --check`,
+and `make strict-check` completed successfully, with 525 software tests passing
+under the strict gate. A fresh attempt requires a canonical prerequisite
+correction that assigns ownership for an unobstructed same-pose post-drawing
+observation, followed by a new attended run on disposable paper. The existing
+possibly inked Border must not be redrawn.
+
 ## Tip applicability evidence authority
 
 Implemented 2026-08-24 in Blackdog task `TASK-05D1DCBD`.
