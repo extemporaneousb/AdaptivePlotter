@@ -94,20 +94,17 @@ execution class for the requested mode, and fully expanded exact gates.
   correction. Do not work around it.
 - The ledger never records `active`; Blackdog owns in-progress state.
 
-`EA-01` is intentionally available before attended baseline work. No
-application-code migration may begin until both the inventory and exact
-`BASE-03` published/tagged baseline dependency required by its row are complete.
+`DOC-02` records the operator-accepted pre-migration rollback checkpoint and
+retires the failed BASE-01/BASE-02/BASE-03 campaign as a migration dependency.
+That correction preserves the failed attended evidence and leaves final
+attended validation in `VAL-01`; it makes no physical or remote-Git claim.
 
 ## Compile the exact execution prompt
 
 The first line is exactly
 `AdaptivePlotter episode WorkPackage: <ID>`. This stable marker is part of the
-Blackdog replay identity; package-specific publication procedures may verify it
-but may not infer it from a task title or caller-supplied argument.
-For `BASE-03`, the second line is exactly
-`AdaptivePlotter tested baseline commit: <TESTED-BASELINE-COMMIT>`, with the
-placeholder replaced by the sole 40-character lowercase commit recorded by
-BASE-01 as `TESTED-BASELINE-COMMIT: <commit>` in Current Evidence.
+Blackdog replay identity; package-specific procedures may verify it but may not
+infer it from a task title or caller-supplied argument.
 
 The prompt copies, without summarizing away constraints:
 

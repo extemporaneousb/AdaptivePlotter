@@ -118,9 +118,4 @@ if rg -n '^\| (BASE-00|EA-10|EA-11) \|' docs/EPISODE_ARCHITECTURE_EXECUTION_PLAN
     fail "superseded broad package row remains"
 fi
 
-sh -n Scripts/publish_episode_baseline_tag.sh ||
-    fail "baseline tag publication procedure has invalid shell syntax"
-sh Scripts/test_publish_episode_baseline_tag.sh ||
-    fail "baseline tag publication recovery test failed"
-
 echo "episode documentation contract passed"

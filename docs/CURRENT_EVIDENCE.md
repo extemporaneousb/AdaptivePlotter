@@ -22,6 +22,38 @@ limitations remain in the named evidence section.
 | EA-01 | `TASK-513DC8A7` | `DOC=passed`, `DIFF=passed`, `INVENTORY=passed` | Episode current-source inventory |
 | FIX-00 | `TASK-1B5992CF` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed`, `FIX-CONTAINMENT=passed` | Coordinate settlement and containment split |
 | FIX-01 | `TASK-05D1DCBD` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed`, `FIX-APPLICABILITY=passed` | Tip applicability evidence authority |
+| DOC-02 | `TASK-24BD26E8` | `DOC=passed`, `DIFF=passed` | Operator-accepted pre-migration checkpoint and development frontier |
+
+## Operator-accepted pre-migration checkpoint and development frontier
+
+Implemented 2026-08-25 in Blackdog task `TASK-24BD26E8` against clean `main`
+commit `256b2a65f4059b6cf0e5c07f5f5305043254fb71`.
+
+The operator explicitly accepted that commit as the rollback point for beginning
+episode development. Local annotated tag
+`adaptiveplotter-pre-episode-migration-20260825` resolves to the accepted commit;
+its annotation states that the physical baseline remains incomplete. The tag
+was not pushed, no branch was published, and no remote ref was changed.
+
+The BASE-01/BASE-02/BASE-03 campaign and its `PHYSICAL-BASE`, `PUBLISH-MAIN`,
+and `TAG` gates were removed from the active migration ledger. Their failure is
+not relabeled as success: the exact 2026-08-24 reveal-pose occlusion, controller,
+camera, operator, possible-ink, skipped-step, and no-redraw evidence remains in
+the historical section below. The obsolete remote baseline publisher and its
+disposable-repository test were deleted after all retained callers were removed.
+`VAL-01` and `PHYSICAL-FINAL` still require attended evidence on the exact final
+migrated build.
+
+`EA-02A` now depends on completed `DOC-02`, making it the first eligible ordinary
+WorkPackage. This package changed repository policy, evidence, routing, and
+deterministic checks only. It changed no application Swift source, runtime,
+simulator, controller, camera, Motion, Pen, paper, operator-click, or physical-
+ink behavior.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `DOC` | passed — `make docs-check` | active ledger, development frontier, protocol, roadmap, retained physical evidence, and deleted publisher contract |
+| `DIFF` | passed — `git diff --check` | canonical documents, focused protocol, checker, and obsolete script deletion |
 
 ## Guarded automatic wave coordination
 
@@ -33,9 +65,10 @@ pending `repository`, `software`, or `gate` WorkPackage in canonical ledger
 order. Selection requires every dependency to be landed complete, every gate to
 resolve exactly, and no contradictory blocker in Current Evidence. It cannot
 authorize attended physical work, observed-ink claims, branch publication, tag
-creation, or a remote push. With the current ledger it therefore reports the
-blocked `BASE-01` frontier and cannot bypass the required canonical reveal-pose
-correction and new attended run.
+creation, or a remote push. At that package's landing the then-current ledger
+therefore reported the blocked `BASE-01` frontier. `DOC-02` later retired that
+baseline campaign as a migration prerequisite; the same selector now chooses
+eligible `EA-02A` first without changing its package boundary.
 
 An existing Blackdog claim is resolved before selection. Verified recoverable
 ordinary-package work follows only Blackdog's exact structured action; an active
@@ -60,23 +93,25 @@ Forward scenarios are fixed by the checked contract:
 
 | Scenario | Required disposition |
 | --- | --- |
-| Current clean ledger | No ordinary package is eligible; report `BASE-01`, `PHYSICAL-BASE=failed`, reveal-pose occlusion, and the required canonical correction/new attended run. |
+| Current clean ledger | Select `EA-02A`, the first eligible ordinary row; its package may not claim or repair the retained failed physical evidence. |
 | Active owner holds the claim | Start no task; request one bounded non-overlapping offload with explicit worktree and leases, or stop if it is unavailable. |
 | Failed/interrupted ordinary package is recoverable | Verify prompt replay and dependencies, then follow only Blackdog's exact recovery action as coordinator. |
 | Multiple later ordinary rows appear dependency-ready | Select only the first in literal ledger order; parallelism stays inside that one WorkPackage and one task worktree. |
 
 | Validation | Result | Scope |
 | --- | --- | --- |
-| `DOC` | passed — `make docs-check` | routing, policy removal, exact selector classes/order, current blocked frontier, worker merge guards, and existing episode contracts |
+| `DOC` | passed — `make docs-check` | routing, policy removal, exact selector classes/order, then-current blocked frontier, worker merge guards, and existing episode contracts |
 | `DIFF` | passed — `git diff --check` | skill, policy, evidence, routing, and executable checker patch |
 | `SKILL` | passed — skill-creator `quick_validate.py` with isolated PyYAML | frontmatter, name, description, and repo-local skill structure |
 
-## Attended baseline blocked by reveal-pose occlusion
+## Historical: attended baseline blocked by reveal-pose occlusion
 
 Attempted 2026-08-24 in Blackdog task `TASK-EC17BA6C` against clean `main`
 commit `96cf4f1a35155853650163b51683971046519580`. This attempt did not
-satisfy `PHYSICAL-BASE`, does not complete `BASE-01`, and records no tested-
-baseline marker. No branch or tag was pushed.
+satisfy its then-required `PHYSICAL-BASE` gate, did not complete `BASE-01`, and
+recorded no tested-baseline marker. No branch or tag was pushed. `DOC-02` later
+removed that campaign from the active migration ledger without changing these
+facts or upgrading any evidence class.
 
 The signed application used for the attended run was
 `/Users/bullard/Projects/AdaptivePlotter/.build/AdaptivePlotter.app`, identifier
@@ -148,13 +183,13 @@ The evidence classes remain separate: the app and controller report a settled
 closed-plan operation; the operator directly reports a correct physical Border
 with one faint segment; exact camera frames show the fixed reveal-pose
 occlusion; Vision reports correspondence unavailable and accepts no ink
-geometry. `PHYSICAL-BASE` is `failed`, while `DOC`, `DIFF`, and `STRICT` are
+geometry. The retired `PHYSICAL-BASE` result is `failed`, while `DOC`, `DIFF`, and `STRICT` are
 `passed` on this evidence-only candidate: `make docs-check`, `git diff --check`,
 and `make strict-check` completed successfully, with 525 software tests passing
-under the strict gate. A fresh attempt requires a canonical prerequisite
-correction that assigns ownership for an unobstructed same-pose post-drawing
-observation, followed by a new attended run on disposable paper. The existing
-possibly inked Border must not be redrawn.
+under the strict gate. If this historical baseline procedure is revisited, it
+still requires ownership for an unobstructed same-pose post-drawing observation
+and a new attended run on disposable paper. The existing possibly inked Border
+must not be redrawn.
 
 ## Tip applicability evidence authority
 

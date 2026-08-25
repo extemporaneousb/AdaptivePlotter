@@ -25,10 +25,8 @@ WAVE_PROTOCOL_PATH = (
     / "wave-coordination.md"
 )
 EVIDENCE_PATH = ROOT / "docs" / "CURRENT_EVIDENCE.md"
-TAG_PUBLISHER_PATH = ROOT / "Scripts" / "publish_episode_baseline_tag.sh"
-TAG_TEST_PATH = ROOT / "Scripts" / "test_publish_episode_baseline_tag.sh"
 # Updated in the same package whenever a canonical ledger row changes.
-EXPECTED_LEDGER_SHA256 = "55776dfe92c8ed33bfa2ba0b9e6c9de5165fc63e54e8f9442b707a2098ca2708"
+EXPECTED_LEDGER_SHA256 = "109cb19bbeaec2bede78e86c40a535d9240ac431197c1670b12f3632b8211ae5"
 
 
 EXPECTED_GATES = {
@@ -88,18 +86,6 @@ EXPECTED_GATES = {
         "`sh Scripts/check_episode_cutover.sh <PACKAGE-ID>` executes the exact zero-match deleted-symbol, forbidden-import, direct-port, duplicate-ingress, task-owner, fixture, and environment-branch scans recorded by EA-01 for that package; any unassigned remaining consumer fails",
         "EA-01",
     ),
-    "PHYSICAL-BASE": (
-        "On the exact signed clean-main commit, one continuously attending operator executes Attended Hardware Runbook sections 1 through 5 and completes its Evidence record; the landed record must contain exactly one `TESTED-BASELINE-COMMIT: <40-lowercase-hex>` line and separately identify controller, camera, operator, and observed-ink claims, ambiguities, and skipped steps",
-        "BASE-01",
-    ),
-    "PUBLISH-MAIN": (
-        """Blackdog `task show --json` for the current `<TASK-ID>` must report target branch `main`. Substitute `<TESTED-BASELINE-COMMIT>` from BASE-01 Current Evidence, then run `git fetch --no-tags origin main`, `git merge-base --is-ancestor origin/main "<TESTED-BASELINE-COMMIT>"`, `git merge-base --is-ancestor "<TESTED-BASELINE-COMMIT>" HEAD`, `test -z "$(git diff --name-only "<TESTED-BASELINE-COMMIT>"..HEAD -- . ':(exclude)docs/CURRENT_EVIDENCE.md' ':(exclude)docs/EPISODE_ARCHITECTURE_EXECUTION_PLAN.md')"`, `git push origin "<TESTED-BASELINE-COMMIT>:refs/heads/main"`, and verify `git ls-remote --heads origin refs/heads/main` returns exactly `<TESTED-BASELINE-COMMIT>`""",
-        "BASE-02",
-    ),
-    "TAG": (
-        'After separate exact tag-push authorization, run only `sh Scripts/publish_episode_baseline_tag.sh "<TASK-ID>" "<TESTED-BASELINE-COMMIT>"`. The checked-in procedure verifies the active in-progress repo-skill Blackdog task ID, `main` target, task worktree, verified prompt lineage, first-line `AdaptivePlotter episode WorkPackage: BASE-03` marker, second-line tested-commit binding, the sole BASE-01 `TESTED-BASELINE-COMMIT` Current Evidence line, and `origin/main`. It validates every new or remote-only annotated object through a temporary ref, re-observes the remote tag and `origin/main` before success, leaves a remote-only tag remote-only, removes the temporary ref on every exit, resumes only an exact verified local-only tag, and blocks wrong task/package/target/commit, lightweight, malformed, differently targeted, differently tasked, disagreeing, or raced tags without creating a previously absent canonical local ref, deleting/replacing a canonical tag, moving a tag, updating a branch, or forcing',
-        "BASE-03",
-    ),
     "PHYSICAL-FINAL": (
         "On the exact signed landed EA-11C commit, one continuously attending operator executes Attended Hardware Runbook sections 1 through 6 and completes its Evidence record; the record must additionally capture one visible typed refusal/remedy, active owner/progress/Stop, runtime/UI revisions, one bounded incident export, controller transcript completeness, camera artifact presence or declared absence, and observed-ink/ambiguity outcomes",
         "VAL-01",
@@ -119,10 +105,8 @@ EXPECTED_PACKAGE_SHAPES = {
     "EA-01": (["DOC-01"], "repository", ["DOC", "DIFF", "INVENTORY"]),
     "FIX-00": (["EA-01"], "software", ["DOC", "DIFF", "QUICK", "STRICT", "FIX-CONTAINMENT"]),
     "FIX-01": (["FIX-00"], "software", ["DOC", "DIFF", "QUICK", "STRICT", "FIX-APPLICABILITY"]),
-    "BASE-01": (["FIX-01"], "attended-physical", ["DOC", "DIFF", "STRICT", "PHYSICAL-BASE"]),
-    "BASE-02": (["BASE-01"], "remote-git", ["PUBLISH-MAIN"]),
-    "BASE-03": (["BASE-02"], "remote-git", ["TAG"]),
-    "EA-02A": (["EA-01", "BASE-03"], "software", ["DOC", "DIFF", "QUICK", "CORE"]),
+    "DOC-02": (["FIX-01"], "repository", ["DOC", "DIFF"]),
+    "EA-02A": (["DOC-02"], "software", ["DOC", "DIFF", "QUICK", "CORE"]),
     "EA-02B": (["EA-02A"], "software", ["DOC", "DIFF", "QUICK", "PLOTTER-MODEL"]),
     "EA-03A": (["EA-02B"], "software", ["DOC", "DIFF", "QUICK", "STRICT", "STORE"]),
     "EA-03B": (["EA-03A"], "software", ["DOC", "DIFF", "QUICK", "STRICT", "RUNTIME"]),
@@ -180,7 +164,7 @@ EXPECTED_SOFTWARE_OUTCOME_KIND = {
 }
 
 
-EXPECTED_COMPLETE_PACKAGES = {"DOC-00", "DOC-01", "EA-01", "FIX-00", "FIX-01"}
+EXPECTED_COMPLETE_PACKAGES = {"DOC-00", "DOC-01", "DOC-02", "EA-01", "FIX-00", "FIX-01"}
 
 
 def fail(message: str) -> None:
@@ -392,21 +376,11 @@ def validate_plan(text: str) -> dict[str, dict[str, object]]:
             "prevent projection outside `TipCameraRegistration.applicabilityRectangle` from becoming attributable evidence",
             "retaining typed diagnostic-only projection",
         ),
-        "BASE-01": (
-            "Record the exact clean-main `TESTED-BASELINE-COMMIT`",
-            "exactly one machine-readable `TESTED-BASELINE-COMMIT: <40-lowercase-hex>` line",
-            "landing may change only this ledger and Current Evidence",
-        ),
-        "BASE-02": (
-            "separate authorization for this exact branch-ref push",
-            "publish exactly that tested commit to `refs/heads/main` without force",
-        ),
-        "BASE-03": (
-            "separate authorization for this exact tag push",
-            "idempotently create or recover the active-task-bound annotated tag `adaptiveplotter-episode-baseline-v1`",
-            "never creates a previously absent canonical local tag",
-            "deletes or moves a canonical local/remote tag",
-            "temporary validation refs are always removed",
+        "DOC-02": (
+            "Operator acceptance of clean `main` commit `256b2a65f4059b6cf0e5c07f5f5305043254fb71`",
+            "local annotated rollback checkpoint `adaptiveplotter-pre-episode-migration-20260825`",
+            "retirement of BASE-01/BASE-02/BASE-03 as migration prerequisites without rewriting their failed evidence",
+            "no remote ref or application source changed",
         ),
         "EA-03A": (
             "one unbound `EpisodeStore` service",
@@ -511,7 +485,7 @@ def validate_plan(text: str) -> dict[str, dict[str, object]]:
             if gate not in gates:
                 fail(f"{package_id} references undefined gate {gate}")
 
-    for required_gate in ("PILOT", "PHYSICAL-BASE", "PHYSICAL-FINAL", "FINAL-GATE", "DELETE"):
+    for required_gate in ("PILOT", "PHYSICAL-FINAL", "FINAL-GATE", "DELETE"):
         if required_gate not in gates:
             fail(f"gate catalog is missing {required_gate}")
 
@@ -607,7 +581,6 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
 def validate_wave_frontier(
     rows: dict[str, dict[str, object]], evidence: str
 ) -> None:
-    normalized_evidence = re.sub(r"\s+", " ", evidence)
     allowed_classes = {"repository", "software", "gate"}
     eligible = [
         package_id
@@ -621,23 +594,21 @@ def validate_wave_frontier(
         earlier_rows = list(rows)[: list(rows).index(selected)]
         if any(package_id in eligible for package_id in earlier_rows):
             fail("wave selector did not preserve canonical ledger order")
+        if selected != "EA-02A":
+            fail(f"unexpected current ordinary wave frontier: {selected}")
+        for phrase in (
+            "Operator-accepted pre-migration checkpoint and development frontier",
+            "`EA-02A` now depends on completed `DOC-02`",
+            "The retired `PHYSICAL-BASE` result is `failed`",
+        ):
+            if phrase not in evidence:
+                fail(f"current ordinary wave frontier lacks evidence: {phrase}")
         return
 
     incomplete = [package_id for package_id, row in rows.items() if row["status"] != "complete"]
     if not incomplete:
         return
-    if incomplete[0] != "BASE-01":
-        fail(f"unexpected current blocked wave frontier: {incomplete[0]}")
-    if rows["BASE-01"]["class"] != "attended-physical":
-        fail("current blocked wave frontier lost its attended-physical class")
-    for phrase in (
-        "Attended baseline blocked by reveal-pose occlusion",
-        "does not complete `BASE-01`",
-        "`PHYSICAL-BASE` is `failed`",
-        "A fresh attempt requires a canonical prerequisite correction",
-    ):
-        if phrase not in normalized_evidence:
-            fail(f"current blocked wave frontier lacks evidence: {phrase}")
+    fail(f"no eligible ordinary wave package; first incomplete row is {incomplete[0]}")
 
 
 def validate_live_repository_gates(rows: dict[str, dict[str, object]]) -> None:
@@ -675,8 +646,8 @@ def validate_protocol(text: str, skill: str, wave_skill: str, wave_protocol: str
         "failed`, `skipped`, or missing required evidence cannot satisfy a gate",
         "Tag creation and branch publication are separate packages and permissions",
         "AdaptivePlotter episode WorkPackage: <ID>",
-        "AdaptivePlotter tested baseline commit: <TESTED-BASELINE-COMMIT>",
-        "TESTED-BASELINE-COMMIT: <commit>",
+        "`DOC-02` records the operator-accepted pre-migration rollback checkpoint",
+        "leaves final attended validation in `VAL-01`",
     )
     for phrase in required:
         if phrase not in normalized:
@@ -726,59 +697,6 @@ def validate_protocol(text: str, skill: str, wave_skill: str, wave_protocol: str
         fail("wave coordination protocol can bypass remote-Git authorization")
 
 
-def validate_tag_publication_contract(publisher: str, tests: str) -> None:
-    for phrase in (
-        '"$blackdog" task show --project-root "$project_root" --json',
-        'show.get("task_id") != sys.argv[2]',
-        'show.get("target_branch") != "main"',
-        'show.get("active_attempt") is not True',
-        'show.get("execution_prompt_mode") != "skill"',
-        'Path(show.get("worktree_path", "")).resolve()',
-        'lineage.get("status") != "verified"',
-        'AdaptivePlotter episode WorkPackage: BASE-03',
-        'prompt_lines[0] != marker',
-        'AdaptivePlotter tested baseline commit: {sys.argv[4]}',
-        'TESTED-BASELINE-COMMIT: ([0-9a-f]{40})',
-        'evidence_commits != [sys.argv[4]]',
-        'git fetch --no-tags origin "$tag_ref:$validation_ref"',
-        'git push origin "$publish_ref:$tag_ref"',
-        'remote tag changed during validation',
-        'trap cleanup EXIT',
-    ):
-        if phrase not in publisher:
-            fail(f"BASE-03 publisher contract is missing: {phrase}")
-    if publisher.count("verify_remote_main") < 3:
-        fail("BASE-03 publisher does not verify origin/main both before and after tag handling")
-    for forbidden in (
-        "git tag -a",
-        'git update-ref "$tag_ref"',
-        'git update-ref -d "$tag_ref"',
-        'git push origin "$tag_ref:$tag_ref"',
-        "git push --force",
-        "git push -f",
-    ):
-        if forbidden in publisher:
-            fail(f"BASE-03 publisher contains a forbidden canonical mutation: {forbidden}")
-    for phrase in (
-        "a different task adopted the existing tag",
-        "an embedded BASE-03 marker bypassed a different package",
-        "a prompt bound to a different tested commit published the tag",
-        "a commit absent from BASE-01 Current Evidence published the tag",
-        "a non-main Blackdog target published the tag",
-        "a tag-of-tag was accepted as a direct commit tag",
-        "an annotated tag without a tagger header was accepted",
-        "an annotated tag with the wrong internal name was accepted",
-        "a conflicting remote race was accepted",
-        "a remote-present validation race was accepted",
-        "an origin/main validation race was accepted",
-        "assert_no_local_ref",
-        "production publisher mutated the raced remote tag",
-        "tag publication mutated origin/main",
-    ):
-        if phrase not in tests:
-            fail(f"BASE-03 publication test is missing: {phrase}")
-
-
 def main() -> int:
     try:
         plan = PLAN_PATH.read_text(encoding="utf-8")
@@ -788,15 +706,12 @@ def main() -> int:
         wave_skill = WAVE_SKILL_PATH.read_text(encoding="utf-8")
         wave_protocol = WAVE_PROTOCOL_PATH.read_text(encoding="utf-8")
         evidence = EVIDENCE_PATH.read_text(encoding="utf-8")
-        tag_publisher = TAG_PUBLISHER_PATH.read_text(encoding="utf-8")
-        tag_tests = TAG_TEST_PATH.read_text(encoding="utf-8")
         validate_vocabulary(vocabulary)
         rows = validate_plan(plan)
         validate_evidence(evidence, rows)
         validate_wave_frontier(rows, evidence)
         validate_live_repository_gates(rows)
         validate_protocol(protocol, skill, wave_skill, wave_protocol)
-        validate_tag_publication_contract(tag_publisher, tag_tests)
     except (OSError, ValueError) as error:
         print(f"episode architecture contract: {error}", file=sys.stderr)
         return 1
