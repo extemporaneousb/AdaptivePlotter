@@ -5,11 +5,16 @@ Use this procedure only for work governed by
 lifecycle authority. The plan owns architecture, package dependencies,
 validation/deletion gates, and landed status. The vocabulary document owns
 target definitions, and `docs/CURRENT_EVIDENCE.md` owns actual results. This
-procedure owns only audit, prompt compilation, and execution mechanics.
+procedure owns only audit, prompt compilation, and package execution mechanics.
+The separate `$run-multi-agent-wave` skill owns deterministic selection and
+multi-agent coordination mechanics.
 
 ## Explicit modes
 
-There is no unscoped continuation mode and no automatic package selection.
+There is no unscoped continuation mode. Automatic selection is available only
+through `$run-multi-agent-wave`, which selects one eligible `repository`,
+`software`, or `gate` row in canonical ledger order and then uses the same named
+package execution path.
 
 - `audit episode migration` is read-only. It reports reconciliation, dependency,
   and contract state and then stops.
@@ -17,6 +22,10 @@ There is no unscoped continuation mode and no automatic package selection.
   the named package as a preview and then stops.
 - `execute episode package <ID>` is the only ordinary mutation mode. It executes
   one named `repository`, `software`, or `gate` package.
+- `$run-multi-agent-wave` is the automatic mutation mode. It reconciles active
+  claims first, then selects at most one eligible ordinary package and acts as a
+  coordinator under its complete wave-coordination reference. It cannot change
+  package scope or execution class.
 - An `attended-physical` package requires a direct request that explicitly names
   attended physical execution and the package ID. Read the Attended Hardware
   Runbook first. The mechanism must remain continuously attended with the power
@@ -38,17 +47,20 @@ touch a controller/camera, create a tag, or contact a remote.
    mismatch; never switch branches automatically.
 2. Inspect repository-wide Blackdog `summary --json`, not only the current
    checkout. If any unrelated unfinished task exists, report its exact
-   structured `next_action` and stop in every mode; named-package execution is
-   not authority to advance, cancel, land, or clean unrelated work. If the sole
-   unfinished task is already the explicitly named package, execute mode may
-   resume it only when its Blackdog prompt replay identifies the same ledger ID
-   and the current request explicitly authorizes continuation. Then follow only
-   its exact structured `next_action`. Audit/compile modes always report and
-   stop without executing it.
-3. In audit mode, read the complete ledger, Package Completion Contract, exact
-   gate catalog, and latest Current Evidence. In compile/execute mode, read only
-   the named package row, its dependency rows, those same contracts, and the
-   latest evidence relevant to that package.
+   structured `next_action` and stop in audit, compile, and named execution;
+   named-package execution is not authority to advance, cancel, land, or clean
+   unrelated work. If the sole unfinished task is already the explicitly named
+   package, execute mode may resume it only when its Blackdog prompt replay
+   identifies the same ledger ID and the current request explicitly authorizes
+   continuation. Wave mode instead follows its coordination reference: it may
+   resume verified recoverable ordinary-package work through Blackdog's exact
+   action, or message an active owning agent for one explicit bounded offload.
+   It never cancels, replaces, or guesses that a claim is stale. Audit/compile
+   modes always report and stop without executing it.
+3. In audit and wave modes, read the complete ledger, Package Completion
+   Contract, exact gate catalog, and latest Current Evidence. In compile/named
+   execute mode, read only the named package row, its dependency rows, those
+   same contracts, and the latest evidence relevant to that package.
 4. Read Episode Architecture Vocabulary. Read Product Contract and current Swift
    Architecture only for the named package's owners and preserved behavior.
    Read the current operator protocol, UI transitions, or hardware runbook only
@@ -60,7 +72,7 @@ Audit mode reports these facts and stops. It does not call a pending row
 “eligible for execution” unless the row has complete dependencies, an allowed
 execution class for the requested mode, and fully expanded exact gates.
 
-## Validate the named package
+## Validate the named or selected package
 
 - The package ID must exist exactly once in the canonical ledger.
 - Every dependency must be landed `complete`; Blackdog operation success alone
@@ -123,7 +135,10 @@ repo artifact.
 
 1. Re-run reconciliation immediately before `task begin`.
 2. Create the mode-0600 request and execution-prompt files required by
-   `AGENTS.md`; the compiled prompt is the execution prompt verbatim.
+   `AGENTS.md`. Named execution uses the compiled prompt verbatim. Wave execution
+   preserves the complete compiled prompt as its first section and appends the
+   required `Multi-agent coordination overlay`; it does not edit or weaken the
+   package prompt.
 3. Start exactly one Blackdog task and edit only its returned task workspace.
 4. Inventory the package's named current owners and consumers before edits.
 5. Add or move the canonical owner and typed contracts, then route production

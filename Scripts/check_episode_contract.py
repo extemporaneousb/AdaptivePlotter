@@ -15,6 +15,15 @@ PLAN_PATH = ROOT / "docs" / "EPISODE_ARCHITECTURE_EXECUTION_PLAN.md"
 VOCAB_PATH = ROOT / "docs" / "EPISODE_ARCHITECTURE_VOCABULARY.md"
 PROTOCOL_PATH = ROOT / ".codex" / "skills" / "adaptiveplotter" / "references" / "episode-migration.md"
 SKILL_PATH = ROOT / ".codex" / "skills" / "adaptiveplotter" / "SKILL.md"
+WAVE_SKILL_PATH = ROOT / ".codex" / "skills" / "run-multi-agent-wave" / "SKILL.md"
+WAVE_PROTOCOL_PATH = (
+    ROOT
+    / ".codex"
+    / "skills"
+    / "run-multi-agent-wave"
+    / "references"
+    / "wave-coordination.md"
+)
 EVIDENCE_PATH = ROOT / "docs" / "CURRENT_EVIDENCE.md"
 TAG_PUBLISHER_PATH = ROOT / "Scripts" / "publish_episode_baseline_tag.sh"
 TAG_TEST_PATH = ROOT / "Scripts" / "test_publish_episode_baseline_tag.sh"
@@ -514,6 +523,8 @@ def validate_plan(text: str) -> dict[str, dict[str, object]]:
         "`EA-01` may not add, remove, combine, split, or reorder packages.",
         "`EA-11C` makes the gateway the globally exclusive effect-bearing/domain-mutation ingress",
         "`GATE-02` only verifies that landed fact",
+        "Wave selection takes the first eligible row in this table's literal order",
+        "`attended-physical` and `remote-git` still require their own explicit package and execution-class authorization",
     ):
         if required_phrase not in normalized:
             fail(f"completion or gate contract is missing: {required_phrase}")
@@ -593,6 +604,42 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
         fail("DOC-00 ARCHIVED evidence section must identify d33d4ff")
 
 
+def validate_wave_frontier(
+    rows: dict[str, dict[str, object]], evidence: str
+) -> None:
+    normalized_evidence = re.sub(r"\s+", " ", evidence)
+    allowed_classes = {"repository", "software", "gate"}
+    eligible = [
+        package_id
+        for package_id, row in rows.items()
+        if row["status"] == "pending"
+        and row["class"] in allowed_classes
+        and all(rows[dependency]["status"] == "complete" for dependency in row["dependencies"])
+    ]
+    if eligible:
+        selected = eligible[0]
+        earlier_rows = list(rows)[: list(rows).index(selected)]
+        if any(package_id in eligible for package_id in earlier_rows):
+            fail("wave selector did not preserve canonical ledger order")
+        return
+
+    incomplete = [package_id for package_id, row in rows.items() if row["status"] != "complete"]
+    if not incomplete:
+        return
+    if incomplete[0] != "BASE-01":
+        fail(f"unexpected current blocked wave frontier: {incomplete[0]}")
+    if rows["BASE-01"]["class"] != "attended-physical":
+        fail("current blocked wave frontier lost its attended-physical class")
+    for phrase in (
+        "Attended baseline blocked by reveal-pose occlusion",
+        "does not complete `BASE-01`",
+        "`PHYSICAL-BASE` is `failed`",
+        "A fresh attempt requires a canonical prerequisite correction",
+    ):
+        if phrase not in normalized_evidence:
+            fail(f"current blocked wave frontier lacks evidence: {phrase}")
+
+
 def validate_live_repository_gates(rows: dict[str, dict[str, object]]) -> None:
     complete_gates = {
         gate
@@ -618,12 +665,13 @@ def validate_live_repository_gates(rows: dict[str, dict[str, object]]) -> None:
             fail("live DIFF gate failed")
 
 
-def validate_protocol(text: str, skill: str) -> None:
+def validate_protocol(text: str, skill: str, wave_skill: str, wave_protocol: str) -> None:
     normalized = re.sub(r"\s+", " ", text)
     required = (
-        "There is no unscoped continuation mode and no automatic package selection.",
+        "There is no unscoped continuation mode. Automatic selection is available only through `$run-multi-agent-wave`",
         "If any unrelated unfinished task exists",
         "named-package execution is not authority to advance, cancel, land, or clean unrelated work",
+        "Wave mode instead follows its coordination reference",
         "failed`, `skipped`, or missing required evidence cannot satisfy a gate",
         "Tag creation and branch publication are separate packages and permissions",
         "AdaptivePlotter episode WorkPackage: <ID>",
@@ -638,13 +686,44 @@ def validate_protocol(text: str, skill: str) -> None:
     skill_normalized = re.sub(r"\s+", " ", skill)
     for phrase in (
         "use only for work outside the episode architecture and migration",
-        "stop this generic path and require exactly one explicit episode command below",
+        "stop this generic path and require a named episode command below or `$run-multi-agent-wave`",
         "The generic path can never authorize an attended-physical or remote-Git episode package",
+        "That skill cannot authorize attended-physical or remote-Git work",
         "Episode audit and compile modes stop before `task begin` and therefore never validate, land, or clean a task",
         "For mutation modes only, validate as required by `AGENTS.md`",
     ):
         if phrase not in skill_normalized:
             fail(f"generic skill bypass protection is missing: {phrase}")
+
+    wave_skill_normalized = re.sub(r"\s+", " ", wave_skill)
+    for phrase in (
+        "This invocation authorizes that selection. It does not authorize an `attended-physical` or `remote-git` package.",
+        "Act only as coordinator",
+        "Do not implement, edit, or run validation yourself",
+        "If the atomic reservation loses a race, return to claim resolution instead of selecting a different row",
+    ):
+        if phrase not in wave_skill_normalized:
+            fail(f"wave skill is missing: {phrase}")
+
+    wave_protocol_normalized = re.sub(r"\s+", " ", wave_protocol)
+    for phrase in (
+        "One wave is exactly one canonical WorkPackage executed in exactly one Blackdog task worktree.",
+        "do not start or recover a second task",
+        "ask that coordinator for a bounded offload",
+        "Select the first eligible row.",
+        "No two live workers may write the same file",
+        "Editing stops before validation begins.",
+        "fresh-context read-only critic",
+        "If the target becomes stale, stop workers.",
+        "STATUS: ACCEPT_CANDIDATE | BLOCKED | FAILED",
+        "no lifecycle/Git/hardware/remote/child-agent action and no unassigned edit",
+    ):
+        if phrase not in wave_protocol_normalized:
+            fail(f"wave coordination protocol is missing: {phrase}")
+    if "attended controller/camera/motion/Pen work" not in wave_protocol_normalized:
+        fail("wave coordination protocol can bypass attended-physical authorization")
+    if "branch publication, tag creation, a remote push" not in wave_protocol_normalized:
+        fail("wave coordination protocol can bypass remote-Git authorization")
 
 
 def validate_tag_publication_contract(publisher: str, tests: str) -> None:
@@ -706,14 +785,17 @@ def main() -> int:
         vocabulary = VOCAB_PATH.read_text(encoding="utf-8")
         protocol = PROTOCOL_PATH.read_text(encoding="utf-8")
         skill = SKILL_PATH.read_text(encoding="utf-8")
+        wave_skill = WAVE_SKILL_PATH.read_text(encoding="utf-8")
+        wave_protocol = WAVE_PROTOCOL_PATH.read_text(encoding="utf-8")
         evidence = EVIDENCE_PATH.read_text(encoding="utf-8")
         tag_publisher = TAG_PUBLISHER_PATH.read_text(encoding="utf-8")
         tag_tests = TAG_TEST_PATH.read_text(encoding="utf-8")
         validate_vocabulary(vocabulary)
         rows = validate_plan(plan)
         validate_evidence(evidence, rows)
+        validate_wave_frontier(rows, evidence)
         validate_live_repository_gates(rows)
-        validate_protocol(protocol, skill)
+        validate_protocol(protocol, skill, wave_skill, wave_protocol)
         validate_tag_publication_contract(tag_publisher, tag_tests)
     except (OSError, ValueError) as error:
         print(f"episode architecture contract: {error}", file=sys.stderr)

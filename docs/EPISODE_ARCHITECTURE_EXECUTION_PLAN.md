@@ -512,9 +512,13 @@ Blackdog owns active task state. This table records only not-started work,
 explicit blockers, and landed completion. Never mark a row active here.
 
 Execution classes are `repository`, `software`, `attended-physical`,
-`remote-git`, and `gate`. A direct interactive request naming the package is
-required for every mutation. `attended-physical` and `remote-git` require their
-own explicit authorization; generic execution authorization is insufficient.
+`remote-git`, and `gate`. A direct named-package request or an invocation of
+`$run-multi-agent-wave` may authorize one `repository`, `software`, or `gate`
+mutation. Wave selection takes the first eligible row in this table's literal
+order and cannot redefine its outcome, dependencies, authority, deletions, or
+gates. `attended-physical` and `remote-git` still require their own explicit
+package and execution-class authorization; wave or generic authorization is
+insufficient.
 
 | ID | Status | Dependencies | Class | Atomic package outcome | Required gates |
 | --- | --- | --- | --- | --- | --- |

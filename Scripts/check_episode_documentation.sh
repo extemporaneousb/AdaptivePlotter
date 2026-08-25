@@ -45,7 +45,9 @@ done
 
 target_surfaces='docs/EPISODE_ARCHITECTURE_EXECUTION_PLAN.md
 .codex/skills/adaptiveplotter/SKILL.md
-.codex/skills/adaptiveplotter/references/episode-migration.md'
+.codex/skills/adaptiveplotter/references/episode-migration.md
+.codex/skills/run-multi-agent-wave/SKILL.md
+.codex/skills/run-multi-agent-wave/references/wave-coordination.md'
 
 if rg -n 'ActionDecision|ActionAvailability|ActionReceipt|SemanticActionAuthority|SemanticActionGateway|episode/action/effect|Action availability|Action receipt' $target_surfaces; then
     fail "forbidden target synonym remains"
@@ -63,10 +65,31 @@ for command in \
         fail "skill is missing explicit command: $command"
 done
 
-if rg -n 'continue episode migration|first[[:space:]]+pending|select the first|unscoped.*execute' \
-    .codex/skills/adaptiveplotter/SKILL.md \
-    .codex/skills/adaptiveplotter/references/episode-migration.md; then
-    fail "implicit package continuation remains"
+rg -Fq '$run-multi-agent-wave' \
+    .codex/skills/run-multi-agent-wave/SKILL.md ||
+    fail "wave skill is missing its explicit invocation"
+
+for phrase in \
+    'One wave is exactly one canonical' \
+    'WorkPackage executed in exactly one Blackdog task worktree.' \
+    'Select the first eligible row.' \
+    'No two live workers may' \
+    'write the same file' \
+    'Editing stops before validation begins.' \
+    'fresh-context read-only critic' \
+    "execute episode package <ID>"; do
+    rg -Fq "$phrase" .codex/skills/run-multi-agent-wave/references/wave-coordination.md ||
+        fail "wave coordination contract is missing: $phrase"
+done
+
+if rg -n 'continue episode migration|first[[:space:]]+pending|unscoped.*execute|select the first[[:space:]]+pending' \
+    $target_surfaces; then
+    fail "unsafe implicit package continuation remains"
+fi
+
+if rg -n 'no automatic package selection|Never infer or auto-select|direct interactive request naming the package is required' \
+    $target_surfaces; then
+    fail "obsolete automatic-selection prohibition remains"
 fi
 
 if rg -n 'Interactive learning complete|accepted model' \

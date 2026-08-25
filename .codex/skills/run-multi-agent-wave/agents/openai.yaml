@@ -1,0 +1,5 @@
+interface:
+  display_name: "Run Multi-Agent Wave"
+  short_description: "Coordinate the next eligible episode wave"
+  default_prompt: "Use $run-multi-agent-wave to select and coordinate the next eligible AdaptivePlotter episode wave."
+

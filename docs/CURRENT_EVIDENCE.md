@@ -23,6 +23,54 @@ limitations remain in the named evidence section.
 | FIX-00 | `TASK-1B5992CF` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed`, `FIX-CONTAINMENT=passed` | Coordinate settlement and containment split |
 | FIX-01 | `TASK-05D1DCBD` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed`, `FIX-APPLICABILITY=passed` | Tip applicability evidence authority |
 
+## Guarded automatic wave coordination
+
+Implemented 2026-08-24 in Blackdog task `TASK-3960797E`, targeting `main` from
+base `f3d2436211dd2da024e479daffb5725c9210cece`.
+
+The repo-local `$run-multi-agent-wave` skill now selects the first eligible
+pending `repository`, `software`, or `gate` WorkPackage in canonical ledger
+order. Selection requires every dependency to be landed complete, every gate to
+resolve exactly, and no contradictory blocker in Current Evidence. It cannot
+authorize attended physical work, observed-ink claims, branch publication, tag
+creation, or a remote push. With the current ledger it therefore reports the
+blocked `BASE-01` frontier and cannot bypass the required canonical reveal-pose
+correction and new attended run.
+
+An existing Blackdog claim is resolved before selection. Verified recoverable
+ordinary-package work follows only Blackdog's exact structured action; an active
+coordinator may grant one explicit bounded offload through available task/thread
+messaging. The selector never declares a claim stale, cancels it, replaces it,
+or starts a competing task.
+
+One selected WorkPackage is one coordinator-owned Blackdog task worktree.
+Workers receive exclusive file and semantic-authority leases, may not mutate Git
+or Blackdog lifecycle, and return a compact evidence schema. Concurrent writes
+to one file are prohibited; shared manifests, canonical documents, checkers,
+test support, and `OperatorWorkspace.swift` use one serial integrator. Editing
+quiesces before serial validation, accepted slices are checked against every
+later diff, and a fresh read-only critic precedes landing. Only Blackdog's exact
+stale-recovery action may rebase a stale candidate.
+
+This is repository policy and deterministic contract-check evidence only. It
+does not execute an episode package and establishes no application, simulator,
+controller, camera, motion, Pen, paper, operator-click, or observed-ink claim.
+
+Forward scenarios are fixed by the checked contract:
+
+| Scenario | Required disposition |
+| --- | --- |
+| Current clean ledger | No ordinary package is eligible; report `BASE-01`, `PHYSICAL-BASE=failed`, reveal-pose occlusion, and the required canonical correction/new attended run. |
+| Active owner holds the claim | Start no task; request one bounded non-overlapping offload with explicit worktree and leases, or stop if it is unavailable. |
+| Failed/interrupted ordinary package is recoverable | Verify prompt replay and dependencies, then follow only Blackdog's exact recovery action as coordinator. |
+| Multiple later ordinary rows appear dependency-ready | Select only the first in literal ledger order; parallelism stays inside that one WorkPackage and one task worktree. |
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `DOC` | passed — `make docs-check` | routing, policy removal, exact selector classes/order, current blocked frontier, worker merge guards, and existing episode contracts |
+| `DIFF` | passed — `git diff --check` | skill, policy, evidence, routing, and executable checker patch |
+| `SKILL` | passed — skill-creator `quick_validate.py` with isolated PyYAML | frontmatter, name, description, and repo-local skill structure |
+
 ## Attended baseline blocked by reveal-pose occlusion
 
 Attempted 2026-08-24 in Blackdog task `TASK-EC17BA6C` against clean `main`
@@ -241,15 +289,16 @@ and incident assembly are separate one-module-or-service Foundation packages.
 Advisory speech has its own `EA-10G` cutover rather than remaining as an
 undispositioned workspace effect.
 
-The AdaptivePlotter skill now separates read-only audit, named-package prompt
-compilation, and named-package execution. It cannot infer a package, select
-physical work, change branches, start a task during audit/compile, or treat a
-failed/skipped gate as completion. A deterministic documentation contract
-closes the tracked document inventory, verifies every canonical target name,
-rejects competing synonyms and implicit continuation, and checks current versus
-historical terminology. Blackdog's configured landing validations now include
-that contract and the non-journey software partition rather than whitespace
-alone.
+At that landing, the AdaptivePlotter skill separated read-only audit,
+named-package prompt compilation, and named-package execution and did not infer
+a package. The later guarded wave policy above supersedes that selection rule;
+it still cannot select physical work, change branches, start a task during
+audit/compile, or treat a failed/skipped gate as completion. A deterministic
+documentation contract closes the tracked document inventory, verifies every
+canonical target name, rejects competing synonyms and implicit continuation,
+and checks current versus historical terminology. Blackdog's configured landing
+validations now include that contract and the non-journey software partition
+rather than whitespace alone.
 
 The abandoned `TASK-BEB9AF9B` patch and its untracked guard/journey/map drafts
 were not landed or copied; its task worktree and branch were removed through
