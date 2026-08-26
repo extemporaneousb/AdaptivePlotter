@@ -23,6 +23,32 @@ limitations remain in the named evidence section.
 | FIX-00 | `TASK-1B5992CF` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed`, `FIX-CONTAINMENT=passed` | Coordinate settlement and containment split |
 | FIX-01 | `TASK-05D1DCBD` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed`, `FIX-APPLICABILITY=passed` | Tip applicability evidence authority |
 | DOC-02 | `TASK-24BD26E8` | `DOC=passed`, `DIFF=passed` | Operator-accepted pre-migration checkpoint and development frontier |
+| EA-02A | `TASK-55097CA4` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `CORE=passed` | EpisodeCore domain-generic foundation |
+
+## EpisodeCore domain-generic foundation
+
+Implemented 2026-08-25 in Blackdog task `TASK-55097CA4`.
+
+The internal SwiftPM target `EpisodeCore` contains Foundation-only,
+domain-generic episode identities, goals, definitions, manifests, capability
+facts, intent decisions, events, pure evaluator/reducer contracts, and validated
+journal schemas. It has no declared package dependency and is not exposed as a
+product. `EpisodeCoreTests` depends only on `EpisodeCore`. No production target
+depends on either target, so this package transfers no Plotter, device,
+persistence, effect, evidence, or UI authority and adds no application caller.
+
+This is source, build, and test evidence only. No attended controller, camera,
+Motion, Pen, paper, operator-click, or observed-ink activity was performed, and
+none of those physical evidence classes is established by this package.
+
+`EA-02B` is now the first eligible ordinary WorkPackage because its sole dependency `EA-02A` is complete.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `DOC` | passed — `make docs-check`; 2 contracts passed | episode documentation and architecture contracts |
+| `DIFF` | passed — `git diff --check`; exit 0 | candidate diff had no whitespace diagnostics |
+| `QUICK` | passed — `make quick-test`; 530 passed, 0 failed | repository quick suite with its configured exclusions |
+| `CORE` | passed — `swift test --filter EpisodeCoreTests`; 15 passed, 0 failed | domain-generic value, evaluator, reducer, event, and journal contracts |
 
 ## Operator-accepted pre-migration checkpoint and development frontier
 

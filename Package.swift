@@ -13,6 +13,7 @@ let package = Package(
     .executable(name: "AdaptivePlotter", targets: ["PlotterApp"]),
   ],
   targets: [
+    .target(name: "EpisodeCore"),
     .target(name: "PlotterModel"),
     .systemLibrary(name: "CSQLite"),
     .target(
@@ -26,6 +27,10 @@ let package = Package(
     .target(
       name: "PlotterTestSupport",
       dependencies: ["PlotterModel", "PlotterRuntime"]
+    ),
+    .testTarget(
+      name: "EpisodeCoreTests",
+      dependencies: ["EpisodeCore"]
     ),
     .testTarget(
       name: "PlotterModelTests",

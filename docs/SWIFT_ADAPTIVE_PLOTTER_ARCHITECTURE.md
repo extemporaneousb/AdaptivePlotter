@@ -15,6 +15,11 @@ until their work package lands and its superseded path is removed.
 ## Package topology
 
 ```text
+EpisodeCore
+  Foundation-only domain-generic episode identities, goals, definitions, manifests
+  capability facts and intent decisions, events, pure reducers, validated journals
+  internal compile-only target with no product or production caller
+
 PlotterModel
   coordinate-space types, geometry, deterministic drawing-program catalog
   placements, drawable regions, content-addressed plans, readiness schema
@@ -35,11 +40,20 @@ PlotterApp
 
 PlotterTestSupport
   deterministic machine links, clocks, transcripts, and paper scenes
+
+EpisodeCoreTests -> EpisodeCore
+  domain-generic value, evaluator, reducer, event, and journal contracts
 ```
 
 Dependencies point inward. Runtime does not import SwiftUI. Views receive
 projected immutable presentation values and typed closures; they do not own the
 controller, camera, calibration, or learning graph.
+
+`EpisodeCore` has no declared SwiftPM dependency and imports only Foundation. It
+is not exposed as a package product. `EpisodeCoreTests` depends only on
+`EpisodeCore`, and no production target depends on either target. This package
+foundation moves no Plotter workflow, controller, camera, persistence, effect,
+evidence, or UI authority; the as-built owners below remain unchanged.
 
 ## Runtime owners
 

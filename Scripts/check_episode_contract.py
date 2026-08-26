@@ -26,7 +26,7 @@ WAVE_PROTOCOL_PATH = (
 )
 EVIDENCE_PATH = ROOT / "docs" / "CURRENT_EVIDENCE.md"
 # Updated in the same package whenever a canonical ledger row changes.
-EXPECTED_LEDGER_SHA256 = "109cb19bbeaec2bede78e86c40a535d9240ac431197c1670b12f3632b8211ae5"
+EXPECTED_LEDGER_SHA256 = "5d90865c86000daf5a6ece9bb8f7dc616bc79e74ab539007e832c1f810f67be6"
 
 
 EXPECTED_GATES = {
@@ -164,7 +164,7 @@ EXPECTED_SOFTWARE_OUTCOME_KIND = {
 }
 
 
-EXPECTED_COMPLETE_PACKAGES = {"DOC-00", "DOC-01", "DOC-02", "EA-01", "FIX-00", "FIX-01"}
+EXPECTED_COMPLETE_PACKAGES = {"DOC-00", "DOC-01", "DOC-02", "EA-01", "FIX-00", "FIX-01", "EA-02A"}
 
 
 def fail(message: str) -> None:
@@ -594,11 +594,11 @@ def validate_wave_frontier(
         earlier_rows = list(rows)[: list(rows).index(selected)]
         if any(package_id in eligible for package_id in earlier_rows):
             fail("wave selector did not preserve canonical ledger order")
-        if selected != "EA-02A":
+        if selected != "EA-02B":
             fail(f"unexpected current ordinary wave frontier: {selected}")
         for phrase in (
-            "Operator-accepted pre-migration checkpoint and development frontier",
-            "`EA-02A` now depends on completed `DOC-02`",
+            "EpisodeCore domain-generic foundation",
+            "`EA-02B` is now the first eligible ordinary WorkPackage because its sole dependency `EA-02A` is complete.",
             "The retired `PHYSICAL-BASE` result is `failed`",
         ):
             if phrase not in evidence:
