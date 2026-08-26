@@ -26,7 +26,7 @@ WAVE_PROTOCOL_PATH = (
 )
 EVIDENCE_PATH = ROOT / "docs" / "CURRENT_EVIDENCE.md"
 # Updated in the same package whenever a canonical ledger row changes.
-EXPECTED_LEDGER_SHA256 = "a0141cc2ccfed2ea51fbd040716314eec3f847884dd99c1bb52725aaa289f0e0"
+EXPECTED_LEDGER_SHA256 = "03df02582163efdfa7903f44236ed77ac31c4f518647df11534980e6b700af15"
 
 
 EXPECTED_GATES = {
@@ -401,6 +401,16 @@ def validate_plan(text: str) -> dict[str, dict[str, object]]:
         ),
         "EA-03B": (
             "one unbound `PlotterOperationRegistry` runtime service",
+            "canonical operation identity binds episode ID, request ID, typed intent identity, effect ID and revision, and typed environment",
+            "original typed handle and lane",
+            "operation-bound `CompletionCapability` for direct settlement",
+            "typed result or typed refusal before any terminal mutation",
+            "refused cancellation attempt recoverably active with durable observability",
+            "`start` checks admission before recoverable acceptance",
+            "a retained unstarted permit cannot authorize work after shutdown closure",
+            "typed-refused and retired without start/progress mutation",
+            "later correct shutdown settlement can terminalize without fabricated execution",
+            "retain the full terminal record",
             "add no journal store, device adapter, or app caller",
         ),
         "EA-05A": (
@@ -517,6 +527,98 @@ def validate_plan(text: str) -> dict[str, dict[str, object]]:
     return rows
 
 
+def validate_completed_gate_result(package_id: str, gate: str, result: str) -> None:
+    if re.fullmatch(r"passed — \S(?:.*\S)?", result) is None:
+        fail(
+            f"{package_id} detailed gate {gate} must use final passed evidence "
+            f"form `passed — ...`: {result}"
+        )
+
+    normalized = re.sub(r"\s+", " ", result).casefold().replace("re-run", "rerun")
+    if re.search(r"\brerun\b", normalized) is not None:
+        fail(
+            f"{package_id} detailed gate {gate} defers validation to a rerun: "
+            f"{result}"
+        )
+    if re.search(r"\bskipped\b", normalized) is not None:
+        fail(
+            f"{package_id} detailed gate {gate} reports skipped evidence as "
+            f"passed: {result}"
+        )
+
+    failed_occurrences = list(re.finditer(r"\bfailed\b", normalized))
+    zero_failed_starts = {
+        match.start("failed")
+        for match in re.finditer(
+            r"(?<![\w.,/+\-])0 (?P<failed>failed)\b",
+            normalized,
+        )
+    }
+    invalid_failed = next(
+        (match for match in failed_occurrences if match.start() not in zero_failed_starts),
+        None,
+    )
+    if invalid_failed is not None:
+        fail(
+            f"{package_id} detailed gate {gate} reports failed evidence without "
+            f"the explicit zero form `0 failed`: {result}"
+        )
+
+    incomplete_state = re.search(
+        r"\b(?:incomplete|unfinished|unverified|unvalidated|blocked|unresolved|"
+        r"not[\s-]+(?:run|executed|performed|verified|validated|complete|"
+        r"completed|finished))\b",
+        normalized,
+    )
+    if incomplete_state is not None:
+        fail(
+            f"{package_id} detailed gate {gate} reports incomplete evidence "
+            f"state {incomplete_state.group(0)!r}: {result}"
+        )
+
+    uncertainty = re.search(
+        r"\b(?:candidate|provisional|pending|await(?:ing|s)?|"
+        r"defer(?:red|s)?|future|follow(?:s|ing)?|not\s+yet|not\s+happened)\b",
+        normalized,
+    )
+    if uncertainty is not None:
+        fail(
+            f"{package_id} detailed gate {gate} contains uncertain or deferred "
+            f"evidence word {uncertainty.group(0)!r}: {result}"
+        )
+
+    numeric_result = re.compile(
+        r"\b(?P<label>exit(?:ed)?(?:\s+(?:code|status))?|status|"
+        r"return\s+code|rc)\s*(?:=|:)?\s*"
+        r"(?P<token>[+-]?(?:\d|\.\d)[^\s|]*)"
+    )
+    complete_integer = re.compile(
+        r"(?P<value>[+-]?\d+)[,;:.!?)}\]`]*"
+    )
+    for numeric_match in numeric_result.finditer(normalized):
+        label = numeric_match.group("label")
+        token = numeric_match.group("token")
+        integer_match = complete_integer.fullmatch(token)
+        if integer_match is None:
+            fail(
+                f"{package_id} detailed gate {gate} has malformed numeric "
+                f"{label} token {token!r}; expected a complete signed decimal "
+                f"integer: {result}"
+            )
+        value = integer_match.group("value")
+        if int(value) != 0:
+            fail(
+                f"{package_id} detailed gate {gate} reports nonzero "
+                f"{label} {value} as passed: {result}"
+            )
+
+    if re.search(r"\bnon[- ]?zero\b", normalized) is not None:
+        fail(
+            f"{package_id} detailed gate {gate} explicitly reports a nonzero "
+            f"result as passed: {result}"
+        )
+
+
 def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
     evidence_rows = markdown_table(
         text,
@@ -560,8 +662,7 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
             gate = gate_match.group(1)
             if gate in detailed_gates:
                 fail(f"{package_id} repeats detailed gate evidence for {gate}")
-            if not result.startswith("passed"):
-                fail(f"{package_id} detailed gate {gate} is not passed: {result}")
+            validate_completed_gate_result(package_id, gate, result)
             detailed_gates[gate] = result
         if list(detailed_gates) != expected_gates:
             fail(

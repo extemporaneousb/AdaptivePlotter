@@ -87,10 +87,8 @@ struct PlotterOperationRegistryTests {
       admittedAt: time(0)
     )
 
-    let staleRevisionIdentity = PlotterOperationIdentity(
-      episodeID: mismatchIdentity.episodeID,
-      requestID: mismatchIdentity.requestID,
-      effectID: mismatchIdentity.effectID,
+    let staleRevisionIdentity = identity(
+      11,
       effectRevision: EpisodeRevisionIdentifier(rawValue: "effect-stale")
     )
 
@@ -232,7 +230,6 @@ struct PlotterOperationRegistryTests {
       let metrics = await firstHandle.metrics()
       return metrics.cancelRequests == 1 && metrics.settlementWaits == 1
     })
-    #expect(await registry.stop(using: firstCapability, at: time(3)) == .alreadyRequested)
     #expect(await firstHandle.metrics().cancelRequests == 1)
 
     let duringCancellation = await registry.snapshot()
@@ -243,8 +240,9 @@ struct PlotterOperationRegistryTests {
     #expect(cancelling.cancellationPhase == .settling)
     #expect(cancelling.cancellationReason == .stop)
 
-    await firstHandle.finish(.cancelled)
-    #expect(await stopTask.value == .settled(.cancelled))
+    await firstHandle.finish(result(firstIdentity, .cancelled, at: time(3)))
+    let firstTerminal = try requireStopSettled(await stopTask.value)
+    #expect(firstTerminal.disposition == .cancelled)
     #expect(await firstHandle.metrics() == TestHandleMetrics(cancelRequests: 1, settlementWaits: 1))
 
     let successorIdentity = identity(21)
@@ -276,8 +274,26 @@ struct PlotterOperationRegistryTests {
     let snapshot = await registry.snapshot()
     #expect(snapshot.active.map(\.identity) == [successorIdentity])
     #expect(snapshot.terminal.count == 1)
+    #expect(snapshot.terminal.first == firstTerminal)
     #expect(snapshot.terminal.first?.identity == firstIdentity)
+    #expect(snapshot.terminal.first?.lane == .machine)
+    #expect(snapshot.terminal.first?.laneRole == .machine)
+    #expect(snapshot.terminal.first?.context == context(20))
+    #expect(snapshot.terminal.first?.owningSubsystem == context(20).owningSubsystem)
+    #expect(
+      snapshot.terminal.first?.resultCurrentlyAwaited == context(20).resultCurrentlyAwaited
+    )
+    #expect(snapshot.terminal.first?.phase == .terminal)
+    #expect(snapshot.terminal.first?.admittedAt == time(0))
+    #expect(snapshot.terminal.first?.startedAt == time(1))
+    #expect(snapshot.terminal.first?.lastAttributableProgressAt == time(1))
+    #expect(snapshot.terminal.first?.lastAcceptedAttribution?.recordedAt == time(1))
+    #expect(snapshot.terminal.first?.deadline == nil)
+    #expect(snapshot.terminal.first?.cancellationAvailable == true)
+    #expect(snapshot.terminal.first?.cancellationPhase == .settling)
     #expect(snapshot.terminal.first?.cancellationReason == .stop)
+    #expect(snapshot.terminal.first?.disposition == .cancelled)
+    #expect(snapshot.terminal.first?.settledAt == time(3))
   }
 
   @Test("cancellation refuses racing results and releases its lane only after owner settlement")
@@ -295,6 +311,7 @@ struct PlotterOperationRegistryTests {
     )
     let stopCapability = registration.stopCapability
     let capability = try #require(stopCapability)
+    let completionCapability = registration.completionCapability
     try requireStartAccepted(
       await registry.start(
         registration.takePermit(),
@@ -315,18 +332,87 @@ struct PlotterOperationRegistryTests {
     #expect(await eventually { await handle.metrics().settlementWaits == 1 })
     #expect(
       await registry.settle(
-        identity: operationIdentity,
-        disposition: .completed,
-        at: time(3)
+        result(operationIdentity, .completed, at: time(3)),
+        using: completionCapability
       ) == .cancellationInProgress
     )
     await #expect(throws: AdmissionError.laneAtCapacity(lane: .machine, capacity: 1)) {
       try await register(31, lane: .machine, in: registry)
     }
 
-    await handle.finish(.cancelled)
-    #expect(await stopTask.value == .settled(.cancelled))
+    await handle.finish(result(operationIdentity, .cancelled, at: time(4)))
+    #expect(try requireStopSettled(await stopTask.value).disposition == .cancelled)
     _ = try await register(31, lane: .machine, in: registry, admittedAt: time(4))
+  }
+
+  @Test("Stop refusal preserves the lane and capabilities while releasing its attempt latch")
+  func stopResultIdentityMismatchIsRecoverable() async throws {
+    let registry = try makeRegistry()
+    let operationIdentity = identity(35)
+    let foreignIdentity = identity(35, environment: .simulated)
+    let handle = TestHandle()
+    let registration = try await registry.register(
+      identity: operationIdentity,
+      lane: .machine,
+      context: context(35),
+      handle: handle,
+      cancellationAvailable: true,
+      admittedAt: time(0)
+    )
+    let stopCapability = registration.stopCapability
+    let capability = try #require(stopCapability)
+    let completionCapability = registration.completionCapability
+    try requireStartAccepted(
+      await registry.start(
+        registration.takePermit(),
+        for: operationIdentity,
+        attributedTo: attribution(
+          135,
+          for: operationIdentity,
+          sequence: 1,
+          preRevision: 0,
+          at: time(1)
+        )
+      )
+    )
+
+    let stopTask = Task { await registry.stop(using: capability, at: time(2)) }
+    #expect(await eventually { await handle.metrics().settlementWaits == 1 })
+    let beforeRefusal = await registry.snapshot()
+    await handle.finish(result(foreignIdentity, .cancelled, at: time(3)))
+    let expectedRefusal = ResultRefusal.identityMismatch(
+      expected: operationIdentity,
+      actual: foreignIdentity
+    )
+    #expect(
+      await stopTask.value
+        == .resultRefused(expectedRefusal)
+    )
+
+    let afterRefusal = await registry.snapshot()
+    #expect(afterRefusal.revision == beforeRefusal.revision + 1)
+    #expect(afterRefusal.active.count == 1)
+    #expect(afterRefusal.active.first?.identity == operationIdentity)
+    #expect(afterRefusal.active.first?.lane == .machine)
+    #expect(afterRefusal.active.first?.phase == .suspectedStall)
+    #expect(afterRefusal.active.first?.cancellationPhase == .refused)
+    #expect(afterRefusal.active.first?.cancellationReason == .stop)
+    #expect(afterRefusal.active.first?.lastCancellationResultRefusal == expectedRefusal)
+    #expect(afterRefusal.active.first?.stopCapability == capability)
+    #expect(afterRefusal.terminal.isEmpty)
+    await #expect(throws: AdmissionError.laneAtCapacity(lane: .machine, capacity: 1)) {
+      try await register(36, lane: .machine, in: registry)
+    }
+
+    let recoveredResult = result(operationIdentity, .failed, at: time(4))
+    let recoveredTerminal = try requireSettlementAccepted(
+      await registry.settle(recoveredResult, using: completionCapability)
+    )
+    #expect(recoveredTerminal.result == recoveredResult)
+    #expect(recoveredTerminal.lastCancellationResultRefusal == expectedRefusal)
+    #expect(recoveredTerminal.cancellationPhase == .refused)
+    #expect(await registry.stop(using: capability, at: time(5)) == .retiredCapability)
+    _ = try await register(36, lane: .machine, in: registry, admittedAt: time(5))
   }
 
   @Test("duplicate and stale results are refused and terminal capability never revives")
@@ -344,6 +430,7 @@ struct PlotterOperationRegistryTests {
     )
     let stopCapability = registration.stopCapability
     let capability = try #require(stopCapability)
+    let completionCapability = registration.completionCapability
     try requireStartAccepted(
       await registry.start(
         registration.takePermit(),
@@ -358,23 +445,67 @@ struct PlotterOperationRegistryTests {
       )
     )
 
-    let staleIdentity = PlotterOperationIdentity(
-      episodeID: operationIdentity.episodeID,
-      requestID: operationIdentity.requestID,
-      effectID: operationIdentity.effectID,
-      effectRevision: EpisodeRevisionIdentifier(rawValue: "effect-stale")
+    let mismatchedIdentities = [
+      identity(40, intentIdentity: .operation(4_040)),
+      identity(40, effectID: EpisodeEffectID(rawValue: uuid(value: 30_040))),
+      identity(
+        40,
+        effectRevision: EpisodeRevisionIdentifier(rawValue: "effect-stale")
+      ),
+      identity(40, environment: .live),
+    ]
+    for (offset, mismatchedIdentity) in mismatchedIdentities.enumerated() {
+      let beforeRefusal = await registry.snapshot()
+      let mismatchedResult = result(
+        mismatchedIdentity,
+        .failed,
+        at: time(TimeInterval(2 + offset))
+      )
+      #expect(
+        await registry.settle(mismatchedResult, using: completionCapability)
+          == .refused(
+            .identityMismatch(expected: operationIdentity, actual: mismatchedIdentity)
+          )
+      )
+      let afterRefusal = await registry.snapshot()
+      #expect(afterRefusal.revision == beforeRefusal.revision)
+      #expect(afterRefusal.active.count == 1)
+      #expect(afterRefusal.active.first?.identity == operationIdentity)
+      #expect(afterRefusal.active.first?.phase == .progressing)
+      #expect(afterRefusal.active.first?.stopCapability == capability)
+      #expect(afterRefusal.terminal.isEmpty)
+    }
+    let collidingEffectIdentity = identity(4_040, effectID: operationIdentity.effectID)
+    await #expect(throws: AdmissionError.identityAlreadyKnown(operationIdentity)) {
+      _ = try await registry.register(
+        identity: collidingEffectIdentity,
+        lane: .analysis,
+        context: context(4_040),
+        handle: TestHandle(),
+        cancellationAvailable: true,
+        admittedAt: time(2)
+      )
+    }
+    await #expect(
+      throws: AdmissionError.laneAtCapacity(lane: .exactWorkflow, capacity: 1)
+    ) {
+      try await register(41, lane: .exactWorkflow, in: registry)
+    }
+    let completedResult = result(operationIdentity, .completed, at: time(3))
+    let completedTerminal = try requireSettlementAccepted(
+      await registry.settle(completedResult, using: completionCapability)
     )
+    #expect(completedTerminal.result == completedResult)
     #expect(
-      await registry.settle(identity: staleIdentity, disposition: .failed, at: time(2))
-        == .identityMismatch(expected: operationIdentity)
+      await registry.settle(completedResult, using: completionCapability)
+        == .duplicate(completedTerminal)
     )
+    let conflictingResult = result(operationIdentity, .failed, at: time(4))
     #expect(
-      await registry.settle(identity: operationIdentity, disposition: .completed, at: time(3))
-        == .accepted(.completed)
-    )
-    #expect(
-      await registry.settle(identity: operationIdentity, disposition: .failed, at: time(4))
-        == .duplicate(.completed)
+      await registry.settle(conflictingResult, using: completionCapability)
+        == .refused(
+          .terminalResultMismatch(expected: completedResult, actual: conflictingResult)
+        )
     )
     #expect(
       await registry.recordProgress(
@@ -390,7 +521,7 @@ struct PlotterOperationRegistryTests {
       ) == .alreadyTerminal
     )
     #expect(await registry.stop(using: capability, at: time(6)) == .retiredCapability)
-    await #expect(throws: AdmissionError.effectAlreadyKnown(operationIdentity)) {
+    await #expect(throws: AdmissionError.identityAlreadyKnown(operationIdentity)) {
       _ = try await registry.register(
         identity: operationIdentity,
         lane: .exactWorkflow,
@@ -401,6 +532,81 @@ struct PlotterOperationRegistryTests {
       )
     }
     #expect(await handle.metrics() == TestHandleMetrics(cancelRequests: 0, settlementWaits: 0))
+  }
+
+  @Test("completion capability cannot settle either foreign active operation")
+  func completionCapabilityIsExactOwnerAuthority() async throws {
+    let registry = try makeRegistry()
+    let firstIdentity = identity(45)
+    let secondIdentity = identity(46)
+    let first = try await registry.register(
+      identity: firstIdentity,
+      lane: .analysis,
+      context: context(45),
+      handle: TestHandle(),
+      cancellationAvailable: true,
+      admittedAt: time(0)
+    )
+    let firstCompletion = first.completionCapability
+    let second = try await registry.register(
+      identity: secondIdentity,
+      lane: .analysis,
+      context: context(46),
+      handle: TestHandle(),
+      cancellationAvailable: true,
+      admittedAt: time(0)
+    )
+    let secondCompletion = second.completionCapability
+    try requireStartAccepted(
+      await registry.start(
+        first.takePermit(),
+        for: firstIdentity,
+        attributedTo: attribution(
+          145,
+          for: firstIdentity,
+          sequence: 1,
+          preRevision: 0,
+          at: time(1)
+        )
+      )
+    )
+    try requireStartAccepted(
+      await registry.start(
+        second.takePermit(),
+        for: secondIdentity,
+        attributedTo: attribution(
+          146,
+          for: secondIdentity,
+          sequence: 2,
+          preRevision: 1,
+          at: time(1)
+        )
+      )
+    )
+
+    let beforeForeignAttempts = await registry.snapshot()
+    let firstResult = result(firstIdentity, .completed, at: time(2))
+    let secondResult = result(secondIdentity, .failed, at: time(2))
+    #expect(
+      await registry.settle(secondResult, using: firstCompletion)
+        == .refused(.identityMismatch(expected: firstIdentity, actual: secondIdentity))
+    )
+    #expect(
+      await registry.settle(firstResult, using: secondCompletion)
+        == .refused(.identityMismatch(expected: secondIdentity, actual: firstIdentity))
+    )
+    let afterForeignAttempts = await registry.snapshot()
+    #expect(afterForeignAttempts.revision == beforeForeignAttempts.revision)
+    #expect(Set(afterForeignAttempts.active.map(\.identity)) == Set([firstIdentity, secondIdentity]))
+    #expect(afterForeignAttempts.active.allSatisfy { $0.phase == .progressing })
+    #expect(afterForeignAttempts.terminal.isEmpty)
+
+    _ = try requireSettlementAccepted(
+      await registry.settle(firstResult, using: firstCompletion)
+    )
+    _ = try requireSettlementAccepted(
+      await registry.settle(secondResult, using: secondCompletion)
+    )
   }
 
   @Test("shutdown closes admission and requests every latched owner before awaiting settlement")
@@ -470,7 +676,7 @@ struct PlotterOperationRegistryTests {
     await #expect(throws: AdmissionError.admissionClosed) {
       try await register(53, lane: .append, in: registry)
     }
-    try requireStartCancellationInProgress(
+    try requireStartAdmissionClosed(
       await registry.start(
         cancelling.takePermit(),
         for: cancellingIdentity,
@@ -488,15 +694,40 @@ struct PlotterOperationRegistryTests {
       await registry.snapshot().active.allSatisfy { $0.phase == .settling }
     })
 
-    await machineHandle.finish(.cancelled)
-    await exactHandle.finish(.cancelled)
-    await cancellingHandle.finish(.cancelled)
+    await machineHandle.finish(result(machineIdentity, .cancelled, at: time(3)))
+    await exactHandle.finish(result(exactIdentity, .cancelled, at: time(3)))
+    await cancellingHandle.finish(result(cancellingIdentity, .cancelled, at: time(3)))
     let report = await shutdownTask.value
     #expect(report.admissionWasAlreadyClosed == false)
     #expect(
       Set(report.settled.map(\.identity))
         == Set([machineIdentity, exactIdentity, cancellingIdentity])
     )
+    #expect(report.resultRefusals.isEmpty)
+    let machineTerminal = try #require(
+      report.settled.first { $0.identity == machineIdentity }
+    )
+    #expect(machineTerminal.lane == .machine)
+    #expect(machineTerminal.laneRole == .machine)
+    #expect(machineTerminal.context == context(50))
+    #expect(machineTerminal.owningSubsystem == context(50).owningSubsystem)
+    #expect(machineTerminal.resultCurrentlyAwaited == context(50).resultCurrentlyAwaited)
+    #expect(machineTerminal.phase == .terminal)
+    #expect(machineTerminal.admittedAt == time(0))
+    #expect(machineTerminal.startedAt == time(1))
+    #expect(machineTerminal.lastAttributableProgressAt == time(1))
+    #expect(machineTerminal.lastAcceptedAttribution?.recordedAt == time(1))
+    #expect(machineTerminal.deadline == nil)
+    #expect(machineTerminal.cancellationAvailable)
+    #expect(machineTerminal.cancellationPhase == .settling)
+    #expect(machineTerminal.cancellationReason == .shutdown)
+    #expect(machineTerminal.disposition == .cancelled)
+    #expect(machineTerminal.settledAt == time(3))
+    let exactTerminal = try #require(report.settled.first { $0.identity == exactIdentity })
+    #expect(exactTerminal.cancellationAvailable == false)
+    #expect(exactTerminal.startedAt == nil)
+    #expect(exactTerminal.lastAttributableProgressAt == nil)
+    #expect(exactTerminal.lastAcceptedAttribution == nil)
     #expect(await machineHandle.metrics() == TestHandleMetrics(cancelRequests: 1, settlementWaits: 1))
     #expect(await exactHandle.metrics() == TestHandleMetrics(cancelRequests: 1, settlementWaits: 1))
     #expect(
@@ -520,6 +751,226 @@ struct PlotterOperationRegistryTests {
     let repeated = await registry.shutdown(at: time(5))
     #expect(repeated.admissionWasAlreadyClosed)
     #expect(repeated.settled.isEmpty)
+    #expect(repeated.resultRefusals.isEmpty)
+  }
+
+  @Test("shutdown refusal is observable, repeatable, bounded, and directly recoverable")
+  func shutdownResultMismatchRecovery() async throws {
+    let registry = try makeRegistry()
+    let operationIdentity = identity(55)
+    let foreignIdentity = identity(55, environment: .simulated)
+    let handle = TestHandle()
+    let registration = try await registry.register(
+      identity: operationIdentity,
+      lane: .machine,
+      context: context(55),
+      handle: handle,
+      cancellationAvailable: true,
+      admittedAt: time(0)
+    )
+    let completionCapability = registration.completionCapability
+    try requireStartAccepted(
+      await registry.start(
+        registration.takePermit(),
+        for: operationIdentity,
+        attributedTo: attribution(
+          155,
+          for: operationIdentity,
+          sequence: 1,
+          preRevision: 0,
+          at: time(1)
+        )
+      )
+    )
+
+    let shutdownTask = Task { await registry.shutdown(at: time(2)) }
+    #expect(await eventually { await handle.metrics().settlementWaits == 1 })
+    await handle.finish(result(foreignIdentity, .cancelled, at: time(3)))
+    let expectedRefusal = ResultRefusal.identityMismatch(
+      expected: operationIdentity,
+      actual: foreignIdentity
+    )
+    let firstReport = await shutdownTask.value
+    #expect(firstReport.admissionWasAlreadyClosed == false)
+    #expect(firstReport.settled.isEmpty)
+    #expect(firstReport.resultRefusals == [expectedRefusal])
+
+    let firstRefusal = await registry.snapshot()
+    #expect(firstRefusal.admission == .closed)
+    #expect(firstRefusal.active.count == 1)
+    #expect(firstRefusal.active.first?.identity == operationIdentity)
+    #expect(firstRefusal.active.first?.lane == .machine)
+    #expect(firstRefusal.active.first?.phase == .suspectedStall)
+    #expect(firstRefusal.active.first?.cancellationPhase == .refused)
+    #expect(firstRefusal.active.first?.cancellationReason == .shutdown)
+    #expect(firstRefusal.active.first?.lastCancellationResultRefusal == expectedRefusal)
+    #expect(firstRefusal.terminal.isEmpty)
+
+    let repeated = await registry.shutdown(at: time(4))
+    #expect(repeated.admissionWasAlreadyClosed)
+    #expect(repeated.settled.isEmpty)
+    #expect(repeated.resultRefusals == [expectedRefusal])
+    #expect(await handle.metrics() == TestHandleMetrics(cancelRequests: 2, settlementWaits: 2))
+    let afterRepeatedRefusal = await registry.snapshot()
+    #expect(afterRepeatedRefusal.active.count == 1)
+    #expect(afterRepeatedRefusal.active.first?.phase == .suspectedStall)
+    #expect(afterRepeatedRefusal.active.first?.cancellationPhase == .refused)
+    #expect(afterRepeatedRefusal.terminal.isEmpty)
+
+    let validResult = result(operationIdentity, .failed, at: time(5))
+    let terminal = try requireSettlementAccepted(
+      await registry.settle(validResult, using: completionCapability)
+    )
+    #expect(terminal.result == validResult)
+    #expect(terminal.lastCancellationResultRefusal == expectedRefusal)
+    #expect((await registry.snapshot()).active.isEmpty)
+  }
+
+  @Test("closed admission consumes an unstarted permit after shutdown refusal")
+  func unstartedPermitCannotCrossShutdownClosure() async throws {
+    let registry = try makeRegistry()
+    let operationIdentity = identity(58)
+    let foreignIdentity = identity(58, environment: .live)
+    let handle = TestHandle(replaysFinishedResult: false)
+    let registration = try await registry.register(
+      identity: operationIdentity,
+      lane: .machine,
+      context: context(58),
+      handle: handle,
+      cancellationAvailable: true,
+      admittedAt: time(0)
+    )
+    let permit = registration.takePermit()
+
+    let firstShutdownTask = Task { await registry.shutdown(at: time(1)) }
+    #expect(await eventually { await handle.metrics().settlementWaits == 1 })
+    await handle.finish(result(foreignIdentity, .cancelled, at: time(2)))
+    let expectedRefusal = ResultRefusal.identityMismatch(
+      expected: operationIdentity,
+      actual: foreignIdentity
+    )
+    let firstReport = await firstShutdownTask.value
+    #expect(firstReport.settled.isEmpty)
+    #expect(firstReport.resultRefusals == [expectedRefusal])
+
+    let refused = await registry.snapshot()
+    let refusedOperation = try #require(refused.active.first)
+    #expect(refused.admission == .closed)
+    #expect(refusedOperation.identity == operationIdentity)
+    #expect(refusedOperation.lane == .machine)
+    #expect(refusedOperation.phase == .waiting)
+    #expect(refusedOperation.startedAt == nil)
+    #expect(refusedOperation.lastAttributableProgressAt == nil)
+    #expect(refusedOperation.lastAcceptedAttribution == nil)
+    #expect(refusedOperation.cancellationPhase == .refused)
+    #expect(refusedOperation.lastCancellationResultRefusal == expectedRefusal)
+    #expect(refused.terminal.isEmpty)
+
+    let rejectedStartAttribution = attribution(
+      158,
+      for: operationIdentity,
+      sequence: 1,
+      preRevision: 0,
+      at: time(3)
+    )
+    try requireStartAdmissionClosed(
+      await registry.start(
+        permit,
+        for: operationIdentity,
+        attributedTo: rejectedStartAttribution
+      )
+    )
+    let afterRejectedStart = await registry.snapshot()
+    #expect(afterRejectedStart.revision == refused.revision)
+    #expect(afterRejectedStart.active.count == 1)
+    #expect(afterRejectedStart.active.first?.phase == .waiting)
+    #expect(afterRejectedStart.active.first?.startedAt == nil)
+    #expect(afterRejectedStart.active.first?.lastAttributableProgressAt == nil)
+    #expect(afterRejectedStart.active.first?.lastAcceptedAttribution == nil)
+    #expect(afterRejectedStart.active.first?.cancellationPhase == .refused)
+    #expect(afterRejectedStart.active.first?.lastCancellationResultRefusal == expectedRefusal)
+    #expect(afterRejectedStart.terminal.isEmpty)
+
+    let secondShutdownTask = Task { await registry.shutdown(at: time(4)) }
+    #expect(await eventually { await handle.metrics().settlementWaits == 2 })
+    let correctResult = result(operationIdentity, .cancelled, at: time(5))
+    await handle.finish(correctResult)
+    let secondReport = await secondShutdownTask.value
+    #expect(secondReport.admissionWasAlreadyClosed)
+    #expect(secondReport.resultRefusals.isEmpty)
+    #expect(secondReport.settled.count == 1)
+    let terminal = try #require(secondReport.settled.first)
+    #expect(terminal.result == correctResult)
+    #expect(terminal.startedAt == nil)
+    #expect(terminal.lastAttributableProgressAt == nil)
+    #expect(terminal.lastAcceptedAttribution == nil)
+    #expect(terminal.lastCancellationResultRefusal == expectedRefusal)
+    let completed = await registry.snapshot()
+    #expect(completed.active.isEmpty)
+    #expect(completed.terminal == [terminal])
+    #expect(await handle.metrics() == TestHandleMetrics(cancelRequests: 2, settlementWaits: 2))
+  }
+
+  @Test("concurrent Stop and shutdown both observe the owning attempt's refusal")
+  func concurrentStopAndShutdownResultMismatch() async throws {
+    let registry = try makeRegistry()
+    let operationIdentity = identity(56)
+    let foreignIdentity = identity(56, environment: .live)
+    let handle = TestHandle()
+    let registration = try await registry.register(
+      identity: operationIdentity,
+      lane: .machine,
+      context: context(56),
+      handle: handle,
+      cancellationAvailable: true,
+      admittedAt: time(0)
+    )
+    let stopCapability = registration.stopCapability
+    let capability = try #require(stopCapability)
+    let completionCapability = registration.completionCapability
+    try requireStartAccepted(
+      await registry.start(
+        registration.takePermit(),
+        for: operationIdentity,
+        attributedTo: attribution(
+          156,
+          for: operationIdentity,
+          sequence: 1,
+          preRevision: 0,
+          at: time(1)
+        )
+      )
+    )
+
+    let stopTask = Task { await registry.stop(using: capability, at: time(2)) }
+    #expect(await eventually { await handle.metrics().settlementWaits == 1 })
+    let shutdownTask = Task { await registry.shutdown(at: time(3)) }
+    #expect(await eventually { await registry.snapshot().admission == .closed })
+    await handle.finish(result(foreignIdentity, .cancelled, at: time(4)))
+    let expectedRefusal = ResultRefusal.identityMismatch(
+      expected: operationIdentity,
+      actual: foreignIdentity
+    )
+    #expect(await stopTask.value == .resultRefused(expectedRefusal))
+    let shutdown = await shutdownTask.value
+    #expect(shutdown.settled.isEmpty)
+    #expect(shutdown.resultRefusals == [expectedRefusal])
+    #expect(await handle.metrics() == TestHandleMetrics(cancelRequests: 1, settlementWaits: 1))
+
+    let recoverable = await registry.snapshot()
+    #expect(recoverable.active.count == 1)
+    #expect(recoverable.active.first?.phase == .suspectedStall)
+    #expect(recoverable.active.first?.cancellationPhase == .refused)
+    #expect(recoverable.active.first?.cancellationReason == .stop)
+    #expect(recoverable.active.first?.lastCancellationResultRefusal == expectedRefusal)
+    #expect(recoverable.terminal.isEmpty)
+
+    _ = try requireSettlementAccepted(
+      await registry.settle(
+        result(operationIdentity, .failed, at: time(5)),
+        using: completionCapability
+      )
+    )
   }
 
   @Test("concurrent Stop and shutdown share one cancellation and one original-owner await")
@@ -557,10 +1008,12 @@ struct PlotterOperationRegistryTests {
     #expect(await eventually { await registry.snapshot().admission == .closed })
     #expect(await handle.metrics() == TestHandleMetrics(cancelRequests: 1, settlementWaits: 1))
 
-    await handle.finish(.cancelled)
-    #expect(await stopTask.value == .settled(.cancelled))
+    await handle.finish(result(operationIdentity, .cancelled, at: time(4)))
+    let stopTerminal = try requireStopSettled(await stopTask.value)
+    #expect(stopTerminal.disposition == .cancelled)
     let shutdown = await shutdownTask.value
-    #expect(shutdown.settled.map(\.identity) == [operationIdentity])
+    #expect(shutdown.settled == [stopTerminal])
+    #expect(shutdown.resultRefusals.isEmpty)
     #expect(await handle.metrics() == TestHandleMetrics(cancelRequests: 1, settlementWaits: 1))
   }
 
@@ -839,13 +1292,14 @@ struct PlotterOperationRegistryTests {
       admittedAt: time(1),
       deadline: time(10)
     )
+    let completionCapability = registration.completionCapability
     let waiting = await registry.snapshot()
     let waitingOperation = try #require(waiting.active.first)
     #expect(waiting.revision == 1)
     #expect(waitingOperation.identity == operationIdentity)
     #expect(waitingOperation.context == operationContext)
-    #expect(waitingOperation.intentIdentity == operationContext.intentIdentity)
-    #expect(waitingOperation.environment == operationContext.environment)
+    #expect(waitingOperation.identity.intentIdentity == operationIdentity.intentIdentity)
+    #expect(waitingOperation.identity.environment == operationIdentity.environment)
     #expect(waitingOperation.owningSubsystem == operationContext.owningSubsystem)
     #expect(
       waitingOperation.resultCurrentlyAwaited == operationContext.resultCurrentlyAwaited
@@ -932,24 +1386,33 @@ struct PlotterOperationRegistryTests {
     #expect(stalledOperation.phase == .suspectedStall)
     #expect(stalled.revision == 4)
 
-    #expect(
-      await registry.settle(identity: operationIdentity, disposition: .completed, at: time(6))
-        == .accepted(.completed)
+    let completedResult = result(operationIdentity, .completed, at: time(6))
+    let acceptedTerminal = try requireSettlementAccepted(
+      await registry.settle(completedResult, using: completionCapability)
     )
     let terminal = await registry.snapshot()
     #expect(terminal.active.isEmpty)
     #expect(terminal.terminal.count == 1)
+    #expect(terminal.terminal.first == acceptedTerminal)
     #expect(terminal.terminal.first?.identity == operationIdentity)
     #expect(terminal.terminal.first?.context == operationContext)
-    #expect(terminal.terminal.first?.intentIdentity == operationContext.intentIdentity)
-    #expect(terminal.terminal.first?.environment == operationContext.environment)
+    #expect(terminal.terminal.first?.identity.intentIdentity == operationIdentity.intentIdentity)
+    #expect(terminal.terminal.first?.identity.environment == operationIdentity.environment)
     #expect(terminal.terminal.first?.owningSubsystem == operationContext.owningSubsystem)
     #expect(
       terminal.terminal.first?.resultCurrentlyAwaited
         == operationContext.resultCurrentlyAwaited
     )
+    #expect(terminal.terminal.first?.phase == .terminal)
+    #expect(terminal.terminal.first?.admittedAt == time(1))
+    #expect(terminal.terminal.first?.startedAt == time(2))
+    #expect(terminal.terminal.first?.lastAttributableProgressAt == time(4))
     #expect(terminal.terminal.first?.lastAcceptedAttribution == stalledAttribution)
+    #expect(terminal.terminal.first?.deadline == time(10))
+    #expect(terminal.terminal.first?.cancellationAvailable == true)
+    #expect(terminal.terminal.first?.cancellationPhase == .notRequested)
     #expect(terminal.terminal.first?.disposition == .completed)
+    #expect(terminal.terminal.first?.settledAt == time(6))
     #expect(terminal.terminal.first?.cancellationReason == nil)
     #expect(terminal.lastChangedAt == time(6))
   }
@@ -977,8 +1440,9 @@ private enum TestEnvironment: Hashable, Sendable {
 }
 
 private struct TestContext: PlotterOperationContext {
-  let intentIdentity: TestIntentIdentity
-  let environment: TestEnvironment
+  typealias IntentIdentity = TestIntentIdentity
+  typealias Environment = TestEnvironment
+
   let owningSubsystem: EpisodeAuthorityID
   let resultCurrentlyAwaited: TestAwaitedResult
 }
@@ -995,17 +1459,24 @@ private struct TestHandleMetrics: Equatable, Sendable {
 }
 
 private actor TestHandle: PlotterOperationHandle {
+  typealias OperationContext = TestContext
   typealias TerminalDisposition = TestDisposition
 
   private let blockCancellationRequest: Bool
+  private let replaysFinishedResult: Bool
   private var cancelRequests = 0
   private var settlementWaits = 0
-  private var disposition: TestDisposition?
+  private var result: OperationResult?
+  private var queuedResults: [OperationResult] = []
   private var cancellationRequestWaiters: [CheckedContinuation<Void, Never>] = []
-  private var waiters: [CheckedContinuation<TestDisposition, Never>] = []
+  private var waiters: [CheckedContinuation<OperationResult, Never>] = []
 
-  init(blockCancellationRequest: Bool = false) {
+  init(
+    blockCancellationRequest: Bool = false,
+    replaysFinishedResult: Bool = true
+  ) {
     self.blockCancellationRequest = blockCancellationRequest
+    self.replaysFinishedResult = replaysFinishedResult
   }
 
   func requestCancellation() async {
@@ -1024,21 +1495,29 @@ private actor TestHandle: PlotterOperationHandle {
     }
   }
 
-  func waitForSettlement() async -> TestDisposition {
+  func waitForSettlement() async -> OperationResult {
     settlementWaits += 1
-    if let disposition { return disposition }
+    if replaysFinishedResult, let result { return result }
+    if !queuedResults.isEmpty { return queuedResults.removeFirst() }
     return await withCheckedContinuation { continuation in
       waiters.append(continuation)
     }
   }
 
-  func finish(_ disposition: TestDisposition) {
-    guard self.disposition == nil else { return }
-    self.disposition = disposition
-    let currentWaiters = waiters
-    waiters.removeAll()
-    for waiter in currentWaiters {
-      waiter.resume(returning: disposition)
+  func finish(_ result: OperationResult) {
+    if replaysFinishedResult {
+      guard self.result == nil else { return }
+      self.result = result
+      let currentWaiters = waiters
+      waiters.removeAll()
+      for waiter in currentWaiters {
+        waiter.resume(returning: result)
+      }
+    } else if !waiters.isEmpty {
+      let waiter = waiters.removeFirst()
+      waiter.resume(returning: result)
+    } else {
+      queuedResults.append(result)
     }
   }
 
@@ -1051,7 +1530,13 @@ private actor TestHandle: PlotterOperationHandle {
 }
 
 private typealias Registry = PlotterOperationRegistry<TestLane, TestContext, TestHandle>
-private typealias AdmissionError = PlotterOperationAdmissionError<TestLane>
+private typealias OperationIdentity = PlotterOperationIdentity<TestContext>
+private typealias OperationResult = PlotterOperationResult<TestContext, TestDisposition>
+private typealias TerminalRecord = Registry.TerminalRecord
+private typealias Settlement = Registry.Settlement
+private typealias StopOutcome = Registry.StopOutcome
+private typealias ResultRefusal = Registry.ResultRefusal
+private typealias AdmissionError = PlotterOperationAdmissionError<TestLane, TestContext>
 private typealias LaneConfigurationError = PlotterOperationLaneConfigurationError<TestLane>
 
 private func makeRegistry(backgroundAnalysisLimit: Int = 2) throws -> Registry {
@@ -1071,7 +1556,7 @@ private func register(
   lane: TestLane,
   in registry: Registry,
   admittedAt: Date = time(0)
-) async throws -> PlotterOperationRegistration {
+) async throws -> PlotterOperationRegistration<TestContext> {
   try await registry.register(
     identity: identity(value),
     lane: lane,
@@ -1082,32 +1567,52 @@ private func register(
   )
 }
 
-private func identity(_ value: Int) -> PlotterOperationIdentity {
-  PlotterOperationIdentity(
-    episodeID: EpisodeID(rawValue: uuid(value: 1_000)),
-    requestID: IntentRequestID(rawValue: uuid(value: 2_000 + value)),
-    effectID: EpisodeEffectID(rawValue: uuid(value: 3_000 + value)),
-    effectRevision: EpisodeRevisionIdentifier(rawValue: "effect-\(value)")
+private func identity(
+  _ value: Int,
+  episodeID: EpisodeID? = nil,
+  requestID: IntentRequestID? = nil,
+  intentIdentity: TestIntentIdentity? = nil,
+  effectID: EpisodeEffectID? = nil,
+  effectRevision: EpisodeRevisionIdentifier? = nil,
+  environment: TestEnvironment? = nil
+) -> OperationIdentity {
+  PlotterOperationIdentity<TestContext>(
+    episodeID: episodeID ?? EpisodeID(rawValue: uuid(value: 1_000)),
+    requestID: requestID ?? IntentRequestID(rawValue: uuid(value: 2_000 + value)),
+    intentIdentity: intentIdentity ?? .operation(value),
+    effectID: effectID ?? EpisodeEffectID(rawValue: uuid(value: 3_000 + value)),
+    effectRevision: effectRevision ?? EpisodeRevisionIdentifier(rawValue: "effect-\(value)"),
+    environment: environment ?? (value.isMultiple(of: 2) ? .simulated : .live)
   )
 }
 
 private func context(_ value: Int) -> TestContext {
   TestContext(
-    intentIdentity: .operation(value),
-    environment: value.isMultiple(of: 2) ? .simulated : .live,
     owningSubsystem: EpisodeAuthorityID(rawValue: "owner-\(value)"),
     resultCurrentlyAwaited: .ownerSettlement(value)
   )
 }
 
+private func result(
+  _ identity: OperationIdentity,
+  _ disposition: TestDisposition,
+  at settledAt: Date
+) -> OperationResult {
+  OperationResult(
+    identity: identity,
+    disposition: disposition,
+    settledAt: settledAt
+  )
+}
+
 private func attribution(
   _ value: Int,
-  for identity: PlotterOperationIdentity,
+  for identity: OperationIdentity,
   sequence: UInt64,
   preRevision: UInt64,
   at recordedAt: Date
-) -> PlotterOperationEventAttribution {
-  PlotterOperationEventAttribution(
+) -> PlotterOperationEventAttribution<TestContext> {
+  PlotterOperationEventAttribution<TestContext>(
     identity: identity,
     eventID: EpisodeEventID(rawValue: uuid(value: 4_000 + value)),
     sequence: EpisodeEventSequence(rawValue: sequence),
@@ -1129,15 +1634,37 @@ private enum PermitOutcomeTestError: Error {
   case unexpectedOutcome
 }
 
+private func requireSettlementAccepted(_ outcome: Settlement) throws -> TerminalRecord {
+  switch outcome {
+  case let .accepted(terminal):
+    return terminal
+  case .unknownCompletionCapability, .refused, .notStarted, .cancellationInProgress,
+       .duplicate:
+    throw PermitOutcomeTestError.unexpectedOutcome
+  }
+}
+
+private func requireStopSettled(_ outcome: StopOutcome) throws -> TerminalRecord {
+  switch outcome {
+  case let .settled(terminal):
+    return terminal
+  case .resultRefused, .alreadyRequested, .unknownCapability, .retiredCapability,
+       .identityMismatch:
+    throw PermitOutcomeTestError.unexpectedOutcome
+  }
+}
+
 private func requireIdentityMismatchPermit(
-  _ outcome: consuming EffectPermitConsumption,
-  expected: PlotterOperationIdentity
-) throws -> EffectPermit {
+  _ outcome: consuming EffectPermitConsumption<TestContext>,
+  expected: OperationIdentity
+) throws -> EffectPermit<TestContext> {
   switch consume outcome {
   case let .identityMismatch(actual, permit):
     #expect(actual == expected)
     return permit
   case .accepted:
+    throw PermitOutcomeTestError.unexpectedOutcome
+  case .admissionClosed:
     throw PermitOutcomeTestError.unexpectedOutcome
   case .attributionRefused(_, _):
     throw PermitOutcomeTestError.unexpectedOutcome
@@ -1149,14 +1676,16 @@ private func requireIdentityMismatchPermit(
 }
 
 private func requireAttributionRefusalPermit(
-  _ outcome: consuming EffectPermitConsumption,
-  expected: PlotterOperationAttributionRefusal
-) throws -> EffectPermit {
+  _ outcome: consuming EffectPermitConsumption<TestContext>,
+  expected: PlotterOperationAttributionRefusal<TestContext>
+) throws -> EffectPermit<TestContext> {
   switch consume outcome {
   case let .attributionRefused(actual, permit):
     #expect(actual == expected)
     return permit
   case .accepted:
+    throw PermitOutcomeTestError.unexpectedOutcome
+  case .admissionClosed:
     throw PermitOutcomeTestError.unexpectedOutcome
   case .identityMismatch(_, _):
     throw PermitOutcomeTestError.unexpectedOutcome
@@ -1168,11 +1697,13 @@ private func requireAttributionRefusalPermit(
 }
 
 private func requireStartAccepted(
-  _ outcome: consuming EffectPermitConsumption
+  _ outcome: consuming EffectPermitConsumption<TestContext>
 ) throws {
   switch consume outcome {
   case .accepted:
     return
+  case .admissionClosed:
+    throw PermitOutcomeTestError.unexpectedOutcome
   case .identityMismatch(_, _):
     throw PermitOutcomeTestError.unexpectedOutcome
   case .attributionRefused(_, _):
@@ -1184,11 +1715,11 @@ private func requireStartAccepted(
   }
 }
 
-private func requireStartCancellationInProgress(
-  _ outcome: consuming EffectPermitConsumption
+private func requireStartAdmissionClosed(
+  _ outcome: consuming EffectPermitConsumption<TestContext>
 ) throws {
   switch consume outcome {
-  case .cancellationInProgress:
+  case .admissionClosed:
     return
   case .accepted:
     throw PermitOutcomeTestError.unexpectedOutcome
@@ -1197,17 +1728,21 @@ private func requireStartCancellationInProgress(
   case .attributionRefused(_, _):
     throw PermitOutcomeTestError.unexpectedOutcome
   case .retired:
+    throw PermitOutcomeTestError.unexpectedOutcome
+  case .cancellationInProgress:
     throw PermitOutcomeTestError.unexpectedOutcome
   }
 }
 
 private func requireStartRetired(
-  _ outcome: consuming EffectPermitConsumption
+  _ outcome: consuming EffectPermitConsumption<TestContext>
 ) throws {
   switch consume outcome {
   case .retired:
     return
   case .accepted:
+    throw PermitOutcomeTestError.unexpectedOutcome
+  case .admissionClosed:
     throw PermitOutcomeTestError.unexpectedOutcome
   case .identityMismatch(_, _):
     throw PermitOutcomeTestError.unexpectedOutcome

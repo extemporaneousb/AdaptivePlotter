@@ -26,7 +26,7 @@ limitations remain in the named evidence section.
 | EA-02A | `TASK-55097CA4` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `CORE=passed` | EpisodeCore domain-generic foundation |
 | EA-02B | `TASK-B6E16E08` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `PLOTTER-MODEL=passed` | Plotter episode model foundation |
 | EA-03A | `TASK-439EDDB1` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed`, `STORE=passed` | EpisodeStore foundation |
-| EA-03B | `TASK-9D49AAE0` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed`, `RUNTIME=passed` | Episode operation registry foundation |
+| EA-03B | `TASK-39BC99B5` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed`, `RUNTIME=passed` | Episode operation registry foundation |
 | EA-05A | `TASK-57FE4C62` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed`, `RECORDING=passed` | Episode recording store foundation |
 
 ## Wave admission blockers
@@ -148,7 +148,7 @@ retention admission, not cleanup, automatic deletion, or evidence promotion.
 The package deletes `StartupFrameRecorder`, its nested `Manifest`, and the sole
 `manualCameraSnapshotPreservesExactFrame` high-level test. Source/test inventory
 proved that recorder had no production or other remaining consumer, and the
-candidate has zero source/test matches for all three assigned symbols. No
+completed source has zero source/test matches for all three assigned symbols. No
 compatibility alias, second recorder, app camera-sample writer, or shadow durable
 writer remains.
 
@@ -172,8 +172,7 @@ independent-store, and cross-process compare-and-swap; post-rename append and
 close uncertainty; truthful close completeness; and envelope/checksum
 corruption; deterministic cross-process lock/commit-boundary handshakes; bounded
 helper and attempt completion; and non-cooperative timeout behavior. The accepted
-source changed after the prior 26-test focused run, so the exact 36-test result
-remains pending a serial rerun.
+final focused measurement passed all 36/36 tests with no warnings or exclusions.
 
 `package EA-05A complete; migration remains incomplete`.
 
@@ -184,115 +183,139 @@ admission blocker. This statement selects or dispatches no successor work.
 
 | Validation | Result | Scope |
 | --- | --- | --- |
-| `DOC` | passed candidate declaration — episode documentation contract passed; the prior command's only nonzero cause was the pending-token architecture contract replaced by this declaration | canonical ledger, Current Evidence, architecture, frontier checker, and capsule contract |
-| `DIFF` | passed — `git diff --check`; exit 0, no output | complete bounded candidate diff |
-| `QUICK` | passed — `make quick-test`; 602/602 tests passed with exactly 10 command-regex exclusions (3 `OperatorWorkspaceSparseTipCalibrationTests`, 4 `OperatorWorkspaceTests`, 3 `SimulatedLearningRuntimeTests`); no warnings | repository quick suite with configured exclusions |
-| `STRICT` | passed candidate declaration — warnings-as-errors build, stable-local signing, launcher logic and validation, bundle-negative validation, and 612/612 tests with zero exclusions and zero warnings passed; the command's only nonzero cause was the pending documentation token replaced by this declaration | strict build, tests, signing, launcher, and documentation contracts |
-| `RECORDING` | passed — `swift test --filter PlotterRecordingStoreTests`; 36/36 passed in 5.490s with no warnings or exclusions | typed recording, durable persistence, content-addressed frames, retention, concurrency, corruption, and completeness contracts |
+| `DOC` | passed — `make docs-check`; both contracts plus 14/14 documentation tests passed in 3.071s | canonical ledger, Current Evidence, architecture, frontier checker, and capsule contract |
+| `DIFF` | passed — `git diff --check`; exit 0, no output | complete bounded package diff |
+| `QUICK` | passed — `make quick-test`; 602/602 tests passed with exactly 10 intentional exclusions (3 `OperatorWorkspaceSparseTipCalibrationTests`, 4 `OperatorWorkspaceTests`, 3 `SimulatedLearningRuntimeTests`); no warnings | repository quick suite with configured exclusions |
+| `STRICT` | passed — `make strict-check`; warnings-as-errors build, stable-local signing, launcher logic and validation, app-bundle validation, 612/612 tests, and documentation checks passed with no warnings | strict build, tests, signing, launcher, bundle, and documentation contracts |
+| `RECORDING` | passed — `swift test --filter PlotterRecordingStoreTests`; 36/36 passed with no warnings or exclusions | typed recording, durable persistence, content-addressed frames, retention, concurrency, corruption, and completeness contracts |
 
-These are the candidate final five-gate declarations for the accepted tree. They
-are being recorded so the repository's self-validating documentation and
-architecture contracts can run to completion in the immediate final complete
-five-gate rerun; this section does not claim that rerun has already happened.
-
-This is source, focused-test, and repository candidate evidence only. No
+All five required gates passed on the completed source-identical tree. This is
+final source, focused-test, and repository evidence only. No
 attended controller, camera, Motion, Pen, paper, operator click, observed ink,
 hardware, or remote-Git activity was performed, and none of those evidence
 classes is established by this package.
 
 ## Episode operation registry foundation
 
-Implemented 2026-08-26 in Blackdog task `TASK-9D49AAE0`.
+The original EA-03B implementation lineage is Blackdog task `TASK-9D49AAE0`.
+The canonical contract correction was delivered 2026-08-26 by Blackdog task
+`TASK-39BC99B5`.
 
-The internal SwiftPM target `EpisodeRuntime` still depends only on
-`EpisodeCore`, is not a package product, and has no production caller. Its new
-generic `PlotterOperationRegistry` actor admits one exact operation identity,
-typed lane, structurally required typed operation context, and original typed
-operation handle. The identity binds episode, intent request, effect, and effect
-revision. Every context must expose typed intent identity, environment, owning
-subsystem, and result currently awaited. Successful registration mints an
-internal `EffectPermit` and returns it only inside a structurally noncopyable
-`PlotterOperationRegistration`. The permit has private minting and storage;
-registration exposes it only through consuming `takePermit()`, and registry
-start consumes it. There is no copyable wrapper, remint path, UI-state copy, or
-other escape from this move-only boundary. Successful start, cancellation, or
-retirement destroys the effect authority instead of leaving a token that can be
-submitted twice.
+The internal SwiftPM target `EpisodeRuntime` remains Foundation-only, depends
+only on `EpisodeCore`, is not a package product, and has no production caller.
+Its generic `PlotterOperationRegistry` actor owns one canonical operation
+identity containing the episode ID, intent-request ID, typed intent identity,
+effect ID, effect revision, and typed environment. Intent and environment
+values are not duplicated in `PlotterOperationContext`; that context supplies
+their associated types but stores only the owning subsystem and typed result
+currently awaited.
 
-Start and progress each require a typed event-attribution reference containing
-the exact operation identity, `EpisodeEventID`, event sequence, pre- and
-post-state revisions, and recorded timestamp. The registry accepts only an
-identity match, a globally unrepeated event ID, a one-step state revision,
-strictly increasing sequence, nonregressing state, and nonregressing timestamp.
-An identity, duplicate-event, sequence, state-transition, state-regression, or
-timestamp refusal leaves the registry snapshot unchanged. The registry validates
-only the reference and its local ordering; it neither proves nor performs
-`EpisodeStore` commitment. Later composition remains responsible for supplying
-the reference only after the corresponding event append returns. Identity or
-event-attribution refusal is recoverable: the noncopyable outcome returns the
-same move-only permit, leaves lane occupancy and the complete registry snapshot
-unchanged, and permits one corrected retry. No new permit is minted.
+Registration retains the supplied original typed operation handle and one typed
+lane. The fixed lane roles are exclusive machine, exclusive exact-workflow
+capture/Vision, bounded background analysis, and serialized durable append;
+distinct typed lane configuration and capacity are enforced at admission.
+Successful registration privately mints a structurally noncopyable one-shot
+`EffectPermit`, an optional exact `StopCapability`, and an operation-bound
+`CompletionCapability`. The noncopyable registration exposes the permit only
+through consuming `takePermit()`, and start consumes it. No remint, copyable
+effect-authority wrapper, or UI-state copy exists.
 
-One fixed typed lane configuration provides exclusive machine,
-exact-workflow-capture/Vision, and durable-append lanes plus explicitly bounded
-background analysis. Lane identities must be distinct, and unconfigured or
-at-capacity admission is refused. The durable-append lane is runtime admission
-coordination only: this service does not call `EpisodeStore`, append an
-`EpisodeJournal`, or own another journal-persistence adapter.
+Start and progress require typed `PlotterOperationEventAttribution` containing
+the exact canonical identity, `EpisodeEventID`, event sequence, pre- and
+post-state revisions, and timestamp. Identity mismatch, repeated event ID,
+invalid one-step revision, sequence or state regression, and timestamp
+regression are typed refusals that leave the snapshot and lane unchanged.
+Recoverable start refusal returns the same move-only permit for one corrected
+retry. The registry validates reference identity and local ordering only; later
+composition must supply the reference only after `EpisodeStore` commits the
+event. The registry does not prove or perform that commit.
 
-When cancellation is available, registration mints one exact
-`StopCapability`. Stop validates that capability against the active identity,
-latches one cancellation owner before suspension, sends one cancellation
-request to the supplied original handle, awaits that same handle's settlement,
-records its typed terminal disposition, releases the lane, and retires the
-permit and capability. A repeated Stop cannot issue a second cancellation; a
-stale capability cannot affect a successor. Racing result settlement is refused
-until the original owner settles.
+Start checks admission before any recoverable identity or attribution
+acceptance. After shutdown closes admission, a retained unstarted permit cannot
+authorize external work: start returns the typed `.admissionClosed` refusal,
+retires the permit, and leaves start, progress, and attribution state unchanged.
+The active operation remains observably unstarted, and a later correct shutdown
+settlement can terminalize it without fabricating execution or progress.
 
-Shutdown closes admission and latches every exact active owner before its first
-suspension. It issues all newly owned cancellation requests before awaiting any
-settlement, shares an existing Stop cancellation rather than duplicating it,
-and can neither admit nor start an effect after closure. This priority route
-does not wait for journal I/O. Revisioned active and terminal snapshots expose
-admission, typed lane, intent, environment, owning subsystem, awaited result,
-waiting/progressing/cancelling/settling/suspected-stall phase, last accepted
-event attribution, attributable timestamps and deadline, cancellation state,
-and retained terminal disposition.
+Direct settlement requires the operation-bound `CompletionCapability` and a
+typed `PlotterOperationResult` carrying the exact identity, typed disposition,
+and settlement time. Capability and result identity, started state,
+cancellation ownership, duplicate equality, and terminal conflict are checked
+before any terminal mutation. A foreign or conflicting result returns a typed
+`PlotterOperationResultRefusal`; it does not release the lane or retire the
+active operation. Reusing the exact capability with the exact already accepted
+result produces a deterministic duplicate classification, while the capability
+cannot settle a foreign active operation.
 
-`EpisodeRuntimeTests` depends only on `EpisodeCore` and `EpisodeRuntime`. Focused
-coverage proves typed lane configuration and capacity, exact one-shot permits,
-the noncopyable registration/permit and consuming start boundary, corrected
-retry with the same returned authority after nonmutating identity/attribution
-refusal, required observability context, exact event-attributed start/progress,
-original-handle Stop and stale-successor immunity, cancellation/settlement
-ordering, duplicate and stale result refusal, shutdown priority and closure,
-concurrent Stop/shutdown coalescing, and revisioned active/terminal lifecycle
-snapshots.
+Stop validates the exact `StopCapability`, latches one cancellation-attempt
+owner before suspension, requests cancellation once on the original typed
+handle, and awaits that same handle's result. Shutdown closes admission,
+latches all otherwise unowned active operations before suspension, issues all
+new requests before awaiting any result, and shares a concurrent Stop attempt.
+Concurrent and repeated Stop/shutdown observers therefore share one
+cancellation request and one original-owner await.
 
-This Foundation service is intentionally unbound. It has no effect runner,
-device adapter, application composition or caller, or current Plotter workflow
-registration. It transfers no current `OperatorWorkspace`, controller, camera,
-Vision, evidence, persistence, simulator, UI, operation, Stop, or cancellation
-authority. Existing current owners remain authoritative until their named
-cutover packages land.
+If a cancellation attempt receives a mismatched typed result, the same refusal
+is delivered to every waiting Stop/shutdown observer. The attempt latch is
+released, but the operation stays recoverably active with its lane, original
+handle, direct-completion capability, and Stop capability intact. Its revisioned
+active snapshot durably retains the cancellation reason, `.refused` phase, and
+last cancellation-result refusal for registry-lifetime observability. A later
+correct direct settlement or a new cancellation attempt can recover;
+the mismatch never becomes a terminal mutation.
 
-`EA-05A` is now the first eligible ordinary WorkPackage. Its sole dependency
-`EA-03A` is complete, it is the first dependency-ready pending ordinary row in
-canonical ledger order, and Current Evidence records no admission blocker. This
-statement selects or dispatches no successor work.
+Accepted direct, Stop, and shutdown settlement all produce the same full
+terminal record. It retains the typed result and full canonical identity,
+disposition and settlement time, typed lane and lane role, context plus owning
+subsystem and awaited result, terminal phase, admission/start/last-progress
+times, deadline, last accepted event attribution, cancellation availability,
+phase and reason, and the last cancellation-result refusal. Active and terminal
+snapshots also retain a monotonically revisioned registry timestamp.
+
+`EpisodeRuntimeTests` depends only on `EpisodeCore` and `EpisodeRuntime`. The
+successful RUNTIME measurement passed 51/51 `EpisodeRuntimeTests` with no
+warnings, including 15 registry tests.
+Those registry tests cover typed lane configuration and capacity; exact
+six-field identity; one-shot permit ownership and corrected attribution retry;
+post-closure unstarted-permit retirement without progress mutation;
+terminalization without fabricated execution; operation-bound direct
+completion and foreign-capability refusal; original-handle Stop;
+stale-successor immunity; typed mismatch, duplicate, and conflict
+classification before mutation; recoverable Stop and shutdown refusal; shared
+concurrent cancellation attempts; shutdown closure and priority; exact event
+attribution; and complete active/terminal observability.
+
+The latest accepted fresh source critic returned `ACCEPT`; no findings; static
+only. It inspected the accepted source and tests without running a gate.
+`CRITIC` is not an EA-03B package gate and is not added to the gate table.
+
+This Foundation service remains intentionally unbound. It has no journal store,
+effect runner, device adapter, application composition or caller, current
+Plotter workflow registration, or durable persistence owner. It transfers no
+current `OperatorWorkspace`, controller, camera, Vision, evidence, persistence,
+simulator, UI, operation, Stop, shutdown, or cancellation authority. Existing
+owners remain authoritative until their named cutover packages land.
+
+`package EA-03B complete; migration remains incomplete`.
+
+`EA-05B` is now the first eligible ordinary WorkPackage. Its dependencies
+`EA-03A` and `EA-05A` are complete, it is the first dependency-ready pending
+ordinary row in canonical ledger order, and Current Evidence records no
+admission blocker. This statement selects or dispatches no successor work.
 
 | Validation | Result | Scope |
 | --- | --- | --- |
-| `DOC` | passed — `make docs-check`; exit 0, contracts plus 14/14 documentation tests in 3.071s | episode documentation, ledger/evidence reconciliation, and current frontier contracts |
-| `DIFF` | passed — `git diff --check`; exit 0, no diagnostics | candidate diff has no whitespace diagnostics |
-| `QUICK` | passed — `make quick-test`; exit 0, build 0.44s, 567/567 passed in 8.587s, 10 configured exclusions, no warnings | repository quick suite with configured exclusions |
-| `STRICT` | passed — `make strict-check`; exit 0, warnings-as-errors build 33.20s, test build 33.01s, 577/577 passed in 9.009s, local signing identity `AdaptivePlotter Local Development`, launcher logic/validation and negative app-bundle validation passed, embedded contracts plus 14/14 documentation tests in 3.085s, no warnings | strict build, tests, signing, launcher, and documentation contracts |
-| `RUNTIME` | passed — `swift test --filter EpisodeRuntimeTests`; exit 0, build 63.01s, 10/10 passed, 0 failures, suite 0.004s, run 0.005s, no warnings | typed lanes and required observability context, structurally move-only registration/permit consumption and corrected retry, exact event-attributed start/progress and nonmutating refusal, exact Stop, original-owner settlement, stale refusal, shutdown priority, cancellation coalescing, terminal retirement, and revisioned lifecycle snapshots |
+| `DOC` | passed — `make docs-check`; exit 0; both contracts and the checker suite passed | canonical ledger, Current Evidence, architecture, frontier, and contract checker |
+| `DIFF` | passed — `git diff --check`; exit 0, no output | complete bounded correction diff |
+| `QUICK` | passed — `make quick-test`; exit 0; 607/607 passed with exactly 10 intentional exclusions (3 `OperatorWorkspaceSparseTipCalibrationTests`, 4 `OperatorWorkspaceTests`, 3 `SimulatedLearningRuntimeTests`) and no warnings | repository quick suite with configured exclusions |
+| `STRICT` | passed — `make strict-check`; exit 0; warnings-as-errors build, stable-local signing, launcher and app-bundle validations, 617/617 tests, both documentation contracts, and the checker suite passed with no warnings | strict build, tests, signing, launcher, bundle, and documentation contracts |
+| `RUNTIME` | passed — `swift test --filter EpisodeRuntimeTests`; exit 0; 51/51 passed, including 15 registry tests; no warnings | identity, permit, post-closure refusal, completion, refusal recovery, cancellation sharing, and full terminal-record contracts |
 
-This is source, build, test, and repository evidence only. No attended
-controller, camera, Motion, Pen, paper, operator click, observed ink, hardware,
-or remote-Git activity was performed, and none of those evidence classes is
-established by this package.
+All five required gates passed on the source-identical tree. This is final
+source, build, test, repository, and static-source-critic evidence only. No
+attended controller, camera, Motion, Pen, paper, operator-click, observed ink,
+hardware, or remote-Git activity was performed, and none of those evidence
+classes is established by this correction.
 
 ## EpisodeStore foundation
 

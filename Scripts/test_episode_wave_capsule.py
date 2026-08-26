@@ -84,6 +84,212 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         git(self.root, "commit", "-m", message)
         git(self.root, "update-ref", "refs/remotes/origin/main", "HEAD")
 
+    def replace_completed_result(
+        self,
+        result: str,
+        *,
+        section: str = "Episode operation registry foundation",
+        gate: str = "RUNTIME",
+    ) -> None:
+        evidence_path = self.root / "docs/CURRENT_EVIDENCE.md"
+        lines = evidence_path.read_text(encoding="utf-8").splitlines()
+        heading = f"## {section}"
+        try:
+            section_start = lines.index(heading)
+        except ValueError as error:
+            raise AssertionError(f"missing fixture section {heading}") from error
+        for index in range(section_start + 1, len(lines)):
+            line = lines[index]
+            if line.startswith("## "):
+                break
+            if not line.startswith(f"| `{gate}` | "):
+                continue
+            cells = line.split("|")
+            if len(cells) != 5:
+                raise AssertionError(f"malformed fixture validation row: {line}")
+            scope = cells[3].strip()
+            lines[index] = f"| `{gate}` | {result} | {scope} |"
+            evidence_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            return
+        raise AssertionError(f"missing fixture validation row for {gate}")
+
+    def assert_completed_result_rejected(self, result: str, message: str) -> None:
+        self.replace_completed_result(result)
+        with self.assertRaisesRegex(ValueError, message):
+            capsule.validated_contract(self.root, validate_live_gates=False)
+
+    def test_real_current_evidence_is_accepted_by_production_contract(self) -> None:
+        _contract, rows, _gates, blockers = capsule.validated_contract(
+            self.root,
+            validate_live_gates=False,
+        )
+        self.assertEqual("complete", rows["EA-03B"]["status"])
+        self.assertEqual({}, blockers)
+
+    def test_completed_result_rejects_candidate_measurement(self) -> None:
+        self.assert_completed_result_rejected(
+            "passed — candidate measurement",
+            "uncertain or deferred evidence word 'candidate'",
+        )
+
+    def test_completed_result_rejects_pending_validation(self) -> None:
+        self.assert_completed_result_rejected(
+            "passed — validation pending",
+            "uncertain or deferred evidence word 'pending'",
+        )
+
+    def test_completed_result_rejects_other_uncertain_evidence(self) -> None:
+        for result, word in (
+            ("passed — provisional measurement", "provisional"),
+            ("passed — validation deferred", "deferred"),
+            ("passed — future validation", "future"),
+        ):
+            with self.subTest(result=result):
+                self.assert_completed_result_rejected(
+                    result,
+                    f"uncertain or deferred evidence word '{word}'",
+                )
+
+    def test_completed_result_rejects_rerun_variants(self) -> None:
+        for result in ("passed — rerun required", "passed — re-run required"):
+            with self.subTest(result=result):
+                self.replace_completed_result(result)
+                with self.assertRaisesRegex(ValueError, "defers validation to a rerun"):
+                    capsule.validated_contract(self.root, validate_live_gates=False)
+
+    def test_completed_result_rejects_skipped(self) -> None:
+        self.assert_completed_result_rejected(
+            "passed — skipped",
+            "reports skipped evidence as passed",
+        )
+
+    def test_completed_result_rejects_incomplete_states(self) -> None:
+        for result in (
+            "passed — validation incomplete",
+            "passed — work unfinished",
+            "passed — validation unverified",
+            "passed — validation unvalidated",
+            "passed — work blocked",
+            "passed — work unresolved",
+            "passed — validation not run",
+            "passed — validation not-run",
+            "passed — work not executed",
+            "passed — work not-executed",
+            "passed — work not performed",
+            "passed — work not-performed",
+        ):
+            with self.subTest(result=result):
+                self.assert_completed_result_rejected(
+                    result,
+                    "reports incomplete evidence state",
+                )
+
+    def test_completed_result_rejects_failed_forms(self) -> None:
+        for result in (
+            "passed — command failed",
+            "passed — 1 failed",
+            "passed — command 1.0 failed",
+            "passed — command 0.0 failed",
+            "passed — command 10 failed",
+            "passed — command +0 failed",
+            "passed — command -0 failed",
+        ):
+            with self.subTest(result=result):
+                self.replace_completed_result(result)
+                with self.assertRaisesRegex(ValueError, "explicit zero form `0 failed`"):
+                    capsule.validated_contract(self.root, validate_live_gates=False)
+
+    def test_completed_result_accepts_explicit_zero_failed(self) -> None:
+        self.replace_completed_result("passed — command completed; 0 failed")
+        _contract, rows, _gates, _blockers = capsule.validated_contract(
+            self.root,
+            validate_live_gates=False,
+        )
+        self.assertEqual("complete", rows["EA-03B"]["status"])
+
+    def test_completed_result_rejects_nonzero_rc(self) -> None:
+        self.assert_completed_result_rejected(
+            "passed — rc=1",
+            "reports nonzero rc 1 as passed",
+        )
+
+    def test_completed_result_rejects_standard_nonzero_forms(self) -> None:
+        for result in (
+            "passed — exit 1",
+            "passed — exit code=1",
+            "passed — exit code +1",
+            "passed — status: 2",
+            "passed — status +2",
+            "passed — return code -1",
+            "passed — rc=+1",
+            "passed — explicit nonzero result",
+            "passed — explicit non-zero result",
+        ):
+            with self.subTest(result=result):
+                self.replace_completed_result(result)
+                with self.assertRaisesRegex(ValueError, "nonzero"):
+                    capsule.validated_contract(self.root, validate_live_gates=False)
+
+    def test_completed_result_accepts_zero_result_codes(self) -> None:
+        for result in (
+            "passed — exit code 0",
+            "passed — exit code +0",
+            "passed — status -0",
+            "passed — rc=+0",
+            "passed — exit +0, no output",
+            "passed — status -0; command completed",
+            "passed — return code +0.",
+            "passed — rc=-0) command completed",
+        ):
+            with self.subTest(result=result):
+                self.replace_completed_result(result)
+                _contract, rows, _gates, _blockers = capsule.validated_contract(
+                    self.root,
+                    validate_live_gates=False,
+                )
+                self.assertEqual("complete", rows["EA-03B"]["status"])
+
+    def test_completed_result_rejects_malformed_numeric_tokens(self) -> None:
+        for result in (
+            "passed — status +0.1",
+            "passed — return code -0.5",
+            "passed — exit 0.0",
+            "passed — rc=0e1",
+            "passed — exit code 0x0",
+            "passed — status 0done",
+        ):
+            with self.subTest(result=result):
+                self.assert_completed_result_rejected(
+                    result,
+                    "malformed numeric .* token",
+                )
+
+    def test_uncertain_historical_prose_outside_result_cells_is_accepted(self) -> None:
+        evidence_path = self.root / "docs/CURRENT_EVIDENCE.md"
+        evidence = evidence_path.read_text(encoding="utf-8")
+        marker = "# AdaptivePlotter Current Evidence\n"
+        historical_prose = (
+            "\nHistorical prose outside a detailed Result cell may say candidate, "
+            "provisional, pending, awaiting, awaits, deferred, defers, future, "
+            "follows, will follow, not yet, not happened, exit code=9, status: 2, "
+            "return code -1, exit code +1, status +2, rc=+1, nonzero, non-zero, "
+            "rerun, re-run, skipped, incomplete, unfinished, unverified, "
+            "unvalidated, blocked, unresolved, not run, not-run, not executed, "
+            "not-executed, not performed, not-performed, command failed, "
+            "1 failed, 0 failed, status +0.1, return code -0.5, exit 0.0, "
+            "rc=0e1, exit code 0x0, or status 0done without certifying a gate.\n"
+        )
+        self.assertIn(marker, evidence)
+        evidence_path.write_text(
+            evidence.replace(marker, marker + historical_prose, 1),
+            encoding="utf-8",
+        )
+        _contract, rows, _gates, _blockers = capsule.validated_contract(
+            self.root,
+            validate_live_gates=False,
+        )
+        self.assertEqual("complete", rows["EA-03B"]["status"])
+
     def test_fresh_capsule_round_trip_is_bounded_and_points_to_exact_contract(self) -> None:
         created = self.build_and_write()
         consumed = self.consume()

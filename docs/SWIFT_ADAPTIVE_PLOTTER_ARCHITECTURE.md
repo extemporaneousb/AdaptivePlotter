@@ -23,9 +23,9 @@ EpisodeCore
 EpisodeRuntime -> EpisodeCore
   EpisodeStore actor with one in-memory state and one durable event journal
   versioned integrity-checked persistence adapter, atomic append, reconstruction
-  unbound PlotterOperationRegistry with typed lanes, move-only effect permits
-  typed operation context and event-attributed progress, original handles
-  exact Stop, cancellation, shutdown, and terminal settlement
+  unbound PlotterOperationRegistry with one full canonical operation identity
+  typed lanes, move-only effect permits, original handles, exact Stop
+  operation-bound completion, typed result/refusal, shared cancellation, terminal record
   internal unbound target with no product or production caller
 
 PlotterModel
@@ -122,20 +122,26 @@ already be installed, `EpisodeStore` publishes no candidate in-memory state or
 journal and requires the caller to reopen and reconcile durable truth.
 
 The unbound generic `PlotterOperationRegistry` actor separately owns admission
-for one exact episode/request/effect/revision identity, a typed lane, a
-structurally required `PlotterOperationContext`, and the supplied original typed
-operation handle. The context exposes typed intent identity, environment,
-owning subsystem, and result currently awaited. Its fixed lane roles are
+for one full canonical `PlotterOperationIdentity`: episode ID, intent-request
+ID, typed intent identity, effect ID, effect revision, and typed environment.
+Those intent and environment values live only in the identity.
+`PlotterOperationContext` supplies their associated types but stores only the
+owning subsystem and the typed result currently awaited, so it cannot become a
+second synchronized identity authority. Registration also retains the supplied
+original typed operation handle and typed lane. Its fixed lane roles are
 exclusive machine, exclusive exact-workflow capture/Vision, bounded background
-analysis, and serialized durable append. Registration mints an internal
-identity- and revision-bound `EffectPermit` inside a
-`PlotterOperationRegistration`. Both values are structurally noncopyable. The
-permit initializer and registration storage are private; consuming
-`takePermit()` moves it out exactly once, and consuming start moves it into the
-registry. No copyable wrapper, remint surface, or UI-state copy can retain or
-duplicate that authority. Successful start, cancellation, or retirement
-destroys the authority rather than leaving runtime duplicate-consumption as a
-recoverable state.
+analysis, and serialized durable append.
+
+Successful registration mints an identity-bound, structurally noncopyable
+`EffectPermit` inside a structurally noncopyable
+`PlotterOperationRegistration`, an optional exact `StopCapability`, and an
+operation-bound `CompletionCapability`. The permit initializer and registration
+storage are private; consuming `takePermit()` moves it out exactly once, and
+consuming start moves it into the registry. No copyable wrapper, remint surface,
+or UI-state copy can retain or duplicate effect authority. Successful start,
+cancellation, or retirement destroys that authority. The completion capability
+is separately unforgeable and can directly settle only its exact started
+operation; it cannot settle a foreign active operation.
 
 Start and progress require a typed `PlotterOperationEventAttribution` containing
 the exact operation identity, `EpisodeEventID`, event sequence, pre- and
@@ -146,24 +152,51 @@ reference identity and local ordering only; it neither proves nor performs the
 `EpisodeStore` commitment that a later composition must complete before
 supplying the reference.
 
-An identity or event-attribution refusal instead returns the same move-only
-permit in a noncopyable outcome without changing lane occupancy or any snapshot
-field, allowing one corrected retry without minting replacement authority.
+An identity or event-attribution refusal returns the same move-only permit in a
+noncopyable outcome without changing lane occupancy or any snapshot field,
+allowing one corrected retry without minting replacement authority.
 
-An optional exact `StopCapability` latches one cancellation owner, requests
-cancellation on the original handle, awaits that owner's settlement, retains
-the typed terminal record, releases its lane, and retires the capability so it
-cannot affect a successor.
+Start checks admission closure before those recoverable identity and
+attribution paths. A retained unstarted permit cannot authorize work after
+shutdown closes admission: start returns typed `.admissionClosed`, retires the
+permit, and changes no start, progress, or attribution fact. The operation
+remains observably unstarted so a later correct shutdown result can terminalize
+it without fabricating execution.
 
-Shutdown closes admission and latches every exact active owner before
-suspension, issues all newly owned cancellation requests before awaiting any
-settlement, and shares an already latched Stop cancellation. Revisioned
-active and terminal snapshots expose admission, lane, intent, environment,
-owning subsystem, awaited result, phase, last accepted event attribution,
-attributable progress timing, deadline, cancellation state, and terminal
-disposition. The durable-append lane is coordination only: the registry has no
-`EpisodeStore` or journal coupling, effect runner, device adapter, application
-composition, or app caller.
+Direct settlement requires the operation-bound `CompletionCapability` and a
+typed `PlotterOperationResult` that carries the exact canonical identity,
+terminal disposition, and settlement time. The registry classifies identity
+mismatch, duplicate identical result, and conflicting terminal result before
+any terminal mutation. A typed refusal leaves the active operation, lane,
+original handle, permit/capability state, and observability intact. An accepted
+result alone removes the active record, retires its effect/Stop authority,
+releases the lane, and appends the full terminal record.
+
+An optional exact `StopCapability` latches one cancellation-attempt owner,
+requests cancellation once on the original handle, and awaits that same
+handle's typed result. Shutdown first closes admission, latches every otherwise
+unowned active operation before suspension, and issues all new cancellation
+requests before awaiting settlement. Concurrent or repeated Stop and shutdown
+observers share the already latched cancellation attempt and its one original-
+owner await; they do not issue duplicate cancellation. If the handle returns a
+mismatched result, the registry publishes the same typed refusal to all attempt
+observers, releases the attempt latch, and keeps the operation recoverably
+active. Its active snapshot durably retains the refusal, cancellation reason,
+and `.refused` phase for registry-lifetime observability; a later correct direct
+settlement or a new cancellation attempt can recover without releasing
+the lane prematurely.
+
+Revisioned active snapshots expose admission, full identity, lane and role,
+context, owning subsystem, awaited result, lifecycle phase, admission/start/
+last-attributable-progress timing, deadline, last accepted event attribution,
+cancellation availability/phase/reason, last cancellation-result refusal, and
+exact Stop capability. Every terminal record retains the typed result and full
+canonical identity, disposition and settlement time, lane and role, context and
+its observable owner/awaited result, terminal phase, admission/start/progress
+timing, deadline, last attribution, cancellation availability/phase/reason, and
+the last cancellation-result refusal. The durable-append lane is coordination
+only: the registry has no `EpisodeStore` or journal coupling, effect runner,
+device adapter, application composition, or app caller.
 
 This unbound foundation transfers no current product authority. All current
 runtime, controller, camera, Vision, evidence, persistence, simulator, Stop,
