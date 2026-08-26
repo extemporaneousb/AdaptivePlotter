@@ -24,6 +24,12 @@ PlotterModel
   coordinate-space types, geometry, deterministic drawing-program catalog
   placements, drawable regions, content-addressed plans, readiness schema
 
+PlotterEpisodeModel -> EpisodeCore + PlotterModel
+  Plotter-bound definitions, manifests, intents, state, events, effects, and results
+  observations, measurements, evidence, outcomes, assessments, and capability facts
+  committed attributable progress, retained terminal projection, pure evaluators/reducer
+  internal compile-only target with no product or production caller
+
 PlotterRuntime
   MachineController, RunInterpreter, CameraCapture, VisionWorker
   learning artifacts and dependency graph
@@ -43,6 +49,9 @@ PlotterTestSupport
 
 EpisodeCoreTests -> EpisodeCore
   domain-generic value, evaluator, reducer, event, and journal contracts
+
+PlotterEpisodeModelContractTests -> EpisodeCore + PlotterEpisodeModel + PlotterModel
+  Plotter binding, exhaustive-family, purity, provenance, and topology contracts
 ```
 
 Dependencies point inward. Runtime does not import SwiftUI. Views receive
@@ -54,6 +63,27 @@ is not exposed as a package product. `EpisodeCoreTests` depends only on
 `EpisodeCore`, and no production target depends on either target. This package
 foundation moves no Plotter workflow, controller, camera, persistence, effect,
 evidence, or UI authority; the as-built owners below remain unchanged.
+
+`PlotterEpisodeModel` depends only on `EpisodeCore` and `PlotterModel`, is not a
+package product, and has no production caller. It binds concrete Plotter
+definition/manifest revisions, seven exhaustive semantic intent families,
+decision-relevant state, events, typed effects and results, observations,
+measurements, evidence, outcomes, assessments, versioned capability facts,
+immutable availability/projections, and pure scoped evaluator/reducer behavior.
+Committed progress values carry episode/request/intent/effect identity, effect
+revision, environment, typed lane and owning subsystem, phase, attributable
+timestamps and deadline, awaited result, and cancellation state. Only their
+committed event updates active progress; a committed result clears it and leaves
+the typed terminal result and disposition available in state and projection.
+Observation IDs carried by that result remain references: only a separately
+committed `observationRecorded` event establishes observation membership and
+semantic admission.
+
+It contains no runtime or device adapter/port, persistence, UI, application
+composition, effect permit, runtime operation or lane owner, task, actor, or
+asynchronous escape hatch. `PlotterModel` retains geometry and planning authority, while the
+current `PlotterRuntime`, `PlotterApp`, controller, camera, Vision, evidence,
+persistence, simulator, and `OperatorWorkspace` owners remain unchanged.
 
 ## Runtime owners
 

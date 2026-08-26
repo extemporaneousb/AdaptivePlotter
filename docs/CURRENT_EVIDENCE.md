@@ -24,6 +24,7 @@ limitations remain in the named evidence section.
 | FIX-01 | `TASK-05D1DCBD` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed`, `FIX-APPLICABILITY=passed` | Tip applicability evidence authority |
 | DOC-02 | `TASK-24BD26E8` | `DOC=passed`, `DIFF=passed` | Operator-accepted pre-migration checkpoint and development frontier |
 | EA-02A | `TASK-55097CA4` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `CORE=passed` | EpisodeCore domain-generic foundation |
+| EA-02B | `TASK-B6E16E08` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `PLOTTER-MODEL=passed` | Plotter episode model foundation |
 
 ## Wave admission blockers
 
@@ -36,6 +37,59 @@ admission blocker beyond the canonical ledger and live Blackdog claims.
 
 | Package | Blocker | Required input or canonical correction |
 | --- | --- | --- |
+
+## Plotter episode model foundation
+
+Implemented 2026-08-25 in Blackdog task `TASK-B6E16E08`.
+
+The internal SwiftPM target `PlotterEpisodeModel` depends inward only on
+`EpisodeCore` and `PlotterModel`. It binds the generic definition and manifest
+contracts to Plotter drawing, execution-plan, calibration, paper, environment,
+camera-configuration, and drawing-model revisions. Its compile-only value
+surface contains the exhaustive session, observation, point-selection,
+manual-motion, drawing, Learning, and evidence intent families; episode state,
+events, typed effects and results; source- and revision-bound observations and
+measurements; evidence decisions, outcomes, and assessments; versioned
+capability facts; immutable availability and presentation projections; and pure
+scoped intent evaluation and event reduction.
+
+Committed attributable effect-progress values bind episode, request, intent,
+and effect identity; effect revision; LIVE or SIMULATED environment; typed lane
+and owning subsystem; waiting, progressing, cancelling, settling, or suspected-
+stall phase; start and last-attributable-progress timestamps; optional deadline;
+the typed result currently awaited; and typed cancellation availability and
+phase. Only a committed progress event updates that active value. Result
+settlement clears active progress and retains the typed terminal result and
+disposition in state and its immutable projection for inspection.
+
+Typed observation IDs carried by an effect result remain references only. They
+do not enter episode observation membership or satisfy point-selection
+admission; only a separately committed `observationRecorded` event establishes
+that authority.
+
+`PlotterEpisodeModel` is not a package product. No production target depends on
+it, and `PlotterEpisodeModelContractTests` is its only new consumer. The package
+contains no runtime, device adapter or port, persistence, UI, application caller,
+effect permit, runtime operation or lane owner, actor, task, or asynchronous
+escape hatch.
+`PlotterModel` retains geometry and planning authority; existing runtime,
+controller, camera, Vision, evidence, persistence, simulator, UI, and
+`OperatorWorkspace` owners remain unchanged. This Foundation package therefore
+moves no product authority and migrates no intent.
+
+`EA-03A` is now the first eligible ordinary WorkPackage only because its sole dependency `EA-02B` is complete.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `DOC` | passed — `make docs-check`; exit 0, 14 tests total | episode documentation and architecture contracts passed |
+| `DIFF` | passed — `git diff --check`; exit 0, no output | candidate diff had no whitespace diagnostics |
+| `QUICK` | passed — `make quick-test`; exit 0, 547 passed, 0 failed | repository quick suite with its configured exclusions |
+| `PLOTTER-MODEL` | passed — `swift test --filter PlotterEpisodeModelContractTests`; exit 0, 17 passed, 0 failed | warning-free Plotter bindings, exhaustive intent families, evaluator/reducer purity, committed attributable progress and retained terminal projection, result-reference versus committed-observation authority, refusal provenance, evidence-class boundaries, package topology, and absence of executable authority |
+
+This is source, build, test, and repository evidence only. No attended
+controller, camera, Motion, Pen, paper, operator click, observed ink, hardware,
+or remote-Git activity was performed, and none of those evidence classes is
+established by this package.
 
 ## EpisodeCore domain-generic foundation
 
@@ -53,7 +107,7 @@ This is source, build, and test evidence only. No attended controller, camera,
 Motion, Pen, paper, operator-click, or observed-ink activity was performed, and
 none of those physical evidence classes is established by this package.
 
-`EA-02B` is now the first eligible ordinary WorkPackage because its sole dependency `EA-02A` is complete.
+At the EA-02A landing, `EA-02B` became the first eligible ordinary WorkPackage because its sole dependency `EA-02A` was complete.
 
 | Validation | Result | Scope |
 | --- | --- | --- |
@@ -82,9 +136,9 @@ disposable-repository test were deleted after all retained callers were removed.
 `VAL-01` and `PHYSICAL-FINAL` still require attended evidence on the exact final
 migrated build.
 
-`EA-02A` now depends on completed `DOC-02`, making it the first eligible ordinary
-WorkPackage. This package changed repository policy, evidence, routing, and
-deterministic checks only. It changed no application Swift source, runtime,
+At the DOC-02 landing, `EA-02A` depended on completed `DOC-02` and became the
+first eligible ordinary WorkPackage. This package changed repository policy,
+evidence, routing, and deterministic checks only. It changed no application Swift source, runtime,
 simulator, controller, camera, Motion, Pen, paper, operator-click, or physical-
 ink behavior.
 
@@ -155,7 +209,7 @@ Forward scenarios are fixed by the checked contract:
 
 | Scenario | Required disposition |
 | --- | --- |
-| Current clean ledger | Select `EA-02B`, the first eligible ordinary row; its package may not claim or repair the retained failed physical evidence. |
+| Current clean ledger | Select `EA-03A`, the first eligible ordinary row; its package may not claim or repair the retained failed physical evidence. |
 | Active owner holds the claim | Start no task; request one bounded non-overlapping offload with explicit worktree and leases, or stop if it is unavailable. |
 | Failed/interrupted ordinary package is recoverable | Verify prompt replay and dependencies, then follow only Blackdog's exact recovery action as coordinator. |
 | Multiple later ordinary rows appear dependency-ready | Select only the first in literal ledger order; parallelism stays inside that one WorkPackage and one task worktree. |

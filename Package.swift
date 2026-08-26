@@ -15,6 +15,10 @@ let package = Package(
   targets: [
     .target(name: "EpisodeCore"),
     .target(name: "PlotterModel"),
+    .target(
+      name: "PlotterEpisodeModel",
+      dependencies: ["EpisodeCore", "PlotterModel"]
+    ),
     .systemLibrary(name: "CSQLite"),
     .target(
       name: "PlotterRuntime",
@@ -35,6 +39,10 @@ let package = Package(
     .testTarget(
       name: "PlotterModelTests",
       dependencies: ["PlotterModel"]
+    ),
+    .testTarget(
+      name: "PlotterEpisodeModelContractTests",
+      dependencies: ["EpisodeCore", "PlotterEpisodeModel", "PlotterModel"]
     ),
     .testTarget(
       name: "PlotterRuntimeTests",
