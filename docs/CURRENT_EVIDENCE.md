@@ -133,6 +133,11 @@ binding and rejects stale HEADs, dirty authority, changed claims, payload/schema
 tampering, insecure permissions, symlinks, or unbounded output. It never caches
 a Blackdog `next_action` and does not reserve work.
 
+Follow-up repository-maintenance task `TASK-D61F784A` prevents the capsule's
+dynamic contract-checker import from emitting Python bytecode into the source
+tree. Capsule creation therefore preserves the clean-primary-workspace
+precondition required by immediate consumption.
+
 The wave now permits at most four active agents total: the invoking coordinator
 and no more than three workers or critics. Every wave assigns one serial
 documentation integrator; its package landing always updates the execution-plan
@@ -160,7 +165,7 @@ Forward scenarios are fixed by the checked contract:
 | `DOC` | passed — `make docs-check` | routing, policy removal, exact selector classes/order, then-current blocked frontier, worker merge guards, and existing episode contracts |
 | `DIFF` | passed — `git diff --check` | skill, policy, evidence, routing, and executable checker patch |
 | `SKILL` | passed — skill-creator `quick_validate.py` with isolated PyYAML | frontmatter, name, description, and repo-local skill structure |
-| `CAPSULE` | passed — `make wave-capsule-test`; 13 tests | fresh consumption, exact package/authority pointers, Current Evidence blocker admission, active claims, HEAD/document staleness, tamper/schema/permission/symlink rejection, bounded output, and physical authorization boundary |
+| `CAPSULE` | passed — `make wave-capsule-test`; 14 tests | fresh consumption, bytecode-clean dynamic import, exact package/authority pointers, Current Evidence blocker admission, active claims, HEAD/document staleness, tamper/schema/permission/symlink rejection, bounded output, and physical authorization boundary |
 
 ## Historical: attended baseline blocked by reveal-pose occlusion
 

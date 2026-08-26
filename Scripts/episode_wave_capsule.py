@@ -101,7 +101,12 @@ def import_contract(root: Path) -> ModuleType:
     if spec is None or spec.loader is None:
         raise CapsuleError(f"cannot load contract checker: {contract_path}")
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    previous_bytecode_policy = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.dont_write_bytecode = previous_bytecode_policy
     return module
 
 

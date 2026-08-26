@@ -9,6 +9,7 @@ import os
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -136,6 +137,17 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
             created["contract"]["frontier"]["blocker"]["blocker"],
         )
         self.assertNotEqual("EA-03A", created["contract"]["frontier"]["package_id"])
+
+    def test_contract_import_does_not_emit_bytecode_into_clean_repository(self) -> None:
+        cache_path = self.root / "Scripts/__pycache__"
+        self.assertFalse(cache_path.exists())
+        previous_bytecode_policy = sys.dont_write_bytecode
+        try:
+            sys.dont_write_bytecode = False
+            capsule.import_contract(self.root)
+        finally:
+            sys.dont_write_bytecode = previous_bytecode_policy
+        self.assertFalse(cache_path.exists())
 
     def test_active_claim_requires_claim_resolution_without_exposing_intent(self) -> None:
         summary = {
