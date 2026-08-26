@@ -20,6 +20,11 @@ EpisodeCore
   capability facts and intent decisions, events, pure reducers, validated journals
   internal compile-only target with no product or production caller
 
+EpisodeRuntime -> EpisodeCore
+  EpisodeStore actor with one in-memory state and one durable event journal
+  versioned integrity-checked persistence adapter, atomic append, reconstruction
+  internal unbound target with no product or production caller
+
 PlotterModel
   coordinate-space types, geometry, deterministic drawing-program catalog
   placements, drawable regions, content-addressed plans, readiness schema
@@ -50,6 +55,9 @@ PlotterTestSupport
 EpisodeCoreTests -> EpisodeCore
   domain-generic value, evaluator, reducer, event, and journal contracts
 
+EpisodeStoreTests -> EpisodeCore + EpisodeRuntime
+  store/reducer validation, atomic publication, persistence and writer-exclusion contracts
+
 PlotterEpisodeModelContractTests -> EpisodeCore + PlotterEpisodeModel + PlotterModel
   Plotter binding, exhaustive-family, purity, provenance, and topology contracts
 ```
@@ -63,6 +71,45 @@ is not exposed as a package product. `EpisodeCoreTests` depends only on
 `EpisodeCore`, and no production target depends on either target. This package
 foundation moves no Plotter workflow, controller, camera, persistence, effect,
 evidence, or UI authority; the as-built owners below remain unchanged.
+
+`EpisodeRuntime` depends only on `EpisodeCore`, is not exposed as a package
+product, and has no production caller. `EpisodeStoreTests`, which depends only
+on `EpisodeCore` and `EpisodeRuntime`, is its sole current consumer. The
+`EpisodeStore` actor serializes one in-memory state and one durable
+`EpisodeJournal`: it validates a candidate append and typed reducer result,
+commits the journal through its sole persistence adapter, and only then
+publishes state. The committed reduction's effects are returned as typed data
+but are not executed, queued, or retained; reconstruction applies historical
+events in order while ignoring their effects.
+
+The file adapter writes a typed `Codable`, versioned,
+schema-revision-bound, checksummed envelope; no `Any` or `JSONSerialization`
+path remains. Adapters for one canonical URL share in-process writer exclusion,
+and a kernel `fcntl` lock extends exclusion across processes. The durable
+expected journal is compared inside that exclusive region, so one stale writer
+cannot replace a newer append.
+
+The destination parent must already exist and be a directory. Missing and
+non-directory parents receive typed refusal without ancestry creation, so
+storage-directory provisioning and its entry are outside this adapter's and
+package's authority. The crash-durability guarantee is intentionally scoped to
+an already provisioned destination directory.
+
+For an admitted replacement there, the adapter creates a same-directory
+mode-0600 temporary file with `O_EXCL`, completes partial writes while retrying
+`EINTR`, performs macOS `F_FULLFSYNC`, closes the temporary file, atomically
+renames it, and `fsync`s the destination parent directory. Success is returned
+only after all barriers complete. A pre-rename failure removes the temporary
+file and preserves the prior durable journal. A post-rename directory-open or
+synchronization failure throws
+`postRenameDirectorySynchronizationUncertain`; because the candidate may
+already be installed, `EpisodeStore` publishes no candidate in-memory state or
+journal and requires the caller to reopen and reconcile durable truth.
+
+This unbound foundation owns no effect lane, operation registry or owner,
+device adapter, application persistence composition, UI, or product behavior.
+All current runtime, controller, camera, Vision, evidence, persistence,
+simulator, and `OperatorWorkspace` authorities remain unchanged.
 
 `PlotterEpisodeModel` depends only on `EpisodeCore` and `PlotterModel`, is not a
 package product, and has no production caller. It binds concrete Plotter

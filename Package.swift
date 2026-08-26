@@ -14,6 +14,10 @@ let package = Package(
   ],
   targets: [
     .target(name: "EpisodeCore"),
+    .target(
+      name: "EpisodeRuntime",
+      dependencies: ["EpisodeCore"]
+    ),
     .target(name: "PlotterModel"),
     .target(
       name: "PlotterEpisodeModel",
@@ -35,6 +39,10 @@ let package = Package(
     .testTarget(
       name: "EpisodeCoreTests",
       dependencies: ["EpisodeCore"]
+    ),
+    .testTarget(
+      name: "EpisodeStoreTests",
+      dependencies: ["EpisodeCore", "EpisodeRuntime"]
     ),
     .testTarget(
       name: "PlotterModelTests",

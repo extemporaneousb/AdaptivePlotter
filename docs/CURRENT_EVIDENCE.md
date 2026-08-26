@@ -25,6 +25,7 @@ limitations remain in the named evidence section.
 | DOC-02 | `TASK-24BD26E8` | `DOC=passed`, `DIFF=passed` | Operator-accepted pre-migration checkpoint and development frontier |
 | EA-02A | `TASK-55097CA4` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `CORE=passed` | EpisodeCore domain-generic foundation |
 | EA-02B | `TASK-B6E16E08` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `PLOTTER-MODEL=passed` | Plotter episode model foundation |
+| EA-03A | `TASK-439EDDB1` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed`, `STORE=passed` | EpisodeStore foundation |
 
 ## Wave admission blockers
 
@@ -37,6 +38,94 @@ admission blocker beyond the canonical ledger and live Blackdog claims.
 
 | Package | Blocker | Required input or canonical correction |
 | --- | --- | --- |
+
+## EpisodeStore foundation
+
+Implemented 2026-08-26 in Blackdog task `TASK-439EDDB1`.
+
+The internal SwiftPM target `EpisodeRuntime` depends only on `EpisodeCore`, is
+not a package product, and has no production caller. Its `EpisodeStore` actor is
+the serial authority for one in-memory state and its one durable event journal.
+Opening a store loads that journal or creates an empty one, validates its
+manifest, episode, and initial-state revision, then reconstructs state by
+applying the supplied typed reducer to every committed event in order. During
+reconstruction, reducer-output effects are deliberately ignored: historical
+effects are never executed, queued, or retained.
+
+For an append, the actor constructs and validates the candidate journal,
+reduces and validates the event against episode identity, revision, and
+canonical state digest, then asks its sole typed persistence adapter to commit
+before publishing either journal or state. A successful append returns the
+reducer output, including its effects, as typed committed data to the caller;
+the store does not execute, queue, or retain those effects. This package adds no
+effect lane, operation registry or owner, device adapter, UI, application
+composition, or caller.
+
+`EpisodeJournalPersistenceAdapter` owns one versioned file envelope containing
+the format version, journal-schema revision, encoded journal payload, and
+payload checksum. The checksum detects adapter-payload corruption; it is not
+episode-state semantic authority. Independently initialized adapters for the
+same canonical file path share an in-process lock, while a kernel `fcntl`
+sidecar lock supplies cross-process writer exclusion. Within that exclusive
+region, commit compares the durable journal with the expected base, refuses a
+concurrent-writer conflict, and begins one durable replacement only for a valid
+append. The destination parent must already exist and be a directory; the
+adapter returns typed `destinationDirectoryMissing` or
+`destinationParentIsNotDirectory` refusal without creating any ancestry. Its
+crash-durability guarantee therefore begins only inside an already provisioned
+storage directory whose existence and directory entry are outside this
+adapter's and package's authority.
+
+Replacement creates a same-directory mode-0600 temporary file with `O_EXCL`,
+completes every byte through a partial-write/`EINTR` loop, performs macOS
+`F_FULLFSYNC`, closes the file, atomically renames it over the destination, and
+then `fsync`s the destination parent directory. Commit reports success only
+after those file and directory durability barriers complete.
+
+Any failure before rename removes the temporary file and preserves the prior
+durable journal. A parent-directory open or synchronization failure after rename
+instead throws the typed
+`postRenameDirectorySynchronizationUncertain` disposition: the candidate may
+already be installed, so `EpisodeStore` publishes neither the candidate journal
+nor state and the caller must reopen the store to reconcile durable truth. The
+adapter and its corruption fixtures use the typed `Codable` envelope directly;
+no `Any` or `JSONSerialization` path remains.
+
+Focused adversarial coverage verifies ordered append and reopen reconstruction;
+event episode, sequence, and revision refusals before persistence; reducer
+episode, revision, and digest refusals; failed-commit nonpublication; schema,
+format, checksum, and typed-envelope corruption refusal; pre-rename failure
+preservation; missing-directory refusal without ancestry creation; a real
+non-writable-directory failure whose exact mode is restored and whose refused
+successor leaves prior durable bytes, journal, and actor state unchanged;
+post-rename durability-uncertainty nonpublication and reopen reconciliation;
+duplicate-event refusal; and simultaneous-store compare-and-swap behavior in
+which exactly one successor of one journal base commits. `EpisodeStoreTests`
+depends only on `EpisodeCore` and `EpisodeRuntime`.
+
+This Foundation package is intentionally unbound. It does not transfer or
+duplicate any current Plotter workflow, runtime, controller, camera, Vision,
+evidence, persistence, simulator, UI, or `OperatorWorkspace` authority. The
+adapter is a single-host file boundary, its checksum is integrity detection
+rather than authentication, and storage-directory provisioning remains an
+external composition responsibility. This package establishes no effect
+execution, application integration, distributed-writer, or physical behavior
+claim.
+
+`EA-03B` is now the first eligible ordinary WorkPackage because `EA-03A` is complete. It is the first dependency-ready pending ordinary row in canonical ledger order, subject to no live claim or Current Evidence admission blocker. This statement selects or dispatches no successor work.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `DOC` | passed — `make docs-check`; both contracts and 14/14 documentation tests passed, 0 warnings | episode documentation and architecture contracts |
+| `DIFF` | passed — `git diff --check`; exit 0, no diagnostics | candidate diff had no whitespace diagnostics |
+| `QUICK` | passed — `make quick-test`; 557/557 passed, 10 configured exclusions, 0 warnings | repository quick suite with configured exclusions |
+| `STRICT` | passed — `make strict-check`; strict build, signing, and launcher passed; 567/567 strict tests plus both documentation contracts and 14/14 capsule tests passed, 0 warnings | repository strict build, tests, signing, launcher, and documentation contracts |
+| `STORE` | passed — `swift test --filter EpisodeStoreTests`; 10/10 passed, 0 failed, 0 warnings | actor serialization, append validation, pre-provisioned-directory refusal, real pre-rename preservation, durable atomic publication, post-rename uncertainty reconciliation, typed envelope integrity, reconstruction, duplicate refusal, and concurrent-writer exclusion |
+
+This is source, build, test, and repository evidence only. No attended
+controller, camera, Motion, Pen, paper, operator click, observed ink, hardware,
+or remote-Git activity was performed, and none of those evidence classes is
+established by this package.
 
 ## Plotter episode model foundation
 
@@ -77,7 +166,7 @@ controller, camera, Vision, evidence, persistence, simulator, UI, and
 `OperatorWorkspace` owners remain unchanged. This Foundation package therefore
 moves no product authority and migrates no intent.
 
-`EA-03A` is now the first eligible ordinary WorkPackage only because its sole dependency `EA-02B` is complete.
+At the `EA-02B` landing, `EA-03A` became the first eligible ordinary WorkPackage because its sole dependency `EA-02B` was complete.
 
 | Validation | Result | Scope |
 | --- | --- | --- |
@@ -209,7 +298,7 @@ Forward scenarios are fixed by the checked contract:
 
 | Scenario | Required disposition |
 | --- | --- |
-| Current clean ledger | Select `EA-03A`, the first eligible ordinary row; its package may not claim or repair the retained failed physical evidence. |
+| Current clean ledger | `EA-03B` is the first eligible ordinary row, subject to no live claim or admission blocker; this evidence record does not select or dispatch it, and its package may not claim or repair the retained failed physical evidence. |
 | Active owner holds the claim | Start no task; request one bounded non-overlapping offload with explicit worktree and leases, or stop if it is unavailable. |
 | Failed/interrupted ordinary package is recoverable | Verify prompt replay and dependencies, then follow only Blackdog's exact recovery action as coordinator. |
 | Multiple later ordinary rows appear dependency-ready | Select only the first in literal ledger order; parallelism stays inside that one WorkPackage and one task worktree. |
