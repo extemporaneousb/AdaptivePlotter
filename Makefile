@@ -1,4 +1,4 @@
-.PHONY: help build app launcher run-app run-app-simulated validate-app validate-launcher docs-check quick-test journey-test test check strict-check
+.PHONY: help build app launcher run-app run-app-simulated validate-app validate-launcher docs-check wave-capsule-test quick-test journey-test test check strict-check
 
 .DEFAULT_GOAL := help
 
@@ -19,6 +19,7 @@ help:
 		'  validate-app       Validate the application bundle and launcher.' \
 		'  validate-launcher  Test launcher identity and instance handling.' \
 		'  docs-check         Validate canonical documents, vocabulary, and execution protocol.' \
+		'  wave-capsule-test  Validate hash-bound wave capsule creation and consumption.' \
 		'  quick-test         Run unit and component tests, excluding retained journeys.' \
 		'  journey-test       Run retained causal journeys sequentially.' \
 		'  test               Run the complete Swift test suite in parallel.' \
@@ -44,7 +45,11 @@ validate-app: app validate-launcher
 docs-check:
 	@sh Scripts/check_episode_documentation.sh
 	@./.VE/bin/python Scripts/check_episode_contract.py
+	@$(MAKE) wave-capsule-test
 	@sh Scripts/check_repository_contract.sh
+
+wave-capsule-test:
+	@PYTHONDONTWRITEBYTECODE=1 ./.VE/bin/python Scripts/test_episode_wave_capsule.py
 
 run-app: app launcher
 	@.build/AdaptivePlotterLauncher "$(CURDIR)/.build/AdaptivePlotter.app"

@@ -8,11 +8,15 @@ operate inside that boundary; multiple package tasks are not one wave.
 
 ## 1. Reconcile authority and reservations
 
-Start in the normal primary workspace. Read `AGENTS.md`, the complete episode
-work ledger and Package Completion Contract, the exact gate catalog, and the
-latest Current Evidence. Apply the reconciliation rules in
-`$adaptiveplotter`'s episode-migration protocol. Inspect repository-wide
-Blackdog structured state, not a checkout-local guess.
+Start in the normal primary workspace. Consume the mode-0600 hash-bound capsule
+with `./.VE/bin/python Scripts/episode_wave_capsule.py consume`. If it is missing
+or stale, create it mechanically and consume it again. The consumer validates
+the primary `main` HEAD, empty Git status, authority-file and section hashes,
+ledger/evidence contract, literal-order frontier, and repository-wide Blackdog
+claim set. Use its exact package-specific pointers instead of loading the whole
+ledger, evidence history, vocabulary, and this protocol into model context.
+Canonical documents remain authority; the capsule grants no permission and
+caches no Blackdog `next_action`.
 
 Treat every Blackdog `next_action` as the sole lifecycle authority. Execute its
 exact `argv` when it is a command, choose only a complete emitted alternative,
@@ -38,6 +42,10 @@ When an unfinished claim exists:
   exists, report the task and owner and stop.
 - An offload worker follows the existing coordinator's boundary and never takes
   over Blackdog or Git lifecycle authority.
+
+Consume the capsule again immediately before `task begin`. If its live claim
+set or any other binding changed, regenerate and restart claim resolution. The
+Blackdog `task begin` result remains the atomic reservation.
 
 ## 2. Select one eligible row
 
@@ -74,7 +82,14 @@ deleting, weakening, or paraphrasing its constraints. Append a section titled
 `Multi-agent coordination overlay` containing all of the following rules:
 
 - You are the sole coordinator for this package. Do not make implementation
-  edits or run build, test, formatter, generator, or validation commands.
+  edits or run build, test, formatter, source/document generator, or validation
+  commands. After verified landing, the required capsule-creation command is
+  the sole workflow-metadata generation exception.
+- At most four agents are active at once: this one coordinator and no more than
+  three workers or critics. Editing, validation, documentation, and critic
+  agents all count against the same three-subagent budget. Use fewer when leases
+  are not provably disjoint, and finish a worker before dispatching the required
+  fresh critic when all slots are occupied.
 - You alone own Blackdog lifecycle, work decomposition, leases, acceptance,
   retasking, completion assessment, and landing. Workers never create or mutate
   Blackdog tasks, branches, worktrees, commits, stashes, rebases, merges,
@@ -95,6 +110,14 @@ deleting, weakening, or paraphrasing its constraints. Append a section titled
   provable, serialize the units. `Package.swift`, canonical episode documents,
   package checkers, shared test support, and `OperatorWorkspace.swift` have one
   serial integrator whenever touched.
+- Assign exactly one serial documentation integrator. Documentation is package
+  implementation, not cleanup: before landing it updates the ledger row with
+  task identity and truthful status, the Current Evidence gate row and detailed
+  validations/limitations, current architecture when as-built ownership or
+  topology changed, and every routed canonical document affected by behavior,
+  operator flow, or evidence changes. Record reviewed/no-change dispositions for
+  the remaining routed documents in the accepted-slice register; do not check in
+  a separate report.
 - Editing workers re-read current file content immediately before editing and
   compare it with their entry identity. If the file or assigned authority changed
   outside their own edits, they stop and report instead of overwriting. They do
@@ -167,6 +190,11 @@ shared worktree directly before updating the accepted-slice register.
 The coordinator lands only after the canonical package completion contract,
 every exact gate, deletion proof, evidence update, ledger update, accepted-slice
 preservation check, and fresh critic pass are satisfied. Blackdog operation
-success is not package completion. Report `package <ID> complete; migration
-remains incomplete` unless the execution plan's final global condition is also
-proved.
+success is not package completion. Follow its exact actions through landing and
+cleanup, then prove the landed commit is current `main`, the primary workspace
+is still on `main`, `git status --short` is empty, repository-wide Blackdog state
+has no unfinished wave task, and no disposable task worktree remains. Generate
+the successor capsule mechanically with `Scripts/episode_wave_capsule.py create`;
+do not use a successor reconnaissance agent. Report `package <ID> complete;
+migration remains incomplete` unless the execution plan's final global condition
+is also proved.

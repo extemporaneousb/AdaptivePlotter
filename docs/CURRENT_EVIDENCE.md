@@ -25,6 +25,18 @@ limitations remain in the named evidence section.
 | DOC-02 | `TASK-24BD26E8` | `DOC=passed`, `DIFF=passed` | Operator-accepted pre-migration checkpoint and development frontier |
 | EA-02A | `TASK-55097CA4` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `CORE=passed` | EpisodeCore domain-generic foundation |
 
+## Wave admission blockers
+
+This is the sole machine-readable list of Current Evidence conditions that stop
+an otherwise dependency-ready pending ordinary package from launching. A row
+must name the exact package, the observed blocker, and the required user input
+or canonical correction. The selector stops at that first eligible row; it
+never skips ahead to later work. The empty table means Current Evidence adds no
+admission blocker beyond the canonical ledger and live Blackdog claims.
+
+| Package | Blocker | Required input or canonical correction |
+| --- | --- | --- |
+
 ## EpisodeCore domain-generic foundation
 
 Implemented 2026-08-25 in Blackdog task `TASK-55097CA4`.
@@ -111,6 +123,25 @@ quiesces before serial validation, accepted slices are checked against every
 later diff, and a fresh read-only critic precedes landing. Only Blackdog's exact
 stale-recovery action may rebase a stale candidate.
 
+Repository-maintenance task `TASK-B9E71BFC` replaced the model-driven full-plan
+startup read with a deterministic mode-0600 launch capsule. The capsule binds
+the exact primary `main` HEAD, empty Git state, `main...origin/main` relation,
+canonical authority-file and section hashes, complete ledger/evidence
+reconciliation, expanded gates, package-specific line pointers, and a bounded
+projection of live repository-wide Blackdog claims. Consumption recomputes every
+binding and rejects stale HEADs, dirty authority, changed claims, payload/schema
+tampering, insecure permissions, symlinks, or unbounded output. It never caches
+a Blackdog `next_action` and does not reserve work.
+
+The wave now permits at most four active agents total: the invoking coordinator
+and no more than three workers or critics. Every wave assigns one serial
+documentation integrator; its package landing always updates the execution-plan
+ledger row plus Current Evidence gate/detail records, conditionally updates every
+affected canonical document, and records reviewed/no-change dispositions for the
+rest. Completion verifies the landed commit as current clean `main` with no
+unfinished wave task or disposable worktree, then mechanically generates the
+successor capsule. No successor reconnaissance agent is used.
+
 This is repository policy and deterministic contract-check evidence only. It
 does not execute an episode package and establishes no application, simulator,
 controller, camera, motion, Pen, paper, operator-click, or observed-ink claim.
@@ -119,7 +150,7 @@ Forward scenarios are fixed by the checked contract:
 
 | Scenario | Required disposition |
 | --- | --- |
-| Current clean ledger | Select `EA-02A`, the first eligible ordinary row; its package may not claim or repair the retained failed physical evidence. |
+| Current clean ledger | Select `EA-02B`, the first eligible ordinary row; its package may not claim or repair the retained failed physical evidence. |
 | Active owner holds the claim | Start no task; request one bounded non-overlapping offload with explicit worktree and leases, or stop if it is unavailable. |
 | Failed/interrupted ordinary package is recoverable | Verify prompt replay and dependencies, then follow only Blackdog's exact recovery action as coordinator. |
 | Multiple later ordinary rows appear dependency-ready | Select only the first in literal ledger order; parallelism stays inside that one WorkPackage and one task worktree. |
@@ -129,6 +160,7 @@ Forward scenarios are fixed by the checked contract:
 | `DOC` | passed — `make docs-check` | routing, policy removal, exact selector classes/order, then-current blocked frontier, worker merge guards, and existing episode contracts |
 | `DIFF` | passed — `git diff --check` | skill, policy, evidence, routing, and executable checker patch |
 | `SKILL` | passed — skill-creator `quick_validate.py` with isolated PyYAML | frontmatter, name, description, and repo-local skill structure |
+| `CAPSULE` | passed — `make wave-capsule-test`; 13 tests | fresh consumption, exact package/authority pointers, Current Evidence blocker admission, active claims, HEAD/document staleness, tamper/schema/permission/symlink rejection, bounded output, and physical authorization boundary |
 
 ## Historical: attended baseline blocked by reveal-pose occlusion
 

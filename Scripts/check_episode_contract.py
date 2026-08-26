@@ -578,9 +578,35 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
         fail("DOC-00 ARCHIVED evidence section must identify d33d4ff")
 
 
-def validate_wave_frontier(
-    rows: dict[str, dict[str, object]], evidence: str
-) -> None:
+def parse_wave_admission_blockers(
+    evidence: str,
+    rows: dict[str, dict[str, object]],
+) -> dict[str, dict[str, str]]:
+    blocker_rows = markdown_table(
+        evidence,
+        ["Package", "Blocker", "Required input or canonical correction"],
+    )
+    blockers: dict[str, dict[str, str]] = {}
+    for package_id, blocker, required_input in blocker_rows:
+        if package_id in blockers:
+            fail(f"duplicate wave admission blocker for {package_id}")
+        if package_id not in rows:
+            fail(f"wave admission blocker references unknown package {package_id}")
+        row = rows[package_id]
+        if row["status"] != "pending" or row["class"] not in {"repository", "software", "gate"}:
+            fail(f"wave admission blocker must name a pending ordinary package: {package_id}")
+        if not blocker or not required_input:
+            fail(f"wave admission blocker lacks exact disposition for {package_id}")
+        if re.search(r"\b(?:TBD|unknown|to be decided)\b", f"{blocker} {required_input}", re.IGNORECASE):
+            fail(f"wave admission blocker contains a deferred disposition for {package_id}")
+        blockers[package_id] = {
+            "blocker": blocker,
+            "required_input_or_correction": required_input,
+        }
+    return blockers
+
+
+def first_eligible_ordinary(rows: dict[str, dict[str, object]]) -> str | None:
     allowed_classes = {"repository", "software", "gate"}
     eligible = [
         package_id
@@ -589,11 +615,25 @@ def validate_wave_frontier(
         and row["class"] in allowed_classes
         and all(rows[dependency]["status"] == "complete" for dependency in row["dependencies"])
     ]
-    if eligible:
-        selected = eligible[0]
-        earlier_rows = list(rows)[: list(rows).index(selected)]
-        if any(package_id in eligible for package_id in earlier_rows):
-            fail("wave selector did not preserve canonical ledger order")
+    return eligible[0] if eligible else None
+
+
+def ordinary_wave_frontier(
+    rows: dict[str, dict[str, object]],
+    evidence_blocked_packages: set[str] | None = None,
+) -> str | None:
+    selected = first_eligible_ordinary(rows)
+    if selected is not None and selected in (evidence_blocked_packages or set()):
+        return None
+    return selected
+
+
+def validate_wave_frontier(
+    rows: dict[str, dict[str, object]], evidence: str
+) -> None:
+    blockers = parse_wave_admission_blockers(evidence, rows)
+    selected = ordinary_wave_frontier(rows, set(blockers))
+    if selected is not None:
         if selected != "EA-02B":
             fail(f"unexpected current ordinary wave frontier: {selected}")
         for phrase in (
@@ -603,6 +643,10 @@ def validate_wave_frontier(
         ):
             if phrase not in evidence:
                 fail(f"current ordinary wave frontier lacks evidence: {phrase}")
+        return
+
+    first_eligible = first_eligible_ordinary(rows)
+    if first_eligible is not None and first_eligible in blockers:
         return
 
     incomplete = [package_id for package_id, row in rows.items() if row["status"] != "complete"]
@@ -669,6 +713,10 @@ def validate_protocol(text: str, skill: str, wave_skill: str, wave_protocol: str
     wave_skill_normalized = re.sub(r"\s+", " ", wave_skill)
     for phrase in (
         "This invocation authorizes that selection. It does not authorize an `attended-physical` or `remote-git` package.",
+        "consume the mode-0600 hash-bound launch capsule directly",
+        "at most four active agents total",
+        "Require a serial documentation integrator in every wave",
+        "Generate the successor capsule mechanically",
         "Act only as coordinator",
         "Do not implement, edit, or run validation yourself",
         "If the atomic reservation loses a race, return to claim resolution instead of selecting a different row",
@@ -679,6 +727,11 @@ def validate_protocol(text: str, skill: str, wave_skill: str, wave_protocol: str
     wave_protocol_normalized = re.sub(r"\s+", " ", wave_protocol)
     for phrase in (
         "One wave is exactly one canonical WorkPackage executed in exactly one Blackdog task worktree.",
+        "Use its exact package-specific pointers instead of loading the whole ledger",
+        "At most four agents are active at once",
+        "Assign exactly one serial documentation integrator",
+        "sole workflow-metadata generation exception",
+        "do not use a successor reconnaissance agent",
         "do not start or recover a second task",
         "ask that coordinator for a bounded offload",
         "Select the first eligible row.",

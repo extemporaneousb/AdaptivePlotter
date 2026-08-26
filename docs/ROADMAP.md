@@ -11,11 +11,11 @@ this roadmap does not restate or reorder them.
 
 ## 0. Episode architecture migration
 
-Execute the plan's named packages in ledger order. `EA-01`, `FIX-00`, `FIX-01`,
-and the `DOC-02` operator-accepted rollback checkpoint are complete; begin the
-application-code migration with `EA-02A`. Continue through the pilot, Learning
-Path family cutovers, composition cleanup, final attended validation, and final
-gate.
+Execute the plan's named packages in ledger order. The execution-plan ledger and
+Current Evidence own the live frontier; this roadmap deliberately does not copy
+a package ID that becomes stale after every landing. Continue through the pilot,
+Learning Path family cutovers, composition cleanup, final attended validation,
+and final gate.
 Every package must preserve existing device/evidence authorities, satisfy the
 observability contract, delete its superseded authority in the same landing,
 and update Current Evidence. Do not create a parallel application, architecture

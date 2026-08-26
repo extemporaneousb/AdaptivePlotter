@@ -21,8 +21,8 @@ to the task.
 | [`AGENTS.md`](../AGENTS.md) | Repository/Blackdog lifecycle contract. It governs how work begins, lands, and is validated; it does not own product design. |
 | [AdaptivePlotter skill](../.codex/skills/adaptiveplotter/SKILL.md) | Thin repo-local operating overlay. It exposes separate audit, named-package prompt compilation, named-package execution, and delegation to the guarded wave selector without duplicating architecture or lifecycle contracts. |
 | [Episode-migration execution protocol](../.codex/skills/adaptiveplotter/references/episode-migration.md) | Focused mechanics for read-only reconciliation, package validation, prompt compilation, replacement, validation, and landing. It accepts a package named by the caller or selected by the wave skill and owns no architecture or package status. |
-| [Run Multi-Agent Wave skill](../.codex/skills/run-multi-agent-wave/SKILL.md) | Thin selector/coordinator entry point. It resolves an existing Blackdog claim or selects the first eligible ordinary package, then delegates named-package execution to AdaptivePlotter. |
-| [Wave-coordination protocol](../.codex/skills/run-multi-agent-wave/references/wave-coordination.md) | Exact active-claim, eligibility, prompt-overlay, exclusive-lease, worker-status, critic, stale-recovery, and merge-preservation mechanics for one WorkPackage in one task worktree. It owns no package content or status. |
+| [Run Multi-Agent Wave skill](../.codex/skills/run-multi-agent-wave/SKILL.md) | Thin capsule-consuming selector/coordinator entry point. It resolves an existing Blackdog claim or selects the first eligible ordinary package, then delegates named-package execution to AdaptivePlotter with one coordinator and at most three workers or critics. |
+| [Wave-coordination protocol](../.codex/skills/run-multi-agent-wave/references/wave-coordination.md) | Exact hash-bound capsule, active-claim, eligibility, prompt-overlay, exclusive-lease, documentation-integration, worker-status, critic, stale-recovery, landing, and merge-preservation mechanics for one WorkPackage in one task worktree. It owns no package content or status. |
 
 ## Selection rules
 
@@ -39,6 +39,8 @@ to the task.
 - Read Current Evidence before any status or validation claim.
 - Read the Attended Hardware Runbook before explicitly authorized physical work.
 - A focused task normally needs the directly owning document, not every file.
+- A guarded wave consumes the verified package-specific capsule pointers; it
+  does not load this complete catalog and every routed authority at startup.
 
 ## Single-plan rule
 

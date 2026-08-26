@@ -15,14 +15,25 @@ authorities.
 
 ## Run the wave
 
-1. Read the [AdaptivePlotter skill](../adaptiveplotter/SKILL.md), its focused
-   [episode-migration protocol](../adaptiveplotter/references/episode-migration.md), and
-   [references/wave-coordination.md](references/wave-coordination.md)
-   completely before selecting or coordinating work.
-2. Reconcile canonical Git, repository-wide Blackdog state, the complete work
-   ledger, required gates, and Current Evidence exactly as the reference
-   requires.
-3. Resolve an existing claim before looking for new work. Resume only verified
+1. From the normal primary workspace, consume the mode-0600 hash-bound launch
+   capsule directly:
+
+   ```sh
+   ./.VE/bin/python Scripts/episode_wave_capsule.py consume
+   ```
+
+   If it is missing or stale, run `./.VE/bin/python
+   Scripts/episode_wave_capsule.py create` and then consume it. The consumer
+   revalidates canonical `main`, clean Git state, every bound authority hash,
+   the complete ledger/evidence contract, and live repository-wide Blackdog
+   claims. A stale capsule is discarded, never interpreted.
+2. Use only the verified capsule's package-specific pointers for prompt
+   compilation and coordination. Do not reread the complete ledger, vocabulary,
+   Current Evidence, or coordination protocol at startup. Mutable canonical
+   documents remain authority; the capsule is only a validated read accelerator.
+3. Resolve every live claim reported by the capsule before looking for new work.
+   Fetch its current Blackdog `next_action`; never cache lifecycle actions in the
+   capsule. Resume only verified
    recoverable `repository`, `software`, or `gate` work, or use the available
    task/thread messaging capability to request one bounded non-overlapping
    offload from its active coordinator. Never cancel, replace, or infer that a
@@ -35,10 +46,20 @@ authorities.
    append the reference's coordination overlay to the complete compiled package
    prompt. Start exactly one Blackdog task. If the atomic reservation loses a
    race, return to claim resolution instead of selecting a different row.
-6. Act only as coordinator: own lifecycle, bounded read-only inspection,
-   delegation, acceptance, retasking, and landing. Do not implement, edit, or
-   run validation yourself. Require workers and the fresh critic to use the
-   concise status contract in the reference.
-7. Stop only at a typed Blackdog blocker, an exact unresolved dependency or
+6. Use at most four active agents total: this invoking coordinator plus no more
+   than three workers or critics. Act only as coordinator: own lifecycle,
+   bounded read-only inspection, delegation, acceptance, retasking, and landing.
+   Do not implement, edit, or run validation yourself. Use fewer agents when
+   work is not safely disjoint, and preserve a slot for the fresh critic.
+7. Require a serial documentation integrator in every wave. The same landing
+   updates the execution-plan ledger row, Current Evidence gate table and detail,
+   and every routed canonical document affected by the package, including current
+   architecture when as-built topology or ownership changes. Record a reviewed
+   no-change disposition for the remaining canonical documents. Stale
+   documentation fails the wave.
+8. Stop only at a typed Blackdog blocker, an exact unresolved dependency or
    authorization boundary, a declined/unavailable offload, or verified package
-   landing. Do not describe an ineligible row as runnable work.
+   landing on `main`. After Blackdog completion, verify the landed commit is
+   current `main`, `git status --short` is empty, and no unfinished wave task or
+   retained disposable worktree remains. Generate the successor capsule
+   mechanically from that landed clean state. Do not dispatch a successor scout.
