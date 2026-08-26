@@ -26,6 +26,7 @@ limitations remain in the named evidence section.
 | EA-02A | `TASK-55097CA4` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `CORE=passed` | EpisodeCore domain-generic foundation |
 | EA-02B | `TASK-B6E16E08` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `PLOTTER-MODEL=passed` | Plotter episode model foundation |
 | EA-03A | `TASK-439EDDB1` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed`, `STORE=passed` | EpisodeStore foundation |
+| EA-03B | `TASK-9D49AAE0` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed`, `RUNTIME=passed` | Episode operation registry foundation |
 
 ## Wave admission blockers
 
@@ -38,6 +39,100 @@ admission blocker beyond the canonical ledger and live Blackdog claims.
 
 | Package | Blocker | Required input or canonical correction |
 | --- | --- | --- |
+
+## Episode operation registry foundation
+
+Implemented 2026-08-26 in Blackdog task `TASK-9D49AAE0`.
+
+The internal SwiftPM target `EpisodeRuntime` still depends only on
+`EpisodeCore`, is not a package product, and has no production caller. Its new
+generic `PlotterOperationRegistry` actor admits one exact operation identity,
+typed lane, structurally required typed operation context, and original typed
+operation handle. The identity binds episode, intent request, effect, and effect
+revision. Every context must expose typed intent identity, environment, owning
+subsystem, and result currently awaited. Successful registration mints an
+internal `EffectPermit` and returns it only inside a structurally noncopyable
+`PlotterOperationRegistration`. The permit has private minting and storage;
+registration exposes it only through consuming `takePermit()`, and registry
+start consumes it. There is no copyable wrapper, remint path, UI-state copy, or
+other escape from this move-only boundary. Successful start, cancellation, or
+retirement destroys the effect authority instead of leaving a token that can be
+submitted twice.
+
+Start and progress each require a typed event-attribution reference containing
+the exact operation identity, `EpisodeEventID`, event sequence, pre- and
+post-state revisions, and recorded timestamp. The registry accepts only an
+identity match, a globally unrepeated event ID, a one-step state revision,
+strictly increasing sequence, nonregressing state, and nonregressing timestamp.
+An identity, duplicate-event, sequence, state-transition, state-regression, or
+timestamp refusal leaves the registry snapshot unchanged. The registry validates
+only the reference and its local ordering; it neither proves nor performs
+`EpisodeStore` commitment. Later composition remains responsible for supplying
+the reference only after the corresponding event append returns. Identity or
+event-attribution refusal is recoverable: the noncopyable outcome returns the
+same move-only permit, leaves lane occupancy and the complete registry snapshot
+unchanged, and permits one corrected retry. No new permit is minted.
+
+One fixed typed lane configuration provides exclusive machine,
+exact-workflow-capture/Vision, and durable-append lanes plus explicitly bounded
+background analysis. Lane identities must be distinct, and unconfigured or
+at-capacity admission is refused. The durable-append lane is runtime admission
+coordination only: this service does not call `EpisodeStore`, append an
+`EpisodeJournal`, or own another journal-persistence adapter.
+
+When cancellation is available, registration mints one exact
+`StopCapability`. Stop validates that capability against the active identity,
+latches one cancellation owner before suspension, sends one cancellation
+request to the supplied original handle, awaits that same handle's settlement,
+records its typed terminal disposition, releases the lane, and retires the
+permit and capability. A repeated Stop cannot issue a second cancellation; a
+stale capability cannot affect a successor. Racing result settlement is refused
+until the original owner settles.
+
+Shutdown closes admission and latches every exact active owner before its first
+suspension. It issues all newly owned cancellation requests before awaiting any
+settlement, shares an existing Stop cancellation rather than duplicating it,
+and can neither admit nor start an effect after closure. This priority route
+does not wait for journal I/O. Revisioned active and terminal snapshots expose
+admission, typed lane, intent, environment, owning subsystem, awaited result,
+waiting/progressing/cancelling/settling/suspected-stall phase, last accepted
+event attribution, attributable timestamps and deadline, cancellation state,
+and retained terminal disposition.
+
+`EpisodeRuntimeTests` depends only on `EpisodeCore` and `EpisodeRuntime`. Focused
+coverage proves typed lane configuration and capacity, exact one-shot permits,
+the noncopyable registration/permit and consuming start boundary, corrected
+retry with the same returned authority after nonmutating identity/attribution
+refusal, required observability context, exact event-attributed start/progress,
+original-handle Stop and stale-successor immunity, cancellation/settlement
+ordering, duplicate and stale result refusal, shutdown priority and closure,
+concurrent Stop/shutdown coalescing, and revisioned active/terminal lifecycle
+snapshots.
+
+This Foundation service is intentionally unbound. It has no effect runner,
+device adapter, application composition or caller, or current Plotter workflow
+registration. It transfers no current `OperatorWorkspace`, controller, camera,
+Vision, evidence, persistence, simulator, UI, operation, Stop, or cancellation
+authority. Existing current owners remain authoritative until their named
+cutover packages land.
+
+`EA-05A` is now the first eligible ordinary WorkPackage. Its sole dependency
+`EA-03A` is complete, it is the first dependency-ready pending ordinary row in
+canonical ledger order, and Current Evidence records no admission blocker. This
+statement selects or dispatches no successor work.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `DOC` | passed — `make docs-check`; exit 0, contracts plus 14/14 documentation tests in 3.071s | episode documentation, ledger/evidence reconciliation, and current frontier contracts |
+| `DIFF` | passed — `git diff --check`; exit 0, no diagnostics | candidate diff has no whitespace diagnostics |
+| `QUICK` | passed — `make quick-test`; exit 0, build 0.44s, 567/567 passed in 8.587s, 10 configured exclusions, no warnings | repository quick suite with configured exclusions |
+| `STRICT` | passed — `make strict-check`; exit 0, warnings-as-errors build 33.20s, test build 33.01s, 577/577 passed in 9.009s, local signing identity `AdaptivePlotter Local Development`, launcher logic/validation and negative app-bundle validation passed, embedded contracts plus 14/14 documentation tests in 3.085s, no warnings | strict build, tests, signing, launcher, and documentation contracts |
+| `RUNTIME` | passed — `swift test --filter EpisodeRuntimeTests`; exit 0, build 63.01s, 10/10 passed, 0 failures, suite 0.004s, run 0.005s, no warnings | typed lanes and required observability context, structurally move-only registration/permit consumption and corrected retry, exact event-attributed start/progress and nonmutating refusal, exact Stop, original-owner settlement, stale refusal, shutdown priority, cancellation coalescing, terminal retirement, and revisioned lifecycle snapshots |
+
+This is source, build, test, and repository evidence only. No attended
+controller, camera, Motion, Pen, paper, operator click, observed ink, hardware,
+or remote-Git activity was performed, and none of those evidence classes is
+established by this package.
 
 ## EpisodeStore foundation
 
@@ -298,7 +393,7 @@ Forward scenarios are fixed by the checked contract:
 
 | Scenario | Required disposition |
 | --- | --- |
-| Current clean ledger | `EA-03B` is the first eligible ordinary row, subject to no live claim or admission blocker; this evidence record does not select or dispatch it, and its package may not claim or repair the retained failed physical evidence. |
+| Current clean ledger | `EA-05A` is the first eligible ordinary row, subject to no live claim or admission blocker; this evidence record does not select or dispatch it, and its package may not claim or repair the retained failed physical evidence. |
 | Active owner holds the claim | Start no task; request one bounded non-overlapping offload with explicit worktree and leases, or stop if it is unavailable. |
 | Failed/interrupted ordinary package is recoverable | Verify prompt replay and dependencies, then follow only Blackdog's exact recovery action as coordinator. |
 | Multiple later ordinary rows appear dependency-ready | Select only the first in literal ledger order; parallelism stays inside that one WorkPackage and one task worktree. |

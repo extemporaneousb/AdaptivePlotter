@@ -23,6 +23,9 @@ EpisodeCore
 EpisodeRuntime -> EpisodeCore
   EpisodeStore actor with one in-memory state and one durable event journal
   versioned integrity-checked persistence adapter, atomic append, reconstruction
+  unbound PlotterOperationRegistry with typed lanes, move-only effect permits
+  typed operation context and event-attributed progress, original handles
+  exact Stop, cancellation, shutdown, and terminal settlement
   internal unbound target with no product or production caller
 
 PlotterModel
@@ -58,6 +61,9 @@ EpisodeCoreTests -> EpisodeCore
 EpisodeStoreTests -> EpisodeCore + EpisodeRuntime
   store/reducer validation, atomic publication, persistence and writer-exclusion contracts
 
+EpisodeRuntimeTests -> EpisodeCore + EpisodeRuntime
+  typed-lane, move-only permit, attribution, observability, Stop, and lifecycle contracts
+
 PlotterEpisodeModelContractTests -> EpisodeCore + PlotterEpisodeModel + PlotterModel
   Plotter binding, exhaustive-family, purity, provenance, and topology contracts
 ```
@@ -73,14 +79,14 @@ foundation moves no Plotter workflow, controller, camera, persistence, effect,
 evidence, or UI authority; the as-built owners below remain unchanged.
 
 `EpisodeRuntime` depends only on `EpisodeCore`, is not exposed as a package
-product, and has no production caller. `EpisodeStoreTests`, which depends only
-on `EpisodeCore` and `EpisodeRuntime`, is its sole current consumer. The
-`EpisodeStore` actor serializes one in-memory state and one durable
-`EpisodeJournal`: it validates a candidate append and typed reducer result,
-commits the journal through its sole persistence adapter, and only then
-publishes state. The committed reduction's effects are returned as typed data
-but are not executed, queued, or retained; reconstruction applies historical
-events in order while ignoring their effects.
+product, and has no production caller. `EpisodeStoreTests` and
+`EpisodeRuntimeTests` depend only on `EpisodeCore` and `EpisodeRuntime` and are
+its sole current consumers. The `EpisodeStore` actor serializes one in-memory
+state and one durable `EpisodeJournal`: it validates a candidate append and
+typed reducer result, commits the journal through its sole persistence adapter,
+and only then publishes state. The committed reduction's effects are returned
+as typed data but are not executed, queued, or retained; reconstruction applies
+historical events in order while ignoring their effects.
 
 The file adapter writes a typed `Codable`, versioned,
 schema-revision-bound, checksummed envelope; no `Any` or `JSONSerialization`
@@ -106,10 +112,53 @@ synchronization failure throws
 already be installed, `EpisodeStore` publishes no candidate in-memory state or
 journal and requires the caller to reopen and reconcile durable truth.
 
-This unbound foundation owns no effect lane, operation registry or owner,
-device adapter, application persistence composition, UI, or product behavior.
-All current runtime, controller, camera, Vision, evidence, persistence,
-simulator, and `OperatorWorkspace` authorities remain unchanged.
+The unbound generic `PlotterOperationRegistry` actor separately owns admission
+for one exact episode/request/effect/revision identity, a typed lane, a
+structurally required `PlotterOperationContext`, and the supplied original typed
+operation handle. The context exposes typed intent identity, environment,
+owning subsystem, and result currently awaited. Its fixed lane roles are
+exclusive machine, exclusive exact-workflow capture/Vision, bounded background
+analysis, and serialized durable append. Registration mints an internal
+identity- and revision-bound `EffectPermit` inside a
+`PlotterOperationRegistration`. Both values are structurally noncopyable. The
+permit initializer and registration storage are private; consuming
+`takePermit()` moves it out exactly once, and consuming start moves it into the
+registry. No copyable wrapper, remint surface, or UI-state copy can retain or
+duplicate that authority. Successful start, cancellation, or retirement
+destroys the authority rather than leaving runtime duplicate-consumption as a
+recoverable state.
+
+Start and progress require a typed `PlotterOperationEventAttribution` containing
+the exact operation identity, `EpisodeEventID`, event sequence, pre- and
+post-state revisions, and recorded timestamp. Identity mismatch, duplicate
+event ID, invalid state transition, regressing sequence/state, or regressing
+timestamp is refused without mutating the snapshot. The registry validates
+reference identity and local ordering only; it neither proves nor performs the
+`EpisodeStore` commitment that a later composition must complete before
+supplying the reference.
+
+An identity or event-attribution refusal instead returns the same move-only
+permit in a noncopyable outcome without changing lane occupancy or any snapshot
+field, allowing one corrected retry without minting replacement authority.
+
+An optional exact `StopCapability` latches one cancellation owner, requests
+cancellation on the original handle, awaits that owner's settlement, retains
+the typed terminal record, releases its lane, and retires the capability so it
+cannot affect a successor.
+
+Shutdown closes admission and latches every exact active owner before
+suspension, issues all newly owned cancellation requests before awaiting any
+settlement, and shares an already latched Stop cancellation. Revisioned
+active and terminal snapshots expose admission, lane, intent, environment,
+owning subsystem, awaited result, phase, last accepted event attribution,
+attributable progress timing, deadline, cancellation state, and terminal
+disposition. The durable-append lane is coordination only: the registry has no
+`EpisodeStore` or journal coupling, effect runner, device adapter, application
+composition, or app caller.
+
+This unbound foundation transfers no current product authority. All current
+runtime, controller, camera, Vision, evidence, persistence, simulator, Stop,
+cancellation, and `OperatorWorkspace` authorities remain unchanged.
 
 `PlotterEpisodeModel` depends only on `EpisodeCore` and `PlotterModel`, is not a
 package product, and has no production caller. It binds concrete Plotter

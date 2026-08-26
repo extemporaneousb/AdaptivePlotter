@@ -26,7 +26,7 @@ WAVE_PROTOCOL_PATH = (
 )
 EVIDENCE_PATH = ROOT / "docs" / "CURRENT_EVIDENCE.md"
 # Updated in the same package whenever a canonical ledger row changes.
-EXPECTED_LEDGER_SHA256 = "55102861f346ddcd9ea52dfb087b16c8a9c05477be90c959d61a26e3d93f0f04"
+EXPECTED_LEDGER_SHA256 = "6159397666b62eb60a6032515e791e86785a494e1e5d538b61391e6a7c598ca9"
 
 
 EXPECTED_GATES = {
@@ -174,6 +174,7 @@ EXPECTED_COMPLETE_PACKAGES = {
     "EA-02A",
     "EA-02B",
     "EA-03A",
+    "EA-03B",
 }
 
 
@@ -644,11 +645,11 @@ def validate_wave_frontier(
     blockers = parse_wave_admission_blockers(evidence, rows)
     selected = ordinary_wave_frontier(rows, set(blockers))
     if selected is not None:
-        if selected != "EA-03B":
+        if selected != "EA-05A":
             fail(f"unexpected current ordinary wave frontier: {selected}")
         for phrase in (
-            "EpisodeStore foundation",
-            "`EA-03B` is now the first eligible ordinary WorkPackage because `EA-03A` is complete",
+            "Episode operation registry foundation",
+            "`EA-05A` is now the first eligible ordinary WorkPackage",
             "The retired `PHYSICAL-BASE` result is `failed`",
         ):
             if phrase not in evidence:
