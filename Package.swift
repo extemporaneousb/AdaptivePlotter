@@ -28,6 +28,10 @@ let package = Package(
       name: "PlotterRuntime",
       dependencies: ["PlotterModel", "CSQLite"]
     ),
+    .target(
+      name: "PlotterEpisodeRuntime",
+      dependencies: ["EpisodeRuntime", "PlotterEpisodeModel", "PlotterRuntime"]
+    ),
     .executableTarget(
       name: "PlotterApp",
       dependencies: ["PlotterModel", "PlotterRuntime"]
@@ -55,6 +59,10 @@ let package = Package(
     .testTarget(
       name: "PlotterEpisodeModelContractTests",
       dependencies: ["EpisodeCore", "PlotterEpisodeModel", "PlotterModel"]
+    ),
+    .testTarget(
+      name: "PlotterEpisodeRuntimeTests",
+      dependencies: ["PlotterEpisodeRuntime"]
     ),
     .testTarget(
       name: "PlotterRuntimeTests",

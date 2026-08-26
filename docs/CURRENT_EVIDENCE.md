@@ -27,6 +27,7 @@ limitations remain in the named evidence section.
 | EA-02B | `TASK-B6E16E08` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `PLOTTER-MODEL=passed` | Plotter episode model foundation |
 | EA-03A | `TASK-439EDDB1` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed`, `STORE=passed` | EpisodeStore foundation |
 | EA-03B | `TASK-9D49AAE0` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed`, `RUNTIME=passed` | Episode operation registry foundation |
+| EA-05A | `TASK-57FE4C62` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed`, `RECORDING=passed` | Episode recording store foundation |
 
 ## Wave admission blockers
 
@@ -39,6 +40,165 @@ admission blocker beyond the canonical ledger and live Blackdog claims.
 
 | Package | Blocker | Required input or canonical correction |
 | --- | --- | --- |
+
+## Episode recording store foundation
+
+Implemented 2026-08-26 in Blackdog task `TASK-57FE4C62`.
+
+The new internal SwiftPM target `PlotterEpisodeRuntime` depends only on
+`EpisodeRuntime`, `PlotterEpisodeModel`, and `PlotterRuntime`, is not a package
+product, and has no production or application caller. Its unbound
+`EpisodeRecordingStore` actor owns one typed recording document with contiguous
+sequence allocation and nonregressing attributable monotonic offsets. It does
+not register with or have a caller from `PlotterOperationRegistry`, execute an
+effect, call a device, append an `EpisodeJournal`, or interpret a record as an
+observation, measurement, evidence value, semantic event, progress, or physical
+result.
+
+Controller traffic preserves invocation and completion as separate typed
+records for open, close, input discard, raw write, and timed read. Open and read
+parameters, exact written bytes and returned chunks, typed failures, partial byte
+counts, chunk offsets, timeout disposition, and operation matching remain
+explicit. Duplicate or unmatched identities, mismatched completion kinds,
+impossible partial results, invalid chunks, and regressing time are refused
+before a document commit.
+
+Camera lifecycle recording is a distinct typed channel for requested and
+completed start, reconfiguration, and stop plus terminal failure. An exact frame
+reference is accepted only while its source and configuration are the active
+stream, and retains frame identity, sequence, capture time, dimensions, row
+layout, and pixel format. Lifecycle failure does not manufacture a successful
+transition, and closing does not fill an unfinished start, reconfiguration, or
+stop.
+
+Exact frame bytes are SHA-256 addressed under the admitted recording directory.
+The relative path and byte count are digest-bound, equal bytes deduplicate
+idempotently, and conflicting content cannot claim the same reference. The
+store writes and synchronizes bytes before publishing their ordered reference,
+then re-reads them. Missing, truncated, extra-length, hash-mismatched,
+unreadable, symbolic-link, owner-mismatched, and externally hard-linked
+artifacts remain distinct typed errors or completeness issues; reopen neither
+repairs them nor treats them as Vision-replay support.
+
+Persistence is anchored to an owner-matching open directory descriptor and its
+device/inode identity. Replacing the pathname after admission therefore cannot
+split later manifest, lock, and frame writes into another directory. A durable
+initialization marker pins recording ID, schema revision, and the explicit
+maximum unique-frame count and total-byte retention limits. A deterministic
+sorted-key `Codable` envelope pins format version and payload checksum. Reopen
+validates those values, document ordering, controller pairing, camera lifecycle,
+frame references, retention, and the presence of an initialized manifest; it
+does not silently accept an empty replacement for lost or corrupt recording
+state.
+
+Manifest creation and compare-and-swap commits use one in-process lock per
+pinned directory plus a kernel `fcntl` writer lock. Inside that exclusion the
+store compares the durable document with the expected base. For a frame commit
+it then accounts the complete artifact inventory, durably installs and verifies
+the frame bytes, and only afterward writes the mode-0600 same-directory manifest
+temporary through partial-write and `EINTR` handling, performs `F_FULLFSYNC`,
+atomically renames, and synchronizes the directory. A compare-and-swap loser
+therefore installs no artifact, while a later definite manifest failure may
+leave the already durable frame as a charged orphan without publishing its
+reference. Actor serialization gives concurrent callers one contiguous order;
+independent stores and a separate process cannot overwrite a successor committed
+from the same base. The deterministic cross-process proof has the child acquire
+the kernel lock and publish a ready handshake, then waits for the store's
+immediately-before-lock commit-boundary handshake before installing its checked
+successor. The bounded child-process and commit-attempt wait helpers terminate
+or kill an overdue helper and return or time out without awaiting an unbounded
+loser; a separate non-cooperative attempt proves the timeout path itself remains
+bounded even when task cancellation cannot make that loser cooperate.
+
+A failure before replacement leaves the prior document authoritative. A
+post-rename directory-synchronization uncertainty is typed, records whether the
+candidate was observed, and prevents every later mutation until reopen. The
+same rule applies to close: close ends admission only if durably installed or
+observably uncertain, while completeness remains independently inspectable.
+Unmatched controller invocations, unfinished camera lifetimes, missing or
+corrupt frame bytes, and incomplete or unverified low-level ledger ranges remain
+visible instead of being filled or hidden.
+
+Each entry may carry typed optional episode, intent-request, effect,
+correlation, and LIVE/SIMULATED environment identities. Those fields are
+diagnostic correlation only. A separate typed `RunLedgerDiagnosticReference`
+records one existing ledger run and sequence range with explicit integrity and
+complete or missing-range disposition. `EpisodeRecordingStore` never opens,
+reads, writes, or promotes that `RunLedger`; the current SQLite diagnostic owner
+and its ordered nonblocking `MachineController.ledgerWriteTail` remain unchanged.
+
+The frame retention policy is explicit and pinned by the durable marker and
+manifest. Admission accounts from the complete durable artifact inventory, not
+only manifest references: every directory entry consumes one count and its
+nonnegative filesystem byte length, including valid unreferenced artifacts and
+unrecognized, unreadable, unsafe, hash-mismatched, or otherwise orphaned
+artifacts. A manifest append failure can therefore leave a visible orphan that
+continues to consume quota. Nothing automatically deletes an artifact.
+
+Count increments and aggregate/proposed byte totals use checked fail-closed
+arithmetic. An unrepresentable inventory total refuses every frame mutation,
+including an apparent duplicate, with typed
+`frameRetentionAccountingOverflow`; it publishes neither a manifest successor
+nor a new artifact. Snapshot inspection maps the same condition to typed
+`frameRetentionAccountingOverflow` incompleteness. A checksum-valid manifest
+whose referenced-byte accounting overflows is corrupt recording state and is
+refused on reopen rather than exposed as a usable snapshot. This is bounded
+retention admission, not cleanup, automatic deletion, or evidence promotion.
+
+The package deletes `StartupFrameRecorder`, its nested `Manifest`, and the sole
+`manualCameraSnapshotPreservesExactFrame` high-level test. Source/test inventory
+proved that recorder had no production or other remaining consumer, and the
+candidate has zero source/test matches for all three assigned symbols. No
+compatibility alias, second recorder, app camera-sample writer, or shadow durable
+writer remains.
+
+`MachineController` remains the selected serial, parsing, command-serialization,
+safety, settlement, ambiguity, and `ledgerWriteTail` owner. `RunInterpreter`
+remains the current logical operation owner. `CameraCapture` remains the current
+camera discovery, authorization, selection, lifecycle, exact-frame, and preview-
+hold owner. Existing `WorkflowTelemetryActions.record`,
+`WorkflowTelemetryFixture`, `MachineSessionRetentionPolicy`, Vision, planning,
+evidence, simulator, `OperatorWorkspace`, operation, Stop, and cancellation
+authority are preserved and are not wired to the new service.
+
+`PlotterRecordingStoreTests` now contains 36 focused adversarial tests. They cover
+typed controller ordering and mismatch refusal; camera lifecycle and exact
+stream binding; content-addressed deduplication, size admission, confinement,
+missing/truncated/corrupt bytes, complete-artifact retention accounting, orphan
+charging, checked arithmetic overflow, and bounded retention; descriptor-
+anchored path replacement; serialized initialization; initialized-manifest
+loss; deterministic provenance; typed `RunLedger` completeness; actor,
+independent-store, and cross-process compare-and-swap; post-rename append and
+close uncertainty; truthful close completeness; and envelope/checksum
+corruption; deterministic cross-process lock/commit-boundary handshakes; bounded
+helper and attempt completion; and non-cooperative timeout behavior. The accepted
+source changed after the prior 26-test focused run, so the exact 36-test result
+remains pending a serial rerun.
+
+`package EA-05A complete; migration remains incomplete`.
+
+`EA-05B` is now the first eligible ordinary WorkPackage. Its dependencies
+`EA-03A` and `EA-05A` are complete, it is the first dependency-ready pending
+ordinary row in canonical ledger order, and Current Evidence records no
+admission blocker. This statement selects or dispatches no successor work.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `DOC` | passed candidate declaration — episode documentation contract passed; the prior command's only nonzero cause was the pending-token architecture contract replaced by this declaration | canonical ledger, Current Evidence, architecture, frontier checker, and capsule contract |
+| `DIFF` | passed — `git diff --check`; exit 0, no output | complete bounded candidate diff |
+| `QUICK` | passed — `make quick-test`; 602/602 tests passed with exactly 10 command-regex exclusions (3 `OperatorWorkspaceSparseTipCalibrationTests`, 4 `OperatorWorkspaceTests`, 3 `SimulatedLearningRuntimeTests`); no warnings | repository quick suite with configured exclusions |
+| `STRICT` | passed candidate declaration — warnings-as-errors build, stable-local signing, launcher logic and validation, bundle-negative validation, and 612/612 tests with zero exclusions and zero warnings passed; the command's only nonzero cause was the pending documentation token replaced by this declaration | strict build, tests, signing, launcher, and documentation contracts |
+| `RECORDING` | passed — `swift test --filter PlotterRecordingStoreTests`; 36/36 passed in 5.490s with no warnings or exclusions | typed recording, durable persistence, content-addressed frames, retention, concurrency, corruption, and completeness contracts |
+
+These are the candidate final five-gate declarations for the accepted tree. They
+are being recorded so the repository's self-validating documentation and
+architecture contracts can run to completion in the immediate final complete
+five-gate rerun; this section does not claim that rerun has already happened.
+
+This is source, focused-test, and repository candidate evidence only. No
+attended controller, camera, Motion, Pen, paper, operator click, observed ink,
+hardware, or remote-Git activity was performed, and none of those evidence
+classes is established by this package.
 
 ## Episode operation registry foundation
 
@@ -393,7 +553,7 @@ Forward scenarios are fixed by the checked contract:
 
 | Scenario | Required disposition |
 | --- | --- |
-| Current clean ledger | `EA-05A` is the first eligible ordinary row, subject to no live claim or admission blocker; this evidence record does not select or dispatch it, and its package may not claim or repair the retained failed physical evidence. |
+| Current clean ledger | `EA-05B` is the first eligible ordinary row, subject to no live claim or admission blocker; this evidence record does not select or dispatch it, and its package may not claim or repair the retained failed physical evidence. |
 | Active owner holds the claim | Start no task; request one bounded non-overlapping offload with explicit worktree and leases, or stop if it is unavailable. |
 | Failed/interrupted ordinary package is recoverable | Verify prompt replay and dependencies, then follow only Blackdog's exact recovery action as coordinator. |
 | Multiple later ordinary rows appear dependency-ready | Select only the first in literal ledger order; parallelism stays inside that one WorkPackage and one task worktree. |

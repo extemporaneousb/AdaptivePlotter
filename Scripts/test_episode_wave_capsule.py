@@ -89,7 +89,7 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         consumed = self.consume()
         self.assertEqual(created, consumed)
         self.assertEqual("selected", consumed["contract"]["frontier"]["state"])
-        self.assertEqual("EA-05A", consumed["contract"]["package"]["id"])
+        self.assertEqual("EA-05B", consumed["contract"]["package"]["id"])
         self.assertEqual(0o600, stat.S_IMODE(self.path.stat().st_mode))
         purposes = {item["purpose"] for item in consumed["pointers"]}
         self.assertIn("required gate catalog row", purposes)
@@ -108,8 +108,8 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         selected_text = (self.root / selected["path"]).read_text(encoding="utf-8").splitlines()[
             selected["start_line"] - 1
         ]
-        self.assertTrue(selected_text.startswith("| EA-05A |"))
-        self.assertNotIn("| EA-05B |", selected_text)
+        self.assertTrue(selected_text.startswith("| EA-05B |"))
+        self.assertNotIn("| EA-05C |", selected_text)
         view = capsule.canonical_bytes(capsule.consumption_view(consumed))
         self.assertLess(len(view), capsule.MAX_CONSUMPTION_BYTES)
 
@@ -121,7 +121,7 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
             "| --- | --- | --- |\n"
         )
         blocked_table = table + (
-            "| EA-05A | Required design authority is unresolved | "
+            "| EA-05B | Required design authority is unresolved | "
             "Record the operator decision in canonical authority |\n"
         )
         self.assertIn(table, evidence)
@@ -131,12 +131,12 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         created = self.build_and_write()
 
         self.assertEqual("evidence_blocked", created["launch"]["state"])
-        self.assertEqual("EA-05A", created["contract"]["frontier"]["package_id"])
+        self.assertEqual("EA-05B", created["contract"]["frontier"]["package_id"])
         self.assertEqual(
             "Required design authority is unresolved",
             created["contract"]["frontier"]["blocker"]["blocker"],
         )
-        self.assertNotEqual("EA-05B", created["contract"]["frontier"]["package_id"])
+        self.assertNotEqual("EA-05C", created["contract"]["frontier"]["package_id"])
 
     def test_contract_import_does_not_emit_bytecode_into_clean_repository(self) -> None:
         cache_path = self.root / "Scripts/__pycache__"

@@ -38,6 +38,12 @@ PlotterEpisodeModel -> EpisodeCore + PlotterModel
   committed attributable progress, retained terminal projection, pure evaluators/reducer
   internal compile-only target with no product or production caller
 
+PlotterEpisodeRuntime -> EpisodeRuntime + PlotterEpisodeModel + PlotterRuntime
+  unbound EpisodeRecordingStore with typed controller and camera recording channels
+  descriptor-anchored versioned manifest persistence and content-addressed exact frames
+  ordered completeness, integrity, bounded retention, close, and reopen contracts
+  internal target with no product, device adapter, application composition, or caller
+
 PlotterRuntime
   MachineController, RunInterpreter, CameraCapture, VisionWorker
   learning artifacts and dependency graph
@@ -66,6 +72,9 @@ EpisodeRuntimeTests -> EpisodeCore + EpisodeRuntime
 
 PlotterEpisodeModelContractTests -> EpisodeCore + PlotterEpisodeModel + PlotterModel
   Plotter binding, exhaustive-family, purity, provenance, and topology contracts
+
+PlotterEpisodeRuntimeTests -> PlotterEpisodeRuntime
+  lossless recording, durable ordering, frame integrity, retention, and concurrency contracts
 ```
 
 Dependencies point inward. Runtime does not import SwiftUI. Views receive
@@ -159,6 +168,80 @@ composition, or app caller.
 This unbound foundation transfers no current product authority. All current
 runtime, controller, camera, Vision, evidence, persistence, simulator, Stop,
 cancellation, and `OperatorWorkspace` authorities remain unchanged.
+
+`PlotterEpisodeRuntime` depends inward only on `EpisodeRuntime`,
+`PlotterEpisodeModel`, and `PlotterRuntime`, is not exposed as a package product,
+and has no production or application caller. Its `EpisodeRecordingStore` actor
+owns one unbound recording document, has no `PlotterOperationRegistry` caller or
+registration, and retains a contiguous sequence and
+nonregressing monotonic offsets. Controller invocation and completion are
+separate typed records for open, close, input discard, raw write, and timed read;
+parameters, exact read chunks, partial counts, typed failures, and completion
+matching remain explicit. Camera start, reconfiguration, stop, and failure
+lifecycle records remain separate from exact frame references, and a frame is
+admitted only for its exact active source/configuration identity.
+
+The store opens only a pre-provisioned, owner-matching recording directory. Its
+root file descriptor pins device and inode identity, so replacement of the path
+after admission cannot redirect manifest, lock, or frame writes. A durable
+initialization marker binds recording ID, schema revision, and the explicit
+maximum unique-frame count and byte budget. The sorted-key `Codable` manifest
+envelope separately binds format version and payload checksum. Reopen refuses
+unsupported format, schema/identity/retention mismatch, corrupt envelope or
+payload, sequence or time regression, unsafe files, and missing initialized
+manifest state without silently creating or repairing diagnostic facts.
+
+Manifest replacement uses one in-process lock per pinned directory identity and
+a kernel `fcntl` lock across processes. Under that lock it compares the durable
+document with the expected base, writes a mode-0600 same-directory temporary
+file through partial-write/`EINTR` handling, performs `F_FULLFSYNC`, atomically
+renames, and synchronizes the parent directory. A stale independent store cannot
+overwrite an accepted successor. A post-rename synchronization uncertainty is
+typed and leaves the actor unable to mutate until reopen; the snapshot says
+whether the candidate was observed rather than inventing a durable outcome.
+The cross-process CAS contract is tested with explicit child-ready and
+immediately-before-kernel-lock commit-boundary handshakes, so the external
+successor wins deterministically before the store compares its expected base.
+Test-only process and commit-attempt wait helpers have bounded completion and
+terminate or kill an overdue child. A separate non-cooperative attempt proves
+that timeout reporting does not await cancellation cooperation from the loser.
+
+Exact frame bytes are named by verified SHA-256 under the pinned recording
+directory. Equal content is idempotent, while missing, truncated, byte-count-
+mismatched, hash-mismatched, unreadable, symbolic-link, ownership, and external-
+hard-link conditions remain distinct typed outcomes. The manifest publishes a
+frame reference only after one locked transaction compares the durable manifest
+with its expected base, accounts the complete artifact inventory, durably
+installs and verifies the frame, and then atomically replaces and synchronizes
+the manifest. A CAS loser therefore installs no artifact; a definite manifest
+failure after frame installation may leave an unreferenced orphan, and
+post-rename uncertainty retains its explicit durability state.
+
+Retention charges every durable frames-directory entry by one count and its
+nonnegative filesystem byte length, including valid unreferenced artifacts and
+unrecognized, unreadable, unsafe, hash-mismatched, or otherwise orphaned files.
+It performs no automatic artifact deletion. Count and byte arithmetic is checked
+and fail-closed: aggregate or proposed overflow refuses mutation, including
+duplicate-content admission, with typed `frameRetentionAccountingOverflow`
+before any new artifact or manifest successor is published. Snapshot inspection
+reports the same accounting overflow as typed incompleteness. Independently, a
+checksum-valid manifest whose referenced-frame byte sum overflows is corrupt
+recording state and cannot reopen. The pinned policy refuses admission beyond
+either limit and never relabels deletion as completeness. Closing ends admission
+but separately reports unmatched controller invocations, unfinished camera
+lifetimes, incomplete `RunLedger` ranges or integrity, referenced-frame defects,
+and valid or invalid unreferenced durable artifacts.
+
+Optional typed episode, intent-request, effect, correlation, and environment
+identities are diagnostic provenance only. A typed `RunLedger` reference records
+its sequence range, integrity, and completeness; the new service never opens or
+mutates that ledger. It is not an `EpisodeJournal`, replay engine, observation,
+measurement, evidence owner, effect port, or Stop/cancellation owner.
+`PlotterEpisodeRuntimeTests` is the sole current consumer; its focused recording
+suite contains 36 adversarial tests, including deterministic cross-process CAS
+handshakes and bounded/non-cooperative timeout proofs. The removed
+`StartupFrameRecorder` and its sole high-level test had no production caller;
+there is no compatibility recorder or current app camera-sample writer.
 
 `PlotterEpisodeModel` depends only on `EpisodeCore` and `PlotterModel`, is not a
 package product, and has no production caller. It binds concrete Plotter
@@ -333,8 +416,9 @@ display text is derived only by the presentation boundary.
 `RunLedger` and workflow telemetry record diagnostics only. They do not replay
 commands, restore owners, or promote artifacts. The existing persistent machine-
 session owner retains at most 10 complete SQLite session groups and 50 MiB;
-unknown files are not deleted. Camera startup does not record PNG samples.
-Only explicit operator snapshots/evidence may create camera sample files.
+unknown files are not deleted. Camera startup records no PNG samples, and the
+current application has no camera-sample writer. The unbound episode recording
+foundation changes neither current camera lifecycle nor evidence acceptance.
 
 Exercise 1.4 workflow telemetry schema v2 records one ordered semantic sequence:
 batch admission, one completion event for each whole 16-chord circle, reveal,
