@@ -29,6 +29,7 @@ limitations remain in the named evidence section.
 | EA-03B | `TASK-39BC99B5` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed`, `RUNTIME=passed` | Episode operation registry foundation |
 | EA-05A | `TASK-57FE4C62` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed`, `RECORDING=passed` | Episode recording store foundation |
 | EA-05B | `TASK-32F536F4` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed`, `REPLAY=passed` | Episode deterministic replay foundation |
+| EA-05C | `TASK-1DDBA6F2` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed`, `INCIDENT=passed` | Episode incident package foundation |
 
 ## Wave admission blockers
 
@@ -41,6 +42,134 @@ admission blocker beyond the canonical ledger and live Blackdog claims.
 
 | Package | Blocker | Required input or canonical correction |
 | --- | --- | --- |
+
+## Episode incident package foundation
+
+Delivered 2026-08-26 in Blackdog task `TASK-1DDBA6F2`. The frozen-tree gate set passed as recorded below, and the package is complete on this landing. Every
+row names the exact command and reproduced result; disagreement with that frozen
+evidence invalidates the row rather than changing the measurement.
+
+The internal `PlotterEpisodeRuntime` target now contains one pure, unbound
+`PlotterIncidentPackageAssembler`. A caller supplies one typed
+`PlotterIncidentPackageSource` containing the manifest, semantic journal,
+source-reported recording snapshot, observations, measurements, evidence
+decisions, outcomes, assessments, runtime state, UI projection, current-owner
+facts, artifact-status facts, sensitive-frame identities, and unresolved
+ambiguities. The package embeds that snapshot as `sourceReportedRecording` and
+records `sourceSnapshotNotRevalidated` in `recordingSourceFacts`. The assembler
+also records source-reported open state, durability uncertainty, completeness
+issues, and missing optional episode or environment provenance as diagnostic
+facts. It returns a value envelope to that caller. It does not locate, read,
+write, retain, delete, redact, or materialize any artifact and does not own an
+export destination.
+
+Assembly fails closed on cross-episode or cross-manifest identity, including an
+explicit foreign episode ID in any recording entry; invalid or duplicate typed
+identities; journal/semantic-value disagreement; runtime revision or independent
+canonical-digest disagreement; missing or extraneous exact artifact-availability
+facts; incomplete evidence/outcome/assessment
+relationships; incomplete current-owner-domain coverage; and foreign or
+malformed ambiguity facts. Assessment evidence is restricted to evidence accepted by its referenced outcome.
+Accepted observation evidence `inputEnvironment` must equal the referenced observation environment.
+Accepted measurement evidence `inputEnvironment` must equal every source observation environment.
+This package-level referential closure preserves LIVE/SIMULATED truth without moving evidence-acceptance authority.
+Every `possibleInk` or `unclear`
+measurement requires one exact typed linked unresolved possible-ink ambiguity;
+missing, duplicate, foreign, and spurious links are refused.
+
+The assembler never certifies or revalidates recording format, controller, camera, lifecycle, frame descriptors, frame layout, frame hashes, frame paths, duplicate store records, `RunLedger`, or store completeness truth.
+Recording, artifact, controller, camera, runtime/UI, and
+possible-ink incompleteness remains typed diagnostic truth; it is never promoted
+to completeness or physical evidence.
+
+The standard budget bounds every section, total included items, embedded
+recording bytes, referenced-frame bytes, and encoded export bytes.
+`maximumReferencedFrameByteCount` independently bounds checked referenced-frame
+bytes. Count and byte arithmetic is checked. Limit excess refuses rather than
+truncating, so the accepted package records identical source/included counts and
+`isTruncated` false. Exact frame bytes are never embedded.
+The package checks only incident-package sensitive-ID linkage, checked referenced-byte accounting,
+and the independent referenced-byte limit. Frame references, descriptors,
+availability diagnostics, and byte/count facts remain source-reported and are not frame-store validation; their disposition is `referenceOnly` or
+`sensitiveReferenceOnly`.
+
+Successful assembly emits deterministic sorted-key `canonicalJSONV1` payload
+bytes in format version 1 with exact byte count and SHA-256. Canonical envelope
+verification returns `envelopeIntegrityConfirmed` only after the envelope
+version, encoding, bound, byte count, digest, decodability, canonical encoding,
+package version, and exact deterministic reassembly agree. It
+proves only deterministic versioned byte integrity and canonical reassembly; it does not
+certify or revalidate the source recording's store-owned truth.
+
+This Foundation service has no product or application caller and is not a
+package product. It adds no UI, app ingress, artifact store, filesystem adapter,
+device port, `MachineLink`, controller/camera/Vision operation, effect execution,
+permit, Stop/cancellation owner, recording owner, replay owner, journal owner,
+evidence acceptance owner, or current-authority transfer. In particular, it
+does not implement the later EA-09 UI request/progress/result presentation and
+does not prove that referenced bytes exist or that any controller, camera,
+motion, Pen, paper, click, or ink event occurred.
+
+The accepted source and focused-test slice passed
+`swift test --filter PlotterIncidentPackageTests`: 23/23 tests passed, exit 0,
+build 95.98 seconds, test execution 0.155 seconds, with no warnings. The suite
+covers deterministic envelope integrity, tamper refusal, explicit foreign
+episode and duplicate identity refusal, non-authoritative recording diagnostics,
+accepted-evidence environment closure, outcome-scoped assessment evidence, exact
+artifact closure, sensitive-ID linkage, source-reported frame diagnostics,
+runtime/UI revision diagnosis, independent count/byte and integer-overflow
+refusal, exact possible-ink ambiguity linkage, and the forbidden-authority
+boundary.
+
+Static inspection found 29 capsule/checker test methods. Starting from the
+landed EA-05B measurements, the 23 added Swift tests produced the final
+`QUICK` 644/644 and `STRICT` 654/654 measurements; the documentation result is
+29/29. The completed frozen-tree commands reproduced every count, exclusion,
+warning, component, and exit result recorded below.
+
+After this landing, `EA-04` is the first eligible ordinary WorkPackage.
+Its dependencies `EA-03B` and `EA-05B` are complete, it is the first
+dependency-ready pending ordinary row in canonical ledger order, and Current
+Evidence records no admission blocker. This statement selects or dispatches no
+successor work. The wave generates the successor capsule only after verifying
+the landing on canonical `main`; that lifecycle step does not qualify EA-05C's
+recorded package completion.
+
+Canonical routed-document review dispositions:
+
+- Affected: Episode Architecture Execution Plan, Current Evidence, Swift
+  Architecture, the executable episode contract checker, and the capsule
+  fixtures whose selected package/frontier assertions advance to `EA-04`.
+- Reviewed no change — `README.md` and Document Routing (`docs/INDEX.md`): the
+  unbound internal value service changes neither operator/contributor
+  orientation nor document responsibility/routing.
+- Reviewed no change — Product Contract and Episode Architecture Vocabulary:
+  the existing bounded incident-package and `EpisodeTrace` target semantics
+  already cover this Foundation implementation; it adds no target term or
+  product authority.
+- Reviewed no change — Roadmap, Discovery and Observed-Trial Protocol, and
+  Learning Path Button Transitions: there is no product caller, operator action,
+  current workflow, UI control, or state-transition change.
+- Reviewed no change — Attended Hardware Runbook: no physical procedure changed
+  and no attended controller, camera, motion, Pen, paper, click, or ink evidence
+  was produced.
+- Reviewed no change — `AGENTS.md`, the AdaptivePlotter skill,
+  episode-migration protocol, run-multi-agent-wave skill, and wave-coordination
+  protocol: the package changes no Blackdog lifecycle, package-selection, lease,
+  validation, critic, landing, or cleanup mechanics.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `DOC` | passed — `make docs-check`; documentation and architecture contracts plus 29/29 documentation/checker tests passed with no warnings | ledger, evidence, architecture, checker, and capsule fixtures |
+| `DIFF` | passed — `git diff --check`; exit 0, no output | complete package diff |
+| `QUICK` | passed — `make quick-test`; 644/644 tests passed with exactly 10 configured exclusions and no warnings | repository quick suite and declared exclusions |
+| `STRICT` | passed — `make strict-check`; 654/654 Swift tests plus 29/29 documentation/checker tests passed with zero exclusions or warnings; warning-as-errors build, signing, launcher, negative-bundle, and documentation checks passed | strict build, complete tests, signing, launcher, bundle, and documentation contracts |
+| `INCIDENT` | passed — `swift test --filter PlotterIncidentPackageTests`; exit 0; 23/23 passed; build 95.98 seconds; test execution 0.155 seconds; no warnings | deterministic bounded incident assembly/envelope verification, fail-closed package relationships, environment and ambiguity closure, non-authoritative recording/frame diagnostics, and forbidden authority |
+
+`package EA-05C complete; migration remains incomplete` is the completion
+statement for this landing, substantiated by the exact frozen-tree results
+above. No attended physical or remote-Git action occurred, and no physical
+evidence is claimed.
 
 ## Episode deterministic replay foundation
 
@@ -196,10 +325,11 @@ required before landing.
 
 `package EA-05B complete; migration remains incomplete`.
 
-`EA-05C` is now the first eligible ordinary WorkPackage. Its sole dependency
-`EA-05B` is complete. `EA-05C` is the first dependency-ready pending ordinary
-row in canonical ledger order, and Current Evidence records no admission
-blocker. This statement selects or dispatches no successor work.
+At the EA-05B landing, `EA-05C` became the first eligible ordinary WorkPackage.
+Its sole dependency `EA-05B` was complete, and it was then the first
+dependency-ready pending ordinary row in canonical ledger order with no Current
+Evidence admission blocker. This historical statement selected or dispatched no
+successor work.
 
 Canonical routed-document review dispositions:
 
@@ -222,9 +352,9 @@ Canonical routed-document review dispositions:
   protocol, run-multi-agent-wave skill, and wave-coordination protocol: the
   package changes no Blackdog lifecycle, package-selection, lease, validation,
   critic, landing, or cleanup mechanics.
-- Reviewed no change — capsule fixture: its exact selected-row pointer count,
-  parsed selected package-ID column `EA-05C`, completed-package evidence
-  rejection, and admission-blocker assertions already prove the unchanged
+- Reviewed no change at that landing — capsule fixture: its exact selected-row
+  pointer count, parsed selected package-ID column `EA-05C`, completed-package
+  evidence rejection, and admission-blocker assertions proved that historical
   frontier contract.
 
 | Validation | Result | Scope |
@@ -776,7 +906,7 @@ Forward scenarios are fixed by the checked contract:
 
 | Scenario | Required disposition |
 | --- | --- |
-| Current clean ledger | `EA-05C` is the first eligible ordinary row, subject to no live claim or admission blocker; this evidence record does not select or dispatch it, and its package may not claim or repair the retained failed physical evidence. |
+| Current clean ledger | After the EA-05C landing, `EA-04` is the first eligible ordinary row, subject to no live claim or admission blocker; this evidence record does not select or dispatch it, and no software package may claim or repair the retained failed physical evidence. |
 | Active owner holds the claim | Start no task; request one bounded non-overlapping offload with explicit worktree and leases, or stop if it is unavailable. |
 | Failed/interrupted ordinary package is recoverable | Verify prompt replay and dependencies, then follow only Blackdog's exact recovery action as coordinator. |
 | Multiple later ordinary rows appear dependency-ready | Select only the first in literal ledger order; parallelism stays inside that one WorkPackage and one task worktree. |

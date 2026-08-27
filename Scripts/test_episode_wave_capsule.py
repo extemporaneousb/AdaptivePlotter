@@ -88,8 +88,8 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         self,
         result: str,
         *,
-        section: str = "Episode deterministic replay foundation",
-        gate: str = "REPLAY",
+        section: str = "Episode incident package foundation",
+        gate: str = "INCIDENT",
     ) -> None:
         evidence_path = self.root / "docs/CURRENT_EVIDENCE.md"
         lines = evidence_path.read_text(encoding="utf-8").splitlines()
@@ -123,21 +123,21 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
             self.root,
             validate_live_gates=False,
         )
-        self.assertEqual("complete", rows["EA-05B"]["status"])
+        self.assertEqual("complete", rows["EA-05C"]["status"])
         self.assertEqual({}, blockers)
 
-    def test_completed_replay_evidence_missing_is_rejected(self) -> None:
+    def test_completed_incident_evidence_missing_is_rejected(self) -> None:
         evidence_path = self.root / "docs/CURRENT_EVIDENCE.md"
         lines = evidence_path.read_text(encoding="utf-8").splitlines()
         lines = [
             line
             for line in lines
-            if not line.startswith("| EA-05B | `TASK-32F536F4` |")
+            if not line.startswith("| EA-05C | `TASK-1DDBA6F2` |")
         ]
         evidence_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         with self.assertRaisesRegex(
             ValueError,
-            r"complete-package evidence mismatch; missing=\['EA-05B'\]",
+            r"complete-package evidence mismatch; missing=\['EA-05C'\]",
         ):
             capsule.validated_contract(self.root, validate_live_gates=False)
 
@@ -220,7 +220,7 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
             self.root,
             validate_live_gates=False,
         )
-        self.assertEqual("complete", rows["EA-05B"]["status"])
+        self.assertEqual("complete", rows["EA-05C"]["status"])
 
     def test_completed_result_rejects_nonzero_rc(self) -> None:
         self.assert_completed_result_rejected(
@@ -262,7 +262,7 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
                     self.root,
                     validate_live_gates=False,
                 )
-                self.assertEqual("complete", rows["EA-05B"]["status"])
+                self.assertEqual("complete", rows["EA-05C"]["status"])
 
     def test_completed_result_rejects_malformed_numeric_tokens(self) -> None:
         for result in (
@@ -303,14 +303,14 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
             self.root,
             validate_live_gates=False,
         )
-        self.assertEqual("complete", rows["EA-05B"]["status"])
+        self.assertEqual("complete", rows["EA-05C"]["status"])
 
     def test_fresh_capsule_round_trip_is_bounded_and_points_to_exact_contract(self) -> None:
         created = self.build_and_write()
         consumed = self.consume()
         self.assertEqual(created, consumed)
         self.assertEqual("selected", consumed["contract"]["frontier"]["state"])
-        self.assertEqual("EA-05C", consumed["contract"]["package"]["id"])
+        self.assertEqual("EA-04", consumed["contract"]["package"]["id"])
         self.assertEqual(0o600, stat.S_IMODE(self.path.stat().st_mode))
         purposes = {item["purpose"] for item in consumed["pointers"]}
         self.assertIn("required gate catalog row", purposes)
@@ -324,14 +324,25 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
             item for item in consumed["pointers"]
             if item["purpose"] == "selected package contract row"
         ]
-        self.assertEqual(1, len(selected_rows))
-        selected = selected_rows[0]
-        selected_text = (self.root / selected["path"]).read_text(encoding="utf-8").splitlines()[
-            selected["start_line"] - 1
-        ]
-        selected_package_id = selected_text.split("|", 2)[1].strip()
-        self.assertEqual("EA-05C", selected_package_id)
-        self.assertNotEqual("EA-05B", selected_package_id)
+        ledger_rows = []
+        for selected in selected_rows:
+            selected_text = (
+                (self.root / selected["path"])
+                .read_text(encoding="utf-8")
+                .splitlines()[selected["start_line"] - 1]
+            )
+            row = [cell.strip() for cell in selected_text.strip().strip("|").split("|")]
+            if (
+                len(row) == 6
+                and row[:4] == ["EA-04", "pending", "EA-03B, EA-05B", "software"]
+                and row[4].startswith("Cutover: transfer exact-frame human point-selection authority")
+                and row[5] == "`DOC`, `DIFF`, `QUICK`, `STRICT`, `POINT`, `DELETE`"
+            ):
+                ledger_rows.append((selected, row))
+        self.assertEqual(1, len(ledger_rows))
+        selected, selected_row = ledger_rows[0]
+        self.assertEqual("EA-04", selected_row[0])
+        self.assertNotEqual("EA-05C", selected_row[0])
         view = capsule.canonical_bytes(capsule.consumption_view(consumed))
         self.assertLess(len(view), capsule.MAX_CONSUMPTION_BYTES)
 
@@ -343,7 +354,7 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
             "| --- | --- | --- |\n"
         )
         blocked_table = table + (
-            "| EA-05C | Required design authority is unresolved | "
+            "| EA-04 | Required design authority is unresolved | "
             "Record the operator decision in canonical authority |\n"
         )
         self.assertIn(table, evidence)
@@ -353,12 +364,12 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         created = self.build_and_write()
 
         self.assertEqual("evidence_blocked", created["launch"]["state"])
-        self.assertEqual("EA-05C", created["contract"]["frontier"]["package_id"])
+        self.assertEqual("EA-04", created["contract"]["frontier"]["package_id"])
         self.assertEqual(
             "Required design authority is unresolved",
             created["contract"]["frontier"]["blocker"]["blocker"],
         )
-        self.assertNotEqual("EA-04", created["contract"]["frontier"]["package_id"])
+        self.assertNotEqual("EA-06", created["contract"]["frontier"]["package_id"])
 
     def test_contract_import_does_not_emit_bytecode_into_clean_repository(self) -> None:
         cache_path = self.root / "Scripts/__pycache__"

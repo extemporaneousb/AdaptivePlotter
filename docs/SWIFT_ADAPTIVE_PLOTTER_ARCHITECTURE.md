@@ -49,6 +49,11 @@ PlotterEpisodeRuntime -> EpisodeCore + EpisodeRuntime + PlotterEpisodeModel + Pl
   exact operation-bound start provenance, channel-specific recording completeness
   source-prevalidated exact/perturbed typed transcripts with causal suffix retiming
   no MachineLink conformance or production adapter
+  pure unbound PlotterIncidentPackageAssembler with deterministic canonical JSON export
+  source-reported recording snapshot and diagnostics without recording revalidation
+  fail-closed typed package/environment relationships and incident-only sensitive-frame linkage
+  checked referenced-byte accounting without frame-store validation
+  deterministic envelope integrity/canonical reassembly without truth promotion
   internal target with no product, device adapter, application composition, or caller
 
 PlotterRuntime
@@ -84,6 +89,7 @@ PlotterEpisodeRuntimeTests -> EpisodeCore + PlotterEpisodeModel + PlotterEpisode
   lossless recording, durable ordering, frame integrity, retention, and concurrency contracts
   every-prefix replay, revision/digest binding, lifecycle publication, inert effects
   exact start provenance, source/schedule causality, and perturbation contracts
+  bounded incident assembly/export, relationship closure, canonical integrity, and authority-boundary contracts
 ```
 
 Dependencies point inward. Runtime does not import SwiftUI. Views receive
@@ -358,6 +364,63 @@ production replay owner. No product or application caller depends on this
 service, and no current effect, controller, camera, operation, Stop, recording,
 or app authority moves to it. Installing the target seam would require separate
 named-package authority rather than inference from this Foundation service.
+
+The same internal target now also owns one pure, unbound
+`PlotterIncidentPackageAssembler`. Its caller supplies a typed
+`PlotterIncidentPackageSource`; the service does not discover or open current
+state. That source binds one manifest, semantic journal, source-reported
+recording snapshot, observations, measurements, evidence decisions, outcomes,
+assessments, runtime state, UI projection, all declared current-owner domains,
+exact artifact-status facts, sensitive-frame identities, and unresolved
+ambiguities. The package embeds the snapshot as `sourceReportedRecording` and
+always emits `sourceSnapshotNotRevalidated` in `recordingSourceFacts`. It also
+records source-reported open state, durability uncertainty, completeness issues,
+and missing optional episode or environment provenance as diagnostic facts.
+
+Assembly validates cross-source episode/manifest/revision identity, exact
+journal semantic values, independent runtime-state digest truth, package-level
+evidence/outcome/assessment closure, artifact-reference/status closure, complete
+current-owner domain coverage, and ambiguity identity. It refuses an explicit
+foreign episode ID in any recording entry while retaining missing optional
+provenance as diagnostic truth. Assessment evidence is restricted to evidence
+accepted by its referenced outcome. Accepted observation evidence requires an
+`inputEnvironment` equal to its referenced observation environment; accepted
+measurement evidence requires that environment to equal every source
+observation environment. This preserves LIVE/SIMULATED evidence truth without
+moving evidence-acceptance authority. Every `possibleInk` or `unclear`
+measurement requires one exact typed linked unresolved possible-ink ambiguity;
+missing, duplicate, foreign, and spurious links are refused.
+
+The assembler never certifies or revalidates recording format, controller,
+camera, lifecycle, frame descriptors, frame layout, frame hashes, frame paths,
+duplicate store records, `RunLedger`, or store completeness truth. Recording,
+frame, artifact, runtime/UI, and possible-ink incompleteness stays typed and
+visible. It cannot become proof of availability, physical effect, observed ink,
+or store-owned recording integrity.
+
+`PlotterIncidentPackageBudget` bounds each collection, total items, embedded
+recording bytes, referenced-frame bytes, and encoded payload bytes with checked
+arithmetic. `maximumReferencedFrameByteCount` independently bounds checked
+referenced-frame bytes. Limit excess refuses instead of truncating. Frame bytes
+are never embedded. The package checks only incident-package sensitive-ID
+linkage, checked referenced-byte accounting, and the independent limit. Frame
+references, descriptors, availability diagnostics, and byte/count facts remain
+source-reported rather than frame-store validation; their disposition is
+reference-only or sensitive-reference-only. A successful export is deterministic format-versioned
+sorted-key canonical JSON with exact byte count and SHA-256. Canonical envelope
+verification returns `envelopeIntegrityConfirmed` only after the envelope and
+canonical encoding, bounds, digest, decoded package version, and exact
+deterministic reassembly agree. The outcome proves only deterministic versioned
+byte integrity and canonical reassembly, not recording or domain completeness.
+
+The assembler returns bytes to its caller and owns no artifact store, export
+destination, filesystem adapter, redaction workflow, UI, application ingress,
+device port, effect execution, operation/permit/Stop owner, recording or replay
+owner, semantic journal owner, evidence acceptance, or product authority.
+`PlotterEpisodeRuntimeTests` remains the sole current consumer. The focused
+incident suite contains 23 tests; no `PlotterApp` source references the incident
+types. EA-09 still owns later UI request/progress/result presentation for this
+service.
 
 `PlotterEpisodeModel` depends only on `EpisodeCore` and `PlotterModel`, is not a
 package product, and has no production caller. It binds concrete Plotter

@@ -27,7 +27,7 @@ WAVE_PROTOCOL_PATH = (
 EVIDENCE_PATH = ROOT / "docs" / "CURRENT_EVIDENCE.md"
 ARCHITECTURE_PATH = ROOT / "docs" / "SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md"
 # Updated in the same package whenever a canonical ledger row changes.
-EXPECTED_LEDGER_SHA256 = "14904fefcec57df8eb9cd9220ae72e679939c611aa8b0f6442c0519972aa5236"
+EXPECTED_LEDGER_SHA256 = "8aae3db95ecaef5b2f4f5d369a98e1d4e07edc378d7590be2fb1fa50ff307bf5"
 
 
 EXPECTED_GATES = {
@@ -178,6 +178,7 @@ EXPECTED_COMPLETE_PACKAGES = {
     "EA-03B",
     "EA-05A",
     "EA-05B",
+    "EA-05C",
 }
 
 
@@ -288,6 +289,28 @@ def validate_architecture(text: str) -> None:
         "Terminal replacement preserves its exact boundary and retimes that causal suffix and chunks with checked underflow",
         "After every candidate transformation, `controllerReplayScheduleViolation` validates the complete schedule across all outstanding invocations",
         "`invalidTransformedSchedule` refuses the complete scenario and returns the unchanged source schedule",
+        "The same internal target now also owns one pure, unbound `PlotterIncidentPackageAssembler`",
+        "Assembly validates cross-source episode/manifest/revision identity",
+        "embeds the snapshot as `sourceReportedRecording`",
+        "always emits `sourceSnapshotNotRevalidated` in `recordingSourceFacts`",
+        "missing optional episode or environment provenance as diagnostic facts",
+        "refuses an explicit foreign episode ID in any recording entry",
+        "Assessment evidence is restricted to evidence accepted by its referenced outcome",
+        "Accepted observation evidence requires an `inputEnvironment` equal to its referenced observation environment",
+        "accepted measurement evidence requires that environment to equal every source observation environment",
+        "preserves LIVE/SIMULATED evidence truth without moving evidence-acceptance authority",
+        "Every `possibleInk` or `unclear` measurement requires one exact typed linked unresolved possible-ink ambiguity",
+        "missing, duplicate, foreign, and spurious links are refused",
+        "never certifies or revalidates recording format, controller, camera, lifecycle, frame descriptors, frame layout, frame hashes, frame paths, duplicate store records, `RunLedger`, or store completeness truth",
+        "`maximumReferencedFrameByteCount` independently bounds checked referenced-frame bytes",
+        "Frame bytes are never embedded",
+        "checks only incident-package sensitive-ID linkage, checked referenced-byte accounting, and the independent limit",
+        "remain source-reported rather than frame-store validation",
+        "Canonical envelope verification returns `envelopeIntegrityConfirmed`",
+        "proves only deterministic versioned byte integrity and canonical reassembly",
+        "owns no artifact store, export destination, filesystem adapter, redaction workflow, UI, application ingress, device port, effect execution",
+        "The focused incident suite contains 23 tests",
+        "EA-09 still owns later UI request/progress/result presentation for this service",
     ):
         if required_phrase not in normalized:
             fail(f"current Swift architecture is missing: {required_phrase}")
@@ -472,6 +495,7 @@ def validate_plan(text: str) -> dict[str, dict[str, object]]:
         "EA-05C": (
             "one unbound headless bounded incident-package assembler/exporter",
             "owns no artifact store, UI, device port, or app caller",
+            "Delivered by `TASK-1DDBA6F2`",
         ),
         "EA-09": (
             "UI request/progress/result presentation for the EA-05C incident service",
@@ -797,12 +821,60 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
         "Reviewed no change — Product Contract and Episode Architecture Vocabulary",
         "Reviewed no change — Attended Hardware Runbook",
         "Reviewed no change — `AGENTS.md`, the AdaptivePlotter skill, episode-migration",
-        "Reviewed no change — capsule fixture",
+        "Reviewed no change at that landing — capsule fixture",
         "retained FIX-010 controller fixtures",
         "`package EA-05B complete; migration remains incomplete`",
     ):
         if required_phrase not in text:
             fail(f"EA-05B completion evidence is missing: {required_phrase}")
+
+    for required_phrase in (
+        "Episode incident package foundation",
+        "`PlotterIncidentPackageAssembler`",
+        "`PlotterIncidentPackageSource`",
+        "`sourceReportedRecording`",
+        "`sourceSnapshotNotRevalidated`",
+        "source-reported open state, durability uncertainty, completeness",
+        "missing optional episode or environment provenance as diagnostic",
+        "explicit foreign episode ID in any recording entry",
+        "Assessment evidence is restricted to evidence accepted by its referenced outcome",
+        "Accepted observation evidence `inputEnvironment` must equal the referenced observation environment",
+        "Accepted measurement evidence `inputEnvironment` must equal every source observation environment",
+        "preserves LIVE/SIMULATED truth without moving evidence-acceptance authority",
+        "Every `possibleInk` or `unclear`",
+        "missing, duplicate, foreign, and spurious links are refused",
+        "never certifies or revalidates recording format, controller, camera, lifecycle, frame descriptors, frame layout, frame hashes, frame paths, duplicate store records, `RunLedger`, or store completeness truth",
+        "deterministic sorted-key `canonicalJSONV1`",
+        "`envelopeIntegrityConfirmed`",
+        "proves only deterministic versioned byte integrity and canonical reassembly",
+        "`maximumReferencedFrameByteCount` independently bounds checked referenced-frame",
+        "Count and byte arithmetic is checked",
+        "Exact frame bytes are never embedded",
+        "checks only incident-package sensitive-ID linkage, checked referenced-byte accounting",
+        "remain source-reported and are not frame-store validation",
+        "possible-ink incompleteness remains typed",
+        "23/23 tests passed, exit 0",
+        "The frozen-tree gate set passed as recorded below",
+        "package is complete on this landing",
+        "Static inspection found 29 capsule/checker test methods",
+        "`QUICK` 644/644",
+        "`STRICT` 654/654",
+        "documentation and architecture contracts plus 29/29 documentation/checker tests passed with no warnings",
+        "`git diff --check`; exit 0, no output",
+        "644/644 tests passed with exactly 10 configured exclusions and no warnings",
+        "654/654 Swift tests plus 29/29 documentation/checker tests passed with zero exclusions or warnings",
+        "warning-as-errors build, signing, launcher, negative-bundle, and documentation checks passed",
+        "After this landing, `EA-04` is the first eligible ordinary WorkPackage",
+        "no product or application caller",
+        "does not implement the later EA-09 UI request/progress/result presentation",
+        "Canonical routed-document review dispositions:",
+        "Reviewed no change — Product Contract and Episode Architecture Vocabulary",
+        "Reviewed no change — Attended Hardware Runbook",
+        "Reviewed no change — `AGENTS.md`, the AdaptivePlotter skill",
+        "`package EA-05C complete; migration remains incomplete`",
+    ):
+        if required_phrase not in text:
+            fail(f"EA-05C completion evidence is missing: {required_phrase}")
 
     historical_section = re.search(
         r"^## Historical: initial canonical episode migration documentation$(.*?)(?=^## |\Z)",
@@ -869,11 +941,11 @@ def validate_wave_frontier(
     blockers = parse_wave_admission_blockers(evidence, rows)
     selected = ordinary_wave_frontier(rows, set(blockers))
     if selected is not None:
-        if selected != "EA-05C":
+        if selected != "EA-04":
             fail(f"unexpected current ordinary wave frontier: {selected}")
         for phrase in (
-            "Episode deterministic replay foundation",
-            "`EA-05C` is now the first eligible ordinary WorkPackage",
+            "Episode incident package foundation",
+            "After this landing, `EA-04` is the first eligible ordinary WorkPackage.",
             "The retired `PHYSICAL-BASE` result is `failed`",
         ):
             if phrase not in evidence:
