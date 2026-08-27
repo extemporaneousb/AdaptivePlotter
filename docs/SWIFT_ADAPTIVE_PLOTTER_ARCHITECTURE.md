@@ -36,12 +36,19 @@ PlotterEpisodeModel -> EpisodeCore + PlotterModel
   Plotter-bound definitions, manifests, intents, state, events, effects, and results
   observations, measurements, evidence, outcomes, assessments, and capability facts
   committed attributable progress, retained terminal projection, pure evaluators/reducer
+  independent PlotterEpisodeCanonicalDigestV1 ownership for replay state verification
   internal compile-only target with no product or production caller
 
-PlotterEpisodeRuntime -> EpisodeRuntime + PlotterEpisodeModel + PlotterRuntime
+PlotterEpisodeRuntime -> EpisodeCore + EpisodeRuntime + PlotterEpisodeModel + PlotterRuntime
   unbound EpisodeRecordingStore with typed controller and camera recording channels
   descriptor-anchored versioned manifest persistence and content-addressed exact frames
   ordered completeness, integrity, bounded retention, close, and reopen contracts
+  unbound PlotterEpisodeReplayService with sealed executable descriptor/private adapter
+  manifest-pin and canonical-digest-literal checks, fail-closed every-prefix reduction
+  recorded effect-revision identity only, inert effect and never-resume inspection
+  exact operation-bound start provenance, channel-specific recording completeness
+  source-prevalidated exact/perturbed typed transcripts with causal suffix retiming
+  no MachineLink conformance or production adapter
   internal target with no product, device adapter, application composition, or caller
 
 PlotterRuntime
@@ -73,8 +80,10 @@ EpisodeRuntimeTests -> EpisodeCore + EpisodeRuntime
 PlotterEpisodeModelContractTests -> EpisodeCore + PlotterEpisodeModel + PlotterModel
   Plotter binding, exhaustive-family, purity, provenance, and topology contracts
 
-PlotterEpisodeRuntimeTests -> PlotterEpisodeRuntime
+PlotterEpisodeRuntimeTests -> EpisodeCore + PlotterEpisodeModel + PlotterEpisodeRuntime + PlotterRuntime + PlotterTestSupport
   lossless recording, durable ordering, frame integrity, retention, and concurrency contracts
+  every-prefix replay, revision/digest binding, lifecycle publication, inert effects
+  exact start provenance, source/schedule causality, and perturbation contracts
 ```
 
 Dependencies point inward. Runtime does not import SwiftUI. Views receive
@@ -202,7 +211,7 @@ This unbound foundation transfers no current product authority. All current
 runtime, controller, camera, Vision, evidence, persistence, simulator, Stop,
 cancellation, and `OperatorWorkspace` authorities remain unchanged.
 
-`PlotterEpisodeRuntime` depends inward only on `EpisodeRuntime`,
+`PlotterEpisodeRuntime` depends inward only on `EpisodeCore`, `EpisodeRuntime`,
 `PlotterEpisodeModel`, and `PlotterRuntime`, is not exposed as a package product,
 and has no production or application caller. Its `EpisodeRecordingStore` actor
 owns one unbound recording document, has no `PlotterOperationRegistry` caller or
@@ -276,6 +285,80 @@ handshakes and bounded/non-cooperative timeout proofs. The removed
 `StartupFrameRecorder` and its sole high-level test had no production caller;
 there is no compatibility recorder or current app camera-sample writer.
 
+The same internal target now owns the unbound `PlotterEpisodeReplayService`.
+Its sealed `PlotterEpisodeReplayExecutableDescriptor` is instantiated only by
+the private `PlotterEpisodeReplayExecutableAdapter`; the replay API accepts no
+caller-supplied descriptor or executable revision labels. That concrete adapter
+owns the domain, evaluator, reducer, state/event/journal-schema, build,
+and canonical-digest revision facts and declares that this executable does not
+consume the deterministic seed. It compares the corresponding sealed executable
+facts with manifest domain/evaluator/reducer/schema/build pins, and its
+canonical-digest literal is additionally pinned to
+`PlotterEpisodeCanonicalDigestV1.revision` before any prefix
+reduction. Definition identity and revision are separately checked against the
+supplied typed definition. Caller metadata therefore cannot manufacture
+executable agreement.
+
+`PlotterEpisodeRecordedEffectRevision` is a separate recording-side identity
+fact with explicit `recordedIdentityOnlyNoExecutorValidation` authority. It
+must cover emitted effects exactly once and is used to match full
+episode/request/intent/effect-revision/correlation/environment identity across
+progress, result, provenance, and first-terminal ordering. Because replay has
+no executor, that value does not certify an effect-executor revision.
+
+The service reduces every recorded journal prefix through the production
+reducer and private adapter, independently verifies state with
+`PlotterEpisodeCanonicalDigestV1`, and checks each committed decision against
+caller-supplied recorded candidate intents and capability facts. Manifest,
+revision, sequence, stored-digest, independent-digest, effect-identity, or
+decision disagreement is a typed refusal. Effect-lifecycle-invalid prefixes
+fail closed and are not published as accepted replay prefixes. Effects remain inert values: replay
+executes none, restores no permit, and gives each prefix a never-resume
+disposition. Started-unsettled progress, controller invocation, or camera
+lifecycle evidence is conservatively reported as a possible physical effect
+without claiming that one occurred.
+
+Recording reconstruction keeps controller, camera, `RunLedger`, and global
+completeness distinct and requires exact episode/request/intent/effect,
+correlation, and environment provenance for recorded starts. Start attribution
+requires exactly one complete available operation-bound provenance tuple;
+absent, partial, foreign, or ambiguous tuples remain unattributed. Preserved source
+entries keep controller transcript completeness, byte/order integrity, and
+operation provenance independently inspectable. Missing or corrupt camera bytes
+remain typed incompleteness. A `RunLedger` reference remains diagnostic-only
+metadata; replay does not open, decode, mutate, or promote it.
+
+Controller replay operates on typed transcript invocations, completions, and
+results. It provides exact unperturbed transcript replay. The only admitted
+perturbations are causality-preserving legal read fragmentation, completion
+delay, timeout, and cancellation, with recorded source bytes, availability,
+deadlines, ordering, writes, and operation provenance preserved. Exact replay
+refuses nil or empty controller source. The service validates the complete
+source schedule before applying any transform, refuses fragmentation when read
+traffic is absent, and refuses completion delay for a non-read invocation.
+Delay combined with timeout or
+cancellation for one invocation is refused independent of declaration order.
+Delay enforces the timed-read deadline for successful and failed completions;
+completion delay retimes the completion and causal suffix, including embedded
+read chunks, with checked overflow. Terminal replacement preserves its exact
+boundary and retimes that causal suffix and chunks with checked underflow.
+After every candidate transformation, `controllerReplayScheduleViolation`
+validates the complete schedule across all outstanding invocations: source and
+replay ordering, invocation-before-chunk/completion, unique completion,
+operation/result shape, partial counts, maximum bytes, and each timed-read
+deadline. A transform targeting invocation A therefore cannot push overlapping
+invocation B beyond B's deadline or move B's traffic before B's invocation;
+`invalidTransformedSchedule` refuses the complete scenario and returns the
+unchanged source schedule. Invalid fragmentation, mismatched invocation or
+completion, conflicting terminal perturbations, overflow/underflow, non-read or
+unsuccessful-read terminal traffic, and all other causal violations are refused.
+This service is not a `MachineLink`. The execution plan's `ReplayMachineLink`
+remains a target seam; no current package has installed that conformance or a
+production replay owner. No product or application caller depends on this
+service, and no current effect, controller, camera, operation, Stop, recording,
+or app authority moves to it. Installing the target seam would require separate
+named-package authority rather than inference from this Foundation service.
+
 `PlotterEpisodeModel` depends only on `EpisodeCore` and `PlotterModel`, is not a
 package product, and has no production caller. It binds concrete Plotter
 definition/manifest revisions, seven exhaustive semantic intent families,
@@ -290,6 +373,13 @@ the typed terminal result and disposition available in state and projection.
 Observation IDs carried by that result remain references: only a separately
 committed `observationRecorded` event establishes observation membership and
 semantic admission.
+
+`PlotterEpisodeModel` also owns `PlotterEpisodeCanonicalDigestV1`. It computes
+one sorted-key canonical digest over replay-relevant state while excluding the
+stored `canonicalDigest` field itself, preventing a copied stored value from
+self-validating. The digest is model truth for deterministic replay comparison;
+it does not execute an effect or confer persistence, device, evidence, or
+application authority.
 
 It contains no runtime or device adapter/port, persistence, UI, application
 composition, effect permit, runtime operation or lane owner, task, actor, or

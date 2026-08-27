@@ -28,6 +28,7 @@ limitations remain in the named evidence section.
 | EA-03A | `TASK-439EDDB1` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed`, `STORE=passed` | EpisodeStore foundation |
 | EA-03B | `TASK-39BC99B5` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed`, `RUNTIME=passed` | Episode operation registry foundation |
 | EA-05A | `TASK-57FE4C62` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed`, `RECORDING=passed` | Episode recording store foundation |
+| EA-05B | `TASK-32F536F4` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed`, `REPLAY=passed` | Episode deterministic replay foundation |
 
 ## Wave admission blockers
 
@@ -41,13 +42,214 @@ admission blocker beyond the canonical ledger and live Blackdog claims.
 | Package | Blocker | Required input or canonical correction |
 | --- | --- | --- |
 
+## Episode deterministic replay foundation
+
+Implemented 2026-08-26 in Blackdog task `TASK-32F536F4`.
+
+The internal `PlotterEpisodeModel` target now owns
+`PlotterEpisodeCanonicalDigestV1`, an independent sorted-key canonical digest
+over the replay-relevant Plotter episode state. It deliberately excludes the
+state's stored digest field, so a copied or self-consistent forged stored digest
+cannot validate itself. This remains compile-only model authority with no
+runtime, persistence, device, UI, application, or effect-execution owner.
+
+The internal `PlotterEpisodeRuntime` target now contains one unbound
+`PlotterEpisodeReplayService`. Its sealed
+`PlotterEpisodeReplayExecutableDescriptor` is instantiated by the private
+`PlotterEpisodeReplayExecutableAdapter`; no replay entry point accepts either
+the descriptor or executable revision labels from a caller. The concrete
+executable therefore owns its domain, evaluator, reducer, state/event/journal
+schema, and build revision facts plus its canonical-digest revision. It also
+declares that this concrete executable does not consume the deterministic seed.
+Replay compares the corresponding sealed executable facts with the manifest
+domain/evaluator/reducer/schema/build pins. The descriptor's canonical-digest
+literal is additionally pinned to `PlotterEpisodeCanonicalDigestV1.revision`
+before any prefix reduction. It separately
+compares the manifest definition ID and revision with the supplied typed
+definition. Caller metadata cannot spoof executable agreement.
+
+Caller-supplied `PlotterEpisodeRecordedEffectRevision` values are recorded identity only; their typed authority is
+`recordedIdentityOnlyNoExecutorValidation`. They must cover each emitted effect
+exactly once and bind progress/result identity plus first-terminal ordering, but
+they do not claim that the replay build supports an effect-executor revision.
+Replay has no effect executor. It also refuses journal identity, revision,
+sequence, or stored-digest disagreement, independent canonical-digest
+disagreement, and a committed decision that does not match caller-supplied
+recorded candidate intents and capability facts. It reduces every journal prefix from zero through the complete journal twice through the production
+`PlotterEpisodeReducer`, verifies deterministic equality and independent
+canonical state truth at each prefix, and retains emitted effects only as inert
+typed values. Invalid effect-lifecycle prefixes fail closed and are not
+published as accepted replay prefixes.
+
+Effect inspection preserves the complete episode, intent request, typed intent,
+effect ID and revision, correlation, and environment identity. It requires
+first-terminal ordering and rejects a stale revision, identity disagreement,
+duplicate or conflicting terminal evidence, and an unattributed start. A
+journal progress record, controller invocation, or camera lifecycle request can
+establish that an effect may have started. A started but unsettled effect is
+classified as a possible physical effect and every prefix receives an explicit
+never-resume disposition. Replay executes no effect, mints or restores no
+permit, and cannot turn that conservative classification into proof that a
+physical effect occurred.
+
+Recording inspection reconstructs the durable `EpisodeRecordingStore` snapshot
+without changing it and keeps controller, camera, `RunLedger`, and global
+completeness separate. Preserved source entries and refusal checks expose
+controller transcript completeness, byte/order integrity, and operation
+provenance without conflating them. Recorded start attribution requires exactly
+one complete available operation-bound provenance tuple; absent, partial,
+foreign, or ambiguous matches remain unattributed. Missing, truncated, byte-count-mismatched, or hash-mismatched camera bytes remain typed incompleteness. Those conditions
+cannot be presented as reconstructed image truth.
+A `RunLedger` reference remains diagnostic-only sequence-range, integrity, and
+completeness metadata; replay neither opens nor mutates the ledger and cannot
+promote it into episode or physical authority.
+
+Controller replay is a typed transcript-layer service, not a `MachineLink` and
+not a production replay adapter. It provides exact unperturbed transcript replay
+and accepts only the declared causality-preserving perturbations: legal read
+fragmentation, completion delay, timeout, and cancellation. It preserves source
+bytes, invocation/completion ordering, writes, operation provenance, and bytes
+observed before a terminal boundary. Exact replay refuses a nil or empty
+controller source. Scenario admission rejects completion delay combined with
+timeout or cancellation for the same invocation independent of declaration
+order. Timed-read delay checks the recorded deadline for both successful and
+failed completions. Timeout and cancellation preserve the declared terminal
+boundary and downstream source ordering. The source schedule is validated
+before any transform; fragmentation refuses absent read traffic, and delay
+refuses a non-read invocation. Completion delay retimes the completion and its
+causal suffix, including embedded read chunks, with checked overflow. Terminal
+replacement retimes that same causal suffix and chunks with checked underflow.
+After every candidate transform,
+global transformed-schedule causal validation checks the complete schedule
+across all outstanding invocations. A transform for invocation A cannot push an
+overlapping invocation B beyond B's timed-read deadline or move B's read traffic
+before B's invocation. Any invalid complete schedule receives the typed
+`invalidTransformedSchedule` refusal and publishes the unchanged source steps.
+Replay also refuses invalid fragmentation, unknown or mismatched invocation or
+completion, multiple terminal overrides, overflow or underflow, non-read or
+unsuccessful-read terminal traffic, and perturbations that violate recorded
+availability, deadlines, or causal ordering. The retained FIX-010 controller fixtures remain deterministic transcript consumers; they are not replaced or
+promoted into production authority.
+
+The source review initially found and retasked four material contract gaps:
+manifest-to-executable revision binding;
+full effect identity and first-terminal ordering;
+causal controller timing and missing-source refusals; and
+exact operation-bound recording provenance. The corrected accepted source slice
+then passed its focused replay suite before the later critic retasks.
+
+An earlier fresh source critic returned `RETASK`, not pass. It found that
+executable facts were caller-asserted; failed-read completion delay could exceed
+the timed-read deadline; declaration order could change the result of terminal
+override plus delay; and nil or empty controller input could be accepted as
+exact replay. The corrected source seals executable facts behind the private
+adapter, rejects delay plus timeout/cancellation for one invocation
+order-independently, enforces successful and failed timed-read deadlines,
+preserves the exact terminal boundary and downstream ordering, and refuses nil or empty exact replay.
+
+The replacement fresh source critic also returned `RETASK`, not pass. It found
+that per-target transformation checks did not validate causal truth for the complete schedule when multiple controller invocations overlap. The corrected
+source now validates every complete transformed schedule: delaying or
+terminally replacing invocation A cannot push overlapping invocation B past B's
+deadline or move B traffic before B's invocation. Adversarial overlapping-read coverage proves both typed `invalidTransformedSchedule` refusals and unchanged
+source steps.
+
+A later invocation then edited only the replay source and focused tests before
+resolving the active owner. The owning coordinator invalidated all overlapping
+validation, stopped further foreign action, performed read-only attribution,
+classified the delta `RETASK`, and reconciled it non-destructively through the
+original lease. The foreign edits were not accepted wholesale. The retained
+strengthening pins the sealed descriptor's digest literal to
+`PlotterEpisodeCanonicalDigestV1.revision`, prevents lifecycle-invalid prefix
+publication, requires exactly one complete available operation-bound provenance
+tuple for start attribution, prevalidates the source schedule, refuses absent
+read traffic and non-read delay, and restores authoritative causal suffix and
+chunk retiming with checked overflow and underflow. Both the overlapping
+B-deadline and pre-invocation schedules typed-refuse and return unchanged source.
+
+Corrected replay source
+`8cedf8cd0826e8339aa8ad42cd16254cef58fd809ee5c4dc57e650df15dc18bb`
+and focused tests
+`19fd93508e55cc64ad9af0be8fc0febf856dd3747b93b04cb953515f047fb15e`
+passed 14/14 replay tests with no warnings. The earlier critic `RETASK`
+dispositions are historical checkpoints; this record does not preclaim a later
+fresh-critic verdict. A fresh pass remains required before landing.
+
+The package adds no effect executor, permit restoration, device port, current
+controller/camera/operation/Stop authority, `MachineLink` conformance,
+application composition, product caller, or app caller. `PlotterApp` does not
+depend on either episode target.
+
+The completed post-integration ordered gate set passed: focused replay 14/14
+with no warnings; documentation and architecture contracts plus 29/29
+documentation/checker tests; diff-check exit 0 with no output; quick 621/621
+with exactly 10 configured exclusions and no warnings; and strict 631/631 plus
+29/29 with zero exclusions or warnings. The warning-as-errors build, signing,
+launcher, negative-bundle, and documentation checks also passed. Earlier on the pre-incident 630-test
+source, one strict run completed its build but reported five unidentified issues.
+A subsequent rerun had no retained output adequate to establish a result.
+That intermittent validation-observability history is retained as a
+nonfinal risk; it is not erased by the later captured clean current-source
+strict measurement and establishes no physical evidence.
+This record does not preclaim a fresh-critic verdict; a fresh pass remains
+required before landing.
+
+`package EA-05B complete; migration remains incomplete`.
+
+`EA-05C` is now the first eligible ordinary WorkPackage. Its sole dependency
+`EA-05B` is complete. `EA-05C` is the first dependency-ready pending ordinary
+row in canonical ledger order, and Current Evidence records no admission
+blocker. This statement selects or dispatches no successor work.
+
+Canonical routed-document review dispositions:
+
+- Affected: Episode Architecture Execution Plan, Current Evidence, Swift
+  Architecture, and the executable episode contract checker.
+- Reviewed no change — `README.md` and Document Routing (`docs/INDEX.md`): the
+  unbound internal service changes neither operator/contributor orientation nor
+  document ownership or routing.
+- Reviewed no change — Product Contract and Episode Architecture Vocabulary:
+  the package preserves existing replay/evidence invariants and promotes no new
+  canonical target vocabulary; its descriptor names are as-built implementation
+  facts.
+- Reviewed no change — Roadmap, Discovery and Observed-Trial Protocol, and
+  Learning Path Button Transitions: there is no app caller, product workflow,
+  current operator sequence, UI control, or state-transition change.
+- Reviewed no change — Attended Hardware Runbook: no controller, camera,
+  motion, Pen, paper, click, ink, or other attended physical procedure or
+  evidence class changed.
+- Reviewed no change — `AGENTS.md`, the AdaptivePlotter skill, episode-migration
+  protocol, run-multi-agent-wave skill, and wave-coordination protocol: the
+  package changes no Blackdog lifecycle, package-selection, lease, validation,
+  critic, landing, or cleanup mechanics.
+- Reviewed no change — capsule fixture: its exact selected-row pointer count,
+  parsed selected package-ID column `EA-05C`, completed-package evidence
+  rejection, and admission-blocker assertions already prove the unchanged
+  frontier contract.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `DOC` | passed — `make docs-check`; documentation and architecture contracts plus 29/29 documentation/checker tests passed with no warnings | integrated ledger, package evidence, architecture, frontier, checker, and capsule contracts |
+| `DIFF` | passed — `git diff --check`; exit 0, no output | complete documentation-integrated global-schedule candidate diff |
+| `QUICK` | passed — `make quick-test`; 621/621 tests passed with exactly 10 declared exclusions and no warnings | repository quick suite with its declared exclusions |
+| `STRICT` | passed — `make strict-check`; 631/631 Swift tests plus 29/29 documentation/checker tests passed with zero exclusions or warnings; warning-as-errors build, signing, launcher, and negative bundle checks passed | strict build, tests, signing, launcher, bundle, and documentation contracts |
+| `REPLAY` | passed — `swift test --filter PlotterRecordingReplayTests`; 14/14 passed with no warnings or exclusions | sealed executable facts, every-prefix reduction, fail-closed lifecycle publication, recording-only effect revision identity, global transformed-schedule causal validation, causal retiming, overlapping-read refusals, inert effects, and exact provenance |
+
+These are the completed ordered source, replay, build, test, and repository
+measurements. A fresh critic pass remains required before landing. No attended controller, camera, Motion,
+Pen, paper, operator click, observed ink, hardware,
+or remote-Git activity was performed, and none of those evidence classes is
+established by this package. No final fresh-critic pass verdict is recorded here.
+
 ## Episode recording store foundation
 
 Implemented 2026-08-26 in Blackdog task `TASK-57FE4C62`.
 
-The new internal SwiftPM target `PlotterEpisodeRuntime` depends only on
-`EpisodeRuntime`, `PlotterEpisodeModel`, and `PlotterRuntime`, is not a package
-product, and has no production or application caller. Its unbound
+The current internal SwiftPM target `PlotterEpisodeRuntime` depends directly on
+`EpisodeCore`, `EpisodeRuntime`, `PlotterEpisodeModel`, and `PlotterRuntime`, is
+not a package product, and has no production or application caller. EA-05A
+established the recording service over the latter three dependencies; EA-05B
+later added the direct `EpisodeCore` dependency for replay. Its unbound
 `EpisodeRecordingStore` actor owns one typed recording document with contiguous
 sequence allocation and nonregressing attributable monotonic offsets. It does
 not register with or have a caller from `PlotterOperationRegistry`, execute an
@@ -176,10 +378,9 @@ final focused measurement passed all 36/36 tests with no warnings or exclusions.
 
 `package EA-05A complete; migration remains incomplete`.
 
-`EA-05B` is now the first eligible ordinary WorkPackage. Its dependencies
-`EA-03A` and `EA-05A` are complete, it is the first dependency-ready pending
-ordinary row in canonical ledger order, and Current Evidence records no
-admission blocker. This statement selects or dispatches no successor work.
+At the `EA-05A` landing, `EA-05B` became the first eligible ordinary
+WorkPackage because dependencies `EA-03A` and `EA-05A` were complete. This
+historical statement selected or dispatched no successor work.
 
 | Validation | Result | Scope |
 | --- | --- | --- |
@@ -298,10 +499,9 @@ owners remain authoritative until their named cutover packages land.
 
 `package EA-03B complete; migration remains incomplete`.
 
-`EA-05B` is now the first eligible ordinary WorkPackage. Its dependencies
-`EA-03A` and `EA-05A` are complete, it is the first dependency-ready pending
-ordinary row in canonical ledger order, and Current Evidence records no
-admission blocker. This statement selects or dispatches no successor work.
+After `EA-05A` later completed, `EA-05B` became the first eligible ordinary
+WorkPackage because dependencies `EA-03A` and `EA-05A` were complete. This
+historical statement selected or dispatched no successor work.
 
 | Validation | Result | Scope |
 | --- | --- | --- |
@@ -576,7 +776,7 @@ Forward scenarios are fixed by the checked contract:
 
 | Scenario | Required disposition |
 | --- | --- |
-| Current clean ledger | `EA-05B` is the first eligible ordinary row, subject to no live claim or admission blocker; this evidence record does not select or dispatch it, and its package may not claim or repair the retained failed physical evidence. |
+| Current clean ledger | `EA-05C` is the first eligible ordinary row, subject to no live claim or admission blocker; this evidence record does not select or dispatch it, and its package may not claim or repair the retained failed physical evidence. |
 | Active owner holds the claim | Start no task; request one bounded non-overlapping offload with explicit worktree and leases, or stop if it is unavailable. |
 | Failed/interrupted ordinary package is recoverable | Verify prompt replay and dependencies, then follow only Blackdog's exact recovery action as coordinator. |
 | Multiple later ordinary rows appear dependency-ready | Select only the first in literal ledger order; parallelism stays inside that one WorkPackage and one task worktree. |

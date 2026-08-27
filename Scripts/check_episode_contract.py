@@ -25,8 +25,9 @@ WAVE_PROTOCOL_PATH = (
     / "wave-coordination.md"
 )
 EVIDENCE_PATH = ROOT / "docs" / "CURRENT_EVIDENCE.md"
+ARCHITECTURE_PATH = ROOT / "docs" / "SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md"
 # Updated in the same package whenever a canonical ledger row changes.
-EXPECTED_LEDGER_SHA256 = "03df02582163efdfa7903f44236ed77ac31c4f518647df11534980e6b700af15"
+EXPECTED_LEDGER_SHA256 = "14904fefcec57df8eb9cd9220ae72e679939c611aa8b0f6442c0519972aa5236"
 
 
 EXPECTED_GATES = {
@@ -176,6 +177,7 @@ EXPECTED_COMPLETE_PACKAGES = {
     "EA-03A",
     "EA-03B",
     "EA-05A",
+    "EA-05B",
 }
 
 
@@ -272,7 +274,27 @@ def parse_gate_tokens(cell: str, package_id: str) -> list[str]:
     return re.findall(r"`([A-Z][A-Z0-9-]*)`", cell)
 
 
+def validate_architecture(text: str) -> None:
+    normalized = re.sub(r"\s+", " ", text)
+    for required_phrase in (
+        "PlotterEpisodeRuntime -> EpisodeCore + EpisodeRuntime + PlotterEpisodeModel + PlotterRuntime",
+        "`PlotterEpisodeRuntime` depends inward only on `EpisodeCore`, `EpisodeRuntime`, `PlotterEpisodeModel`, and `PlotterRuntime`",
+        "Its sealed `PlotterEpisodeReplayExecutableDescriptor` is instantiated only by the private `PlotterEpisodeReplayExecutableAdapter`",
+        "`PlotterEpisodeCanonicalDigestV1.revision` before any prefix reduction",
+        "Effect-lifecycle-invalid prefixes fail closed and are not published",
+        "Start attribution requires exactly one complete available operation-bound provenance tuple",
+        "The service validates the complete source schedule before applying any transform",
+        "completion delay retimes the completion and causal suffix",
+        "Terminal replacement preserves its exact boundary and retimes that causal suffix and chunks with checked underflow",
+        "After every candidate transformation, `controllerReplayScheduleViolation` validates the complete schedule across all outstanding invocations",
+        "`invalidTransformedSchedule` refuses the complete scenario and returns the unchanged source schedule",
+    ):
+        if required_phrase not in normalized:
+            fail(f"current Swift architecture is missing: {required_phrase}")
+
+
 def validate_plan(text: str) -> dict[str, dict[str, object]]:
+    validate_architecture(ARCHITECTURE_PATH.read_text(encoding="utf-8"))
     normalized = re.sub(r"\s+", " ", text)
     ledger_lines: list[str] = []
     collecting_ledger = False
@@ -418,8 +440,34 @@ def validate_plan(text: str) -> dict[str, dict[str, object]]:
             "add no current-device hook, effect port, or app caller",
         ),
         "EA-05B": (
-            "one unbound deterministic replay service",
-            "add no app caller",
+            "one unbound deterministic transcript replay service",
+            "sealed `PlotterEpisodeReplayExecutableDescriptor` and private concrete adapter",
+            "own the executable domain, evaluator, reducer, state/event/journal-schema, and build revision facts, a canonical-digest literal pinned to `PlotterEpisodeCanonicalDigestV1.revision`, and deterministic-seed applicability",
+            "compare the corresponding manifest executable pins",
+            "compare the corresponding manifest executable pins and the descriptor digest pin before reduction",
+            "compare definition pins with the supplied typed definition",
+            "retain full recorded effect revisions as identity-only facts with no effect-executor revision-validation claim",
+            "checking progress/result identity and first-terminal ordering",
+            "reconstruct and independently verify every recorded journal prefix",
+            "failing closed without publishing lifecycle-invalid prefixes",
+            "retain emitted effects only as inert values",
+            "classify started-unsettled work as possible physical effect with a never-resume disposition",
+            "attribute start evidence only through exactly one complete available operation-bound provenance tuple",
+            "apply exact replay plus only causality-preserving controller fragmentation, delay, timeout, and cancellation perturbations",
+            "prevalidating the source schedule",
+            "refusing nil/empty source",
+            "absent read traffic",
+            "non-read delay",
+            "deadline violations for successful or failed reads",
+            "delay with timeout/cancellation for one invocation independent of declaration order",
+            "terminal-boundary or downstream-order violations",
+            "retime the causal suffix and embedded read chunks with checked overflow or underflow",
+            "validate the complete transformed schedule across all outstanding invocations",
+            "transforming A cannot push overlapping B past B's deadline",
+            "move B traffic before B's invocation",
+            "typed-refusing any invalid transformed schedule with unchanged source at the typed transcript layer",
+            "add no `MachineLink` conformance, effect executor, permit restoration, device port, app caller, or current-authority transfer",
+            "Delivered by `TASK-32F536F4`",
         ),
         "EA-05C": (
             "one unbound headless bounded incident-package assembler/exporter",
@@ -682,6 +730,80 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
         extra = sorted(evidenced_packages.difference(complete_packages))
         fail(f"complete-package evidence mismatch; missing={missing}, extra={extra}")
 
+    for required_phrase in (
+        "Episode deterministic replay foundation",
+        "`PlotterEpisodeCanonicalDigestV1`",
+        "`PlotterEpisodeReplayExecutableDescriptor`",
+        "`PlotterEpisodeReplayExecutableAdapter`",
+        "no replay entry point accepts either",
+        "Caller metadata cannot spoof executable agreement",
+        "`PlotterEpisodeRecordedEffectRevision` values are recorded identity only",
+        "`recordedIdentityOnlyNoExecutorValidation`",
+        "Replay has no effect executor",
+        "reduces every journal prefix",
+        "possible physical effect",
+        "never-resume disposition",
+        "typed transcript-layer service, not a `MachineLink`",
+        "exact unperturbed transcript replay",
+        "controller transcript completeness, byte/order integrity, and operation",
+        "Missing, truncated, byte-count-mismatched, or hash-mismatched camera bytes remain typed incompleteness",
+        "A `RunLedger` reference remains diagnostic-only",
+        "manifest-to-executable revision binding",
+        "full effect identity and first-terminal ordering",
+        "causal controller timing and missing-source refusals",
+        "exact operation-bound recording provenance",
+        "executable facts were caller-asserted",
+        "failed-read completion delay could exceed",
+        "declaration order could change",
+        "nil or empty controller input could be accepted",
+        "rejects delay plus timeout/cancellation for one invocation",
+        "enforces successful and failed timed-read deadlines",
+        "preserves the exact terminal boundary and downstream ordering",
+        "refuses nil or empty exact replay",
+        "global transformed-schedule causal validation",
+        "across all outstanding invocations",
+        "`invalidTransformedSchedule` refusal",
+        "The replacement fresh source critic also returned `RETASK`, not pass",
+        "per-target transformation checks did not validate causal truth for the complete schedule",
+        "Adversarial overlapping-read coverage",
+        "`PlotterEpisodeCanonicalDigestV1.revision`",
+        "Invalid effect-lifecycle prefixes fail closed",
+        "one complete available operation-bound provenance tuple",
+        "The source schedule is validated",
+        "causal suffix, including embedded read chunks, with checked overflow",
+        "causal suffix and chunks with checked underflow",
+        "edited only the replay source and focused tests before",
+        "invalidated all overlapping",
+        "performed read-only attribution",
+        "classified the delta `RETASK`",
+        "reconciled it non-destructively",
+        "foreign edits were not accepted wholesale",
+        "passed 14/14 replay tests with no warnings",
+        "The completed post-integration ordered gate set passed",
+        "documentation and architecture contracts plus 29/29",
+        "diff-check exit 0 with no output",
+        "quick 621/621",
+        "exactly 10 configured exclusions and no warnings",
+        "strict 631/631 plus",
+        "29/29 with zero exclusions or warnings",
+        "launcher, negative-bundle, and documentation checks also passed",
+        "631/631 Swift tests plus 29/29 documentation/checker tests",
+        "five unidentified issues",
+        "no retained output adequate to establish a result",
+        "intermittent validation-observability history",
+        "These are the completed ordered source, replay, build, test, and repository",
+        "A fresh critic pass remains required before landing",
+        "Canonical routed-document review dispositions:",
+        "Reviewed no change — Product Contract and Episode Architecture Vocabulary",
+        "Reviewed no change — Attended Hardware Runbook",
+        "Reviewed no change — `AGENTS.md`, the AdaptivePlotter skill, episode-migration",
+        "Reviewed no change — capsule fixture",
+        "retained FIX-010 controller fixtures",
+        "`package EA-05B complete; migration remains incomplete`",
+    ):
+        if required_phrase not in text:
+            fail(f"EA-05B completion evidence is missing: {required_phrase}")
+
     historical_section = re.search(
         r"^## Historical: initial canonical episode migration documentation$(.*?)(?=^## |\Z)",
         text,
@@ -747,11 +869,11 @@ def validate_wave_frontier(
     blockers = parse_wave_admission_blockers(evidence, rows)
     selected = ordinary_wave_frontier(rows, set(blockers))
     if selected is not None:
-        if selected != "EA-05B":
+        if selected != "EA-05C":
             fail(f"unexpected current ordinary wave frontier: {selected}")
         for phrase in (
-            "Episode recording store foundation",
-            "`EA-05B` is now the first eligible ordinary WorkPackage",
+            "Episode deterministic replay foundation",
+            "`EA-05C` is now the first eligible ordinary WorkPackage",
             "The retired `PHYSICAL-BASE` result is `failed`",
         ):
             if phrase not in evidence:

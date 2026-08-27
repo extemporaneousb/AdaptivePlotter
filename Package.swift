@@ -30,7 +30,7 @@ let package = Package(
     ),
     .target(
       name: "PlotterEpisodeRuntime",
-      dependencies: ["EpisodeRuntime", "PlotterEpisodeModel", "PlotterRuntime"]
+      dependencies: ["EpisodeCore", "EpisodeRuntime", "PlotterEpisodeModel", "PlotterRuntime"]
     ),
     .executableTarget(
       name: "PlotterApp",
@@ -62,7 +62,10 @@ let package = Package(
     ),
     .testTarget(
       name: "PlotterEpisodeRuntimeTests",
-      dependencies: ["PlotterEpisodeRuntime"]
+      dependencies: [
+        "EpisodeCore", "PlotterEpisodeModel", "PlotterEpisodeRuntime", "PlotterRuntime",
+        "PlotterTestSupport",
+      ]
     ),
     .testTarget(
       name: "PlotterRuntimeTests",
