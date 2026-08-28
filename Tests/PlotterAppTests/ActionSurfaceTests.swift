@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import PlotterEpisodeModel
 import PlotterModel
 import PlotterRuntime
 import Testing
@@ -572,46 +573,6 @@ func sparseTipClickAssociationNeverQualityGates() throws {
   #expect(tiedForward.map(\.calibrationPosition)
     == ToolContactCalibrationPosition.sparseTipCornerPositions)
   #expect(tiedForward == tiedReverse)
-}
-
-@Test("Exact selection request rejects a stale frame hash, source, or dimensions")
-func exactSelectionRequestProvenance() throws {
-  let displayed = try testDisplayedFrame(source: .simulated)
-  let optical = try CameraOpticalConfigurationIdentity(
-    source: displayed.source,
-    sensorFormat: "test",
-    width: displayed.frame.width,
-    height: displayed.frame.height,
-    pixelFormat: displayed.frame.pixelFormat,
-    orientation: .up,
-    mirrored: false,
-    digitalZoomFactor: 1,
-    lensIdentity: "fixed-lens",
-    focusConfiguration: "fixed-focus",
-    mountRevision: UUID(),
-    reframingRevision: UUID()
-  )
-  let exact = try ExactTipCalibrationFrame(
-    frameID: displayed.frame.id,
-    frameSHA256: displayed.frame.contentSHA256,
-    source: displayed.source,
-    captureSessionID: CameraCaptureSessionID(),
-    opticalConfiguration: optical,
-    cameraConfigurationID: displayed.frame.cameraConfigurationID,
-    captureNanoseconds: displayed.frame.captureNanoseconds,
-    width: displayed.frame.width,
-    height: displayed.frame.height,
-    pixelFormat: displayed.frame.pixelFormat
-  )
-  let request = ActionSurfacePointSelectionRequest(
-    frame: exact,
-    presentationTransformRevision: PresentationTransformRevision(),
-    prompt: "Click center"
-  )
-  #expect(request.matches(displayed))
-  let stale = try testDisplayedFrame(
-    source: .simulated, configuration: displayed.frame.cameraConfigurationID)
-  #expect(!request.matches(stale))
 }
 
 @Test("Overlay is hidden when frame or camera configuration identity differs")

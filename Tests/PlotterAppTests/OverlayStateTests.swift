@@ -191,9 +191,11 @@ struct OverlayStateTests {
     let before = workspace.actionSurfacePresentation
     #expect(before.overlays.map(\.provenance.kind) == [.penCap])
 
-    workspace.toggleLearningMode()
+    workspace.submitLearningModeChange()
+    try await waitUntil { !workspace.learningIsEnabled }
     #expect(!workspace.learningIsEnabled)
-    workspace.toggleLearningMode()
+    workspace.submitLearningModeChange()
+    try await waitUntil { workspace.learningIsEnabled }
 
     let after = workspace.actionSurfacePresentation
     #expect(workspace.learningIsEnabled)

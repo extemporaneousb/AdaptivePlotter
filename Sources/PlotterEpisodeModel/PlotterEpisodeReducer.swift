@@ -14,7 +14,9 @@ public struct PlotterEpisodeReducer: EpisodeReducing {
 
     var phase = state.phase
     var activeDrawingModelRevisionID = state.activeDrawingModelRevisionID
-    var selectedPoint = state.selectedPoint
+    let selectedPoint = state.selectedPoint
+    var exactPointSelection = state.exactPointSelection
+    var learningIsEnabled = state.learningIsEnabled
     var activeRequestID = state.activeRequestID
     var activeIntent = state.activeIntent
     var pendingEffectID = state.pendingEffectID
@@ -48,10 +50,53 @@ public struct PlotterEpisodeReducer: EpisodeReducing {
         phase = .preparing
       case .observation:
         phase = .preparing
-      case let .pointSelection(.select(request)):
-        selectedPoint = request.point
-      case .pointSelection(.clear):
-        selectedPoint = nil
+      case let .pointSelection(.stage(request)):
+        exactPointSelection = PlotterExactPointSelectionState(
+          request: request,
+          selectedPoints: [],
+          phase: .collecting
+        )
+      case let .pointSelection(.select(submission)):
+        if exactPointSelection.request?.id == submission.selectionID {
+          let points = exactPointSelection.selectedPoints + [submission.point]
+          let accepted = points.count == exactPointSelection.request?.requiredPointCount
+          exactPointSelection = PlotterExactPointSelectionState(
+            request: exactPointSelection.request,
+            selectedPoints: points,
+            phase: accepted ? .accepted : .collecting
+          )
+        }
+      case let .pointSelection(.undo(selectionID)):
+        if exactPointSelection.request?.id == selectionID,
+          !exactPointSelection.selectedPoints.isEmpty
+        {
+          exactPointSelection = PlotterExactPointSelectionState(
+            request: exactPointSelection.request,
+            selectedPoints: Array(exactPointSelection.selectedPoints.dropLast()),
+            phase: .collecting
+          )
+        }
+      case let .pointSelection(.clear(selectionID)):
+        if exactPointSelection.request?.id == selectionID {
+          exactPointSelection = PlotterExactPointSelectionState(
+            request: exactPointSelection.request,
+            selectedPoints: [],
+            phase: .collecting
+          )
+        }
+      case let .pointSelection(.cancel(selectionID)):
+        if exactPointSelection.request?.id == selectionID {
+          exactPointSelection = .idle
+        }
+      case let .pointSelection(.setContinuation(selectionID, isActive)):
+        if exactPointSelection.request?.id == selectionID {
+          exactPointSelection = PlotterExactPointSelectionState(
+            request: exactPointSelection.request,
+            selectedPoints: exactPointSelection.selectedPoints,
+            phase: isActive ? .continuing : .accepted,
+            continuationIsActive: isActive
+          )
+        }
       case .manualMotion:
         phase = .executing
       case .drawing(.execute):
@@ -60,6 +105,9 @@ public struct PlotterEpisodeReducer: EpisodeReducing {
         phase = .preparing
       case .learning(.captureSample), .learning(.acceptModel):
         phase = .preparing
+      case let .learning(.setEnabled(isEnabled)):
+        learningIsEnabled = isEnabled
+        if !isEnabled { exactPointSelection = .idle }
       case .evidence(.accept):
         break
       case .evidence(.assess):
@@ -148,6 +196,8 @@ public struct PlotterEpisodeReducer: EpisodeReducing {
       currentPlanRevisionID: state.currentPlanRevisionID,
       activeDrawingModelRevisionID: activeDrawingModelRevisionID,
       selectedPoint: selectedPoint,
+      exactPointSelection: exactPointSelection,
+      learningIsEnabled: learningIsEnabled,
       activeRequestID: activeRequestID,
       activeIntent: activeIntent,
       pendingEffectID: pendingEffectID,

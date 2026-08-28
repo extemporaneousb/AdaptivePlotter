@@ -11,19 +11,147 @@ public enum PlotterObservationIntent: Codable, Hashable, Sendable {
   case captureExactFrame(configurationID: CameraConfigurationID)
 }
 
-public struct PlotterPointSelectionRequest: Codable, Hashable, Sendable {
-  public let point: Point2<MachineSpace>
-  public let sourceObservationID: PlotterObservationID
+public enum PlotterExactFrameSource: Codable, Hashable, Sendable {
+  case live(deviceID: String)
+  case simulated
 
-  public init(point: Point2<MachineSpace>, sourceObservationID: PlotterObservationID) {
-    self.point = point
+  public var environment: PlotterEnvironment {
+    switch self {
+    case .live: .live
+    case .simulated: .simulated
+    }
+  }
+}
+
+public enum PlotterExactFramePixelFormat: String, Codable, Hashable, Sendable {
+  case gray8
+  case rgba8
+  case bgra8
+}
+
+/// Stable model-level identity for one exact displayed frame. Frame bytes stay
+/// in the runtime recording lane; the optional artifact reference is published
+/// only after those bytes were durably installed and verified.
+public struct PlotterExactFrameReference: Codable, Hashable, Sendable {
+  public let frameID: String
+  public let frameSHA256: String
+  public let source: PlotterExactFrameSource
+  public let cameraConfigurationID: CameraConfigurationID
+  public let captureNanoseconds: UInt64
+  public let sequence: UInt64
+  public let width: Int
+  public let height: Int
+  public let rowBytes: Int
+  public let pixelFormat: PlotterExactFramePixelFormat
+  public let archivedBytes: EpisodeArtifactReference?
+  public let archivedByteLocator: String?
+
+  public init(
+    frameID: String,
+    frameSHA256: String,
+    source: PlotterExactFrameSource,
+    cameraConfigurationID: CameraConfigurationID,
+    captureNanoseconds: UInt64,
+    sequence: UInt64,
+    width: Int,
+    height: Int,
+    rowBytes: Int,
+    pixelFormat: PlotterExactFramePixelFormat,
+    archivedBytes: EpisodeArtifactReference? = nil,
+    archivedByteLocator: String? = nil
+  ) {
+    self.frameID = frameID
+    self.frameSHA256 = frameSHA256.lowercased()
+    self.source = source
+    self.cameraConfigurationID = cameraConfigurationID
+    self.captureNanoseconds = captureNanoseconds
+    self.sequence = sequence
+    self.width = width
+    self.height = height
+    self.rowBytes = rowBytes
+    self.pixelFormat = pixelFormat
+    self.archivedBytes = archivedBytes
+    self.archivedByteLocator = archivedByteLocator
+  }
+}
+
+public struct PlotterPointSelectionID: RawRepresentable, Codable, Hashable, Sendable {
+  public let rawValue: UUID
+
+  public init(rawValue: UUID = UUID()) {
+    self.rawValue = rawValue
+  }
+}
+
+public struct PlotterPresentationTransformRevision:
+  RawRepresentable, Codable, Hashable, Sendable
+{
+  public let rawValue: UUID
+
+  public init(rawValue: UUID = UUID()) {
+    self.rawValue = rawValue
+  }
+}
+
+public enum PlotterExactPointSelectionPurpose: String, Codable, Hashable, Sendable {
+  case penCapAppearance
+  case toolContact
+}
+
+public struct PlotterPointSelectionRequest: Codable, Hashable, Sendable {
+  public let id: PlotterPointSelectionID
+  public let frame: PlotterExactFrameReference
+  public let sourceObservationID: PlotterObservationID
+  public let presentationTransformRevision: PlotterPresentationTransformRevision
+  public let prompt: String
+  public let purpose: PlotterExactPointSelectionPurpose
+  public let requiredPointCount: Int
+
+  public init(
+    id: PlotterPointSelectionID = PlotterPointSelectionID(),
+    frame: PlotterExactFrameReference,
+    sourceObservationID: PlotterObservationID,
+    presentationTransformRevision: PlotterPresentationTransformRevision,
+    prompt: String,
+    purpose: PlotterExactPointSelectionPurpose,
+    requiredPointCount: Int
+  ) {
+    self.id = id
+    self.frame = frame
     self.sourceObservationID = sourceObservationID
+    self.presentationTransformRevision = presentationTransformRevision
+    self.prompt = prompt
+    self.purpose = purpose
+    self.requiredPointCount = requiredPointCount
+  }
+}
+
+public struct PlotterPointSelectionSubmission: Codable, Hashable, Sendable {
+  public let selectionID: PlotterPointSelectionID
+  public let frame: PlotterExactFrameReference
+  public let point: Point2<CameraPixelSpace>
+  public let presentationTransformRevision: PlotterPresentationTransformRevision
+
+  public init(
+    selectionID: PlotterPointSelectionID,
+    frame: PlotterExactFrameReference,
+    point: Point2<CameraPixelSpace>,
+    presentationTransformRevision: PlotterPresentationTransformRevision
+  ) {
+    self.selectionID = selectionID
+    self.frame = frame
+    self.point = point
+    self.presentationTransformRevision = presentationTransformRevision
   }
 }
 
 public enum PlotterPointSelectionIntent: Codable, Hashable, Sendable {
-  case select(PlotterPointSelectionRequest)
-  case clear
+  case stage(PlotterPointSelectionRequest)
+  case select(PlotterPointSelectionSubmission)
+  case undo(PlotterPointSelectionID)
+  case clear(PlotterPointSelectionID)
+  case cancel(PlotterPointSelectionID)
+  case setContinuation(selectionID: PlotterPointSelectionID, isActive: Bool)
 }
 
 public enum PlotterJogDirection: String, Codable, CaseIterable, Hashable, Sendable {
@@ -81,6 +209,7 @@ public enum PlotterDrawingIntent: Codable, Hashable, Sendable {
 public enum PlotterLearningIntent: Codable, Hashable, Sendable {
   case captureSample(configurationID: CameraConfigurationID)
   case acceptModel(revisionID: DrawingModelRevisionID)
+  case setEnabled(Bool)
 }
 
 public enum PlotterEvidenceQuestion: String, Codable, CaseIterable, Hashable, Sendable {
@@ -129,9 +258,10 @@ public enum PlotterIntent: EpisodeIntent {
 
   public var requiresExternalEffect: Bool {
     switch self {
-    case .pointSelection, .evidence:
+    case .pointSelection, .evidence, .learning(.setEnabled):
       return false
-    case .session, .observation, .manualMotion, .drawing, .learning:
+    case .session, .observation, .manualMotion, .drawing,
+      .learning(.captureSample), .learning(.acceptModel):
       return true
     }
   }

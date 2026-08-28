@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import PlotterEpisodeModel
 import PlotterModel
 import PlotterRuntime
 import SwiftUI
@@ -77,44 +78,14 @@ struct CameraPixelToViewTransform: Equatable, Sendable {
   }
 }
 
-enum ActionSurfacePointSelectionPurpose: Hashable, Sendable {
-  case penCapAppearance
-  case toolContact
+@MainActor
+protocol PlotterPointSelectionIntentSink: AnyObject {
+  func submitPointSelection(_ submission: PlotterPointSelectionSubmission)
 }
 
-struct ActionSurfacePointSelectionRequest: Hashable, Sendable {
-  let frame: ExactTipCalibrationFrame
-  let presentationTransformRevision: PresentationTransformRevision
-  let prompt: String
-  let purpose: ActionSurfacePointSelectionPurpose
-
-  init(
-    frame: ExactTipCalibrationFrame,
-    presentationTransformRevision: PresentationTransformRevision,
-    prompt: String,
-    purpose: ActionSurfacePointSelectionPurpose = .toolContact
-  ) {
-    self.frame = frame
-    self.presentationTransformRevision = presentationTransformRevision
-    self.prompt = prompt
-    self.purpose = purpose
-  }
-
-  func matches(_ displayedFrame: DisplayedFrame) -> Bool {
-    frame.frameID == displayedFrame.frame.id
-      && frame.frameSHA256 == displayedFrame.frame.contentSHA256
-      && frame.source == displayedFrame.source
-      && frame.cameraConfigurationID == displayedFrame.frame.cameraConfigurationID
-      && frame.width == displayedFrame.frame.width
-      && frame.height == displayedFrame.frame.height
-      && frame.pixelFormat == displayedFrame.frame.pixelFormat
-  }
-}
-
-struct ActionSurfacePointSelection: Hashable, Sendable {
-  let frame: ExactTipCalibrationFrame
-  let point: Point2<CameraPixelSpace>
-  let presentationTransformRevision: PresentationTransformRevision
+@MainActor
+protocol PlotterLearningModeIntentSink: AnyObject {
+  func submitLearningModeChange()
 }
 
 enum ActionSurfaceTipPresentation: Hashable, Sendable {
@@ -479,7 +450,7 @@ struct ActionSurfacePresentation: Sendable {
   let viewportContext: ActionSurfaceViewportContext?
   let analysisRegionIsLocked: Bool
   let analyzedOverlayFrame: ExactFrameOverlayProvenance?
-  let pointSelectionRequest: ActionSurfacePointSelectionRequest?
+  let pointSelectionRequest: PlotterPointSelectionRequest?
   let tipPresentation: ActionSurfaceTipPresentation
   let completedComparisonReview: CompletedComparisonReviewPresentation
   let drawingStudioCanvas: DrawingStudioCanvasPresentation?
@@ -495,7 +466,7 @@ struct ActionSurfacePresentation: Sendable {
     viewportContext: ActionSurfaceViewportContext? = nil,
     analysisRegionIsLocked: Bool = false,
     analyzedOverlayFrame: ExactFrameOverlayProvenance? = nil,
-    pointSelectionRequest: ActionSurfacePointSelectionRequest? = nil,
+    pointSelectionRequest: PlotterPointSelectionRequest? = nil,
     tipPresentation: ActionSurfaceTipPresentation = .notCalibrated,
     completedComparisonReview: CompletedComparisonReviewPresentation = .unavailable,
     drawingStudioCanvas: DrawingStudioCanvasPresentation? = nil
@@ -516,9 +487,7 @@ struct ActionSurfacePresentation: Sendable {
         $0.source == displayedFrame.source
           && $0.cameraConfigurationID == displayedFrame.frame.cameraConfigurationID ? $0 : nil
       }
-      self.pointSelectionRequest = pointSelectionRequest.flatMap {
-        $0.matches(displayedFrame) ? $0 : nil
-      }
+      self.pointSelectionRequest = pointSelectionRequest
       self.analyzedOverlayFrame = analyzedOverlayFrame.flatMap {
         $0.matches(displayedFrame) ? $0 : nil
       }
@@ -541,19 +510,51 @@ struct ActionSurfacePresentation: Sendable {
   }
 }
 
+enum ExactFramePointSubmissionBuilder {
+  static func submission(
+    presentation: ActionSurfacePresentation,
+    viewport: ActionSurfaceViewportState,
+    at location: CGPoint,
+    viewSize: CGSize
+  ) -> PlotterPointSelectionSubmission? {
+    guard let displayedFrame = presentation.displayedFrame,
+      let request = presentation.pointSelectionRequest,
+      let transform = CameraPixelToViewTransform(
+        frameWidth: displayedFrame.frame.width,
+        frameHeight: displayedFrame.frame.height,
+        viewWidth: viewSize.width,
+        viewHeight: viewSize.height,
+        focusRegion: viewport.visibleRegion(
+          frameWidth: displayedFrame.frame.width,
+          frameHeight: displayedFrame.frame.height
+        )
+      ),
+      let point = transform.cameraPoint(location)
+    else { return nil }
+    return PlotterPointSelectionSubmission(
+      selectionID: request.id,
+      frame: displayedFrame.pointSelectionSubmissionReference(
+        archiveBinding: request.frame
+      ),
+      point: point,
+      presentationTransformRevision: request.presentationTransformRevision
+    )
+  }
+}
+
 struct ActionSurface: View {
   let presentation: ActionSurfacePresentation
   @Binding private var viewport: ActionSurfaceViewportState
   @StateObject private var imageCache = FramePresentationImageCache()
   @State private var priorDragTranslation: CGSize = .zero
-  private let selectPoint: (ActionSurfacePointSelection) -> Void
+  private let pointSelectionIntentSink: (any PlotterPointSelectionIntentSink)?
   private let performCompletedComparisonReviewAction: (CompletedComparisonReviewAction) -> Void
   private let performDrawingStudioAction: (DrawingStudioAction) -> Void
 
   init(
     presentation: ActionSurfacePresentation,
     viewport: Binding<ActionSurfaceViewportState> = .constant(ActionSurfaceViewportState()),
-    selectPoint: @escaping (ActionSurfacePointSelection) -> Void = { _ in },
+    pointSelectionIntentSink: (any PlotterPointSelectionIntentSink)? = nil,
     performCompletedComparisonReviewAction: @escaping (CompletedComparisonReviewAction) -> Void = {
       _ in
     },
@@ -561,7 +562,7 @@ struct ActionSurface: View {
   ) {
     self.presentation = presentation
     _viewport = viewport
-    self.selectPoint = selectPoint
+    self.pointSelectionIntentSink = pointSelectionIntentSink
     self.performCompletedComparisonReviewAction = performCompletedComparisonReviewAction
     self.performDrawingStudioAction = performDrawingStudioAction
   }
@@ -712,27 +713,14 @@ struct ActionSurface: View {
 
   private func submitPointSelection(at location: CGPoint, viewSize: CGSize) {
     guard presentation.drawingStudioCanvas?.placement.placementIsEnabled != true,
-      let displayedFrame = presentation.displayedFrame,
-      let request = presentation.pointSelectionRequest,
-      request.matches(displayedFrame),
-      let transform = CameraPixelToViewTransform(
-        frameWidth: displayedFrame.frame.width,
-        frameHeight: displayedFrame.frame.height,
-        viewWidth: viewSize.width,
-        viewHeight: viewSize.height,
-        focusRegion: viewport.visibleRegion(
-          frameWidth: displayedFrame.frame.width,
-          frameHeight: displayedFrame.frame.height
-        )
-      ),
-      let point = transform.cameraPoint(location)
+      let submission = ExactFramePointSubmissionBuilder.submission(
+        presentation: presentation,
+        viewport: viewport,
+        at: location,
+        viewSize: viewSize
+      )
     else { return }
-    selectPoint(
-      ActionSurfacePointSelection(
-        frame: request.frame,
-        point: point,
-        presentationTransformRevision: viewport.presentationTransformRevision
-      ))
+    pointSelectionIntentSink?.submitPointSelection(submission)
   }
 
   private func submitDrawingPlacement(at location: CGPoint, viewSize: CGSize) {
@@ -1074,6 +1062,36 @@ struct ActionSurface: View {
       return (.green, 2.5, [7, 4])
     case .diagnostic:
       return (.gray, 1.5, [3, 3])
+    }
+  }
+}
+
+private extension DisplayedFrame {
+  func pointSelectionSubmissionReference(
+    archiveBinding: PlotterExactFrameReference
+  ) -> PlotterExactFrameReference {
+    PlotterExactFrameReference(
+      frameID: frame.id.rawValue,
+      frameSHA256: frame.contentSHA256,
+      source: source.pointSelectionExactSource,
+      cameraConfigurationID: frame.cameraConfigurationID,
+      captureNanoseconds: frame.captureNanoseconds,
+      sequence: frame.sequence,
+      width: frame.width,
+      height: frame.height,
+      rowBytes: frame.rowBytes,
+      pixelFormat: PlotterExactFramePixelFormat(rawValue: frame.pixelFormat.rawValue)!,
+      archivedBytes: archiveBinding.archivedBytes,
+      archivedByteLocator: archiveBinding.archivedByteLocator
+    )
+  }
+}
+
+private extension FrameSourceIdentity {
+  var pointSelectionExactSource: PlotterExactFrameSource {
+    switch self {
+    case .live(let deviceID): .live(deviceID: deviceID.rawValue)
+    case .simulated: .simulated
     }
   }
 }

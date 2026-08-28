@@ -18,15 +18,15 @@ until their work package lands and its superseded path is removed.
 EpisodeCore
   Foundation-only domain-generic episode identities, goals, definitions, manifests
   capability facts and intent decisions, events, pure reducers, validated journals
-  internal compile-only target with no product or production caller
+  internal target consumed by the point-selection production composition
 
 EpisodeRuntime -> EpisodeCore
   EpisodeStore actor with one in-memory state and one durable event journal
   versioned integrity-checked persistence adapter, atomic append, reconstruction
-  unbound PlotterOperationRegistry with one full canonical operation identity
+  PlotterOperationRegistry bound only by the point-selection production composition
   typed lanes, move-only effect permits, original handles, exact Stop
   operation-bound completion, typed result/refusal, shared cancellation, terminal record
-  internal unbound target with no product or production caller
+  internal target with no package product or direct application import
 
 PlotterModel
   coordinate-space types, geometry, deterministic drawing-program catalog
@@ -37,10 +37,13 @@ PlotterEpisodeModel -> EpisodeCore + PlotterModel
   observations, measurements, evidence, outcomes, assessments, and capability facts
   committed attributable progress, retained terminal projection, pure evaluators/reducer
   independent PlotterEpisodeCanonicalDigestV1 ownership for replay state verification
-  internal compile-only target with no product or production caller
+  internal target with a production point-selection binding
 
 PlotterEpisodeRuntime -> EpisodeCore + EpisodeRuntime + PlotterEpisodeModel + PlotterRuntime
-  unbound EpisodeRecordingStore with typed controller and camera recording channels
+  PlotterIntentGateway and PlotterPointSelectionRuntime production composition
+  one FIFO mutation/publication boundary, EpisodeStore owner, and exact-workflow continuation lane
+  optional exact-frame recording with bounded retention and visible diagnostics
+  EpisodeRecordingStore with typed controller and camera recording channels
   descriptor-anchored versioned manifest persistence and content-addressed exact frames
   ordered completeness, integrity, bounded retention, close, and reopen contracts
   unbound PlotterEpisodeReplayService with sealed executable descriptor/private adapter
@@ -54,7 +57,7 @@ PlotterEpisodeRuntime -> EpisodeCore + EpisodeRuntime + PlotterEpisodeModel + Pl
   fail-closed typed package/environment relationships and incident-only sensitive-frame linkage
   checked referenced-byte accounting without frame-store validation
   deterministic envelope integrity/canonical reassembly without truth promotion
-  internal target with no product, device adapter, application composition, or caller
+  internal target with no package product or device adapter; only point selection is app-bound
 
 PlotterRuntime
   MachineController, RunInterpreter, CameraCapture, VisionWorker
@@ -64,8 +67,9 @@ PlotterRuntime
   paper and append-only drawing-run evidence
   causal nonphysical simulator and workflow telemetry
 
-PlotterApp
-  OperatorWorkspace orchestration and artifact commits
+PlotterApp -> PlotterEpisodeRuntime + retained application/runtime dependencies
+  OperatorWorkspace projection/adaptation and retained artifact commits
+  typed point-selection and Learning-mode intent sinks
   immutable LearningPathProjectionSnapshot and pure LearningPathProjector
   SwiftUI Learning Path, ActionSurface, Drawing Studio, Motion and Video Settings
   production checkpoint/evidence stores and semantic identity composition
@@ -90,6 +94,12 @@ PlotterEpisodeRuntimeTests -> EpisodeCore + PlotterEpisodeModel + PlotterEpisode
   every-prefix replay, revision/digest binding, lifecycle publication, inert effects
   exact start provenance, source/schedule causality, and perturbation contracts
   bounded incident assembly/export, relationship closure, canonical integrity, and authority-boundary contracts
+
+PlotterAppTests -> PlotterApp + episode packages + retained application/runtime dependencies
+  eleven focused PlotterPointSelectionEpisodeTests for production ingress, identity, provenance,
+  recording, FIFO re-evaluation, complete publication, fresh Learning fact reacquisition,
+  exact-owner Learning-Off cancellation, checked journal synchronization, scoped Sendable safety,
+  semantic deletion, sparse-tip selection, and LIVE/SIMULATED separation
 ```
 
 Dependencies point inward. Runtime does not import SwiftUI. Views receive
@@ -98,15 +108,17 @@ controller, camera, calibration, or learning graph.
 
 `EpisodeCore` has no declared SwiftPM dependency and imports only Foundation. It
 is not exposed as a package product. `EpisodeCoreTests` depends only on
-`EpisodeCore`, and no production target depends on either target. This package
-foundation moves no Plotter workflow, controller, camera, persistence, effect,
-evidence, or UI authority; the as-built owners below remain unchanged.
+`EpisodeCore`. EA-04 binds this foundation through the inward-only episode
+package chain for point-selection state, intents, events, and projections; it
+does not move controller, camera, calibration, device, or UI authority.
 
 `EpisodeRuntime` depends only on `EpisodeCore`, is not exposed as a package
-product, and has no production caller. `EpisodeStoreTests` and
-`EpisodeRuntimeTests` depend only on `EpisodeCore` and `EpisodeRuntime` and are
-its sole current consumers. The `EpisodeStore` actor serializes one in-memory
-state and one durable `EpisodeJournal`: it validates a candidate append and
+product, and has no direct application import. `PlotterPointSelectionRuntime`
+is its only production consumer: it composes one `EpisodeStore` and one
+`PlotterOperationRegistry` exact-workflow lane. `EpisodeStoreTests` and
+`EpisodeRuntimeTests` retain the generic foundation contracts. The
+`EpisodeStore` actor serializes one in-memory state and one durable
+`EpisodeJournal`: it validates a candidate append and
 typed reducer result, commits the journal through its sole persistence adapter,
 and only then publishes state. The committed reduction's effects are returned
 as typed data but are not executed, queued, or retained; reconstruction applies
@@ -136,7 +148,7 @@ synchronization failure throws
 already be installed, `EpisodeStore` publishes no candidate in-memory state or
 journal and requires the caller to reopen and reconcile durable truth.
 
-The unbound generic `PlotterOperationRegistry` actor separately owns admission
+The generic `PlotterOperationRegistry` actor separately owns admission
 for one full canonical `PlotterOperationIdentity`: episode ID, intent-request
 ID, typed intent identity, effect ID, effect revision, and typed environment.
 Those intent and environment values live only in the identity.
@@ -213,15 +225,70 @@ the last cancellation-result refusal. The durable-append lane is coordination
 only: the registry has no `EpisodeStore` or journal coupling, effect runner,
 device adapter, application composition, or app caller.
 
-This unbound foundation transfers no current product authority. All current
-runtime, controller, camera, Vision, evidence, persistence, simulator, Stop,
-cancellation, and `OperatorWorkspace` authorities remain unchanged.
+EA-04 binds one registry lane to the pen-cap continuation only. Every other
+runtime, controller, camera, Vision, persistence, simulator, Stop, and
+cancellation owner remains unchanged; accepted point-selection evidence and
+continuation cancellation now belong to the episode runtime rather than a
+parallel `OperatorWorkspace` task/closure path.
 
 `PlotterEpisodeRuntime` depends inward only on `EpisodeCore`, `EpisodeRuntime`,
-`PlotterEpisodeModel`, and `PlotterRuntime`, is not exposed as a package product,
-and has no production or application caller. Its `EpisodeRecordingStore` actor
-owns one unbound recording document, has no `PlotterOperationRegistry` caller or
-registration, and retains a contiguous sequence and
+`PlotterEpisodeModel`, and `PlotterRuntime`, and is not exposed as a package
+product. EA-04 gives it one application caller through
+`PlotterPointSelectionRuntime`; replay and incident assembly remain unbound.
+`PlotterIntentGateway` evaluates each typed point-selection or Learning-mode
+intent against the current projection and returns the accepted/refused event
+payload without owning mutable state. `PlotterLearningIntentRules.modeAvailability`
+is the one pure Learning-mode availability rule used by both the evaluator and
+the immutable workspace presentation. `submitLearningModeChange` has no local
+guard or early return: every operator click reaches the runtime, which commits
+the typed acceptance or refusal event. A refusal remains visible with its
+remedy; there is no silent no-op or second semantic owner.
+`PlotterPointSelectionRuntime` is the
+single actor owner for the point-selection `EpisodeStore`, journal projection,
+optional `EpisodeRecordingStore`, exact frozen-frame map, and active pen-cap
+continuation. Its FIFO mutation/publication boundary covers mutations and
+projection reads; a concurrent mutation re-evaluates the state serialized by
+the one ahead of it. `PointSelectionJournalPersistence` uses a macOS-14-compatible `OSAllocatedUnfairLock` compare-and-swap commit, and the episode model/runtime contain no `@unchecked Sendable` escape hatch.
+Staging cancels the superseded request, archives the exact frame
+when recording is available, commits its observation, and stages the typed
+request. Production point ingress uses `ExactFramePointSubmissionBuilder.submission`:
+it computes point geometry from the current viewport but carries authority
+identity from the staged request's exact `request.presentationTransformRevision`,
+and owns no admission authority.
+The current request admits and a replaced request receives a typed runtime refusal.
+Submission refuses stale identity, source, camera configuration,
+frame hash/layout, presentation revision/bounds, or capacity before committing
+anything. An accepted selection becomes publicly visible only after the select
+event, point observation, and accepted operator-assertion evidence have all
+committed; the FIFO projection boundary exposes no partial accepted state.
+Runtime `PlotterPenCapPointSampler` owns exact-frame color sampling, and an
+accepted pen-cap result carries that exact `DisplayedFrame` to the app adapter.
+
+The runtime registers the accepted pen-cap continuation in the registry's
+exclusive exact-workflow lane with its full operation identity, move-only
+permit, Stop capability, and operation-bound completion. Learning Off is one
+typed accepted intent only when the active work is the EA-04-owned exact
+selection/pen-cap continuation: cancellation settles that owner, clears the
+selection and commits Off only after the final exact-owner decision. Unrelated
+calibration, exploration, motion, or exercise-attempt work receives the typed
+refusal from `PlotterLearningIntentRules.modeAvailability`.
+`PlotterPointSelectionRuntime.setLearningEnabled` accepts a typed `PlotterLearningActivityFactProviding` and obtains a fresh fact inside the FIFO boundary for initial evaluation.
+It reacquires a fresh fact after exact continuation cancellation before reevaluation.
+`OperatorWorkspace` passes the provider through the Task hop rather than capturing a fact before it.
+`PlotterPointSelectionActivityOwner(selectionID: PlotterPointSelectionID, exerciseAttemptID: UUID)` binds the exact selection and attempt identity across those initial and post-suspension evaluations.
+The same item and selection with a successor attempt token typed-refuses, and `OperatorWorkspace` rechecks the exact attempt identity before post-runtime attempt cancellation.
+For a latched continuation, the FIFO remains held while `setLearningEnabled` latches that owner, awaits `registry.stop`, and privately clears the runtime continuation handle without publishing episode-state mutation.
+It reacquires the fresh typed fact and reevaluates the bound exact owner against the still-private `.continuing` plus `continuationIsActive` state.
+An admitted Off event clears selection; a successor or unrelated refusal publishes continuation inactive and then its final typed refusal behind the same boundary, preserving transaction-complete public state and nonrevival.
+For that continuation path, `setLearningEnabled` returns only after registry settlement and final publication; no replacement settlement helper, poll, sleep, or state exists.
+Tests use the immutable returned/current projection and observable continuation-port state.
+The model exception independently requires `.collecting` or `.continuing` with `continuationIsActive`, and `OperatorWorkspace` emits the owner only in those phases.
+Retained `.accepted` Pen first-question/discovery and sparse batch/calibration attempts typed-refuse even with a matching supplied owner. Undo, clear, cancel, sparse four-point acceptance, and
+runtime shutdown also stay inside this one owner. Recording failure remains a
+visible nonblocking diagnostic and never promotes evidence or relaxes exact
+provenance.
+
+The `EpisodeRecordingStore` actor owns one recording document and retains a contiguous sequence and
 nonregressing monotonic offsets. Controller invocation and completion are
 separate typed records for open, close, input discard, raw write, and timed read;
 parameters, exact read chunks, partial counts, typed failures, and completion
@@ -422,8 +489,9 @@ incident suite contains 23 tests; no `PlotterApp` source references the incident
 types. EA-09 still owns later UI request/progress/result presentation for this
 service.
 
-`PlotterEpisodeModel` depends only on `EpisodeCore` and `PlotterModel`, is not a
-package product, and has no production caller. It binds concrete Plotter
+`PlotterEpisodeModel` depends only on `EpisodeCore` and `PlotterModel` and is
+not a package product. `PlotterPointSelectionRuntime` is its sole production
+binding. It binds concrete Plotter
 definition/manifest revisions, seven exhaustive semantic intent families,
 decision-relevant state, events, typed effects and results, observations,
 measurements, evidence, outcomes, assessments, versioned capability facts,
@@ -447,8 +515,10 @@ application authority.
 It contains no runtime or device adapter/port, persistence, UI, application
 composition, effect permit, runtime operation or lane owner, task, actor, or
 asynchronous escape hatch. `PlotterModel` retains geometry and planning authority, while the
-current `PlotterRuntime`, `PlotterApp`, controller, camera, Vision, evidence,
-persistence, simulator, and `OperatorWorkspace` owners remain unchanged.
+current `PlotterRuntime`, controller, camera, Vision, artifact persistence, and
+simulator owners remain unchanged. EA-04 transfers only typed point-selection
+state, intent decisions, accepted observations/evidence, and Learning-mode
+cancellation into this model/runtime path.
 
 ## Runtime owners
 
@@ -522,7 +592,8 @@ configuration incompatibility remains the viewport reset seam.
 
 `PenCapAppearanceSelection` is the only persisted LIVE recognition input. The
 first Exercise 1.1 action freezes an exact frame and issues a
-`penCapAppearance` point-selection request. `PenCapAppearanceSampler` maps the
+`penCapAppearance` point-selection request. Runtime
+`PlotterPenCapPointSampler` maps the
 operator's cap-body click to a clipped 9 x 9 RGBA/BGRA neighborhood, filters out
 gray, white, dark, and otherwise insufficiently chromatic pixels, then records
 the channel-wise median RGB color. The stored selection binds that color to the
@@ -540,8 +611,26 @@ processing or that preview is held merely because motion is active.
 
 `OperatorWorkspace` is the single `@Observable` application owner. It composes
 controller/camera actors through typed actions, owns Learning Path attempts,
-constructs immutable evidence, commits the dependency graph, routes view
-intent, and reads current state into `LearningPathProjectionSnapshot`. Its
+commits the retained artifact dependency graph, routes view intent, and reads
+current state into `LearningPathProjectionSnapshot`. For EA-04 it owns a
+reference to `PlotterPointSelectionRuntime`, copies its immutable
+`PlotterEpisodeProjection` for presentation, and adapts an accepted pen-cap
+sample plus its runtime-returned exact `DisplayedFrame` to the existing
+`PenCapAppearanceSelection` and camera/Vision
+reconfiguration owners. It does not own a second point-selection state machine,
+accepted-evidence path, Learning-mode toggle closure, or continuation task. Its
+`learningModePresentation` is an immutable projection of the shared pure rule,
+not a decision or mutation boundary. The remaining direct SwiftUI
+`UI.learningModePresentation` consumer is inventory item UI-008, scheduled for
+the EA-09 presentation cutover; it carries no EA-04 semantic or guard authority.
+The deleted `PointSelectionPresentationContext` cannot copy a request or
+re-decide admission. `frozenPointSelectionFrame` holds pixels for UI
+presentation only, and `pendingToolContactEvidence` remains adapter data for
+the retained sparse-tip calibration fit. The app cancellation helper is async
+and awaits the runtime owner; the old Task-returning helper is absent.
+The deleted `submitCurrentPenCapPoint` and `OperatorWorkspace.awaitPenCapAcceptedClickTransition` helpers cannot recreate semantic ingress or test-only transition authority; focused tests use generic submissions and bounded observable-state waits.
+The deleted `awaitContinuationSettlement` task-owner/polling helper has no replacement helper, poll, sleep, or state.
+Its
 LIVE/SIMULATED session accessor uses read/modify accessors, and related session
 writes are batched into one semantic publication instead of copying and
 reassigning the complete `LearningSessionState` for each field. It cannot
@@ -590,8 +679,9 @@ Stop remains visible without performing another Learning projection.
 LIVE and SIMULATED each own one `LearningSessionState` value under that shared
 contract. Within each value, compiler-enforced substates prevent invalid
 cross-field combinations: one exercise-attempt lifecycle owns attempt identity,
-item owner, and mode; one sparse-selection lifecycle owns pending evidence,
-the frozen frame, request, and selected point; and one Drawing Trial state owns
+item owner, and mode; the episode projection now owns staged point requests,
+selected points, undo, clear, and accepted batches, while retained Learning
+session state references the resulting calibration workflow; one Drawing Trial state owns
 the complete trial payload, history, rollback, and rewind transitions. A
 separate Drawing Studio state owns catalog selection, placement, immutable plan,
 run presentation, and retained exact-frame review, but not controller or camera
@@ -602,9 +692,13 @@ display text is derived only by the presentation boundary.
 `RunLedger` and workflow telemetry record diagnostics only. They do not replay
 commands, restore owners, or promote artifacts. The existing persistent machine-
 session owner retains at most 10 complete SQLite session groups and 50 MiB;
-unknown files are not deleted. Camera startup records no PNG samples, and the
-current application has no camera-sample writer. The unbound episode recording
-foundation changes neither current camera lifecycle nor evidence acceptance.
+unknown files are not deleted. Camera startup records no PNG samples. Production
+point selection creates one UUID recording directory at Application Support
+`AdaptivePlotter/EpisodeRecordings/<recording UUID>` and opens the optional
+episode store with a 64-unique-frame, 512 MiB bound. Startup and per-stage
+recording failures are visible nonblocking diagnostics. That writer does not
+change camera lifecycle or evidence acceptance, and recording diagnostics
+cannot substitute for a committed episode observation or accepted evidence.
 
 Exercise 1.4 workflow telemetry schema v2 records one ordered semantic sequence:
 batch admission, one completion event for each whole 16-chord circle, reveal,
@@ -633,10 +727,14 @@ rejection; it has no motion, resend, or promotion capability.
 
 ## Exercise 1.1 and manual controls
 
-`OperatorWorkspace` starts Exercise 1.1 with **Identify Pen Cap**. Until the
-exact-frame cap-body click is accepted, no pen-position question is opened
-and no pen request is issued. Rejection or stale provenance leaves the point
-selection pending. Cap identification itself does not require a controller
+`OperatorWorkspace` starts Exercise 1.1 with **Identify Pen Cap** by staging a
+typed `PlotterPointSelectionRequest` in `PlotterPointSelectionRuntime`.
+`ActionSurface` sends only its inverse-transformed click submission through the click-only `PlotterPointSelectionIntentSink`; exact frame, source/configuration, pixel
+layout, presentation revision, bounds, and capacity are rechecked by the
+runtime gateway. Until the exact-frame cap-body click is accepted and its
+observation plus operator-assertion evidence are committed, no pen-position
+question is opened and no pen request is issued. Refusal leaves the typed
+request pending with its remedy. Cap identification itself does not require a controller
 session or Motion. After acceptance, the first question remains active; its
 **Confirm Pen Up** action and servo slider are dependency-blocked until connection and
 Motion exist, while the external controller toolbar remains operable. The
@@ -663,6 +761,22 @@ envelope statuses are Unavailable while their operator-owned overlay
 preferences remain unchanged. An accepted replacement clears stale scene
 geometry and admits only newly analyzed frames without becoming calibration
 authority.
+
+The workbench presents Learning mode as copied values from
+`PlotterLearningIntentRules.modeAvailability`. The button stays invokable when
+that rule predicts refusal, displays its remedy, and submits every click through
+`PlotterLearningModeIntentSink`; there is no local guard or silent no-op. The
+runtime commits the accepted or refused event. The FIFO-held runtime latches the
+exact selection/attempt owner, awaits registry settlement, privately clears its
+continuation handle, and reevaluates a fresh activity fact against the unchanged
+continuing episode state. Accepted Off clears selection atomically; successor
+or unrelated work publishes inactive continuation plus final refusal behind the
+same boundary. `OperatorWorkspace` captures no pre-Task activity fact and
+rechecks the exact owner before post-runtime cancellation. Retained accepted Pen
+discovery and sparse calibration states expose no cancellable owner. Camera capture,
+`CameraSourceSession`, Vision configuration, persisted appearance artifacts,
+controller/device operations, and calibration acceptance retain their existing
+owners.
 
 Manual X distance, Y distance, and feed fields initialize to 50 mm, 50 mm, and
 500 mm/min while remaining editable. Manual direction routing normally depends
@@ -726,12 +840,18 @@ Exercise 1.4 is split across four owners:
   construction, constant construction fallback, diagnostic residual/covariance/
   uncertainty, applicability decisions, rebase derivations, and checkpoints.
 
-`ActionSurfacePointSelectionRequest` binds the shared frozen
-`ExactTipCalibrationFrame` and presentation-transform revision. `ActionSurface`
-maps each view click back through the exact inverse presentation transform,
-renders click count and all markers, and supports same-frame undo/clear without
-motion, ink, capture, zoom, or pan. Tip-map acceptance installs the outer-center
-applicability rectangle without changing viewport state.
+The sparse-tip flow stages one four-point `PlotterPointSelectionRequest` with
+the shared frozen `ExactTipCalibrationFrame` and presentation-transform
+revision. `ActionSurface` maps each view click back through the exact inverse
+presentation transform and submits it through
+`PlotterPointSelectionIntentSink`; the episode projection supplies click count
+and all markers. Retained `OperatorWorkspace` action adapters invoke the same runtime/store authority for undo, clear, and cancel; those actions do not originate in `ActionSurface` or the click-only sink protocol.
+`PlotterPointSelectionRuntime` owns same-frame undo, clear,
+capacity enforcement, and accepted four-point batch evidence without motion,
+ink, capture, zoom, or pan. `SparseTipCalibrationCoordinator` retains the
+machine-position association, fit, calibration acceptance, and artifact graph.
+Tip-map acceptance installs the outer-center applicability rectangle without
+changing viewport state.
 
 After click four, the app projects all four corner machine positions through
 current `MachineCameraRegistration`, centers projected and clicked sets to

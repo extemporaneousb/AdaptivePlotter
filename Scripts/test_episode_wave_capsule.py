@@ -124,6 +124,7 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
             validate_live_gates=False,
         )
         self.assertEqual("complete", rows["EA-05C"]["status"])
+        self.assertEqual("complete", rows["EA-04"]["status"])
         self.assertEqual({}, blockers)
 
     def test_completed_incident_evidence_missing_is_rejected(self) -> None:
@@ -310,7 +311,7 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         consumed = self.consume()
         self.assertEqual(created, consumed)
         self.assertEqual("selected", consumed["contract"]["frontier"]["state"])
-        self.assertEqual("EA-04", consumed["contract"]["package"]["id"])
+        self.assertEqual("EA-06", consumed["contract"]["package"]["id"])
         self.assertEqual(0o600, stat.S_IMODE(self.path.stat().st_mode))
         purposes = {item["purpose"] for item in consumed["pointers"]}
         self.assertIn("required gate catalog row", purposes)
@@ -334,15 +335,15 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
             row = [cell.strip() for cell in selected_text.strip().strip("|").split("|")]
             if (
                 len(row) == 6
-                and row[:4] == ["EA-04", "pending", "EA-03B, EA-05B", "software"]
-                and row[4].startswith("Cutover: transfer exact-frame human point-selection authority")
-                and row[5] == "`DOC`, `DIFF`, `QUICK`, `STRICT`, `POINT`, `DELETE`"
+                and row[:4] == ["EA-06", "pending", "EA-04, EA-05C", "software"]
+                and row[4].startswith("Cutover: transfer manual jog")
+                and row[5] == "`DOC`, `DIFF`, `QUICK`, `JOURNEY`, `STRICT`, `MOTION`, `DELETE`"
             ):
                 ledger_rows.append((selected, row))
         self.assertEqual(1, len(ledger_rows))
         selected, selected_row = ledger_rows[0]
-        self.assertEqual("EA-04", selected_row[0])
-        self.assertNotEqual("EA-05C", selected_row[0])
+        self.assertEqual("EA-06", selected_row[0])
+        self.assertNotEqual("EA-04", selected_row[0])
         view = capsule.canonical_bytes(capsule.consumption_view(consumed))
         self.assertLess(len(view), capsule.MAX_CONSUMPTION_BYTES)
 
@@ -354,7 +355,7 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
             "| --- | --- | --- |\n"
         )
         blocked_table = table + (
-            "| EA-04 | Required design authority is unresolved | "
+            "| EA-06 | Required design authority is unresolved | "
             "Record the operator decision in canonical authority |\n"
         )
         self.assertIn(table, evidence)
@@ -364,12 +365,12 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         created = self.build_and_write()
 
         self.assertEqual("evidence_blocked", created["launch"]["state"])
-        self.assertEqual("EA-04", created["contract"]["frontier"]["package_id"])
+        self.assertEqual("EA-06", created["contract"]["frontier"]["package_id"])
         self.assertEqual(
             "Required design authority is unresolved",
             created["contract"]["frontier"]["blocker"]["blocker"],
         )
-        self.assertNotEqual("EA-06", created["contract"]["frontier"]["package_id"])
+        self.assertNotEqual("EA-07", created["contract"]["frontier"]["package_id"])
 
     def test_contract_import_does_not_emit_bytecode_into_clean_repository(self) -> None:
         cache_path = self.root / "Scripts/__pycache__"

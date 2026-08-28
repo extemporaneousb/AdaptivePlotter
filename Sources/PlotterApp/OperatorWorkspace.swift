@@ -1,6 +1,9 @@
 import CryptoKit
+import EpisodeCore
 import Foundation
 import Observation
+import PlotterEpisodeModel
+import PlotterEpisodeRuntime
 import PlotterModel
 import PlotterRuntime
 
@@ -729,7 +732,7 @@ enum OperatorWorkspaceComputationEvent: Hashable, Sendable {
   case actionSurfaceChanged(
     frameID: FrameID?,
     overlayCount: Int,
-    pointSelectionPurpose: ActionSurfacePointSelectionPurpose?
+    pointSelectionPurpose: PlotterExactPointSelectionPurpose?
   )
 }
 
@@ -772,6 +775,15 @@ struct OperatorWorkspaceComputationDiagnostics: Equatable, Sendable {
 /// projection so layout decisions cannot trigger another projection build.
 struct ExercisePaneProtectionPresentation: Hashable, Sendable {
   let mustRemainVisible: Bool
+}
+
+struct LearningModePresentation: Hashable, Sendable {
+  let isEnabled: Bool
+  let actionTitle: String
+  let refusalRequirement: PlotterIntentRequirement?
+  let refusalOwner: EpisodeAuthorityID?
+  let remedy: String?
+  let recordingDiagnostic: String?
 }
 
 private final class LearningPresentationBase {
@@ -847,12 +859,17 @@ private struct LearningActionStripDiagnosticSignature: Equatable {
 private struct ActionSurfaceDiagnosticSignature: Equatable {
   let frameID: FrameID?
   let overlayCount: Int
-  let pointSelectionPurpose: ActionSurfacePointSelectionPurpose?
+  let pointSelectionPurpose: PlotterExactPointSelectionPurpose?
 }
 
 @MainActor
 @Observable
-final class OperatorWorkspace {
+final class OperatorWorkspace:
+  PlotterLearningModeIntentSink,
+  PlotterLearningActivityFactProviding,
+  PlotterPointSelectionIntentSink,
+  PlotterPointSelectionContinuationPort
+{
   private enum ExerciseAttemptMode: Equatable, Sendable {
     case normal
     case replacement
@@ -968,46 +985,6 @@ final class OperatorWorkspace {
     var reviewIsPinned = false
   }
 
-  private struct ToolContactSelectionContext {
-    let pendingEvidence: [PendingToolContactEvidence]
-    let frame: DisplayedFrame
-    let request: ActionSurfacePointSelectionRequest
-  }
-
-  private struct PenCapAppearanceSelectionContext {
-    let frame: DisplayedFrame
-    let request: ActionSurfacePointSelectionRequest
-  }
-
-  private struct PenCapAcceptedClickContinuationIdentity: Equatable, Sendable {
-    let id: UUID
-    let attemptID: ExerciseAttemptID
-    let attemptMode: ExerciseAttemptMode
-    let source: OperatorFrameMode
-    let selection: PenCapAppearanceSelection
-    let lifetimeGeneration: UInt64
-  }
-
-  private enum ToolContactSelectionState {
-    case idle
-    case collecting(ToolContactSelectionContext)
-
-    var context: ToolContactSelectionContext? {
-      switch self {
-      case .idle: nil
-      case .collecting(let context): context
-      }
-    }
-
-    mutating func stage(_ context: ToolContactSelectionContext) {
-      self = .collecting(context)
-    }
-
-    mutating func clear() {
-      self = .idle
-    }
-  }
-
   private enum DrawingStrokeExecutionState: Hashable, Sendable {
     case notAdmitted
     case completedNaturally
@@ -1065,7 +1042,6 @@ final class OperatorWorkspace {
     var tipCameraRegistration: TipCameraRegistration?
     var proposedTipCameraRegistration: TipCameraRegistration?
     var sparseTipCalibrationCoordinator = SparseTipCalibrationCoordinator()
-    var toolContactSelection: ToolContactSelectionState = .idle
     var blacklistedToolContactLocations: Set<BlacklistedToolContactLocation> = []
     var explicitRegistrationCapAnchorEvidence: [MachineCameraCorrespondenceProvenance] = []
     var currentCameraCalibrationPhase: CurrentCameraCalibrationPhase?
@@ -1384,12 +1360,7 @@ final class OperatorWorkspace {
       markSemanticPresentationChanged()
     }
   }
-  private(set) var learningIsEnabled = true {
-    didSet {
-      guard oldValue != learningIsEnabled else { return }
-      markSemanticPresentationChanged()
-    }
-  }
+  var learningIsEnabled: Bool { pointSelectionEpisodeProjection.learningIsEnabled }
   private(set) var drawingStudioIsPresented = false {
     didSet { invalidateActionSurfacePresentation() }
   }
@@ -1789,27 +1760,19 @@ final class OperatorWorkspace {
     get { activeLearningSession.sparseTipCalibrationCoordinator }
     set { activeLearningSession.sparseTipCalibrationCoordinator = newValue }
   }
-  var frozenToolContactSelectionFrame: DisplayedFrame? {
-    activeLearningSession.toolContactSelection.context?.frame
-  }
-  private var penCapAppearanceSelectionContext: PenCapAppearanceSelectionContext? {
+  private(set) var frozenPointSelectionFrame: DisplayedFrame? {
     didSet { invalidateActionSurfacePresentation() }
   }
-  var frozenPointSelectionFrame: DisplayedFrame? {
-    penCapAppearanceSelectionContext?.frame ?? frozenToolContactSelectionFrame
-  }
-  private var pendingToolContactEvidence: [PendingToolContactEvidence] {
-    activeLearningSession.toolContactSelection.context?.pendingEvidence
-      ?? []
-  }
-  var toolContactPointSelectionRequest: ActionSurfacePointSelectionRequest? {
-    activeLearningSession.toolContactSelection.context?.request
-  }
-  var pointSelectionRequest: ActionSurfacePointSelectionRequest? {
-    penCapAppearanceSelectionContext?.request ?? toolContactPointSelectionRequest
+  private var pendingToolContactEvidence: [PendingToolContactEvidence] = []
+  var pointSelectionRequest: PlotterPointSelectionRequest? {
+    guard pointSelectionEpisodeProjection.exactPointSelection.phase == .collecting else {
+      return nil
+    }
+    return pointSelectionEpisodeProjection.exactPointSelection.request
   }
   var selectedToolContactPoints: [Point2<CameraPixelSpace>] {
-    sparseTipCalibrationCoordinator.collectedClickPoints
+    guard pointSelectionRequest?.purpose == .toolContact else { return [] }
+    return pointSelectionEpisodeProjection.exactPointSelection.selectedPoints
   }
   private let machineGeometryIdentity: MachineGeometryIdentity
   private let toolAssemblyRevision: ToolAssemblyRevision
@@ -1966,6 +1929,7 @@ final class OperatorWorkspace {
 
   @ObservationIgnored private let machineActions: MachineActions?
   @ObservationIgnored private let cameraActions: CameraActions?
+  @ObservationIgnored private let pointSelectionRuntime: PlotterPointSelectionRuntime
   @ObservationIgnored private let persistPenCapAppearanceSelection:
     @Sendable (PenCapAppearanceSelection?) -> Void
   @ObservationIgnored private let announcementActions: AnnouncementActions?
@@ -1998,12 +1962,9 @@ final class OperatorWorkspace {
   @ObservationIgnored private var savedTrainingComparisonTask: Task<Void, Never>?
   @ObservationIgnored private var savedTrainingComparisonIdentity:
     SavedTrainingComparisonIdentity?
-  @ObservationIgnored private var penCapAcceptedClickContinuationTask: Task<Void, Never>?
-  @ObservationIgnored private var penCapAcceptedClickContinuationIdentity:
-    PenCapAcceptedClickContinuationIdentity?
-  @ObservationIgnored private var penCapVisionReconfigurationTask: Task<Void, Never>?
-  @ObservationIgnored private var penCapVisionReconfigurationIdentity:
-    PenCapAcceptedClickContinuationIdentity?
+  private(set) var pointSelectionEpisodeProjection: PlotterEpisodeProjection
+  private(set) var pointSelectionRecordingDiagnostic: String?
+  @ObservationIgnored private var learningActivityFactRevision: UInt64 = 0
   private var controllerSessionID: UUID {
     get { activeLearningSession.controllerSessionID }
     set { activeLearningSession.controllerSessionID = newValue }
@@ -2084,6 +2045,8 @@ final class OperatorWorkspace {
   init(
     machineActions: MachineActions? = nil,
     cameraActions: CameraActions? = nil,
+    pointSelectionRuntime: PlotterPointSelectionRuntime = PlotterPointSelectionRuntime(),
+    pointSelectionRecordingDiagnostic: String? = nil,
     announcementActions: AnnouncementActions? = nil,
     acceptedLearningPathCheckpointActions: AcceptedLearningPathCheckpointActions? = nil,
     drawingEvidenceActions: DrawingEvidenceActions? = nil,
@@ -2155,6 +2118,19 @@ final class OperatorWorkspace {
     self.simulatedExecutionPacing = simulatedExecutionPacing
     self.machineActions = machineActions
     self.cameraActions = cameraActions
+    self.pointSelectionRuntime = pointSelectionRuntime
+    self.pointSelectionRecordingDiagnostic = pointSelectionRecordingDiagnostic
+    let pointSelectionEpisodeID = EpisodeID(rawValue: UUID())
+    let pointSelectionInitialState = PlotterEpisodeState(
+      episodeID: pointSelectionEpisodeID,
+      canonicalDigest: EpisodeStateDigest(rawValue: "uncommitted-initial-projection")
+    )
+    pointSelectionEpisodeProjection = PlotterEpisodeProjector.project(
+      state: pointSelectionInitialState,
+      availabilities: [],
+      revision: PlotterProjectionRevision(rawValue: 0),
+      projectedAt: Date()
+    )
     let loadedLegacyPenCapAppearance = loadPenCapAppearanceSelection()
     let legacyPenCapAppearance = loadedLegacyPenCapAppearance.flatMap {
       $0.persistedLiveRejectionReason == nil ? $0 : nil
@@ -2494,10 +2470,10 @@ final class OperatorWorkspace {
       )
     }
     let tipPresentation: ActionSurfaceTipPresentation =
-      if let toolContactPointSelectionRequest {
+      if let pointSelectionRequest, pointSelectionRequest.purpose == .toolContact {
         .collectingClicks(
-          prompt: toolContactPointSelectionRequest.prompt,
-          clicks: sparseTipCalibrationCoordinator.collectedClickPoints
+          prompt: pointSelectionRequest.prompt,
+          clicks: selectedToolContactPoints
         )
       } else if let pointSelectionRequest {
         .awaitingClick(pointSelectionRequest.prompt)
@@ -4448,7 +4424,9 @@ final class OperatorWorkspace {
     let calibrationTask = currentCameraCalibrationTask
     calibrationTask?.cancel()
 
-    let penCapContinuation = cancelPenCapAcceptedClickContinuation()
+    if let selectionID = pointSelectionEpisodeProjection.exactPointSelection.request?.id {
+      await pointSelectionRuntime.cancelContinuation(selectionID: selectionID)
+    }
     if let ownerID = activeExerciseAttemptOwnerID {
       await cancelExerciseAttempt(ownerID)
     } else if let operation = activeStoppableOperation,
@@ -4457,7 +4435,6 @@ final class OperatorWorkspace {
       await cancelAndSettleStoppableOperation(operation, intent: .cancelAttempt)
     }
 
-    await penCapContinuation?.value
     await calibrationTask?.value
     currentCameraCalibrationTask = nil
     await actionTask?.value
@@ -5124,7 +5101,7 @@ final class OperatorWorkspace {
           } ?? false,
         phase: sparseTipCalibrationCoordinator.phase,
         acceptedObservationCount: sparseTipCalibrationCoordinator.acceptedObservations.count,
-        collectedClickCount: sparseTipCalibrationCoordinator.collectedClickCount,
+        collectedClickCount: selectedToolContactPoints.count,
         blacklistedPositionCount: sparseTipCalibrationCoordinator.blacklistedPositions.count,
         savedCheckpointMatchesPaper: savedCheckpointMatchesPaper
       ),
@@ -5303,15 +5280,15 @@ final class OperatorWorkspace {
     case .drawFourCornerTipCircles:
       await drawFourCornerTipCircles()
     case .undoLastSparseTipClick:
-      undoLastSparseTipClick()
+      await undoLastSparseTipClick()
     case .clearSparseTipClicks:
-      clearSparseTipClicks()
+      await clearSparseTipClicks()
     case .revalidateTipCalibrationCheckpoint:
       await revalidateTipCalibrationCheckpoint()
     case .acceptTipCalibrationProposal:
       _ = commitTipCalibration(actor: "operator-accepted-proposal")
     case .rejectTipCalibrationProposal:
-      rejectTipCalibrationProposal()
+      await rejectTipCalibrationProposal()
     case .retryTipCalibrationCommit:
       _ = commitTipCalibration(actor: "operator-retry")
     case .paperReplaced:
@@ -5438,7 +5415,9 @@ final class OperatorWorkspace {
 
   private func beginPenInteraction(mode: ExerciseAttemptMode) async {
     guard discoveryStartUnavailableReason(for: .penInteraction) == nil else { return }
-    cancelPenCapAcceptedClickContinuation()
+    if let selectionID = pointSelectionEpisodeProjection.exactPointSelection.request?.id {
+      await pointSelectionRuntime.cancelContinuation(selectionID: selectionID)
+    }
     beginExerciseAttempt(
       ownerID: .humanGuidedDiscovery(.penInteraction),
       mode: mode
@@ -5476,16 +5455,18 @@ final class OperatorWorkspace {
       guard let frame else {
         throw LearningPathOperationError.freshFrameUnavailable
       }
-      let exact = try exactTipCalibrationFrame(frame)
-      penCapAppearanceSelectionContext = PenCapAppearanceSelectionContext(
+      let staged = try await pointSelectionRuntime.stage(
         frame: frame,
-        request: ActionSurfacePointSelectionRequest(
-          frame: exact,
-          presentationTransformRevision: PresentationTransformRevision(),
-          prompt: "Click the pen cap body—not the tip—on the current camera frame.",
-          purpose: .penCapAppearance
-        )
+        presentationTransformRevision: PlotterPresentationTransformRevision(),
+        prompt: "Click the pen cap body—not the tip—on the current camera frame.",
+        purpose: .penCapAppearance,
+        requiredPointCount: 1
       )
+      installPointSelectionProjection(staged.projection)
+      pendingToolContactEvidence = []
+      frozenPointSelectionFrame = frame
+      pointSelectionRecordingDiagnostic =
+        staged.recordingDiagnostic ?? pointSelectionRecordingDiagnostic
       discoveryError = nil
     } catch {
       discoveryError =
@@ -6552,218 +6533,140 @@ final class OperatorWorkspace {
       "Operator rejected the staged five-sample cap map. No machine-camera revision became authoritative."
   }
 
-  func selectToolContactPoint(_ selection: ActionSurfacePointSelection) {
-    if let context = penCapAppearanceSelectionContext,
-      context.request.purpose == .penCapAppearance
-    {
-      do {
-        guard context.request.matches(context.frame), selection.frame == context.request.frame
-        else { throw PenCapAppearanceSamplingError.staleExactFrame }
-        guard
-          activeExerciseAttemptOwnerID == .humanGuidedDiscovery(.penInteraction),
-          let attemptID = activeExerciseAttemptID,
-          let attemptMode = activeExerciseAttemptMode
-        else { throw PenCapAppearanceSamplingError.staleExactFrame }
-        let learned = try PenCapAppearanceSampler.sample(
-          frame: context.frame,
-          selection: selection
+  func submitPointSelection(_ submission: PlotterPointSelectionSubmission) {
+    Task { @MainActor [weak self] in
+      await self?.performPointSelectionSubmission(submission)
+    }
+  }
+
+  private func performPointSelectionSubmission(
+    _ submission: PlotterPointSelectionSubmission
+  ) async {
+    let submittedPurpose = pointSelectionEpisodeProjection.exactPointSelection.request?.purpose
+    do {
+      let result = try await pointSelectionRuntime.submit(submission)
+      switch result {
+      case let .refused(projection, reason):
+        installPointSelectionProjection(projection)
+        if submittedPurpose == .penCapAppearance {
+          discoveryError = "Identify Pen Cap rejected the click: \(reason)"
+        } else {
+          explorationError = "Corner-mark selection failed without motion or redraw: \(reason)"
+        }
+      case let .acceptedPoint(projection):
+        installPointSelectionProjection(projection)
+        explorationError = nil
+      case let .acceptedPenCap(sample, acceptedFrame, projection):
+        guard activeExerciseAttemptOwnerID == .humanGuidedDiscovery(.penInteraction),
+          activeExerciseAttemptID != nil,
+          activeExerciseAttemptMode != nil
+        else {
+          _ = await pointSelectionRuntime.cancel(selectionID: submission.selectionID)
+          return
+        }
+        installPointSelectionProjection(projection)
+        let learned = PenCapAppearanceSelection(
+          sample: sample,
+          frame: acceptedFrame
         )
-        let learnedFromLiveCamera: Bool
         switch learned.source {
         case .live:
           livePenCapAppearanceSelection = learned
           persistedPenCapAppearanceLoadState = .accepted
-          learnedFromLiveCamera = true
         case .simulated:
           simulatedPenCapAppearanceSelection = learned
-          learnedFromLiveCamera = false
         }
-        penCapAppearanceSelectionContext = nil
+        frozenPointSelectionFrame = nil
+        pendingToolContactEvidence = []
         discoveryError = nil
-        startPenCapAcceptedClickContinuation(
-          attemptID: attemptID,
-          attemptMode: attemptMode,
-          source: learned.source == .simulated ? .simulated : .live,
-          selection: learned,
-          configuresLiveVision: learnedFromLiveCamera
+        try await pointSelectionRuntime.beginPenCapContinuation(
+          selectionID: submission.selectionID,
+          sample: sample,
+          port: self
         )
-      } catch {
-        discoveryError = "Identify Pen Cap rejected the click: \(actionableDescription(error))"
+        installPointSelectionProjection(await pointSelectionRuntime.currentProjection())
+      case let .acceptedBatch(points, presentationRevision, projection):
+        installPointSelectionProjection(projection)
+        do {
+          try sparseTipCalibrationCoordinator.beginFitting()
+          try acceptSparseTipBatchClicks(
+            points: points,
+            presentationRevision: PresentationTransformRevision(
+              rawValue: presentationRevision.rawValue
+            )
+          )
+          explorationError = nil
+        } catch {
+          if sparseTipCalibrationCoordinator.recoverFromFittingFailure() {
+            explorationError =
+              "Pen-tip calibration construction failed without motion or redraw: \(actionableDescription(error)). Use Undo Last Click or Clear Clicks on This Frame to correct the same frozen frame."
+          } else {
+            explorationError =
+              "Pen-tip calibration construction failed without motion or redraw: \(actionableDescription(error)). The frozen-click state could not be restored; Cancel Attempt remains available and no redraw was sent."
+          }
+        }
       }
-      return
-    }
-    guard let request = toolContactPointSelectionRequest,
-      let selectionFrame = frozenToolContactSelectionFrame,
-      request.matches(selectionFrame),
-      selection.frame == request.frame
-    else { return }
-    do {
-      guard selection.point.x >= 0, selection.point.x < Double(request.frame.width),
-        selection.point.y >= 0, selection.point.y < Double(request.frame.height)
-      else {
-        throw SparseTipCalibrationCoordinatorError.staleSelection
-      }
-      try sparseTipCalibrationCoordinator.select(selection)
     } catch {
-      if explorationError == nil {
+      if submittedPurpose == .penCapAppearance {
+        discoveryError = "Identify Pen Cap rejected the click: \(actionableDescription(error))"
+      } else {
         explorationError =
           "Corner-mark selection failed without motion or redraw: \(actionableDescription(error))"
       }
-      return
-    }
-    guard
-      sparseTipCalibrationCoordinator.collectedClickCount
-        == SparseTipCalibrationCoordinator.orderedPositions.count
-    else {
-      explorationError = nil
-      return
-    }
-    do {
-      try acceptSparseTipBatchClicks()
-      explorationError = nil
-    } catch {
-      if sparseTipCalibrationCoordinator.recoverFromFittingFailure() {
-        explorationError =
-          "Pen-tip calibration construction failed without motion or redraw: \(actionableDescription(error)). Use Undo Last Click or Clear Clicks on This Frame to correct the same frozen frame."
-      } else {
-        explorationError =
-          "Pen-tip calibration construction failed without motion or redraw: \(actionableDescription(error)). The frozen-click state could not be restored; Cancel Attempt remains available and no redraw was sent."
-      }
     }
   }
 
-  private func startPenCapAcceptedClickContinuation(
-    attemptID: ExerciseAttemptID,
-    attemptMode: ExerciseAttemptMode,
-    source: OperatorFrameMode,
-    selection: PenCapAppearanceSelection,
-    configuresLiveVision: Bool
-  ) {
-    cancelPenCapAcceptedClickContinuation()
-    let identity = PenCapAcceptedClickContinuationIdentity(
-      id: UUID(),
-      attemptID: attemptID,
-      attemptMode: attemptMode,
-      source: source,
-      selection: selection,
-      lifetimeGeneration: lifetimeGeneration
+  func beginPenCapDiscovery(selectionID: PlotterPointSelectionID) async throws {
+    guard !Task.isCancelled,
+      pointSelectionEpisodeProjection.exactPointSelection.request?.id == selectionID,
+      activeExerciseAttemptOwnerID == .humanGuidedDiscovery(.penInteraction),
+      activeDiscoverySequenceID == nil,
+      penCapAppearanceSelection != nil
+    else { throw CancellationError() }
+    await startDiscoverySequence(.penInteraction)
+    guard !Task.isCancelled,
+      pointSelectionEpisodeProjection.exactPointSelection.request?.id == selectionID,
+      activeExerciseAttemptOwnerID == .humanGuidedDiscovery(.penInteraction)
+    else { throw CancellationError() }
+  }
+
+  func configurePenCapVision(
+    selectionID: PlotterPointSelectionID,
+    sample: PlotterAcceptedPenCapSample
+  ) async throws {
+    guard !Task.isCancelled,
+      pointSelectionEpisodeProjection.exactPointSelection.request?.id == selectionID,
+      activeExerciseAttemptOwnerID == .humanGuidedDiscovery(.penInteraction),
+      let selection = penCapAppearanceSelection,
+      selection.color.red == sample.red,
+      selection.color.green == sample.green,
+      selection.color.blue == sample.blue
+    else { throw CancellationError() }
+    guard frameMode == .live else { return }
+    await cameraActions?.setPenCapColor(selection.color)
+    guard !Task.isCancelled,
+      pointSelectionEpisodeProjection.exactPointSelection.request?.id == selectionID
+    else { throw CancellationError() }
+    await reconcileAutomaticVisionAnalysis()
+  }
+
+  private func installPointSelectionProjection(_ projection: PlotterEpisodeProjection) {
+    guard pointSelectionEpisodeProjection != projection else { return }
+    pointSelectionEpisodeProjection = projection
+    markSemanticPresentationChanged()
+  }
+
+  private func cancelPointSelectionRequest() async {
+    guard let selectionID = pointSelectionEpisodeProjection.exactPointSelection.request?.id else {
+      frozenPointSelectionFrame = nil
+      pendingToolContactEvidence = []
+      return
+    }
+    installPointSelectionProjection(
+      await pointSelectionRuntime.cancel(selectionID: selectionID)
     )
-    penCapAcceptedClickContinuationIdentity = identity
-    penCapAcceptedClickContinuationTask = Task { @MainActor [weak self] in
-      guard let self else { return }
-      defer { finishPenCapAcceptedClickContinuation(identity) }
-
-      // Give recovery actions one actor turn to cancel the accepted-click
-      // transition before it can create the first discovery question.
-      await Task.yield()
-      guard penCapAcceptedClickContinuationIsCurrent(identity) else { return }
-
-      await startDiscoverySequence(.penInteraction)
-      guard penCapAcceptedClickContinuationStillOwnsAttempt(identity) else { return }
-      if configuresLiveVision {
-        startPenCapVisionReconfiguration(identity: identity, selection: selection)
-      }
-    }
-  }
-
-  private func startPenCapVisionReconfiguration(
-    identity: PenCapAcceptedClickContinuationIdentity,
-    selection: PenCapAppearanceSelection
-  ) {
-    penCapVisionReconfigurationTask?.cancel()
-    penCapVisionReconfigurationIdentity = identity
-    penCapVisionReconfigurationTask = Task { @MainActor [weak self] in
-      guard let self else { return }
-      defer { finishPenCapVisionReconfiguration(identity) }
-      guard penCapVisionReconfigurationStillOwnsAttempt(identity) else { return }
-      await cameraActions?.setPenCapColor(selection.color)
-      guard penCapVisionReconfigurationStillOwnsAttempt(identity) else { return }
-      await reconcileAutomaticVisionAnalysis()
-      guard penCapVisionReconfigurationStillOwnsAttempt(identity) else { return }
-    }
-  }
-
-  private func penCapVisionReconfigurationStillOwnsAttempt(
-    _ identity: PenCapAcceptedClickContinuationIdentity
-  ) -> Bool {
-    guard !Task.isCancelled, canCommit(identity.lifetimeGeneration),
-      penCapVisionReconfigurationIdentity == identity,
-      activeExerciseAttemptID == identity.attemptID,
-      activeExerciseAttemptOwnerID == .humanGuidedDiscovery(.penInteraction),
-      activeExerciseAttemptMode == identity.attemptMode,
-      frameMode == identity.source,
-      penCapAppearanceSelection == identity.selection,
-      penCapAppearanceSelectionContext == nil
-    else { return false }
-    return true
-  }
-
-  private func finishPenCapVisionReconfiguration(
-    _ identity: PenCapAcceptedClickContinuationIdentity
-  ) {
-    guard penCapVisionReconfigurationIdentity == identity else { return }
-    penCapVisionReconfigurationTask = nil
-    penCapVisionReconfigurationIdentity = nil
-  }
-
-  private func penCapAcceptedClickContinuationIsCurrent(
-    _ identity: PenCapAcceptedClickContinuationIdentity
-  ) -> Bool {
-    guard penCapAcceptedClickContinuationStillOwnsAttempt(identity),
-      activeDiscoverySequenceID == nil
-    else { return false }
-    return true
-  }
-
-  private func penCapAcceptedClickContinuationStillOwnsAttempt(
-    _ identity: PenCapAcceptedClickContinuationIdentity
-  ) -> Bool {
-    guard !Task.isCancelled, canCommit(identity.lifetimeGeneration),
-      penCapAcceptedClickContinuationIdentity == identity,
-      activeExerciseAttemptID == identity.attemptID,
-      activeExerciseAttemptOwnerID == .humanGuidedDiscovery(.penInteraction),
-      activeExerciseAttemptMode == identity.attemptMode,
-      frameMode == identity.source,
-      penCapAppearanceSelection == identity.selection,
-      penCapAppearanceSelectionContext == nil
-    else { return false }
-    return true
-  }
-
-  private func finishPenCapAcceptedClickContinuation(
-    _ identity: PenCapAcceptedClickContinuationIdentity
-  ) {
-    guard penCapAcceptedClickContinuationIdentity == identity else { return }
-    penCapAcceptedClickContinuationTask = nil
-    penCapAcceptedClickContinuationIdentity = nil
-  }
-
-  @discardableResult
-  private func cancelPenCapAcceptedClickContinuation() -> Task<Void, Never>? {
-    let acceptedClickTask = penCapAcceptedClickContinuationTask
-    let visionReconfigurationTask = penCapVisionReconfigurationTask
-    acceptedClickTask?.cancel()
-    visionReconfigurationTask?.cancel()
-    penCapAcceptedClickContinuationTask = nil
-    penCapAcceptedClickContinuationIdentity = nil
-    penCapVisionReconfigurationTask = nil
-    penCapVisionReconfigurationIdentity = nil
-    switch (acceptedClickTask, visionReconfigurationTask) {
-    case (nil, nil):
-      return nil
-    case (.some(let task), nil), (nil, .some(let task)):
-      return task
-    case (.some(let acceptedClickTask), .some(let visionReconfigurationTask)):
-      return Task {
-        await acceptedClickTask.value
-        await visionReconfigurationTask.value
-      }
-    }
-  }
-
-  func awaitPenCapAcceptedClickTransition() async {
-    let task = penCapAcceptedClickContinuationTask
-    await task?.value
+    frozenPointSelectionFrame = nil
+    pendingToolContactEvidence = []
   }
 
   private func drawFourCornerTipCircles() async {
@@ -7092,18 +6995,18 @@ final class OperatorWorkspace {
         )
       }
       try sparseTipCalibrationCoordinator.awaitFrozenClicks(frame: exactRevealFrame)
-      let selectionRequest = ActionSurfacePointSelectionRequest(
-        frame: exactRevealFrame,
-        presentationTransformRevision: PresentationTransformRevision(),
-        prompt: "Click the four corner-circle centers in any order"
+      let staged = try await pointSelectionRuntime.stage(
+        frame: revealCapture.displayedFrame,
+        presentationTransformRevision: PlotterPresentationTransformRevision(),
+        prompt: "Click the four corner-circle centers in any order",
+        purpose: .toolContact,
+        requiredPointCount: SparseTipCalibrationCoordinator.orderedPositions.count
       )
-      activeLearningSession.toolContactSelection.stage(
-        ToolContactSelectionContext(
-          pendingEvidence: pendingEvidence,
-          frame: revealCapture.displayedFrame,
-          request: selectionRequest
-        )
-      )
+      installPointSelectionProjection(staged.projection)
+      pendingToolContactEvidence = pendingEvidence
+      frozenPointSelectionFrame = revealCapture.displayedFrame
+      pointSelectionRecordingDiagnostic =
+        staged.recordingDiagnostic ?? pointSelectionRecordingDiagnostic
       explorationError = nil
       await recordWorkflowTelemetry(
         WorkflowTelemetryEvent(
@@ -7175,7 +7078,7 @@ final class OperatorWorkspace {
           )
         )
       }
-      activeLearningSession.toolContactSelection.clear()
+      await cancelPointSelectionRequest()
       explorationError =
         "Sparse tip calibration stopped without automatic retry: \(failure.detail)"
     }
@@ -7399,28 +7302,36 @@ final class OperatorWorkspace {
     machineSnapshot = await machineActions.snapshot()
   }
 
-  private func undoLastSparseTipClick() {
+  private func undoLastSparseTipClick() async {
+    guard let selectionID = pointSelectionEpisodeProjection.exactPointSelection.request?.id else {
+      return
+    }
+    discardStagedTipObservationArtifacts()
     do {
-      discardStagedTipObservationArtifacts()
-      try sparseTipCalibrationCoordinator.undoLastClick()
+      installPointSelectionProjection(try await pointSelectionRuntime.undo(selectionID: selectionID))
+      try sparseTipCalibrationCoordinator.resumeFrozenClicksAfterCorrection()
       explorationError = nil
     } catch {
       explorationError = actionableDescription(error)
     }
   }
 
-  private func clearSparseTipClicks() {
+  private func clearSparseTipClicks() async {
+    guard let selectionID = pointSelectionEpisodeProjection.exactPointSelection.request?.id else {
+      return
+    }
+    discardStagedTipObservationArtifacts()
     do {
-      discardStagedTipObservationArtifacts()
-      try sparseTipCalibrationCoordinator.clearClicks()
+      installPointSelectionProjection(try await pointSelectionRuntime.clear(selectionID: selectionID))
+      try sparseTipCalibrationCoordinator.resumeFrozenClicksAfterCorrection()
       explorationError = nil
     } catch {
       explorationError = actionableDescription(error)
     }
   }
 
-  private func rejectTipCalibrationProposal() {
-    clearSparseTipClicks()
+  private func rejectTipCalibrationProposal() async {
+    await clearSparseTipClicks()
     if explorationError == nil {
       explorationError =
         "The proposed pen-tip calibration was rejected. No calibration was accepted; reselect the four corner points on the same frozen frame."
@@ -7442,12 +7353,13 @@ final class OperatorWorkspace {
     proposedTipCameraRegistration = nil
   }
 
-  private func acceptSparseTipBatchClicks() throws {
+  private func acceptSparseTipBatchClicks(
+    points: [Point2<CameraPixelSpace>],
+    presentationRevision: PresentationTransformRevision
+  ) throws {
     guard
       pendingToolContactEvidence.count == SparseTipCalibrationCoordinator.orderedPositions.count,
-      sparseTipCalibrationCoordinator.collectedClickCount
-        == SparseTipCalibrationCoordinator.orderedPositions.count,
-      let request = toolContactPointSelectionRequest,
+      points.count == SparseTipCalibrationCoordinator.orderedPositions.count,
       let machineRegistration = machineCameraRegistration,
       let machineRegistrationRevision = learningArtifactGraph.currentRevision(
         for: .machineCameraRegistration
@@ -7464,7 +7376,7 @@ final class OperatorWorkspace {
           machinePosition: $0.intendedMarkPosition
         )
       },
-      clicks: sparseTipCalibrationCoordinator.collectedClickPoints
+      clicks: points
     )
     let pendingByPosition = Dictionary(
       uniqueKeysWithValues: pendingToolContactEvidence.map { ($0.position, $0) }
@@ -7475,9 +7387,6 @@ final class OperatorWorkspace {
         (pendingToolContactEvidence.first?.revealEvidence.frame.captureNanoseconds ?? 0) + 1
       )
     )
-    let presentationRevision =
-      sparseTipCalibrationCoordinator.selectedPresentationRevisionForCommit
-      ?? request.presentationTransformRevision
     var graph = learningArtifactGraph
     var accepted: [AcceptedToolContactObservation] = []
     for association in associations {
@@ -7544,7 +7453,7 @@ final class OperatorWorkspace {
     }
 
     var coordinator = sparseTipCalibrationCoordinator
-    try coordinator.acceptAssociatedObservations(accepted)
+    try coordinator.acceptAssociatedObservations(accepted, selectedPoints: points)
     let selection = try coordinator.stageProposal(
       capCameraFromMachine: machineRegistration.fit.cameraFromMachine
     )
@@ -7619,7 +7528,9 @@ final class OperatorWorkspace {
       restoreInteractiveLearningCompletionFromEvidence()
       proposedTipCameraRegistration = nil
       sparseTipCalibrationCoordinator = coordinator
-      activeLearningSession.toolContactSelection.clear()
+      frozenPointSelectionFrame = nil
+      pendingToolContactEvidence = []
+      Task { @MainActor [weak self] in await self?.cancelPointSelectionRequest() }
       recoverableTipCalibrationCheckpoint = nil
       persistAcceptedLearningPathCheckpoint(tipCalibration: checkpoint, clearStageFour: true)
       finishActiveExerciseAttempt(disposition: .succeeded)
@@ -8164,32 +8075,89 @@ final class OperatorWorkspace {
     }
   }
 
-  var learningModeActionTitle: String {
-    learningIsEnabled ? "Turn Learning Off" : "Turn Learning On"
+  var learningModePresentation: LearningModePresentation {
+    let availability = PlotterLearningIntentRules.modeAvailability(
+      targetIsEnabled: !learningIsEnabled,
+      exactPointSelection: pointSelectionEpisodeProjection.exactPointSelection,
+      activityFact: learningActivityFact(revision: learningActivityFactRevision)
+    )
+    return LearningModePresentation(
+      isEnabled: learningIsEnabled,
+      actionTitle: learningIsEnabled ? "Turn Learning Off" : "Turn Learning On",
+      refusalRequirement: availability.refusalRequirement,
+      refusalOwner: availability.refusalOwner,
+      remedy: availability.refusalRemedy,
+      recordingDiagnostic: pointSelectionRecordingDiagnostic
+    )
   }
 
-  var learningModeChangeUnavailableReason: String? {
-    guard learningIsEnabled else { return nil }
-    if currentCameraCalibrationPhase != nil {
-      return "Stop or finish current-camera calibration before turning Learning off."
+  func submitLearningModeChange() {
+    let next = !learningIsEnabled
+    let pointSelectionOwner = activePointSelectionActivityOwner
+    Task { @MainActor [weak self] in
+      guard let self else { return }
+      do {
+        let projection = try await pointSelectionRuntime.setLearningEnabled(
+          next,
+          activityFactProvider: self
+        )
+        let retainedExactOwner = activePointSelectionActivityOwner == pointSelectionOwner
+        installPointSelectionProjection(projection)
+        if !next, !projection.learningIsEnabled {
+          frozenPointSelectionFrame = nil
+          pendingToolContactEvidence = []
+          if let pointSelectionOwner,
+            retainedExactOwner,
+            let pointSelectionOwnerID = activeExerciseAttemptOwnerID
+          {
+            await cancelExerciseAttempt(
+              pointSelectionOwnerID,
+              expectedAttemptID: ExerciseAttemptID(
+                rawValue: pointSelectionOwner.exerciseAttemptID
+              )
+            )
+          }
+        }
+      } catch {
+        learningAuthorityError = actionableDescription(error)
+      }
     }
-    if activeExerciseAttemptOwnerID != nil || activeDiscoverySequenceID != nil
-      || activeExplorationOperation != nil
-    {
-      return "Cancel or finish the active Learning attempt before turning Learning off."
-    }
-    if let target = activeStopTarget, !isManualStopTarget(target) {
-      return "Stop or finish the active Learning motion before turning Learning off."
-    }
-    return nil
   }
 
-  func toggleLearningMode() {
-    guard learningModeChangeUnavailableReason == nil else { return }
-    if learningIsEnabled {
-      cancelPenCapAcceptedClickContinuation()
-    }
-    learningIsEnabled.toggle()
+  func currentLearningActivityFact() async -> PlotterLearningActivityFact {
+    learningActivityFactRevision &+= 1
+    return learningActivityFact(revision: learningActivityFactRevision)
+  }
+
+  private func learningActivityFact(revision: UInt64) -> PlotterLearningActivityFact {
+    return PlotterLearningActivityFact(
+      owner: EpisodeAuthorityID(rawValue: "OperatorWorkspace.LearningActivityAdapter"),
+      revision: CapabilityFactRevision(rawValue: revision),
+      activeCameraCalibration: currentCameraCalibrationPhase != nil,
+      activeAttempt: activeExerciseAttemptOwnerID != nil,
+      activeDiscovery: activeDiscoverySequenceID != nil,
+      activeExploration: activeExplorationOperation != nil,
+      activeLearningMotion: activeStopTarget.map { !isManualStopTarget($0) } ?? false,
+      pointSelectionOwner: activePointSelectionActivityOwner
+    )
+  }
+
+  private var activePointSelectionActivityOwner: PlotterPointSelectionActivityOwner? {
+    let exactSelection = pointSelectionEpisodeProjection.exactPointSelection
+    let exactSelectionIsCancellable = exactSelection.phase == .collecting
+      || (exactSelection.phase == .continuing && exactSelection.continuationIsActive)
+    guard
+      exactSelectionIsCancellable,
+      let selectionID = exactSelection.request?.id,
+      let attemptID = activeExerciseAttemptID,
+      activeExerciseAttemptOwnerID == .humanGuidedDiscovery(.penInteraction)
+        || activeExerciseAttemptOwnerID
+          == .humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
+    else { return nil }
+    return PlotterPointSelectionActivityOwner(
+      selectionID: selectionID,
+      exerciseAttemptID: attemptID.rawValue
+    )
   }
 
   var machinePositionText: String {
@@ -9068,8 +9036,12 @@ final class OperatorWorkspace {
   func startDiscoverySequence(_ sequenceID: DiscoverySequenceID) async {
     guard discoveryStartUnavailableReason(for: sequenceID) == nil else { return }
     if sequenceID == .penInteraction {
+      let exactPointSelection = pointSelectionEpisodeProjection.exactPointSelection
+      let isCollectingPenCapSelection =
+        exactPointSelection.request?.purpose == .penCapAppearance
+        && exactPointSelection.phase == .collecting
       guard penCapAppearanceSelection != nil,
-        penCapAppearanceSelectionContext == nil
+        !isCollectingPenCapSelection
       else {
         let reason =
           "Identify Pen Cap must be completed before pen-position calibration begins."
@@ -10516,7 +10488,7 @@ final class OperatorWorkspace {
       cameraError = reason
       return
     }
-    cancelPenCapAcceptedClickContinuation()
+    await cancelPointSelectionRequest()
     guard let cameraActions else { return }
     frameModeSwitchInProgress = true
     defer { frameModeSwitchInProgress = false }
@@ -10621,11 +10593,13 @@ final class OperatorWorkspace {
     lifetimeGeneration &+= 1
     let learningAction = activeLearningActionTask
     learningAction?.cancel()
-    let penCapContinuation = cancelPenCapAcceptedClickContinuation()
+    if let selectionID = pointSelectionEpisodeProjection.exactPointSelection.request?.id {
+      await pointSelectionRuntime.cancelContinuation(selectionID: selectionID)
+    }
     stopObserving()
     let calibration = currentCameraCalibrationTask
     calibration?.cancel()
-    await penCapContinuation?.value
+    await pointSelectionRuntime.shutdown()
     await announcementActions?.cancelForShutdown()
     await stopAndSettleActiveMotionForShutdown()
     await calibration?.value
@@ -11215,16 +11189,22 @@ final class OperatorWorkspace {
     }
   }
 
-  private func cancelExerciseAttempt(_ ownerID: LearningPathItemID) async {
-    guard activeExerciseAttemptOwnerID == ownerID else { return }
+  private func cancelExerciseAttempt(
+    _ ownerID: LearningPathItemID,
+    expectedAttemptID: ExerciseAttemptID? = nil
+  ) async {
+    guard activeExerciseAttemptOwnerID == ownerID,
+      expectedAttemptID.map({ activeExerciseAttemptID == $0 }) ?? true
+    else { return }
     let isPreSequencePenInteraction =
       ownerID == .humanGuidedDiscovery(.penInteraction)
       && activeDiscoverySequenceID == nil
-      && (penCapAppearanceSelectionContext != nil
-        || penCapAcceptedClickContinuationTask != nil)
-    var penCapContinuation: Task<Void, Never>?
+      && pointSelectionEpisodeProjection.exactPointSelection.request?.purpose
+        == .penCapAppearance
     if ownerID == .humanGuidedDiscovery(.penInteraction) {
-      penCapContinuation = cancelPenCapAcceptedClickContinuation()
+      if let selectionID = pointSelectionEpisodeProjection.exactPointSelection.request?.id {
+        await pointSelectionRuntime.cancelContinuation(selectionID: selectionID)
+      }
     }
     let boundaryRepeatWithFallback =
       ownerID == .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
@@ -11281,7 +11261,7 @@ final class OperatorWorkspace {
     }
     finishActiveExerciseAttempt(disposition: .cancelled)
     restartableExerciseItemID = boundaryRepeatWithFallback ? nil : ownerID
-    await penCapContinuation?.value
+    await cancelPointSelectionRequest()
   }
 
   private func beginExerciseAttempt(
@@ -11293,10 +11273,11 @@ final class OperatorWorkspace {
 
   private func finishActiveExerciseAttempt(disposition: ExerciseAttemptDisposition) {
     if activeExerciseAttemptOwnerID == .humanGuidedDiscovery(.penInteraction) {
-      cancelPenCapAcceptedClickContinuation()
+      frozenPointSelectionFrame = nil
+      pendingToolContactEvidence = []
+      Task { @MainActor [weak self] in await self?.cancelPointSelectionRequest() }
       activeLearningSession.penActuationDraft = nil
       pendingPenSetpointCommand = nil
-      penCapAppearanceSelectionContext = nil
     }
     if activeExerciseAttemptOwnerID == .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering),
       let attemptID = activeExerciseAttemptID
@@ -11308,7 +11289,9 @@ final class OperatorWorkspace {
     if activeExerciseAttemptOwnerID
       == .humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
     {
-      activeLearningSession.toolContactSelection.clear()
+      frozenPointSelectionFrame = nil
+      pendingToolContactEvidence = []
+      Task { @MainActor [weak self] in await self?.cancelPointSelectionRequest() }
     }
     activeLearningSession.exerciseAttempt.finish()
   }
@@ -12321,7 +12304,9 @@ final class OperatorWorkspace {
     tipCameraRegistration = nil
     proposedTipCameraRegistration = nil
     sparseTipCalibrationCoordinator = freshSparseTipCalibrationCoordinatorForCurrentPaper()
-    activeLearningSession.toolContactSelection.clear()
+    frozenPointSelectionFrame = nil
+    pendingToolContactEvidence = []
+    Task { @MainActor [weak self] in await self?.cancelPointSelectionRequest() }
     recoverableTipCalibrationCheckpoint = nil
     persistAcceptedLearningPathCheckpoint(clearTip: true, clearStageFour: true)
     clearDrawingLearningForRewind(from: .chooseDrawingBorderPlan)
@@ -12333,8 +12318,9 @@ final class OperatorWorkspace {
   }
 
   private func clearPenLearningForRewind() {
-    cancelPenCapAcceptedClickContinuation()
-    penCapAppearanceSelectionContext = nil
+    frozenPointSelectionFrame = nil
+    pendingToolContactEvidence = []
+    Task { @MainActor [weak self] in await self?.cancelPointSelectionRequest() }
     mutateActiveLearningSession { session in
       session.discoveryTransactions.removeValue(forKey: .penInteraction)
       session.penActuationProfile = .initialDefaults
@@ -12394,7 +12380,9 @@ final class OperatorWorkspace {
       tipCameraRegistration = nil
       proposedTipCameraRegistration = nil
       sparseTipCalibrationCoordinator = freshSparseTipCalibrationCoordinatorForCurrentPaper()
-      activeLearningSession.toolContactSelection.clear()
+      frozenPointSelectionFrame = nil
+      pendingToolContactEvidence = []
+      Task { @MainActor [weak self] in await self?.cancelPointSelectionRequest() }
     }
     overlayResultChannels.clearWorkflow(source: frameMode, owner: .cameraCalibration)
     overlayResultChannels.clearWorkflow(source: frameMode, owner: .sparseTipCalibration)
@@ -12421,8 +12409,7 @@ final class OperatorWorkspace {
   }
 
   private func clearDiscoveryAuthority() async {
-    let penCapContinuation = cancelPenCapAcceptedClickContinuation()
-    await penCapContinuation?.value
+    await cancelPointSelectionRequest()
     await cancelAndSettleDiscoveryMotionBeforeErasure()
     selectedDiscoverySequenceID = .penInteraction
     discoveryTransactions = [:]
@@ -12442,7 +12429,6 @@ final class OperatorWorkspace {
     tipCameraRegistration = nil
     proposedTipCameraRegistration = nil
     sparseTipCalibrationCoordinator = freshSparseTipCalibrationCoordinatorForCurrentPaper()
-    activeLearningSession.toolContactSelection.clear()
     explicitRegistrationCapAnchorEvidence = []
     pendingBoundaryFinalPositions = [:]
     pendingBoundaryOwnerIDs = [:]

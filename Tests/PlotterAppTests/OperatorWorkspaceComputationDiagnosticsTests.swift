@@ -92,9 +92,11 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
     expectParity(.humanGuidedDiscovery(.penInteraction))
     await workspace.performMotionAuthorizationAction()
     expectParity(.humanGuidedDiscovery(.penInteraction))
-    workspace.toggleLearningMode()
+    workspace.submitLearningModeChange()
+    try await waitUntil { !workspace.learningIsEnabled }
     expectParity(.humanGuidedDiscovery(.penInteraction))
-    workspace.toggleLearningMode()
+    workspace.submitLearningModeChange()
+    try await waitUntil { workspace.learningIsEnabled }
     expectParity(.humanGuidedDiscovery(.penInteraction))
     await workspace.shutdown()
   }
@@ -180,14 +182,12 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
     let request = try #require(workspace.actionSurfacePresentation.pointSelectionRequest)
     for mark in plan.marks {
       let predicted = try registration.fit.cameraPoint(from: mark.machinePosition.point)
-      workspace.selectToolContactPoint(
-        ActionSurfacePointSelection(
-          frame: request.frame,
-          point: try Point2(
-            x: min(max(predicted.x, 0), Double(request.frame.width - 1)),
-            y: min(max(predicted.y, 0), Double(request.frame.height - 1))
-          ),
-          presentationTransformRevision: request.presentationTransformRevision
+      try await submitPointSelectionAndWait(
+        workspace,
+        request: request,
+        point: try Point2(
+          x: min(max(predicted.x, 0), Double(request.frame.width - 1)),
+          y: min(max(predicted.y, 0), Double(request.frame.height - 1))
         )
       )
     }
@@ -196,7 +196,7 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
     }
     #expect(
       observations.count == 4,
-      "phase=\(workspace.sparseTipCalibrationCoordinator.phase) error=\(workspace.explorationError ?? "nil") clicks=\(workspace.sparseTipCalibrationCoordinator.collectedClickCount)"
+      "phase=\(workspace.sparseTipCalibrationCoordinator.phase) error=\(workspace.explorationError ?? "nil") episodePoints=\(workspace.pointSelectionEpisodeProjection.exactPointSelection.selectedPoints.count)"
     )
     #expect(Set(observations.map { $0.controllerContextEvidence.passiveProbeID }).count == 4)
     #expect(

@@ -26,8 +26,9 @@ WAVE_PROTOCOL_PATH = (
 )
 EVIDENCE_PATH = ROOT / "docs" / "CURRENT_EVIDENCE.md"
 ARCHITECTURE_PATH = ROOT / "docs" / "SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md"
+PRODUCT_PATH = ROOT / "docs" / "PRODUCT_CONTRACT.md"
 # Updated in the same package whenever a canonical ledger row changes.
-EXPECTED_LEDGER_SHA256 = "8aae3db95ecaef5b2f4f5d369a98e1d4e07edc378d7590be2fb1fa50ff307bf5"
+EXPECTED_LEDGER_SHA256 = "caad889aba1cff6f17b68adca57ddad5ab4ba1a85c4038cb3f1c771a4031f96c"
 
 
 EXPECTED_GATES = {
@@ -84,7 +85,7 @@ EXPECTED_GATES = {
     ),
     "COMPOSITION": ("`swift test --filter PlotterEpisodeCompositionTests`", "EA-11C"),
     "DELETE": (
-        "`sh Scripts/check_episode_cutover.sh <PACKAGE-ID>` executes the exact zero-match deleted-symbol, forbidden-import, direct-port, duplicate-ingress, task-owner, fixture, and environment-branch scans recorded by EA-01 for that package; any unassigned remaining consumer fails",
+        "`sh Scripts/check_episode_cutover.sh <PACKAGE-ID>` executes the exact zero-match deleted-symbol, forbidden-import, forbidden-conformance, direct-port, duplicate-ingress, task-owner, fixture, and environment-branch scans recorded by EA-01 for that package; any unassigned remaining consumer fails",
         "EA-01",
     ),
     "PHYSICAL-FINAL": (
@@ -176,6 +177,7 @@ EXPECTED_COMPLETE_PACKAGES = {
     "EA-02B",
     "EA-03A",
     "EA-03B",
+    "EA-04",
     "EA-05A",
     "EA-05B",
     "EA-05C",
@@ -275,11 +277,81 @@ def parse_gate_tokens(cell: str, package_id: str) -> list[str]:
     return re.findall(r"`([A-Z][A-Z0-9-]*)`", cell)
 
 
+def validate_product_contract(text: str) -> None:
+    normalized = re.sub(r"\s+", " ", text)
+    for required_phrase in (
+        "The sole active-work exception is EA-04 point selection",
+        "Learning Off may itself typed-cancel only the exact point-selection/pen-cap continuation owner bound by both its selection ID and exercise-attempt token",
+        "It awaits that same owner to settlement and re-evaluates the exact owner after suspension before committing Off",
+        "A successor attempt token, another selection, or unrelated Learning, calibration, exploration, motion, or attempt work typed-refuses with the existing Cancel/Stop remedy",
+        "This exception does not authorize Learning Off to cancel physical motion or any other owner and does not weaken operator or safety authority",
+        "Every other active Learning attempt must finish or use its existing Cancel/Stop contract before Learning can be turned off",
+    ):
+        if required_phrase not in normalized:
+            fail(f"Product Contract is missing the exact Learning-Off exception: {required_phrase}")
+
+
 def validate_architecture(text: str) -> None:
     normalized = re.sub(r"\s+", " ", text)
     for required_phrase in (
         "PlotterEpisodeRuntime -> EpisodeCore + EpisodeRuntime + PlotterEpisodeModel + PlotterRuntime",
         "`PlotterEpisodeRuntime` depends inward only on `EpisodeCore`, `EpisodeRuntime`, `PlotterEpisodeModel`, and `PlotterRuntime`",
+        "`PlotterIntentGateway` evaluates each typed point-selection or Learning-mode intent",
+        "`PlotterLearningIntentRules.modeAvailability` is the one pure Learning-mode availability rule",
+        "`submitLearningModeChange` has no local guard or early return",
+        "every operator click reaches the runtime, which commits the typed acceptance or refusal event",
+        "there is no silent no-op or second semantic owner",
+        "`PlotterPointSelectionRuntime` is the single actor owner for the point-selection `EpisodeStore`",
+        "Its FIFO mutation/publication boundary covers mutations and projection reads",
+        "a concurrent mutation re-evaluates the state serialized by the one ahead of it",
+        "`PointSelectionJournalPersistence` uses a macOS-14-compatible `OSAllocatedUnfairLock` compare-and-swap commit",
+        "the episode model/runtime contain no `@unchecked Sendable` escape hatch",
+        "Production point ingress uses `ExactFramePointSubmissionBuilder.submission`",
+        "point geometry from the current viewport",
+        "identity from the staged request's exact `request.presentationTransformRevision`",
+        "owns no admission authority",
+        "The current request admits and a replaced request receives a typed runtime refusal",
+        "Submission refuses stale identity, source, camera configuration, frame hash/layout, presentation revision/bounds, or capacity",
+        "An accepted selection becomes publicly visible only after the select event, point observation, and accepted operator-assertion evidence have all committed",
+        "the FIFO projection boundary exposes no partial accepted state",
+        "Runtime `PlotterPenCapPointSampler` owns exact-frame color sampling",
+        "an accepted pen-cap result carries that exact `DisplayedFrame` to the app adapter",
+        "Learning Off is one typed accepted intent only when the active work is the EA-04-owned exact selection/pen-cap continuation",
+        "Unrelated calibration, exploration, motion, or exercise-attempt work receives the typed refusal from `PlotterLearningIntentRules.modeAvailability`",
+        "`PlotterPointSelectionRuntime.setLearningEnabled` accepts a typed `PlotterLearningActivityFactProviding` and obtains a fresh fact inside the FIFO boundary for initial evaluation",
+        "It reacquires a fresh fact after exact continuation cancellation before reevaluation",
+        "`OperatorWorkspace` passes the provider through the Task hop rather than capturing a fact before it",
+        "`PlotterPointSelectionActivityOwner(selectionID: PlotterPointSelectionID, exerciseAttemptID: UUID)` binds the exact selection and attempt identity across those initial and post-suspension evaluations",
+        "The same item and selection with a successor attempt token typed-refuses",
+        "`OperatorWorkspace` rechecks the exact attempt identity before post-runtime attempt cancellation",
+        "For a latched continuation, the FIFO remains held while `setLearningEnabled` latches that owner, awaits `registry.stop`, and privately clears the runtime continuation handle without publishing episode-state mutation",
+        "reevaluates the bound exact owner against the still-private `.continuing` plus `continuationIsActive` state",
+        "An admitted Off event clears selection; a successor or unrelated refusal publishes continuation inactive and then its final typed refusal behind the same boundary",
+        "preserving transaction-complete public state and nonrevival",
+        "For that continuation path, `setLearningEnabled` returns only after registry settlement and final publication",
+        "no replacement settlement helper, poll, sleep, or state exists",
+        "Tests use the immutable returned/current projection and observable continuation-port state",
+        "The model exception independently requires `.collecting` or `.continuing` with `continuationIsActive`",
+        "`OperatorWorkspace` emits the owner only in those phases",
+        "Retained `.accepted` Pen first-question/discovery and sparse batch/calibration attempts typed-refuse even with a matching supplied owner",
+        "Recording failure remains a visible nonblocking diagnostic and never promotes evidence",
+        "`PlotterPointSelectionIntentSink`",
+        "`PlotterLearningModeIntentSink`",
+        "`UI.learningModePresentation` consumer is inventory item UI-008, scheduled for the EA-09 presentation cutover",
+        "The deleted `PointSelectionPresentationContext` cannot copy a request or re-decide admission",
+        "`frozenPointSelectionFrame` holds pixels for UI presentation only",
+        "`pendingToolContactEvidence` remains adapter data for the retained sparse-tip calibration fit",
+        "The app cancellation helper is async and awaits the runtime owner",
+        "Application Support `AdaptivePlotter/EpisodeRecordings/<recording UUID>`",
+        "64-unique-frame, 512 MiB bound",
+        "eleven focused PlotterPointSelectionEpisodeTests",
+        "The deleted `submitCurrentPenCapPoint` and `OperatorWorkspace.awaitPenCapAcceptedClickTransition` helpers",
+        "focused tests use generic submissions and bounded observable-state waits",
+        "The deleted `awaitContinuationSettlement` task-owner/polling helper has no replacement helper, poll, sleep, or state",
+        "`ActionSurface` sends only its inverse-transformed click submission through the click-only `PlotterPointSelectionIntentSink`",
+        "Retained `OperatorWorkspace` action adapters invoke the same runtime/store authority for undo, clear, and cancel",
+        "those actions do not originate in `ActionSurface` or the click-only sink protocol",
+        "`SparseTipCalibrationCoordinator` retains the machine-position association, fit, calibration acceptance, and artifact graph",
         "Its sealed `PlotterEpisodeReplayExecutableDescriptor` is instantiated only by the private `PlotterEpisodeReplayExecutableAdapter`",
         "`PlotterEpisodeCanonicalDigestV1.revision` before any prefix reduction",
         "Effect-lifecycle-invalid prefixes fail closed and are not published",
@@ -458,6 +530,15 @@ def validate_plan(text: str) -> dict[str, dict[str, object]]:
             "retain the full terminal record",
             "add no journal store, device adapter, or app caller",
         ),
+        "EA-04": (
+            "transfer exact-frame human point-selection authority",
+            "one FIFO mutation/publication boundary",
+            "serialized re-evaluation, transaction-complete selection/observation/evidence publication",
+            "exact-owner Learning-Off cancellation, typed refusal for unrelated work",
+            "EA-05A camera recording, and an invokable remedy-bearing Learning button",
+            "delete old selection state, presentation-context/admission copies, Task-returning cancellation, continuations, closures, guards, and fixtures",
+            "Delivered by `TASK-A5FF364B`",
+        ),
         "EA-05A": (
             "one unbound lossless `EpisodeRecordingStore` service",
             "add no current-device hook, effect port, or app caller",
@@ -591,6 +672,12 @@ def validate_plan(text: str) -> dict[str, dict[str, object]]:
         "`EA-01` may not add, remove, combine, split, or reorder packages.",
         "`EA-11C` makes the gateway the globally exclusive effect-bearing/domain-mutation ingress",
         "`GATE-02` only verifies that landed fact",
+        "This table remains the immutable EA-01 characterization baseline after assigned WorkPackages land",
+        "A `delete` row assigned to any completed package in the inventory's assignable WorkPackage set is historical deletion authority",
+        "excludes only those completed assignable `delete` rows from live source-presence equality",
+        "Rows assigned to pending WorkPackages, plus every `retain` or `adapt` row regardless of package status, remain live-presence obligations",
+        "`UI.learningModePresentation`",
+        "`learningModePresentation` is projection-only and adds no Learning decision or mutation authority",
         "Wave selection takes the first eligible row in this table's literal order",
         "`attended-physical` and `remote-git` still require their own explicit package and execution-class authorization",
     ):
@@ -876,6 +963,122 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
         if required_phrase not in text:
             fail(f"EA-05C completion evidence is missing: {required_phrase}")
 
+    for required_phrase in (
+        "Episode point-selection cutover",
+        "`TASK-A5FF364B`",
+        "`PlotterIntentGateway` is the stateless typed decision boundary",
+        "`PlotterPointSelectionRuntime` is the single actor owner",
+        "`EpisodeStore<PlotterEpisodeReducer, PointSelectionJournalPersistence>`",
+        "`PlotterOperationRegistry`",
+        "One FIFO mutation/publication boundary surrounds",
+        "one copied admission decision",
+        "`PlotterLearningIntentRules.modeAvailability` is the one pure availability rule",
+        "`submitLearningModeChange` has no local guard",
+        "runtime commits either its typed acceptance or typed refusal with a visible remedy",
+        "`plotter-point-selection-journal-v1`",
+        "`PointSelectionJournalPersistence` retains the `plotter-point-selection-journal-v1` schema and uses a macOS-14-compatible `OSAllocatedUnfairLock` compare-and-swap commit",
+        "The episode model and runtime contain no `@unchecked Sendable` escape hatch",
+        "`AdaptivePlotter/EpisodeRecordings/<recording UUID>`",
+        "64-unique-frame, 512 MiB retention policy",
+        "Store startup failure and per-stage archival failure remain visible nonblocking diagnostics",
+        "Recording is never safety, evidence, or exact-frame authority",
+        "Submission fails closed before mutation",
+        "The production ActionSurface click path uses `ExactFramePointSubmissionBuilder.submission`",
+        "point geometry comes from the current viewport, while authority identity comes from the staged request's exact `request.presentationTransformRevision`; the builder owns no admission authority",
+        "The current request admits and a replaced request typed-refuses at the runtime boundary",
+        "One accepted selection becomes publicly visible only after the select event, point observation, and accepted `PlotterEvidence` with class `.operatorAssertion` have all committed",
+        "no caller can observe a partially committed accepted selection",
+        "Pen-cap sampling is owned by runtime `PlotterPenCapPointSampler`",
+        "accepted result carries the exact `DisplayedFrame` used for sampling to the app adapter",
+        "The button remains invokable when refusal is predicted, displays that remedy, and has no local guard or silent no-op",
+        "`PlotterPointSelectionRuntime.setLearningEnabled` accepts a typed `PlotterLearningActivityFactProviding`, obtains a fresh fact inside the FIFO boundary for initial evaluation, and reacquires a fresh fact after exact continuation cancellation before reevaluation",
+        "`OperatorWorkspace` passes that provider through the Task hop instead of capturing an activity fact before the hop",
+        "`PlotterPointSelectionActivityOwner(selectionID: PlotterPointSelectionID, exerciseAttemptID: UUID)` binds the exact owner used by both the initial and post-suspension fresh-fact evaluations",
+        "The same item and selection with a successor exercise-attempt token typed-refuses",
+        "workspace rechecks that exact attempt identity before post-runtime attempt cancellation",
+        "Learning Off is admitted only as the one typed accepted click that owns EA-04 exact selection/pen-cap continuation",
+        "For a latched continuation, the FIFO boundary remains held while the runtime latches that exact owner, awaits `registry.stop`, and privately clears the runtime continuation handle without publishing episode-state mutation",
+        "gateway reevaluates the bound exact owner against the still-private `.continuing` plus `continuationIsActive` state",
+        "An admitted Off commit clears the selection",
+        "A successor or unrelated refusal first publishes inactive continuation and then the final typed refusal behind the same FIFO boundary",
+        "no caller sees partial state and later settlement cannot revive the continuation",
+        "For that continuation path, `setLearningEnabled` returns only after registry settlement and final publication",
+        "there is no replacement settlement helper, poll, sleep, or state variable",
+        "Focused tests assert the immutable returned/current projection plus observable continuation-port state",
+        "`PlotterLearningIntentRules.modeAvailability` independently admits the exact exception only for `.collecting` or for `.continuing` with `continuationIsActive`",
+        "`OperatorWorkspace` emits a point-selection activity owner only for those same phases",
+        "Retained `.accepted` Pen first-question/discovery and sparse batch/calibration attempts typed-refuse even when a caller supplies a matching owner",
+        "Unrelated calibration, exploration, motion, or exercise-attempt work instead typed-refuses through the sole pure `PlotterLearningIntentRules.modeAvailability` rule",
+        "`PlotterPointSelectionIntentSink`",
+        "`ActionSurface` sends only inverse-transformed click submissions through the click-only `PlotterPointSelectionIntentSink`",
+        "Retained `OperatorWorkspace` undo, clear, and cancel action adapters invoke the same runtime/store authority",
+        "those actions do not originate in `ActionSurface` or the sink protocol",
+        "`PlotterLearningModeIntentSink`",
+        "`learningModePresentation` is projection-only",
+        "`UI.learningModePresentation` consumer is retained under inventory item UI-008",
+        "future EA-09 presentation cutover",
+        "`PointSelectionPresentationContext`, its copied request/admission comparison, and the Task-returning app cancellation helper are deleted",
+        "`submitCurrentPenCapPoint` and `OperatorWorkspace.awaitPenCapAcceptedClickTransition` are also deleted",
+        "focused tests use generic point submissions and bounded observable-state waits",
+        "`frozenPointSelectionFrame` bytes remain presentation-only",
+        "`pendingToolContactEvidence` remains adapter data for the retained sparse-tip calibration fit",
+        "app cancellation helper is now async and awaits the runtime owner directly",
+        "`SparseTipCalibrationCoordinator` retains machine-position association",
+        "`CameraCapture` still owns device discovery, capture, and exact stamped frames",
+        "discovered and passed 11/11 tests, exit 0",
+        "0.23-second build, 0 failed, suite 0.206 seconds, run 0.206 seconds, and no warnings or errors",
+        "The app-level direct-authority test deterministically holds camera reconfiguration until projection is `.continuing` with `continuationIsActive`",
+        "proves Learning Off cancels the exact attempt without changing machine authorization or accepted artifacts",
+        "Settled accepted-request refusal remains separate focused coverage",
+        "concurrent FIFO re-evaluation; transaction-complete public projection",
+        "Static inspection found 29 capsule/checker test methods",
+        "The untracked focused file contains eleven `@Test` methods",
+        "adds eleven net Swift tests to the preceding 644/654 baselines",
+        "`QUICK` 655/655",
+        "`STRICT` 665/665",
+        "all 36 exact EA-04 cutover scans have zero matches",
+        "`submitCurrentPenCapPoint`",
+        "`OperatorWorkspace.awaitPenCapAcceptedClickTransition`",
+        "scoped `@unchecked Sendable` prohibition across the episode model and runtime",
+        "task-owner/polling semantic-deletion scan also proves `awaitContinuationSettlement` is absent from the episode runtime and tests",
+        "prior fresh read-only critic returned `RETASK` with 2/10 dimensions passing; it was not a pass or final verdict",
+        "later fresh read-only critic returned `RETASK` with 5/10 dimensions passing (4, 5, 7, 8, and 10)",
+        "subsequent fresh read-only critic also returned `RETASK` with 5/10 dimensions passing (3, 4, 5, 8, and 10)",
+        "A fourth fresh read-only critic returned `RETASK` with 8/10 dimensions passing (1, 2, 3, 4, 5, 6, 8, and 10)",
+        "failures in dimensions 7 and 9 required the waiter deletion and canonical corrections recorded here",
+        "Those four pre-`ACCEPT` `RETASK` results remain nonpasses and accepted/retasked slice evidence; none is rewritten as a pass or final verdict",
+        "An earlier fresh read-only critic returned `ACCEPT`: all 10/10 dimensions passed",
+        "Its permitted `make docs-check` passed the documentation and architecture contracts plus 29/29 documentation/checker tests, and `git diff --check` was clean",
+        "It did not rerun SwiftPM and ended exactly `UNANIMOUS PASS — no material disagreement`",
+        "preceding final-tree critic returned `RETASK` with 9/10 dimensions passing (1, 2, 3, 4, 5, 6, 7, 8, and 10)",
+        "dimension 9 failed on the canonical Product Contract contradiction",
+        "earlier 10/10 `ACCEPT` is preserved as history but superseded as the final landing verdict by that later contradiction",
+        "latest fresh critic returned `RETASK` with 7/10 dimensions passing (1, 2, 4, 5, 7, 8, and 10)",
+        "dimensions 3, 6, and 9 failed on the settled-owner runtime and canonical-description mismatch",
+        "After the settled-owner and Product Contract corrections, the current final fresh critic returned `ACCEPT`: all 10/10 dimensions passed",
+        "For this current verdict, permitted `make docs-check` passed the documentation and architecture contracts plus 29/29 documentation/checker tests, and `git diff --check` was clean",
+        "The critic did not rerun SwiftPM and ended exactly `UNANIMOUS PASS — no material disagreement`",
+        "No transient critic report, including the current final report, is checked in",
+        "After this landing, `EA-06` is the first eligible ordinary WorkPackage",
+        "Affected: Product Contract, Episode Architecture Execution Plan, Current Evidence, Swift Architecture, the executable episode contract checker, executable inventory checker, and capsule fixtures",
+        "`Scripts/check_episode_inventory.py` adds completed-package retirement behavior",
+        "admits the scoped `forbidden-conformance` scan class",
+        "`Scripts/test_episode_wave_capsule.py` advances the frontier fixture from `EA-04` to `EA-06`",
+        "Reviewed no change — Discovery and Observed-Trial Protocol and Learning Path Button Transitions",
+        "bounded inspection found no conflicting global Learning-Off admission statement",
+        "both retain button-owned Cancel/Stop and the existing exercise flow without weakening operator authority",
+        "Reviewed no change — Episode Architecture Vocabulary",
+        "Reviewed no change — Attended Hardware Runbook and Roadmap",
+        "Reviewed no change — `AGENTS.md`, `blackdog.toml`, `.gitignore`",
+        "static capsule/checker method count remains 29",
+        "documentation and architecture contracts plus 29/29 documentation/checker tests passed with no warnings",
+        "655/655 tests passed with exactly 10 configured exclusions and no warnings",
+        "665/665 Swift tests plus 29/29 documentation/checker tests passed with zero exclusions or warnings",
+        "`package EA-04 complete; migration remains incomplete`",
+    ):
+        if required_phrase not in text:
+            fail(f"EA-04 completion evidence is missing: {required_phrase}")
+
     historical_section = re.search(
         r"^## Historical: initial canonical episode migration documentation$(.*?)(?=^## |\Z)",
         text,
@@ -941,11 +1144,11 @@ def validate_wave_frontier(
     blockers = parse_wave_admission_blockers(evidence, rows)
     selected = ordinary_wave_frontier(rows, set(blockers))
     if selected is not None:
-        if selected != "EA-04":
+        if selected != "EA-06":
             fail(f"unexpected current ordinary wave frontier: {selected}")
         for phrase in (
-            "Episode incident package foundation",
-            "After this landing, `EA-04` is the first eligible ordinary WorkPackage.",
+            "Episode point-selection cutover",
+            "After this landing, `EA-06` is the first eligible ordinary WorkPackage.",
             "The retired `PHYSICAL-BASE` result is `failed`",
         ):
             if phrase not in evidence:
@@ -1066,7 +1269,9 @@ def main() -> int:
         wave_skill = WAVE_SKILL_PATH.read_text(encoding="utf-8")
         wave_protocol = WAVE_PROTOCOL_PATH.read_text(encoding="utf-8")
         evidence = EVIDENCE_PATH.read_text(encoding="utf-8")
+        product = PRODUCT_PATH.read_text(encoding="utf-8")
         validate_vocabulary(vocabulary)
+        validate_product_contract(product)
         rows = validate_plan(plan)
         validate_evidence(evidence, rows)
         validate_wave_frontier(rows, evidence)

@@ -1,4 +1,6 @@
+import EpisodeCore
 import Foundation
+import PlotterEpisodeModel
 import PlotterModel
 import Testing
 
@@ -362,15 +364,25 @@ extension OperatorWorkspaceTests {
       relativeJogSettlementOffset: try Vector2(dx: 0, dy: 0)
     )
     let camera = try CameraFixture()
-    let workspace = workspace(machine: machine, camera: camera, log: log)
+    let reconfigurationGate = CameraReconfigurationGate()
+    let workspace = workspace(
+      machine: machine,
+      cameraActionsOverride: cameraActions(
+        camera,
+        reconfigurationGate: reconfigurationGate
+      ),
+      log: log
+    )
     await workspace.establishMachineSession(machine.descriptor)
     await workspace.requestPassiveProbe()
     let revisions = workspace.learningArtifactGraph.revisions
-
-    workspace.toggleLearningMode()
+    workspace.submitLearningModeChange()
+    try await waitUntil { !workspace.learningIsEnabled }
 
     #expect(!workspace.learningIsEnabled)
-    #expect(workspace.learningModeActionTitle == "Turn Learning On")
+    #expect(workspace.pointSelectionEpisodeProjection.currentReason == nil)
+    #expect(workspace.learningAuthorityError == nil)
+    #expect(workspace.learningModePresentation.actionTitle == "Turn Learning On")
     #expect(workspace.controllerSessionEstablished)
     #expect(workspace.motionAuthorizationEnabled)
     #expect(workspace.motionUnavailableReason == nil)
@@ -385,7 +397,8 @@ extension OperatorWorkspaceTests {
     #expect(await machine.requestedDrawingStrokes.isEmpty)
     #expect(workspace.machinePositionText == "X 50.000   Y 0.000")
 
-    workspace.toggleLearningMode()
+    workspace.submitLearningModeChange()
+    try await waitUntil { workspace.learningIsEnabled }
     #expect(workspace.learningIsEnabled)
 
     await workspace.startCamera()
@@ -395,15 +408,51 @@ extension OperatorWorkspaceTests {
       for: .humanGuidedDiscovery(.penInteraction)
     )
     #expect(workspace.activeExerciseAttemptOwnerID != nil)
-    #expect(workspace.learningModeChangeUnavailableReason != nil)
-    workspace.toggleLearningMode()
-    #expect(workspace.learningIsEnabled)
-    await workspace.performExerciseAction(
-      .cancel,
-      for: .humanGuidedDiscovery(.penInteraction)
+    let exactRequestID = try #require(
+      workspace.pointSelectionEpisodeProjection.exactPointSelection.request?.id
     )
-    workspace.toggleLearningMode()
+    let pointRequest = try #require(workspace.actionSurfacePresentation.pointSelectionRequest)
+    let displayedFrame = try #require(workspace.actionSurfacePresentation.displayedFrame)
+    await reconfigurationGate.arm()
+    submitPointSelection(
+      workspace,
+      request: pointRequest,
+      point: try Point2(
+        x: Double(displayedFrame.frame.width - 1) / 2,
+        y: Double(displayedFrame.frame.height - 1) / 2
+      )
+    )
+    do {
+      try await waitUntilAsync {
+        let reconfigurationIsWaiting = await reconfigurationGate.isWaiting
+        let exactSelection = workspace.pointSelectionEpisodeProjection.exactPointSelection
+        return reconfigurationIsWaiting
+          && exactSelection.phase == .continuing
+          && exactSelection.continuationIsActive
+      }
+    } catch {
+      await reconfigurationGate.release()
+      throw error
+    }
+    #expect(workspace.penCapAppearanceSelection != nil)
+    let activePresentation = workspace.learningModePresentation
+    #expect(activePresentation.refusalRequirement == nil)
+    #expect(activePresentation.refusalOwner == nil)
+    #expect(activePresentation.remedy == nil)
+    workspace.submitLearningModeChange()
+    await reconfigurationGate.release()
+    try await waitUntil {
+      !workspace.learningIsEnabled && workspace.activeExerciseAttemptOwnerID == nil
+    }
     #expect(!workspace.learningIsEnabled)
+    #expect(workspace.pointSelectionEpisodeProjection.exactPointSelection.request == nil)
+    #expect(!workspace.pointSelectionEpisodeProjection.exactPointSelection.continuationIsActive)
+    #expect(workspace.activeExerciseAttemptOwnerID == nil)
+    #expect(
+      workspace.pointSelectionEpisodeProjection.exactPointSelection.request?.id != exactRequestID
+    )
+    #expect(!workspace.learningIsEnabled)
+    #expect(workspace.activeDiscoverySequenceID == nil)
     await workspace.shutdown()
   }
 

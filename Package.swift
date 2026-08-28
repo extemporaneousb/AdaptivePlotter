@@ -34,7 +34,10 @@ let package = Package(
     ),
     .executableTarget(
       name: "PlotterApp",
-      dependencies: ["PlotterModel", "PlotterRuntime"]
+      dependencies: [
+        "EpisodeCore", "PlotterEpisodeModel", "PlotterEpisodeRuntime", "PlotterModel",
+        "PlotterRuntime",
+      ]
     ),
     .target(
       name: "PlotterTestSupport",
@@ -73,7 +76,10 @@ let package = Package(
     ),
     .testTarget(
       name: "PlotterAppTests",
-      dependencies: ["PlotterApp", "PlotterRuntime", "PlotterTestSupport"]
+      dependencies: [
+        "EpisodeCore", "PlotterApp", "PlotterEpisodeModel", "PlotterEpisodeRuntime",
+        "PlotterRuntime", "PlotterTestSupport",
+      ]
     ),
   ],
   swiftLanguageModes: [.v5]

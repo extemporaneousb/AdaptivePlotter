@@ -22,6 +22,14 @@ INVENTORY_HEADER = [
     "Focused command",
 ]
 SCAN_HEADER = ["Package", "Scan class", "Paths", "Zero-match literal"]
+LEDGER_HEADER = [
+    "ID",
+    "Status",
+    "Dependencies",
+    "Class",
+    "Atomic package outcome",
+    "Required gates",
+]
 
 CATEGORIES = {
     "semantic-intent",
@@ -86,6 +94,7 @@ FOCUSED_COMMANDS = {
 SCAN_CLASSES = {
     "deleted-symbol",
     "forbidden-import",
+    "forbidden-conformance",
     "direct-port",
     "duplicate-ingress",
     "task-owner",
@@ -370,15 +379,34 @@ def scan_rows(plan: str) -> list[dict[str, str]]:
     return result
 
 
+def completed_assignable_packages(plan: str) -> set[str]:
+    completed: set[str] = set()
+    for package_id, status, _dependencies, _execution_class, _outcome, _gates in table(
+        plan, LEDGER_HEADER
+    ):
+        if package_id in ASSIGNABLE_PACKAGES and status == "complete":
+            completed.add(package_id)
+    return completed
+
+
 def validate_manifest() -> tuple[list[dict[str, object]], list[dict[str, str]]]:
     plan = PLAN.read_text(encoding="utf-8")
     rows, _ = inventory_rows(plan)
-    validate_action_cases(rows)
-    validate_guards(rows)
-    validate_ports(rows)
-    validate_tasks(rows)
-    validate_ui_consumers(rows)
-    validate_source_seams(rows)
+    completed_packages = completed_assignable_packages(plan)
+    live_rows = [
+        row
+        for row in rows
+        if not (
+            row["disposition"] == "delete"
+            and row["package"] in completed_packages
+        )
+    ]
+    validate_action_cases(live_rows)
+    validate_guards(live_rows)
+    validate_ports(live_rows)
+    validate_tasks(live_rows)
+    validate_ui_consumers(live_rows)
+    validate_source_seams(live_rows)
     scans = scan_rows(plan)
     return rows, scans
 

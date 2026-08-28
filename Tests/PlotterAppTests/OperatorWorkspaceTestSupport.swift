@@ -1,4 +1,6 @@
 import Foundation
+import PlotterEpisodeModel
+import PlotterEpisodeRuntime
 import PlotterModel
 import PlotterTestSupport
 import Testing
@@ -254,12 +256,11 @@ func completeSimulatedSparseTipCalibration(
   for mark in plan.marks.reversed() {
     let capPoint = try registration.fit.cameraPoint(from: mark.machinePosition.point)
     let truthPoint = try capPoint.translated(by: truthOffset)
-    workspace.selectToolContactPoint(
-      ActionSurfacePointSelection(
-        frame: request.frame,
-        point: truthPoint,
-        presentationTransformRevision: request.presentationTransformRevision
-      ))
+    try await submitPointSelectionAndWait(
+      workspace,
+      request: request,
+      point: truthPoint
+    )
   }
   try await performPublicAction(
     .acceptTipCalibrationProposal,
@@ -311,13 +312,6 @@ func completePenInteraction(_ workspace: OperatorWorkspace) async throws {
 
 @MainActor
 func identifyPenCap(_ workspace: OperatorWorkspace) async throws {
-  try submitPenCapClick(workspace)
-  await workspace.awaitPenCapAcceptedClickTransition()
-  try requireStep(workspace, "answer-initially-up")
-}
-
-@MainActor
-func submitPenCapClick(_ workspace: OperatorWorkspace) throws {
   let request = try #require(workspace.actionSurfacePresentation.pointSelectionRequest)
   let displayed = try #require(workspace.actionSurfacePresentation.displayedFrame)
   #expect(request.purpose == .penCapAppearance)
@@ -336,12 +330,80 @@ func submitPenCapClick(_ workspace: OperatorWorkspace) throws {
       $0.x >= 0 && $0.x < Double(displayed.frame.width)
         && $0.y >= 0 && $0.y < Double(displayed.frame.height) ? $0 : nil
     } ?? fallbackPoint
-  workspace.selectToolContactPoint(
-    ActionSurfacePointSelection(
+  submitPointSelection(workspace, request: request, point: point)
+  try await waitUntil {
+    workspace.activeDiscoverySequenceID == .penInteraction
+      || workspace.discoveryError != nil
+      || workspace.pointSelectionEpisodeProjection.exactPointSelection.request?.id != request.id
+  }
+  try requireStep(workspace, "answer-initially-up")
+}
+
+@MainActor
+func submitPointSelection(
+  _ workspace: OperatorWorkspace,
+  request: PlotterPointSelectionRequest,
+  point: Point2<CameraPixelSpace>
+) {
+  workspace.submitPointSelection(
+    PlotterPointSelectionSubmission(
+      selectionID: request.id,
       frame: request.frame,
       point: point,
       presentationTransformRevision: request.presentationTransformRevision
     )
+  )
+}
+
+@MainActor
+func submitPointSelectionAndWait(
+  _ workspace: OperatorWorkspace,
+  request: PlotterPointSelectionRequest,
+  point: Point2<CameraPixelSpace>
+) async throws {
+  let priorCount = workspace.pointSelectionEpisodeProjection.exactPointSelection.selectedPoints.count
+  let acceptedCount = priorCount + 1
+  let priorDiscoveryError = workspace.discoveryError
+  let priorExplorationError = workspace.explorationError
+  submitPointSelection(workspace, request: request, point: point)
+  try await waitUntil {
+    let selectedCount =
+      workspace.pointSelectionEpisodeProjection.exactPointSelection.selectedPoints.count
+    if let discoveryError = workspace.discoveryError,
+      discoveryError != priorDiscoveryError
+    {
+      return true
+    }
+    if let explorationError = workspace.explorationError,
+      explorationError != priorExplorationError
+    {
+      return true
+    }
+    guard selectedCount >= acceptedCount else { return false }
+    return acceptedCount < request.requiredPointCount
+      || workspace.proposedTipCameraRegistration != nil
+  }
+}
+
+func exactPointSelectionFrame(_ frame: DisplayedFrame) -> PlotterExactFrameReference {
+  let source: PlotterExactFrameSource
+  switch frame.source {
+  case .live(let identity):
+    source = .live(deviceID: identity.rawValue)
+  case .simulated:
+    source = .simulated
+  }
+  return PlotterExactFrameReference(
+    frameID: frame.frame.id.rawValue,
+    frameSHA256: frame.frame.contentSHA256,
+    source: source,
+    cameraConfigurationID: frame.frame.cameraConfigurationID,
+    captureNanoseconds: frame.frame.captureNanoseconds,
+    sequence: frame.frame.sequence,
+    width: frame.frame.width,
+    height: frame.frame.height,
+    rowBytes: frame.frame.rowBytes,
+    pixelFormat: PlotterExactFramePixelFormat(rawValue: frame.frame.pixelFormat.rawValue)!
   )
 }
 
@@ -478,7 +540,7 @@ func testPenCapAppearanceSelection(
     clickPoint: try! Point2(x: 0, y: 0),
     usableSampleCount: 9,
     totalSampleCount: 9,
-    algorithmRevision: PenCapAppearanceSampler.algorithmRevision
+    algorithmRevision: PlotterPenCapPointSampler.algorithmRevision
   )
 }
 

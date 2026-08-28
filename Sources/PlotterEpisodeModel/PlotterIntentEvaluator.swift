@@ -17,6 +17,15 @@ public enum PlotterIntentRequirement: String, Codable, CaseIterable, Hashable, S
   case executionPlanCurrent
   case evidenceAvailable
   case outcomeAvailable
+  case learningEnabled
+  case exactSelectionRequestValid
+  case exactSelectionCurrent
+  case exactSelectionFrameCurrent
+  case presentationTransformCurrent
+  case pointWithinExactFrame
+  case exactSelectionHasCapacity
+  case pointSampleUsable
+  case learningWorkInactive
 
   public var id: EpisodeRequirementID {
     EpisodeRequirementID(rawValue: "plotter.\(rawValue)")
@@ -69,6 +78,8 @@ private enum PlotterRequirementOwner {
   static let plan = EpisodeAuthorityID(rawValue: "PlotterModel.ExecutionPlanRevision")
   static let evidence = EpisodeAuthorityID(rawValue: "PlotterEvidenceAuthority")
   static let outcome = EpisodeAuthorityID(rawValue: "PlotterEpisodeOutcome")
+  static let pointSelection = EpisodeAuthorityID(rawValue: "PlotterPointSelectionAuthority")
+  static let learning = EpisodeAuthorityID(rawValue: "PlotterLearningAuthority")
 }
 
 private func stateRequirement(
@@ -271,17 +282,97 @@ public enum PlotterPointSelectionIntentRules {
     capabilityFacts: [PlotterCapabilityFact]
   ) -> [PlotterIntentRequirementEvaluation] {
     switch intent {
-    case let .select(request):
+    case let .stage(request):
+      let frameIsValid = !request.frame.frameID.isEmpty
+        && request.frame.frameSHA256.count == 64
+        && request.frame.frameSHA256.allSatisfy(\.isHexDigit)
+        && request.frame.width > 0
+        && request.frame.height > 0
+        && request.frame.rowBytes > 0
+        && request.requiredPointCount > 0
       return [
         episodeOpen(state),
+        stateRequirement(
+          .learningEnabled,
+          isSatisfied: state.learningIsEnabled,
+          remedy: "Turn Learning on before starting a point-selection request."
+        ),
         stateRequirement(
           .sourceObservationRecorded,
           isSatisfied: state.observationIDs.contains(request.sourceObservationID),
           remedy: "Capture and commit the exact source observation before selecting its point."
         ),
+        PlotterIntentRequirementEvaluation(
+          requirement: .exactSelectionRequestValid,
+          owner: PlotterRequirementOwner.pointSelection,
+          comparedCapabilityFacts: [],
+          isSatisfied: frameIsValid,
+          remedy: "Freeze a valid exact frame before starting point selection."
+        ),
       ]
-    case .clear:
-      return [episodeOpen(state)]
+    case let .select(submission):
+      let request = state.exactPointSelection.request
+      return [
+        episodeOpen(state),
+        stateRequirement(
+          .learningEnabled,
+          isSatisfied: state.learningIsEnabled,
+          remedy: "Turn Learning on before submitting a point."
+        ),
+        PlotterIntentRequirementEvaluation(
+          requirement: .exactSelectionCurrent,
+          owner: PlotterRequirementOwner.pointSelection,
+          comparedCapabilityFacts: [],
+          isSatisfied: request?.id == submission.selectionID,
+          remedy: "Use the currently presented point-selection request."
+        ),
+        PlotterIntentRequirementEvaluation(
+          requirement: .exactSelectionFrameCurrent,
+          owner: PlotterRequirementOwner.camera,
+          comparedCapabilityFacts: [],
+          isSatisfied: request?.frame == submission.frame,
+          remedy: "Submit the point against the exact frozen frame currently presented."
+        ),
+        PlotterIntentRequirementEvaluation(
+          requirement: .presentationTransformCurrent,
+          owner: PlotterRequirementOwner.pointSelection,
+          comparedCapabilityFacts: [],
+          isSatisfied: request?.presentationTransformRevision
+            == submission.presentationTransformRevision,
+          remedy: "Submit from the current unmodified point-selection presentation."
+        ),
+        PlotterIntentRequirementEvaluation(
+          requirement: .pointWithinExactFrame,
+          owner: PlotterRequirementOwner.pointSelection,
+          comparedCapabilityFacts: [],
+          isSatisfied: submission.point.x >= 0
+            && submission.point.x < Double(request?.frame.width ?? 0)
+            && submission.point.y >= 0
+            && submission.point.y < Double(request?.frame.height ?? 0),
+          remedy: "Select a point inside the exact camera frame."
+        ),
+        PlotterIntentRequirementEvaluation(
+          requirement: .exactSelectionHasCapacity,
+          owner: PlotterRequirementOwner.pointSelection,
+          comparedCapabilityFacts: [],
+          isSatisfied: state.exactPointSelection.phase == .collecting
+            && state.exactPointSelection.selectedPoints.count
+              < (request?.requiredPointCount ?? 0),
+          remedy: "Finish, undo, clear, or cancel the current point-selection request."
+        ),
+      ]
+    case let .undo(selectionID), let .clear(selectionID),
+      let .cancel(selectionID), let .setContinuation(selectionID, _):
+      return [
+        episodeOpen(state),
+        PlotterIntentRequirementEvaluation(
+          requirement: .exactSelectionCurrent,
+          owner: PlotterRequirementOwner.pointSelection,
+          comparedCapabilityFacts: [],
+          isSatisfied: state.exactPointSelection.request?.id == selectionID,
+          remedy: "Use the currently presented point-selection request."
+        ),
+      ]
     }
   }
 }
@@ -334,11 +425,75 @@ public enum PlotterDrawingIntentRules {
   }
 }
 
+public struct PlotterLearningModeAvailability: Hashable, Sendable {
+  public let isAvailable: Bool
+  public let refusalRequirement: PlotterIntentRequirement?
+  public let refusalOwner: EpisodeAuthorityID?
+  public let refusalRemedy: String?
+
+  public init(
+    isAvailable: Bool,
+    refusalRequirement: PlotterIntentRequirement? = nil,
+    refusalOwner: EpisodeAuthorityID? = nil,
+    refusalRemedy: String? = nil
+  ) {
+    self.isAvailable = isAvailable
+    self.refusalRequirement = refusalRequirement
+    self.refusalOwner = refusalOwner
+    self.refusalRemedy = refusalRemedy
+  }
+}
+
 public enum PlotterLearningIntentRules {
+  public static let authority = EpisodeAuthorityID(rawValue: "PlotterLearningAuthority")
+  public static let learningOffRemedy =
+    "Cancel or finish the active Learning attempt before turning Learning off."
+
+  public static func modeAvailability(
+    targetIsEnabled: Bool,
+    exactPointSelection: PlotterExactPointSelectionState,
+    activityFact: PlotterLearningActivityFact?,
+    requiredPointSelectionOwner: PlotterPointSelectionActivityOwner? = nil
+  ) -> PlotterLearningModeAvailability {
+    guard !targetIsEnabled else {
+      return PlotterLearningModeAvailability(isAvailable: true)
+    }
+    // EA-04 point selection, including its exact owner-bound Pen-cap
+    // continuation, is cancellable by the Learning-Off intent itself. Other
+    // calibration, exploration, and motion owners remain refusal authorities.
+    let currentPointSelectionOwner = activityFact?.pointSelectionOwner
+    let ownerMatchesRequired = requiredPointSelectionOwner.map {
+      currentPointSelectionOwner == $0
+    } ?? true
+    let exactSelectionIsCancellable = exactPointSelection.phase == .collecting
+      || (exactPointSelection.phase == .continuing
+        && exactPointSelection.continuationIsActive)
+    let factClaimsCurrentPointSelection = currentPointSelectionOwner != nil
+      && currentPointSelectionOwner?.selectionID == exactPointSelection.request?.id
+      && exactSelectionIsCancellable
+      && ownerMatchesRequired
+    let hasUnrelatedWork = activityFact.map {
+      factClaimsCurrentPointSelection
+        ? $0.hasActiveUnrelatedLearningWork
+        : $0.hasActiveLearningWork
+    } ?? false
+    let isAvailable = !hasUnrelatedWork
+    guard !isAvailable else {
+      return PlotterLearningModeAvailability(isAvailable: true)
+    }
+    return PlotterLearningModeAvailability(
+      isAvailable: false,
+      refusalRequirement: .learningWorkInactive,
+      refusalOwner: activityFact?.owner ?? authority,
+      refusalRemedy: learningOffRemedy
+    )
+  }
+
   public static func requirements(
     for intent: PlotterLearningIntent,
     state: PlotterEpisodeState,
-    capabilityFacts: [PlotterCapabilityFact]
+    capabilityFacts: [PlotterCapabilityFact],
+    requiredPointSelectionOwner: PlotterPointSelectionActivityOwner? = nil
   ) -> [PlotterIntentRequirementEvaluation] {
     switch intent {
     case let .captureSample(configurationID):
@@ -348,6 +503,31 @@ public enum PlotterLearningIntentRules {
       return [
         episodeOpen(state),
         evidenceRequirement(question: .modelFitness, facts: capabilityFacts),
+      ]
+    case let .setEnabled(isEnabled):
+      guard !isEnabled else { return [episodeOpen(state)] }
+      let activity = capabilityFacts.fact(ofKind: .learningActivity)
+      let activityFact: PlotterLearningActivityFact?
+      if case let .learningActivity(value)? = activity {
+        activityFact = value
+      } else {
+        activityFact = nil
+      }
+      let availability = modeAvailability(
+        targetIsEnabled: isEnabled,
+        exactPointSelection: state.exactPointSelection,
+        activityFact: activityFact,
+        requiredPointSelectionOwner: requiredPointSelectionOwner
+      )
+      return [
+        episodeOpen(state),
+        factRequirement(
+          .learningWorkInactive,
+          fact: activity,
+          expectedOwner: availability.refusalOwner ?? authority,
+          isSatisfied: availability.isAvailable,
+          remedy: availability.refusalRemedy ?? learningOffRemedy
+        ),
       ]
     }
   }
@@ -391,6 +571,22 @@ public struct PlotterIntentEvaluator: EpisodeIntentEvaluating {
     intent: PlotterIntent,
     state: PlotterEpisodeState,
     capabilityFacts: [PlotterCapabilityFact]
+  ) -> IntentDecision {
+    evaluate(
+      requestID: requestID,
+      intent: intent,
+      state: state,
+      capabilityFacts: capabilityFacts,
+      requiredLearningPointSelectionOwner: nil
+    )
+  }
+
+  public func evaluate(
+    requestID: IntentRequestID,
+    intent: PlotterIntent,
+    state: PlotterEpisodeState,
+    capabilityFacts: [PlotterCapabilityFact],
+    requiredLearningPointSelectionOwner: PlotterPointSelectionActivityOwner?
   ) -> IntentDecision {
     let orderedFacts = capabilityFacts.sorted { lhs, rhs in
       if lhs.kind.rawValue != rhs.kind.rawValue {
@@ -442,7 +638,8 @@ public struct PlotterIntentEvaluator: EpisodeIntentEvaluating {
       scoped = PlotterLearningIntentRules.requirements(
         for: value,
         state: state,
-        capabilityFacts: orderedFacts
+        capabilityFacts: orderedFacts,
+        requiredPointSelectionOwner: requiredLearningPointSelectionOwner
       )
     case let .evidence(value):
       scoped = PlotterEvidenceIntentRules.requirements(

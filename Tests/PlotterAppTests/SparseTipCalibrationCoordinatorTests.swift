@@ -7,72 +7,40 @@ import Testing
 
 @Suite("Sparse tip calibration coordinator")
 struct SparseTipCalibrationCoordinatorTests {
-  @Test("one batch collects four corner clicks on one frozen frame in arbitrary order")
-  func frozenFrameBatchClicks() throws {
+  @Test("one batch hands one frozen frame to the episode-owned point authority")
+  func frozenFrameBatchBoundary() throws {
     #expect(
       SparseTipCalibrationCoordinator.orderedPositions == [
         .negativeX, .positiveY, .positiveX, .negativeY,
       ])
     var coordinator = SparseTipCalibrationCoordinator()
     let frame = try exactFrame(id: "frozen-center", hash: "a")
-    let revision = PresentationTransformRevision()
-    let points = try [
-      Point2<CameraPixelSpace>(x: 500, y: 240),
-      Point2<CameraPixelSpace>(x: 320, y: 80),
-      Point2<CameraPixelSpace>(x: 140, y: 240),
-      Point2<CameraPixelSpace>(x: 320, y: 400),
-    ]
-
     try coordinator.beginBatch()
     #expect(coordinator.phase == .drawingBatch)
     try coordinator.beginReveal()
     #expect(coordinator.phase == .revealingBatch)
     try coordinator.awaitFrozenClicks(frame: frame)
-    for point in points {
-      try coordinator.select(
-        ActionSurfacePointSelection(
-          frame: frame,
-          point: point,
-          presentationTransformRevision: revision
-        ))
-    }
+    #expect(coordinator.phase == .awaitingFrozenClicks(frame.frameID))
+    try coordinator.beginFitting()
     #expect(coordinator.phase == .fittingModel)
-    #expect(coordinator.collectedClickPoints == points)
-    #expect(coordinator.collectedClickCount == 4)
     #expect(coordinator.pendingFrame == frame)
 
     let recovered = coordinator.recoverFromFittingFailure()
     #expect(recovered)
     #expect(coordinator.phase == .awaitingFrozenClicks(frame.frameID))
-    #expect(coordinator.collectedClickPoints == points)
-    #expect(coordinator.pendingFrame == frame)
-
-    try coordinator.undoLastClick()
-    #expect(coordinator.phase == .awaitingFrozenClicks(frame.frameID))
-    #expect(coordinator.collectedClickPoints == Array(points.dropLast()))
-    #expect(coordinator.pendingFrame == frame)
-    try coordinator.clearClicks()
-    #expect(coordinator.collectedClickPoints.isEmpty)
     #expect(coordinator.pendingFrame == frame)
   }
 
-  @Test("selection rejects stale exact-frame provenance")
-  func staleFrameRejected() throws {
+  @Test("fitting cannot begin before the workspace installs a frozen frame")
+  func fittingRequiresFrozenFrame() throws {
     var coordinator = SparseTipCalibrationCoordinator()
     let frozen = try exactFrame(id: "frozen", hash: "b")
-    let stale = try exactFrame(id: "stale", hash: "c")
     try coordinator.beginBatch()
     try coordinator.beginReveal()
-    try coordinator.awaitFrozenClicks(frame: frozen)
-
-    #expect(throws: SparseTipCalibrationCoordinatorError.staleSelection) {
-      try coordinator.select(
-        ActionSurfacePointSelection(
-          frame: stale,
-          point: Point2(x: 1, y: 1),
-          presentationTransformRevision: PresentationTransformRevision()
-        ))
+    #expect(throws: SparseTipCalibrationCoordinatorError.invalidTransition) {
+      try coordinator.beginFitting()
     }
+    try coordinator.awaitFrozenClicks(frame: frozen)
     #expect(coordinator.phase == .awaitingFrozenClicks(frozen.frameID))
   }
 

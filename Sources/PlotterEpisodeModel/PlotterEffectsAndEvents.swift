@@ -173,6 +173,8 @@ public struct PlotterAcceptedIntent: Codable, Hashable, Sendable {
       )
     case let .learning(.acceptModel(revisionID)):
       return .activateModel(context: context, revisionID: revisionID)
+    case .learning(.setEnabled):
+      return nil
     case .evidence:
       return nil
     }

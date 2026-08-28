@@ -136,12 +136,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
         .translated(by: truthOffset)
     }
     for click in [clicks[3], clicks[1], clicks[0], clicks[2]] {
-      workspace.selectToolContactPoint(
-        ActionSurfacePointSelection(
-          frame: request.frame,
-          point: click,
-          presentationTransformRevision: request.presentationTransformRevision
-        ))
+      try await submitPointSelectionAndWait(workspace, request: request, point: click)
     }
     #expect(workspace.sparseTipCalibrationCoordinator.acceptedObservations.count == 4)
     let observations = workspace.sparseTipCalibrationCoordinator.acceptedObservations.map(
@@ -225,16 +220,14 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     #expect(workspace.tipCameraRegistration == nil)
     #expect(workspace.proposedTipCameraRegistration == nil)
     #expect(workspace.sparseTipCalibrationCoordinator.acceptedObservations.isEmpty)
-    #expect(workspace.sparseTipCalibrationCoordinator.phase == .awaitingFrozenClicks(request.frame.frameID))
+    #expect(
+      workspace.sparseTipCalibrationCoordinator.phase
+        == .awaitingFrozenClicks(FrameID(rawValue: request.frame.frameID))
+    )
     #expect(workspace.actionSurfacePresentation.pointSelectionRequest?.frame == request.frame)
     #expect((await harness.runtime.snapshot()).persistentInkSegmentCount == 64)
     for click in [clicks[3], clicks[1], clicks[0], clicks[2]] {
-      workspace.selectToolContactPoint(
-        ActionSurfacePointSelection(
-          frame: request.frame,
-          point: click,
-          presentationTransformRevision: request.presentationTransformRevision
-        ))
+      try await submitPointSelectionAndWait(workspace, request: request, point: click)
     }
     try await performPublicAction(
       .acceptTipCalibrationProposal,
@@ -351,18 +344,20 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     let request = try #require(workspace.actionSurfacePresentation.pointSelectionRequest)
     let frameID = request.frame.frameID
     let before = await harness.runtime.snapshot()
-    workspace.selectToolContactPoint(
-      ActionSurfacePointSelection(
-        frame: request.frame,
-        point: try Point2(x: 160, y: 120),
-        presentationTransformRevision: request.presentationTransformRevision
-      ))
+    try await submitPointSelectionAndWait(
+      workspace,
+      request: request,
+      point: try Point2(x: 160, y: 120)
+    )
     try await performPublicAction(.undoLastSparseTipClick, owner: owner, workspace: workspace)
     let after = await harness.runtime.snapshot()
     let correctedRequest = try #require(workspace.actionSurfacePresentation.pointSelectionRequest)
 
     #expect(correctedRequest.frame.frameID == frameID)
-    #expect(workspace.frozenToolContactSelectionFrame?.frame.id == frameID)
+    #expect(
+      workspace.pointSelectionEpisodeProjection.exactPointSelection.request?.frame.frameID
+        == frameID
+    )
     #expect(workspace.selectedToolContactPoints.isEmpty)
     #expect(after.mpos == before.mpos)
     #expect(after.persistentInkSegmentCount == before.persistentInkSegmentCount)

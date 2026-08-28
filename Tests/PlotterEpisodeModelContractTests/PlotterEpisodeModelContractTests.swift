@@ -116,10 +116,7 @@ struct PlotterEpisodeSpecificationContractTests {
     let intents: [PlotterIntent] = [
       .session(.begin),
       .observation(.captureExactFrame(configurationID: Fixtures.cameraConfigurationID)),
-      .pointSelection(.select(PlotterPointSelectionRequest(
-        point: try Point2(x: 2, y: 3),
-        sourceObservationID: Fixtures.observationID
-      ))),
+      .pointSelection(.stage(selectionRequest())),
       .manualMotion(.jog(try PlotterJogRequest(direction: .positiveX, distanceMM: 5))),
       .drawing(.execute(planRevisionID: Fixtures.planRevisionID)),
       .learning(.acceptModel(revisionID: Fixtures.modelRevisionID)),
@@ -277,15 +274,12 @@ struct PlotterEpisodeReducerContractTests {
     ])
   }
 
-  @Test("state-only point selection cannot embed an executable effect")
+  @Test("state-only exact-frame point selection cannot embed an executable effect")
   func stateOnlyIntentHasNoEffect() throws {
-    let point = try Point2<MachineSpace>(x: 8, y: 9)
+    let request = selectionRequest()
     let accepted = try PlotterAcceptedIntent(
       requestID: Fixtures.requestID,
-      intent: .pointSelection(.select(PlotterPointSelectionRequest(
-        point: point,
-        sourceObservationID: Fixtures.observationID
-      ))),
+      intent: .pointSelection(.stage(request)),
       comparedStateRevision: EpisodeStateRevision(rawValue: 7),
       comparedCapabilityFacts: [],
       satisfiedRequirements: [],
@@ -302,7 +296,8 @@ struct PlotterEpisodeReducerContractTests {
     )
 
     #expect(reduction.effects.isEmpty)
-    #expect(reduction.state.selectedPoint == point)
+    #expect(reduction.state.exactPointSelection.request == request)
+    #expect(reduction.state.exactPointSelection.phase == .collecting)
     #expect(reduction.state.pendingEffectID == nil)
     #expect(reduction.state.phase == .ready)
     #expect(throws: PlotterAcceptedIntentError.stateOnlyRequired) {
@@ -396,10 +391,7 @@ struct PlotterEpisodeReducerContractTests {
       output: .motionSettled(Fixtures.observationID)
     ))
 
-    let selection = PlotterIntent.pointSelection(.select(PlotterPointSelectionRequest(
-      point: try Point2(x: 2, y: 3),
-      sourceObservationID: Fixtures.observationID
-    )))
+    let selection = PlotterIntent.pointSelection(.stage(selectionRequest()))
     let beforeObservation = PlotterIntentEvaluator().evaluate(
       requestID: IntentRequestID(rawValue: uuid(18)),
       intent: selection,
@@ -876,6 +868,29 @@ private func readyState(
     phase: .ready,
     currentPlanRevisionID: Fixtures.planRevisionID,
     observationIDs: observationIDs
+  )
+}
+
+private func selectionRequest() -> PlotterPointSelectionRequest {
+  PlotterPointSelectionRequest(
+    id: PlotterPointSelectionID(rawValue: uuid(20)),
+    frame: PlotterExactFrameReference(
+      frameID: "frame-20",
+      frameSHA256: String(repeating: "a", count: 64),
+      source: .live(deviceID: "camera-1"),
+      cameraConfigurationID: Fixtures.cameraConfigurationID,
+      captureNanoseconds: 20,
+      sequence: 1,
+      width: 640,
+      height: 480,
+      rowBytes: 2_560,
+      pixelFormat: .rgba8
+    ),
+    sourceObservationID: Fixtures.observationID,
+    presentationTransformRevision: PlotterPresentationTransformRevision(rawValue: uuid(21)),
+    prompt: "Select the exact-frame point.",
+    purpose: .toolContact,
+    requiredPointCount: 4
   )
 }
 

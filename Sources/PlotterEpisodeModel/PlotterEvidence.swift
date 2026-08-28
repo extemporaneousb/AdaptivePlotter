@@ -11,6 +11,7 @@ public enum PlotterObservationSource: String, Codable, Hashable, Sendable {
   case controller
   case camera
   case causalSimulator
+  case operatorAssertion
 }
 
 public struct PlotterObservationContext: Codable, Hashable, Sendable {
@@ -78,12 +79,14 @@ public struct PlotterCameraFrameObservation: Codable, Hashable, Sendable {
   public let configurationID: CameraConfigurationID
   public let pixelWidth: UInt32
   public let pixelHeight: UInt32
+  public let exactFrame: PlotterExactFrameReference?
 
   public init(
     context: PlotterObservationContext,
     configurationID: CameraConfigurationID,
     pixelWidth: UInt32,
-    pixelHeight: UInt32
+    pixelHeight: UInt32,
+    exactFrame: PlotterExactFrameReference? = nil
   ) throws {
     guard pixelWidth > 0, pixelHeight > 0 else {
       throw PlotterObservationValidationError.invalidFrameDimensions
@@ -92,6 +95,7 @@ public struct PlotterCameraFrameObservation: Codable, Hashable, Sendable {
     self.configurationID = configurationID
     self.pixelWidth = pixelWidth
     self.pixelHeight = pixelHeight
+    self.exactFrame = exactFrame
   }
 
   private enum CodingKeys: String, CodingKey {
@@ -99,6 +103,7 @@ public struct PlotterCameraFrameObservation: Codable, Hashable, Sendable {
     case configurationID
     case pixelWidth
     case pixelHeight
+    case exactFrame
   }
 
   public init(from decoder: Decoder) throws {
@@ -107,20 +112,52 @@ public struct PlotterCameraFrameObservation: Codable, Hashable, Sendable {
       context: container.decode(PlotterObservationContext.self, forKey: .context),
       configurationID: container.decode(CameraConfigurationID.self, forKey: .configurationID),
       pixelWidth: container.decode(UInt32.self, forKey: .pixelWidth),
-      pixelHeight: container.decode(UInt32.self, forKey: .pixelHeight)
+      pixelHeight: container.decode(UInt32.self, forKey: .pixelHeight),
+      exactFrame: container.decodeIfPresent(
+        PlotterExactFrameReference.self,
+        forKey: .exactFrame
+      )
     )
+  }
+}
+
+public struct PlotterPointSelectionObservation: Codable, Hashable, Sendable {
+  public let context: PlotterObservationContext
+  public let selectionID: PlotterPointSelectionID
+  public let sourceFrame: PlotterExactFrameReference
+  public let point: Point2<CameraPixelSpace>
+  public let presentationTransformRevision: PlotterPresentationTransformRevision
+  public let ordinal: Int
+
+  public init(
+    context: PlotterObservationContext,
+    selectionID: PlotterPointSelectionID,
+    sourceFrame: PlotterExactFrameReference,
+    point: Point2<CameraPixelSpace>,
+    presentationTransformRevision: PlotterPresentationTransformRevision,
+    ordinal: Int
+  ) {
+    self.context = context
+    self.selectionID = selectionID
+    self.sourceFrame = sourceFrame
+    self.point = point
+    self.presentationTransformRevision = presentationTransformRevision
+    self.ordinal = ordinal
   }
 }
 
 public enum PlotterObservation: Codable, Hashable, Sendable {
   case controller(PlotterControllerObservation)
   case cameraFrame(PlotterCameraFrameObservation)
+  case pointSelection(PlotterPointSelectionObservation)
 
   public var context: PlotterObservationContext {
     switch self {
     case let .controller(observation):
       return observation.context
     case let .cameraFrame(observation):
+      return observation.context
+    case let .pointSelection(observation):
       return observation.context
     }
   }
@@ -337,6 +374,7 @@ public enum PlotterEvidenceClass: String, Codable, CaseIterable, Hashable, Senda
   case livePhysical
   case simulatedCausal
   case diagnosticOnly
+  case operatorAssertion
 }
 
 public enum PlotterEvidenceBoundaryError: Error, Equatable, Sendable {

@@ -12,6 +12,34 @@ public enum PlotterEpisodePhase: String, Codable, CaseIterable, Hashable, Sendab
   case terminal
 }
 
+public enum PlotterExactPointSelectionPhase: String, Codable, Hashable, Sendable {
+  case idle
+  case collecting
+  case accepted
+  case continuing
+}
+
+public struct PlotterExactPointSelectionState: Codable, Hashable, Sendable {
+  public let request: PlotterPointSelectionRequest?
+  public let selectedPoints: [Point2<CameraPixelSpace>]
+  public let phase: PlotterExactPointSelectionPhase
+  public let continuationIsActive: Bool
+
+  public init(
+    request: PlotterPointSelectionRequest? = nil,
+    selectedPoints: [Point2<CameraPixelSpace>] = [],
+    phase: PlotterExactPointSelectionPhase = .idle,
+    continuationIsActive: Bool = false
+  ) {
+    self.request = request
+    self.selectedPoints = selectedPoints
+    self.phase = phase
+    self.continuationIsActive = continuationIsActive
+  }
+
+  public static let idle = PlotterExactPointSelectionState()
+}
+
 public struct PlotterIntentRefusalRecord: Codable, Hashable, Sendable {
   public let requestID: IntentRequestID
   public let intent: PlotterIntent
@@ -43,6 +71,8 @@ public struct PlotterEpisodeState: EpisodeState {
   public let currentPlanRevisionID: ExecutionPlanRevisionID?
   public let activeDrawingModelRevisionID: DrawingModelRevisionID?
   public let selectedPoint: Point2<MachineSpace>?
+  public let exactPointSelection: PlotterExactPointSelectionState
+  public let learningIsEnabled: Bool
   public let activeRequestID: IntentRequestID?
   public let activeIntent: PlotterIntent?
   public let pendingEffectID: EpisodeEffectID?
@@ -65,6 +95,8 @@ public struct PlotterEpisodeState: EpisodeState {
     currentPlanRevisionID: ExecutionPlanRevisionID? = nil,
     activeDrawingModelRevisionID: DrawingModelRevisionID? = nil,
     selectedPoint: Point2<MachineSpace>? = nil,
+    exactPointSelection: PlotterExactPointSelectionState = .idle,
+    learningIsEnabled: Bool = true,
     activeRequestID: IntentRequestID? = nil,
     activeIntent: PlotterIntent? = nil,
     pendingEffectID: EpisodeEffectID? = nil,
@@ -86,6 +118,8 @@ public struct PlotterEpisodeState: EpisodeState {
     self.currentPlanRevisionID = currentPlanRevisionID
     self.activeDrawingModelRevisionID = activeDrawingModelRevisionID
     self.selectedPoint = selectedPoint
+    self.exactPointSelection = exactPointSelection
+    self.learningIsEnabled = learningIsEnabled
     self.activeRequestID = activeRequestID
     self.activeIntent = activeIntent
     self.pendingEffectID = pendingEffectID
@@ -128,6 +162,8 @@ public struct PlotterEpisodeProjection: Codable, Hashable, Sendable {
   public let projectedAt: Date
   public let phase: PlotterEpisodePhase
   public let selectedPoint: Point2<MachineSpace>?
+  public let exactPointSelection: PlotterExactPointSelectionState
+  public let learningIsEnabled: Bool
   public let activeEffectProgress: PlotterEffectProgress?
   public let lastTerminalEffect: PlotterEffectTerminalRecord?
   public let currentReason: String?
@@ -144,6 +180,8 @@ public struct PlotterEpisodeProjection: Codable, Hashable, Sendable {
     projectedAt: Date,
     phase: PlotterEpisodePhase,
     selectedPoint: Point2<MachineSpace>?,
+    exactPointSelection: PlotterExactPointSelectionState = .idle,
+    learningIsEnabled: Bool = true,
     activeEffectProgress: PlotterEffectProgress?,
     lastTerminalEffect: PlotterEffectTerminalRecord?,
     currentReason: String?,
@@ -159,6 +197,8 @@ public struct PlotterEpisodeProjection: Codable, Hashable, Sendable {
     self.projectedAt = projectedAt
     self.phase = phase
     self.selectedPoint = selectedPoint
+    self.exactPointSelection = exactPointSelection
+    self.learningIsEnabled = learningIsEnabled
     self.activeEffectProgress = activeEffectProgress
     self.lastTerminalEffect = lastTerminalEffect
     self.currentReason = currentReason
@@ -185,6 +225,8 @@ public enum PlotterEpisodeProjector {
       projectedAt: projectedAt,
       phase: state.phase,
       selectedPoint: state.selectedPoint,
+      exactPointSelection: state.exactPointSelection,
+      learningIsEnabled: state.learningIsEnabled,
       activeEffectProgress: state.activeEffectProgress,
       lastTerminalEffect: state.lastTerminalEffect,
       currentReason: refusal?.requirementID.rawValue,

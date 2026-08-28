@@ -1,4 +1,5 @@
 import AppKit
+import PlotterEpisodeRuntime
 import PlotterModel
 import PlotterRuntime
 import SwiftUI
@@ -8,6 +9,9 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
   let workspace = OperatorWorkspace(
     machineActions: MachineSessionComposition.actions,
     cameraActions: CameraComposition.actions,
+    pointSelectionRuntime: PointSelectionComposition.production.runtime,
+    pointSelectionRecordingDiagnostic:
+      PointSelectionComposition.production.recordingDiagnostic,
     announcementActions: SpeechComposition.actions,
     acceptedLearningPathCheckpointActions: AcceptedArtifactCheckpointComposition.actions,
     drawingEvidenceActions: DrawingRunEvidenceComposition.actions,
@@ -66,6 +70,61 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
     terminationTask = nil
     terminationDeadlineTask = nil
     application.reply(toApplicationShouldTerminate: true)
+  }
+}
+
+struct PointSelectionRuntimeComposition: Sendable {
+  let runtime: PlotterPointSelectionRuntime
+  let recordingDiagnostic: String?
+}
+
+enum PointSelectionComposition {
+  static let production = makeRuntime()
+
+  static func makeRuntime(
+    applicationSupportDirectory: () throws -> URL = {
+      try FileManager.default.url(
+        for: .applicationSupportDirectory,
+        in: .userDomainMask,
+        appropriateFor: nil,
+        create: true
+      )
+    }
+  ) -> PointSelectionRuntimeComposition {
+    let recordingID = EpisodeRecordingID(rawValue: UUID())
+    let manager = FileManager.default
+    do {
+      let applicationSupport = try applicationSupportDirectory()
+      let directory = applicationSupport
+        .appendingPathComponent("AdaptivePlotter", isDirectory: true)
+        .appendingPathComponent("EpisodeRecordings", isDirectory: true)
+        .appendingPathComponent(recordingID.rawValue.uuidString, isDirectory: true)
+      try manager.createDirectory(at: directory, withIntermediateDirectories: true)
+      let recordingStore = try EpisodeRecordingStore.open(
+        directoryURL: directory,
+        recordingID: recordingID,
+        schemaRevision: EpisodeRecordingSchemaRevision(
+          rawValue: "adaptive-plotter-point-selection-v1"
+        ),
+        frameRetentionPolicy: EpisodeFrameRetentionPolicy(
+          maximumUniqueFrameCount: 64,
+          maximumTotalUniqueFrameBytes: 512 * 1_024 * 1_024
+        )
+      )
+      return PointSelectionRuntimeComposition(
+        runtime: PlotterPointSelectionRuntime(recordingStore: recordingStore),
+        recordingDiagnostic: nil
+      )
+    } catch {
+      let diagnostic =
+        "Point-selection recording is unavailable: \(error.localizedDescription)"
+      return PointSelectionRuntimeComposition(
+        runtime: PlotterPointSelectionRuntime(
+          recordingUnavailableDiagnostic: diagnostic
+        ),
+        recordingDiagnostic: diagnostic
+      )
+    }
   }
 }
 
@@ -168,6 +227,7 @@ struct OperatorWorkspaceView: View {
   var body: some View {
     let actionSurfacePresentation = workspace.actionSurfacePresentation
     let exercisePaneProtection = workspace.exercisePaneProtectionPresentation
+    let learningMode = workspace.learningModePresentation
     let learningProjection =
       workspace.learningIsEnabled
         && (layout.panes.navigatorIsPresented || layout.panes.exerciseDetailIsPresented)
@@ -202,14 +262,15 @@ struct OperatorWorkspaceView: View {
             exerciseDetailCollapseUnavailableReason:
               exerciseCollapseReason,
             motionCollapseUnavailableReason: motionCollapseUnavailableReason,
-            learningIsEnabled: workspace.learningIsEnabled,
-            learningActionTitle: workspace.learningModeActionTitle,
-            learningChangeUnavailableReason: workspace.learningModeChangeUnavailableReason,
+            learningIsEnabled: learningMode.isEnabled,
+            learningActionTitle: learningMode.actionTitle,
+            learningModeRemedy: learningMode.remedy,
+            learningRecordingDiagnostic: learningMode.recordingDiagnostic,
             drawingStudioIsAvailable: workspace.interactiveLearningIsComplete,
             drawingStudioIsPresented: workspace.drawingStudioIsPresented,
             drawingStudioChangeUnavailableReason:
               workspace.drawingStudioPanelChangeUnavailableReason,
-            toggleLearning: workspace.toggleLearningMode,
+            learningModeIntentSink: workspace,
             toggleDrawingStudio: {
               if workspace.drawingStudioIsPresented {
                 workspace.closeDrawingStudio()
@@ -233,9 +294,7 @@ struct OperatorWorkspaceView: View {
             ActionSurface(
               presentation: actionSurfacePresentation,
               viewport: $actionSurfaceViewport,
-              selectPoint: { selection in
-                workspace.selectToolContactPoint(selection)
-              },
+              pointSelectionIntentSink: workspace,
               performCompletedComparisonReviewAction: { action in
                 workspace.performCompletedComparisonReviewAction(action)
               },
@@ -425,29 +484,46 @@ private struct WorkbenchPaneControls: View {
   let motionCollapseUnavailableReason: String?
   let learningIsEnabled: Bool
   let learningActionTitle: String
-  let learningChangeUnavailableReason: String?
+  let learningModeRemedy: String?
+  let learningRecordingDiagnostic: String?
   let drawingStudioIsAvailable: Bool
   let drawingStudioIsPresented: Bool
   let drawingStudioChangeUnavailableReason: String?
-  let toggleLearning: () -> Void
+  let learningModeIntentSink: any PlotterLearningModeIntentSink
   let toggleDrawingStudio: () -> Void
   let togglePane: (WorkbenchPane) -> Void
   let performVideoSettingsAction: (VideoSettingsVisibilityAction) -> Void
 
   var body: some View {
     HStack(spacing: 8) {
-      Button(action: toggleLearning) {
+      Button {
+        learningModeIntentSink.submitLearningModeChange()
+      } label: {
         Label(
           learningActionTitle,
           systemImage: learningIsEnabled ? "graduationcap.fill" : "graduationcap"
         )
       }
-      .operatorButton(isEnabled: learningChangeUnavailableReason == nil)
+      .operatorButton()
       .controlSize(.small)
       .help(
-        learningChangeUnavailableReason
+        learningModeRemedy
           ?? "Learning is ergonomic workflow guidance; turning it off preserves learned evidence and leaves direct machine controls available."
       )
+      if let learningModeRemedy {
+        Label(learningModeRemedy, systemImage: "exclamationmark.triangle.fill")
+          .font(.caption2)
+          .foregroundStyle(.orange)
+          .lineLimit(1)
+          .help(learningModeRemedy)
+      }
+      if let learningRecordingDiagnostic {
+        Label(learningRecordingDiagnostic, systemImage: "externaldrive.badge.exclamationmark")
+          .font(.caption2)
+          .foregroundStyle(.orange)
+          .lineLimit(1)
+          .help(learningRecordingDiagnostic)
+      }
       if drawingStudioIsAvailable {
         Button(action: toggleDrawingStudio) {
           Label(

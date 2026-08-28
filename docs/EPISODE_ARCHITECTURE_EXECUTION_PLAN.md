@@ -303,6 +303,15 @@ every direct SwiftUI `workspace`/`actionWorkspace` consumer. It requires exact
 set equality with the seams below, so a new or omitted member fails rather than
 falling into a generic remainder.
 
+This table remains the immutable EA-01 characterization baseline after assigned
+WorkPackages land. A `delete` row assigned to any completed package in the
+inventory's assignable WorkPackage set is historical deletion authority, not a
+claim that its named source still exists. The inventory checker excludes only
+those completed assignable `delete` rows from live source-presence equality
+while retaining every row and all applicable exact zero-match scans. Rows
+assigned to pending WorkPackages, plus every `retain` or `adapt` row regardless
+of package status, remain live-presence obligations.
+
 | Inventory ID | Category | Current source seams | Current owner and behavior | Disposition | Cutover | Focused command |
 | --- | --- | --- | --- | --- | --- | --- |
 | INT-001 | semantic-intent | `OperatorWorkspace.performApplicationStartup`<br>`OperatorWorkspace.shutdown` | application delegate plus `OperatorWorkspace`; policy startup and bounded shutdown | delete | `EA-11C` | `swift test --filter PlotterEpisodeCompositionTests` |
@@ -398,7 +407,7 @@ falling into a generic remainder.
 | UI-005 | ui-consumer | `UI.interactiveLearningIsComplete`<br>`UI.drawingStudioIsPresented`<br>`UI.drawingStudioPanelChangeUnavailableReason`<br>`UI.openDrawingStudio`<br>`UI.closeDrawingStudio`<br>`UI.confirmCurrentPaperCoversDrawableRegion` | Drawing Studio open/draft/paper-coverage direct workspace consumers | delete | `EA-08A` | `swift test --filter PlotterDrawingDraftEpisodeTests` |
 | UI-006 | ui-consumer | `UI.performCompletedComparisonReviewAction`<br>`UI.performDrawingStudioAction`<br>`UI.paperManagementUnavailableReason` | Drawing Studio run/review direct workspace handlers | delete | `EA-08B` | `swift test --filter PlotterDrawingRunEpisodeTests` |
 | UI-007 | ui-consumer | `UI.recordNewPaperSheetOnCurrentPlane`<br>`UI.recordPaperContactPlaneChanged`<br>`UI.performLearningVacate`<br>`UI.performResetAllLearning`<br>`UI.learningAuthorityError` | Saved Learning/reset/paper lifecycle direct workspace consumers | delete | `EA-10F` | `swift test --filter PlotterArtifactResetEpisodeTests` |
-| UI-008 | ui-consumer | `UI.actionSurfacePresentation`<br>`UI.currentLearningPathItemID`<br>`UI.exercisePaneProtectionPresentation`<br>`UI.learningIsEnabled`<br>`UI.learningPathProjection`<br>`UI.drawingStudioPresentation`<br>`UI.workbenchCapabilityPresentation`<br>`UI.performExerciseAction` | aggregate Learning/Action Surface/Drawing presentation and semantic dispatch | delete | `EA-09` | `swift test --filter PlotterEpisodeUIActionabilityTests` |
+| UI-008 | ui-consumer | `UI.actionSurfacePresentation`<br>`UI.currentLearningPathItemID`<br>`UI.exercisePaneProtectionPresentation`<br>`UI.learningIsEnabled`<br>`UI.learningModePresentation`<br>`UI.learningPathProjection`<br>`UI.drawingStudioPresentation`<br>`UI.workbenchCapabilityPresentation`<br>`UI.performExerciseAction` | aggregate Learning/Action Surface/Drawing presentation and semantic dispatch; `learningModePresentation` is projection-only and adds no Learning decision or mutation authority | delete | `EA-09` | `swift test --filter PlotterEpisodeUIActionabilityTests` |
 | UI-009 | ui-consumer | `UI.performApplicationStartup`<br>`UI.shutdown` | application lifecycle direct workspace consumer | delete | `EA-11C` | `swift test --filter PlotterEpisodeCompositionTests` |
 | FIX-001 | high-level-fixture | `SimulatedWorkspaceHarness`<br>`makeSimulatedHarness`<br>`performPublicAction` | high-level workspace closure fixture bypassing target intent/event seams | delete | `EA-07` | `swift test --filter PlotterCausalEpisodeEnvironmentTests` |
 | FIX-002 | high-level-fixture | `MachineFixture`<br>`isolatedMachineActions` | app-level machine closure fixture | delete | `EA-11A` | `swift test --filter PlotterControllerSessionEpisodeTests` |
@@ -426,10 +435,41 @@ deliberately absent from deletion scans.
 | Package | Scan class | Paths | Zero-match literal |
 | --- | --- | --- | --- |
 | `EA-04` | deleted-symbol | `Sources/PlotterApp/*.swift` | `ActionSurfacePointSelectionRequest` |
+| `EA-04` | deleted-symbol | `Sources/PlotterApp/*.swift` | `ActionSurfacePointSelectionPurpose` |
+| `EA-04` | deleted-symbol | `Sources/PlotterApp/*.swift` | `ActionSurfacePointSelection` |
+| `EA-04` | deleted-symbol | `Sources/PlotterApp/*.swift` | `ToolContactSelectionContext` |
+| `EA-04` | deleted-symbol | `Sources/PlotterApp/*.swift` | `PenCapAppearanceSelectionContext` |
+| `EA-04` | deleted-symbol | `Sources/PlotterApp/*.swift` | `PenCapAcceptedClickContinuationIdentity` |
+| `EA-04` | deleted-symbol | `Sources/PlotterApp/*.swift` | `ToolContactSelectionState` |
 | `EA-04` | duplicate-ingress | `Sources/PlotterApp/*.swift` | `selectToolContactPoint` |
+| `EA-04` | duplicate-ingress | `Sources/PlotterApp/*.swift` | `toggleLearningMode` |
+| `EA-04` | duplicate-ingress | `Sources/PlotterApp/*.swift` | `learningModeActionTitle` |
+| `EA-04` | duplicate-ingress | `Sources/PlotterApp/*.swift` | `learningModeChangeUnavailableReason` |
+| `EA-04` | duplicate-ingress | `Sources/PlotterApp/*.swift` | `selectPoint:` |
+| `EA-04` | duplicate-ingress | `Sources/PlotterApp/*.swift` | `toggleLearning:` |
 | `EA-04` | task-owner | `Sources/PlotterApp/*.swift` | `penCapAcceptedClickContinuationTask` |
+| `EA-04` | task-owner | `Sources/PlotterApp/*.swift` | `penCapAcceptedClickContinuationIdentity` |
 | `EA-04` | task-owner | `Sources/PlotterApp/*.swift` | `penCapVisionReconfigurationTask` |
+| `EA-04` | task-owner | `Sources/PlotterApp/*.swift` | `penCapVisionReconfigurationIdentity` |
+| `EA-04` | task-owner | `Sources/PlotterApp/*.swift` | `startPenCapAcceptedClickContinuation` |
+| `EA-04` | task-owner | `Sources/PlotterApp/*.swift` | `startPenCapVisionReconfiguration` |
+| `EA-04` | task-owner | `Sources/PlotterApp/*.swift` | `cancelPenCapAcceptedClickContinuation` |
+| `EA-04` | task-owner | `Sources/PlotterApp/*.swift` | `penCapAcceptedClickContinuationStillOwnsAttempt` |
+| `EA-04` | task-owner | `Sources/PlotterApp/*.swift` | `penCapVisionReconfigurationStillOwnsAttempt` |
+| `EA-04` | task-owner | `Sources/PlotterApp/*.swift` | `finishPenCapAcceptedClickContinuation` |
+| `EA-04` | task-owner | `Sources/PlotterApp/*.swift` | `finishPenCapVisionReconfiguration` |
+| `EA-04` | deleted-symbol | `Sources/PlotterApp/*.swift` | `toolContactSelection` |
+| `EA-04` | deleted-symbol | `Sources/PlotterApp/*.swift` | `frozenToolContactSelectionFrame` |
+| `EA-04` | deleted-symbol | `Sources/PlotterApp/*.swift` | `penCapAppearanceSelectionContext` |
+| `EA-04` | deleted-symbol | `Sources/PlotterApp/*.swift` | `toolContactPointSelectionRequest` |
+| `EA-04` | deleted-symbol | `Sources/PlotterApp/*.swift` | `PointSelectionPresentationContext` |
+| `EA-04` | deleted-symbol | `Sources/PlotterApp/*.swift` | `context.request.matches(context.frame)` |
+| `EA-04` | task-owner | `Sources/PlotterApp/*.swift` | `cancelPointSelectionContinuation` |
 | `EA-04` | fixture | `Tests/PlotterAppTests/*.swift` | `submitPenCapClick` |
+| `EA-04` | duplicate-ingress | `Sources/PlotterApp/*.swift, Tests/PlotterAppTests/*.swift` | `submitCurrentPenCapPoint` |
+| `EA-04` | task-owner | `Sources/PlotterApp/*.swift, Tests/PlotterAppTests/*.swift` | `awaitPenCapAcceptedClickTransition` |
+| `EA-04` | forbidden-conformance | `Sources/PlotterEpisodeModel/**/*.swift, Sources/PlotterEpisodeRuntime/**/*.swift` | `@unchecked Sendable` |
+| `EA-04` | task-owner | `Sources/PlotterEpisodeRuntime/**/*.swift, Tests/**/*.swift` | `awaitContinuationSettlement` |
 | `EA-06` | duplicate-ingress | `Sources/PlotterApp/*.swift` | `stopManualMotion` |
 | `EA-06` | duplicate-ingress | `Sources/PlotterApp/*.swift` | `requestRelativeJog` |
 | `EA-06` | direct-port | `Sources/PlotterApp/*.swift` | `machineActions.beginRelativeJog` |
@@ -540,7 +580,7 @@ final `VAL-01` attended validation boundary.
 | EA-05A | complete | EA-03A | software | Foundation: add one unbound lossless `EpisodeRecordingStore` service with typed controller-transcript and camera-lifecycle/frame channels plus content-addressed frame references; add no current-device hook, effect port, or app caller. Delivered by `TASK-57FE4C62`. | `DOC`, `DIFF`, `QUICK`, `STRICT`, `RECORDING` |
 | EA-05B | complete | EA-03A, EA-05A | software | Foundation: add one unbound deterministic transcript replay service whose sealed `PlotterEpisodeReplayExecutableDescriptor` and private concrete adapter own the executable domain, evaluator, reducer, state/event/journal-schema, and build revision facts, a canonical-digest literal pinned to `PlotterEpisodeCanonicalDigestV1.revision`, and deterministic-seed applicability; compare the corresponding manifest executable pins and the descriptor digest pin before reduction; compare definition pins with the supplied typed definition; retain full recorded effect revisions as identity-only facts with no effect-executor revision-validation claim while checking progress/result identity and first-terminal ordering; reconstruct and independently verify every recorded journal prefix with caller-supplied recorded decision frames, failing closed without publishing lifecycle-invalid prefixes; retain emitted effects only as inert values; classify started-unsettled work as possible physical effect with a never-resume disposition; preserve channel-specific recording completeness and attribute start evidence only through exactly one complete available operation-bound provenance tuple; and apply exact replay plus only causality-preserving controller fragmentation, delay, timeout, and cancellation perturbations, prevalidating the source schedule and refusing nil/empty source, absent read traffic, non-read delay, deadline violations for successful or failed reads, delay with timeout/cancellation for one invocation independent of declaration order, and terminal-boundary or downstream-order violations; retime the causal suffix and embedded read chunks with checked overflow or underflow; validate the complete transformed schedule across all outstanding invocations so transforming A cannot push overlapping B past B's deadline or move B traffic before B's invocation, typed-refusing any invalid transformed schedule with unchanged source at the typed transcript layer; add no `MachineLink` conformance, effect executor, permit restoration, device port, app caller, or current-authority transfer. Delivered by `TASK-32F536F4`. | `DOC`, `DIFF`, `QUICK`, `STRICT`, `REPLAY` |
 | EA-05C | complete | EA-05B | software | Foundation: add one unbound headless bounded incident-package assembler/exporter that references manifests, journals, recordings, frames, observations, evidence, outcomes, assessments, and runtime/UI revisions; it owns no artifact store, UI, device port, or app caller. Delivered by `TASK-1DDBA6F2`. | `DOC`, `DIFF`, `QUICK`, `STRICT`, `INCIDENT` |
-| EA-04 | pending | EA-03B, EA-05B | software | Cutover: transfer exact-frame human point-selection authority, including stale refusal, observation/evidence acceptance, projection, EA-05A camera recording, and the continuation-cancellation semantics used by Learning Off; delete old selection state, continuations, closures, guards, and fixtures. | `DOC`, `DIFF`, `QUICK`, `STRICT`, `POINT`, `DELETE` |
+| EA-04 | complete | EA-03B, EA-05B | software | Cutover: transfer exact-frame human point-selection authority to one FIFO mutation/publication boundary, including serialized re-evaluation, transaction-complete selection/observation/evidence publication, exact-owner Learning-Off cancellation, typed refusal for unrelated work, EA-05A camera recording, and an invokable remedy-bearing Learning button; delete old selection state, presentation-context/admission copies, Task-returning cancellation, continuations, closures, guards, and fixtures. Delivered by `TASK-A5FF364B`. | `DOC`, `DIFF`, `QUICK`, `STRICT`, `POINT`, `DELETE` |
 | EA-06 | pending | EA-04, EA-05C | software | Cutover: transfer manual jog, direct manual pen-actuation, exact owner-bound Stop, and EA-05A controller recording authority through LIVE/SIMULATED adapters; delete old manual ingress, guards, task/cancel owner, mode branches, and direct ports. | `DOC`, `DIFF`, `QUICK`, `JOURNEY`, `STRICT`, `MOTION`, `DELETE` |
 | EA-07 | pending | EA-06 | software | Cutover: transfer causal-simulator environment authority to the adapter with shared intent/effect/result grammar and distinct controller, plant/pen, paper/ink, camera, Vision, and evidence truth; delete obsolete effect-capable simulator workflow branches. | `DOC`, `DIFF`, `QUICK`, `JOURNEY`, `STRICT`, `SIM`, `DELETE` |
 | EA-08A | pending | EA-05C, EA-07 | software | Cutover: transfer Drawing Studio draft authority for catalog selection, open/new-plan/rebuild semantics, placement, parameter changes, `DrawingProgram`, planning, preview, and paper-coverage assertion; delete old draft/planning ingress and mutable draft state. | `DOC`, `DIFF`, `QUICK`, `STRICT`, `DRAW-DRAFT`, `DELETE` |
@@ -621,7 +661,7 @@ the gate. All commands run from the task workspace on the recorded target.
 | `SESSION` | `swift test --filter PlotterControllerSessionEpisodeTests` | EA-11A |
 | `OBSERVATION-CONFIG` | `swift test --filter PlotterObservationConfigurationEpisodeTests` | EA-11B |
 | `COMPOSITION` | `swift test --filter PlotterEpisodeCompositionTests` | EA-11C |
-| `DELETE` | `sh Scripts/check_episode_cutover.sh <PACKAGE-ID>` executes the exact zero-match deleted-symbol, forbidden-import, direct-port, duplicate-ingress, task-owner, fixture, and environment-branch scans recorded by EA-01 for that package; any unassigned remaining consumer fails | EA-01 |
+| `DELETE` | `sh Scripts/check_episode_cutover.sh <PACKAGE-ID>` executes the exact zero-match deleted-symbol, forbidden-import, forbidden-conformance, direct-port, duplicate-ingress, task-owner, fixture, and environment-branch scans recorded by EA-01 for that package; any unassigned remaining consumer fails | EA-01 |
 | `PHYSICAL-FINAL` | On the exact signed landed EA-11C commit, one continuously attending operator executes Attended Hardware Runbook sections 1 through 6 and completes its Evidence record; the record must additionally capture one visible typed refusal/remedy, active owner/progress/Stop, runtime/UI revisions, one bounded incident export, controller transcript completeness, camera artifact presence or declared absence, and observed-ink/ambiguity outcomes | VAL-01 |
 | `FINAL-GATE` | `sh Scripts/check_episode_final_gate.sh` proves every ledger row through VAL-01 complete, all final-matrix software/replay/simulation/UI evidence linked from Current Evidence, one globally exclusive gateway and registry by structural scan, zero superseded paths, and a passed PHYSICAL-FINAL record for the exact EA-11C commit | EA-11C |
 

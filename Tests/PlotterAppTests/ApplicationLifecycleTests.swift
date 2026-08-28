@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import PlotterEpisodeRuntime
 import PlotterModel
 import PlotterRuntime
 import Testing
@@ -37,6 +38,24 @@ struct ApplicationLifecycleTests {
       AdaptivePlotterApplicationDelegate.terminationDeadlineNanoseconds
         == 3_000_000_000
     )
+  }
+
+  @Test("recording startup failure remains a visible diagnostic-only fallback")
+  @MainActor
+  func pointSelectionRecordingStartupFailureIsVisible() {
+    let composition = PointSelectionComposition.makeRuntime {
+      throw ApplicationLifecycleRecordingError.unavailable
+    }
+    let diagnostic = composition.recordingDiagnostic
+    #expect(diagnostic?.contains("Point-selection recording is unavailable") == true)
+
+    let workspace = OperatorWorkspace(
+      pointSelectionRuntime: composition.runtime,
+      pointSelectionRecordingDiagnostic: diagnostic
+    )
+    #expect(workspace.learningModePresentation.recordingDiagnostic == diagnostic)
+    #expect(workspace.learningIsEnabled)
+    #expect(workspace.pointSelectionEpisodeProjection.runtimeStateRevision.rawValue == 0)
   }
 
   @Test("launch policy recognizes only the explicit nonpersistent simulated argument")
@@ -171,6 +190,12 @@ struct ApplicationLifecycleTests {
     #expect(settled.currentOperation == .idle)
     #expect(settled.machine.connection == .disconnected)
   }
+}
+
+private enum ApplicationLifecycleRecordingError: LocalizedError {
+  case unavailable
+
+  var errorDescription: String? { "injected recording-directory failure" }
 }
 
 private func applicationLifecycleTelemetryEvent(

@@ -267,9 +267,17 @@ is not an additional manual-motion authorization layer.
 The operator may turn Learning off when no Learning attempt owns work. This
 hides Learning navigation and prevents new Learning actions without clearing
 accepted artifacts, disconnecting the controller, disabling Motion, stopping
-the camera, or blocking direct manual controls. An active Learning attempt must
-finish or use its existing Cancel/Stop contract before Learning can be turned
-off.
+the camera, or blocking direct manual controls. The sole active-work exception
+is EA-04 point selection: Learning Off may itself typed-cancel only the exact
+point-selection/pen-cap continuation owner bound by both its selection ID and
+exercise-attempt token. It awaits that same owner to settlement and re-evaluates
+the exact owner after suspension before committing Off. A successor attempt
+token, another selection, or unrelated Learning, calibration, exploration,
+motion, or attempt work typed-refuses with the existing Cancel/Stop remedy.
+This exception does not authorize Learning Off to cancel physical motion or any
+other owner and does not weaken operator or safety authority. Every other active
+Learning attempt must finish or use its existing Cancel/Stop contract before
+Learning can be turned off.
 
 After current Exercise 1.2 and before Stage 2 there are exactly two exercises:
 

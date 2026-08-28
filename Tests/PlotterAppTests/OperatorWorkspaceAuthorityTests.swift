@@ -540,7 +540,17 @@ extension OperatorWorkspaceTests {
     let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
 
     await workspace.performExerciseAction(.redoThisStep, for: owner)
-    try submitPenCapClick(workspace)
+    let pointRequest = try #require(workspace.actionSurfacePresentation.pointSelectionRequest)
+    let displayedFrame = try #require(workspace.actionSurfacePresentation.displayedFrame)
+    submitPointSelection(
+      workspace,
+      request: pointRequest,
+      point: try Point2(
+        x: Double(displayedFrame.frame.width - 1) / 2,
+        y: Double(displayedFrame.frame.height - 1) / 2
+      )
+    )
+    try await waitUntil { workspace.penCapAppearanceSelection != nil }
     await workspace.performExerciseAction(.cancel, for: owner)
 
     #expect(

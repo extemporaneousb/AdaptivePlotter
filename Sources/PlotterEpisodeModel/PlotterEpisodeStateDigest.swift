@@ -152,6 +152,8 @@ private struct CanonicalStatePayload: Codable, Hashable, Sendable {
   let currentPlanRevisionID: ExecutionPlanRevisionID?
   let activeDrawingModelRevisionID: DrawingModelRevisionID?
   let selectedPoint: Point2<MachineSpace>?
+  let exactPointSelection: PlotterExactPointSelectionState
+  let learningIsEnabled: Bool
   let activeRequestID: IntentRequestID?
   let activeIntent: PlotterIntent?
   let pendingEffectID: EpisodeEffectID?
@@ -173,6 +175,8 @@ private struct CanonicalStatePayload: Codable, Hashable, Sendable {
     currentPlanRevisionID = state.currentPlanRevisionID
     activeDrawingModelRevisionID = state.activeDrawingModelRevisionID
     selectedPoint = state.selectedPoint
+    exactPointSelection = state.exactPointSelection
+    learningIsEnabled = state.learningIsEnabled
     activeRequestID = state.activeRequestID
     activeIntent = state.activeIntent
     pendingEffectID = state.pendingEffectID

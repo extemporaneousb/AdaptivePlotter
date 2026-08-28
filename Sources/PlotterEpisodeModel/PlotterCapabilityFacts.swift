@@ -10,6 +10,7 @@ public enum PlotterCapabilityKind: String, Codable, CaseIterable, Hashable, Send
   case executionPlan
   case evidence
   case outcome
+  case learningActivity
 }
 
 public struct PlotterConnectionFact: Codable, Hashable, Sendable {
@@ -145,6 +146,63 @@ public struct PlotterOutcomeFact: Codable, Hashable, Sendable {
   }
 }
 
+public struct PlotterPointSelectionActivityOwner: Codable, Hashable, Sendable {
+  public let selectionID: PlotterPointSelectionID
+  public let exerciseAttemptID: UUID
+
+  public init(
+    selectionID: PlotterPointSelectionID,
+    exerciseAttemptID: UUID
+  ) {
+    self.selectionID = selectionID
+    self.exerciseAttemptID = exerciseAttemptID
+  }
+}
+
+public struct PlotterLearningActivityFact: Codable, Hashable, Sendable {
+  public let owner: EpisodeAuthorityID
+  public let revision: CapabilityFactRevision
+  public let activeCameraCalibration: Bool
+  public let activeAttempt: Bool
+  public let activeDiscovery: Bool
+  public let activeExploration: Bool
+  public let activeLearningMotion: Bool
+  public let pointSelectionOwner: PlotterPointSelectionActivityOwner?
+
+  public init(
+    owner: EpisodeAuthorityID,
+    revision: CapabilityFactRevision,
+    activeCameraCalibration: Bool,
+    activeAttempt: Bool,
+    activeDiscovery: Bool,
+    activeExploration: Bool,
+    activeLearningMotion: Bool,
+    pointSelectionOwner: PlotterPointSelectionActivityOwner? = nil
+  ) {
+    self.owner = owner
+    self.revision = revision
+    self.activeCameraCalibration = activeCameraCalibration
+    self.activeAttempt = activeAttempt
+    self.activeDiscovery = activeDiscovery
+    self.activeExploration = activeExploration
+    self.activeLearningMotion = activeLearningMotion
+    self.pointSelectionOwner = pointSelectionOwner
+  }
+
+  public var activePointSelection: Bool { pointSelectionOwner != nil }
+
+  public var hasActiveLearningWork: Bool {
+    activeCameraCalibration || activeAttempt || activeDiscovery || activeExploration
+      || activeLearningMotion
+  }
+
+  public var hasActiveUnrelatedLearningWork: Bool {
+    activeCameraCalibration || activeExploration || activeLearningMotion
+      || (activeAttempt && !activePointSelection)
+      || (activeDiscovery && !activePointSelection)
+  }
+}
+
 public enum PlotterCapabilityFact: CapabilityFact {
   case connection(PlotterConnectionFact)
   case motion(PlotterMotionFact)
@@ -153,6 +211,7 @@ public enum PlotterCapabilityFact: CapabilityFact {
   case executionPlan(PlotterExecutionPlanFact)
   case evidence(PlotterEvidenceFact)
   case outcome(PlotterOutcomeFact)
+  case learningActivity(PlotterLearningActivityFact)
 
   public var kind: PlotterCapabilityKind {
     switch self {
@@ -170,6 +229,8 @@ public enum PlotterCapabilityFact: CapabilityFact {
       return .evidence
     case .outcome:
       return .outcome
+    case .learningActivity:
+      return .learningActivity
     }
   }
 
@@ -193,6 +254,8 @@ public enum PlotterCapabilityFact: CapabilityFact {
       return fact.owner
     case let .outcome(fact):
       return fact.owner
+    case let .learningActivity(fact):
+      return fact.owner
     }
   }
 
@@ -211,6 +274,8 @@ public enum PlotterCapabilityFact: CapabilityFact {
     case let .evidence(fact):
       return fact.revision
     case let .outcome(fact):
+      return fact.revision
+    case let .learningActivity(fact):
       return fact.revision
     }
   }

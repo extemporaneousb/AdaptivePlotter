@@ -4,7 +4,6 @@ import PlotterRuntime
 
 enum SparseTipCalibrationCoordinatorError: Error, Equatable, Sendable {
   case invalidTransition
-  case staleSelection
   case duplicateObservation
 }
 
@@ -40,7 +39,6 @@ struct SparseTipCalibrationCoordinator: Hashable, Sendable {
   private(set) var acceptedObservations: [AcceptedToolContactObservation] = []
   private(set) var blacklistedLocations: Set<BlacklistedToolContactLocation>
   private(set) var pendingFrame: ExactTipCalibrationFrame?
-  private(set) var selections: [ActionSurfacePointSelection] = []
   private(set) var proposal: TipCalibrationModelSelection?
 
   init(blacklistedLocations: Set<BlacklistedToolContactLocation> = []) {
@@ -55,12 +53,6 @@ struct SparseTipCalibrationCoordinator: Hashable, Sendable {
 
   var blacklistedPositions: Set<ToolContactCalibrationPosition> {
     Set(blacklistedLocations.map(\.calibrationPosition))
-  }
-
-  var collectedClickPoints: [Point2<CameraPixelSpace>] { selections.map(\.point) }
-  var collectedClickCount: Int { selections.count }
-  var selectedPresentationRevisionForCommit: PresentationTransformRevision? {
-    selections.first?.presentationTransformRevision
   }
 
   mutating func beginBatch() throws {
@@ -82,43 +74,23 @@ struct SparseTipCalibrationCoordinator: Hashable, Sendable {
       throw SparseTipCalibrationCoordinatorError.invalidTransition
     }
     pendingFrame = frame
-    selections = []
     phase = .awaitingFrozenClicks(frame.frameID)
   }
 
-  mutating func select(_ selection: ActionSurfacePointSelection) throws {
-    guard case .awaitingFrozenClicks(let frameID) = phase,
-      let pendingFrame,
-      frameID == pendingFrame.frameID,
-      selection.frame == pendingFrame,
-      selections.count < Self.orderedPositions.count,
-      selections.first?.presentationTransformRevision == selection.presentationTransformRevision
-        || selections.isEmpty
-    else { throw SparseTipCalibrationCoordinatorError.staleSelection }
-    selections.append(selection)
-    if selections.count == Self.orderedPositions.count {
-      phase = .fittingModel
+  mutating func beginFitting() throws {
+    guard pendingFrame != nil, isAwaitingFrozenClicks else {
+      throw SparseTipCalibrationCoordinatorError.invalidTransition
     }
+    phase = .fittingModel
   }
 
-  mutating func undoLastClick() throws {
-    guard pendingFrame != nil, !selections.isEmpty,
+  mutating func resumeFrozenClicksAfterCorrection() throws {
+    guard let pendingFrame,
       phase == .fittingModel || isReviewingModel || isAwaitingFrozenClicks
     else { throw SparseTipCalibrationCoordinatorError.invalidTransition }
     acceptedObservations = []
     proposal = nil
-    selections.removeLast()
-    phase = .awaitingFrozenClicks(pendingFrame!.frameID)
-  }
-
-  mutating func clearClicks() throws {
-    guard pendingFrame != nil,
-      phase == .fittingModel || isReviewingModel || isAwaitingFrozenClicks
-    else { throw SparseTipCalibrationCoordinatorError.invalidTransition }
-    acceptedObservations = []
-    proposal = nil
-    selections = []
-    phase = .awaitingFrozenClicks(pendingFrame!.frameID)
+    phase = .awaitingFrozenClicks(pendingFrame.frameID)
   }
 
   /// Model construction is atomic with respect to accepted observations. If it
@@ -128,7 +100,6 @@ struct SparseTipCalibrationCoordinator: Hashable, Sendable {
   mutating func recoverFromFittingFailure() -> Bool {
     guard phase == .fittingModel,
       let pendingFrame,
-      selections.count == Self.orderedPositions.count,
       acceptedObservations.isEmpty,
       proposal == nil
     else { return false }
@@ -137,7 +108,8 @@ struct SparseTipCalibrationCoordinator: Hashable, Sendable {
   }
 
   mutating func acceptAssociatedObservations(
-    _ observations: [AcceptedToolContactObservation]
+    _ observations: [AcceptedToolContactObservation],
+    selectedPoints: [Point2<CameraPixelSpace>]
   ) throws {
     guard phase == .fittingModel,
       observations.count == Self.orderedPositions.count,
@@ -146,7 +118,7 @@ struct SparseTipCalibrationCoordinator: Hashable, Sendable {
       observations.allSatisfy({
         $0.observation.postRevealSelectionFrame.frameID == pendingFrame.frameID
       }),
-      clickPointsMatch(observations.map { $0.observation.click.point }, collectedClickPoints)
+      clickPointsMatch(observations.map { $0.observation.click.point }, selectedPoints)
     else { throw SparseTipCalibrationCoordinatorError.duplicateObservation }
     acceptedObservations = observations
   }
@@ -157,13 +129,11 @@ struct SparseTipCalibrationCoordinator: Hashable, Sendable {
   ) {
     blacklistedLocations.insert(location)
     pendingFrame = nil
-    selections = []
     phase = .possibleInkBlacklisted(location, reason)
   }
 
   mutating func resetBeforeInkFailure() {
     pendingFrame = nil
-    selections = []
     phase = .idle
   }
 
@@ -198,7 +168,6 @@ struct SparseTipCalibrationCoordinator: Hashable, Sendable {
 
   mutating func markCheckpointRevalidated() {
     pendingFrame = nil
-    selections = []
     proposal = nil
     phase = .accepted
   }

@@ -1,4 +1,6 @@
 import Foundation
+import PlotterEpisodeModel
+import PlotterEpisodeRuntime
 import PlotterModel
 import Testing
 
@@ -13,7 +15,8 @@ struct PenCapAppearanceSelectionTests {
     let displayed = try colorFrame(red: 20, green: 80, blue: 220)
     let selection = try pointSelection(frame: displayed, x: 4, y: 4)
 
-    let learned = try PenCapAppearanceSampler.sample(frame: displayed, selection: selection)
+    let sample = try PlotterPenCapPointSampler.sample(frame: displayed, submission: selection)
+    let learned = PenCapAppearanceSelection(sample: sample, frame: displayed)
 
     #expect(learned.color == PenCapColor(red: 20, green: 80, blue: 220))
     #expect(learned.matches(displayed))
@@ -32,9 +35,9 @@ struct PenCapAppearanceSelectionTests {
       let displayed = try colorFrame(red: channels.0, green: channels.1, blue: channels.2)
       let selection = try pointSelection(frame: displayed, x: 4, y: 4)
       do {
-        _ = try PenCapAppearanceSampler.sample(frame: displayed, selection: selection)
+        _ = try PlotterPenCapPointSampler.sample(frame: displayed, submission: selection)
         Issue.record("Expected an achromatic or dark patch to be rejected")
-      } catch let error as PenCapAppearanceSamplingError {
+      } catch let error as PlotterPointSelectionSamplingError {
         #expect(error == .insufficientChromaticPixels(usable: 0, required: 9, total: 81))
         #expect(error.localizedDescription.contains("usable chromatic pixels"))
       }
@@ -46,10 +49,10 @@ struct PenCapAppearanceSelectionTests {
     let displayed = try colorFrame(red: 40, green: 90, blue: 210, width: 9, height: 9)
     let selection = try pointSelection(frame: displayed, x: 0, y: 0)
 
-    let learned = try PenCapAppearanceSampler.sample(frame: displayed, selection: selection)
+    let sample = try PlotterPenCapPointSampler.sample(frame: displayed, submission: selection)
 
-    #expect(learned.usableSampleCount == 25)
-    #expect(learned.totalSampleCount == 25)
+    #expect(sample.usableSampleCount == 25)
+    #expect(sample.totalSampleCount == 25)
   }
 
   @Test("unsupported gray bytes and stale exact-frame clicks are refused")
@@ -57,8 +60,8 @@ struct PenCapAppearanceSelectionTests {
     let gray = try colorFrame(
       red: 80, green: 80, blue: 80, pixelFormat: .gray8, frameID: "gray")
     let graySelection = try pointSelection(frame: gray, x: 4, y: 4)
-    #expect(throws: PenCapAppearanceSamplingError.unsupportedPixelFormat(.gray8)) {
-      try PenCapAppearanceSampler.sample(frame: gray, selection: graySelection)
+    #expect(throws: PlotterPointSelectionSamplingError.unsupportedPixelFormat(.gray8)) {
+      try PlotterPenCapPointSampler.sample(frame: gray, submission: graySelection)
     }
 
     let current = try colorFrame(red: 20, green: 80, blue: 220, frameID: "current")
@@ -69,8 +72,8 @@ struct PenCapAppearanceSelectionTests {
       configurationID: current.frame.cameraConfigurationID,
       frameID: "stale")
     let staleSelection = try pointSelection(frame: stale, x: 4, y: 4)
-    #expect(throws: PenCapAppearanceSamplingError.staleExactFrame) {
-      try PenCapAppearanceSampler.sample(frame: current, selection: staleSelection)
+    #expect(throws: PlotterPointSelectionSamplingError.staleExactFrame) {
+      try PlotterPenCapPointSampler.sample(frame: current, submission: staleSelection)
     }
   }
 
@@ -99,18 +102,21 @@ struct PenCapAppearanceSelectionTests {
     let frozenFrame = try #require(presentation.displayedFrame)
     #expect(request.purpose == .penCapAppearance)
     #expect(request.prompt == "Click the pen cap body—not the tip—on the current camera frame.")
-    #expect(request.matches(frozenFrame))
+    #expect(request.frame.frameID == frozenFrame.frame.id.rawValue)
+    #expect(request.frame.frameSHA256 == frozenFrame.frame.contentSHA256)
     #expect(workspace.discoveryTransactions[.penInteraction] == nil)
     #expect(await machine.requestedPenCommands.isEmpty)
     #expect(await log.values.isEmpty)
 
-    let accepted = ActionSurfacePointSelection(
-      frame: request.frame,
-      point: try Point2(x: 4, y: 4),
-      presentationTransformRevision: request.presentationTransformRevision
+    submitPointSelection(
+      workspace,
+      request: request,
+      point: try Point2(x: 4, y: 4)
     )
-    workspace.selectToolContactPoint(accepted)
-    await workspace.awaitPenCapAcceptedClickTransition()
+    try await waitUntil {
+      workspace.activeDiscoverySequenceID == .penInteraction
+        || workspace.discoveryError != nil
+    }
     try requireStep(workspace, "answer-initially-up")
     try await waitForExecutorTurns {
       camera.recordedPenCapColorRequests.last != nil
@@ -152,9 +158,7 @@ struct PenCapAppearanceSelectionTests {
     #expect(identifyAction.unavailableReason == nil)
 
     await workspace.performExerciseAction(.start, for: owner)
-    try submitPenCapClick(workspace)
-    await workspace.awaitPenCapAcceptedClickTransition()
-    try requireStep(workspace, "answer-initially-up")
+    try await identifyPenCap(workspace)
 
     let disconnectedStrip = try #require(workspace.currentExerciseActionStripPresentation)
     let disconnectedNext = try #require(
@@ -218,8 +222,7 @@ struct PenCapAppearanceSelectionTests {
     await workspace.beginPenInteraction()
     await reconfigurationGate.arm()
 
-    try submitPenCapClick(workspace)
-    await workspace.awaitPenCapAcceptedClickTransition()
+    try await identifyPenCap(workspace)
 
     try requireStep(workspace, "answer-initially-up")
     try await waitForExecutorTurnsAsync(
@@ -257,7 +260,8 @@ struct PenCapAppearanceSelectionTests {
     let presentation = workspace.actionSurfacePresentation
     let frozen = try #require(presentation.displayedFrame)
     let request = try #require(presentation.pointSelectionRequest)
-    #expect(request.matches(frozen))
+    #expect(request.frame.frameID == frozen.frame.id.rawValue)
+    #expect(request.frame.frameSHA256 == frozen.frame.contentSHA256)
     #expect(presentation.overlays.map(\.provenance.kind) == [.penCap])
     #expect(presentation.overlays.allSatisfy { $0.matches(frozen) })
     #expect(camera.inspectionCallCount >= 1)
@@ -282,13 +286,23 @@ struct PenCapAppearanceSelectionTests {
     await workspace.beginPenInteraction()
     let request = try #require(workspace.actionSurfacePresentation.pointSelectionRequest)
     let staleFrame = try colorFrame(red: 20, green: 80, blue: 220, frameID: "other-frame")
-    let stale = try pointSelection(frame: staleFrame, x: 4, y: 4)
+    let stale = PlotterPointSelectionSubmission(
+      selectionID: request.id,
+      frame: exactPointSelectionFrame(staleFrame),
+      point: try Point2(x: 4, y: 4),
+      presentationTransformRevision: request.presentationTransformRevision
+    )
 
-    workspace.selectToolContactPoint(stale)
+    workspace.submitPointSelection(stale)
+    try await waitUntil { workspace.discoveryError != nil }
 
     #expect(workspace.actionSurfacePresentation.pointSelectionRequest == request)
     #expect(workspace.discoveryTransactions[.penInteraction] == nil)
-    #expect(workspace.discoveryError?.contains("did not belong to the frozen exact frame") == true)
+    #expect(
+      workspace.discoveryError?.contains(
+        "Submit the point against the exact frozen frame currently presented."
+      ) == true
+    )
     #expect(await machine.requestedPenCommands.isEmpty)
     #expect(await log.values.isEmpty)
     await workspace.shutdown()
@@ -384,14 +398,8 @@ struct PenCapAppearanceSelectionTests {
       else { return nil }
       return point
     }.first ?? fallbackPoint
-    workspace.selectToolContactPoint(
-      ActionSurfacePointSelection(
-        frame: request.frame,
-        point: point,
-        presentationTransformRevision: request.presentationTransformRevision
-      )
-    )
-    await workspace.awaitPenCapAcceptedClickTransition()
+    submitPointSelection(workspace, request: request, point: point)
+    try await waitUntil { workspace.penCapAppearanceSelection != nil }
 
     let simulated = try #require(workspace.simulatedPenCapAppearanceSelection)
     #expect(simulated.source == .simulated)
@@ -477,12 +485,26 @@ struct PenCapAppearanceSelectionTests {
 
     await workspace.performExerciseAction(.start, for: owner)
     let cancelledAttemptID = try #require(workspace.activeExerciseAttemptID)
-    try submitPenCapClick(workspace)
+    let request = try #require(workspace.actionSurfacePresentation.pointSelectionRequest)
+    let displayed = try #require(workspace.actionSurfacePresentation.displayedFrame)
+    submitPointSelection(
+      workspace,
+      request: request,
+      point: try Point2(
+        x: Double(displayed.frame.width - 1) / 2,
+        y: Double(displayed.frame.height - 1) / 2
+      )
+    )
+    try await waitUntil { workspace.penCapAppearanceSelection != nil }
     let acceptedAppearance = try #require(workspace.penCapAppearanceSelection)
     await workspace.performExerciseAction(.cancel, for: owner)
 
     #expect(workspace.activeExerciseAttemptID == nil)
-    #expect(workspace.discoveryTransactions[.penInteraction] == nil)
+    if let cancelledTransaction = workspace.discoveryTransactions[.penInteraction] {
+      #expect(cancelledTransaction.state == .cancelled)
+      #expect(cancelledTransaction.completedStepCount == 1)
+    }
+    #expect(workspace.activeDiscoverySequenceID == nil)
     #expect(workspace.selectedOperatorActionPresentation(for: owner).question == nil)
     #expect(await machine.requestedPenCommands.isEmpty)
     #expect(await log.values.isEmpty)
@@ -509,7 +531,17 @@ struct PenCapAppearanceSelectionTests {
 
     await workspace.performExerciseAction(.start, for: owner)
     let cancelledAttemptID = try #require(workspace.activeExerciseAttemptID)
-    try submitPenCapClick(workspace)
+    let request = try #require(workspace.actionSurfacePresentation.pointSelectionRequest)
+    let displayed = try #require(workspace.actionSurfacePresentation.displayedFrame)
+    submitPointSelection(
+      workspace,
+      request: request,
+      point: try Point2(
+        x: Double(displayed.frame.width - 1) / 2,
+        y: Double(displayed.frame.height - 1) / 2
+      )
+    )
+    try await waitUntil { workspace.penCapAppearanceSelection != nil }
     await workspace.performExerciseAction(.cancel, for: owner)
     await workspace.performExerciseAction(.restart, for: owner)
 
@@ -518,7 +550,8 @@ struct PenCapAppearanceSelectionTests {
     #expect(workspace.discoveryTransactions[.penInteraction] == nil)
     #expect(workspace.actionSurfacePresentation.pointSelectionRequest?.purpose == .penCapAppearance)
     await workspace.performExerciseAction(.cancel, for: owner)
-    workspace.toggleLearningMode()
+    workspace.submitLearningModeChange()
+    try await waitUntil { !workspace.learningIsEnabled }
     #expect(!workspace.learningIsEnabled)
 
     let plan = try #require(workspace.resetAllLearningPlan)
@@ -544,7 +577,17 @@ struct PenCapAppearanceSelectionTests {
     let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
 
     await workspace.performExerciseAction(.start, for: owner)
-    try submitPenCapClick(workspace)
+    let request = try #require(workspace.actionSurfacePresentation.pointSelectionRequest)
+    let displayed = try #require(workspace.actionSurfacePresentation.displayedFrame)
+    submitPointSelection(
+      workspace,
+      request: request,
+      point: try Point2(
+        x: Double(displayed.frame.width - 1) / 2,
+        y: Double(displayed.frame.height - 1) / 2
+      )
+    )
+    try await waitUntil { workspace.penCapAppearanceSelection != nil }
     await workspace.shutdown()
 
     #expect(workspace.discoveryTransactions[.penInteraction] == nil)
@@ -610,36 +653,11 @@ private func pointSelection(
   frame: DisplayedFrame,
   x: Double,
   y: Double
-) throws -> ActionSurfacePointSelection {
-  let optical = try CameraOpticalConfigurationIdentity(
-    source: frame.source,
-    sensorFormat: "pen-cap-selection-test",
-    width: frame.frame.width,
-    height: frame.frame.height,
-    pixelFormat: frame.frame.pixelFormat,
-    orientation: .up,
-    mirrored: false,
-    digitalZoomFactor: 1,
-    lensIdentity: "test-lens",
-    focusConfiguration: "test-focus",
-    mountRevision: UUID(),
-    reframingRevision: UUID()
-  )
-  let exact = try ExactTipCalibrationFrame(
-    frameID: frame.frame.id,
-    frameSHA256: frame.frame.contentSHA256,
-    source: frame.source,
-    captureSessionID: CameraCaptureSessionID(),
-    opticalConfiguration: optical,
-    cameraConfigurationID: frame.frame.cameraConfigurationID,
-    captureNanoseconds: frame.frame.captureNanoseconds,
-    width: frame.frame.width,
-    height: frame.frame.height,
-    pixelFormat: frame.frame.pixelFormat
-  )
-  return ActionSurfacePointSelection(
-    frame: exact,
+) throws -> PlotterPointSelectionSubmission {
+  PlotterPointSelectionSubmission(
+    selectionID: PlotterPointSelectionID(),
+    frame: exactPointSelectionFrame(frame),
     point: try Point2(x: x, y: y),
-    presentationTransformRevision: PresentationTransformRevision()
+    presentationTransformRevision: PlotterPresentationTransformRevision()
   )
 }

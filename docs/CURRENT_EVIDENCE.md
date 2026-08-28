@@ -30,6 +30,7 @@ limitations remain in the named evidence section.
 | EA-05A | `TASK-57FE4C62` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed`, `RECORDING=passed` | Episode recording store foundation |
 | EA-05B | `TASK-32F536F4` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed`, `REPLAY=passed` | Episode deterministic replay foundation |
 | EA-05C | `TASK-1DDBA6F2` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed`, `INCIDENT=passed` | Episode incident package foundation |
+| EA-04 | `TASK-A5FF364B` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed`, `POINT=passed`, `DELETE=passed` | Episode point-selection cutover |
 
 ## Wave admission blockers
 
@@ -42,6 +43,171 @@ admission blocker beyond the canonical ledger and live Blackdog claims.
 
 | Package | Blocker | Required input or canonical correction |
 | --- | --- | --- |
+
+## Episode point-selection cutover
+
+Delivered 2026-08-27 in Blackdog task `TASK-A5FF364B`. EA-04 replaces the
+application-owned point-selection state, view closures, and continuation tasks
+with one production episode composition. It does not create a parallel path.
+
+`PlotterIntentGateway` is the stateless typed decision boundary.
+`PlotterPointSelectionRuntime` is the single actor owner for its
+`EpisodeStore<PlotterEpisodeReducer, PointSelectionJournalPersistence>`,
+`PlotterOperationRegistry`, exact staged-frame map, optional
+`EpisodeRecordingStore`, active pen-cap continuation, and copied
+`PlotterEpisodeProjection`. One FIFO mutation/publication boundary surrounds
+every mutation and projection read. Concurrent submissions therefore
+re-evaluate the state serialized by the preceding mutation instead of acting on
+one copied admission decision. Staging cancels the superseded request, records
+the exact camera frame when recording is available, commits the frame
+observation, and stages the typed `PlotterPointSelectionRequest`.
+
+`PointSelectionJournalPersistence` retains the `plotter-point-selection-journal-v1` schema and uses a macOS-14-compatible `OSAllocatedUnfairLock` compare-and-swap commit.
+The episode model and runtime contain no `@unchecked Sendable` escape hatch. Production creates a recording UUID under Application Support at
+`AdaptivePlotter/EpisodeRecordings/<recording UUID>` and opens the EA-05A store
+with a 64-unique-frame, 512 MiB retention policy.
+Store startup failure and per-stage archival failure remain visible nonblocking diagnostics.
+Recording is never safety, evidence, or exact-frame authority; acceptance remains
+available with a diagnostic when bytes could not be archived.
+
+Submission fails closed before mutation when request identity, source, camera
+configuration, frame identity/hash/layout, presentation revision/bounds, or
+request capacity is stale.
+The production ActionSurface click path uses `ExactFramePointSubmissionBuilder.submission`: point geometry comes from the current viewport, while authority identity comes from the staged request's exact `request.presentationTransformRevision`; the builder owns no admission authority.
+The current request admits and a replaced request typed-refuses at the runtime boundary.
+One accepted selection becomes publicly visible only after the select event, point observation, and accepted `PlotterEvidence` with class `.operatorAssertion` have all committed.
+Projection reads use the same FIFO boundary, so no caller can observe a partially committed accepted selection.
+Pen-cap sampling is owned by runtime `PlotterPenCapPointSampler`; its accepted result carries the exact `DisplayedFrame` used for sampling to the app adapter. Sparse-tip selection uses the same runtime for staged points,
+undo, clear, four-point capacity, and the accepted batch.
+`SparseTipCalibrationCoordinator` retains machine-position association,
+calibration fitting and acceptance. No accepted point is inferred from a
+camera, simulator, or recording diagnostic.
+
+The pen-cap continuation is registered in the exact-workflow lane with its full
+operation identity, start attribution, move-only permit, Stop capability, and
+operation-bound completion.
+`PlotterLearningIntentRules.modeAvailability` is the one pure availability rule
+used by both the evaluator and immutable
+workspace presentation. `submitLearningModeChange` has no local guard: every
+operator click is sent through `PlotterLearningModeIntentSink`, and the
+runtime commits either its typed acceptance or typed refusal with a visible remedy.
+The button remains invokable when refusal is predicted, displays that remedy, and has no local guard or silent no-op.
+`PlotterPointSelectionRuntime.setLearningEnabled` accepts a typed `PlotterLearningActivityFactProviding`, obtains a fresh fact inside the FIFO boundary for initial evaluation, and reacquires a fresh fact after exact continuation cancellation before reevaluation.
+`OperatorWorkspace` passes that provider through the Task hop instead of capturing an activity fact before the hop.
+`PlotterPointSelectionActivityOwner(selectionID: PlotterPointSelectionID, exerciseAttemptID: UUID)` binds the exact owner used by both the initial and post-suspension fresh-fact evaluations.
+The same item and selection with a successor exercise-attempt token typed-refuses, and the workspace rechecks that exact attempt identity before post-runtime attempt cancellation.
+Learning Off is admitted only as the one typed accepted click that owns EA-04 exact selection/pen-cap continuation.
+For a latched continuation, the FIFO boundary remains held while the runtime latches that exact owner, awaits `registry.stop`, and privately clears the runtime continuation handle without publishing episode-state mutation.
+It then reacquires a fresh typed activity fact, and the gateway reevaluates the bound exact owner against the still-private `.continuing` plus `continuationIsActive` state.
+An admitted Off commit clears the selection. A successor or unrelated refusal first publishes inactive continuation and then the final typed refusal behind the same FIFO boundary, so no caller sees partial state and later settlement cannot revive the continuation.
+For that continuation path, `setLearningEnabled` returns only after registry settlement and final publication; there is no replacement settlement helper, poll, sleep, or state variable.
+Focused tests assert the immutable returned/current projection plus observable continuation-port state.
+`PlotterLearningIntentRules.modeAvailability` independently admits the exact exception only for `.collecting` or for `.continuing` with `continuationIsActive`; `OperatorWorkspace` emits a point-selection activity owner only for those same phases.
+Retained `.accepted` Pen first-question/discovery and sparse batch/calibration attempts typed-refuse even when a caller supplies a matching owner.
+Unrelated calibration, exploration, motion, or exercise-attempt work instead typed-refuses through the sole pure `PlotterLearningIntentRules.modeAvailability` rule.
+`ActionSurface` sends only inverse-transformed click submissions through the click-only `PlotterPointSelectionIntentSink`.
+Retained `OperatorWorkspace` undo, clear, and cancel action adapters invoke the same runtime/store authority; those actions do not originate in `ActionSurface` or the sink protocol.
+`OperatorWorkspace` retains only the
+projection/adaptation boundary: it copies `PlotterEpisodeProjection`, converts
+an accepted cap sample into the existing `PenCapAppearanceSelection`, and hands
+it to the retained camera/Vision reconfiguration path. Its
+`learningModePresentation` is projection-only. The remaining direct SwiftUI
+`UI.learningModePresentation` consumer is retained under inventory item UI-008
+for the future EA-09 presentation cutover and owns no semantic or guard
+authority.
+
+`PointSelectionPresentationContext`, its copied request/admission comparison, and the Task-returning app cancellation helper are deleted.
+`submitCurrentPenCapPoint` and `OperatorWorkspace.awaitPenCapAcceptedClickTransition` are also deleted; focused tests use generic point submissions and bounded observable-state waits.
+The app's
+`frozenPointSelectionFrame` bytes remain presentation-only, while
+`pendingToolContactEvidence` remains adapter data for the retained sparse-tip calibration fit. Neither is point-selection admission or accepted-evidence
+authority; the app cancellation helper is now async and awaits the runtime owner directly.
+
+`CameraCapture` still owns device discovery, capture, and exact stamped frames;
+`CameraSourceSession` and the
+existing Vision owner retain analysis configuration; the artifact stores retain
+persistence; `MachineController` and `RunInterpreter` retain device, motion,
+Pen, safety, and settlement; and the calibration coordinators retain fitting
+and artifact acceptance. The episode cutover does not promote recording or
+simulation to LIVE evidence and does not move any physical authorization.
+
+The focused `PlotterPointSelectionEpisodeTests` suite discovered and passed 11/11 tests, exit 0,
+with a 0.23-second build, 0 failed, suite 0.206 seconds, run 0.206 seconds, and no warnings or errors. It
+covers exact identity/source/configuration/presentation/bounds/capacity
+refusals; production-ingress staged-revision identity; accepted observation, operator-assertion evidence, and projection;
+exact pen-cap frame recording; Learning-Off cancellation and non-revival;
+fresh exact-owner Learning activity reacquisition, successor-attempt refusal, and retained `.accepted` refusal across private continuation settlement;
+sparse-tip undo, clear, and four-point acceptance;
+concurrent FIFO re-evaluation; transaction-complete public projection; and strict
+LIVE/SIMULATED provenance separation, checked journal synchronization, and the scoped absence of unchecked Sendable conformance.
+The app-level direct-authority test deterministically holds camera reconfiguration until projection is `.continuing` with `continuationIsActive`, then proves Learning Off cancels the exact attempt without changing machine authorization or accepted artifacts.
+Settled accepted-request refusal remains separate focused coverage.
+
+Static inspection found 29 capsule/checker test methods. The untracked focused file contains eleven `@Test` methods.
+EA-04 adds eleven net Swift tests to the preceding 644/654 baselines, producing final `QUICK` 655/655 and `STRICT` 665/665 measurements.
+The DELETE gate proves all 36 exact EA-04 cutover scans have zero matches,
+including the removed request/state types, selection and Learning closures,
+presentation context/admission comparison, Task-returning cancellation helper,
+continuation tasks/identities/helpers, stale guards, `submitCurrentPenCapPoint`,
+`OperatorWorkspace.awaitPenCapAcceptedClickTransition`, the high-level
+`submitPenCapClick` fixture seam, and the scoped `@unchecked Sendable` prohibition across the episode model and runtime.
+The task-owner/polling semantic-deletion scan also proves `awaitContinuationSettlement` is absent from the episode runtime and tests.
+
+The prior fresh read-only critic returned `RETASK` with 2/10 dimensions passing; it was not a pass or final verdict. Its source findings were corrected before the frozen evidence above.
+A later fresh read-only critic returned `RETASK` with 5/10 dimensions passing (4, 5, 7, 8, and 10); its failures required source, UI, runtime, and canonical-document corrections.
+A subsequent fresh read-only critic also returned `RETASK` with 5/10 dimensions passing (3, 4, 5, 8, and 10); its exact-owner, semantic-deletion, synchronization, and canonical-document findings were corrected in this candidate.
+A fourth fresh read-only critic returned `RETASK` with 8/10 dimensions passing (1, 2, 3, 4, 5, 6, 8, and 10); failures in dimensions 7 and 9 required the waiter deletion and canonical corrections recorded here.
+Those four pre-`ACCEPT` `RETASK` results remain nonpasses and accepted/retasked slice evidence; none is rewritten as a pass or final verdict.
+An earlier fresh read-only critic returned `ACCEPT`: all 10/10 dimensions passed.
+Its permitted `make docs-check` passed the documentation and architecture contracts plus 29/29 documentation/checker tests, and `git diff --check` was clean.
+It did not rerun SwiftPM and ended exactly `UNANIMOUS PASS — no material disagreement`.
+The preceding final-tree critic returned `RETASK` with 9/10 dimensions passing (1, 2, 3, 4, 5, 6, 7, 8, and 10); dimension 9 failed on the canonical Product Contract contradiction.
+The earlier 10/10 `ACCEPT` is preserved as history but superseded as the final landing verdict by that later contradiction.
+The latest fresh critic returned `RETASK` with 7/10 dimensions passing (1, 2, 4, 5, 7, 8, and 10); dimensions 3, 6, and 9 failed on the settled-owner runtime and canonical-description mismatch.
+After the settled-owner and Product Contract corrections, the current final fresh critic returned `ACCEPT`: all 10/10 dimensions passed.
+For this current verdict, permitted `make docs-check` passed the documentation and architecture contracts plus 29/29 documentation/checker tests, and `git diff --check` was clean.
+The critic did not rerun SwiftPM and ended exactly `UNANIMOUS PASS — no material disagreement`.
+No transient critic report, including the current final report, is checked in.
+
+After this landing, `EA-06` is the first eligible ordinary WorkPackage. Its
+dependencies `EA-04` and `EA-05C` are complete, it is the first
+dependency-ready pending ordinary row in canonical ledger order, and Current
+Evidence records no admission blocker. This statement selects or dispatches no
+successor work.
+
+Canonical routed-document review dispositions:
+
+- Affected: Product Contract, Episode Architecture Execution Plan, Current Evidence, Swift Architecture, the executable episode contract checker, executable inventory checker, and capsule fixtures.
+  `Scripts/check_episode_inventory.py` adds completed-package retirement behavior while retaining pending DELETE and every retain/adapt obligation as live, and admits the scoped `forbidden-conformance` scan class.
+  `Scripts/test_episode_wave_capsule.py` advances the frontier fixture from `EA-04` to `EA-06`; the static capsule/checker method count remains 29.
+- Reviewed no change — `README.md` and Document Routing (`docs/INDEX.md`): the
+  existing camera-first contributor orientation and document ownership remain
+  accurate.
+- Reviewed no change — Discovery and Observed-Trial Protocol and Learning Path Button Transitions: bounded inspection found no conflicting global Learning-Off admission statement; both retain button-owned Cancel/Stop and the existing exercise flow without weakening operator authority.
+- Reviewed no change — Episode Architecture Vocabulary: the exact-owner
+  exception uses existing canonical terms and adds no parallel semantic owner.
+- Reviewed no change — Attended Hardware Runbook and Roadmap: no physical
+  procedure or milestone structure changed, and no attended controller, camera,
+  motion, Pen, paper, operator-click, or ink evidence was produced.
+- Reviewed no change — `AGENTS.md`, `blackdog.toml`, `.gitignore`, the
+  AdaptivePlotter and run-multi-agent-wave skills, episode-migration and
+  wave-coordination protocols, and conditional validation/generator scripts:
+  EA-04 changes no routing, lifecycle, selection, lease, validation, landing,
+  cleanup, ignore, or generation contract.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `DOC` | passed — `make docs-check`; documentation and architecture contracts plus 29/29 documentation/checker tests passed with no warnings | ledger, evidence, architecture, inventory retirement behavior, checker, and capsule fixtures |
+| `DIFF` | passed — `git diff --check`; exit 0, no output | complete package diff |
+| `QUICK` | passed — `make quick-test`; 655/655 tests passed with exactly 10 configured exclusions and no warnings | repository quick suite and declared exclusions |
+| `STRICT` | passed — `make strict-check`; 665/665 Swift tests plus 29/29 documentation/checker tests passed with zero exclusions or warnings; warning-as-errors build, signing, launcher, negative-bundle, and documentation checks passed | strict build, complete tests, signing, launcher, bundle, and documentation contracts |
+| `POINT` | passed — `swift test --filter PlotterPointSelectionEpisodeTests`; exit 0; build 0.23 seconds; 11/11 discovered and passed; 0 failed; suite 0.206 seconds; run 0.206 seconds; no warnings or errors | production-ingress staged-revision identity/refusal, FIFO-held private continuation settlement, deterministic app continuation cancellation, retained-accepted refusal, semantic deletion, scoped Sendable safety, sparse selection, and environment separation |
+| `DELETE` | passed — all 36 exact EA-04 source and fixture scans returned zero matches | removed point-selection state, presentation/admission copies, Task-returning cancellation, closures, tasks, guards, helper ingress/wait/poll seams, fixture seam, and scoped unchecked conformance |
+
+`package EA-04 complete; migration remains incomplete` is the completion
+statement for this landing, substantiated by the exact frozen-tree results
+above. No attended physical or remote-Git action occurred, and no physical
+evidence is claimed.
 
 ## Episode incident package foundation
 
@@ -906,7 +1072,7 @@ Forward scenarios are fixed by the checked contract:
 
 | Scenario | Required disposition |
 | --- | --- |
-| Current clean ledger | After the EA-05C landing, `EA-04` is the first eligible ordinary row, subject to no live claim or admission blocker; this evidence record does not select or dispatch it, and no software package may claim or repair the retained failed physical evidence. |
+| Current clean ledger | After the EA-04 landing, `EA-06` is the first eligible ordinary row, subject to no live claim or admission blocker; this evidence record does not select or dispatch it, and no software package may claim or repair the retained failed physical evidence. |
 | Active owner holds the claim | Start no task; request one bounded non-overlapping offload with explicit worktree and leases, or stop if it is unavailable. |
 | Failed/interrupted ordinary package is recoverable | Verify prompt replay and dependencies, then follow only Blackdog's exact recovery action as coordinator. |
 | Multiple later ordinary rows appear dependency-ready | Select only the first in literal ledger order; parallelism stays inside that one WorkPackage and one task worktree. |
