@@ -693,11 +693,11 @@ struct PlotterRecordingReplayTests {
     let clock = DeterministicRuntimeClock(startNanoseconds: 1_000)
     let link = SimulatedGRBLLink(exchanges: [exchange], clock: clock)
 
-    try await link.open()
-    try await link.write(exchange.expectedWrite)
-    let first = try await link.read(maximumBytes: 4_096, timeoutNanoseconds: 100)
-    let second = try await link.read(maximumBytes: 4_096, timeoutNanoseconds: 100)
-    await link.close()
+    _ = try await link.open()
+    _ = try await link.write(exchange.expectedWrite)
+    let first = (try await link.read(maximumBytes: 4_096, timeoutNanoseconds: 100)).bytes
+    let second = (try await link.read(maximumBytes: 4_096, timeoutNanoseconds: 100)).bytes
+    try await link.close()
 
     var combined = first
     combined.append(contentsOf: second)

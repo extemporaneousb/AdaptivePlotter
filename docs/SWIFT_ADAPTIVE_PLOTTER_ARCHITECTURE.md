@@ -61,6 +61,8 @@ PlotterEpisodeRuntime -> EpisodeCore + EpisodeRuntime + PlotterEpisodeModel + Pl
 
 PlotterRuntime
   MachineController, RunInterpreter, CameraCapture, VisionWorker
+  sole MachineLink transport contract with typed open/discard/write/read receipts
+  monotonic receive timing, observable close failure, and partial-transfer errors
   learning artifacts and dependency graph
   sparse contact evidence, affine-first tip construction, applicability, checkpoints
   owner-bound multi-stroke execution, generic planned-ink observation
@@ -534,6 +536,36 @@ every other logical operation. `OperatorWorkspace` projects limit-input evidence
 and alarm-unlock readiness separately, then follows an acknowledged clear with a
 fresh full passive probe before projecting a responsive session; Connect never
 clears an alarm implicitly.
+
+The sole `MachineLink` transport contract now returns a
+`MachineLinkOpenReceipt`, `MachineLinkDiscardReceipt`,
+`MachineLinkWriteReceipt`, or `MachineLinkReadReceipt` from each successful
+operation, while `close()` can report failure. Open facts use the
+transport-discriminated `MachineLinkAppliedConfiguration`: a BSD link reports
+the exact endpoint, input/output baud, data bits, stop bits, parity, flow
+control, local-mode, and receiver settings read back after application through
+`MachineLinkBSDSerialAppliedConfiguration`; a simulated link reports only its
+simulated identity and never fabricates serial settings. Discard and write
+receipts report exact byte counts. A read receipt owns the exact returned bytes
+and the link-boundary `receivedAtMonotonicNanoseconds: UInt64` sampled from that
+link's `RuntimeClock`.
+
+`MachineLinkError.discardFailed`, `.writeFailed`, and `.readFailed` retain
+operation-specific partial progress and a `MachineLinkTransferFailureReason`
+instead of inferring zero transfer after failure. Existing specific write
+timeout and cancellation errors retain their exact written/total counts.
+The production-used `BSDPendingInputDiscarder` observes one pending-input byte
+count and must drain that complete snapshot before success. Its read size and
+`EINTR` retries are bounded; every zero-progress or partial failure retains the
+exact discarded count and observed total, while only snapshot acquisition
+failure has an unknown total. BSD applied-configuration and discard regression
+tests exercise the production termios mapper and discard core directly.
+`BSDSerialLink`, `SimulatedGRBLLink`, `BlockingMachineLink`, and controller/test
+forwarders preserve these receipts and failures through the same protocol; no
+sibling port or default protocol implementation exists. These transport facts
+do not admit motion, prove settlement, create a controller transcript, or move
+`MachineController`/`RunInterpreter` safety and operation authority. The target
+`RecordingMachineLink` remains uninstalled until its named cutover package.
 
 `CameraCapture` owns device discovery, authorization, selection, capture
 sessions, exact stamped frames, and scoped preview publication holds. A hold

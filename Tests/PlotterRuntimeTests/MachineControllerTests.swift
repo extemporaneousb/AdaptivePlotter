@@ -989,7 +989,7 @@ struct RelativeJogTests {
       let outcome = await ready.controller.requestRelativeJog(request)
 
       #expect(outcome == .refused(refusal))
-      #expect(ready.link.pendingInputDiscardCount == 2)
+      #expect(ready.link.pendingInputDiscardCount == 3)
       #expect(ready.link.completedWriteCount == PassiveQuery.allCases.count + 4)
       #expect((await ready.controller.snapshot()).connection == .disconnected)
     }
@@ -1011,7 +1011,7 @@ struct RelativeJogTests {
       return
     }
     #expect(reason.contains("could not discard pending controller input"))
-    #expect(ready.link.pendingInputDiscardCount == 2)
+    #expect(ready.link.pendingInputDiscardCount == 3)
     #expect(ready.link.completedWriteCount == PassiveQuery.allCases.count + 3)
     let snapshot = await ready.controller.snapshot()
     #expect(snapshot.connection == .disconnected)
@@ -1310,7 +1310,11 @@ struct RelativeJogTests {
       SimulatedCommandExchange(
         expectedWrite: MachineController.encodeRelativeJog(request),
         reads: [],
-        writeError: .writeTimedOut(bytesWritten: 4, totalBytes: total)
+        writeError: .writeFailed(
+          bytesWritten: 4,
+          totalBytes: total,
+          reason: .operatingSystem(code: EIO, operation: "simulated write")
+        )
       )
     ])
 
@@ -2232,16 +2236,22 @@ private final class PostJogStatusReadBlockingLink: MachineLink, @unchecked Senda
     descriptor = base.descriptor
   }
 
-  func open() async throws { try await base.open() }
-  func close() async { await base.close() }
-  func discardPendingInput() async throws { try await base.discardPendingInput() }
-
-  func write(_ bytes: Data) async throws {
-    try await base.write(bytes)
-    await state.noteWrite(bytes)
+  func open() async throws -> MachineLinkOpenReceipt { try await base.open() }
+  func close() async throws { try await base.close() }
+  func discardPendingInput() async throws -> MachineLinkDiscardReceipt {
+    try await base.discardPendingInput()
   }
 
-  func read(maximumBytes: Int, timeoutNanoseconds: UInt64) async throws -> Data {
+  func write(_ bytes: Data) async throws -> MachineLinkWriteReceipt {
+    let receipt = try await base.write(bytes)
+    await state.noteWrite(bytes)
+    return receipt
+  }
+
+  func read(
+    maximumBytes: Int,
+    timeoutNanoseconds: UInt64
+  ) async throws -> MachineLinkReadReceipt {
     if await state.consumeBlockFlag() { await gate.block() }
     return try await base.read(
       maximumBytes: maximumBytes,

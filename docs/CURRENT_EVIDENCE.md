@@ -31,6 +31,7 @@ limitations remain in the named evidence section.
 | EA-05B | `TASK-32F536F4` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed`, `REPLAY=passed` | Episode deterministic replay foundation |
 | EA-05C | `TASK-1DDBA6F2` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed`, `INCIDENT=passed` | Episode incident package foundation |
 | EA-04 | `TASK-A5FF364B` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed`, `POINT=passed`, `DELETE=passed` | Episode point-selection cutover |
+| FIX-02 | `TASK-30357281` | `LINK-OBS=passed`, `LINK-SAFETY=passed`, `RUNTIME=passed`, `JOURNEY=passed`, `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed` | Machine-link transcript observability correction |
 
 ## Wave admission blockers
 
@@ -43,6 +44,140 @@ admission blocker beyond the canonical ledger and live Blackdog claims.
 
 | Package | Blocker | Required input or canonical correction |
 | --- | --- | --- |
+
+## Machine-link transcript observability correction
+
+Delivered 2026-08-28 in Blackdog task `TASK-30357281`. FIX-02 corrects the
+canonical transport-observability prerequisite before EA-06 without moving
+product authority or installing the later recorder/adapter binding.
+
+The current candidate changes the sole existing `MachineLink` protocol rather
+than adding a sibling recording or observability port. Successful open returns
+`MachineLinkOpenReceipt` with a transport-discriminated
+`MachineLinkAppliedConfiguration`. `BSDSerialLink` reports the exact endpoint,
+input/output baud, data bits, stop bits, `MachineLinkParity`,
+`MachineLinkFlowControl`, local-mode state, and receiver state read back after
+application in `MachineLinkBSDSerialAppliedConfiguration`. `SimulatedGRBLLink`
+reports only `.simulated(identifier:)`; it does not manufacture baud, parity,
+flow-control, or other serial facts.
+
+Successful discard and write return `MachineLinkDiscardReceipt` and
+`MachineLinkWriteReceipt` with exact byte counts. Successful read returns
+`MachineLinkReadReceipt` with the exact bytes and the link-boundary
+`receivedAtMonotonicNanoseconds: UInt64` sampled from that link's
+`RuntimeClock`. `close()` is throwing, so close failure is no longer silently
+discarded by the canonical contract. `MachineLinkError.discardFailed`,
+`.writeFailed`, and `.readFailed` preserve operation-specific partial counts or
+timestamped partial read receipts together with
+`MachineLinkTransferFailureReason`; the contract does not infer zero progress
+after a partial failure. The existing specific write timeout and cancellation
+cases continue to preserve written and total byte counts.
+
+The production-used `BSDPendingInputDiscarder` first observes the pending-input
+snapshot, then drains that complete observed byte count through bounded reads.
+It returns success only after every observed byte is discarded. A would-block,
+disconnect, invalid read count, operating-system error, or exhausted bounded
+`EINTR` retry budget instead returns exact `MachineLinkError.discardFailed`
+progress, including zero or partial discarded counts and the observed total.
+Only snapshot acquisition failure leaves the total unknown. The same production
+termios mapper and discard core are exercised by applied-configuration and
+discard regression tests rather than re-derived test-only logic.
+
+`BSDSerialLink`, `SimulatedGRBLLink`, `BlockingMachineLink`, and all retained
+controller/application/test conformers use the one revised protocol and forward
+its receipts and errors. There is no protocol default implementation, alternate
+effect path, new semantic ingress, or installed `RecordingMachineLink`.
+`MachineController` still owns selected serial state, GRBL parsing, admission,
+command serialization, settlement, and sticky ambiguity; `RunInterpreter`
+still owns the current logical operation. Transport receipts are diagnostic
+facts available to EA-06, not authorization, settlement, transcript-completeness,
+or physical-effect evidence.
+
+The completed frozen-tree gates are:
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `LINK-OBS` | passed — `swift test --filter MachineLinkTranscriptObservabilityTests`; 10/10 tests passed, 0 failed, with no warnings or errors | production-derived applied configuration and complete observed-snapshot discard, exact discard/write/read receipts, link-boundary monotonic receive time, forwarding, partial failures, and close failure |
+| `LINK-SAFETY` | passed — `swift test --filter MachineLinkSafetyTests`; 12/12 tests passed, 0 failed, with no warnings or errors | machine-link write safety, close propagation, exact zero/partial discard failure, bounded interruption, partial transfer derivation, and transcript-observability integration |
+| `RUNTIME` | passed — `swift test --filter EpisodeRuntimeTests`; 88/88 tests passed across 4 suites, 0 failed, with no warnings or errors | canonical EpisodeRuntime operation, store, recording, replay, and MachineLink integration coverage |
+| `JOURNEY` | passed — `make journey-test`; 10/10 tests passed across 3 suites, 0 failed, with no warnings or errors | retained serial controller/operator journey behavior |
+| `DOC` | passed — `make docs-check`; documentation and architecture contracts plus 29/29 documentation/checker tests passed, 0 failed, with no warnings or errors | ledger, evidence, architecture, checker, and capsule fixtures |
+| `DIFF` | passed — `git diff --check`; exit 0, no output | complete FIX-02 diff |
+| `QUICK` | passed — `make quick-test`; 665/665 tests passed with the 10 JOURNEY tests explicitly excluded, 0 failed, with no warnings or errors | repository quick suite and its declared JOURNEY exclusion |
+| `STRICT` | passed — `make strict-check`; 675/675 Swift tests passed with no exclusions and 0 failed; strict-concurrency warnings-as-errors, app signing, launcher logic and validation, negative bundle, and documentation 29/29 passed with no warnings or errors | strict build, complete tests, signing, launcher, bundle, and documentation contracts |
+
+The prior fresh read-only critic returned `RETASK`, not pass. Dimensions 1, 2,
+3, 6, 7, and 10 passed; dimensions 4, 5, 8, and 9 failed. Dimension 4 found
+swallowed close failures, dimension 5 found zero-progress and partial-transfer
+derivation gaps, dimension 8 required production-derived observability tests,
+and dimension 9 rejected the provisional canonical documentation. Those
+source, test, and documentation findings were corrected and revalidated. The
+first RETASK remains a nonpass historical verdict.
+
+A second fresh read-only critic also returned `RETASK`, not pass. Dimensions 2,
+3, 6, 8, and 10 passed; dimensions 1, 4, 5, 7, and 9 failed. It found that BSD
+discard could report success without draining the complete observed snapshot,
+zero-progress and partial discard failures were not exact, `EINTR` retry was
+unbounded, production-derived applied-configuration and discard coverage was
+deficient, and the resulting canonical evidence overclaimed completion. The
+accepted source retask installs the production-used bounded
+`BSDPendingInputDiscarder`, exact zero/partial/unknown-total failure semantics,
+bounded interruption handling, and production-derived termios-mapper/discard
+regression tests described above. The second RETASK remains nonpass history.
+
+The second critic's source, test, and evidence findings were corrected, and all
+eight gates above were rerun against the integrated frozen tree.
+
+A later landing critic returned `RETASK`, not pass. Dimension 9 failed because
+the execution plan described the pre-FIX-02 transport deficiency in present
+tense while the as-built architecture, typed receipts, and complete ledger
+correctly described the landed correction. That historical/current
+contradiction was corrected by binding the deficiency to the EA-06 inspection
+and describing FIX-02 as the current landed contract. This RETASK remains
+nonpass history.
+
+After that correction, the preceding fresh context-isolated critic returned
+`ACCEPT`: all 10/10 dimensions passed with no material findings. Its permitted
+`make docs-check` passed both contracts and 29/29 documentation/checker tests,
+and `git diff --check` was clean. The critic performed no Swift test, build,
+hardware, remote-Git, or lifecycle action and ended exactly `UNANIMOUS PASS — no
+material disagreement`. This recorded verdict predates this critic-verdict
+integration. A new final critic after this integration remains required; no
+post-edit critic pass is claimed.
+
+Canonical routed-document review dispositions for this correction:
+
+- Affected: Episode Architecture Execution Plan, Current Evidence, Swift
+  Architecture, executable episode contract checker, and capsule fixtures.
+- Reviewed no change — Product Contract: its existing runtime-authority and
+  controller-transcript inspectability requirements already own the durable
+  product meaning; FIX-02 implements transport facts without changing it.
+- Reviewed no change — README and Document Routing: contributor orientation and
+  document ownership do not change.
+- Reviewed no change — Discovery and Observed-Trial Protocol and Learning Path
+  Button Transitions: no operator sequence, control, Stop, or recovery behavior
+  changes.
+- Reviewed no change — Episode Architecture Vocabulary: the receipt/error values
+  are current transport types, not alternate target episode terms.
+- Reviewed no change — Attended Hardware Runbook and Roadmap: no attended
+  procedure, milestone structure, or physical evidence changes.
+- Reviewed no change — `AGENTS.md`, `blackdog.toml`, `.gitignore`, the
+  AdaptivePlotter and run-multi-agent-wave skills, and their execution and
+  coordination protocols: lifecycle, routing, selection, authorization, lease,
+  landing, and cleanup rules remain unchanged.
+- Reviewed no change — executable inventory, documentation-shell, cutover,
+  pilot, final-gate, and capsule-generation scripts: no EA-01 inventory/cutover
+  assignment, canonical-document inventory, final predicate, or generic capsule
+  algorithm changes.
+
+After this landing, `EA-06` is the first eligible ordinary WorkPackage. Its
+dependencies `EA-04`, `EA-05C`, and `FIX-02` are complete, and Current Evidence
+records no admission blocker. This statement selects or dispatches no work. No
+attended controller, camera, motion, Pen, paper, operator-click, or observed ink
+validation occurred, and no physical or remote-Git evidence is claimed.
+
+`package FIX-02 complete; migration remains incomplete` is the completion
+statement for this landing, substantiated by the exact gate evidence above.
 
 ## Episode point-selection cutover
 

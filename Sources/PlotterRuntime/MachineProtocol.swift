@@ -3,11 +3,114 @@ import PlotterModel
 
 public protocol MachineLink: Sendable {
   var descriptor: MachineLinkDescriptor { get }
-  func open() async throws
-  func close() async
-  func discardPendingInput() async throws
-  func write(_ bytes: Data) async throws
-  func read(maximumBytes: Int, timeoutNanoseconds: UInt64) async throws -> Data
+  func open() async throws -> MachineLinkOpenReceipt
+  func close() async throws
+  func discardPendingInput() async throws -> MachineLinkDiscardReceipt
+  func write(_ bytes: Data) async throws -> MachineLinkWriteReceipt
+  func read(
+    maximumBytes: Int,
+    timeoutNanoseconds: UInt64
+  ) async throws -> MachineLinkReadReceipt
+}
+
+public enum MachineLinkParity: String, Codable, Hashable, Sendable {
+  case none
+  case even
+  case odd
+}
+
+public enum MachineLinkFlowControl: String, Codable, Hashable, Sendable {
+  case none
+  case hardware
+  case software
+  case hardwareAndSoftware
+}
+
+/// The serial settings read back from the descriptor after `tcsetattr`.
+/// These are applied facts, not requested defaults.
+public struct MachineLinkBSDSerialAppliedConfiguration: Codable, Hashable, Sendable {
+  public let endpoint: String
+  public let inputBaudRate: UInt64
+  public let outputBaudRate: UInt64
+  public let dataBits: UInt8
+  public let stopBits: UInt8
+  public let parity: MachineLinkParity
+  public let flowControl: MachineLinkFlowControl
+  public let localModeEnabled: Bool
+  public let receiverEnabled: Bool
+
+  public init(
+    endpoint: String,
+    inputBaudRate: UInt64,
+    outputBaudRate: UInt64,
+    dataBits: UInt8,
+    stopBits: UInt8,
+    parity: MachineLinkParity,
+    flowControl: MachineLinkFlowControl,
+    localModeEnabled: Bool,
+    receiverEnabled: Bool
+  ) {
+    self.endpoint = endpoint
+    self.inputBaudRate = inputBaudRate
+    self.outputBaudRate = outputBaudRate
+    self.dataBits = dataBits
+    self.stopBits = stopBits
+    self.parity = parity
+    self.flowControl = flowControl
+    self.localModeEnabled = localModeEnabled
+    self.receiverEnabled = receiverEnabled
+  }
+}
+
+public enum MachineLinkAppliedConfiguration: Codable, Hashable, Sendable {
+  case bsdSerial(MachineLinkBSDSerialAppliedConfiguration)
+  /// A simulated transport has no serial settings. Its identity is retained
+  /// without manufacturing baud, parity, or flow-control values.
+  case simulated(identifier: String)
+}
+
+public struct MachineLinkOpenReceipt: Codable, Hashable, Sendable {
+  public let appliedConfiguration: MachineLinkAppliedConfiguration
+
+  public init(appliedConfiguration: MachineLinkAppliedConfiguration) {
+    self.appliedConfiguration = appliedConfiguration
+  }
+}
+
+public struct MachineLinkDiscardReceipt: Codable, Hashable, Sendable {
+  public let discardedByteCount: Int
+
+  public init(discardedByteCount: Int) {
+    precondition(discardedByteCount >= 0)
+    self.discardedByteCount = discardedByteCount
+  }
+}
+
+public struct MachineLinkWriteReceipt: Codable, Hashable, Sendable {
+  public let writtenByteCount: Int
+
+  public init(writtenByteCount: Int) {
+    precondition(writtenByteCount >= 0)
+    self.writtenByteCount = writtenByteCount
+  }
+}
+
+public struct MachineLinkReadReceipt: Codable, Hashable, Sendable {
+  public let bytes: Data
+  /// Captured by the link immediately after bytes cross its receive boundary.
+  public let receivedAtMonotonicNanoseconds: UInt64
+
+  public init(bytes: Data, receivedAtMonotonicNanoseconds: UInt64) {
+    self.bytes = Data(bytes)
+    self.receivedAtMonotonicNanoseconds = receivedAtMonotonicNanoseconds
+  }
+}
+
+public enum MachineLinkTransferFailureReason: Equatable, Sendable {
+  case timedOut
+  case cancelled
+  case disconnected
+  case operatingSystem(code: Int32, operation: String)
 }
 
 public struct MachineLinkDescriptor: Codable, Hashable, Sendable {
@@ -35,6 +138,26 @@ public enum MachineLinkError: Error, Equatable, Sendable {
   case timedOut
   case writeTimedOut(bytesWritten: Int, totalBytes: Int)
   case writeCancelled(bytesWritten: Int, totalBytes: Int)
+  /// The operation failed before removing the complete observed input snapshot.
+  /// `total` is nil only when snapshot acquisition itself failed.
+  case discardFailed(
+    discarded: Int,
+    total: Int?,
+    reason: MachineLinkTransferFailureReason
+  )
+  /// The operation wrote bytes before an OS/disconnect failure not represented
+  /// by the timeout and cancellation cases above.
+  case writeFailed(
+    bytesWritten: Int,
+    totalBytes: Int,
+    reason: MachineLinkTransferFailureReason
+  )
+  /// The operation received timestamped chunks before reaching a terminal failure.
+  case readFailed(
+    partialReceipts: [MachineLinkReadReceipt],
+    maximumBytes: Int,
+    reason: MachineLinkTransferFailureReason
+  )
   case readExceededMaximum(expected: Int, actual: Int)
   case disconnected
   case unexpectedWrite(expected: Data, actual: Data)

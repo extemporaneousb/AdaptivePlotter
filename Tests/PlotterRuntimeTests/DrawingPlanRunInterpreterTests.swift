@@ -633,16 +633,22 @@ private final class DrawingPlanPostWriteBlockingLink: MachineLink, @unchecked Se
     descriptor = base.descriptor
   }
 
-  func open() async throws { try await base.open() }
-  func close() async { await base.close() }
-  func discardPendingInput() async throws { try await base.discardPendingInput() }
-
-  func write(_ bytes: Data) async throws {
-    try await base.write(bytes)
-    await state.noteWrite(bytes)
+  func open() async throws -> MachineLinkOpenReceipt { try await base.open() }
+  func close() async throws { try await base.close() }
+  func discardPendingInput() async throws -> MachineLinkDiscardReceipt {
+    try await base.discardPendingInput()
   }
 
-  func read(maximumBytes: Int, timeoutNanoseconds: UInt64) async throws -> Data {
+  func write(_ bytes: Data) async throws -> MachineLinkWriteReceipt {
+    let receipt = try await base.write(bytes)
+    await state.noteWrite(bytes)
+    return receipt
+  }
+
+  func read(
+    maximumBytes: Int,
+    timeoutNanoseconds: UInt64
+  ) async throws -> MachineLinkReadReceipt {
     if await state.consumeBlock() { await gate.block() }
     return try await base.read(
       maximumBytes: maximumBytes,

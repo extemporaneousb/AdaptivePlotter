@@ -257,9 +257,26 @@ private final class ApplicationLifecycleCloseBlockingLink: MachineLink, @uncheck
     self.gate = gate
   }
 
-  func open() async throws {}
-  func close() async { await gate.block() }
-  func discardPendingInput() async throws {}
-  func write(_: Data) async throws {}
-  func read(maximumBytes _: Int, timeoutNanoseconds _: UInt64) async throws -> Data { Data() }
+  func open() async throws -> MachineLinkOpenReceipt {
+    MachineLinkOpenReceipt(
+      appliedConfiguration: .simulated(identifier: descriptor.identifier)
+    )
+  }
+
+  func close() async throws { await gate.block() }
+
+  func discardPendingInput() async throws -> MachineLinkDiscardReceipt {
+    throw MachineLinkError.notOpen
+  }
+
+  func write(_: Data) async throws -> MachineLinkWriteReceipt {
+    throw MachineLinkError.notOpen
+  }
+
+  func read(
+    maximumBytes _: Int,
+    timeoutNanoseconds _: UInt64
+  ) async throws -> MachineLinkReadReceipt {
+    throw MachineLinkError.notOpen
+  }
 }

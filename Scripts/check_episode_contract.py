@@ -28,7 +28,7 @@ EVIDENCE_PATH = ROOT / "docs" / "CURRENT_EVIDENCE.md"
 ARCHITECTURE_PATH = ROOT / "docs" / "SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md"
 PRODUCT_PATH = ROOT / "docs" / "PRODUCT_CONTRACT.md"
 # Updated in the same package whenever a canonical ledger row changes.
-EXPECTED_LEDGER_SHA256 = "caad889aba1cff6f17b68adca57ddad5ab4ba1a85c4038cb3f1c771a4031f96c"
+EXPECTED_LEDGER_SHA256 = "5e00b1763452e6fad5ad664e5f2519c054a3c37c72eb24549863b6da308d256c"
 
 
 EXPECTED_GATES = {
@@ -51,6 +51,8 @@ EXPECTED_GATES = {
     ),
     "FIX-CONTAINMENT": ("`swift test --filter CoordinateAcceptancePolicyTests`", "FIX-00"),
     "FIX-APPLICABILITY": ("`swift test --filter TipApplicabilityEvidencePolicyTests`", "FIX-01"),
+    "LINK-OBS": ("`swift test --filter MachineLinkTranscriptObservabilityTests`", "FIX-02"),
+    "LINK-SAFETY": ("`swift test --filter MachineLinkSafetyTests`", "FIX-02"),
     "CORE": ("`swift test --filter EpisodeCoreTests`", "EA-02A"),
     "PLOTTER-MODEL": (
         "`swift test --filter PlotterEpisodeModelContractTests`",
@@ -116,7 +118,12 @@ EXPECTED_PACKAGE_SHAPES = {
     "EA-05B": (["EA-03A", "EA-05A"], "software", ["DOC", "DIFF", "QUICK", "STRICT", "REPLAY"]),
     "EA-05C": (["EA-05B"], "software", ["DOC", "DIFF", "QUICK", "STRICT", "INCIDENT"]),
     "EA-04": (["EA-03B", "EA-05B"], "software", ["DOC", "DIFF", "QUICK", "STRICT", "POINT", "DELETE"]),
-    "EA-06": (["EA-04", "EA-05C"], "software", ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "MOTION", "DELETE"]),
+    "FIX-02": (
+        ["EA-04", "EA-05C"],
+        "repository",
+        ["LINK-OBS", "LINK-SAFETY", "RUNTIME", "JOURNEY", "DOC", "DIFF", "QUICK", "STRICT"],
+    ),
+    "EA-06": (["EA-04", "EA-05C", "FIX-02"], "software", ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "MOTION", "DELETE"]),
     "EA-07": (["EA-06"], "software", ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "SIM", "DELETE"]),
     "EA-08A": (["EA-05C", "EA-07"], "software", ["DOC", "DIFF", "QUICK", "STRICT", "DRAW-DRAFT", "DELETE"]),
     "EA-08B": (["EA-08A"], "software", ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "DRAW-RUN", "DELETE"]),
@@ -181,6 +188,7 @@ EXPECTED_COMPLETE_PACKAGES = {
     "EA-05A",
     "EA-05B",
     "EA-05C",
+    "FIX-02",
 }
 
 
@@ -295,6 +303,15 @@ def validate_architecture(text: str) -> None:
     normalized = re.sub(r"\s+", " ", text)
     for required_phrase in (
         "PlotterEpisodeRuntime -> EpisodeCore + EpisodeRuntime + PlotterEpisodeModel + PlotterRuntime",
+        "The sole `MachineLink` transport contract now returns a `MachineLinkOpenReceipt`, `MachineLinkDiscardReceipt`, `MachineLinkWriteReceipt`, or `MachineLinkReadReceipt`",
+        "the link-boundary `receivedAtMonotonicNanoseconds: UInt64` sampled from that link's `RuntimeClock`",
+        "`MachineLinkError.discardFailed`, `.writeFailed`, and `.readFailed` retain operation-specific partial progress",
+        "The production-used `BSDPendingInputDiscarder` observes one pending-input byte count and must drain that complete snapshot before success",
+        "Its read size and `EINTR` retries are bounded",
+        "only snapshot acquisition failure has an unknown total",
+        "tests exercise the production termios mapper and discard core directly",
+        "no sibling port or default protocol implementation exists",
+        "The target `RecordingMachineLink` remains uninstalled until its named cutover package",
         "`PlotterEpisodeRuntime` depends inward only on `EpisodeCore`, `EpisodeRuntime`, `PlotterEpisodeModel`, and `PlotterRuntime`",
         "`PlotterIntentGateway` evaluates each typed point-selection or Learning-mode intent",
         "`PlotterLearningIntentRules.modeAvailability` is the one pure Learning-mode availability rule",
@@ -408,6 +425,19 @@ def validate_plan(text: str) -> dict[str, dict[str, object]]:
             "EXPECTED_LEDGER_SHA256 in the same reviewed package "
             f"(expected {EXPECTED_LEDGER_SHA256}, actual {actual_ledger_sha256})"
         )
+    for required_phrase in (
+        "At that inspection, the then-current `MachineLink` operations returned either no value or untimestamped bytes",
+        "`FIX-02` has corrected that canonical contract before EA-06",
+        "The landed correction uses the sole existing `MachineLink` protocol, adds no sibling observability port or default implementation",
+    ):
+        if required_phrase not in normalized:
+            fail(f"FIX-02 historical/current plan boundary is missing: {required_phrase}")
+    for forbidden_phrase in (
+        "The current `MachineLink` operations return either no value or untimestamped bytes",
+        "`FIX-02` corrects that canonical contract before EA-06",
+    ):
+        if forbidden_phrase in normalized:
+            fail(f"FIX-02 plan retains a stale present-tense contradiction: {forbidden_phrase}")
     ledger_rows = markdown_table(
         text,
         ["ID", "Status", "Dependencies", "Class", "Atomic package outcome", "Required gates"],
@@ -504,6 +534,17 @@ def validate_plan(text: str) -> dict[str, dict[str, object]]:
         "FIX-01": (
             "prevent projection outside `TipCameraRegistration.applicabilityRectangle` from becoming attributable evidence",
             "retaining typed diagnostic-only projection",
+        ),
+        "FIX-02": (
+            "sole `MachineLink` contract",
+            "every production/test conformance",
+            "transport-discriminated applied-open configuration",
+            "exact discard/write/read transfer facts",
+            "monotonic receive timestamps",
+            "observable close failure",
+            "operation-specific partial-failure progress",
+            "without a sibling port, default implementation, fabricated values, recorder installation, product-authority transfer, or physical-evidence claim",
+            "Delivered by `TASK-30357281`",
         ),
         "DOC-02": (
             "Operator acceptance of clean `main` commit `256b2a65f4059b6cf0e5c07f5f5305043254fb71`",
@@ -779,6 +820,7 @@ def validate_completed_gate_result(package_id: str, gate: str, result: str) -> N
 
 
 def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
+    normalized = re.sub(r"\s+", " ", text)
     evidence_rows = markdown_table(
         text,
         ["Package", "Blackdog task", "Gate results", "Evidence section"],
@@ -840,6 +882,67 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
         missing = sorted(complete_packages.difference(evidenced_packages))
         extra = sorted(evidenced_packages.difference(complete_packages))
         fail(f"complete-package evidence mismatch; missing={missing}, extra={extra}")
+
+    for required_phrase in (
+        "Machine-link transcript observability correction",
+        "Delivered 2026-08-28 in Blackdog task `TASK-30357281`",
+        "FIX-02 corrects the canonical transport-observability prerequisite before EA-06",
+        "`MachineLinkOpenReceipt` with a transport-discriminated `MachineLinkAppliedConfiguration`",
+        "`MachineLinkBSDSerialAppliedConfiguration`",
+        "`.simulated(identifier:)`; it does not manufacture baud, parity, flow-control, or other serial facts",
+        "`MachineLinkDiscardReceipt` and `MachineLinkWriteReceipt` with exact byte counts",
+        "`MachineLinkReadReceipt` with the exact bytes and the link-boundary `receivedAtMonotonicNanoseconds: UInt64`",
+        "`MachineLinkError.discardFailed`, `.writeFailed`, and `.readFailed` preserve operation-specific partial counts or timestamped partial read receipts",
+        "The production-used `BSDPendingInputDiscarder` first observes the pending-input snapshot, then drains that complete observed byte count through bounded reads",
+        "It returns success only after every observed byte is discarded",
+        "exhausted bounded `EINTR` retry budget instead returns exact `MachineLinkError.discardFailed` progress",
+        "including zero or partial discarded counts and the observed total",
+        "Only snapshot acquisition failure leaves the total unknown",
+        "production termios mapper and discard core are exercised by applied-configuration and discard regression tests",
+        "There is no protocol default implementation, alternate effect path, new semantic ingress, or installed `RecordingMachineLink`",
+        "10/10 tests passed, 0 failed, with no warnings or errors",
+        "`LINK-SAFETY` | passed — `swift test --filter MachineLinkSafetyTests`; 12/12 tests passed, 0 failed, with no warnings or errors",
+        "88/88 tests passed across 4 suites, 0 failed, with no warnings or errors",
+        "10/10 tests passed across 3 suites, 0 failed, with no warnings or errors",
+        "documentation and architecture contracts plus 29/29 documentation/checker tests passed, 0 failed, with no warnings or errors",
+        "`git diff --check`; exit 0, no output",
+        "665/665 tests passed with the 10 JOURNEY tests explicitly excluded, 0 failed, with no warnings or errors",
+        "675/675 Swift tests passed with no exclusions and 0 failed; strict-concurrency warnings-as-errors, app signing, launcher logic and validation, negative bundle, and documentation 29/29 passed with no warnings or errors",
+        "The prior fresh read-only critic returned `RETASK`, not pass",
+        "dimensions 4, 5, 8, and 9 failed",
+        "Dimension 4 found swallowed close failures",
+        "dimension 5 found zero-progress and partial-transfer derivation gaps",
+        "dimension 8 required production-derived observability tests",
+        "dimension 9 rejected the provisional canonical documentation",
+        "A second fresh read-only critic also returned `RETASK`, not pass",
+        "dimensions 1, 4, 5, 7, and 9 failed",
+        "discard could report success without draining the complete observed snapshot",
+        "zero-progress and partial discard failures were not exact",
+        "`EINTR` retry was unbounded",
+        "production-derived applied-configuration and discard coverage was deficient",
+        "canonical evidence overclaimed completion",
+        "The second RETASK remains nonpass history",
+        "Those source, test, and documentation findings were corrected and revalidated",
+        "The second critic's source, test, and evidence findings were corrected, and all eight gates above were rerun against the integrated frozen tree",
+        "A later landing critic returned `RETASK`, not pass",
+        "Dimension 9 failed because the execution plan described the pre-FIX-02 transport deficiency in present tense",
+        "That historical/current contradiction was corrected",
+        "This RETASK remains nonpass history",
+        "the preceding fresh context-isolated critic returned `ACCEPT`: all 10/10 dimensions passed with no material findings",
+        "`make docs-check` passed both contracts and 29/29 documentation/checker tests",
+        "`git diff --check` was clean",
+        "The critic performed no Swift test, build, hardware, remote-Git, or lifecycle action",
+        "ended exactly `UNANIMOUS PASS — no material disagreement`",
+        "This recorded verdict predates this critic-verdict integration",
+        "A new final critic after this integration remains required; no post-edit critic pass is claimed",
+        "After this landing, `EA-06` is the first eligible ordinary WorkPackage",
+        "Its dependencies `EA-04`, `EA-05C`, and `FIX-02` are complete",
+        "No attended controller, camera, motion, Pen, paper, operator-click, or observed ink validation occurred",
+        "no physical or remote-Git evidence is claimed",
+        "`package FIX-02 complete; migration remains incomplete`",
+    ):
+        if required_phrase not in normalized:
+            fail(f"FIX-02 completion evidence is missing: {required_phrase}")
 
     for required_phrase in (
         "Episode deterministic replay foundation",
@@ -1147,8 +1250,9 @@ def validate_wave_frontier(
         if selected != "EA-06":
             fail(f"unexpected current ordinary wave frontier: {selected}")
         for phrase in (
-            "Episode point-selection cutover",
+            "Machine-link transcript observability correction",
             "After this landing, `EA-06` is the first eligible ordinary WorkPackage.",
+            "dependencies `EA-04`, `EA-05C`, and `FIX-02` are complete",
             "The retired `PHYSICAL-BASE` result is `failed`",
         ):
             if phrase not in evidence:

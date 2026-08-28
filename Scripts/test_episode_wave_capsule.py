@@ -125,6 +125,7 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         )
         self.assertEqual("complete", rows["EA-05C"]["status"])
         self.assertEqual("complete", rows["EA-04"]["status"])
+        self.assertEqual("complete", rows["FIX-02"]["status"])
         self.assertEqual({}, blockers)
 
     def test_completed_incident_evidence_missing_is_rejected(self) -> None:
@@ -335,7 +336,7 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
             row = [cell.strip() for cell in selected_text.strip().strip("|").split("|")]
             if (
                 len(row) == 6
-                and row[:4] == ["EA-06", "pending", "EA-04, EA-05C", "software"]
+                and row[:4] == ["EA-06", "pending", "EA-04, EA-05C, FIX-02", "software"]
                 and row[4].startswith("Cutover: transfer manual jog")
                 and row[5] == "`DOC`, `DIFF`, `QUICK`, `JOURNEY`, `STRICT`, `MOTION`, `DELETE`"
             ):
@@ -343,7 +344,7 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         self.assertEqual(1, len(ledger_rows))
         selected, selected_row = ledger_rows[0]
         self.assertEqual("EA-06", selected_row[0])
-        self.assertNotEqual("EA-04", selected_row[0])
+        self.assertNotEqual("FIX-02", selected_row[0])
         view = capsule.canonical_bytes(capsule.consumption_view(consumed))
         self.assertLess(len(view), capsule.MAX_CONSUMPTION_BYTES)
 

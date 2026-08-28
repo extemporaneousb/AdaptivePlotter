@@ -83,7 +83,7 @@ private final class SimulatedMachineLinkEngine: @unchecked Sendable {
     lock.withLock { state.nextDiscardError = error }
   }
 
-  func discardPendingInput() throws {
+  func discardPendingInput() throws -> Int {
     try lock.withLock {
       guard state.isOpen else { throw MachineLinkError.notOpen }
       state.discardCount += 1
@@ -91,11 +91,15 @@ private final class SimulatedMachineLinkEngine: @unchecked Sendable {
         state.nextDiscardError = nil
         throw error
       }
+      let discardedByteCount = state.queuedReads.reduce(into: 0) { count, read in
+        if case .bytes(let bytes) = read.outcome { count += bytes.count }
+      }
       state.queuedReads.removeAll()
+      return discardedByteCount
     }
   }
 
-  func write(_ bytes: Data) throws {
+  func write(_ bytes: Data) throws -> Int {
     try lock.withLock {
       guard state.isOpen else { throw MachineLinkError.notOpen }
       guard state.nextExchange < exchanges.count else {
@@ -106,36 +110,114 @@ private final class SimulatedMachineLinkEngine: @unchecked Sendable {
         throw MachineLinkError.unexpectedWrite(expected: exchange.expectedWrite, actual: bytes)
       }
       state.nextExchange += 1
-      if let writeError = exchange.writeError { throw writeError }
+      if let writeError = exchange.writeError {
+        switch writeError {
+        case .disconnected:
+          throw MachineLinkError.writeFailed(
+            bytesWritten: 0,
+            totalBytes: bytes.count,
+            reason: .disconnected
+          )
+        case .operatingSystem(let code, let operation):
+          throw MachineLinkError.writeFailed(
+            bytesWritten: 0,
+            totalBytes: bytes.count,
+            reason: .operatingSystem(code: code, operation: operation)
+          )
+        case .timedOut:
+          throw MachineLinkError.writeTimedOut(bytesWritten: 0, totalBytes: bytes.count)
+        default:
+          throw writeError
+        }
+      }
       state.queuedReads.append(contentsOf: exchange.reads)
+      return bytes.count
     }
   }
 
-  func read(maximumBytes: Int, timeoutNanoseconds: UInt64) async throws -> Data {
+  func read(
+    maximumBytes: Int,
+    timeoutNanoseconds: UInt64
+  ) async throws -> MachineLinkReadReceipt {
+    guard maximumBytes > 0 else {
+      return MachineLinkReadReceipt(
+        bytes: Data(),
+        receivedAtMonotonicNanoseconds: clock.nowNanoseconds()
+      )
+    }
     let scheduled: ScheduledMachineRead? = try lock.withLock {
       guard state.isOpen else { throw MachineLinkError.notOpen }
       return state.queuedReads.first
     }
 
     guard let scheduled else {
-      try await clock.sleep(nanoseconds: timeoutNanoseconds)
-      throw MachineLinkError.timedOut
+      do {
+        try await clock.sleep(nanoseconds: timeoutNanoseconds)
+      } catch is CancellationError {
+        throw MachineLinkError.readFailed(
+          partialReceipts: [],
+          maximumBytes: maximumBytes,
+          reason: .cancelled
+        )
+      }
+      throw MachineLinkError.readFailed(
+        partialReceipts: [],
+        maximumBytes: maximumBytes,
+        reason: .timedOut
+      )
     }
     guard scheduled.delayNanoseconds <= timeoutNanoseconds else {
-      try await clock.sleep(nanoseconds: timeoutNanoseconds)
-      throw MachineLinkError.timedOut
+      do {
+        try await clock.sleep(nanoseconds: timeoutNanoseconds)
+      } catch is CancellationError {
+        throw MachineLinkError.readFailed(
+          partialReceipts: [],
+          maximumBytes: maximumBytes,
+          reason: .cancelled
+        )
+      }
+      throw MachineLinkError.readFailed(
+        partialReceipts: [],
+        maximumBytes: maximumBytes,
+        reason: .timedOut
+      )
     }
-    try await clock.sleep(nanoseconds: scheduled.delayNanoseconds)
+    do {
+      try await clock.sleep(nanoseconds: scheduled.delayNanoseconds)
+    } catch is CancellationError {
+      throw MachineLinkError.readFailed(
+        partialReceipts: [],
+        maximumBytes: maximumBytes,
+        reason: .cancelled
+      )
+    }
 
     let consumed: ScheduledMachineRead = try lock.withLock {
-      guard state.isOpen else { throw MachineLinkError.disconnected }
-      guard !state.queuedReads.isEmpty else { throw MachineLinkError.timedOut }
+      guard state.isOpen else {
+        throw MachineLinkError.readFailed(
+          partialReceipts: [],
+          maximumBytes: maximumBytes,
+          reason: .disconnected
+        )
+      }
+      guard !state.queuedReads.isEmpty else {
+        throw MachineLinkError.readFailed(
+          partialReceipts: [],
+          maximumBytes: maximumBytes,
+          reason: .timedOut
+        )
+      }
       return state.queuedReads.removeFirst()
     }
+    let receivedAtMonotonicNanoseconds = clock.nowNanoseconds()
     switch consumed.outcome {
     case .bytes(let bytes):
-      guard maximumBytes > 0 else { return Data() }
-      if bytes.count <= maximumBytes { return bytes }
+      if bytes.count <= maximumBytes {
+        return MachineLinkReadReceipt(
+          bytes: bytes,
+          receivedAtMonotonicNanoseconds: receivedAtMonotonicNanoseconds
+        )
+      }
       let chunk = Data(bytes.prefix(maximumBytes))
       let suffix = Data(bytes.dropFirst(maximumBytes))
       lock.withLock {
@@ -144,10 +226,17 @@ private final class SimulatedMachineLinkEngine: @unchecked Sendable {
           at: 0
         )
       }
-      return chunk
+      return MachineLinkReadReceipt(
+        bytes: chunk,
+        receivedAtMonotonicNanoseconds: receivedAtMonotonicNanoseconds
+      )
     case .disconnect:
       lock.withLock { state.isOpen = false }
-      throw MachineLinkError.disconnected
+      throw MachineLinkError.readFailed(
+        partialReceipts: [],
+        maximumBytes: maximumBytes,
+        reason: .disconnected
+      )
     }
   }
 }
@@ -172,12 +261,83 @@ public final class SimulatedGRBLLink: MachineLink, @unchecked Sendable {
     engine = SimulatedMachineLinkEngine(exchanges: exchanges, clock: clock)
   }
 
-  public func open() async throws { try engine.open() }
-  public func close() async { engine.close() }
-  public func discardPendingInput() async throws { try engine.discardPendingInput() }
-  public func write(_ bytes: Data) async throws { try engine.write(bytes) }
-  public func read(maximumBytes: Int, timeoutNanoseconds: UInt64) async throws -> Data {
-    try await engine.read(maximumBytes: maximumBytes, timeoutNanoseconds: timeoutNanoseconds)
+  public func open() async throws -> MachineLinkOpenReceipt {
+    try engine.open()
+    return MachineLinkOpenReceipt(
+      appliedConfiguration: .simulated(identifier: descriptor.identifier)
+    )
+  }
+
+  public func close() async throws { engine.close() }
+
+  public func discardPendingInput() async throws -> MachineLinkDiscardReceipt {
+    MachineLinkDiscardReceipt(discardedByteCount: try engine.discardPendingInput())
+  }
+
+  public func write(_ bytes: Data) async throws -> MachineLinkWriteReceipt {
+    do {
+      return MachineLinkWriteReceipt(writtenByteCount: try engine.write(bytes))
+    } catch let error as MachineLinkError {
+      switch error {
+      case .timedOut:
+        throw MachineLinkError.writeTimedOut(bytesWritten: 0, totalBytes: bytes.count)
+      case .disconnected:
+        throw MachineLinkError.writeFailed(
+          bytesWritten: 0,
+          totalBytes: bytes.count,
+          reason: .disconnected
+        )
+      case .operatingSystem(let code, let operation):
+        throw MachineLinkError.writeFailed(
+          bytesWritten: 0,
+          totalBytes: bytes.count,
+          reason: .operatingSystem(code: code, operation: operation)
+        )
+      default:
+        throw error
+      }
+    }
+  }
+
+  public func read(
+    maximumBytes: Int,
+    timeoutNanoseconds: UInt64
+  ) async throws -> MachineLinkReadReceipt {
+    do {
+      return try await engine.read(
+        maximumBytes: maximumBytes,
+        timeoutNanoseconds: timeoutNanoseconds
+      )
+    } catch is CancellationError {
+      throw MachineLinkError.readFailed(
+        partialReceipts: [],
+        maximumBytes: maximumBytes,
+        reason: .cancelled
+      )
+    } catch let error as MachineLinkError {
+      switch error {
+      case .timedOut:
+        throw MachineLinkError.readFailed(
+          partialReceipts: [],
+          maximumBytes: maximumBytes,
+          reason: .timedOut
+        )
+      case .disconnected:
+        throw MachineLinkError.readFailed(
+          partialReceipts: [],
+          maximumBytes: maximumBytes,
+          reason: .disconnected
+        )
+      case .operatingSystem(let code, let operation):
+        throw MachineLinkError.readFailed(
+          partialReceipts: [],
+          maximumBytes: maximumBytes,
+          reason: .operatingSystem(code: code, operation: operation)
+        )
+      default:
+        throw error
+      }
+    }
   }
 
   public var completedWriteCount: Int { engine.completedWriteCount() }

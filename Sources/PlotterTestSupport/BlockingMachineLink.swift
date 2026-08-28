@@ -52,16 +52,22 @@ public final class BlockingMachineLink: MachineLink, @unchecked Sendable {
     descriptor = base.descriptor
   }
 
-  public func open() async throws { try await base.open() }
-  public func close() async { await base.close() }
-  public func discardPendingInput() async throws { try await base.discardPendingInput() }
-
-  public func write(_ bytes: Data) async throws {
-    try await base.write(bytes)
-    if bytes == blockedWrite { await gate.suspendAfterBlockedWrite() }
+  public func open() async throws -> MachineLinkOpenReceipt { try await base.open() }
+  public func close() async throws { try await base.close() }
+  public func discardPendingInput() async throws -> MachineLinkDiscardReceipt {
+    try await base.discardPendingInput()
   }
 
-  public func read(maximumBytes: Int, timeoutNanoseconds: UInt64) async throws -> Data {
+  public func write(_ bytes: Data) async throws -> MachineLinkWriteReceipt {
+    let receipt = try await base.write(bytes)
+    if bytes == blockedWrite { await gate.suspendAfterBlockedWrite() }
+    return receipt
+  }
+
+  public func read(
+    maximumBytes: Int,
+    timeoutNanoseconds: UInt64
+  ) async throws -> MachineLinkReadReceipt {
     try await base.read(maximumBytes: maximumBytes, timeoutNanoseconds: timeoutNanoseconds)
   }
 }

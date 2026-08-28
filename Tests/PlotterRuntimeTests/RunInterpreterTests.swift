@@ -1343,16 +1343,22 @@ private final class InterpreterPostJogReadBlockingLink: MachineLink, @unchecked 
     descriptor = base.descriptor
   }
 
-  func open() async throws { try await base.open() }
-  func close() async { await base.close() }
-  func discardPendingInput() async throws { try await base.discardPendingInput() }
-
-  func write(_ bytes: Data) async throws {
-    try await base.write(bytes)
-    await state.noteWrite(bytes)
+  func open() async throws -> MachineLinkOpenReceipt { try await base.open() }
+  func close() async throws { try await base.close() }
+  func discardPendingInput() async throws -> MachineLinkDiscardReceipt {
+    try await base.discardPendingInput()
   }
 
-  func read(maximumBytes: Int, timeoutNanoseconds: UInt64) async throws -> Data {
+  func write(_ bytes: Data) async throws -> MachineLinkWriteReceipt {
+    let receipt = try await base.write(bytes)
+    await state.noteWrite(bytes)
+    return receipt
+  }
+
+  func read(
+    maximumBytes: Int,
+    timeoutNanoseconds: UInt64
+  ) async throws -> MachineLinkReadReceipt {
     if await state.consumeBlockFlag() { await gate.block() }
     return try await base.read(
       maximumBytes: maximumBytes,
@@ -1404,16 +1410,22 @@ private final class BoundaryRenewalAdmissionBlockingLink: MachineLink, @unchecke
     descriptor = base.descriptor
   }
 
-  func open() async throws { try await base.open() }
-  func close() async { await base.close() }
-  func discardPendingInput() async throws { try await base.discardPendingInput() }
-
-  func write(_ bytes: Data) async throws {
-    try await base.write(bytes)
-    await state.noteWrite(bytes)
+  func open() async throws -> MachineLinkOpenReceipt { try await base.open() }
+  func close() async throws { try await base.close() }
+  func discardPendingInput() async throws -> MachineLinkDiscardReceipt {
+    try await base.discardPendingInput()
   }
 
-  func read(maximumBytes: Int, timeoutNanoseconds: UInt64) async throws -> Data {
+  func write(_ bytes: Data) async throws -> MachineLinkWriteReceipt {
+    let receipt = try await base.write(bytes)
+    await state.noteWrite(bytes)
+    return receipt
+  }
+
+  func read(
+    maximumBytes: Int,
+    timeoutNanoseconds: UInt64
+  ) async throws -> MachineLinkReadReceipt {
     if await state.consumeBlockFlag() { await gate.block() }
     return try await base.read(
       maximumBytes: maximumBytes,
@@ -1478,17 +1490,25 @@ private final class InterpreterCloseBlockingLink: MachineLink, @unchecked Sendab
     descriptor = base.descriptor
   }
 
-  func open() async throws { try await base.open() }
+  func open() async throws -> MachineLinkOpenReceipt { try await base.open() }
 
-  func close() async {
+  func close() async throws {
     await gate.block()
-    await base.close()
+    try await base.close()
   }
 
-  func discardPendingInput() async throws { try await base.discardPendingInput() }
-  func write(_ bytes: Data) async throws { try await base.write(bytes) }
+  func discardPendingInput() async throws -> MachineLinkDiscardReceipt {
+    try await base.discardPendingInput()
+  }
 
-  func read(maximumBytes: Int, timeoutNanoseconds: UInt64) async throws -> Data {
+  func write(_ bytes: Data) async throws -> MachineLinkWriteReceipt {
+    try await base.write(bytes)
+  }
+
+  func read(
+    maximumBytes: Int,
+    timeoutNanoseconds: UInt64
+  ) async throws -> MachineLinkReadReceipt {
     try await base.read(maximumBytes: maximumBytes, timeoutNanoseconds: timeoutNanoseconds)
   }
 }
@@ -1562,23 +1582,26 @@ private final class OpenFailureLink: MachineLink, @unchecked Sendable {
     transport: .simulated
   )
 
-  func open() async throws {
+  func open() async throws -> MachineLinkOpenReceipt {
     throw MachineLinkError.operatingSystem(code: EIO, operation: "open")
   }
 
-  func close() async {}
+  func close() async throws {}
 
-  func discardPendingInput() async throws {
+  func discardPendingInput() async throws -> MachineLinkDiscardReceipt {
     Issue.record("Open failure must occur before pending input discard")
     throw MachineLinkError.notOpen
   }
 
-  func write(_: Data) async throws {
+  func write(_: Data) async throws -> MachineLinkWriteReceipt {
     Issue.record("Open failure must occur before write")
     throw MachineLinkError.notOpen
   }
 
-  func read(maximumBytes _: Int, timeoutNanoseconds _: UInt64) async throws -> Data {
+  func read(
+    maximumBytes _: Int,
+    timeoutNanoseconds _: UInt64
+  ) async throws -> MachineLinkReadReceipt {
     Issue.record("Open failure must occur before read")
     throw MachineLinkError.notOpen
   }

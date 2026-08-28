@@ -251,7 +251,8 @@ public actor MachineController {
     MachineController(
       link: try BSDSerialLink(
         descriptor: descriptor,
-        writeTimeoutNanoseconds: writeTimeoutNanoseconds
+        writeTimeoutNanoseconds: writeTimeoutNanoseconds,
+        clock: clock
       ),
       selectionIsExplicit: true,
       ledger: ledger,
@@ -315,15 +316,7 @@ public actor MachineController {
     {
       setAmbiguous(.disconnected)
     }
-    await link.close()
-    connection = .disconnected
-    controllerState = nil
-    position = nil
-    pins = ControllerPins(rawValue: "")
-    penState = .unknown
-    motionGuardState = .inactive
-    controllerAxisFeedLimits = nil
-    controllerMotionTiming = nil
+    await closeAndInvalidateKnowledge()
     await terminalLedgerWrite?.value
     ledgerWriteTail = nil
   }
@@ -387,11 +380,12 @@ public actor MachineController {
     recordProbeStartedBestEffort(probeID: probeID, started: started)
 
     do {
-      try await ensureConnected()
+      let opened = try await ensureConnected()
+      if opened { _ = try await link.discardPendingInput() }
       connection = .probing
     } catch {
       blockers = [.transport(String(describing: error))]
-      invalidateConnectionKnowledge()
+      await closeAndInvalidateKnowledge()
       return finishProbe(probeID: probeID, started: started, exchanges: exchanges)
     }
 
@@ -432,8 +426,8 @@ public actor MachineController {
     defer { activeOperation = nil }
 
     do {
-      try await ensureConnected()
-      try await link.discardPendingInput()
+      _ = try await ensureConnected()
+      _ = try await link.discardPendingInput()
     } catch let error as MachineLinkError {
       let outcome = ControllerAlarmClearOutcome.unconfirmed(
         controllerAlarmClearUncertainty(for: error)
@@ -567,7 +561,7 @@ public actor MachineController {
       return finishJogCancel(.refused(.noActiveJog))
     }
     do {
-      try await link.write(Self.encodeJogCancel)
+      _ = try await link.write(Self.encodeJogCancel)
       let outcomeAfterWrite: JogCancelOutcome?
       if let stickyAmbiguity {
         outcomeAfterWrite = .ambiguous(stickyAmbiguity)
@@ -648,7 +642,7 @@ public actor MachineController {
     }
 
     do {
-      try await link.discardPendingInput()
+      _ = try await link.discardPendingInput()
     } catch {
       await closeAndInvalidateKnowledge()
       return finishMotion(
@@ -831,7 +825,7 @@ public actor MachineController {
     }
 
     do {
-      try await link.discardPendingInput()
+      _ = try await link.discardPendingInput()
     } catch {
       await closeAndInvalidateKnowledge()
       return finishDrawingStroke(
@@ -1051,7 +1045,7 @@ public actor MachineController {
     }
 
     do {
-      try await link.discardPendingInput()
+      _ = try await link.discardPendingInput()
     } catch {
       await closeAndInvalidateKnowledge()
       return finishPen(
@@ -1319,16 +1313,17 @@ public actor MachineController {
   /// position recovery, or motion authorization.
   public static let encodeControllerAlarmClear = Data("$X\n".utf8)
 
-  private func ensureConnected() async throws {
+  private func ensureConnected() async throws -> Bool {
     if connection == .connected || connection == .probing || connection == .moving
       || connection == .actuatingPen
     {
-      return
+      return false
     }
     connection = .connecting
     do {
-      try await link.open()
+      _ = try await link.open()
       connection = .connected
+      return true
     } catch {
       connection = .blocked
       throw error
@@ -1367,13 +1362,28 @@ public actor MachineController {
       return .writeTimedOut(written: written, total: total)
     case .writeCancelled(let written, let total):
       return .writeCancelled(written: written, total: total)
+    case .writeFailed(let written, let total, let reason):
+      if written > 0 { return .partialWrite(written: written, total: total) }
+      switch reason {
+      case .timedOut: return .writeTimedOut(written: written, total: total)
+      case .cancelled: return .writeCancelled(written: written, total: total)
+      case .disconnected: return .disconnected
+      case .operatingSystem: return .transport(String(describing: error))
+      }
     case .disconnected, .notOpen:
       return .disconnected
     case .timedOut:
       return .acknowledgementTimedOut
+    case .readFailed(_, _, let reason):
+      switch reason {
+      case .timedOut: return .acknowledgementTimedOut
+      case .disconnected: return .disconnected
+      case .cancelled, .operatingSystem: return .transport(String(describing: error))
+      }
     case .readExceededMaximum(let expected, let actual):
       return .malformedReply("read \(actual) bytes beyond the \(expected)-byte bound")
-    case .alreadyOpen, .unexpectedWrite, .invalidPath, .operatingSystem:
+    case .alreadyOpen, .unexpectedWrite, .invalidPath, .operatingSystem,
+      .discardFailed:
       return .transport(String(describing: error))
     }
   }
@@ -1633,7 +1643,7 @@ public actor MachineController {
   private func serializedWrite(_ bytes: Data) async throws {
     await acquireWireWrite(priority: false)
     defer { releaseWireWrite() }
-    try await link.write(bytes)
+    _ = try await link.write(bytes)
   }
 
   private func writePhysicalCommand(_ bytes: Data) async throws {
@@ -1656,10 +1666,11 @@ public actor MachineController {
           return .ambiguous(.malformedReply("\(context) acknowledgement exceeded response bounds"))
         }
         let remaining = deadline - clock.nowNanoseconds()
-        let data = try await link.read(
+        let receipt = try await link.read(
           maximumBytes: min(4_096, maximumRawReceiveBytesPerQuery - receivedBytes),
           timeoutNanoseconds: remaining
         )
+        let data = receipt.bytes
         receivedBytes += data.count
         receivedChunks += 1
         recordRawIOBestEffort(
@@ -1687,11 +1698,16 @@ public actor MachineController {
         }
       }
       return .ambiguous(.acceptanceTimedOut)
-    } catch MachineLinkError.timedOut {
-      return .ambiguous(.acceptanceTimedOut)
-    } catch MachineLinkError.disconnected {
-      invalidateConnectionKnowledge()
-      return .ambiguous(.disconnected)
+    } catch let error as MachineLinkError {
+      switch error {
+      case .timedOut, .readFailed(_, _, .timedOut):
+        return .ambiguous(.acceptanceTimedOut)
+      case .disconnected, .readFailed(_, _, .disconnected):
+        invalidateConnectionKnowledge()
+        return .ambiguous(.disconnected)
+      default:
+        return .ambiguous(.transport(String(describing: error)))
+      }
     } catch {
       return .ambiguous(.transport(String(describing: error)))
     }
@@ -1709,9 +1725,14 @@ public actor MachineController {
       recordRawIOBestEffort(
         RawMachineIO(direction: .transmit, bytes: query, timestamp: timestamp())
       )
-    } catch MachineLinkError.disconnected {
-      invalidateConnectionKnowledge()
-      return .ambiguous(.disconnected)
+    } catch let error as MachineLinkError {
+      switch error {
+      case .disconnected, .writeFailed(_, _, .disconnected):
+        invalidateConnectionKnowledge()
+        return .ambiguous(.disconnected)
+      default:
+        return .ambiguous(.transport(String(describing: error)))
+      }
     } catch {
       return .ambiguous(.transport(String(describing: error)))
     }
@@ -1728,10 +1749,11 @@ public actor MachineController {
           return .ambiguous(.malformedReply("status response exceeded response bounds"))
         }
         let remainingBytes = maximumRawReceiveBytesPerQuery - receivedBytes
-        let data = try await link.read(
+        let receipt = try await link.read(
           maximumBytes: min(4_096, remainingBytes),
           timeoutNanoseconds: queryDeadline - clock.nowNanoseconds()
         )
+        let data = receipt.bytes
         guard data.count <= remainingBytes else {
           return .ambiguous(.malformedReply("status response exceeded byte bound"))
         }
@@ -1765,11 +1787,16 @@ public actor MachineController {
         }
       }
       return .ambiguous(.completionTimedOut(deadlineNanoseconds: deadline))
-    } catch MachineLinkError.timedOut {
-      return .ambiguous(.completionTimedOut(deadlineNanoseconds: deadline))
-    } catch MachineLinkError.disconnected {
-      invalidateConnectionKnowledge()
-      return .ambiguous(.disconnected)
+    } catch let error as MachineLinkError {
+      switch error {
+      case .timedOut, .readFailed(_, _, .timedOut):
+        return .ambiguous(.completionTimedOut(deadlineNanoseconds: deadline))
+      case .disconnected, .readFailed(_, _, .disconnected):
+        invalidateConnectionKnowledge()
+        return .ambiguous(.disconnected)
+      default:
+        return .ambiguous(.transport(String(describing: error)))
+      }
     } catch {
       return .ambiguous(.transport(String(describing: error)))
     }
@@ -1793,6 +1820,8 @@ public actor MachineController {
         return ambiguous(.partialWrite(bytesWritten: written, totalBytes: total))
       }
       return ambiguous(.writeCancelled(bytesWritten: written, totalBytes: total))
+    case .writeFailed(let written, let total, let reason):
+      return ambiguous(writeFailureAmbiguity(written: written, total: total, reason: reason))
     case .disconnected, .notOpen:
       invalidateConnectionKnowledge()
       return ambiguous(.disconnected)
@@ -1815,6 +1844,10 @@ public actor MachineController {
         return ambiguousDrawingStroke(.partialWrite(bytesWritten: written, totalBytes: total))
       }
       return ambiguousDrawingStroke(.writeCancelled(bytesWritten: written, totalBytes: total))
+    case .writeFailed(let written, let total, let reason):
+      return ambiguousDrawingStroke(
+        writeFailureAmbiguity(written: written, total: total, reason: reason)
+      )
     case .disconnected, .notOpen:
       invalidateConnectionKnowledge()
       return ambiguousDrawingStroke(.disconnected)
@@ -1835,6 +1868,8 @@ public actor MachineController {
         return .partialWrite(bytesWritten: written, totalBytes: total)
       }
       return .writeCancelled(bytesWritten: written, totalBytes: total)
+    case .writeFailed(let written, let total, let reason):
+      return writeFailureAmbiguity(written: written, total: total, reason: reason)
     case .disconnected, .notOpen:
       invalidateConnectionKnowledge()
       return .disconnected
@@ -1855,11 +1890,33 @@ public actor MachineController {
         return ambiguousPen(.partialWrite(bytesWritten: written, totalBytes: total))
       }
       return ambiguousPen(.writeCancelled(bytesWritten: written, totalBytes: total))
+    case .writeFailed(let written, let total, let reason):
+      return ambiguousPen(writeFailureAmbiguity(written: written, total: total, reason: reason))
     case .disconnected, .notOpen:
       invalidateConnectionKnowledge()
       return ambiguousPen(.disconnected)
     default:
       return ambiguousPen(.transport(String(describing: error)))
+    }
+  }
+
+  private func writeFailureAmbiguity(
+    written: Int,
+    total: Int,
+    reason: MachineLinkTransferFailureReason
+  ) -> MotionAmbiguity {
+    if case .disconnected = reason { invalidateConnectionKnowledge() }
+    if written > 0 { return .partialWrite(bytesWritten: written, totalBytes: total) }
+    switch reason {
+    case .timedOut:
+      return .writeTimedOut(bytesWritten: written, totalBytes: total)
+    case .cancelled:
+      return .writeCancelled(bytesWritten: written, totalBytes: total)
+    case .disconnected:
+      invalidateConnectionKnowledge()
+      return .disconnected
+    case .operatingSystem(let code, let operation):
+      return .transport("\(operation) failed with operating-system code \(code)")
     }
   }
 
@@ -1988,8 +2045,17 @@ public actor MachineController {
   }
 
   private func closeAndInvalidateKnowledge() async {
-    await link.close()
+    let closeBlocker: MachineBlocker?
+    do {
+      try await link.close()
+      closeBlocker = nil
+    } catch {
+      closeBlocker = .transport(
+        "machine link close failed: \(String(describing: error))"
+      )
+    }
     invalidateConnectionKnowledge()
+    if let closeBlocker { blockers.append(closeBlocker) }
   }
 
   private func invalidateConnectionKnowledge() {
@@ -2040,10 +2106,11 @@ public actor MachineController {
         guard now < deadline else { throw MachineLinkError.timedOut }
         let remainingNanoseconds = deadline - now
         let remainingBytes = maximumRawReceiveBytesPerQuery - rawReceiveBytes
-        let receivedBytes = try await link.read(
+        let receipt = try await link.read(
           maximumBytes: min(4_096, remainingBytes),
           timeoutNanoseconds: remainingNanoseconds
         )
+        let receivedBytes = receipt.bytes
         guard receivedBytes.count <= remainingBytes else {
           throw MachineLinkError.readExceededMaximum(
             expected: remainingBytes,
@@ -2105,17 +2172,31 @@ public actor MachineController {
           }
         }
       }
-    } catch MachineLinkError.timedOut {
-      if let unterminated = parser.finishUnterminatedLine() { parsed.append(unterminated) }
+    } catch let error as MachineLinkError {
+      switch error {
+      case .timedOut, .readFailed(_, _, .timedOut):
+        if let unterminated = parser.finishUnterminatedLine() { parsed.append(unterminated) }
+        return exchange(
+          query: query,
+          commandID: commandID,
+          rawIO: rawIO,
+          lines: parsed,
+          blocker: .timeout(query)
+        )
+      case .disconnected, .readFailed(_, _, .disconnected),
+        .writeFailed(_, _, .disconnected):
+        invalidateConnectionKnowledge()
+      default:
+        break
+      }
       return exchange(
         query: query,
         commandID: commandID,
         rawIO: rawIO,
         lines: parsed,
-        blocker: .timeout(query)
+        blocker: .transport(String(describing: error))
       )
     } catch {
-      if case MachineLinkError.disconnected = error { invalidateConnectionKnowledge() }
       return exchange(
         query: query,
         commandID: commandID,
