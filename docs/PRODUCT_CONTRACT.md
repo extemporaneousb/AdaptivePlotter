@@ -94,22 +94,47 @@ persisted operator selections or rendering LIVE geometry.
 They do not decide controller eligibility, machine direction, operator click,
 or artifact acceptance.
 
-`OperatorWorkspace` is the single observable app composition and projection
-owner. EA-04 point selection and EA-06 manual motion route through their one
-typed episode runtime instead of workspace-owned semantic admission. EA-07
-routes every causal-simulator effect through the production
+`PlotterUI -> PlotterEpisodeModel` is the sole package dependency for immutable
+episode presentation. `PlotterUICompiler` consumes copied, bounded candidate and
+Learning reachability facts and emits one bounded `PlotterUIProjection` that
+enumerates every rendered semantic action. Each action binds its exact ID,
+`PlotterUIIntent`, availability, UI revision, and relevant runtime revisions.
+SwiftUI may submit only a request derived from an available member of that
+projection; the production sink revalidates exact membership, bound intent,
+availability, UI revision, and runtime revisions before routing to the retained
+semantic owner. An arbitrary ID, reconstructed action/intent pair, unavailable
+action, or stale projection is a typed refusal with remedy and performs no
+semantic mutation.
+
+Within that boundary, `PlotterUILearningActionabilityCompiler` is the sole
+owner of bounded current-owner, item-status, action/Stop-strip, availability,
+Pen-adjustment, direction-selection, and reset-reachability decisions over
+copied Learning facts. The App may translate Runtime facts through
+`PlotterLearningActionabilityFactAdapter` and cosmetically render the canonical
+projection through `PlotterLearningDetailedPresentationNormalizer`; neither may
+re-decide those semantics. `OperatorWorkspace` must consume canonical
+actionability when building the aggregate projection and resolve the exact
+canonical action before retained-owner dispatch. App-owned or renamed/split
+status, completion, action-strip, Stop, sparse-action, availability,
+retained-candidate, or reachability compilers are forbidden compatibility
+shadows.
+
+`OperatorWorkspace` remains the observable App composition owner, not a second
+UI compiler or semantic policy owner. EA-04 point selection, EA-06 manual
+motion, EA-07 causal simulation, EA-08A draft, and EA-08B run effects remain
+owned by their typed runtimes and lower device/evidence authorities. Pane,
+window, viewport, selection, and unsubmitted manual text are UI-local reducers;
+they cannot replace controller, camera, Vision, persistence, Stop, or evidence
+authority. The App must not extend `PlotterUICompiler`, fabricate action/intent
+pairs, or retain direct Learning point/reset/workspace dispatch for a rendered
+semantic action.
+
+EA-07 routes every causal-simulator effect through the production
 `PlotterCausalSimulatorEffectAdapter`; the workspace owns no second simulated
 manual adapter, Boundary executor, or test-only effect closure bag. Retained
-Learning, Drawing, controller-session, and observation workflows remain
-workspace-owned until their ledger cutovers, while their simulator commands use
-the exact same adapter instance as the manual runtime, with explicit
-retained-workflow owner attribution, nil `effectResult`, and no fabricated
-episode intent, effect, or plan revision. The workspace copies current facts into immutable
-values-only snapshots;
-`LearningPathProjector` purely derives Learning Path rows, review detail,
-actions, activity, subsystem status, and reset presentation. Neither projection
-nor navigator selection can replace controller, camera, persistence, or
-evidence authority.
+simulator workflows use the exact same adapter instance as the manual runtime,
+with explicit retained-workflow owner attribution, nil `effectResult`, and no
+fabricated episode intent, effect, or plan revision.
 
 `RunLedger` records ordered diagnostic facts. Raw controller events and typed
 workflow events remain distinct. Ledger facts cannot replay work, restore a
@@ -153,6 +178,21 @@ and structured diagnostics remain inspectable outside `MainActor`, and the
 operator can export one bounded incident package. Recording failure is visible
 but cannot authorize work, manufacture evidence, alter physical safety, or delay
 Stop/shutdown.
+
+Incident-package presentation wraps the sole existing
+`PlotterIncidentPackageAssembler`; it may not add a recorder, source/second
+assembler, artifact store, filesystem/export backend, device port, or physical
+evidence claim. Real assembly requires one exact complete source identity and a
+matching complete provider result. When production has no such provider or
+identity owner, the App must use the distinct request-ID-only unavailable
+lifecycle and publish typed `.noCompleteSourceProvider` refusal/remedy without
+dummy manifest, build, or digest facts. Progress/result delivery is
+request-owned and explicitly bounded, and the terminal update retains exact
+request/result identity. Values-only UI facts may show format version, exact
+byte count and SHA-256, typed refusal/remedy, explicit
+`canonicalEnvelopeOnly` integrity scope, and
+`physicalEvidenceClaimed == false`; package bytes are neither exposed, stored,
+nor exported by this presentation service.
 
 ### Controller alarm recovery
 

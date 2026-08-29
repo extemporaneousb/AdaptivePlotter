@@ -53,10 +53,11 @@ struct ApplicationLifecycleTests {
       pointSelectionRuntime: composition.runtime,
       pointSelectionRecordingDiagnostic: diagnostic,
       drawingDraftRuntime: nominalDrawingDraftRuntime(),
-      drawingRunComposition: nominalDrawingRunComposition()
+      drawingRunComposition: nominalDrawingRunComposition(),
+      incidentPackageUIService: nominalIncidentPackageUIService()
     )
-    #expect(workspace.learningModePresentation.recordingDiagnostic == diagnostic)
-    #expect(workspace.learningIsEnabled)
+    #expect(workspace.testLearningModePresentation.recordingDiagnostic == diagnostic)
+    #expect(workspace.testLearningIsEnabled)
     #expect(workspace.pointSelectionEpisodeProjection.runtimeStateRevision.rawValue == 0)
   }
 

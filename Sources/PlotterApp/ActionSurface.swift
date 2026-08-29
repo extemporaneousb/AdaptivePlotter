@@ -4,6 +4,7 @@ import PlotterEpisodeModel
 import PlotterEpisodeRuntime
 import PlotterModel
 import PlotterRuntime
+import PlotterUI
 import SwiftUI
 
 enum ActionSurfaceScalePolicy: String, Sendable {
@@ -77,16 +78,6 @@ struct CameraPixelToViewTransform: Equatable, Sendable {
     else { return nil }
     return try? Point2(x: x, y: y)
   }
-}
-
-@MainActor
-protocol PlotterPointSelectionIntentSink: AnyObject {
-  func submitPointSelection(_ submission: PlotterPointSelectionSubmission)
-}
-
-@MainActor
-protocol PlotterLearningModeIntentSink: AnyObject {
-  func submitLearningModeChange()
 }
 
 enum ActionSurfaceTipPresentation: Hashable, Sendable {
@@ -546,24 +537,27 @@ enum ExactFramePointSubmissionBuilder {
 struct ActionSurface: View {
   let presentation: ActionSurfacePresentation
   @Binding private var viewport: ActionSurfaceViewportState
+  @Binding private var pendingDrawingPlacement: PlotterDrawingDraftCameraPlacement?
+  @Binding private var pendingPointSelection: PlotterPointSelectionSubmission?
   @StateObject private var imageCache = FramePresentationImageCache()
   @State private var priorDragTranslation: CGSize = .zero
-  private let pointSelectionIntentSink: (any PlotterPointSelectionIntentSink)?
-  private let drawingDraftIntentSink: any PlotterDrawingDraftIntentSink
-  private let completedComparisonReviewIntentSink: any CompletedComparisonReviewIntentSink
+  private let plotterUIProjection: PlotterUIProjection
+  private let plotterUIIntentSink: any PlotterUIIntentSink
 
   init(
     presentation: ActionSurfacePresentation,
     viewport: Binding<ActionSurfaceViewportState> = .constant(ActionSurfaceViewportState()),
-    pointSelectionIntentSink: (any PlotterPointSelectionIntentSink)? = nil,
-    drawingDraftIntentSink: any PlotterDrawingDraftIntentSink,
-    completedComparisonReviewIntentSink: any CompletedComparisonReviewIntentSink
+    plotterUIProjection: PlotterUIProjection,
+    plotterUIIntentSink: any PlotterUIIntentSink,
+    pendingDrawingPlacement: Binding<PlotterDrawingDraftCameraPlacement?> = .constant(nil),
+    pendingPointSelection: Binding<PlotterPointSelectionSubmission?> = .constant(nil)
   ) {
     self.presentation = presentation
     _viewport = viewport
-    self.pointSelectionIntentSink = pointSelectionIntentSink
-    self.drawingDraftIntentSink = drawingDraftIntentSink
-    self.completedComparisonReviewIntentSink = completedComparisonReviewIntentSink
+    self.plotterUIProjection = plotterUIProjection
+    self.plotterUIIntentSink = plotterUIIntentSink
+    _pendingDrawingPlacement = pendingDrawingPlacement
+    _pendingPointSelection = pendingPointSelection
   }
 
   var body: some View {
@@ -646,11 +640,28 @@ struct ActionSurface: View {
           CompletedComparisonReviewControls(
             presentation: presentation.completedComparisonReview,
             displayedFrame: presentation.displayedFrame,
-            drawingDraftIntentSink: drawingDraftIntentSink,
-            intentSink: completedComparisonReviewIntentSink
+            plotterUIProjection: plotterUIProjection,
+            plotterUIIntentSink: plotterUIIntentSink
           )
           .padding(8)
         }
+      }
+      .overlay(alignment: .bottom) {
+        HStack(spacing: 8) {
+          if pendingPointSelection != nil {
+            Button("Apply Learning Point") {
+              submitPendingPointSelection()
+            }
+            .operatorButton(.affirmative)
+          }
+          if pendingDrawingPlacement != nil {
+            Button("Apply Drawing Placement") {
+              submitPendingDrawingPlacement()
+            }
+            .operatorButton(.affirmative)
+          }
+        }
+        .padding(8)
       }
       .overlay {
         if presentation.displayedFrame == nil {
@@ -667,7 +678,7 @@ struct ActionSurface: View {
       .gesture(
         SpatialTapGesture(coordinateSpace: .local)
           .onEnded { value in
-            submitPointSelection(at: value.location, viewSize: proxy.size)
+            stagePointSelection(at: value.location, viewSize: proxy.size)
           }
       )
       .simultaneousGesture(
@@ -675,7 +686,7 @@ struct ActionSurface: View {
           .onChanged { value in
             if presentation.drawingStudioCanvas?.placement.placementIsEnabled == true {
               priorDragTranslation = .zero
-              submitDrawingPlacement(at: value.location, viewSize: proxy.size)
+              stageDrawingPlacement(at: value.location, viewSize: proxy.size)
               return
             }
             guard !presentation.analysisRegionIsLocked,
@@ -711,7 +722,7 @@ struct ActionSurface: View {
     }
   }
 
-  private func submitPointSelection(at location: CGPoint, viewSize: CGSize) {
+  private func stagePointSelection(at location: CGPoint, viewSize: CGSize) {
     guard presentation.drawingStudioCanvas?.placement.placementIsEnabled != true,
       let submission = ExactFramePointSubmissionBuilder.submission(
         presentation: presentation,
@@ -720,10 +731,23 @@ struct ActionSurface: View {
         viewSize: viewSize
       )
     else { return }
-    pointSelectionIntentSink?.submitPointSelection(submission)
+    pendingPointSelection = submission
   }
 
-  private func submitDrawingPlacement(at location: CGPoint, viewSize: CGSize) {
+  private func submitPendingPointSelection() {
+    guard let submission = pendingPointSelection else { return }
+    let intent = PlotterUIIntent.pointSelection(submission)
+    guard let request = plotterUIProjection.request(matching: intent) else { return }
+    Task {
+      let disposition = await plotterUIIntentSink.submitPlotterUIRequest(request)
+      guard case .accepted = disposition else { return }
+      if pendingPointSelection == submission {
+        pendingPointSelection = nil
+      }
+    }
+  }
+
+  private func stageDrawingPlacement(at location: CGPoint, viewSize: CGSize) {
     guard let canvas = presentation.drawingStudioCanvas,
       canvas.placement.placementIsEnabled,
       let displayedFrame = presentation.displayedFrame,
@@ -739,17 +763,25 @@ struct ActionSurface: View {
       ),
       let point = transform.cameraPoint(location)
     else { return }
-    drawingDraftIntentSink.submitDrawingDraft(
-      PlotterDrawingDraftSubmission(
-        projection: canvas.draftProjection,
-        intent: .placeAtCameraPoint(
-          PlotterDrawingDraftCameraPlacement(
-            frame: displayedFrame.plotterExactFrameReference,
-            point: point
-          )
-        )
-      )
+    pendingDrawingPlacement = PlotterDrawingDraftCameraPlacement(
+      frame: displayedFrame.plotterExactFrameReference,
+      point: point
     )
+  }
+
+  private func submitPendingDrawingPlacement() {
+    guard let placement = pendingDrawingPlacement else { return }
+    let intent = PlotterDrawingDraftIntent.placeAtCameraPoint(placement)
+    guard let request = plotterUIProjection.request(matching: .drawingDraft(intent)) else {
+      return
+    }
+    Task {
+      let disposition = await plotterUIIntentSink.submitPlotterUIRequest(request)
+      guard case .accepted = disposition else { return }
+      if pendingDrawingPlacement == placement {
+        pendingDrawingPlacement = nil
+      }
+    }
   }
 
   private func drawFrameAndOverlays(

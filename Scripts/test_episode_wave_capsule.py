@@ -130,11 +130,13 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         self.assertEqual("complete", rows["EA-07"]["status"])
         self.assertEqual("complete", rows["EA-08A"]["status"])
         self.assertEqual("complete", rows["EA-08B"]["status"])
-        self.assertEqual("pending", rows["EA-09"]["status"])
+        self.assertEqual("complete", rows["EA-09"]["status"])
+        self.assertEqual("pending", rows["GATE-01"]["status"])
         self.assertEqual({}, blockers)
         evidence = (self.root / "docs/CURRENT_EVIDENCE.md").read_text(encoding="utf-8")
         self.assertIn("All seven package gates passed", evidence)
-        self.assertIn("EA-09 has not been selected or dispatched", evidence)
+        self.assertIn("EA-09 is complete only in this task-local", evidence)
+        self.assertIn("TASK-D55FD455-1d0731730d03", evidence)
 
     def test_completed_incident_evidence_missing_is_rejected(self) -> None:
         evidence_path = self.root / "docs/CURRENT_EVIDENCE.md"
@@ -320,7 +322,7 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         consumed = self.consume()
         self.assertEqual(created, consumed)
         self.assertEqual("selected", consumed["contract"]["frontier"]["state"])
-        self.assertEqual("EA-09", consumed["contract"]["package"]["id"])
+        self.assertEqual("GATE-01", consumed["contract"]["package"]["id"])
         self.assertEqual(0o600, stat.S_IMODE(self.path.stat().st_mode))
         purposes = {item["purpose"] for item in consumed["pointers"]}
         self.assertIn("required gate catalog row", purposes)
@@ -344,14 +346,14 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
             row = [cell.strip() for cell in selected_text.strip().strip("|").split("|")]
             if (
                 len(row) == 6
-                and row[:4] == ["EA-09", "pending", "EA-04, EA-06, EA-08B", "software"]
-                and row[4].startswith("Cutover: transfer episode UI presentation authority")
-                and row[5] == "`DOC`, `DIFF`, `QUICK`, `JOURNEY`, `STRICT`, `UI`, `DELETE`"
+                and row[:4] == ["GATE-01", "pending", "EA-09", "gate"]
+                and row[4].startswith("Decide pilot continuation")
+                and row[5] == "`DOC`, `DIFF`, `PILOT`"
             ):
                 ledger_rows.append((selected, row))
         self.assertEqual(1, len(ledger_rows))
         selected, selected_row = ledger_rows[0]
-        self.assertEqual("EA-09", selected_row[0])
+        self.assertEqual("GATE-01", selected_row[0])
         self.assertNotEqual("FIX-02", selected_row[0])
         view = capsule.canonical_bytes(capsule.consumption_view(consumed))
         self.assertLess(len(view), capsule.MAX_CONSUMPTION_BYTES)
@@ -364,8 +366,8 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
             "| --- | --- | --- |\n"
         )
         blocked_table = table + (
-            "| EA-09 | Required design authority is unresolved | "
-            "Record the operator decision in canonical authority |\n"
+            "| GATE-01 | Pilot reduction evidence is unresolved | "
+            "Complete the canonical Pilot predicate and metric tables |\n"
         )
         self.assertIn(table, evidence)
         evidence_path.write_text(evidence.replace(table, blocked_table, 1), encoding="utf-8")
@@ -374,9 +376,9 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         created = self.build_and_write()
 
         self.assertEqual("evidence_blocked", created["launch"]["state"])
-        self.assertEqual("EA-09", created["contract"]["frontier"]["package_id"])
+        self.assertEqual("GATE-01", created["contract"]["frontier"]["package_id"])
         self.assertEqual(
-            "Required design authority is unresolved",
+            "Pilot reduction evidence is unresolved",
             created["contract"]["frontier"]["blocker"]["blocker"],
         )
         self.assertNotEqual("EA-10A", created["contract"]["frontier"]["package_id"])

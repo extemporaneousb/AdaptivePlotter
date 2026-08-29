@@ -14,9 +14,9 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
     let workspace = workspace(machine: try MachineFixture(log: log), log: log)
     workspace.resetComputationDiagnosticsForTesting()
 
-    let current = workspace.currentLearningPathItemID
-    _ = workspace.learningPathProjection(selectedItemID: current)
-    _ = workspace.actionSurfacePresentation
+    let current = workspace.testCurrentLearningPathItemID
+    _ = workspace.testLearningPathProjection(selectedItemID: current)
+    _ = workspace.testActionSurfacePresentation
 
     let diagnostics = workspace.computationDiagnosticsForTesting
     #expect(diagnostics.currentLearningItemBuildCount > 0)
@@ -47,14 +47,15 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
     let workspace = workspace(machine: try MachineFixture(log: log), log: log)
     workspace.resetComputationDiagnosticsForTesting()
 
-    let current = workspace.currentLearningPathItemID
-    let first = workspace.learningPathProjection(selectedItemID: current)
-    let second = workspace.learningPathProjection(selectedItemID: current)
+    let current = workspace.testCurrentLearningPathItemID
+    let first = workspace.testLearningPathProjection(selectedItemID: current)
+    let second = workspace.testLearningPathProjection(selectedItemID: current)
     let selected = LearningPathItemID.stage(.observedDrawingTrials)
-    let firstSelected = workspace.learningPathProjection(selectedItemID: selected)
-    let secondSelected = workspace.learningPathProjection(selectedItemID: selected)
-    let firstSurface = workspace.actionSurfacePresentation
-    let secondSurface = workspace.actionSurfacePresentation
+    let firstSelected = workspace.testLearningPathProjection(selectedItemID: selected)
+    let secondSelected = workspace.testLearningPathProjection(selectedItemID: selected)
+    let firstSurface = workspace.testActionSurfacePresentation
+    let diagnosticsAfterFirstSurface = workspace.computationDiagnosticsForTesting
+    let secondSurface = workspace.testActionSurfacePresentation
 
     #expect(first == second)
     #expect(firstSelected == secondSelected)
@@ -68,7 +69,14 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
     #expect(diagnostics.learningResetPlanBuildCount == 1)
     #expect(diagnostics.learningProjectionCacheHitCount >= 2)
     #expect(diagnostics.actionSurfaceBuildCount == 1)
-    #expect(diagnostics.actionSurfaceCacheHitCount == 1)
+    #expect(
+      diagnostics.actionSurfaceBuildCount
+        == diagnosticsAfterFirstSurface.actionSurfaceBuildCount
+    )
+    #expect(
+      diagnostics.actionSurfaceCacheHitCount
+        > diagnosticsAfterFirstSurface.actionSurfaceCacheHitCount
+    )
     await workspace.shutdown()
   }
 
@@ -79,7 +87,7 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
     let workspace = workspace(machine: machine, log: log)
 
     func expectParity(_ selected: LearningPathItemID) {
-      let cached = workspace.learningPathProjection(selectedItemID: selected)
+      let cached = workspace.testLearningPathProjection(selectedItemID: selected)
       let uncached = workspace.uncachedLearningPathProjectionForTesting(
         selectedItemID: selected
       )
@@ -92,11 +100,11 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
     expectParity(.humanGuidedDiscovery(.penInteraction))
     await workspace.performMotionAuthorizationAction()
     expectParity(.humanGuidedDiscovery(.penInteraction))
-    workspace.submitLearningModeChange()
-    try await waitUntil { !workspace.learningIsEnabled }
+    await workspace.submitTestPlotterUIAction(PlotterAppUIActionID.learningMode)
+    try await waitUntil { !workspace.testLearningIsEnabled }
     expectParity(.humanGuidedDiscovery(.penInteraction))
-    workspace.submitLearningModeChange()
-    try await waitUntil { workspace.learningIsEnabled }
+    await workspace.submitTestPlotterUIAction(PlotterAppUIActionID.learningMode)
+    try await waitUntil { workspace.testLearningIsEnabled }
     expectParity(.humanGuidedDiscovery(.penInteraction))
     await workspace.shutdown()
   }
@@ -125,14 +133,14 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
       owner: boundaryOwner,
       workspace: workspace
     )
-    await workspace.performExerciseAction(.moveToEstimatedCenter, for: boundaryOwner)
+    await workspace.performTestExerciseAction(.moveToEstimatedCenter, for: boundaryOwner)
     let cameraOwner = LearningPathItemID.humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
     try requireEnabledPublicAction(
       .runCameraCalibrationAndBuildProposal,
       owner: cameraOwner,
       workspace: workspace
     )
-    await workspace.performExerciseAction(
+    await workspace.performTestExerciseAction(
       .runCameraCalibrationAndBuildProposal,
       for: cameraOwner
     )
@@ -141,7 +149,7 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
       owner: cameraOwner,
       workspace: workspace
     )
-    await workspace.performExerciseAction(.acceptCameraCalibrationProposal, for: cameraOwner)
+    await workspace.performTestExerciseAction(.acceptCameraCalibrationProposal, for: cameraOwner)
     let tipOwner = LearningPathItemID.humanGuidedDiscovery(
       .calibratePenContactFromSparseMarks
     )
@@ -163,7 +171,7 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
       owner: tipOwner,
       workspace: workspace
     )
-    await workspace.performExerciseAction(.drawFourCornerTipCircles, for: tipOwner)
+    await workspace.performTestExerciseAction(.drawFourCornerTipCircles, for: tipOwner)
 
     let snapshotsAfterBatch = await machine.snapshotCallCount
     let probesAfterBatch = await machine.passiveProbeCallCount
@@ -190,7 +198,7 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
     #expect(workspace.lastProtocolPoseSettlement?.action == .sparseTipBatchReveal)
     #expect(workspace.lastProtocolPoseSettlement?.actual == plan.finalRevealPosition)
 
-    let request = try #require(workspace.actionSurfacePresentation.pointSelectionRequest)
+    let request = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
     for mark in plan.marks {
       let predicted = try registration.fit.cameraPoint(from: mark.machinePosition.point)
       try await submitPointSelectionAndWait(
@@ -289,7 +297,7 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
 
     #expect(workspace.exactWorkflowVisionOwner == .cameraCalibration)
     #expect(workspace.overlayStatus(for: .penCap).state == .suspended)
-    let selected = workspace.currentLearningPathItemID
+    let selected = workspace.testCurrentLearningPathItemID
     let vision = try #require(
       workspace.selectedOperatorActionPresentation(for: selected).subsystemStatuses.first {
         $0.id == "vision"
@@ -360,13 +368,13 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
     )
     let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
     workspace.resetComputationDiagnosticsForTesting()
-    _ = workspace.actionSurfacePresentation
+    _ = workspace.testActionSurfacePresentation
     let requestCountBeforeAnswer = await machine.requestedPenCommands.count
     try await waitForExecutorTurnsAsync {
-      workspace.actionSurfacePresentation.displayedFrame != nil
+      workspace.testActionSurfacePresentation.displayedFrame != nil
     }
     let nextTask = Task {
-      await workspace.performExerciseAction(.choice(.yes), for: owner)
+      await workspace.performTestExerciseAction(.choice(.yes), for: owner)
     }
     try await waitForExecutorTurnsAsync {
       let commands = await machine.requestedPenCommands
@@ -375,7 +383,7 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
     }
     try requireStep(workspace, expectedCurrentStepBeforeSettlement)
     _ = workspace.currentExerciseActionStripPresentation
-    _ = workspace.actionSurfacePresentation
+    _ = workspace.testActionSurfacePresentation
     let baselineDiagnostics = workspace.computationDiagnosticsForTesting
     let baselineSnapshotCallCount = await machine.snapshotCallCount
     #expect(baselineDiagnostics.events.contains(.penRequest(command, .began)))
@@ -385,7 +393,7 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
     await nextTask.value
     try requireStep(workspace, expectedCurrentStepAfterSettlement)
     #expect(workspace.currentExerciseActionStripPresentation?.penSetpointAdjustment?.command == command)
-    _ = workspace.actionSurfacePresentation
+    _ = workspace.testActionSurfacePresentation
     let diagnostics = workspace.computationDiagnosticsForTesting
     #expect(diagnostics.events.contains(.penRequest(command, .ended)))
     #expect(
@@ -447,7 +455,7 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
           == revision - 9
       }
       _ = workspace.currentExerciseActionStripPresentation
-      _ = workspace.actionSurfacePresentation
+      _ = workspace.testActionSurfacePresentation
     }
 
     var diagnostics = workspace.computationDiagnosticsForTesting
@@ -498,7 +506,7 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
     )
     workspace.resetComputationDiagnosticsForTesting()
 
-    await workspace.performExerciseAction(.start, for: owner)
+    await workspace.performTestExerciseAction(.start, for: owner)
     try await waitForExecutorTurnsAsync(
       conditionDescription: "Boundary Stop publication and controller settlement continuation"
     ) {
@@ -514,7 +522,7 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
           == revision - 9
       }
       _ = workspace.currentExerciseActionStripPresentation
-      _ = workspace.actionSurfacePresentation
+      _ = workspace.testActionSurfacePresentation
     }
 
     let stop = try #require(workspace.contextualStopPresentation)
@@ -574,7 +582,7 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
     let subscriptionCountBeforeTravel = traffic.subscriptionCount
     let automaticRequestsBeforeTravel = camera.recordedAutomaticInspectionRequests
     let travelTask = Task {
-      await workspace.performExerciseAction(.moveToEstimatedCenter, for: owner)
+      await workspace.performTestExerciseAction(.moveToEstimatedCenter, for: owner)
     }
     try await waitForExecutorTurnsAsync(
       conditionDescription: "center-travel settlement continuation"
@@ -595,7 +603,7 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
           == revision - 19
       }
       _ = workspace.currentExerciseActionStripPresentation
-      _ = workspace.actionSurfacePresentation
+      _ = workspace.testActionSurfacePresentation
     }
 
     var diagnostics = workspace.computationDiagnosticsForTesting
@@ -722,6 +730,7 @@ private func workspaceWithPenCommandCompletionGate(
     cameraActions: cameraActions,
     drawingDraftRuntime: nominalDrawingDraftRuntime(),
     drawingRunComposition: nominalDrawingRunComposition(),
+    incidentPackageUIService: nominalIncidentPackageUIService(),
     serialDevices: [machine.descriptor],
     serialDeviceDiscovery: { [machine.descriptor] },
     loadSelectedSerialIdentifier: { nil },

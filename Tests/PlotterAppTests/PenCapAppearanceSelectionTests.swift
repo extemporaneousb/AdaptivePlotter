@@ -97,7 +97,7 @@ struct PenCapAppearanceSelectionTests {
 
     await workspace.beginPenInteraction()
 
-    let presentation = workspace.actionSurfacePresentation
+    let presentation = workspace.testActionSurfacePresentation
     let request = try #require(presentation.pointSelectionRequest)
     let frozenFrame = try #require(presentation.displayedFrame)
     #expect(request.purpose == .penCapAppearance)
@@ -157,7 +157,7 @@ struct PenCapAppearanceSelectionTests {
     #expect(identifyAction.title == "Identify Pen Cap")
     #expect(identifyAction.unavailableReason == nil)
 
-    await workspace.performExerciseAction(.start, for: owner)
+    await workspace.performTestExerciseAction(.start, for: owner)
     try await identifyPenCap(workspace)
 
     let disconnectedStrip = try #require(workspace.currentExerciseActionStripPresentation)
@@ -172,10 +172,17 @@ struct PenCapAppearanceSelectionTests {
     #expect(workspace.controllerSelectionUnavailableReason == nil)
     #expect(workspace.controllerConnectionActionUnavailableReason == "Select one serial device first.")
 
-    await workspace.performExerciseAction(
+    let blockedSetpointID = PlotterAppUIActionID.retainedLearning(
       .setPenSetpoint(disconnectedAdjustment.command, disconnectedAdjustment.value + 1),
-      for: owner
+      owner: owner
     )
+    let blockedProjection = workspace.testPlotterUIProjection(
+      selectedItemID: owner,
+      includesLearningPath: true
+    ).semantic
+    let blockedSetpoint = try #require(blockedProjection.action(id: blockedSetpointID))
+    #expect(!blockedSetpoint.isAvailable)
+    #expect(blockedProjection.request(for: blockedSetpointID) == nil)
     #expect(await machine.requestedPenCommands.isEmpty)
 
     await workspace.selectSerialDevice(machine.descriptor)
@@ -257,7 +264,7 @@ struct PenCapAppearanceSelectionTests {
 
     await workspace.beginPenInteraction()
 
-    let presentation = workspace.actionSurfacePresentation
+    let presentation = workspace.testActionSurfacePresentation
     let frozen = try #require(presentation.displayedFrame)
     let request = try #require(presentation.pointSelectionRequest)
     #expect(request.frame.frameID == frozen.frame.id.rawValue)
@@ -284,7 +291,7 @@ struct PenCapAppearanceSelectionTests {
     await workspace.requestPassiveProbe()
     await log.clear()
     await workspace.beginPenInteraction()
-    let request = try #require(workspace.actionSurfacePresentation.pointSelectionRequest)
+    let request = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
     let staleFrame = try colorFrame(red: 20, green: 80, blue: 220, frameID: "other-frame")
     let stale = PlotterPointSelectionSubmission(
       selectionID: request.id,
@@ -296,7 +303,7 @@ struct PenCapAppearanceSelectionTests {
     workspace.submitPointSelection(stale)
     try await waitUntil { workspace.discoveryError != nil }
 
-    #expect(workspace.actionSurfacePresentation.pointSelectionRequest == request)
+    #expect(workspace.testActionSurfacePresentation.pointSelectionRequest == request)
     #expect(workspace.discoveryTransactions[.penInteraction] == nil)
     #expect(
       workspace.discoveryError?.contains(
@@ -386,13 +393,13 @@ struct PenCapAppearanceSelectionTests {
 
     await workspace.switchFrameMode(.simulated)
     await workspace.beginPenInteraction()
-    let request = try #require(workspace.actionSurfacePresentation.pointSelectionRequest)
-    let displayed = try #require(workspace.actionSurfacePresentation.displayedFrame)
+    let request = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
+    let displayed = try #require(workspace.testActionSurfacePresentation.displayedFrame)
     let fallbackPoint = try Point2<CameraPixelSpace>(
       x: Double(displayed.frame.width - 1) / 2,
       y: Double(displayed.frame.height - 1) / 2
     )
-    let point = workspace.actionSurfacePresentation.overlays.compactMap {
+    let point = workspace.testActionSurfacePresentation.overlays.compactMap {
       overlay -> Point2<CameraPixelSpace>? in
       guard overlay.provenance.kind == .penCap, case .point(let point) = overlay.geometry
       else { return nil }
@@ -483,10 +490,10 @@ struct PenCapAppearanceSelectionTests {
     await log.clear()
     let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
 
-    await workspace.performExerciseAction(.start, for: owner)
+    await workspace.performTestExerciseAction(.start, for: owner)
     let cancelledAttemptID = try #require(workspace.activeExerciseAttemptID)
-    let request = try #require(workspace.actionSurfacePresentation.pointSelectionRequest)
-    let displayed = try #require(workspace.actionSurfacePresentation.displayedFrame)
+    let request = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
+    let displayed = try #require(workspace.testActionSurfacePresentation.displayedFrame)
     submitPointSelection(
       workspace,
       request: request,
@@ -497,7 +504,7 @@ struct PenCapAppearanceSelectionTests {
     )
     try await waitUntil { workspace.penCapAppearanceSelection != nil }
     let acceptedAppearance = try #require(workspace.penCapAppearanceSelection)
-    await workspace.performExerciseAction(.cancel, for: owner)
+    await workspace.performTestExerciseAction(.cancel, for: owner)
 
     #expect(workspace.activeExerciseAttemptID == nil)
     if let cancelledTransaction = workspace.discoveryTransactions[.penInteraction] {
@@ -529,10 +536,10 @@ struct PenCapAppearanceSelectionTests {
     await workspace.startCamera()
     let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
 
-    await workspace.performExerciseAction(.start, for: owner)
+    await workspace.performTestExerciseAction(.start, for: owner)
     let cancelledAttemptID = try #require(workspace.activeExerciseAttemptID)
-    let request = try #require(workspace.actionSurfacePresentation.pointSelectionRequest)
-    let displayed = try #require(workspace.actionSurfacePresentation.displayedFrame)
+    let request = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
+    let displayed = try #require(workspace.testActionSurfacePresentation.displayedFrame)
     submitPointSelection(
       workspace,
       request: request,
@@ -542,17 +549,17 @@ struct PenCapAppearanceSelectionTests {
       )
     )
     try await waitUntil { workspace.penCapAppearanceSelection != nil }
-    await workspace.performExerciseAction(.cancel, for: owner)
-    await workspace.performExerciseAction(.restart, for: owner)
+    await workspace.performTestExerciseAction(.cancel, for: owner)
+    await workspace.performTestExerciseAction(.restart, for: owner)
 
     let restartedAttemptID = try #require(workspace.activeExerciseAttemptID)
     #expect(restartedAttemptID != cancelledAttemptID)
     #expect(workspace.discoveryTransactions[.penInteraction] == nil)
-    #expect(workspace.actionSurfacePresentation.pointSelectionRequest?.purpose == .penCapAppearance)
-    await workspace.performExerciseAction(.cancel, for: owner)
-    workspace.submitLearningModeChange()
-    try await waitUntil { !workspace.learningIsEnabled }
-    #expect(!workspace.learningIsEnabled)
+    #expect(workspace.testActionSurfacePresentation.pointSelectionRequest?.purpose == .penCapAppearance)
+    await workspace.performTestExerciseAction(.cancel, for: owner)
+    await workspace.submitTestPlotterUIAction(PlotterAppUIActionID.learningMode)
+    try await waitUntil { !workspace.testLearningIsEnabled }
+    #expect(!workspace.testLearningIsEnabled)
 
     let plan = try #require(workspace.resetAllLearningPlan)
     #expect(workspace.performLearningVacate(plan))
@@ -576,9 +583,9 @@ struct PenCapAppearanceSelectionTests {
     await workspace.startCamera()
     let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
 
-    await workspace.performExerciseAction(.start, for: owner)
-    let request = try #require(workspace.actionSurfacePresentation.pointSelectionRequest)
-    let displayed = try #require(workspace.actionSurfacePresentation.displayedFrame)
+    await workspace.performTestExerciseAction(.start, for: owner)
+    let request = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
+    let displayed = try #require(workspace.testActionSurfacePresentation.displayedFrame)
     submitPointSelection(
       workspace,
       request: request,

@@ -1,6 +1,84 @@
 import Foundation
+import PlotterEpisodeModel
 import PlotterEpisodeRuntime
 import PlotterRuntime
+import PlotterUI
+
+/// Raw numeric text belongs to one window. It is parsed into a typed manual
+/// intent while compiling that window's immutable projection and never becomes
+/// mutable workspace/runtime state.
+struct ManualMotionDraft: Hashable, Sendable {
+  var xDistanceMM = "50"
+  var yDistanceMM = "50"
+  var feedMMPerMinute = "500"
+}
+
+struct PlotterAppUIProjection: Sendable {
+  let semantic: PlotterUIProjection
+  let actionSurface: ActionSurfacePresentation
+  let exercisePaneProtection: ExercisePaneProtectionPresentation
+  let learningMode: LearningModePresentation
+  let learningPath: LearningPathProjection?
+  let currentLearningPathItemID: LearningPathItemID
+  let learningIsEnabled: Bool
+  let manualMotion: ManualMotionPresentation
+  let drawingStudio: DrawingStudioPresentation
+  let drawingStudioIsPresented: Bool
+  let drawingStudioPanelChangeUnavailableReason: String?
+  let drawingDraftProjection: PlotterDrawingDraftProjectionReference
+  let workbenchCapability: WorkbenchCapabilityPresentation
+  let incidentPackage: PlotterUIIncidentPackageState
+}
+
+enum PlotterAppUIActionID {
+  static let learningMode = PlotterUIActionID(rawValue: "learning.mode")
+  static let manualXNegative = PlotterUIActionID(rawValue: "manual.jog.x-negative")
+  static let manualXPositive = PlotterUIActionID(rawValue: "manual.jog.x-positive")
+  static let manualYNegative = PlotterUIActionID(rawValue: "manual.jog.y-negative")
+  static let manualYPositive = PlotterUIActionID(rawValue: "manual.jog.y-positive")
+  static let manualPenUp = PlotterUIActionID(rawValue: "manual.pen.up")
+  static let manualPenDown = PlotterUIActionID(rawValue: "manual.pen.down")
+  static let manualStop = PlotterUIActionID(rawValue: "manual.stop")
+  static let manualRecovery = PlotterUIActionID(rawValue: "manual.publication.recover")
+  static let manualEvidence = PlotterUIActionID(rawValue: "manual.evidence.resolve")
+  static let drawingOpen = PlotterUIActionID(rawValue: "drawing.draft.open")
+  static let drawingClose = PlotterUIActionID(rawValue: "drawing.draft.close")
+  static let incidentPackage = PlotterUIActionID(rawValue: "incident.package.request")
+
+  static func pointSelection(_ submission: PlotterPointSelectionSubmission) -> PlotterUIActionID {
+    PlotterUIActionID(rawValue: "learning.point-selection.\(submission.selectionID.rawValue)")
+  }
+
+  static func drawingDraft(_ intent: PlotterDrawingDraftIntent) -> PlotterUIActionID {
+    PlotterUIActionID(rawValue: "drawing.draft.\(String(describing: intent))")
+  }
+
+  static func drawingRun(_ intent: PlotterDrawingRunIntent) -> PlotterUIActionID {
+    PlotterUIActionID(rawValue: "drawing.run.\(String(describing: intent))")
+  }
+
+  static func retainedComparison(_ intent: PlotterUIRetainedComparisonIntent)
+    -> PlotterUIActionID
+  {
+    PlotterUIActionID(rawValue: "drawing-border.review.\(intent.rawValue)")
+  }
+
+  static func retainedLearning(_ kind: ExerciseActionKind, owner: LearningPathItemID)
+    -> PlotterUIActionID
+  {
+    PlotterUIActionID(rawValue: "learning.retained.\(owner.id).\(String(describing: kind))")
+  }
+
+  static func learningReset(_ plan: LearningVacatePlan) -> PlotterUIActionID {
+    let revisions = plan.expectedCurrentRevisionIDs
+      .map { String(describing: $0) }
+      .sorted()
+      .joined(separator: ",")
+    return PlotterUIActionID(
+      rawValue: "learning.reset.\(plan.id).\(plan.expectedAcceptedAttemptSequence).\(revisions)"
+    )
+  }
+}
 
 enum LearningPathStage: Int, CaseIterable, Hashable, Identifiable, Sendable {
   case humanGuidedDiscovery = 1

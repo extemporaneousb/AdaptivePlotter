@@ -214,7 +214,7 @@ func stage33AcceptancePreservesLockedViewport() async throws {
     boundaryOrder: [.negativeX, .positiveX, .negativeY, .positiveY]
   )
   let workspace = harness.workspace
-  let before = workspace.actionSurfacePresentation
+  let before = workspace.testActionSurfacePresentation
   let frame = try #require(before.displayedFrame)
   let beforeContext = try #require(before.viewportContext)
   #expect(beforeContext.fittedRegion == nil)
@@ -237,7 +237,7 @@ func stage33AcceptancePreservesLockedViewport() async throws {
   )
   await workspace.setVideoAnalysisRegion(lockedRegion, for: frame)
   #expect(workspace.videoAnalysisRegionLock?.region == lockedRegion)
-  #expect(workspace.actionSurfacePresentation.analysisRegionIsLocked)
+  #expect(workspace.testActionSurfacePresentation.analysisRegionIsLocked)
 
   let owner = LearningPathItemID.humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
   try requireEnabledPublicAction(
@@ -245,15 +245,15 @@ func stage33AcceptancePreservesLockedViewport() async throws {
     owner: owner,
     workspace: workspace
   )
-  await workspace.performExerciseAction(.runCameraCalibrationAndBuildProposal, for: owner)
+  await workspace.performTestExerciseAction(.runCameraCalibrationAndBuildProposal, for: owner)
   try requireEnabledPublicAction(
     .acceptCameraCalibrationProposal,
     owner: owner,
     workspace: workspace
   )
-  await workspace.performExerciseAction(.acceptCameraCalibrationProposal, for: owner)
+  await workspace.performTestExerciseAction(.acceptCameraCalibrationProposal, for: owner)
 
-  let after = workspace.actionSurfacePresentation
+  let after = workspace.testActionSurfacePresentation
   let afterContext = try #require(after.viewportContext)
   #expect(afterContext.source == beforeContext.source)
   #expect(afterContext.cameraConfigurationID == beforeContext.cameraConfigurationID)

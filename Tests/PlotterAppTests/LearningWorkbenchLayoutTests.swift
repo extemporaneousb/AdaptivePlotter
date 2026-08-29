@@ -286,18 +286,26 @@ struct LearningWorkbenchLayoutTests {
     let itemID = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
     let binding = Binding.constant(LearningPathSelectionState(current: itemID))
     workspace.resetComputationDiagnosticsForTesting()
-    let projection = workspace.learningPathProjection(selectedItemID: itemID)
+    let appProjection = workspace.testPlotterUIProjection(
+      selectedItemID: itemID,
+      includesLearningPath: true
+    )
+    let projection = appProjection.learningPath!
 
     let navigator = LearningPathNavigator(
-      workspace: workspace,
       selection: binding,
       projection: projection,
+      currentLearningPathItemID: appProjection.currentLearningPathItemID,
+      plotterUIProjection: appProjection.semantic,
+      plotterUIIntentSink: workspace,
       close: {}
     )
     let detail = LearningPathView(
-      workspace: workspace,
       selection: binding,
       projection: projection,
+      currentLearningPathItemID: appProjection.currentLearningPathItemID,
+      plotterUIProjection: appProjection.semantic,
+      plotterUIIntentSink: workspace,
       close: {},
       closeUnavailableReason: nil
     )

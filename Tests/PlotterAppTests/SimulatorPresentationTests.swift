@@ -40,18 +40,18 @@ func simulatedOverlayStatusIsCausalAndExact() async throws {
   #expect(armature.helpText.contains(armature.statusText))
   #expect(!armature.statusText.contains("independently detected"))
 
-  let surface = workspace.actionSurfacePresentation
+  let surface = workspace.testActionSurfacePresentation
   #expect(surface.analyzedOverlayFrame?.matches(frame) == true)
   #expect(surface.overlays.map(\.provenance.kind) == [.penCap, .armatureEstimate])
 
   workspace.setOverlay(.penCap, enabled: false)
   #expect(workspace.overlayCardPresentation(for: .penCap).status.state == .off)
   #expect(workspace.overlayCardPresentation(for: .armatureEnvelope).status == armature.status)
-  #expect(workspace.actionSurfacePresentation.overlays.map(\.provenance.kind) == [.armatureEstimate])
+  #expect(workspace.testActionSurfacePresentation.overlays.map(\.provenance.kind) == [.armatureEstimate])
 
   workspace.setOverlay(.penCap, enabled: true)
   #expect(workspace.overlayCardPresentation(for: .penCap).statusText == cap.statusText)
-  #expect(workspace.actionSurfacePresentation.analyzedOverlayFrame?.matches(frame) == true)
+  #expect(workspace.testActionSurfacePresentation.analyzedOverlayFrame?.matches(frame) == true)
   await workspace.shutdown()
 }
 
@@ -63,12 +63,12 @@ func simulatedManualPenDownDrawing() async throws {
   await workspace.switchFrameMode(.simulated)
   await workspace.performControllerConnectionAction()
   await workspace.activateMotionGuard()
-  await workspace.submitManualPen(.lower)
+  await workspace.submitTestManualPen(.lower)
 
-  #expect(workspace.manualMotionEpisodePresentation.jogControlsUnavailableReason == nil)
-  #expect(workspace.manualMotionEpisodePresentation.modeText
+  #expect(workspace.testManualMotionEpisodePresentation.jogControlsUnavailableReason == nil)
+  #expect(workspace.testManualMotionEpisodePresentation.modeText
     == "drawing — commanded Pen Down")
-  await workspace.submitManualJog(.xPositive)
+  await workspace.submitTestManualJog(.xPositive)
 
   let snapshot = await harness.simulator.snapshot()
   #expect(snapshot.mpos.xMM == 50)
@@ -120,6 +120,7 @@ func simulatedCameraRefreshUsesLearningRuntime() async throws {
     manualMotionComposition: composition,
     drawingDraftRuntime: nominalDrawingDraftRuntime(),
     drawingRunComposition: nominalDrawingRunComposition(),
+    incidentPackageUIService: nominalIncidentPackageUIService(),
     serialDevices: [],
     serialDeviceDiscovery: { [] },
     loadSelectedSerialIdentifier: { nil },

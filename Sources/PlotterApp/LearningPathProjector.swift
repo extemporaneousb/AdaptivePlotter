@@ -1,6 +1,7 @@
 import Foundation
 import PlotterModel
 import PlotterRuntime
+import PlotterUI
 
 enum ExactWorkflowVisionOwner: String, CaseIterable, Hashable, Sendable {
   case penCapAppearance
@@ -79,7 +80,7 @@ extension BoundaryActivityRecovery {
 /// Immutable, values-only input to Learning Path presentation. Runtime owners,
 /// persistence capabilities, tasks, closures, and authority-changing methods do
 /// not cross this boundary.
-struct LearningPathProjectionSnapshot: Sendable {
+struct PlotterLearningPresentationFacts: Sendable {
   struct ControllerFacts: Sendable {
     let sessionEstablished: Bool
     let motionAuthorized: Bool
@@ -413,107 +414,407 @@ struct LearningPathProjection: Hashable, Sendable {
   let menu: LearningPathMenuPresentation
 }
 
-/// Pure Learning Path presentation. It consumes one immutable snapshot and has
-/// no reference to OperatorWorkspace or any runtime/persistence owner.
-struct LearningPathProjector: Sendable {
-  func project(
-    _ snapshot: LearningPathProjectionSnapshot,
+/// Copies retained runtime detail into PlotterUI facts and translates canonical
+/// PlotterUI decisions back to existing App presentation values. It never
+/// chooses current ownership, status, reachability, or available actions.
+struct PlotterLearningActionabilityFactAdapter: Sendable {
+  func ownerID(_ item: LearningPathItemID) -> String {
+    "\(item.number)-\(item.title)"
+  }
+
+  func itemID(_ ownerID: String?) -> LearningPathItemID? {
+    guard let ownerID else { return nil }
+    return LearningPathItemID.navigationOrder.first { self.ownerID($0) == ownerID }
+  }
+
+  func compile(
+    _ snapshot: PlotterLearningPresentationFacts,
     selectedItemID: LearningPathItemID
-  ) -> LearningPathProjection {
-    let current = currentItemID(snapshot)
-    return LearningPathProjection(
-      currentItemID: current,
-      items: LearningPathItemID.navigationOrder.map {
-        LearningPathItemPresentation(
-          id: $0,
-          status: status(for: $0, current: current, snapshot: snapshot),
-          summary: summary(for: $0, snapshot: snapshot),
-          isRepeatable: isRepeatable($0)
+  ) -> PlotterUILearningActionabilityProjection {
+    PlotterUILearningActionabilityCompiler().compile(facts(
+      snapshot,
+      selectedItemID: selectedItemID
+    ))
+  }
+
+  func exerciseAction(
+    _ action: PlotterUILearningSemanticAction
+  ) -> ExerciseActionKind {
+    switch action {
+    case .useSavedTraining: .useSavedTraining
+    case .startNewLearning: .startNewLearning
+    case .start: .start
+    case .choice(let choice): .choice(operatorChoice(choice))
+    case .setPenSetpoint(let command, let value):
+      .setPenSetpoint(penCommand(command), value)
+    case .selectDirection(let direction): .selectDirection(.boundary, boundaryDirection(direction))
+    case .cancel: .cancel
+    case .stop(let id): .stop(ContextualStopCapabilityID(rawValue: id))
+    case .restart: .restart
+    case .redoThisStep: .redoThisStep
+    case .recordAnotherAttempt: .recordAnotherAttempt
+    case .redoBoundary(let direction): .redoBoundary(boundaryDirection(direction))
+    case .recordAnotherBoundaryAttempt(let direction):
+      .recordAnotherBoundaryAttempt(boundaryDirection(direction))
+    case .moveToEstimatedCenter: .moveToEstimatedCenter
+    case .runCameraCalibration: .runCameraCalibrationAndBuildProposal
+    case .acceptCameraCalibration: .acceptCameraCalibrationProposal
+    case .discardCameraSamples, .rejectCameraCalibration: .rejectCameraCalibrationProposal
+    case .drawSparseTipCircles: .drawFourCornerTipCircles
+    case .undoSparseTipClick: .undoLastSparseTipClick
+    case .clearSparseTipClicks: .clearSparseTipClicks
+    case .revalidateTipCalibration: .revalidateTipCalibrationCheckpoint
+    case .acceptTipCalibration: .acceptTipCalibrationProposal
+    case .rejectTipCalibration: .rejectTipCalibrationProposal
+    case .retryTipCalibrationCommit: .retryTipCalibrationCommit
+    case .paperReplaced: .paperReplaced
+    }
+  }
+
+  func candidates(
+    _ strip: PlotterUILearningActionStripDecision
+  ) -> [PlotterUIActionCandidate] {
+    guard let owner = itemID(strip.ownerID) else { return [] }
+    return strip.actionDecisions().map { decision in
+      let id = PlotterAppUIActionID.retainedLearning(
+        exerciseAction(decision.action),
+        owner: owner
+      )
+      return decision.candidate(ownerID: strip.ownerID, id: id)
+    }
+  }
+
+  func semanticAction(
+    for actionID: PlotterUIActionID,
+    in strip: PlotterUILearningActionStripDecision
+  ) -> PlotterUILearningSemanticAction? {
+    guard let owner = itemID(strip.ownerID) else { return nil }
+    return strip.actionDecisions().first { decision in
+      PlotterAppUIActionID.retainedLearning(
+        exerciseAction(decision.action),
+        owner: owner
+      ) == actionID
+    }?.action
+  }
+
+  func actionStrip(
+    _ decision: PlotterUILearningActionStripDecision?
+  ) -> ExerciseActionStripPresentation? {
+    guard let decision, let owner = itemID(decision.ownerID) else { return nil }
+    return ExerciseActionStripPresentation(
+      ownerID: owner,
+      actions: decision.actions.map { action in
+        .init(
+          kind: exerciseAction(action.action),
+          title: action.title,
+          role: exerciseRole(action.role),
+          unavailableReason: action.unavailableReason
         )
       },
-      selectedAction: operatorAction(for: selectedItemID, current: current, snapshot: snapshot),
-      currentActionStrip: actionStrip(for: current, current: current, snapshot: snapshot),
-      contextualStop: contextualStop(snapshot),
-      resetSurface: LearningResetSurfacePresentation(
-        selectedPlan: snapshot.reset.plansByAnchor[selectedItemID],
-        unavailableReason: snapshot.reset.unavailableReason,
-        authorityError: snapshot.reset.authorityError
-      ),
-      menu: LearningPathMenuPresentation(resetAllPlan: snapshot.reset.resetAllPlan)
+      directionSelection: decision.directionSelection.map {
+        ExerciseDirectionSelectionPresentation(
+          purpose: .boundary,
+          options: $0.options.map(boundaryDirection),
+          selected: boundaryDirection($0.selected)
+        )
+      },
+      penSetpointAdjustment: decision.penAdjustment.map {
+        PenSetpointAdjustmentPresentation(
+          command: penCommand($0.command),
+          value: $0.value,
+          minimumValue: $0.minimumValue,
+          maximumValue: $0.maximumValue,
+          unavailableReason: $0.unavailableReason
+        )
+      },
+      mustRemainVisible: decision.mustRemainVisible
     )
   }
 
-  func currentItemID(_ snapshot: LearningPathProjectionSnapshot) -> LearningPathItemID {
-    if let owner = snapshot.operations.activeAttemptOwner { return owner }
-    if !snapshot.penInteractionCompleted { return .humanGuidedDiscovery(.penInteraction) }
-    if !snapshot.boundary.isComplete || snapshot.boundary.centerArrival == nil {
-      return .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
+  private func facts(
+    _ snapshot: PlotterLearningPresentationFacts,
+    selectedItemID: LearningPathItemID
+  ) -> PlotterUILearningActionabilityFacts {
+    let itemFacts = LearningPathItemID.navigationOrder.map { item in
+      PlotterUILearningItemFacts(
+        ownerID: ownerID(item),
+        kind: ownerKind(item),
+        stageID: item.stage == .humanGuidedDiscovery ? "discovery" : "drawing",
+        isStage: !item.isExercise,
+        isExercise: item.isExercise,
+        isComplete: isComplete(item, snapshot: snapshot),
+        isRepeatable: isRepeatable(item)
+      )
     }
-    if !snapshot.cameraCalibration.acceptedIsCurrent {
-      return .humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
-    }
-    if !snapshot.sparseCalibration.acceptedIsCurrent {
-      return .humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
-    }
-    return .observedDrawingTrial(.chooseDrawingBorderPlan)
+    let activeTransaction = activeDiscoveryTransaction(snapshot)
+    return PlotterUILearningActionabilityFacts(
+      learning: PlotterUILearningFacts(
+        isEnabled: snapshot.learningEnabled,
+        activeOwnerID: snapshot.operations.activeAttemptOwner.map(ownerID),
+        orderedMilestones: LearningPathItemID.learningExerciseOrder.map { item in
+          PlotterUILearningMilestone(
+            ownerID: ownerID(item),
+            isComplete: isComplete(item, snapshot: snapshot)
+          )
+        }
+      ),
+      selectedOwnerID: ownerID(selectedItemID),
+      items: itemFacts,
+      savedTrainingCandidateIsPresent: snapshot.savedTrainingCandidate != nil,
+      activeOwnerID: snapshot.operations.activeAttemptOwner.map(ownerID),
+      restartableOwnerID: snapshot.operations.restartableItem.map(ownerID),
+      stop: stopFacts(snapshot.operations.stopOwner),
+      stopDispositionIsLatched: snapshot.operations.stopDispositionLatched,
+      stickyAmbiguityReason: snapshot.operations.stickyAmbiguityReason,
+      discoveryStageHasFailure: snapshot.operations.discoveryFailure != nil
+        || snapshot.operations.explorationFailure != nil,
+      drawingStageHasFailure: snapshot.operations.explorationFailure != nil,
+      cameraState: cameraState(snapshot.cameraCalibration),
+      sparseState: sparseState(snapshot.sparseCalibration.phase),
+      sparseCollectedClickCount: snapshot.sparseCalibration.collectedClickCount,
+      sparseSavedCheckpointMatchesPaper: snapshot.sparseCalibration.savedCheckpointMatchesPaper,
+      activePrompt: activePrompt(activeTransaction, profile: snapshot.penActuationProfile),
+      startUnavailableReasons: Dictionary(uniqueKeysWithValues:
+        snapshot.startUnavailableReasons.map { (ownerID($0.key), $0.value) }
+      ),
+      boundaryIsComplete: snapshot.boundary.isComplete,
+      boundaryHasCenterArrival: snapshot.boundary.centerArrival != nil,
+      boundaryCenterArrivalRetryIsRequired: snapshot.boundary.centerArrivalRetryRequired,
+      boundaryHasEstimatedCenter: snapshot.boundary.estimatedCenter != nil,
+      acceptedBoundaryDirections: snapshot.boundary.acceptedDirections.map(uiDirection),
+      allowedBoundaryDirections: snapshot.boundary.allowedDirections.map(uiDirection),
+      selectedBoundaryDirection: uiDirection(snapshot.selectedBoundaryDirection),
+      drawingState: drawingState(snapshot.drawing.currentStep),
+      selectedResetPlanIsPresent: snapshot.reset.plansByAnchor[selectedItemID] != nil,
+      resetAllPlanIsPresent: snapshot.reset.resetAllPlan != nil,
+      resetUnavailableReason: snapshot.reset.unavailableReason
+    )
   }
 
-  private func status(
-    for itemID: LearningPathItemID,
-    current: LearningPathItemID,
-    snapshot: LearningPathProjectionSnapshot
-  ) -> LearningPathStageStatus {
-    if snapshot.operations.restartableItem == itemID { return .needsAttention }
-    if isComplete(itemID, snapshot: snapshot) { return .complete }
-    let representsCurrentStage: Bool = if case .stage(let stage) = itemID {
-      current.stage == stage
-    } else { false }
-    if itemID == current || representsCurrentStage {
-      if itemID.stage == .humanGuidedDiscovery,
-        snapshot.operations.discoveryFailure != nil || snapshot.operations.explorationFailure != nil
-      { return .needsAttention }
-      if itemID.stage == .observedDrawingTrials,
-        snapshot.operations.explorationFailure != nil
-      { return .needsAttention }
-      return .current
+  private func ownerKind(_ item: LearningPathItemID) -> PlotterUILearningOwnerKind {
+    switch item {
+    case .stage(.humanGuidedDiscovery): .discoveryStage
+    case .stage(.observedDrawingTrials): .drawingStage
+    case .humanGuidedDiscovery(.penInteraction): .penInteraction
+    case .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering): .boundary
+    case .humanGuidedDiscovery(.calibrateCameraAndVisibleCap): .cameraCalibration
+    case .humanGuidedDiscovery(.calibratePenContactFromSparseMarks): .sparseTipCalibration
+    case .observedDrawingTrial: .drawingValidation
     }
-    return .next
   }
 
   private func isComplete(
-    _ itemID: LearningPathItemID,
-    snapshot: LearningPathProjectionSnapshot
+    _ item: LearningPathItemID,
+    snapshot: PlotterLearningPresentationFacts
   ) -> Bool {
     let discoveryComplete = snapshot.penInteractionCompleted
       && snapshot.boundary.centerArrival != nil
       && snapshot.cameraCalibration.acceptedIsCurrent
       && snapshot.sparseCalibration.acceptedIsCurrent
-    return switch itemID {
-    case .stage(.humanGuidedDiscovery): discoveryComplete
-    case .stage(.observedDrawingTrials): snapshot.drawing.assessment != nil
-    case .humanGuidedDiscovery(.penInteraction): snapshot.penInteractionCompleted
+    switch item {
+    case .stage(.humanGuidedDiscovery): return discoveryComplete
+    case .stage(.observedDrawingTrials): return snapshot.drawing.assessment != nil
+    case .humanGuidedDiscovery(.penInteraction): return snapshot.penInteractionCompleted
     case .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering):
-      snapshot.boundary.centerArrival != nil
+      return snapshot.boundary.centerArrival != nil
     case .humanGuidedDiscovery(.calibrateCameraAndVisibleCap):
-      snapshot.cameraCalibration.acceptedIsCurrent
+      return snapshot.cameraCalibration.acceptedIsCurrent
     case .humanGuidedDiscovery(.calibratePenContactFromSparseMarks):
-      snapshot.sparseCalibration.acceptedIsCurrent
+      return snapshot.sparseCalibration.acceptedIsCurrent
     case .observedDrawingTrial(let step):
-      step == .chooseDrawingBorderPlan && snapshot.drawing.assessment != nil
+      return step == .chooseDrawingBorderPlan && snapshot.drawing.assessment != nil
     }
   }
 
-  private func isRepeatable(_ itemID: LearningPathItemID) -> Bool {
-    switch itemID {
+  private func isRepeatable(_ item: LearningPathItemID) -> Bool {
+    switch item {
     case .humanGuidedDiscovery(.penInteraction),
       .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering): true
     default: false
     }
   }
 
+  private func activeDiscoveryTransaction(
+    _ snapshot: PlotterLearningPresentationFacts
+  ) -> PlotterLearningPresentationFacts.DiscoveryFacts? {
+    snapshot.discovery.values
+      .filter { $0.state == .active || $0.state == .cancelling }
+      .sorted { $0.sequenceID.rawValue < $1.sequenceID.rawValue }
+      .first
+  }
+
+  private func activePrompt(
+    _ transaction: PlotterLearningPresentationFacts.DiscoveryFacts?,
+    profile: PenActuationProfile
+  ) -> PlotterUILearningActivePrompt? {
+    guard let step = transaction?.currentStep else { return nil }
+    if transaction?.sequenceID == .penInteraction,
+      case .awaitPhysicalPenConfirmation(let state, _) = step.action
+    {
+      let command: PenCommand = state == .down ? .lower : .raise
+      return .penConfirmation(
+        command: uiPenCommand(command),
+        value: profile.value(for: command),
+        minimumValue: 0,
+        maximumValue: 1_000
+      )
+    }
+    return step.question.map { question in
+      .choices(question.choices.map(uiChoice))
+    }
+  }
+
+  private func stopFacts(
+    _ owner: PlotterLearningPresentationFacts.StopOwner?
+  ) -> PlotterUILearningStopFacts? {
+    guard let owner else { return nil }
+    let kind: PlotterUILearningStopKind = switch owner {
+    case .pairedBoundary(_, let direction): .boundary(direction: uiDirection(direction))
+    case .manualJog: .manualJog
+    case .manualDrawing: .manualDrawing
+    case .exercise(_, let action, let boundaryOwner):
+      .exercise(title: action.title, boundaryOwner: boundaryOwner)
+    case .drawingTrial: .drawingValidation
+    case .sparseTipBatch: .sparseTipBatch
+    }
+    return PlotterUILearningStopFacts(capabilityID: owner.capabilityID.rawValue, kind: kind)
+  }
+
+  private func cameraState(
+    _ facts: PlotterLearningPresentationFacts.CameraCalibrationFacts
+  ) -> PlotterUILearningCameraState {
+    if facts.phase != nil { return .active }
+    return facts.hasProposal ? .readyWithProposal : .readyWithoutProposal
+  }
+
+  private func sparseState(_ phase: SparseTipCalibrationPhase) -> PlotterUILearningSparseState {
+    switch phase {
+    case .idle: .idle
+    case .drawingBatch: .drawingBatch
+    case .revealingBatch: .revealingBatch
+    case .awaitingFrozenClicks: .awaitingFrozenClicks
+    case .fittingModel: .fittingModel
+    case .reviewingModel: .reviewingModel
+    case .committingModel: .committingModel
+    case .possibleInkBlacklisted: .possibleInkBlacklisted
+    case .accepted: .accepted
+    }
+  }
+
+  private func drawingState(_ step: ObservedDrawingTrialStep) -> PlotterUILearningDrawingState {
+    switch step {
+    case .chooseDrawingBorderPlan: .choosePlan
+    case .captureLocalPreFrameBaseline: .captureBaseline
+    case .moveToDrawingBorderStart: .moveToStart
+    case .drawDrawingBorder: .draw
+    case .revealAndObserveNewInk: .revealAndObserve
+    case .compareIntendedAndObservedGeometry: .compare
+    }
+  }
+
+  private func uiDirection(_ direction: BoundaryDirection) -> PlotterUILearningBoundaryDirection {
+    switch direction {
+    case .negativeX: .negativeX
+    case .positiveX: .positiveX
+    case .negativeY: .negativeY
+    case .positiveY: .positiveY
+    }
+  }
+
+  func boundaryDirection(
+    _ direction: PlotterUILearningBoundaryDirection
+  ) -> BoundaryDirection {
+    switch direction {
+    case .negativeX: .negativeX
+    case .positiveX: .positiveX
+    case .negativeY: .negativeY
+    case .positiveY: .positiveY
+    }
+  }
+
+  private func uiChoice(_ choice: OperatorChoice) -> PlotterUILearningChoice {
+    choice == .yes ? .yes : .no
+  }
+
+  private func operatorChoice(_ choice: PlotterUILearningChoice) -> OperatorChoice {
+    choice == .yes ? .yes : .no
+  }
+
+  private func uiPenCommand(_ command: PenCommand) -> PlotterUILearningPenCommand {
+    command == .raise ? .raise : .lower
+  }
+
+  private func penCommand(_ command: PlotterUILearningPenCommand) -> PenCommand {
+    command == .raise ? .raise : .lower
+  }
+
+  private func exerciseRole(_ role: PlotterUILearningActionRole) -> ExerciseActionRole {
+    switch role {
+    case .positive: .positive
+    case .destructive: .destructive
+    case .standard: .standard
+    }
+  }
+}
+
+private extension PlotterUILearningItemStatus {
+  var appPresentationStatus: LearningPathStageStatus {
+    switch self {
+    case .complete: .complete
+    case .current: .current
+    case .next: .next
+    case .needsAttention: .needsAttention
+    }
+  }
+}
+
+/// Cosmetic Learning Path presentation over one canonical PlotterUI decision.
+/// It has no reference to OperatorWorkspace or any runtime/persistence owner.
+struct PlotterLearningDetailedPresentationNormalizer: Sendable {
+  func project(
+    _ snapshot: PlotterLearningPresentationFacts,
+    selectedItemID: LearningPathItemID,
+    actionability: PlotterUILearningActionabilityProjection
+  ) -> LearningPathProjection {
+    let adapter = PlotterLearningActionabilityFactAdapter()
+    let current = adapter.itemID(actionability.learning.currentOwnerID)
+      ?? .humanGuidedDiscovery(.penInteraction)
+    return LearningPathProjection(
+      currentItemID: current,
+      items: LearningPathItemID.navigationOrder.map {
+        let decision = actionability.item(ownerID: adapter.ownerID($0))
+        return LearningPathItemPresentation(
+          id: $0,
+          status: (decision?.status ?? .next).appPresentationStatus,
+          summary: summary(for: $0, snapshot: snapshot),
+          isRepeatable: decision?.isRepeatable == true
+        )
+      },
+      selectedAction: operatorAction(
+        for: selectedItemID,
+        current: current,
+        snapshot: snapshot,
+        actionability: actionability
+      ),
+      currentActionStrip: adapter.actionStrip(
+        actionability.strip(ownerID: adapter.ownerID(current))
+      ),
+      contextualStop: contextualStop(actionability.contextualStop),
+      resetSurface: LearningResetSurfacePresentation(
+        selectedPlan: actionability.selectedResetPlanIsReachable
+          ? snapshot.reset.plansByAnchor[selectedItemID] : nil,
+        unavailableReason: actionability.resetUnavailableReason,
+        authorityError: snapshot.reset.authorityError
+      ),
+      menu: LearningPathMenuPresentation(
+        resetAllPlan: actionability.resetAllPlanIsReachable ? snapshot.reset.resetAllPlan : nil
+      )
+    )
+  }
+
   private func summary(
     for itemID: LearningPathItemID,
-    snapshot: LearningPathProjectionSnapshot
+    snapshot: PlotterLearningPresentationFacts
   ) -> String {
     switch itemID {
     case .stage(.humanGuidedDiscovery):
@@ -535,25 +836,32 @@ struct LearningPathProjector: Sendable {
   }
 }
 
-extension LearningPathProjector {
+extension PlotterLearningDetailedPresentationNormalizer {
   private func operatorAction(
     for itemID: LearningPathItemID,
     current: LearningPathItemID,
-    snapshot: LearningPathProjectionSnapshot
+    snapshot: PlotterLearningPresentationFacts,
+    actionability: PlotterUILearningActionabilityProjection
   ) -> OperatorActionPresentation {
+    let adapter = PlotterLearningActionabilityFactAdapter()
+    let itemDecision = actionability.item(ownerID: adapter.ownerID(itemID))
+    let status = (itemDecision?.status ?? .next).appPresentationStatus
+    let actionStrip = adapter.actionStrip(
+      actionability.strip(ownerID: adapter.ownerID(itemID))
+    )
     switch itemID {
     case .stage(let stage):
       return OperatorActionPresentation(
         itemID: itemID,
         stepNumber: stage.number,
         title: stage.title,
-        status: status(for: itemID, current: current, snapshot: snapshot),
+        status: status,
         instructions: [.text(summary(for: itemID, snapshot: snapshot))],
         expectedObservation: stageExpectedObservation(stage),
         evidence: stageEvidence(stage, snapshot: snapshot),
         activity: activity(for: itemID, transaction: nil, current: current, snapshot: snapshot),
         subsystemStatuses: subsystemStatuses(for: itemID, transaction: nil, snapshot: snapshot),
-        actionStrip: actionStrip(for: itemID, current: current, snapshot: snapshot)
+        actionStrip: actionStrip
       )
     case .humanGuidedDiscovery(let step):
       let transaction = discoveryTransaction(for: step, snapshot: snapshot)
@@ -566,7 +874,7 @@ extension LearningPathProjector {
         itemID: itemID,
         stepNumber: step.stepNumber,
         title: step.title,
-        status: status(for: itemID, current: current, snapshot: snapshot),
+        status: status,
         participant: activeStep?.participant.displayName,
         instructions: activeStep.map { discoveryInstruction($0.action) }
           ?? discoveryReviewInstructions(step),
@@ -590,7 +898,7 @@ extension LearningPathProjector {
           transaction: transaction,
           snapshot: snapshot
         ),
-        actionStrip: actionStrip(for: itemID, current: current, snapshot: snapshot),
+        actionStrip: actionStrip,
         requestedFeedMMPerMinute: feed?.requestedFeedMMPerMinute,
         feedSource: feed?.source
       )
@@ -600,7 +908,7 @@ extension LearningPathProjector {
         itemID: itemID,
         stepNumber: step.stepNumber,
         title: itemID.title,
-        status: status(for: itemID, current: current, snapshot: snapshot),
+        status: status,
         participant: isVisibleTrial ? "Application" : drawingParticipant(step),
         instructions: [.text(isVisibleTrial
           ? "Press Draw and Validate Drawing Border once for one closed Drawing Border. Keep Stop available during motion; planning, preview, baseline capture, drawing, reveal, Vision analysis, and comparison then continue without another approval."
@@ -618,7 +926,7 @@ extension LearningPathProjector {
           : drawingEvidence(step, snapshot: snapshot),
         activity: activity(for: itemID, transaction: nil, current: current, snapshot: snapshot),
         subsystemStatuses: subsystemStatuses(for: itemID, transaction: nil, snapshot: snapshot),
-        actionStrip: actionStrip(for: itemID, current: current, snapshot: snapshot),
+        actionStrip: actionStrip,
         requestedFeedMMPerMinute: snapshot.drawing.lastTravelFeed?.requestedFeedMMPerMinute,
         feedSource: snapshot.drawing.lastTravelFeed?.source
       )
@@ -626,471 +934,37 @@ extension LearningPathProjector {
   }
 
   private func contextualStop(
-    _ snapshot: LearningPathProjectionSnapshot
+    _ stop: PlotterUILearningStopFacts?
   ) -> ContextualStopPresentation? {
-    guard let owner = snapshot.operations.stopOwner,
-      !snapshot.operations.stopDispositionLatched
-    else { return nil }
-    let detail: String = switch owner {
-    case .pairedBoundary(_, let direction):
-      "Stop the \(direction.displayName) Drawing Boundary search. The app will wait for controller Idle and record the final position."
+    guard let stop else { return nil }
+    let detail: String = switch stop.kind {
+    case .boundary(let direction):
+      "Stop the \(PlotterLearningActionabilityFactAdapter().boundaryDirection(direction).displayName) Drawing Boundary search. The app will wait for controller Idle and record the final position."
     case .manualJog:
       "Stop the active manual jog and wait for Idle."
     case .manualDrawing:
       "Stop the active manual drawing stroke, wait for Idle, and retain the controller's one Pen Up outcome."
-    case .exercise(_, let action, _):
-      "Stop \(action.title) and wait for the active operation to settle. No Learning Path result will be accepted."
-    case .drawingTrial:
+    case .exercise(let title, _):
+      "Stop \(title) and wait for the active operation to settle. No Learning Path result will be accepted."
+    case .drawingValidation:
       "Stop Drawing Border validation. The active drawing operation will cancel once and settle Pen Up."
     case .sparseTipBatch:
       "Stop the four-circle calibration. Any location where ink may exist will be excluded from automatic redraw."
     }
     return ContextualStopPresentation(
-      capabilityID: owner.capabilityID,
+      capabilityID: ContextualStopCapabilityID(rawValue: stop.capabilityID),
       title: "Stop",
       detail: detail
     )
   }
-
-  private func actionStrip(
-    for itemID: LearningPathItemID,
-    current: LearningPathItemID,
-    snapshot: LearningPathProjectionSnapshot
-  ) -> ExerciseActionStripPresentation? {
-    guard snapshot.learningEnabled else { return nil }
-    if snapshot.savedTrainingCandidate != nil {
-      guard itemID == current else { return nil }
-      return ExerciseActionStripPresentation(
-        ownerID: itemID,
-        actions: [
-          ExerciseActionDescriptor(
-            kind: .useSavedTraining,
-            title: LearningPathTerminology.Action.useSavedLearning,
-            role: .positive
-          ),
-          ExerciseActionDescriptor(
-            kind: .startNewLearning,
-            title: LearningPathTerminology.Action.startNewLearning,
-            role: .standard
-          ),
-        ],
-        mustRemainVisible: true
-      )
-    }
-    let operations = snapshot.operations
-    if operations.activeAttemptOwner == itemID {
-      var actions: [ExerciseActionDescriptor] = []
-      var penSetpointAdjustment: PenSetpointAdjustmentPresentation?
-      if let stop = contextualStop(snapshot),
-        let owner = operations.stopOwner,
-        !owner.isManual
-      {
-        actions.append(
-          ExerciseActionDescriptor(
-            kind: .stop(stop.capabilityID),
-            title: stopActionTitle(owner),
-            role: .destructive
-          )
-        )
-        return ExerciseActionStripPresentation(
-          ownerID: itemID,
-          actions: actions,
-          mustRemainVisible: true
-        )
-      }
-      if itemID == .observedDrawingTrial(.chooseDrawingBorderPlan) {
-        return ExerciseActionStripPresentation(
-          ownerID: itemID,
-          actions: [
-            ExerciseActionDescriptor(
-              kind: .start,
-              title: "\(LearningPathTerminology.Action.drawAndValidateDrawingBorder)…",
-              unavailableReason: "Drawing Border validation is in progress."
-            )
-          ],
-          mustRemainVisible: true
-        )
-      }
-      if itemID.stage == .humanGuidedDiscovery,
-        let ambiguity = operations.stickyAmbiguityReason
-      {
-        actions = [
-          ExerciseActionDescriptor(
-            kind: .start,
-            title: "Machine action unavailable",
-            unavailableReason: ambiguity
-          )
-        ]
-      } else if itemID == .humanGuidedDiscovery(.calibrateCameraAndVisibleCap) {
-        if snapshot.cameraCalibration.phase != nil {
-          actions = [
-            ExerciseActionDescriptor(
-              kind: .runCameraCalibrationAndBuildProposal,
-              title: "Running Five-Position Camera Calibration…",
-              unavailableReason: "Camera calibration is in progress."
-            )
-          ]
-        } else if !snapshot.cameraCalibration.hasProposal {
-          actions = [
-            ExerciseActionDescriptor(
-              kind: .runCameraCalibrationAndBuildProposal,
-              title: LearningPathTerminology.Action.runCameraCalibration,
-              role: .positive
-            ),
-            ExerciseActionDescriptor(
-              kind: .rejectCameraCalibrationProposal,
-              title: LearningPathTerminology.Action.discardCameraSamples,
-              role: .destructive
-            ),
-          ]
-        } else {
-          actions = [
-            ExerciseActionDescriptor(
-              kind: .acceptCameraCalibrationProposal,
-              title: LearningPathTerminology.Action.acceptCameraCalibration,
-              role: .positive
-            ),
-            ExerciseActionDescriptor(
-              kind: .rejectCameraCalibrationProposal,
-              title: LearningPathTerminology.Action.rejectCameraCalibration,
-              role: .destructive
-            ),
-          ]
-        }
-      } else if itemID == .humanGuidedDiscovery(.calibratePenContactFromSparseMarks) {
-        actions = activeSparseActions(
-          snapshot.sparseCalibration.phase,
-          collectedClickCount: snapshot.sparseCalibration.collectedClickCount
-        )
-      } else if let transaction = snapshot.discovery.values.first(where: {
-        $0.state == .active || $0.state == .cancelling
-      }), let choices = transaction.currentStep?.question?.choices {
-        if transaction.sequenceID == .penInteraction,
-          case .awaitPhysicalPenConfirmation(let state, _) = transaction.currentStep?.action
-        {
-          let command: PenCommand = state == .down ? .lower : .raise
-          penSetpointAdjustment = PenSetpointAdjustmentPresentation(
-            command: command,
-            value: snapshot.penActuationProfile.value(for: command),
-            unavailableReason: snapshot.startUnavailableReasons[itemID]
-          )
-          actions = [
-            ExerciseActionDescriptor(
-              kind: .choice(.yes),
-              title: state == .up
-                ? LearningPathTerminology.Action.confirmPenUp
-                : LearningPathTerminology.Action.confirmPenDown,
-              role: .positive,
-              unavailableReason: snapshot.startUnavailableReasons[itemID]
-            )
-          ]
-        } else {
-          actions = choices.map { choice in
-            ExerciseActionDescriptor(
-              kind: .choice(choice),
-              title: choice.exactPhrase,
-              role: choice == .yes ? .positive : .standard
-            )
-          }
-        }
-      }
-      if !operations.stopDispositionLatched && snapshot.cameraCalibration.phase == nil {
-        actions.append(
-          ExerciseActionDescriptor(kind: .cancel, title: "Cancel Attempt", role: .destructive)
-        )
-      }
-      return ExerciseActionStripPresentation(
-        ownerID: itemID,
-        actions: actions,
-        penSetpointAdjustment: penSetpointAdjustment,
-        mustRemainVisible: operations.stopOwner != nil
-      )
-    }
-
-    if operations.restartableItem == itemID {
-      guard operations.stickyAmbiguityReason == nil else { return nil }
-      return ExerciseActionStripPresentation(
-        ownerID: itemID,
-        actions: [ExerciseActionDescriptor(
-          kind: .restart,
-          title: itemID == .observedDrawingTrial(.chooseDrawingBorderPlan)
-            ? "Retry Drawing Border Validation" : "Restart Attempt",
-          role: .positive
-        )]
-      )
-    }
-
-    if isComplete(itemID, snapshot: snapshot), itemID.isExercise {
-      if itemID == .observedDrawingTrial(.chooseDrawingBorderPlan) { return nil }
-      let actions: [ExerciseActionDescriptor]
-      if itemID == .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering) {
-        actions = snapshot.boundary.acceptedDirections.flatMap { direction in
-          [
-            ExerciseActionDescriptor(
-              kind: .redoBoundary(direction),
-              title: "Redo \(direction.displayName) Boundary"
-            ),
-            ExerciseActionDescriptor(
-              kind: .recordAnotherBoundaryAttempt(direction),
-              title: "Record Another \(direction.displayName) Attempt"
-            ),
-          ]
-        }
-      } else {
-        actions = [ExerciseActionDescriptor(kind: .redoThisStep, title: "Redo This Step")]
-          + (isRepeatable(itemID)
-            ? [ExerciseActionDescriptor(kind: .recordAnotherAttempt, title: "Record Another Attempt")]
-            : [])
-      }
-      return ExerciseActionStripPresentation(ownerID: itemID, actions: actions)
-    }
-
-    guard itemID == current else { return nil }
-    let reason = snapshot.startUnavailableReasons[itemID]
-    if itemID == .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering),
-      snapshot.boundary.isComplete,
-      snapshot.boundary.centerArrival == nil
-    {
-      if snapshot.boundary.centerArrivalRetryRequired {
-        return ExerciseActionStripPresentation(
-          ownerID: itemID,
-          actions: [
-            ExerciseActionDescriptor(
-              kind: .moveToEstimatedCenter,
-              title: "Retry Center Arrival",
-              role: .positive,
-              unavailableReason: reason
-            )
-          ]
-        )
-      }
-      let centerReason = snapshot.boundary.estimatedCenter == nil
-        ? (operations.discoveryFailure?.detail
-          ?? "Accepted boundaries do not currently derive a valid center.")
-        : reason
-      return ExerciseActionStripPresentation(
-        ownerID: itemID,
-        actions: [
-          ExerciseActionDescriptor(
-            kind: .moveToEstimatedCenter,
-            title: snapshot.boundary.estimatedCenter == nil
-              ? "Center Derivation Needs Attention" : "Move to Estimated Center",
-            role: .positive,
-            unavailableReason: centerReason
-          )
-        ] + boundaryRepeatActions(snapshot.boundary.acceptedDirections)
-      )
-    }
-    if itemID == .observedDrawingTrial(.chooseDrawingBorderPlan) {
-      let title = switch snapshot.drawing.currentStep {
-      case .chooseDrawingBorderPlan: LearningPathTerminology.Action.drawAndValidateDrawingBorder
-      case .revealAndObserveNewInk: "Resume Drawing Border Observation"
-      case .compareIntendedAndObservedGeometry: "Complete Drawing Border Comparison"
-      case .captureLocalPreFrameBaseline, .moveToDrawingBorderStart, .drawDrawingBorder:
-        "Resume Drawing Border Validation"
-      }
-      return ExerciseActionStripPresentation(
-        ownerID: itemID,
-        actions: [
-          ExerciseActionDescriptor(
-            kind: .start,
-            title: title,
-            role: .positive,
-            unavailableReason: reason
-          )
-        ]
-      )
-    }
-    if itemID == .humanGuidedDiscovery(.calibrateCameraAndVisibleCap) {
-      return ExerciseActionStripPresentation(
-        ownerID: itemID,
-        actions: [
-          ExerciseActionDescriptor(
-            kind: .runCameraCalibrationAndBuildProposal,
-            title: LearningPathTerminology.Action.runCameraCalibration,
-            role: .positive,
-            unavailableReason: reason
-          )
-        ]
-      )
-    }
-    if itemID == .humanGuidedDiscovery(.calibratePenContactFromSparseMarks),
-      snapshot.sparseCalibration.savedCheckpointMatchesPaper
-    {
-      return ExerciseActionStripPresentation(
-        ownerID: itemID,
-        actions: [
-          ExerciseActionDescriptor(
-            kind: .revalidateTipCalibrationCheckpoint,
-            title: "Revalidate Saved Pen-Tip Calibration",
-            role: .positive,
-            unavailableReason: reason
-          )
-        ]
-      )
-    }
-    if itemID == .humanGuidedDiscovery(.calibratePenContactFromSparseMarks) {
-      switch snapshot.sparseCalibration.phase {
-      case .possibleInkBlacklisted:
-        return ExerciseActionStripPresentation(
-          ownerID: itemID,
-          actions: [
-            ExerciseActionDescriptor(
-              kind: .paperReplaced,
-              title: "Record Paper Replacement",
-              role: .positive
-            )
-          ]
-        )
-      default: break
-      }
-      return ExerciseActionStripPresentation(
-        ownerID: itemID,
-        actions: [
-          ExerciseActionDescriptor(
-            kind: .drawFourCornerTipCircles,
-            title: LearningPathTerminology.Action.drawCalibrationCircles,
-            role: .positive,
-            unavailableReason: reason
-          )
-        ]
-      )
-    }
-    return ExerciseActionStripPresentation(
-      ownerID: itemID,
-      actions: [
-        ExerciseActionDescriptor(
-          kind: .start,
-          title: itemID == .humanGuidedDiscovery(.penInteraction)
-            ? LearningPathTerminology.Action.identifyPenCap
-            : "Move Toward \(snapshot.selectedBoundaryDirection.displayName)",
-          role: .positive,
-          unavailableReason: reason
-        )
-      ],
-      directionSelection: itemID == .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
-        ? ExerciseDirectionSelectionPresentation(
-          purpose: .boundary,
-          options: snapshot.boundary.allowedDirections,
-          selected: snapshot.selectedBoundaryDirection
-        ) : nil
-    )
-  }
-
-  private func activeSparseActions(
-    _ phase: SparseTipCalibrationPhase,
-    collectedClickCount: Int
-  ) -> [ExerciseActionDescriptor] {
-    switch phase {
-    case .idle:
-      [ExerciseActionDescriptor(
-        kind: .drawFourCornerTipCircles,
-        title: LearningPathTerminology.Action.drawCalibrationCircles,
-        role: .positive
-      )]
-    case .drawingBatch:
-      [ExerciseActionDescriptor(
-        kind: .drawFourCornerTipCircles,
-        title: "Drawing Four Calibration Circles…",
-        unavailableReason: "The four-circle calibration is in progress."
-      )]
-    case .revealingBatch:
-      [ExerciseActionDescriptor(
-        kind: .drawFourCornerTipCircles,
-        title: "Capturing Calibration Reveal…",
-        unavailableReason: "The final Pen-Up calibration reveal is in progress."
-      )]
-    case .awaitingFrozenClicks:
-      if collectedClickCount == 0 {
-        []
-      } else {
-        [
-          ExerciseActionDescriptor(
-            kind: .undoLastSparseTipClick,
-            title: "Undo Last Click"
-          ),
-          ExerciseActionDescriptor(
-            kind: .clearSparseTipClicks,
-            title: "Clear Clicks on This Frame"
-          ),
-        ]
-      }
-    case .fittingModel:
-      [ExerciseActionDescriptor(
-        kind: .retryTipCalibrationCommit,
-        title: "Fitting Tip Calibration…",
-        unavailableReason: "The four observations are being created and fitted."
-      )]
-    case .reviewingModel:
-      [
-        ExerciseActionDescriptor(
-          kind: .acceptTipCalibrationProposal,
-          title: LearningPathTerminology.Action.acceptPenTipCalibration,
-          role: .positive
-        ),
-        ExerciseActionDescriptor(
-          kind: .undoLastSparseTipClick,
-          title: "Undo Last Click"
-        ),
-        ExerciseActionDescriptor(
-          kind: .clearSparseTipClicks,
-          title: "Clear Clicks on This Frame"
-        ),
-        ExerciseActionDescriptor(
-          kind: .rejectTipCalibrationProposal,
-          title: LearningPathTerminology.Action.rejectPenTipCalibration,
-          role: .destructive
-        ),
-      ]
-    case .committingModel:
-      [ExerciseActionDescriptor(
-        kind: .retryTipCalibrationCommit,
-        title: "Retry Pen-Tip Calibration Save",
-        role: .positive
-      )]
-    case .possibleInkBlacklisted:
-      [
-        ExerciseActionDescriptor(
-          kind: .paperReplaced,
-          title: "Record Paper Replacement",
-          role: .positive
-        ),
-      ]
-    case .accepted: []
-    }
-  }
-
-  private func stopActionTitle(
-    _ owner: LearningPathProjectionSnapshot.StopOwner
-  ) -> String {
-    if case .pairedBoundary = owner { return "Stop Boundary Search" }
-    return "Stop"
-  }
-
-  private func boundaryRepeatActions(
-    _ directions: [BoundaryDirection]
-  ) -> [ExerciseActionDescriptor] {
-    directions.flatMap { direction in
-      [
-        ExerciseActionDescriptor(
-          kind: .redoBoundary(direction),
-          title: "Redo \(direction.displayName) Boundary"
-        ),
-        ExerciseActionDescriptor(
-          kind: .recordAnotherBoundaryAttempt(direction),
-          title: "Record Another \(direction.displayName) Attempt"
-        ),
-      ]
-    }
-  }
 }
 
-extension LearningPathProjector {
+extension PlotterLearningDetailedPresentationNormalizer {
   private func activity(
     for itemID: LearningPathItemID,
-    transaction: LearningPathProjectionSnapshot.DiscoveryFacts?,
+    transaction: PlotterLearningPresentationFacts.DiscoveryFacts?,
     current: LearningPathItemID,
-    snapshot: LearningPathProjectionSnapshot
+    snapshot: PlotterLearningPresentationFacts
   ) -> OperationActivityPresentation? {
     let operations = snapshot.operations
     if itemID == .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering),
@@ -1253,8 +1127,8 @@ extension LearningPathProjector {
 
   private func subsystemStatuses(
     for itemID: LearningPathItemID,
-    transaction: LearningPathProjectionSnapshot.DiscoveryFacts?,
-    snapshot: LearningPathProjectionSnapshot
+    transaction: PlotterLearningPresentationFacts.DiscoveryFacts?,
+    snapshot: PlotterLearningPresentationFacts
   ) -> [SubsystemStatusPresentation] {
     let controller = snapshot.controller
     let operations = snapshot.operations
@@ -1397,11 +1271,11 @@ extension LearningPathProjector {
   }
 }
 
-extension LearningPathProjector {
+extension PlotterLearningDetailedPresentationNormalizer {
   private func discoveryTransaction(
     for step: HumanGuidedDiscoveryStep,
-    snapshot: LearningPathProjectionSnapshot
-  ) -> LearningPathProjectionSnapshot.DiscoveryFacts? {
+    snapshot: PlotterLearningPresentationFacts
+  ) -> PlotterLearningPresentationFacts.DiscoveryFacts? {
     switch step {
     case .penInteraction: snapshot.discovery[.penInteraction]
     case .pairedBoundaryDiscoveryAndCentering:
@@ -1533,7 +1407,7 @@ extension LearningPathProjector {
   }
 }
 
-extension LearningPathProjector {
+extension PlotterLearningDetailedPresentationNormalizer {
   private func stageExpectedObservation(_ stage: LearningPathStage) -> [PresentationFragment] {
     switch stage {
     case .humanGuidedDiscovery:
@@ -1544,7 +1418,7 @@ extension LearningPathProjector {
 
   private func stageEvidence(
     _ stage: LearningPathStage,
-    snapshot: LearningPathProjectionSnapshot
+    snapshot: PlotterLearningPresentationFacts
   ) -> [ExerciseEvidencePresentation] {
     switch stage {
     case .humanGuidedDiscovery:
@@ -1648,7 +1522,7 @@ extension LearningPathProjector {
   }
 
   private func discoveryEvidence(
-    _ transaction: LearningPathProjectionSnapshot.DiscoveryFacts?
+    _ transaction: PlotterLearningPresentationFacts.DiscoveryFacts?
   ) -> [ExerciseEvidencePresentation] {
     transaction?.evidenceSummaries.enumerated().map { index, evidence in
       ExerciseEvidencePresentation(
@@ -1660,7 +1534,7 @@ extension LearningPathProjector {
 
   private func protocolEvidence(
     _ step: HumanGuidedDiscoveryStep,
-    snapshot: LearningPathProjectionSnapshot
+    snapshot: PlotterLearningPresentationFacts
   ) -> [ExerciseEvidencePresentation] {
     switch step {
     case .penInteraction:
@@ -1786,7 +1660,7 @@ extension LearningPathProjector {
 
   private func centerTravelDescription(
     center: EstimatedMachineCenter,
-    snapshot: LearningPathProjectionSnapshot
+    snapshot: PlotterLearningPresentationFacts
   ) -> String {
     guard let current = snapshot.boundary.currentPosition else {
       return "current MPos unavailable"
@@ -1812,7 +1686,7 @@ extension LearningPathProjector {
 
   private func drawingEvidence(
     _ step: ObservedDrawingTrialStep,
-    snapshot: LearningPathProjectionSnapshot
+    snapshot: PlotterLearningPresentationFacts
   ) -> [ExerciseEvidencePresentation] {
     switch step {
     case .chooseDrawingBorderPlan:
@@ -1851,7 +1725,7 @@ extension LearningPathProjector {
   }
 
   private func drawingTrialEvidence(
-    snapshot: LearningPathProjectionSnapshot
+    snapshot: PlotterLearningPresentationFacts
   ) -> [ExerciseEvidencePresentation] {
     let plan = drawingBorderPlanDescription(snapshot.drawing.drawingBorderPath)
     return [

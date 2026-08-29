@@ -1,18 +1,25 @@
 import Foundation
 import PlotterRuntime
+import PlotterUI
 import Testing
 
 @testable import PlotterApp
 
-@Suite("Pure Learning Path projector")
-struct LearningPathProjectorTests {
-  private let projector = LearningPathProjector()
+@Suite("Retained detailed Learning presentation normalizer")
+struct PlotterLearningPresentationCompilerTests {
+  private let normalizer = PlotterLearningDetailedPresentationNormalizer()
 
   @Test("same snapshot and review selection are deterministic")
   func deterministicProjection() {
-    let snapshot = LearningPathProjectionSnapshot()
-    let first = projector.project(snapshot, selectedItemID: .stage(.observedDrawingTrials))
-    let second = projector.project(snapshot, selectedItemID: .stage(.observedDrawingTrials))
+    let snapshot = PlotterLearningPresentationFacts()
+    let first = project(
+      snapshot,
+      selectedItemID: .stage(.observedDrawingTrials)
+    )
+    let second = project(
+      snapshot,
+      selectedItemID: .stage(.observedDrawingTrials)
+    )
 
     #expect(first == second)
     #expect(first.currentItemID == .humanGuidedDiscovery(.penInteraction))
@@ -22,8 +29,8 @@ struct LearningPathProjectorTests {
 
   @Test("all navigator rows receive exact initial states")
   func everyNavigatorRowIsProjected() {
-    let projection = projector.project(
-      LearningPathProjectionSnapshot(),
+    let projection = project(
+      PlotterLearningPresentationFacts(),
       selectedItemID: .humanGuidedDiscovery(.penInteraction)
     )
 
@@ -34,9 +41,33 @@ struct LearningPathProjectorTests {
     #expect(projection.items.dropFirst(2).allSatisfy { $0.status == .next })
   }
 
+  @Test("detailed App presentation cannot introduce an action absent from PlotterUI")
+  func appNormalizerCannotIntroduceSemanticAction() {
+    let snapshot = PlotterLearningPresentationFacts()
+    let canonical = PlotterUILearningActionabilityCompiler().compile(
+      PlotterUILearningActionabilityFacts(
+        learning: PlotterUILearningFacts(
+          isEnabled: false,
+          activeOwnerID: nil,
+          orderedMilestones: [.init(ownerID: "1.1-pen", isComplete: false)]
+        ),
+        selectedOwnerID: "1.1-pen",
+        items: []
+      )
+    )
+    let projection = normalizer.project(
+      snapshot,
+      selectedItemID: .humanGuidedDiscovery(.penInteraction),
+      actionability: canonical
+    )
+
+    #expect(projection.currentActionStrip == nil)
+    #expect(projection.selectedAction.actionStrip == nil)
+  }
+
   @Test("Motion authorization cannot exist without a controller session")
   func motionAuthorizationDependsOnConnection() {
-    let controller = LearningPathProjectionSnapshot.ControllerFacts(
+    let controller = PlotterLearningPresentationFacts.ControllerFacts(
       sessionEstablished: false,
       motionAuthorized: true
     )
@@ -47,20 +78,20 @@ struct LearningPathProjectorTests {
 
   @Test("normal exercise entry buttons have no redundant initiation gate")
   func normalExerciseEntryButtons() throws {
-    let pen = projector.project(
-      LearningPathProjectionSnapshot(),
+    let pen = project(
+      PlotterLearningPresentationFacts(),
       selectedItemID: .humanGuidedDiscovery(.penInteraction)
     )
-    let boundarySnapshot = LearningPathProjectionSnapshot(
+    let boundarySnapshot = PlotterLearningPresentationFacts(
       penInteractionCompleted: true,
       controller: .init(sessionEstablished: true, motionAuthorized: true)
     )
-    let boundary = projector.project(
+    let boundary = project(
       boundarySnapshot,
       selectedItemID: .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
     )
     let cameraCalibrationSnapshot = postBoundarySnapshot(camera: .init())
-    let cameraCalibration = projector.project(
+    let cameraCalibration = project(
       cameraCalibrationSnapshot,
       selectedItemID: .humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
     )
@@ -68,13 +99,14 @@ struct LearningPathProjectorTests {
       camera: .init(acceptedIsCurrent: true),
       sparse: .init(acceptedIsCurrent: false)
     )
-    let sparseCalibration = projector.project(
+    let sparseCalibration = project(
       sparseCalibrationSnapshot,
       selectedItemID: .humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
     )
-    let drawing = projector.project(
+    let drawingOwner = LearningPathItemID.observedDrawingTrial(.chooseDrawingBorderPlan)
+    let drawing = project(
       postBoundarySnapshot(sparse: .init(acceptedIsCurrent: true)),
-      selectedItemID: .observedDrawingTrial(.chooseDrawingBorderPlan)
+      selectedItemID: drawingOwner
     )
 
     #expect(try #require(pen.currentActionStrip).actions.map(\.title) == ["Identify Pen Cap"])
@@ -92,13 +124,14 @@ struct LearningPathProjectorTests {
 
   @Test("LIVE and SIMULATED use the same progression and action grammar")
   func liveSimulatedParity() {
-    let live = projector.project(
+    let current = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+    let live = project(
       connectedSnapshot(source: .live),
-      selectedItemID: .humanGuidedDiscovery(.penInteraction)
+      selectedItemID: current
     )
-    let simulated = projector.project(
+    let simulated = project(
       connectedSnapshot(source: .simulated),
-      selectedItemID: .humanGuidedDiscovery(.penInteraction)
+      selectedItemID: current
     )
 
     #expect(live.currentItemID == simulated.currentItemID)
@@ -119,7 +152,10 @@ struct LearningPathProjectorTests {
         stopOwner: .exercise(capability, .moveToEstimatedCenter, boundaryOwner: false)
       )
     )
-    let projection = projector.project(snapshot, selectedItemID: owner)
+    let projection = project(
+      snapshot,
+      selectedItemID: owner
+    )
 
     #expect(projection.contextualStop?.capabilityID == capability)
     #expect(projection.currentActionStrip?.actions.map(\.kind) == [.stop(capability)])
@@ -136,7 +172,7 @@ struct LearningPathProjectorTests {
     let snapshot = connectedSnapshot(
       operations: .init(explorationFailure: failure)
     )
-    let projection = projector.project(
+    let projection = project(
       snapshot,
       selectedItemID: .humanGuidedDiscovery(.penInteraction)
     )
@@ -153,7 +189,7 @@ struct LearningPathProjectorTests {
     let boundary = LearningPathItemID.humanGuidedDiscovery(
       .pairedBoundaryDiscoveryAndCentering
     )
-    let snapshot = LearningPathProjectionSnapshot(
+    let snapshot = PlotterLearningPresentationFacts(
       penInteractionCompleted: true,
       controller: .init(
         sessionEstablished: true,
@@ -163,7 +199,10 @@ struct LearningPathProjectorTests {
       operations: .init(restartableItem: pen)
     )
 
-    let projection = projector.project(snapshot, selectedItemID: pen)
+    let projection = project(
+      snapshot,
+      selectedItemID: pen
+    )
 
     #expect(projection.currentItemID == boundary)
     #expect(projection.currentActionStrip?.ownerID == boundary)
@@ -174,7 +213,7 @@ struct LearningPathProjectorTests {
 
   @Test("current-camera calibration does not project a manual-motion gate")
   func currentCameraCalibrationDoesNotGateManualMotion() {
-    let snapshot = LearningPathProjectionSnapshot(
+    let snapshot = PlotterLearningPresentationFacts(
       source: .live,
       controller: .init(
         sessionEstablished: true,
@@ -184,7 +223,7 @@ struct LearningPathProjectorTests {
       ),
       cameraCalibration: .init(phase: .capturing(sample: 2, total: 5, role: "fit"))
     )
-    let projection = projector.project(
+    let projection = project(
       snapshot,
       selectedItemID: .humanGuidedDiscovery(.penInteraction)
     )
@@ -211,13 +250,16 @@ struct LearningPathProjectorTests {
       removesDurableTipCheckpoint: false,
       physicalInkMayRemain: false
     )
-    let snapshot = LearningPathProjectionSnapshot(
+    let snapshot = PlotterLearningPresentationFacts(
       reset: .init(
         plansByAnchor: [anchor: plan],
         unavailableReason: "An operation is active."
       )
     )
-    let projection = projector.project(snapshot, selectedItemID: anchor)
+    let projection = project(
+      snapshot,
+      selectedItemID: anchor
+    )
 
     #expect(projection.resetSurface.selectedPlan == plan)
     #expect(projection.resetSurface.unavailableReason == "An operation is active.")
@@ -238,11 +280,14 @@ struct LearningPathProjectorTests {
       removesDurableTipCheckpoint: true,
       physicalInkMayRemain: true
     )
-    let snapshot = LearningPathProjectionSnapshot(
+    let snapshot = PlotterLearningPresentationFacts(
       reset: .init(resetAllPlan: resetAll, unavailableReason: "An operation is active.")
     )
 
-    let projection = projector.project(snapshot, selectedItemID: anchor)
+    let projection = project(
+      snapshot,
+      selectedItemID: anchor
+    )
 
     #expect(projection.menu.resetAllPlan == resetAll)
     #expect(projection.resetSurface.selectedPlan == nil)
@@ -277,7 +322,10 @@ struct LearningPathProjectorTests {
         sparse: .init(phase: phase, collectedClickCount: collectedClickCount),
         operations: .init(activeAttemptOwner: owner)
       )
-      let strip = projector.project(snapshot, selectedItemID: owner).currentActionStrip
+      let strip = project(
+        snapshot,
+        selectedItemID: owner
+      ).currentActionStrip
       #expect(strip?.actions.map(\.title) == titles)
     }
   }
@@ -287,7 +335,7 @@ struct LearningPathProjectorTests {
     let tipOwner = LearningPathItemID.humanGuidedDiscovery(
       .calibratePenContactFromSparseMarks
     )
-    let tipProjection = projector.project(
+    let tipProjection = project(
       postBoundarySnapshot(
         sparse: .init(
           phase: .awaitingFrozenClicks(FrameID(rawValue: "frame-1")),
@@ -304,7 +352,7 @@ struct LearningPathProjectorTests {
     #expect(!tipEvidence.contains("/5 accepted"))
 
     let drawingOwner = LearningPathItemID.observedDrawingTrial(.chooseDrawingBorderPlan)
-    let drawingProjection = projector.project(
+    let drawingProjection = project(
       postBoundarySnapshot(sparse: .init(acceptedIsCurrent: true)),
       selectedItemID: drawingOwner
     )
@@ -325,7 +373,7 @@ struct LearningPathProjectorTests {
         currentStep: current
       )
     )
-    let currentProjection = projector.project(
+    let currentProjection = project(
       snapshot,
       selectedItemID: owner
     )
@@ -350,7 +398,10 @@ struct LearningPathProjectorTests {
       )
     )
 
-    let projection = projector.project(snapshot, selectedItemID: owner)
+    let projection = project(
+      snapshot,
+      selectedItemID: owner
+    )
     let vision = try #require(
       projection.selectedAction.subsystemStatuses.first { $0.id == "vision" }
     )
@@ -385,7 +436,10 @@ struct LearningPathProjectorTests {
           exactWorkflowVisionOwner: exactOwner
         )
       )
-      let projection = projector.project(snapshot, selectedItemID: owner)
+      let projection = project(
+        snapshot,
+        selectedItemID: owner
+      )
       let vision = try #require(
         projection.selectedAction.subsystemStatuses.first { $0.id == "vision" }
       )
@@ -409,7 +463,10 @@ struct LearningPathProjectorTests {
       )
     )
 
-    let projection = projector.project(snapshot, selectedItemID: final)
+    let projection = project(
+      snapshot,
+      selectedItemID: final
+    )
 
     #expect(projection.currentItemID == final)
     #expect(projection.items.last?.id == final)
@@ -417,11 +474,26 @@ struct LearningPathProjectorTests {
     #expect(projection.currentActionStrip == nil)
   }
 
+  private func project(
+    _ snapshot: PlotterLearningPresentationFacts,
+    selectedItemID: LearningPathItemID
+  ) -> LearningPathProjection {
+    let actionability = PlotterLearningActionabilityFactAdapter().compile(
+      snapshot,
+      selectedItemID: selectedItemID
+    )
+    return normalizer.project(
+      snapshot,
+      selectedItemID: selectedItemID,
+      actionability: actionability
+    )
+  }
+
   private func connectedSnapshot(
     source: OperatorFrameMode = .live,
-    operations: LearningPathProjectionSnapshot.OperationFacts = .init()
-  ) -> LearningPathProjectionSnapshot {
-    LearningPathProjectionSnapshot(
+    operations: PlotterLearningPresentationFacts.OperationFacts = .init()
+  ) -> PlotterLearningPresentationFacts {
+    PlotterLearningPresentationFacts(
       source: source,
       controller: .init(
         sessionEstablished: true,
@@ -433,14 +505,14 @@ struct LearningPathProjectorTests {
   }
 
   private func postBoundarySnapshot(
-    camera: LearningPathProjectionSnapshot.CameraCalibrationFacts = .init(
+    camera: PlotterLearningPresentationFacts.CameraCalibrationFacts = .init(
       acceptedIsCurrent: true
     ),
-    sparse: LearningPathProjectionSnapshot.SparseCalibrationFacts = .init(),
-    drawing: LearningPathProjectionSnapshot.DrawingFacts = .init(),
-    operations: LearningPathProjectionSnapshot.OperationFacts = .init()
-  ) -> LearningPathProjectionSnapshot {
-    LearningPathProjectionSnapshot(
+    sparse: PlotterLearningPresentationFacts.SparseCalibrationFacts = .init(),
+    drawing: PlotterLearningPresentationFacts.DrawingFacts = .init(),
+    operations: PlotterLearningPresentationFacts.OperationFacts = .init()
+  ) -> PlotterLearningPresentationFacts {
+    PlotterLearningPresentationFacts(
       penInteractionCompleted: true,
       controller: .init(
         sessionEstablished: true,

@@ -25,7 +25,7 @@ struct OperatorWorkspaceLifecycleTests {
     await workspace.performMotionAuthorizationAction()
 
     #expect(!workspace.motionAuthorizationEnabled)
-    #expect(workspace.manualMotionEpisodePresentation.jogControlsUnavailableReason
+    #expect(workspace.testManualMotionEpisodePresentation.jogControlsUnavailableReason
       == "Enable Motion before requesting movement.")
     await workspace.shutdown()
   }
@@ -116,7 +116,7 @@ struct OperatorWorkspaceLifecycleTests {
       owner: owner,
       workspace: workspace
     )
-    await workspace.performExerciseAction(.start, for: owner)
+    await workspace.performTestExerciseAction(.start, for: owner)
 
     #expect(workspace.contextualStopPresentation == nil)
     #expect(workspace.observedDrawingTrialStep == .revealAndObserveNewInk)
@@ -140,10 +140,10 @@ struct OperatorWorkspaceLifecycleTests {
     workspace.replaceSimulatedExecutionPacingForTesting(pacing)
     let owner = LearningPathItemID.observedDrawingTrial(.chooseDrawingBorderPlan)
 
-    let trial = Task { await workspace.performExerciseAction(.start, for: owner) }
+    let trial = Task { await workspace.performTestExerciseAction(.start, for: owner) }
     await pacing.waitUntilSuspended()
 
-    let surface = workspace.actionSurfacePresentation
+    let surface = workspace.testActionSurfacePresentation
     let predicted = try #require(
       surface.overlays.first {
         $0.provenance.kind == .intendedPath && $0.provenance.source == .planned
@@ -178,7 +178,7 @@ struct OperatorWorkspaceLifecycleTests {
     #expect(workspace.drawingTrialAssessment == .predictionObserved)
     #expect(workspace.completedDrawingComparisonReviewIsAvailable)
     #expect(workspace.completedDrawingComparisonReviewIsPinned)
-    let completedSurface = workspace.actionSurfacePresentation
+    let completedSurface = workspace.testActionSurfacePresentation
     #expect(
       completedSurface.displayedFrame?.frame.id == workspace.explorationPostFrame?.frame.id)
     #expect(
@@ -193,7 +193,7 @@ struct OperatorWorkspaceLifecycleTests {
     await workspace.reviewCompletedDrawingComparison()
     #expect(workspace.completedDrawingComparisonReviewIsPinned)
     #expect(
-      workspace.workbenchCapabilityPresentation.learning == .interactiveLearningComplete
+      workspace.testWorkbenchCapabilityPresentation.learning == .interactiveLearningComplete
     )
     #expect(workspace.frameMode == .simulated)
     #expect(!workspace.drawingDraftSnapshot.isOpen)
@@ -213,11 +213,11 @@ struct OperatorWorkspaceLifecycleTests {
 
     let penOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
     try requireEnabledPublicAction(.start, owner: penOwner, workspace: workspace)
-    await workspace.performExerciseAction(.start, for: penOwner)
+    await workspace.performTestExerciseAction(.start, for: penOwner)
     try await identifyPenCap(workspace)
     for _ in 0..<3 {
       try requireEnabledPublicAction(.choice(.yes), owner: penOwner, workspace: workspace)
-      await workspace.performExerciseAction(.choice(.yes), for: penOwner)
+      await workspace.performTestExerciseAction(.choice(.yes), for: penOwner)
     }
 
     await harness.simulator.injectFault(.ambiguityBeforeNextBoundarySegment)
@@ -225,7 +225,7 @@ struct OperatorWorkspaceLifecycleTests {
       .pairedBoundaryDiscoveryAndCentering
     )
     try requireEnabledPublicAction(.start, owner: boundaryOwner, workspace: workspace)
-    await workspace.performExerciseAction(.start, for: boundaryOwner)
+    await workspace.performTestExerciseAction(.start, for: boundaryOwner)
     try await waitUntil { workspace.activeExerciseAttemptID == nil }
 
     guard case .ambiguous(let detail) = workspace.boundaryActivityRecords.last?.disposition else {

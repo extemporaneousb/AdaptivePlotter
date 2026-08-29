@@ -1,11 +1,14 @@
 import Foundation
 import PlotterRuntime
+import PlotterUI
 import SwiftUI
 
 struct LearningPathNavigator: View {
-  @Bindable var workspace: OperatorWorkspace
   @Binding var selection: LearningPathSelectionState
   let projection: LearningPathProjection
+  let currentLearningPathItemID: LearningPathItemID
+  let plotterUIProjection: PlotterUIProjection
+  let plotterUIIntentSink: any PlotterUIIntentSink
   let close: () -> Void
   @State private var pendingResetPlan: LearningVacatePlan?
 
@@ -65,10 +68,12 @@ struct LearningPathNavigator: View {
     .background(Color(nsColor: .controlBackgroundColor))
     .sheet(item: $pendingResetPlan) { plan in
       LearningResetSheet(
-        workspace: workspace,
         plan: plan,
+        authorityError: projection.resetSurface.authorityError,
+        plotterUIProjection: plotterUIProjection,
+        plotterUIIntentSink: plotterUIIntentSink,
         completed: {
-          selection.updateCurrent(workspace.currentLearningPathItemID)
+          selection.updateCurrent(currentLearningPathItemID)
           selection.returnToCurrent()
           pendingResetPlan = nil
         }
@@ -131,15 +136,16 @@ struct LearningPathNavigator: View {
 /// Selected exercise detail. The scrollable detail and the pinned action strip
 /// are deliberately separate so long evidence cannot push controls off-screen.
 struct LearningPathView: View {
-  @Bindable var workspace: OperatorWorkspace
   @Binding var selection: LearningPathSelectionState
   let projection: LearningPathProjection
+  let currentLearningPathItemID: LearningPathItemID
+  let plotterUIProjection: PlotterUIProjection
+  let plotterUIIntentSink: any PlotterUIIntentSink
   let close: () -> Void
   let closeUnavailableReason: String?
   @State private var pendingResetPlan: LearningVacatePlan?
 
   var body: some View {
-    let actionWorkspace = workspace
     let selectedPresentation = projection.selectedAction
     let resetSurface = projection.resetSurface
     let pinnedActionStrip =
@@ -167,19 +173,20 @@ struct LearningPathView: View {
         ExerciseActionStripView(
           presentation: strip,
           reviewedItemID: selection.selected,
-          perform: { kind, ownerID in
-            await actionWorkspace.performExerciseAction(kind, for: ownerID)
-          }
+          plotterUIProjection: plotterUIProjection,
+          plotterUIIntentSink: plotterUIIntentSink
         )
       }
     }
     .background(Color(nsColor: .windowBackgroundColor))
     .sheet(item: $pendingResetPlan) { plan in
       LearningResetSheet(
-        workspace: workspace,
         plan: plan,
+        authorityError: projection.resetSurface.authorityError,
+        plotterUIProjection: plotterUIProjection,
+        plotterUIIntentSink: plotterUIIntentSink,
         completed: {
-          selection.updateCurrent(workspace.currentLearningPathItemID)
+          selection.updateCurrent(currentLearningPathItemID)
           selection.returnToCurrent()
           pendingResetPlan = nil
         }
@@ -503,11 +510,14 @@ struct LearningPathView: View {
 }
 
 private struct LearningResetSheet: View {
-  @Bindable var workspace: OperatorWorkspace
   let plan: LearningVacatePlan
+  let authorityError: String?
+  let plotterUIProjection: PlotterUIProjection
+  let plotterUIIntentSink: any PlotterUIIntentSink
   let completed: () -> Void
   @Environment(\.dismiss) private var dismiss
   @State private var isPerforming = false
+  @State private var requestRefusal: String?
 
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
@@ -552,7 +562,7 @@ private struct LearningResetSheet: View {
         .foregroundStyle(.orange)
       }
 
-      if let error = workspace.learningAuthorityError {
+      if let error = requestRefusal ?? authorityError {
         Label(error, systemImage: "exclamationmark.triangle.fill")
           .font(.caption)
           .foregroundStyle(.orange)
@@ -567,16 +577,19 @@ private struct LearningResetSheet: View {
         Button(plan.title) {
           isPerforming = true
           Task { @MainActor in
-            let succeeded: Bool
-            if plan.scope == .all {
-              succeeded = await workspace.performResetAllLearning(plan)
-            } else {
-              succeeded = workspace.performLearningVacate(plan)
+            let actionID = PlotterAppUIActionID.learningReset(plan)
+            guard let request = plotterUIProjection.request(for: actionID) else {
+              requestRefusal = "Refresh the current Learning reset preview before retrying."
+              isPerforming = false
+              return
             }
+            let disposition = await plotterUIIntentSink.submitPlotterUIRequest(request)
             isPerforming = false
-            if succeeded {
+            if case .accepted = disposition {
               completed()
               dismiss()
+            } else if case .refused(let refusal) = disposition {
+              requestRefusal = refusal.remedy
             }
           }
         }
@@ -599,7 +612,8 @@ private struct LearningResetSheet: View {
 private struct ExerciseActionStripView: View {
   let presentation: ExerciseActionStripPresentation
   let reviewedItemID: LearningPathItemID
-  let perform: (ExerciseActionKind, LearningPathItemID) async -> Void
+  let plotterUIProjection: PlotterUIProjection
+  let plotterUIIntentSink: any PlotterUIIntentSink
 
   var body: some View {
     VStack(alignment: .leading, spacing: 9) {
@@ -623,93 +637,11 @@ private struct ExerciseActionStripView: View {
       }
 
       if let adjustment = presentation.penSetpointAdjustment {
-        VStack(alignment: .leading, spacing: 6) {
-          HStack {
-            Text(adjustment.title)
-              .font(.caption.weight(.semibold))
-            Spacer()
-            Text("S\(adjustment.value)")
-              .font(.body.monospaced().bold())
-          }
-          Slider(
-            value: Binding(
-              get: { Double(adjustment.value) },
-              set: { value in
-                Task {
-                  await perform(
-                    .setPenSetpoint(adjustment.command, Int(value.rounded())),
-                    presentation.ownerID
-                  )
-                }
-              }
-            ),
-            in: Double(adjustment.minimumValue)...Double(adjustment.maximumValue),
-            step: 1
-          )
-          .disabled(!adjustment.isEnabled)
-          .help(adjustment.unavailableReason ?? adjustment.title)
-          .accessibilityLabel(adjustment.title)
-          .accessibilityValue("S\(adjustment.value)")
-          .accessibilityHint(
-            "Adjusts and sends the current Pen \(adjustment.command.commandedState.rawValue) servo value."
-          )
-          Text("Move the slider until the physical pen position is correct, then confirm that position.")
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-        }
+        penSetpointAdjustment(adjustment)
       }
 
       if let directionSelection = presentation.directionSelection {
-        Text(
-          directionSelection.allowsSelection
-            ? "Available direction choices" : "Required next direction"
-        )
-        .font(.caption2.monospaced().bold())
-        .foregroundStyle(.secondary)
-
-        if directionSelection.allowsSelection {
-          Picker(
-            directionSelection.purpose.label,
-            selection: Binding(
-              get: { directionSelection.selected },
-              set: { direction in
-                Task {
-                  await perform(
-                    .selectDirection(directionSelection.purpose, direction),
-                    presentation.ownerID
-                  )
-                }
-              }
-            )
-          ) {
-            ForEach(directionSelection.options, id: \.self) { direction in
-              Text(direction.displayName).tag(direction)
-            }
-          }
-          .pickerStyle(.segmented)
-          .accessibilityValue(
-            PresentationCue.direction(directionSelection.selected).accessibilityValue
-          )
-          .accessibilityHint("Selects a direction without starting motion.")
-        } else {
-          HStack(spacing: 12) {
-            Text(directionSelection.purpose.label)
-              .foregroundStyle(.primary)
-            Spacer(minLength: 12)
-            Text(directionSelection.selected.displayName)
-              .font(.body.monospaced().bold())
-              .foregroundStyle(.primary)
-              .padding(.horizontal, 12)
-              .padding(.vertical, 5)
-              .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
-          }
-          .accessibilityElement(children: .ignore)
-          .accessibilityLabel(directionSelection.purpose.label)
-          .accessibilityValue(
-            PresentationCue.direction(directionSelection.selected).accessibilityValue
-          )
-          .accessibilityHint("This opposite boundary is required next.")
-        }
+        directionSelectionControl(directionSelection)
       }
 
       LazyVGrid(
@@ -740,10 +672,96 @@ private struct ExerciseActionStripView: View {
     .background(.bar)
   }
 
+  private func penSetpointAdjustment(
+    _ adjustment: PenSetpointAdjustmentPresentation
+  ) -> some View {
+    VStack(alignment: .leading, spacing: 6) {
+      HStack {
+        Text(adjustment.title)
+          .font(.caption.weight(.semibold))
+        Spacer()
+        Text("S\(adjustment.value)")
+          .font(.body.monospaced().bold())
+      }
+      Slider(
+        value: Binding(
+          get: { Double(adjustment.value) },
+          set: { value in
+            submitRetainedAction(
+              .setPenSetpoint(adjustment.command, Int(value.rounded()))
+            )
+          }
+        ),
+        in: Double(adjustment.minimumValue)...Double(adjustment.maximumValue),
+        step: 1
+      )
+      .disabled(!adjustment.isEnabled)
+      .help(adjustment.unavailableReason ?? adjustment.title)
+      .accessibilityLabel(adjustment.title)
+      .accessibilityValue("S\(adjustment.value)")
+      .accessibilityHint(
+        "Adjusts and sends the current Pen \(adjustment.command.commandedState.rawValue) servo value."
+      )
+      Text("Move the slider until the physical pen position is correct, then confirm that position.")
+        .font(.caption2)
+        .foregroundStyle(.secondary)
+    }
+  }
+
+  @ViewBuilder
+  private func directionSelectionControl(
+    _ selection: ExerciseDirectionSelectionPresentation
+  ) -> some View {
+    Text(selection.allowsSelection ? "Available direction choices" : "Required next direction")
+      .font(.caption2.monospaced().bold())
+      .foregroundStyle(.secondary)
+
+    if selection.allowsSelection {
+      Picker(
+        selection.purpose.label,
+        selection: Binding(
+          get: { selection.selected },
+          set: { direction in
+            submitRetainedAction(.selectDirection(selection.purpose, direction))
+          }
+        )
+      ) {
+        ForEach(selection.options, id: \.self) { direction in
+          Text(direction.displayName).tag(direction)
+        }
+      }
+      .pickerStyle(.segmented)
+      .accessibilityValue(PresentationCue.direction(selection.selected).accessibilityValue)
+      .accessibilityHint("Selects a direction without starting motion.")
+    } else {
+      HStack(spacing: 12) {
+        Text(selection.purpose.label)
+          .foregroundStyle(.primary)
+        Spacer(minLength: 12)
+        Text(selection.selected.displayName)
+          .font(.body.monospaced().bold())
+          .foregroundStyle(.primary)
+          .padding(.horizontal, 12)
+          .padding(.vertical, 5)
+          .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+      }
+      .accessibilityElement(children: .ignore)
+      .accessibilityLabel(selection.purpose.label)
+      .accessibilityValue(PresentationCue.direction(selection.selected).accessibilityValue)
+      .accessibilityHint("This opposite boundary is required next.")
+    }
+  }
+
+  private func submitRetainedAction(_ kind: ExerciseActionKind) {
+    let actionID = PlotterAppUIActionID.retainedLearning(kind, owner: presentation.ownerID)
+    guard let request = plotterUIProjection.request(for: actionID) else { return }
+    Task { _ = await plotterUIIntentSink.submitPlotterUIRequest(request) }
+  }
+
   @ViewBuilder
   private func actionButton(_ action: ExerciseActionDescriptor) -> some View {
     let button = Button {
-      Task { await perform(action.kind, presentation.ownerID) }
+      submitRetainedAction(action.kind)
     } label: {
       Text(action.title)
         .multilineTextAlignment(.center)

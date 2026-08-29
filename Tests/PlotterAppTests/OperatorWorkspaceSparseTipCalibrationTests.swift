@@ -60,7 +60,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       owner: cameraOwner,
       workspace: workspace
     )
-    await workspace.performExerciseAction(
+    await workspace.performTestExerciseAction(
       .runCameraCalibrationAndBuildProposal,
       for: cameraOwner
     )
@@ -69,7 +69,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       owner: cameraOwner,
       workspace: workspace
     )
-    await workspace.performExerciseAction(.acceptCameraCalibrationProposal, for: cameraOwner)
+    await workspace.performTestExerciseAction(.acceptCameraCalibrationProposal, for: cameraOwner)
     let tipOwner = LearningPathItemID.humanGuidedDiscovery(
       .calibratePenContactFromSparseMarks
     )
@@ -80,7 +80,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       owner: tipOwner,
       workspace: workspace
     )
-    await workspace.performExerciseAction(.drawFourCornerTipCircles, for: tipOwner)
+    await workspace.performTestExerciseAction(.drawFourCornerTipCircles, for: tipOwner)
     let sparseBatchEvents = Array(
       (await telemetry.events).dropFirst(telemetryCountBeforeSparseBatch)
     )
@@ -125,7 +125,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     #expect(
       sparseBatchEvents.last?.sparseTipProgress?.terminalDisposition == .completed
     )
-    let surface = workspace.actionSurfacePresentation
+    let surface = workspace.testActionSurfacePresentation
     let request = try #require(surface.pointSelectionRequest)
     #expect(surface.viewportContext?.preferredInitialZoom == 0)
     #expect((await harness.simulator.snapshot()).persistentInkSegmentCount == 64)
@@ -187,7 +187,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     #expect(workspace.tipCameraRegistration == nil)
     let proposed = try #require(workspace.proposedTipCameraRegistration)
     #expect(proposed.applicabilityRectangle == batch.applicabilityRectangle)
-    let proposalOverlays = workspace.actionSurfacePresentation.overlays
+    let proposalOverlays = workspace.testActionSurfacePresentation.overlays
     let proposedBoundaryOverlay = try #require(
       proposalOverlays.first { $0.provenance.kind == .acceptedBoundary }
     )
@@ -223,7 +223,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       owner: tipOwner,
       workspace: workspace
     )
-    await workspace.performExerciseAction(.rejectTipCalibrationProposal, for: tipOwner)
+    await workspace.performTestExerciseAction(.rejectTipCalibrationProposal, for: tipOwner)
     #expect(workspace.tipCameraRegistration == nil)
     #expect(workspace.proposedTipCameraRegistration == nil)
     #expect(workspace.sparseTipCalibrationCoordinator.acceptedObservations.isEmpty)
@@ -231,7 +231,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       workspace.sparseTipCalibrationCoordinator.phase
         == .awaitingFrozenClicks(FrameID(rawValue: request.frame.frameID))
     )
-    #expect(workspace.actionSurfacePresentation.pointSelectionRequest?.frame == request.frame)
+    #expect(workspace.testActionSurfacePresentation.pointSelectionRequest?.frame == request.frame)
     #expect((await harness.simulator.snapshot()).persistentInkSegmentCount == 64)
     for click in [clicks[3], clicks[1], clicks[0], clicks[2]] {
       try await submitPointSelectionAndWait(workspace, request: request, point: click)
@@ -241,7 +241,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       owner: tipOwner,
       workspace: workspace
     )
-    await workspace.performExerciseAction(.acceptTipCalibrationProposal, for: tipOwner)
+    await workspace.performTestExerciseAction(.acceptTipCalibrationProposal, for: tipOwner)
 
     let accepted = try #require(
       workspace.tipCameraRegistration,
@@ -253,7 +253,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     #expect(workspace.proposedTipCameraRegistration == nil)
     #expect(workspace.sparseTipCalibrationCoordinator.phase == .accepted)
     let regionOverlay = try #require(
-      workspace.actionSurfacePresentation.overlays.first {
+      workspace.testActionSurfacePresentation.overlays.first {
         $0.provenance.kind == .drawingBorder
       }
     )
@@ -262,7 +262,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       return
     }
     let acceptedBoundaryOverlay = try #require(
-      workspace.actionSurfacePresentation.overlays.first {
+      workspace.testActionSurfacePresentation.overlays.first {
         $0.provenance.kind == .acceptedBoundary
       }
     )
@@ -280,7 +280,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     }
     #expect(acceptedBoundaryPolyline.points == acceptedBoundaryPoints)
     #expect(
-      workspace.currentLearningPathItemID
+      workspace.testCurrentLearningPathItemID
         == .observedDrawingTrial(.chooseDrawingBorderPlan)
     )
     #expect(checkpointBox.checkpoint == nil)
@@ -299,15 +299,15 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     )
     let workspace = harness.workspace
     let owner = LearningPathItemID.humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
-    #expect(workspace.currentLearningPathItemID == owner)
-    #expect(workspace.actionSurfacePresentation.tipPresentation.statusText == "Tip not calibrated")
+    #expect(workspace.testCurrentLearningPathItemID == owner)
+    #expect(workspace.testActionSurfacePresentation.tipPresentation.statusText == "Tip not calibrated")
 
     try requireEnabledPublicAction(
       .runCameraCalibrationAndBuildProposal,
       owner: owner,
       workspace: workspace
     )
-    await workspace.performExerciseAction(.runCameraCalibrationAndBuildProposal, for: owner)
+    await workspace.performTestExerciseAction(.runCameraCalibrationAndBuildProposal, for: owner)
     let proposal = try #require(workspace.proposedMachineCameraRegistration)
     #expect(proposal.fitCorrespondenceProvenance.count == 3)
     #expect(proposal.holdoutCorrespondenceProvenance.count == 2)
@@ -324,9 +324,9 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       owner: owner,
       workspace: workspace
     )
-    await workspace.performExerciseAction(.acceptCameraCalibrationProposal, for: owner)
+    await workspace.performTestExerciseAction(.acceptCameraCalibrationProposal, for: owner)
     #expect(
-      workspace.currentLearningPathItemID
+      workspace.testCurrentLearningPathItemID
         == .humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
     )
   }
@@ -346,7 +346,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       owner: cameraOwner,
       workspace: workspace
     )
-    await workspace.performExerciseAction(
+    await workspace.performTestExerciseAction(
       .runCameraCalibrationAndBuildProposal,
       for: cameraOwner
     )
@@ -355,7 +355,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       owner: cameraOwner,
       workspace: workspace
     )
-    await workspace.performExerciseAction(.acceptCameraCalibrationProposal, for: cameraOwner)
+    await workspace.performTestExerciseAction(.acceptCameraCalibrationProposal, for: cameraOwner)
 
     let owner = LearningPathItemID.humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
     try requireEnabledPublicAction(
@@ -363,8 +363,8 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       owner: owner,
       workspace: workspace
     )
-    await workspace.performExerciseAction(.drawFourCornerTipCircles, for: owner)
-    let request = try #require(workspace.actionSurfacePresentation.pointSelectionRequest)
+    await workspace.performTestExerciseAction(.drawFourCornerTipCircles, for: owner)
+    let request = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
     let frameID = request.frame.frameID
     let before = await harness.simulator.snapshot()
     try await submitPointSelectionAndWait(
@@ -373,9 +373,9 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       point: try Point2(x: 160, y: 120)
     )
     try requireEnabledPublicAction(.undoLastSparseTipClick, owner: owner, workspace: workspace)
-    await workspace.performExerciseAction(.undoLastSparseTipClick, for: owner)
+    await workspace.performTestExerciseAction(.undoLastSparseTipClick, for: owner)
     let after = await harness.simulator.snapshot()
-    let correctedRequest = try #require(workspace.actionSurfacePresentation.pointSelectionRequest)
+    let correctedRequest = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
 
     #expect(correctedRequest.frame.frameID == frameID)
     #expect(
@@ -404,7 +404,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       owner: cameraOwner,
       workspace: workspace
     )
-    await workspace.performExerciseAction(
+    await workspace.performTestExerciseAction(
       .runCameraCalibrationAndBuildProposal,
       for: cameraOwner
     )
@@ -413,14 +413,14 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       owner: cameraOwner,
       workspace: workspace
     )
-    await workspace.performExerciseAction(.acceptCameraCalibrationProposal, for: cameraOwner)
+    await workspace.performTestExerciseAction(.acceptCameraCalibrationProposal, for: cameraOwner)
     let owner = LearningPathItemID.humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
     let pacing = CalibrationStopPacing()
     workspace.replaceSimulatedExecutionPacingForTesting(pacing)
     let telemetryCountBeforeSparseBatch = await telemetry.events.count
 
     let markTask = Task {
-      await workspace.performExerciseAction(.drawFourCornerTipCircles, for: owner)
+      await workspace.performTestExerciseAction(.drawFourCornerTipCircles, for: owner)
     }
     await pacing.waitUntilSuspended()
     let travelCapability = try #require(workspace.contextualStopPresentation?.capabilityID)
@@ -459,7 +459,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
 
     #expect(workspace.sparseTipCalibrationCoordinator.blacklistedPositions == [.negativeX])
     #expect(workspace.sparseTipCalibrationCoordinator.acceptedObservations.isEmpty)
-    #expect(workspace.actionSurfacePresentation.pointSelectionRequest == nil)
+    #expect(workspace.testActionSurfacePresentation.pointSelectionRequest == nil)
     #expect(workspace.contextualStopPresentation == nil)
     #expect((await harness.simulator.snapshot()).persistentInkSegmentCount == 0)
     if case .possibleInkBlacklisted(let location, _) =
@@ -522,7 +522,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       owner: cameraOwner,
       workspace: restarted.workspace
     )
-    await restarted.workspace.performExerciseAction(
+    await restarted.workspace.performTestExerciseAction(
       .runCameraCalibrationAndBuildProposal,
       for: cameraOwner
     )
@@ -531,7 +531,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       owner: cameraOwner,
       workspace: restarted.workspace
     )
-    await restarted.workspace.performExerciseAction(
+    await restarted.workspace.performTestExerciseAction(
       .acceptCameraCalibrationProposal,
       for: cameraOwner
     )
@@ -544,7 +544,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       owner: tipOwner,
       workspace: restarted.workspace
     )
-    await restarted.workspace.performExerciseAction(
+    await restarted.workspace.performTestExerciseAction(
       .revalidateTipCalibrationCheckpoint,
       for: tipOwner
     )
@@ -563,7 +563,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
           evidenceID: revalidationEvidenceID
         ))
     #expect(
-      restarted.workspace.currentLearningPathItemID
+      restarted.workspace.testCurrentLearningPathItemID
         == LearningPathItemID.observedDrawingTrial(.chooseDrawingBorderPlan)
     )
     #expect(
@@ -575,7 +575,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       owner: drawingOwner,
       workspace: restarted.workspace
     )
-    await restarted.workspace.performExerciseAction(.start, for: drawingOwner)
+    await restarted.workspace.performTestExerciseAction(.start, for: drawingOwner)
     let domain = restored.applicabilityRectangle
     #expect(
       restarted.workspace.drawingBorderPlan?.strokes.first?.path.points.first

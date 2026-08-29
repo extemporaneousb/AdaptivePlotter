@@ -2,6 +2,7 @@ import PlotterEpisodeModel
 import PlotterEpisodeRuntime
 import PlotterModel
 import PlotterRuntime
+import PlotterUI
 import SwiftUI
 
 struct DrawingStudioCatalogItemPresentation: Hashable, Identifiable, Sendable {
@@ -307,8 +308,8 @@ struct DrawingStudioPresentation: Hashable, Sendable {
 /// controller, evidence store, or readiness decision.
 struct DrawingStudioView: View {
   let presentation: DrawingStudioPresentation
-  let drawingDraftIntentSink: any PlotterDrawingDraftIntentSink
-  let drawingRunIntentSink: any PlotterDrawingRunIntentSink
+  let plotterUIProjection: PlotterUIProjection
+  let plotterUIIntentSink: any PlotterUIIntentSink
 
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
@@ -391,9 +392,10 @@ struct DrawingStudioView: View {
         Slider(
           value: Binding(
             get: { presentation.canvas.placement.uniformScale },
-            set: { submitDraft(.setUniformScale($0)) }
+            set: { submitDraft(.setUniformScale(($0 * 100).rounded() / 100)) }
           ),
-          in: presentation.canvas.placement.allowedScale
+          in: presentation.canvas.placement.allowedScale,
+          step: 0.01
         )
         Text(String(format: "%.2f×", presentation.canvas.placement.uniformScale))
           .monospacedDigit()
@@ -405,9 +407,10 @@ struct DrawingStudioView: View {
         Slider(
           value: Binding(
             get: { presentation.canvas.placement.rotationDegrees },
-            set: { submitDraft(.setRotationDegrees($0)) }
+            set: { submitDraft(.setRotationDegrees($0.rounded())) }
           ),
-          in: -180...180
+          in: -180...180,
+          step: 1
         )
         Text(String(format: "%.1f°", presentation.canvas.placement.rotationDegrees))
           .monospacedDigit()
@@ -445,12 +448,9 @@ struct DrawingStudioView: View {
     HStack(spacing: 8) {
       ForEach(presentation.controls) { control in
         Button {
-          guard let projection = presentation.runProjection else { return }
-          drawingRunIntentSink.submitDrawingRun(
-            PlotterDrawingRunSubmission(
-              projection: projection,
-              intent: control.intent
-            )
+          submit(
+            actionID: PlotterAppUIActionID.drawingRun(control.intent),
+            intent: .drawingRun(control.intent)
           )
         } label: {
           Label(control.title, systemImage: control.systemImage)
@@ -462,12 +462,15 @@ struct DrawingStudioView: View {
   }
 
   private func submitDraft(_ intent: PlotterDrawingDraftIntent) {
-    drawingDraftIntentSink.submitDrawingDraft(
-      PlotterDrawingDraftSubmission(
-        projection: presentation.canvas.draftProjection,
-        intent: intent
-      )
+    submit(
+      actionID: PlotterAppUIActionID.drawingDraft(intent),
+      intent: .drawingDraft(intent)
     )
+  }
+
+  private func submit(actionID _: PlotterUIActionID, intent: PlotterUIIntent) {
+    guard let request = plotterUIProjection.request(matching: intent) else { return }
+    Task { _ = await plotterUIIntentSink.submitPlotterUIRequest(request) }
   }
 
   private static func evidenceRoleLabel(_ role: DrawingTrialEvidenceRole) -> String {

@@ -3,10 +3,174 @@ import PlotterEpisodeModel
 import PlotterEpisodeRuntime
 import PlotterModel
 import PlotterTestSupport
+import PlotterUI
 import Testing
 
 @testable import PlotterApp
 @testable import PlotterRuntime
+
+private let defaultTestLearningPathItemID =
+  LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+
+@MainActor
+extension OperatorWorkspace {
+  func testPlotterUIProjection(
+    selectedItemID: LearningPathItemID = defaultTestLearningPathItemID,
+    manualDraft: ManualMotionDraft = ManualMotionDraft(),
+    includesLearningPath: Bool = false
+  ) -> PlotterAppUIProjection {
+    plotterUIProjection(
+      selectedItemID: selectedItemID,
+      manualDraft: manualDraft,
+      includesLearningPath: includesLearningPath
+    )
+  }
+
+  var testActionSurfacePresentation: ActionSurfacePresentation {
+    testPlotterUIProjection().actionSurface
+  }
+
+  var testCurrentLearningPathItemID: LearningPathItemID {
+    testPlotterUIProjection().currentLearningPathItemID
+  }
+
+  var testExercisePaneProtectionPresentation: ExercisePaneProtectionPresentation {
+    testPlotterUIProjection().exercisePaneProtection
+  }
+
+  var testLearningIsEnabled: Bool {
+    testPlotterUIProjection().learningIsEnabled
+  }
+
+  var testLearningModePresentation: LearningModePresentation {
+    testPlotterUIProjection().learningMode
+  }
+
+  var testManualMotionEpisodePresentation: ManualMotionPresentation {
+    testPlotterUIProjection().manualMotion
+  }
+
+  var testDrawingStudioPresentation: DrawingStudioPresentation {
+    testPlotterUIProjection().drawingStudio
+  }
+
+  var testWorkbenchCapabilityPresentation: WorkbenchCapabilityPresentation {
+    testPlotterUIProjection().workbenchCapability
+  }
+
+  func testLearningPathProjection(
+    selectedItemID: LearningPathItemID
+  ) -> LearningPathProjection {
+    guard let projection = testPlotterUIProjection(
+      selectedItemID: selectedItemID,
+      includesLearningPath: true
+    ).learningPath else {
+      preconditionFailure("The test requested an included Learning projection.")
+    }
+    return projection
+  }
+
+  @discardableResult
+  func submitTestPlotterUIAction(
+    _ actionID: PlotterUIActionID,
+    selectedItemID: LearningPathItemID = defaultTestLearningPathItemID,
+    manualDraft: ManualMotionDraft = ManualMotionDraft(),
+    overridingIntent: PlotterUIIntent? = nil
+  ) async -> PlotterUIRequestDisposition? {
+    let projection = testPlotterUIProjection(
+      selectedItemID: selectedItemID,
+      manualDraft: manualDraft,
+      includesLearningPath: true
+    ).semantic
+    let request: PlotterUIRequest?
+    if let overridingIntent {
+      guard projection.action(id: actionID) != nil else {
+        Issue.record("Missing test UI action \(actionID.rawValue).")
+        return nil
+      }
+      request = PlotterUIRequest(
+        id: PlotterUIRequestID(rawValue: UUID()),
+        uiRevision: projection.revision,
+        runtimeRevisions: projection.runtimeRevisions,
+        actionID: actionID,
+        intent: overridingIntent
+      )
+    } else {
+      request = projection.request(for: actionID)
+    }
+    guard let request else {
+      let action = projection.action(id: actionID)
+      Issue.record(
+        "Unavailable test UI action \(actionID.rawValue): \(action?.unavailableReason ?? "missing")"
+      )
+      return nil
+    }
+    let sink: any PlotterUIIntentSink = self
+    return await sink.submitPlotterUIRequest(request)
+  }
+
+  func performTestExerciseAction(
+    _ kind: ExerciseActionKind,
+    for owner: LearningPathItemID
+  ) async {
+    await submitTestPlotterUIAction(
+      PlotterAppUIActionID.retainedLearning(kind, owner: owner),
+      selectedItemID: owner
+    )
+  }
+
+  func submitTestManualJog(
+    _ direction: JogDirection,
+    manualDraft: ManualMotionDraft = ManualMotionDraft()
+  ) async {
+    let actionID = switch direction {
+    case .xNegative: PlotterAppUIActionID.manualXNegative
+    case .xPositive: PlotterAppUIActionID.manualXPositive
+    case .yNegative: PlotterAppUIActionID.manualYNegative
+    case .yPositive: PlotterAppUIActionID.manualYPositive
+    }
+    await submitTestPlotterUIAction(actionID, manualDraft: manualDraft)
+  }
+
+  func submitTestManualPen(_ command: PenCommand) async {
+    await submitTestPlotterUIAction(
+      command == .raise ? PlotterAppUIActionID.manualPenUp : PlotterAppUIActionID.manualPenDown
+    )
+  }
+
+  func requestTestManualMotionStop(
+    capabilityID: PlotterManualMotionStopCapabilityID
+  ) async {
+    await submitTestPlotterUIAction(
+      PlotterAppUIActionID.manualStop,
+      overridingIntent: .manualStop(capabilityID: capabilityID.rawValue)
+    )
+  }
+
+  func recoverTestManualMotionPublication(
+    capabilityID: PlotterManualMotionPublicationRecoveryCapabilityID
+  ) async {
+    await submitTestPlotterUIAction(
+      PlotterAppUIActionID.manualRecovery,
+      overridingIntent: .manualPublicationRecovery(capabilityID: capabilityID.rawValue)
+    )
+  }
+
+  func resolveTestManualMotionEvidence(
+    using action: PlotterManualMotionEvidenceDispositionAction
+  ) async {
+    await submitTestPlotterUIAction(
+      PlotterAppUIActionID.manualEvidence,
+      overridingIntent: .manualEvidenceDisposition(
+        effectID: action.effectID.rawValue,
+        environment: action.environment,
+        observationID: action.observationID.rawValue,
+        disposition: action.disposition == .acknowledgeAmbiguity
+          ? .acknowledgeAmbiguity : .acknowledgePossibleInk
+      )
+    )
+  }
+}
 
 @MainActor
 func stopActiveOperation(_ workspace: OperatorWorkspace) async throws {
@@ -23,7 +187,7 @@ func performStart(
     $0.kind == .start
   }
   #expect(start?.isEnabled == true)
-  await workspace.performExerciseAction(.start, for: owner)
+  await workspace.performTestExerciseAction(.start, for: owner)
 }
 
 /// App composition fixture whose effect authority remains inside the
@@ -64,6 +228,12 @@ func nominalDrawingDraftRuntime(
     PlotterDrawingDraftTransientPaperPersistence()
 ) -> PlotterDrawingDraftRuntime {
   PlotterDrawingDraftRuntime(paperPersistence: paperPersistence)
+}
+
+func nominalIncidentPackageUIService() -> PlotterIncidentPackageUIService {
+  PlotterIncidentPackageUIService(
+    sourceProvider: PlotterIncidentPackageUIUnavailableSourceProvider()
+  )
 }
 
 func nominalDrawingRunComposition(
@@ -125,6 +295,7 @@ func makeCausalSimulatorAppFixture(
       drawingRunComposition: nominalDrawingRunComposition(
         cameraActions: resolvedCameraActions
       ),
+      incidentPackageUIService: nominalIncidentPackageUIService(),
       tipCalibrationSemanticIdentities: tipCalibrationSemanticIdentities,
       workflowTelemetryActions: workflowTelemetry.map { fixture in
         .init(record: { await fixture.record($0) })
@@ -194,7 +365,7 @@ func selectPublicDirection(
   )
   #expect(selection.purpose == purpose)
   #expect(selection.options.contains(direction))
-  await workspace.performExerciseAction(.selectDirection(purpose, direction), for: owner)
+  await workspace.performTestExerciseAction(.selectDirection(purpose, direction), for: owner)
 }
 
 @MainActor
@@ -212,7 +383,7 @@ func completeSimulatedBoundariesAndCenter(
 
   let penOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
   try requireEnabledPublicAction(.start, owner: penOwner, workspace: workspace)
-  await workspace.performExerciseAction(.start, for: penOwner)
+  await workspace.performTestExerciseAction(.start, for: penOwner)
   try await identifyPenCap(workspace)
   var physicalPoseQuestionCount = 0
   for _ in 0..<8 where !workspace.penInteractionCompleted {
@@ -222,7 +393,7 @@ func completeSimulatedBoundariesAndCenter(
     #expect(presentation.actionStrip?.actions.contains(where: { $0.kind == .start }) == false)
     physicalPoseQuestionCount += 1
     try requireEnabledPublicAction(.choice(.yes), owner: penOwner, workspace: workspace)
-    await workspace.performExerciseAction(.choice(.yes), for: penOwner)
+    await workspace.performTestExerciseAction(.choice(.yes), for: penOwner)
   }
   #expect(workspace.penInteractionCompleted)
   #expect(physicalPoseQuestionCount == 3)
@@ -238,7 +409,7 @@ func completeSimulatedBoundariesAndCenter(
       workspace: workspace
     )
     try requireEnabledPublicAction(.start, owner: boundaryOwner, workspace: workspace)
-    await workspace.performExerciseAction(.start, for: boundaryOwner)
+    await workspace.performTestExerciseAction(.start, for: boundaryOwner)
     try await waitUntil {
       workspace.selectedOperatorActionPresentation(for: boundaryOwner).actionStrip?.actions
         .contains(where: { if case .stop = $0.kind { true } else { false } }) == true
@@ -255,7 +426,7 @@ func completeSimulatedBoundariesAndCenter(
       workspace.selectedOperatorActionPresentation(for: boundaryOwner).actionStrip?.actions
         .first(where: { if case .stop = $0.kind { true } else { false } })?.kind
     )
-    await workspace.performExerciseAction(stop, for: boundaryOwner)
+    await workspace.performTestExerciseAction(stop, for: boundaryOwner)
     #expect(
       workspace.activeExerciseAttemptID == nil,
       "transaction=\(String(describing: workspace.discoveryTransactions[sequenceIDForTest(direction)]?.state)) error=\(workspace.discoveryError ?? "nil") count=\(workspace.relevantBoundaryObservationCount)"
@@ -267,7 +438,7 @@ func completeSimulatedBoundariesAndCenter(
     "discovery error: \(workspace.discoveryError ?? "nil"); activities: \(workspace.boundaryActivityRecords)"
   )
   #expect(workspace.boundarySideAggregates.count == 4)
-  #expect(workspace.currentLearningPathItemID == boundaryOwner)
+  #expect(workspace.testCurrentLearningPathItemID == boundaryOwner)
   let boundaryReviewActions =
     workspace.selectedOperatorActionPresentation(for: boundaryOwner)
     .actionStrip?.actions.map(\.kind) ?? []
@@ -279,7 +450,7 @@ func completeSimulatedBoundariesAndCenter(
     owner: boundaryOwner,
     workspace: workspace
   )
-  await workspace.performExerciseAction(.moveToEstimatedCenter, for: boundaryOwner)
+  await workspace.performTestExerciseAction(.moveToEstimatedCenter, for: boundaryOwner)
 }
 
 @MainActor
@@ -295,7 +466,7 @@ func completeSimulatedSparseTipCalibration(
     owner: registrationOwner,
     workspace: workspace
   )
-  await workspace.performExerciseAction(
+  await workspace.performTestExerciseAction(
     .runCameraCalibrationAndBuildProposal,
     for: registrationOwner
   )
@@ -304,7 +475,7 @@ func completeSimulatedSparseTipCalibration(
     owner: registrationOwner,
     workspace: workspace
   )
-  await workspace.performExerciseAction(.acceptCameraCalibrationProposal, for: registrationOwner)
+  await workspace.performTestExerciseAction(.acceptCameraCalibrationProposal, for: registrationOwner)
   let tipOwner = LearningPathItemID.humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
   let truthOffset = await simulator.capToTipPixelOffsetTruth()
   #expect(abs(truthOffset.dx) + abs(truthOffset.dy) > 0)
@@ -317,9 +488,9 @@ func completeSimulatedSparseTipCalibration(
     owner: tipOwner,
     workspace: workspace
   )
-  await workspace.performExerciseAction(.drawFourCornerTipCircles, for: tipOwner)
+  await workspace.performTestExerciseAction(.drawFourCornerTipCircles, for: tipOwner)
   let request = try #require(
-    workspace.actionSurfacePresentation.pointSelectionRequest,
+    workspace.testActionSurfacePresentation.pointSelectionRequest,
     "missing five-click selection request: \(workspace.explorationError ?? "no error")"
   )
   for mark in plan.marks.reversed() {
@@ -336,7 +507,7 @@ func completeSimulatedSparseTipCalibration(
     owner: tipOwner,
     workspace: workspace
   )
-  await workspace.performExerciseAction(.acceptTipCalibrationProposal, for: tipOwner)
+  await workspace.performTestExerciseAction(.acceptTipCalibrationProposal, for: tipOwner)
 }
 
 @MainActor
@@ -347,7 +518,7 @@ func completeSimulatedStageFour(_ workspace: OperatorWorkspace) async throws {
     owner: owner,
     workspace: workspace
   )
-  await workspace.performExerciseAction(.start, for: owner)
+  await workspace.performTestExerciseAction(.start, for: owner)
   #expect(workspace.drawingTrialAssessment == .predictionObserved)
 }
 
@@ -384,10 +555,10 @@ func completePenInteraction(_ workspace: OperatorWorkspace) async throws {
 
 @MainActor
 func identifyPenCap(_ workspace: OperatorWorkspace) async throws {
-  let request = try #require(workspace.actionSurfacePresentation.pointSelectionRequest)
-  let displayed = try #require(workspace.actionSurfacePresentation.displayedFrame)
+  let request = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
+  let displayed = try #require(workspace.testActionSurfacePresentation.displayedFrame)
   #expect(request.purpose == .penCapAppearance)
-  let overlayPoint = workspace.actionSurfacePresentation.overlays.compactMap {
+  let overlayPoint = workspace.testActionSurfacePresentation.overlays.compactMap {
     measurement -> Point2<CameraPixelSpace>? in
     guard measurement.provenance.kind == .penCap, case .point(let point) = measurement.geometry
     else { return nil }
@@ -594,6 +765,7 @@ func workspace(
       machineActions: machineActions,
       cameraActions: resolvedCameraActions
     ),
+    incidentPackageUIService: nominalIncidentPackageUIService(),
     tipCalibrationSemanticIdentities: tipCalibrationSemanticIdentities,
     workflowTelemetryActions: workflowTelemetry.map { fixture in
       .init(record: { await fixture.record($0) })

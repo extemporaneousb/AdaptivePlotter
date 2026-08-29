@@ -8,6 +8,169 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Episode UI cutover candidate
+
+Selected 2026-08-29 in Blackdog task `TASK-D55FD455`, attempt
+`TASK-D55FD455-1d0731730d03`. EA-09 is complete only in this task-local
+candidate: its ledger row is `complete`, all seven package gates passed, and it
+is not landed. Blackdog landing and canonical-`main` cleanup verification
+remain pending. The separate GATE-01 Pilot decision also remains pending. No
+attended physical validation or remote-Git action is claimed.
+
+The staged target topology is `PlotterUI -> PlotterEpisodeModel` only.
+`PlotterUICompiler` accepts copied values in `PlotterUICompilerInput`, bounds
+candidate visits, emitted actions, Learning milestones, diagnostics, text, and
+runtime revisions, and emits one immutable `PlotterUIProjection`.
+`PlotterUILearningFacts` and `PlotterUILearningProjection` keep Learning
+progression in that package-owned value compiler.
+`PlotterUILearningActionabilityCompiler` additionally owns the bounded
+current-owner, item-status, action/Stop-strip, availability, Pen-adjustment,
+direction, and reset-reachability decisions over copied facts. The App's
+`PlotterLearningActionabilityFactAdapter` translates retained Runtime facts into
+those PlotterUI facts without choosing a decision, and
+`PlotterLearningDetailedPresentationNormalizer` renders canonical decisions
+cosmetically. `OperatorWorkspace` consumes that canonical actionability and
+resolves the exact canonical action before retained-owner dispatch; the deleted
+App status/completion/action-strip/Stop/sparse compilers have no replacement
+authority. Every rendered semantic action must be a member of the projection
+with one exact bound `PlotterUIIntent`, availability result, UI revision, and runtime revision.
+`PlotterUIRequest` creation and the production sink fail closed unless all four
+facts still match. Pane/window/viewport state and unsubmitted manual text remain
+UI-local presentation state; they do not become episode, controller, camera,
+Vision, persistence, Stop, or evidence authority.
+
+The App composes those immutable facts and the retained lower owners. It does
+not extend the compiler, fabricate action/intent pairs, or bypass the
+projection through direct Learning point/reset/workspace dispatch. One App-bound
+incident-package presentation route invokes
+`PlotterIncidentPackageUIService.startUnavailable` with only a fresh request
+ID because no complete production source provider or source-identity owner
+exists. Its request-owned stream is explicitly bounded and terminates with
+typed `.noCompleteSourceProvider` refusal/remedy. A future real assembly must
+instead supply the complete exact `PlotterIncidentPackageUISourceIdentity`.
+The service wraps the sole existing `PlotterIncidentPackageAssembler` and may
+present format version, exact byte count/digest, typed refusal/remedy,
+`canonicalEnvelopeOnly`, and `physicalEvidenceClaimed == false`; it exposes no
+bytes and adds no source assembler, recorder, artifact store, filesystem/export
+backend, device port, fabricated source completeness, or physical-evidence
+claim.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `DOC` | passed — `make docs-check`; docs and architecture contracts plus 29/29 documentation/checker tests; final real 14.82 seconds | final task-local documentation/checker candidate |
+| `DIFF` | passed — `git diff --check`; clean; real 0.05 seconds | whitespace/error diff validation on the final task-local candidate |
+| `QUICK` | passed — `make quick-test`; 750/750 passed after 15.778 seconds; real 18.22 seconds | final broad suite after the authorized exceptional test-only gate repair |
+| `JOURNEY` | passed — `make journey-test`; 7/7 passed after 7.347 seconds; real 8.66 seconds | final journey suite |
+| `STRICT` | passed — `make strict-check`; warnings-as-errors build 45.90 seconds; signing, launcher, and negative-bundle checks passed; strict build 50.35 seconds; 757/757 passed after 16.581 seconds; docs/checkers 29/29 in 13.314 seconds; real 141.81 seconds | final strict package gate |
+| `UI` | passed — `swift test --filter PlotterEpisodeUIActionabilityTests`; 17/17 passed after 0.093 seconds; final real 85.36 seconds | bounded canonical projection, Learning actionability, exact semantic membership/binding/availability, and production sink revision validation |
+| `DELETE` | passed — `sh Scripts/check_episode_cutover.sh EA-09`; 16/16 exact zero-match scans plus Learning behavior/topology validation; real 0.45 seconds | deleted/bypass authority and renamed/split compiler rejection |
+| `LEARNING-DETAIL` | passed — focused detailed-presentation selection; 18/18 | App fact translation and cosmetic rendering consume canonical decisions without a second compiler |
+| `INCIDENT-UI` | passed — focused incident service suites; 24/24 | bounded request-owned progress/result identity, truthful no-source refusal, no fabricated identity, and no backend or physical claim |
+| `INVENTORY` | passed — 109 stable entries and 141 exact scans | current source ownership and cutover manifest |
+| `EA-09-CUTOVER-CHECKER` | passed — `Scripts/test_episode_cutover.py`; 8/8 | cosmetic renderer and canonical fact translation pass; renamed action/status/availability/retained-candidate/reachability and split mapper fixtures fail closed |
+| `PILOT-CHECKER` | passed — 8/8 unit tests | checker mechanics only; GATE-01 remains pending |
+| `REPAIR-SUITES` | passed — named repair suites 135/135 | five stale integration-test files now assert absent/unavailable/no effects and a narrowed stale-authority scan; production source was unchanged |
+| criticism | passed — initial `RETASK`; correction-cycle-1 `RETASK`; correction-cycle-2 exact `UNANIMOUS PASS — no material disagreement`; exceptional repair-delta exact `UNANIMOUS PASS — no material disagreement` | criticism closed; no new or post-pass critic occurred |
+
+The initial critic returned exactly `RETASK` for three material blockers. The
+same critic's correction-cycle-1 recheck returned `RETASK` because a renamed App
+Learning compiler remained. Correction-cycle-2 closed the source delta with the
+exact verdict `UNANIMOUS PASS — no material disagreement`. QUICK then
+failed/hung at 134.84 seconds on stale or invalid integration tests. The user
+explicitly authorized one exceptional EA-09 gate-repair cycle; production
+source remained unchanged while five test files were repaired to assert
+absent/unavailable/no effects and narrow the stale-authority scan. The same
+critic's exceptional delta verdict was exactly
+`UNANIMOUS PASS — no material disagreement`. The final gates above then passed;
+criticism is closed and no new or post-pass critic was commissioned.
+
+The sole fresh critic returned exactly `RETASK` for these three material
+blockers:
+
+1. **Bounded immutable UI authority was not actually transferred.** Substantive
+   Learning facts/compiler logic remained in `PlotterApp`; `appRequest`
+   fabricated arbitrary action/intent pairs; Drawing and Comparison actions
+   were absent from `semantic.actions`; the production sink checked revisions
+   but not current membership, bound intent, or availability; manual input
+   accepted arbitrary action IDs; the focused suite used a fake sink; and the
+   diagnostic loop was unbounded. The UI/App and production-coverage leases
+   must move one bounded compiler/projection into `PlotterUI`, enumerate every
+   rendered semantic action, delete `appRequest`, enforce exact production
+   membership/intent/availability/revision checks, bound inputs/diagnostics, and
+   test the production sink.
+2. **Incident progress delivery was not strictly bounded.** The runtime service
+   used a default unbounded `AsyncStream` and an unbounded subscription map, so
+   held delivery could accumulate subscribers or lose an independently observed
+   terminal identity. The runtime/test lease must use one request-owned stream
+   with an explicit small newest-value buffer and a terminal update that binds
+   the exact request/result, proved with a held-source continuation and no
+   sleeps or polling.
+3. **The canonical documentation and structural checker described the previous
+   frontier rather than the EA-09 candidate.** Current Evidence still called
+   EA-09 undispatched, the architecture denied the new App incident reference,
+   the deletion manifest did not scan concrete compiler/action bypasses, and no
+   truthful candidate Pilot predicate/reduction table existed. This
+   documentation/checker lease must record the selected task/attempt and
+   in-progress boundary, current topology and incident limitations, strengthened
+   scans, exact pre-correction evidence, pending Pilot claims, and the new
+   ledger fingerprint without claiming final completion.
+
+The candidate Pilot table is deliberately non-final. Evidence tokens are the
+exact closed set consumed by the Pilot checker, but every predicate whose
+GATE-01 reduction or continuation proof is still unmeasured remains `pending`:
+
+| Pilot predicate | Result | Evidence |
+| --- | --- | --- |
+| GENERICITY | passed | `EA-02A/CORE`, `EA-02B/PLOTTER-MODEL` |
+| REPLAY | passed | `EA-05B/REPLAY` |
+| DEVICE-OWNERS | passed | `EA-05A/RECORDING`, `FIX-02/LINK-OBS`, `FIX-02/LINK-SAFETY` |
+| ENVIRONMENT-GRAMMAR | pending | `EA-07/SIM`, `EA-09/UI` |
+| SAME-SLICE-DELETION | pending | `EA-04/DELETE`, `EA-06/DELETE`, `EA-07/DELETE`, `EA-08A/DELETE`, `EA-08B/DELETE`, `EA-09/DELETE` |
+| AUTHORITY-REDUCTION | pending | `EA-01/INVENTORY`, `METRICS/AUTHORITY-REDUCTION` |
+| OBSERVABILITY | pending | `EA-05C/INCIDENT`, `EA-06/MOTION`, `EA-09/UI` |
+| WORKSPACE-REDUCTION | pending | `METRICS/WORKSPACE-REDUCTION` |
+| SAFETY-EVIDENCE | pending | `FIX-02/LINK-SAFETY`, `EA-07/SIM`, `EA-09/UI` |
+
+No coordinator-owned baseline/current reduction counts exist for this
+correction turn, and no reproducible source-count comparison against the Pilot
+baseline commit was run. The candidate therefore records the required metric
+names and requirements as `pending`, not invented numbers or reductions. The
+final `PILOT` gate must replace every pending cell with reproducible decimal
+measurements before it can pass:
+
+| Reduction metric | Baseline | Current | Requirement |
+| --- | --- | --- | --- |
+| independent-admission-sites | pending | pending | decreased |
+| workspace-task-owners | pending | pending | decreased |
+| environment-mode-branches | pending | pending | decreased |
+| direct-effect-calls | pending | pending | decreased |
+| operator-workspace-policy-state | pending | pending | decreased |
+| operator-workspace-adapters | pending | pending | not-increased |
+
+Canonical routed-document dispositions for this task-local complete EA-09 candidate:
+
+- Affected — Episode Architecture Execution Plan, Current Evidence, Swift
+  Architecture, and Product Contract: current UI/compiler/sink ownership,
+  incident presentation boundary, selected task/attempt, strengthened deletion
+  manifest, exact pre-correction evidence, and pending Pilot facts.
+- Affected — `Scripts/check_episode_contract.py` and its capsule fixture:
+  task-local completion/frontier wording, outcome requirements, structural
+  scans, and the ledger fingerprint.
+- Reviewed no change — Document Routing (`docs/INDEX.md`): all affected
+  canonical documents and executable checkers remain routed by their existing
+  entries.
+- Reviewed no change — inventory and cutover checker implementations: the
+  canonical manifest table supplies their strengthened EA-09 scans.
+- Added in the EA-09 candidate — the Pilot checker and its eight-test fail-closed
+  unit suite. A passing unit suite proves checker mechanics only; the live
+  GATE-01 command remains pending and is expected to refuse the incomplete
+  predicate and reduction evidence.
+
+This is software evidence only. No attended controller, camera, motion, Pen,
+paper, operator-click, or observed-ink validation occurred. No remote-Git
+action, Blackdog landing, canonical-`main` cleanup, or GATE-01 continuation
+decision is claimed.
+
 ## Drawing run episode cutover candidate
 
 Integrated 2026-08-29 in Blackdog task `TASK-51550DB1`, attempt
@@ -17,7 +180,9 @@ task-local candidate: its authority/deletion implementation, corrected focused
 suite, same-critic correction-cycle acceptance, and all seven package gates are
 complete. Only Blackdog landing, canonical-`main` cleanup verification, and
 conditional successor-capsule creation remain pending and are not claimed.
-Migration remains incomplete and EA-09 has not been selected or dispatched.
+Migration remained incomplete; the statement that EA-09 had not been selected
+was accurate for the frozen EA-08B acceptance and is superseded by the current
+EA-09 section above.
 
 The candidate makes one actor-isolated `PlotterDrawingRunRuntime` the
 source-indexed Drawing Studio run authority. Every
@@ -177,9 +342,9 @@ Canonical routed-document dispositions for this EA-08B candidate:
 - Affected — `Scripts/check_episode_contract.py`: staged-complete candidate
   wording, corrected identities/evidence, conditional frontier, and ledger
   fingerprint.
-- Affected — `Scripts/test_episode_wave_capsule.py`: its task-local fixture now
-  derives EA-09 only as the conditional post-landing frontier; it does not
-  dispatch EA-09.
+- Affected — `Scripts/test_episode_wave_capsule.py`: its EA-08B fixture retains
+  the historical conditional-frontier fact while the current evidence now
+  records the selected EA-09 task separately.
 - Reviewed no change — `Scripts/check_episode_cutover.sh`: the five required
   EA-08B zero-match scans are already exact.
 - Reviewed no change — Document Routing (`docs/INDEX.md`), Episode Architecture
@@ -187,11 +352,11 @@ Canonical routed-document dispositions for this EA-08B candidate:
   Roadmap, Attended Hardware Runbook, and README: their routing, vocabulary,
   operator policy, physical procedure, and product boundaries remain accurate.
 
-The staged ledger mechanically derives EA-09 only as the conditional
-post-landing ordinary frontier. All EA-08B gates have passed; EA-09 may be
-selected only after Blackdog landing completes, canonical `main` is verified
-clean, and a successor capsule is generated there. EA-09 has not been selected
-or dispatched.
+For the frozen EA-08B acceptance, the staged ledger mechanically derived EA-09
+only as the conditional post-landing ordinary frontier. All EA-08B gates had
+passed, but EA-09 selection still awaited Blackdog landing, clean canonical
+`main`, and successor-capsule generation. The current section above supersedes
+that historical frontier state with the task-local complete, unlanded EA-09 candidate.
 
 ## Drawing draft episode cutover candidate
 
@@ -1100,7 +1265,8 @@ select or dispatch EA-07.
 | --- | --- | --- | --- |
 | EA-06 | `TASK-FE9C9CB3` | `DOC`=rerun-required, `DIFF`=rerun-required, `QUICK`=rerun-required, `JOURNEY`=passed, `STRICT`=rerun-required, `MOTION`=passed, `DELETE`=passed | The exact frozen tree passed all seven gates. Refresh affected `DOC`, `DIFF`, `QUICK`, and `STRICT` on this final evidence candidate as part of Blackdog landing, then replace this staged candidate with ordinary passed evidence after canonical `main` is verified clean; `CITED_RACE_CLOSED` already closes the critic boundary and no further critic is required or allowed. |
 | EA-08A | `TASK-5700F7F5` | `DOC`=passed, `DIFF`=passed, `QUICK`=passed, `STRICT`=passed, `DRAW-DRAFT`=passed, `DELETE`=passed | All six package gates passed: `DRAW-DRAFT` 17/17, `DELETE` 4/4, `DOC` 29/29, clean `DIFF`, `QUICK` 720/720, and `STRICT` 727/727 plus strict-concurrency warnings-as-errors, signing, launcher, negative-bundle, and documentation checks. Earlier failed/interrupted invocations remain nonpass history. The original critic result is `RETASK`; its corrected three-finding delta recheck ended exactly `UNANIMOUS PASS — no material disagreement`, so criticism is closed. Blackdog landing, canonical-`main` cleanup verification, and conditional EA-08B successor-capsule creation remain pending. No landing or cleanup is claimed. |
-| EA-08B | `TASK-51550DB1` | `DOC`=passed, `DIFF`=passed, `QUICK`=passed, `JOURNEY`=passed, `STRICT`=passed, `DRAW-RUN`=passed, `DELETE`=passed | All seven package gates passed: `DOC` 29/29 in 11.35 seconds, clean `DIFF`, `QUICK` 730/730 in 15.19 seconds, `JOURNEY` 7/7 in 6.32 seconds, `STRICT` 737/737 plus 29/29 docs in approximately 112.10 seconds, `DRAW-RUN` 12/12 in 0.343 seconds, and `DELETE` 5/5 in 0.10 seconds. The sole fresh critic's original verdict was `RETASK`; its correction-cycle-1 exact final verdict was `UNANIMOUS PASS — no material disagreement`, so criticism is closed and no new, full, or post-pass critic is required or allowed. Only Blackdog landing, canonical-`main` cleanup verification, and conditional EA-09 successor-capsule creation remain pending. EA-09 is not selected or dispatched. |
+| EA-08B | `TASK-51550DB1` | `DOC`=passed, `DIFF`=passed, `QUICK`=passed, `JOURNEY`=passed, `STRICT`=passed, `DRAW-RUN`=passed, `DELETE`=passed | All seven package gates passed: `DOC` 29/29 in 11.35 seconds, clean `DIFF`, `QUICK` 730/730 in 15.19 seconds, `JOURNEY` 7/7 in 6.32 seconds, `STRICT` 737/737 plus 29/29 docs in approximately 112.10 seconds, `DRAW-RUN` 12/12 in 0.343 seconds, and `DELETE` 5/5 in 0.10 seconds. The sole fresh critic's original verdict was `RETASK`; its correction-cycle-1 exact final verdict was `UNANIMOUS PASS — no material disagreement`, so criticism is closed and no new, full, or post-pass critic is required or allowed. Only Blackdog landing, canonical-`main` cleanup verification, and conditional EA-09 successor-capsule creation remained pending at that frozen acceptance. The current first section supersedes that frontier with task-local complete EA-09. |
+| EA-09 | `TASK-D55FD455` | `DOC`=passed, `DIFF`=passed, `QUICK`=passed, `JOURNEY`=passed, `STRICT`=passed, `UI`=passed, `DELETE`=passed | All seven package gates passed: `DOC` 29/29 in a final real 14.82 seconds, clean `DIFF` in a real 0.05 seconds, `QUICK` 750/750 after 15.778 seconds in a real 18.22 seconds, `JOURNEY` 7/7 after 7.347 seconds in a real 8.66 seconds, `STRICT` 757/757 plus 29/29 docs in a real 141.81 seconds, `UI` 17/17 after 0.093 seconds in a final real 85.36 seconds, and `DELETE` 16/16 plus topology validation in a real 0.45 seconds. The initial and correction-cycle-1 verdicts were `RETASK`; correction-cycle-2 ended exactly `UNANIMOUS PASS — no material disagreement`. After the authorized exceptional test-only gate repair, production source remained unchanged, five stale integration-test files were repaired, the same critic's exceptional delta verdict was exactly `UNANIMOUS PASS — no material disagreement`, and the final gates passed. Criticism is closed and no new or post-pass critic occurred. Only Blackdog landing and canonical-`main` cleanup verification remain for EA-09; GATE-01 remains separately pending with its Pilot predicates and reduction metrics unproved. No attended physical or remote-Git validation occurred or is claimed. |
 
 Canonical routed-document review dispositions for the EA-06 evidence integration:
 
@@ -1170,6 +1336,9 @@ its focused authority suite remains correction evidence, not an additional
 package gate. EA-08A has all six package gates passed and a closed same-critic
 delta. EA-08B has all seven package gates passed and a closed same-critic
 correction cycle. Earlier failed or interrupted invocations remain nonpass history.
+EA-09 has all seven package gates passed, two exact same-critic acceptance
+verdicts over its final source and exceptional test-repair deltas, and remains
+an explicitly unlanded candidate; GATE-01 remains pending.
 Detailed scope and limitations remain in the
 named evidence sections.
 
@@ -1407,9 +1576,10 @@ projection/adaptation boundary: it copies `PlotterEpisodeProjection`, converts
 an accepted cap sample into the existing `PenCapAppearanceSelection`, and hands
 it to the retained camera/Vision reconfiguration path. Its
 `learningModePresentation` is projection-only. The remaining direct SwiftUI
-`UI.learningModePresentation` consumer is retained under inventory item UI-008
-for the future EA-09 presentation cutover and owns no semantic or guard
-authority.
+`UI.learningModePresentation` consumer was retained under inventory item UI-008
+for the then-future EA-09 presentation cutover and owned no semantic or guard
+authority. The current EA-09 candidate supersedes that direct consumer with the
+aggregate `PlotterUIProjection` described above.
 
 `PointSelectionPresentationContext`, its copied request/admission comparison, and the Task-returning app cancellation helper are deleted.
 `submitCurrentPenCapPoint` and `OperatorWorkspace.awaitPenCapAcceptedClickTransition` are also deleted; focused tests use generic point submissions and bounded observable-state waits.
@@ -1562,14 +1732,19 @@ package version, and exact deterministic reassembly agree. It
 proves only deterministic versioned byte integrity and canonical reassembly; it does not
 certify or revalidate the source recording's store-owned truth.
 
-This Foundation service has no product or application caller and is not a
-package product. It adds no UI, app ingress, artifact store, filesystem adapter,
+At the EA-05C landing this Foundation service had no product or application caller
+and was not a package product. It added no UI, app ingress, artifact store, filesystem adapter,
 device port, `MachineLink`, controller/camera/Vision operation, effect execution,
 permit, Stop/cancellation owner, recording owner, replay owner, journal owner,
 evidence acceptance owner, or current-authority transfer. In particular, it
-does not implement the later EA-09 UI request/progress/result presentation and
-does not prove that referenced bytes exist or that any controller, camera,
+did not implement the then-later EA-09 UI request/progress/result presentation and
+did not prove that referenced bytes exist or that any controller, camera,
 motion, Pen, paper, click, or ink event occurred.
+
+The current EA-09 candidate preserves that unbound assembler while adding the
+bounded App presentation wrapper and truthful unavailable-source lifecycle
+described in the first section; it still adds no export backend or physical
+claim.
 
 The accepted source and focused-test slice passed
 `swift test --filter PlotterIncidentPackageTests`: 23/23 tests passed, exit 0,

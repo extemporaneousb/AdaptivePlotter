@@ -1,7 +1,9 @@
 import AppKit
+import PlotterEpisodeModel
 import PlotterEpisodeRuntime
 import PlotterModel
 import PlotterRuntime
+import PlotterUI
 import SwiftUI
 
 @MainActor
@@ -18,6 +20,9 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
       machineActions: MachineSessionComposition.actions,
       cameraActions: CameraComposition.actions
     )
+    let incidentPackageUIService = PlotterIncidentPackageUIService(
+      sourceProvider: PlotterIncidentPackageUIUnavailableSourceProvider()
+    )
     workspace = OperatorWorkspace(
       machineActions: MachineSessionComposition.actions,
       cameraActions: CameraComposition.actions,
@@ -29,6 +34,7 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
       acceptedLearningPathCheckpointActions: AcceptedArtifactCheckpointComposition.actions,
       drawingDraftRuntime: PaperCoverageComposition.drawingDraftRuntime,
       drawingRunComposition: drawingRunComposition,
+      incidentPackageUIService: incidentPackageUIService,
       tipCalibrationSemanticIdentities: TipCalibrationSemanticIdentityComposition.state,
       persistPaperInstanceRevision: {
         TipCalibrationSemanticIdentityComposition.persistPaperInstance($0)
@@ -232,17 +238,26 @@ struct OperatorWorkspaceView: View {
   )
   @State private var layout = WorkbenchLayoutState()
   @State private var actionSurfaceViewport = ActionSurfaceViewportState()
+  @State private var manualMotionDraft = ManualMotionDraft()
+  @State private var pendingDrawingPlacement: PlotterDrawingDraftCameraPlacement?
+  @State private var pendingPointSelection: PlotterPointSelectionSubmission?
   private let videoSettingsPolicy = VideoSettingsVisibilityPolicy()
 
   var body: some View {
-    let actionSurfacePresentation = workspace.actionSurfacePresentation
-    let exercisePaneProtection = workspace.exercisePaneProtectionPresentation
-    let learningMode = workspace.learningModePresentation
-    let learningProjection =
-      workspace.learningIsEnabled
-        && (layout.panes.navigatorIsPresented || layout.panes.exerciseDetailIsPresented)
-      ? workspace.learningPathProjection(selectedItemID: selection.selected)
-      : nil
+    let ui = workspace.plotterUIProjection(
+      selectedItemID: selection.selected,
+      manualDraft: manualMotionDraft,
+      includesLearningPath:
+        layout.panes.navigatorIsPresented || layout.panes.exerciseDetailIsPresented,
+      pendingDrawingPlacement: pendingDrawingPlacement,
+      pendingPointSelection: pendingPointSelection
+    )
+    let actionSurfacePresentation = ui.actionSurface
+    let exercisePaneProtection = ui.exercisePaneProtection
+    let learningMode = ui.learningMode
+    let learningProjection = ui.learningPath
+    let motionCollapseUnavailableReason = ui.manualMotion.stopAction == nil
+      ? nil : "Stop the active manual jog before hiding its Stop control."
 
     GeometryReader { proxy in
       let exerciseCollapseReason =
@@ -253,13 +268,15 @@ struct OperatorWorkspaceView: View {
         exerciseDetailMustRemainVisible: exercisePaneProtection.mustRemainVisible
       )
       HSplitView {
-        if workspace.learningIsEnabled, layout.panes.navigatorIsPresented,
+        if ui.learningIsEnabled, layout.panes.navigatorIsPresented,
           let learningProjection
         {
           LearningPathNavigator(
-            workspace: workspace,
             selection: $selection,
             projection: learningProjection,
+            currentLearningPathItemID: ui.currentLearningPathItemID,
+            plotterUIProjection: ui.semantic,
+            plotterUIIntentSink: workspace,
             close: { layout = layout.toggling(.navigator) }
           )
           .frame(minWidth: 220, idealWidth: 280, maxWidth: 440)
@@ -276,13 +293,12 @@ struct OperatorWorkspaceView: View {
             learningActionTitle: learningMode.actionTitle,
             learningModeRemedy: learningMode.remedy,
             learningRecordingDiagnostic: learningMode.recordingDiagnostic,
-            drawingStudioIsAvailable: workspace.interactiveLearningIsComplete,
-            drawingStudioIsPresented: workspace.drawingStudioIsPresented,
-            drawingStudioChangeUnavailableReason:
-              workspace.drawingStudioPanelChangeUnavailableReason,
-            learningModeIntentSink: workspace,
-            drawingDraftIntentSink: workspace,
-            drawingDraftProjection: workspace.drawingDraftSnapshot.projection,
+            drawingStudioIsAvailable: ui.workbenchCapability.drawingStudioIsAvailable,
+            drawingStudioIsPresented: ui.drawingStudioIsPresented,
+            drawingStudioChangeUnavailableReason: ui.drawingStudioPanelChangeUnavailableReason,
+            incidentPackage: ui.incidentPackage,
+            plotterUIProjection: ui.semantic,
+            plotterUIIntentSink: workspace,
             togglePane: { pane in
               layout = layout.toggling(pane)
             },
@@ -299,9 +315,10 @@ struct OperatorWorkspaceView: View {
             ActionSurface(
               presentation: actionSurfacePresentation,
               viewport: $actionSurfaceViewport,
-              pointSelectionIntentSink: workspace,
-              drawingDraftIntentSink: workspace,
-              completedComparisonReviewIntentSink: workspace
+              plotterUIProjection: ui.semantic,
+              plotterUIIntentSink: workspace,
+              pendingDrawingPlacement: $pendingDrawingPlacement,
+              pendingPointSelection: $pendingPointSelection
             )
             .frame(
               minWidth: LearningWorkbenchLayoutPolicy.minimumActionSurfaceWidth,
@@ -312,6 +329,11 @@ struct OperatorWorkspaceView: View {
               ScrollView {
                 MotionPanel(
                   workspace: workspace,
+                  draft: $manualMotionDraft,
+                  presentation: ui.manualMotion,
+                  learningIsEnabled: ui.learningIsEnabled,
+                  plotterUIProjection: ui.semantic,
+                  plotterUIIntentSink: workspace,
                   close: { layout = layout.toggling(.motion) },
                   closeUnavailableReason: motionCollapseUnavailableReason
                 )
@@ -328,25 +350,20 @@ struct OperatorWorkspaceView: View {
           maxHeight: .infinity
         )
 
-        if workspace.drawingStudioIsPresented {
+        if ui.drawingStudioIsPresented {
           VStack(spacing: 0) {
             HStack {
               Text("Drawing Studio").font(.headline)
               Spacer()
               Button {
-                workspace.submitDrawingDraft(
-                  PlotterDrawingDraftSubmission(
-                    projection: workspace.drawingDraftSnapshot.projection,
-                    intent: .close
-                  )
-                )
+                submitPlotterUIAction(PlotterAppUIActionID.drawingClose, in: ui.semantic)
               } label: {
                 Image(systemName: "xmark")
               }
               .buttonStyle(.plain)
-              .disabled(workspace.drawingStudioPanelChangeUnavailableReason != nil)
+              .disabled(ui.drawingStudioPanelChangeUnavailableReason != nil)
               .help(
-                workspace.drawingStudioPanelChangeUnavailableReason
+                ui.drawingStudioPanelChangeUnavailableReason
                   ?? "Close Drawing Studio"
               )
             }
@@ -354,18 +371,16 @@ struct OperatorWorkspaceView: View {
 
             Divider()
             VStack(alignment: .leading, spacing: 8) {
-              Text(workspace.workbenchCapabilityPresentation.paper.title)
+              Text(ui.workbenchCapability.paper.title)
                 .font(.subheadline.bold())
-              Text(workspace.workbenchCapabilityPresentation.paper.detail)
+              Text(ui.workbenchCapability.paper.detail)
                 .font(.caption)
                 .foregroundStyle(.secondary)
               HStack {
                 Button("Assert Sheet Covers Outline") {
-                  workspace.submitDrawingDraft(
-                    PlotterDrawingDraftSubmission(
-                      projection: workspace.drawingDraftSnapshot.projection,
-                      intent: .assertPaperCoverage
-                    )
+                  submitPlotterUIAction(
+                    PlotterAppUIActionID.drawingDraft(.assertPaperCoverage),
+                    in: ui.semantic
                   )
                 }
                 .operatorButton(.affirmative)
@@ -389,9 +404,9 @@ struct OperatorWorkspaceView: View {
             Divider()
             ScrollView {
               DrawingStudioView(
-                presentation: workspace.drawingStudioPresentation,
-                drawingDraftIntentSink: workspace,
-                drawingRunIntentSink: workspace
+                presentation: ui.drawingStudio,
+                plotterUIProjection: ui.semantic,
+                plotterUIIntentSink: workspace
               )
             }
           }
@@ -399,13 +414,15 @@ struct OperatorWorkspaceView: View {
           .background(Color(nsColor: .controlBackgroundColor))
         }
 
-        if workspace.learningIsEnabled, layout.panes.exerciseDetailIsPresented,
+        if ui.learningIsEnabled, layout.panes.exerciseDetailIsPresented,
           let learningProjection
         {
           LearningPathView(
-            workspace: workspace,
             selection: $selection,
             projection: learningProjection,
+            currentLearningPathItemID: ui.currentLearningPathItemID,
+            plotterUIProjection: ui.semantic,
+            plotterUIIntentSink: workspace,
             close: { layout = layout.toggling(.exerciseDetail) },
             closeUnavailableReason: exerciseCollapseReason
           )
@@ -440,13 +457,13 @@ struct OperatorWorkspaceView: View {
         max: OverlayCardLayoutPolicy.maximumInspectorWidth
       )
     }
-    .onChange(of: workspace.currentLearningPathItemID, initial: true) { _, itemID in
+    .onChange(of: ui.currentLearningPathItemID, initial: true) { _, itemID in
       selection.updateCurrent(itemID)
     }
     .toolbar {
       WorkbenchToolbar(
         workspace: workspace,
-        capabilityPresentation: workspace.workbenchCapabilityPresentation
+        capabilityPresentation: ui.workbenchCapability
       )
     }
     .toolbarRole(.editor)
@@ -462,9 +479,12 @@ struct OperatorWorkspaceView: View {
     return "Finish or cancel the active exercise attempt before hiding its controls."
   }
 
-  private var motionCollapseUnavailableReason: String? {
-    workspace.manualMotionEpisodePresentation.stopAction == nil
-      ? nil : "Stop the active manual jog before hiding its Stop control."
+  private func submitPlotterUIAction(
+    _ actionID: PlotterUIActionID,
+    in projection: PlotterUIProjection
+  ) {
+    guard let request = projection.request(for: actionID) else { return }
+    Task { _ = await workspace.submitPlotterUIRequest(request) }
   }
 
   private func performVideoSettingsAction(
@@ -499,16 +519,16 @@ private struct WorkbenchPaneControls: View {
   let drawingStudioIsAvailable: Bool
   let drawingStudioIsPresented: Bool
   let drawingStudioChangeUnavailableReason: String?
-  let learningModeIntentSink: any PlotterLearningModeIntentSink
-  let drawingDraftIntentSink: any PlotterDrawingDraftIntentSink
-  let drawingDraftProjection: PlotterDrawingDraftProjectionReference
+  let incidentPackage: PlotterUIIncidentPackageState
+  let plotterUIProjection: PlotterUIProjection
+  let plotterUIIntentSink: any PlotterUIIntentSink
   let togglePane: (WorkbenchPane) -> Void
   let performVideoSettingsAction: (VideoSettingsVisibilityAction) -> Void
 
   var body: some View {
     HStack(spacing: 8) {
       Button {
-        learningModeIntentSink.submitLearningModeChange()
+        submit(PlotterAppUIActionID.learningMode)
       } label: {
         Label(
           learningActionTitle,
@@ -537,11 +557,9 @@ private struct WorkbenchPaneControls: View {
       }
       if drawingStudioIsAvailable {
         Button {
-          drawingDraftIntentSink.submitDrawingDraft(
-            PlotterDrawingDraftSubmission(
-              projection: drawingDraftProjection,
-              intent: drawingStudioIsPresented ? .close : .open
-            )
+          submit(
+            drawingStudioIsPresented
+              ? PlotterAppUIActionID.drawingClose : PlotterAppUIActionID.drawingOpen
           )
         } label: {
           Label(
@@ -557,6 +575,19 @@ private struct WorkbenchPaneControls: View {
             ?? "Select, place, resize, preview, and execute a drawing program."
         )
       }
+      Button {
+        submit(PlotterAppUIActionID.incidentPackage)
+      } label: {
+        Label("Incident Package", systemImage: "shippingbox")
+      }
+      .operatorButton(isEnabled: incidentActionIsAvailable)
+      .controlSize(.small)
+      .help(incidentStatusText)
+      Label(incidentStatusText, systemImage: incidentStatusImage)
+        .font(.caption2)
+        .foregroundStyle(incidentStatusColor)
+        .lineLimit(1)
+        .help(incidentStatusText)
       if learningIsEnabled {
         paneButton(
           .navigator,
@@ -609,6 +640,48 @@ private struct WorkbenchPaneControls: View {
     )
     .controlSize(.small)
     .help(unavailableReason ?? title)
+  }
+
+  private func submit(_ actionID: PlotterUIActionID) {
+    guard let request = plotterUIProjection.request(for: actionID) else { return }
+    Task { _ = await plotterUIIntentSink.submitPlotterUIRequest(request) }
+  }
+
+  private var incidentActionIsAvailable: Bool {
+    plotterUIProjection.action(id: PlotterAppUIActionID.incidentPackage)?.isAvailable == true
+  }
+
+  private var incidentStatusImage: String {
+    switch incidentPackage {
+    case .available: "shippingbox"
+    case .loading: "hourglass"
+    case .completed: "checkmark.seal"
+    case .unavailable, .refused: "exclamationmark.triangle"
+    }
+  }
+
+  private var incidentStatusColor: Color {
+    switch incidentPackage {
+    case .completed: .green
+    case .available: .gray
+    case .loading: .blue
+    case .unavailable, .refused: .orange
+    }
+  }
+
+  private var incidentStatusText: String {
+    switch incidentPackage {
+    case .unavailable(let reason):
+      "Unavailable: \(reason)"
+    case .available:
+      "Exact incident source is available."
+    case .loading(let phase, let completed, let total):
+      "\(phase) (\(completed)/\(total))"
+    case .completed(let metadata):
+      "Complete: format \(metadata.formatVersion), \(metadata.encoding), \(metadata.exactByteCount) bytes, SHA-256 \(metadata.payloadSHA256), scope \(metadata.integrityScope), physical evidence \(metadata.physicalEvidenceClaimed)."
+    case .refused(let reason, let remedy):
+      "Refused: \(reason) Remedy: \(remedy)"
+    }
   }
 }
 
@@ -947,11 +1020,15 @@ extension PenCapColor {
 
 private struct MotionPanel: View {
   @Bindable var workspace: OperatorWorkspace
+  @Binding var draft: ManualMotionDraft
+  let presentation: ManualMotionPresentation
+  let learningIsEnabled: Bool
+  let plotterUIProjection: PlotterUIProjection
+  let plotterUIIntentSink: any PlotterUIIntentSink
   let close: () -> Void
   let closeUnavailableReason: String?
 
   var body: some View {
-    let presentation = workspace.manualMotionEpisodePresentation
     SectionPanel(
       title: "MANUAL RELATIVE MOTION",
       panel: .motion,
@@ -967,15 +1044,15 @@ private struct MotionPanel: View {
       HStack(spacing: 8) {
         numericField(
           ManualMotionPresentation.xDistanceLabel,
-          text: $workspace.manualMotionDraft.xDistanceMM
+          text: $draft.xDistanceMM
         )
         numericField(
           ManualMotionPresentation.yDistanceLabel,
-          text: $workspace.manualMotionDraft.yDistanceMM
+          text: $draft.yDistanceMM
         )
         numericField(
           ManualMotionPresentation.feedLabel,
-          text: $workspace.manualMotionDraft.feedMMPerMinute
+          text: $draft.feedMMPerMinute
         )
       }
 
@@ -991,7 +1068,7 @@ private struct MotionPanel: View {
 
       if let stop = presentation.stopAction {
         Button {
-          Task { await workspace.requestManualMotionStop(capabilityID: stop.capabilityID) }
+          submit(PlotterAppUIActionID.manualStop)
         } label: {
           Label(stop.title, systemImage: "stop.fill")
             .frame(maxWidth: .infinity)
@@ -1008,11 +1085,7 @@ private struct MotionPanel: View {
             .font(.caption)
             .foregroundStyle(.orange)
           Button {
-            Task {
-              await workspace.recoverManualMotionPublication(
-                capabilityID: recovery.capabilityID
-              )
-            }
+            submit(PlotterAppUIActionID.manualRecovery)
           } label: {
             Label(recovery.title, systemImage: "arrow.clockwise.circle.fill")
               .frame(maxWidth: .infinity)
@@ -1029,7 +1102,7 @@ private struct MotionPanel: View {
             .font(.caption)
             .foregroundStyle(.orange)
           Button {
-            Task { await workspace.resolveManualMotionEvidence(using: evidence.action) }
+            submit(PlotterAppUIActionID.manualEvidence)
           } label: {
             Label(evidence.title, systemImage: "checkmark.shield.fill")
               .frame(maxWidth: .infinity)
@@ -1042,7 +1115,7 @@ private struct MotionPanel: View {
 
       HStack(spacing: 6) {
         Button {
-          Task { await workspace.submitManualPen(.raise) }
+          submit(PlotterAppUIActionID.manualPenUp)
         } label: {
           Label("Pen Up", systemImage: "arrow.up.to.line")
         }
@@ -1050,7 +1123,7 @@ private struct MotionPanel: View {
           isEnabled: presentation.penUpUnavailableReason == nil
         )
         Button {
-          Task { await workspace.submitManualPen(.lower) }
+          submit(PlotterAppUIActionID.manualPenDown)
         } label: {
           Label("Pen Down", systemImage: "arrow.down.to.line")
         }
@@ -1104,7 +1177,7 @@ private struct MotionPanel: View {
       fact("Motion", workspace.motionGuardIsActive ? "enabled" : "disabled")
       fact("Motion request", workspace.motionPermissionText)
       fact("Manual mode", presentation.modeText)
-      fact("Learning", workspace.learningIsEnabled ? "on" : "off — manual operation")
+      fact("Learning", learningIsEnabled ? "on" : "off — manual operation")
       fact("MPos", workspace.machinePositionText)
       fact("Operation", workspace.currentOperationText)
       fact("Last outcome", workspace.lastMotionOutcomeText)
@@ -1131,16 +1204,30 @@ private struct MotionPanel: View {
     direction: JogDirection
   ) -> some View {
     Button {
-      Task { await workspace.submitManualJog(direction) }
+      submit(actionID(for: direction))
     } label: {
       Label(label, systemImage: systemImage)
         .frame(minWidth: 64, minHeight: 24)
     }
     .operatorButton(
-      isEnabled: workspace.manualMotionEpisodePresentation.jogControlsUnavailableReason == nil
+      isEnabled: presentation.jogControlsUnavailableReason == nil
     )
     .help(jogAccessibilityLabel(direction))
     .accessibilityLabel(jogAccessibilityLabel(direction))
+  }
+
+  private func submit(_ actionID: PlotterUIActionID) {
+    guard let request = plotterUIProjection.request(for: actionID) else { return }
+    Task { _ = await plotterUIIntentSink.submitPlotterUIRequest(request) }
+  }
+
+  private func actionID(for direction: JogDirection) -> PlotterUIActionID {
+    switch direction {
+    case .xNegative: PlotterAppUIActionID.manualXNegative
+    case .xPositive: PlotterAppUIActionID.manualXPositive
+    case .yNegative: PlotterAppUIActionID.manualYNegative
+    case .yPositive: PlotterAppUIActionID.manualYPositive
+    }
   }
 
   private func jogAccessibilityLabel(_ direction: JogDirection) -> String {

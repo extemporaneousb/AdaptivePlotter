@@ -375,7 +375,7 @@ struct PlotterIncidentPackageSource: Sendable {
   }
 }
 
-enum PlotterIncidentIdentityKind: String, Codable, Hashable, Sendable {
+public enum PlotterIncidentIdentityKind: String, Codable, Hashable, Sendable {
   case episode
   case manifest
   case definition
@@ -393,7 +393,7 @@ enum PlotterIncidentIdentityKind: String, Codable, Hashable, Sendable {
   case ownerRevision
 }
 
-enum PlotterIncidentRelationshipKind: String, Codable, Hashable, Sendable {
+public enum PlotterIncidentRelationshipKind: String, Codable, Hashable, Sendable {
   case manifestJournal
   case runtimeEpisode
   case userInterfaceEpisode
@@ -418,7 +418,7 @@ enum PlotterIncidentRelationshipKind: String, Codable, Hashable, Sendable {
   case possibleInkAmbiguity
 }
 
-enum PlotterIncidentBudgetSection: String, Codable, Hashable, Sendable {
+public enum PlotterIncidentBudgetSection: String, Codable, Hashable, Sendable {
   case journalEvents
   case recordingEntries
   case frameReferences
@@ -436,7 +436,7 @@ enum PlotterIncidentBudgetSection: String, Codable, Hashable, Sendable {
   case exportBytes
 }
 
-enum PlotterIncidentPackageRefusal: Error, Codable, Hashable, Sendable {
+public enum PlotterIncidentPackageRefusal: Error, Codable, Hashable, Sendable {
   case invalidBudget(PlotterIncidentBudgetSection, value: Int)
   case invalidIdentity(PlotterIncidentIdentityKind)
   case duplicateIdentifier(PlotterIncidentIdentityKind)

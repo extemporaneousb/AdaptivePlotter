@@ -746,7 +746,7 @@ struct PlotterDrawingDraftEpisodeTests {
     #expect(await harness.simulator.snapshot() == simulatorBefore)
     #expect(await harness.simulator.persistentInk() == inkBefore)
     #expect(workspace.visionAnalysisSnapshot == visionBefore)
-    let retainedRunSideEffect: Bool = switch workspace.drawingStudioPresentation.runState {
+    let retainedRunSideEffect: Bool = switch workspace.testDrawingStudioPresentation.runState {
     case .running, .processing, .terminal, .publicationFailed, .reviewAvailable, .reviewing: true
     case .unavailable, .ready: false
     }

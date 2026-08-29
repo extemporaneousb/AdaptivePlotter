@@ -823,7 +823,13 @@ struct PlotterIncidentPackageTests {
     ).filter { $0.pathExtension == "swift" }
       .map { try String(contentsOf: $0, encoding: .utf8) }
       .joined(separator: "\n")
-    #expect(!appSource.contains("PlotterIncidentPackage"))
+    for token in [
+      "PlotterIncidentPackageAssembler(",
+      "PlotterIncidentPackageExporter(",
+      "PlotterIncidentPackageSource(",
+    ] {
+      #expect(!appSource.contains(token), "Forbidden App incident authority token: \(token)")
+    }
   }
 }
 

@@ -5,6 +5,7 @@ import PlotterEpisodeModel
 import PlotterEpisodeRuntime
 import PlotterModel
 import PlotterRuntime
+import PlotterUI
 
 enum FixedCameraOpticalSettlingPolicy {
   // The C920 mount can wobble by more than one integer pixel after carriage
@@ -779,7 +780,8 @@ struct LearningModePresentation: Hashable, Sendable {
 private final class LearningPresentationBase {
   let revision: UInt64
   let cameraIsLive: Bool
-  let snapshot: LearningPathProjectionSnapshot
+  let snapshot: PlotterLearningPresentationFacts
+  let actionability: PlotterUILearningActionabilityProjection
   let currentItemID: LearningPathItemID
   let currentProjection: LearningPathProjection
   let exercisePaneProtection: ExercisePaneProtectionPresentation
@@ -787,13 +789,15 @@ private final class LearningPresentationBase {
   init(
     revision: UInt64,
     cameraIsLive: Bool,
-    snapshot: LearningPathProjectionSnapshot,
+    snapshot: PlotterLearningPresentationFacts,
+    actionability: PlotterUILearningActionabilityProjection,
     currentItemID: LearningPathItemID,
     currentProjection: LearningPathProjection
   ) {
     self.revision = revision
     self.cameraIsLive = cameraIsLive
     self.snapshot = snapshot
+    self.actionability = actionability
     self.currentItemID = currentItemID
     self.currentProjection = currentProjection
     exercisePaneProtection = ExercisePaneProtectionPresentation(
@@ -818,7 +822,7 @@ private struct LearningVacatePlans {
   let resetAllPlan: LearningVacatePlan
 }
 
-private extension LearningPathProjectionSnapshot {
+private extension PlotterLearningPresentationFacts {
   func replacingReset(_ reset: ResetFacts) -> Self {
     Self(
       source: source,
@@ -855,12 +859,10 @@ private struct ActionSurfaceDiagnosticSignature: Equatable {
 @MainActor
 @Observable
 final class OperatorWorkspace:
-  PlotterLearningModeIntentSink,
+  PlotterUIIntentSink,
   PlotterLearningActivityFactProviding,
-  CompletedComparisonReviewIntentSink,
   PlotterDrawingDraftIntentSink,
   PlotterDrawingRunIntentSink,
-  PlotterPointSelectionIntentSink,
   PlotterPointSelectionContinuationPort
 {
   private enum ExerciseAttemptMode: Equatable, Sendable {
@@ -1145,12 +1147,6 @@ final class OperatorWorkspace:
     static let boundaryFeedMMPerMinute = 500.0
   }
 
-  struct ManualMotionDraft: Hashable, Sendable {
-    var xDistanceMM = MotionPriors.stepMM
-    var yDistanceMM = MotionPriors.stepMM
-    var feedMMPerMinute = MotionPriors.feedMMPerMinute
-  }
-
   struct MachineActions: Sendable {
     let select: @Sendable (MachineLinkDescriptor) async throws -> RunInterpreterSnapshot
     let snapshot: @Sendable () async -> RunInterpreterSnapshot?
@@ -1315,14 +1311,6 @@ final class OperatorWorkspace:
       markSemanticPresentationChanged()
     }
   }
-  // One UI draft preserves partially typed values. Typed intent construction
-  // and the episode/runtime/controller layers own admission and validity.
-  var manualMotionDraft = ManualMotionDraft() {
-    didSet {
-      guard oldValue != manualMotionDraft else { return }
-      markSemanticPresentationChanged()
-    }
-  }
   var learningIsEnabled: Bool { pointSelectionEpisodeProjection.learningIsEnabled }
   var drawingStudioIsPresented: Bool { drawingDraftSnapshot.isOpen }
 
@@ -1400,6 +1388,10 @@ final class OperatorWorkspace:
     LearningActionStripDiagnosticSignature?
   @ObservationIgnored private var lastActionSurfaceDiagnosticSignature:
     ActionSurfaceDiagnosticSignature?
+  @ObservationIgnored private var currentPlotterUIProjection: PlotterUIProjection?
+  @ObservationIgnored private var currentPlotterUIBindingSemanticRevision: UInt64?
+  @ObservationIgnored private var currentPlotterUIResetPlans:
+    [PlotterUIActionID: LearningVacatePlan] = [:]
   @ObservationIgnored private var pendingPenSetpointCommand: PenCommand?
   @ObservationIgnored private var penSetpointActuationTask: Task<Void, Never>?
   @ObservationIgnored private var activeLearningActionTask: Task<Void, Never>?
@@ -1894,6 +1886,7 @@ final class OperatorWorkspace:
   @ObservationIgnored private let manualMotionRuntime: PlotterManualMotionRuntime
   @ObservationIgnored private let drawingDraftRuntime: PlotterDrawingDraftRuntime
   @ObservationIgnored private let drawingRunRuntime: PlotterDrawingRunRuntime
+  @ObservationIgnored private let incidentPackageUIService: PlotterIncidentPackageUIService
   @ObservationIgnored private let drawingRunFactSource: OperatorWorkspaceDrawingRunFactSource
   @ObservationIgnored private let drawingRunInterpreterPort:
     OperatorWorkspaceDrawingRunInterpreterPort
@@ -1909,6 +1902,14 @@ final class OperatorWorkspace:
   @ObservationIgnored private let drawingEvidencePort: DrawingRunEvidencePort
   private var drawingEvidenceArchive = DrawingRunEvidenceArchive()
   private(set) var drawingEvidenceError: String?
+  private(set) var incidentPackageUIState: PlotterUIIncidentPackageState = .unavailable(
+    reason: "No complete incident-package source provider is configured."
+  ) {
+    didSet {
+      guard oldValue != incidentPackageUIState else { return }
+      markSemanticPresentationChanged(invalidatesActionSurface: false)
+    }
+  }
   private var activeAcceptedLearningPathCheckpointActions:
     AcceptedLearningPathCheckpointActions?
   {
@@ -2032,6 +2033,7 @@ final class OperatorWorkspace:
     acceptedLearningPathCheckpointActions: AcceptedLearningPathCheckpointActions? = nil,
     drawingDraftRuntime: PlotterDrawingDraftRuntime,
     drawingRunComposition: PlotterDrawingRunComposition,
+    incidentPackageUIService: PlotterIncidentPackageUIService,
     tipCalibrationSemanticIdentities: TipCalibrationSemanticIdentityState = .ephemeral(),
     persistPaperInstanceRevision: @escaping @Sendable (PaperInstanceRevision) -> Void = { _ in },
     persistPaperContactPlaneRevision: @escaping @Sendable (PaperContactPlaneRevision) -> Void = {
@@ -2098,6 +2100,7 @@ final class OperatorWorkspace:
     }
     self.drawingDraftRuntime = drawingDraftRuntime
     drawingRunRuntime = drawingRunComposition.runtime
+    self.incidentPackageUIService = incidentPackageUIService
     drawingRunFactSource = drawingRunComposition.factSource
     drawingRunInterpreterPort = drawingRunComposition.interpreter
     drawingRunCameraPort = drawingRunComposition.camera
@@ -3551,7 +3554,7 @@ final class OperatorWorkspace:
   }
 
   var motionPermissionText: String {
-    manualMotionEpisodePresentation.jogControlsUnavailableReason == nil
+    manualMotionRuntimePresentation.jogControlsUnavailableReason == nil
       ? "request eligible" : "unavailable"
   }
 
@@ -4212,7 +4215,7 @@ final class OperatorWorkspace:
     learningPresentationBase().currentProjection.contextualStop
   }
 
-  var manualMotionEpisodePresentation: ManualMotionPresentation {
+  func manualMotionEpisodePresentation(for draft: ManualMotionDraft) -> ManualMotionPresentation {
     let activeIntent = manualMotionEpisodeSnapshot?.activeOperation?.intent
     let publicationRecovery = manualMotionPublicationRecoveryPresentation
     let evidenceDisposition = manualMotionEvidenceDispositionPresentation
@@ -4234,9 +4237,9 @@ final class OperatorWorkspace:
       )
     } : nil
     let pendingReason = publicationRecovery?.remedy ?? evidenceDisposition?.remedy
-    let draftReason = pendingReason ?? manualMotionDraftUnavailableReason
+    let draftReason = pendingReason ?? manualMotionDraftUnavailableReason(for: draft)
     let jogReason = draftReason ?? manualMotionRequirementReason(
-      for: .jog(manualJogRequestPrototype())
+      for: .jog(manualJogRequestPrototype(draft: draft))
     )
     let penUpReason = pendingReason ?? manualMotionRequirementReason(
       for: .setPen(manualPenRequest(position: .raised))
@@ -4255,6 +4258,10 @@ final class OperatorWorkspace:
       modeText: manualEpisodeModeText,
       recordingDiagnostic: manualMotionEpisodeSnapshot?.recordingDiagnostic
     )
+  }
+
+  private var manualMotionRuntimePresentation: ManualMotionPresentation {
+    manualMotionEpisodePresentation(for: ManualMotionDraft())
   }
 
   func requestManualMotionStop(
@@ -4290,7 +4297,7 @@ final class OperatorWorkspace:
   }
 
   var motionRequestStatusPresentation: MotionRequestStatusPresentation {
-    if let reason = manualMotionEpisodePresentation.attentionReason {
+    if let reason = manualMotionRuntimePresentation.attentionReason {
       return .needsAttention(reason)
     }
     if frameMode == .simulated {
@@ -4300,7 +4307,7 @@ final class OperatorWorkspace:
       {
         return .busy(currentOperationText)
       }
-      if let reason = manualMotionEpisodePresentation.jogControlsUnavailableReason {
+      if let reason = manualMotionRuntimePresentation.jogControlsUnavailableReason {
         return .unavailable(reason)
       }
       return .ready
@@ -4315,7 +4322,7 @@ final class OperatorWorkspace:
     {
       return .busy(currentOperationText)
     }
-    if let reason = manualMotionEpisodePresentation.jogControlsUnavailableReason {
+    if let reason = manualMotionRuntimePresentation.jogControlsUnavailableReason {
       return .unavailable(reason)
     }
     return .ready
@@ -4419,9 +4426,14 @@ final class OperatorWorkspace:
     }
     computationDiagnostics.learningProjectionBuildCount += 1
     computationDiagnostics.selectedLearningProjectionBuildCount += 1
-    let projection = LearningPathProjector().project(
+    let actionability = PlotterLearningActionabilityFactAdapter().compile(
       base.snapshot,
       selectedItemID: selectedItemID
+    )
+    let projection = PlotterLearningDetailedPresentationNormalizer().project(
+      base.snapshot,
+      selectedItemID: selectedItemID,
+      actionability: actionability
     )
     selectedLearningProjectionCache = SelectedLearningProjectionCache(
       revision: base.revision,
@@ -4432,6 +4444,680 @@ final class OperatorWorkspace:
     return projection
   }
 
+  func plotterUIProjection(
+    selectedItemID: LearningPathItemID,
+    manualDraft: ManualMotionDraft,
+    includesLearningPath: Bool,
+    pendingDrawingPlacement: PlotterDrawingDraftCameraPlacement? = nil,
+    pendingPointSelection: PlotterPointSelectionSubmission? = nil
+  ) -> PlotterAppUIProjection {
+    let learningPath = includesLearningPath
+      ? learningPathProjection(selectedItemID: selectedItemID) : nil
+    let currentLearning = learningPresentationBase()
+    let manual = manualMotionEpisodePresentation(for: manualDraft)
+    let drawing = drawingStudioPresentation
+    var candidates: [PlotterUIActionCandidate] = []
+    candidates.append(uiCandidate(
+      id: PlotterAppUIActionID.learningMode,
+      title: learningModePresentation.actionTitle,
+      intent: .learning(.setEnabled(!learningIsEnabled)),
+      unavailableReason: learningModePresentation.remedy,
+      owner: "PlotterPointSelectionRuntime"
+    ))
+    candidates.append(contentsOf: manualUIActions(draft: manualDraft, presentation: manual).map {
+      uiCandidate(action: $0, owner: "PlotterManualMotionRuntime")
+    })
+    if let pendingPointSelection {
+      candidates.append(uiCandidate(
+        id: PlotterAppUIActionID.pointSelection(pendingPointSelection),
+        title: "Apply exact-frame Learning point",
+        intent: .pointSelection(pendingPointSelection),
+        unavailableReason: nil,
+        owner: "PlotterPointSelectionRuntime"
+      ))
+    }
+    candidates.append(uiCandidate(
+      id: drawingStudioIsPresented
+        ? PlotterAppUIActionID.drawingClose : PlotterAppUIActionID.drawingOpen,
+      title: drawingStudioIsPresented ? "Close Drawing Studio" : "Open Drawing Studio",
+      intent: .drawingDraft(drawingStudioIsPresented ? .close : .open),
+      unavailableReason: drawingStudioPanelChangeUnavailableReason,
+      owner: "PlotterDrawingDraftRuntime"
+    ))
+    if drawingStudioIsPresented {
+      candidates.append(contentsOf: drawing.catalog.map { item in
+        let intent = PlotterDrawingDraftIntent.selectCatalogItem(item.id)
+        return uiCandidate(
+          id: PlotterAppUIActionID.drawingDraft(intent),
+          title: "Select \(item.title)",
+          intent: .drawingDraft(intent),
+          unavailableReason: drawing.editingIsEnabled ? nil : drawing.runState.detail,
+          owner: "PlotterDrawingDraftRuntime"
+        )
+      })
+      candidates.append(contentsOf: DrawingTrialEvidenceRole.allCases.map { role in
+        let intent = PlotterDrawingDraftIntent.setEvidenceRole(role)
+        return uiCandidate(
+          id: PlotterAppUIActionID.drawingDraft(intent),
+          title: "Set evidence role \(role.rawValue)",
+          intent: .drawingDraft(intent),
+          unavailableReason: drawing.editingIsEnabled ? nil : drawing.runState.detail,
+          owner: "PlotterDrawingDraftRuntime"
+        )
+      })
+      let centerIntent = PlotterDrawingDraftIntent.centerInDrawableRegion
+      candidates.append(uiCandidate(
+        id: PlotterAppUIActionID.drawingDraft(centerIntent),
+        title: "Center Target",
+        intent: .drawingDraft(centerIntent),
+        unavailableReason: drawing.editingIsEnabled ? nil : drawing.runState.detail,
+        owner: "PlotterDrawingDraftRuntime"
+      ))
+      if let pendingDrawingPlacement {
+        let placementIntent = PlotterDrawingDraftIntent.placeAtCameraPoint(
+          pendingDrawingPlacement
+        )
+        candidates.append(uiCandidate(
+          id: PlotterAppUIActionID.drawingDraft(placementIntent),
+          title: "Apply exact-frame drawing placement",
+          intent: .drawingDraft(placementIntent),
+          unavailableReason: drawing.canvas.placement.placementIsEnabled
+            ? nil : drawing.runState.detail,
+          owner: "PlotterDrawingDraftRuntime"
+        ))
+      }
+      let paperIntent = PlotterDrawingDraftIntent.assertPaperCoverage
+      candidates.append(uiCandidate(
+        id: PlotterAppUIActionID.drawingDraft(paperIntent),
+        title: "Assert sheet covers outline",
+        intent: .drawingDraft(paperIntent),
+        unavailableReason: paperManagementUnavailableReason,
+        owner: "PlotterDrawingDraftRuntime"
+      ))
+      let minimumScaleStep = Int(ceil(drawing.canvas.placement.allowedScale.lowerBound * 100))
+      let maximumScaleStep = Int(floor(drawing.canvas.placement.allowedScale.upperBound * 100))
+      if minimumScaleStep <= maximumScaleStep {
+        candidates.append(contentsOf: (minimumScaleStep...maximumScaleStep).prefix(2_000).map {
+          scaleStep in
+          let intent = PlotterDrawingDraftIntent.setUniformScale(Double(scaleStep) / 100)
+          return uiCandidate(
+            id: PlotterAppUIActionID.drawingDraft(intent),
+            title: "Set scale \(Double(scaleStep) / 100)",
+            intent: .drawingDraft(intent),
+            unavailableReason: drawing.editingIsEnabled ? nil : drawing.runState.detail,
+            owner: "PlotterDrawingDraftRuntime"
+          )
+        })
+      }
+      candidates.append(contentsOf: (-180...180).map { degrees in
+        let intent = PlotterDrawingDraftIntent.setRotationDegrees(Double(degrees))
+        return uiCandidate(
+          id: PlotterAppUIActionID.drawingDraft(intent),
+          title: "Set rotation \(degrees) degrees",
+          intent: .drawingDraft(intent),
+          unavailableReason: drawing.editingIsEnabled ? nil : drawing.runState.detail,
+          owner: "PlotterDrawingDraftRuntime"
+        )
+      })
+      candidates.append(contentsOf: drawing.controls.map { control in
+        uiCandidate(
+          id: PlotterAppUIActionID.drawingRun(control.intent),
+          title: control.title,
+          intent: .drawingRun(control.intent),
+          unavailableReason: control.isEnabled ? nil : drawing.runState.detail,
+          owner: "PlotterDrawingRunRuntime"
+        )
+      })
+    }
+    candidates.append(contentsOf: actionSurfacePresentation.completedComparisonReview.controls.map {
+      control in
+      let intent: PlotterUIRetainedComparisonIntent =
+        control.intent == .reviewComparison ? .reviewExactFrame : .resumeLivePreview
+      return uiCandidate(
+        id: PlotterAppUIActionID.retainedComparison(intent),
+        title: control.title,
+        intent: .retainedComparisonReview(intent),
+        unavailableReason: nil,
+        owner: "DrawingBorderRetainedWorkflow"
+      )
+    })
+    if includesLearningPath {
+      let adapter = PlotterLearningActionabilityFactAdapter()
+      let actionability = adapter.compile(
+        currentLearning.snapshot,
+        selectedItemID: selectedItemID
+      )
+      candidates.append(contentsOf: actionability.strips.flatMap(adapter.candidates))
+    }
+    var resetPlans: [PlotterUIActionID: LearningVacatePlan] = [:]
+    if let plan = learningPath?.resetSurface.selectedPlan {
+      let id = PlotterAppUIActionID.learningReset(plan)
+      resetPlans[id] = plan
+      candidates.append(.retainedLearningReset(
+        id: id,
+        title: plan.title,
+        unavailableReason: learningPath?.resetSurface.unavailableReason
+      ))
+    }
+    if let plan = learningPath?.menu.resetAllPlan {
+      let id = PlotterAppUIActionID.learningReset(plan)
+      resetPlans[id] = plan
+      candidates.append(.retainedLearningReset(
+        id: id,
+        title: plan.title,
+        unavailableReason: nil
+      ))
+    }
+    candidates.append(uiCandidate(
+      id: PlotterAppUIActionID.incidentPackage,
+      title: "Create Incident Package",
+      intent: .requestIncidentPackage,
+      unavailableReason: incidentPackageUIActionUnavailableReason,
+      owner: "PlotterIncidentPackageUIService"
+    ))
+
+    let runtimeRevisions = currentPlotterUIRuntimeRevisions()
+    let semantic = PlotterUICompiler().compile(PlotterUICompilerInput(
+      revision: plotterUIRevision(
+        selectedItemID: selectedItemID,
+        manualDraft: manualDraft,
+        includesLearningPath: includesLearningPath,
+        pendingDrawingPlacement: pendingDrawingPlacement,
+        pendingPointSelection: pendingPointSelection
+      ),
+      runtimeRevisions: runtimeRevisions,
+      candidates: candidates,
+      learning: plotterUILearningFacts(currentLearning.snapshot),
+      incidentPackage: incidentPackageUIState
+    ))
+    currentPlotterUIProjection = semantic
+    currentPlotterUIBindingSemanticRevision = semanticPresentationRevision
+    currentPlotterUIResetPlans = resetPlans
+    return PlotterAppUIProjection(
+      semantic: semantic,
+      actionSurface: actionSurfacePresentation,
+      exercisePaneProtection: currentLearning.exercisePaneProtection,
+      learningMode: learningModePresentation,
+      learningPath: learningPath,
+      currentLearningPathItemID: plotterUILearningItemID(
+        semantic.learning?.currentOwnerID
+      ) ?? currentLearning.currentItemID,
+      learningIsEnabled: learningIsEnabled,
+      manualMotion: manual,
+      drawingStudio: drawing,
+      drawingStudioIsPresented: drawingStudioIsPresented,
+      drawingStudioPanelChangeUnavailableReason: drawingStudioPanelChangeUnavailableReason,
+      drawingDraftProjection: drawingDraftSnapshot.projection,
+      workbenchCapability: workbenchCapabilityPresentation,
+      incidentPackage: semantic.incidentPackage
+    )
+  }
+
+  private func uiCandidate(
+    action: PlotterUIAction,
+    owner: String,
+    reachability: PlotterUIActionReachability = .global
+  ) -> PlotterUIActionCandidate {
+    uiCandidate(
+      id: action.id,
+      title: action.title,
+      intent: action.intent,
+      unavailableReason: action.unavailableReason,
+      owner: owner,
+      reachability: reachability
+    )
+  }
+
+  private func uiCandidate(
+    id: PlotterUIActionID,
+    title: String,
+    intent: PlotterUIIntent,
+    unavailableReason: String?,
+    owner: String,
+    reachability: PlotterUIActionReachability = .global
+  ) -> PlotterUIActionCandidate {
+    PlotterUIActionCandidate(
+      id: id,
+      title: title,
+      intent: intent,
+      reachability: reachability,
+      requirements: unavailableReason.map {
+        [PlotterUIRequirement(
+          id: "\(id.rawValue).availability",
+          isSatisfied: false,
+          owner: owner,
+          remedy: $0
+        )]
+      } ?? []
+    )
+  }
+
+  private func plotterUILearningOwnerID(_ item: LearningPathItemID) -> String {
+    "\(item.number)-\(item.title)"
+  }
+
+  private func plotterUILearningItemID(_ ownerID: String?) -> LearningPathItemID? {
+    guard let ownerID else { return nil }
+    return LearningPathItemID.learningExerciseOrder.first {
+      plotterUILearningOwnerID($0) == ownerID
+    }
+  }
+
+  private func plotterUILearningFacts(
+    _ facts: PlotterLearningPresentationFacts
+  ) -> PlotterUILearningFacts {
+    PlotterUILearningFacts(
+      isEnabled: facts.learningEnabled,
+      activeOwnerID: facts.operations.activeAttemptOwner.map(plotterUILearningOwnerID),
+      orderedMilestones: [
+        PlotterUILearningMilestone(
+          ownerID: plotterUILearningOwnerID(.humanGuidedDiscovery(.penInteraction)),
+          isComplete: facts.penInteractionCompleted
+        ),
+        PlotterUILearningMilestone(
+          ownerID: plotterUILearningOwnerID(
+            .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
+          ),
+          isComplete: facts.boundary.isComplete && facts.boundary.centerArrival != nil
+        ),
+        PlotterUILearningMilestone(
+          ownerID: plotterUILearningOwnerID(
+            .humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
+          ),
+          isComplete: facts.cameraCalibration.acceptedIsCurrent
+        ),
+        PlotterUILearningMilestone(
+          ownerID: plotterUILearningOwnerID(
+            .humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
+          ),
+          isComplete: facts.sparseCalibration.acceptedIsCurrent
+        ),
+        PlotterUILearningMilestone(
+          ownerID: plotterUILearningOwnerID(
+            .observedDrawingTrial(.chooseDrawingBorderPlan)
+          ),
+          isComplete: false
+        ),
+      ]
+    )
+  }
+
+  private func plotterUIRevision(
+    selectedItemID: LearningPathItemID,
+    manualDraft: ManualMotionDraft,
+    includesLearningPath: Bool,
+    pendingDrawingPlacement: PlotterDrawingDraftCameraPlacement?,
+    pendingPointSelection: PlotterPointSelectionSubmission?
+  ) -> PlotterUIRevision {
+    var hash: UInt64 = 14_695_981_039_346_656_037
+    for byte in "\(semanticPresentationRevision)|\(selectedItemID)|\(manualDraft.xDistanceMM)|\(manualDraft.yDistanceMM)|\(manualDraft.feedMMPerMinute)|\(includesLearningPath)|\(String(describing: pendingDrawingPlacement))|\(String(describing: pendingPointSelection))".utf8 {
+      hash ^= UInt64(byte)
+      hash &*= 1_099_511_628_211
+    }
+    return PlotterUIRevision(rawValue: hash)
+  }
+
+  private func currentPlotterUIRuntimeRevisions() -> [PlotterUIRuntimeRevision] {
+    var revisions = [
+      PlotterUIRuntimeRevision(
+        owner: "PlotterPointSelectionRuntime",
+        token: String(pointSelectionEpisodeProjection.projectionRevision.rawValue)
+      ),
+      PlotterUIRuntimeRevision(
+        owner: "PlotterDrawingDraftRuntime",
+        token: String(drawingDraftSnapshot.projection.draftRevision.rawValue)
+      ),
+    ]
+    if let manualMotionEpisodeSnapshot {
+      revisions.append(PlotterUIRuntimeRevision(
+        owner: "PlotterManualMotionRuntime",
+        token: String(manualMotionEpisodeSnapshot.projection.projectionRevision.rawValue)
+      ))
+    }
+    if let drawingRunSnapshot {
+      revisions.append(PlotterUIRuntimeRevision(
+        owner: "PlotterDrawingRunRuntime",
+        token: String(drawingRunSnapshot.projection.runRevision.rawValue)
+      ))
+    }
+    return revisions
+  }
+
+  private var incidentPackageUIActionUnavailableReason: String? {
+    if case .loading = incidentPackageUIState {
+      return "Wait for the active incident-package availability request to finish."
+    }
+    return nil
+  }
+
+  func submitPlotterUIRequest(
+    _ request: PlotterUIRequest
+  ) async -> PlotterUIRequestDisposition {
+    guard let currentProjection = currentPlotterUIProjection else {
+      return plotterUIRefusal(
+        request,
+        reason: .staleUIRevision,
+        currentUIRevision: PlotterUIRevision(rawValue: 0),
+        currentRuntimeRevisions: currentPlotterUIRuntimeRevisions(),
+        remedy: "Render the current bounded UI projection before submitting."
+      )
+    }
+    let currentUIRevision = currentProjection.revision
+    let currentRuntimeRevisions = currentPlotterUIRuntimeRevisions().sorted { $0.owner < $1.owner }
+    let submittedRuntimeRevisions = request.runtimeRevisions.sorted { $0.owner < $1.owner }
+    if request.uiRevision != currentUIRevision
+      || currentPlotterUIBindingSemanticRevision != semanticPresentationRevision
+    {
+      return plotterUIRefusal(
+        request,
+        reason: .staleUIRevision,
+        currentUIRevision: currentUIRevision,
+        currentRuntimeRevisions: currentRuntimeRevisions,
+        remedy: "Refresh the current UI projection before retrying."
+      )
+    }
+    if submittedRuntimeRevisions != currentRuntimeRevisions {
+      return plotterUIRefusal(
+        request,
+        reason: .staleRuntimeRevision,
+        currentUIRevision: currentUIRevision,
+        currentRuntimeRevisions: currentRuntimeRevisions,
+        remedy: "Refresh the changed episode runtime projection before retrying."
+      )
+    }
+    guard let reachedAction = currentProjection.action(id: request.actionID) else {
+      return plotterUIRefusal(
+        request,
+        reason: .unknownAction,
+        currentUIRevision: currentUIRevision,
+        currentRuntimeRevisions: currentRuntimeRevisions,
+        remedy: "Use an action reached by the current bounded projection."
+      )
+    }
+    guard reachedAction.intent == request.intent else {
+      return plotterUIRefusal(
+        request,
+        reason: .mismatchedIntent,
+        currentUIRevision: currentUIRevision,
+        currentRuntimeRevisions: currentRuntimeRevisions,
+        remedy: "Use the exact intent bound to the reached action."
+      )
+    }
+    guard reachedAction.isAvailable else {
+      return plotterUIRefusal(
+        request,
+        reason: .unavailableAction,
+        currentUIRevision: currentUIRevision,
+        currentRuntimeRevisions: currentRuntimeRevisions,
+        remedy: reachedAction.unavailableReason ?? "Resolve the named action requirement."
+      )
+    }
+
+    switch request.intent {
+    case .learning(.setEnabled(let target)) where request.actionID == PlotterAppUIActionID.learningMode:
+      await setLearningEnabledFromPlotterUI(target)
+    case .pointSelection(let submission)
+      where request.actionID == PlotterAppUIActionID.pointSelection(submission):
+      submitPointSelection(submission)
+    case .manualMotion(let intent):
+      await submitManualMotionIntent(intent)
+    case .manualStop(let rawID) where request.actionID == PlotterAppUIActionID.manualStop:
+      await requestManualMotionStop(
+        capabilityID: PlotterManualMotionStopCapabilityID(rawValue: rawID)
+      )
+    case .manualPublicationRecovery(let rawID)
+      where request.actionID == PlotterAppUIActionID.manualRecovery:
+      await recoverManualMotionPublication(
+        capabilityID: PlotterManualMotionPublicationRecoveryCapabilityID(rawValue: rawID)
+      )
+    case .manualEvidenceDisposition(let effectID, let environment, let observationID, let disposition)
+      where request.actionID == PlotterAppUIActionID.manualEvidence:
+      let action = PlotterManualMotionEvidenceDispositionAction(
+        effectID: EpisodeEffectID(rawValue: effectID),
+        environment: environment,
+        observationID: PlotterObservationID(rawValue: observationID),
+        disposition: disposition == .acknowledgeAmbiguity
+          ? .acknowledgeAmbiguity : .acknowledgePossibleInk,
+        summary: manualMotionEpisodeSnapshot?.evidenceDispositionAction?.summary ?? ""
+      )
+      await resolveManualMotionEvidence(using: action)
+    case .drawingDraft(let intent)
+      where request.actionID == PlotterAppUIActionID.drawingDraft(intent)
+        || (intent == .open && request.actionID == PlotterAppUIActionID.drawingOpen)
+        || (intent == .close && request.actionID == PlotterAppUIActionID.drawingClose):
+      submitDrawingDraft(PlotterDrawingDraftSubmission(
+        projection: drawingDraftSnapshot.projection,
+        intent: intent
+      ))
+    case .drawingRun(let intent)
+      where request.actionID == PlotterAppUIActionID.drawingRun(intent):
+      guard let drawingRunSnapshot else {
+        return plotterUIRefusal(
+          request,
+          reason: .retainedOwnerRefused,
+          currentUIRevision: currentUIRevision,
+          currentRuntimeRevisions: currentRuntimeRevisions,
+          remedy: "Wait for Drawing Run projection synchronization."
+        )
+      }
+      submitDrawingRun(PlotterDrawingRunSubmission(
+        projection: drawingRunSnapshot.projection,
+        intent: intent
+      ))
+    case .retainedLearningAction:
+      guard let resolved = retainedLearningAction(for: request.actionID) else {
+        return plotterUIRefusal(
+          request,
+          reason: .unknownAction,
+          currentUIRevision: currentUIRevision,
+          currentRuntimeRevisions: currentRuntimeRevisions,
+          remedy: "Refresh the Learning projection and use its current action."
+        )
+      }
+      await performExerciseAction(resolved.kind, for: resolved.owner)
+    case .retainedLearningReset(let actionID) where request.actionID == actionID:
+      guard let plan = currentPlotterUIResetPlans[actionID] else {
+        return plotterUIRefusal(
+          request,
+          reason: .unknownAction,
+          currentUIRevision: currentUIRevision,
+          currentRuntimeRevisions: currentRuntimeRevisions,
+          remedy: "Refresh the current Learning reset preview before retrying."
+        )
+      }
+      let succeeded: Bool
+      if plan.scope == .all {
+        succeeded = await performResetAllLearning(plan)
+      } else {
+        succeeded = performLearningVacate(plan)
+      }
+      guard succeeded else {
+        return plotterUIRefusal(
+          request,
+          reason: .retainedOwnerRefused,
+          currentUIRevision: currentUIRevision,
+          currentRuntimeRevisions: currentRuntimeRevisions,
+          remedy: learningAuthorityError
+            ?? "Refresh the Learning reset preview and resolve the named refusal."
+        )
+      }
+    case .retainedComparisonReview(let intent)
+      where request.actionID == PlotterAppUIActionID.retainedComparison(intent):
+      submitCompletedComparisonReview(
+        intent == .reviewExactFrame ? .reviewComparison : .resumeLivePreview
+      )
+    case .requestIncidentPackage where request.actionID == PlotterAppUIActionID.incidentPackage:
+      await requestIncidentPackageFromPlotterUI()
+    default:
+      return plotterUIRefusal(
+        request,
+        reason: .mismatchedIntent,
+        currentUIRevision: currentUIRevision,
+        currentRuntimeRevisions: currentRuntimeRevisions,
+        remedy: "Use the intent bound to the current action identity."
+      )
+    }
+    return .accepted(requestID: request.id)
+  }
+
+  private func requestIncidentPackageFromPlotterUI() async {
+    let admission = await incidentPackageUIService.startUnavailable(
+      PlotterIncidentPackageUINoSourceRequest()
+    )
+    switch admission {
+    case .refused(let refusal):
+      incidentPackageUIState = .refused(
+        reason: incidentPackageNoSourceReason(refusal.reason),
+        remedy: incidentPackageRemedy(refusal.remedy)
+      )
+    case .accepted(let updates):
+      for await update in updates {
+        switch update {
+        case .checkingAvailability:
+          incidentPackageUIState = .loading(
+            phase: "Checking exact incident source availability",
+            completedUnitCount: 0,
+            totalUnitCount: 1
+          )
+        case .terminal(let refusal):
+          incidentPackageUIState = .refused(
+            reason: incidentPackageNoSourceReason(refusal.reason),
+            remedy: incidentPackageRemedy(refusal.remedy)
+          )
+        }
+      }
+    }
+  }
+
+  private func incidentPackageNoSourceReason(
+    _ reason: PlotterIncidentPackageUINoSourceRefusalReason
+  ) -> String {
+    switch reason {
+    case .requestInProgress:
+      "An incident-package availability request is already active."
+    case .noCompleteSourceProvider:
+      "No complete incident-package source provider is configured."
+    }
+  }
+
+  private func incidentPackageRemedy(_ remedy: PlotterIncidentPackageUIRemedy) -> String {
+    switch remedy {
+    case .waitForActiveRequest:
+      "Wait for the active request to publish its terminal result."
+    case .provideCompleteSource:
+      "Provide one complete, identity-bound incident source before retrying."
+    case .refreshExactSource:
+      "Refresh the exact incident source and retry."
+    case .repairExactSource:
+      "Repair the exact incident source and retry."
+    case .reduceSourceToBoundedLimits:
+      "Reduce the exact source to the published bounded limits."
+    case .reportRuntimeIntegrityFailure:
+      "Report the runtime integrity failure without treating the package as complete."
+    }
+  }
+
+  private func plotterUIRefusal(
+    _ request: PlotterUIRequest,
+    reason: PlotterUIRequestRefusalReason,
+    currentUIRevision: PlotterUIRevision,
+    currentRuntimeRevisions: [PlotterUIRuntimeRevision],
+    remedy: String
+  ) -> PlotterUIRequestDisposition {
+    .refused(PlotterUIRequestRefusal(
+      requestID: request.id,
+      reason: reason,
+      owner: "PlotterUIIntentSink",
+      submittedUIRevision: request.uiRevision,
+      currentUIRevision: currentUIRevision,
+      submittedRuntimeRevisions: request.runtimeRevisions,
+      currentRuntimeRevisions: currentRuntimeRevisions,
+      remedy: remedy
+    ))
+  }
+
+  private func retainedLearningAction(
+    for actionID: PlotterUIActionID
+  ) -> (kind: ExerciseActionKind, owner: LearningPathItemID)? {
+    let base = learningPresentationBase()
+    let adapter = PlotterLearningActionabilityFactAdapter()
+    for owner in LearningPathItemID.navigationOrder {
+      let actionability = adapter.compile(base.snapshot, selectedItemID: owner)
+      for strip in actionability.strips {
+        if let action = adapter.semanticAction(for: actionID, in: strip),
+          let retainedOwner = adapter.itemID(strip.ownerID)
+        {
+          return (adapter.exerciseAction(action), retainedOwner)
+        }
+      }
+    }
+    return nil
+  }
+
+  private func manualUIActions(
+    draft: ManualMotionDraft,
+    presentation: ManualMotionPresentation
+  ) -> [PlotterUIAction] {
+    let jogs: [(PlotterUIActionID, String, JogDirection)] = [
+      (PlotterAppUIActionID.manualXNegative, "Jog X negative", .xNegative),
+      (PlotterAppUIActionID.manualXPositive, "Jog X positive", .xPositive),
+      (PlotterAppUIActionID.manualYNegative, "Jog Y negative", .yNegative),
+      (PlotterAppUIActionID.manualYPositive, "Jog Y positive", .yPositive),
+    ]
+    var actions = jogs.map { id, title, direction in
+      let intent = manualJogIntent(direction, draft: draft)
+      return PlotterUIAction(
+        id: id,
+        title: title,
+        intent: intent.map(PlotterUIIntent.manualMotion) ?? .unavailableLocalInput(id),
+        unavailableReason: presentation.jogControlsUnavailableReason
+          ?? (intent == nil ? "Enter finite positive jog distance and feed values." : nil)
+      )
+    }
+    actions.append(PlotterUIAction(
+      id: PlotterAppUIActionID.manualPenUp,
+      title: "Pen Up",
+      intent: .manualMotion(manualPenIntent(.raise)),
+      unavailableReason: presentation.penUpUnavailableReason
+    ))
+    actions.append(PlotterUIAction(
+      id: PlotterAppUIActionID.manualPenDown,
+      title: "Pen Down",
+      intent: .manualMotion(manualPenIntent(.lower)),
+      unavailableReason: presentation.penDownUnavailableReason
+    ))
+    if let stop = presentation.stopAction {
+      actions.append(PlotterUIAction(
+        id: PlotterAppUIActionID.manualStop,
+        title: stop.title,
+        intent: .manualStop(capabilityID: stop.capabilityID.rawValue)
+      ))
+    }
+    if let recovery = presentation.publicationRecovery {
+      actions.append(PlotterUIAction(
+        id: PlotterAppUIActionID.manualRecovery,
+        title: recovery.title,
+        intent: .manualPublicationRecovery(capabilityID: recovery.capabilityID.rawValue)
+      ))
+    }
+    if let evidence = presentation.evidenceDisposition {
+      let disposition: PlotterUIManualEvidenceDisposition =
+        evidence.action.disposition == .acknowledgeAmbiguity
+        ? .acknowledgeAmbiguity : .acknowledgePossibleInk
+      actions.append(PlotterUIAction(
+        id: PlotterAppUIActionID.manualEvidence,
+        title: evidence.title,
+        intent: .manualEvidenceDisposition(
+          effectID: evidence.action.effectID.rawValue,
+          environment: evidence.action.environment,
+          observationID: evidence.action.observationID.rawValue,
+          disposition: disposition
+        )
+      ))
+    }
+    return actions
+  }
+
   func uncachedLearningPathProjectionForTesting(
     selectedItemID: LearningPathItemID
   ) -> LearningPathProjection {
@@ -4439,9 +5125,14 @@ final class OperatorWorkspace:
     if selectedItemID == base.currentItemID { return base.currentProjection }
     computationDiagnostics.learningProjectionBuildCount += 1
     computationDiagnostics.selectedLearningProjectionBuildCount += 1
-    return LearningPathProjector().project(
+    let actionability = PlotterLearningActionabilityFactAdapter().compile(
       base.snapshot,
       selectedItemID: selectedItemID
+    )
+    return PlotterLearningDetailedPresentationNormalizer().project(
+      base.snapshot,
+      selectedItemID: selectedItemID,
+      actionability: actionability
     )
   }
 
@@ -4469,8 +5160,13 @@ final class OperatorWorkspace:
     computationDiagnostics.learningSnapshotWithoutResetBuildCount += 1
     let resetFreeSnapshot = learningPathProjectionSnapshot()
     computationDiagnostics.currentLearningItemBuildCount += 1
-    let projector = LearningPathProjector()
-    let currentItemID = projector.currentItemID(resetFreeSnapshot)
+    let factAdapter = PlotterLearningActionabilityFactAdapter()
+    let resetFreeActionability = factAdapter.compile(
+      resetFreeSnapshot,
+      selectedItemID: .humanGuidedDiscovery(.penInteraction)
+    )
+    let currentItemID = factAdapter.itemID(resetFreeActionability.learning.currentOwnerID)
+      ?? .humanGuidedDiscovery(.penInteraction)
     let plans = makeLearningVacatePlans(currentItemID: currentItemID)
     let completeSnapshot = resetFreeSnapshot.replacingReset(
       .init(
@@ -4482,12 +5178,21 @@ final class OperatorWorkspace:
     )
     computationDiagnostics.learningSnapshotWithResetBuildCount += 1
     computationDiagnostics.learningProjectionBuildCount += 1
-    let projection = projector.project(completeSnapshot, selectedItemID: currentItemID)
+    let actionability = factAdapter.compile(
+      completeSnapshot,
+      selectedItemID: currentItemID
+    )
+    let projection = PlotterLearningDetailedPresentationNormalizer().project(
+      completeSnapshot,
+      selectedItemID: currentItemID,
+      actionability: actionability
+    )
     recordLearningActionStripDiagnostic(projection)
     return LearningPresentationBase(
       revision: revision,
       cameraIsLive: cameraIsLive,
       snapshot: completeSnapshot,
+      actionability: actionability,
       currentItemID: currentItemID,
       currentProjection: projection
     )
@@ -4509,7 +5214,7 @@ final class OperatorWorkspace:
     }
   }
 
-  private func learningPathProjectionSnapshot() -> LearningPathProjectionSnapshot {
+  private func learningPathProjectionSnapshot() -> PlotterLearningPresentationFacts {
     let currentPosition = try? currentMachinePosition()
     let centerTravelFeed: TravelFeedSelection? =
       if let center = estimatedMachineCenter,
@@ -4526,7 +5231,7 @@ final class OperatorWorkspace:
         ($0, boundaryTravelFeedSelection())
       }
     )
-    let stopOwner: LearningPathProjectionSnapshot.StopOwner? = {
+    let stopOwner: PlotterLearningPresentationFacts.StopOwner? = {
       guard let target = activeStopTarget else { return nil }
       switch target {
       case .pairedBoundary(let id, let transactionID, _, _, let direction):
@@ -4573,13 +5278,13 @@ final class OperatorWorkspace:
           == explorationPaperContactPlaneRevision
       } ?? false
     let savedTrainingCandidate = savedLearningPackageState.candidate.map { candidate in
-      LearningPathProjectionSnapshot.SavedTrainingFacts(
+      PlotterLearningPresentationFacts.SavedTrainingFacts(
         checkpointID: candidate.checkpoint.checkpointID,
         artifactSummary: savedTrainingArtifactSummary(candidate.checkpoint),
         opticalComparison: candidate.opticalComparison
       )
     }
-    return LearningPathProjectionSnapshot(
+    return PlotterLearningPresentationFacts(
       source: frameMode,
       learningEnabled: learningIsEnabled,
       penInteractionCompleted: penInteractionCompleted,
@@ -4657,7 +5362,7 @@ final class OperatorWorkspace:
         visionState: visionAnalysisSnapshot.phase.state
       ),
       discovery: discoveryTransactions.mapValues { transaction in
-        LearningPathProjectionSnapshot.DiscoveryFacts(
+        PlotterLearningPresentationFacts.DiscoveryFacts(
           id: transaction.id,
           sequenceID: transaction.definition.id,
           title: transaction.definition.title,
@@ -7674,36 +8379,33 @@ final class OperatorWorkspace:
     )
   }
 
-  func submitLearningModeChange() {
-    let next = !learningIsEnabled
+  private func setLearningEnabledFromPlotterUI(_ target: Bool) async {
+    guard target != learningIsEnabled else { return }
     let pointSelectionOwner = activePointSelectionActivityOwner
-    Task { @MainActor [weak self] in
-      guard let self else { return }
-      do {
-        let projection = try await pointSelectionRuntime.setLearningEnabled(
-          next,
-          activityFactProvider: self
-        )
-        let retainedExactOwner = activePointSelectionActivityOwner == pointSelectionOwner
-        installPointSelectionProjection(projection)
-        if !next, !projection.learningIsEnabled {
-          frozenPointSelectionFrame = nil
-          pendingToolContactEvidence = []
-          if let pointSelectionOwner,
-            retainedExactOwner,
-            let pointSelectionOwnerID = activeExerciseAttemptOwnerID
-          {
-            await cancelExerciseAttempt(
-              pointSelectionOwnerID,
-              expectedAttemptID: ExerciseAttemptID(
-                rawValue: pointSelectionOwner.exerciseAttemptID
-              )
+    do {
+      let projection = try await pointSelectionRuntime.setLearningEnabled(
+        target,
+        activityFactProvider: self
+      )
+      let retainedExactOwner = activePointSelectionActivityOwner == pointSelectionOwner
+      installPointSelectionProjection(projection)
+      if !target, !projection.learningIsEnabled {
+        frozenPointSelectionFrame = nil
+        pendingToolContactEvidence = []
+        if let pointSelectionOwner,
+          retainedExactOwner,
+          let pointSelectionOwnerID = activeExerciseAttemptOwnerID
+        {
+          await cancelExerciseAttempt(
+            pointSelectionOwnerID,
+            expectedAttemptID: ExerciseAttemptID(
+              rawValue: pointSelectionOwner.exerciseAttemptID
             )
-          }
+          )
         }
-      } catch {
-        learningAuthorityError = actionableDescription(error)
       }
+    } catch {
+      learningAuthorityError = actionableDescription(error)
     }
   }
 
@@ -7870,10 +8572,10 @@ final class OperatorWorkspace:
     return nil
   }
 
-  private var manualMotionDraftUnavailableReason: String? {
-    guard let x = inputNumber(manualMotionDraft.xDistanceMM),
-      let y = inputNumber(manualMotionDraft.yDistanceMM),
-      let feed = inputNumber(manualMotionDraft.feedMMPerMinute)
+  private func manualMotionDraftUnavailableReason(for draft: ManualMotionDraft) -> String? {
+    guard let x = inputNumber(draft.xDistanceMM),
+      let y = inputNumber(draft.yDistanceMM),
+      let feed = inputNumber(draft.feedMMPerMinute)
     else { return "Enter numeric X distance, Y distance, and feed values." }
     guard x > 0, y > 0 else {
       return "X and Y distance magnitudes must be greater than zero."
@@ -7919,11 +8621,11 @@ final class OperatorWorkspace:
     }
   }
 
-  private func manualJogRequestPrototype() -> PlotterJogRequest {
+  private func manualJogRequestPrototype(draft: ManualMotionDraft) -> PlotterJogRequest {
     try! PlotterJogRequest(
       direction: .positiveX,
-      distanceMM: max(1, inputNumber(manualMotionDraft.xDistanceMM) ?? 1),
-      feedMMPerMinute: max(1, inputNumber(manualMotionDraft.feedMMPerMinute) ?? 1),
+      distanceMM: max(1, inputNumber(draft.xDistanceMM) ?? 1),
+      feedMMPerMinute: max(1, inputNumber(draft.feedMMPerMinute) ?? 1),
       routing: manualControllerPenState.requiredJogRouting
     )
   }
@@ -8079,7 +8781,7 @@ final class OperatorWorkspace:
   }
 
   private func installManualMotionSnapshot(_ snapshot: PlotterManualMotionRuntimeSnapshot) {
-    let previousAttentionRemedy = manualMotionEpisodePresentation.attentionReason
+    let previousAttentionRemedy = manualMotionRuntimePresentation.attentionReason
       ?? manualMotionEpisodeSnapshot?.projection.remedy
     manualMotionEpisodeSnapshot = snapshot
     if snapshot.terminalPublicationIssue == nil,
@@ -8087,7 +8789,7 @@ final class OperatorWorkspace:
        machineError == previousAttentionRemedy {
       machineError = nil
     }
-    if let remedy = manualMotionEpisodePresentation.attentionReason
+    if let remedy = manualMotionRuntimePresentation.attentionReason
       ?? snapshot.projection.remedy {
       machineError = remedy
     }
@@ -9696,44 +10398,47 @@ final class OperatorWorkspace:
     lastMotionGuardActivationText = "not activated"
   }
 
-  func submitManualJog(_ direction: JogDirection) async {
-    guard manualMotionDraftUnavailableReason == nil else { return }
+  private func manualJogIntent(
+    _ direction: JogDirection,
+    draft: ManualMotionDraft
+  ) -> PlotterManualMotionIntent? {
+    guard manualMotionDraftUnavailableReason(for: draft) == nil else { return nil }
     do {
       let distance: Double
       let episodeDirection: PlotterJogDirection
       switch direction {
       case .xNegative:
-        distance = inputNumber(manualMotionDraft.xDistanceMM)!
+        distance = inputNumber(draft.xDistanceMM)!
         episodeDirection = .negativeX
       case .xPositive:
-        distance = inputNumber(manualMotionDraft.xDistanceMM)!
+        distance = inputNumber(draft.xDistanceMM)!
         episodeDirection = .positiveX
       case .yNegative:
-        distance = inputNumber(manualMotionDraft.yDistanceMM)!
+        distance = inputNumber(draft.yDistanceMM)!
         episodeDirection = .negativeY
       case .yPositive:
-        distance = inputNumber(manualMotionDraft.yDistanceMM)!
+        distance = inputNumber(draft.yDistanceMM)!
         episodeDirection = .positiveY
       }
       let request = try PlotterJogRequest(
         direction: episodeDirection,
         distanceMM: distance,
-        feedMMPerMinute: inputNumber(manualMotionDraft.feedMMPerMinute)!,
+        feedMMPerMinute: inputNumber(draft.feedMMPerMinute)!,
         routing: manualControllerPenState.requiredJogRouting
       )
-      await submitManualMotionIntent(.jog(request))
+      return .jog(request)
     } catch {
-      machineError = actionableDescription(error)
+      return nil
     }
   }
 
-  func submitManualPen(_ command: PenCommand) async {
+  private func manualPenIntent(_ command: PenCommand) -> PlotterManualMotionIntent {
     let position: PlotterPenPosition = command == .raise ? .raised : .lowered
-    await submitManualMotionIntent(.setPen(manualPenRequest(position: position)))
+    return .setPen(manualPenRequest(position: position))
   }
 
   func submitManualMotionIntent(_ intent: PlotterManualMotionIntent) async {
-    if let reason = manualMotionEpisodePresentation.attentionReason {
+    if let reason = manualMotionRuntimePresentation.attentionReason {
       machineError = reason
       return
     }

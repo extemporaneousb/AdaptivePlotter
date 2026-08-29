@@ -39,6 +39,14 @@ PlotterEpisodeModel -> EpisodeCore + PlotterModel
   independent PlotterEpisodeCanonicalDigestV1 ownership for replay state verification
   internal target with production point-selection and manual-motion bindings
 
+PlotterUI -> PlotterEpisodeModel
+  bounded candidate compiler plus sole bounded PlotterUILearningActionabilityCompiler
+  copied-fact current owner, status, action/Stop, availability, Pen, direction, reset reachability
+  immutable aggregate projection with exact action membership, bound intent,
+  availability, UI revision, runtime revisions, and bounded diagnostics
+  typed request values and sink contract; no runtime, device, persistence, Stop,
+  camera, Vision, evidence, or effect authority
+
 PlotterEpisodeRuntime -> EpisodeCore + EpisodeRuntime + PlotterEpisodeModel + PlotterRuntime
   PlotterIntentGateway, PlotterPointSelectionRuntime, PlotterManualMotionRuntime,
   and PlotterCausalSimulatorEffectAdapter compositions
@@ -61,8 +69,11 @@ PlotterEpisodeRuntime -> EpisodeCore + EpisodeRuntime + PlotterEpisodeModel + Pl
   fail-closed typed package/environment relationships and incident-only sensitive-frame linkage
   checked referenced-byte accounting without frame-store validation
   deterministic envelope integrity/canonical reassembly without truth promotion
+  one nominal PlotterIncidentPackageUIService around that sole assembler
+  exact-identity assembly or truthful no-source refusal through request-owned bounded streams
+  values-only format/count/digest/remedy/integrity-scope/nonphysical result metadata
   internal target with no package product or physical device adapter;
-  point selection, manual motion, and the causal simulator environment are app-bound
+  point selection, manual motion, causal simulator, and incident presentation are app-bound
 
 PlotterRuntime
   MachineController, RunInterpreter, CameraCapture, VisionWorker
@@ -74,12 +85,16 @@ PlotterRuntime
   paper and append-only drawing-run evidence
   causal nonphysical simulator and workflow telemetry
 
-PlotterApp -> PlotterEpisodeRuntime + retained application/runtime dependencies
+PlotterApp -> PlotterEpisodeRuntime + PlotterUI + retained application/runtime dependencies
   OperatorWorkspace projection/adaptation and retained artifact commits
-  typed point-selection, Learning-mode, and manual-motion ingress
+  one production PlotterUIIntentSink with exact current membership, bound-intent,
+  availability, UI-revision, and runtime-revision validation
+  typed point-selection, Learning-mode, manual-motion, Drawing, Comparison,
+  retained Learning/reset, and incident-presentation ingress
   LIVE manual adapter plus the production causal-simulator adapter and neutral lower controller ports
   explicitly attributed retained simulator workflow commands for later semantic packages
-  immutable LearningPathProjectionSnapshot and pure LearningPathProjector
+  copied PlotterUICompilerInput facts and one immutable PlotterUIProjection
+  pane/window/viewport and unsubmitted manual text retained as UI-local state
   SwiftUI Learning Path, ActionSurface, Drawing Studio, Motion and Video Settings
   production checkpoint/evidence stores and semantic identity composition
 
@@ -103,6 +118,7 @@ PlotterEpisodeRuntimeTests -> EpisodeCore + PlotterEpisodeModel + PlotterEpisode
   every-prefix replay, revision/digest binding, lifecycle publication, inert effects
   exact start provenance, source/schedule causality, and perturbation contracts
   bounded incident assembly/export, relationship closure, canonical integrity, and authority-boundary contracts
+  request-owned bounded incident UI progress, exact terminal identity, truthful unavailable-source lifecycle
   fifteen causal-environment tests for shared grammar/provenance, separated truth, exact settlement,
   Stop/cancel/shutdown, stale-owner isolation, explicit retained attribution, atomic terminal publication,
   Boundary/drawing/travel/Pen, paper/ink/camera, and ambiguity
@@ -112,6 +128,7 @@ PlotterAppTests -> PlotterApp + episode packages + retained application/runtime 
   recording, FIFO re-evaluation, complete publication, fresh Learning fact reacquisition,
   exact-owner Learning-Off cancellation, checked journal synchronization, scoped Sendable safety,
   semantic deletion, sparse-tip selection, and LIVE/SIMULATED separation
+  production PlotterUI projection/sink membership, binding, availability, revision, and boundedness contracts
 ```
 
 Dependencies point inward. Runtime does not import SwiftUI. Views receive
@@ -502,14 +519,33 @@ The assembler returns bytes to its caller and owns no artifact store, export
 destination, filesystem adapter, redaction workflow, UI, application ingress,
 device port, effect execution, operation/permit/Stop owner, recording or replay
 owner, semantic journal owner, evidence acceptance, or product authority.
-`PlotterEpisodeRuntimeTests` remains the sole current consumer. The focused
-incident suite contains 23 tests; no `PlotterApp` source references the incident
-types. EA-09 still owns later UI request/progress/result presentation for this
-service.
+The focused incident suite contains 23 tests of the lower assembler.
+
+EA-09 adds one nominal actor `PlotterIncidentPackageUIService` around that sole
+assembler; it does not add another/source assembler. A real assembly request
+must carry the complete exact `PlotterIncidentPackageUISourceIdentity`, and its
+provider must return a matching complete source. The request owns one
+explicitly bounded newest-value stream; its terminal update binds the exact
+request, source identity, and completed/refused result so held progress cannot
+create an unbounded subscriber map or detach terminal identity. The values-only
+result exposes format version, canonical encoding, exact byte count and SHA-256,
+typed refusal/remedy, the deliberately limited `canonicalEnvelopeOnly`
+integrity scope, and `physicalEvidenceClaimed == false`. It exposes no package
+bytes and stores or exports nothing.
+
+Production has no complete incident-source provider or source-identity owner.
+The App therefore binds only the distinct ID-only `startUnavailable` lifecycle,
+whose bounded request stream terminates with typed
+`.noCompleteSourceProvider`/`.provideCompleteSource`. It never supplies a dummy
+manifest/build/digest identity, invokes assembly, fabricates source
+completeness, or claims physical evidence. The App reference is presentation
+composition only; the lower assembler remains unbound and the service owns no
+backend, device, recording, evidence, or domain authority.
 
 `PlotterEpisodeModel` depends only on `EpisodeCore` and `PlotterModel` and is
-not a package product. `PlotterPointSelectionRuntime` is its sole production
-binding. It binds concrete Plotter
+not a package product. Its production bindings include the point-selection and
+manual-motion runtimes plus the values-only `PlotterUI` compiler boundary; UI
+dependency moves no runtime or effect authority. It binds concrete Plotter
 definition/manifest revisions, seven exhaustive semantic intent families,
 decision-relevant state, events, typed effects and results, observations,
 measurements, evidence, outcomes, assessments, versioned capability facts,
@@ -663,17 +699,18 @@ processing or that preview is held merely because motion is active.
 `OperatorWorkspace` is the single `@Observable` application owner. It composes
 controller/camera actors through typed actions, owns Learning Path attempts,
 commits the retained artifact dependency graph, routes view intent, and reads
-current state into `LearningPathProjectionSnapshot`. For EA-04 it owns a
+current copied state into `PlotterUICompilerInput` and publishes one immutable
+`PlotterUIProjection`. For EA-04 it owns a
 reference to `PlotterPointSelectionRuntime`, copies its immutable
 `PlotterEpisodeProjection` for presentation, and adapts an accepted pen-cap
 sample plus its runtime-returned exact `DisplayedFrame` to the existing
 `PenCapAppearanceSelection` and camera/Vision
 reconfiguration owners. It does not own a second point-selection state machine,
 accepted-evidence path, Learning-mode toggle closure, or continuation task. Its
-`learningModePresentation` is an immutable projection of the shared pure rule,
-not a decision or mutation boundary. The remaining direct SwiftUI
-`UI.learningModePresentation` consumer is inventory item UI-008, scheduled for
-the EA-09 presentation cutover; it carries no EA-04 semantic or guard authority.
+Learning presentation is an immutable projection of copied facts, not a
+decision or mutation boundary. SwiftUI semantic actions submit only through the
+current aggregate projection and production `PlotterUIIntentSink`; there is no
+remaining direct `UI.learningModePresentation` mutation route.
 The deleted `PointSelectionPresentationContext` cannot copy a request or
 re-decide admission. `frozenPointSelectionFrame` holds pixels for UI
 presentation only, and `pendingToolContactEvidence` remains adapter data for
@@ -923,33 +960,53 @@ controller's native connection, alarm, readiness, safety, and serialization
 checks. The evaluator supplies an intent-specific Motion remedy: movement for a
 jog and Pen actuation for a direct Pen request.
 
-`LearningPathProjectionSnapshot` is values-only. It contains copied typed facts
-and precomputed policy/admission results, not controller or camera actors,
-persistence capabilities, task handles, mutating closures, or authority-
-changing methods. It also narrows mutable session values such as discovery
-transactions and Boundary progress to immutable presentation facts.
+`PlotterUILearningFacts` and `PlotterUILearningActionabilityFacts` are
+values-only. They contain copied milestones, retained Runtime state, current/
+recovery inputs, availability facts, Stop identity, Pen/direction inputs, and
+reset presence, not controller or camera actors, persistence capabilities, task
+handles, mutating closures, or authority-changing methods.
+`PlotterUILearningActionabilityCompiler` is the sole bounded owner of current
+Learning owner, item status, action/Stop strips, availability, Pen adjustment,
+direction selection, and reset reachability. Its immutable
+`PlotterUILearningActionabilityProjection` is then consumed by
+`PlotterUICompiler` with the complete bounded candidate set to form one
+`PlotterUIProjection`. Identical copied inputs produce identical Learning
+actionability, semantic actions, incident presentation, and diagnostics.
 
-`LearningPathProjector` is a pure value. Identical snapshots and review
-selection produce identical navigator rows, current item, status, summaries,
-action strips, exact Stop capability presentation, evidence, activity,
-subsystem status, timeline, scoped reset surface, and stable Learning Path menu
-actions. Its navigator projects only curriculum stages and exercises. Controller
-connection and Motion authorization remain copied workbench facts; Motion is
-normalized false unless a connected session exists. A missing runtime dependency
-disables the exercise's existing typed action with a precise remedy rather than
-creating a Learning Path row or generic forward action. It cannot mutate a session,
-admit motion, persist, perform I/O, or accept an artifact. SwiftUI consumes one
-aggregate projection per Learning Path render and sends selected typed actions
-back to `OperatorWorkspace`. `OperatorWorkspace` builds one revision-keyed
-Learning presentation base containing the snapshot, reset plans, current item,
-current projection, and Exercise-pane protection. It also retains one
-revision-and-selection-keyed review projection. Only a semantic Learning input
-change advances that revision and invalidates those caches; exact-frame pixels,
-unchanged Vision requests, and pull-only diagnostics do not. Action Surface
-presentation has a separate revision so video/overlay changes do not force a
-Learning snapshot/reset-plan rebuild. The destructive Reset All Learning action is
-presented in the navigator menu; the exercise detail presents only the scoped
-Reset From This Step action.
+The compiler has explicit maxima for candidate visits, emitted actions,
+Learning milestones, runtime revisions, diagnostics, and text. Reachability is
+evaluated before emission; duplicate IDs and unsatisfied requirements become
+bounded diagnostics or unavailable actions rather than an implicit dispatch
+route. The aggregate projection enumerates every rendered semantic Learning,
+point-selection, manual-motion, Stop/recovery/evidence, Drawing Draft/Run,
+retained Learning/reset, Comparison review, and incident action. Each action
+binds one `PlotterUIActionID`, exact `PlotterUIIntent`, current availability,
+`PlotterUIRevision`, and relevant `PlotterUIRuntimeRevision` values.
+
+SwiftUI can create a `PlotterUIRequest` only by selecting that exact available
+member from the current projection. The production sink revalidates current
+membership, bound intent equality, availability, UI revision, and all bound
+runtime revisions before routing to the retained semantic owner. Arbitrary
+action IDs, reconstructed action/intent pairs, unavailable actions, and stale
+revisions receive typed refusal/remedy and perform no semantic mutation. This
+presentation compiler cannot mutate a session, admit motion, persist, perform
+I/O, accept an artifact, execute Stop, or replace controller/camera/Vision/
+evidence authority.
+
+The App's nominal `PlotterLearningActionabilityFactAdapter` only translates
+retained Runtime facts and identities into copied PlotterUI facts and maps
+canonical decisions to retained nominal action values. It does not choose
+current owner, status, availability, action/Stop membership, Pen adjustment,
+direction, or reset reachability. `PlotterLearningDetailedPresentationNormalizer`
+receives the canonical actionability projection and renders summaries, labels,
+and existing detailed presentation values cosmetically. `OperatorWorkspace`
+uses the canonical action decisions both when constructing the aggregate
+projection and when resolving the exact action before retained-owner dispatch.
+The deleted App-owned status/completion/action-strip/Stop/sparse compilers and
+raw-fact-to-retained-candidate/reachability builders have no compatibility
+shadow. The EA-09 cutover checker enforces both exact App-wide zero literals and
+a behavior/topology rule that refuses renamed or split App decision mappers
+while allowing fact translation and cosmetic rendering.
 
 `WorkbenchLayoutState` owns window-local pane visibility and Video Settings
 presentation as one value. A permitted Show computes protected-pane collapse
@@ -1058,9 +1115,9 @@ transaction and command evidence in one session mutation and one semantic
 revision, so the next action strip is not delayed behind an intermediate
 post-settlement projection.
 
-`LearningPathProjector` derives current progression from the active owner and
-the first unmet dependency. `restartableExerciseItemID` is recovery state for
-the owning review row; it does not redirect progression. The persisted
+`PlotterUICompiler` derives current Learning progression from copied milestone
+facts and the first unmet dependency. Recovery selection is presentation state
+for the owning review row; it does not redirect progression. The persisted
 `PenCapAppearanceSelection` is loaded by `OperatorWorkspace`; its color is then
 applied by `CameraSourceSession`. Before it exists, LIVE Pen cap and Armature
 envelope statuses are Unavailable while their operator-owned overlay

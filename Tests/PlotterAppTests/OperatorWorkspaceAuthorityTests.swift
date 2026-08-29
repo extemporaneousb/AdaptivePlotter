@@ -41,6 +41,7 @@ extension OperatorWorkspaceTests {
       manualMotionComposition: composition,
       drawingDraftRuntime: nominalDrawingDraftRuntime(),
       drawingRunComposition: nominalDrawingRunComposition(),
+      incidentPackageUIService: nominalIncidentPackageUIService(),
       serialDevices: [machine.descriptor],
       serialDeviceDiscovery: { [machine.descriptor] },
       loadSelectedSerialIdentifier: { nil },
@@ -55,7 +56,7 @@ extension OperatorWorkspaceTests {
 
     let intent = try manualAmbiguityJog()
     await workspace.submitManualMotionIntent(intent)
-    let pending = workspace.manualMotionEpisodePresentation
+    let pending = workspace.testManualMotionEpisodePresentation
     let evidence = try #require(pending.evidenceDisposition)
     #expect(evidence.action.environment == .live)
     #expect(evidence.action.disposition == .acknowledgePossibleInk)
@@ -68,7 +69,11 @@ extension OperatorWorkspaceTests {
     #expect(counter.count == 1)
 
     await workspace.submitManualMotionIntent(intent)
-    await workspace.submitManualPen(.lower)
+    let blockedPen = try #require(
+      workspace.testPlotterUIProjection().semantic.action(id: PlotterAppUIActionID.manualPenDown)
+    )
+    #expect(!blockedPen.isAvailable)
+    #expect(workspace.testPlotterUIProjection().semantic.request(for: blockedPen.id) == nil)
     #expect(counter.count == 1)
     let stale = PlotterManualMotionEvidenceDispositionAction(
       effectID: evidence.action.effectID,
@@ -77,13 +82,13 @@ extension OperatorWorkspaceTests {
       disposition: evidence.action.disposition,
       summary: evidence.action.summary
     )
-    await workspace.resolveManualMotionEvidence(using: stale)
+    await workspace.resolveTestManualMotionEvidence(using: stale)
     #expect(workspace.manualMotionEpisodeSnapshot?.projection.phase == .awaitingEvidence)
 
-    await workspace.resolveManualMotionEvidence(using: evidence.action)
+    await workspace.resolveTestManualMotionEvidence(using: evidence.action)
     #expect(workspace.manualMotionEpisodeSnapshot?.projection.phase == .ready)
-    #expect(workspace.manualMotionEpisodePresentation.evidenceDisposition == nil)
-    #expect(workspace.manualMotionEpisodePresentation.jogControlsUnavailableReason == nil)
+    #expect(workspace.testManualMotionEpisodePresentation.evidenceDisposition == nil)
+    #expect(workspace.testManualMotionEpisodePresentation.jogControlsUnavailableReason == nil)
     #expect(workspace.motionRequestStatusPresentation == .ready)
     #expect(counter.count == 1)
     await workspace.shutdown()
@@ -108,6 +113,7 @@ extension OperatorWorkspaceTests {
       manualMotionComposition: composition,
       drawingDraftRuntime: nominalDrawingDraftRuntime(),
       drawingRunComposition: nominalDrawingRunComposition(),
+      incidentPackageUIService: nominalIncidentPackageUIService(),
       serialDevices: [],
       serialDeviceDiscovery: { [] },
       loadSelectedSerialIdentifier: { nil },
@@ -143,7 +149,7 @@ extension OperatorWorkspaceTests {
 
     let intent = try manualAmbiguityJog()
     await workspace.submitManualMotionIntent(intent)
-    let pending = workspace.manualMotionEpisodePresentation
+    let pending = workspace.testManualMotionEpisodePresentation
     let evidence = try #require(pending.evidenceDisposition)
     #expect(evidence.action.environment == .simulated)
     #expect(evidence.action.disposition == .acknowledgeAmbiguity)
@@ -156,7 +162,11 @@ extension OperatorWorkspaceTests {
     let ambiguousEffectID = evidence.action.effectID
 
     await workspace.submitManualMotionIntent(intent)
-    await workspace.submitManualPen(.lower)
+    let blockedPen = try #require(
+      workspace.testPlotterUIProjection().semantic.action(id: PlotterAppUIActionID.manualPenDown)
+    )
+    #expect(!blockedPen.isAvailable)
+    #expect(workspace.testPlotterUIProjection().semantic.request(for: blockedPen.id) == nil)
     let causalTruthAfterBlockedActions =
       await composition.causalSimulatorEffectAdapter.truthSnapshot()
     #expect(causalTruthAfterBlockedActions == causalTruthBeforeManualRefusal)
@@ -164,10 +174,10 @@ extension OperatorWorkspaceTests {
       workspace.manualMotionEpisodeSnapshot?.projection.lastTerminalEffect?.result.context.effectID
         == ambiguousEffectID
     )
-    await workspace.resolveManualMotionEvidence(using: evidence.action)
+    await workspace.resolveTestManualMotionEvidence(using: evidence.action)
     #expect(workspace.manualMotionEpisodeSnapshot?.projection.phase == .ready)
-    #expect(workspace.manualMotionEpisodePresentation.evidenceDisposition == nil)
-    #expect(workspace.manualMotionEpisodePresentation.jogControlsUnavailableReason == nil)
+    #expect(workspace.testManualMotionEpisodePresentation.evidenceDisposition == nil)
+    #expect(workspace.testManualMotionEpisodePresentation.jogControlsUnavailableReason == nil)
     #expect((await simulatedLearning.snapshot()).currentOperation == nil)
     await workspace.shutdown()
   }
@@ -192,6 +202,7 @@ extension OperatorWorkspaceTests {
       manualMotionComposition: composition,
       drawingDraftRuntime: nominalDrawingDraftRuntime(),
       drawingRunComposition: nominalDrawingRunComposition(),
+      incidentPackageUIService: nominalIncidentPackageUIService(),
       serialDevices: [],
       serialDeviceDiscovery: { [] },
       loadSelectedSerialIdentifier: { nil },
@@ -205,7 +216,7 @@ extension OperatorWorkspaceTests {
     await workspace.performControllerConnectionAction()
     await workspace.activateMotionGuard()
 
-    let manualOwner = Task { await workspace.submitManualJog(.xPositive) }
+    let manualOwner = Task { await workspace.submitTestManualJog(.xPositive) }
     await pacing.waitUntilSuspended()
     let retainedOwner = EpisodeAuthorityID(rawValue: "test.sharedCompositionRetainedTravel")
     let occupied = await composition.causalSimulatorEffectAdapter
@@ -351,6 +362,7 @@ extension OperatorWorkspaceTests {
       manualMotionComposition: composition,
       drawingDraftRuntime: nominalDrawingDraftRuntime(),
       drawingRunComposition: nominalDrawingRunComposition(),
+      incidentPackageUIService: nominalIncidentPackageUIService(),
       serialDevices: [machine.descriptor],
       serialDeviceDiscovery: { [machine.descriptor] },
       loadSelectedSerialIdentifier: { nil },
@@ -362,7 +374,7 @@ extension OperatorWorkspaceTests {
     )
     await workspace.establishMachineSession(machine.descriptor)
     await workspace.requestPassiveProbe()
-    #expect(workspace.manualMotionEpisodePresentation.jogControlsUnavailableReason == nil)
+    #expect(workspace.testManualMotionEpisodePresentation.jogControlsUnavailableReason == nil)
 
     let intent = PlotterManualMotionIntent.jog(try PlotterJogRequest(
       direction: .positiveX,
@@ -381,10 +393,10 @@ extension OperatorWorkspaceTests {
     try FileManager.default.moveItem(at: directory, to: displaced)
     gate.releasePublication()
     try await waitUntil {
-      workspace.manualMotionEpisodePresentation.publicationRecovery != nil
+      workspace.testManualMotionEpisodePresentation.publicationRecovery != nil
     }
 
-    let pending = workspace.manualMotionEpisodePresentation
+    let pending = workspace.testManualMotionEpisodePresentation
     let recovery = try #require(pending.publicationRecovery)
     #expect(recovery.title == "Retry Manual Jog Publication")
     #expect(recovery.remedy.contains("jog command will not be issued again"))
@@ -394,23 +406,27 @@ extension OperatorWorkspaceTests {
     #expect(pending.penDownUnavailableReason == recovery.remedy)
     #expect(workspace.motionRequestStatusPresentation == .needsAttention(recovery.remedy))
 
-    await workspace.submitManualPen(.lower)
+    let blockedPen = try #require(
+      workspace.testPlotterUIProjection().semantic.action(id: PlotterAppUIActionID.manualPenDown)
+    )
+    #expect(!blockedPen.isAvailable)
+    #expect(workspace.testPlotterUIProjection().semantic.request(for: blockedPen.id) == nil)
     await workspace.submitManualMotionIntent(intent)
     #expect(await machine.requestedFeeds.count == 1)
     #expect(await machine.requestedPenCommands.isEmpty)
     #expect(workspace.manualMotionEpisodeSnapshot?.activeOperation?.context.effectID
       == originalEffectID)
-    await workspace.recoverManualMotionPublication(
+    await workspace.recoverTestManualMotionPublication(
       capabilityID: PlotterManualMotionPublicationRecoveryCapabilityID()
     )
-    #expect(workspace.manualMotionEpisodePresentation.publicationRecovery?.capabilityID
+    #expect(workspace.testManualMotionEpisodePresentation.publicationRecovery?.capabilityID
       == recovery.capabilityID)
 
     try FileManager.default.moveItem(at: displaced, to: directory)
-    await workspace.recoverManualMotionPublication(capabilityID: recovery.capabilityID)
+    await workspace.recoverTestManualMotionPublication(capabilityID: recovery.capabilityID)
     await owner.value
 
-    let restored = workspace.manualMotionEpisodePresentation
+    let restored = workspace.testManualMotionEpisodePresentation
     #expect(restored.publicationRecovery == nil)
     #expect(restored.jogControlsUnavailableReason == nil)
     #expect(restored.penUpUnavailableReason == nil)
@@ -789,7 +805,7 @@ extension OperatorWorkspaceTests {
     )
     let automaticRequestsBeforeCenterTravel = camera.recordedAutomaticInspectionRequests
     try requireEnabledPublicAction(.moveToEstimatedCenter, owner: owner, workspace: workspace)
-    await workspace.performExerciseAction(.moveToEstimatedCenter, for: owner)
+    await workspace.performTestExerciseAction(.moveToEstimatedCenter, for: owner)
 
     let expectedCenter = try MachinePosition(x: 0, y: 0)
     #expect(camera.recordedAutomaticInspectionRequests == automaticRequestsBeforeCenterTravel)
@@ -798,7 +814,7 @@ extension OperatorWorkspaceTests {
     #expect(workspace.learningArtifactGraph.currentRevision(for: .centerArrival) != nil)
     #expect(!workspace.centerArrivalRetryRequired)
     #expect(
-      workspace.currentLearningPathItemID
+      workspace.testCurrentLearningPathItemID
         == .humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
     )
   }
@@ -828,7 +844,7 @@ extension OperatorWorkspaceTests {
       .pairedBoundaryDiscoveryAndCentering
     )
     try requireEnabledPublicAction(.moveToEstimatedCenter, owner: owner, workspace: workspace)
-    await workspace.performExerciseAction(.moveToEstimatedCenter, for: owner)
+    await workspace.performTestExerciseAction(.moveToEstimatedCenter, for: owner)
 
     #expect(workspace.centerArrivalPosition == nil)
     #expect(workspace.learningArtifactGraph.currentRevision(for: .centerArrival) == nil)
@@ -928,10 +944,14 @@ extension OperatorWorkspaceTests {
     await workspace.requestPassiveProbe()
     await workspace.startCamera()
     try await completePenInteraction(workspace)
-    workspace.manualMotionDraft.xDistanceMM = "not-a-number"
-    workspace.manualMotionDraft.yDistanceMM = ""
+    var manualDraft = ManualMotionDraft()
+    manualDraft.xDistanceMM = "not-a-number"
+    manualDraft.yDistanceMM = ""
 
-    #expect(workspace.manualMotionEpisodePresentation.jogControlsUnavailableReason != nil)
+    #expect(
+      workspace.testPlotterUIProjection(manualDraft: manualDraft)
+        .manualMotion.jogControlsUnavailableReason != nil
+    )
     #expect(workspace.discoveryStartUnavailableReason(for: .boundaryPositiveX) == nil)
     await workspace.beginPairedBoundarySide(.positiveX)
     try await waitUntil { workspace.contextualStopPresentation != nil }
@@ -1032,7 +1052,7 @@ extension OperatorWorkspaceTests {
     await workspace.establishMachineSession(machine.descriptor)
     await workspace.requestPassiveProbe()
 
-    let current = workspace.currentLearningPathItemID
+    let current = workspace.testCurrentLearningPathItemID
     let transactionCount = workspace.discoveryTransactions.count
     let revisionCount = workspace.learningArtifactGraph.revisions.count
     let requestedFeedCount = await machine.requestedFeeds.count
@@ -1040,7 +1060,7 @@ extension OperatorWorkspaceTests {
       _ = workspace.selectedOperatorActionPresentation(for: itemID)
     }
 
-    #expect(workspace.currentLearningPathItemID == current)
+    #expect(workspace.testCurrentLearningPathItemID == current)
     #expect(workspace.discoveryTransactions.count == transactionCount)
     #expect(workspace.learningArtifactGraph.revisions.count == revisionCount)
     #expect(await machine.requestedFeeds.count == requestedFeedCount)
@@ -1071,9 +1091,9 @@ extension OperatorWorkspaceTests {
     let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
 
     #expect(workspace.currentExerciseActionStripPresentation?.actions.map(\.kind) == [.start])
-    await workspace.performExerciseAction(.start, for: owner)
+    await workspace.performTestExerciseAction(.start, for: owner)
     #expect(
-      workspace.actionSurfacePresentation.pointSelectionRequest?.prompt
+      workspace.testActionSurfacePresentation.pointSelectionRequest?.prompt
         == "Click the pen cap body—not the tip—on the current camera frame."
     )
     #expect(workspace.currentExerciseActionStripPresentation?.actions.map(\.kind) == [.cancel])
@@ -1084,9 +1104,9 @@ extension OperatorWorkspaceTests {
     #expect(liveActions.contains(.cancel))
     #expect(!liveActions.contains(.start))
 
-    await workspace.performExerciseAction(.cancel, for: owner)
+    await workspace.performTestExerciseAction(.cancel, for: owner)
     #expect(workspace.activeExerciseAttemptID == nil)
-    #expect(workspace.currentLearningPathItemID == owner)
+    #expect(workspace.testCurrentLearningPathItemID == owner)
     #expect(workspace.currentExerciseActionStripPresentation?.actions.map(\.kind) == [.restart])
     await workspace.shutdown()
   }
@@ -1110,7 +1130,13 @@ extension OperatorWorkspaceTests {
         $0.kind == .cancel
       }) == false
     )
-    await workspace.performExerciseAction(.cancel, for: owner)
+    let cancelID = PlotterAppUIActionID.retainedLearning(.cancel, owner: owner)
+    let activeProjection = workspace.testPlotterUIProjection(
+      selectedItemID: owner,
+      includesLearningPath: true
+    ).semantic
+    #expect(activeProjection.action(id: cancelID) == nil)
+    #expect(activeProjection.request(for: cancelID) == nil)
 
     #expect(await machine.cancelIntents.isEmpty)
     #expect(workspace.relevantBoundaryObservationCount == 0)
@@ -1149,7 +1175,7 @@ extension OperatorWorkspaceTests {
     #expect(simulatorBeforeReview == simulatorAfterReview)
 
     for _ in 0..<2 {
-      await workspace.performExerciseAction(.recordAnotherBoundaryAttempt(.positiveX), for: owner)
+      await workspace.performTestExerciseAction(.recordAnotherBoundaryAttempt(.positiveX), for: owner)
       try await waitUntil { workspace.contextualStopPresentation != nil }
       try await stopActiveOperation(workspace)
     }
@@ -1166,7 +1192,7 @@ extension OperatorWorkspaceTests {
     #expect(oldAttemptIDs.count == 3)
 
     await harness.simulator.injectFault(.cameraConfigurationChangeBeforeNextFrame)
-    await workspace.performExerciseAction(.redoBoundary(.positiveX), for: owner)
+    await workspace.performTestExerciseAction(.redoBoundary(.positiveX), for: owner)
     try await waitUntil { workspace.contextualStopPresentation != nil }
     try await stopActiveOperation(workspace)
 
@@ -1223,7 +1249,7 @@ extension OperatorWorkspaceTests {
         ))
       }
 
-      await workspace.performExerciseAction(.redoBoundary(.positiveX), for: owner)
+      await workspace.performTestExerciseAction(.redoBoundary(.positiveX), for: owner)
       try await waitUntil { workspace.contextualStopPresentation != nil }
       try await stopActiveOperation(workspace)
 
@@ -1267,7 +1293,7 @@ extension OperatorWorkspaceTests {
       workspace.learningArtifactGraph.currentRevision(for: .boundarySideAggregate(.positiveY))
     )
     let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
-    await workspace.performExerciseAction(.redoThisStep, for: owner)
+    await workspace.performTestExerciseAction(.redoThisStep, for: owner)
     try await identifyPenCap(workspace)
     try await finishPenInteraction(workspace)
 
@@ -1299,9 +1325,9 @@ extension OperatorWorkspaceTests {
     )
     let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
 
-    await workspace.performExerciseAction(.redoThisStep, for: owner)
-    let pointRequest = try #require(workspace.actionSurfacePresentation.pointSelectionRequest)
-    let displayedFrame = try #require(workspace.actionSurfacePresentation.displayedFrame)
+    await workspace.performTestExerciseAction(.redoThisStep, for: owner)
+    let pointRequest = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
+    let displayedFrame = try #require(workspace.testActionSurfacePresentation.displayedFrame)
     submitPointSelection(
       workspace,
       request: pointRequest,
@@ -1311,7 +1337,7 @@ extension OperatorWorkspaceTests {
       )
     )
     try await waitUntil { workspace.penCapAppearanceSelection != nil }
-    await workspace.performExerciseAction(.cancel, for: owner)
+    await workspace.performTestExerciseAction(.cancel, for: owner)
 
     #expect(
       workspace.learningArtifactGraph.currentRevision(for: .penInteraction)?.id == accepted.id

@@ -188,17 +188,17 @@ struct OverlayStateTests {
     )
     let workspace = workspace(machine: machine, camera: camera, log: log)
     await workspace.startCamera()
-    let before = workspace.actionSurfacePresentation
+    let before = workspace.testActionSurfacePresentation
     #expect(before.overlays.map(\.provenance.kind) == [.penCap])
 
-    workspace.submitLearningModeChange()
-    try await waitUntil { !workspace.learningIsEnabled }
-    #expect(!workspace.learningIsEnabled)
-    workspace.submitLearningModeChange()
-    try await waitUntil { workspace.learningIsEnabled }
+    await workspace.submitTestPlotterUIAction(PlotterAppUIActionID.learningMode)
+    try await waitUntil { !workspace.testLearningIsEnabled }
+    #expect(!workspace.testLearningIsEnabled)
+    await workspace.submitTestPlotterUIAction(PlotterAppUIActionID.learningMode)
+    try await waitUntil { workspace.testLearningIsEnabled }
 
-    let after = workspace.actionSurfacePresentation
-    #expect(workspace.learningIsEnabled)
+    let after = workspace.testActionSurfacePresentation
+    #expect(workspace.testLearningIsEnabled)
     #expect(after.viewportContext == before.viewportContext)
     #expect(after.displayedFrame == before.displayedFrame)
     #expect(after.overlays == before.overlays)

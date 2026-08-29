@@ -28,7 +28,7 @@ EVIDENCE_PATH = ROOT / "docs" / "CURRENT_EVIDENCE.md"
 ARCHITECTURE_PATH = ROOT / "docs" / "SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md"
 PRODUCT_PATH = ROOT / "docs" / "PRODUCT_CONTRACT.md"
 # Updated in the same package whenever a canonical ledger row changes.
-EXPECTED_LEDGER_SHA256 = "d2a67fcb6bb614a879d3a3c1676b965054205e96795e377e6feecfba6ef4863f"
+EXPECTED_LEDGER_SHA256 = "4dfb81bb920f07a968eed8bf2c21f32dc2afa1e000087828cbeea4919093e7ff"
 
 
 EXPECTED_GATES = {
@@ -193,15 +193,17 @@ EXPECTED_COMPLETE_PACKAGES = {
     "EA-07",
     "EA-08A",
     "EA-08B",
+    "EA-09",
 }
 
 # Staged-complete rows let post-cutover DELETE and documentation contracts
 # inspect the task-local final manifest without fabricating final gate evidence.
 # EA-06 retains its accepted historical landing boundary. EA-07 is ordinary
 # landed evidence on canonical main. EA-08A retains its accepted task-local
-# completion boundary. EA-08B is task-locally complete with all seven gates and
-# same-critic acceptance passed; only landing, canonical-main cleanup, and the
-# conditional successor capsule remain pending.
+# completion boundary. EA-08B and EA-09 are task-locally complete with all
+# package gates and same-critic acceptance passed; only their Blackdog landing
+# and canonical-main cleanup remain pending, while GATE-01 remains a separate
+# pending decision.
 EXPECTED_UNLANDED_COMPLETION_CANDIDATES = {
     "EA-06": (
         "`TASK-FE9C9CB3`",
@@ -214,6 +216,10 @@ EXPECTED_UNLANDED_COMPLETION_CANDIDATES = {
     "EA-08B": (
         "`TASK-51550DB1`",
         ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "DRAW-RUN", "DELETE"],
+    ),
+    "EA-09": (
+        "`TASK-D55FD455`",
+        ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "UI", "DELETE"],
     ),
 }
 
@@ -420,6 +426,20 @@ def validate_product_contract(text: str) -> None:
         "append to the checksummed archive before successful terminal publication",
         "Append failure exposes exact recovery and cannot appear successful",
         "SIMULATED start is a typed nonphysical refusal and invokes zero LIVE controller, camera, Vision, or archive effects",
+        "`PlotterUI -> PlotterEpisodeModel` is the sole package dependency for immutable episode presentation",
+        "enumerates every rendered semantic action",
+        "production sink revalidates exact membership, bound intent, availability, UI revision, and runtime revisions",
+        "The App must not extend `PlotterUICompiler`, fabricate action/intent pairs, or retain direct Learning point/reset/workspace dispatch",
+        "Incident-package presentation wraps the sole existing `PlotterIncidentPackageAssembler`",
+        "distinct request-ID-only unavailable lifecycle",
+        "request-owned and explicitly bounded",
+        "`canonicalEnvelopeOnly` integrity scope",
+        "package bytes are neither exposed, stored, nor exported",
+        "`PlotterUILearningActionabilityCompiler` is the sole owner of bounded current-owner, item-status, action/Stop-strip, availability, Pen-adjustment, direction-selection, and reset-reachability decisions",
+        "`PlotterLearningActionabilityFactAdapter`",
+        "`PlotterLearningDetailedPresentationNormalizer`",
+        "resolve the exact canonical action before retained-owner dispatch",
+        "renamed/split status, completion, action-strip, Stop, sparse-action, availability, retained-candidate, or reachability compilers are forbidden compatibility shadows",
     ):
         if required_phrase not in normalized:
             fail(f"Product Contract is missing the exact Learning-Off exception: {required_phrase}")
@@ -543,7 +563,7 @@ def validate_architecture(text: str) -> None:
         "Recording failure remains a visible nonblocking diagnostic and never promotes evidence",
         "`PlotterPointSelectionIntentSink`",
         "`PlotterLearningModeIntentSink`",
-        "`UI.learningModePresentation` consumer is inventory item UI-008, scheduled for the EA-09 presentation cutover",
+        "SwiftUI semantic actions submit only through the current aggregate projection and production `PlotterUIIntentSink`",
         "The deleted `PointSelectionPresentationContext` cannot copy a request or re-decide admission",
         "`frozenPointSelectionFrame` holds pixels for UI presentation only",
         "`pendingToolContactEvidence` remains adapter data for the retained sparse-tip calibration fit",
@@ -588,7 +608,17 @@ def validate_architecture(text: str) -> None:
         "proves only deterministic versioned byte integrity and canonical reassembly",
         "owns no artifact store, export destination, filesystem adapter, redaction workflow, UI, application ingress, device port, effect execution",
         "The focused incident suite contains 23 tests",
-        "EA-09 still owns later UI request/progress/result presentation for this service",
+        "one nominal actor `PlotterIncidentPackageUIService` around that sole assembler",
+        "complete exact `PlotterIncidentPackageUISourceIdentity`",
+        "request owns one explicitly bounded newest-value stream",
+        "`canonicalEnvelopeOnly` integrity scope",
+        "distinct ID-only `startUnavailable` lifecycle",
+        "never supplies a dummy manifest/build/digest identity",
+        "`PlotterUILearningActionabilityCompiler` is the sole bounded owner of current Learning owner, item status, action/Stop strips, availability, Pen adjustment, direction selection, and reset reachability",
+        "`PlotterLearningActionabilityFactAdapter` only translates retained Runtime facts and identities into copied PlotterUI facts",
+        "`PlotterLearningDetailedPresentationNormalizer` receives the canonical actionability projection",
+        "resolving the exact action before retained-owner dispatch",
+        "behavior/topology rule that refuses renamed or split App decision mappers",
         "`PlotterCausalSimulatorEffectAdapter` is the sole effect-capable simulator seam",
         "`PlotterManualMotionRuntimeComposition` containing the manual runtime, lower simulator runtime, and shared `PlotterCausalSimulatorEffectAdapter`",
         "retained workflows use the exact same adapter authority as the manual runtime",
@@ -646,6 +676,31 @@ def validate_architecture(text: str) -> None:
 def validate_plan(text: str) -> dict[str, dict[str, object]]:
     validate_architecture(ARCHITECTURE_PATH.read_text(encoding="utf-8"))
     normalized = re.sub(r"\s+", " ", text)
+    scan_rows = markdown_table(
+        text, ["Package", "Scan class", "Paths", "Zero-match literal"]
+    )
+    ea09_scans = {
+        (scan_class, paths, literal)
+        for package, scan_class, paths, literal in scan_rows
+        if package == "`EA-09`"
+    }
+    required_ea09_scans = {
+        ("duplicate-ingress", "`Sources/PlotterApp/*.swift,Tests/PlotterAppTests/*.swift`", "`appRequest(`"),
+        ("duplicate-ingress", "`Sources/PlotterApp/*.swift`", "`extension PlotterUICompiler`"),
+        ("duplicate-ingress", "`Sources/PlotterApp/LearningPathView.swift`", "`actionWorkspace.performExerciseAction`"),
+        ("duplicate-ingress", "`Sources/PlotterApp/LearningPathView.swift`", "`actionWorkspace.performLearningVacate`"),
+        ("duplicate-ingress", "`Sources/PlotterApp/LearningPathView.swift`", "`actionWorkspace.performResetAllLearning`"),
+        ("duplicate-ingress", "`Sources/PlotterApp/LearningPathView.swift`", "`actionWorkspace.selectToolContactPoint`"),
+        ("duplicate-ingress", "`Sources/PlotterApp/LearningPathView.swift`", "`actionWorkspace.performCompletedComparisonReviewAction`"),
+        ("duplicate-ingress", "`Sources/PlotterApp/*.swift`", "`ExerciseActionDescriptor(`"),
+        ("duplicate-ingress", "`Sources/PlotterApp/*.swift`", "`-> LearningPathStageStatus`"),
+        ("duplicate-ingress", "`Sources/PlotterApp/*.swift`", "`intent: .retainedLearningAction`"),
+        ("duplicate-ingress", "`Sources/PlotterApp/*.swift`", "`intent: .retainedLearningReset`"),
+        ("duplicate-ingress", "`Sources/PlotterApp/*.swift`", "`reachability: .learningOwner`"),
+    }
+    missing_ea09_scans = sorted(required_ea09_scans.difference(ea09_scans))
+    if missing_ea09_scans:
+        fail(f"EA-09 structural cutover scans are missing: {missing_ea09_scans}")
     ledger_lines: list[str] = []
     collecting_ledger = False
     for line in text.splitlines():
@@ -934,8 +989,26 @@ def validate_plan(text: str) -> dict[str, dict[str, object]]:
             "Delivered by `TASK-1DDBA6F2`",
         ),
         "EA-09": (
-            "UI request/progress/result presentation for the EA-05C incident service",
-            "Add no recorder, package assembler, artifact store, or export backend.",
+            "transfer episode UI presentation authority to `PlotterUI -> PlotterEpisodeModel` only",
+            "one bounded `PlotterUILearningActionabilityCompiler` that solely decides copied-fact current owner, item status, action/Stop strips, availability, Pen adjustment, direction, and reset reachability",
+            "require exact action-membership/bound-intent/availability/UI-revision/runtime-revision validation in the production sink",
+            "Keep `PlotterLearningActionabilityFactAdapter` as fact translation only",
+            "`PlotterLearningDetailedPresentationNormalizer` as cosmetic canonical-decision rendering only",
+            "resolve the exact canonical action before retained-owner dispatch",
+            "delete migrated SwiftUI workspace reads, `appRequest`, App compiler extensions, App-owned Learning status/completion/action-strip/Stop/sparse/actionability compilers",
+            "any renamed or split raw-fact-to-semantic-output mapping proved by the EA-09 behavior/topology checker",
+            "request-owned bounded streams around the sole existing `PlotterIncidentPackageAssembler`",
+            "require an exact complete identity for real assembly and fabricate none for the unavailable path",
+            "Add no recorder, second/source assembler, artifact store, filesystem/export backend, device port, or physical-evidence claim",
+            "Completed only in the task-local candidate by `TASK-D55FD455`, attempt `TASK-D55FD455-1d0731730d03`",
+            "package EA-09 complete, migration remains incomplete",
+            "All seven package gates passed: `DOC` 29/29 in a final real 14.82 seconds",
+            "`QUICK` 750/750 after 15.778 seconds in a real 18.22 seconds",
+            "`STRICT` 757/757 plus 29/29 docs in a real 141.81 seconds",
+            "correction-cycle-2 ended exactly `UNANIMOUS PASS — no material disagreement`",
+            "production source remained unchanged, five test files were repaired",
+            "the same critic's exceptional delta verdict was exactly `UNANIMOUS PASS — no material disagreement`",
+            "GATE-01, attended physical validation, and remote-Git action remain pending and are not claimed",
         ),
         "EA-10G": (
             "advisory-speech effect authority",
@@ -1031,8 +1104,9 @@ def validate_plan(text: str) -> dict[str, dict[str, object]]:
         "A `delete` row assigned to any completed package in the inventory's assignable WorkPackage set is historical deletion authority",
         "excludes only those completed assignable `delete` rows from live source-presence equality",
         "Rows assigned to pending WorkPackages, plus every `retain` or `adapt` row regardless of package status, remain live-presence obligations",
-        "`UI.learningModePresentation`",
-        "`learningModePresentation` is projection-only and adds no Learning decision or mutation authority",
+        "`UI.plotterUIProjection`",
+        "`UI.submitPlotterUIRequest`",
+        "so none owns Learning actionability, controller, camera, Vision, persistence, Stop, or episode admission",
         "Wave selection takes the first eligible row in this table's literal order",
         "`attended-physical` and `remote-git` still require their own explicit package and execution-class authorization",
     ):
@@ -1137,6 +1211,84 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
     normalized = re.sub(r"\s+", " ", text)
     if "Production opens a unique directory beneath `AdaptivePlotter/EpisodeRecordings/<recording UUID>` with schema `adaptive-plotter-manual-motion-v1`" in normalized:
         fail("Current Evidence retains the stale manual recording topology")
+    for required_phrase in (
+        "Episode UI cutover candidate",
+        "Selected 2026-08-29 in Blackdog task `TASK-D55FD455`, attempt `TASK-D55FD455-1d0731730d03`",
+        "EA-09 is complete only in this task-local candidate",
+        "its ledger row is `complete`, all seven package gates passed, and it is not landed",
+        "The staged target topology is `PlotterUI -> PlotterEpisodeModel` only",
+        "Every rendered semantic action must be a member of the projection with one exact bound `PlotterUIIntent`, availability result, UI revision, and runtime revision",
+        "`PlotterUIRequest` creation and the production sink fail closed unless all four facts still match",
+        "`PlotterIncidentPackageUIService.startUnavailable` with only a fresh request ID",
+        "request-owned stream is explicitly bounded",
+        "supply the complete exact `PlotterIncidentPackageUISourceIdentity`",
+        "`canonicalEnvelopeOnly`, and `physicalEvidenceClaimed == false`",
+        "`PlotterUILearningActionabilityCompiler` additionally owns the bounded current-owner, item-status, action/Stop-strip, availability, Pen-adjustment, direction, and reset-reachability decisions",
+        "`PlotterLearningActionabilityFactAdapter` translates retained Runtime facts into those PlotterUI facts without choosing a decision",
+        "`PlotterLearningDetailedPresentationNormalizer` renders canonical decisions cosmetically",
+        "resolves the exact canonical action before retained-owner dispatch",
+        "`swift test --filter PlotterEpisodeUIActionabilityTests`; 17/17 passed after 0.093 seconds",
+        "focused detailed-presentation selection; 18/18",
+        "109 stable entries and 141 exact scans",
+        "16/16 exact zero-match scans plus Learning behavior/topology validation",
+        "`Scripts/test_episode_cutover.py`; 8/8",
+        "`PILOT-CHECKER` | passed — 8/8 unit tests",
+        "focused incident service suites; 24/24",
+        "named repair suites 135/135",
+        "750/750 passed after 15.778 seconds; real 18.22 seconds",
+        "757/757 passed after 16.581 seconds",
+        "docs/checkers 29/29 in 13.314 seconds; real 141.81 seconds",
+        "17/17 passed after 0.093 seconds; final real 85.36 seconds",
+        "The initial critic returned exactly `RETASK` for three material blockers",
+        "correction-cycle-1 recheck returned `RETASK` because a renamed App Learning compiler remained",
+        "Correction-cycle-2 closed the source delta with the exact verdict `UNANIMOUS PASS — no material disagreement`",
+        "failed/hung at 134.84 seconds on stale or invalid integration tests",
+        "explicitly authorized one exceptional EA-09 gate-repair cycle",
+        "production source remained unchanged while five test files were repaired",
+        "exceptional delta verdict was exactly `UNANIMOUS PASS — no material disagreement`",
+        "criticism is closed and no new or post-pass critic was commissioned",
+        "Bounded immutable UI authority was not actually transferred",
+        "Incident progress delivery was not strictly bounded",
+        "canonical documentation and structural checker described the previous frontier rather than the EA-09 candidate",
+        "No coordinator-owned baseline/current reduction counts exist for this correction turn",
+        "Document Routing (`docs/INDEX.md`)",
+        "No remote-Git action, Blackdog landing, canonical-`main` cleanup, or GATE-01 continuation decision is claimed",
+    ):
+        if required_phrase not in normalized:
+            fail(f"EA-09 task-local completion evidence is missing: {required_phrase}")
+
+    pilot_rows = markdown_table(text, ["Pilot predicate", "Result", "Evidence"])
+    expected_pilot_results = {
+        "GENERICITY": "passed",
+        "REPLAY": "passed",
+        "DEVICE-OWNERS": "passed",
+        "ENVIRONMENT-GRAMMAR": "pending",
+        "SAME-SLICE-DELETION": "pending",
+        "AUTHORITY-REDUCTION": "pending",
+        "OBSERVABILITY": "pending",
+        "WORKSPACE-REDUCTION": "pending",
+        "SAFETY-EVIDENCE": "pending",
+    }
+    if [row[0] for row in pilot_rows] != list(expected_pilot_results):
+        fail("EA-09 candidate Pilot predicate order drifted")
+    if {row[0]: row[1] for row in pilot_rows} != expected_pilot_results:
+        fail("EA-09 candidate Pilot predicate results drifted")
+    metric_rows = markdown_table(
+        text, ["Reduction metric", "Baseline", "Current", "Requirement"]
+    )
+    expected_metrics = {
+        "independent-admission-sites": "decreased",
+        "workspace-task-owners": "decreased",
+        "environment-mode-branches": "decreased",
+        "direct-effect-calls": "decreased",
+        "operator-workspace-policy-state": "decreased",
+        "operator-workspace-adapters": "not-increased",
+    }
+    if [row[0] for row in metric_rows] != list(expected_metrics):
+        fail("EA-09 candidate reduction metric order drifted")
+    for name, baseline, current, requirement in metric_rows:
+        if baseline != "pending" or current != "pending" or requirement != expected_metrics[name]:
+            fail(f"EA-09 unproved candidate metric must remain pending: {name}")
     evidence_rows = markdown_table(
         text,
         ["Package", "Blackdog task", "Gate results", "Evidence section"],
@@ -1257,6 +1409,15 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
                 "DRAW-RUN": "passed",
                 "DELETE": "passed",
             },
+            "EA-09": {
+                "DOC": "passed",
+                "DIFF": "passed",
+                "QUICK": "passed",
+                "JOURNEY": "passed",
+                "STRICT": "passed",
+                "UI": "passed",
+                "DELETE": "passed",
+            },
         }[package_id]
         if dict(actual_pairs) != expected_states:
             fail(f"{package_id} candidate gate-state drifted: {dict(actual_pairs)}")
@@ -1276,13 +1437,25 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
             ):
                 if phrase not in landing_boundary:
                     fail(f"{package_id} candidate lacks landing boundary: {phrase}")
-        else:
+        elif package_id == "EA-08B":
             for phrase in (
                 "All seven package gates passed: `DOC` 29/29 in 11.35 seconds, clean `DIFF`, `QUICK` 730/730 in 15.19 seconds, `JOURNEY` 7/7 in 6.32 seconds, `STRICT` 737/737 plus 29/29 docs in approximately 112.10 seconds, `DRAW-RUN` 12/12 in 0.343 seconds, and `DELETE` 5/5 in 0.10 seconds",
                 "correction-cycle-1 exact final verdict was `UNANIMOUS PASS — no material disagreement`",
-                "Only Blackdog landing, canonical-`main` cleanup verification, and conditional EA-09 successor-capsule creation remain pending",
-                "conditional EA-09 successor-capsule creation remain pending",
-                "EA-09 is not selected or dispatched",
+                "Only Blackdog landing, canonical-`main` cleanup verification, and conditional EA-09 successor-capsule creation remained pending at that frozen acceptance",
+                "current first section supersedes that frontier with task-local complete EA-09",
+            ):
+                if phrase not in landing_boundary:
+                    fail(f"{package_id} candidate lacks landing boundary: {phrase}")
+        else:
+            for phrase in (
+                "All seven package gates passed: `DOC` 29/29 in a final real 14.82 seconds",
+                "`QUICK` 750/750 after 15.778 seconds in a real 18.22 seconds",
+                "`STRICT` 757/757 plus 29/29 docs in a real 141.81 seconds",
+                "correction-cycle-2 ended exactly `UNANIMOUS PASS — no material disagreement`",
+                "production source remained unchanged, five stale integration-test files were repaired",
+                "same critic's exceptional delta verdict was exactly `UNANIMOUS PASS — no material disagreement`",
+                "GATE-01 remains separately pending with its Pilot predicates and reduction metrics unproved",
+                "No attended physical or remote-Git validation occurred or is claimed",
             ):
                 if phrase not in landing_boundary:
                     fail(f"{package_id} candidate lacks landing boundary: {phrase}")
@@ -1819,19 +1992,19 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
         "Two earlier focused invocations stopped at compiler-only diagnostics and remain nonpass history",
         "No broad or deletion gate result is inferred from that focused pass",
         "Historical documentation and deletion nonpasses remain nonpass history",
-        "All EA-08B gates have passed",
+        "All EA-08B gates had passed",
         "No attended controller, camera, motion, Pen, paper, operator-click, or observed-ink validation occurred",
         "No remote-Git action, Blackdog landing, or canonical-`main` cleanup is claimed",
         "Reviewed no change — Document Routing (`docs/INDEX.md`), Episode Architecture Vocabulary, adaptiveplotter episode protocol, operator button transitions, Roadmap, Attended Hardware Runbook, and README",
-        "EA-09 has not been selected or dispatched",
+        "statement that EA-09 had not been selected was accurate for the frozen EA-08B acceptance and is superseded by the current EA-09 section above",
     ):
         if required_phrase not in normalized:
             fail(f"EA-08B candidate evidence is missing: {required_phrase}")
 
-    if normalized.index("Drawing run episode cutover candidate") > normalized.index(
-        "Drawing draft episode cutover candidate"
+    if normalized.index("Episode UI cutover candidate") > normalized.index(
+        "Drawing run episode cutover candidate"
     ):
-        fail("EA-08B candidate evidence must be the first current package section")
+        fail("EA-09 candidate evidence must be the first current package section")
 
     for required_phrase in (
         "Episode deterministic replay foundation",
@@ -1944,8 +2117,9 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
         "654/654 Swift tests plus 29/29 documentation/checker tests passed with zero exclusions or warnings",
         "warning-as-errors build, signing, launcher, negative-bundle, and documentation checks passed",
         "After this landing, `EA-04` is the first eligible ordinary WorkPackage",
-        "no product or application caller",
-        "does not implement the later EA-09 UI request/progress/result presentation",
+        "had no product or application caller",
+        "did not implement the then-later EA-09 UI request/progress/result presentation",
+        "The current EA-09 candidate preserves that unbound assembler while adding the",
         "Canonical routed-document review dispositions:",
         "Reviewed no change — Product Contract and Episode Architecture Vocabulary",
         "Reviewed no change — Attended Hardware Runbook",
@@ -2007,8 +2181,9 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
         "those actions do not originate in `ActionSurface` or the sink protocol",
         "`PlotterLearningModeIntentSink`",
         "`learningModePresentation` is projection-only",
-        "`UI.learningModePresentation` consumer is retained under inventory item UI-008",
-        "future EA-09 presentation cutover",
+        "`UI.learningModePresentation` consumer was retained under inventory item UI-008",
+        "then-future EA-09 presentation cutover",
+        "The current EA-09 candidate supersedes that direct consumer with the",
         "`PointSelectionPresentationContext`, its copied request/admission comparison, and the Task-returning app cancellation helper are deleted",
         "`submitCurrentPenCapPoint` and `OperatorWorkspace.awaitPenCapAcceptedClickTransition` are also deleted",
         "focused tests use generic point submissions and bounded observable-state waits",
@@ -2137,13 +2312,15 @@ def validate_wave_frontier(
     blockers = parse_wave_admission_blockers(evidence, rows)
     selected = ordinary_wave_frontier(rows, set(blockers))
     if selected is not None:
-        if selected != "EA-09":
+        if selected != "GATE-01":
             fail(f"unexpected current ordinary wave frontier: {selected}")
         for phrase in (
-            "Drawing run episode cutover candidate",
-            "`DRAW-RUN` | passed — `swift test --filter PlotterDrawingRunEpisodeTests`; 12/12 passed in 0.343 seconds",
-            "EA-08B is complete only in this task-local candidate",
-            "EA-09 has not been selected or dispatched",
+            "Episode UI cutover candidate",
+            "Selected 2026-08-29 in Blackdog task `TASK-D55FD455`, attempt `TASK-D55FD455-1d0731730d03`",
+            "EA-09 is complete only in this task-local candidate",
+            "its ledger row is `complete`, all seven package gates passed, and it is not landed",
+            "The separate GATE-01 Pilot decision also remains pending",
+            "criticism is closed and no new or post-pass critic was commissioned",
             "The retired `PHYSICAL-BASE` result is `failed`",
         ):
             if phrase not in normalized:

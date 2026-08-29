@@ -1,6 +1,7 @@
 import PlotterEpisodeModel
 import PlotterEpisodeRuntime
 import PlotterRuntime
+import PlotterUI
 import SwiftUI
 
 enum CompletedComparisonReviewState: Hashable, Sendable {
@@ -42,11 +43,6 @@ enum CompletedComparisonReviewDisplayStatus: Hashable, Sendable {
 enum CompletedComparisonReviewIntent: Hashable, Sendable {
   case reviewComparison
   case resumeLivePreview
-}
-
-@MainActor
-protocol CompletedComparisonReviewIntentSink: AnyObject {
-  func submitCompletedComparisonReview(_ intent: CompletedComparisonReviewIntent)
 }
 
 struct CompletedComparisonReviewControl: Hashable, Identifiable, Sendable {
@@ -115,8 +111,8 @@ struct CompletedComparisonReviewPresentation: Hashable, Sendable {
 struct CompletedComparisonReviewControls: View {
   let presentation: CompletedComparisonReviewPresentation
   let displayedFrame: DisplayedFrame?
-  let drawingDraftIntentSink: any PlotterDrawingDraftIntentSink
-  let intentSink: any CompletedComparisonReviewIntentSink
+  let plotterUIProjection: PlotterUIProjection
+  let plotterUIIntentSink: any PlotterUIIntentSink
 
   var body: some View {
     let status = presentation.displayStatus(for: displayedFrame)
@@ -129,7 +125,12 @@ struct CompletedComparisonReviewControls: View {
       HStack(spacing: 7) {
         ForEach(presentation.controls) { control in
           Button {
-            intentSink.submitCompletedComparisonReview(control.intent)
+            let intent: PlotterUIRetainedComparisonIntent =
+              control.intent == .reviewComparison ? .reviewExactFrame : .resumeLivePreview
+            submit(
+              actionID: PlotterAppUIActionID.retainedComparison(intent),
+              intent: .retainedComparisonReview(intent)
+            )
           } label: {
             Label(control.title, systemImage: control.systemImage)
           }
@@ -137,11 +138,12 @@ struct CompletedComparisonReviewControls: View {
           .controlSize(.small)
         }
         if case .reviewingExactFrame = presentation.state,
-          let projection = presentation.drawingDraftProjection
+          presentation.drawingDraftProjection != nil
         {
           Button {
-            drawingDraftIntentSink.submitDrawingDraft(
-              PlotterDrawingDraftSubmission(projection: projection, intent: .open)
+            submit(
+              actionID: PlotterAppUIActionID.drawingOpen,
+              intent: .drawingDraft(.open)
             )
           } label: {
             Label("Open Drawing Studio", systemImage: "scribble.variable")
@@ -154,6 +156,11 @@ struct CompletedComparisonReviewControls: View {
     .padding(8)
     .background(.black.opacity(0.78), in: RoundedRectangle(cornerRadius: 7))
     .accessibilityElement(children: .contain)
+  }
+
+  private func submit(actionID _: PlotterUIActionID, intent: PlotterUIIntent) {
+    guard let request = plotterUIProjection.request(matching: intent) else { return }
+    Task { _ = await plotterUIIntentSink.submitPlotterUIRequest(request) }
   }
 
   private func statusColor(_ status: CompletedComparisonReviewDisplayStatus) -> Color {
