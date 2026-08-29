@@ -550,22 +550,20 @@ struct ActionSurface: View {
   @State private var priorDragTranslation: CGSize = .zero
   private let pointSelectionIntentSink: (any PlotterPointSelectionIntentSink)?
   private let drawingDraftIntentSink: any PlotterDrawingDraftIntentSink
-  private let performCompletedComparisonReviewAction: (CompletedComparisonReviewAction) -> Void
+  private let completedComparisonReviewIntentSink: any CompletedComparisonReviewIntentSink
 
   init(
     presentation: ActionSurfacePresentation,
     viewport: Binding<ActionSurfaceViewportState> = .constant(ActionSurfaceViewportState()),
     pointSelectionIntentSink: (any PlotterPointSelectionIntentSink)? = nil,
     drawingDraftIntentSink: any PlotterDrawingDraftIntentSink,
-    performCompletedComparisonReviewAction: @escaping (CompletedComparisonReviewAction) -> Void = {
-      _ in
-    }
+    completedComparisonReviewIntentSink: any CompletedComparisonReviewIntentSink
   ) {
     self.presentation = presentation
     _viewport = viewport
     self.pointSelectionIntentSink = pointSelectionIntentSink
     self.drawingDraftIntentSink = drawingDraftIntentSink
-    self.performCompletedComparisonReviewAction = performCompletedComparisonReviewAction
+    self.completedComparisonReviewIntentSink = completedComparisonReviewIntentSink
   }
 
   var body: some View {
@@ -649,7 +647,7 @@ struct ActionSurface: View {
             presentation: presentation.completedComparisonReview,
             displayedFrame: presentation.displayedFrame,
             drawingDraftIntentSink: drawingDraftIntentSink,
-            perform: performCompletedComparisonReviewAction
+            intentSink: completedComparisonReviewIntentSink
           )
           .padding(8)
         }

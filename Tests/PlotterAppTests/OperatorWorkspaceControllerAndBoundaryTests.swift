@@ -32,6 +32,7 @@ extension OperatorWorkspaceTests {
         disconnect: {}
       ),
       drawingDraftRuntime: nominalDrawingDraftRuntime(),
+      drawingRunComposition: nominalDrawingRunComposition(),
       serialDevices: [descriptor],
       serialDeviceDiscovery: { [descriptor] },
       loadSelectedSerialIdentifier: { descriptor.identifier },
@@ -110,6 +111,7 @@ extension OperatorWorkspaceTests {
         disconnect: {}
       ),
       drawingDraftRuntime: nominalDrawingDraftRuntime(),
+      drawingRunComposition: nominalDrawingRunComposition(),
       serialDevices: [descriptor],
       serialDeviceDiscovery: { [descriptor] },
       loadSelectedSerialIdentifier: { descriptor.identifier },

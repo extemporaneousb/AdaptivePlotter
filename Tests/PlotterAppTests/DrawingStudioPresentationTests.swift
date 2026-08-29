@@ -31,14 +31,14 @@ struct DrawingStudioPresentationTests {
       runState: .ready(detail: "Plan admitted."),
       editingIsEnabled: true
     )
-    #expect(ready.controls.map(\.action) == [.run])
+    #expect(ready.controls.map(\.intent) == [.start])
     #expect(ready.controls.allSatisfy { $0.isEnabled })
 
-    let capability = ContextualStopCapabilityID()
+    let capability = PlotterDrawingRunStopCapabilityID()
     let running = try studioPresentation(
       runState: .running(capabilityID: capability, detail: "Stroke 2 of 4.")
     )
-    #expect(running.controls.map(\.action) == [.stop(capability)])
+    #expect(running.controls.map(\.intent) == [.stop(capability)])
     #expect(running.controls.first?.role == .negative)
   }
 
@@ -73,20 +73,26 @@ struct DrawingStudioPresentationTests {
 
   @Test("review states expose only review exit and new-run actions")
   func reviewControls() throws {
+    let availableRunID = RunID()
+    let terminalRunID = RunID()
     let available = try studioPresentation(
-      runState: .reviewAvailable(runID: "run-7", detail: "Observed geometry retained.")
+      runState: .reviewAvailable(runID: availableRunID, detail: "Observed geometry retained.")
     )
     let reviewing = try studioPresentation(
-      runState: .reviewing(runID: "run-7", detail: "Exact post-run frame displayed.")
+      runState: .reviewing(runID: availableRunID, detail: "Exact post-run frame displayed.")
     )
     let terminal = try studioPresentation(
-      runState: .terminal(runID: "run-8", detail: "No exact post-run frame.")
+      runState: .terminal(runID: terminalRunID, detail: "No exact post-run frame.")
     )
 
-    #expect(available.controls.map(\.action) == [.reviewRun, .newRun])
-    #expect(reviewing.controls.map(\.action) == [.resumeLivePreview, .newRun])
-    #expect(terminal.controls.map(\.action) == [.newRun])
-    #expect(!available.controls.map(\.action).contains(.run))
+    #expect(available.controls.map(\.intent) == [
+      .pinReview(availableRunID), .beginNewRun(availableRunID),
+    ])
+    #expect(reviewing.controls.map(\.intent) == [
+      .unpinReview(availableRunID), .beginNewRun(availableRunID),
+    ])
+    #expect(terminal.controls.map(\.intent) == [.beginNewRun(terminalRunID)])
+    #expect(!available.controls.map(\.intent).contains(.start))
   }
 
   @Test("disabled editing disables placement and Run without changing values")
@@ -100,7 +106,7 @@ struct DrawingStudioPresentationTests {
     #expect(!presentation.canvas.placement.placementIsEnabled)
     #expect(presentation.controls == [
       DrawingStudioControl(
-        action: .run,
+        intent: .start,
         title: "Run Drawing",
         systemImage: "play.fill",
         role: .affirmative,
@@ -122,6 +128,11 @@ struct DrawingStudioPresentationTests {
       evidenceRole: .ordinaryDrawing,
       canvas: try studioCanvas(frame: frame),
       editingIsEnabled: editingIsEnabled,
+      runProjection: PlotterDrawingRunProjectionReference(
+        environment: .live,
+        runRevision: PlotterDrawingRunRevision(rawValue: 0),
+        planIdentity: nil
+      ),
       runState: runState
     )
   }

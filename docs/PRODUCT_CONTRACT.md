@@ -883,23 +883,41 @@ source, camera configuration, and contact plane are unchanged, while a change to
 any of those invalidates currentness. The diagnostic polygon never measures
 paper edges or establishes tip-map, camera/ink, or physical evidence.
 
-The retained run/evidence owner authorizes the new-plan handoff after terminal
-review. Until it clears that boundary, draft mutation refuses. After handoff the
-draft publishes an immutable plan only; draft actions invoke no controller
-motion, Pen, Stop, camera, Vision, drawing-run archive, or other physical/evidence
-effect. SIMULATED draft and paper results remain **SIMULATED — NOT PHYSICAL
-EVIDENCE**.
+One `PlotterDrawingRunRuntime` authorizes the new-plan handoff after terminal
+review. Until an exact RunID handoff clears that boundary, draft mutation
+refuses. After handoff the draft publishes an immutable plan only; draft actions
+invoke no controller motion, Pen, Stop, camera, Vision, drawing-run archive, or
+other physical/evidence effect. SIMULATED draft and paper results remain
+**SIMULATED — NOT PHYSICAL EVIDENCE**.
 
-Run eligibility additionally requires LIVE mode, a connected authorized idle
-controller, current paper-coverage evidence, and the exact reviewed plan.
-Every travel owner issues an idempotent Pen Up normalization; it does not trust
-process-local command knowledge. `RunInterpreter` is the only execution owner for all Pen-Up travel, pen
-actuation, finite segments, Stop, and checkpoints. Controller completion is not
-ink verification. After clean completion, the camera observer compares a
-strictly newer same-pose frame against the local baseline and associates new ink
-with the planned polylines. Exact-frame intended, observed, and residual
-geometry remains reviewable. Refusal, cancellation, ambiguity, possible ink,
-Vision rejection, or evidence-store failure cannot authorize resend or redraw.
+Run actions are typed `PlotterDrawingRunIntent` submissions against the displayed
+immutable run revision, environment, and exact plan identity. The runtime owns
+exclusive start admission, one exact Stop capability, settlement, RunID-bound
+review pin/unpin and new-run handoff, publication recovery, and no-redraw truth.
+A stale projection or changed plan/fact returns the exact authority, reason, and
+operator remedy; the UI cannot decide admission or issue lower effects itself.
+
+Run eligibility requires LIVE mode, a connected authorized idle controller,
+current paper-coverage evidence, and the exact reviewed EA-08A plan. The runtime
+refreshes those complete facts and revalidates that exact identity around every
+physical boundary. It issues idempotent Pen Up normalization, supervised travel
+to the observation pose when required, and an exact baseline capture before
+delegating the whole immutable plan to `RunInterpreter`. The lower interpreter
+remains the execution owner for Pen actuation, finite segments, Stop, and
+checkpoints. Controller completion is not ink verification. After clean
+completion, the runtime requires exact final MPos and a strictly newer
+same-source post frame before applicability-aware observation.
+
+Geometry outside tip applicability remains executable but is explicitly
+non-attributable and invokes no Vision ink measurement. An immutable evidence
+record must append to the checksummed archive before successful terminal
+publication. Append failure exposes exact recovery and cannot appear successful;
+possible-ink/no-redraw truth remains even when persistence fails. Exact-frame
+intended, observed, and residual geometry remains reviewable. Refusal,
+cancellation, ambiguity, possible ink, Vision rejection, or evidence-store
+failure cannot authorize resend or redraw. SIMULATED start is a typed
+nonphysical refusal and invokes zero LIVE controller, camera, Vision, or archive
+effects.
 
 Every immutable `DrawingRunEvidenceRecord` fixes its role before the outcome is
 known and cites request/execution frontiers, program/placement/plan hashes plus

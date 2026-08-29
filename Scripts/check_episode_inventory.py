@@ -106,9 +106,6 @@ ACTION_ENUMS = {
     "ExerciseActionKind": ROOT / "Sources/PlotterApp/LearningPathPresentation.swift",
     "PlotterDrawingDraftIntent":
         ROOT / "Sources/PlotterEpisodeModel/PlotterDrawingDraft.swift",
-    "DrawingStudioRunAction": ROOT / "Sources/PlotterApp/DrawingStudioPresentation.swift",
-    "CompletedComparisonReviewAction":
-        ROOT / "Sources/PlotterApp/CompletedComparisonReviewPresentation.swift",
     "VideoSettingsVisibilityAction": ROOT / "Sources/PlotterApp/WorkbenchLayout.swift",
 }
 PORT_STRUCTS = {
@@ -116,7 +113,6 @@ PORT_STRUCTS = {
     "AnnouncementActions",
     "WorkflowTelemetryActions",
     "AcceptedLearningPathCheckpointActions",
-    "DrawingEvidenceActions",
     "CameraActions",
 }
 TASK_FILES = {

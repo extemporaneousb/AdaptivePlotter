@@ -1,6 +1,29 @@
 import Foundation
+import PlotterEpisodeRuntime
 import PlotterModel
 import PlotterRuntime
+
+struct OperatorWorkspaceDrawingRunCameraPort:
+  PlotterDrawingRunCameraPort, PlotterDrawingRunVisionPort
+{
+  let actions: OperatorWorkspace.CameraActions
+
+  func captureFrame(newerThan captureNanoseconds: UInt64) async throws -> DisplayedFrame {
+    guard let frame = try await actions.captureFrame(captureNanoseconds),
+      frame.frame.captureNanoseconds > captureNanoseconds
+    else { throw LearningPathOperationError.freshFrameUnavailable }
+    return frame
+  }
+
+  func observePlannedDrawingInk(
+    _ request: PlannedDrawingObservationRequest
+  ) async -> PlannedDrawingObservationOutcome {
+    guard let observe = actions.observePlannedDrawingInk else {
+      preconditionFailure("The production Drawing Run composition requires Vision observation.")
+    }
+    return await observe(request)
+  }
+}
 
 enum CameraComposition {
   private static let session = CameraSourceSession()

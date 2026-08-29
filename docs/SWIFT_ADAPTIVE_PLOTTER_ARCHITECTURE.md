@@ -968,8 +968,11 @@ session state references the resulting calibration workflow; one Drawing Trial s
 the complete trial payload, history, rollback, and rewind transitions. A
 `PlotterDrawingDraftRuntime` now owns Drawing Studio catalog selection,
 placement, immutable plan, preview, and paper assertion outside that aggregate.
-The retained Drawing Studio state owns only the EA-08B run presentation and
-retained exact-frame review, not draft, controller, or camera authority.
+One `PlotterDrawingRunRuntime` owns the separate EA-08B run projection,
+exclusive admission, exact Stop, terminal/no-redraw truth, evidence publication,
+and retained exact-frame review. It receives one immutable EA-08A plan and uses
+nominal adapters without absorbing draft, MachineController, RunInterpreter,
+camera, Vision, or archive internals.
 Supervised
 Learning Path travel and settlement carry typed `LearningMotionAction` identity;
 display text is derived only by the presentation boundary.
@@ -1352,26 +1355,49 @@ Drawing Studio views consume immutable catalog, placement, target-preview,
 parameter, and run-state presentations. A video click carries its exact frame
 reference and is inverted through the current registration into a machine
 anchor; scale or rotation creates a new placement and replans. Draft mutation
-refuses while retained EA-08B run/evidence work owns the workflow or a terminal
-still requires its explicit new-plan handoff. Once that owner clears the
-terminal, `.beginNewPlan` changes only immutable draft identity. App composition
-passes the exact accepted plan to `PersistentMachineSession`, which delegates it
-to `RunInterpreter`; no draft action invokes machine motion, Stop, camera,
-Vision, run evidence, or another physical effect, and no view or workspace loop
-emits individual controller segments.
+refuses while the immutable `PlotterDrawingRunSnapshot` reports an active owner
+or a terminal still requires its exact new-run handoff. Once an exact RunID
+handoff clears that terminal, `.beginNewPlan` changes only immutable draft
+identity. No draft action invokes machine motion, Stop, camera, Vision, run
+evidence, or another physical effect, and no view or workspace loop emits
+individual controller segments.
 
-For observation, the coordinator preselects the plan's final point, captures a
-local baseline there, executes the owner-bound plan, verifies the final MPos,
-captures a newer frame, and calls the generic observer under the camera's
-exclusive Vision lease. `OverlayResultChannels` retains Drawing Studio workflow
-results independently of scene overlays and Stage 2. `DrawingRunEvidenceStore`
-owns the checksummed append-only archive. New records embed the complete
-immutable `ExecutionPlanRevision`, allowing prior planned paths to be
-reprojected without making the archive executable; legacy hash-only records
-remain readable but explicitly lack reconstructable geometry. Archive load/append can never restore
-runtime ownership or replay a plan. `DrawingReadinessAssessment` is a Model
-value consumed only as a presentation capability statement; construction does
-not bypass its complete typed requirements.
+`PlotterDrawingRunRuntime` is the single source-indexed EA-08B run owner. A
+`PlotterDrawingRunSubmission` binds one request ID, the immutable run revision,
+environment, exact `PlotterDrawingRunPlanIdentity`, and one typed intent: start,
+exact-capability Stop, exact-RunID review pin/unpin, new-run handoff, or exact
+publication recovery. Stale projections and changed plan/fact identity return
+typed owner/reason/remedy refusal. SwiftUI receives immutable
+`PlotterDrawingRunSnapshot` values and sends only through
+`PlotterDrawingRunIntentSink`; App composition tracks the one awaited start task
+but does not duplicate admission or cancellation authority.
+
+The runtime refreshes complete facts and revalidates the exact EA-08A plan,
+paper, Learning, environment, and lower readiness around every effect boundary.
+Its admitted LIVE chain normalizes Pen Up, performs supervised observation-pose
+travel when needed, captures the exact local baseline, delegates the immutable
+plan to `RunInterpreter`, verifies exact final MPos, captures a strictly newer
+same-source post frame, and requests Vision only when the intended projection is
+inside tip applicability. Outside applicability is executable but published as
+`.nonAttributable` with no Vision-derived ink claim.
+
+`PlotterDrawingRunFactSource`, `PlotterDrawingRunInterpreterPort`,
+`PlotterDrawingRunCameraPort`, `PlotterDrawingRunVisionPort`, and
+`PlotterDrawingRunEvidencePort` are nominal bridges to retained owners. The
+checksummed `DrawingRunEvidenceStore` must append the exact immutable record
+before successful terminal publication. A failed append leaves
+`publicationIncomplete` plus one exact recovery capability; it cannot look
+successful. Possible-ink/no-redraw truth is independent of persistence and
+blocks the exact plan until a new immutable plan is handed off. Refusal,
+cancellation, ambiguity, Vision rejection, or storage failure never authorizes
+redraw or resend. Review pinning is RunID-bound, and archive load/append cannot
+restore runtime ownership or replay a plan.
+
+SIMULATED start is a typed nonphysical refusal and invokes no LIVE interpreter,
+camera, Vision, or evidence port. `OverlayResultChannels` retains Drawing Studio
+workflow results independently of scene overlays and Stage 2.
+`DrawingReadinessAssessment` remains a Model presentation capability statement;
+construction bypasses none of the complete typed requirements.
 
 ## Simulator boundary
 

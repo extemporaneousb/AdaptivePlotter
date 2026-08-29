@@ -8,6 +8,191 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Drawing run episode cutover candidate
+
+Integrated 2026-08-29 in Blackdog task `TASK-51550DB1`, attempt
+`TASK-51550DB1-84f1763c31b5`, from canonical `main` base
+`f244cf9761c16bcb19b11a0912eb6370168d356c`. EA-08B is complete only in this
+task-local candidate: its authority/deletion implementation, corrected focused
+suite, same-critic correction-cycle acceptance, and all seven package gates are
+complete. Only Blackdog landing, canonical-`main` cleanup verification, and
+conditional successor-capsule creation remain pending and are not claimed.
+Migration remains incomplete and EA-09 has not been selected or dispatched.
+
+The candidate makes one actor-isolated `PlotterDrawingRunRuntime` the
+source-indexed Drawing Studio run authority. Every
+`PlotterDrawingRunSubmission` binds one `PlotterDrawingRunRequestID`, the
+immutable `PlotterDrawingRunRevision`, exact environment and plan identity, and
+one typed `PlotterDrawingRunIntent`: start, exact-capability Stop, exact-run
+review pin/unpin, new-run handoff, or exact publication recovery. Refusals bind
+the request and compared projection to one `EpisodeAuthorityID`, typed
+`PlotterDrawingRunRefusalReason`, and operator remedy. SwiftUI consumes immutable
+`PlotterDrawingRunSnapshot` values and submits only through
+`PlotterDrawingRunIntentSink`.
+
+EA-08A remains the immutable draft/plan owner. Start admission captures the
+exact `PlotterDrawingRunPlanIdentity`, then refreshes complete external facts,
+including `penActuationProfile`, and revalidates that same plan, paper
+assertion, Learning prerequisite, LIVE environment, and controller readiness
+around each physical boundary. Pre-effect drift produces an exact typed refusal
+with compared requirement, owner, revisions, and remedy and invokes no machine,
+Pen, camera, Vision, or archive port. The runtime-owned admission-closed latch
+is set before App shutdown awaits the tracked run, then rechecked after every
+suspension and immediately before every lower effect. Admission is FIFO and
+exclusive; one active RunID owns progress, exact Stop capability, settlement,
+terminal publication, and review handoff.
+
+The admitted LIVE chain is: idempotent Pen Up normalization; supervised travel
+to the observation pose when required; an exact local baseline capture; lower
+`RunInterpreter` execution of the immutable plan; exact final MPos; a strictly
+newer same-source post frame; applicability-aware observation; and append of one
+immutable `DrawingRunEvidenceRecord` before successful terminal publication.
+`PlotterDrawingRunFactSource`, `PlotterDrawingRunInterpreterPort`,
+`PlotterDrawingRunCameraPort`, `PlotterDrawingRunVisionPort`, and
+`PlotterDrawingRunEvidencePort` are nominal adapters. They transfer no
+MachineController, RunInterpreter, CameraCapture, VisionWorker, or
+`DrawingRunEvidenceStore` internals into the episode runtime.
+
+Geometry outside the accepted tip applicability remains executable but is
+published as `nonAttributable`, with
+`notAttempted(.projectionOutsideTipApplicability)` and no Vision-derived ink
+claim. Evidence append must complete before `.succeeded` is published. Failure
+retains the exact proposed record as `.publicationIncomplete`, exposes one
+identity-bound recovery capability, and cannot appear as successful current
+evidence. Publication recovery is an identity-bound in-flight owner: while
+`.appending`, new-run, review, paper, and domain mutation refuse; settlement
+revalidates the exact recovery capability before publishing success or failure.
+A rejected archive load is typed run-unavailable/no-redraw ambiguity and fails
+start closed with zero resend or LIVE effect. No-redraw truth is independent of
+append success: any possibly
+ink-producing plan remains blocked by exact plan identity until the operator
+hands off to a new immutable EA-08A plan. No refusal, cancellation, ambiguity,
+possible ink, Vision rejection, or storage failure authorizes automatic redraw
+or resend.
+
+Review pin/unpin and new-run handoff are RunID-bound. Stop accepts only the
+active runtime capability and delegates cancellation settlement to the retained
+lower interpreter. SIMULATED start returns typed
+`simulatedRunIsNonphysical`/`switchToLiveSource` refusal and performs zero LIVE
+interpreter, camera, Vision, or archive effects. The runtime sets
+`physicalEvidenceClaimed` only for a LIVE durably published success; that field
+does not turn software validation into attended physical evidence.
+
+Production composition injects one exact runtime and the nominal retained-owner
+adapters. The App owns one tracked start task only to await the runtime call and
+projects the runtime's active snapshot; it does not duplicate run admission,
+Stop, evidence publication, review, or no-redraw authority. The explicitly
+retained Drawing Border workflow uses package-only nominal lower adapters and
+keeps its later EA-10E sequencing and evidence semantics.
+
+The cutover deletes `DrawingStudioRunStateStorage`, `DrawingEvidenceActions`,
+`PlotterDrawingStudioRunSynchronizationGate`, `runDrawingStudioPlan`,
+`performDrawingStudioRunAction`, `performCompletedComparisonReviewAction`,
+`DrawingStudioRunAction`, `CompletedComparisonReviewAction`, and the workspace
+run latches, duplicate Stop/review/evidence state, direct run guards, and raw UI
+handlers. The EA-08B deletion manifest retains five exact scans for
+`runDrawingStudioPlan`, `performCompletedComparisonReviewAction`,
+`machineActions.beginDrawingPlan`, `cameraActions.observePlannedDrawingInk`, and
+the `makeDrawingStudioRunRecord` fixture. `DELETE` passed all 5/5 exact scans in
+0.10 seconds.
+
+The frozen accepted source identity is:
+
+- `PlotterDrawingRun.swift`
+  `eb190dc6822eab63e99bf6eceafb38c38f5df52983e672ec652baa0204202232`;
+- `PlotterDrawingRunRuntime.swift`
+  `edc303ee4be20e22d2d781c99b726b4a94ca99342f3b2a049212f2c16fcf6662`;
+- `OperatorWorkspace.swift`
+  `d77fc0e479f775cc3368cc87cdb72ee3e3eeff22e8ae3fdaa338efe381cda02e`;
+- `DrawingStudioPresentation.swift`
+  `4ae3e92d0f27113fd59c9ea5875a70d7a7f5f99a1e067a306d011cdc873be1f7`;
+- `CompletedComparisonReviewPresentation.swift`
+  `421d801b0e753112da2e239fb39abe5c6bd9749384cb38f61bb342896b524203`;
+- `ActionSurface.swift`
+  `104c5ae8d9c70cd0ac81b82c783be3eb078900348b7649eaa14b7f4546ba9b8b`;
+- `AdaptivePlotterApp.swift`
+  `291e1280aa0026222cf0a97a8852b4d57336ae5b9b2d39bd693fe30c3bd93934`;
+- `DrawingRunEvidenceComposition.swift`
+  `3d7115afda564f37dc4dbd2ee936e1f870055b288e4580fc63133da22273c193`;
+- `PassiveProbeComposition.swift`
+  `ef2e6410c828ef9e7975ed2306bf94254af02c225e73993d90341efac5562275`;
+- `CameraComposition.swift`
+  `798b357b725b13b61463abe1d5f5fa9da7de4d38ebc3e701ac09481f7c654116`.
+
+The frozen focused-test identity is:
+
+- `PlotterDrawingRunEpisodeTests.swift`
+  `b5521a1c2db0a3e981e150e6f805246af1f30be087b3adc984020ad464bc5f6d`;
+- `PlotterDrawingRunEpisodeTestSupport.swift`
+  `37f696ad128c048f485f5eff57888661e5848841d4aae17ceadebe5f62f06723`;
+- `DrawingStudioPresentationTests.swift`
+  `ab7791605ebb30409ea4701d2e40d118ec345b0428c52a706decf51bc7fd4164`.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `DRAW-RUN` | passed — `swift test --filter PlotterDrawingRunEpisodeTests`; 12/12 passed in 0.343 seconds | typed admission/refusal, full-fact/profile freshness, shutdown-before-effect closure, exact Stop, LIVE chain, non-attribution, identity-bound append recovery, rejected-archive ambiguity, no-redraw, review/new-run, and SIMULATED zero-LIVE-effect behavior |
+| `DELETE` | passed — `sh Scripts/check_episode_cutover.sh EA-08B`; 5/5 exact scans passed in 0.10 seconds | five exact EA-08B zero-match scans |
+| `DOC` | passed — `make docs-check`; 29/29 passed in 11.35 seconds | documentation/checker contract |
+| `DIFF` | passed — `git diff --check`; clean | whitespace/error diff check |
+| `QUICK` | passed — `make quick-test`; 730/730 passed in 15.19 seconds | repository quick suite |
+| `JOURNEY` | passed — `make journey-test`; 7/7 passed in 6.32 seconds | operator journey suite |
+| `STRICT` | passed — `make strict-check`; 737/737 strict tests plus 29/29 docs in approximately 112.10 seconds; strict-concurrency warnings-as-errors build 37.85 seconds, strict build 41.47 seconds, strict test duration 13.565 seconds, stable-local signing, launcher logic/validation, and negative bundle all passed | strict-concurrency, complete tests, signing, launcher, negative-bundle, and documentation contracts |
+| criticism | passed — original `RETASK`; same critic correction-cycle-1 exact final verdict `UNANIMOUS PASS — no material disagreement` | shutdown/effect-fact closure, identity-bound publication recovery and archive ambiguity, and canonical documentation literal |
+
+Two earlier focused invocations stopped at compiler-only diagnostics and remain
+nonpass history; neither is promoted to test evidence. The second correction
+unwrapped the optional lower-interpreter snapshot before reading final MPos,
+preserving typed disconnected refusal rather than fabricating a position. The
+pre-critic frozen source then produced 8/8 in 0.327 seconds. The sole fresh
+critic returned `RETASK`; after the bounded corrections, the focused suite
+passed 12/12 in 0.343 seconds. No broad or deletion gate result is inferred
+from that focused pass. The same critic's correction-cycle-1 exact final
+verdict was `UNANIMOUS PASS — no material disagreement`. Criticism is closed;
+no new, full, or post-pass critic is required or allowed.
+
+Historical documentation and deletion nonpasses remain nonpass history. One
+`DOC` attempt rejected a lowercase canonical literal, and the next rejected
+`Cutover candidate:` as a software-outcome prefix. After those exact
+corrections, `DOC` passed 29/29 and `DIFF` was clean before this documentation
+delta; their final reruns passed 29/29 in 11.35 seconds and clean, respectively.
+An earlier `DELETE` invocation
+stopped before its scans with `invalid EA-01 manifest: source declaration
+missing: DrawingStudioRunAction`; it supplies no deletion-gate evidence and is
+superseded only by the later 5/5 pass. No broad or final deletion result is
+inferred from the focused or critic pass.
+
+This is software evidence only. No attended controller, camera, motion, Pen,
+paper, operator-click, or observed-ink validation occurred. SIMULATED outcomes
+remain nonphysical and do not validate LIVE effects. No remote-Git action,
+Blackdog landing, or canonical-`main` cleanup is claimed.
+
+Canonical routed-document dispositions for this EA-08B candidate:
+
+- Affected — Episode Architecture Execution Plan and Current Evidence: actual
+  runtime ownership, retired App paths, frozen identities, and final gate
+  evidence.
+- Affected — Swift Architecture and Product Contract: one run runtime/sink/
+  snapshot authority, nominal lower-owner adapters, append-before-success,
+  exact Stop, no-redraw, review/new-run, and SIMULATED boundaries.
+- Affected — `Scripts/check_episode_contract.py`: staged-complete candidate
+  wording, corrected identities/evidence, conditional frontier, and ledger
+  fingerprint.
+- Affected — `Scripts/test_episode_wave_capsule.py`: its task-local fixture now
+  derives EA-09 only as the conditional post-landing frontier; it does not
+  dispatch EA-09.
+- Reviewed no change — `Scripts/check_episode_cutover.sh`: the five required
+  EA-08B zero-match scans are already exact.
+- Reviewed no change — Document Routing (`docs/INDEX.md`), Episode Architecture
+  Vocabulary, adaptiveplotter episode protocol, operator button transitions,
+  Roadmap, Attended Hardware Runbook, and README: their routing, vocabulary,
+  operator policy, physical procedure, and product boundaries remain accurate.
+
+The staged ledger mechanically derives EA-09 only as the conditional
+post-landing ordinary frontier. All EA-08B gates have passed; EA-09 may be
+selected only after Blackdog landing completes, canonical `main` is verified
+clean, and a successor capsule is generated there. EA-09 has not been selected
+or dispatched.
+
 ## Drawing draft episode cutover candidate
 
 Integrated 2026-08-28 in Blackdog task `TASK-5700F7F5`, attempt
@@ -915,6 +1100,7 @@ select or dispatch EA-07.
 | --- | --- | --- | --- |
 | EA-06 | `TASK-FE9C9CB3` | `DOC`=rerun-required, `DIFF`=rerun-required, `QUICK`=rerun-required, `JOURNEY`=passed, `STRICT`=rerun-required, `MOTION`=passed, `DELETE`=passed | The exact frozen tree passed all seven gates. Refresh affected `DOC`, `DIFF`, `QUICK`, and `STRICT` on this final evidence candidate as part of Blackdog landing, then replace this staged candidate with ordinary passed evidence after canonical `main` is verified clean; `CITED_RACE_CLOSED` already closes the critic boundary and no further critic is required or allowed. |
 | EA-08A | `TASK-5700F7F5` | `DOC`=passed, `DIFF`=passed, `QUICK`=passed, `STRICT`=passed, `DRAW-DRAFT`=passed, `DELETE`=passed | All six package gates passed: `DRAW-DRAFT` 17/17, `DELETE` 4/4, `DOC` 29/29, clean `DIFF`, `QUICK` 720/720, and `STRICT` 727/727 plus strict-concurrency warnings-as-errors, signing, launcher, negative-bundle, and documentation checks. Earlier failed/interrupted invocations remain nonpass history. The original critic result is `RETASK`; its corrected three-finding delta recheck ended exactly `UNANIMOUS PASS — no material disagreement`, so criticism is closed. Blackdog landing, canonical-`main` cleanup verification, and conditional EA-08B successor-capsule creation remain pending. No landing or cleanup is claimed. |
+| EA-08B | `TASK-51550DB1` | `DOC`=passed, `DIFF`=passed, `QUICK`=passed, `JOURNEY`=passed, `STRICT`=passed, `DRAW-RUN`=passed, `DELETE`=passed | All seven package gates passed: `DOC` 29/29 in 11.35 seconds, clean `DIFF`, `QUICK` 730/730 in 15.19 seconds, `JOURNEY` 7/7 in 6.32 seconds, `STRICT` 737/737 plus 29/29 docs in approximately 112.10 seconds, `DRAW-RUN` 12/12 in 0.343 seconds, and `DELETE` 5/5 in 0.10 seconds. The sole fresh critic's original verdict was `RETASK`; its correction-cycle-1 exact final verdict was `UNANIMOUS PASS — no material disagreement`, so criticism is closed and no new, full, or post-pass critic is required or allowed. Only Blackdog landing, canonical-`main` cleanup verification, and conditional EA-09 successor-capsule creation remain pending. EA-09 is not selected or dispatched. |
 
 Canonical routed-document review dispositions for the EA-06 evidence integration:
 
@@ -982,7 +1168,8 @@ exceptions are the explicitly named staged candidates above. EA-06 retains its
 recorded source-bound pass/rerun boundary. EA-07 is ordinary landed evidence;
 its focused authority suite remains correction evidence, not an additional
 package gate. EA-08A has all six package gates passed and a closed same-critic
-delta. Earlier failed or interrupted invocations remain nonpass history.
+delta. EA-08B has all seven package gates passed and a closed same-critic
+correction cycle. Earlier failed or interrupted invocations remain nonpass history.
 Detailed scope and limitations remain in the
 named evidence sections.
 

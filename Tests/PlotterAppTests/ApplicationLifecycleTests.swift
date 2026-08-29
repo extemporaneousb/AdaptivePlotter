@@ -52,7 +52,8 @@ struct ApplicationLifecycleTests {
     let workspace = OperatorWorkspace(
       pointSelectionRuntime: composition.runtime,
       pointSelectionRecordingDiagnostic: diagnostic,
-      drawingDraftRuntime: nominalDrawingDraftRuntime()
+      drawingDraftRuntime: nominalDrawingDraftRuntime(),
+      drawingRunComposition: nominalDrawingRunComposition()
     )
     #expect(workspace.learningModePresentation.recordingDiagnostic == diagnostic)
     #expect(workspace.learningIsEnabled)

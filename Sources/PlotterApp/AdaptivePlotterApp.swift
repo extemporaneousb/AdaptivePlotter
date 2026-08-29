@@ -6,31 +6,40 @@ import SwiftUI
 
 @MainActor
 final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate {
-  let workspace = OperatorWorkspace(
-    machineActions: MachineSessionComposition.actions,
-    cameraActions: CameraComposition.actions,
-    pointSelectionRuntime: PointSelectionComposition.production.runtime,
-    pointSelectionRecordingDiagnostic:
-      PointSelectionComposition.production.recordingDiagnostic,
-    manualMotionComposition: PlotterManualMotionComposition.production,
-    announcementActions: SpeechComposition.actions,
-    acceptedLearningPathCheckpointActions: AcceptedArtifactCheckpointComposition.actions,
-    drawingEvidenceActions: DrawingRunEvidenceComposition.actions,
-    drawingDraftRuntime: PaperCoverageComposition.drawingDraftRuntime,
-    tipCalibrationSemanticIdentities: TipCalibrationSemanticIdentityComposition.state,
-    persistPaperInstanceRevision: {
-      TipCalibrationSemanticIdentityComposition.persistPaperInstance($0)
-    },
-    persistPaperContactPlaneRevision: {
-      TipCalibrationSemanticIdentityComposition.persistPaperContactPlane($0)
-    },
-    workflowTelemetryActions: MachineSessionComposition.workflowTelemetryActions
-  )
+  let workspace: OperatorWorkspace
   private var terminationTask: Task<Void, Never>?
   private var terminationDeadlineTask: Task<Void, Never>?
   private var didReplyToTermination = false
 
   static let terminationDeadlineNanoseconds: UInt64 = 3_000_000_000
+
+  override init() {
+    let drawingRunComposition = PlotterDrawingRunComposition.make(
+      machineActions: MachineSessionComposition.actions,
+      cameraActions: CameraComposition.actions
+    )
+    workspace = OperatorWorkspace(
+      machineActions: MachineSessionComposition.actions,
+      cameraActions: CameraComposition.actions,
+      pointSelectionRuntime: PointSelectionComposition.production.runtime,
+      pointSelectionRecordingDiagnostic:
+        PointSelectionComposition.production.recordingDiagnostic,
+      manualMotionComposition: PlotterManualMotionComposition.production,
+      announcementActions: SpeechComposition.actions,
+      acceptedLearningPathCheckpointActions: AcceptedArtifactCheckpointComposition.actions,
+      drawingDraftRuntime: PaperCoverageComposition.drawingDraftRuntime,
+      drawingRunComposition: drawingRunComposition,
+      tipCalibrationSemanticIdentities: TipCalibrationSemanticIdentityComposition.state,
+      persistPaperInstanceRevision: {
+        TipCalibrationSemanticIdentityComposition.persistPaperInstance($0)
+      },
+      persistPaperContactPlaneRevision: {
+        TipCalibrationSemanticIdentityComposition.persistPaperContactPlane($0)
+      },
+      workflowTelemetryActions: MachineSessionComposition.workflowTelemetryActions
+    )
+    super.init()
+  }
 
   func applicationShouldRestoreApplicationState(_ app: NSApplication) -> Bool {
     false
@@ -292,9 +301,7 @@ struct OperatorWorkspaceView: View {
               viewport: $actionSurfaceViewport,
               pointSelectionIntentSink: workspace,
               drawingDraftIntentSink: workspace,
-              performCompletedComparisonReviewAction: { action in
-                Task { await workspace.performCompletedComparisonReviewAction(action) }
-              }
+              completedComparisonReviewIntentSink: workspace
             )
             .frame(
               minWidth: LearningWorkbenchLayoutPolicy.minimumActionSurfaceWidth,
@@ -384,9 +391,7 @@ struct OperatorWorkspaceView: View {
               DrawingStudioView(
                 presentation: workspace.drawingStudioPresentation,
                 drawingDraftIntentSink: workspace,
-                performRun: { action in
-                  Task { await workspace.performDrawingStudioRunAction(action) }
-                }
+                drawingRunIntentSink: workspace
               )
             }
           }

@@ -125,11 +125,15 @@ struct DrawingStudioCanvasPresentation: Hashable, Sendable {
 enum DrawingStudioRunState: Hashable, Sendable {
   case unavailable(reason: String)
   case ready(detail: String)
-  case running(capabilityID: ContextualStopCapabilityID, detail: String)
+  case running(capabilityID: PlotterDrawingRunStopCapabilityID, detail: String)
   case processing(detail: String)
-  case terminal(runID: String, detail: String)
-  case reviewAvailable(runID: String, detail: String)
-  case reviewing(runID: String, detail: String)
+  case terminal(runID: RunID, detail: String)
+  case reviewAvailable(runID: RunID, detail: String)
+  case reviewing(runID: RunID, detail: String)
+  case publicationFailed(
+    recoveryCapabilityID: PlotterDrawingRunPublicationRecoveryCapabilityID,
+    detail: String
+  )
 
   var title: String {
     switch self {
@@ -140,6 +144,7 @@ enum DrawingStudioRunState: Hashable, Sendable {
     case .terminal: "Drawing run ended"
     case .reviewAvailable: "Run review available"
     case .reviewing: "Reviewing drawing run"
+    case .publicationFailed: "Evidence publication failed"
     }
   }
 
@@ -148,37 +153,29 @@ enum DrawingStudioRunState: Hashable, Sendable {
     case .unavailable(let reason), .ready(let reason), .running(_, let reason),
       .processing(let reason),
       .terminal(_, let reason), .reviewAvailable(_, let reason),
-      .reviewing(_, let reason):
+      .reviewing(_, let reason), .publicationFailed(_, let reason):
       reason
     }
   }
 }
 
-enum DrawingStudioRunAction: Hashable, Sendable {
-  case run
-  case stop(ContextualStopCapabilityID)
-  case reviewRun
-  case resumeLivePreview
-  case newRun
-}
-
 struct DrawingStudioControl: Hashable, Identifiable, Sendable {
-  let action: DrawingStudioRunAction
+  let intent: PlotterDrawingRunIntent
   let title: String
   let systemImage: String
   let role: OperatorButtonRole
   let isEnabled: Bool
 
-  var id: DrawingStudioRunAction { action }
+  var id: PlotterDrawingRunIntent { intent }
 
   init(
-    action: DrawingStudioRunAction,
+    intent: PlotterDrawingRunIntent,
     title: String,
     systemImage: String,
     role: OperatorButtonRole,
     isEnabled: Bool = true
   ) {
-    self.action = action
+    self.intent = intent
     self.title = title
     self.systemImage = systemImage
     self.role = role
@@ -192,6 +189,7 @@ struct DrawingStudioPresentation: Hashable, Sendable {
   let evidenceRole: DrawingTrialEvidenceRole
   let canvas: DrawingStudioCanvasPresentation
   let editingIsEnabled: Bool
+  let runProjection: PlotterDrawingRunProjectionReference?
   let runState: DrawingStudioRunState
 
   init(
@@ -200,6 +198,7 @@ struct DrawingStudioPresentation: Hashable, Sendable {
     evidenceRole: DrawingTrialEvidenceRole,
     canvas: DrawingStudioCanvasPresentation,
     editingIsEnabled: Bool,
+    runProjection: PlotterDrawingRunProjectionReference?,
     runState: DrawingStudioRunState
   ) {
     self.catalog = catalog
@@ -217,6 +216,7 @@ struct DrawingStudioPresentation: Hashable, Sendable {
       targetPreview: canvas.targetPreview
     )
     self.editingIsEnabled = editingIsEnabled
+    self.runProjection = runProjection
     self.runState = runState
   }
 
@@ -232,7 +232,7 @@ struct DrawingStudioPresentation: Hashable, Sendable {
     case .ready:
       return [
         DrawingStudioControl(
-          action: .run,
+          intent: .start,
           title: "Run Drawing",
           systemImage: "play.fill",
           role: .affirmative,
@@ -242,7 +242,7 @@ struct DrawingStudioPresentation: Hashable, Sendable {
     case .running(let capabilityID, _):
       return [
         DrawingStudioControl(
-          action: .stop(capabilityID),
+          intent: .stop(capabilityID),
           title: "Stop",
           systemImage: "stop.fill",
           role: .negative
@@ -250,44 +250,53 @@ struct DrawingStudioPresentation: Hashable, Sendable {
       ]
     case .processing:
       return []
-    case .terminal:
+    case .terminal(let runID, _):
       return [
         DrawingStudioControl(
-          action: .newRun,
+          intent: .beginNewRun(runID),
           title: "New Drawing",
           systemImage: "plus",
           role: .affirmative
         )
       ]
-    case .reviewAvailable:
+    case .reviewAvailable(let runID, _):
       return [
         DrawingStudioControl(
-          action: .reviewRun,
+          intent: .pinReview(runID),
           title: "Review Run",
           systemImage: "square.stack.3d.up",
           role: .neutral
         ),
         DrawingStudioControl(
-          action: .newRun,
+          intent: .beginNewRun(runID),
           title: "New Drawing",
           systemImage: "plus",
           role: .affirmative
         ),
       ]
-    case .reviewing:
+    case .reviewing(let runID, _):
       return [
         DrawingStudioControl(
-          action: .resumeLivePreview,
+          intent: .unpinReview(runID),
           title: "Resume Live Preview",
           systemImage: "video.fill",
           role: .neutral
         ),
         DrawingStudioControl(
-          action: .newRun,
+          intent: .beginNewRun(runID),
           title: "New Drawing",
           systemImage: "plus",
           role: .affirmative
         ),
+      ]
+    case .publicationFailed(let recoveryCapabilityID, _):
+      return [
+        DrawingStudioControl(
+          intent: .recoverPublication(recoveryCapabilityID),
+          title: "Retry Evidence Save",
+          systemImage: "arrow.clockwise",
+          role: .affirmative
+        )
       ]
     }
   }
@@ -299,7 +308,7 @@ struct DrawingStudioPresentation: Hashable, Sendable {
 struct DrawingStudioView: View {
   let presentation: DrawingStudioPresentation
   let drawingDraftIntentSink: any PlotterDrawingDraftIntentSink
-  let performRun: (DrawingStudioRunAction) -> Void
+  let drawingRunIntentSink: any PlotterDrawingRunIntentSink
 
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
@@ -436,7 +445,13 @@ struct DrawingStudioView: View {
     HStack(spacing: 8) {
       ForEach(presentation.controls) { control in
         Button {
-          performRun(control.action)
+          guard let projection = presentation.runProjection else { return }
+          drawingRunIntentSink.submitDrawingRun(
+            PlotterDrawingRunSubmission(
+              projection: projection,
+              intent: control.intent
+            )
+          )
         } label: {
           Label(control.title, systemImage: control.systemImage)
         }

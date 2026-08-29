@@ -21,7 +21,7 @@ struct CompletedComparisonReviewPresentationTests {
       presentation.displayStatus(for: nil as DisplayedFrame?)
         == .availableForReview(frameSequence: frame.frame.sequence)
     )
-    #expect(presentation.controls.map(\.action) == [.reviewComparison])
+    #expect(presentation.controls.map(\.intent) == [.reviewComparison])
   }
 
   @Test("reviewing never substitutes another exact frame")
@@ -44,7 +44,7 @@ struct CompletedComparisonReviewPresentationTests {
           displayedSequence: stale.frame.sequence
         )
     )
-    #expect(presentation.controls.map(\.action) == [.resumeLivePreview])
+    #expect(presentation.controls.map(\.intent) == [.resumeLivePreview])
   }
 
   @Test("Drawing Studio entry carries an immutable draft projection")
@@ -64,7 +64,7 @@ struct CompletedComparisonReviewPresentationTests {
     )
 
     #expect(presentation.drawingDraftProjection == projection)
-    #expect(presentation.controls.map(\.action) == [.resumeLivePreview])
+    #expect(presentation.controls.map(\.intent) == [.resumeLivePreview])
   }
 }
 

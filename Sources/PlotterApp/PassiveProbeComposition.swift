@@ -1,6 +1,46 @@
 import Foundation
 import OSLog
+import PlotterEpisodeRuntime
 import PlotterRuntime
+
+struct OperatorWorkspaceDrawingRunInterpreterPort: PlotterDrawingRunInterpreterPort {
+  let actions: OperatorWorkspace.MachineActions
+
+  func snapshot() async -> RunInterpreterSnapshot? {
+    await actions.snapshot()
+  }
+
+  func normalizePenUp(profile: PenActuationProfile) async -> PenOutcome {
+    await PlotterManualMotionComposition.settleNativePenCommand(
+      using: actions,
+      command: .raise,
+      profile: profile
+    )
+  }
+
+  func travelToObservationPosition(_ request: RelativeJogRequest) async -> MotionOutcome {
+    switch await PlotterManualMotionComposition.beginNativeRelativeMotion(
+      using: actions,
+      request: request
+    ) {
+    case .admitted(let operation):
+      return await operation.outcome()
+    case .rejected(let outcome):
+      return outcome
+    }
+  }
+
+  func beginDrawingPlan(_ request: DrawingPlanRequest) async -> DrawingPlanAdmission {
+    guard let begin = actions.beginDrawingPlan else {
+      preconditionFailure("The production Drawing Run composition requires plan execution.")
+    }
+    return await begin(request)
+  }
+
+  func requestStop(_ intent: JogCancelIntent) async -> JogCancelOutcome {
+    await actions.requestJogCancel(intent)
+  }
+}
 
 enum MachineSessionComposition {
   private static let session = PersistentMachineSession()

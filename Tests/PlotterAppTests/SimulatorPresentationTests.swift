@@ -119,6 +119,7 @@ func simulatedCameraRefreshUsesLearningRuntime() async throws {
     cameraActions: CameraComposition.makeIsolatedActionsForTesting(),
     manualMotionComposition: composition,
     drawingDraftRuntime: nominalDrawingDraftRuntime(),
+    drawingRunComposition: nominalDrawingRunComposition(),
     serialDevices: [],
     serialDeviceDiscovery: { [] },
     loadSelectedSerialIdentifier: { nil },

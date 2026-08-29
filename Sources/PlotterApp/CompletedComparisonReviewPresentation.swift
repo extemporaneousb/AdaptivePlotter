@@ -39,18 +39,23 @@ enum CompletedComparisonReviewDisplayStatus: Hashable, Sendable {
   }
 }
 
-enum CompletedComparisonReviewAction: Hashable, Sendable {
+enum CompletedComparisonReviewIntent: Hashable, Sendable {
   case reviewComparison
   case resumeLivePreview
 }
 
+@MainActor
+protocol CompletedComparisonReviewIntentSink: AnyObject {
+  func submitCompletedComparisonReview(_ intent: CompletedComparisonReviewIntent)
+}
+
 struct CompletedComparisonReviewControl: Hashable, Identifiable, Sendable {
-  let action: CompletedComparisonReviewAction
+  let intent: CompletedComparisonReviewIntent
   let title: String
   let systemImage: String
   let role: OperatorButtonRole
 
-  var id: CompletedComparisonReviewAction { action }
+  var id: CompletedComparisonReviewIntent { intent }
 }
 
 /// Values-only review projection. The coordinator chooses whether the retained
@@ -88,7 +93,7 @@ struct CompletedComparisonReviewPresentation: Hashable, Sendable {
     case .available:
       [
         CompletedComparisonReviewControl(
-          action: .reviewComparison,
+          intent: .reviewComparison,
           title: "Review Comparison",
           systemImage: "square.stack.3d.up",
           role: .neutral
@@ -97,7 +102,7 @@ struct CompletedComparisonReviewPresentation: Hashable, Sendable {
     case .reviewingExactFrame:
       [
         CompletedComparisonReviewControl(
-          action: .resumeLivePreview,
+          intent: .resumeLivePreview,
           title: "Resume Live Preview",
           systemImage: "video.fill",
           role: .neutral
@@ -111,7 +116,7 @@ struct CompletedComparisonReviewControls: View {
   let presentation: CompletedComparisonReviewPresentation
   let displayedFrame: DisplayedFrame?
   let drawingDraftIntentSink: any PlotterDrawingDraftIntentSink
-  let perform: (CompletedComparisonReviewAction) -> Void
+  let intentSink: any CompletedComparisonReviewIntentSink
 
   var body: some View {
     let status = presentation.displayStatus(for: displayedFrame)
@@ -124,7 +129,7 @@ struct CompletedComparisonReviewControls: View {
       HStack(spacing: 7) {
         ForEach(presentation.controls) { control in
           Button {
-            perform(control.action)
+            intentSink.submitCompletedComparisonReview(control.intent)
           } label: {
             Label(control.title, systemImage: control.systemImage)
           }

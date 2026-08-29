@@ -28,7 +28,7 @@ EVIDENCE_PATH = ROOT / "docs" / "CURRENT_EVIDENCE.md"
 ARCHITECTURE_PATH = ROOT / "docs" / "SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md"
 PRODUCT_PATH = ROOT / "docs" / "PRODUCT_CONTRACT.md"
 # Updated in the same package whenever a canonical ledger row changes.
-EXPECTED_LEDGER_SHA256 = "3894d897f4e684a02b73ca8e93591ad8a6a7d8c8ea1595a95c1e8acc4ec5fd5c"
+EXPECTED_LEDGER_SHA256 = "d2a67fcb6bb614a879d3a3c1676b965054205e96795e377e6feecfba6ef4863f"
 
 
 EXPECTED_GATES = {
@@ -192,15 +192,16 @@ EXPECTED_COMPLETE_PACKAGES = {
     "EA-06",
     "EA-07",
     "EA-08A",
+    "EA-08B",
 }
 
 # Staged-complete rows let post-cutover DELETE and documentation contracts
 # inspect the task-local final manifest without fabricating final gate evidence.
 # EA-06 retains its accepted historical landing boundary. EA-07 is ordinary
-# landed evidence on canonical main. EA-08A has its corrected focused
-# DRAW-DRAFT result; the stale-manifest DELETE failure remains nonpass history,
-# every post-integration gate remains required, and the sole critic's original
-# RETASK awaits only a delta recheck of its three corrected findings.
+# landed evidence on canonical main. EA-08A retains its accepted task-local
+# completion boundary. EA-08B is task-locally complete with all seven gates and
+# same-critic acceptance passed; only landing, canonical-main cleanup, and the
+# conditional successor capsule remain pending.
 EXPECTED_UNLANDED_COMPLETION_CANDIDATES = {
     "EA-06": (
         "`TASK-FE9C9CB3`",
@@ -209,6 +210,10 @@ EXPECTED_UNLANDED_COMPLETION_CANDIDATES = {
     "EA-08A": (
         "`TASK-5700F7F5`",
         ["DOC", "DIFF", "QUICK", "STRICT", "DRAW-DRAFT", "DELETE"],
+    ),
+    "EA-08B": (
+        "`TASK-51550DB1`",
+        ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "DRAW-RUN", "DELETE"],
     ),
 }
 
@@ -404,9 +409,17 @@ def validate_product_contract(text: str) -> None:
         "Paper assertion persistence is nominal authority, not a presentation cache",
         "The paper polygon is displayable only on the exact accepted frame",
         "a newer exact frame can remain current when paper, source, camera configuration, and contact plane are unchanged",
-        "The retained run/evidence owner authorizes the new-plan handoff after terminal review",
+        "One `PlotterDrawingRunRuntime` authorizes the new-plan handoff after terminal review",
         "draft actions invoke no controller motion, Pen, Stop, camera, Vision, drawing-run archive, or other physical/evidence effect",
         "SIMULATED draft and paper results remain **SIMULATED — NOT PHYSICAL EVIDENCE**",
+        "Run actions are typed `PlotterDrawingRunIntent` submissions against the displayed immutable run revision, environment, and exact plan identity",
+        "The runtime owns exclusive start admission, one exact Stop capability, settlement, RunID-bound review pin/unpin and new-run handoff, publication recovery, and no-redraw truth",
+        "refreshes those complete facts and revalidates that exact identity around every physical boundary",
+        "requires exact final MPos and a strictly newer same-source post frame before applicability-aware observation",
+        "Geometry outside tip applicability remains executable but is explicitly non-attributable and invokes no Vision ink measurement",
+        "append to the checksummed archive before successful terminal publication",
+        "Append failure exposes exact recovery and cannot appear successful",
+        "SIMULATED start is a typed nonphysical refusal and invokes zero LIVE controller, camera, Vision, or archive effects",
     ):
         if required_phrase not in normalized:
             fail(f"Product Contract is missing the exact Learning-Off exception: {required_phrase}")
@@ -614,8 +627,17 @@ def validate_architecture(text: str) -> None:
         "A LIVE save completes before the accepted snapshot is published",
         "Currentness is a separate `PaperCoverageValidationContext` decision",
         "newer same-context frames remain current, while paper, source, camera configuration, or contact-plane changes invalidate the assertion",
-        "Draft mutation refuses while retained EA-08B run/evidence work owns the workflow or a terminal still requires its explicit new-plan handoff",
-        "no draft action invokes machine motion, Stop, camera, Vision, run evidence, or another physical effect",
+        "Draft mutation refuses while the immutable `PlotterDrawingRunSnapshot` reports an active owner or a terminal still requires its exact new-run handoff",
+        "No draft action invokes machine motion, Stop, camera, Vision, run evidence, or another physical effect",
+        "`PlotterDrawingRunRuntime` is the single source-indexed EA-08B run owner",
+        "`PlotterDrawingRunSubmission` binds one request ID, the immutable run revision, environment, exact `PlotterDrawingRunPlanIdentity`, and one typed intent",
+        "SwiftUI receives immutable `PlotterDrawingRunSnapshot` values and sends only through `PlotterDrawingRunIntentSink`",
+        "refreshes complete facts and revalidates the exact EA-08A plan, paper, Learning, environment, and lower readiness around every effect boundary",
+        "Outside applicability is executable but published as `.nonAttributable` with no Vision-derived ink claim",
+        "The checksummed `DrawingRunEvidenceStore` must append the exact immutable record before successful terminal publication",
+        "A failed append leaves `publicationIncomplete` plus one exact recovery capability",
+        "Possible-ink/no-redraw truth is independent of persistence and blocks the exact plan until a new immutable plan is handed off",
+        "SIMULATED start is a typed nonphysical refusal and invokes no LIVE interpreter, camera, Vision, or evidence port",
     ):
         if required_phrase not in normalized:
             fail(f"current Swift architecture is missing: {required_phrase}")
@@ -714,6 +736,22 @@ def validate_plan(text: str) -> dict[str, dict[str, object]]:
     ):
         if required_phrase not in normalized:
             fail(f"EA-08A plan outcome is missing drawing-draft authority: {required_phrase}")
+    for required_phrase in (
+        "one source-indexed actor `PlotterDrawingRunRuntime`",
+        "revision/plan-bound `PlotterDrawingRunSubmission`",
+        "FIFO-exclusive admission, exact Stop capability, and RunID-bound review/new-run/publication recovery",
+        "revalidate the exact immutable EA-08A plan plus complete facts before effects",
+        "append-before-success chain through nominal retained-owner ports",
+        "possible-ink/no-redraw truth independent of save",
+        "SIMULATED zero-LIVE-effect refusal",
+        "Completed only in the task-local candidate by `TASK-51550DB1`, attempt `TASK-51550DB1-84f1763c31b5`",
+        "All seven package gates passed: `DOC` 29/29 in 11.35 seconds, clean `DIFF`, `QUICK` 730/730 in 15.19 seconds, `JOURNEY` 7/7 in 6.32 seconds, `STRICT` 737/737 plus 29/29 docs in approximately 112.10 seconds, `DRAW-RUN` 12/12 in 0.343 seconds, and `DELETE` 5/5 in 0.10 seconds",
+        "correction-cycle-1 exact final verdict was `UNANIMOUS PASS — no material disagreement`",
+        "Only Blackdog landing, canonical-`main` cleanup verification, and conditional EA-09 successor-capsule creation remain pending",
+        "No attended physical or remote-Git validation occurred or is claimed",
+    ):
+        if required_phrase not in normalized:
+            fail(f"EA-08B plan candidate is missing drawing-run authority: {required_phrase}")
     ledger_rows = markdown_table(
         text,
         ["ID", "Status", "Dependencies", "Class", "Atomic package outcome", "Required gates"],
@@ -1210,6 +1248,15 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
                 "DRAW-DRAFT": "passed",
                 "DELETE": "passed",
             },
+            "EA-08B": {
+                "DOC": "passed",
+                "DIFF": "passed",
+                "QUICK": "passed",
+                "JOURNEY": "passed",
+                "STRICT": "passed",
+                "DRAW-RUN": "passed",
+                "DELETE": "passed",
+            },
         }[package_id]
         if dict(actual_pairs) != expected_states:
             fail(f"{package_id} candidate gate-state drifted: {dict(actual_pairs)}")
@@ -1220,12 +1267,22 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
                 fail(f"{package_id} candidate lacks the closed same-critic delta boundary")
             if "no further critic is required or allowed" not in landing_boundary:
                 fail(f"{package_id} candidate incorrectly leaves critic work open")
-        else:
+        elif package_id == "EA-08A":
             for phrase in (
                 "All six package gates passed: `DRAW-DRAFT` 17/17, `DELETE` 4/4, `DOC` 29/29, clean `DIFF`, `QUICK` 720/720, and `STRICT` 727/727",
                 "its corrected three-finding delta recheck ended exactly `UNANIMOUS PASS — no material disagreement`",
                 "Blackdog landing, canonical-`main` cleanup verification, and conditional EA-08B successor-capsule creation remain pending",
                 "No landing or cleanup is claimed",
+            ):
+                if phrase not in landing_boundary:
+                    fail(f"{package_id} candidate lacks landing boundary: {phrase}")
+        else:
+            for phrase in (
+                "All seven package gates passed: `DOC` 29/29 in 11.35 seconds, clean `DIFF`, `QUICK` 730/730 in 15.19 seconds, `JOURNEY` 7/7 in 6.32 seconds, `STRICT` 737/737 plus 29/29 docs in approximately 112.10 seconds, `DRAW-RUN` 12/12 in 0.343 seconds, and `DELETE` 5/5 in 0.10 seconds",
+                "correction-cycle-1 exact final verdict was `UNANIMOUS PASS — no material disagreement`",
+                "Only Blackdog landing, canonical-`main` cleanup verification, and conditional EA-09 successor-capsule creation remain pending",
+                "conditional EA-09 successor-capsule creation remain pending",
+                "EA-09 is not selected or dispatched",
             ):
                 if phrase not in landing_boundary:
                     fail(f"{package_id} candidate lacks landing boundary: {phrase}")
@@ -1725,6 +1782,58 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
             fail(f"EA-08A candidate evidence is missing: {required_phrase}")
 
     for required_phrase in (
+        "Drawing run episode cutover candidate",
+        "`TASK-51550DB1`",
+        "`TASK-51550DB1-84f1763c31b5`",
+        "EA-08B is complete only in this task-local candidate",
+        "same-critic correction-cycle acceptance, and all seven package gates are complete",
+        "one actor-isolated `PlotterDrawingRunRuntime` the source-indexed Drawing Studio run authority",
+        "`PlotterDrawingRunSubmission` binds one `PlotterDrawingRunRequestID`, the immutable `PlotterDrawingRunRevision`, exact environment and plan identity",
+        "SwiftUI consumes immutable `PlotterDrawingRunSnapshot` values and submits only through `PlotterDrawingRunIntentSink`",
+        "refreshes complete external facts, including `penActuationProfile`, and revalidates that same plan",
+        "runtime-owned admission-closed latch is set before App shutdown awaits the tracked run",
+        "append of one immutable `DrawingRunEvidenceRecord` before successful terminal publication",
+        "`notAttempted(.projectionOutsideTipApplicability)` and no Vision-derived ink claim",
+        "Failure retains the exact proposed record as `.publicationIncomplete`",
+        "Publication recovery is an identity-bound in-flight owner",
+        "A rejected archive load is typed run-unavailable/no-redraw ambiguity",
+        "No-redraw truth is independent of append success",
+        "SIMULATED start returns typed `simulatedRunIsNonphysical`/`switchToLiveSource` refusal and performs zero LIVE interpreter, camera, Vision, or archive effects",
+        "`eb190dc6822eab63e99bf6eceafb38c38f5df52983e672ec652baa0204202232`",
+        "`edc303ee4be20e22d2d781c99b726b4a94ca99342f3b2a049212f2c16fcf6662`",
+        "`d77fc0e479f775cc3368cc87cdb72ee3e3eeff22e8ae3fdaa338efe381cda02e`",
+        "`b5521a1c2db0a3e981e150e6f805246af1f30be087b3adc984020ad464bc5f6d`",
+        "`37f696ad128c048f485f5eff57888661e5848841d4aae17ceadebe5f62f06723`",
+        "`ab7791605ebb30409ea4701d2e40d118ec345b0428c52a706decf51bc7fd4164`",
+        "`DRAW-RUN` | passed — `swift test --filter PlotterDrawingRunEpisodeTests`; 12/12 passed in 0.343 seconds",
+        "`DELETE` | passed — `sh Scripts/check_episode_cutover.sh EA-08B`; 5/5 exact scans passed in 0.10 seconds",
+        "`DOC` | passed — `make docs-check`; 29/29 passed in 11.35 seconds",
+        "`DIFF` | passed — `git diff --check`; clean",
+        "`QUICK` | passed — `make quick-test`; 730/730 passed in 15.19 seconds",
+        "`JOURNEY` | passed — `make journey-test`; 7/7 passed in 6.32 seconds",
+        "`STRICT` | passed — `make strict-check`; 737/737 strict tests plus 29/29 docs in approximately 112.10 seconds",
+        "strict-concurrency warnings-as-errors build 37.85 seconds",
+        "strict build 41.47 seconds",
+        "strict test duration 13.565 seconds",
+        "stable-local signing, launcher logic/validation, and negative bundle all passed",
+        "Two earlier focused invocations stopped at compiler-only diagnostics and remain nonpass history",
+        "No broad or deletion gate result is inferred from that focused pass",
+        "Historical documentation and deletion nonpasses remain nonpass history",
+        "All EA-08B gates have passed",
+        "No attended controller, camera, motion, Pen, paper, operator-click, or observed-ink validation occurred",
+        "No remote-Git action, Blackdog landing, or canonical-`main` cleanup is claimed",
+        "Reviewed no change — Document Routing (`docs/INDEX.md`), Episode Architecture Vocabulary, adaptiveplotter episode protocol, operator button transitions, Roadmap, Attended Hardware Runbook, and README",
+        "EA-09 has not been selected or dispatched",
+    ):
+        if required_phrase not in normalized:
+            fail(f"EA-08B candidate evidence is missing: {required_phrase}")
+
+    if normalized.index("Drawing run episode cutover candidate") > normalized.index(
+        "Drawing draft episode cutover candidate"
+    ):
+        fail("EA-08B candidate evidence must be the first current package section")
+
+    for required_phrase in (
         "Episode deterministic replay foundation",
         "`PlotterEpisodeCanonicalDigestV1`",
         "`PlotterEpisodeReplayExecutableDescriptor`",
@@ -2028,13 +2137,13 @@ def validate_wave_frontier(
     blockers = parse_wave_admission_blockers(evidence, rows)
     selected = ordinary_wave_frontier(rows, set(blockers))
     if selected is not None:
-        if selected != "EA-08B":
+        if selected != "EA-09":
             fail(f"unexpected current ordinary wave frontier: {selected}")
         for phrase in (
-            "Drawing draft episode cutover candidate",
-            "`DRAW-DRAFT` passed 17/17",
-            "EA-08B becomes eligible only after EA-08A lands through Blackdog",
-            "This task does not select or dispatch EA-08B",
+            "Drawing run episode cutover candidate",
+            "`DRAW-RUN` | passed — `swift test --filter PlotterDrawingRunEpisodeTests`; 12/12 passed in 0.343 seconds",
+            "EA-08B is complete only in this task-local candidate",
+            "EA-09 has not been selected or dispatched",
             "The retired `PHYSICAL-BASE` result is `failed`",
         ):
             if phrase not in normalized:

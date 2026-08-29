@@ -66,6 +66,16 @@ func nominalDrawingDraftRuntime(
   PlotterDrawingDraftRuntime(paperPersistence: paperPersistence)
 }
 
+func nominalDrawingRunComposition(
+  machineActions: OperatorWorkspace.MachineActions? = nil,
+  cameraActions: OperatorWorkspace.CameraActions? = nil
+) -> PlotterDrawingRunComposition {
+  PlotterDrawingRunComposition.make(
+    machineActions: machineActions ?? MachineSessionComposition.actions,
+    cameraActions: cameraActions ?? CameraComposition.makeIsolatedActionsForTesting()
+  )
+}
+
 func sequenceIDForTest(_ direction: BoundaryDirection) -> DiscoverySequenceID {
   switch direction {
   case .negativeX: .boundaryNegativeX
@@ -103,13 +113,18 @@ func makeCausalSimulatorAppFixture(
     simulatedRuntime: runtime,
     simulatedExecutionPacing: simulatedExecutionPacing
   )
+  let resolvedCameraActions =
+    cameraActions ?? CameraComposition.makeIsolatedActionsForTesting()
   return CausalSimulatorAppFixture(
     workspace: OperatorWorkspace(
       machineActions: nil,
-      cameraActions: cameraActions ?? CameraComposition.makeIsolatedActionsForTesting(),
+      cameraActions: resolvedCameraActions,
       manualMotionComposition: manualMotionComposition,
       acceptedLearningPathCheckpointActions: learningPathCheckpointActions,
       drawingDraftRuntime: drawingDraftRuntime,
+      drawingRunComposition: nominalDrawingRunComposition(
+        cameraActions: resolvedCameraActions
+      ),
       tipCalibrationSemanticIdentities: tipCalibrationSemanticIdentities,
       workflowTelemetryActions: workflowTelemetry.map { fixture in
         .init(record: { await fixture.record($0) })
@@ -502,8 +517,6 @@ func workspace(
   announcements: AnnouncementFixture? = nil,
   learningPathCheckpointActions: OperatorWorkspace.AcceptedLearningPathCheckpointActions? = nil,
   drawingDraftRuntime: PlotterDrawingDraftRuntime = nominalDrawingDraftRuntime(),
-  drawingStudioRunSynchronizationGate: PlotterDrawingStudioRunSynchronizationGate? = nil,
-  beginDrawingPlan: (@Sendable (DrawingPlanRequest) async -> DrawingPlanAdmission)? = nil,
   tipCalibrationSemanticIdentities: TipCalibrationSemanticIdentityState = .ephemeral(),
   workflowTelemetry: WorkflowTelemetryFixture? = nil,
   loadPenCapAppearanceSelection:
@@ -528,44 +541,47 @@ func workspace(
     jogCancel ?? { @Sendable intent in
       await machine.cancel(intent: intent)
     }
-  return OperatorWorkspace(
-    machineActions: .init(
-      select: { _ in await machine.snapshot() },
-      snapshot: { await machine.snapshot() },
-      requestPassiveProbe: {
-        await machine.passiveProbeResult()
-      },
-      requestControllerAlarmClear: { .refused(.noCurrentAlarmEvidence) },
-      activateMotionGuard: { await machine.activateMotionGuard() },
-      deactivateMotionGuard: { await machine.deactivateMotionGuard() },
-      beginRelativeJog: { request in
-        .admitted(
-          RelativeJogOperation(
-            id: UUID(),
-            task: Task { await machine.performRelativeMotion(request) }
-          )
-        )
-      },
-      beginDrawingStroke: { request in
-        .admitted(
-          DrawingStrokeOperation(
-            id: UUID(),
-            task: Task { await machine.requestDrawingStroke(request) }
-          )
-        )
-      },
-      beginDrawingPlan: beginDrawingPlan,
-      beginPenActuation: { command, profile in
-        .admitted(PenActuationOperation(
+  let machineActions = OperatorWorkspace.MachineActions(
+    select: { _ in await machine.snapshot() },
+    snapshot: { await machine.snapshot() },
+    requestPassiveProbe: {
+      await machine.passiveProbeResult()
+    },
+    requestControllerAlarmClear: { .refused(.noCurrentAlarmEvidence) },
+    activateMotionGuard: { await machine.activateMotionGuard() },
+    deactivateMotionGuard: { await machine.deactivateMotionGuard() },
+    beginRelativeJog: { request in
+      .admitted(
+        RelativeJogOperation(
           id: UUID(),
-          task: Task { await machine.requestPen(command, profile: profile) }
-        ))
-      },
-      beginBoundaryMotion: beginBoundaryMotion,
-      requestJogCancel: requestJogCancel,
-      disconnect: {}
-    ),
-    cameraActions: cameraActionsOverride ?? camera.map { cameraActions($0) },
+          task: Task { await machine.performRelativeMotion(request) }
+        )
+      )
+    },
+    beginDrawingStroke: { request in
+      .admitted(
+        DrawingStrokeOperation(
+          id: UUID(),
+          task: Task { await machine.requestDrawingStroke(request) }
+        )
+      )
+    },
+    beginDrawingPlan: nil,
+    beginPenActuation: { command, profile in
+      .admitted(PenActuationOperation(
+        id: UUID(),
+        task: Task { await machine.requestPen(command, profile: profile) }
+      ))
+    },
+    beginBoundaryMotion: beginBoundaryMotion,
+    requestJogCancel: requestJogCancel,
+    disconnect: {}
+  )
+  let resolvedCameraActions =
+    cameraActionsOverride ?? camera.map { cameraActions($0) }
+  return OperatorWorkspace(
+    machineActions: machineActions,
+    cameraActions: resolvedCameraActions,
     announcementActions: announcements.map { fixture in
       .init(
         announce: { await fixture.announce($0) },
@@ -574,7 +590,10 @@ func workspace(
     },
     acceptedLearningPathCheckpointActions: learningPathCheckpointActions,
     drawingDraftRuntime: drawingDraftRuntime,
-    drawingStudioRunSynchronizationGate: drawingStudioRunSynchronizationGate,
+    drawingRunComposition: nominalDrawingRunComposition(
+      machineActions: machineActions,
+      cameraActions: resolvedCameraActions
+    ),
     tipCalibrationSemanticIdentities: tipCalibrationSemanticIdentities,
     workflowTelemetryActions: workflowTelemetry.map { fixture in
       .init(record: { await fixture.record($0) })
@@ -624,10 +643,7 @@ func cameraActions(
   inspectionGate: CameraInspectionGate? = nil,
   reconfigurationGate: CameraReconfigurationGate? = nil,
   snapshotProvider: (@Sendable () async -> CameraCaptureSnapshot)? = nil,
-  restartProvider: (@Sendable () async -> CameraCaptureSnapshot)? = nil,
-  observePlannedDrawingInk: (
-    @Sendable (PlannedDrawingObservationRequest) async -> PlannedDrawingObservationOutcome
-  )? = nil
+  restartProvider: (@Sendable () async -> CameraCaptureSnapshot)? = nil
 ) -> OperatorWorkspace.CameraActions {
   .init(
     discover: { fixture.discoverResponse() },
@@ -684,7 +700,7 @@ func cameraActions(
     setAutomaticInspection: { fixture.setAutomaticInspection($0, features: $1) },
     analysisUpdates: analysisUpdates,
     visionDiagnostics: { fixture.visionDiagnosticsResponse() },
-    observePlannedDrawingInk: observePlannedDrawingInk
+    observePlannedDrawingInk: nil
   )
 }
 
