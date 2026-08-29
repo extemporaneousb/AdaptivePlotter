@@ -282,7 +282,7 @@ struct LearningWorkbenchLayoutTests {
   @Test("navigator and detail receive the same single root Learning projection")
   @MainActor
   func learningProjectionHasOneRootConsumerValue() {
-    let workspace = makeSimulatedHarness().workspace
+    let workspace = makeCausalSimulatorAppFixture().workspace
     let itemID = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
     let binding = Binding.constant(LearningPathSelectionState(current: itemID))
     workspace.resetComputationDiagnosticsForTesting()

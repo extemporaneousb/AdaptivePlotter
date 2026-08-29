@@ -26,10 +26,37 @@ func performStart(
   await workspace.performExerciseAction(.start, for: owner)
 }
 
-struct SimulatedWorkspaceHarness {
+/// App composition fixture whose effect authority remains inside the
+/// production `PlotterCausalSimulatorEffectAdapter` owned by the workspace.
+struct CausalSimulatorAppFixture {
   let workspace: OperatorWorkspace
-  let runtime: SimulatedLearningRuntime
-  let machineActionLog: EventLog
+  let simulator: CausalSimulatorProbe
+}
+
+/// Read-only causal truth plus explicit fault injection. This probe cannot
+/// admit, execute, Stop, cancel, or settle a simulator effect.
+struct CausalSimulatorProbe: Sendable {
+  private let runtime: SimulatedLearningRuntime
+
+  init(runtime: SimulatedLearningRuntime) {
+    self.runtime = runtime
+  }
+
+  func snapshot() async -> SimulatedLearningSnapshot {
+    await runtime.snapshot()
+  }
+
+  func persistentInk() async -> [SimulatedLearningInkSegment] {
+    await runtime.persistentInk()
+  }
+
+  func capToTipPixelOffsetTruth() async -> Vector2<CameraPixelSpace> {
+    await runtime.capToTipPixelOffsetTruth()
+  }
+
+  func injectFault(_ fault: SimulatedLearningFault) async {
+    await runtime.injectFault(fault)
+  }
 }
 
 func sequenceIDForTest(_ direction: BoundaryDirection) -> DiscoverySequenceID {
@@ -42,16 +69,14 @@ func sequenceIDForTest(_ direction: BoundaryDirection) -> DiscoverySequenceID {
 }
 
 @MainActor
-func makeSimulatedHarness(
+func makeCausalSimulatorAppFixture(
   cameraActions: OperatorWorkspace.CameraActions? = nil,
-  eventLog: EventLog? = nil,
   workflowTelemetry: WorkflowTelemetryFixture? = nil,
   learningPathCheckpointActions: OperatorWorkspace.AcceptedLearningPathCheckpointActions? = nil,
   tipCalibrationSemanticIdentities: TipCalibrationSemanticIdentityState = .ephemeral(),
   simulatedExecutionPacing: any SimulatedLearningExecutionPacing =
-    SimulatedLearningImmediatePacing()
-) -> SimulatedWorkspaceHarness {
-  let machineActionLog = eventLog ?? EventLog()
+    SimulatedLearningInteractivePacing(stepDelay: .zero)
+) -> CausalSimulatorAppFixture {
   let clock = TestClock()
   // Workspace state-machine tests need causal pixels and viable vision
   // geometry, not the production simulator's default presentation footprint.
@@ -62,17 +87,24 @@ func makeSimulatedHarness(
     paddingPixels: 14,
     toolPaperRevision: tipCalibrationSemanticIdentities.paperInstance.rawValue
   )
-  return SimulatedWorkspaceHarness(
+  let manualMotionComposition = PlotterManualMotionComposition.makeRuntimeComposition(
+    journalFileURL: FileManager.default.temporaryDirectory.appendingPathComponent(
+      "causal-simulator-app-fixture-\(UUID().uuidString).json"
+    ),
+    machineActions: nil,
+    simulatedRuntime: runtime,
+    simulatedExecutionPacing: simulatedExecutionPacing
+  )
+  return CausalSimulatorAppFixture(
     workspace: OperatorWorkspace(
       machineActions: nil,
       cameraActions: cameraActions ?? CameraComposition.makeIsolatedActionsForTesting(),
+      manualMotionComposition: manualMotionComposition,
       acceptedLearningPathCheckpointActions: learningPathCheckpointActions,
       tipCalibrationSemanticIdentities: tipCalibrationSemanticIdentities,
       workflowTelemetryActions: workflowTelemetry.map { fixture in
         .init(record: { await fixture.record($0) })
       },
-      simulatedLearningRuntime: runtime,
-      simulatedExecutionPacing: simulatedExecutionPacing,
       serialDevices: [],
       serialDeviceDiscovery: { [] },
       loadSelectedSerialIdentifier: { nil },
@@ -83,30 +115,22 @@ func makeSimulatedHarness(
       persistOverlayPreference: { _ in },
       nowNanoseconds: { clock.next() }
     ),
-    runtime: runtime,
-    machineActionLog: machineActionLog
+    simulator: CausalSimulatorProbe(runtime: runtime)
   )
 }
 
 @MainActor
-func performPublicAction(
+func requireEnabledPublicAction(
   _ kind: ExerciseActionKind,
   owner: LearningPathItemID,
   workspace: OperatorWorkspace
-) async throws {
+) throws {
   let presentation = workspace.selectedOperatorActionPresentation(for: owner)
   let action = try #require(
     presentation.actionStrip?.actions.first(where: { $0.kind == kind }),
     "Missing public action \(kind); visible actions: \(String(describing: presentation.actionStrip?.actions.map(\.kind))); exploration error: \(workspace.explorationError ?? "nil")"
   )
   #expect(action.isEnabled)
-  await workspace.performExerciseAction(kind, for: owner)
-}
-
-func acceptedSimulated<Value: Sendable>(
-  _ response: SimulatedLearningResponse<Value>
-) throws -> Value {
-  try response.result.get()
 }
 
 func manualEpisodeJog(
@@ -150,30 +174,9 @@ func selectPublicDirection(
 }
 
 @MainActor
-func redoSimulatedBoundary(
-  _ direction: BoundaryDirection,
-  workspace: OperatorWorkspace
-) async throws {
-  let owner = LearningPathItemID.humanGuidedDiscovery(
-    .pairedBoundaryDiscoveryAndCentering
-  )
-  try await performPublicAction(.redoBoundary(direction), owner: owner, workspace: workspace)
-  try await waitUntil {
-    workspace.selectedOperatorActionPresentation(for: owner).actionStrip?.actions
-      .contains(where: { if case .stop = $0.kind { true } else { false } }) == true
-  }
-  let stop = try #require(
-    workspace.selectedOperatorActionPresentation(for: owner).actionStrip?.actions
-      .first(where: { if case .stop = $0.kind { true } else { false } })?.kind
-  )
-  await workspace.performExerciseAction(stop, for: owner)
-  try await waitUntil { workspace.activeExerciseAttemptID == nil }
-}
-
-@MainActor
 func completeSimulatedBoundariesAndCenter(
   _ workspace: OperatorWorkspace,
-  runtime: SimulatedLearningRuntime,
+  simulator: CausalSimulatorProbe,
   boundaryOrder: [BoundaryDirection],
   moveToCenter: Bool = true
 ) async throws {
@@ -184,7 +187,8 @@ func completeSimulatedBoundariesAndCenter(
   await workspace.activateMotionGuard()
 
   let penOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
-  try await performPublicAction(.start, owner: penOwner, workspace: workspace)
+  try requireEnabledPublicAction(.start, owner: penOwner, workspace: workspace)
+  await workspace.performExerciseAction(.start, for: penOwner)
   try await identifyPenCap(workspace)
   var physicalPoseQuestionCount = 0
   for _ in 0..<8 where !workspace.penInteractionCompleted {
@@ -193,7 +197,8 @@ func completeSimulatedBoundariesAndCenter(
     #expect(presentation.question?.choices == [.yes, .no])
     #expect(presentation.actionStrip?.actions.contains(where: { $0.kind == .start }) == false)
     physicalPoseQuestionCount += 1
-    try await performPublicAction(.choice(.yes), owner: penOwner, workspace: workspace)
+    try requireEnabledPublicAction(.choice(.yes), owner: penOwner, workspace: workspace)
+    await workspace.performExerciseAction(.choice(.yes), for: penOwner)
   }
   #expect(workspace.penInteractionCompleted)
   #expect(physicalPoseQuestionCount == 3)
@@ -208,13 +213,14 @@ func completeSimulatedBoundariesAndCenter(
       owner: boundaryOwner,
       workspace: workspace
     )
-    try await performPublicAction(.start, owner: boundaryOwner, workspace: workspace)
+    try requireEnabledPublicAction(.start, owner: boundaryOwner, workspace: workspace)
+    await workspace.performExerciseAction(.start, for: boundaryOwner)
     try await waitUntil {
       workspace.selectedOperatorActionPresentation(for: boundaryOwner).actionStrip?.actions
         .contains(where: { if case .stop = $0.kind { true } else { false } }) == true
     }
     try await waitUntilAsync {
-      let snapshot = await runtime.snapshot()
+      let snapshot = await simulator.snapshot()
       let limit = snapshot.boundaryTruth.limit(for: direction)
       return switch direction {
       case .negativeX, .positiveX: snapshot.mpos.xMM == limit
@@ -244,35 +250,50 @@ func completeSimulatedBoundariesAndCenter(
   #expect(boundaryReviewActions.first == .moveToEstimatedCenter)
   #expect(boundaryReviewActions.contains(.redoBoundary(boundaryOrder[0])))
   if !moveToCenter { return }
-  try await performPublicAction(.moveToEstimatedCenter, owner: boundaryOwner, workspace: workspace)
+  try requireEnabledPublicAction(
+    .moveToEstimatedCenter,
+    owner: boundaryOwner,
+    workspace: workspace
+  )
+  await workspace.performExerciseAction(.moveToEstimatedCenter, for: boundaryOwner)
 }
 
 @MainActor
 func completeSimulatedSparseTipCalibration(
   _ workspace: OperatorWorkspace,
-  runtime: SimulatedLearningRuntime
+  simulator: CausalSimulatorProbe
 ) async throws {
   let registrationOwner = LearningPathItemID.humanGuidedDiscovery(
     .calibrateCameraAndVisibleCap
   )
-  try await performPublicAction(
+  try requireEnabledPublicAction(
     .runCameraCalibrationAndBuildProposal,
     owner: registrationOwner,
     workspace: workspace
   )
-  try await performPublicAction(
+  await workspace.performExerciseAction(
+    .runCameraCalibrationAndBuildProposal,
+    for: registrationOwner
+  )
+  try requireEnabledPublicAction(
     .acceptCameraCalibrationProposal,
     owner: registrationOwner,
     workspace: workspace
   )
+  await workspace.performExerciseAction(.acceptCameraCalibrationProposal, for: registrationOwner)
   let tipOwner = LearningPathItemID.humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
-  let truthOffset = await runtime.capToTipPixelOffsetTruth()
+  let truthOffset = await simulator.capToTipPixelOffsetTruth()
   #expect(abs(truthOffset.dx) + abs(truthOffset.dy) > 0)
   let registration = try #require(workspace.machineCameraRegistration)
   let plan = try SparseTipBatchMarkPlan(
     boundarySideAggregates: workspace.boundarySideAggregates
   )
-  try await performPublicAction(.drawFourCornerTipCircles, owner: tipOwner, workspace: workspace)
+  try requireEnabledPublicAction(
+    .drawFourCornerTipCircles,
+    owner: tipOwner,
+    workspace: workspace
+  )
+  await workspace.performExerciseAction(.drawFourCornerTipCircles, for: tipOwner)
   let request = try #require(
     workspace.actionSurfacePresentation.pointSelectionRequest,
     "missing five-click selection request: \(workspace.explorationError ?? "no error")"
@@ -286,20 +307,23 @@ func completeSimulatedSparseTipCalibration(
       point: truthPoint
     )
   }
-  try await performPublicAction(
+  try requireEnabledPublicAction(
     .acceptTipCalibrationProposal,
     owner: tipOwner,
     workspace: workspace
   )
+  await workspace.performExerciseAction(.acceptTipCalibrationProposal, for: tipOwner)
 }
 
 @MainActor
 func completeSimulatedStageFour(_ workspace: OperatorWorkspace) async throws {
-  try await performPublicAction(
+  let owner = LearningPathItemID.observedDrawingTrial(.chooseDrawingBorderPlan)
+  try requireEnabledPublicAction(
     .start,
-    owner: .observedDrawingTrial(.chooseDrawingBorderPlan),
+    owner: owner,
     workspace: workspace
   )
+  await workspace.performExerciseAction(.start, for: owner)
   #expect(workspace.drawingTrialAssessment == .predictionObserved)
 }
 

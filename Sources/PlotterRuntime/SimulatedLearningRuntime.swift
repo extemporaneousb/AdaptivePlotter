@@ -502,6 +502,40 @@ public struct SimulatedLearningSnapshot: Hashable, Sendable {
   }
 }
 
+/// One actor-turn view of every lower-runtime truth surface consumed by the
+/// causal episode adapter. Package scope prevents this transport bundle from
+/// becoming a second public simulator API.
+package struct SimulatedLearningCausalTruth: Sendable {
+  package let snapshot: SimulatedLearningSnapshot
+  package let persistentInk: [SimulatedLearningInkSegment]
+  package let latestPublishedCausalFrame: SimulatedLearningSceneFrame?
+
+  fileprivate init(
+    snapshot: SimulatedLearningSnapshot,
+    persistentInk: [SimulatedLearningInkSegment],
+    latestPublishedCausalFrame: SimulatedLearningSceneFrame?
+  ) {
+    self.snapshot = snapshot
+    self.persistentInk = persistentInk
+    self.latestPublishedCausalFrame = latestPublishedCausalFrame
+  }
+}
+
+/// One lower-runtime actor-turn result for Pen mutation plus all causal truth
+/// consumed by the episode adapter.
+package struct SimulatedLearningCausalPenMutation: Sendable {
+  package let response: SimulatedLearningResponse<SimulatedLearningSnapshot>
+  package let truth: SimulatedLearningCausalTruth
+
+  fileprivate init(
+    response: SimulatedLearningResponse<SimulatedLearningSnapshot>,
+    truth: SimulatedLearningCausalTruth
+  ) {
+    self.response = response
+    self.truth = truth
+  }
+}
+
 public enum SimulatedLearningOperationIntent: String, Codable, Hashable, Sendable {
   case stop
   case cancel
@@ -682,6 +716,16 @@ public actor SimulatedLearningRuntime {
     makeSnapshot()
   }
 
+  /// Atomically captures plant/Pen, paper/ink, and camera truth. The episode
+  /// adapter must not assemble these fields across separate actor turns.
+  package func causalTruthSnapshot() -> SimulatedLearningCausalTruth {
+    SimulatedLearningCausalTruth(
+      snapshot: makeSnapshot(),
+      persistentInk: inkSegments,
+      latestPublishedCausalFrame: latestCausalSceneFrame
+    )
+  }
+
   public func injectFault(_ fault: SimulatedLearningFault) {
     injectedFaults.append(fault)
   }
@@ -801,37 +845,38 @@ public actor SimulatedLearningRuntime {
     return .accepted(makeSnapshot())
   }
 
-  public func beginManualJog(
-    delta: SimulatedLearningMotionVector,
+  package func setPenPoseWithCausalTruth(
+    _ pose: SimulatedLearningPenPose
+  ) -> SimulatedLearningCausalPenMutation {
+    SimulatedLearningCausalPenMutation(
+      response: setPenPose(pose),
+      truth: causalTruthSnapshot()
+    )
+  }
+
+  /// Package-only causal-plant admission. Plotter callers must enter through
+  /// `PlotterCausalSimulatorEffectAdapter`, which binds the command to the
+  /// shared typed intent/effect/result grammar before reaching this actor.
+  /// This actor retains only simulator truth and exact operation settlement.
+  package func admitCausalOperation(
+    _ kind: SimulatedLearningOperationKind,
     permitsUnknownPenStateAsPossibleInk: Bool = false
   ) -> SimulatedLearningResponse<SimulatedLearningOperation> {
-    beginOperation(
-      kind: .manualJog(delta),
-      requiredPenPose: .up,
-      permitsUnknownPenStateAsPossibleInk: permitsUnknownPenStateAsPossibleInk
-    )
-  }
-
-  public func beginBoundary(
-    direction: BoundaryDirection,
-    finiteSegmentLengthMM: Double
-  ) -> SimulatedLearningResponse<SimulatedLearningOperation> {
-    guard finiteSegmentLengthMM.isFinite, finiteSegmentLengthMM > 0 else {
-      return .refused(.invalidBoundarySegmentLength)
+    switch kind {
+    case .manualJog:
+      return beginOperation(
+        kind: kind,
+        requiredPenPose: .up,
+        permitsUnknownPenStateAsPossibleInk: permitsUnknownPenStateAsPossibleInk
+      )
+    case .boundary(_, let finiteSegmentLengthMM):
+      guard finiteSegmentLengthMM.isFinite, finiteSegmentLengthMM > 0 else {
+        return .refused(.invalidBoundarySegmentLength)
+      }
+      return beginOperation(kind: kind, requiredPenPose: .up)
+    case .drawing:
+      return beginOperation(kind: kind, requiredPenPose: .down)
     }
-    return beginOperation(
-      kind: .boundary(
-        direction: direction,
-        finiteSegmentLengthMM: finiteSegmentLengthMM
-      ),
-      requiredPenPose: .up
-    )
-  }
-
-  public func beginDrawing(
-    delta: SimulatedLearningMotionVector
-  ) -> SimulatedLearningResponse<SimulatedLearningOperation> {
-    beginOperation(kind: .drawing(delta), requiredPenPose: .down)
   }
 
   /// The first Stop or Cancel accepted for an operation is its only terminal

@@ -40,10 +40,13 @@ PlotterEpisodeModel -> EpisodeCore + PlotterModel
   internal target with production point-selection and manual-motion bindings
 
 PlotterEpisodeRuntime -> EpisodeCore + EpisodeRuntime + PlotterEpisodeModel + PlotterRuntime
-  PlotterIntentGateway, PlotterPointSelectionRuntime, and PlotterManualMotionRuntime compositions
+  PlotterIntentGateway, PlotterPointSelectionRuntime, PlotterManualMotionRuntime,
+  and PlotterCausalSimulatorEffectAdapter compositions
   one FIFO mutation/publication boundary, EpisodeStore owner, and exact-workflow continuation lane
   optional exact-frame recording with bounded retention and visible diagnostics
   one exact manual machine-lane owner with typed LIVE/SIMULATED effects and successor-isolated Stop
+  sole causal-simulator effect admission, exact raw operation identity, typed settlement/provenance,
+  and separated controller-command, plant/Pen, paper/ink, camera, Vision, and evidence truth
   EpisodeRecordingStore with typed controller and camera recording channels
   descriptor-anchored versioned manifest persistence and content-addressed exact frames
   ordered completeness, integrity, bounded retention, close, and reopen contracts
@@ -58,7 +61,8 @@ PlotterEpisodeRuntime -> EpisodeCore + EpisodeRuntime + PlotterEpisodeModel + Pl
   fail-closed typed package/environment relationships and incident-only sensitive-frame linkage
   checked referenced-byte accounting without frame-store validation
   deterministic envelope integrity/canonical reassembly without truth promotion
-  internal target with no package product or device adapter; point selection and manual motion are app-bound
+  internal target with no package product or physical device adapter;
+  point selection, manual motion, and the causal simulator environment are app-bound
 
 PlotterRuntime
   MachineController, RunInterpreter, CameraCapture, VisionWorker
@@ -73,7 +77,8 @@ PlotterRuntime
 PlotterApp -> PlotterEpisodeRuntime + retained application/runtime dependencies
   OperatorWorkspace projection/adaptation and retained artifact commits
   typed point-selection, Learning-mode, and manual-motion ingress
-  LIVE/SIMULATED manual effect adapters plus neutral lower controller ports for retained workflows
+  LIVE manual adapter plus the production causal-simulator adapter and neutral lower controller ports
+  explicitly attributed retained simulator workflow commands for later semantic packages
   immutable LearningPathProjectionSnapshot and pure LearningPathProjector
   SwiftUI Learning Path, ActionSurface, Drawing Studio, Motion and Video Settings
   production checkpoint/evidence stores and semantic identity composition
@@ -98,6 +103,9 @@ PlotterEpisodeRuntimeTests -> EpisodeCore + PlotterEpisodeModel + PlotterEpisode
   every-prefix replay, revision/digest binding, lifecycle publication, inert effects
   exact start provenance, source/schedule causality, and perturbation contracts
   bounded incident assembly/export, relationship closure, canonical integrity, and authority-boundary contracts
+  fifteen causal-environment tests for shared grammar/provenance, separated truth, exact settlement,
+  Stop/cancel/shutdown, stale-owner isolation, explicit retained attribution, atomic terminal publication,
+  Boundary/drawing/travel/Pen, paper/ink/camera, and ambiguity
 
 PlotterAppTests -> PlotterApp + episode packages + retained application/runtime dependencies
   eleven focused PlotterPointSelectionEpisodeTests for production ingress, identity, provenance,
@@ -797,18 +805,66 @@ registry settlement and before episode publication, and signals when a
 duplicate joins. It cannot choose an outcome, cancel, publish, or grant
 authority, and its tests require no sleeps or polling.
 
-`PlotterManualMotionComposition` supplies distinct `.live` and `.simulated`
-effect adapters. LIVE converts typed manual requests to the existing native
+`PlotterManualMotionComposition` supplies the LIVE adapter and creates one
+`PlotterManualMotionRuntimeComposition` containing the manual runtime, lower
+simulator runtime, and shared `PlotterCausalSimulatorEffectAdapter` for
+`.simulated`. `OperatorWorkspace` receives that composition and retained
+workflows use the exact same adapter authority as the manual runtime. LIVE converts typed manual requests to the existing native
 `RelativeJogRequest`, `DrawingStrokeRequest`, Pen actuation, cancellation, and
 fresh `RunInterpreterSnapshot` boundaries, so `MachineController` and
 `RunInterpreter` retain connection, alarm, Motion, serialization, safety,
-settlement, and ambiguity authority. SIMULATED uses
-`SimulatedLearningRuntime` and publishes only `.simulated` observations; it
-cannot promote simulator state to LIVE evidence. Its neutral
+settlement, and ambiguity authority. The causal adapter uses
+`SimulatedLearningRuntime` as nonphysical plant/truth storage and publishes only
+`.simulated` observations; any episode-attributed typed effect result is also
+`.simulated`, while retained work has nil `effectResult`. It cannot promote
+simulator state to LIVE evidence. The composition's neutral
 `beginNativeRelativeMotion` and `settleNativePenCommand` functions merely
 centralize lower controller calls still used by retained Learning, Drawing, and
 supervised-travel owners. They admit no manual episode intent and reserve no
 EA-07, EA-08, EA-10, or controller-session authority.
+
+`PlotterCausalSimulatorEffectAdapter` is the sole effect-capable simulator seam.
+Its public effect APIs are `admitManualJog`,
+`admitRetainedWorkflowBoundary`, `admitRetainedWorkflowDrawing`,
+`admitRetainedWorkflowTravel`, and `executeRetainedWorkflowPen`. Manual jog
+binds typed episode intent/effect attribution. Retained work requires an exact
+`EpisodeAuthorityID`, carries `.retainedWorkflow(owner:)`, returns nil
+`effectResult`, and creates no fabricated intent, effect, or plan revision. The
+adapter retains the raw `SimulatedLearningOperationID` as the immutable
+Stop/cancel/shutdown and settlement identity.
+
+Manual and retained Pen ingress enters the same adapter actor and observes the
+same `activeOperation` reservation. If a predecessor is reserved, Pen ingress
+returns `.operationAlreadyActive(predecessor.id)` with the current lower causal
+truth before calling the lower Pen mutator; retained attribution has nil
+`effectResult`, and lower Pen/truth is unchanged. With no active adapter
+operation, package-only `SimulatedLearningRuntime.setPenPoseWithCausalTruth`
+performs the admitted Pen mutation and captures `SimulatedLearningCausalTruth`
+in one lower-runtime actor turn. The adapter therefore cannot pair a Pen
+response with a separately sampled later plant/Pen/ink/frame state.
+
+The adapter keeps that active owner reserved after lower-runtime settlement
+until one actor-isolated `publishTerminalOutcome` atomically caches the
+operation identity, disposition, observation, typed result when applicable,
+final plant position, completed Boundary count, and immutable separated truth
+snapshot. A successor refuses until that publication completes; it cannot
+contaminate the predecessor's MPos, Pen, ink, or frame snapshot. The package-only
+`PlotterCausalSimulatorTerminalPublicationGate` can pause exactly after lower
+settlement and before publication for deterministic regression tests, but
+cannot choose or alter an operation or outcome. A settled predecessor is
+idempotent for its own ID and cannot cancel a successor. Mutable execution
+pacing is a lock-backed suspension policy snapshotted before execution, not
+effect authority.
+
+`SimulatedLearningRuntime` has no public `beginManualJog`, `beginBoundary`, or
+`beginDrawing` effect API. Its one package-scoped `admitCausalOperation` is
+called only by the adapter; runtime execution, fault injection, plant mutation,
+frame rendering, and raw operation settlement remain below the typed
+environment seam. `OperatorWorkspace.executeSimulatedBoundaryMotion` and the
+former App-local simulated adapter are absent. Retained Boundary, Drawing,
+supervised-travel, sparse-tip, and Drawing Border owners invoke the production
+adapter instead of an App-owned closure path until their later semantic
+packages land.
 
 The registry retains the nominal `ManualMotionOperationHandle`, which wraps the
 adapter's typed operation and validates the exact owner-returned identity on
@@ -1284,12 +1340,38 @@ not bypass its complete typed requirements.
 MPos, pen pose, Boundary motion, large nonzero cap-to-tip truth, paper instance,
 16-segment circular marks, line ink, and causal frames. Its frame clock can advance
 past an asserted settlement boundary so simulated exact-frame chronology stays
-causal.
+causal. It owns plant and rendered-scene truth, not public effect admission.
+
+`PlotterCausalSimulatorEffectAdapter` owns causal-simulator command attribution,
+admission, exact raw operation identity, natural execution, first-winning
+Stop/cancel/shutdown disposition, original-owner waiting, and one atomic
+terminal outcome/truth publication. Typed episode work receives
+`PlotterEffectResult` settlement; explicitly attributed retained work receives
+nil `effectResult` and no fabricated semantic revision.
+`PlotterCausalSimulatorTruthSnapshot` keeps controller-command attribution
+distinct from plant MPos/Pen, paper/ink, camera publication, Vision, and
+evidence truth. The adapter declares
+`PlotterCausalSimulatorVisionTruth.notComputedBySimulator`, names
+`VisionWorker` as the measurement authority, reports `.simulatedCausal`, sets
+`physicalEvidenceClaimed` false, and emits `.notPhysicalEvidence` on every
+admission refusal and outcome.
 
 The simulator uses the same public workspace actions and artifact graph but
-never calls production machine actions. Every simulator surface is labeled
+never calls production machine actions. The removed
+`SimulatedWorkspaceHarness`, `makeSimulatedHarness`, and `performPublicAction`
+cannot bypass the workspace composition; App tests retain only a read-only
+causal snapshot plus explicit fault-injection probe. Every simulator surface is labeled
 `SIMULATED — NOT PHYSICAL EVIDENCE`. An annotation is presentation-only and
 cannot alter canonical pixels or hashes.
+
+The focused causal-environment suite contains fifteen tests, including a
+package-gated no-sleep/no-poll successor-versus-terminal-publication regression
+that holds the predecessor while proving both retained Pen refusal with no
+lower mutation and retained drawing refusal, then releases it and proves
+drawing successor isolation plus unchanged cached predecessor truth.
+The focused workspace authority suite's 24/24 correction evidence includes the
+regression proving manual runtime and retained workflows occupy one shared
+production adapter authority.
 
 `OperatorWorkspace` owns two independent `LearningSessionState` values,
 one LIVE and one SIMULATED, under one structural contract. Session state owns

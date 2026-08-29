@@ -207,10 +207,10 @@ func stage33FittedBoundsUpdatePreservesExactOperatorViewport() throws {
 @MainActor
 @Test("Exercise 1.3 acceptance preserves the locked analysis region and visible viewport")
 func stage33AcceptancePreservesLockedViewport() async throws {
-  let harness = makeSimulatedHarness()
+  let harness = makeCausalSimulatorAppFixture()
   try await completeSimulatedBoundariesAndCenter(
     harness.workspace,
-    runtime: harness.runtime,
+    simulator: harness.simulator,
     boundaryOrder: [.negativeX, .positiveX, .negativeY, .positiveY]
   )
   let workspace = harness.workspace
@@ -240,16 +240,18 @@ func stage33AcceptancePreservesLockedViewport() async throws {
   #expect(workspace.actionSurfacePresentation.analysisRegionIsLocked)
 
   let owner = LearningPathItemID.humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
-  try await performPublicAction(
+  try requireEnabledPublicAction(
     .runCameraCalibrationAndBuildProposal,
     owner: owner,
     workspace: workspace
   )
-  try await performPublicAction(
+  await workspace.performExerciseAction(.runCameraCalibrationAndBuildProposal, for: owner)
+  try requireEnabledPublicAction(
     .acceptCameraCalibrationProposal,
     owner: owner,
     workspace: workspace
   )
+  await workspace.performExerciseAction(.acceptCameraCalibrationProposal, for: owner)
 
   let after = workspace.actionSurfacePresentation
   let afterContext = try #require(after.viewportContext)

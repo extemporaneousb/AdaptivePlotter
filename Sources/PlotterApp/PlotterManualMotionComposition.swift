@@ -9,6 +9,17 @@ import PlotterRuntime
 struct PlotterManualMotionRuntimeComposition: Sendable {
   let runtime: PlotterManualMotionRuntime
   let simulatedRuntime: SimulatedLearningRuntime
+  let causalSimulatorEffectAdapter: PlotterCausalSimulatorEffectAdapter
+
+  fileprivate init(
+    runtime: PlotterManualMotionRuntime,
+    simulatedRuntime: SimulatedLearningRuntime,
+    causalSimulatorEffectAdapter: PlotterCausalSimulatorEffectAdapter
+  ) {
+    self.runtime = runtime
+    self.simulatedRuntime = simulatedRuntime
+    self.causalSimulatorEffectAdapter = causalSimulatorEffectAdapter
+  }
 }
 
 enum PlotterManualMotionComposition {
@@ -45,7 +56,7 @@ enum PlotterManualMotionComposition {
     }
   }
 
-  static func makeRuntime(
+  static func makeRuntimeComposition(
     journalFileURL: URL,
     machineActions: OperatorWorkspace.MachineActions?,
     simulatedRuntime: SimulatedLearningRuntime,
@@ -54,20 +65,26 @@ enum PlotterManualMotionComposition {
     recordingDirectoryURL: URL? = nil,
     recordingUnavailableDiagnostic: String? = nil,
     recordingRouter: ManualMotionControllerRecordingRouter? = nil
-  ) -> PlotterManualMotionRuntime {
-    try! PlotterManualMotionRuntime(
+  ) -> PlotterManualMotionRuntimeComposition {
+    let simulatedAdapter = PlotterCausalSimulatorEffectAdapter(
+      runtime: simulatedRuntime,
+      pacing: simulatedExecutionPacing
+    )
+    let runtime = try! PlotterManualMotionRuntime(
       journalFileURL: journalFileURL,
       liveAdapter: LiveManualMotionAdapter(
         actions: machineActions,
         recordingRouter: recordingRouter ?? controllerRecordingRouter
       ),
-      simulatedAdapter: SimulatedManualMotionAdapter(
-        runtime: simulatedRuntime,
-        pacing: simulatedExecutionPacing
-      ),
+      simulatedAdapter: simulatedAdapter,
       recordingStore: recordingStore,
       recordingDirectoryURL: recordingDirectoryURL,
       recordingUnavailableDiagnostic: recordingUnavailableDiagnostic
+    )
+    return PlotterManualMotionRuntimeComposition(
+      runtime: runtime,
+      simulatedRuntime: simulatedRuntime,
+      causalSimulatorEffectAdapter: simulatedAdapter
     )
   }
 
@@ -123,17 +140,14 @@ enum PlotterManualMotionComposition {
       recordingStore = nil
       recordingDiagnostic = "Controller recording is unavailable: \(error)"
     }
-    return PlotterManualMotionRuntimeComposition(
-      runtime: makeRuntime(
-        journalFileURL: artifactDirectory.appendingPathComponent("manual-motion-journal.json"),
-        machineActions: MachineSessionComposition.actions,
-        simulatedRuntime: simulatedRuntime,
-        simulatedExecutionPacing: pacing,
-        recordingStore: recordingStore,
-        recordingDirectoryURL: recordingDirectory,
-        recordingUnavailableDiagnostic: recordingDiagnostic
-      ),
-      simulatedRuntime: simulatedRuntime
+    return makeRuntimeComposition(
+      journalFileURL: artifactDirectory.appendingPathComponent("manual-motion-journal.json"),
+      machineActions: MachineSessionComposition.actions,
+      simulatedRuntime: simulatedRuntime,
+      simulatedExecutionPacing: pacing,
+      recordingStore: recordingStore,
+      recordingDirectoryURL: recordingDirectory,
+      recordingUnavailableDiagnostic: recordingDiagnostic
     )
   }
 }
@@ -731,149 +745,6 @@ private struct LiveManualMotionAdapter: PlotterManualMotionEffectAdapter, Sendab
   }
 }
 
-private actor SimulatedManualMotionOperation: PlotterManualMotionOperation {
-  private let request: PlotterManualMotionEffectRequest
-  private let runtime: SimulatedLearningRuntime
-  private let pacing: any SimulatedLearningExecutionPacing
-  private var didStart = false
-  private var cancellationRequested = false
-  private var operation: SimulatedLearningOperation?
-  private var result: PlotterManualMotionOperationResult?
-  private var waiters: [CheckedContinuation<PlotterManualMotionOperationResult, Never>] = []
-
-  init(
-    request: PlotterManualMotionEffectRequest,
-    runtime: SimulatedLearningRuntime,
-    pacing: any SimulatedLearningExecutionPacing
-  ) {
-    self.request = request
-    self.runtime = runtime
-    self.pacing = pacing
-  }
-
-  func start() async {
-    guard !didStart else { return }
-    didStart = true
-    switch request.intent {
-    case let .jog(jog):
-      let delta: Vector2<MachineSpace>
-      let vector: SimulatedLearningMotionVector
-      do {
-        delta = try jog.machineDelta
-        vector = try SimulatedLearningMotionVector(dxMM: delta.dx, dyMM: delta.dy)
-      } catch {
-        publish(.failed(environmentFailure("Invalid simulated jog vector: \(error)")))
-        return
-      }
-      let response = await (jog.routing == .drawingStroke
-        ? runtime.beginDrawing(delta: vector)
-        : runtime.beginManualJog(
-          delta: vector,
-          permitsUnknownPenStateAsPossibleInk: jog.routing == .possibleInk
-        ))
-      guard case let .success(admitted) = response.result else {
-        publish(.failed(environmentFailure(
-          "SIMULATED manual motion refused: \(response.result). \(response.evidenceNotice.label)"
-        )))
-        return
-      }
-      operation = admitted
-      if cancellationRequested { _ = await runtime.request(.stop, for: admitted.id) }
-      Task { [weak self] in await self?.settle(admitted, request: jog) }
-    case let .setPen(pen):
-      Task { [weak self] in await self?.settlePen(pen) }
-    }
-  }
-
-  func requestCancellation() async {
-    guard !cancellationRequested else { return }
-    cancellationRequested = true
-    if let operation { _ = await runtime.request(.stop, for: operation.id) }
-  }
-
-  func waitForSettlement() async -> PlotterManualMotionOperationResult {
-    if let result { return result }
-    return await withCheckedContinuation { waiters.append($0) }
-  }
-
-  private func settle(
-    _ operation: SimulatedLearningOperation,
-    request jog: PlotterJogRequest
-  ) async {
-    let response = await runtime.executeNaturally(operation.id, pacing: pacing)
-    let outcome: SimulatedLearningOperationOutcome
-    switch response.result {
-    case let .success(settled): outcome = settled
-    case .failure:
-      let awaited = await runtime.waitForOutcome(of: operation.id)
-      guard case let .success(settled) = awaited.result else {
-        publish(.failed(environmentFailure(
-          "SIMULATED outcome unavailable. \(awaited.evidenceNotice.label)"
-        )))
-        return
-      }
-      outcome = settled
-    }
-    let observation = simulatedObservation(await runtime.snapshot())
-    switch outcome.disposition {
-    case .naturallyCompleted:
-      publish(.completed(observation: observation))
-    case .stopped, .cancelled, .shutdown:
-      let settlement: PlotterEffectCancellationSettlement = jog.routing == .drawingStroke
-        ? .drawingStoppedWithPenRaised(
-          observationID: observation.context.id,
-          possibleInk: true
-        )
-        : .controllerSettled(
-          observationID: observation.context.id,
-          possibleInk: jog.routing != .relativeTravel
-        )
-      publish(.cancelled(settlement: settlement, observation: observation))
-    case .failed:
-      publish(.failed(environmentFailure(
-        "SIMULATED operation failed. \(outcome.evidenceNotice.label)"
-      )))
-    }
-  }
-
-  private func settlePen(_ pen: PlotterPenActuationRequest) async {
-    let pose: SimulatedLearningPenPose = pen.position == .raised ? .up : .down
-    let response = await runtime.setPenPose(pose)
-    switch response.result {
-    case let .success(snapshot):
-      publish(.completed(observation: simulatedObservation(snapshot)))
-    case let .failure(refusal):
-      publish(.failed(environmentFailure(
-        "SIMULATED Pen request refused: \(refusal). \(response.evidenceNotice.label)"
-      )))
-    }
-  }
-
-  private func publish(_ disposition: PlotterManualMotionOperationDisposition) {
-    guard result == nil else { return }
-    let value = PlotterManualMotionOperationResult(
-      identity: PlotterManualMotionOperationIdentity(request: request),
-      disposition: disposition
-    )
-    result = value
-    let continuations = waiters
-    waiters.removeAll()
-    continuations.forEach { $0.resume(returning: value) }
-  }
-}
-
-private struct SimulatedManualMotionAdapter: PlotterManualMotionEffectAdapter, Sendable {
-  let environment = PlotterEnvironment.simulated
-  let runtime: SimulatedLearningRuntime
-  let pacing: any SimulatedLearningExecutionPacing
-
-  func makeOperation(
-    for request: PlotterManualMotionEffectRequest,
-    controllerRecorder _: PlotterManualMotionControllerRecorder?
-  ) -> any PlotterManualMotionOperation {
-    SimulatedManualMotionOperation(request: request, runtime: runtime, pacing: pacing)
-  }
-}
 private func livePenDisposition(
   _ outcome: PenOutcome,
   command: PenCommand,
@@ -1002,21 +873,6 @@ private func liveObservation(_ snapshot: RunInterpreterSnapshot?) -> PlotterObse
     status: status,
     machinePosition: machine?.position?.point,
     motionEnabled: machine?.motionGuardState == .active
-  ))
-}
-
-private func simulatedObservation(_ snapshot: SimulatedLearningSnapshot) -> PlotterObservation {
-  .controller(PlotterControllerObservation(
-    context: PlotterObservationContext(
-      id: PlotterObservationID(rawValue: UUID()),
-      observedAt: Date(),
-      environment: .simulated,
-      source: .causalSimulator,
-      sourceRevision: EpisodeRevisionIdentifier(rawValue: "causal-simulator-v1")
-    ),
-    status: snapshot.currentOperation == nil ? .idle : .running,
-    machinePosition: try? Point2(x: snapshot.mpos.xMM, y: snapshot.mpos.yMM),
-    motionEnabled: snapshot.motionAuthorization == .enabled
   ))
 }
 

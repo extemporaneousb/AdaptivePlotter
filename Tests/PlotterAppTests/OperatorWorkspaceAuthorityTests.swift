@@ -17,22 +17,28 @@ extension OperatorWorkspaceTests {
       .appendingPathComponent("manual-live-ambiguity-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
-    let live = ManualMotionAmbiguousAdapter(environment: .live, possibleInk: true)
-    let simulated = ManualMotionAmbiguousAdapter(environment: .simulated, possibleInk: false)
-    let runtime = try PlotterManualMotionRuntime(
-      journalFileURL: directory.appendingPathComponent("journal.json"),
-      liveAdapter: live,
-      simulatedAdapter: simulated
-    )
     let log = EventLog()
     let machine = try MachineFixture(log: log)
-    let actions = manualMotionWorkspaceActions(machine: machine)
+    let counter = ManualMotionAmbiguousInvocationCounter()
+    let actions = manualMotionWorkspaceActions(
+      machine: machine,
+      beginRelativeJog: { _ in
+        counter.increment()
+        return .admitted(RelativeJogOperation(id: UUID(), task: Task {
+          .ambiguous(.transport("Controller settlement was ambiguous."))
+        }))
+      }
+    )
     let simulatedLearning = SimulatedLearningRuntime()
+    let composition = PlotterManualMotionComposition.makeRuntimeComposition(
+      journalFileURL: directory.appendingPathComponent("journal.json"),
+      machineActions: actions,
+      simulatedRuntime: simulatedLearning,
+      simulatedExecutionPacing: SimulatedLearningInteractivePacing(stepDelay: .zero)
+    )
     let workspace = OperatorWorkspace(
       machineActions: actions,
-      manualMotionRuntime: runtime,
-      simulatedLearningRuntime: simulatedLearning,
-      simulatedExecutionPacing: SimulatedLearningImmediatePacing(),
+      manualMotionComposition: composition,
       serialDevices: [machine.descriptor],
       serialDeviceDiscovery: { [machine.descriptor] },
       loadSelectedSerialIdentifier: { nil },
@@ -57,11 +63,11 @@ extension OperatorWorkspaceTests {
     #expect(pending.penUpUnavailableReason == evidence.remedy)
     #expect(pending.penDownUnavailableReason == evidence.remedy)
     #expect(workspace.motionRequestStatusPresentation == .needsAttention(evidence.remedy))
-    #expect(live.startCount == 1)
+    #expect(counter.count == 1)
 
     await workspace.submitManualMotionIntent(intent)
     await workspace.submitManualPen(.lower)
-    #expect(live.startCount == 1)
+    #expect(counter.count == 1)
     let stale = PlotterManualMotionEvidenceDispositionAction(
       effectID: evidence.action.effectID,
       environment: evidence.action.environment,
@@ -77,7 +83,7 @@ extension OperatorWorkspaceTests {
     #expect(workspace.manualMotionEpisodePresentation.evidenceDisposition == nil)
     #expect(workspace.manualMotionEpisodePresentation.jogControlsUnavailableReason == nil)
     #expect(workspace.motionRequestStatusPresentation == .ready)
-    #expect(live.startCount == 1)
+    #expect(counter.count == 1)
     await workspace.shutdown()
   }
 
@@ -87,20 +93,17 @@ extension OperatorWorkspaceTests {
       .appendingPathComponent("manual-simulated-ambiguity-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
-    let live = ManualMotionAmbiguousAdapter(environment: .live, possibleInk: true)
-    let simulated = ManualMotionAmbiguousAdapter(environment: .simulated, possibleInk: false)
     let simulatedLearning = SimulatedLearningRuntime()
-    let runtime = try PlotterManualMotionRuntime(
+    let composition = PlotterManualMotionComposition.makeRuntimeComposition(
       journalFileURL: directory.appendingPathComponent("journal.json"),
-      liveAdapter: live,
-      simulatedAdapter: simulated
+      machineActions: nil,
+      simulatedRuntime: simulatedLearning,
+      simulatedExecutionPacing: SimulatedLearningInteractivePacing(stepDelay: .zero)
     )
     let workspace = OperatorWorkspace(
       machineActions: nil,
       cameraActions: CameraComposition.makeIsolatedActionsForTesting(),
-      manualMotionRuntime: runtime,
-      simulatedLearningRuntime: simulatedLearning,
-      simulatedExecutionPacing: SimulatedLearningImmediatePacing(),
+      manualMotionComposition: composition,
       serialDevices: [],
       serialDeviceDiscovery: { [] },
       loadSelectedSerialIdentifier: { nil },
@@ -114,6 +117,26 @@ extension OperatorWorkspaceTests {
     await workspace.performControllerConnectionAction()
     await workspace.activateMotionGuard()
 
+    let retainedOwner = EpisodeAuthorityID(rawValue: "test.simulatedAmbiguitySetup")
+    await simulatedLearning.injectFault(.ambiguityBeforeNextBoundarySegment)
+    let retainedAdmission = await composition.causalSimulatorEffectAdapter
+      .admitRetainedWorkflowBoundary(
+        direction: .positiveX,
+        finiteSegmentLengthMM: 1,
+        owner: retainedOwner
+      )
+    guard case let .admitted(retainedBoundary) = retainedAdmission else {
+      Issue.record("Expected retained Boundary admission")
+      return
+    }
+    #expect(retainedBoundary.attribution == .retainedWorkflow(owner: retainedOwner))
+    let retainedOutcome = await composition.causalSimulatorEffectAdapter
+      .executeBoundaryCooperatively(retainedBoundary)
+    #expect(retainedOutcome.disposition == .failed)
+    #expect(retainedOutcome.effectResult == nil)
+    let causalTruthBeforeManualRefusal =
+      await composition.causalSimulatorEffectAdapter.truthSnapshot()
+
     let intent = try manualAmbiguityJog()
     await workspace.submitManualMotionIntent(intent)
     let pending = workspace.manualMotionEpisodePresentation
@@ -124,17 +147,98 @@ extension OperatorWorkspaceTests {
     #expect(pending.jogControlsUnavailableReason == evidence.remedy)
     #expect(pending.penUpUnavailableReason == evidence.remedy)
     #expect(pending.penDownUnavailableReason == evidence.remedy)
-    #expect(simulated.startCount == 1)
+    #expect(workspace.manualMotionEpisodeSnapshot?.projection.lastTerminalEffect?.disposition
+      == .ambiguous)
+    let ambiguousEffectID = evidence.action.effectID
 
     await workspace.submitManualMotionIntent(intent)
     await workspace.submitManualPen(.lower)
-    #expect(simulated.startCount == 1)
+    let causalTruthAfterBlockedActions =
+      await composition.causalSimulatorEffectAdapter.truthSnapshot()
+    #expect(causalTruthAfterBlockedActions == causalTruthBeforeManualRefusal)
+    #expect(
+      workspace.manualMotionEpisodeSnapshot?.projection.lastTerminalEffect?.result.context.effectID
+        == ambiguousEffectID
+    )
     await workspace.resolveManualMotionEvidence(using: evidence.action)
     #expect(workspace.manualMotionEpisodeSnapshot?.projection.phase == .ready)
     #expect(workspace.manualMotionEpisodePresentation.evidenceDisposition == nil)
     #expect(workspace.manualMotionEpisodePresentation.jogControlsUnavailableReason == nil)
-    #expect(simulated.startCount == 1)
-    #expect(live.startCount == 0)
+    #expect((await simulatedLearning.snapshot()).currentOperation == nil)
+    await workspace.shutdown()
+  }
+
+  @Test("workspace manual runtime and retained workflows share one causal adapter authority")
+  func manualCompositionSharesCausalAdapterAuthority() async throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("manual-shared-causal-adapter-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let simulatedRuntime = SimulatedLearningRuntime()
+    let pacing = FirstOperationSuspensionPacing()
+    let composition = PlotterManualMotionComposition.makeRuntimeComposition(
+      journalFileURL: directory.appendingPathComponent("journal.json"),
+      machineActions: nil,
+      simulatedRuntime: simulatedRuntime,
+      simulatedExecutionPacing: pacing
+    )
+    let workspace = OperatorWorkspace(
+      machineActions: nil,
+      cameraActions: CameraComposition.makeIsolatedActionsForTesting(),
+      manualMotionComposition: composition,
+      serialDevices: [],
+      serialDeviceDiscovery: { [] },
+      loadSelectedSerialIdentifier: { nil },
+      persistSelectedSerialIdentifier: { _ in },
+      loadPenCapAppearanceSelection: { nil },
+      persistPenCapAppearanceSelection: { _ in },
+      loadOverlayPreference: { nil },
+      persistOverlayPreference: { _ in }
+    )
+    await workspace.switchFrameMode(.simulated)
+    await workspace.performControllerConnectionAction()
+    await workspace.activateMotionGuard()
+
+    let manualOwner = Task { await workspace.submitManualJog(.xPositive) }
+    await pacing.waitUntilSuspended()
+    let retainedOwner = EpisodeAuthorityID(rawValue: "test.sharedCompositionRetainedTravel")
+    let occupied = await composition.causalSimulatorEffectAdapter
+      .admitRetainedWorkflowTravel(
+        delta: try SimulatedLearningMotionVector(dxMM: 1, dyMM: 0),
+        owner: retainedOwner
+      )
+    guard case let .refused(refusal) = occupied,
+      case let .operationAlreadyActive(activeID) = refusal.refusal
+    else {
+      await pacing.resume()
+      await manualOwner.value
+      Issue.record("Expected the workspace manual owner to reserve the shared adapter")
+      return
+    }
+    #expect(refusal.effectResult == nil)
+    #expect(refusal.truth.controllerCommand?.id == activeID)
+
+    await pacing.resume()
+    await manualOwner.value
+    let manualTruth = await composition.causalSimulatorEffectAdapter.truthSnapshot()
+    #expect(manualTruth.controllerCommand == nil)
+    #expect(manualTruth.plantPosition == (try SimulatedLearningMPos(xMM: 50, yMM: 0)))
+
+    let successorAdmission = await composition.causalSimulatorEffectAdapter
+      .admitRetainedWorkflowTravel(
+        delta: try SimulatedLearningMotionVector(dxMM: 1, dyMM: 0),
+        owner: retainedOwner
+      )
+    guard case let .admitted(successor) = successorAdmission else {
+      Issue.record("Expected retained admission after the workspace manual owner settled")
+      return
+    }
+    #expect(successor.attribution == .retainedWorkflow(owner: retainedOwner))
+    let cancelled = await composition.causalSimulatorEffectAdapter.request(
+      .cancel,
+      for: successor
+    )
+    #expect(cancelled.effectResult == nil)
     await workspace.shutdown()
   }
 
@@ -188,14 +292,14 @@ extension OperatorWorkspaceTests {
       #expect(applied.localModeEnabled == localModeEnabled)
       #expect(applied.receiverEnabled == receiverEnabled)
     }
-    let runtime = PlotterManualMotionComposition.makeRuntime(
+    let runtime = PlotterManualMotionComposition.makeRuntimeComposition(
       journalFileURL: directory.appendingPathComponent("manual-motion-journal.json"),
       machineActions: actions,
       simulatedRuntime: SimulatedLearningRuntime(),
-      simulatedExecutionPacing: SimulatedLearningImmediatePacing(),
+      simulatedExecutionPacing: SimulatedLearningInteractivePacing(stepDelay: .zero),
       recordingStore: store,
       recordingRouter: router
-    )
+    ).runtime
     _ = try await runtime.submit(
       .jog(try PlotterJogRequest(
         direction: .positiveX,
@@ -228,19 +332,17 @@ extension OperatorWorkspaceTests {
     let machine = try MachineFixture(log: log)
     let actions = manualMotionWorkspaceActions(machine: machine)
     let simulated = SimulatedLearningRuntime()
-    let runtime = PlotterManualMotionComposition.makeRuntime(
+    let composition = PlotterManualMotionComposition.makeRuntimeComposition(
       journalFileURL: directory.appendingPathComponent("manual-motion-journal.json"),
       machineActions: actions,
       simulatedRuntime: simulated,
-      simulatedExecutionPacing: SimulatedLearningImmediatePacing()
+      simulatedExecutionPacing: SimulatedLearningInteractivePacing(stepDelay: .zero)
     )
     let gate = PlotterManualMotionTerminalPublicationGate()
-    await runtime.installTerminalPublicationGateForTesting(gate)
+    await composition.runtime.installTerminalPublicationGateForTesting(gate)
     let workspace = OperatorWorkspace(
       machineActions: actions,
-      manualMotionRuntime: runtime,
-      simulatedLearningRuntime: simulated,
-      simulatedExecutionPacing: SimulatedLearningImmediatePacing(),
+      manualMotionComposition: composition,
       serialDevices: [machine.descriptor],
       serialDeviceDiscovery: { [machine.descriptor] },
       loadSelectedSerialIdentifier: { nil },
@@ -363,14 +465,14 @@ extension OperatorWorkspaceTests {
       requestJogCancel: { _ in .refused(.noActiveJog) },
       disconnect: {}
     )
-    let runtime = PlotterManualMotionComposition.makeRuntime(
+    let runtime = PlotterManualMotionComposition.makeRuntimeComposition(
       journalFileURL: directory.appendingPathComponent("manual-motion-journal.json"),
       machineActions: actions,
       simulatedRuntime: SimulatedLearningRuntime(),
-      simulatedExecutionPacing: SimulatedLearningImmediatePacing(),
+      simulatedExecutionPacing: SimulatedLearningInteractivePacing(stepDelay: .zero),
       recordingStore: store,
       recordingRouter: recordingRouter
-    )
+    ).runtime
     let intent = PlotterManualMotionIntent.jog(try PlotterJogRequest(
       direction: .positiveX,
       distanceMM: 1,
@@ -472,14 +574,14 @@ extension OperatorWorkspaceTests {
       _ = try? await link.write(writeBytes)
       _ = try? await link.read(maximumBytes: 64, timeoutNanoseconds: 250_000_000)
     }
-    let runtime = PlotterManualMotionComposition.makeRuntime(
+    let runtime = PlotterManualMotionComposition.makeRuntimeComposition(
       journalFileURL: directory.appendingPathComponent("manual-motion-journal.json"),
       machineActions: actions,
       simulatedRuntime: SimulatedLearningRuntime(),
-      simulatedExecutionPacing: SimulatedLearningImmediatePacing(),
+      simulatedExecutionPacing: SimulatedLearningInteractivePacing(stepDelay: .zero),
       recordingStore: store,
       recordingRouter: recordingRouter
-    )
+    ).runtime
     _ = try await runtime.submit(
       .jog(try PlotterJogRequest(
         direction: .positiveX,
@@ -613,14 +715,14 @@ extension OperatorWorkspaceTests {
       },
       disconnect: {}
     )
-    let runtime = PlotterManualMotionComposition.makeRuntime(
+    let runtime = PlotterManualMotionComposition.makeRuntimeComposition(
       journalFileURL: directory.appendingPathComponent("manual-motion-journal.json"),
       machineActions: actions,
       simulatedRuntime: SimulatedLearningRuntime(),
-      simulatedExecutionPacing: SimulatedLearningImmediatePacing(),
+      simulatedExecutionPacing: SimulatedLearningInteractivePacing(stepDelay: .zero),
       recordingStore: store,
       recordingRouter: recordingRouter
-    )
+    ).runtime
     let submission = try await runtime.submit(
       .jog(try PlotterJogRequest(
         direction: .positiveX,
@@ -678,7 +780,8 @@ extension OperatorWorkspaceTests {
       .pairedBoundaryDiscoveryAndCentering
     )
     let automaticRequestsBeforeCenterTravel = camera.recordedAutomaticInspectionRequests
-    try await performPublicAction(.moveToEstimatedCenter, owner: owner, workspace: workspace)
+    try requireEnabledPublicAction(.moveToEstimatedCenter, owner: owner, workspace: workspace)
+    await workspace.performExerciseAction(.moveToEstimatedCenter, for: owner)
 
     let expectedCenter = try MachinePosition(x: 0, y: 0)
     #expect(camera.recordedAutomaticInspectionRequests == automaticRequestsBeforeCenterTravel)
@@ -716,7 +819,8 @@ extension OperatorWorkspaceTests {
     let owner = LearningPathItemID.humanGuidedDiscovery(
       .pairedBoundaryDiscoveryAndCentering
     )
-    try await performPublicAction(.moveToEstimatedCenter, owner: owner, workspace: workspace)
+    try requireEnabledPublicAction(.moveToEstimatedCenter, owner: owner, workspace: workspace)
+    await workspace.performExerciseAction(.moveToEstimatedCenter, for: owner)
 
     #expect(workspace.centerArrivalPosition == nil)
     #expect(workspace.learningArtifactGraph.currentRevision(for: .centerArrival) == nil)
@@ -1010,11 +1114,11 @@ extension OperatorWorkspaceTests {
 
   @Test("Boundary repeat actions aggregate and replace the accepted set atomically")
   func boundaryRepeatActionsAggregateAndReplaceAcceptedSet() async throws {
-    let harness = makeSimulatedHarness()
+    let harness = makeCausalSimulatorAppFixture()
     let workspace = harness.workspace
     try await completeSimulatedBoundariesAndCenter(
       workspace,
-      runtime: harness.runtime,
+      simulator: harness.simulator,
       boundaryOrder: [.positiveX, .negativeX, .positiveY, .negativeY]
     )
 
@@ -1022,7 +1126,7 @@ extension OperatorWorkspaceTests {
     let attemptsBeforeReview = workspace.boundaryAttemptHistories[.positiveX]?
       .values.first?.attempts.count
     let revisionsBeforeReview = workspace.learningArtifactGraph.revisions.count
-    let machineActionsBeforeReview = await harness.machineActionLog.values.count
+    let simulatorBeforeReview = await harness.simulator.snapshot()
     let repeatActions = try #require(
       workspace.selectedOperatorActionPresentation(for: owner).actionStrip
     ).actions.map(\.kind)
@@ -1033,8 +1137,8 @@ extension OperatorWorkspaceTests {
         == workspace.boundaryAttemptHistories[.positiveX]?
         .values.first?.attempts.count)
     #expect(revisionsBeforeReview == workspace.learningArtifactGraph.revisions.count)
-    let machineActionsAfterReview = await harness.machineActionLog.values.count
-    #expect(machineActionsBeforeReview == machineActionsAfterReview)
+    let simulatorAfterReview = await harness.simulator.snapshot()
+    #expect(simulatorBeforeReview == simulatorAfterReview)
 
     for _ in 0..<2 {
       await workspace.performExerciseAction(.recordAnotherBoundaryAttempt(.positiveX), for: owner)
@@ -1053,7 +1157,7 @@ extension OperatorWorkspaceTests {
     let oldAttemptIDs = aggregate.includedAttemptIDs
     #expect(oldAttemptIDs.count == 3)
 
-    await harness.runtime.injectFault(.cameraConfigurationChangeBeforeNextFrame)
+    await harness.simulator.injectFault(.cameraConfigurationChangeBeforeNextFrame)
     await workspace.performExerciseAction(.redoBoundary(.positiveX), for: owner)
     try await waitUntil { workspace.contextualStopPresentation != nil }
     try await stopActiveOperation(workspace)
@@ -1075,16 +1179,16 @@ extension OperatorWorkspaceTests {
     #expect(Set(finalAggregate.supersededAttempts.map(\.attemptID)) == Set(oldAttemptIDs))
     #expect(oldAttemptIDs.allSatisfy { workspace.boundaryAttemptEvidenceByAttemptID[$0] != nil })
     #expect(workspace.boundaryAttemptEvidenceByAttemptID[replacementID] != nil)
-    #expect(await harness.machineActionLog.values.isEmpty)
+    #expect((await harness.simulator.snapshot()).currentOperation == nil)
   }
 
   @Test("every injected Boundary commit failure preserves all accepted current authority")
   func boundaryAtomicFailurePreservesAcceptedAuthority() async throws {
-    let harness = makeSimulatedHarness()
+    let harness = makeCausalSimulatorAppFixture()
     let workspace = harness.workspace
     try await completeSimulatedBoundariesAndCenter(
       workspace,
-      runtime: harness.runtime,
+      simulator: harness.simulator,
       boundaryOrder: [.positiveX, .negativeX, .positiveY, .negativeY],
       moveToCenter: false
     )
@@ -1100,7 +1204,7 @@ extension OperatorWorkspaceTests {
 
     for failurePoint in BoundaryAtomicCommitFailurePoint.allCases {
       workspace.replaceBoundaryAtomicCommitFailurePointsForTesting([failurePoint])
-      let snapshot = await harness.runtime.snapshot()
+      let snapshot = await harness.simulator.snapshot()
       let setupDeltaX = snapshot.boundaryTruth.positiveXMM - snapshot.mpos.xMM
       if setupDeltaX != 0 {
         await workspace.submitManualMotionIntent(try manualEpisodeJog(
@@ -1130,7 +1234,7 @@ extension OperatorWorkspaceTests {
       #expect(recoveryActions.contains(.redoBoundary(.positiveX)))
       #expect(!recoveryActions.contains(.restart))
       #expect(!recoveryActions.contains(.cancel))
-      #expect(await harness.machineActionLog.values.isEmpty)
+      #expect((await harness.simulator.snapshot()).currentOperation == nil)
     }
   }
 
@@ -1355,99 +1459,6 @@ private final class ManualMotionAmbiguousInvocationCounter: Sendable {
   func increment() { state.withLock { $0 += 1 } }
 }
 
-private final class ManualMotionAmbiguousAdapter:
-  PlotterManualMotionEffectAdapter, Sendable
-{
-  let environment: PlotterEnvironment
-  private let possibleInk: Bool
-  private let counter = ManualMotionAmbiguousInvocationCounter()
-
-  init(environment: PlotterEnvironment, possibleInk: Bool) {
-    self.environment = environment
-    self.possibleInk = possibleInk
-  }
-
-  var startCount: Int { counter.count }
-
-  func makeOperation(
-    for request: PlotterManualMotionEffectRequest,
-    controllerRecorder _: PlotterManualMotionControllerRecorder?
-  ) -> any PlotterManualMotionOperation {
-    ManualMotionAmbiguousOperation(
-      request: request,
-      possibleInk: possibleInk,
-      counter: counter
-    )
-  }
-}
-
-private actor ManualMotionAmbiguousOperation: PlotterManualMotionOperation {
-  private let request: PlotterManualMotionEffectRequest
-  private let possibleInk: Bool
-  private let counter: ManualMotionAmbiguousInvocationCounter
-  private var result: PlotterManualMotionOperationResult?
-  private var waiters: [CheckedContinuation<PlotterManualMotionOperationResult, Never>] = []
-
-  init(
-    request: PlotterManualMotionEffectRequest,
-    possibleInk: Bool,
-    counter: ManualMotionAmbiguousInvocationCounter
-  ) {
-    self.request = request
-    self.possibleInk = possibleInk
-    self.counter = counter
-  }
-
-  func start() {
-    guard result == nil else { return }
-    counter.increment()
-    let context = PlotterObservationContext(
-      id: PlotterObservationID(rawValue: UUID()),
-      observedAt: Date(),
-      environment: request.context.environment,
-      source: request.context.environment == .live ? .controller : .causalSimulator,
-      sourceRevision: EpisodeRevisionIdentifier(rawValue: "manual-ambiguity-test-v1")
-    )
-    let observation = PlotterObservation.controller(PlotterControllerObservation(
-      context: context,
-      status: .unknown,
-      machinePosition: nil,
-      motionEnabled: true
-    ))
-    publish(.ambiguous(
-      PlotterEffectAmbiguity(
-        summary: possibleInk
-          ? "Controller settlement was ambiguous and ink may exist."
-          : "Simulator settlement was causally ambiguous.",
-        observationIDs: [context.id],
-        possibleInk: possibleInk
-      ),
-      observations: [observation]
-    ))
-  }
-
-  func requestCancellation() {}
-
-  func waitForSettlement() async -> PlotterManualMotionOperationResult {
-    if let result { return result }
-    return await withCheckedContinuation { continuation in
-      waiters.append(continuation)
-    }
-  }
-
-  private func publish(_ disposition: PlotterManualMotionOperationDisposition) {
-    guard result == nil else { return }
-    let value = PlotterManualMotionOperationResult(
-      identity: PlotterManualMotionOperationIdentity(request: request),
-      disposition: disposition
-    )
-    result = value
-    let current = waiters
-    waiters.removeAll()
-    current.forEach { $0.resume(returning: value) }
-  }
-}
-
 private actor ManualMotionStopOperation {
   private var outcome: MotionOutcome?
   private var waiters: [CheckedContinuation<MotionOutcome, Never>] = []
@@ -1499,7 +1510,8 @@ private func manualMotionReceiptActions(
 }
 
 private func manualMotionWorkspaceActions(
-  machine: MachineFixture
+  machine: MachineFixture,
+  beginRelativeJog: (@Sendable (RelativeJogRequest) async -> RelativeJogAdmission)? = nil
 ) -> OperatorWorkspace.MachineActions {
   OperatorWorkspace.MachineActions(
     select: { _ in await machine.snapshot() },
@@ -1509,7 +1521,8 @@ private func manualMotionWorkspaceActions(
     activateMotionGuard: { await machine.activateMotionGuard() },
     deactivateMotionGuard: { await machine.deactivateMotionGuard() },
     beginRelativeJog: { request in
-      .admitted(RelativeJogOperation(
+      if let beginRelativeJog { return await beginRelativeJog(request) }
+      return .admitted(RelativeJogOperation(
         id: UUID(),
         task: Task { await machine.performRelativeMotion(request) }
       ))

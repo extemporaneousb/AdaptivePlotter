@@ -18,7 +18,7 @@ extension OperatorWorkspaceTests {
       save: { box.save($0) },
       clear: { box.clear() }
     )
-    let harness = makeSimulatedHarness(
+    let harness = makeCausalSimulatorAppFixture(
       learningPathCheckpointActions: actions,
       tipCalibrationSemanticIdentities: identities
     )
@@ -318,15 +318,15 @@ extension OperatorWorkspaceTests {
       save: { checkpointBox.save($0) },
       clear: { checkpointBox.clear() }
     )
-    let seeded = makeSimulatedHarness(tipCalibrationSemanticIdentities: identities)
+    let seeded = makeCausalSimulatorAppFixture(tipCalibrationSemanticIdentities: identities)
     try await completeSimulatedBoundariesAndCenter(
       seeded.workspace,
-      runtime: seeded.runtime,
+      simulator: seeded.simulator,
       boundaryOrder: [.negativeX, .positiveX, .negativeY, .positiveY]
     )
     try await completeSimulatedSparseTipCalibration(
       seeded.workspace,
-      runtime: seeded.runtime
+      simulator: seeded.simulator
     )
     let registration = try #require(seeded.workspace.tipCameraRegistration)
     let tipCheckpoint = try AcceptedTipCalibrationCheckpoint(
@@ -344,7 +344,7 @@ extension OperatorWorkspaceTests {
       )
     )
 
-    let liveRestart = makeSimulatedHarness(
+    let liveRestart = makeCausalSimulatorAppFixture(
       learningPathCheckpointActions: actions,
       tipCalibrationSemanticIdentities: identities
     )
@@ -508,14 +508,14 @@ extension OperatorWorkspaceTests {
 
   @Test("Reset from Boundary retains Pen and removes every later SIMULATED result")
   func resetBoundaryForwardRetainsEarlierLearning() async throws {
-    let harness = makeSimulatedHarness()
+    let harness = makeCausalSimulatorAppFixture()
     let workspace = harness.workspace
     try await completeSimulatedBoundariesAndCenter(
       workspace,
-      runtime: harness.runtime,
+      simulator: harness.simulator,
       boundaryOrder: [.positiveX, .negativeX, .positiveY, .negativeY]
     )
-    try await completeSimulatedSparseTipCalibration(workspace, runtime: harness.runtime)
+    try await completeSimulatedSparseTipCalibration(workspace, simulator: harness.simulator)
     let penRevisionID = try #require(
       workspace.learningArtifactGraph.currentRevision(for: .penInteraction)?.id
     )
@@ -544,14 +544,14 @@ extension OperatorWorkspaceTests {
 
   @Test("Reset Drawing Border validation atomically and perform no redraw")
   func resetObservedTrialAtomically() async throws {
-    let harness = makeSimulatedHarness()
+    let harness = makeCausalSimulatorAppFixture()
     let workspace = harness.workspace
     try await completeSimulatedBoundariesAndCenter(
       workspace,
-      runtime: harness.runtime,
+      simulator: harness.simulator,
       boundaryOrder: [.positiveX, .negativeX, .positiveY, .negativeY]
     )
-    try await completeSimulatedSparseTipCalibration(workspace, runtime: harness.runtime)
+    try await completeSimulatedSparseTipCalibration(workspace, simulator: harness.simulator)
     try await completeSimulatedStageFour(workspace)
     let framePlan = try #require(
       workspace.learningArtifactGraph.revisions.first { revision in
@@ -563,7 +563,7 @@ extension OperatorWorkspaceTests {
       Issue.record("Expected the current frame-plan revision to carry its attempt group.")
       return
     }
-    let inkBefore = await harness.runtime.persistentInk()
+    let inkBefore = await harness.simulator.persistentInk()
     let anchor = LearningPathItemID.observedDrawingTrial(.chooseDrawingBorderPlan)
     let plan = try #require(workspace.learningVacatePlan(from: anchor))
     #expect(plan.affectedItems == [anchor])
@@ -577,7 +577,7 @@ extension OperatorWorkspaceTests {
     #expect(workspace.learningArtifactGraph.currentRevision(for: .linePlan(group)) == nil)
     #expect(workspace.learningArtifactGraph.currentRevision(for: .inkObservation(group)) == nil)
     #expect(workspace.currentLearningPathItemID == anchor)
-    #expect(await harness.runtime.persistentInk() == inkBefore)
+    #expect(await harness.simulator.persistentInk() == inkBefore)
     await workspace.shutdown()
   }
 }

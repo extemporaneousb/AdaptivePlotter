@@ -96,10 +96,16 @@ or artifact acceptance.
 
 `OperatorWorkspace` is the single observable app composition and projection
 owner. EA-04 point selection and EA-06 manual motion route through their one
-typed episode runtime instead of workspace-owned semantic admission; retained
+typed episode runtime instead of workspace-owned semantic admission. EA-07
+routes every causal-simulator effect through the production
+`PlotterCausalSimulatorEffectAdapter`; the workspace owns no second simulated
+manual adapter, Boundary executor, or test-only effect closure bag. Retained
 Learning, Drawing, controller-session, and observation workflows remain
-workspace-owned until their ledger cutovers. The workspace copies current facts
-into immutable values-only snapshots;
+workspace-owned until their ledger cutovers, while their simulator commands use
+the exact same adapter instance as the manual runtime, with explicit
+retained-workflow owner attribution, nil `effectResult`, and no fabricated
+episode intent, effect, or plan revision. The workspace copies current facts into immutable
+values-only snapshots;
 `LearningPathProjector` purely derives Learning Path rows, review detail,
 actions, activity, subsystem status, and reset presentation. Neither projection
 nor navigator selection can replace controller, camera, persistence, or
@@ -917,6 +923,52 @@ frames, persistent black ink, and a real nonzero cap-to-tip truth. It has no
 capability to load, save, or clear LIVE durable machine or tip checkpoints. It
 cannot invoke physical `MachineActions`, satisfy physical artifacts, or become
 observed physical ink evidence.
+
+`PlotterCausalSimulatorEffectAdapter` is the sole effect-capable SIMULATED
+environment boundary. Where a semantic package exists it uses the shared
+`PlotterIntent`, `PlotterEffect`, and `PlotterEffectResult` grammar; later
+workflow commands use `admitRetainedWorkflowBoundary`,
+`admitRetainedWorkflowDrawing`, `admitRetainedWorkflowTravel`, or
+`executeRetainedWorkflowPen`, carry an explicit retained owner, return nil
+`effectResult`, and cannot fabricate typed episode attribution or a plan
+revision. `admitManualJog` remains the typed episode-attributed path. One
+immutable raw simulator operation ID owns admission, natural execution,
+original-owner waiting, and the first Stop, cancel, or shutdown settlement.
+
+Manual and retained Pen ingress participates in that same adapter occupancy.
+While a predecessor is reserved, Pen ingress refuses with
+`.operationAlreadyActive(predecessor.id)` before lower Pen mutation; retained
+attribution returns nil `effectResult`, and lower Pen/truth remains unchanged.
+When admission is free, package-only
+`SimulatedLearningRuntime.setPenPoseWithCausalTruth` returns the admitted Pen
+mutation response and complete causal truth from one lower-runtime actor turn.
+The adapter cannot combine a Pen result with a later, separately sampled plant,
+Pen, ink, or frame state.
+
+The active adapter owner remains reserved after lower-runtime settlement until
+one atomic terminal publication binds the exact operation ID, disposition,
+observation, typed result when applicable, final MPos, completed Boundary
+count, and immutable plant/Pen/paper/ink/camera/frame truth snapshot. A
+successor refuses until that bundle is cached and cannot contaminate the
+predecessor snapshot. A settled ID is idempotent only for its own result and
+cannot stop a successor. The package-only deterministic terminal-publication
+gate can hold that exact boundary for tests but cannot choose admission,
+settlement, truth, or effect authority.
+
+Simulator command attribution, plant MPos and Pen pose, paper identity and ink,
+camera configuration/viewport/frame publication, Vision measurement, and
+evidence classification are separate truth layers. Simulator frames are
+causal observations, not Vision measurements; only `VisionWorker` may derive a
+measurement. Every simulator observation and typed result has `.simulated`
+provenance, `physicalEvidenceClaimed` is false, and every surface remains
+`SIMULATED — NOT PHYSICAL EVIDENCE`.
+
+`SimulatedLearningRuntime` owns the nonphysical plant, Pen, paper/ink, camera,
+fault, and raw settlement state below that boundary. It exposes no public
+`beginManualJog`, `beginBoundary`, or `beginDrawing` authority; its sole raw
+operation admission is package-scoped to the production adapter. Execution
+pacing can change future suspension policy for deterministic tests but cannot
+admit, Stop, cancel, settle, or reattribute an effect.
 
 ## Future adaptive direction
 

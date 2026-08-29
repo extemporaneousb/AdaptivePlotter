@@ -284,7 +284,7 @@ private extension ToolContactCalibrationPosition {
 enum ContextualMotionOwnerID: Hashable, Sendable {
   case liveBoundary(BoundaryMotionOwnerID)
   case liveOperation(UUID)
-  case simulated(SimulatedLearningOperationID)
+  case simulated(PlotterCausalSimulatorOperation)
 
   var isBoundaryOwner: Bool {
     if case .liveBoundary = self { return true }
@@ -416,7 +416,7 @@ private enum StoppableOperationOwner {
   case motion(Task<MotionOutcome, Never>)
   case drawing(Task<DrawingStrokeOutcome, Never>)
   case drawingPlan(Task<DrawingPlanOutcome, Never>)
-  case simulated(Task<SimulatedLearningOperationOutcome?, Never>)
+  case simulated(Task<PlotterCausalSimulatorOperationOutcome, Never>)
 
   func settle() async {
     switch self {
@@ -1944,7 +1944,8 @@ final class OperatorWorkspace:
   }
   @ObservationIgnored private let workflowTelemetryActions: WorkflowTelemetryActions?
   @ObservationIgnored private let simulatedLearningRuntime: SimulatedLearningRuntime
-  @ObservationIgnored private var simulatedExecutionPacing: any SimulatedLearningExecutionPacing
+  @ObservationIgnored private let causalSimulatorEffectAdapter:
+    PlotterCausalSimulatorEffectAdapter
   @ObservationIgnored private let serialDeviceDiscovery: @Sendable () -> [MachineLinkDescriptor]
   @ObservationIgnored private let persistSelectedSerialIdentifier: @Sendable (String) -> Void
   @ObservationIgnored private let persistOverlayPreference:
@@ -2043,7 +2044,7 @@ final class OperatorWorkspace:
     cameraActions: CameraActions? = nil,
     pointSelectionRuntime: PlotterPointSelectionRuntime = PlotterPointSelectionRuntime(),
     pointSelectionRecordingDiagnostic: String? = nil,
-    manualMotionRuntime: PlotterManualMotionRuntime? = nil,
+    manualMotionComposition: PlotterManualMotionRuntimeComposition? = nil,
     announcementActions: AnnouncementActions? = nil,
     acceptedLearningPathCheckpointActions: AcceptedLearningPathCheckpointActions? = nil,
     drawingEvidenceActions: DrawingEvidenceActions? = nil,
@@ -2054,9 +2055,6 @@ final class OperatorWorkspace:
       _ in
     },
     workflowTelemetryActions: WorkflowTelemetryActions? = nil,
-    simulatedLearningRuntime: SimulatedLearningRuntime = SimulatedLearningRuntime(),
-    simulatedExecutionPacing: any SimulatedLearningExecutionPacing =
-      SimulatedLearningInteractivePacing(),
     serialDevices: [MachineLinkDescriptor] = [],
     serialDeviceDiscovery: @escaping @Sendable () -> [MachineLinkDescriptor] = {
       SerialPortDiscovery.discover()
@@ -2101,6 +2099,20 @@ final class OperatorWorkspace:
     },
     boundaryAtomicCommitFailurePoints: Set<BoundaryAtomicCommitFailurePoint> = []
   ) {
+    let resolvedManualMotionComposition: PlotterManualMotionRuntimeComposition
+    if let manualMotionComposition {
+      resolvedManualMotionComposition = manualMotionComposition
+    } else {
+      let simulatedRuntime = SimulatedLearningRuntime()
+      resolvedManualMotionComposition = PlotterManualMotionComposition.makeRuntimeComposition(
+        journalFileURL: FileManager.default.temporaryDirectory.appendingPathComponent(
+          "plotter-manual-motion-\(UUID().uuidString).json"
+        ),
+        machineActions: machineActions,
+        simulatedRuntime: simulatedRuntime,
+        simulatedExecutionPacing: SimulatedLearningInteractivePacing()
+      )
+    }
     overlayPreferenceState = .loaded(loadOverlayPreference())
     liveLearningSession = LearningSessionState(
       source: .live,
@@ -2112,19 +2124,10 @@ final class OperatorWorkspace:
       paperInstanceRevision: tipCalibrationSemanticIdentities.paperInstance.rawValue,
       paperContactPlaneRevision: tipCalibrationSemanticIdentities.paperContactPlane.rawValue
     )
-    self.simulatedExecutionPacing = simulatedExecutionPacing
     self.machineActions = machineActions
     self.cameraActions = cameraActions
     self.pointSelectionRuntime = pointSelectionRuntime
-    self.manualMotionRuntime = manualMotionRuntime
-      ?? PlotterManualMotionComposition.makeRuntime(
-        journalFileURL: FileManager.default.temporaryDirectory.appendingPathComponent(
-          "plotter-manual-motion-\(UUID().uuidString).json"
-        ),
-        machineActions: machineActions,
-        simulatedRuntime: simulatedLearningRuntime,
-        simulatedExecutionPacing: simulatedExecutionPacing
-      )
+    manualMotionRuntime = resolvedManualMotionComposition.runtime
     self.pointSelectionRecordingDiagnostic = pointSelectionRecordingDiagnostic
     let pointSelectionEpisodeID = EpisodeID(rawValue: UUID())
     let pointSelectionInitialState = PlotterEpisodeState(
@@ -2175,7 +2178,9 @@ final class OperatorWorkspace:
     self.persistPaperInstanceRevision = persistPaperInstanceRevision
     self.persistPaperContactPlaneRevision = persistPaperContactPlaneRevision
     self.workflowTelemetryActions = workflowTelemetryActions
-    self.simulatedLearningRuntime = simulatedLearningRuntime
+    simulatedLearningRuntime = resolvedManualMotionComposition.simulatedRuntime
+    causalSimulatorEffectAdapter =
+      resolvedManualMotionComposition.causalSimulatorEffectAdapter
     self.serialDevices = serialDevices
     self.serialDeviceDiscovery = serialDeviceDiscovery
     self.persistSelectedSerialIdentifier = persistSelectedSerialIdentifier
@@ -2253,7 +2258,7 @@ final class OperatorWorkspace:
   func replaceSimulatedExecutionPacingForTesting(
     _ pacing: any SimulatedLearningExecutionPacing
   ) {
-    simulatedExecutionPacing = pacing
+    causalSimulatorEffectAdapter.replaceExecutionPacing(pacing)
   }
 
   func replaceSimulatedTipCalibrationCheckpointForTesting(
@@ -7153,7 +7158,15 @@ final class OperatorWorkspace:
     sparseTipPenUpAuthorization = nil
     let lower: PenOutcome
     if frameMode == .simulated {
-      _ = try (await simulatedLearningRuntime.setPenPose(.down)).result.get()
+      let simulatedOutcome = await causalSimulatorEffectAdapter.executeRetainedWorkflowPen(
+        .down,
+        owner: EpisodeAuthorityID(rawValue: "OperatorWorkspace.sparseTipCalibration")
+      )
+      applySimulatedCausalImmediateOutcome(
+        simulatedOutcome,
+        action: "Lower simulated pen for sparse-tip calibration"
+      )
+      if let refusal = simulatedOutcome.refusal { throw refusal }
       lower = .commandedAndSettled(command: .lower, commandedState: .down)
     } else {
       guard let machineActions else {
@@ -7198,27 +7211,33 @@ final class OperatorWorkspace:
         try requireSparseTipBatchContinuation()
         let expected = plan.pathPositions[index + 1]
         if frameMode == .simulated {
-          let response = await simulatedLearningRuntime.beginDrawing(
-            delta: try SimulatedLearningMotionVector(dxMM: delta.dx, dyMM: delta.dy)
+          let admission = await causalSimulatorEffectAdapter.admitRetainedWorkflowDrawing(
+            delta: try SimulatedLearningMotionVector(dxMM: delta.dx, dyMM: delta.dy),
+            owner: EpisodeAuthorityID(rawValue: "OperatorWorkspace.sparseTipCalibration")
           )
-          let operation = try response.result.get()
+          let operation: PlotterCausalSimulatorOperation
+          switch admission {
+          case let .admitted(value):
+            operation = value
+          case let .refused(refusal):
+            throw LearningPathOperationError.controllerFailed(
+              "Simulated sparse-tip drawing was refused: \(refusal.refusal)."
+            )
+          }
           let target = ContextualStopTarget.sparseTipBatchSegment(
             capabilityID: try sparseTipBatchCapabilityID(),
-            operationOwner: .simulated(operation.id),
+            operationOwner: .simulated(operation),
             location: location
           )
-          let task = Task { [simulatedLearningRuntime, simulatedExecutionPacing] in
-            try? await simulatedLearningRuntime.executeNaturally(
-              operation.id,
-              pacing: simulatedExecutionPacing
-            ).result.get()
+          let task = Task { [causalSimulatorEffectAdapter] in
+            await causalSimulatorEffectAdapter.executeNaturally(operation)
           }
           installStoppableOperation(target: target, owner: .simulated(task))
           defer { clearStoppableOperation(matching: target) }
           try await cancelSparseTipSegmentIfRequested(target: target, owner: .simulated(task))
           let outcome = await task.value
           try requireSparseTipBatchContinuation()
-          guard let outcome, outcome.disposition == .naturallyCompleted else {
+          guard outcome.disposition == .naturallyCompleted else {
             throw LearningPathOperationError.possibleInk(
               "The 2 mm calibration circle stopped after contact; possible ink exists."
             )
@@ -7304,7 +7323,15 @@ final class OperatorWorkspace:
 
     let raise: PenOutcome
     if frameMode == .simulated {
-      _ = try (await simulatedLearningRuntime.setPenPose(.up)).result.get()
+      let simulatedOutcome = await causalSimulatorEffectAdapter.executeRetainedWorkflowPen(
+        .up,
+        owner: EpisodeAuthorityID(rawValue: "OperatorWorkspace.sparseTipCalibration")
+      )
+      applySimulatedCausalImmediateOutcome(
+        simulatedOutcome,
+        action: "Raise simulated pen after sparse-tip calibration"
+      )
+      if let refusal = simulatedOutcome.refusal { throw refusal }
       raise = .commandedAndSettled(command: .raise, commandedState: .up)
     } else {
       guard let machineActions else {
@@ -7353,11 +7380,19 @@ final class OperatorWorkspace:
   private func raisePenAfterKnownCircleFailureIfNeeded() async {
     sparseTipPenUpAuthorization = nil
     if frameMode == .simulated {
-      let snapshot = await simulatedLearningRuntime.snapshot()
-      if snapshot.penPose == .down {
-        _ = await simulatedLearningRuntime.setPenPose(.up)
+      let truth = await causalSimulatorEffectAdapter.truthSnapshot()
+      if truth.penPose == .down {
+        let outcome = await causalSimulatorEffectAdapter.executeRetainedWorkflowPen(
+          .up,
+          owner: EpisodeAuthorityID(rawValue: "OperatorWorkspace.sparseTipCalibration")
+        )
+        applySimulatedCausalImmediateOutcome(
+          outcome,
+          action: "Raise simulated pen after sparse-tip failure"
+        )
+      } else {
+        simulatedLearningSnapshot = truth.runtime
       }
-      simulatedLearningSnapshot = await simulatedLearningRuntime.snapshot()
       return
     }
     guard let machineActions,
@@ -9117,18 +9152,20 @@ final class OperatorWorkspace:
         computationDiagnostics.record(.penRequest(command, .began))
       }
       let pose: SimulatedLearningPenPose = command.commandedState == .up ? .up : .down
-      let response = await simulatedLearningRuntime.setPenPose(pose)
+      let simulatedOutcome = await causalSimulatorEffectAdapter.executeRetainedWorkflowPen(
+        pose,
+        owner: EpisodeAuthorityID(rawValue: "OperatorWorkspace.learningPenCommand")
+      )
       let outcome: PenOutcome?
       let controllerSummary: String?
-      switch response.result {
-      case .success:
+      if simulatedOutcome.refusal == nil {
         outcome = .commandedAndSettled(
           command: command,
           commandedState: command.commandedState
         )
         controllerSummary =
-          "Simulated pen \(pose.rawValue). \(response.evidenceNotice.label)"
-      case .failure:
+          "Simulated pen \(pose.rawValue). \(simulatedOutcome.evidenceNotice.label)"
+      } else {
         outcome = nil
         controllerSummary = nil
       }
@@ -9139,8 +9176,8 @@ final class OperatorWorkspace:
         outcome: outcome
       )
       withBatchedSemanticPresentationUpdate {
-        applySimulatedSnapshotResponse(
-          response,
+        applySimulatedCausalImmediateOutcome(
+          simulatedOutcome,
           action: "Set simulated pen \(pose.rawValue)"
         )
         if let outcome {
@@ -9811,7 +9848,7 @@ final class OperatorWorkspace:
     intent: JogCancelIntent
   ) async {
     guard let operationOwner = target.operationOwner else { return }
-    if case .simulated(let operationID) = operationOwner {
+    if case .simulated(let operation) = operationOwner {
       guard beginCancellationRequest(for: target, intent: intent) else { return }
       defer { finishCancellationRequest(for: target) }
       let simulatedIntent: SimulatedLearningOperationIntent =
@@ -9820,21 +9857,16 @@ final class OperatorWorkspace:
         case .cancelAttempt: .cancel
         case .shutdown: .shutdown
         }
-      let response = await simulatedLearningRuntime.request(simulatedIntent, for: operationID)
-      switch response.result {
-      case .success(let outcome):
-        simulatedLearningSnapshot = await simulatedLearningRuntime.snapshot()
-        updateContextualStopAudit(
-          for: target,
-          outcome:
-            "\(outcome.disposition.rawValue); final simulated MPos X \(outcome.finalMPos.xMM) Y \(outcome.finalMPos.yMM); \(response.evidenceNotice.label)"
-        )
-      case .failure(let refusal):
-        updateContextualStopAudit(
-          for: target,
-          outcome: "refused: \(refusal); \(response.evidenceNotice.label)"
-        )
-      }
+      let outcome = await causalSimulatorEffectAdapter.request(
+        simulatedIntent,
+        for: operation
+      )
+      simulatedLearningSnapshot = outcome.truth.runtime
+      updateContextualStopAudit(
+        for: target,
+        outcome:
+          "\(outcome.disposition.rawValue); final simulated MPos X \(outcome.finalMPos.xMM) Y \(outcome.finalMPos.yMM); \(outcome.evidenceNotice.label)"
+      )
       return
     }
     guard let machineActions else { return }
@@ -9995,8 +10027,15 @@ final class OperatorWorkspace:
     sparseTipPenUpAuthorization = nil
     let outcome: PenOutcome
     if frameMode == .simulated {
-      let response = await simulatedLearningRuntime.setPenPose(.up)
-      _ = try response.result.get()
+      let simulatedOutcome = await causalSimulatorEffectAdapter.executeRetainedWorkflowPen(
+        .up,
+        owner: EpisodeAuthorityID(rawValue: "OperatorWorkspace.sparseTipCalibration")
+      )
+      applySimulatedCausalImmediateOutcome(
+        simulatedOutcome,
+        action: "Normalize simulated Pen Up for sparse-tip calibration"
+      )
+      if let refusal = simulatedOutcome.refusal { throw refusal }
       outcome = .commandedAndSettled(command: .raise, commandedState: .up)
     } else {
       guard let machineActions else {
@@ -10683,6 +10722,21 @@ final class OperatorWorkspace:
     }
   }
 
+  private func applySimulatedCausalImmediateOutcome(
+    _ outcome: PlotterCausalSimulatorImmediateOutcome,
+    action: String
+  ) {
+    simulatedLearningSnapshot = outcome.truth.runtime
+    simulatorPenState = simulatorPenState(from: outcome.truth.penPose)
+    if let refusal = outcome.refusal {
+      simulatorLearningSummary =
+        "\(action) refused: \(refusal). \(outcome.evidenceNotice.label)"
+    } else {
+      simulatorLearningSummary =
+        "\(action) completed. \(outcome.evidenceNotice.label)"
+    }
+  }
+
   private func simulatorPenState(from pose: SimulatedLearningPenPose) -> PenState {
     switch pose {
     case .unknown: .unknown
@@ -10899,7 +10953,7 @@ final class OperatorWorkspace:
 
   private func executeBoundaryMotion(_ direction: JogDirection) async {
     if frameMode == .simulated {
-      await executeSimulatedBoundaryMotion(direction)
+      await executeCausalBoundaryMotionThroughEpisodeAdapter(direction)
       return
     }
     guard let request = makeBoundaryMotionRequest(direction),
@@ -11097,7 +11151,9 @@ final class OperatorWorkspace:
     boundaryTeachingState = .idle
   }
 
-  private func executeSimulatedBoundaryMotion(_ direction: JogDirection) async {
+  private func executeCausalBoundaryMotionThroughEpisodeAdapter(
+    _ direction: JogDirection
+  ) async {
     guard let sequenceID = activeDiscoverySequenceID,
       let transactionID = discoveryTransactions[sequenceID]?.id,
       let attemptID = activeExerciseAttemptID
@@ -11106,36 +11162,34 @@ final class OperatorWorkspace:
       return
     }
     let discoveryDirection = boundaryDirection(from: direction)
-    let response = await simulatedLearningRuntime.beginBoundary(
+    let admission = await causalSimulatorEffectAdapter.admitRetainedWorkflowBoundary(
       direction: discoveryDirection,
-      finiteSegmentLengthMM: MotionPriors.boundaryWireSegmentMM
+      finiteSegmentLengthMM: MotionPriors.boundaryWireSegmentMM,
+      owner: EpisodeAuthorityID(rawValue: "OperatorWorkspace.boundaryWorkflow")
     )
-    let operation: SimulatedLearningOperation
-    switch response.result {
-    case .success(let admitted):
-      operation = admitted
-    case .failure(let refusal):
+    let operation: PlotterCausalSimulatorOperation
+    switch admission {
+    case let .admitted(value):
+      operation = value
+    case let .refused(refusal):
       await failDiscovery(
         sequenceID,
-        failure: .refused("Simulated Drawing Boundary motion could not start: \(refusal).")
+        failure: .refused(
+          "Simulated Drawing Boundary motion could not start: \(refusal.refusal)."
+        )
       )
       return
     }
     let stopTarget = ContextualStopTarget.pairedBoundary(
       capabilityID: ContextualStopCapabilityID(),
       transactionID: transactionID,
-      operationOwner: .simulated(operation.id),
+      operationOwner: .simulated(operation),
       attemptID: attemptID,
       direction: discoveryDirection
     )
-    let outcomeTask = Task<SimulatedLearningOperationOutcome?, Never> {
-      [simulatedLearningRuntime, simulatedExecutionPacing] in
-      let execution = await simulatedLearningRuntime.executeBoundaryCooperatively(
-        operation.id,
-        pacing: simulatedExecutionPacing
-      )
-      if case .success(let outcome) = execution.result { return outcome }
-      return try? await simulatedLearningRuntime.waitForOutcome(of: operation.id).result.get()
+    let outcomeTask = Task<PlotterCausalSimulatorOperationOutcome, Never> {
+      [causalSimulatorEffectAdapter] in
+      await causalSimulatorEffectAdapter.executeBoundaryCooperatively(operation)
     }
     guard let boundaryMotionTask else {
       await failDiscovery(
@@ -11150,31 +11204,21 @@ final class OperatorWorkspace:
     pendingBoundaryStopCapabilities[attemptID] = stopTarget.capabilityID
     boundaryTeachingState = .ownerActive(direction)
     boundaryTeachingResultText =
-      "Simulated motion is moving toward the \(direction.shortLabel) Drawing Boundary. \(response.evidenceNotice.label)"
+      "Simulated motion is moving toward the \(direction.shortLabel) Drawing Boundary. \(operation.evidenceNotice.label)"
     guard
       recordDiscovery(
         .boundaryJogStarted(
           discoveryDirection,
           controllerSummary:
-            "Simulated Drawing Boundary motion \(operation.id.sequence) started. \(response.evidenceNotice.label)"
+            "Simulated Drawing Boundary motion \(operation.id.sequence) started. \(operation.evidenceNotice.label)"
         ),
         for: sequenceID
       )
     else { return }
     await advanceDiscoverySequence(sequenceID)
 
-    guard let outcome = await outcomeTask.value else {
-      await failDiscovery(
-        sequenceID,
-        failure: WorkflowFailure(
-          kind: .failed,
-          detail: "The simulated Drawing Boundary motion lost its outcome.",
-          recovery: .resolveNamedFailure
-        )
-      )
-      return
-    }
-    simulatedLearningSnapshot = await simulatedLearningRuntime.snapshot()
+    let outcome = await outcomeTask.value
+    simulatedLearningSnapshot = outcome.truth.runtime
     guard !hasShutdown else { return }
     switch outcome.disposition {
     case .stopped
@@ -12983,30 +13027,29 @@ final class OperatorWorkspace:
     let selection = travelFeedSelection(for: delta)
     lastTravelFeedSelection = selection
     if frameMode == .simulated {
-      let response = await simulatedLearningRuntime.beginManualJog(
-        delta: try SimulatedLearningMotionVector(dxMM: delta.dx, dyMM: delta.dy)
+      let admission = await causalSimulatorEffectAdapter.admitRetainedWorkflowTravel(
+        delta: try SimulatedLearningMotionVector(dxMM: delta.dx, dyMM: delta.dy),
+        owner: EpisodeAuthorityID(rawValue: "OperatorWorkspace.supervisedPenUpTravel")
       )
-      let operation: SimulatedLearningOperation
-      do {
-        operation = try response.result.get()
-      } catch {
+      let operation: PlotterCausalSimulatorOperation
+      switch admission {
+      case let .admitted(value):
+        operation = value
+      case let .refused(refusal):
         throw LearningPathOperationError.controllerFailed(
-          "Simulated supervised Pen-Up travel was refused: \(String(describing: error))."
+          "Simulated supervised Pen-Up travel was refused: \(refusal.refusal)."
         )
       }
       let capabilityID = try supervisedTravelStopCapabilityID(ownerID: ownerID)
       let target = ContextualStopTarget.exerciseMotion(
         capabilityID: capabilityID,
-        operationOwner: .simulated(operation.id),
+        operationOwner: .simulated(operation),
         ownerID: ownerID,
         action: action
       )
-      let owner = Task<SimulatedLearningOperationOutcome?, Never> {
-        [simulatedLearningRuntime, simulatedExecutionPacing] in
-        try? await simulatedLearningRuntime.executeNaturally(
-          operation.id,
-          pacing: simulatedExecutionPacing
-        ).result.get()
+      let owner = Task<PlotterCausalSimulatorOperationOutcome, Never> {
+        [causalSimulatorEffectAdapter] in
+        await causalSimulatorEffectAdapter.executeNaturally(operation)
       }
       installStoppableOperation(target: target, owner: .simulated(owner))
       defer { clearStoppableOperation(matching: target) }
@@ -13025,14 +13068,14 @@ final class OperatorWorkspace:
         )
       }
       let outcome = await owner.value
-      guard let outcome, outcome.disposition == .naturallyCompleted else {
-        simulatedLearningSnapshot = await simulatedLearningRuntime.snapshot()
+      guard outcome.disposition == .naturallyCompleted else {
+        simulatedLearningSnapshot = outcome.truth.runtime
         throw LearningPathOperationError.controllerCancelled(
           "Simulated exercise travel did not complete naturally."
         )
       }
       if !isSparseTipBatchTravel {
-        simulatedLearningSnapshot = await simulatedLearningRuntime.snapshot()
+        simulatedLearningSnapshot = outcome.truth.runtime
       }
       return try MachinePosition(x: outcome.finalMPos.xMM, y: outcome.finalMPos.yMM)
     }
@@ -13120,49 +13163,68 @@ final class OperatorWorkspace:
       )
     }
     if frameMode == .simulated {
-      applySimulatedSnapshotResponse(
-        await simulatedLearningRuntime.setPenPose(.down),
+      let lowered = await causalSimulatorEffectAdapter.executeRetainedWorkflowPen(
+        .down,
+        owner: EpisodeAuthorityID(rawValue: "OperatorWorkspace.drawingBorderTrial")
+      )
+      applySimulatedCausalImmediateOutcome(
+        lowered,
         action: "Lower simulated pen for Drawing Border"
       )
+      if let refusal = lowered.refusal { throw refusal }
       activeExplorationOperation?.strokeState = .possibleInk
       do {
         let points = plan.strokes[0].path.points
         for pair in zip(points, points.dropFirst()) {
           let delta = try pair.0.vector(to: pair.1)
-          let response = await simulatedLearningRuntime.beginDrawing(
-            delta: try SimulatedLearningMotionVector(dxMM: delta.dx, dyMM: delta.dy)
+          let admission = await causalSimulatorEffectAdapter.admitRetainedWorkflowDrawing(
+            delta: try SimulatedLearningMotionVector(dxMM: delta.dx, dyMM: delta.dy),
+            owner: EpisodeAuthorityID(rawValue: "OperatorWorkspace.drawingBorderTrial")
           )
-          let operation = try response.result.get()
+          let operation: PlotterCausalSimulatorOperation
+          switch admission {
+          case let .admitted(value):
+            operation = value
+          case let .refused(refusal):
+            throw LearningPathOperationError.controllerFailed(
+              "Simulated Drawing Border motion was refused: \(refusal.refusal)."
+            )
+          }
           let target = ContextualStopTarget.drawingTrial(
             capabilityID: ContextualStopCapabilityID(),
-            operationOwner: .simulated(operation.id)
+            operationOwner: .simulated(operation)
           )
-          let task = Task { [simulatedLearningRuntime, simulatedExecutionPacing] in
-            try? await simulatedLearningRuntime.executeNaturally(
-              operation.id,
-              pacing: simulatedExecutionPacing
-            ).result.get()
+          let task = Task { [causalSimulatorEffectAdapter] in
+            await causalSimulatorEffectAdapter.executeNaturally(operation)
           }
           installStoppableOperation(target: target, owner: .simulated(task))
           let outcome = await task.value
           clearStoppableOperation(matching: target)
-          guard let outcome, outcome.disposition == .naturallyCompleted else {
+          guard outcome.disposition == .naturallyCompleted else {
             throw LearningPathOperationError.possibleInk(
               "The simulated Drawing Border operation lost a naturally completed segment."
             )
           }
-          simulatedLearningSnapshot = await simulatedLearningRuntime.snapshot()
+          simulatedLearningSnapshot = outcome.truth.runtime
         }
       } catch {
-        applySimulatedSnapshotResponse(
-          await simulatedLearningRuntime.setPenPose(.up),
+        let raised = await causalSimulatorEffectAdapter.executeRetainedWorkflowPen(
+          .up,
+          owner: EpisodeAuthorityID(rawValue: "OperatorWorkspace.drawingBorderTrial")
+        )
+        applySimulatedCausalImmediateOutcome(
+          raised,
           action: "Raise simulated pen after incomplete Drawing Border"
         )
         throw error
       }
       activeExplorationOperation?.strokeState = .completedNaturally
-      applySimulatedSnapshotResponse(
-        await simulatedLearningRuntime.setPenPose(.up),
+      let raised = await causalSimulatorEffectAdapter.executeRetainedWorkflowPen(
+        .up,
+        owner: EpisodeAuthorityID(rawValue: "OperatorWorkspace.drawingBorderTrial")
+      )
+      applySimulatedCausalImmediateOutcome(
+        raised,
         action: "Raise simulated pen after Drawing Border"
       )
       return

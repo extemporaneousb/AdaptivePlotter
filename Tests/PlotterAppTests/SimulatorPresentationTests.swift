@@ -1,3 +1,6 @@
+import EpisodeCore
+import Foundation
+import PlotterEpisodeRuntime
 import PlotterRuntime
 import Testing
 
@@ -6,7 +9,7 @@ import Testing
 @Test("SIMULATED overlay producer publishes exact typed causal status")
 @MainActor
 func simulatedOverlayStatusIsCausalAndExact() async throws {
-  let harness = makeSimulatedHarness()
+  let harness = makeCausalSimulatorAppFixture()
   let workspace = harness.workspace
   await workspace.switchFrameMode(.simulated)
 
@@ -55,7 +58,7 @@ func simulatedOverlayStatusIsCausalAndExact() async throws {
 @Test("SIMULATED manual controls create causal drawing segments while Pen Down")
 @MainActor
 func simulatedManualPenDownDrawing() async throws {
-  let harness = makeSimulatedHarness()
+  let harness = makeCausalSimulatorAppFixture()
   let workspace = harness.workspace
   await workspace.switchFrameMode(.simulated)
   await workspace.performControllerConnectionAction()
@@ -67,12 +70,13 @@ func simulatedManualPenDownDrawing() async throws {
     == "drawing — commanded Pen Down")
   await workspace.submitManualJog(.xPositive)
 
-  let snapshot = await harness.runtime.snapshot()
+  let snapshot = await harness.simulator.snapshot()
   #expect(snapshot.mpos.xMM == 50)
   #expect(snapshot.mpos.yMM == 0)
   #expect(snapshot.penPose == .down)
   #expect(snapshot.persistentInkSegmentCount == 1)
-  #expect(await harness.machineActionLog.values.isEmpty)
+  #expect(snapshot.currentOperation == nil)
+  #expect(snapshot.evidenceNotice == .notPhysicalEvidence)
   await workspace.shutdown()
 }
 
@@ -82,16 +86,38 @@ func simulatedCameraRefreshUsesLearningRuntime() async throws {
   let runtime = SimulatedLearningRuntime()
   _ = try await runtime.connect().result.get()
   _ = try await runtime.enableMotion().result.get()
-  _ = try await runtime.setPenPose(.down).result.get()
-  let drawing = try await runtime.beginDrawing(
-    delta: SimulatedLearningMotionVector(dxMM: 2, dyMM: 0)
-  ).result.get()
-  _ = try await runtime.completeNaturally(drawing.id).result.get()
-  _ = try await runtime.setPenPose(.up).result.get()
+  let composition = PlotterManualMotionComposition.makeRuntimeComposition(
+    journalFileURL: FileManager.default.temporaryDirectory.appendingPathComponent(
+      "simulated-camera-refresh-\(UUID().uuidString).json"
+    ),
+    machineActions: nil,
+    simulatedRuntime: runtime,
+    simulatedExecutionPacing: SimulatedLearningInteractivePacing(stepDelay: .zero)
+  )
+  let adapter = composition.causalSimulatorEffectAdapter
+  let owner = EpisodeAuthorityID(rawValue: "SimulatorPresentationTests.cameraRefresh")
+  let lowered = await adapter.executeRetainedWorkflowPen(.down, owner: owner)
+  #expect(lowered.effectResult == nil)
+  #expect(lowered.refusal == nil)
+  let admission = await adapter.admitRetainedWorkflowDrawing(
+    delta: try SimulatedLearningMotionVector(dxMM: 2, dyMM: 0),
+    owner: owner
+  )
+  guard case let .admitted(drawing) = admission else {
+    Issue.record("Expected causal drawing admission")
+    return
+  }
+  #expect(drawing.attribution == .retainedWorkflow(owner: owner))
+  let outcome = await adapter.executeNaturally(drawing)
+  #expect(outcome.disposition == .naturallyCompleted)
+  #expect(outcome.effectResult == nil)
+  let raised = await adapter.executeRetainedWorkflowPen(.up, owner: owner)
+  #expect(raised.effectResult == nil)
+  #expect(raised.refusal == nil)
 
   let workspace = OperatorWorkspace(
     cameraActions: CameraComposition.makeIsolatedActionsForTesting(),
-    simulatedLearningRuntime: runtime,
+    manualMotionComposition: composition,
     serialDevices: [],
     serialDeviceDiscovery: { [] },
     loadSelectedSerialIdentifier: { nil },

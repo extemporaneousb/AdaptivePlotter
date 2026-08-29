@@ -9,7 +9,7 @@ import PlotterModel
 struct OperatorWorkspaceLifecycleTests {
   @Test("top motion action enables and disables simulated authorization")
   func motionAuthorizationActionToggles() async {
-    let harness = makeSimulatedHarness()
+    let harness = makeCausalSimulatorAppFixture()
     let workspace = harness.workspace
     await workspace.switchFrameMode(.simulated)
     await workspace.performControllerConnectionAction()
@@ -52,7 +52,7 @@ struct OperatorWorkspaceLifecycleTests {
 
   @Test("a second start cannot replace the active typed attempt")
   func duplicateStartRetainsActiveAttempt() async throws {
-    let harness = makeSimulatedHarness()
+    let harness = makeCausalSimulatorAppFixture()
     let workspace = harness.workspace
     await workspace.switchFrameMode(.simulated)
     await workspace.performControllerConnectionAction()
@@ -98,23 +98,25 @@ struct OperatorWorkspaceLifecycleTests {
 
   @Test("lost simulated drawing outcome clears Stop and preserves no-redraw recovery")
   func lostSimulatedDrawingOutcomeCleansOwner() async throws {
-    let harness = makeSimulatedHarness()
+    let harness = makeCausalSimulatorAppFixture()
     let workspace = harness.workspace
     try await completeSimulatedBoundariesAndCenter(
       workspace,
-      runtime: harness.runtime,
+      simulator: harness.simulator,
       boundaryOrder: [.negativeX, .positiveX, .negativeY, .positiveY]
     )
-    try await completeSimulatedSparseTipCalibration(workspace, runtime: harness.runtime)
+    try await completeSimulatedSparseTipCalibration(workspace, simulator: harness.simulator)
 
     workspace.replaceSimulatedExecutionPacingForTesting(
-      DrawingOutcomeLossPacing(runtime: harness.runtime)
+      DrawingOutcomeLossPacing(simulator: harness.simulator)
     )
-    try await performPublicAction(
+    let owner = LearningPathItemID.observedDrawingTrial(.chooseDrawingBorderPlan)
+    try requireEnabledPublicAction(
       .start,
-      owner: .observedDrawingTrial(.chooseDrawingBorderPlan),
+      owner: owner,
       workspace: workspace
     )
+    await workspace.performExerciseAction(.start, for: owner)
 
     #expect(workspace.contextualStopPresentation == nil)
     #expect(workspace.observedDrawingTrialStep == .revealAndObserveNewInk)
@@ -125,15 +127,15 @@ struct OperatorWorkspaceLifecycleTests {
 
   @Test("Draw and Validate Drawing Border previews the planned Border before motion and completes automatically")
   func oneGoPreviewsThenCompletesTrial() async throws {
-    let harness = makeSimulatedHarness()
+    let harness = makeCausalSimulatorAppFixture()
     let workspace = harness.workspace
     try await completeSimulatedBoundariesAndCenter(
       workspace,
-      runtime: harness.runtime,
+      simulator: harness.simulator,
       boundaryOrder: [.negativeX, .positiveX, .negativeY, .positiveY]
     )
-    try await completeSimulatedSparseTipCalibration(workspace, runtime: harness.runtime)
-    let positionBeforeGo = (await harness.runtime.snapshot()).mpos
+    try await completeSimulatedSparseTipCalibration(workspace, simulator: harness.simulator)
+    let positionBeforeGo = (await harness.simulator.snapshot()).mpos
     let pacing = FirstOperationSuspensionPacing()
     workspace.replaceSimulatedExecutionPacingForTesting(pacing)
     let owner = LearningPathItemID.observedDrawingTrial(.chooseDrawingBorderPlan)
@@ -157,7 +159,7 @@ struct OperatorWorkspaceLifecycleTests {
     #expect(predicted.cameraConfigurationID == displayedFrame.frame.cameraConfigurationID)
     let projectedBorder = try drawingBorderPath.points.map { try registration.tipPixel(at: $0) }
     #expect(predictedBorder.points == projectedBorder)
-    #expect((await harness.runtime.snapshot()).mpos == positionBeforeGo)
+    #expect((await harness.simulator.snapshot()).mpos == positionBeforeGo)
     #expect(workspace.observedDrawingTrialStep == .moveToDrawingBorderStart)
     #expect(
       workspace.selectedOperatorActionPresentation(for: owner).activity?.outcome == .inProgress)
@@ -263,24 +265,27 @@ struct OperatorWorkspaceLifecycleTests {
 
   @Test("injected Boundary ambiguity remains typed when wording is neutral")
   func boundaryAmbiguityDoesNotDependOnText() async throws {
-    let harness = makeSimulatedHarness()
+    let harness = makeCausalSimulatorAppFixture()
     let workspace = harness.workspace
     await workspace.switchFrameMode(.simulated)
     await workspace.performControllerConnectionAction()
     await workspace.activateMotionGuard()
 
     let penOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
-    try await performPublicAction(.start, owner: penOwner, workspace: workspace)
+    try requireEnabledPublicAction(.start, owner: penOwner, workspace: workspace)
+    await workspace.performExerciseAction(.start, for: penOwner)
     try await identifyPenCap(workspace)
     for _ in 0..<3 {
-      try await performPublicAction(.choice(.yes), owner: penOwner, workspace: workspace)
+      try requireEnabledPublicAction(.choice(.yes), owner: penOwner, workspace: workspace)
+      await workspace.performExerciseAction(.choice(.yes), for: penOwner)
     }
 
-    await harness.runtime.injectFault(.ambiguityBeforeNextBoundarySegment)
+    await harness.simulator.injectFault(.ambiguityBeforeNextBoundarySegment)
     let boundaryOwner = LearningPathItemID.humanGuidedDiscovery(
       .pairedBoundaryDiscoveryAndCentering
     )
-    try await performPublicAction(.start, owner: boundaryOwner, workspace: workspace)
+    try requireEnabledPublicAction(.start, owner: boundaryOwner, workspace: workspace)
+    await workspace.performExerciseAction(.start, for: boundaryOwner)
     try await waitUntil { workspace.activeExerciseAttemptID == nil }
 
     guard case .ambiguous(let detail) = workspace.boundaryActivityRecords.last?.disposition else {
@@ -294,17 +299,17 @@ struct OperatorWorkspaceLifecycleTests {
 }
 
 private actor DrawingOutcomeLossPacing: SimulatedLearningExecutionPacing {
-  let runtime: SimulatedLearningRuntime
+  let simulator: CausalSimulatorProbe
   var suspensionCount = 0
 
-  init(runtime: SimulatedLearningRuntime) {
-    self.runtime = runtime
+  init(simulator: CausalSimulatorProbe) {
+    self.simulator = simulator
   }
 
   func suspendBetweenSteps() async {
     suspensionCount += 1
     if suspensionCount == 2 {
-      await runtime.injectFault(.outcomeUnavailableAfterNextExecution)
+      await simulator.injectFault(.outcomeUnavailableAfterNextExecution)
     }
     await Task.yield()
   }

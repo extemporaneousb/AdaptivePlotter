@@ -12,7 +12,7 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
     pointSelectionRuntime: PointSelectionComposition.production.runtime,
     pointSelectionRecordingDiagnostic:
       PointSelectionComposition.production.recordingDiagnostic,
-    manualMotionRuntime: PlotterManualMotionComposition.production.runtime,
+    manualMotionComposition: PlotterManualMotionComposition.production,
     announcementActions: SpeechComposition.actions,
     acceptedLearningPathCheckpointActions: AcceptedArtifactCheckpointComposition.actions,
     drawingEvidenceActions: DrawingRunEvidenceComposition.actions,
@@ -24,8 +24,7 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
     persistPaperContactPlaneRevision: {
       TipCalibrationSemanticIdentityComposition.persistPaperContactPlane($0)
     },
-    workflowTelemetryActions: MachineSessionComposition.workflowTelemetryActions,
-    simulatedLearningRuntime: PlotterManualMotionComposition.production.simulatedRuntime
+    workflowTelemetryActions: MachineSessionComposition.workflowTelemetryActions
   )
   private var terminationTask: Task<Void, Never>?
   private var terminationDeadlineTask: Task<Void, Never>?

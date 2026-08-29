@@ -28,7 +28,7 @@ EVIDENCE_PATH = ROOT / "docs" / "CURRENT_EVIDENCE.md"
 ARCHITECTURE_PATH = ROOT / "docs" / "SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md"
 PRODUCT_PATH = ROOT / "docs" / "PRODUCT_CONTRACT.md"
 # Updated in the same package whenever a canonical ledger row changes.
-EXPECTED_LEDGER_SHA256 = "afd326d00dd7ff0784e6c0ced8826ccbd3d93bd65665763e679f5116ddb19d05"
+EXPECTED_LEDGER_SHA256 = "618105afcc7c9def94ec91d8a3b7fd9716652b7731f8fac7536c29241253bde9"
 
 
 EXPECTED_GATES = {
@@ -190,18 +190,23 @@ EXPECTED_COMPLETE_PACKAGES = {
     "EA-05C",
     "FIX-02",
     "EA-06",
+    "EA-07",
 }
 
-# EA-06 is staged complete so its post-cutover DELETE/DOC contracts can inspect
-# the final manifest. The frozen Option A tree passed all seven gates; this
-# evidence delta requires DOC/DIFF/QUICK/STRICT refresh during Blackdog landing.
-# The same critic closed its delta-only cited findings, so no further critic is
-# required or allowed. This temporary task-local candidate becomes an ordinary
-# passed row after landing and clean-main verification.
+# Staged-complete rows let post-cutover DELETE and documentation contracts
+# inspect the task-local final manifest without fabricating final gate evidence.
+# EA-06 retains its accepted historical landing boundary. EA-07's frozen
+# integrated candidate passed all seven gates and its sole critic's final delta
+# check. This evidence-only integration requires DOC and DIFF refresh only;
+# broad gates are not rerun before Blackdog landing.
 EXPECTED_UNLANDED_COMPLETION_CANDIDATES = {
     "EA-06": (
         "`TASK-FE9C9CB3`",
         ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "MOTION", "DELETE"],
+    ),
+    "EA-07": (
+        "`TASK-6C2D055B`",
+        ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "SIM", "DELETE"],
     ),
 }
 
@@ -366,6 +371,29 @@ def validate_product_contract(text: str) -> None:
         "It never retries, redraws, reissues, cancels, or settles controller work",
         "The complete result becomes idempotently cached only after terminal publication",
         "legacy-compatible diagnostic accepted and terminal workflow-telemetry events keyed by the typed effect ID",
+        "EA-07 routes every causal-simulator effect through the production `PlotterCausalSimulatorEffectAdapter`",
+        "the workspace owns no second simulated manual adapter, Boundary executor, or test-only effect closure bag",
+        "the exact same adapter instance as the manual runtime",
+        "explicit retained-workflow owner attribution, nil `effectResult`, and no fabricated episode intent, effect, or plan revision",
+        "`PlotterCausalSimulatorEffectAdapter` is the sole effect-capable SIMULATED environment boundary",
+        "shared `PlotterIntent`, `PlotterEffect`, and `PlotterEffectResult` grammar",
+        "`admitRetainedWorkflowBoundary`, `admitRetainedWorkflowDrawing`, `admitRetainedWorkflowTravel`, or `executeRetainedWorkflowPen`",
+        "`admitManualJog` remains the typed episode-attributed path",
+        "One immutable raw simulator operation ID owns admission, natural execution, original-owner waiting, and the first Stop, cancel, or shutdown settlement",
+        "Manual and retained Pen ingress participates in that same adapter occupancy",
+        "Pen ingress refuses with `.operationAlreadyActive(predecessor.id)` before lower Pen mutation",
+        "`SimulatedLearningRuntime.setPenPoseWithCausalTruth` returns the admitted Pen mutation response and complete causal truth from one lower-runtime actor turn",
+        "The adapter cannot combine a Pen result with a later, separately sampled plant, Pen, ink, or frame state",
+        "The active adapter owner remains reserved after lower-runtime settlement until one atomic terminal publication binds the exact operation ID, disposition, observation, typed result when applicable, final MPos, completed Boundary count, and immutable plant/Pen/paper/ink/camera/frame truth snapshot",
+        "A successor refuses until that bundle is cached and cannot contaminate the predecessor snapshot",
+        "The package-only deterministic terminal-publication gate can hold that exact boundary for tests but cannot choose admission, settlement, truth, or effect authority",
+        "A settled ID is idempotent only for its own result and cannot stop a successor",
+        "Simulator command attribution, plant MPos and Pen pose, paper identity and ink, camera configuration/viewport/frame publication, Vision measurement, and evidence classification are separate truth layers",
+        "Simulator frames are causal observations, not Vision measurements",
+        "Every simulator observation and typed result has `.simulated` provenance",
+        "`physicalEvidenceClaimed` is false",
+        "It exposes no public `beginManualJog`, `beginBoundary`, or `beginDrawing` authority",
+        "Execution pacing can change future suspension policy for deterministic tests but cannot admit, Stop, cancel, settle, or reattribute an effect",
     ):
         if required_phrase not in normalized:
             fail(f"Product Contract is missing the exact Learning-Off exception: {required_phrase}")
@@ -535,6 +563,33 @@ def validate_architecture(text: str) -> None:
         "owns no artifact store, export destination, filesystem adapter, redaction workflow, UI, application ingress, device port, effect execution",
         "The focused incident suite contains 23 tests",
         "EA-09 still owns later UI request/progress/result presentation for this service",
+        "`PlotterCausalSimulatorEffectAdapter` is the sole effect-capable simulator seam",
+        "`PlotterManualMotionRuntimeComposition` containing the manual runtime, lower simulator runtime, and shared `PlotterCausalSimulatorEffectAdapter`",
+        "retained workflows use the exact same adapter authority as the manual runtime",
+        "Its public effect APIs are `admitManualJog`, `admitRetainedWorkflowBoundary`, `admitRetainedWorkflowDrawing`, `admitRetainedWorkflowTravel`, and `executeRetainedWorkflowPen`",
+        "Retained work requires an exact `EpisodeAuthorityID`, carries `.retainedWorkflow(owner:)`, returns nil `effectResult`, and creates no fabricated intent, effect, or plan revision",
+        "retains the raw `SimulatedLearningOperationID` as the immutable Stop/cancel/shutdown and settlement identity",
+        "Manual and retained Pen ingress enters the same adapter actor and observes the same `activeOperation` reservation",
+        "returns `.operationAlreadyActive(predecessor.id)` with the current lower causal truth before calling the lower Pen mutator",
+        "`SimulatedLearningRuntime.setPenPoseWithCausalTruth` performs the admitted Pen mutation and captures `SimulatedLearningCausalTruth` in one lower-runtime actor turn",
+        "The adapter therefore cannot pair a Pen response with a separately sampled later plant/Pen/ink/frame state",
+        "keeps that active owner reserved after lower-runtime settlement until one actor-isolated `publishTerminalOutcome` atomically caches the operation identity, disposition, observation, typed result when applicable, final plant position, completed Boundary count, and immutable separated truth snapshot",
+        "A successor refuses until that publication completes; it cannot contaminate the predecessor's MPos, Pen, ink, or frame snapshot",
+        "`PlotterCausalSimulatorTerminalPublicationGate` can pause exactly after lower settlement and before publication for deterministic regression tests",
+        "A settled predecessor is idempotent for its own ID and cannot cancel a successor",
+        "Mutable execution pacing is a lock-backed suspension policy snapshotted before execution, not effect authority",
+        "`SimulatedLearningRuntime` has no public `beginManualJog`, `beginBoundary`, or `beginDrawing` effect API",
+        "Its one package-scoped `admitCausalOperation` is called only by the adapter",
+        "`OperatorWorkspace.executeSimulatedBoundaryMotion` and the former App-local simulated adapter are absent",
+        "`PlotterCausalSimulatorTruthSnapshot` keeps controller-command attribution distinct from plant MPos/Pen, paper/ink, camera publication, Vision, and evidence truth",
+        "declares `PlotterCausalSimulatorVisionTruth.notComputedBySimulator`",
+        "reports `.simulatedCausal`, sets `physicalEvidenceClaimed` false, and emits `.notPhysicalEvidence`",
+        "The removed `SimulatedWorkspaceHarness`, `makeSimulatedHarness`, and `performPublicAction` cannot bypass the workspace composition",
+        "App tests retain only a read-only causal snapshot plus explicit fault-injection probe",
+        "fifteen causal-environment tests for shared grammar/provenance, separated truth, exact settlement",
+        "holds the predecessor while proving both retained Pen refusal with no lower mutation and retained drawing refusal",
+        "proves drawing successor isolation plus unchanged cached predecessor truth",
+        "The focused workspace authority suite's 24/24 correction evidence includes the regression proving manual runtime and retained workflows occupy one shared production adapter authority",
     ):
         if required_phrase not in normalized:
             fail(f"current Swift architecture is missing: {required_phrase}")
@@ -591,6 +646,26 @@ def validate_plan(text: str) -> dict[str, dict[str, object]]:
     ):
         if required_phrase not in normalized:
             fail(f"EA-06 plan outcome is missing accepted RETASK authority: {required_phrase}")
+    for required_phrase in (
+        "`PlotterCausalSimulatorEffectAdapter.admitManualJog`",
+        "`PlotterCausalSimulatorEffectAdapter.admitRetainedWorkflowBoundary`",
+        "`PlotterCausalSimulatorEffectAdapter.admitRetainedWorkflowDrawing`",
+        "`PlotterCausalSimulatorEffectAdapter.admitRetainedWorkflowTravel`",
+        "`PlotterCausalSimulatorEffectAdapter.executeRetainedWorkflowPen`",
+        "retained Boundary/drawing/travel/Pen work carries its explicit owner with nil `effectResult` and no fabricated plan revision",
+        "Pen ingress refuses the exact reserved predecessor without lower mutation, while admitted lower Pen mutation plus causal truth is returned atomically by package-only `SimulatedLearningRuntime.setPenPoseWithCausalTruth`",
+        "retain the active owner from lower terminal settlement through one atomic cached outcome/truth publication",
+        "A package-only terminal-publication gate proves both retained Pen refusal/no mutation and drawing successor isolation deterministically without sleeps or polling",
+        "The frozen integrated candidate passed `SIM` 15/15, `DELETE` 4/4, `DOC` 29/29, clean `DIFF`, `QUICK` 705/705, `JOURNEY` 7/7, and `STRICT` 712/712 plus its warning-as-error strict-concurrency build, signing, launcher, and negative-bundle checks",
+        "The original critic RETASK and correction-cycle-1 RETASK remain nonpass history",
+        "the same sole critic's correction-cycle-2 final verdict was exactly `UNANIMOUS PASS — no material disagreement`",
+        "Policy allowed one critic and at most two correction/delta cycles, and forbids a post-pass critic",
+        "No physical or remote-Git validation occurred or is claimed",
+        "Blackdog landing, canonical-`main` cleanup verification, and successor-capsule creation remain pending",
+        "This final evidence-only documentation/checker delta does not claim a broad-gate rerun; only `DOC` and `DIFF` require refresh before landing",
+    ):
+        if required_phrase not in normalized:
+            fail(f"EA-07 plan outcome is missing corrected simulator authority: {required_phrase}")
     ledger_rows = markdown_table(
         text,
         ["ID", "Status", "Dependencies", "Class", "Atomic package outcome", "Required gates"],
@@ -1068,22 +1143,42 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
                 f"found {actual_gates}"
             )
         expected_states = {
-            "DOC": "rerun-required",
-            "DIFF": "rerun-required",
-            "QUICK": "rerun-required",
-            "JOURNEY": "passed",
-            "STRICT": "rerun-required",
-            "MOTION": "passed",
-            "DELETE": "passed",
-        }
+            "EA-06": {
+                "DOC": "rerun-required",
+                "DIFF": "rerun-required",
+                "QUICK": "rerun-required",
+                "JOURNEY": "passed",
+                "STRICT": "rerun-required",
+                "MOTION": "passed",
+                "DELETE": "passed",
+            },
+            "EA-07": {
+                "DOC": "rerun-required",
+                "DIFF": "rerun-required",
+                "QUICK": "passed",
+                "JOURNEY": "passed",
+                "STRICT": "passed",
+                "SIM": "passed",
+                "DELETE": "passed",
+            },
+        }[package_id]
         if dict(actual_pairs) != expected_states:
             fail(f"{package_id} candidate gate-state drifted: {dict(actual_pairs)}")
-        if "Refresh affected `DOC`, `DIFF`, `QUICK`, and `STRICT`" not in landing_boundary:
-            fail(f"{package_id} candidate lacks the exact affected-gate boundary")
-        if "`CITED_RACE_CLOSED` already closes the critic boundary" not in landing_boundary:
-            fail(f"{package_id} candidate lacks the closed same-critic delta boundary")
-        if "no further critic is required or allowed" not in landing_boundary:
-            fail(f"{package_id} candidate incorrectly leaves critic work open")
+        if package_id == "EA-06":
+            if "Refresh affected `DOC`, `DIFF`, `QUICK`, and `STRICT`" not in landing_boundary:
+                fail(f"{package_id} candidate lacks the exact affected-gate boundary")
+            if "`CITED_RACE_CLOSED` already closes the critic boundary" not in landing_boundary:
+                fail(f"{package_id} candidate lacks the closed same-critic delta boundary")
+            if "no further critic is required or allowed" not in landing_boundary:
+                fail(f"{package_id} candidate incorrectly leaves critic work open")
+        else:
+            for phrase in (
+                "The frozen integrated candidate passed `SIM` 15/15, `DELETE` 4/4, `DOC` 29/29, clean `DIFF`, `QUICK` 705/705, `JOURNEY` 7/7, `STRICT` 712/712 plus strict build/signing/launcher/negative-bundle checks",
+                "This evidence-only delta requires `DOC` and `DIFF` refresh only; no broad-gate or post-pass critic rerun is claimed",
+                "Blackdog landing, canonical-`main` cleanup verification, and successor-capsule creation remain pending",
+            ):
+                if phrase not in landing_boundary:
+                    fail(f"{package_id} candidate lacks landing boundary: {phrase}")
         candidates.add(package_id)
 
     expected_candidates = set(EXPECTED_UNLANDED_COMPLETION_CANDIDATES)
@@ -1442,6 +1537,90 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
             fail(f"EA-06 completion evidence is missing: {required_phrase}")
 
     for required_phrase in (
+        "Causal simulator environment cutover candidate",
+        "`TASK-6C2D055B`",
+        "`TASK-6C2D055B-4df3ee7abec3`",
+        "EA-07 is complete only in this task-local candidate; migration remains incomplete",
+        "`PlotterCausalSimulatorEffectAdapter`",
+        "`admitManualJog` uses the shared `PlotterIntent`/`PlotterEffect`/`PlotterEffectResult` grammar",
+        "Retained Boundary, drawing, travel, and Pen work instead keeps its explicit `EpisodeAuthorityID`, returns nil `effectResult`, and fabricates neither an episode intent/effect nor a plan revision",
+        "retains the exact raw simulator operation ID as immutable owner identity",
+        "settles natural execution, exact Stop, cancel, shutdown, and original-owner wait through one adapter-owned result",
+        "keeps the active owner reserved after lower-runtime terminal settlement until `publishTerminalOutcome` atomically caches one `PlotterCausalSimulatorOperationOutcome`",
+        "A successor therefore refuses until the predecessor outcome is cached, cannot contaminate the predecessor snapshot, ink, or frame",
+        "Pen ingress for manual and retained work uses that same adapter occupancy",
+        "Pen ingress refuses with `.operationAlreadyActive(predecessor.id)`, returns nil `effectResult` for retained attribution, and does not call or mutate the lower Pen owner",
+        "`SimulatedLearningRuntime.setPenPoseWithCausalTruth` performs the admitted Pen mutation and captures its complete causal truth in the same lower-runtime actor turn",
+        "`PlotterCausalSimulatorTruthSnapshot` keeps commanded controller attribution, plant MPos and Pen pose, paper identity and ink, camera configuration/viewport/ frame publication, Vision authority, and evidence classification separate",
+        "Vision truth is `notComputedBySimulator`",
+        "physical evidence is false",
+        "`SIMULATED — NOT PHYSICAL EVIDENCE`",
+        "The production adapter is the sole admission surface through `admitManualJog`, `admitRetainedWorkflowBoundary`, `admitRetainedWorkflowDrawing`, `admitRetainedWorkflowTravel`, and `executeRetainedWorkflowPen`",
+        "one package-scoped causal-operation admission to the adapter",
+        "retains only lower causal truth and exact operation settlement",
+        "`beginManualJog`, `beginBoundary`, and `beginDrawing` surfaces are deleted",
+        "One `PlotterManualMotionRuntimeComposition` owns the manual runtime, lower simulator runtime, and causal adapter",
+        "uses the exact same adapter authority for SIMULATED manual effects, Boundary, drawing, supervised travel, sparse-tip execution, and Drawing Border execution",
+        "Retained workflows without a target semantic package carry an explicit retained-workflow owner with nil `effectResult` and no fabricated plan revision",
+        "`OperatorWorkspace.executeSimulatedBoundaryMotion`",
+        "`SimulatedWorkspaceHarness`, `makeSimulatedHarness`, `performPublicAction`",
+        "cannot admit, execute, Stop, cancel, or settle an effect",
+        "The original critic returned `RETASK`, not pass",
+        "the focused authority regression exercises occupancy through both call paths",
+        "return nil `effectResult` without synthetic intent, effect, or plan revision",
+        "`PlotterCausalSimulatorTerminalPublicationGate` deterministically proves predecessor refusal, cached publication, and successor isolation without sleeps or polling",
+        "The source correction also preserves one exact observation across an adapter admission refusal and its manual-runtime mapping",
+        "The same critic's correction-cycle-1 delta recheck also returned `RETASK`, not pass",
+        "original blocker 2 remained because Pen ingress did not yet prove shared adapter occupancy and atomic lower Pen/truth capture",
+        "Bounded correction cycle 2 addressed only that remaining blocker",
+        "both a retained Pen refusal with no lower Pen/truth mutation and the retained drawing refusal/successor path",
+        "The same sole critic's correction-cycle-2 final verdict was exactly `UNANIMOUS PASS — no material disagreement`",
+        "The bounded policy permits one critic and at most two correction/delta cycles",
+        "It forbids a post-pass critic, so the exact cycle-2 pass terminates criticism",
+        "the original and correction-cycle-1 RETASK verdicts remain truthful nonpass history",
+        "`AdaptivePlotterApp.swift` `9541e1ab283b3974ab0050737cc5a664575b1f144453e45e6acbfd9327c4734e`",
+        "`PlotterCausalSimulatorEffectAdapter.swift` `d1a8362644a6d6436e21e9876fa03e6d4df028f103f130b33f968d9c4e154365`",
+        "`SimulatedLearningRuntime.swift` `e190cb015a87e8970d90ade38112cedad7a3207432b6bc7eead573ca0e749072`",
+        "`OperatorWorkspace.swift` `f3c794b66825040b5aabf2dd26f49f6f2bfe4436edc7ec96f648dcc17f174366`",
+        "`PlotterManualMotionComposition.swift` `552783b72e04077075730f53bc6c5c6564c72f83622cbe83b82d54041db6aa36`",
+        "`ActionSurfaceTests.swift` `b7308effd860c5904ef61444ec4ae311a044b36c3761b1438e89b5c81fd985d9`",
+        "`LearningWorkbenchLayoutTests.swift` `c3c2bcfef0d14bfd487292aa7879b5b9f5558a3b94d10d7727d0ed3c85e82cee`",
+        "`OperatorWorkspaceAuthorityTests.swift` `9186c0f5815eac88b90c03cab4a0294d04518968a21d8c387a733a62a2e399eb`",
+        "`OperatorWorkspaceLifecycleTests.swift` `1fe1ecec5890283cc6e6d0c1ad5ecad215b42a7bceb63b7c2709f3d899502cfe`",
+        "`OperatorWorkspaceResetTests.swift` `56c7144c0281c99652041141fab0b47762e4b92b168cf7cfe9cb90eec821b01b`",
+        "`OperatorWorkspaceSparseTipCalibrationTests.swift` `d820b1ba921ec44d46c549c84c61369e3626e8e9b5fa95f5fb35c84c61a7dbdb`",
+        "`OperatorWorkspaceComputationDiagnosticsTests.swift` `b013f5eeae9d4ec02a53d24d305672028b20cf5fa0970f7933001bb1c00cf75d`",
+        "`OperatorWorkspaceTestSupport.swift` `d828936b3b73a432f28f563955da78446eeee15804440703e182c7590cddbc41`",
+        "`SimulatorPresentationTests.swift` `6e16a34b1bba95ce23dbd35ac2a8b0930085836c7866a0269eca576b763b7f04`",
+        "`PlotterCausalEpisodeEnvironmentTests.swift` `f5f4ff6a33b082fdd40d6a3d3591e2a4d58370884b7d57ac3904803af8588a61`",
+        "`DOC` | passed — `make docs-check`; both contracts plus 29/29 documentation/checker tests passed",
+        "`DIFF` | passed — `git diff --check`; clean with no output",
+        "`QUICK` | passed — `make quick-test`; 705/705 passed",
+        "`JOURNEY` | passed — `make journey-test`; 7/7 passed",
+        "`STRICT` | passed — `make strict-check`; 712/712 passed plus warning-as-error strict-concurrency build, signing, launcher, and negative-bundle checks",
+        "`SIM` | passed — `swift test --filter PlotterCausalEpisodeEnvironmentTests`; 15/15 passed",
+        "`AUTHORITY-FOCUSED` | passed — `swift test --filter OperatorWorkspaceAuthorityTests`; 24/24 passed; correction evidence, not an additional EA-07 package gate",
+        "The first DELETE invocation is retained nonpass integration history, not a passed gate",
+        "it failed only because the pending EA-01 manifest still required the removed MOD-001 seam",
+        "`DELETE` | passed — `sh Scripts/check_episode_cutover.sh EA-07`; current post-cutover run passed 4/4",
+        "All seven required EA-07 gates passed on the frozen integrated candidate before this evidence-only integration",
+        "This documentation/checker delta changes no source, test, package manifest, or broad-gate behavior and makes no broad-gate rerun claim",
+        "Only `DOC` and `DIFF` now require refresh before landing",
+        "No attended physical controller, camera, motion, Pen, paper, operator-click, or observed-ink validation occurred",
+        "No remote-Git action occurred",
+        "Blackdog landing, canonical-`main` cleanup verification, and successor-capsule creation remain pending",
+        "Reviewed no additional change — Swift Architecture and Product Contract",
+        "Reviewed no change — Document Routing (`docs/INDEX.md`)",
+        "Affected mechanically — `Scripts/test_episode_wave_capsule.py`",
+        "Reviewed no change — `Scripts/check_episode_documentation.sh`",
+        "All seven EA-07 gates and the same critic's bounded final delta check passed on the frozen integrated candidate",
+        "EA-08A becomes eligible only after this final evidence-only delta refreshes `DOC` and `DIFF`",
+        "This task does not select or dispatch EA-08A",
+    ):
+        if required_phrase not in normalized:
+            fail(f"EA-07 candidate evidence is missing: {required_phrase}")
+
+    for required_phrase in (
         "Episode deterministic replay foundation",
         "`PlotterEpisodeCanonicalDigestV1`",
         "`PlotterEpisodeReplayExecutableDescriptor`",
@@ -1745,14 +1924,13 @@ def validate_wave_frontier(
     blockers = parse_wave_admission_blockers(evidence, rows)
     selected = ordinary_wave_frontier(rows, set(blockers))
     if selected is not None:
-        if selected != "EA-07":
+        if selected != "EA-08A":
             fail(f"unexpected current ordinary wave frontier: {selected}")
         for phrase in (
-            "Episode manual-motion cutover candidate",
-            "EA-07 becomes eligible only after all seven gates pass on the exact Option A candidate",
-            "same-critic delta closure is already recorded",
-            "no further critic is required or allowed",
-            "This task does not select or dispatch EA-07",
+            "Causal simulator environment cutover candidate",
+            "All seven EA-07 gates and the same critic's bounded final delta check passed on the frozen integrated candidate",
+            "EA-08A becomes eligible only after this final evidence-only delta refreshes `DOC` and `DIFF`",
+            "This task does not select or dispatch EA-08A",
             "The retired `PHYSICAL-BASE` result is `failed`",
         ):
             if phrase not in normalized:

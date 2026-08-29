@@ -8,6 +8,201 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Causal simulator environment cutover candidate
+
+Integrated 2026-08-28 in Blackdog task `TASK-6C2D055B`, attempt
+`TASK-6C2D055B-4df3ee7abec3`. EA-07 is complete only in this task-local
+candidate; migration remains incomplete. The candidate has not landed and no
+canonical-`main`, cleanup, successor-dispatch, physical, or remote-Git result is
+claimed.
+
+The accepted production slice adds the sole effect-capable causal-simulator
+environment seam, `PlotterCausalSimulatorEffectAdapter`, in
+`PlotterEpisodeRuntime`. `admitManualJog` uses the shared
+`PlotterIntent`/`PlotterEffect`/`PlotterEffectResult` grammar. Retained Boundary,
+drawing, travel, and Pen work instead keeps its explicit
+`EpisodeAuthorityID`, returns nil `effectResult`, and fabricates neither an
+episode intent/effect nor a plan revision. The adapter retains the exact raw
+simulator operation ID as immutable owner identity and settles natural
+execution, exact Stop, cancel, shutdown, and original-owner wait through one
+adapter-owned result.
+
+One adapter actor keeps the active owner reserved after lower-runtime terminal
+settlement until `publishTerminalOutcome` atomically caches one
+`PlotterCausalSimulatorOperationOutcome`. That publication binds the exact
+operation ID, observation, disposition, final MPos, completed Boundary count,
+typed effect result when episode-attributed, and immutable plant/Pen/paper/ink/
+camera/frame truth snapshot before releasing successor admission. A successor
+therefore refuses until the predecessor outcome is cached, cannot contaminate
+the predecessor snapshot, ink, or frame, and cannot be stopped by the settled
+predecessor. The first terminal disposition remains idempotent for its exact
+owner.
+
+Pen ingress for manual and retained work uses that same adapter occupancy.
+While a predecessor remains reserved through terminal publication, Pen ingress refuses
+with `.operationAlreadyActive(predecessor.id)`, returns nil `effectResult` for
+retained attribution, and does not call or mutate the lower Pen owner. When no
+adapter operation is active, package-only
+`SimulatedLearningRuntime.setPenPoseWithCausalTruth` performs the admitted Pen
+mutation and captures its complete causal truth in the same lower-runtime actor
+turn, so the response cannot be paired with later plant/Pen/ink/frame truth.
+
+`PlotterCausalSimulatorTruthSnapshot` keeps commanded controller attribution,
+plant MPos and Pen pose, paper identity and ink, camera configuration/viewport/
+frame publication, Vision authority, and evidence classification separate.
+Every typed result and observation is explicitly `.simulated`; Vision truth is
+`notComputedBySimulator`, physical evidence is false, and the evidence notice
+remains `SIMULATED — NOT PHYSICAL EVIDENCE`. Simulation publishes causal frames
+but cannot manufacture a Vision measurement or establish attended controller,
+camera, Pen, paper, click, ink, or other physical evidence.
+
+The production adapter is the sole admission surface through
+`admitManualJog`, `admitRetainedWorkflowBoundary`,
+`admitRetainedWorkflowDrawing`, `admitRetainedWorkflowTravel`, and
+`executeRetainedWorkflowPen`. `SimulatedLearningRuntime` now exposes only one
+package-scoped causal-operation admission to the adapter and retains only lower
+causal truth and exact operation settlement. The public effect-capable
+`beginManualJog`, `beginBoundary`, and `beginDrawing` surfaces are deleted.
+One `PlotterManualMotionRuntimeComposition` owns the manual runtime, lower
+simulator runtime, and causal adapter; `OperatorWorkspace` receives that
+composition and uses the exact same adapter authority for SIMULATED manual
+effects, Boundary, drawing, supervised travel, sparse-tip execution, and
+Drawing Border execution. Retained workflows without a target semantic package
+carry an explicit retained-workflow owner with nil `effectResult` and no
+fabricated plan revision. The adapter's lock-backed pacing authority affects
+only future suspension policy and moves no effect identity or settlement
+authority.
+
+The same accepted cutover deletes
+`OperatorWorkspace.executeSimulatedBoundaryMotion`, the former App-local
+simulated manual-motion adapter, `SimulatedWorkspaceHarness`,
+`makeSimulatedHarness`, `performPublicAction`, unused simulator helpers, and
+tautological fake machine-action logs. App tests now traverse the production
+workspace composition. Their `CausalSimulatorProbe` exposes only causal
+snapshot, persistent-ink/truth reads, and explicit fault injection; it cannot
+admit, execute, Stop, cancel, or settle an effect. The later-package helpers
+`completeSimulatedBoundariesAndCenter`,
+`completeSimulatedSparseTipCalibration`, and `completeSimulatedStageFour`
+remain, with their internals adapted to the production seam.
+
+The original critic returned `RETASK`, not pass. Finding 1 identified
+that manual and workspace retained workflows were not proven to share one
+production adapter authority; the corrected composition injects one exact
+adapter and the focused authority regression exercises occupancy through both
+call paths. Finding 2 identified fabricated episode semantics for retained
+workflow work; the corrected retained APIs require explicit owners and return
+nil `effectResult` without synthetic intent, effect, or plan revision. Finding
+3 identified a lower-terminal/pre-publication admission gap; the corrected
+adapter retains ownership through atomic outcome/truth publication and a
+package-only `PlotterCausalSimulatorTerminalPublicationGate` deterministically
+proves predecessor refusal, cached publication, and successor isolation without
+sleeps or polling. The source correction also preserves one exact observation
+across an adapter admission refusal and its manual-runtime mapping.
+
+The same critic's correction-cycle-1 delta recheck also returned `RETASK`, not
+pass: original blocker 2 remained because Pen ingress did not yet prove shared
+adapter occupancy and atomic lower Pen/truth capture. Bounded correction cycle
+2 addressed only that remaining blocker: the deterministic held-predecessor
+regression exercises both a retained Pen refusal with no lower Pen/truth
+mutation and the retained drawing refusal/successor path, then proves the
+cached predecessor truth stays unchanged after release. The same sole critic's
+correction-cycle-2 final verdict was exactly `UNANIMOUS PASS — no material
+disagreement`.
+
+The bounded policy permits one critic and at most two correction/delta cycles.
+It forbids a post-pass critic, so the exact cycle-2 pass terminates criticism;
+the original and correction-cycle-1 RETASK verdicts remain truthful nonpass
+history.
+
+The accepted source identity at correction-cycle documentation integration is:
+
+- `AdaptivePlotterApp.swift`
+  `9541e1ab283b3974ab0050737cc5a664575b1f144453e45e6acbfd9327c4734e`;
+- `PlotterCausalSimulatorEffectAdapter.swift`
+  `d1a8362644a6d6436e21e9876fa03e6d4df028f103f130b33f968d9c4e154365`;
+- `SimulatedLearningRuntime.swift`
+  `e190cb015a87e8970d90ade38112cedad7a3207432b6bc7eead573ca0e749072`;
+- `OperatorWorkspace.swift`
+  `f3c794b66825040b5aabf2dd26f49f6f2bfe4436edc7ec96f648dcc17f174366`;
+- `PlotterManualMotionComposition.swift`
+  `552783b72e04077075730f53bc6c5c6564c72f83622cbe83b82d54041db6aa36`.
+
+The accepted test identity is:
+
+- `ActionSurfaceTests.swift`
+  `b7308effd860c5904ef61444ec4ae311a044b36c3761b1438e89b5c81fd985d9`;
+- `LearningWorkbenchLayoutTests.swift`
+  `c3c2bcfef0d14bfd487292aa7879b5b9f5558a3b94d10d7727d0ed3c85e82cee`;
+- `OperatorWorkspaceAuthorityTests.swift`
+  `9186c0f5815eac88b90c03cab4a0294d04518968a21d8c387a733a62a2e399eb`;
+- `OperatorWorkspaceLifecycleTests.swift`
+  `1fe1ecec5890283cc6e6d0c1ad5ecad215b42a7bceb63b7c2709f3d899502cfe`;
+- `OperatorWorkspaceResetTests.swift`
+  `56c7144c0281c99652041141fab0b47762e4b92b168cf7cfe9cb90eec821b01b`;
+- `OperatorWorkspaceSparseTipCalibrationTests.swift`
+  `d820b1ba921ec44d46c549c84c61369e3626e8e9b5fa95f5fb35c84c61a7dbdb`;
+- `OperatorWorkspaceComputationDiagnosticsTests.swift`
+  `b013f5eeae9d4ec02a53d24d305672028b20cf5fa0970f7933001bb1c00cf75d`;
+- `OperatorWorkspaceTestSupport.swift`
+  `d828936b3b73a432f28f563955da78446eeee15804440703e182c7590cddbc41`;
+- `SimulatorPresentationTests.swift`
+  `6e16a34b1bba95ce23dbd35ac2a8b0930085836c7866a0269eca576b763b7f04`;
+- `PlotterCausalEpisodeEnvironmentTests.swift`
+  `f5f4ff6a33b082fdd40d6a3d3591e2a4d58370884b7d57ac3904803af8588a61`.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `DOC` | passed — `make docs-check`; both contracts plus 29/29 documentation/checker tests passed | canonical documents, ledger/checker constants, routed review dispositions, and capsule contracts on the frozen integrated candidate before this evidence-only delta |
+| `DIFF` | passed — `git diff --check`; clean with no output | complete frozen integrated candidate before this evidence-only delta |
+| `QUICK` | passed — `make quick-test`; 705/705 passed | repository quick suite |
+| `JOURNEY` | passed — `make journey-test`; 7/7 passed | retained simulated Learning journeys |
+| `STRICT` | passed — `make strict-check`; 712/712 passed plus warning-as-error strict-concurrency build, signing, launcher, and negative-bundle checks | strict build, complete tests, signing, launcher, bundle, and documentation contracts |
+| `SIM` | passed — `swift test --filter PlotterCausalEpisodeEnvironmentTests`; 15/15 passed | shared grammar and `.simulated` provenance, separated truth, exact owner settlement, Stop/cancel/shutdown, stale-owner isolation, retained attribution with nil effect results, atomic admitted Pen mutation/truth, held-predecessor Pen refusal without mutation, drawing successor isolation, paper/ink/camera, and ambiguity |
+| `AUTHORITY-FOCUSED` | passed — `swift test --filter OperatorWorkspaceAuthorityTests`; 24/24 passed; correction evidence, not an additional EA-07 package gate | one shared production adapter authority across manual runtime/workspace retained paths, exact-owner occupancy and settlement, and existing workspace authority invariants |
+| `DELETE` | passed — `sh Scripts/check_episode_cutover.sh EA-07`; current post-cutover run passed 4/4 | exact EA-07 deleted-symbol, fixture, environment-branch, and adapted-seam scans after staging the completed ledger row |
+
+The first DELETE invocation is retained nonpass integration history, not a
+passed gate; it failed only because the pending EA-01 manifest still required
+the removed MOD-001 seam. The current post-cutover DELETE run passed 4/4.
+All seven required EA-07 gates passed on the frozen integrated candidate before
+this evidence-only integration. This documentation/checker delta changes no
+source, test, package manifest, or broad-gate behavior and makes no broad-gate
+rerun claim. Only `DOC` and `DIFF` now require refresh before landing.
+
+No attended physical controller, camera, motion, Pen, paper, operator-click, or
+observed-ink validation occurred. No remote-Git action occurred. None is claimed
+by the simulator, software, or critic evidence. Blackdog landing,
+canonical-`main` cleanup verification, and successor-capsule creation remain
+pending.
+
+Canonical routed-document review dispositions for EA-07:
+
+- Affected — Episode Architecture Execution Plan and Current Evidence: stage
+  the exact seven-gate results, both nonpass RETASK histories, the exact final
+  critic verdict, and the evidence-only DOC/DIFF refresh boundary.
+- Reviewed no additional change — Swift Architecture and Product Contract:
+  their current shared-adapter, retained-owner, atomic Pen/truth, terminal-
+  publication, separated-truth, and nonphysical-evidence contracts already
+  describe the accepted correction-cycle-2 source.
+- Reviewed no change — Document Routing (`docs/INDEX.md`): its canonical
+  authority descriptions and routing remain accurate.
+- Affected — `Scripts/check_episode_contract.py`: advance the staged completed
+  set, exact ledger fingerprint, final EA-07 gate/critic evidence, current
+  DOC/DIFF-only rerun boundary, and post-candidate EA-08A frontier.
+- Affected mechanically — `Scripts/test_episode_wave_capsule.py`: advance only
+  the hard-coded staged ledger/frontier fixtures from EA-07 to EA-08A; selection
+  remains literal-order and this task does not dispatch the successor.
+- Reviewed no change — `Scripts/check_episode_documentation.sh`: no canonical
+  document inventory, vocabulary, routing, or stale-phrase rule changed.
+
+The staged ledger mechanically derives EA-08A as the post-landing ordinary
+frontier because EA-07 is task-locally complete and EA-08A depends on EA-05C
+and EA-07. All seven EA-07 gates and the same critic's bounded final delta check
+passed on the frozen integrated candidate. EA-08A becomes eligible only after
+this final evidence-only delta refreshes `DOC` and `DIFF`, EA-07 lands through
+Blackdog, canonical `main` is verified clean, and a successor capsule is
+generated there. This task does not select or dispatch EA-08A.
+
 ## Episode manual-motion cutover candidate
 
 Operator-authorized Option A candidate after critic RETASK #6, 2026-08-28, in Blackdog task
@@ -537,6 +732,7 @@ select or dispatch EA-07.
 | Candidate package | Blackdog task | Current gate state | Landing boundary |
 | --- | --- | --- | --- |
 | EA-06 | `TASK-FE9C9CB3` | `DOC`=rerun-required, `DIFF`=rerun-required, `QUICK`=rerun-required, `JOURNEY`=passed, `STRICT`=rerun-required, `MOTION`=passed, `DELETE`=passed | The exact frozen tree passed all seven gates. Refresh affected `DOC`, `DIFF`, `QUICK`, and `STRICT` on this final evidence candidate as part of Blackdog landing, then replace this staged candidate with ordinary passed evidence after canonical `main` is verified clean; `CITED_RACE_CLOSED` already closes the critic boundary and no further critic is required or allowed. |
+| EA-07 | `TASK-6C2D055B` | `DOC`=rerun-required, `DIFF`=rerun-required, `QUICK`=passed, `JOURNEY`=passed, `STRICT`=passed, `SIM`=passed, `DELETE`=passed | The frozen integrated candidate passed `SIM` 15/15, `DELETE` 4/4, `DOC` 29/29, clean `DIFF`, `QUICK` 705/705, `JOURNEY` 7/7, `STRICT` 712/712 plus strict build/signing/launcher/negative-bundle checks, and the same critic's correction-cycle-2 exact verdict `UNANIMOUS PASS — no material disagreement`. This evidence-only delta requires `DOC` and `DIFF` refresh only; no broad-gate or post-pass critic rerun is claimed. Blackdog landing, canonical-`main` cleanup verification, and successor-capsule creation remain pending. |
 
 Canonical routed-document review dispositions for the EA-06 evidence integration:
 
@@ -599,12 +795,14 @@ Canonical routed-document review dispositions for the EA-06 evidence integration
 
 This table is machine-checked against every landed `complete` row in the
 canonical execution-plan ledger. Gate names must match that package's required
-gates exactly, and every recorded result must be `passed`. The sole temporary
-exception is the explicitly named staged EA-06 candidate above: all seven gates
-passed on the exact frozen Option A tree, while `DOC`, `DIFF`, `QUICK`, and
-`STRICT` require refresh after this evidence delta. The same-critic delta is
-closed; landing and clean-main verification remain pending. Detailed scope and
-limitations remain in the named evidence section.
+gates exactly, and every recorded result must be `passed`. The temporary
+exceptions are the explicitly named staged candidates above. EA-06 retains its
+recorded source-bound pass/rerun boundary. EA-07's frozen integrated candidate
+passed all seven package gates and its focused authority suite is passed
+correction evidence, not an additional gate. This evidence-only delta leaves
+only `DOC` and `DIFF` rerun-required; it makes no broad-gate rerun claim and the
+exact final critic pass permits no post-pass critic. Detailed scope and
+limitations remain in the named evidence sections.
 
 | Package | Blackdog task | Gate results | Evidence section |
 | --- | --- | --- | --- |

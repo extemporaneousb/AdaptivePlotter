@@ -120,18 +120,28 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
     let boundaryOwner = LearningPathItemID.humanGuidedDiscovery(
       .pairedBoundaryDiscoveryAndCentering
     )
-    try await performPublicAction(.moveToEstimatedCenter, owner: boundaryOwner, workspace: workspace)
+    try requireEnabledPublicAction(
+      .moveToEstimatedCenter,
+      owner: boundaryOwner,
+      workspace: workspace
+    )
+    await workspace.performExerciseAction(.moveToEstimatedCenter, for: boundaryOwner)
     let cameraOwner = LearningPathItemID.humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
-    try await performPublicAction(
+    try requireEnabledPublicAction(
       .runCameraCalibrationAndBuildProposal,
       owner: cameraOwner,
       workspace: workspace
     )
-    try await performPublicAction(
+    await workspace.performExerciseAction(
+      .runCameraCalibrationAndBuildProposal,
+      for: cameraOwner
+    )
+    try requireEnabledPublicAction(
       .acceptCameraCalibrationProposal,
       owner: cameraOwner,
       workspace: workspace
     )
+    await workspace.performExerciseAction(.acceptCameraCalibrationProposal, for: cameraOwner)
     let tipOwner = LearningPathItemID.humanGuidedDiscovery(
       .calibratePenContactFromSparseMarks
     )
@@ -148,11 +158,12 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
     let semanticRevisionBefore =
       workspace.computationDiagnosticsForTesting.semanticPresentationRevision
 
-    try await performPublicAction(
+    try requireEnabledPublicAction(
       .drawFourCornerTipCircles,
       owner: tipOwner,
       workspace: workspace
     )
+    await workspace.performExerciseAction(.drawFourCornerTipCircles, for: tipOwner)
 
     let snapshotsAfterBatch = await machine.snapshotCallCount
     let probesAfterBatch = await machine.passiveProbeCallCount
