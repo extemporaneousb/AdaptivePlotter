@@ -16,7 +16,7 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
     announcementActions: SpeechComposition.actions,
     acceptedLearningPathCheckpointActions: AcceptedArtifactCheckpointComposition.actions,
     drawingEvidenceActions: DrawingRunEvidenceComposition.actions,
-    paperCoverageActions: PaperCoverageComposition.actions,
+    drawingDraftRuntime: PaperCoverageComposition.drawingDraftRuntime,
     tipCalibrationSemanticIdentities: TipCalibrationSemanticIdentityComposition.state,
     persistPaperInstanceRevision: {
       TipCalibrationSemanticIdentityComposition.persistPaperInstance($0)
@@ -272,13 +272,8 @@ struct OperatorWorkspaceView: View {
             drawingStudioChangeUnavailableReason:
               workspace.drawingStudioPanelChangeUnavailableReason,
             learningModeIntentSink: workspace,
-            toggleDrawingStudio: {
-              if workspace.drawingStudioIsPresented {
-                workspace.closeDrawingStudio()
-              } else {
-                workspace.openDrawingStudio()
-              }
-            },
+            drawingDraftIntentSink: workspace,
+            drawingDraftProjection: workspace.drawingDraftSnapshot.projection,
             togglePane: { pane in
               layout = layout.toggling(pane)
             },
@@ -296,11 +291,9 @@ struct OperatorWorkspaceView: View {
               presentation: actionSurfacePresentation,
               viewport: $actionSurfaceViewport,
               pointSelectionIntentSink: workspace,
+              drawingDraftIntentSink: workspace,
               performCompletedComparisonReviewAction: { action in
-                workspace.performCompletedComparisonReviewAction(action)
-              },
-              performDrawingStudioAction: { action in
-                Task { await workspace.performDrawingStudioAction(action) }
+                Task { await workspace.performCompletedComparisonReviewAction(action) }
               }
             )
             .frame(
@@ -334,7 +327,12 @@ struct OperatorWorkspaceView: View {
               Text("Drawing Studio").font(.headline)
               Spacer()
               Button {
-                workspace.closeDrawingStudio()
+                workspace.submitDrawingDraft(
+                  PlotterDrawingDraftSubmission(
+                    projection: workspace.drawingDraftSnapshot.projection,
+                    intent: .close
+                  )
+                )
               } label: {
                 Image(systemName: "xmark")
               }
@@ -356,7 +354,12 @@ struct OperatorWorkspaceView: View {
                 .foregroundStyle(.secondary)
               HStack {
                 Button("Assert Sheet Covers Outline") {
-                  workspace.confirmCurrentPaperCoversDrawableRegion()
+                  workspace.submitDrawingDraft(
+                    PlotterDrawingDraftSubmission(
+                      projection: workspace.drawingDraftSnapshot.projection,
+                      intent: .assertPaperCoverage
+                    )
+                  )
                 }
                 .operatorButton(.affirmative)
                 .disabled(workspace.paperManagementUnavailableReason != nil)
@@ -380,8 +383,9 @@ struct OperatorWorkspaceView: View {
             ScrollView {
               DrawingStudioView(
                 presentation: workspace.drawingStudioPresentation,
-                perform: { action in
-                  Task { await workspace.performDrawingStudioAction(action) }
+                drawingDraftIntentSink: workspace,
+                performRun: { action in
+                  Task { await workspace.performDrawingStudioRunAction(action) }
                 }
               )
             }
@@ -491,7 +495,8 @@ private struct WorkbenchPaneControls: View {
   let drawingStudioIsPresented: Bool
   let drawingStudioChangeUnavailableReason: String?
   let learningModeIntentSink: any PlotterLearningModeIntentSink
-  let toggleDrawingStudio: () -> Void
+  let drawingDraftIntentSink: any PlotterDrawingDraftIntentSink
+  let drawingDraftProjection: PlotterDrawingDraftProjectionReference
   let togglePane: (WorkbenchPane) -> Void
   let performVideoSettingsAction: (VideoSettingsVisibilityAction) -> Void
 
@@ -526,7 +531,14 @@ private struct WorkbenchPaneControls: View {
           .help(learningRecordingDiagnostic)
       }
       if drawingStudioIsAvailable {
-        Button(action: toggleDrawingStudio) {
+        Button {
+          drawingDraftIntentSink.submitDrawingDraft(
+            PlotterDrawingDraftSubmission(
+              projection: drawingDraftProjection,
+              intent: drawingStudioIsPresented ? .close : .open
+            )
+          )
+        } label: {
           Label(
             drawingStudioIsPresented ? "Hide Drawing Studio" : "Drawing Studio",
             systemImage: "scribble.variable"

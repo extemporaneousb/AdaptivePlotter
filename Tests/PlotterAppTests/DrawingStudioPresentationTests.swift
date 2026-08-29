@@ -1,3 +1,6 @@
+import Foundation
+import PlotterEpisodeModel
+import PlotterEpisodeRuntime
 import PlotterModel
 import PlotterRuntime
 import Testing
@@ -6,29 +9,20 @@ import Testing
 
 @Suite("Drawing Studio presentation")
 struct DrawingStudioPresentationTests {
-  @Test("catalog selection and source parameters remain immutable presentation values")
-  func catalogAndParameters() throws {
+  @Test("catalog presentation derives from the deterministic Model catalog")
+  func catalogProjection() throws {
     let presentation = try studioPresentation(
       runState: .ready(detail: "Plan admitted."),
       editingIsEnabled: true
     )
 
-    #expect(presentation.catalog.map(\.id) == [.square, .circle])
+    #expect(presentation.catalog.map(\.id) == DrawingCatalogEntryID.allCases)
     #expect(presentation.selectedCatalogItem?.title == "Circle")
-    #expect(presentation.sourceParameters.map(\.id.rawValue) == ["diameter", "segments"])
-    #expect(presentation.sourceParameters.map(\.value.displayText) == ["24.00", "48"])
-  }
-
-  @Test("built-in catalog projects every deterministic Model source")
-  func builtInCatalogProjection() {
-    let catalog = DrawingStudioCatalogItemPresentation.builtInCatalog
-
-    #expect(catalog.map(\.id) == DrawingCatalogEntryID.allCases)
-    #expect(catalog.first { $0.id == .elephant }?.title == "Elephant")
     #expect(
-      catalog.first { $0.id == .circle }?.detail
+      presentation.catalog.first { $0.id == .circle }?.detail
         .contains("deterministic curve tessellation") == true
     )
+    #expect(presentation.evidenceRole == .ordinaryDrawing)
   }
 
   @Test("run and Stop controls preserve the exact typed owner capability")
@@ -37,7 +31,7 @@ struct DrawingStudioPresentationTests {
       runState: .ready(detail: "Plan admitted."),
       editingIsEnabled: true
     )
-    #expect(ready.controls.map(\.action) == [.centerInDrawableRegion, .run])
+    #expect(ready.controls.map(\.action) == [.run])
     #expect(ready.controls.allSatisfy { $0.isEnabled })
 
     let capability = ContextualStopCapabilityID()
@@ -50,126 +44,82 @@ struct DrawingStudioPresentationTests {
 
   @Test("processing has no Stop or other accepted action")
   func processingControls() throws {
-    let processing = try studioPresentation(
+    let presentation = try studioPresentation(
       runState: .processing(detail: "Observing the exact post-run frame."),
       editingIsEnabled: false
     )
 
-    #expect(processing.runState.title == "Processing drawing evidence")
-    #expect(processing.controls.isEmpty)
+    #expect(presentation.runState.title == "Processing drawing evidence")
+    #expect(presentation.controls.isEmpty)
   }
 
-  @Test("target preview is rendered only on its exact frame")
+  @Test("runtime-derived target values render only on their exact frame")
   func previewExactFrameBoundary() throws {
-    let exact = try drawingPresentationTestFrame()
-    let stale = try drawingPresentationTestFrame()
+    let exact = try drawingStudioTestFrame(sequence: 1)
+    let stale = try drawingStudioTestFrame(sequence: 2)
     let canvas = try studioCanvas(frame: exact)
 
     #expect(canvas.targetPreview(for: exact) != nil)
     #expect(canvas.targetPreview(for: stale) == nil)
-
-    let exactSurface = ActionSurfacePresentation(
-      displayedFrame: exact,
-      overlays: [],
-      drawingStudioCanvas: canvas
-    )
-    let staleSurface = ActionSurfacePresentation(
-      displayedFrame: stale,
-      overlays: [],
-      drawingStudioCanvas: canvas
-    )
     #expect(
-      exactSurface.drawingStudioCanvas?.targetPreview(for: exact)?.programContentHash
+      ActionSurfacePresentation(
+        displayedFrame: exact,
+        overlays: [],
+        drawingStudioCanvas: canvas
+      ).drawingStudioCanvas?.targetPreview(for: exact)?.programContentHash
         == "program-hash"
     )
-    #expect(staleSurface.drawingStudioCanvas?.targetPreview(for: stale) == nil)
   }
 
-  @Test("review state exposes explicit review exit and new-run actions")
+  @Test("review states expose only review exit and new-run actions")
   func reviewControls() throws {
     let available = try studioPresentation(
-      runState: .reviewAvailable(runID: "run-7", detail: "Observed geometry is retained."),
-      editingIsEnabled: false
+      runState: .reviewAvailable(runID: "run-7", detail: "Observed geometry retained.")
     )
     let reviewing = try studioPresentation(
-      runState: .reviewing(runID: "run-7", detail: "Exact post-run frame displayed."),
-      editingIsEnabled: false
+      runState: .reviewing(runID: "run-7", detail: "Exact post-run frame displayed.")
+    )
+    let terminal = try studioPresentation(
+      runState: .terminal(runID: "run-8", detail: "No exact post-run frame.")
     )
 
     #expect(available.controls.map(\.action) == [.reviewRun, .newRun])
     #expect(reviewing.controls.map(\.action) == [.resumeLivePreview, .newRun])
-    #expect(available.controls.allSatisfy { $0.isEnabled })
-    #expect(reviewing.controls.allSatisfy { $0.isEnabled })
+    #expect(terminal.controls.map(\.action) == [.newRun])
     #expect(!available.controls.map(\.action).contains(.run))
   }
 
-  @Test("completed record without a post frame cannot offer review")
-  func completedWithoutPostFrame() throws {
-    let completed = try studioPresentation(
-      runState: .terminal(
-        runID: "run-8",
-        detail: "The run record is retained without an exact post-run frame."
-      ),
-      editingIsEnabled: false
-    )
-
-    #expect(completed.runState.title == "Drawing run ended")
-    #expect(completed.controls.map(\.action) == [.newRun])
-    #expect(!completed.controls.map(\.action).contains(.reviewRun))
-  }
-
-  @Test("disabled editing also disables video placement and editing controls")
+  @Test("disabled editing disables placement and Run without changing values")
   func editingBoundary() throws {
     let presentation = try studioPresentation(
-      runState: .ready(detail: "Plan admission is temporarily retained."),
+      runState: .ready(detail: "Plan admission retained."),
       editingIsEnabled: false
     )
 
     #expect(!presentation.editingIsEnabled)
     #expect(!presentation.canvas.placement.placementIsEnabled)
-    #expect(
-      presentation.controls.first { $0.action == .centerInDrawableRegion }?.isEnabled == false
-    )
-    #expect(presentation.controls.first { $0.action == .run }?.isEnabled == false)
+    #expect(presentation.controls == [
+      DrawingStudioControl(
+        action: .run,
+        title: "Run Drawing",
+        systemImage: "play.fill",
+        role: .affirmative,
+        isEnabled: false
+      )
+    ])
   }
 
   private func studioPresentation(
     runState: DrawingStudioRunState,
     editingIsEnabled: Bool = false
   ) throws -> DrawingStudioPresentation {
-    let frame = try drawingPresentationTestFrame()
+    let frame = try drawingStudioTestFrame(sequence: 1)
     return DrawingStudioPresentation(
-      catalog: [
-        DrawingStudioCatalogItemPresentation(
-          id: .square,
-          title: "Square",
-          detail: "Four closed edges.",
-          systemImage: "square"
-        ),
-        DrawingStudioCatalogItemPresentation(
-          id: .circle,
-          title: "Circle",
-          detail: "A tessellated closed circle.",
-          systemImage: "circle"
-        ),
-      ],
+      catalog: DrawingProgramCatalog.entries.map {
+        DrawingStudioCatalogItemPresentation(catalogEntry: $0)
+      },
       selectedCatalogItemID: .circle,
-      sourceParameters: [
-        DrawingStudioParameterPresentation(
-          id: DrawingStudioParameterID(rawValue: "diameter"),
-          title: "Diameter",
-          detail: "Nominal field-space diameter.",
-          value: .scalar(24),
-          control: .scalar(range: 1...100, step: 1, unit: "mm")
-        ),
-        DrawingStudioParameterPresentation(
-          id: DrawingStudioParameterID(rawValue: "segments"),
-          title: "Segments",
-          detail: "Curve tessellation ceiling.",
-          value: .integer(48),
-          control: .integer(range: 8...128, step: 8, unit: "")
-        ),
-      ],
+      evidenceRole: .ordinaryDrawing,
       canvas: try studioCanvas(frame: frame),
       editingIsEnabled: editingIsEnabled,
       runState: runState
@@ -177,9 +127,16 @@ struct DrawingStudioPresentationTests {
   }
 
   private func studioCanvas(frame: DisplayedFrame) throws -> DrawingStudioCanvasPresentation {
-    let start = try Point2<CameraPixelSpace>(x: 100, y: 100)
-    let end = try Point2<CameraPixelSpace>(x: 140, y: 140)
+    let initial = PlotterDrawingDraftSnapshot.initial(
+      environment: .live,
+      toolAssemblyRevision: ToolAssemblyRevision(),
+      paper: PaperRevisionContext(
+        instance: PaperInstanceRevision(),
+        contactPlane: PaperContactPlaneRevision()
+      )
+    )
     return DrawingStudioCanvasPresentation(
+      draftProjection: initial.projection,
       placement: DrawingStudioPlacementPresentation(
         centerCameraPixel: try Point2(x: 120, y: 120),
         uniformScale: 1,
@@ -189,12 +146,35 @@ struct DrawingStudioPresentationTests {
       ),
       targetPreview: DrawingStudioTargetPreview(
         provenance: ExactFrameOverlayProvenance(frame),
-        strokes: [try Polyline(points: [start, end])],
-        bounds: try AxisAlignedBounds(minX: 100, minY: 100, maxX: 140, maxY: 140),
+        strokes: [try Polyline(points: [
+          Point2<CameraPixelSpace>(x: 100, y: 100),
+          Point2<CameraPixelSpace>(x: 140, y: 140),
+        ])],
+        bounds: try AxisAlignedBounds<CameraPixelSpace>(
+          minX: 100, minY: 100, maxX: 140, maxY: 140
+        ),
         programContentHash: "program-hash",
         executionPlanContentHash: "plan-hash",
         status: .ready
       )
     )
   }
+}
+
+private func drawingStudioTestFrame(sequence: UInt64) throws -> DisplayedFrame {
+  DisplayedFrame(
+    source: .live(CameraDeviceID(rawValue: "drawing-studio-presentation-camera")),
+    frame: try StampedFrame(
+      sequence: sequence,
+      captureNanoseconds: sequence * 10,
+      cameraConfigurationID: CameraConfigurationID(
+        UUID(uuidString: "00000000-0000-0000-0000-000000000011")!
+      ),
+      width: 2,
+      height: 2,
+      rowBytes: 8,
+      pixelFormat: .bgra8,
+      bytes: OwnedFrameBytes(Array(repeating: UInt8(sequence), count: 16))
+    )
+  )
 }

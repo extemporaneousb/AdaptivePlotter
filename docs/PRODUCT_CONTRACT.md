@@ -846,6 +846,15 @@ complete**. It permits direct bounded drawing with the accepted pen-tip
 calibration; it does not establish **Adaptive drawing ready**. Paper readiness
 remains a separate operator assertion and is never inferred from that calibration.
 
+Drawing Studio draft edits are revision-bound requests, not direct workspace
+mutations. Open, close, catalog selection, evidence role, exact-frame placement,
+scale, rotation, centering, new-plan, and paper assertion are typed
+`PlotterDrawingDraftIntent` values submitted against the immutable draft and
+external-fact revisions shown to the operator. A stale draft; changed Learning,
+registration, region, paper, frame, or run fact; closed studio; active run; or retained
+terminal receives an exact owner/reason/remedy refusal. The UI renders the
+returned immutable snapshot; it does not decide admission or rebuild a plan.
+
 The built-in catalog is a set of deterministic `DrawingProgram` producers, not
 precomputed machine commands. Placement is one immutable field-to-machine
 transform. `DrawingPlanner` clips nothing: every planned stroke must fit inside
@@ -858,6 +867,28 @@ point is inside that registration's applicability. A plan may use extrapolation
 for diagnostic preview, but its camera/ink result is non-attributable unless all
 evidence points are applicable or a newly validated registration revision
 explicitly expands the applicable region.
+
+One planning adapter is the only upper route to that pure planner. It preserves
+deterministic program, placement, and content-addressed plan identity. The
+retained Drawing Border workflow may use its package-only planning entry for
+EA-10E, but that reuse does not move Border sequencing, execution, observation,
+or evidence semantics into Drawing Studio draft authority.
+
+Paper assertion persistence is nominal authority, not a presentation cache. In
+LIVE, save must succeed before an accepted assertion is published; failure
+leaves the prior assertion unchanged and returns an operator remedy. The paper
+polygon is displayable only on the exact accepted frame. Currentness is
+independent of display: a newer exact frame can remain current when paper,
+source, camera configuration, and contact plane are unchanged, while a change to
+any of those invalidates currentness. The diagnostic polygon never measures
+paper edges or establishes tip-map, camera/ink, or physical evidence.
+
+The retained run/evidence owner authorizes the new-plan handoff after terminal
+review. Until it clears that boundary, draft mutation refuses. After handoff the
+draft publishes an immutable plan only; draft actions invoke no controller
+motion, Pen, Stop, camera, Vision, drawing-run archive, or other physical/evidence
+effect. SIMULATED draft and paper results remain **SIMULATED — NOT PHYSICAL
+EVIDENCE**.
 
 Run eligibility additionally requires LIVE mode, a connected authorized idle
 controller, current paper-coverage evidence, and the exact reviewed plan.

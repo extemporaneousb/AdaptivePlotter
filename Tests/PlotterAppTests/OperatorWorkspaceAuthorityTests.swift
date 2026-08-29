@@ -39,6 +39,7 @@ extension OperatorWorkspaceTests {
     let workspace = OperatorWorkspace(
       machineActions: actions,
       manualMotionComposition: composition,
+      drawingDraftRuntime: nominalDrawingDraftRuntime(),
       serialDevices: [machine.descriptor],
       serialDeviceDiscovery: { [machine.descriptor] },
       loadSelectedSerialIdentifier: { nil },
@@ -104,6 +105,7 @@ extension OperatorWorkspaceTests {
       machineActions: nil,
       cameraActions: CameraComposition.makeIsolatedActionsForTesting(),
       manualMotionComposition: composition,
+      drawingDraftRuntime: nominalDrawingDraftRuntime(),
       serialDevices: [],
       serialDeviceDiscovery: { [] },
       loadSelectedSerialIdentifier: { nil },
@@ -186,6 +188,7 @@ extension OperatorWorkspaceTests {
       machineActions: nil,
       cameraActions: CameraComposition.makeIsolatedActionsForTesting(),
       manualMotionComposition: composition,
+      drawingDraftRuntime: nominalDrawingDraftRuntime(),
       serialDevices: [],
       serialDeviceDiscovery: { [] },
       loadSelectedSerialIdentifier: { nil },
@@ -343,6 +346,7 @@ extension OperatorWorkspaceTests {
     let workspace = OperatorWorkspace(
       machineActions: actions,
       manualMotionComposition: composition,
+      drawingDraftRuntime: nominalDrawingDraftRuntime(),
       serialDevices: [machine.descriptor],
       serialDeviceDiscovery: { [machine.descriptor] },
       loadSelectedSerialIdentifier: { nil },

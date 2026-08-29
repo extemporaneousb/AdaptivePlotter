@@ -958,16 +958,19 @@ there is no pending Show or `Task.yield()` phase. The same cached action-strip
 projection supplies Exercise-pane protection, so a pane containing the active
 Stop remains visible without performing another Learning projection.
 
-LIVE and SIMULATED each own one `LearningSessionState` value under that shared
-contract. Within each value, compiler-enforced substates prevent invalid
+LIVE and SIMULATED each retain one `LearningSessionState` value for later
+Learning/run authority under that shared contract. Within each value,
+compiler-enforced substates prevent invalid
 cross-field combinations: one exercise-attempt lifecycle owns attempt identity,
 item owner, and mode; the episode projection now owns staged point requests,
 selected points, undo, clear, and accepted batches, while retained Learning
 session state references the resulting calibration workflow; one Drawing Trial state owns
 the complete trial payload, history, rollback, and rewind transitions. A
-separate Drawing Studio state owns catalog selection, placement, immutable plan,
-run presentation, and retained exact-frame review, but not controller or camera
-authority. Supervised
+`PlotterDrawingDraftRuntime` now owns Drawing Studio catalog selection,
+placement, immutable plan, preview, and paper assertion outside that aggregate.
+The retained Drawing Studio state owns only the EA-08B run presentation and
+retained exact-frame review, not draft, controller, or camera authority.
+Supervised
 Learning Path travel and settlement carry typed `LearningMotionAction` identity;
 display text is derived only by the presentation boundary.
 
@@ -1295,10 +1298,30 @@ calibration or establishes a generally trained adaptive model.
 
 ## Drawing Studio ownership
 
-`OperatorWorkspace` derives the drawable region from the accepted Drawing Boundary
-and projects it through a typed diagnostic affine value, including the area
-between the inset applicability rectangle and Boundary, alongside the predicted
-current tip point. This does not enlarge recorded tip-calibration applicability.
+`PlotterDrawingDraftRuntime` is the single source-indexed draft owner. Each
+`PlotterDrawingDraftSubmission` binds a `PlotterDrawingDraftRequestID`, one
+immutable `PlotterDrawingDraftRevision`, the complete
+`PlotterDrawingDraftExternalFactRevisions`, and a typed
+`PlotterDrawingDraftIntent`. It refuses stale draft or fact projections before
+mutation and returns the exact request, compared revisions,
+`EpisodeAuthorityID`, `PlotterDrawingDraftRefusalReason`, and remedy. SwiftUI
+receives immutable `PlotterDrawingDraftSnapshot` values and submits only through
+`PlotterDrawingDraftIntentSink`; the deleted combined action enum, direct
+open/close/paper-confirm methods, local rebuild helper, and App-local mutable
+draft have no authority.
+
+`PlotterDrawingPlanningAdapter` is the sole upper-layer route into the retained
+lower pure `DrawingPlanner`. The draft route produces deterministic catalog,
+program, placement, and content-addressed `ExecutionPlanRevision` identity.
+Its package-only `planRetainedDrawingBorder` route lets the explicitly retained
+EA-10E Border workflow reuse the same pure planner without granting draft
+authority or moving Border sequencing, motion, evidence, or outcome semantics.
+Planning clips nothing: one outside-region point refuses the complete plan.
+
+The runtime derives the drawable region from the accepted Drawing Boundary and
+projects it through a typed diagnostic affine value, including the area between
+the inset applicability rectangle and Boundary, alongside the predicted current
+tip point. This does not enlarge recorded tip-calibration applicability.
 `TipApplicabilityEvidencePolicy` is the sole constructor of observer-bound
 intended geometry: it uses `TipCameraRegistration.tipPixel(at:)` for every plan
 point and returns an unforgeable all-or-nothing projection token. One outside
@@ -1307,19 +1330,35 @@ and records a completed, non-attributable run with zero verified strokes. Only
 a separately accepted registration revision whose recorded rectangle contains
 the same plan can make it camera/ink evidence eligible.
 
-`PaperCoverageObservation` is a separate paper-instance assertion. For an
-operator-accepted observation, the operator supplies paper-coverage authority;
-the displayed diagnostic Boundary polygon supplies no tip-map or camera/ink
-evidence authority. Its polygon is shown only on its exact frame, while its
-current/not-current decision also requires current paper,
-source, and camera configuration. It never expands the accepted Drawing Boundary.
+Preview binds the exact displayed frame, program content hash, and plan revision.
+Registration/configuration mismatch is unavailable; outside-region planning
+shows no clipped strokes; outside-applicability projection is diagnostic-only.
+None is camera/ink or physical evidence.
+
+`PaperCoverageObservation` is a separate paper-instance assertion.
+`PlotterDrawingDraftPaperPersistence` is the sole draft persistence seam, and
+production `PaperCoverageComposition` injects one nominal
+`UserDefaultsDrawingDraftPaperPersistence`. A LIVE save completes before the
+accepted snapshot is published; failure returns a typed refusal without
+installing the assertion. The operator supplies paper-coverage authority; the
+displayed diagnostic Boundary polygon supplies no tip-map or camera/ink evidence
+authority. Its polygon is shown only on its exact frame. Currentness is a
+separate `PaperCoverageValidationContext` decision: newer same-context frames
+remain current, while paper, source, camera configuration, or contact-plane
+changes invalidate the assertion. It never expands the accepted Drawing
+Boundary. SIMULATED assertions remain nonphysical.
 
 Drawing Studio views consume immutable catalog, placement, target-preview,
-parameter, and run-state presentations. A video click is inverted through the
-current registration into a machine anchor; scale or rotation creates a new
-placement and replans. App composition passes the exact accepted plan to
-`PersistentMachineSession`, which delegates it to `RunInterpreter`; no view or
-workspace loop emits individual controller segments.
+parameter, and run-state presentations. A video click carries its exact frame
+reference and is inverted through the current registration into a machine
+anchor; scale or rotation creates a new placement and replans. Draft mutation
+refuses while retained EA-08B run/evidence work owns the workflow or a terminal
+still requires its explicit new-plan handoff. Once that owner clears the
+terminal, `.beginNewPlan` changes only immutable draft identity. App composition
+passes the exact accepted plan to `PersistentMachineSession`, which delegates it
+to `RunInterpreter`; no draft action invokes machine motion, Stop, camera,
+Vision, run evidence, or another physical effect, and no view or workspace loop
+emits individual controller segments.
 
 For observation, the coordinator preselects the plan's final point, captures a
 local baseline there, executes the owner-bound plan, verifies the final MPos,

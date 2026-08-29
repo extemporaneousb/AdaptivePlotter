@@ -118,6 +118,7 @@ func simulatedCameraRefreshUsesLearningRuntime() async throws {
   let workspace = OperatorWorkspace(
     cameraActions: CameraComposition.makeIsolatedActionsForTesting(),
     manualMotionComposition: composition,
+    drawingDraftRuntime: nominalDrawingDraftRuntime(),
     serialDevices: [],
     serialDeviceDiscovery: { [] },
     loadSelectedSerialIdentifier: { nil },

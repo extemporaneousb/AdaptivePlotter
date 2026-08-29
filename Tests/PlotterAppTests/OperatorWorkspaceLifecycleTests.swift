@@ -190,76 +190,16 @@ struct OperatorWorkspaceLifecycleTests {
 
     workspace.resumeLivePreviewAfterDrawingComparison()
     #expect(!workspace.completedDrawingComparisonReviewIsPinned)
-    workspace.reviewCompletedDrawingComparison()
+    await workspace.reviewCompletedDrawingComparison()
     #expect(workspace.completedDrawingComparisonReviewIsPinned)
     #expect(
       workspace.workbenchCapabilityPresentation.learning == .interactiveLearningComplete
     )
-
-    workspace.confirmCurrentPaperCoversDrawableRegion()
-    #expect(workspace.paperCoverageIsCurrent)
-    #expect(
-      workspace.workbenchCapabilityPresentation.paper
-        == .current(
-          detail: "Operator assertion: this sheet covers the outline; paper edges were not measured.")
-    )
-    workspace.openDrawingStudio()
-    #expect(!workspace.completedDrawingComparisonReviewIsPinned)
-    let drawingBoundary = try #require(workspace.currentDrawableMachineRegion?.effectiveBounds)
-    let betweenBorderAndBoundary = try Point2<MachineSpace>(
-      x: drawingBoundary.minX + 5,
-      y: (drawingBoundary.minY + drawingBoundary.maxY) / 2
-    )
-    #expect(betweenBorderAndBoundary.x < registration.applicabilityRectangle.minX)
-    let extrapolatedCameraPoint = try registration.cameraFromMachine.applying(
-      to: betweenBorderAndBoundary
-    )
-    await workspace.performDrawingStudioAction(.selectCatalogItem(.square))
-    await workspace.performDrawingStudioAction(.setUniformScale(0.02))
-    await workspace.performDrawingStudioAction(.placeAtCameraPoint(extrapolatedCameraPoint))
-    let boundaryBandStudio = workspace.drawingStudioPresentation
-    let projectedCenter = try #require(
-      boundaryBandStudio.canvas.placement.centerCameraPixel
-    )
-    #expect(projectedCenter.distance(to: extrapolatedCameraPoint) < 1e-9)
-    guard case .diagnosticOnly(let applicabilityDetail) =
-      boundaryBandStudio.canvas.targetPreview?.status
-    else {
-      Issue.record("Boundary-band placement must remain previewable but diagnostic-only.")
-      return
-    }
-    #expect(applicabilityDetail.contains("cannot produce attributable camera/ink evidence"))
-    #expect(boundaryBandStudio.canvas.targetPreview?.executionPlanContentHash != nil)
-
-    await workspace.performDrawingStudioAction(.selectCatalogItem(.elephant))
-    await workspace.performDrawingStudioAction(.centerInDrawableRegion)
-    let studio = workspace.drawingStudioPresentation
-    let studioFrame = try #require(workspace.actionSurfacePresentation.displayedFrame)
-    #expect(workspace.drawingStudioIsPresented)
-    #expect(studio.selectedCatalogItemID == .elephant)
-    #expect(studio.canvas.targetPreview?.provenance.matches(studioFrame) == true)
-    #expect(studio.canvas.targetPreview?.executionPlanContentHash != nil)
-    #expect(studio.canvas.targetPreview?.status == .ready)
-    if case .unavailable(let reason) = studio.runState {
-      #expect(reason.contains("SIMULATED previews placement"))
-    } else {
-      Issue.record("Simulation must preview an immutable plan without claiming physical execution.")
-    }
+    #expect(workspace.frameMode == .simulated)
+    #expect(!workspace.drawingDraftSnapshot.isOpen)
+    #expect(!workspace.paperCoverageIsCurrent)
     #expect(workspace.activeExerciseAttemptID == nil)
     #expect(workspace.currentExerciseActionStripPresentation == nil)
-
-    let originalPaper = workspace.currentPaperRevisionContext
-    let acceptedTipRevision = workspace.tipCameraRegistration?.acceptedRevisionID
-    await workspace.recordNewPaperSheetOnCurrentPlane()
-    #expect(workspace.currentPaperRevisionContext.instance != originalPaper.instance)
-    #expect(workspace.currentPaperRevisionContext.contactPlane == originalPaper.contactPlane)
-    #expect(workspace.tipCameraRegistration?.acceptedRevisionID == acceptedTipRevision)
-    #expect(!workspace.paperCoverageIsCurrent)
-
-    await workspace.recordPaperContactPlaneChanged()
-    #expect(workspace.currentPaperRevisionContext.contactPlane != originalPaper.contactPlane)
-    #expect(workspace.tipCameraRegistration == nil)
-    #expect(workspace.activeExerciseAttemptID == nil)
     await workspace.shutdown()
   }
 

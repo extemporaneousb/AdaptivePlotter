@@ -1,3 +1,5 @@
+import PlotterEpisodeModel
+import PlotterEpisodeRuntime
 import PlotterRuntime
 import SwiftUI
 
@@ -40,7 +42,6 @@ enum CompletedComparisonReviewDisplayStatus: Hashable, Sendable {
 enum CompletedComparisonReviewAction: Hashable, Sendable {
   case reviewComparison
   case resumeLivePreview
-  case openDrawingStudio
 }
 
 struct CompletedComparisonReviewControl: Hashable, Identifiable, Sendable {
@@ -57,9 +58,9 @@ struct CompletedComparisonReviewControl: Hashable, Identifiable, Sendable {
 /// different frame for the completed result.
 struct CompletedComparisonReviewPresentation: Hashable, Sendable {
   let state: CompletedComparisonReviewState
-  let drawingStudioIsAvailable: Bool
+  let drawingDraftProjection: PlotterDrawingDraftProjectionReference?
 
-  static let unavailable = Self(state: .unavailable, drawingStudioIsAvailable: false)
+  static let unavailable = Self(state: .unavailable, drawingDraftProjection: nil)
 
   func displayStatus(
     for displayedFrame: DisplayedFrame?
@@ -101,14 +102,7 @@ struct CompletedComparisonReviewPresentation: Hashable, Sendable {
           systemImage: "video.fill",
           role: .neutral
         )
-      ] + (drawingStudioIsAvailable
-        ? [CompletedComparisonReviewControl(
-          action: .openDrawingStudio,
-          title: "Open Drawing Studio",
-          systemImage: "scribble.variable",
-          role: .affirmative
-        )]
-        : [])
+      ]
     }
   }
 }
@@ -116,6 +110,7 @@ struct CompletedComparisonReviewPresentation: Hashable, Sendable {
 struct CompletedComparisonReviewControls: View {
   let presentation: CompletedComparisonReviewPresentation
   let displayedFrame: DisplayedFrame?
+  let drawingDraftIntentSink: any PlotterDrawingDraftIntentSink
   let perform: (CompletedComparisonReviewAction) -> Void
 
   var body: some View {
@@ -134,6 +129,19 @@ struct CompletedComparisonReviewControls: View {
             Label(control.title, systemImage: control.systemImage)
           }
           .operatorButton(control.role)
+          .controlSize(.small)
+        }
+        if case .reviewingExactFrame = presentation.state,
+          let projection = presentation.drawingDraftProjection
+        {
+          Button {
+            drawingDraftIntentSink.submitDrawingDraft(
+              PlotterDrawingDraftSubmission(projection: projection, intent: .open)
+            )
+          } label: {
+            Label("Open Drawing Studio", systemImage: "scribble.variable")
+          }
+          .operatorButton(.affirmative)
           .controlSize(.small)
         }
       }

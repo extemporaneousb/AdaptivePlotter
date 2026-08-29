@@ -28,7 +28,7 @@ EVIDENCE_PATH = ROOT / "docs" / "CURRENT_EVIDENCE.md"
 ARCHITECTURE_PATH = ROOT / "docs" / "SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md"
 PRODUCT_PATH = ROOT / "docs" / "PRODUCT_CONTRACT.md"
 # Updated in the same package whenever a canonical ledger row changes.
-EXPECTED_LEDGER_SHA256 = "618105afcc7c9def94ec91d8a3b7fd9716652b7731f8fac7536c29241253bde9"
+EXPECTED_LEDGER_SHA256 = "3894d897f4e684a02b73ca8e93591ad8a6a7d8c8ea1595a95c1e8acc4ec5fd5c"
 
 
 EXPECTED_GATES = {
@@ -191,22 +191,24 @@ EXPECTED_COMPLETE_PACKAGES = {
     "FIX-02",
     "EA-06",
     "EA-07",
+    "EA-08A",
 }
 
 # Staged-complete rows let post-cutover DELETE and documentation contracts
 # inspect the task-local final manifest without fabricating final gate evidence.
-# EA-06 retains its accepted historical landing boundary. EA-07's frozen
-# integrated candidate passed all seven gates and its sole critic's final delta
-# check. This evidence-only integration requires DOC and DIFF refresh only;
-# broad gates are not rerun before Blackdog landing.
+# EA-06 retains its accepted historical landing boundary. EA-07 is ordinary
+# landed evidence on canonical main. EA-08A has its corrected focused
+# DRAW-DRAFT result; the stale-manifest DELETE failure remains nonpass history,
+# every post-integration gate remains required, and the sole critic's original
+# RETASK awaits only a delta recheck of its three corrected findings.
 EXPECTED_UNLANDED_COMPLETION_CANDIDATES = {
     "EA-06": (
         "`TASK-FE9C9CB3`",
         ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "MOTION", "DELETE"],
     ),
-    "EA-07": (
-        "`TASK-6C2D055B`",
-        ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "SIM", "DELETE"],
+    "EA-08A": (
+        "`TASK-5700F7F5`",
+        ["DOC", "DIFF", "QUICK", "STRICT", "DRAW-DRAFT", "DELETE"],
     ),
 }
 
@@ -394,6 +396,17 @@ def validate_product_contract(text: str) -> None:
         "`physicalEvidenceClaimed` is false",
         "It exposes no public `beginManualJog`, `beginBoundary`, or `beginDrawing` authority",
         "Execution pacing can change future suspension policy for deterministic tests but cannot admit, Stop, cancel, settle, or reattribute an effect",
+        "Drawing Studio draft edits are revision-bound requests, not direct workspace mutations",
+        "`PlotterDrawingDraftIntent` values submitted against the immutable draft and external-fact revisions shown to the operator",
+        "A stale draft; changed Learning, registration, region, paper, frame, or run fact; closed studio; active run; or retained terminal receives an exact owner/reason/remedy refusal",
+        "One planning adapter is the only upper route to that pure planner",
+        "does not move Border sequencing, execution, observation, or evidence semantics into Drawing Studio draft authority",
+        "Paper assertion persistence is nominal authority, not a presentation cache",
+        "The paper polygon is displayable only on the exact accepted frame",
+        "a newer exact frame can remain current when paper, source, camera configuration, and contact plane are unchanged",
+        "The retained run/evidence owner authorizes the new-plan handoff after terminal review",
+        "draft actions invoke no controller motion, Pen, Stop, camera, Vision, drawing-run archive, or other physical/evidence effect",
+        "SIMULATED draft and paper results remain **SIMULATED — NOT PHYSICAL EVIDENCE**",
     ):
         if required_phrase not in normalized:
             fail(f"Product Contract is missing the exact Learning-Off exception: {required_phrase}")
@@ -590,6 +603,19 @@ def validate_architecture(text: str) -> None:
         "holds the predecessor while proving both retained Pen refusal with no lower mutation and retained drawing refusal",
         "proves drawing successor isolation plus unchanged cached predecessor truth",
         "The focused workspace authority suite's 24/24 correction evidence includes the regression proving manual runtime and retained workflows occupy one shared production adapter authority",
+        "`PlotterDrawingDraftRuntime` is the single source-indexed draft owner",
+        "`PlotterDrawingDraftSubmission` binds a `PlotterDrawingDraftRequestID`, one immutable `PlotterDrawingDraftRevision`, the complete `PlotterDrawingDraftExternalFactRevisions`, and a typed `PlotterDrawingDraftIntent`",
+        "SwiftUI receives immutable `PlotterDrawingDraftSnapshot` values and submits only through `PlotterDrawingDraftIntentSink`",
+        "`PlotterDrawingPlanningAdapter` is the sole upper-layer route into the retained lower pure `DrawingPlanner`",
+        "`planRetainedDrawingBorder` route lets the explicitly retained EA-10E Border workflow reuse the same pure planner",
+        "Planning clips nothing: one outside-region point refuses the complete plan",
+        "Preview binds the exact displayed frame, program content hash, and plan revision",
+        "`PlotterDrawingDraftPaperPersistence` is the sole draft persistence seam",
+        "A LIVE save completes before the accepted snapshot is published",
+        "Currentness is a separate `PaperCoverageValidationContext` decision",
+        "newer same-context frames remain current, while paper, source, camera configuration, or contact-plane changes invalidate the assertion",
+        "Draft mutation refuses while retained EA-08B run/evidence work owns the workflow or a terminal still requires its explicit new-plan handoff",
+        "no draft action invokes machine motion, Stop, camera, Vision, run evidence, or another physical effect",
     ):
         if required_phrase not in normalized:
             fail(f"current Swift architecture is missing: {required_phrase}")
@@ -656,16 +682,38 @@ def validate_plan(text: str) -> dict[str, dict[str, object]]:
         "Pen ingress refuses the exact reserved predecessor without lower mutation, while admitted lower Pen mutation plus causal truth is returned atomically by package-only `SimulatedLearningRuntime.setPenPoseWithCausalTruth`",
         "retain the active owner from lower terminal settlement through one atomic cached outcome/truth publication",
         "A package-only terminal-publication gate proves both retained Pen refusal/no mutation and drawing successor isolation deterministically without sleeps or polling",
-        "The frozen integrated candidate passed `SIM` 15/15, `DELETE` 4/4, `DOC` 29/29, clean `DIFF`, `QUICK` 705/705, `JOURNEY` 7/7, and `STRICT` 712/712 plus its warning-as-error strict-concurrency build, signing, launcher, and negative-bundle checks",
+        "The landed candidate passed `SIM` 15/15, `DELETE` 4/4, `DOC` 29/29, clean `DIFF`, `QUICK` 705/705, `JOURNEY` 7/7, and `STRICT` 712/712 plus its warning-as-error strict-concurrency build, signing, launcher, and negative-bundle checks",
         "The original critic RETASK and correction-cycle-1 RETASK remain nonpass history",
         "the same sole critic's correction-cycle-2 final verdict was exactly `UNANIMOUS PASS — no material disagreement`",
         "Policy allowed one critic and at most two correction/delta cycles, and forbids a post-pass critic",
         "No physical or remote-Git validation occurred or is claimed",
-        "Blackdog landing, canonical-`main` cleanup verification, and successor-capsule creation remain pending",
-        "This final evidence-only documentation/checker delta does not claim a broad-gate rerun; only `DOC` and `DIFF` require refresh before landing",
+        "landed with cleanup verified on canonical `main` at `ac6a6688`",
     ):
         if required_phrase not in normalized:
             fail(f"EA-07 plan outcome is missing corrected simulator authority: {required_phrase}")
+    for required_phrase in (
+        "`PlotterDrawingDraftRuntime.submit`",
+        "source-indexed `PlotterDrawingDraftRevision` and `PlotterDrawingDraftExternalFactRevisions`",
+        "revision-bound `PlotterDrawingDraftSubmission`",
+        "exact owner/reason/remedy refusals",
+        "immutable `PlotterDrawingDraftSnapshot` publication through one `PlotterDrawingDraftRuntime` and `PlotterDrawingDraftIntentSink`",
+        "only through `PlotterDrawingPlanningAdapter`",
+        "retained EA-10E Border planning without moving Border semantics",
+        "refuse exact-frame/registration, invalid parameter, stale revision, run-owner, handoff, and outside-region cases without clipping",
+        "exact-frame/applicability/diagnostic-only preview",
+        "nominal save-before-publish storage",
+        "exact-frame polygon display, and paper/source/configuration/contact-plane currentness",
+        "retained EA-08B run authority only after its explicit new-plan handoff",
+        "Completed only in the task-local candidate by `TASK-5700F7F5`, attempt `TASK-5700F7F5-0ad2465cded1`",
+        "All six package gates passed: `DRAW-DRAFT` 17/17, `DELETE` 4/4, `DOC` 29/29, clean `DIFF`, `QUICK` 720/720, and `STRICT` 727/727",
+        "Earlier failed/interrupted invocations remain nonpass history",
+        "The sole fresh critic returned `RETASK` on a persistence lost-update window, stale retained-run admission, and scale clipping",
+        "the same critic's delta-only recheck ended exactly `UNANIMOUS PASS — no material disagreement`",
+        "Criticism is closed: no new/full or post-pass critic is allowed",
+        "Blackdog landing, canonical-`main` cleanup verification, and conditional successor-capsule creation remain pending",
+    ):
+        if required_phrase not in normalized:
+            fail(f"EA-08A plan outcome is missing drawing-draft authority: {required_phrase}")
     ledger_rows = markdown_table(
         text,
         ["ID", "Status", "Dependencies", "Class", "Atomic package outcome", "Required gates"],
@@ -1091,6 +1139,8 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
             if gate_match is None:
                 continue
             gate = gate_match.group(1)
+            if gate not in expected_gates:
+                continue
             if gate in detailed_gates:
                 fail(f"{package_id} repeats detailed gate evidence for {gate}")
             validate_completed_gate_result(package_id, gate, result)
@@ -1152,13 +1202,12 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
                 "MOTION": "passed",
                 "DELETE": "passed",
             },
-            "EA-07": {
-                "DOC": "rerun-required",
-                "DIFF": "rerun-required",
+            "EA-08A": {
+                "DOC": "passed",
+                "DIFF": "passed",
                 "QUICK": "passed",
-                "JOURNEY": "passed",
                 "STRICT": "passed",
-                "SIM": "passed",
+                "DRAW-DRAFT": "passed",
                 "DELETE": "passed",
             },
         }[package_id]
@@ -1173,9 +1222,10 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
                 fail(f"{package_id} candidate incorrectly leaves critic work open")
         else:
             for phrase in (
-                "The frozen integrated candidate passed `SIM` 15/15, `DELETE` 4/4, `DOC` 29/29, clean `DIFF`, `QUICK` 705/705, `JOURNEY` 7/7, `STRICT` 712/712 plus strict build/signing/launcher/negative-bundle checks",
-                "This evidence-only delta requires `DOC` and `DIFF` refresh only; no broad-gate or post-pass critic rerun is claimed",
-                "Blackdog landing, canonical-`main` cleanup verification, and successor-capsule creation remain pending",
+                "All six package gates passed: `DRAW-DRAFT` 17/17, `DELETE` 4/4, `DOC` 29/29, clean `DIFF`, `QUICK` 720/720, and `STRICT` 727/727",
+                "its corrected three-finding delta recheck ended exactly `UNANIMOUS PASS — no material disagreement`",
+                "Blackdog landing, canonical-`main` cleanup verification, and conditional EA-08B successor-capsule creation remain pending",
+                "No landing or cleanup is claimed",
             ):
                 if phrase not in landing_boundary:
                     fail(f"{package_id} candidate lacks landing boundary: {phrase}")
@@ -1537,10 +1587,10 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
             fail(f"EA-06 completion evidence is missing: {required_phrase}")
 
     for required_phrase in (
-        "Causal simulator environment cutover candidate",
+        "Causal simulator environment cutover",
         "`TASK-6C2D055B`",
         "`TASK-6C2D055B-4df3ee7abec3`",
-        "EA-07 is complete only in this task-local candidate; migration remains incomplete",
+        "EA-07 landed and cleanup was verified on canonical `main` at `ac6a6688`; package EA-07 is complete while migration remains incomplete",
         "`PlotterCausalSimulatorEffectAdapter`",
         "`admitManualJog` uses the shared `PlotterIntent`/`PlotterEffect`/`PlotterEffectResult` grammar",
         "Retained Boundary, drawing, travel, and Pen work instead keeps its explicit `EpisodeAuthorityID`, returns nil `effectResult`, and fabricates neither an episode intent/effect nor a plan revision",
@@ -1603,22 +1653,76 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
         "The first DELETE invocation is retained nonpass integration history, not a passed gate",
         "it failed only because the pending EA-01 manifest still required the removed MOD-001 seam",
         "`DELETE` | passed — `sh Scripts/check_episode_cutover.sh EA-07`; current post-cutover run passed 4/4",
-        "All seven required EA-07 gates passed on the frozen integrated candidate before this evidence-only integration",
-        "This documentation/checker delta changes no source, test, package manifest, or broad-gate behavior and makes no broad-gate rerun claim",
-        "Only `DOC` and `DIFF` now require refresh before landing",
+        "All seven required EA-07 gates passed on its frozen integrated candidate before landing",
+        "EA-07 then landed and cleanup was verified on canonical `main` at `ac6a6688`",
         "No attended physical controller, camera, motion, Pen, paper, operator-click, or observed-ink validation occurred",
         "No remote-Git action occurred",
-        "Blackdog landing, canonical-`main` cleanup verification, and successor-capsule creation remain pending",
         "Reviewed no additional change — Swift Architecture and Product Contract",
         "Reviewed no change — Document Routing (`docs/INDEX.md`)",
         "Affected mechanically — `Scripts/test_episode_wave_capsule.py`",
         "Reviewed no change — `Scripts/check_episode_documentation.sh`",
-        "All seven EA-07 gates and the same critic's bounded final delta check passed on the frozen integrated candidate",
-        "EA-08A becomes eligible only after this final evidence-only delta refreshes `DOC` and `DIFF`",
-        "This task does not select or dispatch EA-08A",
+        "EA-07's successor capsule was generated from clean canonical `main` and EA-08A was selected in `TASK-5700F7F5`",
     ):
         if required_phrase not in normalized:
-            fail(f"EA-07 candidate evidence is missing: {required_phrase}")
+            fail(f"EA-07 landed evidence is missing: {required_phrase}")
+
+    for required_phrase in (
+        "Drawing draft episode cutover candidate",
+        "`TASK-5700F7F5`",
+        "`TASK-5700F7F5-0ad2465cded1`",
+        "EA-08A is complete only in this task-local candidate; migration remains incomplete",
+        "`PlotterDrawingDraftRuntime` the single source-indexed Drawing Studio draft authority",
+        "`PlotterDrawingDraftSubmission` binds one `PlotterDrawingDraftRequestID`, the immutable `PlotterDrawingDraftRevision`, the complete `PlotterDrawingDraftExternalFactRevisions`, and one typed `PlotterDrawingDraftIntent`",
+        "Refusal fixes the exact request, compared facts, owner, `PlotterDrawingDraftRefusalReason`, and operator remedy",
+        "`PlotterDrawingPlanningAdapter` is the sole upper-layer route into the retained pure `DrawingPlanner`",
+        "`planRetainedDrawingBorder` route for the explicitly retained EA-10E Border workflow",
+        "planning never clips a stroke",
+        "Preview is a projection, not evidence",
+        "`PlotterDrawingDraftPaperPersistence` is the sole draft paper-store seam",
+        "an accepted LIVE assertion is not published until save succeeds",
+        "The accepted paper polygon displays only on the exact accepted frame",
+        "a newer frame in the same paper/source/camera-configuration/contact-plane context remains current",
+        "The retained EA-08B run/evidence boundary still owns execution, Stop, camera, Vision, archive, review, terminal no-redraw state",
+        "EA-08A itself never invokes machine motion, Stop, camera, Vision, run evidence, or another physical effect",
+        "`DrawingStudioAction`, direct `performDrawingStudioAction`, direct open/close/paper-confirm actions",
+        "`drawingStudioDraftMutationIsAvailable`, `rebuildDrawingStudioPlan`, direct App `DrawingPlanner.plan`",
+        "`drawingPresentationTestFrame` fixture",
+        "`4171ee3d0a0064fb2e1fbcd7de426334395ae6a2415e51cc7421d0940a9e0b52`",
+        "`459e3f065ea75e003a5cf6c5ffc8b84477c61744ee396454752dc8263f95a060`",
+        "`cc5107ff6400b00033ddf2df5e026c9b48598b8321f75f05b1f0401ca22c723d`",
+        "`c454b84edde46b250566d8fe14fd53a63730a6d308dffeb4e17af4729494b4f2`",
+        "`eec626a6fe14ddc34bafdf198b8d428e5a99452fd627d07ab46d6a2f570d23fb`",
+        "`15953c7002c624d2722bb77300e510cde9777a95ccc807983c713da914877c20`",
+        "`70f534d5c49fa3e098137cfdcc571708964b72c654c01c41af9d1d98505e1690`",
+        "`f59257098e76e0a23cd2269cb8689f09ac91d0f48d8c10b872a69e6880a5e063`",
+        "`b26e2c1297fd1748eeb7a2e7f18882eb3116ab7fb3308844cd69384c699b4d00`",
+        "`b77d9ed7102f2eea492ccf505daaa11319570460b2915b5a5e72f6e5f0fe3719`",
+        "`590e0361f4230c204ec63f9b3a39fb41cc1f695d7eedc8034f7e516bee5a3323`",
+        "`cc99960c7375fc0d5a045335b6e91af694cdb9563a31f11673c733c4da8aa8fc`",
+        "`e48ea8f3af841a93a630ac4c075f59dbbce1e9b47263415085c662ee81788128`",
+        "`3663fb00ec5627e8369e9476dd0ce35bef5ac435a7fd2fe2eebb57dfdd0caf15`",
+        "`83d14a2354979cb5b51b95f6b425567137a4c77ec7be2a8ec0ef35672c9b0985`",
+        "`a377b62ad2e38ee8dcb0785cd66b1b09dc7cd2990ec354a2bea6eb16cffdffe9`",
+        "`dc5f0ad336dd22d119f426cfa1ff94c786cfbd8f1d62767282177e6e32745ba7`",
+        "`873279f1f8b3b812dcb0db28761122732636a1e421958a50a6fb688d3e999ede`",
+        "Deleted test path: `Tests/PlotterAppTests/DrawingPresentationTestSupport.swift`",
+        "`DRAW-DRAFT` | passed — `swift test --filter PlotterDrawingDraftEpisodeTests`; 17/17 passed",
+        "The first `DELETE` invocation failed only because the stale inventory still required the deleted `DrawingStudioAction`",
+        "The sole fresh critic returned `RETASK`, not pass",
+        "The same sole critic's delta-only recheck ended exactly `UNANIMOUS PASS — no material disagreement`",
+        "no new/full critic was commissioned, and no post-pass critic is allowed",
+        "The affected computation diagnostics passed 11/11 and `DRAW-DRAFT` passed 17/17 after that correction",
+        "this gate-found local correction did not reopen or replace the closed critic",
+        "The first `STRICT` run then failed at compile time on two redundant `#require` calls",
+        "The accepted broad results are `QUICK` 720/720 and `STRICT` 727/727",
+        "No landing or cleanup pass is inferred from the focused suites, critic pass, or broad gates",
+        "Reviewed no change — Document Routing (`docs/INDEX.md`)",
+        "EA-08B becomes eligible only after EA-08A lands through Blackdog",
+        "This task does not select or dispatch EA-08B",
+        "No remote-Git action occurred",
+    ):
+        if required_phrase not in normalized:
+            fail(f"EA-08A candidate evidence is missing: {required_phrase}")
 
     for required_phrase in (
         "Episode deterministic replay foundation",
@@ -1924,13 +2028,13 @@ def validate_wave_frontier(
     blockers = parse_wave_admission_blockers(evidence, rows)
     selected = ordinary_wave_frontier(rows, set(blockers))
     if selected is not None:
-        if selected != "EA-08A":
+        if selected != "EA-08B":
             fail(f"unexpected current ordinary wave frontier: {selected}")
         for phrase in (
-            "Causal simulator environment cutover candidate",
-            "All seven EA-07 gates and the same critic's bounded final delta check passed on the frozen integrated candidate",
-            "EA-08A becomes eligible only after this final evidence-only delta refreshes `DOC` and `DIFF`",
-            "This task does not select or dispatch EA-08A",
+            "Drawing draft episode cutover candidate",
+            "`DRAW-DRAFT` passed 17/17",
+            "EA-08B becomes eligible only after EA-08A lands through Blackdog",
+            "This task does not select or dispatch EA-08B",
             "The retired `PHYSICAL-BASE` result is `failed`",
         ):
             if phrase not in normalized:

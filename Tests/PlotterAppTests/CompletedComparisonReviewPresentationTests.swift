@@ -1,3 +1,7 @@
+import Foundation
+import PlotterEpisodeModel
+import PlotterEpisodeRuntime
+import PlotterModel
 import PlotterRuntime
 import Testing
 
@@ -5,30 +9,29 @@ import Testing
 
 @Suite("Completed comparison review presentation")
 struct CompletedComparisonReviewPresentationTests {
-  @Test("available comparison offers explicit review without claiming it is displayed")
+  @Test("available comparison offers explicit review without claiming display")
   func availableComparisonControl() throws {
-    let frame = try drawingPresentationTestFrame()
+    let frame = try comparisonTestFrame(sequence: 1)
     let presentation = CompletedComparisonReviewPresentation(
       state: .available(ExactFrameOverlayProvenance(frame)),
-      drawingStudioIsAvailable: true
+      drawingDraftProjection: nil
     )
 
     #expect(
       presentation.displayStatus(for: nil as DisplayedFrame?)
         == .availableForReview(frameSequence: frame.frame.sequence)
     )
-    let actions: [CompletedComparisonReviewAction] = [.reviewComparison]
-    #expect(presentation.controls.map(\.action) == actions)
+    #expect(presentation.controls.map(\.action) == [.reviewComparison])
   }
 
-  @Test("reviewing never accepts another frame or configuration")
+  @Test("reviewing never substitutes another exact frame")
   func reviewRequiresExactDisplayedFrame() throws {
-    let exact = try drawingPresentationTestFrame()
+    let exact = try comparisonTestFrame(sequence: 1)
+    let stale = try comparisonTestFrame(sequence: 2)
     let presentation = CompletedComparisonReviewPresentation(
       state: .reviewingExactFrame(ExactFrameOverlayProvenance(exact)),
-      drawingStudioIsAvailable: true
+      drawingDraftProjection: nil
     )
-    let stale = try drawingPresentationTestFrame()
 
     #expect(
       presentation.displayStatus(for: exact)
@@ -41,21 +44,44 @@ struct CompletedComparisonReviewPresentationTests {
           displayedSequence: stale.frame.sequence
         )
     )
-    let actions: [CompletedComparisonReviewAction] = [
-      .resumeLivePreview, .openDrawingStudio,
-    ]
-    #expect(presentation.controls.map(\.action) == actions)
+    #expect(presentation.controls.map(\.action) == [.resumeLivePreview])
   }
 
-  @Test("drawing entry is independent from review availability")
+  @Test("Drawing Studio entry carries an immutable draft projection")
   func drawingStudioAdmissionIsProjected() throws {
-    let exact = try drawingPresentationTestFrame()
+    let exact = try comparisonTestFrame(sequence: 1)
+    let projection = PlotterDrawingDraftSnapshot.initial(
+      environment: .live,
+      toolAssemblyRevision: ToolAssemblyRevision(),
+      paper: PaperRevisionContext(
+        instance: PaperInstanceRevision(),
+        contactPlane: PaperContactPlaneRevision()
+      )
+    ).projection
     let presentation = CompletedComparisonReviewPresentation(
       state: .reviewingExactFrame(ExactFrameOverlayProvenance(exact)),
-      drawingStudioIsAvailable: false
+      drawingDraftProjection: projection
     )
 
-    let actions: [CompletedComparisonReviewAction] = [.resumeLivePreview]
-    #expect(presentation.controls.map(\.action) == actions)
+    #expect(presentation.drawingDraftProjection == projection)
+    #expect(presentation.controls.map(\.action) == [.resumeLivePreview])
   }
+}
+
+private func comparisonTestFrame(sequence: UInt64) throws -> DisplayedFrame {
+  DisplayedFrame(
+    source: .live(CameraDeviceID(rawValue: "comparison-presentation-camera")),
+    frame: try StampedFrame(
+      sequence: sequence,
+      captureNanoseconds: sequence * 10,
+      cameraConfigurationID: CameraConfigurationID(
+        UUID(uuidString: "00000000-0000-0000-0000-000000000012")!
+      ),
+      width: 2,
+      height: 2,
+      rowBytes: 8,
+      pixelFormat: .bgra8,
+      bytes: OwnedFrameBytes(Array(repeating: UInt8(sequence), count: 16))
+    )
+  )
 }

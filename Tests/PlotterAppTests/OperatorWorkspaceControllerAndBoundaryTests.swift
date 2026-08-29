@@ -31,6 +31,7 @@ extension OperatorWorkspaceTests {
         requestJogCancel: { _ in .refused(.noActiveJog) },
         disconnect: {}
       ),
+      drawingDraftRuntime: nominalDrawingDraftRuntime(),
       serialDevices: [descriptor],
       serialDeviceDiscovery: { [descriptor] },
       loadSelectedSerialIdentifier: { descriptor.identifier },
@@ -108,6 +109,7 @@ extension OperatorWorkspaceTests {
         requestJogCancel: { _ in .refused(.noActiveJog) },
         disconnect: {}
       ),
+      drawingDraftRuntime: nominalDrawingDraftRuntime(),
       serialDevices: [descriptor],
       serialDeviceDiscovery: { [descriptor] },
       loadSelectedSerialIdentifier: { descriptor.identifier },

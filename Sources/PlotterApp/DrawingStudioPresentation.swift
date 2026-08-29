@@ -1,41 +1,8 @@
+import PlotterEpisodeModel
+import PlotterEpisodeRuntime
 import PlotterModel
 import PlotterRuntime
 import SwiftUI
-
-struct DrawingStudioParameterID: RawRepresentable, Hashable, Sendable {
-  let rawValue: String
-}
-
-enum DrawingStudioParameterValue: Hashable, Sendable {
-  case scalar(Double)
-  case integer(Int)
-  case choice(String)
-  case toggle(Bool)
-
-  var displayText: String {
-    switch self {
-    case .scalar(let value): String(format: "%.2f", value)
-    case .integer(let value): String(value)
-    case .choice(let value): value
-    case .toggle(let value): value ? "On" : "Off"
-    }
-  }
-}
-
-enum DrawingStudioParameterControl: Hashable, Sendable {
-  case scalar(range: ClosedRange<Double>, step: Double, unit: String)
-  case integer(range: ClosedRange<Int>, step: Int, unit: String)
-  case choices([String])
-  case toggle
-}
-
-struct DrawingStudioParameterPresentation: Hashable, Identifiable, Sendable {
-  let id: DrawingStudioParameterID
-  let title: String
-  let detail: String
-  let value: DrawingStudioParameterValue
-  let control: DrawingStudioParameterControl
-}
 
 struct DrawingStudioCatalogItemPresentation: Hashable, Identifiable, Sendable {
   let id: DrawingCatalogEntryID
@@ -65,10 +32,6 @@ struct DrawingStudioCatalogItemPresentation: Hashable, Identifiable, Sendable {
       catalogEntry.supportsCurveTessellation ? " · deterministic curve tessellation" : ""
     )
     systemImage = Self.systemImage(for: catalogEntry.id)
-  }
-
-  static var builtInCatalog: [Self] {
-    DrawingProgramCatalog.entries.map(Self.init(catalogEntry:))
   }
 
   private static func systemImage(for id: DrawingCatalogEntryID) -> String {
@@ -147,6 +110,7 @@ struct DrawingStudioTargetPreview: Hashable, Sendable {
 }
 
 struct DrawingStudioCanvasPresentation: Hashable, Sendable {
+  let draftProjection: PlotterDrawingDraftProjectionReference
   let placement: DrawingStudioPlacementPresentation
   let targetPreview: DrawingStudioTargetPreview?
 
@@ -190,13 +154,7 @@ enum DrawingStudioRunState: Hashable, Sendable {
   }
 }
 
-enum DrawingStudioAction: Hashable, Sendable {
-  case selectCatalogItem(DrawingCatalogEntryID)
-  case setParameter(DrawingStudioParameterID, DrawingStudioParameterValue)
-  case placeAtCameraPoint(Point2<CameraPixelSpace>)
-  case setUniformScale(Double)
-  case setRotationDegrees(Double)
-  case centerInDrawableRegion
+enum DrawingStudioRunAction: Hashable, Sendable {
   case run
   case stop(ContextualStopCapabilityID)
   case reviewRun
@@ -205,16 +163,16 @@ enum DrawingStudioAction: Hashable, Sendable {
 }
 
 struct DrawingStudioControl: Hashable, Identifiable, Sendable {
-  let action: DrawingStudioAction
+  let action: DrawingStudioRunAction
   let title: String
   let systemImage: String
   let role: OperatorButtonRole
   let isEnabled: Bool
 
-  var id: DrawingStudioAction { action }
+  var id: DrawingStudioRunAction { action }
 
   init(
-    action: DrawingStudioAction,
+    action: DrawingStudioRunAction,
     title: String,
     systemImage: String,
     role: OperatorButtonRole,
@@ -231,7 +189,7 @@ struct DrawingStudioControl: Hashable, Identifiable, Sendable {
 struct DrawingStudioPresentation: Hashable, Sendable {
   let catalog: [DrawingStudioCatalogItemPresentation]
   let selectedCatalogItemID: DrawingCatalogEntryID?
-  let sourceParameters: [DrawingStudioParameterPresentation]
+  let evidenceRole: DrawingTrialEvidenceRole
   let canvas: DrawingStudioCanvasPresentation
   let editingIsEnabled: Bool
   let runState: DrawingStudioRunState
@@ -239,15 +197,16 @@ struct DrawingStudioPresentation: Hashable, Sendable {
   init(
     catalog: [DrawingStudioCatalogItemPresentation],
     selectedCatalogItemID: DrawingCatalogEntryID?,
-    sourceParameters: [DrawingStudioParameterPresentation],
+    evidenceRole: DrawingTrialEvidenceRole,
     canvas: DrawingStudioCanvasPresentation,
     editingIsEnabled: Bool,
     runState: DrawingStudioRunState
   ) {
     self.catalog = catalog
     self.selectedCatalogItemID = selectedCatalogItemID
-    self.sourceParameters = sourceParameters
+    self.evidenceRole = evidenceRole
     self.canvas = DrawingStudioCanvasPresentation(
+      draftProjection: canvas.draftProjection,
       placement: DrawingStudioPlacementPresentation(
         centerCameraPixel: canvas.placement.centerCameraPixel,
         uniformScale: canvas.placement.uniformScale,
@@ -267,19 +226,11 @@ struct DrawingStudioPresentation: Hashable, Sendable {
   }
 
   var controls: [DrawingStudioControl] {
-    let center = DrawingStudioControl(
-      action: .centerInDrawableRegion,
-      title: "Center Target",
-      systemImage: "scope",
-      role: .neutral,
-      isEnabled: editingIsEnabled
-    )
     switch runState {
     case .unavailable:
-      return [center]
+      return []
     case .ready:
       return [
-        center,
         DrawingStudioControl(
           action: .run,
           title: "Run Drawing",
@@ -347,7 +298,8 @@ struct DrawingStudioPresentation: Hashable, Sendable {
 /// controller, evidence store, or readiness decision.
 struct DrawingStudioView: View {
   let presentation: DrawingStudioPresentation
-  let perform: (DrawingStudioAction) -> Void
+  let drawingDraftIntentSink: any PlotterDrawingDraftIntentSink
+  let performRun: (DrawingStudioRunAction) -> Void
 
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
@@ -367,7 +319,7 @@ struct DrawingStudioView: View {
           .font(.caption)
           .foregroundStyle(.secondary)
       }
-      sourceParameters
+      evidenceRole
       placement
       runStatus
       controls
@@ -383,7 +335,7 @@ struct DrawingStudioView: View {
         HStack(spacing: 8) {
           ForEach(presentation.catalog) { item in
             Button {
-              perform(.selectCatalogItem(item.id))
+              submitDraft(.selectCatalogItem(item.id))
             } label: {
               VStack(spacing: 5) {
                 Image(systemName: item.systemImage)
@@ -404,86 +356,20 @@ struct DrawingStudioView: View {
     }
   }
 
-  @ViewBuilder
-  private var sourceParameters: some View {
-    if !presentation.sourceParameters.isEmpty {
-      VStack(alignment: .leading, spacing: 9) {
-        Text("Source parameters").font(.headline)
-        ForEach(presentation.sourceParameters) { parameter in
-          parameterControl(parameter)
-            .disabled(!presentation.editingIsEnabled)
-        }
-      }
-    }
-  }
-
-  @ViewBuilder
-  private func parameterControl(_ parameter: DrawingStudioParameterPresentation) -> some View {
-    switch (parameter.control, parameter.value) {
-    case (.scalar(let range, let step, let unit), .scalar(let value)):
-      labeledValue(parameter, value: "\(parameter.value.displayText) \(unit)") {
-        Slider(
-          value: Binding(
-            get: { value },
-            set: { perform(.setParameter(parameter.id, .scalar($0))) }
-          ),
-          in: range,
-          step: step
-        )
-      }
-    case (.integer(let range, let step, let unit), .integer(let value)):
-      Stepper(
-        value: Binding(
-          get: { value },
-          set: { perform(.setParameter(parameter.id, .integer($0))) }
-        ),
-        in: range,
-        step: step
-      ) {
-        Text("\(parameter.title): \(value) \(unit)")
-      }
-      .help(parameter.detail)
-    case (.choices(let options), .choice(let value)):
-      Picker(
-        parameter.title,
-        selection: Binding(
-          get: { value },
-          set: { perform(.setParameter(parameter.id, .choice($0))) }
-        )
-      ) {
-        ForEach(options, id: \.self) { Text($0).tag($0) }
-      }
-      .help(parameter.detail)
-    case (.toggle, .toggle(let value)):
-      Toggle(
-        parameter.title,
-        isOn: Binding(
-          get: { value },
-          set: { perform(.setParameter(parameter.id, .toggle($0))) }
-        )
+  private var evidenceRole: some View {
+    Picker(
+      "Evidence role",
+      selection: Binding(
+        get: { presentation.evidenceRole },
+        set: { submitDraft(.setEvidenceRole($0)) }
       )
-      .help(parameter.detail)
-    default:
-      Text("\(parameter.title): incompatible presentation value")
-        .font(.caption)
-        .foregroundStyle(.orange)
-    }
-  }
-
-  private func labeledValue<Content: View>(
-    _ parameter: DrawingStudioParameterPresentation,
-    value: String,
-    @ViewBuilder content: () -> Content
-  ) -> some View {
-    VStack(alignment: .leading, spacing: 4) {
-      HStack {
-        Text(parameter.title)
-        Spacer()
-        Text(value).monospacedDigit().foregroundStyle(.secondary)
+    ) {
+      ForEach(DrawingTrialEvidenceRole.allCases, id: \.rawValue) { role in
+        Text(Self.evidenceRoleLabel(role)).tag(role)
       }
-      content()
     }
-    .help(parameter.detail)
+    .disabled(!presentation.editingIsEnabled)
+    .help("Choose before execution; a holdout cannot become training evidence after inspection.")
   }
 
   private var placement: some View {
@@ -496,7 +382,7 @@ struct DrawingStudioView: View {
         Slider(
           value: Binding(
             get: { presentation.canvas.placement.uniformScale },
-            set: { perform(.setUniformScale($0)) }
+            set: { submitDraft(.setUniformScale($0)) }
           ),
           in: presentation.canvas.placement.allowedScale
         )
@@ -510,7 +396,7 @@ struct DrawingStudioView: View {
         Slider(
           value: Binding(
             get: { presentation.canvas.placement.rotationDegrees },
-            set: { perform(.setRotationDegrees($0)) }
+            set: { submitDraft(.setRotationDegrees($0)) }
           ),
           in: -180...180
         )
@@ -518,6 +404,13 @@ struct DrawingStudioView: View {
           .monospacedDigit()
           .frame(width: 58, alignment: .trailing)
       }
+      .disabled(!presentation.editingIsEnabled)
+      Button {
+        submitDraft(.centerInDrawableRegion)
+      } label: {
+        Label("Center Target", systemImage: "scope")
+      }
+      .operatorButton(.neutral)
       .disabled(!presentation.editingIsEnabled)
     }
   }
@@ -543,13 +436,31 @@ struct DrawingStudioView: View {
     HStack(spacing: 8) {
       ForEach(presentation.controls) { control in
         Button {
-          perform(control.action)
+          performRun(control.action)
         } label: {
           Label(control.title, systemImage: control.systemImage)
         }
         .operatorButton(control.role)
         .disabled(!control.isEnabled)
       }
+    }
+  }
+
+  private func submitDraft(_ intent: PlotterDrawingDraftIntent) {
+    drawingDraftIntentSink.submitDrawingDraft(
+      PlotterDrawingDraftSubmission(
+        projection: presentation.canvas.draftProjection,
+        intent: intent
+      )
+    )
+  }
+
+  private static func evidenceRoleLabel(_ role: DrawingTrialEvidenceRole) -> String {
+    switch role {
+    case .ordinaryDrawing: "Ordinary drawing"
+    case .training: "Training"
+    case .reservedHoldout: "Reserved holdout"
+    case .evaluationHoldout: "Evaluation holdout"
     }
   }
 }

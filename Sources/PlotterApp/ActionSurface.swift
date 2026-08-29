@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import PlotterEpisodeModel
+import PlotterEpisodeRuntime
 import PlotterModel
 import PlotterRuntime
 import SwiftUI
@@ -548,23 +549,23 @@ struct ActionSurface: View {
   @StateObject private var imageCache = FramePresentationImageCache()
   @State private var priorDragTranslation: CGSize = .zero
   private let pointSelectionIntentSink: (any PlotterPointSelectionIntentSink)?
+  private let drawingDraftIntentSink: any PlotterDrawingDraftIntentSink
   private let performCompletedComparisonReviewAction: (CompletedComparisonReviewAction) -> Void
-  private let performDrawingStudioAction: (DrawingStudioAction) -> Void
 
   init(
     presentation: ActionSurfacePresentation,
     viewport: Binding<ActionSurfaceViewportState> = .constant(ActionSurfaceViewportState()),
     pointSelectionIntentSink: (any PlotterPointSelectionIntentSink)? = nil,
+    drawingDraftIntentSink: any PlotterDrawingDraftIntentSink,
     performCompletedComparisonReviewAction: @escaping (CompletedComparisonReviewAction) -> Void = {
       _ in
-    },
-    performDrawingStudioAction: @escaping (DrawingStudioAction) -> Void = { _ in }
+    }
   ) {
     self.presentation = presentation
     _viewport = viewport
     self.pointSelectionIntentSink = pointSelectionIntentSink
+    self.drawingDraftIntentSink = drawingDraftIntentSink
     self.performCompletedComparisonReviewAction = performCompletedComparisonReviewAction
-    self.performDrawingStudioAction = performDrawingStudioAction
   }
 
   var body: some View {
@@ -647,6 +648,7 @@ struct ActionSurface: View {
           CompletedComparisonReviewControls(
             presentation: presentation.completedComparisonReview,
             displayedFrame: presentation.displayedFrame,
+            drawingDraftIntentSink: drawingDraftIntentSink,
             perform: performCompletedComparisonReviewAction
           )
           .padding(8)
@@ -724,7 +726,8 @@ struct ActionSurface: View {
   }
 
   private func submitDrawingPlacement(at location: CGPoint, viewSize: CGSize) {
-    guard presentation.drawingStudioCanvas?.placement.placementIsEnabled == true,
+    guard let canvas = presentation.drawingStudioCanvas,
+      canvas.placement.placementIsEnabled,
       let displayedFrame = presentation.displayedFrame,
       let transform = CameraPixelToViewTransform(
         frameWidth: displayedFrame.frame.width,
@@ -738,7 +741,17 @@ struct ActionSurface: View {
       ),
       let point = transform.cameraPoint(location)
     else { return }
-    performDrawingStudioAction(.placeAtCameraPoint(point))
+    drawingDraftIntentSink.submitDrawingDraft(
+      PlotterDrawingDraftSubmission(
+        projection: canvas.draftProjection,
+        intent: .placeAtCameraPoint(
+          PlotterDrawingDraftCameraPlacement(
+            frame: displayedFrame.plotterExactFrameReference,
+            point: point
+          )
+        )
+      )
+    )
   }
 
   private func drawFrameAndOverlays(

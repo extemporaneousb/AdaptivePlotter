@@ -720,6 +720,7 @@ private func workspaceWithPenCommandCompletionGate(
       disconnect: {}
     ),
     cameraActions: cameraActions,
+    drawingDraftRuntime: nominalDrawingDraftRuntime(),
     serialDevices: [machine.descriptor],
     serialDeviceDiscovery: { [machine.descriptor] },
     loadSelectedSerialIdentifier: { nil },
