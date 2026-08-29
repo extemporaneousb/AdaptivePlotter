@@ -76,7 +76,11 @@ for phrase in \
     'No two live workers may' \
     'write the same file' \
     'Editing stops before validation begins.' \
-    'fresh-context read-only critic' \
+    'exactly one fresh-context read-only' \
+    'same critic for delta-only rechecks' \
+    'at most two' \
+    'correction/recheck cycles' \
+    'Never commission a post-pass, fresh,' \
     "execute episode package <ID>"; do
     rg -Fq "$phrase" .codex/skills/run-multi-agent-wave/references/wave-coordination.md ||
         fail "wave coordination contract is missing: $phrase"

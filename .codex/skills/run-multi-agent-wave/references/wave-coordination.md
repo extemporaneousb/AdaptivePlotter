@@ -88,8 +88,8 @@ deleting, weakening, or paraphrasing its constraints. Append a section titled
 - At most four agents are active at once: this one coordinator and no more than
   three workers or critics. Editing, validation, documentation, and critic
   agents all count against the same three-subagent budget. Use fewer when leases
-  are not provably disjoint, and finish a worker before dispatching the required
-  fresh critic when all slots are occupied.
+  are not provably disjoint, and finish a worker before dispatching the one
+  required fresh critic when all slots are occupied.
 - You alone own Blackdog lifecycle, work decomposition, leases, acceptance,
   retasking, completion assessment, and landing. Workers never create or mutate
   Blackdog tasks, branches, worktrees, commits, stashes, rebases, merges,
@@ -135,15 +135,32 @@ deleting, weakening, or paraphrasing its constraints. Append a section titled
   All SwiftPM/build/test commands run serially. A validation worker runs the
   exact package gates and returns exact commands and outcomes. No validation
   runs against a changing tree.
-- After integration and required gates, dispatch a fresh-context read-only critic
-  against the actual candidate worktree. The critic checks the compiled package
-  outcome, authority transfer, deletions, preserved behavior, evidence classes,
-  package scope, accepted-slice register, and final diff. Findings name the
-  requirement, path/symbol, evidence, and responsible lease.
+- After a stable integrated candidate passes its focused validation, but before
+  broad `QUICK` or `STRICT` gates, dispatch exactly one fresh-context read-only
+  critic against the actual candidate worktree. The critic checks the compiled
+  package outcome, authority transfer, deletions, preserved behavior, evidence
+  classes, package scope, accepted-slice register, and final diff. It reports
+  only material acceptance blockers, at most three per pass. Every blocker names
+  the exact requirement, path/symbol and evidence, responsible lease, and
+  smallest sufficient correction. Nonblocking observations become follow-up
+  candidates and do not delay this package.
 - Classify every handoff and critic result as `ACCEPT`, `RETASK`, or `REJECT`.
-  Retask the responsible worker for any material gap, then repeat affected gates
-  and the fresh critic. Commentary, confidence, or a clean compile is not proof
-  of completeness.
+  Retask only the responsible worker for an exact material blocker. Corrections
+  return to the same critic for delta-only rechecks; every passed dimension stays
+  closed unless a changed line invalidates it. Allow at most two
+  correction/recheck cycles for the wave. If a material blocker remains after
+  the second recheck, stop with typed operator judgment containing concrete,
+  complete choices. Do not commission another fresh critic or continue retasking.
+  Commentary, confidence, or a clean compile is not proof of completeness.
+- After critic `ACCEPT`, run the package's final gates serially, including broad
+  `QUICK` and `STRICT` gates only once on the accepted candidate. If a failed
+  gate requires a source, test, or product change, run the affected focused
+  validation and return only that delta to the same critic within the remaining
+  two-cycle budget. If the only post-gate changes are evidence or ledger
+  documentation and source and test hashes are unchanged, rerun only the
+  documentation and diff-hygiene gates. Once critic acceptance and final gates
+  cover the same hashes, land immediately. Never commission a post-pass, fresh,
+  confirmation, or precautionary critic.
 - Before landing, require a quiescent tree, inspect the complete diff and
   untracked set, prove every deletion/forbidden-path scan, reconcile Current
   Evidence and ledger status, and verify that no protected baseline or accepted
@@ -151,7 +168,10 @@ deleting, weakening, or paraphrasing its constraints. Append a section titled
 - If the target becomes stale, stop workers. Execute only Blackdog's exact emitted
   stale-recovery action; never resolve with ours/theirs, reset, force, or skipped
   validation. Re-establish content identities, inspect the rebased diff, and
-  repeat required gates and critic review before normal landing.
+  run affected focused validation. Return only the changed delta to the same
+  critic within the existing two-cycle budget, then repeat affected final gates.
+  If no critic cycle remains, stop with typed operator judgment rather than
+  commissioning another critic.
 
 ## 4. Worker assignment and status contract
 
@@ -189,7 +209,8 @@ shared worktree directly before updating the accepted-slice register.
 
 The coordinator lands only after the canonical package completion contract,
 every exact gate, deletion proof, evidence update, ledger update, accepted-slice
-preservation check, and fresh critic pass are satisfied. Blackdog operation
+preservation check, and the one fresh critic's acceptance are satisfied on the
+same hashes. Blackdog operation
 success is not package completion. Follow its exact actions through landing and
 cleanup, then prove the landed commit is current `main`, the primary workspace
 is still on `main`, `git status --short` is empty, repository-wide Blackdog state

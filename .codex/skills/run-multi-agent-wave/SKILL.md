@@ -50,14 +50,25 @@ authorities.
    than three workers or critics. Act only as coordinator: own lifecycle,
    bounded read-only inspection, delegation, acceptance, retasking, and landing.
    Do not implement, edit, or run validation yourself. Use fewer agents when
-   work is not safely disjoint, and preserve a slot for the fresh critic.
-7. Require a serial documentation integrator in every wave. The same landing
+   work is not safely disjoint, and preserve a slot for the one fresh critic.
+7. Bound acceptance criticism. After a stable integrated candidate passes its
+   focused validation, commission exactly one fresh-context read-only critic
+   before broad `QUICK` or `STRICT` gates. Accept at most three material blockers
+   per pass. Corrections return to the same critic for delta-only rechecks; a
+   passed dimension stays closed unless a changed line invalidates it. Permit at
+   most two correction/recheck cycles, then stop with typed operator judgment if
+   a blocker remains. After critic acceptance, run final gates serially and land
+   as soon as acceptance and gates cover the same hashes. A docs-only evidence
+   update with unchanged source and test hashes reruns only documentation and
+   diff-hygiene gates. Never commission a post-pass, fresh, confirmation, or
+   precautionary critic.
+8. Require a serial documentation integrator in every wave. The same landing
    updates the execution-plan ledger row, Current Evidence gate table and detail,
    and every routed canonical document affected by the package, including current
    architecture when as-built topology or ownership changes. Record a reviewed
    no-change disposition for the remaining canonical documents. Stale
    documentation fails the wave.
-8. Stop only at a typed Blackdog blocker, an exact unresolved dependency or
+9. Stop only at a typed Blackdog blocker, an exact unresolved dependency or
    authorization boundary, a declined/unavailable offload, or verified package
    landing on `main`. After Blackdog completion, verify the landed commit is
    current `main`, `git status --short` is empty, and no unfinished wave task or
