@@ -140,19 +140,14 @@ extension OperatorWorkspaceTests {
     #expect(await machine.requestedDrawingStrokes == drawingRequestsBeforeReset)
     #expect(await machine.requestedPenCommands == penRequestsBeforeReset)
     #expect(await machine.cancelCount == cancelCountBeforeReset)
-    #expect(workspace.motionUnavailableReason == nil)
+    #expect(workspace.manualMotionEpisodePresentation.jogControlsUnavailableReason == nil)
 
-    let manualJog = await workspace.requestRelativeJog(
-      RelativeJogRequest(
-        delta: try Vector2(dx: 1, dy: 0),
-        feedMMPerMinute: 100
-      )
-    )
-    guard case .acceptedThenCompleted = manualJog else {
-      Issue.record("Expected manual motion to remain admitted after Reset All.")
-      await workspace.shutdown()
-      return
-    }
+    await workspace.submitManualMotionIntent(try manualEpisodeJog(RelativeJogRequest(
+      delta: try Vector2(dx: 1, dy: 0),
+      feedMMPerMinute: 100
+    )))
+    #expect(workspace.manualMotionEpisodeSnapshot?.projection.lastTerminalEffect?.disposition
+      == .completed)
     await workspace.shutdown()
   }
 
@@ -209,10 +204,12 @@ extension OperatorWorkspaceTests {
       delta: try Vector2(dx: 1, dy: 0),
       feedMMPerMinute: 100
     )
-    let owner = Task { await workspace.requestRelativeJog(request) }
-    try await waitUntil { workspace.manualMotionPresentation.stopAction != nil }
+    let owner = Task {
+      await workspace.submitManualMotionIntent(try! manualEpisodeJog(request))
+    }
+    try await waitUntil { workspace.manualMotionEpisodePresentation.stopAction != nil }
     let capabilityID = try #require(
-      workspace.manualMotionPresentation.stopAction?.capabilityID
+      workspace.manualMotionEpisodePresentation.stopAction?.capabilityID
     )
     let plan = try #require(workspace.resetAllLearningPlan)
 
@@ -220,13 +217,13 @@ extension OperatorWorkspaceTests {
 
     #expect(didReset)
     #expect(await machine.cancelCount == 0)
-    #expect(workspace.manualMotionPresentation.stopAction?.capabilityID == capabilityID)
+    #expect(workspace.manualMotionEpisodePresentation.stopAction?.capabilityID == capabilityID)
     #expect(workspace.learningArtifactGraph.revisions.allSatisfy { $0.state != .current })
     #expect(
       workspace.currentLearningPathItemID == .humanGuidedDiscovery(.penInteraction)
     )
 
-    await workspace.stopManualMotion(capabilityID: capabilityID)
+    await workspace.requestManualMotionStop(capabilityID: capabilityID)
     _ = await owner.value
     #expect(await machine.cancelCount == 1)
     #expect(await machine.cancelIntents == [.operatorStop])
@@ -484,21 +481,13 @@ extension OperatorWorkspaceTests {
     ))
 
     #expect(relaunched.motionAuthorizationEnabled)
-    #expect(relaunched.motionUnavailableReason == nil)
-    let manualJog = await relaunched.requestRelativeJog(
-      RelativeJogRequest(
-        delta: try Vector2(dx: 1, dy: 0),
-        feedMMPerMinute: 100
-      )
-    )
-    guard case .acceptedThenCompleted = manualJog else {
-      Issue.record(
-        "Expected restored Learning to remain outside manual-motion admission."
-      )
-      await first.shutdown()
-      await relaunched.shutdown()
-      return
-    }
+    #expect(relaunched.manualMotionEpisodePresentation.jogControlsUnavailableReason == nil)
+    await relaunched.submitManualMotionIntent(try manualEpisodeJog(RelativeJogRequest(
+      delta: try Vector2(dx: 1, dy: 0),
+      feedMMPerMinute: 100
+    )))
+    #expect(relaunched.manualMotionEpisodeSnapshot?.projection.lastTerminalEffect?.disposition
+      == .completed)
 
     let plan = try #require(relaunched.resetAllLearningPlan)
     let didReset = await relaunched.performResetAllLearning(plan)

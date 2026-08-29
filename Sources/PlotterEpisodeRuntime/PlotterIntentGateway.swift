@@ -22,6 +22,7 @@ public struct PlotterIntentGateway: Sendable {
       intent: intent,
       state: state,
       capabilityFacts: capabilityFacts,
+      environment: environment,
       requiredLearningPointSelectionOwner: requiredLearningPointSelectionOwner
     )
     let payload: PlotterEpisodeEventPayload

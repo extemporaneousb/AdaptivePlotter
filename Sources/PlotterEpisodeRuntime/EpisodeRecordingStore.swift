@@ -500,8 +500,12 @@ private func validate(
       throw EpisodeRecordingError.invalidControllerPartialResult(completion.invocationID)
     }
     switch invocation {
-    case .open, .close, .discardInput:
+    case .open, .close:
       guard failure.partialByteCount == 0, failure.partialReadChunks.isEmpty else {
+        throw EpisodeRecordingError.invalidControllerPartialResult(completion.invocationID)
+      }
+    case .discardInput:
+      guard failure.partialReadChunks.isEmpty else {
         throw EpisodeRecordingError.invalidControllerPartialResult(completion.invocationID)
       }
     case let .rawWrite(parameters):

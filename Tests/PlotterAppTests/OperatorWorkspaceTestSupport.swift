@@ -64,7 +64,7 @@ func makeSimulatedHarness(
   )
   return SimulatedWorkspaceHarness(
     workspace: OperatorWorkspace(
-      machineActions: isolatedMachineActions(log: machineActionLog),
+      machineActions: nil,
       cameraActions: cameraActions ?? CameraComposition.makeIsolatedActionsForTesting(),
       acceptedLearningPathCheckpointActions: learningPathCheckpointActions,
       tipCalibrationSemanticIdentities: tipCalibrationSemanticIdentities,
@@ -107,6 +107,30 @@ func acceptedSimulated<Value: Sendable>(
   _ response: SimulatedLearningResponse<Value>
 ) throws -> Value {
   try response.result.get()
+}
+
+func manualEpisodeJog(
+  _ request: RelativeJogRequest,
+  routing: PlotterManualJogRouting? = nil
+) throws -> PlotterManualMotionIntent {
+  let direction: PlotterJogDirection
+  let distance: Double
+  if request.delta.dy == 0, request.delta.dx != 0 {
+    direction = request.delta.dx > 0 ? .positiveX : .negativeX
+    distance = abs(request.delta.dx)
+  } else if request.delta.dx == 0, request.delta.dy != 0 {
+    direction = request.delta.dy > 0 ? .positiveY : .negativeY
+    distance = abs(request.delta.dy)
+  } else {
+    throw PlotterIntentValidationError.invalidJogDistance
+  }
+  return .jog(try PlotterJogRequest(
+    direction: direction,
+    distanceMM: distance,
+    feedMMPerMinute: request.feedMMPerMinute,
+    routing: routing
+      ?? (request.permitsUnknownPenStateAsPossibleInk ? .possibleInk : .relativeTravel)
+  ))
 }
 
 @MainActor
@@ -482,7 +506,7 @@ func workspace(
         .admitted(
           RelativeJogOperation(
             id: UUID(),
-            task: Task { await machine.requestRelativeJog(request) }
+            task: Task { await machine.performRelativeMotion(request) }
           )
         )
       },
@@ -494,7 +518,12 @@ func workspace(
           )
         )
       },
-      requestPenActuation: { await machine.requestPen($0, profile: $1) },
+      beginPenActuation: { command, profile in
+        .admitted(PenActuationOperation(
+          id: UUID(),
+          task: Task { await machine.requestPen(command, profile: profile) }
+        ))
+      },
       beginBoundaryMotion: beginBoundaryMotion,
       requestJogCancel: requestJogCancel,
       disconnect: {}
@@ -546,59 +575,6 @@ func testPenCapAppearanceSelection(
 
 enum SimulatorIsolationViolation: Error {
   case machineAction(String)
-}
-
-func isolatedMachineActions(log: EventLog) -> OperatorWorkspace.MachineActions {
-  .init(
-    select: { _ in
-      await log.append("select")
-      throw SimulatorIsolationViolation.machineAction("select")
-    },
-    snapshot: {
-      await log.append("snapshot")
-      return nil
-    },
-    requestPassiveProbe: {
-      await log.append("requestPassiveProbe")
-      throw SimulatorIsolationViolation.machineAction("requestPassiveProbe")
-    },
-    requestControllerAlarmClear: {
-      await log.append("requestControllerAlarmClear")
-      return .refused(.noCurrentAlarmEvidence)
-    },
-    activateMotionGuard: {
-      await log.append("activateMotionGuard")
-      return .refused(.notConnected)
-    },
-    deactivateMotionGuard: {
-      await log.append("deactivateMotionGuard")
-    },
-    beginRelativeJog: { _ in
-      await log.append("beginRelativeJog")
-      return .rejected(.refused(.notConnected))
-    },
-    beginDrawingStroke: { _ in
-      await log.append("beginDrawingStroke")
-      return .rejected(.refused(.notConnected))
-    },
-    requestPenActuation: { _, _ in
-      await log.append("requestPenActuation")
-      return .refused(.notConnected)
-    },
-    beginBoundaryMotion: { request, _ in
-      await log.append("beginBoundaryMotion")
-      return .rejected(
-        .needsAttention(ownerID: request.ownerID, terminal: .refusal(.notConnected))
-      )
-    },
-    requestJogCancel: { _ in
-      await log.append("requestJogCancel")
-      return .refused(.noActiveJog)
-    },
-    disconnect: {
-      await log.append("disconnect")
-    }
-  )
 }
 
 func cameraActions(
@@ -976,7 +952,7 @@ actor MachineFixture {
     )
   }
 
-  func requestRelativeJog(_ request: RelativeJogRequest) async -> MotionOutcome {
+  func performRelativeMotion(_ request: RelativeJogRequest) async -> MotionOutcome {
     requestedFeeds.append(request.feedMMPerMinute)
     activeRequest = request
     moving = true

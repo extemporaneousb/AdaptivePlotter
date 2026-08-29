@@ -12,6 +12,9 @@ public enum PlotterIntentRequirement: String, Codable, CaseIterable, Hashable, S
   case controllerConnected
   case motionEnabled
   case poseSettled
+  case controllerOperationInactive
+  case jogRoutingCurrent
+  case penActuationProfileCurrent
   case cameraAvailable
   case exactFrameAvailable
   case executionPlanCurrent
@@ -139,26 +142,28 @@ private func resultAwaitingEvidence(
 }
 
 private func controllerRequirements(
-  facts: [PlotterCapabilityFact]
+  facts: [PlotterCapabilityFact],
+  environment: PlotterEnvironment?,
+  motionRemedy: String = "Enable Motion before requesting movement."
 ) -> [PlotterIntentRequirementEvaluation] {
   let connection = facts.fact(ofKind: .connection)
   let motion = facts.fact(ofKind: .motion)
   let pose = facts.fact(ofKind: .pose)
   let isConnected: Bool
   if case let .connection(value)? = connection {
-    isConnected = value.isConnected
+    isConnected = value.isConnected && (environment == nil || value.environment == environment)
   } else {
     isConnected = false
   }
   let isMotionEnabled: Bool
   if case let .motion(value)? = motion {
-    isMotionEnabled = value.isEnabled
+    isMotionEnabled = value.isEnabled && (environment == nil || value.environment == environment)
   } else {
     isMotionEnabled = false
   }
   let isPoseSettled: Bool
   if case let .pose(value)? = pose {
-    isPoseSettled = value.isSettled
+    isPoseSettled = value.isSettled && (environment == nil || value.environment == environment)
   } else {
     isPoseSettled = false
   }
@@ -175,7 +180,7 @@ private func controllerRequirements(
       fact: motion,
       expectedOwner: PlotterRequirementOwner.controller,
       isSatisfied: isMotionEnabled,
-      remedy: "Enable Motion before requesting movement."
+      remedy: motionRemedy
     ),
     factRequirement(
       .poseSettled,
@@ -185,6 +190,61 @@ private func controllerRequirements(
       remedy: "Wait for the controller pose to settle under its current policy."
     ),
   ]
+}
+
+private func manualControllerRequirements(
+  intent: PlotterManualMotionIntent,
+  facts: [PlotterCapabilityFact],
+  environment: PlotterEnvironment?
+) -> [PlotterIntentRequirementEvaluation] {
+  let manualController = facts.fact(ofKind: .manualController)
+  let value: PlotterManualControllerFact?
+  if case let .manualController(fact)? = manualController {
+    value = fact
+  } else {
+    value = nil
+  }
+  let inactive = factRequirement(
+    .controllerOperationInactive,
+    fact: manualController,
+    expectedOwner: PlotterRequirementOwner.controller,
+    isSatisfied: value?.operationIsActive != true
+      && (environment == nil || value?.environment == environment),
+    remedy: "Wait for the current controller operation to settle before requesting manual action."
+  )
+  switch intent {
+  case let .jog(request):
+    let shared = controllerRequirements(facts: facts, environment: environment)
+    return shared + [
+      inactive,
+      factRequirement(
+        .jogRoutingCurrent,
+        fact: manualController,
+        expectedOwner: PlotterRequirementOwner.controller,
+        isSatisfied: (value?.penState.requiredJogRouting == request.routing
+          || (value == nil && request.routing == .relativeTravel))
+          && (environment == nil || value?.environment == environment),
+        remedy: "Refresh controller Pen state and rebuild the manual jog request."
+      ),
+    ]
+  case let .setPen(request):
+    let shared = controllerRequirements(
+      facts: facts,
+      environment: environment,
+      motionRemedy: "Enable Motion before actuating the pen."
+    )
+    return Array(shared.dropLast()) + [
+      inactive,
+      factRequirement(
+        .penActuationProfileCurrent,
+        fact: manualController,
+        expectedOwner: PlotterRequirementOwner.controller,
+        isSatisfied: value?.penActuationProfileRevision == request.profile.revision
+          && (environment == nil || value?.environment == environment),
+        remedy: "Refresh the current Pen actuation profile before requesting direct Pen motion."
+      ),
+    ]
+  }
 }
 
 private func cameraRequirements(
@@ -381,12 +441,17 @@ public enum PlotterManualMotionIntentRules {
   public static func requirements(
     for intent: PlotterManualMotionIntent,
     state: PlotterEpisodeState,
-    capabilityFacts: [PlotterCapabilityFact]
+    capabilityFacts: [PlotterCapabilityFact],
+    environment: PlotterEnvironment?
   ) -> [PlotterIntentRequirementEvaluation] {
     switch intent {
     case .jog, .setPen:
       return [episodeOpen(state), sessionReady(state)]
-        + controllerRequirements(facts: capabilityFacts)
+        + manualControllerRequirements(
+          intent: intent,
+          facts: capabilityFacts,
+          environment: environment
+        )
     }
   }
 }
@@ -395,7 +460,8 @@ public enum PlotterDrawingIntentRules {
   public static func requirements(
     for intent: PlotterDrawingIntent,
     state: PlotterEpisodeState,
-    capabilityFacts: [PlotterCapabilityFact]
+    capabilityFacts: [PlotterCapabilityFact],
+    environment: PlotterEnvironment?
   ) -> [PlotterIntentRequirementEvaluation] {
     switch intent {
     case let .execute(planRevisionID):
@@ -417,7 +483,7 @@ public enum PlotterDrawingIntentRules {
           isSatisfied: isCurrent,
           remedy: "Rebuild and select an execution plan bound to current revisions."
         ),
-      ] + controllerRequirements(facts: capabilityFacts)
+      ] + controllerRequirements(facts: capabilityFacts, environment: environment)
     case let .captureResult(configurationID):
       return [episodeOpen(state), resultAwaitingEvidence(state)]
         + cameraRequirements(configurationID: configurationID, facts: capabilityFacts)
@@ -577,6 +643,7 @@ public struct PlotterIntentEvaluator: EpisodeIntentEvaluating {
       intent: intent,
       state: state,
       capabilityFacts: capabilityFacts,
+      environment: nil,
       requiredLearningPointSelectionOwner: nil
     )
   }
@@ -586,6 +653,7 @@ public struct PlotterIntentEvaluator: EpisodeIntentEvaluating {
     intent: PlotterIntent,
     state: PlotterEpisodeState,
     capabilityFacts: [PlotterCapabilityFact],
+    environment: PlotterEnvironment? = nil,
     requiredLearningPointSelectionOwner: PlotterPointSelectionActivityOwner?
   ) -> IntentDecision {
     let orderedFacts = capabilityFacts.sorted { lhs, rhs in
@@ -626,13 +694,15 @@ public struct PlotterIntentEvaluator: EpisodeIntentEvaluating {
       scoped = PlotterManualMotionIntentRules.requirements(
         for: value,
         state: state,
-        capabilityFacts: orderedFacts
+        capabilityFacts: orderedFacts,
+        environment: environment
       )
     case let .drawing(value):
       scoped = PlotterDrawingIntentRules.requirements(
         for: value,
         state: state,
-        capabilityFacts: orderedFacts
+        capabilityFacts: orderedFacts,
+        environment: environment
       )
     case let .learning(value):
       scoped = PlotterLearningIntentRules.requirements(

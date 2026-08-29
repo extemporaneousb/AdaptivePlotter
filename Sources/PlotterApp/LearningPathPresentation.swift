@@ -1,4 +1,5 @@
 import Foundation
+import PlotterEpisodeRuntime
 import PlotterRuntime
 
 enum LearningPathStage: Int, CaseIterable, Hashable, Identifiable, Sendable {
@@ -358,15 +359,43 @@ struct ContextualStopActionPresentation: Hashable, Sendable {
   let detail: String
 }
 
+struct ManualMotionStopActionPresentation: Hashable, Sendable {
+  let capabilityID: PlotterManualMotionStopCapabilityID
+  let title: String
+  let detail: String
+}
+
+struct ManualMotionPublicationRecoveryPresentation: Hashable, Sendable {
+  let capabilityID: PlotterManualMotionPublicationRecoveryCapabilityID
+  let title: String
+  let remedy: String
+}
+
+struct ManualMotionEvidenceDispositionPresentation: Hashable, Sendable {
+  let action: PlotterManualMotionEvidenceDispositionAction
+  let title: String
+  let remedy: String
+}
+
 struct ManualMotionPresentation: Hashable, Sendable {
   static let xDistanceLabel = "X distance (mm)"
   static let yDistanceLabel = "Y distance (mm)"
   static let feedLabel = "Feed (mm/min)"
 
-  let stopAction: ContextualStopActionPresentation?
+  let stopAction: ManualMotionStopActionPresentation?
+  let publicationRecovery: ManualMotionPublicationRecoveryPresentation?
+  let evidenceDisposition: ManualMotionEvidenceDispositionPresentation?
   let jogUnavailableReason: String?
+  let penUpUnavailableReason: String?
+  let penDownUnavailableReason: String?
+  let penStateText: String
+  let modeText: String
+  let recordingDiagnostic: String?
 
   var isStoppable: Bool { stopAction != nil }
+  var publicationPendingReason: String? { publicationRecovery?.remedy }
+  var evidencePendingReason: String? { evidenceDisposition?.remedy }
+  var attentionReason: String? { publicationPendingReason ?? evidencePendingReason }
   var jogControlsUnavailableReason: String? {
     if stopAction != nil {
       return jogUnavailableReason ?? "Stop the active manual jog before starting another."

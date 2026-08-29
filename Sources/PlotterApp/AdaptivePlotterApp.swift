@@ -12,6 +12,7 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
     pointSelectionRuntime: PointSelectionComposition.production.runtime,
     pointSelectionRecordingDiagnostic:
       PointSelectionComposition.production.recordingDiagnostic,
+    manualMotionRuntime: PlotterManualMotionComposition.production.runtime,
     announcementActions: SpeechComposition.actions,
     acceptedLearningPathCheckpointActions: AcceptedArtifactCheckpointComposition.actions,
     drawingEvidenceActions: DrawingRunEvidenceComposition.actions,
@@ -23,7 +24,8 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
     persistPaperContactPlaneRevision: {
       TipCalibrationSemanticIdentityComposition.persistPaperContactPlane($0)
     },
-    workflowTelemetryActions: MachineSessionComposition.workflowTelemetryActions
+    workflowTelemetryActions: MachineSessionComposition.workflowTelemetryActions,
+    simulatedLearningRuntime: PlotterManualMotionComposition.production.simulatedRuntime
   )
   private var terminationTask: Task<Void, Never>?
   private var terminationDeadlineTask: Task<Void, Never>?
@@ -453,7 +455,7 @@ struct OperatorWorkspaceView: View {
   }
 
   private var motionCollapseUnavailableReason: String? {
-    workspace.manualMotionPresentation.stopAction == nil
+    workspace.manualMotionEpisodePresentation.stopAction == nil
       ? nil : "Stop the active manual jog before hiding its Stop control."
   }
 
@@ -933,7 +935,7 @@ private struct MotionPanel: View {
   let closeUnavailableReason: String?
 
   var body: some View {
-    let presentation = workspace.manualMotionPresentation
+    let presentation = workspace.manualMotionEpisodePresentation
     SectionPanel(
       title: "MANUAL RELATIVE MOTION",
       panel: .motion,
@@ -947,9 +949,18 @@ private struct MotionPanel: View {
       .foregroundStyle(.secondary)
 
       HStack(spacing: 8) {
-        numericField(ManualMotionPresentation.xDistanceLabel, text: $workspace.xStepText)
-        numericField(ManualMotionPresentation.yDistanceLabel, text: $workspace.yStepText)
-        numericField(ManualMotionPresentation.feedLabel, text: $workspace.feedText)
+        numericField(
+          ManualMotionPresentation.xDistanceLabel,
+          text: $workspace.manualMotionDraft.xDistanceMM
+        )
+        numericField(
+          ManualMotionPresentation.yDistanceLabel,
+          text: $workspace.manualMotionDraft.yDistanceMM
+        )
+        numericField(
+          ManualMotionPresentation.feedLabel,
+          text: $workspace.manualMotionDraft.feedMMPerMinute
+        )
       }
 
       VStack(spacing: 5) {
@@ -964,7 +975,7 @@ private struct MotionPanel: View {
 
       if let stop = presentation.stopAction {
         Button {
-          Task { await workspace.stopManualMotion(capabilityID: stop.capabilityID) }
+          Task { await workspace.requestManualMotionStop(capabilityID: stop.capabilityID) }
         } label: {
           Label(stop.title, systemImage: "stop.fill")
             .frame(maxWidth: .infinity)
@@ -975,26 +986,64 @@ private struct MotionPanel: View {
         .accessibilityHint(stop.detail)
       }
 
+      if let recovery = presentation.publicationRecovery {
+        VStack(alignment: .leading, spacing: 5) {
+          Text(recovery.remedy)
+            .font(.caption)
+            .foregroundStyle(.orange)
+          Button {
+            Task {
+              await workspace.recoverManualMotionPublication(
+                capabilityID: recovery.capabilityID
+              )
+            }
+          } label: {
+            Label(recovery.title, systemImage: "arrow.clockwise.circle.fill")
+              .frame(maxWidth: .infinity)
+          }
+          .operatorButton(.affirmative)
+          .help(recovery.remedy)
+          .accessibilityHint(recovery.remedy)
+        }
+      }
+
+      if let evidence = presentation.evidenceDisposition {
+        VStack(alignment: .leading, spacing: 5) {
+          Text(evidence.remedy)
+            .font(.caption)
+            .foregroundStyle(.orange)
+          Button {
+            Task { await workspace.resolveManualMotionEvidence(using: evidence.action) }
+          } label: {
+            Label(evidence.title, systemImage: "checkmark.shield.fill")
+              .frame(maxWidth: .infinity)
+          }
+          .operatorButton(.affirmative)
+          .help(evidence.remedy)
+          .accessibilityHint(evidence.remedy)
+        }
+      }
+
       HStack(spacing: 6) {
         Button {
-          Task { await workspace.requestPenActuation(.raise) }
+          Task { await workspace.submitManualPen(.raise) }
         } label: {
           Label("Pen Up", systemImage: "arrow.up.to.line")
         }
         .operatorButton(
-          isEnabled: workspace.penUnavailableReason(for: .raise) == nil
+          isEnabled: presentation.penUpUnavailableReason == nil
         )
         Button {
-          Task { await workspace.requestPenActuation(.lower) }
+          Task { await workspace.submitManualPen(.lower) }
         } label: {
           Label("Pen Down", systemImage: "arrow.down.to.line")
         }
         .operatorButton(
-          isEnabled: workspace.penUnavailableReason(for: .lower) == nil
+          isEnabled: presentation.penDownUnavailableReason == nil
         )
       }
 
-      Text(workspace.penStateText)
+      Text(presentation.penStateText)
         .font(.caption.weight(.semibold))
         .foregroundStyle(.secondary)
       Text("Commanded state is controller evidence only; the camera cannot observe pen height.")
@@ -1038,7 +1087,7 @@ private struct MotionPanel: View {
       fact("Motor power", workspace.motorPowerText)
       fact("Motion", workspace.motionGuardIsActive ? "enabled" : "disabled")
       fact("Motion request", workspace.motionPermissionText)
-      fact("Manual mode", workspace.manualMotionModeText)
+      fact("Manual mode", presentation.modeText)
       fact("Learning", workspace.learningIsEnabled ? "on" : "off — manual operation")
       fact("MPos", workspace.machinePositionText)
       fact("Operation", workspace.currentOperationText)
@@ -1050,7 +1099,7 @@ private struct MotionPanel: View {
           .font(.caption)
           .foregroundStyle(.orange)
       }
-      if let reason = workspace.penUnavailableReason(for: .lower) {
+      if let reason = presentation.penDownUnavailableReason {
         Text("Pen down: \(reason)")
           .font(.caption)
           .foregroundStyle(.orange)
@@ -1066,13 +1115,13 @@ private struct MotionPanel: View {
     direction: JogDirection
   ) -> some View {
     Button {
-      Task { await workspace.requestJog(direction) }
+      Task { await workspace.submitManualJog(direction) }
     } label: {
       Label(label, systemImage: systemImage)
         .frame(minWidth: 64, minHeight: 24)
     }
     .operatorButton(
-      isEnabled: workspace.manualMotionPresentation.jogControlsUnavailableReason == nil
+      isEnabled: workspace.manualMotionEpisodePresentation.jogControlsUnavailableReason == nil
     )
     .help(jogAccessibilityLabel(direction))
     .accessibilityLabel(jogAccessibilityLabel(direction))

@@ -7,6 +7,36 @@ import Testing
 
 @Suite("Plotter incident package assembler and exporter")
 struct PlotterIncidentPackageTests {
+  @Test("incident source references retain exact durable journal and recording completeness")
+  func incidentSourceArtifactReferencesRoundTrip() throws {
+    let journalURL = URL(fileURLWithPath: "/tmp/episode-journal.json")
+    let recordingURL = URL(fileURLWithPath: "/tmp/controller-recording", isDirectory: true)
+    let reference = PlotterIncidentSourceArtifactReferences(
+      episodeID: IncidentFixture.episodeID,
+      journal: EpisodeArtifactReference(
+        id: EpisodeArtifactID(rawValue: "manual-motion-journal.json"),
+        revision: EpisodeRevisionIdentifier(rawValue: "plotter-manual-motion-journal-v1"),
+        digest: String(repeating: "a", count: 64)
+      ),
+      journalFileURL: journalURL,
+      recordingID: IncidentFixture.recordingID,
+      recordingDirectoryURL: recordingURL,
+      recordingDurability: .uncertain(candidateWasObserved: true),
+      recordingCompletenessIssues: [.controllerCompletionMissing(
+        ControllerInvocationID(rawValue: uuid(90))
+      )]
+    )
+
+    let encoded = try JSONEncoder().encode(reference)
+    #expect(try JSONDecoder().decode(
+      PlotterIncidentSourceArtifactReferences.self,
+      from: encoded
+    ) == reference)
+    #expect(reference.recordingCompletenessIssues == [.controllerCompletionMissing(
+      ControllerInvocationID(rawValue: uuid(90))
+    )])
+  }
+
   @Test("canonical export is deterministic, versioned, and integrity-verifiable")
   func deterministicVerifiedExport() throws {
     let source = try IncidentFixture.source()

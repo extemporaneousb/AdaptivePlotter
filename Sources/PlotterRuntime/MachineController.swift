@@ -249,7 +249,7 @@ public actor MachineController {
     writeTimeoutNanoseconds: UInt64 = 500_000_000
   ) throws -> MachineController {
     MachineController(
-      link: try BSDSerialLink(
+      link: try bsdSerialLink(
         descriptor: descriptor,
         writeTimeoutNanoseconds: writeTimeoutNanoseconds,
         clock: clock
@@ -263,6 +263,21 @@ public actor MachineController {
       maximumRawReceiveChunksPerQuery: maximumRawReceiveChunksPerQuery,
       statusPollIntervalNanoseconds: statusPollIntervalNanoseconds,
       completionGraceNanoseconds: completionGraceNanoseconds
+    )
+  }
+
+  /// Constructs the one production BSD `MachineLink` so app composition can
+  /// install a transparent `MachineLink` decorator without moving controller
+  /// admission, serialization, safety, or settlement out of this actor.
+  public static func bsdSerialLink(
+    descriptor: MachineLinkDescriptor,
+    writeTimeoutNanoseconds: UInt64 = 500_000_000,
+    clock: any RuntimeClock = SystemRuntimeClock()
+  ) throws -> any MachineLink {
+    try BSDSerialLink(
+      descriptor: descriptor,
+      writeTimeoutNanoseconds: writeTimeoutNanoseconds,
+      clock: clock
     )
   }
 

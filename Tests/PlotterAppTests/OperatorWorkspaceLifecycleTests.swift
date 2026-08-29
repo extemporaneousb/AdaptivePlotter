@@ -25,7 +25,8 @@ struct OperatorWorkspaceLifecycleTests {
     await workspace.performMotionAuthorizationAction()
 
     #expect(!workspace.motionAuthorizationEnabled)
-    #expect(workspace.motionUnavailableReason == "Enable simulated Motion first.")
+    #expect(workspace.manualMotionEpisodePresentation.jogControlsUnavailableReason
+      == "Enable Motion before requesting movement.")
     await workspace.shutdown()
   }
 

@@ -22,7 +22,7 @@ extension OperatorWorkspaceTests {
         deactivateMotionGuard: {},
         beginRelativeJog: { _ in .rejected(.refused(.notConnected)) },
         beginDrawingStroke: { _ in .rejected(.refused(.notConnected)) },
-        requestPenActuation: { _, _ in .refused(.notConnected) },
+        beginPenActuation: { _, _ in .rejected(.refused(.notConnected)) },
         beginBoundaryMotion: { request, _ in
           .rejected(
             .needsAttention(ownerID: request.ownerID, terminal: .refusal(.notConnected))
@@ -76,9 +76,10 @@ extension OperatorWorkspaceTests {
     #expect(workspace.controllerSessionEstablished)
     #expect(!workspace.motionAuthorizationEnabled)
     #expect(workspace.motionGuardActivationUnavailableReason == nil)
-    #expect(workspace.motionUnavailableReason == "Enable Motion before moving.")
+    #expect(workspace.manualMotionEpisodePresentation.jogControlsUnavailableReason
+      == "Enable Motion before requesting movement.")
     #expect(
-      workspace.penUnavailableReason(for: .lower)
+      workspace.manualMotionEpisodePresentation.penDownUnavailableReason
         == "Enable Motion before actuating the pen."
     )
     await workspace.shutdown()
@@ -98,7 +99,7 @@ extension OperatorWorkspaceTests {
         deactivateMotionGuard: {},
         beginRelativeJog: { _ in .rejected(.refused(.notConnected)) },
         beginDrawingStroke: { _ in .rejected(.refused(.notConnected)) },
-        requestPenActuation: { _, _ in .refused(.notConnected) },
+        beginPenActuation: { _, _ in .rejected(.refused(.notConnected)) },
         beginBoundaryMotion: { request, _ in
           .rejected(
             .needsAttention(ownerID: request.ownerID, terminal: .refusal(.notConnected))
@@ -135,9 +136,9 @@ extension OperatorWorkspaceTests {
     let machine = try MachineFixture(log: log)
     let workspace = workspace(machine: machine, log: log)
 
-    #expect(workspace.xStepText == "50")
-    #expect(workspace.yStepText == "50")
-    #expect(workspace.feedText == "500")
+    #expect(workspace.manualMotionDraft.xDistanceMM == "50")
+    #expect(workspace.manualMotionDraft.yDistanceMM == "50")
+    #expect(workspace.manualMotionDraft.feedMMPerMinute == "500")
   }
 
   @Test("unknown pen still admits an operator-authored manual direction request")
@@ -152,8 +153,8 @@ extension OperatorWorkspaceTests {
     await workspace.establishMachineSession(machine.descriptor)
     await workspace.requestPassiveProbe()
 
-    #expect(workspace.motionUnavailableReason == nil)
-    await workspace.requestJog(.xPositive)
+    #expect(workspace.manualMotionEpisodePresentation.jogControlsUnavailableReason == nil)
+    await workspace.submitManualJog(.xPositive)
 
     #expect(workspace.machinePositionText == "X 50.000   Y 0.000")
     #expect(await machine.requestedFeeds == [500])
@@ -304,17 +305,18 @@ extension OperatorWorkspaceTests {
     let workspace = workspace(machine: machine, workflowTelemetry: telemetry, log: log)
     await workspace.establishMachineSession(machine.descriptor)
     await workspace.requestPassiveProbe()
-    await workspace.requestPenActuation(.lower)
+    await workspace.submitManualPen(.lower)
 
-    #expect(workspace.motionUnavailableReason == nil)
-    #expect(workspace.manualMotionModeText == "drawing — commanded Pen Down")
+    #expect(workspace.manualMotionEpisodePresentation.jogControlsUnavailableReason == nil)
+    #expect(workspace.manualMotionEpisodePresentation.modeText
+      == "drawing — commanded Pen Down")
 
-    workspace.xStepText = "2"
-    workspace.yStepText = "2"
-    await workspace.requestJog(.xPositive)
-    await workspace.requestJog(.yPositive)
-    await workspace.requestJog(.xNegative)
-    await workspace.requestJog(.yNegative)
+    workspace.manualMotionDraft.xDistanceMM = "2"
+    workspace.manualMotionDraft.yDistanceMM = "2"
+    await workspace.submitManualJog(.xPositive)
+    await workspace.submitManualJog(.yPositive)
+    await workspace.submitManualJog(.xNegative)
+    await workspace.submitManualJog(.yNegative)
 
     let strokes = await machine.requestedDrawingStrokes
     #expect(strokes.count == 4)
@@ -337,22 +339,22 @@ extension OperatorWorkspaceTests {
     let workspace = workspace(machine: machine, log: log)
     await workspace.establishMachineSession(machine.descriptor)
     await workspace.requestPassiveProbe()
-    await workspace.requestPenActuation(.lower)
+    await workspace.submitManualPen(.lower)
 
-    let owner = Task { await workspace.requestJog(.xPositive) }
+    let owner = Task { await workspace.submitManualJog(.xPositive) }
     try await waitUntil {
-      workspace.manualMotionPresentation.stopAction?.title == "Stop Manual Drawing"
+      workspace.manualMotionEpisodePresentation.stopAction?.title == "Stop Manual Drawing"
     }
     let capabilityID = try #require(
-      workspace.manualMotionPresentation.stopAction?.capabilityID
+      workspace.manualMotionEpisodePresentation.stopAction?.capabilityID
     )
-    await workspace.stopManualMotion(capabilityID: capabilityID)
+    await workspace.requestManualMotionStop(capabilityID: capabilityID)
     _ = await owner.value
 
     #expect(await machine.cancelCount == 1)
     #expect(await machine.cancelIntents == [.operatorStop])
     #expect(workspace.penStateText.contains("commanded up"))
-    #expect(workspace.manualMotionPresentation.stopAction == nil)
+    #expect(workspace.manualMotionEpisodePresentation.stopAction == nil)
     await workspace.shutdown()
   }
 
@@ -385,7 +387,7 @@ extension OperatorWorkspaceTests {
     #expect(workspace.learningModePresentation.actionTitle == "Turn Learning On")
     #expect(workspace.controllerSessionEstablished)
     #expect(workspace.motionAuthorizationEnabled)
-    #expect(workspace.motionUnavailableReason == nil)
+    #expect(workspace.manualMotionEpisodePresentation.jogControlsUnavailableReason == nil)
     #expect(workspace.learningArtifactGraph.revisions == revisions)
     await workspace.performExerciseAction(
       .start,
@@ -393,7 +395,7 @@ extension OperatorWorkspaceTests {
     )
     #expect(workspace.activeExerciseAttemptOwnerID == nil)
 
-    await workspace.requestJog(.xPositive)
+    await workspace.submitManualJog(.xPositive)
     #expect(await machine.requestedDrawingStrokes.isEmpty)
     #expect(workspace.machinePositionText == "X 50.000   Y 0.000")
 
@@ -613,9 +615,12 @@ extension OperatorWorkspaceTests {
       delta: try Vector2(dx: 1, dy: 0),
       feedMMPerMinute: 100
     )
-    let owner = Task { await workspace.requestRelativeJog(request) }
-    try await waitUntil { workspace.contextualStopPresentation != nil }
-    let capabilityID = try #require(workspace.manualMotionPresentation.stopAction?.capabilityID)
+    let intent = try manualEpisodeJog(request)
+    let owner = Task { await workspace.submitManualMotionIntent(intent) }
+    try await waitUntil { workspace.manualMotionEpisodePresentation.stopAction != nil }
+    let capabilityID = try #require(
+      workspace.manualMotionEpisodePresentation.stopAction?.capabilityID
+    )
     #expect(workspace.controllerSessionEstablished)
     #expect(workspace.motionAuthorizationEnabled)
     if case .busy = workspace.motionRequestStatusPresentation {
@@ -623,8 +628,8 @@ extension OperatorWorkspaceTests {
     } else {
       Issue.record("Expected a busy motion-request projection while the manual jog owns motion.")
     }
-    async let first: Void = workspace.stopManualMotion(capabilityID: capabilityID)
-    async let repeated: Void = workspace.stopManualMotion(capabilityID: capabilityID)
+    async let first: Void = workspace.requestManualMotionStop(capabilityID: capabilityID)
+    async let repeated: Void = workspace.requestManualMotionStop(capabilityID: capabilityID)
     _ = await (first, repeated)
     _ = await owner.value
 
@@ -634,32 +639,31 @@ extension OperatorWorkspaceTests {
     #expect(workspace.discoveryTransactions.isEmpty)
     #expect(workspace.contextualStopPresentation == nil)
 
-    let secondOwner = Task { await workspace.requestRelativeJog(request) }
-    try await waitUntil { workspace.manualMotionPresentation.stopAction != nil }
+    let secondOwner = Task { await workspace.submitManualMotionIntent(intent) }
+    try await waitUntil { workspace.manualMotionEpisodePresentation.stopAction != nil }
     let secondCapabilityID = try #require(
-      workspace.manualMotionPresentation.stopAction?.capabilityID
+      workspace.manualMotionEpisodePresentation.stopAction?.capabilityID
     )
     #expect(secondCapabilityID != capabilityID)
-    await workspace.stopManualMotion(capabilityID: capabilityID)
+    await workspace.requestManualMotionStop(capabilityID: capabilityID)
     #expect(await machine.cancelCount == 1)
-    #expect(workspace.manualMotionPresentation.stopAction?.capabilityID == secondCapabilityID)
-    await workspace.stopManualMotion(capabilityID: secondCapabilityID)
+    #expect(workspace.manualMotionEpisodePresentation.stopAction?.capabilityID
+      == secondCapabilityID)
+    await workspace.requestManualMotionStop(capabilityID: secondCapabilityID)
     _ = await secondOwner.value
     #expect(await machine.cancelCount == 2)
     await workspace.shutdown()
   }
 
-  @Test("manual jog telemetry preserves operator intent and cannot be mistaken for calibration")
+  @Test("manual jog terminal projection preserves the typed operator intent")
   func manualJogTelemetryNamesOperationAndDistance() async throws {
     let log = EventLog()
-    let telemetry = WorkflowTelemetryFixture()
     let machine = try MachineFixture(
       log: log,
       relativeJogSettlementOffset: try Vector2(dx: 0, dy: 0)
     )
     let workspace = workspace(
       machine: machine,
-      workflowTelemetry: telemetry,
       log: log
     )
     await workspace.establishMachineSession(machine.descriptor)
@@ -669,17 +673,15 @@ extension OperatorWorkspaceTests {
       delta: try Vector2(dx: -100, dy: 0),
       feedMMPerMinute: 500
     )
-    let outcome = await workspace.requestRelativeJog(request)
-
-    guard case .acceptedThenCompleted = outcome else {
-      Issue.record("Expected the fixture's manual jog to complete.")
+    let intent = try manualEpisodeJog(request)
+    await workspace.submitManualMotionIntent(intent)
+    guard case let .completed(context, _)? =
+      workspace.manualMotionEpisodeSnapshot?.projection.lastTerminalEffect?.result
+    else {
+      Issue.record("Expected a completed typed manual-motion terminal result.")
       return
     }
-    let events = await telemetry.events
-    #expect(events.map(\.operation) == [.manualJog, .manualJog])
-    #expect(events.map(\.phase) == [.intentAccepted, .completed])
-    #expect(events.allSatisfy { $0.motionIntent?.deltaXMM == -100 })
-    #expect(events.allSatisfy { $0.operation != .currentCameraCalibration })
+    #expect(context.intent == .manualMotion(intent))
     await workspace.shutdown()
   }
 
@@ -870,14 +872,14 @@ extension OperatorWorkspaceTests {
     #expect(relaunched.controllerPoseApplicability == .currentSession)
     let restoredRevisions = relaunched.learningArtifactGraph.revisions
     #expect(relaunched.motionAuthorizationEnabled)
-    #expect(relaunched.motionUnavailableReason == nil)
-    #expect(relaunched.penUnavailableReason(for: .lower) == nil)
+    #expect(relaunched.manualMotionEpisodePresentation.jogControlsUnavailableReason == nil)
+    #expect(relaunched.manualMotionEpisodePresentation.penDownUnavailableReason == nil)
 
-    await relaunched.requestPenActuation(.lower)
+    await relaunched.submitManualPen(.lower)
     #expect(await machine.requestedPenCommands.last == .lower)
     #expect(relaunched.learningArtifactGraph.revisions == restoredRevisions)
 
-    await relaunched.requestPenActuation(.raise)
+    await relaunched.submitManualPen(.raise)
     #expect(await machine.requestedPenCommands.last == .raise)
     #expect(relaunched.learningArtifactGraph.revisions == restoredRevisions)
     #expect(

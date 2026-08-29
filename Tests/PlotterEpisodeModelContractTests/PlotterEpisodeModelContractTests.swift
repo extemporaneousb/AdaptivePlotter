@@ -161,7 +161,120 @@ struct PlotterIntentEvaluatorContractTests {
     #expect(first.context.requestID == Fixtures.requestID)
     #expect(first.context.comparedStateRevision == state.revision)
     #expect(first.context.comparedCapabilityFacts.count == facts.count)
-    #expect(first.requirementResults.count == 6)
+    #expect(first.requirementResults.count == 8)
+  }
+
+  @Test("manual jog routing is revision-bound to Down, Up, and Unknown Pen facts")
+  func manualJogRouting() throws {
+    let cases: [(PlotterControllerPenState, PlotterManualJogRouting)] = [
+      (.lowered, .drawingStroke),
+      (.raised, .relativeTravel),
+      (.unknown, .possibleInk),
+    ]
+    for (penState, routing) in cases {
+      var facts = try readyFacts()
+      facts.removeAll { $0.kind == .manualController }
+      facts.append(.manualController(PlotterManualControllerFact(
+        owner: EpisodeAuthorityID(rawValue: "controller-owner"),
+        revision: CapabilityFactRevision(rawValue: 81),
+        environment: .live,
+        penState: penState,
+        operationIsActive: false,
+        penActuationProfileRevision: revision("pen-profile-v1")
+      )))
+      let request = try PlotterJogRequest(
+        direction: .positiveX,
+        distanceMM: 50,
+        feedMMPerMinute: 500,
+        routing: routing
+      )
+      let decision = PlotterIntentEvaluator().evaluate(
+        requestID: Fixtures.requestID,
+        intent: .manualMotion(.jog(request)),
+        state: readyState(),
+        capabilityFacts: facts
+      )
+      #expect(decision.isAdmitted)
+      #expect(try roundTrip(request) == request)
+    }
+
+    var mismatchedFacts = try readyFacts()
+    mismatchedFacts.removeAll { $0.kind == .manualController }
+    mismatchedFacts.append(.manualController(PlotterManualControllerFact(
+      owner: EpisodeAuthorityID(rawValue: "controller-owner"),
+      revision: CapabilityFactRevision(rawValue: 82),
+      environment: .live,
+      penState: .unknown,
+      operationIsActive: false,
+      penActuationProfileRevision: revision("pen-profile-v1")
+    )))
+    let mismatch = PlotterIntentEvaluator().evaluate(
+      requestID: Fixtures.requestID,
+      intent: .manualMotion(.jog(try PlotterJogRequest(
+        direction: .negativeY,
+        distanceMM: 4,
+        feedMMPerMinute: 250,
+        routing: .relativeTravel
+      ))),
+      state: readyState(),
+      capabilityFacts: mismatchedFacts
+    )
+    #expect(mismatch.disposition == .refused)
+    #expect(mismatch.requirementResults.contains { result in
+      guard case let .refused(refusal) = result else { return false }
+      return refusal.requirementID == PlotterIntentRequirement.jogRoutingCurrent.id
+        && refusal.comparedCapabilityFacts.map(\.revision)
+          == [CapabilityFactRevision(rawValue: 82)]
+    })
+  }
+
+  @Test("direct Pen admission requires the exact current profile and inactive controller")
+  func directPenAdmission() throws {
+    let request = PlotterPenActuationRequest(
+      position: .lowered,
+      profile: try PlotterManualPenActuationProfile(
+        raisedSpindleValue: 40,
+        loweredSpindleValue: 760,
+        settleSeconds: 0.3,
+        revision: revision("pen-profile-v1")
+      )
+    )
+    let admitted = PlotterIntentEvaluator().evaluate(
+      requestID: Fixtures.requestID,
+      intent: .manualMotion(.setPen(request)),
+      state: readyState(),
+      capabilityFacts: try readyFacts()
+    )
+    #expect(admitted.isAdmitted)
+    #expect(try roundTrip(request) == request)
+
+    var staleFacts = try readyFacts()
+    staleFacts.removeAll { $0.kind == .manualController }
+    staleFacts.append(.manualController(PlotterManualControllerFact(
+      owner: EpisodeAuthorityID(rawValue: "controller-owner"),
+      revision: CapabilityFactRevision(rawValue: 83),
+      environment: .live,
+      penState: .raised,
+      operationIsActive: true,
+      penActuationProfileRevision: revision("pen-profile-v2")
+    )))
+    let refused = PlotterIntentEvaluator().evaluate(
+      requestID: Fixtures.requestID,
+      intent: .manualMotion(.setPen(request)),
+      state: readyState(),
+      capabilityFacts: staleFacts
+    )
+    #expect(refused.disposition == .refused)
+    #expect(refused.requirementResults.contains { result in
+      guard case let .refused(value) = result else { return false }
+      return value.requirementID == PlotterIntentRequirement.controllerOperationInactive.id
+    })
+    #expect(refused.requirementResults.contains { result in
+      guard case let .refused(value) = result else { return false }
+      return value.requirementID == PlotterIntentRequirement.penActuationProfileCurrent.id
+        && value.comparedCapabilityFacts.map(\.revision)
+          == [CapabilityFactRevision(rawValue: 83)]
+    })
   }
 
   @Test("refusal exposes typed requirement, authoritative owner, fact revision, and remedy")
@@ -172,6 +285,7 @@ struct PlotterIntentEvaluatorContractTests {
     facts.append(.motion(PlotterMotionFact(
       owner: controllerOwner,
       revision: CapabilityFactRevision(rawValue: 41),
+      environment: .live,
       isEnabled: false
     )))
     let decision = PlotterIntentEvaluator().evaluate(
@@ -206,6 +320,42 @@ struct PlotterIntentEvaluatorContractTests {
     )
     #expect(availability.disposition == .refused)
     #expect(availability.comparedCapabilityFacts == context.comparedCapabilityFacts)
+  }
+
+  @Test("direct Pen motion retains an intent-specific Motion remedy")
+  func directPenMotionRemedy() throws {
+    var facts = try readyFacts()
+    facts.removeAll { $0.kind == .motion }
+    facts.append(.motion(PlotterMotionFact(
+      owner: EpisodeAuthorityID(rawValue: "controller-owner"),
+      revision: CapabilityFactRevision(rawValue: 42),
+      environment: .live,
+      isEnabled: false
+    )))
+    let request = PlotterPenActuationRequest(
+      position: .lowered,
+      profile: try PlotterManualPenActuationProfile(
+        raisedSpindleValue: 45,
+        loweredSpindleValue: 755,
+        settleSeconds: 0.25,
+        revision: revision("pen-profile-v1")
+      )
+    )
+    let decision = PlotterIntentEvaluator().evaluate(
+      requestID: Fixtures.requestID,
+      intent: .manualMotion(.setPen(request)),
+      state: readyState(),
+      capabilityFacts: facts
+    )
+
+    guard case let .refused(_, failures) = decision else {
+      Issue.record("Expected direct Pen motion to be refused while Motion is disabled")
+      return
+    }
+    let failure = try #require(
+      failures.first { $0.requirementID == PlotterIntentRequirement.motionEnabled.id }
+    )
+    #expect(failure.remedy == "Enable Motion before actuating the pen.")
   }
 
   @Test("scoped drawing rule refuses a stale plan under the plan owner's revision")
@@ -906,14 +1056,24 @@ private func readyFacts() throws -> [PlotterCapabilityFact] {
     .motion(PlotterMotionFact(
       owner: controller,
       revision: CapabilityFactRevision(rawValue: 32),
+      environment: .live,
       isEnabled: true
     )),
     .pose(PlotterPoseFact(
       owner: controller,
       revision: CapabilityFactRevision(rawValue: 33),
+      environment: .live,
       machinePosition: try Point2(x: 1, y: 1),
       isSettled: true,
       settlementPolicyRevision: revision("pose-settlement-v1")
+    )),
+    .manualController(PlotterManualControllerFact(
+      owner: controller,
+      revision: CapabilityFactRevision(rawValue: 38),
+      environment: .live,
+      penState: .raised,
+      operationIsActive: false,
+      penActuationProfileRevision: revision("pen-profile-v1")
     )),
     .camera(PlotterCameraFact(
       owner: EpisodeAuthorityID(rawValue: "camera-owner"),

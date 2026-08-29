@@ -293,6 +293,13 @@ where Context: PlotterOperationContext {
   case attributionRefused(PlotterOperationAttributionRefusal<Context>)
 }
 
+package enum PlotterOperationPrestartWithdrawal: Equatable, Sendable {
+  case withdrawn
+  case unknownCompletionCapability
+  case identityMismatch
+  case cancellationInProgress
+}
+
 /// An owner-produced terminal result. Identity and settlement time travel with
 /// the disposition through direct completion, Stop, and shutdown.
 package struct PlotterOperationResult<Context, Disposition>: Hashable, Sendable
@@ -346,6 +353,35 @@ where Lane: Hashable & Sendable,
   case alreadyRequested
   case unknownCapability
   case retiredCapability
+  case identityMismatch
+}
+
+/// Non-forgeable identity for one registry-owned cancellation transaction.
+/// Every stage is accepted at most once by the registry that minted it.
+package struct PlotterOperationStopTransaction<Context>: Hashable, Sendable
+where Context: PlotterOperationContext {
+  fileprivate let id: UUID
+  package let identity: PlotterOperationIdentity<Context>
+
+  fileprivate init(id: UUID, identity: PlotterOperationIdentity<Context>) {
+    self.id = id
+    self.identity = identity
+  }
+}
+
+package enum PlotterOperationStopBeginOutcome<Context>: Sendable
+where Context: PlotterOperationContext {
+  case requested(PlotterOperationStopTransaction<Context>)
+  case alreadyRequested
+  case unknownCapability
+  case retiredCapability
+  case identityMismatch
+}
+
+package enum PlotterOperationStopStageOutcome<Context>: Sendable
+where Context: PlotterOperationContext {
+  case advanced(PlotterOperationStopTransaction<Context>)
+  case invalidTransaction
   case identityMismatch
 }
 
@@ -504,6 +540,15 @@ private enum CancellationFinish<Terminal, Refusal> {
   case noLongerOwner
 }
 
+private enum StagedCancellationTransactionPhase: Equatable, Sendable {
+  case requested
+  case issuingCancellation
+  case observed
+  case settling
+  case awaitingSettlement
+  case settledByShutdown
+}
+
 /// Application-level owner for admitted effect operations.
 ///
 /// This Foundation service deliberately has no effect runner, journal, device
@@ -537,6 +582,7 @@ where Lane: Hashable & Sendable,
   private var terminalRecords: [TerminalRecord] = []
   private var cancellationAttemptOutcomes: [UUID: CancellationOutcome] = [:]
   private var cancellationAttemptObserverCounts: [UUID: Int] = [:]
+  private var stagedCancellationTransactions: [UUID: StagedCancellationTransactionPhase] = [:]
   private var revision: UInt64 = 0
   private var lastChangedAt: Date
 
@@ -704,6 +750,40 @@ where Lane: Hashable & Sendable,
     return .accepted
   }
 
+  /// Retires one exact registration before its composing runtime starts the
+  /// external operation. This is cleanup, not settlement or cancellation: no
+  /// terminal result is fabricated and no operation handle is invoked.
+  package func withdrawBeforeExternalStart(
+    _ identity: Identity,
+    using capability: CompletionCapability<Context>,
+    at withdrawnAt: Date = Date()
+  ) -> PlotterOperationPrestartWithdrawal {
+    guard let knownIdentity = completionCapabilityIdentity[capability.id] else {
+      return .unknownCompletionCapability
+    }
+    guard knownIdentity == capability.identity, knownIdentity == identity else {
+      return .identityMismatch
+    }
+    guard let active = activeByIdentity[identity],
+          active.completionCapability == capability else {
+      return .unknownCompletionCapability
+    }
+    guard active.cancellationOwnerID == nil else {
+      return .cancellationInProgress
+    }
+    activeByIdentity.removeValue(forKey: identity)
+    completionCapabilityIdentity.removeValue(forKey: capability.id)
+    if let permitID = active.permitID {
+      retiredPermitIDs.insert(permitID)
+    }
+    if let stopCapability = active.stopCapability {
+      activeCapabilityIdentity.removeValue(forKey: stopCapability.id)
+      retiredCapabilityIDs.insert(stopCapability.id)
+    }
+    touch(at: withdrawnAt)
+    return .withdrawn
+  }
+
   package func settle(
     _ result: Result,
     using capability: CompletionCapability<Context>
@@ -748,17 +828,9 @@ where Lane: Hashable & Sendable,
     using capability: StopCapability<Context>,
     at requestedAt: Date = Date()
   ) async -> StopOutcome {
-    guard let identity = activeCapabilityIdentity[capability.id] else {
-      if retiredCapabilityIDs.contains(capability.id) { return .retiredCapability }
-      return .unknownCapability
-    }
-    guard var active = activeByIdentity[identity] else {
-      return .unknownCapability
-    }
-    guard active.stopCapability == capability, active.identity == capability.identity else {
-      return .identityMismatch
-    }
-    if let ownerID = active.cancellationOwnerID {
+    if let identity = activeCapabilityIdentity[capability.id],
+       let active = activeByIdentity[identity],
+       let ownerID = active.cancellationOwnerID {
       let reference = retainCancellationAttemptReference(
         identity: identity,
         ownerID: ownerID
@@ -769,22 +841,161 @@ where Lane: Hashable & Sendable,
       return stopOutcome(for: outcome)
     }
 
+    let transaction: PlotterOperationStopTransaction<Context>
+    switch beginStop(using: capability, at: requestedAt) {
+    case let .requested(value):
+      transaction = value
+    case .alreadyRequested:
+      return .alreadyRequested
+    case .unknownCapability:
+      return .unknownCapability
+    case .retiredCapability:
+      return .retiredCapability
+    case .identityMismatch:
+      return .identityMismatch
+    }
+    guard case .advanced = await observeStop(using: transaction, at: Date()) else {
+      return .alreadyRequested
+    }
+    guard case .advanced = beginStopSettlement(using: transaction, at: Date()) else {
+      return .alreadyRequested
+    }
+    return await finishStop(using: transaction)
+  }
+
+  /// Latches the exact Stop owner without invoking the external handle. This
+  /// boundary lets a semantic journal durably publish `requested` first.
+  package func beginStop(
+    using capability: StopCapability<Context>,
+    at requestedAt: Date = Date()
+  ) -> PlotterOperationStopBeginOutcome<Context> {
+    guard let identity = activeCapabilityIdentity[capability.id] else {
+      if retiredCapabilityIDs.contains(capability.id) { return .retiredCapability }
+      return .unknownCapability
+    }
+    guard var active = activeByIdentity[identity] else { return .unknownCapability }
+    guard active.stopCapability == capability, active.identity == capability.identity else {
+      return .identityMismatch
+    }
+    guard active.cancellationOwnerID == nil else { return .alreadyRequested }
     let lease = latchCancellation(
       active: &active,
       reason: .stop,
       requestedAt: requestedAt
     )
     activeByIdentity[identity] = active
-    await lease.handle.requestCancellation()
-    markCancellationObserved(lease, at: Date())
-    let result = await lease.handle.waitForSettlement()
-    switch finishCancellation(lease, result: result) {
-    case let .settled(terminal):
+    stagedCancellationTransactions[lease.ownerID] = .requested
+    return .requested(PlotterOperationStopTransaction(
+      id: lease.ownerID,
+      identity: lease.identity
+    ))
+  }
+
+  /// Invokes cancellation on the original retained handle exactly once and
+  /// publishes only the registry's observed phase.
+  package func observeStop(
+    using transaction: PlotterOperationStopTransaction<Context>,
+    at observedAt: Date = Date()
+  ) async -> PlotterOperationStopStageOutcome<Context> {
+    if stagedCancellationTransactions[transaction.id] == .settledByShutdown,
+       terminalByIdentity[transaction.identity] != nil {
+      return .advanced(transaction)
+    }
+    guard stagedCancellationTransactions[transaction.id] == .requested else {
+      return .invalidTransaction
+    }
+    guard let active = activeByIdentity[transaction.identity],
+          active.identity == transaction.identity,
+          active.cancellationOwnerID == transaction.id else {
+      return .identityMismatch
+    }
+    // Publish issuance before suspension so shutdown can join this exact
+    // owner without invoking cancellation a second time.
+    stagedCancellationTransactions[transaction.id] = .issuingCancellation
+    await active.handle.requestCancellation()
+    guard markCancellationObserved(
+      identity: transaction.identity,
+      ownerID: transaction.id,
+      at: observedAt
+    ) else { return .identityMismatch }
+    stagedCancellationTransactions[transaction.id] = .observed
+    return .advanced(transaction)
+  }
+
+  /// Moves the same transaction into settling without awaiting or replacing
+  /// the original handle's result.
+  package func beginStopSettlement(
+    using transaction: PlotterOperationStopTransaction<Context>,
+    at settlingAt: Date = Date()
+  ) -> PlotterOperationStopStageOutcome<Context> {
+    if stagedCancellationTransactions[transaction.id] == .settledByShutdown,
+       terminalByIdentity[transaction.identity] != nil {
+      return .advanced(transaction)
+    }
+    guard stagedCancellationTransactions[transaction.id] == .observed else {
+      return .invalidTransaction
+    }
+    if let active = activeByIdentity[transaction.identity],
+       active.identity == transaction.identity,
+       active.cancellationOwnerID == transaction.id,
+       active.cancellationPhase == .settling {
+      // Lifetime shutdown already advanced the same owner while the public
+      // publisher was suspended. Preserve its journal cursor without a second
+      // registry transition.
+      stagedCancellationTransactions[transaction.id] = .settling
+      return .advanced(transaction)
+    }
+    guard markCancellationSettling(
+      identity: transaction.identity,
+      ownerID: transaction.id,
+      at: settlingAt
+    ) else { return .identityMismatch }
+    stagedCancellationTransactions[transaction.id] = .settling
+    return .advanced(transaction)
+  }
+
+  /// Awaits and terminalizes the original owner result exactly once.
+  package func finishStop(
+    using transaction: PlotterOperationStopTransaction<Context>
+  ) async -> StopOutcome {
+    if stagedCancellationTransactions[transaction.id] == .settledByShutdown,
+       let terminal = terminalByIdentity[transaction.identity] {
+      stagedCancellationTransactions[transaction.id] = nil
       return .settled(terminal)
-    case let .refused(refusal):
-      return .resultRefused(refusal)
-    case .noLongerOwner:
+    }
+    if stagedCancellationTransactions[transaction.id] == .awaitingSettlement {
+      let reference = retainCancellationAttemptReference(
+        identity: transaction.identity,
+        ownerID: transaction.id
+      )
+      guard let outcome = await awaitCancellationAttempt(reference) else {
+        return .alreadyRequested
+      }
+      return stopOutcome(for: outcome)
+    }
+    guard stagedCancellationTransactions[transaction.id] == .settling,
+      let active = activeByIdentity[transaction.identity],
+      active.identity == transaction.identity,
+      active.cancellationOwnerID == transaction.id
+    else {
       return .alreadyRequested
+    }
+    stagedCancellationTransactions[transaction.id] = .awaitingSettlement
+    let lease = CancellationLease(
+      identity: transaction.identity,
+      ownerID: transaction.id,
+      handle: active.handle
+    )
+    let result = await lease.handle.waitForSettlement()
+    if let terminal = terminalByIdentity[transaction.identity] {
+      stagedCancellationTransactions[transaction.id] = nil
+      return .settled(terminal)
+    }
+    stagedCancellationTransactions[transaction.id] = nil
+    switch finishCancellation(lease, result: result) {
+    case let .settled(terminal): return .settled(terminal)
+    case let .refused(refusal): return .resultRefused(refusal)
+    case .noLongerOwner: return .alreadyRequested
     }
   }
 
@@ -802,13 +1013,42 @@ where Lane: Hashable & Sendable,
     }
 
     var ownedLeases: [CancellationLease<Context, Handle>] = []
+    var stagedTakeoverOwnerIDs: Set<UUID> = []
+    var shutdownSettlementOwnerIDs: Set<UUID> = []
+    var settlementLeases: [CancellationLease<Context, Handle>] = []
     var alreadyOwnedAttempts: [CancellationAttemptReference<Context>] = []
     for identity in Array(activeByIdentity.keys) {
       guard var active = activeByIdentity[identity] else { continue }
       if let ownerID = active.cancellationOwnerID {
-        alreadyOwnedAttempts.append(
-          retainCancellationAttemptReference(identity: identity, ownerID: ownerID)
+        let lease = CancellationLease(
+          identity: identity,
+          ownerID: ownerID,
+          handle: active.handle
         )
+        switch stagedCancellationTransactions[ownerID] {
+        case .requested:
+          // Stop latched the owner but has not issued cancellation. Take over
+          // the same owner atomically before the first suspension.
+          stagedCancellationTransactions[ownerID] = .issuingCancellation
+          stagedTakeoverOwnerIDs.insert(ownerID)
+          shutdownSettlementOwnerIDs.insert(ownerID)
+          ownedLeases.append(lease)
+        case .observed:
+          guard markCancellationSettling(
+            identity: identity,
+            ownerID: ownerID,
+            at: requestedAt
+          ) else { continue }
+          shutdownSettlementOwnerIDs.insert(ownerID)
+          settlementLeases.append(lease)
+        case .settling:
+          shutdownSettlementOwnerIDs.insert(ownerID)
+          settlementLeases.append(lease)
+        case .issuingCancellation, .awaitingSettlement, .settledByShutdown, nil:
+          alreadyOwnedAttempts.append(
+            retainCancellationAttemptReference(identity: identity, ownerID: ownerID)
+          )
+        }
         continue
       }
       let lease = latchCancellation(
@@ -829,20 +1069,44 @@ where Lane: Hashable & Sendable,
       await group.waitForAll()
     }
     for lease in ownedLeases {
-      markCancellationObserved(lease, at: Date())
+      _ = markCancellationObserved(
+        identity: lease.identity,
+        ownerID: lease.ownerID,
+        at: Date()
+      )
+      _ = markCancellationSettling(
+        identity: lease.identity,
+        ownerID: lease.ownerID,
+        at: Date()
+      )
+      if stagedTakeoverOwnerIDs.contains(lease.ownerID) {
+        stagedCancellationTransactions[lease.ownerID] = .awaitingSettlement
+      }
+      settlementLeases.append(lease)
     }
 
     var settled: [TerminalRecord] = []
     var resultRefusals: [ResultRefusal] = []
-    for lease in ownedLeases {
+    for lease in settlementLeases {
       let result = await lease.handle.waitForSettlement()
+      if stagedCancellationTransactions[lease.ownerID] == .awaitingSettlement {
+        stagedCancellationTransactions[lease.ownerID] = nil
+      }
       switch finishCancellation(lease, result: result) {
       case let .settled(terminal):
+        if shutdownSettlementOwnerIDs.contains(lease.ownerID) {
+          stagedCancellationTransactions[lease.ownerID] = .settledByShutdown
+        }
         settled.append(terminal)
       case let .refused(refusal):
+        if shutdownSettlementOwnerIDs.contains(lease.ownerID) {
+          stagedCancellationTransactions[lease.ownerID] = nil
+        }
         resultRefusals.append(refusal)
       case .noLongerOwner:
-        break
+        if let terminal = terminalByIdentity[lease.identity] {
+          settled.append(terminal)
+        }
       }
     }
     for reference in alreadyOwnedAttempts {
@@ -954,21 +1218,35 @@ where Lane: Hashable & Sendable,
   }
 
   private func markCancellationObserved(
-    _ lease: CancellationLease<Context, Handle>,
+    identity: Identity,
+    ownerID: UUID,
     at observedAt: Date
-  ) {
-    guard var active = activeByIdentity[lease.identity],
-          active.identity == lease.identity,
-          active.cancellationOwnerID == lease.ownerID
-    else { return }
+  ) -> Bool {
+    guard var active = activeByIdentity[identity],
+          active.identity == identity,
+          active.cancellationOwnerID == ownerID
+    else { return false }
     active.cancellationPhase = .observed
-    activeByIdentity[lease.identity] = active
+    activeByIdentity[identity] = active
     touch(at: observedAt)
+    return true
+  }
 
+  private func markCancellationSettling(
+    identity: Identity,
+    ownerID: UUID,
+    at settlingAt: Date
+  ) -> Bool {
+    guard var active = activeByIdentity[identity],
+          active.identity == identity,
+          active.cancellationOwnerID == ownerID,
+          active.cancellationPhase == .observed
+    else { return false }
     active.cancellationPhase = .settling
     active.phase = .settling
-    activeByIdentity[lease.identity] = active
-    touch(at: observedAt)
+    activeByIdentity[identity] = active
+    touch(at: settlingAt)
+    return true
   }
 
   private func finishCancellation(

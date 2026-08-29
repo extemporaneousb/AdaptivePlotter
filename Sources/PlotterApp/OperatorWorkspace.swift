@@ -195,11 +195,6 @@ enum ContextualStopTarget: Hashable, Sendable {
     attemptID: ExerciseAttemptID,
     direction: BoundaryDirection
   )
-  case manualJog(capabilityID: ContextualStopCapabilityID, operationOwner: ContextualMotionOwnerID)
-  case manualDrawingStroke(
-    capabilityID: ContextualStopCapabilityID,
-    operationOwner: ContextualMotionOwnerID
-  )
   case exerciseMotion(
     capabilityID: ContextualStopCapabilityID,
     operationOwner: ContextualMotionOwnerID,
@@ -221,8 +216,6 @@ enum ContextualStopTarget: Hashable, Sendable {
   var capabilityID: ContextualStopCapabilityID {
     switch self {
     case .pairedBoundary(let capabilityID, _, _, _, _),
-      .manualJog(let capabilityID, _),
-      .manualDrawingStroke(let capabilityID, _),
       .exerciseMotion(let capabilityID, _, _, _),
       .drawingTrial(let capabilityID, _),
       .sparseTipBatch(let capabilityID, _),
@@ -234,8 +227,6 @@ enum ContextualStopTarget: Hashable, Sendable {
   var operationOwner: ContextualMotionOwnerID? {
     switch self {
     case .pairedBoundary(_, _, let owner, _, _),
-      .manualJog(_, let owner),
-      .manualDrawingStroke(_, let owner),
       .exerciseMotion(_, let owner, _, _),
       .drawingTrial(_, let owner),
       .sparseTipBatchSegment(_, let owner, _):
@@ -1176,6 +1167,12 @@ final class OperatorWorkspace:
     static let boundaryFeedMMPerMinute = 500.0
   }
 
+  struct ManualMotionDraft: Hashable, Sendable {
+    var xDistanceMM = MotionPriors.stepMM
+    var yDistanceMM = MotionPriors.stepMM
+    var feedMMPerMinute = MotionPriors.feedMMPerMinute
+  }
+
   struct MachineActions: Sendable {
     let select: @Sendable (MachineLinkDescriptor) async throws -> RunInterpreterSnapshot
     let snapshot: @Sendable () async -> RunInterpreterSnapshot?
@@ -1186,7 +1183,8 @@ final class OperatorWorkspace:
     let beginRelativeJog: @Sendable (RelativeJogRequest) async -> RelativeJogAdmission
     let beginDrawingStroke: @Sendable (DrawingStrokeRequest) async -> DrawingStrokeAdmission
     let beginDrawingPlan: (@Sendable (DrawingPlanRequest) async -> DrawingPlanAdmission)?
-    let requestPenActuation: @Sendable (PenCommand, PenActuationProfile) async -> PenOutcome
+    let beginPenActuation: @Sendable (PenCommand, PenActuationProfile) async
+      -> PenActuationAdmission
     let beginBoundaryMotion:
       @Sendable (BoundaryMotionRequest, BoundaryMotionRenewalPlanner?) async
         -> BoundaryMotionAdmission
@@ -1207,8 +1205,8 @@ final class OperatorWorkspace:
         @Sendable (DrawingPlanRequest) async
           -> DrawingPlanAdmission
       )? = nil,
-      requestPenActuation: @escaping @Sendable (PenCommand, PenActuationProfile) async ->
-        PenOutcome,
+      beginPenActuation: @escaping @Sendable (PenCommand, PenActuationProfile) async ->
+        PenActuationAdmission,
       beginBoundaryMotion: @escaping @Sendable (
         BoundaryMotionRequest, BoundaryMotionRenewalPlanner?
       ) async -> BoundaryMotionAdmission,
@@ -1224,7 +1222,7 @@ final class OperatorWorkspace:
       self.beginRelativeJog = beginRelativeJog
       self.beginDrawingStroke = beginDrawingStroke
       self.beginDrawingPlan = beginDrawingPlan
-      self.requestPenActuation = requestPenActuation
+      self.beginPenActuation = beginPenActuation
       self.beginBoundaryMotion = beginBoundaryMotion
       self.requestJogCancel = requestJogCancel
       self.disconnect = disconnect
@@ -1350,13 +1348,11 @@ final class OperatorWorkspace:
       markSemanticPresentationChanged()
     }
   }
-  // String-backed numeric inputs preserve partially typed values and keep X/Y
-  // independent. Runtime value constructors and MachineController own validity.
-  var xStepText = MotionPriors.stepMM
-  var yStepText = MotionPriors.stepMM
-  var feedText = MotionPriors.feedMMPerMinute {
+  // One UI draft preserves partially typed values. Typed intent construction
+  // and the episode/runtime/controller layers own admission and validity.
+  var manualMotionDraft = ManualMotionDraft() {
     didSet {
-      guard oldValue != feedText else { return }
+      guard oldValue != manualMotionDraft else { return }
       markSemanticPresentationChanged()
     }
   }
@@ -1446,8 +1442,6 @@ final class OperatorWorkspace:
   @ObservationIgnored private var semanticPresentationUpdateDepth = 0
   @ObservationIgnored private var semanticPresentationChangeIsPending = false
   @ObservationIgnored private var actionSurfaceInvalidationIsPending = false
-  private var lastManualMotionWasDrawing = false
-  private var lastManualMotionMayHaveProducedInk = false
   private(set) var frameModeSwitchInProgress = false {
     didSet {
       guard oldValue != frameModeSwitchInProgress else { return }
@@ -1930,6 +1924,7 @@ final class OperatorWorkspace:
   @ObservationIgnored private let machineActions: MachineActions?
   @ObservationIgnored private let cameraActions: CameraActions?
   @ObservationIgnored private let pointSelectionRuntime: PlotterPointSelectionRuntime
+  @ObservationIgnored private let manualMotionRuntime: PlotterManualMotionRuntime
   @ObservationIgnored private let persistPenCapAppearanceSelection:
     @Sendable (PenCapAppearanceSelection?) -> Void
   @ObservationIgnored private let announcementActions: AnnouncementActions?
@@ -1964,6 +1959,7 @@ final class OperatorWorkspace:
     SavedTrainingComparisonIdentity?
   private(set) var pointSelectionEpisodeProjection: PlotterEpisodeProjection
   private(set) var pointSelectionRecordingDiagnostic: String?
+  private(set) var manualMotionEpisodeSnapshot: PlotterManualMotionRuntimeSnapshot?
   @ObservationIgnored private var learningActivityFactRevision: UInt64 = 0
   private var controllerSessionID: UUID {
     get { activeLearningSession.controllerSessionID }
@@ -2047,6 +2043,7 @@ final class OperatorWorkspace:
     cameraActions: CameraActions? = nil,
     pointSelectionRuntime: PlotterPointSelectionRuntime = PlotterPointSelectionRuntime(),
     pointSelectionRecordingDiagnostic: String? = nil,
+    manualMotionRuntime: PlotterManualMotionRuntime? = nil,
     announcementActions: AnnouncementActions? = nil,
     acceptedLearningPathCheckpointActions: AcceptedLearningPathCheckpointActions? = nil,
     drawingEvidenceActions: DrawingEvidenceActions? = nil,
@@ -2119,6 +2116,15 @@ final class OperatorWorkspace:
     self.machineActions = machineActions
     self.cameraActions = cameraActions
     self.pointSelectionRuntime = pointSelectionRuntime
+    self.manualMotionRuntime = manualMotionRuntime
+      ?? PlotterManualMotionComposition.makeRuntime(
+        journalFileURL: FileManager.default.temporaryDirectory.appendingPathComponent(
+          "plotter-manual-motion-\(UUID().uuidString).json"
+        ),
+        machineActions: machineActions,
+        simulatedRuntime: simulatedLearningRuntime,
+        simulatedExecutionPacing: simulatedExecutionPacing
+      )
     self.pointSelectionRecordingDiagnostic = pointSelectionRecordingDiagnostic
     let pointSelectionEpisodeID = EpisodeID(rawValue: UUID())
     let pointSelectionInitialState = PlotterEpisodeState(
@@ -3073,8 +3079,9 @@ final class OperatorWorkspace:
         from: observationPosition,
         to: observationTarget
       ) {
-        let admission = await machineActions.beginRelativeJog(
-          RelativeJogRequest(delta: preflightDelta, feedMMPerMinute: 500)
+        let admission = await PlotterManualMotionComposition.beginNativeRelativeMotion(
+          using: machineActions,
+          request: RelativeJogRequest(delta: preflightDelta, feedMMPerMinute: 500)
         )
         switch admission {
         case .admitted(let operation):
@@ -4002,6 +4009,14 @@ final class OperatorWorkspace:
   }
 
   var currentOperationText: String {
+    if let intent = manualMotionEpisodeSnapshot?.activeOperation?.intent {
+      return switch intent {
+      case .jog(let request):
+        request.routing == .drawingStroke ? "manual drawing stroke" : "manual jog"
+      case .setPen(let request):
+        "manual Pen \(request.position == .raised ? "raise" : "lower")"
+      }
+    }
     if frameMode == .simulated {
       guard let operation = simulatedLearningSnapshot?.currentOperation else {
         return "simulated idle"
@@ -4068,7 +4083,8 @@ final class OperatorWorkspace:
   }
 
   var motionPermissionText: String {
-    motionUnavailableReason == nil ? "request eligible" : "unavailable"
+    manualMotionEpisodePresentation.jogControlsUnavailableReason == nil
+      ? "request eligible" : "unavailable"
   }
 
   var motionGuardIsActive: Bool {
@@ -4429,9 +4445,7 @@ final class OperatorWorkspace:
     }
     if let ownerID = activeExerciseAttemptOwnerID {
       await cancelExerciseAttempt(ownerID)
-    } else if let operation = activeStoppableOperation,
-      !isManualStopTarget(operation.target)
-    {
+    } else if let operation = activeStoppableOperation {
       await cancelAndSettleStoppableOperation(operation, intent: .cancelAttempt)
     }
 
@@ -4444,7 +4458,7 @@ final class OperatorWorkspace:
     }
     await awaitPendingPenSetpointActuation()
 
-    let learningStopStillActive = activeStopTarget.map { !isManualStopTarget($0) } ?? false
+    let learningStopStillActive = activeStopTarget != nil
     guard activeExerciseAttemptID == nil,
       activeDiscoverySequenceID == nil,
       activeExplorationOperation == nil,
@@ -4730,67 +4744,112 @@ final class OperatorWorkspace:
     learningPresentationBase().currentProjection.contextualStop
   }
 
-  var manualMotionPresentation: ManualMotionPresentation {
-    let stopAction: ContextualStopActionPresentation?
-    if let target = activeStopTarget, isManualStopTarget(target), stopDispositionLatch == nil {
-      let isDrawing: Bool
-      if case .manualDrawingStroke = target {
-        isDrawing = true
+  var manualMotionEpisodePresentation: ManualMotionPresentation {
+    let activeIntent = manualMotionEpisodeSnapshot?.activeOperation?.intent
+    let publicationRecovery = manualMotionPublicationRecoveryPresentation
+    let evidenceDisposition = manualMotionEvidenceDispositionPresentation
+    let stopAction = publicationRecovery == nil && evidenceDisposition == nil
+      ? manualMotionEpisodeSnapshot?.activeOperation?.stopCapabilityID.map {
+      capabilityID in
+      let draws: Bool
+      if case .jog(let request) = activeIntent, request.routing == .drawingStroke {
+        draws = true
       } else {
-        isDrawing = false
+        draws = false
       }
-      stopAction = ContextualStopActionPresentation(
-        capabilityID: target.capabilityID,
-        title: isDrawing ? "Stop Manual Drawing" : "Stop Manual Jog",
-        detail: isDrawing
-          ? "Stop only this manual drawing stroke; the controller waits for Idle and performs one Pen Up attempt."
-          : "Stop only this manual jog and wait for it to settle."
+      return ManualMotionStopActionPresentation(
+        capabilityID: capabilityID,
+        title: draws ? "Stop Manual Drawing" : "Stop Manual Jog",
+        detail: draws
+          ? "Stop only this typed manual drawing effect; settlement requires controller Idle and Pen Up."
+          : "Stop only this typed manual jog effect and wait for controller settlement."
       )
-    } else {
-      stopAction = nil
-    }
+    } : nil
+    let pendingReason = publicationRecovery?.remedy ?? evidenceDisposition?.remedy
+    let draftReason = pendingReason ?? manualMotionDraftUnavailableReason
+    let jogReason = draftReason ?? manualMotionRequirementReason(
+      for: .jog(manualJogRequestPrototype())
+    )
+    let penUpReason = pendingReason ?? manualMotionRequirementReason(
+      for: .setPen(manualPenRequest(position: .raised))
+    )
+    let penDownReason = pendingReason ?? manualMotionRequirementReason(
+      for: .setPen(manualPenRequest(position: .lowered))
+    )
     return ManualMotionPresentation(
       stopAction: stopAction,
-      jogUnavailableReason: motionUnavailableReason
+      publicationRecovery: publicationRecovery,
+      evidenceDisposition: evidenceDisposition,
+      jogUnavailableReason: jogReason,
+      penUpUnavailableReason: penUpReason,
+      penDownUnavailableReason: penDownReason,
+      penStateText: manualEpisodePenStateText,
+      modeText: manualEpisodeModeText,
+      recordingDiagnostic: manualMotionEpisodeSnapshot?.recordingDiagnostic
     )
   }
 
-  private func isManualStopTarget(_ target: ContextualStopTarget) -> Bool {
-    switch target {
-    case .manualJog, .manualDrawingStroke: true
-    default: false
+  func requestManualMotionStop(
+    capabilityID: PlotterManualMotionStopCapabilityID
+  ) async {
+    guard manualMotionEpisodeSnapshot?.terminalPublicationIssue == nil else { return }
+    let result = await manualMotionRuntime.stop(using: capabilityID)
+    installManualMotionSnapshot(result.snapshot)
+    await refreshManualEnvironmentSnapshot()
+  }
+
+  func recoverManualMotionPublication(
+    capabilityID: PlotterManualMotionPublicationRecoveryCapabilityID
+  ) async {
+    guard manualMotionEpisodeSnapshot?.terminalPublicationIssue?.recoveryCapabilityID
+      == capabilityID else { return }
+    let result = await manualMotionRuntime.recoverTerminalPublication(using: capabilityID)
+    installManualMotionSnapshot(result.snapshot)
+    await refreshManualEnvironmentSnapshot()
+  }
+
+  func resolveManualMotionEvidence(
+    using action: PlotterManualMotionEvidenceDispositionAction
+  ) async {
+    guard manualMotionEpisodeSnapshot?.evidenceDispositionAction == action else { return }
+    do {
+      let result = try await manualMotionRuntime.resolveTerminalEvidence(using: action)
+      installManualMotionSnapshot(result.snapshot)
+      await refreshManualEnvironmentSnapshot()
+    } catch {
+      machineError = actionableDescription(error)
     }
   }
 
-  func stopManualMotion(capabilityID: ContextualStopCapabilityID) async {
-
-    guard let target = activeStopTarget,
-      target.capabilityID == capabilityID,
-      isManualStopTarget(target)
-    else { return }
-    await stopCurrentOperation(capabilityID: capabilityID)
-  }
-
   var motionRequestStatusPresentation: MotionRequestStatusPresentation {
+    if let reason = manualMotionEpisodePresentation.attentionReason {
+      return .needsAttention(reason)
+    }
     if frameMode == .simulated {
-      if simulatedLearningSnapshot?.currentOperation != nil || jogRequestInProgress
+      if manualMotionEpisodeSnapshot?.activeOperation != nil
+        || simulatedLearningSnapshot?.currentOperation != nil || jogRequestInProgress
         || penRequestInProgress || jogCancelRequestInProgress || activeStopTarget != nil
       {
         return .busy(currentOperationText)
       }
-      if let reason = motionUnavailableReason { return .unavailable(reason) }
+      if let reason = manualMotionEpisodePresentation.jogControlsUnavailableReason {
+        return .unavailable(reason)
+      }
       return .ready
     }
     if let ambiguity = machineSnapshot?.machine.stickyAmbiguity {
       return .needsAttention(ambiguity.actionableDescription)
     }
     if let controllerAttentionText { return .needsAttention(controllerAttentionText) }
-    if jogRequestInProgress || penRequestInProgress || jogCancelRequestInProgress
+    if manualMotionEpisodeSnapshot?.activeOperation != nil
+      || jogRequestInProgress || penRequestInProgress || jogCancelRequestInProgress
       || activeStopTarget != nil
     {
       return .busy(currentOperationText)
     }
-    if let reason = motionUnavailableReason { return .unavailable(reason) }
+    if let reason = manualMotionEpisodePresentation.jogControlsUnavailableReason {
+      return .unavailable(reason)
+    }
     return .ready
   }
 
@@ -5009,8 +5068,6 @@ final class OperatorWorkspace:
             .action
         else { return nil }
         return .pairedBoundary(id, direction)
-      case .manualJog(let id, _): return .manualJog(id)
-      case .manualDrawingStroke(let id, _): return .manualDrawing(id)
       case .exerciseMotion(let id, let owner, _, let action):
         return .exercise(id, action, boundaryOwner: owner.isBoundaryOwner)
       case .drawingTrial(let id, _): return .drawingTrial(id)
@@ -5065,7 +5122,7 @@ final class OperatorWorkspace:
         motionAuthorized: motionAuthorizationEnabled,
         cameraStateText: cameraStateText,
         machineError: controllerAttentionText,
-        directMotionUnavailableReason: learningCarriageMotionUnavailableReason
+        controllerTravelUnavailableReason: learningCarriageMotionUnavailableReason
       ),
       boundary: .init(
         acceptedDirections: pairedBoundaryProgress.acceptedDirections,
@@ -7102,7 +7159,11 @@ final class OperatorWorkspace:
       guard let machineActions else {
         throw LearningPathOperationError.requiredState("Machine composition is unavailable.")
       }
-      lower = await machineActions.requestPenActuation(.lower, currentPenActuationProfile)
+      lower = await PlotterManualMotionComposition.settleNativePenCommand(
+        using: machineActions,
+        command: .lower,
+        profile: currentPenActuationProfile
+      )
     }
     guard case .commandedAndSettled(command: .lower, commandedState: .down) = lower else {
       if frameMode == .live, let machineActions {
@@ -7249,7 +7310,11 @@ final class OperatorWorkspace:
       guard let machineActions else {
         throw LearningPathOperationError.requiredState("Machine composition is unavailable.")
       }
-      raise = await machineActions.requestPenActuation(.raise, currentPenActuationProfile)
+      raise = await PlotterManualMotionComposition.settleNativePenCommand(
+        using: machineActions,
+        command: .raise,
+        profile: currentPenActuationProfile
+      )
     }
     guard case .commandedAndSettled(command: .raise, commandedState: .up) = raise else {
       if frameMode == .live, let machineActions {
@@ -7298,7 +7363,11 @@ final class OperatorWorkspace:
     guard let machineActions,
       machineSnapshot?.machine.stickyAmbiguity == nil
     else { return }
-    _ = await machineActions.requestPenActuation(.raise, currentPenActuationProfile)
+    _ = await PlotterManualMotionComposition.settleNativePenCommand(
+      using: machineActions,
+      command: .raise,
+      profile: currentPenActuationProfile
+    )
     machineSnapshot = await machineActions.snapshot()
   }
 
@@ -8008,7 +8077,7 @@ final class OperatorWorkspace:
       return nil
     }
     if let reason = controllerPoseRevalidationUnavailableReason { return reason }
-    if let reason = directCarriageMotionUnavailableReason { return reason }
+    if let reason = controllerCarriageTravelUnavailableReason { return reason }
     if requiresCamera, !cameraIsLive { return "A current LIVE camera frame is required." }
     return nil
   }
@@ -8041,7 +8110,7 @@ final class OperatorWorkspace:
     case .boundaryNegativeX, .boundaryPositiveX, .boundaryNegativeY, .boundaryPositiveY:
       return learningCarriageMotionUnavailableReason
     case .penInteraction:
-      return penUnavailableReason(for: .lower)
+      return learningPenCommandUnavailableReason(for: .lower)
     }
   }
 
@@ -8057,20 +8126,20 @@ final class OperatorWorkspace:
         ? "Simulator connected. Enable Motion before this action."
         : "Plotter connected. Enable Motion before this action."
     }
-    return switch manualMotionPenState {
-    case .up:
+    return switch manualControllerPenState {
+    case .raised:
       "Motion enabled; manual controls will move with the commanded pen Up."
-    case .down:
+    case .lowered:
       "Motion enabled; manual controls will draw with the commanded pen Down."
     case .unknown:
       "Motion enabled; manual controls may move with possible ink because pen state is unknown."
     }
   }
 
-  var manualMotionModeText: String {
-    switch manualMotionPenState {
-    case .up: "travel — commanded Pen Up"
-    case .down: "drawing — commanded Pen Down"
+  private var manualEpisodeModeText: String {
+    switch manualControllerPenState {
+    case .raised: "travel — commanded Pen Up"
+    case .lowered: "drawing — commanded Pen Down"
     case .unknown: "manual move — possible ink; pen state unknown"
     }
   }
@@ -8137,7 +8206,7 @@ final class OperatorWorkspace:
       activeAttempt: activeExerciseAttemptOwnerID != nil,
       activeDiscovery: activeDiscoverySequenceID != nil,
       activeExploration: activeExplorationOperation != nil,
-      activeLearningMotion: activeStopTarget.map { !isManualStopTarget($0) } ?? false,
+      activeLearningMotion: activeStopTarget != nil,
       pointSelectionOwner: activePointSelectionActivityOwner
     )
   }
@@ -8186,7 +8255,13 @@ final class OperatorWorkspace:
     if frameMode == .simulated {
       return lastContextualStopAuditRecord?.outcome ?? "no simulated motion outcome"
     }
-    if lastManualMotionWasDrawing,
+    let lastManualJogRouting: PlotterManualJogRouting? = {
+      guard let result = manualMotionEpisodeSnapshot?.projection.lastTerminalEffect?.result,
+        case .manualMotion(.jog(let request)) = result.context.intent
+      else { return nil }
+      return request.routing
+    }()
+    if lastManualJogRouting == .drawingStroke,
       let outcome = machineSnapshot?.lastDrawingStrokeOutcome
     {
       return switch outcome {
@@ -8215,7 +8290,7 @@ final class OperatorWorkspace:
       return "refused: \(reason.actionableDescription)"
     case .acceptedThenCompleted(let finalPosition):
       return String(
-        format: lastManualMotionMayHaveProducedInk
+        format: lastManualJogRouting == .possibleInk
           ? "completed at X %.3f Y %.3f; possible ink"
           : "completed at X %.3f Y %.3f",
         finalPosition.point.x,
@@ -8223,7 +8298,7 @@ final class OperatorWorkspace:
       )
     case .cancelled(let finalPosition):
       return String(
-        format: lastManualMotionMayHaveProducedInk
+        format: lastManualJogRouting == .possibleInk
           ? "cancelled at X %.3f Y %.3f; possible ink"
           : "cancelled at X %.3f Y %.3f",
         finalPosition.point.x,
@@ -8281,54 +8356,235 @@ final class OperatorWorkspace:
     return nil
   }
 
-  /// Presentation availability only. MachineController repeats every physical
-  /// safety check when it receives the typed request.
-  var motionUnavailableReason: String? {
-    if frameMode == .simulated {
-      if let reason = simulatedManualMotionUnavailableReason { return reason }
-    } else if let reason = directManualMotionUnavailableReason {
-      return reason
-    }
-    guard let xStep = inputNumber(xStepText), let yStep = inputNumber(yStepText),
-      let feed = inputNumber(feedText)
-    else { return "Enter numeric X step, Y step, and feed values." }
-    guard xStep > 0, yStep > 0 else {
-      return "X and Y step magnitudes must be greater than zero."
+  private var manualMotionDraftUnavailableReason: String? {
+    guard let x = inputNumber(manualMotionDraft.xDistanceMM),
+      let y = inputNumber(manualMotionDraft.yDistanceMM),
+      let feed = inputNumber(manualMotionDraft.feedMMPerMinute)
+    else { return "Enter numeric X distance, Y distance, and feed values." }
+    guard x > 0, y > 0 else {
+      return "X and Y distance magnitudes must be greater than zero."
     }
     guard feed > 0 else { return "Feed must be greater than zero." }
     return nil
   }
 
-  private var simulatedManualMotionUnavailableReason: String? {
-    guard controllerSessionEstablished else { return "Connect the learning simulator first." }
-    guard motionAuthorizationEnabled else { return "Enable simulated Motion first." }
-    guard simulatedLearningSnapshot?.currentOperation == nil else {
-      return "A simulated operation already owns motion."
-    }
-    return nil
-  }
-
-  private var manualMotionPenState: PenState {
+  private var manualControllerPenState: PlotterControllerPenState {
     if frameMode == .simulated {
       guard let pose = simulatedLearningSnapshot?.penPose else { return .unknown }
       return switch pose {
       case .unknown: .unknown
-      case .up: .up
-      case .down: .down
+      case .up: .raised
+      case .down: .lowered
       }
     }
-    return machineSnapshot?.machine.penState ?? .unknown
+    return switch machineSnapshot?.machine.penState ?? .unknown {
+    case .unknown: .unknown
+    case .up: .raised
+    case .down: .lowered
+    }
   }
 
-  private var ordinaryRelativeJogUnavailableReason: String? {
-    if frameMode == .simulated {
-      if let reason = simulatedManualMotionUnavailableReason { return reason }
-      guard simulatedLearningSnapshot?.penPose == .up else {
-        return "Set the simulated pen Up before carriage travel."
-      }
-      return nil
+  private var manualMotionEnvironment: PlotterEnvironment {
+    frameMode == .live ? .live : .simulated
+  }
+
+  private var manualEpisodePenStateText: String {
+    switch manualControllerPenState {
+    case .unknown:
+      return manualMotionEnvironment == .live
+        ? "unknown — no physical pose assumed"
+        : "simulated unknown — not physical evidence"
+    case .raised:
+      return manualMotionEnvironment == .live
+        ? "commanded up — not visually observed"
+        : "simulated up — not physical evidence"
+    case .lowered:
+      return manualMotionEnvironment == .live
+        ? "commanded down — not visually observed"
+        : "simulated down — not physical evidence"
     }
-    return directCarriageMotionUnavailableReason
+  }
+
+  private func manualJogRequestPrototype() -> PlotterJogRequest {
+    try! PlotterJogRequest(
+      direction: .positiveX,
+      distanceMM: max(1, inputNumber(manualMotionDraft.xDistanceMM) ?? 1),
+      feedMMPerMinute: max(1, inputNumber(manualMotionDraft.feedMMPerMinute) ?? 1),
+      routing: manualControllerPenState.requiredJogRouting
+    )
+  }
+
+  private func manualPenRequest(position: PlotterPenPosition) -> PlotterPenActuationRequest {
+    PlotterPenActuationRequest(
+      position: position,
+      profile: try! PlotterManualPenActuationProfile(
+        raisedSpindleValue: currentPenActuationProfile.raisedSpindleValue,
+        loweredSpindleValue: currentPenActuationProfile.loweredSpindleValue,
+        settleSeconds: currentPenActuationProfile.settleSeconds,
+        revision: EpisodeRevisionIdentifier(rawValue: currentPenActuationProfile.revision)
+      )
+    )
+  }
+
+  private var manualMotionPublicationRecoveryPresentation:
+    ManualMotionPublicationRecoveryPresentation?
+  {
+    guard let issue = manualMotionEpisodeSnapshot?.terminalPublicationIssue else { return nil }
+    let intent = manualMotionEpisodeSnapshot?.activeOperation?.intent
+    let title: String
+    let remedy: String
+    switch intent {
+    case let .jog(request):
+      if request.routing == .drawingStroke {
+        title = "Retry Manual Drawing Publication"
+        remedy =
+          "The manual drawing terminal result was not durably published. Retry this exact publication; the drawing command will not be issued again."
+      } else {
+        title = "Retry Manual Jog Publication"
+        remedy =
+          "The manual jog terminal result was not durably published. Retry this exact publication; the jog command will not be issued again."
+      }
+    case let .setPen(request):
+      let pose = request.position == .raised ? "Pen Up" : "Pen Down"
+      title = "Retry \(pose) Publication"
+      remedy =
+        "The \(pose) terminal result was not durably published. Retry this exact publication; the Pen command will not be issued again."
+    case nil:
+      title = "Retry Manual Result Publication"
+      remedy =
+        "The manual-operation terminal result was not durably published. Retry this exact publication; no controller command will be issued again."
+    }
+    return ManualMotionPublicationRecoveryPresentation(
+      capabilityID: issue.recoveryCapabilityID,
+      title: title,
+      remedy: remedy
+    )
+  }
+
+  private var manualMotionEvidenceDispositionPresentation:
+    ManualMotionEvidenceDispositionPresentation?
+  {
+    guard let action = manualMotionEpisodeSnapshot?.evidenceDispositionAction else { return nil }
+    switch action.disposition {
+    case .acknowledgePossibleInk:
+      return ManualMotionEvidenceDispositionPresentation(
+        action: action,
+        title: "Acknowledge Possible Ink",
+        remedy:
+          "Review the exact ambiguous manual-motion observation and acknowledge that ink may exist. This records only the operator disposition; it will not redraw or reissue controller work."
+      )
+    case .acknowledgeAmbiguity:
+      return ManualMotionEvidenceDispositionPresentation(
+        action: action,
+        title: "Acknowledge Ambiguous Outcome",
+        remedy:
+          "Review the exact ambiguous manual-motion observation before continuing. This records only the operator disposition; it will not retry or reissue controller work."
+      )
+    }
+  }
+
+  private func manualMotionRequirementReason(
+    for intent: PlotterManualMotionIntent
+  ) -> String? {
+    let episodeID = manualMotionEpisodeSnapshot?.projection.episodeID
+      ?? EpisodeID(rawValue: UUID())
+    let state = PlotterEpisodeState(
+      episodeID: episodeID,
+      canonicalDigest: EpisodeStateDigest(rawValue: "manual-motion-presentation"),
+      phase: manualMotionEpisodeSnapshot?.projection.phase ?? .ready
+    )
+    return PlotterManualMotionIntentRules.requirements(
+      for: intent,
+      state: state,
+      capabilityFacts: manualMotionCapabilityFacts(environment: manualMotionEnvironment),
+      environment: manualMotionEnvironment
+    ).first(where: { !$0.isSatisfied })?.remedy
+  }
+
+  private func manualMotionCapabilityFacts(
+    environment: PlotterEnvironment
+  ) -> [PlotterCapabilityFact] {
+    let owner = EpisodeAuthorityID(rawValue: "MachineController")
+    let revision = CapabilityFactRevision(rawValue: semanticPresentationRevision)
+    let isConnected: Bool
+    let motionEnabled: Bool
+    let position: Point2<MachineSpace>?
+    let isSettled: Bool
+    let operationIsActive: Bool
+    if environment == .simulated {
+      let snapshot = simulatedLearningSnapshot
+      isConnected = snapshot?.session == .connected
+      motionEnabled = snapshot?.motionAuthorization == .enabled
+      position = snapshot.flatMap { try? Point2(x: $0.mpos.xMM, y: $0.mpos.yMM) }
+      operationIsActive = snapshot?.currentOperation != nil
+      isSettled = !operationIsActive
+    } else {
+      let snapshot = machineSnapshot
+      isConnected = snapshot?.machine.connection == .connected
+      motionEnabled = snapshot?.machine.motionGuardState == .active
+      position = snapshot?.machine.position?.point
+      operationIsActive = snapshot?.machine.operationInFlight == true
+        || snapshot?.currentOperation != .idle
+      isSettled = !operationIsActive && snapshot?.machine.controllerState == .idle
+    }
+    return [
+      .connection(PlotterConnectionFact(
+        owner: owner,
+        revision: revision,
+        environment: environment,
+        isConnected: isConnected
+      )),
+      .motion(PlotterMotionFact(
+        owner: owner,
+        revision: revision,
+        environment: environment,
+        isEnabled: motionEnabled
+      )),
+      .pose(PlotterPoseFact(
+        owner: owner,
+        revision: revision,
+        environment: environment,
+        machinePosition: position,
+        isSettled: isSettled,
+        settlementPolicyRevision: EpisodeRevisionIdentifier(
+          rawValue: environment == .live
+            ? "native-controller-settlement-v1" : "causal-simulator-settlement-v1"
+        )
+      )),
+      .manualController(PlotterManualControllerFact(
+        owner: owner,
+        revision: revision,
+        environment: environment,
+        penState: manualControllerPenState,
+        operationIsActive: operationIsActive,
+        penActuationProfileRevision: EpisodeRevisionIdentifier(
+          rawValue: currentPenActuationProfile.revision
+        )
+      )),
+    ]
+  }
+
+  private func installManualMotionSnapshot(_ snapshot: PlotterManualMotionRuntimeSnapshot) {
+    let previousAttentionRemedy = manualMotionEpisodePresentation.attentionReason
+      ?? manualMotionEpisodeSnapshot?.projection.remedy
+    manualMotionEpisodeSnapshot = snapshot
+    if snapshot.terminalPublicationIssue == nil,
+       snapshot.evidenceDispositionAction == nil,
+       machineError == previousAttentionRemedy {
+      machineError = nil
+    }
+    if let remedy = manualMotionEpisodePresentation.attentionReason
+      ?? snapshot.projection.remedy {
+      machineError = remedy
+    }
+  }
+
+  private func refreshManualEnvironmentSnapshot() async {
+    if frameMode == .simulated {
+      simulatedLearningSnapshot = await simulatedLearningRuntime.snapshot()
+    } else if let machineActions {
+      machineSnapshot = await machineActions.snapshot()
+    }
   }
 
   private var learningStickyAmbiguityReason: String? {
@@ -8343,12 +8599,8 @@ final class OperatorWorkspace:
     return nil
   }
 
-  private var directManualMotionUnavailableReason: String? {
-    directMotionUnavailableReason
-  }
-
-  private var directCarriageMotionUnavailableReason: String? {
-    if let reason = directMotionUnavailableReason { return reason }
+  private var controllerCarriageTravelUnavailableReason: String? {
+    if let reason = controllerMotionSafetyUnavailableReason { return reason }
     guard let machine = machineSnapshot?.machine else {
       return MotionRefusal.notConnected.actionableDescription
     }
@@ -8360,10 +8612,10 @@ final class OperatorWorkspace:
 
   private var learningCarriageMotionUnavailableReason: String? {
     if let reason = controllerPoseRevalidationUnavailableReason { return reason }
-    return directCarriageMotionUnavailableReason
+    return controllerCarriageTravelUnavailableReason
   }
 
-  private var directMotionUnavailableReason: String? {
+  private var controllerMotionSafetyUnavailableReason: String? {
     if jogRequestInProgress { return "A relative jog is already in progress." }
     if frameModeSwitchInProgress { return "Wait for the frame source switch to finish." }
     if frameMode == .simulated {
@@ -8414,7 +8666,7 @@ final class OperatorWorkspace:
     return nil
   }
 
-  func penUnavailableReason(for command: PenCommand) -> String? {
+  func learningPenCommandUnavailableReason(for command: PenCommand) -> String? {
     if penRequestInProgress { return "A pen command is already in progress." }
     if frameModeSwitchInProgress { return "Wait for the frame source switch to finish." }
     if frameMode == .simulated {
@@ -8815,8 +9067,8 @@ final class OperatorWorkspace:
   }
 
   @discardableResult
-  func requestPenActuation(_ command: PenCommand) async -> PenOutcome? {
-    await requestPenActuation(command, profile: currentPenActuationProfile)
+  func executeLearningPenCommand(_ command: PenCommand) async -> PenOutcome? {
+    await executeLearningPenCommand(command, profile: currentPenActuationProfile)
   }
 
   /// Every travel owner normalizes Pen Up from the existing actuation-profile
@@ -8824,7 +9076,7 @@ final class OperatorWorkspace:
   /// is cheap, idempotent, and safer than treating a prior process state as
   /// physical proof.
   private func ensurePenUpForTravel() async -> Bool {
-    let outcome = await requestPenActuation(
+    let outcome = await executeLearningPenCommand(
       .raise,
       profile: currentPenActuationProfile
     )
@@ -8838,12 +9090,12 @@ final class OperatorWorkspace:
   }
 
   @discardableResult
-  private func requestPenActuation(
+  private func executeLearningPenCommand(
     _ command: PenCommand,
     profile: PenActuationProfile
   ) async -> PenOutcome? {
     (
-      await requestPenActuation(
+      await executeLearningPenCommand(
         command,
         profile: profile,
         settlingDiscovery: nil
@@ -8851,13 +9103,13 @@ final class OperatorWorkspace:
     ).outcome
   }
 
-  private func requestPenActuation(
+  private func executeLearningPenCommand(
     _ command: PenCommand,
     profile: PenActuationProfile,
     settlingDiscovery sequenceID: DiscoverySequenceID?
   ) async -> PenActuationPublication {
     if frameMode == .simulated {
-      guard penUnavailableReason(for: command) == nil else {
+      guard learningPenCommandUnavailableReason(for: command) == nil else {
         return PenActuationPublication(outcome: nil, discoveryTransitionFailure: nil)
       }
       withBatchedSemanticPresentationUpdate {
@@ -8921,7 +9173,7 @@ final class OperatorWorkspace:
     defer {
       if hardwareIntentRequiresEnd { endHardwareIntent() }
     }
-    guard penUnavailableReason(for: command) == nil, let machineActions else {
+    guard learningPenCommandUnavailableReason(for: command) == nil, let machineActions else {
       return PenActuationPublication(outcome: nil, discoveryTransitionFailure: nil)
     }
     withBatchedSemanticPresentationUpdate {
@@ -8929,7 +9181,11 @@ final class OperatorWorkspace:
       machineError = nil
       computationDiagnostics.record(.penRequest(command, .began))
     }
-    let outcome = await machineActions.requestPenActuation(command, profile)
+    let outcome = await PlotterManualMotionComposition.settleNativePenCommand(
+      using: machineActions,
+      command: command,
+      profile: profile
+    )
     let snapshot = await machineActions.snapshot()
     guard canCommit(generation) else {
       withBatchedSemanticPresentationUpdate {
@@ -9021,7 +9277,7 @@ final class OperatorWorkspace:
       while let nextCommand = pendingPenSetpointCommand {
         pendingPenSetpointCommand = nil
         let profile = effectivePenActuationProfile
-        await requestPenActuation(nextCommand, profile: profile)
+        await executeLearningPenCommand(nextCommand, profile: profile)
       }
       penSetpointActuationTask = nil
     }
@@ -9133,7 +9389,7 @@ final class OperatorWorkspace:
         return
 
       case .actuatePen(let command):
-        let publication = await requestPenActuation(
+        let publication = await executeLearningPenCommand(
           command,
           profile: currentPenActuationProfile,
           settlingDiscovery: sequenceID
@@ -9490,10 +9746,6 @@ final class OperatorWorkspace:
         )
       }
 
-    case .manualJog, .manualDrawingStroke:
-      await requestSingleJogCancel(for: target, intent: .operatorStop)
-      await operation.owner.settle()
-
     case .exerciseMotion(_, _, let ownerID, _):
       await requestSingleJogCancel(for: target, intent: .operatorStop)
       await operation.owner.settle()
@@ -9750,7 +10002,11 @@ final class OperatorWorkspace:
       guard let machineActions else {
         throw LearningPathOperationError.requiredState("Machine composition is unavailable.")
       }
-      outcome = await machineActions.requestPenActuation(.raise, currentPenActuationProfile)
+      outcome = await PlotterManualMotionComposition.settleNativePenCommand(
+        using: machineActions,
+        command: .raise,
+        profile: currentPenActuationProfile
+      )
       guard case .commandedAndSettled(command: .raise, commandedState: .up) = outcome else {
         machineSnapshot = await machineActions.snapshot()
         throw operationError(for: outcome, possibleInk: false)
@@ -9927,337 +10183,195 @@ final class OperatorWorkspace:
     lastMotionGuardActivationText = "not activated"
   }
 
-  func requestJog(_ direction: JogDirection) async {
-    guard motionUnavailableReason == nil,
-      let xStep = inputNumber(xStepText),
-      let yStep = inputNumber(yStepText),
-      let feed = inputNumber(feedText),
-      xStep > 0,
-      yStep > 0
-    else { return }
-
+  func submitManualJog(_ direction: JogDirection) async {
+    guard manualMotionDraftUnavailableReason == nil else { return }
     do {
-      let delta: Vector2<MachineSpace>
+      let distance: Double
+      let episodeDirection: PlotterJogDirection
       switch direction {
-      case .xNegative: delta = try Vector2(dx: -xStep, dy: 0)
-      case .xPositive: delta = try Vector2(dx: xStep, dy: 0)
-      case .yNegative: delta = try Vector2(dx: 0, dy: -yStep)
-      case .yPositive: delta = try Vector2(dx: 0, dy: yStep)
+      case .xNegative:
+        distance = inputNumber(manualMotionDraft.xDistanceMM)!
+        episodeDirection = .negativeX
+      case .xPositive:
+        distance = inputNumber(manualMotionDraft.xDistanceMM)!
+        episodeDirection = .positiveX
+      case .yNegative:
+        distance = inputNumber(manualMotionDraft.yDistanceMM)!
+        episodeDirection = .negativeY
+      case .yPositive:
+        distance = inputNumber(manualMotionDraft.yDistanceMM)!
+        episodeDirection = .positiveY
       }
-      switch manualMotionPenState {
-      case .up:
-        let request = RelativeJogRequest(delta: delta, feedMMPerMinute: feed)
-        await requestRelativeJog(request)
-      case .down:
-        let request = DrawingStrokeRequest(delta: delta, feedMMPerMinute: feed)
-        await requestManualDrawingStroke(request)
-      case .unknown:
-        let request = RelativeJogRequest(
-          delta: delta,
-          feedMMPerMinute: feed,
-          permitsUnknownPenStateAsPossibleInk: true
+      let request = try PlotterJogRequest(
+        direction: episodeDirection,
+        distanceMM: distance,
+        feedMMPerMinute: inputNumber(manualMotionDraft.feedMMPerMinute)!,
+        routing: manualControllerPenState.requiredJogRouting
+      )
+      await submitManualMotionIntent(.jog(request))
+    } catch {
+      machineError = actionableDescription(error)
+    }
+  }
+
+  func submitManualPen(_ command: PenCommand) async {
+    let position: PlotterPenPosition = command == .raise ? .raised : .lowered
+    await submitManualMotionIntent(.setPen(manualPenRequest(position: position)))
+  }
+
+  func submitManualMotionIntent(_ intent: PlotterManualMotionIntent) async {
+    if let reason = manualMotionEpisodePresentation.attentionReason {
+      machineError = reason
+      return
+    }
+    do {
+      let environment = manualMotionEnvironment
+      let telemetry = environment == .live ? manualMotionTelemetry(for: intent) : nil
+      let refusedOperationID = UUID()
+      let submission = try await manualMotionRuntime.submit(
+        intent,
+        capabilityFacts: manualMotionCapabilityFacts(environment: environment),
+        environment: environment
+      )
+      installManualMotionSnapshot(submission.snapshot)
+      await refreshManualEnvironmentSnapshot()
+      guard submission.disposition == .accepted,
+        let effectID = submission.snapshot.activeOperation?.context.effectID
+      else {
+        if let telemetry {
+          await recordWorkflowTelemetry(WorkflowTelemetryEvent(
+            operationID: refusedOperationID,
+            operation: telemetry.operation,
+            phase: .failed,
+            detail: submission.snapshot.projection.remedy
+              ?? "Manual motion admission was refused by the typed episode evaluator.",
+            motionIntent: telemetry.motionIntent,
+            failureCode: telemetry.admissionFailureCode,
+            recovery: .resolveNamedFailure
+          ))
+        }
+        return
+      }
+      if let telemetry {
+        await recordWorkflowTelemetry(WorkflowTelemetryEvent(
+          operationID: effectID.rawValue,
+          operation: telemetry.operation,
+          phase: .intentAccepted,
+          detail: telemetry.acceptedDetail,
+          motionIntent: telemetry.motionIntent
+        ))
+      }
+      guard let settled = await observeManualMotionSettlement(effectID: effectID) else { return }
+      if let telemetry,
+        let terminal = settled.projection.lastTerminalEffect,
+        terminal.result.context.effectID == effectID
+      {
+        let terminalTelemetry = manualMotionTerminalTelemetry(
+          terminal.result,
+          operation: telemetry.operation
         )
-        await requestRelativeJog(request)
+        await recordWorkflowTelemetry(WorkflowTelemetryEvent(
+          operationID: effectID.rawValue,
+          operation: telemetry.operation,
+          phase: terminalTelemetry.phase,
+          detail: terminalTelemetry.detail,
+          motionIntent: telemetry.motionIntent,
+          failureCode: terminalTelemetry.failureCode,
+          recovery: terminalTelemetry.recovery
+        ))
       }
     } catch {
       machineError = actionableDescription(error)
     }
   }
 
-  /// Routes an already typed relative-jog intent through the same presentation
-  /// and runtime boundary as a button press. Callers cannot supply controller
-  /// commands or bypass MachineController validation.
-  @discardableResult
-  func requestRelativeJog(_ request: RelativeJogRequest) async -> MotionOutcome? {
-    guard await ensurePenUpForTravel() else { return nil }
-    let request = RelativeJogRequest(
-      delta: request.delta,
-      feedMMPerMinute: request.feedMMPerMinute
-    )
-    if frameMode == .simulated {
-      await requestSimulatedRelativeJog(request)
-      return nil
-    }
-    guard let generation = beginHardwareIntent() else { return nil }
-    defer { endHardwareIntent() }
-    let requestUnavailableReason =
-      request.permitsUnknownPenStateAsPossibleInk
-      ? directManualMotionUnavailableReason
-      : ordinaryRelativeJogUnavailableReason
-    guard requestUnavailableReason == nil, !jogRequestInProgress,
-      let machineActions
-    else {
-      return nil
-    }
-
-    jogRequestInProgress = true
-    machineError = nil
-    let fallbackOperationID = UUID()
-    let motionIntent = WorkflowMotionIntent(
-      deltaXMM: request.delta.dx,
-      deltaYMM: request.delta.dy,
-      feedMMPerMinute: request.feedMMPerMinute
-    )
-    let admittedOperation: RelativeJogOperation
-    switch await machineActions.beginRelativeJog(request) {
-    case .admitted(let operation):
-      admittedOperation = operation
-    case .rejected(let outcome):
-      lastManualMotionWasDrawing = false
-      lastManualMotionMayHaveProducedInk = request.permitsUnknownPenStateAsPossibleInk
-      await recordWorkflowTelemetry(
-        WorkflowTelemetryEvent(
-          operationID: fallbackOperationID,
-          operation: .manualJog,
-          phase: .failed,
-          detail: "Manual jog admission was rejected: \(String(describing: outcome))",
-          motionIntent: motionIntent,
-          failureCode: .manualJogAdmissionRejected,
-          recovery: .resolveNamedFailure
-        )
-      )
-      jogRequestInProgress = false
-      machineSnapshot = await machineActions.snapshot()
-      return outcome
-    }
-    await recordWorkflowTelemetry(
-      WorkflowTelemetryEvent(
-        operationID: admittedOperation.id,
-        operation: .manualJog,
-        phase: .intentAccepted,
-        detail: request.permitsUnknownPenStateAsPossibleInk
-          ? "An operator-authored manual jog started with unknown pen state and was recorded as possible ink."
-          : "An operator-authored manual jog started.",
-        motionIntent: motionIntent
-      )
-    )
-    let stopTarget = ContextualStopTarget.manualJog(
-      capabilityID: ContextualStopCapabilityID(),
-      operationOwner: .liveOperation(admittedOperation.id)
-    )
-    defer {
-      jogRequestInProgress = false
-      clearStoppableOperation(matching: stopTarget)
-    }
-    let operation = Task { await admittedOperation.outcome() }
-    installStoppableOperation(target: stopTarget, owner: .motion(operation))
-    await Task.yield()
-    let interimSnapshot = await machineActions.snapshot()
-    if canCommit(generation) { machineSnapshot = interimSnapshot }
-    let outcome = await operation.value
-    let finalSnapshot = await machineActions.snapshot()
-    guard canCommit(generation) else { return nil }
-    machineSnapshot = finalSnapshot
-    lastManualMotionWasDrawing = false
-    lastManualMotionMayHaveProducedInk = request.permitsUnknownPenStateAsPossibleInk
-    let telemetryTerminal:
-      (
-        phase: WorkflowTelemetryPhase, code: WorkflowTelemetryFailureCode?,
-        recovery: WorkflowTelemetryRecovery
-      ) =
-        switch outcome {
-        case .acceptedThenCompleted:
-          (.completed, nil, .none)
-        case .cancelled:
-          (.cancelled, nil, .none)
-        case .refused:
-          (.failed, .manualJogRefused, .resolveNamedFailure)
-        case .ambiguous:
-          (.failed, .manualJogAmbiguous, .resolveNamedFailure)
-        }
-    await recordWorkflowTelemetry(
-      WorkflowTelemetryEvent(
-        operationID: admittedOperation.id,
-        operation: .manualJog,
-        phase: telemetryTerminal.phase,
-        detail: "Manual jog settled as \(String(describing: outcome)).",
-        motionIntent: motionIntent,
-        failureCode: telemetryTerminal.code,
-        recovery: telemetryTerminal.recovery
-      )
-    )
-    return outcome
-  }
-
-  @discardableResult
-  private func requestManualDrawingStroke(
-    _ request: DrawingStrokeRequest
-  ) async -> DrawingStrokeOutcome? {
-    if frameMode == .simulated {
-      await requestSimulatedManualMotion(
-        delta: request.delta,
-        draws: true
-      )
-      return nil
-    }
-    guard let generation = beginHardwareIntent() else { return nil }
-    defer { endHardwareIntent() }
-    guard motionUnavailableReason == nil, manualMotionPenState == .down,
-      !jogRequestInProgress, let machineActions
-    else { return nil }
-
-    jogRequestInProgress = true
-    machineError = nil
-    let fallbackOperationID = UUID()
-    let motionIntent = WorkflowMotionIntent(
-      deltaXMM: request.delta.dx,
-      deltaYMM: request.delta.dy,
-      feedMMPerMinute: request.feedMMPerMinute
-    )
-    let admittedOperation: DrawingStrokeOperation
-    switch await machineActions.beginDrawingStroke(request) {
-    case .admitted(let operation):
-      admittedOperation = operation
-    case .rejected(let outcome):
-      lastManualMotionWasDrawing = true
-      lastManualMotionMayHaveProducedInk = true
-      await recordWorkflowTelemetry(
-        WorkflowTelemetryEvent(
-          operationID: fallbackOperationID,
-          operation: .manualDrawingStroke,
-          phase: .failed,
-          detail: "Manual drawing admission was rejected: \(String(describing: outcome))",
-          motionIntent: motionIntent,
-          failureCode: .manualDrawingAdmissionRejected,
-          recovery: .resolveNamedFailure
-        )
-      )
-      jogRequestInProgress = false
-      machineSnapshot = await machineActions.snapshot()
-      return outcome
-    }
-    await recordWorkflowTelemetry(
-      WorkflowTelemetryEvent(
-        operationID: admittedOperation.id,
-        operation: .manualDrawingStroke,
-        phase: .intentAccepted,
-        detail: "An operator-authored Pen Down manual drawing stroke started.",
-        motionIntent: motionIntent
-      )
-    )
-    let stopTarget = ContextualStopTarget.manualDrawingStroke(
-      capabilityID: ContextualStopCapabilityID(),
-      operationOwner: .liveOperation(admittedOperation.id)
-    )
-    defer {
-      jogRequestInProgress = false
-      clearStoppableOperation(matching: stopTarget)
-    }
-    let operation = Task { await admittedOperation.outcome() }
-    installStoppableOperation(target: stopTarget, owner: .drawing(operation))
-    await Task.yield()
-    let interimSnapshot = await machineActions.snapshot()
-    if canCommit(generation) { machineSnapshot = interimSnapshot }
-    let outcome = await operation.value
-    let finalSnapshot = await machineActions.snapshot()
-    guard canCommit(generation) else { return nil }
-    machineSnapshot = finalSnapshot
-    lastManualMotionWasDrawing = true
-    lastManualMotionMayHaveProducedInk = true
-    let terminal:
-      (
-        phase: WorkflowTelemetryPhase, code: WorkflowTelemetryFailureCode?,
-        recovery: WorkflowTelemetryRecovery
-      ) =
-        switch outcome {
-        case .completed:
-          (.completed, nil, .none)
-        case .cancelled:
-          (.cancelled, nil, .none)
-        case .refused:
-          (.failed, .manualDrawingRefused, .resolveNamedFailure)
-        case .ambiguous:
-          (.failed, .manualDrawingAmbiguous, .resolveNamedFailure)
-        }
-    await recordWorkflowTelemetry(
-      WorkflowTelemetryEvent(
-        operationID: admittedOperation.id,
-        operation: .manualDrawingStroke,
-        phase: terminal.phase,
-        detail: "Manual drawing stroke settled as \(String(describing: outcome)).",
-        motionIntent: motionIntent,
-        failureCode: terminal.code,
-        recovery: terminal.recovery
-      )
-    )
-    return outcome
-  }
-
-  private func requestSimulatedRelativeJog(_ request: RelativeJogRequest) async {
-    let requestUnavailableReason =
-      request.permitsUnknownPenStateAsPossibleInk
-      ? simulatedManualMotionUnavailableReason
-      : ordinaryRelativeJogUnavailableReason
-    guard requestUnavailableReason == nil, !jogRequestInProgress else { return }
-    await requestSimulatedManualMotion(
-      delta: request.delta,
-      draws: false,
-      permitsUnknownPenStateAsPossibleInk: request.permitsUnknownPenStateAsPossibleInk
-    )
-  }
-
-  private func requestSimulatedManualMotion(
-    delta: Vector2<MachineSpace>,
-    draws: Bool,
-    permitsUnknownPenStateAsPossibleInk: Bool = false
-  ) async {
-    guard motionUnavailableReason == nil, !jogRequestInProgress else { return }
-    let vector: SimulatedLearningMotionVector
-    do {
-      vector = try SimulatedLearningMotionVector(
-        dxMM: delta.dx,
-        dyMM: delta.dy
-      )
-    } catch {
-      simulatorLearningSummary = "Simulated manual motion is invalid: \(error)."
-      return
-    }
-    let response =
-      await
-      (draws
-      ? simulatedLearningRuntime.beginDrawing(delta: vector)
-      : simulatedLearningRuntime.beginManualJog(
-        delta: vector,
-        permitsUnknownPenStateAsPossibleInk: permitsUnknownPenStateAsPossibleInk
-      ))
-    let operation: SimulatedLearningOperation
-    switch response.result {
-    case .success(let admitted):
-      operation = admitted
-    case .failure(let refusal):
-      simulatorLearningSummary =
-        "Simulated manual motion refused: \(refusal). \(response.evidenceNotice.label)"
-      return
-    }
-    let capabilityID = ContextualStopCapabilityID()
-    let owner = ContextualMotionOwnerID.simulated(operation.id)
-    let target =
-      draws
-      ? ContextualStopTarget.manualDrawingStroke(
-        capabilityID: capabilityID, operationOwner: owner)
-      : ContextualStopTarget.manualJog(capabilityID: capabilityID, operationOwner: owner)
-    jogRequestInProgress = true
-    simulatedLearningSnapshot = await simulatedLearningRuntime.snapshot()
-    simulatorLearningSummary =
-      "Simulated manual \(draws ? "drawing" : "jog") active; use the bound Stop control. \(response.evidenceNotice.label)"
-    let outcomeTask = Task<SimulatedLearningOperationOutcome?, Never> {
-      [simulatedLearningRuntime, simulatedExecutionPacing] in
-      let execution = await simulatedLearningRuntime.executeNaturally(
-        operation.id,
-        pacing: simulatedExecutionPacing
-      )
-      if case .success(let outcome) = execution.result {
-        return outcome
+  private func observeManualMotionSettlement(
+    effectID: EpisodeEffectID
+  ) async -> PlotterManualMotionRuntimeSnapshot? {
+    while !Task.isCancelled, !hasShutdown {
+      try? await Task.sleep(nanoseconds: 20_000_000)
+      let snapshot = await manualMotionRuntime.currentSnapshot()
+      installManualMotionSnapshot(snapshot)
+      if snapshot.activeOperation?.context.effectID != effectID {
+        await refreshManualEnvironmentSnapshot()
+        return snapshot
       }
-      return try? await simulatedLearningRuntime.waitForOutcome(of: operation.id).result.get()
     }
-    installStoppableOperation(target: target, owner: .simulated(outcomeTask))
-    defer {
-      jogRequestInProgress = false
-      clearStoppableOperation(matching: target)
+    return nil
+  }
+
+  private func manualMotionTelemetry(
+    for intent: PlotterManualMotionIntent
+  ) -> (
+    operation: WorkflowTelemetryOperation,
+    motionIntent: WorkflowMotionIntent,
+    acceptedDetail: String,
+    admissionFailureCode: WorkflowTelemetryFailureCode
+  )? {
+    guard case let .jog(request) = intent else { return nil }
+    let deltaXMM: Double
+    let deltaYMM: Double
+    switch request.direction {
+    case .positiveX: (deltaXMM, deltaYMM) = (request.distanceMM, 0)
+    case .negativeX: (deltaXMM, deltaYMM) = (-request.distanceMM, 0)
+    case .positiveY: (deltaXMM, deltaYMM) = (0, request.distanceMM)
+    case .negativeY: (deltaXMM, deltaYMM) = (0, -request.distanceMM)
     }
-    _ = await outcomeTask.value
-    simulatedLearningSnapshot = await simulatedLearningRuntime.snapshot()
+    let motionIntent = WorkflowMotionIntent(
+      deltaXMM: deltaXMM,
+      deltaYMM: deltaYMM,
+      feedMMPerMinute: request.feedMMPerMinute
+    )
+    if request.routing == .drawingStroke {
+      return (
+        .manualDrawingStroke,
+        motionIntent,
+        "An operator-authored Pen Down manual drawing stroke started.",
+        .manualDrawingAdmissionRejected
+      )
+    }
+    return (
+      .manualJog,
+      motionIntent,
+      request.routing == .possibleInk
+        ? "An operator-authored manual jog started with unknown pen state and was recorded as possible ink."
+        : "An operator-authored manual jog started.",
+      .manualJogAdmissionRejected
+    )
+  }
+
+  private func manualMotionTerminalTelemetry(
+    _ result: PlotterEffectResult,
+    operation: WorkflowTelemetryOperation
+  ) -> (
+    phase: WorkflowTelemetryPhase,
+    detail: String,
+    failureCode: WorkflowTelemetryFailureCode?,
+    recovery: WorkflowTelemetryRecovery
+  ) {
+    let detail = "Manual motion settled as \(result.disposition.rawValue)."
+    switch result.disposition {
+    case .completed:
+      return (.completed, detail, nil, .none)
+    case .cancelled:
+      return (.cancelled, detail, nil, .none)
+    case .refused:
+      return (
+        .failed,
+        detail,
+        operation == .manualDrawingStroke ? .manualDrawingRefused : .manualJogRefused,
+        .resolveNamedFailure
+      )
+    case .ambiguous:
+      return (
+        .failed,
+        detail,
+        operation == .manualDrawingStroke ? .manualDrawingAmbiguous : .manualJogAmbiguous,
+        .resolveNamedFailure
+      )
+    case .timedOut, .evidenceUnavailable, .failed:
+      return (.failed, detail, nil, .resolveNamedFailure)
+    }
   }
 
   func discoverCameras() async {
@@ -10600,6 +10714,7 @@ final class OperatorWorkspace:
     let calibration = currentCameraCalibrationTask
     calibration?.cancel()
     await pointSelectionRuntime.shutdown()
+    await manualMotionRuntime.shutdown()
     await announcementActions?.cancelForShutdown()
     await stopAndSettleActiveMotionForShutdown()
     await calibration?.value
@@ -10716,7 +10831,7 @@ final class OperatorWorkspace:
         if frameMode == .simulated {
           simulatorPenState = .up
         } else {
-          await requestPenActuation(.raise)
+          await executeLearningPenCommand(.raise)
         }
         await failDiscovery(sequenceID, failure: .refused(question.negativeAcknowledgement))
       }
@@ -11210,9 +11325,7 @@ final class OperatorWorkspace:
       ownerID == .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
       && (activeExerciseAttemptMode == .replacement || activeExerciseAttemptMode == .additional)
       && boundarySideAggregates[selectedBoundaryDirection] != nil
-    let learningStopTarget = activeStopTarget.flatMap {
-      isManualStopTarget($0) ? nil : $0
-    }
+    let learningStopTarget = activeStopTarget
     if let sequenceID = activeDiscoverySequenceID,
       var transaction = discoveryTransactions[sequenceID]
     {
@@ -11239,9 +11352,7 @@ final class OperatorWorkspace:
       recordDiscoveryAttempt(sequenceID: sequenceID, disposition: .cancelled)
     } else if isPreSequencePenInteraction {
       recordDiscoveryAttempt(sequenceID: .penInteraction, disposition: .cancelled)
-    } else if let target = activeStopTarget,
-      !isManualStopTarget(target)
-    {
+    } else if let target = activeStopTarget {
       guard
         latchContextualStopDisposition(
           for: target,
@@ -12493,8 +12604,7 @@ final class OperatorWorkspace:
         boundaryTeachingResultText =
           "Shutdown requested. Waiting for active motion to reach Idle."
       }
-    case .manualJog, .manualDrawingStroke, .exerciseMotion, .drawingTrial, .sparseTipBatch,
-      .sparseTipBatchSegment:
+    case .exerciseMotion, .drawingTrial, .sparseTipBatch, .sparseTipBatchSegment:
       break
     }
 
@@ -12556,7 +12666,7 @@ final class OperatorWorkspace:
   }
 
   private func positiveFallbackTravelFeed() -> Double {
-    guard let feed = inputNumber(feedText), feed > 0 else { return 100 }
+    guard let feed = inputNumber(MotionPriors.feedMMPerMinute), feed > 0 else { return 100 }
     return feed
   }
 
@@ -12935,7 +13045,10 @@ final class OperatorWorkspace:
       feedMMPerMinute: selection.requestedFeedMMPerMinute
     )
     let operation: RelativeJogOperation
-    switch await machineActions.beginRelativeJog(request) {
+    switch await PlotterManualMotionComposition.beginNativeRelativeMotion(
+      using: machineActions,
+      request: request
+    ) {
     case .admitted(let admitted):
       operation = admitted
     case .rejected(let outcome):

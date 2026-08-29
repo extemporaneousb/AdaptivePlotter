@@ -1,11 +1,659 @@
+import EpisodeCore
 import Foundation
+import PlotterEpisodeModel
+import PlotterEpisodeRuntime
 import PlotterModel
+import PlotterTestSupport
 import Testing
+import os
 
 @testable import PlotterApp
 @testable import PlotterRuntime
 
 extension OperatorWorkspaceTests {
+  @Test("LIVE possible-ink ambiguity disables effects until exact operator disposition")
+  func liveManualAmbiguityDisposition() async throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("manual-live-ambiguity-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let live = ManualMotionAmbiguousAdapter(environment: .live, possibleInk: true)
+    let simulated = ManualMotionAmbiguousAdapter(environment: .simulated, possibleInk: false)
+    let runtime = try PlotterManualMotionRuntime(
+      journalFileURL: directory.appendingPathComponent("journal.json"),
+      liveAdapter: live,
+      simulatedAdapter: simulated
+    )
+    let log = EventLog()
+    let machine = try MachineFixture(log: log)
+    let actions = manualMotionWorkspaceActions(machine: machine)
+    let simulatedLearning = SimulatedLearningRuntime()
+    let workspace = OperatorWorkspace(
+      machineActions: actions,
+      manualMotionRuntime: runtime,
+      simulatedLearningRuntime: simulatedLearning,
+      simulatedExecutionPacing: SimulatedLearningImmediatePacing(),
+      serialDevices: [machine.descriptor],
+      serialDeviceDiscovery: { [machine.descriptor] },
+      loadSelectedSerialIdentifier: { nil },
+      persistSelectedSerialIdentifier: { _ in },
+      loadPenCapAppearanceSelection: { nil },
+      persistPenCapAppearanceSelection: { _ in },
+      loadOverlayPreference: { nil },
+      persistOverlayPreference: { _ in }
+    )
+    await workspace.establishMachineSession(machine.descriptor)
+    await workspace.requestPassiveProbe()
+
+    let intent = try manualAmbiguityJog()
+    await workspace.submitManualMotionIntent(intent)
+    let pending = workspace.manualMotionEpisodePresentation
+    let evidence = try #require(pending.evidenceDisposition)
+    #expect(evidence.action.environment == .live)
+    #expect(evidence.action.disposition == .acknowledgePossibleInk)
+    #expect(evidence.title == "Acknowledge Possible Ink")
+    #expect(workspace.manualMotionEpisodeSnapshot?.projection.phase == .awaitingEvidence)
+    #expect(pending.jogControlsUnavailableReason == evidence.remedy)
+    #expect(pending.penUpUnavailableReason == evidence.remedy)
+    #expect(pending.penDownUnavailableReason == evidence.remedy)
+    #expect(workspace.motionRequestStatusPresentation == .needsAttention(evidence.remedy))
+    #expect(live.startCount == 1)
+
+    await workspace.submitManualMotionIntent(intent)
+    await workspace.submitManualPen(.lower)
+    #expect(live.startCount == 1)
+    let stale = PlotterManualMotionEvidenceDispositionAction(
+      effectID: evidence.action.effectID,
+      environment: evidence.action.environment,
+      observationID: PlotterObservationID(rawValue: UUID()),
+      disposition: evidence.action.disposition,
+      summary: evidence.action.summary
+    )
+    await workspace.resolveManualMotionEvidence(using: stale)
+    #expect(workspace.manualMotionEpisodeSnapshot?.projection.phase == .awaitingEvidence)
+
+    await workspace.resolveManualMotionEvidence(using: evidence.action)
+    #expect(workspace.manualMotionEpisodeSnapshot?.projection.phase == .ready)
+    #expect(workspace.manualMotionEpisodePresentation.evidenceDisposition == nil)
+    #expect(workspace.manualMotionEpisodePresentation.jogControlsUnavailableReason == nil)
+    #expect(workspace.motionRequestStatusPresentation == .ready)
+    #expect(live.startCount == 1)
+    await workspace.shutdown()
+  }
+
+  @Test("SIMULATED ambiguity disables effects and records no automatic retry")
+  func simulatedManualAmbiguityDisposition() async throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("manual-simulated-ambiguity-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let live = ManualMotionAmbiguousAdapter(environment: .live, possibleInk: true)
+    let simulated = ManualMotionAmbiguousAdapter(environment: .simulated, possibleInk: false)
+    let simulatedLearning = SimulatedLearningRuntime()
+    let runtime = try PlotterManualMotionRuntime(
+      journalFileURL: directory.appendingPathComponent("journal.json"),
+      liveAdapter: live,
+      simulatedAdapter: simulated
+    )
+    let workspace = OperatorWorkspace(
+      machineActions: nil,
+      cameraActions: CameraComposition.makeIsolatedActionsForTesting(),
+      manualMotionRuntime: runtime,
+      simulatedLearningRuntime: simulatedLearning,
+      simulatedExecutionPacing: SimulatedLearningImmediatePacing(),
+      serialDevices: [],
+      serialDeviceDiscovery: { [] },
+      loadSelectedSerialIdentifier: { nil },
+      persistSelectedSerialIdentifier: { _ in },
+      loadPenCapAppearanceSelection: { nil },
+      persistPenCapAppearanceSelection: { _ in },
+      loadOverlayPreference: { nil },
+      persistOverlayPreference: { _ in }
+    )
+    await workspace.switchFrameMode(.simulated)
+    await workspace.performControllerConnectionAction()
+    await workspace.activateMotionGuard()
+
+    let intent = try manualAmbiguityJog()
+    await workspace.submitManualMotionIntent(intent)
+    let pending = workspace.manualMotionEpisodePresentation
+    let evidence = try #require(pending.evidenceDisposition)
+    #expect(evidence.action.environment == .simulated)
+    #expect(evidence.action.disposition == .acknowledgeAmbiguity)
+    #expect(workspace.manualMotionEpisodeSnapshot?.projection.phase == .awaitingEvidence)
+    #expect(pending.jogControlsUnavailableReason == evidence.remedy)
+    #expect(pending.penUpUnavailableReason == evidence.remedy)
+    #expect(pending.penDownUnavailableReason == evidence.remedy)
+    #expect(simulated.startCount == 1)
+
+    await workspace.submitManualMotionIntent(intent)
+    await workspace.submitManualPen(.lower)
+    #expect(simulated.startCount == 1)
+    await workspace.resolveManualMotionEvidence(using: evidence.action)
+    #expect(workspace.manualMotionEpisodeSnapshot?.projection.phase == .ready)
+    #expect(workspace.manualMotionEpisodePresentation.evidenceDisposition == nil)
+    #expect(workspace.manualMotionEpisodePresentation.jogControlsUnavailableReason == nil)
+    #expect(simulated.startCount == 1)
+    #expect(live.startCount == 0)
+    await workspace.shutdown()
+  }
+
+  @Test("false applied local mode returns the native open receipt without transcript facts")
+  func unrepresentableLocalModeOpenReceipt() async throws {
+    try await assertUnrepresentableAppliedOpen(
+      localModeEnabled: false,
+      receiverEnabled: true
+    )
+  }
+
+  @Test("false applied receiver mode returns the native open receipt without transcript facts")
+  func unrepresentableReceiverOpenReceipt() async throws {
+    try await assertUnrepresentableAppliedOpen(
+      localModeEnabled: true,
+      receiverEnabled: false
+    )
+  }
+
+  private func assertUnrepresentableAppliedOpen(
+    localModeEnabled: Bool,
+    receiverEnabled: Bool
+  ) async throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("manual-motion-open-receipt-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let store = try EpisodeRecordingStore.open(
+      directoryURL: directory,
+      recordingID: EpisodeRecordingID(rawValue: UUID()),
+      schemaRevision: EpisodeRecordingSchemaRevision(rawValue: "manual-open-test-v1"),
+      frameRetentionPolicy: EpisodeFrameRetentionPolicy(
+        maximumUniqueFrameCount: 1,
+        maximumTotalUniqueFrameBytes: 1
+      )
+    )
+    let clock = SystemRuntimeClock()
+    let baseLink = ManualMotionReceiptLink(
+      clock: clock,
+      localModeEnabled: localModeEnabled,
+      receiverEnabled: receiverEnabled
+    )
+    let router = ManualMotionControllerRecordingRouter()
+    let link = RecordingMachineLink(underlying: baseLink, router: router, clock: clock)
+    let actions = manualMotionReceiptActions {
+      let receipt = try? await link.open()
+      guard case let .bsdSerial(applied)? = receipt?.appliedConfiguration else {
+        Issue.record("Expected the unchanged native BSD open receipt")
+        return
+      }
+      #expect(applied.localModeEnabled == localModeEnabled)
+      #expect(applied.receiverEnabled == receiverEnabled)
+    }
+    let runtime = PlotterManualMotionComposition.makeRuntime(
+      journalFileURL: directory.appendingPathComponent("manual-motion-journal.json"),
+      machineActions: actions,
+      simulatedRuntime: SimulatedLearningRuntime(),
+      simulatedExecutionPacing: SimulatedLearningImmediatePacing(),
+      recordingStore: store,
+      recordingRouter: router
+    )
+    _ = try await runtime.submit(
+      .jog(try PlotterJogRequest(
+        direction: .positiveX,
+        distanceMM: 1,
+        feedMMPerMinute: 100,
+        routing: .relativeTravel
+      )),
+      capabilityFacts: liveManualMotionFacts(),
+      environment: .live
+    )
+    try await waitUntilAsync { (await runtime.currentSnapshot()).activeOperation == nil }
+
+    let runtimeSnapshot = await runtime.currentSnapshot()
+    #expect(runtimeSnapshot.projection.lastTerminalEffect?.disposition == .completed)
+    #expect(runtimeSnapshot.recordingDiagnostic?.contains("cannot be represented losslessly") == true)
+    #expect((await store.snapshot()).entries.isEmpty)
+  }
+
+  @Test("workspace exposes exact terminal-publication recovery and cannot reissue an effect")
+  func manualTerminalPublicationRecoveryPresentation() async throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("manual-workspace-recovery-\(UUID().uuidString)")
+    let displaced = directory.appendingPathExtension("displaced")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer {
+      try? FileManager.default.removeItem(at: directory)
+      try? FileManager.default.removeItem(at: displaced)
+    }
+    let log = EventLog()
+    let machine = try MachineFixture(log: log)
+    let actions = manualMotionWorkspaceActions(machine: machine)
+    let simulated = SimulatedLearningRuntime()
+    let runtime = PlotterManualMotionComposition.makeRuntime(
+      journalFileURL: directory.appendingPathComponent("manual-motion-journal.json"),
+      machineActions: actions,
+      simulatedRuntime: simulated,
+      simulatedExecutionPacing: SimulatedLearningImmediatePacing()
+    )
+    let gate = PlotterManualMotionTerminalPublicationGate()
+    await runtime.installTerminalPublicationGateForTesting(gate)
+    let workspace = OperatorWorkspace(
+      machineActions: actions,
+      manualMotionRuntime: runtime,
+      simulatedLearningRuntime: simulated,
+      simulatedExecutionPacing: SimulatedLearningImmediatePacing(),
+      serialDevices: [machine.descriptor],
+      serialDeviceDiscovery: { [machine.descriptor] },
+      loadSelectedSerialIdentifier: { nil },
+      persistSelectedSerialIdentifier: { _ in },
+      loadPenCapAppearanceSelection: { nil },
+      persistPenCapAppearanceSelection: { _ in },
+      loadOverlayPreference: { nil },
+      persistOverlayPreference: { _ in }
+    )
+    await workspace.establishMachineSession(machine.descriptor)
+    await workspace.requestPassiveProbe()
+    #expect(workspace.manualMotionEpisodePresentation.jogControlsUnavailableReason == nil)
+
+    let intent = PlotterManualMotionIntent.jog(try PlotterJogRequest(
+      direction: .positiveX,
+      distanceMM: 1,
+      feedMMPerMinute: 100,
+      routing: .relativeTravel
+    ))
+    let owner = Task { await workspace.submitManualMotionIntent(intent) }
+    try await waitUntilAsync { await machine.relativeJogIsAwaitingSettlement }
+    let originalEffectID = try #require(
+      workspace.manualMotionEpisodeSnapshot?.activeOperation?.context.effectID
+    )
+    #expect(await machine.requestedFeeds.count == 1)
+    await machine.settleRelativeJogNaturally()
+    await gate.waitUntilPublicationIsHeld()
+    try FileManager.default.moveItem(at: directory, to: displaced)
+    gate.releasePublication()
+    try await waitUntil {
+      workspace.manualMotionEpisodePresentation.publicationRecovery != nil
+    }
+
+    let pending = workspace.manualMotionEpisodePresentation
+    let recovery = try #require(pending.publicationRecovery)
+    #expect(recovery.title == "Retry Manual Jog Publication")
+    #expect(recovery.remedy.contains("jog command will not be issued again"))
+    #expect(pending.stopAction == nil)
+    #expect(pending.jogControlsUnavailableReason == recovery.remedy)
+    #expect(pending.penUpUnavailableReason == recovery.remedy)
+    #expect(pending.penDownUnavailableReason == recovery.remedy)
+    #expect(workspace.motionRequestStatusPresentation == .needsAttention(recovery.remedy))
+
+    await workspace.submitManualPen(.lower)
+    await workspace.submitManualMotionIntent(intent)
+    #expect(await machine.requestedFeeds.count == 1)
+    #expect(await machine.requestedPenCommands.isEmpty)
+    #expect(workspace.manualMotionEpisodeSnapshot?.activeOperation?.context.effectID
+      == originalEffectID)
+    await workspace.recoverManualMotionPublication(
+      capabilityID: PlotterManualMotionPublicationRecoveryCapabilityID()
+    )
+    #expect(workspace.manualMotionEpisodePresentation.publicationRecovery?.capabilityID
+      == recovery.capabilityID)
+
+    try FileManager.default.moveItem(at: displaced, to: directory)
+    await workspace.recoverManualMotionPublication(capabilityID: recovery.capabilityID)
+    await owner.value
+
+    let restored = workspace.manualMotionEpisodePresentation
+    #expect(restored.publicationRecovery == nil)
+    #expect(restored.jogControlsUnavailableReason == nil)
+    #expect(restored.penUpUnavailableReason == nil)
+    #expect(restored.penDownUnavailableReason == nil)
+    #expect(workspace.motionRequestStatusPresentation == .ready)
+    #expect(await machine.requestedFeeds.count == 1)
+    #expect(await machine.requestedPenCommands.isEmpty)
+  }
+
+  @Test("LIVE manual motion records exact MachineLink receipts only while operation-bound")
+  func liveManualMotionReceiptRecording() async throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("manual-motion-receipts-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let store = try EpisodeRecordingStore.open(
+      directoryURL: directory,
+      recordingID: EpisodeRecordingID(rawValue: UUID()),
+      schemaRevision: EpisodeRecordingSchemaRevision(rawValue: "manual-motion-receipt-test-v1"),
+      frameRetentionPolicy: EpisodeFrameRetentionPolicy(
+        maximumUniqueFrameCount: 1,
+        maximumTotalUniqueFrameBytes: 1
+      )
+    )
+    let clock = SystemRuntimeClock()
+    let baseLink = ManualMotionReceiptLink(clock: clock)
+    let recordingRouter = ManualMotionControllerRecordingRouter()
+    let link = RecordingMachineLink(
+      underlying: baseLink,
+      router: recordingRouter,
+      clock: clock
+    )
+    let actions = OperatorWorkspace.MachineActions(
+      select: { _ in throw ManualMotionReceiptTestError.unused },
+      snapshot: { nil },
+      requestPassiveProbe: { throw ManualMotionReceiptTestError.unused },
+      requestControllerAlarmClear: { .refused(.noCurrentAlarmEvidence) },
+      activateMotionGuard: { .refused(.notConnected) },
+      deactivateMotionGuard: {},
+      beginRelativeJog: { request in
+        .admitted(RelativeJogOperation(id: UUID(), task: Task {
+          do {
+            _ = try await link.discardPendingInput()
+            _ = try await link.write(MachineController.encodeRelativeJog(request))
+            _ = try await link.read(maximumBytes: 64, timeoutNanoseconds: 250_000_000)
+            return .acceptedThenCompleted(finalPosition: try! MachinePosition(x: 1, y: 0))
+          } catch {
+            return .ambiguous(.transport(String(describing: error)))
+          }
+        }))
+      },
+      beginDrawingStroke: { _ in .rejected(.refused(.notConnected)) },
+      beginPenActuation: { _, _ in .rejected(.refused(.notConnected)) },
+      beginBoundaryMotion: { request, _ in
+        .rejected(.needsAttention(
+          ownerID: request.ownerID,
+          terminal: .refusal(.notConnected)
+        ))
+      },
+      requestJogCancel: { _ in .refused(.noActiveJog) },
+      disconnect: {}
+    )
+    let runtime = PlotterManualMotionComposition.makeRuntime(
+      journalFileURL: directory.appendingPathComponent("manual-motion-journal.json"),
+      machineActions: actions,
+      simulatedRuntime: SimulatedLearningRuntime(),
+      simulatedExecutionPacing: SimulatedLearningImmediatePacing(),
+      recordingStore: store,
+      recordingRouter: recordingRouter
+    )
+    let intent = PlotterManualMotionIntent.jog(try PlotterJogRequest(
+      direction: .positiveX,
+      distanceMM: 1,
+      feedMMPerMinute: 100,
+      routing: .relativeTravel
+    ))
+    let submission = try await runtime.submit(
+      intent,
+      capabilityFacts: liveManualMotionFacts(),
+      environment: .live
+    )
+    #expect(submission.disposition == .accepted)
+    try await waitUntilAsync {
+      let snapshot = await runtime.currentSnapshot()
+      return snapshot.activeOperation == nil
+    }
+
+    let recorded = await store.snapshot()
+    #expect(recorded.entries.count == 6)
+    #expect(recorded.isComplete)
+    #expect(recorded.entries.allSatisfy {
+      $0.provenance.environment == .live
+        && $0.provenance.episodeID != nil
+        && $0.provenance.intentRequestID != nil
+        && $0.provenance.effectID != nil
+    })
+    guard case let .controller(.invocation(discardInvocation)) = recorded.entries[0].record,
+      case .discardInput = discardInvocation.operation
+    else {
+      Issue.record("expected exact discard invocation")
+      return
+    }
+    guard case let .controller(.completion(discardCompletion)) = recorded.entries[1].record,
+      case let .succeeded(.discardInput(discardedByteCount)) = discardCompletion.outcome
+    else {
+      Issue.record("expected exact discard receipt")
+      return
+    }
+    #expect(discardCompletion.invocationID == discardInvocation.id)
+    #expect(discardedByteCount == 2)
+    guard case let .controller(.invocation(write)) = recorded.entries[2].record,
+      case let .rawWrite(parameters) = write.operation,
+      case let .controller(.completion(writeCompletion)) = recorded.entries[3].record,
+      case let .succeeded(.rawWrite(writtenByteCount)) = writeCompletion.outcome
+    else {
+      Issue.record("expected exact write invocation and receipt")
+      return
+    }
+    #expect(writtenByteCount == parameters.bytes.count)
+    guard case let .controller(.invocation(read)) = recorded.entries[4].record,
+      case let .timedRead(readParameters) = read.operation,
+      case let .controller(.completion(readCompletion)) = recorded.entries[5].record,
+      case let .succeeded(.timedRead(chunks, timedOut)) = readCompletion.outcome,
+      let chunk = chunks.first
+    else {
+      Issue.record("expected exact timed-read invocation and receipt")
+      return
+    }
+    #expect(readParameters.maximumByteCount == 64)
+    #expect(readParameters.timeoutNanoseconds == 250_000_000)
+    #expect(chunks.count == 1)
+    #expect(chunk.bytes == Data("ok\n".utf8))
+    #expect(!timedOut)
+    #expect(chunk.monotonicOffsetNanoseconds >= recorded.entries[4].monotonicOffsetNanoseconds)
+    #expect(chunk.monotonicOffsetNanoseconds <= recorded.entries[5].monotonicOffsetNanoseconds)
+
+    _ = try await link.write(Data("?".utf8))
+    #expect((await store.snapshot()).entries.count == 6)
+  }
+
+  @Test("LIVE recorder retains applied open and exact partial/close failures")
+  func liveManualMotionFailureReceiptRecording() async throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("manual-motion-failure-receipts-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let store = try EpisodeRecordingStore.open(
+      directoryURL: directory,
+      recordingID: EpisodeRecordingID(rawValue: UUID()),
+      schemaRevision: EpisodeRecordingSchemaRevision(rawValue: "manual-motion-failure-test-v1"),
+      frameRetentionPolicy: EpisodeFrameRetentionPolicy(
+        maximumUniqueFrameCount: 1,
+        maximumTotalUniqueFrameBytes: 1
+      )
+    )
+    let clock = SystemRuntimeClock()
+    let baseLink = ManualMotionFailureReceiptLink(clock: clock)
+    let recordingRouter = ManualMotionControllerRecordingRouter()
+    let link = RecordingMachineLink(
+      underlying: baseLink,
+      router: recordingRouter,
+      clock: clock
+    )
+    let writeBytes = Data("G1 X1\n".utf8)
+    let actions = manualMotionReceiptActions {
+      _ = try? await link.open()
+      try? await link.close()
+      _ = try? await link.discardPendingInput()
+      _ = try? await link.write(writeBytes)
+      _ = try? await link.read(maximumBytes: 64, timeoutNanoseconds: 250_000_000)
+    }
+    let runtime = PlotterManualMotionComposition.makeRuntime(
+      journalFileURL: directory.appendingPathComponent("manual-motion-journal.json"),
+      machineActions: actions,
+      simulatedRuntime: SimulatedLearningRuntime(),
+      simulatedExecutionPacing: SimulatedLearningImmediatePacing(),
+      recordingStore: store,
+      recordingRouter: recordingRouter
+    )
+    _ = try await runtime.submit(
+      .jog(try PlotterJogRequest(
+        direction: .positiveX,
+        distanceMM: 1,
+        feedMMPerMinute: 100,
+        routing: .relativeTravel
+      )),
+      capabilityFacts: liveManualMotionFacts(),
+      environment: .live
+    )
+    try await waitUntilAsync {
+      (await runtime.currentSnapshot()).activeOperation == nil
+    }
+
+    let recorded = await store.snapshot()
+    #expect(recorded.entries.count == 10)
+    #expect(recorded.isComplete)
+
+    guard case let .controller(.invocation(open)) = recorded.entries[0].record,
+      case let .open(openParameters) = open.operation,
+      case let .controller(.completion(openCompletion)) = recorded.entries[1].record,
+      case .succeeded(.open) = openCompletion.outcome
+    else {
+      Issue.record("expected applied open receipt pair")
+      return
+    }
+    #expect(openParameters.endpoint == "/dev/cu.manual-motion-failure")
+    #expect(openParameters.baudRate == 115_200)
+    #expect(openCompletion.invocationID == open.id)
+
+    guard case let .controller(.invocation(close)) = recorded.entries[2].record,
+      case .close = close.operation,
+      case let .controller(.completion(closeCompletion)) = recorded.entries[3].record,
+      case let .failed(closeFailure) = closeCompletion.outcome
+    else {
+      Issue.record("expected close failure receipt pair")
+      return
+    }
+    #expect(closeFailure.kind == .inputOutput)
+    #expect(closeFailure.systemCode == EIO)
+    #expect(closeFailure.partialByteCount == 0)
+
+    guard case let .controller(.completion(discardCompletion)) = recorded.entries[5].record,
+      case let .failed(discardFailure) = discardCompletion.outcome
+    else {
+      Issue.record("expected partial discard failure")
+      return
+    }
+    #expect(discardFailure.partialByteCount == 3)
+    #expect(discardFailure.partialReadChunks.isEmpty)
+
+    guard case let .controller(.invocation(write)) = recorded.entries[6].record,
+      case let .rawWrite(writeParameters) = write.operation,
+      case let .controller(.completion(writeCompletion)) = recorded.entries[7].record,
+      case let .failed(writeFailure) = writeCompletion.outcome
+    else {
+      Issue.record("expected partial write failure")
+      return
+    }
+    #expect(writeParameters.bytes == writeBytes)
+    #expect(writeFailure.partialByteCount == 2)
+
+    guard case let .controller(.completion(readCompletion)) = recorded.entries[9].record,
+      case let .failed(readFailure) = readCompletion.outcome,
+      let partialChunk = readFailure.partialReadChunks.first
+    else {
+      Issue.record("expected partial timed-read failure")
+      return
+    }
+    #expect(readFailure.partialByteCount == 1)
+    #expect(readFailure.partialReadChunks.count == 1)
+    #expect(partialChunk.bytes == Data("o".utf8))
+    #expect(partialChunk.monotonicOffsetNanoseconds
+      >= recorded.entries[8].monotonicOffsetNanoseconds)
+    #expect(partialChunk.monotonicOffsetNanoseconds
+      <= recorded.entries[9].monotonicOffsetNanoseconds)
+  }
+
+  @Test("exact Stop remains inside the LIVE controller-recording lease")
+  func liveManualMotionStopReceiptRecording() async throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("manual-motion-stop-receipt-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let store = try EpisodeRecordingStore.open(
+      directoryURL: directory,
+      recordingID: EpisodeRecordingID(rawValue: UUID()),
+      schemaRevision: EpisodeRecordingSchemaRevision(rawValue: "manual-motion-stop-test-v1"),
+      frameRetentionPolicy: EpisodeFrameRetentionPolicy(
+        maximumUniqueFrameCount: 1,
+        maximumTotalUniqueFrameBytes: 1
+      )
+    )
+    let clock = SystemRuntimeClock()
+    let baseLink = ManualMotionReceiptLink(clock: clock)
+    let recordingRouter = ManualMotionControllerRecordingRouter()
+    let link = RecordingMachineLink(
+      underlying: baseLink,
+      router: recordingRouter,
+      clock: clock
+    )
+    let operation = ManualMotionStopOperation()
+    let actions = OperatorWorkspace.MachineActions(
+      select: { _ in throw ManualMotionReceiptTestError.unused },
+      snapshot: { nil },
+      requestPassiveProbe: { throw ManualMotionReceiptTestError.unused },
+      requestControllerAlarmClear: { .refused(.noCurrentAlarmEvidence) },
+      activateMotionGuard: { .refused(.notConnected) },
+      deactivateMotionGuard: {},
+      beginRelativeJog: { _ in
+        .admitted(RelativeJogOperation(id: UUID(), task: Task {
+          await operation.waitForOutcome()
+        }))
+      },
+      beginDrawingStroke: { _ in .rejected(.refused(.notConnected)) },
+      beginPenActuation: { _, _ in .rejected(.refused(.notConnected)) },
+      beginBoundaryMotion: { request, _ in
+        .rejected(.needsAttention(
+          ownerID: request.ownerID,
+          terminal: .refusal(.notConnected)
+        ))
+      },
+      requestJogCancel: { _ in
+        do {
+          _ = try await link.write(MachineController.encodeJogCancel)
+          await operation.finishCancellation()
+          return .completed(finalPosition: try! MachinePosition(x: 0, y: 0))
+        } catch {
+          return .ambiguous(.transport(String(describing: error)))
+        }
+      },
+      disconnect: {}
+    )
+    let runtime = PlotterManualMotionComposition.makeRuntime(
+      journalFileURL: directory.appendingPathComponent("manual-motion-journal.json"),
+      machineActions: actions,
+      simulatedRuntime: SimulatedLearningRuntime(),
+      simulatedExecutionPacing: SimulatedLearningImmediatePacing(),
+      recordingStore: store,
+      recordingRouter: recordingRouter
+    )
+    let submission = try await runtime.submit(
+      .jog(try PlotterJogRequest(
+        direction: .positiveX,
+        distanceMM: 1,
+        feedMMPerMinute: 100,
+        routing: .relativeTravel
+      )),
+      capabilityFacts: liveManualMotionFacts(),
+      environment: .live
+    )
+    let stopCapability = try #require(submission.snapshot.activeOperation?.stopCapabilityID)
+    let stopped = await runtime.stop(using: stopCapability)
+    #expect(stopped.disposition == .settled)
+
+    let recorded = await store.snapshot()
+    #expect(recorded.entries.count == 2)
+    #expect(recorded.isComplete)
+    guard case let .controller(.invocation(invocation)) = recorded.entries[0].record,
+      case let .rawWrite(parameters) = invocation.operation,
+      case let .controller(.completion(completion)) = recorded.entries[1].record,
+      case let .succeeded(.rawWrite(writtenByteCount)) = completion.outcome
+    else {
+      Issue.record("expected exact Stop write receipt pair")
+      return
+    }
+    #expect(parameters.bytes == MachineController.encodeJogCancel)
+    #expect(writtenByteCount == MachineController.encodeJogCancel.count)
+    #expect(completion.invocationID == invocation.id)
+
+    _ = try await link.write(Data("?".utf8))
+    #expect((await store.snapshot()).entries.count == 2)
+  }
+
   @Test("Center arrival accepts reproduced controller quantization residual")
   func centerArrivalAcceptsQuantizedSettlement() async throws {
     let target = try MachinePosition(x: -51.975, y: -73.684)
@@ -168,10 +816,10 @@ extension OperatorWorkspaceTests {
     await workspace.requestPassiveProbe()
     await workspace.startCamera()
     try await completePenInteraction(workspace)
-    workspace.xStepText = "not-a-number"
-    workspace.yStepText = ""
+    workspace.manualMotionDraft.xDistanceMM = "not-a-number"
+    workspace.manualMotionDraft.yDistanceMM = ""
 
-    #expect(workspace.motionUnavailableReason != nil)
+    #expect(workspace.manualMotionEpisodePresentation.jogControlsUnavailableReason != nil)
     #expect(workspace.discoveryStartUnavailableReason(for: .boundaryPositiveX) == nil)
     await workspace.beginPairedBoundarySide(.positiveX)
     try await waitUntil { workspace.contextualStopPresentation != nil }
@@ -453,15 +1101,15 @@ extension OperatorWorkspaceTests {
     for failurePoint in BoundaryAtomicCommitFailurePoint.allCases {
       workspace.replaceBoundaryAtomicCommitFailurePointsForTesting([failurePoint])
       let snapshot = await harness.runtime.snapshot()
-      _ = await workspace.requestRelativeJog(
-        RelativeJogRequest(
-          delta: try Vector2(
-            dx: snapshot.boundaryTruth.positiveXMM - snapshot.mpos.xMM,
-            dy: 0
-          ),
-          feedMMPerMinute: 1_000
-        )
-      )
+      let setupDeltaX = snapshot.boundaryTruth.positiveXMM - snapshot.mpos.xMM
+      if setupDeltaX != 0 {
+        await workspace.submitManualMotionIntent(try manualEpisodeJog(
+          RelativeJogRequest(
+            delta: try Vector2(dx: setupDeltaX, dy: 0),
+            feedMMPerMinute: 1_000
+          )
+        ))
+      }
 
       await workspace.performExerciseAction(.redoBoundary(.positiveX), for: owner)
       try await waitUntil { workspace.contextualStopPresentation != nil }
@@ -564,4 +1212,366 @@ extension OperatorWorkspaceTests {
     #expect(workspace.currentPenInteractionAggregate?.includedAttemptIDs == [accepted.attemptID])
     await workspace.shutdown()
   }
+}
+
+private enum ManualMotionReceiptTestError: Error {
+  case unused
+}
+
+private actor ManualMotionReceiptLink: MachineLink {
+  nonisolated let descriptor = MachineLinkDescriptor(
+    identifier: "manual-motion-receipt-link",
+    displayName: "Manual Motion Receipt Link",
+    bsdPath: "/dev/cu.manual-motion-receipt",
+    transport: .bsdSerial
+  )
+  private let clock: any RuntimeClock
+  private let localModeEnabled: Bool
+  private let receiverEnabled: Bool
+
+  init(
+    clock: any RuntimeClock,
+    localModeEnabled: Bool = true,
+    receiverEnabled: Bool = true
+  ) {
+    self.clock = clock
+    self.localModeEnabled = localModeEnabled
+    self.receiverEnabled = receiverEnabled
+  }
+
+  func open() async throws -> MachineLinkOpenReceipt {
+    MachineLinkOpenReceipt(appliedConfiguration: .bsdSerial(
+      MachineLinkBSDSerialAppliedConfiguration(
+        endpoint: descriptor.identifier,
+        inputBaudRate: 115_200,
+        outputBaudRate: 115_200,
+        dataBits: 8,
+        stopBits: 1,
+        parity: .none,
+        flowControl: .none,
+        localModeEnabled: localModeEnabled,
+        receiverEnabled: receiverEnabled
+      )
+    ))
+  }
+
+  func close() async throws {}
+
+  func discardPendingInput() async throws -> MachineLinkDiscardReceipt {
+    MachineLinkDiscardReceipt(discardedByteCount: 2)
+  }
+
+  func write(_ bytes: Data) async throws -> MachineLinkWriteReceipt {
+    MachineLinkWriteReceipt(writtenByteCount: bytes.count)
+  }
+
+  func read(
+    maximumBytes _: Int,
+    timeoutNanoseconds _: UInt64
+  ) async throws -> MachineLinkReadReceipt {
+    MachineLinkReadReceipt(
+      bytes: Data("ok\n".utf8),
+      receivedAtMonotonicNanoseconds: clock.nowNanoseconds()
+    )
+  }
+}
+
+private actor ManualMotionFailureReceiptLink: MachineLink {
+  nonisolated let descriptor = MachineLinkDescriptor(
+    identifier: "manual-motion-failure-link",
+    displayName: "Manual Motion Failure Link",
+    bsdPath: "/dev/cu.manual-motion-failure",
+    transport: .bsdSerial
+  )
+  private let clock: any RuntimeClock
+
+  init(clock: any RuntimeClock) {
+    self.clock = clock
+  }
+
+  func open() async throws -> MachineLinkOpenReceipt {
+    MachineLinkOpenReceipt(appliedConfiguration: .bsdSerial(
+      MachineLinkBSDSerialAppliedConfiguration(
+        endpoint: descriptor.bsdPath!,
+        inputBaudRate: 115_200,
+        outputBaudRate: 115_200,
+        dataBits: 8,
+        stopBits: 1,
+        parity: .none,
+        flowControl: .none,
+        localModeEnabled: true,
+        receiverEnabled: true
+      )
+    ))
+  }
+
+  func close() async throws {
+    throw MachineLinkError.operatingSystem(code: EIO, operation: "close")
+  }
+
+  func discardPendingInput() async throws -> MachineLinkDiscardReceipt {
+    throw MachineLinkError.discardFailed(
+      discarded: 3,
+      total: 5,
+      reason: .operatingSystem(code: EIO, operation: "discard input read")
+    )
+  }
+
+  func write(_ bytes: Data) async throws -> MachineLinkWriteReceipt {
+    throw MachineLinkError.writeFailed(
+      bytesWritten: 2,
+      totalBytes: bytes.count,
+      reason: .operatingSystem(code: EIO, operation: "write")
+    )
+  }
+
+  func read(
+    maximumBytes: Int,
+    timeoutNanoseconds _: UInt64
+  ) async throws -> MachineLinkReadReceipt {
+    throw MachineLinkError.readFailed(
+      partialReceipts: [MachineLinkReadReceipt(
+        bytes: Data("o".utf8),
+        receivedAtMonotonicNanoseconds: clock.nowNanoseconds()
+      )],
+      maximumBytes: maximumBytes,
+      reason: .timedOut
+    )
+  }
+}
+
+private func manualAmbiguityJog() throws -> PlotterManualMotionIntent {
+  .jog(try PlotterJogRequest(
+    direction: .positiveX,
+    distanceMM: 1,
+    feedMMPerMinute: 100,
+    routing: .relativeTravel
+  ))
+}
+
+private final class ManualMotionAmbiguousInvocationCounter: Sendable {
+  private let state = OSAllocatedUnfairLock(initialState: 0)
+  var count: Int { state.withLock { $0 } }
+  func increment() { state.withLock { $0 += 1 } }
+}
+
+private final class ManualMotionAmbiguousAdapter:
+  PlotterManualMotionEffectAdapter, Sendable
+{
+  let environment: PlotterEnvironment
+  private let possibleInk: Bool
+  private let counter = ManualMotionAmbiguousInvocationCounter()
+
+  init(environment: PlotterEnvironment, possibleInk: Bool) {
+    self.environment = environment
+    self.possibleInk = possibleInk
+  }
+
+  var startCount: Int { counter.count }
+
+  func makeOperation(
+    for request: PlotterManualMotionEffectRequest,
+    controllerRecorder _: PlotterManualMotionControllerRecorder?
+  ) -> any PlotterManualMotionOperation {
+    ManualMotionAmbiguousOperation(
+      request: request,
+      possibleInk: possibleInk,
+      counter: counter
+    )
+  }
+}
+
+private actor ManualMotionAmbiguousOperation: PlotterManualMotionOperation {
+  private let request: PlotterManualMotionEffectRequest
+  private let possibleInk: Bool
+  private let counter: ManualMotionAmbiguousInvocationCounter
+  private var result: PlotterManualMotionOperationResult?
+  private var waiters: [CheckedContinuation<PlotterManualMotionOperationResult, Never>] = []
+
+  init(
+    request: PlotterManualMotionEffectRequest,
+    possibleInk: Bool,
+    counter: ManualMotionAmbiguousInvocationCounter
+  ) {
+    self.request = request
+    self.possibleInk = possibleInk
+    self.counter = counter
+  }
+
+  func start() {
+    guard result == nil else { return }
+    counter.increment()
+    let context = PlotterObservationContext(
+      id: PlotterObservationID(rawValue: UUID()),
+      observedAt: Date(),
+      environment: request.context.environment,
+      source: request.context.environment == .live ? .controller : .causalSimulator,
+      sourceRevision: EpisodeRevisionIdentifier(rawValue: "manual-ambiguity-test-v1")
+    )
+    let observation = PlotterObservation.controller(PlotterControllerObservation(
+      context: context,
+      status: .unknown,
+      machinePosition: nil,
+      motionEnabled: true
+    ))
+    publish(.ambiguous(
+      PlotterEffectAmbiguity(
+        summary: possibleInk
+          ? "Controller settlement was ambiguous and ink may exist."
+          : "Simulator settlement was causally ambiguous.",
+        observationIDs: [context.id],
+        possibleInk: possibleInk
+      ),
+      observations: [observation]
+    ))
+  }
+
+  func requestCancellation() {}
+
+  func waitForSettlement() async -> PlotterManualMotionOperationResult {
+    if let result { return result }
+    return await withCheckedContinuation { continuation in
+      waiters.append(continuation)
+    }
+  }
+
+  private func publish(_ disposition: PlotterManualMotionOperationDisposition) {
+    guard result == nil else { return }
+    let value = PlotterManualMotionOperationResult(
+      identity: PlotterManualMotionOperationIdentity(request: request),
+      disposition: disposition
+    )
+    result = value
+    let current = waiters
+    waiters.removeAll()
+    current.forEach { $0.resume(returning: value) }
+  }
+}
+
+private actor ManualMotionStopOperation {
+  private var outcome: MotionOutcome?
+  private var waiters: [CheckedContinuation<MotionOutcome, Never>] = []
+
+  func waitForOutcome() async -> MotionOutcome {
+    if let outcome { return outcome }
+    return await withCheckedContinuation { continuation in
+      waiters.append(continuation)
+    }
+  }
+
+  func finishCancellation() {
+    guard outcome == nil else { return }
+    let value = MotionOutcome.cancelled(finalPosition: try! MachinePosition(x: 0, y: 0))
+    outcome = value
+    let current = waiters
+    waiters.removeAll()
+    current.forEach { $0.resume(returning: value) }
+  }
+}
+
+private func manualMotionReceiptActions(
+  operation: @escaping @Sendable () async -> Void
+) -> OperatorWorkspace.MachineActions {
+  OperatorWorkspace.MachineActions(
+    select: { _ in throw ManualMotionReceiptTestError.unused },
+    snapshot: { nil },
+    requestPassiveProbe: { throw ManualMotionReceiptTestError.unused },
+    requestControllerAlarmClear: { .refused(.noCurrentAlarmEvidence) },
+    activateMotionGuard: { .refused(.notConnected) },
+    deactivateMotionGuard: {},
+    beginRelativeJog: { _ in
+      .admitted(RelativeJogOperation(id: UUID(), task: Task {
+        await operation()
+        return .acceptedThenCompleted(finalPosition: try! MachinePosition(x: 1, y: 0))
+      }))
+    },
+    beginDrawingStroke: { _ in .rejected(.refused(.notConnected)) },
+    beginPenActuation: { _, _ in .rejected(.refused(.notConnected)) },
+    beginBoundaryMotion: { request, _ in
+      .rejected(.needsAttention(
+        ownerID: request.ownerID,
+        terminal: .refusal(.notConnected)
+      ))
+    },
+    requestJogCancel: { _ in .refused(.noActiveJog) },
+    disconnect: {}
+  )
+}
+
+private func manualMotionWorkspaceActions(
+  machine: MachineFixture
+) -> OperatorWorkspace.MachineActions {
+  OperatorWorkspace.MachineActions(
+    select: { _ in await machine.snapshot() },
+    snapshot: { await machine.snapshot() },
+    requestPassiveProbe: { await machine.passiveProbeResult() },
+    requestControllerAlarmClear: { .refused(.noCurrentAlarmEvidence) },
+    activateMotionGuard: { await machine.activateMotionGuard() },
+    deactivateMotionGuard: { await machine.deactivateMotionGuard() },
+    beginRelativeJog: { request in
+      .admitted(RelativeJogOperation(
+        id: UUID(),
+        task: Task { await machine.performRelativeMotion(request) }
+      ))
+    },
+    beginDrawingStroke: { request in
+      .admitted(DrawingStrokeOperation(
+        id: UUID(),
+        task: Task { await machine.requestDrawingStroke(request) }
+      ))
+    },
+    beginPenActuation: { command, profile in
+      .admitted(PenActuationOperation(
+        id: UUID(),
+        task: Task { await machine.requestPen(command, profile: profile) }
+      ))
+    },
+    beginBoundaryMotion: { request, _ in
+      .admitted(BoundaryMotionOperation(
+        ownerID: request.ownerID,
+        task: Task { await machine.requestBoundaryMotion(request) }
+      ))
+    },
+    requestJogCancel: { await machine.cancel(intent: $0) },
+    disconnect: {}
+  )
+}
+
+private func liveManualMotionFacts() -> [PlotterCapabilityFact] {
+  let owner = EpisodeAuthorityID(rawValue: "MachineController")
+  let revision = CapabilityFactRevision(rawValue: 1)
+  return [
+    .connection(PlotterConnectionFact(
+      owner: owner,
+      revision: revision,
+      environment: .live,
+      isConnected: true
+    )),
+    .motion(PlotterMotionFact(
+      owner: owner,
+      revision: revision,
+      environment: .live,
+      isEnabled: true
+    )),
+    .pose(PlotterPoseFact(
+      owner: owner,
+      revision: revision,
+      environment: .live,
+      machinePosition: try? Point2(x: 0, y: 0),
+      isSettled: true,
+      settlementPolicyRevision: EpisodeRevisionIdentifier(
+        rawValue: "manual-receipt-settlement-v1"
+      )
+    )),
+    .manualController(PlotterManualControllerFact(
+      owner: owner,
+      revision: revision,
+      environment: .live,
+      penState: .raised,
+      operationIsActive: false,
+      penActuationProfileRevision: EpisodeRevisionIdentifier(
+        rawValue: "manual-receipt-pen-profile-v1"
+      )
+    )),
+  ]
 }

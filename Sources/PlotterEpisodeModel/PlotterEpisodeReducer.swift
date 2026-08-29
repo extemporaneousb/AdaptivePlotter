@@ -157,7 +157,8 @@ public struct PlotterEpisodeReducer: EpisodeReducing {
           activeDrawingModelRevisionID = revisionID
           phase = .ready
         }
-      case .refused, .cancelled, .timedOut, .evidenceUnavailable, .failed:
+      case .refused, .cancelled, .cancelledAfterSettlement, .timedOut,
+        .evidenceUnavailable, .failed:
         phase = .ready
       case .ambiguous:
         phase = .awaitingEvidence

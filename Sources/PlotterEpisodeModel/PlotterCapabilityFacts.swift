@@ -6,11 +6,54 @@ public enum PlotterCapabilityKind: String, Codable, CaseIterable, Hashable, Send
   case connection
   case motion
   case pose
+  case manualController
   case camera
   case executionPlan
   case evidence
   case outcome
   case learningActivity
+}
+
+public enum PlotterControllerPenState: String, Codable, Hashable, Sendable {
+  case unknown
+  case raised
+  case lowered
+
+  public var requiredJogRouting: PlotterManualJogRouting {
+    switch self {
+    case .unknown: .possibleInk
+    case .raised: .relativeTravel
+    case .lowered: .drawingStroke
+    }
+  }
+}
+
+/// One revision-bound snapshot owned by the controller/runtime boundary. It is
+/// deliberately descriptive: native controller admission and settlement still
+/// re-check the actual connection, operation, Pen, and pose state.
+public struct PlotterManualControllerFact: Codable, Hashable, Sendable {
+  public let owner: EpisodeAuthorityID
+  public let revision: CapabilityFactRevision
+  public let environment: PlotterEnvironment
+  public let penState: PlotterControllerPenState
+  public let operationIsActive: Bool
+  public let penActuationProfileRevision: EpisodeRevisionIdentifier
+
+  public init(
+    owner: EpisodeAuthorityID,
+    revision: CapabilityFactRevision,
+    environment: PlotterEnvironment,
+    penState: PlotterControllerPenState,
+    operationIsActive: Bool,
+    penActuationProfileRevision: EpisodeRevisionIdentifier
+  ) {
+    self.owner = owner
+    self.revision = revision
+    self.environment = environment
+    self.penState = penState
+    self.operationIsActive = operationIsActive
+    self.penActuationProfileRevision = penActuationProfileRevision
+  }
 }
 
 public struct PlotterConnectionFact: Codable, Hashable, Sendable {
@@ -35,15 +78,18 @@ public struct PlotterConnectionFact: Codable, Hashable, Sendable {
 public struct PlotterMotionFact: Codable, Hashable, Sendable {
   public let owner: EpisodeAuthorityID
   public let revision: CapabilityFactRevision
+  public let environment: PlotterEnvironment
   public let isEnabled: Bool
 
   public init(
     owner: EpisodeAuthorityID,
     revision: CapabilityFactRevision,
+    environment: PlotterEnvironment,
     isEnabled: Bool
   ) {
     self.owner = owner
     self.revision = revision
+    self.environment = environment
     self.isEnabled = isEnabled
   }
 }
@@ -51,6 +97,7 @@ public struct PlotterMotionFact: Codable, Hashable, Sendable {
 public struct PlotterPoseFact: Codable, Hashable, Sendable {
   public let owner: EpisodeAuthorityID
   public let revision: CapabilityFactRevision
+  public let environment: PlotterEnvironment
   public let machinePosition: Point2<MachineSpace>?
   public let isSettled: Bool
   public let settlementPolicyRevision: EpisodeRevisionIdentifier
@@ -58,12 +105,14 @@ public struct PlotterPoseFact: Codable, Hashable, Sendable {
   public init(
     owner: EpisodeAuthorityID,
     revision: CapabilityFactRevision,
+    environment: PlotterEnvironment,
     machinePosition: Point2<MachineSpace>?,
     isSettled: Bool,
     settlementPolicyRevision: EpisodeRevisionIdentifier
   ) {
     self.owner = owner
     self.revision = revision
+    self.environment = environment
     self.machinePosition = machinePosition
     self.isSettled = isSettled
     self.settlementPolicyRevision = settlementPolicyRevision
@@ -207,6 +256,7 @@ public enum PlotterCapabilityFact: CapabilityFact {
   case connection(PlotterConnectionFact)
   case motion(PlotterMotionFact)
   case pose(PlotterPoseFact)
+  case manualController(PlotterManualControllerFact)
   case camera(PlotterCameraFact)
   case executionPlan(PlotterExecutionPlanFact)
   case evidence(PlotterEvidenceFact)
@@ -221,6 +271,8 @@ public enum PlotterCapabilityFact: CapabilityFact {
       return .motion
     case .pose:
       return .pose
+    case .manualController:
+      return .manualController
     case .camera:
       return .camera
     case .executionPlan:
@@ -246,6 +298,8 @@ public enum PlotterCapabilityFact: CapabilityFact {
       return fact.owner
     case let .pose(fact):
       return fact.owner
+    case let .manualController(fact):
+      return fact.owner
     case let .camera(fact):
       return fact.owner
     case let .executionPlan(fact):
@@ -266,6 +320,8 @@ public enum PlotterCapabilityFact: CapabilityFact {
     case let .motion(fact):
       return fact.revision
     case let .pose(fact):
+      return fact.revision
+    case let .manualController(fact):
       return fact.revision
     case let .camera(fact):
       return fact.revision

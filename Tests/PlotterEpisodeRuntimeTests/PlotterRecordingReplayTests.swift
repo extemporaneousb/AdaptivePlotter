@@ -629,6 +629,38 @@ struct PlotterRecordingReplayTests {
     #expect(steps[2].provenance == sourceDownstream.provenance)
   }
 
+  @Test("partial discard failure remains replay-valid and has no invented read chunks")
+  func partialDiscardFailureReplayValidity() throws {
+    let fixture = try ReplayFixture.make(includeManualSettlement: false)
+    let recording = fixture.partialDiscardFailureRecording()
+    let exact = ControllerReplayScenario(
+      id: ControllerReplayScenarioID(rawValue: "partial-discard-exact"),
+      perturbations: []
+    )
+    let result = fixture.replay(recording: recording, scenarios: [exact])
+
+    #expect(result.controllerScenarios.first?.disposition == .applied)
+    let replayed = try #require(result.controllerScenarios.first?.steps)
+    guard case let .completion(completion) = replayed[1].record,
+          case let .failed(failure) = completion.outcome else {
+      Issue.record("Expected the exact failed discard completion")
+      return
+    }
+    #expect(failure.partialByteCount == 7)
+    #expect(failure.partialReadChunks.isEmpty)
+
+    let fragmentation = fixture.replay(
+      recording: recording,
+      scenarios: [ControllerReplayScenario(
+        id: ControllerReplayScenarioID(rawValue: "partial-discard-fragmentation"),
+        perturbations: [.legalReadFragmentation(maximumChunkByteCount: 1)]
+      )]
+    )
+    #expect(fragmentation.controllerScenarios.first?.disposition == .refused([
+      .readTrafficAbsent,
+    ]))
+  }
+
   @Test("global controller schedule validation preserves exact overlapping traffic")
   func overlappingControllerInvocationsRemainCausal() throws {
     let fixture = try ReplayFixture.make(includeManualSettlement: false)
@@ -1276,6 +1308,45 @@ private struct ReplayFixture {
     )
   }
 
+  func partialDiscardFailureRecording() -> EpisodeRecordingSnapshot {
+    let source = controllerRecording()
+    let provenance = source.entries[0].provenance
+    let invocationID = ControllerInvocationID(rawValue: uuid(29))
+    return EpisodeRecordingSnapshot(
+      formatVersion: source.formatVersion,
+      recordingID: source.recordingID,
+      schemaRevision: source.schemaRevision,
+      frameRetentionPolicy: source.frameRetentionPolicy,
+      entries: [
+        EpisodeRecordingEntry(
+          sequence: 0,
+          monotonicOffsetNanoseconds: 10,
+          provenance: provenance,
+          record: .controller(.invocation(ControllerInvocation(
+            id: invocationID,
+            operation: .discardInput(ControllerDiscardParameters())
+          )))
+        ),
+        EpisodeRecordingEntry(
+          sequence: 1,
+          monotonicOffsetNanoseconds: 20,
+          provenance: provenance,
+          record: .controller(.completion(ControllerCompletion(
+            invocationID: invocationID,
+            outcome: .failed(ControllerOperationFailure(
+              kind: .inputOutput,
+              partialByteCount: 7,
+              partialReadChunks: []
+            ))
+          )))
+        ),
+      ],
+      close: EpisodeRecordingClose(monotonicOffsetNanoseconds: 21),
+      durability: source.durability,
+      completenessIssues: source.completenessIssues
+    )
+  }
+
   func overlappingControllerRecording(
     firstCompletionOffsetNanoseconds: UInt64,
     secondCompletionOffsetNanoseconds: UInt64,
@@ -1442,11 +1513,13 @@ private func readyControllerFacts() -> [PlotterCapabilityFact] {
     .motion(PlotterMotionFact(
       owner: owner,
       revision: CapabilityFactRevision(rawValue: 2),
+      environment: .live,
       isEnabled: true
     )),
     .pose(PlotterPoseFact(
       owner: owner,
       revision: CapabilityFactRevision(rawValue: 3),
+      environment: .live,
       machinePosition: nil,
       isSettled: true,
       settlementPolicyRevision: revision("controller-settlement-v1")

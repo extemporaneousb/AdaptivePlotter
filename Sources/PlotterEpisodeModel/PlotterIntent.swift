@@ -168,37 +168,113 @@ public enum PlotterPenPosition: String, Codable, Hashable, Sendable {
 
 public enum PlotterIntentValidationError: Error, Equatable, Sendable {
   case invalidJogDistance
+  case invalidJogFeed
+  case invalidPenActuationProfile
+}
+
+public enum PlotterManualJogRouting: String, Codable, Hashable, Sendable {
+  case relativeTravel
+  case drawingStroke
+  case possibleInk
 }
 
 public struct PlotterJogRequest: Codable, Hashable, Sendable {
   public let direction: PlotterJogDirection
   public let distanceMM: Double
+  public let feedMMPerMinute: Double
+  public let routing: PlotterManualJogRouting
 
-  public init(direction: PlotterJogDirection, distanceMM: Double) throws {
+  public init(
+    direction: PlotterJogDirection,
+    distanceMM: Double,
+    feedMMPerMinute: Double = 500,
+    routing: PlotterManualJogRouting = .relativeTravel
+  ) throws {
     guard distanceMM.isFinite, distanceMM > 0 else {
       throw PlotterIntentValidationError.invalidJogDistance
     }
+    guard feedMMPerMinute.isFinite, feedMMPerMinute > 0 else {
+      throw PlotterIntentValidationError.invalidJogFeed
+    }
     self.direction = direction
     self.distanceMM = distanceMM
+    self.feedMMPerMinute = feedMMPerMinute
+    self.routing = routing
   }
 
   private enum CodingKeys: String, CodingKey {
     case direction
     case distanceMM
+    case feedMMPerMinute
+    case routing
   }
 
   public init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     try self.init(
       direction: container.decode(PlotterJogDirection.self, forKey: .direction),
-      distanceMM: container.decode(Double.self, forKey: .distanceMM)
+      distanceMM: container.decode(Double.self, forKey: .distanceMM),
+      feedMMPerMinute: container.decodeIfPresent(Double.self, forKey: .feedMMPerMinute) ?? 500,
+      routing: container.decodeIfPresent(PlotterManualJogRouting.self, forKey: .routing)
+        ?? .relativeTravel
     )
+  }
+}
+
+public struct PlotterManualPenActuationProfile: Codable, Hashable, Sendable {
+  public let raisedSpindleValue: Int
+  public let loweredSpindleValue: Int
+  public let settleSeconds: Double
+  public let revision: EpisodeRevisionIdentifier
+
+  public init(
+    raisedSpindleValue: Int,
+    loweredSpindleValue: Int,
+    settleSeconds: Double,
+    revision: EpisodeRevisionIdentifier
+  ) throws {
+    guard (0...1000).contains(raisedSpindleValue),
+      (0...1000).contains(loweredSpindleValue),
+      settleSeconds.isFinite,
+      settleSeconds >= 0
+    else { throw PlotterIntentValidationError.invalidPenActuationProfile }
+    self.raisedSpindleValue = raisedSpindleValue
+    self.loweredSpindleValue = loweredSpindleValue
+    self.settleSeconds = settleSeconds
+    self.revision = revision
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case raisedSpindleValue
+    case loweredSpindleValue
+    case settleSeconds
+    case revision
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    try self.init(
+      raisedSpindleValue: container.decode(Int.self, forKey: .raisedSpindleValue),
+      loweredSpindleValue: container.decode(Int.self, forKey: .loweredSpindleValue),
+      settleSeconds: container.decode(Double.self, forKey: .settleSeconds),
+      revision: container.decode(EpisodeRevisionIdentifier.self, forKey: .revision)
+    )
+  }
+}
+
+public struct PlotterPenActuationRequest: Codable, Hashable, Sendable {
+  public let position: PlotterPenPosition
+  public let profile: PlotterManualPenActuationProfile
+
+  public init(position: PlotterPenPosition, profile: PlotterManualPenActuationProfile) {
+    self.position = position
+    self.profile = profile
   }
 }
 
 public enum PlotterManualMotionIntent: Codable, Hashable, Sendable {
   case jog(PlotterJogRequest)
-  case setPen(PlotterPenPosition)
+  case setPen(PlotterPenActuationRequest)
 }
 
 public enum PlotterDrawingIntent: Codable, Hashable, Sendable {

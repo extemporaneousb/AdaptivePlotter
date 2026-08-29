@@ -8,11 +8,602 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Episode manual-motion cutover candidate
+
+Operator-authorized Option A candidate after critic RETASK #6, 2026-08-28, in Blackdog task
+`TASK-FE9C9CB3`. Before this documentation delta, the shared tracked diff had
+SHA-256
+`c17cddb971f6df9e0ddefb0fd98991f94fad1deec2cf72a9f02992182211fd7b`
+and its NUL-delimited status had SHA-256
+`5dbe44431fe5f955ec336b5f769281635ca638e8add5564e6ed78b6d5cbf1310`.
+Those two identities do not bind untracked file contents, which are therefore
+bound separately:
+`PlotterManualMotionComposition.swift`
+`707a30cdb8a540e28a5a02176c77bb751503a8845218947b6527fbe697806ff6`,
+`PlotterManualMotionRuntime.swift`
+`7c78ec2edd4f4beb9e8e2098570127bd127eac9e91e744780b290514de7028ab`,
+and `PlotterManualMotionEpisodeTests.swift`
+`975d1dc9feb49e4488634824a12315c3da063dd825eed61f82b959ffc58c66e2`.
+Every previously recorded package-wide green sequence remains historical
+evidence for its exact earlier tree only. Critic RETASK #6 was material, not
+acceptance: it found pre-start shutdown ownership, observed/settling Stop
+handoff, manual ambiguity projection, and production recording-topology gaps.
+The accepted source correction and same-critic delta closure are recorded
+below. This exact five-bound tree passed all seven package gates serially, as
+recorded below. Per operator policy, no new or full critic was commissioned and
+no further critic is required or allowed. EA-06 is complete in the task-local
+candidate delivered by `TASK-FE9C9CB3`, attempt
+`TASK-FE9C9CB3-54834fa90e36`; migration remains incomplete. Blackdog
+landing/cleanup and successor-capsule creation are the only remaining steps.
+
+The coordinator accepted the bounded runtime/model slice comprising the typed
+manual intent and capability facts, pure evaluator and reducer integration,
+effect/event grammar, `PlotterManualMotionRuntime`, its journal persistence and
+machine-lane registry ownership, and focused runtime/model tests. The runtime
+owns one FIFO mutation/publication boundary, exact active operation identity,
+successor-isolated `PlotterManualMotionStopCapabilityID`, typed terminal
+observations/results, and distinct LIVE/SIMULATED effect-adapter selection. A
+first matching exact Stop creates one public transaction and synchronously
+latches the registry's original nominal handle. On the ordinary Stop path it
+then durably publishes `requested`; the registry atomically marks the same
+transaction `issuingCancellation` before suspension and invokes cancellation
+once; the runtime durably publishes `observed`, enters settlement, durably
+publishes `settling`, and only then awaits that same owner. Duplicate callers
+join it and receive the identical result plus post-terminal snapshot only after
+typed episode publication. Append failure retains the exact owner, stage/result
+cursor, and typed recovery capability; no successor can be admitted until
+publication completes. The complete transaction result remains idempotent only
+until successor admission clears it, so the predecessor becomes stale and
+cannot cancel the successor.
+
+Fresh critic RETASK #5 found two material authority defects. First, a staged
+Stop could latch its requested cancellation owner, fail the requested journal
+append before issuing cancellation, and then leave shutdown waiting forever on
+an attempt that nobody owned to advance. Second, cancellation publication was
+outside the runtime FIFO boundary, so a concurrent gateway refusal could
+terminalize the model request and clear the still-active owner.
+
+The accepted correction gives the registry a nominal `issuingCancellation`
+phase that is installed atomically before any cancellation suspension. If
+shutdown sees the same transaction still at requested, it closes admission and
+takes over that exact owner and handle, invokes cancellation exactly once,
+advances the same registry owner through observed and settling, and settles the
+original handle. An already issuing or settling transaction is joined; there is
+no journal dependency, duplicate cancel, settlement, or publication authority.
+If the journal remains unavailable after shutdown settlement, the pending Stop
+recovery capability survives with the exact terminal-publication cursor.
+
+Each cancellation journal commit, its pre-state read, and its failure snapshot
+now owns the FIFO mutation/publication boundary, which is released across
+controller cancellation and settlement awaits. While the exact active owner
+remains, a concurrent submission is refused transiently as busy from the
+transaction-complete snapshot before gateway evaluation. It records no
+successor refusal event, effect, or revision collision and cannot terminalize
+or clear the active owner.
+
+Critic RETASK #6 found four material gaps in that later candidate. First,
+shutdown could race a registered operation before native start without one
+terminal owner-retirement path. Second, shutdown joining a Stop already at
+observed or settling needed an explicit ownership handoff without displacing
+the public Stop's journal cursor. Third, the app needed to derive manual
+availability and possible-ink/ambiguity disposition from the actual runtime
+phase and exact typed terminal evidence. Fourth, the canonical documents named
+the point-selection recording root instead of the production manual recording
+topology.
+
+The accepted correction settles a pre-start owner once as the identity-bound
+`cancelledBeforeStart` result, retires that exact owner, and makes any later
+start inert. LIVE and SIMULATED therefore perform zero native start or
+cancellation invocation. At observed or settling, registry shutdown hands the
+same transaction to `settledByShutdown`; the original public Stop cursor remains
+the sole journal and recovery publisher, duplicate Stop callers remain joined,
+and cancellation and settlement occur exactly once.
+
+Operator-authorized Option A closes the remaining
+accepted-progress/pre-activation race with one runtime-owned shutdown latch. In
+`PlotterManualMotionRuntime.swift:1329-1356`, shutdown sets
+`shutdownIsLatched` synchronously before the sole `registry.shutdown()`
+suspension, retains every exact registry terminal, and only then releases the
+same-shutdown completion waiters. In
+`PlotterManualMotionRuntime.swift:1101-1123`, submission rechecks that latch
+after accepted `recordProgress` and before `active` installation, waits for the
+same shutdown completion, consumes the retained exact pre-start terminal, and
+returns through `publishPrestartTerminalSubmission`. The active-install and
+native-start lines are below that return and are not reached.
+
+Manual availability now comes from the actual runtime phase. A terminal
+ambiguity exposes one typed disposition bound to the exact effect ID,
+environment, and observation ID and distinguishes possible ink from other
+ambiguity. All manual effects stay disabled while it is unresolved; stale or
+mismatched actions are rejected, and only explicit operator evidence for that
+matching action advances the episode. This path never retries, redraws,
+reissues, cancels, or settles controller work.
+
+The accepted app-integration slice composes that runtime with production
+EA-05A store opening/diagnostics, a LIVE native-controller adapter, a
+causal-simulator adapter, current capability-fact projection, SwiftUI manual
+presentation, and typed jog, Pen, and Stop ingress. `OperatorWorkspace` retains
+only copied runtime projection/adaptation and the UI-local `ManualMotionDraft`;
+it no longer owns the deleted manual semantic guards, manual
+operation/cancellation task, or LIVE/SIMULATED manual executor. Neutral lower
+calls in
+`PlotterManualMotionComposition` remain only for the existing Learning,
+Drawing, and supervised-travel semantic owners scheduled in later packages.
+They neither admit manual intents nor transfer EA-07, EA-08, EA-10, or
+controller-session authority.
+
+The typed evaluator now derives the Motion-disabled remedy from the submitted
+manual intent: jog says to enable Motion before requesting movement, while
+direct Pen says to enable Motion before actuating the pen. Workbench busy
+projection reads the exact active episode operation instead of the retired
+workspace task booleans. For accepted LIVE manual jog/drawing effects,
+`OperatorWorkspace` emits legacy-compatible diagnostic accepted and terminal
+workflow telemetry keyed by the typed `EpisodeEffectID`. That telemetry admits,
+cancels, settles, and authorizes nothing; the episode runtime and native
+controller owners remain authoritative.
+
+The accepted recording-integration slice makes one operation-bound
+`PlotterManualMotionControllerRecorder` only for a LIVE effect with an available
+EA-05A store. `LiveManualMotionAdapter` attaches that recorder through exactly
+one `ManualMotionControllerRecordingRouter` before native launch, retains the
+lease through natural or exact Stop/cancellation settlement, and detaches only
+at terminal settlement. `PersistentMachineSession` constructs the one canonical
+BSD `MachineLink` through `MachineController.bsdSerialLink`, wraps it once in a
+transparent `RecordingMachineLink`, and gives that decorated link back to the
+unchanged `MachineController`/`RunInterpreter` ownership stack. There is no
+sibling transport or semantic effect path.
+
+The decorator translates only exact FIX-02 facts already returned by the sole
+link: applied BSD open configuration; successful discard/write byte counts;
+exact read bytes with the receive-boundary monotonic timestamp; observable close
+failure; and discard/write/read failure progress, including timestamped partial
+read chunks. A configuration that cannot be represented losslessly and a failed
+open without an applied configuration produce diagnostics only; they do not
+fabricate settings, counts, or a successful transcript pair. EA-05A persistence
+failure is also diagnostic-only and does not change controller safety,
+settlement, or the native return value. `EpisodeRecordingStore` now accepts
+truthful nonnegative partial discard progress with no partial read chunks while
+retaining the open/close zero-progress and write/read bounds. SIMULATED receives
+no controller recorder and proves no physical behavior.
+
+Fresh critic RETASK #4 found that applied BSD `localModeEnabled=false` or
+`receiverEnabled=false` could not be represented by the EA-05A open parameters
+and therefore could not be recorded as a successful pair. The corrected
+FIX-02 mapper refuses either false flag, returns the native receipt unchanged,
+records no successful open invocation or completion, and exposes the existing
+lossless-mapping diagnostic. The true/true mapping is unchanged.
+
+The same RETASK required the already typed terminal-publication recovery to be
+operator-actionable without granting new effect authority. The app now projects
+only the exact `PlotterManualMotionPublicationRecoveryCapabilityID` with an
+intent-specific manual jog, drawing, Pen Up, or Pen Down remedy. While recovery
+is pending it disables every manual effect, hides stale Stop, and refuses stale
+recovery capabilities. The exact current capability calls only
+`recoverTerminalPublication`, clears only its matching publication diagnostic,
+and restores availability from the returned snapshot. It cannot re-admit the
+intent or reissue, cancel, or settle controller work.
+
+The source RETASK applies that partial-discard rule identically in
+`EpisodeRecordingStore` and deterministic replay, so persisted traffic cannot
+be accepted and later rejected solely because discard reported partial byte
+progress. The registry retains `ManualMotionOperationHandle`, not an erased
+closure or replacement cancellation task, and the episode model/runtime add no
+`@unchecked Sendable` authority escape. The lower `MachineActions` closure
+facade remains only for unmigrated controller-session owners scheduled in
+EA-11A; it does not own EA-06 admission, Stop, or settlement.
+
+Direct LIVE Pen now admits through the nominal async
+`PenActuationOperation` returned by `RunInterpreter`, retaining the exact
+owner-minted ID and eventual outcome. `LiveManualMotionOperation` awaits that
+handle; neither the registry nor the public manual projection creates a Pen
+Stop token. Jog/drawing handles retain their existing exact native identities
+and cancellation owners.
+
+Capability provenance now fails closed: connection, Motion, pose, and
+`PlotterManualControllerFact` values are bound to the submitted LIVE or
+SIMULATED environment. The manual-controller fact also binds current operation,
+Pen state/routing, and Pen-profile revision. Missing or cross-environment facts
+refuse admission; they cannot be repaired by UI projection or by facts from the
+other adapter.
+
+Production requires its UUID-scoped `EpisodeJournalPersistenceAdapter` journal
+and does not compose the app without it. Controller-recording open failure
+remains diagnostic-only. Every runtime snapshot exposes the exact loaded
+`EpisodeJournal`, its file URL and digest-bearing artifact reference, the
+optional recording snapshot and completeness issues, and typed
+`PlotterIncidentSourceArtifactReferences`. Recording completeness cannot stand
+in for journal durability, and neither artifact class establishes physical
+behavior.
+
+Operator-authored manual jog and Pen actions still bypass Learning progression
+and restored-pose revalidation. The typed runtime nevertheless requires current
+Motion/controller capability facts, and the LIVE adapter retains native
+controller connection, alarm, safety, serialization, cancellation, fresh
+settlement, and ambiguity authority. Known Pen Down routes as a drawing stroke,
+known Pen Up as relative travel, and unknown Pen state as explicit possible
+ink. Exact manual Stop cannot affect a successor; drawing Stop requires
+controller settlement with Pen Up, otherwise the result remains ambiguous and
+possible ink. Refusals and recording failures remain actionable projection
+diagnostics rather than silent disabled controls.
+
+Production opens the exact manual recording topology
+`AdaptivePlotter/EpisodeArtifacts/<episode UUID>/controller-recording` with
+schema `adaptive-plotter-manual-motion-v1`. This is distinct from the retained
+point-selection `EpisodeRecordings/<recording UUID>` topology. Opening or append
+failure is visible but does not change safety or evidence. The store records only exact entries
+supplied from the operation-bound MachineLink boundary and never reconstructs a
+missing transcript from terminal observations. Recording remains diagnostic
+provenance, not authorization, independent settlement evidence, or physical
+validation. LIVE controller observations and SIMULATED causal-simulator
+observations remain distinct and cannot establish each other's evidence class.
+
+Accepted-slice history now records six coordinator `RETASK` decisions: the
+first after the original frozen package validation; the second after the exact
+Stop publication race appeared in the affected QUICK rerun; the third fresh
+critic after the later five-bound full pass; the fourth fresh critic for the
+unrepresentable applied-open and terminal-publication UI-recovery gaps; and the
+fifth fresh critic for the requested-Stop shutdown deadlock and FIFO publication
+race. The sixth critic RETASK found the pre-start shutdown, observed/settling
+handoff, typed ambiguity projection, and recording-topology gaps above. None was
+an acceptance verdict. RETASK #3 required Store/Replay
+partial-discard consistency;
+nominal typed handle ownership without closure or unchecked-sendability escape;
+durably staged Stop progress and retained-owner cursor recovery after append
+failure; async owner-identified direct Pen without Stop; fail-closed
+LIVE/SIMULATED capability provenance; and required journal plus typed
+recording/incident-source truth. RETASK #4 added the lossless applied-open and
+typed UI-recovery corrections. Its focused development evidence was 4/4 new
+tests plus 3/3 retained tests; two intermediate compile/test nonpasses were
+corrected before those accepted focused results.
+
+Focused development evidence for RETASK #5 only, not package gates: the
+requested-owner shutdown takeover test passed 1/1; the FIFO publication test
+passed 1/1 after two truthful development nonpasses; related regression groups
+passed 6/6 and 4/4; deterministic repeats passed 50/50; the owned suites passed
+29/29; and the focused source diff check was clean.
+
+Focused development evidence for RETASK #6 only, not package gates: the runtime
+group passed 14/14, ambiguity UI passed 3/3, retained recovery passed 3/3,
+deterministic race repeats passed 60/60, and the focused source diff check was
+clean. Development nonpasses encountered while compiling/testing the correction
+were corrected before those accepted focused results; they are development
+history, not package-gate or critic pass evidence.
+
+Focused Option A evidence only, not package gates: the new deterministic filter
+passed 1/1, the complete manual suite passed 15/15, and shutdown remained
+bounded for both LIVE and SIMULATED. After shutdown, neither registry nor
+runtime retained an active owner; the exact effect produced one typed cancelled
+`effectResult`; native start and cancellation counts were both zero; and the
+focused source diff check was clean. The assertions at
+`PlotterManualMotionEpisodeTests.swift:74-136` bind those conclusions to the
+same effect ID in both environments.
+
+The same critic returned the exact delta verdict `CITED_RACE_CLOSED`. Its
+line-level conclusions were that runtime lines 1329-1356 synchronously latch
+shutdown before the sole registry await and publish completion only after exact
+terminal retention; runtime lines 1101-1123 recheck after accepted progress,
+join that same shutdown, publish the retained terminal, and return before active
+installation/start; and test lines 74-136 deterministically prove bounded
+LIVE/SIMULATED retirement, zero remaining owners, exactly one typed cancelled
+result, and zero native start/cancel calls. All earlier passed critic dimensions
+remained closed. Per operator policy, no new or full critic was commissioned;
+no further critic is required or allowed.
+
+These focused results and the delta verdict accept the Option A source
+correction but do not by themselves satisfy any package gate. The exact
+five-bound tree identified at the start of this section then completed this
+serial package-gate sequence:
+
+| Current serial validation on the exact Option A tree | Result | Exact log SHA-256 |
+| --- | --- | --- |
+| `MOTION` | passed — `swift test --filter PlotterManualMotionEpisodeTests`; 15/15 tests passed | `9aaa0b87c20d05ae3d98d3c5c9c50a79d00942547e3fafd2e7f93f637fdc873f` |
+| `DELETE` | passed — `sh Scripts/check_episode_cutover.sh EA-06`; all 26 exact scans had zero matches | `b841daa4968ac8fa3bb03058663abc9e8fbcab9fd5d65487b6fb2aa786afb04e` |
+| `DOC` | passed — `make docs-check`; both documentation contracts plus 29/29 documentation/checker tests passed | `8986b9a8dc4091c34c32da507c6a29c0ebb54685067335f5641007868c26ce8d` |
+| `DIFF` | passed — `git diff --check`; clean with no output | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
+| `QUICK` | passed — `make quick-test`; 699/699 tests passed with exactly 10 configured exclusions | `6d9cc817581951b1ec9e024f9522e43337f81a6ff06bc4a90973efd7998c1794` |
+| `JOURNEY` | passed — `make journey-test`; 10/10 filter-selected tests passed | `a4370968c633e28fbdb6685017c4c200f68eb5dd66be1efa876b378ad9fcc27c` |
+| `STRICT` | passed — `make strict-check`; strict-concurrency/warnings-as-errors, 709/709 tests with no exclusions, both documentation contracts, and 29/29 documentation/checker tests passed | `06c6f7c1a5aef895850bedc4c502c8a0acf60aa7836d754e69225dd7c564f06a` |
+
+These results are current evidence for the exact frozen source tree and
+pre-evidence-doc tracked identity above. This final evidence/checker delta
+affects `DOC`, `DIFF`, `QUICK`, and `STRICT`; the landing coordinator must
+refresh those four gates on the final candidate before recording landed
+evidence. `MOTION`, `DELETE`, and `JOURNEY` are source-sensitive and remain
+bound to the unchanged frozen tree. No Blackdog landing or canonical-main
+result is claimed here.
+
+The coordinator had previously approved two bounded
+integration expansions after inventory exposed required seams:
+`MachineController` plus `PersistentMachineSession` gained the decorator
+composition seam, and `EpisodeRecordingStore` gained truthful partial-discard
+validation. Two compile-only development failures were corrected before the
+accepted focused checks. They are development history, not failed package gates
+or critic results.
+
+The first frozen candidate was identified by diff SHA-256
+`ef61b0f24251708c24d8fcf00a155377c5869eae92c3dbcc146dc87f66893c16`
+and status SHA-256
+`a1aa2e57d97b9e0cba44030fdb1bff0c27157a7887a53a66d2f70c0b58e0ceec`.
+Its historical validation sequence recorded `MOTION` 5/5 passed, `DELETE`
+26/26 exact zero-match scans passed, `DOC` 29/29 passed, and `DIFF` clean.
+`QUICK` then failed with exit 2 after 676 tests and reported 7 issues across
+four named failures. Its output was truncated, so exhaustive warning status is
+unevidenced. `JOURNEY` and `STRICT` were not started. This entire sequence is
+superseded `RETASK`/nonpass history, never current passed gate evidence.
+
+The first RETASK's four root causes were exact: direct Pen refusal reused the jog-specific
+Motion remedy; workbench busy projection omitted the episode-owned active
+manual operation; retired manual diagnostic telemetry had no episode-terminal
+replacement; and a duplicate exact Stop arriving during or after terminal
+publication could be misclassified stale under load. That first accepted source
+correction supplied the intent-specific Pen remedy, read busy state from the
+exact active episode operation, emitted diagnostic-only accepted/terminal manual
+telemetry keyed by typed effect ID, and retained only the just-settled public Stop
+capability as idempotent until successor admission clears it. The later second
+RETASK superseded that Stop-cache shape with the transaction recorded below.
+
+The first-RETASK corrected-source identities were:
+
+- `PlotterIntentEvaluator.swift`: `6183d29c055e1d686fb15267b172d4b2c6f6857fd009a7e78d794b97936738a9`;
+- `PlotterManualMotionRuntime.swift`: `5ca6ec7ea37299cc76757db7c1ce6f09a2988e05f2ef467520c1cf0e56cdeee3`;
+- `OperatorWorkspace.swift`: `3ec2ac439e1d5a43049f8bbd8e0c4a7f3a1f725e751e18674d73300cfc584e34`;
+- `PlotterManualMotionEpisodeTests.swift`: `13dd31759fef587206aaf37116925f4cee54ab10e9d578791d2420e68a4cd2d2`;
+- `PlotterEpisodeModelContractTests.swift`: `8289be44304ec49c41970456f73ccbe649bf5a044a7d4a1d10eb63b154f149c5`.
+
+Retained focused software evidence for this package tree:
+
+- development-only `PlotterRecordingStoreTests`: 37/37 passed;
+- development-only `liveManualMotionReceiptRecording`: 1/1 passed;
+- development-only `liveManualMotionFailureReceiptRecording`: 1/1 passed;
+- development-only `PlotterManualMotionEpisodeTests`: 5/5 passed;
+- development-only `liveManualMotionStopReceiptRecording`: 1/1 passed;
+- the three parallel `liveManualMotion` focused tests: 3/3 passed.
+
+Retask-focused development evidence, also not package gates:
+
+- the original four failures reproduced independently;
+- the corrected workspace trio passed 3/3 in parallel;
+- the corrected `PlotterManualMotionEpisodeTests` suite passed 5/5;
+- `exactStop` passed 20/20 across ten repeated parallel runs;
+- the final combined parallel filters passed 6/6;
+- new `directPenMotionRemedy` passed 1/1.
+
+One attempted `--num-workers` invocation was rejected before any test ran
+because that option is XCTest-only; the intended focused test was rerun with the
+correct invocation. The rejected command is development history, not test or
+gate evidence.
+
+Those retained focused results accept the source slices described above. They
+do not satisfy or replace the ordered package gates. The corrected frozen tree
+then completed this full package validation:
+
+| Historical validation | Result | Scope |
+| --- | --- | --- |
+| `DOC` | passed — `make docs-check`; exit 0; both documentation contracts and 29/29 documentation/checker tests passed with no exclusions, warnings, or errors; real 9.65, user 6.42, sys 3.11 seconds | canonical documentation, checker constants, ledger/evidence consistency, and capsule fixtures on the frozen tree |
+| `DIFF` | passed — `git diff --check`; exit 0 with no output or errors; real 0.03, user 0.02, sys 0.01 seconds | whitespace and patch-shape validation on the frozen tree |
+| `QUICK` | passed — `make quick-test`; exit 0; 677/677 tests passed with exactly 10 configured exclusions (3 sparse-tip, 4 `OperatorWorkspace`, 3 `SimulatedLearningRuntime`) and no warnings or errors; real 14.48, user 19.95, sys 3.08 seconds; complete mode-0600 external log SHA-256 `f83bedda24f7252f55fbf2ebdc26d4a3f21fd308484926c203922f28584ec59a`, then removed | repository quick suite and its exact configured exclusions |
+| `JOURNEY` | passed — `make journey-test`; exit 0; 10/10 filter-selected tests passed with no explicit exclusions, warnings, or errors; real 6.16, user 5.92, sys 0.24 seconds; external success-log SHA-256 `701035fde2219b4c8c508b3130d87493434a025eacd1e5ee6527f13adcb2149e`, then removed | retained serial controller/operator journeys |
+| `STRICT` | passed — `make strict-check`; exit 0; strict-concurrency and warnings-as-errors build, 687/687 tests with no exclusions, both documentation contracts, and 29/29 documentation/checker tests passed with no warnings or errors; real 109.31, user 570.99, sys 69.44 seconds; external success-log SHA-256 `4234b7805fb5bd382d6d24c64454952c783777e1ebba033d9df2dfa3a71b32ab`, then removed | full strict source and documentation validation; a read-only progress inspection at about 74 seconds showed active compiler workers and advancing build step 48/77, and did not interrupt the command |
+| `MOTION` | passed — `swift test --filter PlotterManualMotionEpisodeTests`; exit 0; 5/5 tests passed with no exclusions, warnings, or errors; real 1.42, user 1.12, sys 0.23 seconds | typed manual runtime, LIVE/SIMULATED separation, direct Pen, operation-bound recording, refusal, and exact Stop behavior |
+| `DELETE` | passed — `sh Scripts/check_episode_cutover.sh EA-06`; exit 0; all 26 exact scans had zero matches with no warnings or errors; real 0.34, user 0.30, sys 0.03 seconds | same-landing deletion of old manual ingress, guards, state, mode branches, ports, and fixture authority |
+
+That table remains exact historical evidence for frozen diff
+`d21660321c1aa15594bea246a7e4a1b140020eeeab6c501d534ba9347f66d393`,
+but its current-pass claim was superseded by the second affected-gate tree. On
+tracked diff `e0edfb9145bc52396fdc754aed7f492ddc14aa7050f489ca7f6e1ad3cbe78e74`
+and status `a1aa2e57d97b9e0cba44030fdb1bff0c27157a7887a53a66d2f70c0b58e0ceec`,
+`DOC` passed 29/29, `DIFF` was clean, and `QUICK` failed with exit 2 after
+677 executed, 676 passed, 1 failed, and 2 issues, with 10 configured exclusions
+and no warning or compiler-error lines. Timing was real 79.91, user 578.63, sys
+61.29 seconds. `STRICT` was not started. This is second-`RETASK` nonpass
+evidence, not a passed gate sequence.
+
+The sole failure was the exact concurrent Stop test: one caller received
+`.settled` with a pre-terminal snapshot whose `lastTerminalEffect` was nil, then
+the typed cancellation settlement was missing at test lines 66 and 70. The
+complete mode-0600 failed log remains outside the repository at
+`/tmp/adaptiveplotter-ea06-final-quick.jrV95l`; it is 154880 bytes with SHA-256
+`5924c5e19282dfff13d56aeeaaedfc7172cbe1780d82f287d70fd36d426cb21b`.
+That retained artifact is failed evidence, not a pass. The root cause was that
+the prior settled-capability cache became visible before
+`publishTerminalIfCurrent` completed.
+
+The accepted correction replaces that cache with one exact public Stop
+transaction installed before the first registry await. The first caller alone
+invokes registry Stop; duplicates join continuations; every joined caller
+receives the identical result and snapshot only after terminal publication.
+The transaction-complete result remains cached only until successor admission
+clears it, and a mismatched old capability remains stale. It introduces no
+second cancel, settlement, or publication authority.
+
+A package-only typed Stop-publication gate deterministically pauses after
+registry settlement and before episode publication, and signals a duplicate
+join. It cannot choose an outcome, cancel, publish, or grant authority, and uses
+no sleeps or polling. That later frozen tree bound tracked diff
+`7f2823a78b8a1c7be75f9b7e4caadc1deca70949166bd23226c4712a9fa30181`
+and status
+`a1aa2e57d97b9e0cba44030fdb1bff0c27157a7887a53a66d2f70c0b58e0ceec`.
+Because Git diff/status did not bind untracked contents, its remaining three
+identities were explicit:
+
+- `PlotterManualMotionRuntime.swift`: `daaa90de14158ef42bf928fc1e781275461111c731fddf5a437ac158e70f86d0`;
+- `PlotterManualMotionEpisodeTests.swift`: `8641f3228e3cdf87b9af94d07ee22e1800669dab2482305d30be9df7c1066858`;
+- `PlotterManualMotionComposition.swift`: `998c6acb5d30c7302e1c829cf9b29134f3e5c41dde2b5f8fc1ce1b1c5233930d`.
+
+Focused correction evidence only, not package gates: the publication test
+passed 1/1; the manual suite passed 6/6 in parallel; 50 repeated paired
+`exactStop`/publication runs passed 150/150; and the final visible filters
+passed 3/3. Those focused results remained development evidence only; the
+following complete sequence supplied the package-gate evidence for the exact
+five-bound historical identity set above:
+
+| Historical validation | Result | Scope |
+| --- | --- | --- |
+| `DOC` | passed — `make docs-check`; exit 0; both documentation contracts plus 29/29 documentation/checker tests passed with no exclusions, warnings, or errors; real 9.80, user 6.55, sys 3.11 seconds | canonical documentation, checker constants, ledger/evidence consistency, and capsule fixtures on the five-bound tree |
+| `DIFF` | passed — `git diff --check`; exit 0 with no output or errors; real 0.03, user 0.02, sys 0.01 seconds | whitespace and patch-shape validation on the five-bound tree |
+| `QUICK` | passed — `make quick-test`; exit 0; 678/678 tests passed with exactly 10 configured exclusions (3 sparse-tip, 4 `OperatorWorkspace`, 3 `SimulatedLearningRuntime`) and no warnings or errors; real 14.09, user 19.90, sys 2.86 seconds; complete mode-0600 external success-log SHA-256 `4b3097d66504b648d8ac4ae4d449b06265086dd9895f90268ff42fd363cc3519`, then removed | repository quick suite and its exact configured exclusions |
+| `JOURNEY` | passed — `make journey-test`; exit 0; 10/10 filter-selected tests passed with no explicit exclusions, warnings, or errors; real 6.15, user 5.90, sys 0.24 seconds; external success-log SHA-256 `58e8f8552b3454097039227e02c99b39c2dcecd12cfabc6981dd66b714ce5a8c`, then removed | retained serial controller/operator journeys |
+| `STRICT` | passed — `make strict-check`; exit 0; strict-concurrency and warnings-as-errors build, 688/688 tests with no exclusions, both documentation contracts, and 29/29 documentation/checker tests passed with no warnings or errors; real 114.36, user 577.86, sys 68.63 seconds; external success-log SHA-256 `4693c18feeacfc7b70288253f4be3225bdcdd03daba7c2067d997a890b914bf6`, then removed | full strict source and documentation validation; a read-only progress inspection showed active compilation and did not interrupt the command |
+| `MOTION` | passed — `swift test --filter PlotterManualMotionEpisodeTests`; exit 0; 6/6 tests passed with no exclusions, warnings, or errors; real 1.43, user 1.15, sys 0.24 seconds | typed manual runtime, LIVE/SIMULATED separation, direct Pen, operation-bound recording, refusal, exact Stop, and deterministic duplicate-join publication behavior |
+| `DELETE` | passed — `sh Scripts/check_episode_cutover.sh EA-06`; exit 0; all 26 exact scans had zero matches with no warnings or errors; real 0.35, user 0.30, sys 0.03 seconds | same-landing deletion of old manual ingress, guards, state, mode branches, ports, and fixture authority |
+
+That full pass remains exact for its historical five-bound identity set. The complete
+QUICK, JOURNEY, and STRICT success logs had the recorded hashes and were then
+removed; the retained failed QUICK log above remains distinct nonpass history.
+The next fresh critic RETASK and completed source correction superseded it at
+that time. Before RETASK #4, the corrected frozen five-bound candidate
+bound tracked diff
+`3e9dad0f8957f913d7a3c3077f47bb6033b3cbc7bdb1f0c515cd5f665c23a68a`,
+NUL-delimited status
+`5dbe44431fe5f955ec336b5f769281635ca638e8add5564e6ed78b6d5cbf1310`,
+and untracked composition/runtime/tests hashes
+`66250a0edb70827b2afcc450c02ed47278f755faacc00d6d5129440bfbdc7b69`,
+`11b4277578448a692e7c969eacdb42f63146716ab59a13cb13f409182866b5bd`,
+and `0b31a505069c5b89fbe4b92e21195e0904a4deb31801ada72d4ab720456da7df`.
+That exact earlier tree completed this serial package-gate sequence:
+
+| Historical validation after RETASK #3 | Result | Exact log SHA-256 |
+| --- | --- | --- |
+| `MOTION` | passed — `swift test --filter PlotterManualMotionEpisodeTests`; 9/9 tests passed | `79c1a3cb24ffe3b1b68cb44dcf733029cabde976f0be8f88899f369e9cccfa60` |
+| `DELETE` | passed — `sh Scripts/check_episode_cutover.sh EA-06`; all 26 exact scans had zero matches | `b841daa4968ac8fa3bb03058663abc9e8fbcab9fd5d65487b6fb2aa786afb04e` |
+| `DOC` | passed — `make docs-check`; both documentation contracts plus 29/29 documentation/checker tests passed | `e9c69abd7637c66d18f6569db229df29c58d4fd1b67d981ab888164b1abc5e2e` |
+| `DIFF` | passed — `git diff --check`; clean with no output | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
+| `QUICK` | passed — `make quick-test`; 685/685 tests passed with exactly 10 configured exclusions | `fcd13343eb389a6f4aafc79bf2dbd04c377285d8deb8980916d3791f078e43fe` |
+| `JOURNEY` | passed — `make journey-test`; 10/10 filter-selected tests passed | `900a61fc976464b2c3566e63655357dbb04b2aab130c372e1dc21bb9b9dc8981` |
+| `STRICT` | passed — `make strict-check`; strict-concurrency/warnings-as-errors, 695/695 tests with no exclusions, both documentation contracts, and 29/29 documentation/checker tests passed | `05b8de2e979b9fb2993e3c181997e939ea475f83feb1acbeee28682960b0e6a1` |
+
+That full pass is historical evidence only for its exact earlier identity set.
+RETask #4 and its accepted source correction superseded it at that time. The
+retained failed QUICK log remains explicit second-RETASK nonpass history and is
+not promoted by either later pass. The RETASK #4 five-bound candidate bound
+tracked diff
+`3c18f0cdd7cee68d20ba567e0a14485a939110eec99c634e06c51fe6c889bd08`,
+NUL-delimited status
+`5dbe44431fe5f955ec336b5f769281635ca638e8add5564e6ed78b6d5cbf1310`,
+and untracked composition/runtime/tests hashes
+`707a30cdb8a540e28a5a02176c77bb751503a8845218947b6527fbe697806ff6`,
+`11b4277578448a692e7c969eacdb42f63146716ab59a13cb13f409182866b5bd`,
+and `0b31a505069c5b89fbe4b92e21195e0904a4deb31801ada72d4ab720456da7df`.
+It then completed this exact serial package-gate sequence:
+
+| Historical validation after RETASK #4 | Result | Exact log SHA-256 |
+| --- | --- | --- |
+| `MOTION` | passed — `swift test --filter PlotterManualMotionEpisodeTests`; 9/9 tests passed | `46e903c4887afccb8a923bc24c1d15a25580f4d49e092af9cb833970bc2d2668` |
+| `DELETE` | passed — `sh Scripts/check_episode_cutover.sh EA-06`; all 26 exact scans had zero matches | `b841daa4968ac8fa3bb03058663abc9e8fbcab9fd5d65487b6fb2aa786afb04e` |
+| `DOC` | passed — `make docs-check`; both documentation contracts plus 29/29 documentation/checker tests passed | `165e67df305197f32573dda575d5a962b652e2994000adde1435ae64db1f2f4a` |
+| `DIFF` | passed — `git diff --check`; clean with no output | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
+| `QUICK` | passed — `make quick-test`; 689/689 tests passed with exactly 10 configured exclusions | `b76e6eb98482633fce2b8e5fa7e77ccb0ca0f8377e9a3937c7cdf4caf5a760c7` |
+| `JOURNEY` | passed — `make journey-test`; 10/10 filter-selected tests passed | `a67d2ebf0cc79d60b0ab7a04fa36514154f0eb8e0488ab76b3db664b2843fb46` |
+| `STRICT` | passed — `make strict-check`; strict-concurrency/warnings-as-errors, 699/699 tests with no exclusions, both documentation contracts, and 29/29 documentation/checker tests passed | `91fbd693409017c51d64e347766297b9a19fd6f5bab08a88b54b5d53db7172c0` |
+
+This full pass is historical evidence only for the exact RETASK #4 identity set
+above. RETASK #5 and its accepted source correction superseded it at that time.
+The exact RETASK #5 five-bound candidate identified by tracked diff
+`0b2b2c477f8a9e0d66a25fcdd9472cfb56a71d69da21eef33a93c14131d4eda4`,
+the same NUL-delimited status, and the composition/runtime/test hashes
+`707a30cdb8a540e28a5a02176c77bb751503a8845218947b6527fbe697806ff6`,
+`07231e76f5a228598c99ffefc8726c80d1c0e4f7df0f35db5cec0ade1c88c6f0`,
+and `9928d135f9c226280a82f51c7bfc701f0d3433e683692deee7c46239cebc071c`
+completed this serial package-gate sequence:
+
+| Historical validation after RETASK #5 | Result | Exact log SHA-256 |
+| --- | --- | --- |
+| `MOTION` | passed — `swift test --filter PlotterManualMotionEpisodeTests`; 11/11 tests passed | `67616011ecfe0439498f8249acc831768036ecc9c9181c2f4e9d8ae8a8e8ff9b` |
+| `DELETE` | passed — `sh Scripts/check_episode_cutover.sh EA-06`; all 26 exact scans had zero matches | `b841daa4968ac8fa3bb03058663abc9e8fbcab9fd5d65487b6fb2aa786afb04e` |
+| `DOC` | passed — `make docs-check`; both documentation contracts plus 29/29 documentation/checker tests passed | `75442517166490b5410f0bafa1cf6f532341a2e85915c46b87ba0b3f2da776d5` |
+| `DIFF` | passed — `git diff --check`; clean with no output | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
+| `QUICK` | passed — `make quick-test`; 692/692 tests passed with exactly 10 configured exclusions | `61334548a852aedd1250a2f408d9453eff0720f3192ee506d748e5da29e28163` |
+| `JOURNEY` | passed — `make journey-test`; 10/10 filter-selected tests passed | `ea66db8f0d68d7dff76df5e99c98733bcc3a2aed541ed8e9fd6fb88e8a6cc7da` |
+| `STRICT` | passed — `make strict-check`; strict-concurrency/warnings-as-errors, 702/702 tests with no exclusions, both documentation contracts, and 29/29 documentation/checker tests passed | `7a5b7dddad8258595c4783328cd5badcb9715bb7b065588d791ea5785af5bd0d` |
+
+This full pass is historical evidence only for that exact RETASK #5 identity
+set. RETASK #6, Option A, and the current seven-gate sequence above supersede
+it. The same critic's delta-only cited-findings recheck is closed with
+`CITED_RACE_CLOSED`; no new or full critic was commissioned and no further
+critic is required or allowed. Blackdog landing, canonical-`main` cleanup
+verification, and successor-capsule creation remain pending. No attended
+controller, camera, motion, Pen, paper, operator-click, or observed-ink
+validation occurred, and no physical evidence is claimed.
+
+The task-local ledger/checker/capsule fixture mechanically projects EA-07 as
+the post-landing frontier because EA-06 is staged complete and EA-07 depends
+only on EA-06. EA-07 becomes eligible only after all seven gates pass on the
+exact Option A candidate, the final evidence delta's affected gates are
+refreshed, EA-06 lands through Blackdog, canonical `main` is verified clean, and
+the successor capsule is generated there. The same-critic delta closure is
+already recorded; no further critic is required or allowed. This task does not
+select or dispatch EA-07.
+
+| Candidate package | Blackdog task | Current gate state | Landing boundary |
+| --- | --- | --- | --- |
+| EA-06 | `TASK-FE9C9CB3` | `DOC`=rerun-required, `DIFF`=rerun-required, `QUICK`=rerun-required, `JOURNEY`=passed, `STRICT`=rerun-required, `MOTION`=passed, `DELETE`=passed | The exact frozen tree passed all seven gates. Refresh affected `DOC`, `DIFF`, `QUICK`, and `STRICT` on this final evidence candidate as part of Blackdog landing, then replace this staged candidate with ordinary passed evidence after canonical `main` is verified clean; `CITED_RACE_CLOSED` already closes the critic boundary and no further critic is required or allowed. |
+
+Canonical routed-document review dispositions for the EA-06 evidence integration:
+
+- Affected task documents across the accepted EA-06 slice: Product Contract,
+  Episode Architecture Execution Plan, Current Evidence, and Swift
+  Architecture. RETASK #6 changes all four plus the executable contract checker:
+  it records pre-start `cancelledBeforeStart`, observed/settling
+  `settledByShutdown`, runtime-phase ambiguity disposition, the exact manual
+  recording topology, Option A's shutdown latch, and the pending gate/closed-
+  critic boundary. RETASK #4's
+  lossless applied-open and capability-only terminal-publication recovery and
+  RETASK #5's requested-owner shutdown takeover/FIFO correction remain accepted
+  historical slices, while all prior package-wide green evidence is superseded.
+  This final-gate integration changes the Execution Plan, Current Evidence, and
+  executable contract checker. Product Contract and Swift Architecture were
+  reviewed unchanged because their Option A ownership/topology text remains
+  accurate.
+  The plan still retires historical INT-004, INT-005, GRD-004, and UI-003 authority,
+  preserves the exact EA-06 zero-match scan set, and routes current draft,
+  controller-safety, Learning-travel/Pen, and typed UI seams to their later
+  owners.
+- Reviewed no change — `README.md` and Document Routing (`docs/INDEX.md`): the
+  camera-first orientation and routing authority remain accurate.
+- Reviewed no change — Discovery and Observed-Trial Protocol and Learning Path
+  Button Transitions: EA-06 changes workbench manual controls, not the current
+  Learning sequence, button vocabulary, exercise Cancel, or contextual Stop
+  ownership.
+- Reviewed no change — Episode Architecture Vocabulary: `Cutover`, typed
+  intent, exact owner, Stop capability, LIVE/SIMULATED, and possible-ink target
+  definitions did not change.
+- Reviewed no change — Attended Hardware Runbook: no physical procedure or
+  attended evidence changed or was executed.
+- Reviewed no change — Roadmap: the existing migration milestone structure and
+  unfinished physical boundary remain accurate.
+- Reviewed no change — `AGENTS.md`, `blackdog.toml`, `.gitignore`, the
+  AdaptivePlotter and run-multi-agent-wave skills, their episode-migration and
+  wave-coordination references, and conditional validation/generator scripts:
+  EA-06 changes no repository routing, lifecycle, selection, lease, validation,
+  landing, cleanup, ignore, authorization, or generation contract.
+- Affected executable contract surface: `Scripts/check_episode_contract.py`
+  requires the current source-retask identities and semantics, all six RETASK
+  histories, the retained failed QUICK log, historical-only prior green
+  sequences, the exact current seven-gate pass, the four affected reruns,
+  `CITED_RACE_CLOSED`, and the staged candidate boundary with landing still
+  pending and no further critic required or allowed.
+- Reviewed no change — `Scripts/test_episode_wave_capsule.py`:
+  its retained task edit still advances only the post-landing fixture to EA-07
+  without dispatching it.
+- Reviewed no change — `Scripts/check_episode_inventory.py`: its existing
+  completed-package retirement rule and exact live guard/UI equality checks are
+  sufficient for the completed ledger row.
+- Reviewed no change — `Scripts/check_episode_cutover.sh`: the wrapper remains
+  generic; the package-specific EA-06 scans live only in the execution-plan
+  manifest.
+- Reviewed no change — `Scripts/episode_wave_capsule.py`: its literal-order
+  frontier calculation already derives EA-07 from the staged ledger and cannot
+  authorize dispatch before a clean landed capsule is created and consumed.
+
 ## Work package gate evidence
 
-This table is machine-checked against every `complete` row in the canonical
-execution-plan ledger. Gate names must match that package's required gates
-exactly, and every recorded result must be `passed`. Detailed scope and
+This table is machine-checked against every landed `complete` row in the
+canonical execution-plan ledger. Gate names must match that package's required
+gates exactly, and every recorded result must be `passed`. The sole temporary
+exception is the explicitly named staged EA-06 candidate above: all seven gates
+passed on the exact frozen Option A tree, while `DOC`, `DIFF`, `QUICK`, and
+`STRICT` require refresh after this evidence delta. The same-critic delta is
+closed; landing and clean-main verification remain pending. Detailed scope and
 limitations remain in the named evidence section.
 
 | Package | Blackdog task | Gate results | Evidence section |
@@ -51,7 +642,7 @@ Delivered 2026-08-28 in Blackdog task `TASK-30357281`. FIX-02 corrects the
 canonical transport-observability prerequisite before EA-06 without moving
 product authority or installing the later recorder/adapter binding.
 
-The current candidate changes the sole existing `MachineLink` protocol rather
+That landed correction changed the sole existing `MachineLink` protocol rather
 than adding a sibling recording or observability port. Successful open returns
 `MachineLinkOpenReceipt` with a transport-discriminated
 `MachineLinkAppliedConfiguration`. `BSDSerialLink` reports the exact endpoint,
@@ -85,8 +676,9 @@ discard regression tests rather than re-derived test-only logic.
 
 `BSDSerialLink`, `SimulatedGRBLLink`, `BlockingMachineLink`, and all retained
 controller/application/test conformers use the one revised protocol and forward
-its receipts and errors. There is no protocol default implementation, alternate
-effect path, new semantic ingress, or installed `RecordingMachineLink`.
+its receipts and errors. At the FIX-02 landing, there was no protocol default
+implementation, alternate effect path, new semantic ingress, or installed
+`RecordingMachineLink`.
 `MachineController` still owns selected serial state, GRBL parsing, admission,
 command serialization, settlement, and sticky ambiguity; `RunInterpreter`
 still owns the current logical operation. Transport receipts are diagnostic
@@ -1207,7 +1799,7 @@ Forward scenarios are fixed by the checked contract:
 
 | Scenario | Required disposition |
 | --- | --- |
-| Current clean ledger | After the EA-04 landing, `EA-06` is the first eligible ordinary row, subject to no live claim or admission blocker; this evidence record does not select or dispatch it, and no software package may claim or repair the retained failed physical evidence. |
+| Next verified clean ledger | The exact frozen Option A tree passed all seven package gates. The final evidence delta requires affected `DOC`, `DIFF`, `QUICK`, and `STRICT` refresh during Blackdog landing. The same critic's delta-only cited-findings recheck closed with `CITED_RACE_CLOSED`; no new or full critic was commissioned and no further critic is required or allowed. Only after landing, cleanup verification on canonical `main`, and successor-capsule creation does `EA-07` become the conditional first eligible ordinary row, subject to no live claim or admission blocker; this evidence record does not select or dispatch it, and no software package may claim or repair the retained failed physical evidence. |
 | Active owner holds the claim | Start no task; request one bounded non-overlapping offload with explicit worktree and leases, or stop if it is unavailable. |
 | Failed/interrupted ordinary package is recoverable | Verify prompt replay and dependencies, then follow only Blackdog's exact recovery action as coordinator. |
 | Multiple later ordinary rows appear dependency-ready | Select only the first in literal ledger order; parallelism stays inside that one WorkPackage and one task worktree. |

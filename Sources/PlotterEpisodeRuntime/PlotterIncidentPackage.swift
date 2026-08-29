@@ -4,6 +4,37 @@ import Foundation
 import PlotterEpisodeModel
 import PlotterRuntime
 
+/// Durable source locators that an incident-package caller can inspect before
+/// constructing the existing unbound `PlotterIncidentPackageSource`. This value
+/// owns no persistence, export, or completeness decision.
+public struct PlotterIncidentSourceArtifactReferences: Codable, Hashable, Sendable {
+  public let episodeID: EpisodeID
+  public let journal: EpisodeArtifactReference
+  public let journalFileURL: URL
+  public let recordingID: EpisodeRecordingID?
+  public let recordingDirectoryURL: URL?
+  public let recordingDurability: EpisodeRecordingDurability?
+  public let recordingCompletenessIssues: [EpisodeRecordingCompletenessIssue]
+
+  public init(
+    episodeID: EpisodeID,
+    journal: EpisodeArtifactReference,
+    journalFileURL: URL,
+    recordingID: EpisodeRecordingID?,
+    recordingDirectoryURL: URL?,
+    recordingDurability: EpisodeRecordingDurability?,
+    recordingCompletenessIssues: [EpisodeRecordingCompletenessIssue]
+  ) {
+    self.episodeID = episodeID
+    self.journal = journal
+    self.journalFileURL = journalFileURL
+    self.recordingID = recordingID
+    self.recordingDirectoryURL = recordingDirectoryURL
+    self.recordingDurability = recordingDurability
+    self.recordingCompletenessIssues = recordingCompletenessIssues
+  }
+}
+
 struct PlotterIncidentPackageBudget: Codable, Hashable, Sendable {
   static let standard = PlotterIncidentPackageBudget(
     maximumJournalEventCount: 10_000,

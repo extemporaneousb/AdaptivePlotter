@@ -36,7 +36,7 @@ public enum PlotterEffect: Codable, Hashable, Sendable {
     configurationID: CameraConfigurationID
   )
   case performManualMotion(context: PlotterEffectContext, request: PlotterJogRequest)
-  case setPen(context: PlotterEffectContext, position: PlotterPenPosition)
+  case setPen(context: PlotterEffectContext, request: PlotterPenActuationRequest)
   case executeDrawing(context: PlotterEffectContext, planRevisionID: ExecutionPlanRevisionID)
   case activateModel(context: PlotterEffectContext, revisionID: DrawingModelRevisionID)
 
@@ -155,8 +155,8 @@ public struct PlotterAcceptedIntent: Codable, Hashable, Sendable {
       return nil
     case let .manualMotion(.jog(request)):
       return .performManualMotion(context: context, request: request)
-    case let .manualMotion(.setPen(position)):
-      return .setPen(context: context, position: position)
+    case let .manualMotion(.setPen(request)):
+      return .setPen(context: context, request: request)
     case let .drawing(.execute(planRevisionID)):
       return .executeDrawing(context: context, planRevisionID: planRevisionID)
     case let .drawing(.captureResult(configurationID)):
@@ -442,10 +442,38 @@ public struct PlotterEffectFailure: Codable, Hashable, Sendable {
   }
 }
 
+public enum PlotterEffectCancellationSettlement: Codable, Hashable, Sendable {
+  case controllerSettled(observationID: PlotterObservationID, possibleInk: Bool)
+  case drawingStoppedWithPenRaised(
+    observationID: PlotterObservationID,
+    possibleInk: Bool
+  )
+
+  public var observationID: PlotterObservationID {
+    switch self {
+    case let .controllerSettled(observationID, _),
+      let .drawingStoppedWithPenRaised(observationID, _):
+      observationID
+    }
+  }
+
+  public var possibleInk: Bool {
+    switch self {
+    case let .controllerSettled(_, possibleInk),
+      let .drawingStoppedWithPenRaised(_, possibleInk):
+      possibleInk
+    }
+  }
+}
+
 public enum PlotterEffectResult: Codable, Hashable, Sendable {
   case completed(context: PlotterEffectResultContext, output: PlotterEffectOutput)
   case refused(context: PlotterEffectResultContext, refusal: PlotterEffectRefusal)
   case cancelled(context: PlotterEffectResultContext)
+  case cancelledAfterSettlement(
+    context: PlotterEffectResultContext,
+    settlement: PlotterEffectCancellationSettlement
+  )
   case ambiguous(context: PlotterEffectResultContext, ambiguity: PlotterEffectAmbiguity)
   case timedOut(context: PlotterEffectResultContext, deadline: Date)
   case evidenceUnavailable(context: PlotterEffectResultContext, reason: String)
@@ -458,6 +486,8 @@ public enum PlotterEffectResult: Codable, Hashable, Sendable {
     case let .refused(context, _):
       return context
     case let .cancelled(context):
+      return context
+    case let .cancelledAfterSettlement(context, _):
       return context
     case let .ambiguous(context, _):
       return context
@@ -476,7 +506,7 @@ public enum PlotterEffectResult: Codable, Hashable, Sendable {
       return .completed
     case .refused:
       return .refused
-    case .cancelled:
+    case .cancelled, .cancelledAfterSettlement:
       return .cancelled
     case .ambiguous:
       return .ambiguous

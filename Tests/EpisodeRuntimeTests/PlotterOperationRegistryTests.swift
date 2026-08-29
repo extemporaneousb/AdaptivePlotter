@@ -296,6 +296,174 @@ struct PlotterOperationRegistryTests {
     #expect(snapshot.terminal.first?.settledAt == time(3))
   }
 
+  @Test("staged Stop exposes exact requested observed and settling boundaries once")
+  func stagedStopBoundaries() async throws {
+    let registry = try makeRegistry()
+    let operationIdentity = identity(19)
+    let handle = TestHandle()
+    let registration = try await registry.register(
+      identity: operationIdentity,
+      lane: .machine,
+      context: context(19),
+      handle: handle,
+      cancellationAvailable: true,
+      admittedAt: time(0)
+    )
+    let stopCapability = registration.stopCapability
+    let capability = try #require(stopCapability)
+    try requireStartAccepted(await registry.start(
+      registration.takePermit(),
+      for: operationIdentity,
+      attributedTo: attribution(
+        119,
+        for: operationIdentity,
+        sequence: 1,
+        preRevision: 0,
+        at: time(1)
+      )
+    ))
+
+    guard case let .requested(transaction) = await registry.beginStop(
+      using: capability,
+      at: time(2)
+    ) else {
+      Issue.record("Expected the exact staged Stop transaction")
+      return
+    }
+    var active = try #require(await registry.snapshot().active.first)
+    #expect(active.cancellationPhase == .requested)
+    #expect(active.phase == .cancelling)
+    guard case .invalidTransaction = await registry.beginStopSettlement(
+      using: transaction,
+      at: time(3)
+    ) else {
+      Issue.record("Settling cannot precede cancellation observation")
+      return
+    }
+
+    guard case .advanced = await registry.observeStop(using: transaction, at: time(3)) else {
+      Issue.record("Expected the original handle to observe cancellation")
+      return
+    }
+    active = try #require(await registry.snapshot().active.first)
+    #expect(active.cancellationPhase == .observed)
+    #expect(active.phase == .cancelling)
+    #expect(await handle.metrics().cancelRequests == 1)
+    guard case .invalidTransaction = await registry.observeStop(
+      using: transaction,
+      at: time(3)
+    ) else {
+      Issue.record("A staged transaction must not issue cancellation twice")
+      return
+    }
+
+    guard case .advanced = await registry.beginStopSettlement(
+      using: transaction,
+      at: time(4)
+    ) else {
+      Issue.record("Expected the exact transaction to enter settling")
+      return
+    }
+    active = try #require(await registry.snapshot().active.first)
+    #expect(active.cancellationPhase == .settling)
+    #expect(active.phase == .settling)
+    guard case .invalidTransaction = await registry.beginStopSettlement(
+      using: transaction,
+      at: time(4)
+    ) else {
+      Issue.record("A staged transaction must not enter settling twice")
+      return
+    }
+
+    let finish = Task { await registry.finishStop(using: transaction) }
+    #expect(await eventually { await handle.metrics().settlementWaits == 1 })
+    await handle.finish(result(operationIdentity, .cancelled, at: time(5)))
+    let terminal = try requireStopSettled(await finish.value)
+    #expect(terminal.identity == operationIdentity)
+    #expect(terminal.disposition == .cancelled)
+    guard case .alreadyRequested = await registry.finishStop(using: transaction) else {
+      Issue.record("A completed staged transaction must not be reusable")
+      return
+    }
+  }
+
+  @Test("shutdown takes over a requested staged Stop without issuing cancellation twice")
+  func shutdownTakesRequestedStagedStop() async throws {
+    let registry = try makeRegistry()
+    let operationIdentity = identity(22)
+    let handle = TestHandle()
+    let registration = try await registry.register(
+      identity: operationIdentity,
+      lane: .machine,
+      context: context(22),
+      handle: handle,
+      cancellationAvailable: true,
+      admittedAt: time(0)
+    )
+    let stopCapability = registration.stopCapability
+    let capability = try #require(stopCapability)
+    try requireStartAccepted(await registry.start(
+      registration.takePermit(),
+      for: operationIdentity,
+      attributedTo: attribution(
+        122,
+        for: operationIdentity,
+        sequence: 1,
+        preRevision: 0,
+        at: time(1)
+      )
+    ))
+    guard case .requested = await registry.beginStop(using: capability, at: time(2)) else {
+      Issue.record("Expected the exact staged Stop owner")
+      return
+    }
+    #expect(await handle.metrics().cancelRequests == 0)
+
+    let shutdown = Task { await registry.shutdown(at: time(3)) }
+    #expect(await eventually {
+      await handle.metrics() == TestHandleMetrics(cancelRequests: 1, settlementWaits: 1)
+    })
+    await handle.finish(result(operationIdentity, .cancelled, at: time(4)))
+    let report = await shutdown.value
+    #expect(report.settled.map(\.identity) == [operationIdentity])
+    #expect(report.resultRefusals.isEmpty)
+    #expect(await handle.metrics() == TestHandleMetrics(cancelRequests: 1, settlementWaits: 1))
+  }
+
+  @Test("noncancellable registration can withdraw before external start without terminal evidence")
+  func prestartWithdrawal() async throws {
+    let registry = try makeRegistry()
+    let firstIdentity = identity(20)
+    let first = TestHandle()
+    let registration = try await registry.register(
+      identity: firstIdentity,
+      lane: .machine,
+      context: context(20),
+      handle: first,
+      cancellationAvailable: false
+    )
+    #expect(registration.stopCapability == nil)
+    #expect(await registry.withdrawBeforeExternalStart(
+      firstIdentity,
+      using: registration.completionCapability
+    ) == .withdrawn)
+    let withdrawn = await registry.snapshot()
+    #expect(withdrawn.active.isEmpty)
+    #expect(withdrawn.terminal.isEmpty)
+    #expect(await first.metrics().cancelRequests == 0)
+    #expect(await first.metrics().settlementWaits == 0)
+
+    let successorIdentity = identity(21)
+    _ = try await registry.register(
+      identity: successorIdentity,
+      lane: .machine,
+      context: context(21),
+      handle: TestHandle(),
+      cancellationAvailable: false
+    )
+    #expect(await registry.snapshot().active.map(\.identity) == [successorIdentity])
+  }
+
   @Test("cancellation refuses racing results and releases its lane only after owner settlement")
   func cancellationSettlementOrdering() async throws {
     let registry = try makeRegistry()

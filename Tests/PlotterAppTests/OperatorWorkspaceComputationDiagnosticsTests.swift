@@ -423,7 +423,7 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
     }
     workspace.resetComputationDiagnosticsForTesting()
 
-    let penTask = Task { await workspace.requestPenActuation(.raise) }
+    let penTask = Task { await workspace.executeLearningPenCommand(.raise) }
     try await waitForExecutorTurnsAsync {
       await machine.requestedPenCommands == [.raise]
     }
@@ -675,7 +675,7 @@ private func workspaceWithPenCommandCompletionGate(
         .admitted(
           RelativeJogOperation(
             id: UUID(),
-            task: Task { await machine.requestRelativeJog(request) }
+            task: Task { await machine.performRelativeMotion(request) }
           )
         )
       },
@@ -687,10 +687,15 @@ private func workspaceWithPenCommandCompletionGate(
           )
         )
       },
-      requestPenActuation: { command, profile in
-        let outcome = await machine.requestPen(command, profile: profile)
-        await gate.waitIfTarget(command)
-        return outcome
+      beginPenActuation: { command, profile in
+        .admitted(PenActuationOperation(
+          id: UUID(),
+          task: Task {
+            let outcome = await machine.requestPen(command, profile: profile)
+            await gate.waitIfTarget(command)
+            return outcome
+          }
+        ))
       },
       beginBoundaryMotion: { request, _ in
         .admitted(

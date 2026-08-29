@@ -85,20 +85,20 @@ struct LearningPathProjectionSnapshot: Sendable {
     let motionAuthorized: Bool
     let cameraStateText: String
     let machineError: String?
-    let directMotionUnavailableReason: String?
+    let controllerTravelUnavailableReason: String?
 
     init(
       sessionEstablished: Bool = false,
       motionAuthorized: Bool = false,
       cameraStateText: String = "not started",
       machineError: String? = nil,
-      directMotionUnavailableReason: String? = nil
+      controllerTravelUnavailableReason: String? = nil
     ) {
       self.sessionEstablished = sessionEstablished
       self.motionAuthorized = sessionEstablished && motionAuthorized
       self.cameraStateText = cameraStateText
       self.machineError = machineError
-      self.directMotionUnavailableReason = directMotionUnavailableReason
+      self.controllerTravelUnavailableReason = controllerTravelUnavailableReason
     }
   }
 
@@ -1267,7 +1267,7 @@ extension LearningPathProjector {
       }
       if !controller.motionAuthorized { return "Enable Motion for this controller session." }
       if snapshot.cameraCalibration.phase != nil || operations.stopOwner != nil { return nil }
-      return controller.directMotionUnavailableReason
+      return controller.controllerTravelUnavailableReason
     }()
     let controllerState: String
     if !controller.sessionEstablished { controllerState = "Disconnected" }

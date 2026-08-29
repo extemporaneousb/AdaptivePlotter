@@ -180,7 +180,7 @@ struct LearningPathProjectorTests {
         sessionEstablished: true,
         motionAuthorized: true,
         cameraStateText: "streaming",
-        directMotionUnavailableReason: nil
+        controllerTravelUnavailableReason: nil
       ),
       cameraCalibration: .init(phase: .capturing(sample: 2, total: 5, role: "fit"))
     )

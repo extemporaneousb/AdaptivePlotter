@@ -1628,8 +1628,13 @@ private func controllerReplayCompletionViolation(
       return .invalidPartialResult(completion.invocationID)
     }
     switch invocation.operation {
-    case .open, .close, .discardInput:
+    case .open, .close:
       guard failure.partialByteCount == 0, failure.partialReadChunks.isEmpty else {
+        return .invalidPartialResult(completion.invocationID)
+      }
+      return nil
+    case .discardInput:
+      guard failure.partialReadChunks.isEmpty else {
         return .invalidPartialResult(completion.invocationID)
       }
       return nil

@@ -1,4 +1,7 @@
+import EpisodeCore
 import Foundation
+import PlotterEpisodeModel
+import PlotterEpisodeRuntime
 import PlotterModel
 import PlotterRuntime
 import Testing
@@ -9,16 +12,23 @@ import Testing
 struct WorkbenchPresentationTests {
   @Test("manual motion uses explicit units and one capability-bound Stop")
   func manualMotionLabelsAndStop() {
-    let capability = ContextualStopCapabilityID(
+    let capability = PlotterManualMotionStopCapabilityID(
       rawValue: UUID(uuidString: "00000000-0000-0000-0000-000000000301")!
     )
     let presentation = ManualMotionPresentation(
-      stopAction: ContextualStopActionPresentation(
+      stopAction: ManualMotionStopActionPresentation(
         capabilityID: capability,
         title: "Stop Manual Jog",
         detail: "Stop this manual jog and wait for Idle."
       ),
-      jogUnavailableReason: "A relative jog is already in progress."
+      publicationRecovery: nil,
+      evidenceDisposition: nil,
+      jogUnavailableReason: "A relative jog is already in progress.",
+      penUpUnavailableReason: nil,
+      penDownUnavailableReason: nil,
+      penStateText: "commanded up — not visually observed",
+      modeText: "travel — commanded Pen Up",
+      recordingDiagnostic: nil
     )
 
     #expect(ManualMotionPresentation.xDistanceLabel == "X distance (mm)")
@@ -31,12 +41,86 @@ struct WorkbenchPresentationTests {
 
     let derivedDisable = ManualMotionPresentation(
       stopAction: presentation.stopAction,
-      jogUnavailableReason: nil
+      publicationRecovery: nil,
+      evidenceDisposition: nil,
+      jogUnavailableReason: nil,
+      penUpUnavailableReason: nil,
+      penDownUnavailableReason: nil,
+      penStateText: presentation.penStateText,
+      modeText: presentation.modeText,
+      recordingDiagnostic: nil
     )
     #expect(
       derivedDisable.jogControlsUnavailableReason
         == "Stop the active manual jog before starting another."
     )
+  }
+
+  @Test("publication recovery carries one exact capability and disables every manual effect")
+  func manualPublicationRecovery() {
+    let capability = PlotterManualMotionPublicationRecoveryCapabilityID(
+      rawValue: UUID(uuidString: "00000000-0000-0000-0000-000000000302")!
+    )
+    let remedy =
+      "The Pen Down terminal result was not durably published. Retry this exact publication; the Pen command will not be issued again."
+    let presentation = ManualMotionPresentation(
+      stopAction: nil,
+      publicationRecovery: ManualMotionPublicationRecoveryPresentation(
+        capabilityID: capability,
+        title: "Retry Pen Down Publication",
+        remedy: remedy
+      ),
+      evidenceDisposition: nil,
+      jogUnavailableReason: remedy,
+      penUpUnavailableReason: remedy,
+      penDownUnavailableReason: remedy,
+      penStateText: "commanded down — not visually observed",
+      modeText: "drawing — commanded Pen Down",
+      recordingDiagnostic: nil
+    )
+
+    #expect(presentation.publicationRecovery?.capabilityID == capability)
+    #expect(presentation.publicationPendingReason == remedy)
+    #expect(presentation.jogControlsUnavailableReason == remedy)
+    #expect(presentation.penUpUnavailableReason == remedy)
+    #expect(presentation.penDownUnavailableReason == remedy)
+    #expect(!presentation.isStoppable)
+  }
+
+  @Test("ambiguity disposition carries one exact typed action and disables every effect")
+  func manualEvidenceDisposition() {
+    let action = PlotterManualMotionEvidenceDispositionAction(
+      effectID: EpisodeEffectID(rawValue: UUID()),
+      environment: .live,
+      observationID: PlotterObservationID(rawValue: UUID()),
+      disposition: .acknowledgePossibleInk,
+      summary: "Controller settlement was ambiguous."
+    )
+    let remedy =
+      "Review the exact observation and acknowledge possible ink without reissuing work."
+    let presentation = ManualMotionPresentation(
+      stopAction: nil,
+      publicationRecovery: nil,
+      evidenceDisposition: ManualMotionEvidenceDispositionPresentation(
+        action: action,
+        title: "Acknowledge Possible Ink",
+        remedy: remedy
+      ),
+      jogUnavailableReason: remedy,
+      penUpUnavailableReason: remedy,
+      penDownUnavailableReason: remedy,
+      penStateText: "commanded down — not visually observed",
+      modeText: "drawing — commanded Pen Down",
+      recordingDiagnostic: nil
+    )
+
+    #expect(presentation.evidenceDisposition?.action == action)
+    #expect(presentation.evidencePendingReason == remedy)
+    #expect(presentation.attentionReason == remedy)
+    #expect(presentation.jogControlsUnavailableReason == remedy)
+    #expect(presentation.penUpUnavailableReason == remedy)
+    #expect(presentation.penDownUnavailableReason == remedy)
+    #expect(!presentation.isStoppable)
   }
 
   @Test("motion authorization and transient request state remain distinct")

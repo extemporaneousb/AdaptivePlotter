@@ -60,11 +60,12 @@ func simulatedManualPenDownDrawing() async throws {
   await workspace.switchFrameMode(.simulated)
   await workspace.performControllerConnectionAction()
   await workspace.activateMotionGuard()
-  await workspace.requestPenActuation(.lower)
+  await workspace.submitManualPen(.lower)
 
-  #expect(workspace.motionUnavailableReason == nil)
-  #expect(workspace.manualMotionModeText == "drawing — commanded Pen Down")
-  await workspace.requestJog(.xPositive)
+  #expect(workspace.manualMotionEpisodePresentation.jogControlsUnavailableReason == nil)
+  #expect(workspace.manualMotionEpisodePresentation.modeText
+    == "drawing — commanded Pen Down")
+  await workspace.submitManualJog(.xPositive)
 
   let snapshot = await harness.runtime.snapshot()
   #expect(snapshot.mpos.xMM == 50)

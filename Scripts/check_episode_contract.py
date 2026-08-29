@@ -28,7 +28,7 @@ EVIDENCE_PATH = ROOT / "docs" / "CURRENT_EVIDENCE.md"
 ARCHITECTURE_PATH = ROOT / "docs" / "SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md"
 PRODUCT_PATH = ROOT / "docs" / "PRODUCT_CONTRACT.md"
 # Updated in the same package whenever a canonical ledger row changes.
-EXPECTED_LEDGER_SHA256 = "5e00b1763452e6fad5ad664e5f2519c054a3c37c72eb24549863b6da308d256c"
+EXPECTED_LEDGER_SHA256 = "afd326d00dd7ff0784e6c0ced8826ccbd3d93bd65665763e679f5116ddb19d05"
 
 
 EXPECTED_GATES = {
@@ -189,8 +189,21 @@ EXPECTED_COMPLETE_PACKAGES = {
     "EA-05B",
     "EA-05C",
     "FIX-02",
+    "EA-06",
 }
 
+# EA-06 is staged complete so its post-cutover DELETE/DOC contracts can inspect
+# the final manifest. The frozen Option A tree passed all seven gates; this
+# evidence delta requires DOC/DIFF/QUICK/STRICT refresh during Blackdog landing.
+# The same critic closed its delta-only cited findings, so no further critic is
+# required or allowed. This temporary task-local candidate becomes an ordinary
+# passed row after landing and clean-main verification.
+EXPECTED_UNLANDED_COMPLETION_CANDIDATES = {
+    "EA-06": (
+        "`TASK-FE9C9CB3`",
+        ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "MOTION", "DELETE"],
+    ),
+}
 
 def fail(message: str) -> None:
     raise ValueError(message)
@@ -287,6 +300,8 @@ def parse_gate_tokens(cell: str, package_id: str) -> list[str]:
 
 def validate_product_contract(text: str) -> None:
     normalized = re.sub(r"\s+", " ", text)
+    if "Production opens a unique directory beneath `AdaptivePlotter/EpisodeRecordings/<recording UUID>` with schema `adaptive-plotter-manual-motion-v1`" in normalized:
+        fail("Product Contract retains the stale manual recording topology")
     for required_phrase in (
         "The sole active-work exception is EA-04 point selection",
         "Learning Off may itself typed-cancel only the exact point-selection/pen-cap continuation owner bound by both its selection ID and exercise-attempt token",
@@ -294,6 +309,63 @@ def validate_product_contract(text: str) -> None:
         "A successor attempt token, another selection, or unrelated Learning, calibration, exploration, motion, or attempt work typed-refuses with the existing Cancel/Stop remedy",
         "This exception does not authorize Learning Off to cancel physical motion or any other owner and does not weaken operator or safety authority",
         "Every other active Learning attempt must finish or use its existing Cancel/Stop contract before Learning can be turned off",
+        "the operation-bound recorder attaches before native launch to one transparent decorator around the sole production BSD `MachineLink`",
+        "remains attached through natural or exact Stop/cancellation settlement",
+        "Unsupported applied configuration, failed open without applied settings, timestamp mismatch, and persistence failure are diagnostic-only",
+        "an applied BSD open receipt whose `localModeEnabled` or `receiverEnabled` value is false is not representable",
+        "returns that native receipt unchanged",
+        "records no successful open invocation or completion",
+        "The ordinary true/true BSD mapping remains unchanged",
+        "SIMULATED receives no controller recorder",
+        "discard failure may report truthful nonnegative discarded-byte progress but no partial read chunks",
+        "The episode runtime owns the exact nominal operation handle retained by `PlotterOperationRegistry`",
+        "it does not replace that owner with an arbitrary effect closure, cancellation task, or unchecked-sendability escape",
+        "`RunInterpreter` returns an async `PenActuationOperation` carrying its owner-minted operation identity and eventual outcome",
+        "manual Pen therefore exposes no Stop capability",
+        "Manual admission fails closed on capability provenance",
+        "Connection, Motion, pose, and manual-controller facts must describe the submitted LIVE or SIMULATED environment",
+        "Production manual motion requires a durable `EpisodeJournalPersistenceAdapter` journal",
+        "runtime snapshot exposes the exact loaded journal, durable file reference and digest, plus typed incident-source references",
+        "Failure to open that recording remains a visible diagnostic",
+        "The production recording topology is exactly `AdaptivePlotter/EpisodeArtifacts/<episode UUID>/controller-recording`",
+        "not the point-selection `EpisodeRecordings/<recording UUID>` topology",
+        "A Motion-disabled refusal derives its remedy from that typed intent",
+        "The workbench's busy state reads the exact active operation projected by `PlotterManualMotionRuntime`",
+        "`PlotterOperationRegistry.beginStop` latches the exact original handle without invoking cancellation",
+        "durably publishes cancellation `requested`",
+        "marks that same transaction `issuingCancellation` atomically before the cancellation suspension",
+        "durably publishes `observed`",
+        "durably publishes `settling` before awaiting the owner-returned result",
+        "shutdown closes admission and atomically takes over that same requested owner and handle",
+        "Journal availability is not a prerequisite for shutdown cancellation",
+        "one identity-bound `cancelledBeforeStart` settlement",
+        "neither LIVE nor SIMULATED invokes its native operation",
+        "the registry marks that same transaction `settledByShutdown`",
+        "the original public Stop cursor remains the sole journal and recovery publisher",
+        "Cancellation and settlement each occur exactly once",
+        "operator-authorized Option A gives the runtime one shutdown latch set synchronously before its sole `registry.shutdown()` suspension",
+        "After accepted `recordProgress` and before installing the runtime-active owner, submission rechecks that latch",
+        "waits for that same shutdown's registry settlement",
+        "publishes it through `publishPrestartTerminalSubmission`",
+        "returns before active installation or native start",
+        "one typed cancelled `effectResult` and leaves no registry or runtime active owner",
+        "Each cancellation journal commit, its pre-state read, and its failure snapshot owns the runtime FIFO mutation/publication boundary",
+        "refused as busy from the current transaction-complete snapshot before gateway evaluation",
+        "commits no successor refusal event, effect, or revision",
+        "reports `publicationPending` with a typed stage and recovery capability",
+        "Explicit recovery resumes only that cursor",
+        "the same publication-recovery capability survives with the exact terminal cursor",
+        "projects only the runtime's typed recovery capability with an intent-specific manual jog, drawing, Pen Up, or Pen Down remedy",
+        "disables every manual effect control, hides the stale Stop action, and rejects a stale recovery capability",
+        "calls only `recoverTerminalPublication`",
+        "Successful recovery clears only the matching publication diagnostic",
+        "Manual availability is derived from the runtime's actual episode phase",
+        "bound to its exact effect ID, environment, and observation ID",
+        "all manual effects are disabled and stale disposition actions are rejected",
+        "Only explicit operator evidence for the matching typed action advances the episode",
+        "It never retries, redraws, reissues, cancels, or settles controller work",
+        "The complete result becomes idempotently cached only after terminal publication",
+        "legacy-compatible diagnostic accepted and terminal workflow-telemetry events keyed by the typed effect ID",
     ):
         if required_phrase not in normalized:
             fail(f"Product Contract is missing the exact Learning-Off exception: {required_phrase}")
@@ -301,6 +373,8 @@ def validate_product_contract(text: str) -> None:
 
 def validate_architecture(text: str) -> None:
     normalized = re.sub(r"\s+", " ", text)
+    if "Production manual motion independently creates one UUID directory under the same root" in normalized:
+        fail("Swift Architecture retains the stale manual recording topology")
     for required_phrase in (
         "PlotterEpisodeRuntime -> EpisodeCore + EpisodeRuntime + PlotterEpisodeModel + PlotterRuntime",
         "The sole `MachineLink` transport contract now returns a `MachineLinkOpenReceipt`, `MachineLinkDiscardReceipt`, `MachineLinkWriteReceipt`, or `MachineLinkReadReceipt`",
@@ -311,7 +385,68 @@ def validate_architecture(text: str) -> None:
         "only snapshot acquisition failure has an unknown total",
         "tests exercise the production termios mapper and discard core directly",
         "no sibling port or default protocol implementation exists",
-        "The target `RecordingMachineLink` remains uninstalled until its named cutover package",
+        "EA-06 now installs one transparent `RecordingMachineLink` around the sole production BSD link at `PersistentMachineSession` composition",
+        "`LiveManualMotionAdapter` attaches it to the single `ManualMotionControllerRecordingRouter` before native launch",
+        "retains the lease through natural or exact Stop/cancellation settlement, and detaches only after terminal settlement",
+        "An unsupported applied configuration or failed open without an applied receipt is diagnostic-only",
+        "`controllerOpenParameters` also requires both applied BSD `localModeEnabled` and `receiverEnabled` to be true",
+        "returns the native receipt unchanged, emits the lossless-mapping diagnostic, and records neither a successful open invocation nor completion",
+        "the true/true mapping remains unchanged",
+        "SIMULATED receives no controller recorder",
+        "Discard failure accepts truthful nonnegative partial byte progress but no read chunks",
+        "`motionRequestStatusPresentation` reads the snapshot's exact active manual operation",
+        "EpisodeJournalPersistenceAdapter<PlotterEpisodeEventPayload>",
+        "Production creates the journal directory as required authority and fails closed before app composition",
+        "one typed `PlotterIncidentSourceArtifactReferences` value carrying recording durability/completeness separately from journal truth",
+        "One FIFO mutation/publication boundary surrounds each admission or cancellation journal commit, its pre-state read and failure snapshot",
+        "not held across controller cancellation or settlement suspension",
+        "`submit` refuses a concurrent manual request as transiently busy from the transaction-complete snapshot before `PlotterIntentGateway` evaluation",
+        "It writes no successor refusal event, effect, or revision",
+        "`PlotterOperationRegistry.beginStop` latches the original nominal `ManualMotionOperationHandle`",
+        "`observeStop` atomically marks the same transaction `issuingCancellation` before invoking cancellation exactly once",
+        "The runtime then commits `observed`, calls `beginStopSettlement`, commits `settling`, and only then calls `finishStop`",
+        "registry shutdown closes admission and atomically takes over that same staged owner and retained handle",
+        "The takeover has no journal prerequisite and creates no second cancellation, settlement, or publication authority",
+        "one identity-bound `cancelledBeforeStart` result",
+        "makes the later `start()` inert",
+        "zero native start or cancellation invocations",
+        "completes the same staged transaction as `settledByShutdown`",
+        "the original public Stop transaction remains the only journal/recovery publisher",
+        "Operator-authorized Option A closes the remaining post-progress/pre-activation race inside `PlotterManualMotionRuntime`",
+        "synchronously sets its runtime-owned `shutdownIsLatched` before the sole `registry.shutdown()` await",
+        "publishes completion to waiters only after retaining every registry terminal",
+        "After `recordProgress` accepts the exact identity and before assigning `active`, `submit` rechecks the latch",
+        "consumes the retained exact terminal disposition",
+        "Its early return precedes both runtime active-owner installation and `ManualMotionOperationHandle.start()`",
+        "one typed cancelled effect publication with no native start/cancel and no residual registry or runtime owner",
+        "only after `publishTerminalIfCurrent` completes",
+        "A failed Stop-stage append returns `publicationPending` without advancing that stage",
+        "`nextObservationIndex`; append failure leaves the exact owner active",
+        "`recoverTerminalPublication` resumes only that retained cursor",
+        "reuses the pending Stop recovery capability for that same owner and terminal publication cursor",
+        "`manualMotionPublicationRecoveryPresentation` projects the issue's exact `PlotterManualMotionPublicationRecoveryCapabilityID`",
+        "every manual effect control receives that remedy, `stopAction` is absent",
+        "`recoverManualMotionPublication` rejects a stale capability",
+        "clears `machineError` only when it still equals the matching publication remedy",
+        "derives availability from the actual runtime phase",
+        "binds the exact effect ID, environment, observation ID, and possible-ink versus other-ambiguity disposition",
+        "Every manual effect stays disabled until the exact current action records explicit operator evidence",
+        "stale or mismatched actions are rejected",
+        "neither retries nor redraws",
+        "transaction-complete result is cached only after terminal publication",
+        "The package-only typed Stop-publication gate can pause deterministically after registry settlement and before episode publication",
+        "It cannot choose an outcome, cancel, publish, or grant authority, and its tests require no sleeps or polling",
+        "The registry retains the nominal `ManualMotionOperationHandle`",
+        "neither the registry nor the episode runtime stores an arbitrary effect closure, replacement cancellation task, or `@unchecked Sendable` escape",
+        "Native direct Pen admission returns an async nominal `PenActuationOperation` from `RunInterpreter` with its owner-minted ID",
+        "its cancellation switch deliberately issues no Stop for Pen",
+        "Connection, Motion, pose, and `PlotterManualControllerFact` values are environment-bound",
+        "missing or cross-environment facts fail closed",
+        "`EpisodeRecordingStore` and `PlotterEpisodeReplayService` deliberately share the same failure validator",
+        "Production manual motion instead opens EA-05A at the exact topology `AdaptivePlotter/EpisodeArtifacts/<episode UUID>/controller-recording`",
+        "The point-selection `EpisodeRecordings/<recording UUID>` path above is a separate topology and is not reused for manual motion",
+        "The evaluator supplies an intent-specific Motion remedy",
+        "legacy-compatible accepted and terminal diagnostic telemetry under the typed `EpisodeEffectID`",
         "`PlotterEpisodeRuntime` depends inward only on `EpisodeCore`, `EpisodeRuntime`, `PlotterEpisodeModel`, and `PlotterRuntime`",
         "`PlotterIntentGateway` evaluates each typed point-selection or Learning-mode intent",
         "`PlotterLearningIntentRules.modeAvailability` is the one pure Learning-mode availability rule",
@@ -438,6 +573,24 @@ def validate_plan(text: str) -> dict[str, dict[str, object]]:
     ):
         if forbidden_phrase in normalized:
             fail(f"FIX-02 plan retains a stale present-tense contradiction: {forbidden_phrase}")
+    for required_phrase in (
+        "project one capability-only intent-specific recovery that disables manual effects, hides stale Stop, rejects stale capabilities, resumes only the exact runtime cursor, clears only its matching diagnostic, and reissues no controller work",
+        "returning unrepresentable applied-open receipts unchanged, recording no fabricated successful pair",
+        "shutdown takeover of the same requested owner/handle without journal dependency or duplicate authority",
+        "FIFO-isolated cancellation publication, and pre-gateway active-owner busy refusal",
+        "keep the exact owner plus typed cursor and recovery capability when a Stop/terminal append is incomplete including after shutdown",
+        "identity-bound `cancelledBeforeStart` retirement with inert later start and zero LIVE/SIMULATED native invocation",
+        "observed/settling `settledByShutdown` handoff that leaves the original public Stop cursor as sole publisher",
+        "EA-05A controller recording authority at `AdaptivePlotter/EpisodeArtifacts/<episode UUID>/controller-recording`",
+        "derive manual availability plus exact effect/environment/observation possible-ink or ambiguity disposition from runtime phase",
+        "a runtime-owned shutdown latch set before the sole registry shutdown suspension and rechecked after accepted progress",
+        "Completed by `TASK-FE9C9CB3`, attempt `TASK-FE9C9CB3-54834fa90e36`",
+        "package EA-06 complete, migration remains incomplete",
+        "`CITED_RACE_CLOSED` closes the same-critic delta and no further critic is required or allowed",
+        "Blackdog landing/cleanup and successor-capsule creation are the only remaining steps",
+    ):
+        if required_phrase not in normalized:
+            fail(f"EA-06 plan outcome is missing accepted RETASK authority: {required_phrase}")
     ledger_rows = markdown_table(
         text,
         ["ID", "Status", "Dependencies", "Class", "Atomic package outcome", "Required gates"],
@@ -821,6 +974,8 @@ def validate_completed_gate_result(package_id: str, gate: str, result: str) -> N
 
 def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
     normalized = re.sub(r"\s+", " ", text)
+    if "Production opens a unique directory beneath `AdaptivePlotter/EpisodeRecordings/<recording UUID>` with schema `adaptive-plotter-manual-motion-v1`" in normalized:
+        fail("Current Evidence retains the stale manual recording topology")
     evidence_rows = markdown_table(
         text,
         ["Package", "Blackdog task", "Gate results", "Evidence section"],
@@ -876,11 +1031,73 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
             fail(f"{package_id} ARCHIVED detail lacks d33d4ff")
         evidence_by_package[package_id] = actual_gates
 
+    candidate_rows = markdown_table(
+        text,
+        [
+            "Candidate package",
+            "Blackdog task",
+            "Current gate state",
+            "Landing boundary",
+        ],
+    )
+    candidates: set[str] = set()
+    for package_id, task, gate_cell, landing_boundary in candidate_rows:
+        if package_id in candidates:
+            fail(f"duplicate unlanded completion candidate: {package_id}")
+        if package_id not in EXPECTED_UNLANDED_COMPLETION_CANDIDATES:
+            fail(f"unexpected unlanded completion candidate: {package_id}")
+        if package_id in evidence_by_package:
+            fail(f"{package_id} cannot have candidate and final gate evidence")
+        if rows[package_id]["status"] != "complete":
+            fail(f"unlanded candidate {package_id} is not staged complete")
+        expected_task, expected_gates = EXPECTED_UNLANDED_COMPLETION_CANDIDATES[package_id]
+        if task != expected_task:
+            fail(f"{package_id} unlanded candidate task drifted: {task}")
+        if not re.fullmatch(
+            r"`[A-Z][A-Z0-9-]*`=(?:passed|rerun-required)(?:, `[A-Z][A-Z0-9-]*`=(?:passed|rerun-required))*",
+            gate_cell,
+        ):
+            fail(f"{package_id} candidate gates are not exact passed/rerun results: {gate_cell}")
+        actual_pairs = re.findall(
+            r"`([A-Z][A-Z0-9-]*)`=(passed|rerun-required)", gate_cell
+        )
+        actual_gates = [gate for gate, _state in actual_pairs]
+        if actual_gates != expected_gates or actual_gates != rows[package_id]["gates"]:
+            fail(
+                f"{package_id} candidate gates must be {rows[package_id]['gates']}; "
+                f"found {actual_gates}"
+            )
+        expected_states = {
+            "DOC": "rerun-required",
+            "DIFF": "rerun-required",
+            "QUICK": "rerun-required",
+            "JOURNEY": "passed",
+            "STRICT": "rerun-required",
+            "MOTION": "passed",
+            "DELETE": "passed",
+        }
+        if dict(actual_pairs) != expected_states:
+            fail(f"{package_id} candidate gate-state drifted: {dict(actual_pairs)}")
+        if "Refresh affected `DOC`, `DIFF`, `QUICK`, and `STRICT`" not in landing_boundary:
+            fail(f"{package_id} candidate lacks the exact affected-gate boundary")
+        if "`CITED_RACE_CLOSED` already closes the critic boundary" not in landing_boundary:
+            fail(f"{package_id} candidate lacks the closed same-critic delta boundary")
+        if "no further critic is required or allowed" not in landing_boundary:
+            fail(f"{package_id} candidate incorrectly leaves critic work open")
+        candidates.add(package_id)
+
+    expected_candidates = set(EXPECTED_UNLANDED_COMPLETION_CANDIDATES)
+    if candidates != expected_candidates:
+        missing = sorted(expected_candidates.difference(candidates))
+        extra = sorted(candidates.difference(expected_candidates))
+        fail(f"unlanded completion candidate mismatch; missing={missing}, extra={extra}")
+
     complete_packages = {package_id for package_id, row in rows.items() if row["status"] == "complete"}
     evidenced_packages = set(evidence_by_package)
-    if complete_packages != evidenced_packages:
-        missing = sorted(complete_packages.difference(evidenced_packages))
-        extra = sorted(evidenced_packages.difference(complete_packages))
+    accounted_packages = evidenced_packages | candidates
+    if complete_packages != accounted_packages:
+        missing = sorted(complete_packages.difference(accounted_packages))
+        extra = sorted(accounted_packages.difference(complete_packages))
         fail(f"complete-package evidence mismatch; missing={missing}, extra={extra}")
 
     for required_phrase in (
@@ -899,7 +1116,7 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
         "including zero or partial discarded counts and the observed total",
         "Only snapshot acquisition failure leaves the total unknown",
         "production termios mapper and discard core are exercised by applied-configuration and discard regression tests",
-        "There is no protocol default implementation, alternate effect path, new semantic ingress, or installed `RecordingMachineLink`",
+        "At the FIX-02 landing, there was no protocol default implementation, alternate effect path, new semantic ingress, or installed `RecordingMachineLink`",
         "10/10 tests passed, 0 failed, with no warnings or errors",
         "`LINK-SAFETY` | passed — `swift test --filter MachineLinkSafetyTests`; 12/12 tests passed, 0 failed, with no warnings or errors",
         "88/88 tests passed across 4 suites, 0 failed, with no warnings or errors",
@@ -943,6 +1160,286 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
     ):
         if required_phrase not in normalized:
             fail(f"FIX-02 completion evidence is missing: {required_phrase}")
+
+    for required_phrase in (
+        "Episode manual-motion cutover candidate",
+        "`TASK-FE9C9CB3`",
+        "Operator-authorized Option A candidate after critic RETASK #6, 2026-08-28",
+        "`c17cddb971f6df9e0ddefb0fd98991f94fad1deec2cf72a9f02992182211fd7b`",
+        "`5dbe44431fe5f955ec336b5f769281635ca638e8add5564e6ed78b6d5cbf1310`",
+        "`707a30cdb8a540e28a5a02176c77bb751503a8845218947b6527fbe697806ff6`",
+        "`7c78ec2edd4f4beb9e8e2098570127bd127eac9e91e744780b290514de7028ab`",
+        "`975d1dc9feb49e4488634824a12315c3da063dd825eed61f82b959ffc58c66e2`",
+        "Every previously recorded package-wide green sequence remains historical evidence for its exact earlier tree only",
+        "Critic RETASK #6 was material, not acceptance",
+        "The accepted source correction and same-critic delta closure are recorded below",
+        "This exact five-bound tree passed all seven package gates serially",
+        "no new or full critic was commissioned and no further critic is required or allowed",
+        "`TASK-FE9C9CB3-54834fa90e36`",
+        "EA-06 is complete in the task-local candidate",
+        "migration remains incomplete",
+        "Blackdog landing/cleanup and successor-capsule creation are the only remaining steps",
+        "`7f2823a78b8a1c7be75f9b7e4caadc1deca70949166bd23226c4712a9fa30181`",
+        "`d21660321c1aa15594bea246a7e4a1b140020eeeab6c501d534ba9347f66d393`",
+        "`e0edfb9145bc52396fdc754aed7f492ddc14aa7050f489ca7f6e1ad3cbe78e74`",
+        "one `ManualMotionControllerRecordingRouter` before native launch",
+        "retains the lease through natural or exact Stop/cancellation settlement",
+        "wraps it once in a transparent `RecordingMachineLink`",
+        "applied BSD open configuration",
+        "A configuration that cannot be represented losslessly and a failed open without an applied configuration produce diagnostics only",
+        "truthful nonnegative partial discard progress with no partial read chunks",
+        "SIMULATED receives no controller recorder and proves no physical behavior",
+        "Fresh critic RETASK #4 found that applied BSD `localModeEnabled=false` or `receiverEnabled=false` could not be represented",
+        "returns the native receipt unchanged, records no successful open invocation or completion",
+        "The true/true mapping is unchanged",
+        "projects only the exact `PlotterManualMotionPublicationRecoveryCapabilityID` with an intent-specific manual jog, drawing, Pen Up, or Pen Down remedy",
+        "disables every manual effect, hides stale Stop, and refuses stale recovery capabilities",
+        "calls only `recoverTerminalPublication`, clears only its matching publication diagnostic",
+        "It cannot re-admit the intent or reissue, cancel, or settle controller work",
+        "applies that partial-discard rule identically in `EpisodeRecordingStore` and deterministic replay",
+        "The registry retains `ManualMotionOperationHandle`, not an erased closure or replacement cancellation task",
+        "the episode model/runtime add no `@unchecked Sendable` authority escape",
+        "Direct LIVE Pen now admits through the nominal async `PenActuationOperation` returned by `RunInterpreter`",
+        "neither the registry nor the public manual projection creates a Pen Stop token",
+        "Capability provenance now fails closed",
+        "connection, Motion, pose, and `PlotterManualControllerFact` values are bound to the submitted LIVE or SIMULATED environment",
+        "Production requires its UUID-scoped `EpisodeJournalPersistenceAdapter` journal",
+        "Controller-recording open failure remains diagnostic-only",
+        "Every runtime snapshot exposes the exact loaded `EpisodeJournal`",
+        "typed `PlotterIncidentSourceArtifactReferences`",
+        "Append failure retains the exact owner, stage/result cursor, and typed recovery capability",
+        "durably publishes `requested`; the registry atomically marks the same transaction `issuingCancellation` before suspension and invokes cancellation once",
+        "Fresh critic RETASK #5 found two material authority defects",
+        "leave shutdown waiting forever on an attempt that nobody owned to advance",
+        "a concurrent gateway refusal could terminalize the model request and clear the still-active owner",
+        "shutdown sees the same transaction still at requested, it closes admission and takes over that exact owner and handle",
+        "there is no journal dependency, duplicate cancel, settlement, or publication authority",
+        "pending Stop recovery capability survives with the exact terminal-publication cursor",
+        "Each cancellation journal commit, its pre-state read, and its failure snapshot now owns the FIFO mutation/publication boundary",
+        "a concurrent submission is refused transiently as busy from the transaction-complete snapshot before gateway evaluation",
+        "records no successor refusal event, effect, or revision collision",
+        "Critic RETASK #6 found four material gaps",
+        "shutdown could race a registered operation before native start without one terminal owner-retirement path",
+        "shutdown joining a Stop already at observed or settling needed an explicit ownership handoff",
+        "derive manual availability and possible-ink/ambiguity disposition from the actual runtime phase",
+        "canonical documents named the point-selection recording root instead of the production manual recording topology",
+        "identity-bound `cancelledBeforeStart` result",
+        "makes any later start inert",
+        "LIVE and SIMULATED therefore perform zero native start or cancellation invocation",
+        "registry shutdown hands the same transaction to `settledByShutdown`",
+        "the original public Stop cursor remains the sole journal and recovery publisher",
+        "cancellation and settlement occur exactly once",
+        "typed disposition bound to the exact effect ID, environment, and observation ID",
+        "All manual effects stay disabled while it is unresolved",
+        "stale or mismatched actions are rejected",
+        "only explicit operator evidence for that matching action advances the episode",
+        "never retries, redraws, reissues, cancels, or settles controller work",
+        "`AdaptivePlotter/EpisodeArtifacts/<episode UUID>/controller-recording`",
+        "This is distinct from the retained point-selection `EpisodeRecordings/<recording UUID>` topology",
+        "no successor can be admitted until publication completes",
+        "Accepted-slice history now records six coordinator `RETASK` decisions",
+        "None was an acceptance verdict",
+        "Store/Replay partial-discard consistency",
+        "nominal typed handle ownership without closure or unchecked-sendability escape",
+        "durably staged Stop progress and retained-owner cursor recovery after append failure",
+        "async owner-identified direct Pen without Stop",
+        "fail-closed LIVE/SIMULATED capability provenance",
+        "required journal plus typed recording/incident-source truth",
+        "Its focused development evidence was 4/4 new tests plus 3/3 retained tests",
+        "two intermediate compile/test nonpasses were corrected before those accepted focused results",
+        "requested-owner shutdown takeover test passed 1/1",
+        "FIFO publication test passed 1/1 after two truthful development nonpasses",
+        "related regression groups passed 6/6 and 4/4",
+        "deterministic repeats passed 50/50",
+        "the owned suites passed 29/29",
+        "the focused source diff check was clean",
+        "the runtime group passed 14/14",
+        "ambiguity UI passed 3/3",
+        "retained recovery passed 3/3",
+        "deterministic race repeats passed 60/60",
+        "Development nonpasses encountered while compiling/testing the correction were corrected before those accepted focused results",
+        "Operator-authorized Option A closes the remaining accepted-progress/pre-activation race with one runtime-owned shutdown latch",
+        "`PlotterManualMotionRuntime.swift:1329-1356`",
+        "sets `shutdownIsLatched` synchronously before the sole `registry.shutdown()` suspension",
+        "retains every exact registry terminal, and only then releases the same-shutdown completion waiters",
+        "`PlotterManualMotionRuntime.swift:1101-1123`",
+        "rechecks that latch after accepted `recordProgress` and before `active` installation",
+        "returns through `publishPrestartTerminalSubmission`",
+        "The active-install and native-start lines are below that return and are not reached",
+        "the new deterministic filter passed 1/1",
+        "the complete manual suite passed 15/15",
+        "shutdown remained bounded for both LIVE and SIMULATED",
+        "neither registry nor runtime retained an active owner",
+        "one typed cancelled `effectResult`",
+        "native start and cancellation counts were both zero",
+        "`PlotterManualMotionEpisodeTests.swift:74-136`",
+        "The same critic returned the exact delta verdict `CITED_RACE_CLOSED`",
+        "All earlier passed critic dimensions remained closed",
+        "no new or full critic was commissioned; no further critic is required or allowed",
+        "These focused results and the delta verdict accept the Option A source correction but do not by themselves satisfy any package gate",
+        "Current serial validation on the exact Option A tree",
+        "`swift test --filter PlotterManualMotionEpisodeTests`; 15/15 tests passed",
+        "`9aaa0b87c20d05ae3d98d3c5c9c50a79d00942547e3fafd2e7f93f637fdc873f`",
+        "`sh Scripts/check_episode_cutover.sh EA-06`; all 26 exact scans had zero matches",
+        "`b841daa4968ac8fa3bb03058663abc9e8fbcab9fd5d65487b6fb2aa786afb04e`",
+        "`make docs-check`; both documentation contracts plus 29/29 documentation/checker tests passed",
+        "`8986b9a8dc4091c34c32da507c6a29c0ebb54685067335f5641007868c26ce8d`",
+        "`git diff --check`; clean with no output",
+        "`e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`",
+        "`make quick-test`; 699/699 tests passed with exactly 10 configured exclusions",
+        "`6d9cc817581951b1ec9e024f9522e43337f81a6ff06bc4a90973efd7998c1794`",
+        "`make journey-test`; 10/10 filter-selected tests passed",
+        "`a4370968c633e28fbdb6685017c4c200f68eb5dd66be1efa876b378ad9fcc27c`",
+        "`make strict-check`; strict-concurrency/warnings-as-errors, 709/709 tests with no exclusions",
+        "`06c6f7c1a5aef895850bedc4c502c8a0acf60aa7836d754e69225dd7c564f06a`",
+        "This final evidence/checker delta affects `DOC`, `DIFF`, `QUICK`, and `STRICT`",
+        "refresh those four gates on the final candidate before recording landed evidence",
+        "`MOTION`, `DELETE`, and `JOURNEY` are source-sensitive and remain bound to the unchanged frozen tree",
+        "No Blackdog landing or canonical-main result is claimed",
+        "Two compile-only development failures were corrected before the accepted focused checks",
+        "`ef61b0f24251708c24d8fcf00a155377c5869eae92c3dbcc146dc87f66893c16`",
+        "`a1aa2e57d97b9e0cba44030fdb1bff0c27157a7887a53a66d2f70c0b58e0ceec`",
+        "`MOTION` 5/5 passed, `DELETE` 26/26 exact zero-match scans passed, `DOC` 29/29 passed, and `DIFF` clean",
+        "`QUICK` then failed with exit 2 after 676 tests and reported 7 issues across four named failures",
+        "Its output was truncated, so exhaustive warning status is unevidenced",
+        "`JOURNEY` and `STRICT` were not started",
+        "superseded `RETASK`/nonpass history, never current passed gate evidence",
+        "direct Pen refusal reused the jog-specific Motion remedy",
+        "workbench busy projection omitted the episode-owned active manual operation",
+        "retired manual diagnostic telemetry had no episode-terminal replacement",
+        "a duplicate exact Stop arriving during or after terminal publication could be misclassified stale under load",
+        "`6183d29c055e1d686fb15267b172d4b2c6f6857fd009a7e78d794b97936738a9`",
+        "`5ca6ec7ea37299cc76757db7c1ce6f09a2988e05f2ef467520c1cf0e56cdeee3`",
+        "`3ec2ac439e1d5a43049f8bbd8e0c4a7f3a1f725e751e18674d73300cfc584e34`",
+        "`13dd31759fef587206aaf37116925f4cee54ab10e9d578791d2420e68a4cd2d2`",
+        "`8289be44304ec49c41970456f73ccbe649bf5a044a7d4a1d10eb63b154f149c5`",
+        "development-only `PlotterRecordingStoreTests`: 37/37 passed",
+        "development-only `PlotterManualMotionEpisodeTests`: 5/5 passed",
+        "the three parallel `liveManualMotion` focused tests: 3/3 passed",
+        "the original four failures reproduced independently",
+        "the corrected workspace trio passed 3/3 in parallel",
+        "the corrected `PlotterManualMotionEpisodeTests` suite passed 5/5",
+        "`exactStop` passed 20/20 across ten repeated parallel runs",
+        "the final combined parallel filters passed 6/6",
+        "new `directPenMotionRemedy` passed 1/1",
+        "One attempted `--num-workers` invocation was rejected before any test ran because that option is XCTest-only",
+        "`make docs-check`; exit 0; both documentation contracts and 29/29 documentation/checker tests passed with no exclusions, warnings, or errors; real 9.65, user 6.42, sys 3.11 seconds",
+        "`git diff --check`; exit 0 with no output or errors; real 0.03, user 0.02, sys 0.01 seconds",
+        "`make quick-test`; exit 0; 677/677 tests passed with exactly 10 configured exclusions",
+        "`f83bedda24f7252f55fbf2ebdc26d4a3f21fd308484926c203922f28584ec59a`",
+        "`make journey-test`; exit 0; 10/10 filter-selected tests passed with no explicit exclusions, warnings, or errors; real 6.16, user 5.92, sys 0.24 seconds",
+        "`701035fde2219b4c8c508b3130d87493434a025eacd1e5ee6527f13adcb2149e`",
+        "`make strict-check`; exit 0; strict-concurrency and warnings-as-errors build, 687/687 tests with no exclusions",
+        "`4234b7805fb5bd382d6d24c64454952c783777e1ebba033d9df2dfa3a71b32ab`",
+        "read-only progress inspection at about 74 seconds showed active compiler workers and advancing build step 48/77",
+        "`swift test --filter PlotterManualMotionEpisodeTests`; exit 0; 5/5 tests passed with no exclusions, warnings, or errors; real 1.42, user 1.12, sys 0.23 seconds",
+        "`sh Scripts/check_episode_cutover.sh EA-06`; exit 0; all 26 exact scans had zero matches with no warnings or errors; real 0.34, user 0.30, sys 0.03 seconds",
+        "That table remains exact historical evidence for frozen diff",
+        "its current-pass claim was superseded by the second affected-gate tree",
+        "`DOC` passed 29/29, `DIFF` was clean, and `QUICK` failed with exit 2 after 677 executed, 676 passed, 1 failed, and 2 issues",
+        "with 10 configured exclusions and no warning or compiler-error lines",
+        "real 79.91, user 578.63, sys 61.29 seconds",
+        "`STRICT` was not started",
+        "This is second-`RETASK` nonpass evidence, not a passed gate sequence",
+        "one caller received `.settled` with a pre-terminal snapshot whose `lastTerminalEffect` was nil",
+        "typed cancellation settlement was missing at test lines 66 and 70",
+        "`/tmp/adaptiveplotter-ea06-final-quick.jrV95l`",
+        "154880 bytes with SHA-256 `5924c5e19282dfff13d56aeeaaedfc7172cbe1780d82f287d70fd36d426cb21b`",
+        "That retained artifact is failed evidence, not a pass",
+        "prior settled-capability cache became visible before `publishTerminalIfCurrent` completed",
+        "one exact public Stop transaction installed before the first registry await",
+        "duplicates join continuations; every joined caller receives the identical result and snapshot only after terminal publication",
+        "transaction-complete result remains cached only until successor admission clears it",
+        "It introduces no second cancel, settlement, or publication authority",
+        "package-only typed Stop-publication gate deterministically pauses after registry settlement and before episode publication",
+        "It cannot choose an outcome, cancel, publish, or grant authority, and uses no sleeps or polling",
+        "`daaa90de14158ef42bf928fc1e781275461111c731fddf5a437ac158e70f86d0`",
+        "`8641f3228e3cdf87b9af94d07ee22e1800669dab2482305d30be9df7c1066858`",
+        "`998c6acb5d30c7302e1c829cf9b29134f3e5c41dde2b5f8fc1ce1b1c5233930d`",
+        "the publication test passed 1/1",
+        "the manual suite passed 6/6 in parallel",
+        "50 repeated paired `exactStop`/publication runs passed 150/150",
+        "the final visible filters passed 3/3",
+        "complete sequence supplied the package-gate evidence for the exact five-bound historical identity set",
+        "`make docs-check`; exit 0; both documentation contracts plus 29/29 documentation/checker tests passed with no exclusions, warnings, or errors; real 9.80, user 6.55, sys 3.11 seconds",
+        "`git diff --check`; exit 0 with no output or errors; real 0.03, user 0.02, sys 0.01 seconds",
+        "`make quick-test`; exit 0; 678/678 tests passed with exactly 10 configured exclusions",
+        "`4b3097d66504b648d8ac4ae4d449b06265086dd9895f90268ff42fd363cc3519`",
+        "`make journey-test`; exit 0; 10/10 filter-selected tests passed with no explicit exclusions, warnings, or errors; real 6.15, user 5.90, sys 0.24 seconds",
+        "`58e8f8552b3454097039227e02c99b39c2dcecd12cfabc6981dd66b714ce5a8c`",
+        "`make strict-check`; exit 0; strict-concurrency and warnings-as-errors build, 688/688 tests with no exclusions",
+        "`4693c18feeacfc7b70288253f4be3225bdcdd03daba7c2067d997a890b914bf6`",
+        "a read-only progress inspection showed active compilation and did not interrupt the command",
+        "`swift test --filter PlotterManualMotionEpisodeTests`; exit 0; 6/6 tests passed with no exclusions, warnings, or errors; real 1.43, user 1.15, sys 0.24 seconds",
+        "`sh Scripts/check_episode_cutover.sh EA-06`; exit 0; all 26 exact scans had zero matches with no warnings or errors; real 0.35, user 0.30, sys 0.03 seconds",
+        "The complete QUICK, JOURNEY, and STRICT success logs had the recorded hashes and were then removed",
+        "the retained failed QUICK log above remains distinct nonpass history",
+        "The next fresh critic RETASK and completed source correction superseded it at that time",
+        "Before RETASK #4, the corrected frozen five-bound candidate bound tracked diff",
+        "`3e9dad0f8957f913d7a3c3077f47bb6033b3cbc7bdb1f0c515cd5f665c23a68a`",
+        "`66250a0edb70827b2afcc450c02ed47278f755faacc00d6d5129440bfbdc7b69`",
+        "That exact earlier tree completed this serial package-gate sequence",
+        "`swift test --filter PlotterManualMotionEpisodeTests`; 9/9 tests passed",
+        "`79c1a3cb24ffe3b1b68cb44dcf733029cabde976f0be8f88899f369e9cccfa60`",
+        "`sh Scripts/check_episode_cutover.sh EA-06`; all 26 exact scans had zero matches",
+        "`b841daa4968ac8fa3bb03058663abc9e8fbcab9fd5d65487b6fb2aa786afb04e`",
+        "`make docs-check`; both documentation contracts plus 29/29 documentation/checker tests passed",
+        "`e9c69abd7637c66d18f6569db229df29c58d4fd1b67d981ab888164b1abc5e2e`",
+        "`git diff --check`; clean with no output",
+        "`e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`",
+        "`make quick-test`; 685/685 tests passed with exactly 10 configured exclusions",
+        "`fcd13343eb389a6f4aafc79bf2dbd04c377285d8deb8980916d3791f078e43fe`",
+        "`make journey-test`; 10/10 filter-selected tests passed",
+        "`900a61fc976464b2c3566e63655357dbb04b2aab130c372e1dc21bb9b9dc8981`",
+        "`make strict-check`; strict-concurrency/warnings-as-errors, 695/695 tests with no exclusions",
+        "`05b8de2e979b9fb2993e3c181997e939ea475f83feb1acbeee28682960b0e6a1`",
+        "That full pass is historical evidence only for its exact earlier identity set",
+        "RETask #4 and its accepted source correction superseded it at that time",
+        "The retained failed QUICK log remains explicit second-RETASK nonpass history",
+        "The RETASK #4 five-bound candidate bound tracked diff",
+        "`3c18f0cdd7cee68d20ba567e0a14485a939110eec99c634e06c51fe6c889bd08`",
+        "`11b4277578448a692e7c969eacdb42f63146716ab59a13cb13f409182866b5bd`",
+        "`0b31a505069c5b89fbe4b92e21195e0904a4deb31801ada72d4ab720456da7df`",
+        "Historical validation after RETASK #4",
+        "`46e903c4887afccb8a923bc24c1d15a25580f4d49e092af9cb833970bc2d2668`",
+        "`165e67df305197f32573dda575d5a962b652e2994000adde1435ae64db1f2f4a`",
+        "`make quick-test`; 689/689 tests passed with exactly 10 configured exclusions",
+        "`b76e6eb98482633fce2b8e5fa7e77ccb0ca0f8377e9a3937c7cdf4caf5a760c7`",
+        "`a67d2ebf0cc79d60b0ab7a04fa36514154f0eb8e0488ab76b3db664b2843fb46`",
+        "`make strict-check`; strict-concurrency/warnings-as-errors, 699/699 tests with no exclusions",
+        "`91fbd693409017c51d64e347766297b9a19fd6f5bab08a88b54b5d53db7172c0`",
+        "This full pass is historical evidence only for the exact RETASK #4 identity set above",
+        "RETASK #5 and its accepted source correction superseded it at that time",
+        "The exact RETASK #5 five-bound candidate identified by tracked diff",
+        "`0b2b2c477f8a9e0d66a25fcdd9472cfb56a71d69da21eef33a93c14131d4eda4`",
+        "Historical validation after RETASK #5",
+        "`swift test --filter PlotterManualMotionEpisodeTests`; 11/11 tests passed",
+        "`67616011ecfe0439498f8249acc831768036ecc9c9181c2f4e9d8ae8a8e8ff9b`",
+        "`sh Scripts/check_episode_cutover.sh EA-06`; all 26 exact scans had zero matches",
+        "`75442517166490b5410f0bafa1cf6f532341a2e85915c46b87ba0b3f2da776d5`",
+        "`make quick-test`; 692/692 tests passed with exactly 10 configured exclusions",
+        "`61334548a852aedd1250a2f408d9453eff0720f3192ee506d748e5da29e28163`",
+        "`ea66db8f0d68d7dff76df5e99c98733bcc3a2aed541ed8e9fd6fb88e8a6cc7da`",
+        "`make strict-check`; strict-concurrency/warnings-as-errors, 702/702 tests with no exclusions",
+        "`7a5b7dddad8258595c4783328cd5badcb9715bb7b065588d791ea5785af5bd0d`",
+        "This full pass is historical evidence only for that exact RETASK #5 identity set",
+        "RETASK #6, Option A, and the current seven-gate sequence above supersede it",
+        "same critic's delta-only cited-findings recheck is closed with `CITED_RACE_CLOSED`",
+        "no new or full critic was commissioned and no further critic is required or allowed",
+        "Blackdog landing, canonical-`main` cleanup verification, and successor-capsule creation remain pending",
+        "No attended controller, camera, motion, Pen, paper, operator-click, or observed-ink validation occurred",
+        "EA-07 becomes eligible only after all seven gates pass on the exact Option A candidate",
+        "the final evidence delta's affected gates are refreshed",
+        "This task does not select or dispatch EA-07",
+        "Affected executable contract surface: `Scripts/check_episode_contract.py`",
+        "the exact current seven-gate pass, the four affected reruns",
+        "Reviewed no change — `Scripts/test_episode_wave_capsule.py`",
+        "Reviewed no change — `Scripts/check_episode_inventory.py`",
+        "Reviewed no change — `Scripts/check_episode_cutover.sh`",
+        "Reviewed no change — `Scripts/episode_wave_capsule.py`",
+    ):
+        if required_phrase not in normalized:
+            fail(f"EA-06 completion evidence is missing: {required_phrase}")
 
     for required_phrase in (
         "Episode deterministic replay foundation",
@@ -1244,18 +1741,21 @@ def ordinary_wave_frontier(
 def validate_wave_frontier(
     rows: dict[str, dict[str, object]], evidence: str
 ) -> None:
+    normalized = re.sub(r"\s+", " ", evidence)
     blockers = parse_wave_admission_blockers(evidence, rows)
     selected = ordinary_wave_frontier(rows, set(blockers))
     if selected is not None:
-        if selected != "EA-06":
+        if selected != "EA-07":
             fail(f"unexpected current ordinary wave frontier: {selected}")
         for phrase in (
-            "Machine-link transcript observability correction",
-            "After this landing, `EA-06` is the first eligible ordinary WorkPackage.",
-            "dependencies `EA-04`, `EA-05C`, and `FIX-02` are complete",
+            "Episode manual-motion cutover candidate",
+            "EA-07 becomes eligible only after all seven gates pass on the exact Option A candidate",
+            "same-critic delta closure is already recorded",
+            "no further critic is required or allowed",
+            "This task does not select or dispatch EA-07",
             "The retired `PHYSICAL-BASE` result is `failed`",
         ):
-            if phrase not in evidence:
+            if phrase not in normalized:
                 fail(f"current ordinary wave frontier lacks evidence: {phrase}")
         return
 

@@ -532,7 +532,7 @@ struct RunInterpreterTests {
     #expect(snapshot.machine.penState == .up)
   }
 
-  @Test("pen operation serializes against jog")
+  @Test("Pen begin returns its exact handle before settlement and serializes against jog")
   func penSerializesAgainstJog() async throws {
     let clock = DeterministicRuntimeClock()
     var exchanges = ControllerTranscriptFixtures.successfulPassiveProbe(
@@ -573,22 +573,19 @@ struct RunInterpreterTests {
       feedMMPerMinute: 60
     )
 
-    let penStarted = TaskStartHandshake()
-    let penTask = Task {
-      await penStarted.markStarted()
-      return await interpreter.requestPenActuation(.raise, profile: .initialDefaults)
+    let penOperation: PenActuationOperation
+    switch await interpreter.beginPenActuation(.raise, profile: .initialDefaults) {
+    case let .admitted(operation): penOperation = operation
+    case let .rejected(outcome):
+      Issue.record("Expected admitted Pen operation, got \(outcome)")
+      return
     }
-    defer { penTask.cancel() }
-
-    await penStarted.waitUntilStarted()
-    await Task.yield()
     let (jogOutcome, penOutcome) = await withTaskCancellationHandler {
       await gate.waitUntilBlockedWrite()
       let jogOutcome = await interpreter.requestRelativeJog(jog)
       await gate.release()
-      return (jogOutcome, await penTask.value)
+      return (jogOutcome, await penOperation.outcome())
     } onCancel: {
-      penTask.cancel()
       Task { await gate.release() }
     }
 

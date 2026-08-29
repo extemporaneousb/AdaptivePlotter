@@ -135,6 +135,30 @@ struct PlotterRecordingStoreTests {
     #expect(snapshot.completenessIssues == [.controllerCompletionMissing(write.id)])
   }
 
+  @Test("discard failure retains truthful partial progress without read chunks")
+  func discardFailurePartialProgress() async throws {
+    let fixture = try RecordingFixture()
+    defer { fixture.remove() }
+    let store = try fixture.open()
+    let discard = invocation(12, .discardInput(ControllerDiscardParameters()))
+    _ = try await store.recordControllerInvocation(discard, at: 30)
+    _ = try await store.recordControllerCompletion(
+      ControllerCompletion(
+        invocationID: discard.id,
+        outcome: .failed(ControllerOperationFailure(
+          kind: .inputOutput,
+          diagnostic: "discard input read failed",
+          partialByteCount: 3
+        ))
+      ),
+      at: 31
+    )
+
+    let snapshot = await store.snapshot()
+    #expect(snapshot.entries.count == 2)
+    #expect(snapshot.isComplete)
+  }
+
   @Test("duplicate and unmatched controller records are refused without commit")
   func duplicateAndUnmatchedControllerRecords() async throws {
     let fixture = try RecordingFixture()

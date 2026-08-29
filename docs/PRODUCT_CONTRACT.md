@@ -94,8 +94,12 @@ persisted operator selections or rendering LIVE geometry.
 They do not decide controller eligibility, machine direction, operator click,
 or artifact acceptance.
 
-`OperatorWorkspace` is the single observable app owner and typed-intent router.
-It copies current facts into an immutable values-only snapshot;
+`OperatorWorkspace` is the single observable app composition and projection
+owner. EA-04 point selection and EA-06 manual motion route through their one
+typed episode runtime instead of workspace-owned semantic admission; retained
+Learning, Drawing, controller-session, and observation workflows remain
+workspace-owned until their ledger cutovers. The workspace copies current facts
+into immutable values-only snapshots;
 `LearningPathProjector` purely derives Learning Path rows, review detail,
 actions, activity, subsystem status, and reset presentation. Neither projection
 nor navigator selection can replace controller, camera, persistence, or
@@ -259,10 +263,15 @@ never restored from disk.
 
 A restored Learning pose that still requires visual revalidation gates only
 coordinate-dependent Learning and Drawing actions. It never gates the
-operator-authored manual jog or manual Pen controls. Those direct controls are
-admitted by the Motion toggle plus controller-native connection, alarm,
-readiness, safety, and command-serialization requirements; Learning progression
-is not an additional manual-motion authorization layer.
+operator-authored manual jog or manual Pen controls. Those controls submit one
+typed manual intent to `PlotterManualMotionRuntime`; the runtime evaluates fresh
+Motion/controller capability facts and its LIVE adapter still delegates
+connection, alarm, readiness, safety, command serialization, and settlement to
+the native controller owners. Learning progression is not an additional
+manual-motion authorization layer. A Motion-disabled refusal derives its remedy
+from that typed intent: jog directs the operator to enable Motion before
+requesting movement, while direct Pen directs the operator to enable Motion
+before actuating the pen.
 
 The operator may turn Learning off when no Learning attempt owns work. This
 hides Learning navigation and prevents new Learning actions without clearing
@@ -371,29 +380,174 @@ Failure kind, attempt disposition, recovery, and possible-ink meaning are typed
 facts. Human-readable descriptions are projections only; wording changes cannot
 alter blacklist, no-redraw, Stop, or accepted-fallback behavior.
 
-The manual direction controls select their typed intent from the current
-controller-commanded pen state. Pen Down uses a bounded `DrawingStrokeRequest`
-and remains Pen Down after clean completion so consecutive sides can form one
-manual shape. Otherwise, including when commanded pen state is unknown, the
-operator's bounded request uses an ordinary `RelativeJogRequest`; its evidence
-retains that the pen pose was unknown and ink may have been produced. A stopped
-manual drawing stroke retains the drawing owner's single typed Pen Up
+The manual direction controls submit one `PlotterManualMotionIntent.jog` whose
+`PlotterJogRequest.routing` is derived from the current controller-commanded Pen
+state. Pen Down uses `.drawingStroke` and the LIVE adapter maps it to a bounded
+`DrawingStrokeRequest`; clean completion leaves Pen Down so consecutive sides
+can form one manual shape. Pen Up uses `.relativeTravel`. Unknown uses
+`.possibleInk` and the LIVE adapter maps it to a bounded `RelativeJogRequest`
+that permits unknown Pen state only as explicit possible-ink truth. A stopped
+manual drawing stroke settles only through the native drawing owner's Pen Up
 cancellation result.
 
 After Motion is enabled, manual direction controls do not depend on camera,
 Vision, Learning state, Learning Path position, current-camera calibration, or
-a visually confirmed pen pose. Their X distance, Y distance, and feed inputs
-remain editable and initialize to 50 mm, 50 mm, and 500 mm/min. Existing direct
+a visually confirmed Pen pose. Their X distance, Y distance, and feed inputs
+remain editable and initialize to 50 mm, 50 mm, and 500 mm/min; numeric draft
+validation is UI-local and cannot accept controller work. Existing native
 controller ownership facts still apply; this paragraph adds no optical or
 workflow admission condition.
+
+The workbench's busy state reads the exact active operation projected by
+`PlotterManualMotionRuntime`; retired workspace request booleans cannot hide an
+episode-owned manual effect. For an accepted LIVE manual jog or drawing effect,
+the workspace may emit legacy-compatible diagnostic accepted and terminal
+workflow-telemetry events keyed by the typed effect ID. Those events own no
+admission, cancellation, settlement, authorization, result, or evidence
+authority.
+
+Manual episode recording is diagnostic and lossless only for entries the exact
+effect boundary supplies. For LIVE work, the operation-bound recorder attaches
+before native launch to one transparent decorator around the sole production
+BSD `MachineLink`, remains attached through natural or exact Stop/cancellation
+settlement, and detaches only at terminal settlement. The decorator forwards
+the native result unchanged while recording only FIX-02 applied configuration,
+exact discard/write/read receipts, receive-boundary timestamps, close failure,
+and operation-specific partial progress. Unsupported applied configuration,
+failed open without applied settings, timestamp mismatch, and persistence
+failure are diagnostic-only; they never fabricate settings, counts, timestamps,
+or a successful transcript pair. SIMULATED receives no controller recorder.
+In particular, an applied BSD open receipt whose `localModeEnabled` or
+`receiverEnabled` value is false is not representable by the EA-05A open
+parameters. The decorator returns that native receipt unchanged, exposes the
+lossless-mapping diagnostic, and records no successful open invocation or
+completion. The ordinary true/true BSD mapping remains unchanged.
+
+`EpisodeRecordingStore` and deterministic replay apply the same partial-result
+contract: discard failure may report truthful nonnegative discarded-byte
+progress but no partial read chunks; open/close retain zero progress, writes
+remain bounded by submitted bytes, and reads retain their chunk/count rules.
+
+The episode runtime owns the exact nominal operation handle retained by
+`PlotterOperationRegistry`; it does not replace that owner with an arbitrary
+effect closure, cancellation task, or unchecked-sendability escape. For direct
+Pen, `RunInterpreter` returns an async `PenActuationOperation` carrying its
+owner-minted operation identity and eventual outcome. The episode adapter
+awaits that handle without creating a Stop token or cancellation authority;
+manual Pen therefore exposes no Stop capability.
+
+Manual admission fails closed on capability provenance. Connection, Motion,
+pose, and manual-controller facts must describe the submitted LIVE or SIMULATED
+environment, and the manual-controller fact must carry current operation, Pen
+state/routing, and Pen-profile revision truth. Missing or environment-mismatched
+facts refuse the typed intent; UI projection cannot convert facts from the
+other environment into authority.
+
+Production manual motion requires a durable `EpisodeJournalPersistenceAdapter`
+journal and does not launch with an unavailable journal directory or store. Its
+runtime snapshot exposes the exact loaded journal, durable file reference and
+digest, plus typed incident-source references. The optional EA-05A recording
+snapshot contributes its own durability and completeness issues to those
+references. Failure to open that recording remains a visible diagnostic and
+does not weaken the required journal, block otherwise-safe admission, or create
+recording completeness. The production recording topology is exactly
+`AdaptivePlotter/EpisodeArtifacts/<episode UUID>/controller-recording`; it is
+not the point-selection `EpisodeRecordings/<recording UUID>` topology.
+
+Recording unavailable or incomplete never changes admission, controller
+settlement, possible-ink classification, operator remedies, or no-redraw
+disposition. A missing transcript cannot be inferred from terminal observations.
+A LIVE adapter result must carry LIVE controller observation context; a
+SIMULATED adapter result must carry SIMULATED causal-simulator context. Neither
+recording nor simulation is attended controller, camera, Pen, paper, click, or
+observed-ink evidence.
 
 All production requested-pose comparisons use fresh attributable controller
 evidence, compatible context, and at most 0.5 mm Euclidean residual. “Exact
 pose” names that quantization-aware policy; it does not mean zero mathematical
 residual at an unrepresentable stepper position.
 
-The contextual Stop capability names one exact active owner. Repeated or stale
-capabilities are inert. While physical movement owns an exercise, its Stop is
+Each Stop capability names one exact active owner. The manual runtime issues a
+`PlotterManualMotionStopCapabilityID` only for its active jog. The first matching
+caller creates one public Stop transaction; before the first journal await,
+`PlotterOperationRegistry.beginStop` latches the exact original handle without
+invoking cancellation. On the ordinary Stop path, the runtime durably publishes
+cancellation `requested`; the registry then marks that same transaction
+`issuingCancellation` atomically before the cancellation suspension, invokes
+the handle once, and the runtime durably publishes `observed`, enters
+settlement, and durably publishes `settling` before awaiting the owner-returned
+result. Concurrent duplicates join the same transaction and receive its
+identical result and snapshot only after typed terminal publication completes.
+
+If the requested-stage journal append fails before Stop issues cancellation,
+shutdown closes admission and atomically takes over that same requested owner
+and handle. It marks the transaction `issuingCancellation`, invokes
+cancellation exactly once, advances the same registry owner through observed
+and settling, and settles the original handle. An already issuing, observed,
+settling, or awaiting transaction is joined rather than reissued. Journal
+availability is not a prerequisite for shutdown cancellation, and this takeover
+creates no second cancellation, settlement, or publication authority.
+
+Shutdown before native start retires the exact registered owner with one
+identity-bound `cancelledBeforeStart` settlement. The retained handle makes a
+later start inert, so neither LIVE nor SIMULATED invokes its native operation,
+and no second owner or cancellation authority is created. When shutdown instead
+joins the original public Stop at observed or settling, the registry marks that
+same transaction `settledByShutdown`; duplicate Stop callers still join it, and
+the original public Stop cursor remains the sole journal and recovery publisher.
+Cancellation and settlement each occur exactly once.
+
+For the post-progress/pre-activation boundary, operator-authorized Option A
+gives the runtime one shutdown latch set synchronously before its sole
+`registry.shutdown()` suspension. After accepted `recordProgress` and before
+installing the runtime-active owner, submission rechecks that latch, waits for
+that same shutdown's registry settlement, consumes the retained exact pre-start
+terminal result, and publishes it through `publishPrestartTerminalSubmission`.
+That path returns before active installation or native start; it creates one
+typed cancelled `effectResult` and leaves no registry or runtime active owner.
+
+Each cancellation journal commit, its pre-state read, and its failure snapshot
+owns the runtime FIFO mutation/publication boundary. The boundary is released
+before cancellation or settlement suspension. While the exact active owner
+remains, a concurrent manual submission is transiently refused as busy from the
+current transaction-complete snapshot before gateway evaluation; it commits no
+successor refusal event, effect, or revision that could terminalize or clear the
+active owner.
+
+If any Stop-stage, observation, or terminal-result append fails, the runtime
+retains the exact active owner and the uncommitted observation/result cursor,
+reports `publicationPending` with a typed stage and recovery capability, and
+admits no successor. Explicit recovery resumes only that cursor; it cannot
+choose an outcome, issue a second cancellation, fabricate settlement, or grant
+new Stop authority. If shutdown settles the owner while persistence remains
+unavailable, the same publication-recovery capability survives with the exact
+terminal cursor until durable publication can resume. The complete result
+becomes idempotently cached only after terminal publication and remains so only
+until successor admission clears it before launch, after which the predecessor
+capability is stale and cannot stop the successor. A mismatched capability is
+always stale. Drawing Stop requires controller-settled Pen Up and retains
+possible-ink truth; unresolved settlement is ambiguous.
+
+While terminal publication is incomplete, the app projects only the runtime's
+typed recovery capability with an intent-specific manual jog, drawing, Pen Up,
+or Pen Down remedy. It disables every manual effect control, hides the stale
+Stop action, and rejects a stale recovery capability. Invoking the exact current
+capability calls only `recoverTerminalPublication`; it does not re-admit the
+intent, reissue controller work, cancel, or settle. Successful recovery clears
+only the matching publication diagnostic and restores availability from the
+new runtime snapshot.
+
+Manual availability is derived from the runtime's actual episode phase, not
+workspace request flags. A terminal ambiguity projects one typed disposition
+bound to its exact effect ID, environment, and observation ID and distinguishes
+possible ink from other ambiguity. While that disposition remains unresolved,
+all manual effects are disabled and stale disposition actions are rejected.
+Only explicit operator evidence for the matching typed action advances the
+episode. It never retries, redraws, reissues, cancels, or settles controller
+work.
+
+Other contextual exercise Stop capabilities retain their existing owners.
+While physical movement owns an exercise, its Stop is
 the only movement-ending exercise action. Cancel becomes available only after
 movement settles.
 

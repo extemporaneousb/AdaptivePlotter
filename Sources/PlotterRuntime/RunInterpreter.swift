@@ -78,6 +78,27 @@ public enum DrawingStrokeAdmission: Sendable {
   case rejected(DrawingStrokeOutcome)
 }
 
+/// The exact interpreter-owned direct Pen operation. Publication of this handle
+/// acknowledges admission without waiting for controller settlement.
+public struct PenActuationOperation: Sendable {
+  public let id: UUID
+  private let task: Task<PenOutcome, Never>
+
+  public init(id: UUID, task: Task<PenOutcome, Never>) {
+    self.id = id
+    self.task = task
+  }
+
+  public func outcome() async -> PenOutcome {
+    await task.value
+  }
+}
+
+public enum PenActuationAdmission: Sendable {
+  case admitted(PenActuationOperation)
+  case rejected(PenOutcome)
+}
+
 /// The handle is published only after the entire plan has one registered
 /// interpreter owner. Awaiting it never transfers operation ownership to the
 /// caller.
@@ -932,16 +953,35 @@ public actor RunInterpreter {
     _ command: PenCommand,
     profile: PenActuationProfile
   ) async -> PenOutcome {
+    switch beginPenActuation(command, profile: profile) {
+    case let .admitted(operation): return await operation.outcome()
+    case let .rejected(outcome): return outcome
+    }
+  }
+
+  public func beginPenActuation(
+    _ command: PenCommand,
+    profile: PenActuationProfile
+  ) -> PenActuationAdmission {
     guard currentOperation == .idle else {
       let outcome = PenOutcome.refused(.operationInFlight)
       lastPenOutcome = outcome
-      return outcome
+      return .rejected(outcome)
     }
     generation &+= 1
     currentOperation = .penActuation(command)
+    let operationID = UUID()
+    let task = Task { await self.runAdmittedPenActuation(command, profile: profile) }
+    return .admitted(PenActuationOperation(id: operationID, task: task))
+  }
+
+  private func runAdmittedPenActuation(
+    _ command: PenCommand,
+    profile: PenActuationProfile
+  ) async -> PenOutcome {
     let outcome = await machineController.requestPenActuation(command, profile: profile)
     lastPenOutcome = outcome
-    currentOperation = .idle
+    if currentOperation == .penActuation(command) { currentOperation = .idle }
     return outcome
   }
 

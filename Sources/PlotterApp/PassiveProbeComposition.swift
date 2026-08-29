@@ -33,8 +33,8 @@ enum MachineSessionComposition {
     beginDrawingPlan: { request in
       await session.beginDrawingPlan(request)
     },
-    requestPenActuation: { command, profile in
-      await session.requestPenActuation(command, profile: profile)
+    beginPenActuation: { command, profile in
+      await session.beginPenActuation(command, profile: profile)
     },
     beginBoundaryMotion: { request, renewalPlanner in
       await session.beginBoundaryMotion(request, renewalPlanner: renewalPlanner)
@@ -197,8 +197,16 @@ actor PersistentMachineSession {
 
     let clock = SystemRuntimeClock()
     let diagnostic = await makeBestEffortLedger(clock: clock)
-    let controller = try MachineController.bsdSerial(
-      descriptor: descriptor,
+    let link = RecordingMachineLink(
+      underlying: try MachineController.bsdSerialLink(
+        descriptor: descriptor,
+        clock: clock
+      ),
+      router: PlotterManualMotionComposition.controllerRecordingRouter,
+      clock: clock
+    )
+    let controller = MachineController(
+      link: link,
       ledger: diagnostic.ledger,
       runID: diagnostic.runID,
       clock: clock
@@ -290,12 +298,12 @@ actor PersistentMachineSession {
     return await interpreter.requestJogCancel(intent)
   }
 
-  func requestPenActuation(
+  func beginPenActuation(
     _ command: PenCommand,
     profile: PenActuationProfile
-  ) async -> PenOutcome {
-    guard let interpreter else { return .refused(.noSerialDeviceSelected) }
-    return await interpreter.requestPenActuation(command, profile: profile)
+  ) async -> PenActuationAdmission {
+    guard let interpreter else { return .rejected(.refused(.noSerialDeviceSelected)) }
+    return await interpreter.beginPenActuation(command, profile: profile)
   }
 
   func disconnect() async {
