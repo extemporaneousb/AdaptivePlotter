@@ -1426,8 +1426,13 @@ exact-capability Stop, exact-RunID review pin/unpin, new-run handoff, or exact
 publication recovery. Stale projections and changed plan/fact identity return
 typed owner/reason/remedy refusal. SwiftUI receives immutable
 `PlotterDrawingRunSnapshot` values and sends only through
-`PlotterDrawingRunIntentSink`; App composition tracks the one awaited start task
-but does not duplicate admission or cancellation authority.
+the async `PlotterDrawingRunIntentSink`; App composition awaits runtime
+submission directly and owns no stored submission or shutdown-join Task.
+`PlotterDrawingRunRuntime.beginShutdown` closes admission, requests the exact
+`.shutdown` Stop when a run is active, and awaits that run's terminal
+publication before returning. The runtime therefore owns both admitted-run
+lifetime and shutdown quiescence without duplicating controller, interpreter,
+camera, Vision, or evidence authority.
 
 The runtime refreshes complete facts and revalidates the exact EA-08A plan,
 paper, Learning, environment, and lower readiness around every effect boundary.

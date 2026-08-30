@@ -1927,7 +1927,6 @@ final class OperatorWorkspace:
   @ObservationIgnored private var boundaryAtomicCommitFailurePoints:
     Set<BoundaryAtomicCommitFailurePoint>
   @ObservationIgnored private var frameTask: Task<Void, Never>?
-  @ObservationIgnored private var drawingRunTask: Task<Void, Never>?
   @ObservationIgnored private var drawingRunProjectionTask: Task<Void, Never>?
   @ObservationIgnored private var visionUpdateTask: Task<Void, Never>?
   @ObservationIgnored private var savedTrainingComparisonTask: Task<Void, Never>?
@@ -2910,42 +2909,22 @@ final class OperatorWorkspace:
     )
   }
 
-  func submitDrawingRun(_ submission: PlotterDrawingRunSubmission) {
-    if case .start = submission.intent {
-      guard drawingRunTask == nil else {
-        Task { [weak self, drawingRunRuntime] in
-          guard let self else { return }
-          let result = await drawingRunRuntime.submit(submission)
-          self.installDrawingRunSnapshot(result.snapshot)
-        }
-        return
-      }
-      drawingRunTask = Task { [weak self, drawingRunRuntime] in
-        guard let self else { return }
-        defer { self.drawingRunTask = nil }
-        let result = await drawingRunRuntime.submit(submission)
-        self.installDrawingRunSnapshot(result.snapshot)
-      }
-      return
-    }
-    Task { [weak self, drawingRunRuntime] in
-      guard let self else { return }
-      let result = await drawingRunRuntime.submit(submission)
-      self.installDrawingRunSnapshot(result.snapshot)
-      guard case .applied = result.disposition,
-        case .beginNewRun = submission.intent
-      else { return }
-      overlayResultChannels.clearWorkflow(source: frameMode, owner: .drawingStudio)
-      let synchronized = await drawingDraftRuntime.synchronize(drawingDraftExternalFacts)
-      installDrawingDraftSnapshot(synchronized)
-      await performDrawingDraftSubmission(
-        PlotterDrawingDraftSubmission(
-          projection: synchronized.projection,
-          intent: .beginNewPlan
-        )
+  func submitDrawingRun(_ submission: PlotterDrawingRunSubmission) async {
+    let result = await drawingRunRuntime.submit(submission)
+    installDrawingRunSnapshot(result.snapshot)
+    guard case .applied = result.disposition,
+      case .beginNewRun = submission.intent
+    else { return }
+    overlayResultChannels.clearWorkflow(source: frameMode, owner: .drawingStudio)
+    let synchronized = await drawingDraftRuntime.synchronize(drawingDraftExternalFacts)
+    installDrawingDraftSnapshot(synchronized)
+    await performDrawingDraftSubmission(
+      PlotterDrawingDraftSubmission(
+        projection: synchronized.projection,
+        intent: .beginNewPlan
       )
-      await synchronizeDrawingRunProjection()
-    }
+    )
+    await synchronizeDrawingRunProjection()
   }
 
   private func synchronizeDrawingRunProjection() async {
@@ -4900,7 +4879,7 @@ final class OperatorWorkspace:
           remedy: "Wait for Drawing Run projection synchronization."
         )
       }
-      submitDrawingRun(PlotterDrawingRunSubmission(
+      await submitDrawingRun(PlotterDrawingRunSubmission(
         projection: drawingRunSnapshot.projection,
         intent: intent
       ))
@@ -10938,8 +10917,6 @@ final class OperatorWorkspace:
     installDrawingRunSnapshot(
       await drawingRunRuntime.beginShutdown(environment: .live)
     )
-    await drawingRunTask?.value
-    drawingRunTask = nil
     drawingRunProjectionTask?.cancel()
     drawingRunProjectionTask = nil
     savedTrainingComparisonTask?.cancel()

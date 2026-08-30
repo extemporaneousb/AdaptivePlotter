@@ -26,9 +26,11 @@ METRIC_HEADER = ["Reduction metric", "Baseline", "Current", "Requirement"]
 REQUIRED_PACKAGES = (
     "DOC-00", "DOC-01", "EA-01", "FIX-00", "FIX-01", "DOC-02", "EA-02A",
     "EA-02B", "EA-03A", "EA-03B", "EA-05A", "EA-05B", "EA-05C", "EA-04",
-    "FIX-02", "EA-06", "EA-07", "EA-08A", "EA-08B", "EA-09",
+    "FIX-02", "EA-06", "EA-07", "EA-08A", "EA-08B", "EA-09", "FIX-03",
 )
-MIGRATED_CUTOVERS = ("EA-04", "EA-06", "EA-07", "EA-08A", "EA-08B", "EA-09")
+MIGRATED_CUTOVERS = (
+    "EA-04", "EA-06", "EA-07", "EA-08A", "EA-08B", "EA-09", "FIX-03",
+)
 PREDICATES = {
     "GENERICITY": ("EA-02A/CORE", "EA-02B/PLOTTER-MODEL"),
     "REPLAY": ("EA-05B/REPLAY",),
@@ -113,7 +115,7 @@ def parse_ledger(plan: str) -> dict[str, dict[str, object]]:
     gate = result.get("GATE-01")
     if gate is None:
         fail("required GATE-01 ledger row is absent")
-    if gate["dependencies"] != ["EA-09"] or gate["class"] != "gate" or gate["gates"] != ["DOC", "DIFF", "PILOT"]:
+    if gate["dependencies"] != ["FIX-03"] or gate["class"] != "gate" or gate["gates"] != ["DOC", "DIFF", "PILOT"]:
         fail(f"GATE-01 contract mismatch: {gate}")
     if gate["status"] not in {"pending", "complete"}:
         fail(f"GATE-01 has invalid status: {gate['status']}")

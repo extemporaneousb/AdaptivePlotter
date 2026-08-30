@@ -28,7 +28,7 @@ EVIDENCE_PATH = ROOT / "docs" / "CURRENT_EVIDENCE.md"
 ARCHITECTURE_PATH = ROOT / "docs" / "SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md"
 PRODUCT_PATH = ROOT / "docs" / "PRODUCT_CONTRACT.md"
 # Updated in the same package whenever a canonical ledger row changes.
-EXPECTED_LEDGER_SHA256 = "4dfb81bb920f07a968eed8bf2c21f32dc2afa1e000087828cbeea4919093e7ff"
+EXPECTED_LEDGER_SHA256 = "d5bc51ed2b5b8a2a0ccf450d59c35a438d1345df369ed47f1aeec26b9dbbba3a"
 
 
 EXPECTED_GATES = {
@@ -69,6 +69,10 @@ EXPECTED_GATES = {
     "DRAW-DRAFT": ("`swift test --filter PlotterDrawingDraftEpisodeTests`", "EA-08A"),
     "DRAW-RUN": ("`swift test --filter PlotterDrawingRunEpisodeTests`", "EA-08B"),
     "UI": ("`swift test --filter PlotterEpisodeUIActionabilityTests`", "EA-09"),
+    "TASK-METRIC": (
+        "`PYTHONDONTWRITEBYTECODE=1 python3 Scripts/check_episode_task_metric.py` computes direct stored `OperatorWorkspace` `Swift.Task` owners from pinned EA-01 source and the candidate tree and requires exact matching Current Evidence",
+        "FIX-03",
+    ),
     "PILOT": (
         "`sh Scripts/check_episode_pilot_gate.sh` proves the exact Pilot continuation gate predicates below against landed rows and Current Evidence",
         "EA-09",
@@ -128,7 +132,8 @@ EXPECTED_PACKAGE_SHAPES = {
     "EA-08A": (["EA-05C", "EA-07"], "software", ["DOC", "DIFF", "QUICK", "STRICT", "DRAW-DRAFT", "DELETE"]),
     "EA-08B": (["EA-08A"], "software", ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "DRAW-RUN", "DELETE"]),
     "EA-09": (["EA-04", "EA-06", "EA-08B"], "software", ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "UI", "DELETE"]),
-    "GATE-01": (["EA-09"], "gate", ["DOC", "DIFF", "PILOT"]),
+    "FIX-03": (["EA-09"], "software", ["DRAW-RUN", "TASK-METRIC", "DELETE", "DOC", "DIFF", "QUICK", "STRICT"]),
+    "GATE-01": (["FIX-03"], "gate", ["DOC", "DIFF", "PILOT"]),
     "EA-10A": (["GATE-01"], "software", ["DOC", "DIFF", "QUICK", "STRICT", "PEN", "DELETE"]),
     "EA-10B": (["EA-10A"], "software", ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "BOUNDARY", "DELETE"]),
     "EA-10C": (["EA-10B"], "software", ["DOC", "DIFF", "QUICK", "STRICT", "CAMERA-CAL", "DELETE"]),
@@ -160,6 +165,7 @@ EXPECTED_SOFTWARE_OUTCOME_KIND = {
     "EA-08A": "Cutover",
     "EA-08B": "Cutover",
     "EA-09": "Cutover",
+    "FIX-03": "Correction",
     "EA-10A": "Cutover",
     "EA-10B": "Cutover",
     "EA-10C": "Cutover",
@@ -194,34 +200,13 @@ EXPECTED_COMPLETE_PACKAGES = {
     "EA-08A",
     "EA-08B",
     "EA-09",
+    "FIX-03",
 }
 
-# Staged-complete rows let post-cutover DELETE and documentation contracts
-# inspect the task-local final manifest without fabricating final gate evidence.
-# EA-06 retains its accepted historical landing boundary. EA-07 is ordinary
-# landed evidence on canonical main. EA-08A retains its accepted task-local
-# completion boundary. EA-08B and EA-09 are task-locally complete with all
-# package gates and same-critic acceptance passed; only their Blackdog landing
-# and canonical-main cleanup remain pending, while GATE-01 remains a separate
-# pending decision.
-EXPECTED_UNLANDED_COMPLETION_CANDIDATES = {
-    "EA-06": (
-        "`TASK-FE9C9CB3`",
-        ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "MOTION", "DELETE"],
-    ),
-    "EA-08A": (
-        "`TASK-5700F7F5`",
-        ["DOC", "DIFF", "QUICK", "STRICT", "DRAW-DRAFT", "DELETE"],
-    ),
-    "EA-08B": (
-        "`TASK-51550DB1`",
-        ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "DRAW-RUN", "DELETE"],
-    ),
-    "EA-09": (
-        "`TASK-D55FD455`",
-        ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "UI", "DELETE"],
-    ),
-}
+# Canonical Current Evidence has been reconciled to the landed package rows.
+# FIX-03 is recorded directly as the accepted task candidate that Blackdog will
+# land, so no predecessor remains in the stale-candidate table.
+EXPECTED_UNLANDED_COMPLETION_CANDIDATES: dict[str, tuple[str, list[str]]] = {}
 
 def fail(message: str) -> None:
     raise ValueError(message)
@@ -661,7 +646,9 @@ def validate_architecture(text: str) -> None:
         "No draft action invokes machine motion, Stop, camera, Vision, run evidence, or another physical effect",
         "`PlotterDrawingRunRuntime` is the single source-indexed EA-08B run owner",
         "`PlotterDrawingRunSubmission` binds one request ID, the immutable run revision, environment, exact `PlotterDrawingRunPlanIdentity`, and one typed intent",
-        "SwiftUI receives immutable `PlotterDrawingRunSnapshot` values and sends only through `PlotterDrawingRunIntentSink`",
+        "SwiftUI receives immutable `PlotterDrawingRunSnapshot` values and sends only through the async `PlotterDrawingRunIntentSink`",
+        "App composition awaits runtime submission directly and owns no stored submission or shutdown-join Task",
+        "`PlotterDrawingRunRuntime.beginShutdown` closes admission, requests the exact `.shutdown` Stop when a run is active, and awaits that run's terminal publication before returning",
         "refreshes complete facts and revalidates the exact EA-08A plan, paper, Learning, environment, and lower readiness around every effect boundary",
         "Outside applicability is executable but published as `.nonAttributable` with no Vision-derived ink claim",
         "The checksummed `DrawingRunEvidenceStore` must append the exact immutable record before successful terminal publication",
@@ -1010,6 +997,18 @@ def validate_plan(text: str) -> dict[str, dict[str, object]]:
             "the same critic's exceptional delta verdict was exactly `UNANIMOUS PASS — no material disagreement`",
             "GATE-01, attended physical validation, and remote-Git action remain pending and are not claimed",
         ),
+        "FIX-03": (
+            "transfer Drawing Run submission and shutdown-quiescence lifetime",
+            "stored `OperatorWorkspace.drawingRunTask`",
+            "already-authoritative `PlotterDrawingRunRuntime`",
+            "App sink await runtime submission directly",
+            "await exact active-run terminal publication during shutdown",
+            "delete the workspace task, tracked/untracked start split, and workspace shutdown join",
+            "direct stored `OperatorWorkspace` Task owners decrease from 9 to 8",
+            "exactly `drawingRunTask` removed relative to the pre-correction EA-09 landing",
+            "Completed by `TASK-0A7AB3EE`, attempt `TASK-0A7AB3EE-80f88f4a41d8`",
+            "package FIX-03 complete, migration remains incomplete",
+        ),
         "EA-10G": (
             "advisory-speech effect authority",
             "Retain `NativeSpeechAnnouncer`/AVFoundation synthesis ownership",
@@ -1207,7 +1206,7 @@ def validate_completed_gate_result(package_id: str, gate: str, result: str) -> N
         )
 
 
-def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
+def _validate_legacy_evidence_archive(text: str, rows: dict[str, dict[str, object]]) -> None:
     normalized = re.sub(r"\s+", " ", text)
     if "Production opens a unique directory beneath `AdaptivePlotter/EpisodeRecordings/<recording UUID>` with schema `adaptive-plotter-manual-motion-v1`" in normalized:
         fail("Current Evidence retains the stale manual recording topology")
@@ -2255,6 +2254,141 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
         fail("DOC-00 ARCHIVED evidence section must identify d33d4ff")
 
 
+def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
+    """Validate current evidence without coupling it to superseded candidate prose."""
+    normalized = re.sub(r"\s+", " ", text)
+    for required_phrase in (
+        "Pre-GATE-01 Drawing Run task-owner correction",
+        "`TASK-0A7AB3EE`, attempt `TASK-0A7AB3EE-80f88f4a41d8`",
+        "removes the redundant stored `OperatorWorkspace.drawingRunTask`",
+        "runtime shutdown closes admission, requests the exact `.shutdown` Stop for an admitted run, and does not return until that run has published a terminal snapshot",
+        "The candidate contains eight; relative to the pre-correction tree, the only removed owner is `drawingRunTask` and no replacement workspace Task owner was added",
+        "GATE-01 was not rerun and EA-10A was not started",
+        "landed on canonical `main` at `03d8279603c39ad19b49d980fc39aa0144b96148`",
+        "landed on canonical `main` at `ccb06859fe7ca00011f71ef30f6a6ade6c7109c4`",
+        "landed on canonical `main` at `f244cf9761c16bcb19b11a0912eb6370168d356c`",
+        "landed on canonical `main` at `70057118669a570dd51eb10445b121b933a156da`",
+    ):
+        if required_phrase not in normalized:
+            fail(f"reconciled Current Evidence is missing: {required_phrase}")
+
+    pilot_rows = markdown_table(text, ["Pilot predicate", "Result", "Evidence"])
+    expected_pilot_results = {
+        "GENERICITY": "passed",
+        "REPLAY": "passed",
+        "DEVICE-OWNERS": "passed",
+        "ENVIRONMENT-GRAMMAR": "pending",
+        "SAME-SLICE-DELETION": "pending",
+        "AUTHORITY-REDUCTION": "pending",
+        "OBSERVABILITY": "pending",
+        "WORKSPACE-REDUCTION": "pending",
+        "SAFETY-EVIDENCE": "pending",
+    }
+    if [row[0] for row in pilot_rows] != list(expected_pilot_results):
+        fail("Pilot predicate order drifted")
+    if {row[0]: row[1] for row in pilot_rows} != expected_pilot_results:
+        fail("GATE-01 predicates must remain pending except the three established foundations")
+
+    metric_rows = markdown_table(
+        text, ["Reduction metric", "Baseline", "Current", "Requirement"]
+    )
+    expected_metric_requirements = {
+        "independent-admission-sites": "decreased",
+        "workspace-task-owners": "decreased",
+        "environment-mode-branches": "decreased",
+        "direct-effect-calls": "decreased",
+        "operator-workspace-policy-state": "decreased",
+        "operator-workspace-adapters": "not-increased",
+    }
+    if [row[0] for row in metric_rows] != list(expected_metric_requirements):
+        fail("GATE-01 reduction metric order drifted")
+    for name, baseline, current, requirement in metric_rows:
+        if requirement != expected_metric_requirements[name]:
+            fail(f"reduction metric requirement drifted: {name}")
+        if name == "workspace-task-owners":
+            if (baseline, current) != ("9", "8"):
+                fail(f"workspace Task metric must be source-derived 9->8: {baseline}->{current}")
+        elif (baseline, current) != ("pending", "pending"):
+            fail(f"unmeasured GATE-01 metric must remain pending: {name}")
+
+    completion_rows = markdown_table(
+        text, ["Package", "Blackdog task", "Gate results", "Evidence section"]
+    )
+    evidence_by_package: dict[str, list[str]] = {}
+    for package_id, task, result_cell, section in completion_rows:
+        if package_id in evidence_by_package:
+            fail(f"duplicate Work package gate evidence row: {package_id}")
+        if package_id not in rows or rows[package_id]["status"] != "complete":
+            fail(f"completion evidence does not name a complete package: {package_id}")
+        if not re.fullmatch(r"`TASK-[A-F0-9]+`", task):
+            fail(f"{package_id} has invalid Blackdog task evidence {task}")
+        if not re.fullmatch(
+            r"`[A-Z][A-Z0-9-]*=passed`(?:, `[A-Z][A-Z0-9-]*=passed`)*",
+            result_cell,
+        ):
+            fail(f"{package_id} gate results are not exact passed tokens: {result_cell}")
+        actual_gates = re.findall(r"`([A-Z][A-Z0-9-]*)=passed`", result_cell)
+        expected_gates = rows[package_id]["gates"]
+        if actual_gates != expected_gates:
+            fail(f"{package_id} evidence gates must be {expected_gates}; found {actual_gates}")
+        section_match = re.search(
+            rf"^## {re.escape(section)}$(.*?)(?=^## |\Z)",
+            text,
+            re.MULTILINE | re.DOTALL,
+        )
+        if section_match is None:
+            fail(f"{package_id} evidence section does not exist: {section}")
+        try:
+            validation_rows = markdown_table(
+                section_match.group(1), ["Validation", "Result", "Scope"]
+            )
+        except ValueError:
+            if package_id != "EA-06":
+                raise
+            validation_rows = markdown_table(
+                section_match.group(1),
+                ["Current serial validation on the exact Option A tree", "Result", "Exact log SHA-256"],
+            )
+        detailed_gates: list[str] = []
+        for validation, result, _scope in validation_rows:
+            match = re.fullmatch(r"`([A-Z][A-Z0-9-]*)`", validation)
+            if match is None or match.group(1) not in expected_gates:
+                continue
+            gate = match.group(1)
+            if gate in detailed_gates:
+                fail(f"{package_id} repeats detailed gate evidence for {gate}")
+            validate_completed_gate_result(package_id, gate, result)
+            detailed_gates.append(gate)
+        if len(detailed_gates) != len(expected_gates) or set(detailed_gates) != set(expected_gates):
+            fail(
+                f"{package_id} detailed evidence must contain exactly {expected_gates}; "
+                f"found {detailed_gates}"
+            )
+        evidence_by_package[package_id] = actual_gates
+
+    candidate_rows = markdown_table(
+        text,
+        ["Candidate package", "Blackdog task", "Current gate state", "Landing boundary"],
+    )
+    if candidate_rows:
+        fail(f"stale unlanded completion candidates remain: {[row[0] for row in candidate_rows]}")
+    complete_packages = {
+        package_id for package_id, row in rows.items() if row["status"] == "complete"
+    }
+    if set(evidence_by_package) != complete_packages:
+        missing = sorted(complete_packages.difference(evidence_by_package))
+        extra = sorted(set(evidence_by_package).difference(complete_packages))
+        fail(f"complete-package evidence mismatch; missing={missing}, extra={extra}")
+
+    historical_section = re.search(
+        r"^## Historical: initial canonical episode migration documentation$(.*?)(?=^## |\Z)",
+        text,
+        re.MULTILINE | re.DOTALL,
+    )
+    if historical_section is None or "d33d4ff" not in historical_section.group(1):
+        fail("DOC-00 ARCHIVED evidence section must identify d33d4ff")
+
+
 def parse_wave_admission_blockers(
     evidence: str,
     rows: dict[str, dict[str, object]],
@@ -2315,12 +2449,10 @@ def validate_wave_frontier(
         if selected != "GATE-01":
             fail(f"unexpected current ordinary wave frontier: {selected}")
         for phrase in (
-            "Episode UI cutover candidate",
-            "Selected 2026-08-29 in Blackdog task `TASK-D55FD455`, attempt `TASK-D55FD455-1d0731730d03`",
-            "EA-09 is complete only in this task-local candidate",
-            "its ledger row is `complete`, all seven package gates passed, and it is not landed",
-            "The separate GATE-01 Pilot decision also remains pending",
-            "criticism is closed and no new or post-pass critic was commissioned",
+            "Pre-GATE-01 Drawing Run task-owner correction",
+            "`TASK-0A7AB3EE`, attempt `TASK-0A7AB3EE-80f88f4a41d8`",
+            "workspace-task-owners` reduction",
+            "GATE-01 was not rerun and EA-10A was not started",
             "The retired `PHYSICAL-BASE` result is `failed`",
         ):
             if phrase not in normalized:

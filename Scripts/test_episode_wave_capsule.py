@@ -131,12 +131,13 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         self.assertEqual("complete", rows["EA-08A"]["status"])
         self.assertEqual("complete", rows["EA-08B"]["status"])
         self.assertEqual("complete", rows["EA-09"]["status"])
+        self.assertEqual("complete", rows["FIX-03"]["status"])
         self.assertEqual("pending", rows["GATE-01"]["status"])
         self.assertEqual({}, blockers)
         evidence = (self.root / "docs/CURRENT_EVIDENCE.md").read_text(encoding="utf-8")
-        self.assertIn("All seven package gates passed", evidence)
-        self.assertIn("EA-09 is complete only in this task-local", evidence)
-        self.assertIn("TASK-D55FD455-1d0731730d03", evidence)
+        self.assertIn("Pre-GATE-01 Drawing Run task-owner correction", evidence)
+        self.assertIn("exactly `drawingRunTask` removed", evidence)
+        self.assertIn("TASK-0A7AB3EE-80f88f4a41d8", evidence)
 
     def test_completed_incident_evidence_missing_is_rejected(self) -> None:
         evidence_path = self.root / "docs/CURRENT_EVIDENCE.md"
@@ -346,7 +347,7 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
             row = [cell.strip() for cell in selected_text.strip().strip("|").split("|")]
             if (
                 len(row) == 6
-                and row[:4] == ["GATE-01", "pending", "EA-09", "gate"]
+                and row[:4] == ["GATE-01", "pending", "FIX-03", "gate"]
                 and row[4].startswith("Decide pilot continuation")
                 and row[5] == "`DOC`, `DIFF`, `PILOT`"
             ):

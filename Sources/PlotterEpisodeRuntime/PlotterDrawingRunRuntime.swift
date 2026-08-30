@@ -222,7 +222,7 @@ public struct PlotterDrawingRunSubmissionResult: Hashable, Sendable {
 
 @MainActor
 public protocol PlotterDrawingRunIntentSink: AnyObject {
-  func submitDrawingRun(_ submission: PlotterDrawingRunSubmission)
+  func submitDrawingRun(_ submission: PlotterDrawingRunSubmission) async
 }
 
 public actor PlotterDrawingRunRuntime {
@@ -306,6 +306,8 @@ public actor PlotterDrawingRunRuntime {
   private var admissionClosed = false
   private var snapshotContinuations:
     [PlotterEnvironment: [UUID: AsyncStream<PlotterDrawingRunSnapshot>.Continuation]] = [:]
+  private var quiescenceContinuations:
+    [PlotterEnvironment: [UUID: CheckedContinuation<Void, Never>]] = [:]
 
   public init(
     facts: any PlotterDrawingRunFactSource,
@@ -425,6 +427,7 @@ public actor PlotterDrawingRunRuntime {
         _ = await interpreter.requestStop(.shutdown)
       }
     }
+    await waitForQuiescence(environment: environment)
     return snapshot(states[environment] ?? state, environment: environment)
   }
 
@@ -1792,7 +1795,26 @@ public actor PlotterDrawingRunRuntime {
         continuation.yield(value)
       }
     }
+    if state.active == nil,
+      let continuations = quiescenceContinuations.removeValue(forKey: environment)
+    {
+      for continuation in continuations.values {
+        continuation.resume()
+      }
+    }
     return value
+  }
+
+  private func waitForQuiescence(environment: PlotterEnvironment) async {
+    guard states[environment]?.active != nil else { return }
+    let continuationID = UUID()
+    await withCheckedContinuation { continuation in
+      guard states[environment]?.active != nil else {
+        continuation.resume()
+        return
+      }
+      quiescenceContinuations[environment, default: [:]][continuationID] = continuation
+    }
   }
 
   private func removeSnapshotContinuation(

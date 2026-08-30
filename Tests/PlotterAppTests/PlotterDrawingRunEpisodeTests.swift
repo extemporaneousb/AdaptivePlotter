@@ -124,6 +124,40 @@ struct PlotterDrawingRunEpisodeTests {
     #expect(await harness.events.values.isEmpty)
   }
 
+  @Test("shutdown owns admitted-run Stop and returns only after terminal publication")
+  func shutdownAwaitsAdmittedRunQuiescence() async throws {
+    let fixture = try await DrawingRunEpisodeFixtureCache.load()
+    let planGate = DrawingRunPlanGate()
+    let harness = await drawingRunHarness(fixture: fixture, planGate: planGate)
+    let current = await harness.runtime.synchronize(environment: .live)
+
+    let start = Task {
+      await harness.runtime.submit(PlotterDrawingRunSubmission(
+        projection: current.projection,
+        intent: .start
+      ))
+    }
+    await planGate.waitUntilStarted()
+
+    let shutdown = Task {
+      await harness.runtime.beginShutdown(environment: .live)
+    }
+    let shutdownSnapshot = await shutdown.value
+    let submissionResult = await start.value
+
+    #expect(await harness.interpreter.stopIntents == [.shutdown])
+    #expect(await harness.interpreter.planRequests.count == 1)
+    #expect(await harness.evidence.attempts.isEmpty)
+    #expect(shutdownSnapshot.activeRunID == nil)
+    #expect(shutdownSnapshot.phase == .terminal)
+    #expect(shutdownSnapshot.terminal?.disposition == .publicationIncomplete)
+    #expect(
+      shutdownSnapshot.terminal?.record.executionDisposition
+        == .cancelled(reason: "Operator Stop")
+    )
+    #expect(submissionResult.snapshot == shutdownSnapshot)
+  }
+
   @Test("baseline execute post observe and append retain exact identities in order")
   func completeRunOrderingAndIdentity() async throws {
     let fixture = try await DrawingRunEpisodeFixtureCache.load()

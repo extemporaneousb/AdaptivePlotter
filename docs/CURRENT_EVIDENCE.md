@@ -8,13 +8,44 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
-## Episode UI cutover candidate
+## Pre-GATE-01 Drawing Run task-owner correction
 
-Selected 2026-08-29 in Blackdog task `TASK-D55FD455`, attempt
-`TASK-D55FD455-1d0731730d03`. EA-09 is complete only in this task-local
-candidate: its ledger row is `complete`, all seven package gates passed, and it
-is not landed. Blackdog landing and canonical-`main` cleanup verification
-remain pending. The separate GATE-01 Pilot decision also remains pending. No
+Selected 2026-08-30 as named software correction `FIX-03` in Blackdog task
+`TASK-0A7AB3EE`, attempt `TASK-0A7AB3EE-80f88f4a41d8`. The correction removes
+the redundant stored `OperatorWorkspace.drawingRunTask`. The App now awaits
+`PlotterDrawingRunRuntime.submit` directly, while runtime shutdown closes
+admission, requests the exact `.shutdown` Stop for an admitted run, and does
+not return until that run has published a terminal snapshot. The runtime keeps
+the existing RunID, Stop, cancellation, possible-ink/no-redraw, publication
+recovery, and retained controller/interpreter/camera/Vision/evidence authority.
+
+The source-derived `TASK-METRIC` gate compares the pinned EA-01 source at
+`96253197a42dc6052ef76ad53c4c94c1c5f745a1`, the pre-correction EA-09 landing
+at `03d8279603c39ad19b49d980fc39aa0144b96148`, and this candidate. Both source
+baselines contain nine direct stored `OperatorWorkspace` `Task` owners. The
+candidate contains eight; relative to the pre-correction tree, the only removed
+owner is `drawingRunTask` and no replacement workspace Task owner was added.
+This proves the `workspace-task-owners` reduction without asserting any of the
+other still-pending GATE-01 metrics. GATE-01 was not rerun and EA-10A was not
+started. No critic, attended physical validation, or remote-Git action was
+commissioned or claimed for this bounded correction.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `DRAW-RUN` | passed — `swift test --filter PlotterDrawingRunEpisodeTests`; 13/13 passed | runtime-owned admission, exact Stop, shutdown quiescence, terminal publication, RunID recovery, and no-redraw behavior |
+| `TASK-METRIC` | passed — `PYTHONDONTWRITEBYTECODE=1 python3 Scripts/check_episode_task_metric.py`; source-derived 9 to 8, exactly `drawingRunTask` removed | pinned EA-01 count, pre-FIX-03 owner-set delta, and exact Current Evidence reconciliation |
+| `DELETE` | passed — `sh Scripts/check_episode_cutover.sh FIX-03`; exact `drawingRunTask` zero-match scan passed | deleted workspace submission/shutdown join |
+| `DOC` | passed — `make docs-check`; canonical documents and executable contracts passed, capsule tests 29/29, repository contract passed | final FIX-03 task candidate |
+| `DIFF` | passed — `git diff --check`; clean | final FIX-03 task candidate |
+| `QUICK` | passed — `make quick-test`; 751/751 passed | final FIX-03 task candidate |
+| `STRICT` | passed — `make strict-check`; warnings-as-errors strict build, 758/758 tests, signing, launcher, negative-bundle, documentation contracts, and capsule tests 29/29 passed | final FIX-03 task candidate |
+
+## Episode UI cutover
+
+Delivered 2026-08-29 by Blackdog task `TASK-D55FD455`, attempt
+`TASK-D55FD455-1d0731730d03`, and landed on canonical `main` at
+`03d8279603c39ad19b49d980fc39aa0144b96148`. EA-09 is complete; migration
+remains incomplete. The separate GATE-01 Pilot decision remains pending. No
 attended physical validation or remote-Git action is claimed.
 
 The staged target topology is `PlotterUI -> PlotterEpisodeModel` only.
@@ -131,17 +162,17 @@ GATE-01 reduction or continuation proof is still unmeasured remains `pending`:
 | WORKSPACE-REDUCTION | pending | `METRICS/WORKSPACE-REDUCTION` |
 | SAFETY-EVIDENCE | pending | `FIX-02/LINK-SAFETY`, `EA-07/SIM`, `EA-09/UI` |
 
-No coordinator-owned baseline/current reduction counts exist for this
-correction turn, and no reproducible source-count comparison against the Pilot
-baseline commit was run. The candidate therefore records the required metric
-names and requirements as `pending`, not invented numbers or reductions. The
-final `PILOT` gate must replace every pending cell with reproducible decimal
-measurements before it can pass:
+FIX-03 now supplies one reproducible source-count comparison for
+`workspace-task-owners`: the pinned EA-01 baseline and pre-correction EA-09
+landing both contain nine direct stored workspace Task owners, while the FIX-03
+tree contains eight. The other metric names remain `pending`, not invented
+numbers or reductions. The final `PILOT` gate must replace every remaining
+pending cell with reproducible decimal measurements before it can pass:
 
 | Reduction metric | Baseline | Current | Requirement |
 | --- | --- | --- | --- |
 | independent-admission-sites | pending | pending | decreased |
-| workspace-task-owners | pending | pending | decreased |
+| workspace-task-owners | 9 | 8 | decreased |
 | environment-mode-branches | pending | pending | decreased |
 | direct-effect-calls | pending | pending | decreased |
 | operator-workspace-policy-state | pending | pending | decreased |
@@ -168,23 +199,21 @@ Canonical routed-document dispositions for this task-local complete EA-09 candid
 
 This is software evidence only. No attended controller, camera, motion, Pen,
 paper, operator-click, or observed-ink validation occurred. No remote-Git
-action, Blackdog landing, canonical-`main` cleanup, or GATE-01 continuation
-decision is claimed.
+action or GATE-01 continuation decision is claimed.
 
-## Drawing run episode cutover candidate
+## Drawing run episode cutover
 
 Integrated 2026-08-29 in Blackdog task `TASK-51550DB1`, attempt
 `TASK-51550DB1-84f1763c31b5`, from canonical `main` base
-`f244cf9761c16bcb19b11a0912eb6370168d356c`. EA-08B is complete only in this
-task-local candidate: its authority/deletion implementation, corrected focused
-suite, same-critic correction-cycle acceptance, and all seven package gates are
-complete. Only Blackdog landing, canonical-`main` cleanup verification, and
-conditional successor-capsule creation remain pending and are not claimed.
+`f244cf9761c16bcb19b11a0912eb6370168d356c`. EA-08B landed on canonical
+`main` at `ccb06859fe7ca00011f71ef30f6a6ade6c7109c4`: its
+authority/deletion implementation, corrected focused suite, same-critic
+correction-cycle acceptance, and all seven package gates are complete.
 Migration remained incomplete; the statement that EA-09 had not been selected
 was accurate for the frozen EA-08B acceptance and is superseded by the current
 EA-09 section above.
 
-The candidate makes one actor-isolated `PlotterDrawingRunRuntime` the
+The landed cutover makes one actor-isolated `PlotterDrawingRunRuntime` the
 source-indexed Drawing Studio run authority. Every
 `PlotterDrawingRunSubmission` binds one `PlotterDrawingRunRequestID`, the
 immutable `PlotterDrawingRunRevision`, exact environment and plan identity, and
@@ -202,10 +231,10 @@ assertion, Learning prerequisite, LIVE environment, and controller readiness
 around each physical boundary. Pre-effect drift produces an exact typed refusal
 with compared requirement, owner, revisions, and remedy and invokes no machine,
 Pen, camera, Vision, or archive port. The runtime-owned admission-closed latch
-is set before App shutdown awaits the tracked run, then rechecked after every
-suspension and immediately before every lower effect. Admission is FIFO and
-exclusive; one active RunID owns progress, exact Stop capability, settlement,
-terminal publication, and review handoff.
+is set before runtime shutdown joins the admitted run, then rechecked after
+every suspension and immediately before every lower effect. Admission is FIFO
+and exclusive; one active RunID owns progress, exact Stop capability,
+settlement, terminal publication, shutdown quiescence, and review handoff.
 
 The admitted LIVE chain is: idempotent Pen Up normalization; supervised travel
 to the observation pose when required; an exact local baseline capture; lower
@@ -244,11 +273,12 @@ interpreter, camera, Vision, or archive effects. The runtime sets
 does not turn software validation into attended physical evidence.
 
 Production composition injects one exact runtime and the nominal retained-owner
-adapters. The App owns one tracked start task only to await the runtime call and
-projects the runtime's active snapshot; it does not duplicate run admission,
-Stop, evidence publication, review, or no-redraw authority. The explicitly
-retained Drawing Border workflow uses package-only nominal lower adapters and
-keeps its later EA-10E sequencing and evidence semantics.
+adapters. The App awaits async runtime submission directly and owns no stored
+run-lifetime or shutdown-join Task; it projects the runtime's active snapshot
+and does not duplicate run admission, Stop, evidence publication, review, or
+no-redraw authority. The explicitly retained Drawing Border workflow uses
+package-only nominal lower adapters and keeps its later EA-10E sequencing and
+evidence semantics.
 
 The cutover deletes `DrawingStudioRunStateStorage`, `DrawingEvidenceActions`,
 `PlotterDrawingStudioRunSynchronizationGate`, `runDrawingStudioPlan`,
@@ -358,13 +388,12 @@ passed, but EA-09 selection still awaited Blackdog landing, clean canonical
 `main`, and successor-capsule generation. The current section above supersedes
 that historical frontier state with the task-local complete, unlanded EA-09 candidate.
 
-## Drawing draft episode cutover candidate
+## Drawing draft episode cutover
 
 Integrated 2026-08-28 in Blackdog task `TASK-5700F7F5`, attempt
 `TASK-5700F7F5-0ad2465cded1`, from canonical `main` base `ac6a6688`.
-EA-08A is complete only in this task-local candidate; migration remains
-incomplete. Blackdog landing, canonical-`main` cleanup verification, and the
-conditional EA-08B successor capsule remain pending.
+EA-08A landed on canonical `main` at
+`f244cf9761c16bcb19b11a0912eb6370168d356c`; migration remains incomplete.
 
 The accepted slice makes `PlotterDrawingDraftRuntime` the single source-indexed
 Drawing Studio draft authority. A `PlotterDrawingDraftSubmission` binds one
@@ -735,7 +764,7 @@ EA-07's successor capsule was generated from clean canonical `main` and EA-08A
 was selected in `TASK-5700F7F5`. That later package's task-local candidate is
 the current section above.
 
-## Episode manual-motion cutover candidate
+## Episode manual-motion cutover
 
 Operator-authorized Option A candidate after critic RETASK #6, 2026-08-28, in Blackdog task
 `TASK-FE9C9CB3`. Before this documentation delta, the shared tracked diff had
@@ -760,8 +789,8 @@ below. This exact five-bound tree passed all seven package gates serially, as
 recorded below. Per operator policy, no new or full critic was commissioned and
 no further critic is required or allowed. EA-06 is complete in the task-local
 candidate delivered by `TASK-FE9C9CB3`, attempt
-`TASK-FE9C9CB3-54834fa90e36`; migration remains incomplete. Blackdog
-landing/cleanup and successor-capsule creation are the only remaining steps.
+`TASK-FE9C9CB3-54834fa90e36`, and landed on canonical `main` at
+`70057118669a570dd51eb10445b121b933a156da`; migration remains incomplete.
 
 The coordinator accepted the bounded runtime/model slice comprising the typed
 manual intent and capability facts, pure evaluator and reducer integration,
@@ -1023,13 +1052,13 @@ serial package-gate sequence:
 
 | Current serial validation on the exact Option A tree | Result | Exact log SHA-256 |
 | --- | --- | --- |
-| `MOTION` | passed — `swift test --filter PlotterManualMotionEpisodeTests`; 15/15 tests passed | `9aaa0b87c20d05ae3d98d3c5c9c50a79d00942547e3fafd2e7f93f637fdc873f` |
-| `DELETE` | passed — `sh Scripts/check_episode_cutover.sh EA-06`; all 26 exact scans had zero matches | `b841daa4968ac8fa3bb03058663abc9e8fbcab9fd5d65487b6fb2aa786afb04e` |
 | `DOC` | passed — `make docs-check`; both documentation contracts plus 29/29 documentation/checker tests passed | `8986b9a8dc4091c34c32da507c6a29c0ebb54685067335f5641007868c26ce8d` |
 | `DIFF` | passed — `git diff --check`; clean with no output | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
 | `QUICK` | passed — `make quick-test`; 699/699 tests passed with exactly 10 configured exclusions | `6d9cc817581951b1ec9e024f9522e43337f81a6ff06bc4a90973efd7998c1794` |
 | `JOURNEY` | passed — `make journey-test`; 10/10 filter-selected tests passed | `a4370968c633e28fbdb6685017c4c200f68eb5dd66be1efa876b378ad9fcc27c` |
 | `STRICT` | passed — `make strict-check`; strict-concurrency/warnings-as-errors, 709/709 tests with no exclusions, both documentation contracts, and 29/29 documentation/checker tests passed | `06c6f7c1a5aef895850bedc4c502c8a0acf60aa7836d754e69225dd7c564f06a` |
+| `MOTION` | passed — `swift test --filter PlotterManualMotionEpisodeTests`; 15/15 tests passed | `9aaa0b87c20d05ae3d98d3c5c9c50a79d00942547e3fafd2e7f93f637fdc873f` |
+| `DELETE` | passed — `sh Scripts/check_episode_cutover.sh EA-06`; all 26 exact scans had zero matches | `b841daa4968ac8fa3bb03058663abc9e8fbcab9fd5d65487b6fb2aa786afb04e` |
 
 These results are current evidence for the exact frozen source tree and
 pre-evidence-doc tracked identity above. This final evidence/checker delta
@@ -1263,10 +1292,6 @@ select or dispatch EA-07.
 
 | Candidate package | Blackdog task | Current gate state | Landing boundary |
 | --- | --- | --- | --- |
-| EA-06 | `TASK-FE9C9CB3` | `DOC`=rerun-required, `DIFF`=rerun-required, `QUICK`=rerun-required, `JOURNEY`=passed, `STRICT`=rerun-required, `MOTION`=passed, `DELETE`=passed | The exact frozen tree passed all seven gates. Refresh affected `DOC`, `DIFF`, `QUICK`, and `STRICT` on this final evidence candidate as part of Blackdog landing, then replace this staged candidate with ordinary passed evidence after canonical `main` is verified clean; `CITED_RACE_CLOSED` already closes the critic boundary and no further critic is required or allowed. |
-| EA-08A | `TASK-5700F7F5` | `DOC`=passed, `DIFF`=passed, `QUICK`=passed, `STRICT`=passed, `DRAW-DRAFT`=passed, `DELETE`=passed | All six package gates passed: `DRAW-DRAFT` 17/17, `DELETE` 4/4, `DOC` 29/29, clean `DIFF`, `QUICK` 720/720, and `STRICT` 727/727 plus strict-concurrency warnings-as-errors, signing, launcher, negative-bundle, and documentation checks. Earlier failed/interrupted invocations remain nonpass history. The original critic result is `RETASK`; its corrected three-finding delta recheck ended exactly `UNANIMOUS PASS — no material disagreement`, so criticism is closed. Blackdog landing, canonical-`main` cleanup verification, and conditional EA-08B successor-capsule creation remain pending. No landing or cleanup is claimed. |
-| EA-08B | `TASK-51550DB1` | `DOC`=passed, `DIFF`=passed, `QUICK`=passed, `JOURNEY`=passed, `STRICT`=passed, `DRAW-RUN`=passed, `DELETE`=passed | All seven package gates passed: `DOC` 29/29 in 11.35 seconds, clean `DIFF`, `QUICK` 730/730 in 15.19 seconds, `JOURNEY` 7/7 in 6.32 seconds, `STRICT` 737/737 plus 29/29 docs in approximately 112.10 seconds, `DRAW-RUN` 12/12 in 0.343 seconds, and `DELETE` 5/5 in 0.10 seconds. The sole fresh critic's original verdict was `RETASK`; its correction-cycle-1 exact final verdict was `UNANIMOUS PASS — no material disagreement`, so criticism is closed and no new, full, or post-pass critic is required or allowed. Only Blackdog landing, canonical-`main` cleanup verification, and conditional EA-09 successor-capsule creation remained pending at that frozen acceptance. The current first section supersedes that frontier with task-local complete EA-09. |
-| EA-09 | `TASK-D55FD455` | `DOC`=passed, `DIFF`=passed, `QUICK`=passed, `JOURNEY`=passed, `STRICT`=passed, `UI`=passed, `DELETE`=passed | All seven package gates passed: `DOC` 29/29 in a final real 14.82 seconds, clean `DIFF` in a real 0.05 seconds, `QUICK` 750/750 after 15.778 seconds in a real 18.22 seconds, `JOURNEY` 7/7 after 7.347 seconds in a real 8.66 seconds, `STRICT` 757/757 plus 29/29 docs in a real 141.81 seconds, `UI` 17/17 after 0.093 seconds in a final real 85.36 seconds, and `DELETE` 16/16 plus topology validation in a real 0.45 seconds. The initial and correction-cycle-1 verdicts were `RETASK`; correction-cycle-2 ended exactly `UNANIMOUS PASS — no material disagreement`. After the authorized exceptional test-only gate repair, production source remained unchanged, five stale integration-test files were repaired, the same critic's exceptional delta verdict was exactly `UNANIMOUS PASS — no material disagreement`, and the final gates passed. Criticism is closed and no new or post-pass critic occurred. Only Blackdog landing and canonical-`main` cleanup verification remain for EA-09; GATE-01 remains separately pending with its Pilot predicates and reduction metrics unproved. No attended physical or remote-Git validation occurred or is claimed. |
 
 Canonical routed-document review dispositions for the EA-06 evidence integration:
 
@@ -1327,20 +1352,14 @@ Canonical routed-document review dispositions for the EA-06 evidence integration
 
 ## Work package gate evidence
 
-This table is machine-checked against every landed `complete` row in the
-canonical execution-plan ledger. Gate names must match that package's required
-gates exactly, and every recorded result must be `passed`. The temporary
-exceptions are the explicitly named staged candidates above. EA-06 retains its
-recorded source-bound pass/rerun boundary. EA-07 is ordinary landed evidence;
-its focused authority suite remains correction evidence, not an additional
-package gate. EA-08A has all six package gates passed and a closed same-critic
-delta. EA-08B has all seven package gates passed and a closed same-critic
-correction cycle. Earlier failed or interrupted invocations remain nonpass history.
-EA-09 has all seven package gates passed, two exact same-critic acceptance
-verdicts over its final source and exceptional test-repair deltas, and remains
-an explicitly unlanded candidate; GATE-01 remains pending.
-Detailed scope and limitations remain in the
-named evidence sections.
+This table is machine-checked against every `complete` row in the canonical
+execution-plan ledger. Gate names match each package's required gates exactly,
+and every recorded result is `passed`. EA-06, EA-08A, EA-08B, and EA-09 are
+reconciled to their canonical-main landing commits rather than retained as
+stale task-local candidates. FIX-03 is the current accepted task candidate and
+will become ordinary landed evidence through its recorded Blackdog lifecycle;
+GATE-01 remains pending. Detailed scope and limitations remain in the named
+evidence sections.
 
 | Package | Blackdog task | Gate results | Evidence section |
 | --- | --- | --- | --- |
@@ -1359,7 +1378,12 @@ named evidence sections.
 | EA-05C | `TASK-1DDBA6F2` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed`, `INCIDENT=passed` | Episode incident package foundation |
 | EA-04 | `TASK-A5FF364B` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed`, `POINT=passed`, `DELETE=passed` | Episode point-selection cutover |
 | FIX-02 | `TASK-30357281` | `LINK-OBS=passed`, `LINK-SAFETY=passed`, `RUNTIME=passed`, `JOURNEY=passed`, `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed` | Machine-link transcript observability correction |
+| EA-06 | `TASK-FE9C9CB3` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `JOURNEY=passed`, `STRICT=passed`, `MOTION=passed`, `DELETE=passed` | Episode manual-motion cutover |
 | EA-07 | `TASK-6C2D055B` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `JOURNEY=passed`, `STRICT=passed`, `SIM=passed`, `DELETE=passed` | Causal simulator environment cutover |
+| EA-08A | `TASK-5700F7F5` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed`, `DRAW-DRAFT=passed`, `DELETE=passed` | Drawing draft episode cutover |
+| EA-08B | `TASK-51550DB1` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `JOURNEY=passed`, `STRICT=passed`, `DRAW-RUN=passed`, `DELETE=passed` | Drawing run episode cutover |
+| EA-09 | `TASK-D55FD455` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `JOURNEY=passed`, `STRICT=passed`, `UI=passed`, `DELETE=passed` | Episode UI cutover |
+| FIX-03 | `TASK-0A7AB3EE` | `DRAW-RUN=passed`, `TASK-METRIC=passed`, `DELETE=passed`, `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed` | Pre-GATE-01 Drawing Run task-owner correction |
 
 ## Wave admission blockers
 

@@ -42,6 +42,7 @@ class PilotGateTests(unittest.TestCase):
             "EA-07": ["SIM", "DELETE"], "EA-04": ["DELETE"],
             "EA-08A": ["DELETE"], "EA-08B": ["DELETE"],
             "EA-09": ["UI", "DELETE"],
+            "FIX-03": ["DRAW-RUN", "TASK-METRIC", "DELETE", "DOC", "DIFF", "QUICK", "STRICT"],
         })
         ledger = [
             "| ID | Status | Dependencies | Class | Atomic package outcome | Required gates |",
@@ -51,7 +52,7 @@ class PilotGateTests(unittest.TestCase):
             dependencies = "none" if package == "DOC-00" else "DOC-00"
             gate_cell = ", ".join(f"`{gate}`" for gate in gates[package])
             ledger.append(f"| {package} | complete | {dependencies} | software | outcome | {gate_cell} |")
-        ledger.append("| GATE-01 | pending | EA-09 | gate | decision only | `DOC`, `DIFF`, `PILOT` |")
+        ledger.append("| GATE-01 | pending | FIX-03 | gate | decision only | `DOC`, `DIFF`, `PILOT` |")
         inventory = [
             "| Inventory ID | Category | Current source seams | Current owner and behavior | Disposition | Cutover | Focused command |",
             "| --- | --- | --- | --- | --- | --- | --- |",
