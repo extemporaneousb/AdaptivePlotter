@@ -132,9 +132,13 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         self.assertEqual("complete", rows["EA-08B"]["status"])
         self.assertEqual("complete", rows["EA-09"]["status"])
         self.assertEqual("complete", rows["FIX-03"]["status"])
+        self.assertEqual("complete", rows["DOC-03"]["status"])
+        self.assertEqual("pending", rows["EA-10A"]["status"])
         self.assertEqual("pending", rows["GATE-01"]["status"])
         self.assertEqual({}, blockers)
         evidence = (self.root / "docs/CURRENT_EVIDENCE.md").read_text(encoding="utf-8")
+        self.assertIn("Pilot dependency-cycle correction", evidence)
+        self.assertIn("TASK-B7C9E592-3408edcef715", evidence)
         self.assertIn("Pre-GATE-01 Drawing Run task-owner correction", evidence)
         self.assertIn("exactly `drawingRunTask` removed", evidence)
         self.assertIn("TASK-0A7AB3EE-80f88f4a41d8", evidence)
@@ -323,7 +327,7 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         consumed = self.consume()
         self.assertEqual(created, consumed)
         self.assertEqual("selected", consumed["contract"]["frontier"]["state"])
-        self.assertEqual("GATE-01", consumed["contract"]["package"]["id"])
+        self.assertEqual("EA-10A", consumed["contract"]["package"]["id"])
         self.assertEqual(0o600, stat.S_IMODE(self.path.stat().st_mode))
         purposes = {item["purpose"] for item in consumed["pointers"]}
         self.assertIn("required gate catalog row", purposes)
@@ -347,14 +351,14 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
             row = [cell.strip() for cell in selected_text.strip().strip("|").split("|")]
             if (
                 len(row) == 6
-                and row[:4] == ["GATE-01", "pending", "FIX-03", "gate"]
-                and row[4].startswith("Decide pilot continuation")
-                and row[5] == "`DOC`, `DIFF`, `PILOT`"
+                and row[:4] == ["EA-10A", "pending", "DOC-03", "software"]
+                and row[4].startswith("Cutover: transfer Pen Interaction")
+                and row[5] == "`DOC`, `DIFF`, `QUICK`, `STRICT`, `PEN`, `DELETE`"
             ):
                 ledger_rows.append((selected, row))
         self.assertEqual(1, len(ledger_rows))
         selected, selected_row = ledger_rows[0]
-        self.assertEqual("GATE-01", selected_row[0])
+        self.assertEqual("EA-10A", selected_row[0])
         self.assertNotEqual("FIX-02", selected_row[0])
         view = capsule.canonical_bytes(capsule.consumption_view(consumed))
         self.assertLess(len(view), capsule.MAX_CONSUMPTION_BYTES)
@@ -367,8 +371,8 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
             "| --- | --- | --- |\n"
         )
         blocked_table = table + (
-            "| GATE-01 | Pilot reduction evidence is unresolved | "
-            "Complete the canonical Pilot predicate and metric tables |\n"
+            "| EA-10A | DOC-03 landing is not reconciled | "
+            "Land DOC-03 and generate the canonical successor capsule |\n"
         )
         self.assertIn(table, evidence)
         evidence_path.write_text(evidence.replace(table, blocked_table, 1), encoding="utf-8")
@@ -377,12 +381,12 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         created = self.build_and_write()
 
         self.assertEqual("evidence_blocked", created["launch"]["state"])
-        self.assertEqual("GATE-01", created["contract"]["frontier"]["package_id"])
+        self.assertEqual("EA-10A", created["contract"]["frontier"]["package_id"])
         self.assertEqual(
-            "Pilot reduction evidence is unresolved",
+            "DOC-03 landing is not reconciled",
             created["contract"]["frontier"]["blocker"]["blocker"],
         )
-        self.assertNotEqual("EA-10A", created["contract"]["frontier"]["package_id"])
+        self.assertNotEqual("GATE-01", created["contract"]["frontier"]["package_id"])
 
     def test_contract_import_does_not_emit_bytecode_into_clean_repository(self) -> None:
         cache_path = self.root / "Scripts/__pycache__"
@@ -503,7 +507,8 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
     def test_authorization_boundary_is_not_selected(self) -> None:
         rows = {
             "EA-11C": {"status": "complete", "class": "software", "dependencies": []},
-            "VAL-01": {"status": "pending", "class": "attended-physical", "dependencies": ["EA-11C"]},
+            "GATE-01": {"status": "complete", "class": "gate", "dependencies": ["EA-11C"]},
+            "VAL-01": {"status": "pending", "class": "attended-physical", "dependencies": ["GATE-01"]},
         }
         result = capsule.contract_frontier(rows, None)
         self.assertEqual({"state": "authorization_boundary", "package_id": "VAL-01", "incomplete_dependencies": []}, result)

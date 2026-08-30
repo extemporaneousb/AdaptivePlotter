@@ -28,7 +28,7 @@ EVIDENCE_PATH = ROOT / "docs" / "CURRENT_EVIDENCE.md"
 ARCHITECTURE_PATH = ROOT / "docs" / "SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md"
 PRODUCT_PATH = ROOT / "docs" / "PRODUCT_CONTRACT.md"
 # Updated in the same package whenever a canonical ledger row changes.
-EXPECTED_LEDGER_SHA256 = "d5bc51ed2b5b8a2a0ccf450d59c35a438d1345df369ed47f1aeec26b9dbbba3a"
+EXPECTED_LEDGER_SHA256 = "4c2f7b7bf58b42cdbf31eac936bb83304d4a935fb85f74875cb6d29f4e1c93d3"
 
 
 EXPECTED_GATES = {
@@ -133,8 +133,8 @@ EXPECTED_PACKAGE_SHAPES = {
     "EA-08B": (["EA-08A"], "software", ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "DRAW-RUN", "DELETE"]),
     "EA-09": (["EA-04", "EA-06", "EA-08B"], "software", ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "UI", "DELETE"]),
     "FIX-03": (["EA-09"], "software", ["DRAW-RUN", "TASK-METRIC", "DELETE", "DOC", "DIFF", "QUICK", "STRICT"]),
-    "GATE-01": (["FIX-03"], "gate", ["DOC", "DIFF", "PILOT"]),
-    "EA-10A": (["GATE-01"], "software", ["DOC", "DIFF", "QUICK", "STRICT", "PEN", "DELETE"]),
+    "DOC-03": (["FIX-03"], "repository", ["DOC", "DIFF"]),
+    "EA-10A": (["DOC-03"], "software", ["DOC", "DIFF", "QUICK", "STRICT", "PEN", "DELETE"]),
     "EA-10B": (["EA-10A"], "software", ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "BOUNDARY", "DELETE"]),
     "EA-10C": (["EA-10B"], "software", ["DOC", "DIFF", "QUICK", "STRICT", "CAMERA-CAL", "DELETE"]),
     "EA-10D": (["EA-10C"], "software", ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "TIP-CAL", "DELETE"]),
@@ -144,7 +144,8 @@ EXPECTED_PACKAGE_SHAPES = {
     "EA-11A": (["EA-10G"], "software", ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "SESSION", "DELETE"]),
     "EA-11B": (["EA-10G"], "software", ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "OBSERVATION-CONFIG", "DELETE"]),
     "EA-11C": (["EA-11A", "EA-11B"], "software", ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "COMPOSITION", "DELETE"]),
-    "VAL-01": (["EA-11C"], "attended-physical", ["DOC", "DIFF", "STRICT", "PHYSICAL-FINAL"]),
+    "GATE-01": (["EA-11C"], "gate", ["DOC", "DIFF", "PILOT"]),
+    "VAL-01": (["GATE-01"], "attended-physical", ["DOC", "DIFF", "STRICT", "PHYSICAL-FINAL"]),
     "GATE-02": (["VAL-01"], "gate", ["DOC", "DIFF", "FINAL-GATE"]),
 }
 
@@ -201,11 +202,10 @@ EXPECTED_COMPLETE_PACKAGES = {
     "EA-08B",
     "EA-09",
     "FIX-03",
+    "DOC-03",
 }
 
-# Canonical Current Evidence has been reconciled to the landed package rows.
-# FIX-03 is recorded directly as the accepted task candidate that Blackdog will
-# land, so no predecessor remains in the stale-candidate table.
+# Canonical Current Evidence has final passed evidence for every complete row.
 EXPECTED_UNLANDED_COMPLETION_CANDIDATES: dict[str, tuple[str, list[str]]] = {}
 
 def fail(message: str) -> None:
@@ -1008,6 +1008,16 @@ def validate_plan(text: str) -> dict[str, dict[str, object]]:
             "exactly `drawingRunTask` removed relative to the pre-correction EA-09 landing",
             "Completed by `TASK-0A7AB3EE`, attempt `TASK-0A7AB3EE-80f88f4a41d8`",
             "package FIX-03 complete, migration remains incomplete",
+        ),
+        "DOC-03": (
+            "Relocate the unchanged `GATE-01` Pilot continuation decision after `EA-11C`",
+            "`operator-workspace-policy-state` remained 6 to 6",
+            "`operator-workspace-adapters` increased from 7 to 10",
+            "Make EA-10A depend on DOC-03 and VAL-01 depend on GATE-01",
+            "without moving product authority, weakening any Pilot predicate or threshold, running GATE-01, or claiming it passed",
+            "Completed by `TASK-B7C9E592`, attempt `TASK-B7C9E592-3408edcef715`",
+            "package DOC-03 complete, migration remains incomplete",
+            "Both package gates passed: `DOC` 29/29 in 14.014 seconds with 14.770 seconds wall time and documentation/architecture contracts passed; `DIFF` exit 0 with no output in less than 0.01 seconds",
         ),
         "EA-10G": (
             "advisory-speech effect authority",
@@ -2258,6 +2268,18 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
     """Validate current evidence without coupling it to superseded candidate prose."""
     normalized = re.sub(r"\s+", " ", text)
     for required_phrase in (
+        "Pilot dependency-cycle correction",
+        "`TASK-B7C9E592`, attempt `TASK-B7C9E592-3408edcef715`",
+        "DOC-03 is complete; migration remains incomplete",
+        "`operator-workspace-policy-state` was 6 to 6, not decreased",
+        "`operator-workspace-adapters` was 7 to 10, not not-increased",
+        "These are failed pre-relocation measurements, not passed Pilot evidence",
+        "GATE-01 could not pass until the authority transfers assigned to EA-10A through EA-11C reduced the remaining policy and adapter ownership, but those same packages depended on GATE-01",
+        "Every Pilot predicate, metric name, and decrease/not-increase threshold remains unchanged",
+        "GATE-01 was not run and is not complete",
+        "29/29 passed in 14.014 seconds, 14.770 seconds wall; documentation and architecture contracts passed",
+        "exit 0, no output, less than 0.01 seconds wall",
+        "No EA-10A work is selected or dispatched by this evidence update",
         "Pre-GATE-01 Drawing Run task-owner correction",
         "`TASK-0A7AB3EE`, attempt `TASK-0A7AB3EE-80f88f4a41d8`",
         "removes the redundant stored `OperatorWorkspace.drawingRunTask`",
@@ -2308,6 +2330,12 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
         if name == "workspace-task-owners":
             if (baseline, current) != ("9", "8"):
                 fail(f"workspace Task metric must be source-derived 9->8: {baseline}->{current}")
+        elif name == "operator-workspace-policy-state":
+            if (baseline, current) != ("6", "6"):
+                fail(f"pre-relocation policy-state failure must remain 6->6: {baseline}->{current}")
+        elif name == "operator-workspace-adapters":
+            if (baseline, current) != ("7", "10"):
+                fail(f"pre-relocation adapter failure must remain 7->10: {baseline}->{current}")
         elif (baseline, current) != ("pending", "pending"):
             fail(f"unmeasured GATE-01 metric must remain pending: {name}")
 
@@ -2446,13 +2474,14 @@ def validate_wave_frontier(
     blockers = parse_wave_admission_blockers(evidence, rows)
     selected = ordinary_wave_frontier(rows, set(blockers))
     if selected is not None:
-        if selected != "GATE-01":
+        if selected != "EA-10A":
             fail(f"unexpected current ordinary wave frontier: {selected}")
         for phrase in (
-            "Pre-GATE-01 Drawing Run task-owner correction",
-            "`TASK-0A7AB3EE`, attempt `TASK-0A7AB3EE-80f88f4a41d8`",
-            "workspace-task-owners` reduction",
-            "GATE-01 was not rerun and EA-10A was not started",
+            "Pilot dependency-cycle correction",
+            "`TASK-B7C9E592`, attempt `TASK-B7C9E592-3408edcef715`",
+            "GATE-01 was not run and is not complete",
+            "EA-10A remains the undispatched successor frontier until Blackdog landing",
+            "No EA-10A work is selected or dispatched by this evidence update",
             "The retired `PHYSICAL-BASE` result is `failed`",
         ):
             if phrase not in normalized:

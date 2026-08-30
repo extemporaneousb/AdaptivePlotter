@@ -27,9 +27,13 @@ REQUIRED_PACKAGES = (
     "DOC-00", "DOC-01", "EA-01", "FIX-00", "FIX-01", "DOC-02", "EA-02A",
     "EA-02B", "EA-03A", "EA-03B", "EA-05A", "EA-05B", "EA-05C", "EA-04",
     "FIX-02", "EA-06", "EA-07", "EA-08A", "EA-08B", "EA-09", "FIX-03",
+    "DOC-03", "EA-10A", "EA-10B", "EA-10C", "EA-10D", "EA-10E", "EA-10F",
+    "EA-10G", "EA-11A", "EA-11B", "EA-11C",
 )
 MIGRATED_CUTOVERS = (
     "EA-04", "EA-06", "EA-07", "EA-08A", "EA-08B", "EA-09", "FIX-03",
+    "EA-10A", "EA-10B", "EA-10C", "EA-10D", "EA-10E", "EA-10F", "EA-10G",
+    "EA-11A", "EA-11B", "EA-11C",
 )
 PREDICATES = {
     "GENERICITY": ("EA-02A/CORE", "EA-02B/PLOTTER-MODEL"),
@@ -115,7 +119,7 @@ def parse_ledger(plan: str) -> dict[str, dict[str, object]]:
     gate = result.get("GATE-01")
     if gate is None:
         fail("required GATE-01 ledger row is absent")
-    if gate["dependencies"] != ["FIX-03"] or gate["class"] != "gate" or gate["gates"] != ["DOC", "DIFF", "PILOT"]:
+    if gate["dependencies"] != ["EA-11C"] or gate["class"] != "gate" or gate["gates"] != ["DOC", "DIFF", "PILOT"]:
         fail(f"GATE-01 contract mismatch: {gate}")
     if gate["status"] not in {"pending", "complete"}:
         fail(f"GATE-01 has invalid status: {gate['status']}")
@@ -288,7 +292,10 @@ def main() -> int:
     except (OSError, GateError) as error:
         print(f"episode Pilot gate failed: {error}", file=sys.stderr)
         return 1
-    print("episode Pilot gate passed: 9 predicates, 6 reduction metrics, 6 cutover scan sets")
+    print(
+        "episode Pilot gate passed: 9 predicates, 6 reduction metrics, "
+        f"{len(MIGRATED_CUTOVERS)} cutover scan sets"
+    )
     return 0
 
 

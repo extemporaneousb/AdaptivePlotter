@@ -8,6 +8,63 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Pilot dependency-cycle correction
+
+Selected 2026-08-30 as repository package `DOC-03` in Blackdog task
+`TASK-B7C9E592`, attempt `TASK-B7C9E592-3408edcef715`. DOC-03 is complete;
+migration remains incomplete. It changed only canonical documentation and
+executable checker expectations. It moved no product, runtime, device, effect,
+Stop, evidence, or physical authority.
+
+The pre-relocation GATE-01 inspection failed two unchanged reduction
+requirements. `operator-workspace-policy-state` was 6 to 6, not decreased:
+`frameMode`, `liveLearningSession`, `simulatedLearningSession`,
+`activeStoppableOperation`, `activeHardwareIntentCount`, and
+`intentDrainWaiters` remained. `operator-workspace-adapters` was 7 to 10, not
+not-increased: the current set retained five earlier façade properties and
+added `drawingRunFactSource`, `drawingRunInterpreterPort`,
+`drawingRunCameraPort`, `drawingEvidencePort`, and
+`causalSimulatorEffectAdapter`. These are failed pre-relocation measurements,
+not passed Pilot evidence.
+
+That failure exposed a dependency cycle rather than a reason to weaken or
+reclassify either metric. GATE-01 could not pass until the authority transfers
+assigned to EA-10A through EA-11C reduced the remaining policy and adapter
+ownership, but those same packages depended on GATE-01. DOC-03 therefore moves
+the unchanged pending gate after EA-11C, makes EA-10A depend on DOC-03, and
+makes VAL-01 depend on GATE-01. Every Pilot predicate, metric name, and
+decrease/not-increase threshold remains unchanged. The eventual Pilot checker
+must require completed package evidence through DOC-03, EA-10A through EA-10G,
+and EA-11A through EA-11C, including every required same-landing `DELETE` gate.
+GATE-01 was not run and is not complete.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `DOC` | passed — `make docs-check`; 29/29 passed in 14.014 seconds, 14.770 seconds wall; documentation and architecture contracts passed | canonical dependency order, evidence, and executable checker fixtures |
+| `DIFF` | passed — `git diff --check`; exit 0, no output, less than 0.01 seconds wall | whitespace/error diff validation for this documentation-only package |
+
+EA-10A remains the undispatched successor frontier until Blackdog landing,
+clean canonical-main verification, and successor-capsule generation. No EA-10A
+work is selected or dispatched by this evidence update.
+
+Canonical routed-document dispositions for DOC-03:
+
+- Affected — Episode Architecture Execution Plan and Current Evidence: exact
+  dependency order, failed pre-relocation measurements, task identity,
+  final DOC/DIFF evidence, and undispatched successor frontier.
+- Affected — `Scripts/check_episode_contract.py`,
+  `Scripts/check_episode_pilot_gate.py`, and their directly coupled fixtures:
+  exact ledger shape/frontier and eventual completed-package/deletion evidence.
+- Reviewed no change — Document Routing (`docs/INDEX.md`), Swift Architecture,
+  Product Contract, Episode Architecture Vocabulary, Discovery and Observed-
+  Trial Protocol, Learning Path Button Transitions, Roadmap, Attended Hardware
+  Runbook, README, `AGENTS.md`, `blackdog.toml`, `.gitignore`, and both
+  repository skills: DOC-03 moves no product, physical, lifecycle, routing,
+  vocabulary, or operator authority.
+- Reviewed no change — inventory and cutover checker implementations: their
+  current source inventory and package-specific zero-match scans remain the
+  authority consumed by the relocated Pilot checker.
+
 ## Pre-GATE-01 Drawing Run task-owner correction
 
 Selected 2026-08-30 as named software correction `FIX-03` in Blackdog task
@@ -156,7 +213,7 @@ GATE-01 reduction or continuation proof is still unmeasured remains `pending`:
 | REPLAY | passed | `EA-05B/REPLAY` |
 | DEVICE-OWNERS | passed | `EA-05A/RECORDING`, `FIX-02/LINK-OBS`, `FIX-02/LINK-SAFETY` |
 | ENVIRONMENT-GRAMMAR | pending | `EA-07/SIM`, `EA-09/UI` |
-| SAME-SLICE-DELETION | pending | `EA-04/DELETE`, `EA-06/DELETE`, `EA-07/DELETE`, `EA-08A/DELETE`, `EA-08B/DELETE`, `EA-09/DELETE` |
+| SAME-SLICE-DELETION | pending | `EA-04/DELETE`, `EA-06/DELETE`, `EA-07/DELETE`, `EA-08A/DELETE`, `EA-08B/DELETE`, `EA-09/DELETE`, `FIX-03/DELETE`, `EA-10A/DELETE`, `EA-10B/DELETE`, `EA-10C/DELETE`, `EA-10D/DELETE`, `EA-10E/DELETE`, `EA-10F/DELETE`, `EA-10G/DELETE`, `EA-11A/DELETE`, `EA-11B/DELETE`, `EA-11C/DELETE` |
 | AUTHORITY-REDUCTION | pending | `EA-01/INVENTORY`, `METRICS/AUTHORITY-REDUCTION` |
 | OBSERVABILITY | pending | `EA-05C/INCIDENT`, `EA-06/MOTION`, `EA-09/UI` |
 | WORKSPACE-REDUCTION | pending | `METRICS/WORKSPACE-REDUCTION` |
@@ -165,9 +222,11 @@ GATE-01 reduction or continuation proof is still unmeasured remains `pending`:
 FIX-03 now supplies one reproducible source-count comparison for
 `workspace-task-owners`: the pinned EA-01 baseline and pre-correction EA-09
 landing both contain nine direct stored workspace Task owners, while the FIX-03
-tree contains eight. The other metric names remain `pending`, not invented
-numbers or reductions. The final `PILOT` gate must replace every remaining
-pending cell with reproducible decimal measurements before it can pass:
+tree contains eight. Three still-unmeasured metric names remain `pending`, not
+invented numbers or reductions; the 6-to-6 policy-state and 7-to-10 adapter
+rows retain their exact failed pre-relocation facts. After EA-11C, the final
+`PILOT` gate must replace every remaining pending cell and remeasure both failed
+rows from source before it can pass:
 
 | Reduction metric | Baseline | Current | Requirement |
 | --- | --- | --- | --- |
@@ -175,8 +234,8 @@ pending cell with reproducible decimal measurements before it can pass:
 | workspace-task-owners | 9 | 8 | decreased |
 | environment-mode-branches | pending | pending | decreased |
 | direct-effect-calls | pending | pending | decreased |
-| operator-workspace-policy-state | pending | pending | decreased |
-| operator-workspace-adapters | pending | pending | not-increased |
+| operator-workspace-policy-state | 6 | 6 | decreased |
+| operator-workspace-adapters | 7 | 10 | not-increased |
 
 Canonical routed-document dispositions for this task-local complete EA-09 candidate:
 
@@ -1356,10 +1415,9 @@ This table is machine-checked against every `complete` row in the canonical
 execution-plan ledger. Gate names match each package's required gates exactly,
 and every recorded result is `passed`. EA-06, EA-08A, EA-08B, and EA-09 are
 reconciled to their canonical-main landing commits rather than retained as
-stale task-local candidates. FIX-03 is the current accepted task candidate and
-will become ordinary landed evidence through its recorded Blackdog lifecycle;
-GATE-01 remains pending. Detailed scope and limitations remain in the named
-evidence sections.
+stale task-local candidates. FIX-03 and DOC-03 have final completion evidence;
+GATE-01 remains pending after EA-11C. Detailed scope and limitations remain in
+the named evidence sections.
 
 | Package | Blackdog task | Gate results | Evidence section |
 | --- | --- | --- | --- |
@@ -1384,6 +1442,7 @@ evidence sections.
 | EA-08B | `TASK-51550DB1` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `JOURNEY=passed`, `STRICT=passed`, `DRAW-RUN=passed`, `DELETE=passed` | Drawing run episode cutover |
 | EA-09 | `TASK-D55FD455` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `JOURNEY=passed`, `STRICT=passed`, `UI=passed`, `DELETE=passed` | Episode UI cutover |
 | FIX-03 | `TASK-0A7AB3EE` | `DRAW-RUN=passed`, `TASK-METRIC=passed`, `DELETE=passed`, `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed` | Pre-GATE-01 Drawing Run task-owner correction |
+| DOC-03 | `TASK-B7C9E592` | `DOC=passed`, `DIFF=passed` | Pilot dependency-cycle correction |
 
 ## Wave admission blockers
 

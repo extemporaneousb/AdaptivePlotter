@@ -43,16 +43,44 @@ class PilotGateTests(unittest.TestCase):
             "EA-08A": ["DELETE"], "EA-08B": ["DELETE"],
             "EA-09": ["UI", "DELETE"],
             "FIX-03": ["DRAW-RUN", "TASK-METRIC", "DELETE", "DOC", "DIFF", "QUICK", "STRICT"],
+            "DOC-03": ["DOC", "DIFF"],
+            "EA-10A": ["DOC", "DIFF", "QUICK", "STRICT", "PEN", "DELETE"],
+            "EA-10B": ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "BOUNDARY", "DELETE"],
+            "EA-10C": ["DOC", "DIFF", "QUICK", "STRICT", "CAMERA-CAL", "DELETE"],
+            "EA-10D": ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "TIP-CAL", "DELETE"],
+            "EA-10E": ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "BORDER-VALIDATION", "DELETE"],
+            "EA-10F": ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "ARTIFACT-RESET", "DELETE"],
+            "EA-10G": ["DOC", "DIFF", "QUICK", "STRICT", "SPEECH", "DELETE"],
+            "EA-11A": ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "SESSION", "DELETE"],
+            "EA-11B": ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "OBSERVATION-CONFIG", "DELETE"],
+            "EA-11C": ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "COMPOSITION", "DELETE"],
         })
         ledger = [
             "| ID | Status | Dependencies | Class | Atomic package outcome | Required gates |",
             "| --- | --- | --- | --- | --- | --- |",
         ]
+        exact_later_dependencies = {
+            "DOC-03": "FIX-03",
+            "EA-10A": "DOC-03",
+            "EA-10B": "EA-10A",
+            "EA-10C": "EA-10B",
+            "EA-10D": "EA-10C",
+            "EA-10E": "EA-10D",
+            "EA-10F": "EA-10E",
+            "EA-10G": "EA-10F",
+            "EA-11A": "EA-10G",
+            "EA-11B": "EA-10G",
+            "EA-11C": "EA-11A, EA-11B",
+        }
         for package in pilot.REQUIRED_PACKAGES:
-            dependencies = "none" if package == "DOC-00" else "DOC-00"
+            dependencies = (
+                "none"
+                if package == "DOC-00"
+                else exact_later_dependencies.get(package, "DOC-00")
+            )
             gate_cell = ", ".join(f"`{gate}`" for gate in gates[package])
             ledger.append(f"| {package} | complete | {dependencies} | software | outcome | {gate_cell} |")
-        ledger.append("| GATE-01 | pending | FIX-03 | gate | decision only | `DOC`, `DIFF`, `PILOT` |")
+        ledger.append("| GATE-01 | pending | EA-11C | gate | decision only | `DOC`, `DIFF`, `PILOT` |")
         inventory = [
             "| Inventory ID | Category | Current source seams | Current owner and behavior | Disposition | Cutover | Focused command |",
             "| --- | --- | --- | --- | --- | --- | --- |",
@@ -114,6 +142,11 @@ class PilotGateTests(unittest.TestCase):
 
     def test_pending_landed_package_fails_closed(self) -> None:
         self._replace(self.root / pilot.PLAN, "| EA-09 | complete |", "| EA-09 | pending |")
+        with self.assertRaisesRegex(pilot.GateError, "not complete"):
+            pilot.evaluate(self.root)
+
+    def test_pending_post_doc03_package_fails_closed(self) -> None:
+        self._replace(self.root / pilot.PLAN, "| EA-10A | complete |", "| EA-10A | pending |")
         with self.assertRaisesRegex(pilot.GateError, "not complete"):
             pilot.evaluate(self.root)
 
