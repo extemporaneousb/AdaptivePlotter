@@ -828,6 +828,7 @@ private extension PlotterLearningPresentationFacts {
       source: source,
       learningEnabled: learningEnabled,
       penInteractionCompleted: penInteractionCompleted,
+      penInteraction: penInteraction,
       penActuationProfile: penActuationProfile,
       selectedBoundaryDirection: selectedBoundaryDirection,
       controller: controller,
@@ -861,6 +862,7 @@ private struct ActionSurfaceDiagnosticSignature: Equatable {
 final class OperatorWorkspace:
   PlotterUIIntentSink,
   PlotterLearningActivityFactProviding,
+  PlotterPenInteractionProjectionSink,
   PlotterDrawingDraftIntentSink,
   PlotterDrawingRunIntentSink,
   PlotterPointSelectionContinuationPort
@@ -969,29 +971,6 @@ final class OperatorWorkspace:
     var strokeState: DrawingStrokeExecutionState
   }
 
-  private struct PenCommandExecutionEvidence: Hashable, Sendable {
-    let command: PenCommand
-    let profile: PenActuationProfile
-    let outcome: PenOutcome
-    let timestamp: RuntimeTimestamp
-  }
-
-  private struct PenPhysicalConfirmationTransition: Hashable, Sendable {
-    let sequenceID: DiscoverySequenceID
-    let state: PenState
-    let response: OperatorChoice
-    let profile: PenActuationProfile
-    let position: MachinePosition?
-    let execution: PenCommandExecutionEvidence?
-    let timestamp: RuntimeTimestamp
-    let operatorSummary: String
-  }
-
-  private struct PenActuationPublication {
-    let outcome: PenOutcome?
-    let discoveryTransitionFailure: String?
-  }
-
   /// One complete learning authority value. LIVE and SIMULATED use the same
   /// contract while retaining independent storage and independent lifetimes.
   private struct LearningSessionState {
@@ -1025,18 +1004,6 @@ final class OperatorWorkspace:
     var explorationError: String?
     var drawingTrial: DrawingTrialState
     var learningArtifactGraph = LearningDependencyGraph()
-    var penAttemptHistory: ExerciseAttemptHistory<PenInteractionAttemptEvidence>
-    var penActuationProfile = PenActuationProfile.initialDefaults
-    var penActuationDraft: PenActuationProfile?
-    var lastPenExecutionByCommand: [PenCommand: PenCommandExecutionEvidence] = [:]
-    var pendingPenUpPositions: [MachinePosition?] = []
-    var pendingPenUpSpindleValues: [Int] = []
-    var pendingPenUpControllerOutcomes: [PenOutcome?] = []
-    var pendingPenUpTimestamps: [RuntimeTimestamp] = []
-    var pendingPenDownPositions: [MachinePosition?] = []
-    var pendingPenDownSpindleValues: [Int] = []
-    var pendingPenDownControllerOutcomes: [PenOutcome?] = []
-    var pendingPenDownTimestamps: [RuntimeTimestamp] = []
     var boundaryAttemptHistories:
       [BoundaryDirection: [AttemptCompatibility: ExerciseAttemptHistory<
         BoundarySideAttemptEvidence
@@ -1064,20 +1031,6 @@ final class OperatorWorkspace:
       paperInstanceRevision: UUID,
       paperContactPlaneRevision: UUID
     ) {
-      let simulated = source == .simulated
-      penAttemptHistory = try! ExerciseAttemptHistory(
-        compatibility: AttemptCompatibility(
-          cameraConfigurationID: nil,
-          coordinateSpace: .currentState,
-          units: .state,
-          group: AttemptGroupIdentity(
-            rawValue: simulated ? "simulated-pen-interaction" : "pen-interaction"
-          ),
-          algorithmRevision: simulated
-            ? "simulated-typed-operator-pen-observation-v1"
-            : "typed-operator-pen-observation-v1"
-        )
-      )
       drawingTrial = DrawingTrialState(source: source)
       explorationPaperInstanceRevision = paperInstanceRevision
       explorationPaperContactPlaneRevision = paperContactPlaneRevision
@@ -1094,48 +1047,6 @@ final class OperatorWorkspace:
       }
     }
 
-    mutating func applyPenPhysicalConfirmation(
-      _ transition: PenPhysicalConfirmationTransition
-    ) throws {
-      guard var transaction = discoveryTransactions[transition.sequenceID] else {
-        throw DiscoveryTransactionError.notActive
-      }
-      try transaction.record(
-        .physicalPenConfirmed(
-          transition.state,
-          response: transition.response,
-          operatorSummary: transition.operatorSummary
-        )
-      )
-
-      let command: PenCommand = transition.state == .down ? .lower : .raise
-      let setpoint = transition.profile.value(for: command)
-      if transition.state == .down {
-        pendingPenDownPositions.append(transition.position)
-        pendingPenDownSpindleValues.append(setpoint)
-        pendingPenDownControllerOutcomes.append(transition.execution?.outcome)
-        pendingPenDownTimestamps.append(transition.timestamp)
-      } else {
-        pendingPenUpPositions.append(transition.position)
-        pendingPenUpSpindleValues.append(setpoint)
-        pendingPenUpControllerOutcomes.append(transition.execution?.outcome)
-        pendingPenUpTimestamps.append(transition.timestamp)
-      }
-      penActuationProfile = transition.profile
-      penActuationDraft = transition.profile
-      discoveryTransactions[transition.sequenceID] = transaction
-    }
-
-    mutating func publishPenCommandSettlement(
-      command: PenCommand,
-      execution: PenCommandExecutionEvidence,
-      transaction: DiscoveryTransaction?
-    ) {
-      lastPenExecutionByCommand[command] = execution
-      if let transaction {
-        discoveryTransactions[transaction.definition.id] = transaction
-      }
-    }
   }
 
   private enum MotionPriors {
@@ -1363,9 +1274,11 @@ final class OperatorWorkspace:
       markSemanticPresentationChanged()
     }
   }
-  private(set) var penRequestInProgress = false {
+  /// App-retained Pen normalization outside PlotterPenInteractionRuntime. Typed
+  /// Pen Interaction submissions never write this foreign-owner fact.
+  private(set) var retainedPenRequestInProgress = false {
     didSet {
-      guard oldValue != penRequestInProgress else { return }
+      guard oldValue != retainedPenRequestInProgress else { return }
       markSemanticPresentationChanged(invalidatesActionSurface: false)
     }
   }
@@ -1392,8 +1305,6 @@ final class OperatorWorkspace:
   @ObservationIgnored private var currentPlotterUIBindingSemanticRevision: UInt64?
   @ObservationIgnored private var currentPlotterUIResetPlans:
     [PlotterUIActionID: LearningVacatePlan] = [:]
-  @ObservationIgnored private var pendingPenSetpointCommand: PenCommand?
-  @ObservationIgnored private var penSetpointActuationTask: Task<Void, Never>?
   @ObservationIgnored private var activeLearningActionTask: Task<Void, Never>?
   @ObservationIgnored private var activeLearningActionID: UUID?
   @ObservationIgnored private var semanticPresentationUpdateDepth = 0
@@ -1815,16 +1726,92 @@ final class OperatorWorkspace:
     get { activeLearningSession.learningArtifactGraph }
     set { activeLearningSession.learningArtifactGraph = newValue }
   }
-  private(set) var penAttemptHistory: ExerciseAttemptHistory<PenInteractionAttemptEvidence> {
-    get { activeLearningSession.penAttemptHistory }
-    set { activeLearningSession.penAttemptHistory = newValue }
+  private var currentPenInteractionSnapshot: PlotterPenInteractionRuntimeSnapshot? {
+    frameMode == .live ? livePenInteractionSnapshot : simulatedPenInteractionSnapshot
   }
-  private(set) var currentPenActuationProfile: PenActuationProfile {
-    get { activeLearningSession.penActuationProfile }
-    set { activeLearningSession.penActuationProfile = newValue }
+  private var currentPenActuationProfile: PenActuationProfile {
+    currentPenInteractionSnapshot?.profile ?? .initialDefaults
   }
   private var effectivePenActuationProfile: PenActuationProfile {
-    activeLearningSession.penActuationDraft ?? currentPenActuationProfile
+    currentPenActuationProfile
+  }
+
+  private var penInteractionEnvironment: PlotterEnvironment {
+    frameMode == .simulated ? .simulated : .live
+  }
+
+  private func penInteractionAdmissionFacts(
+    environment: PlotterEnvironment
+  ) -> PlotterPenInteractionAdmissionFacts {
+    PlotterPenInteractionAdmissionFacts(
+      environment: environment,
+      learningEnabled: learningIsEnabled,
+      controllerSessionEstablished: controllerSessionEstablished,
+      motionAuthorized: motionAuthorizationEnabled,
+      lowerOperationInFlight: retainedPenRequestInProgress
+        || machineSnapshot?.machine.operationInFlight == true,
+      stickyAmbiguity: learningStickyAmbiguityReason,
+      capSelectionAvailable: !hasShutdown
+        && (displayedFrameAvailable || cameraActions != nil || frameMode == .simulated)
+    )
+  }
+
+  private func installPenInteractionSnapshot(
+    _ snapshot: PlotterPenInteractionRuntimeSnapshot
+  ) {
+    if snapshot.projection.reference.environment == .simulated {
+      simulatedPenInteractionSnapshot = snapshot
+    } else {
+      livePenInteractionSnapshot = snapshot
+    }
+    if let settlement = snapshot.lastSettlement {
+      if let machine = settlement.machineSnapshot { machineSnapshot = machine }
+      if let truth = settlement.simulatedTruth {
+        simulatedLearningSnapshot = truth.runtime
+        simulatorPenState = simulatorPenState(from: truth.penPose)
+        simulatorLearningSummary =
+          "Pen Interaction settled in the causal simulator. \(truth.evidenceNotice.label)"
+      }
+    }
+    markSemanticPresentationChanged()
+  }
+
+  func publishPenInteractionSnapshot(
+    _ snapshot: PlotterPenInteractionRuntimeSnapshot
+  ) {
+    installPenInteractionSnapshot(snapshot)
+  }
+
+  @discardableResult
+  private func submitPenInteraction(
+    _ intent: PlotterPenInteractionIntent,
+    environment explicitEnvironment: PlotterEnvironment? = nil
+  ) async -> PlotterPenInteractionDisposition {
+    let environment = explicitEnvironment ?? penInteractionEnvironment
+    // Runtime publication, not an App observer task, keeps admitted, active,
+    // cancelling, and terminal Pen truth synchronized with semantic UI facts.
+    await penInteractionRuntime.installProjectionSink(self)
+    let current = await penInteractionRuntime.snapshot(environment: environment)
+    // A fresh-environment reset reads the exact bound revision without first
+    // publishing that environment's stale prior-session projection.
+    if explicitEnvironment == nil { installPenInteractionSnapshot(current) }
+    let facts = penInteractionAdmissionFacts(environment: environment)
+    let disposition = await penInteractionRuntime.submit(PlotterPenInteractionSubmission(
+      projection: current.projection.reference,
+      facts: facts,
+      intent: intent
+    ))
+    installPenInteractionSnapshot(await penInteractionRuntime.snapshot(environment: environment))
+    if case .refused(let refusal) = disposition {
+      discoveryError = penInteractionRefusalText(refusal)
+    }
+    return disposition
+  }
+
+  private func penInteractionRefusalText(
+    _ refusal: PlotterPenInteractionRefusal
+  ) -> String {
+    "Pen Interaction refused by \(refusal.owner): \(refusal.reason). Remedy: \(refusal.remedy)."
   }
   private(set) var boundaryAttemptHistories:
     [BoundaryDirection: [AttemptCompatibility: ExerciseAttemptHistory<BoundarySideAttemptEvidence>]]
@@ -1884,6 +1871,7 @@ final class OperatorWorkspace:
   @ObservationIgnored private let cameraActions: CameraActions?
   @ObservationIgnored private let pointSelectionRuntime: PlotterPointSelectionRuntime
   @ObservationIgnored private let manualMotionRuntime: PlotterManualMotionRuntime
+  @ObservationIgnored private let penInteractionRuntime: PlotterPenInteractionRuntime
   @ObservationIgnored private let drawingDraftRuntime: PlotterDrawingDraftRuntime
   @ObservationIgnored private let drawingRunRuntime: PlotterDrawingRunRuntime
   @ObservationIgnored private let incidentPackageUIService: PlotterIncidentPackageUIService
@@ -1919,6 +1907,10 @@ final class OperatorWorkspace:
   @ObservationIgnored private let simulatedLearningRuntime: SimulatedLearningRuntime
   @ObservationIgnored private let causalSimulatorEffectAdapter:
     PlotterCausalSimulatorEffectAdapter
+  @ObservationIgnored private var livePenInteractionSnapshot:
+    PlotterPenInteractionRuntimeSnapshot?
+  @ObservationIgnored private var simulatedPenInteractionSnapshot:
+    PlotterPenInteractionRuntimeSnapshot?
   @ObservationIgnored private let serialDeviceDiscovery: @Sendable () -> [MachineLinkDescriptor]
   @ObservationIgnored private let persistSelectedSerialIdentifier: @Sendable (String) -> Void
   @ObservationIgnored private let persistOverlayPreference:
@@ -2028,6 +2020,7 @@ final class OperatorWorkspace:
     pointSelectionRuntime: PlotterPointSelectionRuntime = PlotterPointSelectionRuntime(),
     pointSelectionRecordingDiagnostic: String? = nil,
     manualMotionComposition: PlotterManualMotionRuntimeComposition? = nil,
+    penInteractionRuntime: PlotterPenInteractionRuntime,
     announcementActions: AnnouncementActions? = nil,
     acceptedLearningPathCheckpointActions: AcceptedLearningPathCheckpointActions? = nil,
     drawingDraftRuntime: PlotterDrawingDraftRuntime,
@@ -2127,6 +2120,7 @@ final class OperatorWorkspace:
     self.cameraActions = cameraActions
     self.pointSelectionRuntime = pointSelectionRuntime
     manualMotionRuntime = resolvedManualMotionComposition.runtime
+    self.penInteractionRuntime = penInteractionRuntime
     self.pointSelectionRecordingDiagnostic = pointSelectionRecordingDiagnostic
     let pointSelectionEpisodeID = EpisodeID(rawValue: UUID())
     let pointSelectionInitialState = PlotterEpisodeState(
@@ -3561,7 +3555,7 @@ final class OperatorWorkspace:
       return
         "Finish \(DiscoverySequenceCatalog.definition(for: activeDiscoverySequenceID).title); use Stop while its motion is active."
     }
-    if passiveProbeInProgress || jogRequestInProgress || penRequestInProgress
+    if passiveProbeInProgress || jogRequestInProgress || retainedPenRequestInProgress
       || motionAuthorizationActionInProgress
     {
       return "Wait for the current controller operation."
@@ -3632,7 +3626,7 @@ final class OperatorWorkspace:
       return
         "Finish \(DiscoverySequenceCatalog.definition(for: activeDiscoverySequenceID).title) first."
     }
-    if passiveProbeInProgress || jogRequestInProgress || penRequestInProgress
+    if passiveProbeInProgress || jogRequestInProgress || retainedPenRequestInProgress
       || jogCancelRequestInProgress || motionAuthorizationActionInProgress
       || activeExplorationOperation != nil
     {
@@ -3709,7 +3703,7 @@ final class OperatorWorkspace:
     if frameMode == .simulated { return "SIMULATED owns no physical controller alarm." }
     if controllerAlarmClearInProgress { return "Clear Alarm is already in progress." }
     if controllerConnectionActionInProgress { return "Wait for the controller connection action." }
-    if passiveProbeInProgress || jogRequestInProgress || penRequestInProgress
+    if passiveProbeInProgress || jogRequestInProgress || retainedPenRequestInProgress
       || jogCancelRequestInProgress || motionAuthorizationActionInProgress
       || machineSnapshot?.machine.operationInFlight == true
       || machineSnapshot?.currentOperation != .idle
@@ -3754,7 +3748,7 @@ final class OperatorWorkspace:
     if activeExplorationOperation != nil {
       return "Wait for the current learning action before changing frame source."
     }
-    if passiveProbeInProgress || jogRequestInProgress || penRequestInProgress
+    if passiveProbeInProgress || jogRequestInProgress || retainedPenRequestInProgress
       || jogCancelRequestInProgress || machineSnapshot?.machine.operationInFlight == true
     {
       return "Wait for the current controller operation before changing frame source."
@@ -3827,7 +3821,7 @@ final class OperatorWorkspace:
     if activeStopTarget != nil || activeExplorationOperation != nil {
       return "Stop or cancel the active learning operation and wait for settlement first."
     }
-    if passiveProbeInProgress || jogRequestInProgress || penRequestInProgress
+    if passiveProbeInProgress || jogRequestInProgress || retainedPenRequestInProgress
       || jogCancelRequestInProgress || machineSnapshot?.machine.operationInFlight == true
       || activeHardwareIntentCount > 0
     {
@@ -3841,12 +3835,12 @@ final class OperatorWorkspace:
   }
 
   @discardableResult
-  func performLearningVacate(_ plan: LearningVacatePlan) -> Bool {
+  func performLearningVacate(_ plan: LearningVacatePlan) async -> Bool {
     if let unavailableReason = learningVacateUnavailableReason {
       learningAuthorityError = unavailableReason
       return false
     }
-    return performAvailableLearningVacate(plan)
+    return await performAvailableLearningVacate(plan)
   }
 
   /// Cancels and settles only Learning-owned work before clearing the selected
@@ -3879,7 +3873,7 @@ final class OperatorWorkspace:
       learningAuthorityError = "The complete Learning reset plan could not be rebuilt."
       return false
     }
-    return performAvailableLearningVacate(settledPlan)
+    return await performAvailableLearningVacate(settledPlan)
   }
 
   private func cancelAndSettleLearningForReset() async -> Bool {
@@ -3906,8 +3900,6 @@ final class OperatorWorkspace:
       activeLearningActionID = nil
       activeLearningActionTask = nil
     }
-    await awaitPendingPenSetpointActuation()
-
     let learningStopStillActive = activeStopTarget != nil
     guard activeExerciseAttemptID == nil,
       activeDiscoverySequenceID == nil,
@@ -3923,7 +3915,7 @@ final class OperatorWorkspace:
     return true
   }
 
-  private func performAvailableLearningVacate(_ plan: LearningVacatePlan) -> Bool {
+  private func performAvailableLearningVacate(_ plan: LearningVacatePlan) async -> Bool {
     let freshPlan: LearningVacatePlan? =
       switch plan.scope {
       case .from:
@@ -3952,7 +3944,7 @@ final class OperatorWorkspace:
 
     switch plan.anchor {
     case .humanGuidedDiscovery(.penInteraction):
-      clearPenLearningForRewind()
+      await clearPenLearningForRewind()
       clearBoundaryLearningForRewind()
       clearCalibrationLearningForRewind()
       clearDrawingLearningForRewind(from: .chooseDrawingBorderPlan)
@@ -4080,7 +4072,8 @@ final class OperatorWorkspace:
     }
     recordPayload(
       .humanGuidedDiscovery(.penInteraction),
-      when: !penAttemptHistory.records.isEmpty || discoveryTransactions[.penInteraction] != nil
+      when: (currentPenInteractionSnapshot?.acceptedHistory.records.isEmpty == false)
+        || discoveryTransactions[.penInteraction] != nil
     )
     recordPayload(
       .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering),
@@ -4282,7 +4275,7 @@ final class OperatorWorkspace:
     if frameMode == .simulated {
       if manualMotionEpisodeSnapshot?.activeOperation != nil
         || simulatedLearningSnapshot?.currentOperation != nil || jogRequestInProgress
-        || penRequestInProgress || jogCancelRequestInProgress || activeStopTarget != nil
+        || retainedPenRequestInProgress || jogCancelRequestInProgress || activeStopTarget != nil
       {
         return .busy(currentOperationText)
       }
@@ -4296,7 +4289,7 @@ final class OperatorWorkspace:
     }
     if let controllerAttentionText { return .needsAttention(controllerAttentionText) }
     if manualMotionEpisodeSnapshot?.activeOperation != nil
-      || jogRequestInProgress || penRequestInProgress || jogCancelRequestInProgress
+      || jogRequestInProgress || retainedPenRequestInProgress || jogCancelRequestInProgress
       || activeStopTarget != nil
     {
       return .busy(currentOperationText)
@@ -4753,6 +4746,12 @@ final class OperatorWorkspace:
         token: String(manualMotionEpisodeSnapshot.projection.projectionRevision.rawValue)
       ))
     }
+    if let penInteraction = currentPenInteractionSnapshot {
+      revisions.append(PlotterUIRuntimeRevision(
+        owner: "PlotterPenInteractionRuntime",
+        token: String(penInteraction.projection.reference.revision.rawValue)
+      ))
+    }
     if let drawingRunSnapshot {
       revisions.append(PlotterUIRuntimeRevision(
         owner: "PlotterDrawingRunRuntime",
@@ -4883,6 +4882,35 @@ final class OperatorWorkspace:
         projection: drawingRunSnapshot.projection,
         intent: intent
       ))
+    case .penInteraction(let intent):
+      if case .stop = intent,
+        let selectionID = pointSelectionEpisodeProjection.exactPointSelection.request?.id
+      {
+        // Exact Pen Stop also settles the already-admitted exact-frame
+        // continuation before the Pen runtime publishes terminal state. This
+        // prevents that retained continuation from reviving the cancelled
+        // Learning attempt; it does not choose or issue a Pen effect.
+        await pointSelectionRuntime.cancelContinuation(selectionID: selectionID)
+      }
+      let disposition = await submitPenInteraction(intent)
+      if case .refused(let refusal) = disposition {
+        return plotterUIRefusal(
+          request,
+          reason: .retainedOwnerRefused,
+          currentUIRevision: currentPlotterUIProjection?.revision ?? currentUIRevision,
+          currentRuntimeRevisions: currentPlotterUIRuntimeRevisions(),
+          remedy: penInteractionRefusalText(refusal)
+        )
+      }
+      if case .stop = intent,
+        case .applied(let projection) = disposition,
+        projection.reference.operationID == nil
+      {
+        // The typed runtime has already latched exact Stop, awaited its lower
+        // owner, and published terminal truth. This only settles the retained
+        // Learning transaction/pane projection; it owns no effect or cancel.
+        await cancelExerciseAttempt(.humanGuidedDiscovery(.penInteraction))
+      }
     case .retainedLearningAction:
       guard let resolved = retainedLearningAction(for: request.actionID) else {
         return plotterUIRefusal(
@@ -4893,7 +4921,18 @@ final class OperatorWorkspace:
           remedy: "Refresh the Learning projection and use its current action."
         )
       }
-      await performExerciseAction(resolved.kind, for: resolved.owner)
+      guard let kind = PlotterLearningActionabilityFactAdapter()
+        .exerciseAction(resolved.action)
+      else {
+        return plotterUIRefusal(
+          request,
+          reason: .mismatchedIntent,
+          currentUIRevision: currentUIRevision,
+          currentRuntimeRevisions: currentRuntimeRevisions,
+          remedy: "Use the exact typed Pen Interaction request bound by the current projection."
+        )
+      }
+      await performExerciseAction(kind, for: resolved.owner)
     case .retainedLearningReset(let actionID) where request.actionID == actionID:
       guard let plan = currentPlotterUIResetPlans[actionID] else {
         return plotterUIRefusal(
@@ -4908,7 +4947,7 @@ final class OperatorWorkspace:
       if plan.scope == .all {
         succeeded = await performResetAllLearning(plan)
       } else {
-        succeeded = performLearningVacate(plan)
+        succeeded = await performLearningVacate(plan)
       }
       guard succeeded else {
         return plotterUIRefusal(
@@ -5017,7 +5056,7 @@ final class OperatorWorkspace:
 
   private func retainedLearningAction(
     for actionID: PlotterUIActionID
-  ) -> (kind: ExerciseActionKind, owner: LearningPathItemID)? {
+  ) -> (action: PlotterUILearningSemanticAction, owner: LearningPathItemID)? {
     let base = learningPresentationBase()
     let adapter = PlotterLearningActionabilityFactAdapter()
     for owner in LearningPathItemID.navigationOrder {
@@ -5026,7 +5065,7 @@ final class OperatorWorkspace:
         if let action = adapter.semanticAction(for: actionID, in: strip),
           let retainedOwner = adapter.itemID(strip.ownerID)
         {
-          return (adapter.exerciseAction(action), retainedOwner)
+          return (action, retainedOwner)
         }
       }
     }
@@ -5234,7 +5273,7 @@ final class OperatorWorkspace:
         switch itemID {
         case .humanGuidedDiscovery(.penInteraction):
           reason = activeDiscoverySequenceID == .penInteraction
-            ? penInteractionSequenceUnavailableReason
+            ? learningConnectionAndMotionUnavailableReason
             : discoveryStartUnavailableReason(for: .penInteraction)
         case .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering):
           reason = discoveryStartUnavailableReason(for: sequenceID(for: selectedBoundaryDirection))
@@ -5267,6 +5306,7 @@ final class OperatorWorkspace:
       source: frameMode,
       learningEnabled: learningIsEnabled,
       penInteractionCompleted: penInteractionCompleted,
+      penInteraction: currentPenInteractionSnapshot?.projection,
       penActuationProfile: effectivePenActuationProfile,
       selectedBoundaryDirection: selectedBoundaryDirection,
       controller: .init(
@@ -5388,17 +5428,6 @@ final class OperatorWorkspace:
       }
       return
     }
-    if case .setPenSetpoint(let command, let value) = kind {
-      guard !hasShutdown,
-        let adjustment = selectedOperatorActionPresentation(for: ownerID).actionStrip?
-          .penSetpointAdjustment,
-        adjustment.isEnabled,
-        adjustment.command == command,
-        (adjustment.minimumValue...adjustment.maximumValue).contains(value)
-      else { return }
-      setPenActuationValue(value, for: command)
-      return
-    }
     guard !hasShutdown,
       let strip = selectedOperatorActionPresentation(for: ownerID).actionStrip,
       strip.ownerID == ownerID,
@@ -5452,8 +5481,6 @@ final class OperatorWorkspace:
     case .choice(let choice):
       guard ownerID == activeExerciseAttemptOwnerID else { return }
       await answerCurrentQuestion(choice)
-    case .setPenSetpoint:
-      return
     case .cancel, .stop:
       return
     case .restart:
@@ -5513,20 +5540,10 @@ final class OperatorWorkspace:
     savedTrainingComparisonTask = nil
     do {
       let restoredGraph = try checkpoint.restoredLearningGraph()
-      var restoredPenHistory = try ExerciseAttemptHistory<PenInteractionAttemptEvidence>(
-        compatibility: penAttemptHistory.compatibility
+      await penInteractionRuntime.restore(checkpoint.penInteraction, environment: .live)
+      installPenInteractionSnapshot(
+        await penInteractionRuntime.snapshot(environment: .live)
       )
-      if let pen = checkpoint.penInteraction {
-        try restoredPenHistory.record(
-          ExerciseAttempt(
-            id: pen.revision.attemptID,
-            disposition: .succeeded,
-            compatibility: restoredPenHistory.compatibility,
-            acceptedSequence: pen.acceptedSequence,
-            value: pen.evidence
-          )
-        )
-      }
       let machine = checkpoint.machineArtifacts
       let restoredBoundaryHistories = try machine?.restoredBoundaryHistories() ?? [:]
       let restoredBoundaryEvidence = Dictionary(
@@ -5546,9 +5563,6 @@ final class OperatorWorkspace:
       // restoration.
       mutateActiveLearningSession { session in
         session.learningArtifactGraph = restoredGraph
-        session.penAttemptHistory = restoredPenHistory
-        session.penActuationProfile =
-          checkpoint.penInteraction?.evidence.actuationProfile ?? .initialDefaults
         session.boundaryAttemptHistories = restoredBoundaryHistories
         session.boundaryAttemptEvidenceByAttemptID = restoredBoundaryEvidence
         session.boundarySideAggregates = restoredBoundaryAggregates
@@ -5618,11 +5632,7 @@ final class OperatorWorkspace:
     explorationError = nil
   }
 
-  func beginPenInteraction() async {
-    await beginPenInteraction(mode: .normal)
-  }
-
-  private func beginPenInteraction(mode: ExerciseAttemptMode) async {
+  private func startPenInteractionEpisode(mode: ExerciseAttemptMode) async {
     guard discoveryStartUnavailableReason(for: .penInteraction) == nil else { return }
     if let selectionID = pointSelectionEpisodeProjection.exactPointSelection.request?.id {
       await pointSelectionRuntime.cancelContinuation(selectionID: selectionID)
@@ -5631,6 +5641,15 @@ final class OperatorWorkspace:
       ownerID: .humanGuidedDiscovery(.penInteraction),
       mode: mode
     )
+    guard let attemptID = activeExerciseAttemptID else { return }
+    let admission = await submitPenInteraction(.start(
+      mode: penInteractionAttemptMode(mode),
+      attemptID: attemptID.rawValue
+    ))
+    guard case .applied = admission else {
+      finishActiveExerciseAttempt(disposition: .refused(discoveryError ?? "Pen Interaction refused."))
+      return
+    }
     do {
       let boundary = displayedFrame?.frame.captureNanoseconds ?? 0
       var frame: DisplayedFrame?
@@ -5680,8 +5699,33 @@ final class OperatorWorkspace:
     } catch {
       discoveryError =
         "Identify Pen Cap could not freeze an exact frame: \(actionableDescription(error))"
+      _ = await submitPenInteraction(.finish(.failed(String(describing: error))))
       finishActiveExerciseAttempt(disposition: .failed(String(describing: error)))
       restartableExerciseItemID = .humanGuidedDiscovery(.penInteraction)
+    }
+  }
+
+  private func penInteractionAttemptMode(
+    _ mode: ExerciseAttemptMode
+  ) -> PlotterPenInteractionAttemptMode {
+    switch mode {
+    case .normal: .normal
+    case .replacement: .replacement
+    case .additional: .additional
+    }
+  }
+
+  private func penInteractionTerminalDisposition(
+    _ disposition: ExerciseAttemptDisposition
+  ) -> PlotterPenInteractionTerminalDisposition {
+    switch disposition {
+    case .succeeded:
+      .failed("A successful Pen Interaction must publish accepted evidence atomically.")
+    case .refused(let reason): .refused(reason)
+    case .unclear(let reason): .unclear(reason)
+    case .cancelled: .cancelled
+    case .ambiguous(let reason): .ambiguous(reason)
+    case .failed(let reason): .failed(reason)
     }
   }
 
@@ -8862,7 +8906,7 @@ final class OperatorWorkspace:
   }
 
   func learningPenCommandUnavailableReason(for command: PenCommand) -> String? {
-    if penRequestInProgress { return "A pen command is already in progress." }
+    if retainedPenRequestInProgress { return "A retained pen command is already in progress." }
     if frameModeSwitchInProgress { return "Wait for the frame source switch to finish." }
     if frameMode == .simulated {
       if !controllerSessionEstablished { return "Connect the learning simulator first." }
@@ -8963,7 +9007,7 @@ final class OperatorWorkspace:
     guard currentCameraCalibrationBusyReason == nil else { return }
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
-    guard !passiveProbeInProgress && !jogRequestInProgress && !penRequestInProgress else { return }
+    guard !passiveProbeInProgress && !jogRequestInProgress && !retainedPenRequestInProgress else { return }
     let discovered = serialDeviceDiscovery()
     if let selectedSerialDevice,
       !discovered.contains(where: { $0.identifier == selectedSerialDevice.identifier })
@@ -9086,7 +9130,7 @@ final class OperatorWorkspace:
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
     guard selectedSerialDevice != nil, !passiveProbeInProgress, !jogRequestInProgress,
-      !penRequestInProgress
+      !retainedPenRequestInProgress
     else { return }
     await machineActions?.disconnect()
     guard canCommit(generation) else { return }
@@ -9127,7 +9171,7 @@ final class OperatorWorkspace:
     guard activeDiscoverySequenceID == nil || activePenInteractionNeedsControllerSetup,
       activeExplorationOperation == nil
     else { return }
-    guard !passiveProbeInProgress && !jogRequestInProgress && !penRequestInProgress else { return }
+    guard !passiveProbeInProgress && !jogRequestInProgress && !retainedPenRequestInProgress else { return }
     guard serialDevices.contains(where: { $0.identifier == descriptor.identifier }) else { return }
     if selectedSerialDevice?.identifier != descriptor.identifier, machineSnapshot != nil {
       await machineActions?.disconnect()
@@ -9163,7 +9207,7 @@ final class OperatorWorkspace:
     guard let descriptor = selectedSerialDevice else { return }
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
-    guard !passiveProbeInProgress && !jogRequestInProgress && !penRequestInProgress else { return }
+    guard !passiveProbeInProgress && !jogRequestInProgress && !retainedPenRequestInProgress else { return }
     guard let machineActions else {
       machineError = "Native machine composition is unavailable."
       return
@@ -9284,92 +9328,49 @@ final class OperatorWorkspace:
     _ command: PenCommand,
     profile: PenActuationProfile
   ) async -> PenOutcome? {
-    (
-      await executeLearningPenCommand(
-        command,
-        profile: profile,
-        settlingDiscovery: nil
-      )
-    ).outcome
-  }
-
-  private func executeLearningPenCommand(
-    _ command: PenCommand,
-    profile: PenActuationProfile,
-    settlingDiscovery sequenceID: DiscoverySequenceID?
-  ) async -> PenActuationPublication {
     if frameMode == .simulated {
       guard learningPenCommandUnavailableReason(for: command) == nil else {
-        return PenActuationPublication(outcome: nil, discoveryTransitionFailure: nil)
+        return nil
       }
       withBatchedSemanticPresentationUpdate {
-        penRequestInProgress = true
+        retainedPenRequestInProgress = true
         computationDiagnostics.record(.penRequest(command, .began))
       }
       let pose: SimulatedLearningPenPose = command.commandedState == .up ? .up : .down
       let simulatedOutcome = await causalSimulatorEffectAdapter.executeRetainedWorkflowPen(
         pose,
-        owner: EpisodeAuthorityID(rawValue: "OperatorWorkspace.learningPenCommand")
+        owner: EpisodeAuthorityID(rawValue: "OperatorWorkspace.retainedPenNormalization")
       )
-      let outcome: PenOutcome?
-      let controllerSummary: String?
-      if simulatedOutcome.refusal == nil {
-        outcome = .commandedAndSettled(
+      let outcome: PenOutcome? = if let refusal = simulatedOutcome.refusal {
+        .refused(.controllerRejected("causal simulator refusal: \(refusal)"))
+      } else {
+        .commandedAndSettled(
           command: command,
           commandedState: command.commandedState
         )
-        controllerSummary =
-          "Simulated pen \(pose.rawValue). \(simulatedOutcome.evidenceNotice.label)"
-      } else {
-        outcome = nil
-        controllerSummary = nil
       }
-      let transition = stagedPenSettlementTransaction(
-        sequenceID: sequenceID,
-        command: command,
-        controllerSummary: controllerSummary,
-        outcome: outcome
-      )
       withBatchedSemanticPresentationUpdate {
         applySimulatedCausalImmediateOutcome(
           simulatedOutcome,
           action: "Set simulated pen \(pose.rawValue)"
         )
-        if let outcome {
-          let execution = PenCommandExecutionEvidence(
-            command: command,
-            profile: profile,
-            outcome: outcome,
-            timestamp: RuntimeTimestamp(monotonicNanoseconds: nowNanoseconds())
-          )
-          mutateActiveLearningSession(invalidatesActionSurface: false) { session in
-            session.publishPenCommandSettlement(
-              command: command,
-              execution: execution,
-              transaction: transition.transaction
-            )
-          }
-        }
-        penRequestInProgress = false
+        retainedPenRequestInProgress = false
         computationDiagnostics.record(.penRequest(command, .ended))
       }
-      return PenActuationPublication(
-        outcome: outcome,
-        discoveryTransitionFailure: transition.failure
-      )
+      return outcome
     }
     guard let generation = beginHardwareIntent() else {
-      return PenActuationPublication(outcome: nil, discoveryTransitionFailure: nil)
+      return nil
     }
     var hardwareIntentRequiresEnd = true
     defer {
       if hardwareIntentRequiresEnd { endHardwareIntent() }
     }
     guard learningPenCommandUnavailableReason(for: command) == nil, let machineActions else {
-      return PenActuationPublication(outcome: nil, discoveryTransitionFailure: nil)
+      return nil
     }
     withBatchedSemanticPresentationUpdate {
-      penRequestInProgress = true
+      retainedPenRequestInProgress = true
       machineError = nil
       computationDiagnostics.record(.penRequest(command, .began))
     }
@@ -9381,43 +9382,21 @@ final class OperatorWorkspace:
     let snapshot = await machineActions.snapshot()
     guard canCommit(generation) else {
       withBatchedSemanticPresentationUpdate {
-        penRequestInProgress = false
+        retainedPenRequestInProgress = false
         computationDiagnostics.record(.penRequest(command, .ended))
         endHardwareIntent()
         hardwareIntentRequiresEnd = false
       }
-      return PenActuationPublication(outcome: nil, discoveryTransitionFailure: nil)
+      return nil
     }
-    let transition = stagedPenSettlementTransaction(
-      sequenceID: sequenceID,
-      command: command,
-      controllerSummary: penOutcomeText(outcome),
-      outcome: outcome
-    )
-    let execution = PenCommandExecutionEvidence(
-      command: command,
-      profile: profile,
-      outcome: outcome,
-      timestamp: RuntimeTimestamp(monotonicNanoseconds: nowNanoseconds())
-    )
     withBatchedSemanticPresentationUpdate {
       machineSnapshot = snapshot
-      mutateActiveLearningSession(invalidatesActionSurface: false) { session in
-        session.publishPenCommandSettlement(
-          command: command,
-          execution: execution,
-          transaction: transition.transaction
-        )
-      }
-      penRequestInProgress = false
+      retainedPenRequestInProgress = false
       computationDiagnostics.record(.penRequest(command, .ended))
       endHardwareIntent()
       hardwareIntentRequiresEnd = false
     }
-    return PenActuationPublication(
-      outcome: outcome,
-      discoveryTransitionFailure: transition.failure
-    )
+    return outcome
   }
 
   private func stagedPenSettlementTransaction(
@@ -9456,31 +9435,6 @@ final class OperatorWorkspace:
     }
   }
 
-  private func setPenActuationValue(_ value: Int, for command: PenCommand) {
-    let draft = effectivePenActuationProfile.replacingValue(
-      for: command,
-      with: value
-    )
-    activeLearningSession.penActuationDraft = draft
-    pendingPenSetpointCommand = command
-    guard penSetpointActuationTask == nil else { return }
-    penSetpointActuationTask = Task { @MainActor [weak self] in
-      guard let self else { return }
-      while let nextCommand = pendingPenSetpointCommand {
-        pendingPenSetpointCommand = nil
-        let profile = effectivePenActuationProfile
-        await executeLearningPenCommand(nextCommand, profile: profile)
-      }
-      penSetpointActuationTask = nil
-    }
-  }
-
-  private func awaitPendingPenSetpointActuation() async {
-    while let task = penSetpointActuationTask {
-      await task.value
-    }
-  }
-
   func startDiscoverySequence(_ sequenceID: DiscoverySequenceID) async {
     guard discoveryStartUnavailableReason(for: sequenceID) == nil else { return }
     if sequenceID == .penInteraction {
@@ -9495,14 +9449,21 @@ final class OperatorWorkspace:
           "Identify Pen Cap must be completed before pen-position calibration begins."
         discoveryError = reason
         if activeExerciseAttemptOwnerID == .humanGuidedDiscovery(.penInteraction) {
-          recordDiscoveryAttempt(sequenceID: .penInteraction, disposition: .refused(reason))
+          _ = await submitPenInteraction(.finish(.refused(reason)))
           finishActiveExerciseAttempt(disposition: .refused(reason))
           restartableExerciseItemID = nil
         }
         return
       }
     }
-    if activeExerciseAttemptOwnerID == nil {
+    if sequenceID == .penInteraction {
+      // Pen Interaction admission already created the exact retained attempt.
+      // A completed point-selection continuation may race exact runtime Stop;
+      // it must never revive that cancelled attempt through the legacy
+      // discovery fallback below.
+      guard activeExerciseAttemptOwnerID == .humanGuidedDiscovery(.penInteraction)
+      else { return }
+    } else if activeExerciseAttemptOwnerID == nil {
       beginExerciseAttempt(
         ownerID: learningPathItemID(for: sequenceID),
         mode: .normal
@@ -9511,18 +9472,9 @@ final class OperatorWorkspace:
     selectedDiscoverySequenceID = sequenceID
     discoveryError = nil
     if sequenceID == .penInteraction {
-      let profile = currentPenActuationProfile
-      mutateActiveLearningSession { session in
-        session.penActuationDraft = profile
-        session.lastPenExecutionByCommand = [:]
-        session.pendingPenUpPositions = []
-        session.pendingPenUpSpindleValues = []
-        session.pendingPenUpControllerOutcomes = []
-        session.pendingPenUpTimestamps = []
-        session.pendingPenDownPositions = []
-        session.pendingPenDownSpindleValues = []
-        session.pendingPenDownControllerOutcomes = []
-        session.pendingPenDownTimestamps = []
+      guard case .applied = await submitPenInteraction(.capSelectionAccepted) else {
+        finishActiveExerciseAttempt(disposition: .refused(discoveryError ?? "Pen cap selection refused."))
+        return
       }
     }
     var transaction = DiscoveryTransaction(sequenceID: sequenceID)
@@ -9532,10 +9484,14 @@ final class OperatorWorkspace:
       await advanceDiscoverySequence(sequenceID)
     } catch {
       discoveryError = "Plotter Calibration could not start: \(error)"
-      recordDiscoveryAttempt(
-        sequenceID: sequenceID,
-        disposition: .failed(String(describing: error))
-      )
+      if sequenceID == .penInteraction {
+        _ = await submitPenInteraction(.finish(.failed(String(describing: error))))
+      } else {
+        recordDiscoveryAttempt(
+          sequenceID: sequenceID,
+          disposition: .failed(String(describing: error))
+        )
+      }
       finishActiveExerciseAttempt(disposition: .failed(String(describing: error)))
       restartableExerciseItemID = learningPathItemID(for: sequenceID)
     }
@@ -9581,21 +9537,22 @@ final class OperatorWorkspace:
         return
 
       case .actuatePen(let command):
-        let publication = await executeLearningPenCommand(
-          command,
-          profile: currentPenActuationProfile,
-          settlingDiscovery: sequenceID
-        )
-        if let transitionFailure = publication.discoveryTransitionFailure {
-          await failDiscovery(sequenceID, failure: .failed(transitionFailure))
+        let episodeCommand: PlotterPenInteractionCommand = command == .raise ? .raise : .lower
+        guard case .applied = await submitPenInteraction(.actuate(episodeCommand)) else {
+          await failDiscovery(
+            sequenceID,
+            failure: .refused(discoveryError ?? "Pen Interaction actuation was refused.")
+          )
           return
         }
-        guard let outcome = publication.outcome,
+        guard let outcome = currentPenInteractionSnapshot?.lastSettlement?.outcome,
           case .commandedAndSettled = outcome
         else {
-          let detail = publication.outcome.map(penOutcomeText) ?? lastPenOutcomeText
+          let detail = currentPenInteractionSnapshot?.lastSettlement.map {
+            penOutcomeText($0.outcome)
+          } ?? lastPenOutcomeText
           let failure: WorkflowFailure =
-            if case .ambiguous? = publication.outcome {
+            if case .ambiguous? = currentPenInteractionSnapshot?.lastSettlement?.outcome {
               .ambiguous(detail)
             } else {
               .refused(detail)
@@ -9603,6 +9560,20 @@ final class OperatorWorkspace:
           await failDiscovery(sequenceID, failure: failure)
           return
         }
+        let staged = stagedPenSettlementTransaction(
+          sequenceID: sequenceID,
+          command: command,
+          controllerSummary: penOutcomeText(outcome),
+          outcome: outcome
+        )
+        guard let transaction = staged.transaction else {
+          await failDiscovery(
+            sequenceID,
+            failure: .failed(staged.failure ?? "Pen settlement publication failed.")
+          )
+          return
+        }
+        discoveryTransactions[sequenceID] = transaction
       case .commitBoundaryObservation(let direction):
         await commitBoundaryObservation(direction: direction, sequenceID: sequenceID)
         return
@@ -9850,7 +9821,13 @@ final class OperatorWorkspace:
     let isBoundaryRepeat =
       boundaryDirection != nil
       && (activeExerciseAttemptMode == .replacement || activeExerciseAttemptMode == .additional)
-    recordDiscoveryAttempt(sequenceID: sequenceID, disposition: disposition)
+    if sequenceID == .penInteraction,
+      currentPenInteractionSnapshot?.projection.reference.operationID != nil
+    {
+      _ = await submitPenInteraction(.finish(penInteractionTerminalDisposition(disposition)))
+    } else if sequenceID != .penInteraction {
+      recordDiscoveryAttempt(sequenceID: sequenceID, disposition: disposition)
+    }
     if let direction = boundaryDirection, let attemptID = boundaryAttemptID {
       appendBoundaryActivity(
         actor: .workspace,
@@ -10824,6 +10801,13 @@ final class OperatorWorkspace:
     case .simulated:
       let snapshot = await cameraActions.stop()
       guard canCommit(generation) else { return }
+      let penReset = await submitPenInteraction(.reset, environment: .simulated)
+      guard case .applied = penReset else {
+        if case .refused(let refusal) = penReset {
+          cameraError = penInteractionRefusalText(refusal)
+        }
+        return
+      }
       cameraSnapshot = snapshot
       latestLiveCameraFrame = nil
       simulatedLearningSession = LearningSessionState(
@@ -10931,6 +10915,7 @@ final class OperatorWorkspace:
     let calibration = currentCameraCalibrationTask
     calibration?.cancel()
     await pointSelectionRuntime.shutdown()
+    await penInteractionRuntime.shutdown()
     await manualMotionRuntime.shutdown()
     await announcementActions?.cancelForShutdown()
     await stopAndSettleActiveMotionForShutdown()
@@ -11033,22 +11018,15 @@ final class OperatorWorkspace:
       question.choices.contains(choice)
     else { return }
 
-    if case .awaitPhysicalPenConfirmation = step.action,
-      let reason = penInteractionSequenceUnavailableReason
-    {
-      discoveryError = reason
-      return
-    }
-
     guard question.advancingChoices.contains(choice) else {
       boundaryTeachingResultText = question.negativeAcknowledgement
       _ = await announceAdvisory(question.negativeAcknowledgement)
       if case .awaitPhysicalPenConfirmation(.down, _) = step.action {
         _ = await announceAdvisory("Raising the pen.")
-        if frameMode == .simulated {
-          simulatorPenState = .up
-        } else {
-          await executeLearningPenCommand(.raise)
+        if let capability = currentPenInteractionSnapshot?.projection
+          .cancellationCapabilityID
+        {
+          _ = await submitPenInteraction(.abortAndRaise(capability))
         }
         await failDiscovery(sequenceID, failure: .refused(question.negativeAcknowledgement))
       }
@@ -11059,17 +11037,17 @@ final class OperatorWorkspace:
     case .awaitOperatorChoice:
       guard recordDiscovery(.operatorChoiceAccepted(choice), for: sequenceID) else { return }
     case .awaitPhysicalPenConfirmation(let state, _):
-      await awaitPendingPenSetpointActuation()
       let command: PenCommand = state == .down ? .lower : .raise
+      let episodeCommand: PlotterPenInteractionCommand = command == .raise ? .raise : .lower
+      guard case .applied = await submitPenInteraction(.confirm(command: episodeCommand)) else {
+        return
+      }
       let profile = effectivePenActuationProfile
       let setpoint = profile.value(for: command)
-      let execution = activeLearningSession.lastPenExecutionByCommand[command].flatMap {
+      let execution = currentPenInteractionSnapshot?.lastExecutionByCommand[command].flatMap {
         $0.profile.value(for: command) == setpoint ? $0 : nil
       }
-      let position = try? currentMachinePosition()
-      let timestamp =
-        execution?.timestamp
-        ?? RuntimeTimestamp(monotonicNanoseconds: nowNanoseconds())
+      let position = execution?.position ?? (try? currentMachinePosition())
       let operatorSummary = position.map {
         String(
           format: "Operator confirmed Pen %@ at S%d and MPos X %.3f Y %.3f.",
@@ -11079,35 +11057,10 @@ final class OperatorWorkspace:
           $0.point.y
         )
       } ?? "Operator confirmed Pen \(state.rawValue) at S\(setpoint); current MPos was unavailable."
-      do {
-        let succeeded = try mutateActiveLearningSession(
-          invalidatesActionSurface: false
-        ) { session in
-          try session.applyPenPhysicalConfirmation(
-            PenPhysicalConfirmationTransition(
-              sequenceID: sequenceID,
-              state: state,
-              response: choice,
-              profile: profile,
-              position: position,
-              execution: execution,
-              timestamp: timestamp,
-              operatorSummary: operatorSummary
-            )
-          )
-          return session.discoveryTransactions[sequenceID]?.state == .succeeded
-        }
-        if succeeded {
-          commitSuccessfulDiscoveryAttempt(sequenceID)
-        }
-      } catch {
-        if var failed = discoveryTransactions[sequenceID] {
-          failed.fail("Unexpected discovery event: \(error)")
-          discoveryTransactions[sequenceID] = failed
-        }
-        discoveryError = "Unexpected Plotter Calibration event: \(error)"
-        return
-      }
+      guard recordDiscovery(
+        .physicalPenConfirmed(state, response: choice, operatorSummary: operatorSummary),
+        for: sequenceID
+      ) else { return }
     default:
       return
     }
@@ -11494,7 +11447,7 @@ final class OperatorWorkspace:
     restartableExerciseItemID = nil
     switch ownerID {
     case .humanGuidedDiscovery(.penInteraction):
-      await beginPenInteraction(mode: mode)
+      await startPenInteractionEpisode(mode: mode)
     case .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering):
       await beginPairedBoundarySide(selectedBoundaryDirection, mode: mode)
     case .humanGuidedDiscovery(.calibrateCameraAndVisibleCap):
@@ -11527,6 +11480,11 @@ final class OperatorWorkspace:
       if let selectionID = pointSelectionEpisodeProjection.exactPointSelection.request?.id {
         await pointSelectionRuntime.cancelContinuation(selectionID: selectionID)
       }
+      if let capability = currentPenInteractionSnapshot?.projection
+        .cancellationCapabilityID
+      {
+        _ = await submitPenInteraction(.cancel(capability))
+      }
     }
     let boundaryRepeatWithFallback =
       ownerID == .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
@@ -11556,9 +11514,12 @@ final class OperatorWorkspace:
         await requestSingleJogCancel(for: target, intent: .cancelAttempt)
         await owner?.value
       }
-      recordDiscoveryAttempt(sequenceID: sequenceID, disposition: .cancelled)
+      if sequenceID != .penInteraction {
+        recordDiscoveryAttempt(sequenceID: sequenceID, disposition: .cancelled)
+      }
     } else if isPreSequencePenInteraction {
-      recordDiscoveryAttempt(sequenceID: .penInteraction, disposition: .cancelled)
+      // The exact runtime cancellation capability above owns provenance and
+      // waits for any in-flight Pen command before this App projection clears.
     } else if let target = activeStopTarget {
       guard
         latchContextualStopDisposition(
@@ -11594,8 +11555,6 @@ final class OperatorWorkspace:
       frozenPointSelectionFrame = nil
       pendingToolContactEvidence = []
       Task { @MainActor [weak self] in await self?.cancelPointSelectionRequest() }
-      activeLearningSession.penActuationDraft = nil
-      pendingPenSetpointCommand = nil
     }
     if activeExerciseAttemptOwnerID == .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering),
       let attemptID = activeExerciseAttemptID
@@ -11612,10 +11571,6 @@ final class OperatorWorkspace:
       Task { @MainActor [weak self] in await self?.cancelPointSelectionRequest() }
     }
     activeLearningSession.exerciseAttempt.finish()
-  }
-
-  private var penInteractionSequenceUnavailableReason: String? {
-    learningConnectionAndMotionUnavailableReason
   }
 
   private func recordAttempt<Value: Hashable & Sendable>(
@@ -11685,33 +11640,15 @@ final class OperatorWorkspace:
     do {
       switch sequenceID {
       case .penInteraction:
-        let sequence = acceptedAttemptSequence &+ 1
-        var history = penAttemptHistory
-        let replacingAttemptID = learningArtifactGraph.currentRevision(for: .penInteraction)?
-          .attemptID
-        try recordAttempt(
-          ExerciseAttempt(
-            id: attemptID,
-            disposition: .succeeded,
-            compatibility: history.compatibility,
-            acceptedSequence: sequence,
-            value: PenInteractionAttemptEvidence(
-              actuationProfile: currentPenActuationProfile,
-              confirmedUpPositions: activeLearningSession.pendingPenUpPositions,
-              confirmedUpSpindleValues: activeLearningSession.pendingPenUpSpindleValues,
-              confirmedUpControllerOutcomes:
-                activeLearningSession.pendingPenUpControllerOutcomes,
-              confirmedUpTimestamps: activeLearningSession.pendingPenUpTimestamps,
-              confirmedDownPositions: activeLearningSession.pendingPenDownPositions,
-              confirmedDownSpindleValues: activeLearningSession.pendingPenDownSpindleValues,
-              confirmedDownControllerOutcomes:
-                activeLearningSession.pendingPenDownControllerOutcomes,
-              confirmedDownTimestamps: activeLearningSession.pendingPenDownTimestamps
-            )
-          ),
-          in: &history,
-          replacingAttemptID: replacingAttemptID
-        )
+        guard let runtimeSnapshot = currentPenInteractionSnapshot,
+          runtimeSnapshot.acceptedHistory.includedSuccessfulAttempts.contains(where: {
+            $0.id == attemptID
+          })
+        else {
+          throw LearningPathOperationError.requiredState(
+            "Pen Interaction runtime did not publish exact accepted attempt evidence."
+          )
+        }
         var graph = learningArtifactGraph
         let commit = try graph.commitReplacement(
           LearningArtifactRevision(
@@ -11720,8 +11657,10 @@ final class OperatorWorkspace:
             disposition: .succeeded
           )
         )
-        penAttemptHistory = history
-        acceptedAttemptSequence = sequence
+        acceptedAttemptSequence = max(
+          acceptedAttemptSequence,
+          runtimeSnapshot.acceptedSequence
+        )
         learningArtifactGraph = graph
         applyArtifactInvalidations(commit.invalidatedRevisionIDs)
         persistAcceptedLearningPathCheckpoint(clearTip: true, clearStageFour: true)
@@ -11753,23 +11692,7 @@ final class OperatorWorkspace:
     guard let attemptID = activeExerciseAttemptID else { return }
     do {
       if sequenceID == .penInteraction {
-        let sequence = acceptedAttemptSequence &+ 1
-        var history = penAttemptHistory
-        let replacingAttemptID = learningArtifactGraph.currentRevision(for: .penInteraction)?
-          .attemptID
-        try recordAttempt(
-          ExerciseAttempt(
-            id: attemptID,
-            disposition: disposition,
-            compatibility: history.compatibility,
-            acceptedSequence: sequence,
-            value: nil
-          ),
-          in: &history,
-          replacingAttemptID: replacingAttemptID
-        )
-        penAttemptHistory = history
-        acceptedAttemptSequence = sequence
+        return
       } else if let direction = boundaryDirection(for: sequenceID) {
         let compatibility = boundaryCompatibility(direction)
         var histories = boundaryAttemptHistories[direction] ?? [:]
@@ -11823,7 +11746,9 @@ final class OperatorWorkspace:
   }
 
   var currentPenInteractionAggregate: LatestStateAggregate<PenInteractionAttemptEvidence>? {
-    try? LatestStateAggregate(history: penAttemptHistory)
+    currentPenInteractionSnapshot.flatMap {
+      try? LatestStateAggregate(history: $0.acceptedHistory)
+    }
   }
 
   private func recordComparisonAttempt(
@@ -12284,7 +12209,7 @@ final class OperatorWorkspace:
     controllerAlarmClearInProgress = false
     passiveProbeInProgress = false
     jogRequestInProgress = false
-    penRequestInProgress = false
+    retainedPenRequestInProgress = false
     motionAuthorizationActionInProgress = false
     lastMotionGuardActivationText = "not activated"
     currentCameraCalibrationFailure = nil
@@ -12346,46 +12271,12 @@ final class OperatorWorkspace:
     }
   }
 
-  private func restoreAcceptedPenInteractionCheckpoint(
-    _ checkpoint: AcceptedPenInteractionCheckpoint?
-  ) {
-    guard let checkpoint else { return }
-    do {
-      var history = try ExerciseAttemptHistory<PenInteractionAttemptEvidence>(
-        compatibility: penAttemptHistory.compatibility
-      )
-      try history.record(
-        ExerciseAttempt(
-          id: checkpoint.revision.attemptID,
-          disposition: .succeeded,
-          compatibility: history.compatibility,
-          acceptedSequence: checkpoint.acceptedSequence,
-          value: checkpoint.evidence
-        )
-      )
-      var graph = learningArtifactGraph
-      _ = try graph.commitReplacement(
-        LearningArtifactRevision(
-          id: checkpoint.revision.id,
-          kind: .penInteraction,
-          attemptID: checkpoint.revision.attemptID,
-          disposition: .succeeded
-        )
-      )
-      penAttemptHistory = history
-      currentPenActuationProfile = checkpoint.evidence.actuationProfile
-      acceptedAttemptSequence = max(acceptedAttemptSequence, checkpoint.acceptedSequence)
-      learningArtifactGraph = graph
-    } catch {
-      learningAuthorityError = "Saved pen calibration could not be restored: \(error)"
-    }
-  }
-
   private func currentAcceptedPenInteractionCheckpoint()
     -> AcceptedPenInteractionCheckpoint?
   {
     guard let revision = learningArtifactGraph.currentRevision(for: .penInteraction),
-      let attempt = penAttemptHistory.includedSuccessfulAttempts.max(by: {
+      let attempt = currentPenInteractionSnapshot?.acceptedHistory
+        .includedSuccessfulAttempts.max(by: {
         $0.acceptedSequence < $1.acceptedSequence
       }),
       let evidence = attempt.value
@@ -12635,28 +12526,13 @@ final class OperatorWorkspace:
     // session/coordinate authority and deliberately survive camera replacement.
   }
 
-  private func clearPenLearningForRewind() {
+  private func clearPenLearningForRewind() async {
     frozenPointSelectionFrame = nil
     pendingToolContactEvidence = []
     Task { @MainActor [weak self] in await self?.cancelPointSelectionRequest() }
-    mutateActiveLearningSession { session in
-      session.discoveryTransactions.removeValue(forKey: .penInteraction)
-      session.penActuationProfile = .initialDefaults
-      session.penActuationDraft = nil
-      session.lastPenExecutionByCommand = [:]
-      session.pendingPenUpPositions = []
-      session.pendingPenUpSpindleValues = []
-      session.pendingPenUpControllerOutcomes = []
-      session.pendingPenUpTimestamps = []
-      session.pendingPenDownPositions = []
-      session.pendingPenDownSpindleValues = []
-      session.pendingPenDownControllerOutcomes = []
-      session.pendingPenDownTimestamps = []
-      session.penAttemptHistory = try! ExerciseAttemptHistory(
-        compatibility: session.penAttemptHistory.compatibility
-      )
-      session.selectedDiscoverySequenceID = .penInteraction
-    }
+    discoveryTransactions.removeValue(forKey: .penInteraction)
+    _ = await submitPenInteraction(.reset)
+    selectedDiscoverySequenceID = .penInteraction
   }
 
   private func clearBoundaryLearningForRewind() {
@@ -12754,9 +12630,7 @@ final class OperatorWorkspace:
     lastProtocolPoseSettlement = nil
     activeLearningSession.drawingTrial = DrawingTrialState(source: frameMode)
     learningArtifactGraph = LearningDependencyGraph()
-    penAttemptHistory = try! ExerciseAttemptHistory(
-      compatibility: penAttemptHistory.compatibility
-    )
+    _ = await submitPenInteraction(.reset)
     boundaryAttemptHistories = [:]
     activeLearningSession.exerciseAttempt.finish()
     restartableExerciseItemID = nil

@@ -62,6 +62,7 @@ public enum PlotterUIIntent: Hashable, Sendable {
   )
   case drawingDraft(PlotterDrawingDraftIntent)
   case drawingRun(PlotterDrawingRunIntent)
+  case penInteraction(PlotterPenInteractionIntent)
   case retainedLearningAction(PlotterUIActionID)
   case retainedLearningReset(PlotterUIActionID)
   case retainedComparisonReview(PlotterUIRetainedComparisonIntent)
@@ -308,6 +309,7 @@ public struct PlotterUILearningActionabilityFacts: Sendable {
   public let sparseCollectedClickCount: Int
   public let sparseSavedCheckpointMatchesPaper: Bool
   public let activePrompt: PlotterUILearningActivePrompt?
+  public let penInteraction: PlotterPenInteractionProjection?
   public let startUnavailableReasons: [String: String]
   public let boundaryIsComplete: Bool
   public let boundaryHasCenterArrival: Bool
@@ -338,6 +340,7 @@ public struct PlotterUILearningActionabilityFacts: Sendable {
     sparseCollectedClickCount: Int = 0,
     sparseSavedCheckpointMatchesPaper: Bool = false,
     activePrompt: PlotterUILearningActivePrompt? = nil,
+    penInteraction: PlotterPenInteractionProjection? = nil,
     startUnavailableReasons: [String: String] = [:],
     boundaryIsComplete: Bool = false,
     boundaryHasCenterArrival: Bool = false,
@@ -367,6 +370,7 @@ public struct PlotterUILearningActionabilityFacts: Sendable {
     self.sparseCollectedClickCount = sparseCollectedClickCount
     self.sparseSavedCheckpointMatchesPaper = sparseSavedCheckpointMatchesPaper
     self.activePrompt = activePrompt
+    self.penInteraction = penInteraction
     self.startUnavailableReasons = startUnavailableReasons
     self.boundaryIsComplete = boundaryIsComplete
     self.boundaryHasCenterArrival = boundaryHasCenterArrival
@@ -388,6 +392,7 @@ public enum PlotterUILearningSemanticAction: Hashable, Sendable {
   case start
   case choice(PlotterUILearningChoice)
   case setPenSetpoint(PlotterUILearningPenCommand, Int)
+  case stopPenInteraction(PlotterPenInteractionCancellationCapabilityID)
   case selectDirection(PlotterUILearningBoundaryDirection)
   case cancel
   case stop(UUID)
@@ -444,10 +449,21 @@ public struct PlotterUILearningActionDecision: Hashable, Sendable {
     id: PlotterUIActionID? = nil
   ) -> PlotterUIActionCandidate {
     let id = id ?? actionID(ownerID: ownerID)
+    let intent: PlotterUIIntent = switch action {
+    case .setPenSetpoint(let command, let value):
+      .penInteraction(.setpoint(
+        command: command == .raise ? .raise : .lower,
+        value: value
+      ))
+    case .stopPenInteraction(let capability):
+      .penInteraction(.stop(capability))
+    default:
+      .retainedLearningAction(id)
+    }
     return PlotterUIActionCandidate(
       id: id,
       title: title,
-      intent: .retainedLearningAction(id),
+      intent: intent,
       reachability: .global,
       requirements: unavailableReason.map {
         [PlotterUIRequirement(
@@ -504,6 +520,7 @@ private extension PlotterUILearningSemanticAction {
     case .choice(.no): "NO"
     case .setPenSetpoint(let command, let value):
       "Set Pen \(command == .raise ? "Up" : "Down") S\(value)"
+    case .stopPenInteraction: "Stop Pen Interaction"
     case .selectDirection(let direction): "Select \(direction.displayName)"
     case .cancel: "Cancel Attempt"
     case .stop: "Stop"
@@ -543,7 +560,7 @@ private extension PlotterUILearningSemanticAction {
       .revalidateTipCalibration, .acceptTipCalibration, .retryTipCalibrationCommit,
       .paperReplaced:
       .positive
-    case .cancel, .stop, .discardCameraSamples, .rejectCameraCalibration,
+    case .cancel, .stop, .stopPenInteraction, .discardCameraSamples, .rejectCameraCalibration,
       .rejectTipCalibration:
       .destructive
     case .choice(.yes): .positive
@@ -623,6 +640,7 @@ public struct PlotterUILearningItemDecision: Hashable, Sendable {
 
 public struct PlotterUILearningActionabilityProjection: Sendable {
   public let learning: PlotterUILearningProjection
+  public let penInteraction: PlotterPenInteractionProjection?
   public let items: [PlotterUILearningItemDecision]
   public let strips: [PlotterUILearningActionStripDecision]
   public let contextualStop: PlotterUILearningStopFacts?
@@ -729,6 +747,7 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
     }
     return PlotterUILearningActionabilityProjection(
       learning: learning,
+      penInteraction: facts.penInteraction,
       items: items,
       strips: strips,
       contextualStop: facts.stopDispositionIsLatched ? nil : facts.stop,
@@ -747,6 +766,12 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
     facts: PlotterUILearningActionabilityFacts
   ) -> PlotterUILearningItemStatus {
     if facts.restartableOwnerID == item.ownerID { return .needsAttention }
+    if item.kind == .penInteraction,
+      let penInteraction = facts.penInteraction,
+      penInteractionNeedsAttention(penInteraction)
+    {
+      return .needsAttention
+    }
     if item.isComplete { return .complete }
     guard item.ownerID == currentOwnerID || (item.isStage && item.stageID == currentStageID)
     else { return .next }
@@ -766,6 +791,46 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
   ) -> PlotterUILearningActionStripDecision? {
     guard learning.isEnabled, item.isExercise else { return nil }
     let current = learning.currentOwnerID
+    let activePenInteraction: PlotterPenInteractionProjection? =
+      if item.kind == .penInteraction,
+        let penInteraction = facts.penInteraction,
+        penInteraction.reference.operationID != nil
+      {
+        penInteraction
+      } else {
+        nil
+      }
+    var penSetpointDrainIsInProgress = false
+    if let activePenInteraction {
+      let invariantReason =
+        "PlotterPenInteractionRuntime owns an active operation without a valid cancellable phase. Restart the application; no generic Stop was substituted."
+      guard let capability = activePenInteraction.cancellationCapabilityID else {
+        return strip(item.ownerID, [.init(
+          action: .start,
+          title: "Pen Interaction Stop unavailable",
+          unavailableReason:
+            "PlotterPenInteractionRuntime owns an active operation without its exact cancellation capability. Restart the application; no generic Stop was substituted."
+        )], mustRemainVisible: true)
+      }
+      switch activePenInteraction.phase {
+      case .settling, .cancelling, .awaitingCapSelection, .awaitingControllerCommand:
+        return strip(
+          item.ownerID,
+          [.init(action: .stopPenInteraction(capability), title: "Stop Pen Interaction")],
+          mustRemainVisible: true
+        )
+      case .drainingSetpoint:
+        penSetpointDrainIsInProgress = true
+      case .awaitingConfirmation, .refused, .possiblePhysicalChange:
+        break
+      case .idle, .succeeded:
+        return strip(item.ownerID, [.init(
+          action: .start,
+          title: "Pen Interaction state unavailable",
+          unavailableReason: invariantReason
+        )], mustRemainVisible: true)
+      }
+    }
     if facts.savedTrainingCandidateIsPresent {
       guard item.ownerID == current else { return nil }
       return strip(item.ownerID, [
@@ -773,8 +838,12 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
         .init(action: .startNewLearning),
       ], mustRemainVisible: true)
     }
-    if facts.activeOwnerID == item.ownerID {
-      if let stop = facts.stop, !stop.kind.isManual, !facts.stopDispositionIsLatched {
+    if facts.activeOwnerID == item.ownerID || activePenInteraction != nil {
+      if activePenInteraction == nil,
+        let stop = facts.stop,
+        !stop.kind.isManual,
+        !facts.stopDispositionIsLatched
+      {
         let title: String = if case .boundary = stop.kind { "Stop Boundary Search" } else { "Stop" }
         return strip(
           item.ownerID,
@@ -795,7 +864,16 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
       }
       var actions: [PlotterUILearningActionDecision] = []
       var adjustment: PlotterUILearningPenAdjustmentDecision?
-      if item.stageID == "discovery", let ambiguity = facts.stickyAmbiguityReason {
+      if item.kind == .penInteraction,
+        let penInteraction = facts.penInteraction,
+        penInteractionNeedsAttention(penInteraction)
+      {
+        actions = [.init(
+          action: .start,
+          title: "Pen Interaction needs attention",
+          unavailableReason: penInteractionAttentionReason(penInteraction)
+        )]
+      } else if item.stageID == "discovery", let ambiguity = facts.stickyAmbiguityReason {
         actions = [.init(
           action: .start,
           title: "Machine action unavailable",
@@ -824,11 +902,11 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
           }
         case .penConfirmation(let command, let value, let minimum, let maximum):
           let reason = facts.startUnavailableReasons[item.ownerID]
-          actions = [.init(
-            action: .choice(.yes),
-            title: command == .raise ? "Confirm Pen Up" : "Confirm Pen Down",
-            unavailableReason: reason
-          )]
+          actions = penSetpointDrainIsInProgress ? [] : [.init(
+              action: .choice(.yes),
+              title: command == .raise ? "Confirm Pen Up" : "Confirm Pen Down",
+              unavailableReason: reason
+            )]
           adjustment = PlotterUILearningPenAdjustmentDecision(
             command: command,
             value: value,
@@ -838,7 +916,12 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
           )
         }
       }
-      if !facts.stopDispositionIsLatched, facts.cameraState != .active {
+      if let capability = activePenInteraction?.cancellationCapabilityID {
+        actions.append(.init(
+          action: .stopPenInteraction(capability),
+          title: "Stop Pen Interaction"
+        ))
+      } else if !facts.stopDispositionIsLatched, facts.cameraState != .active {
         actions.append(.init(action: .cancel))
       }
       return PlotterUILearningActionStripDecision(
@@ -846,7 +929,7 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
         actions: actions,
         directionSelection: nil,
         penAdjustment: adjustment,
-        mustRemainVisible: facts.stop != nil
+        mustRemainVisible: facts.stop != nil || activePenInteraction != nil
       )
     }
     if facts.restartableOwnerID == item.ownerID {
@@ -971,6 +1054,42 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
       return [.init(action: .paperReplaced)]
     case .accepted:
       return []
+    }
+  }
+
+  private func penInteractionNeedsAttention(
+    _ projection: PlotterPenInteractionProjection
+  ) -> Bool {
+    if projection.reference.operationID != nil,
+      projection.cancellationCapabilityID == nil
+    {
+      return true
+    }
+    if projection.lastRefusal != nil { return true }
+    return switch projection.phase {
+    case .refused, .possiblePhysicalChange: true
+    default: false
+    }
+  }
+
+  private func penInteractionAttentionReason(
+    _ projection: PlotterPenInteractionProjection
+  ) -> String {
+    if projection.reference.operationID != nil,
+      projection.cancellationCapabilityID == nil
+    {
+      return "PlotterPenInteractionRuntime owns an active operation without its exact cancellation capability. Restart the application; no generic Stop was substituted."
+    }
+    if let refusal = projection.lastRefusal {
+      return "Pen Interaction was refused by \(refusal.owner): \(refusal.reason). Remedy: \(refusal.remedy)."
+    }
+    switch projection.phase {
+    case .refused(let reason):
+      return "Pen Interaction lower execution was refused: \(reason). No command will be resent automatically."
+    case .possiblePhysicalChange(let detail):
+      return "\(detail) Inspect the pen and paper before deciding how to recover; no command will be resent automatically."
+    default:
+      return "Resolve the current Pen Interaction state before continuing."
     }
   }
 

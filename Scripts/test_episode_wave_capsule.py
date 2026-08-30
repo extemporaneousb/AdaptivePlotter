@@ -133,10 +133,52 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         self.assertEqual("complete", rows["EA-09"]["status"])
         self.assertEqual("complete", rows["FIX-03"]["status"])
         self.assertEqual("complete", rows["DOC-03"]["status"])
-        self.assertEqual("pending", rows["EA-10A"]["status"])
+        self.assertEqual("complete", rows["EA-10A"]["status"])
+        self.assertEqual("pending", rows["EA-10B"]["status"])
         self.assertEqual("pending", rows["GATE-01"]["status"])
         self.assertEqual({}, blockers)
         evidence = (self.root / "docs/CURRENT_EVIDENCE.md").read_text(encoding="utf-8")
+        self.assertIn("Pen Interaction episode cutover completion candidate", evidence)
+        self.assertIn("TASK-539931AC-49f2e7307f76", evidence)
+        self.assertIn("exit 0; 13/13 passed", evidence)
+        self.assertIn("UNANIMOUS PASS — no material disagreement", evidence)
+        self.assertIn("755 tests, 753 passed and 2 failed with 9 issues", evidence)
+        self.assertIn(
+            "Exact Pen Stop now settles the already-admitted\n"
+            "EA-04 point-selection continuation before Pen terminal settlement",
+            evidence,
+        )
+        self.assertIn("no generic Cancel fallback or parallel authority was added", evidence)
+        self.assertIn("accepted-click filter built in 9.80 seconds", evidence)
+        self.assertIn("recovery-transition filter built in\n0.28 seconds", evidence)
+        self.assertIn(
+            "The next final retry passed `DOC` 29/29, clean `DIFF`, `QUICK` 755/755",
+            evidence,
+        )
+        self.assertIn(
+            "after a 74.52-second build, 12/13 passed",
+            evidence,
+        )
+        self.assertIn("Production Stop was not returning\nprematurely", evidence)
+        self.assertIn("PenInteractionCancellationPublicationProbe", evidence)
+        self.assertIn(
+            "The exact test passes three\nserial repeats: 1/1 with build/test 12.36/0.004 seconds",
+            evidence,
+        )
+        self.assertIn(
+            "The full focused `PEN` suite passes\n13/13 with build 0.23 seconds and suite 0.763 seconds",
+            evidence,
+        )
+        self.assertIn("documentation and architecture contracts plus 29/29 checker tests passed", evidence)
+        self.assertIn("755/755 tests passed in 14.270 seconds", evidence)
+        self.assertIn("full 762/762 tests passed in 16.462 seconds", evidence)
+        self.assertIn("all 8 exact scans had zero matches in 0.109 seconds", evidence)
+        self.assertIn("`.drainingSetpoint`", evidence)
+        self.assertIn(
+            "EA-10A is semantically complete as a task-local landing candidate",
+            evidence,
+        )
+        self.assertIn("EA-10B is not selected or dispatched", evidence)
         self.assertIn("Pilot dependency-cycle correction", evidence)
         self.assertIn("TASK-B7C9E592-3408edcef715", evidence)
         self.assertIn("Pre-GATE-01 Drawing Run task-owner correction", evidence)
@@ -327,7 +369,7 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         consumed = self.consume()
         self.assertEqual(created, consumed)
         self.assertEqual("selected", consumed["contract"]["frontier"]["state"])
-        self.assertEqual("EA-10A", consumed["contract"]["package"]["id"])
+        self.assertEqual("EA-10B", consumed["contract"]["package"]["id"])
         self.assertEqual(0o600, stat.S_IMODE(self.path.stat().st_mode))
         purposes = {item["purpose"] for item in consumed["pointers"]}
         self.assertIn("required gate catalog row", purposes)
@@ -351,14 +393,14 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
             row = [cell.strip() for cell in selected_text.strip().strip("|").split("|")]
             if (
                 len(row) == 6
-                and row[:4] == ["EA-10A", "pending", "DOC-03", "software"]
-                and row[4].startswith("Cutover: transfer Pen Interaction")
-                and row[5] == "`DOC`, `DIFF`, `QUICK`, `STRICT`, `PEN`, `DELETE`"
+                and row[:4] == ["EA-10B", "pending", "EA-10A", "software"]
+                and row[4].startswith("Cutover: transfer Boundary acquisition")
+                and row[5] == "`DOC`, `DIFF`, `QUICK`, `JOURNEY`, `STRICT`, `BOUNDARY`, `DELETE`"
             ):
                 ledger_rows.append((selected, row))
         self.assertEqual(1, len(ledger_rows))
         selected, selected_row = ledger_rows[0]
-        self.assertEqual("EA-10A", selected_row[0])
+        self.assertEqual("EA-10B", selected_row[0])
         self.assertNotEqual("FIX-02", selected_row[0])
         view = capsule.canonical_bytes(capsule.consumption_view(consumed))
         self.assertLess(len(view), capsule.MAX_CONSUMPTION_BYTES)
@@ -371,8 +413,8 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
             "| --- | --- | --- |\n"
         )
         blocked_table = table + (
-            "| EA-10A | DOC-03 landing is not reconciled | "
-            "Land DOC-03 and generate the canonical successor capsule |\n"
+            "| EA-10B | EA-10A landing is not reconciled | "
+            "Land EA-10A and generate the canonical successor capsule |\n"
         )
         self.assertIn(table, evidence)
         evidence_path.write_text(evidence.replace(table, blocked_table, 1), encoding="utf-8")
@@ -381,9 +423,9 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         created = self.build_and_write()
 
         self.assertEqual("evidence_blocked", created["launch"]["state"])
-        self.assertEqual("EA-10A", created["contract"]["frontier"]["package_id"])
+        self.assertEqual("EA-10B", created["contract"]["frontier"]["package_id"])
         self.assertEqual(
-            "DOC-03 landing is not reconciled",
+            "EA-10A landing is not reconciled",
             created["contract"]["frontier"]["blocker"]["blocker"],
         )
         self.assertNotEqual("GATE-01", created["contract"]["frontier"]["package_id"])

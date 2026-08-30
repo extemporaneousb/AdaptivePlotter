@@ -116,7 +116,10 @@ extension OperatorWorkspaceTests {
     await workspace.startCamera()
     let selectedCameraID = try #require(workspace.selectedCameraID)
 
-    await workspace.beginPenInteraction()
+    await workspace.performTestExerciseAction(
+      .start,
+      for: .humanGuidedDiscovery(.penInteraction)
+    )
     #expect(workspace.activeExerciseAttemptID != nil)
     #expect(workspace.testActionSurfacePresentation.pointSelectionRequest != nil)
     let plan = try #require(workspace.resetAllLearningPlan)
@@ -163,7 +166,17 @@ extension OperatorWorkspaceTests {
     await workspace.establishMachineSession(machine.descriptor)
     await workspace.requestPassiveProbe()
     await workspace.startCamera()
-    try await completePenInteraction(workspace)
+    let prerequisitePenOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+    await workspace.performTestExerciseAction(.start, for: prerequisitePenOwner)
+    let prerequisitePenRequest = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
+    let prerequisitePenFrame = try #require(workspace.testActionSurfacePresentation.displayedFrame)
+    submitPointSelection(workspace, request: prerequisitePenRequest, point: try Point2(
+      x: Double(prerequisitePenFrame.frame.width - 1) / 2,
+      y: Double(prerequisitePenFrame.frame.height - 1) / 2
+    ))
+    try await waitUntil { workspace.activeDiscoverySequenceID == .penInteraction }
+    for _ in 0..<3 { await workspace.performTestExerciseAction(.choice(.yes), for: prerequisitePenOwner) }
+    #expect(workspace.penInteractionCompleted)
 
     await workspace.beginPairedBoundarySide(.positiveX)
     try await waitUntil { workspace.contextualStopPresentation != nil }
@@ -198,7 +211,17 @@ extension OperatorWorkspaceTests {
     await workspace.establishMachineSession(machine.descriptor)
     await workspace.requestPassiveProbe()
     await workspace.startCamera()
-    try await completePenInteraction(workspace)
+    let prerequisitePenOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+    await workspace.performTestExerciseAction(.start, for: prerequisitePenOwner)
+    let prerequisitePenRequest = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
+    let prerequisitePenFrame = try #require(workspace.testActionSurfacePresentation.displayedFrame)
+    submitPointSelection(workspace, request: prerequisitePenRequest, point: try Point2(
+      x: Double(prerequisitePenFrame.frame.width - 1) / 2,
+      y: Double(prerequisitePenFrame.frame.height - 1) / 2
+    ))
+    try await waitUntil { workspace.activeDiscoverySequenceID == .penInteraction }
+    for _ in 0..<3 { await workspace.performTestExerciseAction(.choice(.yes), for: prerequisitePenOwner) }
+    #expect(workspace.penInteractionCompleted)
 
     let request = RelativeJogRequest(
       delta: try Vector2(dx: 1, dy: 0),
@@ -249,7 +272,17 @@ extension OperatorWorkspaceTests {
     await workspace.establishMachineSession(machine.descriptor)
     await workspace.requestPassiveProbe()
     await workspace.startCamera()
-    try await completePenInteraction(workspace)
+    let prerequisitePenOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+    await workspace.performTestExerciseAction(.start, for: prerequisitePenOwner)
+    let prerequisitePenRequest = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
+    let prerequisitePenFrame = try #require(workspace.testActionSurfacePresentation.displayedFrame)
+    submitPointSelection(workspace, request: prerequisitePenRequest, point: try Point2(
+      x: Double(prerequisitePenFrame.frame.width - 1) / 2,
+      y: Double(prerequisitePenFrame.frame.height - 1) / 2
+    ))
+    try await waitUntil { workspace.activeDiscoverySequenceID == .penInteraction }
+    for _ in 0..<3 { await workspace.performTestExerciseAction(.choice(.yes), for: prerequisitePenOwner) }
+    #expect(workspace.penInteractionCompleted)
     let penRevision = try #require(
       workspace.learningArtifactGraph.currentRevision(for: .penInteraction)
     )
@@ -263,7 +296,6 @@ extension OperatorWorkspaceTests {
     #expect(
       workspace.learningArtifactGraph.currentRevision(for: .penInteraction) == penRevision
     )
-    #expect(!workspace.penAttemptHistory.records.isEmpty)
     #expect(workspace.learningAuthorityError?.contains("no reset was applied") == true)
     await workspace.shutdown()
   }
@@ -286,7 +318,17 @@ extension OperatorWorkspaceTests {
     await workspace.establishMachineSession(machine.descriptor)
     await workspace.requestPassiveProbe()
     await workspace.startCamera()
-    try await completePenInteraction(workspace)
+    let prerequisitePenOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+    await workspace.performTestExerciseAction(.start, for: prerequisitePenOwner)
+    let prerequisitePenRequest = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
+    let prerequisitePenFrame = try #require(workspace.testActionSurfacePresentation.displayedFrame)
+    submitPointSelection(workspace, request: prerequisitePenRequest, point: try Point2(
+      x: Double(prerequisitePenFrame.frame.width - 1) / 2,
+      y: Double(prerequisitePenFrame.frame.height - 1) / 2
+    ))
+    try await waitUntil { workspace.activeDiscoverySequenceID == .penInteraction }
+    for _ in 0..<3 { await workspace.performTestExerciseAction(.choice(.yes), for: prerequisitePenOwner) }
+    #expect(workspace.penInteractionCompleted)
     await workspace.beginPairedBoundarySide(.positiveX)
     try await waitUntil { workspace.contextualStopPresentation != nil }
     try await stopActiveOperation(workspace)
@@ -299,7 +341,8 @@ extension OperatorWorkspaceTests {
       )
     )
 
-    #expect(!workspace.performLearningVacate(plan))
+    let didVacate = await workspace.performLearningVacate(plan)
+    #expect(!didVacate)
     #expect(
       workspace.learningArtifactGraph.currentRevision(for: .boundarySideAggregate(.positiveX))
         == boundaryRevision
@@ -388,13 +431,24 @@ extension OperatorWorkspaceTests {
     await workspace.establishMachineSession(machine.descriptor)
     await workspace.requestPassiveProbe()
     await workspace.startCamera()
-    try await completePenInteraction(workspace)
+    let prerequisitePenOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+    await workspace.performTestExerciseAction(.start, for: prerequisitePenOwner)
+    let prerequisitePenRequest = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
+    let prerequisitePenFrame = try #require(workspace.testActionSurfacePresentation.displayedFrame)
+    submitPointSelection(workspace, request: prerequisitePenRequest, point: try Point2(
+      x: Double(prerequisitePenFrame.frame.width - 1) / 2,
+      y: Double(prerequisitePenFrame.frame.height - 1) / 2
+    ))
+    try await waitUntil { workspace.activeDiscoverySequenceID == .penInteraction }
+    for _ in 0..<3 { await workspace.performTestExerciseAction(.choice(.yes), for: prerequisitePenOwner) }
+    #expect(workspace.penInteractionCompleted)
     let stalePlan = try #require(workspace.resetAllLearningPlan)
     await workspace.beginPairedBoundarySide(.positiveX)
     try await waitUntil { workspace.contextualStopPresentation != nil }
     try await stopActiveOperation(workspace)
     #expect(checkpointBox.checkpoint != nil)
-    #expect(!workspace.performLearningVacate(stalePlan))
+    let didVacate = await workspace.performLearningVacate(stalePlan)
+    #expect(!didVacate)
     #expect(workspace.boundarySideAggregates[.positiveX] != nil)
     #expect(
       workspace.learningAuthorityError?.contains("changed while the reset summary was open") == true
@@ -414,7 +468,6 @@ extension OperatorWorkspaceTests {
       workspace.learningArtifactGraph.currentRevision(for: .boundarySideAggregate(.positiveX))
         == nil
     )
-    #expect(workspace.penAttemptHistory.records.isEmpty)
     #expect(workspace.boundarySideAggregates.isEmpty)
     #expect(workspace.controllerSessionEstablished)
     #expect(workspace.motionAuthorizationEnabled)
@@ -451,7 +504,17 @@ extension OperatorWorkspaceTests {
     await first.establishMachineSession(machine.descriptor)
     await first.requestPassiveProbe()
     await first.startCamera()
-    try await completePenInteraction(first)
+    let prerequisitePenOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+    await first.performTestExerciseAction(.start, for: prerequisitePenOwner)
+    let prerequisitePenRequest = try #require(first.testActionSurfacePresentation.pointSelectionRequest)
+    let prerequisitePenFrame = try #require(first.testActionSurfacePresentation.displayedFrame)
+    submitPointSelection(first, request: prerequisitePenRequest, point: try Point2(
+      x: Double(prerequisitePenFrame.frame.width - 1) / 2,
+      y: Double(prerequisitePenFrame.frame.height - 1) / 2
+    ))
+    try await waitUntil { first.activeDiscoverySequenceID == .penInteraction }
+    for _ in 0..<3 { await first.performTestExerciseAction(.choice(.yes), for: prerequisitePenOwner) }
+    #expect(first.penInteractionCompleted)
     await first.beginPairedBoundarySide(.positiveX)
     try await waitUntil { first.contextualStopPresentation != nil }
     try await stopActiveOperation(first)
@@ -499,7 +562,10 @@ extension OperatorWorkspaceTests {
     )
     #expect(relaunched.discoveryStartUnavailableReason(for: .penInteraction) == nil)
 
-    await relaunched.beginPenInteraction()
+    await relaunched.performTestExerciseAction(
+      .start,
+      for: .humanGuidedDiscovery(.penInteraction)
+    )
     #expect(relaunched.activeExerciseAttemptID != nil)
     #expect(relaunched.testActionSurfacePresentation.pointSelectionRequest != nil)
     await first.shutdown()
@@ -527,7 +593,8 @@ extension OperatorWorkspaceTests {
     #expect(!plan.removesDurableCheckpoint)
     #expect(!plan.physicalInkMayRemain)
     #expect(plan.title == "Reset From This Step")
-    #expect(workspace.performLearningVacate(plan))
+    let didVacate = await workspace.performLearningVacate(plan)
+    #expect(didVacate)
 
     #expect(
       workspace.learningArtifactGraph.currentRevision(for: .penInteraction)?.id
@@ -568,7 +635,8 @@ extension OperatorWorkspaceTests {
     let plan = try #require(workspace.learningVacatePlan(from: anchor))
     #expect(plan.affectedItems == [anchor])
     #expect(plan.expectedCurrentRevisionIDs.count == 7)
-    #expect(workspace.performLearningVacate(plan))
+    let didVacate = await workspace.performLearningVacate(plan)
+    #expect(didVacate)
 
     #expect(workspace.drawingTrialAssessment == nil)
     #expect(workspace.drawingBorderPlan == nil)

@@ -8,6 +8,181 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Pen Interaction episode cutover completion candidate
+
+Selected 2026-08-30 as software package `EA-10A` in Blackdog task
+`TASK-539931AC`, attempt `TASK-539931AC-49f2e7307f76`, from protected entry
+HEAD `d54fd5195e56e6ac1e2c7b2389507a6636c5e9ce`. This is task-local semantic
+completion and a landing candidate, not operational landing. The frozen production Sources aggregate is
+`8d089d9d1d0dd446da1ac1d9c04c6a91542bd183f9ca9422c12eda9a2db975dd`;
+the frozen Swift Tests aggregate is
+`74fe1cfd561fb4f838447e09f9a1bd7ab69562dec31390d4663d422cad986b6d`.
+
+One actor-isolated `PlotterPenInteractionRuntime` now owns Pen Interaction's
+source-indexed revision, environment, request, operation and cancellation
+identity, attempt mode, mutable Up/Down profile and draft, exact lower actuation
+task, cancellation/Stop/settlement/shutdown lifetime, last settlement, and
+immutable accepted attempt history. Every `PlotterPenInteractionSubmission`
+binds the displayed `PlotterPenInteractionProjectionReference`, current
+`PlotterPenInteractionAdmissionFacts`, and one typed
+`PlotterPenInteractionIntent`. A stale projection, environment or operation;
+wrong phase; missing cap selection, controller session, or Motion; lower-owner
+occupancy; sticky ambiguity; invalid value; foreign cancellation capability; or
+closed admission returns a typed `PlotterPenInteractionRefusalReason` and
+`PlotterPenInteractionRemedy` before lower dispatch.
+
+The Up and Down sliders submit exact value-bearing setpoint intents. One
+runtime-owned drain is latest-only: while an earlier value settles, a newer
+admitted value replaces the pending value and a superseded intermediate value
+is not dispatched. The first accepted setpoint synchronously claims
+`setpointDrainInProgress` and publishes `.drainingSetpoint` before the projection
+sink, deterministic admission gate, or lower port can suspend. That explicit
+phase exposes a newer exact-revision setpoint replacement plus exact Stop but no
+confirmation. Lower execution transitions to settling; confirmation returns
+only after terminal publication reaches awaiting confirmation. The package-only
+`PlotterPenInteractionSetpointAdmissionGate` provides deterministic held and
+admission-count observation, while `PlotterPenInteractionTerminalPublicationGate`
+holds only the post-lower/pre-publication boundary. Both are inert in production
+and grant no admission, effect, cancellation, result, or publication choice.
+
+The original fresh critic returned `RETASK` because workspace busy feedback
+made production setpoint coalescing unreachable, exact capability-bound Stop
+and lower refusal/possible-change truth were dropped from canonical
+actionability, and a fresh SIMULATED Learning session could re-enter with stale
+simulated Pen state. Correction cycle 1 removed the workspace-owned busy
+feedback and projected exact Stop/refusal/possible-change truth through the
+runtime-owned weak sink. The Learning replacingReset path preserves Pen Interaction.
+A fresh SIMULATED admission resets only simulated Pen state while preserving
+LIVE. The same critic's cycle-1 delta recheck closed the Stop/truth and SIM
+blockers but returned `RETASK` on the sole remaining original blocker: the first
+setpoint did not claim its drain or leave confirmable state before its first
+actor-reentrancy await.
+
+Correction cycle 2 introduces explicit `.drainingSetpoint`, claimed and
+published synchronously before that first await. Canonical actionability permits
+latest replacement and exact capability-bound Stop there but no confirmation;
+settling retains exact Stop for lower execution, and confirmation returns only
+after terminal publication. The deterministic production-route regression holds
+that pre-await boundary, admits supersession from 55 to 57, proves exact Stop
+and absent confirmation, observes only 57 dispatched, then accepts confirmation
+after publication. The same critic's correction-cycle-2 final delta recheck
+returned exactly `UNANIMOUS PASS — no material disagreement`. Criticism closed
+at that point; bounded policy permits no new or post-pass critic.
+
+The final `QUICK` attempt was nonpass at 753/755 with 9 issues: `make quick-test`
+executed 755 tests, 753 passed and 2 failed with 9 issues. Both failures first exposed
+stale generic Cancel requests after Pen runtime admission; changing them to the
+rendered exact capability-bound Pen Stop then exposed the real accepted-click
+continuation/restartability race. Exact Pen Stop now settles the already-admitted
+EA-04 point-selection continuation before Pen terminal settlement, and Pen
+`startDiscoverySequence` no longer recreates a missing canonical attempt. The
+regressions submit the rendered typed Stop and verify its exact runtime
+capability; no generic Cancel fallback or parallel authority was added. The two
+narrow filters now pass 1/1 each: the accepted-click filter built in 9.80 seconds
+and completed in 0.051 seconds, while the recovery-transition filter built in
+0.28 seconds and completed in 0.078 seconds. An intermediate narrow run after
+only the stale request correction remained nonpass with one failed test and two
+issues, proving the production race; it remains nonpass history.
+
+The next final retry passed `DOC` 29/29, clean `DIFF`, `QUICK` 755/755, and
+`STRICT` 762/762. A separately invoked focused `PEN` run then exposed a distinct
+test-synchronization nonpass: after a 74.52-second build, 12/13 passed and
+`wrong Stop capability refuses and exact Stop settles the held owner once`
+failed because its operation/capability remained active with no cancelled
+attempt or settled possible-change truth. Production Stop was not returning
+prematurely. The test launched Stop in an unobserved task and released the held
+lower port before Stop had captured the current revision; lower settlement
+could advance the revision first and make that Stop submission stale.
+
+Test-only `PenInteractionCancellationPublicationProbe` now waits for the real
+`.cancelling` projection before releasing the lower port and asserts that exact
+Stop returns applied with no operation. It grants no admission, cancellation,
+effect, settlement, result, or evidence authority. The exact test passes three
+serial repeats: 1/1 with build/test 12.36/0.004 seconds, 1/1 with 0.24/0.005
+seconds, and 1/1 with 0.24/0.004 seconds. The full focused `PEN` suite passes
+13/13 with build 0.23 seconds and suite 0.763 seconds. No sleep, polling,
+`Task.yield`, production change, fabricated possible-change truth, or new critic
+was introduced. The definitive final gate sequence below validates the frozen
+source/test identities after that test-only synchronization correction.
+
+`PlotterPenInteractionComposition` is a nominal adapter over retained owners.
+LIVE routes the exact profile through the existing native Pen settlement seam;
+SIMULATED routes explicitly retained nonphysical work through the exact shared
+`PlotterCausalSimulatorEffectAdapter`. `MachineController`, `RunInterpreter`,
+the causal plant, EA-04 exact-frame cap selection, camera, Vision, checkpoint,
+recording/replay/incident, and durable evidence owners remain below or beside
+the runtime. LIVE and SIMULATED revisions, profiles, operations, histories, and
+settlements remain independent. A lower refusal remains refusal; ambiguous or
+cancelled work after a returned command retains possible-physical-change truth
+and never authorizes automatic resend. Shutdown closes admission, drains exact
+accepted work, awaits lower settlement and terminal publication, and leaves no
+runtime operation owner.
+
+Accepted `PenInteractionAttemptEvidence` is immutable and retains the confirmed
+values, available MPos, controller outcomes, and timestamps. It does not claim
+an attended Pen position, camera observation, or ink. The removed workspace
+draft/profile/history/pending-command fields, sequence guard, setpoint task,
+begin/complete/finish helpers, and high-level cap/finish fixtures have no renamed
+authority. The presentation-only `LearningPathTerminology.identifyPenCap`
+constant and canonical PlotterUI setpoint intent remain deliberately retained.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `DOC` | passed — `make docs-check`; exit 0; documentation and architecture contracts plus 29/29 checker tests passed in 11.921 seconds, 12.554 seconds wall | canonical routed documents and executable contract |
+| `DIFF` | passed — `git diff --check`; exit 0, no output | whitespace/error diff validation |
+| `QUICK` | passed — `make quick-test`; exit 0; 755/755 tests passed in 14.270 seconds after a 0.51-second build | broad software regression suite; earlier nonpasses remain history |
+| `STRICT` | passed — `make strict-check`; exit 0; observed wall approximately 110.94 seconds; strict-concurrency warnings-as-errors build 39.36 seconds; signing, launcher, and negative-bundle checks passed; full 762/762 tests passed in 16.462 seconds after a 43.16-second build; documentation contracts and 29/29 checker tests passed in 11.414 seconds | strict concurrency, complete tests, signing, launcher, negative bundle, and docs |
+| `PEN` | passed — `swift test --filter PlotterPenInteractionEpisodeTests`; exit 0; 13/13 passed; build 71.02 seconds, suite 0.766 seconds; the exact Stop test also passed three serial 1/1 repeats before the final full suite | exact value/evidence, revision and owner refusal, duplicate admission, synchronously claimed latest-only drain, pre-await confirmation exclusion, 55-to-57 supersession, exact Stop admission/publication synchronization, only 57 dispatched, post-publication confirmation, refusal/ambiguity, LIVE/SIM separation, atomic terminal publication, and shutdown quiescence |
+| `DELETE` | passed — `sh Scripts/check_episode_cutover.sh EA-10A`; exit 0; all 8 exact scans had zero matches in 0.109 seconds | retired workspace state/ingress/task/guard and high-level fixture paths |
+
+An earlier correction-cycle-2 focused invocation compiled, then ran 13 tests
+with 12 passing and one stale phase assertion failing; build 53.97 seconds,
+suite 0.784 seconds, and test run 0.785 seconds. That result remains nonpass
+history. The assertion was aligned to the new truthful phase before the final
+receipt above.
+
+All six EA-10A package gates passed on the frozen candidate. The same critic's
+correction-cycle-2 final delta verdict remains exactly `UNANIMOUS PASS — no
+material disagreement`; criticism is closed and no new or post-pass critic was
+run. EA-10A is semantically complete as a task-local landing candidate. Only
+Blackdog landing, canonical-main cleanup verification, and successor-capsule
+generation remain pending. EA-10B is not selected or dispatched. GATE-01
+remains unchanged and downstream after EA-11C.
+
+Canonical routed-document dispositions for this task-local EA-10A completion candidate:
+
+- Affected — Product Contract and Swift Architecture: typed Pen Interaction
+  ownership, value-bearing Up/Down admission, latest-only drain, exact Stop and
+  shutdown, nominal retained-owner composition, immutable evidence, and
+  software/simulator/physical boundaries.
+- Affected — Episode Architecture Execution Plan and Current Evidence: INT-010,
+  GRD-008, TSK-001, FIX-004 current seams, eight EA-10A deletion scans, complete
+  ledger outcome, task/attempt identity, frozen source/test hashes, final gate
+  receipts, and operational landing boundary.
+- Affected — `Scripts/check_episode_contract.py`: current topology, plan scans,
+  completion evidence/frontier, landing boundary, and mechanically updated
+  ledger fingerprint.
+- Reviewed no change — `Scripts/check_episode_cutover.py` and its shell wrapper:
+  the generic manifest-driven implementation already executes the eight new
+  exact scans without package-specific code.
+- Reviewed no change — `Scripts/check_episode_inventory.py`: the adapted live
+  inventory rows satisfy its existing exact-source checks and preserve the
+  immutable EA-01 characterization IDs.
+- Affected — `Scripts/test_episode_wave_capsule.py`: mechanically coupled
+  completion assertions; EA-10B remains undispatched until operational landing
+  and canonical successor-capsule generation.
+- Reviewed no change — Document Routing (`docs/INDEX.md`), Episode Architecture
+  Vocabulary, Discovery and Observed-Trial Protocol, Learning Path Button
+  Transitions, Roadmap, Attended Hardware Runbook, README, `AGENTS.md`,
+  `blackdog.toml`, `.gitignore`, both repository skills, and their execution
+  references: the existing routing, terminology, operator flow, physical
+  procedure, lifecycle, authorization, and future-work boundaries remain
+  accurate.
+
+This is automated software and deterministic simulation evidence only. No
+attended controller, camera, motion, Pen, paper, operator-click, or observed-ink
+validation occurred, and no physical or remote-Git evidence is claimed.
+
 ## Pilot dependency-cycle correction
 
 Selected 2026-08-30 as repository package `DOC-03` in Blackdog task
@@ -43,9 +218,10 @@ GATE-01 was not run and is not complete.
 | `DOC` | passed — `make docs-check`; 29/29 passed in 14.014 seconds, 14.770 seconds wall; documentation and architecture contracts passed | canonical dependency order, evidence, and executable checker fixtures |
 | `DIFF` | passed — `git diff --check`; exit 0, no output, less than 0.01 seconds wall | whitespace/error diff validation for this documentation-only package |
 
-EA-10A remains the undispatched successor frontier until Blackdog landing,
-clean canonical-main verification, and successor-capsule generation. No EA-10A
-work is selected or dispatched by this evidence update.
+At DOC-03 completion, EA-10A remained the undispatched successor frontier until
+Blackdog landing, clean canonical-main verification, and successor-capsule
+generation. That historical frontier statement is superseded by the task-local
+EA-10A completion-candidate section above.
 
 Canonical routed-document dispositions for DOC-03:
 
@@ -1415,9 +1591,9 @@ This table is machine-checked against every `complete` row in the canonical
 execution-plan ledger. Gate names match each package's required gates exactly,
 and every recorded result is `passed`. EA-06, EA-08A, EA-08B, and EA-09 are
 reconciled to their canonical-main landing commits rather than retained as
-stale task-local candidates. FIX-03 and DOC-03 have final completion evidence;
-GATE-01 remains pending after EA-11C. Detailed scope and limitations remain in
-the named evidence sections.
+stale task-local candidates. FIX-03, DOC-03, and the task-local EA-10A landing
+candidate have final completion evidence; GATE-01 remains pending after EA-11C.
+Detailed scope and limitations remain in the named evidence sections.
 
 | Package | Blackdog task | Gate results | Evidence section |
 | --- | --- | --- | --- |
@@ -1443,6 +1619,7 @@ the named evidence sections.
 | EA-09 | `TASK-D55FD455` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `JOURNEY=passed`, `STRICT=passed`, `UI=passed`, `DELETE=passed` | Episode UI cutover |
 | FIX-03 | `TASK-0A7AB3EE` | `DRAW-RUN=passed`, `TASK-METRIC=passed`, `DELETE=passed`, `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed` | Pre-GATE-01 Drawing Run task-owner correction |
 | DOC-03 | `TASK-B7C9E592` | `DOC=passed`, `DIFF=passed` | Pilot dependency-cycle correction |
+| EA-10A | `TASK-539931AC` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed`, `PEN=passed`, `DELETE=passed` | Pen Interaction episode cutover completion candidate |
 
 ## Wave admission blockers
 

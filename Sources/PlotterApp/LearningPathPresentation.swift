@@ -69,6 +69,16 @@ enum PlotterAppUIActionID {
     PlotterUIActionID(rawValue: "learning.retained.\(owner.id).\(String(describing: kind))")
   }
 
+  static func penInteractionSetpoint(
+    _ command: PenCommand,
+    value: Int,
+    owner: LearningPathItemID
+  ) -> PlotterUIActionID {
+    PlotterUIActionID(
+      rawValue: "learning.pen-interaction.\(owner.id).\(command.rawValue).s\(value)"
+    )
+  }
+
   static func learningReset(_ plan: LearningVacatePlan) -> PlotterUIActionID {
     let revisions = plan.expectedCurrentRevisionIDs
       .map { String(describing: $0) }
@@ -510,7 +520,6 @@ enum ExerciseActionKind: Hashable, Sendable {
   case startNewLearning
   case start
   case choice(OperatorChoice)
-  case setPenSetpoint(PenCommand, Int)
   case cancel
   case stop(ContextualStopCapabilityID)
   case restart

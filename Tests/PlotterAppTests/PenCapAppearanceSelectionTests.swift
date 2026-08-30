@@ -2,6 +2,7 @@ import Foundation
 import PlotterEpisodeModel
 import PlotterEpisodeRuntime
 import PlotterModel
+import PlotterUI
 import Testing
 
 @testable import PlotterApp
@@ -95,7 +96,10 @@ struct PenCapAppearanceSelectionTests {
     await workspace.requestPassiveProbe()
     await log.clear()
 
-    await workspace.beginPenInteraction()
+    await workspace.performTestExerciseAction(
+      .start,
+      for: .humanGuidedDiscovery(.penInteraction)
+    )
 
     let presentation = workspace.testActionSurfacePresentation
     let request = try #require(presentation.pointSelectionRequest)
@@ -158,7 +162,16 @@ struct PenCapAppearanceSelectionTests {
     #expect(identifyAction.unavailableReason == nil)
 
     await workspace.performTestExerciseAction(.start, for: owner)
-    try await identifyPenCap(workspace)
+    let penRequest = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
+    let penFrame = try #require(workspace.testActionSurfacePresentation.displayedFrame)
+    submitPointSelection(workspace, request: penRequest, point: try Point2(
+      x: Double(penFrame.frame.width - 1) / 2,
+      y: Double(penFrame.frame.height - 1) / 2
+    ))
+    try await waitUntil {
+      workspace.activeDiscoverySequenceID == .penInteraction || workspace.discoveryError != nil
+    }
+    try requireStep(workspace, "answer-initially-up")
 
     let disconnectedStrip = try #require(workspace.currentExerciseActionStripPresentation)
     let disconnectedNext = try #require(
@@ -172,8 +185,9 @@ struct PenCapAppearanceSelectionTests {
     #expect(workspace.controllerSelectionUnavailableReason == nil)
     #expect(workspace.controllerConnectionActionUnavailableReason == "Select one serial device first.")
 
-    let blockedSetpointID = PlotterAppUIActionID.retainedLearning(
-      .setPenSetpoint(disconnectedAdjustment.command, disconnectedAdjustment.value + 1),
+    let blockedSetpointID = PlotterAppUIActionID.penInteractionSetpoint(
+      disconnectedAdjustment.command,
+      value: disconnectedAdjustment.value + 1,
       owner: owner
     )
     let blockedProjection = workspace.testPlotterUIProjection(
@@ -226,10 +240,22 @@ struct PenCapAppearanceSelectionTests {
     await workspace.establishMachineSession(machine.descriptor)
     await workspace.requestPassiveProbe()
     await workspace.startCamera()
-    await workspace.beginPenInteraction()
+    await workspace.performTestExerciseAction(
+      .start,
+      for: .humanGuidedDiscovery(.penInteraction)
+    )
     await reconfigurationGate.arm()
 
-    try await identifyPenCap(workspace)
+    let penRequest = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
+    let penFrame = try #require(workspace.testActionSurfacePresentation.displayedFrame)
+    submitPointSelection(workspace, request: penRequest, point: try Point2(
+      x: Double(penFrame.frame.width - 1) / 2,
+      y: Double(penFrame.frame.height - 1) / 2
+    ))
+    try await waitUntil {
+      workspace.activeDiscoverySequenceID == .penInteraction || workspace.discoveryError != nil
+    }
+    try requireStep(workspace, "answer-initially-up")
 
     try requireStep(workspace, "answer-initially-up")
     try await waitForExecutorTurnsAsync(
@@ -262,7 +288,10 @@ struct PenCapAppearanceSelectionTests {
     await workspace.establishMachineSession(machine.descriptor)
     await workspace.requestPassiveProbe()
 
-    await workspace.beginPenInteraction()
+    await workspace.performTestExerciseAction(
+      .start,
+      for: .humanGuidedDiscovery(.penInteraction)
+    )
 
     let presentation = workspace.testActionSurfacePresentation
     let frozen = try #require(presentation.displayedFrame)
@@ -290,7 +319,10 @@ struct PenCapAppearanceSelectionTests {
     await workspace.establishMachineSession(machine.descriptor)
     await workspace.requestPassiveProbe()
     await log.clear()
-    await workspace.beginPenInteraction()
+    await workspace.performTestExerciseAction(
+      .start,
+      for: .humanGuidedDiscovery(.penInteraction)
+    )
     let request = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
     let staleFrame = try colorFrame(red: 20, green: 80, blue: 220, frameID: "other-frame")
     let stale = PlotterPointSelectionSubmission(
@@ -392,7 +424,10 @@ struct PenCapAppearanceSelectionTests {
     )
 
     await workspace.switchFrameMode(.simulated)
-    await workspace.beginPenInteraction()
+    await workspace.performTestExerciseAction(
+      .start,
+      for: .humanGuidedDiscovery(.penInteraction)
+    )
     let request = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
     let displayed = try #require(workspace.testActionSurfacePresentation.displayedFrame)
     let fallbackPoint = try Point2<CameraPixelSpace>(
@@ -473,7 +508,7 @@ struct PenCapAppearanceSelectionTests {
     await workspace.shutdown()
   }
 
-  @Test("accepted click then immediate Cancel cannot revive Exercise 1.1")
+  @Test("accepted click then exact Pen Stop cannot revive Exercise 1.1")
   func acceptedClickImmediateCancelDoesNotRevive() async throws {
     let log = EventLog()
     let machine = try MachineFixture(log: log)
@@ -491,7 +526,6 @@ struct PenCapAppearanceSelectionTests {
     let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
 
     await workspace.performTestExerciseAction(.start, for: owner)
-    let cancelledAttemptID = try #require(workspace.activeExerciseAttemptID)
     let request = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
     let displayed = try #require(workspace.testActionSurfacePresentation.displayedFrame)
     submitPointSelection(
@@ -504,7 +538,7 @@ struct PenCapAppearanceSelectionTests {
     )
     try await waitUntil { workspace.penCapAppearanceSelection != nil }
     let acceptedAppearance = try #require(workspace.penCapAppearanceSelection)
-    await workspace.performTestExerciseAction(.cancel, for: owner)
+    try await performExactPenStop(workspace, owner: owner)
 
     #expect(workspace.activeExerciseAttemptID == nil)
     if let cancelledTransaction = workspace.discoveryTransactions[.penInteraction] {
@@ -517,15 +551,14 @@ struct PenCapAppearanceSelectionTests {
     #expect(await log.values.isEmpty)
     #expect(workspace.penCapAppearanceSelection == acceptedAppearance)
     #expect(workspace.learningArtifactGraph.currentRevision(for: .penInteraction) == nil)
-    #expect(workspace.penAttemptHistory.attempts.count == 1)
-    #expect(workspace.penAttemptHistory.attempts.first?.id == cancelledAttemptID)
-    #expect(workspace.penAttemptHistory.attempts.first?.disposition == .cancelled)
+    #expect(workspace.activeExerciseAttemptID == nil)
+    #expect(workspace.learningArtifactGraph.currentRevision(for: .penInteraction) == nil)
     #expect(workspace.restartableExerciseItemID == owner)
     #expect(workspace.currentExerciseActionStripPresentation?.actions.map(\.kind) == [.restart])
     await workspace.shutdown()
   }
 
-  @Test("Restart, Learning Off, reset, and source switch cannot revive a cancelled click")
+  @Test("Restart, Learning Off, reset, and source switch cannot revive a stopped click")
   func recoveryTransitionsDoNotReviveCancelledClick() async throws {
     let log = EventLog()
     let machine = try MachineFixture(log: log)
@@ -549,20 +582,21 @@ struct PenCapAppearanceSelectionTests {
       )
     )
     try await waitUntil { workspace.penCapAppearanceSelection != nil }
-    await workspace.performTestExerciseAction(.cancel, for: owner)
+    try await performExactPenStop(workspace, owner: owner)
     await workspace.performTestExerciseAction(.restart, for: owner)
 
     let restartedAttemptID = try #require(workspace.activeExerciseAttemptID)
     #expect(restartedAttemptID != cancelledAttemptID)
     #expect(workspace.discoveryTransactions[.penInteraction] == nil)
     #expect(workspace.testActionSurfacePresentation.pointSelectionRequest?.purpose == .penCapAppearance)
-    await workspace.performTestExerciseAction(.cancel, for: owner)
+    try await performExactPenStop(workspace, owner: owner)
     await workspace.submitTestPlotterUIAction(PlotterAppUIActionID.learningMode)
     try await waitUntil { !workspace.testLearningIsEnabled }
     #expect(!workspace.testLearningIsEnabled)
 
     let plan = try #require(workspace.resetAllLearningPlan)
-    #expect(workspace.performLearningVacate(plan))
+    let didVacate = await workspace.performLearningVacate(plan)
+    #expect(didVacate)
     await workspace.switchFrameMode(.simulated)
 
     #expect(workspace.frameMode == .simulated)
@@ -570,6 +604,36 @@ struct PenCapAppearanceSelectionTests {
     #expect(workspace.selectedOperatorActionPresentation(for: owner).question == nil)
     #expect(await machine.requestedPenCommands.isEmpty)
     await workspace.shutdown()
+  }
+
+  private func performExactPenStop(
+    _ workspace: OperatorWorkspace,
+    owner: LearningPathItemID
+  ) async throws {
+    let strip = try #require(
+      workspace.selectedOperatorActionPresentation(for: owner).actionStrip
+    )
+    let stop = try #require(strip.actions.first { action in
+      guard case .stop = action.kind else { return false }
+      return action.isEnabled
+    })
+    guard case .stop(let presentedCapability) = stop.kind else {
+      Issue.record("Expected the rendered Pen Stop capability.")
+      return
+    }
+    let actionID = PlotterAppUIActionID.retainedLearning(stop.kind, owner: owner)
+    let projection = workspace.testPlotterUIProjection(
+      selectedItemID: owner,
+      includesLearningPath: true
+    ).semantic
+    let request = try #require(projection.request(for: actionID))
+    guard case .penInteraction(.stop(let runtimeCapability)) = request.intent else {
+      Issue.record("Expected the rendered Stop to bind the typed Pen runtime intent.")
+      return
+    }
+    #expect(runtimeCapability.rawValue == presentedCapability.rawValue)
+    let sink: any PlotterUIIntentSink = workspace
+    #expect(await sink.submitPlotterUIRequest(request) == .accepted(requestID: request.id))
   }
 
   @Test("shutdown settles an accepted-click continuation without starting a sequence")

@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import PlotterEpisodeModel
 import PlotterEpisodeRuntime
 import PlotterModel
@@ -195,6 +196,7 @@ func performStart(
 struct CausalSimulatorAppFixture {
   let workspace: OperatorWorkspace
   let simulator: CausalSimulatorProbe
+  let penInteractionRuntime: PlotterPenInteractionRuntime
 }
 
 /// Read-only causal truth plus explicit fault injection. This probe cannot
@@ -246,6 +248,26 @@ func nominalDrawingRunComposition(
   )
 }
 
+func nominalPenInteractionRuntime(
+  machineActions: OperatorWorkspace.MachineActions? = nil,
+  manualMotionComposition: PlotterManualMotionRuntimeComposition? = nil
+) -> PlotterPenInteractionRuntime {
+  let composition = manualMotionComposition
+    ?? PlotterManualMotionComposition.makeRuntimeComposition(
+      journalFileURL: FileManager.default.temporaryDirectory.appendingPathComponent(
+        "pen-interaction-test-\(UUID().uuidString).json"
+      ),
+      machineActions: machineActions,
+      simulatedRuntime: SimulatedLearningRuntime(),
+      simulatedExecutionPacing: SimulatedLearningInteractivePacing(stepDelay: .zero)
+    )
+  return PlotterPenInteractionComposition.makeRuntime(
+    machineActions: machineActions,
+    simulatedAdapter: composition.causalSimulatorEffectAdapter,
+    nowNanoseconds: { 1 }
+  )
+}
+
 func sequenceIDForTest(_ direction: BoundaryDirection) -> DiscoverySequenceID {
   switch direction {
   case .negativeX: .boundaryNegativeX
@@ -285,11 +307,15 @@ func makeCausalSimulatorAppFixture(
   )
   let resolvedCameraActions =
     cameraActions ?? CameraComposition.makeIsolatedActionsForTesting()
+  let penInteractionRuntime = nominalPenInteractionRuntime(
+    manualMotionComposition: manualMotionComposition
+  )
   return CausalSimulatorAppFixture(
     workspace: OperatorWorkspace(
       machineActions: nil,
       cameraActions: resolvedCameraActions,
       manualMotionComposition: manualMotionComposition,
+      penInteractionRuntime: penInteractionRuntime,
       acceptedLearningPathCheckpointActions: learningPathCheckpointActions,
       drawingDraftRuntime: drawingDraftRuntime,
       drawingRunComposition: nominalDrawingRunComposition(
@@ -310,7 +336,8 @@ func makeCausalSimulatorAppFixture(
       persistOverlayPreference: { _ in },
       nowNanoseconds: { clock.next() }
     ),
-    simulator: CausalSimulatorProbe(runtime: runtime)
+    simulator: CausalSimulatorProbe(runtime: runtime),
+    penInteractionRuntime: penInteractionRuntime
   )
 }
 
@@ -384,7 +411,23 @@ func completeSimulatedBoundariesAndCenter(
   let penOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
   try requireEnabledPublicAction(.start, owner: penOwner, workspace: workspace)
   await workspace.performTestExerciseAction(.start, for: penOwner)
-  try await identifyPenCap(workspace)
+  let penRequest = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
+  let penFrame = try #require(workspace.testActionSurfacePresentation.displayedFrame)
+  let fallbackPenPoint = try Point2<CameraPixelSpace>(
+    x: Double(penFrame.frame.width - 1) / 2,
+    y: Double(penFrame.frame.height - 1) / 2
+  )
+  let penPoint = workspace.testActionSurfacePresentation.overlays.compactMap {
+    overlay -> Point2<CameraPixelSpace>? in
+    guard overlay.provenance.kind == .penCap, case .point(let point) = overlay.geometry else {
+      return nil
+    }
+    return point
+  }.first ?? fallbackPenPoint
+  submitPointSelection(workspace, request: penRequest, point: penPoint)
+  try await waitUntil {
+    workspace.activeDiscoverySequenceID == .penInteraction || workspace.discoveryError != nil
+  }
   var physicalPoseQuestionCount = 0
   for _ in 0..<8 where !workspace.penInteractionCompleted {
     let presentation = workspace.selectedOperatorActionPresentation(for: penOwner)
@@ -544,45 +587,6 @@ func completeLiveBoundaries(
 }
 
 @MainActor
-func completePenInteraction(_ workspace: OperatorWorkspace) async throws {
-  if let reason = workspace.discoveryStartUnavailableReason(for: .penInteraction) {
-    throw StepMismatch(expected: "available", actual: reason)
-  }
-  await workspace.beginPenInteraction()
-  try await identifyPenCap(workspace)
-  try await finishPenInteraction(workspace)
-}
-
-@MainActor
-func identifyPenCap(_ workspace: OperatorWorkspace) async throws {
-  let request = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
-  let displayed = try #require(workspace.testActionSurfacePresentation.displayedFrame)
-  #expect(request.purpose == .penCapAppearance)
-  let overlayPoint = workspace.testActionSurfacePresentation.overlays.compactMap {
-    measurement -> Point2<CameraPixelSpace>? in
-    guard measurement.provenance.kind == .penCap, case .point(let point) = measurement.geometry
-    else { return nil }
-    return point
-  }.first
-  let fallbackPoint = try Point2<CameraPixelSpace>(
-    x: Double(displayed.frame.width - 1) / 2,
-    y: Double(displayed.frame.height - 1) / 2
-  )
-  let point =
-    overlayPoint.flatMap {
-      $0.x >= 0 && $0.x < Double(displayed.frame.width)
-        && $0.y >= 0 && $0.y < Double(displayed.frame.height) ? $0 : nil
-    } ?? fallbackPoint
-  submitPointSelection(workspace, request: request, point: point)
-  try await waitUntil {
-    workspace.activeDiscoverySequenceID == .penInteraction
-      || workspace.discoveryError != nil
-      || workspace.pointSelectionEpisodeProjection.exactPointSelection.request?.id != request.id
-  }
-  try requireStep(workspace, "answer-initially-up")
-}
-
-@MainActor
 func submitPointSelection(
   _ workspace: OperatorWorkspace,
   request: PlotterPointSelectionRequest,
@@ -651,22 +655,6 @@ func exactPointSelectionFrame(_ frame: DisplayedFrame) -> PlotterExactFrameRefer
 }
 
 @MainActor
-func finishPenInteraction(_ workspace: OperatorWorkspace) async throws {
-  try requireStep(workspace, "answer-initially-up")
-  await workspace.answerCurrentQuestion(.yes)
-  try requireStep(workspace, "answer-currently-down")
-  await workspace.answerCurrentQuestion(.yes)
-  try requireStep(workspace, "answer-finally-up")
-  await workspace.answerCurrentQuestion(.yes)
-  guard workspace.discoveryTransactions[.penInteraction]?.state == .succeeded else {
-    throw StepMismatch(
-      expected: "succeeded",
-      actual: String(describing: workspace.discoveryTransactions[.penInteraction]?.state)
-    )
-  }
-}
-
-@MainActor
 func requireStep(_ workspace: OperatorWorkspace, _ expected: String) throws {
   let actual = workspace.discoveryTransactions[.penInteraction]?.currentStep?.id
   guard actual == expected else {
@@ -690,6 +678,9 @@ func workspace(
   drawingDraftRuntime: PlotterDrawingDraftRuntime = nominalDrawingDraftRuntime(),
   tipCalibrationSemanticIdentities: TipCalibrationSemanticIdentityState = .ephemeral(),
   workflowTelemetry: WorkflowTelemetryFixture? = nil,
+  penInteractionRuntimeFactory:
+    ((OperatorWorkspace.MachineActions, PlotterManualMotionRuntimeComposition)
+      -> PlotterPenInteractionRuntime)? = nil,
   loadPenCapAppearanceSelection:
     @escaping @Sendable () -> PenCapAppearanceSelection? = { testPenCapAppearanceSelection() },
   persistPenCapAppearanceSelection:
@@ -750,9 +741,26 @@ func workspace(
   )
   let resolvedCameraActions =
     cameraActionsOverride ?? camera.map { cameraActions($0) }
+  let manualMotionComposition = PlotterManualMotionComposition.makeRuntimeComposition(
+    journalFileURL: FileManager.default.temporaryDirectory.appendingPathComponent(
+      "operator-workspace-test-\(UUID().uuidString).json"
+    ),
+    machineActions: machineActions,
+    simulatedRuntime: SimulatedLearningRuntime(),
+    simulatedExecutionPacing: SimulatedLearningInteractivePacing(stepDelay: .zero)
+  )
+  let penInteractionRuntime = penInteractionRuntimeFactory?(
+    machineActions,
+    manualMotionComposition
+  ) ?? nominalPenInteractionRuntime(
+    machineActions: machineActions,
+    manualMotionComposition: manualMotionComposition
+  )
   return OperatorWorkspace(
     machineActions: machineActions,
     cameraActions: resolvedCameraActions,
+    manualMotionComposition: manualMotionComposition,
+    penInteractionRuntime: penInteractionRuntime,
     announcementActions: announcements.map { fixture in
       .init(
         announce: { await fixture.announce($0) },
@@ -1016,26 +1024,89 @@ actor WorkflowTelemetryFixture {
 }
 
 actor PenRequestGate {
-  private var shouldBlockFirstRequest = true
+  private var shouldBlockNextRequest = true
   private var releasedEarly = false
+  private var held = false
+  private var heldWaiters: [CheckedContinuation<Void, Never>] = []
   private var continuation: CheckedContinuation<Void, Never>?
 
   func waitIfFirstRequest() async {
-    guard shouldBlockFirstRequest else { return }
-    shouldBlockFirstRequest = false
-    if releasedEarly { return }
+    guard shouldBlockNextRequest else { return }
+    shouldBlockNextRequest = false
+    if releasedEarly {
+      releasedEarly = false
+      return
+    }
+    held = true
+    let waiters = heldWaiters
+    heldWaiters = []
+    waiters.forEach { $0.resume() }
     await withCheckedContinuation { continuation in
       self.continuation = continuation
     }
+    held = false
+  }
+
+  func holdNextRequest() {
+    precondition(!shouldBlockNextRequest && !held && continuation == nil)
+    releasedEarly = false
+    shouldBlockNextRequest = true
+  }
+
+  func waitUntilHeld() async {
+    if held { return }
+    await withCheckedContinuation { heldWaiters.append($0) }
   }
 
   func releaseFirstRequest() {
     guard let continuation else {
       releasedEarly = true
+      shouldBlockNextRequest = false
       return
     }
     self.continuation = nil
     continuation.resume()
+  }
+}
+
+@MainActor
+func waitForObservedCondition(
+  _ condition: @escaping @MainActor () -> Bool
+) async {
+  if condition() { return }
+  await withCheckedContinuation { continuation in
+    ObservationConditionWaiter(
+      condition: condition,
+      continuation: continuation
+    ).start()
+  }
+}
+
+@MainActor
+private final class ObservationConditionWaiter {
+  private let condition: @MainActor () -> Bool
+  private var continuation: CheckedContinuation<Void, Never>?
+
+  init(
+    condition: @escaping @MainActor () -> Bool,
+    continuation: CheckedContinuation<Void, Never>
+  ) {
+    self.condition = condition
+    self.continuation = continuation
+  }
+
+  func start() {
+    guard continuation != nil else { return }
+    var satisfied = false
+    withObservationTracking {
+      satisfied = condition()
+    } onChange: { [self] in
+      Task { @MainActor in start() }
+    }
+    if satisfied {
+      continuation?.resume()
+      continuation = nil
+    }
   }
 }
 

@@ -118,6 +118,9 @@ func simulatedCameraRefreshUsesLearningRuntime() async throws {
   let workspace = OperatorWorkspace(
     cameraActions: CameraComposition.makeIsolatedActionsForTesting(),
     manualMotionComposition: composition,
+    penInteractionRuntime: nominalPenInteractionRuntime(
+      manualMotionComposition: composition
+    ),
     drawingDraftRuntime: nominalDrawingDraftRuntime(),
     drawingRunComposition: nominalDrawingRunComposition(),
     incidentPackageUIService: nominalIncidentPackageUIService(),

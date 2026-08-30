@@ -687,8 +687,15 @@ private func makeProductionWorkspace() -> UIWorkspaceFixture {
   let incidentProvider = UnavailableIncidentSourceProbe()
   let incidentService = PlotterIncidentPackageUIService(sourceProvider: incidentProvider)
   let cameraActions = CameraComposition.makeIsolatedActionsForTesting()
+  let manualMotionComposition = PlotterManualMotionComposition.production
+  let penInteractionRuntime = PlotterPenInteractionComposition.makeRuntime(
+    machineActions: MachineSessionComposition.actions,
+    simulatedAdapter: manualMotionComposition.causalSimulatorEffectAdapter
+  )
   let workspace = OperatorWorkspace(
     cameraActions: cameraActions,
+    manualMotionComposition: manualMotionComposition,
+    penInteractionRuntime: penInteractionRuntime,
     drawingDraftRuntime: PlotterDrawingDraftRuntime(),
     drawingRunComposition: PlotterDrawingRunComposition.make(
       machineActions: MachineSessionComposition.actions,

@@ -122,7 +122,17 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
     await workspace.establishMachineSession(machine.descriptor)
     await workspace.requestPassiveProbe()
     await workspace.startCamera()
-    try await completePenInteraction(workspace)
+    let prerequisitePenOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+    await workspace.performTestExerciseAction(.start, for: prerequisitePenOwner)
+    let prerequisitePenRequest = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
+    let prerequisitePenFrame = try #require(workspace.testActionSurfacePresentation.displayedFrame)
+    submitPointSelection(workspace, request: prerequisitePenRequest, point: try Point2(
+      x: Double(prerequisitePenFrame.frame.width - 1) / 2,
+      y: Double(prerequisitePenFrame.frame.height - 1) / 2
+    ))
+    try await waitUntil { workspace.activeDiscoverySequenceID == .penInteraction }
+    for _ in 0..<3 { await workspace.performTestExerciseAction(.choice(.yes), for: prerequisitePenOwner) }
+    #expect(workspace.penInteractionCompleted)
     try await completeLiveBoundaries(workspace, machine: machine)
 
     let boundaryOwner = LearningPathItemID.humanGuidedDiscovery(
@@ -283,7 +293,17 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
     await workspace.establishMachineSession(machine.descriptor)
     await workspace.requestPassiveProbe()
     await workspace.startCamera()
-    try await completePenInteraction(workspace)
+    let prerequisitePenOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+    await workspace.performTestExerciseAction(.start, for: prerequisitePenOwner)
+    let prerequisitePenRequest = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
+    let prerequisitePenFrame = try #require(workspace.testActionSurfacePresentation.displayedFrame)
+    submitPointSelection(workspace, request: prerequisitePenRequest, point: try Point2(
+      x: Double(prerequisitePenFrame.frame.width - 1) / 2,
+      y: Double(prerequisitePenFrame.frame.height - 1) / 2
+    ))
+    try await waitUntil { workspace.activeDiscoverySequenceID == .penInteraction }
+    for _ in 0..<3 { await workspace.performTestExerciseAction(.choice(.yes), for: prerequisitePenOwner) }
+    #expect(workspace.penInteractionCompleted)
     await gate.arm()
 
     let capture = Task {
@@ -310,110 +330,6 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
     _ = try await capture.value
     #expect(workspace.exactWorkflowVisionOwner == nil)
     #expect(workspace.overlayStatus(for: .penCap).state != .suspended)
-    await workspace.shutdown()
-  }
-
-  @Test("automatic Pen Down publishes its question in one bounded settlement update")
-  func automaticPenDownPublishesNextAuthority() async throws {
-    try await expectAutomaticPenSettlementPublishesNextAuthority(
-      command: .lower,
-      expectedCurrentStepBeforeSettlement: "command-down",
-      expectedCurrentStepAfterSettlement: "answer-currently-down"
-    )
-  }
-
-  @Test("automatic Pen Up publishes its question in one bounded settlement update")
-  func automaticPenUpPublishesNextAuthority() async throws {
-    try await expectAutomaticPenSettlementPublishesNextAuthority(
-      command: .raise,
-      expectedCurrentStepBeforeSettlement: "command-up",
-      expectedCurrentStepAfterSettlement: "answer-finally-up"
-    )
-  }
-
-  private func expectAutomaticPenSettlementPublishesNextAuthority(
-    command: PenCommand,
-    expectedCurrentStepBeforeSettlement: String,
-    expectedCurrentStepAfterSettlement: String
-  ) async throws {
-    let log = EventLog()
-    let gate = PenCommandCompletionGate(
-      command: command,
-      occurrence: 1
-    )
-    let machine = try MachineFixture(log: log)
-    let camera = try CameraFixture()
-    let traffic = CameraAnalysisTrafficFixture()
-    let workspace = workspaceWithPenCommandCompletionGate(
-      machine: machine,
-      cameraActions: cameraActions(
-        camera,
-        analysisUpdates: { traffic.updates() }
-      ),
-      gate: gate
-    )
-    await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
-    await workspace.startCamera()
-    try await waitForExecutorTurns { traffic.subscriptionCount == 1 }
-    await workspace.beginPenInteraction()
-    try await identifyPenCap(workspace)
-    try await waitForExecutorTurns { traffic.subscriptionCount >= 2 }
-    if command == .raise {
-      await workspace.answerCurrentQuestion(.yes)
-    }
-    try requireStep(
-      workspace,
-      command == .lower ? "answer-initially-up" : "answer-currently-down"
-    )
-    let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
-    workspace.resetComputationDiagnosticsForTesting()
-    _ = workspace.testActionSurfacePresentation
-    let requestCountBeforeAnswer = await machine.requestedPenCommands.count
-    try await waitForExecutorTurnsAsync {
-      workspace.testActionSurfacePresentation.displayedFrame != nil
-    }
-    let nextTask = Task {
-      await workspace.performTestExerciseAction(.choice(.yes), for: owner)
-    }
-    try await waitForExecutorTurnsAsync {
-      let commands = await machine.requestedPenCommands
-      return commands.count == requestCountBeforeAnswer + 1
-        && commands.last == command
-    }
-    try requireStep(workspace, expectedCurrentStepBeforeSettlement)
-    _ = workspace.currentExerciseActionStripPresentation
-    _ = workspace.testActionSurfacePresentation
-    let baselineDiagnostics = workspace.computationDiagnosticsForTesting
-    let baselineSnapshotCallCount = await machine.snapshotCallCount
-    #expect(baselineDiagnostics.events.contains(.penRequest(command, .began)))
-    #expect(!baselineDiagnostics.events.contains(.penRequest(command, .ended)))
-
-    await gate.release()
-    await nextTask.value
-    try requireStep(workspace, expectedCurrentStepAfterSettlement)
-    #expect(workspace.currentExerciseActionStripPresentation?.penSetpointAdjustment?.command == command)
-    _ = workspace.testActionSurfacePresentation
-    let diagnostics = workspace.computationDiagnosticsForTesting
-    #expect(diagnostics.events.contains(.penRequest(command, .ended)))
-    #expect(
-      diagnostics.learningSessionWriteCount
-        == baselineDiagnostics.learningSessionWriteCount + 1
-    )
-    #expect(
-      diagnostics.semanticPresentationRevision
-        == baselineDiagnostics.semanticPresentationRevision + 1
-    )
-    #expect(
-      diagnostics.learningProjectionBuildCount
-        == baselineDiagnostics.learningProjectionBuildCount + 1
-    )
-    #expect(
-      diagnostics.actionSurfaceBuildCount
-        == baselineDiagnostics.actionSurfaceBuildCount
-    )
-    #expect(await machine.snapshotCallCount == baselineSnapshotCallCount + 1)
-    traffic.finish()
     await workspace.shutdown()
   }
 
@@ -446,8 +362,6 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
     try await waitForExecutorTurnsAsync {
       await machine.requestedPenCommands == [.raise]
     }
-    #expect(workspace.penRequestInProgress)
-
     for revision in 10...12 {
       traffic.inject(revision: UInt64(revision))
       try await waitForExecutorTurns {
@@ -495,7 +409,17 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
     ) {
       traffic.subscriptionCount == 1
     }
-    try await completePenInteraction(workspace)
+    let prerequisitePenOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+    await workspace.performTestExerciseAction(.start, for: prerequisitePenOwner)
+    let prerequisitePenRequest = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
+    let prerequisitePenFrame = try #require(workspace.testActionSurfacePresentation.displayedFrame)
+    submitPointSelection(workspace, request: prerequisitePenRequest, point: try Point2(
+      x: Double(prerequisitePenFrame.frame.width - 1) / 2,
+      y: Double(prerequisitePenFrame.frame.height - 1) / 2
+    ))
+    try await waitUntil { workspace.activeDiscoverySequenceID == .penInteraction }
+    for _ in 0..<3 { await workspace.performTestExerciseAction(.choice(.yes), for: prerequisitePenOwner) }
+    #expect(workspace.penInteractionCompleted)
     try await waitForExecutorTurns(
       conditionDescription: "post-identification analysis resubscription"
     ) {
@@ -567,7 +491,17 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
     ) {
       traffic.subscriptionCount == 1
     }
-    try await completePenInteraction(workspace)
+    let prerequisitePenOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+    await workspace.performTestExerciseAction(.start, for: prerequisitePenOwner)
+    let prerequisitePenRequest = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
+    let prerequisitePenFrame = try #require(workspace.testActionSurfacePresentation.displayedFrame)
+    submitPointSelection(workspace, request: prerequisitePenRequest, point: try Point2(
+      x: Double(prerequisitePenFrame.frame.width - 1) / 2,
+      y: Double(prerequisitePenFrame.frame.height - 1) / 2
+    ))
+    try await waitUntil { workspace.activeDiscoverySequenceID == .penInteraction }
+    for _ in 0..<3 { await workspace.performTestExerciseAction(.choice(.yes), for: prerequisitePenOwner) }
+    #expect(workspace.penInteractionCompleted)
     try await waitForExecutorTurns(
       conditionDescription: "post-identification analysis resubscription"
     ) {
@@ -642,103 +576,4 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
     traffic.finish()
     await workspace.shutdown()
   }
-}
-
-private actor PenCommandCompletionGate {
-  private let command: PenCommand
-  private var remainingOccurrences: Int
-  private var releasedEarly = false
-  private var continuation: CheckedContinuation<Void, Never>?
-
-  init(command: PenCommand, occurrence: Int) {
-    precondition(occurrence > 0)
-    self.command = command
-    remainingOccurrences = occurrence
-  }
-
-  func waitIfTarget(_ candidate: PenCommand) async {
-    guard candidate == command, remainingOccurrences > 0 else { return }
-    remainingOccurrences -= 1
-    guard remainingOccurrences == 0, !releasedEarly else { return }
-    await withCheckedContinuation { continuation in
-      self.continuation = continuation
-    }
-  }
-
-  func release() {
-    guard let continuation else {
-      releasedEarly = true
-      return
-    }
-    self.continuation = nil
-    continuation.resume()
-  }
-}
-
-@MainActor
-private func workspaceWithPenCommandCompletionGate(
-  machine: MachineFixture,
-  cameraActions: OperatorWorkspace.CameraActions,
-  gate: PenCommandCompletionGate
-) -> OperatorWorkspace {
-  let clock = TestClock()
-  return OperatorWorkspace(
-    machineActions: .init(
-      select: { _ in await machine.snapshot() },
-      snapshot: { await machine.snapshot() },
-      requestPassiveProbe: { await machine.passiveProbeResult() },
-      requestControllerAlarmClear: { .refused(.noCurrentAlarmEvidence) },
-      activateMotionGuard: { .activated },
-      deactivateMotionGuard: {},
-      beginRelativeJog: { request in
-        .admitted(
-          RelativeJogOperation(
-            id: UUID(),
-            task: Task { await machine.performRelativeMotion(request) }
-          )
-        )
-      },
-      beginDrawingStroke: { request in
-        .admitted(
-          DrawingStrokeOperation(
-            id: UUID(),
-            task: Task { await machine.requestDrawingStroke(request) }
-          )
-        )
-      },
-      beginPenActuation: { command, profile in
-        .admitted(PenActuationOperation(
-          id: UUID(),
-          task: Task {
-            let outcome = await machine.requestPen(command, profile: profile)
-            await gate.waitIfTarget(command)
-            return outcome
-          }
-        ))
-      },
-      beginBoundaryMotion: { request, _ in
-        .admitted(
-          BoundaryMotionOperation(
-            ownerID: request.ownerID,
-            task: Task { await machine.requestBoundaryMotion(request) }
-          )
-        )
-      },
-      requestJogCancel: { intent in await machine.cancel(intent: intent) },
-      disconnect: {}
-    ),
-    cameraActions: cameraActions,
-    drawingDraftRuntime: nominalDrawingDraftRuntime(),
-    drawingRunComposition: nominalDrawingRunComposition(),
-    incidentPackageUIService: nominalIncidentPackageUIService(),
-    serialDevices: [machine.descriptor],
-    serialDeviceDiscovery: { [machine.descriptor] },
-    loadSelectedSerialIdentifier: { nil },
-    persistSelectedSerialIdentifier: { _ in },
-    loadPenCapAppearanceSelection: { testPenCapAppearanceSelection() },
-    persistPenCapAppearanceSelection: { _ in },
-    loadOverlayPreference: { nil },
-    persistOverlayPreference: { _ in },
-    nowNanoseconds: { clock.next() }
-  )
 }

@@ -28,7 +28,7 @@ EVIDENCE_PATH = ROOT / "docs" / "CURRENT_EVIDENCE.md"
 ARCHITECTURE_PATH = ROOT / "docs" / "SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md"
 PRODUCT_PATH = ROOT / "docs" / "PRODUCT_CONTRACT.md"
 # Updated in the same package whenever a canonical ledger row changes.
-EXPECTED_LEDGER_SHA256 = "4c2f7b7bf58b42cdbf31eac936bb83304d4a935fb85f74875cb6d29f4e1c93d3"
+EXPECTED_LEDGER_SHA256 = "91a5328e58536cd765a84be2399eacf23e985ed5146d06a048347aae6548003a"
 
 
 EXPECTED_GATES = {
@@ -203,6 +203,7 @@ EXPECTED_COMPLETE_PACKAGES = {
     "EA-09",
     "FIX-03",
     "DOC-03",
+    "EA-10A",
 }
 
 # Canonical Current Evidence has final passed evidence for every complete row.
@@ -425,9 +426,27 @@ def validate_product_contract(text: str) -> None:
         "`PlotterLearningDetailedPresentationNormalizer`",
         "resolve the exact canonical action before retained-owner dispatch",
         "renamed/split status, completion, action-strip, Stop, sparse-action, availability, retained-candidate, or reachability compilers are forbidden compatibility shadows",
+        "one `PlotterPenInteractionRuntime` owns its mutable attempt history and the Up → Down → Up sequence after cap selection",
+        "binds the exact request, projection revision, environment, and active operation",
+        "The active runtime projection carries the exact cancellation capability",
+        "EA-04 exact-frame point selection owns that click, frame provenance, sampling, and accepted cap evidence",
+        "The runtime owns one latest-only drain",
+        "an intermediate superseded value is never sent after it has been replaced",
+        "only genuinely foreign lower-operation ownership may block a fresh Pen request",
+        "Before the first actor-reentrancy await, the runtime synchronously claims its sole drain and publishes the explicit `.drainingSetpoint` phase",
+        "A runtime-owned weak projection sink publishes immutable admitted, draining, settling, cancelling, and terminal snapshots without a workspace observer Task, latch, retry, or effect authority",
+        "During `.drainingSetpoint`, canonical actionability permits only a newer exact-revision setpoint replacement plus the exact capability-bound Stop; confirmation is absent",
+        "Lower execution transitions to settling, where only exact Stop remains, and confirmation returns only after terminal publication reaches awaitingConfirmation",
+        "the application settles that exact point-selection continuation before the Pen runtime publishes terminal state",
+        "This ordering adds no generic Cancel fallback, second Pen Stop owner, command, or evidence claim",
+        "Each admitted transition into a fresh SIMULATED Learning session resets only the simulated Pen environment and preserves LIVE Pen state",
+        "Shutdown closes both LIVE and SIMULATED admission, drains the accepted pending value, awaits the exact lower task and terminal publication",
+        "One nominal actuation port adapts LIVE to the retained controller/`RunInterpreter` Pen owner and SIMULATED to the sole causal simulator adapter",
+        "It claims no attended physical observation",
+        "neither gate can admit, choose, cancel, dispatch, settle, or publish an effect",
     ):
         if required_phrase not in normalized:
-            fail(f"Product Contract is missing the exact Learning-Off exception: {required_phrase}")
+            fail(f"Product Contract is missing current authority: {required_phrase}")
 
 
 def validate_architecture(text: str) -> None:
@@ -655,6 +674,28 @@ def validate_architecture(text: str) -> None:
         "A failed append leaves `publicationIncomplete` plus one exact recovery capability",
         "Possible-ink/no-redraw truth is independent of persistence and blocks the exact plan until a new immutable plan is handed off",
         "SIMULATED start is a typed nonphysical refusal and invokes no LIVE interpreter, camera, Vision, or evidence port",
+        "one `PlotterPenInteractionRuntime` owns the source-indexed exercise attempt, mutable Up/Down profile, exact operation and cancellation capability, lower actuation task, settlement, and immutable attempt history",
+        "`PlotterPenInteractionSubmission` binds a fresh `PlotterPenInteractionRequestID`, the exact `PlotterPenInteractionProjectionReference`, environment, operation ID, current admission facts, and one typed `PlotterPenInteractionIntent`",
+        "`OperatorWorkspace` retains only copied immutable runtime snapshots and App composition/adaptation",
+        "A runtime-owned weak projection sink publishes immutable admitted, draining, settling, cancelling, and terminal snapshots without a workspace observer Task, latch, retry, or effect authority",
+        "Workspace busy feedback represents only a genuinely foreign lower-operation owner and never the Pen runtime's own accepted work",
+        "One runtime-owned latest-only drain coalesces an accepted pending command while an earlier value settles",
+        "the superseded intermediate value is never dispatched",
+        "The first accepted value synchronously claims `setpointDrainInProgress` and enters `.drainingSetpoint` before the projection sink, package gate, or lower port can suspend",
+        "Canonical phase-aware actionability exposes setpoint replacement plus exact capability-bound Stop, but no confirmation, during `.drainingSetpoint`",
+        "Lower execution transitions to settling, where only exact Stop remains",
+        "At awaitingConfirmation the current prompt and adjustment reappear alongside that exact Stop",
+        "settles any already-admitted EA-04 exact-frame point-selection continuation before asking `PlotterPenInteractionRuntime` to publish its terminal state",
+        "cannot recreate one after Stop",
+        "not a generic Cancel fallback or parallel Pen effect, Stop, or evidence owner",
+        "`PlotterPenInteractionComposition` is the nominal retained-owner boundary",
+        "Each environment has its own revision, profile, operation, history, and settlement",
+        "Each admitted transition into a fresh SIMULATED Learning session resets only the simulated Pen environment and preserves LIVE Pen state",
+        "replacing reset preserves the current Pen Interaction snapshot",
+        "Accepted `PenInteractionAttemptEvidence` is published atomically only after operator confirmation",
+        "`physicalEvidenceClaimed` remains false",
+        "Package-only setpoint-admission and terminal-publication gates provide no-sleep/no-poll deterministic tests",
+        "cannot admit, mutate, dispatch, choose, cancel, settle, or publish an effect",
     ):
         if required_phrase not in normalized:
             fail(f"current Swift architecture is missing: {required_phrase}")
@@ -688,6 +729,25 @@ def validate_plan(text: str) -> dict[str, dict[str, object]]:
     missing_ea09_scans = sorted(required_ea09_scans.difference(ea09_scans))
     if missing_ea09_scans:
         fail(f"EA-09 structural cutover scans are missing: {missing_ea09_scans}")
+    ea10a_scans = {
+        (scan_class, paths, literal)
+        for package, scan_class, paths, literal in scan_rows
+        if package == "`EA-10A`"
+    }
+    required_ea10a_scans = {
+        ("deleted-symbol", "`Sources/PlotterApp/*.swift`", "`penAttemptHistory`"),
+        ("duplicate-ingress", "`Sources/PlotterApp/*.swift`", "`beginPenInteraction`"),
+        ("task-owner", "`Sources/PlotterApp/*.swift`", "`penSetpointActuationTask`"),
+        ("fixture", "`Tests/PlotterAppTests/*.swift`", "`completePenInteraction`"),
+        ("duplicate-ingress", "`Sources/PlotterApp/LearningPathPresentation.swift`", "`case setPenSetpoint(`"),
+        ("deleted-symbol", "`Sources/PlotterApp/*.swift`", "`penInteractionSequenceUnavailableReason`"),
+        ("fixture", "`Tests/PlotterAppTests/*.swift`", "`identifyPenCap(`"),
+        ("fixture", "`Tests/PlotterAppTests/*.swift`", "`finishPenInteraction(`"),
+    }
+    if ea10a_scans != required_ea10a_scans:
+        missing = sorted(required_ea10a_scans.difference(ea10a_scans))
+        extra = sorted(ea10a_scans.difference(required_ea10a_scans))
+        fail(f"EA-10A structural cutover scans drifted; missing={missing}, extra={extra}")
     ledger_lines: list[str] = []
     collecting_ledger = False
     for line in text.splitlines():
@@ -794,6 +854,38 @@ def validate_plan(text: str) -> dict[str, dict[str, object]]:
     ):
         if required_phrase not in normalized:
             fail(f"EA-08B plan candidate is missing drawing-run authority: {required_phrase}")
+    for required_phrase in (
+        "one actor-isolated `PlotterPenInteractionRuntime`",
+        "revision/operation/cancellation-bound admission",
+        "latest-only setpoint coalescing",
+        "immutable attempt evidence",
+        "keep exact-frame cap selection in EA-04",
+        "preserve distinct LIVE/SIMULATED state",
+        "no automatic resend",
+        "The original fresh critic returned `RETASK`",
+        "runtime-owned weak projection sink without a workspace observer Task/latch/retry",
+        "cycle-1 delta recheck closed the Stop/truth and SIM blockers but returned `RETASK`",
+        "publishes `.drainingSetpoint` before the first await",
+        "permits exact latest replacement and capability-bound Stop but no confirmation",
+        "Completed in the task-local landing candidate by `TASK-539931AC`, attempt `TASK-539931AC-49f2e7307f76`",
+        "same critic's correction-cycle-2 final delta verdict was exactly `UNANIMOUS PASS — no material disagreement`",
+        "final `QUICK` attempt was nonpass at 753/755 with 9 issues",
+        "made that Stop settle the already-admitted EA-04 point-selection continuation before Pen terminal settlement",
+        "separate focused `PEN` nonpass at 12/13 remain truthful history",
+        "test-only `PenInteractionCancellationPublicationProbe` to observe real `.cancelling` publication without sleep, polling, yield, production change, fabricated truth, or new authority",
+        "All six package gates passed on the frozen candidate",
+        "`DOC` contracts plus 29/29 in 11.921 seconds with 12.554 seconds wall",
+        "`QUICK` 755/755 in 14.270 seconds after a 0.51-second build",
+        "`STRICT` 762/762 plus 29/29 docs in approximately 110.94 seconds",
+        "`PEN` 13/13 in 0.766 seconds after a 71.02-second build",
+        "`DELETE` 8/8 in 0.109 seconds",
+        "EA-10A is semantically complete and migration remains incomplete",
+        "Only Blackdog landing, canonical-main cleanup verification, and conditional EA-10B successor-capsule generation remain pending",
+        "EA-10B is not selected or dispatched",
+        "No attended physical or remote-Git validation occurred or is claimed",
+    ):
+        if required_phrase not in normalized:
+            fail(f"EA-10A completion candidate is missing Pen authority: {required_phrase}")
     ledger_rows = markdown_table(
         text,
         ["ID", "Status", "Dependencies", "Class", "Atomic package outcome", "Required gates"],
@@ -1018,6 +1110,35 @@ def validate_plan(text: str) -> dict[str, dict[str, object]]:
             "Completed by `TASK-B7C9E592`, attempt `TASK-B7C9E592-3408edcef715`",
             "package DOC-03 complete, migration remains incomplete",
             "Both package gates passed: `DOC` 29/29 in 14.014 seconds with 14.770 seconds wall time and documentation/architecture contracts passed; `DIFF` exit 0 with no output in less than 0.01 seconds",
+        ),
+        "EA-10A": (
+            "transfer Pen Interaction value-bearing Up/Down intent",
+            "revision/operation/cancellation-bound admission",
+            "latest-only setpoint coalescing",
+            "immutable attempt evidence",
+            "one actor-isolated `PlotterPenInteractionRuntime`",
+            "keep exact-frame cap selection in EA-04",
+            "preserve distinct LIVE/SIMULATED state",
+            "delete workspace draft/profile/history/pending-command/task/guard/helper authority",
+            "The original fresh critic returned `RETASK`",
+            "runtime-owned weak projection sink without a workspace observer Task/latch/retry",
+            "cycle-1 delta recheck closed the Stop/truth and SIM blockers but returned `RETASK`",
+            "publishes `.drainingSetpoint` before the first await",
+            "permits exact latest replacement and capability-bound Stop but no confirmation",
+            "Completed in the task-local landing candidate by `TASK-539931AC`, attempt `TASK-539931AC-49f2e7307f76`",
+            "same critic's correction-cycle-2 final delta verdict was exactly `UNANIMOUS PASS — no material disagreement`",
+            "final `QUICK` attempt was nonpass at 753/755 with 9 issues",
+            "separate focused `PEN` nonpass at 12/13 remain truthful history",
+            "test-only `PenInteractionCancellationPublicationProbe` to observe real `.cancelling` publication without sleep, polling, yield, production change, fabricated truth, or new authority",
+            "All six package gates passed on the frozen candidate",
+            "`DOC` contracts plus 29/29 in 11.921 seconds with 12.554 seconds wall",
+            "`QUICK` 755/755 in 14.270 seconds after a 0.51-second build",
+            "`STRICT` 762/762 plus 29/29 docs in approximately 110.94 seconds",
+            "`PEN` 13/13 in 0.766 seconds after a 71.02-second build",
+            "`DELETE` 8/8 in 0.109 seconds",
+            "EA-10A is semantically complete and migration remains incomplete",
+            "Only Blackdog landing, canonical-main cleanup verification, and conditional EA-10B successor-capsule generation remain pending",
+            "EA-10B is not selected or dispatched",
         ),
         "EA-10G": (
             "advisory-speech effect authority",
@@ -2279,7 +2400,8 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
         "GATE-01 was not run and is not complete",
         "29/29 passed in 14.014 seconds, 14.770 seconds wall; documentation and architecture contracts passed",
         "exit 0, no output, less than 0.01 seconds wall",
-        "No EA-10A work is selected or dispatched by this evidence update",
+        "At DOC-03 completion, EA-10A remained the undispatched successor frontier",
+        "That historical frontier statement is superseded by the task-local EA-10A completion-candidate section above",
         "Pre-GATE-01 Drawing Run task-owner correction",
         "`TASK-0A7AB3EE`, attempt `TASK-0A7AB3EE-80f88f4a41d8`",
         "removes the redundant stored `OperatorWorkspace.drawingRunTask`",
@@ -2293,6 +2415,106 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
     ):
         if required_phrase not in normalized:
             fail(f"reconciled Current Evidence is missing: {required_phrase}")
+
+    for required_phrase in (
+        "Pen Interaction episode cutover completion candidate",
+        "`TASK-539931AC`, attempt `TASK-539931AC-49f2e7307f76`",
+        "This is task-local semantic completion and a landing candidate, not operational landing",
+        "`8d089d9d1d0dd446da1ac1d9c04c6a91542bd183f9ca9422c12eda9a2db975dd`",
+        "`74fe1cfd561fb4f838447e09f9a1bd7ab69562dec31390d4663d422cad986b6d`",
+        "One actor-isolated `PlotterPenInteractionRuntime` now owns Pen Interaction's source-indexed revision",
+        "One runtime-owned drain is latest-only",
+        "a superseded intermediate value is not dispatched",
+        "Both are inert in production and grant no admission, effect, cancellation, result, or publication choice",
+        "The original fresh critic returned `RETASK` because workspace busy feedback made production setpoint coalescing unreachable",
+        "The first accepted setpoint synchronously claims `setpointDrainInProgress` and publishes `.drainingSetpoint` before the projection sink, deterministic admission gate, or lower port can suspend",
+        "That explicit phase exposes a newer exact-revision setpoint replacement plus exact Stop but no confirmation",
+        "The Learning replacingReset path preserves Pen Interaction",
+        "A fresh SIMULATED admission resets only simulated Pen state while preserving LIVE",
+        "The same critic's cycle-1 delta recheck closed the Stop/truth and SIM blockers but returned `RETASK` on the sole remaining original blocker",
+        "Correction cycle 2 introduces explicit `.drainingSetpoint`, claimed and published synchronously before that first await",
+        "The deterministic production-route regression holds that pre-await boundary, admits supersession from 55 to 57, proves exact Stop and absent confirmation, observes only 57 dispatched, then accepts confirmation after publication",
+        "The same critic's correction-cycle-2 final delta recheck returned exactly `UNANIMOUS PASS — no material disagreement`",
+        "bounded policy permits no new or post-pass critic",
+        "The final `QUICK` attempt was nonpass at 753/755 with 9 issues",
+        "Exact Pen Stop now settles the already-admitted EA-04 point-selection continuation before Pen terminal settlement",
+        "Pen `startDiscoverySequence` no longer recreates a missing canonical attempt",
+        "The regressions submit the rendered typed Stop and verify its exact runtime capability; no generic Cancel fallback or parallel authority was added",
+        "the accepted-click filter built in 9.80 seconds and completed in 0.051 seconds",
+        "the recovery-transition filter built in 0.28 seconds and completed in 0.078 seconds",
+        "An intermediate narrow run after only the stale request correction remained nonpass with one failed test and two issues",
+        "The next final retry passed `DOC` 29/29, clean `DIFF`, `QUICK` 755/755, and `STRICT` 762/762",
+        "A separately invoked focused `PEN` run then exposed a distinct test-synchronization nonpass",
+        "after a 74.52-second build, 12/13 passed",
+        "Production Stop was not returning prematurely",
+        "released the held lower port before Stop had captured the current revision",
+        "Test-only `PenInteractionCancellationPublicationProbe` now waits for the real `.cancelling` projection before releasing the lower port",
+        "The exact test passes three serial repeats: 1/1 with build/test 12.36/0.004 seconds, 1/1 with 0.24/0.005 seconds, and 1/1 with 0.24/0.004 seconds",
+        "The full focused `PEN` suite passes 13/13 with build 0.23 seconds and suite 0.763 seconds",
+        "No sleep, polling, `Task.yield`, production change, fabricated possible-change truth, or new critic was introduced",
+        "The definitive final gate sequence below validates the frozen source/test identities",
+        "An earlier correction-cycle-2 focused invocation compiled, then ran 13 tests with 12 passing and one stale phase assertion failing",
+        "LIVE and SIMULATED revisions, profiles, operations, histories, and settlements remain independent",
+        "The removed workspace draft/profile/history/pending-command fields, sequence guard, setpoint task, begin/complete/finish helpers, and high-level cap/finish fixtures have no renamed authority",
+        "The presentation-only `LearningPathTerminology.identifyPenCap` constant and canonical PlotterUI setpoint intent remain deliberately retained",
+        "All six EA-10A package gates passed on the frozen candidate",
+        "documentation and architecture contracts plus 29/29 checker tests passed in 11.921 seconds, 12.554 seconds wall",
+        "755/755 tests passed in 14.270 seconds after a 0.51-second build",
+        "observed wall approximately 110.94 seconds; strict-concurrency warnings-as-errors build 39.36 seconds",
+        "full 762/762 tests passed in 16.462 seconds after a 43.16-second build",
+        "documentation contracts and 29/29 checker tests passed in 11.414 seconds",
+        "all 8 exact scans had zero matches in 0.109 seconds",
+        "EA-10A is semantically complete as a task-local landing candidate",
+        "EA-10B is not selected or dispatched",
+        "This is automated software and deterministic simulation evidence only",
+    ):
+        if required_phrase not in normalized:
+            fail(f"EA-10A completion evidence is missing: {required_phrase}")
+
+    candidate_section = re.search(
+        r"^## Pen Interaction episode cutover completion candidate$(.*?)(?=^## |\Z)",
+        text,
+        re.MULTILINE | re.DOTALL,
+    )
+    if candidate_section is None:
+        fail("EA-10A completion evidence section is missing")
+    candidate_gates = markdown_table(
+        candidate_section.group(1), ["Validation", "Result", "Scope"]
+    )
+    expected_candidate_gate_order = ["DOC", "DIFF", "QUICK", "STRICT", "PEN", "DELETE"]
+    actual_candidate_gate_order = [
+        match.group(1)
+        for validation, _result, _scope in candidate_gates
+        if (match := re.fullmatch(r"`([A-Z][A-Z0-9-]*)`", validation)) is not None
+    ]
+    if actual_candidate_gate_order != expected_candidate_gate_order:
+        fail(
+            "EA-10A completion gate order drifted; expected "
+            f"{expected_candidate_gate_order}, found {actual_candidate_gate_order}"
+        )
+    candidate_results = {
+        validation.strip("`"): result
+        for validation, result, _scope in candidate_gates
+    }
+    for gate, required_result in (
+        ("DOC", "29/29"),
+        ("DIFF", "exit 0, no output"),
+        ("QUICK", "755/755"),
+        ("STRICT", "762/762"),
+        ("DELETE", "8 exact scans had zero matches"),
+    ):
+        result = candidate_results[gate]
+        if not result.startswith("passed —") or required_result not in result:
+            fail(f"EA-10A {gate} completion receipt drifted")
+    pen_result = candidate_results["PEN"]
+    for phrase in (
+        "passed — `swift test --filter PlotterPenInteractionEpisodeTests`",
+        "exit 0; 13/13 passed",
+        "build 71.02 seconds, suite 0.766 seconds",
+        "exact Stop test also passed three serial 1/1 repeats",
+    ):
+        if phrase not in pen_result:
+            fail(f"EA-10A PEN completion evidence drifted: {phrase}")
 
     pilot_rows = markdown_table(text, ["Pilot predicate", "Result", "Evidence"])
     expected_pilot_results = {
@@ -2474,14 +2696,17 @@ def validate_wave_frontier(
     blockers = parse_wave_admission_blockers(evidence, rows)
     selected = ordinary_wave_frontier(rows, set(blockers))
     if selected is not None:
-        if selected != "EA-10A":
+        if selected != "EA-10B":
             fail(f"unexpected current ordinary wave frontier: {selected}")
         for phrase in (
             "Pilot dependency-cycle correction",
             "`TASK-B7C9E592`, attempt `TASK-B7C9E592-3408edcef715`",
             "GATE-01 was not run and is not complete",
-            "EA-10A remains the undispatched successor frontier until Blackdog landing",
-            "No EA-10A work is selected or dispatched by this evidence update",
+            "Pen Interaction episode cutover completion candidate",
+            "`TASK-539931AC`, attempt `TASK-539931AC-49f2e7307f76`",
+            "This is task-local semantic completion and a landing candidate, not operational landing",
+            "EA-10A is semantically complete as a task-local landing candidate",
+            "EA-10B is not selected or dispatched",
             "The retired `PHYSICAL-BASE` result is `failed`",
         ):
             if phrase not in normalized:

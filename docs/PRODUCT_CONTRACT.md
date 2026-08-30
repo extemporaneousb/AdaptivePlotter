@@ -379,11 +379,22 @@ ink.
 
 ### 1.1 Identify and Calibrate the Pen
 
-Exercise 1.1 retains its existing exercise identity and attempt history. Its
-first action is **Identify Pen Cap**, followed by the existing Up → Down → Up
-sequence. Identification must be accepted before the first question or any pen
-actuation request. A stale or rejected click keeps identification pending and
-performs no machine action.
+Exercise 1.1 retains its existing exercise identity while one
+`PlotterPenInteractionRuntime` owns its mutable attempt history and the
+Up → Down → Up sequence after cap selection. Every request is a typed
+`PlotterPenInteractionIntent` inside a `PlotterPenInteractionSubmission` that
+binds the exact request, projection revision, environment, and active operation.
+The active runtime projection carries the exact cancellation capability; a
+stale revision, foreign operation or capability, changed environment, wrong
+phase, missing prerequisite, or closed admission receives one typed refusal and
+remedy and invokes no lower effect.
+
+The first action remains **Identify Pen Cap**. EA-04 exact-frame point selection
+owns that click, frame provenance, sampling, and accepted cap evidence;
+`PlotterPenInteractionRuntime` neither captures a frame nor manufactures camera
+or Vision evidence. Identification must be accepted before the first question
+or any pen actuation request. A stale or rejected click keeps identification
+pending and performs no machine action.
 
 **Identify Pen Cap** requires a current exact frame but does not require a
 controller session or Motion authorization. A valid cap-body click opens the
@@ -397,9 +408,39 @@ click or inserting a continuation step.
 The Up and Down steps each expose a servo-value slider, displaying the
 corresponding current setting. A fresh session is seeded at `S40` and `S760`; a
 repeated attempt starts from the values already current. Moving a slider
-commands its displayed value in the current step; **Confirm Pen Up** or
-**Confirm Pen Down** accepts that value for the corresponding current setting
-once current operational dependencies permit the request.
+submits that exact displayed value against the current runtime revision. The
+runtime owns one latest-only drain: while an earlier accepted setpoint settles,
+newer admitted values replace the pending value, so an intermediate superseded
+value is never sent after it has been replaced. **Confirm Pen Up** or
+**Confirm Pen Down** first waits for that exact drain and terminal publication,
+then accepts only the current displayed value for the corresponding setting.
+No view, workspace task, or test fixture may bypass admission or advance the
+drain.
+
+Pen work already admitted by this runtime is not reflected back as a workspace
+busy prerequisite; only genuinely foreign lower-operation ownership may block
+a fresh Pen request. Before the first actor-reentrancy await, the runtime
+synchronously claims its sole drain and publishes the explicit
+`.drainingSetpoint` phase. A runtime-owned weak projection sink publishes
+immutable admitted, draining, settling, cancelling, and terminal snapshots
+without a workspace observer Task, latch, retry, or effect authority. Every
+installed snapshot invalidates the semantic action surface so its exact runtime
+revision and cancellation capability bind the rendered request.
+
+During `.drainingSetpoint`, canonical actionability permits only a newer
+exact-revision setpoint replacement plus the exact capability-bound Stop;
+confirmation is absent. Lower execution transitions to settling, where only
+exact Stop remains, and confirmation returns only after terminal publication
+reaches awaitingConfirmation. An active operation without its matching capability fails
+closed as an invariant, and lower refusal or possible physical change remains
+visible needs-attention truth rather than submission success. Normal progression
+returns only after the operation clears.
+
+If the operator invokes the exact Pen Stop while the accepted cap click still
+has an admitted EA-04 continuation, the application settles that exact
+point-selection continuation before the Pen runtime publishes terminal state.
+The continuation cannot recreate a missing Learning attempt. This ordering adds
+no generic Cancel fallback, second Pen Stop owner, command, or evidence claim.
 
 The accepted Up and Down values are mutable operating settings, not a promise
 of one constant actuator position across the run. Repeating Exercise 1.1 at
@@ -408,7 +449,29 @@ and actuation evidence retains each actual value and the available MPos,
 controller outcome, and timestamp so later learning can observe positional
 variation. Refusal, ambiguity, unavailable evidence, and any current admission
 blocker remain explicit; none creates a separate forward or acceptance step.
-No separate servo-
+Controller refusal and ambiguous delivery remain distinct terminal truth.
+Cancellation latches before the runtime awaits an in-flight lower command;
+settlement after cancellation remains possible physical change and never
+authorizes automatic resend. Shutdown closes both LIVE and SIMULATED admission,
+drains the accepted pending value, awaits the exact lower task and terminal
+publication, and then retires the active operation. One nominal actuation port
+adapts LIVE to the retained controller/`RunInterpreter` Pen owner and SIMULATED
+to the sole causal simulator adapter. LIVE and SIMULATED profiles, revisions,
+history, operations, and settlements remain independent. Simulator truth is
+nonphysical, and controller settlement is not operator-observed Pen position,
+camera evidence, or ink evidence.
+
+Each admitted transition into a fresh SIMULATED Learning session resets only
+the simulated Pen environment and preserves LIVE Pen state. The Learning reset
+projection preserves the current Pen Interaction snapshot rather than silently
+replacing it with stale prompt facts.
+
+Accepted evidence is immutable and retains the exact values, available MPos,
+controller outcomes, and timestamps for the confirmed sequence. It claims no
+attended physical observation. The package-only scheduling gates can hold an
+admitted setpoint before its runtime-owned drain or hold a returned lower result
+before terminal publication for deterministic tests; neither gate can admit,
+choose, cancel, dispatch, settle, or publish an effect. No separate servo-
 calibration exercise, artifact, checkpoint, or authority type is introduced.
 
 A settled recovery opportunity never owns Learning Path progression. The next

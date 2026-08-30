@@ -39,6 +39,10 @@ extension OperatorWorkspaceTests {
     let workspace = OperatorWorkspace(
       machineActions: actions,
       manualMotionComposition: composition,
+      penInteractionRuntime: nominalPenInteractionRuntime(
+        machineActions: actions,
+        manualMotionComposition: composition
+      ),
       drawingDraftRuntime: nominalDrawingDraftRuntime(),
       drawingRunComposition: nominalDrawingRunComposition(),
       incidentPackageUIService: nominalIncidentPackageUIService(),
@@ -111,6 +115,9 @@ extension OperatorWorkspaceTests {
       machineActions: nil,
       cameraActions: CameraComposition.makeIsolatedActionsForTesting(),
       manualMotionComposition: composition,
+      penInteractionRuntime: nominalPenInteractionRuntime(
+        manualMotionComposition: composition
+      ),
       drawingDraftRuntime: nominalDrawingDraftRuntime(),
       drawingRunComposition: nominalDrawingRunComposition(),
       incidentPackageUIService: nominalIncidentPackageUIService(),
@@ -200,6 +207,9 @@ extension OperatorWorkspaceTests {
       machineActions: nil,
       cameraActions: CameraComposition.makeIsolatedActionsForTesting(),
       manualMotionComposition: composition,
+      penInteractionRuntime: nominalPenInteractionRuntime(
+        manualMotionComposition: composition
+      ),
       drawingDraftRuntime: nominalDrawingDraftRuntime(),
       drawingRunComposition: nominalDrawingRunComposition(),
       incidentPackageUIService: nominalIncidentPackageUIService(),
@@ -360,6 +370,10 @@ extension OperatorWorkspaceTests {
     let workspace = OperatorWorkspace(
       machineActions: actions,
       manualMotionComposition: composition,
+      penInteractionRuntime: nominalPenInteractionRuntime(
+        machineActions: actions,
+        manualMotionComposition: composition
+      ),
       drawingDraftRuntime: nominalDrawingDraftRuntime(),
       drawingRunComposition: nominalDrawingRunComposition(),
       incidentPackageUIService: nominalIncidentPackageUIService(),
@@ -797,7 +811,17 @@ extension OperatorWorkspaceTests {
     await workspace.establishMachineSession(machine.descriptor)
     await workspace.requestPassiveProbe()
     await workspace.startCamera()
-    try await completePenInteraction(workspace)
+    let prerequisitePenOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+    await workspace.performTestExerciseAction(.start, for: prerequisitePenOwner)
+    let prerequisitePenRequest = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
+    let prerequisitePenFrame = try #require(workspace.testActionSurfacePresentation.displayedFrame)
+    submitPointSelection(workspace, request: prerequisitePenRequest, point: try Point2(
+      x: Double(prerequisitePenFrame.frame.width - 1) / 2,
+      y: Double(prerequisitePenFrame.frame.height - 1) / 2
+    ))
+    try await waitUntil { workspace.activeDiscoverySequenceID == .penInteraction }
+    for _ in 0..<3 { await workspace.performTestExerciseAction(.choice(.yes), for: prerequisitePenOwner) }
+    #expect(workspace.penInteractionCompleted)
     try await completeLiveBoundaries(workspace, machine: machine)
 
     let owner = LearningPathItemID.humanGuidedDiscovery(
@@ -835,7 +859,17 @@ extension OperatorWorkspaceTests {
     await workspace.establishMachineSession(machine.descriptor)
     await workspace.requestPassiveProbe()
     await workspace.startCamera()
-    try await completePenInteraction(workspace)
+    let prerequisitePenOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+    await workspace.performTestExerciseAction(.start, for: prerequisitePenOwner)
+    let prerequisitePenRequest = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
+    let prerequisitePenFrame = try #require(workspace.testActionSurfacePresentation.displayedFrame)
+    submitPointSelection(workspace, request: prerequisitePenRequest, point: try Point2(
+      x: Double(prerequisitePenFrame.frame.width - 1) / 2,
+      y: Double(prerequisitePenFrame.frame.height - 1) / 2
+    ))
+    try await waitUntil { workspace.activeDiscoverySequenceID == .penInteraction }
+    for _ in 0..<3 { await workspace.performTestExerciseAction(.choice(.yes), for: prerequisitePenOwner) }
+    #expect(workspace.penInteractionCompleted)
     try await completeLiveBoundaries(workspace, machine: machine)
     let acceptedAggregates = workspace.boundarySideAggregates
     let acceptedCenter = workspace.estimatedMachineCenter
@@ -874,7 +908,17 @@ extension OperatorWorkspaceTests {
     await workspace.establishMachineSession(machine.descriptor)
     await workspace.requestPassiveProbe()
     await workspace.startCamera()
-    try await completePenInteraction(workspace)
+    let prerequisitePenOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+    await workspace.performTestExerciseAction(.start, for: prerequisitePenOwner)
+    let prerequisitePenRequest = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
+    let prerequisitePenFrame = try #require(workspace.testActionSurfacePresentation.displayedFrame)
+    submitPointSelection(workspace, request: prerequisitePenRequest, point: try Point2(
+      x: Double(prerequisitePenFrame.frame.width - 1) / 2,
+      y: Double(prerequisitePenFrame.frame.height - 1) / 2
+    ))
+    try await waitUntil { workspace.activeDiscoverySequenceID == .penInteraction }
+    for _ in 0..<3 { await workspace.performTestExerciseAction(.choice(.yes), for: prerequisitePenOwner) }
+    #expect(workspace.penInteractionCompleted)
     await workspace.beginPairedBoundarySide(.positiveY)
     try await waitUntil { workspace.contextualStopPresentation != nil }
     try await stopActiveOperation(workspace)
@@ -921,7 +965,17 @@ extension OperatorWorkspaceTests {
     await workspace.establishMachineSession(machine.descriptor)
     await workspace.requestPassiveProbe()
     await workspace.startCamera()
-    try await completePenInteraction(workspace)
+    let prerequisitePenOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+    await workspace.performTestExerciseAction(.start, for: prerequisitePenOwner)
+    let prerequisitePenRequest = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
+    let prerequisitePenFrame = try #require(workspace.testActionSurfacePresentation.displayedFrame)
+    submitPointSelection(workspace, request: prerequisitePenRequest, point: try Point2(
+      x: Double(prerequisitePenFrame.frame.width - 1) / 2,
+      y: Double(prerequisitePenFrame.frame.height - 1) / 2
+    ))
+    try await waitUntil { workspace.activeDiscoverySequenceID == .penInteraction }
+    for _ in 0..<3 { await workspace.performTestExerciseAction(.choice(.yes), for: prerequisitePenOwner) }
+    #expect(workspace.penInteractionCompleted)
 
     await workspace.beginPairedBoundarySide(.negativeY)
     try await waitUntil { workspace.contextualStopPresentation != nil }
@@ -943,7 +997,17 @@ extension OperatorWorkspaceTests {
     await workspace.establishMachineSession(machine.descriptor)
     await workspace.requestPassiveProbe()
     await workspace.startCamera()
-    try await completePenInteraction(workspace)
+    let prerequisitePenOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+    await workspace.performTestExerciseAction(.start, for: prerequisitePenOwner)
+    let prerequisitePenRequest = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
+    let prerequisitePenFrame = try #require(workspace.testActionSurfacePresentation.displayedFrame)
+    submitPointSelection(workspace, request: prerequisitePenRequest, point: try Point2(
+      x: Double(prerequisitePenFrame.frame.width - 1) / 2,
+      y: Double(prerequisitePenFrame.frame.height - 1) / 2
+    ))
+    try await waitUntil { workspace.activeDiscoverySequenceID == .penInteraction }
+    for _ in 0..<3 { await workspace.performTestExerciseAction(.choice(.yes), for: prerequisitePenOwner) }
+    #expect(workspace.penInteractionCompleted)
     var manualDraft = ManualMotionDraft()
     manualDraft.xDistanceMM = "not-a-number"
     manualDraft.yDistanceMM = ""
@@ -1030,7 +1094,17 @@ extension OperatorWorkspaceTests {
     await workspace.establishMachineSession(machine.descriptor)
     await workspace.requestPassiveProbe()
     await workspace.startCamera()
-    try await completePenInteraction(workspace)
+    let prerequisitePenOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+    await workspace.performTestExerciseAction(.start, for: prerequisitePenOwner)
+    let prerequisitePenRequest = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
+    let prerequisitePenFrame = try #require(workspace.testActionSurfacePresentation.displayedFrame)
+    submitPointSelection(workspace, request: prerequisitePenRequest, point: try Point2(
+      x: Double(prerequisitePenFrame.frame.width - 1) / 2,
+      y: Double(prerequisitePenFrame.frame.height - 1) / 2
+    ))
+    try await waitUntil { workspace.activeDiscoverySequenceID == .penInteraction }
+    for _ in 0..<3 { await workspace.performTestExerciseAction(.choice(.yes), for: prerequisitePenOwner) }
+    #expect(workspace.penInteractionCompleted)
 
     #expect(workspace.penInteractionCompleted)
     let events = await log.values
@@ -1079,38 +1153,6 @@ extension OperatorWorkspaceTests {
     await workspace.shutdown()
   }
 
-  @Test("pen setup exposes a physical-position confirmation and Cancel, then settles to Restart")
-  func exerciseActionTransitions() async throws {
-    let log = EventLog()
-    let machine = try MachineFixture(log: log)
-    let camera = try CameraFixture()
-    let workspace = workspace(machine: machine, camera: camera, log: log)
-    await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
-    await workspace.startCamera()
-    let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
-
-    #expect(workspace.currentExerciseActionStripPresentation?.actions.map(\.kind) == [.start])
-    await workspace.performTestExerciseAction(.start, for: owner)
-    #expect(
-      workspace.testActionSurfacePresentation.pointSelectionRequest?.prompt
-        == "Click the pen cap body—not the tip—on the current camera frame."
-    )
-    #expect(workspace.currentExerciseActionStripPresentation?.actions.map(\.kind) == [.cancel])
-    try await identifyPenCap(workspace)
-    let liveActions = workspace.currentExerciseActionStripPresentation?.actions.map(\.kind) ?? []
-    #expect(liveActions.contains(.choice(.yes)))
-    #expect(!liveActions.contains(.choice(.no)))
-    #expect(liveActions.contains(.cancel))
-    #expect(!liveActions.contains(.start))
-
-    await workspace.performTestExerciseAction(.cancel, for: owner)
-    #expect(workspace.activeExerciseAttemptID == nil)
-    #expect(workspace.testCurrentLearningPathItemID == owner)
-    #expect(workspace.currentExerciseActionStripPresentation?.actions.map(\.kind) == [.restart])
-    await workspace.shutdown()
-  }
-
   @Test("Boundary Cancel is unavailable until its movement owner settles")
   func boundaryCancelUnavailableDuringMotion() async throws {
     let log = EventLog()
@@ -1120,7 +1162,17 @@ extension OperatorWorkspaceTests {
     await workspace.establishMachineSession(machine.descriptor)
     await workspace.requestPassiveProbe()
     await workspace.startCamera()
-    try await completePenInteraction(workspace)
+    let prerequisitePenOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+    await workspace.performTestExerciseAction(.start, for: prerequisitePenOwner)
+    let prerequisitePenRequest = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
+    let prerequisitePenFrame = try #require(workspace.testActionSurfacePresentation.displayedFrame)
+    submitPointSelection(workspace, request: prerequisitePenRequest, point: try Point2(
+      x: Double(prerequisitePenFrame.frame.width - 1) / 2,
+      y: Double(prerequisitePenFrame.frame.height - 1) / 2
+    ))
+    try await waitUntil { workspace.activeDiscoverySequenceID == .penInteraction }
+    for _ in 0..<3 { await workspace.performTestExerciseAction(.choice(.yes), for: prerequisitePenOwner) }
+    #expect(workspace.penInteractionCompleted)
 
     let owner = LearningPathItemID.humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
     await workspace.beginPairedBoundarySide(.negativeX)
@@ -1272,84 +1324,6 @@ extension OperatorWorkspaceTests {
     }
   }
 
-  @Test("Redo Exercise 1.1 replaces only its revision and retains independent boundary evidence")
-  func redoPenRetainsBoundary() async throws {
-    let log = EventLog()
-    let machine = try MachineFixture(log: log)
-    let camera = try CameraFixture()
-    let workspace = workspace(machine: machine, camera: camera, log: log)
-    await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
-    await workspace.startCamera()
-    try await completePenInteraction(workspace)
-    await workspace.beginPairedBoundarySide(.positiveY)
-    try await waitUntil { workspace.contextualStopPresentation != nil }
-    try await stopActiveOperation(workspace)
-
-    let oldPen = try #require(
-      workspace.learningArtifactGraph.currentRevision(for: .penInteraction)
-    )
-    let oldBoundary = try #require(
-      workspace.learningArtifactGraph.currentRevision(for: .boundarySideAggregate(.positiveY))
-    )
-    let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
-    await workspace.performTestExerciseAction(.redoThisStep, for: owner)
-    try await identifyPenCap(workspace)
-    try await finishPenInteraction(workspace)
-
-    let newPen = try #require(
-      workspace.learningArtifactGraph.currentRevision(for: .penInteraction)
-    )
-    let retainedBoundary = try #require(
-      workspace.learningArtifactGraph.currentRevision(for: .boundarySideAggregate(.positiveY))
-    )
-    #expect(newPen.id != oldPen.id)
-    #expect(workspace.learningArtifactGraph.revision(id: oldPen.id)?.state == .superseded)
-    #expect(retainedBoundary.id == oldBoundary.id)
-    #expect(workspace.relevantBoundaryObservationCount == 1)
-    await workspace.shutdown()
-  }
-
-  @Test("cancelled replacement leaves the accepted artifact current")
-  func cancelledReplacementKeepsAcceptedArtifact() async throws {
-    let log = EventLog()
-    let machine = try MachineFixture(log: log)
-    let camera = try CameraFixture()
-    let workspace = workspace(machine: machine, camera: camera, log: log)
-    await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
-    await workspace.startCamera()
-    try await completePenInteraction(workspace)
-    let accepted = try #require(
-      workspace.learningArtifactGraph.currentRevision(for: .penInteraction)
-    )
-    let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
-
-    await workspace.performTestExerciseAction(.redoThisStep, for: owner)
-    let pointRequest = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
-    let displayedFrame = try #require(workspace.testActionSurfacePresentation.displayedFrame)
-    submitPointSelection(
-      workspace,
-      request: pointRequest,
-      point: try Point2(
-        x: Double(displayedFrame.frame.width - 1) / 2,
-        y: Double(displayedFrame.frame.height - 1) / 2
-      )
-    )
-    try await waitUntil { workspace.penCapAppearanceSelection != nil }
-    await workspace.performTestExerciseAction(.cancel, for: owner)
-
-    #expect(
-      workspace.learningArtifactGraph.currentRevision(for: .penInteraction)?.id == accepted.id
-    )
-    #expect(workspace.learningArtifactGraph.revision(id: accepted.id)?.state == .current)
-    #expect(workspace.penAttemptHistory.attempts.last?.disposition == .cancelled)
-    #expect(workspace.penAttemptHistory.records.first?.inclusionState == .included)
-    #expect(workspace.penAttemptHistory.records.last?.inclusionState == .excludedUnsuccessful)
-    #expect(workspace.currentPenInteractionAggregate?.validSampleCount == 1)
-    #expect(workspace.currentPenInteractionAggregate?.includedAttemptIDs == [accepted.attemptID])
-    await workspace.shutdown()
-  }
 }
 
 private enum ManualMotionReceiptTestError: Error {

@@ -16,6 +16,11 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
   static let terminationDeadlineNanoseconds: UInt64 = 3_000_000_000
 
   override init() {
+    let manualMotionComposition = PlotterManualMotionComposition.production
+    let penInteractionRuntime = PlotterPenInteractionComposition.makeRuntime(
+      machineActions: MachineSessionComposition.actions,
+      simulatedAdapter: manualMotionComposition.causalSimulatorEffectAdapter
+    )
     let drawingRunComposition = PlotterDrawingRunComposition.make(
       machineActions: MachineSessionComposition.actions,
       cameraActions: CameraComposition.actions
@@ -29,7 +34,8 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
       pointSelectionRuntime: PointSelectionComposition.production.runtime,
       pointSelectionRecordingDiagnostic:
         PointSelectionComposition.production.recordingDiagnostic,
-      manualMotionComposition: PlotterManualMotionComposition.production,
+      manualMotionComposition: manualMotionComposition,
+      penInteractionRuntime: penInteractionRuntime,
       announcementActions: SpeechComposition.actions,
       acceptedLearningPathCheckpointActions: AcceptedArtifactCheckpointComposition.actions,
       drawingDraftRuntime: PaperCoverageComposition.drawingDraftRuntime,

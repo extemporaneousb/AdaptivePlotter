@@ -37,7 +37,7 @@ PlotterEpisodeModel -> EpisodeCore + PlotterModel
   observations, measurements, evidence, outcomes, assessments, and capability facts
   committed attributable progress, retained terminal projection, pure evaluators/reducer
   independent PlotterEpisodeCanonicalDigestV1 ownership for replay state verification
-  internal target with production point-selection and manual-motion bindings
+  internal target with production point-selection, manual-motion, and Pen Interaction bindings
 
 PlotterUI -> PlotterEpisodeModel
   bounded candidate compiler plus sole bounded PlotterUILearningActionabilityCompiler
@@ -49,10 +49,12 @@ PlotterUI -> PlotterEpisodeModel
 
 PlotterEpisodeRuntime -> EpisodeCore + EpisodeRuntime + PlotterEpisodeModel + PlotterRuntime
   PlotterIntentGateway, PlotterPointSelectionRuntime, PlotterManualMotionRuntime,
-  and PlotterCausalSimulatorEffectAdapter compositions
+  PlotterPenInteractionRuntime, and PlotterCausalSimulatorEffectAdapter compositions
   one FIFO mutation/publication boundary, EpisodeStore owner, and exact-workflow continuation lane
   optional exact-frame recording with bounded retention and visible diagnostics
   one exact manual machine-lane owner with typed LIVE/SIMULATED effects and successor-isolated Stop
+  one actor-isolated Pen Interaction owner with exact revision/operation/cancel identity,
+  latest-only value-bearing Up/Down drain, immutable attempt evidence, and shutdown quiescence
   sole causal-simulator effect admission, exact raw operation identity, typed settlement/provenance,
   and separated controller-command, plant/Pen, paper/ink, camera, Vision, and evidence truth
   EpisodeRecordingStore with typed controller and camera recording channels
@@ -73,7 +75,7 @@ PlotterEpisodeRuntime -> EpisodeCore + EpisodeRuntime + PlotterEpisodeModel + Pl
   exact-identity assembly or truthful no-source refusal through request-owned bounded streams
   values-only format/count/digest/remedy/integrity-scope/nonphysical result metadata
   internal target with no package product or physical device adapter;
-  point selection, manual motion, causal simulator, and incident presentation are app-bound
+  point selection, manual motion, Pen Interaction, causal simulator, and incident presentation are app-bound
 
 PlotterRuntime
   MachineController, RunInterpreter, CameraCapture, VisionWorker
@@ -89,9 +91,9 @@ PlotterApp -> PlotterEpisodeRuntime + PlotterUI + retained application/runtime d
   OperatorWorkspace projection/adaptation and retained artifact commits
   one production PlotterUIIntentSink with exact current membership, bound-intent,
   availability, UI-revision, and runtime-revision validation
-  typed point-selection, Learning-mode, manual-motion, Drawing, Comparison,
+  typed point-selection, Learning-mode, manual-motion, Pen Interaction, Drawing, Comparison,
   retained Learning/reset, and incident-presentation ingress
-  LIVE manual adapter plus the production causal-simulator adapter and neutral lower controller ports
+  LIVE manual and nominal Pen Interaction adapters plus the production causal-simulator adapter and neutral lower controller ports
   explicitly attributed retained simulator workflow commands for later semantic packages
   copied PlotterUICompilerInput facts and one immutable PlotterUIProjection
   pane/window/viewport and unsubmitted manual text retained as UI-local state
@@ -129,6 +131,8 @@ PlotterAppTests -> PlotterApp + episode packages + retained application/runtime 
   exact-owner Learning-Off cancellation, checked journal synchronization, scoped Sendable safety,
   semantic deletion, sparse-tip selection, and LIVE/SIMULATED separation
   production PlotterUI projection/sink membership, binding, availability, revision, and boundedness contracts
+  ten focused PlotterPenInteractionEpisodeTests for typed admission, exact values/evidence,
+  latest-only coalescing, Stop, LIVE/SIM separation, refusal/ambiguity, terminal publication, and shutdown
 ```
 
 Dependencies point inward. Runtime does not import SwiftUI. Views receive
@@ -1098,22 +1102,90 @@ runtime gateway. Until the exact-frame cap-body click is accepted and its
 observation plus operator-assertion evidence are committed, no pen-position
 question is opened and no pen request is issued. Refusal leaves the typed
 request pending with its remedy. Cap identification itself does not require a controller
-session or Motion. After acceptance, the first question remains active; its
-**Confirm Pen Up** action and servo slider are dependency-blocked until connection and
-Motion exist, while the external controller toolbar remains operable. The
-exercise's Up and Down sliders then issue typed value-bearing pen requests;
-**Confirm Pen Up** or **Confirm Pen Down** retains the displayed value in the current setting and the existing
-attempt evidence. `MachineController`
-serializes the requested value and settlement under its existing pen-operation
-ownership. There is no parallel servo-calibration owner, checkpoint, or
-artifact graph.
+session or Motion.
 
-On an automatic Pen Down or Pen Up, `DiscoveryTransaction` applies the settled
-controller outcome and presents the immediately following question as one
-validated transaction transition. `OperatorWorkspace` publishes the resulting
-transaction and command evidence in one session mutation and one semantic
-revision, so the next action strip is not delayed behind an intermediate
-post-settlement projection.
+After acceptance, one `PlotterPenInteractionRuntime` owns the source-indexed
+exercise attempt, mutable Up/Down profile, exact operation and cancellation
+capability, lower actuation task, settlement, and immutable attempt history.
+`PlotterPenInteractionSubmission` binds a fresh `PlotterPenInteractionRequestID`,
+the exact `PlotterPenInteractionProjectionReference`, environment, operation ID,
+current admission facts, and one typed `PlotterPenInteractionIntent`. The
+runtime refuses stale revisions, foreign operations/capabilities, changed
+environment, wrong phase, unavailable controller or Motion, lower ownership,
+sticky ambiguity, invalid values, and closed admission with typed reason and
+remedy before lower dispatch. `OperatorWorkspace` retains only copied immutable
+runtime snapshots and App composition/adaptation; it owns no Pen draft, profile,
+history, pending command, setpoint task, sequence guard, or completion helper.
+A runtime-owned weak projection sink publishes immutable admitted, draining,
+settling, cancelling, and terminal snapshots without a workspace observer Task,
+latch, retry, or effect authority. Workspace busy feedback represents only a
+genuinely foreign lower-operation owner and never the Pen runtime's own accepted
+work. Installing one of these snapshots invalidates canonical actionability and
+binds the rendered intent to the exact runtime revision and cancellation
+capability.
+
+The first question remains active after cap selection; **Confirm Pen Up** and
+the current servo slider are dependency-blocked until connection and Motion
+exist, while the external controller toolbar remains operable. The exercise's
+Up and Down sliders submit typed value-bearing `.setpoint` intents. One
+runtime-owned latest-only drain coalesces an accepted pending command while an
+earlier value settles: a newer exact-revision submission replaces the pending
+value and the superseded intermediate value is never dispatched. The first
+accepted value synchronously claims `setpointDrainInProgress` and enters
+`.drainingSetpoint` before the projection sink, package gate, or lower port can
+suspend. Confirmation waits for that drain and the exact terminal publication
+before accepting the displayed value. `DiscoveryTransaction` remains a retained
+lower value for the surrounding Learning sequence; it no longer owns Pen command
+admission, settlement, evidence publication, or progression across an
+unpublished result.
+
+Canonical phase-aware actionability exposes setpoint replacement plus exact
+capability-bound Stop, but no confirmation, during `.drainingSetpoint`. Lower
+execution transitions to settling, where only exact Stop remains. At
+awaitingConfirmation the current prompt and adjustment reappear alongside that
+exact Stop; an active operation without its capability fails closed, and refusal
+or possible physical change remains visible needs-attention truth. Normal
+progression returns only after the operation clears.
+
+The production typed Stop route settles any already-admitted EA-04 exact-frame
+point-selection continuation before asking `PlotterPenInteractionRuntime` to
+publish its terminal state. `startDiscoverySequence(.penInteraction)` requires
+the still-current canonical Learning attempt and cannot recreate one after Stop.
+This is cross-runtime quiescence, not a generic Cancel fallback or parallel Pen
+effect, Stop, or evidence owner.
+
+`PlotterPenInteractionRuntime` latches cancellation before awaiting an in-flight
+lower operation and keeps a returned controller refusal distinct from ambiguous
+possible physical change. Exact Stop, cancel, abort-and-raise, natural finish,
+and shutdown converge on the same operation-bound settlement. Shutdown closes
+both environments, clears only an undispatched pending value, drains the exact
+accepted work, awaits the lower task and terminal publication, and then retires
+the operation. No cancellation or ambiguity automatically resends a command.
+
+`PlotterPenInteractionComposition` is the nominal retained-owner boundary. LIVE
+delegates each exact profile to the existing manual-motion composition's native
+Pen settlement, preserving `MachineController` and `RunInterpreter` connection,
+Motion, serialization, safety, and ambiguity authority. SIMULATED delegates to
+the sole shared `PlotterCausalSimulatorEffectAdapter` as explicitly retained
+nonphysical work and invokes no LIVE lower effect. Each environment has its own
+revision, profile, operation, history, and settlement. The runtime never owns a
+camera, Vision, checkpoint store, replay, incident assembler, or controller
+transport.
+
+Each admitted transition into a fresh SIMULATED Learning session resets only
+the simulated Pen environment and preserves LIVE Pen state. The Learning
+projection's replacing reset preserves the current Pen Interaction snapshot so
+the actionability compiler cannot fall back to stale prompt facts.
+
+Accepted `PenInteractionAttemptEvidence` is published atomically only after
+operator confirmation and retains the actual values, available MPos, controller
+outcomes, and timestamps. `physicalEvidenceClaimed` remains false: controller
+settlement and simulator truth are not attended Pen observation, camera
+evidence, or observed ink. Package-only setpoint-admission and
+terminal-publication gates provide no-sleep/no-poll deterministic tests. They can delay
+only the post-admission/pre-drain or post-lower/pre-publication boundary and
+cannot admit, mutate, dispatch, choose, cancel, settle, or publish an effect.
+There is no parallel servo-calibration owner, checkpoint, or artifact graph.
 
 `PlotterUICompiler` derives current Learning progression from copied milestone
 facts and the first unmet dependency. Recovery selection is presentation state
@@ -1507,7 +1579,11 @@ sequence, quarantine status, paper identity, possible-ink blacklist, drawing
 trial state, and learning errors. The active frame source selects which value
 all learning projections and mutations address. Camera/controller owners,
 operation tasks, Stop capabilities, and other runtime lifetimes remain outside
-the session values. One `ActiveStoppableOperation` binds the exact owner task,
+the session values. Pen Interaction draft/profile/history/pending-command and
+operation lifetime are likewise absent from those values and belong to the
+environment-indexed `PlotterPenInteractionRuntime` snapshot. One retained
+`ActiveStoppableOperation` binds the exact owner task for later Learning
+workflows,
 contextual Stop target, latched disposition, and cancellation-request phase;
 those facts are not independently mutable. Drawing execution likewise carries
 typed not-admitted, possible-ink, and naturally-completed state so no-redraw

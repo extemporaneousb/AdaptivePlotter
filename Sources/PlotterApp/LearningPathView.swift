@@ -687,8 +687,9 @@ private struct ExerciseActionStripView: View {
         value: Binding(
           get: { Double(adjustment.value) },
           set: { value in
-            submitRetainedAction(
-              .setPenSetpoint(adjustment.command, Int(value.rounded()))
+            submitPenInteractionSetpoint(
+              adjustment.command,
+              value: Int(value.rounded())
             )
           }
         ),
@@ -754,6 +755,16 @@ private struct ExerciseActionStripView: View {
 
   private func submitRetainedAction(_ kind: ExerciseActionKind) {
     let actionID = PlotterAppUIActionID.retainedLearning(kind, owner: presentation.ownerID)
+    guard let request = plotterUIProjection.request(for: actionID) else { return }
+    Task { _ = await plotterUIIntentSink.submitPlotterUIRequest(request) }
+  }
+
+  private func submitPenInteractionSetpoint(_ command: PenCommand, value: Int) {
+    let actionID = PlotterAppUIActionID.penInteractionSetpoint(
+      command,
+      value: value,
+      owner: presentation.ownerID
+    )
     guard let request = plotterUIProjection.request(for: actionID) else { return }
     Task { _ = await plotterUIIntentSink.submitPlotterUIRequest(request) }
   }

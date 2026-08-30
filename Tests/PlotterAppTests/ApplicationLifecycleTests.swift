@@ -52,6 +52,7 @@ struct ApplicationLifecycleTests {
     let workspace = OperatorWorkspace(
       pointSelectionRuntime: composition.runtime,
       pointSelectionRecordingDiagnostic: diagnostic,
+      penInteractionRuntime: nominalPenInteractionRuntime(),
       drawingDraftRuntime: nominalDrawingDraftRuntime(),
       drawingRunComposition: nominalDrawingRunComposition(),
       incidentPackageUIService: nominalIncidentPackageUIService()

@@ -1,4 +1,5 @@
 import Foundation
+import PlotterEpisodeModel
 import PlotterModel
 import PlotterRuntime
 import PlotterUI
@@ -343,6 +344,7 @@ struct PlotterLearningPresentationFacts: Sendable {
   let source: OperatorFrameMode
   let learningEnabled: Bool
   let penInteractionCompleted: Bool
+  let penInteraction: PlotterPenInteractionProjection?
   let penActuationProfile: PenActuationProfile
   let selectedBoundaryDirection: BoundaryDirection
   let controller: ControllerFacts
@@ -361,6 +363,7 @@ struct PlotterLearningPresentationFacts: Sendable {
     source: OperatorFrameMode = .live,
     learningEnabled: Bool = true,
     penInteractionCompleted: Bool = false,
+    penInteraction: PlotterPenInteractionProjection? = nil,
     penActuationProfile: PenActuationProfile = .initialDefaults,
     selectedBoundaryDirection: BoundaryDirection = .positiveX,
     controller: ControllerFacts = ControllerFacts(),
@@ -378,6 +381,7 @@ struct PlotterLearningPresentationFacts: Sendable {
     self.source = source
     self.learningEnabled = learningEnabled
     self.penInteractionCompleted = penInteractionCompleted
+    self.penInteraction = penInteraction
     self.penActuationProfile = penActuationProfile
     self.selectedBoundaryDirection = selectedBoundaryDirection
     self.controller = controller
@@ -439,14 +443,16 @@ struct PlotterLearningActionabilityFactAdapter: Sendable {
 
   func exerciseAction(
     _ action: PlotterUILearningSemanticAction
-  ) -> ExerciseActionKind {
+  ) -> ExerciseActionKind? {
     switch action {
     case .useSavedTraining: .useSavedTraining
     case .startNewLearning: .startNewLearning
     case .start: .start
     case .choice(let choice): .choice(operatorChoice(choice))
-    case .setPenSetpoint(let command, let value):
-      .setPenSetpoint(penCommand(command), value)
+    case .setPenSetpoint:
+      nil
+    case .stopPenInteraction(let capability):
+      .stop(ContextualStopCapabilityID(rawValue: capability.rawValue))
     case .selectDirection(let direction): .selectDirection(.boundary, boundaryDirection(direction))
     case .cancel: .cancel
     case .stop(let id): .stop(ContextualStopCapabilityID(rawValue: id))
@@ -476,10 +482,7 @@ struct PlotterLearningActionabilityFactAdapter: Sendable {
   ) -> [PlotterUIActionCandidate] {
     guard let owner = itemID(strip.ownerID) else { return [] }
     return strip.actionDecisions().map { decision in
-      let id = PlotterAppUIActionID.retainedLearning(
-        exerciseAction(decision.action),
-        owner: owner
-      )
+      let id = actionID(decision.action, owner: owner)
       return decision.candidate(ownerID: strip.ownerID, id: id)
     }
   }
@@ -490,10 +493,7 @@ struct PlotterLearningActionabilityFactAdapter: Sendable {
   ) -> PlotterUILearningSemanticAction? {
     guard let owner = itemID(strip.ownerID) else { return nil }
     return strip.actionDecisions().first { decision in
-      PlotterAppUIActionID.retainedLearning(
-        exerciseAction(decision.action),
-        owner: owner
-      ) == actionID
+      self.actionID(decision.action, owner: owner) == actionID
     }?.action
   }
 
@@ -503,9 +503,10 @@ struct PlotterLearningActionabilityFactAdapter: Sendable {
     guard let decision, let owner = itemID(decision.ownerID) else { return nil }
     return ExerciseActionStripPresentation(
       ownerID: owner,
-      actions: decision.actions.map { action in
-        .init(
-          kind: exerciseAction(action.action),
+      actions: decision.actions.compactMap { action in
+        guard let kind = exerciseAction(action.action) else { return nil }
+        return .init(
+          kind: kind,
           title: action.title,
           role: exerciseRole(action.role),
           unavailableReason: action.unavailableReason
@@ -529,6 +530,29 @@ struct PlotterLearningActionabilityFactAdapter: Sendable {
       },
       mustRemainVisible: decision.mustRemainVisible
     )
+  }
+
+  private func actionID(
+    _ action: PlotterUILearningSemanticAction,
+    owner: LearningPathItemID
+  ) -> PlotterUIActionID {
+    if case .setPenSetpoint(let command, let value) = action {
+      return PlotterAppUIActionID.penInteractionSetpoint(
+        penCommand(command),
+        value: value,
+        owner: owner
+      )
+    }
+    if case .stopPenInteraction(let capability) = action {
+      return PlotterAppUIActionID.retainedLearning(
+        .stop(ContextualStopCapabilityID(rawValue: capability.rawValue)),
+        owner: owner
+      )
+    }
+    guard let retained = exerciseAction(action) else {
+      preconditionFailure("Unmapped canonical Learning action \(action)")
+    }
+    return PlotterAppUIActionID.retainedLearning(retained, owner: owner)
   }
 
   private func facts(
@@ -574,6 +598,7 @@ struct PlotterLearningActionabilityFactAdapter: Sendable {
       sparseCollectedClickCount: snapshot.sparseCalibration.collectedClickCount,
       sparseSavedCheckpointMatchesPaper: snapshot.sparseCalibration.savedCheckpointMatchesPaper,
       activePrompt: activePrompt(activeTransaction, profile: snapshot.penActuationProfile),
+      penInteraction: snapshot.penInteraction,
       startUnavailableReasons: Dictionary(uniqueKeysWithValues:
         snapshot.startUnavailableReasons.map { (ownerID($0.key), $0.value) }
       ),
@@ -967,6 +992,12 @@ extension PlotterLearningDetailedPresentationNormalizer {
     snapshot: PlotterLearningPresentationFacts
   ) -> OperationActivityPresentation? {
     let operations = snapshot.operations
+    if itemID == .humanGuidedDiscovery(.penInteraction),
+      let penInteraction = snapshot.penInteraction,
+      let activity = penInteractionActivity(penInteraction, source: snapshot.source)
+    {
+      return activity
+    }
     if itemID == .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering),
       snapshot.boundary.centerArrivalRetryRequired,
       let failure = operations.explorationFailure
@@ -1123,6 +1154,123 @@ extension PlotterLearningDetailedPresentationNormalizer {
       )
     }
     return nil
+  }
+
+  private func penInteractionActivity(
+    _ projection: PlotterPenInteractionProjection,
+    source: OperatorFrameMode
+  ) -> OperationActivityPresentation? {
+    let actor = source == .simulated ? "Causal simulator" : "Plotter controller"
+    let evidence = [
+      PresentationFragment.text(
+        "\(projection.evidenceCount) typed Pen Interaction attempt record(s); attended physical evidence is not claimed."
+      )
+    ]
+    if let refusal = projection.lastRefusal {
+      return OperationActivityPresentation(
+        actor: actor,
+        action: "Pen Interaction",
+        phase: String(describing: projection.phase),
+        outcomeLabel: "Refused",
+        outcome: .needsAttention,
+        detail: [.text(
+          "\(refusal.owner) refused the request: \(refusal.reason)."
+        )],
+        acceptedResult: evidence,
+        recovery: [.text(
+          "Remedy: \(refusal.remedy). Refresh the exact runtime projection; no Pen command is resent automatically."
+        )]
+      )
+    }
+    switch projection.phase {
+    case .idle:
+      return nil
+    case .awaitingCapSelection:
+      return OperationActivityPresentation(
+        actor: "Operator and camera",
+        action: "Identify Pen Cap",
+        phase: "Awaiting exact-frame cap selection",
+        outcome: .inProgress,
+        acceptedResult: evidence,
+        recovery: [.text("Stop Pen Interaction targets only the displayed exact runtime capability.")]
+      )
+    case .awaitingControllerCommand(let command):
+      return OperationActivityPresentation(
+        actor: actor,
+        action: "Set Pen \(command == .raise ? "Up" : "Down")",
+        phase: "Awaiting controller command",
+        outcome: .inProgress,
+        acceptedResult: evidence,
+        recovery: [.text("Stop Pen Interaction targets only the displayed exact runtime capability.")]
+      )
+    case .awaitingConfirmation(let command):
+      return OperationActivityPresentation(
+        actor: "Operator",
+        action: "Confirm Pen \(command == .raise ? "Up" : "Down")",
+        phase: "Controller command settled; operator confirmation pending",
+        outcome: .inProgress,
+        acceptedResult: evidence,
+        recovery: [.text("Inspect the pen before confirming. Stop does not imply a physical pose.")]
+      )
+    case .drainingSetpoint(let command):
+      return OperationActivityPresentation(
+        actor: actor,
+        action: "Set Pen \(command == .raise ? "Up" : "Down")",
+        phase: "Accepted setpoint is queued in the latest-only drain",
+        outcome: .inProgress,
+        acceptedResult: evidence,
+        recovery: [.text(
+          "Setpoint replacement and exact Stop remain available; confirmation waits for terminal publication."
+        )]
+      )
+    case .settling(let command):
+      return OperationActivityPresentation(
+        actor: actor,
+        action: "Set Pen \(command == .raise ? "Up" : "Down")",
+        phase: "Awaiting exact lower-owner settlement",
+        outcome: .inProgress,
+        acceptedResult: evidence,
+        recovery: [.text("Stop is capability-bound and waits for terminal publication.")]
+      )
+    case .cancelling:
+      return OperationActivityPresentation(
+        actor: actor,
+        action: "Stop Pen Interaction",
+        phase: "Cancellation latched; awaiting exact settlement",
+        outcome: .inProgress,
+        acceptedResult: evidence,
+        recovery: [.text("No replacement Pen command is sent automatically.")]
+      )
+    case .succeeded:
+      return OperationActivityPresentation(
+        actor: "Operator and application",
+        action: "Pen Interaction",
+        outcome: .succeeded,
+        acceptedResult: evidence
+      )
+    case .refused(let reason):
+      return OperationActivityPresentation(
+        actor: actor,
+        action: "Pen Interaction",
+        outcomeLabel: "Refused",
+        outcome: .needsAttention,
+        detail: [.text("Lower execution refused the Pen command: \(reason).")],
+        acceptedResult: evidence,
+        recovery: [.text("Resolve the named controller fact. No Pen command is resent automatically.")]
+      )
+    case .possiblePhysicalChange(let detail):
+      return OperationActivityPresentation(
+        actor: actor,
+        action: "Pen Interaction",
+        outcomeLabel: "Possible physical change",
+        outcome: .needsAttention,
+        detail: [.text(detail)],
+        acceptedResult: evidence,
+        recovery: [.text(
+          "Inspect the pen and paper and resolve the ambiguity explicitly. Do not retry or redraw automatically."
+        )]
+      )
+    }
   }
 
   private func subsystemStatuses(

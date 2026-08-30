@@ -50,26 +50,6 @@ struct OperatorWorkspaceLifecycleTests {
     )
   }
 
-  @Test("a second start cannot replace the active typed attempt")
-  func duplicateStartRetainsActiveAttempt() async throws {
-    let harness = makeCausalSimulatorAppFixture()
-    let workspace = harness.workspace
-    await workspace.switchFrameMode(.simulated)
-    await workspace.performControllerConnectionAction()
-    await workspace.activateMotionGuard()
-
-    await workspace.beginPenInteraction()
-    let firstID = try #require(workspace.activeExerciseAttemptID)
-    await workspace.beginPenInteraction()
-
-    #expect(workspace.activeExerciseAttemptID == firstID)
-    #expect(
-      workspace.activeExerciseAttemptOwnerID
-        == .humanGuidedDiscovery(.penInteraction)
-    )
-    await workspace.shutdown()
-  }
-
   @Test("typed disposition is independent of presentation wording")
   func typedDispositionIgnoresWording() {
     let misleadingFailure = WorkflowFailure(
@@ -214,7 +194,15 @@ struct OperatorWorkspaceLifecycleTests {
     let penOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
     try requireEnabledPublicAction(.start, owner: penOwner, workspace: workspace)
     await workspace.performTestExerciseAction(.start, for: penOwner)
-    try await identifyPenCap(workspace)
+    let penRequest = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
+    let penFrame = try #require(workspace.testActionSurfacePresentation.displayedFrame)
+    submitPointSelection(workspace, request: penRequest, point: try Point2(
+      x: Double(penFrame.frame.width - 1) / 2,
+      y: Double(penFrame.frame.height - 1) / 2
+    ))
+    try await waitUntil {
+      workspace.activeDiscoverySequenceID == .penInteraction || workspace.discoveryError != nil
+    }
     for _ in 0..<3 {
       try requireEnabledPublicAction(.choice(.yes), owner: penOwner, workspace: workspace)
       await workspace.performTestExerciseAction(.choice(.yes), for: penOwner)
