@@ -77,6 +77,7 @@ class PilotGateTests(unittest.TestCase):
             "EA-11B": "EA-11A",
             "TRANCHE-FINAL-COMPOSITION": "TRANCHE-DEVICE-ENVIRONMENT",
             "EA-11C": "TRANCHE-DEVICE-ENVIRONMENT",
+            "FIX-05": "TRANCHE-FINAL-COMPOSITION",
         }
         for package in pilot.REQUIRED_PACKAGES:
             dependencies = (
@@ -87,7 +88,7 @@ class PilotGateTests(unittest.TestCase):
             gate_cell = ", ".join(f"`{gate}`" for gate in gates[package])
             execution_class = "authority-slice" if package.startswith("EA-10") and package not in {"EA-10A", "EA-10B"} or package in {"EA-11A", "EA-11B", "EA-11C"} else "software"
             ledger.append(f"| {package} | complete | {dependencies} | {execution_class} | outcome | {gate_cell} |")
-        ledger.append("| GATE-01 | pending | TRANCHE-FINAL-COMPOSITION | gate | decision only | `DOC`, `DIFF`, `PILOT` |")
+        ledger.append("| GATE-01 | pending | FIX-05 | gate | decision only | `DOC`, `DIFF`, `PILOT` |")
         inventory = [
             "| Inventory ID | Category | Current source seams | Current owner and behavior | Disposition | Cutover | Focused command |",
             "| --- | --- | --- | --- | --- | --- | --- |",
@@ -145,6 +146,18 @@ class PilotGateTests(unittest.TestCase):
         path.write_text(text.replace(old, new, 1), encoding="utf-8")
 
     def test_complete_consistent_fixture_passes(self) -> None:
+        pilot.evaluate(self.root)
+
+    def test_ea06_canonical_alternate_evidence_header_passes(self) -> None:
+        evidence = self.root / pilot.EVIDENCE
+        text = evidence.read_text(encoding="utf-8")
+        standard = "## Evidence EA-06\n\n| Validation | Result | Scope |"
+        alternate = (
+            "## Evidence EA-06\n\n"
+            "| Current serial validation on the exact Option A tree | Result | Exact log SHA-256 |"
+        )
+        self.assertIn(standard, text)
+        evidence.write_text(text.replace(standard, alternate, 1), encoding="utf-8")
         pilot.evaluate(self.root)
 
     def test_pending_landed_package_fails_closed(self) -> None:

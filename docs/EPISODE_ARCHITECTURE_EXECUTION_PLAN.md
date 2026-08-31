@@ -736,6 +736,13 @@ package remains a launch blocker.
 2. `TRANCHE-DEVICE-ENVIRONMENT` executes `EA-11A`, then `EA-11B`.
 3. `TRANCHE-FINAL-COMPOSITION` executes `EA-11C`.
 
+After the final-composition tranche, `FIX-05` is one ordinary software
+correction before `GATE-01`. It removes real remaining application-root
+cross-owner adapter authority and installs the executable source-identity
+manifests needed by the unchanged Pilot reduction thresholds. It is not a
+second tranche, does not absorb any typed feature runtime, and cannot complete
+by wrapping, grouping, erasing, or cosmetically renaming retained properties.
+
 Only a tranche boundary runs `QUICK`, `JOURNEY`, `STRICT`, batched canonical
 documentation/evidence synchronization, and at most one bounded fresh-context
 critic, with no critic recheck. A critic may block only a red-line defect: compiler or test failure,
@@ -793,7 +800,8 @@ final `VAL-01` attended validation boundary.
 | EA-11B | complete | EA-11A | authority-slice | Cutover: transfer observation-environment configuration authority for camera discovery/selection/lifecycle, LIVE/SIMULATED source selection, automatic-analysis cadence, exact-frame region policy, overlay-feature preferences, bounded diagnostic requests, complete EA-05A camera recording, and ambient frame/Vision task-result routing. Retain `CameraCapture` device/frame ownership, `CameraSourceSession` automatic ingestion/analysis/lease ownership, Vision measurement authority, and evidence-applicability authority; delete direct SwiftUI/workspace handlers and reads, duplicated config/guard state, mode branches, frame/Vision tasks, direct `CameraActions` calls, persistence closures, and old fixtures. Completed only through the shared staged `TASK-4C16F56F` / `TASK-4C16F56F-8af99cc51c68` Device-tranche transaction; canonical completion requires that transaction's successful landing into `main`, with no pre-land commit hash asserted. | `BUILD`, `OBSERVATION-CONFIG`, `AFFECTED-CONSUMERS`, `DIFF`, `DELETE` |
 | TRANCHE-FINAL-COMPOSITION | complete | TRANCHE-DEVICE-ENVIRONMENT | software | Tranche: one Blackdog task/worktree/landing executes the typed final-composition authority slice `EA-11C`, including its named root-schema/lifecycle prerequisite in that same slice/task/landing; it preserves same-slice deletion and per-slice gates, batches broad gates/docs/evidence at the boundary, and records non-red-line findings without retask. Staged complete in `TASK-FFD5D897`, attempt `TASK-FFD5D897-06c5758ade77`, after one bounded critic found the feature-shutdown join red-line; the repair passed affected suites, `DOC`, `DIFF`, `QUICK` 820/820, `JOURNEY` 10/10, and `STRICT` 830/830 without a critic recheck. Canonical completion requires this exact task's successful Blackdog landing. | `DOC`, `DIFF`, `QUICK`, `JOURNEY`, `STRICT`, `CRITIC` |
 | EA-11C | complete | TRANCHE-DEVICE-ENVIRONMENT | authority-slice | Cutover: transfer only final application composition and policy-originated startup/shutdown authority to `PlotterApplicationRuntime`, one canonical source-indexed `PlotterApplicationState`, immutable projections, and one projection-bound public `PlotterUIIntentSink`. The sink is the exclusive public application ingress and delegates to the already-authoritative typed feature runtimes; it does not add a redundant root `PlotterIntentGateway` reevaluator. Use the package `PlotterOperationRegistry` mechanism without claiming that one monolithic registry instance owns named feature-runtime coordination. Add the direct `PlotterApp -> EpisodeRuntime` dependency and one `PlotterApplicationResidualOperationAdapter` backed by a residual registry; retain distinct typed feature runtime authorities/tasks/Stop lanes. Through nominal `PlotterApplicationResidualEffectPort` and `PlotterApplicationStatePersistencePort`, synchronously close MainActor admission before any await, join residual and feature owners, persist accepted state before projection/terminal publication, and never report false termination or quiescence. Delete the `OperatorWorkspace` effect closures plus `ActiveStoppableOperation`, `LearningSessionState`, `liveLearningSession`, `simulatedLearningSession`, `activeLearningSession`, `hasShutdown`, `lifetimeGeneration`, `activeHardwareIntentCount`, `intentDrainWaiters`, `beginHardwareIntent`, `endHardwareIntent`, `canCommit`, `waitForHardwareIntentsToDrain`, and every migrated direct UI read named by EA-01. It may not absorb an unnamed feature migration; any unassigned inventory item or second root task/operation registry fails the slice. `PlotterEpisodeCompositionTests` must be discoverable and now passed 5/5. The exact shutdown repair retains and joins cancellation-insensitive artifact/reset and tip-calibration operations before root persistence or AppKit termination; focused artifact reset 12/12, tip calibration 7/7, lifecycle 9/9, affected consumers 4 scans, DELETE 9 scans, and the source-derived task metric 9-to-0 passed. Staged complete only through the shared `TASK-FFD5D897` / `TASK-FFD5D897-06c5758ade77` landing transaction. | `BUILD`, `COMPOSITION`, `AFFECTED-CONSUMERS`, `DIFF`, `DELETE` |
-| GATE-01 | pending | TRANCHE-FINAL-COMPOSITION | gate | Decide pilot continuation from deletion, replay, typing, owner, observability, simulation, and physical-boundary evidence. It moves no authority. | `DOC`, `DIFF`, `PILOT` |
+| FIX-05 | pending | TRANCHE-FINAL-COMPOSITION | software | Correction: transfer remaining cross-owner façade/port/fact-source/adapter ownership out of the application root and into already-distinct typed owners, removing at least three qualifying top-level stored `PlotterApplicationRuntime` properties from the pinned current set `residualOperationAdapter`, `machineSession`, `drawingRunFactSource`, `drawingRunInterpreterPort`, `drawingRunCameraPort`, `observationPreferences`, `statePersistencePort`, `drawingEvidencePort`, `residualEffectPort`, and `causalSimulatorEffectAdapter`, so `operator-workspace-adapters` decreases from the EA-01 baseline 7 to at most 7 rather than the current failing 10. A property counts as removed only when its authority and consumers move to an existing correct typed owner and the old root property and direct use are deleted; wrapper aggregation, another root property, type erasure, nominal-port exemption, or absorbing a typed feature runtime does not count. Preserve distinct feature runtimes and registries, exactly one residual `PlotterOperationRegistry` adapter, synchronous close-before-await shutdown and complete joins, retained controller/camera/Vision/planning/persistence/evidence safety owners, no automatic motion or redraw, and truthful possible-ink/termination/quiescence state. Install a pinned executable source-identity manifest checker for all six Pilot metrics using EA-01 commit `96253197a42dc6052ef76ad53c4c94c1c5f745a1` and the exact candidate identity; prove `workspace-task-owners` 9-to-0, `operator-workspace-policy-state` 6-to-1, and `operator-workspace-adapters` 7-to-at-most-7, and reconcile the candidate operational proxies application admission families 18-to-2, duplicate application environment families 2-to-0, and arbitrary stored closure-effect member identities 40-to-0 with the literal metric names `independent-admission-sites`, `environment-mode-branches`, and `direct-effect-calls` without weakening or silently changing inclusion/exclusion rules. If any literal metric cannot be pinned and proved, FIX-05 fails. Add exact selected-property deletion and consumer scans in the same landing; do not claim `PILOT` or GATE-01. | `BUILD`, `COMPOSITION`, `PILOT-METRICS`, `AFFECTED-CONSUMERS`, `DELETE`, `DOC`, `DIFF`, `QUICK`, `STRICT` |
+| GATE-01 | pending | FIX-05 | gate | Decide pilot continuation from deletion, replay, typing, owner, observability, simulation, and physical-boundary evidence. It moves no authority. | `DOC`, `DIFF`, `PILOT` |
 | VAL-01 | pending | GATE-01 | attended-physical | On the exact migrated signed build, execute the complete attended runbook including Drawing Studio, exercise visible refusal/progress/Stop and incident export, and land controller/camera/operator/ink evidence and limitations without changing architecture. | `DOC`, `DIFF`, `STRICT`, `PHYSICAL-FINAL` |
 | GATE-02 | pending | VAL-01 | gate | Prove one globally exclusive projection-bound public `PlotterUIIntentSink`, complete operator journey, replay/simulation/incident evidence, same-landing deletion, final attended evidence, and packaging decision. It moves no authority and does not require a redundant root intent reevaluator. | `DOC`, `DIFF`, `FINAL-GATE` |
 
@@ -866,6 +874,7 @@ the gate. All commands run from the task workspace on the recorded target.
 | `UI` | `swift test --filter PlotterEpisodeUIActionabilityTests` | EA-09 |
 | `TASK-METRIC` | `PYTHONDONTWRITEBYTECODE=1 python3 Scripts/check_episode_task_metric.py` preserves the source-derived FIX-03 9-to-8 legacy `OperatorWorkspace` `Swift.Task` evidence while EA-11C is pending; after EA-11C completes it may record 9-to-0 only when a masked scan of all production Swift source proves the `OperatorWorkspace` declaration truly absent | FIX-03 |
 | `PILOT` | `sh Scripts/check_episode_pilot_gate.sh` proves the exact Pilot continuation gate predicates below against landed rows and Current Evidence | EA-09 |
+| `PILOT-METRICS` | `PYTHONDONTWRITEBYTECODE=1 python3 Scripts/check_episode_pilot_metrics.py` proves the six pinned EA-01-to-candidate source-identity manifests, exact inclusion/exclusion rules, identity presence, and required decrease/not-increase thresholds without trusting Current Evidence counts | FIX-05 |
 | `PEN` | `swift test --filter PlotterPenInteractionEpisodeTests` | EA-10A |
 | `BOUNDARY` | `swift test --filter PlotterBoundaryEpisodeTests` | EA-10B |
 | `CAMERA-CAL` | `swift test --filter PlotterCameraCalibrationEpisodeTests` | EA-10C |
@@ -914,12 +923,14 @@ controller, camera, motion, pen, paper, operator click, or observed ink.
 `Scripts/check_episode_pilot_gate.sh`, created and tested in `EA-09`, evaluates
 the following closed set of predicates against landed ledger rows, inventory
 scans, and linked Current Evidence. `DOC-03` relocates that unchanged decision
-after `EA-11C`: its pre-relocation 6-to-6 policy-state and 7-to-10 adapter
+after `EA-11C`; `FIX-05` must complete before the gate. Its pre-relocation
+6-to-6 policy-state and current 7-to-10 adapter
 measurements could not satisfy the existing thresholds until the authority
 transfers assigned to EA-10A through EA-11C had run, while those packages had
 incorrectly depended on the gate. The checker therefore requires completed
-evidence through DOC-03, EA-10A through EA-10G, and EA-11A through EA-11C,
-including every required `DELETE` gate. `GATE-01` may mark only its own row
+evidence through DOC-03, EA-10A through EA-10G, EA-11A through EA-11C, and
+FIX-05, including every required `DELETE` gate and its executable metric
+manifests. `GATE-01` may mark only its own row
 complete after that command, `DOC`, and `DIFF` pass:
 
 - domain-generic `EpisodeCore` required no forbidden type-erasure or concurrency
@@ -936,6 +947,17 @@ complete after that command, `DOC`, and `DIFF` pass:
   presentation or external fallback;
 - `OperatorWorkspace` lost policy/state instead of accumulating adapters;
 - physical safety owners and evidence-class boundaries remain intact.
+
+The currently established source facts are `workspace-task-owners` 9-to-0,
+`operator-workspace-policy-state` 6-to-1, and the still-failing
+`operator-workspace-adapters` 7-to-10. The other operational units are
+application-owned independent admission families 18-to-2, duplicate
+application environment/effect-owner families 2-to-0 excluding the retained
+causal simulator, and arbitrary stored closure-effect member identities
+40-to-0. Those descriptions do not rename or weaken the literal
+`independent-admission-sites`, `environment-mode-branches`, or
+`direct-effect-calls` metrics: FIX-05 must pin exact source identities and prove
+that each unit implements its literal meaning, or fail.
 
 If genericity, same-slice deletion, device-owner preservation, deterministic
 replay, or truthful observability fails, the gate fails and the migration stops

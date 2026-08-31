@@ -29,7 +29,7 @@ REQUIRED_PACKAGES = (
     "FIX-02", "EA-06", "EA-07", "EA-08A", "EA-08B", "EA-09", "FIX-03",
     "DOC-03", "EA-10A", "EA-10B", "EA-10C", "EA-10D", "EA-10E", "EA-10F",
     "TRANCHE-LEARNING", "EA-10G", "TRANCHE-DEVICE-ENVIRONMENT", "EA-11A", "EA-11B",
-    "TRANCHE-FINAL-COMPOSITION", "EA-11C",
+    "TRANCHE-FINAL-COMPOSITION", "EA-11C", "FIX-05",
 )
 TRANCHE_SLICES = {
     "TRANCHE-LEARNING": ("EA-10G", "EA-10C", "EA-10D", "EA-10E", "EA-10F"),
@@ -125,7 +125,7 @@ def parse_ledger(plan: str) -> dict[str, dict[str, object]]:
     gate = result.get("GATE-01")
     if gate is None:
         fail("required GATE-01 ledger row is absent")
-    if gate["dependencies"] != ["TRANCHE-FINAL-COMPOSITION"] or gate["class"] != "gate" or gate["gates"] != ["DOC", "DIFF", "PILOT"]:
+    if gate["dependencies"] != ["FIX-05"] or gate["class"] != "gate" or gate["gates"] != ["DOC", "DIFF", "PILOT"]:
         fail(f"GATE-01 contract mismatch: {gate}")
     if gate["status"] not in {"pending", "complete"}:
         fail(f"GATE-01 has invalid status: {gate['status']}")
@@ -174,7 +174,20 @@ def validate_completion_evidence(
         gates = [gate for gate, _state in pairs]
         if package in ledger and gates != ledger[package]["gates"]:
             fail(f"completion gate mismatch for {package}: {gates}")
-        details = table(section(evidence, title), ["Validation", "Result", "Scope"])
+        detail_section = section(evidence, title)
+        try:
+            details = table(detail_section, ["Validation", "Result", "Scope"])
+        except GateError:
+            if package != "EA-06":
+                raise
+            details = table(
+                detail_section,
+                [
+                    "Current serial validation on the exact Option A tree",
+                    "Result",
+                    "Exact log SHA-256",
+                ],
+            )
         detailed: dict[str, str] = {}
         for validation, result, _scope in details:
             gate = uncode(validation)

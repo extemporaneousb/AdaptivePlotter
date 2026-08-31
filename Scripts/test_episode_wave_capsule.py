@@ -460,7 +460,7 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         consumed = self.consume()
         self.assertEqual(created, consumed)
         self.assertEqual("selected", consumed["contract"]["frontier"]["state"])
-        self.assertEqual("GATE-01", consumed["contract"]["package"]["id"])
+        self.assertEqual("FIX-05", consumed["contract"]["package"]["id"])
         self.assertEqual(0o600, stat.S_IMODE(self.path.stat().st_mode))
         purposes = {item["purpose"] for item in consumed["pointers"]}
         self.assertIn("required gate catalog row", purposes)
@@ -484,14 +484,14 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
             row = [cell.strip() for cell in selected_text.strip().strip("|").split("|")]
             if (
                 len(row) == 6
-                and row[:4] == ["GATE-01", "pending", "TRANCHE-FINAL-COMPOSITION", "gate"]
-                and row[4].startswith("Decide pilot continuation")
-                and row[5] == "`DOC`, `DIFF`, `PILOT`"
+                and row[:4] == ["FIX-05", "pending", "TRANCHE-FINAL-COMPOSITION", "software"]
+                and row[4].startswith("Correction: transfer remaining cross-owner")
+                and "`PILOT-METRICS`" in row[5]
             ):
                 ledger_rows.append((selected, row))
         self.assertEqual(1, len(ledger_rows))
         selected, selected_row = ledger_rows[0]
-        self.assertEqual("GATE-01", selected_row[0])
+        self.assertEqual("FIX-05", selected_row[0])
         self.assertNotEqual("FIX-02", selected_row[0])
         self.assertEqual([], consumed["contract"]["ordered_authority_slices"])
         self.assertNotIn("authority slice current-owner inventory row", purposes)
@@ -499,11 +499,11 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         view = capsule.canonical_bytes(capsule.consumption_view(consumed))
         self.assertLess(len(view), capsule.MAX_CONSUMPTION_BYTES)
 
-    def test_pilot_gate_is_selected_after_staged_final_composition(self) -> None:
+    def test_fix04_is_selected_after_staged_final_composition(self) -> None:
         created = self.build_and_write()
 
         self.assertEqual("selected", created["launch"]["state"])
-        self.assertEqual("GATE-01", created["contract"]["frontier"]["package_id"])
+        self.assertEqual("FIX-05", created["contract"]["frontier"]["package_id"])
         self.assertEqual([], created["contract"]["ordered_authority_slices"])
         self.assertNotEqual("VAL-01", created["contract"]["frontier"]["package_id"])
 
@@ -555,47 +555,47 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         self.assertEqual("claim_resolution", created["launch"]["state"])
         self.assertEqual("TASK-CLAIMED", created["blackdog"]["live_blockers"][0]["task_id"])
 
-        retained = self.terminal_task("TASK-RETAINED", "FIX-04", retained_owner=True)
+        retained = self.terminal_task("TASK-RETAINED", "FIX-05", retained_owner=True)
         created = self.build_and_write({"tasks": [retained]})
         self.assertEqual("claim_resolution", created["launch"]["state"])
         self.assertEqual("TASK-RETAINED", created["blackdog"]["live_blockers"][0]["task_id"])
 
-        finalization = self.terminal_task("TASK-FINALIZE", "FIX-04")
+        finalization = self.terminal_task("TASK-FINALIZE", "FIX-05")
         self.task_shows["TASK-FINALIZE"]["close_transaction_pending"] = True
         created = self.build_and_write({"tasks": [finalization]})
         self.assertEqual("claim_resolution", created["launch"]["state"])
         self.assertEqual("TASK-FINALIZE", created["blackdog"]["live_blockers"][0]["task_id"])
 
     def test_removed_and_dependency_ineligible_terminal_history_is_visible_but_nonblocking(self) -> None:
-        removed = self.terminal_task("TASK-REMOVED", "FIX-04")
+        removed = self.terminal_task("TASK-REMOVED", "FIX-99")
         ineligible = self.terminal_task("TASK-INELIGIBLE", "VAL-01")
         created = self.build_and_write({"tasks": [removed, ineligible]})
 
         self.assertEqual("selected", created["launch"]["state"])
-        self.assertEqual("GATE-01", created["contract"]["frontier"]["package_id"])
+        self.assertEqual("FIX-05", created["contract"]["frontier"]["package_id"])
         self.assertEqual([], created["blackdog"]["live_blockers"])
         self.assertEqual(
             [
                 {"task_id": "TASK-INELIGIBLE", "package_id": "VAL-01", "disposition": "dependency-ineligible-package"},
-                {"task_id": "TASK-REMOVED", "package_id": "FIX-04", "disposition": "removed-package"},
+                {"task_id": "TASK-REMOVED", "package_id": "FIX-99", "disposition": "removed-package"},
             ],
             created["blackdog"]["terminal_history"],
         )
         self.assertEqual(created, self.consume({"tasks": [removed, ineligible]}))
 
     def test_current_eligible_or_unverifiable_terminal_history_fails_closed(self) -> None:
-        recoverable = self.terminal_task("TASK-RECOVERABLE", "GATE-01")
+        recoverable = self.terminal_task("TASK-RECOVERABLE", "FIX-05")
         created = self.build_and_write({"tasks": [recoverable]})
         self.assertEqual("claim_resolution", created["launch"]["state"])
         self.assertEqual("TASK-RECOVERABLE", created["blackdog"]["live_blockers"][0]["task_id"])
 
-        unverifiable = self.terminal_task("TASK-UNKNOWN", "FIX-04", replay_available=False)
+        unverifiable = self.terminal_task("TASK-UNKNOWN", "FIX-05", replay_available=False)
         created = self.build_and_write({"tasks": [unverifiable]})
         self.assertEqual("claim_resolution", created["launch"]["state"])
         self.assertEqual("TASK-UNKNOWN", created["blackdog"]["live_blockers"][0]["task_id"])
 
     def test_rehashed_terminal_history_tampering_is_rejected_against_live_classification(self) -> None:
-        history = self.terminal_task("TASK-REMOVED", "FIX-04")
+        history = self.terminal_task("TASK-REMOVED", "FIX-99")
         created = self.build_and_write({"tasks": [history]})
         created["blackdog"]["terminal_history"][0]["package_id"] = "GATE-01"
         created.pop("payload_sha256")

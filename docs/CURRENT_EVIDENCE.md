@@ -8,6 +8,58 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## GATE-01 source-derived inspection — continuation refused
+
+The post-EA-11C repository inspection did not pass `GATE-01`. The one invoked
+`sh Scripts/check_episode_pilot_gate.sh` command exited 1 with
+`episode Pilot gate failed: missing table: Validation / Result / Scope` because
+the Pilot checker did not accept EA-06's canonical alternate detailed-evidence
+header. Static inspection also proved that parser repair alone cannot pass the
+gate: the unchanged `operator-workspace-adapters` 7-to-10 threshold currently
+fails.
+
+The exact current source-backed metric facts that already have stable identity
+sets are:
+
+| Reduction metric | Baseline | Current | Requirement |
+| --- | --- | --- | --- |
+| independent-admission-sites | pending | pending | decreased |
+| workspace-task-owners | 9 | 0 | decreased |
+| environment-mode-branches | pending | pending | decreased |
+| direct-effect-calls | pending | pending | decreased |
+| operator-workspace-policy-state | 6 | 1 | decreased |
+| operator-workspace-adapters | 7 | 10 | not-increased |
+
+The inspection also produced three candidate operational proxies: application-
+owned independent admission families measured 18-to-2, duplicate application
+environment/effect-owner families measured 2-to-0 while excluding the retained
+causal simulator, and arbitrary stored closure-effect member identities measured
+40-to-0. Those proxies are not yet the literal metrics and therefore do not fill
+the pending cells above. `FIX-05` must install pinned executable EA-01-to-
+candidate source-identity manifests for all six rows, reconcile those three
+operational units to the literal names, and fail if the reconciliation is not
+source-defensible.
+
+| Pilot predicate | Result | Evidence |
+| --- | --- | --- |
+| GENERICITY | passed | `EA-02A/CORE`, `EA-02B/PLOTTER-MODEL` |
+| REPLAY | passed | `EA-05B/REPLAY` |
+| DEVICE-OWNERS | passed | `EA-05A/RECORDING`, `FIX-02/LINK-OBS`, `FIX-02/LINK-SAFETY` |
+| ENVIRONMENT-GRAMMAR | pending | `EA-07/SIM`, `EA-09/UI` |
+| SAME-SLICE-DELETION | pending | `EA-04/DELETE`, `EA-06/DELETE`, `EA-07/DELETE`, `EA-08A/DELETE`, `EA-08B/DELETE`, `EA-09/DELETE`, `FIX-03/DELETE`, `EA-10A/DELETE`, `EA-10B/DELETE`, `EA-10C/DELETE`, `EA-10D/DELETE`, `EA-10E/DELETE`, `EA-10F/DELETE`, `EA-10G/DELETE`, `EA-11A/DELETE`, `EA-11B/DELETE`, `EA-11C/DELETE` |
+| AUTHORITY-REDUCTION | pending | `EA-01/INVENTORY`, `METRICS/AUTHORITY-REDUCTION` |
+| OBSERVABILITY | pending | `EA-05C/INCIDENT`, `EA-06/MOTION`, `EA-09/UI` |
+| WORKSPACE-REDUCTION | pending | `METRICS/WORKSPACE-REDUCTION` |
+| SAFETY-EVIDENCE | pending | `FIX-02/LINK-SAFETY`, `EA-07/SIM`, `EA-09/UI` |
+
+The sole next ordinary package is pending software package `FIX-05`; `GATE-01`
+now depends on it and remains pending. The historical `TASK-2F141403` FIX-04
+diagnostic described a then-removed package and is not a current replay or
+completion claim. After terminal cleanup, `TASK-D2DFC053` remains visible as
+`GATE-01` terminal history with disposition `dependency-ineligible-package`
+while FIX-05 is pending. No physical, hardware, remote-Git, or continuation
+decision occurred.
+
 ## EA-11C final-composition staged completion transaction
 
 Prepared 2026-08-31 inside the existing sole-owner
@@ -2562,8 +2614,11 @@ former EA-10C standalone blocker was removed by the canonical tranche-policy
 correction. `TRANCHE-LEARNING` landed, and
 `TRANCHE-DEVICE-ENVIRONMENT` landed through `TASK-4C16F56F`, attempt
 `TASK-4C16F56F-8af99cc51c68`, at
-`3308e1bf2c19159be7b207226280f54b5ebf0662`. The active ordinary frontier is
-`TRANCHE-FINAL-COMPOSITION`; no later successor dispatch is authorized here.
+`3308e1bf2c19159be7b207226280f54b5ebf0662`, and
+`TRANCHE-FINAL-COMPOSITION` subsequently completed through `TASK-FFD5D897`.
+The active ordinary frontier is now `FIX-05`; `GATE-01` is dependency-ineligible
+until that software correction completes, and no later successor dispatch is
+authorized here.
 
 | Package | Blocker | Required input or canonical correction |
 | --- | --- | --- |

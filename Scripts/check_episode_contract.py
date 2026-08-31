@@ -28,7 +28,7 @@ EVIDENCE_PATH = ROOT / "docs" / "CURRENT_EVIDENCE.md"
 ARCHITECTURE_PATH = ROOT / "docs" / "SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md"
 PRODUCT_PATH = ROOT / "docs" / "PRODUCT_CONTRACT.md"
 # Updated in the same package whenever a canonical ledger row changes.
-EXPECTED_LEDGER_SHA256 = "69663e2ef58206ae388c53b1503cc6c032752703b72a17f7d6adc171262455f6"
+EXPECTED_LEDGER_SHA256 = "c32a6a58560e8fc77f4c73b79dbc630754e1d6f6335f0fca9da8faedb29c1ba2"
 
 
 EXPECTED_GATES = {
@@ -77,6 +77,10 @@ EXPECTED_GATES = {
     "PILOT": (
         "`sh Scripts/check_episode_pilot_gate.sh` proves the exact Pilot continuation gate predicates below against landed rows and Current Evidence",
         "EA-09",
+    ),
+    "PILOT-METRICS": (
+        "`PYTHONDONTWRITEBYTECODE=1 python3 Scripts/check_episode_pilot_metrics.py` proves the six pinned EA-01-to-candidate source-identity manifests, exact inclusion/exclusion rules, identity presence, and required decrease/not-increase thresholds without trusting Current Evidence counts",
+        "FIX-05",
     ),
     "PEN": ("`swift test --filter PlotterPenInteractionEpisodeTests`", "EA-10A"),
     "BOUNDARY": ("`swift test --filter PlotterBoundaryEpisodeTests`", "EA-10B"),
@@ -156,7 +160,8 @@ EXPECTED_PACKAGE_SHAPES = {
     "EA-11B": (["EA-11A"], "authority-slice", ["BUILD", "OBSERVATION-CONFIG", "AFFECTED-CONSUMERS", "DIFF", "DELETE"]),
     "TRANCHE-FINAL-COMPOSITION": (["TRANCHE-DEVICE-ENVIRONMENT"], "software", ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "CRITIC"]),
     "EA-11C": (["TRANCHE-DEVICE-ENVIRONMENT"], "authority-slice", ["BUILD", "COMPOSITION", "AFFECTED-CONSUMERS", "DIFF", "DELETE"]),
-    "GATE-01": (["TRANCHE-FINAL-COMPOSITION"], "gate", ["DOC", "DIFF", "PILOT"]),
+    "FIX-05": (["TRANCHE-FINAL-COMPOSITION"], "software", ["BUILD", "COMPOSITION", "PILOT-METRICS", "AFFECTED-CONSUMERS", "DELETE", "DOC", "DIFF", "QUICK", "STRICT"]),
+    "GATE-01": (["FIX-05"], "gate", ["DOC", "DIFF", "PILOT"]),
     "VAL-01": (["GATE-01"], "attended-physical", ["DOC", "DIFF", "STRICT", "PHYSICAL-FINAL"]),
     "GATE-02": (["VAL-01"], "gate", ["DOC", "DIFF", "FINAL-GATE"]),
 }
@@ -179,6 +184,7 @@ EXPECTED_SOFTWARE_OUTCOME_KIND = {
     "EA-08B": "Cutover",
     "EA-09": "Cutover",
     "FIX-03": "Correction",
+    "FIX-05": "Correction",
     "EA-10A": "Cutover",
     "EA-10B": "Cutover",
     "TRANCHE-LEARNING": "Tranche",
@@ -1338,6 +1344,21 @@ def validate_plan(text: str) -> dict[str, dict[str, object]]:
             "Completed by `TASK-0A7AB3EE`, attempt `TASK-0A7AB3EE-80f88f4a41d8`",
             "package FIX-03 complete, migration remains incomplete",
         ),
+        "FIX-05": (
+            "transfer remaining cross-owner façade/port/fact-source/adapter ownership out of the application root",
+            "removing at least three qualifying top-level stored `PlotterApplicationRuntime` properties",
+            "`operator-workspace-adapters` decreases from the EA-01 baseline 7 to at most 7 rather than the current failing 10",
+            "wrapper aggregation, another root property, type erasure, nominal-port exemption, or absorbing a typed feature runtime does not count",
+            "exactly one residual `PlotterOperationRegistry` adapter",
+            "no automatic motion or redraw",
+            "Install a pinned executable source-identity manifest checker for all six Pilot metrics",
+            "EA-01 commit `96253197a42dc6052ef76ad53c4c94c1c5f745a1`",
+            "application admission families 18-to-2",
+            "duplicate application environment families 2-to-0",
+            "arbitrary stored closure-effect member identities 40-to-0",
+            "If any literal metric cannot be pinned and proved, FIX-05 fails",
+            "do not claim `PILOT` or GATE-01",
+        ),
         "DOC-03": (
             "Relocate the unchanged `GATE-01` Pilot continuation decision after `EA-11C`",
             "`operator-workspace-policy-state` remained 6 to 6",
@@ -1656,7 +1677,17 @@ def _validate_legacy_evidence_archive(text: str, rows: dict[str, dict[str, objec
         if required_phrase not in normalized:
             fail(f"EA-09 task-local completion evidence is missing: {required_phrase}")
 
-    pilot_rows = markdown_table(text, ["Pilot predicate", "Result", "Evidence"])
+    historical_candidate = re.search(
+        r"^## Episode UI cutover$(.*?)(?=^## |\Z)",
+        text,
+        re.MULTILINE | re.DOTALL,
+    )
+    if historical_candidate is None:
+        fail("EA-09 historical candidate section is missing")
+    historical_text = historical_candidate.group(1)
+    pilot_rows = markdown_table(
+        historical_text, ["Pilot predicate", "Result", "Evidence"]
+    )
     expected_pilot_results = {
         "GENERICITY": "passed",
         "REPLAY": "passed",
@@ -1673,7 +1704,7 @@ def _validate_legacy_evidence_archive(text: str, rows: dict[str, dict[str, objec
     if {row[0]: row[1] for row in pilot_rows} != expected_pilot_results:
         fail("EA-09 candidate Pilot predicate results drifted")
     metric_rows = markdown_table(
-        text, ["Reduction metric", "Baseline", "Current", "Requirement"]
+        historical_text, ["Reduction metric", "Baseline", "Current", "Requirement"]
     )
     expected_metrics = {
         "independent-admission-sites": "decreased",
@@ -3037,21 +3068,19 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
     for name, baseline, current, requirement in metric_rows:
         if requirement != expected_metric_requirements[name]:
             fail(f"reduction metric requirement drifted: {name}")
-        if name == "workspace-task-owners":
-            expected_current = "0" if rows["EA-11C"]["status"] == "complete" else "8"
-            if (baseline, current) != ("9", expected_current):
-                fail(
-                    "workspace Task metric must remain source-derived: "
-                    f"expected 9->{expected_current}, found {baseline}->{current}"
-                )
-        elif name == "operator-workspace-policy-state":
-            if (baseline, current) != ("6", "6"):
-                fail(f"pre-relocation policy-state failure must remain 6->6: {baseline}->{current}")
-        elif name == "operator-workspace-adapters":
-            if (baseline, current) != ("7", "10"):
-                fail(f"pre-relocation adapter failure must remain 7->10: {baseline}->{current}")
-        elif (baseline, current) != ("pending", "pending"):
-            fail(f"unmeasured GATE-01 metric must remain pending: {name}")
+        expected_counts = {
+            "independent-admission-sites": ("pending", "pending"),
+            "workspace-task-owners": ("9", "0"),
+            "environment-mode-branches": ("pending", "pending"),
+            "direct-effect-calls": ("pending", "pending"),
+            "operator-workspace-policy-state": ("6", "1"),
+            "operator-workspace-adapters": ("7", "10"),
+        }
+        if (baseline, current) != expected_counts[name]:
+            fail(
+                f"current source-derived metric drifted for {name}: "
+                f"expected {expected_counts[name]}, found {(baseline, current)}"
+            )
 
     completion_rows = markdown_table(
         text, ["Package", "Blackdog task", "Gate results", "Evidence section"]
@@ -3237,18 +3266,26 @@ def validate_wave_frontier(
             fail("staged Device tranche must not retain an ordinary-wave blocker")
         return
 
-    if selected == "GATE-01":
+    if selected == "FIX-05":
         for phrase in (
-            "EA-11C final-composition staged completion transaction",
-            "`TASK-FFD5D897`",
-            "`TASK-FFD5D897-06c5758ade77`",
-            "successful Blackdog landing of this exact candidate",
-            "GATE-01 was not run in this task",
+            "GATE-01 source-derived inspection — continuation refused",
+            "The sole next ordinary package is pending software package `FIX-05`",
+            "`operator-workspace-adapters` 7-to-10",
+            "`TASK-D2DFC053`",
+            "`dependency-ineligible-package`",
+            "No physical, hardware, remote-Git, or continuation decision occurred",
         ):
             if phrase not in normalized:
-                fail(f"staged final-composition tranche lacks GATE-01 frontier evidence: {phrase}")
+                fail(f"FIX-05 frontier lacks failed-Pilot evidence: {phrase}")
         if blockers:
-            fail("staged final-composition tranche must not retain an ordinary-wave blocker")
+            fail("FIX-05 frontier must not retain an ordinary-wave blocker")
+        return
+
+    if selected == "GATE-01":
+        if rows["FIX-05"]["status"] != "complete":
+            fail("GATE-01 cannot be selected before FIX-05 completes")
+        if blockers:
+            fail("GATE-01 frontier must not retain an ordinary-wave blocker")
         return
 
     if selected is not None:
