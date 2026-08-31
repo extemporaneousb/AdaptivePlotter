@@ -35,6 +35,11 @@ authorities.
    at startup. Mutable canonical documents remain authority; the capsule is only
    a validated read accelerator.
 3. Resolve every live claim reported by the capsule before looking for new work.
+   `terminal_history` is a visible hash-bound diagnostic, not a live claim: it
+   can contain only fully cleaned terminal blocked/failed history whose exact
+   replay binds a removed or currently dependency-ineligible package. Unknown
+   replay identity, any owner/finalization residue, or a current dependency-ready
+   recoverable ordinary package remains a live blocker.
    Fetch its current Blackdog `next_action`; never cache lifecycle actions in the
    capsule. Resume only verified
    recoverable `repository`, `software`, or `gate` work, or use the available

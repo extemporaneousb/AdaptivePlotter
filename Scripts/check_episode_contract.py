@@ -28,7 +28,7 @@ EVIDENCE_PATH = ROOT / "docs" / "CURRENT_EVIDENCE.md"
 ARCHITECTURE_PATH = ROOT / "docs" / "SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md"
 PRODUCT_PATH = ROOT / "docs" / "PRODUCT_CONTRACT.md"
 # Updated in the same package whenever a canonical ledger row changes.
-EXPECTED_LEDGER_SHA256 = "b9f269687266ade1051e34681c565ef9e6007d3a8083d2c6e9d0d105ca1ee578"
+EXPECTED_LEDGER_SHA256 = "34a694d1b9e8e0899df6216a322f98d861072524e5cffed4ce37d41550b28f29"
 
 
 EXPECTED_GATES = {
@@ -141,7 +141,8 @@ EXPECTED_PACKAGE_SHAPES = {
     "DOC-03": (["FIX-03"], "repository", ["DOC", "DIFF"]),
     "EA-10A": (["DOC-03"], "software", ["DOC", "DIFF", "QUICK", "STRICT", "PEN", "DELETE"]),
     "EA-10B": (["EA-10A"], "software", ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "BOUNDARY", "DELETE"]),
-    "TRANCHE-LEARNING": (["EA-10B"], "software", ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "CRITIC"]),
+    "DOC-04": (["EA-10B"], "repository", ["DOC", "DIFF"]),
+    "TRANCHE-LEARNING": (["DOC-04"], "software", ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "CRITIC"]),
     "EA-10G": (["EA-10B"], "authority-slice", ["BUILD", "SPEECH", "AFFECTED-CONSUMERS", "DIFF", "DELETE"]),
     "EA-10C": (["EA-10G"], "authority-slice", ["BUILD", "CAMERA-CAL", "AFFECTED-CONSUMERS", "DIFF", "DELETE"]),
     "EA-10D": (["EA-10C"], "authority-slice", ["BUILD", "TIP-CAL", "AFFECTED-CONSUMERS", "DIFF", "DELETE"]),
@@ -208,6 +209,7 @@ EXPECTED_COMPLETE_PACKAGES = {
     "DOC-03",
     "EA-10A",
     "EA-10B",
+    "DOC-04",
 }
 
 TRANCHE_SLICES = {
@@ -1325,6 +1327,13 @@ def validate_plan(text: str) -> dict[str, dict[str, object]]:
             "Completed by `TASK-B7C9E592`, attempt `TASK-B7C9E592-3408edcef715`",
             "package DOC-03 complete, migration remains incomplete",
             "Both package gates passed: `DOC` 29/29 in 14.014 seconds with 14.770 seconds wall time and documentation/architecture contracts passed; `DIFF` exit 0 with no output in less than 0.01 seconds",
+        ),
+        "DOC-04": (
+            "classify Blackdog summary records fail closed",
+            "active attempts, task/workset claims, retained owner/worktree/branch, required finalization, unknown replay identity, and dependency-ready recoverable ordinary packages remain live blockers",
+            "fully cleaned terminal history bound to removed or dependency-ineligible packages remains a visible hash-bound diagnostic",
+            "moves no product authority, changes no GATE-01 predicate, and does not reopen, cancel, or hide historical tasks",
+            "Delivered by `TASK-A7C0E999`",
         ),
         "EA-10A": (
             "transfer Pen Interaction value-bearing Up/Down intent",
@@ -2607,6 +2616,12 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
     """Validate current evidence without coupling it to superseded candidate prose."""
     normalized = re.sub(r"\s+", " ", text)
     for required_phrase in (
+        "Capsule claim-classification correction",
+        "`TASK-A7C0E999`",
+        "`TASK-2F141403` → `FIX-04` → `removed-package`",
+        "`TASK-D2DFC053` → `GATE-01` → `dependency-ineligible-package`",
+        "unknown or unverifiable replay identity",
+        "the verified ordinary frontier is `TRANCHE-LEARNING`, which now depends on complete `DOC-04`",
         "Pilot dependency-cycle correction",
         "`TASK-B7C9E592`, attempt `TASK-B7C9E592-3408edcef715`",
         "DOC-03 is complete; migration remains incomplete",
@@ -3125,10 +3140,13 @@ def validate_wave_frontier(
             "Sprint tranche-policy correction",
             "`TASK-86758196`",
             "`TRANCHE-LEARNING`",
+            "`DOC-04`",
             "`EA-10G`, `EA-10C`, `EA-10D`, `EA-10E`, and `EA-10F`",
             "No individual slice is selected or claimed",
             "at most one bounded critic",
             "`GATE-01` remains unchanged downstream after `TRANCHE-FINAL-COMPOSITION`",
+            "`TASK-2F141403` → `FIX-04` → `removed-package`",
+            "`TASK-D2DFC053` → `GATE-01` → `dependency-ineligible-package`",
         ):
             if phrase not in normalized:
                 fail(f"current ordinary wave frontier lacks evidence: {phrase}")
@@ -3183,6 +3201,8 @@ def validate_protocol(text: str, skill: str, wave_skill: str, wave_protocol: str
         "AdaptivePlotter episode WorkPackage: <ID>",
         "`DOC-02` records the operator-accepted pre-migration rollback checkpoint",
         "leaves final attended validation in `VAL-01`",
+        "only fully cleaned blocked/failed records with",
+        "every unknown identity, owner residue, finalization requirement, or dependency-ready recoverable ordinary package remains blocking",
     )
     for phrase in required:
         if phrase not in normalized:
@@ -3211,6 +3231,7 @@ def validate_protocol(text: str, skill: str, wave_skill: str, wave_protocol: str
         "Act only as coordinator",
         "Do not implement, edit, or run validation yourself",
         "If the atomic reservation loses a race, return to claim resolution instead of selecting a different row",
+        "`terminal_history` is a visible hash-bound diagnostic, not a live claim",
     ):
         if phrase not in wave_skill_normalized:
             fail(f"wave skill is missing: {phrase}")
@@ -3227,6 +3248,8 @@ def validate_protocol(text: str, skill: str, wave_skill: str, wave_protocol: str
         "sole workflow-metadata generation exception",
         "do not use a successor reconnaissance agent",
         "do not start or recover a second task",
+        "The capsule's `live_blockers` are exclusive launch blockers.",
+        "Unknown or unverifiable identity fails closed",
         "ask that coordinator for a bounded offload",
         "Select the first eligible row.",
         "No two live workers may write the same file",

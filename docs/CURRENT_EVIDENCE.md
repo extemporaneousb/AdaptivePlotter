@@ -38,6 +38,31 @@ again. This correction
 does not authorize attended physical or remote-Git work, and `GATE-01` remains
 unchanged downstream after `TRANCHE-FINAL-COMPOSITION`.
 
+## Capsule claim-classification correction
+
+Delivered 2026-08-31 in repository task `TASK-A7C0E999`. `DOC-04` adds no
+product authority and does not mutate, reopen, cancel, or hide historical
+Blackdog tasks. The capsule now blocks on every active attempt, task/workset
+claim, retained owner/worktree/branch, required owner finalization, unknown or
+unverifiable replay identity, and replay-bound current dependency-ready
+recoverable ordinary package. It separately emits hash-bound
+`terminal_history` diagnostics for terminal blocked/failed attempts only when
+cleanup is complete and their exact replay binds either a removed package or a
+currently dependency-ineligible package.
+
+The current diagnostics are `TASK-2F141403` → `FIX-04` →
+`removed-package`, and `TASK-D2DFC053` → `GATE-01` →
+`dependency-ineligible-package`. They remain visible; they are not claims,
+retries, cancellation decisions, or evidence that either historical package
+passed. `GATE-01` remains unchanged downstream after
+`TRANCHE-FINAL-COMPOSITION`. With no live blocker, the verified ordinary
+frontier is `TRANCHE-LEARNING`, which now depends on complete `DOC-04`.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `DOC` | passed — `make docs-check`; documentation and architecture contracts passed, capsule tests 35/35 | canonical ledger, evidence, claim classifier, and coordination references |
+| `DIFF` | passed — `git diff --check`; exit 0, no output | repository-only correction |
+
 ## Drawing Boundary episode cutover completion candidate
 
 Selected 2026-08-30 as software package `EA-10B` in task `TASK-6DAB256F`.
@@ -1930,6 +1955,7 @@ EA-11C. Detailed scope and limitations remain in the named evidence sections.
 | DOC-03 | `TASK-B7C9E592` | `DOC=passed`, `DIFF=passed` | Pilot dependency-cycle correction |
 | EA-10A | `TASK-539931AC` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed`, `PEN=passed`, `DELETE=passed` | Pen Interaction episode cutover completion candidate |
 | EA-10B | `TASK-6DAB256F` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `JOURNEY=passed`, `STRICT=passed`, `BOUNDARY=passed`, `DELETE=passed` | Drawing Boundary episode cutover completion candidate |
+| DOC-04 | `TASK-A7C0E999` | `DOC=passed`, `DIFF=passed` | Capsule claim-classification correction |
 
 ## Wave admission blockers
 

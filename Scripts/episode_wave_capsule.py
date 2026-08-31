@@ -29,6 +29,14 @@ MAX_CAPSULE_BYTES = 262_144
 MAX_CONSUMPTION_BYTES = 65_536
 MAX_UNFINISHED_CLAIMS = 32
 MAX_CLAIM_FIELD_CHARACTERS = 1_024
+TERMINAL_HISTORY_STATUSES = {"blocked", "failed"}
+FINALIZATION_FIELDS = (
+    "stale_claim_release_pending",
+    "close_transaction_pending",
+    "runtime_transition_pending",
+    "landing_transaction_incomplete",
+    "target_stale_claim_release_pending",
+)
 AUTHORITY_PATHS = (
     ".gitignore",
     "AGENTS.md",
@@ -165,14 +173,126 @@ def ledger_sha256(plan: str) -> str:
     return sha256_bytes(("\n".join(material) + "\n").encode("utf-8"))
 
 
-def unfinished_claims(summary: dict[str, object]) -> list[dict[str, object]]:
+def bounded_claim_field(value: object) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or len(value) > MAX_CLAIM_FIELD_CHARACTERS:
+        raise CapsuleError("Blackdog claim contains an invalid or unbounded field")
+    return value
+
+
+def summary_task_ref(task: dict[str, object]) -> tuple[str, str]:
+    task_id = bounded_claim_field(task.get("task_id"))
+    task_ref = bounded_claim_field(task.get("task_ref"))
+    if task_id is None or task_ref is None:
+        raise CapsuleError("Blackdog claim lacks a bounded task identity")
+    parts = task_ref.split("/")
+    if len(parts) != 2 or parts[1] != task_id or not parts[0]:
+        raise CapsuleError("Blackdog claim has an invalid task reference")
+    return task_id, parts[0]
+
+
+def read_blackdog_task_show(root: Path, task: dict[str, object]) -> dict[str, object]:
+    task_id, workset = summary_task_ref(task)
+    blackdog = root / ".VE/bin/blackdog"
+    output = run(
+        [
+            str(blackdog),
+            "task",
+            "show",
+            "--project-root",
+            str(root),
+            "--workset",
+            workset,
+            "--task",
+            task_id,
+            "--json",
+        ],
+        root,
+    )
+    try:
+        value = json.loads(output)
+    except json.JSONDecodeError as error:
+        raise CapsuleError(f"Blackdog task show is not valid JSON: {error}") from error
+    if not isinstance(value, dict) or not isinstance(value.get("task_show"), dict):
+        raise CapsuleError("Blackdog task show lacks its typed task_show record")
+    return value["task_show"]
+
+
+def replay_package_id(root: Path, task_show: dict[str, object]) -> str:
+    replay_path = task_show.get("execution_prompt_replay_artifact_path")
+    if not isinstance(replay_path, str) or not re.fullmatch(
+        r"prompts/sha256/[0-9a-f]{64}\.txt", replay_path
+    ):
+        raise CapsuleError("terminal Blackdog history has an unverifiable replay identity")
+    path = root / ".git/blackdog" / replay_path
+    try:
+        prompt = path.read_text(encoding="utf-8")
+    except OSError as error:
+        raise CapsuleError("terminal Blackdog history replay artifact is unavailable") from error
+    matches = re.findall(r"^AdaptivePlotter episode WorkPackage: ([A-Z][A-Z0-9-]*)$", prompt, re.MULTILINE)
+    if len(matches) != 1:
+        raise CapsuleError("terminal Blackdog history replay does not bind exactly one package")
+    return matches[0]
+
+
+def terminal_history_diagnostic(
+    root: Path,
+    task: dict[str, object],
+    rows: dict[str, dict[str, object]],
+    task_show_loader: Callable[[Path, dict[str, object]], dict[str, object]],
+) -> dict[str, str] | None:
+    task_id, _workset = summary_task_ref(task)
+    task_show = task_show_loader(root, task)
+    if not isinstance(task_show, dict) or task_show.get("task_id") != task_id:
+        raise CapsuleError("terminal Blackdog history cannot be bound to its summary task")
+    if task_show.get("attempt_status") not in TERMINAL_HISTORY_STATUSES:
+        raise CapsuleError("terminal Blackdog history has a nonterminal attempt status")
+    for field in (
+        "active_attempt",
+        "active_workspace_adoption",
+        "worktree_exists",
+        "branch_exists",
+    ):
+        if task_show.get(field) is not False:
+            raise CapsuleError(f"terminal Blackdog history retains {field}")
+    for field in ("task_claim", "workset_claim"):
+        if task_show.get(field) is not None:
+            raise CapsuleError(f"terminal Blackdog history retains {field}")
+    if task_show.get("terminal_cleanup_complete") is not True:
+        raise CapsuleError("terminal Blackdog history lacks cleanup completion")
+    if any(task_show.get(field) is not False for field in FINALIZATION_FIELDS):
+        raise CapsuleError("terminal Blackdog history requires owner finalization")
+    package_id = replay_package_id(root, task_show)
+    row = rows.get(package_id)
+    if row is None:
+        disposition = "removed-package"
+    elif (
+        row["status"] == "pending"
+        and row["class"] in {"repository", "software", "gate"}
+        and all(rows[dependency]["status"] == "complete" for dependency in row["dependencies"])
+    ):
+        return None
+    else:
+        disposition = "dependency-ineligible-package"
+    return {"task_id": task_id, "package_id": package_id, "disposition": disposition}
+
+
+def classify_blackdog_claims(
+    root: Path,
+    summary: dict[str, object],
+    rows: dict[str, dict[str, object]],
+    task_show_loader: Callable[[Path, dict[str, object]], dict[str, object]] = read_blackdog_task_show,
+) -> tuple[list[dict[str, object]], list[dict[str, str]]]:
     tasks = summary.get("tasks")
     if not isinstance(tasks, list):
         raise CapsuleError("Blackdog summary lacks a tasks array")
-    claims: list[dict[str, object]] = []
+    live_blockers: list[dict[str, object]] = []
+    terminal_history: list[dict[str, str]] = []
     for task in tasks:
-        if not isinstance(task, dict) or task.get("readiness") == "done":
-            continue
+        if not isinstance(task, dict):
+            raise CapsuleError("Blackdog summary contains a non-object task")
+        readiness = bounded_claim_field(task.get("readiness"))
         claim = {
             "task_id": task.get("task_id"),
             "task_ref": task.get("task_ref"),
@@ -181,15 +301,31 @@ def unfinished_claims(summary: dict[str, object]) -> list[dict[str, object]]:
             "latest_attempt_status": task.get("latest_attempt_status"),
             "claim_actor": task.get("claim_actor"),
         }
-        if any(
-            value is not None and (not isinstance(value, str) or len(value) > MAX_CLAIM_FIELD_CHARACTERS)
-            for value in claim.values()
-        ):
-            raise CapsuleError("Blackdog claim contains an invalid or unbounded field")
-        claims.append(claim)
-    if len(claims) > MAX_UNFINISHED_CLAIMS:
+        for value in claim.values():
+            bounded_claim_field(value)
+        if task.get("active_attempt_id") is not None or task.get("claim_actor") is not None:
+            live_blockers.append(claim)
+            continue
+        if readiness == "done":
+            continue
+        if readiness not in TERMINAL_HISTORY_STATUSES:
+            live_blockers.append(claim)
+            continue
+        try:
+            diagnostic = terminal_history_diagnostic(root, task, rows, task_show_loader)
+        except CapsuleError:
+            live_blockers.append(claim)
+            continue
+        if diagnostic is None:
+            live_blockers.append(claim)
+        else:
+            terminal_history.append(diagnostic)
+    if len(live_blockers) > MAX_UNFINISHED_CLAIMS:
         raise CapsuleError("Blackdog reports more unfinished claims than the capsule bound permits")
-    return sorted(claims, key=lambda item: str(item.get("task_id")))
+    return (
+        sorted(live_blockers, key=lambda item: str(item.get("task_id"))),
+        sorted(terminal_history, key=lambda item: item["task_id"]),
+    )
 
 
 def read_blackdog_summary(root: Path) -> dict[str, object]:
@@ -463,6 +599,7 @@ def build_capsule(
     summary: dict[str, object] | None = None,
     *,
     validate_live_gates: bool = True,
+    task_show_loader: Callable[[Path, dict[str, object]], dict[str, object]] = read_blackdog_task_show,
 ) -> dict[str, object]:
     root = root.resolve()
     state = repository_state(root)
@@ -513,16 +650,23 @@ def build_capsule(
                 "same_slice_deletion_scans": slice_bindings["same_slice_deletion_scans"],
             })
     live_summary = summary if summary is not None else read_blackdog_summary(root)
-    claims = unfinished_claims(live_summary)
-    launch_state = "claim_resolution" if claims else frontier["state"]
+    live_blockers, terminal_history = classify_blackdog_claims(
+        root,
+        live_summary,
+        rows,
+        task_show_loader,
+    )
+    launch_state = "claim_resolution" if live_blockers else frontier["state"]
     bindings = {path: sha256_file(root / path) for path in AUTHORITY_PATHS}
     capsule: dict[str, object] = {
         "schema": SCHEMA,
         "repository": state,
         "bindings": bindings,
         "blackdog": {
-            "unfinished_claims_sha256": sha256_bytes(canonical_bytes(claims)),
-            "unfinished_claims": claims,
+            "live_blockers_sha256": sha256_bytes(canonical_bytes(live_blockers)),
+            "live_blockers": live_blockers,
+            "terminal_history_sha256": sha256_bytes(canonical_bytes(terminal_history)),
+            "terminal_history": terminal_history,
         },
         "launch": {"state": launch_state},
         "contract": {
@@ -592,6 +736,7 @@ def consume_capsule(
     summary_loader: Callable[[Path], dict[str, object]] = read_blackdog_summary,
     *,
     validate_live_gates: bool = True,
+    task_show_loader: Callable[[Path, dict[str, object]], dict[str, object]] = read_blackdog_task_show,
 ) -> dict[str, object]:
     stored = read_capsule(path)
     if stored.get("schema") != SCHEMA:
@@ -605,6 +750,7 @@ def consume_capsule(
         root,
         summary_loader(root),
         validate_live_gates=validate_live_gates,
+        task_show_loader=task_show_loader,
     )
     if stored != current:
         raise CapsuleError("capsule is stale relative to canonical Git, documents, contract, or Blackdog claims")
@@ -624,7 +770,8 @@ def consumption_view(capsule: dict[str, object]) -> dict[str, object]:
             "origin_main_counts": repository["origin_main_counts"],
         },
         "launch": capsule["launch"],
-        "unfinished_claims": capsule["blackdog"]["unfinished_claims"],
+        "live_blockers": capsule["blackdog"]["live_blockers"],
+        "terminal_history": capsule["blackdog"]["terminal_history"],
         "contract": contract,
         "pointers": capsule["pointers"],
     }

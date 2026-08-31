@@ -52,6 +52,7 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         git(self.root, "commit", "-m", "fixture")
         git(self.root, "update-ref", "refs/remotes/origin/main", "HEAD")
         self.summary: dict[str, object] = {"tasks": []}
+        self.task_shows: dict[str, dict[str, object]] = {}
         self.path = self.root / ".VE/run-multi-agent-wave/launch-capsule.json"
 
     def tearDown(self) -> None:
@@ -62,6 +63,7 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
             self.root,
             self.summary if summary is None else summary,
             validate_live_gates=False,
+            task_show_loader=self.task_show,
         )
         capsule.atomic_write_capsule(self.path, value)
         return value
@@ -73,7 +75,61 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
             self.path,
             lambda _root: value,
             validate_live_gates=False,
+            task_show_loader=self.task_show,
         )
+
+    def task_show(self, _root: Path, task: dict[str, object]) -> dict[str, object]:
+        task_id = task.get("task_id")
+        if not isinstance(task_id, str) or task_id not in self.task_shows:
+            raise capsule.CapsuleError("fixture task show is unavailable")
+        return self.task_shows[task_id]
+
+    def terminal_task(
+        self,
+        task_id: str,
+        package_id: str,
+        *,
+        replay_available: bool = True,
+        dependency_ready: bool = False,
+        retained_owner: bool = False,
+    ) -> dict[str, object]:
+        workset = f"fixture-{task_id.lower()}"
+        digest = f"{len(self.task_shows) + 1:064x}"
+        replay = f"prompts/sha256/{digest}.txt"
+        if replay_available:
+            path = self.root / ".git/blackdog" / replay
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                f"AdaptivePlotter episode WorkPackage: {package_id}\n",
+                encoding="utf-8",
+            )
+        self.task_shows[task_id] = {
+            "task_id": task_id,
+            "attempt_status": "blocked",
+            "active_attempt": False,
+            "active_workspace_adoption": False,
+            "worktree_exists": False,
+            "branch_exists": False,
+            "task_claim": {"owner": "retained"} if retained_owner else None,
+            "workset_claim": None,
+            "terminal_cleanup_complete": True,
+            "stale_claim_release_pending": False,
+            "close_transaction_pending": False,
+            "runtime_transition_pending": False,
+            "landing_transaction_incomplete": False,
+            "target_stale_claim_release_pending": False,
+            "execution_prompt_replay_artifact_path": replay,
+        }
+        return {
+            "task_id": task_id,
+            "task_ref": f"{workset}/{task_id}",
+            "readiness": "blocked",
+            "runtime_status": "blocked",
+            "latest_attempt_status": "blocked",
+            "claim_actor": None,
+            "active_attempt_id": None,
+            "dependency_ready": dependency_ready,
+        }
 
     def rewrite(self, value: dict[str, object]) -> None:
         self.path.write_bytes(capsule.canonical_bytes(value) + b"\n")
@@ -133,6 +189,7 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         self.assertEqual("complete", rows["EA-09"]["status"])
         self.assertEqual("complete", rows["FIX-03"]["status"])
         self.assertEqual("complete", rows["DOC-03"]["status"])
+        self.assertEqual("complete", rows["DOC-04"]["status"])
         self.assertEqual("complete", rows["EA-10A"]["status"])
         self.assertEqual("complete", rows["EA-10B"]["status"])
         self.assertEqual("pending", rows["GATE-01"]["status"])
@@ -420,7 +477,7 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
             row = [cell.strip() for cell in selected_text.strip().strip("|").split("|")]
             if (
                 len(row) == 6
-                and row[:4] == ["TRANCHE-LEARNING", "pending", "EA-10B", "software"]
+                and row[:4] == ["TRANCHE-LEARNING", "pending", "DOC-04", "software"]
                 and row[4].startswith("Tranche: one Blackdog task/worktree/landing")
                 and row[5] == "`DOC`, `DIFF`, `QUICK`, `JOURNEY`, `STRICT`, `CRITIC`"
             ):
@@ -479,6 +536,73 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         self.assertEqual("claim_resolution", created["launch"]["state"])
         self.assertNotIn(b"must not be copied", capsule.canonical_bytes(created))
         self.assertEqual(created, self.consume(summary))
+
+    def test_claimed_and_retained_terminal_owners_remain_live_blockers(self) -> None:
+        claimed = {
+            "tasks": [
+                {
+                    "task_id": "TASK-CLAIMED",
+                    "task_ref": "fixture-claimed/TASK-CLAIMED",
+                    "readiness": "blocked",
+                    "runtime_status": "blocked",
+                    "latest_attempt_status": "blocked",
+                    "claim_actor": "codex",
+                    "active_attempt_id": None,
+                }
+            ]
+        }
+        created = self.build_and_write(claimed)
+        self.assertEqual("claim_resolution", created["launch"]["state"])
+        self.assertEqual("TASK-CLAIMED", created["blackdog"]["live_blockers"][0]["task_id"])
+
+        retained = self.terminal_task("TASK-RETAINED", "FIX-04", retained_owner=True)
+        created = self.build_and_write({"tasks": [retained]})
+        self.assertEqual("claim_resolution", created["launch"]["state"])
+        self.assertEqual("TASK-RETAINED", created["blackdog"]["live_blockers"][0]["task_id"])
+
+        finalization = self.terminal_task("TASK-FINALIZE", "FIX-04")
+        self.task_shows["TASK-FINALIZE"]["close_transaction_pending"] = True
+        created = self.build_and_write({"tasks": [finalization]})
+        self.assertEqual("claim_resolution", created["launch"]["state"])
+        self.assertEqual("TASK-FINALIZE", created["blackdog"]["live_blockers"][0]["task_id"])
+
+    def test_removed_and_dependency_ineligible_terminal_history_is_visible_but_nonblocking(self) -> None:
+        removed = self.terminal_task("TASK-REMOVED", "FIX-04")
+        ineligible = self.terminal_task("TASK-INELIGIBLE", "GATE-01")
+        created = self.build_and_write({"tasks": [removed, ineligible]})
+
+        self.assertEqual("selected", created["launch"]["state"])
+        self.assertEqual("TRANCHE-LEARNING", created["contract"]["frontier"]["package_id"])
+        self.assertEqual([], created["blackdog"]["live_blockers"])
+        self.assertEqual(
+            [
+                {"task_id": "TASK-INELIGIBLE", "package_id": "GATE-01", "disposition": "dependency-ineligible-package"},
+                {"task_id": "TASK-REMOVED", "package_id": "FIX-04", "disposition": "removed-package"},
+            ],
+            created["blackdog"]["terminal_history"],
+        )
+        self.assertEqual(created, self.consume({"tasks": [removed, ineligible]}))
+
+    def test_current_eligible_or_unverifiable_terminal_history_fails_closed(self) -> None:
+        recoverable = self.terminal_task("TASK-RECOVERABLE", "TRANCHE-LEARNING")
+        created = self.build_and_write({"tasks": [recoverable]})
+        self.assertEqual("claim_resolution", created["launch"]["state"])
+        self.assertEqual("TASK-RECOVERABLE", created["blackdog"]["live_blockers"][0]["task_id"])
+
+        unverifiable = self.terminal_task("TASK-UNKNOWN", "FIX-04", replay_available=False)
+        created = self.build_and_write({"tasks": [unverifiable]})
+        self.assertEqual("claim_resolution", created["launch"]["state"])
+        self.assertEqual("TASK-UNKNOWN", created["blackdog"]["live_blockers"][0]["task_id"])
+
+    def test_rehashed_terminal_history_tampering_is_rejected_against_live_classification(self) -> None:
+        history = self.terminal_task("TASK-REMOVED", "FIX-04")
+        created = self.build_and_write({"tasks": [history]})
+        created["blackdog"]["terminal_history"][0]["package_id"] = "GATE-01"
+        created.pop("payload_sha256")
+        created["payload_sha256"] = capsule.sha256_bytes(capsule.canonical_bytes(created))
+        self.rewrite(created)
+        with self.assertRaisesRegex(capsule.CapsuleError, "capsule is stale"):
+            self.consume({"tasks": [history]})
 
     def test_payload_tampering_is_rejected(self) -> None:
         created = self.build_and_write()

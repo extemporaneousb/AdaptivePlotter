@@ -25,6 +25,14 @@ exact `argv` when it is a command, choose only a complete emitted alternative,
 and stop on `blocked` or `complete`. Do not infer ownership or failure from age,
 process absence, a task title, prose, or an apparently pristine worktree.
 
+The capsule's `live_blockers` are exclusive launch blockers. Its
+`terminal_history` remains visible but is nonblocking only after the generator
+verifies blocked/failed status, no task/workset claim, no active attempt or
+retained workspace/branch, completed cleanup, no required finalization, and an
+exact replay identity bound to either a removed package or one whose dependencies
+are currently incomplete. Unknown or unverifiable identity fails closed; a
+current dependency-ready recoverable ordinary package is a live blocker.
+
 When an unfinished claim exists:
 
 - First execute any exact owner-task finalization action that Blackdog requires.
